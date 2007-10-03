@@ -1,0 +1,9 @@
+ganeti (1.2~svn00193-1) unstable; urgency=low
+  
+  * Initial Release
+  * Start off from leonardo's experimental packages
+  * Change maintainer to the Debian Ganeti Team
+  * Use ganeti's native cron and init.d files for debian
+
+ -- Guido Trotter <ultrotter@debian.org>  Wed,  3 Oct 2007 18:52:49 +0100
+
