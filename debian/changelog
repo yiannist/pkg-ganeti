@@ -1,4 +1,4 @@
-ganeti (1.2~svn00193-1) unstable; urgency=low
+ganeti (1.2~b1+svn00193-1) unstable; urgency=low
   
   * Initial Release
   * Start off from leonardo's experimental packages
