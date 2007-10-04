@@ -1,7 +1,7 @@
 Source: ganeti
 Section: admin
 Priority: extra
-Maintainer: Debian Ganeti Team
+Maintainer: Debian Ganeti Team <pkg-ganeti-devel@lists.alioth.debian.org>
 Uploaders: Guido Trotter <ultrotter@debian.org>, Iustin Pop <iusty@k1024.org>, Leonardo Rodrigues de Mello <l@lmello.eu.org>
 Build-Depends: cdbs, debhelper (>= 5), docbook-utils
 Standards-Version: 3.7.2
@@ -10,7 +10,7 @@ Package: ganeti
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}, python (>= 2.4), lvm2, ssh, bridge-utils, iproute, iputils-arping, fping, python-twisted-core, python-pyopenssl,  openssl, mdadm
 Recommends: drbd0.7-utils, xen-linux-system-2.6.18-5-xen-vserver-686 | xen-linux-system-2.6.18-4-xen-686 | xen-linux-system-2.6.18-5-xen-686 | xen-linux-system-2.6.18-4-xen-vserver-686
-Suggests: drbd0.7-module-source, drbd0.7-utils
+Suggests: drbd0.7-module-source
 Description: Cluster-based virtualization management software
  Ganeti is a virtual server cluster management software tool built on top
  of the Xen virtual machine monitor and other Open Source software. After
