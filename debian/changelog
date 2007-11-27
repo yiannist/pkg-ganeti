@@ -4,7 +4,7 @@ ganeti (1.2~b2-1) unstable; urgency=low
   * Start off from leonardo's experimental packages
   * Change maintainer to the Debian Ganeti Team
   * Use ganeti's native cron and init.d files for debian
-  * Use new configure options available for b2
+  * Make os and export paths FHS compliant
   * ganeti is arch: all, not any
 
- -- Guido Trotter <ultrotter@debian.org>  Tue, 27 Nov 2007 15:06:11 +0000
+ -- Guido Trotter <ultrotter@debian.org>  Tue, 27 Nov 2007 18:29:49 +0000
