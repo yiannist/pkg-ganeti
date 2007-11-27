@@ -7,7 +7,7 @@ Build-Depends: cdbs, debhelper (>= 5), docbook-utils
 Standards-Version: 3.7.2
 
 Package: ganeti
-Architecture: any
+Architecture: all
 Depends: ${shlibs:Depends}, ${misc:Depends}, python (>= 2.4), lvm2, ssh, bridge-utils, iproute, iputils-arping, fping, python-twisted-core, python-pyopenssl,  openssl, mdadm, python-pyparsing
 Recommends: drbd0.7-utils, xen-linux-system-2.6.18-5-xen-vserver-686 | xen-linux-system-2.6.18-4-xen-686 | xen-linux-system-2.6.18-5-xen-686 | xen-linux-system-2.6.18-4-xen-vserver-686
 Suggests: drbd0.7-module-source

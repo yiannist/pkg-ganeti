@@ -7,6 +7,7 @@ include /usr/share/cdbs/1/class/makefile.mk
 DEB_CONFIGURE_EXTRA_FLAGS = \
   --prefix=/usr \
   --localstatedir=/var \
+  --sysconfdir=/etc \
   --with-export-dir=/var/lib/ganeti/export \
   --with-os-search-path=/srv/ganeti/os,/usr/local/lib/ganeti/os,/usr/lib/ganeti/os
 DEB_DH_INSTALLINIT_ARGS = --no-start
