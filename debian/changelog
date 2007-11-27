@@ -1,6 +1,6 @@
 ganeti (1.2~b2-1) unstable; urgency=low
 
-  * Initial Release
+  * Initial Release (closes: #440359)
   * Start off from leonardo's experimental packages
   * Change maintainer to the Debian Ganeti Team
   * Use ganeti's native cron and init.d files for debian
