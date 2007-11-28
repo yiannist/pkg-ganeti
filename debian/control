@@ -3,7 +3,7 @@ Section: admin
 Priority: extra
 Maintainer: Debian Ganeti Team <pkg-ganeti-devel@lists.alioth.debian.org>
 Uploaders: Guido Trotter <ultrotter@debian.org>, Iustin Pop <iusty@k1024.org>, Leonardo Rodrigues de Mello <l@lmello.eu.org>
-Build-Depends: cdbs, debhelper (>= 5), docbook-utils
+Build-Depends: cdbs, debhelper (>= 5), docbook-utils, python-simplejson, python-pyparsing, python-pyopenssl, python-twisted-core
 Standards-Version: 3.7.2
 
 Package: ganeti
