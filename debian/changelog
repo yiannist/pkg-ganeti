@@ -1,4 +1,4 @@
-ganeti (1.2~b2-1) unstable; urgency=low
+ganeti (1.2~b3-1) unstable; urgency=low
 
   * Initial Release (closes: #440359)
   * Start off from leonardo's experimental packages
@@ -7,4 +7,4 @@ ganeti (1.2~b2-1) unstable; urgency=low
   * Make os and export paths FHS compliant
   * ganeti is arch: all, not any
 
- -- Guido Trotter <ultrotter@debian.org>  Tue, 27 Nov 2007 18:29:49 +0000
+ -- Guido Trotter <ultrotter@debian.org>  Wed, 28 Nov 2007 14:33:07 +0000
