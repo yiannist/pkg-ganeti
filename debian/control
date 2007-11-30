@@ -9,7 +9,7 @@ Standards-Version: 3.7.2
 Package: ganeti
 Architecture: all
 Depends: ${shlibs:Depends}, ${misc:Depends}, python (>= 2.4), lvm2, ssh, bridge-utils, iproute, iputils-arping, fping, python-twisted-core, python-pyopenssl,  openssl, mdadm, python-pyparsing
-Recommends: drbd0.7-utils | drbd8-utils (>= 8.0.7), xen-linux-system-2.6.18-5-xen-vserver-686 | xen-linux-system-2.6.18-4-xen-686 | xen-linux-system-2.6.18-5-xen-686 | xen-linux-system-2.6.18-4-xen-vserver-686
+Recommends: drbd0.7-utils | drbd8-utils (>= 8.0.7), xen-linux-system-2.6.18-5-xen-vserver-686 | xen-linux-system-2.6.18-4-xen-686 | xen-linux-system-2.6.18-5-xen-686 | xen-linux-system-2.6.18-4-xen-vserver-686 | xen-linux-system-2.6.18-4-xen-amd64 | xen-linux-system-2.6.18-4-xen-vserver-amd64 | xen-linux-system-2.6.18-5-xen-amd64 |  xen-linux-system-2.6.18-5-xen-vserver-amd64
 Suggests: drbd0.7-module-source
 Description: Cluster-based virtualization management software
  Ganeti is a virtual server cluster management software tool built on top
