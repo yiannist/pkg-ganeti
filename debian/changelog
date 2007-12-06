@@ -1,8 +1,12 @@
 ganeti (1.2.0-1) unstable; urgency=low
 
+  [ Guido Trotter ]
   * New upstream release
 
- -- Guido Trotter <ultrotter@debian.org>  Wed, 05 Dec 2007 10:11:28 +0000
+  [ Leonardo Rodrigues de Mello ]
+  * Fix dependency on xen-linux-system to allow the amd64 version.
+
+ -- Guido Trotter <ultrotter@debian.org>  Thu, 06 Dec 2007 13:12:38 +0000
 
 ganeti (1.2~b3-1) unstable; urgency=low
 
