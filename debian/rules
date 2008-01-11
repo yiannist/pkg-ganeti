@@ -16,7 +16,6 @@ DEB_DH_INSTALLINIT_ARGS = --no-start
 clean::
 	rm -f debian/ganeti.init
 	rm -f debian/ganeti.cron
-	rm -f config.log
 
 build/ganeti::
 	cp doc/examples/ganeti.cron debian/ganeti.cron
