@@ -1,9 +1,14 @@
-ganeti (1.2.0-2) unstable; urgency=low
+ganeti (1.2.1-1) unstable; urgency=low
+
+  [ Guido Trotter ]
+  * New upstream version
+  * Add the option of drbd8-module-source to suggests
+  * Make drbd8 the first choice in recommends/suggests
 
   [ Leonardo Rodrigues de Mello ]
   * Fix dependency on SimpleJSON
 
- -- Leonardo Rodrigues de Mello <l@lmello.eu.org>  Mon, 14 Jan 2008 13:26:54 -0200
+ -- Guido Trotter <ultrotter@debian.org>  Sat, 19 Jan 2008 09:43:21 +0100
 
 ganeti (1.2.0-1) unstable; urgency=low
 
