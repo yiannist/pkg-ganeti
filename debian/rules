@@ -10,8 +10,9 @@ DEB_CONFIGURE_EXTRA_FLAGS = \
   --localstatedir=/var \
   --sysconfdir=/etc \
   --with-export-dir=/var/lib/ganeti/export \
-  --with-os-search-path=/srv/ganeti/os,/usr/local/lib/ganeti/os,/usr/lib/ganeti/os
-DEB_DH_INSTALLINIT_ARGS = --no-start
+  --with-os-search-path=/srv/ganeti/os,/usr/local/lib/ganeti/os,/usr/lib/ganeti/os,/usr/share/ganeti/os
+
+#DEB_DH_INSTALLINIT_ARGS = --no-start
 
 clean::
 	rm -f debian/ganeti.init
@@ -21,6 +22,5 @@ build/ganeti::
 	cp doc/examples/ganeti.cron debian/ganeti.cron
 	cp doc/examples/ganeti.initd debian/ganeti.init
 
-binary-post-install/ganeti::
-	find debian/$(cdbs_curpkg) -name '*.py[co]' -print0 | xargs -0 rm -f --
-
+binary-install/ganeti::
+	dh_pysupport -pganeti
