@@ -1,8 +1,7 @@
-ganeti (1.2.1-1) unstable; urgency=low
+ganeti (1.2.2-1) unstable; urgency=low
 
   [ Iustin Pop ]
   * Switch python modules from hand-crafted to pysupport
-  * Add patch for the upstream-provided init.d script to fix a lintian warning
   * Add the Vcs-Svn and Vcs-Browser control fields
   * Remove the no-start of the daemon(s) on upgrades since we need to restart
     if the source code has changed; the daemons will not do anything if the
@@ -14,11 +13,12 @@ ganeti (1.2.1-1) unstable; urgency=low
   * New upstream version
   * Add the option of drbd8-module-source to suggests
   * Make drbd8 the first choice in recommends/suggests
+  * Add the Homepage control field
 
   [ Leonardo Rodrigues de Mello ]
   * Fix dependency on SimpleJSON
 
- -- Iustin Pop <iusty@k1024.org>  Sat, 19 Jan 2008 23:17:57 +0100
+ -- Guido Trotter <ultrotter@debian.org>  Wed, 30 Jan 2008 15:21:13 +0100
 
 ganeti (1.2.0-1) unstable; urgency=low
 

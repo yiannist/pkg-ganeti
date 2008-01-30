@@ -7,6 +7,7 @@ Build-Depends: cdbs (>= 0.4.49), debhelper (>= 5), docbook-utils, python-simplej
 Standards-Version: 3.7.3
 Vcs-Svn: http://ganeti.googlecode.com/svn/trunk/ganeti/
 Vcs-Browser: http://ganeti.googlecode.com/svn/trunk/ganeti/
+Homepage: http://code.google.com/p/ganeti/
 
 Package: ganeti
 Architecture: all
