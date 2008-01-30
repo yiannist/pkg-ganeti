@@ -6,7 +6,7 @@ ganeti (1.2.2-1) unstable; urgency=low
   * Remove the no-start of the daemon(s) on upgrades since we need to restart
     if the source code has changed; the daemons will not do anything if the
     node is not joined to a cluster
-  * Extend the OS search path with /usr/share/ganeti/os in order to accomodate
+  * Extend the OS search path with /usr/share/ganeti/os in order to accommodate
     arch all OS packages
 
   [ Guido Trotter ]
