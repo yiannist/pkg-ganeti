@@ -16,10 +16,10 @@ DEB_CONFIGURE_EXTRA_FLAGS = \
 
 clean::
 	rm -f debian/ganeti.init
-	rm -f debian/ganeti.cron
+	rm -f debian/ganeti.cron.d
 
 build/ganeti::
-	cp doc/examples/ganeti.cron debian/ganeti.cron
+	cp doc/examples/ganeti.cron debian/ganeti.cron.d
 	cp doc/examples/ganeti.initd debian/ganeti.init
 
 binary-install/ganeti::

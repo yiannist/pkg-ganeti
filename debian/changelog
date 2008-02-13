@@ -1,8 +1,10 @@
 ganeti (1.2.2-2) unstable; urgency=low
 
   * Move mdadm from depends to recommends: it's only useful with drbd0.7
+  * Actually install example cron job as /etc/cron.d/ganeti 
+    The example cron job was copied to the wrong place and thus ignored.
 
- -- Guido Trotter <ultrotter@debian.org>  Fri, 08 Feb 2008 13:33:06 +0000
+ -- Guido Trotter <ultrotter@debian.org>  Wed, 13 Feb 2008 18:02:30 +0000
 
 ganeti (1.2.2-1) unstable; urgency=low
 
