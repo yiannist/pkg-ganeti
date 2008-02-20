@@ -1,3 +1,9 @@
+ganeti (1.2.3-1) unstable; urgency=low
+
+  * New upstream version
+
+ -- Guido Trotter <ultrotter@debian.org>  Wed, 20 Feb 2008 12:56:08 +0000
+
 ganeti (1.2.2-2) unstable; urgency=medium
 
   * Move mdadm from depends to recommends: it's only useful with drbd0.7
