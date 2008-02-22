@@ -1,3 +1,9 @@
+ganeti (1.2.3-2) unstable; urgency=low
+
+  * Fix 'crontab should check for executable presence' (Closes: #466611)
+
+ -- Iustin Pop <iusty@k1024.org>  Fri, 22 Feb 2008 08:25:44 +0100
+
 ganeti (1.2.3-1) unstable; urgency=low
 
   * New upstream version
