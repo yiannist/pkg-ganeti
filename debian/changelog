@@ -1,3 +1,12 @@
+ganeti (1.2.4-1) unstable; urgency=low
+
+  * New upstream release
+  * Change the default iallocator search path to support 'local' allocators
+  * Ship the 'dumb' instance allocator
+  * Call dh_pysupport in 'install' rather than 'binary-install'
+
+ -- Guido Trotter <ultrotter@debian.org>  Sat, 14 Jun 2008 15:45:49 +0100
+
 ganeti (1.2.3-2) unstable; urgency=low
 
   * Fix 'crontab should check for executable presence' (Closes: #466611)
