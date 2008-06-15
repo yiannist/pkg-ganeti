@@ -1,8 +1,7 @@
 ganeti (1.2.4-2) unstable; urgency=low
 
   * Check new policy and bump up standards version
-  * Depend on python-openssl rather than python-pyopenssl, but leave the
-    latter as an alternative to ease backports
+  * Depend on python-openssl rather than python-pyopenssl
 
  -- Guido Trotter <ultrotter@debian.org>  Sun, 15 Jun 2008 09:05:37 +0100
 
