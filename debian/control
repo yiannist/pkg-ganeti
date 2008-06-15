@@ -3,15 +3,15 @@ Section: admin
 Priority: extra
 Maintainer: Debian Ganeti Team <pkg-ganeti-devel@lists.alioth.debian.org>
 Uploaders: Guido Trotter <ultrotter@debian.org>, Iustin Pop <iusty@k1024.org>, Leonardo Rodrigues de Mello <l@lmello.eu.org>
-Build-Depends: cdbs (>= 0.4.49), debhelper (>= 5), docbook-utils, python-simplejson, python-pyparsing, python-pyopenssl, python-twisted-core, patchutils, python-support (>= 0.6)
-Standards-Version: 3.7.3
+Build-Depends: cdbs (>= 0.4.49), debhelper (>= 5), docbook-utils, python-simplejson, python-pyparsing, python-openssl | python-pyopenssl, python-twisted-core, patchutils, python-support (>= 0.6)
+Standards-Version: 3.8.0.1
 Vcs-Svn: http://ganeti.googlecode.com/svn/trunk/ganeti/
 Vcs-Browser: http://ganeti.googlecode.com/svn/trunk/ganeti/
 Homepage: http://code.google.com/p/ganeti/
 
 Package: ganeti
 Architecture: all
-Depends: ${shlibs:Depends}, ${misc:Depends}, ${python:Depends}, lvm2, ssh, bridge-utils, iproute, iputils-arping, fping, openssl, python-simplejson, python-pyparsing, python-pyopenssl, python-twisted-core
+Depends: ${shlibs:Depends}, ${misc:Depends}, ${python:Depends}, lvm2, ssh, bridge-utils, iproute, iputils-arping, fping, openssl, python-simplejson, python-pyparsing, python-openssl | python-pyopenssl, python-twisted-core
 Recommends: drbd8-utils (>= 8.0.7) | drbd0.7-utils, mdadm, xen-linux-system-2.6.18-5-xen-vserver-686 | xen-linux-system-2.6.18-4-xen-686 | xen-linux-system-2.6.18-5-xen-686 | xen-linux-system-2.6.18-4-xen-vserver-686 | xen-linux-system-2.6.18-4-xen-amd64 | xen-linux-system-2.6.18-4-xen-vserver-amd64 | xen-linux-system-2.6.18-5-xen-amd64 |  xen-linux-system-2.6.18-5-xen-vserver-amd64
 Suggests: drbd8-module-source (>= 8.0.7) | drbd0.7-module-source
 Provides: ${python:Provides}
