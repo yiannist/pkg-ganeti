@@ -8,6 +8,7 @@ Standards-Version: 3.8.0.1
 Vcs-Svn: http://ganeti.googlecode.com/svn/trunk/ganeti/
 Vcs-Browser: http://ganeti.googlecode.com/svn/trunk/ganeti/
 Homepage: http://code.google.com/p/ganeti/
+DM-Upload-Allowed: yes
 
 Package: ganeti
 Architecture: all
