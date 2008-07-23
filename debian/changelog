@@ -1,3 +1,14 @@
+ganeti (1.2.5-1) unstable; urgency=low
+
+  * New upstream release, fixing compatibility with the current versions of
+    twisted (Closes: #487752)
+  * Fix watch file (was picking up other archives too)
+  * Fix some lintian warnings about debian/copyright
+  * Remove dependency on fping (new upstream removes all uses of fping)
+  * Add DM-Upload-Allowed: yes to the control file
+
+ -- Iustin Pop <iusty@k1024.org>  Wed, 23 Jul 2008 08:39:06 +0200
+
 ganeti (1.2.4-2) unstable; urgency=low
 
   * Check new policy and bump up standards version

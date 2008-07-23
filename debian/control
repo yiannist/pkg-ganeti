@@ -12,7 +12,7 @@ DM-Upload-Allowed: yes
 
 Package: ganeti
 Architecture: all
-Depends: ${shlibs:Depends}, ${misc:Depends}, ${python:Depends}, lvm2, ssh, bridge-utils, iproute, iputils-arping, fping, openssl, python-simplejson, python-pyparsing, python-openssl, python-twisted-core
+Depends: ${shlibs:Depends}, ${misc:Depends}, ${python:Depends}, lvm2, ssh, bridge-utils, iproute, iputils-arping, openssl, python-simplejson, python-pyparsing, python-openssl, python-twisted-core
 Recommends: drbd8-utils (>= 8.0.7) | drbd0.7-utils, mdadm, xen-linux-system-2.6.18-5-xen-vserver-686 | xen-linux-system-2.6.18-4-xen-686 | xen-linux-system-2.6.18-5-xen-686 | xen-linux-system-2.6.18-4-xen-vserver-686 | xen-linux-system-2.6.18-4-xen-amd64 | xen-linux-system-2.6.18-4-xen-vserver-amd64 | xen-linux-system-2.6.18-5-xen-amd64 |  xen-linux-system-2.6.18-5-xen-vserver-amd64
 Suggests: drbd8-module-source (>= 8.0.7) | drbd0.7-module-source
 Provides: ${python:Provides}
