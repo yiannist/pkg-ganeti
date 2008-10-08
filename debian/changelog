@@ -1,3 +1,10 @@
+ganeti (1.2.6-1) unstable; urgency=low
+
+  * New upstream release (bugfixes and a couple of small new features)
+  * Include the batcher example file
+
+ -- Iustin Pop <iusty@k1024.org>  Wed, 08 Oct 2008 08:52:59 +0200
+
 ganeti (1.2.5-1) unstable; urgency=low
 
   * New upstream release, fixing compatibility with the current versions of
