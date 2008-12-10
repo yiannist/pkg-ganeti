@@ -1,3 +1,9 @@
+ganeti (1.2.6-2) unstable; urgency=low
+
+  * Fix recommends for the current packages in unstable/testing
+
+ -- Iustin Pop <iusty@k1024.org>  Wed, 10 Dec 2008 08:21:40 +0100
+
 ganeti (1.2.6-1) unstable; urgency=low
 
   * New upstream release (bugfixes and a couple of small new features)

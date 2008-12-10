@@ -13,7 +13,7 @@ DM-Upload-Allowed: yes
 Package: ganeti
 Architecture: all
 Depends: ${shlibs:Depends}, ${misc:Depends}, ${python:Depends}, lvm2, ssh, bridge-utils, iproute, iputils-arping, openssl, python-simplejson, python-pyparsing, python-openssl, python-twisted-core
-Recommends: drbd8-utils (>= 8.0.7) | drbd0.7-utils, mdadm, xen-linux-system-2.6.18-5-xen-vserver-686 | xen-linux-system-2.6.18-4-xen-686 | xen-linux-system-2.6.18-5-xen-686 | xen-linux-system-2.6.18-4-xen-vserver-686 | xen-linux-system-2.6.18-4-xen-amd64 | xen-linux-system-2.6.18-4-xen-vserver-amd64 | xen-linux-system-2.6.18-5-xen-amd64 |  xen-linux-system-2.6.18-5-xen-vserver-amd64, ganeti-instance-debootstrap
+Recommends: drbd8-utils (>= 8.0.7) | drbd0.7-utils, mdadm, xen-linux-system-2.6.26-1-xen-amd64 | xen-linux-system-2.6.26-1-xen-686, ganeti-instance-debootstrap
 Suggests: drbd8-module-source (>= 8.0.7) | drbd0.7-module-source
 Provides: ${python:Provides}
 Description: Cluster-based virtualization management software
