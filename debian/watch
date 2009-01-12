@@ -3,4 +3,4 @@ version=3
 
 # code.google.com/p/$project/downloads/list has links to $project.googlecode.com/files/
 http://code.google.com/p/ganeti/downloads/list \
-    http://ganeti.googlecode.com/files/ganeti-(\d+\.\d+.*)\.tar\.gz
+    http://ganeti.googlecode.com/files/ganeti-(\d+\.\d+[\d.]*)\.tar\.gz
