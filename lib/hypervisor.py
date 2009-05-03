@@ -314,7 +314,8 @@ class XenHypervisor(BaseHypervisor):
     """Return a command for connecting to the console of an instance.
 
     """
-    raise NotImplementedError
+    return "xm console %s" % instance.name
+
 
 
   def Verify(self):
@@ -435,13 +436,6 @@ class XenPvmHypervisor(XenHypervisor):
                                " file /etc/xen/%s: %s" % (instance.name, err))
     return True
 
-  @staticmethod
-  def GetShellCommandForConsole(instance):
-    """Return a command for connecting to the console of an instance.
-
-    """
-    return "xm console %s" % instance.name
-
 
 class FakeHypervisor(BaseHypervisor):
   """Fake hypervisor interface.
@@ -517,7 +511,7 @@ class FakeHypervisor(BaseHypervisor):
         raise HypervisorError("Failed to list instances: %s" % err)
     return data
 
-  def StartInstance(self, instance, force, extra_args):
+  def StartInstance(self, instance, block_devices, extra_args):
     """Start an instance.
 
     For the fake hypervisor, it just creates a file in the base dir,
@@ -669,10 +663,13 @@ class XenHvmHypervisor(XenHypervisor):
     else:
       config.write("boot = '%s'\n" % instance.hvm_boot_order)
     config.write("sdl = 0\n")
-    config.write("usb = 1\n");
-    config.write("usbdevice = 'tablet'\n");
+    config.write("usb = 1\n")
+    config.write("usbdevice = 'tablet'\n")
     config.write("vnc = 1\n")
-    config.write("vnclisten = '%s'\n" % instance.vnc_bind_address)
+    if instance.vnc_bind_address is None:
+      config.write("vnclisten = '%s'\n" % constants.VNC_DEFAULT_BIND_ADDRESS)
+    else:
+      config.write("vnclisten = '%s'\n" % instance.vnc_bind_address)
 
     if instance.network_port > constants.HT_HVM_VNC_BASE_PORT:
       display = instance.network_port - constants.HT_HVM_VNC_BASE_PORT
@@ -699,7 +696,14 @@ class XenHvmHypervisor(XenHypervisor):
 
     vif_data = []
     for nic in instance.nics:
-      nic_str = "mac=%s, bridge=%s, type=ioemu" % (nic.mac, nic.bridge)
+      if instance.hvm_nic_type is None: # ensure old instances don't change
+        nic_type = ", type=ioemu"
+      elif instance.hvm_nic_type == constants.HT_HVM_DEV_PARAVIRTUAL:
+        nic_type = ", type=paravirtualized"
+      else:
+        nic_type = ", model=%s, type=ioemu" % instance.hvm_nic_type
+
+      nic_str = "mac=%s, bridge=%s%s" % (nic.mac, nic.bridge, nic_type)
       ip = getattr(nic, "ip", None)
       if ip is not None:
         nic_str += ", ip=%s" % ip
@@ -711,8 +715,14 @@ class XenHvmHypervisor(XenHypervisor):
     # from what Ganeti believes it should be. Different hypervisors may have
     # different requirements, so we should probably review the design of
     # storing it altogether, for the next major version.
+    if ((instance.hvm_disk_type is None) or
+        (instance.hvm_disk_type == constants.HT_HVM_DEV_IOEMU)):
+      disk_type = "ioemu:"
+    else:
+      disk_type = ""
+
     disk_data = ["'phy:%s,%s,w'" %
-                 (dev_path, iv_name.replace("sd", "ioemu:hd"))
+                 (dev_path, iv_name.replace("sd", "%shd" % disk_type))
                  for dev_path, iv_name in block_devices]
 
     if instance.hvm_cdrom_image_path is None:
@@ -738,20 +748,3 @@ class XenHvmHypervisor(XenHypervisor):
       raise errors.OpExecError("Cannot write Xen instance confile"
                                " file /etc/xen/%s: %s" % (instance.name, err))
     return True
-
-  @staticmethod
-  def GetShellCommandForConsole(instance):
-    """Return a command for connecting to the console of an instance.
-
-    """
-    if instance.network_port is None:
-      raise errors.OpExecError("no console port defined for %s"
-                               % instance.name)
-    elif instance.vnc_bind_address == constants.BIND_ADDRESS_GLOBAL:
-      raise errors.OpExecError("no PTY console, connect to %s:%s via VNC"
-                               % (instance.primary_node,
-                                  instance.network_port))
-    else:
-      raise errors.OpExecError("no PTY console, connect to %s:%s via VNC"
-                               % (instance.vnc_bind_address,
-                                  instance.network_port))

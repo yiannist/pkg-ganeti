@@ -832,7 +832,8 @@ class LUVerifyCluster(LogicalUnit):
       for prinode, instances in nodeinfo['sinst-by-pnode'].iteritems():
         needed_mem = 0
         for instance in instances:
-          needed_mem += instance_cfg[instance].memory
+          if instance_cfg[instance].auto_balance:
+            needed_mem += instance_cfg[instance].memory
         if nodeinfo['mfree'] < needed_mem:
           feedback_fn("  - ERROR: not enough memory on node %s to accomodate"
                       " failovers should node %s fail" % (node, prinode))
@@ -879,6 +880,7 @@ class LUVerifyCluster(LogicalUnit):
     nodeinfo = [self.cfg.GetNodeInfo(nname) for nname in nodelist]
     instancelist = utils.NiceSort(self.cfg.GetInstanceList())
     i_non_redundant = [] # Non redundant instances
+    i_non_a_balanced = [] # Non auto-balanced instances
     node_volume = {}
     node_instance = {}
     node_info = {}
@@ -1001,6 +1003,9 @@ class LUVerifyCluster(LogicalUnit):
         feedback_fn("  - WARNING: multiple secondaries for instance %s"
                     % instance)
 
+      if not inst_config.auto_balance:
+        i_non_a_balanced.append(instance)
+
       for snode in inst_config.secondary_nodes:
         if snode in node_info:
           node_info[snode]['sinst'].append(instance)
@@ -1031,6 +1036,10 @@ class LUVerifyCluster(LogicalUnit):
     if i_non_redundant:
       feedback_fn("  - NOTICE: %d non-redundant instance(s) found."
                   % len(i_non_redundant))
+
+    if i_non_a_balanced:
+      feedback_fn("  - NOTICE: %d non-auto-balanced instance(s) found."
+                  % len(i_non_a_balanced))
 
     return int(bad)
 
@@ -2610,8 +2619,8 @@ class LURenameInstance(LogicalUnit):
     try:
       if not rpc.call_instance_run_rename(inst.primary_node, inst, old_name,
                                           "sda", "sdb"):
-        msg = ("Could run OS rename script for instance %s on node %s (but the"
-               " instance has been renamed in Ganeti)" %
+        msg = ("Could not run OS rename script for instance %s on node %s"
+               " (but the instance has been renamed in Ganeti)" %
                (inst.name, inst.primary_node))
         logger.Error(msg)
     finally:
@@ -2693,7 +2702,12 @@ class LUQueryInstances(NoHooksLU):
     _CheckOutputFields(static=["name", "os", "pnode", "snodes",
                                "admin_state", "admin_ram",
                                "disk_template", "ip", "mac", "bridge",
-                               "sda_size", "sdb_size", "vcpus", "tags"],
+                               "sda_size", "sdb_size", "vcpus", "tags",
+                               "auto_balance",
+                               "network_port", "kernel_path", "initrd_path",
+                               "hvm_boot_order", "hvm_acpi", "hvm_pae",
+                               "hvm_cdrom_image_path", "hvm_nic_type",
+                               "hvm_disk_type", "vnc_bind_address"],
                        dynamic=self.dynamic_fields,
                        selected=self.op.output_fields)
 
@@ -2788,6 +2802,19 @@ class LUQueryInstances(NoHooksLU):
           val = instance.vcpus
         elif field == "tags":
           val = list(instance.GetTags())
+        elif field == "auto_balance":
+          val = instance.auto_balance
+        elif field in ("network_port", "kernel_path", "initrd_path",
+                       "hvm_boot_order", "hvm_acpi", "hvm_pae",
+                       "hvm_cdrom_image_path", "hvm_nic_type",
+                       "hvm_disk_type", "vnc_bind_address"):
+          val = getattr(instance, field, None)
+          if val is None:
+            if field in ("hvm_nic_type", "hvm_disk_type",
+                         "kernel_path", "initrd_path"):
+              val = "default"
+            else:
+              val = "-"
         else:
           raise errors.ParameterError(field)
         iout.append(val)
@@ -3482,7 +3509,7 @@ class LUCreateInstance(LogicalUnit):
   HTYPE = constants.HTYPE_INSTANCE
   _OP_REQP = ["instance_name", "mem_size", "disk_size",
               "disk_template", "swap_size", "mode", "start", "vcpus",
-              "wait_for_sync", "ip_check", "mac"]
+              "wait_for_sync", "ip_check", "mac", "auto_balance"]
 
   def _RunAllocator(self):
     """Run the allocator based on input opcode.
@@ -3561,7 +3588,7 @@ class LUCreateInstance(LogicalUnit):
     # set optional parameters to none if they don't exist
     for attr in ["kernel_path", "initrd_path", "hvm_boot_order", "pnode",
                  "iallocator", "hvm_acpi", "hvm_pae", "hvm_cdrom_image_path",
-                 "vnc_bind_address"]:
+                 "hvm_nic_type", "hvm_disk_type", "vnc_bind_address"]:
       if not hasattr(self.op, attr):
         setattr(self.op, attr, None)
 
@@ -3762,6 +3789,15 @@ class LUCreateInstance(LogicalUnit):
                                    " like a valid IP address" %
                                    self.op.vnc_bind_address)
 
+    # Xen HVM device type checks
+    if self.sstore.GetHypervisorType() == constants.HT_XEN_HVM31:
+      if self.op.hvm_nic_type not in constants.HT_HVM_VALID_NIC_TYPES:
+        raise errors.OpPrereqError("Invalid NIC type %s specified for Xen HVM"
+                                   " hypervisor" % self.op.hvm_nic_type)
+      if self.op.hvm_disk_type not in constants.HT_HVM_VALID_DISK_TYPES:
+        raise errors.OpPrereqError("Invalid disk type %s specified for Xen HVM"
+                                   " hypervisor" % self.op.hvm_disk_type)
+
     if self.op.start:
       self.instance_status = 'up'
     else:
@@ -3813,6 +3849,9 @@ class LUCreateInstance(LogicalUnit):
                             hvm_pae=self.op.hvm_pae,
                             hvm_cdrom_image_path=self.op.hvm_cdrom_image_path,
                             vnc_bind_address=self.op.vnc_bind_address,
+                            hvm_nic_type=self.op.hvm_nic_type,
+                            hvm_disk_type=self.op.hvm_disk_type,
+                            auto_balance=bool(self.op.auto_balance),
                             )
 
     feedback_fn("* creating instance disks...")
@@ -4827,7 +4866,7 @@ class LUQueryInstanceData(NoHooksLU):
   """Query runtime instance data.
 
   """
-  _OP_REQP = ["instances"]
+  _OP_REQP = ["instances", "static"]
 
   def CheckPrereq(self):
     """Check prerequisites.
@@ -4855,8 +4894,13 @@ class LUQueryInstanceData(NoHooksLU):
     """Compute block device status.
 
     """
-    self.cfg.SetDiskID(dev, instance.primary_node)
-    dev_pstatus = rpc.call_blockdev_find(instance.primary_node, dev)
+    static = self.op.static
+    if not static:
+      self.cfg.SetDiskID(dev, instance.primary_node)
+      dev_pstatus = rpc.call_blockdev_find(instance.primary_node, dev)
+    else:
+      dev_pstatus = None
+
     if dev.dev_type in constants.LDS_DRBD:
       # we change the snode then (otherwise we use the one passed in)
       if dev.logical_id[0] == instance.primary_node:
@@ -4864,7 +4908,7 @@ class LUQueryInstanceData(NoHooksLU):
       else:
         snode = dev.logical_id[0]
 
-    if snode:
+    if snode and not static:
       self.cfg.SetDiskID(dev, snode)
       dev_sstatus = rpc.call_blockdev_find(snode, dev)
     else:
@@ -4892,12 +4936,15 @@ class LUQueryInstanceData(NoHooksLU):
     """Gather and return data"""
     result = {}
     for instance in self.wanted_instances:
-      remote_info = rpc.call_instance_info(instance.primary_node,
-                                                instance.name)
-      if remote_info and "state" in remote_info:
-        remote_state = "up"
+      if not self.op.static:
+        remote_info = rpc.call_instance_info(instance.primary_node,
+                                                  instance.name)
+        if remote_info and "state" in remote_info:
+          remote_state = "up"
+        else:
+          remote_state = "down"
       else:
-        remote_state = "down"
+        remote_state = None
       if instance.status == "down":
         config_state = "down"
       else:
@@ -4917,6 +4964,7 @@ class LUQueryInstanceData(NoHooksLU):
         "nics": [(nic.mac, nic.ip, nic.bridge) for nic in instance.nics],
         "disks": disks,
         "vcpus": instance.vcpus,
+        "auto_balance": instance.auto_balance,
         }
 
       htkind = self.sstore.GetHypervisorType()
@@ -4929,9 +4977,28 @@ class LUQueryInstanceData(NoHooksLU):
         idict["hvm_acpi"] = instance.hvm_acpi
         idict["hvm_pae"] = instance.hvm_pae
         idict["hvm_cdrom_image_path"] = instance.hvm_cdrom_image_path
+        idict["hvm_nic_type"] = instance.hvm_nic_type
+        idict["hvm_disk_type"] = instance.hvm_disk_type
 
       if htkind in constants.HTS_REQ_PORT:
-        idict["vnc_bind_address"] = instance.vnc_bind_address
+        if instance.vnc_bind_address is None:
+          vnc_bind_address = constants.VNC_DEFAULT_BIND_ADDRESS
+        else:
+          vnc_bind_address = instance.vnc_bind_address
+        if instance.network_port is None:
+          vnc_console_port = None
+        elif vnc_bind_address == constants.BIND_ADDRESS_GLOBAL:
+          vnc_console_port = "%s:%s" % (instance.primary_node,
+                                       instance.network_port)
+        elif vnc_bind_address == constants.LOCALHOST_IP_ADDRESS:
+          vnc_console_port = "%s:%s on node %s" % (vnc_bind_address,
+                                                   instance.network_port,
+                                                   instance.primary_node)
+        else:
+          vnc_console_port = "%s:%s" % (instance.vnc_bind_address,
+                                        instance.network_port)
+        idict["vnc_console_port"] = vnc_console_port
+        idict["vnc_bind_address"] = vnc_bind_address
         idict["network_port"] = instance.network_port
 
       result[instance.name] = idict
@@ -4993,12 +5060,19 @@ class LUSetInstanceParms(LogicalUnit):
     self.hvm_boot_order = getattr(self.op, "hvm_boot_order", None)
     self.hvm_acpi = getattr(self.op, "hvm_acpi", None)
     self.hvm_pae = getattr(self.op, "hvm_pae", None)
+    self.hvm_nic_type = getattr(self.op, "hvm_nic_type", None)
+    self.hvm_disk_type = getattr(self.op, "hvm_disk_type", None)
     self.hvm_cdrom_image_path = getattr(self.op, "hvm_cdrom_image_path", None)
     self.vnc_bind_address = getattr(self.op, "vnc_bind_address", None)
-    all_parms = [self.mem, self.vcpus, self.ip, self.bridge, self.mac,
-                 self.kernel_path, self.initrd_path, self.hvm_boot_order,
-                 self.hvm_acpi, self.hvm_pae, self.hvm_cdrom_image_path,
-                 self.vnc_bind_address]
+    self.force = getattr(self.op, "force", None)
+    self.auto_balance = getattr(self.op, "auto_balance", None)
+    all_parms = [
+      self.mem, self.vcpus, self.ip, self.bridge, self.mac,
+      self.kernel_path, self.initrd_path, self.hvm_boot_order,
+      self.hvm_acpi, self.hvm_pae, self.hvm_cdrom_image_path,
+      self.vnc_bind_address, self.hvm_nic_type, self.hvm_disk_type,
+      self.auto_balance,
+      ]
     if all_parms.count(None) == len(all_parms):
       raise errors.OpPrereqError("No changes submitted")
     if self.mem is not None:
@@ -5079,6 +5153,22 @@ class LUSetInstanceParms(LogicalUnit):
                                    " like a valid IP address" %
                                    self.op.vnc_bind_address)
 
+    # Xen HVM device type checks
+    if self.sstore.GetHypervisorType() == constants.HT_XEN_HVM31:
+      if self.op.hvm_nic_type is not None:
+        if self.op.hvm_nic_type not in constants.HT_HVM_VALID_NIC_TYPES:
+          raise errors.OpPrereqError("Invalid NIC type %s specified for Xen"
+                                     " HVM  hypervisor" % self.op.hvm_nic_type)
+      if self.op.hvm_disk_type is not None:
+        if self.op.hvm_disk_type not in constants.HT_HVM_VALID_DISK_TYPES:
+          raise errors.OpPrereqError("Invalid disk type %s specified for Xen"
+                                     " HVM hypervisor" % self.op.hvm_disk_type)
+
+    # auto balance setting
+    if self.auto_balance is not None:
+      # convert the value to a proper bool value, if it's not
+      self.auto_balance = bool(self.auto_balance)
+
     instance = self.cfg.GetInstanceInfo(
       self.cfg.ExpandInstanceName(self.op.instance_name))
     if instance is None:
@@ -5086,6 +5176,39 @@ class LUSetInstanceParms(LogicalUnit):
                                  self.op.instance_name)
     self.op.instance_name = instance.name
     self.instance = instance
+    self.warn = []
+    if self.mem is not None and not self.force:
+      pnode = self.instance.primary_node
+      nodelist = [pnode]
+      if instance.auto_balance:
+        nodelist.extend(instance.secondary_nodes)
+      instance_info = rpc.call_instance_info(pnode, instance.name)
+      nodeinfo = rpc.call_node_info(nodelist, self.cfg.GetVGName())
+
+      if pnode not in nodeinfo or not isinstance(nodeinfo[pnode], dict):
+        # Assume the primary node is unreachable and go ahead
+        self.warn.append("Can't get info from primary node %s" % pnode)
+      else:
+        if instance_info:
+          current_mem = instance_info['memory']
+        else:
+          # Assume instance not running
+          # (there is a slight race condition here, but it's not very probable,
+          # and we have no other way to check)
+          current_mem = 0
+        miss_mem = self.mem - current_mem - nodeinfo[pnode]['memory_free']
+        if miss_mem > 0:
+          raise errors.OpPrereqError("This change will prevent the instance"
+                                     " from starting, due to %d MB of memory"
+                                     " missing on its primary node" % miss_mem)
+
+      if instance.auto_balance:
+        for node in instance.secondary_nodes:
+          if node not in nodeinfo or not isinstance(nodeinfo[node], dict):
+            self.warn.append("Can't get info from secondary node %s" % node)
+          elif self.mem > nodeinfo[node]['memory_free']:
+            self.warn.append("Not enough memory to failover instance to"
+                             " secondary node %s" % node)
     return
 
   def Exec(self, feedback_fn):
@@ -5093,6 +5216,11 @@ class LUSetInstanceParms(LogicalUnit):
 
     All parameters take effect only at the next restart of the instance.
     """
+    # Process here the warnings from CheckPrereq, as we don't have a
+    # feedback_fn there.
+    for warn in self.warn:
+      feedback_fn("WARNING: %s" % warn)
+
     result = []
     instance = self.instance
     if self.mem:
@@ -5128,6 +5256,12 @@ class LUSetInstanceParms(LogicalUnit):
     if self.hvm_pae is not None:
       instance.hvm_pae = self.hvm_pae
       result.append(("hvm_pae", self.hvm_pae))
+    if self.hvm_nic_type is not None:
+      instance.hvm_nic_type = self.hvm_nic_type
+      result.append(("hvm_nic_type", self.hvm_nic_type))
+    if self.hvm_disk_type is not None:
+      instance.hvm_disk_type = self.hvm_disk_type
+      result.append(("hvm_disk_type", self.hvm_disk_type))
     if self.hvm_cdrom_image_path:
       if self.hvm_cdrom_image_path == constants.VALUE_NONE:
         instance.hvm_cdrom_image_path = None
@@ -5137,6 +5271,9 @@ class LUSetInstanceParms(LogicalUnit):
     if self.vnc_bind_address:
       instance.vnc_bind_address = self.vnc_bind_address
       result.append(("vnc_bind_address", self.vnc_bind_address))
+    if self.auto_balance is not None:
+      instance.auto_balance = self.auto_balance
+      result.append(("auto_balance", self.auto_balance))
 
     self.cfg.AddInstance(instance)
 

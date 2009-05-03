@@ -25,7 +25,7 @@ from ganeti import _autoconf
 
 # various versions
 CONFIG_VERSION = 3
-PROTOCOL_VERSION = 13
+PROTOCOL_VERSION = 14
 RELEASE_VERSION = _autoconf.PACKAGE_VERSION
 OS_API_VERSION = 5
 EXPORT_VERSION = 0
@@ -183,6 +183,17 @@ HT_HVM_DEFAULT_ACPI_MODE = '1'
 HT_HVM_DEFAULT_PAE_MODE = '1'
 VNC_PASSWORD_FILE = _autoconf.SYSCONFDIR + "/ganeti/vnc-cluster-password"
 VNC_DEFAULT_BIND_ADDRESS = '0.0.0.0'
+
+# HVM NIC types
+HT_HVM_NIC_RTL8139 = "rtl8139"
+HT_HVM_NIC_NE2K_PCI = "ne2k_pci"
+HT_HVM_NIC_NE2K_ISA = "ne2k_isa"
+HT_HVM_DEV_PARAVIRTUAL = "paravirtual"
+HT_HVM_DEV_IOEMU = "ioemu"
+HT_HVM_VALID_NIC_TYPES = frozenset([HT_HVM_NIC_RTL8139, HT_HVM_NIC_NE2K_PCI,
+                                    HT_HVM_NIC_NE2K_ISA,
+                                    HT_HVM_DEV_PARAVIRTUAL])
+HT_HVM_VALID_DISK_TYPES = frozenset([HT_HVM_DEV_PARAVIRTUAL, HT_HVM_DEV_IOEMU])
 
 # Cluster Verify steps
 VERIFY_NPLUSONE_MEM = 'nplusone_mem'

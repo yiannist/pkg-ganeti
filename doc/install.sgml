@@ -367,16 +367,17 @@ modprobe drbd minor_count=64
         a bug that breaks ganeti's usage of drbd):
       </para>
       <screen>
-apt-get install -t etch-backports drbd8-module-source drbd8-utils
+apt-get install -t etch-backports drbd8-source drbd8-utils
 m-a update
 m-a a-i drbd8
 echo drbd minor_count=128 >> /etc/modules
+depmod -a
 modprobe drbd minor_count=128
       </screen>
 
       <para>
         It is also recommended that you comment out the default
-        resources in the <filename>/etc/dbrd.conf</filename> file, so
+        resources in the <filename>/etc/drbd.conf</filename> file, so
         that the init script doesn't try to configure any drbd
         devices. You can do this by prefixing all
         <literal>resource</literal> lines in the file with the keyword

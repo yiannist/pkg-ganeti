@@ -774,17 +774,18 @@ CLASS="LITERAL"
       </P
 ><PRE
 CLASS="SCREEN"
->apt-get install -t etch-backports drbd8-module-source drbd8-utils
+>apt-get install -t etch-backports drbd8-source drbd8-utils
 m-a update
 m-a a-i drbd8
 echo drbd minor_count=128 &#62;&#62; /etc/modules
+depmod -a
 modprobe drbd minor_count=128
       </PRE
 ><P
 >        It is also recommended that you comment out the default
         resources in the <TT
 CLASS="FILENAME"
->/etc/dbrd.conf</TT
+>/etc/drbd.conf</TT
 > file, so
         that the init script doesn't try to configure any drbd
         devices. You can do this by prefixing all
@@ -1218,8 +1219,8 @@ TARGET="_top"
       </P
 ><PRE
 CLASS="SCREEN"
->tar xvzf ganeti-1.2.5.tar.gz
-cd ganeti-1.2.5
+>tar xvzf ganeti-1.2.6.tar.gz
+cd ganeti-1.2.6
 ./configure --localstatedir=/var --sysconfdir=/etc
 make
 make install

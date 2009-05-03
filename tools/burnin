@@ -236,7 +236,10 @@ class Burner(object):
                                     kernel_path=None,
                                     initrd_path=None,
                                     hvm_boot_order=None,
-                                    iallocator=self.opts.iallocator)
+                                    iallocator=self.opts.iallocator,
+                                    auto_balance=True,
+                                    hvm_nic_type=constants.HT_HVM_NIC_RTL8139,
+                                    hvm_disk_type=constants.HT_HVM_DEV_IOEMU)
       self.ExecOp(op)
       self.to_rem.append(instance)
 
@@ -367,7 +370,12 @@ class Burner(object):
                                         ip_check=True,
                                         wait_for_sync=True,
                                         mac="auto",
-                                        iallocator=self.opts.iallocator)
+                                        iallocator=self.opts.iallocator,
+                                        auto_balance=True,
+                                        hvm_nic_type=
+                                        constants.HT_HVM_NIC_RTL8139,
+                                        hvm_disk_type=
+                                        constants.HT_HVM_DEV_IOEMU)
       erem_op = opcodes.OpRemoveExport(instance_name=instance)
 
       Log("- Export instance %s to node %s" % (instance, enode))
@@ -430,7 +438,8 @@ class Burner(object):
           opts.disk_template in constants.DTS_NET_MIRROR) :
         self.ReplaceDisks2()
 
-      self.GrowDisks()
+      if opts.disk_template != constants.DT_DISKLESS:
+        self.GrowDisks()
 
       if opts.do_failover and opts.disk_template in constants.DTS_NET_MIRROR:
         self.Failover()

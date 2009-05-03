@@ -83,6 +83,13 @@
             <replaceable>cdrom-image-path</replaceable></arg>
           <sbr>
 
+          <arg>--hvm-nic-type <replaceable>NICTYPE</replaceable></arg>
+          <sbr>
+
+          <arg>--hvm-disk-type
+          <replaceable>DISKTYPE</replaceable></arg>
+          <sbr>
+
           <arg>--vnc-bind-address
             <replaceable>vnc-bind-address</replaceable></arg>
           <sbr>
@@ -107,6 +114,8 @@
               <arg><replaceable>ip-address</replaceable></arg>
             </group></arg>
           <sbr>
+
+          <arg>--auto-balance <replaceable>AUTO_BALANCE</replaceable></arg>
 
           <arg>--no-wait-for-sync</arg>
           <arg>--no-start</arg>
@@ -261,12 +270,28 @@
         </para>
 
         <para>
+          The <option>--hvm-nic-type</option> specifies the NIC type
+          Xen should use for this HVM instance. Valid choices are
+          rtl8139, ne2k_pci, ne2k_isa and paravirtual with rtl8139
+          as the default. The paravirtual setting is intended for use
+          with the GPL PV drivers inside HVM Windows instances.
+        </para>
+
+        <para>
+          The <option>--hvm-disk-type</option> specifies the disk type
+          Xen should use for the HVM instance. Valid choices are ioemu
+          and paravirtual with ioemu as the default. The paravirtual
+          setting is intended for use with the GPL PV drivers inside
+          HVM Windows instances.
+        </para>
+
+        <para>
           The <option>--vnc-bind-address</option> option specifies the
           address that the VNC listener for this instance should bind
           to. Valid values are IPv4 addresses. Use the address 0.0.0.0
           to bind to all available interfaces (this is the default)
           or specify the address of one of the interfaces on the node
-          to restrict listing to that interface.
+          to restrict listening to that interface.
         </para>
 
         <para>
@@ -296,6 +321,14 @@
           ignored; if the instance is set to use a custom initrd and
           it doesn't exist, this will be treated as an error and will
           prevent the startup of the instance.
+        </para>
+
+        <para>
+          The <option>--auto-balance</option> option specifies whether
+          the memory size of the instance will be considered in
+          cluster verify checks; in the future, it might be used for
+          automated cluster operations, but currently it is not used
+          anywhere else. It defaults to true.
         </para>
 
         <para>
@@ -624,6 +657,10 @@
 
         <cmdsynopsis>
           <command>info</command>
+          <group>
+            <arg>-s</arg>
+            <arg>--static</arg>
+          </group>
           <arg rep="repeat"><replaceable>instance</replaceable></arg>
         </cmdsynopsis>
 
@@ -631,7 +668,13 @@
           Show detailed information about the (given) instances. This
           is different from <command>list</command> as it shows
           detailed data about the instance's disks (especially useful
-          for remote raid templates).
+          for remote raid templates) and other parameters.
+        </para>
+
+        <para>
+          If the option <option>-s</option> is used, only information
+          available in the configuration file is returned, without
+          querying nodes, making the operation faster.
         </para>
       </refsect3>
 
@@ -650,6 +693,8 @@
           <arg>--hvm-pae <replaceable>PAE-support</replaceable></arg>
           <arg>--hvm-cdrom-image-path
             <replaceable>cdrom-image-path</replaceable></arg>
+          <arg>--hvm-nic-type <replaceable>NICTYPE</replaceable></arg>
+          <arg>--hvm-disk-type <replaceable>DISKTYPE</replaceable></arg>
           <arg>--vnc-bind-address
             <replaceable>vnc-bind-address</replaceable></arg>
 
@@ -665,6 +710,7 @@
               <arg><replaceable>initrd_path</replaceable></arg>
             </group> </arg>
           <sbr>
+          <arg>--auto-balance <replaceable>AUTO_BALANCE</replaceable></arg>
           <arg choice="req"><replaceable>instance</replaceable></arg>
         </cmdsynopsis>
 
@@ -703,18 +749,42 @@
         </para>
 
         <para>
-          The <option>--hvm-cdrom-image-path</option> specifies the
-          path to the file xen uses to emulate a virtual CDROM drive
-          for this HVM instance. Valid values are either an
+          The <option>--hvm-cdrom-image-path</option> option specifies
+          the path to the file xen uses to emulate a virtual CDROM
+          drive for this HVM instance. Valid values are either an
           absolute path to an existing file or None, which disables
           virtual CDROM support for this instance.
         </para>
 
         <para>
-          The <option>--vnc-bind-address</option> specifies the
+          The <option>--hvm-nic-type</option> option specifies the NIC
+          type Xen should use for this HVM instance. Valid choices are
+          rtl8139, ne2k_pci, ne2k_isa and paravirtual with rtl8139 as
+          the default. The paravirtual setting is intended for use
+          with the GPL PV drivers inside HVM Windows instances.
+        </para>
+
+        <para>
+          The <option>--hvm-disk-type</option> option specifies the
+          disk type Xen should use for the HVM instance. Valid choices
+          are ioemu and paravirtual with ioemu as the default. The
+          paravirtual setting is intended for use with the GPL PV
+          drivers inside HVM Windows instances.
+        </para>
+
+        <para>
+          The <option>--vnc-bind-address</option> option specifies the
           address that the VNC listener for this instance should bind
           to. Valid values are IPv4 addresses. Use the address 0.0.0.0
           to bind to all available interfaces.
+        </para>
+
+        <para>
+          The <option>--auto-balance</option> option specifies whether
+          the memory size of the instance will be considered in
+          cluster verify checks; in the future, it might be used for
+          automated cluster operations, but currently it is not used
+          anywhere else.
         </para>
 
         <para>
@@ -730,6 +800,7 @@
           <command>reinstall</command>
           <arg choice="opt">-o <replaceable>os-type</replaceable></arg>
           <arg choice="opt">-f <replaceable>force</replaceable></arg>
+          <arg>--select-os</arg>
           <arg choice="req"><replaceable>instance</replaceable></arg>
         </cmdsynopsis>
 
@@ -738,6 +809,12 @@
           must be stopped when running this command. If the
           <option>--os-type</option> is specified, the operating system is
           changed.
+        </para>
+
+        <para>
+          The <option>--select-os</option> option switches to an
+          interactive OS reinstall. The user is prompted to select the OS
+          template from the list of available OS templates.
         </para>
       </refsect3>
 
@@ -981,6 +1058,13 @@
         <para>
           Connects to the console of the given instance. If the instance
           is not up, an error is returned.
+        </para>
+
+        <para>
+          For HVM instances, this will attempt to connect to the serial
+          console of the instance. To connect to the virtualized
+          "physical" console of a HVM instance, use a VNC client with
+          the connection info from gnt-instance info.
         </para>
 
         <para>
