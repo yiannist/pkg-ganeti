@@ -124,10 +124,11 @@ target_alias = @target_alias@
 TESTS = \
   ganeti.config_unittest.py \
   ganeti.hooks_unittest.py \
-  ganeti.utils_unittest.py
+  ganeti.utils_unittest.py \
+  ganeti.bdev_unittest.py
 
 TESTS_ENVIRONMENT = PYTHONPATH=.:$(top_builddir)
-EXTRA_DIST = $(TESTS) mocks.py
+EXTRA_DIST = $(TESTS) mocks.py data
 CLEANFILES = *.py[co]
 all: all-am
 

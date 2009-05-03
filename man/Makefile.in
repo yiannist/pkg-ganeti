@@ -408,7 +408,10 @@ uninstall-man: uninstall-man7 uninstall-man8
 	rm -rf "$$tmpdir"
 
 %.7 %.8: %.in Makefile
-	sed -e 's#@LOCALSTATEDIR@#$(localstatedir)#g' < $< > $@
+	sed -e 's#@LOCALSTATEDIR@#$(localstatedir)#g' \
+	    -e 's#@CUSTOM_XEN_KERNEL@#$(XEN_KERNEL)#g' \
+	    -e 's#@CUSTOM_XEN_INITRD@#$(XEN_INITRD)#g' \
+	    < $< > $@
 # Tell versions [3.59,3.63) of GNU make to not export all variables.
 # Otherwise a system limit (for SysV at least) may be exceeded.
 .NOEXPORT:

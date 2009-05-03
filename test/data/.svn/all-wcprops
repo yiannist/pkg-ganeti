@@ -1,0 +1,23 @@
+K 25
+svn:wc:ra_dav:version-url
+V 52
+/svn/!svn/ver/495/tags/ganeti/ganeti-1.2.1/test/data
+END
+bdev-net.txt
+K 25
+svn:wc:ra_dav:version-url
+V 65
+/svn/!svn/ver/495/tags/ganeti/ganeti-1.2.1/test/data/bdev-net.txt
+END
+bdev-disk.txt
+K 25
+svn:wc:ra_dav:version-url
+V 66
+/svn/!svn/ver/495/tags/ganeti/ganeti-1.2.1/test/data/bdev-disk.txt
+END
+bdev-both.txt
+K 25
+svn:wc:ra_dav:version-url
+V 66
+/svn/!svn/ver/495/tags/ganeti/ganeti-1.2.1/test/data/bdev-both.txt
+END

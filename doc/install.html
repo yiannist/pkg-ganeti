@@ -76,87 +76,87 @@ HREF="#AEN77"
 ></DT
 ><DT
 >2.3.2. <A
-HREF="#AEN103"
+HREF="#AEN107"
 >Selecting the instance kernel</A
 ></DT
 ></DL
 ></DD
 ><DT
 >2.4. <A
-HREF="#AEN115"
+HREF="#AEN119"
 >Installing DRBD</A
 ></DT
 ><DT
 >2.5. <A
-HREF="#AEN145"
+HREF="#AEN149"
 >Other required software</A
 ></DT
 ></DL
 ></DD
 ><DT
 >3. <A
-HREF="#AEN190"
+HREF="#AEN194"
 >Setting up the environment for Ganeti</A
 ></DT
 ><DD
 ><DL
 ><DT
 >3.1. <A
-HREF="#AEN192"
+HREF="#AEN196"
 >Configuring the network</A
 ></DT
 ><DT
 >3.2. <A
-HREF="#AEN217"
+HREF="#AEN221"
 >Configuring LVM</A
 ></DT
 ><DT
 >3.3. <A
-HREF="#AEN239"
+HREF="#AEN243"
 >Installing Ganeti</A
 ></DT
 ><DT
 >3.4. <A
-HREF="#AEN254"
+HREF="#AEN258"
 >Installing the Operating System support packages</A
 ></DT
 ><DT
 >3.5. <A
-HREF="#AEN281"
+HREF="#AEN285"
 >Initializing the cluster</A
 ></DT
 ><DT
 >3.6. <A
-HREF="#AEN305"
+HREF="#AEN313"
 >Joining the nodes to the cluster</A
 ></DT
 ><DT
 >3.7. <A
-HREF="#AEN312"
+HREF="#AEN320"
 >Separate replication network</A
 ></DT
 ><DT
 >3.8. <A
-HREF="#AEN320"
+HREF="#AEN328"
 >Testing the setup</A
 ></DT
 ></DL
 ></DD
 ><DT
 >4. <A
-HREF="#AEN325"
+HREF="#AEN333"
 >Setting up and managing virtual instances</A
 ></DT
 ><DD
 ><DL
 ><DT
 >4.1. <A
-HREF="#AEN327"
+HREF="#AEN335"
 >Setting up virtual instances</A
 ></DT
 ><DT
 >4.2. <A
-HREF="#AEN350"
+HREF="#AEN358"
 >Managing virtual instances</A
 ></DT
 ></DL
@@ -582,13 +582,33 @@ CLASS="SCREEN"
 >
           </P
 ></DIV
+><P
+>          If you want to test the experimental HVM support
+          with Ganeti and want VNC access to the console of your
+          instances, set the following two entries in
+          <TT
+CLASS="FILENAME"
+>/etc/xen/xend-config.sxp</TT
+>:
+<PRE
+CLASS="SCREEN"
+>(vnc-listen '0.0.0.0')
+(vncpasswd '')</PRE
+>
+          You need to restart the Xen daemon for these settings to
+          take effect:
+<PRE
+CLASS="SCREEN"
+>/etc/init.d/xend restart</PRE
+>
+        </P
 ></DIV
 ><DIV
 CLASS="SECT3"
 ><HR><H4
 CLASS="SECT3"
 ><A
-NAME="AEN103"
+NAME="AEN107"
 >2.3.2. Selecting the instance kernel</A
 ></H4
 ><P
@@ -645,7 +665,7 @@ CLASS="SECT2"
 ><HR><H3
 CLASS="SECT2"
 ><A
-NAME="AEN115"
+NAME="AEN119"
 >2.4. Installing DRBD</A
 ></H3
 ><P
@@ -674,7 +694,7 @@ CLASS="EMPHASIS"
 >
         <TT
 CLASS="LITERAL"
->8.0.x</TT
+>8.0.7</TT
 >. It's recommended to have at least
         version <TT
 CLASS="LITERAL"
@@ -745,11 +765,13 @@ echo drbd minor_count=64 &#62;&#62; /etc/modules
 modprobe drbd minor_count=64
       </PRE
 ><P
->or for using DRBD <TT
+>        or for using DRBD <TT
 CLASS="LITERAL"
 >8.x</TT
 > from the etch
-      backports:</P
+        backports (note: you need at least 8.0.7, older version have
+        a bug that breaks ganeti's usage of drbd):
+      </P
 ><PRE
 CLASS="SCREEN"
 >apt-get install -t etch-backports drbd8-module-source drbd8-utils
@@ -791,7 +813,7 @@ CLASS="SECT2"
 ><HR><H3
 CLASS="SECT2"
 ><A
-NAME="AEN145"
+NAME="AEN149"
 >2.5. Other required software</A
 ></H3
 ><P
@@ -932,7 +954,7 @@ CLASS="SECT1"
 ><HR><H2
 CLASS="SECT1"
 ><A
-NAME="AEN190"
+NAME="AEN194"
 >3. Setting up the environment for Ganeti</A
 ></H2
 ><DIV
@@ -940,7 +962,7 @@ CLASS="SECT2"
 ><H3
 CLASS="SECT2"
 ><A
-NAME="AEN192"
+NAME="AEN196"
 >3.1. Configuring the network</A
 ></H3
 ><P
@@ -1066,7 +1088,7 @@ CLASS="SECT2"
 ><HR><H3
 CLASS="SECT2"
 ><A
-NAME="AEN217"
+NAME="AEN221"
 >3.2. Configuring LVM</A
 ></H3
 ><P
@@ -1175,7 +1197,7 @@ CLASS="SECT2"
 ><HR><H3
 CLASS="SECT2"
 ><A
-NAME="AEN239"
+NAME="AEN243"
 >3.3. Installing Ganeti</A
 ></H3
 ><P
@@ -1196,8 +1218,8 @@ TARGET="_top"
       </P
 ><PRE
 CLASS="SCREEN"
->tar xvzf ganeti-1.2.0.tar.gz
-cd ganeti-1.2.0
+>tar xvzf ganeti-1.2.1.tar.gz
+cd ganeti-1.2.1
 ./configure --localstatedir=/var --sysconfdir=/etc
 make
 make install
@@ -1243,7 +1265,7 @@ CLASS="SECT2"
 ><HR><H3
 CLASS="SECT2"
 ><A
-NAME="AEN254"
+NAME="AEN258"
 >3.4. Installing the Operating System support packages</A
 ></H3
 ><P
@@ -1276,8 +1298,8 @@ CLASS="CONSTANT"
 ><PRE
 CLASS="SCREEN"
 >cd /srv/ganeti/os
-tar xvf ganeti-instance-debian-etch-0.3.tar
-mv ganeti-instance-debian-etch-0.3 debian-etch
+tar xvf ganeti-instance-debian-etch-0.4.tar
+mv ganeti-instance-debian-etch-0.4 debian-etch
       </PRE
 ><P
 >        In order to use this OS definition, you need to have internet
@@ -1333,7 +1355,7 @@ CLASS="SECT2"
 ><HR><H3
 CLASS="SECT2"
 ><A
-NAME="AEN281"
+NAME="AEN285"
 >3.5. Initializing the cluster</A
 ></H3
 ><P
@@ -1431,6 +1453,32 @@ CLASS="COMPUTEROUTPUT"
 >.
       </P
 ><P
+>        To set up the cluster as an HVM cluster, use the
+        <CODE
+CLASS="OPTION"
+>--hypervisor=xen-hvm3.1</CODE
+> option to use
+        the Xen 3.1 HVM hypervisor. Note that with the
+        experimental HVM support, you will only be able to create
+        HVM instances in a cluster set to this hypervisor type. Mixed
+        PVM/HVM clusters are not supported by the Ganeti 1.2
+        experimental HVM support. You will also need to create the VNC
+        cluster password  file
+        <TT
+CLASS="FILENAME"
+>/etc/ganeti/vnc-cluster-password</TT
+>
+        which contains one line with the default VNC password for the
+        cluster. Finally, you need to provide an installation ISO
+        image for HVM instance which will not only be mapped to the
+        first CDROM of the instance, but which the instance will also
+        boot from. This ISO image is expected at
+        <TT
+CLASS="FILENAME"
+>/srv/ganeti/iso/hvm-install.iso</TT
+>.
+      </P
+><P
 >        You can also invoke the command with the
         <CODE
 CLASS="OPTION"
@@ -1444,7 +1492,7 @@ CLASS="SECT2"
 ><HR><H3
 CLASS="SECT2"
 ><A
-NAME="AEN305"
+NAME="AEN313"
 >3.6. Joining the nodes to the cluster</A
 ></H3
 ><P
@@ -1477,7 +1525,7 @@ CLASS="SECT2"
 ><HR><H3
 CLASS="SECT2"
 ><A
-NAME="AEN312"
+NAME="AEN320"
 >3.7. Separate replication network</A
 ></H3
 ><P
@@ -1515,7 +1563,7 @@ CLASS="SECT2"
 ><HR><H3
 CLASS="SECT2"
 ><A
-NAME="AEN320"
+NAME="AEN328"
 >3.8. Testing the setup</A
 ></H3
 ><P
@@ -1539,7 +1587,7 @@ CLASS="SECT1"
 ><HR><H2
 CLASS="SECT1"
 ><A
-NAME="AEN325"
+NAME="AEN333"
 >4. Setting up and managing virtual instances</A
 ></H2
 ><DIV
@@ -1547,7 +1595,7 @@ CLASS="SECT2"
 ><H3
 CLASS="SECT2"
 ><A
-NAME="AEN327"
+NAME="AEN335"
 >4.1. Setting up virtual instances</A
 ></H3
 ><P
@@ -1664,7 +1712,7 @@ CLASS="SECT2"
 ><HR><H3
 CLASS="SECT2"
 ><A
-NAME="AEN350"
+NAME="AEN358"
 >4.2. Managing virtual instances</A
 ></H3
 ><P

@@ -3,7 +3,7 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GNT-CLUSTER" "8" "04 December 2007" "ganeti 1.2" ""
+.TH "GNT-CLUSTER" "8" "16 January 2008" "ganeti 1.2" ""
 
 .SH NAME
 gnt-cluster \- ganeti administration, cluster-wide
@@ -131,6 +131,16 @@ recommended to use a separate network, of course.
 .PP
 The \fB-b\fR option specifies the default bridge
 for instances.
+.PP
+The \fB-t\fR allows to set the hypervisor type of
+the cluster. Available hypervisor types are: xen-3.0, fake and
+xen-hvm3.1. The default is the xen-3.0 hypervisor.
+Note that if you init the cluster with hypervisor-type
+xen-hvm3.1 you also need to provide the cluster VNC password
+file \fI/etc/ganeti/vnc-cluster-password\fR and
+the HVM boot ISO image
+\fI/srv/ganeti/iso/hvm-install.iso\fR because
+instances created by the experimental HVM support require them.
 .SS "LIST-TAGS"
 
 \fBlist-tags\fR
@@ -205,6 +215,18 @@ Example:
 Verify correctness of cluster configuration. This is safe with
 respect to running instances, and incurs no downtime of the
 instances.
+.SS "VERIFY-DISKS"
+
+\fBverify-disks\fR
+
+.PP
+The command checks which instances have degraded DRBD disks
+and activates the disks of those instances.
+.PP
+This command is run from the \fBganeti-watcher\fR
+tool, which also has a different, complementary algorithm for
+doing this check. Together, these two should ensure that DRBD
+disks are kept consistent.
 .SS "VERSION"
 
 \fBversion\fR

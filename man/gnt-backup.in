@@ -3,7 +3,7 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GNT-BACKUP" "8" "04 December 2007" "ganeti 1.2" ""
+.TH "GNT-BACKUP" "8" "16 January 2008" "ganeti 1.2" ""
 
 .SH NAME
 gnt-backup \- ganeti instance import/export
@@ -41,7 +41,7 @@ Example:
 .fi
 .SS "IMPORT"
 
-\fBimport\fR \fB-n \fInode[:secondary-node]\fB\fR [ \fB-s \fIdisksize\fB\fR ] [ \fB-o \fIos-type\fB\fR ] [ \fB-m \fImemsize\fB\fR ] [ \fB-b \fIbridge\fB\fR ]
+\fBimport\fR \fB-n \fInode[:secondary-node]\fB\fR [ \fB-s \fIdisksize\fB\fR ] [ \fB--swap-size \fIdisksize\fB\fR ] [ \fB-m \fImemsize\fB\fR ] [ \fB-b \fIbridge\fB\fR ]
     \fB-t [ diskless | plain | local_raid1 | remote_raid1 | drbd ]
 \fR
     \fB--src-node=\fIsource-node\fB\fR \fB--src-dir=\fIsource-dir\fB\fR \fB\fIinstance\fB\fR
@@ -55,14 +55,22 @@ resolve to a IP in the same network as the nodes in the
 cluster.
 .PP
 The \fB-s\fR option specifies the disk size for
-the instance, in gibibytes (defaults to 20 GiB).
+the instance, in mebibytes (defaults to
+20480MiB =
+20GiB). You can also use one of the
+suffixes m, g or
+t to specificy the exact the units used;
+these suffixes map to mebibytes, gibibytes and tebibytes.
 .PP
-The \fB-o\fR options specifies the operating
-system to be installed. The available operating systems can
-be listed with \fBgnt-os list\fR\&.
+The \fB--swap-size\fR option specifies the swap
+disk size (in mebibytes) for the instance (the one presented
+as \fI/dev/sdb\fR). The
+default is 4096MiB\&. As for the disk
+size, you can specify other suffixes.
 .PP
 The \fB-m\fR option specifies the memory size for
-the instance, in mebibytes (defaults to 128 MiB).
+the instance, in mebibytes (defaults to 128 MiB). Again, you
+can use other suffixes (e.g. \fB2g\fR).
 .PP
 The \fB-b\fR option specifies the bridge to which the
 instance will be connected. (defaults to the cluster-wide default
@@ -95,6 +103,9 @@ volumes. They are equivalent in functionality to
 \fIremote_raid1\fR, but are
 recommended for new instances (if you have drbd 8.x
 installed).
+.PP
+The optional second value of the \fB--node\fR is used for
+the remote raid template type and specifies the remote node.
 .PP
 If you do not want gnt-backup to wait for the disk mirror
 to be synced, use the \fB--no-wait-for-sync\fR
