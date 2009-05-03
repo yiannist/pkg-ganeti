@@ -25,10 +25,11 @@ from ganeti import _autoconf
 
 # various versions
 CONFIG_VERSION = 3
-PROTOCOL_VERSION = 11
+PROTOCOL_VERSION = 12
 RELEASE_VERSION = _autoconf.PACKAGE_VERSION
 OS_API_VERSION = 5
 EXPORT_VERSION = 0
+RAPI_VERSION = 1
 
 
 # file paths
@@ -51,6 +52,8 @@ MASTER_SCRIPT = "ganeti-master"
 LOG_DIR = _autoconf.LOCALSTATEDIR + "/log/ganeti"
 LOG_OS_DIR = LOG_DIR + "/os"
 LOG_NODESERVER = LOG_DIR + "/node-daemon.log"
+LOG_RAPISERVER = LOG_DIR + "/rapi-daemon.log"
+LOG_RAPIACCESS = LOG_DIR + "/rapi-access.log"
 LOG_WATCHER = LOG_DIR + "/watcher.log"
 
 OS_SEARCH_PATH = _autoconf.OS_SEARCH_PATH
@@ -104,7 +107,7 @@ REPLACE_DISK_PRI = "replace_primary"
 REPLACE_DISK_SEC = "replace_secondary"
 REPLACE_DISK_ALL = "replace_all"
 
-# instance creation modem
+# instance creation modes
 INSTANCE_CREATE = "create"
 INSTANCE_IMPORT = "import"
 
@@ -135,6 +138,7 @@ SYNC_SPEED = 30 * 1024
 LOCALHOST_IP_ADDRESS = "127.0.0.1"
 TCP_PING_TIMEOUT = 10
 GANETI_RUNAS = "root"
+BIND_ADDRESS_GLOBAL = "0.0.0.0"
 
 # valid os status
 OS_VALID_STATUS = "VALID"
@@ -161,4 +165,25 @@ HTS_REQ_PORT = frozenset([HT_XEN_HVM31])
 
 HT_HVM_VNC_BASE_PORT = 5900
 HT_HVM_DEFAULT_BOOT_ORDER = 'dc'
+HT_HVM_DEFAULT_ACPI_MODE = '1'
+HT_HVM_DEFAULT_PAE_MODE = '1'
 VNC_PASSWORD_FILE = _autoconf.SYSCONFDIR + "/ganeti/vnc-cluster-password"
+VNC_DEFAULT_BIND_ADDRESS = '0.0.0.0'
+
+# Cluster Verify steps
+VERIFY_NPLUSONE_MEM = 'nplusone_mem'
+VERIFY_OPTIONAL_CHECKS = frozenset([VERIFY_NPLUSONE_MEM])
+
+# Allocator framework constants
+IALLOCATOR_DIR_IN = "in"
+IALLOCATOR_DIR_OUT = "out"
+IALLOCATOR_MODE_ALLOC = "allocate"
+IALLOCATOR_MODE_RELOC = "relocate"
+IALLOCATOR_SEARCH_PATH = _autoconf.IALLOCATOR_SEARCH_PATH
+IARUN_NOTFOUND = 1
+IARUN_FAILURE = 2
+IARUN_SUCCESS = 3
+
+# Remote API constants
+RAPI_ENABLE = _autoconf.RAPI_ENABLE
+RAPI_PORT = 5080

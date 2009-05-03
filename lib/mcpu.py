@@ -80,6 +80,7 @@ class Processor(object):
     # exports lu
     opcodes.OpQueryExports: cmdlib.LUQueryExports,
     opcodes.OpExportInstance: cmdlib.LUExportInstance,
+    opcodes.OpRemoveExport: cmdlib.LURemoveExport,
     # tags lu
     opcodes.OpGetTags: cmdlib.LUGetTags,
     opcodes.OpSearchTags: cmdlib.LUSearchTags,
@@ -87,6 +88,7 @@ class Processor(object):
     opcodes.OpDelTags: cmdlib.LUDelTags,
     # test lu
     opcodes.OpTestDelay: cmdlib.LUTestDelay,
+    opcodes.OpTestAllocator: cmdlib.LUTestAllocator,
     }
 
   def __init__(self, feedback=None):
@@ -104,8 +106,7 @@ class Processor(object):
     """Execute an opcode.
 
     Args:
-     - cfg: the configuration in which we execute this opcode
-     - opcode: the opcode to be executed
+      op: the opcode to be executed
 
     """
     if not isinstance(op, opcodes.OpCode):
@@ -126,15 +127,21 @@ class Processor(object):
     lu = lu_class(self, op, self.cfg, self.sstore)
     lu.CheckPrereq()
     hm = HooksMaster(rpc.call_hooks_runner, self, lu)
-    hm.RunPhase(constants.HOOKS_PHASE_PRE)
-    result = lu.Exec(self._feedback_fn)
-    hm.RunPhase(constants.HOOKS_PHASE_POST)
-    if lu.cfg is not None:
-      # we use lu.cfg and not self.cfg as for init cluster, self.cfg
-      # is None but lu.cfg has been recently initialized in the
-      # lu.Exec method
-      if write_count != lu.cfg.write_count:
-        hm.RunConfigUpdate()
+    h_results = hm.RunPhase(constants.HOOKS_PHASE_PRE)
+    lu.HooksCallBack(constants.HOOKS_PHASE_PRE,
+                     h_results, self._feedback_fn, None)
+    try:
+      result = lu.Exec(self._feedback_fn)
+      h_results = hm.RunPhase(constants.HOOKS_PHASE_POST)
+      result = lu.HooksCallBack(constants.HOOKS_PHASE_POST,
+                       h_results, self._feedback_fn, result)
+    finally:
+      if lu.cfg is not None:
+        # we use lu.cfg and not self.cfg as for init cluster, self.cfg
+        # is None but lu.cfg has been recently initialized in the
+        # lu.Exec method
+        if write_count != lu.cfg.write_count:
+          hm.RunConfigUpdate()
 
     return result
 
@@ -163,10 +170,14 @@ class Processor(object):
     lu.CheckPrereq()
     #if do_hooks:
     #  hm = HooksMaster(rpc.call_hooks_runner, self, lu)
-    #  hm.RunPhase(constants.HOOKS_PHASE_PRE)
+    #  h_results = hm.RunPhase(constants.HOOKS_PHASE_PRE)
+    #  lu.HooksCallBack(constants.HOOKS_PHASE_PRE,
+    #                   h_results, self._feedback_fn, None)
     result = lu.Exec(self._feedback_fn)
     #if do_hooks:
-    #  hm.RunPhase(constants.HOOKS_PHASE_POST)
+    #  h_results = hm.RunPhase(constants.HOOKS_PHASE_POST)
+    #  result = lu.HooksCallBack(constants.HOOKS_PHASE_POST,
+    #                   h_results, self._feedback_fn, result)
     return result
 
   def LogStep(self, current, total, message):
@@ -261,6 +272,12 @@ class HooksMaster(object):
 
     This is the main function of the HookMaster.
 
+    Args:
+      phase: the hooks phase to run
+
+    Returns:
+      the result of the hooks multi-node rpc call
+
     """
     if not self.node_list[phase]:
       # empty node list, we should not attempt to run this as either
@@ -284,6 +301,7 @@ class HooksMaster(object):
             errs.append((node_name, script, output))
       if errs:
         raise errors.HooksAbort(errs)
+    return results
 
   def RunConfigUpdate(self):
     """Run the special configuration update hook

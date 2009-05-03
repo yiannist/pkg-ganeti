@@ -3,7 +3,7 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GANETI-NODED" "8" "18 February 2008" "ganeti 1.2" ""
+.TH "GANETI-NODED" "8" "13 June 2008" "ganeti 1.2" ""
 
 .SH NAME
 ganeti-noded \- ganeti daemon
@@ -52,7 +52,8 @@ Ganeti commands:
 Ganeti daemons:
 \fBganeti-watcher\fR(8) (automatic instance restarter),
 \fBganeti-noded\fR(8) (node daemon),
-\fBganeti-master\fR(8) (the master startup script).
+\fBganeti-master\fR(8) (the master startup script),
+\fBganeti-rapi\fR(8) (remote API daemon).
 .SH "COPYRIGHT"
 .PP
 Copyright (C) 2006, 2007 Google Inc. Permission is granted to

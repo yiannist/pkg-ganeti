@@ -98,7 +98,27 @@ def ImportInstance(opts, args):
                                 vcpus=opts.vcpus, ip_check=opts.ip_check,
                                 ip=opts.ip, bridge=opts.bridge, start=False,
                                 src_node=opts.src_node, src_path=opts.src_dir,
-                                wait_for_sync=opts.wait_for_sync, mac="auto")
+                                wait_for_sync=opts.wait_for_sync, mac="auto",
+                                iallocator=opts.iallocator)
+  SubmitOpCode(op)
+  return 0
+
+
+def RemoveExport(opts, args):
+  """Remove an export from the cluster.
+
+  Args:
+   opts - class with options as members
+   args - list with a single element, the exported instance to remove
+  Opts used:
+
+  Returns:
+    1 in case of error, 0 otherwise
+
+  """
+  instance = args[0]
+  op = opcodes.OpRemoveExport(instance_name=args[0])
+
   SubmitOpCode(op)
   return 0
 
@@ -136,6 +156,9 @@ import_opts = [
   make_option("--no-ip-check", dest="ip_check", default=True,
               action="store_false", help="Don't check that the instance's IP"
               " is alive"),
+  make_option("--iallocator", metavar="<NAME>",
+              help="Select nodes for the instance automatically using the"
+              " <NAME> iallocator plugin", default=None, type="string"),
   ]
 
 commands = {
@@ -153,10 +176,17 @@ commands = {
               make_option("","--noshutdown", dest="shutdown",
                           action="store_false", default=True,
                           help="Don't shutdown the instance (unsafe)"), ],
-             "[opts...] <name>",
+             "-n <target_node> [opts...] <name>",
              "Exports an instance to an image"),
-  'import': (ImportInstance, ARGS_ONE, import_opts, "[opts...] <name>",
+  'import': (ImportInstance, ARGS_ONE, import_opts,
+             ("[...] -t disk-type -n node[:secondary-node]"
+              " --src-node node --src-dir dir"
+              " <name>"),
              "Imports an instance from an exported image"),
+  'remove': (RemoveExport, ARGS_ONE,
+             [DEBUG_OPT],
+             "<name>",
+             "Remove exports of named instance from the filesystem."),
   }
 
 if __name__ == '__main__':

@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007 Google Inc.
+# Copyright (C) 2006, 2007, 2008 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -42,6 +42,8 @@ from ganeti import constants
 from ganeti import objects
 from ganeti import opcodes
 from ganeti import ssconf
+from ganeti import serializer
+
 
 class LogicalUnit(object):
   """Logical Unit base class.
@@ -131,17 +133,31 @@ class LogicalUnit(object):
     added by the hooks runner. If the LU doesn't define any
     environment, an empty dict (and not None) should be returned.
 
-    As for the node lists, the master should not be included in the
-    them, as it will be added by the hooks runner in case this LU
-    requires a cluster to run on (otherwise we don't have a node
-    list). No nodes should be returned as an empty list (and not
-    None).
+    No nodes should be returned as an empty list (and not None).
 
     Note that if the HPATH for a LU class is None, this function will
     not be called.
 
     """
     raise NotImplementedError
+
+  def HooksCallBack(self, phase, hook_results, feedback_fn, lu_result):
+    """Notify the LU about the results of its hooks.
+
+    This method is called every time a hooks phase is executed, and notifies
+    the Logical Unit about the hooks' result. The LU can then use it to alter
+    its result based on the hooks.  By default the method does nothing and the
+    previous result is passed back unchanged but any LU can define it if it
+    wants to use the local cluster hook-scripts somehow.
+
+    Args:
+      phase: the hooks phase that has just been run
+      hooks_results: the results of the multi-node hooks rpc call
+      feedback_fn: function to send feedback back to the caller
+      lu_result: the previous result this LU had, or None in the PRE phase.
+
+    """
+    return lu_result
 
 
 class NoHooksLU(LogicalUnit):
@@ -153,14 +169,6 @@ class NoHooksLU(LogicalUnit):
   """
   HPATH = None
   HTYPE = None
-
-  def BuildHooksEnv(self):
-    """Build hooks env.
-
-    This is a no-op, since we don't run hooks.
-
-    """
-    return {}, [], []
 
 
 def _AddHostToEtcHosts(hostname):
@@ -510,25 +518,29 @@ class LUInitCluster(LogicalUnit):
 
     if hostname.ip.startswith("127."):
       raise errors.OpPrereqError("This host's IP resolves to the private"
-                                 " range (%s). Please fix DNS or /etc/hosts." %
-                                 (hostname.ip,))
+                                 " range (%s). Please fix DNS or %s." %
+                                 (hostname.ip, constants.ETC_HOSTS))
 
-    self.clustername = clustername = utils.HostInfo(self.op.cluster_name)
-
-    if not utils.TcpPing(constants.LOCALHOST_IP_ADDRESS, hostname.ip,
-                         constants.DEFAULT_NODED_PORT):
+    if not utils.TcpPing(hostname.ip, constants.DEFAULT_NODED_PORT,
+                         source=constants.LOCALHOST_IP_ADDRESS):
       raise errors.OpPrereqError("Inconsistency: this host's name resolves"
                                  " to %s,\nbut this ip address does not"
                                  " belong to this host."
                                  " Aborting." % hostname.ip)
+
+    self.clustername = clustername = utils.HostInfo(self.op.cluster_name)
+
+    if utils.TcpPing(clustername.ip, constants.DEFAULT_NODED_PORT,
+                     timeout=5):
+      raise errors.OpPrereqError("Cluster IP already active. Aborting.")
 
     secondary_ip = getattr(self.op, "secondary_ip", None)
     if secondary_ip and not utils.IsValidIP(secondary_ip):
       raise errors.OpPrereqError("Invalid secondary ip given")
     if (secondary_ip and
         secondary_ip != hostname.ip and
-        (not utils.TcpPing(constants.LOCALHOST_IP_ADDRESS, secondary_ip,
-                           constants.DEFAULT_NODED_PORT))):
+        (not utils.TcpPing(secondary_ip, constants.DEFAULT_NODED_PORT,
+                           source=constants.LOCALHOST_IP_ADDRESS))):
       raise errors.OpPrereqError("You gave %s as secondary IP,"
                                  " but it does not belong to this host." %
                                  secondary_ip)
@@ -632,17 +644,21 @@ class LUDestroyCluster(NoHooksLU):
 
     """
     master = self.sstore.GetMasterNode()
+    if not rpc.call_node_stop_master(master):
+      raise errors.OpExecError("Could not disable the master role")
     priv_key, pub_key, _ = ssh.GetUserFiles(constants.GANETI_RUNAS)
     utils.CreateBackup(priv_key)
     utils.CreateBackup(pub_key)
     rpc.call_node_leave_cluster(master)
 
 
-class LUVerifyCluster(NoHooksLU):
+class LUVerifyCluster(LogicalUnit):
   """Verifies the cluster status.
 
   """
-  _OP_REQP = []
+  HPATH = "cluster-verify"
+  HTYPE = constants.HTYPE_CLUSTER
+  _OP_REQP = ["skip_checks"]
 
   def _VerifyNode(self, node, file_list, local_cksum, vglist, node_result,
                   remote_version, feedback_fn):
@@ -663,7 +679,7 @@ class LUVerifyCluster(NoHooksLU):
     # compares ganeti version
     local_version = constants.PROTOCOL_VERSION
     if not remote_version:
-      feedback_fn(" - ERROR: connection to %s failed" % (node))
+      feedback_fn("  - ERROR: connection to %s failed" % (node))
       return True
 
     if local_version != remote_version:
@@ -702,19 +718,31 @@ class LUVerifyCluster(NoHooksLU):
 
     if 'nodelist' not in node_result:
       bad = True
-      feedback_fn("  - ERROR: node hasn't returned node connectivity data")
+      feedback_fn("  - ERROR: node hasn't returned node ssh connectivity data")
     else:
       if node_result['nodelist']:
         bad = True
         for node in node_result['nodelist']:
-          feedback_fn("  - ERROR: communication with node '%s': %s" %
+          feedback_fn("  - ERROR: ssh communication with node '%s': %s" %
                           (node, node_result['nodelist'][node]))
+    if 'node-net-test' not in node_result:
+      bad = True
+      feedback_fn("  - ERROR: node hasn't returned node tcp connectivity data")
+    else:
+      if node_result['node-net-test']:
+        bad = True
+        nlist = utils.NiceSort(node_result['node-net-test'].keys())
+        for node in nlist:
+          feedback_fn("  - ERROR: tcp communication with node '%s': %s" %
+                          (node, node_result['node-net-test'][node]))
+
     hyp_result = node_result.get('hypervisor', None)
     if hyp_result is not None:
       feedback_fn("  - ERROR: hypervisor verify failure: '%s'" % hyp_result)
     return bad
 
-  def _VerifyInstance(self, instance, node_vol_is, node_instance, feedback_fn):
+  def _VerifyInstance(self, instance, instanceconfig, node_vol_is,
+                      node_instance, feedback_fn):
     """Verify an instance.
 
     This function checks to see if the required block devices are
@@ -723,13 +751,6 @@ class LUVerifyCluster(NoHooksLU):
     """
     bad = False
 
-    instancelist = self.cfg.GetInstanceList()
-    if not instance in instancelist:
-      feedback_fn("  - ERROR: instance %s not in instance list %s" %
-                      (instance, instancelist))
-      bad = True
-
-    instanceconfig = self.cfg.GetInstanceInfo(instance)
     node_current = instanceconfig.primary_node
 
     node_vol_should = {}
@@ -743,7 +764,8 @@ class LUVerifyCluster(NoHooksLU):
           bad = True
 
     if not instanceconfig.status == 'down':
-      if not instance in node_instance[node_current]:
+      if (node_current not in node_instance or
+          not instance in node_instance[node_current]):
         feedback_fn("  - ERROR: instance %s not running on node %s" %
                         (instance, node_current))
         bad = True
@@ -789,13 +811,56 @@ class LUVerifyCluster(NoHooksLU):
           bad = True
     return bad
 
+  def _VerifyNPlusOneMemory(self, node_info, instance_cfg, feedback_fn):
+    """Verify N+1 Memory Resilience.
+
+    Check that if one single node dies we can still start all the instances it
+    was primary for.
+
+    """
+    bad = False
+
+    for node, nodeinfo in node_info.iteritems():
+      # This code checks that every node which is now listed as secondary has
+      # enough memory to host all instances it is supposed to should a single
+      # other node in the cluster fail.
+      # FIXME: not ready for failover to an arbitrary node
+      # FIXME: does not support file-backed instances
+      # WARNING: we currently take into account down instances as well as up
+      # ones, considering that even if they're down someone might want to start
+      # them even in the event of a node failure.
+      for prinode, instances in nodeinfo['sinst-by-pnode'].iteritems():
+        needed_mem = 0
+        for instance in instances:
+          needed_mem += instance_cfg[instance].memory
+        if nodeinfo['mfree'] < needed_mem:
+          feedback_fn("  - ERROR: not enough memory on node %s to accomodate"
+                      " failovers should node %s fail" % (node, prinode))
+          bad = True
+    return bad
+
   def CheckPrereq(self):
     """Check prerequisites.
 
-    This has no prerequisites.
+    Transform the list of checks we're going to skip into a set and check that
+    all its members are valid.
 
     """
-    pass
+    self.skip_set = frozenset(self.op.skip_checks)
+    if not constants.VERIFY_OPTIONAL_CHECKS.issuperset(self.skip_set):
+      raise errors.OpPrereqError("Invalid checks to be skipped specified")
+
+  def BuildHooksEnv(self):
+    """Build hooks env.
+
+    Cluster-Verify hooks just rone in the post phase and their failure makes
+    the output be logged in the verify output and the verification to fail.
+
+    """
+    all_nodes = self.cfg.GetNodeList()
+    # TODO: populate the environment with useful information for verify hooks
+    env = {}
+    return env, [], all_nodes
 
   def Exec(self, feedback_fn):
     """Verify integrity of cluster, performing various test on nodes.
@@ -808,9 +873,13 @@ class LUVerifyCluster(NoHooksLU):
 
     vg_name = self.cfg.GetVGName()
     nodelist = utils.NiceSort(self.cfg.GetNodeList())
+    nodeinfo = [self.cfg.GetNodeInfo(nname) for nname in nodelist]
     instancelist = utils.NiceSort(self.cfg.GetInstanceList())
+    i_non_redundant = [] # Non redundant instances
     node_volume = {}
     node_instance = {}
+    node_info = {}
+    instance_cfg = {}
 
     # FIXME: verify OS list
     # do local checksums
@@ -827,9 +896,12 @@ class LUVerifyCluster(NoHooksLU):
       'filelist': file_names,
       'nodelist': nodelist,
       'hypervisor': None,
+      'node-net-test': [(node.name, node.primary_ip, node.secondary_ip)
+                        for node in nodeinfo]
       }
     all_nvinfo = rpc.call_node_verify(nodelist, node_verify_param)
     all_rversion = rpc.call_version(nodelist)
+    all_ninfo = rpc.call_node_info(nodelist, self.cfg.GetVGName())
 
     for node in nodelist:
       feedback_fn("* Verifying node %s" % node)
@@ -862,17 +934,73 @@ class LUVerifyCluster(NoHooksLU):
 
       node_instance[node] = nodeinstance
 
+      # node_info
+      nodeinfo = all_ninfo[node]
+      if not isinstance(nodeinfo, dict):
+        feedback_fn("  - ERROR: connection to %s failed" % (node,))
+        bad = True
+        continue
+
+      try:
+        node_info[node] = {
+          "mfree": int(nodeinfo['memory_free']),
+          "dfree": int(nodeinfo['vg_free']),
+          "pinst": [],
+          "sinst": [],
+          # dictionary holding all instances this node is secondary for,
+          # grouped by their primary node. Each key is a cluster node, and each
+          # value is a list of instances which have the key as primary and the
+          # current node as secondary.  this is handy to calculate N+1 memory
+          # availability if you can only failover from a primary to its
+          # secondary.
+          "sinst-by-pnode": {},
+        }
+      except ValueError:
+        feedback_fn("  - ERROR: invalid value returned from node %s" % (node,))
+        bad = True
+        continue
+
     node_vol_should = {}
 
     for instance in instancelist:
       feedback_fn("* Verifying instance %s" % instance)
-      result =  self._VerifyInstance(instance, node_volume, node_instance,
-                                     feedback_fn)
+      inst_config = self.cfg.GetInstanceInfo(instance)
+      result =  self._VerifyInstance(instance, inst_config, node_volume,
+                                     node_instance, feedback_fn)
       bad = bad or result
 
-      inst_config = self.cfg.GetInstanceInfo(instance)
-
       inst_config.MapLVsByNode(node_vol_should)
+
+      instance_cfg[instance] = inst_config
+
+      pnode = inst_config.primary_node
+      if pnode in node_info:
+        node_info[pnode]['pinst'].append(instance)
+      else:
+        feedback_fn("  - ERROR: instance %s, connection to primary node"
+                    " %s failed" % (instance, pnode))
+        bad = True
+
+      # If the instance is non-redundant we cannot survive losing its primary
+      # node, so we are not N+1 compliant. On the other hand we have no disk
+      # templates with more than one secondary so that situation is not well
+      # supported either.
+      # FIXME: does not support file-backed instances
+      if len(inst_config.secondary_nodes) == 0:
+        i_non_redundant.append(instance)
+      elif len(inst_config.secondary_nodes) > 1:
+        feedback_fn("  - WARNING: multiple secondaries for instance %s"
+                    % instance)
+
+      for snode in inst_config.secondary_nodes:
+        if snode in node_info:
+          node_info[snode]['sinst'].append(instance)
+          if pnode not in node_info[snode]['sinst-by-pnode']:
+            node_info[snode]['sinst-by-pnode'][pnode] = []
+          node_info[snode]['sinst-by-pnode'][pnode].append(instance)
+        else:
+          feedback_fn("  - ERROR: instance %s, connection to secondary node"
+                      " %s failed" % (instance, snode))
 
     feedback_fn("* Verifying orphan volumes")
     result = self._VerifyOrphanVolumes(node_vol_should, node_volume,
@@ -884,7 +1012,58 @@ class LUVerifyCluster(NoHooksLU):
                                          feedback_fn)
     bad = bad or result
 
+    if constants.VERIFY_NPLUSONE_MEM not in self.skip_set:
+      feedback_fn("* Verifying N+1 Memory redundancy")
+      result = self._VerifyNPlusOneMemory(node_info, instance_cfg, feedback_fn)
+      bad = bad or result
+
+    feedback_fn("* Other Notes")
+    if i_non_redundant:
+      feedback_fn("  - NOTICE: %d non-redundant instance(s) found."
+                  % len(i_non_redundant))
+
     return int(bad)
+
+  def HooksCallBack(self, phase, hooks_results, feedback_fn, lu_result):
+    """Analize the post-hooks' result, handle it, and send some
+    nicely-formatted feedback back to the user.
+
+    Args:
+      phase: the hooks phase that has just been run
+      hooks_results: the results of the multi-node hooks rpc call
+      feedback_fn: function to send feedback back to the caller
+      lu_result: previous Exec result
+
+    """
+    # We only really run POST phase hooks, and are only interested in their results
+    if phase == constants.HOOKS_PHASE_POST:
+      # Used to change hooks' output to proper indentation
+      indent_re = re.compile('^', re.M)
+      feedback_fn("* Hooks Results")
+      if not hooks_results:
+        feedback_fn("  - ERROR: general communication failure")
+        lu_result = 1
+      else:
+        for node_name in hooks_results:
+          show_node_header = True
+          res = hooks_results[node_name]
+          if res is False or not isinstance(res, list):
+            feedback_fn("    Communication failure")
+            lu_result = 1
+            continue
+          for script, hkr, output in res:
+            if hkr == constants.HKR_FAIL:
+              # The node header is only shown once, if there are
+              # failing hooks on that node
+              if show_node_header:
+                feedback_fn("  Node %s:" % node_name)
+                show_node_header = False
+              feedback_fn("    ERROR: Script %s failed, output:" % script)
+              output = indent_re.sub('      ', output)
+              feedback_fn("%s" % output)
+              lu_result = 1
+
+      return lu_result
 
 
 class LUVerifyDisks(NoHooksLU):
@@ -972,7 +1151,7 @@ class LURenameCluster(LogicalUnit):
 
     """
     env = {
-      "OP_TARGET": self.op.sstore.GetClusterName(),
+      "OP_TARGET": self.sstore.GetClusterName(),
       "NEW_NAME": self.op.name,
       }
     mn = self.sstore.GetMasterNode()
@@ -1120,7 +1299,7 @@ def _CheckDiskConsistency(cfgw, dev, node, on_primary, ldisk=False):
   if on_primary or dev.AssembleOnSecondary():
     rstats = rpc.call_blockdev_find(node, dev)
     if not rstats:
-      logger.ToStderr("Can't get any data from node %s" % node)
+      logger.ToStderr("Node %s: Disk degraded, not found or node down" % node)
       result = False
     else:
       result = result and (not rstats[idx])
@@ -1135,7 +1314,7 @@ class LUDiagnoseOS(NoHooksLU):
   """Logical unit for OS diagnose/query.
 
   """
-  _OP_REQP = []
+  _OP_REQP = ["output_fields", "names"]
 
   def CheckPrereq(self):
     """Check prerequisites.
@@ -1143,7 +1322,44 @@ class LUDiagnoseOS(NoHooksLU):
     This always succeeds, since this is a pure query LU.
 
     """
-    return
+    if self.op.names:
+      raise errors.OpPrereqError("Selective OS query not supported")
+
+    self.dynamic_fields = frozenset(["name", "valid", "node_status"])
+    _CheckOutputFields(static=[],
+                       dynamic=self.dynamic_fields,
+                       selected=self.op.output_fields)
+
+  @staticmethod
+  def _DiagnoseByOS(node_list, rlist):
+    """Remaps a per-node return list into an a per-os per-node dictionary
+
+      Args:
+        node_list: a list with the names of all nodes
+        rlist: a map with node names as keys and OS objects as values
+
+      Returns:
+        map: a map with osnames as keys and as value another map, with
+             nodes as
+             keys and list of OS objects as values
+             e.g. {"debian-etch": {"node1": [<object>,...],
+                                   "node2": [<object>,]}
+                  }
+
+    """
+    all_os = {}
+    for node_name, nr in rlist.iteritems():
+      if not nr:
+        continue
+      for os in nr:
+        if os.name not in all_os:
+          # build a list of nodes for this os containing empty lists
+          # for each node in node_list
+          all_os[os.name] = {}
+          for nname in node_list:
+            all_os[os.name][nname] = []
+        all_os[os.name][node_name].append(os)
+    return all_os
 
   def Exec(self, feedback_fn):
     """Compute the list of OSes.
@@ -1153,7 +1369,25 @@ class LUDiagnoseOS(NoHooksLU):
     node_data = rpc.call_os_diagnose(node_list)
     if node_data == False:
       raise errors.OpExecError("Can't gather the list of OSes")
-    return node_data
+    pol = self._DiagnoseByOS(node_list, node_data)
+    output = []
+    for os_name, os_data in pol.iteritems():
+      row = []
+      for field in self.op.output_fields:
+        if field == "name":
+          val = os_name
+        elif field == "valid":
+          val = utils.all([osl and osl[0] for osl in os_data.values()])
+        elif field == "node_status":
+          val = {}
+          for node_name, nos_list in os_data.iteritems():
+            val[node_name] = [(v.status, v.path) for v in nos_list]
+        else:
+          raise errors.ParameterError(field)
+        row.append(val)
+      output.append(row)
+
+    return output
 
 
 class LURemoveNode(LogicalUnit):
@@ -1243,9 +1477,12 @@ class LUQueryNodes(NoHooksLU):
     This checks that the fields required are valid output fields.
 
     """
-    self.dynamic_fields = frozenset(["dtotal", "dfree",
-                                     "mtotal", "mnode", "mfree",
-                                     "bootid"])
+    self.dynamic_fields = frozenset([
+      "dtotal", "dfree",
+      "mtotal", "mnode", "mfree",
+      "bootid",
+      "ctotal",
+      ])
 
     _CheckOutputFields(static=["name", "pinst_cnt", "sinst_cnt",
                                "pinst_list", "sinst_list",
@@ -1276,6 +1513,7 @@ class LUQueryNodes(NoHooksLU):
             "mfree": utils.TryConvert(int, nodeinfo['memory_free']),
             "dtotal": utils.TryConvert(int, nodeinfo['vg_size']),
             "dfree": utils.TryConvert(int, nodeinfo['vg_free']),
+            "ctotal": utils.TryConvert(int, nodeinfo['cpu_total']),
             "bootid": nodeinfo['bootid'],
             }
         else:
@@ -1447,13 +1685,24 @@ class LUAddNode(LogicalUnit):
     if not utils.IsValidIP(secondary_ip):
       raise errors.OpPrereqError("Invalid secondary IP given")
     self.op.secondary_ip = secondary_ip
+
     node_list = cfg.GetNodeList()
-    if node in node_list:
-      raise errors.OpPrereqError("Node %s is already in the configuration"
-                                 % node)
+    if not self.op.readd and node in node_list:
+      raise errors.OpPrereqError("Node %s is already in the configuration" %
+                                 node)
+    elif self.op.readd and node not in node_list:
+      raise errors.OpPrereqError("Node %s is not in the configuration" % node)
 
     for existing_node_name in node_list:
       existing_node = cfg.GetNodeInfo(existing_node_name)
+
+      if self.op.readd and node == existing_node_name:
+        if (existing_node.primary_ip != primary_ip or
+            existing_node.secondary_ip != secondary_ip):
+          raise errors.OpPrereqError("Readded node doesn't have the same IP"
+                                     " address configuration as before")
+        continue
+
       if (existing_node.primary_ip == primary_ip or
           existing_node.secondary_ip == primary_ip or
           existing_node.primary_ip == secondary_ip or
@@ -1475,16 +1724,13 @@ class LUAddNode(LogicalUnit):
                                    " new node doesn't have one")
 
     # checks reachablity
-    if not utils.TcpPing(utils.HostInfo().name,
-                         primary_ip,
-                         constants.DEFAULT_NODED_PORT):
+    if not utils.TcpPing(primary_ip, constants.DEFAULT_NODED_PORT):
       raise errors.OpPrereqError("Node not reachable by ping")
 
     if not newbie_singlehomed:
       # check reachability from my secondary ip to newbie's secondary ip
-      if not utils.TcpPing(myself.secondary_ip,
-                           secondary_ip,
-                           constants.DEFAULT_NODED_PORT):
+      if not utils.TcpPing(secondary_ip, constants.DEFAULT_NODED_PORT,
+                           source=myself.secondary_ip):
         raise errors.OpPrereqError("Node secondary ip not reachable by TCP"
                                    " based ping to noded port")
 
@@ -1603,12 +1849,14 @@ class LUAddNode(LogicalUnit):
     # Distribute updated /etc/hosts and known_hosts to all nodes,
     # including the node just added
     myself = self.cfg.GetNodeInfo(self.sstore.GetMasterNode())
-    dist_nodes = self.cfg.GetNodeList() + [node]
+    dist_nodes = self.cfg.GetNodeList()
+    if not self.op.readd:
+      dist_nodes.append(node)
     if myself.name in dist_nodes:
       dist_nodes.remove(myself.name)
 
     logger.Debug("Copying hosts and known_hosts to all nodes")
-    for fname in ("/etc/hosts", constants.SSH_KNOWN_HOSTS_FILE):
+    for fname in (constants.ETC_HOSTS, constants.SSH_KNOWN_HOSTS_FILE):
       result = rpc.call_upload_file(dist_nodes, fname)
       for to_node in dist_nodes:
         if not result[to_node]:
@@ -1622,8 +1870,9 @@ class LUAddNode(LogicalUnit):
       if not ssh.CopyFileToNode(node, fname):
         logger.Error("could not copy file %s to node %s" % (fname, node))
 
-    logger.Info("adding node %s to cluster.conf" % node)
-    self.cfg.AddNode(new_node)
+    if not self.op.readd:
+      logger.Info("adding node %s to cluster.conf" % node)
+      self.cfg.AddNode(new_node)
 
 
 class LUMasterFailover(LogicalUnit):
@@ -1723,6 +1972,7 @@ class LUQueryClusterInfo(NoHooksLU):
       "export_version": constants.EXPORT_VERSION,
       "master": self.sstore.GetMasterNode(),
       "architecture": (platform.architecture()[0], platform.machine()),
+      "hypervisor_type": self.sstore.GetHypervisorType(),
       }
 
     return result
@@ -1804,6 +2054,12 @@ class LURunClusterCommand(NoHooksLU):
     """Run a command on some nodes.
 
     """
+    # put the master at the end of the nodes list
+    master_node = self.sstore.GetMasterNode()
+    if master_node in self.nodes:
+      self.nodes.remove(master_node)
+      self.nodes.append(master_node)
+
     data = []
     for node in self.nodes:
       result = ssh.SSHCall(node, "root", self.op.command)
@@ -2059,6 +2315,8 @@ class LUStartupInstance(LogicalUnit):
     force = self.op.force
     extra_args = getattr(self.op, "extra_args", "")
 
+    self.cfg.MarkInstanceUp(instance.name)
+
     node_current = instance.primary_node
 
     _StartInstanceDisks(self.cfg, instance, force)
@@ -2066,8 +2324,6 @@ class LUStartupInstance(LogicalUnit):
     if not rpc.call_instance_start(node_current, instance, extra_args):
       _ShutdownInstanceDisks(instance, self.cfg)
       raise errors.OpExecError("Could not start instance")
-
-    self.cfg.MarkInstanceUp(instance.name)
 
 
 class LURebootInstance(LogicalUnit):
@@ -2184,10 +2440,10 @@ class LUShutdownInstance(LogicalUnit):
     """
     instance = self.instance
     node_current = instance.primary_node
+    self.cfg.MarkInstanceDown(instance.name)
     if not rpc.call_instance_shutdown(node_current, instance):
       logger.Error("could not shutdown instance")
 
-    self.cfg.MarkInstanceDown(instance.name)
     _ShutdownInstanceDisks(instance, self.cfg)
 
 
@@ -2315,6 +2571,11 @@ class LURenameInstance(LogicalUnit):
     name_info = utils.HostInfo(self.op.new_name)
 
     self.op.new_name = new_name = name_info.name
+    instance_list = self.cfg.GetInstanceList()
+    if new_name in instance_list:
+      raise errors.OpPrereqError("Instance '%s' is already in the cluster" %
+                                 new_name)
+
     if not getattr(self.op, "ignore_ip", False):
       command = ["fping", "-q", name_info.ip]
       result = utils.RunCmd(command)
@@ -2353,7 +2614,7 @@ class LURemoveInstance(LogicalUnit):
   """
   HPATH = "instance-remove"
   HTYPE = constants.HTYPE_INSTANCE
-  _OP_REQP = ["instance_name"]
+  _OP_REQP = ["instance_name", "ignore_failures"]
 
   def BuildHooksEnv(self):
     """Build hooks env.
@@ -2595,7 +2856,7 @@ class LUFailoverInstance(LogicalUnit):
     for dev in instance.disks:
       # for remote_raid1, these are md over drbd
       if not _CheckDiskConsistency(self.cfg, dev, target_node, False):
-        if not self.op.ignore_consistency:
+        if instance.status == "up" and not self.op.ignore_consistency:
           raise errors.OpExecError("Disk %s is degraded on target node,"
                                    " aborting failover." % dev.iv_name)
 
@@ -2620,21 +2881,23 @@ class LUFailoverInstance(LogicalUnit):
     # distribute new instance config to the other nodes
     self.cfg.AddInstance(instance)
 
-    feedback_fn("* activating the instance's disks on target node")
-    logger.Info("Starting instance %s on node %s" %
-                (instance.name, target_node))
+    # Only start the instance if it's marked as up
+    if instance.status == "up":
+      feedback_fn("* activating the instance's disks on target node")
+      logger.Info("Starting instance %s on node %s" %
+                  (instance.name, target_node))
 
-    disks_ok, dummy = _AssembleInstanceDisks(instance, self.cfg,
-                                             ignore_secondaries=True)
-    if not disks_ok:
-      _ShutdownInstanceDisks(instance, self.cfg)
-      raise errors.OpExecError("Can't activate the instance's disks")
+      disks_ok, dummy = _AssembleInstanceDisks(instance, self.cfg,
+                                               ignore_secondaries=True)
+      if not disks_ok:
+        _ShutdownInstanceDisks(instance, self.cfg)
+        raise errors.OpExecError("Can't activate the instance's disks")
 
-    feedback_fn("* starting the instance on the target node")
-    if not rpc.call_instance_start(target_node, instance, None):
-      _ShutdownInstanceDisks(instance, self.cfg)
-      raise errors.OpExecError("Could not start instance %s on node %s." %
-                               (instance.name, target_node))
+      feedback_fn("* starting the instance on the target node")
+      if not rpc.call_instance_start(target_node, instance, None):
+        _ShutdownInstanceDisks(instance, self.cfg)
+        raise errors.OpExecError("Could not start instance %s on node %s." %
+                                 (instance.name, target_node))
 
 
 def _CreateBlockDevOnPrimary(cfg, node, instance, device, info):
@@ -2741,9 +3004,9 @@ def _GenerateDiskTemplate(cfg, template_name,
   #TODO: compute space requirements
 
   vgname = cfg.GetVGName()
-  if template_name == "diskless":
+  if template_name == constants.DT_DISKLESS:
     disks = []
-  elif template_name == "plain":
+  elif template_name == constants.DT_PLAIN:
     if len(secondary_nodes) != 0:
       raise errors.ProgrammerError("Wrong template configuration")
 
@@ -2755,7 +3018,7 @@ def _GenerateDiskTemplate(cfg, template_name,
                            logical_id=(vgname, names[1]),
                            iv_name = "sdb")
     disks = [sda_dev, sdb_dev]
-  elif template_name == "local_raid1":
+  elif template_name == constants.DT_LOCAL_RAID1:
     if len(secondary_nodes) != 0:
       raise errors.ProgrammerError("Wrong template configuration")
 
@@ -2877,15 +3140,76 @@ def _RemoveDisks(instance, cfg):
   return result
 
 
+def _ComputeDiskSize(disk_template, disk_size, swap_size):
+  """Compute disk size requirements in the volume group
+
+  This is currently hard-coded for the two-drive layout.
+
+  """
+  # Required free disk space as a function of disk and swap space
+  req_size_dict = {
+    constants.DT_DISKLESS: None,
+    constants.DT_PLAIN: disk_size + swap_size,
+    constants.DT_LOCAL_RAID1: (disk_size + swap_size) * 2,
+    # 256 MB are added for drbd metadata, 128MB for each drbd device
+    constants.DT_REMOTE_RAID1: disk_size + swap_size + 256,
+    constants.DT_DRBD8: disk_size + swap_size + 256,
+  }
+
+  if disk_template not in req_size_dict:
+    raise errors.ProgrammerError("Disk template '%s' size requirement"
+                                 " is unknown" %  disk_template)
+
+  return req_size_dict[disk_template]
+
+
 class LUCreateInstance(LogicalUnit):
   """Create an instance.
 
   """
   HPATH = "instance-add"
   HTYPE = constants.HTYPE_INSTANCE
-  _OP_REQP = ["instance_name", "mem_size", "disk_size", "pnode",
+  _OP_REQP = ["instance_name", "mem_size", "disk_size",
               "disk_template", "swap_size", "mode", "start", "vcpus",
               "wait_for_sync", "ip_check", "mac"]
+
+  def _RunAllocator(self):
+    """Run the allocator based on input opcode.
+
+    """
+    disks = [{"size": self.op.disk_size, "mode": "w"},
+             {"size": self.op.swap_size, "mode": "w"}]
+    nics = [{"mac": self.op.mac, "ip": getattr(self.op, "ip", None),
+             "bridge": self.op.bridge}]
+    ial = IAllocator(self.cfg, self.sstore,
+                     mode=constants.IALLOCATOR_MODE_ALLOC,
+                     name=self.op.instance_name,
+                     disk_template=self.op.disk_template,
+                     tags=[],
+                     os=self.op.os_type,
+                     vcpus=self.op.vcpus,
+                     mem_size=self.op.mem_size,
+                     disks=disks,
+                     nics=nics,
+                     )
+
+    ial.Run(self.op.iallocator)
+
+    if not ial.success:
+      raise errors.OpPrereqError("Can't compute nodes using"
+                                 " iallocator '%s': %s" % (self.op.iallocator,
+                                                           ial.info))
+    if len(ial.nodes) != ial.required_nodes:
+      raise errors.OpPrereqError("iallocator '%s' returned invalid number"
+                                 " of nodes (%s), required %s" %
+                                 (len(ial.nodes), ial.required_nodes))
+    self.op.pnode = ial.nodes[0]
+    logger.ToStdout("Selected nodes for the instance: %s" %
+                    (", ".join(ial.nodes),))
+    logger.Info("Selected nodes for instance %s via iallocator %s: %s" %
+                (self.op.instance_name, self.op.iallocator, ial.nodes))
+    if ial.required_nodes == 2:
+      self.op.snode = ial.nodes[1]
 
   def BuildHooksEnv(self):
     """Build hooks env.
@@ -2923,7 +3247,10 @@ class LUCreateInstance(LogicalUnit):
     """Check prerequisites.
 
     """
-    for attr in ["kernel_path", "initrd_path", "hvm_boot_order"]:
+    # set optional parameters to none if they don't exist
+    for attr in ["kernel_path", "initrd_path", "hvm_boot_order", "pnode",
+                 "iallocator", "hvm_acpi", "hvm_pae", "hvm_cdrom_image_path",
+                 "vnc_bind_address"]:
       if not hasattr(self.op, attr):
         setattr(self.op, attr, None)
 
@@ -2972,6 +3299,72 @@ class LUCreateInstance(LogicalUnit):
       if getattr(self.op, "os_type", None) is None:
         raise errors.OpPrereqError("No guest OS specified")
 
+    #### instance parameters check
+
+    # disk template and mirror node verification
+    if self.op.disk_template not in constants.DISK_TEMPLATES:
+      raise errors.OpPrereqError("Invalid disk template name")
+
+    # instance name verification
+    hostname1 = utils.HostInfo(self.op.instance_name)
+
+    self.op.instance_name = instance_name = hostname1.name
+    instance_list = self.cfg.GetInstanceList()
+    if instance_name in instance_list:
+      raise errors.OpPrereqError("Instance '%s' is already in the cluster" %
+                                 instance_name)
+
+    # ip validity checks
+    ip = getattr(self.op, "ip", None)
+    if ip is None or ip.lower() == "none":
+      inst_ip = None
+    elif ip.lower() == "auto":
+      inst_ip = hostname1.ip
+    else:
+      if not utils.IsValidIP(ip):
+        raise errors.OpPrereqError("given IP address '%s' doesn't look"
+                                   " like a valid IP" % ip)
+      inst_ip = ip
+    self.inst_ip = self.op.ip = inst_ip
+
+    if self.op.start and not self.op.ip_check:
+      raise errors.OpPrereqError("Cannot ignore IP address conflicts when"
+                                 " adding an instance in start mode")
+
+    if self.op.ip_check:
+      if utils.TcpPing(hostname1.ip, constants.DEFAULT_NODED_PORT):
+        raise errors.OpPrereqError("IP %s of instance %s already in use" %
+                                   (hostname1.ip, instance_name))
+
+    # MAC address verification
+    if self.op.mac != "auto":
+      if not utils.IsValidMac(self.op.mac.lower()):
+        raise errors.OpPrereqError("invalid MAC address specified: %s" %
+                                   self.op.mac)
+
+    # bridge verification
+    bridge = getattr(self.op, "bridge", None)
+    if bridge is None:
+      self.op.bridge = self.cfg.GetDefBridge()
+    else:
+      self.op.bridge = bridge
+
+    # boot order verification
+    if self.op.hvm_boot_order is not None:
+      if len(self.op.hvm_boot_order.strip("acdn")) != 0:
+        raise errors.OpPrereqError("invalid boot order specified,"
+                                   " must be one or more of [acdn]")
+    #### allocator run
+
+    if [self.op.iallocator, self.op.pnode].count(None) != 1:
+      raise errors.OpPrereqError("One and only one of iallocator and primary"
+                                 " node must be given")
+
+    if self.op.iallocator is not None:
+      self._RunAllocator()
+
+    #### node related checks
+
     # check primary node
     pnode = self.cfg.GetNodeInfo(self.cfg.ExpandNodeName(self.op.pnode))
     if pnode is None:
@@ -2980,10 +3373,8 @@ class LUCreateInstance(LogicalUnit):
     self.op.pnode = pnode.name
     self.pnode = pnode
     self.secondaries = []
-    # disk template and mirror node verification
-    if self.op.disk_template not in constants.DISK_TEMPLATES:
-      raise errors.OpPrereqError("Invalid disk template name")
 
+    # mirror node verification
     if self.op.disk_template in constants.DTS_NET_MIRROR:
       if getattr(self.op, "snode", None) is None:
         raise errors.OpPrereqError("The networked disk templates need"
@@ -2998,21 +3389,8 @@ class LUCreateInstance(LogicalUnit):
                                    " the primary node.")
       self.secondaries.append(snode_name)
 
-    # Required free disk space as a function of disk and swap space
-    req_size_dict = {
-      constants.DT_DISKLESS: None,
-      constants.DT_PLAIN: self.op.disk_size + self.op.swap_size,
-      constants.DT_LOCAL_RAID1: (self.op.disk_size + self.op.swap_size) * 2,
-      # 256 MB are added for drbd metadata, 128MB for each drbd device
-      constants.DT_REMOTE_RAID1: self.op.disk_size + self.op.swap_size + 256,
-      constants.DT_DRBD8: self.op.disk_size + self.op.swap_size + 256,
-    }
-
-    if self.op.disk_template not in req_size_dict:
-      raise errors.ProgrammerError("Disk template '%s' size requirement"
-                                   " is unknown" %  self.op.disk_template)
-
-    req_size = req_size_dict[self.op.disk_template]
+    req_size = _ComputeDiskSize(self.op.disk_template,
+                                self.op.disk_size, self.op.swap_size)
 
     # Check lv size requirements
     if req_size is not None:
@@ -3041,60 +3419,37 @@ class LUCreateInstance(LogicalUnit):
     if self.op.kernel_path == constants.VALUE_NONE:
       raise errors.OpPrereqError("Can't set instance kernel to none")
 
-    # instance verification
-    hostname1 = utils.HostInfo(self.op.instance_name)
 
-    self.op.instance_name = instance_name = hostname1.name
-    instance_list = self.cfg.GetInstanceList()
-    if instance_name in instance_list:
-      raise errors.OpPrereqError("Instance '%s' is already in the cluster" %
-                                 instance_name)
-
-    ip = getattr(self.op, "ip", None)
-    if ip is None or ip.lower() == "none":
-      inst_ip = None
-    elif ip.lower() == "auto":
-      inst_ip = hostname1.ip
-    else:
-      if not utils.IsValidIP(ip):
-        raise errors.OpPrereqError("given IP address '%s' doesn't look"
-                                   " like a valid IP" % ip)
-      inst_ip = ip
-    self.inst_ip = inst_ip
-
-    if self.op.start and not self.op.ip_check:
-      raise errors.OpPrereqError("Cannot ignore IP address conflicts when"
-                                 " adding an instance in start mode")
-
-    if self.op.ip_check:
-      if utils.TcpPing(utils.HostInfo().name, hostname1.ip,
-                       constants.DEFAULT_NODED_PORT):
-        raise errors.OpPrereqError("IP %s of instance %s already in use" %
-                                   (hostname1.ip, instance_name))
-
-    # MAC address verification
-    if self.op.mac != "auto":
-      if not utils.IsValidMac(self.op.mac.lower()):
-        raise errors.OpPrereqError("invalid MAC address specified: %s" %
-                                   self.op.mac)
-
-    # bridge verification
-    bridge = getattr(self.op, "bridge", None)
-    if bridge is None:
-      self.op.bridge = self.cfg.GetDefBridge()
-    else:
-      self.op.bridge = bridge
-
+    # bridge check on primary node
     if not rpc.call_bridges_exist(self.pnode.name, [self.op.bridge]):
       raise errors.OpPrereqError("target bridge '%s' does not exist on"
                                  " destination node '%s'" %
                                  (self.op.bridge, pnode.name))
 
-    # boot order verification
-    if self.op.hvm_boot_order is not None:
-      if len(self.op.hvm_boot_order.strip("acdn")) != 0:
-        raise errors.OpPrereqError("invalid boot order specified,"
-                                   " must be one or more of [acdn]")
+    # memory check on primary node
+    if self.op.start:
+      _CheckNodeFreeMemory(self.cfg, self.pnode.name,
+                           "creating instance %s" % self.op.instance_name,
+                           self.op.mem_size)
+
+    # hvm_cdrom_image_path verification
+    if self.op.hvm_cdrom_image_path is not None:
+      if not os.path.isabs(self.op.hvm_cdrom_image_path):
+        raise errors.OpPrereqError("The path to the HVM CDROM image must"
+                                   " be an absolute path or None, not %s" %
+                                   self.op.hvm_cdrom_image_path)
+      if not os.path.isfile(self.op.hvm_cdrom_image_path):
+        raise errors.OpPrereqError("The HVM CDROM image must either be a"
+                                   " regular file or a symlink pointing to"
+                                   " an existing regular file, not %s" %
+                                   self.op.hvm_cdrom_image_path)
+
+    # vnc_bind_address verification
+    if self.op.vnc_bind_address is not None:
+      if not utils.IsValidIP(self.op.vnc_bind_address):
+        raise errors.OpPrereqError("given VNC bind address '%s' doesn't look"
+                                   " like a valid IP address" %
+                                   self.op.vnc_bind_address)
 
     if self.op.start:
       self.instance_status = 'up'
@@ -3123,6 +3478,9 @@ class LUCreateInstance(LogicalUnit):
     else:
       network_port = None
 
+    if self.op.vnc_bind_address is None:
+      self.op.vnc_bind_address = constants.VNC_DEFAULT_BIND_ADDRESS
+
     disks = _GenerateDiskTemplate(self.cfg,
                                   self.op.disk_template,
                                   instance, pnode_name,
@@ -3140,6 +3498,10 @@ class LUCreateInstance(LogicalUnit):
                             kernel_path=self.op.kernel_path,
                             initrd_path=self.op.initrd_path,
                             hvm_boot_order=self.op.hvm_boot_order,
+                            hvm_acpi=self.op.hvm_acpi,
+                            hvm_pae=self.op.hvm_pae,
+                            hvm_cdrom_image_path=self.op.hvm_cdrom_image_path,
+                            vnc_bind_address=self.op.vnc_bind_address,
                             )
 
     feedback_fn("* creating instance disks...")
@@ -3458,6 +3820,29 @@ class LUReplaceDisks(LogicalUnit):
   HTYPE = constants.HTYPE_INSTANCE
   _OP_REQP = ["instance_name", "mode", "disks"]
 
+  def _RunAllocator(self):
+    """Compute a new secondary node using an IAllocator.
+
+    """
+    ial = IAllocator(self.cfg, self.sstore,
+                     mode=constants.IALLOCATOR_MODE_RELOC,
+                     name=self.op.instance_name,
+                     relocate_from=[self.sec_node])
+
+    ial.Run(self.op.iallocator)
+
+    if not ial.success:
+      raise errors.OpPrereqError("Can't compute nodes using"
+                                 " iallocator '%s': %s" % (self.op.iallocator,
+                                                           ial.info))
+    if len(ial.nodes) != ial.required_nodes:
+      raise errors.OpPrereqError("iallocator '%s' returned invalid number"
+                                 " of nodes (%s), required %s" %
+                                 (len(ial.nodes), ial.required_nodes))
+    self.op.remote_node = ial.nodes[0]
+    logger.ToStdout("Selected new secondary for the instance: %s" %
+                    self.op.remote_node)
+
   def BuildHooksEnv(self):
     """Build hooks env.
 
@@ -3484,6 +3869,9 @@ class LUReplaceDisks(LogicalUnit):
     This checks that the instance is in the cluster.
 
     """
+    if not hasattr(self.op, "remote_node"):
+      self.op.remote_node = None
+
     instance = self.cfg.GetInstanceInfo(
       self.cfg.ExpandInstanceName(self.op.instance_name))
     if instance is None:
@@ -3503,7 +3891,14 @@ class LUReplaceDisks(LogicalUnit):
 
     self.sec_node = instance.secondary_nodes[0]
 
-    remote_node = getattr(self.op, "remote_node", None)
+    ia_name = getattr(self.op, "iallocator", None)
+    if ia_name is not None:
+      if self.op.remote_node is not None:
+        raise errors.OpPrereqError("Give either the iallocator or the new"
+                                   " secondary, not both")
+      self.op.remote_node = self._RunAllocator()
+
+    remote_node = self.op.remote_node
     if remote_node is not None:
       remote_node = self.cfg.ExpandNodeName(remote_node)
       if remote_node is None:
@@ -3756,7 +4151,7 @@ class LUReplaceDisks(LogicalUnit):
       # ok, we created the new LVs, so now we know we have the needed
       # storage; as such, we proceed on the target node to rename
       # old_lv to _old, and new_lv to old_lv; note that we rename LVs
-      # using the assumption than logical_id == physical_id (which in
+      # using the assumption that logical_id == physical_id (which in
       # turn is the unique_id on that node)
 
       # FIXME(iustin): use a better name for the replaced LVs
@@ -4100,12 +4495,23 @@ class LUQueryInstanceData(NoHooksLU):
         "memory": instance.memory,
         "nics": [(nic.mac, nic.ip, nic.bridge) for nic in instance.nics],
         "disks": disks,
-        "network_port": instance.network_port,
         "vcpus": instance.vcpus,
-        "kernel_path": instance.kernel_path,
-        "initrd_path": instance.initrd_path,
-        "hvm_boot_order": instance.hvm_boot_order,
         }
+
+      htkind = self.sstore.GetHypervisorType()
+      if htkind == constants.HT_XEN_PVM30:
+        idict["kernel_path"] = instance.kernel_path
+        idict["initrd_path"] = instance.initrd_path
+
+      if htkind == constants.HT_XEN_HVM31:
+        idict["hvm_boot_order"] = instance.hvm_boot_order
+        idict["hvm_acpi"] = instance.hvm_acpi
+        idict["hvm_pae"] = instance.hvm_pae
+        idict["hvm_cdrom_image_path"] = instance.hvm_cdrom_image_path
+
+      if htkind in constants.HTS_REQ_PORT:
+        idict["vnc_bind_address"] = instance.vnc_bind_address
+        idict["network_port"] = instance.network_port
 
       result[instance.name] = idict
 
@@ -4164,8 +4570,14 @@ class LUSetInstanceParms(LogicalUnit):
     self.kernel_path = getattr(self.op, "kernel_path", None)
     self.initrd_path = getattr(self.op, "initrd_path", None)
     self.hvm_boot_order = getattr(self.op, "hvm_boot_order", None)
+    self.hvm_acpi = getattr(self.op, "hvm_acpi", None)
+    self.hvm_pae = getattr(self.op, "hvm_pae", None)
+    self.hvm_cdrom_image_path = getattr(self.op, "hvm_cdrom_image_path", None)
+    self.vnc_bind_address = getattr(self.op, "vnc_bind_address", None)
     all_parms = [self.mem, self.vcpus, self.ip, self.bridge, self.mac,
-                 self.kernel_path, self.initrd_path, self.hvm_boot_order]
+                 self.kernel_path, self.initrd_path, self.hvm_boot_order,
+                 self.hvm_acpi, self.hvm_pae, self.hvm_cdrom_image_path,
+                 self.vnc_bind_address]
     if all_parms.count(None) == len(all_parms):
       raise errors.OpPrereqError("No changes submitted")
     if self.mem is not None:
@@ -4225,6 +4637,27 @@ class LUSetInstanceParms(LogicalUnit):
                                      " must be one or more of [acdn]"
                                      " or 'default'")
 
+    # hvm_cdrom_image_path verification
+    if self.op.hvm_cdrom_image_path is not None:
+      if not (os.path.isabs(self.op.hvm_cdrom_image_path) or
+              self.op.hvm_cdrom_image_path.lower() == "none"):
+        raise errors.OpPrereqError("The path to the HVM CDROM image must"
+                                   " be an absolute path or None, not %s" %
+                                   self.op.hvm_cdrom_image_path)
+      if not (os.path.isfile(self.op.hvm_cdrom_image_path) or
+              self.op.hvm_cdrom_image_path.lower() == "none"):
+        raise errors.OpPrereqError("The HVM CDROM image must either be a"
+                                   " regular file or a symlink pointing to"
+                                   " an existing regular file, not %s" %
+                                   self.op.hvm_cdrom_image_path)
+
+    # vnc_bind_address verification
+    if self.op.vnc_bind_address is not None:
+      if not utils.IsValidIP(self.op.vnc_bind_address):
+        raise errors.OpPrereqError("given VNC bind address '%s' doesn't look"
+                                   " like a valid IP address" %
+                                   self.op.vnc_bind_address)
+
     instance = self.cfg.GetInstanceInfo(
       self.cfg.ExpandInstanceName(self.op.instance_name))
     if instance is None:
@@ -4268,6 +4701,21 @@ class LUSetInstanceParms(LogicalUnit):
       else:
         instance.hvm_boot_order = self.hvm_boot_order
       result.append(("hvm_boot_order", self.hvm_boot_order))
+    if self.hvm_acpi is not None:
+      instance.hvm_acpi = self.hvm_acpi
+      result.append(("hvm_acpi", self.hvm_acpi))
+    if self.hvm_pae is not None:
+      instance.hvm_pae = self.hvm_pae
+      result.append(("hvm_pae", self.hvm_pae))
+    if self.hvm_cdrom_image_path:
+      if self.hvm_cdrom_image_path == constants.VALUE_NONE:
+        instance.hvm_cdrom_image_path = None
+      else:
+        instance.hvm_cdrom_image_path = self.hvm_cdrom_image_path
+      result.append(("hvm_cdrom_image_path", self.hvm_cdrom_image_path))
+    if self.vnc_bind_address:
+      instance.vnc_bind_address = self.vnc_bind_address
+      result.append(("vnc_bind_address", self.vnc_bind_address))
 
     self.cfg.AddInstance(instance)
 
@@ -4324,7 +4772,7 @@ class LUExportInstance(LogicalUnit):
   def CheckPrereq(self):
     """Check prerequisites.
 
-    This checks that the instance name is a valid one.
+    This checks that the instance and node names are valid.
 
     """
     instance_name = self.cfg.ExpandInstanceName(self.op.instance_name)
@@ -4349,10 +4797,11 @@ class LUExportInstance(LogicalUnit):
     instance = self.instance
     dst_node = self.dst_node
     src_node = instance.primary_node
-    # shutdown the instance, unless requested not to do so
     if self.op.shutdown:
-      op = opcodes.OpShutdownInstance(instance_name=instance.name)
-      self.proc.ChainOpCode(op)
+      # shutdown the instance, but not the disks
+      if not rpc.call_instance_shutdown(src_node, instance):
+        raise errors.OpExecError("Could not shutdown instance %s on node %s" %
+                                 (instance.name, src_node))
 
     vgname = self.cfg.GetVGName()
 
@@ -4375,10 +4824,10 @@ class LUExportInstance(LogicalUnit):
             snap_disks.append(new_dev)
 
     finally:
-      if self.op.shutdown:
-        op = opcodes.OpStartupInstance(instance_name=instance.name,
-                                       force=False)
-        self.proc.ChainOpCode(op)
+      if self.op.shutdown and instance.status == "up":
+        if not rpc.call_instance_start(src_node, instance, None):
+          _ShutdownInstanceDisks(instance, self.cfg)
+          raise errors.OpExecError("Could not start instance")
 
     # TODO: check for size
 
@@ -4410,6 +4859,45 @@ class LUExportInstance(LogicalUnit):
           if not rpc.call_export_remove(node, instance.name):
             logger.Error("could not remove older export for instance %s"
                          " on node %s" % (instance.name, node))
+
+
+class LURemoveExport(NoHooksLU):
+  """Remove exports related to the named instance.
+
+  """
+  _OP_REQP = ["instance_name"]
+
+  def CheckPrereq(self):
+    """Check prerequisites.
+    """
+    pass
+
+  def Exec(self, feedback_fn):
+    """Remove any export.
+
+    """
+    instance_name = self.cfg.ExpandInstanceName(self.op.instance_name)
+    # If the instance was not found we'll try with the name that was passed in.
+    # This will only work if it was an FQDN, though.
+    fqdn_warn = False
+    if not instance_name:
+      fqdn_warn = True
+      instance_name = self.op.instance_name
+
+    op = opcodes.OpQueryExports(nodes=[])
+    exportlist = self.proc.ChainOpCode(op)
+    found = False
+    for node in exportlist:
+      if instance_name in exportlist[node]:
+        found = True
+        if not rpc.call_export_remove(node, instance_name):
+          logger.Error("could not remove export for instance %s"
+                       " on node %s" % (instance_name, node))
+
+    if fqdn_warn and not found:
+      feedback_fn("Export not found. If trying to remove an export belonging"
+                  " to a deleted instance please use its Fully Qualified"
+                  " Domain Name.")
 
 
 class TagsLU(NoHooksLU):
@@ -4597,3 +5085,372 @@ class LUTestDelay(NoHooksLU):
         if not node_result:
           raise errors.OpExecError("Failure during rpc call to node %s,"
                                    " result: %s" % (node, node_result))
+
+
+class IAllocator(object):
+  """IAllocator framework.
+
+  An IAllocator instance has three sets of attributes:
+    - cfg/sstore that are needed to query the cluster
+    - input data (all members of the _KEYS class attribute are required)
+    - four buffer attributes (in|out_data|text), that represent the
+      input (to the external script) in text and data structure format,
+      and the output from it, again in two formats
+    - the result variables from the script (success, info, nodes) for
+      easy usage
+
+  """
+  _ALLO_KEYS = [
+    "mem_size", "disks", "disk_template",
+    "os", "tags", "nics", "vcpus",
+    ]
+  _RELO_KEYS = [
+    "relocate_from",
+    ]
+
+  def __init__(self, cfg, sstore, mode, name, **kwargs):
+    self.cfg = cfg
+    self.sstore = sstore
+    # init buffer variables
+    self.in_text = self.out_text = self.in_data = self.out_data = None
+    # init all input fields so that pylint is happy
+    self.mode = mode
+    self.name = name
+    self.mem_size = self.disks = self.disk_template = None
+    self.os = self.tags = self.nics = self.vcpus = None
+    self.relocate_from = None
+    # computed fields
+    self.required_nodes = None
+    # init result fields
+    self.success = self.info = self.nodes = None
+    if self.mode == constants.IALLOCATOR_MODE_ALLOC:
+      keyset = self._ALLO_KEYS
+    elif self.mode == constants.IALLOCATOR_MODE_RELOC:
+      keyset = self._RELO_KEYS
+    else:
+      raise errors.ProgrammerError("Unknown mode '%s' passed to the"
+                                   " IAllocator" % self.mode)
+    for key in kwargs:
+      if key not in keyset:
+        raise errors.ProgrammerError("Invalid input parameter '%s' to"
+                                     " IAllocator" % key)
+      setattr(self, key, kwargs[key])
+    for key in keyset:
+      if key not in kwargs:
+        raise errors.ProgrammerError("Missing input parameter '%s' to"
+                                     " IAllocator" % key)
+    self._BuildInputData()
+
+  def _ComputeClusterData(self):
+    """Compute the generic allocator input data.
+
+    This is the data that is independent of the actual operation.
+
+    """
+    cfg = self.cfg
+    # cluster data
+    data = {
+      "version": 1,
+      "cluster_name": self.sstore.GetClusterName(),
+      "cluster_tags": list(cfg.GetClusterInfo().GetTags()),
+      "hypervisor_type": self.sstore.GetHypervisorType(),
+      # we don't have job IDs
+      }
+
+    i_list = [cfg.GetInstanceInfo(iname) for iname in cfg.GetInstanceList()]
+
+    # node data
+    node_results = {}
+    node_list = cfg.GetNodeList()
+    node_data = rpc.call_node_info(node_list, cfg.GetVGName())
+    for nname in node_list:
+      ninfo = cfg.GetNodeInfo(nname)
+      if nname not in node_data or not isinstance(node_data[nname], dict):
+        raise errors.OpExecError("Can't get data for node %s" % nname)
+      remote_info = node_data[nname]
+      for attr in ['memory_total', 'memory_free', 'memory_dom0',
+                   'vg_size', 'vg_free', 'cpu_total']:
+        if attr not in remote_info:
+          raise errors.OpExecError("Node '%s' didn't return attribute '%s'" %
+                                   (nname, attr))
+        try:
+          remote_info[attr] = int(remote_info[attr])
+        except ValueError, err:
+          raise errors.OpExecError("Node '%s' returned invalid value for '%s':"
+                                   " %s" % (nname, attr, str(err)))
+      # compute memory used by primary instances
+      i_p_mem = i_p_up_mem = 0
+      for iinfo in i_list:
+        if iinfo.primary_node == nname:
+          i_p_mem += iinfo.memory
+          if iinfo.status == "up":
+            i_p_up_mem += iinfo.memory
+
+      # compute memory used by instances
+      pnr = {
+        "tags": list(ninfo.GetTags()),
+        "total_memory": remote_info['memory_total'],
+        "reserved_memory": remote_info['memory_dom0'],
+        "free_memory": remote_info['memory_free'],
+        "i_pri_memory": i_p_mem,
+        "i_pri_up_memory": i_p_up_mem,
+        "total_disk": remote_info['vg_size'],
+        "free_disk": remote_info['vg_free'],
+        "primary_ip": ninfo.primary_ip,
+        "secondary_ip": ninfo.secondary_ip,
+        "total_cpus": remote_info['cpu_total'],
+        }
+      node_results[nname] = pnr
+    data["nodes"] = node_results
+
+    # instance data
+    instance_data = {}
+    for iinfo in i_list:
+      nic_data = [{"mac": n.mac, "ip": n.ip, "bridge": n.bridge}
+                  for n in iinfo.nics]
+      pir = {
+        "tags": list(iinfo.GetTags()),
+        "should_run": iinfo.status == "up",
+        "vcpus": iinfo.vcpus,
+        "memory": iinfo.memory,
+        "os": iinfo.os,
+        "nodes": [iinfo.primary_node] + list(iinfo.secondary_nodes),
+        "nics": nic_data,
+        "disks": [{"size": dsk.size, "mode": "w"} for dsk in iinfo.disks],
+        "disk_template": iinfo.disk_template,
+        }
+      instance_data[iinfo.name] = pir
+
+    data["instances"] = instance_data
+
+    self.in_data = data
+
+  def _AddNewInstance(self):
+    """Add new instance data to allocator structure.
+
+    This in combination with _AllocatorGetClusterData will create the
+    correct structure needed as input for the allocator.
+
+    The checks for the completeness of the opcode must have already been
+    done.
+
+    """
+    data = self.in_data
+    if len(self.disks) != 2:
+      raise errors.OpExecError("Only two-disk configurations supported")
+
+    disk_space = _ComputeDiskSize(self.disk_template,
+                                  self.disks[0]["size"], self.disks[1]["size"])
+
+    if self.disk_template in constants.DTS_NET_MIRROR:
+      self.required_nodes = 2
+    else:
+      self.required_nodes = 1
+    request = {
+      "type": "allocate",
+      "name": self.name,
+      "disk_template": self.disk_template,
+      "tags": self.tags,
+      "os": self.os,
+      "vcpus": self.vcpus,
+      "memory": self.mem_size,
+      "disks": self.disks,
+      "disk_space_total": disk_space,
+      "nics": self.nics,
+      "required_nodes": self.required_nodes,
+      }
+    data["request"] = request
+
+  def _AddRelocateInstance(self):
+    """Add relocate instance data to allocator structure.
+
+    This in combination with _IAllocatorGetClusterData will create the
+    correct structure needed as input for the allocator.
+
+    The checks for the completeness of the opcode must have already been
+    done.
+
+    """
+    instance = self.cfg.GetInstanceInfo(self.name)
+    if instance is None:
+      raise errors.ProgrammerError("Unknown instance '%s' passed to"
+                                   " IAllocator" % self.name)
+
+    if instance.disk_template not in constants.DTS_NET_MIRROR:
+      raise errors.OpPrereqError("Can't relocate non-mirrored instances")
+
+    if len(instance.secondary_nodes) != 1:
+      raise errors.OpPrereqError("Instance has not exactly one secondary node")
+
+    self.required_nodes = 1
+
+    disk_space = _ComputeDiskSize(instance.disk_template,
+                                  instance.disks[0].size,
+                                  instance.disks[1].size)
+
+    request = {
+      "type": "relocate",
+      "name": self.name,
+      "disk_space_total": disk_space,
+      "required_nodes": self.required_nodes,
+      "relocate_from": self.relocate_from,
+      }
+    self.in_data["request"] = request
+
+  def _BuildInputData(self):
+    """Build input data structures.
+
+    """
+    self._ComputeClusterData()
+
+    if self.mode == constants.IALLOCATOR_MODE_ALLOC:
+      self._AddNewInstance()
+    else:
+      self._AddRelocateInstance()
+
+    self.in_text = serializer.Dump(self.in_data)
+
+  def Run(self, name, validate=True, call_fn=rpc.call_iallocator_runner):
+    """Run an instance allocator and return the results.
+
+    """
+    data = self.in_text
+
+    result = call_fn(self.sstore.GetMasterNode(), name, self.in_text)
+
+    if not isinstance(result, tuple) or len(result) != 4:
+      raise errors.OpExecError("Invalid result from master iallocator runner")
+
+    rcode, stdout, stderr, fail = result
+
+    if rcode == constants.IARUN_NOTFOUND:
+      raise errors.OpExecError("Can't find allocator '%s'" % name)
+    elif rcode == constants.IARUN_FAILURE:
+        raise errors.OpExecError("Instance allocator call failed: %s,"
+                                 " output: %s" %
+                                 (fail, stdout+stderr))
+    self.out_text = stdout
+    if validate:
+      self._ValidateResult()
+
+  def _ValidateResult(self):
+    """Process the allocator results.
+
+    This will process and if successful save the result in
+    self.out_data and the other parameters.
+
+    """
+    try:
+      rdict = serializer.Load(self.out_text)
+    except Exception, err:
+      raise errors.OpExecError("Can't parse iallocator results: %s" % str(err))
+
+    if not isinstance(rdict, dict):
+      raise errors.OpExecError("Can't parse iallocator results: not a dict")
+
+    for key in "success", "info", "nodes":
+      if key not in rdict:
+        raise errors.OpExecError("Can't parse iallocator results:"
+                                 " missing key '%s'" % key)
+      setattr(self, key, rdict[key])
+
+    if not isinstance(rdict["nodes"], list):
+      raise errors.OpExecError("Can't parse iallocator results: 'nodes' key"
+                               " is not a list")
+    self.out_data = rdict
+
+
+class LUTestAllocator(NoHooksLU):
+  """Run allocator tests.
+
+  This LU runs the allocator tests
+
+  """
+  _OP_REQP = ["direction", "mode", "name"]
+
+  def CheckPrereq(self):
+    """Check prerequisites.
+
+    This checks the opcode parameters depending on the director and mode test.
+
+    """
+    if self.op.mode == constants.IALLOCATOR_MODE_ALLOC:
+      for attr in ["name", "mem_size", "disks", "disk_template",
+                   "os", "tags", "nics", "vcpus"]:
+        if not hasattr(self.op, attr):
+          raise errors.OpPrereqError("Missing attribute '%s' on opcode input" %
+                                     attr)
+      iname = self.cfg.ExpandInstanceName(self.op.name)
+      if iname is not None:
+        raise errors.OpPrereqError("Instance '%s' already in the cluster" %
+                                   iname)
+      if not isinstance(self.op.nics, list):
+        raise errors.OpPrereqError("Invalid parameter 'nics'")
+      for row in self.op.nics:
+        if (not isinstance(row, dict) or
+            "mac" not in row or
+            "ip" not in row or
+            "bridge" not in row):
+          raise errors.OpPrereqError("Invalid contents of the"
+                                     " 'nics' parameter")
+      if not isinstance(self.op.disks, list):
+        raise errors.OpPrereqError("Invalid parameter 'disks'")
+      if len(self.op.disks) != 2:
+        raise errors.OpPrereqError("Only two-disk configurations supported")
+      for row in self.op.disks:
+        if (not isinstance(row, dict) or
+            "size" not in row or
+            not isinstance(row["size"], int) or
+            "mode" not in row or
+            row["mode"] not in ['r', 'w']):
+          raise errors.OpPrereqError("Invalid contents of the"
+                                     " 'disks' parameter")
+    elif self.op.mode == constants.IALLOCATOR_MODE_RELOC:
+      if not hasattr(self.op, "name"):
+        raise errors.OpPrereqError("Missing attribute 'name' on opcode input")
+      fname = self.cfg.ExpandInstanceName(self.op.name)
+      if fname is None:
+        raise errors.OpPrereqError("Instance '%s' not found for relocation" %
+                                   self.op.name)
+      self.op.name = fname
+      self.relocate_from = self.cfg.GetInstanceInfo(fname).secondary_nodes
+    else:
+      raise errors.OpPrereqError("Invalid test allocator mode '%s'" %
+                                 self.op.mode)
+
+    if self.op.direction == constants.IALLOCATOR_DIR_OUT:
+      if not hasattr(self.op, "allocator") or self.op.allocator is None:
+        raise errors.OpPrereqError("Missing allocator name")
+    elif self.op.direction != constants.IALLOCATOR_DIR_IN:
+      raise errors.OpPrereqError("Wrong allocator test '%s'" %
+                                 self.op.direction)
+
+  def Exec(self, feedback_fn):
+    """Run the allocator test.
+
+    """
+    if self.op.mode == constants.IALLOCATOR_MODE_ALLOC:
+      ial = IAllocator(self.cfg, self.sstore,
+                       mode=self.op.mode,
+                       name=self.op.name,
+                       mem_size=self.op.mem_size,
+                       disks=self.op.disks,
+                       disk_template=self.op.disk_template,
+                       os=self.op.os,
+                       tags=self.op.tags,
+                       nics=self.op.nics,
+                       vcpus=self.op.vcpus,
+                       )
+    else:
+      ial = IAllocator(self.cfg, self.sstore,
+                       mode=self.op.mode,
+                       name=self.op.name,
+                       relocate_from=list(self.relocate_from),
+                       )
+
+    if self.op.direction == constants.IALLOCATOR_DIR_IN:
+      result = ial.in_text
+    else:
+      ial.Run(self.op.allocator, validate=False)
+      result = ial.out_text
+    return result

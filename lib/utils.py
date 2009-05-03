@@ -38,6 +38,7 @@ import pwd
 import itertools
 import select
 import fcntl
+import resource
 
 from cStringIO import StringIO
 
@@ -103,7 +104,7 @@ def _GetLockFile(subsystem):
   return "%s/ganeti_lock_%s" % (constants.LOCK_DIR, subsystem)
 
 
-def Lock(name, max_retries=None, debug=False):
+def Lock(name, max_retries=None, debug=False, autoclean=True):
   """Lock a given subsystem.
 
   In case the lock is already held by an alive process, the function
@@ -123,6 +124,7 @@ def Lock(name, max_retries=None, debug=False):
     raise errors.LockError('Lock "%s" already held!' % (name,))
 
   errcount = 0
+  cleanupcount = 0
 
   retries = 0
   while True:
@@ -151,8 +153,18 @@ def Lock(name, max_retries=None, debug=False):
                                (lockfile,))
 
       if not IsProcessAlive(pid):
-        raise errors.LockError("Stale lockfile %s for pid %d?" %
-                               (lockfile, pid))
+        if autoclean:
+          cleanupcount += 1
+          if cleanupcount >= 5:
+            raise errors.LockError, ("Too many stale lock cleanups! Check"
+                                     " what process is dying.")
+          logger.Error('Stale lockfile %s for pid %d, autocleaned.' %
+                       (lockfile, pid))
+          RemoveFile(lockfile)
+          continue
+        else:
+          raise errors.LockError("Stale lockfile %s for pid %d?" %
+                                 (lockfile, pid))
 
       if max_retries and max_retries <= retries:
         raise errors.LockError("Can't acquire lock during the specified"
@@ -908,25 +920,29 @@ def ShellQuoteArgs(args):
   return ' '.join([ShellQuote(i) for i in args])
 
 
-
-def TcpPing(source, target, port, timeout=10, live_port_needed=False):
+def TcpPing(target, port, timeout=10, live_port_needed=False, source=None):
   """Simple ping implementation using TCP connect(2).
 
-  Try to do a TCP connect(2) from the specified source IP to the specified
-  target IP and the specified target port. If live_port_needed is set to true,
-  requires the remote end to accept the connection. The timeout is specified
-  in seconds and defaults to 10 seconds
+  Try to do a TCP connect(2) from an optional source IP to the
+  specified target IP and the specified target port. If the optional
+  parameter live_port_needed is set to true, requires the remote end
+  to accept the connection. The timeout is specified in seconds and
+  defaults to 10 seconds. If the source optional argument is not
+  passed, the source address selection is left to the kernel,
+  otherwise we try to connect using the passed address (failures to
+  bind other than EADDRNOTAVAIL will be ignored).
 
   """
   sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
   sucess = False
 
-  try:
-    sock.bind((source, 0))
-  except socket.error, (errcode, errstring):
-    if errcode == errno.EADDRNOTAVAIL:
-      success = False
+  if source is not None:
+    try:
+      sock.bind((source, 0))
+    except socket.error, (errcode, errstring):
+      if errcode == errno.EADDRNOTAVAIL:
+        success = False
 
   sock.settimeout(timeout)
 
@@ -1075,3 +1091,80 @@ def TestDelay(duration):
     return False
   time.sleep(duration)
   return True
+
+
+def Daemonize(logfile, noclose_fds=None):
+  """Daemonize the current process.
+
+  This detaches the current process from the controlling terminal and
+  runs it in the background as a daemon.
+
+  """
+  UMASK = 077
+  WORKDIR = "/"
+  # Default maximum for the number of available file descriptors.
+  if 'SC_OPEN_MAX' in os.sysconf_names:
+    try:
+      MAXFD = os.sysconf('SC_OPEN_MAX')
+      if MAXFD < 0:
+        MAXFD = 1024
+    except OSError:
+      MAXFD = 1024
+  else:
+    MAXFD = 1024
+
+  # this might fail
+  pid = os.fork()
+  if (pid == 0):  # The first child.
+    os.setsid()
+    # this might fail
+    pid = os.fork() # Fork a second child.
+    if (pid == 0):  # The second child.
+      os.chdir(WORKDIR)
+      os.umask(UMASK)
+    else:
+      # exit() or _exit()?  See below.
+      os._exit(0) # Exit parent (the first child) of the second child.
+  else:
+    os._exit(0) # Exit parent of the first child.
+  maxfd = resource.getrlimit(resource.RLIMIT_NOFILE)[1]
+  if (maxfd == resource.RLIM_INFINITY):
+    maxfd = MAXFD
+
+  # Iterate through and close all file descriptors.
+  for fd in range(0, maxfd):
+    if noclose_fds and fd in noclose_fds:
+      continue
+    try:
+      os.close(fd)
+    except OSError: # ERROR, fd wasn't open to begin with (ignored)
+      pass
+  os.open(logfile, os.O_RDWR|os.O_CREAT|os.O_APPEND, 0600)
+  # Duplicate standard input to standard output and standard error.
+  os.dup2(0, 1)     # standard output (1)
+  os.dup2(0, 2)     # standard error (2)
+  return 0
+
+
+def FindFile(name, search_path, test=os.path.exists):
+  """Look for a filesystem object in a given path.
+
+  This is an abstract method to search for filesystem object (files,
+  dirs) under a given search path.
+
+  Args:
+    - name: the name to look for
+    - search_path: list of directory names
+    - test: the test which the full path must satisfy
+      (defaults to os.path.exists)
+
+  Returns:
+    - full path to the item if found
+    - None otherwise
+
+  """
+  for dir_name in search_path:
+    item_name = os.path.sep.join([dir_name, name])
+    if test(item_name):
+      return item_name
+  return None

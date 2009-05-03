@@ -83,7 +83,7 @@ class OpRunClusterCommand(OpCode):
 class OpVerifyCluster(OpCode):
   """Verify the cluster state."""
   OP_ID = "OP_CLUSTER_VERIFY"
-  __slots__ = []
+  __slots__ = ["skip_checks"]
 
 
 class OpVerifyDisks(OpCode):
@@ -140,7 +140,7 @@ class OpRemoveNode(OpCode):
 class OpAddNode(OpCode):
   """Add a node."""
   OP_ID = "OP_NODE_ADD"
-  __slots__ = ["node_name", "primary_ip", "secondary_ip"]
+  __slots__ = ["node_name", "primary_ip", "secondary_ip", "readd"]
 
 
 class OpQueryNodes(OpCode):
@@ -165,7 +165,9 @@ class OpCreateInstance(OpCode):
     "disk_template", "snode", "swap_size", "mode",
     "vcpus", "ip", "bridge", "src_node", "src_path", "start",
     "wait_for_sync", "ip_check", "mac",
-    "kernel_path", "initrd_path", "hvm_boot_order",
+    "kernel_path", "initrd_path", "hvm_boot_order", "hvm_acpi",
+    "hvm_pae", "hvm_cdrom_image_path", "vnc_bind_address",
+    "iallocator",
     ]
 
 
@@ -221,7 +223,7 @@ class OpRemoveMDDRBDComponent(OpCode):
 class OpReplaceDisks(OpCode):
   """Replace the disks of an instance."""
   OP_ID = "OP_INSTANCE_REPLACE_DISKS"
-  __slots__ = ["instance_name", "remote_node", "mode", "disks"]
+  __slots__ = ["instance_name", "remote_node", "mode", "disks", "iallocator"]
 
 
 class OpFailoverInstance(OpCode):
@@ -265,7 +267,8 @@ class OpSetInstanceParms(OpCode):
   OP_ID = "OP_INSTANCE_SET_PARMS"
   __slots__ = [
     "instance_name", "mem", "vcpus", "ip", "bridge", "mac",
-    "kernel_path", "initrd_path", "hvm_boot_order",
+    "kernel_path", "initrd_path", "hvm_boot_order", "hvm_acpi",
+    "hvm_pae", "hvm_cdrom_image_path", "vnc_bind_address"
     ]
 
 
@@ -273,7 +276,7 @@ class OpSetInstanceParms(OpCode):
 class OpDiagnoseOS(OpCode):
   """Compute the list of guest operating systems."""
   OP_ID = "OP_OS_DIAGNOSE"
-  __slots__ = []
+  __slots__ = ["output_fields", "names"]
 
 # Exports opcodes
 class OpQueryExports(OpCode):
@@ -286,6 +289,10 @@ class OpExportInstance(OpCode):
   OP_ID = "OP_BACKUP_EXPORT"
   __slots__ = ["instance_name", "target_node", "shutdown"]
 
+class OpRemoveExport(OpCode):
+  """Remove an instance's export."""
+  OP_ID = "OP_BACKUP_REMOVE"
+  __slots__ = ["instance_name"]
 
 # Tags opcodes
 class OpGetTags(OpCode):
@@ -336,3 +343,22 @@ class OpTestDelay(OpCode):
   """
   OP_ID = "OP_TEST_DELAY"
   __slots__ = ["duration", "on_master", "on_nodes"]
+
+
+class OpTestAllocator(OpCode):
+  """Allocator framework testing.
+
+  This opcode has two modes:
+    - gather and return allocator input for a given mode (allocate new
+      or replace secondary) and a given instance definition (direction
+      'in')
+    - run a selected allocator for a given operation (as above) and
+      return the allocator output (direction 'out')
+
+  """
+  OP_ID = "OP_TEST_ALLOCATOR"
+  __slots__ = [
+    "direction", "mode", "allocator", "name",
+    "mem_size", "disks", "disk_template",
+    "os", "tags", "nics", "vcpus",
+    ]

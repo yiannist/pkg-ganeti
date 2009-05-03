@@ -1,7 +1,7 @@
 #!/usr/bin/python
 #
 
-# Copyright (C) 2006, 2007 Google Inc.
+# Copyright (C) 2006, 2007, 2008 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -30,13 +30,20 @@ from ganeti import constants
 from ganeti import errors
 
 
+_LIST_DEF_FIELDS = [
+  "name", "dtotal", "dfree",
+  "mtotal", "mnode", "mfree",
+  "pinst_cnt", "sinst_cnt",
+  ]
+
 def AddNode(opts, args):
   """Add node cli-to-processor bridge."""
   logger.ToStderr("-- WARNING -- \n"
     "Performing this operation is going to replace the ssh daemon keypair\n"
     "on the target machine (%s) with the ones of the current one\n"
     "and grant full intra-cluster ssh root access to/from it\n" % args[0])
-  op = opcodes.OpAddNode(node_name=args[0], secondary_ip=opts.secondary_ip)
+  op = opcodes.OpAddNode(node_name=args[0], secondary_ip=opts.secondary_ip,
+                         readd=opts.readd)
   SubmitOpCode(op)
 
 
@@ -45,9 +52,9 @@ def ListNodes(opts, args):
 
   """
   if opts.output is None:
-    selected_fields = ["name", "dtotal", "dfree",
-                       "mtotal", "mnode", "mfree",
-                       "pinst_cnt", "sinst_cnt"]
+    selected_fields = _LIST_DEF_FIELDS
+  elif opts.output.startswith("+"):
+    selected_fields = _LIST_DEF_FIELDS + opts.output[1:].split(",")
   else:
     selected_fields = opts.output.split(",")
 
@@ -55,12 +62,15 @@ def ListNodes(opts, args):
   output = SubmitOpCode(op)
 
   if not opts.no_headers:
-    headers = {"name": "Node", "pinst_cnt": "Pinst", "sinst_cnt": "Sinst",
-               "pinst_list": "PriInstances", "sinst_list": "SecInstances",
-               "pip": "PrimaryIP", "sip": "SecondaryIP",
-               "dtotal": "DTotal", "dfree": "DFree",
-               "mtotal": "MTotal", "mnode": "MNode", "mfree": "MFree",
-               "bootid": "BootID"}
+    headers = {
+      "name": "Node", "pinst_cnt": "Pinst", "sinst_cnt": "Sinst",
+      "pinst_list": "PriInstances", "sinst_list": "SecInstances",
+      "pip": "PrimaryIP", "sip": "SecondaryIP",
+      "dtotal": "DTotal", "dfree": "DFree",
+      "mtotal": "MTotal", "mnode": "MNode", "mfree": "MFree",
+      "bootid": "BootID",
+      "ctotal": "CTotal",
+      }
   else:
     headers = None
 
@@ -71,7 +81,8 @@ def ListNodes(opts, args):
 
   numfields = ["dtotal", "dfree",
                "mtotal", "mnode", "mfree",
-               "pinst_cnt", "sinst_cnt"]
+               "pinst_cnt", "sinst_cnt",
+               "ctotal"]
 
   # change raw values to nicer strings
   for row in output:
@@ -279,11 +290,15 @@ commands = {
           [DEBUG_OPT,
            make_option("-s", "--secondary-ip", dest="secondary_ip",
                        help="Specify the secondary ip for the node",
-                       metavar="ADDRESS", default=None),],
-          "[-s ip] <node_name>", "Add a node to the cluster"),
+                       metavar="ADDRESS", default=None),
+           make_option("--readd", dest="readd",
+                       default=False, action="store_true",
+                       help="Readd old node after replacing it"),
+           ],
+          "[-s ip] [--readd] <node_name>", "Add a node to the cluster"),
   'evacuate': (EvacuateNode, ARGS_FIXED(2),
                [DEBUG_OPT, FORCE_OPT],
-               "[-f] <src_node> <dst_node>",
+               "[-f] <src> <dst>",
                "Relocate the secondary instances from the first node"
                " to the second one (only for instances of type remote_raid1"
                " or drbd)"),
@@ -305,8 +320,9 @@ commands = {
            "", "Lists the nodes in the cluster. The available fields"
            " are (see the man page for details): name, pinst_cnt, pinst_list,"
            " sinst_cnt, sinst_list, pip, sip, dtotal, dfree, mtotal, mnode,"
-           " mfree, bootid. The default field list is (in order): name,"
-           " dtotal, dfree, mtotal, mnode, mfree, pinst_cnt, sinst_cnt."),
+           " mfree, bootid, cpu_count. The default field list is"
+           " (in order): %s." % ", ".join(_LIST_DEF_FIELDS),
+           ),
   'remove': (RemoveNode, ARGS_ONE, [DEBUG_OPT],
              "<node_name>", "Removes a node from the cluster"),
   'volumes': (ListVolumes, ARGS_ANY,

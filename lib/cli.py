@@ -177,6 +177,9 @@ FORCE_OPT = make_option("-f", "--force", dest="force", action="store_true",
 _LOCK_OPT = make_option("--lock-retries", default=None,
                         type="int", help=SUPPRESS_HELP)
 
+_LOCK_NOAUTOCLEAN = make_option("--lock-noautoclean", default=False,
+                                action="store_true", help=SUPPRESS_HELP)
+
 TAG_SRC_OPT = make_option("--from", dest="tags_source",
                           default=None, help="File with tag names")
 
@@ -251,16 +254,15 @@ def _ParseArgs(argv, commands, aliases):
            "\n%(bin)s <command> --help to see details, or"
            " man %(bin)s\n" % {"bin": binary})
     # compute the max line length for cmd + usage
-    mlen = max([len(" %s %s" % (cmd, commands[cmd][3])) for cmd in commands])
+    mlen = max([len(" %s" % cmd) for cmd in commands])
     mlen = min(60, mlen) # should not get here...
     # and format a nice command list
     print "Commands:"
     for cmd in sortedcmds:
-      cmdstr = " %s %s" % (cmd, commands[cmd][3])
+      cmdstr = " %s" % (cmd,)
       help_text = commands[cmd][4]
       help_lines = textwrap.wrap(help_text, 79-3-mlen)
-      print "%-*s - %s" % (mlen, cmdstr,
-                                          help_lines.pop(0))
+      print "%-*s - %s" % (mlen, cmdstr, help_lines.pop(0))
       for line in help_lines:
         print "%-*s   %s" % (mlen, "", line)
     print
@@ -281,6 +283,7 @@ def _ParseArgs(argv, commands, aliases):
 
   func, nargs, parser_opts, usage, description = commands[cmd]
   parser_opts.append(_LOCK_OPT)
+  parser_opts.append(_LOCK_NOAUTOCLEAN)
   parser = OptionParser(option_list=parser_opts,
                         description=description,
                         formatter=TitledHelpFormatter(),
@@ -475,7 +478,8 @@ def GenericMain(commands, override=None, aliases=None):
 
   utils.debug = options.debug
   try:
-    utils.Lock('cmd', max_retries=options.lock_retries, debug=options.debug)
+    utils.Lock('cmd', max_retries=options.lock_retries, debug=options.debug,
+               autoclean=not options.lock_noautoclean)
   except errors.LockError, err:
     logger.ToStderr(str(err))
     return 1

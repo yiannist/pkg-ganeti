@@ -31,6 +31,7 @@ import stat
 import errno
 import re
 import subprocess
+import random
 
 from ganeti import logger
 from ganeti import errors
@@ -64,9 +65,7 @@ def StartMaster():
 def StopMaster():
   """Deactivate this node as master.
 
-  This does two things:
-    - run the master stop script
-    - remove link to master cron script.
+  This runs the master stop script.
 
   """
   result = utils.RunCmd([constants.MASTER_SCRIPT, "-d", "stop"])
@@ -199,10 +198,38 @@ def VerifyNode(what):
 
   if 'nodelist' in what:
     result['nodelist'] = {}
+    random.shuffle(what['nodelist'])
     for node in what['nodelist']:
       success, message = ssh.VerifyNodeHostname(node)
       if not success:
         result['nodelist'][node] = message
+  if 'node-net-test' in what:
+    result['node-net-test'] = {}
+    my_name = utils.HostInfo().name
+    my_pip = my_sip = None
+    for name, pip, sip in what['node-net-test']:
+      if name == my_name:
+        my_pip = pip
+        my_sip = sip
+        break
+    if not my_pip:
+      result['node-net-test'][my_name] = ("Can't find my own"
+                                          " primary/secondary IP"
+                                          " in the node list")
+    else:
+      port = ssconf.SimpleStore().GetNodeDaemonPort()
+      for name, pip, sip in what['node-net-test']:
+        fail = []
+        if not utils.TcpPing(pip, port, source=my_pip):
+          fail.append("primary")
+        if sip != pip:
+          if not utils.TcpPing(sip, port, source=my_sip):
+            fail.append("secondary")
+        if fail:
+          result['node-net-test'][name] = ("failure using the %s"
+                                           " interface(s)" %
+                                           " and ".join(fail))
+
   return result
 
 
@@ -646,10 +673,11 @@ def CreateBlockDevice(disk, size, owner, on_primary, info):
   """Creates a block device for an instance.
 
   Args:
-   bdev: a ganeti.objects.Disk object
-   size: the size of the physical underlying devices
-   do_open: if the device should be `Assemble()`-d and
-            `Open()`-ed after creation
+   disk: a ganeti.objects.Disk object
+   size: the size of the physical underlying device
+   owner: a string with the name of the instance
+   on_primary: a boolean indicating if it is the primary node or not
+   info: string that will be sent to the physical device creation
 
   Returns:
     the new unique_id of the device (this can sometime be
@@ -972,28 +1000,6 @@ def _ErrnoOrStr(err):
   return detail
 
 
-def _OSSearch(name, search_path=None):
-  """Search for OSes with the given name in the search_path.
-
-  Args:
-    name: The name of the OS to look for
-    search_path: List of dirs to search (defaults to constants.OS_SEARCH_PATH)
-
-  Returns:
-    The base_dir the OS resides in
-
-  """
-  if search_path is None:
-    search_path = constants.OS_SEARCH_PATH
-
-  for dir_name in search_path:
-    t_os_dir = os.path.sep.join([dir_name, name])
-    if os.path.isdir(t_os_dir):
-      return dir_name
-
-  return None
-
-
 def _OSOndiskVersion(name, os_dir):
   """Compute and return the API version of a given OS.
 
@@ -1083,12 +1089,12 @@ def OSFromDisk(name, base_dir=None):
   """
 
   if base_dir is None:
-    base_dir = _OSSearch(name)
+    os_dir = utils.FindFile(name, constants.OS_SEARCH_PATH, os.path.isdir)
+    if os_dir is None:
+      raise errors.InvalidOS(name, None, "OS dir not found in search path")
+  else:
+    os_dir = os.path.sep.join([base_dir, name])
 
-  if base_dir is None:
-    raise errors.InvalidOS(name, None, "OS dir not found in search path")
-
-  os_dir = os.path.sep.join([base_dir, name])
   api_version = _OSOndiskVersion(name, os_dir)
 
   if api_version != constants.OS_API_VERSION:
@@ -1252,7 +1258,8 @@ def FinalizeExport(instance, snap_disks):
     config.set(constants.INISECT_INS, 'nic%d_mac' %
                nic_count, '%s' % nic.mac)
     config.set(constants.INISECT_INS, 'nic%d_ip' % nic_count, '%s' % nic.ip)
-    config.set(constants.INISECT_INS, 'nic%d_bridge' % nic_count, '%s' % nic.bridge)
+    config.set(constants.INISECT_INS, 'nic%d_bridge' % nic_count,
+               '%s' % nic.bridge)
   # TODO: redundant: on load can read nics until it doesn't exist
   config.set(constants.INISECT_INS, 'nic_count' , '%d' % nic_count)
 
@@ -1442,9 +1449,6 @@ class HooksRunner(object):
     Args:
       - hooks_base_dir: if not None, this overrides the
         constants.HOOKS_BASE_DIR (useful for unittests)
-      - logs_base_dir: if not None, this overrides the
-        constants.LOG_HOOKS_DIR (useful for unittests)
-      - logging: enable or disable logging of script output
 
     """
     if hooks_base_dir is None:
@@ -1456,7 +1460,6 @@ class HooksRunner(object):
     """Exec one hook script.
 
     Args:
-     - phase: the phase
      - script: the full path to the script
      - env: the environment with which to exec the script
 
@@ -1538,8 +1541,44 @@ class HooksRunner(object):
     return rr
 
 
+class IAllocatorRunner(object):
+  """IAllocator runner.
+
+  This class is instantiated on the node side (ganeti-noded) and not on
+  the master side.
+
+  """
+  def Run(self, name, idata):
+    """Run an iallocator script.
+
+    Return value: tuple of:
+       - run status (one of the IARUN_ constants)
+       - stdout
+       - stderr
+       - fail reason (as from utils.RunResult)
+
+    """
+    alloc_script = utils.FindFile(name, constants.IALLOCATOR_SEARCH_PATH,
+                                  os.path.isfile)
+    if alloc_script is None:
+      return (constants.IARUN_NOTFOUND, None, None, None)
+
+    fd, fin_name = tempfile.mkstemp(prefix="ganeti-iallocator.")
+    try:
+      os.write(fd, idata)
+      os.close(fd)
+      result = utils.RunCmd([alloc_script, fin_name])
+      if result.failed:
+        return (constants.IARUN_FAILURE, result.stdout, result.stderr,
+                result.fail_reason)
+    finally:
+      os.unlink(fin_name)
+
+    return (constants.IARUN_SUCCESS, result.stdout, result.stderr, None)
+
+
 class DevCacheManager(object):
-  """Simple class for managing a chache of block device information.
+  """Simple class for managing a cache of block device information.
 
   """
   _DEV_PREFIX = "/dev/"

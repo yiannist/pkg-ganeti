@@ -102,6 +102,21 @@
       </para>
 
       <para>
+        The command is executed serially on the selected nodes. If the
+        master node is present in the list, the command will be
+        executed last on the master. Regarding the other nodes, the
+        execution order is somewhat alphabetic (it's smarter so that
+        node2.example.com will be earlier than node10.example.com but
+        after node1.example.com).
+      </para>
+
+      <para>
+        So given the node names node1, node2, node3, node10, node11,
+        with node3 being the master, the order will be: node1, node2,
+        node10, node11, node3.
+      </para>
+
+      <para>
         The command is constructed by concatenating all other command
         line arguments. For example, to list the contents of the
         <filename class="directory">/etc</filename> directory on all
@@ -195,6 +210,10 @@
         <command>init</command>
         <arg>-s <replaceable>secondary_ip</replaceable></arg>
         <arg>-b <replaceable>bridge</replaceable></arg>
+        <arg>-t <replaceable>hypervisor-type</replaceable></arg>
+        <arg>-g <replaceable>vg-name</replaceable></arg>
+        <arg>--master-netdev <replaceable>vg-name</replaceable></arg>
+        <arg>-m <replaceable>mac-prefix</replaceable></arg>
         <arg choice="req"><replaceable>clustername</replaceable></arg>
       </cmdsynopsis>
 
@@ -208,7 +227,8 @@
         Note that the <replaceable>clustername</replaceable> is not
         any random name. It has to be resolvable to an IP address
         using DNS, and it is best if you give the fully-qualified
-        domain name.
+        domain name. Also it is advisable to reserve a per-cluster
+        unique name, and not try to reuse one of the nodes' names.
       </para>
 
       <para>
@@ -226,7 +246,6 @@
 
       <para>
         Note that for Ganeti it doesn't matter if the secondary
-
         network is actually a separate physical network, or is done
         using tunneling, etc. For performance reasons, it's
         recommended to use a separate network, of course.
@@ -236,6 +255,7 @@
         The <option>-b</option> option specifies the default bridge
         for instances.
       </para>
+
       <para>
         The <option>-t</option> allows to set the hypervisor type of
         the cluster. Available hypervisor types are: xen-3.0, fake and
@@ -247,6 +267,27 @@
         <filename>/srv/ganeti/iso/hvm-install.iso</filename> because
         instances created by the experimental HVM support require them.
       </para>
+
+      <para>
+        The <option>-g</option> option will let you specify a volume group
+        different than xenvg for ganeti to use when creating instance disks.
+        This volume group must have the same name on all nodes.
+      </para>
+
+      <para>
+        The <option>--master-netdev</option> option is useful for specifying a
+        different interface on which the master will activate its IP address.
+        It's important that all nodes have this interface because you'll need
+        it for a master failover.
+      </para>
+
+      <para>
+        The <option>-m</option> option will let you specify a three byte prefix
+        under which the virtual MAC addresses of your instances will be
+        generated. The prefix must be specified in the format XX:XX:XX and the
+        default is aa:00:00.
+      </para>
+
     </refsect2>
 
     <refsect2>
@@ -359,12 +400,19 @@
 
       <cmdsynopsis>
         <command>verify</command>
+        <arg choice="opt">--no-nplus1-mem</arg>
       </cmdsynopsis>
 
       <para>
         Verify correctness of cluster configuration. This is safe with
         respect to running instances, and incurs no downtime of the
         instances.
+      </para>
+
+      <para>
+        If the <option>--no-nplus1-mem</option> option is given, ganeti won't
+        check whether if it loses a node it can restart all the instances on
+        their secondaries (and report an error otherwise).
       </para>
     </refsect2>
 

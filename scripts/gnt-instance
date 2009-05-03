@@ -39,6 +39,13 @@ _SHUTDOWN_NODES_PRI = "nodes-pri"
 _SHUTDOWN_NODES_SEC = "nodes-sec"
 _SHUTDOWN_INSTANCES = "instances"
 
+_VALUE_TRUE = "true"
+
+_LIST_DEF_FIELDS = [
+  "name", "os", "pnode", "status", "oper_ram",
+  ]
+
+
 def _ExpandMultiNames(mode, names):
   """Expand the given names using the passed mode.
 
@@ -130,7 +137,7 @@ def _ConfirmOperation(inames, text):
   choice = AskUser(ask, choices)
   if choice == 'v':
     choices.pop(1)
-    choice = AskUser(choices, msg + affected)
+    choice = AskUser(msg + affected, choices)
   return choice
 
 
@@ -156,13 +163,14 @@ def _TransformPath(user_input):
 
   return result_path
 
-
 def ListInstances(opts, args):
   """List instances and their properties.
 
   """
   if opts.output is None:
-    selected_fields = ["name", "os", "pnode", "status", "oper_ram"]
+    selected_fields = _LIST_DEF_FIELDS
+  elif opts.output.startswith("+"):
+    selected_fields = _LIST_DEF_FIELDS + opts.output[1:].split(",")
   else:
     selected_fields = opts.output.split(",")
 
@@ -246,6 +254,15 @@ def AddInstance(opts, args):
   kernel_path = _TransformPath(opts.kernel_path)
   initrd_path = _TransformPath(opts.initrd_path)
 
+  hvm_acpi = opts.hvm_acpi == _VALUE_TRUE
+  hvm_pae = opts.hvm_pae == _VALUE_TRUE
+
+  if ((opts.hvm_cdrom_image_path is not None) and
+      (opts.hvm_cdrom_image_path.lower() == constants.VALUE_NONE)):
+    hvm_cdrom_image_path = None
+  else:
+    hvm_cdrom_image_path = opts.hvm_cdrom_image_path
+
   op = opcodes.OpCreateInstance(instance_name=instance, mem_size=opts.mem,
                                 disk_size=opts.size, swap_size=opts.swap,
                                 disk_template=opts.disk_template,
@@ -258,7 +275,12 @@ def AddInstance(opts, args):
                                 mac=opts.mac,
                                 kernel_path=kernel_path,
                                 initrd_path=initrd_path,
-                                hvm_boot_order=opts.hvm_boot_order)
+                                iallocator=opts.iallocator,
+                                hvm_boot_order=opts.hvm_boot_order,
+                                hvm_acpi=hvm_acpi, hvm_pae=hvm_pae,
+                                hvm_cdrom_image_path=hvm_cdrom_image_path,
+                                vnc_bind_address=opts.vnc_bind_address)
+
   SubmitOpCode(op)
   return 0
 
@@ -472,6 +494,7 @@ def ReplaceDisks(opts, args):
   """
   instance_name = args[0]
   new_2ndary = opts.new_secondary
+  iallocator = opts.iallocator
   if opts.disks is None:
     disks = ["sda", "sdb"]
   else:
@@ -480,14 +503,16 @@ def ReplaceDisks(opts, args):
     mode = constants.REPLACE_DISK_ALL
   elif opts.on_primary: # only on primary:
     mode = constants.REPLACE_DISK_PRI
-    if new_2ndary is not None:
+    if new_2ndary is not None or iallocator is not None:
       raise errors.OpPrereqError("Can't change secondary node on primary disk"
                                  " replacement")
-  elif opts.on_secondary is not None: # only on secondary
+  elif opts.on_secondary is not None or iallocator is not None:
+    # only on secondary
     mode = constants.REPLACE_DISK_SEC
 
   op = opcodes.OpReplaceDisks(instance_name=args[0], disks=disks,
-                              remote_node=new_2ndary, mode=mode)
+                              remote_node=new_2ndary, mode=mode,
+                              iallocator=iallocator)
   SubmitOpCode(op)
   return 0
 
@@ -612,6 +637,10 @@ def ShowInstanceConfig(opts, args):
   retcode = 0
   op = opcodes.OpQueryInstanceData(instances=args)
   result = SubmitOpCode(op)
+  hvm_parameters = ("hvm_acpi", "hvm_pae", "hvm_cdrom_image_path",
+                    "hvm_boot_order")
+
+  pvm_parameters = ("kernel_path", "initrd_path")
 
   if not result:
     logger.ToStdout("No instances.")
@@ -628,20 +657,29 @@ def ShowInstanceConfig(opts, args):
     buf.write("    - primary: %s\n" % instance["pnode"])
     buf.write("    - secondaries: %s\n" % ", ".join(instance["snodes"]))
     buf.write("  Operating system: %s\n" % instance["os"])
-    buf.write("  Allocated network port: %s\n" % instance["network_port"])
-    if instance["kernel_path"] in (None, constants.VALUE_DEFAULT):
-      kpath = "(default: %s)" % constants.XEN_KERNEL
-    else:
-      kpath = instance["kernel_path"]
-    buf.write("  Kernel path: %s\n" % kpath)
-    if instance["initrd_path"] in (None, constants.VALUE_DEFAULT):
-      initrd = "(default: %s)" % constants.XEN_INITRD
-    elif instance["initrd_path"] == constants.VALUE_NONE:
-      initrd = "(none)"
-    else:
-      initrd = instance["initrd_path"]
-    buf.write("       initrd: %s\n" % initrd)
-    buf.write("  HVM boot order: %s\n" % instance["hvm_boot_order"])
+    if instance.has_key("network_port"):
+      buf.write("  Allocated network port: %s\n" % instance["network_port"])
+    if False not in map(instance.has_key, pvm_parameters):
+      if instance["kernel_path"] in (None, constants.VALUE_DEFAULT):
+        kpath = "(default: %s)" % constants.XEN_KERNEL
+      else:
+        kpath = instance["kernel_path"]
+      buf.write("  Kernel path: %s\n" % kpath)
+      if instance["initrd_path"] in (None, constants.VALUE_DEFAULT):
+        initrd = "(default: %s)" % constants.XEN_INITRD
+      elif instance["initrd_path"] == constants.VALUE_NONE:
+        initrd = "(none)"
+      else:
+        initrd = instance["initrd_path"]
+      buf.write("       initrd: %s\n" % initrd)
+    if False not in map(instance.has_key, hvm_parameters):
+      buf.write("  HVM:\n")
+      buf.write("    - boot order: %s\n" % instance["hvm_boot_order"])
+      buf.write("    - ACPI support: %s\n" % instance["hvm_acpi"])
+      buf.write("    - PAE support: %s\n" % instance["hvm_pae"])
+      buf.write("    - virtual CDROM: %s\n" % instance["hvm_cdrom_image_path"])
+    if instance.has_key("vnc_bind_address"):
+      buf.write("  VNC bind address: %s\n" % instance["vnc_bind_address"])
     buf.write("  Hardware:\n")
     buf.write("    - VCPUs: %d\n" % instance["vcpus"])
     buf.write("    - memory: %dMiB\n" % instance["memory"])
@@ -673,7 +711,9 @@ def SetInstanceParms(opts, args):
 
   """
   if not (opts.mem or opts.vcpus or opts.ip or opts.bridge or opts.mac or
-          opts.kernel_path or opts.initrd_path or opts.hvm_boot_order):
+          opts.kernel_path or opts.initrd_path or opts.hvm_boot_order or
+          opts.hvm_acpi or opts.hvm_pae or opts.hvm_cdrom_image_path or
+          opts.vnc_bind_address):
     logger.ToStdout("Please give at least one of the parameters.")
     return 1
 
@@ -684,12 +724,27 @@ def SetInstanceParms(opts, args):
   else:
     hvm_boot_order = opts.hvm_boot_order
 
+  if opts.hvm_acpi is None:
+    hvm_acpi = opts.hvm_acpi
+  else:
+    hvm_acpi = opts.hvm_acpi == _VALUE_TRUE
+
+  if opts.hvm_pae is None:
+    hvm_pae = opts.hvm_pae
+  else:
+    hvm_pae = opts.hvm_pae == _VALUE_TRUE
+
   op = opcodes.OpSetInstanceParms(instance_name=args[0], mem=opts.mem,
                                   vcpus=opts.vcpus, ip=opts.ip,
                                   bridge=opts.bridge, mac=opts.mac,
                                   kernel_path=opts.kernel_path,
                                   initrd_path=opts.initrd_path,
-                                  hvm_boot_order=hvm_boot_order)
+                                  hvm_boot_order=hvm_boot_order,
+                                  hvm_acpi=hvm_acpi, hvm_pae=hvm_pae,
+                                  hvm_cdrom_image_path=
+                                  opts.hvm_cdrom_image_path,
+                                  vnc_bind_address=opts.vnc_bind_address)
+
   result = SubmitOpCode(op)
 
   if result:
@@ -781,13 +836,28 @@ add_opts = [
               default=None,
               type="string", metavar="<FILENAME>"),
   make_option("--hvm-boot-order", dest="hvm_boot_order",
-              help="boot device order for HVM (one or more of [acdn])",
+              help="Boot device order for HVM (one or more of [acdn])",
               default=None, type="string", metavar="<BOOTORDER>"),
+  make_option("--iallocator", metavar="<NAME>",
+              help="Select nodes for the instance automatically using the"
+              " <NAME> iallocator plugin", default=None, type="string"),
+  make_option("--hvm-acpi", dest="hvm_acpi",
+              help="ACPI support for HVM (true|false)",
+              metavar="<BOOL>", choices=["true", "false"]),
+  make_option("--hvm-pae", dest="hvm_pae",
+              help="PAE support for HVM (true|false)",
+              metavar="<BOOL>", choices=["true", "false"]),
+  make_option("--hvm-cdrom-image-path", dest="hvm_cdrom_image_path",
+              help="CDROM image path for HVM (absolute path or None)",
+              default=None, type="string", metavar="<CDROMIMAGE>"),
+  make_option("--vnc-bind-address", dest="vnc_bind_address",
+              help="bind address for VNC (IP address)",
+              default=None, type="string", metavar="<VNCADDRESS>"),
   ]
 
 commands = {
   'add': (AddInstance, ARGS_ONE, add_opts,
-          "[opts...] <name>",
+          "[...] -t disk-type -n node[:secondary-node] -o os-type <name>",
           "Creates and adds a new instance to the cluster"),
   'add-mirror': (AddMDDRBDComponent, ARGS_ONE,
                 [DEBUG_OPT, node_opt,
@@ -808,7 +878,8 @@ commands = {
                 ],
                "[-f] <instance>",
                "Stops the instance and starts it on the backup node, using"
-               " the remote mirror (only for instances of type remote_raid1)"),
+               " the remote mirror (only for instances of type drbd or"
+               " remote_raid1)"),
   'info': (ShowInstanceConfig, ARGS_ANY, [DEBUG_OPT], "[<instance>...]",
            "Show information on the specified instance"),
   'list': (ListInstances, ARGS_NONE,
@@ -817,10 +888,10 @@ commands = {
            " (see the man page for details): status, oper_state, oper_ram,"
            " name, os, pnode, snodes, admin_state, admin_ram, disk_template,"
            " ip, mac, bridge, sda_size, sdb_size, vcpus. The default field"
-           " list is (in order): name, os, pnode, status,"
-           " oper_ram."),
+           " list is (in order): %s." % ", ".join(_LIST_DEF_FIELDS),
+           ),
   'reinstall': (ReinstallInstance, ARGS_ONE, [DEBUG_OPT, FORCE_OPT, os_opt],
-                "[-f] <instance>", "Reinstall the instance"),
+                "[-f] <instance>", "Reinstall a stopped instance"),
   'remove': (RemoveInstance, ARGS_ONE,
              [DEBUG_OPT, FORCE_OPT,
               make_option("--ignore-failures", dest="ignore_failures",
@@ -867,8 +938,14 @@ commands = {
                                  help=("Comma-separated list of disks"
                                        " to replace (e.g. sda) (optional,"
                                        " defaults to all disks")),
+                     make_option("--iallocator", metavar="<NAME>",
+                                 help="Select new secondary for the instance"
+                                 " automatically using the"
+                                 " <NAME> iallocator plugin (enables"
+                                 " secondary node replacement)",
+                                 default=None, type="string"),
                      ],
-                    "[-n NODE] <instance>",
+                    "[-s|-p|-n NODE] <instance>",
                     "Replaces all disks for the instance"),
   'modify': (SetInstanceParms, ARGS_ONE,
              [DEBUG_OPT, FORCE_OPT,
@@ -899,6 +976,20 @@ commands = {
                           help="boot device order for HVM"
                           "(either one or more of [acdn] or 'default')",
                           default=None, type="string", metavar="<BOOTORDER>"),
+              make_option("--hvm-acpi", dest="hvm_acpi",
+                          help="ACPI support for HVM (true|false)",
+                          metavar="<BOOL>", choices=["true", "false"]),
+              make_option("--hvm-pae", dest="hvm_pae",
+                          help="PAE support for HVM (true|false)",
+                          metavar="<BOOL>", choices=["true", "false"]),
+              make_option("--hvm-cdrom-image-path",
+                          dest="hvm_cdrom_image_path",
+                          help="CDROM image path for HVM"
+                          "(absolute path or None)",
+                          default=None, type="string", metavar="<CDROMIMAGE>"),
+              make_option("--vnc-bind-address", dest="vnc_bind_address",
+                          help="bind address for VNC (IP address)",
+                          default=None, type="string", metavar="<VNCADDRESS>"),
               ],
              "<instance>", "Alters the parameters of an instance"),
   'shutdown': (ShutdownInstance, ARGS_ANY,
@@ -947,6 +1038,7 @@ commands = {
 
 aliases = {
   'activate_block_devs': 'activate-disks',
+  'replace_disks': 'replace-disks',
   'start': 'startup',
   'stop': 'shutdown',
   }

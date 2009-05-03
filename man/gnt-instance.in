@@ -3,7 +3,7 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GNT-INSTANCE" "8" "18 February 2008" "ganeti 1.2" ""
+.TH "GNT-INSTANCE" "8" "13 June 2008" "ganeti 1.2" ""
 
 .SH NAME
 gnt-instance \- ganeti instance administration
@@ -20,12 +20,19 @@ administration in the ganeti system.
 .SS "ADD"
 
 \fBadd\fR [ \fB-s \fIdisksize\fB\fR ] [ \fB--swap-size \fIdisksize\fB\fR ] [ \fB-m \fImemsize\fB\fR ]
-    [ \fB-o \fIos-type\fB\fR ] [ \fB-b \fIbridge\fB\fR ] [ \fB--mac \fIMAC-address\fB\fR ] [ \fB--hvm-boot-order \fIboot-order\fB\fR ]
-    [ \fB--kernel  { default | \fIkernel_path\fB }\fR ]
-    [ \fB--initrd  { default | none | \fIinitrd_path\fB } \fR ]
-    \fB-t [ diskless | plain | local_raid1 | remote_raid1 | drbd ]
-\fR
-    \fB-n \fInode[:secondary-node]\fB\fR \fB\fIinstance\fB\fR
+    [ \fB-b \fIbridge\fB\fR ] [ \fB--mac \fIMAC-address\fB\fR ]
+    [ \fB--hvm-boot-order \fIboot-order\fB\fR ] [ \fB--hvm-acpi \fIACPI-support\fB\fR ]
+    [ \fB--hvm-pae \fIPAE-support\fB\fR ]
+    [ \fB--hvm-cdrom-image-path
+\fIcdrom-image-path\fB\fR ]
+    [ \fB--vnc-bind-address
+\fIvnc-bind-address\fB\fR ]
+    [ \fB--kernel { default | \fIkernel_path\fB }\fR ]
+    [ \fB--initrd { default | none | \fIinitrd_path\fB }\fR ]
+    \fB-t { diskless | plain | local_raid1 | remote_raid1 | drbd }\fR
+    { \fB-n \fInode[:secondary-node]\fB\fR | \fB--iallocator \fIname\fB\fR }
+    \fB-o \fIos-type\fB\fR
+    \fB\fIinstance\fB\fR
 
 .PP
 Creates a new instance on the specified
@@ -87,7 +94,32 @@ network boot (PXE)
 The option is only relevant for Xen HVM instances and
 ignored by all other instances types.
 .PP
-The \fB--kernel\fR options allows the instance to
+The \fB--hvm-acpi\fR option specifies if Xen
+should enable ACPI support for this HVM instance. Valid
+values are true or false.
+.PP
+The \fB--hvm-pae\fR option specifies if Xen
+should enabled PAE support for this HVM instance. Valid
+values are true or false.
+.PP
+The \fB--hvm-cdrom-image-path\fR option specifies the
+path to the file xen uses to emulate a virtual CDROM drive
+for this HVM instance. Valid values are either an
+absolute path to an existing file or None, which disables
+virtual CDROM support for this instance.
+.PP
+The \fB--vnc-bind-address\fR option specifies the
+address that the VNC listener for this instance should bind
+to. Valid values are IPv4 addresses. Use the address 0.0.0.0
+to bind to all available interfaces.
+.PP
+The \fB--iallocator\fR option specifies the instance
+allocator plugin to use. If you pass in this option the allocator
+will select nodes for this instance automatically, so you don't need
+to pass them with the \fB-n\fR option. For more
+information please refer to the instance allocator documentation.
+.PP
+The \fB--kernel\fR option allows the instance to
 use a custom kernel (if a filename is passed) or to use the
 default kernel (\fI@CUSTOM_XEN_KERNEL@\fR), if the
 string default is passed.
@@ -173,7 +205,7 @@ Example:
 .fi
 .SS "LIST"
 
-\fBlist\fR [ \fB--no-headers\fR ] [ \fB--separator=\fISEPARATOR\fB\fR ] [ \fB-o \fIFIELD,...\fB\fR ]
+\fBlist\fR [ \fB--no-headers\fR ] [ \fB--separator=\fISEPARATOR\fB\fR ] [ \fB-o \fI[+]FIELD,...\fB\fR ]
 
 .PP
 Shows the currently configured instances with memory usage,
@@ -258,11 +290,17 @@ the size of the instance's second disk
 the number of VCPUs allocated to the
 instance
 .PP
+If the value of the option starts with the character
++, the new fields will be added to the
+default list. This allows to quickly see the default list
+plus a few other fields, instead of retyping the entire list
+of fields.
+.PP
 There is a subtle grouping about the available output
-fields: all fields except for \fBoper_state\fR
-and \fBoper_ram\fR are configuration value and
-not run-time values. So if you don't select any of the
-\fBoper_*\fR fields, the query will be satisfied
+fields: all fields except for \fBoper_state\fR,
+\fBoper_ram\fR and \fBstatus\fR are
+configuration value and not run-time values. So if you don't
+select any of the these fields, the query will be satisfied
 instantly from the cluster configuration, without having to
 ask the remote nodes for the data. This can be helpful for
 big clusters when you only want some data and it makes sense
@@ -281,7 +319,9 @@ detailed data about the instance's disks (especially useful
 for remote raid templates).
 .SS "MODIFY"
 
-\fBmodify\fR [ \fB-m \fImemsize\fB\fR ] [ \fB-p \fIvcpus\fB\fR ] [ \fB-i \fIip\fB\fR ] [ \fB-b \fIbridge\fB\fR ] [ \fB--mac \fIMAC-address\fB\fR ] [ \fB--hvm-boot-order \fIboot-order\fB\fR ]
+\fBmodify\fR [ \fB-m \fImemsize\fB\fR ] [ \fB-p \fIvcpus\fB\fR ] [ \fB-i \fIip\fB\fR ] [ \fB-b \fIbridge\fB\fR ] [ \fB--mac \fIMAC-address\fB\fR ] [ \fB--hvm-boot-order \fIboot-order\fB\fR ] [ \fB--hvm-acpi \fIACPI-support\fB\fR ] [ \fB--hvm-pae \fIPAE-support\fB\fR ] [ \fB--hvm-cdrom-image-path
+\fIcdrom-image-path\fB\fR ] [ \fB--vnc-bind-address
+\fIvnc-bind-address\fB\fR ]
     [ \fB--kernel  { default | \fIkernel_path\fB }\fR ]
     [ \fB--initrd  { default | none | \fIinitrd_path\fB } \fR ]
     \fB\fIinstance\fB\fR
@@ -300,6 +340,25 @@ options are described in the \fBadd\fR command.
 .PP
 Additionally, the HVM boot order can be reset to the default
 values by using \fB--hvm-boot-order=default\fR\&.
+.PP
+The \fB--hvm-acpi\fR option specifies if Xen
+should enable ACPI support for this HVM instance. Valid
+values are true or false.
+.PP
+The \fB--hvm-pae\fR option specifies if Xen
+should enabled PAE support for this HVM instance. Valid
+values are true or false.
+.PP
+The \fB--hvm-cdrom-image-path\fR specifies the
+path to the file xen uses to emulate a virtual CDROM drive
+for this HVM instance. Valid values are either an
+absolute path to an existing file or None, which disables
+virtual CDROM support for this instance.
+.PP
+The \fB--vnc-bind-address\fR specifies the
+address that the VNC listener for this instance should bind
+to. Valid values are IPv4 addresses. Use the address 0.0.0.0
+to bind to all available interfaces.
 .PP
 All the changes take effect at the next restart. If the
 instance is running, there is no effect on the instance.
@@ -462,10 +521,11 @@ Example:
 .SS "DISK MANAGEMENT"
 .SS "REPLACE-DISKS"
 
-\fBreplace-disks\fR [ \fB--new-secondary \fINODE\fB\fR ] \fB\fIinstance\fB\fR
+\fBreplace-disks\fR { \fB--new-secondary \fINODE\fB\fR | \fB--iallocator \fIname\fB\fR } \fB\fIinstance\fB\fR
 
 
-\fBreplace-disks\fR \fB-s\fR \fB--new-secondary \fINODE\fB\fR \fB\fIinstance\fB\fR
+\fBreplace-disks\fR { \fB--iallocator \fIname\fB\fR | \fB--new-secondary \fINODE\fB\fR }
+    [ \fB-s\fR ] \fB\fIinstance\fB\fR
 
 
 \fBreplace-disks\fR [ \fB-s\fR | \fB-p\fR ] \fB\fIinstance\fB\fR
@@ -488,6 +548,10 @@ on the primary, therefore it will execute faster. The third
 form will replace the disks on either the primary
 (\fB-p\fR) or the secondary (\fB-s\fR)
 node of the instance only, without changing the node.
+.PP
+Specifying \fB--iallocator\fR enables secondary node
+replacement and and makes the new secondary be selected automatically
+by the specified allocator plugin.
 .SS "ADD-MIRROR"
 
 \fBadd-mirror\fR \fB-b \fIsdX\fB\fR \fB-n \fInode\fB\fR \fB\fIinstance\fB\fR
@@ -625,7 +689,8 @@ Ganeti commands:
 Ganeti daemons:
 \fBganeti-watcher\fR(8) (automatic instance restarter),
 \fBganeti-noded\fR(8) (node daemon),
-\fBganeti-master\fR(8) (the master startup script).
+\fBganeti-master\fR(8) (the master startup script),
+\fBganeti-rapi\fR(8) (remote API daemon).
 .SH "COPYRIGHT"
 .PP
 Copyright (C) 2006, 2007 Google Inc. Permission is granted to

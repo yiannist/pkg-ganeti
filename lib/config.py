@@ -41,6 +41,7 @@ from ganeti import utils
 from ganeti import constants
 from ganeti import rpc
 from ganeti import objects
+from ganeti import serializer
 
 
 class ConfigWriter:
@@ -303,18 +304,29 @@ class ConfigWriter:
     self._config_data.instances[instance.name] = instance
     self._WriteConfig()
 
-  def MarkInstanceUp(self, instance_name):
-    """Mark the instance status to up in the config.
+  def _SetInstanceStatus(self, instance_name, status):
+    """Set the instance's status to a given value.
 
     """
+    if status not in ("up", "down"):
+      raise errors.ProgrammerError("Invalid status '%s' passed to"
+                                   " ConfigWriter._SetInstanceStatus()" %
+                                   status)
     self._OpenConfig()
 
     if instance_name not in self._config_data.instances:
       raise errors.ConfigurationError("Unknown instance '%s'" %
                                       instance_name)
     instance = self._config_data.instances[instance_name]
-    instance.status = "up"
-    self._WriteConfig()
+    if instance.status != status:
+      instance.status = status
+      self._WriteConfig()
+
+  def MarkInstanceUp(self, instance_name):
+    """Mark the instance status to up in the config.
+
+    """
+    self._SetInstanceStatus(instance_name, "up")
 
   def RemoveInstance(self, instance_name):
     """Remove the instance from the configuration.
@@ -348,13 +360,7 @@ class ConfigWriter:
     """Mark the status of an instance to down in the configuration.
 
     """
-    self._OpenConfig()
-
-    if instance_name not in self._config_data.instances:
-      raise errors.ConfigurationError("Unknown instance '%s'" % instance_name)
-    instance = self._config_data.instances[instance_name]
-    instance.status = "down"
-    self._WriteConfig()
+    self._SetInstanceStatus(instance_name, "down")
 
   def GetInstanceList(self):
     """Get the list of instances.
@@ -491,7 +497,7 @@ class ConfigWriter:
     f = open(self._cfg_file, 'r')
     try:
       try:
-        data = objects.ConfigData.Load(f)
+        data = objects.ConfigData.FromDict(serializer.Load(f.read()))
       except Exception, err:
         raise errors.ConfigurationError(err)
     finally:
@@ -527,15 +533,13 @@ class ConfigWriter:
     nodelist = self.GetNodeList()
     myhostname = self._my_hostname
 
-    tgt_list = []
-    for node in nodelist:
-      nodeinfo = self.GetNodeInfo(node)
-      if nodeinfo.name == myhostname:
-        continue
-      tgt_list.append(node)
+    try:
+      nodelist.remove(myhostname)
+    except ValueError:
+      pass
 
-    result = rpc.call_upload_file(tgt_list, self._cfg_file)
-    for node in tgt_list:
+    result = rpc.call_upload_file(nodelist, self._cfg_file)
+    for node in nodelist:
       if not result[node]:
         logger.Error("copy of file %s to node %s failed" %
                      (self._cfg_file, node))
@@ -549,11 +553,12 @@ class ConfigWriter:
     if destination is None:
       destination = self._cfg_file
     self._BumpSerialNo()
+    txt = serializer.Dump(self._config_data.ToDict())
     dir_name, file_name = os.path.split(destination)
     fd, name = tempfile.mkstemp('.newconfig', file_name, dir_name)
     f = os.fdopen(fd, 'w')
     try:
-      self._config_data.Dump(f)
+      f.write(txt)
       os.fsync(f.fileno())
     finally:
       f.close()

@@ -3,7 +3,7 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GNT-NODE" "8" "18 February 2008" "ganeti 1.2" ""
+.TH "GNT-NODE" "8" "13 June 2008" "ganeti 1.2" ""
 
 .SH NAME
 gnt-node \- node administration
@@ -18,7 +18,7 @@ The \fBgnt-node\fR is used for managing the
 .SH "COMMANDS"
 .SS "ADD"
 
-\fBadd\fR [ \fB-s \fIsecondary_ip\fB\fR ] \fB\fInodename\fB\fR
+\fBadd\fR [ \fB--readd\fR ] [ \fB-s \fIsecondary_ip\fB\fR ] \fB\fInodename\fB\fR
 
 .PP
 Adds the given node to the cluster.
@@ -37,6 +37,9 @@ The \fB-s\fR is used in dual-home clusters and
 specifies the new node's IP in the secondary network. See the
 discussion in \fBgnt-cluster\fR(8) for more
 informations.
+.PP
+In case you're readding a node after hardware failure, you
+can use the \fB--readd\fR parameter.
 .PP
 Example:
 
@@ -104,7 +107,7 @@ don't give any arguments, all nodes will be shows, otherwise the
 output will be restricted to the given names.
 .SS "LIST"
 
-\fBlist\fR [ \fB--no-headers\fR ] [ \fB--separator=\fISEPARATOR\fB\fR ] [ \fB-o \fIFIELD,...\fB\fR ]
+\fBlist\fR [ \fB--no-headers\fR ] [ \fB--separator=\fISEPARATOR\fB\fR ] [ \fB-o \fI[+]FIELD,...\fB\fR ]
 
 .PP
 Lists the nodes in the cluster. If you give the
@@ -170,6 +173,12 @@ the node bootid value; this is a linux specific
 feature that assigns a new UUID to the node at each boot
 and can be use to detect node reboots (by tracking
 changes in this value)
+.PP
+If the value of the option starts with the character
++, the new fields will be added to the
+default list. This allows to quickly see the default list plus
+a few other fields, instead of retyping the entire list of
+fields.
 .PP
 Note that some of this fields are known from the configuration
 of the cluster (name, pinst, sinst, pip, sip and thus the master does
@@ -285,7 +294,8 @@ Ganeti commands:
 Ganeti daemons:
 \fBganeti-watcher\fR(8) (automatic instance restarter),
 \fBganeti-noded\fR(8) (node daemon),
-\fBganeti-master\fR(8) (the master startup script).
+\fBganeti-master\fR(8) (the master startup script),
+\fBganeti-rapi\fR(8) (remote API daemon).
 .SH "COPYRIGHT"
 .PP
 Copyright (C) 2006, 2007 Google Inc. Permission is granted to

@@ -1,6 +1,6 @@
 # Configure script for Ganeti
 AC_PREREQ(2.59)
-AC_INIT(ganeti, 1.2.3, ganeti@googlegroups.com)
+AC_INIT(ganeti, 1.2.4, ganeti@googlegroups.com)
 AC_CONFIG_AUX_DIR(autotools)
 AC_CONFIG_SRCDIR(configure)
 AM_INIT_AUTOMAKE([foreign tar-ustar])
@@ -35,6 +35,17 @@ AC_ARG_WITH([os-search-path],
   [os_search_path="'/srv/ganeti/os'"])
 AC_SUBST(OS_SEARCH_PATH, $os_search_path)
 
+# --with-iallocator-search-path=...
+# do a bit of black sed magic to for quoting of the strings in the list
+AC_ARG_WITH([iallocator-search-path],
+  [AS_HELP_STRING([--with-iallocator-search-path=LIST],
+    [comma separated list of directories to]
+    [ search for instance allocators (default is $libdir/ganeti/iallocators)]
+  )],
+  [iallocator_search_path=`echo -n "$withval" | sed -e "s/\([[^,]]*\)/'\1'/g"`],
+  [iallocator_search_path="'$libdir/$PACKAGE_NAME/iallocators'"])
+AC_SUBST(IALLOCATOR_SEARCH_PATH, $iallocator_search_path)
+
 # --with-xen-kernel=...
 AC_ARG_WITH([xen-kernel],
   [AS_HELP_STRING([--with-xen-kernel=PATH],
@@ -52,6 +63,21 @@ AC_ARG_WITH([xen-initrd],
   [xen_initrd="$withval"],
   [xen_initrd="/boot/initrd-2.6-xenU"])
 AC_SUBST(XEN_INITRD, $xen_initrd)
+
+# --enable-rapi
+AC_ARG_ENABLE([rapi],
+  [AS_HELP_STRING([--enable-rapi],
+    [Whether to enable remote API daemon]
+  )])
+if test "$enable_rapi" = "yes"
+then
+  enable_rapi_py=True
+else
+  enable_rapi=no
+  enable_rapi_py=False
+fi
+AC_SUBST(PY_ENABLE_RAPI, $enable_rapi_py)
+
 
 # Check common programs
 AC_PROG_INSTALL
@@ -78,9 +104,11 @@ fi
 AC_CONFIG_FILES([
   Makefile
   daemons/Makefile
+  devel/Makefile
   doc/Makefile
   doc/examples/Makefile
   lib/Makefile
+  lib/rapi/Makefile
   man/Makefile
   qa/Makefile
   qa/hooks/Makefile

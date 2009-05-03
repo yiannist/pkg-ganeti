@@ -1,5 +1,6 @@
 # Cluster name
 name: xen-test
+rename: xen-test-rename
 hypervisor-type: xen-3.0
 
 # System to use
@@ -28,6 +29,7 @@ tests:
   env: True
   os: True
   tags: True
+  rapi: True
 
   cluster-verify: True
   cluster-info: True
@@ -36,9 +38,11 @@ tests:
   cluster-copyfile: True
   cluster-master-failover: True
   cluster-destroy: True
+  cluster-rename: True
 
   node-info: True
   node-volumes: True
+  node-readd: True
 
   # This test needs at least three nodes
   node-evacuate: False
@@ -62,9 +66,13 @@ tests:
   instance-export: True
   instance-import: True
   instance-reinstall: True
+  instance-reboot: True
   instance-shutdown: True
   instance-automatic-restart: False
   instance-consecutive-failures: False
+
+  # Disabled by default because it takes rather long
+  instance-replace-disks: False
 
   # Make sure not to include the disk(s) required for Dom0 to be included in
   # the volume group used for instances. Otherwise the whole system may stop

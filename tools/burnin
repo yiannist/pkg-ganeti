@@ -112,6 +112,8 @@ class Burner(object):
                       default=4 * 1024, type="unit", metavar="<size>")
     parser.add_option("--swap-size", dest="swap_size", help="Swap size",
                       default=4 * 1024, type="unit", metavar="<size>")
+    parser.add_option("--mem-size", dest="mem_size", help="Memory size",
+                      default=128, type="unit", metavar="<size>")
     parser.add_option("-v", "--verbose",
                       action="store_true", dest="verbose", default=False,
                       help="print command execution messages to stdout")
@@ -132,12 +134,17 @@ class Burner(object):
                       default=True)
     parser.add_option("-t", "--disk-template", dest="disk_template",
                       choices=("diskless", "plain", "remote_raid1", "drbd"),
-                      default="remote_raid1",
-                      help="Template type for network mirroring (remote_raid1"
-                      " or drbd) [remote_raid1]")
+                      default="drbd",
+                      help="Disk template (diskless, plain, drbd, remote_raid1)"
+                      " [drbd]")
     parser.add_option("-n", "--nodes", dest="nodes", default="",
                       help="Comma separated list of nodes to perform"
                       " the burnin on (defaults to all nodes)")
+    parser.add_option("--iallocator", dest="iallocator",
+                      default=None, type="string",
+                      help="Perform the allocation using an iallocator"
+                      " instead of fixed node spread (node restrictions no"
+                      " longer apply, therefore -n/--nodes must not be used")
 
     options, args = parser.parse_args()
     if len(args) < 1 or options.os is None:
@@ -148,6 +155,10 @@ class Burner(object):
                                 constants.DT_DRBD8)
     if options.disk_template not in supported_disk_templates:
       Log("Unknown disk template '%s'" % options.disk_template)
+      sys.exit(1)
+
+    if options.nodes and options.iallocator:
+      Log("Give either the nodes option or the iallocator option, not both")
       sys.exit(1)
 
     self.opts = options
@@ -168,22 +179,15 @@ class Burner(object):
       sys.exit(err_code)
     self.nodes = [data[0] for data in result]
 
-    result = self.ExecOp(opcodes.OpDiagnoseOS())
+    result = self.ExecOp(opcodes.OpDiagnoseOS(output_fields=["name", "valid"],
+                                              names=[]))
 
     if not result:
       Log("Can't get the OS list")
       sys.exit(1)
 
     # filter non-valid OS-es
-    oses = {}
-    for node_name in result:
-      oses[node_name] = [obj for obj in result[node_name] if obj]
-
-    fnode = oses.keys()[0]
-    os_set = set([os_inst.name for os_inst in oses[fnode]])
-    del oses[fnode]
-    for node in oses:
-      os_set &= set([os_inst.name for os_inst in oses[node]])
+    os_set = [val[0] for val in result if val[1]]
 
     if self.opts.os not in os_set:
       Log("OS '%s' not found" % self.opts.os)
@@ -198,8 +202,18 @@ class Burner(object):
                  islice(cycle(self.nodes), 1, None),
                  self.instances)
     for pnode, snode, instance in mytor:
+      if self.opts.iallocator:
+        pnode = snode = None
+        Log("- Add instance %s (iallocator: %s)" %
+              (instance, self.opts.iallocator))
+      elif self.opts.disk_template not in constants.DTS_NET_MIRROR:
+        snode = None
+        Log("- Add instance %s on node %s" % (instance, pnode))
+      else:
+        Log("- Add instance %s on nodes %s/%s" % (instance, pnode, snode))
+
       op = opcodes.OpCreateInstance(instance_name=instance,
-                                    mem_size=128,
+                                    mem_size=self.opts.mem_size,
                                     disk_size=self.opts.os_size,
                                     swap_size=self.opts.swap_size,
                                     disk_template=self.opts.disk_template,
@@ -214,8 +228,8 @@ class Burner(object):
                                     mac="auto",
                                     kernel_path=None,
                                     initrd_path=None,
-                                    hvm_boot_order=None)
-      Log("- Add instance %s on nodes %s/%s" % (instance, pnode, snode))
+                                    hvm_boot_order=None,
+                                    iallocator=self.opts.iallocator)
       self.ExecOp(op)
       self.to_rem.append(instance)
 
@@ -251,9 +265,12 @@ class Burner(object):
     mytor = izip(islice(cycle(self.nodes), 2, None),
                  self.instances)
     for tnode, instance in mytor:
+      if self.opts.iallocator:
+        tnode = None
       op = opcodes.OpReplaceDisks(instance_name=instance,
                                   mode=mode,
                                   remote_node=tnode,
+                                  iallocator=self.opts.iallocator,
                                   disks=["sda", "sdb"])
       Log("- Replace secondary (%s) for instance %s" % (mode, instance))
       self.ExecOp(op)
@@ -282,7 +299,8 @@ class Burner(object):
       exp_op = opcodes.OpExportInstance(instance_name=instance,
                                            target_node=enode,
                                            shutdown=True)
-      rem_op = opcodes.OpRemoveInstance(instance_name=instance)
+      rem_op = opcodes.OpRemoveInstance(instance_name=instance,
+                                        ignore_failures=True)
       nam_op = opcodes.OpQueryInstances(output_fields=["name"],
                                            names=[instance])
       full_name = self.ExecOp(nam_op)[0][0]
@@ -302,6 +320,7 @@ class Burner(object):
                                         ip_check=True,
                                         wait_for_sync=True,
                                         mac="auto")
+      erem_op = opcodes.OpRemoveExport(instance_name=instance)
 
       Log("- Export instance %s to node %s" % (instance, enode))
       self.ExecOp(exp_op)
@@ -311,6 +330,9 @@ class Burner(object):
       Log("- Import instance %s from node %s to node %s" %
           (instance, enode, pnode))
       self.ExecOp(imp_op)
+      Log("- Remove export of instance %s" % (instance))
+      self.ExecOp(erem_op)
+
       self.to_rem.append(instance)
 
   def StopStart(self):
@@ -326,7 +348,8 @@ class Burner(object):
   def Remove(self):
     """Remove the instances."""
     for instance in self.to_rem:
-      op = opcodes.OpRemoveInstance(instance_name=instance)
+      op = opcodes.OpRemoveInstance(instance_name=instance,
+                                    ignore_failures=True)
       Log("- Remove instance %s" % instance)
       self.ExecOp(op)
 

@@ -1,7 +1,7 @@
 #!/usr/bin/python
 #
 
-# Copyright (C) 2007 Google Inc.
+# Copyright (C) 2007, 2008 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -39,6 +39,7 @@ import qa_instance
 import qa_node
 import qa_os
 import qa_other
+import qa_rapi
 import qa_tags
 import qa_utils
 
@@ -91,6 +92,9 @@ def RunClusterTests():
   if qa_config.TestEnabled('cluster-verify'):
     RunTest(qa_cluster.TestClusterVerify)
 
+  if qa_config.TestEnabled('cluster-rename'):
+    RunTest(qa_cluster.TestClusterRename)
+
   if qa_config.TestEnabled('cluster-info'):
     RunTest(qa_cluster.TestClusterVersion)
     RunTest(qa_cluster.TestClusterInfo)
@@ -107,6 +111,10 @@ def RunClusterTests():
 
   if qa_config.TestEnabled('cluster-master-failover'):
     RunTest(qa_cluster.TestClusterMasterFailover)
+
+  if qa_rapi.Enabled():
+    RunTest(qa_rapi.TestVersion)
+    RunTest(qa_rapi.TestEmptyCluster)
 
 
 def RunOsTests():
@@ -145,11 +153,17 @@ def RunCommonInstanceTests(instance):
     RunTest(qa_instance.TestInstanceReinstall, instance)
     RunTest(qa_instance.TestInstanceStartup, instance)
 
+  if qa_config.TestEnabled('instance-reboot'):
+    RunTest(qa_instance.TestInstanceReboot, instance)
+
   if qa_config.TestEnabled('tags'):
     RunTest(qa_tags.TestInstanceTags, instance)
 
   if qa_config.TestEnabled('node-volumes'):
     RunTest(qa_node.TestNodeVolumes)
+
+  if qa_rapi.Enabled():
+    RunTest(qa_rapi.TestInstance, instance)
 
 
 def RunExportImportTests(instance, pnode):
@@ -194,12 +208,20 @@ def RunDaemonTests(instance, pnode):
       RunTest(qa_daemon.TestInstanceConsecutiveFailures, pnode, instance)
 
 
-def RunHardwareFailureTests(instance, pnode, snode):
+def RunHardwareFailureTests(instance, pnode, snode, is_drbd):
   """Test cluster internal hardware failure recovery.
 
   """
   if qa_config.TestEnabled('instance-failover'):
     RunTest(qa_instance.TestInstanceFailover, instance)
+
+  if qa_config.TestEnabled('instance-replace-disks'):
+    othernode = qa_config.AcquireNode(exclude=[pnode, snode])
+    try:
+      RunTest(qa_instance.TestReplaceDisks,
+              instance, pnode, snode, othernode, is_drbd)
+    finally:
+      qa_config.ReleaseNode(othernode)
 
   if qa_config.TestEnabled('node-evacuate'):
     RunTest(qa_node.TestNodeEvacuate, pnode, snode)
@@ -242,6 +264,8 @@ def main():
   qa_config.Load(config_file)
   qa_utils.LoadHooks()
 
+  qa_rapi.PrintRemoteAPIWarning()
+
   RunTest(qa_other.UploadKnownHostsFile, known_hosts_file)
 
   RunEnvTests()
@@ -252,10 +276,21 @@ def main():
   if qa_config.TestEnabled('tags'):
     RunTest(qa_tags.TestClusterTags)
 
+  if qa_config.TestEnabled('node-readd'):
+    master = qa_config.GetMasterNode()
+    pnode = qa_config.AcquireNode(exclude=master)
+    try:
+      RunTest(qa_node.TestNodeReadd, pnode)
+    finally:
+      qa_config.ReleaseNode(pnode)
+
   pnode = qa_config.AcquireNode()
   try:
     if qa_config.TestEnabled('tags'):
       RunTest(qa_tags.TestNodeTags, pnode)
+
+    if qa_rapi.Enabled():
+      RunTest(qa_rapi.TestNode, pnode)
 
     if qa_config.TestEnabled('instance-add-plain-disk'):
       instance = RunTest(qa_instance.TestInstanceAddWithPlainDisk, pnode)
@@ -274,19 +309,21 @@ def main():
 
     multinode_tests = [
       ('instance-add-remote-raid-disk',
-       qa_instance.TestInstanceAddWithRemoteRaidDisk),
+       qa_instance.TestInstanceAddWithRemoteRaidDisk,
+       False),
       ('instance-add-drbd-disk',
-       qa_instance.TestInstanceAddWithDrbdDisk),
+       qa_instance.TestInstanceAddWithDrbdDisk,
+       True),
     ]
 
-    for name, func in multinode_tests:
+    for name, func, is_drbd in multinode_tests:
       if qa_config.TestEnabled(name):
         snode = qa_config.AcquireNode(exclude=pnode)
         try:
           instance = RunTest(func, pnode, snode)
           RunCommonInstanceTests(instance)
           RunExportImportTests(instance, pnode)
-          RunHardwareFailureTests(instance, pnode, snode)
+          RunHardwareFailureTests(instance, pnode, snode, is_drbd)
           RunTest(qa_instance.TestInstanceRemove, instance)
           del instance
         finally:

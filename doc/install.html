@@ -127,36 +127,36 @@ HREF="#AEN285"
 ></DT
 ><DT
 >3.6. <A
-HREF="#AEN313"
+HREF="#AEN312"
 >Joining the nodes to the cluster</A
 ></DT
 ><DT
 >3.7. <A
-HREF="#AEN320"
+HREF="#AEN319"
 >Separate replication network</A
 ></DT
 ><DT
 >3.8. <A
-HREF="#AEN328"
+HREF="#AEN327"
 >Testing the setup</A
 ></DT
 ></DL
 ></DD
 ><DT
 >4. <A
-HREF="#AEN333"
+HREF="#AEN332"
 >Setting up and managing virtual instances</A
 ></DT
 ><DD
 ><DL
 ><DT
 >4.1. <A
-HREF="#AEN335"
+HREF="#AEN334"
 >Setting up virtual instances</A
 ></DT
 ><DT
 >4.2. <A
-HREF="#AEN358"
+HREF="#AEN357"
 >Managing virtual instances</A
 ></DT
 ></DL
@@ -583,7 +583,7 @@ CLASS="SCREEN"
           </P
 ></DIV
 ><P
->          If you want to test the experimental HVM support
+>          If you want to test the HVM support
           with Ganeti and want VNC access to the console of your
           instances, set the following two entries in
           <TT
@@ -1218,8 +1218,8 @@ TARGET="_top"
       </P
 ><PRE
 CLASS="SCREEN"
->tar xvzf ganeti-1.2.2.tar.gz
-cd ganeti-1.2.2
+>tar xvzf ganeti-1.2.4.tar.gz
+cd ganeti-1.2.4
 ./configure --localstatedir=/var --sysconfdir=/etc
 make
 make install
@@ -1459,24 +1459,17 @@ CLASS="OPTION"
 >--hypervisor=xen-hvm3.1</CODE
 > option to use
         the Xen 3.1 HVM hypervisor. Note that with the
-        experimental HVM support, you will only be able to create
+        HVM support, you will only be able to create
         HVM instances in a cluster set to this hypervisor type. Mixed
         PVM/HVM clusters are not supported by the Ganeti 1.2
-        experimental HVM support. You will also need to create the VNC
+        HVM support. You will also need to create the VNC
         cluster password  file
         <TT
 CLASS="FILENAME"
 >/etc/ganeti/vnc-cluster-password</TT
 >
         which contains one line with the default VNC password for the
-        cluster. Finally, you need to provide an installation ISO
-        image for HVM instance which will not only be mapped to the
-        first CDROM of the instance, but which the instance will also
-        boot from. This ISO image is expected at
-        <TT
-CLASS="FILENAME"
->/srv/ganeti/iso/hvm-install.iso</TT
->.
+        cluster.
       </P
 ><P
 >        You can also invoke the command with the
@@ -1492,7 +1485,7 @@ CLASS="SECT2"
 ><HR><H3
 CLASS="SECT2"
 ><A
-NAME="AEN313"
+NAME="AEN312"
 >3.6. Joining the nodes to the cluster</A
 ></H3
 ><P
@@ -1525,7 +1518,7 @@ CLASS="SECT2"
 ><HR><H3
 CLASS="SECT2"
 ><A
-NAME="AEN320"
+NAME="AEN319"
 >3.7. Separate replication network</A
 ></H3
 ><P
@@ -1563,7 +1556,7 @@ CLASS="SECT2"
 ><HR><H3
 CLASS="SECT2"
 ><A
-NAME="AEN328"
+NAME="AEN327"
 >3.8. Testing the setup</A
 ></H3
 ><P
@@ -1587,7 +1580,7 @@ CLASS="SECT1"
 ><HR><H2
 CLASS="SECT1"
 ><A
-NAME="AEN333"
+NAME="AEN332"
 >4. Setting up and managing virtual instances</A
 ></H2
 ><DIV
@@ -1595,7 +1588,7 @@ CLASS="SECT2"
 ><H3
 CLASS="SECT2"
 ><A
-NAME="AEN335"
+NAME="AEN334"
 >4.1. Setting up virtual instances</A
 ></H3
 ><P
@@ -1712,7 +1705,7 @@ CLASS="SECT2"
 ><HR><H3
 CLASS="SECT2"
 ><A
-NAME="AEN358"
+NAME="AEN357"
 >4.2. Managing virtual instances</A
 ></H3
 ><P

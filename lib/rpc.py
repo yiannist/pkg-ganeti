@@ -29,11 +29,15 @@ import os
 
 from twisted.internet.pollreactor import PollReactor
 
+
+install_twisted_signal_handlers = True
+
+
 class ReReactor(PollReactor):
   """A re-startable Reactor implementation.
 
   """
-  def run(self, installSignalHandlers=1):
+  def run(self, installSignalHandlers=None):
     """Custom run method.
 
     This is customized run that, before calling Reactor.run, will
@@ -42,6 +46,8 @@ class ReReactor(PollReactor):
     reactor).
 
     """
+    if installSignalHandlers is None:
+      installSignalHandlers = install_twisted_signal_handlers
     if not 'shutdown' in self._eventTriggers:
       # the shutdown queue has been killed, we are most probably
       # at the second run, thus recreate the queue
@@ -677,6 +683,24 @@ def call_hooks_runner(node_list, hpath, phase, env):
   c.connect_list(node_list)
   c.run()
   result = c.getresult()
+  return result
+
+
+def call_iallocator_runner(node, name, idata):
+  """Call an iallocator on a remote node
+
+  Args:
+    - name: the iallocator name
+    - input: the json-encoded input string
+
+  This is a single-node call.
+
+  """
+  params = [name, idata]
+  c = Client("iallocator_runner", params)
+  c.connect(node)
+  c.run()
+  result = c.getresult().get(node, False)
   return result
 
 

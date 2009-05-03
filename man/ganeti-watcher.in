@@ -3,7 +3,7 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GANETI-WATCHER" "8" "18 February 2008" "ganeti 1.2" ""
+.TH "GANETI-WATCHER" "8" "13 June 2008" "ganeti 1.2" ""
 
 .SH NAME
 ganeti-watcher \- ganeti cluster watcher
@@ -30,7 +30,7 @@ In order to prevent piling up commands, all the
 run with a timeout of 15 seconds.
 .PP
 The command has a state file located at
-\fI@LOCALSTATEDIR@/lib/ganeti/restart_state\fR and a log
+\fI@LOCALSTATEDIR@/lib/ganeti/watcher.data\fR and a log
 file at
 \fI@LOCALSTATEDIR@/log/ganeti/watcher.log\fR\&. Removal of
 either file will not affect correct operation; the removal of
@@ -57,7 +57,8 @@ Ganeti commands:
 Ganeti daemons:
 \fBganeti-watcher\fR(8) (automatic instance restarter),
 \fBganeti-noded\fR(8) (node daemon),
-\fBganeti-master\fR(8) (the master startup script).
+\fBganeti-master\fR(8) (the master startup script),
+\fBganeti-rapi\fR(8) (remote API daemon).
 .SH "COPYRIGHT"
 .PP
 Copyright (C) 2006, 2007 Google Inc. Permission is granted to

@@ -62,6 +62,7 @@ ECHO_C = @ECHO_C@
 ECHO_N = @ECHO_N@
 ECHO_T = @ECHO_T@
 EXPORT_DIR = @EXPORT_DIR@
+IALLOCATOR_SEARCH_PATH = @IALLOCATOR_SEARCH_PATH@
 INSTALL_DATA = @INSTALL_DATA@
 INSTALL_PROGRAM = @INSTALL_PROGRAM@
 INSTALL_SCRIPT = @INSTALL_SCRIPT@
@@ -84,6 +85,7 @@ PYTHON_EXEC_PREFIX = @PYTHON_EXEC_PREFIX@
 PYTHON_PLATFORM = @PYTHON_PLATFORM@
 PYTHON_PREFIX = @PYTHON_PREFIX@
 PYTHON_VERSION = @PYTHON_VERSION@
+PY_ENABLE_RAPI = @PY_ENABLE_RAPI@
 SET_MAKE = @SET_MAKE@
 SHELL = @SHELL@
 SSH_INITD_SCRIPT = @SSH_INITD_SCRIPT@
@@ -126,7 +128,7 @@ sbindir = @sbindir@
 sharedstatedir = @sharedstatedir@
 sysconfdir = @sysconfdir@
 target_alias = @target_alias@
-dist_sbin_SCRIPTS = ganeti-noded ganeti-watcher ganeti-master
+dist_sbin_SCRIPTS = ganeti-noded ganeti-watcher ganeti-master ganeti-rapi
 all: all-am
 
 .SUFFIXES:

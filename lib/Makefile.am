@@ -1,10 +1,12 @@
 CLEANFILES = $(nodist_pkgpython_PYTHON) *.py[oc]
+SUBDIRS = rapi
 
 nodist_pkgpython_PYTHON = _autoconf.py
 pkgpython_PYTHON = __init__.py backend.py cli.py cmdlib.py config.py \
 	objects.py errors.py logger.py ssh.py utils.py rpc.py \
 	bdev.py hypervisor.py opcodes.py mcpu.py constants.py \
-	ssconf.py
+	ssconf.py serializer.py
+python_files = $(pkgpython_PYTHON)
 
 all-local: _autoconf.py
 
@@ -19,9 +21,8 @@ _autoconf.py: Makefile
 	  echo "OS_SEARCH_PATH = [$(OS_SEARCH_PATH)]"; \
 	  echo "XEN_KERNEL = '$(XEN_KERNEL)'"; \
 	  echo "XEN_INITRD = '$(XEN_INITRD)'"; \
+	  echo "IALLOCATOR_SEARCH_PATH = [$(IALLOCATOR_SEARCH_PATH)]"; \
+	  echo "RAPI_ENABLE = $(PY_ENABLE_RAPI)"; \
 	} > $@
 
-pre-check: all
-	for i in $(pkgpython_PYTHON); do \
-		if test ! -f $$i; then $(LN_S) $(srcdir)/$$i $$i; fi; \
-	done
+include $(srcdir)/Makefile.libcommon

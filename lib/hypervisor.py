@@ -25,6 +25,7 @@
 
 import time
 import os
+import re
 from cStringIO import StringIO
 
 from ganeti import utils
@@ -170,12 +171,8 @@ class XenHypervisor(BaseHypervisor):
       raise HypervisorError("xm list failed, retries exceeded (%s): %s" %
                             (result.fail_reason, result.stderr))
 
-    # skip over the heading and the domain 0 line (optional)
-    if include_node:
-      to_skip = 1
-    else:
-      to_skip = 2
-    lines = result.stdout.splitlines()[to_skip:]
+    # skip over the heading
+    lines = result.stdout.splitlines()[1:]
     result = []
     for line in lines:
       # The format of lines is:
@@ -192,7 +189,11 @@ class XenHypervisor(BaseHypervisor):
       except ValueError, err:
         raise HypervisorError("Can't parse output of xm list,"
                               " line: %s, error: %s" % (line, err))
-      result.append(data)
+
+      # skip the Domain-0 (optional)
+      if include_node or data[0] != 'Domain-0':
+        result.append(data)
+
     return result
 
   def ListInstances(self):
@@ -287,6 +288,8 @@ class XenHypervisor(BaseHypervisor):
           result['memory_total'] = int(val)
         elif key == 'free_memory':
           result['memory_free'] = int(val)
+        elif key == 'nr_cpus':
+          result['cpu_total'] = int(val)
     dom0_info = self.GetInstanceInfo("Domain-0")
     if dom0_info is not None:
       result['memory_dom0'] = dom0_info[2]
@@ -551,8 +554,20 @@ class FakeHypervisor(BaseHypervisor):
           sum_free += int(val.split()[0])/1024
         elif key == 'Active':
           result['memory_dom0'] = int(val.split()[0])/1024
-
     result['memory_free'] = sum_free
+
+    cpu_total = 0
+    try:
+      fh = open("/proc/cpuinfo")
+      try:
+        cpu_total = len(re.findall("(?m)^processor\s*:\s*[0-9]+\s*$",
+                                   fh.read()))
+      finally:
+        fh.close()
+    except EnvironmentError, err:
+      raise HypervisorError("Failed to list node info: %s" % err)
+    result['cpu_total'] = cpu_total
+
     return result
 
   @staticmethod
@@ -588,8 +603,18 @@ class XenHvmHypervisor(XenHypervisor):
     config.write("memory = %d\n" % instance.memory)
     config.write("vcpus = %d\n" % instance.vcpus)
     config.write("name = '%s'\n" % instance.name)
-    config.write("pae = 1\n")
-    config.write("acpi = 1\n")
+    if instance.hvm_pae is None:   # use default value if not specified
+      config.write("pae = %s\n" % constants.HT_HVM_DEFAULT_PAE_MODE)
+    elif instance.hvm_pae:
+      config.write("pae = 1\n")
+    else:
+      config.write("pae = 0\n")
+    if instance.hvm_acpi is None:  # use default value if not specified
+      config.write("acpi = %s\n" % constants.HT_HVM_DEFAULT_ACPI_MODE)
+    elif instance.hvm_acpi:
+      config.write("acpi = 1\n")
+    else:
+      config.write("acpi = 0\n")
     config.write("apic = 1\n")
     arch = os.uname()[4]
     if '64' in arch:
@@ -604,7 +629,7 @@ class XenHvmHypervisor(XenHypervisor):
     config.write("usb = 1\n");
     config.write("usbdevice = 'tablet'\n");
     config.write("vnc = 1\n")
-    config.write("vnclisten = '0.0.0.0'\n")
+    config.write("vnclisten = '%s'\n" % instance.vnc_bind_address)
 
     if instance.network_port > constants.HT_HVM_VNC_BASE_PORT:
       display = instance.network_port - constants.HT_HVM_VNC_BASE_PORT
@@ -642,8 +667,12 @@ class XenHvmHypervisor(XenHypervisor):
     disk_data = ["'phy:%s,%s,w'" %
                  (rldev.dev_path, cfdev.iv_name.replace("sd", "ioemu:hd"))
                  for cfdev, rldev in block_devices]
-    iso = "'file:/srv/ganeti/iso/hvm-install.iso,hdc:cdrom,r'"
-    config.write("disk = [%s, %s]\n" % (",".join(disk_data), iso) )
+
+    if instance.hvm_cdrom_image_path is None:
+      config.write("disk = [%s]\n" % (",".join(disk_data)))
+    else:
+      iso = "'file:%s,hdc:cdrom,r'" % (instance.hvm_cdrom_image_path)
+      config.write("disk = [%s, %s]\n" % (",".join(disk_data), iso))
 
     config.write("on_poweroff = 'destroy'\n")
     config.write("on_reboot = 'restart'\n")
@@ -671,7 +700,11 @@ class XenHvmHypervisor(XenHypervisor):
     if instance.network_port is None:
       raise errors.OpExecError("no console port defined for %s"
                                % instance.name)
-    else:
+    elif instance.vnc_bind_address == constants.BIND_ADDRESS_GLOBAL:
       raise errors.OpExecError("no PTY console, connect to %s:%s via VNC"
                                % (instance.primary_node,
+                                  instance.network_port))
+    else:
+      raise errors.OpExecError("no PTY console, connect to %s:%s via VNC"
+                               % (instance.vnc_bind_address,
                                   instance.network_port))

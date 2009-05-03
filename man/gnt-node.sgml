@@ -20,6 +20,7 @@
     <copyright>
       <year>2006</year>
       <year>2007</year>
+      <year>2008</year>
       <holder>Google Inc.</holder>
     </copyright>
     &dhdate;
@@ -60,6 +61,7 @@
 
       <cmdsynopsis>
         <command>add</command>
+        <arg>--readd</arg>
         <arg>-s <replaceable>secondary_ip</replaceable></arg>
         <arg choice="req"><replaceable>nodename</replaceable></arg>
       </cmdsynopsis>
@@ -89,6 +91,11 @@
         <refentrytitle>gnt-cluster</refentrytitle>
         <manvolnum>8</manvolnum> </citerefentry> for more
         informations.
+      </para>
+
+      <para>
+        In case you're readding a node after hardware failure, you
+        can use the <option>--readd</option> parameter.
       </para>
 
       <para>
@@ -203,7 +210,7 @@
         <command>list</command>
         <arg>--no-headers</arg>
         <arg>--separator=<replaceable>SEPARATOR</replaceable></arg>
-        <arg>-o <replaceable>FIELD,...</replaceable></arg>
+        <arg>-o <replaceable>[+]FIELD,...</replaceable></arg>
       </cmdsynopsis>
 
       <para>
@@ -320,6 +327,14 @@
             </listitem>
           </varlistentry>
         </variablelist>
+      </para>
+
+      <para>
+        If the value of the option starts with the character
+        <constant>+</constant>, the new fields will be added to the
+        default list. This allows to quickly see the default list plus
+        a few other fields, instead of retyping the entire list of
+        fields.
       </para>
 
       <para>

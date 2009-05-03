@@ -329,7 +329,8 @@ class LogicalVolume(BlockDev):
     result = utils.RunCmd(["lvcreate", "-L%dm" % size, "-n%s" % lv_name,
                            vg_name] + pvlist)
     if result.failed:
-      raise errors.BlockDeviceError(result.fail_reason)
+      raise errors.BlockDeviceError("%s - %s" % (result.fail_reason,
+                                                result.output))
     return LogicalVolume(unique_id, children)
 
   @staticmethod
@@ -348,7 +349,8 @@ class LogicalVolume(BlockDev):
                "--separator=:"]
     result = utils.RunCmd(command)
     if result.failed:
-      logger.Error("Can't get the PV information: %s" % result.fail_reason)
+      logger.Error("Can't get the PV information: %s - %s" %
+                   (result.fail_reason, result.output))
       return None
     data = []
     for line in result.stdout.splitlines():
@@ -373,7 +375,8 @@ class LogicalVolume(BlockDev):
     result = utils.RunCmd(["lvremove", "-f", "%s/%s" %
                            (self._vg_name, self._lv_name)])
     if result.failed:
-      logger.Error("Can't lvremove: %s" % result.fail_reason)
+      logger.Error("Can't lvremove: %s - %s" %
+                   (result.fail_reason, result.output))
 
     return not result.failed
 
@@ -395,12 +398,11 @@ class LogicalVolume(BlockDev):
     self._lv_name = new_name
     self.dev_path = "/dev/%s/%s" % (self._vg_name, self._lv_name)
 
-
   def Attach(self):
     """Attach to an existing LV.
 
     This method will try to see if an existing and active LV exists
-    which matches the our name. If so, its major/minor will be
+    which matches our name. If so, its major/minor will be
     recorded.
 
     """
@@ -450,7 +452,8 @@ class LogicalVolume(BlockDev):
     """
     result = utils.RunCmd(["lvs", "--noheadings", "-olv_attr", self.dev_path])
     if result.failed:
-      logger.Error("Can't display lv: %s" % result.fail_reason)
+      logger.Error("Can't display lv: %s - %s" %
+                   (result.fail_reason, result.output))
       return self.STATUS_UNKNOWN
     out = result.stdout.strip()
     # format: type/permissions/alloc/fixed_minor/state/open
@@ -491,7 +494,8 @@ class LogicalVolume(BlockDev):
     """
     result = utils.RunCmd(["lvs", "--noheadings", "-olv_attr", self.dev_path])
     if result.failed:
-      logger.Error("Can't display lv: %s" % result.fail_reason)
+      logger.Error("Can't display lv: %s - %s" %
+                   (result.fail_reason, result.output))
       return None, None, True, True
     out = result.stdout.strip()
     # format: type/permissions/alloc/fixed_minor/state/open
@@ -542,8 +546,9 @@ class LogicalVolume(BlockDev):
     result = utils.RunCmd(["lvcreate", "-L%dm" % size, "-s",
                            "-n%s" % snap_name, self.dev_path])
     if result.failed:
-      raise errors.BlockDeviceError("command: %s error: %s" %
-                                    (result.cmd, result.fail_reason))
+      raise errors.BlockDeviceError("command: %s error: %s - %s" %
+                                    (result.cmd, result.fail_reason,
+                                     result.output))
 
     return snap_name
 
@@ -563,8 +568,9 @@ class LogicalVolume(BlockDev):
     result = utils.RunCmd(["lvchange", "--addtag", text,
                            self.dev_path])
     if result.failed:
-      raise errors.BlockDeviceError("Command: %s error: %s" %
-                                    (result.cmd, result.fail_reason))
+      raise errors.BlockDeviceError("Command: %s error: %s - %s" %
+                                    (result.cmd, result.fail_reason,
+                                     result.output))
 
 
 class MDRaid1(BlockDev):
@@ -622,7 +628,8 @@ class MDRaid1(BlockDev):
     """
     result = utils.RunCmd(["mdadm", "-D", "/dev/md%d" % minor])
     if result.failed:
-      logger.Error("Can't display md: %s" % result.fail_reason)
+      logger.Error("Can't display md: %s - %s" %
+                   (result.fail_reason, result.output))
       return None
     retval = {}
     for line in result.stdout.splitlines():
@@ -887,7 +894,8 @@ class MDRaid1(BlockDev):
 
     result = utils.RunCmd(["mdadm", "--stop", "/dev/md%d" % self.minor])
     if result.failed:
-      logger.Error("Can't stop MD array: %s" % result.fail_reason)
+      logger.Error("Can't stop MD array: %s - %s" %
+                   (result.fail_reason, result.output))
       return False
     self.minor = None
     self.dev_path = None
@@ -1109,7 +1117,8 @@ class BaseDRBD(BlockDev):
     """
     result = utils.RunCmd(["blockdev", "--getsize", meta_device])
     if result.failed:
-      logger.Error("Failed to get device size: %s" % result.fail_reason)
+      logger.Error("Failed to get device size: %s - %s" %
+                   (result.fail_reason, result.output))
       return False
     try:
       sectors = int(result.stdout)
@@ -1189,7 +1198,8 @@ class DRBDev(BaseDRBD):
     data = {}
     result = utils.RunCmd(["drbdsetup", cls._DevPath(minor), "show"])
     if result.failed:
-      logger.Error("Can't display the drbd config: %s" % result.fail_reason)
+      logger.Error("Can't display the drbd config: %s - %s" %
+                   (result.fail_reason, result.output))
       return data
     out = result.stdout
     if out == "Not configured\n":
@@ -1339,8 +1349,8 @@ class DRBDev(BaseDRBD):
                            "%s:%s" % (lhost, lport), "%s:%s" % (rhost, rport),
                            protocol])
     if result.failed:
-      logger.Error("Can't setup network for dbrd device: %s" %
-                   result.fail_reason)
+      logger.Error("Can't setup network for dbrd device: %s - %s" %
+                   (result.fail_reason, result.output))
       return False
 
     timeout = time.time() + 10
@@ -1466,10 +1476,10 @@ class DRBDev(BaseDRBD):
   def Open(self, force=False):
     """Make the local state primary.
 
-    If the 'force' parameter is given, the '--do-what-I-say' parameter
-    is given. Since this is a pottentialy dangerous operation, the
-    force flag should be only given after creation, when it actually
-    has to be given.
+    If the 'force' parameter is given, the '--do-what-I-say' option is
+    is passed to drbdsetup. Since this is a potentially dangerous operation,
+    the force flag should be only given after creation, when it actually
+    is mandatory.
 
     """
     if self.minor is None and not self.Attach():
@@ -1511,7 +1521,8 @@ class DRBDev(BaseDRBD):
     result = utils.RunCmd(["drbdsetup", self.dev_path, "syncer", "-r", "%d" %
                            kbytes])
     if result.failed:
-      logger.Error("Can't change syncer rate: %s " % result.fail_reason)
+      logger.Error("Can't change syncer rate: %s - %s" %
+                   (result.fail_reason, result.output))
     return not result.failed and children_result
 
   def GetSyncStatus(self):
@@ -1752,7 +1763,7 @@ class DRBD8(BaseDRBD):
 
     # a statement
     stmt = (~rbrace + keyword + ~lbrace +
-            (addr_port ^ value ^ quoted ^ meta_value) +
+            pyp.Optional(addr_port ^ value ^ quoted ^ meta_value) +
             pyp.Optional(defa) + semi +
             pyp.Optional(pyp.restOfLine).suppress())
 
@@ -1774,7 +1785,8 @@ class DRBD8(BaseDRBD):
     """
     result = utils.RunCmd(["drbdsetup", cls._DevPath(minor), "show"])
     if result.failed:
-      logger.Error("Can't display the drbd config: %s" % result.fail_reason)
+      logger.Error("Can't display the drbd config: %s - %s" %
+                   (result.fail_reason, result.output))
       return None
     return result.stdout
 
@@ -1883,9 +1895,9 @@ class DRBD8(BaseDRBD):
     """
     if not cls._IsValidMeta(meta):
       return False
-    result = utils.RunCmd(["drbdsetup", cls._DevPath(minor), "disk",
-                           backend, meta, "0", "-e", "detach",
-                           "--create-device"])
+    args = ["drbdsetup", cls._DevPath(minor), "disk",
+            backend, meta, "0", "-e", "detach", "--create-device"]
+    result = utils.RunCmd(args)
     if result.failed:
       logger.Error("Can't attach local disk: %s" % result.output)
     return not result.failed
@@ -1906,6 +1918,7 @@ class DRBD8(BaseDRBD):
             "%s:%s" % (lhost, lport), "%s:%s" % (rhost, rport), protocol,
             "-A", "discard-zero-changes",
             "-B", "consensus",
+            "--create-device",
             ]
     if dual_pri:
       args.append("-m")
@@ -1913,8 +1926,8 @@ class DRBD8(BaseDRBD):
       args.extend(["-a", hmac, "-x", secret])
     result = utils.RunCmd(args)
     if result.failed:
-      logger.Error("Can't setup network for dbrd device: %s" %
-                   result.fail_reason)
+      logger.Error("Can't setup network for dbrd device: %s - %s" %
+                   (result.fail_reason, result.output))
       return False
 
     timeout = time.time() + 10
@@ -2001,7 +2014,8 @@ class DRBD8(BaseDRBD):
     result = utils.RunCmd(["drbdsetup", self.dev_path, "syncer", "-r", "%d" %
                            kbytes])
     if result.failed:
-      logger.Error("Can't change syncer rate: %s " % result.fail_reason)
+      logger.Error("Can't change syncer rate: %s - %s" %
+                   (result.fail_reason, result.output))
     return not result.failed and children_result
 
   def GetSyncStatus(self):
@@ -2081,10 +2095,10 @@ class DRBD8(BaseDRBD):
   def Open(self, force=False):
     """Make the local state primary.
 
-    If the 'force' parameter is given, the '--do-what-I-say' parameter
-    is given. Since this is a pottentialy dangerous operation, the
+    If the 'force' parameter is given, the '-o' option is passed to
+    drbdsetup. Since this is a potentially dangerous operation, the
     force flag should be only given after creation, when it actually
-    has to be given.
+    is mandatory.
 
     """
     if self.minor is None and not self.Attach():
@@ -2141,7 +2155,13 @@ class DRBD8(BaseDRBD):
       # even though we were passed some children at init time
       if match_r and "local_dev" not in info:
         break
-      if match_l and not match_r and "local_addr" in info:
+
+      # this case must be considered only if we actually have local
+      # storage, i.e. not in diskless mode, because all diskless
+      # devices are equal from the point of view of local
+      # configuration
+      if (match_l and "local_dev" in info and
+          not match_r and "local_addr" in info):
         # strange case - the device network part points to somewhere
         # else, even though its local storage is ours; as we own the
         # drbd space, we try to disconnect from the remote peer and

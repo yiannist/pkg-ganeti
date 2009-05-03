@@ -1,6 +1,6 @@
 ACLOCAL_AMFLAGS = -I autotools
 
-SUBDIRS = man lib scripts daemons doc test tools qa
+SUBDIRS = man lib scripts daemons doc test tools qa devel
 EXTRA_DIST = NEWS DEVNOTES
 
 .PHONY: ganeti
@@ -9,6 +9,7 @@ ganeti:
 
 pre-check: ganeti
 	$(MAKE) -C lib $@
+	$(MAKE) -C lib/rapi $@
 
 # a dist hook rule for catching revision control directories
 distcheck-hook:

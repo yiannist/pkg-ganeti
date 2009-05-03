@@ -77,6 +77,7 @@ ECHO_C = @ECHO_C@
 ECHO_N = @ECHO_N@
 ECHO_T = @ECHO_T@
 EXPORT_DIR = @EXPORT_DIR@
+IALLOCATOR_SEARCH_PATH = @IALLOCATOR_SEARCH_PATH@
 INSTALL_DATA = @INSTALL_DATA@
 INSTALL_PROGRAM = @INSTALL_PROGRAM@
 INSTALL_SCRIPT = @INSTALL_SCRIPT@
@@ -99,6 +100,7 @@ PYTHON_EXEC_PREFIX = @PYTHON_EXEC_PREFIX@
 PYTHON_PLATFORM = @PYTHON_PLATFORM@
 PYTHON_PREFIX = @PYTHON_PREFIX@
 PYTHON_VERSION = @PYTHON_VERSION@
+PY_ENABLE_RAPI = @PY_ENABLE_RAPI@
 SET_MAKE = @SET_MAKE@
 SHELL = @SHELL@
 SSH_INITD_SCRIPT = @SSH_INITD_SCRIPT@
@@ -145,10 +147,15 @@ SUBDIRS = examples
 dist_doc_DATA = \
   hooks.html hooks.pdf \
   install.html install.pdf \
-  admin.html admin.pdf
+  admin.html admin.pdf \
+  iallocator.html iallocator.pdf \
+  rapi.html rapi.pdf
 
-EXTRA_DIST = hooks.sgml install.sgml admin.sgml
-MAINTAINERCLEANFILES = *.html *.pdf
+EXTRA_DIST = hooks.sgml install.sgml admin.sgml iallocator.sgml \
+  rapi.sgml build-rapi-resources-doc
+
+CLEANFILES = *.sgmltmp
+MAINTAINERCLEANFILES = *.html *.pdf rapi-resources.sgml
 all: all-recursive
 
 .SUFFIXES:
@@ -399,6 +406,7 @@ install-strip:
 mostlyclean-generic:
 
 clean-generic:
+	-test -z "$(CLEANFILES)" || rm -f $(CLEANFILES)
 
 distclean-generic:
 	-test -z "$(CONFIG_CLEAN_FILES)" || rm -f $(CONFIG_CLEAN_FILES)
@@ -469,11 +477,23 @@ uninstall-info: uninstall-info-recursive
 	uninstall-dist_docDATA uninstall-info-am
 
 
-%.html: %.sgml
-	docbook2html --nochunks $<
+%.sgmltmp: %.sgml
+	sed -e 's#@GANETI_VERSION@#$(PACKAGE_VERSION)#g' < $< > $@
 
-%.pdf: %.sgml
-	docbook2pdf $<
+%.html: %.sgmltmp
+	docbook2html --nochunks $< || rm -f $@
+
+%.pdf: %.sgmltmp
+	docbook2pdf $< || rm -f $@
+
+rapi.pdf rapi.html: rapi-resources.sgml
+
+rapi-resources.sgml: build-rapi-resources-doc ../lib/rapi/resources.py
+	$(MAKE) -C $(top_builddir) ganeti
+	$(MAKE) -C $(top_builddir)/lib
+	PYTHONPATH=.:$(top_builddir) ./build-rapi-resources-doc > $@ || rm -f $@
+
+.INTERMEDIATE: rapi-resources.sgml
 # Tell versions [3.59,3.63) of GNU make to not export all variables.
 # Otherwise a system limit (for SysV at least) may be exceeded.
 .NOEXPORT:
