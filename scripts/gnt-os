@@ -1,0 +1,165 @@
+#!/usr/bin/python
+#
+
+# Copyright (C) 2006, 2007 Google Inc.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+# General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
+# 02110-1301, USA.
+
+
+import sys
+from optparse import make_option
+
+from ganeti.cli import *
+from ganeti import opcodes
+from ganeti import logger
+from ganeti import objects
+from ganeti import utils
+from ganeti import errors
+
+
+def _DiagnoseByOS(rlist):
+  """Remap an OpDiagnoseOS() return list into an a per-os per-node dictionary
+
+    Args:
+      rlist: a map with nodes as keys and diagnoseobjects as values
+
+    Returns:
+      map: a map with osnames as keys and as value another map, with nodes as
+           keys and diagnoseobjects as values
+           e.g. {"debian-etch": {"node1": <object>, "node2": <object>}}
+
+  """
+  all_os = {}
+  for node_name, nr in rlist.iteritems():
+    if not nr:
+      continue
+    for os in nr:
+      if os.name not in all_os:
+        all_os[os.name] = {}
+      if node_name not in all_os[os.name]:
+        all_os[os.name][node_name] = []
+      all_os[os.name][node_name].append(os)
+
+  return all_os
+
+
+def ListOS(opts, args):
+  """List the OSes existing on this node.
+
+  """
+  op = opcodes.OpDiagnoseOS()
+  result = SubmitOpCode(op)
+
+  if not result:
+    logger.ToStdout("Can't get the OS list")
+    return 1
+
+  node_data = result
+  num_nodes = len(node_data)
+  all_os = _DiagnoseByOS(node_data)
+
+  valid_os = []
+  for os_name, os_node_data in all_os.iteritems():
+    if len(os_node_data) != num_nodes:
+      continue
+
+    if utils.all(os_node_data.values(), lambda l: l[0]):
+      valid_os.append(os_name)
+
+  if not opts.no_headers:
+    headers = {"name": "Name"}
+  else:
+    headers = None
+
+  data = GenerateTable(separator=None, headers=headers, fields=["name"],
+                       data=[[os] for os in valid_os])
+
+  for line in data:
+    logger.ToStdout(line)
+
+  return 0
+
+
+def DiagnoseOS(opts, args):
+  """Analyse all OSes on this cluster.
+
+  """
+  op = opcodes.OpDiagnoseOS()
+  result = SubmitOpCode(op)
+
+  if not result:
+    logger.ToStdout("Can't get the OS list")
+    return 1
+
+  node_data = result
+  all_os = _DiagnoseByOS(node_data)
+
+  has_bad = False
+
+  for os_name in all_os:
+    nodes_valid = {}
+    nodes_bad = {}
+    for node_name in node_data:
+      if node_name in all_os[os_name]:
+        first_os = all_os[os_name][node_name].pop(0)
+        first_os_msg = ("%s (path: %s)" %
+                        (first_os.status, first_os.path))
+        if first_os:
+          nodes_valid[node_name] = first_os_msg
+        else:
+          nodes_bad[node_name] = first_os_msg
+      else:
+        nodes_bad[node_name] = "OS not found"
+
+    if nodes_valid and not nodes_bad:
+      status = "valid"
+    elif not nodes_valid and nodes_bad:
+      status = "invalid"
+      has_bad = True
+    else:
+      status = "partial valid"
+      has_bad = True
+
+    def _OutputNodeHiddenOSStatus(dobj_list):
+      for dobj in dobj_list:
+        logger.ToStdout("    [hidden] path: %s, status: %s" %
+                        (dobj.path, dobj.status))
+
+    def _OutputPerNodeOSStatus(msg_map):
+      map_k = utils.NiceSort(msg_map.keys())
+      for node_name in map_k:
+        logger.ToStdout("  Node: %s, status: %s" %
+                        (node_name, msg_map[node_name]))
+        if node_name in all_os[os_name]:
+          _OutputNodeHiddenOSStatus(all_os[os_name][node_name])
+
+    logger.ToStdout("OS: %s [global status: %s]" % (os_name, status))
+    _OutputPerNodeOSStatus(nodes_valid)
+    _OutputPerNodeOSStatus(nodes_bad)
+    logger.ToStdout("")
+
+  return int(has_bad)
+
+
+commands = {
+  'list': (ListOS, ARGS_NONE, [DEBUG_OPT, NOHDR_OPT], "",
+           "Lists all valid OSes on the master"),
+  'diagnose': (DiagnoseOS, ARGS_NONE, [DEBUG_OPT], "",
+               "Diagnose all OSes"),
+  }
+
+if __name__ == '__main__':
+  sys.exit(GenericMain(commands))

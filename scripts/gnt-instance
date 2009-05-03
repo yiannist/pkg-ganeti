@@ -1,0 +1,858 @@
+#!/usr/bin/python
+#
+
+# Copyright (C) 2006, 2007 Google Inc.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+# General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
+# 02110-1301, USA.
+
+
+import sys
+import os
+import itertools
+from optparse import make_option
+from cStringIO import StringIO
+
+from ganeti.cli import *
+from ganeti import opcodes
+from ganeti import logger
+from ganeti import constants
+from ganeti import utils
+from ganeti import errors
+
+
+_SHUTDOWN_CLUSTER = "cluster"
+_SHUTDOWN_NODES_BOTH = "nodes"
+_SHUTDOWN_NODES_PRI = "nodes-pri"
+_SHUTDOWN_NODES_SEC = "nodes-sec"
+_SHUTDOWN_INSTANCES = "instances"
+
+def _ExpandMultiNames(mode, names):
+  """Expand the given names using the passed mode.
+
+  Args:
+    - mode, which can be one of _SHUTDOWN_CLUSTER, _SHUTDOWN_NODES_BOTH,
+      _SHUTDOWN_NODES_PRI, _SHUTDOWN_NODES_SEC or _SHUTDOWN_INSTANCES
+    - names, which is a list of names; for cluster, it must be empty,
+      and for node and instance it must be a list of valid item
+      names (short names are valid as usual, e.g. node1 instead of
+      node1.example.com)
+
+  For _SHUTDOWN_CLUSTER, all instances will be returned. For
+  _SHUTDOWN_NODES_PRI/SEC, all instances having those nodes as
+  primary/secondary will be shutdown. For _SHUTDOWN_NODES_BOTH, all
+  instances having those nodes as either primary or secondary will be
+  returned. For _SHUTDOWN_INSTANCES, the given instances will be
+  returned.
+
+  """
+  if mode == _SHUTDOWN_CLUSTER:
+    if names:
+      raise errors.OpPrereqError("Cluster filter mode takes no arguments")
+    op = opcodes.OpQueryInstances(output_fields=["name"], names=[])
+    idata = SubmitOpCode(op)
+    inames = [row[0] for row in idata]
+
+  elif mode in (_SHUTDOWN_NODES_BOTH,
+                _SHUTDOWN_NODES_PRI,
+                _SHUTDOWN_NODES_SEC):
+    if not names:
+      raise errors.OpPrereqError("No node names passed")
+    op = opcodes.OpQueryNodes(output_fields=["name", "pinst_list",
+                                             "sinst_list"], names=names)
+    ndata = SubmitOpCode(op)
+    ipri = [row[1] for row in ndata]
+    pri_names = list(itertools.chain(*ipri))
+    isec = [row[2] for row in ndata]
+    sec_names = list(itertools.chain(*isec))
+    if mode == _SHUTDOWN_NODES_BOTH:
+      inames = pri_names + sec_names
+    elif mode == _SHUTDOWN_NODES_PRI:
+      inames = pri_names
+    elif mode == _SHUTDOWN_NODES_SEC:
+      inames = sec_names
+    else:
+      raise errors.ProgrammerError("Unhandled shutdown type")
+
+  elif mode == _SHUTDOWN_INSTANCES:
+    if not names:
+      raise errors.OpPrereqError("No instance names passed")
+    op = opcodes.OpQueryInstances(output_fields=["name"], names=names)
+    idata = SubmitOpCode(op)
+    inames = [row[0] for row in idata]
+
+  else:
+    raise errors.OpPrereqError("Unknown mode '%s'" % mode)
+
+  return inames
+
+
+def _ConfirmOperation(inames, text):
+  """Ask the user to confirm an operation on a list of instances.
+
+  This function is used to request confirmation for doing an operation
+  on a given list of instances.
+
+  The inames argument is what the selection algorithm computed, and
+  the text argument is the operation we should tell the user to
+  confirm (e.g. 'shutdown' or 'startup').
+
+  Returns: boolean depending on user's confirmation.
+
+  """
+  count = len(inames)
+  msg = ("The %s will operate on %d instances.\n"
+         "Do you want to continue?" % (text, count))
+  affected = ("\nAffected instances:\n" +
+              "\n".join(["  %s" % name for name in inames]))
+
+  choices = [('y', True, 'Yes, execute the %s' % text),
+             ('n', False, 'No, abort the %s' % text)]
+
+  if count > 20:
+    choices.insert(1, ('v', 'v', 'View the list of affected instances'))
+    ask = msg
+  else:
+    ask = msg + affected
+
+  choice = AskUser(ask, choices)
+  if choice == 'v':
+    choices.pop(1)
+    choice = AskUser(choices, msg + affected)
+  return choice
+
+
+def ListInstances(opts, args):
+  """List instances and their properties.
+
+  """
+  if opts.output is None:
+    selected_fields = ["name", "os", "pnode", "admin_state",
+                       "oper_state", "oper_ram"]
+  else:
+    selected_fields = opts.output.split(",")
+
+  op = opcodes.OpQueryInstances(output_fields=selected_fields, names=[])
+  output = SubmitOpCode(op)
+
+  if not opts.no_headers:
+    headers = {"name": "Instance", "os": "OS", "pnode": "Primary_node",
+               "snodes": "Secondary_Nodes", "admin_state": "Autostart",
+               "oper_state": "Status", "admin_ram": "Configured_memory",
+               "oper_ram": "Memory", "disk_template": "Disk_template",
+               "ip": "IP Address", "mac": "MAC Address",
+               "bridge": "Bridge",
+               "sda_size": "Disk/0", "sdb_size": "Disk/1"}
+  else:
+    headers = None
+
+  if opts.human_readable:
+    unitfields = ["admin_ram", "oper_ram", "sda_size", "sdb_size"]
+  else:
+    unitfields = None
+
+  numfields = ["admin_ram", "oper_ram", "sda_size", "sdb_size"]
+
+  # change raw values to nicer strings
+  for row in output:
+    for idx, field in enumerate(selected_fields):
+      val = row[idx]
+      if field == "snodes":
+        val = ",".join(val) or "-"
+      elif field == "admin_state":
+        if val:
+          val = "yes"
+        else:
+          val = "no"
+      elif field == "oper_state":
+        if val is None:
+          val = "(node down)"
+        elif val: # True
+          val = "running"
+        else:
+          val = "stopped"
+      elif field == "oper_ram":
+        if val is None:
+          val = "(node down)"
+      elif field == "sda_size" or field == "sdb_size":
+        if val is None:
+          val = "N/A"
+      row[idx] = str(val)
+
+  data = GenerateTable(separator=opts.separator, headers=headers,
+                       fields=selected_fields, unitfields=unitfields,
+                       numfields=numfields, data=output)
+
+  for line in data:
+    logger.ToStdout(line)
+
+  return 0
+
+
+def AddInstance(opts, args):
+  """Add an instance to the cluster.
+
+  Args:
+    opts - class with options as members
+    args - list with a single element, the instance name
+  Opts used:
+    mem - amount of memory to allocate to instance (MiB)
+    size - amount of disk space to allocate to instance (MiB)
+    os - which OS to run on instance
+    node - node to run new instance on
+
+  """
+  instance = args[0]
+
+  (pnode, snode) = SplitNodeOption(opts.node)
+
+  op = opcodes.OpCreateInstance(instance_name=instance, mem_size=opts.mem,
+                                disk_size=opts.size, swap_size=opts.swap,
+                                disk_template=opts.disk_template,
+                                mode=constants.INSTANCE_CREATE,
+                                os_type=opts.os, pnode=pnode,
+                                snode=snode, vcpus=opts.vcpus,
+                                ip=opts.ip, bridge=opts.bridge,
+                                start=opts.start, ip_check=opts.ip_check,
+                                wait_for_sync=opts.wait_for_sync)
+  SubmitOpCode(op)
+  return 0
+
+
+def ReinstallInstance(opts, args):
+  """Reinstall an instance.
+
+  Args:
+    opts - class with options as members
+    args - list containing a single element, the instance name
+
+  """
+  instance_name = args[0]
+
+  if not opts.force:
+    usertext = ("This will reinstall the instance %s and remove"
+                " all data. Continue?") % instance_name
+    if not AskUser(usertext):
+      return 1
+
+  op = opcodes.OpReinstallInstance(instance_name=instance_name,
+                                   os_type=opts.os)
+  SubmitOpCode(op)
+
+  return 0
+
+
+def RemoveInstance(opts, args):
+  """Remove an instance.
+
+  Args:
+    opts - class with options as members
+    args - list containing a single element, the instance name
+
+  """
+  instance_name = args[0]
+  force = opts.force
+
+  if not force:
+    usertext = ("This will remove the volumes of the instance %s"
+                " (including mirrors), thus removing all the data"
+                " of the instance. Continue?") % instance_name
+    if not AskUser(usertext):
+      return 1
+
+  op = opcodes.OpRemoveInstance(instance_name=instance_name,
+                                ignore_failures=opts.ignore_failures)
+  SubmitOpCode(op)
+  return 0
+
+
+def RenameInstance(opts, args):
+  """Rename an instance.
+
+  Args:
+    opts - class with options as members
+    args - list containing two elements, the instance name and the new name
+
+  """
+  op = opcodes.OpRenameInstance(instance_name=args[0],
+                                new_name=args[1],
+                                ignore_ip=opts.ignore_ip)
+  SubmitOpCode(op)
+
+  return 0
+
+
+def ActivateDisks(opts, args):
+  """Activate an instance's disks.
+
+  This serves two purposes:
+    - it allows one (as long as the instance is not running) to mount
+    the disks and modify them from the node
+    - it repairs inactive secondary drbds
+
+  """
+  instance_name = args[0]
+  op = opcodes.OpActivateInstanceDisks(instance_name=instance_name)
+  disks_info = SubmitOpCode(op)
+  for host, iname, nname in disks_info:
+    print "%s:%s:%s" % (host, iname, nname)
+  return 0
+
+
+def DeactivateDisks(opts, args):
+  """Command-line interface for _ShutdownInstanceBlockDevices.
+
+  This function takes the instance name, looks for its primary node
+  and the tries to shutdown its block devices on that node.
+
+  """
+  instance_name = args[0]
+  op = opcodes.OpDeactivateInstanceDisks(instance_name=instance_name)
+  SubmitOpCode(op)
+  return 0
+
+
+def StartupInstance(opts, args):
+  """Startup an instance.
+
+  Args:
+    opts - class with options as members
+    args - list containing a single element, the instance name
+
+  """
+  if opts.multi_mode is None:
+    opts.multi_mode = _SHUTDOWN_INSTANCES
+  inames = _ExpandMultiNames(opts.multi_mode, args)
+  if not inames:
+    raise errors.OpPrereqError("Selection filter does not match any instances")
+  multi_on = opts.multi_mode != _SHUTDOWN_INSTANCES or len(inames) > 1
+  if not (opts.force_multi or not multi_on
+          or _ConfirmOperation(inames, "startup")):
+    return 1
+  for name in inames:
+    op = opcodes.OpStartupInstance(instance_name=name,
+                                   force=opts.force,
+                                   extra_args=opts.extra_args)
+    if multi_on:
+      logger.ToStdout("Starting up %s" % name)
+    SubmitOpCode(op)
+  return 0
+
+def RebootInstance(opts, args):
+  """Reboot an instance
+
+  Args:
+    opts - class with options as members
+    args - list containing a single element, the instance name
+
+  """
+  if opts.multi_mode is None:
+    opts.multi_mode = _SHUTDOWN_INSTANCES
+  inames = _ExpandMultiNames(opts.multi_mode, args)
+  if not inames:
+    raise errors.OpPrereqError("Selection filter does not match any instances")
+  multi_on = opts.multi_mode != _SHUTDOWN_INSTANCES or len(inames) > 1
+  if not (opts.force_multi or not multi_on
+          or _ConfirmOperation(inames, "reboot")):
+    return 1
+  for name in inames:
+    op = opcodes.OpRebootInstance(instance_name=name,
+                                  reboot_type=opts.reboot_type,
+                                  ignore_secondaries=opts.ignore_secondaries)
+
+    SubmitOpCode(op)
+  return 0
+
+def ShutdownInstance(opts, args):
+  """Shutdown an instance.
+
+  Args:
+    opts - class with options as members
+    args - list containing a single element, the instance name
+
+  """
+  if opts.multi_mode is None:
+    opts.multi_mode = _SHUTDOWN_INSTANCES
+  inames = _ExpandMultiNames(opts.multi_mode, args)
+  if not inames:
+    raise errors.OpPrereqError("Selection filter does not match any instances")
+  multi_on = opts.multi_mode != _SHUTDOWN_INSTANCES or len(inames) > 1
+  if not (opts.force_multi or not multi_on
+          or _ConfirmOperation(inames, "shutdown")):
+    return 1
+  for name in inames:
+    op = opcodes.OpShutdownInstance(instance_name=name)
+    if multi_on:
+      logger.ToStdout("Shutting down %s" % name)
+    SubmitOpCode(op)
+  return 0
+
+
+def AddMDDRBDComponent(opts, args):
+  """Add a new component to a remote_raid1 disk.
+
+  Args:
+    opts - class with options as members
+    args - list with a single element, the instance name
+
+  """
+  op = opcodes.OpAddMDDRBDComponent(instance_name=args[0],
+                                    disk_name=opts.disk,
+                                    remote_node=opts.node)
+  SubmitOpCode(op)
+  return 0
+
+
+def RemoveMDDRBDComponent(opts, args):
+  """Remove a component from a remote_raid1 disk.
+
+  Args:
+    opts - class with options as members
+    args - list with a single element, the instance name
+
+  """
+  op = opcodes.OpRemoveMDDRBDComponent(instance_name=args[0],
+                                       disk_name=opts.disk,
+                                       disk_id=opts.port)
+  SubmitOpCode(op)
+  return 0
+
+
+def ReplaceDisks(opts, args):
+  """Replace the disks of an instance
+
+  Args:
+    opts - class with options as members
+    args - list with a single element, the instance name
+
+  """
+  instance_name = args[0]
+  new_2ndary = opts.new_secondary
+  if opts.disks is None:
+    disks = ["sda", "sdb"]
+  else:
+    disks = opts.disks.split(",")
+  if opts.on_primary == opts.on_secondary: # no -p or -s passed, or both passed
+    mode = constants.REPLACE_DISK_ALL
+  elif opts.on_primary: # only on primary:
+    mode = constants.REPLACE_DISK_PRI
+    if new_2ndary is not None:
+      raise errors.OpPrereqError("Can't change secondary node on primary disk"
+                                 " replacement")
+  elif opts.on_secondary is not None: # only on secondary
+    mode = constants.REPLACE_DISK_SEC
+
+  op = opcodes.OpReplaceDisks(instance_name=args[0], disks=disks,
+                              remote_node=new_2ndary, mode=mode)
+  SubmitOpCode(op)
+  return 0
+
+
+def FailoverInstance(opts, args):
+  """Failover an instance.
+
+  The failover is done by shutting it down on its present node and
+  starting it on the secondary.
+
+  Args:
+    opts - class with options as members
+    args - list with a single element, the instance name
+  Opts used:
+    force - whether to failover without asking questions.
+
+  """
+  instance_name = args[0]
+  force = opts.force
+
+  if not force:
+    usertext = ("Failover will happen to image %s."
+                " This requires a shutdown of the instance. Continue?" %
+                (instance_name,))
+    if not AskUser(usertext):
+      return 1
+
+  op = opcodes.OpFailoverInstance(instance_name=instance_name,
+                                  ignore_consistency=opts.ignore_consistency)
+  SubmitOpCode(op)
+  return 0
+
+
+def ConnectToInstanceConsole(opts, args):
+  """Connect to the console of an instance.
+
+  Args:
+    opts - class with options as members
+    args - list with a single element, the instance name
+
+  """
+  instance_name = args[0]
+
+  op = opcodes.OpConnectConsole(instance_name=instance_name)
+  cmd, argv = SubmitOpCode(op)
+  # drop lock and exec so other commands can run while we have console
+  utils.Unlock("cmd")
+  try:
+    os.execvp(cmd, argv)
+  finally:
+    sys.stderr.write("Can't run console command %s with arguments:\n'%s'" %
+                     (cmd, " ".join(argv)))
+    os._exit(1)
+
+
+def _FormatBlockDevInfo(buf, dev, indent_level):
+  """Show block device information.
+
+  This is only used by ShowInstanceConfig(), but it's too big to be
+  left for an inline definition.
+
+  """
+  def helper(buf, dtype, status):
+    """Format one line for phsyical device status."""
+    if not status:
+      buf.write("not active\n")
+    else:
+      (path, major, minor, syncp, estt, degr, ldisk) = status
+      buf.write("%s (%d:%d)" % (path, major, minor))
+      if dtype in (constants.LD_MD_R1, constants.LD_DRBD7, constants.LD_DRBD8):
+        if syncp is not None:
+          sync_text = "*RECOVERING* %5.2f%%," % syncp
+          if estt:
+            sync_text += " ETA %ds" % estt
+          else:
+            sync_text += " ETA unknown"
+        else:
+          sync_text = "in sync"
+        if degr:
+          degr_text = "*DEGRADED*"
+        else:
+          degr_text = "ok"
+        if ldisk:
+          ldisk_text = " *MISSING DISK*"
+        else:
+          ldisk_text = ""
+        buf.write(" %s, status %s%s" % (sync_text, degr_text, ldisk_text))
+      elif dtype == constants.LD_LV:
+        if ldisk:
+          ldisk_text = " *FAILED* (failed drive?)"
+        else:
+          ldisk_text = ""
+        buf.write(ldisk_text)
+      buf.write("\n")
+
+  if dev["iv_name"] is not None:
+    data = "  - %s, " % dev["iv_name"]
+  else:
+    data = "  - "
+  data += "type: %s" % dev["dev_type"]
+  if dev["logical_id"] is not None:
+    data += ", logical_id: %s" % (dev["logical_id"],)
+  elif dev["physical_id"] is not None:
+    data += ", physical_id: %s" % (dev["physical_id"],)
+  buf.write("%*s%s\n" % (2*indent_level, "", data))
+  buf.write("%*s    primary:   " % (2*indent_level, ""))
+  helper(buf, dev["dev_type"], dev["pstatus"])
+
+  if dev["sstatus"]:
+    buf.write("%*s    secondary: " % (2*indent_level, ""))
+    helper(buf, dev["dev_type"], dev["sstatus"])
+
+  if dev["children"]:
+    for child in dev["children"]:
+      _FormatBlockDevInfo(buf, child, indent_level+1)
+
+
+def ShowInstanceConfig(opts, args):
+  """Compute instance run-time status.
+
+  """
+  retcode = 0
+  op = opcodes.OpQueryInstanceData(instances=args)
+  result = SubmitOpCode(op)
+
+  if not result:
+    logger.ToStdout("No instances.")
+    return 1
+
+  buf = StringIO()
+  retcode = 0
+  for instance_name in result:
+    instance = result[instance_name]
+    buf.write("Instance name: %s\n" % instance["name"])
+    buf.write("State: configured to be %s, actual state is %s\n" %
+              (instance["config_state"], instance["run_state"]))
+    buf.write("  Nodes:\n")
+    buf.write("    - primary: %s\n" % instance["pnode"])
+    buf.write("    - secondaries: %s\n" % ", ".join(instance["snodes"]))
+    buf.write("  Operating system: %s\n" % instance["os"])
+    buf.write("  Hardware:\n")
+    buf.write("    - VCPUs: %d\n" % instance["vcpus"])
+    buf.write("    - memory: %dMiB\n" % instance["memory"])
+    buf.write("    - NICs: %s\n" %
+        ", ".join(["{MAC: %s, IP: %s, bridge: %s}" %
+                   (mac, ip, bridge)
+                     for mac, ip, bridge in instance["nics"]]))
+    buf.write("  Block devices:\n")
+
+    for device in instance["disks"]:
+      _FormatBlockDevInfo(buf, device, 1)
+
+  logger.ToStdout(buf.getvalue().rstrip('\n'))
+  return retcode
+
+
+def SetInstanceParms(opts, args):
+  """Modifies an instance.
+
+  All parameters take effect only at the next restart of the instance.
+
+  Args:
+    opts - class with options as members
+    args - list with a single element, the instance name
+  Opts used:
+    memory - the new memory size
+    vcpus - the new number of cpus
+
+  """
+  if not opts.mem and not opts.vcpus and not opts.ip and not opts.bridge:
+    logger.ToStdout("Please give at least one of the parameters.")
+    return 1
+
+  op = opcodes.OpSetInstanceParms(instance_name=args[0], mem=opts.mem,
+                                  vcpus=opts.vcpus, ip=opts.ip,
+                                  bridge=opts.bridge)
+  result = SubmitOpCode(op)
+
+  if result:
+    logger.ToStdout("Modified instance %s" % args[0])
+    for param, data in result:
+      logger.ToStdout(" - %-5s -> %s" % (param, data))
+    logger.ToStdout("Please don't forget that these parameters take effect"
+                    " only at the next start of the instance.")
+  return 0
+
+
+# options used in more than one cmd
+node_opt = make_option("-n", "--node", dest="node", help="Target node",
+                       metavar="<node>")
+
+os_opt = cli_option("-o", "--os-type", dest="os", help="What OS to run",
+                    metavar="<os>")
+
+# multi-instance selection options
+m_force_multi = make_option("--force-multiple", dest="force_multi",
+                            help="Do not ask for confirmation when more than"
+                            " one instance is affected",
+                            action="store_true", default=False)
+
+m_pri_node_opt = make_option("--primary", dest="multi_mode",
+                             help="Filter by nodes (primary only)",
+                             const=_SHUTDOWN_NODES_PRI, action="store_const")
+
+m_sec_node_opt = make_option("--secondary", dest="multi_mode",
+                             help="Filter by nodes (secondary only)",
+                             const=_SHUTDOWN_NODES_SEC, action="store_const")
+
+m_node_opt = make_option("--node", dest="multi_mode",
+                         help="Filter by nodes (primary and secondary)",
+                         const=_SHUTDOWN_NODES_BOTH, action="store_const")
+
+m_clust_opt = make_option("--all", dest="multi_mode",
+                          help="Select all instances in the cluster",
+                          const=_SHUTDOWN_CLUSTER, action="store_const")
+
+m_inst_opt = make_option("--instance", dest="multi_mode",
+                         help="Filter by instance name [default]",
+                         const=_SHUTDOWN_INSTANCES, action="store_const")
+
+
+# this is defined separately due to readability only
+add_opts = [
+  DEBUG_OPT,
+  make_option("-n", "--node", dest="node",
+              help="Target node and optional secondary node",
+              metavar="<pnode>[:<snode>]"),
+  cli_option("-s", "--os-size", dest="size", help="Disk size, in MiB unless"
+             " a suffix is used",
+             default=20 * 1024, type="unit", metavar="<size>"),
+  cli_option("--swap-size", dest="swap", help="Swap size, in MiB unless a"
+             " suffix is used",
+             default=4 * 1024, type="unit", metavar="<size>"),
+  os_opt,
+  cli_option("-m", "--memory", dest="mem", help="Memory size (in MiB)",
+              default=128, type="unit", metavar="<mem>"),
+  make_option("-p", "--cpu", dest="vcpus", help="Number of virtual CPUs",
+              default=1, type="int", metavar="<PROC>"),
+  make_option("-t", "--disk-template", dest="disk_template",
+              help="Custom disk setup (diskless, plain, local_raid1,"
+              " remote_raid1 or drbd)", default=None, metavar="TEMPL"),
+  make_option("-i", "--ip", dest="ip",
+              help="IP address ('none' [default], 'auto', or specify address)",
+              default='none', type="string", metavar="<ADDRESS>"),
+  make_option("--no-wait-for-sync", dest="wait_for_sync", default=True,
+              action="store_false", help="Don't wait for sync (DANGEROUS!)"),
+  make_option("-b", "--bridge", dest="bridge",
+              help="Bridge to connect this instance to",
+              default=None, metavar="<bridge>"),
+  make_option("--no-start", dest="start", default=True,
+              action="store_false", help="Don't start the instance after"
+              " creation"),
+  make_option("--no-ip-check", dest="ip_check", default=True,
+              action="store_false", help="Don't check that the instance's IP"
+              " is alive (only valid with --no-start)"),
+  ]
+
+commands = {
+  'add': (AddInstance, ARGS_ONE, add_opts,
+          "[opts...] <name>",
+          "Creates and adds a new instance to the cluster"),
+  'add-mirror': (AddMDDRBDComponent, ARGS_ONE,
+                [DEBUG_OPT, node_opt,
+                 make_option("-b", "--disk", dest="disk", metavar="sdX",
+                             help=("The name of the instance disk for which to"
+                                   " add the mirror"))],
+                "-n node -b disk <instance>",
+                "Creates a new mirror for the instance"),
+  'console': (ConnectToInstanceConsole, ARGS_ONE, [DEBUG_OPT],
+              "<instance>",
+              "Opens a console on the specified instance"),
+  'failover': (FailoverInstance, ARGS_ONE,
+               [DEBUG_OPT, FORCE_OPT,
+                make_option("--ignore-consistency", dest="ignore_consistency",
+                            action="store_true", default=False,
+                            help="Ignore the consistency of the disks on"
+                            " the secondary"),
+                ],
+               "[-f] <instance>",
+               "Stops the instance and starts it on the backup node, using"
+               " the remote mirror (only for instances of type remote_raid1)"),
+  'info': (ShowInstanceConfig, ARGS_ANY, [DEBUG_OPT], "[<instance>...]",
+           "Show information on the specified instance"),
+  'list': (ListInstances, ARGS_NONE,
+           [DEBUG_OPT, NOHDR_OPT, SEP_OPT, USEUNITS_OPT, FIELDS_OPT],
+           "", "Lists the instances and their status"),
+  'reinstall': (ReinstallInstance, ARGS_ONE, [DEBUG_OPT, FORCE_OPT, os_opt],
+                "[-f] <instance>", "Reinstall the instance"),
+  'remove': (RemoveInstance, ARGS_ONE,
+             [DEBUG_OPT, FORCE_OPT,
+              make_option("--ignore-failures", dest="ignore_failures",
+                          action="store_true", default=False,
+                          help=("Remove the instance from the cluster even"
+                                " if there are failures during the removal"
+                                " process (shutdown, disk removal, etc.)")),
+              ],
+             "[-f] <instance>", "Shuts down the instance and removes it"),
+  'remove-mirror': (RemoveMDDRBDComponent, ARGS_ONE,
+                   [DEBUG_OPT, node_opt,
+                    make_option("-b", "--disk", dest="disk", metavar="sdX",
+                                help=("The name of the instance disk"
+                                      " for which to add the mirror")),
+                    make_option("-p", "--port", dest="port", metavar="PORT",
+                                help=("The port of the drbd device"
+                                      " which to remove from the mirror"),
+                                type="int"),
+                    ],
+                   "-b disk -p port <instance>",
+                   "Removes a mirror from the instance"),
+  'rename': (RenameInstance, ARGS_FIXED(2),
+             [DEBUG_OPT,
+              make_option("--no-ip-check", dest="ignore_ip",
+                          help="Do not check that the IP of the new name"
+                          " is alive",
+                          default=False, action="store_true"),
+              ],
+             "<instance> <new_name>", "Rename the instance"),
+  'replace-disks': (ReplaceDisks, ARGS_ONE,
+                    [DEBUG_OPT,
+                     make_option("-n", "--new-secondary", dest="new_secondary",
+                                 help=("New secondary node (for secondary"
+                                       " node change)"), metavar="NODE"),
+                     make_option("-p", "--on-primary", dest="on_primary",
+                                 default=False, action="store_true",
+                                 help=("Replace the disk(s) on the primary"
+                                       " node (only for the drbd template)")),
+                     make_option("-s", "--on-secondary", dest="on_secondary",
+                                 default=False, action="store_true",
+                                 help=("Replace the disk(s) on the secondary"
+                                       " node (only for the drbd template)")),
+                     make_option("--disks", dest="disks", default=None,
+                                 help=("Comma-separated list of disks"
+                                       " to replace (e.g. sda) (optional,"
+                                       " defaults to all disks")),
+                     ],
+                    "[-n NODE] <instance>",
+                    "Replaces all disks for the instance"),
+  'modify': (SetInstanceParms, ARGS_ONE,
+             [DEBUG_OPT, FORCE_OPT,
+              cli_option("-m", "--memory", dest="mem",
+                         help="Memory size",
+                         default=None, type="unit", metavar="<mem>"),
+              make_option("-p", "--cpu", dest="vcpus",
+                          help="Number of virtual CPUs",
+                          default=None, type="int", metavar="<PROC>"),
+              make_option("-i", "--ip", dest="ip",
+                          help="IP address ('none' or numeric IP)",
+                          default=None, type="string", metavar="<ADDRESS>"),
+              make_option("-b", "--bridge", dest="bridge",
+                          help="Bridge to connect this instance to",
+                          default=None, type="string", metavar="<bridge>"),
+              ],
+             "<instance>", "Alters the parameters of an instance"),
+  'shutdown': (ShutdownInstance, ARGS_ANY,
+               [DEBUG_OPT, m_node_opt, m_pri_node_opt, m_sec_node_opt,
+                m_clust_opt, m_inst_opt, m_force_multi],
+               "<instance>", "Stops an instance"),
+  'startup': (StartupInstance, ARGS_ANY,
+              [DEBUG_OPT, FORCE_OPT, m_force_multi,
+               make_option("-e", "--extra", dest="extra_args",
+                           help="Extra arguments for the instance's kernel",
+                           default=None, type="string", metavar="<PARAMS>"),
+               m_node_opt, m_pri_node_opt, m_sec_node_opt,
+               m_clust_opt, m_inst_opt,
+               ],
+            "<instance>", "Starts an instance"),
+
+  'reboot': (RebootInstance, ARGS_ANY,
+              [DEBUG_OPT, m_force_multi,
+               make_option("-e", "--extra", dest="extra_args",
+                           help="Extra arguments for the instance's kernel",
+                           default=None, type="string", metavar="<PARAMS>"),
+               make_option("-t", "--type", dest="reboot_type",
+                           help="Type of reboot: soft/hard/full",
+                           default=constants.INSTANCE_REBOOT_SOFT,
+                           type="string", metavar="<REBOOT>"),
+               make_option("--ignore-secondaries", dest="ignore_secondaries",
+                           default=False, action="store_true",
+                           help="Ignore errors from secondaries"),
+               m_node_opt, m_pri_node_opt, m_sec_node_opt,
+               m_clust_opt, m_inst_opt,
+               ],
+            "<instance>", "Reboots an instance"),
+  'activate-disks': (ActivateDisks, ARGS_ONE, [DEBUG_OPT],
+                     "<instance>",
+                     "Activate an instance's disks"),
+  'deactivate-disks': (DeactivateDisks, ARGS_ONE, [DEBUG_OPT],
+                       "<instance>",
+                       "Deactivate an instance's disks"),
+  'list-tags': (ListTags, ARGS_ONE, [DEBUG_OPT],
+                "<node_name>", "List the tags of the given instance"),
+  'add-tags': (AddTags, ARGS_ATLEAST(1), [DEBUG_OPT, TAG_SRC_OPT],
+               "<node_name> tag...", "Add tags to the given instance"),
+  'remove-tags': (RemoveTags, ARGS_ATLEAST(1), [DEBUG_OPT, TAG_SRC_OPT],
+                  "<node_name> tag...", "Remove tags from given instance"),
+  }
+
+if __name__ == '__main__':
+  sys.exit(GenericMain(commands,
+                       override={"tag_type": constants.TAG_INSTANCE}))
