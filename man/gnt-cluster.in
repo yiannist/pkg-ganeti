@@ -3,7 +3,7 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GNT-CLUSTER" "8" "24 September 2008" "ganeti 1.2" ""
+.TH "GNT-CLUSTER" "8" "10 January 2009" "ganeti 1.2" ""
 
 .SH NAME
 gnt-cluster \- ganeti administration, cluster-wide
@@ -287,8 +287,8 @@ Ganeti daemons:
 \fBganeti-rapi\fR(8) (remote API daemon).
 .SH "COPYRIGHT"
 .PP
-Copyright (C) 2006, 2007 Google Inc. Permission is granted to
-copy, distribute and/or modify under the terms of the GNU
+Copyright (C) 2006, 2007, 2008 Google Inc. Permission is granted
+to copy, distribute and/or modify under the terms of the GNU
 General Public License as published by the Free Software
 Foundation; either version 2 of the License, or (at your option)
 any later version.

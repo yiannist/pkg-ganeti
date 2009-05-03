@@ -69,7 +69,7 @@
       <para>
         Exports an instance to the target node. All the instance data
         and its configuration will be exported under the
-        /srv/ganeti/exports/<replaceable>instance</replaceable>
+        /srv/ganeti/export/<replaceable>instance</replaceable>
         directory on the target node.
       </para>
 
@@ -114,6 +114,7 @@
         <sbr>
 
         <arg>-b <replaceable>bridge</replaceable></arg>
+        <arg>--mac <replaceable>mac</replaceable></arg>
         <arg>--no-wait-for-sync</arg>
         <arg>--no-ip-check</arg>
         <sbr>
@@ -172,6 +173,14 @@
         The <option>-b</option> option specifies the bridge to which the
         instance will be connected. (defaults to the cluster-wide default
         bridge specified at cluster intialization time).
+      </para>
+
+      <para>
+	The <option>--mac</option> option specifies the mac address for the
+	instance. The default is 'auto' which is reusing the previous mac
+	address if the instance is being imported with the same name, and
+	generating a new one otherwise. You can also force generation by
+	specifying 'generate'.
       </para>
 
       <para>
@@ -278,7 +287,7 @@
         <screen>
 # gnt-backup import -t plain -s 30 -m 512 -n node1.example.com \
 > --src-node=node2.example.com \
-> --src-dir=/srv/ganeti/exports/instance3.example.com \
+> --src-dir=/srv/ganeti/export/instance3.example.com \
 > instance3.example.com
         </screen>
       </para>

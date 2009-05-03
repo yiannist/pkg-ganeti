@@ -25,7 +25,7 @@ from ganeti import _autoconf
 
 # various versions
 CONFIG_VERSION = 3
-PROTOCOL_VERSION = 14
+PROTOCOL_VERSION = 15
 RELEASE_VERSION = _autoconf.PACKAGE_VERSION
 OS_API_VERSION = 5
 EXPORT_VERSION = 0
@@ -70,6 +70,8 @@ XEN_KERNEL = _autoconf.XEN_KERNEL
 XEN_INITRD = _autoconf.XEN_INITRD
 
 VALUE_DEFAULT = "default"
+VALUE_AUTO = "auto"
+VALUE_GENERATE = "generate"
 VALUE_NONE = "none"
 
 # hooks-related constants
@@ -140,7 +142,7 @@ MAX_TAGS_PER_OBJ = 48
 
 # others
 DEFAULT_BRIDGE = "xen-br0"
-SYNC_SPEED = 30 * 1024
+SYNC_SPEED = 60 * 1024
 LOCALHOST_IP_ADDRESS = "127.0.0.1"
 TCP_PING_TIMEOUT = 10
 GANETI_RUNAS = "root"

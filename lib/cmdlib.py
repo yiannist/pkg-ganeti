@@ -1499,7 +1499,7 @@ class LUQueryNodes(NoHooksLU):
       "dtotal", "dfree",
       "mtotal", "mnode", "mfree",
       "bootid",
-      "ctotal",
+      "ctotal", "cnodes", "csockets",
       ])
 
     _CheckOutputFields(static=["name", "pinst_cnt", "sinst_cnt",
@@ -1525,14 +1525,17 @@ class LUQueryNodes(NoHooksLU):
       for name in nodenames:
         nodeinfo = node_data.get(name, None)
         if nodeinfo:
+          fn = utils.TryConvert
           live_data[name] = {
-            "mtotal": utils.TryConvert(int, nodeinfo['memory_total']),
-            "mnode": utils.TryConvert(int, nodeinfo['memory_dom0']),
-            "mfree": utils.TryConvert(int, nodeinfo['memory_free']),
-            "dtotal": utils.TryConvert(int, nodeinfo['vg_size']),
-            "dfree": utils.TryConvert(int, nodeinfo['vg_free']),
-            "ctotal": utils.TryConvert(int, nodeinfo['cpu_total']),
-            "bootid": nodeinfo['bootid'],
+            "mtotal": fn(int, nodeinfo.get('memory_total', None)),
+            "mnode": fn(int, nodeinfo.get('memory_dom0', None)),
+            "mfree": fn(int, nodeinfo.get('memory_free', None)),
+            "dtotal": fn(int, nodeinfo.get('vg_size', None)),
+            "dfree": fn(int, nodeinfo.get('vg_free', None)),
+            "ctotal": fn(int, nodeinfo.get('cpu_total', None)),
+            "bootid": nodeinfo.get('bootid', None),
+            "cnodes": fn(int, nodeinfo.get('cpu_nodes', None)),
+            "csockets": fn(int, nodeinfo.get('cpu_sockets', None)),
             }
         else:
           live_data[name] = {}
@@ -3540,7 +3543,8 @@ class LUCreateInstance(LogicalUnit):
     if len(ial.nodes) != ial.required_nodes:
       raise errors.OpPrereqError("iallocator '%s' returned invalid number"
                                  " of nodes (%s), required %s" %
-                                 (len(ial.nodes), ial.required_nodes))
+                                 (self.op.iallocator, len(ial.nodes),
+                                  ial.required_nodes))
     self.op.pnode = ial.nodes[0]
     logger.ToStdout("Selected nodes for the instance: %s" %
                     (", ".join(ial.nodes),))
@@ -3652,11 +3656,18 @@ class LUCreateInstance(LogicalUnit):
       raise errors.OpPrereqError("Instance '%s' is already in the cluster" %
                                  instance_name)
 
+    if (self.op.mode == constants.INSTANCE_IMPORT and
+        self.op.mac == constants.VALUE_AUTO):
+      old_name = export_info.get(constants.INISECT_INS, 'name')
+      if instance_name == old_name:
+        if int(export_info.get(constants.INISECT_INS, 'nic_count')) >= 1:
+          self.op.mac = export_info.get(constants.INISECT_INS, 'nic_0_mac')
+
     # ip validity checks
     ip = getattr(self.op, "ip", None)
     if ip is None or ip.lower() == "none":
       inst_ip = None
-    elif ip.lower() == "auto":
+    elif ip.lower() == constants.VALUE_AUTO:
       inst_ip = hostname1.ip
     else:
       if not utils.IsValidIP(ip):
@@ -3675,7 +3686,7 @@ class LUCreateInstance(LogicalUnit):
                                    (hostname1.ip, instance_name))
 
     # MAC address verification
-    if self.op.mac != "auto":
+    if self.op.mac not in (constants.VALUE_AUTO, constants.VALUE_GENERATE):
       if not utils.IsValidMac(self.op.mac.lower()):
         raise errors.OpPrereqError("invalid MAC address specified: %s" %
                                    self.op.mac)
@@ -3810,7 +3821,7 @@ class LUCreateInstance(LogicalUnit):
     instance = self.op.instance_name
     pnode_name = self.pnode.name
 
-    if self.op.mac == "auto":
+    if self.op.mac in (constants.VALUE_AUTO, constants.VALUE_GENERATE):
       mac_address = self.cfg.GenerateMAC()
     else:
       mac_address = self.op.mac

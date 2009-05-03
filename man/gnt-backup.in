@@ -3,7 +3,7 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GNT-BACKUP" "8" "24 September 2008" "ganeti 1.2" ""
+.TH "GNT-BACKUP" "8" "10 January 2009" "ganeti 1.2" ""
 
 .SH NAME
 gnt-backup \- ganeti instance import/export
@@ -24,7 +24,7 @@ backing instances up and also to migrate them between clusters.
 .PP
 Exports an instance to the target node. All the instance data
 and its configuration will be exported under the
-/srv/ganeti/exports/\fIinstance\fR
+/srv/ganeti/export/\fIinstance\fR
 directory on the target node.
 .PP
 The \fB--noshutdown\fR option will create a
@@ -44,7 +44,7 @@ Example:
 \fBimport\fR { \fB-n \fInode[:secondary-node]\fB\fR | \fB--iallocator \fIname\fB\fR }
     [ \fB-s \fIdisksize\fB\fR ] [ \fB--swap-size \fIdisksize\fB\fR ] [ \fB-m \fImemsize\fB\fR ]
     [ \fB--cpu \fIvcpus\fB\fR ] [ \fB--ip { default | none | \fIip-address\fB }\fR ]
-    [ \fB-b \fIbridge\fB\fR ] [ \fB--no-wait-for-sync\fR ] [ \fB--no-ip-check\fR ]
+    [ \fB-b \fIbridge\fB\fR ] [ \fB--mac \fImac\fB\fR ] [ \fB--no-wait-for-sync\fR ] [ \fB--no-ip-check\fR ]
     \fB--src-node=\fIsource-node\fB\fR \fB--src-dir=\fIsource-dir\fB\fR
     \fB-t [ diskless | plain | local_raid1 | remote_raid1 | drbd ]\fR
     [ \fB--auto_balance \fIAUTO_BALANCE\fB\fR ] \fB\fIinstance\fB\fR
@@ -78,6 +78,12 @@ can use other suffixes (e.g. \fB2g\fR).
 The \fB-b\fR option specifies the bridge to which the
 instance will be connected. (defaults to the cluster-wide default
 bridge specified at cluster intialization time).
+.PP
+The \fB--mac\fR option specifies the mac address for the
+instance. The default is 'auto' which is reusing the previous mac
+address if the instance is being imported with the same name, and
+generating a new one otherwise. You can also force generation by
+specifying 'generate'.
 .PP
 The \fB-t\fR options specifies the disk layout type for
 the instance. The available choices are:
@@ -142,7 +148,7 @@ Example:
 .nf
 # gnt-backup import -t plain -s 30 -m 512 -n node1.example.com \\
 > --src-node=node2.example.com \\
-> --src-dir=/srv/ganeti/exports/instance3.example.com \\
+> --src-dir=/srv/ganeti/export/instance3.example.com \\
 > instance3.example.com
         
 .fi
@@ -186,8 +192,8 @@ Ganeti daemons:
 \fBganeti-rapi\fR(8) (remote API daemon).
 .SH "COPYRIGHT"
 .PP
-Copyright (C) 2006, 2007 Google Inc. Permission is granted to
-copy, distribute and/or modify under the terms of the GNU
+Copyright (C) 2006, 2007, 2008 Google Inc. Permission is granted
+to copy, distribute and/or modify under the terms of the GNU
 General Public License as published by the Free Software
 Foundation; either version 2 of the License, or (at your option)
 any later version.
