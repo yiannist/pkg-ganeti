@@ -3,7 +3,7 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GNT-INSTANCE" "8" "28 January 2008" "ganeti 1.2" ""
+.TH "GNT-INSTANCE" "8" "18 February 2008" "ganeti 1.2" ""
 
 .SH NAME
 gnt-instance \- ganeti instance administration
@@ -215,8 +215,24 @@ the desired memory for the instance
 the disk template of the instance
 .TP
 \fBoper_state\fR
-the actual state of the instance; can take of
-the values "running", "stopped", "(node down)"
+the actual state of the instance; can be
+one of the values "running", "stopped", "(node
+down)"
+.TP
+\fBstatus\fR
+combined form of admin_state and oper_stat;
+this can be one of:
+ERROR_nodedown if the
+node of the instance is down,
+ERROR_down if the
+instance should run but is down,
+ERROR_up if the
+instance should be stopped but is actually running,
+ADMIN_down if the
+instance has been stopped (and is stopped) and
+running if the
+instance is set to be running (and is
+running)
 .TP
 \fBoper_ram\fR
 the actual memory usage of the instance as seen

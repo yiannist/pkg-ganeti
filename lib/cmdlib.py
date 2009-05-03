@@ -267,11 +267,12 @@ def _BuildInstanceHookEnv(name, primary_node, secondary_nodes, os_type, status,
 
   if nics:
     nic_count = len(nics)
-    for idx, (ip, bridge) in enumerate(nics):
+    for idx, (ip, bridge, mac) in enumerate(nics):
       if ip is None:
         ip = ""
       env["INSTANCE_NIC%d_IP" % idx] = ip
       env["INSTANCE_NIC%d_BRIDGE" % idx] = bridge
+      env["INSTANCE_NIC%d_HWADDR" % idx] = mac
   else:
     nic_count = 0
 
@@ -295,7 +296,7 @@ def _BuildInstanceHookEnvByObject(instance, override=None):
     'status': instance.os,
     'memory': instance.memory,
     'vcpus': instance.vcpus,
-    'nics': [(nic.ip, nic.bridge) for nic in instance.nics],
+    'nics': [(nic.ip, nic.bridge, nic.mac) for nic in instance.nics],
   }
   if override:
     args.update(override)
@@ -946,7 +947,7 @@ class LUVerifyDisks(NoHooksLU):
         inst = nv_dict.pop((node, lv_name), None)
         if (not lv_online and inst is not None
             and inst.name not in res_instances):
-            res_instances.append(inst.name)
+          res_instances.append(inst.name)
 
     # any leftover items in nv_dict are missing LVs, let's arrange the
     # data better
@@ -1859,23 +1860,41 @@ def _AssembleInstanceDisks(instance, cfg, ignore_secondaries=False):
   """
   device_info = []
   disks_ok = True
+  iname = instance.name
+  # With the two passes mechanism we try to reduce the window of
+  # opportunity for the race condition of switching DRBD to primary
+  # before handshaking occured, but we do not eliminate it
+
+  # The proper fix would be to wait (with some limits) until the
+  # connection has been made and drbd transitions from WFConnection
+  # into any other network-connected state (Connected, SyncTarget,
+  # SyncSource, etc.)
+
+  # 1st pass, assemble on all nodes in secondary mode
   for inst_disk in instance.disks:
-    master_result = None
     for node, node_disk in inst_disk.ComputeNodeTree(instance.primary_node):
       cfg.SetDiskID(node_disk, node)
-      is_primary = node == instance.primary_node
-      result = rpc.call_blockdev_assemble(node, node_disk,
-                                          instance.name, is_primary)
+      result = rpc.call_blockdev_assemble(node, node_disk, iname, False)
       if not result:
         logger.Error("could not prepare block device %s on node %s"
-                     " (is_primary=%s)" %
-                     (inst_disk.iv_name, node, is_primary))
-        if is_primary or not ignore_secondaries:
+                     " (is_primary=False, pass=1)" % (inst_disk.iv_name, node))
+        if not ignore_secondaries:
           disks_ok = False
-      if is_primary:
-        master_result = result
-    device_info.append((instance.primary_node, inst_disk.iv_name,
-                        master_result))
+
+  # FIXME: race condition on drbd migration to primary
+
+  # 2nd pass, do only the primary node
+  for inst_disk in instance.disks:
+    for node, node_disk in inst_disk.ComputeNodeTree(instance.primary_node):
+      if node != instance.primary_node:
+        continue
+      cfg.SetDiskID(node_disk, node)
+      result = rpc.call_blockdev_assemble(node, node_disk, iname, True)
+      if not result:
+        logger.Error("could not prepare block device %s on node %s"
+                     " (is_primary=True, pass=2)" % (inst_disk.iv_name, node))
+        disks_ok = False
+    device_info.append((instance.primary_node, inst_disk.iv_name, result))
 
   # leave the disks configured for the primary node
   # this is a workaround that would be fixed better by
@@ -2399,7 +2418,7 @@ class LUQueryInstances(NoHooksLU):
     This checks that the fields required are valid output fields.
 
     """
-    self.dynamic_fields = frozenset(["oper_state", "oper_ram"])
+    self.dynamic_fields = frozenset(["oper_state", "oper_ram", "status"])
     _CheckOutputFields(static=["name", "os", "pnode", "snodes",
                                "admin_state", "admin_ram",
                                "disk_template", "ip", "mac", "bridge",
@@ -2456,6 +2475,21 @@ class LUQueryInstances(NoHooksLU):
             val = None
           else:
             val = bool(live_data.get(instance.name))
+        elif field == "status":
+          if instance.primary_node in bad_nodes:
+            val = "ERROR_nodedown"
+          else:
+            running = bool(live_data.get(instance.name))
+            if running:
+              if instance.status != "down":
+                val = "running"
+              else:
+                val = "ERROR_up"
+            else:
+              if instance.status != "down":
+                val = "ERROR_down"
+              else:
+                val = "ADMIN_down"
         elif field == "admin_ram":
           val = instance.memory
         elif field == "oper_ram":
@@ -2877,7 +2911,7 @@ class LUCreateInstance(LogicalUnit):
       os_type=self.op.os_type,
       memory=self.op.mem_size,
       vcpus=self.op.vcpus,
-      nics=[(self.inst_ip, self.op.bridge)],
+      nics=[(self.inst_ip, self.op.bridge, self.op.mac)],
     ))
 
     nl = ([self.sstore.GetMasterNode(), self.op.pnode] +
@@ -3059,8 +3093,8 @@ class LUCreateInstance(LogicalUnit):
     # boot order verification
     if self.op.hvm_boot_order is not None:
       if len(self.op.hvm_boot_order.strip("acdn")) != 0:
-             raise errors.OpPrereqError("invalid boot order specified,"
-                                        " must be one or more of [acdn]")
+        raise errors.OpPrereqError("invalid boot order specified,"
+                                   " must be one or more of [acdn]")
 
     if self.op.start:
       self.instance_status = 'up'
@@ -3994,7 +4028,7 @@ class LUQueryInstanceData(NoHooksLU):
         instance = self.cfg.GetInstanceInfo(self.cfg.ExpandInstanceName(name))
         if instance is None:
           raise errors.OpPrereqError("No such instance name '%s'" % name)
-      self.wanted_instances.append(instance)
+        self.wanted_instances.append(instance)
     else:
       self.wanted_instances = [self.cfg.GetInstanceInfo(name) for name
                                in self.cfg.GetInstanceList()]
@@ -4097,7 +4131,7 @@ class LUSetInstanceParms(LogicalUnit):
       args['memory'] = self.mem
     if self.vcpus:
       args['vcpus'] = self.vcpus
-    if self.do_ip or self.do_bridge:
+    if self.do_ip or self.do_bridge or self.mac:
       if self.do_ip:
         ip = self.ip
       else:
@@ -4106,7 +4140,11 @@ class LUSetInstanceParms(LogicalUnit):
         bridge = self.bridge
       else:
         bridge = self.instance.nics[0].bridge
-      args['nics'] = [(ip, bridge)]
+      if self.mac:
+        mac = self.mac
+      else:
+        mac = self.instance.nics[0].mac
+      args['nics'] = [(ip, bridge, mac)]
     env = _BuildInstanceHookEnvByObject(self.instance, override=args)
     nl = [self.sstore.GetMasterNode(),
           self.instance.primary_node] + list(self.instance.secondary_nodes)
@@ -4523,3 +4561,39 @@ class LUDelTags(TagsLU):
       raise errors.OpRetryError("There has been a modification to the"
                                 " config file and the operation has been"
                                 " aborted. Please retry.")
+
+class LUTestDelay(NoHooksLU):
+  """Sleep for a specified amount of time.
+
+  This LU sleeps on the master and/or nodes for a specified amoutn of
+  time.
+
+  """
+  _OP_REQP = ["duration", "on_master", "on_nodes"]
+
+  def CheckPrereq(self):
+    """Check prerequisites.
+
+    This checks that we have a good list of nodes and/or the duration
+    is valid.
+
+    """
+
+    if self.op.on_nodes:
+      self.op.on_nodes = _GetWantedNodes(self, self.op.on_nodes)
+
+  def Exec(self, feedback_fn):
+    """Do the actual sleep.
+
+    """
+    if self.op.on_master:
+      if not utils.TestDelay(self.op.duration):
+        raise errors.OpExecError("Error during master delay test")
+    if self.op.on_nodes:
+      result = rpc.call_test_delay(self.op.on_nodes, self.op.duration)
+      if not result:
+        raise errors.OpExecError("Complete failure from rpc call")
+      for node, node_result in result.items():
+        if not node_result:
+          raise errors.OpExecError("Failure during rpc call to node %s,"
+                                   " result: %s" % (node, node_result))

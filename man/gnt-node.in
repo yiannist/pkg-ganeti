@@ -3,7 +3,7 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GNT-NODE" "8" "28 January 2008" "ganeti 1.2" ""
+.TH "GNT-NODE" "8" "18 February 2008" "ganeti 1.2" ""
 
 .SH NAME
 gnt-node \- node administration
@@ -66,7 +66,7 @@ used). A file name of - will be interpreted as stdin.
 This command will change the secondary node from the source
 node to the destination node for all instances having the
 source node as secondary. It works only for instances having
-a remote raid disk layout.
+a remote_raid1 or drbd disk layout.
 .PP
 Example:
 
@@ -81,7 +81,7 @@ Example:
 .PP
 This command will fail over all instances having the given
 node as primary to their secondary nodes. This works only for
-instances having a remote raid disk layout.
+instances having a remote_raid1 or drbd disk layout.
 .PP
 Normally the failover will check the consistency of the disks
 before failing over the instance. If you are trying to migrate

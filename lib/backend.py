@@ -665,8 +665,6 @@ def CreateBlockDevice(disk, size, owner, on_primary, info):
         # we need the children open in case the device itself has to
         # be assembled
         crdev.Open()
-      else:
-        crdev.Close()
       clist.append(crdev)
   try:
     device = bdev.FindDevice(disk.dev_type, disk.physical_id, clist)
@@ -766,8 +764,6 @@ def _RecursiveAssembleBD(disk, owner, as_primary):
     result = r_dev
     if as_primary or disk.OpenOnSecondary():
       r_dev.Open()
-    else:
-      r_dev.Close()
     DevCacheManager.UpdateCache(r_dev.dev_path, owner,
                                 as_primary, disk.iv_name)
 
@@ -1256,6 +1252,7 @@ def FinalizeExport(instance, snap_disks):
     config.set(constants.INISECT_INS, 'nic%d_mac' %
                nic_count, '%s' % nic.mac)
     config.set(constants.INISECT_INS, 'nic%d_ip' % nic_count, '%s' % nic.ip)
+    config.set(constants.INISECT_INS, 'nic%d_bridge' % nic_count, '%s' % nic.bridge)
   # TODO: redundant: on load can read nics until it doesn't exist
   config.set(constants.INISECT_INS, 'nic_count' , '%d' % nic_count)
 

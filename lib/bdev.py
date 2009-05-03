@@ -122,7 +122,13 @@ class BlockDev(object):
       status = status and child.Assemble()
       if not status:
         break
-      status = status and child.Open()
+
+      try:
+        child.Open()
+      except errors.BlockDeviceError:
+        for child in self._children:
+          child.Shutdown()
+        raise
 
     if not status:
       for child in self._children:
@@ -502,7 +508,7 @@ class LogicalVolume(BlockDev):
     This is a no-op for the LV device type.
 
     """
-    return True
+    pass
 
   def Close(self):
     """Notifies that the device will no longer be used for I/O.
@@ -510,7 +516,7 @@ class LogicalVolume(BlockDev):
     This is a no-op for the LV device type.
 
     """
-    return True
+    pass
 
   def Snapshot(self, size):
     """Create a snapshot copy of an lvm block device.
@@ -954,7 +960,7 @@ class MDRaid1(BlockDev):
     the 2.6.18's new array_state thing.
 
     """
-    return True
+    pass
 
   def Close(self):
     """Notifies that the device will no longer be used for I/O.
@@ -963,7 +969,7 @@ class MDRaid1(BlockDev):
     `Open()`.
 
     """
-    return True
+    pass
 
 
 class BaseDRBD(BlockDev):
@@ -974,7 +980,8 @@ class BaseDRBD(BlockDev):
 
   """
   _VERSION_RE = re.compile(r"^version: (\d+)\.(\d+)\.(\d+)"
-                           r" \(api:(\d+)/proto:(\d+)\)")
+                           r" \(api:(\d+)/proto:(\d+)(?:-(\d+))?\)")
+
   _DRBD_MAJOR = 147
   _ST_UNCONFIGURED = "Unconfigured"
   _ST_WFCONNECTION = "WFConnection"
@@ -1024,7 +1031,13 @@ class BaseDRBD(BlockDev):
   def _GetVersion(cls):
     """Return the DRBD version.
 
-    This will return a list [k_major, k_minor, k_point, api, proto].
+    This will return a dict with keys:
+      k_major,
+      k_minor,
+      k_point,
+      api,
+      proto,
+      proto2 (only on drbd > 8.2.X)
 
     """
     proc_data = cls._GetProcData()
@@ -1033,7 +1046,18 @@ class BaseDRBD(BlockDev):
     if not version:
       raise errors.BlockDeviceError("Can't parse DRBD version from '%s'" %
                                     first_line)
-    return [int(val) for val in version.groups()]
+
+    values = version.groups()
+    retval = {'k_major': int(values[0]),
+              'k_minor': int(values[1]),
+              'k_point': int(values[2]),
+              'api': int(values[3]),
+              'proto': int(values[4]),
+             }
+    if values[5] is not None:
+      retval['proto2'] = values[5]
+
+    return retval
 
   @staticmethod
   def _DevPath(minor):
@@ -1126,12 +1150,12 @@ class DRBDev(BaseDRBD):
   def __init__(self, unique_id, children):
     super(DRBDev, self).__init__(unique_id, children)
     self.major = self._DRBD_MAJOR
-    [kmaj, kmin, kfix, api, proto] = self._GetVersion()
-    if kmaj != 0 and kmin != 7:
+    version = self._GetVersion()
+    if version['k_major'] != 0 and version['k_minor'] != 7:
       raise errors.BlockDeviceError("Mismatch in DRBD kernel version and"
                                     " requested ganeti usage: kernel is"
-                                    " %s.%s, ganeti wants 0.7" % (kmaj, kmin))
-
+                                    " %s.%s, ganeti wants 0.7" %
+                                    (version['k_major'], version['k_minor']))
     if len(children) != 2:
       raise ValueError("Invalid configuration data %s" % str(children))
     if not isinstance(unique_id, (tuple, list)) or len(unique_id) != 4:
@@ -1456,9 +1480,9 @@ class DRBDev(BaseDRBD):
       cmd.append("--do-what-I-say")
     result = utils.RunCmd(cmd)
     if result.failed:
-      logger.Error("Can't make drbd device primary: %s" % result.output)
-      return False
-    return True
+      msg = ("Can't make drbd device primary: %s" % result.output)
+      logger.Error(msg)
+      raise errors.BlockDeviceError(msg)
 
   def Close(self):
     """Make the local state secondary.
@@ -1471,8 +1495,10 @@ class DRBDev(BaseDRBD):
       raise errors.BlockDeviceError("Can't find device")
     result = utils.RunCmd(["drbdsetup", self.dev_path, "secondary"])
     if result.failed:
-      logger.Error("Can't switch drbd device to secondary: %s" % result.output)
-      raise errors.BlockDeviceError("Can't switch drbd device to secondary")
+      msg = ("Can't switch drbd device to"
+             " secondary: %s" % result.output)
+      logger.Error(msg)
+      raise errors.BlockDeviceError(msg)
 
   def SetSyncSpeed(self, kbytes):
     """Set the speed of the DRBD syncer.
@@ -1621,11 +1647,12 @@ class DRBD8(BaseDRBD):
       children = []
     super(DRBD8, self).__init__(unique_id, children)
     self.major = self._DRBD_MAJOR
-    [kmaj, kmin, kfix, api, proto] = self._GetVersion()
-    if kmaj != 8:
+    version = self._GetVersion()
+    if version['k_major'] != 8 :
       raise errors.BlockDeviceError("Mismatch in DRBD kernel version and"
                                     " requested ganeti usage: kernel is"
-                                    " %s.%s, ganeti wants 8.x" % (kmaj, kmin))
+                                    " %s.%s, ganeti wants 8.x" %
+                                    (version['k_major'], version['k_minor']))
 
     if len(children) not in (0, 2):
       raise ValueError("Invalid configuration data %s" % str(children))
@@ -2068,9 +2095,9 @@ class DRBD8(BaseDRBD):
       cmd.append("-o")
     result = utils.RunCmd(cmd)
     if result.failed:
-      logger.Error("Can't make drbd device primary: %s" % result.output)
-      return False
-    return True
+      msg = ("Can't make drbd device primary: %s" % result.output)
+      logger.Error(msg)
+      raise errors.BlockDeviceError(msg)
 
   def Close(self):
     """Make the local state secondary.
@@ -2083,8 +2110,10 @@ class DRBD8(BaseDRBD):
       raise errors.BlockDeviceError("Can't find device")
     result = utils.RunCmd(["drbdsetup", self.dev_path, "secondary"])
     if result.failed:
-      logger.Error("Can't switch drbd device to secondary: %s" % result.output)
-      raise errors.BlockDeviceError("Can't switch drbd device to secondary")
+      msg = ("Can't switch drbd device to"
+             " secondary: %s" % result.output)
+      logger.Error(msg)
+      raise errors.BlockDeviceError(msg)
 
   def Attach(self):
     """Find a DRBD device which matches our config and attach to it.
