@@ -1,0 +1,635 @@
+#!/usr/bin/python
+#
+
+# Copyright (C) 2006, 2007 Google Inc.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+# General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
+# 02110-1301, USA.
+
+
+"""Ganeti node daemon"""
+
+# functions in this module need to have a given name structure, so:
+# pylint: disable-msg=C0103
+
+import os
+import sys
+import traceback
+import errno
+
+from optparse import OptionParser
+
+from ganeti import backend
+from ganeti import logger
+from ganeti import constants
+from ganeti import objects
+from ganeti import errors
+from ganeti import ssconf
+from ganeti import utils
+
+from twisted.spread import pb
+from twisted.internet import reactor
+from twisted.cred import checkers, portal
+from OpenSSL import SSL
+
+
+class ServerContextFactory:
+  """SSL context factory class that uses a given certificate.
+
+  """
+  @staticmethod
+  def getContext():
+    """Return a customized context.
+
+    The context will be set to use our certificate.
+
+    """
+    ctx = SSL.Context(SSL.TLSv1_METHOD)
+    ctx.use_certificate_file(constants.SSL_CERT_FILE)
+    ctx.use_privatekey_file(constants.SSL_CERT_FILE)
+    return ctx
+
+
+class ServerObject(pb.Avatar):
+  """The server implementation.
+
+  This class holds all methods exposed over the RPC interface.
+
+  """
+  def __init__(self, name):
+    self.name = name
+
+  def perspectiveMessageReceived(self, broker, message, args, kw):
+    """Custom message dispatching function.
+
+    This function overrides the pb.Avatar function in order to provide
+    a simple form of exception passing (as text only).
+
+    """
+    args = broker.unserialize(args, self)
+    kw = broker.unserialize(kw, self)
+    method = getattr(self, "perspective_%s" % message)
+    tb = None
+    state = None
+    try:
+      state = method(*args, **kw)
+    except:
+      tb = traceback.format_exc()
+
+    return broker.serialize((tb, state), self, method, args, kw)
+
+  # the new block devices  --------------------------
+
+  @staticmethod
+  def perspective_blockdev_create(params):
+    """Create a block device.
+
+    """
+    bdev_s, size, owner, on_primary, info = params
+    bdev = objects.Disk.FromDict(bdev_s)
+    if bdev is None:
+      raise ValueError("can't unserialize data!")
+    return backend.CreateBlockDevice(bdev, size, owner, on_primary, info)
+
+  @staticmethod
+  def perspective_blockdev_remove(params):
+    """Remove a block device.
+
+    """
+    bdev_s = params[0]
+    bdev = objects.Disk.FromDict(bdev_s)
+    return backend.RemoveBlockDevice(bdev)
+
+  @staticmethod
+  def perspective_blockdev_rename(params):
+    """Remove a block device.
+
+    """
+    devlist = [(objects.Disk.FromDict(ds), uid) for ds, uid in params]
+    return backend.RenameBlockDevices(devlist)
+
+  @staticmethod
+  def perspective_blockdev_assemble(params):
+    """Assemble a block device.
+
+    """
+    bdev_s, owner, on_primary = params
+    bdev = objects.Disk.FromDict(bdev_s)
+    if bdev is None:
+      raise ValueError("can't unserialize data!")
+    return backend.AssembleBlockDevice(bdev, owner, on_primary)
+
+  @staticmethod
+  def perspective_blockdev_shutdown(params):
+    """Shutdown a block device.
+
+    """
+    bdev_s = params[0]
+    bdev = objects.Disk.FromDict(bdev_s)
+    if bdev is None:
+      raise ValueError("can't unserialize data!")
+    return backend.ShutdownBlockDevice(bdev)
+
+  @staticmethod
+  def perspective_blockdev_addchildren(params):
+    """Add a child to a mirror device.
+
+    Note: this is only valid for mirror devices. It's the caller's duty
+    to send a correct disk, otherwise we raise an error.
+
+    """
+    bdev_s, ndev_s = params
+    bdev = objects.Disk.FromDict(bdev_s)
+    ndevs = [objects.Disk.FromDict(disk_s) for disk_s in ndev_s]
+    if bdev is None or ndevs.count(None) > 0:
+      raise ValueError("can't unserialize data!")
+    return backend.MirrorAddChildren(bdev, ndevs)
+
+  @staticmethod
+  def perspective_blockdev_removechildren(params):
+    """Remove a child from a mirror device.
+
+    This is only valid for mirror devices, of course. It's the callers
+    duty to send a correct disk, otherwise we raise an error.
+
+    """
+    bdev_s, ndev_s = params
+    bdev = objects.Disk.FromDict(bdev_s)
+    ndevs = [objects.Disk.FromDict(disk_s) for disk_s in ndev_s]
+    if bdev is None or ndevs.count(None) > 0:
+      raise ValueError("can't unserialize data!")
+    return backend.MirrorRemoveChildren(bdev, ndevs)
+
+  @staticmethod
+  def perspective_blockdev_getmirrorstatus(params):
+    """Return the mirror status for a list of disks.
+
+    """
+    disks = [objects.Disk.FromDict(dsk_s)
+            for dsk_s in params]
+    return backend.GetMirrorStatus(disks)
+
+  @staticmethod
+  def perspective_blockdev_find(params):
+    """Expose the FindBlockDevice functionality for a disk.
+
+    This will try to find but not activate a disk.
+
+    """
+    disk = objects.Disk.FromDict(params[0])
+    return backend.FindBlockDevice(disk)
+
+  @staticmethod
+  def perspective_blockdev_snapshot(params):
+    """Create a snapshot device.
+
+    Note that this is only valid for LVM disks, if we get passed
+    something else we raise an exception. The snapshot device can be
+    remove by calling the generic block device remove call.
+
+    """
+    cfbd = objects.Disk.FromDict(params[0])
+    return backend.SnapshotBlockDevice(cfbd)
+
+  @staticmethod
+  def perspective_blockdev_grow(params):
+    """Grow a stack of devices.
+
+    """
+    cfbd = objects.Disk.FromDict(params[0])
+    amount = params[1]
+    return backend.GrowBlockDevice(cfbd, amount)
+
+  @staticmethod
+  def perspective_blockdev_close(params):
+    """Closes the given block devices.
+
+    """
+    disks = [objects.Disk.FromDict(cf) for cf in params[1]]
+    return backend.CloseBlockDevices(params[0], disks)
+
+  # blockdev/drbd specific methods ----------
+
+  @staticmethod
+  def perspective_drbd_reconfig_net(params):
+    """Re-configures the network connection of drbd disks.
+
+    Note that this is only valid for drbd disks, so the members of the
+    disk list must all be drbd devices.
+
+    """
+    instance_name, disks, nodes_ip, multimaster, step = params
+    disks = [objects.Disk.FromDict(cf) for cf in disks]
+    return backend.DrbdReconfigNet(instance_name, disks,
+                                   nodes_ip, multimaster, step)
+
+  # export/import  --------------------------
+
+  @staticmethod
+  def perspective_snapshot_export(params):
+    """Export a given snapshot.
+
+    """
+    disk = objects.Disk.FromDict(params[0])
+    dest_node = params[1]
+    instance = objects.Instance.FromDict(params[2])
+    return backend.ExportSnapshot(disk, dest_node, instance)
+
+  @staticmethod
+  def perspective_finalize_export(params):
+    """Expose the finalize export functionality.
+
+    """
+    instance = objects.Instance.FromDict(params[0])
+    snap_disks = [objects.Disk.FromDict(str_data)
+                  for str_data in params[1]]
+    return backend.FinalizeExport(instance, snap_disks)
+
+  @staticmethod
+  def perspective_export_info(params):
+    """Query information about an existing export on this node.
+
+    The given path may not contain an export, in which case we return
+    None.
+
+    """
+    path = params[0]
+    einfo = backend.ExportInfo(path)
+    if einfo is None:
+      return einfo
+    return einfo.Dumps()
+
+  @staticmethod
+  def perspective_export_list(params):
+    """List the available exports on this node.
+
+    Note that as opposed to export_info, which may query data about an
+    export in any path, this only queries the standard Ganeti path
+    (constants.EXPORT_DIR).
+
+    """
+    return backend.ListExports()
+
+  @staticmethod
+  def perspective_export_remove(params):
+    """Remove an export.
+
+    """
+    export = params[0]
+    return backend.RemoveExport(export)
+
+  # volume  --------------------------
+
+  @staticmethod
+  def perspective_volume_list(params):
+    """Query the list of logical volumes in a given volume group.
+
+    """
+    vgname = params[0]
+    return backend.GetVolumeList(vgname)
+
+  @staticmethod
+  def perspective_vg_list(params):
+    """Query the list of volume groups.
+
+    """
+    return backend.ListVolumeGroups()
+
+  # bridge  --------------------------
+
+  @staticmethod
+  def perspective_bridges_exist(params):
+    """Check if all bridges given exist on this node.
+
+    """
+    bridges_list = params[0]
+    return backend.BridgesExist(bridges_list)
+
+  # instance  --------------------------
+
+  @staticmethod
+  def perspective_instance_os_add(params):
+    """Install an OS on a given instance.
+
+    """
+    inst_s, os_disk, swap_disk = params
+    inst = objects.Instance.FromDict(inst_s)
+    return backend.AddOSToInstance(inst, os_disk, swap_disk)
+
+  @staticmethod
+  def perspective_instance_run_rename(params):
+    """Runs the OS rename script for an instance.
+
+    """
+    inst_s, old_name, os_disk, swap_disk = params
+    inst = objects.Instance.FromDict(inst_s)
+    return backend.RunRenameInstance(inst, old_name, os_disk, swap_disk)
+
+  @staticmethod
+  def perspective_instance_os_import(params):
+    """Run the import function of an OS onto a given instance.
+
+    """
+    inst_s, os_disk, swap_disk, src_node, src_image = params
+    inst = objects.Instance.FromDict(inst_s)
+    return backend.ImportOSIntoInstance(inst, os_disk, swap_disk,
+                                        src_node, src_image)
+
+  @staticmethod
+  def perspective_instance_shutdown(params):
+    """Shutdown an instance.
+
+    """
+    instance = objects.Instance.FromDict(params[0])
+    return backend.ShutdownInstance(instance)
+
+  @staticmethod
+  def perspective_instance_start(params):
+    """Start an instance.
+
+    """
+    instance = objects.Instance.FromDict(params[0])
+    extra_args = params[1]
+    return backend.StartInstance(instance, extra_args)
+
+  @staticmethod
+  def perspective_instance_migrate(params):
+    """Migrates an instance.
+
+    """
+    instance, target, live = params
+    return backend.MigrateInstance(instance, target, live)
+
+  @staticmethod
+  def perspective_instance_reboot(params):
+    """Reboot an instance.
+
+    """
+    instance = objects.Instance.FromDict(params[0])
+    reboot_type = params[1]
+    extra_args = params[2]
+    return backend.RebootInstance(instance, reboot_type, extra_args)
+
+  @staticmethod
+  def perspective_instance_info(params):
+    """Query instance information.
+
+    """
+    return backend.GetInstanceInfo(params[0])
+
+  @staticmethod
+  def perspective_instance_migratable(params):
+    """Query whether the specified instance can be migrated.
+
+    """
+    instance = objects.Instance.FromDict(params[0])
+    return backend.GetInstanceMigratable(instance)
+
+  @staticmethod
+  def perspective_all_instances_info(params):
+    """Query information about all instances.
+
+    """
+    return backend.GetAllInstancesInfo()
+
+  @staticmethod
+  def perspective_instance_list(params):
+    """Query the list of running instances.
+
+    """
+    return backend.GetInstanceList()
+
+  # node --------------------------
+
+  @staticmethod
+  def perspective_node_tcp_ping(params):
+    """Do a TcpPing on the remote node.
+
+    """
+    return utils.TcpPing(params[1], params[2], timeout=params[3],
+                         live_port_needed=params[4], source=params[0])
+
+  @staticmethod
+  def perspective_node_info(params):
+    """Query node information.
+
+    """
+    vgname = params[0]
+    return backend.GetNodeInfo(vgname)
+
+  @staticmethod
+  def perspective_node_add(params):
+    """Complete the registration of this node in the cluster.
+
+    """
+    return backend.AddNode(params[0], params[1], params[2],
+                           params[3], params[4], params[5])
+
+  @staticmethod
+  def perspective_node_verify(params):
+    """Run a verify sequence on this node.
+
+    """
+    return backend.VerifyNode(params[0])
+
+  @staticmethod
+  def perspective_node_start_master(params):
+    """Promote this node to master status.
+
+    """
+    return backend.StartMaster()
+
+  @staticmethod
+  def perspective_node_stop_master(params):
+    """Demote this node from master status.
+
+    """
+    return backend.StopMaster()
+
+  @staticmethod
+  def perspective_node_leave_cluster(params):
+    """Cleanup after leaving a cluster.
+
+    """
+    return backend.LeaveCluster()
+
+  @staticmethod
+  def perspective_node_volumes(params):
+    """Query the list of all logical volume groups.
+
+    """
+    return backend.NodeVolumes()
+
+  # cluster --------------------------
+
+  @staticmethod
+  def perspective_version(params):
+    """Query version information.
+
+    """
+    return constants.PROTOCOL_VERSION
+
+  @staticmethod
+  def perspective_upload_file(params):
+    """Upload a file.
+
+    Note that the backend implementation imposes strict rules on which
+    files are accepted.
+
+    """
+    return backend.UploadFile(*params)
+
+
+  # os -----------------------
+
+  @staticmethod
+  def perspective_os_diagnose(params):
+    """Query detailed information about existing OSes.
+
+    """
+    return [os.ToDict() for os in backend.DiagnoseOS()]
+
+  @staticmethod
+  def perspective_os_get(params):
+    """Query information about a given OS.
+
+    """
+    name = params[0]
+    try:
+      os_obj = backend.OSFromDisk(name)
+    except errors.InvalidOS, err:
+      os_obj = objects.OS.FromInvalidOS(err)
+    return os_obj.ToDict()
+
+  # hooks -----------------------
+
+  @staticmethod
+  def perspective_hooks_runner(params):
+    """Run hook scripts.
+
+    """
+    hpath, phase, env = params
+    hr = backend.HooksRunner()
+    return hr.RunHooks(hpath, phase, env)
+
+  # iallocator -----------------
+
+  @staticmethod
+  def perspective_iallocator_runner(params):
+    """Run an iallocator script.
+
+    """
+    name, idata = params
+    iar = backend.IAllocatorRunner()
+    return iar.Run(name, idata)
+
+  # test -----------------------
+
+  @staticmethod
+  def perspective_test_delay(params):
+    """Run test delay.
+
+    """
+    duration = params[0]
+    return utils.TestDelay(duration)
+
+
+class MyRealm:
+  """Simple realm that forwards all requests to a ServerObject.
+
+  """
+  __implements__ = portal.IRealm
+
+  def requestAvatar(self, avatarId, mind, *interfaces):
+    """Return an avatar based on our ServerObject class.
+
+    """
+    if pb.IPerspective not in interfaces:
+      raise NotImplementedError
+    return pb.IPerspective, ServerObject(avatarId), lambda:None
+
+
+def ParseOptions():
+  """Parse the command line options.
+
+  Returns:
+    (options, args) as from OptionParser.parse_args()
+
+  """
+  parser = OptionParser(description="Ganeti node daemon",
+                        usage="%prog [-f] [-d]",
+                        version="%%prog (ganeti) %s" %
+                        constants.RELEASE_VERSION)
+
+  parser.add_option("-f", "--foreground", dest="fork",
+                    help="Don't detach from the current terminal",
+                    default=True, action="store_false")
+  parser.add_option("-d", "--debug", dest="debug",
+                    help="Enable some debug messages",
+                    default=False, action="store_true")
+  options, args = parser.parse_args()
+  return options, args
+
+
+def main():
+  """Main function for the node daemon.
+
+  """
+  options, args = ParseOptions()
+  utils.debug = options.debug
+  for fname in (constants.SSL_CERT_FILE,):
+    if not os.path.isfile(fname):
+      print "config %s not there, will not run." % fname
+      sys.exit(5)
+
+  try:
+    ss = ssconf.SimpleStore()
+    port = ss.GetNodeDaemonPort()
+    pwdata = ss.GetNodeDaemonPassword()
+  except errors.ConfigurationError, err:
+    print "Cluster configuration incomplete: '%s'" % str(err)
+    sys.exit(5)
+
+  # create the various SUB_RUN_DIRS, if not existing, so that we handle the
+  # situation where RUN_DIR is tmpfs
+  for dir_name in constants.SUB_RUN_DIRS:
+    if not os.path.exists(dir_name):
+      try:
+        os.mkdir(dir_name, 0755)
+      except EnvironmentError, err:
+        if err.errno != errno.EEXIST:
+          print ("Node setup wrong, cannot create directory %s: %s" %
+                 (dir_name, err))
+          sys.exit(5)
+    if not os.path.isdir(dir_name):
+      print ("Node setup wrong, %s is not a directory" % dir_name)
+      sys.exit(5)
+
+  # become a daemon
+  if options.fork:
+    utils.Daemonize(logfile=constants.LOG_NODESERVER)
+
+  logger.SetupLogging(twisted_workaround=True, debug=options.debug,
+                      program="ganeti-noded")
+
+  p = portal.Portal(MyRealm())
+  p.registerChecker(
+    checkers.InMemoryUsernamePasswordDatabaseDontUse(master_node=pwdata))
+  reactor.listenSSL(port, pb.PBServerFactory(p), ServerContextFactory())
+  reactor.run()
+
+
+if __name__ == '__main__':
+  main()

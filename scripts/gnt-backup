@@ -1,0 +1,243 @@
+#!/usr/bin/python
+#
+
+# Copyright (C) 2006, 2007 Google Inc.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+# General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
+# 02110-1301, USA.
+
+
+import sys
+from optparse import make_option
+
+from ganeti.cli import *
+from ganeti import cmdlib
+from ganeti import opcodes
+from ganeti import constants
+
+
+_VALUE_TRUE = "true"
+
+
+def PrintExportList(opts, args):
+  """Prints a list of all the exported system images.
+
+  Args:
+   opts - class with options as members (should be empty)
+   args - should be empty
+
+  Returns:
+    nothing
+
+  """
+  op = opcodes.OpQueryExports(nodes=opts.nodes)
+  exports = SubmitOpCode(op)
+  for node in exports:
+    print ("Node: %s" % node)
+    print ("Exports:")
+    if isinstance(exports[node], list):
+      for instance_name in exports[node]:
+        print ("\t%s" % instance_name)
+    else:
+      print ("  Could not get exports list")
+
+
+def ExportInstance(opts, args):
+  """Export an instance to an image in the cluster.
+
+  Args:
+   opts - class with options as members
+   args - list with a single element, the instance name
+
+  Returns:
+    1 in case of error, 0 otherwise
+
+  """
+  op = opcodes.OpExportInstance(instance_name=args[0],
+                                target_node=opts.node,
+                                shutdown=opts.shutdown)
+
+  SubmitOpCode(op)
+
+
+def ImportInstance(opts, args):
+  """Add an instance to the cluster.
+
+  Args:
+   opts - class with options as members
+   args - list with a single element, the new instance name
+  Opts used:
+   memory - amount of memory to allocate to instance (MiB)
+   size - amount of disk space to allocate to instance (MiB)
+   os - which OS to run on instance
+   node - node to run new instance on
+   src_node - node containing the export
+   src_dir - directory on the old node with the export in it
+
+  Returns:
+    1 in case of error, 0 otherwise
+
+  """
+  instance = args[0]
+
+  (pnode, snode) = SplitNodeOption(opts.node)
+
+  auto_balance = opts.auto_balance == _VALUE_TRUE
+
+  op = opcodes.OpCreateInstance(instance_name=instance, mem_size=opts.mem,
+                                disk_size=opts.size, swap_size=opts.swap,
+                                disk_template=opts.disk_template,
+                                mode=constants.INSTANCE_IMPORT,
+                                pnode=pnode, snode=snode,
+                                vcpus=opts.vcpus, ip_check=opts.ip_check,
+                                ip=opts.ip, bridge=opts.bridge, start=False,
+                                src_node=opts.src_node, src_path=opts.src_dir,
+                                wait_for_sync=opts.wait_for_sync, mac=opts.mac,
+                                iallocator=opts.iallocator,
+                                auto_balance=auto_balance,
+                                hvm_boot_order=opts.hvm_boot_order,
+                                hvm_acpi=opts.hvm_acpi,
+                                hvm_nic_type=opts.hvm_nic_type,
+                                hvm_disk_type=opts.hvm_disk_type,
+                                hvm_pae=opts.hvm_pae,
+                                hvm_cdrom_image_path=opts.hvm_cdrom_image_path,
+                                vnc_bind_address=opts.vnc_bind_address)
+  SubmitOpCode(op)
+  return 0
+
+
+def RemoveExport(opts, args):
+  """Remove an export from the cluster.
+
+  Args:
+   opts - class with options as members
+   args - list with a single element, the exported instance to remove
+  Opts used:
+
+  Returns:
+    1 in case of error, 0 otherwise
+
+  """
+  instance = args[0]
+  op = opcodes.OpRemoveExport(instance_name=args[0])
+
+  SubmitOpCode(op)
+  return 0
+
+
+# this is defined separately due to readability only
+import_opts = [
+  DEBUG_OPT,
+  make_option("-n", "--node", dest="node",
+              help="Target node and optional secondary node",
+              metavar="<pnode>[:<snode>]"),
+  cli_option("-s", "--os-size", dest="size", help="Disk size, in MiB unless"
+             " a suffix is used",
+             default=20 * 1024, type="unit", metavar="<size>"),
+  cli_option("--swap-size", dest="swap", help="Swap size",
+             default=4 * 1024, type="unit", metavar="<size>"),
+  cli_option("-m", "--memory", dest="mem", help="Memory size",
+             default=128, type="unit", metavar="<mem>"),
+  make_option("-p", "--cpu", dest="vcpus", help="Number of virtual CPUs",
+              default=1, type="int", metavar="<PROC>"),
+  make_option("-t", "--disk-template", dest="disk_template",
+              help="Custom disk setup (diskless, plain, local_raid1,"
+              " remote_raid1 or drbd)", default=None, metavar="TEMPL"),
+  make_option("-i", "--ip", dest="ip",
+              help="IP address ('none' [default], 'auto', or specify address)",
+              default='none', type="string", metavar="<ADDRESS>"),
+  make_option("--no-wait-for-sync", dest="wait_for_sync", default=True,
+              action="store_false", help="Don't wait for sync (DANGEROUS!)"),
+  make_option("-b", "--bridge", dest="bridge",
+              help="Bridge to connect this instance to",
+              default=None, metavar="<bridge>"),
+  make_option("--mac", dest="mac",
+              help="MAC address ('auto' [default], or specify address)",
+              default='auto', type="string", metavar="<MACADDRESS>"),
+  make_option("--src-node", dest="src_node", help="Source node",
+              metavar="<node>"),
+  make_option("--src-dir", dest="src_dir", help="Source directory",
+              metavar="<dir>"),
+  make_option("--no-ip-check", dest="ip_check", default=True,
+              action="store_false", help="Don't check that the instance's IP"
+              " is alive"),
+  make_option("--iallocator", metavar="<NAME>",
+              help="Select nodes for the instance automatically using the"
+              " <NAME> iallocator plugin", default=None, type="string"),
+  make_option("--auto-balance", dest="auto_balance",
+              help="consider instance memory requirements for"
+              " failover in cluster verify (true|false)",
+              default=_VALUE_TRUE,
+              metavar="<BOOL>", choices=["true", "false"]),
+  make_option("--hvm-boot-order", dest="hvm_boot_order",
+              help="Boot device order for HVM (one or more of [acdn])",
+              default=None, type="string", metavar="<BOOTORDER>"),
+  make_option("--hvm-acpi", dest="hvm_acpi",
+              help="ACPI support for HVM (true|false)",
+              metavar="<BOOL>", choices=["true", "false"]),
+  make_option("--hvm-nic-type", dest="hvm_nic_type",
+              help="Type of virtual NIC for HVM "
+              "(rtl8139,ne2k_pci,ne2k_isa,paravirtual)",
+              metavar="NICTYPE", choices=[constants.HT_HVM_NIC_RTL8139,
+                                          constants.HT_HVM_NIC_NE2K_PCI,
+                                          constants.HT_HVM_NIC_NE2K_ISA,
+                                          constants.HT_HVM_DEV_PARAVIRTUAL],
+              default=constants.HT_HVM_NIC_RTL8139),
+  make_option("--hvm-disk-type", dest="hvm_disk_type",
+              help="Type of virtual disks for HVM (ioemu,paravirtual)",
+              metavar="DISKTYPE", choices=[constants.HT_HVM_DEV_IOEMU,
+                                           constants.HT_HVM_DEV_PARAVIRTUAL],
+              default=constants.HT_HVM_DEV_IOEMU,),
+  make_option("--hvm-pae", dest="hvm_pae",
+              help="PAE support for HVM (true|false)",
+              metavar="<BOOL>", choices=["true", "false"]),
+  make_option("--hvm-cdrom-image-path", dest="hvm_cdrom_image_path",
+              help="CDROM image path for HVM (absolute path or None)",
+              default=None, type="string", metavar="<CDROMIMAGE>"),
+  make_option("--vnc-bind-address", dest="vnc_bind_address",
+              help="bind address for VNC (IP address)",
+              default=None, type="string", metavar="<VNCADDRESS>"),
+  ]
+
+commands = {
+  'list': (PrintExportList, ARGS_NONE,
+           [DEBUG_OPT,
+            make_option("--node", dest="nodes", default=[], action="append",
+                        help="List only backups stored on this node"
+                             " (can be used multiple times)"),
+            ],
+           "", "Lists instance exports available in the ganeti cluster"),
+  'export': (ExportInstance, ARGS_ONE,
+             [DEBUG_OPT, FORCE_OPT,
+              make_option("-n", "--node", dest="node", help="Target node",
+                          metavar="<node>"),
+              make_option("","--noshutdown", dest="shutdown",
+                          action="store_false", default=True,
+                          help="Don't shutdown the instance (unsafe)"), ],
+             "-n <target_node> [opts...] <name>",
+             "Exports an instance to an image"),
+  'import': (ImportInstance, ARGS_ONE, import_opts,
+             ("[...] -t disk-type -n node[:secondary-node]"
+              " --src-node node --src-dir dir"
+              " <name>"),
+             "Imports an instance from an exported image"),
+  'remove': (RemoveExport, ARGS_ONE,
+             [DEBUG_OPT],
+             "<name>",
+             "Remove exports of named instance from the filesystem."),
+  }
+
+if __name__ == '__main__':
+  sys.exit(GenericMain(commands))

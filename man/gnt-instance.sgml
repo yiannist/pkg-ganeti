@@ -1,0 +1,1528 @@
+<!doctype refentry PUBLIC "-//OASIS//DTD DocBook V4.1//EN" [
+
+  <!-- Fill in your name for FIRSTNAME and SURNAME. -->
+  <!-- Please adjust the date whenever revising the manpage. -->
+  <!ENTITY dhdate      "<date>July 01, 2008</date>">
+  <!-- SECTION should be 1-8, maybe w/ subsection other parameters are
+       allowed: see man(7), man(1). -->
+  <!ENTITY dhsection   "<manvolnum>8</manvolnum>">
+  <!ENTITY dhucpackage "<refentrytitle>gnt-instance</refentrytitle>">
+  <!ENTITY dhpackage   "gnt-instance">
+
+  <!ENTITY debian      "<productname>Debian</productname>">
+  <!ENTITY gnu         "<acronym>GNU</acronym>">
+  <!ENTITY gpl         "&gnu; <acronym>GPL</acronym>">
+  <!ENTITY footer SYSTEM "footer.sgml">
+]>
+
+<refentry>
+  <refentryinfo>
+    <copyright>
+      <year>2006</year>
+      <year>2007</year>
+      <year>2008</year>
+      <holder>Google Inc.</holder>
+    </copyright>
+    &dhdate;
+  </refentryinfo>
+  <refmeta>
+    &dhucpackage;
+
+    &dhsection;
+    <refmiscinfo>ganeti 1.2</refmiscinfo>
+  </refmeta>
+  <refnamediv>
+    <refname>&dhpackage;</refname>
+
+    <refpurpose>ganeti instance administration</refpurpose>
+  </refnamediv>
+  <refsynopsisdiv>
+    <cmdsynopsis>
+      <command>&dhpackage; </command>
+
+      <arg choice="req">command</arg>
+      <arg>arguments...</arg>
+    </cmdsynopsis>
+  </refsynopsisdiv>
+  <refsect1>
+    <title>DESCRIPTION</title>
+
+    <para>
+      The <command>&dhpackage;</command> is used for instance
+      administration in the ganeti system.
+    </para>
+
+  </refsect1>
+  <refsect1>
+    <title>COMMANDS</title>
+
+    <refsect2>
+      <title>Creation/removal/querying</title>
+
+      <refsect3>
+        <title>ADD</title>
+        <cmdsynopsis>
+          <command>add</command>
+          <arg>-s <replaceable>disksize</replaceable></arg>
+          <arg>--swap-size <replaceable>disksize</replaceable></arg>
+          <arg>-m <replaceable>memsize</replaceable></arg>
+          <sbr>
+
+          <arg>-b <replaceable>bridge</replaceable></arg>
+          <arg>--mac <replaceable>MAC-address</replaceable></arg>
+          <sbr>
+
+          <arg>--hvm-boot-order <replaceable>boot-order</replaceable></arg>
+          <arg>--hvm-acpi <replaceable>ACPI-support</replaceable></arg>
+          <sbr>
+
+          <arg>--hvm-pae <replaceable>PAE-support</replaceable></arg>
+          <sbr>
+
+          <arg>--hvm-cdrom-image-path
+            <replaceable>cdrom-image-path</replaceable></arg>
+          <sbr>
+
+          <arg>--hvm-nic-type <replaceable>NICTYPE</replaceable></arg>
+          <sbr>
+
+          <arg>--hvm-disk-type
+          <replaceable>DISKTYPE</replaceable></arg>
+          <sbr>
+
+          <arg>--vnc-bind-address
+            <replaceable>vnc-bind-address</replaceable></arg>
+          <sbr>
+
+          <arg>--kernel<group choice="req">
+              <arg>default</arg>
+              <arg><replaceable>kernel_path</replaceable></arg>
+            </group></arg>
+          <sbr>
+
+          <arg>--initrd<group choice="req">
+              <arg>default</arg>
+              <arg>none</arg>
+              <arg><replaceable>initrd_path</replaceable></arg>
+            </group></arg>
+          <sbr>
+
+          <arg>--cpu <replaceable>vcpus</replaceable></arg>
+          <arg>--ip<group choice="req">
+              <arg>default</arg>
+              <arg>none</arg>
+              <arg><replaceable>ip-address</replaceable></arg>
+            </group></arg>
+          <sbr>
+
+          <arg>--auto-balance <replaceable>AUTO_BALANCE</replaceable></arg>
+
+          <arg>--no-wait-for-sync</arg>
+          <arg>--no-start</arg>
+          <arg>--no-ip-check</arg>
+          <sbr>
+
+          <arg choice="req">-t<group choice="req">
+              <arg>diskless</arg>
+              <arg>plain</arg>
+              <arg>local_raid1</arg>
+              <arg>remote_raid1</arg>
+              <arg>drbd</arg>
+            </group></arg>
+          <sbr>
+
+          <group choice="req">
+            <arg>-n <replaceable>node<optional>:secondary-node</optional></replaceable></arg>
+            <arg>--iallocator <replaceable>name</replaceable></arg>
+          </group>
+          <sbr>
+
+          <arg choice="req">-o <replaceable>os-type</replaceable></arg>
+          <sbr>
+
+          <arg choice="req"><replaceable>instance</replaceable></arg>
+        </cmdsynopsis>
+
+        <para>
+          Creates a new instance on the specified
+          host. <replaceable>instance</replaceable> must be in DNS and
+          resolve to a IP in the same network as the nodes in the
+          cluster.
+        </para>
+
+        <para>
+          The <option>-s</option> option specifies the disk size for
+          the instance, in mebibytes (defaults to
+          <constant>20480MiB</constant> =
+          <constant>20GiB</constant>). You can also use one of the
+          suffixes <literal>m</literal>, <literal>g</literal> or
+          <literal>t</literal> to specificy the exact the units used;
+          these suffixes map to mebibytes, gibibytes and tebibytes.
+        </para>
+
+        <para>
+          The <option>--swap-size</option> option specifies the swap
+          disk size (in mebibytes) for the instance (the one presented
+          as <filename class="devicefile">/dev/sdb</filename>). The
+          default is <constant>4096MiB</constant>. As for the disk
+          size, you can specify other suffixes.
+        </para>
+
+        <para>
+          The <option>-m</option> option specifies the memory size for
+          the instance, in mebibytes (defaults to 128 MiB). Again, you
+          can use other suffixes (e.g. <userinput>2g</userinput>).
+        </para>
+
+        <para>
+          The <option>-o</option> options specifies the operating
+          system to be installed. The available operating systems can
+          be listed with <command>gnt-os list</command>.
+        </para>
+
+        <para>
+          The <option>-b</option> option specifies the bridge to which the
+          instance will be connected. (defaults to the cluster-wide default
+          bridge specified at cluster initialization time).
+        </para>
+
+        <para>
+          The <option>--mac</option> option specifies the MAC address
+          of the ethernet interface for the instance. If this option
+          is not specified, a new MAC address is generated randomly with
+          the configured MAC prefix. The randomly generated MAC
+          address is guaranteed to be unique among the instances of
+          this cluster.
+        </para>
+
+        <para>
+          The <option>--hvm-boot-order</option> option specifies the
+          boot device order for Xen HVM instances. The boot order is a
+          string of letters listing the boot devices, with valid
+          device letters being:
+        </para>
+
+        <para>
+          <variablelist>
+            <varlistentry>
+              <term>a</term>
+              <listitem>
+                <para>
+                  floppy drive
+                </para>
+              </listitem>
+            </varlistentry>
+            <varlistentry>
+              <term>c</term>
+              <listitem>
+                <para>
+                  hard disk
+                </para>
+              </listitem>
+            </varlistentry>
+            <varlistentry>
+              <term>d</term>
+              <listitem>
+                <para>
+                  CDROM drive
+                </para>
+              </listitem>
+            </varlistentry>
+            <varlistentry>
+              <term>n</term>
+              <listitem>
+                <para>
+                  network boot (PXE)
+                </para>
+              </listitem>
+            </varlistentry>
+          </variablelist>
+        </para>
+
+        <para>
+          The default is not to set an HVM boot order which is
+          interpreted as 'dc'. This option, like all options starting
+          with 'hvm', is only relevant for Xen HVM instances and
+          ignored by all other instance types.
+        </para>
+
+        <para>
+          The <option>--hvm-acpi</option> option specifies if Xen
+          should enable ACPI support for this HVM instance. Valid
+          values are true or false. The default value is false,
+          disabling ACPI support for this instance.
+        </para>
+
+        <para>
+          The <option>--hvm-pae</option> option specifies if Xen
+          should enabled PAE support for this HVM instance. Valid
+          values are true or false. The default is false, disabling
+          PAE support for this instance.
+        </para>
+
+        <para>
+          The <option>--hvm-cdrom-image-path</option> option specifies the
+          path to the file Xen uses to emulate a virtual CDROM drive
+          for this HVM instance. Valid values are either an
+          absolute path to an existing file or None, which disables
+          virtual CDROM support for this instance. The default is
+          None, disabling virtual CDROM support.
+        </para>
+
+        <para>
+          The <option>--hvm-nic-type</option> specifies the NIC type
+          Xen should use for this HVM instance. Valid choices are
+          rtl8139, ne2k_pci, ne2k_isa and paravirtual with rtl8139
+          as the default. The paravirtual setting is intended for use
+          with the GPL PV drivers inside HVM Windows instances.
+        </para>
+
+        <para>
+          The <option>--hvm-disk-type</option> specifies the disk type
+          Xen should use for the HVM instance. Valid choices are ioemu
+          and paravirtual with ioemu as the default. The paravirtual
+          setting is intended for use with the GPL PV drivers inside
+          HVM Windows instances.
+        </para>
+
+        <para>
+          The <option>--vnc-bind-address</option> option specifies the
+          address that the VNC listener for this instance should bind
+          to. Valid values are IPv4 addresses. Use the address 0.0.0.0
+          to bind to all available interfaces (this is the default)
+          or specify the address of one of the interfaces on the node
+          to restrict listening to that interface.
+        </para>
+
+        <para>
+          The <option>--iallocator</option> option specifies the instance
+          allocator plugin to use. If you pass in this option the allocator
+          will select nodes for this instance automatically, so you don't need
+          to pass them with the <option>-n</option> option. For more
+          information please refer to the instance allocator documentation.
+        </para>
+
+        <para>
+          The <option>--kernel</option> option allows the instance to
+          use a custom kernel (if a filename is passed) or to use the
+          default kernel (<filename>@CUSTOM_XEN_KERNEL@</filename>), if the
+          string <constant>default</constant> is passed.
+        </para>
+
+        <para>
+          The <option>--initrd</option> option is similar: it allows
+          the instance to use a custom initrd (if a filename is
+          passed) or to use the default initrd
+          (<filename>@CUSTOM_XEN_INITRD@</filename>), if the string
+          <constant>default</constant> is passed, or to disable the
+          use of an initrd, if the string <constant>none</constant> is
+          passed. Note that in the case the instance is set to use the
+          default initrd and it doesn't exist, it will be silently
+          ignored; if the instance is set to use a custom initrd and
+          it doesn't exist, this will be treated as an error and will
+          prevent the startup of the instance.
+        </para>
+
+        <para>
+          The <option>--auto-balance</option> option specifies whether
+          the memory size of the instance will be considered in
+          cluster verify checks; in the future, it might be used for
+          automated cluster operations, but currently it is not used
+          anywhere else. It defaults to true.
+        </para>
+
+        <para>
+          The <option>-t</option> options specifies the disk layout type for
+          the instance. The available choices are:
+          <variablelist>
+            <varlistentry>
+              <term>diskless</term>
+              <listitem>
+                <para>
+                  This creates an instance with no disks. Its useful for
+                  testing only (or other special cases).
+                </para>
+              </listitem>
+            </varlistentry>
+            <varlistentry>
+              <term>plain</term>
+              <listitem>
+                <para>Disk devices will be logical volumes.</para>
+              </listitem>
+            </varlistentry>
+            <varlistentry>
+              <term>local_raid1</term>
+              <listitem>
+                <para>
+                  Disk devices will be md raid1 arrays over two local
+                  logical volumes.
+                </para>
+              </listitem>
+            </varlistentry>
+            <varlistentry>
+              <term>remote_raid1</term>
+              <listitem>
+                <para>
+                  Disk devices will be md raid1 arrays with one
+                  component (so it's not actually raid1): a drbd
+                  (0.7.x) device between the instance's primary node
+                  and the node given by the second value of the
+                  <option>--node</option> option.
+                </para>
+              </listitem>
+            </varlistentry>
+            <varlistentry>
+              <term>drbd</term>
+              <listitem>
+                <para>
+                  Disk devices will be drbd (version 8.x) on top of
+                  lvm volumes. They are equivalent in functionality to
+                  <replaceable>remote_raid1</replaceable>, but are
+                  recommended for new instances (if you have drbd 8.x
+                  installed).
+                </para>
+              </listitem>
+            </varlistentry>
+          </variablelist>
+        </para>
+
+        <para>
+          The optional second value of the <option>--node</option> is used for
+          the remote raid template type and specifies the remote node.
+        </para>
+
+        <para>
+          If you do not want gnt-instance to wait for the disk mirror
+          to be synced, use the <option>--no-wait-for-sync</option>
+          option.
+        </para>
+
+        <para>
+          Use the <option>--cpu</option> option to set the number of virtual
+          CPUs.
+        </para>
+
+        <para>
+          To pass an IPv4 address to the hypervisor, specify the
+          <option>--ip</option> option. Note that this IP address will not be
+          used by the OS scripts and changing it later will change the address
+          that the instance will actually use.
+        </para>
+
+        <para>
+          In case you don't want the new instance to be automatically started,
+          specify the <option>--no-start</option> option.
+        </para>
+
+        <para>
+          Ganeti will not check whether an instance's IP address is already
+          alive if the <option>--no-ip-check</option> option is specified.
+        </para>
+
+        <para>
+          Example:
+          <screen>
+# gnt-instance add -t plain -s 30g -m 512 -o debian-etch \
+  -n node1.example.com instance1.example.com
+# gnt-instance add -t remote_raid1 -s 30g -m 512 -o debian-etch \
+  -n node1.example.com:node2.example.com instance2.example.com
+          </screen>
+        </para>
+      </refsect3>
+
+      <refsect3>
+        <title>REMOVE</title>
+
+        <cmdsynopsis>
+          <command>remove</command>
+          <arg>--ignore-failures</arg>
+          <arg choice="req"><replaceable>instance</replaceable></arg>
+        </cmdsynopsis>
+
+        <para>
+          Remove an instance. This will remove all data from the
+          instance and there is <emphasis>no way back</emphasis>. If
+          you are not sure if you use an instance again, use
+          <command>shutdown</command> first and leave it in the
+          shutdown state for a while.
+
+        </para>
+
+        <para>
+          The <option>--ignore-failures</option> option will cause the
+          removal to proceed even in the presence of errors during the
+          removal of the instance (e.g. during the shutdown or the
+          disk removal). If this option is not given, the command will
+          stop at the first error.
+        </para>
+
+        <para>
+          Example:
+          <screen>
+# gnt-instance remove instance1.example.com
+          </screen>
+        </para>
+      </refsect3>
+
+      <refsect3>
+        <title>LIST</title>
+
+        <cmdsynopsis>
+          <command>list</command>
+          <arg>--no-headers</arg>
+          <arg>--separator=<replaceable>SEPARATOR</replaceable></arg>
+          <arg>-o <replaceable>[+]FIELD,...</replaceable></arg>
+        </cmdsynopsis>
+
+        <para>
+          Shows the currently configured instances with memory usage,
+          disk usage, the node they are running on, and the CPU time,
+          counted in seconds, used by each instance since its latest
+          restart.
+        </para>
+
+        <para>
+          The <option>--no-headers</option> option will skip the
+          initial header line. The <option>--separator</option> option
+          takes an argument which denotes what will be used between
+          the output fields. Both these options are to help scripting.
+        </para>
+
+        <para>
+          The <option>-o</option> option takes a comma-separated list
+          of output fields. The available fields and their meaning
+          are:
+          <variablelist>
+            <varlistentry>
+              <term>name</term>
+              <listitem>
+                <simpara>the instance name</simpara>
+              </listitem>
+            </varlistentry>
+            <varlistentry>
+              <term>os</term>
+              <listitem>
+                <simpara>the OS of the instance</simpara>
+              </listitem>
+            </varlistentry>
+            <varlistentry>
+              <term>pnode</term>
+              <listitem>
+                <simpara>the primary node of the instance</simpara>
+              </listitem>
+            </varlistentry>
+            <varlistentry>
+              <term>snodes</term>
+              <listitem>
+                <simpara>comma-separated list of secondary nodes for the
+                  instance; usually this will be just one node</simpara>
+              </listitem>
+            </varlistentry>
+            <varlistentry>
+              <term>admin_state</term>
+              <listitem>
+                <simpara>the desired state of the instance (either "yes"
+                  or "no" denoting the instance should run or
+                  not)</simpara>
+              </listitem>
+            </varlistentry>
+            <varlistentry>
+              <term>admin_ram</term>
+              <listitem>
+                <simpara>the desired memory for the instance</simpara>
+              </listitem>
+            </varlistentry>
+            <varlistentry>
+              <term>disk_template</term>
+              <listitem>
+                <simpara>the disk template of the instance</simpara>
+              </listitem>
+            </varlistentry>
+            <varlistentry>
+              <term>oper_state</term>
+              <listitem>
+                <simpara>the actual state of the instance; can be
+                one of the values "running", "stopped", "(node
+                down)"</simpara>
+              </listitem>
+            </varlistentry>
+            <varlistentry>
+              <term>status</term>
+              <listitem>
+                <simpara>combined form of admin_state and oper_stat;
+                this can be one of:
+                <computeroutput>ERROR_nodedown</computeroutput> if the
+                node of the instance is down,
+                <computeroutput>ERROR_down</computeroutput> if the
+                instance should run but is down,
+                <computeroutput>ERROR_up</computeroutput> if the
+                instance should be stopped but is actually running,
+                <computeroutput>ADMIN_down</computeroutput> if the
+                instance has been stopped (and is stopped) and
+                <computeroutput>running</computeroutput> if the
+                instance is set to be running (and is
+                running)</simpara>
+              </listitem>
+            </varlistentry>
+            <varlistentry>
+              <term>oper_ram</term>
+              <listitem>
+                <simpara>the actual memory usage of the instance as seen
+                  by the hypervisor</simpara>
+              </listitem>
+            </varlistentry>
+            <varlistentry>
+              <term>ip</term>
+              <listitem>
+                <simpara>the ip address ganeti recognizes as associated with
+                the instance interface</simpara>
+              </listitem>
+            </varlistentry>
+            <varlistentry>
+              <term>mac</term>
+              <listitem>
+                <simpara>the instance interface MAC address</simpara>
+              </listitem>
+            </varlistentry>
+            <varlistentry>
+              <term>bridge</term>
+              <listitem>
+                <simpara>bridge the instance is connected to
+                </simpara>
+              </listitem>
+            </varlistentry>
+            <varlistentry>
+              <term>sda_size</term>
+              <listitem>
+                <simpara>the size of the instance's first disk</simpara>
+              </listitem>
+            </varlistentry>
+            <varlistentry>
+              <term>sdb_size</term>
+              <listitem>
+                <simpara>the size of the instance's second disk</simpara>
+              </listitem>
+            </varlistentry>
+            <varlistentry>
+              <term>vcpus</term>
+              <listitem>
+                <simpara>the number of VCPUs allocated to the
+                instance</simpara>
+              </listitem>
+            </varlistentry>
+            <varlistentry>
+              <term>tags</term>
+              <listitem>
+                <simpara>comma-separated list of the instances's
+                tags</simpara>
+              </listitem>
+            </varlistentry>
+          </variablelist>
+        </para>
+
+        <para>
+          If the value of the option starts with the character
+          <constant>+</constant>, the new fields will be added to the
+          default list. This allows to quickly see the default list
+          plus a few other fields, instead of retyping the entire list
+          of fields.
+        </para>
+
+        <para>
+          There is a subtle grouping about the available output
+          fields: all fields except for <option>oper_state</option>,
+          <option>oper_ram</option> and <option>status</option> are
+          configuration value and not run-time values. So if you don't
+          select any of the these fields, the query will be satisfied
+          instantly from the cluster configuration, without having to
+          ask the remote nodes for the data. This can be helpful for
+          big clusters when you only want some data and it makes sense
+          to specify a reduced set of output fields.
+        </para>
+
+        <para>The default output field list is:
+          <simplelist type="inline">
+            <member>name</member>
+            <member>os</member>
+            <member>pnode</member>
+            <member>admin_state</member>
+            <member>oper_state</member>
+            <member>oper_ram</member>
+          </simplelist>.
+        </para>
+      </refsect3>
+
+      <refsect3>
+        <title>INFO</title>
+
+        <cmdsynopsis>
+          <command>info</command>
+          <group>
+            <arg>-s</arg>
+            <arg>--static</arg>
+          </group>
+          <arg rep="repeat"><replaceable>instance</replaceable></arg>
+        </cmdsynopsis>
+
+        <para>
+          Show detailed information about the (given) instances. This
+          is different from <command>list</command> as it shows
+          detailed data about the instance's disks (especially useful
+          for remote raid templates) and other parameters.
+        </para>
+
+        <para>
+          If the option <option>-s</option> is used, only information
+          available in the configuration file is returned, without
+          querying nodes, making the operation faster.
+        </para>
+      </refsect3>
+
+      <refsect3>
+        <title>MODIFY</title>
+
+        <cmdsynopsis>
+          <command>modify</command>
+          <arg choice="opt">-m <replaceable>memsize</replaceable></arg>
+          <arg choice="opt">-p <replaceable>vcpus</replaceable></arg>
+          <arg choice="opt">-i <replaceable>ip</replaceable></arg>
+          <arg choice="opt">-b <replaceable>bridge</replaceable></arg>
+          <arg choice="opt">--mac <replaceable>MAC-address</replaceable></arg>
+          <arg>--hvm-boot-order <replaceable>boot-order</replaceable></arg>
+          <arg>--hvm-acpi <replaceable>ACPI-support</replaceable></arg>
+          <arg>--hvm-pae <replaceable>PAE-support</replaceable></arg>
+          <arg>--hvm-cdrom-image-path
+            <replaceable>cdrom-image-path</replaceable></arg>
+          <arg>--hvm-nic-type <replaceable>NICTYPE</replaceable></arg>
+          <arg>--hvm-disk-type <replaceable>DISKTYPE</replaceable></arg>
+          <arg>--vnc-bind-address
+            <replaceable>vnc-bind-address</replaceable></arg>
+
+          <sbr>
+          <arg>--kernel <group choice="req">
+              <arg>default</arg>
+              <arg><replaceable>kernel_path</replaceable></arg>
+            </group></arg>
+          <sbr>
+          <arg>--initrd <group choice="req">
+              <arg>default</arg>
+              <arg>none</arg>
+              <arg><replaceable>initrd_path</replaceable></arg>
+            </group> </arg>
+          <sbr>
+          <arg>--auto-balance <replaceable>AUTO_BALANCE</replaceable></arg>
+          <arg choice="req"><replaceable>instance</replaceable></arg>
+        </cmdsynopsis>
+
+        <para>
+          Modify the memory size, number of vcpus, ip address, MAC
+          address and/or bridge for an instance.
+        </para>
+
+        <para>
+          The memory size is given in MiB. Note that you need to give
+          at least one of the arguments, otherwise the command
+          complains.
+        </para>
+
+        <para>
+          The <option>--kernel</option>, <option>--initrd</option>
+          and <option>--hvm-boot-order</option>
+          options are described in the <command>add</command> command.
+        </para>
+
+        <para>
+          Additionally, the HVM boot order can be reset to the default
+          values by using <option>--hvm-boot-order=default</option>.
+        </para>
+
+        <para>
+          The <option>--hvm-acpi</option> option specifies if Xen
+          should enable ACPI support for this HVM instance. Valid
+          values are true or false.
+        </para>
+
+        <para>
+          The <option>--hvm-pae</option> option specifies if Xen
+          should enabled PAE support for this HVM instance. Valid
+          values are true or false.
+        </para>
+
+        <para>
+          The <option>--hvm-cdrom-image-path</option> option specifies
+          the path to the file xen uses to emulate a virtual CDROM
+          drive for this HVM instance. Valid values are either an
+          absolute path to an existing file or None, which disables
+          virtual CDROM support for this instance.
+        </para>
+
+        <para>
+          The <option>--hvm-nic-type</option> option specifies the NIC
+          type Xen should use for this HVM instance. Valid choices are
+          rtl8139, ne2k_pci, ne2k_isa and paravirtual with rtl8139 as
+          the default. The paravirtual setting is intended for use
+          with the GPL PV drivers inside HVM Windows instances.
+        </para>
+
+        <para>
+          The <option>--hvm-disk-type</option> option specifies the
+          disk type Xen should use for the HVM instance. Valid choices
+          are ioemu and paravirtual with ioemu as the default. The
+          paravirtual setting is intended for use with the GPL PV
+          drivers inside HVM Windows instances.
+        </para>
+
+        <para>
+          The <option>--vnc-bind-address</option> option specifies the
+          address that the VNC listener for this instance should bind
+          to. Valid values are IPv4 addresses. Use the address 0.0.0.0
+          to bind to all available interfaces.
+        </para>
+
+        <para>
+          The <option>--auto-balance</option> option specifies whether
+          the memory size of the instance will be considered in
+          cluster verify checks; in the future, it might be used for
+          automated cluster operations, but currently it is not used
+          anywhere else.
+        </para>
+
+        <para>
+          All the changes take effect at the next restart. If the
+          instance is running, there is no effect on the instance.
+        </para>
+      </refsect3>
+
+      <refsect3>
+        <title>REINSTALL</title>
+
+        <cmdsynopsis>
+          <command>reinstall</command>
+          <arg choice="opt">-o <replaceable>os-type</replaceable></arg>
+          <arg choice="opt">-f <replaceable>force</replaceable></arg>
+          <arg>--select-os</arg>
+          <arg choice="req"><replaceable>instance</replaceable></arg>
+        </cmdsynopsis>
+
+        <para>
+          Reinstalls the operating system on the given instance. The instance
+          must be stopped when running this command. If the
+          <option>--os-type</option> is specified, the operating system is
+          changed.
+        </para>
+
+        <para>
+          The <option>--select-os</option> option switches to an
+          interactive OS reinstall. The user is prompted to select the OS
+          template from the list of available OS templates.
+        </para>
+      </refsect3>
+
+      <refsect3>
+        <title>RENAME</title>
+
+        <cmdsynopsis>
+          <command>rename</command>
+          <arg>--no-ip-check</arg>
+          <arg choice="req"><replaceable>instance</replaceable></arg>
+          <arg choice="req"><replaceable>new_name</replaceable></arg>
+        </cmdsynopsis>
+
+        <para>
+          Renames the given instance. The instance must be stopped
+          when running this command. The requirements for the new name
+          are the same as for adding an instance: the new name must be
+          resolvable and the IP it resolves to must not be reachable
+          (in order to prevent duplicate IPs the next time the
+          instance is started). The IP test can be skipped if the
+          <option>--no-ip-check</option> option is passed.
+        </para>
+      </refsect3>
+
+    </refsect2>
+
+    <refsect2>
+      <title>Starting/stopping/connecting to console</title>
+
+      <refsect3>
+        <title>STARTUP</title>
+
+        <cmdsynopsis>
+          <command>startup</command>
+          <arg>--extra=<replaceable>PARAMS</replaceable></arg>
+          <arg>--force</arg>
+          <sbr>
+          <group choice="opt">
+            <arg>--instance</arg>
+            <arg>--node</arg>
+            <arg>--primary</arg>
+            <arg>--secondary</arg>
+            <arg>--all</arg>
+          </group>
+          <sbr>
+          <arg choice="opt"
+          rep="repeat"><replaceable>name</replaceable></arg>
+        </cmdsynopsis>
+
+        <para>
+          Starts one or more instances, depending on the following
+          options. The four available modes are:
+          <variablelist>
+            <varlistentry>
+              <term><option>--instance</option></term>
+              <listitem>
+                <simpara>will start the instances given as arguments
+                (at least one argument required); this is the default
+                selection</simpara>
+              </listitem>
+            </varlistentry>
+            <varlistentry>
+              <term>--node</term>
+              <listitem>
+                <simpara>will start the instances who have the given
+                node as either primary or secondary</simpara>
+              </listitem>
+            </varlistentry>
+            <varlistentry>
+              <term><option>--primary</option></term>
+              <listitem>
+                <simpara>will start all instances whose primary node
+                is in the list of nodes passed as arguments (at least
+                one node required)</simpara>
+              </listitem>
+            </varlistentry>
+            <varlistentry>
+              <term><option>--secondary</option></term>
+              <listitem>
+                <simpara>will start all instances whose secondary node
+                is in the list of nodes passed as arguments (at least
+                one node required)</simpara>
+              </listitem>
+            </varlistentry>
+            <varlistentry>
+              <term>--all</term>
+              <listitem>
+                <simpara>will start all instances in the cluster (no
+                arguments accepted)</simpara>
+              </listitem>
+            </varlistentry>
+          </variablelist>
+        </para>
+
+        <para>
+          Note that although you can pass more than one selection
+          option, the last one wins, so in order to guarantee the
+          desired result, don't pass more than one such option.
+        </para>
+
+        <para>
+          The <option>--extra</option> option is used to pass
+          additional argument to the instance's kernel for this start
+          only. Currently there is no way to specify a persistent set
+          of arguments (beside the one hardcoded). Note that this may
+          not apply to all virtualization types.
+        </para>
+
+        <para>
+          Use <option>--force</option> to start even if secondary disks are
+          failing.
+        </para>
+
+        <para>
+          Example:
+          <screen>
+# gnt-instance start instance1.example.com
+# gnt-instance start --extra single test1.example.com
+# gnt-instance start --node node1.example.com node2.example.com
+# gnt-instance start --all
+          </screen>
+        </para>
+      </refsect3>
+
+      <refsect3>
+        <title>SHUTDOWN</title>
+
+        <cmdsynopsis>
+          <command>shutdown</command>
+          <sbr>
+          <group choice="opt">
+            <arg>--instance</arg>
+            <arg>--node</arg>
+            <arg>--primary</arg>
+            <arg>--secondary</arg>
+            <arg>--all</arg>
+          </group>
+          <sbr>
+
+          <arg choice="opt"
+          rep="repeat"><replaceable>name</replaceable></arg>
+        </cmdsynopsis>
+
+        <para>
+          Stops one or more instances. If the instance cannot be
+          cleanly stopped during a hardcoded interval (currently 2
+          minutes), it will forcibly stop the instance (equivalent to
+          switching off the power on a physical machine).
+        </para>
+
+        <para>
+          The <option>--instance</option>, <option>--node</option>,
+          <option>--primary</option>, <option>--secondary</option> and
+          <option>--all</option> options are similar as for the
+          <command>startup</command> command and they influence the
+          actual instances being shutdown.
+        </para>
+
+        <para>
+          Example:
+          <screen>
+# gnt-instance shutdown instance1.example.com
+# gnt-instance shutdown --all
+          </screen>
+        </para>
+      </refsect3>
+
+      <refsect3>
+        <title>REBOOT</title>
+
+        <cmdsynopsis>
+          <command>reboot</command>
+          <sbr>
+          <arg>--extra=<replaceable>PARAMS</replaceable></arg>
+          <sbr>
+          <arg>--type=<replaceable>REBOOT-TYPE</replaceable></arg>
+          <sbr>
+          <arg>--ignore-secondaries</arg>
+          <sbr>
+          <arg>--force-multiple</arg>
+          <sbr>
+          <group choice="opt">
+            <arg>--instance</arg>
+            <arg>--node</arg>
+            <arg>--primary</arg>
+            <arg>--secondary</arg>
+            <arg>--all</arg>
+          </group>
+          <sbr>
+
+          <arg choice="opt"
+          rep="repeat"><replaceable>name</replaceable></arg>
+        </cmdsynopsis>
+
+        <para>
+          Reboots one or more instances. The type of reboot depends on
+          the value of <option>--type</option>. A soft reboot does a
+          hypervisor reboot, a hard reboot does a instance stop,
+          recreates the hypervisor config for the instance and
+          starts the instance. A full reboot does the equivalent
+          of <command>gnt-instance shutdown &amp;&amp; gnt-instance
+          startup</command>. The default is hard reboot.
+        </para>
+
+        <para>
+          For the hard reboot the option
+          <option>--ignore-secondaries</option> ignores errors for the
+          secondary node while re-assembling the instance disks.
+        </para>
+
+        <para>
+          The <option>--instance</option>, <option>--node</option>,
+          <option>--primary</option>, <option>--secondary</option> and
+          <option>--all</option> options are similar as for the
+          <command>startup</command> command and they influence the
+          actual instances being rebooted.
+        </para>
+
+        <para>
+          Use the <option>--force-multiple</option> option to keep
+          gnt-instance from asking for confirmation when more than one
+          instance is affected.
+        </para>
+
+        <para>
+          Example:
+          <screen>
+# gnt-instance reboot instance1.example.com
+# gnt-instance reboot --type=full instance1.example.com
+          </screen>
+        </para>
+      </refsect3>
+
+      <refsect3>
+        <title>CONSOLE</title>
+        <cmdsynopsis>
+          <command>console</command>
+          <arg choice="req"><replaceable>instance</replaceable></arg>
+        </cmdsynopsis>
+
+        <para>
+          Connects to the console of the given instance. If the instance
+          is not up, an error is returned.
+        </para>
+
+        <para>
+          For HVM instances, this will attempt to connect to the serial
+          console of the instance. To connect to the virtualized
+          "physical" console of a HVM instance, use a VNC client with
+          the connection info from gnt-instance info.
+        </para>
+
+        <para>
+          Example:
+          <screen>
+# gnt-instance console instance1.example.com
+          </screen>
+        </para>
+      </refsect3>
+
+    </refsect2>
+
+    <refsect2>
+      <title>Disk management</title>
+
+      <refsect3>
+        <title>REPLACE-DISKS</title>
+
+        <cmdsynopsis>
+          <command>replace-disks</command>
+
+          <group choice="req">
+            <arg>--new-secondary <replaceable>NODE</replaceable></arg>
+            <arg>--iallocator <replaceable>name</replaceable></arg>
+          </group>
+
+          <arg choice="req"><replaceable>instance</replaceable></arg>
+        </cmdsynopsis>
+
+        <cmdsynopsis>
+          <command>replace-disks</command>
+
+          <group choice="req">
+            <arg>--iallocator <replaceable>name</replaceable></arg>
+            <arg>--new-secondary <replaceable>NODE</replaceable></arg>
+          </group>
+          <sbr>
+
+          <arg choice="opt">-s</arg>
+          <arg choice="req"><replaceable>instance</replaceable></arg>
+        </cmdsynopsis>
+
+        <cmdsynopsis>
+          <command>replace-disks</command>
+
+          <group>
+          <arg choice="req">-s</arg>
+          <arg choice="req">-p</arg>
+          </group>
+          <arg choice="req"><replaceable>instance</replaceable></arg>
+        </cmdsynopsis>
+
+        <para>
+          This command is a generalized form for adding and replacing
+          disks.
+        </para>
+
+        <para>
+          The first form is usable with the
+          <literal>remote_raid1</literal> disk template. This will
+          replace the disks on both the primary and secondary node,
+          and optionally will change the secondary node to a new one
+          if you pass the <option>--new-secondary</option> option.
+        </para>
+
+        <para>
+          The second and third forms are usable with the
+          <literal>drbd</literal> disk template. The second form will
+          do a secondary replacement, but as opposed to the
+          <literal>remote_raid1</literal> will not replace the disks
+          on the primary, therefore it will execute faster. The third
+          form will replace the disks on either the primary
+          (<option>-p</option>) or the secondary (<option>-s</option>)
+          node of the instance only, without changing the node.
+        </para>
+
+        <para>
+          Specifying <option>--iallocator</option> enables secondary node
+          replacement and and makes the new secondary be selected automatically
+          by the specified allocator plugin.
+        </para>
+      </refsect3>
+
+      <refsect3>
+        <title>ADD-MIRROR</title>
+        <cmdsynopsis>
+          <command>add-mirror</command>
+          <arg choice="req">-b <replaceable>sdX</replaceable></arg>
+          <arg choice="req">-n <replaceable>node</replaceable></arg>
+          <arg choice="req"><replaceable>instance</replaceable></arg>
+        </cmdsynopsis>
+        <para>
+          Adds a new mirror to the disk layout of the instance, if the
+          instance has a remote raid disk layout.
+
+          The new mirror member will be between the instance's primary
+          node and the node given with the <option>-n</option> option.
+        </para>
+      </refsect3>
+
+      <refsect3>
+        <title>REMOVE-MIRROR</title>
+
+        <cmdsynopsis>
+          <command>removemirror</command>
+          <arg choice="req">-b <replaceable>sdX</replaceable></arg>
+          <arg choice="req">-p <replaceable>id</replaceable></arg>
+          <arg choice="req"><replaceable>instance</replaceable></arg>
+        </cmdsynopsis>
+        <para>
+          Removes a mirror componenent from the disk layout of the
+          instance, if the instance has a remote raid disk layout.
+        </para>
+
+        <para>
+          You need to specifiy on which disk to act on using the
+          <option>-b</option> option (either <filename>sda</filename>
+          or <filename>sdb</filename>) and the mirror component, which
+          is identified by the <option>-p</option> option. You can
+          find the list of valid identifiers with the
+          <command>info</command> command.
+        </para>
+
+      <refsect3>
+        <title>ACTIVATE-DISKS</title>
+
+        <cmdsynopsis>
+          <command>activate-disks</command>
+          <arg choice="req"><replaceable>instance</replaceable></arg>
+        </cmdsynopsis>
+        <para>
+          Activates the block devices of the given instance. If
+          successful, the command will show the location and name of
+          the block devices:
+          <screen>
+node1.example.com:sda:/dev/md0
+node1.example.com:sdb:/dev/md1
+          </screen>
+
+          In this example, <emphasis>node1.example.com</emphasis> is
+          the name of the node on which the devices have been
+          activated. The <emphasis>sda</emphasis> and
+          <emphasis>sdb</emphasis> are the names of the block devices
+          inside the instance. <emphasis>/dev/md0</emphasis> and
+          <emphasis>/dev/md1</emphasis> are the names of the block
+          devices as visible on the node.
+        </para>
+
+        <para>
+          Note that it is safe to run this command while the instance
+          is already running.
+        </para>
+      </refsect3>
+
+      <refsect3>
+        <title>DEACTIVATE-DISKS</title>
+
+        <cmdsynopsis>
+          <command>deactivate-disks</command>
+          <arg choice="req"><replaceable>instance</replaceable></arg>
+        </cmdsynopsis>
+        <para>
+          De-activates the block devices of the given instance. Note
+          that if you run this command for a remote raid instance
+          type, while it is running, it will not be able to shutdown
+          the block devices on the primary node, but it will shutdown
+          the block devices on the secondary nodes, thus breaking the
+          replication.
+        </para>
+
+      </refsect3>
+
+      <refsect3>
+        <title>GROW-DISK</title>
+        <cmdsynopsis>
+          <command>grow-disk</command>
+          <arg>--no-wait-for-sync</arg>
+          <arg choice="req"><replaceable>instance</replaceable></arg>
+          <arg choice="req"><replaceable>disk</replaceable></arg>
+          <arg choice="req"><replaceable>amount</replaceable></arg>
+        </cmdsynopsis>
+
+        <para>
+          Grows an instance's disk. This is only possible for
+          instances having a <literal>plain</literal> or
+          <literal>drbd</literal> disk template.
+        </para>
+
+        <para>
+          Note that this command only change the block device size; it
+          will not grow the actual filesystems, partitions, etc. that
+          live on that disk. Usually, you will need to:
+          <orderedlist>
+            <listitem>
+              <simpara>use <command>gnt-instance grow-disk</command></simpara>
+            </listitem>
+            <listitem>
+              <simpara>reboot the instance (later, at a convenient
+              time)</simpara>
+            </listitem>
+            <listitem>
+              <simpara>use a filesystem resizer, such as
+              <citerefentry> <refentrytitle>ext2online</refentrytitle>
+              <manvolnum>8</manvolnum> </citerefentry> or
+              <citerefentry> <refentrytitle>xfs_growfs</refentrytitle>
+              <manvolnum>8</manvolnum> </citerefentry> to resize the
+              filesystem, or use <citerefentry>
+              <refentrytitle>fdisk</refentrytitle>
+              <manvolnum>8</manvolnum> </citerefentry> to change the
+              partition table on the disk
+              </simpara>
+            </listitem>
+          </orderedlist>
+        </para>
+
+
+        <para>
+          The <replaceable>disk</replaceable> argument is either
+          <literal>sda</literal> or <literal>sdb</literal>. The
+          <replaceable>amount</replaceable> argument is given either
+          as a number (and it represents the amount to increase the
+          disk with in mebibytes) or can be given similar to the
+          arguments in the create instance operation, with a suffix
+          denoting the unit.
+        </para>
+
+        <para>
+          Note that the disk grow operation might complete on one node
+          but fail on the other; this will leave the instance with
+          different-sized LVs on the two nodes, but this will not
+          create problems (except for unused space).
+        </para>
+
+        <para>
+          If you do not want gnt-instance to wait for the new disk
+          region to be synced, use the
+          <option>--no-wait-for-sync</option> option.
+        </para>
+
+
+        <para>Example (increase sda for instance1 by 16GiB):
+          <screen>
+# gnt-instance grow-disk instance1.example.com sda 16g
+          </screen>
+        </para>
+
+        <para>
+          Also note that disk shrinking will not be supported; use
+          <command>gnt-backup export</command> and then
+          <command>gnt-backup import</command> to reduce the disk size
+          of an instance.
+        </para>
+      </refsect3>
+
+    </refsect2>
+
+    <refsect2>
+      <title>Recovery</title>
+
+      <refsect3>
+        <title>FAILOVER</title>
+
+        <cmdsynopsis>
+          <command>failover</command>
+          <arg>-f</arg>
+          <arg>--ignore-consistency</arg>
+          <arg choice="req"><replaceable>instance</replaceable></arg>
+        </cmdsynopsis>
+
+        <para>
+          Failover will fail the instance over its secondary
+          node. This works only for instances having a remote raid
+          disk layout.
+        </para>
+
+        <para>
+          Normally the failover will check the consistency of the
+          disks before failing over the instance. If you are trying to
+          migrate instances off a dead node, this will fail. Use the
+          <option>--ignore-consistency</option> option for this
+          purpose. Note that this option can be dangerous as errors in
+          shutting down the instance will be ignored, resulting in
+          possibly having the instance running on two machines in
+          parallel (on disconnected DRBD drives).
+        </para>
+
+        <para>
+          Example:
+          <screen>
+# gnt-instance failover instance1.example.com
+          </screen>
+        </para>
+      </refsect3>
+
+      <refsect3>
+        <title>MIGRATE</title>
+
+        <cmdsynopsis>
+          <command>migrate</command>
+          <arg>-f</arg>
+          <arg choice="req">--cleanup</arg>
+          <arg choice="req"><replaceable>instance</replaceable></arg>
+        </cmdsynopsis>
+
+        <cmdsynopsis>
+          <command>migrate</command>
+          <arg>-f</arg>
+          <arg>--non-live</arg>
+          <arg choice="req"><replaceable>instance</replaceable></arg>
+        </cmdsynopsis>
+
+        <para>
+          Migrate will move the instance to its secondary node without
+          shutdown. It only works for instances having the drbd8 disk
+          template type.
+        </para>
+
+        <para>
+          The migration command needs a perfectly healthy instance, as
+          we rely on the dual-master capability of drbd8 and the disks
+          of the instance are not allowed to be degraded.
+        </para>
+
+        <para>
+          The <option>--non-live</option> option will switch (for the
+          hypervisors that support it) between a "fully live"
+          (i.e. the interruption is as minimal as possible) migration
+          and one in which the instance is frozen, its state saved and
+          transported to the remote node, and then resumed there. This
+          all depends on the hypervisor support for two different
+          methods. In any case, it is not an error to pass this
+          parameter (it will just be ignored if the hypervisor doesn't
+          support it).
+        </para>
+
+        <para>
+          If the <option>--cleanup</option> option is passed, the
+          operation changes from migration to attempting recovery from
+          a failed previous migration. In this mode, ganeti checks if
+          the instance runs on the correct node (and updates its
+          configuration if not) and ensures the instances's disks are
+          configured correctly. In this mode, the
+          <option>--non-live</option> option is ignored.
+        </para>
+
+        <para>
+          The option <option>-f</option> will skip the prompting for
+          confirmation.
+        </para>
+
+        <para>
+          Example (and expected output):
+          <screen>
+# gnt-instance migrate instance1
+Migrate will happen to the instance instance1. Note that migration is
+**experimental** in this version. This might impact the instance if
+anything goes wrong. Continue?
+y/[n]/?: y
+* checking disk consistency between source and target
+* ensuring the target is in secondary mode
+* changing disks into dual-master mode
+ - INFO: Waiting for instance instance1 to sync disks.
+ - INFO: Instance instance1's disks are in sync.
+* migrating instance to node2.example.com
+* changing the instance's disks on source node to secondary
+ - INFO: Waiting for instance instance1 to sync disks.
+ - INFO: Instance instance1's disks are in sync.
+* changing the instance's disks to single-master
+#
+          </screen>
+        </para>
+      </refsect3>
+
+    </refsect2>
+
+    <refsect2>
+      <title>TAGS</title>
+
+    <refsect3>
+        <title>ADD-TAGS</title>
+
+        <cmdsynopsis>
+          <command>add-tags</command>
+          <arg choice="opt">--from <replaceable>file</replaceable></arg>
+          <arg choice="req"><replaceable>instancename</replaceable></arg>
+          <arg choice="req"
+            rep="repeat"><replaceable>tag</replaceable></arg>
+        </cmdsynopsis>
+
+        <para>
+          Add tags to the given instance. If any of the tags contains
+          invalid characters, the entire operation will abort.
+        </para>
+        <para>
+          If the <option>--from</option> option is given, the list of
+          tags will be extended with the contents of that file (each
+          line becomes a tag). In this case, there is not need to pass
+          tags on the command line (if you do, both sources will be
+          used). A file name of - will be interpreted as stdin.
+        </para>
+      </refsect3>
+
+      <refsect3>
+        <title>LIST-TAGS</title>
+
+        <cmdsynopsis>
+          <command>list-tags</command>
+          <arg choice="req"><replaceable>instancename</replaceable></arg>
+        </cmdsynopsis>
+
+        <para>List the tags of the given instance.</para>
+      </refsect3>
+
+      <refsect3>
+        <title>REMOVE-TAGS</title>
+        <cmdsynopsis>
+          <command>remove-tags</command>
+          <arg choice="opt">--from <replaceable>file</replaceable></arg>
+          <arg choice="req"><replaceable>instancename</replaceable></arg>
+          <arg choice="req"
+            rep="repeat"><replaceable>tag</replaceable></arg>
+        </cmdsynopsis>
+
+        <para>
+          Remove tags from the given instance. If any of the tags are
+          not existing on the node, the entire operation will abort.
+        </para>
+
+        <para>
+          If the <option>--from</option> option is given, the list of
+          tags will be extended with the contents of that file (each
+          line becomes a tag). In this case, there is not need to pass
+          tags on the command line (if you do, both sources will be
+          used). A file name of - will be interpreted as stdin.
+        </para>
+      </refsect3>
+
+    </refsect2>
+
+  </refsect1>
+
+  &footer;
+
+</refentry>
+
+<!-- Keep this comment at the end of the file
+Local variables:
+mode: sgml
+sgml-omittag:t
+sgml-shorttag:t
+sgml-minimize-attributes:nil
+sgml-always-quote-attributes:t
+sgml-indent-step:2
+sgml-indent-data:t
+sgml-parent-document:nil
+sgml-default-dtd-file:nil
+sgml-exposed-tags:nil
+sgml-local-catalogs:nil
+sgml-local-ecat-files:nil
+End:
+-->

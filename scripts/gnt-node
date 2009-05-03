@@ -1,0 +1,401 @@
+#!/usr/bin/python
+#
+
+# Copyright (C) 2006, 2007, 2008 Google Inc.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+# General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
+# 02110-1301, USA.
+
+
+import sys
+from optparse import make_option
+
+from ganeti.cli import *
+from ganeti import opcodes
+from ganeti import logger
+from ganeti import utils
+from ganeti import constants
+from ganeti import errors
+
+
+_LIST_DEF_FIELDS = [
+  "name", "dtotal", "dfree",
+  "mtotal", "mnode", "mfree",
+  "pinst_cnt", "sinst_cnt",
+  ]
+
+def AddNode(opts, args):
+  """Add node cli-to-processor bridge."""
+  logger.ToStderr("-- WARNING -- \n"
+    "Performing this operation is going to replace the ssh daemon keypair\n"
+    "on the target machine (%s) with the ones of the current one\n"
+    "and grant full intra-cluster ssh root access to/from it\n" % args[0])
+  op = opcodes.OpAddNode(node_name=args[0], secondary_ip=opts.secondary_ip,
+                         readd=opts.readd)
+  SubmitOpCode(op)
+
+
+def ListNodes(opts, args):
+  """List nodes and their properties.
+
+  """
+  if opts.output is None:
+    selected_fields = _LIST_DEF_FIELDS
+  elif opts.output.startswith("+"):
+    selected_fields = _LIST_DEF_FIELDS + opts.output[1:].split(",")
+  else:
+    selected_fields = opts.output.split(",")
+
+  op = opcodes.OpQueryNodes(output_fields=selected_fields, names=[])
+  output = SubmitOpCode(op)
+
+  if not opts.no_headers:
+    headers = {
+      "name": "Node", "pinst_cnt": "Pinst", "sinst_cnt": "Sinst",
+      "pinst_list": "PriInstances", "sinst_list": "SecInstances",
+      "pip": "PrimaryIP", "sip": "SecondaryIP",
+      "dtotal": "DTotal", "dfree": "DFree",
+      "mtotal": "MTotal", "mnode": "MNode", "mfree": "MFree",
+      "bootid": "BootID",
+      "ctotal": "CTotal", "cnodes": "CNodes", "csockets": "CSockets",
+      "tags": "Tags",
+      }
+  else:
+    headers = None
+
+  if opts.human_readable:
+    unitfields = ["dtotal", "dfree", "mtotal", "mnode", "mfree"]
+  else:
+    unitfields = None
+
+  numfields = ["dtotal", "dfree",
+               "mtotal", "mnode", "mfree",
+               "pinst_cnt", "sinst_cnt",
+               "ctotal"]
+
+  list_type_fields = ("pinst_list", "sinst_list", "tags")
+  # change raw values to nicer strings
+  for row in output:
+    for idx, field in enumerate(selected_fields):
+      val = row[idx]
+      if field in list_type_fields:
+        val = ",".join(val)
+      elif val is None:
+        val = "?"
+      row[idx] = str(val)
+
+  data = GenerateTable(separator=opts.separator, headers=headers,
+                       fields=selected_fields, unitfields=unitfields,
+                       numfields=numfields, data=output)
+  for line in data:
+    logger.ToStdout(line)
+
+  return 0
+
+
+def EvacuateNode(opts, args):
+  """Relocate all secondary instance from a node.
+
+  """
+  force = opts.force
+  selected_fields = ["name", "sinst_list"]
+  src_node, dst_node = args
+
+  op = opcodes.OpQueryNodes(output_fields=selected_fields, names=[src_node])
+  result = SubmitOpCode(op)
+  src_node, sinst = result[0]
+  op = opcodes.OpQueryNodes(output_fields=["name"], names=[dst_node])
+  result = SubmitOpCode(op)
+  dst_node = result[0][0]
+
+  if src_node == dst_node:
+    raise errors.OpPrereqError("Evacuate node needs different source and"
+                               " target nodes (node %s given twice)" %
+                               src_node)
+
+  if not sinst:
+    logger.ToStderr("No secondary instances on node %s, exiting." % src_node)
+    return constants.EXIT_SUCCESS
+
+  sinst = utils.NiceSort(sinst)
+
+  retcode = constants.EXIT_SUCCESS
+
+  if not force and not AskUser("Relocate instance(s) %s from node\n"
+                               " %s to node\n %s?" %
+                               (",".join("'%s'" % name for name in sinst),
+                               src_node, dst_node)):
+    return constants.EXIT_CONFIRMATION
+
+  good_cnt = bad_cnt = 0
+  for iname in sinst:
+    op = opcodes.OpReplaceDisks(instance_name=iname,
+                                remote_node=dst_node,
+                                mode=constants.REPLACE_DISK_ALL,
+                                disks=["sda", "sdb"])
+    try:
+      logger.ToStdout("Replacing disks for instance %s" % iname)
+      SubmitOpCode(op)
+      logger.ToStdout("Instance %s has been relocated" % iname)
+      good_cnt += 1
+    except errors.GenericError, err:
+      nret, msg = FormatError(err)
+      retcode |= nret
+      logger.ToStderr("Error replacing disks for instance %s: %s" %
+                      (iname, msg))
+      bad_cnt += 1
+
+  if retcode == constants.EXIT_SUCCESS:
+    logger.ToStdout("All %d instance(s) relocated successfully." % good_cnt)
+  else:
+    logger.ToStdout("There were errors during the relocation:\n"
+                    "%d error(s) out of %d instance(s)." %
+                    (bad_cnt, good_cnt + bad_cnt))
+  return retcode
+
+
+def FailoverNode(opts, args):
+  """Failover all primary instance on a node.
+
+  """
+  force = opts.force
+  selected_fields = ["name", "pinst_list"]
+
+  op = opcodes.OpQueryNodes(output_fields=selected_fields, names=args)
+  result = SubmitOpCode(op)
+  node, pinst = result[0]
+
+  if not pinst:
+    logger.ToStderr("No primary instances on node %s, exiting." % node)
+    return 0
+
+  pinst = utils.NiceSort(pinst)
+
+  retcode = 0
+
+  if not force and not AskUser("Fail over instance(s) %s?" %
+                               (",".join("'%s'" % name for name in pinst))):
+    return 2
+
+  good_cnt = bad_cnt = 0
+  for iname in pinst:
+    op = opcodes.OpFailoverInstance(instance_name=iname,
+                                    ignore_consistency=opts.ignore_consistency)
+    try:
+      logger.ToStdout("Failing over instance %s" % iname)
+      SubmitOpCode(op)
+      logger.ToStdout("Instance %s has been failed over" % iname)
+      good_cnt += 1
+    except errors.GenericError, err:
+      nret, msg = FormatError(err)
+      retcode |= nret
+      logger.ToStderr("Error failing over instance %s: %s" % (iname, msg))
+      bad_cnt += 1
+
+  if retcode == 0:
+    logger.ToStdout("All %d instance(s) failed over successfully." % good_cnt)
+  else:
+    logger.ToStdout("There were errors during the failover:\n"
+                    "%d error(s) out of %d instance(s)." %
+                    (bad_cnt, good_cnt + bad_cnt))
+  return retcode
+
+
+def MigrateNode(opts, args):
+  """Migrate all primary instance on a node.
+
+  """
+  force = opts.force
+  selected_fields = ["name", "pinst_list"]
+
+  op = opcodes.OpQueryNodes(output_fields=selected_fields, names=args)
+  result = SubmitOpCode(op)
+  node, pinst = result[0]
+
+  if not pinst:
+    logger.ToStderr("No primary instances on node %s, exiting." % node)
+    return 0
+
+  pinst = utils.NiceSort(pinst)
+
+  retcode = 0
+
+  if not force and not AskUser("Fail over instance(s) %s?" %
+                               (",".join("'%s'" % name for name in pinst))):
+    return 2
+
+  good_cnt = bad_cnt = 0
+  for iname in pinst:
+    op = opcodes.OpMigrateInstance(instance_name=iname, live=opts.live,
+                                   cleanup=False)
+    try:
+      logger.ToStdout("Migrating instance %s" % iname)
+      SubmitOpCode(op)
+      logger.ToStdout("Instance %s has been migrated" % iname)
+      good_cnt += 1
+    except errors.GenericError, err:
+      nret, msg = FormatError(err)
+      retcode |= nret
+      logger.ToStderr("Error migrating instance %s: %s" % (iname, msg))
+      bad_cnt += 1
+
+  if retcode == 0:
+    logger.ToStdout("All %d instance(s) migrated successfully." % good_cnt)
+  else:
+    logger.ToStdout("There were errors during the migration:\n"
+                    "%d error(s) out of %d instance(s)." %
+                    (bad_cnt, good_cnt + bad_cnt))
+  return retcode
+
+
+def ShowNodeConfig(opts, args):
+  """Show node information.
+
+  """
+  op = opcodes.OpQueryNodes(output_fields=["name", "pip", "sip",
+                                           "pinst_list", "sinst_list"],
+                            names=args)
+  result = SubmitOpCode(op)
+
+  for name, primary_ip, secondary_ip, pinst, sinst in result:
+    logger.ToStdout("Node name: %s" % name)
+    logger.ToStdout("  primary ip: %s" % primary_ip)
+    logger.ToStdout("  secondary ip: %s" % secondary_ip)
+    if pinst:
+      logger.ToStdout("  primary for instances:")
+      for iname in pinst:
+        logger.ToStdout("    - %s" % iname)
+    else:
+      logger.ToStdout("  primary for no instances")
+    if sinst:
+      logger.ToStdout("  secondary for instances:")
+      for iname in sinst:
+        logger.ToStdout("    - %s" % iname)
+    else:
+      logger.ToStdout("  secondary for no instances")
+
+  return 0
+
+
+def RemoveNode(opts, args):
+  """Remove node cli-to-processor bridge."""
+  op = opcodes.OpRemoveNode(node_name=args[0])
+  SubmitOpCode(op)
+
+
+def ListVolumes(opts, args):
+  """List logical volumes on node(s).
+
+  """
+  if opts.output is None:
+    selected_fields = ["node", "phys", "vg",
+                       "name", "size", "instance"]
+  else:
+    selected_fields = opts.output.split(",")
+
+  op = opcodes.OpQueryNodeVolumes(nodes=args, output_fields=selected_fields)
+  output = SubmitOpCode(op)
+
+  if not opts.no_headers:
+    headers = {"node": "Node", "phys": "PhysDev",
+               "vg": "VG", "name": "Name",
+               "size": "Size", "instance": "Instance"}
+  else:
+    headers = None
+
+  if opts.human_readable:
+    unitfields = ["size"]
+  else:
+    unitfields = None
+
+  numfields = ["size"]
+
+  data = GenerateTable(separator=opts.separator, headers=headers,
+                       fields=selected_fields, unitfields=unitfields,
+                       numfields=numfields, data=output)
+
+  for line in data:
+    logger.ToStdout(line)
+
+  return 0
+
+
+commands = {
+  'add': (AddNode, ARGS_ONE,
+          [DEBUG_OPT,
+           make_option("-s", "--secondary-ip", dest="secondary_ip",
+                       help="Specify the secondary ip for the node",
+                       metavar="ADDRESS", default=None),
+           make_option("--readd", dest="readd",
+                       default=False, action="store_true",
+                       help="Readd old node after replacing it"),
+           ],
+          "[-s ip] [--readd] <node_name>", "Add a node to the cluster"),
+  'evacuate': (EvacuateNode, ARGS_FIXED(2),
+               [DEBUG_OPT, FORCE_OPT],
+               "[-f] <src> <dst>",
+               "Relocate the secondary instances from the first node"
+               " to the second one (only for instances of type remote_raid1"
+               " or drbd)"),
+  'failover': (FailoverNode, ARGS_ONE,
+               [DEBUG_OPT, FORCE_OPT,
+                make_option("--ignore-consistency", dest="ignore_consistency",
+                            action="store_true", default=False,
+                            help="Ignore the consistency of the disks on"
+                            " the secondary"),
+                ],
+               "[-f] <node>",
+               "Stops the primary instances on a node and start them on their"
+               " secondary node (only for instances of type remote_raid1"
+               " or drbd)"),
+  'migrate': (MigrateNode, ARGS_ONE,
+               [DEBUG_OPT, FORCE_OPT,
+                make_option("--non-live", dest="live",
+                            default=True, action="store_false",
+                            help="Do a non-live migration (this usually means"
+                            " freeze the instance, save the state,"
+                            " transfer and only then resume running on the"
+                            " secondary node)"),
+                ],
+               "[-f] <node>",
+               "Migrate all the primary instance on a node away from it"
+               " (only for instances of type drbd)"),
+  'info': (ShowNodeConfig, ARGS_ANY, [DEBUG_OPT],
+           "[<node_name>...]", "Show information about the node(s)"),
+  'list': (ListNodes, ARGS_NONE,
+           [DEBUG_OPT, NOHDR_OPT, SEP_OPT, USEUNITS_OPT, FIELDS_OPT],
+           "", "Lists the nodes in the cluster. The available fields"
+           " are (see the man page for details): name, pinst_cnt, pinst_list,"
+           " sinst_cnt, sinst_list, pip, sip, dtotal, dfree, mtotal, mnode,"
+           " mfree, bootid, ctotal, cnodes, csockets."
+           " The default field list is"
+           " (in order): %s." % ", ".join(_LIST_DEF_FIELDS),
+           ),
+  'remove': (RemoveNode, ARGS_ONE, [DEBUG_OPT],
+             "<node_name>", "Removes a node from the cluster"),
+  'volumes': (ListVolumes, ARGS_ANY,
+              [DEBUG_OPT, NOHDR_OPT, SEP_OPT, USEUNITS_OPT, FIELDS_OPT],
+              "[<node_name>...]", "List logical volumes on node(s)"),
+  'list-tags': (ListTags, ARGS_ONE, [DEBUG_OPT],
+                "<node_name>", "List the tags of the given node"),
+  'add-tags': (AddTags, ARGS_ATLEAST(1), [DEBUG_OPT, TAG_SRC_OPT],
+               "<node_name> tag...", "Add tags to the given node"),
+  'remove-tags': (RemoveTags, ARGS_ATLEAST(1), [DEBUG_OPT, TAG_SRC_OPT],
+                  "<node_name> tag...", "Remove tags from the given node"),
+  }
+
+
+if __name__ == '__main__':
+  sys.exit(GenericMain(commands, override={"tag_type": constants.TAG_NODE}))

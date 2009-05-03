@@ -1,0 +1,485 @@
+#!/usr/bin/python
+#
+
+# Copyright (C) 2006, 2007 Google Inc.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+# General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
+# 02110-1301, USA.
+
+
+"""Burnin program
+
+"""
+
+import os
+import sys
+import optparse
+from itertools import izip, islice, cycle
+from cStringIO import StringIO
+
+from ganeti import opcodes
+from ganeti import mcpu
+from ganeti import constants
+from ganeti import cli
+from ganeti import logger
+from ganeti import errors
+from ganeti import utils
+
+
+USAGE = ("\tburnin -o OS_NAME [options...] instance_name ...")
+
+
+def Usage():
+  """Shows program usage information and exits the program."""
+
+  print >> sys.stderr, "Usage:"
+  print >> sys.stderr, USAGE
+  sys.exit(2)
+
+
+def Log(msg):
+  """Simple function that prints out its argument.
+
+  """
+  print msg
+  sys.stdout.flush()
+
+
+class Burner(object):
+  """Burner class."""
+
+  def __init__(self):
+    """Constructor."""
+    logger.SetupLogging(debug=False, program="ganeti/burnin")
+    self._feed_buf = StringIO()
+    self.proc = mcpu.Processor(feedback=self.Feedback)
+    self.nodes = []
+    self.instances = []
+    self.to_rem = []
+    self.opts = None
+    self.ParseOptions()
+    self.GetState()
+
+  def ClearFeedbackBuf(self):
+    """Clear the feedback buffer."""
+    self._feed_buf.truncate(0)
+
+  def GetFeedbackBuf(self):
+    """Return the contents of the buffer."""
+    return self._feed_buf.getvalue()
+
+  def Feedback(self, msg):
+    """Acumulate feedback in our buffer."""
+    self._feed_buf.write(msg)
+    self._feed_buf.write("\n")
+    if self.opts.verbose:
+      Log(msg)
+
+  def ExecOp(self, op):
+    """Execute an opcode and manage the exec buffer."""
+    self.ClearFeedbackBuf()
+    return self.proc.ExecOpCode(op)
+
+  def ParseOptions(self):
+    """Parses the command line options.
+
+    In case of command line errors, it will show the usage and exit the
+    program.
+
+    """
+
+    parser = optparse.OptionParser(usage="\n%s" % USAGE,
+                                   version="%%prog (ganeti) %s" %
+                                   constants.RELEASE_VERSION,
+                                   option_class=cli.CliOption)
+
+    parser.add_option("-o", "--os", dest="os", default=None,
+                      help="OS to use during burnin",
+                      metavar="<OS>")
+    parser.add_option("--os-size", dest="os_size", help="Disk size",
+                      default=4 * 1024, type="unit", metavar="<size>")
+    parser.add_option("--os-growth", dest="sda_growth", help="Disk growth",
+                      default=1024, type="unit", metavar="<size>")
+    parser.add_option("--swap-size", dest="swap_size", help="Swap size",
+                      default=4 * 1024, type="unit", metavar="<size>")
+    parser.add_option("--swap-growth", dest="sdb_growth", help="Swap growth",
+                      default=1024, type="unit", metavar="<size>")
+    parser.add_option("--mem-size", dest="mem_size", help="Memory size",
+                      default=128, type="unit", metavar="<size>")
+    parser.add_option("-v", "--verbose",
+                      action="store_true", dest="verbose", default=False,
+                      help="print command execution messages to stdout")
+    parser.add_option("--no-replace1", dest="do_replace1",
+                      help="Skip disk replacement with the same secondary",
+                      action="store_false", default=True)
+    parser.add_option("--no-replace2", dest="do_replace2",
+                      help="Skip disk replacement with a different secondary",
+                      action="store_false", default=True)
+    parser.add_option("--no-failover", dest="do_failover",
+                      help="Skip instance failovers", action="store_false",
+                      default=True)
+    parser.add_option("--no-migrate", dest="do_migrate",
+                      help="Skip instance live migration", action="store_false",
+                      default=True)
+    parser.add_option("--no-importexport", dest="do_importexport",
+                      help="Skip instance export/import", action="store_false",
+                      default=True)
+    parser.add_option("--no-startstop", dest="do_startstop",
+                      help="Skip instance stop/start", action="store_false",
+                      default=True)
+    parser.add_option("-t", "--disk-template", dest="disk_template",
+                      choices=("diskless", "plain", "remote_raid1", "drbd"),
+                      default="drbd",
+                      help="Disk template (diskless, plain, drbd, remote_raid1)"
+                      " [drbd]")
+    parser.add_option("-n", "--nodes", dest="nodes", default="",
+                      help="Comma separated list of nodes to perform"
+                      " the burnin on (defaults to all nodes)")
+    parser.add_option("--iallocator", dest="iallocator",
+                      default=None, type="string",
+                      help="Perform the allocation using an iallocator"
+                      " instead of fixed node spread (node restrictions no"
+                      " longer apply, therefore -n/--nodes must not be used")
+
+    options, args = parser.parse_args()
+    if len(args) < 1 or options.os is None:
+      Usage()
+
+    supported_disk_templates = (constants.DT_DISKLESS, constants.DT_PLAIN,
+                                constants.DT_REMOTE_RAID1,
+                                constants.DT_DRBD8)
+    if options.disk_template not in supported_disk_templates:
+      Log("Unknown disk template '%s'" % options.disk_template)
+      sys.exit(1)
+
+    if options.nodes and options.iallocator:
+      Log("Give either the nodes option or the iallocator option, not both")
+      sys.exit(1)
+
+    self.opts = options
+    self.instances = args
+
+  def GetState(self):
+    """Read the cluster state from the config."""
+    if self.opts.nodes:
+      names = self.opts.nodes.split(",")
+    else:
+      names = []
+    try:
+      op = opcodes.OpQueryNodes(output_fields=["name"], names=names)
+      result = self.ExecOp(op)
+    except errors.GenericError, err:
+      err_code, msg = cli.FormatError(err)
+      Log(msg)
+      sys.exit(err_code)
+    self.nodes = [data[0] for data in result]
+
+    result = self.ExecOp(opcodes.OpDiagnoseOS(output_fields=["name", "valid"],
+                                              names=[]))
+
+    if not result:
+      Log("Can't get the OS list")
+      sys.exit(1)
+
+    # filter non-valid OS-es
+    os_set = [val[0] for val in result if val[1]]
+
+    if self.opts.os not in os_set:
+      Log("OS '%s' not found" % self.opts.os)
+      sys.exit(1)
+
+  def CreateInstances(self):
+    """Create the given instances.
+
+    """
+    self.to_rem = []
+    mytor = izip(cycle(self.nodes),
+                 islice(cycle(self.nodes), 1, None),
+                 self.instances)
+    for pnode, snode, instance in mytor:
+      if self.opts.iallocator:
+        pnode = snode = None
+        Log("- Add instance %s (iallocator: %s)" %
+              (instance, self.opts.iallocator))
+      elif self.opts.disk_template not in constants.DTS_NET_MIRROR:
+        snode = None
+        Log("- Add instance %s on node %s" % (instance, pnode))
+      else:
+        Log("- Add instance %s on nodes %s/%s" % (instance, pnode, snode))
+
+      op = opcodes.OpCreateInstance(instance_name=instance,
+                                    mem_size=self.opts.mem_size,
+                                    disk_size=self.opts.os_size,
+                                    swap_size=self.opts.swap_size,
+                                    disk_template=self.opts.disk_template,
+                                    mode=constants.INSTANCE_CREATE,
+                                    os_type=self.opts.os,
+                                    pnode=pnode,
+                                    snode=snode,
+                                    vcpus=1,
+                                    start=True,
+                                    ip_check=True,
+                                    wait_for_sync=True,
+                                    mac="auto",
+                                    kernel_path=None,
+                                    initrd_path=None,
+                                    hvm_boot_order=None,
+                                    iallocator=self.opts.iallocator,
+                                    auto_balance=True,
+                                    hvm_nic_type=constants.HT_HVM_NIC_RTL8139,
+                                    hvm_disk_type=constants.HT_HVM_DEV_IOEMU)
+      self.ExecOp(op)
+      self.to_rem.append(instance)
+
+  def GrowDisks(self):
+    """Grow both the os and the swap disks by the requested amount, if any."""
+    for instance in self.instances:
+      for disk in ['sda', 'sdb']:
+        growth = getattr(self.opts, '%s_growth' % disk)
+        if growth > 0:
+          op = opcodes.OpGrowDisk(instance_name=instance, disk=disk,
+                                  amount=growth, wait_for_sync=True)
+          Log("- Increase %s's %s disk by %s MB" % (instance, disk, growth))
+          self.ExecOp(op)
+
+  def ReplaceDisks1R1(self):
+    """Replace disks with the same secondary for rr1."""
+    # replace all, both disks
+    for instance in self.instances:
+      op = opcodes.OpReplaceDisks(instance_name=instance,
+                                  remote_node=None,
+                                  mode=constants.REPLACE_DISK_ALL,
+                                  disks=["sda", "sdb"])
+
+      Log("- Replace disks for instance %s" % (instance))
+      self.ExecOp(op)
+
+  def ReplaceDisks1D8(self):
+    """Replace disks on primary and secondary for drbd8."""
+    for instance in self.instances:
+      for mode in constants.REPLACE_DISK_SEC, constants.REPLACE_DISK_PRI:
+        op = opcodes.OpReplaceDisks(instance_name=instance,
+                                    mode=mode,
+                                    disks=["sda", "sdb"])
+        Log("- Replace disks (%s) for instance %s" % (mode, instance))
+        self.ExecOp(op)
+
+  def ReplaceDisks2(self):
+    """Replace secondary node."""
+    if self.opts.disk_template == constants.DT_REMOTE_RAID1:
+      mode = constants.REPLACE_DISK_ALL
+    else:
+      mode = constants.REPLACE_DISK_SEC
+
+    mytor = izip(islice(cycle(self.nodes), 2, None),
+                 self.instances)
+    for tnode, instance in mytor:
+      if self.opts.iallocator:
+        tnode = None
+      op = opcodes.OpReplaceDisks(instance_name=instance,
+                                  mode=mode,
+                                  remote_node=tnode,
+                                  iallocator=self.opts.iallocator,
+                                  disks=["sda", "sdb"])
+      Log("- Replace secondary (%s) for instance %s" % (mode, instance))
+      self.ExecOp(op)
+
+  def Failover(self):
+    """Failover the instances."""
+
+    for instance in self.instances:
+      op = opcodes.OpFailoverInstance(instance_name=instance,
+                                      ignore_consistency=False)
+
+      Log("- Failover instance %s" % (instance))
+      self.ExecOp(op)
+
+  def Migrate(self):
+    """Migrate the instances."""
+
+    for instance in self.instances:
+      op = opcodes.OpMigrateInstance(instance_name=instance, live=True,
+                                     cleanup=False)
+
+      Log("- Migrate instance %s" % (instance))
+      self.ExecOp(op)
+    for instance in self.instances:
+      op = opcodes.OpMigrateInstance(instance_name=instance, live=True,
+                                     cleanup=True)
+
+      Log("- Testing 'migrate --cleanup' for instance %s" % (instance))
+      self.ExecOp(op)
+
+  def ImportExport(self):
+    """Export the instance, delete it, and import it back.
+
+    """
+
+    mytor = izip(cycle(self.nodes),
+                 islice(cycle(self.nodes), 1, None),
+                 islice(cycle(self.nodes), 2, None),
+                 self.instances)
+
+    for pnode, snode, enode, instance in mytor:
+
+      if self.opts.iallocator:
+        pnode = snode = None
+        import_log_msg = ("- Import instance %s from node %s (iallocator: %s)" %
+                          (instance, enode, self.opts.iallocator))
+      elif self.opts.disk_template not in constants.DTS_NET_MIRROR:
+        snode = None
+        import_log_msg = ("- Import instance %s from node %s to node %s" %
+                          (instance, enode, pnode))
+      else:
+        import_log_msg = ("- Import instance %s from node %s to nodes %s/%s" %
+                          (instance, enode, pnode, snode))
+
+      exp_op = opcodes.OpExportInstance(instance_name=instance,
+                                           target_node=enode,
+                                           shutdown=True)
+      rem_op = opcodes.OpRemoveInstance(instance_name=instance,
+                                        ignore_failures=True)
+      nam_op = opcodes.OpQueryInstances(output_fields=["name"],
+                                           names=[instance])
+      full_name = self.ExecOp(nam_op)[0][0]
+      imp_dir = os.path.join(constants.EXPORT_DIR, full_name)
+      imp_op = opcodes.OpCreateInstance(instance_name=instance,
+                                        mem_size=128,
+                                        disk_size=self.opts.os_size,
+                                        swap_size=self.opts.swap_size,
+                                        disk_template=self.opts.disk_template,
+                                        mode=constants.INSTANCE_IMPORT,
+                                        src_node=enode,
+                                        src_path=imp_dir,
+                                        pnode=pnode,
+                                        snode=snode,
+                                        vcpus=1,
+                                        start=True,
+                                        ip_check=True,
+                                        wait_for_sync=True,
+                                        mac="auto",
+                                        iallocator=self.opts.iallocator,
+                                        auto_balance=True,
+                                        hvm_nic_type=
+                                        constants.HT_HVM_NIC_RTL8139,
+                                        hvm_disk_type=
+                                        constants.HT_HVM_DEV_IOEMU)
+      erem_op = opcodes.OpRemoveExport(instance_name=instance)
+
+      Log("- Export instance %s to node %s" % (instance, enode))
+      self.ExecOp(exp_op)
+      Log("- Remove instance %s" % (instance))
+      self.ExecOp(rem_op)
+      self.to_rem.remove(instance)
+      Log(import_log_msg)
+      self.ExecOp(imp_op)
+      Log("- Remove export of instance %s" % (instance))
+      self.ExecOp(erem_op)
+
+      self.to_rem.append(instance)
+
+  def StopStart(self):
+    """Stop/start the instances."""
+    for instance in self.instances:
+      op = opcodes.OpShutdownInstance(instance_name=instance)
+      Log("- Shutdown instance %s" % instance)
+      self.ExecOp(op)
+      op = opcodes.OpStartupInstance(instance_name=instance, force=False)
+      Log("- Start instance %s" % instance)
+      self.ExecOp(op)
+
+  def Remove(self):
+    """Remove the instances."""
+    for instance in self.to_rem:
+      op = opcodes.OpRemoveInstance(instance_name=instance,
+                                    ignore_failures=True)
+      Log("- Remove instance %s" % instance)
+      self.ExecOp(op)
+
+  def BurninCluster(self):
+    """Test a cluster intensively.
+
+    This will create instances and then start/stop/failover them.
+    It is safe for existing instances but could impact performance.
+
+    """
+
+    opts = self.opts
+
+    Log("- Testing global parameters")
+
+    if (len(self.nodes) == 1 and
+        opts.disk_template not in (constants.DT_DISKLESS, constants.DT_PLAIN)):
+      Log("When one node is available/selected the disk template must"
+               " be 'plain' or 'diskless'")
+      sys.exit(1)
+
+    has_err = True
+    try:
+      self.CreateInstances()
+      if opts.do_replace1 and opts.disk_template in constants.DTS_NET_MIRROR:
+        if opts.disk_template == constants.DT_REMOTE_RAID1:
+          self.ReplaceDisks1R1()
+        elif opts.disk_template == constants.DT_DRBD8:
+          self.ReplaceDisks1D8()
+      if (opts.do_replace2 and len(self.nodes) > 2 and
+          opts.disk_template in constants.DTS_NET_MIRROR) :
+        self.ReplaceDisks2()
+
+      if opts.disk_template != constants.DT_DISKLESS:
+        self.GrowDisks()
+
+      if opts.do_failover and opts.disk_template in constants.DTS_NET_MIRROR:
+        self.Failover()
+
+      if opts.do_migrate and opts.disk_template == constants.DT_DRBD8:
+        self.Migrate()
+
+      if opts.do_importexport:
+        self.ImportExport()
+
+      if opts.do_startstop:
+        self.StopStart()
+
+      has_err = False
+    finally:
+      if has_err:
+        Log("Error detected: opcode buffer follows:\n\n")
+        Log(self.GetFeedbackBuf())
+        Log("\n\n")
+      self.Remove()
+
+    return 0
+
+
+def main():
+  """Main function"""
+
+  burner = Burner()
+  try:
+    utils.Lock('cmd', max_retries=15, debug=True)
+  except errors.LockError, err:
+    logger.ToStderr(str(err))
+    return 1
+  try:
+    retval = burner.BurninCluster()
+  finally:
+    utils.Unlock('cmd')
+    utils.LockCleanup()
+  return retval
+
+
+if __name__ == "__main__":
+  main()
