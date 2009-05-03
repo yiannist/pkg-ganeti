@@ -110,8 +110,12 @@ class Burner(object):
                       metavar="<OS>")
     parser.add_option("--os-size", dest="os_size", help="Disk size",
                       default=4 * 1024, type="unit", metavar="<size>")
+    parser.add_option("--os-growth", dest="sda_growth", help="Disk growth",
+                      default=1024, type="unit", metavar="<size>")
     parser.add_option("--swap-size", dest="swap_size", help="Swap size",
                       default=4 * 1024, type="unit", metavar="<size>")
+    parser.add_option("--swap-growth", dest="sdb_growth", help="Swap growth",
+                      default=1024, type="unit", metavar="<size>")
     parser.add_option("--mem-size", dest="mem_size", help="Memory size",
                       default=128, type="unit", metavar="<size>")
     parser.add_option("-v", "--verbose",
@@ -125,6 +129,9 @@ class Burner(object):
                       action="store_false", default=True)
     parser.add_option("--no-failover", dest="do_failover",
                       help="Skip instance failovers", action="store_false",
+                      default=True)
+    parser.add_option("--no-migrate", dest="do_migrate",
+                      help="Skip instance live migration", action="store_false",
                       default=True)
     parser.add_option("--no-importexport", dest="do_importexport",
                       help="Skip instance export/import", action="store_false",
@@ -233,6 +240,17 @@ class Burner(object):
       self.ExecOp(op)
       self.to_rem.append(instance)
 
+  def GrowDisks(self):
+    """Grow both the os and the swap disks by the requested amount, if any."""
+    for instance in self.instances:
+      for disk in ['sda', 'sdb']:
+        growth = getattr(self.opts, '%s_growth' % disk)
+        if growth > 0:
+          op = opcodes.OpGrowDisk(instance_name=instance, disk=disk,
+                                  amount=growth, wait_for_sync=True)
+          Log("- Increase %s's %s disk by %s MB" % (instance, disk, growth))
+          self.ExecOp(op)
+
   def ReplaceDisks1R1(self):
     """Replace disks with the same secondary for rr1."""
     # replace all, both disks
@@ -285,6 +303,22 @@ class Burner(object):
       Log("- Failover instance %s" % (instance))
       self.ExecOp(op)
 
+  def Migrate(self):
+    """Migrate the instances."""
+
+    for instance in self.instances:
+      op = opcodes.OpMigrateInstance(instance_name=instance, live=True,
+                                     cleanup=False)
+
+      Log("- Migrate instance %s" % (instance))
+      self.ExecOp(op)
+    for instance in self.instances:
+      op = opcodes.OpMigrateInstance(instance_name=instance, live=True,
+                                     cleanup=True)
+
+      Log("- Testing 'migrate --cleanup' for instance %s" % (instance))
+      self.ExecOp(op)
+
   def ImportExport(self):
     """Export the instance, delete it, and import it back.
 
@@ -296,6 +330,19 @@ class Burner(object):
                  self.instances)
 
     for pnode, snode, enode, instance in mytor:
+
+      if self.opts.iallocator:
+        pnode = snode = None
+        import_log_msg = ("- Import instance %s from node %s (iallocator: %s)" %
+                          (instance, enode, self.opts.iallocator))
+      elif self.opts.disk_template not in constants.DTS_NET_MIRROR:
+        snode = None
+        import_log_msg = ("- Import instance %s from node %s to node %s" %
+                          (instance, enode, pnode))
+      else:
+        import_log_msg = ("- Import instance %s from node %s to nodes %s/%s" %
+                          (instance, enode, pnode, snode))
+
       exp_op = opcodes.OpExportInstance(instance_name=instance,
                                            target_node=enode,
                                            shutdown=True)
@@ -319,7 +366,8 @@ class Burner(object):
                                         start=True,
                                         ip_check=True,
                                         wait_for_sync=True,
-                                        mac="auto")
+                                        mac="auto",
+                                        iallocator=self.opts.iallocator)
       erem_op = opcodes.OpRemoveExport(instance_name=instance)
 
       Log("- Export instance %s to node %s" % (instance, enode))
@@ -327,8 +375,7 @@ class Burner(object):
       Log("- Remove instance %s" % (instance))
       self.ExecOp(rem_op)
       self.to_rem.remove(instance)
-      Log("- Import instance %s from node %s to node %s" %
-          (instance, enode, pnode))
+      Log(import_log_msg)
       self.ExecOp(imp_op)
       Log("- Remove export of instance %s" % (instance))
       self.ExecOp(erem_op)
@@ -383,8 +430,13 @@ class Burner(object):
           opts.disk_template in constants.DTS_NET_MIRROR) :
         self.ReplaceDisks2()
 
+      self.GrowDisks()
+
       if opts.do_failover and opts.disk_template in constants.DTS_NET_MIRROR:
         self.Failover()
+
+      if opts.do_migrate and opts.disk_template == constants.DT_DRBD8:
+        self.Migrate()
 
       if opts.do_importexport:
         self.ImportExport()

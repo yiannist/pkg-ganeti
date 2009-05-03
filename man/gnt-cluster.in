@@ -3,7 +3,7 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GNT-CLUSTER" "8" "13 June 2008" "ganeti 1.2" ""
+.TH "GNT-CLUSTER" "8" "22 July 2008" "ganeti 1.2" ""
 
 .SH NAME
 gnt-cluster \- ganeti administration, cluster-wide
@@ -122,8 +122,8 @@ setup ssh-keys and more.
 Note that the \fIclustername\fR is not
 any random name. It has to be resolvable to an IP address
 using DNS, and it is best if you give the fully-qualified
-domain name. Also it is advisable to reserve a per-cluster
-unique name, and not try to reuse one of the nodes' names.
+domain name. This hostname must resolve to an IP address
+reserved exclusively for this purpose.
 .PP
 The cluster can run in two modes: single-home or
 dual-homed. In the first case, all traffic (both public
@@ -149,10 +149,9 @@ the cluster. Available hypervisor types are: xen-3.0, fake and
 xen-hvm3.1. The default is the xen-3.0 hypervisor.
 Note that if you init the cluster with hypervisor-type
 xen-hvm3.1 you also need to provide the cluster VNC password
-file \fI/etc/ganeti/vnc-cluster-password\fR and
-the HVM boot ISO image
-\fI/srv/ganeti/iso/hvm-install.iso\fR because
-instances created by the experimental HVM support require them.
+file \fI/etc/ganeti/vnc-cluster-password\fR
+because HVM instances require it for VNC console
+authentication.
 .PP
 The \fB-g\fR option will let you specify a volume group
 different than xenvg for ganeti to use when creating instance disks.

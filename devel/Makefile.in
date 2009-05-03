@@ -123,8 +123,8 @@ sbindir = @sbindir@
 sharedstatedir = @sharedstatedir@
 sysconfdir = @sysconfdir@
 target_alias = @target_alias@
-EXTRA_DIST = upload.in
-CLEANFILES = upload
+EXTRA_DIST = upload.in clean-cluster.in
+CLEANFILES = upload clean-cluster
 all: all-am
 
 .SUFFIXES:
@@ -277,10 +277,12 @@ uninstall-am: uninstall-info-am
 	uninstall-am uninstall-info-am
 
 
-all-local: upload
-upload: upload.in
+all-local: upload clean-cluster
+%: %.in
 	sed \
 	  -e 's#@PREFIX@#$(prefix)#g' \
+	  -e 's#@LOCALSTATEDIR@#$(localstatedir)#g' \
+	  -e 's#@SYSCONFDIR@#$(sysconfdir)#g' \
 	< $< > $@
 	chmod u+x $@
 # Tell versions [3.59,3.63) of GNU make to not export all variables.

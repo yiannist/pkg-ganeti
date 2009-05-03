@@ -232,6 +232,20 @@ class OpFailoverInstance(OpCode):
   __slots__ = ["instance_name", "ignore_consistency"]
 
 
+class OpMigrateInstance(OpCode):
+  """Migrate an instance.
+
+  This migrates (without shutting down an instance) to its secondary
+  node.
+
+  Parameters:
+    - instance_name: the name of the instance
+
+  """
+  OP_ID = "OP_INSTANCE_MIGRATE"
+  __slots__ = ["instance_name", "live", "cleanup"]
+
+
 class OpConnectConsole(OpCode):
   """Connect to an instance's console."""
   OP_ID = "OP_INSTANCE_CONSOLE"
@@ -270,6 +284,12 @@ class OpSetInstanceParms(OpCode):
     "kernel_path", "initrd_path", "hvm_boot_order", "hvm_acpi",
     "hvm_pae", "hvm_cdrom_image_path", "vnc_bind_address"
     ]
+
+
+class OpGrowDisk(OpCode):
+  """Grow a disk of an instance."""
+  OP_ID = "OP_INSTANCE_GROW_DISK"
+  __slots__ = ["instance_name", "disk", "amount", "wait_for_sync"]
 
 
 # OS opcodes

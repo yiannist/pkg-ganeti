@@ -3,7 +3,7 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GANETI-RAPI" "8" "13 June 2008" "ganeti 1.2" ""
+.TH "GANETI-RAPI" "8" "22 July 2008" "ganeti 1.2" ""
 
 .SH NAME
 ganeti-rapi \- ganeti remote API daemon

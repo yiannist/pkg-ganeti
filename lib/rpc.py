@@ -25,46 +25,13 @@
 
 # pylint: disable-msg=C0103
 
+import sys
 import os
-
-from twisted.internet.pollreactor import PollReactor
-
 
 install_twisted_signal_handlers = True
 
-
-class ReReactor(PollReactor):
-  """A re-startable Reactor implementation.
-
-  """
-  def run(self, installSignalHandlers=None):
-    """Custom run method.
-
-    This is customized run that, before calling Reactor.run, will
-    reinstall the shutdown events and re-create the threadpool in case
-    these are not present (as will happen on the second run of the
-    reactor).
-
-    """
-    if installSignalHandlers is None:
-      installSignalHandlers = install_twisted_signal_handlers
-    if not 'shutdown' in self._eventTriggers:
-      # the shutdown queue has been killed, we are most probably
-      # at the second run, thus recreate the queue
-      self.addSystemEventTrigger('during', 'shutdown', self.crash)
-      self.addSystemEventTrigger('during', 'shutdown', self.disconnectAll)
-    if self.threadpool is not None and self.threadpool.joined == 1:
-      # in case the threadpool has been stopped, re-start it
-      # and add a trigger to stop it at reactor shutdown
-      self.threadpool.start()
-      self.addSystemEventTrigger('during', 'shutdown', self.threadpool.stop)
-
-    return PollReactor.run(self, installSignalHandlers)
-
-
+from twisted.internet.pollreactor import PollReactor
 import twisted.internet.main
-twisted.internet.main.installReactor(ReReactor())
-
 from twisted.spread import pb
 from twisted.internet import reactor
 from twisted.cred import credentials
@@ -103,6 +70,9 @@ class NodeController:
     making the actual call.
 
     """
+    set_keepalive = getattr(obj.broker.transport, 'setTcpKeepAlive', None)
+    if callable(set_keepalive):
+      set_keepalive(True)
     deferred = obj.callRemote(self.parent.procedure, self.parent.args)
     deferred.addCallbacks(self.cb_done, self.cb_err2)
 
@@ -214,6 +184,13 @@ class Client:
     self.results = {}
     self.procedure = procedure
     self.args = args
+    global reactor
+    try:
+      del sys.modules['twisted.internet.reactor']
+    except KeyError:
+      pass
+    reactor = PollReactor()
+    twisted.internet.main.installReactor(reactor)
 
   #--- generic connector -------------
 
@@ -250,7 +227,7 @@ class Client:
 
     """
     if self.nc:
-      reactor.run()
+      reactor.run(install_twisted_signal_handlers)
 
 
 def call_volume_list(node_list, vg_name):
@@ -317,6 +294,18 @@ def call_instance_shutdown(node, instance):
   return c.getresult().get(node, False)
 
 
+def call_instance_migrate(node, instance, target, live):
+  """Migrate an instance.
+
+  This is a single-node call.
+
+  """
+  c = Client("instance_migrate", [instance.name, target, live])
+  c.connect(node)
+  c.run()
+  return c.getresult().get(node, False)
+
+
 def call_instance_reboot(node, instance, reboot_type, extra_args):
   """Reboots an instance.
 
@@ -362,6 +351,18 @@ def call_instance_info(node, instance):
 
   """
   c = Client("instance_info", [instance])
+  c.connect(node)
+  c.run()
+  return c.getresult().get(node, False)
+
+
+def call_instance_migratable(node, instance):
+  """Checks whether the given instance can be migrated.
+
+  This is a single-node call.
+
+  """
+  c = Client("instance_migratable", [instance.ToDict()])
   c.connect(node)
   c.run()
   return c.getresult().get(node, False)
@@ -609,6 +610,34 @@ def call_blockdev_find(node, disk):
   return c.getresult().get(node, False)
 
 
+def call_blockdev_close(node, instance_name, disks):
+  """Closes the given block devices.
+
+  This is a single-node call.
+
+  """
+  params = [instance_name, [cf.ToDict() for cf in disks]]
+  c = Client("blockdev_close", params)
+  c.connect(node)
+  c.run()
+  return c.getresult().get(node, False)
+
+
+def call_drbd_reconfig_net(node_list, instance_name, disks,
+                           nodes_ip, multimaster, step):
+  """Re-configures the network connection of drbd disks.
+
+  This is a multi-node call.
+
+  """
+  params = [instance_name, [cf.ToDict() for cf in disks],
+            nodes_ip, multimaster, step]
+  c = Client("drbd_reconfig_net", params)
+  c.connect_list(node_list)
+  c.run()
+  return c.getresult()
+
+
 def call_upload_file(node_list, file_name):
   """Upload a file.
 
@@ -702,6 +731,18 @@ def call_iallocator_runner(node, name, idata):
   c.run()
   result = c.getresult().get(node, False)
   return result
+
+
+def call_blockdev_grow(node, cf_bdev, amount):
+  """Request a snapshot of the given block device.
+
+  This is a single-node call.
+
+  """
+  c = Client("blockdev_grow", [cf_bdev.ToDict(), amount])
+  c.connect(node)
+  c.run()
+  return c.getresult().get(node, False)
 
 
 def call_blockdev_snapshot(node, cf_bdev):

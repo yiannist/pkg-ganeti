@@ -1218,8 +1218,8 @@ TARGET="_top"
       </P
 ><PRE
 CLASS="SCREEN"
->tar xvzf ganeti-1.2.4.tar.gz
-cd ganeti-1.2.4
+>tar xvzf ganeti-1.2.5.tar.gz
+cd ganeti-1.2.5
 ./configure --localstatedir=/var --sysconfdir=/etc
 make
 make install
@@ -1396,7 +1396,9 @@ CLASS="FILENAME"
         nodes names for a multi-node cluster. In general the best
         choice is to have a unique name for a cluster, even if it
         consists of only one machine, as you will be able to expand it
-        later without any problems.
+        later without any problems. Please note that the hostname used
+        for this must resolve to an IP address reserved exclusively
+        for this purpose.
       </P
 ><P
 >        If the bridge name you are using is not

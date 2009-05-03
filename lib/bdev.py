@@ -244,7 +244,6 @@ class BlockDev(object):
     """
     return None, None, False, False
 
-
   def CombinedSyncStatus(self):
     """Calculate the mirror status recursively for our children.
 
@@ -269,7 +268,6 @@ class BlockDev(object):
         ldisk = ldisk or c_ldisk
     return min_percent, max_time, is_degraded, ldisk
 
-
   def SetInfo(self, text):
     """Update metadata with info text.
 
@@ -279,6 +277,16 @@ class BlockDev(object):
     for child in self._children:
       child.SetInfo(text)
 
+  def Grow(self, amount):
+    """Grow the block device.
+
+    Arguments:
+      amount: the amount (in mebibytes) to grow with
+
+    Returns: None
+
+    """
+    raise NotImplementedError
 
   def __repr__(self):
     return ("<%s: unique_id: %s, children: %s, %s:%s, %s>" %
@@ -301,6 +309,8 @@ class LogicalVolume(BlockDev):
       raise ValueError("Invalid configuration data %s" % str(unique_id))
     self._vg_name, self._lv_name = unique_id
     self.dev_path = "/dev/%s/%s" % (self._vg_name, self._lv_name)
+    self._degraded = True
+    self.major = self.minor = None
     self.Attach()
 
   @classmethod
@@ -406,19 +416,35 @@ class LogicalVolume(BlockDev):
     recorded.
 
     """
-    result = utils.RunCmd(["lvdisplay", self.dev_path])
+    result = utils.RunCmd(["lvs", "--noheadings", "--separator=,",
+                           "-olv_attr,lv_kernel_major,lv_kernel_minor",
+                           self.dev_path])
     if result.failed:
       logger.Error("Can't find LV %s: %s, %s" %
                    (self.dev_path, result.fail_reason, result.output))
       return False
-    match = re.compile("^ *Block device *([0-9]+):([0-9]+).*$")
-    for line in result.stdout.splitlines():
-      match_result = match.match(line)
-      if match_result:
-        self.major = int(match_result.group(1))
-        self.minor = int(match_result.group(2))
-        return True
-    return False
+    out = result.stdout.strip().rstrip(',')
+    out = out.split(",")
+    if len(out) != 3:
+      logger.Error("Can't parse LVS output, len(%s) != 3" % str(out))
+      return False
+
+    status, major, minor = out[:3]
+    if len(status) != 6:
+      logger.Error("lvs lv_attr is not 6 characters (%s)" % status)
+      return False
+
+    try:
+      major = int(major)
+      minor = int(minor)
+    except ValueError, err:
+      logger.Error("lvs major/minor cannot be parsed: %s" % str(err))
+
+    self.major = major
+    self.minor = minor
+    self._degraded = status[0] == 'v' # virtual volume, i.e. doesn't backing
+                                      # storage
+    return True
 
   def Assemble(self):
     """Assemble the device.
@@ -491,20 +517,10 @@ class LogicalVolume(BlockDev):
     physical disk failure and subsequent 'vgreduce --removemissing' on
     the volume group.
 
+    The status was already read in Attach, so we just return it.
+
     """
-    result = utils.RunCmd(["lvs", "--noheadings", "-olv_attr", self.dev_path])
-    if result.failed:
-      logger.Error("Can't display lv: %s - %s" %
-                   (result.fail_reason, result.output))
-      return None, None, True, True
-    out = result.stdout.strip()
-    # format: type/permissions/alloc/fixed_minor/state/open
-    if len(out) != 6:
-      logger.Debug("Error in lvs output: attrs=%s, len != 6" % out)
-      return None, None, True, True
-    ldisk = out[0] == 'v' # virtual volume, i.e. doesn't have
-                          # backing storage
-    return None, None, ldisk, ldisk
+    return None, None, self._degraded, self._degraded
 
   def Open(self, force=False):
     """Make the device ready for I/O.
@@ -571,6 +587,21 @@ class LogicalVolume(BlockDev):
       raise errors.BlockDeviceError("Command: %s error: %s - %s" %
                                     (result.cmd, result.fail_reason,
                                      result.output))
+  def Grow(self, amount):
+    """Grow the logical volume.
+
+    """
+    # we try multiple algorithms since the 'best' ones might not have
+    # space available in the right place, but later ones might (since
+    # they have less constraints); also note that only recent LVM
+    # supports 'cling'
+    for alloc_policy in "contiguous", "cling", "normal":
+      result = utils.RunCmd(["lvextend", "--alloc", alloc_policy,
+                             "-L", "+%dm" % amount, self.dev_path])
+      if not result.failed:
+        return
+    raise errors.BlockDeviceError("Can't grow LV %s: %s" %
+                                  (self.dev_path, result.output))
 
 
 class MDRaid1(BlockDev):
@@ -980,6 +1011,58 @@ class MDRaid1(BlockDev):
     pass
 
 
+class DRBD8Status(object):
+  """A DRBD status representation class.
+
+  Note that this doesn't support unconfigured devices (cs:Unconfigured).
+
+  """
+  LINE_RE = re.compile(r"\s*[0-9]+:\s*cs:(\S+)\s+st:([^/]+)/(\S+)"
+                       "\s+ds:([^/]+)/(\S+)\s+.*$")
+  SYNC_RE = re.compile(r"^.*\ssync'ed:\s*([0-9.]+)%.*"
+                       "\sfinish: ([0-9]+):([0-9]+):([0-9]+)\s.*$")
+
+  def __init__(self, procline):
+    m = self.LINE_RE.match(procline)
+    if not m:
+      raise errors.BlockDeviceError("Can't parse input data '%s'" % procline)
+    self.cstatus = m.group(1)
+    self.lrole = m.group(2)
+    self.rrole = m.group(3)
+    self.ldisk = m.group(4)
+    self.rdisk = m.group(5)
+
+    self.is_standalone = self.cstatus == "StandAlone"
+    self.is_wfconn = self.cstatus == "WFConnection"
+    self.is_connected = self.cstatus == "Connected"
+    self.is_primary = self.lrole == "Primary"
+    self.is_secondary = self.lrole == "Secondary"
+    self.peer_primary = self.rrole == "Primary"
+    self.peer_secondary = self.rrole == "Secondary"
+    self.both_primary = self.is_primary and self.peer_primary
+    self.both_secondary = self.is_secondary and self.peer_secondary
+
+    self.is_diskless = self.ldisk == "Diskless"
+    self.is_disk_uptodate = self.ldisk == "UpToDate"
+
+    self.is_in_resync = self.cstatus in ('SyncSource', 'SyncTarget')
+
+    m = self.SYNC_RE.match(procline)
+    if m:
+      self.sync_percent = float(m.group(1))
+      hours = int(m.group(2))
+      minutes = int(m.group(3))
+      seconds = int(m.group(4))
+      self.est_time = hours * 3600 + minutes * 60 + seconds
+    else:
+      self.sync_percent = None
+      self.est_time = None
+
+    self.is_sync_target = self.peer_sync_source = self.cstatus == "SyncTarget"
+    self.peer_sync_target = self.is_sync_source = self.cstatus == "SyncSource"
+    self.is_resync = self.is_sync_target or self.is_sync_source
+
+
 class BaseDRBD(BlockDev):
   """Base DRBD class.
 
@@ -995,18 +1078,20 @@ class BaseDRBD(BlockDev):
   _ST_WFCONNECTION = "WFConnection"
   _ST_CONNECTED = "Connected"
 
+  _STATUS_FILE = "/proc/drbd"
+
   @staticmethod
-  def _GetProcData():
+  def _GetProcData(filename=_STATUS_FILE):
     """Return data from /proc/drbd.
 
     """
-    stat = open("/proc/drbd", "r")
+    stat = open(filename, "r")
     try:
       data = stat.read().splitlines()
     finally:
       stat.close()
     if not data:
-      raise errors.BlockDeviceError("Can't read any data from /proc/drbd")
+      raise errors.BlockDeviceError("Can't read any data from %s" % filename)
     return data
 
   @staticmethod
@@ -1653,6 +1738,9 @@ class DRBD8(BaseDRBD):
   _MAX_MINORS = 255
   _PARSE_SHOW = None
 
+  # timeout constants
+  _NET_RECONFIG_TIMEOUT = 60
+
   def __init__(self, unique_id, children):
     if children and children.count(None) > 0:
       children = []
@@ -2018,6 +2106,18 @@ class DRBD8(BaseDRBD):
                    (result.fail_reason, result.output))
     return not result.failed and children_result
 
+  def GetProcStatus(self):
+    """Return device data from /proc.
+
+    """
+    if self.minor is None:
+      raise errors.BlockDeviceError("GetStats() called while not attached")
+    proc_info = self._MassageProcData(self._GetProcData())
+    if self.minor not in proc_info:
+      raise errors.BlockDeviceError("Can't find myself in /proc (minor %d)" %
+                                    self.minor)
+    return DRBD8Status(proc_info[self.minor])
+
   def GetSyncStatus(self):
     """Returns the sync status of the device.
 
@@ -2038,31 +2138,10 @@ class DRBD8(BaseDRBD):
     """
     if self.minor is None and not self.Attach():
       raise errors.BlockDeviceError("Can't attach to device in GetSyncStatus")
-    proc_info = self._MassageProcData(self._GetProcData())
-    if self.minor not in proc_info:
-      raise errors.BlockDeviceError("Can't find myself in /proc (minor %d)" %
-                                    self.minor)
-    line = proc_info[self.minor]
-    match = re.match("^.*sync'ed: *([0-9.]+)%.*"
-                     " finish: ([0-9]+):([0-9]+):([0-9]+) .*$", line)
-    if match:
-      sync_percent = float(match.group(1))
-      hours = int(match.group(2))
-      minutes = int(match.group(3))
-      seconds = int(match.group(4))
-      est_time = hours * 3600 + minutes * 60 + seconds
-    else:
-      sync_percent = None
-      est_time = None
-    match = re.match("^ *\d+: cs:(\w+).*ds:(\w+)/(\w+).*$", line)
-    if not match:
-      raise errors.BlockDeviceError("Can't find my data in /proc (minor %d)" %
-                                    self.minor)
-    client_state = match.group(1)
-    local_disk_state = match.group(2)
-    ldisk = local_disk_state != "UpToDate"
-    is_degraded = client_state != "Connected"
-    return sync_percent, est_time, is_degraded or ldisk, ldisk
+    stats = self.GetProcStatus()
+    ldisk = not stats.is_disk_uptodate
+    is_degraded = not stats.is_connected
+    return stats.sync_percent, stats.est_time, is_degraded or ldisk, ldisk
 
   def GetStatus(self):
     """Compute the status of the DRBD device
@@ -2128,6 +2207,83 @@ class DRBD8(BaseDRBD):
              " secondary: %s" % result.output)
       logger.Error(msg)
       raise errors.BlockDeviceError(msg)
+
+  def DisconnectNet(self):
+    """Removes network configuration.
+
+    This method shutdowns the network side of the device.
+
+    The method will wait up to a hardcoded timeout for the device to
+    go into standalone after the 'disconnect' command before
+    re-configuring it, as sometimes it takes a while for the
+    disconnect to actually propagate and thus we might issue a 'net'
+    command while the device is still connected. If the device will
+    still be attached to the network and we time out, we raise an
+    exception.
+
+    """
+    if self.minor is None:
+      raise errors.BlockDeviceError("DRBD disk not attached in re-attach net")
+
+    if None in (self._lhost, self._lport, self._rhost, self._rport):
+      raise errors.BlockDeviceError("DRBD disk missing network info in"
+                                    " DisconnectNet()")
+
+    ever_disconnected = self._ShutdownNet(self.minor)
+    timeout_limit = time.time() + self._NET_RECONFIG_TIMEOUT
+    sleep_time = 0.100 # we start the retry time at 100 miliseconds
+    while time.time() < timeout_limit:
+      status = self.GetProcStatus()
+      if status.is_standalone:
+        break
+      # retry the disconnect, it seems possible that due to a
+      # well-time disconnect on the peer, my disconnect command might
+      # be ingored and forgotten
+      ever_disconnected = self._ShutdownNet(self.minor) or ever_disconnected
+      time.sleep(sleep_time)
+      sleep_time = min(2, sleep_time * 1.5)
+
+    if not status.is_standalone:
+      if ever_disconnected:
+        msg = ("Device did not react to the"
+               " 'disconnect' command in a timely manner")
+      else:
+        msg = ("Can't shutdown network, even after multiple retries")
+      raise errors.BlockDeviceError(msg)
+
+    reconfig_time = time.time() - timeout_limit + self._NET_RECONFIG_TIMEOUT
+    if reconfig_time > 15: # hardcoded alert limit
+      logger.Debug("DRBD8.ReAttachNet: detach took %.3f seconds" %
+                   reconfig_time)
+
+  def ReAttachNet(self, multimaster):
+    """Reconnects the network.
+
+    This method reconnects the network side of the device with a
+    specified multi-master flag. The device needs to be 'Standalone'
+    but have valid network configuration data.
+
+    Args:
+      - multimaster: init the network in dual-primary mode
+
+    """
+    if self.minor is None:
+      raise errors.BlockDeviceError("DRBD disk not attached in re-attach net")
+
+    if None in (self._lhost, self._lport, self._rhost, self._rport):
+      raise errors.BlockDeviceError("DRBD disk missing network info in"
+                                    " ReAttachNet()")
+
+    status = self.GetProcStatus()
+
+    if not status.is_standalone:
+      raise errors.BlockDeviceError("Device is not standalone in"
+                                    " ReAttachNet")
+
+    return self._AssembleNet(self.minor,
+                             (self._lhost, self._lport,
+                              self._rhost, self._rport),
+                             "C", dual_pri=multimaster)
 
   def Attach(self):
     """Find a DRBD device which matches our config and attach to it.
@@ -2311,6 +2467,21 @@ class DRBD8(BaseDRBD):
     if not cls._IsValidMeta(meta.dev_path):
       raise errors.BlockDeviceError("Cannot initalize meta device")
     return cls(unique_id, children)
+
+  def Grow(self, amount):
+    """Resize the DRBD device and its backing storage.
+
+    """
+    if self.minor is None:
+      raise errors.ProgrammerError("drbd8: Grow called while not attached")
+    if len(self._children) != 2 or None in self._children:
+      raise errors.BlockDeviceError("Cannot grow diskless DRBD8 device")
+    self._children[0].Grow(amount)
+    result = utils.RunCmd(["drbdsetup", self.dev_path, "resize"])
+    if result.failed:
+      raise errors.BlockDeviceError("resize failed for %s: %s" %
+                                    (self.dev_path, result.output))
+    return
 
 
 DEV_MAP = {

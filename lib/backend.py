@@ -44,6 +44,18 @@ from ganeti import objects
 from ganeti import ssconf
 
 
+# global cache for DrbdReconfigNet
+
+# the cache is indexed by a tuple (instance_name, physical_id) of the
+# disk, and contains as value the actual BlockDev instance (in our
+# particular usage, only DRBD8 instances)
+
+# the cache is cleared every time we restart DrbdReconfigNet with
+# step=1, and it's checked for consistency (we have the same keys and
+# size of the cache) when it's called with step!=1
+
+_D8_RECONF_CACHE = {}
+
 def StartMaster():
   """Activate local node as master node.
 
@@ -254,6 +266,9 @@ def GetVolumeList(vg_name):
 
   for line in result.stdout.splitlines():
     line = line.strip().rstrip(sep)
+    if line.count(sep) != 2:
+      logger.Error("Invalid line returned from lvs output: '%s'" % line)
+      continue
     name, size, attr = line.split(sep)
     if len(attr) != 6:
       attr = '------'
@@ -300,7 +315,8 @@ def NodeVolumes():
       'vg': line[3].strip(),
     }
 
-  return [map_line(line.split('|')) for line in result.stdout.splitlines()]
+  return [map_line(line.split('|')) for line in result.stdout.splitlines()
+          if line.count('|') >= 3]
 
 
 def BridgesExist(bridges_list):
@@ -358,6 +374,30 @@ def GetInstanceInfo(instance):
     output['time'] = iinfo[5]
 
   return output
+
+
+def GetInstanceMigratable(instance):
+  """Gives whether an instance can be migrated.
+
+  Args:
+    instance - object representing the instance to be checked.
+
+  Returns:
+    (result, description)
+      result - whether the instance can be migrated or not
+      description - a description of the issue, if relevant
+
+  """
+  hyper = hypervisor.GetHypervisor()
+  if instance.name not in hyper.ListInstances():
+    return (False, 'not running')
+
+  for disk in instance.disks:
+    link_name = _GetBlockDevSymlinkPath(instance.name, disk.iv_name)
+    if not os.path.islink(link_name):
+      return (False, 'not restarted since ganeti 1.2.5')
+
+  return (True, '')
 
 
 def GetAllInstancesInfo():
@@ -547,11 +587,62 @@ def _GetVGInfo(vg_name):
   return retdic
 
 
-def _GatherBlockDevs(instance):
+def _GetBlockDevSymlinkPath(instance_name, device_name):
+  return os.path.join(constants.DISK_LINKS_DIR,
+                      "%s:%s" % (instance_name, device_name))
+
+
+def _SymlinkBlockDev(instance_name, device_path, device_name):
+  """Set up symlinks to a instance's block device.
+
+  This is an auxiliary function run when an instance is start (on the primary
+  node) or when an instance is migrated (on the target node).
+
+  Args:
+    instance_name: the name of the target instance
+    device_path: path of the physical block device, on the node
+    device_name: 'virtual' name of the device
+
+  Returns:
+    absolute path to the disk's symlink
+
+  """
+  link_name = _GetBlockDevSymlinkPath(instance_name, device_name)
+  try:
+    os.symlink(device_path, link_name)
+  except OSError, err:
+    if err.errno == errno.EEXIST:
+      if (not os.path.islink(link_name) or
+          os.readlink(link_name) != device_path):
+        os.remove(link_name)
+        os.symlink(device_path, link_name)
+    else:
+      raise
+
+  return link_name
+
+
+def _RemoveBlockDevLinks(instance_name, disks):
+  """Remove the block device symlinks belonging to the given instance.
+
+  """
+  for disk in disks:
+    link_name = _GetBlockDevSymlinkPath(instance_name, disk.iv_name)
+    if os.path.islink(link_name):
+      try:
+        os.remove(link_name)
+      except OSError, err:
+        logger.Error("Can't remove symlink '%s': %s" % (link_name, err))
+
+
+def _GatherAndLinkBlockDevs(instance):
   """Set up an instance's block device(s).
 
   This is run on the primary node at instance startup. The block
   devices must be already assembled.
+
+  Returns:
+    A list of (block_device, disk_name) tuples.
 
   """
   block_devices = []
@@ -561,7 +652,15 @@ def _GatherBlockDevs(instance):
       raise errors.BlockDeviceError("Block device '%s' is not set up." %
                                     str(disk))
     device.Open()
-    block_devices.append((disk, device))
+    try:
+      link_name = _SymlinkBlockDev(instance.name, device.dev_path,
+                                   disk.iv_name)
+    except OSError, e:
+      raise errors.BlockDeviceError("Cannot create block device symlink: %s" %
+                                    e.strerror)
+
+    block_devices.append((link_name, disk.iv_name))
+
   return block_devices
 
 
@@ -569,7 +668,7 @@ def StartInstance(instance, extra_args):
   """Start an instance.
 
   Args:
-    instance - name of instance to start.
+    instance - object representing the instance to be started.
 
   """
   running_instances = GetInstanceList()
@@ -577,13 +676,16 @@ def StartInstance(instance, extra_args):
   if instance.name in running_instances:
     return True
 
-  block_devices = _GatherBlockDevs(instance)
-  hyper = hypervisor.GetHypervisor()
-
   try:
+    block_devices = _GatherAndLinkBlockDevs(instance)
+    hyper = hypervisor.GetHypervisor()
     hyper.StartInstance(instance, block_devices, extra_args)
+  except errors.BlockDeviceError, err:
+    logger.Error("Failed to start instance: %s" % err)
+    return False
   except errors.HypervisorError, err:
     logger.Error("Failed to start instance: %s" % err)
+    _RemoveBlockDevLinks(instance.name, instance.disks)
     return False
 
   return True
@@ -593,7 +695,7 @@ def ShutdownInstance(instance):
   """Shut an instance down.
 
   Args:
-    instance - name of instance to shutdown.
+    instance - object representing the instance to be shutdown.
 
   """
   running_instances = GetInstanceList()
@@ -631,6 +733,8 @@ def ShutdownInstance(instance):
       logger.Error("could not shutdown instance '%s' even by destroy")
       return False
 
+  _RemoveBlockDevLinks(instance.name, instance.disks)
+
   return True
 
 
@@ -638,7 +742,7 @@ def RebootInstance(instance, reboot_type, extra_args):
   """Reboot an instance.
 
   Args:
-    instance    - name of instance to reboot
+    instance    - object representing the instance to be reboot.
     reboot_type - how to reboot [soft,hard,full]
 
   """
@@ -667,6 +771,26 @@ def RebootInstance(instance, reboot_type, extra_args):
 
 
   return True
+
+
+def MigrateInstance(instance, target, live):
+  """Migrates an instance to another node.
+
+  Args:
+    instance - name of the instance to be migrated.
+    target   - node to send the instance to.
+    live     - whether to perform a live migration.
+
+  """
+  hyper = hypervisor.GetHypervisor()
+
+  try:
+    hyper.MigrateInstance(instance, target, live)
+  except errors.HypervisorError, err:
+    msg = str(err)
+    logger.Error(msg)
+    return (False, msg)
+  return (True, "Migration successfull")
 
 
 def CreateBlockDevice(disk, size, owner, on_primary, info):
@@ -1131,6 +1255,32 @@ def OSFromDisk(name, base_dir=None):
                     api_version=api_version)
 
 
+def GrowBlockDevice(disk, amount):
+  """Grow a stack of block devices.
+
+  This function is called recursively, with the childrens being the
+  first one resize.
+
+  Args:
+    disk: the disk to be grown
+
+  Returns: a tuple of (status, result), with:
+    status: the result (true/false) of the operation
+    result: the error message if the operation failed, otherwise not used
+
+  """
+  r_dev = _RecursiveFindBD(disk)
+  if r_dev is None:
+    return False, "Cannot find block device %s" % (disk,)
+
+  try:
+    r_dev.Grow(amount)
+  except errors.BlockDeviceError, err:
+    return False, str(err)
+
+  return True, None
+
+
 def SnapshotBlockDevice(disk):
   """Create a snapshot copy of a block device.
 
@@ -1432,6 +1582,176 @@ def RenameBlockDevices(devlist):
                    (dev, unique_id, err))
       result = False
   return result
+
+
+def CloseBlockDevices(instance_name, disks):
+  """Closes the given block devices.
+
+  This means they will be switched to secondary mode (in case of DRBD).
+
+  Args:
+    - instance_name: if the argument is not false, then the symlinks
+                     belonging to the instance are removed, in order
+                     to keep only the 'active' devices symlinked
+    - disks: a list of objects.Disk instances
+
+  """
+  bdevs = []
+  for cf in disks:
+    rd = _RecursiveFindBD(cf)
+    if rd is None:
+      return (False, "Can't find device %s" % cf)
+    bdevs.append(rd)
+
+  msg = []
+  for rd in bdevs:
+    try:
+      rd.Close()
+    except errors.BlockDeviceError, err:
+      msg.append(str(err))
+  if instance_name:
+    _RemoveBlockDevLinks(instance_name, disks)
+  if msg:
+    return (False, "Can't make devices secondary: %s" % ",".join(msg))
+  else:
+    return (True, "All devices secondary")
+
+
+def DrbdReconfigNet(instance_name, disks, nodes_ip, multimaster, step):
+  """Tune the network settings on a list of drbd devices.
+
+  The 'step' argument has three possible values:
+    - step 1, init the operation and identify the disks
+    - step 2, disconnect the network
+    - step 3, reconnect with correct settings and (if needed) set primary
+    - step 4, change disks into read-only (secondary) mode
+    - step 5, wait until devices are synchronized
+
+  """
+  # local short name for the cache
+  cache = _D8_RECONF_CACHE
+
+  # set the correct physical ID so that we can use it in the cache
+  my_name = utils.HostInfo().name
+  for cf in disks:
+    cf.SetPhysicalID(my_name, nodes_ip)
+
+  bdevs = []
+
+  # note: the cache keys do not contain the multimaster setting, as we
+  # want to reuse the cache between the to-master, (in the meantime
+  # failover), to-secondary calls
+
+  if step == constants.DRBD_RECONF_RPC_INIT:
+    # we clear the cache
+    cache.clear()
+    for cf in disks:
+      key = (instance_name, cf.physical_id)
+      rd = _RecursiveFindBD(cf)
+      if rd is None:
+        return (False, "Can't find device %s" % cf)
+      bdevs.append(rd)
+      cache[key] = rd
+  else:
+    # we check that the cached items are exactly what we have been passed
+    for cf in disks:
+      key = (instance_name, cf.physical_id)
+      if key not in cache:
+        return (False, "ReconfigCache has wrong contents - missing %s" % key)
+      bdevs.append(cache[key])
+    if len(cache) != len(disks):
+      return (False, "ReconfigCache: wrong contents, extra items are present")
+
+  if step == constants.DRBD_RECONF_RPC_INIT:
+    # nothing to do beside the discovery/caching of the disks
+    return (True, "Disks have been identified")
+  elif step == constants.DRBD_RECONF_RPC_DISCONNECT:
+    # disconnect disks
+    for rd in bdevs:
+      try:
+        rd.DisconnectNet()
+      except errors.BlockDeviceError, err:
+        logger.Debug("Failed to go into standalone mode: %s" % str(err))
+        return (False, "Can't change network configuration: %s" % str(err))
+    return (True, "All disks are now disconnected")
+  elif step == constants.DRBD_RECONF_RPC_RECONNECT:
+    if multimaster:
+      for cf, rd in zip(disks, bdevs):
+        try:
+          _SymlinkBlockDev(instance_name, rd.dev_path, cf.iv_name)
+        except EnvironmentError, err:
+          return (False, "Can't create symlink: %s" % str(err))
+    # reconnect disks, switch to new master configuration and if
+    # needed primary mode
+    for rd in bdevs:
+      try:
+        rd.ReAttachNet(multimaster)
+      except errors.BlockDeviceError, err:
+        return (False, "Can't change network configuration: %s" % str(err))
+    # wait until the disks are connected; we need to retry the re-attach
+    # if the device becomes standalone, as this might happen if the one
+    # node disconnects and reconnects in a different mode before the
+    # other node reconnects; in this case, one or both of the nodes will
+    # decide it has wrong configuration and switch to standalone
+    RECONNECT_TIMEOUT = 2 * 60
+    sleep_time = 0.100 # start with 100 miliseconds
+    timeout_limit = time.time() + RECONNECT_TIMEOUT
+    while time.time() < timeout_limit:
+      all_connected = True
+      for rd in bdevs:
+        stats = rd.GetProcStatus()
+        if not (stats.is_connected or stats.is_in_resync):
+          all_connected = False
+        if stats.is_standalone:
+          # peer had different config info and this node became
+          # standalone, even though this should not happen with the
+          # new staged way of changing disk configs
+          try:
+            rd.ReAttachNet(multimaster)
+          except errors.BlockDeviceError, err:
+            return (False, "Can't change network configuration: %s" % str(err))
+      if all_connected:
+        break
+      time.sleep(sleep_time)
+      sleep_time = min(5, sleep_time * 1.5)
+    if not all_connected:
+      return (False, "Timeout in disk reconnecting")
+    if multimaster:
+      # change to primary mode
+      for rd in bdevs:
+        rd.Open()
+    if multimaster:
+      msg = "multi-master and primary"
+    else:
+      msg = "single-master"
+    return (True, "Disks are now configured as %s" % msg)
+  elif step == constants.DRBD_RECONF_RPC_SECONDARY:
+    msg = []
+    for rd in bdevs:
+      try:
+        rd.Close()
+      except errors.BlockDeviceError, err:
+        msg.append(str(err))
+    _RemoveBlockDevLinks(instance_name, disks)
+    if msg:
+      return (False, "Can't make devices secondary: %s" % ",".join(msg))
+    else:
+      return (True, "All devices secondary")
+  elif step == constants.DRBD_RECONF_RPC_WFSYNC:
+    min_resync = 100
+    alldone = True
+    failure = False
+    for rd in bdevs:
+      stats = rd.GetProcStatus()
+      if not (stats.is_connected or stats.is_in_resync):
+        failure = True
+        break
+      alldone = alldone and (not stats.is_in_resync)
+      if stats.sync_percent is not None:
+        min_resync = min(min_resync, stats.sync_percent)
+    return (not failure, (alldone, min_resync))
+  else:
+    return (False, "Unknown reconfiguration step %s" % step)
 
 
 class HooksRunner(object):

@@ -227,8 +227,8 @@
         Note that the <replaceable>clustername</replaceable> is not
         any random name. It has to be resolvable to an IP address
         using DNS, and it is best if you give the fully-qualified
-        domain name. Also it is advisable to reserve a per-cluster
-        unique name, and not try to reuse one of the nodes' names.
+        domain name. This hostname must resolve to an IP address
+        reserved exclusively for this purpose.
       </para>
 
       <para>
@@ -262,10 +262,9 @@
         xen-hvm3.1. The default is the xen-3.0 hypervisor.
         Note that if you init the cluster with hypervisor-type
         xen-hvm3.1 you also need to provide the cluster VNC password
-        file <filename>/etc/ganeti/vnc-cluster-password</filename> and
-        the HVM boot ISO image
-        <filename>/srv/ganeti/iso/hvm-install.iso</filename> because
-        instances created by the experimental HVM support require them.
+        file <filename>/etc/ganeti/vnc-cluster-password</filename>
+        because HVM instances require it for VNC console
+        authentication.
       </para>
 
       <para>

@@ -3,7 +3,7 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GNT-INSTANCE" "8" "13 June 2008" "ganeti 1.2" ""
+.TH "GNT-INSTANCE" "8" "22 July 2008" "ganeti 1.2" ""
 
 .SH NAME
 gnt-instance \- ganeti instance administration
@@ -29,6 +29,8 @@ administration in the ganeti system.
 \fIvnc-bind-address\fB\fR ]
     [ \fB--kernel { default | \fIkernel_path\fB }\fR ]
     [ \fB--initrd { default | none | \fIinitrd_path\fB }\fR ]
+    [ \fB--cpu \fIvcpus\fB\fR ] [ \fB--ip { default | none | \fIip-address\fB }\fR ]
+    [ \fB--no-wait-for-sync\fR ] [ \fB--no-start\fR ] [ \fB--no-ip-check\fR ]
     \fB-t { diskless | plain | local_raid1 | remote_raid1 | drbd }\fR
     { \fB-n \fInode[:secondary-node]\fB\fR | \fB--iallocator \fIname\fB\fR }
     \fB-o \fIos-type\fB\fR
@@ -91,27 +93,34 @@ CDROM drive
 \fBn\fR
 network boot (PXE)
 .PP
-The option is only relevant for Xen HVM instances and
-ignored by all other instances types.
+The default is not to set an HVM boot order which is
+interpreted as 'dc'. This option, like all options starting
+with 'hvm', is only relevant for Xen HVM instances and
+ignored by all other instance types.
 .PP
 The \fB--hvm-acpi\fR option specifies if Xen
 should enable ACPI support for this HVM instance. Valid
-values are true or false.
+values are true or false. The default value is false,
+disabling ACPI support for this instance.
 .PP
 The \fB--hvm-pae\fR option specifies if Xen
 should enabled PAE support for this HVM instance. Valid
-values are true or false.
+values are true or false. The default is false, disabling
+PAE support for this instance.
 .PP
 The \fB--hvm-cdrom-image-path\fR option specifies the
-path to the file xen uses to emulate a virtual CDROM drive
+path to the file Xen uses to emulate a virtual CDROM drive
 for this HVM instance. Valid values are either an
 absolute path to an existing file or None, which disables
-virtual CDROM support for this instance.
+virtual CDROM support for this instance. The default is
+None, disabling virtual CDROM support.
 .PP
 The \fB--vnc-bind-address\fR option specifies the
 address that the VNC listener for this instance should bind
 to. Valid values are IPv4 addresses. Use the address 0.0.0.0
-to bind to all available interfaces.
+to bind to all available interfaces (this is the default)
+or specify the address of one of the interfaces on the node
+to restrict listing to that interface.
 .PP
 The \fB--iallocator\fR option specifies the instance
 allocator plugin to use. If you pass in this option the allocator
@@ -170,6 +179,20 @@ the remote raid template type and specifies the remote node.
 If you do not want gnt-instance to wait for the disk mirror
 to be synced, use the \fB--no-wait-for-sync\fR
 option.
+.PP
+Use the \fB--cpu\fR option to set the number of virtual
+CPUs.
+.PP
+To pass an IPv4 address to the hypervisor, specify the
+\fB--ip\fR option. Note that this IP address will not be
+used by the OS scripts and changing it later will change the address
+that the instance will actually use.
+.PP
+In case you don't want the new instance to be automatically started,
+specify the \fB--no-start\fR option.
+.PP
+Ganeti will not check whether an instance's IP address is already
+alive if the \fB--no-ip-check\fR option is specified.
 .PP
 Example:
 
@@ -289,6 +312,10 @@ the size of the instance's second disk
 \fBvcpus\fR
 the number of VCPUs allocated to the
 instance
+.TP
+\fBtags\fR
+comma-separated list of the instances's
+tags
 .PP
 If the value of the option starts with the character
 +, the new fields will be added to the
@@ -610,6 +637,61 @@ type, while it is running, it will not be able to shutdown
 the block devices on the primary node, but it will shutdown
 the block devices on the secondary nodes, thus breaking the
 replication.
+.SS "GROW-DISK"
+
+\fBgrow-disk\fR [ \fB--no-wait-for-sync\fR ] \fB\fIinstance\fB\fR \fB\fIdisk\fB\fR \fB\fIamount\fB\fR
+
+.PP
+Grows an instance's disk. This is only possible for
+instances having a plain or
+drbd disk template.
+.PP
+Note that this command only change the block device size; it
+will not grow the actual filesystems, partitions, etc. that
+live on that disk. Usually, you will need to:
+.TP 3
+1. 
+use \fBgnt-instance grow-disk\fR
+.TP 3
+2. 
+reboot the instance (later, at a convenient
+time)
+.TP 3
+3. 
+use a filesystem resizer, such as
+\fBext2online\fR(8) or
+\fBxfs_growfs\fR(8) to resize the
+filesystem, or use \fBfdisk\fR(8) to change the
+partition table on the disk
+.PP
+The \fIdisk\fR argument is either
+sda or sdb\&. The
+\fIamount\fR argument is given either
+as a number (and it represents the amount to increase the
+disk with in mebibytes) or can be given similar to the
+arguments in the create instance operation, with a suffix
+denoting the unit.
+.PP
+Note that the disk grow operation might complete on one node
+but fail on the other; this will leave the instance with
+different-sized LVs on the two nodes, but this will not
+create problems (except for unused space).
+.PP
+If you do not want gnt-instance to wait for the new disk
+region to be synced, use the
+\fB--no-wait-for-sync\fR option.
+.PP
+Example (increase sda for instance1 by 16GiB):
+
+.nf
+# gnt-instance grow-disk instance1.example.com sda 16g
+          
+.fi
+.PP
+Also note that disk shrinking will not be supported; use
+\fBgnt-backup export\fR and then
+\fBgnt-backup import\fR to reduce the disk size
+of an instance.
 .SS "RECOVERY"
 .SS "FAILOVER"
 
@@ -633,6 +715,64 @@ Example:
 
 .nf
 # gnt-instance failover instance1.example.com
+          
+.fi
+.SS "MIGRATE"
+
+\fBmigrate\fR [ \fB-f\fR ] \fB--cleanup\fR \fB\fIinstance\fB\fR
+
+
+\fBmigrate\fR [ \fB-f\fR ] [ \fB--non-live\fR ] \fB\fIinstance\fB\fR
+
+.PP
+Migrate will move the instance to its secondary node without
+shutdown. It only works for instances having the drbd8 disk
+template type.
+.PP
+The migration command needs a perfectly healthy instance, as
+we rely on the dual-master capability of drbd8 and the disks
+of the instance are not allowed to be degraded.
+.PP
+The \fB--non-live\fR option will switch (for the
+hypervisors that support it) between a "fully live"
+(i.e. the interruption is as minimal as possible) migration
+and one in which the instance is frozen, its state saved and
+transported to the remote node, and then resumed there. This
+all depends on the hypervisor support for two different
+methods. In any case, it is not an error to pass this
+parameter (it will just be ignored if the hypervisor doesn't
+support it).
+.PP
+If the \fB--cleanup\fR option is passed, the
+operation changes from migration to attempting recovery from
+a failed previous migration. In this mode, ganeti checks if
+the instance runs on the correct node (and updates its
+configuration if not) and ensures the instances's disks are
+configured correctly. In this mode, the
+\fB--non-live\fR option is ignored.
+.PP
+The option \fB-f\fR will skip the prompting for
+confirmation.
+.PP
+Example (and expected output):
+
+.nf
+# gnt-instance migrate instance1
+Migrate will happen to the instance instance1. Note that migration is
+**experimental** in this version. This might impact the instance if
+anything goes wrong. Continue?
+y/[n]/?: y
+* checking disk consistency between source and target
+* ensuring the target is in secondary mode
+* changing disks into dual-master mode
+ - INFO: Waiting for instance instance1 to sync disks.
+ - INFO: Instance instance1's disks are in sync.
+* migrating instance to node2.example.com
+* changing the instance's disks on source node to secondary
+ - INFO: Waiting for instance instance1 to sync disks.
+ - INFO: Instance instance1's disks are in sync.
+* changing the instance's disks to single-master
+#
           
 .fi
 .SS "TAGS"

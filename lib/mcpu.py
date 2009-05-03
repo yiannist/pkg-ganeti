@@ -71,10 +71,12 @@ class Processor(object):
     opcodes.OpRemoveMDDRBDComponent: cmdlib.LURemoveMDDRBDComponent,
     opcodes.OpReplaceDisks: cmdlib.LUReplaceDisks,
     opcodes.OpFailoverInstance: cmdlib.LUFailoverInstance,
+    opcodes.OpMigrateInstance: cmdlib.LUMigrateInstance,
     opcodes.OpConnectConsole: cmdlib.LUConnectConsole,
     opcodes.OpQueryInstances: cmdlib.LUQueryInstances,
     opcodes.OpQueryInstanceData: cmdlib.LUQueryInstanceData,
     opcodes.OpSetInstanceParms: cmdlib.LUSetInstanceParms,
+    opcodes.OpGrowDisk: cmdlib.LUGrowDisk,
     # os lu
     opcodes.OpDiagnoseOS: cmdlib.LUDiagnoseOS,
     # exports lu

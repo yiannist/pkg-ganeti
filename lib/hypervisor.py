@@ -126,6 +126,19 @@ class BaseHypervisor(object):
     """
     raise NotImplementedError
 
+  def MigrateInstance(self, name, target, live):
+    """Migrate an instance.
+
+    Arguments:
+      - name: the name of the instance
+      - target: the target of the migration (usually will be IP and not name)
+      - live: whether to do live migration or not
+
+    Returns: none, errors will be signaled by exception.
+
+    """
+    raise NotImplementedError
+
 
 class XenHypervisor(BaseHypervisor):
   """Xen generic hypervisor interface
@@ -143,11 +156,11 @@ class XenHypervisor(BaseHypervisor):
     raise NotImplementedError
 
   @staticmethod
-  def _RemoveConfigFile(instance):
+  def _RemoveConfigFile(instance_name):
     """Remove the xen configuration file.
 
     """
-    utils.RemoveFile("/etc/xen/%s" % instance.name)
+    utils.RemoveFile("/etc/xen/%s" % instance_name)
 
   @staticmethod
   def _GetXMList(include_node):
@@ -241,7 +254,7 @@ class XenHypervisor(BaseHypervisor):
 
   def StopInstance(self, instance, force=False):
     """Stop an instance."""
-    self._RemoveConfigFile(instance)
+    self._RemoveConfigFile(instance.name)
     if force:
       command = ["xm", "destroy", instance.name]
     else:
@@ -313,6 +326,37 @@ class XenHypervisor(BaseHypervisor):
     if not utils.CheckDaemonAlive('/var/run/xend.pid', 'xend'):
       return "xend daemon is not running"
 
+  def MigrateInstance(self, instance, target, live):
+    """Migrate an instance to a target node.
+
+    Arguments:
+      - instance: the name of the instance
+      - target: the ip of the target node
+      - live: whether to do live migration or not
+
+    Returns: none, errors will be signaled by exception.
+
+    The migration will not be attempted if the instance is not
+    currently running.
+
+    """
+    if self.GetInstanceInfo(instance) is None:
+      raise errors.HypervisorError("Instance not running, cannot migrate")
+    args = ["xm", "migrate"]
+    if live:
+      args.append("-l")
+    args.extend([instance, target])
+    result = utils.RunCmd(args)
+    if result.failed:
+      raise errors.HypervisorError("Failed to migrate instance %s: %s" %
+                                   (instance, result.output))
+    # remove old xen file after migration succeeded
+    try:
+      self._RemoveConfigFile(instance)
+    except EnvironmentError, err:
+      logger.Error("Failure while removing instance config file: %s" %
+                   str(err))
+
 
 class XenPvmHypervisor(XenHypervisor):
   """Xen PVM hypervisor interface"""
@@ -369,8 +413,7 @@ class XenPvmHypervisor(XenHypervisor):
 
     config.write("vif = [%s]\n" % ",".join(vif_data))
 
-    disk_data = ["'phy:%s,%s,w'" % (rldev.dev_path, cfdev.iv_name)
-                 for cfdev, rldev in block_devices]
+    disk_data = ["'phy:%s,%s,w'" % names for names in block_devices]
     config.write("disk = [%s]\n" % ",".join(disk_data))
 
     config.write("root = '/dev/sda ro'\n")
@@ -664,9 +707,13 @@ class XenHvmHypervisor(XenHypervisor):
 
     config.write("vif = [%s]\n" % ",".join(vif_data))
 
+    # TODO(2.0): This code changes the block device name, seen by the instance,
+    # from what Ganeti believes it should be. Different hypervisors may have
+    # different requirements, so we should probably review the design of
+    # storing it altogether, for the next major version.
     disk_data = ["'phy:%s,%s,w'" %
-                 (rldev.dev_path, cfdev.iv_name.replace("sd", "ioemu:hd"))
-                 for cfdev, rldev in block_devices]
+                 (dev_path, iv_name.replace("sd", "ioemu:hd"))
+                 for dev_path, iv_name in block_devices]
 
     if instance.hvm_cdrom_image_path is None:
       config.write("disk = [%s]\n" % (",".join(disk_data)))

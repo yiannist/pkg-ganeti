@@ -2,7 +2,7 @@
 
   <!-- Fill in your name for FIRSTNAME and SURNAME. -->
   <!-- Please adjust the date whenever revising the manpage. -->
-  <!ENTITY dhdate      "<date>May 29, 2008</date>">
+  <!ENTITY dhdate      "<date>July 01, 2008</date>">
   <!-- SECTION should be 1-8, maybe w/ subsection other parameters are
        allowed: see man(7), man(1). -->
   <!ENTITY dhsection   "<manvolnum>8</manvolnum>">
@@ -98,6 +98,19 @@
               <arg>none</arg>
               <arg><replaceable>initrd_path</replaceable></arg>
             </group></arg>
+          <sbr>
+
+          <arg>--cpu <replaceable>vcpus</replaceable></arg>
+          <arg>--ip<group choice="req">
+              <arg>default</arg>
+              <arg>none</arg>
+              <arg><replaceable>ip-address</replaceable></arg>
+            </group></arg>
+          <sbr>
+
+          <arg>--no-wait-for-sync</arg>
+          <arg>--no-start</arg>
+          <arg>--no-ip-check</arg>
           <sbr>
 
           <arg choice="req">-t<group choice="req">
@@ -218,35 +231,42 @@
         </para>
 
         <para>
-          The option is only relevant for Xen HVM instances and
-          ignored by all other instances types.
+          The default is not to set an HVM boot order which is
+          interpreted as 'dc'. This option, like all options starting
+          with 'hvm', is only relevant for Xen HVM instances and
+          ignored by all other instance types.
         </para>
 
         <para>
           The <option>--hvm-acpi</option> option specifies if Xen
           should enable ACPI support for this HVM instance. Valid
-          values are true or false.
+          values are true or false. The default value is false,
+          disabling ACPI support for this instance.
         </para>
 
         <para>
           The <option>--hvm-pae</option> option specifies if Xen
           should enabled PAE support for this HVM instance. Valid
-          values are true or false.
+          values are true or false. The default is false, disabling
+          PAE support for this instance.
         </para>
 
         <para>
           The <option>--hvm-cdrom-image-path</option> option specifies the
-          path to the file xen uses to emulate a virtual CDROM drive
+          path to the file Xen uses to emulate a virtual CDROM drive
           for this HVM instance. Valid values are either an
           absolute path to an existing file or None, which disables
-          virtual CDROM support for this instance.
+          virtual CDROM support for this instance. The default is
+          None, disabling virtual CDROM support.
         </para>
 
         <para>
           The <option>--vnc-bind-address</option> option specifies the
           address that the VNC listener for this instance should bind
           to. Valid values are IPv4 addresses. Use the address 0.0.0.0
-          to bind to all available interfaces.
+          to bind to all available interfaces (this is the default)
+          or specify the address of one of the interfaces on the node
+          to restrict listing to that interface.
         </para>
 
         <para>
@@ -342,6 +362,28 @@
           If you do not want gnt-instance to wait for the disk mirror
           to be synced, use the <option>--no-wait-for-sync</option>
           option.
+        </para>
+
+        <para>
+          Use the <option>--cpu</option> option to set the number of virtual
+          CPUs.
+        </para>
+
+        <para>
+          To pass an IPv4 address to the hypervisor, specify the
+          <option>--ip</option> option. Note that this IP address will not be
+          used by the OS scripts and changing it later will change the address
+          that the instance will actually use.
+        </para>
+
+        <para>
+          In case you don't want the new instance to be automatically started,
+          specify the <option>--no-start</option> option.
+        </para>
+
+        <para>
+          Ganeti will not check whether an instance's IP address is already
+          alive if the <option>--no-ip-check</option> option is specified.
         </para>
 
         <para>
@@ -533,6 +575,13 @@
               <listitem>
                 <simpara>the number of VCPUs allocated to the
                 instance</simpara>
+              </listitem>
+            </varlistentry>
+            <varlistentry>
+              <term>tags</term>
+              <listitem>
+                <simpara>comma-separated list of the instances's
+                tags</simpara>
               </listitem>
             </varlistentry>
           </variablelist>
@@ -1104,6 +1153,88 @@ node1.example.com:sdb:/dev/md1
 
       </refsect3>
 
+      <refsect3>
+        <title>GROW-DISK</title>
+        <cmdsynopsis>
+          <command>grow-disk</command>
+          <arg>--no-wait-for-sync</arg>
+          <arg choice="req"><replaceable>instance</replaceable></arg>
+          <arg choice="req"><replaceable>disk</replaceable></arg>
+          <arg choice="req"><replaceable>amount</replaceable></arg>
+        </cmdsynopsis>
+
+        <para>
+          Grows an instance's disk. This is only possible for
+          instances having a <literal>plain</literal> or
+          <literal>drbd</literal> disk template.
+        </para>
+
+        <para>
+          Note that this command only change the block device size; it
+          will not grow the actual filesystems, partitions, etc. that
+          live on that disk. Usually, you will need to:
+          <orderedlist>
+            <listitem>
+              <simpara>use <command>gnt-instance grow-disk</command></simpara>
+            </listitem>
+            <listitem>
+              <simpara>reboot the instance (later, at a convenient
+              time)</simpara>
+            </listitem>
+            <listitem>
+              <simpara>use a filesystem resizer, such as
+              <citerefentry> <refentrytitle>ext2online</refentrytitle>
+              <manvolnum>8</manvolnum> </citerefentry> or
+              <citerefentry> <refentrytitle>xfs_growfs</refentrytitle>
+              <manvolnum>8</manvolnum> </citerefentry> to resize the
+              filesystem, or use <citerefentry>
+              <refentrytitle>fdisk</refentrytitle>
+              <manvolnum>8</manvolnum> </citerefentry> to change the
+              partition table on the disk
+              </simpara>
+            </listitem>
+          </orderedlist>
+        </para>
+
+
+        <para>
+          The <replaceable>disk</replaceable> argument is either
+          <literal>sda</literal> or <literal>sdb</literal>. The
+          <replaceable>amount</replaceable> argument is given either
+          as a number (and it represents the amount to increase the
+          disk with in mebibytes) or can be given similar to the
+          arguments in the create instance operation, with a suffix
+          denoting the unit.
+        </para>
+
+        <para>
+          Note that the disk grow operation might complete on one node
+          but fail on the other; this will leave the instance with
+          different-sized LVs on the two nodes, but this will not
+          create problems (except for unused space).
+        </para>
+
+        <para>
+          If you do not want gnt-instance to wait for the new disk
+          region to be synced, use the
+          <option>--no-wait-for-sync</option> option.
+        </para>
+
+
+        <para>Example (increase sda for instance1 by 16GiB):
+          <screen>
+# gnt-instance grow-disk instance1.example.com sda 16g
+          </screen>
+        </para>
+
+        <para>
+          Also note that disk shrinking will not be supported; use
+          <command>gnt-backup export</command> and then
+          <command>gnt-backup import</command> to reduce the disk size
+          of an instance.
+        </para>
+      </refsect3>
+
     </refsect2>
 
     <refsect2>
@@ -1140,6 +1271,85 @@ node1.example.com:sdb:/dev/md1
           Example:
           <screen>
 # gnt-instance failover instance1.example.com
+          </screen>
+        </para>
+      </refsect3>
+
+      <refsect3>
+        <title>MIGRATE</title>
+
+        <cmdsynopsis>
+          <command>migrate</command>
+          <arg>-f</arg>
+          <arg choice="req">--cleanup</arg>
+          <arg choice="req"><replaceable>instance</replaceable></arg>
+        </cmdsynopsis>
+
+        <cmdsynopsis>
+          <command>migrate</command>
+          <arg>-f</arg>
+          <arg>--non-live</arg>
+          <arg choice="req"><replaceable>instance</replaceable></arg>
+        </cmdsynopsis>
+
+        <para>
+          Migrate will move the instance to its secondary node without
+          shutdown. It only works for instances having the drbd8 disk
+          template type.
+        </para>
+
+        <para>
+          The migration command needs a perfectly healthy instance, as
+          we rely on the dual-master capability of drbd8 and the disks
+          of the instance are not allowed to be degraded.
+        </para>
+
+        <para>
+          The <option>--non-live</option> option will switch (for the
+          hypervisors that support it) between a "fully live"
+          (i.e. the interruption is as minimal as possible) migration
+          and one in which the instance is frozen, its state saved and
+          transported to the remote node, and then resumed there. This
+          all depends on the hypervisor support for two different
+          methods. In any case, it is not an error to pass this
+          parameter (it will just be ignored if the hypervisor doesn't
+          support it).
+        </para>
+
+        <para>
+          If the <option>--cleanup</option> option is passed, the
+          operation changes from migration to attempting recovery from
+          a failed previous migration. In this mode, ganeti checks if
+          the instance runs on the correct node (and updates its
+          configuration if not) and ensures the instances's disks are
+          configured correctly. In this mode, the
+          <option>--non-live</option> option is ignored.
+        </para>
+
+        <para>
+          The option <option>-f</option> will skip the prompting for
+          confirmation.
+        </para>
+
+        <para>
+          Example (and expected output):
+          <screen>
+# gnt-instance migrate instance1
+Migrate will happen to the instance instance1. Note that migration is
+**experimental** in this version. This might impact the instance if
+anything goes wrong. Continue?
+y/[n]/?: y
+* checking disk consistency between source and target
+* ensuring the target is in secondary mode
+* changing disks into dual-master mode
+ - INFO: Waiting for instance instance1 to sync disks.
+ - INFO: Instance instance1's disks are in sync.
+* migrating instance to node2.example.com
+* changing the instance's disks on source node to secondary
+ - INFO: Waiting for instance instance1 to sync disks.
+ - INFO: Instance instance1's disks are in sync.
+* changing the instance's disks to single-master
+#
           </screen>
         </para>
       </refsect3>

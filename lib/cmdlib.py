@@ -858,8 +858,11 @@ class LUVerifyCluster(LogicalUnit):
 
     """
     all_nodes = self.cfg.GetNodeList()
+    tags = self.cfg.GetClusterInfo().GetTags()
     # TODO: populate the environment with useful information for verify hooks
-    env = {}
+    env = {
+      "CLUSTER_TAGS": " ".join(tags),
+      }
     return env, [], all_nodes
 
   def Exec(self, feedback_fn):
@@ -903,6 +906,8 @@ class LUVerifyCluster(LogicalUnit):
     all_rversion = rpc.call_version(nodelist)
     all_ninfo = rpc.call_node_info(nodelist, self.cfg.GetVGName())
 
+    incomplete_nodeinfo = False
+
     for node in nodelist:
       feedback_fn("* Verifying node %s" % node)
       result = self._VerifyNode(node, file_names, local_checksums,
@@ -921,6 +926,7 @@ class LUVerifyCluster(LogicalUnit):
       elif not isinstance(volumeinfo, dict):
         feedback_fn("  - ERROR: connection to %s failed" % (node,))
         bad = True
+        incomplete_nodeinfo = True
         continue
       else:
         node_volume[node] = volumeinfo
@@ -930,6 +936,7 @@ class LUVerifyCluster(LogicalUnit):
       if type(nodeinstance) != list:
         feedback_fn("  - ERROR: connection to %s failed" % (node,))
         bad = True
+        incomplete_nodeinfo = True
         continue
 
       node_instance[node] = nodeinstance
@@ -939,6 +946,7 @@ class LUVerifyCluster(LogicalUnit):
       if not isinstance(nodeinfo, dict):
         feedback_fn("  - ERROR: connection to %s failed" % (node,))
         bad = True
+        incomplete_nodeinfo = True
         continue
 
       try:
@@ -955,9 +963,10 @@ class LUVerifyCluster(LogicalUnit):
           # secondary.
           "sinst-by-pnode": {},
         }
-      except ValueError:
+      except (ValueError, TypeError):
         feedback_fn("  - ERROR: invalid value returned from node %s" % (node,))
         bad = True
+        incomplete_nodeinfo = True
         continue
 
     node_vol_should = {}
@@ -1012,7 +1021,8 @@ class LUVerifyCluster(LogicalUnit):
                                          feedback_fn)
     bad = bad or result
 
-    if constants.VERIFY_NPLUSONE_MEM not in self.skip_set:
+    if (constants.VERIFY_NPLUSONE_MEM not in self.skip_set and
+        not incomplete_nodeinfo):
       feedback_fn("* Verifying N+1 Memory redundancy")
       result = self._VerifyNPlusOneMemory(node_info, instance_cfg, feedback_fn)
       bad = bad or result
@@ -1171,8 +1181,7 @@ class LURenameCluster(LogicalUnit):
       raise errors.OpPrereqError("Neither the name nor the IP address of the"
                                  " cluster has changed")
     if new_ip != old_ip:
-      result = utils.RunCmd(["fping", "-q", new_ip])
-      if not result.failed:
+      if utils.TcpPing(new_ip, constants.DEFAULT_NODED_PORT):
         raise errors.OpPrereqError("The given cluster IP address (%s) is"
                                    " reachable on the network. Aborting." %
                                    new_ip)
@@ -1486,7 +1495,7 @@ class LUQueryNodes(NoHooksLU):
 
     _CheckOutputFields(static=["name", "pinst_cnt", "sinst_cnt",
                                "pinst_list", "sinst_list",
-                               "pip", "sip"],
+                               "pip", "sip", "tags"],
                        dynamic=self.dynamic_fields,
                        selected=self.op.output_fields)
 
@@ -1557,6 +1566,8 @@ class LUQueryNodes(NoHooksLU):
           val = node.primary_ip
         elif field == "sip":
           val = node.secondary_ip
+        elif field == "tags":
+          val = list(node.GetTags())
         elif field in self.dynamic_fields:
           val = live_data[node.name].get(field, None)
         else:
@@ -2249,7 +2260,8 @@ def _CheckNodeFreeMemory(cfg, node, reason, requested):
 
   """
   nodeinfo = rpc.call_node_info([node], cfg.GetVGName())
-  if not nodeinfo or not isinstance(nodeinfo, dict):
+  if not (nodeinfo and isinstance(nodeinfo, dict) and
+          node in nodeinfo and isinstance(nodeinfo[node], dict)):
     raise errors.OpPrereqError("Could not contact node %s for resource"
                              " information" % (node,))
 
@@ -2577,9 +2589,7 @@ class LURenameInstance(LogicalUnit):
                                  new_name)
 
     if not getattr(self.op, "ignore_ip", False):
-      command = ["fping", "-q", name_info.ip]
-      result = utils.RunCmd(command)
-      if not result.failed:
+      if utils.TcpPing(name_info.ip, constants.DEFAULT_NODED_PORT):
         raise errors.OpPrereqError("IP %s of instance %s already in use" %
                                    (name_info.ip, new_name))
 
@@ -2683,7 +2693,7 @@ class LUQueryInstances(NoHooksLU):
     _CheckOutputFields(static=["name", "os", "pnode", "snodes",
                                "admin_state", "admin_ram",
                                "disk_template", "ip", "mac", "bridge",
-                               "sda_size", "sdb_size", "vcpus"],
+                               "sda_size", "sdb_size", "vcpus", "tags"],
                        dynamic=self.dynamic_fields,
                        selected=self.op.output_fields)
 
@@ -2776,6 +2786,8 @@ class LUQueryInstances(NoHooksLU):
             val = disk.size
         elif field == "vcpus":
           val = instance.vcpus
+        elif field == "tags":
+          val = list(instance.GetTags())
         else:
           raise errors.ParameterError(field)
         iout.append(val)
@@ -2879,7 +2891,7 @@ class LUFailoverInstance(LogicalUnit):
 
     instance.primary_node = target_node
     # distribute new instance config to the other nodes
-    self.cfg.AddInstance(instance)
+    self.cfg.Update(instance)
 
     # Only start the instance if it's marked as up
     if instance.status == "up":
@@ -2898,6 +2910,305 @@ class LUFailoverInstance(LogicalUnit):
         _ShutdownInstanceDisks(instance, self.cfg)
         raise errors.OpExecError("Could not start instance %s on node %s." %
                                  (instance.name, target_node))
+
+
+class LUMigrateInstance(LogicalUnit):
+  """Migrate an instance.
+
+  This is migration without shutting down, compared to the failover,
+  which is done with shutdown.
+
+  """
+  HPATH = "instance-migrate"
+  HTYPE = constants.HTYPE_INSTANCE
+  _OP_REQP = ["instance_name", "live", "cleanup"]
+
+  def BuildHooksEnv(self):
+    """Build hooks env.
+
+    This runs on master, primary and secondary nodes of the instance.
+
+    """
+    env = _BuildInstanceHookEnvByObject(self.instance)
+    nl = [self.sstore.GetMasterNode()] + list(self.instance.secondary_nodes)
+    return env, nl, nl
+
+  def CheckPrereq(self):
+    """Check prerequisites.
+
+    This checks that the instance is in the cluster.
+
+    """
+    instance = self.cfg.GetInstanceInfo(
+      self.cfg.ExpandInstanceName(self.op.instance_name))
+    if instance is None:
+      raise errors.OpPrereqError("Instance '%s' not known" %
+                                 self.op.instance_name)
+
+    if instance.disk_template != constants.DT_DRBD8:
+      raise errors.OpPrereqError("Instance's disk layout is not"
+                                 " drbd8, cannot migrate.")
+
+    secondary_nodes = instance.secondary_nodes
+    if not secondary_nodes:
+      raise errors.ProgrammerError("no secondary node but using "
+                                   "drbd8 disk template")
+
+    target_node = secondary_nodes[0]
+    # check memory requirements on the secondary node
+    _CheckNodeFreeMemory(self.cfg, target_node, "migrating instance %s" %
+                         instance.name, instance.memory)
+
+    # check bridge existance
+    brlist = [nic.bridge for nic in instance.nics]
+    if not rpc.call_bridges_exist(target_node, brlist):
+      raise errors.OpPrereqError("One or more target bridges %s does not"
+                                 " exist on destination node '%s'" %
+                                 (brlist, target_node))
+
+    if not self.op.cleanup:
+      migratable = rpc.call_instance_migratable(instance.primary_node,
+                                                instance)
+      if not migratable:
+        raise errors.OpPrereqError("Can't contact node '%s'" %
+                                   instance.primary_node)
+      if not migratable[0]:
+        raise errors.OpPrereqError("Can't migrate: %s - please use failover" %
+                                   migratable[1])
+
+    self.instance = instance
+
+  def _WaitUntilSync(self):
+    """Poll with custom rpc for disk sync.
+
+    This uses our own step-based rpc call.
+
+    """
+    self.feedback_fn("* wait until resync is done")
+    all_done = False
+    while not all_done:
+      all_done = True
+      result = rpc.call_drbd_reconfig_net(self.all_nodes, self.instance.name,
+                                          self.instance.disks,
+                                          self.nodes_ip, False,
+                                          constants.DRBD_RECONF_RPC_WFSYNC)
+      min_percent = 100
+      for node in self.all_nodes:
+        if not result[node] or not result[node][0]:
+          raise errors.OpExecError("Cannot resync disks on node %s" % (node,))
+        node_done, node_percent = result[node][1]
+        all_done = all_done and node_done
+        if node_percent is not None:
+          min_percent = min(min_percent, node_percent)
+      if not all_done:
+        if min_percent < 100:
+          self.feedback_fn("   - progress: %.1f%%" % min_percent)
+        time.sleep(2)
+
+  def _EnsureSecondary(self, node):
+    """Demote a node to secondary.
+
+    """
+    self.feedback_fn("* switching node %s to secondary mode" % node)
+    result = rpc.call_drbd_reconfig_net([node], self.instance.name,
+                                        self.instance.disks,
+                                        self.nodes_ip, False,
+                                        constants.DRBD_RECONF_RPC_SECONDARY)
+    if not result[node] or not result[node][0]:
+        raise errors.OpExecError("Cannot change disk to secondary on node %s,"
+                                 " error %s" %
+                                 (node, result[node][1]))
+
+  def _GoStandalone(self):
+    """Disconnect from the network.
+
+    """
+    self.feedback_fn("* changing into standalone mode")
+    result = rpc.call_drbd_reconfig_net(self.all_nodes, self.instance.name,
+                                        self.instance.disks,
+                                        self.nodes_ip, True,
+                                        constants.DRBD_RECONF_RPC_DISCONNECT)
+    for node in self.all_nodes:
+      if not result[node] or not result[node][0]:
+        raise errors.OpExecError("Cannot disconnect disks node %s,"
+                                 " error %s" % (node, result[node][1]))
+
+  def _GoReconnect(self, multimaster):
+    """Reconnect to the network.
+
+    """
+    if multimaster:
+      msg = "dual-master"
+    else:
+      msg = "single-master"
+    self.feedback_fn("* changing disks into %s mode" % msg)
+    result = rpc.call_drbd_reconfig_net(self.all_nodes, self.instance.name,
+                                        self.instance.disks,
+                                        self.nodes_ip,
+                                        multimaster,
+                                        constants.DRBD_RECONF_RPC_RECONNECT)
+    for node in self.all_nodes:
+      if not result[node] or not result[node][0]:
+        raise errors.OpExecError("Cannot change disks config on node %s,"
+                                 " error %s" % (node, result[node][1]))
+
+  def _IdentifyDisks(self):
+    """Start the migration RPC sequence.
+
+    """
+    self.feedback_fn("* identifying disks")
+    result = rpc.call_drbd_reconfig_net(self.all_nodes,
+                                        self.instance.name,
+                                        self.instance.disks,
+                                        self.nodes_ip, True,
+                                        constants.DRBD_RECONF_RPC_INIT)
+    for node in self.all_nodes:
+      if not result[node] or not result[node][0]:
+        raise errors.OpExecError("Cannot identify disks node %s,"
+                                 " error %s" % (node, result[node][1]))
+
+  def _ExecCleanup(self):
+    """Try to cleanup after a failed migration.
+
+    The cleanup is done by:
+      - check that the instance is running only on one node
+        (and update the config if needed)
+      - change disks on its secondary node to secondary
+      - wait until disks are fully synchronized
+      - disconnect from the network
+      - change disks into single-master mode
+      - wait again until disks are fully synchronized
+
+    """
+    instance = self.instance
+    target_node = self.target_node
+    source_node = self.source_node
+
+    # check running on only one node
+    self.feedback_fn("* checking where the instance actually runs"
+                     " (if this hangs, the hypervisor might be in"
+                     " a bad state)")
+    ins_l = rpc.call_instance_list(self.all_nodes)
+    for node in self.all_nodes:
+      if not type(ins_l[node]) is list:
+        raise errors.OpExecError("Can't contact node '%s'" % node)
+
+    runningon_source = instance.name in ins_l[source_node]
+    runningon_target = instance.name in ins_l[target_node]
+
+    if runningon_source and runningon_target:
+      raise errors.OpExecError("Instance seems to be running on two nodes,"
+                               " or the hypervisor is confused. You will have"
+                               " to ensure manually that it runs only on one"
+                               " and restart this operation.")
+
+    if not (runningon_source or runningon_target):
+      raise errors.OpExecError("Instance does not seem to be running at all."
+                               " In this case, it's safer to repair by"
+                               " running 'gnt-instance stop' to ensure disk"
+                               " shutdown, and then restarting it.")
+
+    if runningon_target:
+      # the migration has actually succeeded, we need to update the config
+      self.feedback_fn("* instance running on secondary node (%s),"
+                       " updating config" % target_node)
+      instance.primary_node = target_node
+      self.cfg.Update(instance)
+      demoted_node = source_node
+    else:
+      self.feedback_fn("* instance confirmed to be running on its"
+                       " primary node (%s)" % source_node)
+      demoted_node = target_node
+
+    self._IdentifyDisks()
+
+    self._EnsureSecondary(demoted_node)
+    self._WaitUntilSync()
+    self._GoStandalone()
+    self._GoReconnect(False)
+    self._WaitUntilSync()
+
+    self.feedback_fn("* done")
+
+  def _ExecMigration(self):
+    """Migrate an instance.
+
+    The migrate is done by:
+      - change the disks into dual-master mode
+      - wait until disks are fully synchronized again
+      - migrate the instance
+      - change disks on the new secondary node (the old primary) to secondary
+      - wait until disks are fully synchronized
+      - change disks into single-master mode
+
+    """
+    instance = self.instance
+    target_node = self.target_node
+    source_node = self.source_node
+
+    self.feedback_fn("* checking disk consistency between source and target")
+    for dev in instance.disks:
+      if not _CheckDiskConsistency(self.cfg, dev, target_node, False):
+        raise errors.OpExecError("Disk %s is degraded or not fully"
+                                 " synchronized on target node,"
+                                 " aborting migrate." % dev.iv_name)
+
+    self._IdentifyDisks()
+
+    self._EnsureSecondary(target_node)
+    self._GoStandalone()
+    self._GoReconnect(True)
+    self._WaitUntilSync()
+
+    self.feedback_fn("* migrating instance to %s" % target_node)
+    time.sleep(10)
+    result = rpc.call_instance_migrate(source_node, instance,
+                                       self.nodes_ip[target_node],
+                                       self.op.live)
+    if not result or not result[0]:
+      logger.Error("Instance migration failed, trying to revert disk status")
+      try:
+        self._EnsureSecondary(target_node)
+        self._GoStandalone()
+        self._GoReconnect(False)
+        self._WaitUntilSync()
+      except errors.OpExecError, err:
+        logger.Error("Can't reconnect the drives: error '%s'\n"
+                     "Please look and recover the instance status" % str(err))
+
+      raise errors.OpExecError("Could not migrate instance %s: %s" %
+                               (instance.name, result[1]))
+    time.sleep(10)
+
+    instance.primary_node = target_node
+    # distribute new instance config to the other nodes
+    self.cfg.Update(instance)
+
+    self._EnsureSecondary(source_node)
+    self._WaitUntilSync()
+    self._GoStandalone()
+    self._GoReconnect(False)
+    self._WaitUntilSync()
+
+    self.feedback_fn("* done")
+
+  def Exec(self, feedback_fn):
+    """Perform the migration.
+
+    """
+    self.feedback_fn = feedback_fn
+
+    self.source_node = self.instance.primary_node
+    self.target_node = self.instance.secondary_nodes[0]
+    self.all_nodes = [self.source_node, self.target_node]
+    self.nodes_ip = {
+      self.source_node: self.cfg.GetNodeInfo(self.source_node).secondary_ip,
+      self.target_node: self.cfg.GetNodeInfo(self.target_node).secondary_ip,
+      }
+    if self.op.cleanup:
+      return self._ExecCleanup()
+    else:
+      return self._ExecMigration()
 
 
 def _CreateBlockDevOnPrimary(cfg, node, instance, device, info):
@@ -3400,7 +3711,7 @@ class LUCreateInstance(LogicalUnit):
         info = nodeinfo.get(node, None)
         if not info:
           raise errors.OpPrereqError("Cannot get current information"
-                                     " from node '%s'" % nodeinfo)
+                                     " from node '%s'" % node)
         vg_free = info.get('vg_free', None)
         if not isinstance(vg_free, int):
           raise errors.OpPrereqError("Can't compute free disk space on"
@@ -3896,7 +4207,7 @@ class LUReplaceDisks(LogicalUnit):
       if self.op.remote_node is not None:
         raise errors.OpPrereqError("Give either the iallocator or the new"
                                    " secondary, not both")
-      self.op.remote_node = self._RunAllocator()
+      self._RunAllocator()
 
     remote_node = self.op.remote_node
     if remote_node is not None:
@@ -4390,6 +4701,12 @@ class LUReplaceDisks(LogicalUnit):
 
     """
     instance = self.instance
+
+    # Activate the instance disks if we're replacing them on a down instance
+    if instance.status == "down":
+      op = opcodes.OpActivateInstanceDisks(instance_name=instance.name)
+      self.proc.ChainOpCode(op)
+
     if instance.disk_template == constants.DT_REMOTE_RAID1:
       fn = self._ExecRR1
     elif instance.disk_template == constants.DT_DRBD8:
@@ -4399,7 +4716,111 @@ class LUReplaceDisks(LogicalUnit):
         fn = self._ExecD8Secondary
     else:
       raise errors.ProgrammerError("Unhandled disk replacement case")
-    return fn(feedback_fn)
+
+    ret = fn(feedback_fn)
+
+    # Deactivate the instance disks if we're replacing them on a down instance
+    if instance.status == "down":
+      op = opcodes.OpDeactivateInstanceDisks(instance_name=instance.name)
+      self.proc.ChainOpCode(op)
+
+    return ret
+
+
+class LUGrowDisk(LogicalUnit):
+  """Grow a disk of an instance.
+
+  """
+  HPATH = "disk-grow"
+  HTYPE = constants.HTYPE_INSTANCE
+  _OP_REQP = ["instance_name", "disk", "amount", "wait_for_sync"]
+
+  def BuildHooksEnv(self):
+    """Build hooks env.
+
+    This runs on the master, the primary and all the secondaries.
+
+    """
+    env = {
+      "DISK": self.op.disk,
+      "AMOUNT": self.op.amount,
+      }
+    env.update(_BuildInstanceHookEnvByObject(self.instance))
+    nl = [
+      self.sstore.GetMasterNode(),
+      self.instance.primary_node,
+      ]
+    return env, nl, nl
+
+  def CheckPrereq(self):
+    """Check prerequisites.
+
+    This checks that the instance is in the cluster.
+
+    """
+    instance = self.cfg.GetInstanceInfo(
+      self.cfg.ExpandInstanceName(self.op.instance_name))
+    if instance is None:
+      raise errors.OpPrereqError("Instance '%s' not known" %
+                                 self.op.instance_name)
+
+    if self.op.amount <= 0:
+      raise errors.OpPrereqError("Invalid grow-by amount: %s" % self.op.amount)
+
+    self.instance = instance
+    self.op.instance_name = instance.name
+
+    if instance.disk_template not in (constants.DT_PLAIN, constants.DT_DRBD8):
+      raise errors.OpPrereqError("Instance's disk layout does not support"
+                                 " growing.")
+
+    self.disk = instance.FindDisk(self.op.disk)
+    if self.disk is None:
+      raise errors.OpPrereqError("Disk '%s' not found for instance '%s'" %
+                                 (self.op.disk, instance.name))
+
+    nodenames = [instance.primary_node] + list(instance.secondary_nodes)
+    nodeinfo = rpc.call_node_info(nodenames, self.cfg.GetVGName())
+    for node in nodenames:
+      info = nodeinfo.get(node, None)
+      if not info:
+        raise errors.OpPrereqError("Cannot get current information"
+                                   " from node '%s'" % node)
+      vg_free = info.get('vg_free', None)
+      if not isinstance(vg_free, int):
+        raise errors.OpPrereqError("Can't compute free disk space on"
+                                   " node %s" % node)
+      if self.op.amount > info['vg_free']:
+        raise errors.OpPrereqError("Not enough disk space on target node %s:"
+                                   " %d MiB available, %d MiB required" %
+                                   (node, info['vg_free'], self.op.amount))
+      is_primary = (node == instance.primary_node)
+      if not _CheckDiskConsistency(self.cfg, self.disk, node, is_primary):
+        raise errors.OpPrereqError("Disk %s is degraded or not fully"
+                                 " synchronized on node %s,"
+                                 " aborting grow." % (self.op.disk, node))
+
+  def Exec(self, feedback_fn):
+    """Execute disk grow.
+
+    """
+    instance = self.instance
+    disk = self.disk
+    for node in (instance.secondary_nodes + (instance.primary_node,)):
+      self.cfg.SetDiskID(disk, node)
+      result = rpc.call_blockdev_grow(node, disk, self.op.amount)
+      if not result or not isinstance(result, tuple) or len(result) != 2:
+        raise errors.OpExecError("grow request failed to node %s" % node)
+      elif not result[0]:
+        raise errors.OpExecError("grow request failed to node %s: %s" %
+                                 (node, result[1]))
+    disk.RecordGrow(self.op.amount)
+    self.cfg.Update(instance)
+    if self.op.wait_for_sync:
+      disk_abort = not _WaitForSync(self.cfg, instance, self.proc)
+      if disk_abort:
+        logger.Error("Warning: disk sync-ing has not returned a good status.\n"
+                     " Please check the instance.")
 
 
 class LUQueryInstanceData(NoHooksLU):
@@ -5027,7 +5448,7 @@ class LUDelTags(TagsLU):
     """
     TagsLU.CheckPrereq(self)
     for tag in self.op.tags:
-      objects.TaggableObject.ValidateTag(tag)
+      objects.TaggableObject.ValidateTag(tag, removal=True)
     del_tags = frozenset(self.op.tags)
     cur_tags = self.target.GetTags()
     if not del_tags <= cur_tags:

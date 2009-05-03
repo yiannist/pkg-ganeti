@@ -89,6 +89,21 @@ def TestInstanceAddWithDrbdDisk(node, node2):
                    'drbd')
 
 
+@qa_utils.DefineHook('instance-grow-disk')
+def TestInstanceGrowDisk(instance, should_fail):
+  """gnt-instance grow-disk"""
+  master = qa_config.GetMasterNode()
+  grow_size = qa_config.get('options', {}).get('grow-disk-size', '1g')
+
+  for device in ['sda', 'sdb']:
+    cmd = (['gnt-instance', 'grow-disk', instance['name'], device, grow_size])
+    code = StartSSH(master['primary'], utils.ShellQuoteArgs(cmd)).wait()
+    if should_fail:
+      AssertNotEqual(code, 0)
+    else:
+      AssertEqual(code, 0)
+
+
 @qa_utils.DefineHook('instance-remove')
 def TestInstanceRemove(instance):
   """gnt-instance remove"""
@@ -154,6 +169,33 @@ def TestInstanceFailover(instance):
 
   # ... and back
   cmd = ['gnt-instance', 'failover', '--force', instance['name']]
+  AssertEqual(StartSSH(master['primary'],
+                       utils.ShellQuoteArgs(cmd)).wait(), 0)
+
+
+@qa_utils.DefineHook('instance-migrate')
+def TestInstanceMigrate(instance):
+  """gnt-instance migrate"""
+  master = qa_config.GetMasterNode()
+  migrations = qa_config.get('options', {}).get('instance-migrations', 1)
+
+  for _ in range(migrations):
+    cmd = ['gnt-instance', 'migrate', '-f', instance['name']]
+    AssertEqual(StartSSH(master['primary'],
+                         utils.ShellQuoteArgs(cmd)).wait(), 0)
+
+    # ... and back
+    cmd = ['gnt-instance', 'migrate', '-f', instance['name']]
+    AssertEqual(StartSSH(master['primary'],
+                         utils.ShellQuoteArgs(cmd)).wait(), 0)
+  
+  # ...and once with --cleanup
+  cmd = ['gnt-instance', 'migrate', '-f', '--cleanup', instance['name']]
+  AssertEqual(StartSSH(master['primary'],
+                       utils.ShellQuoteArgs(cmd)).wait(), 0)
+
+  # ... and back
+  cmd = ['gnt-instance', 'migrate', '-f', '--cleanup', instance['name']]
   AssertEqual(StartSSH(master['primary'],
                        utils.ShellQuoteArgs(cmd)).wait(), 0)
 

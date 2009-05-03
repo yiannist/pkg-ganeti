@@ -3,7 +3,7 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GNT-NODE" "8" "13 June 2008" "ganeti 1.2" ""
+.TH "GNT-NODE" "8" "22 July 2008" "ganeti 1.2" ""
 
 .SH NAME
 gnt-node \- node administration
@@ -173,6 +173,10 @@ the node bootid value; this is a linux specific
 feature that assigns a new UUID to the node at each boot
 and can be use to detect node reboots (by tracking
 changes in this value)
+.TP
+\fBtags\fR
+comma-separated list of the node's
+tags
 .PP
 If the value of the option starts with the character
 +, the new fields will be added to the

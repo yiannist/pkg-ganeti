@@ -3,7 +3,7 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GNT-BACKUP" "8" "13 June 2008" "ganeti 1.2" ""
+.TH "GNT-BACKUP" "8" "22 July 2008" "ganeti 1.2" ""
 
 .SH NAME
 gnt-backup \- ganeti instance import/export
@@ -43,7 +43,9 @@ Example:
 
 \fBimport\fR { \fB-n \fInode[:secondary-node]\fB\fR | \fB--iallocator \fIname\fB\fR }
     [ \fB-s \fIdisksize\fB\fR ] [ \fB--swap-size \fIdisksize\fB\fR ] [ \fB-m \fImemsize\fB\fR ]
-    [ \fB-b \fIbridge\fB\fR ] \fB--src-node=\fIsource-node\fB\fR \fB--src-dir=\fIsource-dir\fB\fR
+    [ \fB--cpu \fIvcpus\fB\fR ] [ \fB--ip { default | none | \fIip-address\fB }\fR ]
+    [ \fB-b \fIbridge\fB\fR ] [ \fB--no-wait-for-sync\fR ] [ \fB--no-ip-check\fR ]
+    \fB--src-node=\fIsource-node\fB\fR \fB--src-dir=\fIsource-dir\fB\fR
     \fB-t [ diskless | plain | local_raid1 | remote_raid1 | drbd ]\fR
     \fB\fIinstance\fB\fR
 
@@ -117,6 +119,17 @@ the remote raid template type and specifies the remote node.
 If you do not want gnt-backup to wait for the disk mirror
 to be synced, use the \fB--no-wait-for-sync\fR
 option.
+.PP
+Use the \fB--cpu\fR option to set the number of virtual
+CPUs.
+.PP
+To pass an IPv4 address to the hypervisor, specify the
+\fB--ip\fR option. Note that this IP address will not be
+used by the OS scripts and changing it later will change the address
+that the instance will actually use.
+.PP
+Ganeti will not check whether an instance's IP address is already
+alive if the \fB--no-ip-check\fR option is specified.
 .PP
 Example:
 

@@ -25,7 +25,7 @@ from ganeti import _autoconf
 
 # various versions
 CONFIG_VERSION = 3
-PROTOCOL_VERSION = 12
+PROTOCOL_VERSION = 13
 RELEASE_VERSION = _autoconf.PACKAGE_VERSION
 OS_API_VERSION = 5
 EXPORT_VERSION = 0
@@ -35,7 +35,12 @@ RAPI_VERSION = 1
 # file paths
 DATA_DIR = _autoconf.LOCALSTATEDIR + "/lib/ganeti"
 RUN_DIR = _autoconf.LOCALSTATEDIR + "/run"
-BDEV_CACHE_DIR = RUN_DIR + "/ganeti"
+RUN_GANETI_DIR = RUN_DIR + "/ganeti"
+BDEV_CACHE_DIR = RUN_GANETI_DIR # TODO(2.0): move deeper
+DISK_LINKS_DIR = RUN_GANETI_DIR + "/instance-disks"
+# keep RUN_GANETI_DIR first here, to make sure all get created when the node
+# daemon is started (this takes care of RUN_DIR being tmpfs)
+SUB_RUN_DIRS = [ RUN_GANETI_DIR, BDEV_CACHE_DIR, DISK_LINKS_DIR ]
 LOCK_DIR = _autoconf.LOCALSTATEDIR + "/lock"
 CLUSTER_CONF_FILE = DATA_DIR + "/config.data"
 SSL_CERT_FILE = DATA_DIR + "/server.pem"
@@ -121,6 +126,7 @@ INISECT_INS = "instance"
 
 # common exit codes
 EXIT_SUCCESS = 0
+EXIT_FAILURE = 1
 EXIT_NOTMASTER = 11
 EXIT_NODESETUP_ERROR = 12
 EXIT_CONFIRMATION = 13 # need user confirmation
@@ -129,8 +135,8 @@ EXIT_CONFIRMATION = 13 # need user confirmation
 TAG_CLUSTER = "cluster"
 TAG_NODE = "node"
 TAG_INSTANCE = "instance"
-MAX_TAG_LEN = 128
-MAX_TAGS_PER_OBJ = 4096
+MAX_TAG_LEN = 64
+MAX_TAGS_PER_OBJ = 48
 
 # others
 DEFAULT_BRIDGE = "xen-br0"
@@ -139,6 +145,14 @@ LOCALHOST_IP_ADDRESS = "127.0.0.1"
 TCP_PING_TIMEOUT = 10
 GANETI_RUNAS = "root"
 BIND_ADDRESS_GLOBAL = "0.0.0.0"
+
+# migration rpc steps
+(DRBD_RECONF_RPC_INIT,
+ DRBD_RECONF_RPC_DISCONNECT,
+ DRBD_RECONF_RPC_RECONNECT,
+ DRBD_RECONF_RPC_SECONDARY,
+ DRBD_RECONF_RPC_WFSYNC,
+ ) = range(5)
 
 # valid os status
 OS_VALID_STATUS = "VALID"

@@ -186,7 +186,7 @@ def ListInstances(opts, args):
       "ip": "IP Address", "mac": "MAC Address",
       "bridge": "Bridge", "vcpus": "VCPUs",
       "sda_size": "Disk/0", "sdb_size": "Disk/1",
-      "status": "Status",
+      "status": "Status", "tags": "Tags",
       }
   else:
     headers = None
@@ -198,6 +198,7 @@ def ListInstances(opts, args):
 
   numfields = ["admin_ram", "oper_ram", "sda_size", "sdb_size", "vcpus"]
 
+  list_type_fields = ("tags",)
   # change raw values to nicer strings
   for row in output:
     for idx, field in enumerate(selected_fields):
@@ -222,6 +223,8 @@ def ListInstances(opts, args):
       elif field == "sda_size" or field == "sdb_size":
         if val is None:
           val = "N/A"
+      elif field in list_type_fields:
+        val = ",".join(val)
       row[idx] = str(val)
 
   data = GenerateTable(separator=opts.separator, headers=headers,
@@ -374,6 +377,22 @@ def DeactivateDisks(opts, args):
   """
   instance_name = args[0]
   op = opcodes.OpDeactivateInstanceDisks(instance_name=instance_name)
+  SubmitOpCode(op)
+  return 0
+
+
+def GrowDisk(opts, args):
+  """Command-line interface for _ShutdownInstanceBlockDevices.
+
+  This function takes the instance name, looks for its primary node
+  and the tries to shutdown its block devices on that node.
+
+  """
+  instance = args[0]
+  disk = args[1]
+  amount = utils.ParseUnit(args[2])
+  op = opcodes.OpGrowDisk(instance_name=instance, disk=disk, amount=amount,
+                          wait_for_sync=opts.wait_for_sync)
   SubmitOpCode(op)
   return 0
 
@@ -542,6 +561,41 @@ def FailoverInstance(opts, args):
 
   op = opcodes.OpFailoverInstance(instance_name=instance_name,
                                   ignore_consistency=opts.ignore_consistency)
+  SubmitOpCode(op)
+  return 0
+
+
+def MigrateInstance(opts, args):
+  """Migrate an instance.
+
+  The migrate is done without shutdown.
+
+  Args:
+    opts - class with options as members
+    args - list with a single element, the instance name
+  Opts used:
+    force - whether to migrate without asking questions.
+
+  """
+  instance_name = args[0]
+  force = opts.force
+
+  if not force:
+    if opts.cleanup:
+      usertext = ("Instance %s will be recovered from a failed migration."
+                  " Note that the migration procedure (including cleanup)" %
+                  (instance_name,))
+    else:
+      usertext = ("Instance %s will be migrated. Note that migration" %
+                  (instance_name,))
+    usertext += (" is **experimental** in this version."
+                " This might impact the instance if anything goes wrong."
+                " Continue?")
+    if not AskUser(usertext):
+      return 1
+
+  op = opcodes.OpMigrateInstance(instance_name=instance_name, live=opts.live,
+                                 cleanup=opts.cleanup)
   SubmitOpCode(op)
   return 0
 
@@ -880,6 +934,26 @@ commands = {
                "Stops the instance and starts it on the backup node, using"
                " the remote mirror (only for instances of type drbd or"
                " remote_raid1)"),
+  'migrate': (MigrateInstance, ARGS_ONE,
+               [DEBUG_OPT, FORCE_OPT,
+                make_option("--non-live", dest="live",
+                            default=True, action="store_false",
+                            help="Do a non-live migration (this usually means"
+                            " freeze the instance, save the state,"
+                            " transfer and only then resume running on the"
+                            " secondary node)"),
+                make_option("--cleanup", dest="cleanup",
+                            default=False, action="store_true",
+                            help="Instead of performing the migration, try to"
+                            " recover from a failed cleanup. This is safe"
+                            " to run even if the instance is healthy, but it"
+                            " will create extra replication traffic and "
+                            " disrupt briefly the replication (like during the"
+                            " migration"),
+                ],
+               "[-f] <instance>",
+               "Migrate instance to its secondary node"
+               " (only for instances of type drbd)"),
   'info': (ShowInstanceConfig, ARGS_ANY, [DEBUG_OPT], "[<instance>...]",
            "Show information on the specified instance"),
   'list': (ListInstances, ARGS_NONE,
@@ -1028,6 +1102,14 @@ commands = {
   'deactivate-disks': (DeactivateDisks, ARGS_ONE, [DEBUG_OPT],
                        "<instance>",
                        "Deactivate an instance's disks"),
+  'grow-disk': (GrowDisk, ARGS_FIXED(3),
+                [DEBUG_OPT,
+                 make_option("--no-wait-for-sync",
+                             dest="wait_for_sync", default=True,
+                             action="store_false",
+                             help="Don't wait for sync (DANGEROUS!)"),
+                 ],
+                "<instance> <disk> <size>", "Grow an instance's disk"),
   'list-tags': (ListTags, ARGS_ONE, [DEBUG_OPT],
                 "<node_name>", "List the tags of the given instance"),
   'add-tags': (AddTags, ARGS_ATLEAST(1), [DEBUG_OPT, TAG_SRC_OPT],
