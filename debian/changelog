@@ -1,3 +1,9 @@
+ganeti (1.2.7-1) unstable; urgency=low
+
+  * New Upstream Version
+
+ -- Iustin Pop <iusty@k1024.org>  Sun, 03 May 2009 17:11:50 +0200
+
 ganeti (1.2.6-3) unstable; urgency=low
 
   * Cherry-pick commit 2461 from upstream, fixing (yet again, hopefully 
