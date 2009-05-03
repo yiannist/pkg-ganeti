@@ -128,7 +128,7 @@ TESTS = \
   ganeti.bdev_unittest.py
 
 TESTS_ENVIRONMENT = PYTHONPATH=.:$(top_builddir)
-EXTRA_DIST = $(TESTS) mocks.py data
+EXTRA_DIST = $(TESTS) mocks.py $(wildcard data/*.txt)
 CLEANFILES = *.py[co]
 all: all-am
 
@@ -244,6 +244,7 @@ check-TESTS: $(TESTS)
 	else :; fi
 
 distdir: $(DISTFILES)
+	$(mkdir_p) $(distdir)/data
 	@srcdirstrip=`echo "$(srcdir)" | sed 's|.|.|g'`; \
 	topsrcdirstrip=`echo "$(top_srcdir)" | sed 's|.|.|g'`; \
 	list='$(DISTFILES)'; for file in $$list; do \

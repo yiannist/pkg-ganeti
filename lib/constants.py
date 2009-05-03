@@ -25,7 +25,7 @@ from ganeti import _autoconf
 
 # various versions
 CONFIG_VERSION = 3
-PROTOCOL_VERSION = 10
+PROTOCOL_VERSION = 11
 RELEASE_VERSION = _autoconf.PACKAGE_VERSION
 OS_API_VERSION = 5
 EXPORT_VERSION = 0
@@ -33,7 +33,8 @@ EXPORT_VERSION = 0
 
 # file paths
 DATA_DIR = _autoconf.LOCALSTATEDIR + "/lib/ganeti"
-BDEV_CACHE_DIR = _autoconf.LOCALSTATEDIR + "/run/ganeti"
+RUN_DIR = _autoconf.LOCALSTATEDIR + "/run"
+BDEV_CACHE_DIR = RUN_DIR + "/ganeti"
 LOCK_DIR = _autoconf.LOCALSTATEDIR + "/lock"
 CLUSTER_CONF_FILE = DATA_DIR + "/config.data"
 SSL_CERT_FILE = DATA_DIR + "/server.pem"

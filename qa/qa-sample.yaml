@@ -1,8 +1,9 @@
 # Cluster name
 name: xen-test
+hypervisor-type: xen-3.0
 
 # System to use
-os: debian-edgy
+os: debian-etch
 os-size: 10G
 swap-size: 1G
 mem: 512M
@@ -57,6 +58,7 @@ tests:
   instance-list: True
   instance-failover: True
   instance-info: True
+  instance-modify: True
   instance-export: True
   instance-import: True
   instance-reinstall: True

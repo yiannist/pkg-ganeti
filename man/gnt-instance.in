@@ -3,7 +3,7 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GNT-INSTANCE" "8" "16 January 2008" "ganeti 1.2" ""
+.TH "GNT-INSTANCE" "8" "28 January 2008" "ganeti 1.2" ""
 
 .SH NAME
 gnt-instance \- ganeti instance administration
@@ -231,6 +231,16 @@ the instance interface MAC address
 .TP
 \fBbridge\fR
 bridge the instance is connected to
+.TP
+\fBsda_size\fR
+the size of the instance's first disk
+.TP
+\fBsdb_size\fR
+the size of the instance's second disk
+.TP
+\fBvcpus\fR
+the number of VCPUs allocated to the
+instance
 .PP
 There is a subtle grouping about the available output
 fields: all fields except for \fBoper_state\fR

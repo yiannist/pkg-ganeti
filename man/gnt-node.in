@@ -3,7 +3,7 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GNT-NODE" "8" "16 January 2008" "ganeti 1.2" ""
+.TH "GNT-NODE" "8" "28 January 2008" "ganeti 1.2" ""
 
 .SH NAME
 gnt-node \- node administration
@@ -124,13 +124,21 @@ output fields. The available fields and their meaning are:
 \fBname\fR
 the node name
 .TP
-\fBpinst\fR
+\fBpinst_cnt\fR
 the number of instances having this node as
 primary
 .TP
-\fBsinst\fR
+\fBpinst_list\fR
+the list of instances having this node as
+primary, comma separated
+.TP
+\fBsinst_cnt\fR
 the number of instances having this node as a
 secondary node
+.TP
+\fBsinst_list\fR
+the list of instances having this node as a
+secondary node, comma separated
 .TP
 \fBpip\fR
 the primary ip of this node (used for cluster
@@ -156,6 +164,12 @@ the memory used by the node itself
 \fBmfree\fR
 memory available for instance
 allocations
+.TP
+\fBbootid\fR
+the node bootid value; this is a linux specific
+feature that assigns a new UUID to the node at each boot
+and can be use to detect node reboots (by tracking
+changes in this value)
 .PP
 Note that some of this fields are known from the configuration
 of the cluster (name, pinst, sinst, pip, sip and thus the master does
