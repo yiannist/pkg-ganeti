@@ -1,8 +1,9 @@
 ganeti (1.2.7-1) unstable; urgency=low
 
   * New Upstream Version
+  * Standard version 3.8.1 (no changes needed)
 
- -- Iustin Pop <iusty@k1024.org>  Sun, 03 May 2009 17:11:50 +0200
+ -- Iustin Pop <iusty@k1024.org>  Mon, 04 May 2009 21:01:00 +0200
 
 ganeti (1.2.6-3) unstable; urgency=low
 
