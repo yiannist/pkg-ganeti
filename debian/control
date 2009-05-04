@@ -6,9 +6,9 @@ Uploaders: Guido Trotter <ultrotter@debian.org>, Iustin Pop <iusty@k1024.org>, L
 Build-Depends: cdbs (>= 0.4.49), debhelper (>= 5), patchutils
 Build-Depends-Indep: docbook-utils, python-simplejson, python-pyparsing, python-openssl, python-twisted-core, python-support (>= 0.6)
 Standards-Version: 3.8.1
-Vcs-Svn: http://ganeti.googlecode.com/svn/trunk/ganeti/
-Vcs-Browser: http://ganeti.googlecode.com/svn/trunk/ganeti/
 Homepage: http://code.google.com/p/ganeti/
+Vcs-Browser: http://git.debian.org/?p=pkg-ganeti/ganeti.git
+Vcs-Git: git://git.debian.org/pkg-ganeti/ganeti.git
 DM-Upload-Allowed: yes
 
 Package: ganeti
