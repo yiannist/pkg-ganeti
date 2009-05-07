@@ -2,8 +2,10 @@ ganeti (1.2.7-1) unstable; urgency=low
 
   * New Upstream Version
   * Standard version 3.8.1 (no changes needed)
+  * Fix a couple of non-critical lintian warnings (directory in /var/run,
+    debian/copyright has old format, etc.)
 
- -- Iustin Pop <iusty@k1024.org>  Mon, 04 May 2009 21:01:00 +0200
+ -- Iustin Pop <iusty@k1024.org>  Thu, 07 May 2009 07:58:32 +0200
 
 ganeti (1.2.6-3) unstable; urgency=low
 
