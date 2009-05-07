@@ -27,3 +27,4 @@ install/ganeti::
 	dh_pysupport -pganeti
 	install -m 0755 doc/examples/dumb-allocator debian/ganeti/usr/lib/ganeti/iallocators/dumb
 	rmdir debian/ganeti/var/run/ganeti
+	rmdir debian/ganeti/var/run
