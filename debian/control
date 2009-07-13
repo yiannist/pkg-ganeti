@@ -1,4 +1,4 @@
-Source: ganeti2
+Source: ganeti
 Section: admin
 Priority: extra
 Maintainer: Debian Ganeti Team <pkg-ganeti-devel@lists.alioth.debian.org>
