@@ -1,9 +1,24 @@
 # Configure script for Ganeti
+m4_define([gnt_version_major], [2])
+m4_define([gnt_version_minor], [0])
+m4_define([gnt_version_revision], [1])
+m4_define([gnt_version_suffix], [])
+m4_define([gnt_version_full],
+          m4_format([%d.%d.%d%s],
+                    gnt_version_major, gnt_version_minor,
+                    gnt_version_revision, gnt_version_suffix))
+
 AC_PREREQ(2.59)
-AC_INIT(ganeti, 1.2.7, ganeti@googlegroups.com)
+AC_INIT(ganeti, gnt_version_full, ganeti@googlegroups.com)
 AC_CONFIG_AUX_DIR(autotools)
 AC_CONFIG_SRCDIR(configure)
-AM_INIT_AUTOMAKE([foreign tar-ustar])
+AM_INIT_AUTOMAKE([1.9 foreign tar-ustar -Wall -Wno-portability])
+
+AC_SUBST([VERSION_MAJOR], gnt_version_major)
+AC_SUBST([VERSION_MINOR], gnt_version_minor)
+AC_SUBST([VERSION_REVISION], gnt_version_revision)
+AC_SUBST([VERSION_SUFFIX], gnt_version_suffix)
+AC_SUBST([VERSION_FULL], gnt_version_full)
 
 # --with-ssh-initscript=...
 AC_ARG_WITH([ssh-initscript],
@@ -64,57 +79,88 @@ AC_ARG_WITH([xen-initrd],
   [xen_initrd="/boot/initrd-2.6-xenU"])
 AC_SUBST(XEN_INITRD, $xen_initrd)
 
-# --enable-rapi
-AC_ARG_ENABLE([rapi],
-  [AS_HELP_STRING([--enable-rapi],
-    [Whether to enable remote API daemon]
-  )])
-if test "$enable_rapi" = "yes"
-then
-  enable_rapi_py=True
-else
-  enable_rapi=no
-  enable_rapi_py=False
-fi
-AC_SUBST(PY_ENABLE_RAPI, $enable_rapi_py)
+# --with-file-storage-dir=...
+AC_ARG_WITH([file-storage-dir],
+  [AS_HELP_STRING([--with-file-storage-dir=PATH],
+    [directory to store files for file-based backend]
+    [ (default is /srv/ganeti/file-storage)]
+  )],
+  [file_storage_dir="$withval"],
+  [file_storage_dir="/srv/ganeti/file-storage"])
+AC_SUBST(FILE_STORAGE_DIR, $file_storage_dir)
 
+# --with-kvm-path=...
+AC_ARG_WITH([kvm-path],
+  [AS_HELP_STRING([--with-kvm-path=PATH],
+    [absolute path to the kvm binary]
+    [ (default is /usr/bin/kvm)]
+  )],
+  [kvm_path="$withval"],
+  [kvm_path="/usr/bin/kvm"])
+AC_SUBST(KVM_PATH, $kvm_path)
+
+# --with-kvm-migration-port=...
+AC_ARG_WITH([kvm-migration-port],
+  [AS_HELP_STRING([--with-kvm-migration-port=PORT],
+    [tcp port used for kvm instance live migration]
+    [ (default is 8102)]
+  )],
+  [kvm_migration_port="$withval"],
+  [kvm_migration_port="8102"])
+AC_SUBST(KVM_MIGRATION_PORT, $kvm_migration_port)
+
+# --with-socat-path=...
+AC_ARG_WITH([socat-path],
+  [AS_HELP_STRING([--with-socat-path=PATH],
+    [absolute path to the socat binary]
+    [ (default is /usr/bin/socat)]
+  )],
+  [socat_path="$withval"],
+  [socat_path="/usr/bin/socat"])
+AC_SUBST(SOCAT_PATH, $socat_path)
 
 # Check common programs
 AC_PROG_INSTALL
 AC_PROG_LN_S
 
+# Check for docbook programs
+AC_ARG_VAR(DOCBOOK2MAN, [docbook2man path])
+AC_PATH_PROG(DOCBOOK2MAN, [docbook2man], [])
+if test -z "$DOCBOOK2MAN"
+then
+  AC_MSG_WARN([docbook2man not found, man pages rebuild will not be possible])
+fi
+
+AC_ARG_VAR(DOCBOOK2HTML, [docbook2html path])
+AC_PATH_PROG(DOCBOOK2HTML, [docbook2html], [])
+if test -z "$DOCBOOK2HTML"
+then
+  AC_MSG_WARN([docbook2html not found, man pages rebuild will not be possible])
+fi
+
+# Check for rst programs
+AC_ARG_VAR(RST2HTML, [rst2html path])
+AC_PATH_PROG(RST2HTML, [rst2html], [])
+if test -z "$RST2HTML"
+then
+  AC_MSG_WARN([rst2html not found, documentation rebuild will not be possible])
+fi
+
+# Check for graphviz (dot)
+AC_ARG_VAR(DOT, [dot path])
+AC_PATH_PROG(DOT, [dot], [])
+if test -z "$DOT"
+then
+  AC_MSG_WARN([dot (from the graphviz suite) not found, documentation rebuild not possible])
+fi
+
 # Check for Python
 AM_PATH_PYTHON(2.4)
 
-AC_PYTHON_MODULE(twisted.internet, t)
-AC_PYTHON_MODULE(twisted.cred, t)
-AC_PYTHON_MODULE(twisted.spread, t)
 AC_PYTHON_MODULE(OpenSSL, t)
 AC_PYTHON_MODULE(simplejson, t)
 AC_PYTHON_MODULE(pyparsing, t)
 
-# Check for docbook2man
-found_docbook2man=
-AC_CHECK_PROG(found_docbook2man, [docbook2man], [yes])
-if test "$found_docbook2man" != "yes"
-then
-  AC_MSG_WARN([docbook2man not found.])
-fi
-
-AC_CONFIG_FILES([
-  Makefile
-  daemons/Makefile
-  devel/Makefile
-  doc/Makefile
-  doc/examples/Makefile
-  lib/Makefile
-  lib/rapi/Makefile
-  man/Makefile
-  qa/Makefile
-  qa/hooks/Makefile
-  scripts/Makefile
-  test/Makefile
-  tools/Makefile
-])
+AC_CONFIG_FILES([ Makefile ])
 
 AC_OUTPUT

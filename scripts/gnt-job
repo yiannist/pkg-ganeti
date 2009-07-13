@@ -1,0 +1,343 @@
+#!/usr/bin/python
+#
+
+# Copyright (C) 2006, 2007 Google Inc.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+# General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
+# 02110-1301, USA.
+
+
+# pylint: disable-msg=W0401,W0614
+# W0401: Wildcard import ganeti.cli
+# W0614: Unused import %s from wildcard import (since we need cli)
+
+import sys
+
+from ganeti.cli import *
+from ganeti import constants
+from ganeti import errors
+from ganeti import utils
+
+
+#: default list of fields for L{ListJobs}
+_LIST_DEF_FIELDS = ["id", "status", "summary"]
+
+#: map converting the job status contants to user-visible
+#: names
+_USER_JOB_STATUS = {
+  constants.JOB_STATUS_QUEUED: "queued",
+  constants.JOB_STATUS_WAITLOCK: "waiting",
+  constants.JOB_STATUS_CANCELING: "canceling",
+  constants.JOB_STATUS_RUNNING: "running",
+  constants.JOB_STATUS_CANCELED: "canceled",
+  constants.JOB_STATUS_SUCCESS: "success",
+  constants.JOB_STATUS_ERROR: "error",
+  }
+
+
+def ListJobs(opts, args):
+  """List the jobs
+
+  @param opts: the command line options selected by the user
+  @type args: list
+  @param args: should be an empty list
+  @rtype: int
+  @return: the desired exit code
+
+  """
+  if opts.output is None:
+    selected_fields = _LIST_DEF_FIELDS
+  elif opts.output.startswith("+"):
+    selected_fields = _LIST_DEF_FIELDS + opts.output[1:].split(",")
+  else:
+    selected_fields = opts.output.split(",")
+
+  output = GetClient().QueryJobs(args, selected_fields)
+  if not opts.no_headers:
+    # TODO: Implement more fields
+    headers = {
+      "id": "ID",
+      "status": "Status",
+      "ops": "OpCodes",
+      "opresult": "OpCode_result",
+      "opstatus": "OpCode_status",
+      "oplog": "OpCode_log",
+      "summary": "Summary",
+      "opstart": "OpCode_start",
+      "opend": "OpCode_end",
+      "start_ts": "Start",
+      "end_ts": "End",
+      "received_ts": "Received",
+      }
+  else:
+    headers = None
+
+  # change raw values to nicer strings
+  for row_id, row in enumerate(output):
+    if row is None:
+      ToStderr("No such job: %s" % args[row_id])
+      continue
+
+    for idx, field in enumerate(selected_fields):
+      val = row[idx]
+      if field == "status":
+        if val in _USER_JOB_STATUS:
+          val = _USER_JOB_STATUS[val]
+        else:
+          raise errors.ProgrammerError("Unknown job status code '%s'" % val)
+      elif field == "summary":
+        val = ",".join(val)
+      elif field in ("start_ts", "end_ts", "received_ts"):
+        val = FormatTimestamp(val)
+      elif field in ("opstart", "opend"):
+        val = [FormatTimestamp(entry) for entry in val]
+
+      row[idx] = str(val)
+
+  data = GenerateTable(separator=opts.separator, headers=headers,
+                       fields=selected_fields, data=output)
+  for line in data:
+    ToStdout(line)
+
+  return 0
+
+
+def ArchiveJobs(opts, args):
+  """Archive jobs.
+
+  @param opts: the command line options selected by the user
+  @type args: list
+  @param args: should contain the job IDs to be archived
+  @rtype: int
+  @return: the desired exit code
+
+  """
+  client = GetClient()
+
+  for job_id in args:
+    client.ArchiveJob(job_id)
+
+  return 0
+
+
+def AutoArchiveJobs(opts, args):
+  """Archive jobs based on age.
+
+  This will archive jobs based on their age, or all jobs if a 'all' is
+  passed.
+
+  @param opts: the command line options selected by the user
+  @type args: list
+  @param args: should contain only one element, the age as a time spec
+      that can be parsed by L{ganeti.cli.ParseTimespec} or the
+      keyword I{all}, which will cause all jobs to be archived
+  @rtype: int
+  @return: the desired exit code
+
+  """
+  client = GetClient()
+
+  age = args[0]
+
+  if age == 'all':
+    age = -1
+  else:
+    age = ParseTimespec(age)
+
+  (archived_count, jobs_left) = client.AutoArchiveJobs(age)
+  ToStdout("Archived %s jobs, %s unchecked left", archived_count, jobs_left)
+
+  return 0
+
+
+def CancelJobs(opts, args):
+  """Cancel not-yet-started jobs.
+
+  @param opts: the command line options selected by the user
+  @type args: list
+  @param args: should contain the job IDs to be cancelled
+  @rtype: int
+  @return: the desired exit code
+
+  """
+  client = GetClient()
+
+  for job_id in args:
+    (success, msg) = client.CancelJob(job_id)
+    ToStdout(msg)
+
+  # TODO: Different exit value if not all jobs were canceled?
+  return 0
+
+
+def ShowJobs(opts, args):
+  """Show detailed information about jobs.
+
+  @param opts: the command line options selected by the user
+  @type args: list
+  @param args: should contain the job IDs to be queried
+  @rtype: int
+  @return: the desired exit code
+
+  """
+  def format(level, text):
+    """Display the text indented."""
+    ToStdout("%s%s", "  " * level, text)
+
+  def result_helper(value):
+    """Format a result field in a nice way."""
+    if isinstance(value, (tuple, list)):
+      return "[%s]" % (", ".join(str(elem) for elem in value))
+    else:
+      return str(value)
+
+  selected_fields = [
+    "id", "status", "ops", "opresult", "opstatus", "oplog",
+    "opstart", "opend", "received_ts", "start_ts", "end_ts",
+    ]
+
+  result = GetClient().QueryJobs(args, selected_fields)
+
+  first = True
+
+  for idx, entry in enumerate(result):
+    if not first:
+      format(0, "")
+    else:
+      first = False
+
+    if entry is None:
+      if idx <= len(args):
+        format(0, "Job ID %s not found" % args[idx])
+      else:
+        # this should not happen, when we don't pass args it will be a
+        # valid job returned
+        format(0, "Job ID requested as argument %s not found" % (idx + 1))
+      continue
+
+    (job_id, status, ops, opresult, opstatus, oplog,
+     opstart, opend, recv_ts, start_ts, end_ts) = entry
+    format(0, "Job ID: %s" % job_id)
+    if status in _USER_JOB_STATUS:
+      status = _USER_JOB_STATUS[status]
+    else:
+      raise errors.ProgrammerError("Unknown job status code '%s'" % status)
+
+    format(1, "Status: %s" % status)
+
+    if recv_ts is not None:
+      format(1, "Received:         %s" % FormatTimestamp(recv_ts))
+    else:
+      format(1, "Missing received timestamp (%s)" % str(recv_ts))
+
+    if start_ts is not None:
+      if recv_ts is not None:
+        d1 = start_ts[0] - recv_ts[0] + (start_ts[1] - recv_ts[1]) / 1000000.0
+        delta = " (delta %.6fs)" % d1
+      else:
+        delta = ""
+      format(1, "Processing start: %s%s" % (FormatTimestamp(start_ts), delta))
+    else:
+      format(1, "Processing start: unknown (%s)" % str(start_ts))
+
+    if end_ts is not None:
+      if start_ts is not None:
+        d2 = end_ts[0] - start_ts[0] + (end_ts[1] - start_ts[1]) / 1000000.0
+        delta = " (delta %.6fs)" % d2
+      else:
+        delta = ""
+      format(1, "Processing end:   %s%s" % (FormatTimestamp(end_ts), delta))
+    else:
+      format(1, "Processing end:   unknown (%s)" % str(end_ts))
+
+    if end_ts is not None and recv_ts is not None:
+      d3 = end_ts[0] - recv_ts[0] + (end_ts[1] - recv_ts[1]) / 1000000.0
+      format(1, "Total processing time: %.6f seconds" % d3)
+    else:
+      format(1, "Total processing time: N/A")
+    format(1, "Opcodes:")
+    for (opcode, result, status, log, s_ts, e_ts) in \
+            zip(ops, opresult, opstatus, oplog, opstart, opend):
+      format(2, "%s" % opcode["OP_ID"])
+      format(3, "Status: %s" % status)
+      if isinstance(s_ts, (tuple, list)):
+        format(3, "Processing start: %s" % FormatTimestamp(s_ts))
+      else:
+        format(3, "No processing start time")
+      if isinstance(e_ts, (tuple, list)):
+        format(3, "Processing end:   %s" % FormatTimestamp(e_ts))
+      else:
+        format(3, "No processing end time")
+      format(3, "Input fields:")
+      for key, val in opcode.iteritems():
+        if key == "OP_ID":
+          continue
+        if isinstance(val, (tuple, list)):
+          val = ",".join([str(item) for item in val])
+        format(4, "%s: %s" % (key, val))
+      if result is None:
+        format(3, "No output data")
+      elif isinstance(result, (tuple, list)):
+        if not result:
+          format(3, "Result: empty sequence")
+        else:
+          format(3, "Result:")
+          for elem in result:
+            format(4, result_helper(elem))
+      elif isinstance(result, dict):
+        if not result:
+          format(3, "Result: empty dictionary")
+        else:
+          for key, val in result.iteritems():
+            format(4, "%s: %s" % (key, result_helper(val)))
+      else:
+        format(3, "Result: %s" % result)
+      format(3, "Execution log:")
+      for serial, log_ts, log_type, log_msg in log:
+        time_txt = FormatTimestamp(log_ts)
+        encoded = utils.SafeEncode(log_msg)
+        format(4, "%s:%s:%s %s" % (serial, time_txt, log_type, encoded))
+  return 0
+
+
+commands = {
+  'list': (ListJobs, ARGS_ANY,
+            [DEBUG_OPT, NOHDR_OPT, SEP_OPT, FIELDS_OPT],
+            "[job_id ...]",
+           "List the jobs and their status. The available fields are"
+           " (see the man page for details): id, status, op_list,"
+           " op_status, op_result."
+           " The default field"
+           " list is (in order): %s." % ", ".join(_LIST_DEF_FIELDS)),
+  'archive': (ArchiveJobs, ARGS_ANY,
+              [DEBUG_OPT],
+              "<job-id> [<job-id> ...]",
+              "Archive specified jobs"),
+  'autoarchive': (AutoArchiveJobs, ARGS_ONE,
+              [DEBUG_OPT],
+              "<age>",
+              "Auto archive jobs older than the given age"),
+  'cancel': (CancelJobs, ARGS_ANY,
+             [DEBUG_OPT],
+             "<job-id> [<job-id> ...]",
+             "Cancel specified jobs"),
+  'info': (ShowJobs, ARGS_ANY, [DEBUG_OPT],
+           "<job-id> [<job-id> ...]",
+           "Show detailed information about the specified jobs"),
+  }
+
+
+if __name__ == '__main__':
+  sys.exit(GenericMain(commands))

@@ -1,3 +1,6 @@
+#
+#
+
 # Copyright (C) 2007 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -28,7 +31,6 @@ import qa_utils
 from qa_utils import AssertEqual, StartSSH
 
 
-@qa_utils.DefineHook('env-ssh-connection')
 def TestSshConnection():
   """Test SSH connection.
 
@@ -37,19 +39,21 @@ def TestSshConnection():
     AssertEqual(StartSSH(node['primary'], 'exit').wait(), 0)
 
 
-@qa_utils.DefineHook('env-ganeti-commands')
 def TestGanetiCommands():
   """Test availibility of Ganeti commands.
 
   """
-  cmds = ( ['gnt-cluster', '--version'],
-           ['gnt-os', '--version'],
-           ['gnt-node', '--version'],
+  cmds = ( ['gnt-backup', '--version'],
+           ['gnt-cluster', '--version'],
+           ['gnt-debug', '--version'],
            ['gnt-instance', '--version'],
-           ['gnt-backup', '--version'],
+           ['gnt-job', '--version'],
+           ['gnt-node', '--version'],
+           ['gnt-os', '--version'],
+           ['ganeti-masterd', '--version'],
            ['ganeti-noded', '--version'],
-           ['ganeti-watcher', '--version'],
-           ['ganeti-rapi', '--version'] )
+           ['ganeti-rapi', '--version'],
+           ['ganeti-watcher', '--version'] )
 
   cmd = ' && '.join([utils.ShellQuoteArgs(i) for i in cmds])
 
@@ -57,7 +61,6 @@ def TestGanetiCommands():
     AssertEqual(StartSSH(node['primary'], cmd).wait(), 0)
 
 
-@qa_utils.DefineHook('env-icmp-ping')
 def TestIcmpPing():
   """ICMP ping each node.
 

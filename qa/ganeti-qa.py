@@ -1,7 +1,7 @@
 #!/usr/bin/python
 #
 
-# Copyright (C) 2007, 2008 Google Inc.
+# Copyright (C) 2007 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -21,15 +21,11 @@
 
 """Script for doing QA on Ganeti.
 
-You can create the required known_hosts file using ssh-keyscan. It's mandatory
-to use the full name of a node (FQDN). For security reasons, verify the keys
-before using them.
-Example: ssh-keyscan -t rsa node{1,2,3,4}.example.com > known_hosts
 """
 
 import sys
-from datetime import datetime
-from optparse import OptionParser
+import datetime
+import optparse
 
 import qa_cluster
 import qa_config
@@ -38,7 +34,6 @@ import qa_env
 import qa_instance
 import qa_node
 import qa_os
-import qa_other
 import qa_rapi
 import qa_tags
 import qa_utils
@@ -53,7 +48,7 @@ def RunTest(fn, *args):
   else:
     desc = '%r' % fn
 
-  now = str(datetime.now())
+  now = str(datetime.datetime.now())
 
   print
   print '---', now, ('-' * (55 - len(now)))
@@ -79,8 +74,9 @@ def SetupCluster():
   """Initializes the cluster.
 
   """
-  RunTest(qa_cluster.TestClusterInit)
-  RunTest(qa_node.TestNodeAddAll)
+  if qa_config.TestEnabled('create-cluster'):
+    RunTest(qa_cluster.TestClusterInit)
+    RunTest(qa_node.TestNodeAddAll)
   if qa_config.TestEnabled('node-info'):
     RunTest(qa_node.TestNodeInfo)
 
@@ -116,7 +112,6 @@ def RunClusterTests():
     RunTest(qa_rapi.TestVersion)
     RunTest(qa_rapi.TestEmptyCluster)
 
-
 def RunOsTests():
   """Runs all tests related to gnt-os.
 
@@ -148,6 +143,9 @@ def RunCommonInstanceTests(instance):
   if qa_config.TestEnabled('instance-modify'):
     RunTest(qa_instance.TestInstanceModify, instance)
 
+  if qa_config.TestEnabled('instance-console'):
+    RunTest(qa_instance.TestInstanceConsole, instance)
+
   if qa_config.TestEnabled('instance-reinstall'):
     RunTest(qa_instance.TestInstanceShutdown, instance)
     RunTest(qa_instance.TestInstanceReinstall, instance)
@@ -164,7 +162,6 @@ def RunCommonInstanceTests(instance):
 
   if qa_rapi.Enabled():
     RunTest(qa_rapi.TestInstance, instance)
-
 
 def RunExportImportTests(instance, pnode):
   """Tries to export and import the instance.
@@ -208,13 +205,10 @@ def RunDaemonTests(instance, pnode):
       RunTest(qa_daemon.TestInstanceConsecutiveFailures, pnode, instance)
 
 
-def RunHardwareFailureTests(instance, pnode, snode, is_drbd):
+def RunHardwareFailureTests(instance, pnode, snode):
   """Test cluster internal hardware failure recovery.
 
   """
-  if qa_config.TestEnabled('instance-migrate'):
-    RunTest(qa_instance.TestInstanceMigrate, instance)
-
   if qa_config.TestEnabled('instance-failover'):
     RunTest(qa_instance.TestInstanceFailover, instance)
 
@@ -222,7 +216,7 @@ def RunHardwareFailureTests(instance, pnode, snode, is_drbd):
     othernode = qa_config.AcquireNode(exclude=[pnode, snode])
     try:
       RunTest(qa_instance.TestReplaceDisks,
-              instance, pnode, snode, othernode, is_drbd)
+              instance, pnode, snode, othernode)
     finally:
       qa_config.ReleaseNode(othernode)
 
@@ -243,20 +237,16 @@ def main():
   """Main program.
 
   """
-  parser = OptionParser(usage="%prog [options] <config-file>"
-                              " <known-hosts-file>")
-  parser.add_option('--dry-run', dest='dry_run',
-      action="store_true",
-      help="Show what would be done")
+  parser = optparse.OptionParser(usage="%prog [options] <config-file>")
   parser.add_option('--yes-do-it', dest='yes_do_it',
       action="store_true",
       help="Really execute the tests")
   (qa_config.options, args) = parser.parse_args()
 
-  if len(args) == 2:
-    (config_file, known_hosts_file) = args
+  if len(args) == 1:
+    (config_file, ) = args
   else:
-    parser.error("Not enough arguments.")
+    parser.error("Wrong number of arguments.")
 
   if not qa_config.options.yes_do_it:
     print ("Executing this script irreversibly destroys any Ganeti\n"
@@ -265,11 +255,6 @@ def main():
     sys.exit(1)
 
   qa_config.Load(config_file)
-  qa_utils.LoadHooks()
-
-  qa_rapi.PrintRemoteAPIWarning()
-
-  RunTest(qa_other.UploadKnownHostsFile, known_hosts_file)
 
   RunEnvTests()
   SetupCluster()
@@ -298,41 +283,24 @@ def main():
     if qa_config.TestEnabled('instance-add-plain-disk'):
       instance = RunTest(qa_instance.TestInstanceAddWithPlainDisk, pnode)
       RunCommonInstanceTests(instance)
-      if qa_config.TestEnabled('instance-grow-disk'):
-        RunTest(qa_instance.TestInstanceGrowDisk, instance, False)
       RunExportImportTests(instance, pnode)
       RunDaemonTests(instance, pnode)
       RunTest(qa_instance.TestInstanceRemove, instance)
       del instance
 
-    if qa_config.TestEnabled('instance-add-local-mirror-disk'):
-      instance = RunTest(qa_instance.TestInstanceAddWithLocalMirrorDisk, pnode)
-      if qa_config.TestEnabled('instance-grow-disk'):
-        RunTest(qa_instance.TestInstanceGrowDisk, instance, True)
-      RunCommonInstanceTests(instance)
-      RunExportImportTests(instance, pnode)
-      RunTest(qa_instance.TestInstanceRemove, instance)
-      del instance
-
     multinode_tests = [
-      ('instance-add-remote-raid-disk',
-       qa_instance.TestInstanceAddWithRemoteRaidDisk,
-       False),
       ('instance-add-drbd-disk',
-       qa_instance.TestInstanceAddWithDrbdDisk,
-       True),
+       qa_instance.TestInstanceAddWithDrbdDisk),
     ]
 
-    for name, func, is_drbd in multinode_tests:
+    for name, func in multinode_tests:
       if qa_config.TestEnabled(name):
         snode = qa_config.AcquireNode(exclude=pnode)
         try:
           instance = RunTest(func, pnode, snode)
           RunCommonInstanceTests(instance)
-          if qa_config.TestEnabled('instance-grow-disk'):
-            RunTest(qa_instance.TestInstanceGrowDisk, instance, False)
           RunExportImportTests(instance, pnode)
-          RunHardwareFailureTests(instance, pnode, snode, is_drbd)
+          RunHardwareFailureTests(instance, pnode, snode)
           RunTest(qa_instance.TestInstanceRemove, instance)
           del instance
         finally:
@@ -341,7 +309,8 @@ def main():
   finally:
     qa_config.ReleaseNode(pnode)
 
-  RunTest(qa_node.TestNodeRemoveAll)
+  if qa_config.TestEnabled('create-cluster'):
+    RunTest(qa_node.TestNodeRemoveAll)
 
   if qa_config.TestEnabled('cluster-destroy'):
     RunTest(qa_cluster.TestClusterDestroy)

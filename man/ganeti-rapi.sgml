@@ -2,7 +2,7 @@
 
   <!-- Fill in your name for FIRSTNAME and SURNAME. -->
   <!-- Please adjust the date whenever revising the manpage. -->
-  <!ENTITY dhdate      "<date>May 29, 2008</date>">
+  <!ENTITY dhdate      "<date>February 11, 2009</date>">
   <!-- SECTION should be 1-8, maybe w/ subsection other parameters are
        allowed: see man(7), man(1). -->
   <!ENTITY dhsection   "<manvolnum>8</manvolnum>">
@@ -19,6 +19,7 @@
   <refentryinfo>
     <copyright>
       <year>2008</year>
+      <year>2009</year>
       <holder>Google Inc.</holder>
     </copyright>
     &dhdate;
@@ -27,7 +28,7 @@
     &dhucpackage;
 
     &dhsection;
-    <refmiscinfo>ganeti 1.2</refmiscinfo>
+    <refmiscinfo>ganeti 2.0</refmiscinfo>
   </refmeta>
   <refnamediv>
     <refname>&dhpackage;</refname>
@@ -37,36 +38,82 @@
   <refsynopsisdiv>
     <cmdsynopsis>
       <command>&dhpackage; </command>
+      <arg>-d</arg>
+      <arg>-f</arg>
+      <arg>-p <replaceable>PORT</replaceable></arg>
+      <arg>--no-ssl</arg>
+      <arg>-K <replaceable>SSL_KEY_FILE</replaceable></arg>
+      <arg>-C <replaceable>SSL_CERT_FILE</replaceable></arg>
 
     </cmdsynopsis>
   </refsynopsisdiv>
+
   <refsect1>
     <title>DESCRIPTION</title>
 
     <para>
-      <command>&dhpackage;</command> is the daemon providing a remote API for
-      Ganeti clusters.
+      <command>&dhpackage;</command> is the daemon providing a remote
+      API for Ganeti clusters.
     </para>
 
     <para>
-      It is automatically started on the master node if enabled at build time.
-      Encryption via SSL can be enabled by using command line parameters.
+      It is automatically started on the master node, and by default
+      it uses SSL encryption. This can be disabled by passing the
+      <option>--no-ssl</option> option, or alternatively the
+      certificate used can be changed via the <option>-C</option>
+      option and the key via the <option>-K</option> option.
     </para>
 
     <para>
-      Take a look at the <emphasis>Ganeti remote API</emphasis> documentation
-      for further information.
+      The daemon will listen by default on the port 5080, but this can
+      be changed via the <option>-p</option> option.
+    </para>
+
+    <para>
+      See the <emphasis>Ganeti remote API</emphasis> documentation for
+      further information.
     </para>
 
     <para>
       Requests are logged to
-      <filename>@LOCALSTATEDIR@/log/ganeti/rapi-access.log</filename> in a
-      format similar to Apache's Common Log Format. The timestamp is always in
-      the UTC timezone.
+      <filename>@LOCALSTATEDIR@/log/ganeti/rapi-daemon.log</filename>,
+      in the same format as for the node and master daemon.
     </para>
 
   </refsect1>
 
+  <refsect1>
+    <title>ACCESS CONTROLS</title>
+
+    <para>
+      All query operations are allowed without authentication. Only
+      the modification operations require authentication, in the form
+      of basic authentication.
+    </para>
+
+    <para>
+      The users and their rights are defined in a file named
+      <filename>rapi_users</filename>, located in the <filename
+      class="directory">@LOCALSTATEDIR@/ganeti</filename>
+      directory. The users should be listed one per line, in the
+      following format:
+    </para>
+
+    <screen>username password options</screen>
+
+    <para>
+      Currently the <replaceable>options</replaceable> field should
+      equal the string <emphasis>write</emphasis> in order to actually
+      give write permission for the given users. Example:
+    </para>
+    <screen>rclient   secret    write
+guest   tespw
+</screen>
+    <para>The first user (<userinput>rclient</userinput>) will have
+    read-write rights, whereas the second user does only have read
+    (query) rights, and as such is no different than not using
+    authentication at all.</para>
+  </refsect1>
   &footer;
 
 </refentry>

@@ -19,36 +19,120 @@
 # 02110-1301, USA.
 
 
+# pylint: disable-msg=W0401,W0614
+# W0401: Wildcard import ganeti.cli
+# W0614: Unused import %s from wildcard import (since we need cli)
+
 import sys
 from optparse import make_option
 
 from ganeti.cli import *
+from ganeti import cli
 from ganeti import opcodes
-from ganeti import logger
 from ganeti import utils
 from ganeti import constants
 from ganeti import errors
+from ganeti import bootstrap
 
 
+#: default list of field for L{ListNodes}
 _LIST_DEF_FIELDS = [
   "name", "dtotal", "dfree",
   "mtotal", "mnode", "mfree",
   "pinst_cnt", "sinst_cnt",
   ]
 
+#: headers (and full field list for L{ListNodes}
+_LIST_HEADERS = {
+  "name": "Node", "pinst_cnt": "Pinst", "sinst_cnt": "Sinst",
+  "pinst_list": "PriInstances", "sinst_list": "SecInstances",
+  "pip": "PrimaryIP", "sip": "SecondaryIP",
+  "dtotal": "DTotal", "dfree": "DFree",
+  "mtotal": "MTotal", "mnode": "MNode", "mfree": "MFree",
+  "bootid": "BootID",
+  "ctotal": "CTotal", "cnodes": "CNodes", "csockets": "CSockets",
+  "tags": "Tags",
+  "serial_no": "SerialNo",
+  "master_candidate": "MasterC",
+  "master": "IsMaster",
+  "offline": "Offline", "drained": "Drained",
+  }
+
+
+@UsesRPC
 def AddNode(opts, args):
-  """Add node cli-to-processor bridge."""
-  logger.ToStderr("-- WARNING -- \n"
-    "Performing this operation is going to replace the ssh daemon keypair\n"
-    "on the target machine (%s) with the ones of the current one\n"
-    "and grant full intra-cluster ssh root access to/from it\n" % args[0])
-  op = opcodes.OpAddNode(node_name=args[0], secondary_ip=opts.secondary_ip,
+  """Add a node to the cluster.
+
+  @param opts: the command line options selected by the user
+  @type args: list
+  @param args: should contain only one element, the new node name
+  @rtype: int
+  @return: the desired exit code
+
+  """
+  cl = GetClient()
+  dns_data = utils.HostInfo(args[0])
+  node = dns_data.name
+  readd = opts.readd
+
+  try:
+    output = cl.QueryNodes(names=[node], fields=['name', 'sip'],
+                           use_locking=False)
+    node_exists, sip = output[0]
+  except (errors.OpPrereqError, errors.OpExecError):
+    node_exists = ""
+    sip = None
+
+  if readd:
+    if not node_exists:
+      ToStderr("Node %s not in the cluster"
+               " - please retry without '--readd'", node)
+      return 1
+  else:
+    if node_exists:
+      ToStderr("Node %s already in the cluster (as %s)"
+               " - please retry with '--readd'", node, node_exists)
+      return 1
+    sip = opts.secondary_ip
+
+  # read the cluster name from the master
+  output = cl.QueryConfigValues(['cluster_name'])
+  cluster_name = output[0]
+
+  if readd:
+    # clear the offline and drain flags on the node
+    ToStdout("Resetting the 'offline' and 'drained' flags due to re-add")
+    op = opcodes.OpSetNodeParams(node_name=node, force=True,
+                                 offline=False, drained=False)
+
+    result = SubmitOpCode(op, cl=cl)
+    if result:
+      ToStdout("Modified:")
+      for param, data in result:
+        ToStdout(" - %-5s -> %s", param, data)
+  else:
+    ToStderr("-- WARNING -- \n"
+             "Performing this operation is going to replace the ssh daemon"
+             " keypair\n"
+             "on the target machine (%s) with the ones of the"
+             " current one\n"
+             "and grant full intra-cluster ssh root access to/from it\n", node)
+
+  bootstrap.SetupNodeDaemon(cluster_name, node, opts.ssh_key_check)
+
+  op = opcodes.OpAddNode(node_name=args[0], secondary_ip=sip,
                          readd=opts.readd)
   SubmitOpCode(op)
 
 
 def ListNodes(opts, args):
   """List nodes and their properties.
+
+  @param opts: the command line options selected by the user
+  @type args: list
+  @param args: should be an empty list
+  @rtype: int
+  @return: the desired exit code
 
   """
   if opts.output is None:
@@ -58,32 +142,19 @@ def ListNodes(opts, args):
   else:
     selected_fields = opts.output.split(",")
 
-  op = opcodes.OpQueryNodes(output_fields=selected_fields, names=[])
-  output = SubmitOpCode(op)
+  output = GetClient().QueryNodes(args, selected_fields, opts.do_locking)
 
   if not opts.no_headers:
-    headers = {
-      "name": "Node", "pinst_cnt": "Pinst", "sinst_cnt": "Sinst",
-      "pinst_list": "PriInstances", "sinst_list": "SecInstances",
-      "pip": "PrimaryIP", "sip": "SecondaryIP",
-      "dtotal": "DTotal", "dfree": "DFree",
-      "mtotal": "MTotal", "mnode": "MNode", "mfree": "MFree",
-      "bootid": "BootID",
-      "ctotal": "CTotal", "cnodes": "CNodes", "csockets": "CSockets",
-      "tags": "Tags",
-      }
+    headers = _LIST_HEADERS
   else:
     headers = None
 
-  if opts.human_readable:
-    unitfields = ["dtotal", "dfree", "mtotal", "mnode", "mfree"]
-  else:
-    unitfields = None
+  unitfields = ["dtotal", "dfree", "mtotal", "mnode", "mfree"]
 
   numfields = ["dtotal", "dfree",
                "mtotal", "mnode", "mfree",
                "pinst_cnt", "sinst_cnt",
-               "ctotal"]
+               "ctotal", "serial_no"]
 
   list_type_fields = ("pinst_list", "sinst_list", "tags")
   # change raw values to nicer strings
@@ -92,15 +163,20 @@ def ListNodes(opts, args):
       val = row[idx]
       if field in list_type_fields:
         val = ",".join(val)
+      elif field in ('master', 'master_candidate', 'offline', 'drained'):
+        if val:
+          val = 'Y'
+        else:
+          val = 'N'
       elif val is None:
         val = "?"
       row[idx] = str(val)
 
   data = GenerateTable(separator=opts.separator, headers=headers,
                        fields=selected_fields, unitfields=unitfields,
-                       numfields=numfields, data=output)
+                       numfields=numfields, data=output, units=opts.units)
   for line in data:
-    logger.ToStdout(line)
+    ToStdout(line)
 
   return 0
 
@@ -108,77 +184,91 @@ def ListNodes(opts, args):
 def EvacuateNode(opts, args):
   """Relocate all secondary instance from a node.
 
+  @param opts: the command line options selected by the user
+  @type args: list
+  @param args: should be an empty list
+  @rtype: int
+  @return: the desired exit code
+
   """
+  cl = GetClient()
   force = opts.force
+
+  dst_node = opts.dst_node
+  iallocator = opts.iallocator
+
+  cnt = [dst_node, iallocator].count(None)
+  if cnt != 1:
+    raise errors.OpPrereqError("One and only one of the -n and -i"
+                               " options must be passed")
+
   selected_fields = ["name", "sinst_list"]
-  src_node, dst_node = args
+  src_node = args[0]
 
-  op = opcodes.OpQueryNodes(output_fields=selected_fields, names=[src_node])
-  result = SubmitOpCode(op)
+  result = cl.QueryNodes(names=[src_node], fields=selected_fields,
+                         use_locking=False)
   src_node, sinst = result[0]
-  op = opcodes.OpQueryNodes(output_fields=["name"], names=[dst_node])
-  result = SubmitOpCode(op)
-  dst_node = result[0][0]
-
-  if src_node == dst_node:
-    raise errors.OpPrereqError("Evacuate node needs different source and"
-                               " target nodes (node %s given twice)" %
-                               src_node)
 
   if not sinst:
-    logger.ToStderr("No secondary instances on node %s, exiting." % src_node)
+    ToStderr("No secondary instances on node %s, exiting.", src_node)
     return constants.EXIT_SUCCESS
+
+  if dst_node is not None:
+    result = cl.QueryNodes(names=[dst_node], fields=["name"],
+                           use_locking=False)
+    dst_node = result[0][0]
+
+    if src_node == dst_node:
+      raise errors.OpPrereqError("Evacuate node needs different source and"
+                                 " target nodes (node %s given twice)" %
+                                 src_node)
+    txt_msg = "to node %s" % dst_node
+  else:
+    txt_msg = "using iallocator %s" % iallocator
 
   sinst = utils.NiceSort(sinst)
 
-  retcode = constants.EXIT_SUCCESS
-
   if not force and not AskUser("Relocate instance(s) %s from node\n"
-                               " %s to node\n %s?" %
+                               " %s %s?" %
                                (",".join("'%s'" % name for name in sinst),
-                               src_node, dst_node)):
+                               src_node, txt_msg)):
     return constants.EXIT_CONFIRMATION
 
-  good_cnt = bad_cnt = 0
+  ops = []
   for iname in sinst:
     op = opcodes.OpReplaceDisks(instance_name=iname,
                                 remote_node=dst_node,
-                                mode=constants.REPLACE_DISK_ALL,
-                                disks=["sda", "sdb"])
-    try:
-      logger.ToStdout("Replacing disks for instance %s" % iname)
-      SubmitOpCode(op)
-      logger.ToStdout("Instance %s has been relocated" % iname)
-      good_cnt += 1
-    except errors.GenericError, err:
-      nret, msg = FormatError(err)
-      retcode |= nret
-      logger.ToStderr("Error replacing disks for instance %s: %s" %
-                      (iname, msg))
-      bad_cnt += 1
+                                mode=constants.REPLACE_DISK_CHG,
+                                iallocator=iallocator,
+                                disks=[])
+    ops.append(op)
 
-  if retcode == constants.EXIT_SUCCESS:
-    logger.ToStdout("All %d instance(s) relocated successfully." % good_cnt)
-  else:
-    logger.ToStdout("There were errors during the relocation:\n"
-                    "%d error(s) out of %d instance(s)." %
-                    (bad_cnt, good_cnt + bad_cnt))
-  return retcode
+  job_id = cli.SendJob(ops, cl=cl)
+  cli.PollJob(job_id, cl=cl)
 
 
 def FailoverNode(opts, args):
   """Failover all primary instance on a node.
 
+  @param opts: the command line options selected by the user
+  @type args: list
+  @param args: should be an empty list
+  @rtype: int
+  @return: the desired exit code
+
   """
+  cl = GetClient()
   force = opts.force
   selected_fields = ["name", "pinst_list"]
 
-  op = opcodes.OpQueryNodes(output_fields=selected_fields, names=args)
-  result = SubmitOpCode(op)
+  # these fields are static data anyway, so it doesn't matter, but
+  # locking=True should be safer
+  result = cl.QueryNodes(names=args, fields=selected_fields,
+                         use_locking=False)
   node, pinst = result[0]
 
   if not pinst:
-    logger.ToStderr("No primary instances on node %s, exiting." % node)
+    ToStderr("No primary instances on node %s, exiting.", node)
     return 0
 
   pinst = utils.NiceSort(pinst)
@@ -189,27 +279,18 @@ def FailoverNode(opts, args):
                                (",".join("'%s'" % name for name in pinst))):
     return 2
 
-  good_cnt = bad_cnt = 0
+  jex = JobExecutor(cl=cl)
   for iname in pinst:
     op = opcodes.OpFailoverInstance(instance_name=iname,
                                     ignore_consistency=opts.ignore_consistency)
-    try:
-      logger.ToStdout("Failing over instance %s" % iname)
-      SubmitOpCode(op)
-      logger.ToStdout("Instance %s has been failed over" % iname)
-      good_cnt += 1
-    except errors.GenericError, err:
-      nret, msg = FormatError(err)
-      retcode |= nret
-      logger.ToStderr("Error failing over instance %s: %s" % (iname, msg))
-      bad_cnt += 1
-
-  if retcode == 0:
-    logger.ToStdout("All %d instance(s) failed over successfully." % good_cnt)
+    jex.QueueJob(iname, op)
+  results = jex.GetResults()
+  bad_cnt = len([row for row in results if not row[0]])
+  if bad_cnt == 0:
+    ToStdout("All %d instance(s) failed over successfully.", len(results))
   else:
-    logger.ToStdout("There were errors during the failover:\n"
-                    "%d error(s) out of %d instance(s)." %
-                    (bad_cnt, good_cnt + bad_cnt))
+    ToStdout("There were errors during the failover:\n"
+             "%d error(s) out of %d instance(s).", bad_cnt, len(results))
   return retcode
 
 
@@ -217,86 +298,109 @@ def MigrateNode(opts, args):
   """Migrate all primary instance on a node.
 
   """
+  cl = GetClient()
   force = opts.force
   selected_fields = ["name", "pinst_list"]
 
-  op = opcodes.OpQueryNodes(output_fields=selected_fields, names=args)
-  result = SubmitOpCode(op)
+  result = cl.QueryNodes(names=args, fields=selected_fields, use_locking=False)
   node, pinst = result[0]
 
   if not pinst:
-    logger.ToStderr("No primary instances on node %s, exiting." % node)
+    ToStdout("No primary instances on node %s, exiting." % node)
     return 0
 
   pinst = utils.NiceSort(pinst)
 
   retcode = 0
 
-  if not force and not AskUser("Fail over instance(s) %s?" %
+  if not force and not AskUser("Migrate instance(s) %s?" %
                                (",".join("'%s'" % name for name in pinst))):
     return 2
 
-  good_cnt = bad_cnt = 0
+  jex = JobExecutor(cl=cl)
   for iname in pinst:
     op = opcodes.OpMigrateInstance(instance_name=iname, live=opts.live,
                                    cleanup=False)
-    try:
-      logger.ToStdout("Migrating instance %s" % iname)
-      SubmitOpCode(op)
-      logger.ToStdout("Instance %s has been migrated" % iname)
-      good_cnt += 1
-    except errors.GenericError, err:
-      nret, msg = FormatError(err)
-      retcode |= nret
-      logger.ToStderr("Error migrating instance %s: %s" % (iname, msg))
-      bad_cnt += 1
+    jex.QueueJob(iname, op)
 
-  if retcode == 0:
-    logger.ToStdout("All %d instance(s) migrated successfully." % good_cnt)
+  results = jex.GetResults()
+  bad_cnt = len([row for row in results if not row[0]])
+  if bad_cnt == 0:
+    ToStdout("All %d instance(s) migrated successfully.", len(results))
   else:
-    logger.ToStdout("There were errors during the migration:\n"
-                    "%d error(s) out of %d instance(s)." %
-                    (bad_cnt, good_cnt + bad_cnt))
+    ToStdout("There were errors during the migration:\n"
+             "%d error(s) out of %d instance(s).", bad_cnt, len(results))
   return retcode
 
 
 def ShowNodeConfig(opts, args):
   """Show node information.
 
-  """
-  op = opcodes.OpQueryNodes(output_fields=["name", "pip", "sip",
-                                           "pinst_list", "sinst_list"],
-                            names=args)
-  result = SubmitOpCode(op)
+  @param opts: the command line options selected by the user
+  @type args: list
+  @param args: should either be an empty list, in which case
+      we show information about all nodes, or should contain
+      a list of nodes to be queried for information
+  @rtype: int
+  @return: the desired exit code
 
-  for name, primary_ip, secondary_ip, pinst, sinst in result:
-    logger.ToStdout("Node name: %s" % name)
-    logger.ToStdout("  primary ip: %s" % primary_ip)
-    logger.ToStdout("  secondary ip: %s" % secondary_ip)
+  """
+  cl = GetClient()
+  result = cl.QueryNodes(fields=["name", "pip", "sip",
+                                 "pinst_list", "sinst_list",
+                                 "master_candidate", "drained", "offline"],
+                         names=args, use_locking=False)
+
+  for (name, primary_ip, secondary_ip, pinst, sinst,
+       is_mc, drained, offline) in result:
+    ToStdout("Node name: %s", name)
+    ToStdout("  primary ip: %s", primary_ip)
+    ToStdout("  secondary ip: %s", secondary_ip)
+    ToStdout("  master candidate: %s", is_mc)
+    ToStdout("  drained: %s", drained)
+    ToStdout("  offline: %s", offline)
     if pinst:
-      logger.ToStdout("  primary for instances:")
-      for iname in pinst:
-        logger.ToStdout("    - %s" % iname)
+      ToStdout("  primary for instances:")
+      for iname in utils.NiceSort(pinst):
+        ToStdout("    - %s", iname)
     else:
-      logger.ToStdout("  primary for no instances")
+      ToStdout("  primary for no instances")
     if sinst:
-      logger.ToStdout("  secondary for instances:")
-      for iname in sinst:
-        logger.ToStdout("    - %s" % iname)
+      ToStdout("  secondary for instances:")
+      for iname in utils.NiceSort(sinst):
+        ToStdout("    - %s", iname)
     else:
-      logger.ToStdout("  secondary for no instances")
+      ToStdout("  secondary for no instances")
 
   return 0
 
 
 def RemoveNode(opts, args):
-  """Remove node cli-to-processor bridge."""
+  """Remove a node from the cluster.
+
+  @param opts: the command line options selected by the user
+  @type args: list
+  @param args: should contain only one element, the name of
+      the node to be removed
+  @rtype: int
+  @return: the desired exit code
+
+  """
   op = opcodes.OpRemoveNode(node_name=args[0])
   SubmitOpCode(op)
+  return 0
 
 
 def ListVolumes(opts, args):
   """List logical volumes on node(s).
+
+  @param opts: the command line options selected by the user
+  @type args: list
+  @param args: should either be an empty list, in which case
+      we list data for all nodes, or contain a list of nodes
+      to display data only for those
+  @rtype: int
+  @return: the desired exit code
 
   """
   if opts.output is None:
@@ -315,20 +419,60 @@ def ListVolumes(opts, args):
   else:
     headers = None
 
-  if opts.human_readable:
-    unitfields = ["size"]
-  else:
-    unitfields = None
+  unitfields = ["size"]
 
   numfields = ["size"]
 
   data = GenerateTable(separator=opts.separator, headers=headers,
                        fields=selected_fields, unitfields=unitfields,
-                       numfields=numfields, data=output)
+                       numfields=numfields, data=output, units=opts.units)
 
   for line in data:
-    logger.ToStdout(line)
+    ToStdout(line)
 
+  return 0
+
+
+def SetNodeParams(opts, args):
+  """Modifies a node.
+
+  @param opts: the command line options selected by the user
+  @type args: list
+  @param args: should contain only one element, the node name
+  @rtype: int
+  @return: the desired exit code
+
+  """
+  if [opts.master_candidate, opts.drained, opts.offline].count(None) == 3:
+    ToStderr("Please give at least one of the parameters.")
+    return 1
+
+  if opts.master_candidate is not None:
+    candidate = opts.master_candidate == 'yes'
+  else:
+    candidate = None
+  if opts.offline is not None:
+    offline = opts.offline == 'yes'
+  else:
+    offline = None
+
+  if opts.drained is not None:
+    drained = opts.drained == 'yes'
+  else:
+    drained = None
+  op = opcodes.OpSetNodeParams(node_name=args[0],
+                               master_candidate=candidate,
+                               offline=offline,
+                               drained=drained,
+                               force=opts.force)
+
+  # even if here we process the result, we allow submit only
+  result = SubmitOrSend(op, opts)
+
+  if result:
+    ToStdout("Modified node %s", args[0])
+    for param, data in result:
+      ToStdout(" - %-5s -> %s", param, data)
   return 0
 
 
@@ -341,14 +485,26 @@ commands = {
            make_option("--readd", dest="readd",
                        default=False, action="store_true",
                        help="Readd old node after replacing it"),
+           make_option("--no-ssh-key-check", dest="ssh_key_check",
+                       default=True, action="store_false",
+                       help="Disable SSH key fingerprint checking"),
            ],
-          "[-s ip] [--readd] <node_name>", "Add a node to the cluster"),
-  'evacuate': (EvacuateNode, ARGS_FIXED(2),
-               [DEBUG_OPT, FORCE_OPT],
-               "[-f] <src> <dst>",
-               "Relocate the secondary instances from the first node"
-               " to the second one (only for instances of type remote_raid1"
-               " or drbd)"),
+          "[-s ip] [--readd] [--no-ssh-key-check] <node_name>",
+          "Add a node to the cluster"),
+  'evacuate': (EvacuateNode, ARGS_ONE,
+               [DEBUG_OPT, FORCE_OPT,
+                make_option("-n", "--new-secondary", dest="dst_node",
+                            help="New secondary node", metavar="NODE",
+                            default=None),
+                make_option("-I", "--iallocator", metavar="<NAME>",
+                            help="Select new secondary for the instance"
+                            " automatically using the"
+                            " <NAME> iallocator plugin",
+                            default=None, type="string"),
+                ],
+               "[-f] {-I <iallocator> | -n <dst>} <node>",
+               "Relocate the secondary instances from a node"
+               " to other nodes (only for instances with drbd disk template)"),
   'failover': (FailoverNode, ARGS_ONE,
                [DEBUG_OPT, FORCE_OPT,
                 make_option("--ignore-consistency", dest="ignore_consistency",
@@ -358,8 +514,7 @@ commands = {
                 ],
                "[-f] <node>",
                "Stops the primary instances on a node and start them on their"
-               " secondary node (only for instances of type remote_raid1"
-               " or drbd)"),
+               " secondary node (only for instances with drbd disk template)"),
   'migrate': (MigrateNode, ARGS_ONE,
                [DEBUG_OPT, FORCE_OPT,
                 make_option("--non-live", dest="live",
@@ -374,15 +529,29 @@ commands = {
                " (only for instances of type drbd)"),
   'info': (ShowNodeConfig, ARGS_ANY, [DEBUG_OPT],
            "[<node_name>...]", "Show information about the node(s)"),
-  'list': (ListNodes, ARGS_NONE,
-           [DEBUG_OPT, NOHDR_OPT, SEP_OPT, USEUNITS_OPT, FIELDS_OPT],
-           "", "Lists the nodes in the cluster. The available fields"
-           " are (see the man page for details): name, pinst_cnt, pinst_list,"
-           " sinst_cnt, sinst_list, pip, sip, dtotal, dfree, mtotal, mnode,"
-           " mfree, bootid, ctotal, cnodes, csockets."
-           " The default field list is"
-           " (in order): %s." % ", ".join(_LIST_DEF_FIELDS),
-           ),
+  'list': (ListNodes, ARGS_ANY,
+           [DEBUG_OPT, NOHDR_OPT, SEP_OPT, USEUNITS_OPT, FIELDS_OPT, SYNC_OPT],
+           "[nodes...]",
+           "Lists the nodes in the cluster. The available fields"
+           " are (see the man page for details): %s"
+           " The default field list is (in order): %s." %
+           (", ".join(_LIST_HEADERS), ", ".join(_LIST_DEF_FIELDS))),
+  'modify': (SetNodeParams, ARGS_ONE,
+             [DEBUG_OPT, FORCE_OPT,
+              SUBMIT_OPT,
+              make_option("-C", "--master-candidate", dest="master_candidate",
+                          choices=('yes', 'no'), default=None,
+                          metavar="yes|no",
+                          help="Set the master_candidate flag on the node"),
+
+              make_option("-O", "--offline", dest="offline", metavar="yes|no",
+                          choices=('yes', 'no'), default=None,
+                          help="Set the offline flag on the node"),
+              make_option("-D", "--drained", dest="drained", metavar="yes|no",
+                          choices=('yes', 'no'), default=None,
+                          help="Set the drained flag on the node"),
+              ],
+             "<instance>", "Alters the parameters of an instance"),
   'remove': (RemoveNode, ARGS_ONE, [DEBUG_OPT],
              "<node_name>", "Removes a node from the cluster"),
   'volumes': (ListVolumes, ARGS_ANY,

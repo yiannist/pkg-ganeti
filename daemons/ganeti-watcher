@@ -30,26 +30,30 @@ by a node reboot.  Run from cron or similar.
 import os
 import sys
 import time
-import fcntl
-import errno
 import logging
 from optparse import OptionParser
 
 from ganeti import utils
 from ganeti import constants
 from ganeti import serializer
-from ganeti import ssconf
 from ganeti import errors
+from ganeti import opcodes
+from ganeti import cli
+from ganeti import luxi
 
 
 MAXTRIES = 5
-BAD_STATES = ['stopped']
-HELPLESS_STATES = ['(node down)']
+BAD_STATES = ['ERROR_down']
+HELPLESS_STATES = ['ERROR_nodedown', 'ERROR_nodeoffline']
 NOTICE = 'NOTICE'
 ERROR = 'ERROR'
 KEY_RESTART_COUNT = "restart_count"
 KEY_RESTART_WHEN = "restart_when"
 KEY_BOOT_ID = "bootid"
+
+
+# Global client object
+client = None
 
 
 class NotMasterError(errors.GenericError):
@@ -59,46 +63,35 @@ class NotMasterError(errors.GenericError):
 def Indent(s, prefix='| '):
   """Indent a piece of text with a given prefix before each line.
 
-  Args:
-    s: The string to indent
-    prefix: The string to prepend each line.
+  @param s: the string to indent
+  @param prefix: the string to prepend each line
 
   """
   return "%s%s\n" % (prefix, ('\n' + prefix).join(s.splitlines()))
 
 
-def DoCmd(cmd):
-  """Run a shell command.
-
-  Args:
-    cmd: the command to run.
-
-  Raises CommandError with verbose commentary on error.
+def StartMaster():
+  """Try to start the master daemon.
 
   """
-  res = utils.RunCmd(cmd)
-
-  if res.failed:
-    msg = ("Command %s failed:\n%s\nstdout:\n%sstderr:\n%s" %
-           (repr(cmd),
-            Indent(res.fail_reason),
-            Indent(res.stdout),
-            Indent(res.stderr)))
-    raise errors.CommandError(msg)
-
-  return res
+  result = utils.RunCmd(['ganeti-masterd'])
+  if result.failed:
+    logging.error("Can't start the master daemon: output '%s'", result.output)
+  return not result.failed
 
 
-def LockFile(fd):
-  """Locks a file using POSIX locks.
+def EnsureDaemon(daemon):
+  """Check for and start daemon if not alive.
 
   """
-  try:
-    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-  except IOError, err:
-    if err.errno == errno.EAGAIN:
-      raise errors.LockError("File already locked")
-    raise
+  pidfile = utils.DaemonPidFileName(daemon)
+  pid = utils.ReadPidFile(pidfile)
+  if pid == 0 or not utils.IsProcessAlive(pid): # no file or dead pid
+    logging.debug("Daemon '%s' not alive, trying to restart", daemon)
+    result = utils.RunCmd([daemon])
+    if not result:
+      logging.error("Can't start daemon '%s', failure %s, output: %s",
+                    daemon, result.fail_reason, result.output)
 
 
 class WatcherState(object):
@@ -117,14 +110,18 @@ class WatcherState(object):
     fd = os.open(constants.WATCHER_STATEFILE, os.O_RDWR | os.O_CREAT)
     self.statefile = os.fdopen(fd, 'w+')
 
-    LockFile(self.statefile.fileno())
+    utils.LockFile(self.statefile.fileno())
 
     try:
-      self._data = serializer.Load(self.statefile.read())
+      state_data = self.statefile.read()
+      if not state_data:
+        self._data = {}
+      else:
+        self._data = serializer.Load(state_data)
     except Exception, msg:
       # Ignore errors while loading the file and treat it as empty
       self._data = {}
-      logging.warning(("Empty or invalid state file. Using defaults."
+      logging.warning(("Invalid state file. Using defaults."
                        " Error message: %s"), msg)
 
     if "instance" not in self._data:
@@ -150,7 +147,7 @@ class WatcherState(object):
     # starting ganeti-watcher again at the same time will create a conflict.
     fd = utils.WriteFile(constants.WATCHER_STATEFILE,
                          data=serialized_form,
-                         prewrite=LockFile, close=False)
+                         prewrite=utils.LockFile, close=False)
     self.statefile = os.fdopen(fd, 'w+')
 
   def Close(self):
@@ -189,8 +186,8 @@ class WatcherState(object):
   def NumberOfRestartAttempts(self, instance):
     """Returns number of previous restart attempts.
 
-    Args:
-      instance - the instance to look up.
+    @type instance: L{Instance}
+    @param instance: the instance to look up
 
     """
     idata = self._data["instance"]
@@ -203,8 +200,8 @@ class WatcherState(object):
   def RecordRestartAttempt(self, instance):
     """Record a restart attempt.
 
-    Args:
-      instance - the instance being restarted
+    @type instance: L{Instance}
+    @param instance: the instance being restarted
 
     """
     idata = self._data["instance"]
@@ -218,12 +215,13 @@ class WatcherState(object):
     inst[KEY_RESTART_COUNT] = inst.get(KEY_RESTART_COUNT, 0) + 1
 
   def RemoveInstance(self, instance):
-    """Update state to reflect that a machine is running, i.e. remove record.
+    """Update state to reflect that a machine is running.
 
-    Args:
-      instance - the instance to remove from books
+    This method removes the record for a named instance (as we only
+    track down instances).
 
-    This method removes the record for a named instance.
+    @type instance: L{Instance}
+    @param instance: the instance to remove from books
 
     """
     idata = self._data["instance"]
@@ -235,9 +233,6 @@ class WatcherState(object):
 class Instance(object):
   """Abstraction for a Virtual Machine instance.
 
-  Methods:
-    Restart(): issue a command to restart the represented machine.
-
   """
   def __init__(self, name, state, autostart):
     self.name = name
@@ -248,73 +243,60 @@ class Instance(object):
     """Encapsulates the start of an instance.
 
     """
-    DoCmd(['gnt-instance', 'startup', '--lock-retries=15', self.name])
+    op = opcodes.OpStartupInstance(instance_name=self.name, force=False)
+    cli.SubmitOpCode(op, cl=client)
 
   def ActivateDisks(self):
     """Encapsulates the activation of all disks of an instance.
 
     """
-    DoCmd(['gnt-instance', 'activate-disks', '--lock-retries=15', self.name])
+    op = opcodes.OpActivateInstanceDisks(instance_name=self.name)
+    cli.SubmitOpCode(op, cl=client)
 
 
-def _RunListCmd(cmd):
-  """Runs a command and parses its output into lists.
-
-  """
-  for line in DoCmd(cmd).stdout.splitlines():
-    yield line.split(':')
-
-
-def GetInstanceList(with_secondaries=None):
+def GetClusterData():
   """Get a list of instances on this cluster.
 
   """
-  cmd = ['gnt-instance', 'list', '--lock-retries=15', '--no-headers',
-         '--separator=:']
+  op1_fields = ["name", "status", "admin_state", "snodes"]
+  op1 = opcodes.OpQueryInstances(output_fields=op1_fields, names=[],
+                                 use_locking=True)
+  op2_fields = ["name", "bootid", "offline"]
+  op2 = opcodes.OpQueryNodes(output_fields=op2_fields, names=[],
+                             use_locking=True)
 
-  fields = 'name,oper_state,admin_state'
+  job_id = client.SubmitJob([op1, op2])
 
-  if with_secondaries is not None:
-    fields += ',snodes'
+  all_results = cli.PollJob(job_id, cl=client, feedback_fn=logging.debug)
 
-  cmd.append('-o')
-  cmd.append(fields)
+  logging.debug("Got data from cluster, writing instance status file")
 
-  instances = []
-  for fields in _RunListCmd(cmd):
-    if with_secondaries is not None:
-      (name, status, autostart, snodes) = fields
+  result = all_results[0]
+  smap = {}
 
-      if snodes == "-":
-        continue
+  instances = {}
 
-      for node in with_secondaries:
-        if node in snodes.split(','):
-          break
-      else:
-        continue
+  # write the upfile
+  up_data = "".join(["%s %s\n" % (fields[0], fields[1]) for fields in result])
+  utils.WriteFile(file_name=constants.INSTANCE_UPFILE, data=up_data)
 
-    else:
-      (name, status, autostart) = fields
+  for fields in result:
+    (name, status, autostart, snodes) = fields
 
-    instances.append(Instance(name, status, autostart != "no"))
+    # update the secondary node map
+    for node in snodes:
+      if node not in smap:
+        smap[node] = []
+      smap[node].append(name)
 
-  return instances
+    instances[name] = Instance(name, status, autostart)
 
+  nodes =  dict([(name, (bootid, offline))
+                 for name, bootid, offline in all_results[1]])
 
-def GetNodeBootIDs():
-  """Get a dict mapping nodes to boot IDs.
+  client.ArchiveJob(job_id)
 
-  """
-  cmd = ['gnt-node', 'list', '--lock-retries=15', '--no-headers',
-         '--separator=:', '-o', 'name,bootid']
-
-  ids = {}
-  for fields in _RunListCmd(cmd):
-    (name, bootid) = fields
-    ids[name] = bootid
-
-  return ids
+  return instances, nodes, smap
 
 
 class Watcher(object):
@@ -325,31 +307,48 @@ class Watcher(object):
   to restart machines that are down.
 
   """
-  def __init__(self):
-    sstore = ssconf.SimpleStore()
-    master = sstore.GetMasterNode()
+  def __init__(self, opts, notepad):
+    self.notepad = notepad
+    master = client.QueryConfigValues(["master_node"])[0]
     if master != utils.HostInfo().name:
       raise NotMasterError("This is not the master node")
-    self.instances = GetInstanceList()
-    self.bootids = GetNodeBootIDs()
+    # first archive old jobs
+    self.ArchiveJobs(opts.job_age)
+    # and only then submit new ones
+    self.instances, self.bootids, self.smap = GetClusterData()
     self.started_instances = set()
+    self.opts = opts
 
   def Run(self):
-    notepad = WatcherState()
-    try:
-      self.CheckInstances(notepad)
-      self.CheckDisks(notepad)
-      self.VerifyDisks()
-    finally:
-      notepad.Save()
+    """Watcher run sequence.
+
+    """
+    notepad = self.notepad
+    self.CheckInstances(notepad)
+    self.CheckDisks(notepad)
+    self.VerifyDisks()
+
+  @staticmethod
+  def ArchiveJobs(age):
+    """Archive old jobs.
+
+    """
+    arch_count, left_count = client.AutoArchiveJobs(age)
+    logging.debug("Archived %s jobs, left %s" % (arch_count, left_count))
 
   def CheckDisks(self, notepad):
     """Check all nodes for restarted ones.
 
     """
     check_nodes = []
-    for name, new_id in self.bootids.iteritems():
+    for name, (new_id, offline) in self.bootids.iteritems():
       old = notepad.GetNodeBootID(name)
+      if new_id is None:
+        # Bad node, not returning a boot id
+        if not offline:
+          logging.debug("Node %s missing boot id, skipping secondary checks",
+                        name)
+        continue
       if old != new_id:
         # Node's boot ID has changed, proably through a reboot.
         check_nodes.append(name)
@@ -357,34 +356,35 @@ class Watcher(object):
     if check_nodes:
       # Activate disks for all instances with any of the checked nodes as a
       # secondary node.
-      for instance in GetInstanceList(with_secondaries=check_nodes):
-        if not instance.autostart:
-          logging.info(("Skipping disk activation for non-autostart"
-                        " instance %s"), instance.name)
+      for node in check_nodes:
+        if node not in self.smap:
           continue
-        if instance.name in self.started_instances:
-          # we already tried to start the instance, which should have
-          # activated its drives (if they can be at all)
-          continue
-        try:
-          logging.info("Activating disks for instance %s", instance.name)
-          instance.ActivateDisks()
-        except Exception, err:
-          logging.error(str(err), exc_info=True)
+        for instance_name in self.smap[node]:
+          instance = self.instances[instance_name]
+          if not instance.autostart:
+            logging.info(("Skipping disk activation for non-autostart"
+                          " instance %s"), instance.name)
+            continue
+          if instance.name in self.started_instances:
+            # we already tried to start the instance, which should have
+            # activated its drives (if they can be at all)
+            continue
+          try:
+            logging.info("Activating disks for instance %s", instance.name)
+            instance.ActivateDisks()
+          except Exception:
+            logging.exception("Error while activating disks for instance %s",
+                              instance.name)
 
       # Keep changed boot IDs
       for name in check_nodes:
-        notepad.SetNodeBootID(name, self.bootids[name])
+        notepad.SetNodeBootID(name, self.bootids[name][0])
 
   def CheckInstances(self, notepad):
     """Make a pass over the list of instances, restarting downed ones.
 
     """
-    for instance in self.instances:
-      # Don't care about manually stopped instances
-      if not instance.autostart:
-        continue
-
+    for instance in self.instances.values():
       if instance.state in BAD_STATES:
         n = notepad.NumberOfRestartAttempts(instance)
 
@@ -403,8 +403,9 @@ class Watcher(object):
                         instance.name, last)
           instance.Restart()
           self.started_instances.add(instance.name)
-        except Exception, err:
-          logging.error(str(err), exc_info=True)
+        except Exception:
+          logging.exception("Error while restarting instance %s",
+                            instance.name)
 
         notepad.RecordRestartAttempt(instance)
       elif instance.state in HELPLESS_STATES:
@@ -415,20 +416,37 @@ class Watcher(object):
           notepad.RemoveInstance(instance)
           logging.info("Restart of %s succeeded", instance.name)
 
-  def VerifyDisks(self):
+  @staticmethod
+  def VerifyDisks():
     """Run gnt-cluster verify-disks.
 
     """
-    result = DoCmd(['gnt-cluster', 'verify-disks', '--lock-retries=15'])
-    if result.output:
-      logging.info(result.output)
+    op = opcodes.OpVerifyDisks()
+    job_id = client.SubmitJob([op])
+    result = cli.PollJob(job_id, cl=client, feedback_fn=logging.debug)[0]
+    client.ArchiveJob(job_id)
+    if not isinstance(result, (tuple, list)):
+      logging.error("Can't get a valid result from verify-disks")
+      return
+    offline_disk_instances = result[2]
+    if not offline_disk_instances:
+      # nothing to do
+      return
+    logging.debug("Will activate disks for instances %s",
+                  ", ".join(offline_disk_instances))
+    # we submit only one job, and wait for it. not optimal, but spams
+    # less the job queue
+    job = [opcodes.OpActivateInstanceDisks(instance_name=name)
+           for name in offline_disk_instances]
+    job_id = cli.SendJob(job, cl=client)
+
+    cli.PollJob(job_id, cl=client, feedback_fn=logging.debug)
 
 
 def ParseOptions():
   """Parse the command line options.
 
-  Returns:
-    (options, args) as from OptionParser.parse_args()
+  @return: (options, args) as from OptionParser.parse_args()
 
   """
   parser = OptionParser(description="Ganeti cluster watcher",
@@ -439,49 +457,67 @@ def ParseOptions():
   parser.add_option("-d", "--debug", dest="debug",
                     help="Write all messages to stderr",
                     default=False, action="store_true")
+  parser.add_option("-A", "--job-age", dest="job_age",
+                    help="Autoarchive jobs older than this age (default"
+                    " 6 hours)", default=6*3600)
   options, args = parser.parse_args()
+  options.job_age = cli.ParseTimespec(options.job_age)
   return options, args
-
-
-def SetupLogging(debug):
-  """Configures the logging module.
-
-  """
-  formatter = logging.Formatter("%(asctime)s %(module)s[%(process)d]:"
-                                " %(message)s")
-
-  logfile_handler = logging.FileHandler(constants.LOG_WATCHER)
-  logfile_handler.setFormatter(formatter)
-  logfile_handler.setLevel(logging.INFO)
-
-  stderr_handler = logging.StreamHandler()
-  stderr_handler.setFormatter(formatter)
-  if debug:
-    stderr_handler.setLevel(logging.NOTSET)
-  else:
-    stderr_handler.setLevel(logging.CRITICAL)
-
-  root_logger = logging.getLogger("")
-  root_logger.setLevel(logging.NOTSET)
-  root_logger.addHandler(logfile_handler)
-  root_logger.addHandler(stderr_handler)
 
 
 def main():
   """Main function.
 
   """
+  global client
+
   options, args = ParseOptions()
 
-  SetupLogging(options.debug)
+  utils.SetupLogging(constants.LOG_WATCHER, debug=options.debug,
+                     stderr_logging=options.debug)
 
+  update_file = False
   try:
+    # on master or not, try to start the node dameon (use _PID but is
+    # the same as daemon name)
+    EnsureDaemon(constants.NODED_PID)
+
+    notepad = WatcherState()
     try:
-      watcher = Watcher()
-    except errors.ConfigurationError:
-      # Just exit if there's no configuration
-      sys.exit(constants.EXIT_SUCCESS)
-    watcher.Run()
+      try:
+        client = cli.GetClient()
+      except errors.OpPrereqError:
+        # this is, from cli.GetClient, a not-master case
+        logging.debug("Not on master, exiting")
+        update_file = True
+        sys.exit(constants.EXIT_SUCCESS)
+      except luxi.NoMasterError, err:
+        logging.warning("Master seems to be down (%s), trying to restart",
+                        str(err))
+        if not StartMaster():
+          logging.critical("Can't start the master, exiting")
+          sys.exit(constants.EXIT_FAILURE)
+        # else retry the connection
+        client = cli.GetClient()
+
+      # we are on master now (use _PID but is the same as daemon name)
+      EnsureDaemon(constants.RAPI_PID)
+
+      try:
+        watcher = Watcher(options, notepad)
+      except errors.ConfigurationError:
+        # Just exit if there's no configuration
+        update_file = True
+        sys.exit(constants.EXIT_SUCCESS)
+
+      watcher.Run()
+      update_file = True
+
+    finally:
+      if update_file:
+        notepad.Save()
+      else:
+        logging.debug("Not updating status file due to failure")
   except SystemExit:
     raise
   except NotMasterError:
@@ -490,6 +526,10 @@ def main():
   except errors.ResolverError, err:
     logging.error("Cannot resolve hostname '%s', exiting.", err.args[0])
     sys.exit(constants.EXIT_NODESETUP_ERROR)
+  except errors.JobQueueFull:
+    logging.error("Job queue is full, can't query cluster state")
+  except errors.JobQueueDrainError:
+    logging.error("Job queue is drained, can't maintain cluster state")
   except Exception, err:
     logging.error(str(err), exc_info=True)
     sys.exit(constants.EXIT_FAILURE)

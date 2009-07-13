@@ -27,68 +27,80 @@
 import os
 import sys
 import traceback
+import SocketServer
 import errno
+import logging
+import signal
 
 from optparse import OptionParser
 
 from ganeti import backend
-from ganeti import logger
 from ganeti import constants
 from ganeti import objects
 from ganeti import errors
-from ganeti import ssconf
+from ganeti import jstore
+from ganeti import daemon
+from ganeti import http
 from ganeti import utils
 
-from twisted.spread import pb
-from twisted.internet import reactor
-from twisted.cred import checkers, portal
-from OpenSSL import SSL
+import ganeti.http.server
 
 
-class ServerContextFactory:
-  """SSL context factory class that uses a given certificate.
+queue_lock = None
+
+
+def _RequireJobQueueLock(fn):
+  """Decorator for job queue manipulating functions.
 
   """
-  @staticmethod
-  def getContext():
-    """Return a customized context.
+  QUEUE_LOCK_TIMEOUT = 10
 
-    The context will be set to use our certificate.
+  def wrapper(*args, **kwargs):
+    # Locking in exclusive, blocking mode because there could be several
+    # children running at the same time. Waiting up to 10 seconds.
+    queue_lock.Exclusive(blocking=True, timeout=QUEUE_LOCK_TIMEOUT)
+    try:
+      return fn(*args, **kwargs)
+    finally:
+      queue_lock.Unlock()
 
-    """
-    ctx = SSL.Context(SSL.TLSv1_METHOD)
-    ctx.use_certificate_file(constants.SSL_CERT_FILE)
-    ctx.use_privatekey_file(constants.SSL_CERT_FILE)
-    return ctx
+  return wrapper
 
 
-class ServerObject(pb.Avatar):
+class NodeHttpServer(http.server.HttpServer):
   """The server implementation.
 
   This class holds all methods exposed over the RPC interface.
 
   """
-  def __init__(self, name):
-    self.name = name
+  def __init__(self, *args, **kwargs):
+    http.server.HttpServer.__init__(self, *args, **kwargs)
+    self.noded_pid = os.getpid()
 
-  def perspectiveMessageReceived(self, broker, message, args, kw):
-    """Custom message dispatching function.
-
-    This function overrides the pb.Avatar function in order to provide
-    a simple form of exception passing (as text only).
+  def HandleRequest(self, req):
+    """Handle a request.
 
     """
-    args = broker.unserialize(args, self)
-    kw = broker.unserialize(kw, self)
-    method = getattr(self, "perspective_%s" % message)
-    tb = None
-    state = None
-    try:
-      state = method(*args, **kw)
-    except:
-      tb = traceback.format_exc()
+    if req.request_method.upper() != http.HTTP_PUT:
+      raise http.HttpBadRequest()
 
-    return broker.serialize((tb, state), self, method, args, kw)
+    path = req.request_path
+    if path.startswith("/"):
+      path = path[1:]
+
+    method = getattr(self, "perspective_%s" % path, None)
+    if method is None:
+      raise http.HttpNotFound()
+
+    try:
+      try:
+        return method(req.request_body)
+      except:
+        logging.exception("Error in RPC call")
+        raise
+    except errors.QuitGanetiException, err:
+      # Tell parent to quit
+      os.kill(self.noded_pid, signal.SIGTERM)
 
   # the new block devices  --------------------------
 
@@ -101,7 +113,7 @@ class ServerObject(pb.Avatar):
     bdev = objects.Disk.FromDict(bdev_s)
     if bdev is None:
       raise ValueError("can't unserialize data!")
-    return backend.CreateBlockDevice(bdev, size, owner, on_primary, info)
+    return backend.BlockdevCreate(bdev, size, owner, on_primary, info)
 
   @staticmethod
   def perspective_blockdev_remove(params):
@@ -110,7 +122,7 @@ class ServerObject(pb.Avatar):
     """
     bdev_s = params[0]
     bdev = objects.Disk.FromDict(bdev_s)
-    return backend.RemoveBlockDevice(bdev)
+    return backend.BlockdevRemove(bdev)
 
   @staticmethod
   def perspective_blockdev_rename(params):
@@ -118,7 +130,7 @@ class ServerObject(pb.Avatar):
 
     """
     devlist = [(objects.Disk.FromDict(ds), uid) for ds, uid in params]
-    return backend.RenameBlockDevices(devlist)
+    return backend.BlockdevRename(devlist)
 
   @staticmethod
   def perspective_blockdev_assemble(params):
@@ -129,7 +141,7 @@ class ServerObject(pb.Avatar):
     bdev = objects.Disk.FromDict(bdev_s)
     if bdev is None:
       raise ValueError("can't unserialize data!")
-    return backend.AssembleBlockDevice(bdev, owner, on_primary)
+    return backend.BlockdevAssemble(bdev, owner, on_primary)
 
   @staticmethod
   def perspective_blockdev_shutdown(params):
@@ -140,7 +152,7 @@ class ServerObject(pb.Avatar):
     bdev = objects.Disk.FromDict(bdev_s)
     if bdev is None:
       raise ValueError("can't unserialize data!")
-    return backend.ShutdownBlockDevice(bdev)
+    return backend.BlockdevShutdown(bdev)
 
   @staticmethod
   def perspective_blockdev_addchildren(params):
@@ -155,7 +167,7 @@ class ServerObject(pb.Avatar):
     ndevs = [objects.Disk.FromDict(disk_s) for disk_s in ndev_s]
     if bdev is None or ndevs.count(None) > 0:
       raise ValueError("can't unserialize data!")
-    return backend.MirrorAddChildren(bdev, ndevs)
+    return backend.BlockdevAddchildren(bdev, ndevs)
 
   @staticmethod
   def perspective_blockdev_removechildren(params):
@@ -170,7 +182,7 @@ class ServerObject(pb.Avatar):
     ndevs = [objects.Disk.FromDict(disk_s) for disk_s in ndev_s]
     if bdev is None or ndevs.count(None) > 0:
       raise ValueError("can't unserialize data!")
-    return backend.MirrorRemoveChildren(bdev, ndevs)
+    return backend.BlockdevRemovechildren(bdev, ndevs)
 
   @staticmethod
   def perspective_blockdev_getmirrorstatus(params):
@@ -179,7 +191,7 @@ class ServerObject(pb.Avatar):
     """
     disks = [objects.Disk.FromDict(dsk_s)
             for dsk_s in params]
-    return backend.GetMirrorStatus(disks)
+    return backend.BlockdevGetmirrorstatus(disks)
 
   @staticmethod
   def perspective_blockdev_find(params):
@@ -189,7 +201,7 @@ class ServerObject(pb.Avatar):
 
     """
     disk = objects.Disk.FromDict(params[0])
-    return backend.FindBlockDevice(disk)
+    return backend.BlockdevFind(disk)
 
   @staticmethod
   def perspective_blockdev_snapshot(params):
@@ -201,7 +213,7 @@ class ServerObject(pb.Avatar):
 
     """
     cfbd = objects.Disk.FromDict(params[0])
-    return backend.SnapshotBlockDevice(cfbd)
+    return backend.BlockdevSnapshot(cfbd)
 
   @staticmethod
   def perspective_blockdev_grow(params):
@@ -210,7 +222,7 @@ class ServerObject(pb.Avatar):
     """
     cfbd = objects.Disk.FromDict(params[0])
     amount = params[1]
-    return backend.GrowBlockDevice(cfbd, amount)
+    return backend.BlockdevGrow(cfbd, amount)
 
   @staticmethod
   def perspective_blockdev_close(params):
@@ -218,22 +230,46 @@ class ServerObject(pb.Avatar):
 
     """
     disks = [objects.Disk.FromDict(cf) for cf in params[1]]
-    return backend.CloseBlockDevices(params[0], disks)
+    return backend.BlockdevClose(params[0], disks)
 
   # blockdev/drbd specific methods ----------
 
   @staticmethod
-  def perspective_drbd_reconfig_net(params):
-    """Re-configures the network connection of drbd disks.
+  def perspective_drbd_disconnect_net(params):
+    """Disconnects the network connection of drbd disks.
 
     Note that this is only valid for drbd disks, so the members of the
     disk list must all be drbd devices.
 
     """
-    instance_name, disks, nodes_ip, multimaster, step = params
+    nodes_ip, disks = params
     disks = [objects.Disk.FromDict(cf) for cf in disks]
-    return backend.DrbdReconfigNet(instance_name, disks,
-                                   nodes_ip, multimaster, step)
+    return backend.DrbdDisconnectNet(nodes_ip, disks)
+
+  @staticmethod
+  def perspective_drbd_attach_net(params):
+    """Attaches the network connection of drbd disks.
+
+    Note that this is only valid for drbd disks, so the members of the
+    disk list must all be drbd devices.
+
+    """
+    nodes_ip, disks, instance_name, multimaster = params
+    disks = [objects.Disk.FromDict(cf) for cf in disks]
+    return backend.DrbdAttachNet(nodes_ip, disks,
+                                     instance_name, multimaster)
+
+  @staticmethod
+  def perspective_drbd_wait_sync(params):
+    """Wait until DRBD disks are synched.
+
+    Note that this is only valid for drbd disks, so the members of the
+    disk list must all be drbd devices.
+
+    """
+    nodes_ip, disks = params
+    disks = [objects.Disk.FromDict(cf) for cf in disks]
+    return backend.DrbdWaitSync(nodes_ip, disks)
 
   # export/import  --------------------------
 
@@ -245,7 +281,10 @@ class ServerObject(pb.Avatar):
     disk = objects.Disk.FromDict(params[0])
     dest_node = params[1]
     instance = objects.Instance.FromDict(params[2])
-    return backend.ExportSnapshot(disk, dest_node, instance)
+    cluster_name = params[3]
+    dev_idx = params[4]
+    return backend.ExportSnapshot(disk, dest_node, instance,
+                                  cluster_name, dev_idx)
 
   @staticmethod
   def perspective_finalize_export(params):
@@ -324,28 +363,28 @@ class ServerObject(pb.Avatar):
     """Install an OS on a given instance.
 
     """
-    inst_s, os_disk, swap_disk = params
+    inst_s = params[0]
     inst = objects.Instance.FromDict(inst_s)
-    return backend.AddOSToInstance(inst, os_disk, swap_disk)
+    return backend.InstanceOsAdd(inst)
 
   @staticmethod
   def perspective_instance_run_rename(params):
     """Runs the OS rename script for an instance.
 
     """
-    inst_s, old_name, os_disk, swap_disk = params
+    inst_s, old_name = params
     inst = objects.Instance.FromDict(inst_s)
-    return backend.RunRenameInstance(inst, old_name, os_disk, swap_disk)
+    return backend.RunRenameInstance(inst, old_name)
 
   @staticmethod
   def perspective_instance_os_import(params):
     """Run the import function of an OS onto a given instance.
 
     """
-    inst_s, os_disk, swap_disk, src_node, src_image = params
+    inst_s, src_node, src_images, cluster_name = params
     inst = objects.Instance.FromDict(inst_s)
-    return backend.ImportOSIntoInstance(inst, os_disk, swap_disk,
-                                        src_node, src_image)
+    return backend.ImportOSIntoInstance(inst, src_node, src_images,
+                                        cluster_name)
 
   @staticmethod
   def perspective_instance_shutdown(params):
@@ -353,7 +392,7 @@ class ServerObject(pb.Avatar):
 
     """
     instance = objects.Instance.FromDict(params[0])
-    return backend.ShutdownInstance(instance)
+    return backend.InstanceShutdown(instance)
 
   @staticmethod
   def perspective_instance_start(params):
@@ -361,8 +400,33 @@ class ServerObject(pb.Avatar):
 
     """
     instance = objects.Instance.FromDict(params[0])
-    extra_args = params[1]
-    return backend.StartInstance(instance, extra_args)
+    return backend.StartInstance(instance)
+
+  @staticmethod
+  def perspective_migration_info(params):
+    """Gather information about an instance to be migrated.
+
+    """
+    instance = objects.Instance.FromDict(params[0])
+    return backend.MigrationInfo(instance)
+
+  @staticmethod
+  def perspective_accept_instance(params):
+    """Prepare the node to accept an instance.
+
+    """
+    instance, info, target = params
+    instance = objects.Instance.FromDict(instance)
+    return backend.AcceptInstance(instance, info, target)
+
+  @staticmethod
+  def perspective_finalize_migration(params):
+    """Finalize the instance migration.
+
+    """
+    instance, info, success = params
+    instance = objects.Instance.FromDict(instance)
+    return backend.FinalizeMigration(instance, info, success)
 
   @staticmethod
   def perspective_instance_migrate(params):
@@ -370,6 +434,7 @@ class ServerObject(pb.Avatar):
 
     """
     instance, target, live = params
+    instance = objects.Instance.FromDict(instance)
     return backend.MigrateInstance(instance, target, live)
 
   @staticmethod
@@ -379,15 +444,14 @@ class ServerObject(pb.Avatar):
     """
     instance = objects.Instance.FromDict(params[0])
     reboot_type = params[1]
-    extra_args = params[2]
-    return backend.RebootInstance(instance, reboot_type, extra_args)
+    return backend.InstanceReboot(instance, reboot_type)
 
   @staticmethod
   def perspective_instance_info(params):
     """Query instance information.
 
     """
-    return backend.GetInstanceInfo(params[0])
+    return backend.GetInstanceInfo(params[0], params[1])
 
   @staticmethod
   def perspective_instance_migratable(params):
@@ -402,14 +466,14 @@ class ServerObject(pb.Avatar):
     """Query information about all instances.
 
     """
-    return backend.GetAllInstancesInfo()
+    return backend.GetAllInstancesInfo(params[0])
 
   @staticmethod
   def perspective_instance_list(params):
     """Query the list of running instances.
 
     """
-    return backend.GetInstanceList()
+    return backend.GetInstanceList(params[0])
 
   # node --------------------------
 
@@ -422,12 +486,19 @@ class ServerObject(pb.Avatar):
                          live_port_needed=params[4], source=params[0])
 
   @staticmethod
+  def perspective_node_has_ip_address(params):
+    """Checks if a node has the given ip address.
+
+    """
+    return utils.OwnIpAddress(params[0])
+
+  @staticmethod
   def perspective_node_info(params):
     """Query node information.
 
     """
-    vgname = params[0]
-    return backend.GetNodeInfo(vgname)
+    vgname, hypervisor_type = params
+    return backend.GetNodeInfo(vgname, hypervisor_type)
 
   @staticmethod
   def perspective_node_add(params):
@@ -442,21 +513,21 @@ class ServerObject(pb.Avatar):
     """Run a verify sequence on this node.
 
     """
-    return backend.VerifyNode(params[0])
+    return backend.VerifyNode(params[0], params[1])
 
   @staticmethod
   def perspective_node_start_master(params):
     """Promote this node to master status.
 
     """
-    return backend.StartMaster()
+    return backend.StartMaster(params[0])
 
   @staticmethod
   def perspective_node_stop_master(params):
     """Demote this node from master status.
 
     """
-    return backend.StopMaster()
+    return backend.StopMaster(params[0])
 
   @staticmethod
   def perspective_node_leave_cluster(params):
@@ -471,6 +542,14 @@ class ServerObject(pb.Avatar):
 
     """
     return backend.NodeVolumes()
+
+  @staticmethod
+  def perspective_node_demote_from_mc(params):
+    """Demote a node from the master candidate role.
+
+    """
+    return backend.DemoteFromMC()
+
 
   # cluster --------------------------
 
@@ -491,6 +570,20 @@ class ServerObject(pb.Avatar):
     """
     return backend.UploadFile(*params)
 
+  @staticmethod
+  def perspective_master_info(params):
+    """Query master information.
+
+    """
+    return backend.GetMasterInfo()
+
+  @staticmethod
+  def perspective_write_ssconf_files(params):
+    """Write ssconf files.
+
+    """
+    (values,) = params
+    return backend.WriteSsconfFiles(values)
 
   # os -----------------------
 
@@ -499,7 +592,7 @@ class ServerObject(pb.Avatar):
     """Query detailed information about existing OSes.
 
     """
-    return [os.ToDict() for os in backend.DiagnoseOS()]
+    return [os_obj.ToDict() for os_obj in backend.DiagnoseOS()]
 
   @staticmethod
   def perspective_os_get(params):
@@ -545,31 +638,90 @@ class ServerObject(pb.Avatar):
     duration = params[0]
     return utils.TestDelay(duration)
 
+  # file storage ---------------
 
-class MyRealm:
-  """Simple realm that forwards all requests to a ServerObject.
-
-  """
-  __implements__ = portal.IRealm
-
-  def requestAvatar(self, avatarId, mind, *interfaces):
-    """Return an avatar based on our ServerObject class.
+  @staticmethod
+  def perspective_file_storage_dir_create(params):
+    """Create the file storage directory.
 
     """
-    if pb.IPerspective not in interfaces:
-      raise NotImplementedError
-    return pb.IPerspective, ServerObject(avatarId), lambda:None
+    file_storage_dir = params[0]
+    return backend.CreateFileStorageDir(file_storage_dir)
+
+  @staticmethod
+  def perspective_file_storage_dir_remove(params):
+    """Remove the file storage directory.
+
+    """
+    file_storage_dir = params[0]
+    return backend.RemoveFileStorageDir(file_storage_dir)
+
+  @staticmethod
+  def perspective_file_storage_dir_rename(params):
+    """Rename the file storage directory.
+
+    """
+    old_file_storage_dir = params[0]
+    new_file_storage_dir = params[1]
+    return backend.RenameFileStorageDir(old_file_storage_dir,
+                                        new_file_storage_dir)
+
+  # jobs ------------------------
+
+  @staticmethod
+  @_RequireJobQueueLock
+  def perspective_jobqueue_update(params):
+    """Update job queue.
+
+    """
+    (file_name, content) = params
+    return backend.JobQueueUpdate(file_name, content)
+
+  @staticmethod
+  @_RequireJobQueueLock
+  def perspective_jobqueue_purge(params):
+    """Purge job queue.
+
+    """
+    return backend.JobQueuePurge()
+
+  @staticmethod
+  @_RequireJobQueueLock
+  def perspective_jobqueue_rename(params):
+    """Rename a job queue file.
+
+    """
+    # TODO: What if a file fails to rename?
+    return [backend.JobQueueRename(old, new) for old, new in params]
+
+  @staticmethod
+  def perspective_jobqueue_set_drain(params):
+    """Set/unset the queue drain flag.
+
+    """
+    drain_flag = params[0]
+    return backend.JobQueueSetDrainFlag(drain_flag)
+
+
+  # hypervisor ---------------
+
+  @staticmethod
+  def perspective_hypervisor_validate_params(params):
+    """Validate the hypervisor parameters.
+
+    """
+    (hvname, hvparams) = params
+    return backend.ValidateHVParams(hvname, hvparams)
 
 
 def ParseOptions():
   """Parse the command line options.
 
-  Returns:
-    (options, args) as from OptionParser.parse_args()
+  @return: (options, args) as from OptionParser.parse_args()
 
   """
   parser = OptionParser(description="Ganeti node daemon",
-                        usage="%prog [-f] [-d]",
+                        usage="%prog [-f] [-d] [-b ADDRESS]",
                         version="%%prog (ganeti) %s" %
                         constants.RELEASE_VERSION)
 
@@ -579,6 +731,10 @@ def ParseOptions():
   parser.add_option("-d", "--debug", dest="debug",
                     help="Enable some debug messages",
                     default=False, action="store_true")
+  parser.add_option("-b", "--bind", dest="bind_address",
+                    help="Bind address",
+                    default="", metavar="ADDRESS")
+
   options, args = parser.parse_args()
   return options, args
 
@@ -587,48 +743,57 @@ def main():
   """Main function for the node daemon.
 
   """
+  global queue_lock
+
   options, args = ParseOptions()
   utils.debug = options.debug
+
+  if options.fork:
+    utils.CloseFDs()
+
   for fname in (constants.SSL_CERT_FILE,):
     if not os.path.isfile(fname):
       print "config %s not there, will not run." % fname
       sys.exit(5)
 
   try:
-    ss = ssconf.SimpleStore()
-    port = ss.GetNodeDaemonPort()
-    pwdata = ss.GetNodeDaemonPassword()
+    port = utils.GetNodeDaemonPort()
   except errors.ConfigurationError, err:
     print "Cluster configuration incomplete: '%s'" % str(err)
     sys.exit(5)
 
-  # create the various SUB_RUN_DIRS, if not existing, so that we handle the
-  # situation where RUN_DIR is tmpfs
-  for dir_name in constants.SUB_RUN_DIRS:
-    if not os.path.exists(dir_name):
-      try:
-        os.mkdir(dir_name, 0755)
-      except EnvironmentError, err:
-        if err.errno != errno.EEXIST:
-          print ("Node setup wrong, cannot create directory %s: %s" %
-                 (dir_name, err))
-          sys.exit(5)
-    if not os.path.isdir(dir_name):
-      print ("Node setup wrong, %s is not a directory" % dir_name)
-      sys.exit(5)
+  dirs = [(val, constants.RUN_DIRS_MODE) for val in constants.SUB_RUN_DIRS]
+  dirs.append((constants.LOG_OS_DIR, 0750))
+  dirs.append((constants.LOCK_DIR, 1777))
+  utils.EnsureDirs(dirs)
 
   # become a daemon
   if options.fork:
     utils.Daemonize(logfile=constants.LOG_NODESERVER)
 
-  logger.SetupLogging(twisted_workaround=True, debug=options.debug,
-                      program="ganeti-noded")
+  utils.WritePidFile(constants.NODED_PID)
+  try:
+    utils.SetupLogging(logfile=constants.LOG_NODESERVER, debug=options.debug,
+                       stderr_logging=not options.fork)
+    logging.info("ganeti node daemon startup")
 
-  p = portal.Portal(MyRealm())
-  p.registerChecker(
-    checkers.InMemoryUsernamePasswordDatabaseDontUse(master_node=pwdata))
-  reactor.listenSSL(port, pb.PBServerFactory(p), ServerContextFactory())
-  reactor.run()
+    # Read SSL certificate
+    ssl_params = http.HttpSslParams(ssl_key_path=constants.SSL_CERT_FILE,
+                                    ssl_cert_path=constants.SSL_CERT_FILE)
+
+    # Prepare job queue
+    queue_lock = jstore.InitAndVerifyQueue(must_lock=False)
+
+    mainloop = daemon.Mainloop()
+    server = NodeHttpServer(mainloop, options.bind_address, port,
+                            ssl_params=ssl_params, ssl_verify_peer=True)
+    server.Start()
+    try:
+      mainloop.Run()
+    finally:
+      server.Stop()
+  finally:
+    utils.RemovePidFile(constants.NODED_PID)
 
 
 if __name__ == '__main__':

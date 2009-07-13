@@ -2,7 +2,7 @@
 
   <!-- Fill in your name for FIRSTNAME and SURNAME. -->
   <!-- Please adjust the date whenever revising the manpage. -->
-  <!ENTITY dhdate      "<date>June 20, 2007</date>">
+  <!ENTITY dhdate      "<date>February 12, 2009</date>">
   <!-- SECTION should be 1-8, maybe w/ subsection other parameters are
        allowed: see man(7), man(1). -->
   <!ENTITY dhsection   "<manvolnum>8</manvolnum>">
@@ -21,6 +21,7 @@
       <year>2006</year>
       <year>2007</year>
       <year>2008</year>
+      <year>2009</year>
       <holder>Google Inc.</holder>
     </copyright>
     &dhdate;
@@ -29,7 +30,7 @@
     &dhucpackage;
 
     &dhsection;
-    <refmiscinfo>ganeti 1.2</refmiscinfo>
+    <refmiscinfo>ganeti 2.0</refmiscinfo>
   </refmeta>
   <refnamediv>
     <refname>&dhpackage;</refname>
@@ -106,6 +107,7 @@
         for more details about this framework, see the HTML or PDF
         documentation.
       </para>
+    </refsect2>
 
     <refsect2>
       <title>DELAY</title>
@@ -134,6 +136,24 @@
       <para>
         The <replaceable>delay</replaceable> argument will be
         interpreted as a floating point number.
+      </para>
+
+    </refsect2>
+
+    <refsect2>
+      <title>SUBMIT-JOB</title>
+
+      <cmdsynopsis>
+        <command>submit-job</command>
+
+        <arg choice="req" rep="repeat">opcodes_file</arg>
+      </cmdsynopsis>
+
+      <para>
+        This command builds a list of opcodes from JSON-format files
+        and submits for each file a job to the master daemon. It can
+        be used to test some options that are not available via the
+        command line.
       </para>
 
     </refsect2>

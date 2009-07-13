@@ -25,11 +25,44 @@ import re
 import time
 import errno
 import pyparsing as pyp
+import os
+import logging
 
 from ganeti import utils
-from ganeti import logger
 from ganeti import errors
 from ganeti import constants
+
+
+def _IgnoreError(fn, *args, **kwargs):
+  """Executes the given function, ignoring BlockDeviceErrors.
+
+  This is used in order to simplify the execution of cleanup or
+  rollback functions.
+
+  @rtype: boolean
+  @return: True when fn didn't raise an exception, False otherwise
+
+  """
+  try:
+    fn(*args, **kwargs)
+    return True
+  except errors.BlockDeviceError, err:
+    logging.warning("Caught BlockDeviceError but ignoring: %s" % str(err))
+    return False
+
+
+def _ThrowError(msg, *args):
+  """Log an error to the node daemon and the raise an exception.
+
+  @type msg: string
+  @param msg: the text of the exception
+  @raise errors.BlockDeviceError
+
+  """
+  if args:
+    msg = msg % args
+  logging.error(msg)
+  raise errors.BlockDeviceError(msg)
 
 
 class BlockDev(object):
@@ -42,20 +75,15 @@ class BlockDev(object):
     - online (=used, or ready for use)
 
   A device can also be online but read-only, however we are not using
-  the readonly state (MD and LV have it, if needed in the future)
-  and we are usually looking at this like at a stack, so it's easier
-  to conceptualise the transition from not-existing to online and back
+  the readonly state (LV has it, if needed in the future) and we are
+  usually looking at this like at a stack, so it's easier to
+  conceptualise the transition from not-existing to online and back
   like a linear one.
 
   The many different states of the device are due to the fact that we
   need to cover many device types:
     - logical volumes are created, lvchange -a y $lv, and used
-    - md arrays are created or assembled and used
     - drbd devices are attached to a local disk/remote peer and made primary
-
-  The status of the device can be examined by `GetStatus()`, which
-  returns a numerical value, depending on the position in the
-  transition stack of the device.
 
   A block device is identified by three items:
     - the /dev path of the device (dynamic)
@@ -64,15 +92,13 @@ class BlockDev(object):
 
   Not all devices implement both the first two as distinct items. LVM
   logical volumes have their unique ID (the pair volume group, logical
-  volume name) in a 1-to-1 relation to the dev path. For MD devices,
-  the /dev path is dynamic and the unique ID is the UUID generated at
-  array creation plus the slave list. For DRBD devices, the /dev path
-  is again dynamic and the unique id is the pair (host1, dev1),
-  (host2, dev2).
+  volume name) in a 1-to-1 relation to the dev path. For DRBD devices,
+  the /dev path is again dynamic and the unique id is the pair (host1,
+  dev1), (host2, dev2).
 
   You can get to a device in two ways:
     - creating the (real) device, which returns you
-      an attached instance (lvcreate, mdadm --create)
+      an attached instance (lvcreate)
     - attaching of a python instance to an existing (real) device
 
   The second point, the attachement to a device, is different
@@ -82,58 +108,27 @@ class BlockDev(object):
   after assembly we'll have our correct major/minor.
 
   """
-  STATUS_UNKNOWN = 0
-  STATUS_EXISTING = 1
-  STATUS_STANDBY = 2
-  STATUS_ONLINE = 3
-
-  STATUS_MAP = {
-    STATUS_UNKNOWN: "unknown",
-    STATUS_EXISTING: "existing",
-    STATUS_STANDBY: "ready for use",
-    STATUS_ONLINE: "online",
-    }
-
   def __init__(self, unique_id, children):
     self._children = children
     self.dev_path = None
     self.unique_id = unique_id
     self.major = None
     self.minor = None
+    self.attached = False
 
   def Assemble(self):
     """Assemble the device from its components.
 
-    If this is a plain block device (e.g. LVM) than assemble does
-    nothing, as the LVM has no children and we don't put logical
-    volumes offline.
-
-    One guarantee is that after the device has been assembled, it
-    knows its major/minor numbers. This allows other devices (usually
-    parents) to probe correctly for their children.
+    Implementations of this method by child classes must ensure that:
+      - after the device has been assembled, it knows its major/minor
+        numbers; this allows other devices (usually parents) to probe
+        correctly for their children
+      - calling this method on an existing, in-use device is safe
+      - if the device is already configured (and in an OK state),
+        this method is idempotent
 
     """
-    status = True
-    for child in self._children:
-      if not isinstance(child, BlockDev):
-        raise TypeError("Invalid child passed of type '%s'" % type(child))
-      if not status:
-        break
-      status = status and child.Assemble()
-      if not status:
-        break
-
-      try:
-        child.Open()
-      except errors.BlockDeviceError:
-        for child in self._children:
-          child.Shutdown()
-        raise
-
-    if not status:
-      for child in self._children:
-        child.Shutdown()
-    return status
+    pass
 
   def Attach(self):
     """Find a device which matches our config and attach to it.
@@ -164,9 +159,9 @@ class BlockDev(object):
   def Remove(self):
     """Remove this device.
 
-    This makes sense only for some of the device types: LV and to a
-    lesser degree, md devices. Also note that if the device can't
-    attach, the removal can't be completed.
+    This makes sense only for some of the device types: LV and file
+    storeage. Also note that if the device can't attach, the removal
+    can't be completed.
 
     """
     raise NotImplementedError
@@ -175,12 +170,6 @@ class BlockDev(object):
     """Rename this device.
 
     This may or may not make sense for a given device type.
-
-    """
-    raise NotImplementedError
-
-  def GetStatus(self):
-    """Return the status of the device.
 
     """
     raise NotImplementedError
@@ -225,9 +214,6 @@ class BlockDev(object):
     If this device is a mirroring device, this function returns the
     status of the mirror.
 
-    Returns:
-     (sync_percent, estimated_time, is_degraded, ldisk)
-
     If sync_percent is None, it means the device is not syncing.
 
     If estimated_time is None, it means we can't estimate
@@ -241,8 +227,12 @@ class BlockDev(object):
     data. This is only valid for some devices, the rest will always
     return False (not degraded).
 
+    @rtype: tuple
+    @return: (sync_percent, estimated_time, is_degraded, ldisk)
+
     """
     return None, None, False, False
+
 
   def CombinedSyncStatus(self):
     """Calculate the mirror status recursively for our children.
@@ -268,6 +258,7 @@ class BlockDev(object):
         ldisk = ldisk or c_ldisk
     return min_percent, max_time, is_degraded, ldisk
 
+
   def SetInfo(self, text):
     """Update metadata with info text.
 
@@ -280,10 +271,7 @@ class BlockDev(object):
   def Grow(self, amount):
     """Grow the block device.
 
-    Arguments:
-      amount: the amount (in mebibytes) to grow with
-
-    Returns: None
+    @param amount: the amount (in mebibytes) to grow with
 
     """
     raise NotImplementedError
@@ -319,12 +307,12 @@ class LogicalVolume(BlockDev):
 
     """
     if not isinstance(unique_id, (tuple, list)) or len(unique_id) != 2:
-      raise ValueError("Invalid configuration data %s" % str(unique_id))
+      raise errors.ProgrammerError("Invalid configuration data %s" %
+                                   str(unique_id))
     vg_name, lv_name = unique_id
     pvs_info = cls.GetPVInfo(vg_name)
     if not pvs_info:
-      raise errors.BlockDeviceError("Can't compute PV info for vg %s" %
-                                    vg_name)
+      _ThrowError("Can't compute PV info for vg %s", vg_name)
     pvs_info.sort()
     pvs_info.reverse()
 
@@ -334,24 +322,23 @@ class LogicalVolume(BlockDev):
     # The size constraint should have been checked from the master before
     # calling the create function.
     if free_size < size:
-      raise errors.BlockDeviceError("Not enough free space: required %s,"
-                                    " available %s" % (size, free_size))
+      _ThrowError("Not enough free space: required %s,"
+                  " available %s", size, free_size)
     result = utils.RunCmd(["lvcreate", "-L%dm" % size, "-n%s" % lv_name,
                            vg_name] + pvlist)
     if result.failed:
-      raise errors.BlockDeviceError("%s - %s" % (result.fail_reason,
-                                                result.output))
+      _ThrowError("LV create failed (%s): %s",
+                  result.fail_reason, result.output)
     return LogicalVolume(unique_id, children)
 
   @staticmethod
   def GetPVInfo(vg_name):
     """Get the free space info for PVs in a volume group.
 
-    Args:
-      vg_name: the volume group name
+    @param vg_name: the volume group name
 
-    Returns:
-      list of (free_space, name) with free_space in mebibytes
+    @rtype: list
+    @return: list of tuples (free_space, name) with free_space in mebibytes
 
     """
     command = ["pvs", "--noheadings", "--nosuffix", "--units=m",
@@ -359,14 +346,14 @@ class LogicalVolume(BlockDev):
                "--separator=:"]
     result = utils.RunCmd(command)
     if result.failed:
-      logger.Error("Can't get the PV information: %s - %s" %
-                   (result.fail_reason, result.output))
+      logging.error("Can't get the PV information: %s - %s",
+                    result.fail_reason, result.output)
       return None
     data = []
     for line in result.stdout.splitlines():
       fields = line.strip().split(':')
       if len(fields) != 4:
-        logger.Error("Can't parse pvs output: line '%s'" % line)
+        logging.error("Can't parse pvs output: line '%s'", line)
         return None
       # skip over pvs from another vg or ones which are not allocatable
       if fields[1] != vg_name or fields[3][0] != 'a':
@@ -381,14 +368,11 @@ class LogicalVolume(BlockDev):
     """
     if not self.minor and not self.Attach():
       # the LV does not exist
-      return True
+      return
     result = utils.RunCmd(["lvremove", "-f", "%s/%s" %
                            (self._vg_name, self._lv_name)])
     if result.failed:
-      logger.Error("Can't lvremove: %s - %s" %
-                   (result.fail_reason, result.output))
-
-    return not result.failed
+      _ThrowError("Can't lvremove: %s - %s", result.fail_reason, result.output)
 
   def Rename(self, new_id):
     """Rename this logical volume.
@@ -403,8 +387,7 @@ class LogicalVolume(BlockDev):
                                    (self._vg_name, new_vg))
     result = utils.RunCmd(["lvrename", new_vg, self._lv_name, new_name])
     if result.failed:
-      raise errors.BlockDeviceError("Failed to rename the logical volume: %s" %
-                                    result.output)
+      _ThrowError("Failed to rename the logical volume: %s", result.output)
     self._lv_name = new_name
     self.dev_path = "/dev/%s/%s" % (self._vg_name, self._lv_name)
 
@@ -416,34 +399,36 @@ class LogicalVolume(BlockDev):
     recorded.
 
     """
+    self.attached = False
     result = utils.RunCmd(["lvs", "--noheadings", "--separator=,",
                            "-olv_attr,lv_kernel_major,lv_kernel_minor",
                            self.dev_path])
     if result.failed:
-      logger.Error("Can't find LV %s: %s, %s" %
-                   (self.dev_path, result.fail_reason, result.output))
+      logging.error("Can't find LV %s: %s, %s",
+                    self.dev_path, result.fail_reason, result.output)
       return False
     out = result.stdout.strip().rstrip(',')
     out = out.split(",")
     if len(out) != 3:
-      logger.Error("Can't parse LVS output, len(%s) != 3" % str(out))
+      logging.error("Can't parse LVS output, len(%s) != 3", str(out))
       return False
 
     status, major, minor = out[:3]
     if len(status) != 6:
-      logger.Error("lvs lv_attr is not 6 characters (%s)" % status)
+      logging.error("lvs lv_attr is not 6 characters (%s)", status)
       return False
 
     try:
       major = int(major)
       minor = int(minor)
     except ValueError, err:
-      logger.Error("lvs major/minor cannot be parsed: %s" % str(err))
+      logging.error("lvs major/minor cannot be parsed: %s", str(err))
 
     self.major = major
     self.minor = minor
     self._degraded = status[0] == 'v' # virtual volume, i.e. doesn't backing
                                       # storage
+    self.attached = True
     return True
 
   def Assemble(self):
@@ -456,8 +441,7 @@ class LogicalVolume(BlockDev):
     """
     result = utils.RunCmd(["lvchange", "-ay", self.dev_path])
     if result.failed:
-      logger.Error("Can't activate lv %s: %s" % (self.dev_path, result.output))
-    return not result.failed
+      _ThrowError("Can't activate lv %s: %s", self.dev_path, result.output)
 
   def Shutdown(self):
     """Shutdown the device.
@@ -466,45 +450,13 @@ class LogicalVolume(BlockDev):
     volumes on shutdown.
 
     """
-    return True
-
-  def GetStatus(self):
-    """Return the status of the device.
-
-    Logical volumes will can be in all four states, although we don't
-    deactivate (lvchange -an) them when shutdown, so STATUS_EXISTING
-    should not be seen for our devices.
-
-    """
-    result = utils.RunCmd(["lvs", "--noheadings", "-olv_attr", self.dev_path])
-    if result.failed:
-      logger.Error("Can't display lv: %s - %s" %
-                   (result.fail_reason, result.output))
-      return self.STATUS_UNKNOWN
-    out = result.stdout.strip()
-    # format: type/permissions/alloc/fixed_minor/state/open
-    if len(out) != 6:
-      return self.STATUS_UNKNOWN
-    #writable = (out[1] == "w")
-    active = (out[4] == "a")
-    online = (out[5] == "o")
-    if online:
-      retval = self.STATUS_ONLINE
-    elif active:
-      retval = self.STATUS_STANDBY
-    else:
-      retval = self.STATUS_EXISTING
-
-    return retval
+    pass
 
   def GetSyncStatus(self):
     """Returns the sync status of the device.
 
     If this device is a mirroring device, this function returns the
     status of the mirror.
-
-    Returns:
-     (sync_percent, estimated_time, is_degraded, ldisk)
 
     For logical volumes, sync_percent and estimated_time are always
     None (no recovery in progress, as we don't handle the mirrored LV
@@ -518,6 +470,9 @@ class LogicalVolume(BlockDev):
     the volume group.
 
     The status was already read in Attach, so we just return it.
+
+    @rtype: tuple
+    @return: (sync_percent, estimated_time, is_degraded, ldisk)
 
     """
     return None, None, self._degraded, self._degraded
@@ -546,25 +501,23 @@ class LogicalVolume(BlockDev):
 
     # remove existing snapshot if found
     snap = LogicalVolume((self._vg_name, snap_name), None)
-    snap.Remove()
+    _IgnoreError(snap.Remove)
 
     pvs_info = self.GetPVInfo(self._vg_name)
     if not pvs_info:
-      raise errors.BlockDeviceError("Can't compute PV info for vg %s" %
-                                    self._vg_name)
+      _ThrowError("Can't compute PV info for vg %s", self._vg_name)
     pvs_info.sort()
     pvs_info.reverse()
     free_size, pv_name = pvs_info[0]
     if free_size < size:
-      raise errors.BlockDeviceError("Not enough free space: required %s,"
-                                    " available %s" % (size, free_size))
+      _ThrowError("Not enough free space: required %s,"
+                  " available %s", size, free_size)
 
     result = utils.RunCmd(["lvcreate", "-L%dm" % size, "-s",
                            "-n%s" % snap_name, self.dev_path])
     if result.failed:
-      raise errors.BlockDeviceError("command: %s error: %s - %s" %
-                                    (result.cmd, result.fail_reason,
-                                     result.output))
+      _ThrowError("command: %s error: %s - %s",
+                  result.cmd, result.fail_reason, result.output)
 
     return snap_name
 
@@ -584,9 +537,9 @@ class LogicalVolume(BlockDev):
     result = utils.RunCmd(["lvchange", "--addtag", text,
                            self.dev_path])
     if result.failed:
-      raise errors.BlockDeviceError("Command: %s error: %s - %s" %
-                                    (result.cmd, result.fail_reason,
-                                     result.output))
+      _ThrowError("Command: %s error: %s - %s", result.cmd, result.fail_reason,
+                  result.output)
+
   def Grow(self, amount):
     """Grow the logical volume.
 
@@ -600,415 +553,7 @@ class LogicalVolume(BlockDev):
                              "-L", "+%dm" % amount, self.dev_path])
       if not result.failed:
         return
-    raise errors.BlockDeviceError("Can't grow LV %s: %s" %
-                                  (self.dev_path, result.output))
-
-
-class MDRaid1(BlockDev):
-  """raid1 device implemented via md.
-
-  """
-  def __init__(self, unique_id, children):
-    super(MDRaid1, self).__init__(unique_id, children)
-    self.major = 9
-    self.Attach()
-
-  def Attach(self):
-    """Find an array which matches our config and attach to it.
-
-    This tries to find a MD array which has the same UUID as our own.
-
-    """
-    minor = self._FindMDByUUID(self.unique_id)
-    if minor is not None:
-      self._SetFromMinor(minor)
-    else:
-      self.minor = None
-      self.dev_path = None
-
-    return (minor is not None)
-
-  @staticmethod
-  def _GetUsedDevs():
-    """Compute the list of in-use MD devices.
-
-    It doesn't matter if the used device have other raid level, just
-    that they are in use.
-
-    """
-    mdstat = open("/proc/mdstat", "r")
-    data = mdstat.readlines()
-    mdstat.close()
-
-    used_md = {}
-    valid_line = re.compile("^md([0-9]+) : .*$")
-    for line in data:
-      match = valid_line.match(line)
-      if match:
-        md_no = int(match.group(1))
-        used_md[md_no] = line
-
-    return used_md
-
-  @staticmethod
-  def _GetDevInfo(minor):
-    """Get info about a MD device.
-
-    Currently only uuid is returned.
-
-    """
-    result = utils.RunCmd(["mdadm", "-D", "/dev/md%d" % minor])
-    if result.failed:
-      logger.Error("Can't display md: %s - %s" %
-                   (result.fail_reason, result.output))
-      return None
-    retval = {}
-    for line in result.stdout.splitlines():
-      line = line.strip()
-      kv = line.split(" : ", 1)
-      if kv:
-        if kv[0] == "UUID":
-          retval["uuid"] = kv[1].split()[0]
-        elif kv[0] == "State":
-          retval["state"] = kv[1].split(", ")
-    return retval
-
-  @staticmethod
-  def _FindUnusedMinor():
-    """Compute an unused MD minor.
-
-    This code assumes that there are 256 minors only.
-
-    """
-    used_md = MDRaid1._GetUsedDevs()
-    i = 0
-    while i < 256:
-      if i not in used_md:
-        break
-      i += 1
-    if i == 256:
-      logger.Error("Critical: Out of md minor numbers.")
-      raise errors.BlockDeviceError("Can't find a free MD minor")
-    return i
-
-  @classmethod
-  def _FindMDByUUID(cls, uuid):
-    """Find the minor of an MD array with a given UUID.
-
-    """
-    md_list = cls._GetUsedDevs()
-    for minor in md_list:
-      info = cls._GetDevInfo(minor)
-      if info and info["uuid"] == uuid:
-        return minor
-    return None
-
-  @staticmethod
-  def _ZeroSuperblock(dev_path):
-    """Zero the possible locations for an MD superblock.
-
-    The zero-ing can't be done via ``mdadm --zero-superblock`` as that
-    fails in versions 2.x with the same error code as non-writable
-    device.
-
-    The superblocks are located at (negative values are relative to
-    the end of the block device):
-      - -128k to end for version 0.90 superblock
-      - -8k to -12k for version 1.0 superblock (included in the above)
-      - 0k to 4k for version 1.1 superblock
-      - 4k to 8k for version 1.2 superblock
-
-    To cover all situations, the zero-ing will be:
-      - 0k to 128k
-      - -128k to end
-
-    As such, the minimum device size must be 128k, otherwise we'll get
-    I/O errors.
-
-    Note that this function depends on the fact that one can open,
-    read and write block devices normally.
-
-    """
-    overwrite_size = 128 * 1024
-    empty_buf = '\0' * overwrite_size
-    fd = open(dev_path, "r+")
-    try:
-      fd.seek(0, 0)
-      p1 = fd.tell()
-      fd.write(empty_buf)
-      p2 = fd.tell()
-      logger.Debug("Zeroed %s from %d to %d" % (dev_path, p1, p2))
-      fd.seek(-overwrite_size, 2)
-      p1 = fd.tell()
-      fd.write(empty_buf)
-      p2 = fd.tell()
-      logger.Debug("Zeroed %s from %d to %d" % (dev_path, p1, p2))
-    finally:
-      fd.close()
-
-  @classmethod
-  def Create(cls, unique_id, children, size):
-    """Create a new MD raid1 array.
-
-    """
-    if not isinstance(children, (tuple, list)):
-      raise ValueError("Invalid setup data for MDRaid1 dev: %s" %
-                       str(children))
-    for i in children:
-      if not isinstance(i, BlockDev):
-        raise ValueError("Invalid member in MDRaid1 dev: %s" % type(i))
-    for i in children:
-      try:
-        cls._ZeroSuperblock(i.dev_path)
-      except EnvironmentError, err:
-        logger.Error("Can't zero superblock for %s: %s" %
-                     (i.dev_path, str(err)))
-        return None
-    minor = cls._FindUnusedMinor()
-    result = utils.RunCmd(["mdadm", "--create", "/dev/md%d" % minor,
-                           "--auto=yes", "--force", "-l1",
-                           "-n%d" % len(children)] +
-                          [dev.dev_path for dev in children])
-
-    if result.failed:
-      logger.Error("Can't create md: %s: %s" % (result.fail_reason,
-                                                result.output))
-      return None
-    info = cls._GetDevInfo(minor)
-    if not info or not "uuid" in info:
-      logger.Error("Wrong information returned from mdadm -D: %s" % str(info))
-      return None
-    return MDRaid1(info["uuid"], children)
-
-  def Remove(self):
-    """Stub remove function for MD RAID 1 arrays.
-
-    We don't remove the superblock right now. Mark a to do.
-
-    """
-    #TODO: maybe zero superblock on child devices?
-    return self.Shutdown()
-
-  def Rename(self, new_id):
-    """Rename a device.
-
-    This is not supported for md raid1 devices.
-
-    """
-    raise errors.ProgrammerError("Can't rename a md raid1 device")
-
-  def AddChildren(self, devices):
-    """Add new member(s) to the md raid1.
-
-    """
-    if self.minor is None and not self.Attach():
-      raise errors.BlockDeviceError("Can't attach to device")
-
-    args = ["mdadm", "-a", self.dev_path]
-    for dev in devices:
-      if dev.dev_path is None:
-        raise errors.BlockDeviceError("Child '%s' is not initialised" % dev)
-      dev.Open()
-      args.append(dev.dev_path)
-    result = utils.RunCmd(args)
-    if result.failed:
-      raise errors.BlockDeviceError("Failed to add new device to array: %s" %
-                                    result.output)
-    new_len = len(self._children) + len(devices)
-    result = utils.RunCmd(["mdadm", "--grow", self.dev_path, "-n", new_len])
-    if result.failed:
-      raise errors.BlockDeviceError("Can't grow md array: %s" %
-                                    result.output)
-    self._children.extend(devices)
-
-  def RemoveChildren(self, devices):
-    """Remove member(s) from the md raid1.
-
-    """
-    if self.minor is None and not self.Attach():
-      raise errors.BlockDeviceError("Can't attach to device")
-    new_len = len(self._children) - len(devices)
-    if new_len < 1:
-      raise errors.BlockDeviceError("Can't reduce to less than one child")
-    args = ["mdadm", "-f", self.dev_path]
-    orig_devs = []
-    for dev in devices:
-      args.append(dev)
-      for c in self._children:
-        if c.dev_path == dev:
-          orig_devs.append(c)
-          break
-      else:
-        raise errors.BlockDeviceError("Can't find device '%s' for removal" %
-                                      dev)
-    result = utils.RunCmd(args)
-    if result.failed:
-      raise errors.BlockDeviceError("Failed to mark device(s) as failed: %s" %
-                                    result.output)
-
-    # it seems here we need a short delay for MD to update its
-    # superblocks
-    time.sleep(0.5)
-    args[1] = "-r"
-    result = utils.RunCmd(args)
-    if result.failed:
-      raise errors.BlockDeviceError("Failed to remove device(s) from array:"
-                                    " %s" % result.output)
-    result = utils.RunCmd(["mdadm", "--grow", "--force", self.dev_path,
-                           "-n", new_len])
-    if result.failed:
-      raise errors.BlockDeviceError("Can't shrink md array: %s" %
-                                    result.output)
-    for dev in orig_devs:
-      self._children.remove(dev)
-
-  def GetStatus(self):
-    """Return the status of the device.
-
-    """
-    self.Attach()
-    if self.minor is None:
-      retval = self.STATUS_UNKNOWN
-    else:
-      retval = self.STATUS_ONLINE
-    return retval
-
-  def _SetFromMinor(self, minor):
-    """Set our parameters based on the given minor.
-
-    This sets our minor variable and our dev_path.
-
-    """
-    self.minor = minor
-    self.dev_path = "/dev/md%d" % minor
-
-  def Assemble(self):
-    """Assemble the MD device.
-
-    At this point we should have:
-      - list of children devices
-      - uuid
-
-    """
-    result = super(MDRaid1, self).Assemble()
-    if not result:
-      return result
-    md_list = self._GetUsedDevs()
-    for minor in md_list:
-      info = self._GetDevInfo(minor)
-      if info and info["uuid"] == self.unique_id:
-        self._SetFromMinor(minor)
-        logger.Info("MD array %s already started" % str(self))
-        return True
-    free_minor = self._FindUnusedMinor()
-    result = utils.RunCmd(["mdadm", "-A", "--auto=yes", "--uuid",
-                           self.unique_id, "/dev/md%d" % free_minor] +
-                          [bdev.dev_path for bdev in self._children])
-    if result.failed:
-      logger.Error("Can't assemble MD array: %s: %s" %
-                   (result.fail_reason, result.output))
-      self.minor = None
-    else:
-      self.minor = free_minor
-    return not result.failed
-
-  def Shutdown(self):
-    """Tear down the MD array.
-
-    This does a 'mdadm --stop' so after this command, the array is no
-    longer available.
-
-    """
-    if self.minor is None and not self.Attach():
-      logger.Info("MD object not attached to a device")
-      return True
-
-    result = utils.RunCmd(["mdadm", "--stop", "/dev/md%d" % self.minor])
-    if result.failed:
-      logger.Error("Can't stop MD array: %s - %s" %
-                   (result.fail_reason, result.output))
-      return False
-    self.minor = None
-    self.dev_path = None
-    return True
-
-  def SetSyncSpeed(self, kbytes):
-    """Set the maximum sync speed for the MD array.
-
-    """
-    result = super(MDRaid1, self).SetSyncSpeed(kbytes)
-    if self.minor is None:
-      logger.Error("MD array not attached to a device")
-      return False
-    f = open("/sys/block/md%d/md/sync_speed_max" % self.minor, "w")
-    try:
-      f.write("%d" % kbytes)
-    finally:
-      f.close()
-    f = open("/sys/block/md%d/md/sync_speed_min" % self.minor, "w")
-    try:
-      f.write("%d" % (kbytes/2))
-    finally:
-      f.close()
-    return result
-
-  def GetSyncStatus(self):
-    """Returns the sync status of the device.
-
-    Returns:
-     (sync_percent, estimated_time, is_degraded, ldisk)
-
-    If sync_percent is None, it means all is ok
-    If estimated_time is None, it means we can't esimate
-    the time needed, otherwise it's the time left in seconds.
-
-    The ldisk parameter is always true for MD devices.
-
-    """
-    if self.minor is None and not self.Attach():
-      raise errors.BlockDeviceError("Can't attach to device in GetSyncStatus")
-    dev_info = self._GetDevInfo(self.minor)
-    is_clean = ("state" in dev_info and
-                len(dev_info["state"]) == 1 and
-                dev_info["state"][0] in ("clean", "active"))
-    sys_path = "/sys/block/md%s/md/" % self.minor
-    f = file(sys_path + "sync_action")
-    sync_status = f.readline().strip()
-    f.close()
-    if sync_status == "idle":
-      return None, None, not is_clean, False
-    f = file(sys_path + "sync_completed")
-    sync_completed = f.readline().strip().split(" / ")
-    f.close()
-    if len(sync_completed) != 2:
-      return 0, None, not is_clean, False
-    sync_done, sync_total = [float(i) for i in sync_completed]
-    sync_percent = 100.0*sync_done/sync_total
-    f = file(sys_path + "sync_speed")
-    sync_speed_k = int(f.readline().strip())
-    if sync_speed_k == 0:
-      time_est = None
-    else:
-      time_est = (sync_total - sync_done) / 2 / sync_speed_k
-    return sync_percent, time_est, not is_clean, False
-
-  def Open(self, force=False):
-    """Make the device ready for I/O.
-
-    This is a no-op for the MDRaid1 device type, although we could use
-    the 2.6.18's new array_state thing.
-
-    """
-    pass
-
-  def Close(self):
-    """Notifies that the device will no longer be used for I/O.
-
-    This is a no-op for the MDRaid1 device type, but see comment for
-    `Open()`.
-
-    """
-    pass
+    _ThrowError("Can't grow LV %s: %s", self.dev_path, result.output)
 
 
 class DRBD8Status(object):
@@ -1017,20 +562,28 @@ class DRBD8Status(object):
   Note that this doesn't support unconfigured devices (cs:Unconfigured).
 
   """
-  LINE_RE = re.compile(r"\s*[0-9]+:\s*cs:(\S+)\s+st:([^/]+)/(\S+)"
+  UNCONF_RE = re.compile(r"\s*[0-9]+:\s*cs:Unconfigured$")
+  LINE_RE = re.compile(r"\s*[0-9]+:\s*cs:(\S+)\s+(?:st|ro):([^/]+)/(\S+)"
                        "\s+ds:([^/]+)/(\S+)\s+.*$")
   SYNC_RE = re.compile(r"^.*\ssync'ed:\s*([0-9.]+)%.*"
                        "\sfinish: ([0-9]+):([0-9]+):([0-9]+)\s.*$")
 
   def __init__(self, procline):
-    m = self.LINE_RE.match(procline)
-    if not m:
-      raise errors.BlockDeviceError("Can't parse input data '%s'" % procline)
-    self.cstatus = m.group(1)
-    self.lrole = m.group(2)
-    self.rrole = m.group(3)
-    self.ldisk = m.group(4)
-    self.rdisk = m.group(5)
+    u = self.UNCONF_RE.match(procline)
+    if u:
+      self.cstatus = "Unconfigured"
+      self.lrole = self.rrole = self.ldisk = self.rdisk = None
+    else:
+      m = self.LINE_RE.match(procline)
+      if not m:
+        raise errors.BlockDeviceError("Can't parse input data '%s'" % procline)
+      self.cstatus = m.group(1)
+      self.lrole = m.group(2)
+      self.rrole = m.group(3)
+      self.ldisk = m.group(4)
+      self.rdisk = m.group(5)
+
+    # end reading of data from the LINE_RE or UNCONF_RE
 
     self.is_standalone = self.cstatus == "StandAlone"
     self.is_wfconn = self.cstatus == "WFConnection"
@@ -1045,7 +598,8 @@ class DRBD8Status(object):
     self.is_diskless = self.ldisk == "Diskless"
     self.is_disk_uptodate = self.ldisk == "UpToDate"
 
-    self.is_in_resync = self.cstatus in ('SyncSource', 'SyncTarget')
+    self.is_in_resync = self.cstatus in ("SyncSource", "SyncTarget")
+    self.is_in_use = self.cstatus != "Unconfigured"
 
     m = self.SYNC_RE.match(procline)
     if m:
@@ -1085,21 +639,28 @@ class BaseDRBD(BlockDev):
     """Return data from /proc/drbd.
 
     """
-    stat = open(filename, "r")
     try:
-      data = stat.read().splitlines()
-    finally:
-      stat.close()
+      stat = open(filename, "r")
+      try:
+        data = stat.read().splitlines()
+      finally:
+        stat.close()
+    except EnvironmentError, err:
+      if err.errno == errno.ENOENT:
+        _ThrowError("The file %s cannot be opened, check if the module"
+                    " is loaded (%s)", filename, str(err))
+      else:
+        _ThrowError("Can't read the DRBD proc file %s: %s", filename, str(err))
     if not data:
-      raise errors.BlockDeviceError("Can't read any data from %s" % filename)
+      _ThrowError("Can't read any data from %s", filename)
     return data
 
   @staticmethod
   def _MassageProcData(data):
     """Transform the output of _GetProdData into a nicer form.
 
-    Returns:
-      a dictionary of minor: joined lines from /proc/drbd for that minor
+    @return: a dictionary of minor: joined lines from /proc/drbd
+        for that minor
 
     """
     lmatch = re.compile("^ *([0-9]+):.*$")
@@ -1125,12 +686,12 @@ class BaseDRBD(BlockDev):
     """Return the DRBD version.
 
     This will return a dict with keys:
-      k_major,
-      k_minor,
-      k_point,
-      api,
-      proto,
-      proto2 (only on drbd > 8.2.X)
+      - k_major
+      - k_minor
+      - k_point
+      - api
+      - proto
+      - proto2 (only on drbd > 8.2.X)
 
     """
     proc_data = cls._GetProcData()
@@ -1160,7 +721,7 @@ class BaseDRBD(BlockDev):
     return "/dev/drbd%d" % minor
 
   @classmethod
-  def _GetUsedDevs(cls):
+  def GetUsedDevs(cls):
     """Compute the list of used DRBD devices.
 
     """
@@ -1188,9 +749,11 @@ class BaseDRBD(BlockDev):
     """
     if minor is None:
       self.minor = self.dev_path = None
+      self.attached = False
     else:
       self.minor = minor
       self.dev_path = self._DevPath(minor)
+      self.attached = True
 
   @staticmethod
   def _CheckMetaSize(meta_device):
@@ -1202,22 +765,17 @@ class BaseDRBD(BlockDev):
     """
     result = utils.RunCmd(["blockdev", "--getsize", meta_device])
     if result.failed:
-      logger.Error("Failed to get device size: %s - %s" %
-                   (result.fail_reason, result.output))
-      return False
+      _ThrowError("Failed to get device size: %s - %s",
+                  result.fail_reason, result.output)
     try:
       sectors = int(result.stdout)
     except ValueError:
-      logger.Error("Invalid output from blockdev: '%s'" % result.stdout)
-      return False
+      _ThrowError("Invalid output from blockdev: '%s'", result.stdout)
     bytes = sectors * 512
     if bytes < 128 * 1024 * 1024: # less than 128MiB
-      logger.Error("Meta device too small (%.2fMib)" % (bytes / 1024 / 1024))
-      return False
+      _ThrowError("Meta device too small (%.2fMib)", (bytes / 1024 / 1024))
     if bytes > (128 + 32) * 1024 * 1024: # account for an extra (big) PE on LVM
-      logger.Error("Meta device too big (%.2fMiB)" % (bytes / 1024 / 1024))
-      return False
-    return True
+      _ThrowError("Meta device too big (%.2fMiB)", (bytes / 1024 / 1024))
 
   def Rename(self, new_id):
     """Rename a device.
@@ -1226,500 +784,6 @@ class BaseDRBD(BlockDev):
 
     """
     raise errors.ProgrammerError("Can't rename a drbd device")
-
-
-class DRBDev(BaseDRBD):
-  """DRBD block device.
-
-  This implements the local host part of the DRBD device, i.e. it
-  doesn't do anything to the supposed peer. If you need a fully
-  connected DRBD pair, you need to use this class on both hosts.
-
-  The unique_id for the drbd device is the (local_ip, local_port,
-  remote_ip, remote_port) tuple, and it must have two children: the
-  data device and the meta_device. The meta device is checked for
-  valid size and is zeroed on create.
-
-  """
-  def __init__(self, unique_id, children):
-    super(DRBDev, self).__init__(unique_id, children)
-    self.major = self._DRBD_MAJOR
-    version = self._GetVersion()
-    if version['k_major'] != 0 and version['k_minor'] != 7:
-      raise errors.BlockDeviceError("Mismatch in DRBD kernel version and"
-                                    " requested ganeti usage: kernel is"
-                                    " %s.%s, ganeti wants 0.7" %
-                                    (version['k_major'], version['k_minor']))
-    if len(children) != 2:
-      raise ValueError("Invalid configuration data %s" % str(children))
-    if not isinstance(unique_id, (tuple, list)) or len(unique_id) != 4:
-      raise ValueError("Invalid configuration data %s" % str(unique_id))
-    self._lhost, self._lport, self._rhost, self._rport = unique_id
-    self.Attach()
-
-  @classmethod
-  def _FindUnusedMinor(cls):
-    """Find an unused DRBD device.
-
-    """
-    data = cls._GetProcData()
-
-    valid_line = re.compile("^ *([0-9]+): cs:Unconfigured$")
-    for line in data:
-      match = valid_line.match(line)
-      if match:
-        return int(match.group(1))
-    logger.Error("Error: no free drbd minors!")
-    raise errors.BlockDeviceError("Can't find a free DRBD minor")
-
-  @classmethod
-  def _GetDevInfo(cls, minor):
-    """Get details about a given DRBD minor.
-
-    This return, if available, the local backing device in (major,
-    minor) formant and the local and remote (ip, port) information.
-
-    """
-    data = {}
-    result = utils.RunCmd(["drbdsetup", cls._DevPath(minor), "show"])
-    if result.failed:
-      logger.Error("Can't display the drbd config: %s - %s" %
-                   (result.fail_reason, result.output))
-      return data
-    out = result.stdout
-    if out == "Not configured\n":
-      return data
-    for line in out.splitlines():
-      if "local_dev" not in data:
-        match = re.match("^Lower device: ([0-9]+):([0-9]+) .*$", line)
-        if match:
-          data["local_dev"] = (int(match.group(1)), int(match.group(2)))
-          continue
-      if "meta_dev" not in data:
-        match = re.match("^Meta device: (([0-9]+):([0-9]+)|internal).*$", line)
-        if match:
-          if match.group(2) is not None and match.group(3) is not None:
-            # matched on the major/minor
-            data["meta_dev"] = (int(match.group(2)), int(match.group(3)))
-          else:
-            # matched on the "internal" string
-            data["meta_dev"] = match.group(1)
-            # in this case, no meta_index is in the output
-            data["meta_index"] = -1
-          continue
-      if "meta_index" not in data:
-        match = re.match("^Meta index: ([0-9]+).*$", line)
-        if match:
-          data["meta_index"] = int(match.group(1))
-          continue
-      if "local_addr" not in data:
-        match = re.match("^Local address: ([0-9.]+):([0-9]+)$", line)
-        if match:
-          data["local_addr"] = (match.group(1), int(match.group(2)))
-          continue
-      if "remote_addr" not in data:
-        match = re.match("^Remote address: ([0-9.]+):([0-9]+)$", line)
-        if match:
-          data["remote_addr"] = (match.group(1), int(match.group(2)))
-          continue
-    return data
-
-  def _MatchesLocal(self, info):
-    """Test if our local config matches with an existing device.
-
-    The parameter should be as returned from `_GetDevInfo()`. This
-    method tests if our local backing device is the same as the one in
-    the info parameter, in effect testing if we look like the given
-    device.
-
-    """
-    if not ("local_dev" in info and "meta_dev" in info and
-            "meta_index" in info):
-      return False
-
-    backend = self._children[0]
-    if backend is not None:
-      retval = (info["local_dev"] == (backend.major, backend.minor))
-    else:
-      retval = (info["local_dev"] == (0, 0))
-    meta = self._children[1]
-    if meta is not None:
-      retval = retval and (info["meta_dev"] == (meta.major, meta.minor))
-      retval = retval and (info["meta_index"] == 0)
-    else:
-      retval = retval and (info["meta_dev"] == "internal" and
-                           info["meta_index"] == -1)
-    return retval
-
-  def _MatchesNet(self, info):
-    """Test if our network config matches with an existing device.
-
-    The parameter should be as returned from `_GetDevInfo()`. This
-    method tests if our network configuration is the same as the one
-    in the info parameter, in effect testing if we look like the given
-    device.
-
-    """
-    if (((self._lhost is None and not ("local_addr" in info)) and
-         (self._rhost is None and not ("remote_addr" in info)))):
-      return True
-
-    if self._lhost is None:
-      return False
-
-    if not ("local_addr" in info and
-            "remote_addr" in info):
-      return False
-
-    retval = (info["local_addr"] == (self._lhost, self._lport))
-    retval = (retval and
-              info["remote_addr"] == (self._rhost, self._rport))
-    return retval
-
-  @classmethod
-  def _AssembleLocal(cls, minor, backend, meta):
-    """Configure the local part of a DRBD device.
-
-    This is the first thing that must be done on an unconfigured DRBD
-    device. And it must be done only once.
-
-    """
-    if not cls._CheckMetaSize(meta):
-      return False
-    result = utils.RunCmd(["drbdsetup", cls._DevPath(minor), "disk",
-                           backend, meta, "0", "-e", "detach"])
-    if result.failed:
-      logger.Error("Can't attach local disk: %s" % result.output)
-    return not result.failed
-
-  @classmethod
-  def _ShutdownLocal(cls, minor):
-    """Detach from the local device.
-
-    I/Os will continue to be served from the remote device. If we
-    don't have a remote device, this operation will fail.
-
-    """
-    result = utils.RunCmd(["drbdsetup", cls._DevPath(minor), "detach"])
-    if result.failed:
-      logger.Error("Can't detach local device: %s" % result.output)
-    return not result.failed
-
-  @staticmethod
-  def _ShutdownAll(minor):
-    """Deactivate the device.
-
-    This will, of course, fail if the device is in use.
-
-    """
-    result = utils.RunCmd(["drbdsetup", DRBDev._DevPath(minor), "down"])
-    if result.failed:
-      logger.Error("Can't shutdown drbd device: %s" % result.output)
-    return not result.failed
-
-  @classmethod
-  def _AssembleNet(cls, minor, net_info, protocol):
-    """Configure the network part of the device.
-
-    This operation can be, in theory, done multiple times, but there
-    have been cases (in lab testing) in which the network part of the
-    device had become stuck and couldn't be shut down because activity
-    from the new peer (also stuck) triggered a timer re-init and
-    needed remote peer interface shutdown in order to clear. So please
-    don't change online the net config.
-
-    """
-    lhost, lport, rhost, rport = net_info
-    result = utils.RunCmd(["drbdsetup", cls._DevPath(minor), "net",
-                           "%s:%s" % (lhost, lport), "%s:%s" % (rhost, rport),
-                           protocol])
-    if result.failed:
-      logger.Error("Can't setup network for dbrd device: %s - %s" %
-                   (result.fail_reason, result.output))
-      return False
-
-    timeout = time.time() + 10
-    ok = False
-    while time.time() < timeout:
-      info = cls._GetDevInfo(minor)
-      if not "local_addr" in info or not "remote_addr" in info:
-        time.sleep(1)
-        continue
-      if (info["local_addr"] != (lhost, lport) or
-          info["remote_addr"] != (rhost, rport)):
-        time.sleep(1)
-        continue
-      ok = True
-      break
-    if not ok:
-      logger.Error("Timeout while configuring network")
-      return False
-    return True
-
-  @classmethod
-  def _ShutdownNet(cls, minor):
-    """Disconnect from the remote peer.
-
-    This fails if we don't have a local device.
-
-    """
-    result = utils.RunCmd(["drbdsetup", cls._DevPath(minor), "disconnect"])
-    if result.failed:
-      logger.Error("Can't shutdown network: %s" % result.output)
-    return not result.failed
-
-  def Assemble(self):
-    """Assemble the drbd.
-
-    Method:
-      - if we have a local backing device, we bind to it by:
-        - checking the list of used drbd devices
-        - check if the local minor use of any of them is our own device
-        - if yes, abort?
-        - if not, bind
-      - if we have a local/remote net info:
-        - redo the local backing device step for the remote device
-        - check if any drbd device is using the local port,
-          if yes abort
-        - check if any remote drbd device is using the remote
-          port, if yes abort (for now)
-        - bind our net port
-        - bind the remote net port
-
-    """
-    self.Attach()
-    if self.minor is not None:
-      logger.Info("Already assembled")
-      return True
-
-    result = super(DRBDev, self).Assemble()
-    if not result:
-      return result
-
-    minor = self._FindUnusedMinor()
-    need_localdev_teardown = False
-    if self._children[0]:
-      result = self._AssembleLocal(minor, self._children[0].dev_path,
-                                   self._children[1].dev_path)
-      if not result:
-        return False
-      need_localdev_teardown = True
-    if self._lhost and self._lport and self._rhost and self._rport:
-      result = self._AssembleNet(minor,
-                                 (self._lhost, self._lport,
-                                  self._rhost, self._rport),
-                                 "C")
-      if not result:
-        if need_localdev_teardown:
-          # we will ignore failures from this
-          logger.Error("net setup failed, tearing down local device")
-          self._ShutdownAll(minor)
-        return False
-    self._SetFromMinor(minor)
-    return True
-
-  def Shutdown(self):
-    """Shutdown the DRBD device.
-
-    """
-    if self.minor is None and not self.Attach():
-      logger.Info("DRBD device not attached to a device during Shutdown")
-      return True
-    if not self._ShutdownAll(self.minor):
-      return False
-    self.minor = None
-    self.dev_path = None
-    return True
-
-  def Attach(self):
-    """Find a DRBD device which matches our config and attach to it.
-
-    In case of partially attached (local device matches but no network
-    setup), we perform the network attach. If successful, we re-test
-    the attach if can return success.
-
-    """
-    for minor in self._GetUsedDevs():
-      info = self._GetDevInfo(minor)
-      match_l = self._MatchesLocal(info)
-      match_r = self._MatchesNet(info)
-      if match_l and match_r:
-        break
-      if match_l and not match_r and "local_addr" not in info:
-        res_r = self._AssembleNet(minor,
-                                  (self._lhost, self._lport,
-                                   self._rhost, self._rport),
-                                  "C")
-        if res_r and self._MatchesNet(self._GetDevInfo(minor)):
-          break
-    else:
-      minor = None
-
-    self._SetFromMinor(minor)
-    return minor is not None
-
-  def Open(self, force=False):
-    """Make the local state primary.
-
-    If the 'force' parameter is given, the '--do-what-I-say' option is
-    is passed to drbdsetup. Since this is a potentially dangerous operation,
-    the force flag should be only given after creation, when it actually
-    is mandatory.
-
-    """
-    if self.minor is None and not self.Attach():
-      logger.Error("DRBD cannot attach to a device during open")
-      return False
-    cmd = ["drbdsetup", self.dev_path, "primary"]
-    if force:
-      cmd.append("--do-what-I-say")
-    result = utils.RunCmd(cmd)
-    if result.failed:
-      msg = ("Can't make drbd device primary: %s" % result.output)
-      logger.Error(msg)
-      raise errors.BlockDeviceError(msg)
-
-  def Close(self):
-    """Make the local state secondary.
-
-    This will, of course, fail if the device is in use.
-
-    """
-    if self.minor is None and not self.Attach():
-      logger.Info("Instance not attached to a device")
-      raise errors.BlockDeviceError("Can't find device")
-    result = utils.RunCmd(["drbdsetup", self.dev_path, "secondary"])
-    if result.failed:
-      msg = ("Can't switch drbd device to"
-             " secondary: %s" % result.output)
-      logger.Error(msg)
-      raise errors.BlockDeviceError(msg)
-
-  def SetSyncSpeed(self, kbytes):
-    """Set the speed of the DRBD syncer.
-
-    """
-    children_result = super(DRBDev, self).SetSyncSpeed(kbytes)
-    if self.minor is None:
-      logger.Info("Instance not attached to a device")
-      return False
-    result = utils.RunCmd(["drbdsetup", self.dev_path, "syncer", "-r", "%d" %
-                           kbytes])
-    if result.failed:
-      logger.Error("Can't change syncer rate: %s - %s" %
-                   (result.fail_reason, result.output))
-    return not result.failed and children_result
-
-  def GetSyncStatus(self):
-    """Returns the sync status of the device.
-
-    Returns:
-     (sync_percent, estimated_time, is_degraded, ldisk)
-
-    If sync_percent is None, it means all is ok
-    If estimated_time is None, it means we can't esimate
-    the time needed, otherwise it's the time left in seconds.
-
-    The ldisk parameter will be returned as True, since the DRBD7
-    devices have not been converted.
-
-    """
-    if self.minor is None and not self.Attach():
-      raise errors.BlockDeviceError("Can't attach to device in GetSyncStatus")
-    proc_info = self._MassageProcData(self._GetProcData())
-    if self.minor not in proc_info:
-      raise errors.BlockDeviceError("Can't find myself in /proc (minor %d)" %
-                                    self.minor)
-    line = proc_info[self.minor]
-    match = re.match("^.*sync'ed: *([0-9.]+)%.*"
-                     " finish: ([0-9]+):([0-9]+):([0-9]+) .*$", line)
-    if match:
-      sync_percent = float(match.group(1))
-      hours = int(match.group(2))
-      minutes = int(match.group(3))
-      seconds = int(match.group(4))
-      est_time = hours * 3600 + minutes * 60 + seconds
-    else:
-      sync_percent = None
-      est_time = None
-    match = re.match("^ *[0-9]+: cs:([^ ]+).*$", line)
-    if not match:
-      raise errors.BlockDeviceError("Can't find my data in /proc (minor %d)" %
-                                    self.minor)
-    client_state = match.group(1)
-    is_degraded = client_state != "Connected"
-    return sync_percent, est_time, is_degraded, False
-
-  def GetStatus(self):
-    """Compute the status of the DRBD device
-
-    Note that DRBD devices don't have the STATUS_EXISTING state.
-
-    """
-    if self.minor is None and not self.Attach():
-      return self.STATUS_UNKNOWN
-
-    data = self._GetProcData()
-    match = re.compile("^ *%d: cs:[^ ]+ st:(Primary|Secondary)/.*$" %
-                       self.minor)
-    for line in data:
-      mresult = match.match(line)
-      if mresult:
-        break
-    else:
-      logger.Error("Can't find myself!")
-      return self.STATUS_UNKNOWN
-
-    state = mresult.group(2)
-    if state == "Primary":
-      result = self.STATUS_ONLINE
-    else:
-      result = self.STATUS_STANDBY
-
-    return result
-
-  @staticmethod
-  def _ZeroDevice(device):
-    """Zero a device.
-
-    This writes until we get ENOSPC.
-
-    """
-    f = open(device, "w")
-    buf = "\0" * 1048576
-    try:
-      while True:
-        f.write(buf)
-    except IOError, err:
-      if err.errno != errno.ENOSPC:
-        raise
-
-  @classmethod
-  def Create(cls, unique_id, children, size):
-    """Create a new DRBD device.
-
-    Since DRBD devices are not created per se, just assembled, this
-    function just zeroes the meta device.
-
-    """
-    if len(children) != 2:
-      raise errors.ProgrammerError("Invalid setup for the drbd device")
-    meta = children[1]
-    meta.Assemble()
-    if not meta.Attach():
-      raise errors.BlockDeviceError("Can't attach to meta device")
-    if not cls._CheckMetaSize(meta.dev_path):
-      raise errors.BlockDeviceError("Invalid meta device")
-    logger.Info("Started zeroing device %s" % meta.dev_path)
-    cls._ZeroDevice(meta.dev_path)
-    logger.Info("Done zeroing device %s" % meta.dev_path)
-    return cls(unique_id, children)
-
-  def Remove(self):
-    """Stub remove for DRBD devices.
-
-    """
-    return self.Shutdown()
 
 
 class DRBD8(BaseDRBD):
@@ -1748,16 +812,21 @@ class DRBD8(BaseDRBD):
     self.major = self._DRBD_MAJOR
     version = self._GetVersion()
     if version['k_major'] != 8 :
-      raise errors.BlockDeviceError("Mismatch in DRBD kernel version and"
-                                    " requested ganeti usage: kernel is"
-                                    " %s.%s, ganeti wants 8.x" %
-                                    (version['k_major'], version['k_minor']))
+      _ThrowError("Mismatch in DRBD kernel version and requested ganeti"
+                  " usage: kernel is %s.%s, ganeti wants 8.x",
+                  version['k_major'], version['k_minor'])
 
     if len(children) not in (0, 2):
       raise ValueError("Invalid configuration data %s" % str(children))
-    if not isinstance(unique_id, (tuple, list)) or len(unique_id) != 4:
+    if not isinstance(unique_id, (tuple, list)) or len(unique_id) != 6:
       raise ValueError("Invalid configuration data %s" % str(unique_id))
-    self._lhost, self._lport, self._rhost, self._rport = unique_id
+    (self._lhost, self._lport,
+     self._rhost, self._rport,
+     self._aminor, self._secret) = unique_id
+    if (self._lhost is not None and self._lhost == self._rhost and
+        self._lport == self._rport):
+      raise ValueError("Invalid configuration data, same local/remote %s" %
+                       (unique_id,))
     self.Attach()
 
   @classmethod
@@ -1770,8 +839,7 @@ class DRBD8(BaseDRBD):
     result = utils.RunCmd(["drbdmeta", "--force", cls._DevPath(minor),
                            "v08", dev_path, "0", "create-md"])
     if result.failed:
-      raise errors.BlockDeviceError("Can't initialize meta device: %s" %
-                                    result.output)
+      _ThrowError("Can't initialize meta device: %s", result.output)
 
   @classmethod
   def _FindUnusedMinor(cls):
@@ -1797,24 +865,9 @@ class DRBD8(BaseDRBD):
     if highest is None: # there are no minors in use at all
       return 0
     if highest >= cls._MAX_MINORS:
-      logger.Error("Error: no free drbd minors!")
+      logging.error("Error: no free drbd minors!")
       raise errors.BlockDeviceError("Can't find a free DRBD minor")
     return highest + 1
-
-  @classmethod
-  def _IsValidMeta(cls, meta_device):
-    """Check if the given meta device looks like a valid one.
-
-    """
-    minor = cls._FindUnusedMinor()
-    minor_path = cls._DevPath(minor)
-    result = utils.RunCmd(["drbdmeta", minor_path,
-                           "v08", meta_device, "0",
-                           "dstate"])
-    if result.failed:
-      logger.Error("Invalid meta device %s: %s" % (meta_device, result.output))
-      return False
-    return True
 
   @classmethod
   def _GetShowParser(cls):
@@ -1843,15 +896,20 @@ class DRBD8(BaseDRBD):
     # value types
     value = pyp.Word(pyp.alphanums + '_-/.:')
     quoted = dbl_quote + pyp.CharsNotIn('"') + dbl_quote
-    addr_port = (pyp.Word(pyp.nums + '.') + pyp.Literal(':').suppress() +
-                 number)
+    addr_type = (pyp.Optional(pyp.Literal("ipv4")).suppress() +
+                 pyp.Optional(pyp.Literal("ipv6")).suppress())
+    addr_port = (addr_type + pyp.Word(pyp.nums + '.') +
+                 pyp.Literal(':').suppress() + number)
     # meta device, extended syntax
     meta_value = ((value ^ quoted) + pyp.Literal('[').suppress() +
                   number + pyp.Word(']').suppress())
+    # device name, extended syntax
+    device_value = pyp.Literal("minor").suppress() + number
 
     # a statement
     stmt = (~rbrace + keyword + ~lbrace +
-            pyp.Optional(addr_port ^ value ^ quoted ^ meta_value) +
+            pyp.Optional(addr_port ^ value ^ quoted ^ meta_value ^
+                         device_value) +
             pyp.Optional(defa) + semi +
             pyp.Optional(pyp.restOfLine).suppress())
 
@@ -1873,8 +931,8 @@ class DRBD8(BaseDRBD):
     """
     result = utils.RunCmd(["drbdsetup", cls._DevPath(minor), "show"])
     if result.failed:
-      logger.Error("Can't display the drbd config: %s - %s" %
-                   (result.fail_reason, result.output))
+      logging.error("Can't display the drbd config: %s - %s",
+                    result.fail_reason, result.output)
       return None
     return result.stdout
 
@@ -1898,8 +956,7 @@ class DRBD8(BaseDRBD):
     try:
       results = bnf.parseString(out)
     except pyp.ParseException, err:
-      raise errors.BlockDeviceError("Can't parse drbdsetup show output: %s" %
-                                    str(err))
+      _ThrowError("Can't parse drbdsetup show output: %s", str(err))
 
     # and massage the results into our desired format
     for section in results:
@@ -1977,18 +1034,12 @@ class DRBD8(BaseDRBD):
   def _AssembleLocal(cls, minor, backend, meta):
     """Configure the local part of a DRBD device.
 
-    This is the first thing that must be done on an unconfigured DRBD
-    device. And it must be done only once.
-
     """
-    if not cls._IsValidMeta(meta):
-      return False
     args = ["drbdsetup", cls._DevPath(minor), "disk",
             backend, meta, "0", "-e", "detach", "--create-device"]
     result = utils.RunCmd(args)
     if result.failed:
-      logger.Error("Can't attach local disk: %s" % result.output)
-    return not result.failed
+      _ThrowError("drbd%d: can't attach local disk: %s", minor, result.output)
 
   @classmethod
   def _AssembleNet(cls, minor, net_info, protocol,
@@ -2000,7 +1051,16 @@ class DRBD8(BaseDRBD):
     if None in net_info:
       # we don't want network connection and actually want to make
       # sure its shutdown
-      return cls._ShutdownNet(minor)
+      cls._ShutdownNet(minor)
+      return
+
+    # Workaround for a race condition. When DRBD is doing its dance to
+    # establish a connection with its peer, it also sends the
+    # synchronization speed over the wire. In some cases setting the
+    # sync speed only after setting up both sides can race with DRBD
+    # connecting, hence we set it here before telling DRBD anything
+    # about its peer.
+    cls._SetMinorSyncSpeed(minor, constants.SYNC_SPEED)
 
     args = ["drbdsetup", cls._DevPath(minor), "net",
             "%s:%s" % (lhost, lport), "%s:%s" % (rhost, rport), protocol,
@@ -2014,9 +1074,8 @@ class DRBD8(BaseDRBD):
       args.extend(["-a", hmac, "-x", secret])
     result = utils.RunCmd(args)
     if result.failed:
-      logger.Error("Can't setup network for dbrd device: %s - %s" %
-                   (result.fail_reason, result.output))
-      return False
+      _ThrowError("drbd%d: can't setup network: %s - %s",
+                  minor, result.fail_reason, result.output)
 
     timeout = time.time() + 10
     ok = False
@@ -2032,34 +1091,29 @@ class DRBD8(BaseDRBD):
       ok = True
       break
     if not ok:
-      logger.Error("Timeout while configuring network")
-      return False
-    return True
+      _ThrowError("drbd%d: timeout while configuring network", minor)
 
   def AddChildren(self, devices):
     """Add a disk to the DRBD device.
 
     """
     if self.minor is None:
-      raise errors.BlockDeviceError("Can't attach to dbrd8 during AddChildren")
+      _ThrowError("drbd%d: can't attach to dbrd8 during AddChildren",
+                  self._aminor)
     if len(devices) != 2:
-      raise errors.BlockDeviceError("Need two devices for AddChildren")
+      _ThrowError("drbd%d: need two devices for AddChildren", self.minor)
     info = self._GetDevInfo(self._GetShowData(self.minor))
     if "local_dev" in info:
-      raise errors.BlockDeviceError("DRBD8 already attached to a local disk")
+      _ThrowError("drbd%d: already attached to a local disk", self.minor)
     backend, meta = devices
     if backend.dev_path is None or meta.dev_path is None:
-      raise errors.BlockDeviceError("Children not ready during AddChildren")
+      _ThrowError("drbd%d: children not ready during AddChildren", self.minor)
     backend.Open()
     meta.Open()
-    if not self._CheckMetaSize(meta.dev_path):
-      raise errors.BlockDeviceError("Invalid meta device size")
+    self._CheckMetaSize(meta.dev_path)
     self._InitMeta(self._FindUnusedMinor(), meta.dev_path)
-    if not self._IsValidMeta(meta.dev_path):
-      raise errors.BlockDeviceError("Cannot initalize meta device")
 
-    if not self._AssembleLocal(self.minor, backend.dev_path, meta.dev_path):
-      raise errors.BlockDeviceError("Can't attach to local storage")
+    self._AssembleLocal(self.minor, backend.dev_path, meta.dev_path)
     self._children = devices
 
   def RemoveChildren(self, devices):
@@ -2067,62 +1121,78 @@ class DRBD8(BaseDRBD):
 
     """
     if self.minor is None:
-      raise errors.BlockDeviceError("Can't attach to drbd8 during"
-                                    " RemoveChildren")
+      _ThrowError("drbd%d: can't attach to drbd8 during RemoveChildren",
+                  self._aminor)
     # early return if we don't actually have backing storage
     info = self._GetDevInfo(self._GetShowData(self.minor))
     if "local_dev" not in info:
       return
     if len(self._children) != 2:
-      raise errors.BlockDeviceError("We don't have two children: %s" %
-                                    self._children)
+      _ThrowError("drbd%d: we don't have two children: %s", self.minor,
+                  self._children)
     if self._children.count(None) == 2: # we don't actually have children :)
-      logger.Error("Requested detach while detached")
+      logging.warning("drbd%d: requested detach while detached", self.minor)
       return
     if len(devices) != 2:
-      raise errors.BlockDeviceError("We need two children in RemoveChildren")
+      _ThrowError("drbd%d: we need two children in RemoveChildren", self.minor)
     for child, dev in zip(self._children, devices):
       if dev != child.dev_path:
-        raise errors.BlockDeviceError("Mismatch in local storage"
-                                      " (%s != %s) in RemoveChildren" %
-                                      (dev, child.dev_path))
+        _ThrowError("drbd%d: mismatch in local storage (%s != %s) in"
+                    " RemoveChildren", self.minor, dev, child.dev_path)
 
-    if not self._ShutdownLocal(self.minor):
-      raise errors.BlockDeviceError("Can't detach from local storage")
+    self._ShutdownLocal(self.minor)
     self._children = []
+
+  @classmethod
+  def _SetMinorSyncSpeed(cls, minor, kbytes):
+    """Set the speed of the DRBD syncer.
+
+    This is the low-level implementation.
+
+    @type minor: int
+    @param minor: the drbd minor whose settings we change
+    @type kbytes: int
+    @param kbytes: the speed in kbytes/second
+    @rtype: boolean
+    @return: the success of the operation
+
+    """
+    result = utils.RunCmd(["drbdsetup", cls._DevPath(minor), "syncer",
+                           "-r", "%d" % kbytes, "--create-device"])
+    if result.failed:
+      logging.error("Can't change syncer rate: %s - %s",
+                    result.fail_reason, result.output)
+    return not result.failed
 
   def SetSyncSpeed(self, kbytes):
     """Set the speed of the DRBD syncer.
 
+    @type kbytes: int
+    @param kbytes: the speed in kbytes/second
+    @rtype: boolean
+    @return: the success of the operation
+
     """
-    children_result = super(DRBD8, self).SetSyncSpeed(kbytes)
     if self.minor is None:
-      logger.Info("Instance not attached to a device")
+      logging.info("Not attached during SetSyncSpeed")
       return False
-    result = utils.RunCmd(["drbdsetup", self.dev_path, "syncer", "-r", "%d" %
-                           kbytes, "--create-device"])
-    if result.failed:
-      logger.Error("Can't change syncer rate: %s - %s" %
-                   (result.fail_reason, result.output))
-    return not result.failed and children_result
+    children_result = super(DRBD8, self).SetSyncSpeed(kbytes)
+    return self._SetMinorSyncSpeed(self.minor, kbytes) and children_result
 
   def GetProcStatus(self):
     """Return device data from /proc.
 
     """
     if self.minor is None:
-      raise errors.BlockDeviceError("GetStats() called while not attached")
+      _ThrowError("drbd%d: GetStats() called while not attached", self._aminor)
     proc_info = self._MassageProcData(self._GetProcData())
     if self.minor not in proc_info:
-      raise errors.BlockDeviceError("Can't find myself in /proc (minor %d)" %
-                                    self.minor)
+      _ThrowError("drbd%d: can't find myself in /proc", self.minor)
     return DRBD8Status(proc_info[self.minor])
 
   def GetSyncStatus(self):
     """Returns the sync status of the device.
 
-    Returns:
-     (sync_percent, estimated_time, is_degraded)
 
     If sync_percent is None, it means all is ok
     If estimated_time is None, it means we can't esimate
@@ -2135,41 +1205,16 @@ class DRBD8(BaseDRBD):
     We compute the ldisk parameter based on wheter we have a local
     disk or not.
 
+    @rtype: tuple
+    @return: (sync_percent, estimated_time, is_degraded, ldisk)
+
     """
     if self.minor is None and not self.Attach():
-      raise errors.BlockDeviceError("Can't attach to device in GetSyncStatus")
+      _ThrowError("drbd%d: can't Attach() in GetSyncStatus", self._aminor)
     stats = self.GetProcStatus()
     ldisk = not stats.is_disk_uptodate
     is_degraded = not stats.is_connected
     return stats.sync_percent, stats.est_time, is_degraded or ldisk, ldisk
-
-  def GetStatus(self):
-    """Compute the status of the DRBD device
-
-    Note that DRBD devices don't have the STATUS_EXISTING state.
-
-    """
-    if self.minor is None and not self.Attach():
-      return self.STATUS_UNKNOWN
-
-    data = self._GetProcData()
-    match = re.compile("^ *%d: cs:[^ ]+ st:(Primary|Secondary)/.*$" %
-                       self.minor)
-    for line in data:
-      mresult = match.match(line)
-      if mresult:
-        break
-    else:
-      logger.Error("Can't find myself!")
-      return self.STATUS_UNKNOWN
-
-    state = mresult.group(2)
-    if state == "Primary":
-      result = self.STATUS_ONLINE
-    else:
-      result = self.STATUS_STANDBY
-
-    return result
 
   def Open(self, force=False):
     """Make the local state primary.
@@ -2181,16 +1226,15 @@ class DRBD8(BaseDRBD):
 
     """
     if self.minor is None and not self.Attach():
-      logger.Error("DRBD cannot attach to a device during open")
+      logging.error("DRBD cannot attach to a device during open")
       return False
     cmd = ["drbdsetup", self.dev_path, "primary"]
     if force:
       cmd.append("-o")
     result = utils.RunCmd(cmd)
     if result.failed:
-      msg = ("Can't make drbd device primary: %s" % result.output)
-      logger.Error(msg)
-      raise errors.BlockDeviceError(msg)
+      _ThrowError("drbd%d: can't make drbd device primary: %s", self.minor,
+                  result.output)
 
   def Close(self):
     """Make the local state secondary.
@@ -2199,14 +1243,11 @@ class DRBD8(BaseDRBD):
 
     """
     if self.minor is None and not self.Attach():
-      logger.Info("Instance not attached to a device")
-      raise errors.BlockDeviceError("Can't find device")
+      _ThrowError("drbd%d: can't Attach() in Close()", self._aminor)
     result = utils.RunCmd(["drbdsetup", self.dev_path, "secondary"])
     if result.failed:
-      msg = ("Can't switch drbd device to"
-             " secondary: %s" % result.output)
-      logger.Error(msg)
-      raise errors.BlockDeviceError(msg)
+      _ThrowError("drbd%d: can't switch drbd device to secondary: %s",
+                  self.minor, result.output)
 
   def DisconnectNet(self):
     """Removes network configuration.
@@ -2223,13 +1264,13 @@ class DRBD8(BaseDRBD):
 
     """
     if self.minor is None:
-      raise errors.BlockDeviceError("DRBD disk not attached in re-attach net")
+      _ThrowError("drbd%d: disk not attached in re-attach net", self._aminor)
 
     if None in (self._lhost, self._lport, self._rhost, self._rport):
-      raise errors.BlockDeviceError("DRBD disk missing network info in"
-                                    " DisconnectNet()")
+      _ThrowError("drbd%d: DRBD disk missing network info in"
+                  " DisconnectNet()", self.minor)
 
-    ever_disconnected = self._ShutdownNet(self.minor)
+    ever_disconnected = _IgnoreError(self._ShutdownNet, self.minor)
     timeout_limit = time.time() + self._NET_RECONFIG_TIMEOUT
     sleep_time = 0.100 # we start the retry time at 100 miliseconds
     while time.time() < timeout_limit:
@@ -2239,27 +1280,28 @@ class DRBD8(BaseDRBD):
       # retry the disconnect, it seems possible that due to a
       # well-time disconnect on the peer, my disconnect command might
       # be ingored and forgotten
-      ever_disconnected = self._ShutdownNet(self.minor) or ever_disconnected
+      ever_disconnected = _IgnoreError(self._ShutdownNet, self.minor) or \
+                          ever_disconnected
       time.sleep(sleep_time)
       sleep_time = min(2, sleep_time * 1.5)
 
     if not status.is_standalone:
       if ever_disconnected:
-        msg = ("Device did not react to the"
+        msg = ("drbd%d: device did not react to the"
                " 'disconnect' command in a timely manner")
       else:
-        msg = ("Can't shutdown network, even after multiple retries")
-      raise errors.BlockDeviceError(msg)
+        msg = "drbd%d: can't shutdown network, even after multiple retries"
+      _ThrowError(msg, self.minor)
 
     reconfig_time = time.time() - timeout_limit + self._NET_RECONFIG_TIMEOUT
     if reconfig_time > 15: # hardcoded alert limit
-      logger.Debug("DRBD8.ReAttachNet: detach took %.3f seconds" %
-                   reconfig_time)
+      logging.info("drbd%d: DisconnectNet: detach took %.3f seconds",
+                   self.minor, reconfig_time)
 
-  def ReAttachNet(self, multimaster):
+  def AttachNet(self, multimaster):
     """Reconnects the network.
 
-    This method reconnects the network side of the device with a
+    This method connects the network side of the device with a
     specified multi-master flag. The device needs to be 'Standalone'
     but have valid network configuration data.
 
@@ -2268,49 +1310,98 @@ class DRBD8(BaseDRBD):
 
     """
     if self.minor is None:
-      raise errors.BlockDeviceError("DRBD disk not attached in re-attach net")
+      _ThrowError("drbd%d: device not attached in AttachNet", self._aminor)
 
     if None in (self._lhost, self._lport, self._rhost, self._rport):
-      raise errors.BlockDeviceError("DRBD disk missing network info in"
-                                    " ReAttachNet()")
+      _ThrowError("drbd%d: missing network info in AttachNet()", self.minor)
 
     status = self.GetProcStatus()
 
     if not status.is_standalone:
-      raise errors.BlockDeviceError("Device is not standalone in"
-                                    " ReAttachNet")
+      _ThrowError("drbd%d: device is not standalone in AttachNet", self.minor)
 
-    return self._AssembleNet(self.minor,
-                             (self._lhost, self._lport,
-                              self._rhost, self._rport),
-                             "C", dual_pri=multimaster)
+    self._AssembleNet(self.minor,
+                      (self._lhost, self._lport, self._rhost, self._rport),
+                      constants.DRBD_NET_PROTOCOL, dual_pri=multimaster,
+                      hmac=constants.DRBD_HMAC_ALG, secret=self._secret)
 
   def Attach(self):
-    """Find a DRBD device which matches our config and attach to it.
+    """Check if our minor is configured.
+
+    This doesn't do any device configurations - it only checks if the
+    minor is in a state different from Unconfigured.
+
+    Note that this function will not change the state of the system in
+    any way (except in case of side-effects caused by reading from
+    /proc).
+
+    """
+    used_devs = self.GetUsedDevs()
+    if self._aminor in used_devs:
+      minor = self._aminor
+    else:
+      minor = None
+
+    self._SetFromMinor(minor)
+    return minor is not None
+
+  def Assemble(self):
+    """Assemble the drbd.
+
+    Method:
+      - if we have a configured device, we try to ensure that it matches
+        our config
+      - if not, we create it from zero
+
+    """
+    super(DRBD8, self).Assemble()
+
+    self.Attach()
+    if self.minor is None:
+      # local device completely unconfigured
+      self._FastAssemble()
+    else:
+      # we have to recheck the local and network status and try to fix
+      # the device
+      self._SlowAssemble()
+
+  def _SlowAssemble(self):
+    """Assembles the DRBD device from a (partially) configured device.
 
     In case of partially attached (local device matches but no network
     setup), we perform the network attach. If successful, we re-test
     the attach if can return success.
 
     """
-    for minor in self._GetUsedDevs():
+    net_data = (self._lhost, self._lport, self._rhost, self._rport)
+    for minor in (self._aminor,):
       info = self._GetDevInfo(self._GetShowData(minor))
       match_l = self._MatchesLocal(info)
       match_r = self._MatchesNet(info)
+
       if match_l and match_r:
+        # everything matches
         break
+
       if match_l and not match_r and "local_addr" not in info:
-        res_r = self._AssembleNet(minor,
-                                  (self._lhost, self._lport,
-                                   self._rhost, self._rport),
-                                  "C")
-        if res_r:
-          if self._MatchesNet(self._GetDevInfo(self._GetShowData(minor))):
-            break
-      # the weakest case: we find something that is only net attached
-      # even though we were passed some children at init time
+        # disk matches, but not attached to network, attach and recheck
+        self._AssembleNet(minor, net_data, constants.DRBD_NET_PROTOCOL,
+                          hmac=constants.DRBD_HMAC_ALG, secret=self._secret)
+        if self._MatchesNet(self._GetDevInfo(self._GetShowData(minor))):
+          break
+        else:
+          _ThrowError("drbd%d: network attach successful, but 'drbdsetup"
+                      " show' disagrees", minor)
+
       if match_r and "local_dev" not in info:
-        break
+        # no local disk, but network attached and it matches
+        self._AssembleLocal(minor, self._children[0].dev_path,
+                            self._children[1].dev_path)
+        if self._MatchesNet(self._GetDevInfo(self._GetShowData(minor))):
+          break
+        else:
+          _ThrowError("drbd%d: disk attach successful, but 'drbdsetup"
+                      " show' disagrees", minor)
 
       # this case must be considered only if we actually have local
       # storage, i.e. not in diskless mode, because all diskless
@@ -2322,89 +1413,47 @@ class DRBD8(BaseDRBD):
         # else, even though its local storage is ours; as we own the
         # drbd space, we try to disconnect from the remote peer and
         # reconnect to our correct one
-        if not self._ShutdownNet(minor):
-          raise errors.BlockDeviceError("Device has correct local storage,"
-                                        " wrong remote peer and is unable to"
-                                        " disconnect in order to attach to"
-                                        " the correct peer")
+        try:
+          self._ShutdownNet(minor)
+        except errors.BlockDeviceError, err:
+          _ThrowError("drbd%d: device has correct local storage, wrong"
+                      " remote peer and is unable to disconnect in order"
+                      " to attach to the correct peer: %s", minor, str(err))
         # note: _AssembleNet also handles the case when we don't want
         # local storage (i.e. one or more of the _[lr](host|port) is
         # None)
-        if (self._AssembleNet(minor, (self._lhost, self._lport,
-                                      self._rhost, self._rport), "C") and
-            self._MatchesNet(self._GetDevInfo(self._GetShowData(minor)))):
+        self._AssembleNet(minor, net_data, constants.DRBD_NET_PROTOCOL,
+                          hmac=constants.DRBD_HMAC_ALG, secret=self._secret)
+        if self._MatchesNet(self._GetDevInfo(self._GetShowData(minor))):
           break
+        else:
+          _ThrowError("drbd%d: network attach successful, but 'drbdsetup"
+                      " show' disagrees", minor)
 
     else:
       minor = None
 
     self._SetFromMinor(minor)
-    return minor is not None
+    if minor is None:
+      _ThrowError("drbd%d: cannot activate, unknown or unhandled reason",
+                  self._aminor)
 
-  def Assemble(self):
-    """Assemble the drbd.
+  def _FastAssemble(self):
+    """Assemble the drbd device from zero.
 
-    Method:
-      - if we have a local backing device, we bind to it by:
-        - checking the list of used drbd devices
-        - check if the local minor use of any of them is our own device
-        - if yes, abort?
-        - if not, bind
-      - if we have a local/remote net info:
-        - redo the local backing device step for the remote device
-        - check if any drbd device is using the local port,
-          if yes abort
-        - check if any remote drbd device is using the remote
-          port, if yes abort (for now)
-        - bind our net port
-        - bind the remote net port
+    This is run when in Assemble we detect our minor is unused.
 
     """
-    self.Attach()
-    if self.minor is not None:
-      logger.Info("Already assembled")
-      return True
-
-    result = super(DRBD8, self).Assemble()
-    if not result:
-      return result
-
-    minor = self._FindUnusedMinor()
-
-    # Temporarily set self.minor and self.dev_path
-    self._SetFromMinor(minor)
-    try:
-      # Workaround for a race condition. When DRBD is doing its dance to
-      # establish a connection with its peer, it also sends the synchronization
-      # speed over the wire. In some cases setting the sync speed only after
-      # setting up both sides can race with DRBD connecting, hence we set it
-      # here before telling DRBD anything about its peer.
-      self.SetSyncSpeed(constants.SYNC_SPEED)
-    finally:
-      # To avoid side effects, reset self.minor and self.dev_path again
-      self.minor = None
-      self.dev_path = None
-
-    need_localdev_teardown = False
+    minor = self._aminor
     if self._children and self._children[0] and self._children[1]:
-      result = self._AssembleLocal(minor, self._children[0].dev_path,
-                                   self._children[1].dev_path)
-      if not result:
-        return False
-      need_localdev_teardown = True
+      self._AssembleLocal(minor, self._children[0].dev_path,
+                          self._children[1].dev_path)
     if self._lhost and self._lport and self._rhost and self._rport:
-      result = self._AssembleNet(minor,
-                                 (self._lhost, self._lport,
-                                  self._rhost, self._rport),
-                                 "C")
-      if not result:
-        if need_localdev_teardown:
-          # we will ignore failures from this
-          logger.Error("net setup failed, tearing down local device")
-          self._ShutdownAll(minor)
-        return False
+      self._AssembleNet(minor,
+                        (self._lhost, self._lport, self._rhost, self._rport),
+                        constants.DRBD_NET_PROTOCOL,
+                        hmac=constants.DRBD_HMAC_ALG, secret=self._secret)
     self._SetFromMinor(minor)
-    return True
 
   @classmethod
   def _ShutdownLocal(cls, minor):
@@ -2416,8 +1465,7 @@ class DRBD8(BaseDRBD):
     """
     result = utils.RunCmd(["drbdsetup", cls._DevPath(minor), "detach"])
     if result.failed:
-      logger.Error("Can't detach local device: %s" % result.output)
-    return not result.failed
+      _ThrowError("drbd%d: can't detach local disk: %s", minor, result.output)
 
   @classmethod
   def _ShutdownNet(cls, minor):
@@ -2428,8 +1476,7 @@ class DRBD8(BaseDRBD):
     """
     result = utils.RunCmd(["drbdsetup", cls._DevPath(minor), "disconnect"])
     if result.failed:
-      logger.Error("Can't shutdown network: %s" % result.output)
-    return not result.failed
+      _ThrowError("drbd%d: can't shutdown network: %s", minor, result.output)
 
   @classmethod
   def _ShutdownAll(cls, minor):
@@ -2440,27 +1487,26 @@ class DRBD8(BaseDRBD):
     """
     result = utils.RunCmd(["drbdsetup", cls._DevPath(minor), "down"])
     if result.failed:
-      logger.Error("Can't shutdown drbd device: %s" % result.output)
-    return not result.failed
+      _ThrowError("drbd%d: can't shutdown drbd device: %s",
+                  minor, result.output)
 
   def Shutdown(self):
     """Shutdown the DRBD device.
 
     """
     if self.minor is None and not self.Attach():
-      logger.Info("DRBD device not attached to a device during Shutdown")
-      return True
-    if not self._ShutdownAll(self.minor):
-      return False
+      logging.info("drbd%d: not attached during Shutdown()", self._aminor)
+      return
+    minor = self.minor
     self.minor = None
     self.dev_path = None
-    return True
+    self._ShutdownAll(minor)
 
   def Remove(self):
     """Stub remove for DRBD devices.
 
     """
-    return self.Shutdown()
+    self.Shutdown()
 
   @classmethod
   def Create(cls, unique_id, children, size):
@@ -2472,15 +1518,23 @@ class DRBD8(BaseDRBD):
     """
     if len(children) != 2:
       raise errors.ProgrammerError("Invalid setup for the drbd device")
+    # check that the minor is unused
+    aminor = unique_id[4]
+    proc_info = cls._MassageProcData(cls._GetProcData())
+    if aminor in proc_info:
+      status = DRBD8Status(proc_info[aminor])
+      in_use = status.is_in_use
+    else:
+      in_use = False
+    if in_use:
+      _ThrowError("drbd%d: minor is already in use at Create() time", aminor)
     meta = children[1]
     meta.Assemble()
     if not meta.Attach():
-      raise errors.BlockDeviceError("Can't attach to meta device")
-    if not cls._CheckMetaSize(meta.dev_path):
-      raise errors.BlockDeviceError("Invalid meta device size")
-    cls._InitMeta(cls._FindUnusedMinor(), meta.dev_path)
-    if not cls._IsValidMeta(meta.dev_path):
-      raise errors.BlockDeviceError("Cannot initalize meta device")
+      _ThrowError("drbd%d: can't attach to meta device '%s'",
+                  aminor, meta)
+    cls._CheckMetaSize(meta.dev_path)
+    cls._InitMeta(aminor, meta.dev_path)
     return cls(unique_id, children)
 
   def Grow(self, amount):
@@ -2488,22 +1542,124 @@ class DRBD8(BaseDRBD):
 
     """
     if self.minor is None:
-      raise errors.ProgrammerError("drbd8: Grow called while not attached")
+      _ThrowError("drbd%d: Grow called while not attached", self._aminor)
     if len(self._children) != 2 or None in self._children:
-      raise errors.BlockDeviceError("Cannot grow diskless DRBD8 device")
+      _ThrowError("drbd%d: cannot grow diskless device", self.minor)
     self._children[0].Grow(amount)
     result = utils.RunCmd(["drbdsetup", self.dev_path, "resize"])
     if result.failed:
-      raise errors.BlockDeviceError("resize failed for %s: %s" %
-                                    (self.dev_path, result.output))
-    return
+      _ThrowError("drbd%d: resize failed: %s", self.minor, result.output)
+
+
+class FileStorage(BlockDev):
+  """File device.
+
+  This class represents the a file storage backend device.
+
+  The unique_id for the file device is a (file_driver, file_path) tuple.
+
+  """
+  def __init__(self, unique_id, children):
+    """Initalizes a file device backend.
+
+    """
+    if children:
+      raise errors.BlockDeviceError("Invalid setup for file device")
+    super(FileStorage, self).__init__(unique_id, children)
+    if not isinstance(unique_id, (tuple, list)) or len(unique_id) != 2:
+      raise ValueError("Invalid configuration data %s" % str(unique_id))
+    self.driver = unique_id[0]
+    self.dev_path = unique_id[1]
+    self.Attach()
+
+  def Assemble(self):
+    """Assemble the device.
+
+    Checks whether the file device exists, raises BlockDeviceError otherwise.
+
+    """
+    if not os.path.exists(self.dev_path):
+      _ThrowError("File device '%s' does not exist" % self.dev_path)
+
+  def Shutdown(self):
+    """Shutdown the device.
+
+    This is a no-op for the file type, as we don't deacivate
+    the file on shutdown.
+
+    """
+    pass
+
+  def Open(self, force=False):
+    """Make the device ready for I/O.
+
+    This is a no-op for the file type.
+
+    """
+    pass
+
+  def Close(self):
+    """Notifies that the device will no longer be used for I/O.
+
+    This is a no-op for the file type.
+
+    """
+    pass
+
+  def Remove(self):
+    """Remove the file backing the block device.
+
+    @rtype: boolean
+    @return: True if the removal was successful
+
+    """
+    try:
+      os.remove(self.dev_path)
+    except OSError, err:
+      if err.errno != errno.ENOENT:
+        _ThrowError("Can't remove file '%s': %s", self.dev_path, err)
+
+  def Attach(self):
+    """Attach to an existing file.
+
+    Check if this file already exists.
+
+    @rtype: boolean
+    @return: True if file exists
+
+    """
+    self.attached = os.path.exists(self.dev_path)
+    return self.attached
+
+  @classmethod
+  def Create(cls, unique_id, children, size):
+    """Create a new file.
+
+    @param size: the size of file in MiB
+
+    @rtype: L{bdev.FileStorage}
+    @return: an instance of FileStorage
+
+    """
+    if not isinstance(unique_id, (tuple, list)) or len(unique_id) != 2:
+      raise ValueError("Invalid configuration data %s" % str(unique_id))
+    dev_path = unique_id[1]
+    if os.path.exists(dev_path):
+      _ThrowError("File already existing: %s", dev_path)
+    try:
+      f = open(dev_path, 'w')
+      f.truncate(size * 1024 * 1024)
+      f.close()
+    except IOError, err:
+      _ThrowError("Error in file creation: %", str(err))
+
+    return FileStorage(unique_id, children)
 
 
 DEV_MAP = {
   constants.LD_LV: LogicalVolume,
-  constants.LD_MD_R1: MDRaid1,
-  constants.LD_DRBD7: DRBDev,
   constants.LD_DRBD8: DRBD8,
+  constants.LD_FILE: FileStorage,
   }
 
 
@@ -2517,27 +1673,22 @@ def FindDevice(dev_type, unique_id, children):
   if dev_type not in DEV_MAP:
     raise errors.ProgrammerError("Invalid block device type '%s'" % dev_type)
   device = DEV_MAP[dev_type](unique_id, children)
-  if not device.Attach():
+  if not device.attached:
     return None
-  return  device
+  return device
 
 
-def AttachOrAssemble(dev_type, unique_id, children):
+def Assemble(dev_type, unique_id, children):
   """Try to attach or assemble an existing device.
 
-  This will attach to an existing assembled device or will assemble
-  the device, as needed, to bring it fully up.
+  This will attach to assemble the device, as needed, to bring it
+  fully up. It must be safe to run on already-assembled devices.
 
   """
   if dev_type not in DEV_MAP:
     raise errors.ProgrammerError("Invalid block device type '%s'" % dev_type)
   device = DEV_MAP[dev_type](unique_id, children)
-  if not device.Attach():
-    device.Assemble()
-    if not device.Attach():
-      raise errors.BlockDeviceError("Can't find a valid block device for"
-                                    " %s/%s/%s" %
-                                    (dev_type, unique_id, children))
+  device.Assemble()
   return device
 
 

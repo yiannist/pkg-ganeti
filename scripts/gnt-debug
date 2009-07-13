@@ -19,15 +19,19 @@
 # 02110-1301, USA.
 
 
+# pylint: disable-msg=W0401,W0614
+# W0401: Wildcard import ganeti.cli
+# W0614: Unused import %s from wildcard import (since we need cli)
+
 import sys
-import os
-import itertools
+import simplejson
+import time
+
 from optparse import make_option
-from cStringIO import StringIO
 
 from ganeti.cli import *
+from ganeti import cli
 from ganeti import opcodes
-from ganeti import logger
 from ganeti import constants
 from ganeti import utils
 from ganeti import errors
@@ -36,24 +40,68 @@ from ganeti import errors
 def Delay(opts, args):
   """Sleeps for a while
 
+  @param opts: the command line options selected by the user
+  @type args: list
+  @param args: should contain only one element, the duration
+      the sleep
+  @rtype: int
+  @return: the desired exit code
+
   """
   delay = float(args[0])
   op = opcodes.OpTestDelay(duration=delay,
                            on_master=opts.on_master,
                            on_nodes=opts.on_nodes)
-
   SubmitOpCode(op)
+
+  return 0
+
+
+def GenericOpCodes(opts, args):
+  """Send any opcode to the master.
+
+  @todo: The function is broken and needs to be converted to the
+      current job queue API
+  @param opts: the command line options selected by the user
+  @type args: list
+  @param args: should contain only one element, the path of
+      the file with the opcode definition
+  @rtype: int
+  @return: the desired exit code
+
+  """
+  cl = cli.GetClient()
+  job_data = []
+  job_ids = []
+  for fname in args:
+    op_data = simplejson.loads(open(fname).read())
+    op_list = [opcodes.OpCode.LoadOpCode(val) for val in op_data]
+    job_data.append((fname, op_list))
+  for fname, op_list in job_data:
+    jid = cli.SendJob(op_list, cl=cl)
+    ToStdout("File '%s', job id: %s", fname, jid)
+    job_ids.append(jid)
+  for jid in job_ids:
+    ToStdout("Waiting for job id %s", jid)
+    cli.PollJob(jid, cl=cl)
   return 0
 
 
 def TestAllocator(opts, args):
-  """Runs the test allocator opcode"""
+  """Runs the test allocator opcode.
 
+  @param opts: the command line options selected by the user
+  @type args: list
+  @param args: should contain only one element, the iallocator name
+  @rtype: int
+  @return: the desired exit code
+
+  """
   try:
     disks = [{"size": utils.ParseUnit(val), "mode": 'w'}
              for val in opts.disks.split(",")]
   except errors.UnitParseError, err:
-    print >> sys.stderr, "Invalid disks parameter '%s': %s" % (opts.disks, err)
+    ToStderr("Invalid disks parameter '%s': %s", opts.disks, err)
     return 1
 
   nics = [val.split("/") for val in opts.nics.split(",")]
@@ -83,7 +131,7 @@ def TestAllocator(opts, args):
                                allocator=opts.allocator,
                                )
   result = SubmitOpCode(op)
-  print result
+  ToStdout("%s" % result)
   return 0
 
 
@@ -98,6 +146,11 @@ commands = {
                          help="Select nodes to sleep on"),
              ],
             "[opts...] <duration>", "Executes a TestDelay OpCode"),
+  'submit-job': (GenericOpCodes, ARGS_ATLEAST(1),
+                 [DEBUG_OPT,
+                  ],
+                 "<op_list_file...>", "Submits jobs built from json files"
+                 " containing a list of serialized opcodes"),
   'allocator': (TestAllocator, ARGS_ONE,
                 [DEBUG_OPT,
                  make_option("--dir", dest="direction",

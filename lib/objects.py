@@ -29,6 +29,7 @@ pass to and from external parties.
 
 import ConfigParser
 import re
+import copy
 from cStringIO import StringIO
 
 from ganeti import errors
@@ -49,7 +50,7 @@ class ConfigObject(object):
       as None instead of raising an error
 
   Classes derived from this must always declare __slots__ (we use many
-  config objects and the memory reduction is useful.
+  config objects and the memory reduction is useful)
 
   """
   __slots__ = []
@@ -164,27 +165,21 @@ class TaggableObject(ConfigObject):
   __slots__ = ConfigObject.__slots__ + ["tags"]
 
   @staticmethod
-  def ValidateTag(tag, removal=False):
+  def ValidateTag(tag):
     """Check if a tag is valid.
 
     If the tag is invalid, an errors.TagError will be raised. The
     function has no return value.
 
-    Args:
-      tag: Tag value
-      removal: Validating tag for removal?
-
     """
     if not isinstance(tag, basestring):
       raise errors.TagError("Invalid tag type (not a string)")
-    if removal:
-      return
     if len(tag) > constants.MAX_TAG_LEN:
       raise errors.TagError("Tag too long (>%d characters)" %
                             constants.MAX_TAG_LEN)
     if not tag:
       raise errors.TagError("Tags cannot be empty")
-    if not re.match("^[ \w.+*/:-]+$", tag):
+    if not re.match("^[\w.+*/:-]+$", tag):
       raise errors.TagError("Tag contains invalid characters")
 
   def GetTags(self):
@@ -210,7 +205,7 @@ class TaggableObject(ConfigObject):
     """Remove a tag.
 
     """
-    self.ValidateTag(tag, removal=True)
+    self.ValidateTag(tag)
     tags = self.GetTags()
     try:
       tags.remove(tag)
@@ -243,7 +238,7 @@ class TaggableObject(ConfigObject):
 
 class ConfigData(ConfigObject):
   """Top-level config object."""
-  __slots__ = ["cluster", "nodes", "instances"]
+  __slots__ = ["version", "cluster", "nodes", "instances", "serial_no"]
 
   def ToDict(self):
     """Custom function for top-level config data.
@@ -279,17 +274,15 @@ class NIC(ConfigObject):
 class Disk(ConfigObject):
   """Config object representing a block device."""
   __slots__ = ["dev_type", "logical_id", "physical_id",
-               "children", "iv_name", "size"]
+               "children", "iv_name", "size", "mode"]
 
   def CreateOnSecondary(self):
     """Test if this device needs to be created on a secondary node."""
-    return self.dev_type in (constants.LD_DRBD7, constants.LD_DRBD8,
-                             constants.LD_LV)
+    return self.dev_type in (constants.LD_DRBD8, constants.LD_LV)
 
   def AssembleOnSecondary(self):
     """Test if this device needs to be assembled on a secondary node."""
-    return self.dev_type in (constants.LD_DRBD7, constants.LD_DRBD8,
-                             constants.LD_LV)
+    return self.dev_type in (constants.LD_DRBD8, constants.LD_LV)
 
   def OpenOnSecondary(self):
     """Test if this device needs to be opened on a secondary node."""
@@ -332,7 +325,7 @@ class Disk(ConfigObject):
     devices needs to (or can) be assembled.
 
     """
-    if self.dev_type == constants.LD_LV or self.dev_type == constants.LD_MD_R1:
+    if self.dev_type in [constants.LD_LV, constants.LD_FILE]:
       result = [node]
     elif self.dev_type in constants.LDS_DRBD:
       result = [self.logical_id[0], self.logical_id[1]]
@@ -347,12 +340,9 @@ class Disk(ConfigObject):
 
     This method, given the node on which the parent disk lives, will
     return the list of all (node, disk) pairs which describe the disk
-    tree in the most compact way. For example, a md/drbd/lvm stack
-    will be returned as (primary_node, md) and (secondary_node, drbd)
-    which represents all the top-level devices on the nodes. This
-    means that on the primary node we need to activate the the md (and
-    recursively all its children) and on the secondary node we need to
-    activate the drbd device (and its children, the two lvm volumes).
+    tree in the most compact way. For example, a drbd/lvm stack
+    will be returned as (primary_node, drbd) and (secondary_node, drbd)
+    which represents all the top-level devices on the nodes.
 
     """
     my_nodes = self.GetNodes(parent_node)
@@ -423,7 +413,7 @@ class Disk(ConfigObject):
     if self.logical_id is None and self.physical_id is not None:
       return
     if self.dev_type in constants.LDS_DRBD:
-      pnode, snode, port = self.logical_id
+      pnode, snode, port, pminor, sminor, secret = self.logical_id
       if target_node not in (pnode, snode):
         raise errors.ConfigurationError("DRBD device not knowing node %s" %
                                         target_node)
@@ -432,12 +422,12 @@ class Disk(ConfigObject):
       if pnode_ip is None or snode_ip is None:
         raise errors.ConfigurationError("Can't find primary or secondary node"
                                         " for %s" % str(self))
+      p_data = (pnode_ip, port)
+      s_data = (snode_ip, port)
       if pnode == target_node:
-        self.physical_id = (pnode_ip, port,
-                            snode_ip, port)
+        self.physical_id = p_data + s_data + (pminor, secret)
       else: # it must be secondary, we tested above
-        self.physical_id = (snode_ip, port,
-                            pnode_ip, port)
+        self.physical_id = s_data + p_data + (sminor, secret)
     else:
       self.physical_id = self.logical_id
     return
@@ -469,6 +459,10 @@ class Disk(ConfigObject):
       obj.logical_id = tuple(obj.logical_id)
     if obj.physical_id and isinstance(obj.physical_id, list):
       obj.physical_id = tuple(obj.physical_id)
+    if obj.dev_type in constants.LDS_DRBD:
+      # we need a tuple of length six here
+      if len(obj.logical_id) < 6:
+        obj.logical_id += (None,) * (6 - len(obj.logical_id))
     return obj
 
   def __str__(self):
@@ -478,10 +472,8 @@ class Disk(ConfigObject):
     if self.dev_type == constants.LD_LV:
       val =  "<LogicalVolume(/dev/%s/%s" % self.logical_id
     elif self.dev_type in constants.LDS_DRBD:
-      if self.dev_type == constants.LD_DRBD7:
-        val = "<DRBD7("
-      else:
-        val = "<DRBD8("
+      node_a, node_b, port, minor_a, minor_b = self.logical_id[:5]
+      val = "<DRBD8("
       if self.physical_id is None:
         phy = "unconfigured"
       else:
@@ -489,15 +481,12 @@ class Disk(ConfigObject):
                (self.physical_id[0], self.physical_id[1],
                 self.physical_id[2], self.physical_id[3]))
 
-      val += ("hosts=%s-%s, port=%s, %s, " %
-              (self.logical_id[0], self.logical_id[1], self.logical_id[2],
-               phy))
+      val += ("hosts=%s/%d-%s/%d, port=%s, %s, " %
+              (node_a, minor_a, node_b, minor_b, port, phy))
       if self.children and self.children.count(None) == 0:
         val += "backend=%s, metadev=%s" % (self.children[0], self.children[1])
       else:
         val += "no local storage"
-    elif self.dev_type == constants.LD_MD_R1:
-      val = "<MD_R1(uuid=%s, children=%s" % (self.physical_id, self.children)
     else:
       val = ("<Disk(type=%s, logical_id=%s, physical_id=%s, children=%s" %
              (self.dev_type, self.logical_id, self.physical_id, self.children))
@@ -505,8 +494,20 @@ class Disk(ConfigObject):
       val += ", not visible"
     else:
       val += ", visible as /dev/%s" % self.iv_name
-    val += ", size=%dm)>" % self.size
+    if isinstance(self.size, int):
+      val += ", size=%dm)>" % self.size
+    else:
+      val += ", size='%s')>" % (self.size,)
     return val
+
+  def Verify(self):
+    """Checks that this disk is correctly configured.
+
+    """
+    errors = []
+    if self.mode not in constants.DISK_ACCESS_SET:
+      errors.append("Disk access mode '%s' is invalid" % (self.mode, ))
+    return errors
 
 
 class Instance(TaggableObject):
@@ -515,27 +516,32 @@ class Instance(TaggableObject):
     "name",
     "primary_node",
     "os",
-    "status",
-    "memory",
-    "vcpus",
+    "hypervisor",
+    "hvparams",
+    "beparams",
+    "admin_up",
     "nics",
     "disks",
     "disk_template",
     "network_port",
-    "kernel_path",
-    "initrd_path",
-    "hvm_boot_order",
-    "hvm_acpi",
-    "hvm_pae",
-    "hvm_cdrom_image_path",
-    "hvm_nic_type",
-    "hvm_disk_type",
-    "vnc_bind_address",
-    "auto_balance",
+    "serial_no",
     ]
 
   def _ComputeSecondaryNodes(self):
     """Compute the list of secondary nodes.
+
+    This is a simple wrapper over _ComputeAllNodes.
+
+    """
+    all_nodes = set(self._ComputeAllNodes())
+    all_nodes.discard(self.primary_node)
+    return tuple(all_nodes)
+
+  secondary_nodes = property(_ComputeSecondaryNodes, None, None,
+                             "List of secondary nodes")
+
+  def _ComputeAllNodes(self):
+    """Compute the list of all nodes.
 
     Since the data is already there (in the drbd disks), keeping it as
     a separate normal attribute is redundant and if not properly
@@ -543,40 +549,36 @@ class Instance(TaggableObject):
     dynamically.
 
     """
-    def _Helper(primary, sec_nodes, device):
-      """Recursively computes secondary nodes given a top device."""
+    def _Helper(nodes, device):
+      """Recursively computes nodes given a top device."""
       if device.dev_type in constants.LDS_DRBD:
-        nodea, nodeb, dummy = device.logical_id
-        if nodea == primary:
-          candidate = nodeb
-        else:
-          candidate = nodea
-        if candidate not in sec_nodes:
-          sec_nodes.append(candidate)
+        nodea, nodeb = device.logical_id[:2]
+        nodes.add(nodea)
+        nodes.add(nodeb)
       if device.children:
         for child in device.children:
-          _Helper(primary, sec_nodes, child)
+          _Helper(nodes, child)
 
-    secondary_nodes = []
+    all_nodes = set()
+    all_nodes.add(self.primary_node)
     for device in self.disks:
-      _Helper(self.primary_node, secondary_nodes, device)
-    return tuple(secondary_nodes)
+      _Helper(all_nodes, device)
+    return tuple(all_nodes)
 
-  secondary_nodes = property(_ComputeSecondaryNodes, None, None,
-                             "List of secondary nodes")
+  all_nodes = property(_ComputeAllNodes, None, None,
+                       "List of all nodes of the instance")
 
   def MapLVsByNode(self, lvmap=None, devs=None, node=None):
     """Provide a mapping of nodes to LVs this instance owns.
 
-    This function figures out what logical volumes should belong on which
-    nodes, recursing through a device tree.
+    This function figures out what logical volumes should belong on
+    which nodes, recursing through a device tree.
 
-    Args:
-      lvmap: (optional) a dictionary to receive the 'node' : ['lv', ...] data.
+    @param lvmap: optional dictionary to receive the
+        'node' : ['lv', ...] data.
 
-    Returns:
-      None if lvmap arg is given.
-      Otherwise, { 'nodename' : ['volume1', 'volume2', ...], ... }
+    @return: None if lvmap arg is given, otherwise, a dictionary
+        of the form { 'nodename' : ['volume1', 'volume2', ...], ... }
 
     """
     if node == None:
@@ -598,12 +600,6 @@ class Instance(TaggableObject):
         lvmap[node].append(dev.logical_id[1])
 
       elif dev.dev_type in constants.LDS_DRBD:
-        if dev.logical_id[0] not in lvmap:
-          lvmap[dev.logical_id[0]] = []
-
-        if dev.logical_id[1] not in lvmap:
-          lvmap[dev.logical_id[1]] = []
-
         if dev.children:
           self.MapLVsByNode(lvmap, dev.children, dev.logical_id[0])
           self.MapLVsByNode(lvmap, dev.children, dev.logical_id[1])
@@ -613,17 +609,26 @@ class Instance(TaggableObject):
 
     return ret
 
-  def FindDisk(self, name):
-    """Find a disk given having a specified name.
+  def FindDisk(self, idx):
+    """Find a disk given having a specified index.
 
-    This will return the disk which has the given iv_name.
+    This is just a wrapper that does validation of the index.
+
+    @type idx: int
+    @param idx: the disk index
+    @rtype: L{Disk}
+    @return: the corresponding disk
+    @raise errors.OpPrereqError: when the given index is not valid
 
     """
-    for disk in self.disks:
-      if disk.iv_name == name:
-        return disk
-
-    return None
+    try:
+      idx = int(idx)
+      return self.disks[idx]
+    except ValueError, err:
+      raise errors.OpPrereqError("Invalid disk index: '%s'" % str(err))
+    except IndexError:
+      raise errors.OpPrereqError("Invalid disk index: %d (instace has disks"
+                                 " 0 to %d" % (idx, len(self.disks)))
 
   def ToDict(self):
     """Instance-specific conversion to standard python types.
@@ -648,9 +653,6 @@ class Instance(TaggableObject):
     """Custom function for instances.
 
     """
-    # we set the auto_balance value to True if missing
-    if val.get("auto_balance", None) is None:
-      val["auto_balance"] = True
     obj = super(Instance, cls).FromDict(val)
     obj.nics = cls._ContainerFromDicts(obj.nics, list, NIC)
     obj.disks = cls._ContainerFromDicts(obj.disks, list, Disk)
@@ -689,19 +691,23 @@ class OS(ConfigObject):
 
   __bool__ = __nonzero__
 
+
 class Node(TaggableObject):
   """Config object representing a node."""
   __slots__ = TaggableObject.__slots__ + [
     "name",
     "primary_ip",
     "secondary_ip",
+    "serial_no",
+    "master_candidate",
+    "offline",
+    "drained",
     ]
 
 
 class Cluster(TaggableObject):
   """Config object representing the cluster."""
   __slots__ = TaggableObject.__slots__ + [
-    "config_version",
     "serial_no",
     "rsahostkeypub",
     "highest_used_port",
@@ -709,6 +715,16 @@ class Cluster(TaggableObject):
     "mac_prefix",
     "volume_group_name",
     "default_bridge",
+    "default_hypervisor",
+    "master_node",
+    "master_ip",
+    "master_netdev",
+    "cluster_name",
+    "file_storage_dir",
+    "enabled_hypervisors",
+    "hvparams",
+    "beparams",
+    "candidate_pool_size",
     ]
 
   def ToDict(self):
@@ -728,6 +744,48 @@ class Cluster(TaggableObject):
     if not isinstance(obj.tcpudp_port_pool, set):
       obj.tcpudp_port_pool = set(obj.tcpudp_port_pool)
     return obj
+
+  @staticmethod
+  def FillDict(defaults_dict, custom_dict):
+    """Basic function to apply settings on top a default dict.
+
+    @type defaults_dict: dict
+    @param defaults_dict: dictionary holding the default values
+    @type custom_dict: dict
+    @param custom_dict: dictionary holding customized value
+    @rtype: dict
+    @return: dict with the 'full' values
+
+    """
+    ret_dict = copy.deepcopy(defaults_dict)
+    ret_dict.update(custom_dict)
+    return ret_dict
+
+  def FillHV(self, instance):
+    """Fill an instance's hvparams dict.
+
+    @type instance: object
+    @param instance: the instance parameter to fill
+    @rtype: dict
+    @return: a copy of the instance's hvparams with missing keys filled from
+        the cluster defaults
+
+    """
+    return self.FillDict(self.hvparams.get(instance.hypervisor, {}),
+                         instance.hvparams)
+
+  def FillBE(self, instance):
+    """Fill an instance's beparams dict.
+
+    @type instance: object
+    @param instance: the instance parameter to fill
+    @rtype: dict
+    @return: a copy of the instance's beparams with missing keys filled from
+        the cluster defaults
+
+    """
+    return self.FillDict(self.beparams.get(constants.BEGR_DEFAULT, {}),
+                         instance.beparams)
 
 
 class SerializableConfigParser(ConfigParser.SafeConfigParser):

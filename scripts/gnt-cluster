@@ -19,59 +19,133 @@
 # 02110-1301, USA.
 
 
+# pylint: disable-msg=W0401,W0614
+# W0401: Wildcard import ganeti.cli
+# W0614: Unused import %s from wildcard import (since we need cli)
+
 import sys
 from optparse import make_option
-import pprint
+import os.path
 
 from ganeti.cli import *
 from ganeti import opcodes
 from ganeti import constants
 from ganeti import errors
 from ganeti import utils
+from ganeti import bootstrap
+from ganeti import ssh
 
 
+@UsesRPC
 def InitCluster(opts, args):
   """Initialize the cluster.
 
-  Args:
-    opts - class with options as members
-    args - list of arguments, expected to be [clustername]
+  @param opts: the command line options selected by the user
+  @type args: list
+  @param args: should contain only one element, the desired
+      cluster name
+  @rtype: int
+  @return: the desired exit code
 
   """
-  op = opcodes.OpInitCluster(cluster_name=args[0],
-                             secondary_ip=opts.secondary_ip,
-                             hypervisor_type=opts.hypervisor_type,
-                             vg_name=opts.vg_name,
-                             mac_prefix=opts.mac_prefix,
-                             def_bridge=opts.def_bridge,
-                             master_netdev=opts.master_netdev)
-  SubmitOpCode(op)
+  if not opts.lvm_storage and opts.vg_name:
+    ToStderr("Options --no-lvm-storage and --vg-name conflict.")
+    return 1
+
+  vg_name = opts.vg_name
+  if opts.lvm_storage and not opts.vg_name:
+    vg_name = constants.DEFAULT_VG
+
+  hvlist = opts.enabled_hypervisors
+  if hvlist is not None:
+    hvlist = hvlist.split(",")
+  else:
+    hvlist = [opts.default_hypervisor]
+
+  # avoid an impossible situation
+  if opts.default_hypervisor not in hvlist:
+    ToStderr("The default hypervisor requested (%s) is not"
+             " within the enabled hypervisor list (%s)" %
+             (opts.default_hypervisor, hvlist))
+    return 1
+
+  hvparams = dict(opts.hvparams)
+
+  beparams = opts.beparams
+  # check for invalid parameters
+  for parameter in beparams:
+    if parameter not in constants.BES_PARAMETERS:
+      ToStderr("Invalid backend parameter: %s", parameter)
+      return 1
+
+  # prepare beparams dict
+  for parameter in constants.BES_PARAMETERS:
+    if parameter not in beparams:
+      beparams[parameter] = constants.BEC_DEFAULTS[parameter]
+  utils.ForceDictType(beparams, constants.BES_PARAMETER_TYPES)
+
+  # prepare hvparams dict
+  for hv in constants.HYPER_TYPES:
+    if hv not in hvparams:
+      hvparams[hv] = {}
+    for parameter in constants.HVC_DEFAULTS[hv]:
+      if parameter not in hvparams[hv]:
+        hvparams[hv][parameter] = constants.HVC_DEFAULTS[hv][parameter]
+    utils.ForceDictType(hvparams[hv], constants.HVS_PARAMETER_TYPES)
+
+  for hv in hvlist:
+    if hv not in constants.HYPER_TYPES:
+      ToStderr("invalid hypervisor: %s", hv)
+      return 1
+
+  bootstrap.InitCluster(cluster_name=args[0],
+                        secondary_ip=opts.secondary_ip,
+                        vg_name=vg_name,
+                        mac_prefix=opts.mac_prefix,
+                        def_bridge=opts.def_bridge,
+                        master_netdev=opts.master_netdev,
+                        file_storage_dir=opts.file_storage_dir,
+                        enabled_hypervisors=hvlist,
+                        default_hypervisor=opts.default_hypervisor,
+                        hvparams=hvparams,
+                        beparams=beparams,
+                        candidate_pool_size=opts.candidate_pool_size,
+                        )
   return 0
 
 
+@UsesRPC
 def DestroyCluster(opts, args):
   """Destroy the cluster.
 
-  Args:
-    opts - class with options as members
+  @param opts: the command line options selected by the user
+  @type args: list
+  @param args: should be an empty list
+  @rtype: int
+  @return: the desired exit code
 
   """
   if not opts.yes_do_it:
-    print ("Destroying a cluster is irreversibly. If you really want destroy"
-           " this cluster, supply the --yes-do-it option.")
+    ToStderr("Destroying a cluster is irreversible. If you really want"
+             " destroy this cluster, supply the --yes-do-it option.")
     return 1
 
   op = opcodes.OpDestroyCluster()
-  SubmitOpCode(op)
+  master = SubmitOpCode(op)
+  # if we reached this, the opcode didn't fail; we can proceed to
+  # shutdown all the daemons
+  bootstrap.FinalizeClusterDestroy(master)
   return 0
 
 
 def RenameCluster(opts, args):
   """Rename the cluster.
 
-  Args:
-    opts - class with options as members, we use force only
-    args - list of arguments, expected to be [new_name]
+  @param opts: the command line options selected by the user
+  @type args: list
+  @param args: should contain only one element, the new cluster name
+  @rtype: int
+  @return: the desired exit code
 
   """
   name = args[0]
@@ -88,51 +162,97 @@ def RenameCluster(opts, args):
   return 0
 
 
+def RedistributeConfig(opts, args):
+  """Forces push of the cluster configuration.
+
+  @param opts: the command line options selected by the user
+  @type args: list
+  @param args: empty list
+  @rtype: int
+  @return: the desired exit code
+
+  """
+  op = opcodes.OpRedistributeConfig()
+  SubmitOrSend(op, opts)
+  return 0
+
+
 def ShowClusterVersion(opts, args):
   """Write version of ganeti software to the standard output.
 
-  Args:
-    opts - class with options as members
+  @param opts: the command line options selected by the user
+  @type args: list
+  @param args: should be an empty list
+  @rtype: int
+  @return: the desired exit code
 
   """
-  op = opcodes.OpQueryClusterInfo()
-  result = SubmitOpCode(op)
-  print ("Software version: %s" % result["software_version"])
-  print ("Internode protocol: %s" % result["protocol_version"])
-  print ("Configuration format: %s" % result["config_version"])
-  print ("OS api version: %s" % result["os_api_version"])
-  print ("Export interface: %s" % result["export_version"])
+  cl = GetClient()
+  result = cl.QueryClusterInfo()
+  ToStdout("Software version: %s", result["software_version"])
+  ToStdout("Internode protocol: %s", result["protocol_version"])
+  ToStdout("Configuration format: %s", result["config_version"])
+  ToStdout("OS api version: %s", result["os_api_version"])
+  ToStdout("Export interface: %s", result["export_version"])
   return 0
 
 
 def ShowClusterMaster(opts, args):
   """Write name of master node to the standard output.
 
-  Args:
-    opts - class with options as members
+  @param opts: the command line options selected by the user
+  @type args: list
+  @param args: should be an empty list
+  @rtype: int
+  @return: the desired exit code
 
   """
-  op = opcodes.OpQueryClusterInfo()
-  result = SubmitOpCode(op)
-  print (result["master"])
+  master = bootstrap.GetMaster()
+  ToStdout(master)
   return 0
 
 
 def ShowClusterConfig(opts, args):
   """Shows cluster information.
 
+  @param opts: the command line options selected by the user
+  @type args: list
+  @param args: should be an empty list
+  @rtype: int
+  @return: the desired exit code
+
   """
-  op = opcodes.OpQueryClusterInfo()
-  result = SubmitOpCode(op)
+  cl = GetClient()
+  result = cl.QueryClusterInfo()
 
-  print ("Cluster name: %s" % result["name"])
+  ToStdout("Cluster name: %s", result["name"])
 
-  print ("Master node: %s" % result["master"])
+  ToStdout("Master node: %s", result["master"])
 
-  print ("Architecture (this node): %s (%s)" %
-         (result["architecture"][0], result["architecture"][1]))
+  ToStdout("Architecture (this node): %s (%s)",
+           result["architecture"][0], result["architecture"][1])
 
-  print ("Cluster hypervisor: %s" % result["hypervisor_type"])
+  ToStdout("Default hypervisor: %s", result["default_hypervisor"])
+  ToStdout("Enabled hypervisors: %s", ", ".join(result["enabled_hypervisors"]))
+
+  ToStdout("Hypervisor parameters:")
+  for hv_name, hv_dict in result["hvparams"].items():
+    ToStdout("  - %s:", hv_name)
+    for item, val in hv_dict.iteritems():
+      ToStdout("      %s: %s", item, val)
+
+  ToStdout("Cluster parameters:")
+  ToStdout("  - candidate pool size: %s", result["candidate_pool_size"])
+  ToStdout("  - master netdev: %s", result["master_netdev"])
+  ToStdout("  - default bridge: %s", result["default_bridge"])
+  ToStdout("  - lvm volume group: %s", result["volume_group_name"])
+  ToStdout("  - file storage path: %s", result["file_storage_dir"])
+
+  ToStdout("Default instance parameters:")
+  for gr_name, gr_dict in result["beparams"].items():
+    ToStdout("  - %s:", gr_name)
+    for item, val in gr_dict.iteritems():
+      ToStdout("      %s: %s", item, val)
 
   return 0
 
@@ -140,80 +260,120 @@ def ShowClusterConfig(opts, args):
 def ClusterCopyFile(opts, args):
   """Copy a file from master to some nodes.
 
-  Args:
-    opts - class with options as members
-    args - list containing a single element, the file name
-  Opts used:
-    nodes - list containing the name of target nodes; if empty, all nodes
+  @param opts: the command line options selected by the user
+  @type args: list
+  @param args: should contain only one element, the path of
+      the file to be copied
+  @rtype: int
+  @return: the desired exit code
 
   """
-  op = opcodes.OpClusterCopyFile(filename=args[0], nodes=opts.nodes)
-  SubmitOpCode(op)
+  filename = args[0]
+  if not os.path.exists(filename):
+    raise errors.OpPrereqError("No such filename '%s'" % filename)
+
+  cl = GetClient()
+
+  myname = utils.HostInfo().name
+
+  cluster_name = cl.QueryConfigValues(["cluster_name"])[0]
+
+  results = GetOnlineNodes(nodes=opts.nodes, cl=cl)
+  results = [name for name in results if name != myname]
+
+  srun = ssh.SshRunner(cluster_name=cluster_name)
+  for node in results:
+    if not srun.CopyFileToNode(node, filename):
+      ToStderr("Copy of file %s to node %s failed", filename, node)
+
   return 0
 
 
 def RunClusterCommand(opts, args):
   """Run a command on some nodes.
 
-  Args:
-    opts - class with options as members
-    args - the command list as a list
-  Opts used:
-    nodes: list containing the name of target nodes; if empty, all nodes
+  @param opts: the command line options selected by the user
+  @type args: list
+  @param args: should contain the command to be run and its arguments
+  @rtype: int
+  @return: the desired exit code
 
   """
+  cl = GetClient()
+
   command = " ".join(args)
-  nodes = opts.nodes
-  op = opcodes.OpRunClusterCommand(command=command, nodes=nodes)
-  result = SubmitOpCode(op)
-  for node, output, exit_code in result:
-    print ("------------------------------------------------")
-    print ("node: %s" % node)
-    print ("%s" % output)
-    print ("return code = %s" % exit_code)
+
+  nodes = GetOnlineNodes(nodes=opts.nodes, cl=cl)
+
+  cluster_name, master_node = cl.QueryConfigValues(["cluster_name",
+                                                    "master_node"])
+
+  srun = ssh.SshRunner(cluster_name=cluster_name)
+
+  # Make sure master node is at list end
+  if master_node in nodes:
+    nodes.remove(master_node)
+    nodes.append(master_node)
+
+  for name in nodes:
+    result = srun.Run(name, "root", command)
+    ToStdout("------------------------------------------------")
+    ToStdout("node: %s", name)
+    ToStdout("%s", result.output)
+    ToStdout("return code = %s", result.exit_code)
+
+  return 0
 
 
 def VerifyCluster(opts, args):
   """Verify integrity of cluster, performing various test on nodes.
 
-  Args:
-    opts - class with options as members
+  @param opts: the command line options selected by the user
+  @type args: list
+  @param args: should be an empty list
+  @rtype: int
+  @return: the desired exit code
 
   """
   skip_checks = []
   if opts.skip_nplusone_mem:
     skip_checks.append(constants.VERIFY_NPLUSONE_MEM)
   op = opcodes.OpVerifyCluster(skip_checks=skip_checks)
-  result = SubmitOpCode(op)
-  return result
+  if SubmitOpCode(op):
+    return 0
+  else:
+    return 1
 
 
 def VerifyDisks(opts, args):
   """Verify integrity of cluster disks.
 
-  Args:
-    opts - class with options as members
+  @param opts: the command line options selected by the user
+  @type args: list
+  @param args: should be an empty list
+  @rtype: int
+  @return: the desired exit code
 
   """
   op = opcodes.OpVerifyDisks()
   result = SubmitOpCode(op)
-  if not isinstance(result, tuple) or len(result) != 4:
+  if not isinstance(result, (list, tuple)) or len(result) != 4:
     raise errors.ProgrammerError("Unknown result type for OpVerifyDisks")
 
   nodes, nlvm, instances, missing = result
 
   if nodes:
-    print "Nodes unreachable or with bad data:"
+    ToStdout("Nodes unreachable or with bad data:")
     for name in nodes:
-      print "\t%s" % name
+      ToStdout("\t%s", name)
   retcode = constants.EXIT_SUCCESS
 
   if nlvm:
     for node, text in nlvm.iteritems():
-      print ("Error on node %s: LVM error: %s" %
-             (node, text[-400:].encode('string_escape')))
+      ToStdout("Error on node %s: LVM error: %s",
+               node, utils.SafeEncode(text[-400:]))
       retcode |= 1
-      print "You need to fix these nodes first before fixing instances"
+      ToStdout("You need to fix these nodes first before fixing instances")
 
   if instances:
     for iname in instances:
@@ -221,35 +381,35 @@ def VerifyDisks(opts, args):
         continue
       op = opcodes.OpActivateInstanceDisks(instance_name=iname)
       try:
-        print "Activating disks for instance '%s'" % iname
+        ToStdout("Activating disks for instance '%s'", iname)
         SubmitOpCode(op)
       except errors.GenericError, err:
         nret, msg = FormatError(err)
         retcode |= nret
-        print >> sys.stderr, ("Error activating disks for instance %s: %s" %
-                              (iname, msg))
+        ToStderr("Error activating disks for instance %s: %s", iname, msg)
 
   if missing:
     for iname, ival in missing.iteritems():
       all_missing = utils.all(ival, lambda x: x[0] in nlvm)
       if all_missing:
-        print ("Instance %s cannot be verified as it lives on"
-               " broken nodes" % iname)
+        ToStdout("Instance %s cannot be verified as it lives on"
+                 " broken nodes", iname)
       else:
-        print "Instance %s has missing logical volumes:" % iname
+        ToStdout("Instance %s has missing logical volumes:", iname)
         ival.sort()
         for node, vol in ival:
           if node in nlvm:
-            print ("\tbroken node %s /dev/xenvg/%s" % (node, vol))
+            ToStdout("\tbroken node %s /dev/xenvg/%s", node, vol)
           else:
-            print ("\t%s /dev/xenvg/%s" % (node, vol))
-    print ("You need to run replace_disks for all the above"
+            ToStdout("\t%s /dev/xenvg/%s", node, vol)
+    ToStdout("You need to run replace_disks for all the above"
            " instances, if this message persist after fixing nodes.")
     retcode |= 1
 
   return retcode
 
 
+@UsesRPC
 def MasterFailover(opts, args):
   """Failover the master node.
 
@@ -257,13 +417,24 @@ def MasterFailover(opts, args):
   master to cease being master, and the non-master to become new
   master.
 
+  @param opts: the command line options selected by the user
+  @type args: list
+  @param args: should be an empty list
+  @rtype: int
+  @return: the desired exit code
+
   """
-  op = opcodes.OpMasterFailover()
-  SubmitOpCode(op)
+  return bootstrap.MasterFailover()
 
 
 def SearchTags(opts, args):
   """Searches the tags on all the cluster.
+
+  @param opts: the command line options selected by the user
+  @type args: list
+  @param args: should contain only one element, the tag pattern
+  @rtype: int
+  @return: the desired exit code
 
   """
   op = opcodes.OpSearchTags(pattern=args[0])
@@ -273,8 +444,79 @@ def SearchTags(opts, args):
   result = list(result)
   result.sort()
   for path, tag in result:
-    print "%s %s" % (path, tag)
+    ToStdout("%s %s", path, tag)
 
+
+def SetClusterParams(opts, args):
+  """Modify the cluster.
+
+  @param opts: the command line options selected by the user
+  @type args: list
+  @param args: should be an empty list
+  @rtype: int
+  @return: the desired exit code
+
+  """
+  if not (not opts.lvm_storage or opts.vg_name or
+          opts.enabled_hypervisors or opts.hvparams or
+          opts.beparams or opts.candidate_pool_size is not None):
+    ToStderr("Please give at least one of the parameters.")
+    return 1
+
+  vg_name = opts.vg_name
+  if not opts.lvm_storage and opts.vg_name:
+    ToStdout("Options --no-lvm-storage and --vg-name conflict.")
+    return 1
+  elif not opts.lvm_storage:
+    vg_name = ''
+
+  hvlist = opts.enabled_hypervisors
+  if hvlist is not None:
+    hvlist = hvlist.split(",")
+
+  # a list of (name, dict) we can pass directly to dict() (or [])
+  hvparams = dict(opts.hvparams)
+  for hv, hv_params in hvparams.iteritems():
+    utils.ForceDictType(hv_params, constants.HVS_PARAMETER_TYPES)
+
+  beparams = opts.beparams
+  utils.ForceDictType(beparams, constants.BES_PARAMETER_TYPES)
+
+  op = opcodes.OpSetClusterParams(vg_name=vg_name,
+                                  enabled_hypervisors=hvlist,
+                                  hvparams=hvparams,
+                                  beparams=beparams,
+                                  candidate_pool_size=opts.candidate_pool_size)
+  SubmitOpCode(op)
+  return 0
+
+
+def QueueOps(opts, args):
+  """Queue operations.
+
+  @param opts: the command line options selected by the user
+  @type args: list
+  @param args: should contain only one element, the subcommand
+  @rtype: int
+  @return: the desired exit code
+
+  """
+  command = args[0]
+  client = GetClient()
+  if command in ("drain", "undrain"):
+    drain_flag = command == "drain"
+    client.SetQueueDrainFlag(drain_flag)
+  elif command == "info":
+    result = client.QueryConfigValues(["drain_flag"])
+    if result[0]:
+      val = "set"
+    else:
+      val = "unset"
+    ToStdout("The drain flag is %s" % val)
+  else:
+    raise errors.OpPrereqError("Command '%s' is not valid." % command)
+
+  return 0
 
 # this is an option common to more than one command, so we declare
 # it here and reuse it
@@ -291,23 +533,16 @@ commands = {
                         " if given, the entire cluster must have secondary"
                         " addresses",
                         metavar="ADDRESS", default=None),
-            make_option("-t", "--hypervisor-type", dest="hypervisor_type",
-                        help="Specify the hypervisor type "
-                        "(xen-3.0, fake, xen-hvm-3.1)",
-                        metavar="TYPE", choices=["xen-3.0",
-                                                 "fake",
-                                                 "xen-hvm-3.1"],
-                        default="xen-3.0",),
             make_option("-m", "--mac-prefix", dest="mac_prefix",
                         help="Specify the mac prefix for the instance IP"
                         " addresses, in the format XX:XX:XX",
                         metavar="PREFIX",
-                        default="aa:00:00",),
+                        default=constants.DEFAULT_MAC_PREFIX,),
             make_option("-g", "--vg-name", dest="vg_name",
                         help="Specify the volume group name "
                         " (cluster-wide) for disk allocation [xenvg]",
                         metavar="VG",
-                        default="xenvg",),
+                        default=None,),
             make_option("-b", "--bridge", dest="def_bridge",
                         help="Specify the default bridge name (cluster-wide)"
                           " to connect the instances to [%s]" %
@@ -320,6 +555,38 @@ commands = {
                           " [%s]" % constants.DEFAULT_BRIDGE,
                         metavar="NETDEV",
                         default=constants.DEFAULT_BRIDGE,),
+            make_option("--file-storage-dir", dest="file_storage_dir",
+                        help="Specify the default directory (cluster-wide)"
+                             " for storing the file-based disks [%s]" %
+                             constants.DEFAULT_FILE_STORAGE_DIR,
+                        metavar="DIR",
+                        default=constants.DEFAULT_FILE_STORAGE_DIR,),
+            make_option("--no-lvm-storage", dest="lvm_storage",
+                        help="No support for lvm based instances"
+                             " (cluster-wide)",
+                        action="store_false", default=True,),
+            make_option("--enabled-hypervisors", dest="enabled_hypervisors",
+                        help="Comma-separated list of hypervisors",
+                        type="string", default=None),
+            make_option("-t", "--default-hypervisor",
+                        dest="default_hypervisor",
+                        help="Default hypervisor to use for instance creation",
+                        choices=list(constants.HYPER_TYPES),
+                        default=constants.DEFAULT_ENABLED_HYPERVISOR),
+            ikv_option("-H", "--hypervisor-parameters", dest="hvparams",
+                       help="Hypervisor and hypervisor options, in the"
+                         " format"
+                       " hypervisor:option=value,option=value,...",
+                       default=[],
+                       action="append",
+                       type="identkeyval"),
+            keyval_option("-B", "--backend-parameters", dest="beparams",
+                          type="keyval", default={},
+                          help="Backend parameters"),
+            make_option("-C", "--candidate-pool-size",
+                        default=constants.MASTER_POOL_SIZE_DEFAULT,
+                        help="Set the candidate pool size",
+                        dest="candidate_pool_size", type="int"),
             ],
            "[opts...] <cluster_name>",
            "Initialises a new cluster configuration"),
@@ -333,6 +600,10 @@ commands = {
   'rename': (RenameCluster, ARGS_ONE, [DEBUG_OPT, FORCE_OPT],
                "<new_name>",
                "Renames the cluster"),
+  'redist-conf': (RedistributeConfig, ARGS_NONE, [DEBUG_OPT, SUBMIT_OPT],
+                  "",
+                  "Forces a push of the configuration file and ssconf files"
+                  " to the nodes in the cluster"),
   'verify': (VerifyCluster, ARGS_NONE, [DEBUG_OPT,
              make_option("--no-nplus1-mem", dest="skip_nplusone_mem",
                          help="Skip N+1 memory redundancy tests",
@@ -365,6 +636,38 @@ commands = {
   'search-tags': (SearchTags, ARGS_ONE,
                   [DEBUG_OPT], "", "Searches the tags on all objects on"
                   " the cluster for a given pattern (regex)"),
+  'queue': (QueueOps, ARGS_ONE, [DEBUG_OPT],
+            "drain|undrain|info", "Change queue properties"),
+  'modify': (SetClusterParams, ARGS_NONE,
+             [DEBUG_OPT,
+              make_option("-g", "--vg-name", dest="vg_name",
+                          help="Specify the volume group name "
+                          " (cluster-wide) for disk allocation "
+                          "and enable lvm based storage",
+                          metavar="VG",),
+              make_option("--no-lvm-storage", dest="lvm_storage",
+                          help="Disable support for lvm based instances"
+                               " (cluster-wide)",
+                          action="store_false", default=True,),
+              make_option("--enabled-hypervisors", dest="enabled_hypervisors",
+                          help="Comma-separated list of hypervisors",
+                          type="string", default=None),
+              ikv_option("-H", "--hypervisor-parameters", dest="hvparams",
+                         help="Hypervisor and hypervisor options, in the"
+                         " format"
+                         " hypervisor:option=value,option=value,...",
+                         default=[],
+                         action="append",
+                         type="identkeyval"),
+              keyval_option("-B", "--backend-parameters", dest="beparams",
+                            type="keyval", default={},
+                            help="Backend parameters"),
+              make_option("-C", "--candidate-pool-size", default=None,
+                          help="Set the candidate pool size",
+                          dest="candidate_pool_size", type="int"),
+              ],
+             "[opts...]",
+             "Alters the parameters of the cluster"),
   }
 
 if __name__ == '__main__':
