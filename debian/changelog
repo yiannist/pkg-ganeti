@@ -1,3 +1,13 @@
+ganeti2 (2.0.1-1) unstable; urgency=low
+
+  * New Upstream Version
+  * Renamed package to ganeti2, since migration from ganeti 1.2.x to 2.0.x
+    is not automatic (and needs cluster shutdown)
+  * Remove Leonardo (l@lmello.eu.org) from the Uploaders list, since he
+    wasn't active in a long while
+
+ -- Iustin Pop <iusty@k1024.org>  Mon, 13 Jul 2009 20:01:05 +0200
+
 ganeti (1.2.7-1) unstable; urgency=low
 
   * New Upstream Version
@@ -9,7 +19,7 @@ ganeti (1.2.7-1) unstable; urgency=low
 
 ganeti (1.2.6-3) unstable; urgency=low
 
-  * Cherry-pick commit 2461 from upstream, fixing (yet again, hopefully 
+  * Cherry-pick commit 2461 from upstream, fixing (yet again, hopefully
     for the last time) compatibility with twisted 8.1 (Closes: #510965)
   * Fix the watch regexp to ignore non-stable releases
 
