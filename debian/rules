@@ -53,6 +53,8 @@ install: build
 	  $(CURDIR)/debian/ganeti2/usr/lib/ganeti/iallocators/dumb
 	install -m 0644 $(CURDIR)/doc/examples/bash_completion \
 	  $(CURDIR)/debian/ganeti2/etc/bash_completion.d/ganeti
+	install -m 0644 $(CURDIR)/debian/ganeti2.overrides \
+	  $(CURDIR)/debian/ganeti2/usr/share/lintian/overrides/ganeti2
 	rmdir debian/ganeti2/var/run/ganeti
 	rmdir debian/ganeti2/var/run
 
