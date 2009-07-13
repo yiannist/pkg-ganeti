@@ -1,0 +1,25 @@
+The upgrade from Ganeti 1.2 makes the init script abort with ugly
+messages, so we edit the init script to exit early in this case.
+
+Iustin Pop, <iusty@k1024.org>
+Mon, 13 Jul 2009 21:23:25 +0200
+--- a/doc/examples/ganeti.initd.in
++++ b/doc/examples/ganeti.initd.in
+@@ -53,6 +53,17 @@
+             exit 0
+         fi
+     done
++
++    for fname in \
++        "@LOCALSTATEDIR@/lib/ganeti/ssconf_node_list"
++    do
++        if ! [ -f "$fname" ]; then
++            log_end_msg 0
++            log_warning_msg "Configuration not upgraded to 2.0, will not run."
++            exit 0
++        fi
++    done
++
+ }
+ 
+ check_exitcode() {
