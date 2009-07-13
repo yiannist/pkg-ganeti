@@ -25,34 +25,11 @@
 
 
 import os
+import logging
 
-from ganeti import logger
 from ganeti import utils
 from ganeti import errors
 from ganeti import constants
-
-
-__all__ = ["SSHCall", "CopyFileToNode", "VerifyNodeHostname",
-           "KNOWN_HOSTS_OPTS", "BATCH_MODE_OPTS", "ASK_KEY_OPTS"]
-
-
-KNOWN_HOSTS_OPTS = [
-  "-oGlobalKnownHostsFile=%s" % constants.SSH_KNOWN_HOSTS_FILE,
-  "-oUserKnownHostsFile=/dev/null",
-  ]
-
-# Note: BATCH_MODE conflicts with ASK_KEY
-BATCH_MODE_OPTS = [
-  "-oEscapeChar=none",
-  "-oBatchMode=yes",
-  "-oStrictHostKeyChecking=yes",
-  ]
-
-ASK_KEY_OPTS = [
-  "-oStrictHostKeyChecking=ask",
-  "-oEscapeChar=none",
-  "-oHashKnownHosts=no",
-  ]
 
 
 def GetUserFiles(user, mkdir=False):
@@ -90,125 +67,175 @@ def GetUserFiles(user, mkdir=False):
           for base in ["id_dsa", "id_dsa.pub", "authorized_keys"]]
 
 
-def BuildSSHCmd(hostname, user, command, batch=True, ask_key=False):
-  """Build an ssh string to execute a command on a remote node.
-
-  Args:
-    hostname: the target host, string
-    user: user to auth as
-    command: the command
-    batch: if true, ssh will run in batch mode with no prompting
-    ask_key: if true, ssh will run with StrictHostKeyChecking=ask, so that
-             we can connect to an unknown host (not valid in batch mode)
-
-  Returns:
-    The ssh call to run 'command' on the remote host.
+class SshRunner:
+  """Wrapper for SSH commands.
 
   """
-  argv = ["ssh", "-q"]
-  argv.extend(KNOWN_HOSTS_OPTS)
-  if batch:
-    # if we are in batch mode, we can't ask the key
-    if ask_key:
-      raise errors.ProgrammerError("SSH call requested conflicting options")
-    argv.extend(BATCH_MODE_OPTS)
-  elif ask_key:
-    argv.extend(ASK_KEY_OPTS)
-  argv.extend(["%s@%s" % (user, hostname), command])
-  return argv
+  def __init__(self, cluster_name):
+    self.cluster_name = cluster_name
+
+  def _BuildSshOptions(self, batch, ask_key, use_cluster_key,
+                       strict_host_check):
+    """Builds a list with needed SSH options.
+
+    @param batch: same as ssh's batch option
+    @param ask_key: allows ssh to ask for key confirmation; this
+        parameter conflicts with the batch one
+    @param use_cluster_key: if True, use the cluster name as the
+        HostKeyAlias name
+    @param strict_host_check: this makes the host key checking strict
+
+    @rtype: list
+    @return: the list of options ready to use in L{utils.RunCmd}
+
+    """
+    options = [
+      "-oEscapeChar=none",
+      "-oHashKnownHosts=no",
+      "-oGlobalKnownHostsFile=%s" % constants.SSH_KNOWN_HOSTS_FILE,
+      "-oUserKnownHostsFile=/dev/null",
+      ]
+
+    if use_cluster_key:
+      options.append("-oHostKeyAlias=%s" % self.cluster_name)
+
+    # TODO: Too many boolean options, maybe convert them to more descriptive
+    # constants.
+
+    # Note: ask_key conflicts with batch mode
+    if batch:
+      if ask_key:
+        raise errors.ProgrammerError("SSH call requested conflicting options")
+
+      options.append("-oBatchMode=yes")
+
+      if strict_host_check:
+        options.append("-oStrictHostKeyChecking=yes")
+      else:
+        options.append("-oStrictHostKeyChecking=no")
+
+    elif ask_key:
+      options.extend([
+        "-oStrictHostKeyChecking=ask",
+        ])
+
+    return options
+
+  def BuildCmd(self, hostname, user, command, batch=True, ask_key=False,
+               tty=False, use_cluster_key=True, strict_host_check=True):
+    """Build an ssh command to execute a command on a remote node.
+
+    @param hostname: the target host, string
+    @param user: user to auth as
+    @param command: the command
+    @param batch: if true, ssh will run in batch mode with no prompting
+    @param ask_key: if true, ssh will run with
+        StrictHostKeyChecking=ask, so that we can connect to an
+        unknown host (not valid in batch mode)
+    @param use_cluster_key: whether to expect and use the
+        cluster-global SSH key
+    @param strict_host_check: whether to check the host's SSH key at all
+
+    @return: the ssh call to run 'command' on the remote host.
+
+    """
+    argv = [constants.SSH, "-q"]
+    argv.extend(self._BuildSshOptions(batch, ask_key, use_cluster_key,
+                                      strict_host_check))
+    if tty:
+      argv.append("-t")
+    argv.extend(["%s@%s" % (user, hostname), command])
+    return argv
+
+  def Run(self, *args, **kwargs):
+    """Runs a command on a remote node.
+
+    This method has the same return value as `utils.RunCmd()`, which it
+    uses to launch ssh.
+
+    Args: see SshRunner.BuildCmd.
+
+    @rtype: L{utils.RunResult}
+    @return: the result as from L{utils.RunCmd()}
+
+    """
+    return utils.RunCmd(self.BuildCmd(*args, **kwargs))
+
+  def CopyFileToNode(self, node, filename):
+    """Copy a file to another node with scp.
+
+    @param node: node in the cluster
+    @param filename: absolute pathname of a local file
+
+    @rtype: boolean
+    @return: the success of the operation
+
+    """
+    if not os.path.isabs(filename):
+      logging.error("File %s must be an absolute path", filename)
+      return False
+
+    if not os.path.isfile(filename):
+      logging.error("File %s does not exist", filename)
+      return False
+
+    command = [constants.SCP, "-q", "-p"]
+    command.extend(self._BuildSshOptions(True, False, True, True))
+    command.append(filename)
+    command.append("%s:%s" % (node, filename))
+
+    result = utils.RunCmd(command)
+
+    if result.failed:
+      logging.error("Copy to node %s failed (%s) error %s,"
+                    " command was %s",
+                    node, result.fail_reason, result.output, result.cmd)
+
+    return not result.failed
+
+  def VerifyNodeHostname(self, node):
+    """Verify hostname consistency via SSH.
+
+    This functions connects via ssh to a node and compares the hostname
+    reported by the node to the name with have (the one that we
+    connected to).
+
+    This is used to detect problems in ssh known_hosts files
+    (conflicting known hosts) and incosistencies between dns/hosts
+    entries and local machine names
+
+    @param node: nodename of a host to check; can be short or
+        full qualified hostname
+
+    @return: (success, detail), where:
+        - success: True/False
+        - detail: string with details
+
+    """
+    retval = self.Run(node, 'root', 'hostname')
+
+    if retval.failed:
+      msg = "ssh problem"
+      output = retval.output
+      if output:
+        msg += ": %s" % output
+      else:
+        msg += ": %s (no output)" % retval.fail_reason
+      logging.error("Command %s failed: %s" % (retval.cmd, msg))
+      return False, msg
+
+    remotehostname = retval.stdout.strip()
+
+    if not remotehostname or remotehostname != node:
+      return False, "hostname mismatch, got %s" % remotehostname
+
+    return True, "host matches"
 
 
-def SSHCall(hostname, user, command, batch=True, ask_key=False):
-  """Execute a command on a remote node.
-
-  This method has the same return value as `utils.RunCmd()`, which it
-  uses to launch ssh.
-
-  Args:
-    hostname: the target host, string
-    user: user to auth as
-    command: the command
-    batch: if true, ssh will run in batch mode with no prompting
-    ask_key: if true, ssh will run with StrictHostKeyChecking=ask, so that
-             we can connect to an unknown host (not valid in batch mode)
-
-  Returns:
-    `utils.RunResult` as for `utils.RunCmd()`
+def WriteKnownHostsFile(cfg, file_name):
+  """Writes the cluster-wide equally known_hosts file.
 
   """
-  return utils.RunCmd(BuildSSHCmd(hostname, user, command,
-                                  batch=batch, ask_key=ask_key))
-
-
-def CopyFileToNode(node, filename):
-  """Copy a file to another node with scp.
-
-  Args:
-    node: node in the cluster
-    filename: absolute pathname of a local file
-
-  Returns:
-    success: True/False
-
-  """
-  if not os.path.isfile(filename):
-    logger.Error("file %s does not exist" % (filename))
-    return False
-
-  if not os.path.isabs(filename):
-    logger.Error("file %s must be an absolute path" % (filename))
-    return False
-
-  command = ["scp", "-q", "-p"]
-  command.extend(KNOWN_HOSTS_OPTS)
-  command.extend(BATCH_MODE_OPTS)
-  command.append(filename)
-  command.append("%s:%s" % (node, filename))
-
-  result = utils.RunCmd(command)
-
-  if result.failed:
-    logger.Error("copy to node %s failed (%s) error %s,"
-                 " command was %s" %
-                 (node, result.fail_reason, result.output, result.cmd))
-
-  return not result.failed
-
-
-def VerifyNodeHostname(node):
-  """Verify hostname consistency via SSH.
-
-
-  This functions connects via ssh to a node and compares the hostname
-  reported by the node to the name with have (the one that we
-  connected to).
-
-  This is used to detect problems in ssh known_hosts files
-  (conflicting known hosts) and incosistencies between dns/hosts
-  entries and local machine names
-
-  Args:
-    node: nodename of a host to check. can be short or full qualified hostname
-
-  Returns:
-    (success, detail)
-    where
-      success: True/False
-      detail: String with details
-
-  """
-  retval = SSHCall(node, 'root', 'hostname')
-
-  if retval.failed:
-    msg = "ssh problem"
-    output = retval.output
-    if output:
-      msg += ": %s" % output
-    return False, msg
-
-  remotehostname = retval.stdout.strip()
-
-  if not remotehostname or remotehostname != node:
-    return False, "hostname mismatch, got %s" % remotehostname
-
-  return True, "host matches"
+  utils.WriteFile(file_name, mode=0600,
+                  data="%s ssh-rsa %s\n" % (cfg.GetClusterName(),
+                                            cfg.GetHostKey()))

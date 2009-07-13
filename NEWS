@@ -1,3 +1,117 @@
+Version 2.0.1
+  - added -H/-B startup parameters to gnt-instance, which will allow
+    re-adding the start in single-user option (regression from 1.2)
+  - the watcher writes the instance status to a file, to allow
+    monitoring to report the instance status (from the master) based on
+    cached results of the watcher's queries; while this can get stale if
+    the watcher is being locked due to other work on the cluster, this
+    is still an improvement
+  - the watcher now also restarts the node daemon and the rapi daemon if
+    they died
+  - fixed the watcher to handle full and drained queue cases
+  - hooks export more instance data in the environment, which helps if
+    hook scripts need to take action based on the instance's properties
+    (no longer need to query back into ganeti)
+  - instance failovers when the instance is stopped do not check for
+    free RAM, so that failing over a stopped instance is possible in low
+    memory situations
+  - rapi uses queries for tags instead of jobs (for less job traffic),
+    and for cluster tags it won't talk to masterd at all but read them
+    from ssconf
+  - a couple of error handling fixes in RAPI
+  - drbd handling: improved the error handling of inconsistent disks
+    after resync to reduce the frequency of "there are some degraded
+    disks for this instance" message
+  - fixed a bug in live migration when DRBD doesn't want to reconnect
+    (the error handling path called a wrong function name)
+
+Version 2.0.0 final
+  - no changes from rc5
+
+Version 2.0 release candidate 5
+  - fix a couple of bugs (validation, argument checks)
+  - fix gnt-cluster getmaster on non-master nodes (regression)
+  - some small improvements to RAPI and IAllocator
+  - make watcher automatically start the master daemon if down
+
+Version 2.0 release candidate 4
+  - change the OS list to not require locks; this helps with big
+    clusters
+  - fix gnt-cluster verify and gnt-cluster verify-disks when the volume
+    group is broken
+  - “gnt-instance info”, without any arguments, doesn't run for all
+    instances anymore; either pass ‘--all’ or pass the desired
+    instances; this helps against mistakes on big clusters where listing
+    the information for all instances takes a long time
+  - miscellaneous doc and man pages fixes
+
+Version 2.0 release candidate 3
+  - Change the internal locking model of some gnt-node commands, in
+    order to reduce contention (and blocking of master daemon) when
+    batching many creation/reinstall jobs
+  - Fixes to Xen soft reboot
+  - No longer build documentation at 'make' time, instead distribute it
+    in the archive, in order to reduce the need for the whole
+    docbook/rst toolchains
+
+Version 2.0 release candidate 2
+  - Now the cfgupgrade scripts works and can upgrade 1.2.7 clusters to
+    2.0
+  - Fix watcher startup sequence, improves the behaviour of busy
+    clusters
+  - Some other fixes in cluster verify, replace-disks, gnt-instance add,
+    gnt-cluster queue, KVM VNC bind address and other places
+  - Some documentation fixes and updates
+
+Version 2.0 release candidate 1
+  - More documentation updates, now all docs should be more-or-less
+    up-to-date
+  - A couple of small fixes (mixed hypervisor clusters, offline nodes,
+    etc.)
+  - Added a customizable HV_KERNEL_ARGS hypervisor parameter (for Xen
+    PVM and KVM)
+  - Fix an issue related to $libdir/run/ganeti and cluster creation
+
+Version 2.0 beta 2
+  - Xen PVM and KVM have switched the default value for the instance
+    root disk to the first partition on the first drive, instead of the
+    whole drive; this means that the OS installation scripts must be
+    changed accordingly
+  - Man pages have been updated
+  - RAPI has been switched by default to HTTPS, and the exported
+    functions should all work correctly
+  - RAPI v1 has been removed
+  - Many improvements to the KVM hypervisor
+  - Block device errors are now better reported
+  - Many other bugfixes and small improvements
+
+Version 2.0 beta 1
+  - Version 2 is a general rewrite of the code and therefore the
+    differences are too many to list, see the design document for 2.0 in
+    the doc/ subdirectory for more details
+  - In this beta version there is not yet a migration path from 1.2
+    (there will be one in the final 2.0 release)
+  - A few significant changes are:
+    - all commands are executed by a daemon (ganeti-masterd) and the
+      various gnt-* commands are just front-ends to it
+    - all the commands are entered into, and executed from a job queue,
+      see gnt-job(8)
+    - the RAPI daemon supports read-write operations, secured by basic
+      HTTP authentication on top of HTTPS
+    - DRBD version 0.7 support has been removed, DRBD 8 is the only
+      supported version (when migrating from Ganeti 1.2 to 2.0, you need
+      to migrate to DRBD 8 first while still running Ganeti 1.2)
+    - DRBD devices are using statically allocated minor numbers, which
+      will be assigned to existing instances during the migration
+      process
+    - there is support for both Xen PVM and Xen HVM instances running on
+      the same cluster
+    - KVM virtualization is supported too
+    - file-based storage has been implemented, which means that it is
+      possible to run the cluster without LVM and DRBD storage, for
+      example using a shared filesystem exported from shared storage
+      (and still have live migration)
+
 Version 1.2.7
   - Change the default reboot type in gnt-instance reboot to "hard"
   - Reuse the old instance mac address by default on instance import,

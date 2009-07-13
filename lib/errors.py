@@ -152,6 +152,15 @@ class OpCodeUnknown(GenericError):
   """
 
 
+class JobLost(GenericError):
+  """Submitted job lost.
+
+  The job was submitted but it cannot be found in the current job
+  list.
+
+  """
+
+
 class ResolverError(GenericError):
   """Host name cannot be resolved.
 
@@ -189,9 +198,14 @@ class UnitParseError(GenericError):
 
   """
 
+class TypeEnforcementError(GenericError):
+  """Unable to enforce data type.
+
+  """
 
 class SshKeyError(GenericError):
   """Invalid SSH key.
+
   """
 
 
@@ -207,3 +221,67 @@ class CommandError(GenericError):
   """External command error.
 
   """
+
+
+class QuitGanetiException(Exception):
+  """Signal that Ganeti that it must quit.
+
+  This is not necessarily an error (and thus not a subclass of GenericError),
+  but it's an exceptional circumstance and it is thus treated. This instance
+  should be instantiated with two values. The first one will specify whether an
+  error should returned to the caller, and the second one will be the returned
+  result (either as an error or as a normal result).
+
+  Examples::
+
+    # Return a result of "True" to the caller, but quit ganeti afterwards
+    raise QuitGanetiException(False, True)
+    # Send an error to the caller, and quit ganeti
+    raise QuitGanetiException(True, "Fatal safety violation, shutting down")
+
+  """
+
+
+class JobQueueError(GenericError):
+  """Job queue error.
+
+  """
+
+
+class JobQueueDrainError(JobQueueError):
+  """Job queue is marked for drain error.
+
+  This is raised when a job submission attempt is made but the queue
+  is marked for drain.
+
+  """
+
+
+class JobQueueFull(JobQueueError):
+  """Job queue full error.
+
+  Raised when job queue size reached its hard limit.
+
+  """
+
+
+# errors should be added above
+
+
+def GetErrorClass(name):
+  """Return the class of an exception.
+
+  Given the class name, return the class itself.
+
+  @type name: str
+  @param name: the exception name
+  @rtype: class
+  @return: the actual class, or None if not found
+
+  """
+  item = globals().get(name, None)
+  if item is not None:
+    if not (isinstance(item, type(Exception)) and
+            issubclass(item, GenericError)):
+      item = None
+  return item

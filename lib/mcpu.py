@@ -28,35 +28,34 @@ are two kinds of classes defined:
 
 """
 
+import logging
 
 from ganeti import opcodes
 from ganeti import constants
 from ganeti import errors
 from ganeti import rpc
 from ganeti import cmdlib
-from ganeti import config
-from ganeti import ssconf
-from ganeti import logger
+from ganeti import locking
+
 
 class Processor(object):
   """Object which runs OpCodes"""
   DISPATCH_TABLE = {
     # Cluster
-    opcodes.OpInitCluster: cmdlib.LUInitCluster,
     opcodes.OpDestroyCluster: cmdlib.LUDestroyCluster,
     opcodes.OpQueryClusterInfo: cmdlib.LUQueryClusterInfo,
-    opcodes.OpClusterCopyFile: cmdlib.LUClusterCopyFile,
-    opcodes.OpRunClusterCommand: cmdlib.LURunClusterCommand,
     opcodes.OpVerifyCluster: cmdlib.LUVerifyCluster,
-    opcodes.OpMasterFailover: cmdlib.LUMasterFailover,
-    opcodes.OpDumpClusterConfig: cmdlib.LUDumpClusterConfig,
+    opcodes.OpQueryConfigValues: cmdlib.LUQueryConfigValues,
     opcodes.OpRenameCluster: cmdlib.LURenameCluster,
     opcodes.OpVerifyDisks: cmdlib.LUVerifyDisks,
+    opcodes.OpSetClusterParams: cmdlib.LUSetClusterParams,
+    opcodes.OpRedistributeConfig: cmdlib.LURedistributeConfig,
     # node lu
     opcodes.OpAddNode: cmdlib.LUAddNode,
     opcodes.OpQueryNodes: cmdlib.LUQueryNodes,
     opcodes.OpQueryNodeVolumes: cmdlib.LUQueryNodeVolumes,
     opcodes.OpRemoveNode: cmdlib.LURemoveNode,
+    opcodes.OpSetNodeParams: cmdlib.LUSetNodeParams,
     # instance lu
     opcodes.OpCreateInstance: cmdlib.LUCreateInstance,
     opcodes.OpReinstallInstance: cmdlib.LUReinstallInstance,
@@ -67,15 +66,13 @@ class Processor(object):
     opcodes.OpStartupInstance: cmdlib.LUStartupInstance,
     opcodes.OpRebootInstance: cmdlib.LURebootInstance,
     opcodes.OpDeactivateInstanceDisks: cmdlib.LUDeactivateInstanceDisks,
-    opcodes.OpAddMDDRBDComponent: cmdlib.LUAddMDDRBDComponent,
-    opcodes.OpRemoveMDDRBDComponent: cmdlib.LURemoveMDDRBDComponent,
     opcodes.OpReplaceDisks: cmdlib.LUReplaceDisks,
     opcodes.OpFailoverInstance: cmdlib.LUFailoverInstance,
     opcodes.OpMigrateInstance: cmdlib.LUMigrateInstance,
     opcodes.OpConnectConsole: cmdlib.LUConnectConsole,
     opcodes.OpQueryInstances: cmdlib.LUQueryInstances,
     opcodes.OpQueryInstanceData: cmdlib.LUQueryInstanceData,
-    opcodes.OpSetInstanceParms: cmdlib.LUSetInstanceParms,
+    opcodes.OpSetInstanceParams: cmdlib.LUSetInstanceParams,
     opcodes.OpGrowDisk: cmdlib.LUGrowDisk,
     # os lu
     opcodes.OpDiagnoseOS: cmdlib.LUDiagnoseOS,
@@ -93,116 +90,165 @@ class Processor(object):
     opcodes.OpTestAllocator: cmdlib.LUTestAllocator,
     }
 
-  def __init__(self, feedback=None):
+  def __init__(self, context):
     """Constructor for Processor
 
     Args:
      - feedback_fn: the feedback function (taking one string) to be run when
                     interesting events are happening
     """
-    self.cfg = None
-    self.sstore = None
-    self._feedback_fn = feedback
+    self.context = context
+    self._feedback_fn = None
+    self.exclusive_BGL = False
+    self.rpc = rpc.RpcRunner(context.cfg)
 
-  def ExecOpCode(self, op):
-    """Execute an opcode.
-
-    Args:
-      op: the opcode to be executed
+  def _ExecLU(self, lu):
+    """Logical Unit execution sequence.
 
     """
-    if not isinstance(op, opcodes.OpCode):
-      raise errors.ProgrammerError("Non-opcode instance passed"
-                                   " to ExecOpcode")
-
-    lu_class = self.DISPATCH_TABLE.get(op.__class__, None)
-    if lu_class is None:
-      raise errors.OpCodeUnknown("Unknown opcode")
-
-    if lu_class.REQ_CLUSTER and self.cfg is None:
-      self.cfg = config.ConfigWriter()
-      self.sstore = ssconf.SimpleStore()
-    if self.cfg is not None:
-      write_count = self.cfg.write_count
-    else:
-      write_count = 0
-    lu = lu_class(self, op, self.cfg, self.sstore)
+    write_count = self.context.cfg.write_count
     lu.CheckPrereq()
-    hm = HooksMaster(rpc.call_hooks_runner, self, lu)
+    hm = HooksMaster(self.rpc.call_hooks_runner, self, lu)
     h_results = hm.RunPhase(constants.HOOKS_PHASE_PRE)
-    lu.HooksCallBack(constants.HOOKS_PHASE_PRE,
-                     h_results, self._feedback_fn, None)
+    lu.HooksCallBack(constants.HOOKS_PHASE_PRE, h_results,
+                     self._feedback_fn, None)
     try:
       result = lu.Exec(self._feedback_fn)
       h_results = hm.RunPhase(constants.HOOKS_PHASE_POST)
-      result = lu.HooksCallBack(constants.HOOKS_PHASE_POST,
-                       h_results, self._feedback_fn, result)
+      result = lu.HooksCallBack(constants.HOOKS_PHASE_POST, h_results,
+                                self._feedback_fn, result)
     finally:
-      if lu.cfg is not None:
-        # we use lu.cfg and not self.cfg as for init cluster, self.cfg
-        # is None but lu.cfg has been recently initialized in the
-        # lu.Exec method
-        if write_count != lu.cfg.write_count:
-          hm.RunConfigUpdate()
+      # FIXME: This needs locks if not lu_class.REQ_BGL
+      if write_count != self.context.cfg.write_count:
+        hm.RunConfigUpdate()
 
     return result
 
-  def ChainOpCode(self, op):
-    """Chain and execute an opcode.
+  def _LockAndExecLU(self, lu, level):
+    """Execute a Logical Unit, with the needed locks.
 
-    This is used by LUs when they need to execute a child LU.
+    This is a recursive function that starts locking the given level, and
+    proceeds up, till there are no more locks to acquire. Then it executes the
+    given LU and its opcodes.
 
-    Args:
-     - opcode: the opcode to be executed
+    """
+    adding_locks = level in lu.add_locks
+    acquiring_locks = level in lu.needed_locks
+    if level not in locking.LEVELS:
+      if callable(self._run_notifier):
+        self._run_notifier()
+      result = self._ExecLU(lu)
+    elif adding_locks and acquiring_locks:
+      # We could both acquire and add locks at the same level, but for now we
+      # don't need this, so we'll avoid the complicated code needed.
+      raise NotImplementedError(
+        "Can't declare locks to acquire when adding others")
+    elif adding_locks or acquiring_locks:
+      lu.DeclareLocks(level)
+      share = lu.share_locks[level]
+      if acquiring_locks:
+        needed_locks = lu.needed_locks[level]
+        lu.acquired_locks[level] = self.context.glm.acquire(level,
+                                                            needed_locks,
+                                                            shared=share)
+      else: # adding_locks
+        add_locks = lu.add_locks[level]
+        lu.remove_locks[level] = add_locks
+        try:
+          self.context.glm.add(level, add_locks, acquired=1, shared=share)
+        except errors.LockError:
+          raise errors.OpPrereqError(
+            "Coudn't add locks (%s), probably because of a race condition"
+            " with another job, who added them first" % add_locks)
+      try:
+        try:
+          if adding_locks:
+            lu.acquired_locks[level] = add_locks
+          result = self._LockAndExecLU(lu, level + 1)
+        finally:
+          if level in lu.remove_locks:
+            self.context.glm.remove(level, lu.remove_locks[level])
+      finally:
+        if self.context.glm.is_owned(level):
+          self.context.glm.release(level)
+    else:
+      result = self._LockAndExecLU(lu, level + 1)
+
+    return result
+
+  def ExecOpCode(self, op, feedback_fn, run_notifier):
+    """Execute an opcode.
+
+    @type op: an OpCode instance
+    @param op: the opcode to be executed
+    @type feedback_fn: a function that takes a single argument
+    @param feedback_fn: this function will be used as feedback from the LU
+                        code to the end-user
+    @type run_notifier: callable (no arguments) or None
+    @param run_notifier:  this function (if callable) will be called when
+                          we are about to call the lu's Exec() method, that
+                          is, after we have aquired all locks
 
     """
     if not isinstance(op, opcodes.OpCode):
       raise errors.ProgrammerError("Non-opcode instance passed"
                                    " to ExecOpcode")
 
+    self._feedback_fn = feedback_fn
+    self._run_notifier = run_notifier
     lu_class = self.DISPATCH_TABLE.get(op.__class__, None)
     if lu_class is None:
       raise errors.OpCodeUnknown("Unknown opcode")
 
-    if lu_class.REQ_CLUSTER and self.cfg is None:
-      self.cfg = config.ConfigWriter()
-      self.sstore = ssconf.SimpleStore()
-    #do_hooks = lu_class.HPATH is not None
-    lu = lu_class(self, op, self.cfg, self.sstore)
-    lu.CheckPrereq()
-    #if do_hooks:
-    #  hm = HooksMaster(rpc.call_hooks_runner, self, lu)
-    #  h_results = hm.RunPhase(constants.HOOKS_PHASE_PRE)
-    #  lu.HooksCallBack(constants.HOOKS_PHASE_PRE,
-    #                   h_results, self._feedback_fn, None)
-    result = lu.Exec(self._feedback_fn)
-    #if do_hooks:
-    #  h_results = hm.RunPhase(constants.HOOKS_PHASE_POST)
-    #  result = lu.HooksCallBack(constants.HOOKS_PHASE_POST,
-    #                   h_results, self._feedback_fn, result)
+    # Acquire the Big Ganeti Lock exclusively if this LU requires it, and in a
+    # shared fashion otherwise (to prevent concurrent run with an exclusive LU.
+    self.context.glm.acquire(locking.LEVEL_CLUSTER, [locking.BGL],
+                             shared=not lu_class.REQ_BGL)
+    try:
+      self.exclusive_BGL = lu_class.REQ_BGL
+      lu = lu_class(self, op, self.context, self.rpc)
+      lu.ExpandNames()
+      assert lu.needed_locks is not None, "needed_locks not set by LU"
+      result = self._LockAndExecLU(lu, locking.LEVEL_INSTANCE)
+    finally:
+      self.context.glm.release(locking.LEVEL_CLUSTER)
+      self.exclusive_BGL = False
+
     return result
 
   def LogStep(self, current, total, message):
     """Log a change in LU execution progress.
 
     """
-    logger.Debug("Step %d/%d %s" % (current, total, message))
+    logging.debug("Step %d/%d %s", current, total, message)
     self._feedback_fn("STEP %d/%d %s" % (current, total, message))
 
-  def LogWarning(self, message, hint=None):
+  def LogWarning(self, message, *args, **kwargs):
     """Log a warning to the logs and the user.
 
-    """
-    logger.Error(message)
-    self._feedback_fn(" - WARNING: %s" % message)
-    if hint:
-      self._feedback_fn("      Hint: %s" % hint)
+    The optional keyword argument is 'hint' and can be used to show a
+    hint to the user (presumably related to the warning). If the
+    message is empty, it will not be printed at all, allowing one to
+    show only a hint.
 
-  def LogInfo(self, message):
+    """
+    assert not kwargs or (len(kwargs) == 1 and "hint" in kwargs), \
+           "Invalid keyword arguments for LogWarning (%s)" % str(kwargs)
+    if args:
+      message = message % tuple(args)
+    if message:
+      logging.warning(message)
+      self._feedback_fn(" - WARNING: %s" % message)
+    if "hint" in kwargs:
+      self._feedback_fn("      Hint: %s" % kwargs["hint"])
+
+  def LogInfo(self, message, *args):
     """Log an informational message to the logs and the user.
 
     """
-    logger.Info(message)
+    if args:
+      message = message % tuple(args)
+    logging.info(message)
     self._feedback_fn(" - INFO: %s" % message)
 
 
@@ -261,9 +307,9 @@ class HooksMaster(object):
     env = self.env.copy()
     env["GANETI_HOOKS_PHASE"] = phase
     env["GANETI_HOOKS_PATH"] = hpath
-    if self.lu.sstore is not None:
-      env["GANETI_CLUSTER"] = self.lu.sstore.GetClusterName()
-      env["GANETI_MASTER"] = self.lu.sstore.GetMasterNode()
+    if self.lu.cfg is not None:
+      env["GANETI_CLUSTER"] = self.lu.cfg.GetClusterName()
+      env["GANETI_MASTER"] = self.lu.cfg.GetMasterNode()
 
     env = dict([(str(key), str(val)) for key, val in env.iteritems()])
 
@@ -274,11 +320,10 @@ class HooksMaster(object):
 
     This is the main function of the HookMaster.
 
-    Args:
-      phase: the hooks phase to run
-
-    Returns:
-      the result of the hooks multi-node rpc call
+    @param phase: one of L{constants.HOOKS_PHASE_POST} or
+        L{constants.HOOKS_PHASE_PRE}; it denotes the hooks phase
+    @return: the processed results of the hooks multi-node rpc call
+    @raise errors.HooksFailure: on communication failure to the nodes
 
     """
     if not self.node_list[phase]:
@@ -294,12 +339,13 @@ class HooksMaster(object):
         raise errors.HooksFailure("Communication failure")
       for node_name in results:
         res = results[node_name]
-        if res is False or not isinstance(res, list):
-          self.proc.LogWarning("Communication failure to node %s" % node_name)
+        if res.failed or res.data is False or not isinstance(res.data, list):
+          if not res.offline:
+            self.proc.LogWarning("Communication failure to node %s" %
+                                 node_name)
           continue
-        for script, hkr, output in res:
+        for script, hkr, output in res.data:
           if hkr == constants.HKR_FAIL:
-            output = output.strip().encode("string_escape")
             errs.append((node_name, script, output))
       if errs:
         raise errors.HooksAbort(errs)
@@ -314,7 +360,5 @@ class HooksMaster(object):
     """
     phase = constants.HOOKS_PHASE_POST
     hpath = constants.HOOKS_NAME_CFGUPDATE
-    if self.lu.sstore is None:
-      raise errors.ProgrammerError("Null sstore on config update hook")
-    nodes = [self.lu.sstore.GetMasterNode()]
+    nodes = [self.lu.cfg.GetMasterNode()]
     results = self._RunWrapper(nodes, hpath, phase)

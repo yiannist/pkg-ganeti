@@ -26,14 +26,16 @@ import os
 import os.path
 import shutil
 import time
-import tempfile
 import stat
 import errno
 import re
 import subprocess
 import random
+import logging
+import tempfile
+import zlib
+import base64
 
-from ganeti import logger
 from ganeti import errors
 from ganeti import utils
 from ganeti import ssh
@@ -44,48 +46,181 @@ from ganeti import objects
 from ganeti import ssconf
 
 
-# global cache for DrbdReconfigNet
+def _GetConfig():
+  """Simple wrapper to return a SimpleStore.
 
-# the cache is indexed by a tuple (instance_name, physical_id) of the
-# disk, and contains as value the actual BlockDev instance (in our
-# particular usage, only DRBD8 instances)
+  @rtype: L{ssconf.SimpleStore}
+  @return: a SimpleStore instance
 
-# the cache is cleared every time we restart DrbdReconfigNet with
-# step=1, and it's checked for consistency (we have the same keys and
-# size of the cache) when it's called with step!=1
+  """
+  return ssconf.SimpleStore()
 
-_D8_RECONF_CACHE = {}
 
-def StartMaster():
+def _GetSshRunner(cluster_name):
+  """Simple wrapper to return an SshRunner.
+
+  @type cluster_name: str
+  @param cluster_name: the cluster name, which is needed
+      by the SshRunner constructor
+  @rtype: L{ssh.SshRunner}
+  @return: an SshRunner instance
+
+  """
+  return ssh.SshRunner(cluster_name)
+
+
+def _Decompress(data):
+  """Unpacks data compressed by the RPC client.
+
+  @type data: list or tuple
+  @param data: Data sent by RPC client
+  @rtype: str
+  @return: Decompressed data
+
+  """
+  assert isinstance(data, (list, tuple))
+  assert len(data) == 2
+  (encoding, content) = data
+  if encoding == constants.RPC_ENCODING_NONE:
+    return content
+  elif encoding == constants.RPC_ENCODING_ZLIB_BASE64:
+    return zlib.decompress(base64.b64decode(content))
+  else:
+    raise AssertionError("Unknown data encoding")
+
+
+def _CleanDirectory(path, exclude=None):
+  """Removes all regular files in a directory.
+
+  @type path: str
+  @param path: the directory to clean
+  @type exclude: list
+  @param exclude: list of files to be excluded, defaults
+      to the empty list
+
+  """
+  if not os.path.isdir(path):
+    return
+  if exclude is None:
+    exclude = []
+  else:
+    # Normalize excluded paths
+    exclude = [os.path.normpath(i) for i in exclude]
+
+  for rel_name in utils.ListVisibleFiles(path):
+    full_name = os.path.normpath(os.path.join(path, rel_name))
+    if full_name in exclude:
+      continue
+    if os.path.isfile(full_name) and not os.path.islink(full_name):
+      utils.RemoveFile(full_name)
+
+
+def JobQueuePurge():
+  """Removes job queue files and archived jobs.
+
+  @rtype: None
+
+  """
+  _CleanDirectory(constants.QUEUE_DIR, exclude=[constants.JOB_QUEUE_LOCK_FILE])
+  _CleanDirectory(constants.JOB_QUEUE_ARCHIVE_DIR)
+
+
+def GetMasterInfo():
+  """Returns master information.
+
+  This is an utility function to compute master information, either
+  for consumption here or from the node daemon.
+
+  @rtype: tuple
+  @return: (master_netdev, master_ip, master_name) if we have a good
+      configuration, otherwise (None, None, None)
+
+  """
+  try:
+    cfg = _GetConfig()
+    master_netdev = cfg.GetMasterNetdev()
+    master_ip = cfg.GetMasterIP()
+    master_node = cfg.GetMasterNode()
+  except errors.ConfigurationError, err:
+    logging.exception("Cluster configuration incomplete")
+    return (None, None, None)
+  return (master_netdev, master_ip, master_node)
+
+
+def StartMaster(start_daemons):
   """Activate local node as master node.
 
-  There are two needed steps for this:
-    - run the master script
-    - register the cron script
+  The function will always try activate the IP address of the master
+  (unless someone else has it). It will also start the master daemons,
+  based on the start_daemons parameter.
+
+  @type start_daemons: boolean
+  @param start_daemons: whther to also start the master
+      daemons (ganeti-masterd and ganeti-rapi)
+  @rtype: None
 
   """
-  result = utils.RunCmd([constants.MASTER_SCRIPT, "-d", "start"])
-
-  if result.failed:
-    logger.Error("could not activate cluster interface with command %s,"
-                 " error: '%s'" % (result.cmd, result.output))
+  ok = True
+  master_netdev, master_ip, _ = GetMasterInfo()
+  if not master_netdev:
     return False
 
-  return True
+  if utils.TcpPing(master_ip, constants.DEFAULT_NODED_PORT):
+    if utils.OwnIpAddress(master_ip):
+      # we already have the ip:
+      logging.debug("Already started")
+    else:
+      logging.error("Someone else has the master ip, not activating")
+      ok = False
+  else:
+    result = utils.RunCmd(["ip", "address", "add", "%s/32" % master_ip,
+                           "dev", master_netdev, "label",
+                           "%s:0" % master_netdev])
+    if result.failed:
+      logging.error("Can't activate master IP: %s", result.output)
+      ok = False
+
+    result = utils.RunCmd(["arping", "-q", "-U", "-c 3", "-I", master_netdev,
+                           "-s", master_ip, master_ip])
+    # we'll ignore the exit code of arping
+
+  # and now start the master and rapi daemons
+  if start_daemons:
+    for daemon in 'ganeti-masterd', 'ganeti-rapi':
+      result = utils.RunCmd([daemon])
+      if result.failed:
+        logging.error("Can't start daemon %s: %s", daemon, result.output)
+        ok = False
+  return ok
 
 
-def StopMaster():
+def StopMaster(stop_daemons):
   """Deactivate this node as master.
 
-  This runs the master stop script.
+  The function will always try to deactivate the IP address of the
+  master. It will also stop the master daemons depending on the
+  stop_daemons parameter.
+
+  @type stop_daemons: boolean
+  @param stop_daemons: whether to also stop the master daemons
+      (ganeti-masterd and ganeti-rapi)
+  @rtype: None
 
   """
-  result = utils.RunCmd([constants.MASTER_SCRIPT, "-d", "stop"])
-
-  if result.failed:
-    logger.Error("could not deactivate cluster interface with command %s,"
-                 " error: '%s'" % (result.cmd, result.output))
+  master_netdev, master_ip, _ = GetMasterInfo()
+  if not master_netdev:
     return False
+
+  result = utils.RunCmd(["ip", "address", "del", "%s/32" % master_ip,
+                         "dev", master_netdev])
+  if result.failed:
+    logging.error("Can't remove the master IP, error: %s", result.output)
+    # but otherwise ignore the failure
+
+  if stop_daemons:
+    # stop/kill the rapi and the master daemon
+    for daemon in constants.RAPI_PID, constants.MASTERD_PID:
+      utils.KillProcess(utils.ReadPidFile(utils.DaemonPidFileName(daemon)))
 
   return True
 
@@ -97,6 +232,21 @@ def AddNode(dsa, dsapub, rsa, rsapub, sshkey, sshpub):
       - updates the hostkeys of the machine (rsa and dsa)
       - adds the ssh private key to the user
       - adds the ssh public key to the users' authorized_keys file
+
+  @type dsa: str
+  @param dsa: the DSA private key to write
+  @type dsapub: str
+  @param dsapub: the DSA public key to write
+  @type rsa: str
+  @param rsa: the RSA private key to write
+  @type rsapub: str
+  @param rsapub: the RSA public key to write
+  @type sshkey: str
+  @param sshkey: the SSH private key to write
+  @type sshpub: str
+  @param sshpub: the SSH public key to write
+  @rtype: boolean
+  @return: the success of the operation
 
   """
   sshd_keys =  [(constants.SSH_HOST_RSA_PRIV, rsa, 0600),
@@ -110,8 +260,9 @@ def AddNode(dsa, dsapub, rsa, rsapub, sshkey, sshpub):
     priv_key, pub_key, auth_keys = ssh.GetUserFiles(constants.GANETI_RUNAS,
                                                     mkdir=True)
   except errors.OpExecError, err:
-    logger.Error("Error while processing user ssh files: %s" % err)
-    return False
+    msg = "Error while processing user ssh files"
+    logging.exception(msg)
+    return (False, "%s: %s" % (msg, err))
 
   for name, content in [(priv_key, sshkey), (pub_key, sshpub)]:
     utils.WriteFile(name, data=content, mode=0600)
@@ -120,23 +271,27 @@ def AddNode(dsa, dsapub, rsa, rsapub, sshkey, sshpub):
 
   utils.RunCmd([constants.SSH_INITD_SCRIPT, "restart"])
 
-  return True
+  return (True, "Node added successfully")
 
 
 def LeaveCluster():
-  """Cleans up the current node and prepares it to be removed from the cluster.
+  """Cleans up and remove the current node.
+
+  This function cleans up and prepares the current node to be removed
+  from the cluster.
+
+  If processing is successful, then it raises an
+  L{errors.QuitGanetiException} which is used as a special case to
+  shutdown the node daemon.
 
   """
-  if os.path.isdir(constants.DATA_DIR):
-    for rel_name in utils.ListVisibleFiles(constants.DATA_DIR):
-      full_name = os.path.join(constants.DATA_DIR, rel_name)
-      if os.path.isfile(full_name) and not os.path.islink(full_name):
-        utils.RemoveFile(full_name)
+  _CleanDirectory(constants.DATA_DIR)
+  JobQueuePurge()
 
   try:
     priv_key, pub_key, auth_keys = ssh.GetUserFiles(constants.GANETI_RUNAS)
-  except errors.OpExecError, err:
-    logger.Error("Error while processing ssh files: %s" % err)
+  except errors.OpExecError:
+    logging.exception("Error while processing ssh files")
     return
 
   f = open(pub_key, 'r')
@@ -148,19 +303,25 @@ def LeaveCluster():
   utils.RemoveFile(priv_key)
   utils.RemoveFile(pub_key)
 
+  # Return a reassuring string to the caller, and quit
+  raise errors.QuitGanetiException(False, 'Shutdown scheduled')
 
-def GetNodeInfo(vgname):
+
+def GetNodeInfo(vgname, hypervisor_type):
   """Gives back a hash with different informations about the node.
 
-  Returns:
-    { 'vg_size' : xxx,  'vg_free' : xxx, 'memory_domain0': xxx,
-      'memory_free' : xxx, 'memory_total' : xxx }
-    where
-    vg_size is the size of the configured volume group in MiB
-    vg_free is the free size of the volume group in MiB
-    memory_dom0 is the memory allocated for domain0 in MiB
-    memory_free is the currently available (free) ram in MiB
-    memory_total is the total number of ram in MiB
+  @type vgname: C{string}
+  @param vgname: the name of the volume group to ask for disk space information
+  @type hypervisor_type: C{str}
+  @param hypervisor_type: the name of the hypervisor to ask for
+      memory information
+  @rtype: C{dict}
+  @return: dictionary with the following keys:
+      - vg_size is the size of the configured volume group in MiB
+      - vg_free is the free size of the volume group in MiB
+      - memory_dom0 is the memory allocated for domain0 in MiB
+      - memory_free is the currently available (free) ram in MiB
+      - memory_total is the total number of ram in MiB
 
   """
   outputarray = {}
@@ -168,7 +329,7 @@ def GetNodeInfo(vgname):
   outputarray['vg_size'] = vginfo['vg_size']
   outputarray['vg_free'] = vginfo['vg_free']
 
-  hyper = hypervisor.GetHypervisor()
+  hyper = hypervisor.GetHypervisor(hypervisor_type)
   hyp_info = hyper.GetNodeInfo()
   if hyp_info is not None:
     outputarray.update(hyp_info)
@@ -182,55 +343,69 @@ def GetNodeInfo(vgname):
   return outputarray
 
 
-def VerifyNode(what):
+def VerifyNode(what, cluster_name):
   """Verify the status of the local node.
 
-  Args:
-    what - a dictionary of things to check:
-      'filelist' : list of files for which to compute checksums
-      'nodelist' : list of nodes we should check communication with
-      'hypervisor': run the hypervisor-specific verify
+  Based on the input L{what} parameter, various checks are done on the
+  local node.
 
-  Requested files on local node are checksummed and the result returned.
+  If the I{filelist} key is present, this list of
+  files is checksummed and the file/checksum pairs are returned.
 
-  The nodelist is traversed, with the following checks being made
-  for each node:
-  - known_hosts key correct
-  - correct resolving of node name (target node returns its own hostname
-    by ssh-execution of 'hostname', result compared against name in list.
+  If the I{nodelist} key is present, we check that we have
+  connectivity via ssh with the target nodes (and check the hostname
+  report).
+
+  If the I{node-net-test} key is present, we check that we have
+  connectivity to the given nodes via both primary IP and, if
+  applicable, secondary IPs.
+
+  @type what: C{dict}
+  @param what: a dictionary of things to check:
+      - filelist: list of files for which to compute checksums
+      - nodelist: list of nodes we should check ssh communication with
+      - node-net-test: list of nodes we should check node daemon port
+        connectivity with
+      - hypervisor: list with hypervisors to run the verify for
+  @rtype: dict
+  @return: a dictionary with the same keys as the input dict, and
+      values representing the result of the checks
 
   """
   result = {}
 
-  if 'hypervisor' in what:
-    result['hypervisor'] = hypervisor.GetHypervisor().Verify()
+  if constants.NV_HYPERVISOR in what:
+    result[constants.NV_HYPERVISOR] = tmp = {}
+    for hv_name in what[constants.NV_HYPERVISOR]:
+      tmp[hv_name] = hypervisor.GetHypervisor(hv_name).Verify()
 
-  if 'filelist' in what:
-    result['filelist'] = utils.FingerprintFiles(what['filelist'])
+  if constants.NV_FILELIST in what:
+    result[constants.NV_FILELIST] = utils.FingerprintFiles(
+      what[constants.NV_FILELIST])
 
-  if 'nodelist' in what:
-    result['nodelist'] = {}
-    random.shuffle(what['nodelist'])
-    for node in what['nodelist']:
-      success, message = ssh.VerifyNodeHostname(node)
+  if constants.NV_NODELIST in what:
+    result[constants.NV_NODELIST] = tmp = {}
+    random.shuffle(what[constants.NV_NODELIST])
+    for node in what[constants.NV_NODELIST]:
+      success, message = _GetSshRunner(cluster_name).VerifyNodeHostname(node)
       if not success:
-        result['nodelist'][node] = message
-  if 'node-net-test' in what:
-    result['node-net-test'] = {}
+        tmp[node] = message
+
+  if constants.NV_NODENETTEST in what:
+    result[constants.NV_NODENETTEST] = tmp = {}
     my_name = utils.HostInfo().name
     my_pip = my_sip = None
-    for name, pip, sip in what['node-net-test']:
+    for name, pip, sip in what[constants.NV_NODENETTEST]:
       if name == my_name:
         my_pip = pip
         my_sip = sip
         break
     if not my_pip:
-      result['node-net-test'][my_name] = ("Can't find my own"
-                                          " primary/secondary IP"
-                                          " in the node list")
+      tmp[my_name] = ("Can't find my own primary/secondary IP"
+                      " in the node list")
     else:
-      port = ssconf.SimpleStore().GetNodeDaemonPort()
-      for name, pip, sip in what['node-net-test']:
+      port = utils.GetNodeDaemonPort()
+      for name, pip, sip in what[constants.NV_NODENETTEST]:
         fail = []
         if not utils.TcpPing(pip, port, source=my_pip):
           fail.append("primary")
@@ -238,9 +413,34 @@ def VerifyNode(what):
           if not utils.TcpPing(sip, port, source=my_sip):
             fail.append("secondary")
         if fail:
-          result['node-net-test'][name] = ("failure using the %s"
-                                           " interface(s)" %
-                                           " and ".join(fail))
+          tmp[name] = ("failure using the %s interface(s)" %
+                       " and ".join(fail))
+
+  if constants.NV_LVLIST in what:
+    result[constants.NV_LVLIST] = GetVolumeList(what[constants.NV_LVLIST])
+
+  if constants.NV_INSTANCELIST in what:
+    result[constants.NV_INSTANCELIST] = GetInstanceList(
+      what[constants.NV_INSTANCELIST])
+
+  if constants.NV_VGLIST in what:
+    result[constants.NV_VGLIST] = ListVolumeGroups()
+
+  if constants.NV_VERSION in what:
+    result[constants.NV_VERSION] = (constants.PROTOCOL_VERSION,
+                                    constants.RELEASE_VERSION)
+
+  if constants.NV_HVINFO in what:
+    hyper = hypervisor.GetHypervisor(what[constants.NV_HVINFO])
+    result[constants.NV_HVINFO] = hyper.GetNodeInfo()
+
+  if constants.NV_DRBDLIST in what:
+    try:
+      used_minors = bdev.DRBD8.GetUsedDevs().keys()
+    except errors.BlockDeviceError, err:
+      logging.warning("Can't get used minors list", exc_info=True)
+      used_minors = str(err)
+    result[constants.NV_DRBDLIST] = used_minors
 
   return result
 
@@ -248,10 +448,17 @@ def VerifyNode(what):
 def GetVolumeList(vg_name):
   """Compute list of logical volumes and their size.
 
-  Returns:
-    dictionary of all partions (key) with their size (in MiB), inactive
-    and online status:
-    {'test1': ('20.06', True, True)}
+  @type vg_name: str
+  @param vg_name: the volume group whose LVs we should list
+  @rtype: dict
+  @return:
+      dictionary of all partions (key) with value being a tuple of
+      their size (in MiB), inactive and online status::
+
+        {'test1': ('20.06', True, True)}
+
+      in case of errors, a string is returned with the error
+      details.
 
   """
   lvs = {}
@@ -260,18 +467,18 @@ def GetVolumeList(vg_name):
                          "--separator=%s" % sep,
                          "-olv_name,lv_size,lv_attr", vg_name])
   if result.failed:
-    logger.Error("Failed to list logical volumes, lvs output: %s" %
-                 result.output)
+    logging.error("Failed to list logical volumes, lvs output: %s",
+                  result.output)
     return result.output
 
+  valid_line_re = re.compile("^ *([^|]+)\|([0-9.]+)\|([^|]{6})\|?$")
   for line in result.stdout.splitlines():
-    line = line.strip().rstrip(sep)
-    if line.count(sep) != 2:
-      logger.Error("Invalid line returned from lvs output: '%s'" % line)
+    line = line.strip()
+    match = valid_line_re.match(line)
+    if not match:
+      logging.error("Invalid line returned from lvs output: '%s'", line)
       continue
-    name, size, attr = line.split(sep)
-    if len(attr) != 6:
-      attr = '------'
+    name, size, attr = match.groups()
     inactive = attr[4] == '-'
     online = attr[5] == 'o'
     lvs[name] = (size, inactive, online)
@@ -282,8 +489,9 @@ def GetVolumeList(vg_name):
 def ListVolumeGroups():
   """List the volume groups and their size.
 
-  Returns:
-    Dictionary with keys volume name and values the size of the volume
+  @rtype: dict
+  @return: dictionary with keys volume name and values the
+      size of the volume
 
   """
   return utils.ListVolumeGroups()
@@ -292,14 +500,29 @@ def ListVolumeGroups():
 def NodeVolumes():
   """List all volumes on this node.
 
+  @rtype: list
+  @return:
+    A list of dictionaries, each having four keys:
+      - name: the logical volume name,
+      - size: the size of the logical volume
+      - dev: the physical device on which the LV lives
+      - vg: the volume group to which it belongs
+
+    In case of errors, we return an empty list and log the
+    error.
+
+    Note that since a logical volume can live on multiple physical
+    volumes, the resulting list might include a logical volume
+    multiple times.
+
   """
   result = utils.RunCmd(["lvs", "--noheadings", "--units=m", "--nosuffix",
                          "--separator=|",
                          "--options=lv_name,lv_size,devices,vg_name"])
   if result.failed:
-    logger.Error("Failed to list logical volumes, lvs output: %s" %
-                 result.output)
-    return {}
+    logging.error("Failed to list logical volumes, lvs output: %s",
+                  result.output)
+    return []
 
   def parse_dev(dev):
     if '(' in dev:
@@ -322,8 +545,8 @@ def NodeVolumes():
 def BridgesExist(bridges_list):
   """Check if a list of bridges exist on the current node.
 
-  Returns:
-    True if all of them exist, false otherwise
+  @rtype: boolean
+  @return: C{True} if all of them exist, C{False} otherwise
 
   """
   for bridge in bridges_list:
@@ -333,41 +556,48 @@ def BridgesExist(bridges_list):
   return True
 
 
-def GetInstanceList():
+def GetInstanceList(hypervisor_list):
   """Provides a list of instances.
 
-  Returns:
-    A list of all running instances on the current node
+  @type hypervisor_list: list
+  @param hypervisor_list: the list of hypervisors to query information
+
+  @rtype: list
+  @return: a list of all running instances on the current node
     - instance1.example.com
     - instance2.example.com
 
   """
-  try:
-    names = hypervisor.GetHypervisor().ListInstances()
-  except errors.HypervisorError, err:
-    logger.Error("error enumerating instances: %s" % str(err))
-    raise
+  results = []
+  for hname in hypervisor_list:
+    try:
+      names = hypervisor.GetHypervisor(hname).ListInstances()
+      results.extend(names)
+    except errors.HypervisorError, err:
+      logging.exception("Error enumerating instances for hypevisor %s", hname)
+      raise
 
-  return names
+  return results
 
 
-def GetInstanceInfo(instance):
+def GetInstanceInfo(instance, hname):
   """Gives back the informations about an instance as a dictionary.
 
-  Args:
-    instance: name of the instance (ex. instance1.example.com)
+  @type instance: string
+  @param instance: the instance name
+  @type hname: string
+  @param hname: the hypervisor type of the instance
 
-  Returns:
-    { 'memory' : 511, 'state' : '-b---', 'time' : 3188.8, }
-    where
-    memory: memory size of instance (int)
-    state: xen state of instance (string)
-    time: cpu time of instance (float)
+  @rtype: dict
+  @return: dictionary with the following keys:
+      - memory: memory size of instance (int)
+      - state: xen state of instance (string)
+      - time: cpu time of instance (float)
 
   """
   output = {}
 
-  iinfo = hypervisor.GetHypervisor().GetInstanceInfo(instance)
+  iinfo = hypervisor.GetHypervisor(hname).GetInstanceInfo(instance)
   if iinfo is not None:
     output['memory'] = iinfo[2]
     output['state'] = iinfo[4]
@@ -379,187 +609,156 @@ def GetInstanceInfo(instance):
 def GetInstanceMigratable(instance):
   """Gives whether an instance can be migrated.
 
-  Args:
-    instance - object representing the instance to be checked.
+  @type instance: L{objects.Instance}
+  @param instance: object representing the instance to be checked.
 
-  Returns:
-    (result, description)
-      result - whether the instance can be migrated or not
-      description - a description of the issue, if relevant
+  @rtype: tuple
+  @return: tuple of (result, description) where:
+      - result: whether the instance can be migrated or not
+      - description: a description of the issue, if relevant
 
   """
-  hyper = hypervisor.GetHypervisor()
+  hyper = hypervisor.GetHypervisor(instance.hypervisor)
   if instance.name not in hyper.ListInstances():
     return (False, 'not running')
 
-  for disk in instance.disks:
-    link_name = _GetBlockDevSymlinkPath(instance.name, disk.iv_name)
+  for idx in range(len(instance.disks)):
+    link_name = _GetBlockDevSymlinkPath(instance.name, idx)
     if not os.path.islink(link_name):
       return (False, 'not restarted since ganeti 1.2.5')
 
   return (True, '')
 
 
-def GetAllInstancesInfo():
+def GetAllInstancesInfo(hypervisor_list):
   """Gather data about all instances.
 
-  This is the equivalent of `GetInstanceInfo()`, except that it
+  This is the equivalent of L{GetInstanceInfo}, except that it
   computes data for all instances at once, thus being faster if one
   needs data about more than one instance.
 
-  Returns: a dictionary of dictionaries, keys being the instance name,
-    and with values:
-    { 'memory' : 511, 'state' : '-b---', 'time' : 3188.8, }
-    where
-    memory: memory size of instance (int)
-    state: xen state of instance (string)
-    time: cpu time of instance (float)
-    vcpus: the number of cpus
+  @type hypervisor_list: list
+  @param hypervisor_list: list of hypervisors to query for instance data
+
+  @rtype: dict
+  @return: dictionary of instance: data, with data having the following keys:
+      - memory: memory size of instance (int)
+      - state: xen state of instance (string)
+      - time: cpu time of instance (float)
+      - vcpus: the number of vcpus
 
   """
   output = {}
 
-  iinfo = hypervisor.GetHypervisor().GetAllInstancesInfo()
-  if iinfo:
-    for name, inst_id, memory, vcpus, state, times in iinfo:
-      output[name] = {
-        'memory': memory,
-        'vcpus': vcpus,
-        'state': state,
-        'time': times,
-        }
+  for hname in hypervisor_list:
+    iinfo = hypervisor.GetHypervisor(hname).GetAllInstancesInfo()
+    if iinfo:
+      for name, inst_id, memory, vcpus, state, times in iinfo:
+        value = {
+          'memory': memory,
+          'vcpus': vcpus,
+          'state': state,
+          'time': times,
+          }
+        if name in output:
+          # we only check static parameters, like memory and vcpus,
+          # and not state and time which can change between the
+          # invocations of the different hypervisors
+          for key in 'memory', 'vcpus':
+            if value[key] != output[name][key]:
+              raise errors.HypervisorError("Instance %s is running twice"
+                                           " with different parameters" % name)
+        output[name] = value
 
   return output
 
 
-def AddOSToInstance(instance, os_disk, swap_disk):
+def InstanceOsAdd(instance):
   """Add an OS to an instance.
 
-  Args:
-    instance: the instance object
-    os_disk: the instance-visible name of the os device
-    swap_disk: the instance-visible name of the swap device
+  @type instance: L{objects.Instance}
+  @param instance: Instance whose OS is to be installed
+  @rtype: boolean
+  @return: the success of the operation
 
   """
-  inst_os = OSFromDisk(instance.os)
+  try:
+    inst_os = OSFromDisk(instance.os)
+  except errors.InvalidOS, err:
+    os_name, os_dir, os_err = err.args
+    if os_dir is None:
+      return (False, "Can't find OS '%s': %s" % (os_name, os_err))
+    else:
+      return (False, "Error parsing OS '%s' in directory %s: %s" %
+              (os_name, os_dir, os_err))
 
-  create_script = inst_os.create_script
-
-  os_device = instance.FindDisk(os_disk)
-  if os_device is None:
-    logger.Error("Can't find this device-visible name '%s'" % os_disk)
-    return False
-
-  swap_device = instance.FindDisk(swap_disk)
-  if swap_device is None:
-    logger.Error("Can't find this device-visible name '%s'" % swap_disk)
-    return False
-
-  real_os_dev = _RecursiveFindBD(os_device)
-  if real_os_dev is None:
-    raise errors.BlockDeviceError("Block device '%s' is not set up" %
-                                  str(os_device))
-  real_os_dev.Open()
-
-  real_swap_dev = _RecursiveFindBD(swap_device)
-  if real_swap_dev is None:
-    raise errors.BlockDeviceError("Block device '%s' is not set up" %
-                                  str(swap_device))
-  real_swap_dev.Open()
+  create_env = OSEnvironment(instance)
 
   logfile = "%s/add-%s-%s-%d.log" % (constants.LOG_OS_DIR, instance.os,
                                      instance.name, int(time.time()))
-  if not os.path.exists(constants.LOG_OS_DIR):
-    os.mkdir(constants.LOG_OS_DIR, 0750)
 
-  command = utils.BuildShellCmd("cd %s && %s -i %s -b %s -s %s >%s 2>&1",
-                                inst_os.path, create_script, instance.name,
-                                real_os_dev.dev_path, real_swap_dev.dev_path,
-                                logfile)
-
-  result = utils.RunCmd(command)
+  result = utils.RunCmd([inst_os.create_script], env=create_env,
+                        cwd=inst_os.path, output=logfile,)
   if result.failed:
-    logger.Error("os create command '%s' returned error: %s, logfile: %s,"
-                 " output: %s" %
-                 (command, result.fail_reason, logfile, result.output))
-    return False
+    logging.error("os create command '%s' returned error: %s, logfile: %s,"
+                  " output: %s", result.cmd, result.fail_reason, logfile,
+                  result.output)
+    lines = [utils.SafeEncode(val)
+             for val in utils.TailFile(logfile, lines=20)]
+    return (False, "OS create script failed (%s), last lines in the"
+            " log file:\n%s" % (result.fail_reason, "\n".join(lines)))
 
-  return True
+  return (True, "Successfully installed")
 
 
-def RunRenameInstance(instance, old_name, os_disk, swap_disk):
+def RunRenameInstance(instance, old_name):
   """Run the OS rename script for an instance.
 
-  Args:
-    instance: the instance object
-    old_name: the old name of the instance
-    os_disk: the instance-visible name of the os device
-    swap_disk: the instance-visible name of the swap device
+  @type instance: L{objects.Instance}
+  @param instance: Instance whose OS is to be installed
+  @type old_name: string
+  @param old_name: previous instance name
+  @rtype: boolean
+  @return: the success of the operation
 
   """
   inst_os = OSFromDisk(instance.os)
 
-  script = inst_os.rename_script
-
-  os_device = instance.FindDisk(os_disk)
-  if os_device is None:
-    logger.Error("Can't find this device-visible name '%s'" % os_disk)
-    return False
-
-  swap_device = instance.FindDisk(swap_disk)
-  if swap_device is None:
-    logger.Error("Can't find this device-visible name '%s'" % swap_disk)
-    return False
-
-  real_os_dev = _RecursiveFindBD(os_device)
-  if real_os_dev is None:
-    raise errors.BlockDeviceError("Block device '%s' is not set up" %
-                                  str(os_device))
-  real_os_dev.Open()
-
-  real_swap_dev = _RecursiveFindBD(swap_device)
-  if real_swap_dev is None:
-    raise errors.BlockDeviceError("Block device '%s' is not set up" %
-                                  str(swap_device))
-  real_swap_dev.Open()
+  rename_env = OSEnvironment(instance)
+  rename_env['OLD_INSTANCE_NAME'] = old_name
 
   logfile = "%s/rename-%s-%s-%s-%d.log" % (constants.LOG_OS_DIR, instance.os,
                                            old_name,
                                            instance.name, int(time.time()))
-  if not os.path.exists(constants.LOG_OS_DIR):
-    os.mkdir(constants.LOG_OS_DIR, 0750)
 
-  command = utils.BuildShellCmd("cd %s && %s -o %s -n %s -b %s -s %s >%s 2>&1",
-                                inst_os.path, script, old_name, instance.name,
-                                real_os_dev.dev_path, real_swap_dev.dev_path,
-                                logfile)
-
-  result = utils.RunCmd(command)
+  result = utils.RunCmd([inst_os.rename_script], env=rename_env,
+                        cwd=inst_os.path, output=logfile)
 
   if result.failed:
-    logger.Error("os create command '%s' returned error: %s"
-                 " output: %s" %
-                 (command, result.fail_reason, result.output))
-    return False
+    logging.error("os create command '%s' returned error: %s output: %s",
+                  result.cmd, result.fail_reason, result.output)
+    lines = [utils.SafeEncode(val)
+             for val in utils.TailFile(logfile, lines=20)]
+    return (False, "OS rename script failed (%s), last lines in the"
+            " log file:\n%s" % (result.fail_reason, "\n".join(lines)))
 
-  return True
+  return (True, "Rename successful")
 
 
 def _GetVGInfo(vg_name):
   """Get informations about the volume group.
 
-  Args:
-    vg_name: the volume group
+  @type vg_name: str
+  @param vg_name: the volume group which we query
+  @rtype: dict
+  @return:
+    A dictionary with the following keys:
+      - C{vg_size} is the total size of the volume group in MiB
+      - C{vg_free} is the free size of the volume group in MiB
+      - C{pv_count} are the number of physical disks in that VG
 
-  Returns:
-    { 'vg_size' : xxx, 'vg_free' : xxx, 'pv_count' : xxx }
-    where
-    vg_size is the total size of the volume group in MiB
-    vg_free is the free size of the volume group in MiB
-    pv_count are the number of physical disks in that vg
-
-  If an error occurs during gathering of data, we return the same dict
-  with keys all set to None.
+    If an error occurs during gathering of data, we return the same dict
+    with keys all set to None.
 
   """
   retdic = dict.fromkeys(["vg_size", "vg_free", "pv_count"])
@@ -568,8 +767,7 @@ def _GetVGInfo(vg_name):
                          "--nosuffix", "--units=m", "--separator=:", vg_name])
 
   if retval.failed:
-    errmsg = "volume group %s not present" % vg_name
-    logger.Error(errmsg)
+    logging.error("volume group %s not present", vg_name)
     return retdic
   valarr = retval.stdout.strip().rstrip(':').split(':')
   if len(valarr) == 3:
@@ -580,34 +778,32 @@ def _GetVGInfo(vg_name):
         "pv_count": int(valarr[2]),
         }
     except ValueError, err:
-      logger.Error("Fail to parse vgs output: %s" % str(err))
+      logging.exception("Fail to parse vgs output")
   else:
-    logger.Error("vgs output has the wrong number of fields (expected"
-                 " three): %s" % str(valarr))
+    logging.error("vgs output has the wrong number of fields (expected"
+                  " three): %s", str(valarr))
   return retdic
 
 
-def _GetBlockDevSymlinkPath(instance_name, device_name):
+def _GetBlockDevSymlinkPath(instance_name, idx):
   return os.path.join(constants.DISK_LINKS_DIR,
-                      "%s:%s" % (instance_name, device_name))
+                      "%s:%d" % (instance_name, idx))
 
 
-def _SymlinkBlockDev(instance_name, device_path, device_name):
+def _SymlinkBlockDev(instance_name, device_path, idx):
   """Set up symlinks to a instance's block device.
 
   This is an auxiliary function run when an instance is start (on the primary
   node) or when an instance is migrated (on the target node).
 
-  Args:
-    instance_name: the name of the target instance
-    device_path: path of the physical block device, on the node
-    device_name: 'virtual' name of the device
 
-  Returns:
-    absolute path to the disk's symlink
+  @param instance_name: the name of the target instance
+  @param device_path: path of the physical block device, on the node
+  @param idx: the disk index
+  @return: absolute path to the disk's symlink
 
   """
-  link_name = _GetBlockDevSymlinkPath(instance_name, device_name)
+  link_name = _GetBlockDevSymlinkPath(instance_name, idx)
   try:
     os.symlink(device_path, link_name)
   except OSError, err:
@@ -626,13 +822,13 @@ def _RemoveBlockDevLinks(instance_name, disks):
   """Remove the block device symlinks belonging to the given instance.
 
   """
-  for disk in disks:
-    link_name = _GetBlockDevSymlinkPath(instance_name, disk.iv_name)
+  for idx, disk in enumerate(disks):
+    link_name = _GetBlockDevSymlinkPath(instance_name, idx)
     if os.path.islink(link_name):
       try:
         os.remove(link_name)
-      except OSError, err:
-        logger.Error("Can't remove symlink '%s': %s" % (link_name, err))
+      except OSError:
+        logging.exception("Can't remove symlink '%s'", link_name)
 
 
 def _GatherAndLinkBlockDevs(instance):
@@ -641,239 +837,360 @@ def _GatherAndLinkBlockDevs(instance):
   This is run on the primary node at instance startup. The block
   devices must be already assembled.
 
-  Returns:
-    A list of (block_device, disk_name) tuples.
+  @type instance: L{objects.Instance}
+  @param instance: the instance whose disks we shoul assemble
+  @rtype: list
+  @return: list of (disk_object, device_path)
 
   """
   block_devices = []
-  for disk in instance.disks:
+  for idx, disk in enumerate(instance.disks):
     device = _RecursiveFindBD(disk)
     if device is None:
       raise errors.BlockDeviceError("Block device '%s' is not set up." %
                                     str(disk))
     device.Open()
     try:
-      link_name = _SymlinkBlockDev(instance.name, device.dev_path,
-                                   disk.iv_name)
+      link_name = _SymlinkBlockDev(instance.name, device.dev_path, idx)
     except OSError, e:
       raise errors.BlockDeviceError("Cannot create block device symlink: %s" %
                                     e.strerror)
 
-    block_devices.append((link_name, disk.iv_name))
+    block_devices.append((disk, link_name))
 
   return block_devices
 
 
-def StartInstance(instance, extra_args):
+def StartInstance(instance):
   """Start an instance.
 
-  Args:
-    instance - object representing the instance to be started.
+  @type instance: L{objects.Instance}
+  @param instance: the instance object
+  @rtype: boolean
+  @return: whether the startup was successful or not
 
   """
-  running_instances = GetInstanceList()
+  running_instances = GetInstanceList([instance.hypervisor])
 
   if instance.name in running_instances:
-    return True
+    return (True, "Already running")
 
   try:
     block_devices = _GatherAndLinkBlockDevs(instance)
-    hyper = hypervisor.GetHypervisor()
-    hyper.StartInstance(instance, block_devices, extra_args)
+    hyper = hypervisor.GetHypervisor(instance.hypervisor)
+    hyper.StartInstance(instance, block_devices)
   except errors.BlockDeviceError, err:
-    logger.Error("Failed to start instance: %s" % err)
-    return False
+    logging.exception("Failed to start instance")
+    return (False, "Block device error: %s" % str(err))
   except errors.HypervisorError, err:
-    logger.Error("Failed to start instance: %s" % err)
+    logging.exception("Failed to start instance")
     _RemoveBlockDevLinks(instance.name, instance.disks)
-    return False
+    return (False, "Hypervisor error: %s" % str(err))
 
-  return True
+  return (True, "Instance started successfully")
 
 
-def ShutdownInstance(instance):
+def InstanceShutdown(instance):
   """Shut an instance down.
 
-  Args:
-    instance - object representing the instance to be shutdown.
+  @note: this functions uses polling with a hardcoded timeout.
+
+  @type instance: L{objects.Instance}
+  @param instance: the instance object
+  @rtype: boolean
+  @return: whether the startup was successful or not
 
   """
-  running_instances = GetInstanceList()
+  hv_name = instance.hypervisor
+  running_instances = GetInstanceList([hv_name])
 
   if instance.name not in running_instances:
-    return True
+    return (True, "Instance already stopped")
 
-  hyper = hypervisor.GetHypervisor()
+  hyper = hypervisor.GetHypervisor(hv_name)
   try:
     hyper.StopInstance(instance)
   except errors.HypervisorError, err:
-    logger.Error("Failed to stop instance: %s" % err)
-    return False
+    msg = "Failed to stop instance %s: %s" % (instance.name, err)
+    logging.error(msg)
+    return (False, msg)
 
   # test every 10secs for 2min
-  shutdown_ok = False
 
   time.sleep(1)
   for dummy in range(11):
-    if instance.name not in GetInstanceList():
+    if instance.name not in GetInstanceList([hv_name]):
       break
     time.sleep(10)
   else:
     # the shutdown did not succeed
-    logger.Error("shutdown of '%s' unsuccessful, using destroy" % instance)
+    logging.error("Shutdown of '%s' unsuccessful, using destroy",
+                  instance.name)
 
     try:
       hyper.StopInstance(instance, force=True)
     except errors.HypervisorError, err:
-      logger.Error("Failed to stop instance: %s" % err)
-      return False
+      msg = "Failed to force stop instance %s: %s" % (instance.name, err)
+      logging.error(msg)
+      return (False, msg)
 
     time.sleep(1)
-    if instance.name in GetInstanceList():
-      logger.Error("could not shutdown instance '%s' even by destroy")
-      return False
+    if instance.name in GetInstanceList([hv_name]):
+      msg = ("Could not shutdown instance %s even by destroy" %
+             instance.name)
+      logging.error(msg)
+      return (False, msg)
 
   _RemoveBlockDevLinks(instance.name, instance.disks)
 
-  return True
+  return (True, "Instance has been shutdown successfully")
 
 
-def RebootInstance(instance, reboot_type, extra_args):
+def InstanceReboot(instance, reboot_type):
   """Reboot an instance.
 
-  Args:
-    instance    - object representing the instance to be reboot.
-    reboot_type - how to reboot [soft,hard,full]
+  @type instance: L{objects.Instance}
+  @param instance: the instance object to reboot
+  @type reboot_type: str
+  @param reboot_type: the type of reboot, one the following
+    constants:
+      - L{constants.INSTANCE_REBOOT_SOFT}: only reboot the
+        instance OS, do not recreate the VM
+      - L{constants.INSTANCE_REBOOT_HARD}: tear down and
+        restart the VM (at the hypervisor level)
+      - the other reboot type (L{constants.INSTANCE_REBOOT_HARD})
+        is not accepted here, since that mode is handled
+        differently
+  @rtype: boolean
+  @return: the success of the operation
 
   """
-  running_instances = GetInstanceList()
+  running_instances = GetInstanceList([instance.hypervisor])
 
   if instance.name not in running_instances:
-    logger.Error("Cannot reboot instance that is not running")
-    return False
+    msg = "Cannot reboot instance %s that is not running" % instance.name
+    logging.error(msg)
+    return (False, msg)
 
-  hyper = hypervisor.GetHypervisor()
+  hyper = hypervisor.GetHypervisor(instance.hypervisor)
   if reboot_type == constants.INSTANCE_REBOOT_SOFT:
     try:
       hyper.RebootInstance(instance)
     except errors.HypervisorError, err:
-      logger.Error("Failed to soft reboot instance: %s" % err)
-      return False
+      msg = "Failed to soft reboot instance %s: %s" % (instance.name, err)
+      logging.error(msg)
+      return (False, msg)
   elif reboot_type == constants.INSTANCE_REBOOT_HARD:
     try:
-      ShutdownInstance(instance)
-      StartInstance(instance, extra_args)
+      stop_result = InstanceShutdown(instance)
+      if not stop_result[0]:
+        return stop_result
+      return StartInstance(instance)
     except errors.HypervisorError, err:
-      logger.Error("Failed to hard reboot instance: %s" % err)
-      return False
+      msg = "Failed to hard reboot instance %s: %s" % (instance.name, err)
+      logging.error(msg)
+      return (False, msg)
   else:
-    raise errors.ParameterError("reboot_type invalid")
+    return (False, "Invalid reboot_type received: %s" % (reboot_type,))
+
+  return (True, "Reboot successful")
 
 
-  return True
+def MigrationInfo(instance):
+  """Gather information about an instance to be migrated.
+
+  @type instance: L{objects.Instance}
+  @param instance: the instance definition
+
+  """
+  hyper = hypervisor.GetHypervisor(instance.hypervisor)
+  try:
+    info = hyper.MigrationInfo(instance)
+  except errors.HypervisorError, err:
+    msg = "Failed to fetch migration information"
+    logging.exception(msg)
+    return (False, '%s: %s' % (msg, err))
+  return (True, info)
+
+
+def AcceptInstance(instance, info, target):
+  """Prepare the node to accept an instance.
+
+  @type instance: L{objects.Instance}
+  @param instance: the instance definition
+  @type info: string/data (opaque)
+  @param info: migration information, from the source node
+  @type target: string
+  @param target: target host (usually ip), on this node
+
+  """
+  hyper = hypervisor.GetHypervisor(instance.hypervisor)
+  try:
+    hyper.AcceptInstance(instance, info, target)
+  except errors.HypervisorError, err:
+    msg = "Failed to accept instance"
+    logging.exception(msg)
+    return (False, '%s: %s' % (msg, err))
+  return (True, "Accept successfull")
+
+
+def FinalizeMigration(instance, info, success):
+  """Finalize any preparation to accept an instance.
+
+  @type instance: L{objects.Instance}
+  @param instance: the instance definition
+  @type info: string/data (opaque)
+  @param info: migration information, from the source node
+  @type success: boolean
+  @param success: whether the migration was a success or a failure
+
+  """
+  hyper = hypervisor.GetHypervisor(instance.hypervisor)
+  try:
+    hyper.FinalizeMigration(instance, info, success)
+  except errors.HypervisorError, err:
+    msg = "Failed to finalize migration"
+    logging.exception(msg)
+    return (False, '%s: %s' % (msg, err))
+  return (True, "Migration Finalized")
 
 
 def MigrateInstance(instance, target, live):
   """Migrates an instance to another node.
 
-  Args:
-    instance - name of the instance to be migrated.
-    target   - node to send the instance to.
-    live     - whether to perform a live migration.
+  @type instance: L{objects.Instance}
+  @param instance: the instance definition
+  @type target: string
+  @param target: the target node name
+  @type live: boolean
+  @param live: whether the migration should be done live or not (the
+      interpretation of this parameter is left to the hypervisor)
+  @rtype: tuple
+  @return: a tuple of (success, msg) where:
+      - succes is a boolean denoting the success/failure of the operation
+      - msg is a string with details in case of failure
 
   """
-  hyper = hypervisor.GetHypervisor()
+  hyper = hypervisor.GetHypervisor(instance.hypervisor)
 
   try:
-    hyper.MigrateInstance(instance, target, live)
+    hyper.MigrateInstance(instance.name, target, live)
   except errors.HypervisorError, err:
-    msg = str(err)
-    logger.Error(msg)
-    return (False, msg)
+    msg = "Failed to migrate instance"
+    logging.exception(msg)
+    return (False, "%s: %s" % (msg, err))
   return (True, "Migration successfull")
 
 
-def CreateBlockDevice(disk, size, owner, on_primary, info):
+def BlockdevCreate(disk, size, owner, on_primary, info):
   """Creates a block device for an instance.
 
-  Args:
-   disk: a ganeti.objects.Disk object
-   size: the size of the physical underlying device
-   owner: a string with the name of the instance
-   on_primary: a boolean indicating if it is the primary node or not
-   info: string that will be sent to the physical device creation
+  @type disk: L{objects.Disk}
+  @param disk: the object describing the disk we should create
+  @type size: int
+  @param size: the size of the physical underlying device, in MiB
+  @type owner: str
+  @param owner: the name of the instance for which disk is created,
+      used for device cache data
+  @type on_primary: boolean
+  @param on_primary:  indicates if it is the primary node or not
+  @type info: string
+  @param info: string that will be sent to the physical device
+      creation, used for example to set (LVM) tags on LVs
 
-  Returns:
-    the new unique_id of the device (this can sometime be
-    computed only after creation), or None. On secondary nodes,
-    it's not required to return anything.
+  @return: the new unique_id of the device (this can sometime be
+      computed only after creation), or None. On secondary nodes,
+      it's not required to return anything.
 
   """
   clist = []
   if disk.children:
     for child in disk.children:
-      crdev = _RecursiveAssembleBD(child, owner, on_primary)
+      try:
+        crdev = _RecursiveAssembleBD(child, owner, on_primary)
+      except errors.BlockDeviceError, err:
+        errmsg = "Can't assemble device %s: %s" % (child, err)
+        logging.error(errmsg)
+        return False, errmsg
       if on_primary or disk.AssembleOnSecondary():
         # we need the children open in case the device itself has to
         # be assembled
-        crdev.Open()
+        try:
+          crdev.Open()
+        except errors.BlockDeviceError, err:
+          errmsg = "Can't make child '%s' read-write: %s" % (child, err)
+          logging.error(errmsg)
+          return False, errmsg
       clist.append(crdev)
-  try:
-    device = bdev.FindDevice(disk.dev_type, disk.physical_id, clist)
-    if device is not None:
-      logger.Info("removing existing device %s" % disk)
-      device.Remove()
-  except errors.BlockDeviceError, err:
-    pass
 
-  device = bdev.Create(disk.dev_type, disk.physical_id,
-                       clist, size)
-  if device is None:
-    raise ValueError("Can't create child device for %s, %s" %
-                     (disk, size))
+  try:
+    device = bdev.Create(disk.dev_type, disk.physical_id, clist, size)
+  except errors.BlockDeviceError, err:
+    return False, "Can't create block device: %s" % str(err)
+
   if on_primary or disk.AssembleOnSecondary():
-    if not device.Assemble():
-      errorstring = "Can't assemble device after creation"
-      logger.Error(errorstring)
-      raise errors.BlockDeviceError("%s, very unusual event - check the node"
-                                    " daemon logs" % errorstring)
+    try:
+      device.Assemble()
+    except errors.BlockDeviceError, err:
+      errmsg = ("Can't assemble device after creation, very"
+                " unusual event: %s" % str(err))
+      logging.error(errmsg)
+      return False, errmsg
     device.SetSyncSpeed(constants.SYNC_SPEED)
     if on_primary or disk.OpenOnSecondary():
-      device.Open(force=True)
+      try:
+        device.Open(force=True)
+      except errors.BlockDeviceError, err:
+        errmsg = ("Can't make device r/w after creation, very"
+                  " unusual event: %s" % str(err))
+        logging.error(errmsg)
+        return False, errmsg
     DevCacheManager.UpdateCache(device.dev_path, owner,
                                 on_primary, disk.iv_name)
 
   device.SetInfo(info)
 
   physical_id = device.unique_id
-  return physical_id
+  return True, physical_id
 
 
-def RemoveBlockDevice(disk):
+def BlockdevRemove(disk):
   """Remove a block device.
 
-  This is intended to be called recursively.
+  @note: This is intended to be called recursively.
+
+  @type disk: L{objects.Disk}
+  @param disk: the disk object we should remove
+  @rtype: boolean
+  @return: the success of the operation
 
   """
+  msgs = []
+  result = True
   try:
-    # since we are removing the device, allow a partial match
-    # this allows removal of broken mirrors
-    rdev = _RecursiveFindBD(disk, allow_partial=True)
+    rdev = _RecursiveFindBD(disk)
   except errors.BlockDeviceError, err:
     # probably can't attach
-    logger.Info("Can't attach to device %s in remove" % disk)
+    logging.info("Can't attach to device %s in remove", disk)
     rdev = None
   if rdev is not None:
     r_path = rdev.dev_path
-    result = rdev.Remove()
+    try:
+      rdev.Remove()
+    except errors.BlockDeviceError, err:
+      msgs.append(str(err))
+      result = False
     if result:
       DevCacheManager.RemoveCache(r_path)
-  else:
-    result = True
+
   if disk.children:
     for child in disk.children:
-      result = result and RemoveBlockDevice(child)
-  return result
+      c_status, c_msg = BlockdevRemove(child)
+      result = result and c_status
+      if c_msg: # not an empty message
+        msgs.append(c_msg)
+
+  return (result, "; ".join(msgs))
 
 
 def _RecursiveAssembleBD(disk, owner, as_primary):
@@ -881,16 +1198,21 @@ def _RecursiveAssembleBD(disk, owner, as_primary):
 
   This is run on the primary and secondary nodes for an instance.
 
-  This function is called recursively.
+  @note: this function is called recursively.
 
-  Args:
-    disk: a objects.Disk object
-    as_primary: if we should make the block device read/write
+  @type disk: L{objects.Disk}
+  @param disk: the disk we try to assemble
+  @type owner: str
+  @param owner: the name of the instance which owns the disk
+  @type as_primary: boolean
+  @param as_primary: if we should make the block device
+      read/write
 
-  Returns:
-    the assembled device or None (in case no device was assembled)
-
-  If the assembly is not successful, an exception is raised.
+  @return: the assembled device or None (in case no device
+      was assembled)
+  @raise errors.BlockDeviceError: in case there is an error
+      during the activation of the children or the device
+      itself
 
   """
   children = []
@@ -907,11 +1229,12 @@ def _RecursiveAssembleBD(disk, owner, as_primary):
         if children.count(None) >= mcn:
           raise
         cdev = None
-        logger.Debug("Error in child activation: %s" % str(err))
+        logging.error("Error in child activation (but continuing): %s",
+                      str(err))
       children.append(cdev)
 
   if as_primary or disk.AssembleOnSecondary():
-    r_dev = bdev.AttachOrAssemble(disk.dev_type, disk.physical_id, children)
+    r_dev = bdev.Assemble(disk.dev_type, disk.physical_id, children)
     r_dev.SetSyncSpeed(constants.SYNC_SPEED)
     result = r_dev
     if as_primary or disk.OpenOnSecondary():
@@ -924,71 +1247,106 @@ def _RecursiveAssembleBD(disk, owner, as_primary):
   return result
 
 
-def AssembleBlockDevice(disk, owner, as_primary):
+def BlockdevAssemble(disk, owner, as_primary):
   """Activate a block device for an instance.
 
   This is a wrapper over _RecursiveAssembleBD.
 
-  Returns:
-    a /dev path for primary nodes
-    True for secondary nodes
+  @rtype: str or boolean
+  @return: a C{/dev/...} path for primary nodes, and
+      C{True} for secondary nodes
 
   """
-  result = _RecursiveAssembleBD(disk, owner, as_primary)
-  if isinstance(result, bdev.BlockDev):
-    result = result.dev_path
-  return result
+  status = True
+  result = "no error information"
+  try:
+    result = _RecursiveAssembleBD(disk, owner, as_primary)
+    if isinstance(result, bdev.BlockDev):
+      result = result.dev_path
+  except errors.BlockDeviceError, err:
+    result = "Error while assembling disk: %s" % str(err)
+    status = False
+  return (status, result)
 
 
-def ShutdownBlockDevice(disk):
+def BlockdevShutdown(disk):
   """Shut down a block device.
 
-  First, if the device is assembled (can `Attach()`), then the device
-  is shutdown. Then the children of the device are shutdown.
+  First, if the device is assembled (Attach() is successfull), then
+  the device is shutdown. Then the children of the device are
+  shutdown.
 
   This function is called recursively. Note that we don't cache the
   children or such, as oppossed to assemble, shutdown of different
   devices doesn't require that the upper device was active.
 
+  @type disk: L{objects.Disk}
+  @param disk: the description of the disk we should
+      shutdown
+  @rtype: boolean
+  @return: the success of the operation
+
   """
+  msgs = []
+  result = True
   r_dev = _RecursiveFindBD(disk)
   if r_dev is not None:
     r_path = r_dev.dev_path
-    result = r_dev.Shutdown()
-    if result:
+    try:
+      r_dev.Shutdown()
       DevCacheManager.RemoveCache(r_path)
-  else:
-    result = True
+    except errors.BlockDeviceError, err:
+      msgs.append(str(err))
+      result = False
+
   if disk.children:
     for child in disk.children:
-      result = result and ShutdownBlockDevice(child)
-  return result
+      c_status, c_msg = BlockdevShutdown(child)
+      result = result and c_status
+      if c_msg: # not an empty message
+        msgs.append(c_msg)
+
+  return (result, "; ".join(msgs))
 
 
-def MirrorAddChildren(parent_cdev, new_cdevs):
+def BlockdevAddchildren(parent_cdev, new_cdevs):
   """Extend a mirrored block device.
 
+  @type parent_cdev: L{objects.Disk}
+  @param parent_cdev: the disk to which we should add children
+  @type new_cdevs: list of L{objects.Disk}
+  @param new_cdevs: the list of children which we should add
+  @rtype: boolean
+  @return: the success of the operation
+
   """
-  parent_bdev = _RecursiveFindBD(parent_cdev, allow_partial=True)
+  parent_bdev = _RecursiveFindBD(parent_cdev)
   if parent_bdev is None:
-    logger.Error("Can't find parent device")
+    logging.error("Can't find parent device")
     return False
   new_bdevs = [_RecursiveFindBD(disk) for disk in new_cdevs]
   if new_bdevs.count(None) > 0:
-    logger.Error("Can't find new device(s) to add: %s:%s" %
-                 (new_bdevs, new_cdevs))
+    logging.error("Can't find new device(s) to add: %s:%s",
+                  new_bdevs, new_cdevs)
     return False
   parent_bdev.AddChildren(new_bdevs)
   return True
 
 
-def MirrorRemoveChildren(parent_cdev, new_cdevs):
+def BlockdevRemovechildren(parent_cdev, new_cdevs):
   """Shrink a mirrored block device.
+
+  @type parent_cdev: L{objects.Disk}
+  @param parent_cdev: the disk from which we should remove children
+  @type new_cdevs: list of L{objects.Disk}
+  @param new_cdevs: the list of children which we should remove
+  @rtype: boolean
+  @return: the success of the operation
 
   """
   parent_bdev = _RecursiveFindBD(parent_cdev)
   if parent_bdev is None:
-    logger.Error("Can't find parent in remove children: %s" % parent_cdev)
+    logging.error("Can't find parent in remove children: %s", parent_cdev)
     return False
   devs = []
   for disk in new_cdevs:
@@ -996,8 +1354,8 @@ def MirrorRemoveChildren(parent_cdev, new_cdevs):
     if rpath is None:
       bd = _RecursiveFindBD(disk)
       if bd is None:
-        logger.Error("Can't find dynamic device %s while removing children" %
-                     disk)
+        logging.error("Can't find dynamic device %s while removing children",
+                      disk)
         return False
       else:
         devs.append(bd.dev_path)
@@ -1007,15 +1365,17 @@ def MirrorRemoveChildren(parent_cdev, new_cdevs):
   return True
 
 
-def GetMirrorStatus(disks):
+def BlockdevGetmirrorstatus(disks):
   """Get the mirroring status of a list of devices.
 
-  Args:
-    disks: list of `objects.Disk`
-
-  Returns:
-    list of (mirror_done, estimated_time) tuples, which
-    are the result of bdev.BlockDevice.CombinedSyncStatus()
+  @type disks: list of L{objects.Disk}
+  @param disks: the list of disks which we should query
+  @rtype: disk
+  @return:
+      a list of (mirror_done, estimated_time) tuples, which
+      are the result of L{bdev.BlockDev.CombinedSyncStatus}
+  @raise errors.BlockDeviceError: if any of the disks cannot be
+      found
 
   """
   stats = []
@@ -1027,20 +1387,16 @@ def GetMirrorStatus(disks):
   return stats
 
 
-def _RecursiveFindBD(disk, allow_partial=False):
+def _RecursiveFindBD(disk):
   """Check if a device is activated.
 
   If so, return informations about the real device.
 
-  Args:
-    disk: the objects.Disk instance
-    allow_partial: don't abort the find if a child of the
-                   device can't be found; this is intended to be
-                   used when repairing mirrors
+  @type disk: L{objects.Disk}
+  @param disk: the disk object we need to find
 
-  Returns:
-    None if the device can't be found
-    otherwise the device instance
+  @return: None if the device can't be found,
+      otherwise the device instance
 
   """
   children = []
@@ -1051,22 +1407,26 @@ def _RecursiveFindBD(disk, allow_partial=False):
   return bdev.FindDevice(disk.dev_type, disk.physical_id, children)
 
 
-def FindBlockDevice(disk):
+def BlockdevFind(disk):
   """Check if a device is activated.
 
-  If so, return informations about the real device.
+  If it is, return informations about the real device.
 
-  Args:
-    disk: the objects.Disk instance
-  Returns:
-    None if the device can't be found
-    (device_path, major, minor, sync_percent, estimated_time, is_degraded)
+  @type disk: L{objects.Disk}
+  @param disk: the disk to find
+  @rtype: None or tuple
+  @return: None if the disk cannot be found, otherwise a
+      tuple (device_path, major, minor, sync_percent,
+      estimated_time, is_degraded)
 
   """
-  rbd = _RecursiveFindBD(disk)
+  try:
+    rbd = _RecursiveFindBD(disk)
+  except errors.BlockDeviceError, err:
+    return (False, str(err))
   if rbd is None:
-    return rbd
-  return (rbd.dev_path, rbd.major, rbd.minor) + rbd.GetSyncStatus()
+    return (True, None)
+  return (True, (rbd.dev_path, rbd.major, rbd.minor) + rbd.GetSyncStatus())
 
 
 def UploadFile(file_name, data, mode, uid, gid, atime, mtime):
@@ -1075,46 +1435,67 @@ def UploadFile(file_name, data, mode, uid, gid, atime, mtime):
   This allows the master to overwrite(!) a file. It will only perform
   the operation if the file belongs to a list of configuration files.
 
+  @type file_name: str
+  @param file_name: the target file name
+  @type data: str
+  @param data: the new contents of the file
+  @type mode: int
+  @param mode: the mode to give the file (can be None)
+  @type uid: int
+  @param uid: the owner of the file (can be -1 for default)
+  @type gid: int
+  @param gid: the group of the file (can be -1 for default)
+  @type atime: float
+  @param atime: the atime to set on the file (can be None)
+  @type mtime: float
+  @param mtime: the mtime to set on the file (can be None)
+  @rtype: boolean
+  @return: the success of the operation; errors are logged
+      in the node daemon log
+
   """
   if not os.path.isabs(file_name):
-    logger.Error("Filename passed to UploadFile is not absolute: '%s'" %
-                 file_name)
+    logging.error("Filename passed to UploadFile is not absolute: '%s'",
+                  file_name)
     return False
 
   allowed_files = [
     constants.CLUSTER_CONF_FILE,
     constants.ETC_HOSTS,
     constants.SSH_KNOWN_HOSTS_FILE,
+    constants.VNC_PASSWORD_FILE,
     ]
-  allowed_files.extend(ssconf.SimpleStore().GetFileList())
+
   if file_name not in allowed_files:
-    logger.Error("Filename passed to UploadFile not in allowed"
-                 " upload targets: '%s'" % file_name)
+    logging.error("Filename passed to UploadFile not in allowed"
+                 " upload targets: '%s'", file_name)
     return False
 
-  dir_name, small_name = os.path.split(file_name)
-  fd, new_name = tempfile.mkstemp('.new', small_name, dir_name)
-  # here we need to make sure we remove the temp file, if any error
-  # leaves it in place
-  try:
-    os.chown(new_name, uid, gid)
-    os.chmod(new_name, mode)
-    os.write(fd, data)
-    os.fsync(fd)
-    os.utime(new_name, (atime, mtime))
-    os.rename(new_name, file_name)
-  finally:
-    os.close(fd)
-    utils.RemoveFile(new_name)
+  raw_data = _Decompress(data)
+
+  utils.WriteFile(file_name, data=raw_data, mode=mode, uid=uid, gid=gid,
+                  atime=atime, mtime=mtime)
   return True
+
+
+def WriteSsconfFiles(values):
+  """Update all ssconf files.
+
+  Wrapper around the SimpleStore.WriteFiles.
+
+  """
+  ssconf.SimpleStore().WriteFiles(values)
 
 
 def _ErrnoOrStr(err):
   """Format an EnvironmentError exception.
 
-  If the `err` argument has an errno attribute, it will be looked up
-  and converted into a textual EXXXX description. Otherwise the string
-  representation of the error will be returned.
+  If the L{err} argument has an errno attribute, it will be looked up
+  and converted into a textual C{E...} description. Otherwise the
+  string representation of the error will be returned.
+
+  @type err: L{EnvironmentError}
+  @param err: the exception to format
 
   """
   if hasattr(err, 'errno'):
@@ -1127,11 +1508,18 @@ def _ErrnoOrStr(err):
 def _OSOndiskVersion(name, os_dir):
   """Compute and return the API version of a given OS.
 
-  This function will try to read the API version of the os given by
+  This function will try to read the API version of the OS given by
   the 'name' parameter and residing in the 'os_dir' directory.
 
-  Return value will be either an integer denoting the version or None in the
-  case when this is not a valid OS name.
+  @type name: str
+  @param name: the OS name we should look for
+  @type os_dir: str
+  @param os_dir: the directory inwhich we should look for the OS
+  @rtype: int or None
+  @return:
+      Either an integer denoting the version or None in the
+      case when this is not a valid OS name.
+  @raise errors.InvalidOS: if the OS cannot be found
 
   """
   api_file = os.path.sep.join([os_dir, "ganeti_api_version"])
@@ -1169,11 +1557,13 @@ def _OSOndiskVersion(name, os_dir):
 def DiagnoseOS(top_dirs=None):
   """Compute the validity for all OSes.
 
-  Returns an OS object for each name in all the given top directories
-  (if not given defaults to constants.OS_SEARCH_PATH)
-
-  Returns:
-    list of OS objects
+  @type top_dirs: list
+  @param top_dirs: the list of directories in which to
+      search (if not given defaults to
+      L{constants.OS_SEARCH_PATH})
+  @rtype: list of L{objects.OS}
+  @return: an OS object for each name in all the given
+      directories
 
   """
   if top_dirs is None:
@@ -1185,8 +1575,7 @@ def DiagnoseOS(top_dirs=None):
       try:
         f_names = utils.ListVisibleFiles(dir_name)
       except EnvironmentError, err:
-        logger.Error("Can't list the OS directory %s: %s" %
-                     (dir_name, str(err)))
+        logging.exception("Can't list the OS directory %s", dir_name)
         break
       for name in f_names:
         try:
@@ -1203,15 +1592,16 @@ def OSFromDisk(name, base_dir=None):
 
   This function will return an OS instance if the given name is a
   valid OS name. Otherwise, it will raise an appropriate
-  `errors.InvalidOS` exception, detailing why this is not a valid
-  OS.
+  L{errors.InvalidOS} exception, detailing why this is not a valid OS.
 
-  Args:
-    os_dir: Directory containing the OS scripts. Defaults to a search
-            in all the OS_SEARCH_PATH directories.
+  @type base_dir: string
+  @keyword base_dir: Base directory containing OS installations.
+                     Defaults to a search in all the OS_SEARCH_PATH dirs.
+  @rtype: L{objects.OS}
+  @return: the OS instance if we find a valid one
+  @raise errors.InvalidOS: if we don't find a valid OS
 
   """
-
   if base_dir is None:
     os_dir = utils.FindFile(name, constants.OS_SEARCH_PATH, os.path.isdir)
     if os_dir is None:
@@ -1227,7 +1617,7 @@ def OSFromDisk(name, base_dir=None):
                            % (api_versions, constants.OS_API_VERSION))
 
   # OS Scripts dictionary, we will populate it with the actual script names
-  os_scripts = {'create': '', 'export': '', 'import': '', 'rename': ''}
+  os_scripts = dict.fromkeys(constants.OS_SCRIPTS)
 
   for script in os_scripts:
     os_scripts[script] = os.path.sep.join([os_dir, script])
@@ -1248,25 +1638,76 @@ def OSFromDisk(name, base_dir=None):
 
 
   return objects.OS(name=name, path=os_dir, status=constants.OS_VALID_STATUS,
-                    create_script=os_scripts['create'],
-                    export_script=os_scripts['export'],
-                    import_script=os_scripts['import'],
-                    rename_script=os_scripts['rename'],
+                    create_script=os_scripts[constants.OS_SCRIPT_CREATE],
+                    export_script=os_scripts[constants.OS_SCRIPT_EXPORT],
+                    import_script=os_scripts[constants.OS_SCRIPT_IMPORT],
+                    rename_script=os_scripts[constants.OS_SCRIPT_RENAME],
                     api_versions=api_versions)
 
+def OSEnvironment(instance, debug=0):
+  """Calculate the environment for an os script.
 
-def GrowBlockDevice(disk, amount):
+  @type instance: L{objects.Instance}
+  @param instance: target instance for the os script run
+  @type debug: integer
+  @param debug: debug level (0 or 1, for OS Api 10)
+  @rtype: dict
+  @return: dict of environment variables
+  @raise errors.BlockDeviceError: if the block device
+      cannot be found
+
+  """
+  result = {}
+  result['OS_API_VERSION'] = '%d' % constants.OS_API_VERSION
+  result['INSTANCE_NAME'] = instance.name
+  result['INSTANCE_OS'] = instance.os
+  result['HYPERVISOR'] = instance.hypervisor
+  result['DISK_COUNT'] = '%d' % len(instance.disks)
+  result['NIC_COUNT'] = '%d' % len(instance.nics)
+  result['DEBUG_LEVEL'] = '%d' % debug
+  for idx, disk in enumerate(instance.disks):
+    real_disk = _RecursiveFindBD(disk)
+    if real_disk is None:
+      raise errors.BlockDeviceError("Block device '%s' is not set up" %
+                                    str(disk))
+    real_disk.Open()
+    result['DISK_%d_PATH' % idx] = real_disk.dev_path
+    result['DISK_%d_ACCESS' % idx] = disk.mode
+    if constants.HV_DISK_TYPE in instance.hvparams:
+      result['DISK_%d_FRONTEND_TYPE' % idx] = \
+        instance.hvparams[constants.HV_DISK_TYPE]
+    if disk.dev_type in constants.LDS_BLOCK:
+      result['DISK_%d_BACKEND_TYPE' % idx] = 'block'
+    elif disk.dev_type == constants.LD_FILE:
+      result['DISK_%d_BACKEND_TYPE' % idx] = \
+        'file:%s' % disk.physical_id[0]
+  for idx, nic in enumerate(instance.nics):
+    result['NIC_%d_MAC' % idx] = nic.mac
+    if nic.ip:
+      result['NIC_%d_IP' % idx] = nic.ip
+    result['NIC_%d_BRIDGE' % idx] = nic.bridge
+    if constants.HV_NIC_TYPE in instance.hvparams:
+      result['NIC_%d_FRONTEND_TYPE' % idx] = \
+        instance.hvparams[constants.HV_NIC_TYPE]
+
+  for source, kind in [(instance.beparams, "BE"), (instance.hvparams, "HV")]:
+    for key, value in source.items():
+      result["INSTANCE_%s_%s" % (kind, key)] = str(value)
+
+  return result
+
+def BlockdevGrow(disk, amount):
   """Grow a stack of block devices.
 
   This function is called recursively, with the childrens being the
-  first one resize.
+  first ones to resize.
 
-  Args:
-    disk: the disk to be grown
-
-  Returns: a tuple of (status, result), with:
-    status: the result (true/false) of the operation
-    result: the error message if the operation failed, otherwise not used
+  @type disk: L{objects.Disk}
+  @param disk: the disk to be grown
+  @rtype: (status, result)
+  @return: a tuple with the status of the operation
+      (True/False), and the errors message if status
+      is False
 
   """
   r_dev = _RecursiveFindBD(disk)
@@ -1281,29 +1722,28 @@ def GrowBlockDevice(disk, amount):
   return True, None
 
 
-def SnapshotBlockDevice(disk):
+def BlockdevSnapshot(disk):
   """Create a snapshot copy of a block device.
 
   This function is called recursively, and the snapshot is actually created
   just for the leaf lvm backend device.
 
-  Args:
-    disk: the disk to be snapshotted
-
-  Returns:
-    a config entry for the actual lvm device snapshotted.
+  @type disk: L{objects.Disk}
+  @param disk: the disk to be snapshotted
+  @rtype: string
+  @return: snapshot disk path
 
   """
   if disk.children:
     if len(disk.children) == 1:
       # only one child, let's recurse on it
-      return SnapshotBlockDevice(disk.children[0])
+      return BlockdevSnapshot(disk.children[0])
     else:
       # more than one child, choose one that matches
       for child in disk.children:
         if child.size == disk.size:
           # return implies breaking the loop
-          return SnapshotBlockDevice(child)
+          return BlockdevSnapshot(child)
   elif disk.dev_type == constants.LD_LV:
     r_dev = _RecursiveFindBD(disk)
     if r_dev is not None:
@@ -1317,18 +1757,26 @@ def SnapshotBlockDevice(disk):
                                  (disk.unique_id, disk.dev_type))
 
 
-def ExportSnapshot(disk, dest_node, instance):
+def ExportSnapshot(disk, dest_node, instance, cluster_name, idx):
   """Export a block device snapshot to a remote node.
 
-  Args:
-    disk: the snapshot block device
-    dest_node: the node to send the image to
-    instance: instance being exported
-
-  Returns:
-    True if successful, False otherwise.
+  @type disk: L{objects.Disk}
+  @param disk: the description of the disk to export
+  @type dest_node: str
+  @param dest_node: the destination node to export to
+  @type instance: L{objects.Instance}
+  @param instance: the instance object to whom the disk belongs
+  @type cluster_name: str
+  @param cluster_name: the cluster name, needed for SSH hostalias
+  @type idx: int
+  @param idx: the index of the disk in the instance's disk list,
+      used to export to the OS scripts environment
+  @rtype: boolean
+  @return: the success of the operation
 
   """
+  export_env = OSEnvironment(instance)
+
   inst_os = OSFromDisk(instance.os)
   export_script = inst_os.export_script
 
@@ -1336,12 +1784,14 @@ def ExportSnapshot(disk, dest_node, instance):
                                      instance.name, int(time.time()))
   if not os.path.exists(constants.LOG_OS_DIR):
     os.mkdir(constants.LOG_OS_DIR, 0750)
-
-  real_os_dev = _RecursiveFindBD(disk)
-  if real_os_dev is None:
+  real_disk = _RecursiveFindBD(disk)
+  if real_disk is None:
     raise errors.BlockDeviceError("Block device '%s' is not set up" %
                                   str(disk))
-  real_os_dev.Open()
+  real_disk.Open()
+
+  export_env['EXPORT_DEVICE'] = real_disk.dev_path
+  export_env['EXPORT_INDEX'] = str(idx)
 
   destdir = os.path.join(constants.EXPORT_DIR, instance.name + ".new")
   destfile = disk.physical_id[1]
@@ -1349,28 +1799,25 @@ def ExportSnapshot(disk, dest_node, instance):
   # the target command is built out of three individual commands,
   # which are joined by pipes; we check each individual command for
   # valid parameters
-
-  expcmd = utils.BuildShellCmd("cd %s; %s -i %s -b %s 2>%s", inst_os.path,
-                               export_script, instance.name,
-                               real_os_dev.dev_path, logfile)
+  expcmd = utils.BuildShellCmd("cd %s; %s 2>%s", inst_os.path,
+                               export_script, logfile)
 
   comprcmd = "gzip"
 
   destcmd = utils.BuildShellCmd("mkdir -p %s && cat > %s/%s",
                                 destdir, destdir, destfile)
-  remotecmd = ssh.BuildSSHCmd(dest_node, constants.GANETI_RUNAS, destcmd)
-
-
+  remotecmd = _GetSshRunner(cluster_name).BuildCmd(dest_node,
+                                                   constants.GANETI_RUNAS,
+                                                   destcmd)
 
   # all commands have been checked, so we're safe to combine them
   command = '|'.join([expcmd, comprcmd, utils.ShellQuoteArgs(remotecmd)])
 
-  result = utils.RunCmd(command)
+  result = utils.RunCmd(command, env=export_env)
 
   if result.failed:
-    logger.Error("os snapshot export command '%s' returned error: %s"
-                 " output: %s" %
-                 (command, result.fail_reason, result.output))
+    logging.error("os snapshot export command '%s' returned error: %s"
+                  " output: %s", command, result.fail_reason, result.output)
     return False
 
   return True
@@ -1379,12 +1826,15 @@ def ExportSnapshot(disk, dest_node, instance):
 def FinalizeExport(instance, snap_disks):
   """Write out the export configuration information.
 
-  Args:
-    instance: instance configuration
-    snap_disks: snapshot block devices
+  @type instance: L{objects.Instance}
+  @param instance: the instance which we export, used for
+      saving configuration
+  @type snap_disks: list of L{objects.Disk}
+  @param snap_disks: list of snapshot block devices, which
+      will be used to get the actual name of the dump file
 
-  Returns:
-    False in case of error, True otherwise.
+  @rtype: boolean
+  @return: the success of the operation
 
   """
   destdir = os.path.join(constants.EXPORT_DIR, instance.name + ".new")
@@ -1401,34 +1851,38 @@ def FinalizeExport(instance, snap_disks):
 
   config.add_section(constants.INISECT_INS)
   config.set(constants.INISECT_INS, 'name', instance.name)
-  config.set(constants.INISECT_INS, 'memory', '%d' % instance.memory)
-  config.set(constants.INISECT_INS, 'vcpus', '%d' % instance.vcpus)
+  config.set(constants.INISECT_INS, 'memory', '%d' %
+             instance.beparams[constants.BE_MEMORY])
+  config.set(constants.INISECT_INS, 'vcpus', '%d' %
+             instance.beparams[constants.BE_VCPUS])
   config.set(constants.INISECT_INS, 'disk_template', instance.disk_template)
+
+  nic_total = 0
   for nic_count, nic in enumerate(instance.nics):
+    nic_total += 1
     config.set(constants.INISECT_INS, 'nic%d_mac' %
                nic_count, '%s' % nic.mac)
     config.set(constants.INISECT_INS, 'nic%d_ip' % nic_count, '%s' % nic.ip)
     config.set(constants.INISECT_INS, 'nic%d_bridge' % nic_count,
                '%s' % nic.bridge)
   # TODO: redundant: on load can read nics until it doesn't exist
-  config.set(constants.INISECT_INS, 'nic_count' , '%d' % nic_count)
+  config.set(constants.INISECT_INS, 'nic_count' , '%d' % nic_total)
 
+  disk_total = 0
   for disk_count, disk in enumerate(snap_disks):
-    config.set(constants.INISECT_INS, 'disk%d_ivname' % disk_count,
-               ('%s' % disk.iv_name))
-    config.set(constants.INISECT_INS, 'disk%d_dump' % disk_count,
-               ('%s' % disk.physical_id[1]))
-    config.set(constants.INISECT_INS, 'disk%d_size' % disk_count,
-               ('%d' % disk.size))
-  config.set(constants.INISECT_INS, 'disk_count' , '%d' % disk_count)
+    if disk:
+      disk_total += 1
+      config.set(constants.INISECT_INS, 'disk%d_ivname' % disk_count,
+                 ('%s' % disk.iv_name))
+      config.set(constants.INISECT_INS, 'disk%d_dump' % disk_count,
+                 ('%s' % disk.physical_id[1]))
+      config.set(constants.INISECT_INS, 'disk%d_size' % disk_count,
+                 ('%d' % disk.size))
 
-  cff = os.path.join(destdir, constants.EXPORT_CONF_FILE)
-  cfo = open(cff, 'w')
-  try:
-    config.write(cfo)
-  finally:
-    cfo.close()
+  config.set(constants.INISECT_INS, 'disk_count' , '%d' % disk_total)
 
+  utils.WriteFile(os.path.join(destdir, constants.EXPORT_CONF_FILE),
+                  data=config.Dumps())
   shutil.rmtree(finaldestdir, True)
   shutil.move(destdir, finaldestdir)
 
@@ -1438,11 +1892,12 @@ def FinalizeExport(instance, snap_disks):
 def ExportInfo(dest):
   """Get export configuration information.
 
-  Args:
-    dest: directory containing the export
+  @type dest: str
+  @param dest: directory containing the export
 
-  Returns:
-    A serializable config file containing the export info.
+  @rtype: L{objects.SerializableConfigParser}
+  @return: a serializable config file containing the
+      export info
 
   """
   cff = os.path.join(dest, constants.EXPORT_CONF_FILE)
@@ -1457,74 +1912,61 @@ def ExportInfo(dest):
   return config
 
 
-def ImportOSIntoInstance(instance, os_disk, swap_disk, src_node, src_image):
+def ImportOSIntoInstance(instance, src_node, src_images, cluster_name):
   """Import an os image into an instance.
 
-  Args:
-    instance: the instance object
-    os_disk: the instance-visible name of the os device
-    swap_disk: the instance-visible name of the swap device
-    src_node: node holding the source image
-    src_image: path to the source image on src_node
-
-  Returns:
-    False in case of error, True otherwise.
+  @type instance: L{objects.Instance}
+  @param instance: instance to import the disks into
+  @type src_node: string
+  @param src_node: source node for the disk images
+  @type src_images: list of string
+  @param src_images: absolute paths of the disk images
+  @rtype: list of boolean
+  @return: each boolean represent the success of importing the n-th disk
 
   """
+  import_env = OSEnvironment(instance)
   inst_os = OSFromDisk(instance.os)
   import_script = inst_os.import_script
-
-  os_device = instance.FindDisk(os_disk)
-  if os_device is None:
-    logger.Error("Can't find this device-visible name '%s'" % os_disk)
-    return False
-
-  swap_device = instance.FindDisk(swap_disk)
-  if swap_device is None:
-    logger.Error("Can't find this device-visible name '%s'" % swap_disk)
-    return False
-
-  real_os_dev = _RecursiveFindBD(os_device)
-  if real_os_dev is None:
-    raise errors.BlockDeviceError("Block device '%s' is not set up" %
-                                  str(os_device))
-  real_os_dev.Open()
-
-  real_swap_dev = _RecursiveFindBD(swap_device)
-  if real_swap_dev is None:
-    raise errors.BlockDeviceError("Block device '%s' is not set up" %
-                                  str(swap_device))
-  real_swap_dev.Open()
 
   logfile = "%s/import-%s-%s-%s.log" % (constants.LOG_OS_DIR, instance.os,
                                         instance.name, int(time.time()))
   if not os.path.exists(constants.LOG_OS_DIR):
     os.mkdir(constants.LOG_OS_DIR, 0750)
 
-  destcmd = utils.BuildShellCmd('cat %s', src_image)
-  remotecmd = ssh.BuildSSHCmd(src_node, constants.GANETI_RUNAS, destcmd)
-
   comprcmd = "gunzip"
-  impcmd = utils.BuildShellCmd("(cd %s; %s -i %s -b %s -s %s >%s 2>&1)",
-                               inst_os.path, import_script, instance.name,
-                               real_os_dev.dev_path, real_swap_dev.dev_path,
-                               logfile)
+  impcmd = utils.BuildShellCmd("(cd %s; %s >%s 2>&1)", inst_os.path,
+                               import_script, logfile)
 
-  command = '|'.join([utils.ShellQuoteArgs(remotecmd), comprcmd, impcmd])
+  final_result = []
+  for idx, image in enumerate(src_images):
+    if image:
+      destcmd = utils.BuildShellCmd('cat %s', image)
+      remotecmd = _GetSshRunner(cluster_name).BuildCmd(src_node,
+                                                       constants.GANETI_RUNAS,
+                                                       destcmd)
+      command = '|'.join([utils.ShellQuoteArgs(remotecmd), comprcmd, impcmd])
+      import_env['IMPORT_DEVICE'] = import_env['DISK_%d_PATH' % idx]
+      import_env['IMPORT_INDEX'] = str(idx)
+      result = utils.RunCmd(command, env=import_env)
+      if result.failed:
+        logging.error("Disk import command '%s' returned error: %s"
+                      " output: %s", command, result.fail_reason,
+                      result.output)
+        final_result.append(False)
+      else:
+        final_result.append(True)
+    else:
+      final_result.append(True)
 
-  result = utils.RunCmd(command)
-
-  if result.failed:
-    logger.Error("os import command '%s' returned error: %s"
-                 " output: %s" %
-                 (command, result.fail_reason, result.output))
-    return False
-
-  return True
+  return final_result
 
 
 def ListExports():
   """Return a list of exports currently available on this machine.
+
+  @rtype: list
+  @return: list of the exports
 
   """
   if os.path.isdir(constants.EXPORT_DIR):
@@ -1536,11 +1978,10 @@ def ListExports():
 def RemoveExport(export):
   """Remove an existing export from the node.
 
-  Args:
-    export: the name of the export to remove
-
-  Returns:
-    False in case of error, True otherwise.
+  @type export: str
+  @param export: the name of the export to remove
+  @rtype: boolean
+  @return: the success of the operation
 
   """
   target = os.path.join(constants.EXPORT_DIR, export)
@@ -1552,12 +1993,17 @@ def RemoveExport(export):
   return True
 
 
-def RenameBlockDevices(devlist):
+def BlockdevRename(devlist):
   """Rename a list of block devices.
 
-  The devlist argument is a list of tuples (disk, new_logical,
-  new_physical). The return value will be a combined boolean result
-  (True only if all renames succeeded).
+  @type devlist: list of tuples
+  @param devlist: list of tuples of the form  (disk,
+      new_logical_id, new_physical_id); disk is an
+      L{objects.Disk} object describing the current disk,
+      and new logical_id/physical_id is the name we
+      rename it to
+  @rtype: boolean
+  @return: True if all renames succeeded, False otherwise
 
   """
   result = True
@@ -1578,22 +2024,232 @@ def RenameBlockDevices(devlist):
         # cache? for now, we only lose lvm data when we rename, which
         # is less critical than DRBD or MD
     except errors.BlockDeviceError, err:
-      logger.Error("Can't rename device '%s' to '%s': %s" %
-                   (dev, unique_id, err))
+      logging.exception("Can't rename device '%s' to '%s'", dev, unique_id)
       result = False
   return result
 
 
-def CloseBlockDevices(instance_name, disks):
+def _TransformFileStorageDir(file_storage_dir):
+  """Checks whether given file_storage_dir is valid.
+
+  Checks wheter the given file_storage_dir is within the cluster-wide
+  default file_storage_dir stored in SimpleStore. Only paths under that
+  directory are allowed.
+
+  @type file_storage_dir: str
+  @param file_storage_dir: the path to check
+
+  @return: the normalized path if valid, None otherwise
+
+  """
+  cfg = _GetConfig()
+  file_storage_dir = os.path.normpath(file_storage_dir)
+  base_file_storage_dir = cfg.GetFileStorageDir()
+  if (not os.path.commonprefix([file_storage_dir, base_file_storage_dir]) ==
+      base_file_storage_dir):
+    logging.error("file storage directory '%s' is not under base file"
+                  " storage directory '%s'",
+                  file_storage_dir, base_file_storage_dir)
+    return None
+  return file_storage_dir
+
+
+def CreateFileStorageDir(file_storage_dir):
+  """Create file storage directory.
+
+  @type file_storage_dir: str
+  @param file_storage_dir: directory to create
+
+  @rtype: tuple
+  @return: tuple with first element a boolean indicating wheter dir
+      creation was successful or not
+
+  """
+  file_storage_dir = _TransformFileStorageDir(file_storage_dir)
+  result = True,
+  if not file_storage_dir:
+    result = False,
+  else:
+    if os.path.exists(file_storage_dir):
+      if not os.path.isdir(file_storage_dir):
+        logging.error("'%s' is not a directory", file_storage_dir)
+        result = False,
+    else:
+      try:
+        os.makedirs(file_storage_dir, 0750)
+      except OSError, err:
+        logging.error("Cannot create file storage directory '%s': %s",
+                      file_storage_dir, err)
+        result = False,
+  return result
+
+
+def RemoveFileStorageDir(file_storage_dir):
+  """Remove file storage directory.
+
+  Remove it only if it's empty. If not log an error and return.
+
+  @type file_storage_dir: str
+  @param file_storage_dir: the directory we should cleanup
+  @rtype: tuple (success,)
+  @return: tuple of one element, C{success}, denoting
+      whether the operation was successfull
+
+  """
+  file_storage_dir = _TransformFileStorageDir(file_storage_dir)
+  result = True,
+  if not file_storage_dir:
+    result = False,
+  else:
+    if os.path.exists(file_storage_dir):
+      if not os.path.isdir(file_storage_dir):
+        logging.error("'%s' is not a directory", file_storage_dir)
+        result = False,
+      # deletes dir only if empty, otherwise we want to return False
+      try:
+        os.rmdir(file_storage_dir)
+      except OSError, err:
+        logging.exception("Cannot remove file storage directory '%s'",
+                          file_storage_dir)
+        result = False,
+  return result
+
+
+def RenameFileStorageDir(old_file_storage_dir, new_file_storage_dir):
+  """Rename the file storage directory.
+
+  @type old_file_storage_dir: str
+  @param old_file_storage_dir: the current path
+  @type new_file_storage_dir: str
+  @param new_file_storage_dir: the name we should rename to
+  @rtype: tuple (success,)
+  @return: tuple of one element, C{success}, denoting
+      whether the operation was successful
+
+  """
+  old_file_storage_dir = _TransformFileStorageDir(old_file_storage_dir)
+  new_file_storage_dir = _TransformFileStorageDir(new_file_storage_dir)
+  result = True,
+  if not old_file_storage_dir or not new_file_storage_dir:
+    result = False,
+  else:
+    if not os.path.exists(new_file_storage_dir):
+      if os.path.isdir(old_file_storage_dir):
+        try:
+          os.rename(old_file_storage_dir, new_file_storage_dir)
+        except OSError, err:
+          logging.exception("Cannot rename '%s' to '%s'",
+                            old_file_storage_dir, new_file_storage_dir)
+          result =  False,
+      else:
+        logging.error("'%s' is not a directory", old_file_storage_dir)
+        result = False,
+    else:
+      if os.path.exists(old_file_storage_dir):
+        logging.error("Cannot rename '%s' to '%s'. Both locations exist.",
+                      old_file_storage_dir, new_file_storage_dir)
+        result = False,
+  return result
+
+
+def _IsJobQueueFile(file_name):
+  """Checks whether the given filename is in the queue directory.
+
+  @type file_name: str
+  @param file_name: the file name we should check
+  @rtype: boolean
+  @return: whether the file is under the queue directory
+
+  """
+  queue_dir = os.path.normpath(constants.QUEUE_DIR)
+  result = (os.path.commonprefix([queue_dir, file_name]) == queue_dir)
+
+  if not result:
+    logging.error("'%s' is not a file in the queue directory",
+                  file_name)
+
+  return result
+
+
+def JobQueueUpdate(file_name, content):
+  """Updates a file in the queue directory.
+
+  This is just a wrapper over L{utils.WriteFile}, with proper
+  checking.
+
+  @type file_name: str
+  @param file_name: the job file name
+  @type content: str
+  @param content: the new job contents
+  @rtype: boolean
+  @return: the success of the operation
+
+  """
+  if not _IsJobQueueFile(file_name):
+    return False
+
+  # Write and replace the file atomically
+  utils.WriteFile(file_name, data=_Decompress(content))
+
+  return True
+
+
+def JobQueueRename(old, new):
+  """Renames a job queue file.
+
+  This is just a wrapper over os.rename with proper checking.
+
+  @type old: str
+  @param old: the old (actual) file name
+  @type new: str
+  @param new: the desired file name
+  @rtype: boolean
+  @return: the success of the operation
+
+  """
+  if not (_IsJobQueueFile(old) and _IsJobQueueFile(new)):
+    return False
+
+  utils.RenameFile(old, new, mkdir=True)
+
+  return True
+
+
+def JobQueueSetDrainFlag(drain_flag):
+  """Set the drain flag for the queue.
+
+  This will set or unset the queue drain flag.
+
+  @type drain_flag: boolean
+  @param drain_flag: if True, will set the drain flag, otherwise reset it.
+  @rtype: boolean
+  @return: always True
+  @warning: the function always returns True
+
+  """
+  if drain_flag:
+    utils.WriteFile(constants.JOB_QUEUE_DRAIN_FILE, data="", close=True)
+  else:
+    utils.RemoveFile(constants.JOB_QUEUE_DRAIN_FILE)
+
+  return True
+
+
+def BlockdevClose(instance_name, disks):
   """Closes the given block devices.
 
-  This means they will be switched to secondary mode (in case of DRBD).
+  This means they will be switched to secondary mode (in case of
+  DRBD).
 
-  Args:
-    - instance_name: if the argument is not false, then the symlinks
-                     belonging to the instance are removed, in order
-                     to keep only the 'active' devices symlinked
-    - disks: a list of objects.Disk instances
+  @param instance_name: if the argument is not empty, the symlinks
+      of this instance will be removed
+  @type disks: list of L{objects.Disk}
+  @param disks: the list of disks to be closed
+  @rtype: tuple (success, message)
+  @return: a tuple of success and message, where success
+      indicates the succes of the operation, and message
+      which will contain the error details in case we
+      failed
 
   """
   bdevs = []
@@ -1609,156 +2265,183 @@ def CloseBlockDevices(instance_name, disks):
       rd.Close()
     except errors.BlockDeviceError, err:
       msg.append(str(err))
-  if instance_name:
-    _RemoveBlockDevLinks(instance_name, disks)
   if msg:
     return (False, "Can't make devices secondary: %s" % ",".join(msg))
   else:
+    if instance_name:
+      _RemoveBlockDevLinks(instance_name, disks)
     return (True, "All devices secondary")
 
 
-def DrbdReconfigNet(instance_name, disks, nodes_ip, multimaster, step):
-  """Tune the network settings on a list of drbd devices.
+def ValidateHVParams(hvname, hvparams):
+  """Validates the given hypervisor parameters.
 
-  The 'step' argument has three possible values:
-    - step 1, init the operation and identify the disks
-    - step 2, disconnect the network
-    - step 3, reconnect with correct settings and (if needed) set primary
-    - step 4, change disks into read-only (secondary) mode
-    - step 5, wait until devices are synchronized
+  @type hvname: string
+  @param hvname: the hypervisor name
+  @type hvparams: dict
+  @param hvparams: the hypervisor parameters to be validated
+  @rtype: tuple (success, message)
+  @return: a tuple of success and message, where success
+      indicates the succes of the operation, and message
+      which will contain the error details in case we
+      failed
 
   """
-  # local short name for the cache
-  cache = _D8_RECONF_CACHE
+  try:
+    hv_type = hypervisor.GetHypervisor(hvname)
+    hv_type.ValidateParameters(hvparams)
+    return (True, "Validation passed")
+  except errors.HypervisorError, err:
+    return (False, str(err))
 
-  # set the correct physical ID so that we can use it in the cache
+
+def DemoteFromMC():
+  """Demotes the current node from master candidate role.
+
+  """
+  # try to ensure we're not the master by mistake
+  master, myself = ssconf.GetMasterAndMyself()
+  if master == myself:
+    return (False, "ssconf status shows I'm the master node, will not demote")
+  pid_file = utils.DaemonPidFileName(constants.MASTERD_PID)
+  if utils.IsProcessAlive(utils.ReadPidFile(pid_file)):
+    return (False, "The master daemon is running, will not demote")
+  try:
+    utils.CreateBackup(constants.CLUSTER_CONF_FILE)
+  except EnvironmentError, err:
+    if err.errno != errno.ENOENT:
+      return (False, "Error while backing up cluster file: %s" % str(err))
+  utils.RemoveFile(constants.CLUSTER_CONF_FILE)
+  return (True, "Done")
+
+
+def _FindDisks(nodes_ip, disks):
+  """Sets the physical ID on disks and returns the block devices.
+
+  """
+  # set the correct physical ID
   my_name = utils.HostInfo().name
   for cf in disks:
     cf.SetPhysicalID(my_name, nodes_ip)
 
   bdevs = []
 
-  # note: the cache keys do not contain the multimaster setting, as we
-  # want to reuse the cache between the to-master, (in the meantime
-  # failover), to-secondary calls
+  for cf in disks:
+    rd = _RecursiveFindBD(cf)
+    if rd is None:
+      return (False, "Can't find device %s" % cf)
+    bdevs.append(rd)
+  return (True, bdevs)
 
-  if step == constants.DRBD_RECONF_RPC_INIT:
-    # we clear the cache
-    cache.clear()
-    for cf in disks:
-      key = (instance_name, cf.physical_id)
-      rd = _RecursiveFindBD(cf)
-      if rd is None:
-        return (False, "Can't find device %s" % cf)
-      bdevs.append(rd)
-      cache[key] = rd
-  else:
-    # we check that the cached items are exactly what we have been passed
-    for cf in disks:
-      key = (instance_name, cf.physical_id)
-      if key not in cache:
-        return (False, "ReconfigCache has wrong contents - missing %s" % key)
-      bdevs.append(cache[key])
-    if len(cache) != len(disks):
-      return (False, "ReconfigCache: wrong contents, extra items are present")
 
-  if step == constants.DRBD_RECONF_RPC_INIT:
-    # nothing to do beside the discovery/caching of the disks
-    return (True, "Disks have been identified")
-  elif step == constants.DRBD_RECONF_RPC_DISCONNECT:
-    # disconnect disks
-    for rd in bdevs:
+def DrbdDisconnectNet(nodes_ip, disks):
+  """Disconnects the network on a list of drbd devices.
+
+  """
+  status, bdevs = _FindDisks(nodes_ip, disks)
+  if not status:
+    return status, bdevs
+
+  # disconnect disks
+  for rd in bdevs:
+    try:
+      rd.DisconnectNet()
+    except errors.BlockDeviceError, err:
+      logging.exception("Failed to go into standalone mode")
+      return (False, "Can't change network configuration: %s" % str(err))
+  return (True, "All disks are now disconnected")
+
+
+def DrbdAttachNet(nodes_ip, disks, instance_name, multimaster):
+  """Attaches the network on a list of drbd devices.
+
+  """
+  status, bdevs = _FindDisks(nodes_ip, disks)
+  if not status:
+    return status, bdevs
+
+  if multimaster:
+    for idx, rd in enumerate(bdevs):
       try:
-        rd.DisconnectNet()
-      except errors.BlockDeviceError, err:
-        logger.Debug("Failed to go into standalone mode: %s" % str(err))
-        return (False, "Can't change network configuration: %s" % str(err))
-    return (True, "All disks are now disconnected")
-  elif step == constants.DRBD_RECONF_RPC_RECONNECT:
-    if multimaster:
-      for cf, rd in zip(disks, bdevs):
-        try:
-          _SymlinkBlockDev(instance_name, rd.dev_path, cf.iv_name)
-        except EnvironmentError, err:
-          return (False, "Can't create symlink: %s" % str(err))
-    # reconnect disks, switch to new master configuration and if
-    # needed primary mode
-    for rd in bdevs:
-      try:
-        rd.ReAttachNet(multimaster)
-      except errors.BlockDeviceError, err:
-        return (False, "Can't change network configuration: %s" % str(err))
-    # wait until the disks are connected; we need to retry the re-attach
-    # if the device becomes standalone, as this might happen if the one
-    # node disconnects and reconnects in a different mode before the
-    # other node reconnects; in this case, one or both of the nodes will
-    # decide it has wrong configuration and switch to standalone
-    RECONNECT_TIMEOUT = 2 * 60
-    sleep_time = 0.100 # start with 100 miliseconds
-    timeout_limit = time.time() + RECONNECT_TIMEOUT
-    while time.time() < timeout_limit:
-      all_connected = True
-      for rd in bdevs:
-        stats = rd.GetProcStatus()
-        if not (stats.is_connected or stats.is_in_resync):
-          all_connected = False
-        if stats.is_standalone:
-          # peer had different config info and this node became
-          # standalone, even though this should not happen with the
-          # new staged way of changing disk configs
-          try:
-            rd.ReAttachNet(multimaster)
-          except errors.BlockDeviceError, err:
-            return (False, "Can't change network configuration: %s" % str(err))
-      if all_connected:
-        break
-      time.sleep(sleep_time)
-      sleep_time = min(5, sleep_time * 1.5)
-    if not all_connected:
-      return (False, "Timeout in disk reconnecting")
-    if multimaster:
-      # change to primary mode
-      for rd in bdevs:
-        rd.Open()
-    if multimaster:
-      msg = "multi-master and primary"
-    else:
-      msg = "single-master"
-    return (True, "Disks are now configured as %s" % msg)
-  elif step == constants.DRBD_RECONF_RPC_SECONDARY:
-    msg = []
-    for rd in bdevs:
-      try:
-        rd.Close()
-      except errors.BlockDeviceError, err:
-        msg.append(str(err))
-    _RemoveBlockDevLinks(instance_name, disks)
-    if msg:
-      return (False, "Can't make devices secondary: %s" % ",".join(msg))
-    else:
-      return (True, "All devices secondary")
-  elif step == constants.DRBD_RECONF_RPC_WFSYNC:
-    min_resync = 100
-    alldone = True
-    failure = False
+        _SymlinkBlockDev(instance_name, rd.dev_path, idx)
+      except EnvironmentError, err:
+        return (False, "Can't create symlink: %s" % str(err))
+  # reconnect disks, switch to new master configuration and if
+  # needed primary mode
+  for rd in bdevs:
+    try:
+      rd.AttachNet(multimaster)
+    except errors.BlockDeviceError, err:
+      return (False, "Can't change network configuration: %s" % str(err))
+  # wait until the disks are connected; we need to retry the re-attach
+  # if the device becomes standalone, as this might happen if the one
+  # node disconnects and reconnects in a different mode before the
+  # other node reconnects; in this case, one or both of the nodes will
+  # decide it has wrong configuration and switch to standalone
+  RECONNECT_TIMEOUT = 2 * 60
+  sleep_time = 0.100 # start with 100 miliseconds
+  timeout_limit = time.time() + RECONNECT_TIMEOUT
+  while time.time() < timeout_limit:
+    all_connected = True
     for rd in bdevs:
       stats = rd.GetProcStatus()
       if not (stats.is_connected or stats.is_in_resync):
-        failure = True
-        break
-      alldone = alldone and (not stats.is_in_resync)
-      if stats.sync_percent is not None:
-        min_resync = min(min_resync, stats.sync_percent)
-    return (not failure, (alldone, min_resync))
+        all_connected = False
+      if stats.is_standalone:
+        # peer had different config info and this node became
+        # standalone, even though this should not happen with the
+        # new staged way of changing disk configs
+        try:
+          rd.AttachNet(multimaster)
+        except errors.BlockDeviceError, err:
+          return (False, "Can't change network configuration: %s" % str(err))
+    if all_connected:
+      break
+    time.sleep(sleep_time)
+    sleep_time = min(5, sleep_time * 1.5)
+  if not all_connected:
+    return (False, "Timeout in disk reconnecting")
+  if multimaster:
+    # change to primary mode
+    for rd in bdevs:
+      try:
+        rd.Open()
+      except errors.BlockDeviceError, err:
+        return (False, "Can't change to primary mode: %s" % str(err))
+  if multimaster:
+    msg = "multi-master and primary"
   else:
-    return (False, "Unknown reconfiguration step %s" % step)
+    msg = "single-master"
+  return (True, "Disks are now configured as %s" % msg)
+
+
+def DrbdWaitSync(nodes_ip, disks):
+  """Wait until DRBDs have synchronized.
+
+  """
+  status, bdevs = _FindDisks(nodes_ip, disks)
+  if not status:
+    return status, bdevs
+
+  min_resync = 100
+  alldone = True
+  failure = False
+  for rd in bdevs:
+    stats = rd.GetProcStatus()
+    if not (stats.is_connected or stats.is_in_resync):
+      failure = True
+      break
+    alldone = alldone and (not stats.is_in_resync)
+    if stats.sync_percent is not None:
+      min_resync = min(min_resync, stats.sync_percent)
+  return (not failure, (alldone, min_resync))
 
 
 class HooksRunner(object):
   """Hook runner.
 
-  This class is instantiated on the node side (ganeti-noded) and not on
-  the master side.
+  This class is instantiated on the node side (ganeti-noded) and not
+  on the master side.
 
   """
   RE_MASK = re.compile("^[a-zA-Z0-9_-]+$")
@@ -1766,9 +2449,9 @@ class HooksRunner(object):
   def __init__(self, hooks_base_dir=None):
     """Constructor for hooks runner.
 
-    Args:
-      - hooks_base_dir: if not None, this overrides the
-        constants.HOOKS_BASE_DIR (useful for unittests)
+    @type hooks_base_dir: str or None
+    @param hooks_base_dir: if not None, this overrides the
+        L{constants.HOOKS_BASE_DIR} (useful for unittests)
 
     """
     if hooks_base_dir is None:
@@ -1779,9 +2462,15 @@ class HooksRunner(object):
   def ExecHook(script, env):
     """Exec one hook script.
 
-    Args:
-     - script: the full path to the script
-     - env: the environment with which to exec the script
+    @type script: str
+    @param script: the full path to the script
+    @type env: dict
+    @param env: the environment with which to exec the script
+    @rtype: tuple (success, message)
+    @return: a tuple of success and message, where success
+        indicates the succes of the operation, and message
+        which will contain the error details in case we
+        failed
 
     """
     # exec the process using subprocess and log the output
@@ -1814,15 +2503,31 @@ class HooksRunner(object):
             fd.close()
           except EnvironmentError, err:
             # just log the error
-            #logger.Error("While closing fd %s: %s" % (fd, err))
+            #logging.exception("Error while closing fd %s", fd)
             pass
 
-    return result == 0, output
+    return result == 0, utils.SafeEncode(output.strip())
 
   def RunHooks(self, hpath, phase, env):
     """Run the scripts in the hooks directory.
 
-    This method will not be usually overriden by child opcodes.
+    @type hpath: str
+    @param hpath: the path to the hooks directory which
+        holds the scripts
+    @type phase: str
+    @param phase: either L{constants.HOOKS_PHASE_PRE} or
+        L{constants.HOOKS_PHASE_POST}
+    @type env: dict
+    @param env: dictionary with the environment for the hook
+    @rtype: list
+    @return: list of 3-element tuples:
+      - script path
+      - script result, either L{constants.HKR_SUCCESS} or
+        L{constants.HKR_FAIL}
+      - output of the script
+
+    @raise errors.ProgrammerError: for invalid input
+        parameters
 
     """
     if phase == constants.HOOKS_PHASE_PRE:
@@ -1838,7 +2543,7 @@ class HooksRunner(object):
     try:
       dir_contents = utils.ListVisibleFiles(dir_name)
     except OSError, err:
-      # must log
+      # FIXME: must log output in case of failures
       return rr
 
     # we use the standard python sort order,
@@ -1871,11 +2576,17 @@ class IAllocatorRunner(object):
   def Run(self, name, idata):
     """Run an iallocator script.
 
-    Return value: tuple of:
+    @type name: str
+    @param name: the iallocator script name
+    @type idata: str
+    @param idata: the allocator input data
+
+    @rtype: tuple
+    @return: four element tuple of:
        - run status (one of the IARUN_ constants)
        - stdout
        - stderr
-       - fail reason (as from utils.RunResult)
+       - fail reason (as from L{utils.RunResult})
 
     """
     alloc_script = utils.FindFile(name, constants.IALLOCATOR_SEARCH_PATH,
@@ -1909,7 +2620,12 @@ class DevCacheManager(object):
     """Converts a /dev/name path to the cache file name.
 
     This replaces slashes with underscores and strips the /dev
-    prefix. It then returns the full path to the cache file
+    prefix. It then returns the full path to the cache file.
+
+    @type dev_path: str
+    @param dev_path: the C{/dev/} path name
+    @rtype: str
+    @return: the converted path name
 
     """
     if dev_path.startswith(cls._DEV_PREFIX):
@@ -1922,9 +2638,22 @@ class DevCacheManager(object):
   def UpdateCache(cls, dev_path, owner, on_primary, iv_name):
     """Updates the cache information for a given device.
 
+    @type dev_path: str
+    @param dev_path: the pathname of the device
+    @type owner: str
+    @param owner: the owner (instance name) of the device
+    @type on_primary: bool
+    @param on_primary: whether this is the primary
+        node nor not
+    @type iv_name: str
+    @param iv_name: the instance-visible name of the
+        device, as in objects.Disk.iv_name
+
+    @rtype: None
+
     """
     if dev_path is None:
-      logger.Error("DevCacheManager.UpdateCache got a None dev_path")
+      logging.error("DevCacheManager.UpdateCache got a None dev_path")
       return
     fpath = cls._ConvertPath(dev_path)
     if on_primary:
@@ -1937,20 +2666,26 @@ class DevCacheManager(object):
     try:
       utils.WriteFile(fpath, data=fdata)
     except EnvironmentError, err:
-      logger.Error("Can't update bdev cache for %s, error %s" %
-                   (dev_path, str(err)))
+      logging.exception("Can't update bdev cache for %s", dev_path)
 
   @classmethod
   def RemoveCache(cls, dev_path):
     """Remove data for a dev_path.
 
+    This is just a wrapper over L{utils.RemoveFile} with a converted
+    path name and logging.
+
+    @type dev_path: str
+    @param dev_path: the pathname of the device
+
+    @rtype: None
+
     """
     if dev_path is None:
-      logger.Error("DevCacheManager.RemoveCache got a None dev_path")
+      logging.error("DevCacheManager.RemoveCache got a None dev_path")
       return
     fpath = cls._ConvertPath(dev_path)
     try:
       utils.RemoveFile(fpath)
     except EnvironmentError, err:
-      logger.Error("Can't update bdev cache for %s, error %s" %
-                   (dev_path, str(err)))
+      logging.exception("Can't update bdev cache for %s", dev_path)

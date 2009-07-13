@@ -1,3 +1,6 @@
+#
+#
+
 # Copyright (C) 2007 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -25,7 +28,6 @@ import qa_utils
 from qa_utils import AssertEqual, StartSSH
 
 
-@qa_utils.DefineHook('node-add')
 def _NodeAdd(node, readd=False):
   master = qa_config.GetMasterNode()
 
@@ -34,7 +36,7 @@ def _NodeAdd(node, readd=False):
   elif readd and not node.get('_added', False):
     raise qa_error.Error("Node %s not yet in cluster" % node['primary'])
 
-  cmd = ['gnt-node', 'add']
+  cmd = ['gnt-node', 'add', "--no-ssh-key-check"]
   if node.get('secondary', None):
     cmd.append('--secondary-ip=%s' % node['secondary'])
   if readd:
@@ -46,7 +48,6 @@ def _NodeAdd(node, readd=False):
   node['_added'] = True
 
 
-@qa_utils.DefineHook('node-remove')
 def _NodeRemove(node):
   master = qa_config.GetMasterNode()
 
@@ -72,13 +73,11 @@ def TestNodeRemoveAll():
       _NodeRemove(node)
 
 
-@qa_utils.DefineHook('node-readd')
 def TestNodeReadd(node):
   """gnt-node add --readd"""
   _NodeAdd(node, readd=True)
 
 
-@qa_utils.DefineHook('node-info')
 def TestNodeInfo():
   """gnt-node info"""
   master = qa_config.GetMasterNode()
@@ -88,7 +87,6 @@ def TestNodeInfo():
                        utils.ShellQuoteArgs(cmd)).wait(), 0)
 
 
-@qa_utils.DefineHook('node-volumes')
 def TestNodeVolumes():
   """gnt-node volumes"""
   master = qa_config.GetMasterNode()
@@ -98,7 +96,6 @@ def TestNodeVolumes():
                        utils.ShellQuoteArgs(cmd)).wait(), 0)
 
 
-@qa_utils.DefineHook('node-failover')
 def TestNodeFailover(node, node2):
   """gnt-node failover"""
   master = qa_config.GetMasterNode()
@@ -119,7 +116,6 @@ def TestNodeFailover(node, node2):
                        utils.ShellQuoteArgs(cmd)).wait(), 0)
 
 
-@qa_utils.DefineHook('node-evacuate')
 def TestNodeEvacuate(node, node2):
   """gnt-node evacuate"""
   master = qa_config.GetMasterNode()

@@ -1,7 +1,7 @@
 <!doctype refentry PUBLIC "-//OASIS//DTD DocBook V4.1//EN" [
 
   <!-- Please adjust the date whenever revising the manpage. -->
-  <!ENTITY dhdate      "<date>June 16, 2007</date>">
+  <!ENTITY dhdate      "<date>February 11, 2009</date>">
   <!-- SECTION should be 1-8, maybe w/ subsection other parameters are
        allowed: see man(7), man(1). -->
   <!ENTITY dhsection   "<manvolnum>8</manvolnum>">
@@ -19,6 +19,8 @@
     <copyright>
       <year>2006</year>
       <year>2007</year>
+      <year>2008</year>
+      <year>2009</year>
       <holder>Google Inc.</holder>
     </copyright>
     &dhdate;
@@ -27,17 +29,18 @@
     &dhucpackage;
 
     &dhsection;
-    <refmiscinfo>ganeti 1.2</refmiscinfo>
+    <refmiscinfo>ganeti 2.0</refmiscinfo>
   </refmeta>
   <refnamediv>
     <refname>&dhpackage;</refname>
 
-    <refpurpose>ganeti daemon</refpurpose>
+    <refpurpose>ganeti node daemon</refpurpose>
   </refnamediv>
   <refsynopsisdiv>
     <cmdsynopsis>
       <command>&dhpackage; </command>
       <arg>-f</arg>
+      <arg>-d</arg>
 
     </cmdsynopsis>
   </refsynopsisdiv>
@@ -46,12 +49,17 @@
 
     <para>
       The <command>&dhpackage;</command> is the daemon which is
-      responsible for the cluster functions in the ganeti system.
+      responsible for the node functions in the ganeti system.
     </para>
 
     <para>
       For testing purposes, you can give the <option>-f</option>
       option and the program won't detach from the running terminal.
+    </para>
+
+    <para>
+      Debug-level message can be activated by giving the
+      <option>-d</option> option.
     </para>
     <refsect2>
       <title>ROLE</title>
@@ -63,6 +71,12 @@
       </para>
 
       <para>
+        Also, in some cases the startup/shutdown of the master daemon
+        are done via the node daemon, and the cluster IP address is
+        also added/removed to the master node via it.
+      </para>
+
+      <para>
         If the node daemon is stopped, the instances are not affected,
         but the master won't be able to talk to that node.
       </para>
@@ -71,8 +85,8 @@
     <refsect2>
       <title>COMMUNICATION PROTOCOL</title>
       <para>
-        Currently the master-node protocol is done using the Twisted
-        perspective broker libraries.
+        Currently the master-node RPC is done using a simple json-RPC
+        over HTTP(S).
       </para>
     </refsect2>
 

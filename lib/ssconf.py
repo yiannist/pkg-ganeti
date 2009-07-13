@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007 Google Inc.
+# Copyright (C) 2006, 2007, 2008 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -26,51 +26,125 @@ configuration data, which is mostly static and available to all nodes.
 
 """
 
-import os
-import tempfile
-import errno
-import socket
+import sys
+import re
 
 from ganeti import errors
 from ganeti import constants
+from ganeti import utils
+from ganeti import serializer
 
 
-class SimpleStore:
+SSCONF_LOCK_TIMEOUT = 10
+
+RE_VALID_SSCONF_NAME = re.compile(r'^[-_a-z0-9]+$')
+
+
+class SimpleConfigReader(object):
+  """Simple class to read configuration file.
+
+  """
+  def __init__(self, file_name=constants.CLUSTER_CONF_FILE):
+    """Initializes this class.
+
+    @type file_name: string
+    @param file_name: Configuration file path
+
+    """
+    self._file_name = file_name
+    self._config_data = serializer.Load(utils.ReadFile(file_name))
+    # TODO: Error handling
+
+  def GetClusterName(self):
+    return self._config_data["cluster"]["cluster_name"]
+
+  def GetHostKey(self):
+    return self._config_data["cluster"]["rsahostkeypub"]
+
+  def GetMasterNode(self):
+    return self._config_data["cluster"]["master_node"]
+
+  def GetMasterIP(self):
+    return self._config_data["cluster"]["master_ip"]
+
+  def GetMasterNetdev(self):
+    return self._config_data["cluster"]["master_netdev"]
+
+  def GetFileStorageDir(self):
+    return self._config_data["cluster"]["file_storage_dir"]
+
+  def GetHypervisorType(self):
+    return self._config_data["cluster"]["hypervisor"]
+
+  def GetNodeList(self):
+    return self._config_data["nodes"].keys()
+
+  @classmethod
+  def FromDict(cls, val, cfg_file=constants.CLUSTER_CONF_FILE):
+    """Alternative construction from a dictionary.
+
+    """
+    obj = SimpleConfigReader.__new__(cls)
+    obj._config_data = val
+    obj._file_name = cfg_file
+    return obj
+
+
+class SimpleConfigWriter(SimpleConfigReader):
+  """Simple class to write configuration file.
+
+  """
+  def SetMasterNode(self, node):
+    """Change master node.
+
+    """
+    self._config_data["cluster"]["master_node"] = node
+
+  def Save(self):
+    """Writes configuration file.
+
+    Warning: Doesn't take care of locking or synchronizing with other
+    processes.
+
+    """
+    utils.WriteFile(self._file_name,
+                    data=serializer.Dump(self._config_data),
+                    mode=0600)
+
+
+class SimpleStore(object):
   """Interface to static cluster data.
 
-  This is different that the config.ConfigWriter class in that it
-  holds data that is (mostly) constant after the cluster
-  initialization. Its purpose is to allow limited customization of
-  things which would otherwise normally live in constants.py. Note
-  that this data cannot live in ConfigWriter as that is available only
-  on the master node, and our data must be readable by both the master
-  and the nodes.
+  This is different that the config.ConfigWriter and
+  SimpleConfigReader classes in that it holds data that will always be
+  present, even on nodes which don't have all the cluster data.
 
   Other particularities of the datastore:
     - keys are restricted to predefined values
-    - values are small (<4k)
-    - since the data is practically static, read keys are cached in memory
-    - some keys are handled specially (read from the system, so
-      we can't update them)
 
   """
   _SS_FILEPREFIX = "ssconf_"
-  SS_HYPERVISOR = "hypervisor"
-  SS_NODED_PASS = "node_pass"
-  SS_MASTER_NODE = "master_node"
-  SS_MASTER_IP = "master_ip"
-  SS_MASTER_NETDEV = "master_netdev"
-  SS_CLUSTER_NAME = "cluster_name"
-  _VALID_KEYS = (SS_HYPERVISOR, SS_NODED_PASS, SS_MASTER_NODE, SS_MASTER_IP,
-                 SS_MASTER_NETDEV, SS_CLUSTER_NAME)
-  _MAX_SIZE = 4096
+  _VALID_KEYS = (
+    constants.SS_CLUSTER_NAME,
+    constants.SS_CLUSTER_TAGS,
+    constants.SS_FILE_STORAGE_DIR,
+    constants.SS_MASTER_CANDIDATES,
+    constants.SS_MASTER_IP,
+    constants.SS_MASTER_NETDEV,
+    constants.SS_MASTER_NODE,
+    constants.SS_NODE_LIST,
+    constants.SS_OFFLINE_NODES,
+    constants.SS_ONLINE_NODES,
+    constants.SS_INSTANCE_LIST,
+    constants.SS_RELEASE_VERSION,
+    )
+  _MAX_SIZE = 131072
 
   def __init__(self, cfg_location=None):
     if cfg_location is None:
       self._cfg_dir = constants.DATA_DIR
     else:
       self._cfg_dir = cfg_location
-    self._cache = {}
 
   def KeyToFilename(self, key):
     """Convert a given key into filename.
@@ -90,103 +164,138 @@ class SimpleStore:
     will be changed into ConfigurationErrors.
 
     """
-    if key in self._cache:
-      return self._cache[key]
     filename = self.KeyToFilename(key)
     try:
       fh = file(filename, 'r')
       try:
-        data = fh.readline(self._MAX_SIZE)
+        data = fh.read(self._MAX_SIZE)
         data = data.rstrip('\n')
       finally:
         fh.close()
     except EnvironmentError, err:
       raise errors.ConfigurationError("Can't read from the ssconf file:"
                                       " '%s'" % str(err))
-    self._cache[key] = data
     return data
 
-  def GetNodeDaemonPort(self):
-    """Get the node daemon port for this cluster.
+  def WriteFiles(self, values):
+    """Writes ssconf files used by external scripts.
 
-    Note that this routine does not read a ganeti-specific file, but
-    instead uses socket.getservbyname to allow pre-customization of
-    this parameter outside of ganeti.
+    @type values: dict
+    @param values: Dictionary of (name, value)
 
     """
+    ssconf_lock = utils.FileLock(constants.SSCONF_LOCK_FILE)
+
+    # Get lock while writing files
+    ssconf_lock.Exclusive(blocking=True, timeout=SSCONF_LOCK_TIMEOUT)
     try:
-      port = socket.getservbyname("ganeti-noded", "tcp")
-    except socket.error:
-      port = constants.DEFAULT_NODED_PORT
-
-    return port
-
-  def GetHypervisorType(self):
-    """Get the hypervisor type for this cluster.
-
-    """
-    return self._ReadFile(self.SS_HYPERVISOR)
-
-  def GetNodeDaemonPassword(self):
-    """Get the node password for this cluster.
-
-    """
-    return self._ReadFile(self.SS_NODED_PASS)
-
-  def GetMasterNode(self):
-    """Get the hostname of the master node for this cluster.
-
-    """
-    return self._ReadFile(self.SS_MASTER_NODE)
-
-  def GetMasterIP(self):
-    """Get the IP of the master node for this cluster.
-
-    """
-    return self._ReadFile(self.SS_MASTER_IP)
-
-  def GetMasterNetdev(self):
-    """Get the netdev to which we'll add the master ip.
-
-    """
-    return self._ReadFile(self.SS_MASTER_NETDEV)
-
-  def GetClusterName(self):
-    """Get the cluster name.
-
-    """
-    return self._ReadFile(self.SS_CLUSTER_NAME)
-
-  def SetKey(self, key, value):
-    """Set the value of a key.
-
-    This should be used only when adding a node to a cluster.
-
-    """
-    file_name = self.KeyToFilename(key)
-    dir_name, small_name = os.path.split(file_name)
-    fd, new_name = tempfile.mkstemp('.new', small_name, dir_name)
-    # here we need to make sure we remove the temp file, if any error
-    # leaves it in place
-    try:
-      os.chown(new_name, 0, 0)
-      os.chmod(new_name, 0400)
-      os.write(fd, "%s\n" % str(value))
-      os.fsync(fd)
-      os.rename(new_name, file_name)
-      self._cache[key] = value
+      for name, value in values.iteritems():
+        if value and not value.endswith("\n"):
+          value += "\n"
+        utils.WriteFile(self.KeyToFilename(name), data=value, mode=0444)
     finally:
-      os.close(fd)
-      try:
-        os.unlink(new_name)
-      except OSError, err:
-        if err.errno != errno.ENOENT:
-          raise
+      ssconf_lock.Unlock()
 
   def GetFileList(self):
-    """Return the lis of all config files.
+    """Return the list of all config files.
 
     This is used for computing node replication data.
 
     """
     return [self.KeyToFilename(key) for key in self._VALID_KEYS]
+
+  def GetClusterName(self):
+    """Get the cluster name.
+
+    """
+    return self._ReadFile(constants.SS_CLUSTER_NAME)
+
+  def GetFileStorageDir(self):
+    """Get the file storage dir.
+
+    """
+    return self._ReadFile(constants.SS_FILE_STORAGE_DIR)
+
+  def GetMasterCandidates(self):
+    """Return the list of master candidates.
+
+    """
+    data = self._ReadFile(constants.SS_MASTER_CANDIDATES)
+    nl = data.splitlines(False)
+    return nl
+
+  def GetMasterIP(self):
+    """Get the IP of the master node for this cluster.
+
+    """
+    return self._ReadFile(constants.SS_MASTER_IP)
+
+  def GetMasterNetdev(self):
+    """Get the netdev to which we'll add the master ip.
+
+    """
+    return self._ReadFile(constants.SS_MASTER_NETDEV)
+
+  def GetMasterNode(self):
+    """Get the hostname of the master node for this cluster.
+
+    """
+    return self._ReadFile(constants.SS_MASTER_NODE)
+
+  def GetNodeList(self):
+    """Return the list of cluster nodes.
+
+    """
+    data = self._ReadFile(constants.SS_NODE_LIST)
+    nl = data.splitlines(False)
+    return nl
+
+  def GetClusterTags(self):
+    """Return the cluster tags.
+
+    """
+    data = self._ReadFile(constants.SS_CLUSTER_TAGS)
+    nl = data.splitlines(False)
+    return nl
+
+
+def GetMasterAndMyself(ss=None):
+  """Get the master node and my own hostname.
+
+  This can be either used for a 'soft' check (compared to CheckMaster,
+  which exits) or just for computing both at the same time.
+
+  The function does not handle any errors, these should be handled in
+  the caller (errors.ConfigurationError, errors.ResolverError).
+
+  @param ss: either a sstore.SimpleConfigReader or a
+      sstore.SimpleStore instance
+  @rtype: tuple
+  @return: a tuple (master node name, my own name)
+
+  """
+  if ss is None:
+    ss = SimpleStore()
+  return ss.GetMasterNode(), utils.HostInfo().name
+
+
+def CheckMaster(debug, ss=None):
+  """Checks the node setup.
+
+  If this is the master, the function will return. Otherwise it will
+  exit with an exit code based on the node status.
+
+  """
+  try:
+    master_name, myself = GetMasterAndMyself(ss)
+  except errors.ConfigurationError, err:
+    print "Cluster configuration incomplete: '%s'" % str(err)
+    sys.exit(constants.EXIT_NODESETUP_ERROR)
+  except errors.ResolverError, err:
+    sys.stderr.write("Cannot resolve my own name (%s)\n" % err.args[0])
+    sys.exit(constants.EXIT_NODESETUP_ERROR)
+
+  if myself != master_name:
+    if debug:
+      sys.stderr.write("Not master, exiting.\n")
+    sys.exit(constants.EXIT_NOTMASTER)

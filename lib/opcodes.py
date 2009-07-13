@@ -24,11 +24,8 @@
 This module implements the data structures which define the cluster
 operations - the so-called opcodes.
 
-
-This module implements the logic for doing operations in the cluster. There
-are two kinds of classes defined:
-  - opcodes, which are small classes only holding data for the task at hand
-  - logical units, which know how to deal with their specific opcode only
+Every operation which modifies the cluster state is expressed via
+opcodes.
 
 """
 
@@ -36,28 +33,153 @@ are two kinds of classes defined:
 # few public methods:
 # pylint: disable-msg=R0903
 
-class OpCode(object):
-  """Abstract OpCode"""
-  OP_ID = "OP_ABSTRACT"
+
+class BaseOpCode(object):
+  """A simple serializable object.
+
+  This object serves as a parent class for OpCode without any custom
+  field handling.
+
+  """
   __slots__ = []
 
   def __init__(self, **kwargs):
+    """Constructor for BaseOpCode.
+
+    The constructor takes only keyword arguments and will set
+    attributes on this object based on the passed arguments. As such,
+    it means that you should not pass arguments which are not in the
+    __slots__ attribute for this class.
+
+    """
     for key in kwargs:
       if key not in self.__slots__:
-        raise TypeError("OpCode %s doesn't support the parameter '%s'" %
+        raise TypeError("Object %s doesn't support the parameter '%s'" %
                         (self.__class__.__name__, key))
       setattr(self, key, kwargs[key])
 
+  def __getstate__(self):
+    """Generic serializer.
 
-class OpInitCluster(OpCode):
-  """Initialise the cluster."""
-  OP_ID = "OP_CLUSTER_INIT"
-  __slots__ = ["cluster_name", "secondary_ip", "hypervisor_type",
-               "vg_name", "mac_prefix", "def_bridge", "master_netdev"]
+    This method just returns the contents of the instance as a
+    dictionary.
 
+    @rtype:  C{dict}
+    @return: the instance attributes and their values
+
+    """
+    state = {}
+    for name in self.__slots__:
+      if hasattr(self, name):
+        state[name] = getattr(self, name)
+    return state
+
+  def __setstate__(self, state):
+    """Generic unserializer.
+
+    This method just restores from the serialized state the attributes
+    of the current instance.
+
+    @param state: the serialized opcode data
+    @type state:  C{dict}
+
+    """
+    if not isinstance(state, dict):
+      raise ValueError("Invalid data to __setstate__: expected dict, got %s" %
+                       type(state))
+
+    for name in self.__slots__:
+      if name not in state:
+        delattr(self, name)
+
+    for name in state:
+      setattr(self, name, state[name])
+
+
+class OpCode(BaseOpCode):
+  """Abstract OpCode.
+
+  This is the root of the actual OpCode hierarchy. All clases derived
+  from this class should override OP_ID.
+
+  @cvar OP_ID: The ID of this opcode. This should be unique amongst all
+               childre of this class.
+
+  """
+  OP_ID = "OP_ABSTRACT"
+  __slots__ = []
+
+  def __getstate__(self):
+    """Specialized getstate for opcodes.
+
+    This method adds to the state dictionary the OP_ID of the class,
+    so that on unload we can identify the correct class for
+    instantiating the opcode.
+
+    @rtype:   C{dict}
+    @return:  the state as a dictionary
+
+    """
+    data = BaseOpCode.__getstate__(self)
+    data["OP_ID"] = self.OP_ID
+    return data
+
+  @classmethod
+  def LoadOpCode(cls, data):
+    """Generic load opcode method.
+
+    The method identifies the correct opcode class from the dict-form
+    by looking for a OP_ID key, if this is not found, or its value is
+    not available in this module as a child of this class, we fail.
+
+    @type data:  C{dict}
+    @param data: the serialized opcode
+
+    """
+    if not isinstance(data, dict):
+      raise ValueError("Invalid data to LoadOpCode (%s)" % type(data))
+    if "OP_ID" not in data:
+      raise ValueError("Invalid data to LoadOpcode, missing OP_ID")
+    op_id = data["OP_ID"]
+    op_class = None
+    for item in globals().values():
+      if (isinstance(item, type) and
+          issubclass(item, cls) and
+          hasattr(item, "OP_ID") and
+          getattr(item, "OP_ID") == op_id):
+        op_class = item
+        break
+    if op_class is None:
+      raise ValueError("Invalid data to LoadOpCode: OP_ID %s unsupported" %
+                       op_id)
+    op = op_class()
+    new_data = data.copy()
+    del new_data["OP_ID"]
+    op.__setstate__(new_data)
+    return op
+
+  def Summary(self):
+    """Generates a summary description of this opcode.
+
+    """
+    # all OP_ID start with OP_, we remove that
+    txt = self.OP_ID[3:]
+    field_name = getattr(self, "OP_DSC_FIELD", None)
+    if field_name:
+      field_value = getattr(self, field_name, None)
+      txt = "%s(%s)" % (txt, field_value)
+    return txt
+
+
+# cluster opcodes
 
 class OpDestroyCluster(OpCode):
-  """Destroy the cluster."""
+  """Destroy the cluster.
+
+  This opcode has no other parameters. All the state is irreversibly
+  lost after the execution of this opcode.
+
+  """
   OP_ID = "OP_CLUSTER_DESTROY"
   __slots__ = []
 
@@ -68,20 +190,16 @@ class OpQueryClusterInfo(OpCode):
   __slots__ = []
 
 
-class OpClusterCopyFile(OpCode):
-  """Copy a file to multiple nodes."""
-  OP_ID = "OP_CLUSTER_COPYFILE"
-  __slots__ = ["nodes", "filename"]
-
-
-class OpRunClusterCommand(OpCode):
-  """Run a command on multiple nodes."""
-  OP_ID = "OP_CLUSTER_RUNCOMMAND"
-  __slots__ = ["nodes", "command"]
-
-
 class OpVerifyCluster(OpCode):
-  """Verify the cluster state."""
+  """Verify the cluster state.
+
+  @type skip_checks: C{list}
+  @ivar skip_checks: steps to be skipped from the verify process; this
+                     needs to be a subset of
+                     L{constants.VERIFY_OPTIONAL_CHECKS}; currently
+                     only L{constants.VERIFY_NPLUSONE_MEM} can be passed
+
+  """
   OP_ID = "OP_CLUSTER_VERIFY"
   __slots__ = ["skip_checks"]
 
@@ -91,9 +209,9 @@ class OpVerifyDisks(OpCode):
 
   Parameters: none
 
-  Result: two lists:
+  Result: a tuple of four elements:
     - list of node names with bad data returned (unreachable, etc.)
-    - dist of node names with broken volume groups (values: error msg)
+    - dict of node names with broken volume groups (values: error msg)
     - list of instances with degraded disks (that should be activated)
     - dict of instances with missing logical volumes (values: (node, vol)
       pairs with details about the missing volumes)
@@ -111,42 +229,97 @@ class OpVerifyDisks(OpCode):
   __slots__ = []
 
 
-class OpMasterFailover(OpCode):
-  """Do a master failover."""
-  OP_ID = "OP_CLUSTER_MASTERFAILOVER"
-  __slots__ = []
-
-
-class OpDumpClusterConfig(OpCode):
-  """Dump the cluster configuration."""
-  OP_ID = "OP_CLUSTER_DUMPCONFIG"
-  __slots__ = []
+class OpQueryConfigValues(OpCode):
+  """Query cluster configuration values."""
+  OP_ID = "OP_CLUSTER_CONFIG_QUERY"
+  __slots__ = ["output_fields"]
 
 
 class OpRenameCluster(OpCode):
-  """Rename the cluster."""
+  """Rename the cluster.
+
+  @type name: C{str}
+  @ivar name: The new name of the cluster. The name and/or the master IP
+              address will be changed to match the new name and its IP
+              address.
+
+  """
   OP_ID = "OP_CLUSTER_RENAME"
+  OP_DSC_FIELD = "name"
   __slots__ = ["name"]
 
+
+class OpSetClusterParams(OpCode):
+  """Change the parameters of the cluster.
+
+  @type vg_name: C{str} or C{None}
+  @ivar vg_name: The new volume group name or None to disable LVM usage.
+
+  """
+  OP_ID = "OP_CLUSTER_SET_PARAMS"
+  __slots__ = [
+    "vg_name",
+    "enabled_hypervisors",
+    "hvparams",
+    "beparams",
+    "candidate_pool_size",
+    ]
+
+
+class OpRedistributeConfig(OpCode):
+  """Force a full push of the cluster configuration.
+
+  """
+  OP_ID = "OP_CLUSTER_REDIST_CONF"
+  __slots__ = [
+    ]
 
 # node opcodes
 
 class OpRemoveNode(OpCode):
-  """Remove a node."""
+  """Remove a node.
+
+  @type node_name: C{str}
+  @ivar node_name: The name of the node to remove. If the node still has
+                   instances on it, the operation will fail.
+
+  """
   OP_ID = "OP_NODE_REMOVE"
+  OP_DSC_FIELD = "node_name"
   __slots__ = ["node_name"]
 
 
 class OpAddNode(OpCode):
-  """Add a node."""
+  """Add a node to the cluster.
+
+  @type node_name: C{str}
+  @ivar node_name: The name of the node to add. This can be a short name,
+                   but it will be expanded to the FQDN.
+  @type primary_ip: IP address
+  @ivar primary_ip: The primary IP of the node. This will be ignored when the
+                    opcode is submitted, but will be filled during the node
+                    add (so it will be visible in the job query).
+  @type secondary_ip: IP address
+  @ivar secondary_ip: The secondary IP of the node. This needs to be passed
+                      if the cluster has been initialized in 'dual-network'
+                      mode, otherwise it must not be given.
+  @type readd: C{bool}
+  @ivar readd: Whether to re-add an existing node to the cluster. If
+               this is not passed, then the operation will abort if the node
+               name is already in the cluster; use this parameter to 'repair'
+               a node that had its configuration broken, or was reinstalled
+               without removal from the cluster.
+
+  """
   OP_ID = "OP_NODE_ADD"
+  OP_DSC_FIELD = "node_name"
   __slots__ = ["node_name", "primary_ip", "secondary_ip", "readd"]
 
 
 class OpQueryNodes(OpCode):
   """Compute the list of nodes."""
   OP_ID = "OP_NODE_QUERY"
-  __slots__ = ["output_fields", "names"]
+  __slots__ = ["output_fields", "names", "use_locking"]
 
 
 class OpQueryNodeVolumes(OpCode):
@@ -155,32 +328,47 @@ class OpQueryNodeVolumes(OpCode):
   __slots__ = ["nodes", "output_fields"]
 
 
+class OpSetNodeParams(OpCode):
+  """Change the parameters of a node."""
+  OP_ID = "OP_NODE_SET_PARAMS"
+  OP_DSC_FIELD = "node_name"
+  __slots__ = [
+    "node_name",
+    "force",
+    "master_candidate",
+    "offline",
+    "drained",
+    ]
+
 # instance opcodes
 
 class OpCreateInstance(OpCode):
   """Create an instance."""
   OP_ID = "OP_INSTANCE_CREATE"
+  OP_DSC_FIELD = "instance_name"
   __slots__ = [
-    "instance_name", "mem_size", "disk_size", "os_type", "pnode",
-    "disk_template", "snode", "swap_size", "mode",
-    "vcpus", "ip", "bridge", "src_node", "src_path", "start",
-    "wait_for_sync", "ip_check", "mac",
-    "kernel_path", "initrd_path", "hvm_boot_order", "hvm_acpi",
-    "hvm_pae", "hvm_cdrom_image_path", "vnc_bind_address",
-    "iallocator", "hvm_nic_type", "hvm_disk_type",
-    "auto_balance",
+    "instance_name", "os_type", "pnode",
+    "disk_template", "snode", "mode",
+    "disks", "nics",
+    "src_node", "src_path", "start",
+    "wait_for_sync", "ip_check",
+    "file_storage_dir", "file_driver",
+    "iallocator",
+    "hypervisor", "hvparams", "beparams",
     ]
 
 
 class OpReinstallInstance(OpCode):
   """Reinstall an instance's OS."""
   OP_ID = "OP_INSTANCE_REINSTALL"
+  OP_DSC_FIELD = "instance_name"
   __slots__ = ["instance_name", "os_type"]
 
 
 class OpRemoveInstance(OpCode):
   """Remove an instance."""
   OP_ID = "OP_INSTANCE_REMOVE"
+  OP_DSC_FIELD = "instance_name"
   __slots__ = ["instance_name", "ignore_failures"]
 
 
@@ -193,43 +381,35 @@ class OpRenameInstance(OpCode):
 class OpStartupInstance(OpCode):
   """Startup an instance."""
   OP_ID = "OP_INSTANCE_STARTUP"
-  __slots__ = ["instance_name", "force", "extra_args"]
+  OP_DSC_FIELD = "instance_name"
+  __slots__ = ["instance_name", "force", "hvparams", "beparams"]
 
 
 class OpShutdownInstance(OpCode):
   """Shutdown an instance."""
   OP_ID = "OP_INSTANCE_SHUTDOWN"
+  OP_DSC_FIELD = "instance_name"
   __slots__ = ["instance_name"]
 
 
 class OpRebootInstance(OpCode):
   """Reboot an instance."""
   OP_ID = "OP_INSTANCE_REBOOT"
-  __slots__ = ["instance_name", "reboot_type", "extra_args",
-               "ignore_secondaries" ]
-
-
-class OpAddMDDRBDComponent(OpCode):
-  """Add a MD-DRBD component."""
-  OP_ID = "OP_INSTANCE_ADD_MDDRBD"
-  __slots__ = ["instance_name", "remote_node", "disk_name"]
-
-
-class OpRemoveMDDRBDComponent(OpCode):
-  """Remove a MD-DRBD component."""
-  OP_ID = "OP_INSTANCE_REMOVE_MDDRBD"
-  __slots__ = ["instance_name", "disk_name", "disk_id"]
+  OP_DSC_FIELD = "instance_name"
+  __slots__ = ["instance_name", "reboot_type", "ignore_secondaries" ]
 
 
 class OpReplaceDisks(OpCode):
   """Replace the disks of an instance."""
   OP_ID = "OP_INSTANCE_REPLACE_DISKS"
+  OP_DSC_FIELD = "instance_name"
   __slots__ = ["instance_name", "remote_node", "mode", "disks", "iallocator"]
 
 
 class OpFailoverInstance(OpCode):
   """Failover an instance."""
   OP_ID = "OP_INSTANCE_FAILOVER"
+  OP_DSC_FIELD = "instance_name"
   __slots__ = ["instance_name", "ignore_consistency"]
 
 
@@ -239,36 +419,39 @@ class OpMigrateInstance(OpCode):
   This migrates (without shutting down an instance) to its secondary
   node.
 
-  Parameters:
-    - instance_name: the name of the instance
+  @ivar instance_name: the name of the instance
 
   """
   OP_ID = "OP_INSTANCE_MIGRATE"
+  OP_DSC_FIELD = "instance_name"
   __slots__ = ["instance_name", "live", "cleanup"]
 
 
 class OpConnectConsole(OpCode):
   """Connect to an instance's console."""
   OP_ID = "OP_INSTANCE_CONSOLE"
+  OP_DSC_FIELD = "instance_name"
   __slots__ = ["instance_name"]
 
 
 class OpActivateInstanceDisks(OpCode):
   """Activate an instance's disks."""
   OP_ID = "OP_INSTANCE_ACTIVATE_DISKS"
+  OP_DSC_FIELD = "instance_name"
   __slots__ = ["instance_name"]
 
 
 class OpDeactivateInstanceDisks(OpCode):
   """Deactivate an instance's disks."""
   OP_ID = "OP_INSTANCE_DEACTIVATE_DISKS"
+  OP_DSC_FIELD = "instance_name"
   __slots__ = ["instance_name"]
 
 
 class OpQueryInstances(OpCode):
   """Compute the list of instances."""
   OP_ID = "OP_INSTANCE_QUERY"
-  __slots__ = ["output_fields", "names"]
+  __slots__ = ["output_fields", "names", "use_locking"]
 
 
 class OpQueryInstanceData(OpCode):
@@ -277,20 +460,21 @@ class OpQueryInstanceData(OpCode):
   __slots__ = ["instances", "static"]
 
 
-class OpSetInstanceParms(OpCode):
+class OpSetInstanceParams(OpCode):
   """Change the parameters of an instance."""
-  OP_ID = "OP_INSTANCE_SET_PARMS"
+  OP_ID = "OP_INSTANCE_SET_PARAMS"
+  OP_DSC_FIELD = "instance_name"
   __slots__ = [
-    "instance_name", "mem", "vcpus", "ip", "bridge", "mac",
-    "kernel_path", "initrd_path", "hvm_boot_order", "hvm_acpi",
-    "hvm_pae", "hvm_cdrom_image_path", "vnc_bind_address",
-    "hvm_nic_type", "hvm_disk_type", "force", "auto_balance",
+    "instance_name",
+    "hvparams", "beparams", "force",
+    "nics", "disks",
     ]
 
 
 class OpGrowDisk(OpCode):
   """Grow a disk of an instance."""
   OP_ID = "OP_INSTANCE_GROW_DISK"
+  OP_DSC_FIELD = "instance_name"
   __slots__ = ["instance_name", "disk", "amount", "wait_for_sync"]
 
 
@@ -300,32 +484,40 @@ class OpDiagnoseOS(OpCode):
   OP_ID = "OP_OS_DIAGNOSE"
   __slots__ = ["output_fields", "names"]
 
+
 # Exports opcodes
 class OpQueryExports(OpCode):
   """Compute the list of exported images."""
   OP_ID = "OP_BACKUP_QUERY"
-  __slots__ = ["nodes"]
+  __slots__ = ["nodes", "use_locking"]
+
 
 class OpExportInstance(OpCode):
   """Export an instance."""
   OP_ID = "OP_BACKUP_EXPORT"
+  OP_DSC_FIELD = "instance_name"
   __slots__ = ["instance_name", "target_node", "shutdown"]
+
 
 class OpRemoveExport(OpCode):
   """Remove an instance's export."""
   OP_ID = "OP_BACKUP_REMOVE"
+  OP_DSC_FIELD = "instance_name"
   __slots__ = ["instance_name"]
+
 
 # Tags opcodes
 class OpGetTags(OpCode):
   """Returns the tags of the given object."""
   OP_ID = "OP_TAGS_GET"
+  OP_DSC_FIELD = "name"
   __slots__ = ["kind", "name"]
 
 
 class OpSearchTags(OpCode):
   """Searches the tags in the cluster for a given pattern."""
   OP_ID = "OP_TAGS_SEARCH"
+  OP_DSC_FIELD = "pattern"
   __slots__ = ["pattern"]
 
 
@@ -364,6 +556,7 @@ class OpTestDelay(OpCode):
 
   """
   OP_ID = "OP_TEST_DELAY"
+  OP_DSC_FIELD = "duration"
   __slots__ = ["duration", "on_master", "on_nodes"]
 
 
@@ -379,8 +572,9 @@ class OpTestAllocator(OpCode):
 
   """
   OP_ID = "OP_TEST_ALLOCATOR"
+  OP_DSC_FIELD = "allocator"
   __slots__ = [
     "direction", "mode", "allocator", "name",
     "mem_size", "disks", "disk_template",
-    "os", "tags", "nics", "vcpus",
+    "os", "tags", "nics", "vcpus", "hypervisor",
     ]
