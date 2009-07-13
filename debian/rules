@@ -72,6 +72,9 @@ binary-indep: build install
 #	dh_installcatalogs
 #	dh_installpam
 #	dh_installmime
+# Note: dh_pysupport *must* be before dh_installinit, since the daemons
+# need the python modules as installed by pysupport
+	dh_pysupport
 	dh_installinit --name=ganeti --error-handler=true -- defaults 20 80
 	dh_installcron --name=ganeti
 #	dh_installinfo
@@ -85,7 +88,6 @@ binary-indep: build install
 	dh_compress
 	dh_fixperms
 #	dh_perl
-	dh_pysupport
 	dh_installdeb
 	dh_gencontrol
 	dh_md5sums
