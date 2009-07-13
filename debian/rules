@@ -1,30 +1,97 @@
 #!/usr/bin/make -f
-include /usr/share/cdbs/1/rules/debhelper.mk
-include /usr/share/cdbs/1/rules/simple-patchsys.mk
-include /usr/share/cdbs/1/class/autotools.mk
-include /usr/share/cdbs/1/class/makefile.mk
+# Sample debian/rules that uses debhelper.
+# This file is public domain software, originally written by Joey Hess.
+#
 
-# Add here any variable or target overrides you need.
-DEB_CONFIGURE_EXTRA_FLAGS = \
-  --prefix=/usr \
-  --localstatedir=/var \
-  --sysconfdir=/etc \
-  --with-export-dir=/var/lib/ganeti/export \
-  --with-iallocator-search-path=/usr/local/lib/ganeti/iallocators,/usr/lib/ganeti/iallocators \
-  --with-os-search-path=/srv/ganeti/os,/usr/local/lib/ganeti/os,/usr/lib/ganeti/os,/usr/share/ganeti/os
+# Uncomment this to turn on verbose mode.
+#export DH_VERBOSE=1
 
-#DEB_DH_INSTALLINIT_ARGS = --no-start
+build: build-stamp
+build-stamp:
+	dh_testdir
 
-clean::
-	rm -f debian/ganeti.init
-	rm -f debian/ganeti.cron.d
+	# Add here commands to compile the package.
+	./configure \
+	  --prefix=/usr \
+	  --localstatedir=/var \
+	  --sysconfdir=/etc \
+	  --with-export-dir=/var/lib/ganeti/export \
+	  --with-iallocator-search-path=/usr/local/lib/ganeti/iallocators,/usr/lib/ganeti/iallocators \
+	  --with-os-search-path=/srv/ganeti/os,/usr/local/lib/ganeti/os,/usr/lib/ganeti/os,/usr/share/ganeti/os \
+	  --docdir=/usr/share/doc/ganeti2
 
-build/ganeti::
-	cp doc/examples/ganeti.cron debian/ganeti.cron.d
-	cp doc/examples/ganeti.initd debian/ganeti.init
+	#$(MAKE)
 
-install/ganeti::
-	dh_pysupport -pganeti
-	install -m 0755 doc/examples/dumb-allocator debian/ganeti/usr/lib/ganeti/iallocators/dumb
-	rmdir debian/ganeti/var/run/ganeti
-	rmdir debian/ganeti/var/run
+	touch build-stamp
+
+clean:
+	dh_testdir
+	dh_testroot
+	rm -f build-stamp
+
+	# Add here commands to clean up after the build process.
+	#$(MAKE) clean
+	#$(MAKE) distclean
+
+	rm -f debian/ganeti2.init
+	rm -f debian/ganeti2.ganeti.cron.d
+
+	dh_clean
+
+install: build
+	dh_testdir
+	dh_testroot
+	dh_prep
+	dh_installdirs
+
+	# Add here commands to install the package into debian/<packagename>.
+	$(MAKE) install DESTDIR=$(CURDIR)/debian/`dh_listpackages`
+	cp $(CURDIR)/doc/examples/ganeti.initd $(CURDIR)/debian/ganeti2.ganeti.init
+	cp $(CURDIR)/doc/examples/ganeti.cron $(CURDIR)/debian/ganeti2.ganeti.cron.d
+	mv $(CURDIR)/debian/ganeti2/usr/share/doc/ganeti $(CURDIR)/debian/ganeti2/usr/share/doc/ganeti2
+	install -m 0755 $(CURDIR)/doc/examples/dumb-allocator \
+	  $(CURDIR)/debian/ganeti2/usr/lib/ganeti/iallocators/dumb
+	install -m 0644 $(CURDIR)/doc/examples/bash_completion \
+	  $(CURDIR)/debian/ganeti2/etc/bash_completion.d/ganeti
+	rmdir debian/ganeti2/var/run/ganeti
+	rmdir debian/ganeti2/var/run
+
+# Build architecture-independent files here.
+binary-indep: build install
+	dh_testdir
+	dh_testroot
+	dh_installchangelogs
+	dh_installdocs
+#	dh_installexamples
+#	dh_installmenu
+#	dh_installdebconf
+#	dh_installlogrotate
+#	dh_installemacsen
+#	dh_installcatalogs
+#	dh_installpam
+#	dh_installmime
+	dh_installinit --name=ganeti --error-handler=true -- defaults 20 80
+	dh_installcron --name=ganeti
+#	dh_installinfo
+#	dh_installwm
+#	dh_installudev
+#	dh_lintian
+#	dh_bugfiles
+#	dh_undocumented
+	dh_installman
+	dh_link
+	dh_compress
+	dh_fixperms
+#	dh_perl
+	dh_pysupport
+	dh_installdeb
+	dh_gencontrol
+	dh_md5sums
+	dh_builddeb
+
+# Build architecture-dependent files here.
+binary-arch: build install
+# We have nothing to do by default.
+
+binary: binary-indep binary-arch
+.PHONY: build clean binary-indep binary-arch binary install
