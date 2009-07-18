@@ -532,13 +532,87 @@ CLASS="REFENTRYTITLE"
 >drained</DT
 ><DD
 ><P
->whether the node is drained or not</P
+>whether the node is drained or not; the cluster
+              still communicates with drained nodes but excludes them
+              from allocation operations</P
 ></DD
 ><DT
 >offline</DT
 ><DD
 ><P
->whether the node is offline or not</P
+>whether the node is offline or not; if offline,
+              the cluster does not communicate with offline nodes;
+              useful for nodes that are not reachable in order to
+              avoid delays</P
+></DD
+><DT
+>role</DT
+><DD
+><P
+>                A condensed version of the node flags; this field will
+                output a one-character field, with the following
+                possible values:
+                <P
+></P
+><UL
+><LI
+><P
+><SPAN
+CLASS="emphasis"
+><I
+CLASS="EMPHASIS"
+>M</I
+></SPAN
+> for the master
+                    node</P
+></LI
+><LI
+><P
+><SPAN
+CLASS="emphasis"
+><I
+CLASS="EMPHASIS"
+>C</I
+></SPAN
+> for a master
+                    candidate</P
+></LI
+><LI
+><P
+><SPAN
+CLASS="emphasis"
+><I
+CLASS="EMPHASIS"
+>R</I
+></SPAN
+> for a regular
+                    node</P
+></LI
+><LI
+><P
+><SPAN
+CLASS="emphasis"
+><I
+CLASS="EMPHASIS"
+>D</I
+></SPAN
+> for a drained
+                    node</P
+></LI
+><LI
+><P
+><SPAN
+CLASS="emphasis"
+><I
+CLASS="EMPHASIS"
+>O</I
+></SPAN
+> for an offline
+                    node</P
+></LI
+></UL
+>
+              </P
 ></DD
 ></DL
 ></DIV
@@ -581,7 +655,7 @@ CLASS="ACRONYM"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN234"
+NAME="AEN254"
 ></A
 ><H3
 >LIST-TAGS</H3
@@ -601,7 +675,7 @@ CLASS="REPLACEABLE"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN241"
+NAME="AEN261"
 ></A
 ><H3
 >MIGRATE</H3
@@ -643,7 +717,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN255"
+NAME="AEN275"
 ></A
 ><H3
 >MODIFY</H3
@@ -718,7 +792,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN282"
+NAME="AEN302"
 ></A
 ><H3
 >REMOVE</H3
@@ -748,7 +822,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN291"
+NAME="AEN311"
 ></A
 ><H3
 >REMOVE-TAGS</H3
@@ -790,7 +864,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN304"
+NAME="AEN324"
 ></A
 ><H3
 >VOLUMES</H3
@@ -918,7 +992,7 @@ node1.example.com /dev/hdc1 xenvg instance1.example.com-sda_11001.data 256  inst
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN354"
+NAME="AEN374"
 ></A
 ><H2
 >REPORTING BUGS</H2
@@ -935,7 +1009,7 @@ TARGET="_top"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN358"
+NAME="AEN378"
 ></A
 ><H2
 >SEE ALSO</H2
@@ -1044,7 +1118,7 @@ CLASS="REFENTRYTITLE"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN402"
+NAME="AEN422"
 ></A
 ><H2
 >COPYRIGHT</H2
