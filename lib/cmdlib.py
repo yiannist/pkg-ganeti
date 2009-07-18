@@ -751,8 +751,8 @@ class LUVerifyCluster(LogicalUnit):
           else:
             # not candidate and this is not a must-have file
             bad = True
-            feedback_fn("  - ERROR: non master-candidate has old/wrong file"
-                        " '%s'" % file_name)
+            feedback_fn("  - ERROR: file '%s' should not exist on non master"
+                        " candidates (and the file is outdated)" % file_name)
         else:
           # all good, except non-master/non-must have combination
           if not node_is_mc and not must_have_file:
@@ -1556,13 +1556,10 @@ class LUSetClusterParams(LogicalUnit):
       self.cluster.beparams[constants.BEGR_DEFAULT] = self.new_beparams
     if self.op.candidate_pool_size is not None:
       self.cluster.candidate_pool_size = self.op.candidate_pool_size
+      # we need to update the pool size here, otherwise the save will fail
+      _AdjustCandidatePool(self)
 
     self.cfg.Update(self.cluster)
-
-    # we want to update nodes after the cluster so that if any errors
-    # happen, we have recorded and saved the cluster info
-    if self.op.candidate_pool_size is not None:
-      _AdjustCandidatePool(self)
 
 
 class LURedistributeConfig(NoHooksLU):
@@ -1878,6 +1875,7 @@ class LUQueryNodes(NoHooksLU):
     "master",
     "offline",
     "drained",
+    "role",
     )
 
   def ExpandNames(self):
@@ -2006,6 +2004,17 @@ class LUQueryNodes(NoHooksLU):
           val = node.drained
         elif self._FIELDS_DYNAMIC.Matches(field):
           val = live_data[node.name].get(field, None)
+        elif field == "role":
+          if node.name == master_node:
+            val = "M"
+          elif node.master_candidate:
+            val = "C"
+          elif node.drained:
+            val = "D"
+          elif node.offline:
+            val = "O"
+          else:
+            val = "R"
         else:
           raise errors.ParameterError(field)
         node_output.append(val)
@@ -2193,14 +2202,24 @@ class LUAddNode(LogicalUnit):
                                    " based ping to noded port")
 
     cp_size = self.cfg.GetClusterInfo().candidate_pool_size
-    mc_now, _ = self.cfg.GetMasterCandidateStats()
-    master_candidate = mc_now < cp_size
+    if self.op.readd:
+      exceptions = [node]
+    else:
+      exceptions = []
+    mc_now, mc_max = self.cfg.GetMasterCandidateStats(exceptions)
+    # the new node will increase mc_max with one, so:
+    mc_max = min(mc_max + 1, cp_size)
+    self.master_candidate = mc_now < mc_max
 
-    self.new_node = objects.Node(name=node,
-                                 primary_ip=primary_ip,
-                                 secondary_ip=secondary_ip,
-                                 master_candidate=master_candidate,
-                                 offline=False, drained=False)
+    if self.op.readd:
+      self.new_node = self.cfg.GetNodeInfo(node)
+      assert self.new_node is not None, "Can't retrieve locked node %s" % node
+    else:
+      self.new_node = objects.Node(name=node,
+                                   primary_ip=primary_ip,
+                                   secondary_ip=secondary_ip,
+                                   master_candidate=self.master_candidate,
+                                   offline=False, drained=False)
 
   def Exec(self, feedback_fn):
     """Adds the new node to the cluster.
@@ -2208,6 +2227,20 @@ class LUAddNode(LogicalUnit):
     """
     new_node = self.new_node
     node = new_node.name
+
+    # for re-adds, reset the offline/drained/master-candidate flags;
+    # we need to reset here, otherwise offline would prevent RPC calls
+    # later in the procedure; this also means that if the re-add
+    # fails, we are left with a non-offlined, broken node
+    if self.op.readd:
+      new_node.drained = new_node.offline = False
+      self.LogInfo("Readding a node, the offline/drained flags were reset")
+      # if we demote the node, we do cleanup later in the procedure
+      new_node.master_candidate = self.master_candidate
+
+    # notify the user about any possible mc promotion
+    if new_node.master_candidate:
+      self.LogInfo("Node will be a master candidate")
 
     # check connectivity
     result = self.rpc.call_version([node])[node]
@@ -2304,6 +2337,15 @@ class LUAddNode(LogicalUnit):
 
     if self.op.readd:
       self.context.ReaddNode(new_node)
+      # make sure we redistribute the config
+      self.cfg.Update(new_node)
+      # and make sure the new node will not have old files around
+      if not new_node.master_candidate:
+        result = self.rpc.call_node_demote_from_mc(new_node.name)
+        msg = result.RemoteFailMsg()
+        if msg:
+          self.LogWarning("Node failed to demote itself from master"
+                          " candidate status: %s" % msg)
     else:
       self.context.AddNode(new_node)
 
@@ -2422,6 +2464,10 @@ class LUSetNodeParams(LogicalUnit):
           node.master_candidate = False
           changed_mc = True
           result.append(("master_candidate", "auto-demotion due to drain"))
+          rrc = self.rpc.call_node_demote_from_mc(node.name)
+          msg = rrc.RemoteFailMsg()
+          if msg:
+            self.LogWarning("Node failed to demote itself: %s" % msg)
         if node.offline:
           node.offline = False
           result.append(("offline", "clear offline status due to drain"))
@@ -3410,14 +3456,25 @@ class LUQueryInstances(NoHooksLU):
             val = live_data[instance.name].get("memory", "?")
           else:
             val = "-"
+        elif field == "vcpus":
+          val = i_be[constants.BE_VCPUS]
         elif field == "disk_template":
           val = instance.disk_template
         elif field == "ip":
-          val = instance.nics[0].ip
+          if instance.nics:
+            val = instance.nics[0].ip
+          else:
+            val = None
         elif field == "bridge":
-          val = instance.nics[0].bridge
+          if instance.nics:
+            val = instance.nics[0].bridge
+          else:
+            val = None
         elif field == "mac":
-          val = instance.nics[0].mac
+          if instance.nics:
+            val = instance.nics[0].mac
+          else:
+            val = None
         elif field == "sda_size" or field == "sdb_size":
           idx = ord(field[2]) - ord('a')
           try:
@@ -3484,9 +3541,10 @@ class LUQueryInstances(NoHooksLU):
                 else:
                   assert False, "Unhandled NIC parameter"
           else:
-            assert False, "Unhandled variable parameter"
+            assert False, ("Declared but unhandled variable parameter '%s'" %
+                           field)
         else:
-          raise errors.ParameterError(field)
+          assert False, "Declared but unhandled parameter '%s'" % field
         iout.append(val)
       output.append(iout)
 
@@ -4721,7 +4779,7 @@ class LUCreateInstance(LogicalUnit):
     # os verification
     result = self.rpc.call_os_get(pnode.name, self.op.os_type)
     result.Raise()
-    if not isinstance(result.data, objects.OS):
+    if not isinstance(result.data, objects.OS) or not result.data:
       raise errors.OpPrereqError("OS '%s' not in supported os list for"
                                  " primary node"  % self.op.os_type)
 
@@ -5393,7 +5451,8 @@ class LUReplaceDisks(LogicalUnit):
                     new_net_id)
       new_drbd = objects.Disk(dev_type=constants.LD_DRBD8,
                               logical_id=new_alone_id,
-                              children=dev.children)
+                              children=dev.children,
+                              size=dev.size)
       try:
         _CreateSingleBlockDev(self, new_node, instance, new_drbd,
                               _GetInstanceInfoText(instance), False)
@@ -5693,6 +5752,7 @@ class LUQueryInstanceData(NoHooksLU):
       "sstatus": dev_sstatus,
       "children": dev_children,
       "mode": dev.mode,
+      "size": dev.size,
       }
 
     return data

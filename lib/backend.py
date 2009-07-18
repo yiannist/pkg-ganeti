@@ -958,9 +958,10 @@ def InstanceReboot(instance, reboot_type):
         instance OS, do not recreate the VM
       - L{constants.INSTANCE_REBOOT_HARD}: tear down and
         restart the VM (at the hypervisor level)
-      - the other reboot type (L{constants.INSTANCE_REBOOT_HARD})
-        is not accepted here, since that mode is handled
-        differently
+      - the other reboot type (L{constants.INSTANCE_REBOOT_FULL}) is
+        not accepted here, since that mode is handled differently, in
+        cmdlib, and translates into full stop and start of the
+        instance (instead of a call_instance_reboot RPC)
   @rtype: boolean
   @return: the success of the operation
 
@@ -1124,7 +1125,7 @@ def BlockdevCreate(disk, size, owner, on_primary, info):
       clist.append(crdev)
 
   try:
-    device = bdev.Create(disk.dev_type, disk.physical_id, clist, size)
+    device = bdev.Create(disk.dev_type, disk.physical_id, clist, disk.size)
   except errors.BlockDeviceError, err:
     return False, "Can't create block device: %s" % str(err)
 
@@ -1234,7 +1235,7 @@ def _RecursiveAssembleBD(disk, owner, as_primary):
       children.append(cdev)
 
   if as_primary or disk.AssembleOnSecondary():
-    r_dev = bdev.Assemble(disk.dev_type, disk.physical_id, children)
+    r_dev = bdev.Assemble(disk.dev_type, disk.physical_id, children, disk.size)
     r_dev.SetSyncSpeed(constants.SYNC_SPEED)
     result = r_dev
     if as_primary or disk.OpenOnSecondary():
@@ -1404,7 +1405,7 @@ def _RecursiveFindBD(disk):
     for chdisk in disk.children:
       children.append(_RecursiveFindBD(chdisk))
 
-  return bdev.FindDevice(disk.dev_type, disk.physical_id, children)
+  return bdev.FindDevice(disk.dev_type, disk.physical_id, children, disk.size)
 
 
 def BlockdevFind(disk):
@@ -2307,7 +2308,8 @@ def DemoteFromMC():
   if utils.IsProcessAlive(utils.ReadPidFile(pid_file)):
     return (False, "The master daemon is running, will not demote")
   try:
-    utils.CreateBackup(constants.CLUSTER_CONF_FILE)
+    if os.path.isfile(constants.CLUSTER_CONF_FILE):
+      utils.CreateBackup(constants.CLUSTER_CONF_FILE)
   except EnvironmentError, err:
     if err.errno != errno.ENOENT:
       return (False, "Error while backing up cluster file: %s" % str(err))
