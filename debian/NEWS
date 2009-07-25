@@ -1,0 +1,9 @@
+ganeti2 (2.0.2-1) unstable; urgency=low
+
+  * Upgrading from the 'ganeti' package (versions 1.2.x) requires manual
+    intervention; the proper procedure is available at
+    http://code.google.com/p/ganeti/wiki/UpgradeNotes and requires full
+    cluster shutdown. It is recommended to read that first before
+    installing this package.
+
+ -- Iustin Pop <iusty@k1024.org>  Sat, 25 Jul 2009 12:12:46 +0200
