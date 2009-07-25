@@ -5,8 +5,11 @@ ganeti (2.0.2-1) unstable; urgency=low
     is not automatic (and needs cluster shutdown)
   * Remove Leonardo (l@lmello.eu.org) from the Uploaders list, since he
     wasn't active in a long while
+  * Fix "ganeti (HVM mode) default expected kernel:
+    /usr/lib/xen/boot/hvmloader in lenny not exist" (Closes: #528618);
+    note that this is a fix that works for unstable, not Lenny
 
- -- Iustin Pop <iusty@k1024.org>  Sat, 25 Jul 2009 11:55:52 +0200
+ -- Iustin Pop <iusty@k1024.org>  Sat, 25 Jul 2009 12:25:03 +0200
 
 ganeti (1.2.7-1) unstable; urgency=low
 
