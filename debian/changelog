@@ -1,3 +1,11 @@
+ganeti (2.0.1-2) unstable; urgency=low
+
+  * Allow kvm instead of xen-linux-system-*
+  * Use xen-linux-system-2.6.26-2-* rather than xen-linux-system-2.6.26-1-*.
+  * Substitute ssh with openssh-client, openssh-server
+
+ -- Guido Trotter <ultrotter@debian.org>  Sat, 25 Jul 2009 14:52:48 +0200
+
 ganeti (2.0.1-1) unstable; urgency=low
 
   [ Iustin Pop ]
