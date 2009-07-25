@@ -123,7 +123,6 @@ LIBOBJS = @LIBOBJS@
 LIBS = @LIBS@
 LN_S = @LN_S@
 LTLIBOBJS = @LTLIBOBJS@
-LVM_STRIPECOUNT = @LVM_STRIPECOUNT@
 MAKEINFO = @MAKEINFO@
 MKDIR_P = @MKDIR_P@
 OS_SEARCH_PATH = @OS_SEARCH_PATH@
@@ -1149,7 +1148,6 @@ lib/_autoconf.py: Makefile stamp-directories
 	  echo "KVM_PATH = '$(KVM_PATH)'"; \
 	  echo "KVM_MIGRATION_PORT = '$(KVM_MIGRATION_PORT)'"; \
 	  echo "SOCAT_PATH = '$(SOCAT_PATH)'"; \
-	  echo "LVM_STRIPECOUNT = $(LVM_STRIPECOUNT)" ; \
 	} > $@
 
 $(REPLACE_VARS_SED): Makefile stamp-directories

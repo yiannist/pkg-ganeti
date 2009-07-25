@@ -101,13 +101,9 @@ class HttpServerRequestAuthentication(object):
     """
     realm = self.GetAuthRealm(req)
 
-    # Authentication not required, and no credentials given?
-    if realm is None and http.HTTP_AUTHORIZATION not in req.request_headers:
+    # Authentication required?
+    if realm is None:
       return
-
-    if realm is None: # in case we don't require auth but someone
-                      # passed the crendentials anyway
-      realm = "Unspecified"
 
     # Check "Authorization" header
     if self._CheckAuthorization(req):

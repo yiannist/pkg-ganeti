@@ -373,16 +373,12 @@ def SetupNodeDaemon(cluster_name, node, ssh_key_check):
                              (node, result.fail_reason, result.output))
 
 
-def MasterFailover(no_voting=False):
+def MasterFailover():
   """Failover the master node.
 
   This checks that we are not already the master, and will cause the
   current master to cease being master, and the non-master to become
   new master.
-
-  @type no_voting: boolean
-  @param no_voting: force the operation without remote nodes agreement
-                      (dangerous)
 
   """
   sstore = ssconf.SimpleStore()
@@ -405,20 +401,18 @@ def MasterFailover(no_voting=False):
                                " master candidates is:\n"
                                "%s" % ('\n'.join(mc_no_master)))
 
-  if not no_voting:
-    vote_list = GatherMasterVotes(node_list)
+  vote_list = GatherMasterVotes(node_list)
 
-    if vote_list:
-      voted_master = vote_list[0][0]
-      if voted_master is None:
-        raise errors.OpPrereqError("Cluster is inconsistent, most nodes did"
-                                   " not respond.")
-      elif voted_master != old_master:
-        raise errors.OpPrereqError("I have a wrong configuration, I believe"
-                                   " the master is %s but the other nodes"
-                                   " voted %s. Please resync the configuration"
-                                   " of this node." %
-                                   (old_master, voted_master))
+  if vote_list:
+    voted_master = vote_list[0][0]
+    if voted_master is None:
+      raise errors.OpPrereqError("Cluster is inconsistent, most nodes did not"
+                                 " respond.")
+    elif voted_master != old_master:
+      raise errors.OpPrereqError("I have wrong configuration, I believe the"
+                                 " master is %s but the other nodes voted for"
+                                 " %s. Please resync the configuration of"
+                                 " this node." % (old_master, voted_master))
   # end checks
 
   rcode = 0
@@ -442,8 +436,7 @@ def MasterFailover(no_voting=False):
   # cluster info
   cfg.Update(cluster_info)
 
-  # 2.0.X: Don't start the master if no_voting is true
-  result = rpc.RpcRunner.call_node_start_master(new_master, not no_voting)
+  result = rpc.RpcRunner.call_node_start_master(new_master, True)
   if result.failed or not result.data:
     logging.error("Could not start the master role on the new master"
                   " %s, please check", new_master)
