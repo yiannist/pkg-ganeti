@@ -1,4 +1,4 @@
-ganeti (2.0.2-1) unstable; urgency=low
+ganeti (2.0.1-1) unstable; urgency=low
 
   * Packaged ganeti 2.0 and switched the binary package name to ganeti2
   * Renamed package to ganeti2, since migration from ganeti 1.2.x to 2.0.x
@@ -9,7 +9,7 @@ ganeti (2.0.2-1) unstable; urgency=low
     /usr/lib/xen/boot/hvmloader in lenny not exist" (Closes: #528618);
     note that this is a fix that works for unstable, not Lenny
 
- -- Iustin Pop <iusty@k1024.org>  Sat, 25 Jul 2009 12:25:03 +0200
+ -- Iustin Pop <iusty@k1024.org>  Sat, 25 Jul 2009 13:03:27 +0200
 
 ganeti (1.2.7-1) unstable; urgency=low
 
