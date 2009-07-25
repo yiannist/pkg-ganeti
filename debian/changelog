@@ -1,12 +1,12 @@
-ganeti (2.0.1-1) unstable; urgency=low
+ganeti (2.0.2-1) unstable; urgency=low
 
-  * New Upstream Version
+  * Packaged ganeti 2.0 and switched the binary package name to ganeti2
   * Renamed package to ganeti2, since migration from ganeti 1.2.x to 2.0.x
     is not automatic (and needs cluster shutdown)
   * Remove Leonardo (l@lmello.eu.org) from the Uploaders list, since he
     wasn't active in a long while
 
- -- Iustin Pop <iusty@k1024.org>  Mon, 13 Jul 2009 20:41:55 +0200
+ -- Iustin Pop <iusty@k1024.org>  Sat, 25 Jul 2009 11:55:52 +0200
 
 ganeti (1.2.7-1) unstable; urgency=low
 
