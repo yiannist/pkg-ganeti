@@ -1,3 +1,10 @@
+ganeti (2.0.1-3) unstable; urgency=low
+
+  * Fix the startup-with-1.2-config (Closes: #539303)
+  * Patch the initscript to fix insserv dependencies
+
+ -- Iustin Pop <iusty@k1024.org>  Tue, 04 Aug 2009 21:28:35 +0200
+
 ganeti (2.0.1-2) unstable; urgency=low
 
   * Allow kvm instead of xen-linux-system-*
