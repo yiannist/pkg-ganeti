@@ -1,2 +1,3 @@
+fix-innserv-dependencies.patch
 fix-startup-with-old-config.patch
 fix-hvmloader-path.patch
