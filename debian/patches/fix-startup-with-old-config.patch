@@ -11,12 +11,12 @@ Mon, 13 Jul 2009 21:23:25 +0200
      done
 +
 +    for fname in \
-+        "@LOCALSTATEDIR@/lib/ganeti/ssconf_node_list"
++        "@LOCALSTATEDIR@/lib/ganeti/ssconf_hypervisor"
 +    do
-+        if ! [ -f "$fname" ]; then
++        if [ -f "$fname" ]; then
 +            log_end_msg 0
 +            log_warning_msg "Configuration not upgraded to 2.0, will not run."
-+            exit 0
++            exit 1
 +        fi
 +    done
 +
