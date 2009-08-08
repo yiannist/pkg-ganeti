@@ -668,18 +668,11 @@ CLASS="OPTION"
         --no-voting to ganeti-masterd on the new master to solve this problem,
         and gnt-cluster redist-conf to make sure the cluster is consistent again.
       </P
-><P
->        In version 2.0.X ganeti-masterd will not be able to start if
-        masterfailover is called with the --no-voting option (which, again,
-        should only be used on 2 nodes clusters with the former master being
-        down). In that case just start it manually passing --no-voting to it
-        as well, until you have restored cluster redundancy.
-      </P
 ></DIV
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN218"
+NAME="AEN217"
 ></A
 ><H3
 >MODIFY</H3
@@ -805,7 +798,7 @@ CLASS="REFENTRYTITLE"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN263"
+NAME="AEN262"
 ></A
 ><H3
 >QUEUE</H3
@@ -843,7 +836,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN277"
+NAME="AEN276"
 ></A
 ><H3
 >redist-conf</H3
@@ -878,7 +871,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN287"
+NAME="AEN286"
 ></A
 ><H3
 >REMOVE-TAGS</H3
@@ -915,7 +908,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN298"
+NAME="AEN297"
 ></A
 ><H3
 >RENAME</H3
@@ -947,7 +940,43 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN308"
+NAME="AEN307"
+></A
+><H3
+>REPAIR-DISK-SIZES</H3
+><P
+><B
+CLASS="COMMAND"
+>repair-disk-sizes</B
+>  [instance...]</P
+><P
+>        This command checks that the recorded size of the given
+        instance's disks matches the actual size and updates any
+        mismatches found. This is needed if the Ganeti configuration
+        is no longer consistent with reality, as it will impact some
+        disk operations. If no arguments are given, all instances will
+        be checked.
+      </P
+><P
+>        Note that only active disks can be checked by this command; in
+        case a disk cannot be activated it's advised to use
+        <B
+CLASS="COMMAND"
+>gnt-instance activate-disks --ignore-size
+        ...</B
+> to force activation without regard to the
+        current size.
+      </P
+><P
+>        When the all disk sizes are consistent, the command will
+        return no output. Otherwise it will log details about the
+        inconsistencies in the configuration.
+      </P
+></DIV
+><DIV
+CLASS="REFSECT2"
+><A
+NAME="AEN316"
 ></A
 ><H3
 >SEARCH-TAGS</H3
@@ -1012,7 +1041,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN323"
+NAME="AEN331"
 ></A
 ><H3
 >VERIFY</H3
@@ -1038,7 +1067,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN331"
+NAME="AEN339"
 ></A
 ><H3
 >VERIFY-DISKS</H3
@@ -1064,7 +1093,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN338"
+NAME="AEN346"
 ></A
 ><H3
 >VERSION</H3
@@ -1081,7 +1110,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN343"
+NAME="AEN351"
 ></A
 ><H2
 >REPORTING BUGS</H2
@@ -1098,7 +1127,7 @@ TARGET="_top"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN347"
+NAME="AEN355"
 ></A
 ><H2
 >SEE ALSO</H2
@@ -1207,7 +1236,7 @@ CLASS="REFENTRYTITLE"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN391"
+NAME="AEN399"
 ></A
 ><H2
 >COPYRIGHT</H2

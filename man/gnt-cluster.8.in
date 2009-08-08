@@ -3,7 +3,7 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GNT-CLUSTER" "8" "17 July 2009" "ganeti 2.0" ""
+.TH "GNT-CLUSTER" "8" "07 August 2009" "ganeti 2.0" ""
 
 .SH NAME
 gnt-cluster \- ganeti administration, cluster-wide
@@ -261,12 +261,6 @@ its master daemon because it won't have enough votes, but so won't the
 new master, if the master daemon ever needs a restart. You can pass
 --no-voting to ganeti-masterd on the new master to solve this problem,
 and gnt-cluster redist-conf to make sure the cluster is consistent again.
-.PP
-In version 2.0.X ganeti-masterd will not be able to start if
-masterfailover is called with the --no-voting option (which, again,
-should only be used on 2 nodes clusters with the former master being
-down). In that case just start it manually passing --no-voting to it
-as well, until you have restored cluster redundancy.
 .SS "MODIFY"
 
 \fBmodify\fR
@@ -351,6 +345,27 @@ the operation will be aborted.
 Note that since this command can be dangerous (especially when
 run over SSH), the command will require confirmation unless
 run with the \fB-f\fR option.
+.SS "REPAIR-DISK-SIZES"
+
+\fBrepair-disk-sizes\fR [ \fBinstance\fR\fI ...\fR ]
+
+.PP
+This command checks that the recorded size of the given
+instance's disks matches the actual size and updates any
+mismatches found. This is needed if the Ganeti configuration
+is no longer consistent with reality, as it will impact some
+disk operations. If no arguments are given, all instances will
+be checked.
+.PP
+Note that only active disks can be checked by this command; in
+case a disk cannot be activated it's advised to use
+\fBgnt-instance activate-disks --ignore-size
+\&...\fR to force activation without regard to the
+current size.
+.PP
+When the all disk sizes are consistent, the command will
+return no output. Otherwise it will log details about the
+inconsistencies in the configuration.
 .SS "SEARCH-TAGS"
 
 \fBsearch-tags\fR \fB\fIpattern\fB\fR
