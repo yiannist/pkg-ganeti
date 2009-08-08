@@ -1,3 +1,14 @@
+ganeti (2.0.3-1) unstable; urgency=low
+
+  * New Upstream Version
+  * The new upstream fixes "Ganeti doesn't detect export failures"
+    (Closes: #538818)
+  * Note that the 2.0.2 has disk changes which can create issues in some
+    corner-cases, see http://code.google.com/p/ganeti/wiki/UpgradeNotes for
+    details
+
+ -- Iustin Pop <iusty@k1024.org>  Sat, 08 Aug 2009 20:50:59 +0200
+
 ganeti (2.0.1-3) unstable; urgency=low
 
   * Fix the startup-with-1.2-config (Closes: #539303)
