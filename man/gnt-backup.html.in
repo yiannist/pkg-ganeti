@@ -106,6 +106,15 @@ CLASS="OPTION"
         in the exported dump.
       </P
 ><P
+>        The exit code of the command is 0 if all disks were backed up
+        successfully, 1 if no data was backed up or if the
+        configuration export failed, and 2 if just some of the disks
+        failed to backup. The exact details of the failures will be
+        shown during the command execution (and will be stored in the
+        job log). It is recommended that for any non-zero exit code,
+        the backup is considered invalid, and retried.
+      </P
+><P
 >        Example:
         <PRE
 CLASS="SCREEN"
@@ -117,7 +126,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN42"
+NAME="AEN43"
 ></A
 ><H3
 >IMPORT</H3
@@ -460,7 +469,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN169"
+NAME="AEN170"
 ></A
 ><H3
 >LIST</H3
@@ -494,7 +503,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN179"
+NAME="AEN180"
 ></A
 ><H3
 >REMOVE</H3
@@ -517,7 +526,7 @@ CLASS="ACRONYM"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN186"
+NAME="AEN187"
 ></A
 ><H2
 >REPORTING BUGS</H2
@@ -534,7 +543,7 @@ TARGET="_top"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN190"
+NAME="AEN191"
 ></A
 ><H2
 >SEE ALSO</H2
@@ -643,7 +652,7 @@ CLASS="REFENTRYTITLE"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN234"
+NAME="AEN235"
 ></A
 ><H2
 >COPYRIGHT</H2

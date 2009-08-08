@@ -2255,7 +2255,7 @@ NAME="AEN866"
 ><B
 CLASS="COMMAND"
 >activate-disks</B
->  [--submit] {<TT
+>  [--submit] [--ignore-size] {<TT
 CLASS="REPLACEABLE"
 ><I
 >instance</I
@@ -2324,6 +2324,18 @@ CLASS="COMMAND"
 >.
         </P
 ><P
+>          The <CODE
+CLASS="OPTION"
+>--ignore-size</CODE
+> option can be used to
+          activate disks ignoring the currently configured size in
+          Ganeti. This can be used in cases where the configuration
+          has gotten out of sync with the real-world (e.g. after a
+          partially-failed grow-disk operation or due to rounding in
+          LVM devices). This should not be used in normal cases, but
+          only when activate-disks fails without it.
+        </P
+><P
 >          Note that it is safe to run this command while the instance
           is already running.
         </P
@@ -2331,7 +2343,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN884"
+NAME="AEN887"
 ></A
 ><H4
 >DEACTIVATE-DISKS</H4
@@ -2369,7 +2381,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN895"
+NAME="AEN898"
 ></A
 ><H4
 >GROW-DISK</H4
@@ -2524,14 +2536,14 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN942"
+NAME="AEN945"
 ></A
 ><H3
 >Recovery</H3
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN944"
+NAME="AEN947"
 ></A
 ><H4
 >FAILOVER</H4
@@ -2587,7 +2599,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN961"
+NAME="AEN964"
 ></A
 ><H4
 >MIGRATE</H4
@@ -2685,14 +2697,14 @@ y/[n]/?: y
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN986"
+NAME="AEN989"
 ></A
 ><H3
 >TAGS</H3
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN988"
+NAME="AEN991"
 ></A
 ><H4
 >ADD-TAGS</H4
@@ -2734,7 +2746,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN1001"
+NAME="AEN1004"
 ></A
 ><H4
 >LIST-TAGS</H4
@@ -2754,7 +2766,7 @@ CLASS="REPLACEABLE"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN1008"
+NAME="AEN1011"
 ></A
 ><H4
 >REMOVE-TAGS</H4
@@ -2798,7 +2810,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN1021"
+NAME="AEN1024"
 ></A
 ><H2
 >REPORTING BUGS</H2
@@ -2815,7 +2827,7 @@ TARGET="_top"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN1025"
+NAME="AEN1028"
 ></A
 ><H2
 >SEE ALSO</H2
@@ -2924,7 +2936,7 @@ CLASS="REFENTRYTITLE"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN1069"
+NAME="AEN1072"
 ></A
 ><H2
 >COPYRIGHT</H2

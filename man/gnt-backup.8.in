@@ -3,7 +3,7 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GNT-BACKUP" "8" "17 July 2009" "ganeti 2.0" ""
+.TH "GNT-BACKUP" "8" "07 August 2009" "ganeti 2.0" ""
 
 .SH NAME
 gnt-backup \- ganeti instance import/export
@@ -32,6 +32,14 @@ snapshot disk of the instance without shutting it down first.
 While this is faster and involves no downtime, it cannot be
 guaranteed that the instance data will be in a consistent state
 in the exported dump.
+.PP
+The exit code of the command is 0 if all disks were backed up
+successfully, 1 if no data was backed up or if the
+configuration export failed, and 2 if just some of the disks
+failed to backup. The exact details of the failures will be
+shown during the command execution (and will be stored in the
+job log). It is recommended that for any non-zero exit code,
+the backup is considered invalid, and retried.
 .PP
 Example:
 

@@ -3,7 +3,7 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GNT-INSTANCE" "8" "17 July 2009" "ganeti 2.0" ""
+.TH "GNT-INSTANCE" "8" "07 August 2009" "ganeti 2.0" ""
 
 .SH NAME
 gnt-instance \- ganeti instance administration
@@ -986,7 +986,7 @@ Note that it is not possible to select an offline or drained
 node as a new secondary.
 .SS "ACTIVATE-DISKS"
 
-\fBactivate-disks\fR [ \fB--submit\fR ] \fB\fIinstance\fB\fR
+\fBactivate-disks\fR [ \fB--submit\fR ] [ \fB--ignore-size\fR ] \fB\fIinstance\fB\fR
 
 .PP
 Activates the block devices of the given instance. If
@@ -1011,6 +1011,14 @@ The \fB--submit\fR option is used to send the job to
 the master daemon but not wait for its completion. The job
 ID will be shown so that it can be examined via
 \fBgnt-job info\fR\&.
+.PP
+The \fB--ignore-size\fR option can be used to
+activate disks ignoring the currently configured size in
+Ganeti. This can be used in cases where the configuration
+has gotten out of sync with the real-world (e.g. after a
+partially-failed grow-disk operation or due to rounding in
+LVM devices). This should not be used in normal cases, but
+only when activate-disks fails without it.
 .PP
 Note that it is safe to run this command while the instance
 is already running.
