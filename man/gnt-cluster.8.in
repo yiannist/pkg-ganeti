@@ -3,7 +3,7 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GNT-CLUSTER" "8" "16 June 2009" "ganeti 2.0" ""
+.TH "GNT-CLUSTER" "8" "17 July 2009" "ganeti 2.0" ""
 
 .SH NAME
 gnt-cluster \- ganeti administration, cluster-wide
@@ -213,7 +213,7 @@ can be set. It has to be a member of the list of enabled
 hypervisors. If not specified, the first entry on the list of
 enabled hypervisors will be used by default.
 .PP
-The \fB--backend\fR option allows you to set
+The \fB--backend-parameters\fR option allows you to set
 the default backend parameters for the cluster. The parameter
 format is a comma-separated list of key=value pairs with the
 following supported keys:
@@ -248,10 +248,25 @@ detailed int the \fBgnt-instance\fR(8) man page, in the
 List the tags of the cluster.
 .SS "MASTERFAILOVER"
 
-\fBmasterfailover\fR
+\fBmasterfailover\fR [ \fB--no-voting\fR ]
 
 .PP
 Failover the master role to the current node.
+.PP
+The \fB--no-voting\fR option skips the remote node agreement
+checks. This is dangerous, but necessary in some cases (for example
+failing over the master role in a 2 node cluster with the original master
+down). If the original master then comes up, it won't be able to start
+its master daemon because it won't have enough votes, but so won't the
+new master, if the master daemon ever needs a restart. You can pass
+--no-voting to ganeti-masterd on the new master to solve this problem,
+and gnt-cluster redist-conf to make sure the cluster is consistent again.
+.PP
+In version 2.0.X ganeti-masterd will not be able to start if
+masterfailover is called with the --no-voting option (which, again,
+should only be used on 2 nodes clusters with the former master being
+down). In that case just start it manually passing --no-voting to it
+as well, until you have restored cluster redundancy.
 .SS "MODIFY"
 
 \fBmodify\fR
