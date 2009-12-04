@@ -2,7 +2,7 @@
 <HTML
 ><HEAD
 ><TITLE
->ganeti-rapi</TITLE
+>ganeti-cleaner</TITLE
 ><META
 NAME="GENERATOR"
 CONTENT="Modular DocBook HTML Stylesheet Version 1.79"></HEAD
@@ -17,159 +17,58 @@ ALINK="#0000FF"
 ><A
 NAME="AEN1"
 ></A
->ganeti-rapi</H1
+>ganeti-cleaner</H1
 ><DIV
 CLASS="REFNAMEDIV"
 ><A
-NAME="AEN12"
+NAME="AEN11"
 ></A
 ><H2
 >Name</H2
->ganeti-rapi&nbsp;--&nbsp;ganeti remote API daemon</DIV
+>ganeti-cleaner&nbsp;--&nbsp;ganeti job queue cleaner</DIV
 ><DIV
 CLASS="REFSYNOPSISDIV"
 ><A
-NAME="AEN15"
+NAME="AEN14"
 ></A
 ><H2
 >Synopsis</H2
 ><P
 ><B
 CLASS="COMMAND"
->ganeti-rapi </B
->  [-d] [-f] [-p <TT
-CLASS="REPLACEABLE"
-><I
->PORT</I
-></TT
->] [--no-ssl] [-K <TT
-CLASS="REPLACEABLE"
-><I
->SSL_KEY_FILE</I
-></TT
->] [-C <TT
-CLASS="REPLACEABLE"
-><I
->SSL_CERT_FILE</I
-></TT
->]</P
+>ganeti-cleaner</B
+> </P
 ></DIV
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN27"
+NAME="AEN17"
 ></A
 ><H2
 >DESCRIPTION</H2
 ><P
+>      The <B
+CLASS="COMMAND"
+>ganeti-cleaner</B
+> is a periodically run script to clean
+      old job files from the job queue archive.
+    </P
+><P
 >      <B
 CLASS="COMMAND"
->ganeti-rapi</B
-> is the daemon providing a remote
-      API for Ganeti clusters.
-    </P
-><P
->      It is automatically started on the master node, and by default
-      it uses SSL encryption. This can be disabled by passing the
-      <CODE
-CLASS="OPTION"
->--no-ssl</CODE
-> option, or alternatively the
-      certificate used can be changed via the <CODE
-CLASS="OPTION"
->-C</CODE
->
-      option and the key via the <CODE
-CLASS="OPTION"
->-K</CODE
-> option.
-    </P
-><P
->      The daemon will listen by default on the port 5080, but this can
-      be changed via the <CODE
-CLASS="OPTION"
->-p</CODE
-> option.
-    </P
-><P
->      See the <SPAN
-CLASS="emphasis"
-><I
-CLASS="EMPHASIS"
->Ganeti remote API</I
-></SPAN
-> documentation for
-      further information.
-    </P
-><P
->      Requests are logged to
+>ganeti-cleaner</B
+> automatically removes all files older than
+      21 days from
       <TT
 CLASS="FILENAME"
->@LOCALSTATEDIR@/log/ganeti/rapi-daemon.log</TT
->,
-      in the same format as for the node and master daemon.
+>@LOCALSTATEDIR@/lib/ganeti/queue/archive</TT
+>.
     </P
 ></DIV
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN41"
-></A
-><H2
->ACCESS CONTROLS</H2
-><P
->      All query operations are allowed without authentication. Only
-      the modification operations require authentication, in the form
-      of basic authentication.
-    </P
-><P
->      The users and their rights are defined in a file named
-      <TT
-CLASS="FILENAME"
->rapi_users</TT
->, located in the <TT
-CLASS="FILENAME"
->@LOCALSTATEDIR@/ganeti</TT
->
-      directory. The users should be listed one per line, in the
-      following format:
-    </P
-><PRE
-CLASS="SCREEN"
->username password options</PRE
-><P
->      Currently the <TT
-CLASS="REPLACEABLE"
-><I
->options</I
-></TT
-> field should
-      equal the string <SPAN
-CLASS="emphasis"
-><I
-CLASS="EMPHASIS"
->write</I
-></SPAN
-> in order to actually
-      give write permission for the given users. Example:
-    </P
-><PRE
-CLASS="SCREEN"
->rclient   secret    write
-guest   tespw</PRE
-><P
->The first user (<KBD
-CLASS="USERINPUT"
->rclient</KBD
->) will have
-    read-write rights, whereas the second user does only have read
-    (query) rights, and as such is no different than not using
-    authentication at all.</P
-></DIV
-><DIV
-CLASS="REFSECT1"
-><A
-NAME="AEN54"
+NAME="AEN24"
 ></A
 ><H2
 >REPORTING BUGS</H2
@@ -186,7 +85,7 @@ TARGET="_top"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN58"
+NAME="AEN28"
 ></A
 ><H2
 >SEE ALSO</H2
@@ -302,7 +201,7 @@ CLASS="REFENTRYTITLE"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN105"
+NAME="AEN75"
 ></A
 ><H2
 >COPYRIGHT</H2

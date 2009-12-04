@@ -148,7 +148,7 @@ class ConfigWriter:
       raise errors.ConfigurationError("Can't generate unique DRBD secret")
     return secret
 
-  def _ComputeAllLVs(self):
+  def _AllLVs(self):
     """Compute the list of all LVs.
 
     """
@@ -158,6 +158,23 @@ class ConfigWriter:
       for lv_list in node_data.values():
         lvnames.update(lv_list)
     return lvnames
+
+  def _AllIDs(self, include_temporary):
+    """Compute the list of all UUIDs and names we have.
+
+    @type include_temporary: boolean
+    @param include_temporary: whether to include the _temporary_ids set
+    @rtype: set
+    @return: a set of IDs
+
+    """
+    existing = set()
+    if include_temporary:
+      existing.update(self._temporary_ids)
+    existing.update(self._AllLVs())
+    existing.update(self._config_data.instances.keys())
+    existing.update(self._config_data.nodes.keys())
+    return existing
 
   @locking.ssynchronized(_config_lock, shared=1)
   def GenerateUniqueID(self, exceptions=None):
@@ -175,11 +192,7 @@ class ConfigWriter:
     @return: the unique id
 
     """
-    existing = set()
-    existing.update(self._temporary_ids)
-    existing.update(self._ComputeAllLVs())
-    existing.update(self._config_data.instances.keys())
-    existing.update(self._config_data.nodes.keys())
+    existing = self._AllIDs(include_temporary=True)
     if exceptions is not None:
       existing.update(exceptions)
     retries = 64
@@ -192,6 +205,13 @@ class ConfigWriter:
                                       " (last tried ID: %s" % unique_id)
     self._temporary_ids.add(unique_id)
     return unique_id
+
+  def _CleanupTemporaryIDs(self):
+    """Cleanups the _temporary_ids structure.
+
+    """
+    existing = self._AllIDs(include_temporary=False)
+    self._temporary_ids = self._temporary_ids - existing
 
   def _AllMACs(self):
     """Return all MACs present in the config.
@@ -273,6 +293,20 @@ class ConfigWriter:
     data = self._config_data
     seen_lids = []
     seen_pids = []
+
+    # global cluster checks
+    if not data.cluster.enabled_hypervisors:
+      result.append("enabled hypervisors list doesn't have any entries")
+    invalid_hvs = set(data.cluster.enabled_hypervisors) - constants.HYPER_TYPES
+    if invalid_hvs:
+      result.append("enabled hypervisors contains invalid entries: %s" %
+                    invalid_hvs)
+
+    if data.cluster.master_node not in data.nodes:
+      result.append("cluster has invalid primary node '%s'" %
+                    data.cluster.master_node)
+
+    # per-instance checks
     for instance_name in data.instances:
       instance = data.instances[instance_name]
       if instance.primary_node not in data.nodes:
@@ -474,8 +508,8 @@ class ConfigWriter:
     def _AppendUsedPorts(instance_name, disk, used):
       duplicates = []
       if disk.dev_type == constants.LD_DRBD8 and len(disk.logical_id) >= 5:
-        nodeA, nodeB, dummy, minorA, minorB = disk.logical_id[:5]
-        for node, port in ((nodeA, minorA), (nodeB, minorB)):
+        node_a, node_b, _, minor_a, minor_b = disk.logical_id[:5]
+        for node, port in ((node_a, minor_a), (node_b, minor_b)):
           assert node in used, ("Node '%s' of instance '%s' not found"
                                 " in node list" % (node, instance_name))
           if port in used[node]:
@@ -796,7 +830,7 @@ class ConfigWriter:
                                     self._config_data.instances.keys())
 
   def _UnlockedGetInstanceInfo(self, instance_name):
-    """Returns informations about an instance.
+    """Returns information about an instance.
 
     This function is for internal use, when the config lock is already held.
 
@@ -808,9 +842,9 @@ class ConfigWriter:
 
   @locking.ssynchronized(_config_lock, shared=1)
   def GetInstanceInfo(self, instance_name):
-    """Returns informations about an instance.
+    """Returns information about an instance.
 
-    It takes the information from the configuration file. Other informations of
+    It takes the information from the configuration file. Other information of
     an instance are taken from the live systems.
 
     @param instance_name: name of the instance, e.g.
@@ -1038,6 +1072,10 @@ class ConfigWriter:
         not hasattr(data.cluster, 'rsahostkeypub')):
       raise errors.ConfigurationError("Incomplete configuration"
                                       " (missing cluster.rsahostkeypub)")
+
+    # Upgrade configuration if needed
+    data.UpgradeConfig()
+
     self._config_data = data
     # reset the last serial as -1 so that the next write will cause
     # ssconf update
@@ -1083,6 +1121,10 @@ class ConfigWriter:
     """Write the configuration data to persistent storage.
 
     """
+    # first, cleanup the _temporary_ids set, if an ID is now in the
+    # other objects it should be discarded to prevent unbounded growth
+    # of that structure
+    self._CleanupTemporaryIDs()
     config_errors = self._UnlockedVerifyConfig()
     if config_errors:
       raise errors.ConfigurationError("Configuration data is not"
@@ -1150,32 +1192,6 @@ class ConfigWriter:
       constants.SS_RELEASE_VERSION: constants.RELEASE_VERSION,
       }
 
-  @locking.ssynchronized(_config_lock)
-  def InitConfig(self, version, cluster_config, master_node_config):
-    """Create the initial cluster configuration.
-
-    It will contain the current node, which will also be the master
-    node, and no instances.
-
-    @type version: int
-    @param version: Configuration version
-    @type cluster_config: objects.Cluster
-    @param cluster_config: Cluster configuration
-    @type master_node_config: objects.Node
-    @param master_node_config: Master node configuration
-
-    """
-    nodes = {
-      master_node_config.name: master_node_config,
-      }
-
-    self._config_data = objects.ConfigData(version=version,
-                                           cluster=cluster_config,
-                                           nodes=nodes,
-                                           instances={},
-                                           serial_no=1)
-    self._WriteConfig()
-
   @locking.ssynchronized(_config_lock, shared=1)
   def GetVGName(self):
     """Return the volume group name.
@@ -1208,7 +1224,7 @@ class ConfigWriter:
 
   @locking.ssynchronized(_config_lock, shared=1)
   def GetClusterInfo(self):
-    """Returns informations about the cluster
+    """Returns information about the cluster
 
     @rtype: L{objects.Cluster}
     @return: the cluster object

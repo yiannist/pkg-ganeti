@@ -56,13 +56,16 @@ am__CONFIG_DISTCLEAN_FILES = config.status config.cache config.log \
 mkinstalldirs = $(install_sh) -d
 CONFIG_CLEAN_FILES =
 am__installdirs = "$(DESTDIR)$(sbindir)" "$(DESTDIR)$(toolsdir)" \
-	"$(DESTDIR)$(httpdir)" "$(DESTDIR)$(hypervisordir)" \
-	"$(DESTDIR)$(pkgpythondir)" "$(DESTDIR)$(pkgpythondir)" \
-	"$(DESTDIR)$(rapidir)" "$(DESTDIR)$(man7dir)" \
-	"$(DESTDIR)$(man8dir)" "$(DESTDIR)$(docdir)"
+	"$(DESTDIR)$(sbindir)" "$(DESTDIR)$(httpdir)" \
+	"$(DESTDIR)$(hypervisordir)" "$(DESTDIR)$(pkgpythondir)" \
+	"$(DESTDIR)$(pkgpythondir)" "$(DESTDIR)$(rapidir)" \
+	"$(DESTDIR)$(man7dir)" "$(DESTDIR)$(man8dir)" \
+	"$(DESTDIR)$(docdir)"
 dist_sbinSCRIPT_INSTALL = $(INSTALL_SCRIPT)
 dist_toolsSCRIPT_INSTALL = $(INSTALL_SCRIPT)
-SCRIPTS = $(dist_sbin_SCRIPTS) $(dist_tools_SCRIPTS)
+nodist_sbinSCRIPT_INSTALL = $(INSTALL_SCRIPT)
+SCRIPTS = $(dist_sbin_SCRIPTS) $(dist_tools_SCRIPTS) \
+	$(nodist_sbin_SCRIPTS)
 SOURCES =
 DIST_SOURCES =
 am__vpath_adj_setup = srcdirstrip=`echo "$(srcdir)" | sed 's|.|.|g'`;
@@ -211,6 +214,7 @@ DIRS = \
 	devel \
 	doc \
 	doc/examples \
+	doc/examples/hooks \
 	lib \
 	lib/http \
 	lib/hypervisor \
@@ -229,6 +233,7 @@ MAINTAINERCLEANFILES = \
 
 CLEANFILES = \
 	autotools/replace_vars.sed \
+	daemons/ganeti-cleaner \
 	devel/upload \
 	doc/rapi-resources.gen \
 	doc/examples/bash_completion \
@@ -319,6 +324,9 @@ dist_sbin_SCRIPTS = \
 	scripts/gnt-node \
 	scripts/gnt-os
 
+nodist_sbin_SCRIPTS = \
+	daemons/ganeti-cleaner
+
 dist_tools_SCRIPTS = \
 	tools/burnin \
 	tools/cfgshell \
@@ -329,7 +337,9 @@ EXTRA_DIST = \
 	$(MAINTAINERCLEANFILES) \
 	NEWS \
 	DEVNOTES \
+	pylintrc \
 	autotools/docbook-wrapper \
+	daemons/ganeti-cleaner.in \
 	devel/upload.in \
 	$(docrst) \
 	$(docdot) \
@@ -338,6 +348,7 @@ EXTRA_DIST = \
 	doc/examples/ganeti.initd.in \
 	doc/examples/ganeti.cron.in \
 	doc/examples/dumb-allocator \
+	doc/examples/hooks/ethers \
 	doc/locking.txt \
 	test/testutils.py \
 	test/mocks.py \
@@ -361,6 +372,7 @@ EXTRA_DIST = \
 
 man_MANS = \
 	man/ganeti.7 \
+	man/ganeti-cleaner.8 \
 	man/ganeti-masterd.8 \
 	man/ganeti-noded.8 \
 	man/ganeti-os-interface.7 \
@@ -383,6 +395,7 @@ TEST_FILES = \
 	test/data/bdev-disk.txt \
 	test/data/bdev-net.txt \
 	test/data/proc_drbd8.txt \
+	test/data/proc_drbd80-emptyline.txt \
 	test/data/proc_drbd83.txt
 
 dist_TESTS = \
@@ -476,6 +489,25 @@ uninstall-dist_toolsSCRIPTS:
 	  f=`echo "$$p" | sed 's|^.*/||;$(transform)'`; \
 	  echo " rm -f '$(DESTDIR)$(toolsdir)/$$f'"; \
 	  rm -f "$(DESTDIR)$(toolsdir)/$$f"; \
+	done
+install-nodist_sbinSCRIPTS: $(nodist_sbin_SCRIPTS)
+	@$(NORMAL_INSTALL)
+	test -z "$(sbindir)" || $(MKDIR_P) "$(DESTDIR)$(sbindir)"
+	@list='$(nodist_sbin_SCRIPTS)'; for p in $$list; do \
+	  if test -f "$$p"; then d=; else d="$(srcdir)/"; fi; \
+	  if test -f $$d$$p; then \
+	    f=`echo "$$p" | sed 's|^.*/||;$(transform)'`; \
+	    echo " $(nodist_sbinSCRIPT_INSTALL) '$$d$$p' '$(DESTDIR)$(sbindir)/$$f'"; \
+	    $(nodist_sbinSCRIPT_INSTALL) "$$d$$p" "$(DESTDIR)$(sbindir)/$$f"; \
+	  else :; fi; \
+	done
+
+uninstall-nodist_sbinSCRIPTS:
+	@$(NORMAL_UNINSTALL)
+	@list='$(nodist_sbin_SCRIPTS)'; for p in $$list; do \
+	  f=`echo "$$p" | sed 's|^.*/||;$(transform)'`; \
+	  echo " rm -f '$(DESTDIR)$(sbindir)/$$f'"; \
+	  rm -f "$(DESTDIR)$(sbindir)/$$f"; \
 	done
 install-httpPYTHON: $(http_PYTHON)
 	@$(NORMAL_INSTALL)
@@ -941,7 +973,7 @@ check-am: all-am
 check: check-am
 all-am: Makefile $(SCRIPTS) $(MANS) $(DATA) all-local
 installdirs:
-	for dir in "$(DESTDIR)$(sbindir)" "$(DESTDIR)$(toolsdir)" "$(DESTDIR)$(httpdir)" "$(DESTDIR)$(hypervisordir)" "$(DESTDIR)$(pkgpythondir)" "$(DESTDIR)$(pkgpythondir)" "$(DESTDIR)$(rapidir)" "$(DESTDIR)$(man7dir)" "$(DESTDIR)$(man8dir)" "$(DESTDIR)$(docdir)"; do \
+	for dir in "$(DESTDIR)$(sbindir)" "$(DESTDIR)$(toolsdir)" "$(DESTDIR)$(sbindir)" "$(DESTDIR)$(httpdir)" "$(DESTDIR)$(hypervisordir)" "$(DESTDIR)$(pkgpythondir)" "$(DESTDIR)$(pkgpythondir)" "$(DESTDIR)$(rapidir)" "$(DESTDIR)$(man7dir)" "$(DESTDIR)$(man8dir)" "$(DESTDIR)$(docdir)"; do \
 	  test -z "$$dir" || $(MKDIR_P) "$$dir"; \
 	done
 install: install-am
@@ -996,7 +1028,8 @@ install-data-am: install-dist_toolsSCRIPTS install-docDATA \
 
 install-dvi: install-dvi-am
 
-install-exec-am: install-dist_sbinSCRIPTS install-exec-local
+install-exec-am: install-dist_sbinSCRIPTS install-exec-local \
+	install-nodist_sbinSCRIPTS
 
 install-html: install-html-am
 
@@ -1031,8 +1064,8 @@ ps-am:
 uninstall-am: uninstall-dist_sbinSCRIPTS uninstall-dist_toolsSCRIPTS \
 	uninstall-docDATA uninstall-httpPYTHON \
 	uninstall-hypervisorPYTHON uninstall-man \
-	uninstall-nodist_pkgpythonPYTHON uninstall-pkgpythonPYTHON \
-	uninstall-rapiPYTHON
+	uninstall-nodist_pkgpythonPYTHON uninstall-nodist_sbinSCRIPTS \
+	uninstall-pkgpythonPYTHON uninstall-rapiPYTHON
 
 uninstall-man: uninstall-man7 uninstall-man8
 
@@ -1049,16 +1082,18 @@ uninstall-man: uninstall-man7 uninstall-man8
 	install-html install-html-am install-httpPYTHON \
 	install-hypervisorPYTHON install-info install-info-am \
 	install-man install-man7 install-man8 \
-	install-nodist_pkgpythonPYTHON install-pdf install-pdf-am \
-	install-pkgpythonPYTHON install-ps install-ps-am \
-	install-rapiPYTHON install-strip installcheck installcheck-am \
-	installdirs maintainer-clean maintainer-clean-generic \
-	mostlyclean mostlyclean-generic pdf pdf-am ps ps-am uninstall \
-	uninstall-am uninstall-dist_sbinSCRIPTS \
-	uninstall-dist_toolsSCRIPTS uninstall-docDATA \
-	uninstall-httpPYTHON uninstall-hypervisorPYTHON uninstall-man \
-	uninstall-man7 uninstall-man8 uninstall-nodist_pkgpythonPYTHON \
-	uninstall-pkgpythonPYTHON uninstall-rapiPYTHON
+	install-nodist_pkgpythonPYTHON install-nodist_sbinSCRIPTS \
+	install-pdf install-pdf-am install-pkgpythonPYTHON install-ps \
+	install-ps-am install-rapiPYTHON install-strip installcheck \
+	installcheck-am installdirs maintainer-clean \
+	maintainer-clean-generic mostlyclean mostlyclean-generic pdf \
+	pdf-am ps ps-am uninstall uninstall-am \
+	uninstall-dist_sbinSCRIPTS uninstall-dist_toolsSCRIPTS \
+	uninstall-docDATA uninstall-httpPYTHON \
+	uninstall-hypervisorPYTHON uninstall-man uninstall-man7 \
+	uninstall-man8 uninstall-nodist_pkgpythonPYTHON \
+	uninstall-nodist_sbinSCRIPTS uninstall-pkgpythonPYTHON \
+	uninstall-rapiPYTHON
 
 
 all-local: stamp-directories lib/_autoconf.py devel/upload \
@@ -1072,6 +1107,11 @@ devel/upload: devel/upload.in stamp-directories $(REPLACE_VARS_SED)
 doc/examples/%: doc/examples/%.in stamp-directories \
 		$(REPLACE_VARS_SED)
 	sed -f $(REPLACE_VARS_SED) < $< > $@
+
+daemons/ganeti-cleaner: daemons/ganeti-cleaner.in stamp-directories \
+		$(REPLACE_VARS_SED)
+	sed -f $(REPLACE_VARS_SED) < $< > $@
+	chmod +x $@
 
 doc/%.html: doc/%.rst
 	@test -n "$(RST2HTML)" || { echo 'rst2html' not found during configure; exit 1; }

@@ -181,7 +181,7 @@ NAME="AEN56"
 ><P
 ><B
 CLASS="COMMAND"
->cancel</B
+>info</B
 >  {<TT
 CLASS="REPLACEABLE"
 ><I
@@ -331,11 +331,33 @@ CLASS="CONSTANT"
         fields.
       </P
 ></DIV
+><DIV
+CLASS="REFSECT2"
+><A
+NAME="AEN131"
+></A
+><H3
+>WATCH</H3
+><P
+><B
+CLASS="COMMAND"
+>watch</B
+>  [id]</P
+><P
+>        This command follows the output of the job by the given
+        <TT
+CLASS="REPLACEABLE"
+><I
+>id</I
+></TT
+> and prints it.
+      </P
+></DIV
 ></DIV
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN131"
+NAME="AEN138"
 ></A
 ><H2
 >REPORTING BUGS</H2
@@ -352,7 +374,7 @@ TARGET="_top"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN135"
+NAME="AEN142"
 ></A
 ><H2
 >SEE ALSO</H2
@@ -439,6 +461,13 @@ CLASS="REFENTRYTITLE"
 CLASS="CITEREFENTRY"
 ><SPAN
 CLASS="REFENTRYTITLE"
+>ganeti-cleaner</SPAN
+>(8)</SPAN
+> (job queue cleaner),
+      <SPAN
+CLASS="CITEREFENTRY"
+><SPAN
+CLASS="REFENTRYTITLE"
 >ganeti-noded</SPAN
 >(8)</SPAN
 > (node daemon),
@@ -461,7 +490,7 @@ CLASS="REFENTRYTITLE"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN179"
+NAME="AEN189"
 ></A
 ><H2
 >COPYRIGHT</H2

@@ -165,6 +165,15 @@ class ConfigObject(object):
     """Implement __repr__ for ConfigObjects."""
     return repr(self.ToDict())
 
+  def UpgradeConfig(self):
+    """Fill defaults for missing configuration values.
+
+    This method will be called at configuration load time, and its
+    implementation will be object dependent.
+
+    """
+    pass
+
 
 class TaggableObject(ConfigObject):
   """An generic class supporting tags.
@@ -272,6 +281,16 @@ class ConfigData(ConfigObject):
     obj.nodes = cls._ContainerFromDicts(obj.nodes, dict, Node)
     obj.instances = cls._ContainerFromDicts(obj.instances, dict, Instance)
     return obj
+
+  def UpgradeConfig(self):
+    """Fill defaults for missing configuration values.
+
+    """
+    self.cluster.UpgradeConfig()
+    for node in self.nodes.values():
+      node.UpgradeConfig()
+    for instance in self.instances.values():
+      instance.UpgradeConfig()
 
 
 class NIC(ConfigObject):
@@ -521,10 +540,19 @@ class Disk(ConfigObject):
     """Checks that this disk is correctly configured.
 
     """
-    errors = []
+    all_errors = []
     if self.mode not in constants.DISK_ACCESS_SET:
-      errors.append("Disk access mode '%s' is invalid" % (self.mode, ))
-    return errors
+      all_errors.append("Disk access mode '%s' is invalid" % (self.mode, ))
+    return all_errors
+
+  def UpgradeConfig(self):
+    """Fill defaults for missing configuration values.
+
+    """
+    if self.children:
+      for child in self.children:
+        child.UpgradeConfig()
+    # add here config upgrade for this disk
 
 
 class Instance(TaggableObject):
@@ -675,6 +703,15 @@ class Instance(TaggableObject):
     obj.disks = cls._ContainerFromDicts(obj.disks, list, Disk)
     return obj
 
+  def UpgradeConfig(self):
+    """Fill defaults for missing configuration values.
+
+    """
+    for nic in self.nics:
+      nic.UpgradeConfig()
+    for disk in self.disks:
+      disk.UpgradeConfig()
+
 
 class OS(ConfigObject):
   """Config object representing an operating system."""
@@ -742,7 +779,29 @@ class Cluster(TaggableObject):
     "hvparams",
     "beparams",
     "candidate_pool_size",
+    "modify_etc_hosts",
     ]
+
+  def UpgradeConfig(self):
+    """Fill defaults for missing configuration values.
+
+    """
+    if self.hvparams is None:
+      self.hvparams = constants.HVC_DEFAULTS
+    else:
+      for hypervisor in self.hvparams:
+        self.hvparams[hypervisor] = self.FillDict(
+            constants.HVC_DEFAULTS[hypervisor], self.hvparams[hypervisor])
+
+    if self.beparams is None:
+      self.beparams = {constants.BEGR_DEFAULT: constants.BEC_DEFAULTS}
+    else:
+      for begroup in self.beparams:
+        self.beparams[begroup] = self.FillDict(constants.BEC_DEFAULTS,
+                                               self.beparams[begroup])
+
+    if self.modify_etc_hosts is None:
+      self.modify_etc_hosts = True
 
   def ToDict(self):
     """Custom function for cluster.

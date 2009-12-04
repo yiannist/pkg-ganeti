@@ -3,7 +3,7 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GNT-DEBUG" "8" "07 August 2009" "ganeti 2.0" ""
+.TH "GNT-DEBUG" "8" "30 September 2009" "ganeti 2.0" ""
 
 .SH NAME
 gnt-debug \- debug commands
@@ -61,13 +61,27 @@ The \fIdelay\fR argument will be
 interpreted as a floating point number.
 .SS "SUBMIT-JOB"
 
-\fBsubmit-job\fR \fBopcodes_file\fR\fI ...\fR
+\fBsubmit-job\fR [ \fB--verbose\fR ] [ \fB--timing-stats\fR ] [ \fB--job-repeat N\fR ] [ \fB--op-repeat N\fR ] \fBopcodes_file\fR\fI ...\fR
 
 .PP
 This command builds a list of opcodes from JSON-format files
 and submits for each file a job to the master daemon. It can
 be used to test some options that are not available via the
 command line.
+.PP
+The \fBverbose\fR option will job the job IDs of
+the submitted jobs and the progress in waiting for the jobs;
+the \fBtiming-stats\fR option will show some
+overall statistics with the number of total opcodes and jobs
+submitted, and time time for each stage (submit, exec, total).
+.PP
+The \fBjob-repeat\fR and \fBop-repeat\fR
+options allow to submit multiple copies of the passed
+arguments; the job repeat will cause N copies of each job
+(input file) to be submitted (equivalent to passing the
+arguments N times) while the op repeat will cause each job to
+contain multiple copies of the opcodes (equivalent to each
+file containing N copies of the opcodes).
 .SH "REPORTING BUGS"
 .PP
 Report bugs to  <URL:http://code.google.com/p/ganeti/> or contact the
@@ -90,6 +104,7 @@ Ganeti commands:
 .PP
 Ganeti daemons:
 \fBganeti-watcher\fR(8) (automatic instance restarter),
+\fBganeti-cleaner\fR(8) (job queue cleaner),
 \fBganeti-noded\fR(8) (node daemon),
 \fBganeti-masterd\fR(8) (master daemon),
 \fBganeti-rapi\fR(8) (remote API daemon).

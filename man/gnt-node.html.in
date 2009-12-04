@@ -111,7 +111,7 @@ CLASS="REFENTRYTITLE"
 >gnt-cluster</SPAN
 >(8)</SPAN
 > for more
-        informations.
+        information.
       </P
 ><P
 >        In case you're readding a node after hardware failure, you can
@@ -1096,6 +1096,13 @@ CLASS="REFENTRYTITLE"
 CLASS="CITEREFENTRY"
 ><SPAN
 CLASS="REFENTRYTITLE"
+>ganeti-cleaner</SPAN
+>(8)</SPAN
+> (job queue cleaner),
+      <SPAN
+CLASS="CITEREFENTRY"
+><SPAN
+CLASS="REFENTRYTITLE"
 >ganeti-noded</SPAN
 >(8)</SPAN
 > (node daemon),
@@ -1118,7 +1125,7 @@ CLASS="REFENTRYTITLE"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN422"
+NAME="AEN425"
 ></A
 ><H2
 >COPYRIGHT</H2

@@ -1649,33 +1649,25 @@ CLASS="REPLACEABLE"
 ><I
 >os-type</I
 ></TT
->] [-f <TT
+>] [--select-os] [-f <TT
 CLASS="REPLACEABLE"
 ><I
 >force</I
 ></TT
->] [--select-os] [--submit] {<TT
+>] [--force-multiple]<BR> [--instance | --node | --primary | --secondary | --all] [--submit] [<TT
 CLASS="REPLACEABLE"
 ><I
 >instance</I
 ></TT
->}</P
+>...]</P
 ><P
->          Reinstalls the operating system on the given instance. The
-          instance must be stopped when running this command. If the
+>          Reinstalls the operating system on the given instance(s). The
+          instance(s) must be stopped when running this command. If the
           <CODE
 CLASS="OPTION"
 >--os-type</CODE
 > is specified, the operating
           system is changed.
-        </P
-><P
->          Since reinstall is potentially dangerous command, the user
-          will be required to confirm this action, unless the
-          <CODE
-CLASS="OPTION"
->-f</CODE
-> flag is passed.
         </P
 ><P
 >          The <CODE
@@ -1684,6 +1676,39 @@ CLASS="OPTION"
 > option switches to an
           interactive OS reinstall. The user is prompted to select the OS
           template from the list of available OS templates.
+        </P
+><P
+>          Since this is a potentially dangerous command, the user will
+          be required to confirm this action, unless the
+          <CODE
+CLASS="OPTION"
+>-f</CODE
+> flag is passed. When multiple instances
+          are selected (either by passing multiple arguments or by
+          using the <CODE
+CLASS="OPTION"
+>--node</CODE
+>,
+          <CODE
+CLASS="OPTION"
+>--primary</CODE
+>, <CODE
+CLASS="OPTION"
+>--secondary</CODE
+> or
+          <CODE
+CLASS="OPTION"
+>--all</CODE
+> options), the user must pass both the
+          <CODE
+CLASS="OPTION"
+>--force</CODE
+> and
+          <CODE
+CLASS="OPTION"
+>--force-multiple</CODE
+> options to skip the
+          interactive confirmation.
         </P
 ><P
 >          The <CODE
@@ -1701,7 +1726,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN655"
+NAME="AEN669"
 ></A
 ><H4
 >RENAME</H4
@@ -1749,14 +1774,14 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN670"
+NAME="AEN684"
 ></A
 ><H3
 >Starting/stopping/connecting to console</H3
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN672"
+NAME="AEN686"
 ></A
 ><H4
 >STARTUP</H4
@@ -1911,7 +1936,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN738"
+NAME="AEN752"
 ></A
 ><H4
 >SHUTDOWN</H4
@@ -1981,7 +2006,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN769"
+NAME="AEN783"
 ></A
 ><H4
 >REBOOT</H4
@@ -2069,7 +2094,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN808"
+NAME="AEN822"
 ></A
 ><H4
 >CONSOLE</H4
@@ -2115,14 +2140,14 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN821"
+NAME="AEN835"
 ></A
 ><H3
 >Disk management</H3
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN823"
+NAME="AEN837"
 ></A
 ><H4
 >REPLACE-DISKS</H4
@@ -2247,7 +2272,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN866"
+NAME="AEN880"
 ></A
 ><H4
 >ACTIVATE-DISKS</H4
@@ -2343,7 +2368,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN887"
+NAME="AEN901"
 ></A
 ><H4
 >DEACTIVATE-DISKS</H4
@@ -2381,7 +2406,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN898"
+NAME="AEN912"
 ></A
 ><H4
 >GROW-DISK</H4
@@ -2536,14 +2561,14 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN945"
+NAME="AEN959"
 ></A
 ><H3
 >Recovery</H3
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN947"
+NAME="AEN961"
 ></A
 ><H4
 >FAILOVER</H4
@@ -2599,7 +2624,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN964"
+NAME="AEN978"
 ></A
 ><H4
 >MIGRATE</H4
@@ -2697,14 +2722,14 @@ y/[n]/?: y
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN989"
+NAME="AEN1003"
 ></A
 ><H3
 >TAGS</H3
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN991"
+NAME="AEN1005"
 ></A
 ><H4
 >ADD-TAGS</H4
@@ -2746,7 +2771,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN1004"
+NAME="AEN1018"
 ></A
 ><H4
 >LIST-TAGS</H4
@@ -2766,7 +2791,7 @@ CLASS="REPLACEABLE"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN1011"
+NAME="AEN1025"
 ></A
 ><H4
 >REMOVE-TAGS</H4
@@ -2810,7 +2835,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN1024"
+NAME="AEN1038"
 ></A
 ><H2
 >REPORTING BUGS</H2
@@ -2827,7 +2852,7 @@ TARGET="_top"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN1028"
+NAME="AEN1042"
 ></A
 ><H2
 >SEE ALSO</H2
@@ -2914,6 +2939,13 @@ CLASS="REFENTRYTITLE"
 CLASS="CITEREFENTRY"
 ><SPAN
 CLASS="REFENTRYTITLE"
+>ganeti-cleaner</SPAN
+>(8)</SPAN
+> (job queue cleaner),
+      <SPAN
+CLASS="CITEREFENTRY"
+><SPAN
+CLASS="REFENTRYTITLE"
 >ganeti-noded</SPAN
 >(8)</SPAN
 > (node daemon),
@@ -2936,7 +2968,7 @@ CLASS="REFENTRYTITLE"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN1072"
+NAME="AEN1089"
 ></A
 ><H2
 >COPYRIGHT</H2

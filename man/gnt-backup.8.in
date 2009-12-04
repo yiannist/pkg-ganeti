@@ -3,7 +3,7 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GNT-BACKUP" "8" "07 August 2009" "ganeti 2.0" ""
+.TH "GNT-BACKUP" "8" "30 September 2009" "ganeti 2.0" ""
 
 .SH NAME
 gnt-backup \- ganeti instance import/export
@@ -226,6 +226,7 @@ Ganeti commands:
 .PP
 Ganeti daemons:
 \fBganeti-watcher\fR(8) (automatic instance restarter),
+\fBganeti-cleaner\fR(8) (job queue cleaner),
 \fBganeti-noded\fR(8) (node daemon),
 \fBganeti-masterd\fR(8) (master daemon),
 \fBganeti-rapi\fR(8) (remote API daemon).
