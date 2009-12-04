@@ -3,7 +3,7 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GNT-INSTANCE" "8" "07 August 2009" "ganeti 2.0" ""
+.TH "GNT-INSTANCE" "8" "30 September 2009" "ganeti 2.0" ""
 
 .SH NAME
 gnt-instance \- ganeti instance administration
@@ -731,21 +731,29 @@ All the changes take effect at the next restart. If the
 instance is running, there is no effect on the instance.
 .SS "REINSTALL"
 
-\fBreinstall\fR [ \fB-o \fIos-type\fB\fR ] [ \fB-f \fIforce\fB\fR ] [ \fB--select-os\fR ] [ \fB--submit\fR ] \fB\fIinstance\fB\fR
+\fBreinstall\fR [ \fB-o \fIos-type\fB\fR ] [ \fB--select-os\fR ] [ \fB-f \fIforce\fB\fR ] [ \fB--force-multiple\fR ]
+    [ \fB--instance\fR | \fB--node\fR | \fB--primary\fR | \fB--secondary\fR | \fB--all\fR ] [ \fB--submit\fR ] [ \fB\fIinstance\fB\fR\fI ...\fR ]
 
 .PP
-Reinstalls the operating system on the given instance. The
-instance must be stopped when running this command. If the
+Reinstalls the operating system on the given instance(s). The
+instance(s) must be stopped when running this command. If the
 \fB--os-type\fR is specified, the operating
 system is changed.
-.PP
-Since reinstall is potentially dangerous command, the user
-will be required to confirm this action, unless the
-\fB-f\fR flag is passed.
 .PP
 The \fB--select-os\fR option switches to an
 interactive OS reinstall. The user is prompted to select the OS
 template from the list of available OS templates.
+.PP
+Since this is a potentially dangerous command, the user will
+be required to confirm this action, unless the
+\fB-f\fR flag is passed. When multiple instances
+are selected (either by passing multiple arguments or by
+using the \fB--node\fR,
+\fB--primary\fR, \fB--secondary\fR or
+\fB--all\fR options), the user must pass both the
+\fB--force\fR and
+\fB--force-multiple\fR options to skip the
+interactive confirmation.
 .PP
 The \fB--submit\fR option is used to send the job to
 the master daemon but not wait for its completion. The job
@@ -1241,6 +1249,7 @@ Ganeti commands:
 .PP
 Ganeti daemons:
 \fBganeti-watcher\fR(8) (automatic instance restarter),
+\fBganeti-cleaner\fR(8) (job queue cleaner),
 \fBganeti-noded\fR(8) (node daemon),
 \fBganeti-masterd\fR(8) (master daemon),
 \fBganeti-rapi\fR(8) (remote API daemon).

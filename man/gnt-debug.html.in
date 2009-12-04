@@ -272,19 +272,53 @@ NAME="AEN86"
 ><B
 CLASS="COMMAND"
 >submit-job</B
->  {opcodes_file...}</P
+>  [--verbose] [--timing-stats] [--job-repeat <CODE
+CLASS="OPTION"
+>N</CODE
+>] [--op-repeat <CODE
+CLASS="OPTION"
+>N</CODE
+>] {opcodes_file...}</P
 ><P
 >        This command builds a list of opcodes from JSON-format files
         and submits for each file a job to the master daemon. It can
         be used to test some options that are not available via the
         command line.
       </P
+><P
+>        The <CODE
+CLASS="OPTION"
+>verbose</CODE
+> option will job the job IDs of
+        the submitted jobs and the progress in waiting for the jobs;
+        the <CODE
+CLASS="OPTION"
+>timing-stats</CODE
+> option will show some
+        overall statistics with the number of total opcodes and jobs
+        submitted, and time time for each stage (submit, exec, total).
+      </P
+><P
+>        The <CODE
+CLASS="OPTION"
+>job-repeat</CODE
+> and <CODE
+CLASS="OPTION"
+>op-repeat</CODE
+>
+        options allow to submit multiple copies of the passed
+        arguments; the job repeat will cause N copies of each job
+        (input file) to be submitted (equivalent to passing the
+        arguments N times) while the op repeat will cause each job to
+        contain multiple copies of the opcodes (equivalent to each
+        file containing N copies of the opcodes).
+      </P
 ></DIV
 ></DIV
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN92"
+NAME="AEN104"
 ></A
 ><H2
 >REPORTING BUGS</H2
@@ -301,7 +335,7 @@ TARGET="_top"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN96"
+NAME="AEN108"
 ></A
 ><H2
 >SEE ALSO</H2
@@ -388,6 +422,13 @@ CLASS="REFENTRYTITLE"
 CLASS="CITEREFENTRY"
 ><SPAN
 CLASS="REFENTRYTITLE"
+>ganeti-cleaner</SPAN
+>(8)</SPAN
+> (job queue cleaner),
+      <SPAN
+CLASS="CITEREFENTRY"
+><SPAN
+CLASS="REFENTRYTITLE"
 >ganeti-noded</SPAN
 >(8)</SPAN
 > (node daemon),
@@ -410,7 +451,7 @@ CLASS="REFENTRYTITLE"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN140"
+NAME="AEN155"
 ></A
 ><H2
 >COPYRIGHT</H2

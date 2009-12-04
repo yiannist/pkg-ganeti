@@ -201,7 +201,7 @@ class SshRunner:
     connected to).
 
     This is used to detect problems in ssh known_hosts files
-    (conflicting known hosts) and incosistencies between dns/hosts
+    (conflicting known hosts) and inconsistencies between dns/hosts
     entries and local machine names
 
     @param node: nodename of a host to check; can be short or
@@ -227,7 +227,12 @@ class SshRunner:
     remotehostname = retval.stdout.strip()
 
     if not remotehostname or remotehostname != node:
-      return False, "hostname mismatch, got %s" % remotehostname
+      if node.startswith(remotehostname + "."):
+        msg = "hostname not FQDN"
+      else:
+        msg = "hostname mistmatch"
+      return False, ("%s: expected %s but got %s" %
+                     (msg, node, remotehostname))
 
     return True, "host matches"
 

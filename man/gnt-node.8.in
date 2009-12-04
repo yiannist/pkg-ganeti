@@ -3,7 +3,7 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GNT-NODE" "8" "07 August 2009" "ganeti 2.0" ""
+.TH "GNT-NODE" "8" "30 September 2009" "ganeti 2.0" ""
 
 .SH NAME
 gnt-node \- node administration
@@ -36,7 +36,7 @@ cluster, etc.)
 The \fB-s\fR is used in dual-home clusters and
 specifies the new node's IP in the secondary network. See the
 discussion in \fBgnt-cluster\fR(8) for more
-informations.
+information.
 .PP
 In case you're readding a node after hardware failure, you can
 use the \fB--readd\fR parameter. In this case, you
@@ -445,6 +445,7 @@ Ganeti commands:
 .PP
 Ganeti daemons:
 \fBganeti-watcher\fR(8) (automatic instance restarter),
+\fBganeti-cleaner\fR(8) (job queue cleaner),
 \fBganeti-noded\fR(8) (node daemon),
 \fBganeti-masterd\fR(8) (master daemon),
 \fBganeti-rapi\fR(8) (remote API daemon).
