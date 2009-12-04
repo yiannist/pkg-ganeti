@@ -5,7 +5,7 @@ Maintainer: Debian Ganeti Team <pkg-ganeti-devel@lists.alioth.debian.org>
 Uploaders: Guido Trotter <ultrotter@debian.org>, Iustin Pop <iusty@k1024.org>
 Build-Depends: debhelper (>= 7), quilt
 Build-Depends-Indep: python-simplejson, python-pyparsing, python-openssl, python-support (>= 0.6)
-Standards-Version: 3.8.2
+Standards-Version: 3.8.3
 Homepage: http://code.google.com/p/ganeti/
 Vcs-Browser: http://git.debian.org/?p=pkg-ganeti/ganeti.git
 Vcs-Git: git://git.debian.org/pkg-ganeti/ganeti.git
