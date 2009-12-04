@@ -1,0 +1,18 @@
+Description: Workaround hostname stripping the domain when invoked as simply
+ "hostname" even if the machine name is FQDN
+ .
+ Upstream knows the issues related to hostnames and plans to change the handling
+ of hostnames in a future version
+Forwarded: not-needed
+Author: Iustin Pop <iusty@k1024.org>
+--- a/lib/ssh.py
++++ b/lib/ssh.py
+@@ -212,7 +212,7 @@
+         - detail: string with details
+ 
+     """
+-    retval = self.Run(node, 'root', 'hostname')
++    retval = self.Run(node, 'root', 'hostname --fqdn')
+ 
+     if retval.failed:
+       msg = "ssh problem"

@@ -6,8 +6,10 @@ ganeti (2.0.4-1) unstable; urgency=low
   * Update to standards version 3.8.3 (no changes needed)
   * Switch to source format 3.0 (quilt) and drop quilt rules/depencency
   * Add doc-base files for the main html docs we ship
+  * Add patch to call hostname with "--fqdn" to workaround recent changes which
+    always strip the domain name
 
- -- Iustin Pop <iusty@k1024.org>  Fri, 04 Dec 2009 19:37:33 +0100
+ -- Iustin Pop <iusty@k1024.org>  Fri, 04 Dec 2009 20:23:45 +0100
 
 ganeti (2.0.3-1) unstable; urgency=low
 
