@@ -1,0 +1,9 @@
+Document: ganeti-install
+Title: Ganeti installation guide
+Abstract: This manual describes the installation of Ganeti, requirements
+ and cluster initialisation
+Section: System/Administration
+
+Format: HTML
+Index: /usr/share/doc/ganeti2/install.html
+Files: /usr/share/doc/ganeti2/install.html

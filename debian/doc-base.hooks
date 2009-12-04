@@ -1,0 +1,9 @@
+Document: ganeti-hooks
+Title: Customising Ganeti via hooks
+Abstract: This manual describes how to customize the operation of Ganeti via
+ hooks, what operations can be restricted and how to write hook scripts
+Section: System/Administration
+
+Format: HTML
+Index: /usr/share/doc/ganeti2/hooks.html
+Files: /usr/share/doc/ganeti2/hooks.html
