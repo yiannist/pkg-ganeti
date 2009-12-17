@@ -1,3 +1,11 @@
+ganeti (2.0.5-1) unstable; urgency=high
+
+  * New upstream version, fixing CVE-2009-4261 (thus the high urgency)
+  * Also fixes a small bug related to gnt-node list during instance removal
+  * Include RAPI documentation
+
+ -- Iustin Pop <iusty@k1024.org>  Thu, 17 Dec 2009 22:53:08 +0100
+
 ganeti (2.0.4-1) unstable; urgency=low
 
   * New Upstream Version
