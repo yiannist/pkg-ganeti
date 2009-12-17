@@ -3,7 +3,7 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GANETI-OS-INTERFACE" "7" "30 September 2009" "ganeti 2.0" ""
+.TH "GANETI-OS-INTERFACE" "7" "16 December 2009" "ganeti 2.0" ""
 
 .SH NAME
 ganeti-os-interface \- specifications for guest OS types
