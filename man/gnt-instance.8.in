@@ -3,7 +3,7 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GNT-INSTANCE" "8" "16 December 2009" "ganeti 2.0" ""
+.TH "GNT-INSTANCE" "8" "04 February 2010" "ganeti 2.0" ""
 
 .SH NAME
 gnt-instance \- ganeti instance administration
@@ -682,7 +682,7 @@ available in the configuration file is returned, without
 querying nodes, making the operation faster.
 .PP
 Use the \fB--all\fR to get info about all instances,
-rather than explicitely passing the ones you're interested in.
+rather than explicitly passing the ones you're interested in.
 .SS "MODIFY"
 
 \fBmodify\fR

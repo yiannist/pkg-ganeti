@@ -3,13 +3,15 @@
 <html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
 <head>
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
-<meta name="generator" content="Docutils 0.5: http://docutils.sourceforge.net/" />
+<meta name="generator" content="Docutils 0.4.1: http://docutils.sourceforge.net/" />
 <title>Ganeti installation tutorial</title>
 <style type="text/css">
 
 /*
-:Author: David Goodger (goodger@python.org)
-:Id: $Id: html4css1.css 5196 2007-06-03 20:25:28Z wiemann $
+:Author: David Goodger
+:Contact: goodger@users.sourceforge.net
+:Date: $Date: 2005-12-18 01:56:14 +0100 (Sun, 18 Dec 2005) $
+:Revision: $Revision: 4224 $
 :Copyright: This stylesheet has been placed in the public domain.
 
 Default cascading style sheet for the HTML output of Docutils.
@@ -115,7 +117,7 @@ div.line-block div.line-block {
   margin-left: 1.5em }
 
 div.sidebar {
-  margin: 0 0 0.5em 1em ;
+  margin-left: 1em ;
   border: medium outset ;
   padding: 1em ;
   background-color: #ffffee ;
@@ -221,7 +223,8 @@ pre.address {
 
 pre.literal-block, pre.doctest-block {
   margin-left: 2em ;
-  margin-right: 2em }
+  margin-right: 2em ;
+  background-color: #eeeeee }
 
 span.classifier {
   font-family: sans-serif ;
@@ -278,6 +281,9 @@ h1 tt.docutils, h2 tt.docutils, h3 tt.docutils,
 h4 tt.docutils, h5 tt.docutils, h6 tt.docutils {
   font-size: 100% }
 
+tt.docutils {
+  background-color: #eeeeee }
+
 ul.auto-toc {
   list-style-type: none }
 
@@ -286,47 +292,46 @@ ul.auto-toc {
 <body>
 <div class="document" id="ganeti-installation-tutorial">
 <h1 class="title">Ganeti installation tutorial</h1>
-
 <p>Documents Ganeti version 2.0</p>
-<div class="contents topic" id="contents">
-<p class="topic-title first">Contents</p>
+<div class="contents topic">
+<p class="topic-title first"><a id="contents" name="contents">Contents</a></p>
 <ul class="simple">
-<li><a class="reference internal" href="#introduction" id="id1">Introduction</a></li>
-<li><a class="reference internal" href="#installing-the-base-system-and-base-components" id="id2">Installing the base system and base components</a><ul>
-<li><a class="reference internal" href="#hardware-requirements" id="id3">Hardware requirements</a></li>
-<li><a class="reference internal" href="#installing-the-base-system" id="id4">Installing the base system</a><ul>
-<li><a class="reference internal" href="#hostname-issues" id="id5">Hostname issues</a></li>
+<li><a class="reference" href="#introduction" id="id1" name="id1">Introduction</a></li>
+<li><a class="reference" href="#installing-the-base-system-and-base-components" id="id2" name="id2">Installing the base system and base components</a><ul>
+<li><a class="reference" href="#hardware-requirements" id="id3" name="id3">Hardware requirements</a></li>
+<li><a class="reference" href="#installing-the-base-system" id="id4" name="id4">Installing the base system</a><ul>
+<li><a class="reference" href="#hostname-issues" id="id5" name="id5">Hostname issues</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#installing-xen" id="id6">Installing Xen</a><ul>
-<li><a class="reference internal" href="#xen-settings" id="id7">Xen settings</a></li>
-<li><a class="reference internal" href="#selecting-the-instance-kernel" id="id8">Selecting the instance kernel</a></li>
+<li><a class="reference" href="#installing-xen" id="id6" name="id6">Installing Xen</a><ul>
+<li><a class="reference" href="#xen-settings" id="id7" name="id7">Xen settings</a></li>
+<li><a class="reference" href="#selecting-the-instance-kernel" id="id8" name="id8">Selecting the instance kernel</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#installing-drbd" id="id9">Installing DRBD</a></li>
-<li><a class="reference internal" href="#other-required-software" id="id10">Other required software</a></li>
+<li><a class="reference" href="#installing-drbd" id="id9" name="id9">Installing DRBD</a></li>
+<li><a class="reference" href="#other-required-software" id="id10" name="id10">Other required software</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#setting-up-the-environment-for-ganeti" id="id11">Setting up the environment for Ganeti</a><ul>
-<li><a class="reference internal" href="#configuring-the-network" id="id12">Configuring the network</a></li>
-<li><a class="reference internal" href="#configuring-lvm" id="id13">Configuring LVM</a></li>
-<li><a class="reference internal" href="#installing-ganeti" id="id14">Installing Ganeti</a></li>
-<li><a class="reference internal" href="#installing-the-operating-system-support-packages" id="id15">Installing the Operating System support packages</a></li>
-<li><a class="reference internal" href="#initializing-the-cluster" id="id16">Initializing the cluster</a></li>
-<li><a class="reference internal" href="#joining-the-nodes-to-the-cluster" id="id17">Joining the nodes to the cluster</a></li>
-<li><a class="reference internal" href="#separate-replication-network" id="id18">Separate replication network</a></li>
-<li><a class="reference internal" href="#testing-the-setup" id="id19">Testing the setup</a></li>
+<li><a class="reference" href="#setting-up-the-environment-for-ganeti" id="id11" name="id11">Setting up the environment for Ganeti</a><ul>
+<li><a class="reference" href="#configuring-the-network" id="id12" name="id12">Configuring the network</a></li>
+<li><a class="reference" href="#configuring-lvm" id="id13" name="id13">Configuring LVM</a></li>
+<li><a class="reference" href="#installing-ganeti" id="id14" name="id14">Installing Ganeti</a></li>
+<li><a class="reference" href="#installing-the-operating-system-support-packages" id="id15" name="id15">Installing the Operating System support packages</a></li>
+<li><a class="reference" href="#initializing-the-cluster" id="id16" name="id16">Initializing the cluster</a></li>
+<li><a class="reference" href="#joining-the-nodes-to-the-cluster" id="id17" name="id17">Joining the nodes to the cluster</a></li>
+<li><a class="reference" href="#separate-replication-network" id="id18" name="id18">Separate replication network</a></li>
+<li><a class="reference" href="#testing-the-setup" id="id19" name="id19">Testing the setup</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#setting-up-and-managing-virtual-instances" id="id20">Setting up and managing virtual instances</a><ul>
-<li><a class="reference internal" href="#setting-up-virtual-instances" id="id21">Setting up virtual instances</a></li>
-<li><a class="reference internal" href="#managing-virtual-instances" id="id22">Managing virtual instances</a></li>
+<li><a class="reference" href="#setting-up-and-managing-virtual-instances" id="id20" name="id20">Setting up and managing virtual instances</a><ul>
+<li><a class="reference" href="#setting-up-virtual-instances" id="id21" name="id21">Setting up virtual instances</a></li>
+<li><a class="reference" href="#managing-virtual-instances" id="id22" name="id22">Managing virtual instances</a></li>
 </ul>
 </li>
 </ul>
 </div>
-<div class="section" id="introduction">
-<h1><a class="toc-backref" href="#id1">Introduction</a></h1>
+<div class="section">
+<h1><a class="toc-backref" href="#id1" id="introduction" name="introduction">Introduction</a></h1>
 <p>Ganeti is a cluster virtualization management system based on Xen or
 KVM. This document explains how to bootstrap a Ganeti node (Xen
 <em>dom0</em>), create a running cluster and install virtual instance (Xen
@@ -352,10 +357,10 @@ will need all of the steps specified, some are not strictly required
 for every environment. Which ones they are, and why, is specified in
 the corresponding sections.</p>
 </div>
-<div class="section" id="installing-the-base-system-and-base-components">
-<h1><a class="toc-backref" href="#id2">Installing the base system and base components</a></h1>
-<div class="section" id="hardware-requirements">
-<h2><a class="toc-backref" href="#id3">Hardware requirements</a></h2>
+<div class="section">
+<h1><a class="toc-backref" href="#id2" id="installing-the-base-system-and-base-components" name="installing-the-base-system-and-base-components">Installing the base system and base components</a></h1>
+<div class="section">
+<h2><a class="toc-backref" href="#id3" id="hardware-requirements" name="hardware-requirements">Hardware requirements</a></h2>
 <p>Any system supported by your Linux distribution is fine. 64-bit
 systems are better as they can support more memory.</p>
 <p>Any disk drive recognized by Linux (<tt class="docutils literal"><span class="pre">IDE</span></tt>/<tt class="docutils literal"><span class="pre">SCSI</span></tt>/<tt class="docutils literal"><span class="pre">SATA</span></tt>/etc.)
@@ -365,8 +370,8 @@ used to store the images). It is highly recommended to use more than
 one disk drive to improve speed. But Ganeti also works with one disk
 per machine.</p>
 </div>
-<div class="section" id="installing-the-base-system">
-<h2><a class="toc-backref" href="#id4">Installing the base system</a></h2>
+<div class="section">
+<h2><a class="toc-backref" href="#id4" id="installing-the-base-system" name="installing-the-base-system">Installing the base system</a></h2>
 <p><strong>Mandatory</strong> on all nodes.</p>
 <p>It is advised to start with a clean, minimal install of the operating
 system. The only requirement you need to be aware of at this stage is
@@ -383,8 +388,8 @@ important data on it.</p>
 <p>Also, for best results, it's advised that the nodes have as much as
 possible the same hardware and software configuration. This will make
 administration much easier.</p>
-<div class="section" id="hostname-issues">
-<h3><a class="toc-backref" href="#id5">Hostname issues</a></h3>
+<div class="section">
+<h3><a class="toc-backref" href="#id5" id="hostname-issues" name="hostname-issues">Hostname issues</a></h3>
 <p>Note that Ganeti requires the hostnames of the systems (i.e. what the
 <tt class="docutils literal"><span class="pre">hostname</span></tt> command outputs to be a fully-qualified name, not a short
 name. In other words, you should use <em>node1.example.com</em> as a hostname
@@ -411,8 +416,8 @@ changing the file).</p>
 </div>
 </div>
 </div>
-<div class="section" id="installing-xen">
-<h2><a class="toc-backref" href="#id6">Installing Xen</a></h2>
+<div class="section">
+<h2><a class="toc-backref" href="#id6" id="installing-xen" name="installing-xen">Installing Xen</a></h2>
 <p><strong>Mandatory</strong> on all nodes.</p>
 <p>While Ganeti is developed with the ability to modularly run on
 different virtualization environments in mind the only two currently
@@ -434,8 +439,8 @@ hypervisor and the relevant kernel. Also, if you are installing a
 32-bit Lenny/Etch, you should install the <tt class="docutils literal"><span class="pre">libc6-xen</span></tt> package
 (run <tt class="docutils literal"><span class="pre">apt-get</span> <span class="pre">install</span> <span class="pre">libc6-xen</span></tt>).</p>
 </div>
-<div class="section" id="xen-settings">
-<h3><a class="toc-backref" href="#id7">Xen settings</a></h3>
+<div class="section">
+<h3><a class="toc-backref" href="#id7" id="xen-settings" name="xen-settings">Xen settings</a></h3>
 <p>It's recommended that dom0 is restricted to a low amount of memory
 (512MiB or 1GiB is reasonable) and that memory ballooning is disabled
 in the file <tt class="docutils literal"><span class="pre">/etc/xen/xend-config.sxp</span></tt> by setting
@@ -485,8 +490,8 @@ to the console of your instances, set the following two entries in
 /etc/init.d/xend restart
 </pre>
 </div>
-<div class="section" id="selecting-the-instance-kernel">
-<h3><a class="toc-backref" href="#id8">Selecting the instance kernel</a></h3>
+<div class="section">
+<h3><a class="toc-backref" href="#id8" id="selecting-the-instance-kernel" name="selecting-the-instance-kernel">Selecting the instance kernel</a></h3>
 <p>After you have installed Xen, you need to tell Ganeti exactly what
 kernel to use for the instances it will create. This is done by
 creating a symlink from your actual kernel to
@@ -506,9 +511,9 @@ ln -s initrd.img-2.6.26-1-xen-amd64 initrd-2.6-xenU
 </div>
 </div>
 </div>
-<div class="section" id="installing-drbd">
-<h2><a class="toc-backref" href="#id9">Installing DRBD</a></h2>
-<p>Recommended on all nodes: <a class="reference external" href="http://www.drbd.org/">DRBD</a> is required if you want to use the
+<div class="section">
+<h2><a class="toc-backref" href="#id9" id="installing-drbd" name="installing-drbd">Installing DRBD</a></h2>
+<p>Recommended on all nodes: <a class="reference" href="http://www.drbd.org/">DRBD</a> is required if you want to use the
 high availability (HA) features of Ganeti, but optional if you don't
 require HA or only run Ganeti on single-node clusters. You can upgrade
 a non-HA cluster to an HA one later, but you might need to export and
@@ -553,22 +558,22 @@ skip resource &quot;r1&quot; {
 </pre>
 </div>
 </div>
-<div class="section" id="other-required-software">
-<h2><a class="toc-backref" href="#id10">Other required software</a></h2>
+<div class="section">
+<h2><a class="toc-backref" href="#id10" id="other-required-software" name="other-required-software">Other required software</a></h2>
 <p>Besides Xen and DRBD, you will need to install the following (on all
 nodes):</p>
 <ul class="simple">
-<li>LVM version 2, <a class="reference external" href="http://sourceware.org/lvm2/">http://sourceware.org/lvm2/</a></li>
-<li>OpenSSL, <a class="reference external" href="http://www.openssl.org/">http://www.openssl.org/</a></li>
-<li>OpenSSH, <a class="reference external" href="http://www.openssh.com/portable.html">http://www.openssh.com/portable.html</a></li>
-<li>bridge utilities, <a class="reference external" href="http://bridge.sourceforge.net/">http://bridge.sourceforge.net/</a></li>
-<li>iproute2, <a class="reference external" href="http://developer.osdl.org/dev/iproute2">http://developer.osdl.org/dev/iproute2</a></li>
+<li>LVM version 2, <a class="reference" href="http://sourceware.org/lvm2/">http://sourceware.org/lvm2/</a></li>
+<li>OpenSSL, <a class="reference" href="http://www.openssl.org/">http://www.openssl.org/</a></li>
+<li>OpenSSH, <a class="reference" href="http://www.openssh.com/portable.html">http://www.openssh.com/portable.html</a></li>
+<li>bridge utilities, <a class="reference" href="http://bridge.sourceforge.net/">http://bridge.sourceforge.net/</a></li>
+<li>iproute2, <a class="reference" href="http://developer.osdl.org/dev/iproute2">http://developer.osdl.org/dev/iproute2</a></li>
 <li>arping (part of iputils package),
-<a class="reference external" href="ftp://ftp.inr.ac.ru/ip-routing/iputils-current.tar.gz">ftp://ftp.inr.ac.ru/ip-routing/iputils-current.tar.gz</a></li>
-<li>Python version 2.4 or 2.5, <a class="reference external" href="http://www.python.org">http://www.python.org</a></li>
-<li>Python OpenSSL bindings, <a class="reference external" href="http://pyopenssl.sourceforge.net/">http://pyopenssl.sourceforge.net/</a></li>
-<li>simplejson Python module, <a class="reference external" href="http://www.undefined.org/python/#simplejson">http://www.undefined.org/python/#simplejson</a></li>
-<li>pyparsing Python module, <a class="reference external" href="http://pyparsing.wikispaces.com/">http://pyparsing.wikispaces.com/</a></li>
+<a class="reference" href="ftp://ftp.inr.ac.ru/ip-routing/iputils-current.tar.gz">ftp://ftp.inr.ac.ru/ip-routing/iputils-current.tar.gz</a></li>
+<li>Python version 2.4 or 2.5, <a class="reference" href="http://www.python.org">http://www.python.org</a></li>
+<li>Python OpenSSL bindings, <a class="reference" href="http://pyopenssl.sourceforge.net/">http://pyopenssl.sourceforge.net/</a></li>
+<li>simplejson Python module, <a class="reference" href="http://www.undefined.org/python/#simplejson">http://www.undefined.org/python/#simplejson</a></li>
+<li>pyparsing Python module, <a class="reference" href="http://pyparsing.wikispaces.com/">http://pyparsing.wikispaces.com/</a></li>
 </ul>
 <p>These programs are supplied as part of most Linux distributions, so
 usually they can be installed via apt or similar methods. Also many of
@@ -583,10 +588,10 @@ python python-pyopenssl openssl python-pyparsing python-simplejson
 </div>
 </div>
 </div>
-<div class="section" id="setting-up-the-environment-for-ganeti">
-<h1><a class="toc-backref" href="#id11">Setting up the environment for Ganeti</a></h1>
-<div class="section" id="configuring-the-network">
-<h2><a class="toc-backref" href="#id12">Configuring the network</a></h2>
+<div class="section">
+<h1><a class="toc-backref" href="#id11" id="setting-up-the-environment-for-ganeti" name="setting-up-the-environment-for-ganeti">Setting up the environment for Ganeti</a></h1>
+<div class="section">
+<h2><a class="toc-backref" href="#id12" id="configuring-the-network" name="configuring-the-network">Configuring the network</a></h2>
 <p><strong>Mandatory</strong> on all nodes.</p>
 <p>Ganeti relies on Xen running in &quot;bridge mode&quot;, which means the
 instances network interfaces will be attached to a software bridge
@@ -633,8 +638,8 @@ bridge name     bridge id               STP enabled     interfaces
 xen-br0         8000.0020fc1ed55d       no              eth0
 </pre>
 </div>
-<div class="section" id="configuring-lvm">
-<h2><a class="toc-backref" href="#id13">Configuring LVM</a></h2>
+<div class="section">
+<h2><a class="toc-backref" href="#id13" id="configuring-lvm" name="configuring-lvm">Configuring LVM</a></h2>
 <p><strong>Mandatory</strong> on all nodes.</p>
 <p>The volume group is required to be at least 20GiB.</p>
 <p>If you haven't configured your LVM volume group at install time you
@@ -666,11 +671,11 @@ devices for physical volumes. This can be accomplished by editing
 filter = [&quot;r|/dev/cdrom|&quot;, &quot;r|/dev/drbd[0-9]+|&quot; ]
 </pre>
 </div>
-<div class="section" id="installing-ganeti">
-<h2><a class="toc-backref" href="#id14">Installing Ganeti</a></h2>
+<div class="section">
+<h2><a class="toc-backref" href="#id14" id="installing-ganeti" name="installing-ganeti">Installing Ganeti</a></h2>
 <p><strong>Mandatory</strong> on all nodes.</p>
 <p>It's now time to install the Ganeti software itself.  Download the
-source from the project page at <a class="reference external" href="http://code.google.com/p/ganeti/">http://code.google.com/p/ganeti/</a>,
+source from the project page at <a class="reference" href="http://code.google.com/p/ganeti/">http://code.google.com/p/ganeti/</a>,
 and install it (replace 2.0.0 with the latest version):</p>
 <pre class="literal-block">
 tar xvzf ganeti-2.0.0.tar.gz
@@ -692,8 +697,8 @@ a cron job run the <em>ganeti-watcher</em> command. A sample cron file is
 provided in the source at <tt class="docutils literal"><span class="pre">doc/examples/ganeti.cron</span></tt> and you can
 copy that (eventually altering the path) to <tt class="docutils literal"><span class="pre">/etc/cron.d/ganeti</span></tt>.</p>
 </div>
-<div class="section" id="installing-the-operating-system-support-packages">
-<h2><a class="toc-backref" href="#id15">Installing the Operating System support packages</a></h2>
+<div class="section">
+<h2><a class="toc-backref" href="#id15" id="installing-the-operating-system-support-packages" name="installing-the-operating-system-support-packages">Installing the Operating System support packages</a></h2>
 <p><strong>Mandatory</strong> on all nodes.</p>
 <p>To be able to install instances you need to have an Operating System
 installation script. An example OS that works under Debian and can
@@ -727,8 +732,8 @@ apt-get install debootstrap dump kpartx
 <p>Alternatively, you can create your own OS definitions. See the manpage
 <em>ganeti-os-interface</em>.</p>
 </div>
-<div class="section" id="initializing-the-cluster">
-<h2><a class="toc-backref" href="#id16">Initializing the cluster</a></h2>
+<div class="section">
+<h2><a class="toc-backref" href="#id16" id="initializing-the-cluster" name="initializing-the-cluster">Initializing the cluster</a></h2>
 <p><strong>Mandatory</strong> on one node per cluster.</p>
 <p>The last step is to initialize the cluster. After you've repeated the
 above process on all of your nodes, choose one as the master, and
@@ -764,8 +769,8 @@ pass <tt class="docutils literal"><span class="pre">--enabled-hypervisors=kvm</s
 <p>You can also invoke the command with the <tt class="docutils literal"><span class="pre">--help</span></tt> option in order to
 see all the possibilities.</p>
 </div>
-<div class="section" id="joining-the-nodes-to-the-cluster">
-<h2><a class="toc-backref" href="#id17">Joining the nodes to the cluster</a></h2>
+<div class="section">
+<h2><a class="toc-backref" href="#id17" id="joining-the-nodes-to-the-cluster" name="joining-the-nodes-to-the-cluster">Joining the nodes to the cluster</a></h2>
 <p><strong>Mandatory</strong> for all the other nodes.</p>
 <p>After you have initialized your cluster you need to join the other
 nodes to it. You can do so by executing the following command on the
@@ -774,8 +779,8 @@ master node:</p>
 gnt-node add &lt;NODENAME&gt;
 </pre>
 </div>
-<div class="section" id="separate-replication-network">
-<h2><a class="toc-backref" href="#id18">Separate replication network</a></h2>
+<div class="section">
+<h2><a class="toc-backref" href="#id18" id="separate-replication-network" name="separate-replication-network">Separate replication network</a></h2>
 <p><strong>Optional</strong></p>
 <p>Ganeti uses DRBD to mirror the disk of the virtual instances between
 nodes. To use a dedicated network interface for this (in order to
@@ -786,8 +791,8 @@ this secondary interface to use for each node. Note that if you
 specified this option at cluster setup time, you must afterwards use
 it for every node add operation.</p>
 </div>
-<div class="section" id="testing-the-setup">
-<h2><a class="toc-backref" href="#id19">Testing the setup</a></h2>
+<div class="section">
+<h2><a class="toc-backref" href="#id19" id="testing-the-setup" name="testing-the-setup">Testing the setup</a></h2>
 <p>Execute the <tt class="docutils literal"><span class="pre">gnt-node</span> <span class="pre">list</span></tt> command to see all nodes in the
 cluster:</p>
 <pre class="literal-block">
@@ -797,10 +802,10 @@ node1.example.com 197404 197404   2047  1896   125     0     0
 </pre>
 </div>
 </div>
-<div class="section" id="setting-up-and-managing-virtual-instances">
-<h1><a class="toc-backref" href="#id20">Setting up and managing virtual instances</a></h1>
-<div class="section" id="setting-up-virtual-instances">
-<h2><a class="toc-backref" href="#id21">Setting up virtual instances</a></h2>
+<div class="section">
+<h1><a class="toc-backref" href="#id20" id="setting-up-and-managing-virtual-instances" name="setting-up-and-managing-virtual-instances">Setting up and managing virtual instances</a></h1>
+<div class="section">
+<h2><a class="toc-backref" href="#id21" id="setting-up-virtual-instances" name="setting-up-virtual-instances">Setting up virtual instances</a></h2>
 <p>This step shows how to setup a virtual instance with either
 non-mirrored disks (<tt class="docutils literal"><span class="pre">plain</span></tt>) or with network mirrored disks
 (<tt class="docutils literal"><span class="pre">drbd</span></tt>).  All commands need to be executed on the Ganeti master
@@ -843,8 +848,8 @@ creating os for instance instance2.example.com on node node1.example.com
 * starting instance...
 </pre>
 </div>
-<div class="section" id="managing-virtual-instances">
-<h2><a class="toc-backref" href="#id22">Managing virtual instances</a></h2>
+<div class="section">
+<h2><a class="toc-backref" href="#id22" id="managing-virtual-instances" name="managing-virtual-instances">Managing virtual instances</a></h2>
 <p>All commands need to be executed on the Ganeti master node.</p>
 <p>To access the console of an instance, run:</p>
 <pre class="literal-block">

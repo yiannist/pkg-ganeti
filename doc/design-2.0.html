@@ -3,13 +3,15 @@
 <html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
 <head>
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
-<meta name="generator" content="Docutils 0.5: http://docutils.sourceforge.net/" />
+<meta name="generator" content="Docutils 0.4.1: http://docutils.sourceforge.net/" />
 <title>Ganeti 2.0 design</title>
 <style type="text/css">
 
 /*
-:Author: David Goodger (goodger@python.org)
-:Id: $Id: html4css1.css 5196 2007-06-03 20:25:28Z wiemann $
+:Author: David Goodger
+:Contact: goodger@users.sourceforge.net
+:Date: $Date: 2005-12-18 01:56:14 +0100 (Sun, 18 Dec 2005) $
+:Revision: $Revision: 4224 $
 :Copyright: This stylesheet has been placed in the public domain.
 
 Default cascading style sheet for the HTML output of Docutils.
@@ -115,7 +117,7 @@ div.line-block div.line-block {
   margin-left: 1.5em }
 
 div.sidebar {
-  margin: 0 0 0.5em 1em ;
+  margin-left: 1em ;
   border: medium outset ;
   padding: 1em ;
   background-color: #ffffee ;
@@ -221,7 +223,8 @@ pre.address {
 
 pre.literal-block, pre.doctest-block {
   margin-left: 2em ;
-  margin-right: 2em }
+  margin-right: 2em ;
+  background-color: #eeeeee }
 
 span.classifier {
   font-family: sans-serif ;
@@ -278,6 +281,9 @@ h1 tt.docutils, h2 tt.docutils, h3 tt.docutils,
 h4 tt.docutils, h5 tt.docutils, h6 tt.docutils {
   font-size: 100% }
 
+tt.docutils {
+  background-color: #eeeeee }
+
 ul.auto-toc {
   list-style-type: none }
 
@@ -286,61 +292,60 @@ ul.auto-toc {
 <body>
 <div class="document" id="ganeti-2-0-design">
 <h1 class="title">Ganeti 2.0 design</h1>
-
 <p>This document describes the major changes in Ganeti 2.0 compared to
 the 1.2 version.</p>
 <p>The 2.0 version will constitute a rewrite of the 'core' architecture,
 paving the way for additional features in future 2.x versions.</p>
-<div class="contents topic" id="contents">
-<p class="topic-title first">Contents</p>
+<div class="contents topic">
+<p class="topic-title first"><a id="contents" name="contents">Contents</a></p>
 <ul class="simple">
-<li><a class="reference internal" href="#objective" id="id9">Objective</a></li>
-<li><a class="reference internal" href="#background" id="id10">Background</a><ul>
-<li><a class="reference internal" href="#scalability-problems" id="id11">Scalability problems</a></li>
-<li><a class="reference internal" href="#artificial-restrictions" id="id12">Artificial restrictions</a></li>
-<li><a class="reference internal" href="#architecture-issues" id="id13">Architecture issues</a></li>
+<li><a class="reference" href="#objective" id="id9" name="id9">Objective</a></li>
+<li><a class="reference" href="#background" id="id10" name="id10">Background</a><ul>
+<li><a class="reference" href="#scalability-problems" id="id11" name="id11">Scalability problems</a></li>
+<li><a class="reference" href="#artificial-restrictions" id="id12" name="id12">Artificial restrictions</a></li>
+<li><a class="reference" href="#architecture-issues" id="id13" name="id13">Architecture issues</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#overview" id="id14">Overview</a></li>
-<li><a class="reference internal" href="#detailed-design" id="id15">Detailed design</a><ul>
-<li><a class="reference internal" href="#core-changes" id="id16">Core changes</a><ul>
-<li><a class="reference internal" href="#master-daemon" id="id17">Master daemon</a></li>
-<li><a class="reference internal" href="#granular-locking" id="id18">Granular locking</a></li>
-<li><a class="reference internal" href="#job-queue" id="id19">Job Queue</a></li>
-<li><a class="reference internal" href="#object-parameters" id="id20">Object parameters</a></li>
-<li><a class="reference internal" href="#node-flags" id="id21">Node flags</a></li>
+<li><a class="reference" href="#overview" id="id14" name="id14">Overview</a></li>
+<li><a class="reference" href="#detailed-design" id="id15" name="id15">Detailed design</a><ul>
+<li><a class="reference" href="#core-changes" id="id16" name="id16">Core changes</a><ul>
+<li><a class="reference" href="#master-daemon" id="id17" name="id17">Master daemon</a></li>
+<li><a class="reference" href="#granular-locking" id="id18" name="id18">Granular locking</a></li>
+<li><a class="reference" href="#job-queue" id="id19" name="id19">Job Queue</a></li>
+<li><a class="reference" href="#object-parameters" id="id20" name="id20">Object parameters</a></li>
+<li><a class="reference" href="#node-flags" id="id21" name="id21">Node flags</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#feature-changes" id="id22">Feature changes</a><ul>
-<li><a class="reference internal" href="#disk-handling-changes" id="id23">Disk handling changes</a></li>
-<li><a class="reference internal" href="#variable-number-of-disk-nics-per-instance" id="id24">Variable number of disk/NICs per instance</a></li>
+<li><a class="reference" href="#feature-changes" id="id22" name="id22">Feature changes</a><ul>
+<li><a class="reference" href="#disk-handling-changes" id="id23" name="id23">Disk handling changes</a></li>
+<li><a class="reference" href="#variable-number-of-disk-nics-per-instance" id="id24" name="id24">Variable number of disk/NICs per instance</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#interface-changes" id="id25">Interface changes</a><ul>
-<li><a class="reference internal" href="#os-interface" id="id26">OS interface</a></li>
-<li><a class="reference internal" href="#remote-api-changes" id="id27">Remote API changes</a></li>
-<li><a class="reference internal" href="#command-line-changes" id="id28">Command line changes</a></li>
+<li><a class="reference" href="#interface-changes" id="id25" name="id25">Interface changes</a><ul>
+<li><a class="reference" href="#os-interface" id="id26" name="id26">OS interface</a></li>
+<li><a class="reference" href="#remote-api-changes" id="id27" name="id27">Remote API changes</a></li>
+<li><a class="reference" href="#command-line-changes" id="id28" name="id28">Command line changes</a></li>
 </ul>
 </li>
 </ul>
 </li>
-<li><a class="reference internal" href="#glossary" id="id29">Glossary</a></li>
+<li><a class="reference" href="#glossary" id="id29" name="id29">Glossary</a></li>
 </ul>
 </div>
-<div class="section" id="objective">
-<h1><a class="toc-backref" href="#id9">Objective</a></h1>
+<div class="section">
+<h1><a class="toc-backref" href="#id9" id="objective" name="objective">Objective</a></h1>
 <p>Ganeti 1.2 has many scalability issues and restrictions due to its
 roots as software for managing small and 'static' clusters.</p>
 <p>Version 2.0 will attempt to remedy first the scalability issues and
 then the restrictions.</p>
 </div>
-<div class="section" id="background">
-<h1><a class="toc-backref" href="#id10">Background</a></h1>
+<div class="section">
+<h1><a class="toc-backref" href="#id10" id="background" name="background">Background</a></h1>
 <p>While Ganeti 1.2 is usable, it severely limits the flexibility of the
 cluster administration and imposes a very rigid model. It has the
 following main scalability issues:</p>
 <ul class="simple">
-<li>only one operation at a time on the cluster <a class="footnote-reference" href="#id2" id="id1">[1]</a></li>
+<li>only one operation at a time on the cluster <a class="footnote-reference" href="#id2" id="id1" name="id1">[1]</a></li>
 <li>poor handling of node failures in the cluster</li>
 <li>mixing hypervisors in a cluster not allowed</li>
 </ul>
@@ -352,7 +357,7 @@ following main scalability issues:</p>
 <table class="docutils footnote" frame="void" id="id2" rules="none">
 <colgroup><col class="label" /><col /></colgroup>
 <tbody valign="top">
-<tr><td class="label"><a class="fn-backref" href="#id1">[1]</a></td><td>Replace disks will release the lock, but this is an exception
+<tr><td class="label"><a class="fn-backref" href="#id1" name="id2">[1]</a></td><td>Replace disks will release the lock, but this is an exception
 and not a recommended way to operate</td></tr>
 </tbody>
 </table>
@@ -363,8 +368,8 @@ biggest issue with the current version of Ganeti. It is such a big
 impediment in operating bigger clusters that many times one is tempted
 to remove the lock just to do a simple operation like start instance
 while an OS installation is running.</p>
-<div class="section" id="scalability-problems">
-<h2><a class="toc-backref" href="#id11">Scalability problems</a></h2>
+<div class="section">
+<h2><a class="toc-backref" href="#id11" id="scalability-problems" name="scalability-problems">Scalability problems</a></h2>
 <p>Ganeti 1.2 has a single global lock, which is used for all cluster
 operations.  This has been painful at various times, for example:</p>
 <ul class="simple">
@@ -388,23 +393,23 @@ ownership of the cluster configuration and state.</p>
 model, which assumed at its creation a low (one to four) number of
 instances per node, which is no longer true with today's hardware.</p>
 </div>
-<div class="section" id="artificial-restrictions">
-<h2><a class="toc-backref" href="#id12">Artificial restrictions</a></h2>
+<div class="section">
+<h2><a class="toc-backref" href="#id12" id="artificial-restrictions" name="artificial-restrictions">Artificial restrictions</a></h2>
 <p>Ganeti 1.2 (and previous versions) have a fixed two-disks, one-NIC per
 instance model. This is a purely artificial restrictions, but it
 touches multiple areas (configuration, import/export, command line)
 that it's more fitted to a major release than a minor one.</p>
 </div>
-<div class="section" id="architecture-issues">
-<h2><a class="toc-backref" href="#id13">Architecture issues</a></h2>
+<div class="section">
+<h2><a class="toc-backref" href="#id13" id="architecture-issues" name="architecture-issues">Architecture issues</a></h2>
 <p>The fact that each command is a separate process that reads the
 cluster state, executes the command, and saves the new state is also
 an issue on big clusters where the configuration data for the cluster
 begins to be non-trivial in size.</p>
 </div>
 </div>
-<div class="section" id="overview">
-<h1><a class="toc-backref" href="#id14">Overview</a></h1>
+<div class="section">
+<h1><a class="toc-backref" href="#id14" id="overview" name="overview">Overview</a></h1>
 <p>In order to solve the scalability problems, a rewrite of the core
 design of Ganeti is required. While the cluster operations themselves
 won't change (e.g. start instance will do the same things, the way
@@ -414,8 +419,8 @@ these operations are scheduled internally will change radically.</p>
 <p>This differs from the 1.2 architecture by the addition of the master
 daemon, which will be the only entity to talk to the node daemons.</p>
 </div>
-<div class="section" id="detailed-design">
-<h1><a class="toc-backref" href="#id15">Detailed design</a></h1>
+<div class="section">
+<h1><a class="toc-backref" href="#id15" id="detailed-design" name="detailed-design">Detailed design</a></h1>
 <p>The changes for 2.0 can be split into roughly three areas:</p>
 <ul class="simple">
 <li>core changes that affect the design of the software</li>
@@ -424,29 +429,29 @@ impact on the design</li>
 <li>user-level and API-level changes which translate into differences for
 the operation of the cluster</li>
 </ul>
-<div class="section" id="core-changes">
-<h2><a class="toc-backref" href="#id16">Core changes</a></h2>
+<div class="section">
+<h2><a class="toc-backref" href="#id16" id="core-changes" name="core-changes">Core changes</a></h2>
 <p>The main changes will be switching from a per-process model to a
 daemon based model, where the individual gnt-* commands will be
-clients that talk to this daemon (see <a class="reference internal" href="#master-daemon">Master daemon</a>). This will
+clients that talk to this daemon (see <a class="reference" href="#master-daemon">Master daemon</a>). This will
 allow us to get rid of the global cluster lock for most operations,
-having instead a per-object lock (see <a class="reference internal" href="#granular-locking">Granular locking</a>). Also, the
+having instead a per-object lock (see <a class="reference" href="#granular-locking">Granular locking</a>). Also, the
 daemon will be able to queue jobs, and this will allow the individual
 clients to submit jobs without waiting for them to finish, and also
-see the result of old requests (see <a class="reference internal" href="#job-queue">Job Queue</a>).</p>
+see the result of old requests (see <a class="reference" href="#job-queue">Job Queue</a>).</p>
 <p>Beside these major changes, another 'core' change but that will not be
 as visible to the users will be changing the model of object attribute
 storage, and separate that into name spaces (such that an Xen PVM
 instance will not have the Xen HVM parameters). This will allow future
 flexibility in defining additional parameters. For more details see
-<a class="reference internal" href="#object-parameters">Object parameters</a>.</p>
+<a class="reference" href="#object-parameters">Object parameters</a>.</p>
 <p>The various changes brought in by the master daemon model and the
 read-write RAPI will require changes to the cluster security; we move
 away from Twisted and use HTTP(s) for intra- and extra-cluster
 communications. For more details, see the security document in the
 doc/ directory.</p>
-<div class="section" id="master-daemon">
-<h3><a class="toc-backref" href="#id17">Master daemon</a></h3>
+<div class="section">
+<h3><a class="toc-backref" href="#id17" id="master-daemon" name="master-daemon">Master daemon</a></h3>
 <p>In Ganeti 2.0, we will have the following <em>entities</em>:</p>
 <ul class="simple">
 <li>the master daemon (on the master node)</li>
@@ -480,10 +485,10 @@ the master daemon using JSON-encoded messages.</p>
 via a python library that will expose a simple API for its
 users. Internally, the protocol will simply encode all objects in JSON
 format and decode them on the receiver side.</p>
-<p>For more details about the RAPI daemon see <a class="reference internal" href="#remote-api-changes">Remote API changes</a>, and
-for the node daemon see <a class="reference internal" href="#node-daemon-changes">Node daemon changes</a>.</p>
-<div class="section" id="the-luxi-protocol">
-<h4>The LUXI protocol</h4>
+<p>For more details about the RAPI daemon see <a class="reference" href="#remote-api-changes">Remote API changes</a>, and
+for the node daemon see <a class="reference" href="#node-daemon-changes">Node daemon changes</a>.</p>
+<div class="section">
+<h4><a id="the-luxi-protocol" name="the-luxi-protocol">The LUXI protocol</a></h4>
 <p>As described above, the protocol for making requests or queries to the
 master daemon will be a UNIX-socket based simple RPC of JSON-encoded
 messages.</p>
@@ -507,7 +512,7 @@ guaranteed to receive the response in a reasonable time via a timeout.</p>
 <li>archive job (see the job queue design doc)</li>
 <li>wait for job change, which allows a client to wait without polling</li>
 </ul>
-<p>For more details of the actual operation list, see the <a class="reference internal" href="#job-queue">Job Queue</a>.</p>
+<p>For more details of the actual operation list, see the <a class="reference" href="#job-queue">Job Queue</a>.</p>
 <p>Both requests and responses will consist of a JSON-encoded message
 followed by the <tt class="docutils literal"><span class="pre">ETX</span></tt> character (ASCII decimal 3), which is not a
 valid character in JSON messages and thus can serve as a message
@@ -550,8 +555,8 @@ internally between master daemon hung and job simply not changed</li>
 <p>Users of the API that don't use the provided python library should
 take care of the above two cases.</p>
 </div>
-<div class="section" id="master-daemon-implementation">
-<h4>Master daemon implementation</h4>
+<div class="section">
+<h4><a id="master-daemon-implementation" name="master-daemon-implementation">Master daemon implementation</a></h4>
 <p>The daemon will be based around a main I/O thread that will wait for
 new requests from the clients, and that does the setup/shutdown of the
 other thread (pools).</p>
@@ -564,8 +569,8 @@ time</li>
 (LUXI) to the clients, and are short-lived</li>
 </ul>
 </div>
-<div class="section" id="master-startup-failover">
-<h4>Master startup/failover</h4>
+<div class="section">
+<h4><a id="master-startup-failover" name="master-startup-failover">Master startup/failover</a></h4>
 <p>In Ganeti 1.x there is no protection against failing over the master
 to a node with stale configuration. In effect, the responsibility of
 correct failovers falls on the admin. This is true both for the new
@@ -610,8 +615,8 @@ configuration files to the other nodes.</p>
 <p><strong>Note</strong>: the above algorithm is by no means an election algorithm; it
 is a <em>confirmation</em> of the master role currently held by a node.</p>
 </div>
-<div class="section" id="logging">
-<h4>Logging</h4>
+<div class="section">
+<h4><a id="logging" name="logging">Logging</a></h4>
 <p>The logging system will be switched completely to the standard python
 logging module; currently it's logging-based, but exposes a different
 API, which is just overhead. As such, the code will be switched over
@@ -625,12 +630,12 @@ and instead have always one logfile per daemon model:</p>
 <li>rapi-access.log, an additional log file for the RAPI that will be
 in the standard HTTP log format for possible parsing by other tools</li>
 </ul>
-<p>Since the <a class="reference internal" href="#watcher">watcher</a> will only submit jobs to the master for startup
+<p>Since the <a class="reference" href="#watcher">watcher</a> will only submit jobs to the master for startup
 of the instances, its log file will contain less information than
 before, mainly that it will start the instance, but not the results.</p>
 </div>
-<div class="section" id="node-daemon-changes">
-<h4>Node daemon changes</h4>
+<div class="section">
+<h4><a id="node-daemon-changes" name="node-daemon-changes">Node daemon changes</a></h4>
 <p>The only change to the node daemon is that, since we need better
 concurrency, we don't process the inter-node RPC calls in the node
 daemon itself, but we fork and process each request in a separate
@@ -638,8 +643,8 @@ child.</p>
 <p>Since we don't have many calls, and we only fork (not exec), the
 overhead should be minimal.</p>
 </div>
-<div class="section" id="caveats">
-<h4>Caveats</h4>
+<div class="section">
+<h4><a id="caveats" name="caveats">Caveats</a></h4>
 <p>A discussed alternative is to keep the current individual processes
 touching the cluster configuration model. The reasons we have not
 chosen this approach is:</p>
@@ -685,8 +690,8 @@ Twisted 2.x and 8.x.</p>
 we just reused that for inter-node communication.</p>
 </div>
 </div>
-<div class="section" id="granular-locking">
-<h3><a class="toc-backref" href="#id18">Granular locking</a></h3>
+<div class="section">
+<h3><a class="toc-backref" href="#id18" id="granular-locking" name="granular-locking">Granular locking</a></h3>
 <p>We want to make sure that multiple operations can run in parallel on a Ganeti
 Cluster. In order for this to happen we need to make sure concurrently run
 operations don't step on each other toes and break the cluster.</p>
@@ -703,8 +708,8 @@ needs, thus making the cluster more and more parallel one step at a time.</p>
 <p>This section only talks about parallelising Ganeti level operations, aka
 Logical Units, and the locking needed for that. Any other synchronization lock
 needed internally by the code is outside its scope.</p>
-<div class="section" id="library-details">
-<h4>Library details</h4>
+<div class="section">
+<h4><a id="library-details" name="library-details">Library details</a></h4>
 <p>The proposed library has these features:</p>
 <ul class="simple">
 <li>internally managing all the locks, making the implementation transparent
@@ -729,8 +734,8 @@ will be created at initialisation time, from the config file.</p>
 Any attempt to grab a lock while already holding one in the wrong order will be
 checked for, and fail.</p>
 </div>
-<div class="section" id="the-locks">
-<h4>The Locks</h4>
+<div class="section">
+<h4><a id="the-locks" name="the-locks">The Locks</a></h4>
 <p>At the first stage we have decided to provide the following locks:</p>
 <ul class="simple">
 <li>One &quot;config file&quot; lock</li>
@@ -749,8 +754,8 @@ order.</p>
 <li>exclusive (no one else can grab/have the lock)</li>
 </ul>
 </div>
-<div class="section" id="handling-conversion-to-more-granularity">
-<h4>Handling conversion to more granularity</h4>
+<div class="section">
+<h4><a id="handling-conversion-to-more-granularity" name="handling-conversion-to-more-granularity">Handling conversion to more granularity</a></h4>
 <p>In order to convert to a more granular approach transparently each time we
 split a lock into more we'll create a &quot;metalock&quot;, which will depend on those
 sub-locks and live for the time necessary for all the code to convert (or
@@ -768,8 +773,8 @@ without specifying it explicitly.</p>
 decide to split them into an even more fine grained approach, but this will
 probably be only after the first 2.0 version has been released.</p>
 </div>
-<div class="section" id="adding-removing-locks">
-<h4>Adding/Removing locks</h4>
+<div class="section">
+<h4><a id="adding-removing-locks" name="adding-removing-locks">Adding/Removing locks</a></h4>
 <p>When a new instance or a new node is created an associated lock must be added
 to the list. The relevant code will need to inform the locking library of such
 a change.</p>
@@ -783,8 +788,8 @@ which removes them must own them exclusively already, and thus deals
 with metalocks exactly as normal code acquiring those locks. Any
 operation queuing on a removed lock will fail after its removal.</p>
 </div>
-<div class="section" id="asynchronous-operations">
-<h4>Asynchronous operations</h4>
+<div class="section">
+<h4><a id="asynchronous-operations" name="asynchronous-operations">Asynchronous operations</a></h4>
 <p>For the first version the locking library will only export synchronous
 operations, which will block till the needed lock are held, and only fail if
 the request is impossible or somehow erroneous.</p>
@@ -802,16 +807,16 @@ for the second one, is susceptible to starvation and thus may never be able to
 get the required locks and complete certain tasks. Considering this
 providing/using these operations should not be among our first priorities.</p>
 </div>
-<div class="section" id="locking-granularity">
-<h4>Locking granularity</h4>
+<div class="section">
+<h4><a id="locking-granularity" name="locking-granularity">Locking granularity</a></h4>
 <p>For the first version of this code we'll convert each Logical Unit to
 acquire/release the locks it needs, so locking will be at the Logical Unit
 level.  In the future we may want to split logical units in independent
 &quot;tasklets&quot; with their own locking requirements. A different design doc (or mini
 design doc) will cover the move from Logical Units to tasklets.</p>
 </div>
-<div class="section" id="code-examples">
-<h4>Code examples</h4>
+<div class="section">
+<h4><a id="code-examples" name="code-examples">Code examples</a></h4>
 <p>In general when acquiring locks we should use a code path equivalent to:</p>
 <pre class="literal-block">
 lock.acquire()
@@ -847,8 +852,8 @@ lu.Exec()
 <p>The Processor and the LogicalUnit class will contain exact documentation on how
 locks are supposed to be declared.</p>
 </div>
-<div class="section" id="id3">
-<h4>Caveats</h4>
+<div class="section">
+<h4><a id="id3" name="id3">Caveats</a></h4>
 <p>This library will provide an easy upgrade path to bring all the code to
 granular locking without breaking everything, and it will also guarantee
 against a lot of common errors. Code switching from the old &quot;lock everything&quot;
@@ -860,8 +865,8 @@ threaded code (eg for the job queue) but in general these should be leaf locks
 or carefully structured non-leaf ones, to avoid deadlock race conditions.</p>
 </div>
 </div>
-<div class="section" id="job-queue">
-<h3><a class="toc-backref" href="#id19">Job Queue</a></h3>
+<div class="section">
+<h3><a class="toc-backref" href="#id19" id="job-queue" name="job-queue">Job Queue</a></h3>
 <p>Granular locking is not enough to speed up operations, we also need a
 queue to store these and to be able to process as many as possible in
 parallel.</p>
@@ -870,11 +875,11 @@ element of operation in Ganeti 1.2 (and will remain as such). Most
 command-level commands are equivalent to one OpCode, or in some cases
 to a sequence of opcodes, all of the same type (e.g. evacuating a node
 will generate N opcodes of type replace disks).</p>
-<div class="section" id="job-execution-life-of-a-ganeti-job">
-<h4>Job execution—“Life of a Ganeti job”</h4>
+<div class="section">
+<h4><a id="job-execution-life-of-a-ganeti-job" name="job-execution-life-of-a-ganeti-job">Job execution—“Life of a Ganeti job”</a></h4>
 <ol class="arabic simple">
 <li>Job gets submitted by the client. A new job identifier is generated and
-assigned to the job. The job is then automatically replicated <a class="footnote-reference" href="#replic" id="id4">[2]</a>
+assigned to the job. The job is then automatically replicated <a class="footnote-reference" href="#replic" id="id4" name="id4">[2]</a>
 to all nodes in the cluster. The identifier is returned to the client.</li>
 <li>A pool of worker threads waits for new jobs. If all are busy, the job has
 to wait and the first worker finishing its work will grab it. Otherwise any
@@ -890,7 +895,7 @@ There will be a method to archive all jobs older than a a given age.</li>
 <table class="docutils footnote" frame="void" id="replic" rules="none">
 <colgroup><col class="label" /><col /></colgroup>
 <tbody valign="top">
-<tr><td class="label"><a class="fn-backref" href="#id4">[2]</a></td><td>We need replication in order to maintain the consistency across
+<tr><td class="label"><a class="fn-backref" href="#id4" name="replic">[2]</a></td><td>We need replication in order to maintain the consistency across
 all nodes in the system; the master node only differs in the fact that
 now it is running the master daemon, but it if fails and we do a master
 failover, the jobs are still visible on the new master (though marked as
@@ -905,8 +910,8 @@ jobs, it is less of a problem.</p>
 <p>Future improvements will look into checking the consistency of the job
 list and jobs themselves at master daemon startup.</p>
 </div>
-<div class="section" id="job-storage">
-<h4>Job storage</h4>
+<div class="section">
+<h4><a id="job-storage" name="job-storage">Job storage</a></h4>
 <p>Jobs are stored in the filesystem as individual files, serialized
 using JSON (standard serialization mechanism in Ganeti).</p>
 <p>The choice of storing each job in its own file was made because:</p>
@@ -924,8 +929,8 @@ other nodes, and replicating individual operations does not mean wee keep
 consistency</li>
 </ul>
 </div>
-<div class="section" id="queue-structure">
-<h4>Queue structure</h4>
+<div class="section">
+<h4><a id="queue-structure" name="queue-structure">Queue structure</a></h4>
 <p>All file operations have to be done atomically by writing to a temporary file
 and subsequent renaming. Except for log messages, every change in a job is
 stored and replicated to other nodes.</p>
@@ -941,15 +946,15 @@ stored and replicated to other nodes.</p>
   version (Queue format version)
 </pre>
 </div>
-<div class="section" id="locking">
-<h4>Locking</h4>
+<div class="section">
+<h4><a id="locking" name="locking">Locking</a></h4>
 <p>Locking in the job queue is a complicated topic. It is called from more than
 one thread and must be thread-safe. For simplicity, a single lock is used for
 the whole job queue.</p>
 <p>A more detailed description can be found in doc/locking.txt.</p>
 </div>
-<div class="section" id="internal-rpc">
-<h4>Internal RPC</h4>
+<div class="section">
+<h4><a id="internal-rpc" name="internal-rpc">Internal RPC</a></h4>
 <p>RPC calls available between Ganeti master and node daemons:</p>
 <dl class="docutils">
 <dt>jobqueue_update(file_name, content)</dt>
@@ -960,8 +965,8 @@ the whole job queue.</p>
 <dd>Renames a file in the job queue directory.</dd>
 </dl>
 </div>
-<div class="section" id="client-rpc">
-<h4>Client RPC</h4>
+<div class="section">
+<h4><a id="client-rpc" name="client-rpc">Client RPC</a></h4>
 <p>RPC between Ganeti clients and the Ganeti master daemon supports the following
 operations:</p>
 <dl class="docutils">
@@ -982,8 +987,8 @@ is already running, canceled or finished.</dd>
 job has not been canceled or finished.</dd>
 </dl>
 </div>
-<div class="section" id="job-and-opcode-status">
-<h4>Job and opcode status</h4>
+<div class="section">
+<h4><a id="job-and-opcode-status" name="job-and-opcode-status">Job and opcode status</a></h4>
 <p>Each job and each opcode has, at any time, one of the following states:</p>
 <dl class="docutils">
 <dt>Queued</dt>
@@ -1002,23 +1007,23 @@ job has not been canceled or finished.</dd>
 <p>If the master is aborted while a job is running, the job will be set to the
 Error status once the master started again.</p>
 </div>
-<div class="section" id="history">
-<h4>History</h4>
+<div class="section">
+<h4><a id="history" name="history">History</a></h4>
 <p>Archived jobs are kept in a separate directory,
 <tt class="docutils literal"><span class="pre">/var/lib/ganeti/queue/archive/</span></tt>.  This is done in order to speed up
 the queue handling: by default, the jobs in the archive are not
 touched by any functions. Only the current (unarchived) jobs are
 parsed, loaded, and verified (if implemented) by the master daemon.</p>
 </div>
-<div class="section" id="ganeti-updates">
-<h4>Ganeti updates</h4>
+<div class="section">
+<h4><a id="ganeti-updates" name="ganeti-updates">Ganeti updates</a></h4>
 <p>The queue has to be completely empty for Ganeti updates with changes
 in the job queue structure. In order to allow this, there will be a
 way to prevent new jobs entering the queue.</p>
 </div>
 </div>
-<div class="section" id="object-parameters">
-<h3><a class="toc-backref" href="#id20">Object parameters</a></h3>
+<div class="section">
+<h3><a class="toc-backref" href="#id20" id="object-parameters" name="object-parameters">Object parameters</a></h3>
 <p>Across all cluster configuration data, we have multiple classes of
 parameters:</p>
 <ol class="upperalpha simple">
@@ -1043,7 +1048,7 @@ or PAE mode)</li>
 <tr><td>&nbsp;</td><td class="field-body"><p class="first">a hypervisor parameter (or hypervisor specific parameter) is defined
 as a parameter that is interpreted by the hypervisor support code in
 Ganeti and usually is specific to a particular hypervisor (like the
-kernel path for <a class="reference internal" href="#pvm">PVM</a> which makes no sense for <a class="reference internal" href="#hvm">HVM</a>).</p>
+kernel path for <a class="reference" href="#pvm">PVM</a> which makes no sense for <a class="reference" href="#hvm">HVM</a>).</p>
 </td>
 </tr>
 <tr class="field"><th class="field-name" colspan="2">backend parameter:</th></tr>
@@ -1067,8 +1072,8 @@ or the MAC of a NIC)</p>
 JSON-speak, “nil”) will no longer be a valid value for a parameter. As
 such, only non-default parameters will be saved as part of objects in
 the serialization step, reducing the size of the serialized format.</p>
-<div class="section" id="cluster-parameters">
-<h4>Cluster parameters</h4>
+<div class="section">
+<h4><a id="cluster-parameters" name="cluster-parameters">Cluster parameters</a></h4>
 <p>Cluster parameters remain as today, attributes at the top level of the
 Cluster object. In addition, two new attributes at this level will
 hold defaults for the instances:</p>
@@ -1080,15 +1085,15 @@ the instances of this hypervisor type</li>
 which holds the default value for backend parameters</li>
 </ul>
 </div>
-<div class="section" id="node-parameters">
-<h4>Node parameters</h4>
+<div class="section">
+<h4><a id="node-parameters" name="node-parameters">Node parameters</a></h4>
 <p>Node-related parameters are very few, and we will continue using the
 same model for these as previously (attributes on the Node object).</p>
 <p>There are three new node flags, described in a separate section &quot;node
 flags&quot; below.</p>
 </div>
-<div class="section" id="instance-parameters">
-<h4>Instance parameters</h4>
+<div class="section">
+<h4><a id="instance-parameters" name="instance-parameters">Instance parameters</a></h4>
 <p>As described before, the instance parameters are split in three:
 instance proper parameters, unique to each instance, instance
 hypervisor parameters and instance backend parameters.</p>
@@ -1136,8 +1141,8 @@ will be mapped to the three classes of parameters:</p>
 <li>serial_no (P)</li>
 </ul>
 </div>
-<div class="section" id="parameter-validation">
-<h4>Parameter validation</h4>
+<div class="section">
+<h4><a id="parameter-validation" name="parameter-validation">Parameter validation</a></h4>
 <p>To support the new cluster parameter design, additional features will
 be required from the hypervisor support implementations in Ganeti.</p>
 <p>The hypervisor support  implementation API will be extended with the
@@ -1165,8 +1170,8 @@ make node-specific checks (e.g. kernel_path checking)</td>
 </tbody>
 </table>
 </div>
-<div class="section" id="default-value-application">
-<h4>Default value application</h4>
+<div class="section">
+<h4><a id="default-value-application" name="default-value-application">Default value application</a></h4>
 <p>The application of defaults to an instance is done in the Cluster
 object, via two new methods as follows:</p>
 <ul class="simple">
@@ -1181,8 +1186,8 @@ hvparams/beparams will have the final value (noded code doesn't know
 about defaults).</p>
 <p>LU code will need to self-call the transformation, if needed.</p>
 </div>
-<div class="section" id="opcode-changes">
-<h4>Opcode changes</h4>
+<div class="section">
+<h4><a id="opcode-changes" name="opcode-changes">Opcode changes</a></h4>
 <p>The parameter changes will have impact on the OpCodes, especially on
 the following ones:</p>
 <ul class="simple">
@@ -1200,8 +1205,8 @@ dictionaries</li>
 <p>Additionally, we will need new OpCodes to modify the cluster-level
 defaults for the be/hv sets of parameters.</p>
 </div>
-<div class="section" id="id5">
-<h4>Caveats</h4>
+<div class="section">
+<h4><a id="id5" name="id5">Caveats</a></h4>
 <p>One problem that might appear is that our classification is not
 complete or not good enough, and we'll need to change this model. As
 the last resort, we will need to rollback and keep 1.2 style.</p>
@@ -1209,8 +1214,8 @@ the last resort, we will need to rollback and keep 1.2 style.</p>
 (e.g. <tt class="docutils literal"><span class="pre">network_port</span></tt>, is this BE or HV?); in this case we'll take
 the risk of having to move parameters later between classes.</p>
 </div>
-<div class="section" id="security">
-<h4>Security</h4>
+<div class="section">
+<h4><a id="security" name="security">Security</a></h4>
 <p>The only security issue that we foresee is if some new parameters will
 have sensitive value. If so, we will need to have a way to export the
 config data while purging the sensitive value.</p>
@@ -1218,13 +1223,13 @@ config data while purging the sensitive value.</p>
 values replaced by an empty string.</p>
 </div>
 </div>
-<div class="section" id="node-flags">
-<h3><a class="toc-backref" href="#id21">Node flags</a></h3>
+<div class="section">
+<h3><a class="toc-backref" href="#id21" id="node-flags" name="node-flags">Node flags</a></h3>
 <p>Ganeti 2.0 adds three node flags that change the way nodes are handled
 within Ganeti and the related infrastructure (iallocator interaction,
 RAPI data export).</p>
-<div class="section" id="master-candidate-flag">
-<h4><em>master candidate</em> flag</h4>
+<div class="section">
+<h4><a id="master-candidate-flag" name="master-candidate-flag"><em>master candidate</em> flag</a></h4>
 <p>Ganeti 2.0 allows more scalability in operation by introducing
 parallelization. However, a new bottleneck is reached that is the
 synchronization and replication of cluster configuration to all nodes
@@ -1270,8 +1275,8 @@ this can be changed at cluster creation and modified any time later.</p>
 show that this value (10) is a sweet-spot from performance and load
 point of view.</p>
 </div>
-<div class="section" id="offline-flag">
-<h4><em>offline</em> flag</h4>
+<div class="section">
+<h4><a id="offline-flag" name="offline-flag"><em>offline</em> flag</a></h4>
 <p>In order to support better the situation in which nodes are offline
 (e.g. for repair) without altering the cluster configuration, Ganeti
 needs to be told and needs to properly handle this state for nodes.</p>
@@ -1335,8 +1340,8 @@ having this state will make both the codepaths clearer (offline
 vs. temporary failure) and the operational model (it's not a node with
 errors, but an offline node).</p>
 </div>
-<div class="section" id="drained-flag">
-<h4><em>drained</em> flag</h4>
+<div class="section">
+<h4><a id="drained-flag" name="drained-flag"><em>drained</em> flag</a></h4>
 <p>Due to parallel execution of jobs in Ganeti 2.0, we could have the
 following situation:</p>
 <ul class="simple">
@@ -1355,8 +1360,8 @@ expected to go offline&quot;), will prevent allocations on the node, but
 otherwise all other operations (start/stop instance, query, etc.) are
 working without any restrictions.</p>
 </div>
-<div class="section" id="interaction-between-flags">
-<h4>Interaction between flags</h4>
+<div class="section">
+<h4><a id="interaction-between-flags" name="interaction-between-flags">Interaction between flags</a></h4>
 <p>While these flags are implemented as separate flags, they are
 mutually-exclusive and are acting together with the master node role
 as a single <em>node status</em> value. In other words, a flag is only in one
@@ -1370,15 +1375,15 @@ and via RAPI, see the respective man pages for the exact names.</p>
 </div>
 </div>
 </div>
-<div class="section" id="feature-changes">
-<h2><a class="toc-backref" href="#id22">Feature changes</a></h2>
+<div class="section">
+<h2><a class="toc-backref" href="#id22" id="feature-changes" name="feature-changes">Feature changes</a></h2>
 <p>The main feature-level changes will be:</p>
 <ul class="simple">
 <li>a number of disk related changes</li>
 <li>removal of fixed two-disk, one-nic per instance limitation</li>
 </ul>
-<div class="section" id="disk-handling-changes">
-<h3><a class="toc-backref" href="#id23">Disk handling changes</a></h3>
+<div class="section">
+<h3><a class="toc-backref" href="#id23" id="disk-handling-changes" name="disk-handling-changes">Disk handling changes</a></h3>
 <p>The storage options available in Ganeti 1.x were introduced based on
 then-current software (first DRBD 0.7 then later DRBD 8) and the
 estimated usage patters. However, experience has later shown that some
@@ -1422,8 +1427,8 @@ order to ensure each device connects to the correct peer</li>
 <li>remove the restrictions on failover only to the secondary
 which creates very strict rules on cluster allocation</li>
 </ul>
-<div class="section" id="drbd-minor-allocation">
-<h4>DRBD minor allocation</h4>
+<div class="section">
+<h4><a id="drbd-minor-allocation" name="drbd-minor-allocation">DRBD minor allocation</a></h4>
 <p>Currently, when trying to identify or activate a new DRBD (or MD)
 device, the code scans all in-use devices in order to see if we find
 one that looks similar to our parameters and is already in the desired
@@ -1445,8 +1450,8 @@ automatically removed.</p>
 commands run per device from a constant number times the index of the
 first free DRBD minor to just a constant number.</p>
 </div>
-<div class="section" id="removal-of-obsolete-device-types-md-drbd7">
-<h4>Removal of obsolete device types (MD, DRBD7)</h4>
+<div class="section">
+<h4><a id="removal-of-obsolete-device-types-md-drbd7" name="removal-of-obsolete-device-types-md-drbd7">Removal of obsolete device types (MD, DRBD7)</a></h4>
 <p>We need to remove these device types because of two issues. First,
 DRBD7 has bad failure modes in case of dual failures (both network and
 disk - it cannot propagate the error up the device stack and instead
@@ -1454,15 +1459,15 @@ just panics. Second, due to the asymmetry between primary and
 secondary in MD+DRBD mode, we cannot do live failover (not even if we
 had MD+DRBD8).</p>
 </div>
-<div class="section" id="file-based-storage-support">
-<h4>File-based storage support</h4>
+<div class="section">
+<h4><a id="file-based-storage-support" name="file-based-storage-support">File-based storage support</a></h4>
 <p>Using files instead of logical volumes for instance storage would
 allow us to get rid of the hard requirement for volume groups for
 testing clusters and it would also allow usage of SAN storage to do
 live failover taking advantage of this storage solution.</p>
 </div>
-<div class="section" id="better-lvm-allocation">
-<h4>Better LVM allocation</h4>
+<div class="section">
+<h4><a id="better-lvm-allocation" name="better-lvm-allocation">Better LVM allocation</a></h4>
 <p>Currently, the LV to PV allocation mechanism is a very simple one: at
 each new request for a logical volume, tell LVM to allocate the volume
 in order based on the amount of free space. This is good for
@@ -1482,15 +1487,15 @@ instance creation, or at change secondary node time. At add disk time,
 or at replacing individual disks, it's not easy enough to compute the
 current disk map so we'll not attempt the clustering.</p>
 </div>
-<div class="section" id="drbd8-peer-authentication-at-handshake">
-<h4>DRBD8 peer authentication at handshake</h4>
+<div class="section">
+<h4><a id="drbd8-peer-authentication-at-handshake" name="drbd8-peer-authentication-at-handshake">DRBD8 peer authentication at handshake</a></h4>
 <p>DRBD8 has a new feature that allow authentication of the peer at
 connect time. We can use this to prevent connecting to the wrong peer
 more that securing the connection. Even though we never had issues
 with wrong connections, it would be good to implement this.</p>
 </div>
-<div class="section" id="lvm-self-repair-optional">
-<h4>LVM self-repair (optional)</h4>
+<div class="section">
+<h4><a id="lvm-self-repair-optional" name="lvm-self-repair-optional">LVM self-repair (optional)</a></h4>
 <p>The complete failure of a physical disk is very tedious to
 troubleshoot, mainly because of the many failure modes and the many
 steps needed. We can safely automate some of the steps, more
@@ -1528,8 +1533,8 @@ instances affected</li>
 </li>
 </ol>
 </div>
-<div class="section" id="failover-to-any-node">
-<h4>Failover to any node</h4>
+<div class="section">
+<h4><a id="failover-to-any-node" name="failover-to-any-node">Failover to any node</a></h4>
 <p>With a modified disk activation sequence, we can implement the
 <em>failover to any</em> functionality, removing many of the layout
 restrictions of a cluster:</p>
@@ -1576,8 +1581,8 @@ proper disk monitoring.</p>
 <p>Live migration note: While failover-to-any is possible for all choices
 of S2, migration-to-any is possible only if we keep P1 as S2.</p>
 </div>
-<div class="section" id="id6">
-<h4>Caveats</h4>
+<div class="section">
+<h4><a id="id6" name="id6">Caveats</a></h4>
 <p>The dynamic device model, while more complex, has an advantage: it
 will not reuse by mistake the DRBD device of another instance, since
 it always looks for either our own or a free one.</p>
@@ -1588,10 +1593,10 @@ down, or we abort the startup. Otherwise, it could be that we start
 syncing between two instance's disks, causing data loss.</p>
 </div>
 </div>
-<div class="section" id="variable-number-of-disk-nics-per-instance">
-<h3><a class="toc-backref" href="#id24">Variable number of disk/NICs per instance</a></h3>
-<div class="section" id="variable-number-of-disks">
-<h4>Variable number of disks</h4>
+<div class="section">
+<h3><a class="toc-backref" href="#id24" id="variable-number-of-disk-nics-per-instance" name="variable-number-of-disk-nics-per-instance">Variable number of disk/NICs per instance</a></h3>
+<div class="section">
+<h4><a id="variable-number-of-disks" name="variable-number-of-disks">Variable number of disks</a></h4>
 <p>In order to support high-security scenarios (for example read-only sda
 and read-write sdb), we need to make a fully flexibly disk
 definition. This has less impact that it might look at first sight:
@@ -1604,8 +1609,8 @@ opposed to &quot;the two disks of the instance&quot;, but some pieces are not
 instance creation, and to be able to toggle from read-only to
 read-write a disk afterward.</p>
 </div>
-<div class="section" id="variable-number-of-nics">
-<h4>Variable number of NICs</h4>
+<div class="section">
+<h4><a id="variable-number-of-nics" name="variable-number-of-nics">Variable number of NICs</a></h4>
 <p>Similar to the disk change, we need to allow multiple network
 interfaces per instance. This will affect the internal code (some
 function will have to stop assuming that <tt class="docutils literal"><span class="pre">instance.nics</span></tt> is a list
@@ -1614,13 +1619,13 @@ instance, and the command line interface.</p>
 </div>
 </div>
 </div>
-<div class="section" id="interface-changes">
-<h2><a class="toc-backref" href="#id25">Interface changes</a></h2>
+<div class="section">
+<h2><a class="toc-backref" href="#id25" id="interface-changes" name="interface-changes">Interface changes</a></h2>
 <p>There are two areas of interface changes: API-level changes (the OS
 interface and the RAPI interface) and the command line interface
 changes.</p>
-<div class="section" id="os-interface">
-<h3><a class="toc-backref" href="#id26">OS interface</a></h3>
+<div class="section">
+<h3><a class="toc-backref" href="#id26" id="os-interface" name="os-interface">OS interface</a></h3>
 <p>The current Ganeti OS interface, version 5, is tailored for Ganeti 1.2. The
 interface is composed by a series of scripts which get called with certain
 parameters to perform OS-dependent operations on the cluster. The current
@@ -1659,8 +1664,8 @@ and make a few of the scripts (import, export and rename) optional. Most
 information will be passed to the script through environment variables, for
 ease of access and at the same time ease of using only the information a script
 needs.</p>
-<div class="section" id="the-scripts">
-<h4>The Scripts</h4>
+<div class="section">
+<h4><a id="the-scripts" name="the-scripts">The Scripts</a></h4>
 <p>As in Ganeti 1.2, every OS which wants to be installed in Ganeti needs to
 support the following functionality, through scripts:</p>
 <dl class="docutils">
@@ -1683,8 +1688,8 @@ instance.</dd>
 given operation on instances using the non-implementing OS. Of course the
 create script is mandatory, and it doesn't make sense to support the either the
 export or the import operation but not both.</p>
-<div class="section" id="incompatibilities-with-1-2">
-<h5>Incompatibilities with 1.2</h5>
+<div class="section">
+<h5><a id="incompatibilities-with-1-2" name="incompatibilities-with-1-2">Incompatibilities with 1.2</a></h5>
 <p>We expect the following incompatibilities between the OS scripts for 1.2 and
 the ones for 2.0:</p>
 <ul class="simple">
@@ -1700,8 +1705,8 @@ operations will be forbidden for instances of that OS. This makes it easier
 to distinguish between unsupported operations and no-op ones (if any).</li>
 </ul>
 </div>
-<div class="section" id="input">
-<h5>Input</h5>
+<div class="section">
+<h5><a id="input" name="input">Input</a></h5>
 <p>Rather than using command line flags, as they do now, scripts will accept
 inputs from environment variables.  We expect the following input values:</p>
 <dl class="docutils">
@@ -1726,8 +1731,8 @@ read-only disks, but will be passed them to know.</dd>
 <dt>DISK_&lt;N&gt;_FRONTEND_TYPE</dt>
 <dd>Type of the disk as seen by the instance. Can be 'scsi', 'ide', 'virtio'</dd>
 <dt>DISK_&lt;N&gt;_BACKEND_TYPE</dt>
-<dd>Type of the disk as seen from the node. Can be 'block', '<a class="reference external" href="file:loop">file:loop</a>' or
-'<a class="reference external" href="file:blktap">file:blktap</a>'</dd>
+<dd>Type of the disk as seen from the node. Can be 'block', '<a class="reference" href="file:loop">file:loop</a>' or
+'<a class="reference" href="file:blktap">file:blktap</a>'</dd>
 <dt>NIC_&lt;N&gt;_MAC</dt>
 <dd>Mac address for the Nth network interface</dd>
 <dt>NIC_&lt;N&gt;_IP</dt>
@@ -1764,8 +1769,8 @@ always needed and we could pass it on the command line. On the other hand,
 though, this would force scripts to both access the environment and parse the
 command line, so we'll move it for uniformity.)</p>
 </div>
-<div class="section" id="output-behaviour">
-<h5>Output/Behaviour</h5>
+<div class="section">
+<h5><a id="output-behaviour" name="output-behaviour">Output/Behaviour</a></h5>
 <p>As discussed scripts should only send user-targeted information to stderr. The
 create and import scripts are supposed to format/initialise the given block
 devices and install the correct instance data. The export script is supposed to
@@ -1775,8 +1780,8 @@ done. The rename script should only modify the instance's knowledge of what
 its name is.</p>
 </div>
 </div>
-<div class="section" id="other-declarative-style-features">
-<h4>Other declarative style features</h4>
+<div class="section">
+<h4><a id="other-declarative-style-features" name="other-declarative-style-features">Other declarative style features</a></h4>
 <p>Similar to Ganeti 1.2, OS specifications will need to provide a
 'ganeti_api_version' containing list of numbers matching the
 version(s) of the API they implement. Ganeti itself will always be
@@ -1788,8 +1793,8 @@ supported one version number.</p>
 <p>In addition to that an OS will be able to declare that it does support only a
 subset of the Ganeti hypervisors, by declaring them in the 'hypervisors' file.</p>
 </div>
-<div class="section" id="caveats-notes">
-<h4>Caveats/Notes</h4>
+<div class="section">
+<h4><a id="caveats-notes" name="caveats-notes">Caveats/Notes</a></h4>
 <p>We might want to have a &quot;default&quot; import/export behaviour that just dumps all
 disks and restores them. This can save work as most systems will just do this,
 while allowing flexibility for different systems.</p>
@@ -1800,8 +1805,8 @@ information on the filesystem and providing the OS script with the path to a
 file where they are encoded in some format.</p>
 </div>
 </div>
-<div class="section" id="remote-api-changes">
-<h3><a class="toc-backref" href="#id27">Remote API changes</a></h3>
+<div class="section">
+<h3><a class="toc-backref" href="#id27" id="remote-api-changes" name="remote-api-changes">Remote API changes</a></h3>
 <p>The first Ganeti remote API (RAPI) was designed and deployed with the
 Ganeti 1.2.5 release.  That version provide read-only access to the
 cluster state. Fully functional read-write API demands significant
@@ -1812,8 +1817,8 @@ stateless, scalable and extensible paradigm of API implementation. As
 transport it uses HTTP over SSL, and we are implementing it with JSON
 encoding, but in a way it possible to extend and provide any other
 one.</p>
-<div class="section" id="design">
-<h4>Design</h4>
+<div class="section">
+<h4><a id="design" name="design">Design</a></h4>
 <p>The Ganeti RAPI is implemented as independent daemon, running on the
 same node with the same permission level as Ganeti master
 daemon. Communication is done through the LUXI library to the master
@@ -1828,13 +1833,13 @@ response body. Typical examples of queries would be: list of nodes,
 instances, cluster info, etc.</p>
 <p>In the case of job submission, the client receive a job ID, the
 identifier which allows to query the job progress in the job queue
-(see <a class="reference internal" href="#job-queue">Job Queue</a>).</p>
+(see <a class="reference" href="#job-queue">Job Queue</a>).</p>
 <p>Internally, each exported object has an version identifier, which is
 used as a state identifier in the HTTP header E-Tag field for
 requests/responses to avoid race conditions.</p>
 </div>
-<div class="section" id="resource-representation">
-<h4>Resource representation</h4>
+<div class="section">
+<h4><a id="resource-representation" name="resource-representation">Resource representation</a></h4>
 <p>The key difference of using REST instead of others API is that REST
 requires separation of services via resources with unique URIs. Each
 of them should have limited amount of state and support standard HTTP
@@ -1866,16 +1871,16 @@ transparency to operations (e.g. only one request needs to be analyzed
 to understand the in-progress operation, not a sequence of multiple
 requests/responses).</p>
 </div>
-<div class="section" id="id7">
-<h4>Security</h4>
+<div class="section">
+<h4><a id="id7" name="id7">Security</a></h4>
 <p>With the write functionality security becomes a much bigger an issue.
 The Ganeti RAPI uses basic HTTP authentication on top of an
 SSL-secured connection to grant access to an exported resource. The
 password is stored locally in an Apache-style <tt class="docutils literal"><span class="pre">.htpasswd</span></tt> file. Only
 one level of privileges is supported.</p>
 </div>
-<div class="section" id="id8">
-<h4>Caveats</h4>
+<div class="section">
+<h4><a id="id8" name="id8">Caveats</a></h4>
 <p>The model detailed above for job submission requires the client to
 poll periodically for updates to the job; an alternative would be to
 allow the client to request a callback, or a 'wait for updates' call.</p>
@@ -1892,8 +1897,8 @@ client-to-RAPI calls, which is usual in DMZ cases)</li>
 where requests are supposed to be short-lived.</p>
 </div>
 </div>
-<div class="section" id="command-line-changes">
-<h3><a class="toc-backref" href="#id28">Command line changes</a></h3>
+<div class="section">
+<h3><a class="toc-backref" href="#id28" id="command-line-changes" name="command-line-changes">Command line changes</a></h3>
 <p>Ganeti 2.0 introduces several new features as well as new ways to
 handle instance resources like disks or network interfaces. This
 requires some noticeable changes in the way command line arguments are
@@ -1946,16 +1951,16 @@ will change:</p>
 </ul>
 </li>
 </ul>
-<div class="section" id="notes-about-device-removal-addition">
-<h4>Notes about device removal/addition</h4>
+<div class="section">
+<h4><a id="notes-about-device-removal-addition" name="notes-about-device-removal-addition">Notes about device removal/addition</a></h4>
 <p>To avoid problems with device location changes (e.g. second network
 interface of the instance becoming the first or third and the like)
 the list of network/disk devices is treated as a stack, i.e. devices
 can only be added/removed at the end of the list of devices of each
 class (disk or network) for each instance.</p>
 </div>
-<div class="section" id="gnt-instance-commands">
-<h4>gnt-instance commands</h4>
+<div class="section">
+<h4><a id="gnt-instance-commands" name="gnt-instance-commands">gnt-instance commands</a></h4>
 <p>The commands for gnt-instance will be modified and extended to allow
 for the new functionality:</p>
 <ul class="simple">
@@ -1966,8 +1971,8 @@ instances, but will be extended with new arguments for handling
 devices.</li>
 </ul>
 </div>
-<div class="section" id="network-device-options">
-<h4>Network Device Options</h4>
+<div class="section">
+<h4><a id="network-device-options" name="network-device-options">Network Device Options</a></h4>
 <p>The generic format of the network device option is:</p>
 <blockquote>
 --net $DEVNUM[:$OPTION=$VALUE][,$OPTION=VALUE]</blockquote>
@@ -2003,8 +2008,8 @@ specified, the default value 'auto' is assumed.</td>
 </tbody>
 </table>
 </div>
-<div class="section" id="disk-device-options">
-<h4>Disk Device Options</h4>
+<div class="section">
+<h4><a id="disk-device-options" name="disk-device-options">Disk Device Options</a></h4>
 <p>The generic format of the disk device option is:</p>
 <blockquote>
 --disk $DEVNUM[:$OPTION=$VALUE][,$OPTION=VALUE]</blockquote>
@@ -2051,8 +2056,8 @@ exists. This option is not valid for all disk layout types.</p>
 </tbody>
 </table>
 </div>
-<div class="section" id="adding-devices">
-<h4>Adding devices</h4>
+<div class="section">
+<h4><a id="adding-devices" name="adding-devices">Adding devices</a></h4>
 <p>To add devices to an already existing instance, use the device type
 specific option to gnt-instance modify. Currently, there are two
 device type specific options supported:</p>
@@ -2074,8 +2079,8 @@ for the specified instance, e.g. if the instance has disk devices 0,1
 and 2, the newly added disk device will be disk device 3.</p>
 <p>Example: gnt-instance modify --net add:mac=auto test-instance</p>
 </div>
-<div class="section" id="removing-devices">
-<h4>Removing devices</h4>
+<div class="section">
+<h4><a id="removing-devices" name="removing-devices">Removing devices</a></h4>
 <p>Removing devices from and instance is done via gnt-instance
 modify. The same device specific options as for adding instances are
 used. Instead of a device number and further device options, only the
@@ -2085,8 +2090,8 @@ e.g. if the instance has disk devices 0, 1, 2 and 3, the disk device
 number 3 will be removed.</p>
 <p>Example: gnt-instance modify --net remove test-instance</p>
 </div>
-<div class="section" id="modifying-devices">
-<h4>Modifying devices</h4>
+<div class="section">
+<h4><a id="modifying-devices" name="modifying-devices">Modifying devices</a></h4>
 <p>Modifying devices is also done with device type specific options to
 the gnt-instance modify command. There are currently two device type
 options supported:</p>
@@ -2108,8 +2113,8 @@ be modified.</p>
 gnt-instance modify --disk 2:access=r
 </pre>
 </div>
-<div class="section" id="hypervisor-options">
-<h4>Hypervisor Options</h4>
+<div class="section">
+<h4><a id="hypervisor-options" name="hypervisor-options">Hypervisor Options</a></h4>
 <p>Ganeti 2.0 will support more than one hypervisor. Different
 hypervisors have various options that only apply to a specific
 hypervisor. Those hypervisor specific options are treated specially
@@ -2136,8 +2141,8 @@ time via the <tt class="docutils literal"><span class="pre">gnt-instance</span> 
 instance is not specified upon instance creation, the default
 hypervisor will be used.</p>
 </div>
-<div class="section" id="modifying-hypervisor-parameters">
-<h4>Modifying hypervisor parameters</h4>
+<div class="section">
+<h4><a id="modifying-hypervisor-parameters" name="modifying-hypervisor-parameters">Modifying hypervisor parameters</a></h4>
 <p>The hypervisor parameters of an existing instance can be modified
 using <tt class="docutils literal"><span class="pre">--hypervisor</span></tt> option of the <tt class="docutils literal"><span class="pre">gnt-instance</span> <span class="pre">modify</span></tt>
 command. However, the hypervisor type of an existing instance can not
@@ -2150,8 +2155,8 @@ separated list of option-value pairs.</p>
 gnt-instance modify --hypervisor cdrom=/srv/boot.iso,boot_order=cdrom:network test-instance
 </pre>
 </div>
-<div class="section" id="gnt-cluster-commands">
-<h4>gnt-cluster commands</h4>
+<div class="section">
+<h4><a id="gnt-cluster-commands" name="gnt-cluster-commands">gnt-cluster commands</a></h4>
 <p>The command for gnt-cluster will be extended to allow setting and
 changing the default parameters of the cluster:</p>
 <ul class="simple">
@@ -2197,8 +2202,8 @@ existing on the node(s).</td>
 </tbody>
 </table>
 </div>
-<div class="section" id="hypervisor-cluster-defaults">
-<h4>Hypervisor cluster defaults</h4>
+<div class="section">
+<h4><a id="hypervisor-cluster-defaults" name="hypervisor-cluster-defaults">Hypervisor cluster defaults</a></h4>
 <p>The generic format of the hypervisor cluster wide default setting
 option is:</p>
 <pre class="literal-block">
@@ -2221,8 +2226,8 @@ to set, string</td>
 </div>
 </div>
 </div>
-<div class="section" id="glossary">
-<h1><a class="toc-backref" href="#id29">Glossary</a></h1>
+<div class="section">
+<h1><a class="toc-backref" href="#id29" id="glossary" name="glossary">Glossary</a></h1>
 <p>Since this document is only a delta from the Ganeti 1.2, there are
 some unexplained terms. Here is a non-exhaustive list.</p>
 <dl class="docutils" id="hvm">

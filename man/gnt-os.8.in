@@ -3,7 +3,7 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GNT-OS" "8" "16 December 2009" "ganeti 2.0" ""
+.TH "GNT-OS" "8" "04 February 2010" "ganeti 2.0" ""
 
 .SH NAME
 gnt-os \- instance operating system administration

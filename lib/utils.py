@@ -502,7 +502,7 @@ def ReadPidFile(pidfile):
 
   try:
     pid = int(pf.read())
-  except ValueError, err:
+  except (TypeError, ValueError), err:
     logging.info("Can't parse pid file contents", exc_info=True)
     return 0
 
@@ -2125,12 +2125,12 @@ class FieldSet(object):
 
     @type field: str
     @param field: the string to match
-    @return: either False or a regular expression match object
+    @return: either None or a regular expression match object
 
     """
     for m in itertools.ifilter(None, (val.match(field) for val in self.items)):
       return m
-    return False
+    return None
 
   def NonMatching(self, items):
     """Returns the list of fields not matching the current set

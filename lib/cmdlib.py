@@ -21,7 +21,10 @@
 
 """Module implementing the master-side code."""
 
-# pylint: disable-msg=W0613,W0201
+# pylint: disable-msg=W0201
+
+# W0201 since most LU attributes are defined in CheckPrereq or similar
+# functions
 
 import os
 import os.path
@@ -84,8 +87,8 @@ class LogicalUnit(object):
     self.recalculate_locks = {}
     self.__ssh = None
     # logging
-    self.LogWarning = processor.LogWarning
-    self.LogInfo = processor.LogInfo
+    self.LogWarning = processor.LogWarning # pylint: disable-msg=C0103
+    self.LogInfo = processor.LogInfo # pylint: disable-msg=C0103
 
     for attr_name in self._OP_REQP:
       attr_val = getattr(op, attr_name, None)
@@ -322,7 +325,7 @@ class LogicalUnit(object):
     del self.recalculate_locks[locking.LEVEL_NODE]
 
 
-class NoHooksLU(LogicalUnit):
+class NoHooksLU(LogicalUnit): # pylint: disable-msg=W0223
   """Simple LU which runs no hooks.
 
   This LU is intended as a parent for other LogicalUnits which will
@@ -331,6 +334,14 @@ class NoHooksLU(LogicalUnit):
   """
   HPATH = None
   HTYPE = None
+
+  def BuildHooksEnv(self):
+    """Empty BuildHooksEnv for NoHooksLu.
+
+    This just raises an error.
+
+    """
+    assert False, "BuildHooksEnv called for NoHooksLUs"
 
 
 def _GetWantedNodes(lu, nodes):
@@ -1929,7 +1940,11 @@ class LURemoveNode(LogicalUnit):
       "NODE_NAME": self.op.node_name,
       }
     all_nodes = self.cfg.GetNodeList()
-    all_nodes.remove(self.op.node_name)
+    try:
+      all_nodes.remove(self.op.node_name)
+    except ValueError:
+      logging.warning("Node %s which is about to be removed not found"
+                      " in the all nodes list", self.op.node_name)
     return env, all_nodes, all_nodes
 
   def CheckPrereq(self):
@@ -4644,7 +4659,7 @@ class LUCreateInstance(LogicalUnit):
         raise errors.OpPrereqError("Missing disk size")
       try:
         size = int(size)
-      except ValueError:
+      except (TypeError, ValueError):
         raise errors.OpPrereqError("Invalid disk size '%s'" % size)
       self.disks.append({"size": size, "mode": mode})
 
@@ -5218,7 +5233,8 @@ class LUReplaceDisks(LogicalUnit):
     if len(ial.nodes) != ial.required_nodes:
       raise errors.OpPrereqError("iallocator '%s' returned invalid number"
                                  " of nodes (%s), required %s" %
-                                 (len(ial.nodes), ial.required_nodes))
+                                 (self.op.iallocator,
+                                  len(ial.nodes), ial.required_nodes))
     self.op.remote_node = ial.nodes[0]
     self.LogInfo("Selected new secondary for the instance: %s",
                  self.op.remote_node)
@@ -6000,7 +6016,7 @@ class LUSetInstanceParams(LogicalUnit):
           raise errors.OpPrereqError("Required disk parameter size missing")
         try:
           size = int(size)
-        except ValueError, err:
+        except (TypeError, ValueError), err:
           raise errors.OpPrereqError("Invalid disk size parameter: %s" %
                                      str(err))
         disk_dict['size'] = size
@@ -6635,7 +6651,7 @@ class LURemoveExport(NoHooksLU):
                   " Domain Name.")
 
 
-class TagsLU(NoHooksLU):
+class TagsLU(NoHooksLU): # pylint: disable-msg=W0223
   """Generic tags LU.
 
   This is an abstract class which is the parent of all the other tags LUs.
@@ -6958,7 +6974,7 @@ class IAllocator(object):
                                      " '%s'" % (nname, attr))
           try:
             remote_info[attr] = int(remote_info[attr])
-          except ValueError, err:
+          except (TypeError, ValueError), err:
             raise errors.OpExecError("Node '%s' returned invalid value"
                                      " for '%s': %s" % (nname, attr, err))
         # compute memory used by primary instances

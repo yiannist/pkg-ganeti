@@ -256,7 +256,7 @@ CLASS="VARIABLELIST"
 ><DD
 ><P
 >The jos is waiting for locks, but is has been
-              marked for cancelation. It will not transition to
+              marked for cancellation. It will not transition to
               <SPAN
 CLASS="emphasis"
 ><I

@@ -122,7 +122,7 @@ class _HttpServerToClientMessageReader(http.HttpMessageReader):
       status = int(status)
       if status < 100 or status > 999:
         status = -1
-    except ValueError:
+    except (TypeError, ValueError):
       status = -1
 
     if status == -1:
@@ -254,7 +254,7 @@ class HttpClientRequestExecutor(http.HttpBase):
 
     # Do the secret SSL handshake
     if self.using_ssl:
-      self.sock.set_connect_state()
+      self.sock.set_connect_state() # pylint: disable-msg=E1103
       try:
         http.Handshake(self.sock, self.WRITE_TIMEOUT)
       except http.HttpSessionHandshakeUnexpectedEOF:

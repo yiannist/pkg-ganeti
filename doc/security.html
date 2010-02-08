@@ -3,13 +3,15 @@
 <html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
 <head>
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
-<meta name="generator" content="Docutils 0.5: http://docutils.sourceforge.net/" />
+<meta name="generator" content="Docutils 0.4.1: http://docutils.sourceforge.net/" />
 <title>Security in Ganeti</title>
 <style type="text/css">
 
 /*
-:Author: David Goodger (goodger@python.org)
-:Id: $Id: html4css1.css 5196 2007-06-03 20:25:28Z wiemann $
+:Author: David Goodger
+:Contact: goodger@users.sourceforge.net
+:Date: $Date: 2005-12-18 01:56:14 +0100 (Sun, 18 Dec 2005) $
+:Revision: $Revision: 4224 $
 :Copyright: This stylesheet has been placed in the public domain.
 
 Default cascading style sheet for the HTML output of Docutils.
@@ -115,7 +117,7 @@ div.line-block div.line-block {
   margin-left: 1.5em }
 
 div.sidebar {
-  margin: 0 0 0.5em 1em ;
+  margin-left: 1em ;
   border: medium outset ;
   padding: 1em ;
   background-color: #ffffee ;
@@ -221,7 +223,8 @@ pre.address {
 
 pre.literal-block, pre.doctest-block {
   margin-left: 2em ;
-  margin-right: 2em }
+  margin-right: 2em ;
+  background-color: #eeeeee }
 
 span.classifier {
   font-family: sans-serif ;
@@ -278,6 +281,9 @@ h1 tt.docutils, h2 tt.docutils, h3 tt.docutils,
 h4 tt.docutils, h5 tt.docutils, h6 tt.docutils {
   font-size: 100% }
 
+tt.docutils {
+  background-color: #eeeeee }
+
 ul.auto-toc {
   list-style-type: none }
 
@@ -286,15 +292,14 @@ ul.auto-toc {
 <body>
 <div class="document" id="security-in-ganeti">
 <h1 class="title">Security in Ganeti</h1>
-
 <p>Ganeti was developed to run on internal, trusted systems. As such, the
 security model is all-or-nothing.</p>
 <p>All the Ganeti code runs as root, because all the operations that Ganeti
 is doing require privileges: creating logical volumes, drbd devices,
 starting instances, etc. Running as root does not mean setuid, but that
 you need to be root to run the cluster commands.</p>
-<div class="section" id="host-issues">
-<h1>Host issues</h1>
+<div class="section">
+<h1><a id="host-issues" name="host-issues">Host issues</a></h1>
 <p>For a host on which the Ganeti software has been installed, but not joined to a
 cluster, there are no changes to the system.</p>
 <p>For a host that has been joined to the cluster, there are very important
@@ -333,8 +338,8 @@ drbd devices, start/stop instances, etc;</li>
 /etc/ganeti/hooks directory is supervised and only trusted sources can
 populate it.</p>
 </div>
-<div class="section" id="cluster-issues">
-<h1>Cluster issues</h1>
+<div class="section">
+<h1><a id="cluster-issues" name="cluster-issues">Cluster issues</a></h1>
 <p>As told above, there are multiple ways of communication between cluster
 nodes:</p>
 <ul class="simple">
@@ -359,16 +364,16 @@ other machines, and from accepting connections from other machines, by
 using a shared secret, exchanged via RPC requests from the master to the
 nodes when configuring the device.</p>
 </div>
-<div class="section" id="master-daemon">
-<h1>Master daemon</h1>
+<div class="section">
+<h1><a id="master-daemon" name="master-daemon">Master daemon</a></h1>
 <p>The command-line tools to master daemon communication is done via an UNIX
 socket, whose permissions are reset to <tt class="docutils literal"><span class="pre">0600</span></tt> after listening but before
 serving requests. This permission-based protection is documented and works on
 Linux, but is not-portable; however, Ganeti doesn't work on non-Linux system at
 the moment.</p>
 </div>
-<div class="section" id="remote-api">
-<h1>Remote API</h1>
+<div class="section">
+<h1><a id="remote-api" name="remote-api">Remote API</a></h1>
 <p>Starting with Ganeti 2.0, Remote API traffic is encrypted using SSL/TLS by
 default. It supports Basic authentication as per RFC2617.</p>
 <p>Paths for certificate, private key and CA files required for SSL/TLS will
