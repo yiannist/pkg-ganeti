@@ -3,13 +3,15 @@
 <html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
 <head>
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
-<meta name="generator" content="Docutils 0.5: http://docutils.sourceforge.net/" />
+<meta name="generator" content="Docutils 0.4.1: http://docutils.sourceforge.net/" />
 <title>Ganeti administrator's guide</title>
 <style type="text/css">
 
 /*
-:Author: David Goodger (goodger@python.org)
-:Id: $Id: html4css1.css 5196 2007-06-03 20:25:28Z wiemann $
+:Author: David Goodger
+:Contact: goodger@users.sourceforge.net
+:Date: $Date: 2005-12-18 01:56:14 +0100 (Sun, 18 Dec 2005) $
+:Revision: $Revision: 4224 $
 :Copyright: This stylesheet has been placed in the public domain.
 
 Default cascading style sheet for the HTML output of Docutils.
@@ -115,7 +117,7 @@ div.line-block div.line-block {
   margin-left: 1.5em }
 
 div.sidebar {
-  margin: 0 0 0.5em 1em ;
+  margin-left: 1em ;
   border: medium outset ;
   padding: 1em ;
   background-color: #ffffee ;
@@ -221,7 +223,8 @@ pre.address {
 
 pre.literal-block, pre.doctest-block {
   margin-left: 2em ;
-  margin-right: 2em }
+  margin-right: 2em ;
+  background-color: #eeeeee }
 
 span.classifier {
   font-family: sans-serif ;
@@ -278,6 +281,9 @@ h1 tt.docutils, h2 tt.docutils, h3 tt.docutils,
 h4 tt.docutils, h5 tt.docutils, h6 tt.docutils {
   font-size: 100% }
 
+tt.docutils {
+  background-color: #eeeeee }
+
 ul.auto-toc {
   list-style-type: none }
 
@@ -286,40 +292,39 @@ ul.auto-toc {
 <body>
 <div class="document" id="ganeti-administrator-s-guide">
 <h1 class="title">Ganeti administrator's guide</h1>
-
 <p>Documents Ganeti version 2.0</p>
-<div class="contents topic" id="contents">
-<p class="topic-title first">Contents</p>
+<div class="contents topic">
+<p class="topic-title first"><a id="contents" name="contents">Contents</a></p>
 <ul class="simple">
-<li><a class="reference internal" href="#introduction" id="id1">Introduction</a><ul>
-<li><a class="reference internal" href="#ganeti-terminology" id="id2">Ganeti terminology</a></li>
-<li><a class="reference internal" href="#prerequisites" id="id3">Prerequisites</a></li>
+<li><a class="reference" href="#introduction" id="id1" name="id1">Introduction</a><ul>
+<li><a class="reference" href="#ganeti-terminology" id="id2" name="id2">Ganeti terminology</a></li>
+<li><a class="reference" href="#prerequisites" id="id3" name="id3">Prerequisites</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#managing-instances" id="id4">Managing Instances</a><ul>
-<li><a class="reference internal" href="#adding-removing-an-instance" id="id5">Adding/Removing an instance</a></li>
-<li><a class="reference internal" href="#starting-stopping-an-instance" id="id6">Starting/Stopping an instance</a></li>
-<li><a class="reference internal" href="#exporting-importing-an-instance" id="id7">Exporting/Importing an instance</a></li>
+<li><a class="reference" href="#managing-instances" id="id4" name="id4">Managing Instances</a><ul>
+<li><a class="reference" href="#adding-removing-an-instance" id="id5" name="id5">Adding/Removing an instance</a></li>
+<li><a class="reference" href="#starting-stopping-an-instance" id="id6" name="id6">Starting/Stopping an instance</a></li>
+<li><a class="reference" href="#exporting-importing-an-instance" id="id7" name="id7">Exporting/Importing an instance</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#high-availability-features" id="id8">High availability features</a><ul>
-<li><a class="reference internal" href="#failing-over-an-instance" id="id9">Failing over an instance</a></li>
-<li><a class="reference internal" href="#live-migrating-an-instance" id="id10">Live migrating an instance</a></li>
-<li><a class="reference internal" href="#replacing-an-instance-disks" id="id11">Replacing an instance disks</a></li>
-<li><a class="reference internal" href="#failing-over-the-master-node" id="id12">Failing over the master node</a></li>
-<li><a class="reference internal" href="#adding-removing-nodes" id="id13">Adding/Removing nodes</a></li>
+<li><a class="reference" href="#high-availability-features" id="id8" name="id8">High availability features</a><ul>
+<li><a class="reference" href="#failing-over-an-instance" id="id9" name="id9">Failing over an instance</a></li>
+<li><a class="reference" href="#live-migrating-an-instance" id="id10" name="id10">Live migrating an instance</a></li>
+<li><a class="reference" href="#replacing-an-instance-disks" id="id11" name="id11">Replacing an instance disks</a></li>
+<li><a class="reference" href="#failing-over-the-master-node" id="id12" name="id12">Failing over the master node</a></li>
+<li><a class="reference" href="#adding-removing-nodes" id="id13" name="id13">Adding/Removing nodes</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#debugging-features" id="id14">Debugging Features</a><ul>
-<li><a class="reference internal" href="#accessing-an-instance-s-disks" id="id15">Accessing an instance's disks</a></li>
-<li><a class="reference internal" href="#instance-os-definitions-debugging" id="id16">Instance OS definitions Debugging</a></li>
-<li><a class="reference internal" href="#cluster-wide-debugging" id="id17">Cluster-wide debugging</a></li>
+<li><a class="reference" href="#debugging-features" id="id14" name="id14">Debugging Features</a><ul>
+<li><a class="reference" href="#accessing-an-instance-s-disks" id="id15" name="id15">Accessing an instance's disks</a></li>
+<li><a class="reference" href="#instance-os-definitions-debugging" id="id16" name="id16">Instance OS definitions Debugging</a></li>
+<li><a class="reference" href="#cluster-wide-debugging" id="id17" name="id17">Cluster-wide debugging</a></li>
 </ul>
 </li>
 </ul>
 </div>
-<div class="section" id="introduction">
-<h1><a class="toc-backref" href="#id1">Introduction</a></h1>
+<div class="section">
+<h1><a class="toc-backref" href="#id1" id="introduction" name="introduction">Introduction</a></h1>
 <p>Ganeti is a virtualization cluster management software. You are
 expected to be a system administrator familiar with your Linux
 distribution and the Xen or KVM virtualization environments before
@@ -336,8 +341,8 @@ sections, which group different features of Ganeti:</p>
 <li>High Availability Features</li>
 <li>Debugging Features</li>
 </ul>
-<div class="section" id="ganeti-terminology">
-<h2><a class="toc-backref" href="#id2">Ganeti terminology</a></h2>
+<div class="section">
+<h2><a class="toc-backref" href="#id2" id="ganeti-terminology" name="ganeti-terminology">Ganeti terminology</a></h2>
 <p>This section provides a small introduction to Ganeti terminology,
 which might be useful to read the rest of the document.</p>
 <dl class="docutils">
@@ -360,17 +365,17 @@ fault tolerant highly available entity.</dd>
 <dd>Anything that concerns more than one cluster.</dd>
 </dl>
 </div>
-<div class="section" id="prerequisites">
-<h2><a class="toc-backref" href="#id3">Prerequisites</a></h2>
+<div class="section">
+<h2><a class="toc-backref" href="#id3" id="prerequisites" name="prerequisites">Prerequisites</a></h2>
 <p>You need to have your Ganeti cluster installed and configured before
 you try any of the commands in this document. Please follow the
 <em>Ganeti installation tutorial</em> for instructions on how to do that.</p>
 </div>
 </div>
-<div class="section" id="managing-instances">
-<h1><a class="toc-backref" href="#id4">Managing Instances</a></h1>
-<div class="section" id="adding-removing-an-instance">
-<h2><a class="toc-backref" href="#id5">Adding/Removing an instance</a></h2>
+<div class="section">
+<h1><a class="toc-backref" href="#id4" id="managing-instances" name="managing-instances">Managing Instances</a></h1>
+<div class="section">
+<h2><a class="toc-backref" href="#id5" id="adding-removing-an-instance" name="adding-removing-an-instance">Adding/Removing an instance</a></h2>
 <p>Adding a new virtual instance to your Ganeti cluster is really easy.
 The command is:</p>
 <pre class="literal-block">
@@ -403,7 +408,7 @@ configure for high performance.</dd>
 <dd>The instance will use LVM devices as backend for its disks. No
 redundancy is provided.</dd>
 <dt>drbd</dt>
-<dd><div class="note first">
+<dd><div class="first note">
 <p class="first admonition-title">Note</p>
 <p class="last">This is only valid for multi-node clusters using DRBD 8.0.x</p>
 </div>
@@ -431,8 +436,8 @@ with care:</p>
 gnt-instance remove INSTANCE_NAME
 </pre>
 </div>
-<div class="section" id="starting-stopping-an-instance">
-<h2><a class="toc-backref" href="#id6">Starting/Stopping an instance</a></h2>
+<div class="section">
+<h2><a class="toc-backref" href="#id6" id="starting-stopping-an-instance" name="starting-stopping-an-instance">Starting/Stopping an instance</a></h2>
 <p>Instances are automatically started at instance creation time. To
 manually start one which is currently stopped you can run:</p>
 <pre class="literal-block">
@@ -450,8 +455,8 @@ gnt-instance list
 xm shutdown or xm destroy on an instance Ganeti will automatically
 restart it (via the <tt class="docutils literal"><span class="pre">ganeti-watcher</span></tt>).</p>
 </div>
-<div class="section" id="exporting-importing-an-instance">
-<h2><a class="toc-backref" href="#id7">Exporting/Importing an instance</a></h2>
+<div class="section">
+<h2><a class="toc-backref" href="#id7" id="exporting-importing-an-instance" name="exporting-importing-an-instance">Exporting/Importing an instance</a></h2>
 <p>You can create a snapshot of an instance disk and Ganeti
 configuration, which then you can backup, or import into another
 cluster. The way to export an instance is:</p>
@@ -473,14 +478,14 @@ gnt-backup import -n TARGET_NODE -t DISK_TEMPLATE \
 supported here too.</p>
 </div>
 </div>
-<div class="section" id="high-availability-features">
-<h1><a class="toc-backref" href="#id8">High availability features</a></h1>
+<div class="section">
+<h1><a class="toc-backref" href="#id8" id="high-availability-features" name="high-availability-features">High availability features</a></h1>
 <div class="note">
 <p class="first admonition-title">Note</p>
 <p class="last">This section only applies to multi-node clusters</p>
 </div>
-<div class="section" id="failing-over-an-instance">
-<h2><a class="toc-backref" href="#id9">Failing over an instance</a></h2>
+<div class="section">
+<h2><a class="toc-backref" href="#id9" id="failing-over-an-instance" name="failing-over-an-instance">Failing over an instance</a></h2>
 <p>If an instance is built in highly available mode you can at any time
 fail it over to its secondary node, even if the primary has somehow
 failed and it's not up anymore. Doing it is really easy, on the master
@@ -491,8 +496,8 @@ gnt-instance failover INSTANCE_NAME
 <p>That's it. After the command completes the secondary node is now the
 primary, and vice versa.</p>
 </div>
-<div class="section" id="live-migrating-an-instance">
-<h2><a class="toc-backref" href="#id10">Live migrating an instance</a></h2>
+<div class="section">
+<h2><a class="toc-backref" href="#id10" id="live-migrating-an-instance" name="live-migrating-an-instance">Live migrating an instance</a></h2>
 <p>If an instance is built in highly available mode, it currently runs
 and both its nodes are running fine, you can at migrate it over to its
 secondary node, without dowtime. On the master node you need to run:</p>
@@ -500,8 +505,8 @@ secondary node, without dowtime. On the master node you need to run:</p>
 gnt-instance migrate INSTANCE_NAME
 </pre>
 </div>
-<div class="section" id="replacing-an-instance-disks">
-<h2><a class="toc-backref" href="#id11">Replacing an instance disks</a></h2>
+<div class="section">
+<h2><a class="toc-backref" href="#id11" id="replacing-an-instance-disks" name="replacing-an-instance-disks">Replacing an instance disks</a></h2>
 <p>So what if instead the secondary node for an instance has failed, or
 you plan to remove a node from your cluster, and you failed over all
 its instances, but it's still secondary for some? The solution here is
@@ -513,8 +518,8 @@ gnt-instance replace-disks -n NODE INSTANCE_NAME
 the end of it the instance has changed its secondary node, to which it
 can if necessary be failed over.</p>
 </div>
-<div class="section" id="failing-over-the-master-node">
-<h2><a class="toc-backref" href="#id12">Failing over the master node</a></h2>
+<div class="section">
+<h2><a class="toc-backref" href="#id12" id="failing-over-the-master-node" name="failing-over-the-master-node">Failing over the master node</a></h2>
 <p>This is all good as long as the Ganeti Master Node is up. Should it go
 down, or should you wish to decommission it, just run on any other
 node the command:</p>
@@ -523,8 +528,8 @@ gnt-cluster masterfailover
 </pre>
 <p>and the node you ran it on is now the new master.</p>
 </div>
-<div class="section" id="adding-removing-nodes">
-<h2><a class="toc-backref" href="#id13">Adding/Removing nodes</a></h2>
+<div class="section">
+<h2><a class="toc-backref" href="#id13" id="adding-removing-nodes" name="adding-removing-nodes">Adding/Removing nodes</a></h2>
 <p>And of course, now that you know how to move instances around, it's
 easy to free up a node, and then you can remove it from the cluster:</p>
 <pre class="literal-block">
@@ -536,13 +541,13 @@ gnt-node add --secondary-ip=ADDRESS NODE_NAME
 </pre>
 </div>
 </div>
-<div class="section" id="debugging-features">
-<h1><a class="toc-backref" href="#id14">Debugging Features</a></h1>
+<div class="section">
+<h1><a class="toc-backref" href="#id14" id="debugging-features" name="debugging-features">Debugging Features</a></h1>
 <p>At some point you might need to do some debugging operations on your
 cluster or on your instances. This section will help you with the most
 used debugging functionalities.</p>
-<div class="section" id="accessing-an-instance-s-disks">
-<h2><a class="toc-backref" href="#id15">Accessing an instance's disks</a></h2>
+<div class="section">
+<h2><a class="toc-backref" href="#id15" id="accessing-an-instance-s-disks" name="accessing-an-instance-s-disks">Accessing an instance's disks</a></h2>
 <p>From an instance's primary node you have access to its disks. Never
 ever mount the underlying logical volume manually on a fault tolerant
 instance, or you risk breaking replication. The correct way to access
@@ -561,16 +566,16 @@ gnt-instance console INSTANCE_NAME
 <p>Use the console normally and then type <tt class="docutils literal"><span class="pre">^]</span></tt> when
 done, to exit.</p>
 </div>
-<div class="section" id="instance-os-definitions-debugging">
-<h2><a class="toc-backref" href="#id16">Instance OS definitions Debugging</a></h2>
+<div class="section">
+<h2><a class="toc-backref" href="#id16" id="instance-os-definitions-debugging" name="instance-os-definitions-debugging">Instance OS definitions Debugging</a></h2>
 <p>Should you have any problems with operating systems support the
 command to ran to see a complete status for all your nodes is:</p>
 <pre class="literal-block">
 gnt-os diagnose
 </pre>
 </div>
-<div class="section" id="cluster-wide-debugging">
-<h2><a class="toc-backref" href="#id17">Cluster-wide debugging</a></h2>
+<div class="section">
+<h2><a class="toc-backref" href="#id17" id="cluster-wide-debugging" name="cluster-wide-debugging">Cluster-wide debugging</a></h2>
 <p>The <em>gnt-cluster</em> command offers several options to run tests or
 execute cluster-wide operations. For example:</p>
 <pre class="literal-block">

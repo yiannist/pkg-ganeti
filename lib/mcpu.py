@@ -100,7 +100,7 @@ class Processor(object):
     """
     self.context = context
     self._feedback_fn = None
-    self.exclusive_BGL = False
+    self.exclusive_BGL = False # pylint: disable-msg=C0103
     self.rpc = rpc.RpcRunner(context.cfg)
 
   def _ExecLU(self, lu):
@@ -342,8 +342,7 @@ class HooksMaster(object):
         res = results[node_name]
         if res.failed or res.data is False or not isinstance(res.data, list):
           if not res.offline:
-            self.proc.LogWarning("Communication failure to node %s" %
-                                 node_name)
+            self.proc.LogWarning("Communication failure to node %s", node_name)
           continue
         for script, hkr, output in res.data:
           if hkr == constants.HKR_FAIL:

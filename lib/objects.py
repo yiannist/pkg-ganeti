@@ -669,7 +669,7 @@ class Instance(TaggableObject):
     try:
       idx = int(idx)
       return self.disks[idx]
-    except ValueError, err:
+    except (TypeError, ValueError), err:
       raise errors.OpPrereqError("Invalid disk index: '%s'" % str(err))
     except IndexError:
       raise errors.OpPrereqError("Invalid disk index: %d (instace has disks"
@@ -786,6 +786,8 @@ class Cluster(TaggableObject):
     """Fill defaults for missing configuration values.
 
     """
+    # pylint: disable-msg=E0203
+    # because these are "defined" via slots, not manually
     if self.hvparams is None:
       self.hvparams = constants.HVC_DEFAULTS
     else:
