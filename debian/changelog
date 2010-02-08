@@ -1,3 +1,11 @@
+ganeti (2.0.6-1) unstable; urgency=low
+
+  * New upstream version (Closes: #568105, thanks Elmar Hoffmann!)
+  * The new version fixes some minor bugs (no new features)
+  * Change my address to @debian.org and remove DM-Upload-Allowed
+
+ -- Iustin Pop <iustin@debian.org>  Mon, 08 Feb 2010 21:06:49 +0100
+
 ganeti (2.0.5-1) unstable; urgency=high
 
   * New upstream version, fixing CVE-2009-4261 (thus the high urgency)

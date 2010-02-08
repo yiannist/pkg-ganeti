@@ -2,14 +2,13 @@ Source: ganeti
 Section: admin
 Priority: extra
 Maintainer: Debian Ganeti Team <pkg-ganeti-devel@lists.alioth.debian.org>
-Uploaders: Guido Trotter <ultrotter@debian.org>, Iustin Pop <iusty@k1024.org>
+Uploaders: Guido Trotter <ultrotter@debian.org>, Iustin Pop <iustin@debian.org>
 Build-Depends: debhelper (>= 7)
 Build-Depends-Indep: python-simplejson, python-pyparsing, python-openssl, python-support (>= 0.6)
 Standards-Version: 3.8.3
 Homepage: http://code.google.com/p/ganeti/
 Vcs-Browser: http://git.debian.org/?p=pkg-ganeti/ganeti.git
 Vcs-Git: git://git.debian.org/pkg-ganeti/ganeti.git
-DM-Upload-Allowed: yes
 
 Package: ganeti2
 Architecture: all
