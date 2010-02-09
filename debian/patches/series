@@ -1,2 +1,3 @@
+fix-gnt-cluster-manpage.patch
 hostname-fqdn.patch
 fix-startup-with-old-config.patch
