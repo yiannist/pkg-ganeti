@@ -2,9 +2,12 @@ ganeti (2.0.6-1) unstable; urgency=low
 
   * New upstream version (Closes: #568105, thanks Elmar Hoffmann!)
   * The new version fixes some minor bugs (no new features)
+  * Standards version 3.8.4 (no changes needed)
+  * Fix NEWS.Debian lintian warnings
+  * Add a patch to fix wrong docbook man output
   * Change my address to @debian.org and remove DM-Upload-Allowed
 
- -- Iustin Pop <iustin@debian.org>  Mon, 08 Feb 2010 21:06:49 +0100
+ -- Iustin Pop <iustin@debian.org>  Tue, 09 Feb 2010 20:13:26 +0100
 
 ganeti (2.0.5-1) unstable; urgency=high
 
