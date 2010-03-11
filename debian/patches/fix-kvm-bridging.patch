@@ -1,0 +1,36 @@
+From: Timothy Kuhlman <timkuhlman@gmail.com>
+Date: Mon, 8 Mar 2010 15:43:40 +0000 (+0000)
+Subject: KVM: Fix unintended qemu-level bridging of nics
+X-Git-Url: http://git.ganeti.org/?p=ganeti.git;a=commitdiff_plain;h=1e9823c462955453f036ba8d8ece1434342888e7
+
+KVM: Fix unintended qemu-level bridging of nics
+
+Each nic should be connected to its own qemu vlan, to avoid them all
+bridging together.
+
+Signed-off-by: Timothy Kuhlman <timkuhlman@gmail.com>
+Reviewed-by: Guido Trotter <ultrotter@google.com>
+Signed-off-by: Guido Trotter <ultrotter@google.com>
+Reviewed-by: Iustin Pop <iustin@google.com>
+(cherry picked from commit 760570a8ae286c3b46add2074aa9323e93f3a509)
+
+Signed-off-by: Iustin Pop <iustin@google.com>
+---
+
+diff --git a/lib/hypervisor/hv_kvm.py b/lib/hypervisor/hv_kvm.py
+index fda2987..d4607e2 100644
+--- a/lib/hypervisor/hv_kvm.py
++++ b/lib/hypervisor/hv_kvm.py
+@@ -412,10 +412,10 @@ class KVMHypervisor(hv_base.BaseHypervisor):
+         nic_model = "model=%s" % nic_type
+ 
+       for nic_seq, nic in enumerate(kvm_nics):
+-        nic_val = "nic,macaddr=%s,%s" % (nic.mac, nic_model)
++        nic_val = "nic,vlan=%s,macaddr=%s,%s" % (nic_seq, nic.mac, nic_model)
+         script = self._WriteNetScript(instance, nic_seq, nic)
+         kvm_cmd.extend(['-net', nic_val])
+-        kvm_cmd.extend(['-net', 'tap,script=%s' % script])
++        kvm_cmd.extend(['-net', 'tap,vlan=%s,script=%s' % (nic_seq, script)])
+         temp_files.append(script)
+ 
+     if incoming:

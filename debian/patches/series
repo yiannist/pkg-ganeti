@@ -1,3 +1,6 @@
 fix-gnt-cluster-manpage.patch
 hostname-fqdn.patch
 fix-startup-with-old-config.patch
+fix-http-loops.patch
+fix-kvm-bridging.patch
+fix-python-2.6.5.patch
