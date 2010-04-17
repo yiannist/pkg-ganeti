@@ -41,11 +41,11 @@ from ganeti import constants
 from ganeti import utils
 from ganeti import errors
 from ganeti.utils import IsProcessAlive, RunCmd, \
-     RemoveFile, CheckDict, MatchNameComponent, FormatUnit, \
+     RemoveFile, MatchNameComponent, FormatUnit, \
      ParseUnit, AddAuthorizedKey, RemoveAuthorizedKey, \
      ShellQuote, ShellQuoteArgs, TcpPing, ListVisibleFiles, \
      SetEtcHostsEntry, RemoveEtcHostsEntry, FirstFree, OwnIpAddress, \
-     TailFile, ForceDictType, SafeEncode
+     TailFile, ForceDictType, SafeEncode, IsNormAbsPath, FormatTime
 
 from ganeti.errors import LockError, UnitParseError, GenericError, \
      ProgrammerError
@@ -295,37 +295,27 @@ class TestRename(unittest.TestCase):
   def testSimpleRename1(self):
     """Simple rename 1"""
     utils.RenameFile(self.tmpfile, os.path.join(self.tmpdir, "xyz"))
+    self.assert_(os.path.isfile(os.path.join(self.tmpdir, "xyz")))
 
   def testSimpleRename2(self):
     """Simple rename 2"""
     utils.RenameFile(self.tmpfile, os.path.join(self.tmpdir, "xyz"),
                      mkdir=True)
+    self.assert_(os.path.isfile(os.path.join(self.tmpdir, "xyz")))
 
   def testRenameMkdir(self):
     """Rename with mkdir"""
     utils.RenameFile(self.tmpfile, os.path.join(self.tmpdir, "test/xyz"),
                      mkdir=True)
+    self.assert_(os.path.isdir(os.path.join(self.tmpdir, "test")))
+    self.assert_(os.path.isfile(os.path.join(self.tmpdir, "test/xyz")))
 
-
-class TestCheckdict(unittest.TestCase):
-  """Test case for the CheckDict function"""
-
-  def testAdd(self):
-    """Test that CheckDict adds a missing key with the correct value"""
-
-    tgt = {'a':1}
-    tmpl = {'b': 2}
-    CheckDict(tgt, tmpl)
-    if 'b' not in tgt or tgt['b'] != 2:
-      self.fail("Failed to update dict")
-
-
-  def testNoUpdate(self):
-    """Test that CheckDict does not overwrite an existing key"""
-    tgt = {'a':1, 'b': 3}
-    tmpl = {'b': 2}
-    CheckDict(tgt, tmpl)
-    self.failUnlessEqual(tgt['b'], 3)
+    utils.RenameFile(os.path.join(self.tmpdir, "test/xyz"),
+                     os.path.join(self.tmpdir, "test/foo/bar/baz"),
+                     mkdir=True)
+    self.assert_(os.path.isdir(os.path.join(self.tmpdir, "test")))
+    self.assert_(os.path.isdir(os.path.join(self.tmpdir, "test/foo/bar")))
+    self.assert_(os.path.isfile(os.path.join(self.tmpdir, "test/foo/bar/baz")))
 
 
 class TestMatchNameComponent(unittest.TestCase):
@@ -348,6 +338,44 @@ class TestMatchNameComponent(unittest.TestCase):
     mlist = ["test1.example.com", "test1.example.org", "test1.example.net"]
     for key in "test1", "test1.example":
       self.failUnlessEqual(MatchNameComponent(key, mlist), None)
+
+  def testFullMatch(self):
+    """Test that a full match is returned correctly"""
+    key1 = "test1"
+    key2 = "test1.example"
+    mlist = [key2, key2 + ".com"]
+    self.failUnlessEqual(MatchNameComponent(key1, mlist), None)
+    self.failUnlessEqual(MatchNameComponent(key2, mlist), key2)
+
+  def testCaseInsensitivePartialMatch(self):
+    """Test for the case_insensitive keyword"""
+    mlist = ["test1.example.com", "test2.example.net"]
+    self.assertEqual(MatchNameComponent("test2", mlist, case_sensitive=False),
+                     "test2.example.net")
+    self.assertEqual(MatchNameComponent("Test2", mlist, case_sensitive=False),
+                     "test2.example.net")
+    self.assertEqual(MatchNameComponent("teSt2", mlist, case_sensitive=False),
+                     "test2.example.net")
+    self.assertEqual(MatchNameComponent("TeSt2", mlist, case_sensitive=False),
+                     "test2.example.net")
+
+
+  def testCaseInsensitiveFullMatch(self):
+    mlist = ["ts1.ex", "ts1.ex.org", "ts2.ex", "Ts2.ex"]
+    # Between the two ts1 a full string match non-case insensitive should work
+    self.assertEqual(MatchNameComponent("Ts1", mlist, case_sensitive=False),
+                     None)
+    self.assertEqual(MatchNameComponent("Ts1.ex", mlist, case_sensitive=False),
+                     "ts1.ex")
+    self.assertEqual(MatchNameComponent("ts1.ex", mlist, case_sensitive=False),
+                     "ts1.ex")
+    # Between the two ts2 only case differs, so only case-match works
+    self.assertEqual(MatchNameComponent("ts2.ex", mlist, case_sensitive=False),
+                     "ts2.ex")
+    self.assertEqual(MatchNameComponent("Ts2.ex", mlist, case_sensitive=False),
+                     "Ts2.ex")
+    self.assertEqual(MatchNameComponent("TS2.ex", mlist, case_sensitive=False),
+                     None)
 
 
 class TestFormatUnit(unittest.TestCase):
@@ -900,7 +928,8 @@ class TestTimeFunctions(unittest.TestCase):
     self.assertEqual(utils.MergeTime((1, 500000)), 1.5)
     self.assertEqual(utils.MergeTime((1218448917, 500000)), 1218448917.5)
 
-    self.assertEqual(round(utils.MergeTime((1218448917, 481000)), 3), 1218448917.481)
+    self.assertEqual(round(utils.MergeTime((1218448917, 481000)), 3),
+                     1218448917.481)
     self.assertEqual(round(utils.MergeTime((1, 801000)), 3), 1.801)
 
     self.assertRaises(AssertionError, utils.MergeTime, (0, -1))
@@ -970,6 +999,25 @@ class TestForceDictType(unittest.TestCase):
     self.assertRaises(errors.TypeEnforcementError, self._fdt, {'d': '4 L'})
 
 
+class TestIsAbsNormPath(unittest.TestCase):
+  """Testing case for IsProcessAlive"""
+
+  def _pathTestHelper(self, path, result):
+    if result:
+      self.assert_(IsNormAbsPath(path),
+          "Path %s should result absolute and normalized" % path)
+    else:
+      self.assert_(not IsNormAbsPath(path),
+          "Path %s should not result absolute and normalized" % path)
+
+  def testBase(self):
+    self._pathTestHelper('/etc', True)
+    self._pathTestHelper('/srv', True)
+    self._pathTestHelper('etc', False)
+    self._pathTestHelper('/etc/../root', False)
+    self._pathTestHelper('/etc/', False)
+
+
 class TestSafeEncode(unittest.TestCase):
   """Test case for SafeEncode"""
 
@@ -989,5 +1037,21 @@ class TestSafeEncode(unittest.TestCase):
       self.failUnlessEqual(txt, SafeEncode(txt))
 
 
+class TestFormatTime(unittest.TestCase):
+  """Testing case for FormatTime"""
+
+  def testNone(self):
+    self.failUnlessEqual(FormatTime(None), "N/A")
+
+  def testInvalid(self):
+    self.failUnlessEqual(FormatTime(()), "N/A")
+
+  def testNow(self):
+    # tests that we accept time.time input
+    FormatTime(time.time())
+    # tests that we accept int input
+    FormatTime(int(time.time()))
+
+
 if __name__ == '__main__':
-  unittest.main()
+  testutils.GanetiTestProgram()

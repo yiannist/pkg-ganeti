@@ -36,6 +36,8 @@ from ganeti import errors
 from ganeti import objects
 from ganeti import utils
 
+import testutils
+
 
 class TestConfigRunner(unittest.TestCase):
   """Testing case for HooksRunner"""
@@ -66,9 +68,8 @@ class TestConfigRunner(unittest.TestCase):
       highest_used_port=(constants.FIRST_DRBD_PORT - 1),
       mac_prefix="aa:00:00",
       volume_group_name="xenvg",
-      default_bridge=constants.DEFAULT_BRIDGE,
+      nicparams={constants.PP_DEFAULT: constants.NICC_DEFAULTS},
       tcpudp_port_pool=set(),
-      default_hypervisor=constants.HT_FAKE,
       enabled_hypervisors=[constants.HT_FAKE],
       master_node=me.name,
       master_ip="127.0.0.1",
@@ -109,15 +110,15 @@ class TestConfigRunner(unittest.TestCase):
     # construct a fake cluster object
     fake_cl = objects.Cluster()
     # fail if we didn't read the config
-    self.failUnlessRaises(errors.ConfigurationError, cfg.Update, fake_cl)
+    self.failUnlessRaises(errors.ConfigurationError, cfg.Update, fake_cl, None)
 
     cl = cfg.GetClusterInfo()
     # first pass, must not fail
-    cfg.Update(cl)
+    cfg.Update(cl, None)
     # second pass, also must not fail (after the config has been written)
-    cfg.Update(cl)
+    cfg.Update(cl, None)
     # but the fake_cl update should still fail
-    self.failUnlessRaises(errors.ConfigurationError, cfg.Update, fake_cl)
+    self.failUnlessRaises(errors.ConfigurationError, cfg.Update, fake_cl, None)
 
   def testUpdateNode(self):
     """Test updates on one node object"""
@@ -125,15 +126,17 @@ class TestConfigRunner(unittest.TestCase):
     # construct a fake node
     fake_node = objects.Node()
     # fail if we didn't read the config
-    self.failUnlessRaises(errors.ConfigurationError, cfg.Update, fake_node)
+    self.failUnlessRaises(errors.ConfigurationError, cfg.Update, fake_node,
+                          None)
 
     node = cfg.GetNodeInfo(cfg.GetNodeList()[0])
     # first pass, must not fail
-    cfg.Update(node)
+    cfg.Update(node, None)
     # second pass, also must not fail (after the config has been written)
-    cfg.Update(node)
+    cfg.Update(node, None)
     # but the fake_node update should still fail
-    self.failUnlessRaises(errors.ConfigurationError, cfg.Update, fake_node)
+    self.failUnlessRaises(errors.ConfigurationError, cfg.Update, fake_node,
+                          None)
 
   def testUpdateInstance(self):
     """Test updates on one instance object"""
@@ -142,17 +145,37 @@ class TestConfigRunner(unittest.TestCase):
     inst = self._create_instance()
     fake_instance = objects.Instance()
     # fail if we didn't read the config
-    self.failUnlessRaises(errors.ConfigurationError, cfg.Update, fake_instance)
+    self.failUnlessRaises(errors.ConfigurationError, cfg.Update, fake_instance,
+                          None)
 
-    cfg.AddInstance(inst)
+    cfg.AddInstance(inst, "my-job")
     instance = cfg.GetInstanceInfo(cfg.GetInstanceList()[0])
     # first pass, must not fail
-    cfg.Update(instance)
+    cfg.Update(instance, None)
     # second pass, also must not fail (after the config has been written)
-    cfg.Update(instance)
+    cfg.Update(instance, None)
     # but the fake_instance update should still fail
-    self.failUnlessRaises(errors.ConfigurationError, cfg.Update, fake_instance)
+    self.failUnlessRaises(errors.ConfigurationError, cfg.Update, fake_instance,
+                          None)
+
+  def testNICParameterSyntaxCheck(self):
+    """Test the NIC's CheckParameterSyntax function"""
+    mode = constants.NIC_MODE
+    link = constants.NIC_LINK
+    m_bridged = constants.NIC_MODE_BRIDGED
+    m_routed = constants.NIC_MODE_ROUTED
+    CheckSyntax = objects.NIC.CheckParameterSyntax
+
+    CheckSyntax(constants.NICC_DEFAULTS)
+    CheckSyntax({mode: m_bridged, link: 'br1'})
+    CheckSyntax({mode: m_routed, link: 'default'})
+    self.assertRaises(errors.ConfigurationError,
+                      CheckSyntax, {mode: '000invalid', link: 'any'})
+    self.assertRaises(errors.ConfigurationError,
+                      CheckSyntax, {mode: m_bridged, link: None})
+    self.assertRaises(errors.ConfigurationError,
+                      CheckSyntax, {mode: m_bridged, link: ''})
 
 
 if __name__ == '__main__':
-  unittest.main()
+  testutils.GanetiTestProgram()

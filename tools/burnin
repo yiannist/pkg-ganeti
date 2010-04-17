@@ -83,9 +83,12 @@ def Err(msg, exit_code=1):
 
 class SimpleOpener(urllib.FancyURLopener):
   """A simple url opener"""
+  # pylint: disable-msg=W0221
 
-  def prompt_user_passwd(self, host, realm, clear_cache = 0):
+  def prompt_user_passwd(self, host, realm, clear_cache=0):
     """No-interaction version of prompt_user_passwd."""
+    # we follow parent class' API
+    # pylint: disable-msg=W0613
     return None, None
 
   def http_error_default(self, url, fp, errcode, errmsg, headers):
@@ -96,6 +99,142 @@ class SimpleOpener(urllib.FancyURLopener):
     fp.close()
     raise InstanceDown("HTTP error returned: code %s, msg %s" %
                        (errcode, errmsg))
+
+
+OPTIONS = [
+  cli.cli_option("-o", "--os", dest="os", default=None,
+                 help="OS to use during burnin",
+                 metavar="<OS>",
+                 completion_suggest=cli.OPT_COMPL_ONE_OS),
+  cli.cli_option("--disk-size", dest="disk_size",
+                 help="Disk size (determines disk count)",
+                 default="128m", type="string", metavar="<size,size,...>",
+                 completion_suggest=("128M 512M 1G 4G 1G,256M"
+                                     " 4G,1G,1G 10G").split()),
+  cli.cli_option("--disk-growth", dest="disk_growth", help="Disk growth",
+                 default="128m", type="string", metavar="<size,size,...>"),
+  cli.cli_option("--mem-size", dest="mem_size", help="Memory size",
+                 default=128, type="unit", metavar="<size>",
+                 completion_suggest=("128M 256M 512M 1G 4G 8G"
+                                     " 12G 16G").split()),
+  cli.VERBOSE_OPT,
+  cli.NOIPCHECK_OPT,
+  cli.NONAMECHECK_OPT,
+  cli.cli_option("--no-replace1", dest="do_replace1",
+                 help="Skip disk replacement with the same secondary",
+                 action="store_false", default=True),
+  cli.cli_option("--no-replace2", dest="do_replace2",
+                 help="Skip disk replacement with a different secondary",
+                 action="store_false", default=True),
+  cli.cli_option("--no-failover", dest="do_failover",
+                 help="Skip instance failovers", action="store_false",
+                 default=True),
+  cli.cli_option("--no-migrate", dest="do_migrate",
+                 help="Skip instance live migration",
+                 action="store_false", default=True),
+  cli.cli_option("--no-move", dest="do_move",
+                 help="Skip instance moves", action="store_false",
+                 default=True),
+  cli.cli_option("--no-importexport", dest="do_importexport",
+                 help="Skip instance export/import", action="store_false",
+                 default=True),
+  cli.cli_option("--no-startstop", dest="do_startstop",
+                 help="Skip instance stop/start", action="store_false",
+                 default=True),
+  cli.cli_option("--no-reinstall", dest="do_reinstall",
+                 help="Skip instance reinstall", action="store_false",
+                 default=True),
+  cli.cli_option("--no-reboot", dest="do_reboot",
+                 help="Skip instance reboot", action="store_false",
+                 default=True),
+  cli.cli_option("--no-activate-disks", dest="do_activate_disks",
+                 help="Skip disk activation/deactivation",
+                 action="store_false", default=True),
+  cli.cli_option("--no-add-disks", dest="do_addremove_disks",
+                 help="Skip disk addition/removal",
+                 action="store_false", default=True),
+  cli.cli_option("--no-add-nics", dest="do_addremove_nics",
+                 help="Skip NIC addition/removal",
+                 action="store_false", default=True),
+  cli.cli_option("--no-nics", dest="nics",
+                 help="No network interfaces", action="store_const",
+                 const=[], default=[{}]),
+  cli.cli_option("--rename", dest="rename", default=None,
+                 help=("Give one unused instance name which is taken"
+                       " to start the renaming sequence"),
+                 metavar="<instance_name>"),
+  cli.cli_option("-t", "--disk-template", dest="disk_template",
+                 choices=list(constants.DISK_TEMPLATES),
+                 default=constants.DT_DRBD8,
+                 help="Disk template (diskless, file, plain or drbd) [drbd]"),
+  cli.cli_option("-n", "--nodes", dest="nodes", default="",
+                 help=("Comma separated list of nodes to perform"
+                       " the burnin on (defaults to all nodes)"),
+                 completion_suggest=cli.OPT_COMPL_MANY_NODES),
+  cli.cli_option("-I", "--iallocator", dest="iallocator",
+                 default=None, type="string",
+                 help=("Perform the allocation using an iallocator"
+                       " instead of fixed node spread (node restrictions no"
+                       " longer apply, therefore -n/--nodes must not be"
+                       " used"),
+                 completion_suggest=cli.OPT_COMPL_ONE_IALLOCATOR),
+  cli.cli_option("-p", "--parallel", default=False, action="store_true",
+                 dest="parallel",
+                 help=("Enable parallelization of some operations in"
+                       " order to speed burnin or to test granular locking")),
+  cli.cli_option("--net-timeout", default=15, type="int",
+                 dest="net_timeout",
+                 help=("The instance check network timeout in seconds"
+                       " (defaults to 15 seconds)"),
+                 completion_suggest="15 60 300 900".split()),
+  cli.cli_option("-C", "--http-check", default=False, action="store_true",
+                 dest="http_check",
+                 help=("Enable checking of instance status via http,"
+                       " looking for /hostname.txt that should contain the"
+                       " name of the instance")),
+  cli.cli_option("-K", "--keep-instances", default=False,
+                 action="store_true",
+                 dest="keep_instances",
+                 help=("Leave instances on the cluster after burnin,"
+                       " for investigation in case of errors or simply"
+                       " to use them")),
+  ]
+
+# Mainly used for bash completion
+ARGUMENTS = [cli.ArgInstance(min=1)]
+
+
+def _DoCheckInstances(fn):
+  """Decorator for checking instances.
+
+  """
+  def wrapper(self, *args, **kwargs):
+    val = fn(self, *args, **kwargs)
+    for instance in self.instances:
+      self._CheckInstanceAlive(instance) # pylint: disable-msg=W0212
+    return val
+
+  return wrapper
+
+
+def _DoBatch(retry):
+  """Decorator for possible batch operations.
+
+  Must come after the _DoCheckInstances decorator (if any).
+
+  @param retry: whether this is a retryable batch, will be
+      passed to StartBatch
+
+  """
+  def wrap(fn):
+    def batched(self, *args, **kwargs):
+      self.StartBatch(retry)
+      val = fn(self, *args, **kwargs)
+      self.CommitQueue()
+      return val
+    return batched
+
+  return wrap
 
 
 class Burner(object):
@@ -153,7 +292,7 @@ class Burner(object):
         Log("Idempotent %s succeeded after %d retries" %
             (msg, MAX_RETRIES - retry_count))
       return val
-    except Exception, err:
+    except Exception, err: # pylint: disable-msg=W0703
       if retry_count == 0:
         Log("Non-idempotent %s failed, aborting" % (msg, ))
         raise
@@ -235,48 +374,17 @@ class Burner(object):
     """
     self.ClearFeedbackBuf()
     job_ids = [cli.SendJob(row[0], cl=self.cl) for row in jobs]
-    Log("Submitted job ID(s) %s" % ", ".join(job_ids), indent=1)
+    Log("Submitted job ID(s) %s" % utils.CommaJoin(job_ids), indent=1)
     results = []
     for jid, (_, iname) in zip(job_ids, jobs):
       Log("waiting for job %s for %s" % (jid, iname), indent=2)
       try:
         results.append(cli.PollJob(jid, cl=self.cl, feedback_fn=self.Feedback))
-      except Exception, err:
+      except Exception, err: # pylint: disable-msg=W0703
         Log("Job for %s failed: %s" % (iname, err))
     if len(results) != len(jobs):
       raise BurninFailure()
     return results
-
-  def _DoCheckInstances(fn):
-    """Decorator for checking instances.
-
-    """
-    def wrapper(self, *args, **kwargs):
-      val = fn(self, *args, **kwargs)
-      for instance in self.instances:
-        self._CheckInstanceAlive(instance)
-      return val
-
-    return wrapper
-
-  def _DoBatch(retry):
-    """Decorator for possible batch operations.
-
-    Must come after the _DoCheckInstances decorator (if any).
-
-    @param retry: whether this is a retryable batch, will be
-        passed to StartBatch
-
-    """
-    def wrap(fn):
-      def batched(self, *args, **kwargs):
-        self.StartBatch(retry)
-        val = fn(self, *args, **kwargs)
-        self.CommitQueue()
-        return val
-      return batched
-
-    return wrap
 
   def ParseOptions(self):
     """Parses the command line options.
@@ -285,98 +393,10 @@ class Burner(object):
     program.
 
     """
-
     parser = optparse.OptionParser(usage="\n%s" % USAGE,
-                                   version="%%prog (ganeti) %s" %
-                                   constants.RELEASE_VERSION,
-                                   option_class=cli.CliOption)
-
-    parser.add_option("-o", "--os", dest="os", default=None,
-                      help="OS to use during burnin",
-                      metavar="<OS>")
-    parser.add_option("--disk-size", dest="disk_size",
-                      help="Disk size (determines disk count)",
-                      default="128m", type="string", metavar="<size,size,...>")
-    parser.add_option("--disk-growth", dest="disk_growth", help="Disk growth",
-                      default="128m", type="string", metavar="<size,size,...>")
-    parser.add_option("--mem-size", dest="mem_size", help="Memory size",
-                      default=128, type="unit", metavar="<size>")
-    parser.add_option("-v", "--verbose",
-                      action="store_true", dest="verbose", default=False,
-                      help="print command execution messages to stdout")
-    parser.add_option("--no-replace1", dest="do_replace1",
-                      help="Skip disk replacement with the same secondary",
-                      action="store_false", default=True)
-    parser.add_option("--no-replace2", dest="do_replace2",
-                      help="Skip disk replacement with a different secondary",
-                      action="store_false", default=True)
-    parser.add_option("--no-failover", dest="do_failover",
-                      help="Skip instance failovers", action="store_false",
-                      default=True)
-    parser.add_option("--no-migrate", dest="do_migrate",
-                      help="Skip instance live migration",
-                      action="store_false", default=True)
-    parser.add_option("--no-importexport", dest="do_importexport",
-                      help="Skip instance export/import", action="store_false",
-                      default=True)
-    parser.add_option("--no-startstop", dest="do_startstop",
-                      help="Skip instance stop/start", action="store_false",
-                      default=True)
-    parser.add_option("--no-reinstall", dest="do_reinstall",
-                      help="Skip instance reinstall", action="store_false",
-                      default=True)
-    parser.add_option("--no-reboot", dest="do_reboot",
-                      help="Skip instance reboot", action="store_false",
-                      default=True)
-    parser.add_option("--no-activate-disks", dest="do_activate_disks",
-                      help="Skip disk activation/deactivation",
-                      action="store_false", default=True)
-    parser.add_option("--no-add-disks", dest="do_addremove_disks",
-                      help="Skip disk addition/removal",
-                      action="store_false", default=True)
-    parser.add_option("--no-add-nics", dest="do_addremove_nics",
-                      help="Skip NIC addition/removal",
-                      action="store_false", default=True)
-    parser.add_option("--no-nics", dest="nics",
-                      help="No network interfaces", action="store_const",
-                      const=[], default=[{}])
-    parser.add_option("--rename", dest="rename", default=None,
-                      help="Give one unused instance name which is taken"
-                           " to start the renaming sequence",
-                      metavar="<instance_name>")
-    parser.add_option("-t", "--disk-template", dest="disk_template",
-                      choices=("diskless", "file", "plain", "drbd"),
-                      default="drbd",
-                      help="Disk template (diskless, file, plain or drbd)"
-                            " [drbd]")
-    parser.add_option("-n", "--nodes", dest="nodes", default="",
-                      help="Comma separated list of nodes to perform"
-                      " the burnin on (defaults to all nodes)")
-    parser.add_option("-I", "--iallocator", dest="iallocator",
-                      default=None, type="string",
-                      help="Perform the allocation using an iallocator"
-                      " instead of fixed node spread (node restrictions no"
-                      " longer apply, therefore -n/--nodes must not be used")
-    parser.add_option("-p", "--parallel", default=False, action="store_true",
-                      dest="parallel",
-                      help="Enable parallelization of some operations in"
-                      " order to speed burnin or to test granular locking")
-    parser.add_option("--net-timeout", default=15, type="int",
-                      dest="net_timeout",
-                      help="The instance check network timeout in seconds"
-                      " (defaults to 15 seconds)")
-    parser.add_option("-C", "--http-check", default=False, action="store_true",
-                      dest="http_check",
-                      help="Enable checking of instance status via http,"
-                      " looking for /hostname.txt that should contain the"
-                      " name of the instance")
-    parser.add_option("-K", "--keep-instances", default=False,
-                      action="store_true",
-                      dest="keep_instances",
-                      help="Leave instances on the cluster after burnin,"
-                      " for investigation in case of errors or simply"
-                      " to use them")
-
+                                   version=("%%prog (ganeti) %s" %
+                                            constants.RELEASE_VERSION),
+                                   option_list=OPTIONS)
 
     options, args = parser.parse_args()
     if len(args) < 1 or options.os is None:
@@ -409,6 +429,9 @@ class Burner(object):
     if options.nodes and options.iallocator:
       Err("Give either the nodes option or the iallocator option, not both")
 
+    if options.http_check and not options.name_check:
+      Err("Can't enable HTTP checks without name checks")
+
     self.opts = options
     self.instances = args
     self.bep = {
@@ -434,16 +457,20 @@ class Burner(object):
       Err(msg, exit_code=err_code)
     self.nodes = [data[0] for data in result if not (data[1] or data[2])]
 
-    op_diagos = opcodes.OpDiagnoseOS(output_fields=["name", "valid"], names=[])
-    result = self.ExecOp(True, op_diagos)
+    op_diagnose = opcodes.OpDiagnoseOS(output_fields=["name", "valid",
+                                                      "variants"], names=[])
+    result = self.ExecOp(True, op_diagnose)
 
     if not result:
       Err("Can't get the OS list")
 
-    # filter non-valid OS-es
-    os_set = [val[0] for val in result if val[1]]
+    found = False
+    for (name, valid, variants) in result:
+      if valid and self.opts.os in cli.CalculateOSNames(name, variants):
+        found = True
+        break
 
-    if self.opts.os not in os_set:
+    if not found:
       Err("OS '%s' not found" % self.opts.os)
 
   @_DoCheckInstances
@@ -481,7 +508,8 @@ class Burner(object):
                                     pnode=pnode,
                                     snode=snode,
                                     start=True,
-                                    ip_check=True,
+                                    ip_check=self.opts.ip_check,
+                                    name_check=self.opts.name_check,
                                     wait_for_sync=True,
                                     file_driver="loop",
                                     file_storage_dir=None,
@@ -519,7 +547,7 @@ class Burner(object):
                                     disks=[i for i in range(self.disk_count)])
         Log("run %s" % mode, indent=2)
         ops.append(op)
-      self.ExecOrQueue(instance, *ops)
+      self.ExecOrQueue(instance, *ops) # pylint: disable-msg=W0142
 
   @_DoBatch(True)
   def BurnReplaceDisks2(self):
@@ -540,7 +568,7 @@ class Burner(object):
                                   mode=mode,
                                   remote_node=tnode,
                                   iallocator=self.opts.iallocator,
-                                  disks=[i for i in range(self.disk_count)])
+                                  disks=[])
       Log("run %s %s" % (mode, msg), indent=2)
       self.ExecOrQueue(instance, op)
 
@@ -553,7 +581,19 @@ class Burner(object):
       Log("instance %s" % instance, indent=1)
       op = opcodes.OpFailoverInstance(instance_name=instance,
                                       ignore_consistency=False)
+      self.ExecOrQueue(instance, op)
 
+  @_DoCheckInstances
+  @_DoBatch(False)
+  def BurnMove(self):
+    """Move the instances."""
+    Log("Moving instances")
+    mytor = izip(islice(cycle(self.nodes), 1, None),
+                 self.instances)
+    for tnode, instance in mytor:
+      Log("instance %s" % instance, indent=1)
+      op = opcodes.OpMoveInstance(instance_name=instance,
+                                  target_node=tnode)
       self.ExecOrQueue(instance, op)
 
   @_DoBatch(False)
@@ -619,7 +659,8 @@ class Burner(object):
                                         pnode=pnode,
                                         snode=snode,
                                         start=True,
-                                        ip_check=True,
+                                        ip_check=self.opts.ip_check,
+                                        name_check=self.opts.name_check,
                                         wait_for_sync=True,
                                         file_storage_dir=None,
                                         file_driver="loop",
@@ -636,15 +677,18 @@ class Burner(object):
       Log("remove export", indent=2)
       self.ExecOrQueue(instance, exp_op, rem_op, imp_op, erem_op)
 
-  def StopInstanceOp(self, instance):
+  @staticmethod
+  def StopInstanceOp(instance):
     """Stop given instance."""
     return opcodes.OpShutdownInstance(instance_name=instance)
 
-  def StartInstanceOp(self, instance):
+  @staticmethod
+  def StartInstanceOp(instance):
     """Start given instance."""
     return opcodes.OpStartupInstance(instance_name=instance, force=False)
 
-  def RenameInstanceOp(self, instance, instance_new):
+  @staticmethod
+  def RenameInstanceOp(instance, instance_new):
     """Rename instance."""
     return opcodes.OpRenameInstance(instance_name=instance,
                                     new_name=instance_new)
@@ -722,7 +766,7 @@ class Burner(object):
                                       ignore_secondaries=False)
         Log("reboot with type '%s'" % reboot_type, indent=2)
         ops.append(op)
-      self.ExecOrQueue(instance, *ops)
+      self.ExecOrQueue(instance, *ops) # pylint: disable-msg=W0142
 
   @_DoCheckInstances
   @_DoBatch(True)
@@ -836,6 +880,10 @@ class Burner(object):
       if opts.do_migrate and opts.disk_template == constants.DT_DRBD8:
         self.BurnMigrate()
 
+      if (opts.do_move and len(self.nodes) > 1 and
+          opts.disk_template in [constants.DT_PLAIN, constants.DT_FILE]):
+        self.BurnMove()
+
       if (opts.do_importexport and
           opts.disk_template not in (constants.DT_DISKLESS,
                                      constants.DT_FILE)):
@@ -871,7 +919,7 @@ class Burner(object):
       if not self.opts.keep_instances:
         try:
           self.BurnRemove()
-        except Exception, err:
+        except Exception, err:  # pylint: disable-msg=W0703
           if has_err: # already detected errors, so errors in removal
                       # are quite expected
             Log("Note: error detected during instance remove: %s" % str(err))

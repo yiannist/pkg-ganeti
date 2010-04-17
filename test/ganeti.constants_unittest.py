@@ -27,6 +27,8 @@ import re
 
 from ganeti import constants
 
+import testutils
+
 
 class TestConstants(unittest.TestCase):
   """Constants tests"""
@@ -54,6 +56,14 @@ class TestConstants(unittest.TestCase):
                     (constants.CONFIG_MAJOR, constants.CONFIG_MINOR,
                      constants.CONFIG_REVISION))
 
+  def testDiskStatus(self):
+    self.failUnless(constants.LDS_OKAY < constants.LDS_UNKNOWN)
+    self.failUnless(constants.LDS_UNKNOWN < constants.LDS_FAULTY)
+
+  def testClockSkew(self):
+    self.failUnless(constants.NODE_MAX_CLOCK_SKEW <
+                    (0.8 * constants.CONFD_MAX_CLOCK_SKEW))
+
 
 class TestParameterNames(unittest.TestCase):
   """HV/BE parameter tests"""
@@ -61,11 +71,38 @@ class TestParameterNames(unittest.TestCase):
 
   def testNoDashes(self):
     for kind, source in [('hypervisor', constants.HVS_PARAMETER_TYPES),
-                         ('backend', constants.BES_PARAMETER_TYPES)]:
+                         ('backend', constants.BES_PARAMETER_TYPES),
+                         ('nic', constants.NICS_PARAMETER_TYPES),
+                        ]:
       for key in source:
         self.failUnless(self.VALID_NAME.match(key),
                         "The %s parameter '%s' contains invalid characters" %
                         (kind, key))
 
+
+class TestConfdConstants(unittest.TestCase):
+  """Test the confd constants"""
+
+  def testFourCc(self):
+    self.failUnlessEqual(len(constants.CONFD_MAGIC_FOURCC), 4,
+                         "Invalid fourcc len, should be 4")
+
+  def _IsUniqueSequence(self, sequence):
+    seen = set()
+    for member in sequence:
+      if member in seen:
+        return False
+      seen.add(member)
+    return True
+
+  def testReqs(self):
+    self.failUnless(self._IsUniqueSequence(constants.CONFD_REQS),
+                    "Duplicated confd request code")
+
+  def testReplStatuses(self):
+    self.failUnless(self._IsUniqueSequence(constants.CONFD_REPL_STATUSES),
+                    "Duplicated confd reply status code")
+
+
 if __name__ == '__main__':
-  unittest.main()
+  testutils.GanetiTestProgram()

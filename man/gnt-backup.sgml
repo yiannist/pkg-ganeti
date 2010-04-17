@@ -63,8 +63,10 @@
       <cmdsynopsis>
         <command>export</command>
         <arg choice="req">-n <replaceable>node</replaceable></arg>
+        <arg>--shutdown-timeout=<replaceable>N</replaceable></arg>
         <arg>--noshutdown</arg>
         <arg choice="req"><replaceable>instance</replaceable></arg>
+
       </cmdsynopsis>
 
       <para>
@@ -72,6 +74,13 @@
         and its configuration will be exported under the
         /srv/ganeti/export/<replaceable>instance</replaceable>
         directory on the target node.
+      </para>
+
+      <para>
+        The <option>--shutdown-timeout</option> is used to specify how
+        much time to wait before forcing the shutdown (xm destroy in xen,
+        killing the kvm process, for kvm). By default two minutes are
+        given to each instance to stop.
       </para>
 
       <para>
@@ -200,14 +209,26 @@
               the instance to use)</simpara>
             </listitem>
           </varlistentry>
-          <varlistentry>
-            <term>bridge</term>
-            <listitem>
-              <simpara>specifies the bridge to attach this NIC
-              to</simpara>
-            </listitem>
-          </varlistentry>
-        </variablelist>
+            <varlistentry>
+              <term>mode</term>
+              <listitem>
+                <simpara>specifies the connection mode for this nic:
+                  routed or bridged.</simpara>
+              </listitem>
+            </varlistentry>
+            <varlistentry>
+              <term>link</term>
+              <listitem>
+                <simpara>in bridged mode specifies the bridge to attach
+                  this NIC to, in routed mode it's intended to
+                  differentiate between different routing tables/instance
+                  groups (but the meaning is dependent on the network
+                  script, see gnt-cluster(8) for more details)</simpara>
+              </listitem>
+            </varlistentry>
+          </variablelist>
+          Of these "mode" and "link" are nic parameters, and inherit their
+          default at cluster level.
       </para>
 
       <para>

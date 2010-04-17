@@ -28,6 +28,7 @@ import os.path
 import re
 import logging
 import tempfile
+import time
 
 from ganeti import rpc
 from ganeti import ssh
@@ -37,6 +38,7 @@ from ganeti import config
 from ganeti import constants
 from ganeti import objects
 from ganeti import ssconf
+from ganeti import serializer
 from ganeti import hypervisor
 
 
@@ -61,14 +63,10 @@ def _InitSSHSetup():
     raise errors.OpExecError("Could not generate ssh keypair, error %s" %
                              result.output)
 
-  f = open(pub_key, 'r')
-  try:
-    utils.AddAuthorizedKey(auth_keys, f.read(8192))
-  finally:
-    f.close()
+  utils.AddAuthorizedKey(auth_keys, utils.ReadFile(pub_key))
 
 
-def _GenerateSelfSignedSslCert(file_name, validity=(365 * 5)):
+def GenerateSelfSignedSslCert(file_name, validity=(365 * 5)):
   """Generates a self-signed SSL certificate.
 
   @type file_name: str
@@ -102,32 +100,55 @@ def _GenerateSelfSignedSslCert(file_name, validity=(365 * 5)):
     os.close(fd)
 
 
-def _InitGanetiServerSetup():
+def GenerateHmacKey(file_name):
+  """Writes a new HMAC key.
+
+  @type file_name: str
+  @param file_name: Path to output file
+
+  """
+  utils.WriteFile(file_name, data="%s\n" % utils.GenerateSecret(), mode=0400)
+
+
+def _InitGanetiServerSetup(master_name):
   """Setup the necessary configuration for the initial node daemon.
 
   This creates the nodepass file containing the shared password for
   the cluster and also generates the SSL certificate.
 
   """
-  _GenerateSelfSignedSslCert(constants.SSL_CERT_FILE)
+  GenerateSelfSignedSslCert(constants.SSL_CERT_FILE)
 
   # Don't overwrite existing file
   if not os.path.exists(constants.RAPI_CERT_FILE):
-    _GenerateSelfSignedSslCert(constants.RAPI_CERT_FILE)
+    GenerateSelfSignedSslCert(constants.RAPI_CERT_FILE)
 
-  result = utils.RunCmd([constants.NODE_INITD_SCRIPT, "restart"])
+  if not os.path.exists(constants.HMAC_CLUSTER_KEY):
+    GenerateHmacKey(constants.HMAC_CLUSTER_KEY)
 
+  result = utils.RunCmd([constants.DAEMON_UTIL, "start", constants.NODED])
   if result.failed:
     raise errors.OpExecError("Could not start the node daemon, command %s"
                              " had exitcode %s and error %s" %
                              (result.cmd, result.exit_code, result.output))
 
+  # Wait for node daemon to become responsive
+  def _CheckNodeDaemon():
+    result = rpc.RpcRunner.call_version([master_name])[master_name]
+    if result.fail_msg:
+      raise utils.RetryAgain()
 
-def InitCluster(cluster_name, mac_prefix, def_bridge,
+  try:
+    utils.Retry(_CheckNodeDaemon, 1.0, 10.0)
+  except utils.RetryTimeout:
+    raise errors.OpExecError("Node daemon didn't answer queries within"
+                             " 10 seconds")
+
+def InitCluster(cluster_name, mac_prefix,
                 master_netdev, file_storage_dir, candidate_pool_size,
-                secondary_ip=None, vg_name=None, beparams=None, hvparams=None,
-                enabled_hypervisors=None, default_hypervisor=None,
-                modify_etc_hosts=True):
+                secondary_ip=None, vg_name=None, beparams=None,
+                nicparams=None, hvparams=None, enabled_hypervisors=None,
+                modify_etc_hosts=True, modify_ssh_setup=True):
   """Initialise the cluster.
 
   @type candidate_pool_size: int
@@ -136,43 +157,48 @@ def InitCluster(cluster_name, mac_prefix, def_bridge,
   """
   # TODO: complete the docstring
   if config.ConfigWriter.IsCluster():
-    raise errors.OpPrereqError("Cluster is already initialised")
+    raise errors.OpPrereqError("Cluster is already initialised",
+                               errors.ECODE_STATE)
 
   if not enabled_hypervisors:
     raise errors.OpPrereqError("Enabled hypervisors list must contain at"
-                               " least one member")
+                               " least one member", errors.ECODE_INVAL)
   invalid_hvs = set(enabled_hypervisors) - constants.HYPER_TYPES
   if invalid_hvs:
     raise errors.OpPrereqError("Enabled hypervisors contains invalid"
-                               " entries: %s" % invalid_hvs)
+                               " entries: %s" % invalid_hvs,
+                               errors.ECODE_INVAL)
 
-  hostname = utils.HostInfo()
+  hostname = utils.GetHostInfo()
 
   if hostname.ip.startswith("127."):
     raise errors.OpPrereqError("This host's IP resolves to the private"
                                " range (%s). Please fix DNS or %s." %
-                               (hostname.ip, constants.ETC_HOSTS))
+                               (hostname.ip, constants.ETC_HOSTS),
+                               errors.ECODE_ENVIRON)
 
   if not utils.OwnIpAddress(hostname.ip):
     raise errors.OpPrereqError("Inconsistency: this host's name resolves"
                                " to %s,\nbut this ip address does not"
-                               " belong to this host."
-                               " Aborting." % hostname.ip)
+                               " belong to this host. Aborting." %
+                               hostname.ip, errors.ECODE_ENVIRON)
 
-  clustername = utils.HostInfo(cluster_name)
+  clustername = utils.GetHostInfo(cluster_name)
 
   if utils.TcpPing(clustername.ip, constants.DEFAULT_NODED_PORT,
                    timeout=5):
-    raise errors.OpPrereqError("Cluster IP already active. Aborting.")
+    raise errors.OpPrereqError("Cluster IP already active. Aborting.",
+                               errors.ECODE_NOTUNIQUE)
 
   if secondary_ip:
     if not utils.IsValidIP(secondary_ip):
-      raise errors.OpPrereqError("Invalid secondary ip given")
+      raise errors.OpPrereqError("Invalid secondary ip given",
+                                 errors.ECODE_INVAL)
     if (secondary_ip != hostname.ip and
         not utils.OwnIpAddress(secondary_ip)):
       raise errors.OpPrereqError("You gave %s as secondary IP,"
                                  " but it does not belong to this host." %
-                                 secondary_ip)
+                                 secondary_ip, errors.ECODE_ENVIRON)
   else:
     secondary_ip = hostname.ip
 
@@ -182,44 +208,45 @@ def InitCluster(cluster_name, mac_prefix, def_bridge,
                                           constants.MIN_VG_SIZE)
     if vgstatus:
       raise errors.OpPrereqError("Error: %s\nspecify --no-lvm-storage if"
-                                 " you are not using lvm" % vgstatus)
+                                 " you are not using lvm" % vgstatus,
+                                 errors.ECODE_INVAL)
 
   file_storage_dir = os.path.normpath(file_storage_dir)
 
   if not os.path.isabs(file_storage_dir):
     raise errors.OpPrereqError("The file storage directory you passed is"
-                               " not an absolute path.")
+                               " not an absolute path.", errors.ECODE_INVAL)
 
   if not os.path.exists(file_storage_dir):
     try:
       os.makedirs(file_storage_dir, 0750)
     except OSError, err:
       raise errors.OpPrereqError("Cannot create file storage directory"
-                                 " '%s': %s" %
-                                 (file_storage_dir, err))
+                                 " '%s': %s" % (file_storage_dir, err),
+                                 errors.ECODE_ENVIRON)
 
   if not os.path.isdir(file_storage_dir):
     raise errors.OpPrereqError("The file storage directory '%s' is not"
-                               " a directory." % file_storage_dir)
+                               " a directory." % file_storage_dir,
+                               errors.ECODE_ENVIRON)
 
   if not re.match("^[0-9a-z]{2}:[0-9a-z]{2}:[0-9a-z]{2}$", mac_prefix):
-    raise errors.OpPrereqError("Invalid mac prefix given '%s'" % mac_prefix)
+    raise errors.OpPrereqError("Invalid mac prefix given '%s'" % mac_prefix,
+                               errors.ECODE_INVAL)
 
   result = utils.RunCmd(["ip", "link", "show", "dev", master_netdev])
   if result.failed:
     raise errors.OpPrereqError("Invalid master netdev given (%s): '%s'" %
                                (master_netdev,
-                                result.output.strip()))
-
-  if not (os.path.isfile(constants.NODE_INITD_SCRIPT) and
-          os.access(constants.NODE_INITD_SCRIPT, os.X_OK)):
-    raise errors.OpPrereqError("Init.d script '%s' missing or not"
-                               " executable." % constants.NODE_INITD_SCRIPT)
+                                result.output.strip()), errors.ECODE_INVAL)
 
   dirs = [(constants.RUN_GANETI_DIR, constants.RUN_DIRS_MODE)]
   utils.EnsureDirs(dirs)
 
   utils.ForceDictType(beparams, constants.BES_PARAMETER_TYPES)
+  utils.ForceDictType(nicparams, constants.NICS_PARAMETER_TYPES)
+  objects.NIC.CheckParameterSyntax(nicparams)
+
   # hvparams is a mapping of hypervisor->hvparams dict
   for hv_name, hv_params in hvparams.iteritems():
     utils.ForceDictType(hv_params, constants.HVS_PARAMETER_TYPES)
@@ -227,20 +254,19 @@ def InitCluster(cluster_name, mac_prefix, def_bridge,
     hv_class.CheckParameterSyntax(hv_params)
 
   # set up the inter-node password and certificate
-  _InitGanetiServerSetup()
+  _InitGanetiServerSetup(hostname.name)
 
   # set up ssh config and /etc/hosts
-  f = open(constants.SSH_HOST_RSA_PUB, 'r')
-  try:
-    sshline = f.read()
-  finally:
-    f.close()
+  sshline = utils.ReadFile(constants.SSH_HOST_RSA_PUB)
   sshkey = sshline.split(" ")[1]
 
   if modify_etc_hosts:
     utils.AddHostToEtcHosts(hostname.name)
 
-  _InitSSHSetup()
+  if modify_ssh_setup:
+    _InitSSHSetup()
+
+  now = time.time()
 
   # init of cluster config file
   cluster_config = objects.Cluster(
@@ -249,7 +275,6 @@ def InitCluster(cluster_name, mac_prefix, def_bridge,
     highest_used_port=(constants.FIRST_DRBD_PORT - 1),
     mac_prefix=mac_prefix,
     volume_group_name=vg_name,
-    default_bridge=def_bridge,
     tcpudp_port_pool=set(),
     master_node=hostname.name,
     master_ip=clustername.ip,
@@ -257,11 +282,15 @@ def InitCluster(cluster_name, mac_prefix, def_bridge,
     cluster_name=clustername.name,
     file_storage_dir=file_storage_dir,
     enabled_hypervisors=enabled_hypervisors,
-    default_hypervisor=default_hypervisor,
-    beparams={constants.BEGR_DEFAULT: beparams},
+    beparams={constants.PP_DEFAULT: beparams},
+    nicparams={constants.PP_DEFAULT: nicparams},
     hvparams=hvparams,
     candidate_pool_size=candidate_pool_size,
     modify_etc_hosts=modify_etc_hosts,
+    modify_ssh_setup=modify_ssh_setup,
+    ctime=now,
+    mtime=now,
+    uuid=utils.NewUUID(),
     )
   master_node_config = objects.Node(name=hostname.name,
                                     primary_ip=hostname.ip,
@@ -270,15 +299,14 @@ def InitCluster(cluster_name, mac_prefix, def_bridge,
                                     master_candidate=True,
                                     offline=False, drained=False,
                                     )
-
-  sscfg = InitConfig(constants.CONFIG_VERSION,
-                     cluster_config, master_node_config)
-  ssh.WriteKnownHostsFile(sscfg, constants.SSH_KNOWN_HOSTS_FILE)
+  InitConfig(constants.CONFIG_VERSION, cluster_config, master_node_config)
   cfg = config.ConfigWriter()
-  cfg.Update(cfg.GetClusterInfo())
+  ssh.WriteKnownHostsFile(cfg, constants.SSH_KNOWN_HOSTS_FILE)
+  cfg.Update(cfg.GetClusterInfo(), logging.error)
 
   # start the master ip
   # TODO: Review rpc call from bootstrap
+  # TODO: Warn on failed start master
   rpc.RpcRunner.call_node_start_master(hostname.name, True, False)
 
 
@@ -298,23 +326,21 @@ def InitConfig(version, cluster_config, master_node_config,
   @type cfg_file: string
   @param cfg_file: configuration file path
 
-  @rtype: L{ssconf.SimpleConfigWriter}
-  @return: initialized config instance
-
   """
   nodes = {
     master_node_config.name: master_node_config,
     }
 
+  now = time.time()
   config_data = objects.ConfigData(version=version,
                                    cluster=cluster_config,
                                    nodes=nodes,
                                    instances={},
-                                   serial_no=1)
-  cfg = ssconf.SimpleConfigWriter.FromDict(config_data.ToDict(), cfg_file)
-  cfg.Save()
-
-  return cfg
+                                   serial_no=1,
+                                   ctime=now, mtime=now)
+  utils.WriteFile(cfg_file,
+                  data=serializer.Dump(config_data.ToDict()),
+                  mode=0600)
 
 
 def FinalizeClusterDestroy(master):
@@ -324,12 +350,17 @@ def FinalizeClusterDestroy(master):
   begun in cmdlib.LUDestroyOpcode.
 
   """
+  cfg = config.ConfigWriter()
+  modify_ssh_setup = cfg.GetClusterInfo().modify_ssh_setup
   result = rpc.RpcRunner.call_node_stop_master(master, True)
-  if result.failed or not result.data:
-    logging.warning("Could not disable the master role")
-  result = rpc.RpcRunner.call_node_leave_cluster(master)
-  if result.failed or not result.data:
-    logging.warning("Could not shutdown the node daemon and cleanup the node")
+  msg = result.fail_msg
+  if msg:
+    logging.warning("Could not disable the master role: %s", msg)
+  result = rpc.RpcRunner.call_node_leave_cluster(master, modify_ssh_setup)
+  msg = result.fail_msg
+  if msg:
+    logging.warning("Could not shutdown the node daemon and cleanup"
+                    " the node: %s", msg)
 
 
 def SetupNodeDaemon(cluster_name, node, ssh_key_check):
@@ -348,19 +379,23 @@ def SetupNodeDaemon(cluster_name, node, ssh_key_check):
 
   noded_cert = utils.ReadFile(constants.SSL_CERT_FILE)
   rapi_cert = utils.ReadFile(constants.RAPI_CERT_FILE)
+  hmac_key = utils.ReadFile(constants.HMAC_CLUSTER_KEY)
 
   # in the base64 pem encoding, neither '!' nor '.' are valid chars,
   # so we use this to detect an invalid certificate; as long as the
   # cert doesn't contain this, the here-document will be correctly
-  # parsed by the shell sequence below
-  if (re.search('^!EOF\.', noded_cert, re.MULTILINE) or
-      re.search('^!EOF\.', rapi_cert, re.MULTILINE)):
-    raise errors.OpExecError("invalid PEM encoding in the SSL certificate")
+  # parsed by the shell sequence below. HMAC keys are hexadecimal strings,
+  # so the same restrictions apply.
+  for content in (noded_cert, rapi_cert, hmac_key):
+    if re.search('^!EOF\.', content, re.MULTILINE):
+      raise errors.OpExecError("invalid SSL certificate or HMAC key")
 
   if not noded_cert.endswith("\n"):
     noded_cert += "\n"
   if not rapi_cert.endswith("\n"):
     rapi_cert += "\n"
+  if not hmac_key.endswith("\n"):
+    hmac_key += "\n"
 
   # set up inter-node password and certificate and restarts the node daemon
   # and then connect with ssh to set password and start ganeti-noded
@@ -371,12 +406,16 @@ def SetupNodeDaemon(cluster_name, node, ssh_key_check):
                "%s!EOF.\n"
                "cat > '%s' << '!EOF.' && \n"
                "%s!EOF.\n"
-               "chmod 0400 %s %s && "
-               "%s restart" %
+               "cat > '%s' << '!EOF.' && \n"
+               "%s!EOF.\n"
+               "chmod 0400 %s %s %s && "
+               "%s start %s" %
                (constants.SSL_CERT_FILE, noded_cert,
                 constants.RAPI_CERT_FILE, rapi_cert,
+                constants.HMAC_CLUSTER_KEY, hmac_key,
                 constants.SSL_CERT_FILE, constants.RAPI_CERT_FILE,
-                constants.NODE_INITD_SCRIPT))
+                constants.HMAC_CLUSTER_KEY,
+                constants.DAEMON_UTIL, constants.NODED))
 
   result = sshrunner.Run(node, 'root', mycommand, batch=False,
                          ask_key=ssh_key_check,
@@ -410,7 +449,7 @@ def MasterFailover(no_voting=False):
     raise errors.OpPrereqError("This commands must be run on the node"
                                " where you want the new master to be."
                                " %s is already the master" %
-                               old_master)
+                               old_master, errors.ECODE_INVAL)
 
   if new_master not in mc_list:
     mc_no_master = [name for name in mc_list if name != old_master]
@@ -418,7 +457,8 @@ def MasterFailover(no_voting=False):
                                " as master candidates. Only these nodes"
                                " can become masters. Current list of"
                                " master candidates is:\n"
-                               "%s" % ('\n'.join(mc_no_master)))
+                               "%s" % ('\n'.join(mc_no_master)),
+                               errors.ECODE_STATE)
 
   if not no_voting:
     vote_list = GatherMasterVotes(node_list)
@@ -427,13 +467,14 @@ def MasterFailover(no_voting=False):
       voted_master = vote_list[0][0]
       if voted_master is None:
         raise errors.OpPrereqError("Cluster is inconsistent, most nodes did"
-                                   " not respond.")
+                                   " not respond.", errors.ECODE_ENVIRON)
       elif voted_master != old_master:
         raise errors.OpPrereqError("I have a wrong configuration, I believe"
                                    " the master is %s but the other nodes"
                                    " voted %s. Please resync the configuration"
                                    " of this node." %
-                                   (old_master, voted_master))
+                                   (old_master, voted_master),
+                                   errors.ECODE_STATE)
   # end checks
 
   rcode = 0
@@ -441,9 +482,10 @@ def MasterFailover(no_voting=False):
   logging.info("Setting master to %s, old master: %s", new_master, old_master)
 
   result = rpc.RpcRunner.call_node_stop_master(old_master, True)
-  if result.failed or not result.data:
+  msg = result.fail_msg
+  if msg:
     logging.error("Could not disable the master role on the old master"
-                 " %s, please disable manually", old_master)
+                 " %s, please disable manually: %s", old_master, msg)
 
   # Here we have a phase where no master should be running
 
@@ -455,12 +497,13 @@ def MasterFailover(no_voting=False):
   cluster_info.master_node = new_master
   # this will also regenerate the ssconf files, since we updated the
   # cluster info
-  cfg.Update(cluster_info)
+  cfg.Update(cluster_info, logging.error)
 
   result = rpc.RpcRunner.call_node_start_master(new_master, True, no_voting)
-  if result.failed or not result.data:
+  msg = result.fail_msg
+  if msg:
     logging.error("Could not start the master role on the new master"
-                  " %s, please check", new_master)
+                  " %s, please check: %s", new_master, msg)
     rcode = 1
 
   return rcode
@@ -519,9 +562,16 @@ def GatherMasterVotes(node_list):
   votes = {}
   for node in results:
     nres = results[node]
-    data = nres.data
-    if nres.failed or not isinstance(data, (tuple, list)) or len(data) < 3:
-      # here the rpc layer should have already logged errors
+    data = nres.payload
+    msg = nres.fail_msg
+    fail = False
+    if msg:
+      logging.warning("Error contacting node %s: %s", node, msg)
+      fail = True
+    elif not isinstance(data, (tuple, list)) or len(data) < 3:
+      logging.warning("Invalid data received from node %s: %s", node, data)
+      fail = True
+    if fail:
       if None not in votes:
         votes[None] = 0
       votes[None] += 1

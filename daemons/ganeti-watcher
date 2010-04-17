@@ -27,6 +27,10 @@ by a node reboot.  Run from cron or similar.
 
 """
 
+# pylint: disable-msg=C0103,W0142
+
+# C0103: Invalid name ganeti-watcher
+
 import os
 import sys
 import time
@@ -70,28 +74,24 @@ def Indent(s, prefix='| '):
   return "%s%s\n" % (prefix, ('\n' + prefix).join(s.splitlines()))
 
 
-def StartMaster():
-  """Try to start the master daemon.
+def ShouldPause():
+  """Check whether we should pause.
 
   """
-  result = utils.RunCmd(['ganeti-masterd'])
-  if result.failed:
-    logging.error("Can't start the master daemon: output '%s'", result.output)
-  return not result.failed
+  return bool(utils.ReadWatcherPauseFile(constants.WATCHER_PAUSEFILE))
 
 
-def EnsureDaemon(daemon):
+def EnsureDaemon(name):
   """Check for and start daemon if not alive.
 
   """
-  pidfile = utils.DaemonPidFileName(daemon)
-  pid = utils.ReadPidFile(pidfile)
-  if pid == 0 or not utils.IsProcessAlive(pid): # no file or dead pid
-    logging.debug("Daemon '%s' not alive, trying to restart", daemon)
-    result = utils.RunCmd([daemon])
-    if not result:
-      logging.error("Can't start daemon '%s', failure %s, output: %s",
-                    daemon, result.fail_reason, result.output)
+  result = utils.RunCmd([constants.DAEMON_UTIL, "check-and-start", name])
+  if result.failed:
+    logging.error("Can't start daemon '%s', failure %s, output: %s",
+                  name, result.fail_reason, result.output)
+    return False
+
+  return True
 
 
 class WatcherState(object):
@@ -118,7 +118,7 @@ class WatcherState(object):
         self._data = {}
       else:
         self._data = serializer.Load(state_data)
-    except Exception, msg:
+    except Exception, msg: # pylint: disable-msg=W0703
       # Ignore errors while loading the file and treat it as empty
       self._data = {}
       logging.warning(("Invalid state file. Using defaults."
@@ -334,7 +334,7 @@ class Watcher(object):
 
     """
     arch_count, left_count = client.AutoArchiveJobs(age)
-    logging.debug("Archived %s jobs, left %s" % (arch_count, left_count))
+    logging.debug("Archived %s jobs, left %s", arch_count, left_count)
 
   def CheckDisks(self, notepad):
     """Check all nodes for restarted ones.
@@ -372,7 +372,7 @@ class Watcher(object):
           try:
             logging.info("Activating disks for instance %s", instance.name)
             instance.ActivateDisks()
-          except Exception:
+          except Exception: # pylint: disable-msg=W0703
             logging.exception("Error while activating disks for instance %s",
                               instance.name)
 
@@ -403,7 +403,7 @@ class Watcher(object):
                         instance.name, last)
           instance.Restart()
           self.started_instances.add(instance.name)
-        except Exception:
+        except Exception: # pylint: disable-msg=W0703
           logging.exception("Error while restarting instance %s",
                             instance.name)
 
@@ -433,7 +433,7 @@ class Watcher(object):
       # nothing to do
       return
     logging.debug("Will activate disks for instances %s",
-                  ", ".join(offline_disk_instances))
+                  utils.CommaJoin(offline_disk_instances))
     # we submit only one job, and wait for it. not optimal, but spams
     # less the job queue
     job = [opcodes.OpActivateInstanceDisks(instance_name=name)
@@ -454,9 +454,7 @@ def ParseOptions():
                         version="%%prog (ganeti) %s" %
                         constants.RELEASE_VERSION)
 
-  parser.add_option("-d", "--debug", dest="debug",
-                    help="Write all messages to stderr",
-                    default=False, action="store_true")
+  parser.add_option(cli.DEBUG_OPT)
   parser.add_option("-A", "--job-age", dest="job_age",
                     help="Autoarchive jobs older than this age (default"
                     " 6 hours)", default=6*3600)
@@ -469,18 +467,27 @@ def main():
   """Main function.
 
   """
-  global client
+  global client # pylint: disable-msg=W0603
 
   options, args = ParseOptions()
+
+  if args: # watcher doesn't take any arguments
+    print >> sys.stderr, ("Usage: %s [-f] " % sys.argv[0])
+    sys.exit(constants.EXIT_FAILURE)
 
   utils.SetupLogging(constants.LOG_WATCHER, debug=options.debug,
                      stderr_logging=options.debug)
 
+  if ShouldPause():
+    logging.debug("Pause has been set, exiting")
+    sys.exit(constants.EXIT_SUCCESS)
+
   update_file = False
   try:
-    # on master or not, try to start the node dameon (use _PID but is
-    # the same as daemon name)
-    EnsureDaemon(constants.NODED_PID)
+    # on master or not, try to start the node dameon
+    EnsureDaemon(constants.NODED)
+    # start confd as well. On non candidates it will be in disabled mode.
+    EnsureDaemon(constants.CONFD)
 
     notepad = WatcherState()
     try:
@@ -494,14 +501,14 @@ def main():
       except luxi.NoMasterError, err:
         logging.warning("Master seems to be down (%s), trying to restart",
                         str(err))
-        if not StartMaster():
+        if not EnsureDaemon(constants.MASTERD):
           logging.critical("Can't start the master, exiting")
           sys.exit(constants.EXIT_FAILURE)
         # else retry the connection
         client = cli.GetClient()
 
-      # we are on master now (use _PID but is the same as daemon name)
-      EnsureDaemon(constants.RAPI_PID)
+      # we are on master now
+      EnsureDaemon(constants.RAPI)
 
       try:
         watcher = Watcher(options, notepad)

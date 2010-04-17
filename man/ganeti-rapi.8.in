@@ -3,13 +3,13 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GANETI-RAPI" "8" "04 February 2010" "ganeti 2.0" ""
+.TH "GANETI-RAPI" "8" "02 March 2010" "ganeti 2.0" ""
 
 .SH NAME
 ganeti-rapi \- ganeti remote API daemon
 .SH SYNOPSIS
 
-\fBganeti-rapi \fR [ \fB-d\fR ] [ \fB-f\fR ] [ \fB-p \fIPORT\fB\fR ] [ \fB--no-ssl\fR ] [ \fB-K \fISSL_KEY_FILE\fB\fR ] [ \fB-C \fISSL_CERT_FILE\fB\fR ]
+\fBganeti-rapi \fR [ \fB-d\fR ] [ \fB-f\fR ] [ \fB--no-ssl\fR ] [ \fB-K \fISSL_KEY_FILE\fB\fR ] [ \fB-C \fISSL_CERT_FILE\fB\fR ]
 
 .SH "DESCRIPTION"
 .PP
@@ -22,8 +22,8 @@ it uses SSL encryption. This can be disabled by passing the
 certificate used can be changed via the \fB-C\fR
 option and the key via the \fB-K\fR option.
 .PP
-The daemon will listen by default on the port 5080, but this can
-be changed via the \fB-p\fR option.
+The daemon will listen to the "ganeti-rapi" tcp port, as listed in the
+system services database, or to port 5080 by default.
 .PP
 See the \fBGaneti remote API\fR documentation for
 further information.

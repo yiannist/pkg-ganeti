@@ -379,12 +379,46 @@
           <varlistentry>
             <term>serial_no</term>
             <listitem>
-              <simpara>the so called 'serial number' of the instance;
+              <simpara>the so called 'serial number' of the node;
               this is a numeric field that is incremented each time
-              the instance is modified, and it can be used to detect
+              the node is modified, and it can be used to detect
               modifications</simpara>
             </listitem>
           </varlistentry>
+          <varlistentry>
+            <term>ctime</term>
+            <listitem>
+              <para>
+                the creation time of the node; note that this field
+                contains spaces and as such it's harder to parse
+              </para>
+              <para>
+                if this attribute is not present (e.g. when upgrading
+                from older versions), then "N/A" will be shown instead
+              </para>
+            </listitem>
+          </varlistentry>
+          <varlistentry>
+            <term>mtime</term>
+            <listitem>
+              <para>
+                the last modification time of the node; note that this
+                field contains spaces and as such it's harder to parse
+              </para>
+              <para>
+                if this attribute is not present (e.g. when upgrading
+                from older versions), then "N/A" will be shown instead
+              </para>
+            </listitem>
+          </varlistentry>
+          <varlistentry>
+            <term>uuid</term>
+            <listitem>
+              <simpara>Show the UUID of the node (generated
+                automatically by Ganeti)</simpara>
+            </listitem>
+          </varlistentry>
+
           <varlistentry>
             <term>ctotal</term>
             <listitem>
@@ -720,6 +754,231 @@ node1.example.com /dev/hdc1 xenvg instance1.example.com-sda_11001.data 256  inst
         </screen>
       </para>
     </refsect2>
+
+    <refsect2>
+      <title>LIST-STORAGE</title>
+
+      <cmdsynopsis>
+        <command>list-storage</command>
+        <arg>--no-headers</arg>
+        <arg>--human-readable</arg>
+        <arg>--separator=<replaceable>SEPARATOR</replaceable></arg>
+        <arg>--storage-type=<replaceable>STORAGE_TYPE</replaceable></arg>
+        <arg>--output=<replaceable>FIELDS</replaceable></arg>
+        <sbr>
+        <arg rep="repeat"><replaceable>node</replaceable></arg>
+      </cmdsynopsis>
+
+      <para>
+        Lists the available storage units and their details for the
+        given node(s).
+      </para>
+
+      <para>
+        The <option>--no-headers</option> option will skip the initial header
+        line. The <option>--separator</option> option takes an argument which
+        denotes what will be used between the output fields. Both these options
+        are to help scripting.
+      </para>
+
+      <para>
+        The units used to display the numeric values in the output varies,
+        depending on the options given. By default, the values will be
+        formatted in the most appropriate unit. If the
+        <option>--separator</option> option is given, then the values are shown
+        in mebibytes to allow parsing by scripts. In both cases, the
+        <option>--units</option> option can be used to enforce a given output
+        unit.
+      </para>
+
+      <para>
+        The <option>--storage-type</option> option can be used to choose a
+        storage unit type. Possible choices are <literal>lvm-pv</literal>,
+        <literal>lvm-vg</literal> or <literal>file</literal>.
+      </para>
+
+      <para>
+        The <option>-o</option> option takes a comma-separated list of
+        output fields. The available fields and their meaning are:
+        <variablelist>
+          <varlistentry>
+            <term>node</term>
+            <listitem>
+              <simpara>the node name on which the volume exists</simpara>
+            </listitem>
+          </varlistentry>
+          <varlistentry>
+            <term>type</term>
+            <listitem>
+              <simpara>the type of the storage unit (currently just
+              what is passed in via
+              <option>--storage-type</option>)</simpara>
+            </listitem>
+          </varlistentry>
+          <varlistentry>
+            <term>name</term>
+            <listitem>
+              <simpara>the path/identifier of the storage unit</simpara>
+            </listitem>
+          </varlistentry>
+          <varlistentry>
+            <term>size</term>
+            <listitem>
+              <simpara>
+                total size of the unit; for the file type see a note below
+              </simpara>
+            </listitem>
+          </varlistentry>
+          <varlistentry>
+            <term>used</term>
+            <listitem>
+              <simpara>
+                used space in the unit; for the file type see a note below
+              </simpara>
+            </listitem>
+          </varlistentry>
+          <varlistentry>
+            <term>free</term>
+            <listitem>
+              <simpara>
+                available disk space
+              </simpara>
+            </listitem>
+          </varlistentry>
+          <varlistentry>
+            <term>allocatable</term>
+            <listitem>
+              <simpara>
+                whether we the unit is available for allocation
+                (only <literal>lvm-pv</literal> can change this
+                setting, the other types always report true)
+              </simpara>
+            </listitem>
+          </varlistentry>
+        </variablelist>
+      </para>
+
+      <para>
+        Note that for the <quote>file</quote> type, the total disk
+        space might not equal to the sum of used and free, due to the
+        method Ganeti uses to compute each of them. The total and free
+        values are computed as the total and free space values for the
+        filesystem to which the directory belongs, but the used space
+        is computed from the used space under that directory
+        <emphasis>only</emphasis>, which might not be necessarily the
+        root of the filesystem, and as such there could be files
+        outside the file storage directory using disk space and
+        causing a mismatch in the values.
+      </para>
+
+      <para>
+        Example:
+        <screen>
+node1# gnt-node list-storage node2
+Node  Type   Name        Size Used   Free Allocatable
+node2 lvm-pv /dev/sda7 673.8G 1.5G 672.3G Y
+node2 lvm-pv /dev/sdb1 698.6G   0M 698.6G Y
+        </screen>
+      </para>
+    </refsect2>
+
+    <refsect2>
+      <title>MODIFY-STORAGE</title>
+
+      <cmdsynopsis>
+        <command>modify-storage</command>
+        <arg><option>--allocatable=yes|no</option></arg>
+        <sbr>
+        <arg choice="req"><replaceable>node</replaceable></arg>
+        <arg choice="req"><replaceable>storage-type</replaceable></arg>
+        <arg choice="req"><replaceable>volume-name</replaceable></arg>
+      </cmdsynopsis>
+
+      <para>
+        Modifies storage volumes on a node. Only LVM physical volumes
+        can be modified at the moment. They have a storage type
+        of <quote>lvm-pv</quote>.
+      </para>
+
+      <para>
+        Example:
+        <screen>
+# gnt-node modify-storage --allocatable no node5.example.com lvm-pv /dev/sdb1
+        </screen>
+      </para>
+    </refsect2>
+
+    <refsect2>
+      <title>REPAIR-STORAGE</title>
+
+      <cmdsynopsis>
+        <command>repair-storage</command>
+        <arg>--ignore-consistency</arg>
+        <arg choice="req"><replaceable>node</replaceable></arg>
+        <arg choice="req"><replaceable>storage-type</replaceable></arg>
+        <arg choice="req"><replaceable>volume-name</replaceable></arg>
+      </cmdsynopsis>
+
+      <para>
+        Repairs a storage volume on a node. Only LVM volume groups can
+        be repaired at this time. They have the storage type
+        <quote>lvm-vg</quote>.
+      </para>
+
+      <para>
+        On LVM volume groups, <command>repair-storage</command> runs
+        <quote>vgreduce --removemissing</quote>.
+      </para>
+
+      <caution>
+        <para>
+          Running this command can lead to data loss. Use it with care.
+        </para>
+      </caution>
+
+      <para>
+        The <option>--ignore-consistency</option> option will ignore
+        any inconsistent disks (on the nodes paired with this
+        one). Use of this option is most likely to lead to data-loss.
+      </para>
+
+      <para>
+        Example:
+        <screen>
+# gnt-node repair-storage node5.example.com lvm-vg xenvg
+        </screen>
+      </para>
+    </refsect2>
+
+    <refsect2>
+      <title>POWERCYCLE</title>
+
+      <cmdsynopsis>
+        <command>powercycle</command>
+        <arg><option>--confirm</option></arg>
+        <arg><option>--force</option></arg>
+        <arg choice="req"><replaceable>node</replaceable></arg>
+      </cmdsynopsis>
+
+      <para>
+        This commands (tries to) forcefully reboot a node. It is a
+        command that can be used if the node environemnt is broken,
+        such that the admin can no longer login over ssh, but the
+        ganeti node daemon is still working.
+      </para>
+
+      <para>
+        Note that this command is not guaranteed to work; it depends
+        on the hypervisor how effective is the reboot attempt. For
+        Linux, this command require that the kernel option
+        <literal>CONFIG_MAGIC_SYSRQ</literal> is enabled.
+      </para>
+
+      <para>
+        The <option>--yes</option> option can be used to skip
+        confirmation, while the <option>--force</option> option is
+        needed if the target node is the master node.
+      </para>
 
   </refsect1>
 

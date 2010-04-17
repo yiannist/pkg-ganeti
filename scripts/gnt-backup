@@ -18,22 +18,23 @@
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
 # 02110-1301, USA.
 
+"""Backup related commands"""
 
-# pylint: disable-msg=W0401,W0614
+# pylint: disable-msg=W0401,W0613,W0614,C0103
 # W0401: Wildcard import ganeti.cli
+# W0613: Unused argument, since all functions follow the same API
 # W0614: Unused import %s from wildcard import (since we need cli)
+# C0103: Invalid name gnt-backup
 
 import sys
-from optparse import make_option
 
 from ganeti.cli import *
 from ganeti import opcodes
 from ganeti import constants
-from ganeti import errors
-from ganeti import utils
 
 
 _VALUE_TRUE = "true"
+
 
 def PrintExportList(opts, args):
   """Prints a list of all the exported system images.
@@ -72,13 +73,13 @@ def ExportInstance(opts, args):
   """
   op = opcodes.OpExportInstance(instance_name=args[0],
                                 target_node=opts.node,
-                                shutdown=opts.shutdown)
+                                shutdown=opts.shutdown,
+                                shutdown_timeout=opts.shutdown_timeout)
 
   fin_resu, dlist = SubmitOpCode(op)
   if not isinstance(dlist, list):
     ToStderr("Cannot parse execution results")
     return 1
-  tot_dsk = len(dlist)
   # TODO: handle diskless instances
   if dlist.count(False) == 0:
     # all OK
@@ -99,89 +100,10 @@ def ExportInstance(opts, args):
 def ImportInstance(opts, args):
   """Add an instance to the cluster.
 
-  @param opts: the command line options selected by the user
-  @type args: list
-  @param args: should contain only one element, the new instance name
-  @rtype: int
-  @return: the desired exit code
+  This is just a wrapper over GenericInstanceCreate.
 
   """
-  instance = args[0]
-
-  (pnode, snode) = SplitNodeOption(opts.node)
-
-  hypervisor = None
-  hvparams = {}
-  if opts.hypervisor:
-    hypervisor, hvparams = opts.hypervisor
-
-  if opts.nics:
-    try:
-      nic_max = max(int(nidx[0])+1 for nidx in opts.nics)
-    except (TypeError, ValueError), err:
-      raise errors.OpPrereqError("Invalid NIC index passed: %s" % str(err))
-    nics = [{}] * nic_max
-    for nidx, ndict in opts.nics:
-      nidx = int(nidx)
-      nics[nidx] = ndict
-  elif opts.no_nics:
-    # no nics
-    nics = []
-  else:
-    # default of one nic, all auto
-    nics = [{}]
-
-  if opts.disk_template == constants.DT_DISKLESS:
-    if opts.disks or opts.sd_size is not None:
-      raise errors.OpPrereqError("Diskless instance but disk"
-                                 " information passed")
-    disks = []
-  else:
-    if not opts.disks and not opts.sd_size:
-      raise errors.OpPrereqError("No disk information specified")
-    if opts.disks and opts.sd_size is not None:
-      raise errors.OpPrereqError("Please use either the '--disk' or"
-                                 " '-s' option")
-    if opts.sd_size is not None:
-      opts.disks = [(0, {"size": opts.sd_size})]
-    try:
-      disk_max = max(int(didx[0])+1 for didx in opts.disks)
-    except (TypeError, ValueError), err:
-      raise errors.OpPrereqError("Invalid disk index passed: %s" % str(err))
-    disks = [{}] * disk_max
-    for didx, ddict in opts.disks:
-      didx = int(didx)
-      if "size" not in ddict:
-        raise errors.OpPrereqError("Missing size for disk %d" % didx)
-      try:
-        ddict["size"] = utils.ParseUnit(ddict["size"])
-      except (TypeError, ValueError), err:
-        raise errors.OpPrereqError("Invalid disk size for disk %d: %s" %
-                                   (didx, err))
-      disks[didx] = ddict
-
-  utils.ForceDictType(opts.beparams, constants.BES_PARAMETER_TYPES)
-  utils.ForceDictType(hvparams, constants.HVS_PARAMETER_TYPES)
-
-  op = opcodes.OpCreateInstance(instance_name=instance,
-                                disk_template=opts.disk_template,
-                                disks=disks,
-                                nics=nics,
-                                mode=constants.INSTANCE_IMPORT,
-                                pnode=pnode, snode=snode,
-                                ip_check=opts.ip_check,
-                                start=False,
-                                src_node=opts.src_node, src_path=opts.src_dir,
-                                wait_for_sync=opts.wait_for_sync,
-                                file_storage_dir=opts.file_storage_dir,
-                                file_driver=opts.file_driver,
-                                iallocator=opts.iallocator,
-                                hypervisor=hypervisor,
-                                hvparams=hvparams,
-                                beparams=opts.beparams)
-
-  SubmitOpCode(op)
-  return 0
+  return GenericInstanceCreate(constants.INSTANCE_IMPORT, opts, args)
 
 
 def RemoveExport(opts, args):
@@ -195,7 +117,6 @@ def RemoveExport(opts, args):
   @return: the desired exit code
 
   """
-  instance = args[0]
   op = opcodes.OpRemoveExport(instance_name=args[0])
 
   SubmitOpCode(op)
@@ -204,80 +125,44 @@ def RemoveExport(opts, args):
 
 # this is defined separately due to readability only
 import_opts = [
-  DEBUG_OPT,
-  make_option("-n", "--node", dest="node",
-              help="Target node and optional secondary node",
-              metavar="<pnode>[:<snode>]"),
-  keyval_option("-B", "--backend", dest="beparams",
-                type="keyval", default={},
-                help="Backend parameters"),
-  make_option("-t", "--disk-template", dest="disk_template",
-              help="Custom disk setup (diskless, file, plain, drbd)",
-              default=None, metavar="TEMPL"),
-  ikv_option("--disk", help="Disk information",
-             default=[], dest="disks",
-             action="append",
-             type="identkeyval"),
-  cli_option("-s", "--os-size", dest="sd_size", help="Disk size for a"
-             " single-disk configuration, when not using the --disk option,"
-             " in MiB unless a suffix is used",
-             default=None, type="unit", metavar="<size>"),
-  ikv_option("--net", help="NIC information",
-             default=[], dest="nics",
-             action="append",
-             type="identkeyval"),
-  make_option("--no-nics", default=False, action="store_true",
-              help="Do not create any network cards for the instance"),
-  make_option("--no-wait-for-sync", dest="wait_for_sync", default=True,
-              action="store_false", help="Don't wait for sync (DANGEROUS!)"),
-  make_option("--src-node", dest="src_node", help="Source node",
-              metavar="<node>"),
-  make_option("--src-dir", dest="src_dir", help="Source directory",
-              metavar="<dir>"),
-  make_option("--no-ip-check", dest="ip_check", default=True,
-              action="store_false", help="Don't check that the instance's IP"
-              " is alive"),
-  make_option("-I", "--iallocator", metavar="<NAME>",
-              help="Select nodes for the instance automatically using the"
-              " <NAME> iallocator plugin", default=None, type="string"),
-  make_option("--file-storage-dir", dest="file_storage_dir",
-              help="Relative path under default cluster-wide file storage dir"
-              " to store file-based disks", default=None,
-              metavar="<DIR>"),
-  make_option("--file-driver", dest="file_driver", help="Driver to use"
-              " for image files", default="loop", metavar="<DRIVER>"),
-  ikv_option("-H", "--hypervisor", dest="hypervisor",
-              help="Hypervisor and hypervisor options, in the format"
-              " hypervisor:option=value,option=value,...", default=None,
-              type="identkeyval"),
+  NODE_PLACEMENT_OPT,
+  BACKEND_OPT,
+  DISK_TEMPLATE_OPT,
+  DISK_OPT,
+  OS_SIZE_OPT,
+  NET_OPT,
+  NONICS_OPT,
+  NWSYNC_OPT,
+  SRC_DIR_OPT,
+  SRC_NODE_OPT,
+  NOIPCHECK_OPT,
+  NONAMECHECK_OPT,
+  IALLOCATOR_OPT,
+  FILESTORE_DIR_OPT,
+  FILESTORE_DRIVER_OPT,
+  HYPERVISOR_OPT,
+  SUBMIT_OPT,
   ]
 
 commands = {
-  'list': (PrintExportList, ARGS_NONE,
-           [DEBUG_OPT,
-            make_option("--node", dest="nodes", default=[], action="append",
-                        help="List only backups stored on this node"
-                             " (can be used multiple times)"),
-            ],
-           "", "Lists instance exports available in the ganeti cluster"),
-  'export': (ExportInstance, ARGS_ONE,
-             [DEBUG_OPT, FORCE_OPT,
-              make_option("-n", "--node", dest="node", help="Target node",
-                          metavar="<node>"),
-              make_option("","--noshutdown", dest="shutdown",
-                          action="store_false", default=True,
-                          help="Don't shutdown the instance (unsafe)"), ],
-             "-n <target_node> [opts...] <name>",
-             "Exports an instance to an image"),
-  'import': (ImportInstance, ARGS_ONE, import_opts,
-             ("[...] -t disk-type -n node[:secondary-node]"
-              " <name>"),
-             "Imports an instance from an exported image"),
-  'remove': (RemoveExport, ARGS_ONE,
-             [DEBUG_OPT],
-             "<name>",
-             "Remove exports of named instance from the filesystem."),
+  'list': (
+    PrintExportList, ARGS_NONE,
+    [NODE_LIST_OPT],
+    "", "Lists instance exports available in the ganeti cluster"),
+  'export': (
+    ExportInstance, ARGS_ONE_INSTANCE,
+    [FORCE_OPT, SINGLE_NODE_OPT, NOSHUTDOWN_OPT, SHUTDOWN_TIMEOUT_OPT],
+    "-n <target_node> [opts...] <name>",
+    "Exports an instance to an image"),
+  'import': (
+    ImportInstance, ARGS_ONE_INSTANCE, import_opts,
+    "[...] -t disk-type -n node[:secondary-node] <name>",
+    "Imports an instance from an exported image"),
+  'remove': (
+    RemoveExport, [ArgUnknown(min=1, max=1)], [],
+    "<name>", "Remove exports of named instance from the filesystem."),
   }
+
 
 if __name__ == '__main__':
   sys.exit(GenericMain(commands))

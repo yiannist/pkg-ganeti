@@ -299,13 +299,15 @@ class HttpVersionNotSupported(HttpException):
   code = 505
 
 
-class HttpJsonConverter:
+class HttpJsonConverter: # pylint: disable-msg=W0232
   CONTENT_TYPE = "application/json"
 
-  def Encode(self, data):
+  @staticmethod
+  def Encode(data):
     return serializer.DumpJson(data)
 
-  def Decode(self, data):
+  @staticmethod
+  def Decode(data):
     return serializer.LoadJson(data)
 
 
@@ -340,7 +342,7 @@ def WaitForSocketCondition(sock, event, timeout):
       if not io_events:
         # Timeout
         return None
-      for (evfd, evcond) in io_events:
+      for (_, evcond) in io_events:
         if evcond & check:
           return evcond
   finally:
@@ -401,9 +403,9 @@ def SocketOperation(sock, op, arg1, timeout):
       if event is None:
         raise HttpSocketTimeout()
 
-      if (op == SOCKOP_RECV and
-          event & (select.POLLNVAL | select.POLLHUP | select.POLLERR)):
-        return ""
+      if event & (select.POLLNVAL | select.POLLHUP | select.POLLERR):
+        # Let the socket functions handle these
+        break
 
       if not event & wait_for_event:
         continue
@@ -545,6 +547,19 @@ def Handshake(sock, write_timeout):
     raise HttpError("Error in SSL handshake: %s" % err)
 
 
+def InitSsl():
+  """Initializes the SSL infrastructure.
+
+  This function is idempotent.
+
+  """
+  if not OpenSSL.rand.status():
+    raise EnvironmentError("OpenSSL could not collect enough entropy"
+                           " for the PRNG")
+
+  # TODO: Maybe add some additional seeding for OpenSSL's PRNG
+
+
 class HttpSslParams(object):
   """Data class for SSL key and certificate.
 
@@ -625,6 +640,8 @@ class HttpBase(object):
     we do on our side.
 
     """
+    # some parameters are unused, but this is the API
+    # pylint: disable-msg=W0613
     assert self._ssl_params, "SSL not initialized"
 
     return (self._ssl_cert.digest("sha1") == cert.digest("sha1") and
@@ -845,7 +862,7 @@ class HttpMessageReader(object):
         # the CRLF."
         if idx == 0:
           # TODO: Limit number of CRLFs/empty lines for safety?
-          buf = buf[:2]
+          buf = buf[2:]
           continue
 
         if idx > 0:
@@ -1002,7 +1019,7 @@ class HttpMessageReader(object):
     if hdr_content_length:
       try:
         self.content_length = int(hdr_content_length)
-      except (TypeError, ValueError):
+      except ValueError:
         self.content_length = None
       if self.content_length is not None and self.content_length < 0:
         self.content_length = None

@@ -48,7 +48,7 @@ NAME="AEN20"
 ><H2
 >REFERENCE</H2
 ><P
->      There are five required files: <TT
+>      There are six required files: <TT
 CLASS="FILENAME"
 >create</TT
 >,
@@ -62,16 +62,20 @@ CLASS="FILENAME"
       <TT
 CLASS="FILENAME"
 >rename</TT
-> (executables) and
+> (executables),
       <TT
 CLASS="FILENAME"
 >ganeti_api_version</TT
+> and
+      <TT
+CLASS="FILENAME"
+>variants.list</TT
 > (text file).
     </P
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN28"
+NAME="AEN29"
 ></A
 ><H3
 >Common environment</H3
@@ -108,6 +112,23 @@ CLASS="VARIABLELIST"
             it. This can simplify the OS scripts by providing the same
             scripts under multiple names, and then the scripts can use
             this name to alter their behaviour.</P
+><P
+>Under OS api 15 changing the script behavior based
+            on this variable is deprecated: OS_VARIANT should be used
+            instead (see below).</P
+></DD
+><DT
+>OS_VARIANT</DT
+><DD
+><P
+>The variant of the OS which should be installed. Each OS
+            must support all variants listed under its
+            <TT
+CLASS="FILENAME"
+>variants.list</TT
+> file, and may support more.
+            Any more supported variants should be properly documented in the
+            per-os documentation.</P
 ></DD
 ><DT
 >HYPERVISOR</DT
@@ -296,7 +317,7 @@ CLASS="EMPHASIS"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN111"
+NAME="AEN118"
 ></A
 ><H3
 >create</H3
@@ -316,11 +337,19 @@ CLASS="ENVAR"
       address. The create script should configure the instance
       according to this name. It can configure the IP statically or
       not, depending on the deployment environment.</P
+><P
+>The <CODE
+CLASS="ENVAR"
+>INSTANCE_REINSTALL</CODE
+> variable is set to '1' when
+      this create request is reinstalling and existing instance, rather than
+      creating one anew. This can be used, for example, to preserve some
+      data in the old instance in an os-specific way.</P
 ></DIV
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN117"
+NAME="AEN126"
 ></A
 ><H3
 >export</H3
@@ -360,7 +389,7 @@ CLASS="EMPHASIS"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN125"
+NAME="AEN134"
 ></A
 ><H3
 >import</H3
@@ -404,7 +433,7 @@ CLASS="EMPHASIS"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN136"
+NAME="AEN145"
 ></A
 ><H3
 >rename</H3
@@ -445,7 +474,7 @@ CLASS="ENVAR"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN145"
+NAME="AEN154"
 ></A
 ><H3
 >ganeti_api_version</H3
@@ -456,25 +485,58 @@ CLASS="FILENAME"
 > file is a plain
         text file containing the version(s) of the guest OS api that
         this OS definition complies with, one per line. The version
-        documented by this man page is 10, so this file must contain
-        the number 10 followed by a newline if only this version is
-        supported. A script compatible with both Ganeti 1.2 and Ganeti
-        2.0 should contain the most recent version first (i.e. 10),
-        followed by the old version(s) (in this case, 5).
+        documented by this man page is 15, so this file must contain
+        the number 15 followed by a newline if only this version is
+        supported. A script compatible more than one ganeti version
+        should contain the most recent version first (i.e. 15),
+        followed by the old version(s) (in this case 10 and/or 5).
+      </P
+></DIV
+><DIV
+CLASS="REFSECT2"
+><A
+NAME="AEN158"
+></A
+><H3
+>variants.list</H3
+><P
+>        <TT
+CLASS="FILENAME"
+>variants.list</TT
+> is a plain text file
+        containing all the declared supported variants for this
+        OS, one per line. At least one variant must be supported.
       </P
 ></DIV
 ></DIV
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN149"
+NAME="AEN162"
 ></A
 ><H2
 >NOTES</H2
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN151"
+NAME="AEN164"
+></A
+><H3
+>Retrocompatibility</H3
+><P
+>        Ganeti 2.1 is compatible with both api version 10, and 15.
+        In api version 10 the <TT
+CLASS="FILENAME"
+>variants.list</TT
+>
+        file is ignored and no OS_VARIANT environment variable is
+        passed.
+      </P
+></DIV
+><DIV
+CLASS="REFSECT2"
+><A
+NAME="AEN168"
 ></A
 ><H3
 >Common behaviour</H3
@@ -493,14 +555,32 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN156"
+NAME="AEN173"
 ></A
 ><H3
 >Upgrading from old versions</H3
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN158"
+NAME="AEN175"
+></A
+><H4
+>Version 10 to 15</H4
+><P
+>          The <TT
+CLASS="FILENAME"
+>variants.list</TT
+> file has been
+          added, so OSes should support at least one variant,
+          declaring it in that file and must be prepared to parse
+          the OS_VARIANT environment variable. OSes are free to
+          support more variants than just the declared ones.
+        </P
+></DIV
+><DIV
+CLASS="REFSECT3"
+><A
+NAME="AEN179"
 ></A
 ><H4
 >Version 5 to 10</H4
@@ -526,7 +606,7 @@ CLASS="FILENAME"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN163"
+NAME="AEN184"
 ></A
 ><H4
 >Version 4 to 5</H4
@@ -557,7 +637,7 @@ exit 0
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN170"
+NAME="AEN191"
 ></A
 ><H2
 >REPORTING BUGS</H2
@@ -574,7 +654,7 @@ TARGET="_top"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN174"
+NAME="AEN195"
 ></A
 ><H2
 >SEE ALSO</H2
@@ -690,7 +770,7 @@ CLASS="REFENTRYTITLE"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN221"
+NAME="AEN242"
 ></A
 ><H2
 >COPYRIGHT</H2

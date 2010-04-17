@@ -22,6 +22,28 @@
 """Ganeti exception handling"""
 
 
+# OpPrereqError failure types
+
+# resolver errors
+ECODE_RESOLVER = "resolver_error"
+# not enough resources (iallocator failure, disk space, memory, etc.)
+ECODE_NORES = "insufficient_resources"
+# wrong arguments (at syntax level)
+ECODE_INVAL = "wrong_input"
+# wrong entity state
+ECODE_STATE = "wrong_state"
+# entity not found
+ECODE_NOENT = "unknown_entity"
+# entity already exists
+ECODE_EXISTS = "already_exists"
+# resource not unique (e.g. MAC or IP duplication)
+ECODE_NOTUNIQUE = "resource_not_unique"
+# internal cluster error
+ECODE_FAULT = "internal_error"
+# environment error (e.g. node disk error)
+ECODE_ENVIRON = "environment_error"
+
+
 class GenericError(Exception):
   """Base exception for Ganeti.
 
@@ -88,6 +110,12 @@ class ConfigurationError(GenericError):
   pass
 
 
+class ReservationError(GenericError):
+  """Errors reserving a resource.
+
+  """
+
+
 class RemoteError(GenericError):
   """Programming-related error on remote call.
 
@@ -98,18 +126,15 @@ class RemoteError(GenericError):
   pass
 
 
-class InvalidOS(GenericError):
-  """Missing OS on node.
+class SignatureError(GenericError):
+  """Error authenticating a remote message.
 
-  This is raised when an OS exists on the master (or is otherwise
-  requested to the code) but not on the target node.
-
-  This exception has three arguments:
-    - the name of the os
-    - the source directory, if any
-    - the reason why we consider this an invalid OS (text of error message)
+  This is raised when the hmac signature on a message doesn't verify correctly
+  to the message itself. It can happen because of network unreliability or
+  because of spurious traffic.
 
   """
+  pass
 
 
 class ParameterError(GenericError):
@@ -128,17 +153,15 @@ class ParameterError(GenericError):
 class OpPrereqError(GenericError):
   """Prerequisites for the OpCode are not fulfilled.
 
+  This exception will have either one or two arguments. For the
+  two-argument construction, the second argument should be one of the
+  ECODE_* codes.
+
   """
 
 
 class OpExecError(GenericError):
   """Error during OpCode execution.
-
-  """
-
-
-class OpRetryError(OpExecError):
-  """Error during OpCode execution, action can be retried.
 
   """
 
@@ -198,10 +221,12 @@ class UnitParseError(GenericError):
 
   """
 
+
 class TypeEnforcementError(GenericError):
   """Unable to enforce data type.
 
   """
+
 
 class SshKeyError(GenericError):
   """Invalid SSH key.
@@ -223,21 +248,36 @@ class CommandError(GenericError):
   """
 
 
+class StorageError(GenericError):
+  """Storage-related exception.
+
+  """
+
+
+class InotifyError(GenericError):
+  """Error raised when there is a failure setting up an inotify watcher.
+
+  """
+
+
 class QuitGanetiException(Exception):
   """Signal that Ganeti that it must quit.
 
-  This is not necessarily an error (and thus not a subclass of GenericError),
-  but it's an exceptional circumstance and it is thus treated. This instance
-  should be instantiated with two values. The first one will specify whether an
-  error should returned to the caller, and the second one will be the returned
-  result (either as an error or as a normal result).
+  This is not necessarily an error (and thus not a subclass of
+  GenericError), but it's an exceptional circumstance and it is thus
+  treated. This instance should be instantiated with two values. The
+  first one will specify the return code to the caller, and the second
+  one will be the returned result (either as an error or as a normal
+  result). Usually only the leave cluster rpc call should return
+  status True (as there it's expected we quit), every other call will
+  return status False (as a critical error was encountered).
 
   Examples::
 
     # Return a result of "True" to the caller, but quit ganeti afterwards
-    raise QuitGanetiException(False, True)
+    raise QuitGanetiException(True, None)
     # Send an error to the caller, and quit ganeti
-    raise QuitGanetiException(True, "Fatal safety violation, shutting down")
+    raise QuitGanetiException(False, "Fatal safety violation, shutting down")
 
   """
 
@@ -261,6 +301,46 @@ class JobQueueFull(JobQueueError):
   """Job queue full error.
 
   Raised when job queue size reached its hard limit.
+
+  """
+
+
+class ConfdFatalError(GenericError):
+  """A fatal failure in Ganeti confd.
+
+  Events that compromise the ability of confd to proceed further.
+  (for example: inability to load the config file)
+
+  """
+
+
+class ConfdRequestError(GenericError):
+  """A request error in Ganeti confd.
+
+  Events that should make confd abort the current request and proceed serving
+  different ones.
+
+  """
+
+
+class ConfdMagicError(GenericError):
+  """A magic fourcc error in Ganeti confd.
+
+  Errors processing the fourcc in ganeti confd datagrams.
+
+  """
+
+
+class ConfdClientError(GenericError):
+  """A magic fourcc error in Ganeti confd.
+
+  Errors in the confd client library.
+
+  """
+
+
+class UdpDataSizeError(GenericError):
+  """UDP payload too big.
 
   """
 

@@ -39,10 +39,14 @@ from ganeti.constants import HKR_SUCCESS, HKR_FAIL, HKR_SKIP
 
 from mocks import FakeConfig, FakeProc, FakeContext
 
+import testutils
+
+
 class FakeLU(cmdlib.LogicalUnit):
   HPATH = "test"
   def BuildHooksEnv(self):
     return {}, ["localhost"], ["localhost"]
+
 
 class TestHooksRunner(unittest.TestCase):
   """Testing case for HooksRunner"""
@@ -213,8 +217,10 @@ class TestHooksMaster(unittest.TestCase):
     @return: script execution failure from all nodes
 
     """
-    return dict([(node, rpc.RpcResult([("utest", constants.HKR_FAIL, "err")],
-                  node=node, call='FakeScriptFail')) for node in node_list])
+    rr = rpc.RpcResult
+    return dict([(node, rr((True, [("utest", constants.HKR_FAIL, "err")]),
+                           node=node, call='FakeScriptFail'))
+                  for node in node_list])
 
   @staticmethod
   def _call_script_succeed(node_list, hpath, phase, env):
@@ -224,8 +230,10 @@ class TestHooksMaster(unittest.TestCase):
     @return: script execution from all nodes
 
     """
-    return dict([(node, rpc.RpcResult([("utest", constants.HKR_SUCCESS, "ok")],
-                  node=node, call='FakeScriptOk')) for node in node_list])
+    rr = rpc.RpcResult
+    return dict([(node, rr(True, [("utest", constants.HKR_SUCCESS, "ok")],
+                           node=node, call='FakeScriptOk'))
+                 for node in node_list])
 
   def setUp(self):
     self.op = opcodes.OpCode()
@@ -236,14 +244,14 @@ class TestHooksMaster(unittest.TestCase):
 
   def testTotalFalse(self):
     """Test complete rpc failure"""
-    hm = mcpu.HooksMaster(self._call_false, FakeProc(), self.lu)
+    hm = mcpu.HooksMaster(self._call_false, self.lu)
     self.failUnlessRaises(errors.HooksFailure,
                           hm.RunPhase, constants.HOOKS_PHASE_PRE)
     hm.RunPhase(constants.HOOKS_PHASE_POST)
 
   def testIndividualFalse(self):
     """Test individual node failure"""
-    hm = mcpu.HooksMaster(self._call_nodes_false, FakeProc(), self.lu)
+    hm = mcpu.HooksMaster(self._call_nodes_false, self.lu)
     hm.RunPhase(constants.HOOKS_PHASE_PRE)
     #self.failUnlessRaises(errors.HooksFailure,
     #                      hm.RunPhase, constants.HOOKS_PHASE_PRE)
@@ -251,16 +259,17 @@ class TestHooksMaster(unittest.TestCase):
 
   def testScriptFalse(self):
     """Test individual rpc failure"""
-    hm = mcpu.HooksMaster(self._call_script_fail, FakeProc(), self.lu)
+    hm = mcpu.HooksMaster(self._call_script_fail, self.lu)
     self.failUnlessRaises(errors.HooksAbort,
                           hm.RunPhase, constants.HOOKS_PHASE_PRE)
     hm.RunPhase(constants.HOOKS_PHASE_POST)
 
   def testScriptSucceed(self):
     """Test individual rpc failure"""
-    hm = mcpu.HooksMaster(self._call_script_succeed, FakeProc(), self.lu)
+    hm = mcpu.HooksMaster(self._call_script_succeed, self.lu)
     for phase in (constants.HOOKS_PHASE_PRE, constants.HOOKS_PHASE_POST):
       hm.RunPhase(phase)
 
+
 if __name__ == '__main__':
-  unittest.main()
+  testutils.GanetiTestProgram()

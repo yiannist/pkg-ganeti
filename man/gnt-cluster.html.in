@@ -301,11 +301,6 @@ CLASS="REPLACEABLE"
 ><I
 >secondary_ip</I
 ></TT
->]<BR> [-b <TT
-CLASS="REPLACEABLE"
-><I
->bridge</I
-></TT
 >]<BR> [-g <TT
 CLASS="REPLACEABLE"
 ><I
@@ -321,7 +316,7 @@ CLASS="REPLACEABLE"
 ><I
 >mac-prefix</I
 ></TT
->]<BR> [--no-lvm-storage]<BR> [--file-storage-dir <TT
+>]<BR> [--no-lvm-storage]<BR> [--no-etc-hosts]<BR> [--no-ssh-init]<BR> [--file-storage-dir <TT
 CLASS="REPLACEABLE"
 ><I
 >dir</I
@@ -381,6 +376,26 @@ CLASS="REPLACEABLE"
 ><I
 >value</I
 ></TT
+>...]]<BR> [--nic-parameters <TT
+CLASS="REPLACEABLE"
+><I
+>nic-param</I
+></TT
+>=<TT
+CLASS="REPLACEABLE"
+><I
+>value</I
+></TT
+> [,<TT
+CLASS="REPLACEABLE"
+><I
+>nic-param</I
+></TT
+>=<TT
+CLASS="REPLACEABLE"
+><I
+>value</I
+></TT
 >...]]<BR> {<TT
 CLASS="REPLACEABLE"
 ><I
@@ -431,13 +446,6 @@ CLASS="OPTION"
 ><P
 >        The <CODE
 CLASS="OPTION"
->-b</CODE
-> option specifies the default bridge
-        for instances.
-      </P
-><P
->        The <CODE
-CLASS="OPTION"
 >-g</CODE
 > option will let you specify a volume group
         different than 'xenvg' for ganeti to use when creating instance disks.
@@ -479,14 +487,31 @@ CLASS="OPTION"
 >        The <CODE
 CLASS="OPTION"
 >--no-lvm-storage</CODE
-> allows you to initialize the
-        cluster without lvm support. This means that only instances using
+> option allows you to initialize
+        the cluster without lvm support. This means that only instances using
         files as storage backend will be possible to create. Once the cluster
         is initialized you can change this setup with the
         <B
 CLASS="COMMAND"
 >modify</B
 > command.
+      </P
+><P
+>        The <CODE
+CLASS="OPTION"
+>--no-etc-hosts</CODE
+> option allows you to initialize the
+        cluster without modifying the <TT
+CLASS="FILENAME"
+>/etc/hosts</TT
+> file.
+      </P
+><P
+>        The <CODE
+CLASS="OPTION"
+>--no-ssh-init</CODE
+> option allows you to initialize the
+        cluster without creating or distributing SSH key pairs.
       </P
 ><P
 >        The <CODE
@@ -502,9 +527,10 @@ CLASS="OPTION"
 >--enabled-hypervisors</CODE
 > option allows you
         to set the list of hypervisors that will be enabled for
-        this cluster. Instance hypervisors can only be chosen from
-        the list of enabled hypervisors. Currently, the following
-        hypervisors are available:
+        this cluster. Instance hypervisors can only be choosen from
+        the list of enabled hypervisors, and the first entry of this list
+        will be used by default. Currently, the following hypervisors are
+        available:
       </P
 ><P
 >        <P
@@ -534,6 +560,15 @@ CLASS="VARIABLELIST"
               </P
 ></DD
 ><DT
+>chroot</DT
+><DD
+><P
+>                a simple chroot manager that starts chroot based on a
+                script at the root of the filesystem holding the
+                chroot
+          </P
+></DD
+><DT
 >fake</DT
 ><DD
 ><P
@@ -550,13 +585,56 @@ CLASS="VARIABLELIST"
         specified, only the xen-pvm hypervisor is enabled by default.
       </P
 ><P
->        With the <CODE
+>        The <CODE
 CLASS="OPTION"
->-t</CODE
-> option, the default hypervisor
-        can be set. It has to be a member of the list of enabled
-        hypervisors. If not specified, the first entry on the list of
-        enabled hypervisors will be used by default.
+>--hypervisor-parameters</CODE
+> option allows you
+        to set default hypervisor specific parameters for the
+        cluster. The format of this option is the name of the
+        hypervisor, followed by a colon and a comma-separated list of
+        key=value pairs. The keys available for each hypervisors are
+        detailed in the <SPAN
+CLASS="CITEREFENTRY"
+><SPAN
+CLASS="REFENTRYTITLE"
+>gnt-instance</SPAN
+>(8)</SPAN
+> man page, in the
+        <B
+CLASS="COMMAND"
+>add</B
+> command plus the following parameters
+        which are only configurable globally (at cluster level):
+
+        <P
+></P
+><DIV
+CLASS="VARIABLELIST"
+><DL
+><DT
+>migration_port</DT
+><DD
+><P
+>Valid for the Xen PVM and KVM hypervisors.</P
+><P
+>                This options specifies the TCP port to use for
+                live-migration. For Xen, the same port should be
+                configured on all nodes in
+                the <TT
+CLASS="FILENAME"
+>/etc/xen/xend-config.sxp</TT
+>
+                file, under the
+                key <SPAN
+CLASS="QUOTE"
+>"xend-relocation-port"</SPAN
+>.
+              </P
+></DD
+></DL
+></DIV
+>
+
       </P
 ><P
 >        The <CODE
@@ -606,29 +684,43 @@ CLASS="VARIABLELIST"
 ><P
 >        The <CODE
 CLASS="OPTION"
->--hypervisor-parameters</CODE
-> option allows you
-        to set default hypervisor specific parameters for the
-        cluster. The format of this option is the name of the
-        hypervisor, followed by a colon and a comma-separated list of
-        key=value pairs. The keys available for each hypervisors are
-        detailed int the <SPAN
-CLASS="CITEREFENTRY"
-><SPAN
-CLASS="REFENTRYTITLE"
->gnt-instance</SPAN
->(8)</SPAN
-> man page, in the
-        <B
-CLASS="COMMAND"
->add</B
-> command.
+>--nic-parameters</CODE
+> option allows you to set
+        the default nic parameters for the cluster. The parameter
+        format is a comma-separated list of key=value pairs with the
+        following supported keys:
+        <P
+></P
+><DIV
+CLASS="VARIABLELIST"
+><DL
+><DT
+>mode</DT
+><DD
+><P
+>                The default nic mode, 'routed' or 'bridged'.
+              </P
+></DD
+><DT
+>link</DT
+><DD
+><P
+>                In bridged mode the default NIC bridge. In routed mode it
+                represents an hypervisor-vif-script dependent value to allow
+                different instance groups. For example under the KVM default
+                network script it is interpreted as a routing table number or
+                name.
+              </P
+></DD
+></DL
+></DIV
+>
       </P
 ></DIV
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN204"
+NAME="AEN236"
 ></A
 ><H3
 >LIST-TAGS</H3
@@ -643,7 +735,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN209"
+NAME="AEN241"
 ></A
 ><H3
 >MASTERFAILOVER</H3
@@ -672,7 +764,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN217"
+NAME="AEN249"
 ></A
 ><H3
 >MODIFY</H3
@@ -736,6 +828,26 @@ CLASS="REPLACEABLE"
 ><I
 >value</I
 ></TT
+>...]]<BR> [--nic-parameters <TT
+CLASS="REPLACEABLE"
+><I
+>nic-param</I
+></TT
+>=<TT
+CLASS="REPLACEABLE"
+><I
+>value</I
+></TT
+> [,<TT
+CLASS="REPLACEABLE"
+><I
+>nic-param</I
+></TT
+>=<TT
+CLASS="REPLACEABLE"
+><I
+>value</I
+></TT
 >...]]<BR> [-C <TT
 CLASS="REPLACEABLE"
 ><I
@@ -760,11 +872,15 @@ CLASS="OPTION"
           <CODE
 CLASS="OPTION"
 >--hypervisor-parameters</CODE
-> and
+>,
           <CODE
 CLASS="OPTION"
 >--backend-parameters</CODE
-> options are
+> and
+          <CODE
+CLASS="OPTION"
+>--nic-parameters</CODE
+> and options are
           described in the <B
 CLASS="COMMAND"
 >init</B
@@ -798,7 +914,7 @@ CLASS="REFENTRYTITLE"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN262"
+NAME="AEN302"
 ></A
 ><H3
 >QUEUE</H3
@@ -836,7 +952,53 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN276"
+NAME="AEN316"
+></A
+><H3
+>WATCHER</H3
+><P
+><B
+CLASS="COMMAND"
+>watcher</B
+>  {pause <TT
+CLASS="REPLACEABLE"
+><I
+>duration</I
+></TT
+> | continue | info}</P
+><P
+>        Make the watcher pause or let it continue.
+      </P
+><P
+>        The <CODE
+CLASS="OPTION"
+>pause</CODE
+> option causes the watcher to pause for
+        <TT
+CLASS="REPLACEABLE"
+><I
+>duration</I
+></TT
+> seconds.
+      </P
+><P
+>        The <CODE
+CLASS="OPTION"
+>continue</CODE
+> option will let the watcher continue.
+      </P
+><P
+>        The <CODE
+CLASS="OPTION"
+>info</CODE
+> option shows whether the watcher is currently
+        paused.
+      </P
+></DIV
+><DIV
+CLASS="REFSECT2"
+><A
+NAME="AEN333"
 ></A
 ><H3
 >redist-conf</H3
@@ -871,7 +1033,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN286"
+NAME="AEN343"
 ></A
 ><H3
 >REMOVE-TAGS</H3
@@ -908,7 +1070,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN297"
+NAME="AEN354"
 ></A
 ><H3
 >RENAME</H3
@@ -940,7 +1102,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN307"
+NAME="AEN364"
 ></A
 ><H3
 >REPAIR-DISK-SIZES</H3
@@ -976,7 +1138,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN316"
+NAME="AEN373"
 ></A
 ><H3
 >SEARCH-TAGS</H3
@@ -1041,7 +1203,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN331"
+NAME="AEN388"
 ></A
 ><H3
 >VERIFY</H3
@@ -1067,7 +1229,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN339"
+NAME="AEN396"
 ></A
 ><H3
 >VERIFY-DISKS</H3
@@ -1093,7 +1255,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN346"
+NAME="AEN403"
 ></A
 ><H3
 >VERSION</H3
@@ -1110,7 +1272,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN351"
+NAME="AEN408"
 ></A
 ><H2
 >REPORTING BUGS</H2
@@ -1127,7 +1289,7 @@ TARGET="_top"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN355"
+NAME="AEN412"
 ></A
 ><H2
 >SEE ALSO</H2
@@ -1243,7 +1405,7 @@ CLASS="REFENTRYTITLE"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN402"
+NAME="AEN459"
 ></A
 ><H2
 >COPYRIGHT</H2

@@ -35,6 +35,9 @@ from ganeti import http
 from ganeti.rapi import baserlib
 from ganeti.rapi import rlib2
 
+
+_NAME_PATTERN = r"[\w\._-]+"
+
 # the connection map is created at the end of this file
 CONNECTOR = {}
 
@@ -43,12 +46,14 @@ class Mapper:
   """Map resource to method.
 
   """
-  def __init__(self, connector=CONNECTOR):
+  def __init__(self, connector=None):
     """Resource mapper constructor.
 
     @param connector: a dictionary, mapping method name with URL path regexp
 
     """
+    if connector is None:
+      connector = CONNECTOR
     self._connector = connector
 
   def getController(self, uri):
@@ -96,9 +101,8 @@ class R_root(baserlib.R_Generic):
   """/ resource.
 
   """
-  DOC_URI = "/"
-
-  def GET(self):
+  @staticmethod
+  def GET():
     """Show the list of mapped resources.
 
     @return: a dictionary with 'name' and 'uri' keys for each of them.
@@ -117,7 +121,7 @@ class R_root(baserlib.R_Generic):
     return baserlib.BuildUriList(rootlist, "/%s")
 
 
-def _getResources(id):
+def _getResources(id_):
   """Return a list of resources underneath given id.
 
   This is to generalize querying of version resources lists.
@@ -125,7 +129,7 @@ def _getResources(id):
   @return: a list of resources names.
 
   """
-  r_pattern = re.compile('^R_%s_([a-zA-Z0-9]+)$' % id)
+  r_pattern = re.compile('^R_%s_([a-zA-Z0-9]+)$' % id_)
 
   rlist = []
   for handler in CONNECTOR.values():
@@ -141,9 +145,8 @@ class R_2(baserlib.R_Generic):
   """ /2 resource, the root of the version 2 API.
 
   """
-  DOC_URI = "/2"
-
-  def GET(self):
+  @staticmethod
+  def GET():
     """Show the list of mapped resources.
 
     @return: a dictionary with 'name' and 'uri' keys for each of them.
@@ -152,29 +155,63 @@ class R_2(baserlib.R_Generic):
     return baserlib.BuildUriList(_getResources("2"), "/2/%s")
 
 
-CONNECTOR.update({
-  "/": R_root,
+def GetHandlers(node_name_pattern, instance_name_pattern, job_id_pattern):
+  """Returns all supported resources and their handlers.
 
-  "/version": rlib2.R_version,
+  """
+  return {
+    "/": R_root,
 
-  "/2": R_2,
-  "/2/jobs": rlib2.R_2_jobs,
-  "/2/nodes": rlib2.R_2_nodes,
-  re.compile(r'^/2/nodes/([\w\._-]+)$'): rlib2.R_2_nodes_name,
-  re.compile(r'^/2/nodes/([\w\._-]+)/tags$'): rlib2.R_2_nodes_name_tags,
-  "/2/instances": rlib2.R_2_instances,
-  re.compile(r'^/2/instances/([\w\._-]+)$'): rlib2.R_2_instances_name,
-  re.compile(r'^/2/instances/([\w\._-]+)/tags$'): rlib2.R_2_instances_name_tags,
-  re.compile(r'^/2/instances/([\w\._-]+)/reboot$'):
+    "/version": rlib2.R_version,
+
+    "/2": R_2,
+
+    "/2/nodes": rlib2.R_2_nodes,
+    re.compile(r'^/2/nodes/(%s)$' % node_name_pattern):
+      rlib2.R_2_nodes_name,
+    re.compile(r'^/2/nodes/(%s)/tags$' % node_name_pattern):
+      rlib2.R_2_nodes_name_tags,
+    re.compile(r'^/2/nodes/(%s)/role$' % node_name_pattern):
+      rlib2.R_2_nodes_name_role,
+    re.compile(r'^/2/nodes/(%s)/evacuate$' % node_name_pattern):
+      rlib2.R_2_nodes_name_evacuate,
+    re.compile(r'^/2/nodes/(%s)/migrate$' % node_name_pattern):
+      rlib2.R_2_nodes_name_migrate,
+    re.compile(r'^/2/nodes/(%s)/storage$' % node_name_pattern):
+      rlib2.R_2_nodes_name_storage,
+    re.compile(r'^/2/nodes/(%s)/storage/modify$' % node_name_pattern):
+      rlib2.R_2_nodes_name_storage_modify,
+    re.compile(r'^/2/nodes/(%s)/storage/repair$' % node_name_pattern):
+      rlib2.R_2_nodes_name_storage_repair,
+
+    "/2/instances": rlib2.R_2_instances,
+    re.compile(r'^/2/instances/(%s)$' % instance_name_pattern):
+      rlib2.R_2_instances_name,
+    re.compile(r'^/2/instances/(%s)/info$' % instance_name_pattern):
+      rlib2.R_2_instances_name_info,
+    re.compile(r'^/2/instances/(%s)/tags$' % instance_name_pattern):
+      rlib2.R_2_instances_name_tags,
+    re.compile(r'^/2/instances/(%s)/reboot$' % instance_name_pattern):
       rlib2.R_2_instances_name_reboot,
-  re.compile(r'^/2/instances/([\w\._-]+)/reinstall$'):
+    re.compile(r'^/2/instances/(%s)/reinstall$' % instance_name_pattern):
       rlib2.R_2_instances_name_reinstall,
-  re.compile(r'^/2/instances/([\w\._-]+)/shutdown$'):
+    re.compile(r'^/2/instances/(%s)/replace-disks$' % instance_name_pattern):
+      rlib2.R_2_instances_name_replace_disks,
+    re.compile(r'^/2/instances/(%s)/shutdown$' % instance_name_pattern):
       rlib2.R_2_instances_name_shutdown,
-  re.compile(r'^/2/instances/([\w\._-]+)/startup$'):
+    re.compile(r'^/2/instances/(%s)/startup$' % instance_name_pattern):
       rlib2.R_2_instances_name_startup,
-  re.compile(r'/2/jobs/(%s)$' % constants.JOB_ID_TEMPLATE): rlib2.R_2_jobs_id,
-  "/2/tags": rlib2.R_2_tags,
-  "/2/info": rlib2.R_2_info,
-  "/2/os": rlib2.R_2_os,
-  })
+
+    "/2/jobs": rlib2.R_2_jobs,
+    re.compile(r'/2/jobs/(%s)$' % job_id_pattern):
+      rlib2.R_2_jobs_id,
+
+    "/2/tags": rlib2.R_2_tags,
+    "/2/info": rlib2.R_2_info,
+    "/2/os": rlib2.R_2_os,
+    "/2/redistribute-config": rlib2.R_2_redist_config,
+    }
+
+
+CONNECTOR.update(GetHandlers(_NAME_PATTERN, _NAME_PATTERN,
+                             constants.JOB_ID_TEMPLATE))

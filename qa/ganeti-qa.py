@@ -77,6 +77,9 @@ def SetupCluster():
   if qa_config.TestEnabled('create-cluster'):
     RunTest(qa_cluster.TestClusterInit)
     RunTest(qa_node.TestNodeAddAll)
+  else:
+    # consider the nodes are already there
+    qa_node.MarkNodeAddedAll()
   if qa_config.TestEnabled('node-info'):
     RunTest(qa_node.TestNodeInfo)
 
@@ -154,11 +157,19 @@ def RunCommonInstanceTests(instance):
   if qa_config.TestEnabled('instance-reboot'):
     RunTest(qa_instance.TestInstanceReboot, instance)
 
+  if qa_config.TestEnabled('instance-rename'):
+    RunTest(qa_instance.TestInstanceShutdown, instance)
+    RunTest(qa_instance.TestInstanceRename, instance)
+    RunTest(qa_instance.TestInstanceStartup, instance)
+
   if qa_config.TestEnabled('tags'):
     RunTest(qa_tags.TestInstanceTags, instance)
 
   if qa_config.TestEnabled('node-volumes'):
     RunTest(qa_node.TestNodeVolumes)
+
+  if qa_config.TestEnabled("node-storage"):
+    RunTest(qa_node.TestNodeStorage)
 
   if qa_rapi.Enabled():
     RunTest(qa_rapi.TestInstance, instance)

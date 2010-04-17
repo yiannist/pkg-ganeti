@@ -316,6 +316,12 @@ CLASS="VARIABLELIST"
 ><P
 >the list of opcode end times</P
 ></DD
+><DT
+>lock_status</DT
+><DD
+><P
+>the lock status (useful for debugging)</P
+></DD
 ></DL
 ></DIV
 >
@@ -334,7 +340,7 @@ CLASS="CONSTANT"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN131"
+NAME="AEN135"
 ></A
 ><H3
 >WATCH</H3
@@ -357,7 +363,7 @@ CLASS="REPLACEABLE"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN138"
+NAME="AEN142"
 ></A
 ><H2
 >REPORTING BUGS</H2
@@ -374,7 +380,7 @@ TARGET="_top"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN142"
+NAME="AEN146"
 ></A
 ><H2
 >SEE ALSO</H2
@@ -490,7 +496,7 @@ CLASS="REFENTRYTITLE"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN189"
+NAME="AEN193"
 ></A
 ><H2
 >COPYRIGHT</H2

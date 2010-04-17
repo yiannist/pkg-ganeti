@@ -3,7 +3,7 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GNT-CLUSTER" "8" "04 February 2010" "ganeti 2.0" ""
+.TH "GNT-CLUSTER" "8" "02 March 2010" "ganeti 2.0" ""
 
 .SH NAME
 gnt-cluster \- ganeti administration, cluster-wide
@@ -114,16 +114,18 @@ Shows runtime cluster information: cluster name, architecture
 
 \fBinit\fR
     [ \fB-s \fIsecondary_ip\fB\fR ]
-    [ \fB-b \fIbridge\fB\fR ]
     [ \fB-g \fIvg-name\fB\fR ]
     [ \fB--master-netdev \fIvg-name\fB\fR ]
     [ \fB-m \fImac-prefix\fB\fR ]
     [ \fB--no-lvm-storage\fR ]
+    [ \fB--no-etc-hosts\fR ]
+    [ \fB--no-ssh-init\fR ]
     [ \fB--file-storage-dir \fIdir\fB\fR ]
     [ \fB--enabled-hypervisors \fIhypervisors\fB\fR ]
     [ \fB-t \fIhypervisor name\fB\fR ]
     [ \fB--hypervisor-parameters \fIhypervisor\fB:\fIhv-param\fB=\fIvalue\fB [ ,\fIhv-param\fB=\fIvalue\fB\fI ...\fB ]\fR ]
     [ \fB--backend-parameters \fIbe-param\fB=\fIvalue\fB [ ,\fIbe-param\fB=\fIvalue\fB\fI ...\fB ]\fR ]
+    [ \fB--nic-parameters \fInic-param\fB=\fIvalue\fB [ ,\fInic-param\fB=\fIvalue\fB\fI ...\fB ]\fR ]
     \fB\fIclustername\fB\fR
 
 .PP
@@ -153,9 +155,6 @@ network is actually a separate physical network, or is done
 using tunneling, etc. For performance reasons, it's
 recommended to use a separate network, of course.
 .PP
-The \fB-b\fR option specifies the default bridge
-for instances.
-.PP
 The \fB-g\fR option will let you specify a volume group
 different than 'xenvg' for ganeti to use when creating instance disks.
 This volume group must have the same name on all nodes. Once the
@@ -175,11 +174,17 @@ under which the virtual MAC addresses of your instances will be
 generated. The prefix must be specified in the format XX:XX:XX and the
 default is aa:00:00.
 .PP
-The \fB--no-lvm-storage\fR allows you to initialize the
-cluster without lvm support. This means that only instances using
+The \fB--no-lvm-storage\fR option allows you to initialize
+the cluster without lvm support. This means that only instances using
 files as storage backend will be possible to create. Once the cluster
 is initialized you can change this setup with the
 \fBmodify\fR command.
+.PP
+The \fB--no-etc-hosts\fR option allows you to initialize the
+cluster without modifying the \fI/etc/hosts\fR file.
+.PP
+The \fB--no-ssh-init\fR option allows you to initialize the
+cluster without creating or distributing SSH key pairs.
 .PP
 The \fB--file-storage-dir\fR option allows you
 set the directory to use for storing the instance disk
@@ -187,9 +192,10 @@ files when using file storage as backend for instance disks.
 .PP
 The \fB--enabled-hypervisors\fR option allows you
 to set the list of hypervisors that will be enabled for
-this cluster. Instance hypervisors can only be chosen from
-the list of enabled hypervisors. Currently, the following
-hypervisors are available:
+this cluster. Instance hypervisors can only be choosen from
+the list of enabled hypervisors, and the first entry of this list
+will be used by default. Currently, the following hypervisors are
+available:
 .PP
 .TP
 \fBxen-pvm\fR
@@ -201,6 +207,11 @@ Xen HVM hypervisor
 \fBkvm\fR
 Linux KVM hypervisor
 .TP
+\fBchroot\fR
+a simple chroot manager that starts chroot based on a
+script at the root of the filesystem holding the
+chroot
+.TP
 \fBfake\fR
 fake hypervisor for development/testing
 .PP
@@ -208,10 +219,24 @@ Either a single hypervisor name or a comma-separated list of
 hypervisor names can be specified. If this option is not
 specified, only the xen-pvm hypervisor is enabled by default.
 .PP
-With the \fB-t\fR option, the default hypervisor
-can be set. It has to be a member of the list of enabled
-hypervisors. If not specified, the first entry on the list of
-enabled hypervisors will be used by default.
+The \fB--hypervisor-parameters\fR option allows you
+to set default hypervisor specific parameters for the
+cluster. The format of this option is the name of the
+hypervisor, followed by a colon and a comma-separated list of
+key=value pairs. The keys available for each hypervisors are
+detailed in the \fBgnt-instance\fR(8) man page, in the
+\fBadd\fR command plus the following parameters
+which are only configurable globally (at cluster level):
+.TP
+\fBmigration_port\fR
+Valid for the Xen PVM and KVM hypervisors.
+
+This options specifies the TCP port to use for
+live-migration. For Xen, the same port should be
+configured on all nodes in
+the \fI/etc/xen/xend-config.sxp\fR
+file, under the
+key ``xend-relocation-port''\&.
 .PP
 The \fB--backend-parameters\fR option allows you to set
 the default backend parameters for the cluster. The parameter
@@ -233,13 +258,20 @@ supported), will be set to 128M if not specified.
 Value of the auto_balance flag for instances to use by
 default, will be set to true if not specified.
 .PP
-The \fB--hypervisor-parameters\fR option allows you
-to set default hypervisor specific parameters for the
-cluster. The format of this option is the name of the
-hypervisor, followed by a colon and a comma-separated list of
-key=value pairs. The keys available for each hypervisors are
-detailed int the \fBgnt-instance\fR(8) man page, in the
-\fBadd\fR command.
+The \fB--nic-parameters\fR option allows you to set
+the default nic parameters for the cluster. The parameter
+format is a comma-separated list of key=value pairs with the
+following supported keys:
+.TP
+\fBmode\fR
+The default nic mode, 'routed' or 'bridged'.
+.TP
+\fBlink\fR
+In bridged mode the default NIC bridge. In routed mode it
+represents an hypervisor-vif-script dependent value to allow
+different instance groups. For example under the KVM default
+network script it is interpreted as a routing table number or
+name.
 .SS "LIST-TAGS"
 
 \fBlist-tags\fR
@@ -270,6 +302,7 @@ and gnt-cluster redist-conf to make sure the cluster is consistent again.
 \fIhypervisors\fB\fR ]
     [ \fB--hypervisor-parameters \fIhypervisor\fB:\fIhv-param\fB=\fIvalue\fB [ ,\fIhv-param\fB=\fIvalue\fB\fI ...\fB ]\fR ]
     [ \fB--backend-parameters \fIbe-param\fB=\fIvalue\fB [ ,\fIbe-param\fB=\fIvalue\fB\fI ...\fB ]\fR ]
+    [ \fB--nic-parameters \fInic-param\fB=\fIvalue\fB [ ,\fInic-param\fB=\fIvalue\fB\fI ...\fB ]\fR ]
     [ \fB-C \fIcandidate_pool_size\fB\fR ]
 
 .PP
@@ -277,8 +310,9 @@ Modify the options for the cluster.
 .PP
 The \fB-g\fR, \fB--no-lvm-storarge\fR,
 \fB--enabled-hypervisors\fR,
-\fB--hypervisor-parameters\fR and
-\fB--backend-parameters\fR options are
+\fB--hypervisor-parameters\fR,
+\fB--backend-parameters\fR and
+\fB--nic-parameters\fR and options are
 described in the \fBinit\fR command.
 .PP
 The \fB-C\fR options specifies the
@@ -304,6 +338,20 @@ job queue. New jobs will be accepted.
 .PP
 The \fBinfo\fR option shows the properties of the
 job queue.
+.SS "WATCHER"
+
+\fBwatcher\fR { \fBpause \fIduration\fB\fR | \fBcontinue\fR | \fBinfo\fR }
+
+.PP
+Make the watcher pause or let it continue.
+.PP
+The \fBpause\fR option causes the watcher to pause for
+\fIduration\fR seconds.
+.PP
+The \fBcontinue\fR option will let the watcher continue.
+.PP
+The \fBinfo\fR option shows whether the watcher is currently
+paused.
 .SS "REDIST-CONF"
 
 \fBredist-conf\fR [ \fB--submit\fR ]

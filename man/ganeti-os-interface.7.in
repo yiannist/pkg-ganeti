@@ -3,7 +3,7 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GANETI-OS-INTERFACE" "7" "04 February 2010" "ganeti 2.0" ""
+.TH "GANETI-OS-INTERFACE" "7" "02 March 2010" "ganeti 2.1" ""
 
 .SH NAME
 ganeti-os-interface \- specifications for guest OS types
@@ -14,10 +14,11 @@ have, for each guest OS type, a directory containing a number of
 required files.
 .SH "REFERENCE"
 .PP
-There are five required files: \fIcreate\fR,
+There are six required files: \fIcreate\fR,
 \fIimport\fR, \fIexport\fR,
-\fIrename\fR (executables) and
-\fIganeti_api_version\fR (text file).
+\fIrename\fR (executables),
+\fIganeti_api_version\fR and
+\fIvariants.list\fR (text file).
 .SS "COMMON ENVIRONMENT"
 .PP
 All commands will get their input via environment variables. A
@@ -38,6 +39,17 @@ The name os the instance's OS as Ganeti knows
 it. This can simplify the OS scripts by providing the same
 scripts under multiple names, and then the scripts can use
 this name to alter their behaviour.
+
+Under OS api 15 changing the script behavior based
+on this variable is deprecated: OS_VARIANT should be used
+instead (see below).
+.TP
+\fBOS_VARIANT\fR
+The variant of the OS which should be installed. Each OS
+must support all variants listed under its
+\fIvariants.list\fR file, and may support more.
+Any more supported variants should be properly documented in the
+per-os documentation.
 .TP
 \fBHYPERVISOR\fR
 The hypervisor of this instance.
@@ -115,6 +127,11 @@ of the instance, which is guaranteed to resolve to an IP
 address. The create script should configure the instance
 according to this name. It can configure the IP statically or
 not, depending on the deployment environment.
+.PP
+The \fBINSTANCE_REINSTALL\fR variable is set to '1' when
+this create request is reinstalling and existing instance, rather than
+creating one anew. This can be used, for example, to preserve some
+data in the old instance in an os-specific way.
 .SS "EXPORT"
 .PP
 This command is used in order to make a backup of a given disk
@@ -169,12 +186,23 @@ administrator to update the other services.
 The \fIganeti_api_version\fR file is a plain
 text file containing the version(s) of the guest OS api that
 this OS definition complies with, one per line. The version
-documented by this man page is 10, so this file must contain
-the number 10 followed by a newline if only this version is
-supported. A script compatible with both Ganeti 1.2 and Ganeti
-2.0 should contain the most recent version first (i.e. 10),
-followed by the old version(s) (in this case, 5).
+documented by this man page is 15, so this file must contain
+the number 15 followed by a newline if only this version is
+supported. A script compatible more than one ganeti version
+should contain the most recent version first (i.e. 15),
+followed by the old version(s) (in this case 10 and/or 5).
+.SS "VARIANTS.LIST"
+.PP
+\fIvariants.list\fR is a plain text file
+containing all the declared supported variants for this
+OS, one per line. At least one variant must be supported.
 .SH "NOTES"
+.SS "RETROCOMPATIBILITY"
+.PP
+Ganeti 2.1 is compatible with both api version 10, and 15.
+In api version 10 the \fIvariants.list\fR
+file is ignored and no OS_VARIANT environment variable is
+passed.
 .SS "COMMON BEHAVIOUR"
 .PP
 All the scripts should display an usage message when
@@ -182,6 +210,13 @@ called with a wrong number of arguments or when the first
 argument is \fB-h\fR or
 \fB--help\fR\&.
 .SS "UPGRADING FROM OLD VERSIONS"
+.SS "VERSION 10 TO 15"
+.PP
+The \fIvariants.list\fR file has been
+added, so OSes should support at least one variant,
+declaring it in that file and must be prepared to parse
+the OS_VARIANT environment variable. OSes are free to
+support more variants than just the declared ones.
 .SS "VERSION 5 TO 10"
 .PP
 The method os passing data has changed from command line

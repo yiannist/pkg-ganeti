@@ -31,16 +31,42 @@ backend (currently json).
 
 import simplejson
 import re
+import hmac
 
+from ganeti import errors
 
-# Check whether the simplejson module supports indentation
-_JSON_INDENT = 2
 try:
-  simplejson.dumps(1, indent=_JSON_INDENT)
-except TypeError:
-  _JSON_INDENT = None
+  from hashlib import sha1
+except ImportError:
+  import sha as sha1
+
+
+_JSON_INDENT = 2
 
 _RE_EOLSP = re.compile('[ \t]+$', re.MULTILINE)
+
+
+def _GetJsonDumpers(_encoder_class=simplejson.JSONEncoder):
+  """Returns two JSON functions to serialize data.
+
+  @rtype: (callable, callable)
+  @return: The function to generate a compact form of JSON and another one to
+           generate a more readable, indented form of JSON (if supported)
+
+  """
+  plain_encoder = _encoder_class(sort_keys=True)
+
+  # Check whether the simplejson module supports indentation
+  try:
+    indent_encoder = _encoder_class(indent=_JSON_INDENT, sort_keys=True)
+  except TypeError:
+    # Indentation not supported
+    indent_encoder = plain_encoder
+
+  return (plain_encoder.encode, indent_encoder.encode)
+
+
+(_DumpJson, _DumpJsonIndent) = _GetJsonDumpers()
 
 
 def DumpJson(data, indent=True):
@@ -52,14 +78,15 @@ def DumpJson(data, indent=True):
   @return: the string representation of data
 
   """
-  if not indent or _JSON_INDENT is None:
-    txt = simplejson.dumps(data)
+  if indent:
+    fn = _DumpJsonIndent
   else:
-    txt = simplejson.dumps(data, indent=_JSON_INDENT)
+    fn = _DumpJson
 
-  txt = _RE_EOLSP.sub("", txt)
+  txt = _RE_EOLSP.sub("", fn(data))
   if not txt.endswith('\n'):
     txt += '\n'
+
   return txt
 
 
@@ -74,5 +101,52 @@ def LoadJson(txt):
   return simplejson.loads(txt)
 
 
+def DumpSignedJson(data, key, salt=None):
+  """Serialize a given object and authenticate it.
+
+  @param data: the data to serialize
+  @param key: shared hmac key
+  @return: the string representation of data signed by the hmac key
+
+  """
+  txt = DumpJson(data, indent=False)
+  if salt is None:
+    salt = ''
+  signed_dict = {
+    'msg': txt,
+    'salt': salt,
+    'hmac': hmac.new(key, salt + txt, sha1).hexdigest(),
+  }
+  return DumpJson(signed_dict, indent=False)
+
+
+def LoadSignedJson(txt, key):
+  """Verify that a given message was signed with the given key, and load it.
+
+  @param txt: json-encoded hmac-signed message
+  @param key: shared hmac key
+  @rtype: tuple of original data, string
+  @return: original data, salt
+  @raises errors.SignatureError: if the message signature doesn't verify
+
+  """
+  signed_dict = LoadJson(txt)
+  if not isinstance(signed_dict, dict):
+    raise errors.SignatureError('Invalid external message')
+  try:
+    msg = signed_dict['msg']
+    salt = signed_dict['salt']
+    hmac_sign = signed_dict['hmac']
+  except KeyError:
+    raise errors.SignatureError('Invalid external message')
+
+  if hmac.new(key, salt + msg, sha1).hexdigest() != hmac_sign:
+    raise errors.SignatureError('Invalid Signature')
+
+  return LoadJson(msg), salt
+
+
 Dump = DumpJson
 Load = LoadJson
+DumpSigned = DumpSignedJson
+LoadSigned = LoadSignedJson

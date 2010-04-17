@@ -43,7 +43,7 @@ NoProxyOpener = urllib2.build_opener(urllib2.ProxyHandler({}))
 INSTANCE_FIELDS = ("name", "os", "pnode", "snodes",
                    "admin_state",
                    "disk_template", "disk.sizes",
-                   "nic.ips", "nic.macs", "nic.bridges",
+                   "nic.ips", "nic.macs", "nic.modes", "nic.links",
                    "beparams", "hvparams",
                    "oper_state", "oper_ram", "status", "tags")
 
@@ -64,7 +64,7 @@ def Enabled():
 def _DoTests(uris):
   master = qa_config.GetMasterNode()
   host = master["primary"]
-  port = qa_config.get("rapi-port", default=constants.RAPI_PORT)
+  port = qa_config.get("rapi-port", default=constants.DEFAULT_RAPI_PORT)
 
   for uri, verify in uris:
     assert uri.startswith("/")

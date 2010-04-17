@@ -18,14 +18,17 @@
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
 # 02110-1301, USA.
 
+"""Cluster related commands"""
 
-# pylint: disable-msg=W0401,W0614
+# pylint: disable-msg=W0401,W0613,W0614,C0103
 # W0401: Wildcard import ganeti.cli
+# W0613: Unused argument, since all functions follow the same API
 # W0614: Unused import %s from wildcard import (since we need cli)
+# C0103: Invalid name gnt-cluster
 
 import sys
-from optparse import make_option
 import os.path
+import time
 
 from ganeti.cli import *
 from ganeti import opcodes
@@ -34,6 +37,7 @@ from ganeti import errors
 from ganeti import utils
 from ganeti import bootstrap
 from ganeti import ssh
+from ganeti import objects
 
 
 @UsesRPC
@@ -57,56 +61,51 @@ def InitCluster(opts, args):
     vg_name = constants.DEFAULT_VG
 
   hvlist = opts.enabled_hypervisors
-  if hvlist is not None:
-    hvlist = hvlist.split(",")
-  else:
-    hvlist = [opts.default_hypervisor]
-
-  # avoid an impossible situation
-  if opts.default_hypervisor not in hvlist:
-    ToStderr("The default hypervisor requested (%s) is not"
-             " within the enabled hypervisor list (%s)" %
-             (opts.default_hypervisor, hvlist))
-    return 1
+  if hvlist is None:
+    hvlist = constants.DEFAULT_ENABLED_HYPERVISOR
+  hvlist = hvlist.split(",")
 
   hvparams = dict(opts.hvparams)
-
   beparams = opts.beparams
-  # check for invalid parameters
-  for parameter in beparams:
-    if parameter not in constants.BES_PARAMETERS:
-      ToStderr("Invalid backend parameter: %s", parameter)
-      return 1
+  nicparams = opts.nicparams
 
   # prepare beparams dict
-  for parameter in constants.BES_PARAMETERS:
-    if parameter not in beparams:
-      beparams[parameter] = constants.BEC_DEFAULTS[parameter]
+  beparams = objects.FillDict(constants.BEC_DEFAULTS, beparams)
   utils.ForceDictType(beparams, constants.BES_PARAMETER_TYPES)
+
+  # prepare nicparams dict
+  nicparams = objects.FillDict(constants.NICC_DEFAULTS, nicparams)
+  utils.ForceDictType(nicparams, constants.NICS_PARAMETER_TYPES)
 
   # prepare hvparams dict
   for hv in constants.HYPER_TYPES:
     if hv not in hvparams:
       hvparams[hv] = {}
-    for parameter in constants.HVC_DEFAULTS[hv]:
-      if parameter not in hvparams[hv]:
-        hvparams[hv][parameter] = constants.HVC_DEFAULTS[hv][parameter]
+    hvparams[hv] = objects.FillDict(constants.HVC_DEFAULTS[hv], hvparams[hv])
     utils.ForceDictType(hvparams[hv], constants.HVS_PARAMETER_TYPES)
+
+  if opts.candidate_pool_size is None:
+    opts.candidate_pool_size = constants.MASTER_POOL_SIZE_DEFAULT
+
+  if opts.mac_prefix is None:
+    opts.mac_prefix = constants.DEFAULT_MAC_PREFIX
 
   bootstrap.InitCluster(cluster_name=args[0],
                         secondary_ip=opts.secondary_ip,
                         vg_name=vg_name,
                         mac_prefix=opts.mac_prefix,
-                        def_bridge=opts.def_bridge,
                         master_netdev=opts.master_netdev,
                         file_storage_dir=opts.file_storage_dir,
                         enabled_hypervisors=hvlist,
-                        default_hypervisor=opts.default_hypervisor,
                         hvparams=hvparams,
                         beparams=beparams,
+                        nicparams=nicparams,
                         candidate_pool_size=opts.candidate_pool_size,
                         modify_etc_hosts=opts.modify_etc_hosts,
+                        modify_ssh_setup=opts.modify_ssh_setup,
                         )
+  op = opcodes.OpPostInitCluster()
+  SubmitOpCode(op)
   return 0
 
 
@@ -208,6 +207,19 @@ def ShowClusterMaster(opts, args):
   return 0
 
 
+def _PrintGroupedParams(paramsdict):
+  """Print Grouped parameters (be, nic, disk) by group.
+
+  @type paramsdict: dict of dicts
+  @param paramsdict: {group: {param: value, ...}, ...}
+
+  """
+  for gr_name, gr_dict in paramsdict.items():
+    ToStdout("  - %s:", gr_name)
+    for item, val in gr_dict.iteritems():
+      ToStdout("      %s: %s", item, val)
+
+
 def ShowClusterConfig(opts, args):
   """Shows cluster information.
 
@@ -222,6 +234,10 @@ def ShowClusterConfig(opts, args):
   result = cl.QueryClusterInfo()
 
   ToStdout("Cluster name: %s", result["name"])
+  ToStdout("Cluster UUID: %s", result["uuid"])
+
+  ToStdout("Creation time: %s", utils.FormatTime(result["ctime"]))
+  ToStdout("Modification time: %s", utils.FormatTime(result["mtime"]))
 
   ToStdout("Master node: %s", result["master"])
 
@@ -229,33 +245,30 @@ def ShowClusterConfig(opts, args):
            result["architecture"][0], result["architecture"][1])
 
   if result["tags"]:
-    tags = ", ".join(utils.NiceSort(result["tags"]))
+    tags = utils.CommaJoin(utils.NiceSort(result["tags"]))
   else:
     tags = "(none)"
 
   ToStdout("Tags: %s", tags)
 
   ToStdout("Default hypervisor: %s", result["default_hypervisor"])
-  ToStdout("Enabled hypervisors: %s", ", ".join(result["enabled_hypervisors"]))
+  ToStdout("Enabled hypervisors: %s",
+           utils.CommaJoin(result["enabled_hypervisors"]))
 
   ToStdout("Hypervisor parameters:")
-  for hv_name, hv_dict in result["hvparams"].items():
-    ToStdout("  - %s:", hv_name)
-    for item, val in hv_dict.iteritems():
-      ToStdout("      %s: %s", item, val)
+  _PrintGroupedParams(result["hvparams"])
 
   ToStdout("Cluster parameters:")
   ToStdout("  - candidate pool size: %s", result["candidate_pool_size"])
   ToStdout("  - master netdev: %s", result["master_netdev"])
-  ToStdout("  - default bridge: %s", result["default_bridge"])
   ToStdout("  - lvm volume group: %s", result["volume_group_name"])
   ToStdout("  - file storage path: %s", result["file_storage_dir"])
 
   ToStdout("Default instance parameters:")
-  for gr_name, gr_dict in result["beparams"].items():
-    ToStdout("  - %s:", gr_name)
-    for item, val in gr_dict.iteritems():
-      ToStdout("      %s: %s", item, val)
+  _PrintGroupedParams(result["beparams"])
+
+  ToStdout("Default nic parameters:")
+  _PrintGroupedParams(result["nicparams"])
 
   return 0
 
@@ -273,11 +286,12 @@ def ClusterCopyFile(opts, args):
   """
   filename = args[0]
   if not os.path.exists(filename):
-    raise errors.OpPrereqError("No such filename '%s'" % filename)
+    raise errors.OpPrereqError("No such filename '%s'" % filename,
+                               errors.ECODE_INVAL)
 
   cl = GetClient()
 
-  myname = utils.HostInfo().name
+  myname = utils.GetHostInfo().name
 
   cluster_name = cl.QueryConfigValues(["cluster_name"])[0]
 
@@ -341,7 +355,10 @@ def VerifyCluster(opts, args):
   skip_checks = []
   if opts.skip_nplusone_mem:
     skip_checks.append(constants.VERIFY_NPLUSONE_MEM)
-  op = opcodes.OpVerifyCluster(skip_checks=skip_checks)
+  op = opcodes.OpVerifyCluster(skip_checks=skip_checks,
+                               verbose=opts.verbose,
+                               error_codes=opts.error_codes,
+                               debug_simulate_errors=opts.simulate_errors)
   if SubmitOpCode(op):
     return 0
   else:
@@ -360,20 +377,16 @@ def VerifyDisks(opts, args):
   """
   op = opcodes.OpVerifyDisks()
   result = SubmitOpCode(op)
-  if not isinstance(result, (list, tuple)) or len(result) != 4:
+  if not isinstance(result, (list, tuple)) or len(result) != 3:
     raise errors.ProgrammerError("Unknown result type for OpVerifyDisks")
 
-  nodes, nlvm, instances, missing = result
+  bad_nodes, instances, missing = result
 
-  if nodes:
-    ToStdout("Nodes unreachable or with bad data:")
-    for name in nodes:
-      ToStdout("\t%s", name)
   retcode = constants.EXIT_SUCCESS
 
-  if nlvm:
-    for node, text in nlvm.iteritems():
-      ToStdout("Error on node %s: LVM error: %s",
+  if bad_nodes:
+    for node, text in bad_nodes.items():
+      ToStdout("Error gathering data on node %s: %s",
                node, utils.SafeEncode(text[-400:]))
       retcode |= 1
       ToStdout("You need to fix these nodes first before fixing instances")
@@ -393,7 +406,7 @@ def VerifyDisks(opts, args):
 
   if missing:
     for iname, ival in missing.iteritems():
-      all_missing = utils.all(ival, lambda x: x[0] in nlvm)
+      all_missing = utils.all(ival, lambda x: x[0] in bad_nodes)
       if all_missing:
         ToStdout("Instance %s cannot be verified as it lives on"
                  " broken nodes", iname)
@@ -401,7 +414,7 @@ def VerifyDisks(opts, args):
         ToStdout("Instance %s has missing logical volumes:", iname)
         ival.sort()
         for node, vol in ival:
-          if node in nlvm:
+          if node in bad_nodes:
             ToStdout("\tbroken node %s /dev/xenvg/%s", node, vol)
           else:
             ToStdout("\t%s /dev/xenvg/%s", node, vol)
@@ -484,7 +497,8 @@ def SetClusterParams(opts, args):
   """
   if not (not opts.lvm_storage or opts.vg_name or
           opts.enabled_hypervisors or opts.hvparams or
-          opts.beparams or opts.candidate_pool_size is not None):
+          opts.beparams or opts.nicparams or
+          opts.candidate_pool_size is not None):
     ToStderr("Please give at least one of the parameters.")
     return 1
 
@@ -501,16 +515,20 @@ def SetClusterParams(opts, args):
 
   # a list of (name, dict) we can pass directly to dict() (or [])
   hvparams = dict(opts.hvparams)
-  for hv, hv_params in hvparams.iteritems():
+  for hv_params in hvparams.values():
     utils.ForceDictType(hv_params, constants.HVS_PARAMETER_TYPES)
 
   beparams = opts.beparams
   utils.ForceDictType(beparams, constants.BES_PARAMETER_TYPES)
 
+  nicparams = opts.nicparams
+  utils.ForceDictType(nicparams, constants.NICS_PARAMETER_TYPES)
+
   op = opcodes.OpSetClusterParams(vg_name=vg_name,
                                   enabled_hypervisors=hvlist,
                                   hvparams=hvparams,
                                   beparams=beparams,
+                                  nicparams=nicparams,
                                   candidate_pool_size=opts.candidate_pool_size)
   SubmitOpCode(op)
   return 0
@@ -539,171 +557,132 @@ def QueueOps(opts, args):
       val = "unset"
     ToStdout("The drain flag is %s" % val)
   else:
-    raise errors.OpPrereqError("Command '%s' is not valid." % command)
+    raise errors.OpPrereqError("Command '%s' is not valid." % command,
+                               errors.ECODE_INVAL)
 
   return 0
 
-# this is an option common to more than one command, so we declare
-# it here and reuse it
-node_option = make_option("-n", "--node", action="append", dest="nodes",
-                          help="Node to copy to (if not given, all nodes),"
-                               " can be given multiple times",
-                          metavar="<node>", default=[])
+
+def _ShowWatcherPause(until):
+  if until is None or until < time.time():
+    ToStdout("The watcher is not paused.")
+  else:
+    ToStdout("The watcher is paused until %s.", time.ctime(until))
+
+
+def WatcherOps(opts, args):
+  """Watcher operations.
+
+  @param opts: the command line options selected by the user
+  @type args: list
+  @param args: should contain only one element, the subcommand
+  @rtype: int
+  @return: the desired exit code
+
+  """
+  command = args[0]
+  client = GetClient()
+
+  if command == "continue":
+    client.SetWatcherPause(None)
+    ToStdout("The watcher is no longer paused.")
+
+  elif command == "pause":
+    if len(args) < 2:
+      raise errors.OpPrereqError("Missing pause duration", errors.ECODE_INVAL)
+
+    result = client.SetWatcherPause(time.time() + ParseTimespec(args[1]))
+    _ShowWatcherPause(result)
+
+  elif command == "info":
+    result = client.QueryConfigValues(["watcher_pause"])
+    _ShowWatcherPause(result[0])
+
+  else:
+    raise errors.OpPrereqError("Command '%s' is not valid." % command,
+                               errors.ECODE_INVAL)
+
+  return 0
+
 
 commands = {
-  'init': (InitCluster, ARGS_ONE,
-           [DEBUG_OPT,
-            make_option("-s", "--secondary-ip", dest="secondary_ip",
-                        help="Specify the secondary ip for this node;"
-                        " if given, the entire cluster must have secondary"
-                        " addresses",
-                        metavar="ADDRESS", default=None),
-            make_option("-m", "--mac-prefix", dest="mac_prefix",
-                        help="Specify the mac prefix for the instance IP"
-                        " addresses, in the format XX:XX:XX",
-                        metavar="PREFIX",
-                        default=constants.DEFAULT_MAC_PREFIX,),
-            make_option("-g", "--vg-name", dest="vg_name",
-                        help="Specify the volume group name "
-                        " (cluster-wide) for disk allocation [xenvg]",
-                        metavar="VG",
-                        default=None,),
-            make_option("-b", "--bridge", dest="def_bridge",
-                        help="Specify the default bridge name (cluster-wide)"
-                          " to connect the instances to [%s]" %
-                          constants.DEFAULT_BRIDGE,
-                        metavar="BRIDGE",
-                        default=constants.DEFAULT_BRIDGE,),
-            make_option("--master-netdev", dest="master_netdev",
-                        help="Specify the node interface (cluster-wide)"
-                          " on which the master IP address will be added "
-                          " [%s]" % constants.DEFAULT_BRIDGE,
-                        metavar="NETDEV",
-                        default=constants.DEFAULT_BRIDGE,),
-            make_option("--file-storage-dir", dest="file_storage_dir",
-                        help="Specify the default directory (cluster-wide)"
-                             " for storing the file-based disks [%s]" %
-                             constants.DEFAULT_FILE_STORAGE_DIR,
-                        metavar="DIR",
-                        default=constants.DEFAULT_FILE_STORAGE_DIR,),
-            make_option("--no-lvm-storage", dest="lvm_storage",
-                        help="No support for lvm based instances"
-                             " (cluster-wide)",
-                        action="store_false", default=True,),
-            make_option("--no-etc-hosts", dest="modify_etc_hosts",
-                        help="Don't modify /etc/hosts"
-                             " (cluster-wide)",
-                        action="store_false", default=True,),
-            make_option("--enabled-hypervisors", dest="enabled_hypervisors",
-                        help="Comma-separated list of hypervisors",
-                        type="string", default=None),
-            make_option("-t", "--default-hypervisor",
-                        dest="default_hypervisor",
-                        help="Default hypervisor to use for instance creation",
-                        choices=list(constants.HYPER_TYPES),
-                        default=constants.DEFAULT_ENABLED_HYPERVISOR),
-            ikv_option("-H", "--hypervisor-parameters", dest="hvparams",
-                       help="Hypervisor and hypervisor options, in the"
-                         " format"
-                       " hypervisor:option=value,option=value,...",
-                       default=[],
-                       action="append",
-                       type="identkeyval"),
-            keyval_option("-B", "--backend-parameters", dest="beparams",
-                          type="keyval", default={},
-                          help="Backend parameters"),
-            make_option("-C", "--candidate-pool-size",
-                        default=constants.MASTER_POOL_SIZE_DEFAULT,
-                        help="Set the candidate pool size",
-                        dest="candidate_pool_size", type="int"),
-            ],
-           "[opts...] <cluster_name>",
-           "Initialises a new cluster configuration"),
-  'destroy': (DestroyCluster, ARGS_NONE,
-              [DEBUG_OPT,
-               make_option("--yes-do-it", dest="yes_do_it",
-                           help="Destroy cluster",
-                           action="store_true"),
-              ],
-              "", "Destroy cluster"),
-  'rename': (RenameCluster, ARGS_ONE, [DEBUG_OPT, FORCE_OPT],
-               "<new_name>",
-               "Renames the cluster"),
-  'redist-conf': (RedistributeConfig, ARGS_NONE, [DEBUG_OPT, SUBMIT_OPT],
-                  "",
-                  "Forces a push of the configuration file and ssconf files"
-                  " to the nodes in the cluster"),
-  'verify': (VerifyCluster, ARGS_NONE, [DEBUG_OPT,
-             make_option("--no-nplus1-mem", dest="skip_nplusone_mem",
-                         help="Skip N+1 memory redundancy tests",
-                         action="store_true",
-                         default=False,),
-             ],
-             "", "Does a check on the cluster configuration"),
-  'verify-disks': (VerifyDisks, ARGS_NONE, [DEBUG_OPT],
-                   "", "Does a check on the cluster disk status"),
-  'repair-disk-sizes': (RepairDiskSizes, ARGS_ANY, [DEBUG_OPT],
-                   "", "Updates mismatches in recorded disk sizes"),
-  'masterfailover': (MasterFailover, ARGS_NONE, [DEBUG_OPT,
-                     make_option("--no-voting", dest="no_voting",
-                                 help="Skip node agreement check (dangerous)",
-                                 action="store_true",
-                                 default=False,),
-                     ],
-                     "", "Makes the current node the master"),
-  'version': (ShowClusterVersion, ARGS_NONE, [DEBUG_OPT],
-              "", "Shows the cluster version"),
-  'getmaster': (ShowClusterMaster, ARGS_NONE, [DEBUG_OPT],
-                "", "Shows the cluster master"),
-  'copyfile': (ClusterCopyFile, ARGS_ONE, [DEBUG_OPT, node_option],
-               "[-n node...] <filename>",
-               "Copies a file to all (or only some) nodes"),
-  'command': (RunClusterCommand, ARGS_ATLEAST(1), [DEBUG_OPT, node_option],
-              "[-n node...] <command>",
-              "Runs a command on all (or only some) nodes"),
-  'info': (ShowClusterConfig, ARGS_NONE, [DEBUG_OPT],
-                 "", "Show cluster configuration"),
-  'list-tags': (ListTags, ARGS_NONE,
-                [DEBUG_OPT], "", "List the tags of the cluster"),
-  'add-tags': (AddTags, ARGS_ANY, [DEBUG_OPT, TAG_SRC_OPT],
-               "tag...", "Add tags to the cluster"),
-  'remove-tags': (RemoveTags, ARGS_ANY, [DEBUG_OPT, TAG_SRC_OPT],
-                  "tag...", "Remove tags from the cluster"),
-  'search-tags': (SearchTags, ARGS_ONE,
-                  [DEBUG_OPT], "", "Searches the tags on all objects on"
-                  " the cluster for a given pattern (regex)"),
-  'queue': (QueueOps, ARGS_ONE, [DEBUG_OPT],
-            "drain|undrain|info", "Change queue properties"),
-  'modify': (SetClusterParams, ARGS_NONE,
-             [DEBUG_OPT,
-              make_option("-g", "--vg-name", dest="vg_name",
-                          help="Specify the volume group name "
-                          " (cluster-wide) for disk allocation "
-                          "and enable lvm based storage",
-                          metavar="VG",),
-              make_option("--no-lvm-storage", dest="lvm_storage",
-                          help="Disable support for lvm based instances"
-                               " (cluster-wide)",
-                          action="store_false", default=True,),
-              make_option("--enabled-hypervisors", dest="enabled_hypervisors",
-                          help="Comma-separated list of hypervisors",
-                          type="string", default=None),
-              ikv_option("-H", "--hypervisor-parameters", dest="hvparams",
-                         help="Hypervisor and hypervisor options, in the"
-                         " format"
-                         " hypervisor:option=value,option=value,...",
-                         default=[],
-                         action="append",
-                         type="identkeyval"),
-              keyval_option("-B", "--backend-parameters", dest="beparams",
-                            type="keyval", default={},
-                            help="Backend parameters"),
-              make_option("-C", "--candidate-pool-size", default=None,
-                          help="Set the candidate pool size",
-                          dest="candidate_pool_size", type="int"),
-              ],
-             "[opts...]",
-             "Alters the parameters of the cluster"),
+  'init': (
+    InitCluster, [ArgHost(min=1, max=1)],
+    [BACKEND_OPT, CP_SIZE_OPT, ENABLED_HV_OPT, GLOBAL_FILEDIR_OPT,
+     HVLIST_OPT, MAC_PREFIX_OPT, MASTER_NETDEV_OPT, NIC_PARAMS_OPT,
+     NOLVM_STORAGE_OPT, NOMODIFY_ETCHOSTS_OPT, NOMODIFY_SSH_SETUP_OPT,
+     SECONDARY_IP_OPT, VG_NAME_OPT],
+    "[opts...] <cluster_name>", "Initialises a new cluster configuration"),
+  'destroy': (
+    DestroyCluster, ARGS_NONE, [YES_DOIT_OPT],
+    "", "Destroy cluster"),
+  'rename': (
+    RenameCluster, [ArgHost(min=1, max=1)],
+    [FORCE_OPT],
+    "<new_name>",
+    "Renames the cluster"),
+  'redist-conf': (
+    RedistributeConfig, ARGS_NONE, [SUBMIT_OPT],
+    "", "Forces a push of the configuration file and ssconf files"
+    " to the nodes in the cluster"),
+  'verify': (
+    VerifyCluster, ARGS_NONE,
+    [VERBOSE_OPT, DEBUG_SIMERR_OPT, ERROR_CODES_OPT, NONPLUS1_OPT],
+    "", "Does a check on the cluster configuration"),
+  'verify-disks': (
+    VerifyDisks, ARGS_NONE, [],
+    "", "Does a check on the cluster disk status"),
+  'repair-disk-sizes': (
+    RepairDiskSizes, ARGS_MANY_INSTANCES, [],
+    "", "Updates mismatches in recorded disk sizes"),
+  'masterfailover': (
+    MasterFailover, ARGS_NONE, [NOVOTING_OPT],
+    "", "Makes the current node the master"),
+  'version': (
+    ShowClusterVersion, ARGS_NONE, [],
+    "", "Shows the cluster version"),
+  'getmaster': (
+    ShowClusterMaster, ARGS_NONE, [],
+    "", "Shows the cluster master"),
+  'copyfile': (
+    ClusterCopyFile, [ArgFile(min=1, max=1)],
+    [NODE_LIST_OPT],
+    "[-n node...] <filename>", "Copies a file to all (or only some) nodes"),
+  'command': (
+    RunClusterCommand, [ArgCommand(min=1)],
+    [NODE_LIST_OPT],
+    "[-n node...] <command>", "Runs a command on all (or only some) nodes"),
+  'info': (
+    ShowClusterConfig, ARGS_NONE, [],
+    "", "Show cluster configuration"),
+  'list-tags': (
+    ListTags, ARGS_NONE, [], "", "List the tags of the cluster"),
+  'add-tags': (
+    AddTags, [ArgUnknown()], [TAG_SRC_OPT],
+    "tag...", "Add tags to the cluster"),
+  'remove-tags': (
+    RemoveTags, [ArgUnknown()], [TAG_SRC_OPT],
+    "tag...", "Remove tags from the cluster"),
+  'search-tags': (
+    SearchTags, [ArgUnknown(min=1, max=1)],
+    [], "", "Searches the tags on all objects on"
+    " the cluster for a given pattern (regex)"),
+  'queue': (
+    QueueOps,
+    [ArgChoice(min=1, max=1, choices=["drain", "undrain", "info"])],
+    [], "drain|undrain|info", "Change queue properties"),
+  'watcher': (
+    WatcherOps,
+    [ArgChoice(min=1, max=1, choices=["pause", "continue", "info"]),
+     ArgSuggest(min=0, max=1, choices=["30m", "1h", "4h"])],
+    [],
+    "{pause <timespec>|continue|info}", "Change watcher properties"),
+  'modify': (
+    SetClusterParams, ARGS_NONE,
+    [BACKEND_OPT, CP_SIZE_OPT, ENABLED_HV_OPT, HVLIST_OPT,
+     NIC_PARAMS_OPT, NOLVM_STORAGE_OPT, VG_NAME_OPT],
+    "[opts...]",
+    "Alters the parameters of the cluster"),
   }
 
 if __name__ == '__main__':

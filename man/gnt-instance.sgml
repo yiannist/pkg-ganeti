@@ -78,6 +78,10 @@
             <arg>-s <replaceable>SIZE</replaceable></arg>
           </group>
           <sbr>
+          <arg>--no-ip-check</arg>
+          <arg>--no-name-check</arg>
+          <arg>--no-start</arg>
+          <sbr>
           <group>
             <arg rep="repeat">--net=<replaceable>N</replaceable><arg rep="repeat">:options</arg></arg>
             <arg>--no-nics</arg>
@@ -113,8 +117,8 @@
         <para>
           Creates a new instance on the specified host. The
           <replaceable>instance</replaceable> argument must be in DNS,
-          but depending on the bridge setup, need not be in the same
-          network as the nodes in the cluster.
+          but depending on the bridge/routing setup, need not be in
+          the same network as the nodes in the cluster.
         </para>
 
         <para>
@@ -147,11 +151,33 @@
         </para>
 
         <para>
+          The <option>--no-ip-check</option> skips the checks that are
+          done to see if the instance's IP is not already alive
+          (i.e. reachable from the master node).
+        </para>
+
+        <para>
+          The <option>--no-name-check</option> skips the check for the
+          instance name via the resolver (e.g. in DNS or /etc/hosts,
+          depending on your setup). Since the name check is used to
+          compute the IP address, if you pass this option you must
+          also pass the <option>--no-ip-check</option> option.
+        </para>
+
+        <para>
+          If you don't wat the instance to automatically start after
+          creation, this is possible via the
+          <option>--no-start</option> option. This will leave the
+          instance down until a subsequent <command>gnt-instance
+          start</command> command.
+        </para>
+
+        <para>
           The NICs of the instances can be specified via the
           <option>--net</option> option. By default, one NIC is
-          created for the instance, with a random MAC, and connected
-          to the default bridge. Each NIC can take up to three
-          parameters (all optional):
+          created for the instance, with a random MAC, and set
+          up according the the cluster level nic parameters.
+          Each NIC can take these parameters (all optional):
           <variablelist>
             <varlistentry>
               <term>mac</term>
@@ -170,13 +196,25 @@
               </listitem>
             </varlistentry>
             <varlistentry>
-              <term>bridge</term>
+              <term>mode</term>
               <listitem>
-                <simpara>specifies the bridge to attach this NIC
-                  to</simpara>
+                <simpara>specifies the connection mode for this nic:
+                  routed or bridged.</simpara>
+              </listitem>
+            </varlistentry>
+            <varlistentry>
+              <term>link</term>
+              <listitem>
+                <simpara>in bridged mode specifies the bridge to attach
+                  this NIC to, in routed mode it's intended to
+                  differentiate between different routing tables/instance
+                  groups (but the meaning is dependent on the network
+                  script, see gnt-cluster(8) for more details)</simpara>
               </listitem>
             </varlistentry>
           </variablelist>
+          Of these "mode" and "link" are nic parameters, and inherit their
+          default at cluster level.
         </para>
 
         <para>
@@ -413,6 +451,22 @@
             </varlistentry>
 
             <varlistentry>
+              <term>use_localtime</term>
+              <listitem>
+                <simpara>Valid for the Xen HVM and KVM hypervisors.</simpara>
+
+                <para>
+                  A boolean option that specifies if the instance
+                  should be started with its clock set to the
+                  localtime of the machine (when true) or to the UTC
+                  (When false). The default is false, which is useful
+                  for Linux/Unix machines; for Windows OSes, it is
+                  recommended to enable this parameter.
+                </para>
+              </listitem>
+            </varlistentry>
+
+            <varlistentry>
               <term>kernel_path</term>
               <listitem>
                 <simpara>Valid for the Xen PVM and KVM hypervisors.</simpara>
@@ -492,10 +546,30 @@
                 emulate a serial console for the instance.</simpara>
               </listitem>
             </varlistentry>
-          </variablelist>
-        </para>
 
-        <para>
+            <varlistentry>
+              <term>disk_cache</term>
+              <listitem>
+                <simpara>Valid for the KVM hypervisor.</simpara>
+
+                <simpara>The disk cache mode. It can be either
+                <userinput>default</userinput> to not pass any cache
+                option to KVM, or one of the KVM cache modes: none
+                (for direct I/O), writethrough (to use the host cache
+                but report completion to the guest only when the host
+                has commited the changes to disk) or writeback (to use
+                the host cache and report completion as soon as the
+                data is in the host cache). Note that there are
+                special considerations for the cache mode depending on
+                version of KVM used and disk type (always raw file
+                under Ganeti), please refer to the KVM documentation
+                for more details.
+                </simpara>
+              </listitem>
+            </varlistentry>
+
+          </variablelist>
+
         </para>
 
         <para>
@@ -674,10 +748,21 @@
               </listitem>
             </varlistentry>
             <varlistentry>
-              <term>mac, ip, bridge</term>
+              <term>mac, ip, mode, link</term>
               <listitem>
                 <simpara>Specifications for the one NIC that will be
-                created for the instance.</simpara>
+                created for the instance. 'bridge' is also accepted
+                as a backwards compatibile key.</simpara>
+              </listitem>
+            </varlistentry>
+            <varlistentry>
+              <term>nics</term>
+              <listitem>
+                <simpara>List of nics that will be created for the
+                instance. Each entry should be a dict, with mac, ip, mode
+                and link as possible keys. Please don't provide the "mac,
+                ip, mode, link" parent keys if you use this method for
+                specifying nics.</simpara>
               </listitem>
             </varlistentry>
             <varlistentry>
@@ -706,6 +791,14 @@
               <term>ip_check</term>
               <listitem>
                 <simpara>Skip the check for already-in-use instance;
+                see the description in the <command>add</command>
+                command for details.</simpara>
+              </listitem>
+            </varlistentry>
+            <varlistentry>
+              <term>name_check</term>
+              <listitem>
+                <simpara>Skip the name check for instances;
                 see the description in the <command>add</command>
                 command for details.</simpara>
               </listitem>
@@ -762,6 +855,7 @@ instance5: 11225
         <cmdsynopsis>
           <command>remove</command>
           <arg>--ignore-failures</arg>
+          <arg>--shutdown-timeout=<replaceable>N</replaceable></arg>
           <arg>--submit</arg>
           <arg choice="req"><replaceable>instance</replaceable></arg>
         </cmdsynopsis>
@@ -781,6 +875,13 @@ instance5: 11225
           removal of the instance (e.g. during the shutdown or the
           disk removal). If this option is not given, the command will
           stop at the first error.
+        </para>
+
+        <para>
+          The <option>--shutdown-timeout</option> is used to specify how
+          much time to wait before forcing the shutdown (xm destroy in xen,
+          killing the kvm process, for kvm). By default two minutes are
+          given to each instance to stop.
         </para>
 
         <para>
@@ -912,10 +1013,18 @@ instance5: 11225
                 <simpara>the first instance interface MAC address</simpara>
               </listitem>
             </varlistentry>
+
             <varlistentry>
-              <term>bridge</term>
+              <term>nic_mode</term>
               <listitem>
-                <simpara>the bridge of the first instance NIC
+                <simpara>the mode of the first instance NIC
+                (routed or bridged)</simpara>
+              </listitem>
+            </varlistentry>
+            <varlistentry>
+              <term>nic_link</term>
+              <listitem>
+                <simpara>the link of the first instance NIC
                 </simpara>
               </listitem>
             </varlistentry>
@@ -955,6 +1064,45 @@ instance5: 11225
                 to track modifications</simpara>
               </listitem>
             </varlistentry>
+            <varlistentry>
+              <term>ctime</term>
+              <listitem>
+                <para>
+                  the creation time of the instance; note that this
+                  field contains spaces and as such it's harder to
+                  parse
+                </para>
+                <para>
+                  if this attribute is not present (e.g. when
+                  upgrading from older versions), then "N/A" will be
+                  shown instead
+                </para>
+              </listitem>
+            </varlistentry>
+            <varlistentry>
+              <term>mtime</term>
+              <listitem>
+                <para>
+                  the last modification time of the instance; note
+                  that this field contains spaces and as such it's
+                  harder to parse
+                </para>
+                <para>
+                  if this attribute is not present (e.g. when
+                  upgrading from older versions), then "N/A" will be
+                  shown instead
+                </para>
+              </listitem>
+            </varlistentry>
+
+            <varlistentry>
+              <term>uuid</term>
+              <listitem>
+                <simpara>Show the UUID of the instance (generated
+                automatically by Ganeti)</simpara>
+              </listitem>
+            </varlistentry>
+
             <varlistentry>
               <term>network_port</term>
               <listitem>
@@ -1015,10 +1163,15 @@ instance5: 11225
               </listitem>
             </varlistentry>
             <varlistentry>
-              <term>nic.bridge/N</term>
+              <term>nic.mode/N</term>
               <listitem>
-                <simpara>The bridge the Nth instance NIC is attached
-                to.</simpara>
+                <simpara>The mode of the Nth instance NIC</simpara>
+              </listitem>
+            </varlistentry>
+            <varlistentry>
+              <term>nic.link/N</term>
+              <listitem>
+                <simpara>The link of the Nth instance NIC</simpara>
               </listitem>
             </varlistentry>
             <varlistentry>
@@ -1036,10 +1189,17 @@ instance5: 11225
               </listitem>
             </varlistentry>
             <varlistentry>
-              <term>nic.bridges</term>
+              <term>nic.modes</term>
               <listitem>
-                <simpara>A comma-separated list of all the bridges of the
+                <simpara>A comma-separated list of all the modes of the
                 instance's NICs.</simpara>
+              </listitem>
+            </varlistentry>
+            <varlistentry>
+              <term>nic.links</term>
+              <listitem>
+                <simpara>A comma-separated list of all the link parameters
+                of the instance's NICs.</simpara>
               </listitem>
             </varlistentry>
             <varlistentry>
@@ -1142,7 +1302,7 @@ instance5: 11225
 
         <para>
           Use the <option>--all</option> to get info about all instances,
-          rather than explicitly passing the ones you're interested in.
+          rather than explicitely passing the ones you're interested in.
         </para>
       </refsect3>
 
@@ -1176,10 +1336,10 @@ instance5: 11225
 
         <para>
           Modifies the memory size, number of vcpus, ip address, MAC
-          address and/or bridge for an instance. It can also add and
-          remove disks and NICs to/from the instance. Note that you
-          need to give at least one of the arguments, otherwise the
-          command complains.
+          address and/or nic parameters for an instance. It can also
+          add and remove disks and NICs to/from the instance. Note
+          that you need to give at least one of the arguments, otherwise
+          the command complains.
         </para>
 
         <para>
@@ -1203,8 +1363,8 @@ instance5: 11225
           The <option>--net
           add:<replaceable>options</replaceable></option> option will
           add a new NIC to the instance. The available options are the
-          same as in the <command>add</command> command (mac, ip,
-          bridge). The <option>--net remove</option> will remove the
+          same as in the <command>add</command> command (mac, ip, link,
+          mode). The <option>--net remove</option> will remove the
           last NIC of the instance, while the <option>--net
           <replaceable>N</replaceable>:<replaceable>options</replaceable></option>
           option will change the parameters of the Nth instance NIC.
@@ -1406,10 +1566,10 @@ instance5: 11225
 
         <para>
           The <option>-H</option> and <option>-B</option> options
-          specify extra, temporary hypervisor and backend parameters
-          that can be used to start an instance with modified
-          parameters. They can be useful for quick testing without
-          having to modify an instance back and forth, e.g.:
+          specify temporary hypervisor and backend parameters that can
+          be used to start an instance with modified parameters. They
+          can be useful for quick testing without having to modify an
+          instance back and forth, e.g.:
           <screen>
 # gnt-instance start -H root_args="single" instance1
 # gnt-instance start -B memory=2048 instance2
@@ -1418,7 +1578,11 @@ instance5: 11225
           <userinput>instance1</userinput> in single-user mode, and
           the instance <userinput>instance2</userinput> with 2GB of
           RAM (this time only, unless that is the actual instance
-          memory size already).
+          memory size already). Note that the values override the
+          instance parameters (and not extend them): an instance with
+          "root_args=ro" when started with <userinput>-H
+          root_args=single</userinput> will result in "single", not
+          "ro single".
         </para>
 
         <para>
@@ -1444,6 +1608,8 @@ instance5: 11225
         <cmdsynopsis>
           <command>shutdown</command>
           <sbr>
+          <arg>--timeout=<replaceable>N</replaceable></arg>
+          <sbr>
           <arg>--force-multiple</arg>
           <sbr>
           <group choice="opt">
@@ -1465,6 +1631,13 @@ instance5: 11225
           cleanly stopped during a hardcoded interval (currently 2
           minutes), it will forcibly stop the instance (equivalent to
           switching off the power on a physical machine).
+        </para>
+
+        <para>
+          The <option>--timeout</option> is used to specify how much time to
+          wait before forcing the shutdown (xm destroy in xen, killing the kvm
+          process, for kvm). By default two minutes are given to each instance
+          to stop.
         </para>
 
         <para>
@@ -1501,6 +1674,8 @@ instance5: 11225
           <arg>--type=<replaceable>REBOOT-TYPE</replaceable></arg>
           <sbr>
           <arg>--ignore-secondaries</arg>
+          <sbr>
+          <arg>--shutdown-timeout=<replaceable>N</replaceable></arg>
           <sbr>
           <arg>--force-multiple</arg>
           <sbr>
@@ -1540,6 +1715,13 @@ instance5: 11225
           <option>--all</option> options are similar as for the
           <command>startup</command> command and they influence the
           actual instances being rebooted.
+        </para>
+
+        <para>
+          The <option>--shutdown-timeout</option> is used to specify how
+          much time to wait before forcing the shutdown (xm destroy in xen,
+          killing the kvm process, for kvm). By default two minutes are
+          given to each instance to stop.
         </para>
 
         <para>
@@ -1623,6 +1805,13 @@ instance5: 11225
           <arg choice="req"><replaceable>instance</replaceable></arg>
         </cmdsynopsis>
 
+        <cmdsynopsis>
+          <command>replace-disks</command>
+          <arg>--submit</arg>
+          <arg choice="req">--auto</arg>
+          <arg choice="req"><replaceable>instance</replaceable></arg>
+        </cmdsynopsis>
+
         <para>
           This command is a generalized form for replacing disks. It
           is currently only valid for the mirrored (DRBD) disk
@@ -1651,6 +1840,15 @@ instance5: 11225
           selected automatically by the specified allocator plugin,
           otherwise the new secondary node will be the one chosen
           manually via the <option>--new-secondary</option> option.
+        </para>
+
+        <para>
+          The fourth form (when using <option>--auto</option>) will
+          automatically determine which disks of an instance are faulty and
+          replace them within the same node. The <option>--auto</option>
+          option works only when an instance has only faulty disks on
+          either the primary or secondary node; it doesn't work when
+          both sides have faulty disks.
         </para>
 
         <para>
@@ -1834,6 +2032,39 @@ node1.example.com:disk/1:/dev/drbd1
         </para>
       </refsect3>
 
+      <refsect3>
+        <title>RECREATE-DISKS</title>
+
+        <cmdsynopsis>
+          <command>recreate-disks</command>
+          <arg>--submit</arg>
+          <arg>--disks=<option>indices</option></arg>
+          <arg choice="req"><replaceable>instance</replaceable></arg>
+        </cmdsynopsis>
+        <para>
+          Recreates the disks of the given instance, or only a subset
+          of the disks (if the option <option>disks</option> is
+          passed, which must be a comma-separated list of disk
+          indices, starting from zero).
+        </para>
+
+        <para>
+          Note that this functionality should only be used for missing
+          disks; if any of the given disks already exists, the
+          operation will fail. While this is suboptimal,
+          recreate-disks should hopefully not be needed in normal
+          operation and as such the impact of this is low.
+        </para>
+
+        <para>
+          The <option>--submit</option> option is used to send the job to
+          the master daemon but not wait for its completion. The job
+          ID will be shown so that it can be examined via
+          <command>gnt-job info</command>.
+        </para>
+
+      </refsect3>
+
     </refsect2>
 
     <refsect2>
@@ -1846,6 +2077,7 @@ node1.example.com:disk/1:/dev/drbd1
           <command>failover</command>
           <arg>-f</arg>
           <arg>--ignore-consistency</arg>
+          <arg>--shutdown-timeout=<replaceable>N</replaceable></arg>
           <arg>--submit</arg>
           <arg choice="req"><replaceable>instance</replaceable></arg>
         </cmdsynopsis>
@@ -1865,6 +2097,13 @@ node1.example.com:disk/1:/dev/drbd1
           shutting down the instance will be ignored, resulting in
           possibly having the instance running on two machines in
           parallel (on disconnected DRBD drives).
+        </para>
+
+        <para>
+          The <option>--shutdown-timeout</option> is used to specify how
+          much time to wait before forcing the shutdown (xm destroy in xen,
+          killing the kvm process, for kvm). By default two minutes are
+          given to each instance to stop.
         </para>
 
         <para>
@@ -1956,6 +2195,52 @@ y/[n]/?: y
  - INFO: Instance instance1's disks are in sync.
 * changing the instance's disks to single-master
 #
+          </screen>
+        </para>
+      </refsect3>
+
+      <refsect3>
+        <title>MOVE</title>
+
+        <cmdsynopsis>
+          <command>move</command>
+          <arg>-f</arg>
+          <arg>-n <replaceable>node</replaceable></arg>
+          <arg>--shutdown-timeout=<replaceable>N</replaceable></arg>
+          <arg>--submit</arg>
+          <arg choice="req"><replaceable>instance</replaceable></arg>
+        </cmdsynopsis>
+
+        <para>
+          Move will move the instance to an arbitrary node in the
+          cluster. This works only for instances having a plain or
+          file disk template.
+        </para>
+
+        <para>
+          Note that since this operation is done via data copy, it
+          will take a long time for big disks (similar to
+          replace-disks for a drbd instance).
+        </para>
+
+        <para>
+          The <option>--shutdown-timeout</option> is used to specify how
+          much time to wait before forcing the shutdown (xm destroy in xen,
+          killing the kvm process, for kvm). By default two minutes are
+          given to each instance to stop.
+        </para>
+
+        <para>
+          The <option>--submit</option> option is used to send the job to
+          the master daemon but not wait for its completion. The job
+          ID will be shown so that it can be examined via
+          <command>gnt-job info</command>.
+        </para>
+
+        <para>
+          Example:
+          <screen>
+# gnt-instance move -n node3.example.com instance1.example.com
           </screen>
         </para>
       </refsect3>

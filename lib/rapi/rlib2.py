@@ -31,27 +31,43 @@ from ganeti import opcodes
 from ganeti import http
 from ganeti import constants
 from ganeti import cli
+from ganeti import rapi
 from ganeti.rapi import baserlib
 
 
+_COMMON_FIELDS = ["ctime", "mtime", "uuid", "serial_no", "tags"]
 I_FIELDS = ["name", "admin_state", "os",
             "pnode", "snodes",
             "disk_template",
-            "nic.ips", "nic.macs", "nic.bridges",
+            "nic.ips", "nic.macs", "nic.modes", "nic.links", "nic.bridges",
             "network_port",
             "disk.sizes", "disk_usage",
             "beparams", "hvparams",
             "oper_state", "oper_ram", "status",
-            "tags"]
+            ] + _COMMON_FIELDS
 
 N_FIELDS = ["name", "offline", "master_candidate", "drained",
             "dtotal", "dfree",
             "mtotal", "mnode", "mfree",
-            "pinst_cnt", "sinst_cnt", "tags",
+            "pinst_cnt", "sinst_cnt",
             "ctotal", "cnodes", "csockets",
-            "pip", "sip", "serial_no", "role",
+            "pip", "sip", "role",
             "pinst_list", "sinst_list",
-            ]
+            ] + _COMMON_FIELDS
+
+_NR_DRAINED = "drained"
+_NR_MASTER_CANDIATE = "master-candidate"
+_NR_MASTER = "master"
+_NR_OFFLINE = "offline"
+_NR_REGULAR = "regular"
+
+_NR_MAP = {
+  "M": _NR_MASTER,
+  "C": _NR_MASTER_CANDIATE,
+  "D": _NR_DRAINED,
+  "O": _NR_OFFLINE,
+  "R": _NR_REGULAR,
+  }
 
 
 class R_version(baserlib.R_Generic):
@@ -61,9 +77,8 @@ class R_version(baserlib.R_Generic):
   to adapt clients accordingly.
 
   """
-  DOC_URI = "/version"
-
-  def GET(self):
+  @staticmethod
+  def GET():
     """Returns the remote API version.
 
     """
@@ -74,41 +89,9 @@ class R_2_info(baserlib.R_Generic):
   """Cluster info.
 
   """
-  DOC_URI = "/2/info"
-
-  def GET(self):
+  @staticmethod
+  def GET():
     """Returns cluster information.
-
-    Example::
-
-    {
-      "config_version": 2000000,
-      "name": "cluster",
-      "software_version": "2.0.0~beta2",
-      "os_api_version": 10,
-      "export_version": 0,
-      "candidate_pool_size": 10,
-      "enabled_hypervisors": [
-        "fake"
-      ],
-      "hvparams": {
-        "fake": {}
-       },
-      "default_hypervisor": "fake",
-      "master": "node1.example.com",
-      "architecture": [
-        "64bit",
-        "x86_64"
-      ],
-      "protocol_version": 20,
-      "beparams": {
-        "default": {
-          "auto_balance": true,
-          "vcpus": 1,
-          "memory": 128
-         }
-        }
-      }
 
     """
     client = baserlib.GetClient()
@@ -119,9 +102,8 @@ class R_2_os(baserlib.R_Generic):
   """/2/os resource.
 
   """
-  DOC_URI = "/2/os"
-
-  def GET(self):
+  @staticmethod
+  def GET():
     """Return a list of all OSes.
 
     Can return error 500 in case of a problem.
@@ -130,7 +112,8 @@ class R_2_os(baserlib.R_Generic):
 
     """
     cl = baserlib.GetClient()
-    op = opcodes.OpDiagnoseOS(output_fields=["name", "valid"], names=[])
+    op = opcodes.OpDiagnoseOS(output_fields=["name", "valid", "variants"],
+                              names=[])
     job_id = baserlib.SubmitJob([op], cl)
     # we use custom feedback function, instead of print we log the status
     result = cli.PollJob(job_id, cl, feedback_fn=baserlib.FeedbackFn)
@@ -139,16 +122,32 @@ class R_2_os(baserlib.R_Generic):
     if not isinstance(diagnose_data, list):
       raise http.HttpBadGateway(message="Can't get OS list")
 
-    return [row[0] for row in diagnose_data if row[1]]
+    os_names = []
+    for (name, valid, variants) in diagnose_data:
+      if valid:
+        os_names.extend(cli.CalculateOSNames(name, variants))
+
+    return os_names
+
+
+class R_2_redist_config(baserlib.R_Generic):
+  """/2/redistribute-config resource.
+
+  """
+  @staticmethod
+  def PUT():
+    """Redistribute configuration to all nodes.
+
+    """
+    return baserlib.SubmitJob([opcodes.OpRedistributeConfig()])
 
 
 class R_2_jobs(baserlib.R_Generic):
   """/2/jobs resource.
 
   """
-  DOC_URI = "/2/jobs"
-
-  def GET(self):
+  @staticmethod
+  def GET():
     """Returns a dictionary of jobs.
 
     @return: a dictionary with jobs id and uri.
@@ -166,8 +165,6 @@ class R_2_jobs_id(baserlib.R_Generic):
   """/2/jobs/[job_id] resource.
 
   """
-  DOC_URI = "/2/jobs/[job_id]"
-
   def GET(self):
     """Returns a job status.
 
@@ -204,47 +201,8 @@ class R_2_nodes(baserlib.R_Generic):
   """/2/nodes resource.
 
   """
-  DOC_URI = "/2/nodes"
-
   def GET(self):
     """Returns a list of all nodes.
-
-    Example::
-
-      [
-        {
-          "id": "node1.example.com",
-          "uri": "\/instances\/node1.example.com"
-        },
-        {
-          "id": "node2.example.com",
-          "uri": "\/instances\/node2.example.com"
-        }
-      ]
-
-    If the optional 'bulk' argument is provided and set to 'true'
-    value (i.e '?bulk=1'), the output contains detailed
-    information about nodes as a list.
-
-    Example::
-
-      [
-        {
-          "pinst_cnt": 1,
-          "mfree": 31280,
-          "mtotal": 32763,
-          "name": "www.example.com",
-          "tags": [],
-          "mnode": 512,
-          "dtotal": 5246208,
-          "sinst_cnt": 2,
-          "dfree": 5171712,
-          "offline": false
-        },
-        ...
-      ]
-
-    @return: a dictionary with 'name' and 'uri' keys for each of them
 
     """
     client = baserlib.GetClient()
@@ -263,8 +221,6 @@ class R_2_nodes_name(baserlib.R_Generic):
   """/2/nodes/[node_name] resources.
 
   """
-  DOC_URI = "/nodes/[node_name]"
-
   def GET(self):
     """Send information about a node.
 
@@ -277,63 +233,184 @@ class R_2_nodes_name(baserlib.R_Generic):
     return baserlib.MapFields(N_FIELDS, result[0])
 
 
+class R_2_nodes_name_role(baserlib.R_Generic):
+  """ /2/nodes/[node_name]/role resource.
+
+  """
+  def GET(self):
+    """Returns the current node role.
+
+    @return: Node role
+
+    """
+    node_name = self.items[0]
+    client = baserlib.GetClient()
+    result = client.QueryNodes(names=[node_name], fields=["role"],
+                               use_locking=self.useLocking())
+
+    return _NR_MAP[result[0][0]]
+
+  def PUT(self):
+    """Sets the node role.
+
+    @return: a job id
+
+    """
+    if not isinstance(self.req.request_body, basestring):
+      raise http.HttpBadRequest("Invalid body contents, not a string")
+
+    node_name = self.items[0]
+    role = self.req.request_body
+
+    if role == _NR_REGULAR:
+      candidate = False
+      offline = False
+      drained = False
+
+    elif role == _NR_MASTER_CANDIATE:
+      candidate = True
+      offline = drained = None
+
+    elif role == _NR_DRAINED:
+      drained = True
+      candidate = offline = None
+
+    elif role == _NR_OFFLINE:
+      offline = True
+      candidate = drained = None
+
+    else:
+      raise http.HttpBadRequest("Can't set '%s' role" % role)
+
+    op = opcodes.OpSetNodeParams(node_name=node_name,
+                                 master_candidate=candidate,
+                                 offline=offline,
+                                 drained=drained,
+                                 force=bool(self.useForce()))
+
+    return baserlib.SubmitJob([op])
+
+
+class R_2_nodes_name_evacuate(baserlib.R_Generic):
+  """/2/nodes/[node_name]/evacuate resource.
+
+  """
+  def POST(self):
+    """Evacuate all secondary instances off a node.
+
+    """
+    node_name = self.items[0]
+    remote_node = self._checkStringVariable("remote_node", default=None)
+    iallocator = self._checkStringVariable("iallocator", default=None)
+
+    op = opcodes.OpEvacuateNode(node_name=node_name,
+                                remote_node=remote_node,
+                                iallocator=iallocator)
+
+    return baserlib.SubmitJob([op])
+
+
+class R_2_nodes_name_migrate(baserlib.R_Generic):
+  """/2/nodes/[node_name]/migrate resource.
+
+  """
+  def POST(self):
+    """Migrate all primary instances from a node.
+
+    """
+    node_name = self.items[0]
+    live = bool(self._checkIntVariable("live", default=1))
+
+    op = opcodes.OpMigrateNode(node_name=node_name, live=live)
+
+    return baserlib.SubmitJob([op])
+
+
+class R_2_nodes_name_storage(baserlib.R_Generic):
+  """/2/nodes/[node_name]/storage ressource.
+
+  """
+  # LUQueryNodeStorage acquires locks, hence restricting access to GET
+  GET_ACCESS = [rapi.RAPI_ACCESS_WRITE]
+
+  def GET(self):
+    node_name = self.items[0]
+
+    storage_type = self._checkStringVariable("storage_type", None)
+    if not storage_type:
+      raise http.HttpBadRequest("Missing the required 'storage_type'"
+                                " parameter")
+
+    output_fields = self._checkStringVariable("output_fields", None)
+    if not output_fields:
+      raise http.HttpBadRequest("Missing the required 'output_fields'"
+                                " parameter")
+
+    op = opcodes.OpQueryNodeStorage(nodes=[node_name],
+                                    storage_type=storage_type,
+                                    output_fields=output_fields.split(","))
+    return baserlib.SubmitJob([op])
+
+
+class R_2_nodes_name_storage_modify(baserlib.R_Generic):
+  """/2/nodes/[node_name]/storage/modify ressource.
+
+  """
+  def PUT(self):
+    node_name = self.items[0]
+
+    storage_type = self._checkStringVariable("storage_type", None)
+    if not storage_type:
+      raise http.HttpBadRequest("Missing the required 'storage_type'"
+                                " parameter")
+
+    name = self._checkStringVariable("name", None)
+    if not name:
+      raise http.HttpBadRequest("Missing the required 'name'"
+                                " parameter")
+
+    changes = {}
+
+    if "allocatable" in self.queryargs:
+      changes[constants.SF_ALLOCATABLE] = \
+        bool(self._checkIntVariable("allocatable", default=1))
+
+    op = opcodes.OpModifyNodeStorage(node_name=node_name,
+                                     storage_type=storage_type,
+                                     name=name,
+                                     changes=changes)
+    return baserlib.SubmitJob([op])
+
+
+class R_2_nodes_name_storage_repair(baserlib.R_Generic):
+  """/2/nodes/[node_name]/storage/repair ressource.
+
+  """
+  def PUT(self):
+    node_name = self.items[0]
+
+    storage_type = self._checkStringVariable("storage_type", None)
+    if not storage_type:
+      raise http.HttpBadRequest("Missing the required 'storage_type'"
+                                " parameter")
+
+    name = self._checkStringVariable("name", None)
+    if not name:
+      raise http.HttpBadRequest("Missing the required 'name'"
+                                " parameter")
+
+    op = opcodes.OpRepairNodeStorage(node_name=node_name,
+                                     storage_type=storage_type,
+                                     name=name)
+    return baserlib.SubmitJob([op])
+
+
 class R_2_instances(baserlib.R_Generic):
   """/2/instances resource.
 
   """
-  DOC_URI = "/2/instances"
-
   def GET(self):
     """Returns a list of all available instances.
-
-
-    Example::
-
-      [
-        {
-          "name": "web.example.com",
-          "uri": "\/instances\/web.example.com"
-        },
-        {
-          "name": "mail.example.com",
-          "uri": "\/instances\/mail.example.com"
-        }
-      ]
-
-    If the optional 'bulk' argument is provided and set to 'true'
-    value (i.e '?bulk=1'), the output contains detailed
-    information about instances as a list.
-
-    Example::
-
-      [
-        {
-           "status": "running",
-           "disk_usage": 20480,
-           "nic.bridges": [
-             "xen-br0"
-            ],
-           "name": "web.example.com",
-           "tags": ["tag1", "tag2"],
-           "beparams": {
-             "vcpus": 2,
-             "memory": 512
-           },
-           "disk.sizes": [
-               20480
-           ],
-           "pnode": "node1.example.com",
-           "nic.macs": ["01:23:45:67:89:01"],
-           "snodes": ["node2.example.com"],
-           "disk_template": "drbd",
-           "admin_state": true,
-           "os": "debian-etch",
-           "oper_state": true
-        },
-        ...
-      ]
-
-    @return: a dictionary with 'name' and 'uri' keys for each of them.
 
     """
     client = baserlib.GetClient()
@@ -371,12 +448,18 @@ class R_2_instances(baserlib.R_Generic):
     for idx, d in enumerate(disk_data):
       if not isinstance(d, int):
         raise http.HttpBadRequest("Disk %d specification wrong: should"
-                                  " be an integer")
+                                  " be an integer" % idx)
       disks.append({"size": d})
     # nic processing (one nic only)
-    nics = [{"mac": fn("mac", constants.VALUE_AUTO),
-             "ip": fn("ip", None),
-             "bridge": fn("bridge", None)}]
+    nics = [{"mac": fn("mac", constants.VALUE_AUTO)}]
+    if fn("ip", None) is not None:
+      nics[0]["ip"] = fn("ip")
+    if fn("mode", None) is not None:
+      nics[0]["mode"] = fn("mode")
+    if fn("link", None) is not None:
+      nics[0]["link"] = fn("link")
+    if fn("bridge", None) is not None:
+      nics[0]["bridge"] = fn("bridge")
 
     op = opcodes.OpCreateInstance(
       mode=constants.INSTANCE_CREATE,
@@ -390,12 +473,14 @@ class R_2_instances(baserlib.R_Generic):
       nics=nics,
       start=fn('start', True),
       ip_check=fn('ip_check', True),
+      name_check=fn('name_check', True),
       wait_for_sync=True,
       hypervisor=fn('hypervisor', None),
       hvparams=hvparams,
       beparams=beparams,
       file_storage_dir=fn('file_storage_dir', None),
       file_driver=fn('file_driver', 'loop'),
+      dry_run=bool(self.dryRun()),
       )
 
     return baserlib.SubmitJob([op])
@@ -405,8 +490,6 @@ class R_2_instances_name(baserlib.R_Generic):
   """/2/instances/[instance_name] resources.
 
   """
-  DOC_URI = "/2/instances/[instance_name]"
-
   def GET(self):
     """Send information about an instance.
 
@@ -423,7 +506,24 @@ class R_2_instances_name(baserlib.R_Generic):
 
     """
     op = opcodes.OpRemoveInstance(instance_name=self.items[0],
-                                  ignore_failures=False)
+                                  ignore_failures=False,
+                                  dry_run=bool(self.dryRun()))
+    return baserlib.SubmitJob([op])
+
+
+class R_2_instances_name_info(baserlib.R_Generic):
+  """/2/instances/[instance_name]/info resource.
+
+  """
+  def GET(self):
+    """Request detailed instance information.
+
+    """
+    instance_name = self.items[0]
+    static = bool(self._checkIntVariable("static", default=0))
+
+    op = opcodes.OpQueryInstanceData(instances=[instance_name],
+                                     static=static)
     return baserlib.SubmitJob([op])
 
 
@@ -433,9 +533,6 @@ class R_2_instances_name_reboot(baserlib.R_Generic):
   Implements an instance reboot.
 
   """
-
-  DOC_URI = "/2/instances/[instance_name]/reboot"
-
   def POST(self):
     """Reboot an instance.
 
@@ -449,7 +546,8 @@ class R_2_instances_name_reboot(baserlib.R_Generic):
     ignore_secondaries = bool(self._checkIntVariable('ignore_secondaries'))
     op = opcodes.OpRebootInstance(instance_name=instance_name,
                                   reboot_type=reboot_type,
-                                  ignore_secondaries=ignore_secondaries)
+                                  ignore_secondaries=ignore_secondaries,
+                                  dry_run=bool(self.dryRun()))
 
     return baserlib.SubmitJob([op])
 
@@ -460,9 +558,6 @@ class R_2_instances_name_startup(baserlib.R_Generic):
   Implements an instance startup.
 
   """
-
-  DOC_URI = "/2/instances/[instance_name]/startup"
-
   def PUT(self):
     """Startup an instance.
 
@@ -473,7 +568,8 @@ class R_2_instances_name_startup(baserlib.R_Generic):
     instance_name = self.items[0]
     force_startup = bool(self._checkIntVariable('force'))
     op = opcodes.OpStartupInstance(instance_name=instance_name,
-                                   force=force_startup)
+                                   force=force_startup,
+                                   dry_run=bool(self.dryRun()))
 
     return baserlib.SubmitJob([op])
 
@@ -484,15 +580,13 @@ class R_2_instances_name_shutdown(baserlib.R_Generic):
   Implements an instance shutdown.
 
   """
-
-  DOC_URI = "/2/instances/[instance_name]/shutdown"
-
   def PUT(self):
     """Shutdown an instance.
 
     """
     instance_name = self.items[0]
-    op = opcodes.OpShutdownInstance(instance_name=instance_name)
+    op = opcodes.OpShutdownInstance(instance_name=instance_name,
+                                    dry_run=bool(self.dryRun()))
 
     return baserlib.SubmitJob([op])
 
@@ -503,9 +597,6 @@ class R_2_instances_name_reinstall(baserlib.R_Generic):
   Implements an instance reinstall.
 
   """
-
-  DOC_URI = "/2/instances/[instance_name]/reinstall"
-
   def POST(self):
     """Reinstall an instance.
 
@@ -527,10 +618,41 @@ class R_2_instances_name_reinstall(baserlib.R_Generic):
     return baserlib.SubmitJob(ops)
 
 
+class R_2_instances_name_replace_disks(baserlib.R_Generic):
+  """/2/instances/[instance_name]/replace-disks resource.
+
+  """
+  def POST(self):
+    """Replaces disks on an instance.
+
+    """
+    instance_name = self.items[0]
+    remote_node = self._checkStringVariable("remote_node", default=None)
+    mode = self._checkStringVariable("mode", default=None)
+    raw_disks = self._checkStringVariable("disks", default=None)
+    iallocator = self._checkStringVariable("iallocator", default=None)
+
+    if raw_disks:
+      try:
+        disks = [int(part) for part in raw_disks.split(",")]
+      except ValueError, err:
+        raise http.HttpBadRequest("Invalid disk index passed: %s" % str(err))
+    else:
+      disks = []
+
+    op = opcodes.OpReplaceDisks(instance_name=instance_name,
+                                remote_node=remote_node,
+                                mode=mode,
+                                disks=disks,
+                                iallocator=iallocator)
+
+    return baserlib.SubmitJob([op])
+
+
 class _R_Tags(baserlib.R_Generic):
   """ Quasiclass for tagging resources
 
-  Manages tags. Inheriting this class you suppose to define DOC_URI and
+  Manages tags. When inheriting this class you must define the
   TAG_LEVEL for it.
 
   """
@@ -555,6 +677,7 @@ class _R_Tags(baserlib.R_Generic):
     Example: ["tag1", "tag2", "tag3"]
 
     """
+    # pylint: disable-msg=W0212
     return baserlib._Tags_GET(self.TAG_LEVEL, name=self.name)
 
   def PUT(self):
@@ -564,11 +687,13 @@ class _R_Tags(baserlib.R_Generic):
     you'll have back a job id.
 
     """
+    # pylint: disable-msg=W0212
     if 'tag' not in self.queryargs:
       raise http.HttpBadRequest("Please specify tag(s) to add using the"
                                 " the 'tag' parameter")
     return baserlib._Tags_PUT(self.TAG_LEVEL,
-                              self.queryargs['tag'], name=self.name)
+                              self.queryargs['tag'], name=self.name,
+                              dry_run=bool(self.dryRun()))
 
   def DELETE(self):
     """Delete a tag.
@@ -578,13 +703,15 @@ class _R_Tags(baserlib.R_Generic):
     /tags?tag=[tag]&tag=[tag]
 
     """
+    # pylint: disable-msg=W0212
     if 'tag' not in self.queryargs:
       # no we not gonna delete all tags
       raise http.HttpBadRequest("Cannot delete all tags - please specify"
                                 " tag(s) using the 'tag' parameter")
     return baserlib._Tags_DELETE(self.TAG_LEVEL,
                                  self.queryargs['tag'],
-                                 name=self.name)
+                                 name=self.name,
+                                 dry_run=bool(self.dryRun()))
 
 
 class R_2_instances_name_tags(_R_Tags):
@@ -593,7 +720,6 @@ class R_2_instances_name_tags(_R_Tags):
   Manages per-instance tags.
 
   """
-  DOC_URI = "/2/instances/[instance_name]/tags"
   TAG_LEVEL = constants.TAG_INSTANCE
 
 
@@ -603,7 +729,6 @@ class R_2_nodes_name_tags(_R_Tags):
   Manages per-node tags.
 
   """
-  DOC_URI = "/2/nodes/[node_name]/tags"
   TAG_LEVEL = constants.TAG_NODE
 
 
@@ -613,5 +738,4 @@ class R_2_tags(_R_Tags):
   Manages cluster tags.
 
   """
-  DOC_URI = "/2/tags"
   TAG_LEVEL = constants.TAG_CLUSTER
