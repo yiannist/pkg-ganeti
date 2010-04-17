@@ -21,12 +21,16 @@
 
 """Ganeti node daemon"""
 
-# functions in this module need to have a given name structure, so:
-# pylint: disable-msg=C0103
+# pylint: disable-msg=C0103,W0142
+
+# C0103: Functions in this module need to have a given name structure,
+# and the name of the daemon doesn't match
+
+# W0142: Used * or ** magic, since we do use it extensively in this
+# module
 
 import os
 import sys
-import SocketServer
 import logging
 import signal
 
@@ -40,8 +44,9 @@ from ganeti import jstore
 from ganeti import daemon
 from ganeti import http
 from ganeti import utils
+from ganeti import storage
 
-import ganeti.http.server
+import ganeti.http.server # pylint: disable-msg=W0611
 
 
 queue_lock = None
@@ -71,6 +76,9 @@ class NodeHttpServer(http.server.HttpServer):
   This class holds all methods exposed over the RPC interface.
 
   """
+  # too many public methods, and unused args - all methods get params
+  # due to the API
+  # pylint: disable-msg=R0904,W0613
   def __init__(self, *args, **kwargs):
     http.server.HttpServer.__init__(self, *args, **kwargs)
     self.noded_pid = os.getpid()
@@ -91,14 +99,25 @@ class NodeHttpServer(http.server.HttpServer):
       raise http.HttpNotFound()
 
     try:
-      try:
-        return method(req.request_body)
-      except:
-        logging.exception("Error in RPC call")
-        raise
+      rvalue = method(req.request_body)
+      return True, rvalue
+
+    except backend.RPCFail, err:
+      # our custom failure exception; str(err) works fine if the
+      # exception was constructed with a single argument, and in
+      # this case, err.message == err.args[0] == str(err)
+      return (False, str(err))
     except errors.QuitGanetiException, err:
       # Tell parent to quit
+      logging.info("Shutting down the node daemon, arguments: %s",
+                   str(err.args))
       os.kill(self.noded_pid, signal.SIGTERM)
+      # And return the error's arguments, which must be already in
+      # correct tuple format
+      return err.args
+    except Exception, err:
+      logging.exception("Error in RPC call")
+      return False, "Error while executing backend function: %s" % str(err)
 
   # the new block devices  --------------------------
 
@@ -188,8 +207,9 @@ class NodeHttpServer(http.server.HttpServer):
 
     """
     disks = [objects.Disk.FromDict(dsk_s)
-            for dsk_s in params]
-    return backend.BlockdevGetmirrorstatus(disks)
+             for dsk_s in params]
+    return [status.ToDict()
+            for status in backend.BlockdevGetmirrorstatus(disks)]
 
   @staticmethod
   def perspective_blockdev_find(params):
@@ -199,7 +219,12 @@ class NodeHttpServer(http.server.HttpServer):
 
     """
     disk = objects.Disk.FromDict(params[0])
-    return backend.BlockdevFind(disk)
+
+    result = backend.BlockdevFind(disk)
+    if result is None:
+      return None
+
+    return result.ToDict()
 
   @staticmethod
   def perspective_blockdev_snapshot(params):
@@ -237,6 +262,15 @@ class NodeHttpServer(http.server.HttpServer):
     """
     disks = [objects.Disk.FromDict(cf) for cf in params[0]]
     return backend.BlockdevGetsize(disks)
+
+  @staticmethod
+  def perspective_blockdev_export(params):
+    """Compute the sizes of the given block devices.
+
+    """
+    disk = objects.Disk.FromDict(params[0])
+    dest_node, dest_path, cluster_name = params[1:]
+    return backend.BlockdevExport(disk, dest_node, dest_path, cluster_name)
 
   # blockdev/drbd specific methods ----------
 
@@ -289,8 +323,9 @@ class NodeHttpServer(http.server.HttpServer):
     instance = objects.Instance.FromDict(params[2])
     cluster_name = params[3]
     dev_idx = params[4]
+    debug = params[5]
     return backend.ExportSnapshot(disk, dest_node, instance,
-                                  cluster_name, dev_idx)
+                                  cluster_name, dev_idx, debug)
 
   @staticmethod
   def perspective_finalize_export(params):
@@ -311,10 +346,7 @@ class NodeHttpServer(http.server.HttpServer):
 
     """
     path = params[0]
-    einfo = backend.ExportInfo(path)
-    if einfo is None:
-      return einfo
-    return einfo.Dumps()
+    return backend.ExportInfo(path)
 
   @staticmethod
   def perspective_export_list(params):
@@ -338,7 +370,7 @@ class NodeHttpServer(http.server.HttpServer):
   # volume  --------------------------
 
   @staticmethod
-  def perspective_volume_list(params):
+  def perspective_lv_list(params):
     """Query the list of logical volumes in a given volume group.
 
     """
@@ -351,6 +383,32 @@ class NodeHttpServer(http.server.HttpServer):
 
     """
     return backend.ListVolumeGroups()
+
+  # Storage --------------------------
+
+  @staticmethod
+  def perspective_storage_list(params):
+    """Get list of storage units.
+
+    """
+    (su_name, su_args, name, fields) = params
+    return storage.GetStorage(su_name, *su_args).List(name, fields)
+
+  @staticmethod
+  def perspective_storage_modify(params):
+    """Modify a storage unit.
+
+    """
+    (su_name, su_args, name, changes) = params
+    return storage.GetStorage(su_name, *su_args).Modify(name, changes)
+
+  @staticmethod
+  def perspective_storage_execute(params):
+    """Execute an operation on a storage unit.
+
+    """
+    (su_name, su_args, name, op) = params
+    return storage.GetStorage(su_name, *su_args).Execute(name, op)
 
   # bridge  --------------------------
 
@@ -371,26 +429,28 @@ class NodeHttpServer(http.server.HttpServer):
     """
     inst_s = params[0]
     inst = objects.Instance.FromDict(inst_s)
-    return backend.InstanceOsAdd(inst)
+    reinstall = params[1]
+    debug = params[2]
+    return backend.InstanceOsAdd(inst, reinstall, debug)
 
   @staticmethod
   def perspective_instance_run_rename(params):
     """Runs the OS rename script for an instance.
 
     """
-    inst_s, old_name = params
+    inst_s, old_name, debug = params
     inst = objects.Instance.FromDict(inst_s)
-    return backend.RunRenameInstance(inst, old_name)
+    return backend.RunRenameInstance(inst, old_name, debug)
 
   @staticmethod
   def perspective_instance_os_import(params):
     """Run the import function of an OS onto a given instance.
 
     """
-    inst_s, src_node, src_images, cluster_name = params
+    inst_s, src_node, src_images, cluster_name, debug = params
     inst = objects.Instance.FromDict(inst_s)
     return backend.ImportOSIntoInstance(inst, src_node, src_images,
-                                        cluster_name)
+                                        cluster_name, debug)
 
   @staticmethod
   def perspective_instance_shutdown(params):
@@ -398,7 +458,8 @@ class NodeHttpServer(http.server.HttpServer):
 
     """
     instance = objects.Instance.FromDict(params[0])
-    return backend.InstanceShutdown(instance)
+    timeout = params[1]
+    return backend.InstanceShutdown(instance, timeout)
 
   @staticmethod
   def perspective_instance_start(params):
@@ -450,7 +511,8 @@ class NodeHttpServer(http.server.HttpServer):
     """
     instance = objects.Instance.FromDict(params[0])
     reboot_type = params[1]
-    return backend.InstanceReboot(instance, reboot_type)
+    shutdown_timeout = params[2]
+    return backend.InstanceReboot(instance, reboot_type, shutdown_timeout)
 
   @staticmethod
   def perspective_instance_info(params):
@@ -540,7 +602,7 @@ class NodeHttpServer(http.server.HttpServer):
     """Cleanup after leaving a cluster.
 
     """
-    return backend.LeaveCluster()
+    return backend.LeaveCluster(params[0])
 
   @staticmethod
   def perspective_node_volumes(params):
@@ -555,6 +617,15 @@ class NodeHttpServer(http.server.HttpServer):
 
     """
     return backend.DemoteFromMC()
+
+
+  @staticmethod
+  def perspective_node_powercycle(params):
+    """Tries to powercycle the nod.
+
+    """
+    hypervisor_type = params[0]
+    return backend.PowercycleNode(hypervisor_type)
 
 
   # cluster --------------------------
@@ -598,7 +669,7 @@ class NodeHttpServer(http.server.HttpServer):
     """Query detailed information about existing OSes.
 
     """
-    return [os_obj.ToDict() for os_obj in backend.DiagnoseOS()]
+    return backend.DiagnoseOS()
 
   @staticmethod
   def perspective_os_get(params):
@@ -606,10 +677,7 @@ class NodeHttpServer(http.server.HttpServer):
 
     """
     name = params[0]
-    try:
-      os_obj = backend.OSFromDisk(name)
-    except errors.InvalidOS, err:
-      os_obj = objects.OS.FromInvalidOS(err)
+    os_obj = backend.OSFromDisk(name)
     return os_obj.ToDict()
 
   # hooks -----------------------
@@ -642,7 +710,10 @@ class NodeHttpServer(http.server.HttpServer):
 
     """
     duration = params[0]
-    return utils.TestDelay(duration)
+    status, rval = utils.TestDelay(duration)
+    if not status:
+      raise backend.RPCFail(rval)
+    return rval
 
   # file storage ---------------
 
@@ -720,81 +791,54 @@ class NodeHttpServer(http.server.HttpServer):
     return backend.ValidateHVParams(hvname, hvparams)
 
 
-def ParseOptions():
-  """Parse the command line options.
-
-  @return: (options, args) as from OptionParser.parse_args()
+def CheckNoded(_, args):
+  """Initial checks whether to run or exit with a failure.
 
   """
-  parser = OptionParser(description="Ganeti node daemon",
-                        usage="%prog [-f] [-d] [-b ADDRESS]",
-                        version="%%prog (ganeti) %s" %
-                        constants.RELEASE_VERSION)
+  if args: # noded doesn't take any arguments
+    print >> sys.stderr, ("Usage: %s [-f] [-d] [-p port] [-b ADDRESS]" %
+                          sys.argv[0])
+    sys.exit(constants.EXIT_FAILURE)
 
-  parser.add_option("-f", "--foreground", dest="fork",
-                    help="Don't detach from the current terminal",
-                    default=True, action="store_false")
-  parser.add_option("-d", "--debug", dest="debug",
-                    help="Enable some debug messages",
-                    default=False, action="store_true")
-  parser.add_option("-b", "--bind", dest="bind_address",
-                    help="Bind address",
-                    default="", metavar="ADDRESS")
 
-  options, args = parser.parse_args()
-  return options, args
+def ExecNoded(options, _):
+  """Main node daemon function, executed with the PID file held.
+
+  """
+  global queue_lock # pylint: disable-msg=W0603
+
+  # Read SSL certificate
+  if options.ssl:
+    ssl_params = http.HttpSslParams(ssl_key_path=options.ssl_key,
+                                    ssl_cert_path=options.ssl_cert)
+  else:
+    ssl_params = None
+
+  # Prepare job queue
+  queue_lock = jstore.InitAndVerifyQueue(must_lock=False)
+
+  mainloop = daemon.Mainloop()
+  server = NodeHttpServer(mainloop, options.bind_address, options.port,
+                          ssl_params=ssl_params, ssl_verify_peer=True)
+  server.Start()
+  try:
+    mainloop.Run()
+  finally:
+    server.Stop()
 
 
 def main():
   """Main function for the node daemon.
 
   """
-  global queue_lock
-
-  options, args = ParseOptions()
-
-  if options.fork:
-    utils.CloseFDs()
-
-  for fname in (constants.SSL_CERT_FILE,):
-    if not os.path.isfile(fname):
-      print "config %s not there, will not run." % fname
-      sys.exit(constants.EXIT_NOTCLUSTER)
-
-  port = utils.GetNodeDaemonPort()
-
+  parser = OptionParser(description="Ganeti node daemon",
+                        usage="%prog [-f] [-d] [-p port] [-b ADDRESS]",
+                        version="%%prog (ganeti) %s" %
+                        constants.RELEASE_VERSION)
   dirs = [(val, constants.RUN_DIRS_MODE) for val in constants.SUB_RUN_DIRS]
   dirs.append((constants.LOG_OS_DIR, 0750))
   dirs.append((constants.LOCK_DIR, 1777))
-  utils.EnsureDirs(dirs)
-
-  # become a daemon
-  if options.fork:
-    utils.Daemonize(logfile=constants.LOG_NODESERVER)
-
-  utils.WritePidFile(constants.NODED_PID)
-  try:
-    utils.SetupLogging(logfile=constants.LOG_NODESERVER, debug=options.debug,
-                       stderr_logging=not options.fork)
-    logging.info("ganeti node daemon startup")
-
-    # Read SSL certificate
-    ssl_params = http.HttpSslParams(ssl_key_path=constants.SSL_CERT_FILE,
-                                    ssl_cert_path=constants.SSL_CERT_FILE)
-
-    # Prepare job queue
-    queue_lock = jstore.InitAndVerifyQueue(must_lock=False)
-
-    mainloop = daemon.Mainloop()
-    server = NodeHttpServer(mainloop, options.bind_address, port,
-                            ssl_params=ssl_params, ssl_verify_peer=True)
-    server.Start()
-    try:
-      mainloop.Run()
-    finally:
-      server.Stop()
-  finally:
-    utils.RemovePidFile(constants.NODED_PID)
+  daemon.GenericMain(constants.NODED, parser, dirs, CheckNoded, ExecNoded)
 
 
 if __name__ == '__main__':

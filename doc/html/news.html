@@ -1,0 +1,676 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>News &mdash; Ganeti v2.1.0 documentation</title>
+    <link rel="stylesheet" href="_static/default.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '',
+        VERSION:     '2.1.0',
+        COLLAPSE_MODINDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/doctools.js"></script>
+    <link rel="top" title="Ganeti v2.1.0 documentation" href="index.html" />
+    <link rel="next" title="Glossary" href="glossary.html" />
+    <link rel="prev" title="Developer notes" href="devnotes.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="glossary.html" title="Glossary"
+             accesskey="N">next</a></li>
+        <li class="right" >
+          <a href="devnotes.html" title="Developer notes"
+             accesskey="P">previous</a> |</li>
+        <li><a href="index.html">Ganeti v2.1.0 documentation</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <div class="section" id="news">
+<h1>News<a class="headerlink" href="#news" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="version-2-1-0">
+<h2>Version 2.1.0<a class="headerlink" href="#version-2-1-0" title="Permalink to this headline">¶</a></h2>
+<p>Ganeti 2.1 brings many improvements with it. Major changes:</p>
+<ul class="simple">
+<li>Added infrastructure to ease automated disk repairs</li>
+<li>Added new daemon to export configuration data in a cheaper way than
+using the remote API</li>
+<li>Instance NICs can now be routed instead of being associated with a
+networking bridge</li>
+<li>Improved job locking logic to reduce impact of jobs acquiring multiple
+locks waiting for other long-running jobs</li>
+</ul>
+<p>In-depth implementation details can be found in the Ganeti 2.1 design
+document.</p>
+<div class="section" id="details">
+<h3>Details<a class="headerlink" href="#details" title="Permalink to this headline">¶</a></h3>
+<ul class="simple">
+<li>Added chroot hypervisor</li>
+<li>Added more options to xen-hvm hypervisor (<tt class="docutils literal"><span class="pre">kernel_path</span></tt> and
+<tt class="docutils literal"><span class="pre">device_model</span></tt>)</li>
+<li>Added more options to xen-pvm hypervisor (<tt class="docutils literal"><span class="pre">use_bootloader</span></tt>,
+<tt class="docutils literal"><span class="pre">bootloader_path</span></tt> and <tt class="docutils literal"><span class="pre">bootloader_args</span></tt>)</li>
+<li>Added the <tt class="docutils literal"><span class="pre">use_localtime</span></tt> option for the xen-hvm and kvm
+hypervisors, and the default value for this has changed to false (in
+2.0 xen-hvm always enabled it)</li>
+<li>Added luxi call to submit multiple jobs in one go</li>
+<li>Added cluster initialization option to not modify <tt class="docutils literal"><span class="pre">/etc/hosts</span></tt>
+file on nodes</li>
+<li>Added network interface parameters</li>
+<li>Added dry run mode to some LUs</li>
+<li>Added RAPI resources:<ul>
+<li><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/info</span></tt></li>
+<li><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/replace-disks</span></tt></li>
+<li><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/evacuate</span></tt></li>
+<li><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/migrate</span></tt></li>
+<li><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/role</span></tt></li>
+<li><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/storage</span></tt></li>
+<li><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/storage/modify</span></tt></li>
+<li><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/storage/repair</span></tt></li>
+</ul>
+</li>
+<li>Added OpCodes to evacuate or migrate all instances on a node</li>
+<li>Added new command to list storage elements on nodes (<tt class="docutils literal"><span class="pre">gnt-node</span>
+<span class="pre">list-storage</span></tt>) and modify them (<tt class="docutils literal"><span class="pre">gnt-node</span> <span class="pre">modify-storage</span></tt>)</li>
+<li>Added new ssconf files with master candidate IP address
+(<tt class="docutils literal"><span class="pre">ssconf_master_candidates_ips</span></tt>), node primary IP address
+(<tt class="docutils literal"><span class="pre">ssconf_node_primary_ips</span></tt>) and node secondary IP address
+(<tt class="docutils literal"><span class="pre">ssconf_node_secondary_ips</span></tt>)</li>
+<li>Added <tt class="docutils literal"><span class="pre">ganeti-confd</span></tt> and a client library to query the Ganeti
+configuration via UDP</li>
+<li>Added ability to run hooks after cluster initialization and before
+cluster destruction</li>
+<li>Added automatic mode for disk replace (<tt class="docutils literal"><span class="pre">gnt-instance</span> <span class="pre">replace-disks</span>
+<span class="pre">--auto</span></tt>)</li>
+<li>Added <tt class="docutils literal"><span class="pre">gnt-instance</span> <span class="pre">recreate-disks</span></tt> to re-create (empty) disks
+after catastrophic data-loss</li>
+<li>Added <tt class="docutils literal"><span class="pre">gnt-node</span> <span class="pre">repair-storage</span></tt> command to repair damaged LVM volume
+groups</li>
+<li>Added <tt class="docutils literal"><span class="pre">gnt-instance</span> <span class="pre">move</span></tt> command to move instances</li>
+<li>Added <tt class="docutils literal"><span class="pre">gnt-cluster</span> <span class="pre">watcher</span></tt> command to control watcher</li>
+<li>Added <tt class="docutils literal"><span class="pre">gnt-node</span> <span class="pre">powercycle</span></tt> command to powercycle nodes</li>
+<li>Added new job status field <tt class="docutils literal"><span class="pre">lock_status</span></tt></li>
+<li>Added parseable error codes to cluster verification (<tt class="docutils literal"><span class="pre">gnt-cluster</span>
+<span class="pre">verify</span> <span class="pre">--error-codes</span></tt>) and made output less verbose (use
+<tt class="docutils literal"><span class="pre">--verbose</span></tt> to restore previous behaviour)</li>
+<li>Added UUIDs to the main config entities (cluster, nodes, instances)</li>
+<li>Added support for OS variants</li>
+<li>Added support for hashed passwords in the Ganeti remote API users file
+(<tt class="docutils literal"><span class="pre">rapi_users</span></tt>)</li>
+<li>Added option to specify maximum timeout on instance shutdown</li>
+<li>Added <tt class="docutils literal"><span class="pre">--no-ssh-init</span></tt> option to <tt class="docutils literal"><span class="pre">gnt-cluster</span> <span class="pre">init</span></tt></li>
+<li>Added new helper script to start and stop Ganeti daemons
+(<tt class="docutils literal"><span class="pre">daemon-util</span></tt>), with the intent to reduce the work necessary to
+adjust Ganeti for non-Debian distributions and to start/stop daemons
+from one place</li>
+<li>Added more unittests</li>
+<li>Fixed critical bug in ganeti-masterd startup</li>
+<li>Removed the configure-time <tt class="docutils literal"><span class="pre">kvm-migration-port</span></tt> parameter, this is
+now customisable at the cluster level for both the KVM and Xen
+hypervisors using the new <tt class="docutils literal"><span class="pre">migration_port</span></tt> parameter</li>
+<li>Pass <tt class="docutils literal"><span class="pre">INSTANCE_REINSTALL</span></tt> variable to OS installation script when
+reinstalling an instance</li>
+<li>Allowed <tt class="docutils literal"><span class="pre">&#64;</span></tt> in tag names</li>
+<li>Migrated to Sphinx (<a class="reference" href="http://sphinx.pocoo.org/">http://sphinx.pocoo.org/</a>) for documentation</li>
+<li>Many documentation updates</li>
+<li>Distribute hypervisor files on <tt class="docutils literal"><span class="pre">gnt-cluster</span> <span class="pre">redist-conf</span></tt></li>
+<li><tt class="docutils literal"><span class="pre">gnt-instance</span> <span class="pre">reinstall</span></tt> can now reinstall multiple instances</li>
+<li>Updated many command line parameters</li>
+<li>Introduced new OS API version 15</li>
+<li>No longer support a default hypervisor</li>
+<li>Treat virtual LVs as inexistent</li>
+<li>Improved job locking logic to reduce lock contention</li>
+<li>Match instance and node names case insensitively</li>
+<li>Reimplemented bash completion script to be more complete</li>
+<li>Improved burnin</li>
+</ul>
+</div>
+</div>
+<div class="section" id="version-2-0-5">
+<h2>Version 2.0.5<a class="headerlink" href="#version-2-0-5" title="Permalink to this headline">¶</a></h2>
+<ul class="simple">
+<li>Fix security issue due to missing validation of iallocator names; this
+allows local and remote execution of arbitrary executables</li>
+<li>Fix failure of gnt-node list during instance removal</li>
+<li>Ship the RAPI documentation in the archive</li>
+</ul>
+</div>
+<div class="section" id="version-2-0-4">
+<h2>Version 2.0.4<a class="headerlink" href="#version-2-0-4" title="Permalink to this headline">¶</a></h2>
+<ul class="simple">
+<li>Fixed many wrong messages</li>
+<li>Fixed a few bugs related to the locking library</li>
+<li>Fixed MAC checking at instance creation time</li>
+<li>Fixed a DRBD parsing bug related to gaps in /proc/drbd</li>
+<li>Fixed a few issues related to signal handling in both daemons and
+scripts</li>
+<li>Fixed the example startup script provided</li>
+<li>Fixed insserv dependencies in the example startup script (patch from
+Debian)</li>
+<li>Fixed handling of drained nodes in the iallocator framework</li>
+<li>Fixed handling of KERNEL_PATH parameter for xen-hvm (Debian bug
+#528618)</li>
+<li>Fixed error related to invalid job IDs in job polling</li>
+<li>Fixed job/opcode persistence on unclean master shutdown</li>
+<li>Fixed handling of partial job processing after unclean master
+shutdown</li>
+<li>Fixed error reporting from LUs, previously all errors were converted
+into execution errors</li>
+<li>Fixed error reporting from burnin</li>
+<li>Decreased significantly the memory usage of the job queue</li>
+<li>Optimised slightly multi-job submission</li>
+<li>Optimised slightly opcode loading</li>
+<li>Backported the multi-job submit framework from the development
+branch; multi-instance start and stop should be faster</li>
+<li>Added script to clean archived jobs after 21 days; this will reduce
+the size of the queue directory</li>
+<li>Added some extra checks in disk size tracking</li>
+<li>Added an example ethers hook script</li>
+<li>Added a cluster parameter that prevents Ganeti from modifying of
+/etc/hosts</li>
+<li>Added more node information to RAPI responses</li>
+<li>Added a <tt class="docutils literal"><span class="pre">gnt-job</span> <span class="pre">watch</span></tt> command that allows following the ouput of a
+job</li>
+<li>Added a bind-address option to ganeti-rapi</li>
+<li>Added more checks to the configuration verify</li>
+<li>Enhanced the burnin script such that some operations can be retried
+automatically</li>
+<li>Converted instance reinstall to multi-instance model</li>
+</ul>
+</div>
+<div class="section" id="version-2-0-3">
+<h2>Version 2.0.3<a class="headerlink" href="#version-2-0-3" title="Permalink to this headline">¶</a></h2>
+<ul class="simple">
+<li>Added <tt class="docutils literal"><span class="pre">--ignore-size</span></tt> to the <tt class="docutils literal"><span class="pre">gnt-instance</span> <span class="pre">activate-disks</span></tt> command
+to allow using the pre-2.0.2 behaviour in activation, if any existing
+instances have mismatched disk sizes in the configuration</li>
+<li>Added <tt class="docutils literal"><span class="pre">gnt-cluster</span> <span class="pre">repair-disk-sizes</span></tt> command to check and update
+any configuration mismatches for disk sizes</li>
+<li>Added <tt class="docutils literal"><span class="pre">gnt-master</span> <span class="pre">cluste-failover</span> <span class="pre">--no-voting</span></tt> to allow master
+failover to work on two-node clusters</li>
+<li>Fixed the <tt class="docutils literal"><span class="pre">--net</span></tt> option of <tt class="docutils literal"><span class="pre">gnt-backup</span> <span class="pre">import</span></tt>, which was
+unusable</li>
+<li>Fixed detection of OS script errors in <tt class="docutils literal"><span class="pre">gnt-backup</span> <span class="pre">export</span></tt></li>
+<li>Fixed exit code of <tt class="docutils literal"><span class="pre">gnt-backup</span> <span class="pre">export</span></tt></li>
+</ul>
+</div>
+<div class="section" id="version-2-0-2">
+<h2>Version 2.0.2<a class="headerlink" href="#version-2-0-2" title="Permalink to this headline">¶</a></h2>
+<ul class="simple">
+<li>Added experimental support for stripped logical volumes; this should
+enhance performance but comes with a higher complexity in the block
+device handling; stripping is only enabled when passing
+<tt class="docutils literal"><span class="pre">--with-lvm-stripecount=N</span></tt> to <tt class="docutils literal"><span class="pre">configure</span></tt>, but codepaths are
+affected even in the non-stripped mode</li>
+<li>Improved resiliency against transient failures at the end of DRBD
+resyncs, and in general of DRBD resync checks</li>
+<li>Fixed a couple of issues with exports and snapshot errors</li>
+<li>Fixed a couple of issues in instance listing</li>
+<li>Added display of the disk size in <tt class="docutils literal"><span class="pre">gnt-instance</span> <span class="pre">info</span></tt></li>
+<li>Fixed checking for valid OSes in instance creation</li>
+<li>Fixed handling of the &#8220;vcpus&#8221; parameter in instance listing and in
+general of invalid parameters</li>
+<li>Fixed http server library, and thus RAPI, to handle invalid
+username/password combinations correctly; this means that now they
+report unauthorized for queries too, not only for modifications,
+allowing earlier detect of configuration problems</li>
+<li>Added a new &#8220;role&#8221; node list field, equivalent to the master/master
+candidate/drained/offline flags combinations</li>
+<li>Fixed cluster modify and changes of candidate pool size</li>
+<li>Fixed cluster verify error messages for wrong files on regular nodes</li>
+<li>Fixed a couple of issues with node demotion from master candidate role</li>
+<li>Fixed node readd issues</li>
+<li>Added non-interactive mode for <tt class="docutils literal"><span class="pre">ganeti-masterd</span> <span class="pre">--no-voting</span></tt> startup</li>
+<li>Added a new <tt class="docutils literal"><span class="pre">--no-voting</span></tt> option for masterfailover to fix failover
+on two-nodes clusters when the former master node is unreachable</li>
+<li>Added instance reinstall over RAPI</li>
+</ul>
+</div>
+<div class="section" id="version-2-0-1">
+<h2>Version 2.0.1<a class="headerlink" href="#version-2-0-1" title="Permalink to this headline">¶</a></h2>
+<ul class="simple">
+<li>added <tt class="docutils literal"><span class="pre">-H</span></tt>/<tt class="docutils literal"><span class="pre">-B</span></tt> startup parameters to <tt class="docutils literal"><span class="pre">gnt-instance</span></tt>, which will
+allow re-adding the start in single-user option (regression from 1.2)</li>
+<li>the watcher writes the instance status to a file, to allow monitoring
+to report the instance status (from the master) based on cached
+results of the watcher&#8217;s queries; while this can get stale if the
+watcher is being locked due to other work on the cluster, this is
+still an improvement</li>
+<li>the watcher now also restarts the node daemon and the rapi daemon if
+they died</li>
+<li>fixed the watcher to handle full and drained queue cases</li>
+<li>hooks export more instance data in the environment, which helps if
+hook scripts need to take action based on the instance&#8217;s properties
+(no longer need to query back into ganeti)</li>
+<li>instance failovers when the instance is stopped do not check for free
+RAM, so that failing over a stopped instance is possible in low memory
+situations</li>
+<li>rapi uses queries for tags instead of jobs (for less job traffic), and
+for cluster tags it won&#8217;t talk to masterd at all but read them from
+ssconf</li>
+<li>a couple of error handling fixes in RAPI</li>
+<li>drbd handling: improved the error handling of inconsistent disks after
+resync to reduce the frequency of &#8220;there are some degraded disks for
+this instance&#8221; messages</li>
+<li>fixed a bug in live migration when DRBD doesn&#8217;t want to reconnect (the
+error handling path called a wrong function name)</li>
+</ul>
+</div>
+<div class="section" id="version-2-0-0-final">
+<h2>Version 2.0.0 final<a class="headerlink" href="#version-2-0-0-final" title="Permalink to this headline">¶</a></h2>
+<ul class="simple">
+<li>no changes from rc5</li>
+</ul>
+</div>
+<div class="section" id="version-2-0-release-candidate-5">
+<h2>Version 2.0 release candidate 5<a class="headerlink" href="#version-2-0-release-candidate-5" title="Permalink to this headline">¶</a></h2>
+<ul class="simple">
+<li>fix a couple of bugs (validation, argument checks)</li>
+<li>fix <tt class="docutils literal"><span class="pre">gnt-cluster</span> <span class="pre">getmaster</span></tt> on non-master nodes (regression)</li>
+<li>some small improvements to RAPI and IAllocator</li>
+<li>make watcher automatically start the master daemon if down</li>
+</ul>
+</div>
+<div class="section" id="version-2-0-release-candidate-4">
+<h2>Version 2.0 release candidate 4<a class="headerlink" href="#version-2-0-release-candidate-4" title="Permalink to this headline">¶</a></h2>
+<ul class="simple">
+<li>change the OS list to not require locks; this helps with big clusters</li>
+<li>fix <tt class="docutils literal"><span class="pre">gnt-cluster</span> <span class="pre">verify</span></tt> and <tt class="docutils literal"><span class="pre">gnt-cluster</span> <span class="pre">verify-disks</span></tt> when the
+volume group is broken</li>
+<li><tt class="docutils literal"><span class="pre">gnt-instance</span> <span class="pre">info</span></tt>, without any arguments, doesn&#8217;t run for all
+instances anymore; either pass <tt class="docutils literal"><span class="pre">--all</span></tt> or pass the desired
+instances; this helps against mistakes on big clusters where listing
+the information for all instances takes a long time</li>
+<li>miscellaneous doc and man pages fixes</li>
+</ul>
+</div>
+<div class="section" id="version-2-0-release-candidate-3">
+<h2>Version 2.0 release candidate 3<a class="headerlink" href="#version-2-0-release-candidate-3" title="Permalink to this headline">¶</a></h2>
+<ul class="simple">
+<li>Change the internal locking model of some <tt class="docutils literal"><span class="pre">gnt-node</span></tt> commands, in
+order to reduce contention (and blocking of master daemon) when
+batching many creation/reinstall jobs</li>
+<li>Fixes to Xen soft reboot</li>
+<li>No longer build documentation at build time, instead distribute it in
+the archive, in order to reduce the need for the whole docbook/rst
+toolchains</li>
+</ul>
+</div>
+<div class="section" id="version-2-0-release-candidate-2">
+<h2>Version 2.0 release candidate 2<a class="headerlink" href="#version-2-0-release-candidate-2" title="Permalink to this headline">¶</a></h2>
+<ul class="simple">
+<li>Now the cfgupgrade scripts works and can upgrade 1.2.7 clusters to 2.0</li>
+<li>Fix watcher startup sequence, improves the behaviour of busy clusters</li>
+<li>Some other fixes in <tt class="docutils literal"><span class="pre">gnt-cluster</span> <span class="pre">verify</span></tt>, <tt class="docutils literal"><span class="pre">gnt-instance</span>
+<span class="pre">replace-disks</span></tt>, <tt class="docutils literal"><span class="pre">gnt-instance</span> <span class="pre">add</span></tt>, <tt class="docutils literal"><span class="pre">gnt-cluster</span> <span class="pre">queue</span></tt>, KVM VNC
+bind address and other places</li>
+<li>Some documentation fixes and updates</li>
+</ul>
+</div>
+<div class="section" id="version-2-0-release-candidate-1">
+<h2>Version 2.0 release candidate 1<a class="headerlink" href="#version-2-0-release-candidate-1" title="Permalink to this headline">¶</a></h2>
+<ul class="simple">
+<li>More documentation updates, now all docs should be more-or-less
+up-to-date</li>
+<li>A couple of small fixes (mixed hypervisor clusters, offline nodes,
+etc.)</li>
+<li>Added a customizable HV_KERNEL_ARGS hypervisor parameter (for Xen PVM
+and KVM)</li>
+<li>Fix an issue related to $libdir/run/ganeti and cluster creation</li>
+</ul>
+</div>
+<div class="section" id="version-2-0-beta-2">
+<h2>Version 2.0 beta 2<a class="headerlink" href="#version-2-0-beta-2" title="Permalink to this headline">¶</a></h2>
+<ul class="simple">
+<li>Xen PVM and KVM have switched the default value for the instance root
+disk to the first partition on the first drive, instead of the whole
+drive; this means that the OS installation scripts must be changed
+accordingly</li>
+<li>Man pages have been updated</li>
+<li>RAPI has been switched by default to HTTPS, and the exported functions
+should all work correctly</li>
+<li>RAPI v1 has been removed</li>
+<li>Many improvements to the KVM hypervisor</li>
+<li>Block device errors are now better reported</li>
+<li>Many other bugfixes and small improvements</li>
+</ul>
+</div>
+<div class="section" id="version-2-0-beta-1">
+<h2>Version 2.0 beta 1<a class="headerlink" href="#version-2-0-beta-1" title="Permalink to this headline">¶</a></h2>
+<ul class="simple">
+<li>Version 2 is a general rewrite of the code and therefore the
+differences are too many to list, see the design document for 2.0 in
+the <tt class="docutils literal"><span class="pre">doc/</span></tt> subdirectory for more details</li>
+<li>In this beta version there is not yet a migration path from 1.2 (there
+will be one in the final 2.0 release)</li>
+<li>A few significant changes are:<ul>
+<li>all commands are executed by a daemon (<tt class="docutils literal"><span class="pre">ganeti-masterd</span></tt>) and the
+various <tt class="docutils literal"><span class="pre">gnt-*</span></tt> commands are just front-ends to it</li>
+<li>all the commands are entered into, and executed from a job queue,
+see the <tt class="docutils literal"><span class="pre">gnt-job(8)</span></tt> manpage</li>
+<li>the RAPI daemon supports read-write operations, secured by basic
+HTTP authentication on top of HTTPS</li>
+<li>DRBD version 0.7 support has been removed, DRBD 8 is the only
+supported version (when migrating from Ganeti 1.2 to 2.0, you need
+to migrate to DRBD 8 first while still running Ganeti 1.2)</li>
+<li>DRBD devices are using statically allocated minor numbers, which
+will be assigned to existing instances during the migration process</li>
+<li>there is support for both Xen PVM and Xen HVM instances running on
+the same cluster</li>
+<li>KVM virtualization is supported too</li>
+<li>file-based storage has been implemented, which means that it is
+possible to run the cluster without LVM and DRBD storage, for
+example using a shared filesystem exported from shared storage (and
+still have live migration)</li>
+</ul>
+</li>
+</ul>
+</div>
+<div class="section" id="version-1-2-7">
+<h2>Version 1.2.7<a class="headerlink" href="#version-1-2-7" title="Permalink to this headline">¶</a></h2>
+<ul class="simple">
+<li>Change the default reboot type in <tt class="docutils literal"><span class="pre">gnt-instance</span> <span class="pre">reboot</span></tt> to &#8220;hard&#8221;</li>
+<li>Reuse the old instance mac address by default on instance import, if
+the instance name is the same.</li>
+<li>Handle situations in which the node info rpc returns incomplete
+results (issue 46)</li>
+<li>Add checks for tcp/udp ports collisions in <tt class="docutils literal"><span class="pre">gnt-cluster</span> <span class="pre">verify</span></tt></li>
+<li>Improved version of batcher:<ul>
+<li>state file support</li>
+<li>instance mac address support</li>
+<li>support for HVM clusters/instances</li>
+</ul>
+</li>
+<li>Add an option to show the number of cpu sockets and nodes in
+<tt class="docutils literal"><span class="pre">gnt-node</span> <span class="pre">list</span></tt></li>
+<li>Support OSes that handle more than one version of the OS api (but do
+not change the current API in any other way)</li>
+<li>Fix <tt class="docutils literal"><span class="pre">gnt-node</span> <span class="pre">migrate</span></tt></li>
+<li><tt class="docutils literal"><span class="pre">gnt-debug</span></tt> man page</li>
+<li>Fixes various more typos and small issues</li>
+<li>Increase disk resync maximum speed to 60MB/s (from 30MB/s)</li>
+</ul>
+</div>
+<div class="section" id="version-1-2-6">
+<h2>Version 1.2.6<a class="headerlink" href="#version-1-2-6" title="Permalink to this headline">¶</a></h2>
+<ul class="simple">
+<li>new <tt class="docutils literal"><span class="pre">--hvm-nic-type</span></tt> and <tt class="docutils literal"><span class="pre">--hvm-disk-type</span></tt> flags to control the
+type of disk exported to fully virtualized instances.</li>
+<li>provide access to the serial console of HVM instances</li>
+<li>instance auto_balance flag, set by default. If turned off it will
+avoid warnings on cluster verify if there is not enough memory to fail
+over an instance. in the future it will prevent automatically failing
+it over when we will support that.</li>
+<li>batcher tool for instance creation, see <tt class="docutils literal"><span class="pre">tools/README.batcher</span></tt></li>
+<li><tt class="docutils literal"><span class="pre">gnt-instance</span> <span class="pre">reinstall</span> <span class="pre">--select-os</span></tt> to interactively select a new
+operating system when reinstalling an instance.</li>
+<li>when changing the memory amount on instance modify a check has been
+added that the instance will be able to start. also warnings are
+emitted if the instance will not be able to fail over, if auto_balance
+is true.</li>
+<li>documentation fixes</li>
+<li>sync fields between <tt class="docutils literal"><span class="pre">gnt-instance</span> <span class="pre">list/modify/add/import</span></tt></li>
+<li>fix a race condition in drbd when the sync speed was set after giving
+the device a remote peer.</li>
+</ul>
+</div>
+<div class="section" id="version-1-2-5">
+<h2>Version 1.2.5<a class="headerlink" href="#version-1-2-5" title="Permalink to this headline">¶</a></h2>
+<ul class="simple">
+<li>note: the allowed size and number of tags per object were reduced</li>
+<li>fix a bug in <tt class="docutils literal"><span class="pre">gnt-cluster</span> <span class="pre">verify</span></tt> with inconsistent volume groups</li>
+<li>fixed twisted 8.x compatibility</li>
+<li>fixed <tt class="docutils literal"><span class="pre">gnt-instance</span> <span class="pre">replace-disks</span></tt> with iallocator</li>
+<li>add TCP keepalives on twisted connections to detect restarted nodes</li>
+<li>disk increase support, see <tt class="docutils literal"><span class="pre">gnt-instance</span> <span class="pre">grow-disk</span></tt></li>
+<li>implement bulk node/instance query for RAPI</li>
+<li>add tags in node/instance listing (optional)</li>
+<li>experimental migration (and live migration) support, read the man page
+for <tt class="docutils literal"><span class="pre">gnt-instance</span> <span class="pre">migrate</span></tt></li>
+<li>the <tt class="docutils literal"><span class="pre">ganeti-watcher</span></tt> logs are now timestamped, and the watcher also
+has some small improvements in handling its state file</li>
+</ul>
+</div>
+<div class="section" id="version-1-2-4">
+<h2>Version 1.2.4<a class="headerlink" href="#version-1-2-4" title="Permalink to this headline">¶</a></h2>
+<ul class="simple">
+<li>Experimental readonly, REST-based remote API implementation;
+automatically started on master node, TCP port 5080, if enabled by
+<tt class="docutils literal"><span class="pre">--enable-rapi</span></tt> parameter to configure script.</li>
+<li>Instance allocator support. Add and import instance accept a
+<tt class="docutils literal"><span class="pre">--iallocator</span></tt> parameter, and call that instance allocator to decide
+which node to use for the instance. The iallocator document describes
+what&#8217;s expected from an allocator script.</li>
+<li><tt class="docutils literal"><span class="pre">gnt-cluster</span> <span class="pre">verify</span></tt> N+1 memory redundancy checks: Unless passed the
+<tt class="docutils literal"><span class="pre">--no-nplus1-mem</span></tt> option <tt class="docutils literal"><span class="pre">gnt-cluster</span> <span class="pre">verify</span></tt> now checks that if a
+node is lost there is still enough memory to fail over the instances
+that reside on it.</li>
+<li><tt class="docutils literal"><span class="pre">gnt-cluster</span> <span class="pre">verify</span></tt> hooks: it is now possible to add post-hooks to
+<tt class="docutils literal"><span class="pre">gnt-cluster</span> <span class="pre">verify</span></tt>, to check for site-specific compliance. All the
+hooks will run, and their output, if any, will be displayed. Any
+failing hook will make the verification return an error value.</li>
+<li><tt class="docutils literal"><span class="pre">gnt-cluster</span> <span class="pre">verify</span></tt> now checks that its peers are reachable on the
+primary and secondary interfaces</li>
+<li><tt class="docutils literal"><span class="pre">gnt-node</span> <span class="pre">add</span></tt> now supports the <tt class="docutils literal"><span class="pre">--readd</span></tt> option, to readd a node
+that is still declared as part of the cluster and has failed.</li>
+<li><tt class="docutils literal"><span class="pre">gnt-*</span> <span class="pre">list</span></tt> commands now accept a new <tt class="docutils literal"><span class="pre">-o</span> <span class="pre">+field</span></tt> way of
+specifying output fields, that just adds the chosen fields to the
+default ones.</li>
+<li><tt class="docutils literal"><span class="pre">gnt-backup</span></tt> now has a new <tt class="docutils literal"><span class="pre">remove</span></tt> command to delete an existing
+export from the filesystem.</li>
+<li>New per-instance parameters hvm_acpi, hvm_pae and hvm_cdrom_image_path
+have been added. Using them you can enable/disable acpi and pae
+support, and specify a path for a cd image to be exported to the
+instance. These parameters as the name suggest only work on HVM
+clusters.</li>
+<li>When upgrading an HVM cluster to Ganeti 1.2.4, the values for ACPI and
+PAE support will be set to the previously hardcoded values, but the
+(previously hardcoded) path to the CDROM ISO image will be unset and
+if required, needs to be set manually with <tt class="docutils literal"><span class="pre">gnt-instance</span> <span class="pre">modify</span></tt>
+after the upgrade.</li>
+<li>The address to which an instance&#8217;s VNC console is bound is now
+selectable per-instance, rather than being cluster wide. Of course
+this only applies to instances controlled via VNC, so currently just
+applies to HVM clusters.</li>
+</ul>
+</div>
+<div class="section" id="version-1-2-3">
+<h2>Version 1.2.3<a class="headerlink" href="#version-1-2-3" title="Permalink to this headline">¶</a></h2>
+<ul class="simple">
+<li>more tweaks to the disk activation code (especially helpful for DRBD)</li>
+<li>change the default <tt class="docutils literal"><span class="pre">gnt-instance</span> <span class="pre">list</span></tt> output format, now there is
+one combined status field (see the manpage for the exact values this
+field will have)</li>
+<li>some more fixes for the mac export to hooks change</li>
+<li>make Ganeti not break with DRBD 8.2.x (which changed the version
+format in <tt class="docutils literal"><span class="pre">/proc/drbd</span></tt>) (issue 24)</li>
+<li>add an upgrade tool from &#8220;remote_raid1&#8221; disk template to &#8220;drbd&#8221; disk
+template, allowing migration from DRBD0.7+MD to DRBD8</li>
+</ul>
+</div>
+<div class="section" id="version-1-2-2">
+<h2>Version 1.2.2<a class="headerlink" href="#version-1-2-2" title="Permalink to this headline">¶</a></h2>
+<ul class="simple">
+<li>fix <tt class="docutils literal"><span class="pre">gnt-instance</span> <span class="pre">modify</span></tt> breakage introduced in 1.2.1 with the HVM
+support (issue 23)</li>
+<li>add command aliases infrastructure and a few aliases</li>
+<li>allow listing of VCPUs in the <tt class="docutils literal"><span class="pre">gnt-instance</span> <span class="pre">list</span></tt> and improve the
+man pages and the <tt class="docutils literal"><span class="pre">--help</span></tt> option of <tt class="docutils literal"><span class="pre">gnt-node</span>
+<span class="pre">list</span></tt>/<tt class="docutils literal"><span class="pre">gnt-instance</span> <span class="pre">list</span></tt></li>
+<li>fix <tt class="docutils literal"><span class="pre">gnt-backup</span> <span class="pre">list</span></tt> with down nodes (issue 21)</li>
+<li>change the tools location (move from $pkgdatadir to $pkglibdir/tools)</li>
+<li>fix the dist archive and add a check for including svn/git files in
+the future</li>
+<li>some developer-related changes: improve the burnin and the QA suite,
+add an upload script for testing during development</li>
+</ul>
+</div>
+<div class="section" id="version-1-2-1">
+<h2>Version 1.2.1<a class="headerlink" href="#version-1-2-1" title="Permalink to this headline">¶</a></h2>
+<ul class="simple">
+<li>experimental HVM support, read the install document, section
+&#8220;Initializing the cluster&#8221;</li>
+<li>allow for the PVM hypervisor per-instance kernel and initrd paths</li>
+<li>add a new command <tt class="docutils literal"><span class="pre">gnt-cluster</span> <span class="pre">verify-disks</span></tt> which uses a new
+algorithm to improve the reconnection of the DRBD pairs if the device
+on the secondary node has gone away</li>
+<li>make logical volume code auto-activate LVs at disk activation time</li>
+<li>slightly improve the speed of activating disks</li>
+<li>allow specification of the MAC address at instance creation time, and
+changing it later via <tt class="docutils literal"><span class="pre">gnt-instance</span> <span class="pre">modify</span></tt></li>
+<li>fix handling of external commands that generate lots of output on
+stderr</li>
+<li>update documentation with regard to minimum version of DRBD8 supported</li>
+</ul>
+</div>
+<div class="section" id="version-1-2-0">
+<h2>Version 1.2.0<a class="headerlink" href="#version-1-2-0" title="Permalink to this headline">¶</a></h2>
+<ul class="simple">
+<li>Log the <tt class="docutils literal"><span class="pre">xm</span> <span class="pre">create</span></tt> output to the node daemon log on failure (to
+help diagnosing the error)</li>
+<li>In debug mode, log all external commands output if failed to the logs</li>
+<li>Change parsing of lvm commands to ignore stderr</li>
+</ul>
+</div>
+<div class="section" id="version-1-2b3">
+<h2>Version 1.2b3<a class="headerlink" href="#version-1-2b3" title="Permalink to this headline">¶</a></h2>
+<ul class="simple">
+<li>Another round of updates to the DRBD 8 code to deal with more failures
+in the replace secondary node operation</li>
+<li>Some more logging of failures in disk operations (lvm, drbd)</li>
+<li>A few documentation updates</li>
+<li>QA updates</li>
+</ul>
+</div>
+<div class="section" id="version-1-2b2">
+<h2>Version 1.2b2<a class="headerlink" href="#version-1-2b2" title="Permalink to this headline">¶</a></h2>
+<ul class="simple">
+<li>Change configuration file format from Python&#8217;s Pickle to JSON.
+Upgrading is possible using the cfgupgrade utility.</li>
+<li>Add support for DRBD 8.0 (new disk template <tt class="docutils literal"><span class="pre">drbd</span></tt>) which allows for
+faster replace disks and is more stable (DRBD 8 has many improvements
+compared to DRBD 0.7)</li>
+<li>Added command line tags support (see man pages for <tt class="docutils literal"><span class="pre">gnt-instance</span></tt>,
+<tt class="docutils literal"><span class="pre">gnt-node</span></tt>, <tt class="docutils literal"><span class="pre">gnt-cluster</span></tt>)</li>
+<li>Added instance rename support</li>
+<li>Added multi-instance startup/shutdown</li>
+<li>Added cluster rename support</li>
+<li>Added <tt class="docutils literal"><span class="pre">gnt-node</span> <span class="pre">evacuate</span></tt> to simplify some node operations</li>
+<li>Added instance reboot operation that can speedup reboot as compared to
+stop and start</li>
+<li>Soften the requirement that hostnames are in FQDN format</li>
+<li>The <tt class="docutils literal"><span class="pre">ganeti-watcher</span></tt> now activates drbd pairs after secondary node
+reboots</li>
+<li>Removed dependency on debian&#8217;s patched fping that uses the
+non-standard <tt class="docutils literal"><span class="pre">-S</span></tt> option</li>
+<li>Now the OS definitions are searched for in multiple, configurable
+paths (easier for distros to package)</li>
+<li>Some changes to the hooks infrastructure (especially the new
+post-configuration update hook)</li>
+<li>Other small bugfixes</li>
+</ul>
+</div>
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+            <h3><a href="index.html">Table Of Contents</a></h3>
+            <ul>
+<li><a class="reference" href="">News</a><ul>
+<li><a class="reference" href="#version-2-1-0">Version 2.1.0</a><ul>
+<li><a class="reference" href="#details">Details</a></li>
+</ul>
+</li>
+<li><a class="reference" href="#version-2-0-5">Version 2.0.5</a></li>
+<li><a class="reference" href="#version-2-0-4">Version 2.0.4</a></li>
+<li><a class="reference" href="#version-2-0-3">Version 2.0.3</a></li>
+<li><a class="reference" href="#version-2-0-2">Version 2.0.2</a></li>
+<li><a class="reference" href="#version-2-0-1">Version 2.0.1</a></li>
+<li><a class="reference" href="#version-2-0-0-final">Version 2.0.0 final</a></li>
+<li><a class="reference" href="#version-2-0-release-candidate-5">Version 2.0 release candidate 5</a></li>
+<li><a class="reference" href="#version-2-0-release-candidate-4">Version 2.0 release candidate 4</a></li>
+<li><a class="reference" href="#version-2-0-release-candidate-3">Version 2.0 release candidate 3</a></li>
+<li><a class="reference" href="#version-2-0-release-candidate-2">Version 2.0 release candidate 2</a></li>
+<li><a class="reference" href="#version-2-0-release-candidate-1">Version 2.0 release candidate 1</a></li>
+<li><a class="reference" href="#version-2-0-beta-2">Version 2.0 beta 2</a></li>
+<li><a class="reference" href="#version-2-0-beta-1">Version 2.0 beta 1</a></li>
+<li><a class="reference" href="#version-1-2-7">Version 1.2.7</a></li>
+<li><a class="reference" href="#version-1-2-6">Version 1.2.6</a></li>
+<li><a class="reference" href="#version-1-2-5">Version 1.2.5</a></li>
+<li><a class="reference" href="#version-1-2-4">Version 1.2.4</a></li>
+<li><a class="reference" href="#version-1-2-3">Version 1.2.3</a></li>
+<li><a class="reference" href="#version-1-2-2">Version 1.2.2</a></li>
+<li><a class="reference" href="#version-1-2-1">Version 1.2.1</a></li>
+<li><a class="reference" href="#version-1-2-0">Version 1.2.0</a></li>
+<li><a class="reference" href="#version-1-2b3">Version 1.2b3</a></li>
+<li><a class="reference" href="#version-1-2b2">Version 1.2b2</a></li>
+</ul>
+</li>
+</ul>
+
+            <h4>Previous topic</h4>
+            <p class="topless"><a href="devnotes.html"
+                                  title="previous chapter">Developer notes</a></p>
+            <h4>Next topic</h4>
+            <p class="topless"><a href="glossary.html"
+                                  title="next chapter">Glossary</a></p>
+            <h3>This Page</h3>
+            <ul class="this-page-menu">
+              <li><a href="_sources/news.txt"
+                     rel="nofollow">Show Source</a></li>
+            </ul>
+          <div id="searchbox" style="display: none">
+            <h3>Quick search</h3>
+              <form class="search" action="search.html" method="get">
+                <input type="text" name="q" size="18" />
+                <input type="submit" value="Go" />
+                <input type="hidden" name="check_keywords" value="yes" />
+                <input type="hidden" name="area" value="default" />
+              </form>
+              <p class="searchtip" style="font-size: 90%">
+              Enter search terms or a module, class or function name.
+              </p>
+          </div>
+          <script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="glossary.html" title="Glossary"
+             >next</a></li>
+        <li class="right" >
+          <a href="devnotes.html" title="Developer notes"
+             >previous</a> |</li>
+        <li><a href="index.html">Ganeti v2.1.0 documentation</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+      &copy; Copyright 2006, 2007, 2008, 2009, Google Inc..
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 0.6.3.
+    </div>
+  </body>
+</html>

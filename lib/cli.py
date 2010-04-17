@@ -25,7 +25,6 @@
 import sys
 import textwrap
 import os.path
-import copy
 import time
 import logging
 from cStringIO import StringIO
@@ -38,23 +37,219 @@ from ganeti import luxi
 from ganeti import ssconf
 from ganeti import rpc
 
-from optparse import (OptionParser, make_option, TitledHelpFormatter,
+from optparse import (OptionParser, TitledHelpFormatter,
                       Option, OptionValueError)
 
 
-__all__ = ["DEBUG_OPT", "NOHDR_OPT", "SEP_OPT", "GenericMain",
-           "SubmitOpCode", "GetClient",
-           "cli_option", "ikv_option", "keyval_option",
-           "GenerateTable", "AskUser",
-           "ARGS_NONE", "ARGS_FIXED", "ARGS_ATLEAST", "ARGS_ANY", "ARGS_ONE",
-           "USEUNITS_OPT", "FIELDS_OPT", "FORCE_OPT", "SUBMIT_OPT",
-           "ListTags", "AddTags", "RemoveTags", "TAG_SRC_OPT",
-           "FormatError", "SplitNodeOption", "SubmitOrSend",
-           "JobSubmittedException", "FormatTimestamp", "ParseTimespec",
-           "ToStderr", "ToStdout", "UsesRPC",
-           "GetOnlineNodes", "JobExecutor", "SYNC_OPT",
-           ]
+__all__ = [
+  # Command line options
+  "ALLOCATABLE_OPT",
+  "ALL_OPT",
+  "AUTO_REPLACE_OPT",
+  "BACKEND_OPT",
+  "CLEANUP_OPT",
+  "CONFIRM_OPT",
+  "CP_SIZE_OPT",
+  "DEBUG_OPT",
+  "DEBUG_SIMERR_OPT",
+  "DISKIDX_OPT",
+  "DISK_OPT",
+  "DISK_TEMPLATE_OPT",
+  "DRAINED_OPT",
+  "ENABLED_HV_OPT",
+  "ERROR_CODES_OPT",
+  "FIELDS_OPT",
+  "FILESTORE_DIR_OPT",
+  "FILESTORE_DRIVER_OPT",
+  "FORCE_OPT",
+  "FORCE_VARIANT_OPT",
+  "GLOBAL_FILEDIR_OPT",
+  "HVLIST_OPT",
+  "HVOPTS_OPT",
+  "HYPERVISOR_OPT",
+  "IALLOCATOR_OPT",
+  "IGNORE_CONSIST_OPT",
+  "IGNORE_FAILURES_OPT",
+  "IGNORE_SECONDARIES_OPT",
+  "IGNORE_SIZE_OPT",
+  "MAC_PREFIX_OPT",
+  "MASTER_NETDEV_OPT",
+  "MC_OPT",
+  "NET_OPT",
+  "NEW_SECONDARY_OPT",
+  "NIC_PARAMS_OPT",
+  "NODE_LIST_OPT",
+  "NODE_PLACEMENT_OPT",
+  "NOHDR_OPT",
+  "NOIPCHECK_OPT",
+  "NONAMECHECK_OPT",
+  "NOLVM_STORAGE_OPT",
+  "NOMODIFY_ETCHOSTS_OPT",
+  "NOMODIFY_SSH_SETUP_OPT",
+  "NONICS_OPT",
+  "NONLIVE_OPT",
+  "NONPLUS1_OPT",
+  "NOSHUTDOWN_OPT",
+  "NOSTART_OPT",
+  "NOSSH_KEYCHECK_OPT",
+  "NOVOTING_OPT",
+  "NWSYNC_OPT",
+  "ON_PRIMARY_OPT",
+  "ON_SECONDARY_OPT",
+  "OFFLINE_OPT",
+  "OS_OPT",
+  "OS_SIZE_OPT",
+  "READD_OPT",
+  "REBOOT_TYPE_OPT",
+  "SECONDARY_IP_OPT",
+  "SELECT_OS_OPT",
+  "SEP_OPT",
+  "SHOWCMD_OPT",
+  "SHUTDOWN_TIMEOUT_OPT",
+  "SINGLE_NODE_OPT",
+  "SRC_DIR_OPT",
+  "SRC_NODE_OPT",
+  "SUBMIT_OPT",
+  "STATIC_OPT",
+  "SYNC_OPT",
+  "TAG_SRC_OPT",
+  "TIMEOUT_OPT",
+  "USEUNITS_OPT",
+  "VERBOSE_OPT",
+  "VG_NAME_OPT",
+  "YES_DOIT_OPT",
+  # Generic functions for CLI programs
+  "GenericMain",
+  "GenericInstanceCreate",
+  "GetClient",
+  "GetOnlineNodes",
+  "JobExecutor",
+  "JobSubmittedException",
+  "ParseTimespec",
+  "SubmitOpCode",
+  "SubmitOrSend",
+  "UsesRPC",
+  # Formatting functions
+  "ToStderr", "ToStdout",
+  "FormatError",
+  "GenerateTable",
+  "AskUser",
+  "FormatTimestamp",
+  # Tags functions
+  "ListTags",
+  "AddTags",
+  "RemoveTags",
+  # command line options support infrastructure
+  "ARGS_MANY_INSTANCES",
+  "ARGS_MANY_NODES",
+  "ARGS_NONE",
+  "ARGS_ONE_INSTANCE",
+  "ARGS_ONE_NODE",
+  "ArgChoice",
+  "ArgCommand",
+  "ArgFile",
+  "ArgHost",
+  "ArgInstance",
+  "ArgJobId",
+  "ArgNode",
+  "ArgSuggest",
+  "ArgUnknown",
+  "OPT_COMPL_INST_ADD_NODES",
+  "OPT_COMPL_MANY_NODES",
+  "OPT_COMPL_ONE_IALLOCATOR",
+  "OPT_COMPL_ONE_INSTANCE",
+  "OPT_COMPL_ONE_NODE",
+  "OPT_COMPL_ONE_OS",
+  "cli_option",
+  "SplitNodeOption",
+  "CalculateOSNames",
+  ]
 
+NO_PREFIX = "no_"
+UN_PREFIX = "-"
+
+
+class _Argument:
+  def __init__(self, min=0, max=None): # pylint: disable-msg=W0622
+    self.min = min
+    self.max = max
+
+  def __repr__(self):
+    return ("<%s min=%s max=%s>" %
+            (self.__class__.__name__, self.min, self.max))
+
+
+class ArgSuggest(_Argument):
+  """Suggesting argument.
+
+  Value can be any of the ones passed to the constructor.
+
+  """
+  # pylint: disable-msg=W0622
+  def __init__(self, min=0, max=None, choices=None):
+    _Argument.__init__(self, min=min, max=max)
+    self.choices = choices
+
+  def __repr__(self):
+    return ("<%s min=%s max=%s choices=%r>" %
+            (self.__class__.__name__, self.min, self.max, self.choices))
+
+
+class ArgChoice(ArgSuggest):
+  """Choice argument.
+
+  Value can be any of the ones passed to the constructor. Like L{ArgSuggest},
+  but value must be one of the choices.
+
+  """
+
+
+class ArgUnknown(_Argument):
+  """Unknown argument to program (e.g. determined at runtime).
+
+  """
+
+
+class ArgInstance(_Argument):
+  """Instances argument.
+
+  """
+
+
+class ArgNode(_Argument):
+  """Node argument.
+
+  """
+
+class ArgJobId(_Argument):
+  """Job ID argument.
+
+  """
+
+
+class ArgFile(_Argument):
+  """File path argument.
+
+  """
+
+
+class ArgCommand(_Argument):
+  """Command argument.
+
+  """
+
+
+class ArgHost(_Argument):
+  """Host argument.
+
+  """
+
+
+ARGS_NONE = []
+ARGS_MANY_INSTANCES = [ArgInstance()]
+ARGS_MANY_NODES = [ArgNode()]
+ARGS_ONE_INSTANCE = [ArgInstance(min=1, max=1)]
+ARGS_ONE_NODE = [ArgNode(min=1, max=1)]
 
 
 def _ExtractTagsObject(opts, args):
@@ -117,8 +312,8 @@ def ListTags(opts, args):
 
   """
   kind, name = _ExtractTagsObject(opts, args)
-  op = opcodes.OpGetTags(kind=kind, name=name)
-  result = SubmitOpCode(op)
+  cl = GetClient()
+  result = cl.QueryTags(kind, name)
   result = list(result)
   result.sort()
   for tag in result:
@@ -159,61 +354,7 @@ def RemoveTags(opts, args):
   SubmitOpCode(op)
 
 
-DEBUG_OPT = make_option("-d", "--debug", default=False,
-                        action="store_true",
-                        help="Turn debugging on")
-
-NOHDR_OPT = make_option("--no-headers", default=False,
-                        action="store_true", dest="no_headers",
-                        help="Don't display column headers")
-
-SEP_OPT = make_option("--separator", default=None,
-                      action="store", dest="separator",
-                      help="Separator between output fields"
-                      " (defaults to one space)")
-
-USEUNITS_OPT = make_option("--units", default=None,
-                           dest="units", choices=('h', 'm', 'g', 't'),
-                           help="Specify units for output (one of hmgt)")
-
-FIELDS_OPT = make_option("-o", "--output", dest="output", action="store",
-                         type="string", help="Comma separated list of"
-                         " output fields",
-                         metavar="FIELDS")
-
-FORCE_OPT = make_option("-f", "--force", dest="force", action="store_true",
-                        default=False, help="Force the operation")
-
-TAG_SRC_OPT = make_option("--from", dest="tags_source",
-                          default=None, help="File with tag names")
-
-SUBMIT_OPT = make_option("--submit", dest="submit_only",
-                         default=False, action="store_true",
-                         help="Submit the job and return the job ID, but"
-                         " don't wait for the job to finish")
-
-SYNC_OPT = make_option("--sync", dest="do_locking",
-                       default=False, action="store_true",
-                       help="Grab locks while doing the queries"
-                       " in order to ensure more consistent results")
-
-
-def ARGS_FIXED(val): # pylint: disable-msg=C0103
-  """Macro-like function denoting a fixed number of arguments"""
-  return -val
-
-
-def ARGS_ATLEAST(val): # pylint: disable-msg=C0103
-  """Macro-like function denoting a minimum number of arguments"""
-  return val
-
-
-ARGS_NONE = None
-ARGS_ONE = ARGS_FIXED(1)
-ARGS_ANY = ARGS_ATLEAST(0)
-
-
-def check_unit(option, opt, value):
+def check_unit(option, opt, value): # pylint: disable-msg=W0613
   """OptParsers custom converter for units.
 
   """
@@ -221,15 +362,6 @@ def check_unit(option, opt, value):
     return utils.ParseUnit(value)
   except errors.UnitParseError, err:
     raise OptionValueError("option %s: %s" % (opt, err))
-
-
-class CliOption(Option):
-  """Custom option class for optparse.
-
-  """
-  TYPES = Option.TYPES + ("unit",)
-  TYPE_CHECKER = copy.copy(Option.TYPE_CHECKER)
-  TYPE_CHECKER["unit"] = check_unit
 
 
 def _SplitKeyVal(opt, data):
@@ -250,73 +382,460 @@ def _SplitKeyVal(opt, data):
   @raises errors.ParameterError: if there are duplicate keys
 
   """
-  NO_PREFIX = "no_"
-  UN_PREFIX = "-"
   kv_dict = {}
-  for elem in data.split(","):
-    if "=" in elem:
-      key, val = elem.split("=", 1)
-    else:
-      if elem.startswith(NO_PREFIX):
-        key, val = elem[len(NO_PREFIX):], False
-      elif elem.startswith(UN_PREFIX):
-        key, val = elem[len(UN_PREFIX):], None
+  if data:
+    for elem in data.split(","):
+      if "=" in elem:
+        key, val = elem.split("=", 1)
       else:
-        key, val = elem, True
-    if key in kv_dict:
-      raise errors.ParameterError("Duplicate key '%s' in option %s" %
-                                  (key, opt))
-    kv_dict[key] = val
+        if elem.startswith(NO_PREFIX):
+          key, val = elem[len(NO_PREFIX):], False
+        elif elem.startswith(UN_PREFIX):
+          key, val = elem[len(UN_PREFIX):], None
+        else:
+          key, val = elem, True
+      if key in kv_dict:
+        raise errors.ParameterError("Duplicate key '%s' in option %s" %
+                                    (key, opt))
+      kv_dict[key] = val
   return kv_dict
 
 
-def check_ident_key_val(option, opt, value):
-  """Custom parser for the IdentKeyVal option type.
+def check_ident_key_val(option, opt, value):  # pylint: disable-msg=W0613
+  """Custom parser for ident:key=val,key=val options.
+
+  This will store the parsed values as a tuple (ident, {key: val}). As such,
+  multiple uses of this option via action=append is possible.
 
   """
   if ":" not in value:
-    retval =  (value, {})
+    ident, rest = value, ''
   else:
     ident, rest = value.split(":", 1)
+
+  if ident.startswith(NO_PREFIX):
+    if rest:
+      msg = "Cannot pass options when removing parameter groups: %s" % value
+      raise errors.ParameterError(msg)
+    retval = (ident[len(NO_PREFIX):], False)
+  elif ident.startswith(UN_PREFIX):
+    if rest:
+      msg = "Cannot pass options when removing parameter groups: %s" % value
+      raise errors.ParameterError(msg)
+    retval = (ident[len(UN_PREFIX):], None)
+  else:
     kv_dict = _SplitKeyVal(opt, rest)
     retval = (ident, kv_dict)
   return retval
 
 
-class IdentKeyValOption(Option):
-  """Custom option class for ident:key=val,key=val options.
+def check_key_val(option, opt, value):  # pylint: disable-msg=W0613
+  """Custom parser class for key=val,key=val options.
 
-  This will store the parsed values as a tuple (ident, {key: val}). As
-  such, multiple uses of this option via action=append is possible.
-
-  """
-  TYPES = Option.TYPES + ("identkeyval",)
-  TYPE_CHECKER = copy.copy(Option.TYPE_CHECKER)
-  TYPE_CHECKER["identkeyval"] = check_ident_key_val
-
-
-def check_key_val(option, opt, value):
-  """Custom parser for the KeyVal option type.
+  This will store the parsed values as a dict {key: val}.
 
   """
   return _SplitKeyVal(opt, value)
 
 
-class KeyValOption(Option):
-  """Custom option class for key=val,key=val options.
+# completion_suggestion is normally a list. Using numeric values not evaluating
+# to False for dynamic completion.
+(OPT_COMPL_MANY_NODES,
+ OPT_COMPL_ONE_NODE,
+ OPT_COMPL_ONE_INSTANCE,
+ OPT_COMPL_ONE_OS,
+ OPT_COMPL_ONE_IALLOCATOR,
+ OPT_COMPL_INST_ADD_NODES) = range(100, 106)
 
-  This will store the parsed values as a dict {key: val}.
+OPT_COMPL_ALL = frozenset([
+  OPT_COMPL_MANY_NODES,
+  OPT_COMPL_ONE_NODE,
+  OPT_COMPL_ONE_INSTANCE,
+  OPT_COMPL_ONE_OS,
+  OPT_COMPL_ONE_IALLOCATOR,
+  OPT_COMPL_INST_ADD_NODES,
+  ])
+
+
+class CliOption(Option):
+  """Custom option class for optparse.
 
   """
-  TYPES = Option.TYPES + ("keyval",)
-  TYPE_CHECKER = copy.copy(Option.TYPE_CHECKER)
+  ATTRS = Option.ATTRS + [
+    "completion_suggest",
+    ]
+  TYPES = Option.TYPES + (
+    "identkeyval",
+    "keyval",
+    "unit",
+    )
+  TYPE_CHECKER = Option.TYPE_CHECKER.copy()
+  TYPE_CHECKER["identkeyval"] = check_ident_key_val
   TYPE_CHECKER["keyval"] = check_key_val
+  TYPE_CHECKER["unit"] = check_unit
 
 
 # optparse.py sets make_option, so we do it for our own option class, too
 cli_option = CliOption
-ikv_option = IdentKeyValOption
-keyval_option = KeyValOption
+
+
+_YESNO = ("yes", "no")
+_YORNO = "yes|no"
+
+DEBUG_OPT = cli_option("-d", "--debug", default=False,
+                       action="store_true",
+                       help="Turn debugging on")
+
+NOHDR_OPT = cli_option("--no-headers", default=False,
+                       action="store_true", dest="no_headers",
+                       help="Don't display column headers")
+
+SEP_OPT = cli_option("--separator", default=None,
+                     action="store", dest="separator",
+                     help=("Separator between output fields"
+                           " (defaults to one space)"))
+
+USEUNITS_OPT = cli_option("--units", default=None,
+                          dest="units", choices=('h', 'm', 'g', 't'),
+                          help="Specify units for output (one of hmgt)")
+
+FIELDS_OPT = cli_option("-o", "--output", dest="output", action="store",
+                        type="string", metavar="FIELDS",
+                        help="Comma separated list of output fields")
+
+FORCE_OPT = cli_option("-f", "--force", dest="force", action="store_true",
+                       default=False, help="Force the operation")
+
+CONFIRM_OPT = cli_option("--yes", dest="confirm", action="store_true",
+                         default=False, help="Do not require confirmation")
+
+TAG_SRC_OPT = cli_option("--from", dest="tags_source",
+                         default=None, help="File with tag names")
+
+SUBMIT_OPT = cli_option("--submit", dest="submit_only",
+                        default=False, action="store_true",
+                        help=("Submit the job and return the job ID, but"
+                              " don't wait for the job to finish"))
+
+SYNC_OPT = cli_option("--sync", dest="do_locking",
+                      default=False, action="store_true",
+                      help=("Grab locks while doing the queries"
+                            " in order to ensure more consistent results"))
+
+_DRY_RUN_OPT = cli_option("--dry-run", default=False,
+                          action="store_true",
+                          help=("Do not execute the operation, just run the"
+                                " check steps and verify it it could be"
+                                " executed"))
+
+VERBOSE_OPT = cli_option("-v", "--verbose", default=False,
+                         action="store_true",
+                         help="Increase the verbosity of the operation")
+
+DEBUG_SIMERR_OPT = cli_option("--debug-simulate-errors", default=False,
+                              action="store_true", dest="simulate_errors",
+                              help="Debugging option that makes the operation"
+                              " treat most runtime checks as failed")
+
+NWSYNC_OPT = cli_option("--no-wait-for-sync", dest="wait_for_sync",
+                        default=True, action="store_false",
+                        help="Don't wait for sync (DANGEROUS!)")
+
+DISK_TEMPLATE_OPT = cli_option("-t", "--disk-template", dest="disk_template",
+                               help="Custom disk setup (diskless, file,"
+                               " plain or drbd)",
+                               default=None, metavar="TEMPL",
+                               choices=list(constants.DISK_TEMPLATES))
+
+NONICS_OPT = cli_option("--no-nics", default=False, action="store_true",
+                        help="Do not create any network cards for"
+                        " the instance")
+
+FILESTORE_DIR_OPT = cli_option("--file-storage-dir", dest="file_storage_dir",
+                               help="Relative path under default cluster-wide"
+                               " file storage dir to store file-based disks",
+                               default=None, metavar="<DIR>")
+
+FILESTORE_DRIVER_OPT = cli_option("--file-driver", dest="file_driver",
+                                  help="Driver to use for image files",
+                                  default="loop", metavar="<DRIVER>",
+                                  choices=list(constants.FILE_DRIVER))
+
+IALLOCATOR_OPT = cli_option("-I", "--iallocator", metavar="<NAME>",
+                            help="Select nodes for the instance automatically"
+                            " using the <NAME> iallocator plugin",
+                            default=None, type="string",
+                            completion_suggest=OPT_COMPL_ONE_IALLOCATOR)
+
+OS_OPT = cli_option("-o", "--os-type", dest="os", help="What OS to run",
+                    metavar="<os>",
+                    completion_suggest=OPT_COMPL_ONE_OS)
+
+FORCE_VARIANT_OPT = cli_option("--force-variant", dest="force_variant",
+                               action="store_true", default=False,
+                               help="Force an unknown variant")
+
+BACKEND_OPT = cli_option("-B", "--backend-parameters", dest="beparams",
+                         type="keyval", default={},
+                         help="Backend parameters")
+
+HVOPTS_OPT =  cli_option("-H", "--hypervisor-parameters", type="keyval",
+                         default={}, dest="hvparams",
+                         help="Hypervisor parameters")
+
+HYPERVISOR_OPT = cli_option("-H", "--hypervisor-parameters", dest="hypervisor",
+                            help="Hypervisor and hypervisor options, in the"
+                            " format hypervisor:option=value,option=value,...",
+                            default=None, type="identkeyval")
+
+HVLIST_OPT = cli_option("-H", "--hypervisor-parameters", dest="hvparams",
+                        help="Hypervisor and hypervisor options, in the"
+                        " format hypervisor:option=value,option=value,...",
+                        default=[], action="append", type="identkeyval")
+
+NOIPCHECK_OPT = cli_option("--no-ip-check", dest="ip_check", default=True,
+                           action="store_false",
+                           help="Don't check that the instance's IP"
+                           " is alive")
+
+NONAMECHECK_OPT = cli_option("--no-name-check", dest="name_check",
+                             default=True, action="store_false",
+                             help="Don't check that the instance's name"
+                             " is resolvable")
+
+NET_OPT = cli_option("--net",
+                     help="NIC parameters", default=[],
+                     dest="nics", action="append", type="identkeyval")
+
+DISK_OPT = cli_option("--disk", help="Disk parameters", default=[],
+                      dest="disks", action="append", type="identkeyval")
+
+DISKIDX_OPT = cli_option("--disks", dest="disks", default=None,
+                         help="Comma-separated list of disks"
+                         " indices to act on (e.g. 0,2) (optional,"
+                         " defaults to all disks)")
+
+OS_SIZE_OPT = cli_option("-s", "--os-size", dest="sd_size",
+                         help="Enforces a single-disk configuration using the"
+                         " given disk size, in MiB unless a suffix is used",
+                         default=None, type="unit", metavar="<size>")
+
+IGNORE_CONSIST_OPT = cli_option("--ignore-consistency",
+                                dest="ignore_consistency",
+                                action="store_true", default=False,
+                                help="Ignore the consistency of the disks on"
+                                " the secondary")
+
+NONLIVE_OPT = cli_option("--non-live", dest="live",
+                         default=True, action="store_false",
+                         help="Do a non-live migration (this usually means"
+                         " freeze the instance, save the state, transfer and"
+                         " only then resume running on the secondary node)")
+
+NODE_PLACEMENT_OPT = cli_option("-n", "--node", dest="node",
+                                help="Target node and optional secondary node",
+                                metavar="<pnode>[:<snode>]",
+                                completion_suggest=OPT_COMPL_INST_ADD_NODES)
+
+NODE_LIST_OPT = cli_option("-n", "--node", dest="nodes", default=[],
+                           action="append", metavar="<node>",
+                           help="Use only this node (can be used multiple"
+                           " times, if not given defaults to all nodes)",
+                           completion_suggest=OPT_COMPL_ONE_NODE)
+
+SINGLE_NODE_OPT = cli_option("-n", "--node", dest="node", help="Target node",
+                             metavar="<node>",
+                             completion_suggest=OPT_COMPL_ONE_NODE)
+
+NOSTART_OPT = cli_option("--no-start", dest="start", default=True,
+                         action="store_false",
+                         help="Don't start the instance after creation")
+
+SHOWCMD_OPT = cli_option("--show-cmd", dest="show_command",
+                         action="store_true", default=False,
+                         help="Show command instead of executing it")
+
+CLEANUP_OPT = cli_option("--cleanup", dest="cleanup",
+                         default=False, action="store_true",
+                         help="Instead of performing the migration, try to"
+                         " recover from a failed cleanup. This is safe"
+                         " to run even if the instance is healthy, but it"
+                         " will create extra replication traffic and "
+                         " disrupt briefly the replication (like during the"
+                         " migration")
+
+STATIC_OPT = cli_option("-s", "--static", dest="static",
+                        action="store_true", default=False,
+                        help="Only show configuration data, not runtime data")
+
+ALL_OPT = cli_option("--all", dest="show_all",
+                     default=False, action="store_true",
+                     help="Show info on all instances on the cluster."
+                     " This can take a long time to run, use wisely")
+
+SELECT_OS_OPT = cli_option("--select-os", dest="select_os",
+                           action="store_true", default=False,
+                           help="Interactive OS reinstall, lists available"
+                           " OS templates for selection")
+
+IGNORE_FAILURES_OPT = cli_option("--ignore-failures", dest="ignore_failures",
+                                 action="store_true", default=False,
+                                 help="Remove the instance from the cluster"
+                                 " configuration even if there are failures"
+                                 " during the removal process")
+
+NEW_SECONDARY_OPT = cli_option("-n", "--new-secondary", dest="dst_node",
+                               help="Specifies the new secondary node",
+                               metavar="NODE", default=None,
+                               completion_suggest=OPT_COMPL_ONE_NODE)
+
+ON_PRIMARY_OPT = cli_option("-p", "--on-primary", dest="on_primary",
+                            default=False, action="store_true",
+                            help="Replace the disk(s) on the primary"
+                            " node (only for the drbd template)")
+
+ON_SECONDARY_OPT = cli_option("-s", "--on-secondary", dest="on_secondary",
+                              default=False, action="store_true",
+                              help="Replace the disk(s) on the secondary"
+                              " node (only for the drbd template)")
+
+AUTO_REPLACE_OPT = cli_option("-a", "--auto", dest="auto",
+                              default=False, action="store_true",
+                              help="Automatically replace faulty disks"
+                              " (only for the drbd template)")
+
+IGNORE_SIZE_OPT = cli_option("--ignore-size", dest="ignore_size",
+                             default=False, action="store_true",
+                             help="Ignore current recorded size"
+                             " (useful for forcing activation when"
+                             " the recorded size is wrong)")
+
+SRC_NODE_OPT = cli_option("--src-node", dest="src_node", help="Source node",
+                          metavar="<node>",
+                          completion_suggest=OPT_COMPL_ONE_NODE)
+
+SRC_DIR_OPT = cli_option("--src-dir", dest="src_dir", help="Source directory",
+                         metavar="<dir>")
+
+SECONDARY_IP_OPT = cli_option("-s", "--secondary-ip", dest="secondary_ip",
+                              help="Specify the secondary ip for the node",
+                              metavar="ADDRESS", default=None)
+
+READD_OPT = cli_option("--readd", dest="readd",
+                       default=False, action="store_true",
+                       help="Readd old node after replacing it")
+
+NOSSH_KEYCHECK_OPT = cli_option("--no-ssh-key-check", dest="ssh_key_check",
+                                default=True, action="store_false",
+                                help="Disable SSH key fingerprint checking")
+
+
+MC_OPT = cli_option("-C", "--master-candidate", dest="master_candidate",
+                    choices=_YESNO, default=None, metavar=_YORNO,
+                    help="Set the master_candidate flag on the node")
+
+OFFLINE_OPT = cli_option("-O", "--offline", dest="offline", metavar=_YORNO,
+                         choices=_YESNO, default=None,
+                         help="Set the offline flag on the node")
+
+DRAINED_OPT = cli_option("-D", "--drained", dest="drained", metavar=_YORNO,
+                         choices=_YESNO, default=None,
+                         help="Set the drained flag on the node")
+
+ALLOCATABLE_OPT = cli_option("--allocatable", dest="allocatable",
+                             choices=_YESNO, default=None, metavar=_YORNO,
+                             help="Set the allocatable flag on a volume")
+
+NOLVM_STORAGE_OPT = cli_option("--no-lvm-storage", dest="lvm_storage",
+                               help="Disable support for lvm based instances"
+                               " (cluster-wide)",
+                               action="store_false", default=True)
+
+ENABLED_HV_OPT = cli_option("--enabled-hypervisors",
+                            dest="enabled_hypervisors",
+                            help="Comma-separated list of hypervisors",
+                            type="string", default=None)
+
+NIC_PARAMS_OPT = cli_option("-N", "--nic-parameters", dest="nicparams",
+                            type="keyval", default={},
+                            help="NIC parameters")
+
+CP_SIZE_OPT = cli_option("-C", "--candidate-pool-size", default=None,
+                         dest="candidate_pool_size", type="int",
+                         help="Set the candidate pool size")
+
+VG_NAME_OPT = cli_option("-g", "--vg-name", dest="vg_name",
+                         help="Enables LVM and specifies the volume group"
+                         " name (cluster-wide) for disk allocation [xenvg]",
+                         metavar="VG", default=None)
+
+YES_DOIT_OPT = cli_option("--yes-do-it", dest="yes_do_it",
+                          help="Destroy cluster", action="store_true")
+
+NOVOTING_OPT = cli_option("--no-voting", dest="no_voting",
+                          help="Skip node agreement check (dangerous)",
+                          action="store_true", default=False)
+
+MAC_PREFIX_OPT = cli_option("-m", "--mac-prefix", dest="mac_prefix",
+                            help="Specify the mac prefix for the instance IP"
+                            " addresses, in the format XX:XX:XX",
+                            metavar="PREFIX",
+                            default=None)
+
+MASTER_NETDEV_OPT = cli_option("--master-netdev", dest="master_netdev",
+                               help="Specify the node interface (cluster-wide)"
+                               " on which the master IP address will be added "
+                               " [%s]" % constants.DEFAULT_BRIDGE,
+                               metavar="NETDEV",
+                               default=constants.DEFAULT_BRIDGE)
+
+
+GLOBAL_FILEDIR_OPT = cli_option("--file-storage-dir", dest="file_storage_dir",
+                                help="Specify the default directory (cluster-"
+                                "wide) for storing the file-based disks [%s]" %
+                                constants.DEFAULT_FILE_STORAGE_DIR,
+                                metavar="DIR",
+                                default=constants.DEFAULT_FILE_STORAGE_DIR)
+
+NOMODIFY_ETCHOSTS_OPT = cli_option("--no-etc-hosts", dest="modify_etc_hosts",
+                                   help="Don't modify /etc/hosts",
+                                   action="store_false", default=True)
+
+NOMODIFY_SSH_SETUP_OPT = cli_option("--no-ssh-init", dest="modify_ssh_setup",
+                                    help="Don't initialize SSH keys",
+                                    action="store_false", default=True)
+
+ERROR_CODES_OPT = cli_option("--error-codes", dest="error_codes",
+                             help="Enable parseable error messages",
+                             action="store_true", default=False)
+
+NONPLUS1_OPT = cli_option("--no-nplus1-mem", dest="skip_nplusone_mem",
+                          help="Skip N+1 memory redundancy tests",
+                          action="store_true", default=False)
+
+REBOOT_TYPE_OPT = cli_option("-t", "--type", dest="reboot_type",
+                             help="Type of reboot: soft/hard/full",
+                             default=constants.INSTANCE_REBOOT_HARD,
+                             metavar="<REBOOT>",
+                             choices=list(constants.REBOOT_TYPES))
+
+IGNORE_SECONDARIES_OPT = cli_option("--ignore-secondaries",
+                                    dest="ignore_secondaries",
+                                    default=False, action="store_true",
+                                    help="Ignore errors from secondaries")
+
+NOSHUTDOWN_OPT = cli_option("--noshutdown", dest="shutdown",
+                            action="store_false", default=True,
+                            help="Don't shutdown the instance (unsafe)")
+
+TIMEOUT_OPT = cli_option("--timeout", dest="timeout", type="int",
+                         default=constants.DEFAULT_SHUTDOWN_TIMEOUT,
+                         help="Maximum time to wait")
+
+SHUTDOWN_TIMEOUT_OPT = cli_option("--shutdown-timeout",
+                         dest="shutdown_timeout", type="int",
+                         default=constants.DEFAULT_SHUTDOWN_TIMEOUT,
+                         help="Maximum time to wait for instance shutdown")
 
 
 def _ParseArgs(argv, commands, aliases):
@@ -383,25 +902,89 @@ def _ParseArgs(argv, commands, aliases):
 
     cmd = aliases[cmd]
 
-  func, nargs, parser_opts, usage, description = commands[cmd]
-  parser = OptionParser(option_list=parser_opts,
+  func, args_def, parser_opts, usage, description = commands[cmd]
+  parser = OptionParser(option_list=parser_opts + [_DRY_RUN_OPT, DEBUG_OPT],
                         description=description,
                         formatter=TitledHelpFormatter(),
                         usage="%%prog %s %s" % (cmd, usage))
   parser.disable_interspersed_args()
   options, args = parser.parse_args()
-  if nargs is None:
-    if len(args) != 0:
-      ToStderr("Error: Command %s expects no arguments", cmd)
-      return None, None, None
-  elif nargs < 0 and len(args) != -nargs:
-    ToStderr("Error: Command %s expects %d argument(s)", cmd, -nargs)
-    return None, None, None
-  elif nargs >= 0 and len(args) < nargs:
-    ToStderr("Error: Command %s expects at least %d argument(s)", cmd, nargs)
+
+  if not _CheckArguments(cmd, args_def, args):
     return None, None, None
 
   return func, options, args
+
+
+def _CheckArguments(cmd, args_def, args):
+  """Verifies the arguments using the argument definition.
+
+  Algorithm:
+
+    1. Abort with error if values specified by user but none expected.
+
+    1. For each argument in definition
+
+      1. Keep running count of minimum number of values (min_count)
+      1. Keep running count of maximum number of values (max_count)
+      1. If it has an unlimited number of values
+
+        1. Abort with error if it's not the last argument in the definition
+
+    1. If last argument has limited number of values
+
+      1. Abort with error if number of values doesn't match or is too large
+
+    1. Abort with error if user didn't pass enough values (min_count)
+
+  """
+  if args and not args_def:
+    ToStderr("Error: Command %s expects no arguments", cmd)
+    return False
+
+  min_count = None
+  max_count = None
+  check_max = None
+
+  last_idx = len(args_def) - 1
+
+  for idx, arg in enumerate(args_def):
+    if min_count is None:
+      min_count = arg.min
+    elif arg.min is not None:
+      min_count += arg.min
+
+    if max_count is None:
+      max_count = arg.max
+    elif arg.max is not None:
+      max_count += arg.max
+
+    if idx == last_idx:
+      check_max = (arg.max is not None)
+
+    elif arg.max is None:
+      raise errors.ProgrammerError("Only the last argument can have max=None")
+
+  if check_max:
+    # Command with exact number of arguments
+    if (min_count is not None and max_count is not None and
+        min_count == max_count and len(args) != min_count):
+      ToStderr("Error: Command %s expects %d argument(s)", cmd, min_count)
+      return False
+
+    # Command with limited number of arguments
+    if max_count is not None and len(args) > max_count:
+      ToStderr("Error: Command %s expects only %d argument(s)",
+               cmd, max_count)
+      return False
+
+  # Command with some required arguments
+  if min_count is not None and len(args) < min_count:
+    ToStderr("Error: Command %s expects at least %d argument(s)",
+             cmd, min_count)
+    return False
+
+  return True
 
 
 def SplitNodeOption(value):
@@ -412,6 +995,23 @@ def SplitNodeOption(value):
     return value.split(':', 1)
   else:
     return (value, None)
+
+
+def CalculateOSNames(os_name, os_variants):
+  """Calculates all the names an OS can be called, according to its variants.
+
+  @type os_name: string
+  @param os_name: base name of the os
+  @type os_variants: list or None
+  @param os_variants: list of supported variants
+  @rtype: list
+  @return: list of valid names
+
+  """
+  if os_variants:
+    return ['%s+%s' % (os_name, v) for v in os_variants]
+  else:
+    return [os_name]
 
 
 def UsesRPC(fn):
@@ -608,7 +1208,11 @@ def SubmitOrSend(op, opts, cl=None, feedback_fn=None):
   whether to just send the job and print its identifier. It is used in
   order to simplify the implementation of the '--submit' option.
 
+  It will also add the dry-run parameter from the options passed, if true.
+
   """
+  if opts and opts.dry_run:
+    op.dry_run = opts.dry_run
   if opts and opts.submit_only:
     job_id = SendJob([op], cl=cl)
     raise JobSubmittedException(job_id)
@@ -621,13 +1225,21 @@ def GetClient():
   try:
     client = luxi.Client()
   except luxi.NoMasterError:
-    master, myself = ssconf.GetMasterAndMyself()
+    ss = ssconf.SimpleStore()
+
+    # Try to read ssconf file
+    try:
+      ss.GetMasterNode()
+    except errors.ConfigurationError:
+      raise errors.OpPrereqError("Cluster not initialized or this machine is"
+                                 " not part of a cluster")
+
+    master, myself = ssconf.GetMasterAndMyself(ss=ss)
     if master != myself:
       raise errors.OpPrereqError("This is not the master node, please connect"
                                  " to node '%s' and rerun the command" %
                                  master)
-    else:
-      raise
+    raise
   return client
 
 
@@ -668,8 +1280,13 @@ def FormatError(err):
       msg = "Failure: can't resolve hostname '%s'"
     obuf.write(msg % err.args[0])
   elif isinstance(err, errors.OpPrereqError):
-    obuf.write("Failure: prerequisites not met for this"
-               " operation:\n%s" % msg)
+    if len(err.args) == 2:
+      obuf.write("Failure: prerequisites not met for this"
+               " operation:\nerror type: %s, error details:\n%s" %
+                 (err.args[1], err.args[0]))
+    else:
+      obuf.write("Failure: prerequisites not met for this"
+                 " operation:\n%s" % msg)
   elif isinstance(err, errors.OpExecError):
     obuf.write("Failure: command execution error:\n%s" % msg)
   elif isinstance(err, errors.TagError):
@@ -730,7 +1347,13 @@ def GenericMain(commands, override=None, aliases=None):
   if aliases is None:
     aliases = {}
 
-  func, options, args = _ParseArgs(sys.argv, commands, aliases)
+  try:
+    func, options, args = _ParseArgs(sys.argv, commands, aliases)
+  except errors.ParameterError, err:
+    result, err_msg = FormatError(err)
+    ToStderr(err_msg)
+    return 1
+
   if func is None: # parse error
     return 1
 
@@ -755,6 +1378,117 @@ def GenericMain(commands, override=None, aliases=None):
     ToStderr(err_msg)
 
   return result
+
+
+def GenericInstanceCreate(mode, opts, args):
+  """Add an instance to the cluster via either creation or import.
+
+  @param mode: constants.INSTANCE_CREATE or constants.INSTANCE_IMPORT
+  @param opts: the command line options selected by the user
+  @type args: list
+  @param args: should contain only one element, the new instance name
+  @rtype: int
+  @return: the desired exit code
+
+  """
+  instance = args[0]
+
+  (pnode, snode) = SplitNodeOption(opts.node)
+
+  hypervisor = None
+  hvparams = {}
+  if opts.hypervisor:
+    hypervisor, hvparams = opts.hypervisor
+
+  if opts.nics:
+    try:
+      nic_max = max(int(nidx[0]) + 1 for nidx in opts.nics)
+    except ValueError, err:
+      raise errors.OpPrereqError("Invalid NIC index passed: %s" % str(err))
+    nics = [{}] * nic_max
+    for nidx, ndict in opts.nics:
+      nidx = int(nidx)
+      if not isinstance(ndict, dict):
+        msg = "Invalid nic/%d value: expected dict, got %s" % (nidx, ndict)
+        raise errors.OpPrereqError(msg)
+      nics[nidx] = ndict
+  elif opts.no_nics:
+    # no nics
+    nics = []
+  else:
+    # default of one nic, all auto
+    nics = [{}]
+
+  if opts.disk_template == constants.DT_DISKLESS:
+    if opts.disks or opts.sd_size is not None:
+      raise errors.OpPrereqError("Diskless instance but disk"
+                                 " information passed")
+    disks = []
+  else:
+    if not opts.disks and not opts.sd_size:
+      raise errors.OpPrereqError("No disk information specified")
+    if opts.disks and opts.sd_size is not None:
+      raise errors.OpPrereqError("Please use either the '--disk' or"
+                                 " '-s' option")
+    if opts.sd_size is not None:
+      opts.disks = [(0, {"size": opts.sd_size})]
+    try:
+      disk_max = max(int(didx[0]) + 1 for didx in opts.disks)
+    except ValueError, err:
+      raise errors.OpPrereqError("Invalid disk index passed: %s" % str(err))
+    disks = [{}] * disk_max
+    for didx, ddict in opts.disks:
+      didx = int(didx)
+      if not isinstance(ddict, dict):
+        msg = "Invalid disk/%d value: expected dict, got %s" % (didx, ddict)
+        raise errors.OpPrereqError(msg)
+      elif "size" not in ddict:
+        raise errors.OpPrereqError("Missing size for disk %d" % didx)
+      try:
+        ddict["size"] = utils.ParseUnit(ddict["size"])
+      except ValueError, err:
+        raise errors.OpPrereqError("Invalid disk size for disk %d: %s" %
+                                   (didx, err))
+      disks[didx] = ddict
+
+  utils.ForceDictType(opts.beparams, constants.BES_PARAMETER_TYPES)
+  utils.ForceDictType(hvparams, constants.HVS_PARAMETER_TYPES)
+
+  if mode == constants.INSTANCE_CREATE:
+    start = opts.start
+    os_type = opts.os
+    src_node = None
+    src_path = None
+  elif mode == constants.INSTANCE_IMPORT:
+    start = False
+    os_type = None
+    src_node = opts.src_node
+    src_path = opts.src_dir
+  else:
+    raise errors.ProgrammerError("Invalid creation mode %s" % mode)
+
+  op = opcodes.OpCreateInstance(instance_name=instance,
+                                disks=disks,
+                                disk_template=opts.disk_template,
+                                nics=nics,
+                                pnode=pnode, snode=snode,
+                                ip_check=opts.ip_check,
+                                name_check=opts.name_check,
+                                wait_for_sync=opts.wait_for_sync,
+                                file_storage_dir=opts.file_storage_dir,
+                                file_driver=opts.file_driver,
+                                iallocator=opts.iallocator,
+                                hypervisor=hypervisor,
+                                hvparams=hvparams,
+                                beparams=opts.beparams,
+                                mode=mode,
+                                start=start,
+                                os_type=os_type,
+                                src_node=src_node,
+                                src_path=src_path)
+
+  SubmitOrSend(op, opts)
+  return 0
 
 
 def GenerateTable(headers, fields, separator, data,
@@ -827,7 +1561,7 @@ def GenerateTable(headers, fields, separator, data,
       if unitfields.Matches(fields[idx]):
         try:
           val = int(val)
-        except (TypeError, ValueError):
+        except ValueError:
           pass
         else:
           val = row[idx] = utils.FormatUnit(val, units)
@@ -846,11 +1580,17 @@ def GenerateTable(headers, fields, separator, data,
       args.append(hdr)
     result.append(format % tuple(args))
 
+  if separator is None:
+    assert len(mlens) == len(fields)
+
+    if fields and not numfields.Matches(fields[-1]):
+      mlens[-1] = 0
+
   for line in data:
     args = []
     if line is None:
       line = ['-' for _ in fields]
-    for idx in xrange(len(fields)):
+    for idx in range(len(fields)):
       if separator is None:
         args.append(mlens[idx])
       args.append(line[idx])
@@ -902,7 +1642,7 @@ def ParseTimespec(value):
   if value[-1] not in suffix_map:
     try:
       value = int(value)
-    except (TypeError, ValueError):
+    except ValueError:
       raise errors.OpPrereqError("Invalid time specification '%s'" % value)
   else:
     multiplier = suffix_map[value[-1]]
@@ -912,7 +1652,7 @@ def ParseTimespec(value):
                                  " suffix passed)")
     try:
       value = int(value) * multiplier
-    except (TypeError, ValueError):
+    except ValueError:
       raise errors.OpPrereqError("Invalid time specification '%s'" % value)
   return value
 
@@ -939,7 +1679,7 @@ def GetOnlineNodes(nodes, cl=None, nowarn=False):
                          use_locking=False)
   offline = [row[0] for row in result if row[1]]
   if offline and not nowarn:
-    ToStderr("Note: skipping offline node(s): %s" % ", ".join(offline))
+    ToStderr("Note: skipping offline node(s): %s" % utils.CommaJoin(offline))
   return [row[0] for row in result if not row[1]]
 
 
@@ -1031,7 +1771,7 @@ class JobExecutor(object):
     if self.verbose:
       ok_jobs = [row[1] for row in self.jobs if row[0]]
       if ok_jobs:
-        ToStdout("Submitted jobs %s", ", ".join(ok_jobs))
+        ToStdout("Submitted jobs %s", utils.CommaJoin(ok_jobs))
     for submit_status, jid, name in self.jobs:
       if not submit_status:
         ToStderr("Failed to submit job for %s: %s", name, jid)

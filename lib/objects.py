@@ -26,6 +26,12 @@ pass to and from external parties.
 
 """
 
+# pylint: disable-msg=E0203,W0201
+
+# E0203: Access to member %r before its definition, since we use
+# objects.py which doesn't explicitely initialise its members
+
+# W0201: Attribute '%s' defined outside __init__
 
 import ConfigParser
 import re
@@ -37,7 +43,50 @@ from ganeti import constants
 
 
 __all__ = ["ConfigObject", "ConfigData", "NIC", "Disk", "Instance",
-           "OS", "Node", "Cluster"]
+           "OS", "Node", "Cluster", "FillDict"]
+
+_TIMESTAMPS = ["ctime", "mtime"]
+_UUID = ["uuid"]
+
+def FillDict(defaults_dict, custom_dict, skip_keys=None):
+  """Basic function to apply settings on top a default dict.
+
+  @type defaults_dict: dict
+  @param defaults_dict: dictionary holding the default values
+  @type custom_dict: dict
+  @param custom_dict: dictionary holding customized value
+  @type skip_keys: list
+  @param skip_keys: which keys not to fill
+  @rtype: dict
+  @return: dict with the 'full' values
+
+  """
+  ret_dict = copy.deepcopy(defaults_dict)
+  ret_dict.update(custom_dict)
+  if skip_keys:
+    for k in skip_keys:
+      try:
+        del ret_dict[k]
+      except KeyError:
+        pass
+  return ret_dict
+
+
+def UpgradeGroupedParams(target, defaults):
+  """Update all groups for the target parameter.
+
+  @type target: dict of dicts
+  @param target: {group: {parameter: value}}
+  @type defaults: dict
+  @param defaults: default parameter values
+
+  """
+  if target is None:
+    target = {constants.PP_DEFAULT: defaults}
+  else:
+    for group in target:
+      target[group] = FillDict(defaults, target[group])
+  return target
 
 
 class ConfigObject(object):
@@ -65,18 +114,6 @@ class ConfigObject(object):
                            (type(self).__name__, name))
     return None
 
-  def __setitem__(self, key, value):
-    if key not in self.__slots__:
-      raise KeyError(key)
-    setattr(self, key, value)
-
-  def __getstate__(self):
-    state = {}
-    for name in self.__slots__:
-      if hasattr(self, name):
-        state[name] = getattr(self, name)
-    return state
-
   def __setstate__(self, state):
     for name in state:
       if name in self.__slots__:
@@ -92,7 +129,14 @@ class ConfigObject(object):
     make sure all objects returned are only standard python types.
 
     """
-    return dict([(k, getattr(self, k, None)) for k in self.__slots__])
+    result = {}
+    for name in self.__slots__:
+      value = getattr(self, name, None)
+      if value is not None:
+        result[name] = value
+    return result
+
+  __getstate__ = ToDict
 
   @classmethod
   def FromDict(cls, val):
@@ -111,7 +155,7 @@ class ConfigObject(object):
       raise errors.ConfigurationError("Invalid object passed to FromDict:"
                                       " expected dict, got %s" % type(val))
     val_str = dict([(str(k), v) for k, v in val.iteritems()])
-    obj = cls(**val_str)
+    obj = cls(**val_str) # pylint: disable-msg=W0142
     return obj
 
   @staticmethod
@@ -180,9 +224,10 @@ class TaggableObject(ConfigObject):
 
   """
   __slots__ = ConfigObject.__slots__ + ["tags"]
+  VALID_TAG_RE = re.compile("^[\w.+*/:@-]+$")
 
-  @staticmethod
-  def ValidateTag(tag):
+  @classmethod
+  def ValidateTag(cls, tag):
     """Check if a tag is valid.
 
     If the tag is invalid, an errors.TagError will be raised. The
@@ -196,7 +241,7 @@ class TaggableObject(ConfigObject):
                             constants.MAX_TAG_LEN)
     if not tag:
       raise errors.TagError("Tags cannot be empty")
-    if not re.match("^[\w.+*/:-]+$", tag):
+    if not cls.VALID_TAG_RE.match(tag):
       raise errors.TagError("Tag contains invalid characters")
 
   def GetTags(self):
@@ -255,7 +300,8 @@ class TaggableObject(ConfigObject):
 
 class ConfigData(ConfigObject):
   """Top-level config object."""
-  __slots__ = ["version", "cluster", "nodes", "instances", "serial_no"]
+  __slots__ = (["version", "cluster", "nodes", "instances", "serial_no"] +
+               _TIMESTAMPS)
 
   def ToDict(self):
     """Custom function for top-level config data.
@@ -295,7 +341,39 @@ class ConfigData(ConfigObject):
 
 class NIC(ConfigObject):
   """Config object representing a network card."""
-  __slots__ = ["mac", "ip", "bridge"]
+  __slots__ = ["mac", "ip", "bridge", "nicparams"]
+
+  @classmethod
+  def CheckParameterSyntax(cls, nicparams):
+    """Check the given parameters for validity.
+
+    @type nicparams:  dict
+    @param nicparams: dictionary with parameter names/value
+    @raise errors.ConfigurationError: when a parameter is not valid
+
+    """
+    if nicparams[constants.NIC_MODE] not in constants.NIC_VALID_MODES:
+      err = "Invalid nic mode: %s" % nicparams[constants.NIC_MODE]
+      raise errors.ConfigurationError(err)
+
+    if (nicparams[constants.NIC_MODE] == constants.NIC_MODE_BRIDGED and
+        not nicparams[constants.NIC_LINK]):
+      err = "Missing bridged nic link"
+      raise errors.ConfigurationError(err)
+
+  def UpgradeConfig(self):
+    """Fill defaults for missing configuration values.
+
+    """
+    if self.nicparams is None:
+      self.nicparams = {}
+      if self.bridge is not None:
+        self.nicparams[constants.NIC_MODE] = constants.NIC_MODE_BRIDGED
+        self.nicparams[constants.NIC_LINK] = self.bridge
+    # bridge is no longer used it 2.1. The slot is left there to support
+    # upgrading, but will be removed in 2.2
+    if self.bridge is not None:
+      self.bridge = None
 
 
 class Disk(ConfigObject):
@@ -570,7 +648,7 @@ class Instance(TaggableObject):
     "disk_template",
     "network_port",
     "serial_no",
-    ]
+    ] + _TIMESTAMPS + _UUID
 
   def _ComputeSecondaryNodes(self):
     """Compute the list of secondary nodes.
@@ -669,11 +747,13 @@ class Instance(TaggableObject):
     try:
       idx = int(idx)
       return self.disks[idx]
-    except (TypeError, ValueError), err:
-      raise errors.OpPrereqError("Invalid disk index: '%s'" % str(err))
+    except ValueError, err:
+      raise errors.OpPrereqError("Invalid disk index: '%s'" % str(err),
+                                 errors.ECODE_INVAL)
     except IndexError:
       raise errors.OpPrereqError("Invalid disk index: %d (instace has disks"
-                                 " 0 to %d" % (idx, len(self.disks)))
+                                 " 0 to %d" % (idx, len(self.disks)),
+                                 errors.ECODE_INVAL)
 
   def ToDict(self):
     """Instance-specific conversion to standard python types.
@@ -711,6 +791,12 @@ class Instance(TaggableObject):
       nic.UpgradeConfig()
     for disk in self.disks:
       disk.UpgradeConfig()
+    if self.hvparams:
+      for key in constants.HVC_GLOBALS:
+        try:
+          del self.hvparams[key]
+        except KeyError:
+          pass
 
 
 class OS(ConfigObject):
@@ -718,32 +804,13 @@ class OS(ConfigObject):
   __slots__ = [
     "name",
     "path",
-    "status",
     "api_versions",
     "create_script",
     "export_script",
     "import_script",
     "rename_script",
+    "supported_variants",
     ]
-
-  @classmethod
-  def FromInvalidOS(cls, err):
-    """Create an OS from an InvalidOS error.
-
-    This routine knows how to convert an InvalidOS error to an OS
-    object representing the broken OS with a meaningful error message.
-
-    """
-    if not isinstance(err, errors.InvalidOS):
-      raise errors.ProgrammerError("Trying to initialize an OS from an"
-                                   " invalid object of type %s" % type(err))
-
-    return cls(name=err.args[0], path=err.args[1], status=err.args[2])
-
-  def __nonzero__(self):
-    return self.status == constants.OS_VALID_STATUS
-
-  __bool__ = __nonzero__
 
 
 class Node(TaggableObject):
@@ -756,7 +823,7 @@ class Node(TaggableObject):
     "master_candidate",
     "offline",
     "drained",
-    ]
+    ] + _TIMESTAMPS + _UUID
 
 
 class Cluster(TaggableObject):
@@ -778,9 +845,11 @@ class Cluster(TaggableObject):
     "enabled_hypervisors",
     "hvparams",
     "beparams",
+    "nicparams",
     "candidate_pool_size",
     "modify_etc_hosts",
-    ]
+    "modify_ssh_setup",
+    ] + _TIMESTAMPS + _UUID
 
   def UpgradeConfig(self):
     """Fill defaults for missing configuration values.
@@ -792,18 +861,35 @@ class Cluster(TaggableObject):
       self.hvparams = constants.HVC_DEFAULTS
     else:
       for hypervisor in self.hvparams:
-        self.hvparams[hypervisor] = self.FillDict(
+        self.hvparams[hypervisor] = FillDict(
             constants.HVC_DEFAULTS[hypervisor], self.hvparams[hypervisor])
 
-    if self.beparams is None:
-      self.beparams = {constants.BEGR_DEFAULT: constants.BEC_DEFAULTS}
-    else:
-      for begroup in self.beparams:
-        self.beparams[begroup] = self.FillDict(constants.BEC_DEFAULTS,
-                                               self.beparams[begroup])
+    self.beparams = UpgradeGroupedParams(self.beparams,
+                                         constants.BEC_DEFAULTS)
+    migrate_default_bridge = not self.nicparams
+    self.nicparams = UpgradeGroupedParams(self.nicparams,
+                                          constants.NICC_DEFAULTS)
+    if migrate_default_bridge:
+      self.nicparams[constants.PP_DEFAULT][constants.NIC_LINK] = \
+        self.default_bridge
 
     if self.modify_etc_hosts is None:
       self.modify_etc_hosts = True
+
+    if self.modify_ssh_setup is None:
+      self.modify_ssh_setup = True
+
+    # default_bridge is no longer used it 2.1. The slot is left there to
+    # support auto-upgrading, but will be removed in 2.2
+    if self.default_bridge is not None:
+      self.default_bridge = None
+
+    # default_hypervisor is just the first enabled one in 2.1
+    if self.default_hypervisor is not None:
+      self.enabled_hypervisors = ([self.default_hypervisor] +
+        [hvname for hvname in self.enabled_hypervisors
+         if hvname != self.default_hypervisor])
+      self.default_hypervisor = None
 
   def ToDict(self):
     """Custom function for cluster.
@@ -823,34 +909,25 @@ class Cluster(TaggableObject):
       obj.tcpudp_port_pool = set(obj.tcpudp_port_pool)
     return obj
 
-  @staticmethod
-  def FillDict(defaults_dict, custom_dict):
-    """Basic function to apply settings on top a default dict.
-
-    @type defaults_dict: dict
-    @param defaults_dict: dictionary holding the default values
-    @type custom_dict: dict
-    @param custom_dict: dictionary holding customized value
-    @rtype: dict
-    @return: dict with the 'full' values
-
-    """
-    ret_dict = copy.deepcopy(defaults_dict)
-    ret_dict.update(custom_dict)
-    return ret_dict
-
-  def FillHV(self, instance):
+  def FillHV(self, instance, skip_globals=False):
     """Fill an instance's hvparams dict.
 
     @type instance: L{objects.Instance}
     @param instance: the instance parameter to fill
+    @type skip_globals: boolean
+    @param skip_globals: if True, the global hypervisor parameters will
+        not be filled
     @rtype: dict
     @return: a copy of the instance's hvparams with missing keys filled from
         the cluster defaults
 
     """
-    return self.FillDict(self.hvparams.get(instance.hypervisor, {}),
-                         instance.hvparams)
+    if skip_globals:
+      skip_keys = constants.HVC_GLOBALS
+    else:
+      skip_keys = []
+    return FillDict(self.hvparams.get(instance.hypervisor, {}),
+                    instance.hvparams, skip_keys=skip_keys)
 
   def FillBE(self, instance):
     """Fill an instance's beparams dict.
@@ -862,8 +939,55 @@ class Cluster(TaggableObject):
         the cluster defaults
 
     """
-    return self.FillDict(self.beparams.get(constants.BEGR_DEFAULT, {}),
-                         instance.beparams)
+    return FillDict(self.beparams.get(constants.PP_DEFAULT, {}),
+                    instance.beparams)
+
+
+class BlockDevStatus(ConfigObject):
+  """Config object representing the status of a block device."""
+  __slots__ = [
+    "dev_path",
+    "major",
+    "minor",
+    "sync_percent",
+    "estimated_time",
+    "is_degraded",
+    "ldisk_status",
+    ]
+
+
+class ConfdRequest(ConfigObject):
+  """Object holding a confd request.
+
+  @ivar protocol: confd protocol version
+  @ivar type: confd query type
+  @ivar query: query request
+  @ivar rsalt: requested reply salt
+
+  """
+  __slots__ = [
+    "protocol",
+    "type",
+    "query",
+    "rsalt",
+    ]
+
+
+class ConfdReply(ConfigObject):
+  """Object holding a confd reply.
+
+  @ivar protocol: confd protocol version
+  @ivar status: reply status code (ok, error)
+  @ivar answer: confd query reply
+  @ivar serial: configuration serial number
+
+  """
+  __slots__ = [
+    "protocol",
+    "status",
+    "answer",
+    "serial",
+    ]
 
 
 class SerializableConfigParser(ConfigParser.SafeConfigParser):

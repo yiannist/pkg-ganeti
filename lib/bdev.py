@@ -31,6 +31,11 @@ import logging
 from ganeti import utils
 from ganeti import errors
 from ganeti import constants
+from ganeti import objects
+
+
+# Size of reads in _CanReadDevice
+_DEVICE_READ_SIZE = 128 * 1024
 
 
 def _IgnoreError(fn, *args, **kwargs):
@@ -47,7 +52,7 @@ def _IgnoreError(fn, *args, **kwargs):
     fn(*args, **kwargs)
     return True
   except errors.BlockDeviceError, err:
-    logging.warning("Caught BlockDeviceError but ignoring: %s" % str(err))
+    logging.warning("Caught BlockDeviceError but ignoring: %s", str(err))
     return False
 
 
@@ -63,6 +68,20 @@ def _ThrowError(msg, *args):
     msg = msg % args
   logging.error(msg)
   raise errors.BlockDeviceError(msg)
+
+
+def _CanReadDevice(path):
+  """Check if we can read from the given device.
+
+  This tries to read the first 128k of the device.
+
+  """
+  try:
+    utils.ReadFile(path, size=_DEVICE_READ_SIZE)
+    return True
+  except EnvironmentError:
+    logging.warning("Can't read from device %s", path, exc_info=True)
+    return False
 
 
 class BlockDev(object):
@@ -228,12 +247,16 @@ class BlockDev(object):
     data. This is only valid for some devices, the rest will always
     return False (not degraded).
 
-    @rtype: tuple
-    @return: (sync_percent, estimated_time, is_degraded, ldisk)
+    @rtype: objects.BlockDevStatus
 
     """
-    return None, None, False, False
-
+    return objects.BlockDevStatus(dev_path=self.dev_path,
+                                  major=self.major,
+                                  minor=self.minor,
+                                  sync_percent=None,
+                                  estimated_time=None,
+                                  is_degraded=False,
+                                  ldisk_status=constants.LDS_OKAY)
 
   def CombinedSyncStatus(self):
     """Calculate the mirror status recursively for our children.
@@ -242,22 +265,44 @@ class BlockDev(object):
     minimum percent and maximum time are calculated across our
     children.
 
+    @rtype: objects.BlockDevStatus
+
     """
-    min_percent, max_time, is_degraded, ldisk = self.GetSyncStatus()
+    status = self.GetSyncStatus()
+
+    min_percent = status.sync_percent
+    max_time = status.estimated_time
+    is_degraded = status.is_degraded
+    ldisk_status = status.ldisk_status
+
     if self._children:
       for child in self._children:
-        c_percent, c_time, c_degraded, c_ldisk = child.GetSyncStatus()
+        child_status = child.GetSyncStatus()
+
         if min_percent is None:
-          min_percent = c_percent
-        elif c_percent is not None:
-          min_percent = min(min_percent, c_percent)
+          min_percent = child_status.sync_percent
+        elif child_status.sync_percent is not None:
+          min_percent = min(min_percent, child_status.sync_percent)
+
         if max_time is None:
-          max_time = c_time
-        elif c_time is not None:
-          max_time = max(max_time, c_time)
-        is_degraded = is_degraded or c_degraded
-        ldisk = ldisk or c_ldisk
-    return min_percent, max_time, is_degraded, ldisk
+          max_time = child_status.estimated_time
+        elif child_status.estimated_time is not None:
+          max_time = max(max_time, child_status.estimated_time)
+
+        is_degraded = is_degraded or child_status.is_degraded
+
+        if ldisk_status is None:
+          ldisk_status = child_status.ldisk_status
+        elif child_status.ldisk_status is not None:
+          ldisk_status = max(ldisk_status, child_status.ldisk_status)
+
+    return objects.BlockDevStatus(dev_path=self.dev_path,
+                                  major=self.major,
+                                  minor=self.minor,
+                                  sync_percent=min_percent,
+                                  estimated_time=max_time,
+                                  is_degraded=is_degraded,
+                                  ldisk_status=ldisk_status)
 
 
   def SetInfo(self, text):
@@ -328,13 +373,16 @@ class LogicalVolume(BlockDev):
       raise errors.ProgrammerError("Invalid configuration data %s" %
                                    str(unique_id))
     vg_name, lv_name = unique_id
-    pvs_info = cls.GetPVInfo(vg_name)
+    pvs_info = cls.GetPVInfo([vg_name])
     if not pvs_info:
       _ThrowError("Can't compute PV info for vg %s", vg_name)
     pvs_info.sort()
     pvs_info.reverse()
 
     pvlist = [ pv[1] for pv in pvs_info ]
+    if utils.any(pvlist, lambda v: ":" in v):
+      _ThrowError("Some of your PVs have invalid character ':'"
+                  " in their name")
     free_size = sum([ pv[0] for pv in pvs_info ])
     current_pvs = len(pvlist)
     stripes = min(current_pvs, constants.LVM_STRIPECOUNT)
@@ -359,18 +407,20 @@ class LogicalVolume(BlockDev):
     return LogicalVolume(unique_id, children, size)
 
   @staticmethod
-  def GetPVInfo(vg_name):
+  def GetPVInfo(vg_names, filter_allocatable=True):
     """Get the free space info for PVs in a volume group.
 
-    @param vg_name: the volume group name
+    @param vg_names: list of volume group names, if empty all will be returned
+    @param filter_allocatable: whether to skip over unallocatable PVs
 
     @rtype: list
     @return: list of tuples (free_space, name) with free_space in mebibytes
 
     """
+    sep = "|"
     command = ["pvs", "--noheadings", "--nosuffix", "--units=m",
                "-opv_name,vg_name,pv_free,pv_attr", "--unbuffered",
-               "--separator=:"]
+               "--separator=%s" % sep ]
     result = utils.RunCmd(command)
     if result.failed:
       logging.error("Can't get the PV information: %s - %s",
@@ -378,14 +428,17 @@ class LogicalVolume(BlockDev):
       return None
     data = []
     for line in result.stdout.splitlines():
-      fields = line.strip().split(':')
+      fields = line.strip().split(sep)
       if len(fields) != 4:
         logging.error("Can't parse pvs output: line '%s'", line)
         return None
-      # skip over pvs from another vg or ones which are not allocatable
-      if fields[1] != vg_name or fields[3][0] != 'a':
+      # (possibly) skip over pvs which are not allocatable
+      if filter_allocatable and fields[3][0] != 'a':
         continue
-      data.append((float(fields[2]), fields[0]))
+      # (possibly) skip over pvs which are not in the right volume group(s)
+      if vg_names and fields[1] not in vg_names:
+        continue
+      data.append((float(fields[2]), fields[0], fields[1]))
 
     return data
 
@@ -459,7 +512,7 @@ class LogicalVolume(BlockDev):
     try:
       major = int(major)
       minor = int(minor)
-    except (TypeError, ValueError), err:
+    except ValueError, err:
       logging.error("lvs major/minor cannot be parsed: %s", str(err))
 
     try:
@@ -523,11 +576,21 @@ class LogicalVolume(BlockDev):
 
     The status was already read in Attach, so we just return it.
 
-    @rtype: tuple
-    @return: (sync_percent, estimated_time, is_degraded, ldisk)
+    @rtype: objects.BlockDevStatus
 
     """
-    return None, None, self._degraded, self._degraded
+    if self._degraded:
+      ldisk_status = constants.LDS_FAULTY
+    else:
+      ldisk_status = constants.LDS_OKAY
+
+    return objects.BlockDevStatus(dev_path=self.dev_path,
+                                  major=self.major,
+                                  minor=self.minor,
+                                  sync_percent=None,
+                                  estimated_time=None,
+                                  is_degraded=self._degraded,
+                                  ldisk_status=ldisk_status)
 
   def Open(self, force=False):
     """Make the device ready for I/O.
@@ -555,12 +618,12 @@ class LogicalVolume(BlockDev):
     snap = LogicalVolume((self._vg_name, snap_name), None, size)
     _IgnoreError(snap.Remove)
 
-    pvs_info = self.GetPVInfo(self._vg_name)
+    pvs_info = self.GetPVInfo([self._vg_name])
     if not pvs_info:
       _ThrowError("Can't compute PV info for vg %s", self._vg_name)
     pvs_info.sort()
     pvs_info.reverse()
-    free_size, pv_name = pvs_info[0]
+    free_size, _, _ = pvs_info[0]
     if free_size < size:
       _ThrowError("Not enough free space: required %s,"
                   " available %s", size, free_size)
@@ -743,11 +806,7 @@ class BaseDRBD(BlockDev): # pylint: disable-msg=W0223
 
     """
     try:
-      stat = open(filename, "r")
-      try:
-        data = stat.read().splitlines()
-      finally:
-        stat.close()
+      data = utils.ReadFile(filename).splitlines()
     except EnvironmentError, err:
       if err.errno == errno.ENOENT:
         _ThrowError("The file %s cannot be opened, check if the module"
@@ -874,7 +933,7 @@ class BaseDRBD(BlockDev): # pylint: disable-msg=W0223
                   result.fail_reason, result.output)
     try:
       sectors = int(result.stdout)
-    except (TypeError, ValueError):
+    except ValueError:
       _ThrowError("Invalid output from blockdev: '%s'", result.stdout)
     bytes = sectors * 512
     if bytes < 128 * 1024 * 1024: # less than 128MiB
@@ -919,6 +978,17 @@ class DRBD8(BaseDRBD):
   def __init__(self, unique_id, children, size):
     if children and children.count(None) > 0:
       children = []
+    if len(children) not in (0, 2):
+      raise ValueError("Invalid configuration data %s" % str(children))
+    if not isinstance(unique_id, (tuple, list)) or len(unique_id) != 6:
+      raise ValueError("Invalid configuration data %s" % str(unique_id))
+    (self._lhost, self._lport,
+     self._rhost, self._rport,
+     self._aminor, self._secret) = unique_id
+    if children:
+      if not _CanReadDevice(children[1].dev_path):
+        logging.info("drbd%s: Ignoring unreadable meta device", self._aminor)
+        children = []
     super(DRBD8, self).__init__(unique_id, children, size)
     self.major = self._DRBD_MAJOR
     version = self._GetVersion()
@@ -927,13 +997,6 @@ class DRBD8(BaseDRBD):
                   " usage: kernel is %s.%s, ganeti wants 8.x",
                   version['k_major'], version['k_minor'])
 
-    if len(children) not in (0, 2):
-      raise ValueError("Invalid configuration data %s" % str(children))
-    if not isinstance(unique_id, (tuple, list)) or len(unique_id) != 6:
-      raise ValueError("Invalid configuration data %s" % str(unique_id))
-    (self._lhost, self._lport,
-     self._rhost, self._rport,
-     self._aminor, self._secret) = unique_id
     if (self._lhost is not None and self._lhost == self._rhost and
         self._lport == self._rport):
       raise ValueError("Invalid configuration data, same local/remote %s" %
@@ -1192,20 +1255,18 @@ class DRBD8(BaseDRBD):
       _ThrowError("drbd%d: can't setup network: %s - %s",
                   minor, result.fail_reason, result.output)
 
-    timeout = time.time() + 10
-    ok = False
-    while time.time() < timeout:
+    def _CheckNetworkConfig():
       info = cls._GetDevInfo(cls._GetShowData(minor))
       if not "local_addr" in info or not "remote_addr" in info:
-        time.sleep(1)
-        continue
+        raise utils.RetryAgain()
+
       if (info["local_addr"] != (lhost, lport) or
           info["remote_addr"] != (rhost, rport)):
-        time.sleep(1)
-        continue
-      ok = True
-      break
-    if not ok:
+        raise utils.RetryAgain()
+
+    try:
+      utils.Retry(_CheckNetworkConfig, 1.0, 10.0)
+    except utils.RetryTimeout:
       _ThrowError("drbd%d: timeout while configuring network", minor)
 
   def AddChildren(self, devices):
@@ -1320,16 +1381,29 @@ class DRBD8(BaseDRBD):
     We compute the ldisk parameter based on whether we have a local
     disk or not.
 
-    @rtype: tuple
-    @return: (sync_percent, estimated_time, is_degraded, ldisk)
+    @rtype: objects.BlockDevStatus
 
     """
     if self.minor is None and not self.Attach():
       _ThrowError("drbd%d: can't Attach() in GetSyncStatus", self._aminor)
+
     stats = self.GetProcStatus()
-    ldisk = not stats.is_disk_uptodate
-    is_degraded = not stats.is_connected
-    return stats.sync_percent, stats.est_time, is_degraded or ldisk, ldisk
+    is_degraded = not stats.is_connected or not stats.is_disk_uptodate
+
+    if stats.is_disk_uptodate:
+      ldisk_status = constants.LDS_OKAY
+    elif stats.is_diskless:
+      ldisk_status = constants.LDS_FAULTY
+    else:
+      ldisk_status = constants.LDS_UNKNOWN
+
+    return objects.BlockDevStatus(dev_path=self.dev_path,
+                                  major=self.major,
+                                  minor=self.minor,
+                                  sync_percent=stats.sync_percent,
+                                  estimated_time=stats.est_time,
+                                  is_degraded=is_degraded,
+                                  ldisk_status=ldisk_status)
 
   def Open(self, force=False):
     """Make the local state primary.
@@ -1385,31 +1459,42 @@ class DRBD8(BaseDRBD):
       _ThrowError("drbd%d: DRBD disk missing network info in"
                   " DisconnectNet()", self.minor)
 
-    ever_disconnected = _IgnoreError(self._ShutdownNet, self.minor)
-    timeout_limit = time.time() + self._NET_RECONFIG_TIMEOUT
-    sleep_time = 0.100 # we start the retry time at 100 milliseconds
-    while time.time() < timeout_limit:
-      status = self.GetProcStatus()
-      if status.is_standalone:
-        break
-      # retry the disconnect, it seems possible that due to a
-      # well-time disconnect on the peer, my disconnect command might
-      # be ignored and forgotten
-      ever_disconnected = _IgnoreError(self._ShutdownNet, self.minor) or \
-                          ever_disconnected
-      time.sleep(sleep_time)
-      sleep_time = min(2, sleep_time * 1.5)
+    class _DisconnectStatus:
+      def __init__(self, ever_disconnected):
+        self.ever_disconnected = ever_disconnected
 
-    if not status.is_standalone:
-      if ever_disconnected:
+    dstatus = _DisconnectStatus(_IgnoreError(self._ShutdownNet, self.minor))
+
+    def _WaitForDisconnect():
+      if self.GetProcStatus().is_standalone:
+        return
+
+      # retry the disconnect, it seems possible that due to a well-time
+      # disconnect on the peer, my disconnect command might be ignored and
+      # forgotten
+      dstatus.ever_disconnected = \
+        _IgnoreError(self._ShutdownNet, self.minor) or dstatus.ever_disconnected
+
+      raise utils.RetryAgain()
+
+    # Keep start time
+    start_time = time.time()
+
+    try:
+      # Start delay at 100 milliseconds and grow up to 2 seconds
+      utils.Retry(_WaitForDisconnect, (0.1, 1.5, 2.0),
+                  self._NET_RECONFIG_TIMEOUT)
+    except utils.RetryTimeout:
+      if dstatus.ever_disconnected:
         msg = ("drbd%d: device did not react to the"
                " 'disconnect' command in a timely manner")
       else:
         msg = "drbd%d: can't shutdown network, even after multiple retries"
+
       _ThrowError(msg, self.minor)
 
-    reconfig_time = time.time() - timeout_limit + self._NET_RECONFIG_TIMEOUT
-    if reconfig_time > 15: # hardcoded alert limit
+    reconfig_time = time.time() - start_time
+    if reconfig_time > (self._NET_RECONFIG_TIMEOUT * 0.25):
       logging.info("drbd%d: DisconnectNet: detach took %.3f seconds",
                    self.minor, reconfig_time)
 
@@ -1488,6 +1573,8 @@ class DRBD8(BaseDRBD):
     the attach if can return success.
 
     """
+    # TODO: Rewrite to not use a for loop just because there is 'break'
+    # pylint: disable-msg=W0631
     net_data = (self._lhost, self._lport, self._rhost, self._rport)
     for minor in (self._aminor,):
       info = self._GetDevInfo(self._GetShowData(minor))
@@ -1734,6 +1821,22 @@ class FileStorage(BlockDev):
     except OSError, err:
       if err.errno != errno.ENOENT:
         _ThrowError("Can't remove file '%s': %s", self.dev_path, err)
+
+  def Rename(self, new_id):
+    """Renames the file.
+
+    """
+    # TODO: implement rename for file-based storage
+    _ThrowError("Rename is not supported for file-based storage")
+
+  def Grow(self, amount):
+    """Grow the file
+
+    @param amount: the amount (in mebibytes) to grow with
+
+    """
+    # TODO: implement grow for file-based storage
+    _ThrowError("Grow not supported for file-based storage")
 
   def Attach(self):
     """Attach to an existing file.

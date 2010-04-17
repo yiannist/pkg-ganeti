@@ -68,9 +68,9 @@ def TestClusterInit():
     cmd.append('--bridge=%s' % bridge)
     cmd.append('--master-netdev=%s' % bridge)
 
-  htype = qa_config.get('default-hypervisor', None)
+  htype = qa_config.get('enabled-hypervisors', None)
   if htype:
-    cmd.append('--default-hypervisor=%s' % htype)
+    cmd.append('--enabled-hypervisors=%s' % htype)
 
   cmd.append(qa_config.get('name'))
 
@@ -159,7 +159,7 @@ def TestClusterBurnin():
   try:
     try:
       num = qa_config.get('options', {}).get('burnin-instances', 1)
-      for _ in xrange(0, num):
+      for _ in range(0, num):
         instances.append(qa_config.AcquireInstance())
     except qa_error.OutOfInstancesError:
       print "Not enough instances, continuing anyway."

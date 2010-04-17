@@ -26,10 +26,10 @@ import BaseHTTPServer
 import cgi
 import logging
 import os
-import select
 import socket
 import time
 import signal
+import asyncore
 
 from ganeti import http
 
@@ -415,7 +415,7 @@ class HttpServerRequestExecutor(object):
     """
     return self.error_message_format % values
 
-class HttpServer(http.HttpBase):
+class HttpServer(http.HttpBase, asyncore.dispatcher):
   """Generic HTTP server class
 
   Users of this class must subclass it and override the HandleRequest function.
@@ -445,6 +445,7 @@ class HttpServer(http.HttpBase):
 
     """
     http.HttpBase.__init__(self)
+    asyncore.dispatcher.__init__(self)
 
     if request_executor_class is None:
       self.request_executor = HttpServerRequestExecutor
@@ -461,8 +462,8 @@ class HttpServer(http.HttpBase):
     self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
     self._children = []
-
-    mainloop.RegisterIO(self, self.socket.fileno(), select.POLLIN)
+    self.set_socket(self.socket)
+    self.accepting = True
     mainloop.RegisterSignal(self)
 
   def Start(self):
@@ -472,9 +473,8 @@ class HttpServer(http.HttpBase):
   def Stop(self):
     self.socket.close()
 
-  def OnIO(self, fd, condition):
-    if condition & select.POLLIN:
-      self._IncomingConnection()
+  def handle_accept(self):
+    self._IncomingConnection()
 
   def OnSignal(self, signum):
     if signum == signal.SIGCHLD:
@@ -503,7 +503,7 @@ class HttpServer(http.HttpBase):
 
     for child in self._children:
       try:
-        pid, status = os.waitpid(child, os.WNOHANG)
+        pid, _ = os.waitpid(child, os.WNOHANG)
       except os.error:
         pid = None
       if pid and pid in self._children:
@@ -513,6 +513,7 @@ class HttpServer(http.HttpBase):
     """Called for each incoming connection
 
     """
+    # pylint: disable-msg=W0212
     (connection, client_addr) = self.socket.accept()
 
     self._CollectChildren(False)
@@ -521,8 +522,18 @@ class HttpServer(http.HttpBase):
     if pid == 0:
       # Child process
       try:
+        # The client shouldn't keep the listening socket open. If the parent
+        # process is restarted, it would fail when there's already something
+        # listening (in this case its own child from a previous run) on the
+        # same port.
+        try:
+          self.socket.close()
+        except socket.error:
+          pass
+        self.socket = None
+
         self.request_executor(self, connection, client_addr)
-      except Exception:
+      except Exception: # pylint: disable-msg=W0703
         logging.exception("Error while handling request from %s:%s",
                           client_addr[0], client_addr[1])
         os._exit(1)

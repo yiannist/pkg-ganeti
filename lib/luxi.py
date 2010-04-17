@@ -56,7 +56,9 @@ REQ_QUERY_NODES = "QueryNodes"
 REQ_QUERY_EXPORTS = "QueryExports"
 REQ_QUERY_CONFIG_VALUES = "QueryConfigValues"
 REQ_QUERY_CLUSTER_INFO = "QueryClusterInfo"
+REQ_QUERY_TAGS = "QueryTags"
 REQ_QUEUE_SET_DRAIN_FLAG = "SetDrainFlag"
+REQ_SET_WATCHER_PAUSE = "SetWatcherPause"
 
 DEF_CTMO = 10
 DEF_RWTO = 60
@@ -161,7 +163,7 @@ class Transport:
         raise TimeoutError("Connect timed out: %s" % str(err))
       except socket.error, err:
         if err.args[0] in (errno.ENOENT, errno.ECONNREFUSED):
-          raise NoMasterError((address,))
+          raise NoMasterError(address)
         raise
       self.socket.settimeout(self._rwtimeout)
     except (socket.error, NoMasterError):
@@ -285,7 +287,7 @@ class Client(object):
       old_transp = self.transport
       self.transport = None
       old_transp.Close()
-    except Exception:
+    except Exception: # pylint: disable-msg=W0703
       pass
 
   def CallMethod(self, method, args):
@@ -331,6 +333,9 @@ class Client(object):
 
   def SetQueueDrainFlag(self, drain_flag):
     return self.CallMethod(REQ_QUEUE_SET_DRAIN_FLAG, drain_flag)
+
+  def SetWatcherPause(self, until):
+    return self.CallMethod(REQ_SET_WATCHER_PAUSE, [until])
 
   def SubmitJob(self, ops):
     ops_state = map(lambda op: op.__getstate__(), ops)
@@ -379,6 +384,9 @@ class Client(object):
 
   def QueryConfigValues(self, fields):
     return self.CallMethod(REQ_QUERY_CONFIG_VALUES, fields)
+
+  def QueryTags(self, kind, name):
+    return self.CallMethod(REQ_QUERY_TAGS, (kind, name))
 
 
 # TODO: class Server(object)

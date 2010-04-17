@@ -22,190 +22,182 @@
 """Module with helper classes and functions for daemons"""
 
 
-import select
+import asyncore
+import os
 import signal
 import errno
+import logging
+import sched
 import time
+import socket
+import sys
 
 from ganeti import utils
+from ganeti import constants
+from ganeti import errors
 
 
-class Timer(object):
-  def __init__(self, owner, timer_id, start, interval, repeat):
-    self.owner = owner
-    self.timer_id = timer_id
-    self.start = start
-    self.interval = interval
-    self.repeat = repeat
+class SchedulerBreakout(Exception):
+  """Exception used to get out of the scheduler loop
+
+  """
+
+
+def AsyncoreDelayFunction(timeout):
+  """Asyncore-compatible scheduler delay function.
+
+  This is a delay function for sched that, rather than actually sleeping,
+  executes asyncore events happening in the meantime.
+
+  After an event has occurred, rather than returning, it raises a
+  SchedulerBreakout exception, which will force the current scheduler.run()
+  invocation to terminate, so that we can also check for signals. The main loop
+  will then call the scheduler run again, which will allow it to actually
+  process any due events.
+
+  This is needed because scheduler.run() doesn't support a count=..., as
+  asyncore loop, and the scheduler module documents throwing exceptions from
+  inside the delay function as an allowed usage model.
+
+  """
+  asyncore.loop(timeout=timeout, count=1, use_poll=True)
+  raise SchedulerBreakout()
+
+
+class AsyncoreScheduler(sched.scheduler):
+  """Event scheduler integrated with asyncore
+
+  """
+  def __init__(self, timefunc):
+    sched.scheduler.__init__(self, timefunc, AsyncoreDelayFunction)
+
+
+class AsyncUDPSocket(asyncore.dispatcher):
+  """An improved asyncore udp socket.
+
+  """
+  def __init__(self):
+    """Constructor for AsyncUDPSocket
+
+    """
+    asyncore.dispatcher.__init__(self)
+    self._out_queue = []
+    self.create_socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+  # this method is overriding an asyncore.dispatcher method
+  def handle_connect(self):
+    # Python thinks that the first udp message from a source qualifies as a
+    # "connect" and further ones are part of the same connection. We beg to
+    # differ and treat all messages equally.
+    pass
+
+  # this method is overriding an asyncore.dispatcher method
+  def handle_read(self):
+    try:
+      try:
+        payload, address = self.recvfrom(constants.MAX_UDP_DATA_SIZE)
+      except socket.error, err:
+        if err.errno == errno.EINTR:
+          # we got a signal while trying to read. no need to do anything,
+          # handle_read will be called again if there is data on the socket.
+          return
+        else:
+          raise
+      ip, port = address
+      self.handle_datagram(payload, ip, port)
+    except: # pylint: disable-msg=W0702
+      # we need to catch any exception here, log it, but proceed, because even
+      # if we failed handling a single request, we still want to continue.
+      logging.error("Unexpected exception", exc_info=True)
+
+  def handle_datagram(self, payload, ip, port):
+    """Handle an already read udp datagram
+
+    """
+    raise NotImplementedError
+
+  # this method is overriding an asyncore.dispatcher method
+  def writable(self):
+    # We should check whether we can write to the socket only if we have
+    # something scheduled to be written
+    return bool(self._out_queue)
+
+  def handle_write(self):
+    try:
+      if not self._out_queue:
+        logging.error("handle_write called with empty output queue")
+        return
+      (ip, port, payload) = self._out_queue[0]
+      try:
+        self.sendto(payload, 0, (ip, port))
+      except socket.error, err:
+        if err.errno == errno.EINTR:
+          # we got a signal while trying to write. no need to do anything,
+          # handle_write will be called again because we haven't emptied the
+          # _out_queue, and we'll try again
+          return
+        else:
+          raise
+      self._out_queue.pop(0)
+    except: # pylint: disable-msg=W0702
+      # we need to catch any exception here, log it, but proceed, because even
+      # if we failed sending a single datagram we still want to continue.
+      logging.error("Unexpected exception", exc_info=True)
+
+  def enqueue_send(self, ip, port, payload):
+    """Enqueue a datagram to be sent when possible
+
+    """
+    if len(payload) > constants.MAX_UDP_DATA_SIZE:
+      raise errors.UdpDataSizeError('Packet too big: %s > %s' % (len(payload),
+                                    constants.MAX_UDP_DATA_SIZE))
+    self._out_queue.append((ip, port, payload))
 
 
 class Mainloop(object):
   """Generic mainloop for daemons
+
+  @ivar scheduler: A sched.scheduler object, which can be used to register
+    timed events
 
   """
   def __init__(self):
     """Constructs a new Mainloop instance.
 
     """
-    self._io_wait = {}
-    self._io_wait_add = []
-    self._io_wait_remove = []
     self._signal_wait = []
-    self._timer_id_last = 0
-    self._timer = {}
-    self._timer_add = []
-    self._timer_remove = []
+    self.scheduler = AsyncoreScheduler(time.time)
 
-  def Run(self, handle_sigchld=True, handle_sigterm=True, stop_on_empty=False):
+  @utils.SignalHandled([signal.SIGCHLD])
+  @utils.SignalHandled([signal.SIGTERM])
+  def Run(self, signal_handlers=None):
     """Runs the mainloop.
 
-    @type handle_sigchld: bool
-    @param handle_sigchld: Whether to install handler for SIGCHLD
-    @type handle_sigterm: bool
-    @param handle_sigterm: Whether to install handler for SIGTERM
-    @type stop_on_empty: bool
-    @param stop_on_empty: Whether to stop mainloop once all I/O waiters
-                          unregistered
+    @type signal_handlers: dict
+    @param signal_handlers: signal->L{utils.SignalHandler} passed by decorator
 
     """
-    poller = select.poll()
-
-    # Setup signal handlers
-    if handle_sigchld:
-      sigchld_handler = utils.SignalHandler([signal.SIGCHLD])
-    else:
-      sigchld_handler = None
-    try:
-      if handle_sigterm:
-        sigterm_handler = utils.SignalHandler([signal.SIGTERM])
+    assert isinstance(signal_handlers, dict) and \
+           len(signal_handlers) > 0, \
+           "Broken SignalHandled decorator"
+    running = True
+    # Start actual main loop
+    while running:
+      if not self.scheduler.empty():
+        try:
+          self.scheduler.run()
+        except SchedulerBreakout:
+          pass
       else:
-        sigterm_handler = None
+        asyncore.loop(count=1, use_poll=True)
 
-      try:
-        running = True
-        timeout = None
-        timeout_needs_update = True
-
-        # Start actual main loop
-        while running:
-          # Entries could be added again afterwards, hence removing first
-          if self._io_wait_remove:
-            for fd in self._io_wait_remove:
-              try:
-                poller.unregister(fd)
-              except KeyError:
-                pass
-              try:
-                del self._io_wait[fd]
-              except KeyError:
-                pass
-            self._io_wait_remove = []
-
-          # Add new entries
-          if self._io_wait_add:
-            for (owner, fd, conditions) in self._io_wait_add:
-              self._io_wait[fd] = owner
-              poller.register(fd, conditions)
-            self._io_wait_add = []
-
-          # Add new timers
-          if self._timer_add:
-            timeout_needs_update = True
-            for timer in self._timer_add:
-              self._timer[timer.timer_id] = timer
-            del self._timer_add[:]
-
-          # Remove timers
-          if self._timer_remove:
-            timeout_needs_update = True
-            for timer_id in self._timer_remove:
-              try:
-                del self._timer[timer_id]
-              except KeyError:
-                pass
-            del self._timer_remove[:]
-
-          # Stop if nothing is listening anymore
-          if stop_on_empty and not (self._io_wait or self._timer):
-            break
-
-          # Calculate timeout again if required
-          if timeout_needs_update:
-            timeout = self._CalcTimeout(time.time())
-            timeout_needs_update = False
-
-          # Wait for I/O events
-          try:
-            io_events = poller.poll(timeout)
-          except select.error, err:
-            # EINTR can happen when signals are sent
-            if err.args and err.args[0] in (errno.EINTR,):
-              io_events = None
-            else:
-              raise
-
-          after_poll = time.time()
-
-          if io_events:
-            # Check for I/O events
-            for (evfd, evcond) in io_events:
-              owner = self._io_wait.get(evfd, None)
-              if owner:
-                owner.OnIO(evfd, evcond)
-
-          if self._timer:
-            self._CheckTimers(after_poll)
-
-          # Check whether signal was raised
-          if sigchld_handler and sigchld_handler.called:
-            self._CallSignalWaiters(signal.SIGCHLD)
-            sigchld_handler.Clear()
-
-          if sigterm_handler and sigterm_handler.called:
-            self._CallSignalWaiters(signal.SIGTERM)
-            running = False
-            sigterm_handler.Clear()
-      finally:
-        # Restore signal handlers
-        if sigterm_handler:
-          sigterm_handler.Reset()
-    finally:
-      if sigchld_handler:
-        sigchld_handler.Reset()
-
-  def _CalcTimeout(self, now):
-    if not self._timer:
-      return None
-
-    timeout = None
-
-    # TODO: Repeating timers
-
-    min_timeout = 0.001
-
-    for timer in self._timer.itervalues():
-      time_left = (timer.start + timer.interval) - now
-      if timeout is None or time_left < timeout:
-        timeout = time_left
-      if timeout < 0:
-        timeout = 0
-        break
-      elif timeout < min_timeout:
-        timeout = min_timeout
-        break
-
-    return timeout * 1000.0
-
-  def _CheckTimers(self, now):
-    # TODO: Repeating timers
-    for timer in self._timer.itervalues():
-      if now < (timer.start + timer.interval):
-        continue
-
-      timer.owner.OnTimer(timer.timer_id)
-
-      # TODO: Repeating timers should not be removed
-      self._timer_remove.append(timer.timer_id)
+      # Check whether a signal was raised
+      for sig in signal_handlers:
+        handler = signal_handlers[sig]
+        if handler.called:
+          self._CallSignalWaiters(sig)
+          running = (sig != signal.SIGTERM)
+          handler.Clear()
 
   def _CallSignalWaiters(self, signum):
     """Calls all signal waiters for a certain signal.
@@ -216,41 +208,6 @@ class Mainloop(object):
     """
     for owner in self._signal_wait:
       owner.OnSignal(signum)
-
-  def RegisterIO(self, owner, fd, condition):
-    """Registers a receiver for I/O notifications
-
-    The receiver must support a "OnIO(self, fd, conditions)" function.
-
-    @type owner: instance
-    @param owner: Receiver
-    @type fd: int
-    @param fd: File descriptor
-    @type condition: int
-    @param condition: ORed field of conditions to be notified
-                      (see select module)
-
-    """
-    # select.Poller also supports file() like objects, but we don't.
-    assert isinstance(fd, (int, long)), \
-      "Only integers are supported for file descriptors"
-
-    self._io_wait_add.append((owner, fd, condition))
-
-  def UnregisterIO(self, fd):
-    """Unregister a file descriptor.
-
-    It'll be unregistered the next time the mainloop checks for it.
-
-    @type fd: int
-    @param fd: File descriptor
-
-    """
-    # select.Poller also supports file() like objects, but we don't.
-    assert isinstance(fd, (int, long)), \
-      "Only integers are supported for file descriptors"
-
-    self._io_wait_remove.append(fd)
 
   def RegisterSignal(self, owner):
     """Registers a receiver for signal notifications
@@ -263,37 +220,84 @@ class Mainloop(object):
     """
     self._signal_wait.append(owner)
 
-  def AddTimer(self, owner, interval, repeat):
-    """Add a new timer.
 
-    The receiver must support a "OnTimer(self, timer_id)" function.
+def GenericMain(daemon_name, optionparser, dirs, check_fn, exec_fn):
+  """Shared main function for daemons.
 
-    @type owner: instance
-    @param owner: Receiver
-    @type interval: int or float
-    @param interval: Timer interval in seconds
-    @type repeat: bool
-    @param repeat: Whether this is a repeating timer or one-off
+  @type daemon_name: string
+  @param daemon_name: daemon name
+  @type optionparser: optparse.OptionParser
+  @param optionparser: initialized optionparser with daemon-specific options
+                       (common -f -d options will be handled by this module)
+  @type dirs: list of strings
+  @param dirs: list of directories that must exist for this daemon to work
+  @type check_fn: function which accepts (options, args)
+  @param check_fn: function that checks start conditions and exits if they're
+                   not met
+  @type exec_fn: function which accepts (options, args)
+  @param exec_fn: function that's executed with the daemon's pid file held, and
+                  runs the daemon itself.
 
-    """
-    # TODO: Implement repeating timers
-    assert not repeat, "Repeating timers are not yet supported"
+  """
+  optionparser.add_option("-f", "--foreground", dest="fork",
+                          help="Don't detach from the current terminal",
+                          default=True, action="store_false")
+  optionparser.add_option("-d", "--debug", dest="debug",
+                          help="Enable some debug messages",
+                          default=False, action="store_true")
+  if daemon_name in constants.DAEMONS_PORTS:
+    # for networked daemons we also allow choosing the bind port and address.
+    # by default we use the port provided by utils.GetDaemonPort, and bind to
+    # 0.0.0.0 (which is represented by and empty bind address.
+    port = utils.GetDaemonPort(daemon_name)
+    optionparser.add_option("-p", "--port", dest="port",
+                            help="Network port (%s default)." % port,
+                            default=port, type="int")
+    optionparser.add_option("-b", "--bind", dest="bind_address",
+                            help="Bind address",
+                            default="", metavar="ADDRESS")
 
-    # Get new ID
-    self._timer_id_last += 1
+  if daemon_name in constants.DAEMONS_SSL:
+    default_cert, default_key = constants.DAEMONS_SSL[daemon_name]
+    optionparser.add_option("--no-ssl", dest="ssl",
+                            help="Do not secure HTTP protocol with SSL",
+                            default=True, action="store_false")
+    optionparser.add_option("-K", "--ssl-key", dest="ssl_key",
+                            help="SSL key",
+                            default=default_key, type="string")
+    optionparser.add_option("-C", "--ssl-cert", dest="ssl_cert",
+                            help="SSL certificate",
+                            default=default_cert, type="string")
 
-    timer_id = self._timer_id_last
+  multithread = utils.no_fork = daemon_name in constants.MULTITHREADED_DAEMONS
 
-    self._timer_add.append(Timer(owner, timer_id, time.time(),
-                                 float(interval), repeat))
+  options, args = optionparser.parse_args()
 
-    return timer_id
+  if hasattr(options, 'ssl') and options.ssl:
+    if not (options.ssl_cert and options.ssl_key):
+      print >> sys.stderr, "Need key and certificate to use ssl"
+      sys.exit(constants.EXIT_FAILURE)
+    for fname in (options.ssl_cert, options.ssl_key):
+      if not os.path.isfile(fname):
+        print >> sys.stderr, "Need ssl file %s to run" % fname
+        sys.exit(constants.EXIT_FAILURE)
 
-  def RemoveTimer(self, timer_id):
-    """Removes a timer.
+  if check_fn is not None:
+    check_fn(options, args)
 
-    @type timer_id: int
-    @param timer_id: Timer ID
+  utils.EnsureDirs(dirs)
 
-    """
-    self._timer_remove.append(timer_id)
+  if options.fork:
+    utils.CloseFDs()
+    utils.Daemonize(logfile=constants.DAEMONS_LOGFILES[daemon_name])
+
+  utils.WritePidFile(daemon_name)
+  try:
+    utils.SetupLogging(logfile=constants.DAEMONS_LOGFILES[daemon_name],
+                       debug=options.debug,
+                       stderr_logging=not options.fork,
+                       multithreaded=multithread)
+    logging.info("%s daemon startup", daemon_name)
+    exec_fn(options, args)
+  finally:
+    utils.RemovePidFile(daemon_name)

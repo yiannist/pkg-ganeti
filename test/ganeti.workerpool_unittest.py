@@ -29,6 +29,8 @@ import zlib
 
 from ganeti import workerpool
 
+import testutils
+
 
 class DummyBaseWorker(workerpool.BaseWorker):
   def RunTask(self, text):
@@ -60,11 +62,11 @@ class TestWorkerpool(unittest.TestCase):
   """Workerpool tests"""
 
   def testDummy(self):
-    wp = workerpool.WorkerPool(3, DummyBaseWorker)
+    wp = workerpool.WorkerPool("Test", 3, DummyBaseWorker)
     try:
       self._CheckWorkerCount(wp, 3)
 
-      for i in xrange(10):
+      for i in range(10):
         wp.AddTask("Hello world %s" % i)
 
       wp.Quiesce()
@@ -73,7 +75,7 @@ class TestWorkerpool(unittest.TestCase):
       self._CheckWorkerCount(wp, 0)
 
   def testNoTasks(self):
-    wp = workerpool.WorkerPool(3, DummyBaseWorker)
+    wp = workerpool.WorkerPool("Test", 3, DummyBaseWorker)
     try:
       self._CheckWorkerCount(wp, 3)
       self._CheckNoTasks(wp)
@@ -82,7 +84,7 @@ class TestWorkerpool(unittest.TestCase):
       self._CheckWorkerCount(wp, 0)
 
   def testNoTasksQuiesce(self):
-    wp = workerpool.WorkerPool(3, DummyBaseWorker)
+    wp = workerpool.WorkerPool("Test", 3, DummyBaseWorker)
     try:
       self._CheckWorkerCount(wp, 3)
       self._CheckNoTasks(wp)
@@ -95,13 +97,13 @@ class TestWorkerpool(unittest.TestCase):
   def testChecksum(self):
     # Tests whether all tasks are run and, since we're only using a single
     # thread, whether everything is started in order.
-    wp = workerpool.WorkerPool(1, ChecksumBaseWorker)
+    wp = workerpool.WorkerPool("Test", 1, ChecksumBaseWorker)
     try:
       self._CheckWorkerCount(wp, 1)
 
       ctx = ChecksumContext()
       checksum = ChecksumContext.CHECKSUM_START
-      for i in xrange(1, 100):
+      for i in range(1, 100):
         checksum = ChecksumContext.UpdateChecksum(checksum, i)
         wp.AddTask(ctx, i)
 
@@ -136,4 +138,4 @@ class TestWorkerpool(unittest.TestCase):
 
 
 if __name__ == '__main__':
-  unittest.main()
+  testutils.GanetiTestProgram()

@@ -26,6 +26,12 @@
 
 """
 
+# pylint: disable-msg=E1103
+
+# E1103: %s %r has no %r member (but some types could not be
+# inferred), because the _TryOSFromDisk returns either (True, os_obj)
+# or (False, "string") which confuses pylint
+
 
 import os
 import os.path
@@ -49,6 +55,40 @@ from ganeti import constants
 from ganeti import bdev
 from ganeti import objects
 from ganeti import ssconf
+
+
+_BOOT_ID_PATH = "/proc/sys/kernel/random/boot_id"
+
+
+class RPCFail(Exception):
+  """Class denoting RPC failure.
+
+  Its argument is the error message.
+
+  """
+
+
+def _Fail(msg, *args, **kwargs):
+  """Log an error and the raise an RPCFail exception.
+
+  This exception is then handled specially in the ganeti daemon and
+  turned into a 'failed' return type. As such, this function is a
+  useful shortcut for logging the error and returning it to the master
+  daemon.
+
+  @type msg: string
+  @param msg: the text of the exception
+  @raise RPCFail
+
+  """
+  if args:
+    msg = msg % args
+  if "log" not in kwargs or kwargs["log"]: # if we should log this error
+    if "exc" in kwargs and kwargs["exc"]:
+      logging.exception(msg)
+    else:
+      logging.error(msg)
+  raise RPCFail(msg)
 
 
 def _GetConfig():
@@ -126,12 +166,21 @@ def _BuildUploadFileList():
   This is abstracted so that it's built only once at module import time.
 
   """
-  return frozenset([
-      constants.CLUSTER_CONF_FILE,
-      constants.ETC_HOSTS,
-      constants.SSH_KNOWN_HOSTS_FILE,
-      constants.VNC_PASSWORD_FILE,
-      ])
+  allowed_files = set([
+    constants.CLUSTER_CONF_FILE,
+    constants.ETC_HOSTS,
+    constants.SSH_KNOWN_HOSTS_FILE,
+    constants.VNC_PASSWORD_FILE,
+    constants.RAPI_CERT_FILE,
+    constants.RAPI_USERS_FILE,
+    constants.HMAC_CLUSTER_KEY,
+    ])
+
+  for hv_name in constants.HYPER_TYPES:
+    hv_class = hypervisor.GetHypervisorClass(hv_name)
+    allowed_files.update(hv_class.GetAncillaryFiles())
+
+  return frozenset(allowed_files)
 
 
 _ALLOWED_UPLOAD_FILES = _BuildUploadFileList()
@@ -140,7 +189,8 @@ _ALLOWED_UPLOAD_FILES = _BuildUploadFileList()
 def JobQueuePurge():
   """Removes job queue files and archived jobs.
 
-  @rtype: None
+  @rtype: tuple
+  @return: True, None
 
   """
   _CleanDirectory(constants.QUEUE_DIR, exclude=[constants.JOB_QUEUE_LOCK_FILE])
@@ -154,8 +204,8 @@ def GetMasterInfo():
   for consumption here or from the node daemon.
 
   @rtype: tuple
-  @return: (master_netdev, master_ip, master_name) if we have a good
-      configuration, otherwise (None, None, None)
+  @return: master_netdev, master_ip, master_name
+  @raise RPCFail: in case of errors
 
   """
   try:
@@ -163,9 +213,8 @@ def GetMasterInfo():
     master_netdev = cfg.GetMasterNetdev()
     master_ip = cfg.GetMasterIP()
     master_node = cfg.GetMasterNode()
-  except errors.ConfigurationError:
-    logging.exception("Cluster configuration incomplete")
-    return (None, None, None)
+  except errors.ConfigurationError, err:
+    _Fail("Cluster configuration incomplete: %s", err, exc=True)
   return (master_netdev, master_ip, master_node)
 
 
@@ -177,7 +226,7 @@ def StartMaster(start_daemons, no_voting):
   based on the start_daemons parameter.
 
   @type start_daemons: boolean
-  @param start_daemons: whther to also start the master
+  @param start_daemons: whether to also start the master
       daemons (ganeti-masterd and ganeti-rapi)
   @type no_voting: boolean
   @param no_voting: whether to start ganeti-masterd without a node vote
@@ -185,25 +234,26 @@ def StartMaster(start_daemons, no_voting):
   @rtype: None
 
   """
-  ok = True
+  # GetMasterInfo will raise an exception if not able to return data
   master_netdev, master_ip, _ = GetMasterInfo()
-  if not master_netdev:
-    return False
 
+  err_msgs = []
   if utils.TcpPing(master_ip, constants.DEFAULT_NODED_PORT):
     if utils.OwnIpAddress(master_ip):
       # we already have the ip:
-      logging.debug("Already started")
+      logging.debug("Master IP already configured, doing nothing")
     else:
-      logging.error("Someone else has the master ip, not activating")
-      ok = False
+      msg = "Someone else has the master ip, not activating"
+      logging.error(msg)
+      err_msgs.append(msg)
   else:
     result = utils.RunCmd(["ip", "address", "add", "%s/32" % master_ip,
                            "dev", master_netdev, "label",
                            "%s:0" % master_netdev])
     if result.failed:
-      logging.error("Can't activate master IP: %s", result.output)
-      ok = False
+      msg = "Can't activate master IP: %s" % result.output
+      logging.error(msg)
+      err_msgs.append(msg)
 
     result = utils.RunCmd(["arping", "-q", "-U", "-c 3", "-I", master_netdev,
                            "-s", master_ip, master_ip])
@@ -211,21 +261,23 @@ def StartMaster(start_daemons, no_voting):
 
   # and now start the master and rapi daemons
   if start_daemons:
-    daemons_params = {
-        'ganeti-masterd': [],
-        'ganeti-rapi': [],
-        }
     if no_voting:
-      daemons_params['ganeti-masterd'].append('--no-voting')
-      daemons_params['ganeti-masterd'].append('--yes-do-it')
-    for daemon in daemons_params:
-      cmd = [daemon]
-      cmd.extend(daemons_params[daemon])
-      result = utils.RunCmd(cmd)
-      if result.failed:
-        logging.error("Can't start daemon %s: %s", daemon, result.output)
-        ok = False
-  return ok
+      masterd_args = "--no-voting --yes-do-it"
+    else:
+      masterd_args = ""
+
+    env = {
+      "EXTRA_MASTERD_ARGS": masterd_args,
+      }
+
+    result = utils.RunCmd([constants.DAEMON_UTIL, "start-master"], env=env)
+    if result.failed:
+      msg = "Can't start Ganeti master: %s" % result.output
+      logging.error(msg)
+      err_msgs.append(msg)
+
+  if err_msgs:
+    _Fail("; ".join(err_msgs))
 
 
 def StopMaster(stop_daemons):
@@ -241,9 +293,11 @@ def StopMaster(stop_daemons):
   @rtype: None
 
   """
+  # TODO: log and report back to the caller the error failures; we
+  # need to decide in which case we fail the RPC for this
+
+  # GetMasterInfo will raise an exception if not able to return data
   master_netdev, master_ip, _ = GetMasterInfo()
-  if not master_netdev:
-    return False
 
   result = utils.RunCmd(["ip", "address", "del", "%s/32" % master_ip,
                          "dev", master_netdev])
@@ -252,11 +306,11 @@ def StopMaster(stop_daemons):
     # but otherwise ignore the failure
 
   if stop_daemons:
-    # stop/kill the rapi and the master daemon
-    for daemon in constants.RAPI_PID, constants.MASTERD_PID:
-      utils.KillProcess(utils.ReadPidFile(utils.DaemonPidFileName(daemon)))
-
-  return True
+    result = utils.RunCmd([constants.DAEMON_UTIL, "stop-master"])
+    if result.failed:
+      logging.error("Could not stop Ganeti master, command %s had exitcode %s"
+                    " and error %s",
+                    result.cmd, result.exit_code, result.output)
 
 
 def AddNode(dsa, dsapub, rsa, rsapub, sshkey, sshpub):
@@ -294,21 +348,20 @@ def AddNode(dsa, dsapub, rsa, rsapub, sshkey, sshpub):
     priv_key, pub_key, auth_keys = ssh.GetUserFiles(constants.GANETI_RUNAS,
                                                     mkdir=True)
   except errors.OpExecError, err:
-    msg = "Error while processing user ssh files"
-    logging.exception(msg)
-    return (False, "%s: %s" % (msg, err))
+    _Fail("Error while processing user ssh files: %s", err, exc=True)
 
   for name, content in [(priv_key, sshkey), (pub_key, sshpub)]:
     utils.WriteFile(name, data=content, mode=0600)
 
   utils.AddAuthorizedKey(auth_keys, sshpub)
 
-  utils.RunCmd([constants.SSH_INITD_SCRIPT, "restart"])
+  result = utils.RunCmd([constants.DAEMON_UTIL, "reload-ssh-keys"])
+  if result.failed:
+    _Fail("Unable to reload SSH keys (command %r, exit code %s, output %r)",
+          result.cmd, result.exit_code, result.output)
 
-  return (True, "Node added successfully")
 
-
-def LeaveCluster():
+def LeaveCluster(modify_ssh_setup):
   """Cleans up and remove the current node.
 
   This function cleans up and prepares the current node to be removed
@@ -318,27 +371,37 @@ def LeaveCluster():
   L{errors.QuitGanetiException} which is used as a special case to
   shutdown the node daemon.
 
+  @param modify_ssh_setup: boolean
+
   """
   _CleanDirectory(constants.DATA_DIR)
   JobQueuePurge()
 
+  if modify_ssh_setup:
+    try:
+      priv_key, pub_key, auth_keys = ssh.GetUserFiles(constants.GANETI_RUNAS)
+
+      utils.RemoveAuthorizedKey(auth_keys, utils.ReadFile(pub_key))
+
+      utils.RemoveFile(priv_key)
+      utils.RemoveFile(pub_key)
+    except errors.OpExecError:
+      logging.exception("Error while processing ssh files")
+
   try:
-    priv_key, pub_key, auth_keys = ssh.GetUserFiles(constants.GANETI_RUNAS)
-  except errors.OpExecError:
-    logging.exception("Error while processing ssh files")
-    return
+    utils.RemoveFile(constants.HMAC_CLUSTER_KEY)
+    utils.RemoveFile(constants.RAPI_CERT_FILE)
+    utils.RemoveFile(constants.SSL_CERT_FILE)
+  except: # pylint: disable-msg=W0702
+    logging.exception("Error while removing cluster secrets")
 
-  f = open(pub_key, 'r')
-  try:
-    utils.RemoveAuthorizedKey(auth_keys, f.read(8192))
-  finally:
-    f.close()
+  result = utils.RunCmd([constants.DAEMON_UTIL, "stop", constants.CONFD])
+  if result.failed:
+    logging.error("Command %s failed with exitcode %s and error %s",
+                  result.cmd, result.exit_code, result.output)
 
-  utils.RemoveFile(priv_key)
-  utils.RemoveFile(pub_key)
-
-  # Return a reassuring string to the caller, and quit
-  raise errors.QuitGanetiException(False, 'Shutdown scheduled')
+  # Raise a custom exception (handled in ganeti-noded)
+  raise errors.QuitGanetiException(True, 'Shutdown scheduled')
 
 
 def GetNodeInfo(vgname, hypervisor_type):
@@ -368,11 +431,7 @@ def GetNodeInfo(vgname, hypervisor_type):
   if hyp_info is not None:
     outputarray.update(hyp_info)
 
-  f = open("/proc/sys/kernel/random/boot_id", 'r')
-  try:
-    outputarray["bootid"] = f.read(128).rstrip("\n")
-  finally:
-    f.close()
+  outputarray["bootid"] = utils.ReadFile(_BOOT_ID_PATH, size=128).rstrip("\n")
 
   return outputarray
 
@@ -438,7 +497,7 @@ def VerifyNode(what, cluster_name):
       tmp[my_name] = ("Can't find my own primary/secondary IP"
                       " in the node list")
     else:
-      port = utils.GetNodeDaemonPort()
+      port = utils.GetDaemonPort(constants.NODED)
       for name, pip, sip in what[constants.NV_NODENETTEST]:
         fail = []
         if not utils.TcpPing(pip, port, source=my_pip):
@@ -458,7 +517,12 @@ def VerifyNode(what, cluster_name):
       what[constants.NV_INSTANCELIST])
 
   if constants.NV_VGLIST in what:
-    result[constants.NV_VGLIST] = ListVolumeGroups()
+    result[constants.NV_VGLIST] = utils.ListVolumeGroups()
+
+  if constants.NV_PVLIST in what:
+    result[constants.NV_PVLIST] = \
+      bdev.LogicalVolume.GetPVInfo(what[constants.NV_PVLIST],
+                                   filter_allocatable=False)
 
   if constants.NV_VERSION in what:
     result[constants.NV_VERSION] = (constants.PROTOCOL_VERSION,
@@ -475,6 +539,21 @@ def VerifyNode(what, cluster_name):
       logging.warning("Can't get used minors list", exc_info=True)
       used_minors = str(err)
     result[constants.NV_DRBDLIST] = used_minors
+
+  if constants.NV_NODESETUP in what:
+    result[constants.NV_NODESETUP] = tmpr = []
+    if not os.path.isdir("/sys/block") or not os.path.isdir("/sys/class/net"):
+      tmpr.append("The sysfs filesytem doesn't seem to be mounted"
+                  " under /sys, missing required directories /sys/block"
+                  " and /sys/class/net")
+    if (not os.path.isdir("/proc/sys") or
+        not os.path.isfile("/proc/sysrq-trigger")):
+      tmpr.append("The procfs filesystem doesn't seem to be mounted"
+                  " under /proc, missing required directory /proc/sys and"
+                  " the file /proc/sysrq-trigger")
+
+  if constants.NV_TIME in what:
+    result[constants.NV_TIME] = utils.SplitTime(time.time())
 
   return result
 
@@ -501,9 +580,7 @@ def GetVolumeList(vg_name):
                          "--separator=%s" % sep,
                          "-olv_name,lv_size,lv_attr", vg_name])
   if result.failed:
-    logging.error("Failed to list logical volumes, lvs output: %s",
-                  result.output)
-    return result.output
+    _Fail("Failed to list logical volumes, lvs output: %s", result.output)
 
   valid_line_re = re.compile("^ *([^|]+)\|([0-9.]+)\|([^|]{6})\|?$")
   for line in result.stdout.splitlines():
@@ -515,6 +592,11 @@ def GetVolumeList(vg_name):
     name, size, attr = match.groups()
     inactive = attr[4] == '-'
     online = attr[5] == 'o'
+    virtual = attr[0] == 'v'
+    if virtual:
+      # we don't want to report such volumes as existing, since they
+      # don't really hold data
+      continue
     lvs[name] = (size, inactive, online)
 
   return lvs
@@ -554,9 +636,8 @@ def NodeVolumes():
                          "--separator=|",
                          "--options=lv_name,lv_size,devices,vg_name"])
   if result.failed:
-    logging.error("Failed to list logical volumes, lvs output: %s",
-                  result.output)
-    return []
+    _Fail("Failed to list logical volumes, lvs output: %s",
+          result.output)
 
   def parse_dev(dev):
     if '(' in dev:
@@ -583,11 +664,13 @@ def BridgesExist(bridges_list):
   @return: C{True} if all of them exist, C{False} otherwise
 
   """
+  missing = []
   for bridge in bridges_list:
     if not utils.BridgeExists(bridge):
-      return False
+      missing.append(bridge)
 
-  return True
+  if missing:
+    _Fail("Missing bridges %s", utils.CommaJoin(missing))
 
 
 def GetInstanceList(hypervisor_list):
@@ -607,9 +690,9 @@ def GetInstanceList(hypervisor_list):
     try:
       names = hypervisor.GetHypervisor(hname).ListInstances()
       results.extend(names)
-    except errors.HypervisorError:
-      logging.exception("Error enumerating instances for hypevisor %s", hname)
-      raise
+    except errors.HypervisorError, err:
+      _Fail("Error enumerating instances (hypervisor %s): %s",
+            hname, err, exc=True)
 
   return results
 
@@ -653,15 +736,14 @@ def GetInstanceMigratable(instance):
 
   """
   hyper = hypervisor.GetHypervisor(instance.hypervisor)
-  if instance.name not in hyper.ListInstances():
-    return (False, 'not running')
+  iname = instance.name
+  if iname not in hyper.ListInstances():
+    _Fail("Instance %s is not running", iname)
 
   for idx in range(len(instance.disks)):
-    link_name = _GetBlockDevSymlinkPath(instance.name, idx)
+    link_name = _GetBlockDevSymlinkPath(iname, idx)
     if not os.path.islink(link_name):
-      return (False, 'not restarted since ganeti 1.2.5')
-
-  return (True, '')
+      _Fail("Instance %s was not restarted since ganeti 1.2.5", iname)
 
 
 def GetAllInstancesInfo(hypervisor_list):
@@ -687,7 +769,7 @@ def GetAllInstancesInfo(hypervisor_list):
   for hname in hypervisor_list:
     iinfo = hypervisor.GetHypervisor(hname).GetAllInstancesInfo()
     if iinfo:
-      for name, inst_id, memory, vcpus, state, times in iinfo:
+      for name, _, memory, vcpus, state, times in iinfo:
         value = {
           'memory': memory,
           'vcpus': vcpus,
@@ -700,33 +782,30 @@ def GetAllInstancesInfo(hypervisor_list):
           # invocations of the different hypervisors
           for key in 'memory', 'vcpus':
             if value[key] != output[name][key]:
-              raise errors.HypervisorError("Instance %s is running twice"
-                                           " with different parameters" % name)
+              _Fail("Instance %s is running twice"
+                    " with different parameters", name)
         output[name] = value
 
   return output
 
 
-def InstanceOsAdd(instance):
+def InstanceOsAdd(instance, reinstall, debug):
   """Add an OS to an instance.
 
   @type instance: L{objects.Instance}
   @param instance: Instance whose OS is to be installed
-  @rtype: boolean
-  @return: the success of the operation
+  @type reinstall: boolean
+  @param reinstall: whether this is an instance reinstall
+  @type debug: integer
+  @param debug: debug level, passed to the OS scripts
+  @rtype: None
 
   """
-  try:
-    inst_os = OSFromDisk(instance.os)
-  except errors.InvalidOS, err:
-    os_name, os_dir, os_err = err.args
-    if os_dir is None:
-      return (False, "Can't find OS '%s': %s" % (os_name, os_err))
-    else:
-      return (False, "Error parsing OS '%s' in directory %s: %s" %
-              (os_name, os_dir, os_err))
+  inst_os = OSFromDisk(instance.os)
 
-  create_env = OSEnvironment(instance)
+  create_env = OSEnvironment(instance, inst_os, debug)
+  if reinstall:
+    create_env['INSTANCE_REINSTALL'] = "1"
 
   logfile = "%s/add-%s-%s-%d.log" % (constants.LOG_OS_DIR, instance.os,
                                      instance.name, int(time.time()))
@@ -739,26 +818,26 @@ def InstanceOsAdd(instance):
                   result.output)
     lines = [utils.SafeEncode(val)
              for val in utils.TailFile(logfile, lines=20)]
-    return (False, "OS create script failed (%s), last lines in the"
-            " log file:\n%s" % (result.fail_reason, "\n".join(lines)))
-
-  return (True, "Successfully installed")
+    _Fail("OS create script failed (%s), last lines in the"
+          " log file:\n%s", result.fail_reason, "\n".join(lines), log=False)
 
 
-def RunRenameInstance(instance, old_name):
+def RunRenameInstance(instance, old_name, debug):
   """Run the OS rename script for an instance.
 
   @type instance: L{objects.Instance}
   @param instance: Instance whose OS is to be installed
   @type old_name: string
   @param old_name: previous instance name
+  @type debug: integer
+  @param debug: debug level, passed to the OS scripts
   @rtype: boolean
   @return: the success of the operation
 
   """
   inst_os = OSFromDisk(instance.os)
 
-  rename_env = OSEnvironment(instance)
+  rename_env = OSEnvironment(instance, inst_os, debug)
   rename_env['OLD_INSTANCE_NAME'] = old_name
 
   logfile = "%s/rename-%s-%s-%s-%d.log" % (constants.LOG_OS_DIR, instance.os,
@@ -773,10 +852,8 @@ def RunRenameInstance(instance, old_name):
                   result.cmd, result.fail_reason, result.output)
     lines = [utils.SafeEncode(val)
              for val in utils.TailFile(logfile, lines=20)]
-    return (False, "OS rename script failed (%s), last lines in the"
-            " log file:\n%s" % (result.fail_reason, "\n".join(lines)))
-
-  return (True, "Rename successful")
+    _Fail("OS rename script failed (%s), last lines in the"
+          " log file:\n%s", result.fail_reason, "\n".join(lines), log=False)
 
 
 def _GetVGInfo(vg_name):
@@ -811,8 +888,8 @@ def _GetVGInfo(vg_name):
         "vg_free": int(round(float(valarr[1]), 0)),
         "pv_count": int(valarr[2]),
         }
-    except (TypeError, ValueError), err:
-      logging.exception("Fail to parse vgs output")
+    except ValueError, err:
+      logging.exception("Fail to parse vgs output: %s", err)
   else:
     logging.error("vgs output has the wrong number of fields (expected"
                   " three): %s", str(valarr))
@@ -856,7 +933,7 @@ def _RemoveBlockDevLinks(instance_name, disks):
   """Remove the block device symlinks belonging to the given instance.
 
   """
-  for idx, disk in enumerate(disks):
+  for idx, _ in enumerate(disks):
     link_name = _GetBlockDevSymlinkPath(instance_name, idx)
     if os.path.islink(link_name):
       try:
@@ -900,87 +977,91 @@ def StartInstance(instance):
 
   @type instance: L{objects.Instance}
   @param instance: the instance object
-  @rtype: boolean
-  @return: whether the startup was successful or not
+  @rtype: None
 
   """
   running_instances = GetInstanceList([instance.hypervisor])
 
   if instance.name in running_instances:
-    return (True, "Already running")
+    logging.info("Instance %s already running, not starting", instance.name)
+    return
 
   try:
     block_devices = _GatherAndLinkBlockDevs(instance)
     hyper = hypervisor.GetHypervisor(instance.hypervisor)
     hyper.StartInstance(instance, block_devices)
   except errors.BlockDeviceError, err:
-    logging.exception("Failed to start instance")
-    return (False, "Block device error: %s" % str(err))
+    _Fail("Block device error: %s", err, exc=True)
   except errors.HypervisorError, err:
-    logging.exception("Failed to start instance")
     _RemoveBlockDevLinks(instance.name, instance.disks)
-    return (False, "Hypervisor error: %s" % str(err))
-
-  return (True, "Instance started successfully")
+    _Fail("Hypervisor error: %s", err, exc=True)
 
 
-def InstanceShutdown(instance):
+def InstanceShutdown(instance, timeout):
   """Shut an instance down.
 
   @note: this functions uses polling with a hardcoded timeout.
 
   @type instance: L{objects.Instance}
   @param instance: the instance object
-  @rtype: boolean
-  @return: whether the startup was successful or not
+  @type timeout: integer
+  @param timeout: maximum timeout for soft shutdown
+  @rtype: None
 
   """
   hv_name = instance.hypervisor
-  running_instances = GetInstanceList([hv_name])
-
-  if instance.name not in running_instances:
-    return (True, "Instance already stopped")
-
   hyper = hypervisor.GetHypervisor(hv_name)
+  iname = instance.name
+
+  if instance.name not in hyper.ListInstances():
+    logging.info("Instance %s not running, doing nothing", iname)
+    return
+
+  class _TryShutdown:
+    def __init__(self):
+      self.tried_once = False
+
+    def __call__(self):
+      if iname not in hyper.ListInstances():
+        return
+
+      try:
+        hyper.StopInstance(instance, retry=self.tried_once)
+      except errors.HypervisorError, err:
+        if iname not in hyper.ListInstances():
+          # if the instance is no longer existing, consider this a
+          # success and go to cleanup
+          return
+
+        _Fail("Failed to stop instance %s: %s", iname, err)
+
+      self.tried_once = True
+
+      raise utils.RetryAgain()
+
   try:
-    hyper.StopInstance(instance)
-  except errors.HypervisorError, err:
-    msg = "Failed to stop instance %s: %s" % (instance.name, err)
-    logging.error(msg)
-    return (False, msg)
-
-  # test every 10secs for 2min
-
-  time.sleep(1)
-  for _ in range(11):
-    if instance.name not in GetInstanceList([hv_name]):
-      break
-    time.sleep(10)
-  else:
+    utils.Retry(_TryShutdown(), 5, timeout)
+  except utils.RetryTimeout:
     # the shutdown did not succeed
-    logging.error("Shutdown of '%s' unsuccessful, using destroy",
-                  instance.name)
+    logging.error("Shutdown of '%s' unsuccessful, forcing", iname)
 
     try:
       hyper.StopInstance(instance, force=True)
     except errors.HypervisorError, err:
-      msg = "Failed to force stop instance %s: %s" % (instance.name, err)
-      logging.error(msg)
-      return (False, msg)
+      if iname in hyper.ListInstances():
+        # only raise an error if the instance still exists, otherwise
+        # the error could simply be "instance ... unknown"!
+        _Fail("Failed to force stop instance %s: %s", iname, err)
 
     time.sleep(1)
-    if instance.name in GetInstanceList([hv_name]):
-      msg = ("Could not shutdown instance %s even by destroy" %
-             instance.name)
-      logging.error(msg)
-      return (False, msg)
 
-  _RemoveBlockDevLinks(instance.name, instance.disks)
+    if iname in hyper.ListInstances():
+      _Fail("Could not shutdown instance %s even by destroy", iname)
 
-  return (True, "Instance has been shutdown successfully")
+  _RemoveBlockDevLinks(iname, instance.disks)
 
 
-def InstanceReboot(instance, reboot_type):
+def InstanceReboot(instance, reboot_type, shutdown_timeout):
   """Reboot an instance.
 
   @type instance: L{objects.Instance}
@@ -996,39 +1077,30 @@ def InstanceReboot(instance, reboot_type):
         not accepted here, since that mode is handled differently, in
         cmdlib, and translates into full stop and start of the
         instance (instead of a call_instance_reboot RPC)
-  @rtype: boolean
-  @return: the success of the operation
+  @type shutdown_timeout: integer
+  @param shutdown_timeout: maximum timeout for soft shutdown
+  @rtype: None
 
   """
   running_instances = GetInstanceList([instance.hypervisor])
 
   if instance.name not in running_instances:
-    msg = "Cannot reboot instance %s that is not running" % instance.name
-    logging.error(msg)
-    return (False, msg)
+    _Fail("Cannot reboot instance %s that is not running", instance.name)
 
   hyper = hypervisor.GetHypervisor(instance.hypervisor)
   if reboot_type == constants.INSTANCE_REBOOT_SOFT:
     try:
       hyper.RebootInstance(instance)
     except errors.HypervisorError, err:
-      msg = "Failed to soft reboot instance %s: %s" % (instance.name, err)
-      logging.error(msg)
-      return (False, msg)
+      _Fail("Failed to soft reboot instance %s: %s", instance.name, err)
   elif reboot_type == constants.INSTANCE_REBOOT_HARD:
     try:
-      stop_result = InstanceShutdown(instance)
-      if not stop_result[0]:
-        return stop_result
+      InstanceShutdown(instance, shutdown_timeout)
       return StartInstance(instance)
     except errors.HypervisorError, err:
-      msg = "Failed to hard reboot instance %s: %s" % (instance.name, err)
-      logging.error(msg)
-      return (False, msg)
+      _Fail("Failed to hard reboot instance %s: %s", instance.name, err)
   else:
-    return (False, "Invalid reboot_type received: %s" % (reboot_type,))
-
-  return (True, "Reboot successful")
+    _Fail("Invalid reboot_type received: %s", reboot_type)
 
 
 def MigrationInfo(instance):
@@ -1042,10 +1114,8 @@ def MigrationInfo(instance):
   try:
     info = hyper.MigrationInfo(instance)
   except errors.HypervisorError, err:
-    msg = "Failed to fetch migration information"
-    logging.exception(msg)
-    return (False, '%s: %s' % (msg, err))
-  return (True, info)
+    _Fail("Failed to fetch migration information: %s", err, exc=True)
+  return info
 
 
 def AcceptInstance(instance, info, target):
@@ -1063,10 +1133,7 @@ def AcceptInstance(instance, info, target):
   try:
     hyper.AcceptInstance(instance, info, target)
   except errors.HypervisorError, err:
-    msg = "Failed to accept instance"
-    logging.exception(msg)
-    return (False, '%s: %s' % (msg, err))
-  return (True, "Accept successful")
+    _Fail("Failed to accept instance: %s", err, exc=True)
 
 
 def FinalizeMigration(instance, info, success):
@@ -1084,10 +1151,7 @@ def FinalizeMigration(instance, info, success):
   try:
     hyper.FinalizeMigration(instance, info, success)
   except errors.HypervisorError, err:
-    msg = "Failed to finalize migration"
-    logging.exception(msg)
-    return (False, '%s: %s' % (msg, err))
-  return (True, "Migration Finalized")
+    _Fail("Failed to finalize migration: %s", err, exc=True)
 
 
 def MigrateInstance(instance, target, live):
@@ -1109,12 +1173,9 @@ def MigrateInstance(instance, target, live):
   hyper = hypervisor.GetHypervisor(instance.hypervisor)
 
   try:
-    hyper.MigrateInstance(instance.name, target, live)
+    hyper.MigrateInstance(instance, target, live)
   except errors.HypervisorError, err:
-    msg = "Failed to migrate instance"
-    logging.exception(msg)
-    return (False, "%s: %s" % (msg, err))
-  return (True, "Migration successful")
+    _Fail("Failed to migrate instance: %s", err, exc=True)
 
 
 def BlockdevCreate(disk, size, owner, on_primary, info):
@@ -1138,15 +1199,15 @@ def BlockdevCreate(disk, size, owner, on_primary, info):
       it's not required to return anything.
 
   """
+  # TODO: remove the obsolete 'size' argument
+  # pylint: disable-msg=W0613
   clist = []
   if disk.children:
     for child in disk.children:
       try:
         crdev = _RecursiveAssembleBD(child, owner, on_primary)
       except errors.BlockDeviceError, err:
-        errmsg = "Can't assemble device %s: %s" % (child, err)
-        logging.error(errmsg)
-        return False, errmsg
+        _Fail("Can't assemble device %s: %s", child, err)
       if on_primary or disk.AssembleOnSecondary():
         # we need the children open in case the device itself has to
         # be assembled
@@ -1154,40 +1215,31 @@ def BlockdevCreate(disk, size, owner, on_primary, info):
           # pylint: disable-msg=E1103
           crdev.Open()
         except errors.BlockDeviceError, err:
-          errmsg = "Can't make child '%s' read-write: %s" % (child, err)
-          logging.error(errmsg)
-          return False, errmsg
+          _Fail("Can't make child '%s' read-write: %s", child, err)
       clist.append(crdev)
 
   try:
     device = bdev.Create(disk.dev_type, disk.physical_id, clist, disk.size)
   except errors.BlockDeviceError, err:
-    return False, "Can't create block device: %s" % str(err)
+    _Fail("Can't create block device: %s", err)
 
   if on_primary or disk.AssembleOnSecondary():
     try:
       device.Assemble()
     except errors.BlockDeviceError, err:
-      errmsg = ("Can't assemble device after creation, very"
-                " unusual event: %s" % str(err))
-      logging.error(errmsg)
-      return False, errmsg
+      _Fail("Can't assemble device after creation, unusual event: %s", err)
     device.SetSyncSpeed(constants.SYNC_SPEED)
     if on_primary or disk.OpenOnSecondary():
       try:
         device.Open(force=True)
       except errors.BlockDeviceError, err:
-        errmsg = ("Can't make device r/w after creation, very"
-                  " unusual event: %s" % str(err))
-        logging.error(errmsg)
-        return False, errmsg
+        _Fail("Can't make device r/w after creation, unusual event: %s", err)
     DevCacheManager.UpdateCache(device.dev_path, owner,
                                 on_primary, disk.iv_name)
 
   device.SetInfo(info)
 
-  physical_id = device.unique_id
-  return True, physical_id
+  return device.unique_id
 
 
 def BlockdevRemove(disk):
@@ -1202,7 +1254,6 @@ def BlockdevRemove(disk):
 
   """
   msgs = []
-  result = True
   try:
     rdev = _RecursiveFindBD(disk)
   except errors.BlockDeviceError, err:
@@ -1215,18 +1266,18 @@ def BlockdevRemove(disk):
       rdev.Remove()
     except errors.BlockDeviceError, err:
       msgs.append(str(err))
-      result = False
-    if result:
+    if not msgs:
       DevCacheManager.RemoveCache(r_path)
 
   if disk.children:
     for child in disk.children:
-      c_status, c_msg = BlockdevRemove(child)
-      result = result and c_status
-      if c_msg: # not an empty message
-        msgs.append(c_msg)
+      try:
+        BlockdevRemove(child)
+      except RPCFail, err:
+        msgs.append(str(err))
 
-  return (result, "; ".join(msgs))
+  if msgs:
+    _Fail("; ".join(msgs))
 
 
 def _RecursiveAssembleBD(disk, owner, as_primary):
@@ -1293,17 +1344,15 @@ def BlockdevAssemble(disk, owner, as_primary):
       C{True} for secondary nodes
 
   """
-  status = True
-  result = "no error information"
   try:
     result = _RecursiveAssembleBD(disk, owner, as_primary)
     if isinstance(result, bdev.BlockDev):
       # pylint: disable-msg=E1103
       result = result.dev_path
   except errors.BlockDeviceError, err:
-    result = "Error while assembling disk: %s" % str(err)
-    status = False
-  return (status, result)
+    _Fail("Error while assembling disk: %s", err, exc=True)
+
+  return result
 
 
 def BlockdevShutdown(disk):
@@ -1320,12 +1369,10 @@ def BlockdevShutdown(disk):
   @type disk: L{objects.Disk}
   @param disk: the description of the disk we should
       shutdown
-  @rtype: boolean
-  @return: the success of the operation
+  @rtype: None
 
   """
   msgs = []
-  result = True
   r_dev = _RecursiveFindBD(disk)
   if r_dev is not None:
     r_path = r_dev.dev_path
@@ -1334,16 +1381,16 @@ def BlockdevShutdown(disk):
       DevCacheManager.RemoveCache(r_path)
     except errors.BlockDeviceError, err:
       msgs.append(str(err))
-      result = False
 
   if disk.children:
     for child in disk.children:
-      c_status, c_msg = BlockdevShutdown(child)
-      result = result and c_status
-      if c_msg: # not an empty message
-        msgs.append(c_msg)
+      try:
+        BlockdevShutdown(child)
+      except RPCFail, err:
+        msgs.append(str(err))
 
-  return (result, "; ".join(msgs))
+  if msgs:
+    _Fail("; ".join(msgs))
 
 
 def BlockdevAddchildren(parent_cdev, new_cdevs):
@@ -1353,21 +1400,16 @@ def BlockdevAddchildren(parent_cdev, new_cdevs):
   @param parent_cdev: the disk to which we should add children
   @type new_cdevs: list of L{objects.Disk}
   @param new_cdevs: the list of children which we should add
-  @rtype: boolean
-  @return: the success of the operation
+  @rtype: None
 
   """
   parent_bdev = _RecursiveFindBD(parent_cdev)
   if parent_bdev is None:
-    logging.error("Can't find parent device")
-    return False
+    _Fail("Can't find parent device '%s' in add children", parent_cdev)
   new_bdevs = [_RecursiveFindBD(disk) for disk in new_cdevs]
   if new_bdevs.count(None) > 0:
-    logging.error("Can't find new device(s) to add: %s:%s",
-                  new_bdevs, new_cdevs)
-    return False
+    _Fail("Can't find new device(s) to add: %s:%s", new_bdevs, new_cdevs)
   parent_bdev.AddChildren(new_bdevs)
-  return True
 
 
 def BlockdevRemovechildren(parent_cdev, new_cdevs):
@@ -1377,29 +1419,24 @@ def BlockdevRemovechildren(parent_cdev, new_cdevs):
   @param parent_cdev: the disk from which we should remove children
   @type new_cdevs: list of L{objects.Disk}
   @param new_cdevs: the list of children which we should remove
-  @rtype: boolean
-  @return: the success of the operation
+  @rtype: None
 
   """
   parent_bdev = _RecursiveFindBD(parent_cdev)
   if parent_bdev is None:
-    logging.error("Can't find parent in remove children: %s", parent_cdev)
-    return False
+    _Fail("Can't find parent device '%s' in remove children", parent_cdev)
   devs = []
   for disk in new_cdevs:
     rpath = disk.StaticDevPath()
     if rpath is None:
       bd = _RecursiveFindBD(disk)
       if bd is None:
-        logging.error("Can't find dynamic device %s while removing children",
-                      disk)
-        return False
+        _Fail("Can't find device %s while removing children", disk)
       else:
         devs.append(bd.dev_path)
     else:
       devs.append(rpath)
   parent_bdev.RemoveChildren(devs)
-  return True
 
 
 def BlockdevGetmirrorstatus(disks):
@@ -1419,8 +1456,10 @@ def BlockdevGetmirrorstatus(disks):
   for dsk in disks:
     rbd = _RecursiveFindBD(dsk)
     if rbd is None:
-      raise errors.BlockDeviceError("Can't find device %s" % str(dsk))
+      _Fail("Can't find device %s", dsk)
+
     stats.append(rbd.CombinedSyncStatus())
+
   return stats
 
 
@@ -1451,19 +1490,20 @@ def BlockdevFind(disk):
 
   @type disk: L{objects.Disk}
   @param disk: the disk to find
-  @rtype: None or tuple
-  @return: None if the disk cannot be found, otherwise a
-      tuple (device_path, major, minor, sync_percent,
-      estimated_time, is_degraded)
+  @rtype: None or objects.BlockDevStatus
+  @return: None if the disk cannot be found, otherwise a the current
+           information
 
   """
   try:
     rbd = _RecursiveFindBD(disk)
   except errors.BlockDeviceError, err:
-    return (False, str(err))
+    _Fail("Failed to find device: %s", err, exc=True)
+
   if rbd is None:
-    return (True, None)
-  return (True, (rbd.dev_path, rbd.major, rbd.minor) + rbd.GetSyncStatus())
+    return None
+
+  return rbd.GetSyncStatus()
 
 
 def BlockdevGetsize(disks):
@@ -1482,7 +1522,7 @@ def BlockdevGetsize(disks):
   for cf in disks:
     try:
       rbd = _RecursiveFindBD(cf)
-    except errors.BlockDeviceError, err:
+    except errors.BlockDeviceError:
       result.append(None)
       continue
     if rbd is None:
@@ -1490,6 +1530,54 @@ def BlockdevGetsize(disks):
     else:
       result.append(rbd.GetActualSize())
   return result
+
+
+def BlockdevExport(disk, dest_node, dest_path, cluster_name):
+  """Export a block device to a remote node.
+
+  @type disk: L{objects.Disk}
+  @param disk: the description of the disk to export
+  @type dest_node: str
+  @param dest_node: the destination node to export to
+  @type dest_path: str
+  @param dest_path: the destination path on the target node
+  @type cluster_name: str
+  @param cluster_name: the cluster name, needed for SSH hostalias
+  @rtype: None
+
+  """
+  real_disk = _RecursiveFindBD(disk)
+  if real_disk is None:
+    _Fail("Block device '%s' is not set up", disk)
+
+  real_disk.Open()
+
+  # the block size on the read dd is 1MiB to match our units
+  expcmd = utils.BuildShellCmd("set -e; set -o pipefail; "
+                               "dd if=%s bs=1048576 count=%s",
+                               real_disk.dev_path, str(disk.size))
+
+  # we set here a smaller block size as, due to ssh buffering, more
+  # than 64-128k will mostly ignored; we use nocreat to fail if the
+  # device is not already there or we pass a wrong path; we use
+  # notrunc to no attempt truncate on an LV device; we use oflag=dsync
+  # to not buffer too much memory; this means that at best, we flush
+  # every 64k, which will not be very fast
+  destcmd = utils.BuildShellCmd("dd of=%s conv=nocreat,notrunc bs=65536"
+                                " oflag=dsync", dest_path)
+
+  remotecmd = _GetSshRunner(cluster_name).BuildCmd(dest_node,
+                                                   constants.GANETI_RUNAS,
+                                                   destcmd)
+
+  # all commands have been checked, so we're safe to combine them
+  command = '|'.join([expcmd, utils.ShellQuoteArgs(remotecmd)])
+
+  result = utils.RunCmd(["bash", "-c", command])
+
+  if result.failed:
+    _Fail("Disk copy command '%s' returned error: %s"
+          " output: %s", command, result.fail_reason, result.output)
 
 
 def UploadFile(file_name, data, mode, uid, gid, atime, mtime):
@@ -1512,26 +1600,20 @@ def UploadFile(file_name, data, mode, uid, gid, atime, mtime):
   @param atime: the atime to set on the file (can be None)
   @type mtime: float
   @param mtime: the mtime to set on the file (can be None)
-  @rtype: boolean
-  @return: the success of the operation; errors are logged
-      in the node daemon log
+  @rtype: None
 
   """
   if not os.path.isabs(file_name):
-    logging.error("Filename passed to UploadFile is not absolute: '%s'",
-                  file_name)
-    return False
+    _Fail("Filename passed to UploadFile is not absolute: '%s'", file_name)
 
   if file_name not in _ALLOWED_UPLOAD_FILES:
-    logging.error("Filename passed to UploadFile not in allowed"
-                 " upload targets: '%s'", file_name)
-    return False
+    _Fail("Filename passed to UploadFile not in allowed upload targets: '%s'",
+          file_name)
 
   raw_data = _Decompress(data)
 
   utils.WriteFile(file_name, data=raw_data, mode=mode, uid=uid, gid=gid,
                   atime=atime, mtime=mtime)
-  return True
 
 
 def WriteSsconfFiles(values):
@@ -1561,53 +1643,44 @@ def _ErrnoOrStr(err):
   return detail
 
 
-def _OSOndiskVersion(name, os_dir):
+def _OSOndiskAPIVersion(os_dir):
   """Compute and return the API version of a given OS.
 
-  This function will try to read the API version of the OS given by
-  the 'name' parameter and residing in the 'os_dir' directory.
+  This function will try to read the API version of the OS residing in
+  the 'os_dir' directory.
 
-  @type name: str
-  @param name: the OS name we should look for
   @type os_dir: str
-  @param os_dir: the directory inwhich we should look for the OS
-  @rtype: int or None
-  @return:
-      Either an integer denoting the version or None in the
-      case when this is not a valid OS name.
-  @raise errors.InvalidOS: if the OS cannot be found
+  @param os_dir: the directory in which we should look for the OS
+  @rtype: tuple
+  @return: tuple (status, data) with status denoting the validity and
+      data holding either the vaid versions or an error message
 
   """
-  api_file = os.path.sep.join([os_dir, "ganeti_api_version"])
+  api_file = os.path.sep.join([os_dir, constants.OS_API_FILE])
 
   try:
     st = os.stat(api_file)
   except EnvironmentError, err:
-    raise errors.InvalidOS(name, os_dir, "'ganeti_api_version' file not"
-                           " found (%s)" % _ErrnoOrStr(err))
+    return False, ("Required file '%s' not found under path %s: %s" %
+                   (constants.OS_API_FILE, os_dir, _ErrnoOrStr(err)))
 
   if not stat.S_ISREG(stat.S_IFMT(st.st_mode)):
-    raise errors.InvalidOS(name, os_dir, "'ganeti_api_version' file is not"
-                           " a regular file")
+    return False, ("File '%s' in %s is not a regular file" %
+                   (constants.OS_API_FILE, os_dir))
 
   try:
-    f = open(api_file)
-    try:
-      api_versions = f.readlines()
-    finally:
-      f.close()
+    api_versions = utils.ReadFile(api_file).splitlines()
   except EnvironmentError, err:
-    raise errors.InvalidOS(name, os_dir, "error while reading the"
-                           " API version (%s)" % _ErrnoOrStr(err))
+    return False, ("Error while reading the API version file at %s: %s" %
+                   (api_file, _ErrnoOrStr(err)))
 
-  api_versions = [version.strip() for version in api_versions]
   try:
-    api_versions = [int(version) for version in api_versions]
+    api_versions = [int(version.strip()) for version in api_versions]
   except (TypeError, ValueError), err:
-    raise errors.InvalidOS(name, os_dir,
-                           "API version is not integer (%s)" % str(err))
+    return False, ("API version(s) can't be converted to integer: %s" %
+                   str(err))
 
-  return api_versions
+  return True, api_versions
 
 
 def DiagnoseOS(top_dirs=None):
@@ -1618,8 +1691,13 @@ def DiagnoseOS(top_dirs=None):
       search (if not given defaults to
       L{constants.OS_SEARCH_PATH})
   @rtype: list of L{objects.OS}
-  @return: an OS object for each name in all the given
-      directories
+  @return: a list of tuples (name, path, status, diagnose, variants)
+      for all (potential) OSes under all search paths, where:
+          - name is the (potential) OS name
+          - path is the full path to the OS
+          - status True/False is the validity of the OS
+          - diagnose is the error message for an invalid OS, otherwise empty
+          - variants is a list of supported OS variants, if any
 
   """
   if top_dirs is None:
@@ -1631,31 +1709,34 @@ def DiagnoseOS(top_dirs=None):
       try:
         f_names = utils.ListVisibleFiles(dir_name)
       except EnvironmentError, err:
-        logging.exception("Can't list the OS directory %s", dir_name)
+        logging.exception("Can't list the OS directory %s: %s", dir_name, err)
         break
       for name in f_names:
-        try:
-          os_inst = OSFromDisk(name, base_dir=dir_name)
-          result.append(os_inst)
-        except errors.InvalidOS, err:
-          result.append(objects.OS.FromInvalidOS(err))
+        os_path = os.path.sep.join([dir_name, name])
+        status, os_inst = _TryOSFromDisk(name, base_dir=dir_name)
+        if status:
+          diagnose = ""
+          variants = os_inst.supported_variants
+        else:
+          diagnose = os_inst
+          variants = []
+        result.append((name, os_path, status, diagnose, variants))
 
   return result
 
 
-def OSFromDisk(name, base_dir=None):
+def _TryOSFromDisk(name, base_dir=None):
   """Create an OS instance from disk.
 
   This function will return an OS instance if the given name is a
-  valid OS name. Otherwise, it will raise an appropriate
-  L{errors.InvalidOS} exception, detailing why this is not a valid OS.
+  valid OS name.
 
   @type base_dir: string
   @keyword base_dir: Base directory containing OS installations.
                      Defaults to a search in all the OS_SEARCH_PATH dirs.
-  @rtype: L{objects.OS}
-  @return: the OS instance if we find a valid one
-  @raise errors.InvalidOS: if we don't find a valid OS
+  @rtype: tuple
+  @return: success and either the OS instance if we find a valid one,
+      or error message
 
   """
   if base_dir is None:
@@ -1664,48 +1745,96 @@ def OSFromDisk(name, base_dir=None):
     os_dir = utils.FindFile(name, [base_dir], os.path.isdir)
 
   if os_dir is None:
-    raise errors.InvalidOS(name, None, "OS dir not found in search path")
+    return False, "Directory for OS %s not found in search path" % name
 
-  api_versions = _OSOndiskVersion(name, os_dir)
+  status, api_versions = _OSOndiskAPIVersion(os_dir)
+  if not status:
+    # push the error up
+    return status, api_versions
 
-  if constants.OS_API_VERSION not in api_versions:
-    raise errors.InvalidOS(name, os_dir, "API version mismatch"
-                           " (found %s want %s)"
-                           % (api_versions, constants.OS_API_VERSION))
+  if not constants.OS_API_VERSIONS.intersection(api_versions):
+    return False, ("API version mismatch for path '%s': found %s, want %s." %
+                   (os_dir, api_versions, constants.OS_API_VERSIONS))
 
-  # OS Scripts dictionary, we will populate it with the actual script names
-  os_scripts = dict.fromkeys(constants.OS_SCRIPTS)
+  # OS Files dictionary, we will populate it with the absolute path names
+  os_files = dict.fromkeys(constants.OS_SCRIPTS)
 
-  for script in os_scripts:
-    os_scripts[script] = os.path.sep.join([os_dir, script])
+  if max(api_versions) >= constants.OS_API_V15:
+    os_files[constants.OS_VARIANTS_FILE] = ''
+
+  for filename in os_files:
+    os_files[filename] = os.path.sep.join([os_dir, filename])
 
     try:
-      st = os.stat(os_scripts[script])
+      st = os.stat(os_files[filename])
     except EnvironmentError, err:
-      raise errors.InvalidOS(name, os_dir, "'%s' script missing (%s)" %
-                             (script, _ErrnoOrStr(err)))
-
-    if stat.S_IMODE(st.st_mode) & stat.S_IXUSR != stat.S_IXUSR:
-      raise errors.InvalidOS(name, os_dir, "'%s' script not executable" %
-                             script)
+      return False, ("File '%s' under path '%s' is missing (%s)" %
+                     (filename, os_dir, _ErrnoOrStr(err)))
 
     if not stat.S_ISREG(stat.S_IFMT(st.st_mode)):
-      raise errors.InvalidOS(name, os_dir, "'%s' is not a regular file" %
-                             script)
+      return False, ("File '%s' under path '%s' is not a regular file" %
+                     (filename, os_dir))
+
+    if filename in constants.OS_SCRIPTS:
+      if stat.S_IMODE(st.st_mode) & stat.S_IXUSR != stat.S_IXUSR:
+        return False, ("File '%s' under path '%s' is not executable" %
+                       (filename, os_dir))
+
+  variants = None
+  if constants.OS_VARIANTS_FILE in os_files:
+    variants_file = os_files[constants.OS_VARIANTS_FILE]
+    try:
+      variants = utils.ReadFile(variants_file).splitlines()
+    except EnvironmentError, err:
+      return False, ("Error while reading the OS variants file at %s: %s" %
+                     (variants_file, _ErrnoOrStr(err)))
+    if not variants:
+      return False, ("No supported os variant found")
+
+  os_obj = objects.OS(name=name, path=os_dir,
+                      create_script=os_files[constants.OS_SCRIPT_CREATE],
+                      export_script=os_files[constants.OS_SCRIPT_EXPORT],
+                      import_script=os_files[constants.OS_SCRIPT_IMPORT],
+                      rename_script=os_files[constants.OS_SCRIPT_RENAME],
+                      supported_variants=variants,
+                      api_versions=api_versions)
+  return True, os_obj
 
 
-  return objects.OS(name=name, path=os_dir, status=constants.OS_VALID_STATUS,
-                    create_script=os_scripts[constants.OS_SCRIPT_CREATE],
-                    export_script=os_scripts[constants.OS_SCRIPT_EXPORT],
-                    import_script=os_scripts[constants.OS_SCRIPT_IMPORT],
-                    rename_script=os_scripts[constants.OS_SCRIPT_RENAME],
-                    api_versions=api_versions)
+def OSFromDisk(name, base_dir=None):
+  """Create an OS instance from disk.
 
-def OSEnvironment(instance, debug=0):
+  This function will return an OS instance if the given name is a
+  valid OS name. Otherwise, it will raise an appropriate
+  L{RPCFail} exception, detailing why this is not a valid OS.
+
+  This is just a wrapper over L{_TryOSFromDisk}, which doesn't raise
+  an exception but returns true/false status data.
+
+  @type base_dir: string
+  @keyword base_dir: Base directory containing OS installations.
+                     Defaults to a search in all the OS_SEARCH_PATH dirs.
+  @rtype: L{objects.OS}
+  @return: the OS instance if we find a valid one
+  @raise RPCFail: if we don't find a valid OS
+
+  """
+  name_only = name.split("+", 1)[0]
+  status, payload = _TryOSFromDisk(name_only, base_dir)
+
+  if not status:
+    _Fail(payload)
+
+  return payload
+
+
+def OSEnvironment(instance, inst_os, debug=0):
   """Calculate the environment for an os script.
 
   @type instance: L{objects.Instance}
   @param instance: target instance for the os script run
+  @type inst_os: L{objects.OS}
+  @param inst_os: operating system for which the environment is being built
   @type debug: integer
   @param debug: debug level (0 or 1, for OS Api 10)
   @rtype: dict
@@ -1715,13 +1844,21 @@ def OSEnvironment(instance, debug=0):
 
   """
   result = {}
-  result['OS_API_VERSION'] = '%d' % constants.OS_API_VERSION
+  api_version = \
+    max(constants.OS_API_VERSIONS.intersection(inst_os.api_versions))
+  result['OS_API_VERSION'] = '%d' % api_version
   result['INSTANCE_NAME'] = instance.name
   result['INSTANCE_OS'] = instance.os
   result['HYPERVISOR'] = instance.hypervisor
   result['DISK_COUNT'] = '%d' % len(instance.disks)
   result['NIC_COUNT'] = '%d' % len(instance.nics)
   result['DEBUG_LEVEL'] = '%d' % debug
+  if api_version >= constants.OS_API_V15:
+    try:
+      variant = instance.os.split('+', 1)[1]
+    except IndexError:
+      variant = inst_os.supported_variants[0]
+    result['OS_VARIANT'] = variant
   for idx, disk in enumerate(instance.disks):
     real_disk = _RecursiveFindBD(disk)
     if real_disk is None:
@@ -1742,7 +1879,11 @@ def OSEnvironment(instance, debug=0):
     result['NIC_%d_MAC' % idx] = nic.mac
     if nic.ip:
       result['NIC_%d_IP' % idx] = nic.ip
-    result['NIC_%d_BRIDGE' % idx] = nic.bridge
+    result['NIC_%d_MODE' % idx] = nic.nicparams[constants.NIC_MODE]
+    if nic.nicparams[constants.NIC_MODE] == constants.NIC_MODE_BRIDGED:
+      result['NIC_%d_BRIDGE' % idx] = nic.nicparams[constants.NIC_LINK]
+    if nic.nicparams[constants.NIC_LINK]:
+      result['NIC_%d_LINK' % idx] = nic.nicparams[constants.NIC_LINK]
     if constants.HV_NIC_TYPE in instance.hvparams:
       result['NIC_%d_FRONTEND_TYPE' % idx] = \
         instance.hvparams[constants.HV_NIC_TYPE]
@@ -1769,14 +1910,12 @@ def BlockdevGrow(disk, amount):
   """
   r_dev = _RecursiveFindBD(disk)
   if r_dev is None:
-    return False, "Cannot find block device %s" % (disk,)
+    _Fail("Cannot find block device %s", disk)
 
   try:
     r_dev.Grow(amount)
   except errors.BlockDeviceError, err:
-    return False, str(err)
-
-  return True, None
+    _Fail("Failed to grow block device: %s", err, exc=True)
 
 
 def BlockdevSnapshot(disk):
@@ -1807,14 +1946,13 @@ def BlockdevSnapshot(disk):
       # let's stay on the safe side and ask for the full size, for now
       return r_dev.Snapshot(disk.size)
     else:
-      return None
+      _Fail("Cannot find block device %s", disk)
   else:
-    raise errors.ProgrammerError("Cannot snapshot non-lvm block device"
-                                 " '%s' of type '%s'" %
-                                 (disk.unique_id, disk.dev_type))
+    _Fail("Cannot snapshot non-lvm block device '%s' of type '%s'",
+          disk.unique_id, disk.dev_type)
 
 
-def ExportSnapshot(disk, dest_node, instance, cluster_name, idx):
+def ExportSnapshot(disk, dest_node, instance, cluster_name, idx, debug):
   """Export a block device snapshot to a remote node.
 
   @type disk: L{objects.Disk}
@@ -1828,13 +1966,14 @@ def ExportSnapshot(disk, dest_node, instance, cluster_name, idx):
   @type idx: int
   @param idx: the index of the disk in the instance's disk list,
       used to export to the OS scripts environment
-  @rtype: boolean
-  @return: the success of the operation
+  @type debug: integer
+  @param debug: debug level, passed to the OS scripts
+  @rtype: None
 
   """
-  export_env = OSEnvironment(instance)
-
   inst_os = OSFromDisk(instance.os)
+  export_env = OSEnvironment(instance, inst_os, debug)
+
   export_script = inst_os.export_script
 
   logfile = "%s/exp-%s-%s-%s.log" % (constants.LOG_OS_DIR, inst_os.name,
@@ -1843,8 +1982,8 @@ def ExportSnapshot(disk, dest_node, instance, cluster_name, idx):
     os.mkdir(constants.LOG_OS_DIR, 0750)
   real_disk = _RecursiveFindBD(disk)
   if real_disk is None:
-    raise errors.BlockDeviceError("Block device '%s' is not set up" %
-                                  str(disk))
+    _Fail("Block device '%s' is not set up", disk)
+
   real_disk.Open()
 
   export_env['EXPORT_DEVICE'] = real_disk.dev_path
@@ -1873,11 +2012,8 @@ def ExportSnapshot(disk, dest_node, instance, cluster_name, idx):
   result = utils.RunCmd(["bash", "-c", command], env=export_env)
 
   if result.failed:
-    logging.error("os snapshot export command '%s' returned error: %s"
-                  " output: %s", command, result.fail_reason, result.output)
-    return False
-
-  return True
+    _Fail("OS snapshot export command '%s' returned error: %s"
+          " output: %s", command, result.fail_reason, result.output)
 
 
 def FinalizeExport(instance, snap_disks):
@@ -1890,8 +2026,7 @@ def FinalizeExport(instance, snap_disks):
   @param snap_disks: list of snapshot block devices, which
       will be used to get the actual name of the dump file
 
-  @rtype: boolean
-  @return: the success of the operation
+  @rtype: None
 
   """
   destdir = os.path.join(constants.EXPORT_DIR, instance.name + ".new")
@@ -1943,8 +2078,6 @@ def FinalizeExport(instance, snap_disks):
   shutil.rmtree(finaldestdir, True)
   shutil.move(destdir, finaldestdir)
 
-  return True
-
 
 def ExportInfo(dest):
   """Get export configuration information.
@@ -1964,12 +2097,12 @@ def ExportInfo(dest):
 
   if (not config.has_section(constants.INISECT_EXP) or
       not config.has_section(constants.INISECT_INS)):
-    return None
+    _Fail("Export info file doesn't have the required fields")
 
-  return config
+  return config.Dumps()
 
 
-def ImportOSIntoInstance(instance, src_node, src_images, cluster_name):
+def ImportOSIntoInstance(instance, src_node, src_images, cluster_name, debug):
   """Import an os image into an instance.
 
   @type instance: L{objects.Instance}
@@ -1978,12 +2111,14 @@ def ImportOSIntoInstance(instance, src_node, src_images, cluster_name):
   @param src_node: source node for the disk images
   @type src_images: list of string
   @param src_images: absolute paths of the disk images
+  @type debug: integer
+  @param debug: debug level, passed to the OS scripts
   @rtype: list of boolean
   @return: each boolean represent the success of importing the n-th disk
 
   """
-  import_env = OSEnvironment(instance)
   inst_os = OSFromDisk(instance.os)
+  import_env = OSEnvironment(instance, inst_os, debug)
   import_script = inst_os.import_script
 
   logfile = "%s/import-%s-%s-%s.log" % (constants.LOG_OS_DIR, instance.os,
@@ -2010,13 +2145,11 @@ def ImportOSIntoInstance(instance, src_node, src_images, cluster_name):
         logging.error("Disk import command '%s' returned error: %s"
                       " output: %s", command, result.fail_reason,
                       result.output)
-        final_result.append(False)
-      else:
-        final_result.append(True)
-    else:
-      final_result.append(True)
+        final_result.append("error importing disk %d: %s, %s" %
+                            (idx, result.fail_reason, result.output[-100]))
 
-  return final_result
+  if final_result:
+    _Fail("; ".join(final_result), log=False)
 
 
 def ListExports():
@@ -2029,7 +2162,7 @@ def ListExports():
   if os.path.isdir(constants.EXPORT_DIR):
     return utils.ListVisibleFiles(constants.EXPORT_DIR)
   else:
-    return []
+    _Fail("No exports directory")
 
 
 def RemoveExport(export):
@@ -2037,17 +2170,15 @@ def RemoveExport(export):
 
   @type export: str
   @param export: the name of the export to remove
-  @rtype: boolean
-  @return: the success of the operation
+  @rtype: None
 
   """
   target = os.path.join(constants.EXPORT_DIR, export)
 
-  shutil.rmtree(target)
-  # TODO: catch some of the relevant exceptions and provide a pretty
-  # error message if rmtree fails.
-
-  return True
+  try:
+    shutil.rmtree(target)
+  except EnvironmentError, err:
+    _Fail("Error while removing the export: %s", err, exc=True)
 
 
 def BlockdevRename(devlist):
@@ -2063,10 +2194,12 @@ def BlockdevRename(devlist):
   @return: True if all renames succeeded, False otherwise
 
   """
+  msgs = []
   result = True
   for disk, unique_id in devlist:
     dev = _RecursiveFindBD(disk)
     if dev is None:
+      msgs.append("Can't find device %s in rename" % str(disk))
       result = False
       continue
     try:
@@ -2080,10 +2213,13 @@ def BlockdevRename(devlist):
         # but we don't have the owner here - maybe parse from existing
         # cache? for now, we only lose lvm data when we rename, which
         # is less critical than DRBD or MD
-    except errors.BlockDeviceError:
+    except errors.BlockDeviceError, err:
+      msgs.append("Can't rename device '%s' to '%s': %s" %
+                  (dev, unique_id, err))
       logging.exception("Can't rename device '%s' to '%s'", dev, unique_id)
       result = False
-  return result
+  if not result:
+    _Fail("; ".join(msgs))
 
 
 def _TransformFileStorageDir(file_storage_dir):
@@ -2104,10 +2240,8 @@ def _TransformFileStorageDir(file_storage_dir):
   base_file_storage_dir = cfg.GetFileStorageDir()
   if (not os.path.commonprefix([file_storage_dir, base_file_storage_dir]) ==
       base_file_storage_dir):
-    logging.error("file storage directory '%s' is not under base file"
-                  " storage directory '%s'",
-                  file_storage_dir, base_file_storage_dir)
-    return None
+    _Fail("File storage directory '%s' is not under base file"
+          " storage directory '%s'", file_storage_dir, base_file_storage_dir)
   return file_storage_dir
 
 
@@ -2123,22 +2257,16 @@ def CreateFileStorageDir(file_storage_dir):
 
   """
   file_storage_dir = _TransformFileStorageDir(file_storage_dir)
-  result = True,
-  if not file_storage_dir:
-    result = False,
+  if os.path.exists(file_storage_dir):
+    if not os.path.isdir(file_storage_dir):
+      _Fail("Specified storage dir '%s' is not a directory",
+            file_storage_dir)
   else:
-    if os.path.exists(file_storage_dir):
-      if not os.path.isdir(file_storage_dir):
-        logging.error("'%s' is not a directory", file_storage_dir)
-        result = False,
-    else:
-      try:
-        os.makedirs(file_storage_dir, 0750)
-      except OSError, err:
-        logging.error("Cannot create file storage directory '%s': %s",
-                      file_storage_dir, err)
-        result = False,
-  return result
+    try:
+      os.makedirs(file_storage_dir, 0750)
+    except OSError, err:
+      _Fail("Cannot create file storage directory '%s': %s",
+            file_storage_dir, err, exc=True)
 
 
 def RemoveFileStorageDir(file_storage_dir):
@@ -2154,22 +2282,16 @@ def RemoveFileStorageDir(file_storage_dir):
 
   """
   file_storage_dir = _TransformFileStorageDir(file_storage_dir)
-  result = True,
-  if not file_storage_dir:
-    result = False,
-  else:
-    if os.path.exists(file_storage_dir):
-      if not os.path.isdir(file_storage_dir):
-        logging.error("'%s' is not a directory", file_storage_dir)
-        result = False,
-      # deletes dir only if empty, otherwise we want to return False
-      try:
-        os.rmdir(file_storage_dir)
-      except OSError:
-        logging.exception("Cannot remove file storage directory '%s'",
-                          file_storage_dir)
-        result = False,
-  return result
+  if os.path.exists(file_storage_dir):
+    if not os.path.isdir(file_storage_dir):
+      _Fail("Specified Storage directory '%s' is not a directory",
+            file_storage_dir)
+    # deletes dir only if empty, otherwise we want to fail the rpc call
+    try:
+      os.rmdir(file_storage_dir)
+    except OSError, err:
+      _Fail("Cannot remove file storage directory '%s': %s",
+            file_storage_dir, err)
 
 
 def RenameFileStorageDir(old_file_storage_dir, new_file_storage_dir):
@@ -2186,46 +2308,37 @@ def RenameFileStorageDir(old_file_storage_dir, new_file_storage_dir):
   """
   old_file_storage_dir = _TransformFileStorageDir(old_file_storage_dir)
   new_file_storage_dir = _TransformFileStorageDir(new_file_storage_dir)
-  result = True,
-  if not old_file_storage_dir or not new_file_storage_dir:
-    result = False,
-  else:
-    if not os.path.exists(new_file_storage_dir):
-      if os.path.isdir(old_file_storage_dir):
-        try:
-          os.rename(old_file_storage_dir, new_file_storage_dir)
-        except OSError:
-          logging.exception("Cannot rename '%s' to '%s'",
-                            old_file_storage_dir, new_file_storage_dir)
-          result =  False,
-      else:
-        logging.error("'%s' is not a directory", old_file_storage_dir)
-        result = False,
+  if not os.path.exists(new_file_storage_dir):
+    if os.path.isdir(old_file_storage_dir):
+      try:
+        os.rename(old_file_storage_dir, new_file_storage_dir)
+      except OSError, err:
+        _Fail("Cannot rename '%s' to '%s': %s",
+              old_file_storage_dir, new_file_storage_dir, err)
     else:
-      if os.path.exists(old_file_storage_dir):
-        logging.error("Cannot rename '%s' to '%s'. Both locations exist.",
-                      old_file_storage_dir, new_file_storage_dir)
-        result = False,
-  return result
+      _Fail("Specified storage dir '%s' is not a directory",
+            old_file_storage_dir)
+  else:
+    if os.path.exists(old_file_storage_dir):
+      _Fail("Cannot rename '%s' to '%s': both locations exist",
+            old_file_storage_dir, new_file_storage_dir)
 
 
-def _IsJobQueueFile(file_name):
+def _EnsureJobQueueFile(file_name):
   """Checks whether the given filename is in the queue directory.
 
   @type file_name: str
   @param file_name: the file name we should check
-  @rtype: boolean
-  @return: whether the file is under the queue directory
+  @rtype: None
+  @raises RPCFail: if the file is not valid
 
   """
   queue_dir = os.path.normpath(constants.QUEUE_DIR)
   result = (os.path.commonprefix([queue_dir, file_name]) == queue_dir)
 
   if not result:
-    logging.error("'%s' is not a file in the queue directory",
-                  file_name)
-
-  return result
+    _Fail("Passed job queue file '%s' does not belong to"
+          " the queue directory '%s'", file_name, queue_dir)
 
 
 def JobQueueUpdate(file_name, content):
@@ -2242,13 +2355,10 @@ def JobQueueUpdate(file_name, content):
   @return: the success of the operation
 
   """
-  if not _IsJobQueueFile(file_name):
-    return False
+  _EnsureJobQueueFile(file_name)
 
   # Write and replace the file atomically
   utils.WriteFile(file_name, data=_Decompress(content))
-
-  return True
 
 
 def JobQueueRename(old, new):
@@ -2260,16 +2370,14 @@ def JobQueueRename(old, new):
   @param old: the old (actual) file name
   @type new: str
   @param new: the desired file name
-  @rtype: boolean
-  @return: the success of the operation
+  @rtype: tuple
+  @return: the success of the operation and payload
 
   """
-  if not (_IsJobQueueFile(old) and _IsJobQueueFile(new)):
-    return False
+  _EnsureJobQueueFile(old)
+  _EnsureJobQueueFile(new)
 
   utils.RenameFile(old, new, mkdir=True)
-
-  return True
 
 
 def JobQueueSetDrainFlag(drain_flag):
@@ -2279,8 +2387,8 @@ def JobQueueSetDrainFlag(drain_flag):
 
   @type drain_flag: boolean
   @param drain_flag: if True, will set the drain flag, otherwise reset it.
-  @rtype: boolean
-  @return: always True
+  @rtype: truple
+  @return: always True, None
   @warning: the function always returns True
 
   """
@@ -2288,8 +2396,6 @@ def JobQueueSetDrainFlag(drain_flag):
     utils.WriteFile(constants.JOB_QUEUE_DRAIN_FILE, data="", close=True)
   else:
     utils.RemoveFile(constants.JOB_QUEUE_DRAIN_FILE)
-
-  return True
 
 
 def BlockdevClose(instance_name, disks):
@@ -2313,7 +2419,7 @@ def BlockdevClose(instance_name, disks):
   for cf in disks:
     rd = _RecursiveFindBD(cf)
     if rd is None:
-      return (False, "Can't find device %s" % cf)
+      _Fail("Can't find device %s", cf)
     bdevs.append(rd)
 
   msg = []
@@ -2323,11 +2429,10 @@ def BlockdevClose(instance_name, disks):
     except errors.BlockDeviceError, err:
       msg.append(str(err))
   if msg:
-    return (False, "Can't make devices secondary: %s" % ",".join(msg))
+    _Fail("Can't make devices secondary: %s", ",".join(msg))
   else:
     if instance_name:
       _RemoveBlockDevLinks(instance_name, disks)
-    return (True, "All devices secondary")
 
 
 def ValidateHVParams(hvname, hvparams):
@@ -2337,19 +2442,14 @@ def ValidateHVParams(hvname, hvparams):
   @param hvname: the hypervisor name
   @type hvparams: dict
   @param hvparams: the hypervisor parameters to be validated
-  @rtype: tuple (success, message)
-  @return: a tuple of success and message, where success
-      indicates the succes of the operation, and message
-      which will contain the error details in case we
-      failed
+  @rtype: None
 
   """
   try:
     hv_type = hypervisor.GetHypervisor(hvname)
     hv_type.ValidateParameters(hvparams)
-    return (True, "Validation passed")
   except errors.HypervisorError, err:
-    return (False, str(err))
+    _Fail(str(err), log=False)
 
 
 def DemoteFromMC():
@@ -2359,18 +2459,20 @@ def DemoteFromMC():
   # try to ensure we're not the master by mistake
   master, myself = ssconf.GetMasterAndMyself()
   if master == myself:
-    return (False, "ssconf status shows I'm the master node, will not demote")
-  pid_file = utils.DaemonPidFileName(constants.MASTERD_PID)
-  if utils.IsProcessAlive(utils.ReadPidFile(pid_file)):
-    return (False, "The master daemon is running, will not demote")
+    _Fail("ssconf status shows I'm the master node, will not demote")
+
+  result = utils.RunCmd([constants.DAEMON_UTIL, "check", constants.MASTERD])
+  if not result.failed:
+    _Fail("The master daemon is running, will not demote")
+
   try:
     if os.path.isfile(constants.CLUSTER_CONF_FILE):
       utils.CreateBackup(constants.CLUSTER_CONF_FILE)
   except EnvironmentError, err:
     if err.errno != errno.ENOENT:
-      return (False, "Error while backing up cluster file: %s" % str(err))
+      _Fail("Error while backing up cluster file: %s", err, exc=True)
+
   utils.RemoveFile(constants.CLUSTER_CONF_FILE)
-  return (True, "Done")
 
 
 def _FindDisks(nodes_ip, disks):
@@ -2387,64 +2489,61 @@ def _FindDisks(nodes_ip, disks):
   for cf in disks:
     rd = _RecursiveFindBD(cf)
     if rd is None:
-      return (False, "Can't find device %s" % cf)
+      _Fail("Can't find device %s", cf)
     bdevs.append(rd)
-  return (True, bdevs)
+  return bdevs
 
 
 def DrbdDisconnectNet(nodes_ip, disks):
   """Disconnects the network on a list of drbd devices.
 
   """
-  status, bdevs = _FindDisks(nodes_ip, disks)
-  if not status:
-    return status, bdevs
+  bdevs = _FindDisks(nodes_ip, disks)
 
   # disconnect disks
   for rd in bdevs:
     try:
       rd.DisconnectNet()
     except errors.BlockDeviceError, err:
-      logging.exception("Failed to go into standalone mode")
-      return (False, "Can't change network configuration: %s" % str(err))
-  return (True, "All disks are now disconnected")
+      _Fail("Can't change network configuration to standalone mode: %s",
+            err, exc=True)
 
 
 def DrbdAttachNet(nodes_ip, disks, instance_name, multimaster):
   """Attaches the network on a list of drbd devices.
 
   """
-  status, bdevs = _FindDisks(nodes_ip, disks)
-  if not status:
-    return status, bdevs
+  bdevs = _FindDisks(nodes_ip, disks)
 
   if multimaster:
     for idx, rd in enumerate(bdevs):
       try:
         _SymlinkBlockDev(instance_name, rd.dev_path, idx)
       except EnvironmentError, err:
-        return (False, "Can't create symlink: %s" % str(err))
+        _Fail("Can't create symlink: %s", err)
   # reconnect disks, switch to new master configuration and if
   # needed primary mode
   for rd in bdevs:
     try:
       rd.AttachNet(multimaster)
     except errors.BlockDeviceError, err:
-      return (False, "Can't change network configuration: %s" % str(err))
+      _Fail("Can't change network configuration: %s", err)
+
   # wait until the disks are connected; we need to retry the re-attach
   # if the device becomes standalone, as this might happen if the one
   # node disconnects and reconnects in a different mode before the
   # other node reconnects; in this case, one or both of the nodes will
   # decide it has wrong configuration and switch to standalone
-  RECONNECT_TIMEOUT = 2 * 60
-  sleep_time = 0.100 # start with 100 miliseconds
-  timeout_limit = time.time() + RECONNECT_TIMEOUT
-  while time.time() < timeout_limit:
+
+  def _Attach():
     all_connected = True
+
     for rd in bdevs:
       stats = rd.GetProcStatus()
-      if not (stats.is_connected or stats.is_in_resync):
-        all_connected = False
+
+      all_connected = (all_connected and
+                       (stats.is_connected or stats.is_in_resync))
+
       if stats.is_standalone:
         # peer had different config info and this node became
         # standalone, even though this should not happen with the
@@ -2452,47 +2551,73 @@ def DrbdAttachNet(nodes_ip, disks, instance_name, multimaster):
         try:
           rd.AttachNet(multimaster)
         except errors.BlockDeviceError, err:
-          return (False, "Can't change network configuration: %s" % str(err))
-    if all_connected:
-      break
-    time.sleep(sleep_time)
-    sleep_time = min(5, sleep_time * 1.5)
-  if not all_connected:
-    return (False, "Timeout in disk reconnecting")
+          _Fail("Can't change network configuration: %s", err)
+
+    if not all_connected:
+      raise utils.RetryAgain()
+
+  try:
+    # Start with a delay of 100 miliseconds and go up to 5 seconds
+    utils.Retry(_Attach, (0.1, 1.5, 5.0), 2 * 60)
+  except utils.RetryTimeout:
+    _Fail("Timeout in disk reconnecting")
+
   if multimaster:
     # change to primary mode
     for rd in bdevs:
       try:
         rd.Open()
       except errors.BlockDeviceError, err:
-        return (False, "Can't change to primary mode: %s" % str(err))
-  if multimaster:
-    msg = "multi-master and primary"
-  else:
-    msg = "single-master"
-  return (True, "Disks are now configured as %s" % msg)
+        _Fail("Can't change to primary mode: %s", err)
 
 
 def DrbdWaitSync(nodes_ip, disks):
   """Wait until DRBDs have synchronized.
 
   """
-  status, bdevs = _FindDisks(nodes_ip, disks)
-  if not status:
-    return status, bdevs
+  def _helper(rd):
+    stats = rd.GetProcStatus()
+    if not (stats.is_connected or stats.is_in_resync):
+      raise utils.RetryAgain()
+    return stats
+
+  bdevs = _FindDisks(nodes_ip, disks)
 
   min_resync = 100
   alldone = True
-  failure = False
   for rd in bdevs:
-    stats = rd.GetProcStatus()
-    if not (stats.is_connected or stats.is_in_resync):
-      failure = True
-      break
+    try:
+      # poll each second for 15 seconds
+      stats = utils.Retry(_helper, 1, 15, args=[rd])
+    except utils.RetryTimeout:
+      stats = rd.GetProcStatus()
+      # last check
+      if not (stats.is_connected or stats.is_in_resync):
+        _Fail("DRBD device %s is not in sync: stats=%s", rd, stats)
     alldone = alldone and (not stats.is_in_resync)
     if stats.sync_percent is not None:
       min_resync = min(min_resync, stats.sync_percent)
-  return (not failure, (alldone, min_resync))
+
+  return (alldone, min_resync)
+
+
+def PowercycleNode(hypervisor_type):
+  """Hard-powercycle the node.
+
+  Because we need to return first, and schedule the powercycle in the
+  background, we won't be able to report failures nicely.
+
+  """
+  hyper = hypervisor.GetHypervisor(hypervisor_type)
+  try:
+    pid = os.fork()
+  except OSError:
+    # if we can't fork, we'll pretend that we're in the child process
+    pid = 0
+  if pid > 0:
+    return "Reboot scheduled in 5 seconds"
+  time.sleep(5)
+  hyper.PowercycleNode()
 
 
 class HooksRunner(object):
@@ -2593,7 +2718,8 @@ class HooksRunner(object):
     elif phase == constants.HOOKS_PHASE_POST:
       suffix = "post"
     else:
-      raise errors.ProgrammerError("Unknown hooks phase: '%s'" % phase)
+      _Fail("Unknown hooks phase '%s'", phase)
+
     rr = []
 
     subdir = "%s-%s.d" % (hpath, suffix)
@@ -2631,7 +2757,8 @@ class IAllocatorRunner(object):
   the master side.
 
   """
-  def Run(self, name, idata):
+  @staticmethod
+  def Run(name, idata):
     """Run an iallocator script.
 
     @type name: str
@@ -2640,17 +2767,15 @@ class IAllocatorRunner(object):
     @param idata: the allocator input data
 
     @rtype: tuple
-    @return: four element tuple of:
-       - run status (one of the IARUN_ constants)
-       - stdout
-       - stderr
-       - fail reason (as from L{utils.RunResult})
+    @return: two element tuple of:
+       - status
+       - either error message or stdout of allocator (for success)
 
     """
     alloc_script = utils.FindFile(name, constants.IALLOCATOR_SEARCH_PATH,
                                   os.path.isfile)
     if alloc_script is None:
-      return (constants.IARUN_NOTFOUND, None, None, None)
+      _Fail("iallocator module '%s' not found in the search path", name)
 
     fd, fin_name = tempfile.mkstemp(prefix="ganeti-iallocator.")
     try:
@@ -2658,12 +2783,12 @@ class IAllocatorRunner(object):
       os.close(fd)
       result = utils.RunCmd([alloc_script, fin_name])
       if result.failed:
-        return (constants.IARUN_FAILURE, result.stdout, result.stderr,
-                result.fail_reason)
+        _Fail("iallocator module '%s' failed: %s, output '%s'",
+              name, result.fail_reason, result.output)
     finally:
       os.unlink(fin_name)
 
-    return (constants.IARUN_SUCCESS, result.stdout, result.stderr, None)
+    return result.stdout
 
 
 class DevCacheManager(object):
@@ -2723,8 +2848,8 @@ class DevCacheManager(object):
     fdata = "%s %s %s\n" % (str(owner), state, iv_name)
     try:
       utils.WriteFile(fpath, data=fdata)
-    except EnvironmentError:
-      logging.exception("Can't update bdev cache for %s", dev_path)
+    except EnvironmentError, err:
+      logging.exception("Can't update bdev cache for %s: %s", dev_path, err)
 
   @classmethod
   def RemoveCache(cls, dev_path):
@@ -2745,5 +2870,5 @@ class DevCacheManager(object):
     fpath = cls._ConvertPath(dev_path)
     try:
       utils.RemoveFile(fpath)
-    except EnvironmentError:
-      logging.exception("Can't update bdev cache for %s", dev_path)
+    except EnvironmentError, err:
+      logging.exception("Can't update bdev cache for %s: %s", dev_path, err)

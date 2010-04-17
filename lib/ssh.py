@@ -114,10 +114,15 @@ class SshRunner:
       else:
         options.append("-oStrictHostKeyChecking=no")
 
-    elif ask_key:
-      options.extend([
-        "-oStrictHostKeyChecking=ask",
-        ])
+    else:
+      # non-batch mode
+
+      if ask_key:
+        options.append("-oStrictHostKeyChecking=ask")
+      elif strict_host_check:
+        options.append("-oStrictHostKeyChecking=yes")
+      else:
+        options.append("-oStrictHostKeyChecking=no")
 
     return options
 
@@ -212,7 +217,7 @@ class SshRunner:
         - detail: string with details
 
     """
-    retval = self.Run(node, 'root', 'hostname')
+    retval = self.Run(node, 'root', 'hostname --fqdn')
 
     if retval.failed:
       msg = "ssh problem"
@@ -221,7 +226,7 @@ class SshRunner:
         msg += ": %s" % output
       else:
         msg += ": %s (no output)" % retval.fail_reason
-      logging.error("Command %s failed: %s" % (retval.cmd, msg))
+      logging.error("Command %s failed: %s", retval.cmd, msg)
       return False, msg
 
     remotehostname = retval.stdout.strip()

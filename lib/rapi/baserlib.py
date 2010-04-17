@@ -84,7 +84,7 @@ def MapFields(names, data):
   return dict(zip(names, data))
 
 
-def _Tags_GET(kind, name=""):
+def _Tags_GET(kind, name):
   """Helper function to retrieve tags.
 
   """
@@ -107,18 +107,20 @@ def _Tags_GET(kind, name=""):
   return list(tags)
 
 
-def _Tags_PUT(kind, tags, name=""):
+def _Tags_PUT(kind, tags, name, dry_run):
   """Helper function to set tags.
 
   """
-  return SubmitJob([opcodes.OpAddTags(kind=kind, name=name, tags=tags)])
+  return SubmitJob([opcodes.OpAddTags(kind=kind, name=name,
+                                      tags=tags, dry_run=dry_run)])
 
 
-def _Tags_DELETE(kind, tags, name=""):
+def _Tags_DELETE(kind, tags, name, dry_run):
   """Helper function to delete tags.
 
   """
-  return SubmitJob([opcodes.OpDelTags(kind=kind, name=name, tags=tags)])
+  return SubmitJob([opcodes.OpDelTags(kind=kind, name=name,
+                                      tags=tags, dry_run=dry_run)])
 
 
 def MapBulkFields(itemslist, fields):
@@ -199,11 +201,13 @@ def GetClient():
     raise http.HttpBadGateway("Master seems to unreachable: %s" % str(err))
 
 
-def FeedbackFn(ts, log_type, log_msg):
+def FeedbackFn(ts, log_type, log_msg): # pylint: disable-msg=W0613
   """Feedback logging function for http case.
 
   We don't have a stdout for printing log messages, so log them to the
   http log at least.
+
+  @param ts: the timestamp (unused)
 
   """
   logging.info("%s: %s", log_type, log_msg)
@@ -237,16 +241,16 @@ class R_Generic(object):
     """
     return self.sn
 
-  def _checkIntVariable(self, name):
+  def _checkIntVariable(self, name, default=0):
     """Return the parsed value of an int argument.
 
     """
-    val = self.queryargs.get(name, 0)
+    val = self.queryargs.get(name, default)
     if isinstance(val, list):
       if val:
         val = val[0]
       else:
-        val = 0
+        val = default
     try:
       val = int(val)
     except (ValueError, TypeError):
@@ -294,3 +298,15 @@ class R_Generic(object):
 
     """
     return self._checkIntVariable('bulk')
+
+  def useForce(self):
+    """Check if the request specifies a forced operation.
+
+    """
+    return self._checkIntVariable('force')
+
+  def dryRun(self):
+    """Check if the request specifies dry-run mode.
+
+    """
+    return self._checkIntVariable('dry-run')

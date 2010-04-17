@@ -18,18 +18,19 @@
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
 # 02110-1301, USA.
 
+"""OS scripts related commands"""
 
-# pylint: disable-msg=W0401,W0614
+# pylint: disable-msg=W0401,W0613,W0614,C0103
 # W0401: Wildcard import ganeti.cli
+# W0613: Unused argument, since all functions follow the same API
 # W0614: Unused import %s from wildcard import (since we need cli)
+# C0103: Invalid name gnt-os
 
 import sys
-from optparse import make_option
 
 from ganeti.cli import *
 from ganeti import opcodes
 from ganeti import utils
-from ganeti import constants
 
 
 def ListOS(opts, args):
@@ -42,7 +43,8 @@ def ListOS(opts, args):
   @return: the desired exit code
 
   """
-  op = opcodes.OpDiagnoseOS(output_fields=["name", "valid"], names=[])
+  op = opcodes.OpDiagnoseOS(output_fields=["name", "valid", "variants"],
+                            names=[])
   result = SubmitOpCode(op)
 
   if not result:
@@ -54,15 +56,35 @@ def ListOS(opts, args):
   else:
     headers = None
 
+  os_names = []
+  for (name, valid, variants) in result:
+    if valid:
+      os_names.extend([[n] for n in CalculateOSNames(name, variants)])
+
   data = GenerateTable(separator=None, headers=headers, fields=["name"],
-                       data=[[row[0]] for row in result if row[1]],
-                       units=None)
+                       data=os_names, units=None)
 
   for line in data:
     ToStdout(line)
 
   return 0
 
+
+def _OsStatus(status, diagnose):
+  """Beautifier function for OS status.
+
+  @type status: boolean
+  @param status: is the OS valid
+  @type diagnose: string
+  @param diagnose: the error message for invalid OSes
+  @rtype: string
+  @return: a formatted status
+
+  """
+  if status:
+    return "valid"
+  else:
+    return "invalid - %s" % diagnose
 
 def DiagnoseOS(opts, args):
   """Analyse all OSes on this cluster.
@@ -74,8 +96,8 @@ def DiagnoseOS(opts, args):
   @return: the desired exit code
 
   """
-  op = opcodes.OpDiagnoseOS(output_fields=["name", "valid", "node_status"],
-                            names=[])
+  op = opcodes.OpDiagnoseOS(output_fields=["name", "valid", "variants",
+                                           "node_status"], names=[])
   result = SubmitOpCode(op)
 
   if not result:
@@ -84,23 +106,27 @@ def DiagnoseOS(opts, args):
 
   has_bad = False
 
-  for os_name, os_valid, node_data in result:
+  for os_name, _, os_variants, node_data in result:
     nodes_valid = {}
     nodes_bad = {}
     nodes_hidden = {}
     for node_name, node_info in node_data.iteritems():
       nodes_hidden[node_name] = []
       if node_info: # at least one entry in the per-node list
-        first_os_status, first_os_path = node_info.pop(0)
-        first_os_msg = ("%s (path: %s)" %
-                        (first_os_status, first_os_path))
-        if first_os_status == constants.OS_VALID_STATUS:
+        (first_os_path, first_os_status, first_os_msg,
+         first_os_variants) = node_info.pop(0)
+        if not first_os_variants:
+          first_os_variants = []
+        first_os_msg = ("%s (path: %s) [variants: %s]" %
+                        (_OsStatus(first_os_status, first_os_msg),
+                         first_os_path, utils.CommaJoin(first_os_variants)))
+        if first_os_status:
           nodes_valid[node_name] = first_os_msg
         else:
           nodes_bad[node_name] = first_os_msg
-        for hstatus, hpath in node_info:
+        for hpath, hstatus, hmsg in node_info:
           nodes_hidden[node_name].append("    [hidden] path: %s, status: %s" %
-                                         (hpath, hstatus))
+                                         (hpath, _OsStatus(hstatus, hmsg)))
       else:
         nodes_bad[node_name] = "OS not found"
 
@@ -121,6 +147,8 @@ def DiagnoseOS(opts, args):
           ToStdout(msg)
 
     ToStdout("OS: %s [global status: %s]", os_name, status)
+    if os_variants:
+      ToStdout("  Variants: [%s]" % utils.CommaJoin(os_variants))
     _OutputPerNodeOSStatus(nodes_valid)
     _OutputPerNodeOSStatus(nodes_bad)
     ToStdout("")
@@ -129,10 +157,10 @@ def DiagnoseOS(opts, args):
 
 
 commands = {
-  'list': (ListOS, ARGS_NONE, [DEBUG_OPT, NOHDR_OPT], "",
-           "Lists all valid OSes on the master"),
-  'diagnose': (DiagnoseOS, ARGS_NONE, [DEBUG_OPT], "",
-               "Diagnose all OSes"),
+  'list': (
+    ListOS, ARGS_NONE, [NOHDR_OPT], "", "Lists all valid OSes on the master"),
+  'diagnose': (
+    DiagnoseOS, ARGS_NONE, [], "", "Diagnose all OSes"),
   }
 
 if __name__ == '__main__':

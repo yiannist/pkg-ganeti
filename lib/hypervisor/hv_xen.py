@@ -23,9 +23,6 @@
 
 """
 
-import os
-import os.path
-import time
 import logging
 from cStringIO import StringIO
 
@@ -44,6 +41,11 @@ class XenHypervisor(hv_base.BaseHypervisor):
   """
   REBOOT_RETRY_COUNT = 60
   REBOOT_RETRY_INTERVAL = 10
+
+  ANCILLARY_FILES = [
+    '/etc/xen/xend-config.sxp',
+    '/etc/xen/scripts/vif-bridge',
+    ]
 
   @classmethod
   def _WriteConfigFile(cls, instance, block_devices):
@@ -80,7 +82,22 @@ class XenHypervisor(hv_base.BaseHypervisor):
     utils.RemoveFile("/etc/xen/%s" % instance_name)
 
   @staticmethod
-  def _GetXMList(include_node):
+  def _RunXmList(xmlist_errors):
+    """Helper function for L{_GetXMList} to run "xm list".
+
+    """
+    result = utils.RunCmd(["xm", "list"])
+    if result.failed:
+      logging.error("xm list failed (%s): %s", result.fail_reason,
+                    result.output)
+      xmlist_errors.append(result)
+      raise utils.RetryAgain()
+
+    # skip over the heading
+    return result.stdout.splitlines()[1:]
+
+  @classmethod
+  def _GetXMList(cls, include_node):
     """Return the list of running instances.
 
     If the include_node argument is True, then we return information
@@ -89,21 +106,20 @@ class XenHypervisor(hv_base.BaseHypervisor):
     @return: list of (name, id, memory, vcpus, state, time spent)
 
     """
-    for _ in range(5):
-      result = utils.RunCmd(["xm", "list"])
-      if not result.failed:
-        break
-      logging.error("xm list failed (%s): %s", result.fail_reason,
-                    result.output)
-      time.sleep(1)
+    xmlist_errors = []
+    try:
+      lines = utils.Retry(cls._RunXmList, 1, 5, args=(xmlist_errors, ))
+    except utils.RetryTimeout:
+      if xmlist_errors:
+        xmlist_result = xmlist_errors.pop()
 
-    if result.failed:
-      raise errors.HypervisorError("xm list failed, retries"
-                                   " exceeded (%s): %s" %
-                                   (result.fail_reason, result.output))
+        errmsg = ("xm list failed, timeout exceeded (%s): %s" %
+                  (xmlist_result.fail_reason, xmlist_result.output))
+      else:
+        errmsg = "xm list failed"
 
-    # skip over the heading
-    lines = result.stdout.splitlines()[1:]
+      raise errors.HypervisorError(errmsg)
+
     result = []
     for line in lines:
       # The format of lines is:
@@ -118,7 +134,7 @@ class XenHypervisor(hv_base.BaseHypervisor):
         data[2] = int(data[2])
         data[3] = int(data[3])
         data[5] = float(data[5])
-      except (TypeError, ValueError), err:
+      except ValueError, err:
         raise errors.HypervisorError("Can't parse output of xm list,"
                                      " line: %s, error: %s" % (line, err))
 
@@ -173,7 +189,7 @@ class XenHypervisor(hv_base.BaseHypervisor):
                                    (instance.name, result.fail_reason,
                                     result.output))
 
-  def StopInstance(self, instance, force=False):
+  def StopInstance(self, instance, force=False, retry=False):
     """Stop an instance.
 
     """
@@ -194,25 +210,26 @@ class XenHypervisor(hv_base.BaseHypervisor):
 
     """
     ini_info = self.GetInstanceInfo(instance.name)
-    result = utils.RunCmd(["xm", "reboot", instance.name])
 
+    result = utils.RunCmd(["xm", "reboot", instance.name])
     if result.failed:
       raise errors.HypervisorError("Failed to reboot instance %s: %s, %s" %
                                    (instance.name, result.fail_reason,
                                     result.output))
-    done = False
-    retries = self.REBOOT_RETRY_COUNT
-    while retries > 0:
-      new_info = self.GetInstanceInfo(instance.name)
-      # check if the domain ID has changed or the run time has
-      # decreased
-      if new_info[1] != ini_info[1] or new_info[5] < ini_info[5]:
-        done = True
-        break
-      time.sleep(self.REBOOT_RETRY_INTERVAL)
-      retries -= 1
 
-    if not done:
+    def _CheckInstance():
+      new_info = self.GetInstanceInfo(instance.name)
+
+      # check if the domain ID has changed or the run time has decreased
+      if new_info[1] != ini_info[1] or new_info[5] < ini_info[5]:
+        return
+
+      raise utils.RetryAgain()
+
+    try:
+      utils.Retry(_CheckInstance, self.REBOOT_RETRY_INTERVAL,
+                  self.REBOOT_RETRY_INTERVAL * self.REBOOT_RETRY_COUNT)
+    except utils.RetryTimeout:
       raise errors.HypervisorError("Failed to reboot instance %s: instance"
                                    " did not reboot in the expected interval" %
                                    (instance.name, ))
@@ -287,13 +304,12 @@ class XenHypervisor(hv_base.BaseHypervisor):
       return "'xm info' failed: %s, %s" % (result.fail_reason, result.output)
 
   @staticmethod
-  def _GetConfigFileDiskData(disk_template, block_devices):
+  def _GetConfigFileDiskData(block_devices):
     """Get disk directive for xen config file.
 
     This method builds the xen config disk directive according to the
     given disk_template and block_devices.
 
-    @param disk_template: string containing instance disk template
     @param block_devices: list of tuples (cfdev, rldev):
         - cfdev: dict containing ganeti config disk part
         - rldev: ganeti.bdev.BlockDev object
@@ -373,86 +389,68 @@ class XenHypervisor(hv_base.BaseHypervisor):
     The migration will not be attempted if the instance is not
     currently running.
 
-    @type instance: string
-    @param instance: instance name
+    @type instance: L{objects.Instance}
+    @param instance: the instance to be migrated
     @type target: string
     @param target: ip address of the target node
     @type live: boolean
     @param live: perform a live migration
 
     """
-    if self.GetInstanceInfo(instance) is None:
+    if self.GetInstanceInfo(instance.name) is None:
       raise errors.HypervisorError("Instance not running, cannot migrate")
-    args = ["xm", "migrate"]
+
+    port = instance.hvparams[constants.HV_MIGRATION_PORT]
+
+    if not utils.TcpPing(target, port, live_port_needed=True):
+      raise errors.HypervisorError("Remote host %s not listening on port"
+                                   " %s, cannot migrate" % (target, port))
+
+    args = ["xm", "migrate", "-p", "%d" % port]
     if live:
       args.append("-l")
-    args.extend([instance, target])
+    args.extend([instance.name, target])
     result = utils.RunCmd(args)
     if result.failed:
       raise errors.HypervisorError("Failed to migrate instance %s: %s" %
-                                   (instance, result.output))
+                                   (instance.name, result.output))
     # remove old xen file after migration succeeded
     try:
-      self._RemoveConfigFile(instance)
+      self._RemoveConfigFile(instance.name)
     except EnvironmentError:
       logging.exception("Failure while removing instance config file")
+
+  @classmethod
+  def PowercycleNode(cls):
+    """Xen-specific powercycle.
+
+    This first does a Linux reboot (which triggers automatically a Xen
+    reboot), and if that fails it tries to do a Xen reboot. The reason
+    we don't try a Xen reboot first is that the xen reboot launches an
+    external command which connects to the Xen hypervisor, and that
+    won't work in case the root filesystem is broken and/or the xend
+    daemon is not working.
+
+    """
+    try:
+      cls.LinuxPowercycle()
+    finally:
+      utils.RunCmd(["xm", "debug", "R"])
 
 
 class XenPvmHypervisor(XenHypervisor):
   """Xen PVM hypervisor interface"""
 
-  PARAMETERS = [
-    constants.HV_KERNEL_PATH,
-    constants.HV_INITRD_PATH,
-    constants.HV_ROOT_PATH,
-    constants.HV_KERNEL_ARGS,
-    ]
-
-  @classmethod
-  def CheckParameterSyntax(cls, hvparams):
-    """Check the given parameters for validity.
-
-    For the PVM hypervisor, this only check the existence of the
-    kernel.
-
-    @type hvparams:  dict
-    @param hvparams: dictionary with parameter names/value
-    @raise errors.HypervisorError: when a parameter is not valid
-
-    """
-    super(XenPvmHypervisor, cls).CheckParameterSyntax(hvparams)
-
-    if not hvparams[constants.HV_KERNEL_PATH]:
-      raise errors.HypervisorError("Need a kernel for the instance")
-
-    if not os.path.isabs(hvparams[constants.HV_KERNEL_PATH]):
-      raise errors.HypervisorError("The kernel path must be an absolute path")
-
-    if not hvparams[constants.HV_ROOT_PATH]:
-      raise errors.HypervisorError("Need a root partition for the instance")
-
-    if hvparams[constants.HV_INITRD_PATH]:
-      if not os.path.isabs(hvparams[constants.HV_INITRD_PATH]):
-        raise errors.HypervisorError("The initrd path must be an absolute path"
-                                     ", if defined")
-
-  def ValidateParameters(self, hvparams):
-    """Check the given parameters for validity.
-
-    For the PVM hypervisor, this only check the existence of the
-    kernel.
-
-    """
-    super(XenPvmHypervisor, self).ValidateParameters(hvparams)
-
-    kernel_path = hvparams[constants.HV_KERNEL_PATH]
-    if not os.path.isfile(kernel_path):
-      raise errors.HypervisorError("Instance kernel '%s' not found or"
-                                   " not a file" % kernel_path)
-    initrd_path = hvparams[constants.HV_INITRD_PATH]
-    if initrd_path and not os.path.isfile(initrd_path):
-      raise errors.HypervisorError("Instance initrd '%s' not found or"
-                                   " not a file" % initrd_path)
+  PARAMETERS = {
+    constants.HV_USE_BOOTLOADER: hv_base.NO_CHECK,
+    constants.HV_BOOTLOADER_PATH: hv_base.OPT_FILE_CHECK,
+    constants.HV_BOOTLOADER_ARGS: hv_base.NO_CHECK,
+    constants.HV_KERNEL_PATH: hv_base.REQ_FILE_CHECK,
+    constants.HV_INITRD_PATH: hv_base.OPT_FILE_CHECK,
+    constants.HV_ROOT_PATH: hv_base.REQUIRED_CHECK,
+    constants.HV_KERNEL_ARGS: hv_base.NO_CHECK,
+    constants.HV_MIGRATION_PORT: hv_base.NET_PORT_CHECK,
+    }
 
   @classmethod
   def _WriteConfigFile(cls, instance, block_devices):
@@ -463,14 +461,29 @@ class XenPvmHypervisor(XenHypervisor):
     config = StringIO()
     config.write("# this is autogenerated by Ganeti, please do not edit\n#\n")
 
-    # kernel handling
-    kpath = hvp[constants.HV_KERNEL_PATH]
-    config.write("kernel = '%s'\n" % kpath)
+    # if bootloader is True, use bootloader instead of kernel and ramdisk
+    # parameters.
+    if hvp[constants.HV_USE_BOOTLOADER]:
+      # bootloader handling
+      bootloader_path = hvp[constants.HV_BOOTLOADER_PATH]
+      if bootloader_path:
+        config.write("bootloader = '%s'\n" % bootloader_path)
+      else:
+        raise errors.HypervisorError("Bootloader enabled, but missing"
+                                     " bootloader path")
 
-    # initrd handling
-    initrd_path = hvp[constants.HV_INITRD_PATH]
-    if initrd_path:
-      config.write("ramdisk = '%s'\n" % initrd_path)
+      bootloader_args = hvp[constants.HV_BOOTLOADER_ARGS]
+      if bootloader_args:
+        config.write("bootargs = '%s'\n" % bootloader_args)
+    else:
+      # kernel handling
+      kpath = hvp[constants.HV_KERNEL_PATH]
+      config.write("kernel = '%s'\n" % kpath)
+
+      # initrd handling
+      initrd_path = hvp[constants.HV_INITRD_PATH]
+      if initrd_path:
+        config.write("ramdisk = '%s'\n" % initrd_path)
 
     # rest of the settings
     config.write("memory = %d\n" % instance.beparams[constants.BE_MEMORY])
@@ -479,16 +492,18 @@ class XenPvmHypervisor(XenHypervisor):
 
     vif_data = []
     for nic in instance.nics:
-      nic_str = "mac=%s, bridge=%s" % (nic.mac, nic.bridge)
+      nic_str = "mac=%s" % (nic.mac)
       ip = getattr(nic, "ip", None)
       if ip is not None:
         nic_str += ", ip=%s" % ip
+      if nic.nicparams[constants.NIC_MODE] == constants.NIC_MODE_BRIDGED:
+        nic_str += ", bridge=%s" % nic.nicparams[constants.NIC_LINK]
       vif_data.append("'%s'" % nic_str)
 
+    disk_data = cls._GetConfigFileDiskData(block_devices)
+
     config.write("vif = [%s]\n" % ",".join(vif_data))
-    config.write("disk = [%s]\n" % ",".join(
-                 cls._GetConfigFileDiskData(instance.disk_template,
-                                            block_devices)))
+    config.write("disk = [%s]\n" % ",".join(disk_data))
 
     config.write("root = '%s'\n" % hvp[constants.HV_ROOT_PATH])
     config.write("on_poweroff = 'destroy'\n")
@@ -510,100 +525,31 @@ class XenPvmHypervisor(XenHypervisor):
 class XenHvmHypervisor(XenHypervisor):
   """Xen HVM hypervisor interface"""
 
-  PARAMETERS = [
-    constants.HV_ACPI,
-    constants.HV_BOOT_ORDER,
-    constants.HV_CDROM_IMAGE_PATH,
-    constants.HV_DISK_TYPE,
-    constants.HV_NIC_TYPE,
-    constants.HV_PAE,
-    constants.HV_VNC_BIND_ADDRESS,
-    constants.HV_KERNEL_PATH,
-    constants.HV_DEVICE_MODEL,
+  ANCILLARY_FILES = XenHypervisor.ANCILLARY_FILES + [
+    constants.VNC_PASSWORD_FILE,
     ]
 
-  @classmethod
-  def CheckParameterSyntax(cls, hvparams):
-    """Check the given parameter syntax.
-
-    """
-    super(XenHvmHypervisor, cls).CheckParameterSyntax(hvparams)
-    # boot order verification
-    boot_order = hvparams[constants.HV_BOOT_ORDER]
-    if not boot_order or len(boot_order.strip("acdn")) != 0:
-      raise errors.HypervisorError("Invalid boot order '%s' specified,"
-                                   " must be one or more of [acdn]" %
-                                   boot_order)
-    # device type checks
-    nic_type = hvparams[constants.HV_NIC_TYPE]
-    if nic_type not in constants.HT_HVM_VALID_NIC_TYPES:
-      raise errors.HypervisorError(\
-        "Invalid NIC type %s specified for the Xen"
-        " HVM hypervisor. Please choose one of: %s"
-        % (nic_type, utils.CommaJoin(constants.HT_HVM_VALID_NIC_TYPES)))
-    disk_type = hvparams[constants.HV_DISK_TYPE]
-    if disk_type not in constants.HT_HVM_VALID_DISK_TYPES:
-      raise errors.HypervisorError(\
-        "Invalid disk type %s specified for the Xen"
-        " HVM hypervisor. Please choose one of: %s"
-        % (disk_type, utils.CommaJoin(constants.HT_HVM_VALID_DISK_TYPES)))
-    # vnc_bind_address verification
-    vnc_bind_address = hvparams[constants.HV_VNC_BIND_ADDRESS]
-    if vnc_bind_address:
-      if not utils.IsValidIP(vnc_bind_address):
-        raise errors.OpPrereqError("given VNC bind address '%s' doesn't look"
-                                   " like a valid IP address" %
-                                   vnc_bind_address)
-
-    iso_path = hvparams[constants.HV_CDROM_IMAGE_PATH]
-    if iso_path and not os.path.isabs(iso_path):
-      raise errors.HypervisorError("The path to the HVM CDROM image must"
-                                   " be an absolute path or None, not %s" %
-                                   iso_path)
-
-    if not hvparams[constants.HV_KERNEL_PATH]:
-      raise errors.HypervisorError("Need a kernel for the instance")
-
-    if not os.path.isabs(hvparams[constants.HV_KERNEL_PATH]):
-      raise errors.HypervisorError("The kernel path must be an absolute path")
-
-    if not hvparams[constants.HV_DEVICE_MODEL]:
-      raise errors.HypervisorError("Need a device model for the instance")
-
-    if not os.path.isabs(hvparams[constants.HV_DEVICE_MODEL]):
-      raise errors.HypervisorError("The device model must be an absolute path")
-
-
-  def ValidateParameters(self, hvparams):
-    """Check the given parameters for validity.
-
-    For the PVM hypervisor, this only check the existence of the
-    kernel.
-
-    @type hvparams:  dict
-    @param hvparams: dictionary with parameter names/value
-    @raise errors.HypervisorError: when a parameter is not valid
-
-    """
-    super(XenHvmHypervisor, self).ValidateParameters(hvparams)
-
-    # hvm_cdrom_image_path verification
-    iso_path = hvparams[constants.HV_CDROM_IMAGE_PATH]
-    if iso_path and not os.path.isfile(iso_path):
-      raise errors.HypervisorError("The HVM CDROM image must either be a"
-                                   " regular file or a symlink pointing to"
-                                   " an existing regular file, not %s" %
-                                   iso_path)
-
-    kernel_path = hvparams[constants.HV_KERNEL_PATH]
-    if not os.path.isfile(kernel_path):
-      raise errors.HypervisorError("Instance kernel '%s' not found or"
-                                   " not a file" % kernel_path)
-
-    device_model = hvparams[constants.HV_DEVICE_MODEL]
-    if not os.path.isfile(device_model):
-      raise errors.HypervisorError("Device model '%s' not found or"
-                                   " not a file" % device_model)
+  PARAMETERS = {
+    constants.HV_ACPI: hv_base.NO_CHECK,
+    constants.HV_BOOT_ORDER: (True, ) +
+      (lambda x: x and len(x.strip("acdn")) == 0,
+       "Invalid boot order specified, must be one or more of [acdn]",
+       None, None),
+    constants.HV_CDROM_IMAGE_PATH: hv_base.OPT_FILE_CHECK,
+    constants.HV_DISK_TYPE:
+      hv_base.ParamInSet(True, constants.HT_HVM_VALID_DISK_TYPES),
+    constants.HV_NIC_TYPE:
+      hv_base.ParamInSet(True, constants.HT_HVM_VALID_NIC_TYPES),
+    constants.HV_PAE: hv_base.NO_CHECK,
+    constants.HV_VNC_BIND_ADDRESS:
+      (False, utils.IsValidIP,
+       "VNC bind address is not a valid IP address", None, None),
+    constants.HV_KERNEL_PATH: hv_base.REQ_FILE_CHECK,
+    constants.HV_DEVICE_MODEL: hv_base.REQ_FILE_CHECK,
+    constants.HV_VNC_PASSWORD_FILE: hv_base.REQ_FILE_CHECK,
+    constants.HV_MIGRATION_PORT: hv_base.NET_PORT_CHECK,
+    constants.HV_USE_LOCALTIME: hv_base.NO_CHECK,
+    }
 
   @classmethod
   def _WriteConfigFile(cls, instance, block_devices):
@@ -651,16 +597,18 @@ class XenHvmHypervisor(XenHypervisor):
       config.write("# vncdisplay = 1\n")
       config.write("vncunused = 1\n")
 
+    vnc_pwd_file = hvp[constants.HV_VNC_PASSWORD_FILE]
     try:
-      password = utils.ReadFile(constants.VNC_PASSWORD_FILE)
+      password = utils.ReadFile(vnc_pwd_file)
     except EnvironmentError, err:
       raise errors.HypervisorError("Failed to open VNC password file %s: %s" %
-                                   (constants.VNC_PASSWORD_FILE, err))
+                                   (vnc_pwd_file, err))
 
     config.write("vncpasswd = '%s'\n" % password.rstrip())
 
     config.write("serial = 'pty'\n")
-    config.write("localtime = 1\n")
+    if hvp[constants.HV_USE_LOCALTIME]:
+      config.write("localtime = 1\n")
 
     vif_data = []
     nic_type = hvp[constants.HV_NIC_TYPE]
@@ -672,15 +620,16 @@ class XenHvmHypervisor(XenHypervisor):
     else:
       nic_type_str = ", model=%s, type=ioemu" % nic_type
     for nic in instance.nics:
-      nic_str = "mac=%s, bridge=%s%s" % (nic.mac, nic.bridge, nic_type_str)
+      nic_str = "mac=%s%s" % (nic.mac, nic_type_str)
       ip = getattr(nic, "ip", None)
       if ip is not None:
         nic_str += ", ip=%s" % ip
+      if nic.nicparams[constants.NIC_MODE] == constants.NIC_MODE_BRIDGED:
+        nic_str += ", bridge=%s" % nic.nicparams[constants.NIC_LINK]
       vif_data.append("'%s'" % nic_str)
 
     config.write("vif = [%s]\n" % ",".join(vif_data))
-    disk_data = cls._GetConfigFileDiskData(instance.disk_template,
-                                            block_devices)
+    disk_data = cls._GetConfigFileDiskData(block_devices)
     disk_type = hvp[constants.HV_DISK_TYPE]
     if disk_type in (None, constants.HT_DISK_IOEMU):
       replacement = ",ioemu:hd"

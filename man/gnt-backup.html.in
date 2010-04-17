@@ -78,7 +78,12 @@ CLASS="REPLACEABLE"
 ><I
 >node</I
 ></TT
->} [--noshutdown] {<TT
+>} [--shutdown-timeout=<TT
+CLASS="REPLACEABLE"
+><I
+>N</I
+></TT
+>] [--noshutdown] {<TT
 CLASS="REPLACEABLE"
 ><I
 >instance</I
@@ -94,6 +99,15 @@ CLASS="REPLACEABLE"
 ></TT
 >
         directory on the target node.
+      </P
+><P
+>        The <CODE
+CLASS="OPTION"
+>--shutdown-timeout</CODE
+> is used to specify how
+        much time to wait before forcing the shutdown (xm destroy in xen,
+        killing the kvm process, for kvm). By default two minutes are
+        given to each instance to stop.
       </P
 ><P
 >        The <CODE
@@ -126,7 +140,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN43"
+NAME="AEN47"
 ></A
 ><H3
 >IMPORT</H3
@@ -318,15 +332,27 @@ CLASS="CONSTANT"
               the instance to use)</P
 ></DD
 ><DT
->bridge</DT
+>mode</DT
 ><DD
 ><P
->specifies the bridge to attach this NIC
-              to</P
+>specifies the connection mode for this nic:
+                  routed or bridged.</P
+></DD
+><DT
+>link</DT
+><DD
+><P
+>in bridged mode specifies the bridge to attach
+                  this NIC to, in routed mode it's intended to
+                  differentiate between different routing tables/instance
+                  groups (but the meaning is dependent on the network
+                  script, see gnt-cluster(8) for more details)</P
 ></DD
 ></DL
 ></DIV
 >
+          Of these "mode" and "link" are nic parameters, and inherit their
+          default at cluster level.
       </P
 ><P
 >        Alternatively, if no network is desired for the instance, you
@@ -469,7 +495,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN170"
+NAME="AEN178"
 ></A
 ><H3
 >LIST</H3
@@ -503,7 +529,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN180"
+NAME="AEN188"
 ></A
 ><H3
 >REMOVE</H3
@@ -526,7 +552,7 @@ CLASS="ACRONYM"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN187"
+NAME="AEN195"
 ></A
 ><H2
 >REPORTING BUGS</H2
@@ -543,7 +569,7 @@ TARGET="_top"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN191"
+NAME="AEN199"
 ></A
 ><H2
 >SEE ALSO</H2
@@ -659,7 +685,7 @@ CLASS="REFENTRYTITLE"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN238"
+NAME="AEN246"
 ></A
 ><H2
 >COPYRIGHT</H2

@@ -21,12 +21,69 @@
 
 """Base class for all hypervisors
 
+The syntax for the _CHECK variables and the contents of the PARAMETERS
+dict is the same, see the docstring for L{BaseHypervisor.PARAMETERS}.
+
+@var _FILE_CHECK: stub for file checks, without the required flag
+@var _DIR_CHECK: stub for directory checks, without the required flag
+@var REQ_FILE_CHECK: mandatory file parameter
+@var OPT_FILE_CHECK: optional file parameter
+@var REQ_DIR_CHECK: mandatory directory parametr
+@var OPT_DIR_CHECK: optional directory parameter
+@var NO_CHECK: parameter without any checks at all
+@var REQUIRED_CHECK: parameter required to exist (and non-false), but
+    without other checks; beware that this can't be used for boolean
+    parameters, where you should use NO_CHECK or a custom checker
+
 """
 
+import os
 import re
+import logging
 
 
 from ganeti import errors
+from ganeti import utils
+
+
+# Read the BaseHypervisor.PARAMETERS docstring for the syntax of the
+# _CHECK values
+
+# must be afile
+_FILE_CHECK = (utils.IsNormAbsPath, "must be an absolute normalized path",
+              os.path.isfile, "not found or not a file")
+
+# must be a directory
+_DIR_CHECK = (utils.IsNormAbsPath, "must be an absolute normalized path",
+             os.path.isdir, "not found or not a directory")
+
+# nice wrappers for users
+REQ_FILE_CHECK = (True, ) + _FILE_CHECK
+OPT_FILE_CHECK = (False, ) + _FILE_CHECK
+REQ_DIR_CHECK = (True, ) + _DIR_CHECK
+OPT_DIR_CHECK = (False, ) + _DIR_CHECK
+NET_PORT_CHECK = (True, lambda x: x > 0 and x < 65535, "invalid port number",
+                  None, None)
+
+# no checks at all
+NO_CHECK = (False, None, None, None, None)
+
+# required, but no other checks
+REQUIRED_CHECK = (True, None, None, None, None)
+
+
+def ParamInSet(required, my_set):
+  """Builds parameter checker for set membership.
+
+  @type required: boolean
+  @param required: whether this is a required parameter
+  @type my_set: tuple, list or set
+  @param my_set: allowed values set
+
+  """
+  fn = lambda x: x in my_set
+  err = ("The value must be one of: %s" % utils.CommaJoin(my_set))
+  return (required, fn, err, None, None)
 
 
 class BaseHypervisor(object):
@@ -35,8 +92,19 @@ class BaseHypervisor(object):
   The goal is that all aspects of the virtualisation technology are
   abstracted away from the rest of code.
 
+  @cvar PARAMETERS: a dict of parameter name: check type; the check type is
+      a five-tuple containing:
+          - the required flag (boolean)
+          - a function to check for syntax, that will be used in
+            L{CheckParameterSyntax}, in the master daemon process
+          - an error message for the above function
+          - a function to check for parameter validity on the remote node,
+            in the L{ValidateParameters} function
+          - an error message for the above function
+
   """
-  PARAMETERS = []
+  PARAMETERS = {}
+  ANCILLARY_FILES = []
 
   def __init__(self):
     pass
@@ -45,8 +113,17 @@ class BaseHypervisor(object):
     """Start an instance."""
     raise NotImplementedError
 
-  def StopInstance(self, instance, force=False):
-    """Stop an instance."""
+  def StopInstance(self, instance, force=False, retry=False):
+    """Stop an instance
+
+    @type instance: L{objects.Instance}
+    @param instance: instance to stop
+    @type force: boolean
+    @param force: whether to do a "hard" stop (destroy)
+    @type retry: boolean
+    @param retry: whether this is just a retry call
+
+    """
     raise NotImplementedError
 
   def RebootInstance(self, instance):
@@ -94,13 +171,26 @@ class BaseHypervisor(object):
     """
     raise NotImplementedError
 
+  @classmethod
+  def GetAncillaryFiles(cls):
+    """Return a list of ancillary files to be copied to all nodes as ancillary
+    configuration files.
+
+    @rtype: list of strings
+    @return: list of absolute paths of files to ship cluster-wide
+
+    """
+    # By default we return a member variable, so that if an hypervisor has just
+    # a static list of files it doesn't have to override this function.
+    return cls.ANCILLARY_FILES
+
   def Verify(self):
     """Verify the hypervisor.
 
     """
     raise NotImplementedError
 
-  def MigrationInfo(self, instance):
+  def MigrationInfo(self, instance): # pylint: disable-msg=R0201,W0613
     """Get instance information to perform a migration.
 
     By default assume no information is needed.
@@ -144,11 +234,11 @@ class BaseHypervisor(object):
     """
     pass
 
-  def MigrateInstance(self, name, target, live):
+  def MigrateInstance(self, instance, target, live):
     """Migrate an instance.
 
-    @type name: string
-    @param name: name of the instance to be migrated
+    @type instance: L{object.Instance}
+    @param instance: the instance to be migrated
     @type target: string
     @param target: hostname (usually ip) of the target node
     @type live: boolean
@@ -171,14 +261,25 @@ class BaseHypervisor(object):
     """
     for key in hvparams:
       if key not in cls.PARAMETERS:
-        raise errors.HypervisorError("Hypervisor parameter '%s'"
-                                     " not supported" % key)
-    for key in cls.PARAMETERS:
-      if key not in hvparams:
-        raise errors.HypervisorError("Hypervisor parameter '%s'"
-                                     " missing" % key)
+        raise errors.HypervisorError("Parameter '%s' is not supported" % key)
 
-  def ValidateParameters(self, hvparams):
+    # cheap tests that run on the master, should not access the world
+    for name, (required, check_fn, errstr, _, _) in cls.PARAMETERS.items():
+      if name not in hvparams:
+        raise errors.HypervisorError("Parameter '%s' is missing" % name)
+      value = hvparams[name]
+      if not required and not value:
+        continue
+      if not value:
+        raise errors.HypervisorError("Parameter '%s' is required but"
+                                     " is currently not defined" % (name, ))
+      if check_fn is not None and not check_fn(value):
+        raise errors.HypervisorError("Parameter '%s' fails syntax"
+                                     " check: %s (current value: '%s')" %
+                                     (name, errstr, value))
+
+  @classmethod
+  def ValidateParameters(cls, hvparams):
     """Check the given parameters for validity.
 
     This should check the passed set of parameters for
@@ -189,9 +290,28 @@ class BaseHypervisor(object):
     @raise errors.HypervisorError: when a parameter is not valid
 
     """
-    pass
+    for name, (required, _, _, check_fn, errstr) in cls.PARAMETERS.items():
+      value = hvparams[name]
+      if not required and not value:
+        continue
+      if check_fn is not None and not check_fn(value):
+        raise errors.HypervisorError("Parameter '%s' fails"
+                                     " validation: %s (current value: '%s')" %
+                                     (name, errstr, value))
 
-  def GetLinuxNodeInfo(self):
+  @classmethod
+  def PowercycleNode(cls):
+    """Hard powercycle a node using hypervisor specific methods.
+
+    This method should hard powercycle the node, using whatever
+    methods the hypervisor provides. Note that this means that all
+    instances running on the node must be stopped too.
+
+    """
+    raise NotImplementedError
+
+  @staticmethod
+  def GetLinuxNodeInfo():
     """For linux systems, return actual OS information.
 
     This is an abstraction for all non-hypervisor-based classes, where
@@ -207,11 +327,7 @@ class BaseHypervisor(object):
 
     """
     try:
-      fh = file("/proc/meminfo")
-      try:
-        data = fh.readlines()
-      finally:
-        fh.close()
+      data = utils.ReadFile("/proc/meminfo").splitlines()
     except EnvironmentError, err:
       raise errors.HypervisorError("Failed to list node info: %s" % (err,))
 
@@ -251,3 +367,20 @@ class BaseHypervisor(object):
     result['cpu_sockets'] = 1
 
     return result
+
+  @classmethod
+  def LinuxPowercycle(cls):
+    """Linux-specific powercycle method.
+
+    """
+    try:
+      fd = os.open("/proc/sysrq-trigger", os.O_WRONLY)
+      try:
+        os.write(fd, "b")
+      finally:
+        fd.close()
+    except OSError:
+      logging.exception("Can't open the sysrq-trigger file")
+      result = utils.RunCmd(["reboot", "-n", "-f"])
+      if not result:
+        logging.error("Can't run shutdown: %s", result.output)

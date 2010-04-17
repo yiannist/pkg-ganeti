@@ -37,12 +37,7 @@ NAME="AEN15"
 ><B
 CLASS="COMMAND"
 >ganeti-rapi </B
->  [-d] [-f] [-p <TT
-CLASS="REPLACEABLE"
-><I
->PORT</I
-></TT
->] [--no-ssl] [-K <TT
+>  [-d] [-f] [--no-ssl] [-K <TT
 CLASS="REPLACEABLE"
 ><I
 >SSL_KEY_FILE</I
@@ -57,7 +52,7 @@ CLASS="REPLACEABLE"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN27"
+NAME="AEN25"
 ></A
 ><H2
 >DESCRIPTION</H2
@@ -85,11 +80,8 @@ CLASS="OPTION"
 > option.
     </P
 ><P
->      The daemon will listen by default on the port 5080, but this can
-      be changed via the <CODE
-CLASS="OPTION"
->-p</CODE
-> option.
+>      The daemon will listen to the "ganeti-rapi" tcp port, as listed in the
+      system services database, or to port 5080 by default.
     </P
 ><P
 >      See the <SPAN
@@ -113,7 +105,7 @@ CLASS="FILENAME"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN41"
+NAME="AEN38"
 ></A
 ><H2
 >ACCESS CONTROLS</H2
@@ -169,7 +161,7 @@ CLASS="USERINPUT"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN54"
+NAME="AEN51"
 ></A
 ><H2
 >REPORTING BUGS</H2
@@ -186,7 +178,7 @@ TARGET="_top"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN58"
+NAME="AEN55"
 ></A
 ><H2
 >SEE ALSO</H2
@@ -302,7 +294,7 @@ CLASS="REFENTRYTITLE"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN105"
+NAME="AEN102"
 ></A
 ><H2
 >COPYRIGHT</H2

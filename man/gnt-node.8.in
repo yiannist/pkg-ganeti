@@ -3,7 +3,7 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GNT-NODE" "8" "04 February 2010" "ganeti 2.0" ""
+.TH "GNT-NODE" "8" "02 March 2010" "ganeti 2.0" ""
 
 .SH NAME
 gnt-node \- node administration
@@ -207,10 +207,28 @@ comma-separated list of the node's
 tags
 .TP
 \fBserial_no\fR
-the so called 'serial number' of the instance;
+the so called 'serial number' of the node;
 this is a numeric field that is incremented each time
-the instance is modified, and it can be used to detect
+the node is modified, and it can be used to detect
 modifications
+.TP
+\fBctime\fR
+the creation time of the node; note that this field
+contains spaces and as such it's harder to parse
+
+if this attribute is not present (e.g. when upgrading
+from older versions), then "N/A" will be shown instead
+.TP
+\fBmtime\fR
+the last modification time of the node; note that this
+field contains spaces and as such it's harder to parse
+
+if this attribute is not present (e.g. when upgrading
+from older versions), then "N/A" will be shown instead
+.TP
+\fBuuid\fR
+Show the UUID of the node (generated
+automatically by Ganeti)
 .TP
 \fBctotal\fR
 the toal number of logical processors
@@ -423,6 +441,141 @@ node1.example.com /dev/hdc1 xenvg instance1.example.com-sda_11000.meta 128  inst
 node1.example.com /dev/hdc1 xenvg instance1.example.com-sda_11001.data 256  instance1.example.com
         
 .fi
+.SS "LIST-STORAGE"
+
+\fBlist-storage\fR [ \fB--no-headers\fR ] [ \fB--human-readable\fR ] [ \fB--separator=\fISEPARATOR\fB\fR ] [ \fB--storage-type=\fISTORAGE_TYPE\fB\fR ] [ \fB--output=\fIFIELDS\fB\fR ]
+    [ \fB\fInode\fB\fR\fI ...\fR ]
+
+.PP
+Lists the available storage units and their details for the
+given node(s).
+.PP
+The \fB--no-headers\fR option will skip the initial header
+line. The \fB--separator\fR option takes an argument which
+denotes what will be used between the output fields. Both these options
+are to help scripting.
+.PP
+The units used to display the numeric values in the output varies,
+depending on the options given. By default, the values will be
+formatted in the most appropriate unit. If the
+\fB--separator\fR option is given, then the values are shown
+in mebibytes to allow parsing by scripts. In both cases, the
+\fB--units\fR option can be used to enforce a given output
+unit.
+.PP
+The \fB--storage-type\fR option can be used to choose a
+storage unit type. Possible choices are lvm-pv,
+lvm-vg or file\&.
+.PP
+The \fB-o\fR option takes a comma-separated list of
+output fields. The available fields and their meaning are:
+.TP
+\fBnode\fR
+the node name on which the volume exists
+.TP
+\fBtype\fR
+the type of the storage unit (currently just
+what is passed in via
+\fB--storage-type\fR)
+.TP
+\fBname\fR
+the path/identifier of the storage unit
+.TP
+\fBsize\fR
+total size of the unit; for the file type see a note below
+.TP
+\fBused\fR
+used space in the unit; for the file type see a note below
+.TP
+\fBfree\fR
+available disk space
+.TP
+\fBallocatable\fR
+whether we the unit is available for allocation
+(only lvm-pv can change this
+setting, the other types always report true)
+.PP
+Note that for the ``file'' type, the total disk
+space might not equal to the sum of used and free, due to the
+method Ganeti uses to compute each of them. The total and free
+values are computed as the total and free space values for the
+filesystem to which the directory belongs, but the used space
+is computed from the used space under that directory
+\fBonly\fR, which might not be necessarily the
+root of the filesystem, and as such there could be files
+outside the file storage directory using disk space and
+causing a mismatch in the values.
+.PP
+Example:
+
+.nf
+node1# gnt-node list-storage node2
+Node  Type   Name        Size Used   Free Allocatable
+node2 lvm-pv /dev/sda7 673.8G 1.5G 672.3G Y
+node2 lvm-pv /dev/sdb1 698.6G   0M 698.6G Y
+        
+.fi
+.SS "MODIFY-STORAGE"
+
+\fBmodify-storage\fR [ \fB--allocatable=yes|no\fR ]
+    \fB\fInode\fB\fR \fB\fIstorage-type\fB\fR \fB\fIvolume-name\fB\fR
+
+.PP
+Modifies storage volumes on a node. Only LVM physical volumes
+can be modified at the moment. They have a storage type
+of ``lvm-pv''\&.
+.PP
+Example:
+
+.nf
+# gnt-node modify-storage --allocatable no node5.example.com lvm-pv /dev/sdb1
+        
+.fi
+.SS "REPAIR-STORAGE"
+
+\fBrepair-storage\fR [ \fB--ignore-consistency\fR ] \fB\fInode\fB\fR \fB\fIstorage-type\fB\fR \fB\fIvolume-name\fB\fR
+
+.PP
+Repairs a storage volume on a node. Only LVM volume groups can
+be repaired at this time. They have the storage type
+``lvm-vg''\&.
+.PP
+On LVM volume groups, \fBrepair-storage\fR runs
+``vgreduce --removemissing''\&.
+.sp
+.RS
+.B "Caution:"
+Running this command can lead to data loss. Use it with care.
+.RE
+.PP
+The \fB--ignore-consistency\fR option will ignore
+any inconsistent disks (on the nodes paired with this
+one). Use of this option is most likely to lead to data-loss.
+.PP
+Example:
+
+.nf
+# gnt-node repair-storage node5.example.com lvm-vg xenvg
+        
+.fi
+.SS "POWERCYCLE"
+
+\fBpowercycle\fR [ \fB--confirm\fR ] [ \fB--force\fR ] \fB\fInode\fB\fR
+
+.PP
+This commands (tries to) forcefully reboot a node. It is a
+command that can be used if the node environemnt is broken,
+such that the admin can no longer login over ssh, but the
+ganeti node daemon is still working.
+.PP
+Note that this command is not guaranteed to work; it depends
+on the hypervisor how effective is the reboot attempt. For
+Linux, this command require that the kernel option
+CONFIG_MAGIC_SYSRQ is enabled.
+.PP
+The \fB--yes\fR option can be used to skip
+confirmation, while the \fB--force\fR option is
+needed if the target node is the master node.
 .SH "REPORTING BUGS"
 .PP
 Report bugs to  <URL:http://code.google.com/p/ganeti/> or contact the

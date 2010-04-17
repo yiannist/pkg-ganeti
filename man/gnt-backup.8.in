@@ -3,7 +3,7 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GNT-BACKUP" "8" "04 February 2010" "ganeti 2.0" ""
+.TH "GNT-BACKUP" "8" "02 March 2010" "ganeti 2.0" ""
 
 .SH NAME
 gnt-backup \- ganeti instance import/export
@@ -19,13 +19,18 @@ backing instances up and also to migrate them between clusters.
 .SH "COMMANDS"
 .SS "EXPORT"
 
-\fBexport\fR \fB-n \fInode\fB\fR [ \fB--noshutdown\fR ] \fB\fIinstance\fB\fR
+\fBexport\fR \fB-n \fInode\fB\fR [ \fB--shutdown-timeout=\fIN\fB\fR ] [ \fB--noshutdown\fR ] \fB\fIinstance\fB\fR
 
 .PP
 Exports an instance to the target node. All the instance data
 and its configuration will be exported under the
 /srv/ganeti/export/\fIinstance\fR
 directory on the target node.
+.PP
+The \fB--shutdown-timeout\fR is used to specify how
+much time to wait before forcing the shutdown (xm destroy in xen,
+killing the kvm process, for kvm). By default two minutes are
+given to each instance to stop.
 .PP
 The \fB--noshutdown\fR option will create a
 snapshot disk of the instance without shutting it down first.
@@ -110,9 +115,18 @@ instance from the Ganeti side (this is not necessarily
 what the instance will use, but what the node expects
 the instance to use)
 .TP
-\fBbridge\fR
-specifies the bridge to attach this NIC
-to
+\fBmode\fR
+specifies the connection mode for this nic:
+routed or bridged.
+.TP
+\fBlink\fR
+in bridged mode specifies the bridge to attach
+this NIC to, in routed mode it's intended to
+differentiate between different routing tables/instance
+groups (but the meaning is dependent on the network
+script, see gnt-cluster(8) for more details)
+Of these "mode" and "link" are nic parameters, and inherit their
+default at cluster level.
 .PP
 Alternatively, if no network is desired for the instance, you
 can prevent the default of one NIC with the

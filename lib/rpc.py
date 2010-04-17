@@ -60,6 +60,8 @@ def Init():
 
   assert not _http_manager, "RPC module initialized more than once"
 
+  http.InitSsl()
+
   _http_manager = http.client.HttpClientManager()
 
 
@@ -84,74 +86,84 @@ class RpcResult(object):
   failed, and therefore we use this class to encapsulate the result.
 
   @ivar data: the data payload, for successful results, or None
-  @type failed: boolean
-  @ivar failed: whether the operation failed at RPC level (not
-      application level on the remote node)
   @ivar call: the name of the RPC call
   @ivar node: the name of the node to which we made the call
   @ivar offline: whether the operation failed because the node was
       offline, as opposed to actual failure; offline=True will always
       imply failed=True, in order to allow simpler checking if
       the user doesn't care about the exact failure mode
+  @ivar fail_msg: the error message if the call failed
 
   """
   def __init__(self, data=None, failed=False, offline=False,
                call=None, node=None):
-    self.failed = failed
     self.offline = offline
     self.call = call
     self.node = node
+
     if offline:
-      self.failed = True
-      self.error = "Node is marked offline"
+      self.fail_msg = "Node is marked offline"
       self.data = self.payload = None
     elif failed:
-      self.error = data
+      self.fail_msg = self._EnsureErr(data)
       self.data = self.payload = None
     else:
       self.data = data
-      self.error = None
-      if isinstance(data, (tuple, list)) and len(data) == 2:
-        self.payload = data[1]
-      else:
+      if not isinstance(self.data, (tuple, list)):
+        self.fail_msg = ("RPC layer error: invalid result type (%s)" %
+                         type(self.data))
         self.payload = None
+      elif len(data) != 2:
+        self.fail_msg = ("RPC layer error: invalid result length (%d), "
+                         "expected 2" % len(self.data))
+        self.payload = None
+      elif not self.data[0]:
+        self.fail_msg = self._EnsureErr(self.data[1])
+        self.payload = None
+      else:
+        # finally success
+        self.fail_msg = None
+        self.payload = data[1]
 
-  def Raise(self):
+    assert hasattr(self, "call")
+    assert hasattr(self, "data")
+    assert hasattr(self, "fail_msg")
+    assert hasattr(self, "node")
+    assert hasattr(self, "offline")
+    assert hasattr(self, "payload")
+
+  @staticmethod
+  def _EnsureErr(val):
+    """Helper to ensure we return a 'True' value for error."""
+    if val:
+      return val
+    else:
+      return "No error information"
+
+  def Raise(self, msg, prereq=False, ecode=None):
     """If the result has failed, raise an OpExecError.
 
     This is used so that LU code doesn't have to check for each
     result, but instead can call this function.
 
     """
-    if self.failed:
-      raise errors.OpExecError("Call '%s' to node '%s' has failed: %s" %
-                               (self.call, self.node, self.error))
+    if not self.fail_msg:
+      return
 
-  def RemoteFailMsg(self):
-    """Check if the remote procedure failed.
-
-    This is valid only for RPC calls which return result of the form
-    (status, data | error_msg).
-
-    @return: empty string for succcess, otherwise an error message
-
-    """
-    def _EnsureErr(val):
-      """Helper to ensure we return a 'True' value for error."""
-      if val:
-        return val
-      else:
-        return "No error information"
-
-    if self.failed:
-      return _EnsureErr(self.error)
-    if not isinstance(self.data, (tuple, list)):
-      return "Invalid result type (%s)" % type(self.data)
-    if len(self.data) != 2:
-      return "Invalid result length (%d), expected 2" % len(self.data)
-    if not self.data[0]:
-      return _EnsureErr(self.data[1])
-    return ""
+    if not msg: # one could pass None for default message
+      msg = ("Call '%s' to node '%s' has failed: %s" %
+             (self.call, self.node, self.fail_msg))
+    else:
+      msg = "%s: %s" % (msg, self.fail_msg)
+    if prereq:
+      ec = errors.OpPrereqError
+    else:
+      ec = errors.OpExecError
+    if ecode is not None:
+      args = (msg, prereq)
+    else:
+      args = (msg, )
+    raise ec(*args) # pylint: disable-msg=W0142
 
 
 class Client:
@@ -258,7 +270,7 @@ class RpcRunner(object):
 
     """
     self._cfg = cfg
-    self.port = utils.GetNodeDaemonPort()
+    self.port = utils.GetDaemonPort(constants.NODED)
 
   def _InstDict(self, instance, hvp=None, bep=None):
     """Convert the given instance to a dict.
@@ -285,6 +297,10 @@ class RpcRunner(object):
     idict["beparams"] = cluster.FillBE(instance)
     if bep is not None:
       idict["beparams"].update(bep)
+    for nic in idict["nics"]:
+      nic['nicparams'] = objects.FillDict(
+        cluster.nicparams[constants.PP_DEFAULT],
+        nic['nicparams'])
     return idict
 
   def _ConnectList(self, client, node_list, call):
@@ -355,7 +371,7 @@ class RpcRunner(object):
 
     """
     body = serializer.DumpJson(args, indent=False)
-    c = Client(procedure, body, utils.GetNodeDaemonPort())
+    c = Client(procedure, body, utils.GetDaemonPort(constants.NODED))
     c.ConnectList(node_list, address_list=address_list)
     return c.GetResults()
 
@@ -377,7 +393,7 @@ class RpcRunner(object):
 
     """
     body = serializer.DumpJson(args, indent=False)
-    c = Client(procedure, body, utils.GetNodeDaemonPort())
+    c = Client(procedure, body, utils.GetDaemonPort(constants.NODED))
     c.ConnectNode(node)
     return c.GetResults()[node]
 
@@ -405,13 +421,13 @@ class RpcRunner(object):
   # Begin RPC calls
   #
 
-  def call_volume_list(self, node_list, vg_name):
+  def call_lv_list(self, node_list, vg_name):
     """Gets the logical volumes present in a given volume group.
 
     This is a multi-node call.
 
     """
-    return self._MultiNodeCall(node_list, "volume_list", [vg_name])
+    return self._MultiNodeCall(node_list, "lv_list", [vg_name])
 
   def call_vg_list(self, node_list):
     """Gets the volume group list.
@@ -420,6 +436,33 @@ class RpcRunner(object):
 
     """
     return self._MultiNodeCall(node_list, "vg_list", [])
+
+  def call_storage_list(self, node_list, su_name, su_args, name, fields):
+    """Get list of storage units.
+
+    This is a multi-node call.
+
+    """
+    return self._MultiNodeCall(node_list, "storage_list",
+                               [su_name, su_args, name, fields])
+
+  def call_storage_modify(self, node, su_name, su_args, name, changes):
+    """Modify a storage unit.
+
+    This is a single-node call.
+
+    """
+    return self._SingleNodeCall(node, "storage_modify",
+                                [su_name, su_args, name, changes])
+
+  def call_storage_execute(self, node, su_name, su_args, name, op):
+    """Executes an operation on a storage unit.
+
+    This is a single-node call.
+
+    """
+    return self._SingleNodeCall(node, "storage_execute",
+                                [su_name, su_args, name, op])
 
   def call_bridges_exist(self, node, bridges_list):
     """Checks if a node has all the bridges given.
@@ -442,14 +485,14 @@ class RpcRunner(object):
     idict = self._InstDict(instance, hvp=hvp, bep=bep)
     return self._SingleNodeCall(node, "instance_start", [idict])
 
-  def call_instance_shutdown(self, node, instance):
+  def call_instance_shutdown(self, node, instance, timeout):
     """Stops an instance.
 
     This is a single-node call.
 
     """
     return self._SingleNodeCall(node, "instance_shutdown",
-                                [self._InstDict(instance)])
+                                [self._InstDict(instance), timeout])
 
   def call_migration_info(self, node, instance):
     """Gather the information necessary to prepare an instance migration.
@@ -523,32 +566,33 @@ class RpcRunner(object):
     return self._SingleNodeCall(node, "instance_migrate",
                                 [self._InstDict(instance), target, live])
 
-  def call_instance_reboot(self, node, instance, reboot_type):
+  def call_instance_reboot(self, node, inst, reboot_type, shutdown_timeout):
     """Reboots an instance.
 
     This is a single-node call.
 
     """
     return self._SingleNodeCall(node, "instance_reboot",
-                                [self._InstDict(instance), reboot_type])
+                                [self._InstDict(inst), reboot_type,
+                                 shutdown_timeout])
 
-  def call_instance_os_add(self, node, inst):
+  def call_instance_os_add(self, node, inst, reinstall, debug):
     """Installs an OS on the given instance.
 
     This is a single-node call.
 
     """
     return self._SingleNodeCall(node, "instance_os_add",
-                                [self._InstDict(inst)])
+                                [self._InstDict(inst), reinstall, debug])
 
-  def call_instance_run_rename(self, node, inst, old_name):
+  def call_instance_run_rename(self, node, inst, old_name, debug):
     """Run the OS rename script for an instance.
 
     This is a single-node call.
 
     """
     return self._SingleNodeCall(node, "instance_run_rename",
-                                [self._InstDict(inst), old_name])
+                                [self._InstDict(inst), old_name, debug])
 
   def call_instance_info(self, node, instance, hname):
     """Returns information about a single instance.
@@ -643,25 +687,8 @@ class RpcRunner(object):
         memory information
 
     """
-    retux = self._MultiNodeCall(node_list, "node_info",
-                                [vg_name, hypervisor_type])
-
-    for result in retux.itervalues():
-      if result.failed or not isinstance(result.data, dict):
-        result.data = {}
-      if result.offline:
-        log_name = None
-      else:
-        log_name = "call_node_info"
-
-      utils.CheckDict(result.data, {
-        'memory_total' : '-',
-        'memory_dom0' : '-',
-        'memory_free' : '-',
-        'vg_size' : 'node_unreachable',
-        'vg_free' : '-',
-        }, log_name)
-    return retux
+    return self._MultiNodeCall(node_list, "node_info",
+                               [vg_name, hypervisor_type])
 
   def call_node_add(self, node, dsa, dsapub, rsa, rsapub, ssh, sshpub):
     """Add a node to the cluster.
@@ -710,13 +737,14 @@ class RpcRunner(object):
     # TODO: should this method query down nodes?
     return cls._StaticMultiNodeCall(node_list, "master_info", [])
 
-  def call_version(self, node_list):
+  @classmethod
+  def call_version(cls, node_list):
     """Query node version.
 
     This is a multi-node call.
 
     """
-    return self._MultiNodeCall(node_list, "version", [])
+    return cls._StaticMultiNodeCall(node_list, "version", [])
 
   def call_blockdev_create(self, node, bdev, size, owner, on_primary, info):
     """Request creation of a given block device.
@@ -787,8 +815,12 @@ class RpcRunner(object):
     This is a single-node call.
 
     """
-    return self._SingleNodeCall(node, "blockdev_getmirrorstatus",
-                                [dsk.ToDict() for dsk in disks])
+    result = self._SingleNodeCall(node, "blockdev_getmirrorstatus",
+                                  [dsk.ToDict() for dsk in disks])
+    if not result.fail_msg:
+      result.payload = [objects.BlockDevStatus.FromDict(i)
+                        for i in result.payload]
+    return result
 
   def call_blockdev_find(self, node, disk):
     """Request identification of a given block device.
@@ -796,7 +828,10 @@ class RpcRunner(object):
     This is a single-node call.
 
     """
-    return self._SingleNodeCall(node, "blockdev_find", [disk.ToDict()])
+    result = self._SingleNodeCall(node, "blockdev_find", [disk.ToDict()])
+    if not result.fail_msg and result.payload is not None:
+      result.payload = objects.BlockDevStatus.FromDict(result.payload)
+    return result
 
   def call_blockdev_close(self, node, instance_name, disks):
     """Closes the given block devices.
@@ -886,13 +921,7 @@ class RpcRunner(object):
     This is a multi-node call.
 
     """
-    result = self._MultiNodeCall(node_list, "os_diagnose", [])
-
-    for node_result in result.values():
-      if not node_result.failed and node_result.data:
-        node_result.data = [objects.OS.FromDict(oss)
-                            for oss in node_result.data]
-    return result
+    return self._MultiNodeCall(node_list, "os_diagnose", [])
 
   def call_os_get(self, node, name):
     """Returns an OS definition.
@@ -901,8 +930,8 @@ class RpcRunner(object):
 
     """
     result = self._SingleNodeCall(node, "os_get", [name])
-    if not result.failed and isinstance(result.data, dict):
-      result.data = objects.OS.FromDict(result.data)
+    if not result.fail_msg and isinstance(result.payload, dict):
+      result.payload = objects.OS.FromDict(result.payload)
     return result
 
   def call_hooks_runner(self, node_list, hpath, phase, env):
@@ -939,6 +968,17 @@ class RpcRunner(object):
     return self._SingleNodeCall(node, "blockdev_grow",
                                 [cf_bdev.ToDict(), amount])
 
+  def call_blockdev_export(self, node, cf_bdev,
+                           dest_node, dest_path, cluster_name):
+    """Export a given disk to another node.
+
+    This is a single-node call.
+
+    """
+    return self._SingleNodeCall(node, "blockdev_export",
+                                [cf_bdev.ToDict(), dest_node, dest_path,
+                                 cluster_name])
+
   def call_blockdev_snapshot(self, node, cf_bdev):
     """Request a snapshot of the given block device.
 
@@ -948,7 +988,7 @@ class RpcRunner(object):
     return self._SingleNodeCall(node, "blockdev_snapshot", [cf_bdev.ToDict()])
 
   def call_snapshot_export(self, node, snap_bdev, dest_node, instance,
-                           cluster_name, idx):
+                           cluster_name, idx, debug):
     """Request the export of a given snapshot.
 
     This is a single-node call.
@@ -956,7 +996,8 @@ class RpcRunner(object):
     """
     return self._SingleNodeCall(node, "snapshot_export",
                                 [snap_bdev.ToDict(), dest_node,
-                                 self._InstDict(instance), cluster_name, idx])
+                                 self._InstDict(instance), cluster_name,
+                                 idx, debug])
 
   def call_finalize_export(self, node, instance, snap_disks):
     """Request the completion of an export operation.
@@ -982,13 +1023,10 @@ class RpcRunner(object):
     This is a single-node call.
 
     """
-    result = self._SingleNodeCall(node, "export_info", [path])
-    if not result.failed and result.data:
-      result.data = objects.SerializableConfigParser.Loads(str(result.data))
-    return result
+    return self._SingleNodeCall(node, "export_info", [path])
 
   def call_instance_os_import(self, node, inst, src_node, src_images,
-                              cluster_name):
+                              cluster_name, debug):
     """Request the import of a backup into an instance.
 
     This is a single-node call.
@@ -996,7 +1034,7 @@ class RpcRunner(object):
     """
     return self._SingleNodeCall(node, "instance_os_import",
                                 [self._InstDict(inst), src_node, src_images,
-                                 cluster_name])
+                                 cluster_name, debug])
 
   def call_export_list(self, node_list):
     """Gets the stored exports list.
@@ -1015,7 +1053,7 @@ class RpcRunner(object):
     return self._SingleNodeCall(node, "export_remove", [export])
 
   @classmethod
-  def call_node_leave_cluster(cls, node):
+  def call_node_leave_cluster(cls, node, modify_ssh_setup):
     """Requests a node to clean the cluster information it has.
 
     This will remove the configuration information from the ganeti data
@@ -1024,7 +1062,8 @@ class RpcRunner(object):
     This is a single-node call.
 
     """
-    return cls._StaticSingleNodeCall(node, "node_leave_cluster", [])
+    return cls._StaticSingleNodeCall(node, "node_leave_cluster",
+                                     [modify_ssh_setup])
 
   def call_node_volumes(self, node_list):
     """Gets all volumes on node(s).
@@ -1041,6 +1080,16 @@ class RpcRunner(object):
 
     """
     return self._SingleNodeCall(node, "node_demote_from_mc", [])
+
+
+  def call_node_powercycle(self, node, hypervisor):
+    """Tries to powercycle a node.
+
+    This is a single-node call.
+
+    """
+    return self._SingleNodeCall(node, "node_powercycle", [hypervisor])
+
 
   def call_test_delay(self, node_list, duration):
     """Sleep for a fixed time on given node(s).
@@ -1137,6 +1186,6 @@ class RpcRunner(object):
 
     """
     cluster = self._cfg.GetClusterInfo()
-    hv_full = cluster.FillDict(cluster.hvparams.get(hvname, {}), hvparams)
+    hv_full = objects.FillDict(cluster.hvparams.get(hvname, {}), hvparams)
     return self._MultiNodeCall(node_list, "hypervisor_validate_params",
                                [hvname, hv_full])

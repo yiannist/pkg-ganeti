@@ -497,10 +497,41 @@ CLASS="REFENTRYTITLE"
 >serial_no</DT
 ><DD
 ><P
->the so called 'serial number' of the instance;
+>the so called 'serial number' of the node;
               this is a numeric field that is incremented each time
-              the instance is modified, and it can be used to detect
+              the node is modified, and it can be used to detect
               modifications</P
+></DD
+><DT
+>ctime</DT
+><DD
+><P
+>                the creation time of the node; note that this field
+                contains spaces and as such it's harder to parse
+              </P
+><P
+>                if this attribute is not present (e.g. when upgrading
+                from older versions), then "N/A" will be shown instead
+              </P
+></DD
+><DT
+>mtime</DT
+><DD
+><P
+>                the last modification time of the node; note that this
+                field contains spaces and as such it's harder to parse
+              </P
+><P
+>                if this attribute is not present (e.g. when upgrading
+                from older versions), then "N/A" will be shown instead
+              </P
+></DD
+><DT
+>uuid</DT
+><DD
+><P
+>Show the UUID of the node (generated
+                automatically by Ganeti)</P
 ></DD
 ><DT
 >ctotal</DT
@@ -655,7 +686,7 @@ CLASS="ACRONYM"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN254"
+NAME="AEN268"
 ></A
 ><H3
 >LIST-TAGS</H3
@@ -675,7 +706,7 @@ CLASS="REPLACEABLE"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN261"
+NAME="AEN275"
 ></A
 ><H3
 >MIGRATE</H3
@@ -717,7 +748,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN275"
+NAME="AEN289"
 ></A
 ><H3
 >MODIFY</H3
@@ -792,7 +823,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN302"
+NAME="AEN316"
 ></A
 ><H3
 >REMOVE</H3
@@ -822,7 +853,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN311"
+NAME="AEN325"
 ></A
 ><H3
 >REMOVE-TAGS</H3
@@ -864,7 +895,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN324"
+NAME="AEN338"
 ></A
 ><H3
 >VOLUMES</H3
@@ -988,11 +1019,381 @@ node1.example.com /dev/hdc1 xenvg instance1.example.com-sda_11001.data 256  inst
 >
       </P
 ></DIV
+><DIV
+CLASS="REFSECT2"
+><A
+NAME="AEN388"
+></A
+><H3
+>LIST-STORAGE</H3
+><P
+><B
+CLASS="COMMAND"
+>list-storage</B
+>  [--no-headers] [--human-readable] [--separator=<TT
+CLASS="REPLACEABLE"
+><I
+>SEPARATOR</I
+></TT
+>] [--storage-type=<TT
+CLASS="REPLACEABLE"
+><I
+>STORAGE_TYPE</I
+></TT
+>] [--output=<TT
+CLASS="REPLACEABLE"
+><I
+>FIELDS</I
+></TT
+>]<BR> [<TT
+CLASS="REPLACEABLE"
+><I
+>node</I
+></TT
+>...]</P
+><P
+>        Lists the available storage units and their details for the
+        given node(s).
+      </P
+><P
+>        The <CODE
+CLASS="OPTION"
+>--no-headers</CODE
+> option will skip the initial header
+        line. The <CODE
+CLASS="OPTION"
+>--separator</CODE
+> option takes an argument which
+        denotes what will be used between the output fields. Both these options
+        are to help scripting.
+      </P
+><P
+>        The units used to display the numeric values in the output varies,
+        depending on the options given. By default, the values will be
+        formatted in the most appropriate unit. If the
+        <CODE
+CLASS="OPTION"
+>--separator</CODE
+> option is given, then the values are shown
+        in mebibytes to allow parsing by scripts. In both cases, the
+        <CODE
+CLASS="OPTION"
+>--units</CODE
+> option can be used to enforce a given output
+        unit.
+      </P
+><P
+>        The <CODE
+CLASS="OPTION"
+>--storage-type</CODE
+> option can be used to choose a
+        storage unit type. Possible choices are <TT
+CLASS="LITERAL"
+>lvm-pv</TT
+>,
+        <TT
+CLASS="LITERAL"
+>lvm-vg</TT
+> or <TT
+CLASS="LITERAL"
+>file</TT
+>.
+      </P
+><P
+>        The <CODE
+CLASS="OPTION"
+>-o</CODE
+> option takes a comma-separated list of
+        output fields. The available fields and their meaning are:
+        <P
+></P
+><DIV
+CLASS="VARIABLELIST"
+><DL
+><DT
+>node</DT
+><DD
+><P
+>the node name on which the volume exists</P
+></DD
+><DT
+>type</DT
+><DD
+><P
+>the type of the storage unit (currently just
+              what is passed in via
+              <CODE
+CLASS="OPTION"
+>--storage-type</CODE
+>)</P
+></DD
+><DT
+>name</DT
+><DD
+><P
+>the path/identifier of the storage unit</P
+></DD
+><DT
+>size</DT
+><DD
+><P
+>                total size of the unit; for the file type see a note below
+              </P
+></DD
+><DT
+>used</DT
+><DD
+><P
+>                used space in the unit; for the file type see a note below
+              </P
+></DD
+><DT
+>free</DT
+><DD
+><P
+>                available disk space
+              </P
+></DD
+><DT
+>allocatable</DT
+><DD
+><P
+>                whether we the unit is available for allocation
+                (only <TT
+CLASS="LITERAL"
+>lvm-pv</TT
+> can change this
+                setting, the other types always report true)
+              </P
+></DD
+></DL
+></DIV
+>
+      </P
+><P
+>        Note that for the <SPAN
+CLASS="QUOTE"
+>"file"</SPAN
+> type, the total disk
+        space might not equal to the sum of used and free, due to the
+        method Ganeti uses to compute each of them. The total and free
+        values are computed as the total and free space values for the
+        filesystem to which the directory belongs, but the used space
+        is computed from the used space under that directory
+        <SPAN
+CLASS="emphasis"
+><I
+CLASS="EMPHASIS"
+>only</I
+></SPAN
+>, which might not be necessarily the
+        root of the filesystem, and as such there could be files
+        outside the file storage directory using disk space and
+        causing a mismatch in the values.
+      </P
+><P
+>        Example:
+        <PRE
+CLASS="SCREEN"
+>node1# gnt-node list-storage node2
+Node  Type   Name        Size Used   Free Allocatable
+node2 lvm-pv /dev/sda7 673.8G 1.5G 672.3G Y
+node2 lvm-pv /dev/sdb1 698.6G   0M 698.6G Y
+        </PRE
+>
+      </P
+></DIV
+><DIV
+CLASS="REFSECT2"
+><A
+NAME="AEN453"
+></A
+><H3
+>MODIFY-STORAGE</H3
+><P
+><B
+CLASS="COMMAND"
+>modify-storage</B
+>  [<CODE
+CLASS="OPTION"
+>--allocatable=yes|no</CODE
+>]<BR> {<TT
+CLASS="REPLACEABLE"
+><I
+>node</I
+></TT
+>} {<TT
+CLASS="REPLACEABLE"
+><I
+>storage-type</I
+></TT
+>} {<TT
+CLASS="REPLACEABLE"
+><I
+>volume-name</I
+></TT
+>}</P
+><P
+>        Modifies storage volumes on a node. Only LVM physical volumes
+        can be modified at the moment. They have a storage type
+        of <SPAN
+CLASS="QUOTE"
+>"lvm-pv"</SPAN
+>.
+      </P
+><P
+>        Example:
+        <PRE
+CLASS="SCREEN"
+># gnt-node modify-storage --allocatable no node5.example.com lvm-pv /dev/sdb1
+        </PRE
+>
+      </P
+></DIV
+><DIV
+CLASS="REFSECT2"
+><A
+NAME="AEN470"
+></A
+><H3
+>REPAIR-STORAGE</H3
+><P
+><B
+CLASS="COMMAND"
+>repair-storage</B
+>  [--ignore-consistency] {<TT
+CLASS="REPLACEABLE"
+><I
+>node</I
+></TT
+>} {<TT
+CLASS="REPLACEABLE"
+><I
+>storage-type</I
+></TT
+>} {<TT
+CLASS="REPLACEABLE"
+><I
+>volume-name</I
+></TT
+>}</P
+><P
+>        Repairs a storage volume on a node. Only LVM volume groups can
+        be repaired at this time. They have the storage type
+        <SPAN
+CLASS="QUOTE"
+>"lvm-vg"</SPAN
+>.
+      </P
+><P
+>        On LVM volume groups, <B
+CLASS="COMMAND"
+>repair-storage</B
+> runs
+        <SPAN
+CLASS="QUOTE"
+>"vgreduce --removemissing"</SPAN
+>.
+      </P
+><DIV
+CLASS="CAUTION"
+><P
+></P
+><TABLE
+CLASS="CAUTION"
+WIDTH="100%"
+BORDER="0"
+><TR
+><TD
+WIDTH="25"
+ALIGN="CENTER"
+VALIGN="TOP"
+><IMG
+SRC="../images/caution.gif"
+HSPACE="5"
+ALT="Caution"></TD
+><TD
+ALIGN="LEFT"
+VALIGN="TOP"
+><P
+>          Running this command can lead to data loss. Use it with care.
+        </P
+></TD
+></TR
+></TABLE
+></DIV
+><P
+>        The <CODE
+CLASS="OPTION"
+>--ignore-consistency</CODE
+> option will ignore
+        any inconsistent disks (on the nodes paired with this
+        one). Use of this option is most likely to lead to data-loss.
+      </P
+><P
+>        Example:
+        <PRE
+CLASS="SCREEN"
+># gnt-node repair-storage node5.example.com lvm-vg xenvg
+        </PRE
+>
+      </P
+></DIV
+><DIV
+CLASS="REFSECT2"
+><A
+NAME="AEN492"
+></A
+><H3
+>POWERCYCLE</H3
+><P
+><B
+CLASS="COMMAND"
+>powercycle</B
+>  [<CODE
+CLASS="OPTION"
+>--confirm</CODE
+>] [<CODE
+CLASS="OPTION"
+>--force</CODE
+>] {<TT
+CLASS="REPLACEABLE"
+><I
+>node</I
+></TT
+>}</P
+><P
+>        This commands (tries to) forcefully reboot a node. It is a
+        command that can be used if the node environemnt is broken,
+        such that the admin can no longer login over ssh, but the
+        ganeti node daemon is still working.
+      </P
+><P
+>        Note that this command is not guaranteed to work; it depends
+        on the hypervisor how effective is the reboot attempt. For
+        Linux, this command require that the kernel option
+        <TT
+CLASS="LITERAL"
+>CONFIG_MAGIC_SYSRQ</TT
+> is enabled.
+      </P
+><P
+>        The <CODE
+CLASS="OPTION"
+>--yes</CODE
+> option can be used to skip
+        confirmation, while the <CODE
+CLASS="OPTION"
+>--force</CODE
+> option is
+        needed if the target node is the master node.
+      </P
+></DIV
 ></DIV
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN374"
+NAME="AEN508"
 ></A
 ><H2
 >REPORTING BUGS</H2
@@ -1009,7 +1410,7 @@ TARGET="_top"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN378"
+NAME="AEN512"
 ></A
 ><H2
 >SEE ALSO</H2
@@ -1125,7 +1526,7 @@ CLASS="REFENTRYTITLE"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN425"
+NAME="AEN559"
 ></A
 ><H2
 >COPYRIGHT</H2
