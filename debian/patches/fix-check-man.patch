@@ -1,0 +1,76 @@
+From: Iustin Pop <iustin@google.com>
+Date: Mon, 15 Mar 2010 12:55:48 +0000 (+0100)
+Subject: Fix two issues related to check-man
+X-Git-Url: http://git.ganeti.org/?p=ganeti.git;a=commitdiff_plain;h=5fa1642226abc6540a2d3a653cb0ce2d6a8ab60c;hp=0babc371fbeb73d3f864b74f70e981adf65b2f14
+
+Fix two issues related to check-man
+
+First, we don't need to check man pages at sed time, because this means
+everyone building the package will do - we only need to check at docbook
+time, which is mostly at developer time.
+
+Second, don't force LC_ALL to C, as this breaks newer man-db. I've
+verified and removing LC_ALL works fine across etch, hardy, lenny aid
+squeeze/sid.
+
+Signed-off-by: Iustin Pop <iustin@google.com>
+Reviewed-by: Guido Trotter <ultrotter@google.com>
+
+(modified by hand to patch Makefile.in too)
+---
+
+--- a/Makefile.am
++++ b/Makefile.am
+@@ -404,6 +404,7 @@
+ 	@test -n "$(DOCBOOK2MAN)" || \
+ 	  { echo 'docbook2man' not found during configure; exit 1; }
+ 	$(DOCBOOK_WRAPPER) "$(DOCBOOK2MAN)" $< $(notdir $(@:.in=)) $@
++	$(CHECK_MAN) $@
+ 
+ man/%.html.in: man/%.sgml man/footer.sgml $(DOCBOOK_WRAPPER)
+ 	@test -n "$(DOCBOOK2HTML)" || \
+@@ -412,11 +413,9 @@
+ 
+ man/%.7: man/%.7.in $(REPLACE_VARS_SED)
+ 	sed -f $(REPLACE_VARS_SED) < $< > $@
+-	$(CHECK_MAN) $@
+ 
+ man/%.8: man/%.8.in $(REPLACE_VARS_SED)
+ 	sed -f $(REPLACE_VARS_SED) < $< > $@
+-	$(CHECK_MAN) $@
+ 
+ man/%.html: man/%.html.in $(REPLACE_VARS_SED)
+ 	sed -f $(REPLACE_VARS_SED) < $< > $@
+--- a/autotools/check-man
++++ b/autotools/check-man
+@@ -20,7 +20,7 @@
+ 
+ set -e
+ 
+-! LC_ALL=C MANWIDTH=80 \
++! MANWIDTH=80 \
+   man --warnings --encoding=utf8 --local-file "$1" 2>&1 >/dev/null | \
+   grep -v -e "cannot adjust line" -e "can't break line" | \
+   grep .
+--- a/Makefile.in
++++ b/Makefile.in
+@@ -1312,6 +1312,7 @@
+ 	@test -n "$(DOCBOOK2MAN)" || \
+ 	  { echo 'docbook2man' not found during configure; exit 1; }
+ 	$(DOCBOOK_WRAPPER) "$(DOCBOOK2MAN)" $< $(notdir $(@:.in=)) $@
++	$(CHECK_MAN) $@
+ 
+ man/%.html.in: man/%.sgml man/footer.sgml $(DOCBOOK_WRAPPER)
+ 	@test -n "$(DOCBOOK2HTML)" || \
+@@ -1320,11 +1321,9 @@
+ 
+ man/%.7: man/%.7.in $(REPLACE_VARS_SED)
+ 	sed -f $(REPLACE_VARS_SED) < $< > $@
+-	$(CHECK_MAN) $@
+ 
+ man/%.8: man/%.8.in $(REPLACE_VARS_SED)
+ 	sed -f $(REPLACE_VARS_SED) < $< > $@
+-	$(CHECK_MAN) $@
+ 
+ man/%.html: man/%.html.in $(REPLACE_VARS_SED)
+ 	sed -f $(REPLACE_VARS_SED) < $< > $@
