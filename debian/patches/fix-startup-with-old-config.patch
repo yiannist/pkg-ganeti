@@ -5,7 +5,7 @@ Author: Iustin Pop <iusty@k1024.org>
 Last-Update: 2009-12-04
 --- a/doc/examples/ganeti.initd.in
 +++ b/doc/examples/ganeti.initd.in
-@@ -53,6 +53,17 @@
+@@ -37,6 +37,17 @@
              exit 0
          fi
      done
