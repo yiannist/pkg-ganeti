@@ -57,6 +57,9 @@ install: build
 	install -m 0644 $(CURDIR)/debian/ganeti2.overrides \
 	  $(CURDIR)/debian/ganeti2/usr/share/lintian/overrides/ganeti2
 
+	# remove embedded copy of jquery
+	rm -f $(CURDIR)/debian/ganeti2/usr/share/doc/ganeti2/html/_static/jsquery.js
+
 	rmdir debian/ganeti2/var/run/ganeti
 	rmdir debian/ganeti2/var/run
 
