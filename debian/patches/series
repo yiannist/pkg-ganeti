@@ -1,4 +1,5 @@
 fix-startup-with-old-config.patch
 import-cfgupgrade12.patch
+cfgupgrade12-remove-old-ssconf.patch
 fix-check-man.patch
 fix-watcher-hooks-warning.patch
