@@ -1,6 +1,4 @@
-ganeti (2.1.1-1~1.gbp79b3f7) UNRELEASED; urgency=low
-
-  ** SNAPSHOT build @79b3f76fa6e6c65cfd4511ac041006e8c0642e86 **
+ganeti (2.1.1-1) unstable; urgency=low
 
   * New upstream version
   * Remove patches imported upstream
@@ -12,7 +10,7 @@ ganeti (2.1.1-1~1.gbp79b3f7) UNRELEASED; urgency=low
   * Replace embedded jquery with external dependency
   * Update NEWS file for 1.2 to 2.1 upgrade
 
- -- Iustin Pop <iustin@debian.org>  Sat, 17 Apr 2010 20:56:26 +0200
+ -- Iustin Pop <iustin@debian.org>  Sat, 17 Apr 2010 21:36:59 +0200
 
 ganeti (2.0.6-2) unstable; urgency=low
 
