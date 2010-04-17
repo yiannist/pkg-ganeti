@@ -1,9 +1,0 @@
-Document: ganeti-iallocator
-Title: Ganeti IAllocator interface
-Abstract: This manual describes the IAllocator framework for Ganeti,
- which delegates instance placement decisions to external scripts
-Section: System/Administration
-
-Format: HTML
-Index: /usr/share/doc/ganeti2/iallocator.html
-Files: /usr/share/doc/ganeti2/iallocator.html
