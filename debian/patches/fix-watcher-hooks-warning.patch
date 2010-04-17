@@ -1,0 +1,27 @@
+From: Iustin Pop <iustin@google.com>
+Date: Mon, 22 Mar 2010 15:15:46 +0000 (+0100)
+Subject: Watcher: do not warn for missing hooks dir
+X-Git-Url: http://git.ganeti.org/?p=ganeti.git;a=commitdiff_plain;h=10e689d4;hp=bbcf7ad022e5b0e8fd247175ef9cb98f1f6ca78f
+
+Watcher: do not warn for missing hooks dir
+
+If the hooks dir does not exist, do not warn needlessly. This is similar
+to commit a9b7e346 (for backend.py).
+
+Signed-off-by: Iustin Pop <iustin@google.com>
+Reviewed-by: René Nussbaumer <rn@google.com>
+---
+
+diff --git a/daemons/ganeti-watcher b/daemons/ganeti-watcher
+index 6bac441..050e789 100755
+--- a/daemons/ganeti-watcher
++++ b/daemons/ganeti-watcher
+@@ -87,6 +87,8 @@ def RunWatcherHooks():
+   """
+   hooks_dir = utils.PathJoin(constants.HOOKS_BASE_DIR,
+                              constants.HOOKS_NAME_WATCHER)
++  if not os.path.isdir(hooks_dir):
++    return
+ 
+   try:
+     results = utils.RunParts(hooks_dir)

@@ -1,3 +1,4 @@
 fix-startup-with-old-config.patch
 import-cfgupgrade12.patch
 fix-check-man.patch
+fix-watcher-hooks-warning.patch
