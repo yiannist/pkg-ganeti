@@ -90,7 +90,8 @@ binary-indep: build install
 #	dh_undocumented
 	dh_installman
 	dh_link
-	dh_compress
+	# Note: no compression on the html docs, since it will break navigation
+	dh_compress -Xganeti2/html/
 	dh_fixperms
 #	dh_perl
 	dh_installdeb
