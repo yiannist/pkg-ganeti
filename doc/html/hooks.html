@@ -5,13 +5,13 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Ganeti customisation using hooks &mdash; Ganeti v2.1.0 documentation</title>
+    <title>Ganeti customisation using hooks &mdash; Ganeti v2.1.1 documentation</title>
     <link rel="stylesheet" href="_static/default.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.1.0',
+        VERSION:     '2.1.1',
         COLLAPSE_MODINDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -19,7 +19,7 @@
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.1.0 documentation" href="index.html" />
+    <link rel="top" title="Ganeti v2.1.1 documentation" href="index.html" />
     <link rel="next" title="Ganeti automatic instance allocation" href="iallocator.html" />
     <link rel="prev" title="Ganeti locking" href="locking.html" /> 
   </head>
@@ -33,7 +33,7 @@
         <li class="right" >
           <a href="locking.html" title="Ganeti locking"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.1.0 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.1.1 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -432,11 +432,11 @@ and secondary before failover.</p>
 <tbody valign="top">
 <tr class="field"><th class="field-name">directory:</th><td class="field-body">instance-failover</td>
 </tr>
-<tr class="field"><th class="field-name">env. vars:</th><td class="field-body">IGNORE_CONSISTENCY</td>
+<tr class="field"><th class="field-name">env. vars:</th><td class="field-body">IGNORE_CONSISTENCY, OLD_SECONDARY, OLD_PRIMARY, NEW_SECONDARY, NEW_PRIMARY</td>
 </tr>
 <tr class="field"><th class="field-name">pre-execution:</th><td class="field-body">master node, secondary node</td>
 </tr>
-<tr class="field"><th class="field-name">post-execution:</th><td class="field-body">master node, secondary node</td>
+<tr class="field"><th class="field-name">post-execution:</th><td class="field-body">master node, primary and secondary nodes</td>
 </tr>
 </tbody>
 </table>
@@ -452,11 +452,11 @@ and secondary before migration.</p>
 <tbody valign="top">
 <tr class="field"><th class="field-name">directory:</th><td class="field-body">instance-migrate</td>
 </tr>
-<tr class="field"><th class="field-name">env. vars:</th><td class="field-body">MIGRATE_LIVE, MIGRATE_CLEANUP</td>
+<tr class="field"><th class="field-name">env. vars:</th><td class="field-body">MIGRATE_LIVE, MIGRATE_CLEANUP, OLD_SECONDARY, OLD_PRIMARY, NEW_SECONDARY, NEW_PRIMARY</td>
 </tr>
 <tr class="field"><th class="field-name">pre-execution:</th><td class="field-body">master node, secondary node</td>
 </tr>
-<tr class="field"><th class="field-name">post-execution:</th><td class="field-body">master node, secondary node</td>
+<tr class="field"><th class="field-name">post-execution:</th><td class="field-body">master node, primary and secondary nodes</td>
 </tr>
 </tbody>
 </table>
@@ -474,7 +474,7 @@ and secondary before migration.</p>
 </tr>
 <tr class="field"><th class="field-name">pre-execution:</th><td class="field-body">master node</td>
 </tr>
-<tr class="field"><th class="field-name">post-execution:</th><td class="field-body">master node</td>
+<tr class="field"><th class="field-name">post-execution:</th><td class="field-body">master node, primary and secondary nodes</td>
 </tr>
 </tbody>
 </table>
@@ -508,9 +508,9 @@ and secondary before migration.</p>
 </tr>
 <tr class="field"><th class="field-name">env. vars:</th><td class="field-body">DISK, AMOUNT</td>
 </tr>
-<tr class="field"><th class="field-name">pre-execution:</th><td class="field-body">master node, primary node</td>
+<tr class="field"><th class="field-name">pre-execution:</th><td class="field-body">master node, primary and secondary nodes</td>
 </tr>
-<tr class="field"><th class="field-name">post-execution:</th><td class="field-body">master node, primary node</td>
+<tr class="field"><th class="field-name">post-execution:</th><td class="field-body">master node, primary and secondary nodes</td>
 </tr>
 </tbody>
 </table>
@@ -751,9 +751,15 @@ operations.</p>
 <dt>INSTANCE_OS_TYPE</dt>
 <dd>The name of the instance OS.</dd>
 <dt>INSTANCE_PRIMARY</dt>
-<dd>The name of the node which is the primary for the instance.</dd>
+<dd>The name of the node which is the primary for the instance. Note that
+for migrations/failovers, you shouldn&#8217;t rely on this variable since
+the nodes change during the exectution, but on the
+OLD_PRIMARY/NEW_PRIMARY values.</dd>
 <dt>INSTANCE_SECONDARIES</dt>
-<dd>Space-separated list of secondary nodes for the instance.</dd>
+<dd>Space-separated list of secondary nodes for the instance. Note that
+for migrations/failovers, you shouldn&#8217;t rely on this variable since
+the nodes change during the exectution, but on the
+OLD_SECONDARY/NEW_SECONDARY values.</dd>
 <dt>INSTANCE_MEMORY</dt>
 <dd>The memory size (in MiBs) of the instance.</dd>
 <dt>INSTANCE_VCPUS</dt>
@@ -785,12 +791,17 @@ containing the image and the config file) and the source disk image
 file.</dd>
 <dt>NEW_SECONDARY</dt>
 <dd>The name of the node on which the new mirror component is being
-added. This can be the name of the current secondary, if the new
-mirror is on the same secondary.</dd>
+added (for replace disk). This can be the name of the current
+secondary, if the new mirror is on the same secondary. For
+migrations/failovers, this is the old primary node.</dd>
 <dt>OLD_SECONDARY</dt>
-<dd>The name of the old secondary in the replace-disks command Note that
+<dd>The name of the old secondary in the replace-disks command. Note that
 this can be equal to the new secondary if the secondary node hasn&#8217;t
-actually changed.</dd>
+actually changed. For migrations/failovers, this is the new primary
+node.</dd>
+<dt>OLD_PRIMARY, NEW_PRIMARY</dt>
+<dd>For migrations/failovers, the old and respectively new primary
+nodes. These two mirror the NEW_SECONDARY/OLD_SECONDARY variables</dd>
 <dt>EXPORT_NODE</dt>
 <dd>The node on which the exported image of the instance was done.</dd>
 <dt>EXPORT_DO_SHUTDOWN</dt>
@@ -943,7 +954,7 @@ GANETI_OP_TARGET=instance2.example.com</pre>
         <li class="right" >
           <a href="locking.html" title="Ganeti locking"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.1.0 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.1.1 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

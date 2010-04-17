@@ -14,6 +14,7 @@ DOCBOOK_WRAPPER = $(top_srcdir)/autotools/docbook-wrapper
 BUILD_BASH_COMPLETION = $(top_srcdir)/autotools/build-bash-completion
 RUN_IN_TEMPDIR = $(top_srcdir)/autotools/run-in-tempdir
 CHECK_PYTHON_CODE = $(top_srcdir)/autotools/check-python-code
+CHECK_MAN = $(top_srcdir)/autotools/check-man
 REPLACE_VARS_SED = autotools/replace_vars.sed
 
 hypervisordir = $(pkgpythondir)/hypervisor
@@ -22,6 +23,9 @@ confddir = $(pkgpythondir)/confd
 rapidir = $(pkgpythondir)/rapi
 toolsdir = $(pkglibdir)/tools
 docdir = $(datadir)/doc/$(PACKAGE)
+
+# Delete output file if an error occurred while building it
+.DELETE_ON_ERROR:
 
 DIRS = \
 	autotools \
@@ -50,7 +54,7 @@ MAINTAINERCLEANFILES = \
 	doc/news.rst
 
 maintainer-clean-local:
-	rm -rf doc/api doc/html
+	rm -rf doc/api doc/html doc/coverage
 
 CLEANFILES = \
 	autotools/replace_vars.sed \
@@ -229,6 +233,7 @@ dist_tools_SCRIPTS = \
 	tools/burnin \
 	tools/cfgshell \
 	tools/cfgupgrade \
+	tools/cluster-merge \
 	tools/lvmstrap
 
 pkglib_SCRIPTS = \
@@ -239,7 +244,9 @@ EXTRA_DIST = \
 	pylintrc \
 	autotools/build-bash-completion \
 	autotools/check-python-code \
+	autotools/check-man \
 	autotools/docbook-wrapper \
+	autotools/gen-coverage \
 	$(RUN_IN_TEMPDIR) \
 	daemons/daemon-util.in \
 	daemons/ganeti-cleaner.in \
@@ -322,20 +329,25 @@ dist_TESTS = \
 	test/ganeti.locking_unittest.py \
 	test/ganeti.mcpu_unittest.py \
 	test/ganeti.objects_unittest.py \
+	test/ganeti.opcodes_unittest.py \
 	test/ganeti.rapi.resources_unittest.py \
 	test/ganeti.serializer_unittest.py \
 	test/ganeti.ssh_unittest.py \
 	test/ganeti.utils_unittest.py \
 	test/ganeti.workerpool_unittest.py \
-	test/docs_unittest.py
+	test/docs_unittest.py \
+	test/tempfile_fork_unittest.py
 
 nodist_TESTS =
 
 TESTS = $(dist_TESTS) $(nodist_TESTS)
 
-TESTS_ENVIRONMENT = \
-	PYTHONPATH=. TOP_SRCDIR=$(abs_top_srcdir) \
-	$(RUN_IN_TEMPDIR) $(PYTHON)
+# Environment for all tests
+PLAIN_TESTS_ENVIRONMENT = \
+	PYTHONPATH=. TOP_SRCDIR=$(abs_top_srcdir) PYTHON=$(PYTHON) $(RUN_IN_TEMPDIR)
+
+# Environment for tests run by automake
+TESTS_ENVIRONMENT = $(PLAIN_TESTS_ENVIRONMENT) $(PYTHON)
 
 all_python_code = \
 	$(dist_sbin_SCRIPTS) \
@@ -399,9 +411,11 @@ man/%.html.in: man/%.sgml man/footer.sgml $(DOCBOOK_WRAPPER)
 
 man/%.7: man/%.7.in $(REPLACE_VARS_SED)
 	sed -f $(REPLACE_VARS_SED) < $< > $@
+	$(CHECK_MAN) $@
 
 man/%.8: man/%.8.in $(REPLACE_VARS_SED)
 	sed -f $(REPLACE_VARS_SED) < $< > $@
+	$(CHECK_MAN) $@
 
 man/%.html: man/%.html.in $(REPLACE_VARS_SED)
 	sed -f $(REPLACE_VARS_SED) < $< > $@
@@ -431,12 +445,14 @@ lib/_autoconf.py: Makefile stamp-directories
 	  echo "VERSION_FULL = '$(VERSION_FULL)'"; \
 	  echo "LOCALSTATEDIR = '$(localstatedir)'"; \
 	  echo "SYSCONFDIR = '$(sysconfdir)'"; \
+	  echo "SSH_CONFIG_DIR = '$(SSH_CONFIG_DIR)'"; \
 	  echo "EXPORT_DIR = '$(EXPORT_DIR)'"; \
 	  echo "OS_SEARCH_PATH = [$(OS_SEARCH_PATH)]"; \
 	  echo "XEN_BOOTLOADER = '$(XEN_BOOTLOADER)'"; \
 	  echo "XEN_KERNEL = '$(XEN_KERNEL)'"; \
 	  echo "XEN_INITRD = '$(XEN_INITRD)'"; \
 	  echo "FILE_STORAGE_DIR = '$(FILE_STORAGE_DIR)'"; \
+	  echo "ENABLE_FILE_STORAGE = $(ENABLE_FILE_STORAGE)"; \
 	  echo "IALLOCATOR_SEARCH_PATH = [$(IALLOCATOR_SEARCH_PATH)]"; \
 	  echo "KVM_PATH = '$(KVM_PATH)'"; \
 	  echo "SOCAT_PATH = '$(SOCAT)'"; \
@@ -445,6 +461,8 @@ lib/_autoconf.py: Makefile stamp-directories
 	  echo "TOOLSDIR = '$(toolsdir)'"; \
 	  echo "GNT_SCRIPTS = [$(foreach i,$(notdir $(gnt_scripts)),'$(i)',)]"; \
 	  echo "PKGLIBDIR = '$(pkglibdir)'"; \
+	  echo "DRBD_BARRIERS = $(DRBD_BARRIERS)"; \
+	  echo "SYSLOG_USAGE = '$(SYSLOG_USAGE)'"; \
 	} > $@
 
 $(REPLACE_VARS_SED): Makefile
@@ -482,7 +500,7 @@ check-local:
 	$(CHECK_PYTHON_CODE) $(check_python_code)
 
 .PHONY: lint
-lint: ganeti
+lint: ganeti $(BUILT_SOURCES)
 	@test -n "$(PYLINT)" || { echo 'pylint' not found during configure; exit 1; }
 	$(PYLINT) $(LINT_OPTS) $(lint_python_code)
 
@@ -511,17 +529,26 @@ stamp-directories: Makefile
 	touch $@
 
 .PHONY: apidoc
-apidoc: epydoc.conf $(RUN_IN_TEMPDIR)
+apidoc: epydoc.conf $(RUN_IN_TEMPDIR) $(BUILT_SOURCES)
 	test -e doc/api || mkdir doc/api
 	$(RUN_IN_TEMPDIR) epydoc -v \
 		--conf $(CURDIR)/epydoc.conf \
 		--output $(CURDIR)/doc/api
 
 .PHONY: TAGS
-TAGS:
+TAGS: $(BUILT_SOURCES)
 	rm -f TAGS
 	find . -path './lib/*.py' -o -path 'scripts/gnt-*' -o \
 	  -path 'daemons/ganeti-*' -o -path 'tools/*' | \
 	  etags -
+
+.PHONY: coverage
+coverage: $(BUILT_SOURCES) $(TESTS)
+	set -e; \
+	mkdir -p doc/coverage; \
+	COVERAGE_FILE=$(CURDIR)/doc/coverage/data \
+	TEXT_COVERAGE=$(CURDIR)/doc/coverage/report.txt \
+	HTML_COVERAGE=$(CURDIR)/doc/coverage \
+	$(PLAIN_TESTS_ENVIRONMENT) $(abs_top_srcdir)/autotools/gen-coverage $(TESTS)
 
 # vim: set noet :

@@ -193,7 +193,7 @@ NAME="AEN64"
 ><B
 CLASS="COMMAND"
 >evacuate</B
->  [-f] [--iallocator <TT
+>  [-f] [--early-release] [--iallocator <TT
 CLASS="REPLACEABLE"
 ><I
 >NAME</I
@@ -208,10 +208,10 @@ CLASS="REPLACEABLE"
 ><I
 >node</I
 ></TT
->}</P
+>...}</P
 ><P
 >        This command will move all secondary instances away from the
-        given node. It works only for instances having a drbd disk
+        given node(s). It works only for instances having a drbd disk
         template.
       </P
 ><P
@@ -241,6 +241,21 @@ CLASS="OPTION"
 >
       </P
 ><P
+>        The <CODE
+CLASS="OPTION"
+>--early-release</CODE
+> changes the code so that
+        the old storage on node being evacuated is removed early
+        (before the resync is completed) and the internal Ganeti locks
+        are also released for both the current secondary and the new
+        secondary, thus allowing more parallelism in the cluster
+        operation. This should be used only when recovering from a
+        disk failure on the current secondary (thus the old storage is
+        already broken) or when the storage on the primary node is
+        known to be fine (thus we won't need the old storage for
+        potential recovery).
+      </P
+><P
 >        Example:
         <PRE
 CLASS="SCREEN"
@@ -252,7 +267,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN87"
+NAME="AEN90"
 ></A
 ><H3
 >FAILOVER</H3
@@ -292,7 +307,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN100"
+NAME="AEN103"
 ></A
 ><H3
 >INFO</H3
@@ -315,7 +330,7 @@ CLASS="REPLACEABLE"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN107"
+NAME="AEN110"
 ></A
 ><H3
 >LIST</H3
@@ -686,7 +701,7 @@ CLASS="ACRONYM"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN268"
+NAME="AEN271"
 ></A
 ><H3
 >LIST-TAGS</H3
@@ -706,7 +721,7 @@ CLASS="REPLACEABLE"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN275"
+NAME="AEN278"
 ></A
 ><H3
 >MIGRATE</H3
@@ -748,7 +763,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN289"
+NAME="AEN292"
 ></A
 ><H3
 >MODIFY</H3
@@ -765,7 +780,7 @@ CLASS="OPTION"
 >] [--offline=<CODE
 CLASS="OPTION"
 >yes|no</CODE
->] {<TT
+>] [--auto-promote] {<TT
 CLASS="REPLACEABLE"
 ><I
 >node</I
@@ -794,13 +809,18 @@ CLASS="REFENTRYTITLE"
 >.
       </P
 ><P
->        In case a node is demoted from the master candidate role, but
-        there are not enough new nodes for this case, the operation
-        will be refused. To override this check, pass the
-        <CODE
+>        In case a node is demoted from the master candidate role, the
+        operation will be refused unless you pass
+        the <CODE
 CLASS="OPTION"
->--force</CODE
-> option.
+>--auto-promote</CODE
+> option. This option will
+        cause the operation to lock all cluster nodes (thus it will
+        not be able to run in parallel with most other jobs), but it
+        allows automated maintenance of the cluster candidate pool. If
+        locking all cluster node is too expensive, another option is
+        to promote manually another node to master candidate before
+        demoting the current one.
       </P
 ><P
 >        Example (setting a node offline, which will demote it from
@@ -823,7 +843,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN316"
+NAME="AEN320"
 ></A
 ><H3
 >REMOVE</H3
@@ -853,7 +873,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN325"
+NAME="AEN329"
 ></A
 ><H3
 >REMOVE-TAGS</H3
@@ -895,7 +915,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN338"
+NAME="AEN342"
 ></A
 ><H3
 >VOLUMES</H3
@@ -1022,7 +1042,7 @@ node1.example.com /dev/hdc1 xenvg instance1.example.com-sda_11001.data 256  inst
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN388"
+NAME="AEN392"
 ></A
 ><H3
 >LIST-STORAGE</H3
@@ -1206,7 +1226,7 @@ node2 lvm-pv /dev/sdb1 698.6G   0M 698.6G Y
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN453"
+NAME="AEN457"
 ></A
 ><H3
 >MODIFY-STORAGE</H3
@@ -1253,7 +1273,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN470"
+NAME="AEN474"
 ></A
 ><H3
 >REPAIR-STORAGE</H3
@@ -1342,7 +1362,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN492"
+NAME="AEN496"
 ></A
 ><H3
 >POWERCYCLE</H3
@@ -1393,7 +1413,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN508"
+NAME="AEN512"
 ></A
 ><H2
 >REPORTING BUGS</H2
@@ -1410,7 +1430,7 @@ TARGET="_top"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN512"
+NAME="AEN516"
 ></A
 ><H2
 >SEE ALSO</H2
@@ -1526,7 +1546,7 @@ CLASS="REFENTRYTITLE"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN559"
+NAME="AEN563"
 ></A
 ><H2
 >COPYRIGHT</H2

@@ -5,13 +5,13 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>News &mdash; Ganeti v2.1.0 documentation</title>
+    <title>News &mdash; Ganeti v2.1.1 documentation</title>
     <link rel="stylesheet" href="_static/default.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.1.0',
+        VERSION:     '2.1.1',
         COLLAPSE_MODINDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -19,7 +19,7 @@
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.1.0 documentation" href="index.html" />
+    <link rel="top" title="Ganeti v2.1.1 documentation" href="index.html" />
     <link rel="next" title="Glossary" href="glossary.html" />
     <link rel="prev" title="Developer notes" href="devnotes.html" /> 
   </head>
@@ -33,7 +33,7 @@
         <li class="right" >
           <a href="devnotes.html" title="Developer notes"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.1.0 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.1.1 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -44,6 +44,116 @@
             
   <div class="section" id="news">
 <h1>News<a class="headerlink" href="#news" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="version-2-1-1">
+<h2>Version 2.1.1<a class="headerlink" href="#version-2-1-1" title="Permalink to this headline">¶</a></h2>
+<p>During the 2.1.0 long release candidate cycle, a lot of improvements and
+changes have accumulated with were released later as 2.1.1.</p>
+<div class="section" id="major-changes">
+<h3>Major changes<a class="headerlink" href="#major-changes" title="Permalink to this headline">¶</a></h3>
+<p>The node evacuate command (<tt class="docutils literal"><span class="pre">gnt-node</span> <span class="pre">evacuate</span></tt>) was significantly
+rewritten, and as such the IAllocator protocol was changed - a new
+request type has been added. This unfortunate change during a stable
+series is designed to improve performance of node evacuations; on
+clusters with more than about five nodes and which are well-balanced,
+evacuation should proceed in parallel for all instances of the node
+being evacuated. As such, any existing IAllocator scripts need to be
+updated, otherwise the above command will fail due to the unknown
+request. The provided &#8220;dumb&#8221; allocator has not been updated; but the
+ganeti-htools package supports the new protocol since version 0.2.4.</p>
+<p>Another important change is increased validation of node and instance
+names. This might create problems in special cases, if invalid host
+names are being used.</p>
+<p>Also, a new layer of hypervisor parameters has been added, that sits at
+OS level between the cluster defaults and the instance ones. This allows
+customisation of virtualization parameters depending on the installed
+OS. For example instances with OS &#8216;X&#8217; may have a different KVM kernel
+(or any other parameter) than the cluster defaults. This is intended to
+help managing a multiple OSes on the same cluster, without manual
+modification of each instance&#8217;s parameters.</p>
+<p>A tool for merging clusters, <tt class="docutils literal"><span class="pre">cluster-merge</span></tt>, has been added in the
+tools sub-directory.</p>
+</div>
+<div class="section" id="bug-fixes">
+<h3>Bug fixes<a class="headerlink" href="#bug-fixes" title="Permalink to this headline">¶</a></h3>
+<ul class="simple">
+<li>Improved the int/float conversions that should make the code more
+robust in face of errors from the node daemons</li>
+<li>Fixed the remove node code in case of internal configuration errors</li>
+<li>Fixed the node daemon behaviour in face of inconsistent queue
+directory (e.g. read-only file-system where we can&#8217;t open the files
+read-write, etc.)</li>
+<li>Fixed the behaviour of gnt-node modify for master candidate demotion;
+now it either aborts cleanly or, if given the new “auto_promote”
+parameter, will automatically promote other nodes as needed</li>
+<li>Fixed compatibility with (unreleased yet) Python 2.6.5 that would
+completely prevent Ganeti from working</li>
+<li>Fixed bug for instance export when not all disks were successfully
+exported</li>
+<li>Fixed behaviour of node add when the new node is slow in starting up
+the node daemon</li>
+<li>Fixed handling of signals in the LUXI client, which should improve
+behaviour of command-line scripts</li>
+<li>Added checks for invalid node/instance names in the configuration (now
+flagged during cluster verify)</li>
+<li>Fixed watcher behaviour for disk activation errors</li>
+<li>Fixed two potentially endless loops in http library, which led to the
+RAPI daemon hanging and consuming 100% CPU in some cases</li>
+<li>Fixed bug in RAPI daemon related to hashed passwords</li>
+<li>Fixed bug for unintended qemu-level bridging of multi-NIC KVM
+instances</li>
+<li>Enhanced compatibility with non-Debian OSes, but not using absolute
+path in some commands and allowing customisation of the ssh
+configuration directory</li>
+<li>Fixed possible future issue with new Python versions by abiding to the
+proper use of <tt class="docutils literal"><span class="pre">__slots__</span></tt> attribute on classes</li>
+<li>Added checks that should prevent directory traversal attacks</li>
+<li>Many documentation fixes based on feedback from users</li>
+</ul>
+</div>
+<div class="section" id="new-features">
+<h3>New features<a class="headerlink" href="#new-features" title="Permalink to this headline">¶</a></h3>
+<ul class="simple">
+<li>Added an “early_release” more for instance replace disks and node
+evacuate, where we release locks earlier and thus allow higher
+parallelism within the cluster</li>
+<li>Added watcher hooks, intended to allow the watcher to restart other
+daemons (e.g. from the ganeti-nbma project), but they can be used of
+course for any other purpose</li>
+<li>Added a compile-time disable for DRBD barriers, to increase
+performance if the administrator trusts the power supply or the
+storage system to not lose writes</li>
+<li>Added the option of using syslog for logging instead of, or in
+addition to, Ganeti&#8217;s own log files</li>
+<li>Removed boot restriction for paravirtual NICs for KVM, recent versions
+can indeed boot from a paravirtual NIC</li>
+<li>Added a generic debug level for many operations; while this is not
+used widely yet, it allows one to pass the debug value all the way to
+the OS scripts</li>
+<li>Enhanced the hooks environment for instance moves (failovers,
+migrations) where the primary/secondary nodes changed during the
+operation, by adding {NEW,OLD}_{PRIMARY,SECONDARY} vars</li>
+<li>Enhanced data validations for many user-supplied values; one important
+item is the restrictions imposed on instance and node names, which
+might reject some (invalid) host names</li>
+<li>Add a configure-time option to disable file-based storage, if it&#8217;s not
+needed; this allows greater security separation between the master
+node and the other nodes from the point of view of the inter-node RPC
+protocol</li>
+<li>Added user notification in interactive tools if job is waiting in the
+job queue or trying to acquire locks</li>
+<li>Added log messages when a job is waiting for locks</li>
+<li>Added filtering by node tags in instance operations which admit
+multiple instances (start, stop, reboot, reinstall)</li>
+<li>Added a new tool for cluster mergers, <tt class="docutils literal"><span class="pre">cluster-merge</span></tt></li>
+<li>Parameters from command line which are of the form <tt class="docutils literal"><span class="pre">a=b,c=d</span></tt> can now
+use backslash escapes to pass in values which contain commas,
+e.g. <tt class="docutils literal"><span class="pre">a=b\\c,d=e</span></tt> where the &#8216;a&#8217; parameter would get the value
+<tt class="docutils literal"><span class="pre">b,c</span></tt></li>
+<li>For KVM, the instance name is the first parameter passed to KVM, so
+that it&#8217;s more visible in the process list</li>
+</ul>
+</div>
+</div>
 <div class="section" id="version-2-1-0">
 <h2>Version 2.1.0<a class="headerlink" href="#version-2-1-0" title="Permalink to this headline">¶</a></h2>
 <p>Ganeti 2.1 brings many improvements with it. Major changes:</p>
@@ -141,6 +251,15 @@ reinstalling an instance</li>
 <li>Improved burnin</li>
 </ul>
 </div>
+</div>
+<div class="section" id="version-2-0-6">
+<h2>Version 2.0.6<a class="headerlink" href="#version-2-0-6" title="Permalink to this headline">¶</a></h2>
+<ul class="simple">
+<li>Fix cleaner behaviour on nodes not in a cluster (Debian bug 568105)</li>
+<li>Fix a string formatting bug</li>
+<li>Improve safety of the code in some error paths</li>
+<li>Improve data validation in the master of values returned from nodes</li>
+</ul>
 </div>
 <div class="section" id="version-2-0-5">
 <h2>Version 2.0.5<a class="headerlink" href="#version-2-0-5" title="Permalink to this headline">¶</a></h2>
@@ -597,10 +716,17 @@ post-configuration update hook)</li>
             <h3><a href="index.html">Table Of Contents</a></h3>
             <ul>
 <li><a class="reference" href="">News</a><ul>
+<li><a class="reference" href="#version-2-1-1">Version 2.1.1</a><ul>
+<li><a class="reference" href="#major-changes">Major changes</a></li>
+<li><a class="reference" href="#bug-fixes">Bug fixes</a></li>
+<li><a class="reference" href="#new-features">New features</a></li>
+</ul>
+</li>
 <li><a class="reference" href="#version-2-1-0">Version 2.1.0</a><ul>
 <li><a class="reference" href="#details">Details</a></li>
 </ul>
 </li>
+<li><a class="reference" href="#version-2-0-6">Version 2.0.6</a></li>
 <li><a class="reference" href="#version-2-0-5">Version 2.0.5</a></li>
 <li><a class="reference" href="#version-2-0-4">Version 2.0.4</a></li>
 <li><a class="reference" href="#version-2-0-3">Version 2.0.3</a></li>
@@ -665,7 +791,7 @@ post-configuration update hook)</li>
         <li class="right" >
           <a href="devnotes.html" title="Developer notes"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.1.0 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.1.1 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

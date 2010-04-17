@@ -5,13 +5,13 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Ganeti remote API &mdash; Ganeti v2.1.0 documentation</title>
+    <title>Ganeti remote API &mdash; Ganeti v2.1.1 documentation</title>
     <link rel="stylesheet" href="_static/default.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.1.0',
+        VERSION:     '2.1.1',
         COLLAPSE_MODINDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -19,7 +19,7 @@
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.1.0 documentation" href="index.html" />
+    <link rel="top" title="Ganeti v2.1.1 documentation" href="index.html" />
     <link rel="next" title="Developer notes" href="devnotes.html" />
     <link rel="prev" title="Ganeti automatic instance allocation" href="iallocator.html" /> 
   </head>
@@ -33,7 +33,7 @@
         <li class="right" >
           <a href="iallocator.html" title="Ganeti automatic instance allocation"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.1.0 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.1.1 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -205,15 +205,15 @@ file, <tt class="docutils literal"><span class="pre">ganeti-rapi</span></tt> mus
 first two fields are for username and password. The third field is
 optional and can be used to specify per-user options. Currently,
 <tt class="docutils literal"><span class="pre">write</span></tt> is the only option supported and enables the user to execute
-operations modifying the cluster. Lines starting with the hash sign (#)
-are treated as comments.</p>
+operations modifying the cluster. Lines starting with the hash sign
+(<tt class="docutils literal"><span class="pre">#</span></tt>) are treated as comments.</p>
 <p>Passwords can either be written in clear text or as a hash. Clear text
 passwords may not start with an opening brace (<tt class="docutils literal"><span class="pre">{</span></tt>) or they must be
 prefixed with <tt class="docutils literal"><span class="pre">{cleartext}</span></tt>. To use the hashed form, get the MD5 hash
 of the string <tt class="docutils literal"><span class="pre">$username:Ganeti</span> <span class="pre">Remote</span> <span class="pre">API:$password</span></tt> (e.g. <tt class="docutils literal"><span class="pre">echo</span> <span class="pre">-n</span>
-<span class="pre">'jack:Ganeti</span> <span class="pre">Remote</span> <span class="pre">API:abc123'</span> <span class="pre">|</span> <span class="pre">openssl</span> <span class="pre">md5</span></tt>) <a class="footnote-reference" href="#pwhash" id="id1" name="id1">[1]</a>. Using the
-scheme prefix for all passwords is recommended. Scheme prefixes are not
-case sensitive.</p>
+<span class="pre">'jack:Ganeti</span> <span class="pre">Remote</span> <span class="pre">API:abc123'</span> <span class="pre">|</span> <span class="pre">openssl</span> <span class="pre">md5</span></tt>) <a class="footnote-reference" href="#pwhash" id="id1" name="id1">[1]</a> and prefix
+it with <tt class="docutils literal"><span class="pre">{ha1}</span></tt>. Using the scheme prefix for all passwords is
+recommended. Scheme prefixes are not case sensitive.</p>
 <p>Example:</p>
 <div class="highlight-python"><pre># Give Jack and Fred read-only access
 jack abc123
@@ -1056,7 +1056,7 @@ returns <tt class="docutils literal"><span class="pre">2</span></tt>.</p>
         <li class="right" >
           <a href="iallocator.html" title="Ganeti automatic instance allocation"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.1.0 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.1.1 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

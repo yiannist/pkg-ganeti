@@ -109,6 +109,7 @@ QUEUE_DIR = DATA_DIR + "/queue"
 DAEMON_UTIL = _autoconf.PKGLIBDIR + "/daemon-util"
 ETC_HOSTS = "/etc/hosts"
 DEFAULT_FILE_STORAGE_DIR = _autoconf.FILE_STORAGE_DIR
+ENABLE_FILE_STORAGE = _autoconf.ENABLE_FILE_STORAGE
 SYSCONFDIR = _autoconf.SYSCONFDIR
 TOOLSDIR = _autoconf.TOOLSDIR
 CONF_DIR = SYSCONFDIR + "/ganeti"
@@ -163,6 +164,13 @@ LOG_WATCHER = LOG_DIR + "watcher.log"
 LOG_COMMANDS = LOG_DIR + "commands.log"
 LOG_BURNIN = LOG_DIR + "burnin.log"
 
+# one of 'no', 'yes', 'only'
+SYSLOG_USAGE = _autoconf.SYSLOG_USAGE
+SYSLOG_NO = "no"
+SYSLOG_YES = "yes"
+SYSLOG_ONLY = "only"
+SYSLOG_SOCKET = "/dev/log"
+
 OS_SEARCH_PATH = _autoconf.OS_SEARCH_PATH
 EXPORT_DIR = _autoconf.EXPORT_DIR
 
@@ -192,6 +200,7 @@ HOOKS_BASE_DIR = CONF_DIR + "/hooks"
 HOOKS_PHASE_PRE = "pre"
 HOOKS_PHASE_POST = "post"
 HOOKS_NAME_CFGUPDATE = "config-update"
+HOOKS_NAME_WATCHER = "watcher"
 HOOKS_VERSION = 2
 
 # hooks subject type (what object type does the LU deal with)
@@ -263,6 +272,7 @@ LDS_BLOCK = frozenset([LD_LV, LD_DRBD8])
 # drbd constants
 DRBD_HMAC_ALG = "md5"
 DRBD_NET_PROTOCOL = "C"
+DRBD_BARRIERS = _autoconf.DRBD_BARRIERS
 
 # file backend driver
 FD_LOOP = "loop"
@@ -335,6 +345,13 @@ LVM_STRIPECOUNT = _autoconf.LVM_STRIPECOUNT
 DEFAULT_SHUTDOWN_TIMEOUT = 120
 NODE_MAX_CLOCK_SKEW = 150
 
+# runparts results
+(RUNPARTS_SKIP,
+ RUNPARTS_RUN,
+ RUNPARTS_ERR) = range(3)
+
+RUNPARTS_STATUS = frozenset([RUNPARTS_SKIP, RUNPARTS_RUN, RUNPARTS_ERR])
+
 # RPC constants
 (RPC_ENCODING_NONE,
  RPC_ENCODING_ZLIB_BASE64) = range(2)
@@ -351,10 +368,10 @@ OS_API_FILE = 'ganeti_api_version'
 OS_VARIANTS_FILE = 'variants.list'
 
 # ssh constants
-SSH_CONFIG_DIR = "/etc/ssh/"
-SSH_HOST_DSA_PRIV = SSH_CONFIG_DIR + "ssh_host_dsa_key"
+SSH_CONFIG_DIR = _autoconf.SSH_CONFIG_DIR
+SSH_HOST_DSA_PRIV = SSH_CONFIG_DIR + "/ssh_host_dsa_key"
 SSH_HOST_DSA_PUB = SSH_HOST_DSA_PRIV + ".pub"
-SSH_HOST_RSA_PRIV = SSH_CONFIG_DIR + "ssh_host_rsa_key"
+SSH_HOST_RSA_PRIV = SSH_CONFIG_DIR + "/ssh_host_rsa_key"
 SSH_HOST_RSA_PUB = SSH_HOST_RSA_PRIV + ".pub"
 SSH = "ssh"
 SCP = "scp"
@@ -558,6 +575,7 @@ IALLOCATOR_DIR_IN = "in"
 IALLOCATOR_DIR_OUT = "out"
 IALLOCATOR_MODE_ALLOC = "allocate"
 IALLOCATOR_MODE_RELOC = "relocate"
+IALLOCATOR_MODE_MEVAC = "multi-evacuate"
 IALLOCATOR_SEARCH_PATH = _autoconf.IALLOCATOR_SEARCH_PATH
 
 # Job queue

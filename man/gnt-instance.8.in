@@ -3,7 +3,7 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GNT-INSTANCE" "8" "02 March 2010" "ganeti 2.0" ""
+.TH "GNT-INSTANCE" "8" "12 March 2010" "ganeti 2.0" ""
 
 .SH NAME
 gnt-instance \- ganeti instance administration
@@ -172,6 +172,14 @@ network boot (PXE)
 
 The default is not to set an HVM boot order which is
 interpreted as 'dc'.
+
+For KVM the boot order is either
+``cdrom'', ``disk'' or
+``network''\&. Please note that older
+versions of KVM couldn't netboot from virtio
+interfaces. This has been fixed in more recent
+versions and is confirmed to work at least with
+qemu-kvm 0.11.1.
 .TP
 \fBcdrom_image_path\fR
 Valid for the Xen HVM and KVM hypervisors.
@@ -783,7 +791,7 @@ available in the configuration file is returned, without
 querying nodes, making the operation faster.
 .PP
 Use the \fB--all\fR to get info about all instances,
-rather than explicitely passing the ones you're interested in.
+rather than explicitly passing the ones you're interested in.
 .SS "MODIFY"
 
 \fBmodify\fR
@@ -883,7 +891,7 @@ ID will be shown so that it can be examined via
 \fBstartup\fR
     [ \fB--force\fR ]
     [ \fB--force-multiple\fR ]
-    [ \fB--instance\fR | \fB--node\fR | \fB--primary\fR | \fB--secondary\fR | \fB--all\fR ]
+    [ \fB--instance\fR | \fB--node\fR | \fB--primary\fR | \fB--secondary\fR | \fB--all\fR | \fB--tags\fR | \fB--node-tags\fR | \fB--pri-node-tags\fR | \fB--sec-node-tags\fR ]
     [ \fB-H key=value...\fR ] [ \fB-B key=value...\fR ]
     [ \fB--submit\fR ]
     [ \fB\fIname\fB\fR\fI ...\fR ]
@@ -914,6 +922,24 @@ one node required)
 \fB--all\fR
 will start all instances in the cluster (no
 arguments accepted)
+.TP
+\fB--tags\fR
+will start all instances in the cluster with
+the tags given as arguments
+.TP
+\fB--node-tags\fR
+will start all instances in the cluster on
+nodes with the tags given as arguments
+.TP
+\fB--pri-node-tags\fR
+will start all instances in the cluster on
+primary nodes with the tags given as
+arguments
+.TP
+\fB--sec-node-tags\fR
+will start all instances in the cluster on
+secondary nodes with the tags given as
+arguments
 .PP
 Note that although you can pass more than one selection
 option, the last one wins, so in order to guarantee the
@@ -965,7 +991,7 @@ Example:
 \fBshutdown\fR
     [ \fB--timeout=\fIN\fB\fR ]
     [ \fB--force-multiple\fR ]
-    [ \fB--instance\fR | \fB--node\fR | \fB--primary\fR | \fB--secondary\fR | \fB--all\fR ]
+    [ \fB--instance\fR | \fB--node\fR | \fB--primary\fR | \fB--secondary\fR | \fB--all\fR | \fB--tags\fR | \fB--node-tags\fR | \fB--pri-node-tags\fR | \fB--sec-node-tags\fR ]
     [ \fB--submit\fR ]
     [ \fB\fIname\fB\fR\fI ...\fR ]
 
@@ -981,8 +1007,10 @@ process, for kvm). By default two minutes are given to each instance
 to stop.
 .PP
 The \fB--instance\fR, \fB--node\fR,
-\fB--primary\fR, \fB--secondary\fR and
-\fB--all\fR options are similar as for the
+\fB--primary\fR, \fB--secondary\fR,
+\fB--all\fR, \fB--tags\fR,
+\fB--node-tags\fR, \fB--pri-node-tags\fR and
+\fB--sec-node-tags\fR options are similar as for the
 \fBstartup\fR command and they influence the
 actual instances being shutdown.
 .PP
@@ -1005,7 +1033,7 @@ Example:
     [ \fB--ignore-secondaries\fR ]
     [ \fB--shutdown-timeout=\fIN\fB\fR ]
     [ \fB--force-multiple\fR ]
-    [ \fB--instance\fR | \fB--node\fR | \fB--primary\fR | \fB--secondary\fR | \fB--all\fR ]
+    [ \fB--instance\fR | \fB--node\fR | \fB--primary\fR | \fB--secondary\fR | \fB--all\fR | \fB--tags\fR | \fB--node-tags\fR | \fB--pri-node-tags\fR | \fB--sec-node-tags\fR ]
     [ \fB--submit\fR ]
     [ \fB\fIname\fB\fR\fI ...\fR ]
 
@@ -1023,8 +1051,10 @@ For the hard reboot the option
 secondary node while re-assembling the instance disks.
 .PP
 The \fB--instance\fR, \fB--node\fR,
-\fB--primary\fR, \fB--secondary\fR and
-\fB--all\fR options are similar as for the
+\fB--primary\fR, \fB--secondary\fR,
+\fB--all\fR, \fB--tags\fR,
+\fB--node-tags\fR, \fB--pri-node-tags\fR and
+\fB--sec-node-tags\fR options are similar as for the
 \fBstartup\fR command and they influence the
 actual instances being rebooted.
 .PP
@@ -1069,16 +1099,16 @@ Example:
 .SS "DISK MANAGEMENT"
 .SS "REPLACE-DISKS"
 
-\fBreplace-disks\fR [ \fB--submit\fR ] \fB-p\fR [ \fB--disks \fIidx\fB\fR ] \fB\fIinstance\fB\fR
+\fBreplace-disks\fR [ \fB--submit\fR ] [ \fB--early-release\fR ] \fB-p\fR [ \fB--disks \fIidx\fB\fR ] \fB\fIinstance\fB\fR
 
 
-\fBreplace-disks\fR [ \fB--submit\fR ] \fB-s\fR [ \fB--disks \fIidx\fB\fR ] \fB\fIinstance\fB\fR
+\fBreplace-disks\fR [ \fB--submit\fR ] [ \fB--early-release\fR ] \fB-s\fR [ \fB--disks \fIidx\fB\fR ] \fB\fIinstance\fB\fR
 
 
-\fBreplace-disks\fR [ \fB--submit\fR ] { \fB--iallocator \fIname\fB\fR | \fB--new-secondary \fINODE\fB\fR } \fB\fIinstance\fB\fR
+\fBreplace-disks\fR [ \fB--submit\fR ] [ \fB--early-release\fR ] { \fB--iallocator \fIname\fB\fR | \fB--new-secondary \fINODE\fB\fR } \fB\fIinstance\fB\fR
 
 
-\fBreplace-disks\fR [ \fB--submit\fR ] \fB--auto\fR \fB\fIinstance\fB\fR
+\fBreplace-disks\fR [ \fB--submit\fR ] [ \fB--early-release\fR ] \fB--auto\fR \fB\fIinstance\fB\fR
 
 .PP
 This command is a generalized form for replacing disks. It
@@ -1116,6 +1146,17 @@ The \fB--submit\fR option is used to send the job to
 the master daemon but not wait for its completion. The job
 ID will be shown so that it can be examined via
 \fBgnt-job info\fR\&.
+.PP
+The \fB--early-release\fR changes the code so
+that the old storage on secondary node(s) is removed early
+(before the resync is completed) and the internal Ganeti
+locks for the current (and new, if any) secondary node are
+also released, thus allowing more parallelism in the cluster
+operation. This should be used only when recovering from a
+disk failure on the current secondary (thus the old storage
+is already broken) or when the storage on the primary node
+is known to be fine (thus we won't need the old storage for
+potential recovery).
 .PP
 Note that it is not possible to select an offline or drained
 node as a new secondary.

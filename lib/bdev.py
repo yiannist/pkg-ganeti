@@ -349,6 +349,10 @@ class LogicalVolume(BlockDev):
   """Logical Volume block device.
 
   """
+  _VALID_NAME_RE = re.compile("^[a-zA-Z0-9+_.-]*$")
+  _INVALID_NAMES = frozenset([".", "..", "snapshot", "pvmove"])
+  _INVALID_SUBSTRINGS = frozenset(["_mlog", "_mimage"])
+
   def __init__(self, unique_id, children, size):
     """Attaches to a LV device.
 
@@ -359,7 +363,9 @@ class LogicalVolume(BlockDev):
     if not isinstance(unique_id, (tuple, list)) or len(unique_id) != 2:
       raise ValueError("Invalid configuration data %s" % str(unique_id))
     self._vg_name, self._lv_name = unique_id
-    self.dev_path = "/dev/%s/%s" % (self._vg_name, self._lv_name)
+    self._ValidateName(self._vg_name)
+    self._ValidateName(self._lv_name)
+    self.dev_path = utils.PathJoin("/dev", self._vg_name, self._lv_name)
     self._degraded = True
     self.major = self.minor = self.pe_size = self.stripe_count = None
     self.Attach()
@@ -373,6 +379,8 @@ class LogicalVolume(BlockDev):
       raise errors.ProgrammerError("Invalid configuration data %s" %
                                    str(unique_id))
     vg_name, lv_name = unique_id
+    cls._ValidateName(vg_name)
+    cls._ValidateName(lv_name)
     pvs_info = cls.GetPVInfo([vg_name])
     if not pvs_info:
       _ThrowError("Can't compute PV info for vg %s", vg_name)
@@ -442,6 +450,20 @@ class LogicalVolume(BlockDev):
 
     return data
 
+  @classmethod
+  def _ValidateName(cls, name):
+    """Validates that a given name is valid as VG or LV name.
+
+    The list of valid characters and restricted names is taken out of
+    the lvm(8) manpage, with the simplification that we enforce both
+    VG and LV restrictions on the names.
+
+    """
+    if (not cls._VALID_NAME_RE.match(name) or
+        name in cls._INVALID_NAMES or
+        utils.any(cls._INVALID_SUBSTRINGS, lambda x: x in name)):
+      _ThrowError("Invalid LVM name '%s'", name)
+
   def Remove(self):
     """Remove this logical volume.
 
@@ -469,7 +491,7 @@ class LogicalVolume(BlockDev):
     if result.failed:
       _ThrowError("Failed to rename the logical volume: %s", result.output)
     self._lv_name = new_name
-    self.dev_path = "/dev/%s/%s" % (self._vg_name, self._lv_name)
+    self.dev_path = utils.PathJoin("/dev", self._vg_name, self._lv_name)
 
   def Attach(self):
     """Attach to an existing LV.
@@ -512,7 +534,7 @@ class LogicalVolume(BlockDev):
     try:
       major = int(major)
       minor = int(minor)
-    except ValueError, err:
+    except (TypeError, ValueError), err:
       logging.error("lvs major/minor cannot be parsed: %s", str(err))
 
     try:
@@ -792,6 +814,8 @@ class BaseDRBD(BlockDev): # pylint: disable-msg=W0223
   """
   _VERSION_RE = re.compile(r"^version: (\d+)\.(\d+)\.(\d+)"
                            r" \(api:(\d+)/proto:(\d+)(?:-(\d+))?\)")
+  _VALID_LINE_RE = re.compile("^ *([0-9]+): cs:([^ ]+).*$")
+  _UNUSED_LINE_RE = re.compile("^ *([0-9]+): cs:Unconfigured$")
 
   _DRBD_MAJOR = 147
   _ST_UNCONFIGURED = "Unconfigured"
@@ -817,21 +841,20 @@ class BaseDRBD(BlockDev): # pylint: disable-msg=W0223
       _ThrowError("Can't read any data from %s", filename)
     return data
 
-  @staticmethod
-  def _MassageProcData(data):
+  @classmethod
+  def _MassageProcData(cls, data):
     """Transform the output of _GetProdData into a nicer form.
 
     @return: a dictionary of minor: joined lines from /proc/drbd
         for that minor
 
     """
-    lmatch = re.compile("^ *([0-9]+):.*$")
     results = {}
     old_minor = old_line = None
     for line in data:
       if not line: # completely empty lines, as can be returned by drbd8.0+
         continue
-      lresult = lmatch.match(line)
+      lresult = cls._VALID_LINE_RE.match(line)
       if lresult is not None:
         if old_minor is not None:
           results[old_minor] = old_line
@@ -892,9 +915,8 @@ class BaseDRBD(BlockDev): # pylint: disable-msg=W0223
     data = cls._GetProcData()
 
     used_devs = {}
-    valid_line = re.compile("^ *([0-9]+): cs:([^ ]+).*$")
     for line in data:
-      match = valid_line.match(line)
+      match = cls._VALID_LINE_RE.match(line)
       if not match:
         continue
       minor = int(match.group(1))
@@ -933,7 +955,7 @@ class BaseDRBD(BlockDev): # pylint: disable-msg=W0223
                   result.fail_reason, result.output)
     try:
       sectors = int(result.stdout)
-    except ValueError:
+    except (TypeError, ValueError):
       _ThrowError("Invalid output from blockdev: '%s'", result.stdout)
     bytes = sectors * 512
     if bytes < 128 * 1024 * 1024: # less than 128MiB
@@ -1025,14 +1047,12 @@ class DRBD8(BaseDRBD):
     """
     data = cls._GetProcData()
 
-    unused_line = re.compile("^ *([0-9]+): cs:Unconfigured$")
-    used_line = re.compile("^ *([0-9]+): cs:")
     highest = None
     for line in data:
-      match = unused_line.match(line)
+      match = cls._UNUSED_LINE_RE.match(line)
       if match:
         return int(match.group(1))
-      match = used_line.match(line)
+      match = cls._VALID_LINE_RE.match(line)
       if match:
         minor = int(match.group(1))
         highest = max(highest, minor)
@@ -1215,6 +1235,24 @@ class DRBD8(BaseDRBD):
             "--create-device"]
     if size:
       args.extend(["-d", "%sm" % size])
+    if not constants.DRBD_BARRIERS: # disable barriers, if configured so
+      version = cls._GetVersion()
+      # various DRBD versions support different disk barrier options;
+      # what we aim here is to revert back to the 'drain' method of
+      # disk flushes and to disable metadata barriers, in effect going
+      # back to pre-8.0.7 behaviour
+      vmaj = version['k_major']
+      vmin = version['k_minor']
+      vrel = version['k_point']
+      assert vmaj == 8
+      if vmin == 0: # 8.0.x
+        if vrel >= 12:
+          args.extend(['-i', '-m'])
+      elif vmin == 2: # 8.2.x
+        if vrel >= 7:
+          args.extend(['-i', '-m'])
+      elif vmaj >= 3: # 8.3.x or newer
+        args.extend(['-i', '-a', 'm'])
     result = utils.RunCmd(args)
     if result.failed:
       _ThrowError("drbd%d: can't attach local disk: %s", minor, result.output)
@@ -1891,8 +1929,10 @@ class FileStorage(BlockDev):
 DEV_MAP = {
   constants.LD_LV: LogicalVolume,
   constants.LD_DRBD8: DRBD8,
-  constants.LD_FILE: FileStorage,
   }
+
+if constants.ENABLE_FILE_STORAGE:
+  DEV_MAP[constants.LD_FILE] = FileStorage
 
 
 def FindDevice(dev_type, unique_id, children, size):

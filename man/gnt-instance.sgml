@@ -2,7 +2,7 @@
 
   <!-- Fill in your name for FIRSTNAME and SURNAME. -->
   <!-- Please adjust the date whenever revising the manpage. -->
-  <!ENTITY dhdate      "<date>February 11, 2009</date>">
+  <!ENTITY dhdate      "<date>January 22, 2010</date>">
   <!-- SECTION should be 1-8, maybe w/ subsection other parameters are
        allowed: see man(7), man(1). -->
   <!ENTITY dhsection   "<manvolnum>8</manvolnum>">
@@ -22,6 +22,7 @@
       <year>2007</year>
       <year>2008</year>
       <year>2009</year>
+      <year>2010</year>
       <holder>Google Inc.</holder>
     </copyright>
     &dhdate;
@@ -327,6 +328,16 @@
                 <simpara>
                   The default is not to set an HVM boot order which is
                   interpreted as 'dc'.
+                </simpara>
+
+                <simpara>
+                  For KVM the boot order is either
+                  <quote>cdrom</quote>, <quote>disk</quote> or
+                  <quote>network</quote>. Please note that older
+                  versions of KVM couldn't netboot from virtio
+                  interfaces. This has been fixed in more recent
+                  versions and is confirmed to work at least with
+                  qemu-kvm 0.11.1.
                 </simpara>
 
               </listitem>
@@ -1302,7 +1313,7 @@ instance5: 11225
 
         <para>
           Use the <option>--all</option> to get info about all instances,
-          rather than explicitely passing the ones you're interested in.
+          rather than explicitly passing the ones you're interested in.
         </para>
       </refsect3>
 
@@ -1491,6 +1502,10 @@ instance5: 11225
             <arg>--primary</arg>
             <arg>--secondary</arg>
             <arg>--all</arg>
+            <arg>--tags</arg>
+            <arg>--node-tags</arg>
+            <arg>--pri-node-tags</arg>
+            <arg>--sec-node-tags</arg>
           </group>
           <sbr>
           <arg>-H <option>key=value...</option></arg>
@@ -1542,6 +1557,36 @@ instance5: 11225
               <listitem>
                 <simpara>will start all instances in the cluster (no
                 arguments accepted)</simpara>
+              </listitem>
+            </varlistentry>
+            <varlistentry>
+              <term>--tags</term>
+              <listitem>
+                <simpara>will start all instances in the cluster with
+                the tags given as arguments</simpara>
+              </listitem>
+            </varlistentry>
+            <varlistentry>
+              <term>--node-tags</term>
+              <listitem>
+                <simpara>will start all instances in the cluster on
+                nodes with the tags given as arguments</simpara>
+              </listitem>
+            </varlistentry>
+            <varlistentry>
+              <term>--pri-node-tags</term>
+              <listitem>
+                <simpara>will start all instances in the cluster on
+                primary nodes with the tags given as
+                arguments</simpara>
+              </listitem>
+            </varlistentry>
+            <varlistentry>
+              <term>--sec-node-tags</term>
+              <listitem>
+                <simpara>will start all instances in the cluster on
+                secondary nodes with the tags given as
+                arguments</simpara>
               </listitem>
             </varlistentry>
           </variablelist>
@@ -1618,6 +1663,10 @@ instance5: 11225
             <arg>--primary</arg>
             <arg>--secondary</arg>
             <arg>--all</arg>
+            <arg>--tags</arg>
+            <arg>--node-tags</arg>
+            <arg>--pri-node-tags</arg>
+            <arg>--sec-node-tags</arg>
           </group>
           <sbr>
           <arg>--submit</arg>
@@ -1642,8 +1691,10 @@ instance5: 11225
 
         <para>
           The <option>--instance</option>, <option>--node</option>,
-          <option>--primary</option>, <option>--secondary</option> and
-          <option>--all</option> options are similar as for the
+          <option>--primary</option>, <option>--secondary</option>,
+          <option>--all</option>, <option>--tags</option>,
+          <option>--node-tags</option>, <option>--pri-node-tags</option> and
+          <option>--sec-node-tags</option> options are similar as for the
           <command>startup</command> command and they influence the
           actual instances being shutdown.
         </para>
@@ -1685,6 +1736,10 @@ instance5: 11225
             <arg>--primary</arg>
             <arg>--secondary</arg>
             <arg>--all</arg>
+            <arg>--tags</arg>
+            <arg>--node-tags</arg>
+            <arg>--pri-node-tags</arg>
+            <arg>--sec-node-tags</arg>
           </group>
           <sbr>
           <arg>--submit</arg>
@@ -1711,8 +1766,10 @@ instance5: 11225
 
         <para>
           The <option>--instance</option>, <option>--node</option>,
-          <option>--primary</option>, <option>--secondary</option> and
-          <option>--all</option> options are similar as for the
+          <option>--primary</option>, <option>--secondary</option>,
+          <option>--all</option>, <option>--tags</option>,
+          <option>--node-tags</option>, <option>--pri-node-tags</option> and
+          <option>--sec-node-tags</option> options are similar as for the
           <command>startup</command> command and they influence the
           actual instances being rebooted.
         </para>
@@ -1781,6 +1838,7 @@ instance5: 11225
         <cmdsynopsis>
           <command>replace-disks</command>
           <arg>--submit</arg>
+          <arg>--early-release</arg>
           <arg choice="req">-p</arg>
           <arg>--disks <replaceable>idx</replaceable></arg>
           <arg choice="req"><replaceable>instance</replaceable></arg>
@@ -1789,6 +1847,7 @@ instance5: 11225
         <cmdsynopsis>
           <command>replace-disks</command>
           <arg>--submit</arg>
+          <arg>--early-release</arg>
           <arg choice="req">-s</arg>
           <arg>--disks <replaceable>idx</replaceable></arg>
           <arg choice="req"><replaceable>instance</replaceable></arg>
@@ -1797,6 +1856,7 @@ instance5: 11225
         <cmdsynopsis>
           <command>replace-disks</command>
           <arg>--submit</arg>
+          <arg>--early-release</arg>
           <group choice="req">
             <arg>--iallocator <replaceable>name</replaceable></arg>
             <arg>--new-secondary <replaceable>NODE</replaceable></arg>
@@ -1808,6 +1868,7 @@ instance5: 11225
         <cmdsynopsis>
           <command>replace-disks</command>
           <arg>--submit</arg>
+          <arg>--early-release</arg>
           <arg choice="req">--auto</arg>
           <arg choice="req"><replaceable>instance</replaceable></arg>
         </cmdsynopsis>
@@ -1856,6 +1917,19 @@ instance5: 11225
           the master daemon but not wait for its completion. The job
           ID will be shown so that it can be examined via
           <command>gnt-job info</command>.
+        </para>
+
+        <para>
+          The <option>--early-release</option> changes the code so
+          that the old storage on secondary node(s) is removed early
+          (before the resync is completed) and the internal Ganeti
+          locks for the current (and new, if any) secondary node are
+          also released, thus allowing more parallelism in the cluster
+          operation. This should be used only when recovering from a
+          disk failure on the current secondary (thus the old storage
+          is already broken) or when the storage on the primary node
+          is known to be fine (thus we won't need the old storage for
+          potential recovery).
         </para>
 
         <para>

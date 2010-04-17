@@ -45,6 +45,7 @@ __all__ = [
   # Command line options
   "ALLOCATABLE_OPT",
   "ALL_OPT",
+  "AUTO_PROMOTE_OPT",
   "AUTO_REPLACE_OPT",
   "BACKEND_OPT",
   "CLEANUP_OPT",
@@ -56,6 +57,7 @@ __all__ = [
   "DISK_OPT",
   "DISK_TEMPLATE_OPT",
   "DRAINED_OPT",
+  "EARLY_RELEASE_OPT",
   "ENABLED_HV_OPT",
   "ERROR_CODES_OPT",
   "FIELDS_OPT",
@@ -145,6 +147,7 @@ __all__ = [
   "ARGS_NONE",
   "ARGS_ONE_INSTANCE",
   "ARGS_ONE_NODE",
+  "ARGS_ONE_OS",
   "ArgChoice",
   "ArgCommand",
   "ArgFile",
@@ -152,6 +155,7 @@ __all__ = [
   "ArgInstance",
   "ArgJobId",
   "ArgNode",
+  "ArgOs",
   "ArgSuggest",
   "ArgUnknown",
   "OPT_COMPL_INST_ADD_NODES",
@@ -245,11 +249,18 @@ class ArgHost(_Argument):
   """
 
 
+class ArgOs(_Argument):
+  """OS argument.
+
+  """
+
+
 ARGS_NONE = []
 ARGS_MANY_INSTANCES = [ArgInstance()]
 ARGS_MANY_NODES = [ArgNode()]
 ARGS_ONE_INSTANCE = [ArgInstance(min=1, max=1)]
 ARGS_ONE_NODE = [ArgNode(min=1, max=1)]
+ARGS_ONE_OS = [ArgOs(min=1, max=1)]
 
 
 def _ExtractTagsObject(opts, args):
@@ -384,7 +395,7 @@ def _SplitKeyVal(opt, data):
   """
   kv_dict = {}
   if data:
-    for elem in data.split(","):
+    for elem in utils.UnescapeAndSplit(data, sep=","):
       if "=" in elem:
         key, val = elem.split("=", 1)
       else:
@@ -482,9 +493,8 @@ cli_option = CliOption
 _YESNO = ("yes", "no")
 _YORNO = "yes|no"
 
-DEBUG_OPT = cli_option("-d", "--debug", default=False,
-                       action="store_true",
-                       help="Turn debugging on")
+DEBUG_OPT = cli_option("-d", "--debug", default=0, action="count",
+                       help="Increase debugging level")
 
 NOHDR_OPT = cli_option("--no-headers", default=False,
                        action="store_true", dest="no_headers",
@@ -699,6 +709,11 @@ ON_SECONDARY_OPT = cli_option("-s", "--on-secondary", dest="on_secondary",
                               help="Replace the disk(s) on the secondary"
                               " node (only for the drbd template)")
 
+AUTO_PROMOTE_OPT = cli_option("--auto-promote", dest="auto_promote",
+                              default=False, action="store_true",
+                              help="Lock all nodes and auto-promote as needed"
+                              " to MC status")
+
 AUTO_REPLACE_OPT = cli_option("-a", "--auto", dest="auto",
                               default=False, action="store_true",
                               help="Automatically replace faulty disks"
@@ -836,6 +851,12 @@ SHUTDOWN_TIMEOUT_OPT = cli_option("--shutdown-timeout",
                          dest="shutdown_timeout", type="int",
                          default=constants.DEFAULT_SHUTDOWN_TIMEOUT,
                          help="Maximum time to wait for instance shutdown")
+
+EARLY_RELEASE_OPT = cli_option("--early-release",
+                               dest="early_release", default=False,
+                               action="store_true",
+                               help="Release the locks on the secondary"
+                               " node(s) early")
 
 
 def _ParseArgs(argv, commands, aliases):
@@ -1126,12 +1147,28 @@ def PollJob(job_id, cl=None, feedback_fn=None):
   prev_job_info = None
   prev_logmsg_serial = None
 
+  status = None
+
+  notified_queued = False
+  notified_waitlock = False
+
   while True:
-    result = cl.WaitForJobChange(job_id, ["status"], prev_job_info,
-                                 prev_logmsg_serial)
+    result = cl.WaitForJobChangeOnce(job_id, ["status"], prev_job_info,
+                                     prev_logmsg_serial)
     if not result:
       # job not found, go away!
       raise errors.JobLost("Job with id %s lost" % job_id)
+    elif result == constants.JOB_NOTCHANGED:
+      if status is not None and not callable(feedback_fn):
+        if status == constants.JOB_STATUS_QUEUED and not notified_queued:
+          ToStderr("Job %s is waiting in queue", job_id)
+          notified_queued = True
+        elif status == constants.JOB_STATUS_WAITLOCK and not notified_waitlock:
+          ToStderr("Job %s is trying to acquire all necessary locks", job_id)
+          notified_waitlock = True
+
+      # Wait again
+      continue
 
     # Split result, a tuple of (field values, log entries)
     (job_info, log_entries) = result
@@ -1182,7 +1219,7 @@ def PollJob(job_id, cl=None, feedback_fn=None):
     raise errors.OpExecError(result)
 
 
-def SubmitOpCode(op, cl=None, feedback_fn=None):
+def SubmitOpCode(op, cl=None, feedback_fn=None, opts=None):
   """Legacy function to submit an opcode.
 
   This is just a simple wrapper over the construction of the processor
@@ -1192,6 +1229,8 @@ def SubmitOpCode(op, cl=None, feedback_fn=None):
   """
   if cl is None:
     cl = GetClient()
+
+  SetGenericOpcodeOpts([op], opts)
 
   job_id = SendJob([op], cl)
 
@@ -1208,16 +1247,35 @@ def SubmitOrSend(op, opts, cl=None, feedback_fn=None):
   whether to just send the job and print its identifier. It is used in
   order to simplify the implementation of the '--submit' option.
 
-  It will also add the dry-run parameter from the options passed, if true.
+  It will also process the opcodes if we're sending the via SendJob
+  (otherwise SubmitOpCode does it).
 
   """
-  if opts and opts.dry_run:
-    op.dry_run = opts.dry_run
   if opts and opts.submit_only:
-    job_id = SendJob([op], cl=cl)
+    job = [op]
+    SetGenericOpcodeOpts(job, opts)
+    job_id = SendJob(job, cl=cl)
     raise JobSubmittedException(job_id)
   else:
-    return SubmitOpCode(op, cl=cl, feedback_fn=feedback_fn)
+    return SubmitOpCode(op, cl=cl, feedback_fn=feedback_fn, opts=opts)
+
+
+def SetGenericOpcodeOpts(opcode_list, options):
+  """Processor for generic options.
+
+  This function updates the given opcodes based on generic command
+  line options (like debug, dry-run, etc.).
+
+  @param opcode_list: list of opcodes
+  @param options: command line options or None
+  @return: None (in-place modification)
+
+  """
+  if not options:
+    return
+  for op in opcode_list:
+    op.dry_run = options.dry_run
+    op.debug_level = options.debug
 
 
 def GetClient():
@@ -1561,7 +1619,7 @@ def GenerateTable(headers, fields, separator, data,
       if unitfields.Matches(fields[idx]):
         try:
           val = int(val)
-        except ValueError:
+        except (TypeError, ValueError):
           pass
         else:
           val = row[idx] = utils.FormatUnit(val, units)
@@ -1642,7 +1700,7 @@ def ParseTimespec(value):
   if value[-1] not in suffix_map:
     try:
       value = int(value)
-    except ValueError:
+    except (TypeError, ValueError):
       raise errors.OpPrereqError("Invalid time specification '%s'" % value)
   else:
     multiplier = suffix_map[value[-1]]
@@ -1652,7 +1710,7 @@ def ParseTimespec(value):
                                  " suffix passed)")
     try:
       value = int(value) * multiplier
-    except ValueError:
+    except (TypeError, ValueError):
       raise errors.OpPrereqError("Invalid time specification '%s'" % value)
   return value
 
@@ -1732,13 +1790,14 @@ class JobExecutor(object):
   GetResults() calls.
 
   """
-  def __init__(self, cl=None, verbose=True):
+  def __init__(self, cl=None, verbose=True, opts=None):
     self.queue = []
     if cl is None:
       cl = GetClient()
     self.cl = cl
     self.verbose = verbose
     self.jobs = []
+    self.opts = opts
 
   def QueueJob(self, name, *ops):
     """Record a job for later submit.
@@ -1746,6 +1805,7 @@ class JobExecutor(object):
     @type name: string
     @param name: a description of the job, will be used in WaitJobSet
     """
+    SetGenericOpcodeOpts(ops, self.opts)
     self.queue.append((name, ops))
 
   def SubmitPending(self):
