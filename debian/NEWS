@@ -1,3 +1,14 @@
+ganeti2 (2.1.1-1) unstable; urgency=low
+
+  Upgrading from Lenny's 1.2 directly to 2.1 requires a two-step method:
+  first run /usr/lib/ganeti/tools/cfgupgrade12 followed by the normal
+  /usr/lib/ganeti/tools/cfgupgrade. This is somewhat more tricky than
+  the intermediate step (1.2 to 2.0 and 2.0 to 2.1), but should
+  otherwise work. Backup of the configuration directory is of course
+  recommended, and reading the wiki page too.
+
+ -- Iustin Pop <iustin@debian.org>  Sat, 17 Apr 2010 19:05:45 +0200
+
 ganeti2 (2.0.3-1) unstable; urgency=low
 
   Upgrading from the 'ganeti' package (versions 1.2.x) requires manual
