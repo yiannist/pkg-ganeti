@@ -20,7 +20,7 @@ build-stamp:
 	  --with-os-search-path=/srv/ganeti/os,/usr/local/lib/ganeti/os,/usr/lib/ganeti/os,/usr/share/ganeti/os \
 	  --docdir=/usr/share/doc/ganeti2
 
-	#$(MAKE)
+	$(MAKE)
 
 	touch $@
 
@@ -55,6 +55,7 @@ install: build
 	  $(CURDIR)/debian/ganeti2/etc/bash_completion.d/ganeti
 	install -m 0644 $(CURDIR)/debian/ganeti2.overrides \
 	  $(CURDIR)/debian/ganeti2/usr/share/lintian/overrides/ganeti2
+
 	rmdir debian/ganeti2/var/run/ganeti
 	rmdir debian/ganeti2/var/run
 
