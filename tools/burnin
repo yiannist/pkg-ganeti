@@ -23,7 +23,6 @@
 
 """
 
-import os
 import sys
 import optparse
 import time
@@ -117,9 +116,11 @@ OPTIONS = [
                  default=128, type="unit", metavar="<size>",
                  completion_suggest=("128M 256M 512M 1G 4G 8G"
                                      " 12G 16G").split()),
+  cli.DEBUG_OPT,
   cli.VERBOSE_OPT,
   cli.NOIPCHECK_OPT,
   cli.NONAMECHECK_OPT,
+  cli.EARLY_RELEASE_OPT,
   cli.cli_option("--no-replace1", dest="do_replace1",
                  help="Skip disk replacement with the same secondary",
                  action="store_false", default=True),
@@ -304,6 +305,11 @@ class Burner(object):
             (msg, MAX_RETRIES - retry_count + 1, MAX_RETRIES, err))
         self.MaybeRetry(retry_count - 1, msg, fn, *args)
 
+  def _SetDebug(self, ops):
+    """Set the debug value on the given opcodes"""
+    for op in ops:
+      op.debug_level = self.opts.debug
+
   def _ExecOp(self, *ops):
     """Execute one or more opcodes and manage the exec buffer.
 
@@ -329,11 +335,13 @@ class Burner(object):
       rval = MAX_RETRIES
     else:
       rval = 0
+    self._SetDebug(ops)
     return self.MaybeRetry(rval, "opcode", self._ExecOp, *ops)
 
   def ExecOrQueue(self, name, *ops):
     """Execute an opcode and manage the exec buffer."""
     if self.opts.parallel:
+      self._SetDebug(ops)
       self.queued_ops.append((ops, name))
     else:
       return self.ExecOp(self.queue_retry, *ops)
@@ -544,7 +552,8 @@ class Burner(object):
       for mode in constants.REPLACE_DISK_SEC, constants.REPLACE_DISK_PRI:
         op = opcodes.OpReplaceDisks(instance_name=instance,
                                     mode=mode,
-                                    disks=[i for i in range(self.disk_count)])
+                                    disks=[i for i in range(self.disk_count)],
+                                    early_release=self.opts.early_release)
         Log("run %s" % mode, indent=2)
         ops.append(op)
       self.ExecOrQueue(instance, *ops) # pylint: disable-msg=W0142
@@ -568,7 +577,8 @@ class Burner(object):
                                   mode=mode,
                                   remote_node=tnode,
                                   iallocator=self.opts.iallocator,
-                                  disks=[])
+                                  disks=[],
+                                  early_release=self.opts.early_release)
       Log("run %s %s" % (mode, msg), indent=2)
       self.ExecOrQueue(instance, op)
 
@@ -647,7 +657,7 @@ class Burner(object):
                                            shutdown=True)
       rem_op = opcodes.OpRemoveInstance(instance_name=instance,
                                         ignore_failures=True)
-      imp_dir = os.path.join(constants.EXPORT_DIR, full_name)
+      imp_dir = utils.PathJoin(constants.EXPORT_DIR, full_name)
       imp_op = opcodes.OpCreateInstance(instance_name=instance,
                                         disks = [ {"size": size}
                                                   for size in self.disk_size],

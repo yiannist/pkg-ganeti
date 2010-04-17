@@ -3,7 +3,7 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GNT-OS" "8" "02 March 2010" "ganeti 2.0" ""
+.TH "GNT-OS" "8" "12 March 2010" "ganeti 2.0" ""
 
 .SH NAME
 gnt-os \- instance operating system administration
@@ -34,6 +34,21 @@ shows only the OS-es that the cluster sees available on all
 nodes. It could be that some OS is missing from a node, or is
 only partially installed, and this command will show the details
 of all the OSes and the reasons they are or are not valid.
+
+\fBmodify\fR [ \fB-H \fIHYPERVISOR\fB [ : option=\fIvalue\fB\fI ...\fB ]\fR ] \fB\fIOS\fB\fR
+
+.PP
+This command will allow you to modify OS parameters. At the moment
+we just support per-os-hypervisor settings. You can run modify
+\fB-H\fR with the same syntax as in
+\fBgnt-cluster init\fR to override default hypervisor
+parameters of the cluster for specified
+\fIOS\fR argument.
+.PP
+Note: The \fIOS\fR doesn't have to exists.
+This allows preseeding the settings for
+\fIOS\fRes not yet known to
+\fBgnt-os\fR\&.
 .SH "REPORTING BUGS"
 .PP
 Report bugs to  <URL:http://code.google.com/p/ganeti/> or contact the

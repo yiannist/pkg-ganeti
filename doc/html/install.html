@@ -5,13 +5,13 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Ganeti installation tutorial &mdash; Ganeti v2.1.0 documentation</title>
+    <title>Ganeti installation tutorial &mdash; Ganeti v2.1.1 documentation</title>
     <link rel="stylesheet" href="_static/default.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.1.0',
+        VERSION:     '2.1.1',
         COLLAPSE_MODINDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -19,7 +19,7 @@
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.1.0 documentation" href="index.html" />
+    <link rel="top" title="Ganeti v2.1.1 documentation" href="index.html" />
     <link rel="next" title="Ganeti administrator’s guide" href="admin.html" />
     <link rel="prev" title="Ganeti quick installation guide" href="install-quick.html" /> 
   </head>
@@ -33,7 +33,7 @@
         <li class="right" >
           <a href="install-quick.html" title="Ganeti quick installation guide"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.1.0 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.1.1 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -367,14 +367,10 @@ such a bridge at startup, but your distribution might have a different
 way to do things, and you&#8217;ll definitely need to manually set it up under
 KVM.</p>
 <p>Beware that the default name Ganeti uses is <tt class="docutils literal"><span class="pre">xen-br0</span></tt> (which was used
-in Xen 2.0) while Xen 3.0 uses <tt class="docutils literal"><span class="pre">xenbr0</span></tt> by default. The default bridge
-your Ganeti cluster will use for new instances can be specified at
-cluster initialization time.</p>
-<p>If you want to run in &#8220;routing mode&#8221; you need to specify that at cluster
-init time (using the &#8211;nicparam option), and then no bridge will be
-needed. In this mode instance traffic will be routed by dom0, instead of
-bridged.</p>
-<p>In order to use &#8220;routing mode&#8221; under Xen, you&#8217;ll need to change the
+in Xen 2.0) while Xen 3.0 uses <tt class="docutils literal"><span class="pre">xenbr0</span></tt> by default. See the
+<a class="reference" href="#initializing-the-cluster">Initializing the cluster</a> section to learn how to choose a different
+bridge, or not to use one at all and use &#8220;routed mode&#8221;.</p>
+<p>In order to use &#8220;routed mode&#8221; under Xen, you&#8217;ll need to change the
 relevant parameters in the Xen config file. Under KVM instead, no config
 change is necessary, but you still need to set up your network
 interfaces correctly.</p>
@@ -558,11 +554,18 @@ hostname used for this must resolve to an IP address reserved
 <strong>exclusively</strong> for this purpose, and cannot be the name of the first
 (master) node.</p>
 <p>If you want to use a bridge which is not <tt class="docutils literal"><span class="pre">xen-br0</span></tt>, or no bridge at
-all, use <tt class="docutils literal"><span class="pre">--nicparams</span></tt>.</p>
-<p>If the bridge name you are using is not <tt class="docutils literal"><span class="pre">xen-br0</span></tt>, use the <em>-b
-&lt;BRIDGENAME&gt;</em> option to specify the bridge name. In this case, you
-should also use the <em>&#8211;master-netdev &lt;BRIDGENAME&gt;</em> option with the same
-BRIDGENAME argument.</p>
+all, change it with the <tt class="docutils literal"><span class="pre">--nic-parameters</span></tt> option. For example to
+bridge on br0 you can say:</p>
+<div class="highlight-text"><div class="highlight"><pre>--nic-parameters link=br0
+</pre></div>
+</div>
+<p>Or to not bridge at all, and use a separate routing table:</p>
+<div class="highlight-text"><div class="highlight"><pre>--nic-parameters mode=routed,link=100
+</pre></div>
+</div>
+<p>If you don&#8217;t have a xen-br0 interface you also have to specify a
+different network interface which will get the cluster ip, on the master
+node, by using the <tt class="docutils literal"><span class="pre">--master-netdev</span> <span class="pre">&lt;device&gt;</span></tt> option.</p>
 <p>You can use a different name than <tt class="docutils literal"><span class="pre">xenvg</span></tt> for the volume group (but
 note that the name must be identical on all nodes). In this case you
 need to specify it by passing the <em>-g &lt;VGNAME&gt;</em> option to <tt class="docutils literal"><span class="pre">gnt-cluster</span>
@@ -741,7 +744,7 @@ instance level.</td></tr>
         <li class="right" >
           <a href="install-quick.html" title="Ganeti quick installation guide"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.1.0 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.1.1 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

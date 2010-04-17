@@ -3,7 +3,7 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GANETI-OS-INTERFACE" "7" "02 March 2010" "ganeti 2.1" ""
+.TH "GANETI-OS-INTERFACE" "7" "12 March 2010" "ganeti 2.1" ""
 
 .SH NAME
 ganeti-os-interface \- specifications for guest OS types
@@ -157,7 +157,7 @@ those passed to \fBexport\fR, whose output will
 be provided on stdin\&.
 .PP
 The difference in variables is that the current disk is called
-by \fBIMPORT_DEVICE\fR and \fBIMPORT_IDX\fR
+by \fBIMPORT_DEVICE\fR and \fBIMPORT_INDEX\fR
 (instead of \fBEXPORT_\fR).
 .SS "RENAME"
 .PP

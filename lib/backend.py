@@ -23,6 +23,8 @@
 
 @var _ALLOWED_UPLOAD_FILES: denotes which files are accepted in
      the L{UploadFile} function
+@var _ALLOWED_CLEAN_DIRS: denotes which directories are accepted
+     in the L{_CleanDirectory} function
 
 """
 
@@ -40,7 +42,6 @@ import time
 import stat
 import errno
 import re
-import subprocess
 import random
 import logging
 import tempfile
@@ -58,6 +59,11 @@ from ganeti import ssconf
 
 
 _BOOT_ID_PATH = "/proc/sys/kernel/random/boot_id"
+_ALLOWED_CLEAN_DIRS = frozenset([
+  constants.DATA_DIR,
+  constants.JOB_QUEUE_ARCHIVE_DIR,
+  constants.QUEUE_DIR,
+  ])
 
 
 class RPCFail(Exception):
@@ -144,6 +150,10 @@ def _CleanDirectory(path, exclude=None):
       to the empty list
 
   """
+  if path not in _ALLOWED_CLEAN_DIRS:
+    _Fail("Path passed to _CleanDirectory not in allowed clean targets: '%s'",
+          path)
+
   if not os.path.isdir(path):
     return
   if exclude is None:
@@ -153,7 +163,7 @@ def _CleanDirectory(path, exclude=None):
     exclude = [os.path.normpath(i) for i in exclude]
 
   for rel_name in utils.ListVisibleFiles(path):
-    full_name = os.path.normpath(os.path.join(path, rel_name))
+    full_name = utils.PathJoin(path, rel_name)
     if full_name in exclude:
       continue
     if os.path.isfile(full_name) and not os.path.islink(full_name):
@@ -640,21 +650,23 @@ def NodeVolumes():
           result.output)
 
   def parse_dev(dev):
-    if '(' in dev:
-      return dev.split('(')[0]
-    else:
-      return dev
+    return dev.split('(')[0]
+
+  def handle_dev(dev):
+    return [parse_dev(x) for x in dev.split(",")]
 
   def map_line(line):
-    return {
-      'name': line[0].strip(),
-      'size': line[1].strip(),
-      'dev': parse_dev(line[2].strip()),
-      'vg': line[3].strip(),
-    }
+    line = [v.strip() for v in line]
+    return [{'name': line[0], 'size': line[1],
+             'dev': dev, 'vg': line[3]} for dev in handle_dev(line[2])]
 
-  return [map_line(line.split('|')) for line in result.stdout.splitlines()
-          if line.count('|') >= 3]
+  all_devs = []
+  for line in result.stdout.splitlines():
+    if line.count('|') >= 3:
+      all_devs.extend(map_line(line.split('|')))
+    else:
+      logging.warning("Strange line in the output from lvs: '%s'", line)
+  return all_devs
 
 
 def BridgesExist(bridges_list):
@@ -789,6 +801,24 @@ def GetAllInstancesInfo(hypervisor_list):
   return output
 
 
+def _InstanceLogName(kind, os_name, instance):
+  """Compute the OS log filename for a given instance and operation.
+
+  The instance name and os name are passed in as strings since not all
+  operations have these as part of an instance object.
+
+  @type kind: string
+  @param kind: the operation type (e.g. add, import, etc.)
+  @type os_name: string
+  @param os_name: the os name
+  @type instance: string
+  @param instance: the name of the instance being imported/added/etc.
+
+  """
+  base = "%s-%s-%s-%d.log" % (kind, os_name, instance, int(time.time()))
+  return utils.PathJoin(constants.LOG_OS_DIR, base)
+
+
 def InstanceOsAdd(instance, reinstall, debug):
   """Add an OS to an instance.
 
@@ -807,8 +837,7 @@ def InstanceOsAdd(instance, reinstall, debug):
   if reinstall:
     create_env['INSTANCE_REINSTALL'] = "1"
 
-  logfile = "%s/add-%s-%s-%d.log" % (constants.LOG_OS_DIR, instance.os,
-                                     instance.name, int(time.time()))
+  logfile = _InstanceLogName("add", instance.os, instance.name)
 
   result = utils.RunCmd([inst_os.create_script], env=create_env,
                         cwd=inst_os.path, output=logfile,)
@@ -840,9 +869,8 @@ def RunRenameInstance(instance, old_name, debug):
   rename_env = OSEnvironment(instance, inst_os, debug)
   rename_env['OLD_INSTANCE_NAME'] = old_name
 
-  logfile = "%s/rename-%s-%s-%s-%d.log" % (constants.LOG_OS_DIR, instance.os,
-                                           old_name,
-                                           instance.name, int(time.time()))
+  logfile = _InstanceLogName("rename", instance.os,
+                             "%s-%s" % (old_name, instance.name))
 
   result = utils.RunCmd([inst_os.rename_script], env=rename_env,
                         cwd=inst_os.path, output=logfile)
@@ -888,7 +916,7 @@ def _GetVGInfo(vg_name):
         "vg_free": int(round(float(valarr[1]), 0)),
         "pv_count": int(valarr[2]),
         }
-    except ValueError, err:
+    except (TypeError, ValueError), err:
       logging.exception("Fail to parse vgs output: %s", err)
   else:
     logging.error("vgs output has the wrong number of fields (expected"
@@ -897,8 +925,8 @@ def _GetVGInfo(vg_name):
 
 
 def _GetBlockDevSymlinkPath(instance_name, idx):
-  return os.path.join(constants.DISK_LINKS_DIR,
-                      "%s:%d" % (instance_name, idx))
+  return utils.PathJoin(constants.DISK_LINKS_DIR,
+                        "%s:%d" % (instance_name, idx))
 
 
 def _SymlinkBlockDev(instance_name, device_path, idx):
@@ -1435,6 +1463,8 @@ def BlockdevRemovechildren(parent_cdev, new_cdevs):
       else:
         devs.append(bd.dev_path)
     else:
+      if not utils.IsNormAbsPath(rpath):
+        _Fail("Strange path returned from StaticDevPath: '%s'", rpath)
       devs.append(rpath)
   parent_bdev.RemoveChildren(devs)
 
@@ -1656,7 +1686,7 @@ def _OSOndiskAPIVersion(os_dir):
       data holding either the vaid versions or an error message
 
   """
-  api_file = os.path.sep.join([os_dir, constants.OS_API_FILE])
+  api_file = utils.PathJoin(os_dir, constants.OS_API_FILE)
 
   try:
     st = os.stat(api_file)
@@ -1712,7 +1742,7 @@ def DiagnoseOS(top_dirs=None):
         logging.exception("Can't list the OS directory %s: %s", dir_name, err)
         break
       for name in f_names:
-        os_path = os.path.sep.join([dir_name, name])
+        os_path = utils.PathJoin(dir_name, name)
         status, os_inst = _TryOSFromDisk(name, base_dir=dir_name)
         if status:
           diagnose = ""
@@ -1763,7 +1793,7 @@ def _TryOSFromDisk(name, base_dir=None):
     os_files[constants.OS_VARIANTS_FILE] = ''
 
   for filename in os_files:
-    os_files[filename] = os.path.sep.join([os_dir, filename])
+    os_files[filename] = utils.PathJoin(os_dir, filename)
 
     try:
       st = os.stat(os_files[filename])
@@ -1930,19 +1960,15 @@ def BlockdevSnapshot(disk):
   @return: snapshot disk path
 
   """
-  if disk.children:
-    if len(disk.children) == 1:
-      # only one child, let's recurse on it
-      return BlockdevSnapshot(disk.children[0])
-    else:
-      # more than one child, choose one that matches
-      for child in disk.children:
-        if child.size == disk.size:
-          # return implies breaking the loop
-          return BlockdevSnapshot(child)
+  if disk.dev_type == constants.LD_DRBD8:
+    if not disk.children:
+      _Fail("DRBD device '%s' without backing storage cannot be snapshotted",
+            disk.unique_id)
+    return BlockdevSnapshot(disk.children[0])
   elif disk.dev_type == constants.LD_LV:
     r_dev = _RecursiveFindBD(disk)
     if r_dev is not None:
+      # FIXME: choose a saner value for the snapshot size
       # let's stay on the safe side and ask for the full size, for now
       return r_dev.Snapshot(disk.size)
     else:
@@ -1976,8 +2002,7 @@ def ExportSnapshot(disk, dest_node, instance, cluster_name, idx, debug):
 
   export_script = inst_os.export_script
 
-  logfile = "%s/exp-%s-%s-%s.log" % (constants.LOG_OS_DIR, inst_os.name,
-                                     instance.name, int(time.time()))
+  logfile = _InstanceLogName("export", inst_os.name, instance.name)
   if not os.path.exists(constants.LOG_OS_DIR):
     os.mkdir(constants.LOG_OS_DIR, 0750)
   real_disk = _RecursiveFindBD(disk)
@@ -1989,7 +2014,7 @@ def ExportSnapshot(disk, dest_node, instance, cluster_name, idx, debug):
   export_env['EXPORT_DEVICE'] = real_disk.dev_path
   export_env['EXPORT_INDEX'] = str(idx)
 
-  destdir = os.path.join(constants.EXPORT_DIR, instance.name + ".new")
+  destdir = utils.PathJoin(constants.EXPORT_DIR, instance.name + ".new")
   destfile = disk.physical_id[1]
 
   # the target command is built out of three individual commands,
@@ -2000,8 +2025,8 @@ def ExportSnapshot(disk, dest_node, instance, cluster_name, idx, debug):
 
   comprcmd = "gzip"
 
-  destcmd = utils.BuildShellCmd("mkdir -p %s && cat > %s/%s",
-                                destdir, destdir, destfile)
+  destcmd = utils.BuildShellCmd("mkdir -p %s && cat > %s",
+                                destdir, utils.PathJoin(destdir, destfile))
   remotecmd = _GetSshRunner(cluster_name).BuildCmd(dest_node,
                                                    constants.GANETI_RUNAS,
                                                    destcmd)
@@ -2029,8 +2054,8 @@ def FinalizeExport(instance, snap_disks):
   @rtype: None
 
   """
-  destdir = os.path.join(constants.EXPORT_DIR, instance.name + ".new")
-  finaldestdir = os.path.join(constants.EXPORT_DIR, instance.name)
+  destdir = utils.PathJoin(constants.EXPORT_DIR, instance.name + ".new")
+  finaldestdir = utils.PathJoin(constants.EXPORT_DIR, instance.name)
 
   config = objects.SerializableConfigParser()
 
@@ -2073,7 +2098,7 @@ def FinalizeExport(instance, snap_disks):
 
   config.set(constants.INISECT_INS, 'disk_count' , '%d' % disk_total)
 
-  utils.WriteFile(os.path.join(destdir, constants.EXPORT_CONF_FILE),
+  utils.WriteFile(utils.PathJoin(destdir, constants.EXPORT_CONF_FILE),
                   data=config.Dumps())
   shutil.rmtree(finaldestdir, True)
   shutil.move(destdir, finaldestdir)
@@ -2090,7 +2115,7 @@ def ExportInfo(dest):
       export info
 
   """
-  cff = os.path.join(dest, constants.EXPORT_CONF_FILE)
+  cff = utils.PathJoin(dest, constants.EXPORT_CONF_FILE)
 
   config = objects.SerializableConfigParser()
   config.read(cff)
@@ -2121,8 +2146,7 @@ def ImportOSIntoInstance(instance, src_node, src_images, cluster_name, debug):
   import_env = OSEnvironment(instance, inst_os, debug)
   import_script = inst_os.import_script
 
-  logfile = "%s/import-%s-%s-%s.log" % (constants.LOG_OS_DIR, instance.os,
-                                        instance.name, int(time.time()))
+  logfile = _InstanceLogName("import", instance.os, instance.name)
   if not os.path.exists(constants.LOG_OS_DIR):
     os.mkdir(constants.LOG_OS_DIR, 0750)
 
@@ -2173,7 +2197,7 @@ def RemoveExport(export):
   @rtype: None
 
   """
-  target = os.path.join(constants.EXPORT_DIR, export)
+  target = utils.PathJoin(constants.EXPORT_DIR, export)
 
   try:
     shutil.rmtree(target)
@@ -2235,6 +2259,8 @@ def _TransformFileStorageDir(file_storage_dir):
   @return: the normalized path if valid, None otherwise
 
   """
+  if not constants.ENABLE_FILE_STORAGE:
+    _Fail("File storage disabled at configure time")
   cfg = _GetConfig()
   file_storage_dir = os.path.normpath(file_storage_dir)
   base_file_storage_dir = cfg.GetFileStorageDir()
@@ -2641,56 +2667,6 @@ class HooksRunner(object):
     # constant
     self._BASE_DIR = hooks_base_dir # pylint: disable-msg=C0103
 
-  @staticmethod
-  def ExecHook(script, env):
-    """Exec one hook script.
-
-    @type script: str
-    @param script: the full path to the script
-    @type env: dict
-    @param env: the environment with which to exec the script
-    @rtype: tuple (success, message)
-    @return: a tuple of success and message, where success
-        indicates the succes of the operation, and message
-        which will contain the error details in case we
-        failed
-
-    """
-    # exec the process using subprocess and log the output
-    fdstdin = None
-    try:
-      fdstdin = open("/dev/null", "r")
-      child = subprocess.Popen([script], stdin=fdstdin, stdout=subprocess.PIPE,
-                               stderr=subprocess.STDOUT, close_fds=True,
-                               shell=False, cwd="/", env=env)
-      output = ""
-      try:
-        output = child.stdout.read(4096)
-        child.stdout.close()
-      except EnvironmentError, err:
-        output += "Hook script error: %s" % str(err)
-
-      while True:
-        try:
-          result = child.wait()
-          break
-        except EnvironmentError, err:
-          if err.errno == errno.EINTR:
-            continue
-          raise
-    finally:
-      # try not to leak fds
-      for fd in (fdstdin, ):
-        if fd is not None:
-          try:
-            fd.close()
-          except EnvironmentError, err:
-            # just log the error
-            #logging.exception("Error while closing fd %s", fd)
-            pass
-
-    return result == 0, utils.SafeEncode(output.strip())
-
   def RunHooks(self, hpath, phase, env):
     """Run the scripts in the hooks directory.
 
@@ -2720,34 +2696,35 @@ class HooksRunner(object):
     else:
       _Fail("Unknown hooks phase '%s'", phase)
 
-    rr = []
 
     subdir = "%s-%s.d" % (hpath, suffix)
-    dir_name = "%s/%s" % (self._BASE_DIR, subdir)
-    try:
-      dir_contents = utils.ListVisibleFiles(dir_name)
-    except OSError:
-      # FIXME: must log output in case of failures
-      return rr
+    dir_name = utils.PathJoin(self._BASE_DIR, subdir)
 
-    # we use the standard python sort order,
-    # so 00name is the recommended naming scheme
-    dir_contents.sort()
-    for relname in dir_contents:
-      fname = os.path.join(dir_name, relname)
-      if not (os.path.isfile(fname) and os.access(fname, os.X_OK) and
-              constants.EXT_PLUGIN_MASK.match(relname) is not None):
+    results = []
+
+    if not os.path.isdir(dir_name):
+      # for non-existing/non-dirs, we simply exit instead of logging a
+      # warning at every operation
+      return results
+
+    runparts_results = utils.RunParts(dir_name, env=env, reset_env=True)
+
+    for (relname, relstatus, runresult)  in runparts_results:
+      if relstatus == constants.RUNPARTS_SKIP:
         rrval = constants.HKR_SKIP
         output = ""
-      else:
-        result, output = self.ExecHook(fname, env)
-        if not result:
+      elif relstatus == constants.RUNPARTS_ERR:
+        rrval = constants.HKR_FAIL
+        output = "Hook script execution error: %s" % runresult
+      elif relstatus == constants.RUNPARTS_RUN:
+        if runresult.failed:
           rrval = constants.HKR_FAIL
         else:
           rrval = constants.HKR_SUCCESS
-      rr.append(("%s/%s" % (subdir, relname), rrval, output))
+        output = utils.SafeEncode(runresult.output.strip())
+      results.append(("%s/%s" % (subdir, relname), rrval, output))
 
-    return rr
+    return results
 
 
 class IAllocatorRunner(object):
@@ -2814,7 +2791,7 @@ class DevCacheManager(object):
     if dev_path.startswith(cls._DEV_PREFIX):
       dev_path = dev_path[len(cls._DEV_PREFIX):]
     dev_path = dev_path.replace("/", "_")
-    fpath = "%s/bdev_%s" % (cls._ROOT_DIR, dev_path)
+    fpath = utils.PathJoin(cls._ROOT_DIR, "bdev_%s" % dev_path)
     return fpath
 
   @classmethod

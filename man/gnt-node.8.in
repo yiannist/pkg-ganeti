@@ -3,7 +3,7 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GNT-NODE" "8" "02 March 2010" "ganeti 2.0" ""
+.TH "GNT-NODE" "8" "12 March 2010" "ganeti 2.0" ""
 
 .SH NAME
 gnt-node \- node administration
@@ -67,11 +67,11 @@ tags on the command line (if you do, both sources will be
 used). A file name of - will be interpreted as stdin.
 .SS "EVACUATE"
 
-\fBevacuate\fR [ \fB-f\fR ] [ \fB--iallocator \fINAME\fB\fR | \fB--new-secondary \fIdestination_node\fB\fR ] \fB\fInode\fB\fR
+\fBevacuate\fR [ \fB-f\fR ] [ \fB--early-release\fR ] [ \fB--iallocator \fINAME\fB\fR | \fB--new-secondary \fIdestination_node\fB\fR ] \fB\fInode\fB\fR\fI ...\fR
 
 .PP
 This command will move all secondary instances away from the
-given node. It works only for instances having a drbd disk
+given node(s). It works only for instances having a drbd disk
 template.
 .PP
 The new location for the instances can be specified in two ways:
@@ -85,6 +85,17 @@ or via the \fB--iallocator\fR option,
 giving a script name as parameter, so each instance will
 be in turn placed on the (per the script) optimal
 node
+.PP
+The \fB--early-release\fR changes the code so that
+the old storage on node being evacuated is removed early
+(before the resync is completed) and the internal Ganeti locks
+are also released for both the current secondary and the new
+secondary, thus allowing more parallelism in the cluster
+operation. This should be used only when recovering from a
+disk failure on the current secondary (thus the old storage is
+already broken) or when the storage on the primary node is
+known to be fine (thus we won't need the old storage for
+potential recovery).
 .PP
 Example:
 
@@ -331,7 +342,7 @@ Example:
 .fi
 .SS "MODIFY"
 
-\fBmodify\fR [ \fB-f\fR ] [ \fB--submit\fR ] [ \fB--master-candidate=yes|no\fR ] [ \fB--drained=yes|no\fR ] [ \fB--offline=yes|no\fR ] \fB\fInode\fB\fR
+\fBmodify\fR [ \fB-f\fR ] [ \fB--submit\fR ] [ \fB--master-candidate=yes|no\fR ] [ \fB--drained=yes|no\fR ] [ \fB--offline=yes|no\fR ] [ \fB--auto-promote\fR ] \fB\fInode\fB\fR
 
 .PP
 This command changes the role of the node. Each options takes
@@ -340,10 +351,15 @@ no, and only one option should be given as
 yes\&. The meaning of the roles are described
 in the manpage \fBganeti\fR(7)\&.
 .PP
-In case a node is demoted from the master candidate role, but
-there are not enough new nodes for this case, the operation
-will be refused. To override this check, pass the
-\fB--force\fR option.
+In case a node is demoted from the master candidate role, the
+operation will be refused unless you pass
+the \fB--auto-promote\fR option. This option will
+cause the operation to lock all cluster nodes (thus it will
+not be able to run in parallel with most other jobs), but it
+allows automated maintenance of the cluster candidate pool. If
+locking all cluster node is too expensive, another option is
+to promote manually another node to master candidate before
+demoting the current one.
 .PP
 Example (setting a node offline, which will demote it from
 master candidate role if is in that role):

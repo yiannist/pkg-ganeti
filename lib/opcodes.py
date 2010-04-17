@@ -52,8 +52,9 @@ class BaseOpCode(object):
     __slots__ attribute for this class.
 
     """
+    slots = self._all_slots()
     for key in kwargs:
-      if key not in self.__slots__:
+      if key not in slots:
         raise TypeError("Object %s doesn't support the parameter '%s'" %
                         (self.__class__.__name__, key))
       setattr(self, key, kwargs[key])
@@ -69,7 +70,7 @@ class BaseOpCode(object):
 
     """
     state = {}
-    for name in self.__slots__:
+    for name in self._all_slots():
       if hasattr(self, name):
         state[name] = getattr(self, name)
     return state
@@ -88,12 +89,22 @@ class BaseOpCode(object):
       raise ValueError("Invalid data to __setstate__: expected dict, got %s" %
                        type(state))
 
-    for name in self.__slots__:
-      if name not in state:
+    for name in self._all_slots():
+      if name not in state and hasattr(self, name):
         delattr(self, name)
 
     for name in state:
       setattr(self, name, state[name])
+
+  @classmethod
+  def _all_slots(cls):
+    """Compute the list of all declared slots for a class.
+
+    """
+    slots = []
+    for parent in cls.__mro__:
+      slots.extend(getattr(parent, "__slots__", []))
+    return slots
 
 
 class OpCode(BaseOpCode):
@@ -109,7 +120,7 @@ class OpCode(BaseOpCode):
 
   """
   OP_ID = "OP_ABSTRACT"
-  __slots__ = BaseOpCode.__slots__ + ["dry_run"]
+  __slots__ = ["dry_run", "debug_level"]
 
   def __getstate__(self):
     """Specialized getstate for opcodes.
@@ -178,7 +189,7 @@ class OpPostInitCluster(OpCode):
 
   """
   OP_ID = "OP_CLUSTER_POST_INIT"
-  __slots__ = OpCode.__slots__ + []
+  __slots__ = []
 
 
 class OpDestroyCluster(OpCode):
@@ -189,13 +200,13 @@ class OpDestroyCluster(OpCode):
 
   """
   OP_ID = "OP_CLUSTER_DESTROY"
-  __slots__ = OpCode.__slots__ + []
+  __slots__ = []
 
 
 class OpQueryClusterInfo(OpCode):
   """Query cluster information."""
   OP_ID = "OP_CLUSTER_QUERY"
-  __slots__ = OpCode.__slots__ + []
+  __slots__ = []
 
 
 class OpVerifyCluster(OpCode):
@@ -209,8 +220,8 @@ class OpVerifyCluster(OpCode):
 
   """
   OP_ID = "OP_CLUSTER_VERIFY"
-  __slots__ = OpCode.__slots__ + ["skip_checks", "verbose", "error_codes",
-                                  "debug_simulate_errors"]
+  __slots__ = ["skip_checks", "verbose", "error_codes",
+               "debug_simulate_errors"]
 
 
 class OpVerifyDisks(OpCode):
@@ -235,7 +246,7 @@ class OpVerifyDisks(OpCode):
 
   """
   OP_ID = "OP_CLUSTER_VERIFY_DISKS"
-  __slots__ = OpCode.__slots__ + []
+  __slots__ = []
 
 
 class OpRepairDiskSizes(OpCode):
@@ -261,7 +272,7 @@ class OpRepairDiskSizes(OpCode):
 class OpQueryConfigValues(OpCode):
   """Query cluster configuration values."""
   OP_ID = "OP_CLUSTER_CONFIG_QUERY"
-  __slots__ = OpCode.__slots__ + ["output_fields"]
+  __slots__ = ["output_fields"]
 
 
 class OpRenameCluster(OpCode):
@@ -275,7 +286,7 @@ class OpRenameCluster(OpCode):
   """
   OP_ID = "OP_CLUSTER_RENAME"
   OP_DSC_FIELD = "name"
-  __slots__ = OpCode.__slots__ + ["name"]
+  __slots__ = ["name"]
 
 
 class OpSetClusterParams(OpCode):
@@ -286,10 +297,11 @@ class OpSetClusterParams(OpCode):
 
   """
   OP_ID = "OP_CLUSTER_SET_PARAMS"
-  __slots__ = OpCode.__slots__ + [
+  __slots__ = [
     "vg_name",
     "enabled_hypervisors",
     "hvparams",
+    "os_hvp",
     "beparams",
     "nicparams",
     "candidate_pool_size",
@@ -301,8 +313,7 @@ class OpRedistributeConfig(OpCode):
 
   """
   OP_ID = "OP_CLUSTER_REDIST_CONF"
-  __slots__ = OpCode.__slots__ + [
-    ]
+  __slots__ = []
 
 # node opcodes
 
@@ -316,7 +327,7 @@ class OpRemoveNode(OpCode):
   """
   OP_ID = "OP_NODE_REMOVE"
   OP_DSC_FIELD = "node_name"
-  __slots__ = OpCode.__slots__ + ["node_name"]
+  __slots__ = ["node_name"]
 
 
 class OpAddNode(OpCode):
@@ -343,27 +354,25 @@ class OpAddNode(OpCode):
   """
   OP_ID = "OP_NODE_ADD"
   OP_DSC_FIELD = "node_name"
-  __slots__ = OpCode.__slots__ + [
-    "node_name", "primary_ip", "secondary_ip", "readd",
-    ]
+  __slots__ = ["node_name", "primary_ip", "secondary_ip", "readd"]
 
 
 class OpQueryNodes(OpCode):
   """Compute the list of nodes."""
   OP_ID = "OP_NODE_QUERY"
-  __slots__ = OpCode.__slots__ + ["output_fields", "names", "use_locking"]
+  __slots__ = ["output_fields", "names", "use_locking"]
 
 
 class OpQueryNodeVolumes(OpCode):
   """Get list of volumes on node."""
   OP_ID = "OP_NODE_QUERYVOLS"
-  __slots__ = OpCode.__slots__ + ["nodes", "output_fields"]
+  __slots__ = ["nodes", "output_fields"]
 
 
 class OpQueryNodeStorage(OpCode):
   """Get information on storage for node(s)."""
   OP_ID = "OP_NODE_QUERY_STORAGE"
-  __slots__ = OpCode.__slots__ + [
+  __slots__ = [
     "nodes",
     "storage_type",
     "name",
@@ -374,7 +383,7 @@ class OpQueryNodeStorage(OpCode):
 class OpModifyNodeStorage(OpCode):
   """Modifies the properies of a storage unit"""
   OP_ID = "OP_NODE_MODIFY_STORAGE"
-  __slots__ = OpCode.__slots__ + [
+  __slots__ = [
     "node_name",
     "storage_type",
     "name",
@@ -386,7 +395,7 @@ class OpRepairNodeStorage(OpCode):
   """Repairs the volume group on a node."""
   OP_ID = "OP_REPAIR_NODE_STORAGE"
   OP_DSC_FIELD = "node_name"
-  __slots__ = OpCode.__slots__ + [
+  __slots__ = [
     "node_name",
     "storage_type",
     "name",
@@ -398,12 +407,13 @@ class OpSetNodeParams(OpCode):
   """Change the parameters of a node."""
   OP_ID = "OP_NODE_SET_PARAMS"
   OP_DSC_FIELD = "node_name"
-  __slots__ = OpCode.__slots__ + [
+  __slots__ = [
     "node_name",
     "force",
     "master_candidate",
     "offline",
     "drained",
+    "auto_promote",
     ]
 
 
@@ -411,7 +421,7 @@ class OpPowercycleNode(OpCode):
   """Tries to powercycle a node."""
   OP_ID = "OP_NODE_POWERCYCLE"
   OP_DSC_FIELD = "node_name"
-  __slots__ = OpCode.__slots__ + [
+  __slots__ = [
     "node_name",
     "force",
     ]
@@ -421,8 +431,8 @@ class OpEvacuateNode(OpCode):
   """Relocate secondary instances from a node."""
   OP_ID = "OP_NODE_EVACUATE"
   OP_DSC_FIELD = "node_name"
-  __slots__ = OpCode.__slots__ + [
-    "node_name", "remote_node", "iallocator",
+  __slots__ = [
+    "node_name", "remote_node", "iallocator", "early_release",
     ]
 
 
@@ -430,10 +440,17 @@ class OpMigrateNode(OpCode):
   """Migrate all instances from a node."""
   OP_ID = "OP_NODE_MIGRATE"
   OP_DSC_FIELD = "node_name"
-  __slots__ = OpCode.__slots__ + [
+  __slots__ = [
     "node_name",
     "live",
     ]
+
+
+class OpNodeEvacuationStrategy(OpCode):
+  """Compute the evacuation strategy for a list of nodes."""
+  OP_ID = "OP_NODE_EVAC_STRATEGY"
+  OP_DSC_FIELD = "nodes"
+  __slots__ = ["nodes", "iallocator", "remote_node"]
 
 
 # instance opcodes
@@ -442,7 +459,7 @@ class OpCreateInstance(OpCode):
   """Create an instance."""
   OP_ID = "OP_INSTANCE_CREATE"
   OP_DSC_FIELD = "instance_name"
-  __slots__ = OpCode.__slots__ + [
+  __slots__ = [
     "instance_name", "os_type", "force_variant",
     "pnode", "disk_template", "snode", "mode",
     "disks", "nics",
@@ -459,14 +476,14 @@ class OpReinstallInstance(OpCode):
   """Reinstall an instance's OS."""
   OP_ID = "OP_INSTANCE_REINSTALL"
   OP_DSC_FIELD = "instance_name"
-  __slots__ = OpCode.__slots__ + ["instance_name", "os_type", "force_variant"]
+  __slots__ = ["instance_name", "os_type", "force_variant"]
 
 
 class OpRemoveInstance(OpCode):
   """Remove an instance."""
   OP_ID = "OP_INSTANCE_REMOVE"
   OP_DSC_FIELD = "instance_name"
-  __slots__ = OpCode.__slots__ + [
+  __slots__ = [
     "instance_name",
     "ignore_failures",
     "shutdown_timeout",
@@ -476,7 +493,7 @@ class OpRemoveInstance(OpCode):
 class OpRenameInstance(OpCode):
   """Rename an instance."""
   OP_ID = "OP_INSTANCE_RENAME"
-  __slots__ = OpCode.__slots__ + [
+  __slots__ = [
     "instance_name", "ignore_ip", "new_name",
     ]
 
@@ -485,7 +502,7 @@ class OpStartupInstance(OpCode):
   """Startup an instance."""
   OP_ID = "OP_INSTANCE_STARTUP"
   OP_DSC_FIELD = "instance_name"
-  __slots__ = OpCode.__slots__ + [
+  __slots__ = [
     "instance_name", "force", "hvparams", "beparams",
     ]
 
@@ -494,14 +511,14 @@ class OpShutdownInstance(OpCode):
   """Shutdown an instance."""
   OP_ID = "OP_INSTANCE_SHUTDOWN"
   OP_DSC_FIELD = "instance_name"
-  __slots__ = OpCode.__slots__ + ["instance_name", "timeout"]
+  __slots__ = ["instance_name", "timeout"]
 
 
 class OpRebootInstance(OpCode):
   """Reboot an instance."""
   OP_ID = "OP_INSTANCE_REBOOT"
   OP_DSC_FIELD = "instance_name"
-  __slots__ = OpCode.__slots__ + [
+  __slots__ = [
     "instance_name", "reboot_type", "ignore_secondaries", "shutdown_timeout",
     ]
 
@@ -510,8 +527,9 @@ class OpReplaceDisks(OpCode):
   """Replace the disks of an instance."""
   OP_ID = "OP_INSTANCE_REPLACE_DISKS"
   OP_DSC_FIELD = "instance_name"
-  __slots__ = OpCode.__slots__ + [
+  __slots__ = [
     "instance_name", "remote_node", "mode", "disks", "iallocator",
+    "early_release",
     ]
 
 
@@ -519,7 +537,7 @@ class OpFailoverInstance(OpCode):
   """Failover an instance."""
   OP_ID = "OP_INSTANCE_FAILOVER"
   OP_DSC_FIELD = "instance_name"
-  __slots__ = OpCode.__slots__ + [
+  __slots__ = [
     "instance_name", "ignore_consistency", "shutdown_timeout",
     ]
 
@@ -535,7 +553,7 @@ class OpMigrateInstance(OpCode):
   """
   OP_ID = "OP_INSTANCE_MIGRATE"
   OP_DSC_FIELD = "instance_name"
-  __slots__ = OpCode.__slots__ + ["instance_name", "live", "cleanup"]
+  __slots__ = ["instance_name", "live", "cleanup"]
 
 
 class OpMoveInstance(OpCode):
@@ -550,56 +568,56 @@ class OpMoveInstance(OpCode):
   """
   OP_ID = "OP_INSTANCE_MOVE"
   OP_DSC_FIELD = "instance_name"
-  __slots__ = OpCode.__slots__ + [
+  __slots__ = [
     "instance_name", "target_node", "shutdown_timeout",
-  ]
+    ]
 
 
 class OpConnectConsole(OpCode):
   """Connect to an instance's console."""
   OP_ID = "OP_INSTANCE_CONSOLE"
   OP_DSC_FIELD = "instance_name"
-  __slots__ = OpCode.__slots__ + ["instance_name"]
+  __slots__ = ["instance_name"]
 
 
 class OpActivateInstanceDisks(OpCode):
   """Activate an instance's disks."""
   OP_ID = "OP_INSTANCE_ACTIVATE_DISKS"
   OP_DSC_FIELD = "instance_name"
-  __slots__ = OpCode.__slots__ + ["instance_name", "ignore_size"]
+  __slots__ = ["instance_name", "ignore_size"]
 
 
 class OpDeactivateInstanceDisks(OpCode):
   """Deactivate an instance's disks."""
   OP_ID = "OP_INSTANCE_DEACTIVATE_DISKS"
   OP_DSC_FIELD = "instance_name"
-  __slots__ = OpCode.__slots__ + ["instance_name"]
+  __slots__ = ["instance_name"]
 
 
 class OpRecreateInstanceDisks(OpCode):
   """Deactivate an instance's disks."""
   OP_ID = "OP_INSTANCE_RECREATE_DISKS"
   OP_DSC_FIELD = "instance_name"
-  __slots__ = OpCode.__slots__ + ["instance_name", "disks"]
+  __slots__ = ["instance_name", "disks"]
 
 
 class OpQueryInstances(OpCode):
   """Compute the list of instances."""
   OP_ID = "OP_INSTANCE_QUERY"
-  __slots__ = OpCode.__slots__ + ["output_fields", "names", "use_locking"]
+  __slots__ = ["output_fields", "names", "use_locking"]
 
 
 class OpQueryInstanceData(OpCode):
   """Compute the run-time status of instances."""
   OP_ID = "OP_INSTANCE_QUERY_DATA"
-  __slots__ = OpCode.__slots__ + ["instances", "static"]
+  __slots__ = ["instances", "static"]
 
 
 class OpSetInstanceParams(OpCode):
   """Change the parameters of an instance."""
   OP_ID = "OP_INSTANCE_SET_PARAMS"
   OP_DSC_FIELD = "instance_name"
-  __slots__ = OpCode.__slots__ + [
+  __slots__ = [
     "instance_name",
     "hvparams", "beparams", "force",
     "nics", "disks",
@@ -610,7 +628,7 @@ class OpGrowDisk(OpCode):
   """Grow a disk of an instance."""
   OP_ID = "OP_INSTANCE_GROW_DISK"
   OP_DSC_FIELD = "instance_name"
-  __slots__ = OpCode.__slots__ + [
+  __slots__ = [
     "instance_name", "disk", "amount", "wait_for_sync",
     ]
 
@@ -619,21 +637,21 @@ class OpGrowDisk(OpCode):
 class OpDiagnoseOS(OpCode):
   """Compute the list of guest operating systems."""
   OP_ID = "OP_OS_DIAGNOSE"
-  __slots__ = OpCode.__slots__ + ["output_fields", "names"]
+  __slots__ = ["output_fields", "names"]
 
 
 # Exports opcodes
 class OpQueryExports(OpCode):
   """Compute the list of exported images."""
   OP_ID = "OP_BACKUP_QUERY"
-  __slots__ = OpCode.__slots__ + ["nodes", "use_locking"]
+  __slots__ = ["nodes", "use_locking"]
 
 
 class OpExportInstance(OpCode):
   """Export an instance."""
   OP_ID = "OP_BACKUP_EXPORT"
   OP_DSC_FIELD = "instance_name"
-  __slots__ = OpCode.__slots__ + [
+  __slots__ = [
     "instance_name", "target_node", "shutdown", "shutdown_timeout",
     ]
 
@@ -642,7 +660,7 @@ class OpRemoveExport(OpCode):
   """Remove an instance's export."""
   OP_ID = "OP_BACKUP_REMOVE"
   OP_DSC_FIELD = "instance_name"
-  __slots__ = OpCode.__slots__ + ["instance_name"]
+  __slots__ = ["instance_name"]
 
 
 # Tags opcodes
@@ -650,26 +668,26 @@ class OpGetTags(OpCode):
   """Returns the tags of the given object."""
   OP_ID = "OP_TAGS_GET"
   OP_DSC_FIELD = "name"
-  __slots__ = OpCode.__slots__ + ["kind", "name"]
+  __slots__ = ["kind", "name"]
 
 
 class OpSearchTags(OpCode):
   """Searches the tags in the cluster for a given pattern."""
   OP_ID = "OP_TAGS_SEARCH"
   OP_DSC_FIELD = "pattern"
-  __slots__ = OpCode.__slots__ + ["pattern"]
+  __slots__ = ["pattern"]
 
 
 class OpAddTags(OpCode):
   """Add a list of tags on a given object."""
   OP_ID = "OP_TAGS_SET"
-  __slots__ = OpCode.__slots__ + ["kind", "name", "tags"]
+  __slots__ = ["kind", "name", "tags"]
 
 
 class OpDelTags(OpCode):
   """Remove a list of tags from a given object."""
   OP_ID = "OP_TAGS_DEL"
-  __slots__ = OpCode.__slots__ + ["kind", "name", "tags"]
+  __slots__ = ["kind", "name", "tags"]
 
 
 # Test opcodes
@@ -696,7 +714,7 @@ class OpTestDelay(OpCode):
   """
   OP_ID = "OP_TEST_DELAY"
   OP_DSC_FIELD = "duration"
-  __slots__ = OpCode.__slots__ + ["duration", "on_master", "on_nodes"]
+  __slots__ = ["duration", "on_master", "on_nodes"]
 
 
 class OpTestAllocator(OpCode):
@@ -712,10 +730,11 @@ class OpTestAllocator(OpCode):
   """
   OP_ID = "OP_TEST_ALLOCATOR"
   OP_DSC_FIELD = "allocator"
-  __slots__ = OpCode.__slots__ + [
+  __slots__ = [
     "direction", "mode", "allocator", "name",
     "mem_size", "disks", "disk_template",
     "os", "tags", "nics", "vcpus", "hypervisor",
+    "evac_nodes",
     ]
 
 

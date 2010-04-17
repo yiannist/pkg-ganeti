@@ -21,7 +21,7 @@ NAME="AEN1"
 ><DIV
 CLASS="REFNAMEDIV"
 ><A
-NAME="AEN14"
+NAME="AEN15"
 ></A
 ><H2
 >Name</H2
@@ -29,7 +29,7 @@ NAME="AEN14"
 ><DIV
 CLASS="REFSYNOPSISDIV"
 ><A
-NAME="AEN17"
+NAME="AEN18"
 ></A
 ><H2
 >Synopsis</H2
@@ -42,7 +42,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN22"
+NAME="AEN23"
 ></A
 ><H2
 >DESCRIPTION</H2
@@ -58,7 +58,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN26"
+NAME="AEN27"
 ></A
 ><H2
 >COMMANDS</H2
@@ -88,11 +88,69 @@ CLASS="COMMAND"
       only partially installed, and this command will show the details
       of all the OSes and the reasons they are or are not valid.
     </P
+><P
+><B
+CLASS="COMMAND"
+>modify</B
+>  [-H <TT
+CLASS="REPLACEABLE"
+><I
+>HYPERVISOR</I
+></TT
+> [:  option=<TT
+CLASS="REPLACEABLE"
+><I
+>value</I
+></TT
+>... ]] {<TT
+CLASS="REPLACEABLE"
+><I
+>OS</I
+></TT
+>}</P
+><P
+>      This command will allow you to modify OS parameters. At the moment
+      we just support per-os-hypervisor settings. You can run modify
+      <CODE
+CLASS="OPTION"
+>-H</CODE
+> with the same syntax as in
+      <B
+CLASS="COMMAND"
+>gnt-cluster init</B
+> to override default hypervisor
+      parameters of the cluster for specified
+      <TT
+CLASS="REPLACEABLE"
+><I
+>OS</I
+></TT
+> argument.
+    </P
+><P
+>      Note: The <TT
+CLASS="REPLACEABLE"
+><I
+>OS</I
+></TT
+> doesn't have to exists.
+      This allows preseeding the settings for
+      <TT
+CLASS="REPLACEABLE"
+><I
+>OS</I
+></TT
+>es not yet known to
+      <B
+CLASS="COMMAND"
+>gnt-os</B
+>.
+    </P
 ></DIV
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN35"
+NAME="AEN53"
 ></A
 ><H2
 >REPORTING BUGS</H2
@@ -109,7 +167,7 @@ TARGET="_top"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN39"
+NAME="AEN57"
 ></A
 ><H2
 >SEE ALSO</H2
@@ -225,7 +283,7 @@ CLASS="REFENTRYTITLE"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN86"
+NAME="AEN104"
 ></A
 ><H2
 >COPYRIGHT</H2

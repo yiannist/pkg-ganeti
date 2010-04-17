@@ -3,7 +3,7 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GANETI" "7" "02 March 2010" "ganeti 2.0" ""
+.TH "GANETI" "7" "12 March 2010" "ganeti 2.0" ""
 
 .SH NAME
 ganeti \- cluster-based virtualization management
@@ -107,7 +107,7 @@ first of its opcodes.
 .TP
 \fBcanceling\fR
 The jos is waiting for locks, but is has been
-marked for cancelation. It will not transition to
+marked for cancellation. It will not transition to
 \fBrunning\fR, but to
 \fBcanceled\fR\&.
 .TP

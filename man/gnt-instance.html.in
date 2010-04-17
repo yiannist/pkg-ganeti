@@ -21,7 +21,7 @@ NAME="AEN1"
 ><DIV
 CLASS="REFNAMEDIV"
 ><A
-NAME="AEN14"
+NAME="AEN15"
 ></A
 ><H2
 >Name</H2
@@ -29,7 +29,7 @@ NAME="AEN14"
 ><DIV
 CLASS="REFSYNOPSISDIV"
 ><A
-NAME="AEN17"
+NAME="AEN18"
 ></A
 ><H2
 >Synopsis</H2
@@ -42,7 +42,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN22"
+NAME="AEN23"
 ></A
 ><H2
 >DESCRIPTION</H2
@@ -57,21 +57,21 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN26"
+NAME="AEN27"
 ></A
 ><H2
 >COMMANDS</H2
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN28"
+NAME="AEN29"
 ></A
 ><H3
 >Creation/removal/querying</H3
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN30"
+NAME="AEN31"
 ></A
 ><H4
 >ADD</H4
@@ -442,6 +442,24 @@ CLASS="VARIABLELIST"
 ><P
 >                  The default is not to set an HVM boot order which is
                   interpreted as 'dc'.
+                </P
+><P
+>                  For KVM the boot order is either
+                  <SPAN
+CLASS="QUOTE"
+>"cdrom"</SPAN
+>, <SPAN
+CLASS="QUOTE"
+>"disk"</SPAN
+> or
+                  <SPAN
+CLASS="QUOTE"
+>"network"</SPAN
+>. Please note that older
+                  versions of KVM couldn't netboot from virtio
+                  interfaces. This has been fixed in more recent
+                  versions and is confirmed to work at least with
+                  qemu-kvm 0.11.1.
                 </P
 ></DD
 ><DT
@@ -905,7 +923,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN332"
+NAME="AEN337"
 ></A
 ><H4
 >BATCH-CREATE</H4
@@ -1086,7 +1104,7 @@ instance5: 11225</PRE
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN399"
+NAME="AEN404"
 ></A
 ><H4
 >REMOVE</H4
@@ -1165,7 +1183,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN421"
+NAME="AEN426"
 ></A
 ><H4
 >LIST</H4
@@ -1596,7 +1614,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN625"
+NAME="AEN630"
 ></A
 ><H4
 >INFO</H4
@@ -1632,13 +1650,13 @@ CLASS="OPTION"
 CLASS="OPTION"
 >--all</CODE
 > to get info about all instances,
-          rather than explicitely passing the ones you're interested in.
+          rather than explicitly passing the ones you're interested in.
         </P
 ></DIV
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN642"
+NAME="AEN647"
 ></A
 ><H4
 >MODIFY</H4
@@ -1808,7 +1826,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN699"
+NAME="AEN704"
 ></A
 ><H4
 >REINSTALL</H4
@@ -1898,7 +1916,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN734"
+NAME="AEN739"
 ></A
 ><H4
 >RENAME</H4
@@ -1946,14 +1964,14 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN749"
+NAME="AEN754"
 ></A
 ><H3
 >Starting/stopping/connecting to console</H3
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN751"
+NAME="AEN756"
 ></A
 ><H4
 >STARTUP</H4
@@ -1961,7 +1979,7 @@ NAME="AEN751"
 ><B
 CLASS="COMMAND"
 >startup</B
-> <BR> [--force]<BR> [--force-multiple]<BR> [--instance | --node | --primary | --secondary | --all]<BR> [-H <CODE
+> <BR> [--force]<BR> [--force-multiple]<BR> [--instance | --node | --primary | --secondary | --all | --tags | --node-tags | --pri-node-tags | --sec-node-tags]<BR> [-H <CODE
 CLASS="OPTION"
 >key=value...</CODE
 >] [-B <CODE
@@ -2027,6 +2045,36 @@ CLASS="OPTION"
 ><P
 >will start all instances in the cluster (no
                 arguments accepted)</P
+></DD
+><DT
+>--tags</DT
+><DD
+><P
+>will start all instances in the cluster with
+                the tags given as arguments</P
+></DD
+><DT
+>--node-tags</DT
+><DD
+><P
+>will start all instances in the cluster on
+                nodes with the tags given as arguments</P
+></DD
+><DT
+>--pri-node-tags</DT
+><DD
+><P
+>will start all instances in the cluster on
+                primary nodes with the tags given as
+                arguments</P
+></DD
+><DT
+>--sec-node-tags</DT
+><DD
+><P
+>will start all instances in the cluster on
+                secondary nodes with the tags given as
+                arguments</P
 ></DD
 ></DL
 ></DIV
@@ -2115,7 +2163,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN818"
+NAME="AEN843"
 ></A
 ><H4
 >SHUTDOWN</H4
@@ -2128,7 +2176,7 @@ CLASS="REPLACEABLE"
 ><I
 >N</I
 ></TT
->]<BR> [--force-multiple]<BR> [--instance | --node | --primary | --secondary | --all]<BR> [--submit]<BR> [<TT
+>]<BR> [--force-multiple]<BR> [--instance | --node | --primary | --secondary | --all | --tags | --node-tags | --pri-node-tags | --sec-node-tags]<BR> [--submit]<BR> [<TT
 CLASS="REPLACEABLE"
 ><I
 >name</I
@@ -2163,10 +2211,24 @@ CLASS="OPTION"
 >, <CODE
 CLASS="OPTION"
 >--secondary</CODE
-> and
+>,
           <CODE
 CLASS="OPTION"
 >--all</CODE
+>, <CODE
+CLASS="OPTION"
+>--tags</CODE
+>,
+          <CODE
+CLASS="OPTION"
+>--node-tags</CODE
+>, <CODE
+CLASS="OPTION"
+>--pri-node-tags</CODE
+> and
+          <CODE
+CLASS="OPTION"
+>--sec-node-tags</CODE
 > options are similar as for the
           <B
 CLASS="COMMAND"
@@ -2199,7 +2261,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN854"
+NAME="AEN887"
 ></A
 ><H4
 >REBOOT</H4
@@ -2217,7 +2279,7 @@ CLASS="REPLACEABLE"
 ><I
 >N</I
 ></TT
->]<BR> [--force-multiple]<BR> [--instance | --node | --primary | --secondary | --all]<BR> [--submit]<BR> [<TT
+>]<BR> [--force-multiple]<BR> [--instance | --node | --primary | --secondary | --all | --tags | --node-tags | --pri-node-tags | --sec-node-tags]<BR> [--submit]<BR> [<TT
 CLASS="REPLACEABLE"
 ><I
 >name</I
@@ -2260,10 +2322,24 @@ CLASS="OPTION"
 >, <CODE
 CLASS="OPTION"
 >--secondary</CODE
-> and
+>,
           <CODE
 CLASS="OPTION"
 >--all</CODE
+>, <CODE
+CLASS="OPTION"
+>--tags</CODE
+>,
+          <CODE
+CLASS="OPTION"
+>--node-tags</CODE
+>, <CODE
+CLASS="OPTION"
+>--pri-node-tags</CODE
+> and
+          <CODE
+CLASS="OPTION"
+>--sec-node-tags</CODE
 > options are similar as for the
           <B
 CLASS="COMMAND"
@@ -2301,7 +2377,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN898"
+NAME="AEN939"
 ></A
 ><H4
 >CONSOLE</H4
@@ -2347,14 +2423,14 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN911"
+NAME="AEN952"
 ></A
 ><H3
 >Disk management</H3
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN913"
+NAME="AEN954"
 ></A
 ><H4
 >REPLACE-DISKS</H4
@@ -2362,7 +2438,7 @@ NAME="AEN913"
 ><B
 CLASS="COMMAND"
 >replace-disks</B
->  [--submit] {-p} [--disks <TT
+>  [--submit] [--early-release] {-p} [--disks <TT
 CLASS="REPLACEABLE"
 ><I
 >idx</I
@@ -2377,7 +2453,7 @@ CLASS="REPLACEABLE"
 ><B
 CLASS="COMMAND"
 >replace-disks</B
->  [--submit] {-s} [--disks <TT
+>  [--submit] [--early-release] {-s} [--disks <TT
 CLASS="REPLACEABLE"
 ><I
 >idx</I
@@ -2392,7 +2468,7 @@ CLASS="REPLACEABLE"
 ><B
 CLASS="COMMAND"
 >replace-disks</B
->  [--submit] {--iallocator <TT
+>  [--submit] [--early-release] {--iallocator <TT
 CLASS="REPLACEABLE"
 ><I
 >name</I
@@ -2412,7 +2488,7 @@ CLASS="REPLACEABLE"
 ><B
 CLASS="COMMAND"
 >replace-disks</B
->  [--submit] {--auto} {<TT
+>  [--submit] [--early-release] {--auto} {<TT
 CLASS="REPLACEABLE"
 ><I
 >instance</I
@@ -2496,6 +2572,21 @@ CLASS="COMMAND"
 >.
         </P
 ><P
+>          The <CODE
+CLASS="OPTION"
+>--early-release</CODE
+> changes the code so
+          that the old storage on secondary node(s) is removed early
+          (before the resync is completed) and the internal Ganeti
+          locks for the current (and new, if any) secondary node are
+          also released, thus allowing more parallelism in the cluster
+          operation. This should be used only when recovering from a
+          disk failure on the current secondary (thus the old storage
+          is already broken) or when the storage on the primary node
+          is known to be fine (thus we won't need the old storage for
+          potential recovery).
+        </P
+><P
 >          Note that it is not possible to select an offline or drained
           node as a new secondary.
         </P
@@ -2503,7 +2594,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN965"
+NAME="AEN1012"
 ></A
 ><H4
 >ACTIVATE-DISKS</H4
@@ -2599,7 +2690,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN986"
+NAME="AEN1033"
 ></A
 ><H4
 >DEACTIVATE-DISKS</H4
@@ -2637,7 +2728,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN997"
+NAME="AEN1044"
 ></A
 ><H4
 >GROW-DISK</H4
@@ -2791,7 +2882,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN1044"
+NAME="AEN1091"
 ></A
 ><H4
 >RECREATE-DISKS</H4
@@ -2841,14 +2932,14 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN1059"
+NAME="AEN1106"
 ></A
 ><H3
 >Recovery</H3
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN1061"
+NAME="AEN1108"
 ></A
 ><H4
 >FAILOVER</H4
@@ -2918,7 +3009,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN1082"
+NAME="AEN1129"
 ></A
 ><H4
 >MIGRATE</H4
@@ -3015,7 +3106,7 @@ y/[n]/?: y
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN1107"
+NAME="AEN1154"
 ></A
 ><H4
 >MOVE</H4
@@ -3083,14 +3174,14 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN1128"
+NAME="AEN1175"
 ></A
 ><H3
 >TAGS</H3
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN1130"
+NAME="AEN1177"
 ></A
 ><H4
 >ADD-TAGS</H4
@@ -3132,7 +3223,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN1143"
+NAME="AEN1190"
 ></A
 ><H4
 >LIST-TAGS</H4
@@ -3152,7 +3243,7 @@ CLASS="REPLACEABLE"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN1150"
+NAME="AEN1197"
 ></A
 ><H4
 >REMOVE-TAGS</H4
@@ -3196,7 +3287,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN1163"
+NAME="AEN1210"
 ></A
 ><H2
 >REPORTING BUGS</H2
@@ -3213,7 +3304,7 @@ TARGET="_top"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN1167"
+NAME="AEN1214"
 ></A
 ><H2
 >SEE ALSO</H2
@@ -3329,7 +3420,7 @@ CLASS="REFENTRYTITLE"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN1214"
+NAME="AEN1261"
 ></A
 ><H2
 >COPYRIGHT</H2

@@ -3,7 +3,7 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GNT-CLUSTER" "8" "02 March 2010" "ganeti 2.0" ""
+.TH "GNT-CLUSTER" "8" "12 March 2010" "ganeti 2.0" ""
 
 .SH NAME
 gnt-cluster \- ganeti administration, cluster-wide
@@ -192,7 +192,7 @@ files when using file storage as backend for instance disks.
 .PP
 The \fB--enabled-hypervisors\fR option allows you
 to set the list of hypervisors that will be enabled for
-this cluster. Instance hypervisors can only be choosen from
+this cluster. Instance hypervisors can only be chosen from
 the list of enabled hypervisors, and the first entry of this list
 will be used by default. Currently, the following hypervisors are
 available:
@@ -407,8 +407,8 @@ be checked.
 .PP
 Note that only active disks can be checked by this command; in
 case a disk cannot be activated it's advised to use
-\fBgnt-instance activate-disks --ignore-size
-...\fR to force activation without regard to the
+\fBgnt-instance activate-disks --ignore-size ...\fR to
+force activation without regard to the
 current size.
 .PP
 When the all disk sizes are consistent, the command will
