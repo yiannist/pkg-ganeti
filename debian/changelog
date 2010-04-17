@@ -1,8 +1,18 @@
-ganeti (2.1.1-1) unstable; urgency=low
+ganeti (2.1.1-1~1.gbp79b3f7) UNRELEASED; urgency=low
+
+  ** SNAPSHOT build @79b3f76fa6e6c65cfd4511ac041006e8c0642e86 **
 
   * New upstream version
+  * Remove patches imported upstream
+  * Import cfgupgrade12 from upstream git
+  * Add patch to remove old ssconf file on upgrade
+  * Import a new patch for check-man issues
+  * Import watcher warnings patch from upstream
+  * Update doc-base for 2.1's sphinx documentation
+  * Replace embedded jquery with external dependency
+  * Update NEWS file for 1.2 to 2.1 upgrade
 
- -- Iustin Pop <iustin@debian.org>  Sat, 17 Apr 2010 17:01:11 +0200
+ -- Iustin Pop <iustin@debian.org>  Sat, 17 Apr 2010 20:56:26 +0200
 
 ganeti (2.0.6-2) unstable; urgency=low
 
