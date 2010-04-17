@@ -1,11 +1,34 @@
 ganeti2 (2.1.1-1) unstable; urgency=low
 
-  Upgrading from Lenny's 1.2 directly to 2.1 requires a two-step method:
-  first run /usr/lib/ganeti/tools/cfgupgrade12 followed by the normal
-  /usr/lib/ganeti/tools/cfgupgrade. This is somewhat more tricky than
-  the intermediate step (1.2 to 2.0 and 2.0 to 2.1), but should
-  otherwise work. Backup of the configuration directory is of course
-  recommended, and reading the wiki page too.
+  Upgrading from Lenny's 1.2 directly to 2.1 requires a two-step method: first
+  run /usr/lib/ganeti/tools/cfgupgrade12 followed by the normal
+  /usr/lib/ganeti/tools/cfgupgrade. This is somewhat more tricky than the
+  intermediate step (1.2 to 2.0 and 2.0 to 2.1), but should otherwise work.
+  Backup of the configuration directory is of course recommended, and reading
+  the wiki page too. Note: if running 2.0, it is possible do to the upgrade
+  without downtime. If running 1.2, it is a must to stop instances.
+
+  Detailed instructions (for both 1.2->2.1 and 2.0->2.1 upgrades):
+
+  - stop cron, or comment out the watcher entry in cron
+  - stop ganeti on the master node
+  - make a backup of /var/lib/ganeti
+  - install new software
+  - if running 1.2, stop all instances
+  - if running 1.2, first migrate all instances to DRBD8 using
+    /usr/lib/ganeti/tools/drbd8-upgrade
+  - if running 1.2, on the master node run /usr/lib/ganeti/tools/cfgupgrade12
+  - on the master node, run /usr/lib/ganeti/tools/cfgupgrade
+  - if both cfgupgrade runs have finished successfully, remove the file
+    /var/lib/ganeti/ssconf_hypervisor on all nodes on which it still exists
+  - on all non-master nodes, restart ganeti (invoke-rc.d ganeti restart); this
+    will give some warnings for rapi and confd daemons, but ignore them for now
+  - on the master node, restart ganeti, and confirm "gnt-node list" works
+  - on the master node, run "gnt-cluster redist-conf"
+  - restart ganeti on all nodes now (once more, and on the master node last)
+  - check that "gnt-cluster verify" doesn't complain
+  - you can now start all instances (if you stopped them)
+  - you can now restart cron (or re-enable the watcher entry)
 
  -- Iustin Pop <iustin@debian.org>  Sat, 17 Apr 2010 19:05:45 +0200
 
