@@ -5,11 +5,10 @@ Author: Iustin Pop <iusty@k1024.org>
 Last-Update: 2009-12-04
 --- a/doc/examples/ganeti.initd.in
 +++ b/doc/examples/ganeti.initd.in
-@@ -37,6 +37,17 @@
-             exit 0
-         fi
-     done
-+
+@@ -59,6 +59,16 @@
+ }
+ 
+ start_all() {
 +    for fname in \
 +        "@LOCALSTATEDIR@/lib/ganeti/ssconf_hypervisor"
 +    do
@@ -20,6 +19,6 @@ Last-Update: 2009-12-04
 +        fi
 +    done
 +
- }
- 
- check_exitcode() {
+     if ! $DAEMON_UTIL check-config; then
+         log_warning_msg "Incomplete configuration, will not run."
+         exit 0
