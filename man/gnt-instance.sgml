@@ -75,13 +75,17 @@
           <sbr>
 
           <group choice="req">
-            <arg rep="repeat">--disk=<replaceable>N</replaceable>:size=<replaceable>VAL</replaceable><arg>,mode=<replaceable>ro|rw</replaceable></arg></arg>
+            <arg rep="repeat">--disk=<replaceable>N</replaceable>:<group choice="req">
+                <arg>size=<replaceable>VAL</replaceable></arg>
+                <arg>adopt=<replaceable>LV</replaceable></arg>
+              </group>,mode=<replaceable>ro|rw</replaceable></arg>
             <arg>-s <replaceable>SIZE</replaceable></arg>
           </group>
           <sbr>
           <arg>--no-ip-check</arg>
           <arg>--no-name-check</arg>
           <arg>--no-start</arg>
+          <arg>--no-install</arg>
           <sbr>
           <group>
             <arg rep="repeat">--net=<replaceable>N</replaceable><arg rep="repeat">:options</arg></arg>
@@ -126,13 +130,26 @@
           The <option>disk</option> option specifies the parameters
           for the disks of the instance. The numbering of disks starts
           at zero, and at least one disk needs to be passed. For each
-          disk, at least the size needs to be given, and optionally
-          the access mode (read-only or the default of read-write) can
-          also be specified.  The size is interpreted (when no unit is
-          given) in mebibytes. You can also use one of the suffixes
+          disk, either the size or the adoption source needs to be
+          given, and optionally the access mode (read-only or the
+          default of read-write) can also be specified.  The size is
+          interpreted (when no unit is given) in mebibytes. You can
+          also use one of the suffixes
           <literal>m</literal>, <literal>g</literal> or
           <literal>t</literal> to specificy the exact the units used;
           these suffixes map to mebibytes, gibibytes and tebibytes.
+        </para>
+
+        <para>
+          When using the <option>adopt</option> key in the disk
+          definition, Ganeti will reuse those volumes (instead of
+          creating new ones) as the instance's disks. Ganeti will
+          rename these volumes to the standard format, and (without
+          installing the OS) will use them as-is for the
+          instance. This allows migrating instances from non-managed
+          mode (e.q. plain KVM with LVM) to being managed via
+          Ganeti. Note that this works only for the `plain' disk
+          template (see below for template details).
         </para>
 
         <para>
@@ -227,7 +244,13 @@
         <para>
           The <option>-o</option> options specifies the operating
           system to be installed. The available operating systems can
-          be listed with <command>gnt-os list</command>.
+          be listed with <command>gnt-os
+          list</command>. Passing <option>--no-install</option> will
+          however skip the OS installation, allowing a manual import
+          if so desired. Note that the no-installation mode will
+          automatically disable the start-up of the instance (without
+          an OS, it most likely won't be able to start-up
+          successfully).
         </para>
 
         <para>
@@ -568,14 +591,70 @@
                 option to KVM, or one of the KVM cache modes: none
                 (for direct I/O), writethrough (to use the host cache
                 but report completion to the guest only when the host
-                has commited the changes to disk) or writeback (to use
-                the host cache and report completion as soon as the
-                data is in the host cache). Note that there are
+                has committed the changes to disk) or writeback (to
+                use the host cache and report completion as soon as
+                the data is in the host cache). Note that there are
                 special considerations for the cache mode depending on
                 version of KVM used and disk type (always raw file
                 under Ganeti), please refer to the KVM documentation
                 for more details.
                 </simpara>
+              </listitem>
+            </varlistentry>
+
+            <varlistentry>
+              <term>security_model</term>
+              <listitem>
+                <simpara>Valid for the KVM hypervisor.</simpara>
+
+                <simpara>The security model for kvm. Currently one of
+                <quote>none</quote>, <quote>user</quote> or
+                <quote>pool</quote>. Under <quote>none</quote>, the
+                default, nothing is done and instances are run as
+                the ganeti daemon user (normally root).
+                </simpara>
+
+                <simpara>Under <quote>user</quote> kvm will drop
+                privileges and become the user specified by the
+                security_domain parameter.
+                </simpara>
+
+                <simpara>Under <quote>pool</quote> a global cluster
+                pool of users will be used, making sure no two
+                instances share the same user on the same node.
+                (this mode is not implemented yet)
+                </simpara>
+
+              </listitem>
+            </varlistentry>
+
+            <varlistentry>
+              <term>security_domain</term>
+              <listitem>
+                <simpara>Valid for the KVM hypervisor.</simpara>
+
+                <simpara>Under security model <quote>user</quote> the username to
+                run the instance under. It must be a valid username
+                existing on the host.
+                </simpara>
+                <simpara>Cannot be set under security model <quote>none</quote>
+                or <quote>pool</quote>.
+                </simpara>
+
+              </listitem>
+            </varlistentry>
+
+            <varlistentry>
+              <term>kvm_flag</term>
+              <listitem>
+                <simpara>Valid for the KVM hypervisor.</simpara>
+
+                <simpara>If <quote>enabled</quote> the -enable-kvm flag is
+                passed to kvm. If <quote>disabled</quote> -disable-kvm is
+                passed. If unset no flag is passed, and the default running
+                mode for your kvm binary will be used.
+                </simpara>
+
               </listitem>
             </varlistentry>
 
@@ -1340,6 +1419,15 @@ instance5: 11225
           </group>
 
           <sbr>
+          <arg>-t<group choice="req">
+              <arg>plain</arg>
+              <arg>drbd</arg>
+            </group></arg>
+
+          <sbr>
+            <arg>--os-name=<replaceable>OS</replaceable> <arg>--force-variant</arg></arg>
+
+          <sbr>
           <arg>--submit</arg>
           <sbr>
           <arg choice="req"><replaceable>instance</replaceable></arg>
@@ -1356,6 +1444,13 @@ instance5: 11225
         <para>
           The <option>-H</option> option specifies hypervisor options
           in the form of <userinput>name=value[,...]</userinput>. For details which options can be specified, see the <command>add</command> command.
+        </para>
+
+        <para>
+          The <option>-t</option> option will change the disk template
+          of the instance. Currently only conversions between the
+          plain and drbd disk templates are supported, and the
+          instance must be stopped before attempting the conversion.
         </para>
 
         <para>
@@ -1379,6 +1474,16 @@ instance5: 11225
           last NIC of the instance, while the <option>--net
           <replaceable>N</replaceable>:<replaceable>options</replaceable></option>
           option will change the parameters of the Nth instance NIC.
+        </para>
+
+        <para>
+          The option <option>--os-name</option> will change the OS
+          name for the instance (without reinstallation). In case an
+          OS variant is specified that is not found, then by default
+          the modification is refused,
+          unless <option>--force-variant</option> is passed. An
+          invalid OS will also be refused, unless
+          the <option>--force</option> option is given.
         </para>
 
         <para>

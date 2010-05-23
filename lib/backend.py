@@ -183,7 +183,7 @@ def _BuildUploadFileList():
     constants.VNC_PASSWORD_FILE,
     constants.RAPI_CERT_FILE,
     constants.RAPI_USERS_FILE,
-    constants.HMAC_CLUSTER_KEY,
+    constants.CONFD_HMAC_KEY,
     ])
 
   for hv_name in constants.HYPER_TYPES:
@@ -399,9 +399,9 @@ def LeaveCluster(modify_ssh_setup):
       logging.exception("Error while processing ssh files")
 
   try:
-    utils.RemoveFile(constants.HMAC_CLUSTER_KEY)
+    utils.RemoveFile(constants.CONFD_HMAC_KEY)
     utils.RemoveFile(constants.RAPI_CERT_FILE)
-    utils.RemoveFile(constants.SSL_CERT_FILE)
+    utils.RemoveFile(constants.NODED_CERT_FILE)
   except: # pylint: disable-msg=W0702
     logging.exception("Error while removing cluster secrets")
 
@@ -480,7 +480,11 @@ def VerifyNode(what, cluster_name):
   if constants.NV_HYPERVISOR in what:
     result[constants.NV_HYPERVISOR] = tmp = {}
     for hv_name in what[constants.NV_HYPERVISOR]:
-      tmp[hv_name] = hypervisor.GetHypervisor(hv_name).Verify()
+      try:
+        val = hypervisor.GetHypervisor(hv_name).Verify()
+      except errors.HypervisorError, err:
+        val = "Error while checking hypervisor: %s" % str(err)
+      tmp[hv_name] = val
 
   if constants.NV_FILELIST in what:
     result[constants.NV_FILELIST] = utils.FingerprintFiles(
@@ -520,11 +524,19 @@ def VerifyNode(what, cluster_name):
                        " and ".join(fail))
 
   if constants.NV_LVLIST in what:
-    result[constants.NV_LVLIST] = GetVolumeList(what[constants.NV_LVLIST])
+    try:
+      val = GetVolumeList(what[constants.NV_LVLIST])
+    except RPCFail, err:
+      val = str(err)
+    result[constants.NV_LVLIST] = val
 
   if constants.NV_INSTANCELIST in what:
-    result[constants.NV_INSTANCELIST] = GetInstanceList(
-      what[constants.NV_INSTANCELIST])
+    # GetInstanceList can fail
+    try:
+      val = GetInstanceList(what[constants.NV_INSTANCELIST])
+    except RPCFail, err:
+      val = str(err)
+    result[constants.NV_INSTANCELIST] = val
 
   if constants.NV_VGLIST in what:
     result[constants.NV_VGLIST] = utils.ListVolumeGroups()
@@ -815,7 +827,8 @@ def _InstanceLogName(kind, os_name, instance):
   @param instance: the name of the instance being imported/added/etc.
 
   """
-  base = "%s-%s-%s-%d.log" % (kind, os_name, instance, int(time.time()))
+  base = ("%s-%s-%s-%s.log" %
+          (kind, os_name, instance, utils.TimestampForFilename()))
   return utils.PathJoin(constants.LOG_OS_DIR, base)
 
 
@@ -1085,6 +1098,11 @@ def InstanceShutdown(instance, timeout):
 
     if iname in hyper.ListInstances():
       _Fail("Could not shutdown instance %s even by destroy", iname)
+
+  try:
+    hyper.CleanupInstance(instance.name)
+  except errors.HypervisorError, err:
+    logging.warning("Failed to execute post-shutdown cleanup step: %s", err)
 
   _RemoveBlockDevLinks(iname, instance.disks)
 
@@ -1513,6 +1531,22 @@ def _RecursiveFindBD(disk):
   return bdev.FindDevice(disk.dev_type, disk.physical_id, children, disk.size)
 
 
+def _OpenRealBD(disk):
+  """Opens the underlying block device of a disk.
+
+  @type disk: L{objects.Disk}
+  @param disk: the disk object we want to open
+
+  """
+  real_disk = _RecursiveFindBD(disk)
+  if real_disk is None:
+    _Fail("Block device '%s' is not set up", disk)
+
+  real_disk.Open()
+
+  return real_disk
+
+
 def BlockdevFind(disk):
   """Check if a device is activated.
 
@@ -1576,11 +1610,7 @@ def BlockdevExport(disk, dest_node, dest_path, cluster_name):
   @rtype: None
 
   """
-  real_disk = _RecursiveFindBD(disk)
-  if real_disk is None:
-    _Fail("Block device '%s' is not set up", disk)
-
-  real_disk.Open()
+  real_disk = _OpenRealBD(disk)
 
   # the block size on the read dd is 1MiB to match our units
   expcmd = utils.BuildShellCmd("set -e; set -o pipefail; "
@@ -1890,11 +1920,7 @@ def OSEnvironment(instance, inst_os, debug=0):
       variant = inst_os.supported_variants[0]
     result['OS_VARIANT'] = variant
   for idx, disk in enumerate(instance.disks):
-    real_disk = _RecursiveFindBD(disk)
-    if real_disk is None:
-      raise errors.BlockDeviceError("Block device '%s' is not set up" %
-                                    str(disk))
-    real_disk.Open()
+    real_disk = _OpenRealBD(disk)
     result['DISK_%d_PATH' % idx] = real_disk.dev_path
     result['DISK_%d_ACCESS' % idx] = disk.mode
     if constants.HV_DISK_TYPE in instance.hvparams:
@@ -1923,6 +1949,7 @@ def OSEnvironment(instance, inst_os, debug=0):
       result["INSTANCE_%s_%s" % (kind, key)] = str(value)
 
   return result
+
 
 def BlockdevGrow(disk, amount):
   """Grow a stack of block devices.
@@ -2005,11 +2032,8 @@ def ExportSnapshot(disk, dest_node, instance, cluster_name, idx, debug):
   logfile = _InstanceLogName("export", inst_os.name, instance.name)
   if not os.path.exists(constants.LOG_OS_DIR):
     os.mkdir(constants.LOG_OS_DIR, 0750)
-  real_disk = _RecursiveFindBD(disk)
-  if real_disk is None:
-    _Fail("Block device '%s' is not set up", disk)
 
-  real_disk.Open()
+  real_disk = _OpenRealBD(disk)
 
   export_env['EXPORT_DEVICE'] = real_disk.dev_path
   export_env['EXPORT_INDEX'] = str(idx)
@@ -2073,6 +2097,7 @@ def FinalizeExport(instance, snap_disks):
   config.set(constants.INISECT_INS, 'vcpus', '%d' %
              instance.beparams[constants.BE_VCPUS])
   config.set(constants.INISECT_INS, 'disk_template', instance.disk_template)
+  config.set(constants.INISECT_INS, 'hypervisor', instance.hypervisor)
 
   nic_total = 0
   for nic_count, nic in enumerate(instance.nics):
@@ -2080,8 +2105,9 @@ def FinalizeExport(instance, snap_disks):
     config.set(constants.INISECT_INS, 'nic%d_mac' %
                nic_count, '%s' % nic.mac)
     config.set(constants.INISECT_INS, 'nic%d_ip' % nic_count, '%s' % nic.ip)
-    config.set(constants.INISECT_INS, 'nic%d_bridge' % nic_count,
-               '%s' % nic.bridge)
+    for param in constants.NICS_PARAMETER_TYPES:
+      config.set(constants.INISECT_INS, 'nic%d_%s' % (nic_count, param),
+                 '%s' % nic.nicparams.get(param, None))
   # TODO: redundant: on load can read nics until it doesn't exist
   config.set(constants.INISECT_INS, 'nic_count' , '%d' % nic_total)
 
@@ -2098,9 +2124,20 @@ def FinalizeExport(instance, snap_disks):
 
   config.set(constants.INISECT_INS, 'disk_count' , '%d' % disk_total)
 
+  # New-style hypervisor/backend parameters
+
+  config.add_section(constants.INISECT_HYP)
+  for name, value in instance.hvparams.items():
+    if name not in constants.HVC_GLOBALS:
+      config.set(constants.INISECT_HYP, name, str(value))
+
+  config.add_section(constants.INISECT_BEP)
+  for name, value in instance.beparams.items():
+    config.set(constants.INISECT_BEP, name, str(value))
+
   utils.WriteFile(utils.PathJoin(destdir, constants.EXPORT_CONF_FILE),
                   data=config.Dumps())
-  shutil.rmtree(finaldestdir, True)
+  shutil.rmtree(finaldestdir, ignore_errors=True)
   shutil.move(destdir, finaldestdir)
 
 
@@ -2264,7 +2301,7 @@ def _TransformFileStorageDir(file_storage_dir):
   cfg = _GetConfig()
   file_storage_dir = os.path.normpath(file_storage_dir)
   base_file_storage_dir = cfg.GetFileStorageDir()
-  if (not os.path.commonprefix([file_storage_dir, base_file_storage_dir]) ==
+  if (os.path.commonprefix([file_storage_dir, base_file_storage_dir]) !=
       base_file_storage_dir):
     _Fail("File storage directory '%s' is not under base file"
           " storage directory '%s'", file_storage_dir, base_file_storage_dir)

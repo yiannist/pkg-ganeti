@@ -28,19 +28,23 @@ import tempfile
 import os.path
 import os
 import stat
-import md5
 import signal
 import socket
 import shutil
 import re
 import select
 import string
+import OpenSSL
+import warnings
+import distutils.version
+import glob
 
 import ganeti
 import testutils
 from ganeti import constants
 from ganeti import utils
 from ganeti import errors
+from ganeti import serializer
 from ganeti.utils import IsProcessAlive, RunCmd, \
      RemoveFile, MatchNameComponent, FormatUnit, \
      ParseUnit, AddAuthorizedKey, RemoveAuthorizedKey, \
@@ -235,6 +239,8 @@ class TestRunCmd(testutils.GanetiTestCase):
   def testResetEnv(self):
     """Test environment reset functionality"""
     self.failUnlessEqual(RunCmd(["env"], reset_env=True).stdout.strip(), "")
+    self.failUnlessEqual(RunCmd(["env"], reset_env=True,
+                                env={"FOO": "bar",}).stdout.strip(), "FOO=bar")
 
 
 class TestRunParts(unittest.TestCase):
@@ -508,6 +514,55 @@ class TestMatchNameComponent(unittest.TestCase):
                      "Ts2.ex")
     self.assertEqual(MatchNameComponent("TS2.ex", mlist, case_sensitive=False),
                      None)
+
+
+class TestTimestampForFilename(unittest.TestCase):
+  def test(self):
+    self.assert_("." not in utils.TimestampForFilename())
+    self.assert_(":" not in utils.TimestampForFilename())
+
+
+class TestCreateBackup(testutils.GanetiTestCase):
+  def setUp(self):
+    testutils.GanetiTestCase.setUp(self)
+
+    self.tmpdir = tempfile.mkdtemp()
+
+  def tearDown(self):
+    testutils.GanetiTestCase.tearDown(self)
+
+    shutil.rmtree(self.tmpdir)
+
+  def testEmpty(self):
+    filename = utils.PathJoin(self.tmpdir, "config.data")
+    utils.WriteFile(filename, data="")
+    bname = utils.CreateBackup(filename)
+    self.assertFileContent(bname, "")
+    self.assertEqual(len(glob.glob("%s*" % filename)), 2)
+    utils.CreateBackup(filename)
+    self.assertEqual(len(glob.glob("%s*" % filename)), 3)
+    utils.CreateBackup(filename)
+    self.assertEqual(len(glob.glob("%s*" % filename)), 4)
+
+    fifoname = utils.PathJoin(self.tmpdir, "fifo")
+    os.mkfifo(fifoname)
+    self.assertRaises(errors.ProgrammerError, utils.CreateBackup, fifoname)
+
+  def testContent(self):
+    bkpcount = 0
+    for data in ["", "X", "Hello World!\n" * 100, "Binary data\0\x01\x02\n"]:
+      for rep in [1, 2, 10, 127]:
+        testdata = data * rep
+
+        filename = utils.PathJoin(self.tmpdir, "test.data_")
+        utils.WriteFile(filename, data=testdata)
+        self.assertFileContent(filename, testdata)
+
+        for _ in range(3):
+          bname = utils.CreateBackup(filename)
+          bkpcount += 1
+          self.assertFileContent(bname, testdata)
+          self.assertEqual(len(glob.glob("%s*" % filename)), 1 + bkpcount)
 
 
 class TestFormatUnit(unittest.TestCase):
@@ -854,6 +909,73 @@ class TestOwnIpAddress(unittest.TestCase):
     # this fails, we should extend the test to multiple addresses
     DST_IP = "192.0.2.1"
     self.failIf(OwnIpAddress(DST_IP), "Should not own IP address %s" % DST_IP)
+
+
+def _GetSocketCredentials(path):
+  """Connect to a Unix socket and return remote credentials.
+
+  """
+  sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+  try:
+    sock.settimeout(10)
+    sock.connect(path)
+    return utils.GetSocketCredentials(sock)
+  finally:
+    sock.close()
+
+
+class TestGetSocketCredentials(unittest.TestCase):
+  def setUp(self):
+    self.tmpdir = tempfile.mkdtemp()
+    self.sockpath = utils.PathJoin(self.tmpdir, "sock")
+
+    self.listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    self.listener.settimeout(10)
+    self.listener.bind(self.sockpath)
+    self.listener.listen(1)
+
+  def tearDown(self):
+    self.listener.shutdown(socket.SHUT_RDWR)
+    self.listener.close()
+    shutil.rmtree(self.tmpdir)
+
+  def test(self):
+    (c2pr, c2pw) = os.pipe()
+
+    # Start child process
+    child = os.fork()
+    if child == 0:
+      try:
+        data = serializer.DumpJson(_GetSocketCredentials(self.sockpath))
+
+        os.write(c2pw, data)
+        os.close(c2pw)
+
+        os._exit(0)
+      finally:
+        os._exit(1)
+
+    os.close(c2pw)
+
+    # Wait for one connection
+    (conn, _) = self.listener.accept()
+    conn.recv(1)
+    conn.close()
+
+    # Wait for result
+    result = os.read(c2pr, 4096)
+    os.close(c2pr)
+
+    # Check child's exit code
+    (_, status) = os.waitpid(child, 0)
+    self.assertFalse(os.WIFSIGNALED(status))
+    self.assertEqual(os.WEXITSTATUS(status), 0)
+
+    # Check result
+    (pid, uid, gid) = serializer.LoadJson(result)
+    self.assertEqual(pid, os.getpid())
+    self.assertEqual(uid, os.getuid())
+    self.assertEqual(gid, os.getgid())
 
 
 class TestListVisibleFiles(unittest.TestCase):
@@ -1386,6 +1508,156 @@ class TestHostInfo(unittest.TestCase):
     for value in data:
       HostInfo.NormalizeName(value)
 
+
+class TestParseAsn1Generalizedtime(unittest.TestCase):
+  def test(self):
+    # UTC
+    self.assertEqual(utils._ParseAsn1Generalizedtime("19700101000000Z"), 0)
+    self.assertEqual(utils._ParseAsn1Generalizedtime("20100222174152Z"),
+                     1266860512)
+    self.assertEqual(utils._ParseAsn1Generalizedtime("20380119031407Z"),
+                     (2**31) - 1)
+
+    # With offset
+    self.assertEqual(utils._ParseAsn1Generalizedtime("20100222174152+0000"),
+                     1266860512)
+    self.assertEqual(utils._ParseAsn1Generalizedtime("20100223131652+0000"),
+                     1266931012)
+    self.assertEqual(utils._ParseAsn1Generalizedtime("20100223051808-0800"),
+                     1266931088)
+    self.assertEqual(utils._ParseAsn1Generalizedtime("20100224002135+1100"),
+                     1266931295)
+    self.assertEqual(utils._ParseAsn1Generalizedtime("19700101000000-0100"),
+                     3600)
+
+    # Leap seconds are not supported by datetime.datetime
+    self.assertRaises(ValueError, utils._ParseAsn1Generalizedtime,
+                      "19841231235960+0000")
+    self.assertRaises(ValueError, utils._ParseAsn1Generalizedtime,
+                      "19920630235960+0000")
+
+    # Errors
+    self.assertRaises(ValueError, utils._ParseAsn1Generalizedtime, "")
+    self.assertRaises(ValueError, utils._ParseAsn1Generalizedtime, "invalid")
+    self.assertRaises(ValueError, utils._ParseAsn1Generalizedtime,
+                      "20100222174152")
+    self.assertRaises(ValueError, utils._ParseAsn1Generalizedtime,
+                      "Mon Feb 22 17:47:02 UTC 2010")
+    self.assertRaises(ValueError, utils._ParseAsn1Generalizedtime,
+                      "2010-02-22 17:42:02")
+
+
+class TestGetX509CertValidity(testutils.GanetiTestCase):
+  def setUp(self):
+    testutils.GanetiTestCase.setUp(self)
+
+    pyopenssl_version = distutils.version.LooseVersion(OpenSSL.__version__)
+
+    # Test whether we have pyOpenSSL 0.7 or above
+    self.pyopenssl0_7 = (pyopenssl_version >= "0.7")
+
+    if not self.pyopenssl0_7:
+      warnings.warn("This test requires pyOpenSSL 0.7 or above to"
+                    " function correctly")
+
+  def _LoadCert(self, name):
+    return OpenSSL.crypto.load_certificate(OpenSSL.crypto.FILETYPE_PEM,
+                                           self._ReadTestData(name))
+
+  def test(self):
+    validity = utils.GetX509CertValidity(self._LoadCert("cert1.pem"))
+    if self.pyopenssl0_7:
+      self.assertEqual(validity, (1266919967, 1267524767))
+    else:
+      self.assertEqual(validity, (None, None))
+
+
+class TestMakedirs(unittest.TestCase):
+  def setUp(self):
+    self.tmpdir = tempfile.mkdtemp()
+
+  def tearDown(self):
+    shutil.rmtree(self.tmpdir)
+
+  def testNonExisting(self):
+    path = utils.PathJoin(self.tmpdir, "foo")
+    utils.Makedirs(path)
+    self.assert_(os.path.isdir(path))
+
+  def testExisting(self):
+    path = utils.PathJoin(self.tmpdir, "foo")
+    os.mkdir(path)
+    utils.Makedirs(path)
+    self.assert_(os.path.isdir(path))
+
+  def testRecursiveNonExisting(self):
+    path = utils.PathJoin(self.tmpdir, "foo/bar/baz")
+    utils.Makedirs(path)
+    self.assert_(os.path.isdir(path))
+
+  def testRecursiveExisting(self):
+    path = utils.PathJoin(self.tmpdir, "B/moo/xyz")
+    self.assert_(not os.path.exists(path))
+    os.mkdir(utils.PathJoin(self.tmpdir, "B"))
+    utils.Makedirs(path)
+    self.assert_(os.path.isdir(path))
+
+
+class TestRetry(testutils.GanetiTestCase):
+  @staticmethod
+  def _RaiseRetryAgain():
+    raise utils.RetryAgain()
+
+  def _WrongNestedLoop(self):
+    return utils.Retry(self._RaiseRetryAgain, 0.01, 0.02)
+
+  def testRaiseTimeout(self):
+    self.failUnlessRaises(utils.RetryTimeout, utils.Retry,
+                          self._RaiseRetryAgain, 0.01, 0.02)
+
+  def testComplete(self):
+    self.failUnlessEqual(utils.Retry(lambda: True, 0, 1), True)
+
+  def testNestedLoop(self):
+    try:
+      self.failUnlessRaises(errors.ProgrammerError, utils.Retry,
+                            self._WrongNestedLoop, 0, 1)
+    except utils.RetryTimeout:
+      self.fail("Didn't detect inner loop's exception")
+
+
+class TestLineSplitter(unittest.TestCase):
+  def test(self):
+    lines = []
+    ls = utils.LineSplitter(lines.append)
+    ls.write("Hello World\n")
+    self.assertEqual(lines, [])
+    ls.write("Foo\n Bar\r\n ")
+    ls.write("Baz")
+    ls.write("Moo")
+    self.assertEqual(lines, [])
+    ls.flush()
+    self.assertEqual(lines, ["Hello World", "Foo", " Bar"])
+    ls.close()
+    self.assertEqual(lines, ["Hello World", "Foo", " Bar", " BazMoo"])
+
+  def _testExtra(self, line, all_lines, p1, p2):
+    self.assertEqual(p1, 999)
+    self.assertEqual(p2, "extra")
+    all_lines.append(line)
+
+  def testExtraArgsNoFlush(self):
+    lines = []
+    ls = utils.LineSplitter(self._testExtra, lines, 999, "extra")
+    ls.write("\n\nHello World\n")
+    ls.write("Foo\n Bar\r\n ")
+    ls.write("")
+    ls.write("Baz")
+    ls.write("Moo\n\nx\n")
+    self.assertEqual(lines, [])
+    ls.close()
+    self.assertEqual(lines, ["", "", "Hello World", "Foo", " Bar", " BazMoo",
+                             "", "x"])
 
 
 if __name__ == '__main__':

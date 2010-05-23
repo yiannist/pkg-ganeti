@@ -305,6 +305,10 @@ class OpSetClusterParams(OpCode):
     "beparams",
     "nicparams",
     "candidate_pool_size",
+    "maintain_node_health",
+    "uid_pool",
+    "add_uids",
+    "remove_uids",
     ]
 
 
@@ -460,10 +464,11 @@ class OpCreateInstance(OpCode):
   OP_ID = "OP_INSTANCE_CREATE"
   OP_DSC_FIELD = "instance_name"
   __slots__ = [
-    "instance_name", "os_type", "force_variant",
+    "instance_name",
+    "os_type", "force_variant", "no_install",
     "pnode", "disk_template", "snode", "mode",
     "disks", "nics",
-    "src_node", "src_path", "start",
+    "src_node", "src_path", "start", "identify_defaults",
     "wait_for_sync", "ip_check", "name_check",
     "file_storage_dir", "file_driver",
     "iallocator",
@@ -620,7 +625,8 @@ class OpSetInstanceParams(OpCode):
   __slots__ = [
     "instance_name",
     "hvparams", "beparams", "force",
-    "nics", "disks",
+    "nics", "disks", "disk_template",
+    "remote_node", "os_name", "force_variant",
     ]
 
 

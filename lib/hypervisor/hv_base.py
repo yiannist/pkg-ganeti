@@ -101,10 +101,14 @@ class BaseHypervisor(object):
           - a function to check for parameter validity on the remote node,
             in the L{ValidateParameters} function
           - an error message for the above function
+  @type CAN_MIGRATE: boolean
+  @cvar CAN_MIGRATE: whether this hypervisor can do migration (either
+      live or non-live)
 
   """
   PARAMETERS = {}
   ANCILLARY_FILES = []
+  CAN_MIGRATE = False
 
   def __init__(self):
     pass
@@ -113,7 +117,7 @@ class BaseHypervisor(object):
     """Start an instance."""
     raise NotImplementedError
 
-  def StopInstance(self, instance, force=False, retry=False):
+  def StopInstance(self, instance, force=False, retry=False, name=None):
     """Stop an instance
 
     @type instance: L{objects.Instance}
@@ -122,9 +126,25 @@ class BaseHypervisor(object):
     @param force: whether to do a "hard" stop (destroy)
     @type retry: boolean
     @param retry: whether this is just a retry call
+    @type name: string or None
+    @param name: if this parameter is passed, the the instance object
+        should not be used (will be passed as None), and the shutdown
+        must be done by name only
 
     """
     raise NotImplementedError
+
+  def CleanupInstance(self, instance_name):
+    """Cleanup after a stopped instance
+
+    This is an optional method, used by hypervisors that need to cleanup after
+    an instance has been stopped.
+
+    @type instance_name: string
+    @param instance_name: instance name to cleanup after
+
+    """
+    pass
 
   def RebootInstance(self, instance):
     """Reboot an instance."""
@@ -237,7 +257,7 @@ class BaseHypervisor(object):
   def MigrateInstance(self, instance, target, live):
     """Migrate an instance.
 
-    @type instance: L{object.Instance}
+    @type instance: L{objects.Instance}
     @param instance: the instance to be migrated
     @type target: string
     @param target: hostname (usually ip) of the target node

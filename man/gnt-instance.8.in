@@ -3,7 +3,7 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GNT-INSTANCE" "8" "12 March 2010" "ganeti 2.0" ""
+.TH "GNT-INSTANCE" "8" "07 May 2010" "ganeti 2.0" ""
 
 .SH NAME
 gnt-instance \- ganeti instance administration
@@ -21,8 +21,8 @@ administration in the ganeti system.
 
 \fBadd\fR
     \fB-t { diskless | file | plain | drbd }\fR
-    { \fB--disk=\fIN\fB:size=\fIVAL\fB [ ,mode=\fIro|rw\fB ]\fR\fI ...\fR | \fB-s \fISIZE\fB\fR }
-    [ \fB--no-ip-check\fR ] [ \fB--no-name-check\fR ] [ \fB--no-start\fR ]
+    { \fB--disk=\fIN\fB: { size=\fIVAL\fB | adopt=\fILV\fB },mode=\fIro|rw\fB\fR\fI ...\fR | \fB-s \fISIZE\fB\fR }
+    [ \fB--no-ip-check\fR ] [ \fB--no-name-check\fR ] [ \fB--no-start\fR ] [ \fB--no-install\fR ]
     [ \fB--net=\fIN\fB [ :options\fI ...\fB ]\fR\fI ...\fR | \fB--no-nics\fR ]
     [ \fB-B \fIBEPARAMS\fB\fR ]
     [ \fB-H \fIHYPERVISOR\fB [ : option=\fIvalue\fB\fI ...\fB ]\fR ]
@@ -41,13 +41,24 @@ the same network as the nodes in the cluster.
 The \fBdisk\fR option specifies the parameters
 for the disks of the instance. The numbering of disks starts
 at zero, and at least one disk needs to be passed. For each
-disk, at least the size needs to be given, and optionally
-the access mode (read-only or the default of read-write) can
-also be specified.  The size is interpreted (when no unit is
-given) in mebibytes. You can also use one of the suffixes
+disk, either the size or the adoption source needs to be
+given, and optionally the access mode (read-only or the
+default of read-write) can also be specified.  The size is
+interpreted (when no unit is given) in mebibytes. You can
+also use one of the suffixes
 m, g or
 t to specificy the exact the units used;
 these suffixes map to mebibytes, gibibytes and tebibytes.
+.PP
+When using the \fBadopt\fR key in the disk
+definition, Ganeti will reuse those volumes (instead of
+creating new ones) as the instance's disks. Ganeti will
+rename these volumes to the standard format, and (without
+installing the OS) will use them as-is for the
+instance. This allows migrating instances from non-managed
+mode (e.q. plain KVM with LVM) to being managed via
+Ganeti. Note that this works only for the `plain' disk
+template (see below for template details).
 .PP
 Alternatively, a single-disk instance can be created via the
 \fB-s\fR option which takes a single argument,
@@ -112,7 +123,13 @@ can prevent the default of one NIC with the
 .PP
 The \fB-o\fR options specifies the operating
 system to be installed. The available operating systems can
-be listed with \fBgnt-os list\fR\&.
+be listed with \fBgnt-os
+list\fR\&. Passing \fB--no-install\fR will
+however skip the OS installation, allowing a manual import
+if so desired. Note that the no-installation mode will
+automatically disable the start-up of the instance (without
+an OS, it most likely won't be able to start-up
+successfully).
 .PP
 The \fB-B\fR option specifies the backend
 parameters for the instance. If no such parameters are
@@ -338,13 +355,49 @@ The disk cache mode. It can be either
 option to KVM, or one of the KVM cache modes: none
 (for direct I/O), writethrough (to use the host cache
 but report completion to the guest only when the host
-has commited the changes to disk) or writeback (to use
-the host cache and report completion as soon as the
-data is in the host cache). Note that there are
+has committed the changes to disk) or writeback (to
+use the host cache and report completion as soon as
+the data is in the host cache). Note that there are
 special considerations for the cache mode depending on
 version of KVM used and disk type (always raw file
 under Ganeti), please refer to the KVM documentation
 for more details.
+.TP
+\fBsecurity_model\fR
+Valid for the KVM hypervisor.
+
+The security model for kvm. Currently one of
+``none'', ``user'' or
+``pool''\&. Under ``none'', the
+default, nothing is done and instances are run as
+the ganeti daemon user (normally root).
+
+Under ``user'' kvm will drop
+privileges and become the user specified by the
+security_domain parameter.
+
+Under ``pool'' a global cluster
+pool of users will be used, making sure no two
+instances share the same user on the same node.
+(this mode is not implemented yet)
+.TP
+\fBsecurity_domain\fR
+Valid for the KVM hypervisor.
+
+Under security model ``user'' the username to
+run the instance under. It must be a valid username
+existing on the host.
+
+Cannot be set under security model ``none''
+or ``pool''\&.
+.TP
+\fBkvm_flag\fR
+Valid for the KVM hypervisor.
+
+If ``enabled'' the -enable-kvm flag is
+passed to kvm. If ``disabled'' -disable-kvm is
+passed. If unset no flag is passed, and the default running
+mode for your kvm binary will be used.
 .PP
 The \fB--iallocator\fR option specifies the instance
 allocator plugin to use. If you pass in this option the allocator
@@ -799,6 +852,8 @@ rather than explicitly passing the ones you're interested in.
     [ \fB-B \fIBACKEND_PARAMETERS\fB\fR ]
     [ \fB--net add\fI[:options]\fB\fR | \fB--net remove\fR | \fB--net \fIN:options\fB\fR ]
     [ \fB--disk add:size=\fISIZE\fB\fR | \fB--disk remove\fR | \fB--disk \fIN\fB:mode=\fIMODE\fB\fR ]
+    [ \fB-t { plain | drbd }\fR ]
+    [ \fB--os-name=\fIOS\fB  [ --force-variant ]\fR ]
     [ \fB--submit\fR ]
     \fB\fIinstance\fB\fR
 
@@ -811,6 +866,11 @@ the command complains.
 .PP
 The \fB-H\fR option specifies hypervisor options
 in the form of \fBname=value[,...]\fR\&. For details which options can be specified, see the \fBadd\fR command.
+.PP
+The \fB-t\fR option will change the disk template
+of the instance. Currently only conversions between the
+plain and drbd disk templates are supported, and the
+instance must be stopped before attempting the conversion.
 .PP
 The \fB--disk
 add:size=\fISIZE\fB\fR option
@@ -830,6 +890,14 @@ mode). The \fB--net remove\fR will remove the
 last NIC of the instance, while the \fB--net
 \fIN\fB:\fIoptions\fB\fR
 option will change the parameters of the Nth instance NIC.
+.PP
+The option \fB--os-name\fR will change the OS
+name for the instance (without reinstallation). In case an
+OS variant is specified that is not found, then by default
+the modification is refused,
+unless \fB--force-variant\fR is passed. An
+invalid OS will also be refused, unless
+the \fB--force\fR option is given.
 .PP
 The \fB--submit\fR option is used to send the job to
 the master daemon but not wait for its completion. The job

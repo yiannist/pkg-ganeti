@@ -38,6 +38,8 @@ import qa_rapi
 import qa_tags
 import qa_utils
 
+from ganeti import utils
+
 
 def RunTest(fn, *args):
   """Runs a test after printing a header.
@@ -70,12 +72,15 @@ def RunEnvTests():
   RunTest(qa_env.TestGanetiCommands)
 
 
-def SetupCluster():
+def SetupCluster(rapi_user, rapi_secret):
   """Initializes the cluster.
+
+  @param rapi_user: Login user for RAPI
+  @param rapi_secret: Login secret for RAPI
 
   """
   if qa_config.TestEnabled('create-cluster'):
-    RunTest(qa_cluster.TestClusterInit)
+    RunTest(qa_cluster.TestClusterInit, rapi_user, rapi_secret)
     RunTest(qa_node.TestNodeAddAll)
   else:
     # consider the nodes are already there
@@ -88,6 +93,9 @@ def RunClusterTests():
   """Runs tests related to gnt-cluster.
 
   """
+  if qa_config.TestEnabled("cluster-renew-crypto"):
+    RunTest(qa_cluster.TestClusterRenewCrypto)
+
   if qa_config.TestEnabled('cluster-verify'):
     RunTest(qa_cluster.TestClusterVerify)
 
@@ -115,6 +123,7 @@ def RunClusterTests():
     RunTest(qa_rapi.TestVersion)
     RunTest(qa_rapi.TestEmptyCluster)
 
+
 def RunOsTests():
   """Runs all tests related to gnt-os.
 
@@ -127,6 +136,8 @@ def RunOsTests():
   RunTest(qa_os.TestOsValid)
   RunTest(qa_os.TestOsInvalid)
   RunTest(qa_os.TestOsPartiallyValid)
+  RunTest(qa_os.TestOsModifyValid)
+  RunTest(qa_os.TestOsModifyInvalid)
 
 
 def RunCommonInstanceTests(instance):
@@ -173,6 +184,7 @@ def RunCommonInstanceTests(instance):
 
   if qa_rapi.Enabled():
     RunTest(qa_rapi.TestInstance, instance)
+
 
 def RunExportImportTests(instance, pnode):
   """Tries to export and import the instance.
@@ -267,8 +279,12 @@ def main():
 
   qa_config.Load(config_file)
 
+  rapi_user = "ganeti-qa"
+  rapi_secret = utils.GenerateSecret()
+  qa_rapi.OpenerFactory.SetCredentials(rapi_user, rapi_secret)
+
   RunEnvTests()
-  SetupCluster()
+  SetupCluster(rapi_user, rapi_secret)
   RunClusterTests()
   RunOsTests()
 
@@ -291,6 +307,12 @@ def main():
     if qa_rapi.Enabled():
       RunTest(qa_rapi.TestNode, pnode)
 
+      if qa_config.TestEnabled("instance-add-plain-disk"):
+        rapi_instance = RunTest(qa_rapi.TestRapiInstanceAdd, pnode)
+        RunCommonInstanceTests(rapi_instance)
+        RunTest(qa_rapi.TestRapiInstanceRemove, rapi_instance)
+        del rapi_instance
+
     if qa_config.TestEnabled('instance-add-plain-disk'):
       instance = RunTest(qa_instance.TestInstanceAddWithPlainDisk, pnode)
       RunCommonInstanceTests(instance)
@@ -310,6 +332,8 @@ def main():
         try:
           instance = RunTest(func, pnode, snode)
           RunCommonInstanceTests(instance)
+          if qa_config.TestEnabled('instance-convert-disk'):
+            RunTest(qa_instance.TestInstanceConvertDisk, instance, snode)
           RunExportImportTests(instance, pnode)
           RunHardwareFailureTests(instance, pnode, snode)
           RunTest(qa_instance.TestInstanceRemove, instance)

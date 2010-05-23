@@ -36,6 +36,8 @@ from ganeti import opcodes
 from ganeti import luxi
 from ganeti import ssconf
 from ganeti import rpc
+from ganeti import ssh
+from ganeti import compat
 
 from optparse import (OptionParser, TitledHelpFormatter,
                       Option, OptionValueError)
@@ -43,6 +45,7 @@ from optparse import (OptionParser, TitledHelpFormatter,
 
 __all__ = [
   # Command line options
+  "ADD_UIDS_OPT",
   "ALLOCATABLE_OPT",
   "ALL_OPT",
   "AUTO_PROMOTE_OPT",
@@ -70,20 +73,26 @@ __all__ = [
   "HVOPTS_OPT",
   "HYPERVISOR_OPT",
   "IALLOCATOR_OPT",
+  "IDENTIFY_DEFAULTS_OPT",
   "IGNORE_CONSIST_OPT",
   "IGNORE_FAILURES_OPT",
   "IGNORE_SECONDARIES_OPT",
   "IGNORE_SIZE_OPT",
   "MAC_PREFIX_OPT",
+  "MAINTAIN_NODE_HEALTH_OPT",
   "MASTER_NETDEV_OPT",
   "MC_OPT",
   "NET_OPT",
+  "NEW_CLUSTER_CERT_OPT",
+  "NEW_CONFD_HMAC_KEY_OPT",
+  "NEW_RAPI_CERT_OPT",
   "NEW_SECONDARY_OPT",
   "NIC_PARAMS_OPT",
   "NODE_LIST_OPT",
   "NODE_PLACEMENT_OPT",
   "NOHDR_OPT",
   "NOIPCHECK_OPT",
+  "NO_INSTALL_OPT",
   "NONAMECHECK_OPT",
   "NOLVM_STORAGE_OPT",
   "NOMODIFY_ETCHOSTS_OPT",
@@ -101,8 +110,10 @@ __all__ = [
   "OFFLINE_OPT",
   "OS_OPT",
   "OS_SIZE_OPT",
+  "RAPI_CERT_OPT",
   "READD_OPT",
   "REBOOT_TYPE_OPT",
+  "REMOVE_UIDS_OPT",
   "SECONDARY_IP_OPT",
   "SELECT_OS_OPT",
   "SEP_OPT",
@@ -116,7 +127,9 @@ __all__ = [
   "SYNC_OPT",
   "TAG_SRC_OPT",
   "TIMEOUT_OPT",
+  "UIDPOOL_OPT",
   "USEUNITS_OPT",
+  "USE_REPL_NET_OPT",
   "VERBOSE_OPT",
   "VG_NAME_OPT",
   "YES_DOIT_OPT",
@@ -128,6 +141,7 @@ __all__ = [
   "JobExecutor",
   "JobSubmittedException",
   "ParseTimespec",
+  "RunWhileClusterStopped",
   "SubmitOpCode",
   "SubmitOrSend",
   "UsesRPC",
@@ -449,6 +463,21 @@ def check_key_val(option, opt, value):  # pylint: disable-msg=W0613
   return _SplitKeyVal(opt, value)
 
 
+def check_bool(option, opt, value): # pylint: disable-msg=W0613
+  """Custom parser for yes/no options.
+
+  This will store the parsed value as either True or False.
+
+  """
+  value = value.lower()
+  if value == constants.VALUE_FALSE or value == "no":
+    return False
+  elif value == constants.VALUE_TRUE or value == "yes":
+    return True
+  else:
+    raise errors.ParameterError("Invalid boolean value '%s'" % value)
+
+
 # completion_suggestion is normally a list. Using numeric values not evaluating
 # to False for dynamic completion.
 (OPT_COMPL_MANY_NODES,
@@ -479,18 +508,19 @@ class CliOption(Option):
     "identkeyval",
     "keyval",
     "unit",
+    "bool",
     )
   TYPE_CHECKER = Option.TYPE_CHECKER.copy()
   TYPE_CHECKER["identkeyval"] = check_ident_key_val
   TYPE_CHECKER["keyval"] = check_key_val
   TYPE_CHECKER["unit"] = check_unit
+  TYPE_CHECKER["bool"] = check_bool
 
 
 # optparse.py sets make_option, so we do it for our own option class, too
 cli_option = CliOption
 
 
-_YESNO = ("yes", "no")
 _YORNO = "yes|no"
 
 DEBUG_OPT = cli_option("-d", "--debug", default=0, action="count",
@@ -584,6 +614,11 @@ OS_OPT = cli_option("-o", "--os-type", dest="os", help="What OS to run",
 FORCE_VARIANT_OPT = cli_option("--force-variant", dest="force_variant",
                                action="store_true", default=False,
                                help="Force an unknown variant")
+
+NO_INSTALL_OPT = cli_option("--no-install", dest="no_install",
+                            action="store_true", default=False,
+                            help="Do not install the OS (will"
+                            " enable no-start)")
 
 BACKEND_OPT = cli_option("-B", "--backend-parameters", dest="beparams",
                          type="keyval", default={},
@@ -746,19 +781,19 @@ NOSSH_KEYCHECK_OPT = cli_option("--no-ssh-key-check", dest="ssh_key_check",
 
 
 MC_OPT = cli_option("-C", "--master-candidate", dest="master_candidate",
-                    choices=_YESNO, default=None, metavar=_YORNO,
+                    type="bool", default=None, metavar=_YORNO,
                     help="Set the master_candidate flag on the node")
 
 OFFLINE_OPT = cli_option("-O", "--offline", dest="offline", metavar=_YORNO,
-                         choices=_YESNO, default=None,
+                         type="bool", default=None,
                          help="Set the offline flag on the node")
 
 DRAINED_OPT = cli_option("-D", "--drained", dest="drained", metavar=_YORNO,
-                         choices=_YESNO, default=None,
+                         type="bool", default=None,
                          help="Set the drained flag on the node")
 
 ALLOCATABLE_OPT = cli_option("--allocatable", dest="allocatable",
-                             choices=_YESNO, default=None, metavar=_YORNO,
+                             type="bool", default=None, metavar=_YORNO,
                              help="Set the allocatable flag on a volume")
 
 NOLVM_STORAGE_OPT = cli_option("--no-lvm-storage", dest="lvm_storage",
@@ -857,6 +892,63 @@ EARLY_RELEASE_OPT = cli_option("--early-release",
                                action="store_true",
                                help="Release the locks on the secondary"
                                " node(s) early")
+
+NEW_CLUSTER_CERT_OPT = cli_option("--new-cluster-certificate",
+                                  dest="new_cluster_cert",
+                                  default=False, action="store_true",
+                                  help="Generate a new cluster certificate")
+
+RAPI_CERT_OPT = cli_option("--rapi-certificate", dest="rapi_cert",
+                           default=None,
+                           help="File containing new RAPI certificate")
+
+NEW_RAPI_CERT_OPT = cli_option("--new-rapi-certificate", dest="new_rapi_cert",
+                               default=None, action="store_true",
+                               help=("Generate a new self-signed RAPI"
+                                     " certificate"))
+
+NEW_CONFD_HMAC_KEY_OPT = cli_option("--new-confd-hmac-key",
+                                    dest="new_confd_hmac_key",
+                                    default=False, action="store_true",
+                                    help=("Create a new HMAC key for %s" %
+                                          constants.CONFD))
+
+USE_REPL_NET_OPT = cli_option("--use-replication-network",
+                              dest="use_replication_network",
+                              help="Whether to use the replication network"
+                              " for talking to the nodes",
+                              action="store_true", default=False)
+
+MAINTAIN_NODE_HEALTH_OPT = \
+    cli_option("--maintain-node-health", dest="maintain_node_health",
+               metavar=_YORNO, default=None, type="bool",
+               help="Configure the cluster to automatically maintain node"
+               " health, by shutting down unknown instances, shutting down"
+               " unknown DRBD devices, etc.")
+
+IDENTIFY_DEFAULTS_OPT = \
+    cli_option("--identify-defaults", dest="identify_defaults",
+               default=False, action="store_true",
+               help="Identify which saved instance parameters are equal to"
+               " the current cluster defaults and set them as such, instead"
+               " of marking them as overridden")
+
+UIDPOOL_OPT = cli_option("--uid-pool", default=None,
+                         action="store", dest="uid_pool",
+                         help=("A list of user-ids or user-id"
+                               " ranges separated by commas"))
+
+ADD_UIDS_OPT = cli_option("--add-uids", default=None,
+                          action="store", dest="add_uids",
+                          help=("A list of user-ids or user-id"
+                                " ranges separated by commas, to be"
+                                " added to the user-id pool"))
+
+REMOVE_UIDS_OPT = cli_option("--remove-uids", default=None,
+                             action="store", dest="remove_uids",
+                             help=("A list of user-ids or user-id"
+                                   " ranges separated by commas, to be"
+                                   " removed from the user-id pool"))
 
 
 def _ParseArgs(argv, commands, aliases):
@@ -1473,9 +1565,12 @@ def GenericInstanceCreate(mode, opts, args):
   elif opts.no_nics:
     # no nics
     nics = []
-  else:
+  elif mode == constants.INSTANCE_CREATE:
     # default of one nic, all auto
     nics = [{}]
+  else:
+    # mode == import
+    nics = []
 
   if opts.disk_template == constants.DT_DISKLESS:
     if opts.disks or opts.sd_size is not None:
@@ -1483,30 +1578,45 @@ def GenericInstanceCreate(mode, opts, args):
                                  " information passed")
     disks = []
   else:
-    if not opts.disks and not opts.sd_size:
+    if (not opts.disks and not opts.sd_size
+        and mode == constants.INSTANCE_CREATE):
       raise errors.OpPrereqError("No disk information specified")
     if opts.disks and opts.sd_size is not None:
       raise errors.OpPrereqError("Please use either the '--disk' or"
                                  " '-s' option")
     if opts.sd_size is not None:
       opts.disks = [(0, {"size": opts.sd_size})]
-    try:
-      disk_max = max(int(didx[0]) + 1 for didx in opts.disks)
-    except ValueError, err:
-      raise errors.OpPrereqError("Invalid disk index passed: %s" % str(err))
-    disks = [{}] * disk_max
+
+    if opts.disks:
+      try:
+        disk_max = max(int(didx[0]) + 1 for didx in opts.disks)
+      except ValueError, err:
+        raise errors.OpPrereqError("Invalid disk index passed: %s" % str(err))
+      disks = [{}] * disk_max
+    else:
+      disks = []
     for didx, ddict in opts.disks:
       didx = int(didx)
       if not isinstance(ddict, dict):
         msg = "Invalid disk/%d value: expected dict, got %s" % (didx, ddict)
         raise errors.OpPrereqError(msg)
-      elif "size" not in ddict:
-        raise errors.OpPrereqError("Missing size for disk %d" % didx)
-      try:
-        ddict["size"] = utils.ParseUnit(ddict["size"])
-      except ValueError, err:
-        raise errors.OpPrereqError("Invalid disk size for disk %d: %s" %
-                                   (didx, err))
+      elif "size" in ddict:
+        if "adopt" in ddict:
+          raise errors.OpPrereqError("Only one of 'size' and 'adopt' allowed"
+                                     " (disk %d)" % didx)
+        try:
+          ddict["size"] = utils.ParseUnit(ddict["size"])
+        except ValueError, err:
+          raise errors.OpPrereqError("Invalid disk size for disk %d: %s" %
+                                     (didx, err))
+      elif "adopt" in ddict:
+        if mode == constants.INSTANCE_IMPORT:
+          raise errors.OpPrereqError("Disk adoption not allowed for instance"
+                                     " import")
+        ddict["size"] = 0
+      else:
+        raise errors.OpPrereqError("Missing size or adoption source for"
+                                   " disk %d" % didx)
       disks[didx] = ddict
 
   utils.ForceDictType(opts.beparams, constants.BES_PARAMETER_TYPES)
@@ -1517,11 +1627,15 @@ def GenericInstanceCreate(mode, opts, args):
     os_type = opts.os
     src_node = None
     src_path = None
+    no_install = opts.no_install
+    identify_defaults = False
   elif mode == constants.INSTANCE_IMPORT:
     start = False
     os_type = None
     src_node = opts.src_node
     src_path = opts.src_dir
+    no_install = None
+    identify_defaults = opts.identify_defaults
   else:
     raise errors.ProgrammerError("Invalid creation mode %s" % mode)
 
@@ -1543,10 +1657,135 @@ def GenericInstanceCreate(mode, opts, args):
                                 start=start,
                                 os_type=os_type,
                                 src_node=src_node,
-                                src_path=src_path)
+                                src_path=src_path,
+                                no_install=no_install,
+                                identify_defaults=identify_defaults)
 
   SubmitOrSend(op, opts)
   return 0
+
+
+class _RunWhileClusterStoppedHelper:
+  """Helper class for L{RunWhileClusterStopped} to simplify state management
+
+  """
+  def __init__(self, feedback_fn, cluster_name, master_node, online_nodes):
+    """Initializes this class.
+
+    @type feedback_fn: callable
+    @param feedback_fn: Feedback function
+    @type cluster_name: string
+    @param cluster_name: Cluster name
+    @type master_node: string
+    @param master_node Master node name
+    @type online_nodes: list
+    @param online_nodes: List of names of online nodes
+
+    """
+    self.feedback_fn = feedback_fn
+    self.cluster_name = cluster_name
+    self.master_node = master_node
+    self.online_nodes = online_nodes
+
+    self.ssh = ssh.SshRunner(self.cluster_name)
+
+    self.nonmaster_nodes = [name for name in online_nodes
+                            if name != master_node]
+
+    assert self.master_node not in self.nonmaster_nodes
+
+  def _RunCmd(self, node_name, cmd):
+    """Runs a command on the local or a remote machine.
+
+    @type node_name: string
+    @param node_name: Machine name
+    @type cmd: list
+    @param cmd: Command
+
+    """
+    if node_name is None or node_name == self.master_node:
+      # No need to use SSH
+      result = utils.RunCmd(cmd)
+    else:
+      result = self.ssh.Run(node_name, "root", utils.ShellQuoteArgs(cmd))
+
+    if result.failed:
+      errmsg = ["Failed to run command %s" % result.cmd]
+      if node_name:
+        errmsg.append("on node %s" % node_name)
+      errmsg.append(": exitcode %s and error %s" %
+                    (result.exit_code, result.output))
+      raise errors.OpExecError(" ".join(errmsg))
+
+  def Call(self, fn, *args):
+    """Call function while all daemons are stopped.
+
+    @type fn: callable
+    @param fn: Function to be called
+
+    """
+    # Pause watcher by acquiring an exclusive lock on watcher state file
+    self.feedback_fn("Blocking watcher")
+    watcher_block = utils.FileLock.Open(constants.WATCHER_STATEFILE)
+    try:
+      # TODO: Currently, this just blocks. There's no timeout.
+      # TODO: Should it be a shared lock?
+      watcher_block.Exclusive(blocking=True)
+
+      # Stop master daemons, so that no new jobs can come in and all running
+      # ones are finished
+      self.feedback_fn("Stopping master daemons")
+      self._RunCmd(None, [constants.DAEMON_UTIL, "stop-master"])
+      try:
+        # Stop daemons on all nodes
+        for node_name in self.online_nodes:
+          self.feedback_fn("Stopping daemons on %s" % node_name)
+          self._RunCmd(node_name, [constants.DAEMON_UTIL, "stop-all"])
+
+        # All daemons are shut down now
+        try:
+          return fn(self, *args)
+        except Exception, err:
+          _, errmsg = FormatError(err)
+          logging.exception("Caught exception")
+          self.feedback_fn(errmsg)
+          raise
+      finally:
+        # Start cluster again, master node last
+        for node_name in self.nonmaster_nodes + [self.master_node]:
+          self.feedback_fn("Starting daemons on %s" % node_name)
+          self._RunCmd(node_name, [constants.DAEMON_UTIL, "start-all"])
+    finally:
+      # Resume watcher
+      watcher_block.Close()
+
+
+def RunWhileClusterStopped(feedback_fn, fn, *args):
+  """Calls a function while all cluster daemons are stopped.
+
+  @type feedback_fn: callable
+  @param feedback_fn: Feedback function
+  @type fn: callable
+  @param fn: Function to be called when daemons are stopped
+
+  """
+  feedback_fn("Gathering cluster information")
+
+  # This ensures we're running on the master daemon
+  cl = GetClient()
+
+  (cluster_name, master_node) = \
+    cl.QueryConfigValues(["cluster_name", "master_node"])
+
+  online_nodes = GetOnlineNodes([], cl=cl)
+
+  # Don't keep a reference to the client. The master daemon will go away.
+  del cl
+
+  assert master_node in online_nodes
+
+  return _RunWhileClusterStoppedHelper(feedback_fn, cluster_name, master_node,
+                                       online_nodes).Call(fn, *args)
 
 
 def GenerateTable(headers, fields, separator, data,
@@ -1715,7 +1954,8 @@ def ParseTimespec(value):
   return value
 
 
-def GetOnlineNodes(nodes, cl=None, nowarn=False):
+def GetOnlineNodes(nodes, cl=None, nowarn=False, secondary_ips=False,
+                   filter_master=False):
   """Returns the names of online nodes.
 
   This function will also log a warning on stderr with the names of
@@ -1728,17 +1968,36 @@ def GetOnlineNodes(nodes, cl=None, nowarn=False):
   @param nowarn: by default, this function will output a note with the
       offline nodes that are skipped; if this parameter is True the
       note is not displayed
+  @type secondary_ips: boolean
+  @param secondary_ips: if True, return the secondary IPs instead of the
+      names, useful for doing network traffic over the replication interface
+      (if any)
+  @type filter_master: boolean
+  @param filter_master: if True, do not return the master node in the list
+      (useful in coordination with secondary_ips where we cannot check our
+      node name against the list)
 
   """
   if cl is None:
     cl = GetClient()
 
-  result = cl.QueryNodes(names=nodes, fields=["name", "offline"],
+  if secondary_ips:
+    name_idx = 2
+  else:
+    name_idx = 0
+
+  if filter_master:
+    master_node = cl.QueryConfigValues(["master_node"])[0]
+    filter_fn = lambda x: x != master_node
+  else:
+    filter_fn = lambda _: True
+
+  result = cl.QueryNodes(names=nodes, fields=["name", "offline", "sip"],
                          use_locking=False)
   offline = [row[0] for row in result if row[1]]
   if offline and not nowarn:
     ToStderr("Note: skipping offline node(s): %s" % utils.CommaJoin(offline))
-  return [row[0] for row in result if not row[1]]
+  return [row[name_idx] for row in result if not row[1] and filter_fn(row[0])]
 
 
 def _ToStream(stream, txt, *args):
@@ -1790,7 +2049,7 @@ class JobExecutor(object):
   GetResults() calls.
 
   """
-  def __init__(self, cl=None, verbose=True, opts=None):
+  def __init__(self, cl=None, verbose=True, opts=None, feedback_fn=None):
     self.queue = []
     if cl is None:
       cl = GetClient()
@@ -1798,6 +2057,7 @@ class JobExecutor(object):
     self.verbose = verbose
     self.jobs = []
     self.opts = opts
+    self.feedback_fn = feedback_fn
 
   def QueueJob(self, name, *ops):
     """Record a job for later submit.
@@ -1813,8 +2073,31 @@ class JobExecutor(object):
 
     """
     results = self.cl.SubmitManyJobs([row[1] for row in self.queue])
-    for ((status, data), (name, _)) in zip(results, self.queue):
-      self.jobs.append((status, data, name))
+    for (idx, ((status, data), (name, _))) in enumerate(zip(results,
+                                                            self.queue)):
+      self.jobs.append((idx, status, data, name))
+
+  def _ChooseJob(self):
+    """Choose a non-waiting/queued job to poll next.
+
+    """
+    assert self.jobs, "_ChooseJob called with empty job list"
+
+    result = self.cl.QueryJobs([i[2] for i in self.jobs], ["status"])
+    assert result
+
+    for job_data, status in zip(self.jobs, result):
+      if status[0] in (constants.JOB_STATUS_QUEUED,
+                    constants.JOB_STATUS_WAITLOCK,
+                    constants.JOB_STATUS_CANCELING):
+        # job is still waiting
+        continue
+      # good candidate found
+      self.jobs.remove(job_data)
+      return job_data
+
+    # no job found
+    return self.jobs.pop(0)
 
   def GetResults(self):
     """Wait for and return the results of all jobs.
@@ -1829,18 +2112,21 @@ class JobExecutor(object):
       self.SubmitPending()
     results = []
     if self.verbose:
-      ok_jobs = [row[1] for row in self.jobs if row[0]]
+      ok_jobs = [row[2] for row in self.jobs if row[1]]
       if ok_jobs:
         ToStdout("Submitted jobs %s", utils.CommaJoin(ok_jobs))
-    for submit_status, jid, name in self.jobs:
-      if not submit_status:
-        ToStderr("Failed to submit job for %s: %s", name, jid)
-        results.append((False, jid))
-        continue
-      if self.verbose:
-        ToStdout("Waiting for job %s for %s...", jid, name)
+
+    # first, remove any non-submitted jobs
+    self.jobs, failures = compat.partition(self.jobs, lambda x: x[1])
+    for idx, _, jid, name in failures:
+      ToStderr("Failed to submit job for %s: %s", name, jid)
+      results.append((idx, False, jid))
+
+    while self.jobs:
+      (idx, _, jid, name) = self._ChooseJob()
+      ToStdout("Waiting for job %s for %s...", jid, name)
       try:
-        job_result = PollJob(jid, cl=self.cl)
+        job_result = PollJob(jid, cl=self.cl, feedback_fn=self.feedback_fn)
         success = True
       except (errors.GenericError, luxi.ProtocolError), err:
         _, job_result = FormatError(err)
@@ -1848,7 +2134,12 @@ class JobExecutor(object):
         # the error message will always be shown, verbose or not
         ToStderr("Job %s for %s has failed: %s", jid, name, job_result)
 
-      results.append((success, job_result))
+      results.append((idx, success, job_result))
+
+    # sort based on the index, then drop it
+    results.sort()
+    results = [i[1:] for i in results]
+
     return results
 
   def WaitOrShow(self, wait):
@@ -1863,7 +2154,7 @@ class JobExecutor(object):
     else:
       if not self.jobs:
         self.SubmitPending()
-      for status, result, name in self.jobs:
+      for _, status, result, name in self.jobs:
         if status:
           ToStdout("%s: %s", result, name)
         else:

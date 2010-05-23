@@ -84,22 +84,27 @@ CLASS="REPLACEABLE"
 ><I
 >N</I
 ></TT
->:size=<TT
+>: {size=<TT
 CLASS="REPLACEABLE"
 ><I
 >VAL</I
 ></TT
-> [,mode=<TT
+> | adopt=<TT
+CLASS="REPLACEABLE"
+><I
+>LV</I
+></TT
+>},mode=<TT
 CLASS="REPLACEABLE"
 ><I
 >ro|rw</I
 ></TT
->] | -s <TT
+> | -s <TT
 CLASS="REPLACEABLE"
 ><I
 >SIZE</I
 ></TT
->}<BR> [--no-ip-check] [--no-name-check] [--no-start]<BR> [--net=<TT
+>}<BR> [--no-ip-check] [--no-name-check] [--no-start] [--no-install]<BR> [--net=<TT
 CLASS="REPLACEABLE"
 ><I
 >N</I
@@ -166,10 +171,11 @@ CLASS="OPTION"
 > option specifies the parameters
           for the disks of the instance. The numbering of disks starts
           at zero, and at least one disk needs to be passed. For each
-          disk, at least the size needs to be given, and optionally
-          the access mode (read-only or the default of read-write) can
-          also be specified.  The size is interpreted (when no unit is
-          given) in mebibytes. You can also use one of the suffixes
+          disk, either the size or the adoption source needs to be
+          given, and optionally the access mode (read-only or the
+          default of read-write) can also be specified.  The size is
+          interpreted (when no unit is given) in mebibytes. You can
+          also use one of the suffixes
           <TT
 CLASS="LITERAL"
 >m</TT
@@ -182,6 +188,20 @@ CLASS="LITERAL"
 >t</TT
 > to specificy the exact the units used;
           these suffixes map to mebibytes, gibibytes and tebibytes.
+        </P
+><P
+>          When using the <CODE
+CLASS="OPTION"
+>adopt</CODE
+> key in the disk
+          definition, Ganeti will reuse those volumes (instead of
+          creating new ones) as the instance's disks. Ganeti will
+          rename these volumes to the standard format, and (without
+          installing the OS) will use them as-is for the
+          instance. This allows migrating instances from non-managed
+          mode (e.q. plain KVM with LVM) to being managed via
+          Ganeti. Note that this works only for the `plain' disk
+          template (see below for template details).
         </P
 ><P
 >          Alternatively, a single-disk instance can be created via the
@@ -318,8 +338,17 @@ CLASS="OPTION"
           system to be installed. The available operating systems can
           be listed with <B
 CLASS="COMMAND"
->gnt-os list</B
->.
+>gnt-os
+          list</B
+>. Passing <CODE
+CLASS="OPTION"
+>--no-install</CODE
+> will
+          however skip the OS installation, allowing a manual import
+          if so desired. Note that the no-installation mode will
+          automatically disable the start-up of the instance (without
+          an OS, it most likely won't be able to start-up
+          successfully).
         </P
 ><P
 >          The <CODE
@@ -751,13 +780,97 @@ CLASS="USERINPUT"
                 option to KVM, or one of the KVM cache modes: none
                 (for direct I/O), writethrough (to use the host cache
                 but report completion to the guest only when the host
-                has commited the changes to disk) or writeback (to use
-                the host cache and report completion as soon as the
-                data is in the host cache). Note that there are
+                has committed the changes to disk) or writeback (to
+                use the host cache and report completion as soon as
+                the data is in the host cache). Note that there are
                 special considerations for the cache mode depending on
                 version of KVM used and disk type (always raw file
                 under Ganeti), please refer to the KVM documentation
                 for more details.
+                </P
+></DD
+><DT
+>security_model</DT
+><DD
+><P
+>Valid for the KVM hypervisor.</P
+><P
+>The security model for kvm. Currently one of
+                <SPAN
+CLASS="QUOTE"
+>"none"</SPAN
+>, <SPAN
+CLASS="QUOTE"
+>"user"</SPAN
+> or
+                <SPAN
+CLASS="QUOTE"
+>"pool"</SPAN
+>. Under <SPAN
+CLASS="QUOTE"
+>"none"</SPAN
+>, the
+                default, nothing is done and instances are run as
+                the ganeti daemon user (normally root).
+                </P
+><P
+>Under <SPAN
+CLASS="QUOTE"
+>"user"</SPAN
+> kvm will drop
+                privileges and become the user specified by the
+                security_domain parameter.
+                </P
+><P
+>Under <SPAN
+CLASS="QUOTE"
+>"pool"</SPAN
+> a global cluster
+                pool of users will be used, making sure no two
+                instances share the same user on the same node.
+                (this mode is not implemented yet)
+                </P
+></DD
+><DT
+>security_domain</DT
+><DD
+><P
+>Valid for the KVM hypervisor.</P
+><P
+>Under security model <SPAN
+CLASS="QUOTE"
+>"user"</SPAN
+> the username to
+                run the instance under. It must be a valid username
+                existing on the host.
+                </P
+><P
+>Cannot be set under security model <SPAN
+CLASS="QUOTE"
+>"none"</SPAN
+>
+                or <SPAN
+CLASS="QUOTE"
+>"pool"</SPAN
+>.
+                </P
+></DD
+><DT
+>kvm_flag</DT
+><DD
+><P
+>Valid for the KVM hypervisor.</P
+><P
+>If <SPAN
+CLASS="QUOTE"
+>"enabled"</SPAN
+> the -enable-kvm flag is
+                passed to kvm. If <SPAN
+CLASS="QUOTE"
+>"disabled"</SPAN
+> -disable-kvm is
+                passed. If unset no flag is passed, and the default running
+                mode for your kvm binary will be used.
                 </P
 ></DD
 ></DL
@@ -923,7 +1036,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN337"
+NAME="AEN373"
 ></A
 ><H4
 >BATCH-CREATE</H4
@@ -1104,7 +1217,7 @@ instance5: 11225</PRE
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN404"
+NAME="AEN440"
 ></A
 ><H4
 >REMOVE</H4
@@ -1183,7 +1296,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN426"
+NAME="AEN462"
 ></A
 ><H4
 >LIST</H4
@@ -1614,7 +1727,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN630"
+NAME="AEN666"
 ></A
 ><H4
 >INFO</H4
@@ -1656,7 +1769,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN647"
+NAME="AEN683"
 ></A
 ><H4
 >MODIFY</H4
@@ -1702,7 +1815,12 @@ CLASS="REPLACEABLE"
 ><I
 >MODE</I
 ></TT
->]<BR> [--submit]<BR> {<TT
+>]<BR> [-t {plain | drbd}]<BR> [--os-name=<TT
+CLASS="REPLACEABLE"
+><I
+>OS</I
+></TT
+>  [--force-variant]]<BR> [--submit]<BR> {<TT
 CLASS="REPLACEABLE"
 ><I
 >instance</I
@@ -1727,6 +1845,15 @@ CLASS="USERINPUT"
 CLASS="COMMAND"
 >add</B
 > command.
+        </P
+><P
+>          The <CODE
+CLASS="OPTION"
+>-t</CODE
+> option will change the disk template
+          of the instance. Currently only conversions between the
+          plain and drbd disk templates are supported, and the
+          instance must be stopped before attempting the conversion.
         </P
 ><P
 >          The <CODE
@@ -1807,6 +1934,24 @@ CLASS="REPLACEABLE"
           option will change the parameters of the Nth instance NIC.
         </P
 ><P
+>          The option <CODE
+CLASS="OPTION"
+>--os-name</CODE
+> will change the OS
+          name for the instance (without reinstallation). In case an
+          OS variant is specified that is not found, then by default
+          the modification is refused,
+          unless <CODE
+CLASS="OPTION"
+>--force-variant</CODE
+> is passed. An
+          invalid OS will also be refused, unless
+          the <CODE
+CLASS="OPTION"
+>--force</CODE
+> option is given.
+        </P
+><P
 >          The <CODE
 CLASS="OPTION"
 >--submit</CODE
@@ -1826,7 +1971,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN704"
+NAME="AEN755"
 ></A
 ><H4
 >REINSTALL</H4
@@ -1916,7 +2061,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN739"
+NAME="AEN790"
 ></A
 ><H4
 >RENAME</H4
@@ -1964,14 +2109,14 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN754"
+NAME="AEN805"
 ></A
 ><H3
 >Starting/stopping/connecting to console</H3
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN756"
+NAME="AEN807"
 ></A
 ><H4
 >STARTUP</H4
@@ -2163,7 +2308,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN843"
+NAME="AEN894"
 ></A
 ><H4
 >SHUTDOWN</H4
@@ -2261,7 +2406,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN887"
+NAME="AEN938"
 ></A
 ><H4
 >REBOOT</H4
@@ -2377,7 +2522,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN939"
+NAME="AEN990"
 ></A
 ><H4
 >CONSOLE</H4
@@ -2423,14 +2568,14 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN952"
+NAME="AEN1003"
 ></A
 ><H3
 >Disk management</H3
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN954"
+NAME="AEN1005"
 ></A
 ><H4
 >REPLACE-DISKS</H4
@@ -2594,7 +2739,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN1012"
+NAME="AEN1063"
 ></A
 ><H4
 >ACTIVATE-DISKS</H4
@@ -2690,7 +2835,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN1033"
+NAME="AEN1084"
 ></A
 ><H4
 >DEACTIVATE-DISKS</H4
@@ -2728,7 +2873,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN1044"
+NAME="AEN1095"
 ></A
 ><H4
 >GROW-DISK</H4
@@ -2882,7 +3027,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN1091"
+NAME="AEN1142"
 ></A
 ><H4
 >RECREATE-DISKS</H4
@@ -2932,14 +3077,14 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN1106"
+NAME="AEN1157"
 ></A
 ><H3
 >Recovery</H3
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN1108"
+NAME="AEN1159"
 ></A
 ><H4
 >FAILOVER</H4
@@ -3009,7 +3154,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN1129"
+NAME="AEN1180"
 ></A
 ><H4
 >MIGRATE</H4
@@ -3106,7 +3251,7 @@ y/[n]/?: y
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN1154"
+NAME="AEN1205"
 ></A
 ><H4
 >MOVE</H4
@@ -3174,14 +3319,14 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN1175"
+NAME="AEN1226"
 ></A
 ><H3
 >TAGS</H3
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN1177"
+NAME="AEN1228"
 ></A
 ><H4
 >ADD-TAGS</H4
@@ -3223,7 +3368,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN1190"
+NAME="AEN1241"
 ></A
 ><H4
 >LIST-TAGS</H4
@@ -3243,7 +3388,7 @@ CLASS="REPLACEABLE"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN1197"
+NAME="AEN1248"
 ></A
 ><H4
 >REMOVE-TAGS</H4
@@ -3287,7 +3432,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN1210"
+NAME="AEN1261"
 ></A
 ><H2
 >REPORTING BUGS</H2
@@ -3304,7 +3449,7 @@ TARGET="_top"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN1214"
+NAME="AEN1265"
 ></A
 ><H2
 >SEE ALSO</H2
@@ -3420,7 +3565,7 @@ CLASS="REFENTRYTITLE"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN1261"
+NAME="AEN1312"
 ></A
 ><H2
 >COPYRIGHT</H2

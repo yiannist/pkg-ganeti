@@ -25,13 +25,15 @@
 
 import tempfile
 
+from ganeti import constants
+from ganeti import bootstrap
 from ganeti import utils
 
 import qa_config
 import qa_utils
 import qa_error
 
-from qa_utils import AssertEqual, StartSSH
+from qa_utils import AssertEqual, AssertNotEqual, StartSSH
 
 
 def _RemoveFileFromAllNodes(filename):
@@ -54,10 +56,29 @@ def _CheckFileOnAllNodes(filename, content):
                 content)
 
 
-def TestClusterInit():
+def TestClusterInit(rapi_user, rapi_secret):
   """gnt-cluster init"""
   master = qa_config.GetMasterNode()
 
+  # First create the RAPI credentials
+  fh = tempfile.NamedTemporaryFile()
+  try:
+    fh.write("%s %s write\n" % (rapi_user, rapi_secret))
+    fh.flush()
+
+    tmpru = qa_utils.UploadFile(master["primary"], fh.name)
+    try:
+      cmd = ["mv", tmpru, constants.RAPI_USERS_FILE]
+      AssertEqual(StartSSH(master["primary"],
+                           utils.ShellQuoteArgs(cmd)).wait(), 0)
+    finally:
+      cmd = ["rm", "-f", tmpru]
+      AssertEqual(StartSSH(master["primary"],
+                           utils.ShellQuoteArgs(cmd)).wait(), 0)
+  finally:
+    fh.close()
+
+  # Initialize cluster
   cmd = ['gnt-cluster', 'init']
 
   if master.get('secondary', None):
@@ -144,6 +165,50 @@ def TestClusterVersion():
                        utils.ShellQuoteArgs(cmd)).wait(), 0)
 
 
+def TestClusterRenewCrypto():
+  """gnt-cluster renew-crypto"""
+  master = qa_config.GetMasterNode()
+
+  # Conflicting options
+  cmd = ["gnt-cluster", "renew-crypto", "--force",
+         "--new-cluster-certificate", "--new-confd-hmac-key",
+         "--new-rapi-certificate", "--rapi-certificate=/dev/null"]
+  AssertNotEqual(StartSSH(master["primary"],
+                          utils.ShellQuoteArgs(cmd)).wait(), 0)
+
+  # Invalid RAPI certificate
+  cmd = ["gnt-cluster", "renew-crypto", "--force",
+         "--rapi-certificate=/dev/null"]
+  AssertNotEqual(StartSSH(master["primary"],
+                          utils.ShellQuoteArgs(cmd)).wait(), 0)
+
+  # Custom RAPI certificate
+  fh = tempfile.NamedTemporaryFile()
+
+  # Ensure certificate doesn't cause "gnt-cluster verify" to complain
+  validity = constants.SSL_CERT_EXPIRATION_WARN * 3
+
+  bootstrap.GenerateSelfSignedSslCert(fh.name, validity=validity)
+
+  tmpcert = qa_utils.UploadFile(master["primary"], fh.name)
+  try:
+    cmd = ["gnt-cluster", "renew-crypto", "--force",
+           "--rapi-certificate=%s" % tmpcert]
+    AssertEqual(StartSSH(master["primary"],
+                         utils.ShellQuoteArgs(cmd)).wait(), 0)
+  finally:
+    cmd = ["rm", "-f", tmpcert]
+    AssertEqual(StartSSH(master["primary"],
+                         utils.ShellQuoteArgs(cmd)).wait(), 0)
+
+  # Normal case
+  cmd = ["gnt-cluster", "renew-crypto", "--force",
+         "--new-cluster-certificate", "--new-confd-hmac-key",
+         "--new-rapi-certificate"]
+  AssertEqual(StartSSH(master["primary"],
+                       utils.ShellQuoteArgs(cmd)).wait(), 0)
+
+
 def TestClusterBurnin():
   """Burnin"""
   master = qa_config.GetMasterNode()
@@ -171,13 +236,13 @@ def TestClusterBurnin():
     try:
       # Run burnin
       cmd = [script,
-             '-p',
              '--os=%s' % qa_config.get('os'),
              '--disk-size=%s' % ",".join(qa_config.get('disk')),
              '--disk-growth=%s' % ",".join(qa_config.get('disk-growth')),
              '--disk-template=%s' % disk_template]
       if parallel:
         cmd.append('--parallel')
+        cmd.append('--early-release')
       if check_inst:
         cmd.append('--http-check')
       if do_rename:

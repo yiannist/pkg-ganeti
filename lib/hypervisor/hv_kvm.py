@@ -29,6 +29,7 @@ import re
 import tempfile
 import time
 import logging
+import pwd
 from cStringIO import StringIO
 
 from ganeti import utils
@@ -36,17 +37,21 @@ from ganeti import constants
 from ganeti import errors
 from ganeti import serializer
 from ganeti import objects
+from ganeti import uidpool
+from ganeti import ssconf
 from ganeti.hypervisor import hv_base
 
 
 class KVMHypervisor(hv_base.BaseHypervisor):
   """KVM hypervisor interface"""
+  CAN_MIGRATE = True
 
   _ROOT_DIR = constants.RUN_GANETI_DIR + "/kvm-hypervisor"
   _PIDS_DIR = _ROOT_DIR + "/pid" # contains live instances pids
+  _UIDS_DIR = _ROOT_DIR + "/uid" # contains instances reserved uids
   _CTRL_DIR = _ROOT_DIR + "/ctrl" # contains instances control sockets
   _CONF_DIR = _ROOT_DIR + "/conf" # contains instances startup data
-  _DIRS = [_ROOT_DIR, _PIDS_DIR, _CTRL_DIR, _CONF_DIR]
+  _DIRS = [_ROOT_DIR, _PIDS_DIR, _UIDS_DIR, _CTRL_DIR, _CONF_DIR]
 
   PARAMETERS = {
     constants.HV_KERNEL_PATH: hv_base.OPT_FILE_CHECK,
@@ -76,6 +81,11 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     constants.HV_USE_LOCALTIME: hv_base.NO_CHECK,
     constants.HV_DISK_CACHE:
       hv_base.ParamInSet(True, constants.HT_VALID_CACHE_TYPES),
+    constants.HV_SECURITY_MODEL:
+      hv_base.ParamInSet(True, constants.HT_KVM_VALID_SM_TYPES),
+    constants.HV_SECURITY_DOMAIN: hv_base.NO_CHECK,
+    constants.HV_KVM_FLAG:
+      hv_base.ParamInSet(False, constants.HT_KVM_FLAG_VALUES),
     }
 
   _MIGRATION_STATUS_RE = re.compile('Migration\s+status:\s+(\w+)',
@@ -103,13 +113,76 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     """
     return utils.PathJoin(cls._PIDS_DIR, instance_name)
 
+  @classmethod
+  def _InstanceUidFile(cls, instance_name):
+    """Returns the instance uidfile.
+
+    """
+    return utils.PathJoin(cls._UIDS_DIR, instance_name)
+
+  @classmethod
+  def _InstancePidInfo(cls, pid):
+    """Check pid file for instance information.
+
+    Check that a pid file is associated with an instance, and retrieve
+    information from its command line.
+
+    @type pid: string or int
+    @param pid: process id of the instance to check
+    @rtype: tuple
+    @return: (instance_name, memory, vcpus)
+    @raise errors.HypervisorError: when an instance cannot be found
+
+    """
+    alive = utils.IsProcessAlive(pid)
+    if not alive:
+      raise errors.HypervisorError("Cannot get info for pid %s" % pid)
+
+    cmdline_file = utils.PathJoin("/proc", str(pid), "cmdline")
+    try:
+      cmdline = utils.ReadFile(cmdline_file)
+    except EnvironmentError, err:
+      raise errors.HypervisorError("Can't open cmdline file for pid %s: %s" %
+                                   (pid, err))
+
+    instance = None
+    memory = 0
+    vcpus = 0
+
+    arg_list = cmdline.split('\x00')
+    while arg_list:
+      arg =  arg_list.pop(0)
+      if arg == "-name":
+        instance = arg_list.pop(0)
+      elif arg == "-m":
+        memory = int(arg_list.pop(0))
+      elif arg == "-smp":
+        vcpus = int(arg_list.pop(0))
+
+    if instance is None:
+      raise errors.HypervisorError("Pid %s doesn't contain a ganeti kvm"
+                                   " instance" % pid)
+
+    return (instance, memory, vcpus)
+
   def _InstancePidAlive(self, instance_name):
-    """Returns the instance pid and pidfile
+    """Returns the instance pidfile, pid, and liveness.
+
+    @type instance_name: string
+    @param instance_name: instance name
+    @rtype: tuple
+    @return: (pid file name, pid, liveness)
 
     """
     pidfile = self._InstancePidFile(instance_name)
     pid = utils.ReadPidFile(pidfile)
-    alive = utils.IsProcessAlive(pid)
+
+    alive = False
+    try:
+      cmd_instance = self._InstancePidInfo(pid)[0]
+      alive = (cmd_instance == instance_name)
+    except errors.HypervisorError:
+      pass
 
     return (pidfile, pid, alive)
 
@@ -156,6 +229,21 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     return utils.PathJoin(cls._CONF_DIR, "%s.runtime" % instance_name)
 
   @classmethod
+  def _TryReadUidFile(cls, uid_file):
+    """Try to read a uid file
+
+    """
+    if os.path.exists(uid_file):
+      try:
+        uid = int(utils.ReadFile(uid_file))
+        return uid
+      except EnvironmentError:
+        logging.warning("Can't read uid file", exc_info=True)
+      except (TypeError, ValueError):
+        logging.warning("Can't parse uid file contents", exc_info=True)
+    return None
+
+  @classmethod
   def _RemoveInstanceRuntimeFiles(cls, pidfile, instance_name):
     """Removes an instance's rutime sockets/files.
 
@@ -164,6 +252,11 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     utils.RemoveFile(cls._InstanceMonitor(instance_name))
     utils.RemoveFile(cls._InstanceSerial(instance_name))
     utils.RemoveFile(cls._InstanceKVMRuntime(instance_name))
+    uid_file = cls._InstanceUidFile(instance_name)
+    uid = cls._TryReadUidFile(uid_file)
+    utils.RemoveFile(uid_file)
+    if uid is not None:
+      uidpool.ReleaseUid(uid)
 
   def _WriteNetScript(self, instance, seq, nic):
     """Write a script to connect a net interface to the proper bridge.
@@ -194,6 +287,7 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     if nic.nicparams[constants.NIC_MODE] == constants.NIC_MODE_BRIDGED:
       script.write("export BRIDGE=%s\n" % nic.nicparams[constants.NIC_LINK])
     script.write("export INTERFACE=$1\n")
+    script.write("export TAGS=\"%s\"\n" % " ".join(instance.tags))
     # TODO: make this configurable at ./configure time
     script.write("if [ -x '%s' ]; then\n" % self._KVM_NETWORK_SCRIPT)
     script.write("  # Execute the user-specific vif file\n")
@@ -246,42 +340,26 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     """
     result = []
     for name in os.listdir(self._PIDS_DIR):
-      filename = utils.PathJoin(self._PIDS_DIR, name)
-      if utils.IsProcessAlive(utils.ReadPidFile(filename)):
+      if self._InstancePidAlive(name)[2]:
         result.append(name)
     return result
 
   def GetInstanceInfo(self, instance_name):
     """Get instance properties.
 
+    @type instance_name: string
     @param instance_name: the instance name
-
-    @return: tuple (name, id, memory, vcpus, stat, times)
+    @rtype: tuple of strings
+    @return: (name, id, memory, vcpus, stat, times)
 
     """
     _, pid, alive = self._InstancePidAlive(instance_name)
     if not alive:
       return None
 
-    cmdline_file = utils.PathJoin("/proc", str(pid), "cmdline")
-    try:
-      cmdline = utils.ReadFile(cmdline_file)
-    except EnvironmentError, err:
-      raise errors.HypervisorError("Failed to list instance %s: %s" %
-                                   (instance_name, err))
-
-    memory = 0
-    vcpus = 0
+    _, memory, vcpus = self._InstancePidInfo(pid)
     stat = "---b-"
     times = "0"
-
-    arg_list = cmdline.split('\x00')
-    while arg_list:
-      arg =  arg_list.pop(0)
-      if arg == '-m':
-        memory = int(arg_list.pop(0))
-      elif arg == '-smp':
-        vcpus = int(arg_list.pop(0))
 
     return (instance_name, pid, memory, vcpus, stat, times)
 
@@ -293,15 +371,12 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     """
     data = []
     for name in os.listdir(self._PIDS_DIR):
-      filename = utils.PathJoin(self._PIDS_DIR, name)
-      if utils.IsProcessAlive(utils.ReadPidFile(filename)):
-        try:
-          info = self.GetInstanceInfo(name)
-        except errors.HypervisorError:
-          continue
-        if info:
-          data.append(info)
-
+      try:
+        info = self.GetInstanceInfo(name)
+      except errors.HypervisorError:
+        continue
+      if info:
+        data.append(info)
     return data
 
   def _GenerateKVMRuntime(self, instance, block_devices):
@@ -325,6 +400,11 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     boot_cdrom = hvp[constants.HV_BOOT_ORDER] == constants.HT_BO_CDROM
     boot_network = hvp[constants.HV_BOOT_ORDER] == constants.HT_BO_NETWORK
 
+    if hvp[constants.HV_KVM_FLAG] == constants.HT_KVM_ENABLED:
+      kvm_cmd.extend(["-enable-kvm"])
+    elif hvp[constants.HV_KVM_FLAG] == constants.HT_KVM_DISABLED:
+      kvm_cmd.extend(["-disable-kvm"])
+
     if boot_network:
       kvm_cmd.extend(['-boot', 'n'])
 
@@ -346,7 +426,10 @@ class KVMHypervisor(hv_base.BaseHypervisor):
       # TODO: handle FD_LOOP and FD_BLKTAP (?)
       if boot_disk:
         kvm_cmd.extend(['-boot', 'c'])
-        boot_val = ',boot=on'
+        if disk_type != constants.HT_DISK_IDE:
+          boot_val = ',boot=on'
+        else:
+          boot_val = ''
         # We only boot from the first disk
         boot_disk = False
       else:
@@ -361,9 +444,14 @@ class KVMHypervisor(hv_base.BaseHypervisor):
       options = ',format=raw,media=cdrom'
       if boot_cdrom:
         kvm_cmd.extend(['-boot', 'd'])
-        options = '%s,boot=on' % options
+        if disk_type != constants.HT_DISK_IDE:
+          options = '%s,boot=on' % options
       else:
-        options = '%s,if=virtio' % options
+        if disk_type == constants.HT_DISK_PARAVIRTUAL:
+          if_val = ',if=virtio'
+        else:
+          if_val = ',if=%s' % disk_type
+        options = '%s%s' % (options, if_val)
       drive_val = 'file=%s%s' % (iso_image, options)
       kvm_cmd.extend(['-drive', drive_val])
 
@@ -419,6 +507,10 @@ class KVMHypervisor(hv_base.BaseHypervisor):
         vnc_arg = 'unix:%s/%s.vnc' % (vnc_bind_address, instance.name)
 
       kvm_cmd.extend(['-vnc', vnc_arg])
+
+      # Also add a tablet USB device to act as a mouse
+      # This solves various mouse alignment issues
+      kvm_cmd.extend(['-usbdevice', 'tablet'])
     else:
       kvm_cmd.extend(['-nographic'])
 
@@ -482,6 +574,22 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     kvm_nics = [objects.NIC.FromDict(snic) for snic in serialized_nics]
     return (kvm_cmd, kvm_nics, hvparams)
 
+  def _RunKVMCmd(self, name, kvm_cmd):
+    """Run the KVM cmd and check for errors
+
+    @type name: string
+    @param name: instance name
+    @type kvm_cmd: list of strings
+    @param kvm_cmd: runcmd input for kvm
+
+    """
+    result = utils.RunCmd(kvm_cmd)
+    if result.failed:
+      raise errors.HypervisorError("Failed to start instance %s: %s (%s)" %
+                                   (name, result.fail_reason, result.output))
+    if not self._InstancePidAlive(name)[2]:
+      raise errors.HypervisorError("Failed to start instance %s" % name)
+
   def _ExecuteKVMRuntime(self, instance, kvm_runtime, incoming=None):
     """Execute a KVM cmd, after completing it with some last minute data
 
@@ -496,6 +604,10 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     temp_files = []
 
     kvm_cmd, kvm_nics, hvparams = kvm_runtime
+
+    security_model = hvp[constants.HV_SECURITY_MODEL]
+    if security_model == constants.HT_SM_USER:
+      kvm_cmd.extend(["-runas", hvp[constants.HV_SECURITY_DOMAIN]])
 
     if not kvm_nics:
       kvm_cmd.extend(['-net', 'none'])
@@ -526,13 +638,23 @@ class KVMHypervisor(hv_base.BaseHypervisor):
         raise errors.HypervisorError("Failed to open VNC password file %s: %s"
                                      % (vnc_pwd_file, err))
 
-    result = utils.RunCmd(kvm_cmd)
-    if result.failed:
-      raise errors.HypervisorError("Failed to start instance %s: %s (%s)" %
-                                   (name, result.fail_reason, result.output))
-
-    if not self._InstancePidAlive(name)[2]:
-      raise errors.HypervisorError("Failed to start instance %s" % name)
+    if security_model == constants.HT_SM_POOL:
+      ss = ssconf.SimpleStore()
+      uid_pool = uidpool.ParseUidPool(ss.GetUidPool(), separator="\n")
+      all_uids = set(uidpool.ExpandUidPool(uid_pool))
+      uid = uidpool.RequestUnusedUid(all_uids)
+      try:
+        username = pwd.getpwuid(uid.GetUid()).pw_name
+        kvm_cmd.extend(["-runas", username])
+        self._RunKVMCmd(name, kvm_cmd)
+      except:
+        uidpool.ReleaseUid(uid)
+        raise
+      else:
+        uid.Unlock()
+        utils.WriteFile(self._InstanceUidFile(name), data=str(uid))
+    else:
+      self._RunKVMCmd(name, kvm_cmd)
 
     if vnc_pwd:
       change_cmd = 'change vnc password %s' % vnc_pwd
@@ -568,22 +690,32 @@ class KVMHypervisor(hv_base.BaseHypervisor):
 
     return result
 
-  def StopInstance(self, instance, force=False, retry=False):
+  def StopInstance(self, instance, force=False, retry=False, name=None):
     """Stop an instance.
 
     """
-    pidfile, pid, alive = self._InstancePidAlive(instance.name)
+    if name is not None and not force:
+      raise errors.HypervisorError("Cannot shutdown cleanly by name only")
+    if name is None:
+      name = instance.name
+      acpi = instance.hvparams[constants.HV_ACPI]
+    else:
+      acpi = False
+    _, pid, alive = self._InstancePidAlive(name)
     if pid > 0 and alive:
-      if force or not instance.hvparams[constants.HV_ACPI]:
+      if force or not acpi:
         utils.KillProcess(pid)
       else:
-        self._CallMonitorCommand(instance.name, 'system_powerdown')
+        self._CallMonitorCommand(name, 'system_powerdown')
 
-    if not utils.IsProcessAlive(pid):
-      self._RemoveInstanceRuntimeFiles(pidfile, instance.name)
-      return True
-    else:
-      return False
+  def CleanupInstance(self, instance_name):
+    """Cleanup after a stopped instance
+
+    """
+    pidfile, pid, alive = self._InstancePidAlive(instance_name)
+    if pid > 0 and alive:
+      raise errors.HypervisorError("Cannot cleanup a live instance")
+    self._RemoveInstanceRuntimeFiles(pidfile, instance_name)
 
   def RebootInstance(self, instance):
     """Reboot an instance.
@@ -790,6 +922,37 @@ class KVMHypervisor(hv_base.BaseHypervisor):
         not hvparams[constants.HV_CDROM_IMAGE_PATH]):
       raise errors.HypervisorError("Cannot boot from cdrom without an"
                                    " ISO path")
+
+    security_model = hvparams[constants.HV_SECURITY_MODEL]
+    if security_model == constants.HT_SM_USER:
+      if not hvparams[constants.HV_SECURITY_DOMAIN]:
+        raise errors.HypervisorError("A security domain (user to run kvm as)"
+                                     " must be specified")
+    elif (security_model == constants.HT_SM_NONE or
+          security_model == constants.HT_SM_POOL):
+      if hvparams[constants.HV_SECURITY_DOMAIN]:
+        raise errors.HypervisorError("Cannot have a security domain when the"
+                                     " security model is 'none' or 'pool'")
+
+  @classmethod
+  def ValidateParameters(cls, hvparams):
+    """Check the given parameters for validity.
+
+    @type hvparams:  dict
+    @param hvparams: dictionary with parameter names/value
+    @raise errors.HypervisorError: when a parameter is not valid
+
+    """
+    super(KVMHypervisor, cls).ValidateParameters(hvparams)
+
+    security_model = hvparams[constants.HV_SECURITY_MODEL]
+    if security_model == constants.HT_SM_USER:
+      username = hvparams[constants.HV_SECURITY_DOMAIN]
+      try:
+        pwd.getpwnam(username)
+      except KeyError:
+        raise errors.HypervisorError("Unknown security domain user %s"
+                                     % username)
 
   @classmethod
   def PowercycleNode(cls):

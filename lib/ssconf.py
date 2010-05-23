@@ -186,6 +186,16 @@ class SimpleConfigReader(object):
     return master_candidate, drained, offline
 
   def GetInstanceByLinkIp(self, ip, link):
+    """Get instance name from its link and ip address.
+
+    @type ip: string
+    @param ip: ip address
+    @type link: string
+    @param link: nic link
+    @rtype: string
+    @return: instance name
+
+    """
     if not link:
       link = self.GetDefaultNicLink()
     if not link in self._ip_to_inst_by_link:
@@ -227,6 +237,14 @@ class SimpleConfigReader(object):
     return self._mc_primary_ips
 
   def GetInstancesIps(self, link):
+    """Get list of nic ips connected to a certain link.
+
+    @type link: string
+    @param link: nic link
+    @rtype: list
+    @return: list of ips connected to that link
+
+    """
     if not link:
       link = self.GetDefaultNicLink()
 
@@ -264,6 +282,9 @@ class SimpleStore(object):
     constants.SS_ONLINE_NODES,
     constants.SS_INSTANCE_LIST,
     constants.SS_RELEASE_VERSION,
+    constants.SS_HYPERVISOR_LIST,
+    constants.SS_MAINTAIN_NODE_HEALTH,
+    constants.SS_UID_POOL,
     )
   _MAX_SIZE = 131072
 
@@ -405,6 +426,36 @@ class SimpleStore(object):
     nl = data.splitlines(False)
     return nl
 
+  def GetHypervisorList(self):
+    """Return the list of enabled hypervisors.
+
+    """
+    data = self._ReadFile(constants.SS_HYPERVISOR_LIST)
+    nl = data.splitlines(False)
+    return nl
+
+  def GetMaintainNodeHealth(self):
+    """Return the value of the maintain_node_health option.
+
+    """
+    data = self._ReadFile(constants.SS_MAINTAIN_NODE_HEALTH)
+    # we rely on the bool serialization here
+    return data == "True"
+
+  def GetUidPool(self):
+    """Return the user-id pool definition string.
+
+    The separator character is a newline.
+
+    The return value can be parsed using uidpool.ParseUidPool()::
+
+      ss = ssconf.SimpleStore()
+      uid_pool = uidpool.ParseUidPool(ss.GetUidPool(), separator="\\n")
+
+    """
+    data = self._ReadFile(constants.SS_UID_POOL)
+    return data
+
 
 def GetMasterAndMyself(ss=None):
   """Get the master node and my own hostname.
@@ -446,28 +497,3 @@ def CheckMaster(debug, ss=None):
     if debug:
       sys.stderr.write("Not master, exiting.\n")
     sys.exit(constants.EXIT_NOTMASTER)
-
-
-def CheckMasterCandidate(debug, ss=None):
-  """Checks the node setup.
-
-  If this is a master candidate, the function will return. Otherwise it will
-  exit with an exit code based on the node status.
-
-  """
-  try:
-    if ss is None:
-      ss = SimpleStore()
-    myself = utils.HostInfo().name
-    candidates = ss.GetMasterCandidates()
-  except errors.ConfigurationError, err:
-    print "Cluster configuration incomplete: '%s'" % str(err)
-    sys.exit(constants.EXIT_NODESETUP_ERROR)
-  except errors.ResolverError, err:
-    sys.stderr.write("Cannot resolve my own name (%s)\n" % err.args[0])
-    sys.exit(constants.EXIT_NODESETUP_ERROR)
-
-  if myself not in candidates:
-    if debug:
-      sys.stderr.write("Not master candidate, exiting.\n")
-    sys.exit(constants.EXIT_NOTCANDIDATE)

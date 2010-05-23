@@ -36,11 +36,20 @@ from ganeti import constants
 from ganeti import cli
 from ganeti import errors
 from ganeti import utils
+from ganeti import hypervisor
+from ganeti import compat
+
+from ganeti.confd import client as confd_client
 
 
 USAGE = ("\tburnin -o OS_NAME [options...] instance_name ...")
 
 MAX_RETRIES = 3
+LOG_HEADERS = {
+  0: "- ",
+  1: "* ",
+  2: ""
+  }
 
 class InstanceDown(Exception):
   """The checked instance was not up"""
@@ -58,18 +67,17 @@ def Usage():
   sys.exit(2)
 
 
-def Log(msg, indent=0):
+def Log(msg, *args, **kwargs):
   """Simple function that prints out its argument.
 
   """
-  headers = {
-    0: "- ",
-    1: "* ",
-    2: ""
-    }
+  if args:
+    msg = msg % args
+  indent = kwargs.get('indent', 0)
   sys.stdout.write("%*s%s%s\n" % (2*indent, "",
-                                   headers.get(indent, "  "), msg))
+                                  LOG_HEADERS.get(indent, "  "), msg))
   sys.stdout.flush()
+
 
 def Err(msg, exit_code=1):
   """Simple error logging that prints to stderr.
@@ -105,6 +113,7 @@ OPTIONS = [
                  help="OS to use during burnin",
                  metavar="<OS>",
                  completion_suggest=cli.OPT_COMPL_ONE_OS),
+  cli.HYPERVISOR_OPT,
   cli.cli_option("--disk-size", dest="disk_size",
                  help="Disk size (determines disk count)",
                  default="128m", type="string", metavar="<size,size,...>",
@@ -160,6 +169,9 @@ OPTIONS = [
   cli.cli_option("--no-nics", dest="nics",
                  help="No network interfaces", action="store_const",
                  const=[], default=[{}]),
+  cli.cli_option("--no-confd", dest="do_confd_tests",
+                 help="Skip confd queries",
+                 action="store_false", default=True),
   cli.cli_option("--rename", dest="rename", default=None,
                  help=("Give one unused instance name which is taken"
                        " to start the renaming sequence"),
@@ -290,19 +302,19 @@ class Burner(object):
     try:
       val = fn(*args)
       if retry_count > 0 and retry_count < MAX_RETRIES:
-        Log("Idempotent %s succeeded after %d retries" %
-            (msg, MAX_RETRIES - retry_count))
+        Log("Idempotent %s succeeded after %d retries",
+            msg, MAX_RETRIES - retry_count)
       return val
     except Exception, err: # pylint: disable-msg=W0703
       if retry_count == 0:
-        Log("Non-idempotent %s failed, aborting" % (msg, ))
+        Log("Non-idempotent %s failed, aborting", msg)
         raise
       elif retry_count == 1:
-        Log("Idempotent %s repeated failure, aborting" % (msg, ))
+        Log("Idempotent %s repeated failure, aborting", msg)
         raise
       else:
-        Log("Idempotent %s failed, retry #%d/%d: %s" %
-            (msg, MAX_RETRIES - retry_count + 1, MAX_RETRIES, err))
+        Log("Idempotent %s failed, retry #%d/%d: %s",
+            msg, MAX_RETRIES - retry_count + 1, MAX_RETRIES, err)
         self.MaybeRetry(retry_count - 1, msg, fn, *args)
 
   def _SetDebug(self, ops):
@@ -313,7 +325,7 @@ class Burner(object):
   def _ExecOp(self, *ops):
     """Execute one or more opcodes and manage the exec buffer.
 
-    @result: if only opcode has been passed, we return its result;
+    @return: if only opcode has been passed, we return its result;
         otherwise we return the list of results
 
     """
@@ -327,7 +339,7 @@ class Burner(object):
   def ExecOp(self, retry, *ops):
     """Execute one or more opcodes and manage the exec buffer.
 
-    @result: if only opcode has been passed, we return its result;
+    @return: if only opcode has been passed, we return its result;
         otherwise we return the list of results
 
     """
@@ -338,13 +350,16 @@ class Burner(object):
     self._SetDebug(ops)
     return self.MaybeRetry(rval, "opcode", self._ExecOp, *ops)
 
-  def ExecOrQueue(self, name, *ops):
+  def ExecOrQueue(self, name, ops, post_process=None):
     """Execute an opcode and manage the exec buffer."""
     if self.opts.parallel:
       self._SetDebug(ops)
-      self.queued_ops.append((ops, name))
+      self.queued_ops.append((ops, name, post_process))
     else:
-      return self.ExecOp(self.queue_retry, *ops)
+      val = self.ExecOp(self.queue_retry, *ops) # pylint: disable-msg=W0142
+      if post_process is not None:
+        post_process()
+      return val
 
   def StartBatch(self, retry):
     """Start a new batch of jobs.
@@ -381,18 +396,33 @@ class Burner(object):
 
     """
     self.ClearFeedbackBuf()
-    job_ids = [cli.SendJob(row[0], cl=self.cl) for row in jobs]
-    Log("Submitted job ID(s) %s" % utils.CommaJoin(job_ids), indent=1)
-    results = []
-    for jid, (_, iname) in zip(job_ids, jobs):
-      Log("waiting for job %s for %s" % (jid, iname), indent=2)
-      try:
-        results.append(cli.PollJob(jid, cl=self.cl, feedback_fn=self.Feedback))
-      except Exception, err: # pylint: disable-msg=W0703
-        Log("Job for %s failed: %s" % (iname, err))
-    if len(results) != len(jobs):
+    jex = cli.JobExecutor(cl=self.cl, feedback_fn=self.Feedback)
+    for ops, name, _ in jobs:
+      jex.QueueJob(name, *ops) # pylint: disable-msg=W0142
+    try:
+      results = jex.GetResults()
+    except Exception, err: # pylint: disable-msg=W0703
+      Log("Jobs failed: %s", err)
       raise BurninFailure()
-    return results
+
+    fail = False
+    val = []
+    for (_, name, post_process), (success, result) in zip(jobs, results):
+      if success:
+        if post_process:
+          try:
+            post_process()
+          except Exception, err: # pylint: disable-msg=W0703
+            Log("Post process call for job %s failed: %s", name, err)
+            fail = True
+        val.append(result)
+      else:
+        fail = True
+
+    if fail:
+      raise BurninFailure()
+
+    return val
 
   def ParseOptions(self):
     """Parses the command line options.
@@ -446,12 +476,16 @@ class Burner(object):
       constants.BE_MEMORY: options.mem_size,
       constants.BE_VCPUS: 1,
       }
+
+    self.hypervisor = None
     self.hvp = {}
+    if options.hypervisor:
+      self.hypervisor, self.hvp = options.hypervisor
 
     socket.setdefaulttimeout(options.net_timeout)
 
   def GetState(self):
-    """Read the cluster state from the config."""
+    """Read the cluster state from the master daemon."""
     if self.opts.nodes:
       names = self.opts.nodes.split(",")
     else:
@@ -481,6 +515,17 @@ class Burner(object):
     if not found:
       Err("OS '%s' not found" % self.opts.os)
 
+    cluster_info = self.cl.QueryClusterInfo()
+    self.cluster_info = cluster_info
+    if not self.cluster_info:
+      Err("Can't get cluster info")
+
+    default_nic_params = self.cluster_info["nicparams"][constants.PP_DEFAULT]
+    self.cluster_default_nicparams = default_nic_params
+    if self.hypervisor is None:
+      self.hypervisor = self.cluster_info["default_hypervisor"]
+    self.hv_class = hypervisor.GetHypervisorClass(self.hypervisor)
+
   @_DoCheckInstances
   @_DoBatch(False)
   def BurnCreateInstances(self):
@@ -494,7 +539,7 @@ class Burner(object):
 
     Log("Creating instances")
     for pnode, snode, instance in mytor:
-      Log("instance %s" % instance, indent=1)
+      Log("instance %s", instance, indent=1)
       if self.opts.iallocator:
         pnode = snode = None
         msg = "with iallocator %s" % self.opts.iallocator
@@ -524,39 +569,39 @@ class Burner(object):
                                     iallocator=self.opts.iallocator,
                                     beparams=self.bep,
                                     hvparams=self.hvp,
+                                    hypervisor=self.hypervisor,
                                     )
-
-      self.ExecOrQueue(instance, op)
-      self.to_rem.append(instance)
+      remove_instance = lambda name: lambda: self.to_rem.append(name)
+      self.ExecOrQueue(instance, [op], post_process=remove_instance(instance))
 
   @_DoBatch(False)
   def BurnGrowDisks(self):
     """Grow both the os and the swap disks by the requested amount, if any."""
     Log("Growing disks")
     for instance in self.instances:
-      Log("instance %s" % instance, indent=1)
+      Log("instance %s", instance, indent=1)
       for idx, growth in enumerate(self.disk_growth):
         if growth > 0:
           op = opcodes.OpGrowDisk(instance_name=instance, disk=idx,
                                   amount=growth, wait_for_sync=True)
-          Log("increase disk/%s by %s MB" % (idx, growth), indent=2)
-          self.ExecOrQueue(instance, op)
+          Log("increase disk/%s by %s MB", idx, growth, indent=2)
+          self.ExecOrQueue(instance, [op])
 
   @_DoBatch(True)
   def BurnReplaceDisks1D8(self):
     """Replace disks on primary and secondary for drbd8."""
     Log("Replacing disks on the same nodes")
     for instance in self.instances:
-      Log("instance %s" % instance, indent=1)
+      Log("instance %s", instance, indent=1)
       ops = []
       for mode in constants.REPLACE_DISK_SEC, constants.REPLACE_DISK_PRI:
         op = opcodes.OpReplaceDisks(instance_name=instance,
                                     mode=mode,
                                     disks=[i for i in range(self.disk_count)],
                                     early_release=self.opts.early_release)
-        Log("run %s" % mode, indent=2)
+        Log("run %s", mode, indent=2)
         ops.append(op)
-      self.ExecOrQueue(instance, *ops) # pylint: disable-msg=W0142
+      self.ExecOrQueue(instance, ops)
 
   @_DoBatch(True)
   def BurnReplaceDisks2(self):
@@ -567,7 +612,7 @@ class Burner(object):
     mytor = izip(islice(cycle(self.nodes), 2, None),
                  self.instances)
     for tnode, instance in mytor:
-      Log("instance %s" % instance, indent=1)
+      Log("instance %s", instance, indent=1)
       if self.opts.iallocator:
         tnode = None
         msg = "with iallocator %s" % self.opts.iallocator
@@ -579,8 +624,8 @@ class Burner(object):
                                   iallocator=self.opts.iallocator,
                                   disks=[],
                                   early_release=self.opts.early_release)
-      Log("run %s %s" % (mode, msg), indent=2)
-      self.ExecOrQueue(instance, op)
+      Log("run %s %s", mode, msg, indent=2)
+      self.ExecOrQueue(instance, [op])
 
   @_DoCheckInstances
   @_DoBatch(False)
@@ -588,10 +633,10 @@ class Burner(object):
     """Failover the instances."""
     Log("Failing over instances")
     for instance in self.instances:
-      Log("instance %s" % instance, indent=1)
+      Log("instance %s", instance, indent=1)
       op = opcodes.OpFailoverInstance(instance_name=instance,
                                       ignore_consistency=False)
-      self.ExecOrQueue(instance, op)
+      self.ExecOrQueue(instance, [op])
 
   @_DoCheckInstances
   @_DoBatch(False)
@@ -601,24 +646,24 @@ class Burner(object):
     mytor = izip(islice(cycle(self.nodes), 1, None),
                  self.instances)
     for tnode, instance in mytor:
-      Log("instance %s" % instance, indent=1)
+      Log("instance %s", instance, indent=1)
       op = opcodes.OpMoveInstance(instance_name=instance,
                                   target_node=tnode)
-      self.ExecOrQueue(instance, op)
+      self.ExecOrQueue(instance, [op])
 
   @_DoBatch(False)
   def BurnMigrate(self):
     """Migrate the instances."""
     Log("Migrating instances")
     for instance in self.instances:
-      Log("instance %s" % instance, indent=1)
+      Log("instance %s", instance, indent=1)
       op1 = opcodes.OpMigrateInstance(instance_name=instance, live=True,
                                       cleanup=False)
 
       op2 = opcodes.OpMigrateInstance(instance_name=instance, live=True,
                                       cleanup=True)
       Log("migration and migration cleanup", indent=2)
-      self.ExecOrQueue(instance, op1, op2)
+      self.ExecOrQueue(instance, [op1, op2])
 
   @_DoCheckInstances
   @_DoBatch(False)
@@ -633,7 +678,7 @@ class Burner(object):
                  self.instances)
 
     for pnode, snode, enode, instance in mytor:
-      Log("instance %s" % instance, indent=1)
+      Log("instance %s", instance, indent=1)
       # read the full name of the instance
       nam_op = opcodes.OpQueryInstances(output_fields=["name"],
                                         names=[instance], use_locking=True)
@@ -681,11 +726,11 @@ class Burner(object):
 
       erem_op = opcodes.OpRemoveExport(instance_name=instance)
 
-      Log("export to node %s" % enode, indent=2)
+      Log("export to node %s", enode, indent=2)
       Log("remove instance", indent=2)
       Log(import_log_msg, indent=2)
       Log("remove export", indent=2)
-      self.ExecOrQueue(instance, exp_op, rem_op, imp_op, erem_op)
+      self.ExecOrQueue(instance, [exp_op, rem_op, imp_op, erem_op])
 
   @staticmethod
   def StopInstanceOp(instance):
@@ -709,20 +754,20 @@ class Burner(object):
     """Stop/start the instances."""
     Log("Stopping and starting instances")
     for instance in self.instances:
-      Log("instance %s" % instance, indent=1)
+      Log("instance %s", instance, indent=1)
       op1 = self.StopInstanceOp(instance)
       op2 = self.StartInstanceOp(instance)
-      self.ExecOrQueue(instance, op1, op2)
+      self.ExecOrQueue(instance, [op1, op2])
 
   @_DoBatch(False)
   def BurnRemove(self):
     """Remove the instances."""
     Log("Removing instances")
     for instance in self.to_rem:
-      Log("instance %s" % instance, indent=1)
+      Log("instance %s", instance, indent=1)
       op = opcodes.OpRemoveInstance(instance_name=instance,
                                     ignore_failures=True)
-      self.ExecOrQueue(instance, op)
+      self.ExecOrQueue(instance, [op])
 
   def BurnRename(self):
     """Rename the instances.
@@ -734,7 +779,7 @@ class Burner(object):
     Log("Renaming instances")
     rename = self.opts.rename
     for instance in self.instances:
-      Log("instance %s" % instance, indent=1)
+      Log("instance %s", instance, indent=1)
       op_stop1 = self.StopInstanceOp(instance)
       op_stop2 = self.StopInstanceOp(rename)
       op_rename1 = self.RenameInstanceOp(instance, rename)
@@ -752,7 +797,7 @@ class Burner(object):
     """Reinstall the instances."""
     Log("Reinstalling instances")
     for instance in self.instances:
-      Log("instance %s" % instance, indent=1)
+      Log("instance %s", instance, indent=1)
       op1 = self.StopInstanceOp(instance)
       op2 = opcodes.OpReinstallInstance(instance_name=instance)
       Log("reinstall without passing the OS", indent=2)
@@ -760,7 +805,7 @@ class Burner(object):
                                         os_type=self.opts.os)
       Log("reinstall specifying the OS", indent=2)
       op4 = self.StartInstanceOp(instance)
-      self.ExecOrQueue(instance, op1, op2, op3, op4)
+      self.ExecOrQueue(instance, [op1, op2, op3, op4])
 
   @_DoCheckInstances
   @_DoBatch(True)
@@ -768,15 +813,15 @@ class Burner(object):
     """Reboot the instances."""
     Log("Rebooting instances")
     for instance in self.instances:
-      Log("instance %s" % instance, indent=1)
+      Log("instance %s", instance, indent=1)
       ops = []
       for reboot_type in constants.REBOOT_TYPES:
         op = opcodes.OpRebootInstance(instance_name=instance,
                                       reboot_type=reboot_type,
                                       ignore_secondaries=False)
-        Log("reboot with type '%s'" % reboot_type, indent=2)
+        Log("reboot with type '%s'", reboot_type, indent=2)
         ops.append(op)
-      self.ExecOrQueue(instance, *ops) # pylint: disable-msg=W0142
+      self.ExecOrQueue(instance, ops)
 
   @_DoCheckInstances
   @_DoBatch(True)
@@ -784,7 +829,7 @@ class Burner(object):
     """Activate and deactivate disks of the instances."""
     Log("Activating/deactivating disks")
     for instance in self.instances:
-      Log("instance %s" % instance, indent=1)
+      Log("instance %s", instance, indent=1)
       op_start = self.StartInstanceOp(instance)
       op_act = opcodes.OpActivateInstanceDisks(instance_name=instance)
       op_deact = opcodes.OpDeactivateInstanceDisks(instance_name=instance)
@@ -792,7 +837,7 @@ class Burner(object):
       Log("activate disks when online", indent=2)
       Log("activate disks when offline", indent=2)
       Log("deactivate disks (when offline)", indent=2)
-      self.ExecOrQueue(instance, op_act, op_stop, op_act, op_deact, op_start)
+      self.ExecOrQueue(instance, [op_act, op_stop, op_act, op_deact, op_start])
 
   @_DoCheckInstances
   @_DoBatch(False)
@@ -800,7 +845,7 @@ class Burner(object):
     """Add and remove an extra disk for the instances."""
     Log("Adding and removing disks")
     for instance in self.instances:
-      Log("instance %s" % instance, indent=1)
+      Log("instance %s", instance, indent=1)
       op_add = opcodes.OpSetInstanceParams(\
         instance_name=instance,
         disks=[(constants.DDM_ADD, {"size": self.disk_size[0]})])
@@ -810,21 +855,78 @@ class Burner(object):
       op_start = self.StartInstanceOp(instance)
       Log("adding a disk", indent=2)
       Log("removing last disk", indent=2)
-      self.ExecOrQueue(instance, op_add, op_stop, op_rem, op_start)
+      self.ExecOrQueue(instance, [op_add, op_stop, op_rem, op_start])
 
   @_DoBatch(False)
   def BurnAddRemoveNICs(self):
     """Add and remove an extra NIC for the instances."""
     Log("Adding and removing NICs")
     for instance in self.instances:
-      Log("instance %s" % instance, indent=1)
+      Log("instance %s", instance, indent=1)
       op_add = opcodes.OpSetInstanceParams(\
         instance_name=instance, nics=[(constants.DDM_ADD, {})])
       op_rem = opcodes.OpSetInstanceParams(\
         instance_name=instance, nics=[(constants.DDM_REMOVE, {})])
       Log("adding a NIC", indent=2)
       Log("removing last NIC", indent=2)
-      self.ExecOrQueue(instance, op_add, op_rem)
+      self.ExecOrQueue(instance, [op_add, op_rem])
+
+  def ConfdCallback(self, reply):
+    """Callback for confd queries"""
+    if reply.type == confd_client.UPCALL_REPLY:
+      if reply.server_reply.status != constants.CONFD_REPL_STATUS_OK:
+        Err("Query %s gave non-ok status %s: %s" % (reply.orig_request,
+                                                    reply.server_reply.status,
+                                                    reply.server_reply))
+      if reply.orig_request.type == constants.CONFD_REQ_PING:
+        Log("Ping: OK", indent=1)
+      elif reply.orig_request.type == constants.CONFD_REQ_CLUSTER_MASTER:
+        if reply.server_reply.answer == self.cluster_info["master"]:
+          Log("Master: OK", indent=1)
+        else:
+          Err("Master: wrong: %s" % reply.server_reply.answer)
+      elif reply.orig_request.type == constants.CONFD_REQ_NODE_ROLE_BYNAME:
+        if reply.server_reply.answer == constants.CONFD_NODE_ROLE_MASTER:
+          Log("Node role for master: OK", indent=1)
+        else:
+          Err("Node role for master: wrong: %s" % reply.server_reply.answer)
+
+  def DoConfdRequestReply(self, req):
+    self.confd_counting_callback.RegisterQuery(req.rsalt)
+    self.confd_client.SendRequest(req, async=False)
+    while not self.confd_counting_callback.AllAnswered():
+      if not self.confd_client.ReceiveReply():
+        Err("Did not receive all expected confd replies")
+        break
+
+  def BurnConfd(self):
+    """Run confd queries for our instances.
+
+    The following confd queries are tested:
+      - CONFD_REQ_PING: simple ping
+      - CONFD_REQ_CLUSTER_MASTER: cluster master
+      - CONFD_REQ_NODE_ROLE_BYNAME: node role, for the master
+
+    """
+    Log("Checking confd results")
+
+    filter_callback = confd_client.ConfdFilterCallback(self.ConfdCallback)
+    counting_callback = confd_client.ConfdCountingCallback(filter_callback)
+    self.confd_counting_callback = counting_callback
+
+    self.confd_client = confd_client.GetConfdClient(counting_callback)
+
+    req = confd_client.ConfdClientRequest(type=constants.CONFD_REQ_PING)
+    self.DoConfdRequestReply(req)
+
+    req = confd_client.ConfdClientRequest(
+      type=constants.CONFD_REQ_CLUSTER_MASTER)
+    self.DoConfdRequestReply(req)
+
+    req = confd_client.ConfdClientRequest(
+        type=constants.CONFD_REQ_NODE_ROLE_BYNAME,
+        query=self.cluster_info["master"])
+    self.DoConfdRequestReply(req)
 
   def _CheckInstanceAlive(self, instance):
     """Check if an instance is alive by doing http checks.
@@ -880,15 +982,21 @@ class Burner(object):
           opts.disk_template in constants.DTS_NET_MIRROR) :
         self.BurnReplaceDisks2()
 
-      if (opts.disk_template != constants.DT_DISKLESS and
-          utils.any(self.disk_growth, lambda n: n > 0)):
+      if (opts.disk_template in constants.DTS_GROWABLE and
+          compat.any(self.disk_growth, lambda n: n > 0)):
         self.BurnGrowDisks()
 
       if opts.do_failover and opts.disk_template in constants.DTS_NET_MIRROR:
         self.BurnFailover()
 
-      if opts.do_migrate and opts.disk_template == constants.DT_DRBD8:
-        self.BurnMigrate()
+      if opts.do_migrate:
+        if opts.disk_template != constants.DT_DRBD8:
+          Log("Skipping migration (disk template not DRBD8)")
+        elif not self.hv_class.CAN_MIGRATE:
+          Log("Skipping migration (hypervisor %s does not support it)",
+              self.hypervisor)
+        else:
+          self.BurnMigrate()
 
       if (opts.do_move and len(self.nodes) > 1 and
           opts.disk_template in [constants.DT_PLAIN, constants.DT_FILE]):
@@ -908,14 +1016,23 @@ class Burner(object):
       if opts.do_addremove_disks:
         self.BurnAddRemoveDisks()
 
+      default_nic_mode = self.cluster_default_nicparams[constants.NIC_MODE]
+      # Don't add/remove nics in routed mode, as we would need an ip to add
+      # them with
       if opts.do_addremove_nics:
-        self.BurnAddRemoveNICs()
+        if default_nic_mode == constants.NIC_MODE_BRIDGED:
+          self.BurnAddRemoveNICs()
+        else:
+          Log("Skipping nic add/remove as the cluster is not in bridged mode")
 
       if opts.do_activate_disks:
         self.BurnActivateDisks()
 
       if opts.rename:
         self.BurnRename()
+
+      if opts.do_confd_tests:
+        self.BurnConfd()
 
       if opts.do_startstop:
         self.BurnStopStart()
@@ -932,7 +1049,7 @@ class Burner(object):
         except Exception, err:  # pylint: disable-msg=W0703
           if has_err: # already detected errors, so errors in removal
                       # are quite expected
-            Log("Note: error detected during instance remove: %s" % str(err))
+            Log("Note: error detected during instance remove: %s", err)
           else: # non-expected error
             raise
 

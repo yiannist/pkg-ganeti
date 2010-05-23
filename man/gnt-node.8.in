@@ -3,7 +3,7 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GNT-NODE" "8" "12 March 2010" "ganeti 2.0" ""
+.TH "GNT-NODE" "8" "07 May 2010" "ganeti 2.0" ""
 
 .SH NAME
 gnt-node \- node administration
@@ -576,7 +576,7 @@ Example:
 .fi
 .SS "POWERCYCLE"
 
-\fBpowercycle\fR [ \fB--confirm\fR ] [ \fB--force\fR ] \fB\fInode\fB\fR
+\fBpowercycle\fR [ \fB--yes\fR ] [ \fB--force\fR ] \fB\fInode\fB\fR
 
 .PP
 This commands (tries to) forcefully reboot a node. It is a

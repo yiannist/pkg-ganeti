@@ -39,6 +39,7 @@ class XenHypervisor(hv_base.BaseHypervisor):
   all the functionality that is identical for both.
 
   """
+  CAN_MIGRATE = True
   REBOOT_RETRY_COUNT = 60
   REBOOT_RETRY_INTERVAL = 10
 
@@ -189,21 +190,22 @@ class XenHypervisor(hv_base.BaseHypervisor):
                                    (instance.name, result.fail_reason,
                                     result.output))
 
-  def StopInstance(self, instance, force=False, retry=False):
+  def StopInstance(self, instance, force=False, retry=False, name=None):
     """Stop an instance.
 
     """
-    self._RemoveConfigFile(instance.name)
+    if name is None:
+      name = instance.name
+    self._RemoveConfigFile(name)
     if force:
-      command = ["xm", "destroy", instance.name]
+      command = ["xm", "destroy", name]
     else:
-      command = ["xm", "shutdown", instance.name]
+      command = ["xm", "shutdown", name]
     result = utils.RunCmd(command)
 
     if result.failed:
       raise errors.HypervisorError("Failed to stop instance %s: %s, %s" %
-                                   (instance.name, result.fail_reason,
-                                    result.output))
+                                   (name, result.fail_reason, result.output))
 
   def RebootInstance(self, instance):
     """Reboot an instance.

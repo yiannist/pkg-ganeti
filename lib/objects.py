@@ -497,7 +497,7 @@ class Disk(ConfigObject):
     actual algorithms from bdev.
 
     """
-    if self.dev_type == constants.LD_LV:
+    if self.dev_type == constants.LD_LV or self.dev_type == constants.LD_FILE:
       self.size += amount
     elif self.dev_type == constants.LD_DRBD8:
       if self.children:
@@ -864,6 +864,8 @@ class Cluster(TaggableObject):
     "candidate_pool_size",
     "modify_etc_hosts",
     "modify_ssh_setup",
+    "maintain_node_health",
+    "uid_pool",
     ] + _TIMESTAMPS + _UUID
 
   def UpgradeConfig(self):
@@ -910,6 +912,13 @@ class Cluster(TaggableObject):
          if hvname != self.default_hypervisor])
       self.default_hypervisor = None
 
+    # maintain_node_health added after 2.1.1
+    if self.maintain_node_health is None:
+      self.maintain_node_health = False
+
+    if self.uid_pool is None:
+      self.uid_pool = []
+
   def ToDict(self):
     """Custom function for cluster.
 
@@ -927,6 +936,30 @@ class Cluster(TaggableObject):
     if not isinstance(obj.tcpudp_port_pool, set):
       obj.tcpudp_port_pool = set(obj.tcpudp_port_pool)
     return obj
+
+  def GetHVDefaults(self, hypervisor, os_name=None, skip_keys=None):
+    """Get the default hypervisor parameters for the cluster.
+
+    @param hypervisor: the hypervisor name
+    @param os_name: if specified, we'll also update the defaults for this OS
+    @param skip_keys: if passed, list of keys not to use
+    @return: the defaults dict
+
+    """
+    if skip_keys is None:
+      skip_keys = []
+
+    fill_stack = [self.hvparams.get(hypervisor, {})]
+    if os_name is not None:
+      os_hvp = self.os_hvp.get(os_name, {}).get(hypervisor, {})
+      fill_stack.append(os_hvp)
+
+    ret_dict = {}
+    for o_dict in fill_stack:
+      ret_dict = FillDict(ret_dict, o_dict, skip_keys=skip_keys)
+
+    return ret_dict
+
 
   def FillHV(self, instance, skip_globals=False):
     """Fill an instance's hvparams dict.
@@ -946,18 +979,9 @@ class Cluster(TaggableObject):
     else:
       skip_keys = []
 
-    # We fill the list from least to most important override
-    fill_stack = [
-      self.hvparams.get(instance.hypervisor, {}),
-      self.os_hvp.get(instance.os, {}).get(instance.hypervisor, {}),
-      instance.hvparams,
-      ]
-
-    ret_dict = {}
-    for o_dict in fill_stack:
-      ret_dict = FillDict(ret_dict, o_dict, skip_keys=skip_keys)
-
-    return ret_dict
+    def_dict = self.GetHVDefaults(instance.hypervisor, instance.os,
+                                  skip_keys=skip_keys)
+    return FillDict(def_dict, instance.hvparams, skip_keys=skip_keys)
 
   def FillBE(self, instance):
     """Fill an instance's beparams dict.
@@ -1034,10 +1058,10 @@ class SerializableConfigParser(ConfigParser.SafeConfigParser):
     self.write(buf)
     return buf.getvalue()
 
-  @staticmethod
-  def Loads(data):
+  @classmethod
+  def Loads(cls, data):
     """Load data from a string."""
     buf = StringIO(data)
-    cfp = SerializableConfigParser()
+    cfp = cls()
     cfp.readfp(buf)
     return cfp

@@ -138,6 +138,7 @@
 
       <cmdsynopsis>
         <command>copyfile</command>
+        <arg>--use-replication-network</arg>
         <arg>-n <replaceable>node</replaceable></arg>
         <arg choice="req"><replaceable>file</replaceable></arg>
       </cmdsynopsis>
@@ -149,6 +150,10 @@
         nodes if the option is given multiple times. If
         <option>-n</option> is not given at all, the file will be
         copied to all nodes.
+
+        Passing the <option>--use-replication-network</option> option
+        will cause the copy to be done over the replication network
+        (only matters if the primary/secondary IPs are different).
 
         Example:
         <screen>
@@ -236,6 +241,10 @@
         <arg>--backend-parameters <replaceable>be-param</replaceable>=<replaceable>value</replaceable><arg rep="repeat" choice="opt">,<replaceable>be-param</replaceable>=<replaceable>value</replaceable></arg></arg>
         <sbr>
         <arg>--nic-parameters <replaceable>nic-param</replaceable>=<replaceable>value</replaceable><arg rep="repeat" choice="opt">,<replaceable>nic-param</replaceable>=<replaceable>value</replaceable></arg></arg>
+        <sbr>
+        <arg>--maintain-node-health <group choice="req"><arg>yes</arg><arg>no</arg></group></arg>
+        <sbr>
+        <arg>--uid-pool <replaceable>user-id pool definition</replaceable></arg>
         <sbr>
         <arg choice="req"><replaceable>clustername</replaceable></arg>
       </cmdsynopsis>
@@ -484,6 +493,27 @@
         </variablelist>
       </para>
 
+      <para>
+        The option <option>--maintain-node-health</option> allows to
+        enable/disable automatic maintenance actions on
+        nodes. Currently these include automatic shutdown of instances
+        and deactivation of DRBD devices on offline nodes; in the
+        future it might be extended to automatic removal of unknown
+        LVM volumes, etc.
+      </para>
+
+      <para>
+        The <option>--uid-pool</option> option initializes the user-id pool.
+        The <replaceable>user-id pool definition</replaceable> can contain a
+        list of user-ids and/or a list of user-id ranges. The parameter format
+        is a comma-separated list of numeric user-ids or user-id ranges.
+        The ranges are defined by a lower and higher boundary, separated
+        by a dash. The boundaries are inclusive.
+        If the <option>--uid-pool</option> option is not supplied, the
+        user-id pool is initialized to an empty list. An empty list means that
+        the user-id pool feature is disabled.
+      </para>
+
     </refsect2>
 
     <refsect2>
@@ -540,7 +570,15 @@
         <sbr>
         <arg choice="opt">--nic-parameters <replaceable>nic-param</replaceable>=<replaceable>value</replaceable><arg rep="repeat" choice="opt">,<replaceable>nic-param</replaceable>=<replaceable>value</replaceable></arg></arg>
         <sbr>
-        <arg>-C <replaceable>candidate_pool_size</replaceable></arg>
+        <arg choice="opt">--uid-pool <replaceable>user-id pool definition</replaceable></arg>
+        <sbr>
+        <arg choice="opt">--add-uids <replaceable>user-id pool definition</replaceable></arg>
+        <sbr>
+        <arg choice="opt">--remove-uids <replaceable>user-id pool definition</replaceable></arg>
+        <sbr>
+        <arg choice="opt">-C <replaceable>candidate_pool_size</replaceable></arg>
+        <sbr>
+        <arg>--maintain-node-health <group choice="req"><arg>yes</arg><arg>no</arg></group></arg>
 
       </cmdsynopsis>
 
@@ -552,13 +590,15 @@
           The <option>-g</option>, <option>--no-lvm-storarge</option>,
           <option>--enabled-hypervisors</option>,
           <option>--hypervisor-parameters</option>,
-          <option>--backend-parameters</option> and
-          <option>--nic-parameters</option> and options are
+          <option>--backend-parameters</option>,
+          <option>--nic-parameters</option>,
+          <option>--maintain-node-health</option> and
+          <option>--uid-pool</option> options are
           described in the <command>init</command> command.
         </para>
 
       <para>
-        The <option>-C</option> options specifies the
+        The <option>-C</option> option specifies the
         <varname>candidate_pool_size</varname> cluster parameter. This
         is the number of nodes that the master will try to keep as
         <literal>master_candidates</literal>. For more details about
@@ -568,6 +608,11 @@
         automatically promote as many nodes as required and possible
         to reach the intended number.
       </para>
+
+      <para>
+        The <option>--add-uids</option> and <option>--remove-uids</option>
+        options can be used to modify the user-id pool by adding/removing
+        a list of user-ids or user-id ranges.
     </refsect2>
 
     <refsect2>
@@ -700,6 +745,39 @@
         Note that since this command can be dangerous (especially when
         run over SSH), the command will require confirmation unless
         run with the <option>-f</option> option.
+      </para>
+    </refsect2>
+
+    <refsect2>
+      <title>RENEW-CRYPTO</title>
+
+      <cmdsynopsis>
+        <command>renew-crypto</command>
+        <arg>-f</arg>
+        <sbr>
+        <arg choice="opt">--new-cluster-certificate</arg>
+        <arg choice="opt">--new-confd-hmac-key</arg>
+        <sbr>
+        <arg choice="opt">--new-rapi-certificate</arg>
+        <arg choice="opt">--rapi-certificate <replaceable>rapi-cert</replaceable></arg>
+      </cmdsynopsis>
+
+      <para>
+        This command will stop all
+        Ganeti daemons in the cluster and start them again once the new
+        certificates and keys are replicated. The options
+        <option>--new-cluster-certificate</option> and
+        <option>--new-confd-hmac-key</option> can be used to regenerate the
+        cluster-internal SSL certificate respective the HMAC key used by
+        <citerefentry>
+        <refentrytitle>ganeti-confd</refentrytitle><manvolnum>8</manvolnum>
+        </citerefentry>. To generate a new self-signed RAPI certificate (used
+        by <citerefentry>
+        <refentrytitle>ganeti-rapi</refentrytitle><manvolnum>8</manvolnum>
+        </citerefentry>) specify <option>--new-rapi-certificate</option>. If
+        you want to use your own certificate, e.g. one signed by a certificate
+        authority (CA), pass its filename to
+        <option>--rapi-certificate</option>.
       </para>
     </refsect2>
 

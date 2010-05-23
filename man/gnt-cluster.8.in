@@ -3,7 +3,7 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GNT-CLUSTER" "8" "12 March 2010" "ganeti 2.0" ""
+.TH "GNT-CLUSTER" "8" "07 May 2010" "ganeti 2.0" ""
 
 .SH NAME
 gnt-cluster \- ganeti administration, cluster-wide
@@ -69,7 +69,7 @@ and the command which will be executed will be
 "ls -l /etc"
 .SS "COPYFILE"
 
-\fBcopyfile\fR [ \fB-n \fInode\fB\fR ] \fB\fIfile\fB\fR
+\fBcopyfile\fR [ \fB--use-replication-network\fR ] [ \fB-n \fInode\fB\fR ] \fB\fIfile\fB\fR
 
 .PP
 Copies a file to all or to some nodes. The argument specifies
@@ -78,6 +78,9 @@ the source file (on the current system), the
 nodes if the option is given multiple times. If
 \fB-n\fR is not given at all, the file will be
 copied to all nodes.
+Passing the \fB--use-replication-network\fR option
+will cause the copy to be done over the replication network
+(only matters if the primary/secondary IPs are different).
 Example:
 
 .nf
@@ -126,6 +129,8 @@ Shows runtime cluster information: cluster name, architecture
     [ \fB--hypervisor-parameters \fIhypervisor\fB:\fIhv-param\fB=\fIvalue\fB [ ,\fIhv-param\fB=\fIvalue\fB\fI ...\fB ]\fR ]
     [ \fB--backend-parameters \fIbe-param\fB=\fIvalue\fB [ ,\fIbe-param\fB=\fIvalue\fB\fI ...\fB ]\fR ]
     [ \fB--nic-parameters \fInic-param\fB=\fIvalue\fB [ ,\fInic-param\fB=\fIvalue\fB\fI ...\fB ]\fR ]
+    [ \fB--maintain-node-health  { yes | no }\fR ]
+    [ \fB--uid-pool \fIuser-id pool definition\fB\fR ]
     \fB\fIclustername\fB\fR
 
 .PP
@@ -272,6 +277,23 @@ represents an hypervisor-vif-script dependent value to allow
 different instance groups. For example under the KVM default
 network script it is interpreted as a routing table number or
 name.
+.PP
+The option \fB--maintain-node-health\fR allows to
+enable/disable automatic maintenance actions on
+nodes. Currently these include automatic shutdown of instances
+and deactivation of DRBD devices on offline nodes; in the
+future it might be extended to automatic removal of unknown
+LVM volumes, etc.
+.PP
+The \fB--uid-pool\fR option initializes the user-id pool.
+The \fIuser-id pool definition\fR can contain a
+list of user-ids and/or a list of user-id ranges. The parameter format
+is a comma-separated list of numeric user-ids or user-id ranges.
+The ranges are defined by a lower and higher boundary, separated
+by a dash. The boundaries are inclusive.
+If the \fB--uid-pool\fR option is not supplied, the
+user-id pool is initialized to an empty list. An empty list means that
+the user-id pool feature is disabled.
 .SS "LIST-TAGS"
 
 \fBlist-tags\fR
@@ -303,7 +325,11 @@ and gnt-cluster redist-conf to make sure the cluster is consistent again.
     [ \fB--hypervisor-parameters \fIhypervisor\fB:\fIhv-param\fB=\fIvalue\fB [ ,\fIhv-param\fB=\fIvalue\fB\fI ...\fB ]\fR ]
     [ \fB--backend-parameters \fIbe-param\fB=\fIvalue\fB [ ,\fIbe-param\fB=\fIvalue\fB\fI ...\fB ]\fR ]
     [ \fB--nic-parameters \fInic-param\fB=\fIvalue\fB [ ,\fInic-param\fB=\fIvalue\fB\fI ...\fB ]\fR ]
+    [ \fB--uid-pool \fIuser-id pool definition\fB\fR ]
+    [ \fB--add-uids \fIuser-id pool definition\fB\fR ]
+    [ \fB--remove-uids \fIuser-id pool definition\fB\fR ]
     [ \fB-C \fIcandidate_pool_size\fB\fR ]
+    [ \fB--maintain-node-health  { yes | no }\fR ]
 
 .PP
 Modify the options for the cluster.
@@ -311,17 +337,23 @@ Modify the options for the cluster.
 The \fB-g\fR, \fB--no-lvm-storarge\fR,
 \fB--enabled-hypervisors\fR,
 \fB--hypervisor-parameters\fR,
-\fB--backend-parameters\fR and
-\fB--nic-parameters\fR and options are
+\fB--backend-parameters\fR,
+\fB--nic-parameters\fR,
+\fB--maintain-node-health\fR and
+\fB--uid-pool\fR options are
 described in the \fBinit\fR command.
 .PP
-The \fB-C\fR options specifies the
+The \fB-C\fR option specifies the
 candidate_pool_size cluster parameter. This
 is the number of nodes that the master will try to keep as
 master_candidates\&. For more details about
 this role and other node roles, see the \fBganeti\fR(7)\&. If you increase the size, the master will
 automatically promote as many nodes as required and possible
 to reach the intended number.
+.PP
+The \fB--add-uids\fR and \fB--remove-uids\fR
+options can be used to modify the user-id pool by adding/removing
+a list of user-ids or user-id ranges.
 .SS "QUEUE"
 
 \fBqueue\fR [ \fBdrain\fR ] [ \fBundrain\fR ] [ \fBinfo\fR ]
@@ -393,6 +425,24 @@ the operation will be aborted.
 Note that since this command can be dangerous (especially when
 run over SSH), the command will require confirmation unless
 run with the \fB-f\fR option.
+.SS "RENEW-CRYPTO"
+
+\fBrenew-crypto\fR [ \fB-f\fR ]
+    [ \fB--new-cluster-certificate\fR ] [ \fB--new-confd-hmac-key\fR ]
+    [ \fB--new-rapi-certificate\fR ] [ \fB--rapi-certificate \fIrapi-cert\fB\fR ]
+
+.PP
+This command will stop all
+Ganeti daemons in the cluster and start them again once the new
+certificates and keys are replicated. The options
+\fB--new-cluster-certificate\fR and
+\fB--new-confd-hmac-key\fR can be used to regenerate the
+cluster-internal SSL certificate respective the HMAC key used by
+\fBganeti-confd\fR(8)\&. To generate a new self-signed RAPI certificate (used
+by \fBganeti-rapi\fR(8)) specify \fB--new-rapi-certificate\fR\&. If
+you want to use your own certificate, e.g. one signed by a certificate
+authority (CA), pass its filename to
+\fB--rapi-certificate\fR\&.
 .SS "REPAIR-DISK-SIZES"
 
 \fBrepair-disk-sizes\fR [ \fBinstance\fR\fI ...\fR ]

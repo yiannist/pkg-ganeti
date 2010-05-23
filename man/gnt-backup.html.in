@@ -21,7 +21,7 @@ NAME="AEN1"
 ><DIV
 CLASS="REFNAMEDIV"
 ><A
-NAME="AEN13"
+NAME="AEN14"
 ></A
 ><H2
 >Name</H2
@@ -29,7 +29,7 @@ NAME="AEN13"
 ><DIV
 CLASS="REFSYNOPSISDIV"
 ><A
-NAME="AEN16"
+NAME="AEN17"
 ></A
 ><H2
 >Synopsis</H2
@@ -42,7 +42,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN21"
+NAME="AEN22"
 ></A
 ><H2
 >DESCRIPTION</H2
@@ -58,14 +58,14 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN25"
+NAME="AEN26"
 ></A
 ><H2
 >COMMANDS</H2
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN27"
+NAME="AEN28"
 ></A
 ><H3
 >EXPORT</H3
@@ -140,7 +140,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN47"
+NAME="AEN48"
 ></A
 ><H3
 >IMPORT</H3
@@ -207,7 +207,7 @@ CLASS="REPLACEABLE"
 ><I
 >source-dir</I
 ></TT
->]<BR> {-t [diskless | plain | drbd | file]}<BR> {<TT
+>]<BR> [-t [diskless | plain | drbd | file]]<BR> [--identify-defaults]<BR> {<TT
 CLASS="REPLACEABLE"
 ><I
 >instance</I
@@ -247,11 +247,11 @@ CLASS="OPTION"
 >disk</CODE
 > option specifies the parameters for
         the disks of the instance. The numbering of disks starts at
-        zero, and at least one disk needs to be passed. For each disk,
-        at least the size needs to be given, and optionally the access
-        mode (read-only or the default of read-write) can also be
-        specified.  The size is interpreted (when no unit is given) in
-        mebibytes. You can also use one of the suffixes
+        zero. For each disk, at least the size needs to be given, and
+        optionally the access mode (read-only or the default of
+        read-write) can also be specified.  The size is interpreted
+        (when no unit is given) in mebibytes. You can also use one of
+        the suffixes
         <TT
 CLASS="LITERAL"
 >m</TT
@@ -275,7 +275,12 @@ CLASS="OPTION"
         version (but will only create one disk).
       </P
 ><P
->        The minimum disk specification is therefore
+>        If no disk information is passed, the disk configuration saved
+        at export time will be used.
+      </P
+><P
+>        The minimum disk specification is therefore empty (export
+        information will be used), a single disk can be specified as
         <KBD
 CLASS="USERINPUT"
 >--disk 0:size=20G</KBD
@@ -299,10 +304,10 @@ CLASS="USERINPUT"
         <CODE
 CLASS="OPTION"
 >--net</CODE
-> option. By default, one NIC is created
-        for the instance, with the MAC set to the original MAC of the
-        instance (as it was at export time). Each NIC can take up to
-        three parameters (all optional):
+> option. By default, the NIC
+        configuration of the original (exported) instance will be
+        reused. Each NIC can take up to three parameters (all
+        optional):
         <P
 ></P
 ><DIV
@@ -355,12 +360,12 @@ CLASS="CONSTANT"
           default at cluster level.
       </P
 ><P
->        Alternatively, if no network is desired for the instance, you
-        can prevent the default of one NIC with the
-        <CODE
-CLASS="OPTION"
->--no-nics</CODE
-> option.
+>        If no network is desired for the instance, you should create a
+        single empty NIC and delete it afterwards
+        via <B
+CLASS="COMMAND"
+>gnt-instance modify --net delete</B
+>.
       </P
 ><P
 >        The <CODE
@@ -368,7 +373,7 @@ CLASS="OPTION"
 >-B</CODE
 > option specifies the backend
         parameters for the instance. If no such parameters are
-        specified, the values are inherited from the cluster. Possible
+        specified, the values are inherited from the export. Possible
         parameters are:
         <P
 ></P
@@ -406,8 +411,9 @@ CLASS="VARIABLELIST"
 >        The <CODE
 CLASS="OPTION"
 >-t</CODE
-> options specifies the disk layout type for
-        the instance. The available choices are:
+> options specifies the disk layout type
+        for the instance. If not passed, the configuration of the
+        original instance is used. The available choices are:
         <P
 ></P
 ><DIV
@@ -474,15 +480,30 @@ CLASS="OPTION"
         the drbd template and specifies the remote node.
       </P
 ><P
->        If you do not want gnt-backup to wait for the disk mirror
-        to be synced, use the <CODE
+>        Since many of the parameters are by default read from the
+        exported instance information and used as such, the new
+        instance will have all parameters explicitly specified, the
+        opposite of a newly added instance which has most parameters
+        specified via cluster defaults. To change the import behaviour
+        to recognize parameters whose saved value matches the current
+        cluster default and mark it as such (default value), pass
+        the <CODE
 CLASS="OPTION"
->--no-wait-for-sync</CODE
->
-        option.
+>--identify-defaults</CODE
+> option. This will
+        affect the hypervisor, backend and NIC parameters, both read
+        from the export file and passed in via the command line.
       </P
 ><P
->        Example:
+>        Example for identical instance import:
+        <PRE
+CLASS="SCREEN"
+># gnt-backup import -n node1.example.com instance3.example.com
+        </PRE
+>
+      </P
+><P
+>        Explicit configuration example:
         <PRE
 CLASS="SCREEN"
 ># gnt-backup import -t plain --disk 0:size=1G -B memory=512 \
@@ -495,7 +516,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN178"
+NAME="AEN184"
 ></A
 ><H3
 >LIST</H3
@@ -529,7 +550,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN188"
+NAME="AEN194"
 ></A
 ><H3
 >REMOVE</H3
@@ -552,7 +573,7 @@ CLASS="ACRONYM"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN195"
+NAME="AEN201"
 ></A
 ><H2
 >REPORTING BUGS</H2
@@ -569,7 +590,7 @@ TARGET="_top"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN199"
+NAME="AEN205"
 ></A
 ><H2
 >SEE ALSO</H2
@@ -685,7 +706,7 @@ CLASS="REFENTRYTITLE"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN246"
+NAME="AEN252"
 ></A
 ><H2
 >COPYRIGHT</H2

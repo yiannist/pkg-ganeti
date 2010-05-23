@@ -107,7 +107,61 @@ def GenerateHmacKey(file_name):
   @param file_name: Path to output file
 
   """
-  utils.WriteFile(file_name, data="%s\n" % utils.GenerateSecret(), mode=0400)
+  utils.WriteFile(file_name, data="%s\n" % utils.GenerateSecret(), mode=0400,
+                  backup=True)
+
+
+def GenerateClusterCrypto(new_cluster_cert, new_rapi_cert, new_confd_hmac_key,
+                          rapi_cert_pem=None,
+                          nodecert_file=constants.NODED_CERT_FILE,
+                          rapicert_file=constants.RAPI_CERT_FILE,
+                          hmackey_file=constants.CONFD_HMAC_KEY):
+  """Updates the cluster certificates, keys and secrets.
+
+  @type new_cluster_cert: bool
+  @param new_cluster_cert: Whether to generate a new cluster certificate
+  @type new_rapi_cert: bool
+  @param new_rapi_cert: Whether to generate a new RAPI certificate
+  @type new_confd_hmac_key: bool
+  @param new_confd_hmac_key: Whether to generate a new HMAC key
+  @type rapi_cert_pem: string
+  @param rapi_cert_pem: New RAPI certificate in PEM format
+  @type nodecert_file: string
+  @param nodecert_file: optional override of the node cert file path
+  @type rapicert_file: string
+  @param rapicert_file: optional override of the rapi cert file path
+  @type hmackey_file: string
+  @param hmackey_file: optional override of the hmac key file path
+
+  """
+  # noded SSL certificate
+  cluster_cert_exists = os.path.exists(nodecert_file)
+  if new_cluster_cert or not cluster_cert_exists:
+    if cluster_cert_exists:
+      utils.CreateBackup(nodecert_file)
+
+    logging.debug("Generating new cluster certificate at %s", nodecert_file)
+    GenerateSelfSignedSslCert(nodecert_file)
+
+  # confd HMAC key
+  if new_confd_hmac_key or not os.path.exists(hmackey_file):
+    logging.debug("Writing new confd HMAC key to %s", hmackey_file)
+    GenerateHmacKey(hmackey_file)
+
+  # RAPI
+  rapi_cert_exists = os.path.exists(rapicert_file)
+
+  if rapi_cert_pem:
+    # Assume rapi_pem contains a valid PEM-formatted certificate and key
+    logging.debug("Writing RAPI certificate at %s", rapicert_file)
+    utils.WriteFile(rapicert_file, data=rapi_cert_pem, backup=True)
+
+  elif new_rapi_cert or not rapi_cert_exists:
+    if rapi_cert_exists:
+      utils.CreateBackup(rapicert_file)
+
+    logging.debug("Generating new RAPI certificate at %s", rapicert_file)
+    GenerateSelfSignedSslCert(rapicert_file)
 
 
 def _InitGanetiServerSetup(master_name):
@@ -117,14 +171,8 @@ def _InitGanetiServerSetup(master_name):
   the cluster and also generates the SSL certificate.
 
   """
-  GenerateSelfSignedSslCert(constants.SSL_CERT_FILE)
-
-  # Don't overwrite existing file
-  if not os.path.exists(constants.RAPI_CERT_FILE):
-    GenerateSelfSignedSslCert(constants.RAPI_CERT_FILE)
-
-  if not os.path.exists(constants.HMAC_CLUSTER_KEY):
-    GenerateHmacKey(constants.HMAC_CLUSTER_KEY)
+  # Generate cluster secrets
+  GenerateClusterCrypto(True, False, False)
 
   result = utils.RunCmd([constants.DAEMON_UTIL, "start", constants.NODED])
   if result.failed:
@@ -151,11 +199,45 @@ def _WaitForNodeDaemon(node_name):
                              " 10 seconds" % node_name)
 
 
+def _InitFileStorage(file_storage_dir):
+  """Initialize if needed the file storage.
+
+  @param file_storage_dir: the user-supplied value
+  @return: either empty string (if file storage was disabled at build
+      time) or the normalized path to the storage directory
+
+  """
+  if not constants.ENABLE_FILE_STORAGE:
+    return ""
+
+  file_storage_dir = os.path.normpath(file_storage_dir)
+
+  if not os.path.isabs(file_storage_dir):
+    raise errors.OpPrereqError("The file storage directory you passed is"
+                               " not an absolute path.", errors.ECODE_INVAL)
+
+  if not os.path.exists(file_storage_dir):
+    try:
+      os.makedirs(file_storage_dir, 0750)
+    except OSError, err:
+      raise errors.OpPrereqError("Cannot create file storage directory"
+                                 " '%s': %s" % (file_storage_dir, err),
+                                 errors.ECODE_ENVIRON)
+
+  if not os.path.isdir(file_storage_dir):
+    raise errors.OpPrereqError("The file storage directory '%s' is not"
+                               " a directory." % file_storage_dir,
+                               errors.ECODE_ENVIRON)
+  return file_storage_dir
+
+
 def InitCluster(cluster_name, mac_prefix,
                 master_netdev, file_storage_dir, candidate_pool_size,
                 secondary_ip=None, vg_name=None, beparams=None,
                 nicparams=None, hvparams=None, enabled_hypervisors=None,
-                modify_etc_hosts=True, modify_ssh_setup=True):
+                modify_etc_hosts=True, modify_ssh_setup=True,
+                maintain_node_health=False,
+                uid_pool=None):
   """Initialise the cluster.
 
   @type candidate_pool_size: int
@@ -218,24 +300,7 @@ def InitCluster(cluster_name, mac_prefix,
                                  " you are not using lvm" % vgstatus,
                                  errors.ECODE_INVAL)
 
-  file_storage_dir = os.path.normpath(file_storage_dir)
-
-  if not os.path.isabs(file_storage_dir):
-    raise errors.OpPrereqError("The file storage directory you passed is"
-                               " not an absolute path.", errors.ECODE_INVAL)
-
-  if not os.path.exists(file_storage_dir):
-    try:
-      os.makedirs(file_storage_dir, 0750)
-    except OSError, err:
-      raise errors.OpPrereqError("Cannot create file storage directory"
-                                 " '%s': %s" % (file_storage_dir, err),
-                                 errors.ECODE_ENVIRON)
-
-  if not os.path.isdir(file_storage_dir):
-    raise errors.OpPrereqError("The file storage directory '%s' is not"
-                               " a directory." % file_storage_dir,
-                               errors.ECODE_ENVIRON)
+  file_storage_dir = _InitFileStorage(file_storage_dir)
 
   if not re.match("^[0-9a-z]{2}:[0-9a-z]{2}:[0-9a-z]{2}$", mac_prefix):
     raise errors.OpPrereqError("Invalid mac prefix given '%s'" % mac_prefix,
@@ -295,9 +360,11 @@ def InitCluster(cluster_name, mac_prefix,
     candidate_pool_size=candidate_pool_size,
     modify_etc_hosts=modify_etc_hosts,
     modify_ssh_setup=modify_ssh_setup,
+    uid_pool=uid_pool,
     ctime=now,
     mtime=now,
     uuid=utils.NewUUID(),
+    maintain_node_health=maintain_node_health,
     )
   master_node_config = objects.Node(name=hostname.name,
                                     primary_ip=hostname.ip,
@@ -384,16 +451,16 @@ def SetupNodeDaemon(cluster_name, node, ssh_key_check):
   """
   sshrunner = ssh.SshRunner(cluster_name)
 
-  noded_cert = utils.ReadFile(constants.SSL_CERT_FILE)
+  noded_cert = utils.ReadFile(constants.NODED_CERT_FILE)
   rapi_cert = utils.ReadFile(constants.RAPI_CERT_FILE)
-  hmac_key = utils.ReadFile(constants.HMAC_CLUSTER_KEY)
+  confd_hmac_key = utils.ReadFile(constants.CONFD_HMAC_KEY)
 
   # in the base64 pem encoding, neither '!' nor '.' are valid chars,
   # so we use this to detect an invalid certificate; as long as the
   # cert doesn't contain this, the here-document will be correctly
   # parsed by the shell sequence below. HMAC keys are hexadecimal strings,
   # so the same restrictions apply.
-  for content in (noded_cert, rapi_cert, hmac_key):
+  for content in (noded_cert, rapi_cert, confd_hmac_key):
     if re.search('^!EOF\.', content, re.MULTILINE):
       raise errors.OpExecError("invalid SSL certificate or HMAC key")
 
@@ -401,8 +468,8 @@ def SetupNodeDaemon(cluster_name, node, ssh_key_check):
     noded_cert += "\n"
   if not rapi_cert.endswith("\n"):
     rapi_cert += "\n"
-  if not hmac_key.endswith("\n"):
-    hmac_key += "\n"
+  if not confd_hmac_key.endswith("\n"):
+    confd_hmac_key += "\n"
 
   # set up inter-node password and certificate and restarts the node daemon
   # and then connect with ssh to set password and start ganeti-noded
@@ -417,11 +484,11 @@ def SetupNodeDaemon(cluster_name, node, ssh_key_check):
                "%s!EOF.\n"
                "chmod 0400 %s %s %s && "
                "%s start %s" %
-               (constants.SSL_CERT_FILE, noded_cert,
+               (constants.NODED_CERT_FILE, noded_cert,
                 constants.RAPI_CERT_FILE, rapi_cert,
-                constants.HMAC_CLUSTER_KEY, hmac_key,
-                constants.SSL_CERT_FILE, constants.RAPI_CERT_FILE,
-                constants.HMAC_CLUSTER_KEY,
+                constants.CONFD_HMAC_KEY, confd_hmac_key,
+                constants.NODED_CERT_FILE, constants.RAPI_CERT_FILE,
+                constants.CONFD_HMAC_KEY,
                 constants.DAEMON_UTIL, constants.NODED))
 
   result = sshrunner.Run(node, 'root', mycommand, batch=False,

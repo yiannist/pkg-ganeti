@@ -177,7 +177,7 @@ class ChrootManager(hv_base.BaseHypervisor):
       raise HypervisorError("Can't run the chroot start script: %s" %
                             result.output)
 
-  def StopInstance(self, instance, force=False, retry=False):
+  def StopInstance(self, instance, force=False, retry=False, name=None):
     """Stop an instance.
 
     This method has complicated cleanup tests, as we must:
@@ -186,7 +186,10 @@ class ChrootManager(hv_base.BaseHypervisor):
       - finally unmount the instance dir
 
     """
-    root_dir = self._InstanceDir(instance.name)
+    if name is None:
+      name = instance.name
+
+    root_dir = self._InstanceDir(name)
     if not os.path.exists(root_dir) or not self._IsDirLive(root_dir):
       return
 
@@ -209,11 +212,23 @@ class ChrootManager(hv_base.BaseHypervisor):
         raise HypervisorError("Can't stop the processes using the chroot")
       return
 
+  def CleanupInstance(self, instance_name):
+    """Cleanup after a stopped instance
+
+    """
+    root_dir = self._InstanceDir(instance_name)
+
+    if not os.path.exists(root_dir):
+      return
+
+    if self._IsDirLive(root_dir):
+      raise HypervisorError("Processes are still using the chroot")
+
     for mpath in self._GetMountSubdirs(root_dir):
       utils.RunCmd(["umount", mpath])
 
     result = utils.RunCmd(["umount", root_dir])
-    if result.failed and force:
+    if result.failed:
       msg = ("Processes still alive in the chroot: %s" %
              utils.RunCmd("fuser -vm %s" % root_dir).output)
       logging.error(msg)
@@ -272,7 +287,7 @@ class ChrootManager(hv_base.BaseHypervisor):
   def MigrateInstance(self, instance, target, live):
     """Migrate an instance.
 
-    @type instance: L{object.Instance}
+    @type instance: L{objects.Instance}
     @param instance: the instance to be migrated
     @type target: string
     @param target: hostname (usually ip) of the target node
