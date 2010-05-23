@@ -5,13 +5,13 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Ganeti administrator’s guide &mdash; Ganeti v2.1.2 documentation</title>
+    <title>Ganeti administrator’s guide &mdash; Ganeti v2.1.2.1 documentation</title>
     <link rel="stylesheet" href="_static/default.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.1.2',
+        VERSION:     '2.1.2.1',
         COLLAPSE_MODINDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -19,7 +19,7 @@
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.1.2 documentation" href="index.html" />
+    <link rel="top" title="Ganeti v2.1.2.1 documentation" href="index.html" />
     <link rel="next" title="Ganeti walk-through" href="walkthrough.html" />
     <link rel="prev" title="Ganeti installation tutorial" href="install.html" /> 
   </head>
@@ -33,7 +33,7 @@
         <li class="right" >
           <a href="install.html" title="Ganeti installation tutorial"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.1.2 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.1.2.1 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -45,117 +45,117 @@
   <div class="section" id="ganeti-administrator-s-guide">
 <h1><a class="toc-backref" href="#id2">Ganeti administrator&#8217;s guide</a><a class="headerlink" href="#ganeti-administrator-s-guide" title="Permalink to this headline">¶</a></h1>
 <p>Documents Ganeti version 2.1</p>
-<div class="contents topic">
-<p class="topic-title first"><a id="contents" name="contents">Contents</a></p>
+<div class="contents topic" id="contents">
+<p class="topic-title first">Contents</p>
 <ul class="simple">
-<li><a class="reference" href="#ganeti-administrator-s-guide" id="id2" name="id2">Ganeti administrator&#8217;s guide</a><ul>
-<li><a class="reference" href="#introduction" id="id3" name="id3">Introduction</a><ul>
-<li><a class="reference" href="#ganeti-terminology" id="id4" name="id4">Ganeti terminology</a><ul>
-<li><a class="reference" href="#cluster" id="id5" name="id5">Cluster</a></li>
-<li><a class="reference" href="#node" id="id6" name="id6">Node</a></li>
-<li><a class="reference" href="#instance" id="id7" name="id7">Instance</a></li>
-<li><a class="reference" href="#disk-template" id="id8" name="id8">Disk template</a></li>
-<li><a class="reference" href="#iallocator" id="id9" name="id9">IAllocator</a></li>
-<li><a class="reference" href="#primary-and-secondary-concepts" id="id10" name="id10">“Primary” and “secondary” concepts</a></li>
-<li><a class="reference" href="#tags" id="id11" name="id11">Tags</a></li>
-<li><a class="reference" href="#jobs-and-opcodes" id="id12" name="id12">Jobs and OpCodes</a></li>
+<li><a class="reference internal" href="#ganeti-administrator-s-guide" id="id2">Ganeti administrator&#8217;s guide</a><ul>
+<li><a class="reference internal" href="#introduction" id="id3">Introduction</a><ul>
+<li><a class="reference internal" href="#ganeti-terminology" id="id4">Ganeti terminology</a><ul>
+<li><a class="reference internal" href="#cluster" id="id5">Cluster</a></li>
+<li><a class="reference internal" href="#node" id="id6">Node</a></li>
+<li><a class="reference internal" href="#instance" id="id7">Instance</a></li>
+<li><a class="reference internal" href="#disk-template" id="id8">Disk template</a></li>
+<li><a class="reference internal" href="#iallocator" id="id9">IAllocator</a></li>
+<li><a class="reference internal" href="#primary-and-secondary-concepts" id="id10">“Primary” and “secondary” concepts</a></li>
+<li><a class="reference internal" href="#tags" id="id11">Tags</a></li>
+<li><a class="reference internal" href="#jobs-and-opcodes" id="id12">Jobs and OpCodes</a></li>
 </ul>
 </li>
-<li><a class="reference" href="#prerequisites" id="id13" name="id13">Prerequisites</a></li>
+<li><a class="reference internal" href="#prerequisites" id="id13">Prerequisites</a></li>
 </ul>
 </li>
-<li><a class="reference" href="#instance-management" id="id14" name="id14">Instance management</a><ul>
-<li><a class="reference" href="#adding-an-instance" id="id15" name="id15">Adding an instance</a></li>
-<li><a class="reference" href="#regular-instance-operations" id="id16" name="id16">Regular instance operations</a><ul>
-<li><a class="reference" href="#removal" id="id17" name="id17">Removal</a></li>
-<li><a class="reference" href="#startup-shutdown" id="id18" name="id18">Startup/shutdown</a></li>
-<li><a class="reference" href="#querying-instances" id="id19" name="id19">Querying instances</a></li>
+<li><a class="reference internal" href="#instance-management" id="id14">Instance management</a><ul>
+<li><a class="reference internal" href="#adding-an-instance" id="id15">Adding an instance</a></li>
+<li><a class="reference internal" href="#regular-instance-operations" id="id16">Regular instance operations</a><ul>
+<li><a class="reference internal" href="#removal" id="id17">Removal</a></li>
+<li><a class="reference internal" href="#startup-shutdown" id="id18">Startup/shutdown</a></li>
+<li><a class="reference internal" href="#querying-instances" id="id19">Querying instances</a></li>
 </ul>
 </li>
-<li><a class="reference" href="#export-import" id="id20" name="id20">Export/Import</a></li>
-<li><a class="reference" href="#import-of-foreign-instances" id="id21" name="id21">Import of foreign instances</a></li>
+<li><a class="reference internal" href="#export-import" id="id20">Export/Import</a></li>
+<li><a class="reference internal" href="#import-of-foreign-instances" id="id21">Import of foreign instances</a></li>
 </ul>
 </li>
-<li><a class="reference" href="#instance-ha-features" id="id22" name="id22">Instance HA features</a><ul>
-<li><a class="reference" href="#changing-the-primary-node" id="id23" name="id23">Changing the primary node</a><ul>
-<li><a class="reference" href="#failing-over-an-instance" id="id24" name="id24">Failing over an instance</a></li>
-<li><a class="reference" href="#live-migrating-an-instance" id="id25" name="id25">Live migrating an instance</a></li>
-<li><a class="reference" href="#moving-an-instance-offline" id="id26" name="id26">Moving an instance (offline)</a></li>
+<li><a class="reference internal" href="#instance-ha-features" id="id22">Instance HA features</a><ul>
+<li><a class="reference internal" href="#changing-the-primary-node" id="id23">Changing the primary node</a><ul>
+<li><a class="reference internal" href="#failing-over-an-instance" id="id24">Failing over an instance</a></li>
+<li><a class="reference internal" href="#live-migrating-an-instance" id="id25">Live migrating an instance</a></li>
+<li><a class="reference internal" href="#moving-an-instance-offline" id="id26">Moving an instance (offline)</a></li>
 </ul>
 </li>
-<li><a class="reference" href="#disk-operations" id="id27" name="id27">Disk operations</a><ul>
-<li><a class="reference" href="#preparing-for-disk-operations" id="id28" name="id28">Preparing for disk operations</a></li>
-<li><a class="reference" href="#restoring-redundancy-for-drbd-based-instances" id="id29" name="id29">Restoring redundancy for DRBD-based instances</a></li>
-<li><a class="reference" href="#re-creating-disks-for-non-redundant-instances" id="id30" name="id30">Re-creating disks for non-redundant instances</a></li>
-<li><a class="reference" href="#conversion-of-an-instance-s-disk-type" id="id31" name="id31">Conversion of an instance&#8217;s disk type</a></li>
+<li><a class="reference internal" href="#disk-operations" id="id27">Disk operations</a><ul>
+<li><a class="reference internal" href="#preparing-for-disk-operations" id="id28">Preparing for disk operations</a></li>
+<li><a class="reference internal" href="#restoring-redundancy-for-drbd-based-instances" id="id29">Restoring redundancy for DRBD-based instances</a></li>
+<li><a class="reference internal" href="#re-creating-disks-for-non-redundant-instances" id="id30">Re-creating disks for non-redundant instances</a></li>
+<li><a class="reference internal" href="#conversion-of-an-instance-s-disk-type" id="id31">Conversion of an instance&#8217;s disk type</a></li>
 </ul>
 </li>
-<li><a class="reference" href="#debugging-instances" id="id32" name="id32">Debugging instances</a><ul>
-<li><a class="reference" href="#accessing-an-instance-s-disks" id="id33" name="id33">Accessing an instance&#8217;s disks</a></li>
-<li><a class="reference" href="#accessing-an-instance-s-console" id="id34" name="id34">Accessing an instance&#8217;s console</a></li>
+<li><a class="reference internal" href="#debugging-instances" id="id32">Debugging instances</a><ul>
+<li><a class="reference internal" href="#accessing-an-instance-s-disks" id="id33">Accessing an instance&#8217;s disks</a></li>
+<li><a class="reference internal" href="#accessing-an-instance-s-console" id="id34">Accessing an instance&#8217;s console</a></li>
 </ul>
 </li>
-<li><a class="reference" href="#other-instance-operations" id="id35" name="id35">Other instance operations</a><ul>
-<li><a class="reference" href="#reboot" id="id36" name="id36">Reboot</a></li>
+<li><a class="reference internal" href="#other-instance-operations" id="id35">Other instance operations</a><ul>
+<li><a class="reference internal" href="#reboot" id="id36">Reboot</a></li>
 </ul>
 </li>
-<li><a class="reference" href="#instance-os-definitions-debugging" id="id37" name="id37">Instance OS definitions debugging</a><ul>
-<li><a class="reference" href="#instance-relocation" id="id38" name="id38">Instance relocation</a></li>
-</ul>
-</li>
-</ul>
-</li>
-<li><a class="reference" href="#node-operations" id="id39" name="id39">Node operations</a><ul>
-<li><a class="reference" href="#add-readd" id="id40" name="id40">Add/readd</a></li>
-<li><a class="reference" href="#changing-the-node-role" id="id41" name="id41">Changing the node role</a><ul>
-<li><a class="reference" href="#failing-over-the-master-node" id="id42" name="id42">Failing over the master node</a></li>
-<li><a class="reference" href="#changing-between-the-other-roles" id="id43" name="id43">Changing between the other roles</a></li>
-</ul>
-</li>
-<li><a class="reference" href="#evacuating-nodes" id="id44" name="id44">Evacuating nodes</a><ul>
-<li><a class="reference" href="#primary-instance-conversion" id="id45" name="id45">Primary instance conversion</a></li>
-<li><a class="reference" href="#secondary-instance-evacuation" id="id46" name="id46">Secondary instance evacuation</a></li>
-</ul>
-</li>
-<li><a class="reference" href="#id1" id="id47" name="id47">Removal</a></li>
-<li><a class="reference" href="#storage-handling" id="id48" name="id48">Storage handling</a><ul>
-<li><a class="reference" href="#logical-volumes" id="id49" name="id49">Logical volumes</a></li>
-<li><a class="reference" href="#generalized-storage-handling" id="id50" name="id50">Generalized storage handling</a></li>
-<li><a class="reference" href="#use-of-the-storage-commands" id="id51" name="id51">Use of the storage commands</a></li>
+<li><a class="reference internal" href="#instance-os-definitions-debugging" id="id37">Instance OS definitions debugging</a><ul>
+<li><a class="reference internal" href="#instance-relocation" id="id38">Instance relocation</a></li>
 </ul>
 </li>
 </ul>
 </li>
-<li><a class="reference" href="#cluster-operations" id="id52" name="id52">Cluster operations</a><ul>
-<li><a class="reference" href="#standard-operations" id="id53" name="id53">Standard operations</a></li>
-<li><a class="reference" href="#global-node-commands" id="id54" name="id54">Global node commands</a></li>
-<li><a class="reference" href="#cluster-verification" id="id55" name="id55">Cluster verification</a></li>
-<li><a class="reference" href="#configuration-redistribution" id="id56" name="id56">Configuration redistribution</a></li>
-<li><a class="reference" href="#cluster-renaming" id="id57" name="id57">Cluster renaming</a></li>
-<li><a class="reference" href="#queue-operations" id="id58" name="id58">Queue operations</a></li>
-<li><a class="reference" href="#watcher-control" id="id59" name="id59">Watcher control</a></li>
-<li><a class="reference" href="#node-auto-maintenance" id="id60" name="id60">Node auto-maintenance</a></li>
-<li><a class="reference" href="#removing-a-cluster-entirely" id="id61" name="id61">Removing a cluster entirely</a></li>
+<li><a class="reference internal" href="#node-operations" id="id39">Node operations</a><ul>
+<li><a class="reference internal" href="#add-readd" id="id40">Add/readd</a></li>
+<li><a class="reference internal" href="#changing-the-node-role" id="id41">Changing the node role</a><ul>
+<li><a class="reference internal" href="#failing-over-the-master-node" id="id42">Failing over the master node</a></li>
+<li><a class="reference internal" href="#changing-between-the-other-roles" id="id43">Changing between the other roles</a></li>
 </ul>
 </li>
-<li><a class="reference" href="#tags-handling" id="id62" name="id62">Tags handling</a><ul>
-<li><a class="reference" href="#limitations" id="id63" name="id63">Limitations</a></li>
-<li><a class="reference" href="#operations" id="id64" name="id64">Operations</a></li>
-<li><a class="reference" href="#global-tag-search" id="id65" name="id65">Global tag search</a></li>
+<li><a class="reference internal" href="#evacuating-nodes" id="id44">Evacuating nodes</a><ul>
+<li><a class="reference internal" href="#primary-instance-conversion" id="id45">Primary instance conversion</a></li>
+<li><a class="reference internal" href="#secondary-instance-evacuation" id="id46">Secondary instance evacuation</a></li>
 </ul>
 </li>
-<li><a class="reference" href="#job-operations" id="id66" name="id66">Job operations</a></li>
-<li><a class="reference" href="#ganeti-tools" id="id67" name="id67">Ganeti tools</a><ul>
-<li><a class="reference" href="#lvmstrap" id="id68" name="id68">lvmstrap</a></li>
-<li><a class="reference" href="#cfgupgrade" id="id69" name="id69">cfgupgrade</a></li>
-<li><a class="reference" href="#cfgshell" id="id70" name="id70">cfgshell</a></li>
-<li><a class="reference" href="#burnin" id="id71" name="id71">burnin</a></li>
-<li><a class="reference" href="#sanitize-config" id="id72" name="id72">sanitize-config</a></li>
+<li><a class="reference internal" href="#id1" id="id47">Removal</a></li>
+<li><a class="reference internal" href="#storage-handling" id="id48">Storage handling</a><ul>
+<li><a class="reference internal" href="#logical-volumes" id="id49">Logical volumes</a></li>
+<li><a class="reference internal" href="#generalized-storage-handling" id="id50">Generalized storage handling</a></li>
+<li><a class="reference internal" href="#use-of-the-storage-commands" id="id51">Use of the storage commands</a></li>
 </ul>
 </li>
-<li><a class="reference" href="#other-ganeti-projects" id="id73" name="id73">Other Ganeti projects</a><ul>
-<li><a class="reference" href="#nbma-tools" id="id74" name="id74">NBMA tools</a></li>
-<li><a class="reference" href="#ganeti-htools" id="id75" name="id75">ganeti-htools</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#cluster-operations" id="id52">Cluster operations</a><ul>
+<li><a class="reference internal" href="#standard-operations" id="id53">Standard operations</a></li>
+<li><a class="reference internal" href="#global-node-commands" id="id54">Global node commands</a></li>
+<li><a class="reference internal" href="#cluster-verification" id="id55">Cluster verification</a></li>
+<li><a class="reference internal" href="#configuration-redistribution" id="id56">Configuration redistribution</a></li>
+<li><a class="reference internal" href="#cluster-renaming" id="id57">Cluster renaming</a></li>
+<li><a class="reference internal" href="#queue-operations" id="id58">Queue operations</a></li>
+<li><a class="reference internal" href="#watcher-control" id="id59">Watcher control</a></li>
+<li><a class="reference internal" href="#node-auto-maintenance" id="id60">Node auto-maintenance</a></li>
+<li><a class="reference internal" href="#removing-a-cluster-entirely" id="id61">Removing a cluster entirely</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#tags-handling" id="id62">Tags handling</a><ul>
+<li><a class="reference internal" href="#limitations" id="id63">Limitations</a></li>
+<li><a class="reference internal" href="#operations" id="id64">Operations</a></li>
+<li><a class="reference internal" href="#global-tag-search" id="id65">Global tag search</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#job-operations" id="id66">Job operations</a></li>
+<li><a class="reference internal" href="#ganeti-tools" id="id67">Ganeti tools</a><ul>
+<li><a class="reference internal" href="#lvmstrap" id="id68">lvmstrap</a></li>
+<li><a class="reference internal" href="#cfgupgrade" id="id69">cfgupgrade</a></li>
+<li><a class="reference internal" href="#cfgshell" id="id70">cfgshell</a></li>
+<li><a class="reference internal" href="#burnin" id="id71">burnin</a></li>
+<li><a class="reference internal" href="#sanitize-config" id="id72">sanitize-config</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#other-ganeti-projects" id="id73">Other Ganeti projects</a><ul>
+<li><a class="reference internal" href="#nbma-tools" id="id74">NBMA tools</a></li>
+<li><a class="reference internal" href="#ganeti-htools" id="id75">ganeti-htools</a></li>
 </ul>
 </li>
 </ul>
@@ -310,7 +310,7 @@ instance a separate job containing the “shutdown instance” OpCode.</p>
 <h3><a class="toc-backref" href="#id13">Prerequisites</a><a class="headerlink" href="#prerequisites" title="Permalink to this headline">¶</a></h3>
 <p>You need to have your Ganeti cluster installed and configured before you
 try any of the commands in this document. Please follow the
-<a class="reference" href="install.html"><em>Ganeti installation tutorial</em></a> for instructions on how to do that.</p>
+<a class="reference external" href="install.html"><em>Ganeti installation tutorial</em></a> for instructions on how to do that.</p>
 </div>
 </div>
 <div class="section" id="instance-management">
@@ -478,12 +478,12 @@ disk parameter (e.g. <tt class="docutils literal"><span class="pre">--disk</span
 <p>There are three ways to exchange an instance&#8217;s primary and secondary
 nodes; the right one to choose depends on how the instance has been
 created and the status of its current primary node. See
-<a class="reference" href="#rest-redundancy-label"><em>Restoring redundancy for DRBD-based instances</em></a> for information on changing the secondary
+<a class="reference internal" href="#rest-redundancy-label"><em>Restoring redundancy for DRBD-based instances</em></a> for information on changing the secondary
 node. Note that it&#8217;s only possible to change the primary node to the
 secondary and vice-versa; a direct change of the primary node with a
 third node, while keeping the current secondary is not possible in a
 single step, only via multiple operations as detailed in
-<a class="reference" href="#instance-relocation-label"><em>Instance relocation</em></a>.</p>
+<a class="reference internal" href="#instance-relocation-label"><em>Instance relocation</em></a>.</p>
 <div class="section" id="failing-over-an-instance">
 <h4><a class="toc-backref" href="#id24">Failing over an instance</a><a class="headerlink" href="#failing-over-an-instance" title="Permalink to this headline">¶</a></h4>
 <p>If an instance is built in highly available mode you can at any time
@@ -574,7 +574,7 @@ command, you need to deactivate it from allocations by running:</p>
 <p>At this point, the volume group should be consistent and any bad
 physical volumes should not longer be available for allocation.</p>
 <p>Note that since version 2.1 Ganeti provides some commands to automate
-these two operations, see <a class="reference" href="#storage-units-label"><em>Generalized storage handling</em></a>.</p>
+these two operations, see <a class="reference internal" href="#storage-units-label"><em>Generalized storage handling</em></a>.</p>
 </div>
 <div class="section" id="restoring-redundancy-for-drbd-based-instances">
 <span id="rest-redundancy-label"></span><h4><a class="toc-backref" href="#id29">Restoring redundancy for DRBD-based instances</a><a class="headerlink" href="#restoring-redundancy-for-drbd-based-instances" title="Permalink to this headline">¶</a></h4>
@@ -767,7 +767,7 @@ etc.), in other words you won&#8217;t need to use <tt class="docutils literal"><
 <div class="section" id="changing-the-node-role">
 <h3><a class="toc-backref" href="#id41">Changing the node role</a><a class="headerlink" href="#changing-the-node-role" title="Permalink to this headline">¶</a></h3>
 <p>A node can be in different roles, as explained in the
-<a class="reference" href="#terminology-label"><em>Ganeti terminology</em></a> section. Promoting a node to the master role is
+<a class="reference internal" href="#terminology-label"><em>Ganeti terminology</em></a> section. Promoting a node to the master role is
 special, while the other roles are handled all via a single command.</p>
 <div class="section" id="failing-over-the-master-node">
 <h4><a class="toc-backref" href="#id42">Failing over the master node</a><a class="headerlink" href="#failing-over-the-master-node" title="Permalink to this headline">¶</a></h4>
@@ -797,7 +797,7 @@ gnt-node modify -O no -D no -C no NODE
 number of nodes are master candidates, so changing from master candidate
 to other roles might fail. It is recommended to either force the
 operation (via the <tt class="docutils literal"><span class="pre">--force</span></tt> option) or first change the number of
-master candidates in the cluster - see <a class="reference" href="#cluster-config-label"><em>Standard operations</em></a>.</p>
+master candidates in the cluster - see <a class="reference internal" href="#cluster-config-label"><em>Standard operations</em></a>.</p>
 </div>
 </div>
 <div class="section" id="evacuating-nodes">
@@ -812,7 +812,7 @@ the step above)</li>
 <div class="section" id="primary-instance-conversion">
 <h4><a class="toc-backref" href="#id45">Primary instance conversion</a><a class="headerlink" href="#primary-instance-conversion" title="Permalink to this headline">¶</a></h4>
 <p>For this step, you can use either individual instance move
-commands (as seen in <a class="reference" href="#instance-change-primary-label"><em>Changing the primary node</em></a>) or the bulk
+commands (as seen in <a class="reference internal" href="#instance-change-primary-label"><em>Changing the primary node</em></a>) or the bulk
 per-node versions; these are:</p>
 <div class="highlight-text"><div class="highlight"><pre>gnt-node migrate NODE
 gnt-node evacuate NODE
@@ -927,7 +927,7 @@ disk), by running the <tt class="docutils literal"><span class="pre">repair-stor
 <div class="section" id="cluster-operations">
 <h2><a class="toc-backref" href="#id52">Cluster operations</a><a class="headerlink" href="#cluster-operations" title="Permalink to this headline">¶</a></h2>
 <p>Beside the cluster initialisation command (which is detailed in the
-<a class="reference" href="install.html"><em>Ganeti installation tutorial</em></a> document) and the master failover command which is
+<a class="reference external" href="install.html"><em>Ganeti installation tutorial</em></a> document) and the master failover command which is
 explained under node handling, there are a couple of other cluster
 operations available.</p>
 <div class="section" id="standard-operations">
@@ -1346,7 +1346,7 @@ other tools installed which are used seldom but can be helpful in some
 cases.</p>
 <div class="section" id="lvmstrap">
 <h3><a class="toc-backref" href="#id68">lvmstrap</a><a class="headerlink" href="#lvmstrap" title="Permalink to this headline">¶</a></h3>
-<p>The <tt class="docutils literal"><span class="pre">lvmstrap</span></tt> tool, introduced in <a class="reference" href="install.html#configure-lvm-label"><em>Configuring LVM</em></a> section,
+<p>The <tt class="docutils literal"><span class="pre">lvmstrap</span></tt> tool, introduced in <a class="reference external" href="install.html#configure-lvm-label"><em>Configuring LVM</em></a> section,
 has two modes of operation:</p>
 <ul class="simple">
 <li><tt class="docutils literal"><span class="pre">diskinfo</span></tt> shows the discovered disks on the system and their status</li>
@@ -1363,7 +1363,7 @@ of them</li>
 <p>The <tt class="docutils literal"><span class="pre">cfgupgrade</span></tt> tools is used to upgrade between major (and minor)
 Ganeti versions. Point-releases are usually transparent for the admin.</p>
 <p>More information about the upgrade procedure is listed on the wiki at
-<a class="reference" href="http://code.google.com/p/ganeti/wiki/UpgradeNotes">http://code.google.com/p/ganeti/wiki/UpgradeNotes</a>.</p>
+<a class="reference external" href="http://code.google.com/p/ganeti/wiki/UpgradeNotes">http://code.google.com/p/ganeti/wiki/UpgradeNotes</a>.</p>
 <p>There is also a script designed to upgrade from Ganeti 1.2 to 2.0,
 called <tt class="docutils literal"><span class="pre">cfgupgrade12</span></tt>.</p>
 </div>
@@ -1437,8 +1437,8 @@ permits recovery from the loss of all master candidates.</p>
 <h2><a class="toc-backref" href="#id73">Other Ganeti projects</a><a class="headerlink" href="#other-ganeti-projects" title="Permalink to this headline">¶</a></h2>
 <p>There are two other Ganeti-related projects that can be useful in a
 Ganeti deployment. These can be downloaded from the project site
-(<a class="reference" href="http://code.google.com/p/ganeti/">http://code.google.com/p/ganeti/</a>) and the repositories are also on the
-project git site (<a class="reference" href="http://git.ganeti.org">http://git.ganeti.org</a>).</p>
+(<a class="reference external" href="http://code.google.com/p/ganeti/">http://code.google.com/p/ganeti/</a>) and the repositories are also on the
+project git site (<a class="reference external" href="http://git.ganeti.org">http://git.ganeti.org</a>).</p>
 <div class="section" id="nbma-tools">
 <h3><a class="toc-backref" href="#id74">NBMA tools</a><a class="headerlink" href="#nbma-tools" title="Permalink to this headline">¶</a></h3>
 <p>The <tt class="docutils literal"><span class="pre">ganeti-nbma</span></tt> software is designed to allow instances to live on a
@@ -1472,114 +1472,114 @@ in the source archive.</p>
         <div class="sphinxsidebarwrapper">
             <h3><a href="index.html">Table Of Contents</a></h3>
             <ul>
-<li><a class="reference" href="">Ganeti administrator&#8217;s guide</a><ul>
-<li><a class="reference" href="#introduction">Introduction</a><ul>
-<li><a class="reference" href="#ganeti-terminology">Ganeti terminology</a><ul>
-<li><a class="reference" href="#cluster">Cluster</a></li>
-<li><a class="reference" href="#node">Node</a></li>
-<li><a class="reference" href="#instance">Instance</a></li>
-<li><a class="reference" href="#disk-template">Disk template</a></li>
-<li><a class="reference" href="#iallocator">IAllocator</a></li>
-<li><a class="reference" href="#primary-and-secondary-concepts">“Primary” and “secondary” concepts</a></li>
-<li><a class="reference" href="#tags">Tags</a></li>
-<li><a class="reference" href="#jobs-and-opcodes">Jobs and OpCodes</a></li>
+<li><a class="reference external" href="">Ganeti administrator&#8217;s guide</a><ul>
+<li><a class="reference external" href="#introduction">Introduction</a><ul>
+<li><a class="reference external" href="#ganeti-terminology">Ganeti terminology</a><ul>
+<li><a class="reference external" href="#cluster">Cluster</a></li>
+<li><a class="reference external" href="#node">Node</a></li>
+<li><a class="reference external" href="#instance">Instance</a></li>
+<li><a class="reference external" href="#disk-template">Disk template</a></li>
+<li><a class="reference external" href="#iallocator">IAllocator</a></li>
+<li><a class="reference external" href="#primary-and-secondary-concepts">“Primary” and “secondary” concepts</a></li>
+<li><a class="reference external" href="#tags">Tags</a></li>
+<li><a class="reference external" href="#jobs-and-opcodes">Jobs and OpCodes</a></li>
 </ul>
 </li>
-<li><a class="reference" href="#prerequisites">Prerequisites</a></li>
+<li><a class="reference external" href="#prerequisites">Prerequisites</a></li>
 </ul>
 </li>
-<li><a class="reference" href="#instance-management">Instance management</a><ul>
-<li><a class="reference" href="#adding-an-instance">Adding an instance</a></li>
-<li><a class="reference" href="#regular-instance-operations">Regular instance operations</a><ul>
-<li><a class="reference" href="#removal">Removal</a></li>
-<li><a class="reference" href="#startup-shutdown">Startup/shutdown</a></li>
-<li><a class="reference" href="#querying-instances">Querying instances</a></li>
+<li><a class="reference external" href="#instance-management">Instance management</a><ul>
+<li><a class="reference external" href="#adding-an-instance">Adding an instance</a></li>
+<li><a class="reference external" href="#regular-instance-operations">Regular instance operations</a><ul>
+<li><a class="reference external" href="#removal">Removal</a></li>
+<li><a class="reference external" href="#startup-shutdown">Startup/shutdown</a></li>
+<li><a class="reference external" href="#querying-instances">Querying instances</a></li>
 </ul>
 </li>
-<li><a class="reference" href="#export-import">Export/Import</a></li>
-<li><a class="reference" href="#import-of-foreign-instances">Import of foreign instances</a></li>
+<li><a class="reference external" href="#export-import">Export/Import</a></li>
+<li><a class="reference external" href="#import-of-foreign-instances">Import of foreign instances</a></li>
 </ul>
 </li>
-<li><a class="reference" href="#instance-ha-features">Instance HA features</a><ul>
-<li><a class="reference" href="#changing-the-primary-node">Changing the primary node</a><ul>
-<li><a class="reference" href="#failing-over-an-instance">Failing over an instance</a></li>
-<li><a class="reference" href="#live-migrating-an-instance">Live migrating an instance</a></li>
-<li><a class="reference" href="#moving-an-instance-offline">Moving an instance (offline)</a></li>
+<li><a class="reference external" href="#instance-ha-features">Instance HA features</a><ul>
+<li><a class="reference external" href="#changing-the-primary-node">Changing the primary node</a><ul>
+<li><a class="reference external" href="#failing-over-an-instance">Failing over an instance</a></li>
+<li><a class="reference external" href="#live-migrating-an-instance">Live migrating an instance</a></li>
+<li><a class="reference external" href="#moving-an-instance-offline">Moving an instance (offline)</a></li>
 </ul>
 </li>
-<li><a class="reference" href="#disk-operations">Disk operations</a><ul>
-<li><a class="reference" href="#preparing-for-disk-operations">Preparing for disk operations</a></li>
-<li><a class="reference" href="#restoring-redundancy-for-drbd-based-instances">Restoring redundancy for DRBD-based instances</a></li>
-<li><a class="reference" href="#re-creating-disks-for-non-redundant-instances">Re-creating disks for non-redundant instances</a></li>
-<li><a class="reference" href="#conversion-of-an-instance-s-disk-type">Conversion of an instance&#8217;s disk type</a></li>
+<li><a class="reference external" href="#disk-operations">Disk operations</a><ul>
+<li><a class="reference external" href="#preparing-for-disk-operations">Preparing for disk operations</a></li>
+<li><a class="reference external" href="#restoring-redundancy-for-drbd-based-instances">Restoring redundancy for DRBD-based instances</a></li>
+<li><a class="reference external" href="#re-creating-disks-for-non-redundant-instances">Re-creating disks for non-redundant instances</a></li>
+<li><a class="reference external" href="#conversion-of-an-instance-s-disk-type">Conversion of an instance&#8217;s disk type</a></li>
 </ul>
 </li>
-<li><a class="reference" href="#debugging-instances">Debugging instances</a><ul>
-<li><a class="reference" href="#accessing-an-instance-s-disks">Accessing an instance&#8217;s disks</a></li>
-<li><a class="reference" href="#accessing-an-instance-s-console">Accessing an instance&#8217;s console</a></li>
+<li><a class="reference external" href="#debugging-instances">Debugging instances</a><ul>
+<li><a class="reference external" href="#accessing-an-instance-s-disks">Accessing an instance&#8217;s disks</a></li>
+<li><a class="reference external" href="#accessing-an-instance-s-console">Accessing an instance&#8217;s console</a></li>
 </ul>
 </li>
-<li><a class="reference" href="#other-instance-operations">Other instance operations</a><ul>
-<li><a class="reference" href="#reboot">Reboot</a></li>
+<li><a class="reference external" href="#other-instance-operations">Other instance operations</a><ul>
+<li><a class="reference external" href="#reboot">Reboot</a></li>
 </ul>
 </li>
-<li><a class="reference" href="#instance-os-definitions-debugging">Instance OS definitions debugging</a><ul>
-<li><a class="reference" href="#instance-relocation">Instance relocation</a></li>
-</ul>
-</li>
-</ul>
-</li>
-<li><a class="reference" href="#node-operations">Node operations</a><ul>
-<li><a class="reference" href="#add-readd">Add/readd</a></li>
-<li><a class="reference" href="#changing-the-node-role">Changing the node role</a><ul>
-<li><a class="reference" href="#failing-over-the-master-node">Failing over the master node</a></li>
-<li><a class="reference" href="#changing-between-the-other-roles">Changing between the other roles</a></li>
-</ul>
-</li>
-<li><a class="reference" href="#evacuating-nodes">Evacuating nodes</a><ul>
-<li><a class="reference" href="#primary-instance-conversion">Primary instance conversion</a></li>
-<li><a class="reference" href="#secondary-instance-evacuation">Secondary instance evacuation</a></li>
-</ul>
-</li>
-<li><a class="reference" href="#id1">Removal</a></li>
-<li><a class="reference" href="#storage-handling">Storage handling</a><ul>
-<li><a class="reference" href="#logical-volumes">Logical volumes</a></li>
-<li><a class="reference" href="#generalized-storage-handling">Generalized storage handling</a></li>
-<li><a class="reference" href="#use-of-the-storage-commands">Use of the storage commands</a></li>
+<li><a class="reference external" href="#instance-os-definitions-debugging">Instance OS definitions debugging</a><ul>
+<li><a class="reference external" href="#instance-relocation">Instance relocation</a></li>
 </ul>
 </li>
 </ul>
 </li>
-<li><a class="reference" href="#cluster-operations">Cluster operations</a><ul>
-<li><a class="reference" href="#standard-operations">Standard operations</a></li>
-<li><a class="reference" href="#global-node-commands">Global node commands</a></li>
-<li><a class="reference" href="#cluster-verification">Cluster verification</a></li>
-<li><a class="reference" href="#configuration-redistribution">Configuration redistribution</a></li>
-<li><a class="reference" href="#cluster-renaming">Cluster renaming</a></li>
-<li><a class="reference" href="#queue-operations">Queue operations</a></li>
-<li><a class="reference" href="#watcher-control">Watcher control</a></li>
-<li><a class="reference" href="#node-auto-maintenance">Node auto-maintenance</a></li>
-<li><a class="reference" href="#removing-a-cluster-entirely">Removing a cluster entirely</a></li>
+<li><a class="reference external" href="#node-operations">Node operations</a><ul>
+<li><a class="reference external" href="#add-readd">Add/readd</a></li>
+<li><a class="reference external" href="#changing-the-node-role">Changing the node role</a><ul>
+<li><a class="reference external" href="#failing-over-the-master-node">Failing over the master node</a></li>
+<li><a class="reference external" href="#changing-between-the-other-roles">Changing between the other roles</a></li>
 </ul>
 </li>
-<li><a class="reference" href="#tags-handling">Tags handling</a><ul>
-<li><a class="reference" href="#limitations">Limitations</a></li>
-<li><a class="reference" href="#operations">Operations</a></li>
-<li><a class="reference" href="#global-tag-search">Global tag search</a></li>
+<li><a class="reference external" href="#evacuating-nodes">Evacuating nodes</a><ul>
+<li><a class="reference external" href="#primary-instance-conversion">Primary instance conversion</a></li>
+<li><a class="reference external" href="#secondary-instance-evacuation">Secondary instance evacuation</a></li>
 </ul>
 </li>
-<li><a class="reference" href="#job-operations">Job operations</a></li>
-<li><a class="reference" href="#ganeti-tools">Ganeti tools</a><ul>
-<li><a class="reference" href="#lvmstrap">lvmstrap</a></li>
-<li><a class="reference" href="#cfgupgrade">cfgupgrade</a></li>
-<li><a class="reference" href="#cfgshell">cfgshell</a></li>
-<li><a class="reference" href="#burnin">burnin</a></li>
-<li><a class="reference" href="#sanitize-config">sanitize-config</a></li>
+<li><a class="reference external" href="#id1">Removal</a></li>
+<li><a class="reference external" href="#storage-handling">Storage handling</a><ul>
+<li><a class="reference external" href="#logical-volumes">Logical volumes</a></li>
+<li><a class="reference external" href="#generalized-storage-handling">Generalized storage handling</a></li>
+<li><a class="reference external" href="#use-of-the-storage-commands">Use of the storage commands</a></li>
 </ul>
 </li>
-<li><a class="reference" href="#other-ganeti-projects">Other Ganeti projects</a><ul>
-<li><a class="reference" href="#nbma-tools">NBMA tools</a></li>
-<li><a class="reference" href="#ganeti-htools">ganeti-htools</a></li>
+</ul>
+</li>
+<li><a class="reference external" href="#cluster-operations">Cluster operations</a><ul>
+<li><a class="reference external" href="#standard-operations">Standard operations</a></li>
+<li><a class="reference external" href="#global-node-commands">Global node commands</a></li>
+<li><a class="reference external" href="#cluster-verification">Cluster verification</a></li>
+<li><a class="reference external" href="#configuration-redistribution">Configuration redistribution</a></li>
+<li><a class="reference external" href="#cluster-renaming">Cluster renaming</a></li>
+<li><a class="reference external" href="#queue-operations">Queue operations</a></li>
+<li><a class="reference external" href="#watcher-control">Watcher control</a></li>
+<li><a class="reference external" href="#node-auto-maintenance">Node auto-maintenance</a></li>
+<li><a class="reference external" href="#removing-a-cluster-entirely">Removing a cluster entirely</a></li>
+</ul>
+</li>
+<li><a class="reference external" href="#tags-handling">Tags handling</a><ul>
+<li><a class="reference external" href="#limitations">Limitations</a></li>
+<li><a class="reference external" href="#operations">Operations</a></li>
+<li><a class="reference external" href="#global-tag-search">Global tag search</a></li>
+</ul>
+</li>
+<li><a class="reference external" href="#job-operations">Job operations</a></li>
+<li><a class="reference external" href="#ganeti-tools">Ganeti tools</a><ul>
+<li><a class="reference external" href="#lvmstrap">lvmstrap</a></li>
+<li><a class="reference external" href="#cfgupgrade">cfgupgrade</a></li>
+<li><a class="reference external" href="#cfgshell">cfgshell</a></li>
+<li><a class="reference external" href="#burnin">burnin</a></li>
+<li><a class="reference external" href="#sanitize-config">sanitize-config</a></li>
+</ul>
+</li>
+<li><a class="reference external" href="#other-ganeti-projects">Other Ganeti projects</a><ul>
+<li><a class="reference external" href="#nbma-tools">NBMA tools</a></li>
+<li><a class="reference external" href="#ganeti-htools">ganeti-htools</a></li>
 </ul>
 </li>
 </ul>
@@ -1623,12 +1623,12 @@ in the source archive.</p>
         <li class="right" >
           <a href="install.html" title="Ganeti installation tutorial"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.1.2 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.1.2.1 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">
       &copy; Copyright 2006, 2007, 2008, 2009, Google Inc..
-      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 0.6.3.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 0.6.2.
     </div>
   </body>
 </html>

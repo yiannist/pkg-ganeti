@@ -5,13 +5,13 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Ganeti automatic instance allocation &mdash; Ganeti v2.1.2 documentation</title>
+    <title>Ganeti automatic instance allocation &mdash; Ganeti v2.1.2.1 documentation</title>
     <link rel="stylesheet" href="_static/default.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.1.2',
+        VERSION:     '2.1.2.1',
         COLLAPSE_MODINDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -19,7 +19,7 @@
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.1.2 documentation" href="index.html" />
+    <link rel="top" title="Ganeti v2.1.2.1 documentation" href="index.html" />
     <link rel="next" title="Ganeti remote API" href="rapi.html" />
     <link rel="prev" title="Ganeti customisation using hooks" href="hooks.html" /> 
   </head>
@@ -33,7 +33,7 @@
         <li class="right" >
           <a href="hooks.html" title="Ganeti customisation using hooks"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.1.2 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.1.2.1 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -45,25 +45,25 @@
   <div class="section" id="ganeti-automatic-instance-allocation">
 <h1><a class="toc-backref" href="#id3">Ganeti automatic instance allocation</a><a class="headerlink" href="#ganeti-automatic-instance-allocation" title="Permalink to this headline">¶</a></h1>
 <p>Documents Ganeti version 2.1</p>
-<div class="contents topic">
-<p class="topic-title first"><a id="contents" name="contents">Contents</a></p>
+<div class="contents topic" id="contents">
+<p class="topic-title first">Contents</p>
 <ul class="simple">
-<li><a class="reference" href="#ganeti-automatic-instance-allocation" id="id3" name="id3">Ganeti automatic instance allocation</a><ul>
-<li><a class="reference" href="#introduction" id="id4" name="id4">Introduction</a><ul>
-<li><a class="reference" href="#user-visible-changes" id="id5" name="id5">User-visible changes</a></li>
-<li><a class="reference" href="#cluster-configuration" id="id6" name="id6">Cluster configuration</a></li>
-<li><a class="reference" href="#command-line-interface-changes" id="id7" name="id7">Command line interface changes</a></li>
+<li><a class="reference internal" href="#ganeti-automatic-instance-allocation" id="id3">Ganeti automatic instance allocation</a><ul>
+<li><a class="reference internal" href="#introduction" id="id4">Introduction</a><ul>
+<li><a class="reference internal" href="#user-visible-changes" id="id5">User-visible changes</a></li>
+<li><a class="reference internal" href="#cluster-configuration" id="id6">Cluster configuration</a></li>
+<li><a class="reference internal" href="#command-line-interface-changes" id="id7">Command line interface changes</a></li>
 </ul>
 </li>
-<li><a class="reference" href="#iallocator-api" id="id8" name="id8">IAllocator API</a><ul>
-<li><a class="reference" href="#input-message" id="id9" name="id9">Input message</a></li>
-<li><a class="reference" href="#response-message" id="id10" name="id10">Response message</a></li>
+<li><a class="reference internal" href="#iallocator-api" id="id8">IAllocator API</a><ul>
+<li><a class="reference internal" href="#input-message" id="id9">Input message</a></li>
+<li><a class="reference internal" href="#response-message" id="id10">Response message</a></li>
 </ul>
 </li>
-<li><a class="reference" href="#examples" id="id11" name="id11">Examples</a><ul>
-<li><a class="reference" href="#input-messages-to-scripts" id="id12" name="id12">Input messages to scripts</a></li>
-<li><a class="reference" href="#response-messages" id="id13" name="id13">Response messages</a></li>
-<li><a class="reference" href="#command-line-messages" id="id14" name="id14">Command line messages</a></li>
+<li><a class="reference internal" href="#examples" id="id11">Examples</a><ul>
+<li><a class="reference internal" href="#input-messages-to-scripts" id="id12">Input messages to scripts</a></li>
+<li><a class="reference internal" href="#response-messages" id="id13">Response messages</a></li>
+<li><a class="reference internal" href="#command-line-messages" id="id14">Command line messages</a></li>
 </ul>
 </li>
 </ul>
@@ -227,7 +227,7 @@ of the instance is always the first one</dd>
 </dd>
 <dt>nodes</dt>
 <dd><p class="first">dictionary with the data for the nodes in the cluster, indexed by
-the node name; the dict contains <a class="footnote-reference" href="#id2" id="id1" name="id1">[*]</a> :</p>
+the node name; the dict contains <a class="footnote-reference" href="#id2" id="id1">[*]</a> :</p>
 <dl class="docutils">
 <dt>total_disk</dt>
 <dd>the total disk size of this node (mebibytes)</dd>
@@ -268,7 +268,7 @@ flags is available in the manpage <em>ganeti(7)</em>.</p>
 <table class="docutils footnote" frame="void" id="id2" rules="none">
 <colgroup><col class="label" /><col /></colgroup>
 <tbody valign="top">
-<tr><td class="label"><a class="fn-backref" href="#id1" name="id2">[*]</a></td><td>Note that no run-time data is present for offline or drained
+<tr><td class="label"><a class="fn-backref" href="#id1">[*]</a></td><td>Note that no run-time data is present for offline or drained
 nodes; this means the tags total_memory, reserved_memory,
 free_memory, total_disk, free_disk, total_cpus, i_pri_memory and
 i_pri_up memory will be absent</td></tr>
@@ -312,7 +312,7 @@ as a backwards-compatibility measure (older versions only supported
 <div class="highlight-python"><div class="highlight"><pre><span class="p">{</span>
   <span class="s">&quot;cluster_tags&quot;</span><span class="p">:</span> <span class="p">[],</span>
   <span class="s">&quot;request&quot;</span><span class="p">:</span> <span class="p">{</span>
-    <span class="s">&quot;required_nodes&quot;</span><span class="p">:</span> <span class="mi">2</span><span class="p">,</span>
+    <span class="s">&quot;required_nodes&quot;</span><span class="p">:</span> <span class="mf">2</span><span class="p">,</span>
     <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">&quot;instance3.example.com&quot;</span><span class="p">,</span>
     <span class="s">&quot;tags&quot;</span><span class="p">:</span> <span class="p">[</span>
       <span class="s">&quot;type:test&quot;</span><span class="p">,</span>
@@ -322,11 +322,11 @@ as a backwards-compatibility measure (older versions only supported
     <span class="s">&quot;disks&quot;</span><span class="p">:</span> <span class="p">[</span>
       <span class="p">{</span>
         <span class="s">&quot;mode&quot;</span><span class="p">:</span> <span class="s">&quot;w&quot;</span><span class="p">,</span>
-        <span class="s">&quot;size&quot;</span><span class="p">:</span> <span class="mi">1024</span>
+        <span class="s">&quot;size&quot;</span><span class="p">:</span> <span class="mf">1024</span>
       <span class="p">},</span>
       <span class="p">{</span>
         <span class="s">&quot;mode&quot;</span><span class="p">:</span> <span class="s">&quot;w&quot;</span><span class="p">,</span>
-        <span class="s">&quot;size&quot;</span><span class="p">:</span> <span class="mi">2048</span>
+        <span class="s">&quot;size&quot;</span><span class="p">:</span> <span class="mf">2048</span>
       <span class="p">}</span>
     <span class="p">],</span>
     <span class="s">&quot;nics&quot;</span><span class="p">:</span> <span class="p">[</span>
@@ -336,10 +336,10 @@ as a backwards-compatibility measure (older versions only supported
         <span class="s">&quot;bridge&quot;</span><span class="p">:</span> <span class="n">null</span>
       <span class="p">}</span>
     <span class="p">],</span>
-    <span class="s">&quot;vcpus&quot;</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span>
+    <span class="s">&quot;vcpus&quot;</span><span class="p">:</span> <span class="mf">1</span><span class="p">,</span>
     <span class="s">&quot;disk_template&quot;</span><span class="p">:</span> <span class="s">&quot;drbd&quot;</span><span class="p">,</span>
-    <span class="s">&quot;memory&quot;</span><span class="p">:</span> <span class="mi">2048</span><span class="p">,</span>
-    <span class="s">&quot;disk_space_total&quot;</span><span class="p">:</span> <span class="mi">3328</span><span class="p">,</span>
+    <span class="s">&quot;memory&quot;</span><span class="p">:</span> <span class="mf">2048</span><span class="p">,</span>
+    <span class="s">&quot;disk_space_total&quot;</span><span class="p">:</span> <span class="mf">3328</span><span class="p">,</span>
     <span class="s">&quot;os&quot;</span><span class="p">:</span> <span class="s">&quot;etch-image&quot;</span>
   <span class="p">},</span>
   <span class="s">&quot;cluster_name&quot;</span><span class="p">:</span> <span class="s">&quot;cluster1.example.com&quot;</span><span class="p">,</span>
@@ -350,11 +350,11 @@ as a backwards-compatibility measure (older versions only supported
       <span class="s">&quot;disks&quot;</span><span class="p">:</span> <span class="p">[</span>
         <span class="p">{</span>
           <span class="s">&quot;mode&quot;</span><span class="p">:</span> <span class="s">&quot;w&quot;</span><span class="p">,</span>
-          <span class="s">&quot;size&quot;</span><span class="p">:</span> <span class="mi">64</span>
+          <span class="s">&quot;size&quot;</span><span class="p">:</span> <span class="mf">64</span>
         <span class="p">},</span>
         <span class="p">{</span>
           <span class="s">&quot;mode&quot;</span><span class="p">:</span> <span class="s">&quot;w&quot;</span><span class="p">,</span>
-          <span class="s">&quot;size&quot;</span><span class="p">:</span> <span class="mi">512</span>
+          <span class="s">&quot;size&quot;</span><span class="p">:</span> <span class="mf">512</span>
         <span class="p">}</span>
       <span class="p">],</span>
       <span class="s">&quot;nics&quot;</span><span class="p">:</span> <span class="p">[</span>
@@ -364,9 +364,9 @@ as a backwards-compatibility measure (older versions only supported
           <span class="s">&quot;bridge&quot;</span><span class="p">:</span> <span class="s">&quot;xen-br0&quot;</span>
         <span class="p">}</span>
       <span class="p">],</span>
-      <span class="s">&quot;vcpus&quot;</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span>
+      <span class="s">&quot;vcpus&quot;</span><span class="p">:</span> <span class="mf">1</span><span class="p">,</span>
       <span class="s">&quot;disk_template&quot;</span><span class="p">:</span> <span class="s">&quot;plain&quot;</span><span class="p">,</span>
-      <span class="s">&quot;memory&quot;</span><span class="p">:</span> <span class="mi">128</span><span class="p">,</span>
+      <span class="s">&quot;memory&quot;</span><span class="p">:</span> <span class="mf">128</span><span class="p">,</span>
       <span class="s">&quot;nodes&quot;</span><span class="p">:</span> <span class="p">[</span>
         <span class="s">&quot;nodee1.com&quot;</span>
       <span class="p">],</span>
@@ -378,11 +378,11 @@ as a backwards-compatibility measure (older versions only supported
       <span class="s">&quot;disks&quot;</span><span class="p">:</span> <span class="p">[</span>
         <span class="p">{</span>
           <span class="s">&quot;mode&quot;</span><span class="p">:</span> <span class="s">&quot;w&quot;</span><span class="p">,</span>
-          <span class="s">&quot;size&quot;</span><span class="p">:</span> <span class="mi">512</span>
+          <span class="s">&quot;size&quot;</span><span class="p">:</span> <span class="mf">512</span>
         <span class="p">},</span>
         <span class="p">{</span>
           <span class="s">&quot;mode&quot;</span><span class="p">:</span> <span class="s">&quot;w&quot;</span><span class="p">,</span>
-          <span class="s">&quot;size&quot;</span><span class="p">:</span> <span class="mi">256</span>
+          <span class="s">&quot;size&quot;</span><span class="p">:</span> <span class="mf">256</span>
         <span class="p">}</span>
       <span class="p">],</span>
       <span class="s">&quot;nics&quot;</span><span class="p">:</span> <span class="p">[</span>
@@ -392,9 +392,9 @@ as a backwards-compatibility measure (older versions only supported
           <span class="s">&quot;bridge&quot;</span><span class="p">:</span> <span class="s">&quot;xen-br0&quot;</span>
         <span class="p">}</span>
       <span class="p">],</span>
-      <span class="s">&quot;vcpus&quot;</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span>
+      <span class="s">&quot;vcpus&quot;</span><span class="p">:</span> <span class="mf">1</span><span class="p">,</span>
       <span class="s">&quot;disk_template&quot;</span><span class="p">:</span> <span class="s">&quot;drbd&quot;</span><span class="p">,</span>
-      <span class="s">&quot;memory&quot;</span><span class="p">:</span> <span class="mi">512</span><span class="p">,</span>
+      <span class="s">&quot;memory&quot;</span><span class="p">:</span> <span class="mf">512</span><span class="p">,</span>
       <span class="s">&quot;nodes&quot;</span><span class="p">:</span> <span class="p">[</span>
         <span class="s">&quot;node2.example.com&quot;</span><span class="p">,</span>
         <span class="s">&quot;node3.example.com&quot;</span>
@@ -402,34 +402,34 @@ as a backwards-compatibility measure (older versions only supported
       <span class="s">&quot;os&quot;</span><span class="p">:</span> <span class="s">&quot;etch-image&quot;</span>
     <span class="p">}</span>
   <span class="p">},</span>
-  <span class="s">&quot;version&quot;</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span>
+  <span class="s">&quot;version&quot;</span><span class="p">:</span> <span class="mf">1</span><span class="p">,</span>
   <span class="s">&quot;nodes&quot;</span><span class="p">:</span> <span class="p">{</span>
     <span class="s">&quot;node1.example.com&quot;</span><span class="p">:</span> <span class="p">{</span>
-      <span class="s">&quot;total_disk&quot;</span><span class="p">:</span> <span class="mi">858276</span><span class="p">,</span>
+      <span class="s">&quot;total_disk&quot;</span><span class="p">:</span> <span class="mf">858276</span><span class="p">,</span>
       <span class="s">&quot;primary_ip&quot;</span><span class="p">:</span> <span class="s">&quot;192.168.1.1&quot;</span><span class="p">,</span>
       <span class="s">&quot;secondary_ip&quot;</span><span class="p">:</span> <span class="s">&quot;192.168.2.1&quot;</span><span class="p">,</span>
       <span class="s">&quot;tags&quot;</span><span class="p">:</span> <span class="p">[],</span>
-      <span class="s">&quot;free_memory&quot;</span><span class="p">:</span> <span class="mi">3505</span><span class="p">,</span>
-      <span class="s">&quot;free_disk&quot;</span><span class="p">:</span> <span class="mi">856740</span><span class="p">,</span>
-      <span class="s">&quot;total_memory&quot;</span><span class="p">:</span> <span class="mi">4095</span>
+      <span class="s">&quot;free_memory&quot;</span><span class="p">:</span> <span class="mf">3505</span><span class="p">,</span>
+      <span class="s">&quot;free_disk&quot;</span><span class="p">:</span> <span class="mf">856740</span><span class="p">,</span>
+      <span class="s">&quot;total_memory&quot;</span><span class="p">:</span> <span class="mf">4095</span>
     <span class="p">},</span>
     <span class="s">&quot;node2.example.com&quot;</span><span class="p">:</span> <span class="p">{</span>
-      <span class="s">&quot;total_disk&quot;</span><span class="p">:</span> <span class="mi">858240</span><span class="p">,</span>
+      <span class="s">&quot;total_disk&quot;</span><span class="p">:</span> <span class="mf">858240</span><span class="p">,</span>
       <span class="s">&quot;primary_ip&quot;</span><span class="p">:</span> <span class="s">&quot;192.168.1.3&quot;</span><span class="p">,</span>
       <span class="s">&quot;secondary_ip&quot;</span><span class="p">:</span> <span class="s">&quot;192.168.2.3&quot;</span><span class="p">,</span>
       <span class="s">&quot;tags&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s">&quot;test&quot;</span><span class="p">],</span>
-      <span class="s">&quot;free_memory&quot;</span><span class="p">:</span> <span class="mi">3505</span><span class="p">,</span>
-      <span class="s">&quot;free_disk&quot;</span><span class="p">:</span> <span class="mi">848320</span><span class="p">,</span>
-      <span class="s">&quot;total_memory&quot;</span><span class="p">:</span> <span class="mi">4095</span>
+      <span class="s">&quot;free_memory&quot;</span><span class="p">:</span> <span class="mf">3505</span><span class="p">,</span>
+      <span class="s">&quot;free_disk&quot;</span><span class="p">:</span> <span class="mf">848320</span><span class="p">,</span>
+      <span class="s">&quot;total_memory&quot;</span><span class="p">:</span> <span class="mf">4095</span>
     <span class="p">},</span>
     <span class="s">&quot;node3.example.com.com&quot;</span><span class="p">:</span> <span class="p">{</span>
-      <span class="s">&quot;total_disk&quot;</span><span class="p">:</span> <span class="mi">572184</span><span class="p">,</span>
+      <span class="s">&quot;total_disk&quot;</span><span class="p">:</span> <span class="mf">572184</span><span class="p">,</span>
       <span class="s">&quot;primary_ip&quot;</span><span class="p">:</span> <span class="s">&quot;192.168.1.3&quot;</span><span class="p">,</span>
       <span class="s">&quot;secondary_ip&quot;</span><span class="p">:</span> <span class="s">&quot;192.168.2.3&quot;</span><span class="p">,</span>
       <span class="s">&quot;tags&quot;</span><span class="p">:</span> <span class="p">[],</span>
-      <span class="s">&quot;free_memory&quot;</span><span class="p">:</span> <span class="mi">3505</span><span class="p">,</span>
-      <span class="s">&quot;free_disk&quot;</span><span class="p">:</span> <span class="mi">570648</span><span class="p">,</span>
-      <span class="s">&quot;total_memory&quot;</span><span class="p">:</span> <span class="mi">4095</span>
+      <span class="s">&quot;free_memory&quot;</span><span class="p">:</span> <span class="mf">3505</span><span class="p">,</span>
+      <span class="s">&quot;free_disk&quot;</span><span class="p">:</span> <span class="mf">570648</span><span class="p">,</span>
+      <span class="s">&quot;total_memory&quot;</span><span class="p">:</span> <span class="mf">4095</span>
     <span class="p">}</span>
   <span class="p">}</span>
 <span class="p">}</span>
@@ -522,22 +522,22 @@ Can't compute nodes using iallocator 'dumb-allocator': Can't find a suitable nod
         <div class="sphinxsidebarwrapper">
             <h3><a href="index.html">Table Of Contents</a></h3>
             <ul>
-<li><a class="reference" href="">Ganeti automatic instance allocation</a><ul>
-<li><a class="reference" href="#introduction">Introduction</a><ul>
-<li><a class="reference" href="#user-visible-changes">User-visible changes</a></li>
-<li><a class="reference" href="#cluster-configuration">Cluster configuration</a></li>
-<li><a class="reference" href="#command-line-interface-changes">Command line interface changes</a></li>
+<li><a class="reference external" href="">Ganeti automatic instance allocation</a><ul>
+<li><a class="reference external" href="#introduction">Introduction</a><ul>
+<li><a class="reference external" href="#user-visible-changes">User-visible changes</a></li>
+<li><a class="reference external" href="#cluster-configuration">Cluster configuration</a></li>
+<li><a class="reference external" href="#command-line-interface-changes">Command line interface changes</a></li>
 </ul>
 </li>
-<li><a class="reference" href="#iallocator-api">IAllocator API</a><ul>
-<li><a class="reference" href="#input-message">Input message</a></li>
-<li><a class="reference" href="#response-message">Response message</a></li>
+<li><a class="reference external" href="#iallocator-api">IAllocator API</a><ul>
+<li><a class="reference external" href="#input-message">Input message</a></li>
+<li><a class="reference external" href="#response-message">Response message</a></li>
 </ul>
 </li>
-<li><a class="reference" href="#examples">Examples</a><ul>
-<li><a class="reference" href="#input-messages-to-scripts">Input messages to scripts</a></li>
-<li><a class="reference" href="#response-messages">Response messages</a></li>
-<li><a class="reference" href="#command-line-messages">Command line messages</a></li>
+<li><a class="reference external" href="#examples">Examples</a><ul>
+<li><a class="reference external" href="#input-messages-to-scripts">Input messages to scripts</a></li>
+<li><a class="reference external" href="#response-messages">Response messages</a></li>
+<li><a class="reference external" href="#command-line-messages">Command line messages</a></li>
 </ul>
 </li>
 </ul>
@@ -581,12 +581,12 @@ Can't compute nodes using iallocator 'dumb-allocator': Can't find a suitable nod
         <li class="right" >
           <a href="hooks.html" title="Ganeti customisation using hooks"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.1.2 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.1.2.1 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">
       &copy; Copyright 2006, 2007, 2008, 2009, Google Inc..
-      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 0.6.3.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 0.6.2.
     </div>
   </body>
 </html>
