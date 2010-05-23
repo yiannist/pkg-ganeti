@@ -1521,7 +1521,7 @@ used). A file name of - will be interpreted as stdin.
 .PP
 Report bugs to  <URL:http://code.google.com/p/ganeti/> or contact the
 developers using the ganeti mailing list
-<ganeti@googlegroups.com>\&.
+<ganeti@googlegroups.com>.
 .SH "SEE ALSO"
 .PP
 Ganeti overview and specifications:

@@ -5,13 +5,13 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Ganeti quick installation guide &mdash; Ganeti v2.1.2 documentation</title>
+    <title>Ganeti quick installation guide &mdash; Ganeti v2.1.2.1 documentation</title>
     <link rel="stylesheet" href="_static/default.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.1.2',
+        VERSION:     '2.1.2.1',
         COLLAPSE_MODINDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -19,7 +19,7 @@
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.1.2 documentation" href="index.html" />
+    <link rel="top" title="Ganeti v2.1.2.1 documentation" href="index.html" />
     <link rel="next" title="Ganeti installation tutorial" href="install.html" />
     <link rel="prev" title="Welcome to Ganeti’s documentation!" href="index.html" /> 
   </head>
@@ -33,7 +33,7 @@
         <li class="right" >
           <a href="index.html" title="Welcome to Ganeti’s documentation!"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.1.2 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.1.2.1 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -45,27 +45,27 @@
   <div class="section" id="ganeti-quick-installation-guide">
 <h1>Ganeti quick installation guide<a class="headerlink" href="#ganeti-quick-installation-guide" title="Permalink to this headline">¶</a></h1>
 <p>Please note that a more detailed installation procedure is described in
-the <a class="reference" href="install.html"><em>Ganeti installation tutorial</em></a>. A glossary of terms can be found in the
-<a class="reference" href="glossary.html"><em>Glossary</em></a>.</p>
+the <a class="reference external" href="install.html"><em>Ganeti installation tutorial</em></a>. A glossary of terms can be found in the
+<a class="reference external" href="glossary.html"><em>Glossary</em></a>.</p>
 <div class="section" id="software-requirements">
 <h2>Software Requirements<a class="headerlink" href="#software-requirements" title="Permalink to this headline">¶</a></h2>
 <p>Before installing, please verify that you have the following programs:</p>
 <ul class="simple">
-<li><a class="reference" href="http://www.xen.org/">Xen Hypervisor</a>, version 3.0.x or 3.1</li>
-<li><a class="reference" href="http://www.drbd.org/">DRBD</a>, kernel module and userspace utils,
+<li><a class="reference external" href="http://www.xen.org/">Xen Hypervisor</a>, version 3.0.x or 3.1</li>
+<li><a class="reference external" href="http://www.drbd.org/">DRBD</a>, kernel module and userspace utils,
 version 8.0.7 or above</li>
-<li><a class="reference" href="http://sourceware.org/lvm2/">LVM2</a></li>
-<li><a class="reference" href="http://www.openssl.org/">OpenSSL</a></li>
-<li><a class="reference" href="http://www.openssh.com/portable.html">OpenSSH</a></li>
-<li><a class="reference" href="http://www.linuxfoundation.org/en/Net:Bridge">bridge utilities</a></li>
-<li><a class="reference" href="http://www.linuxfoundation.org/en/Net:Iproute2">iproute2</a></li>
-<li><a class="reference" href="http://www.skbuff.net/iputils/">arping</a> (part of iputils)</li>
-<li><a class="reference" href="http://www.python.org/">Python</a>, version 2.4 or above, not 3.0</li>
-<li><a class="reference" href="http://pyopenssl.sourceforge.net/">Python OpenSSL bindings</a></li>
-<li><a class="reference" href="http://code.google.com/p/simplejson/">simplejson Python module</a></li>
-<li><a class="reference" href="http://pyparsing.wikispaces.com/">pyparsing Python module</a></li>
-<li><a class="reference" href="http://trac.dbzteam.org/pyinotify/">pyinotify Python module</a></li>
-<li><a class="reference" href="http://www.dest-unreach.org/socat/">socat</a></li>
+<li><a class="reference external" href="http://sourceware.org/lvm2/">LVM2</a></li>
+<li><a class="reference external" href="http://www.openssl.org/">OpenSSL</a></li>
+<li><a class="reference external" href="http://www.openssh.com/portable.html">OpenSSH</a></li>
+<li><a class="reference external" href="http://www.linuxfoundation.org/en/Net:Bridge">bridge utilities</a></li>
+<li><a class="reference external" href="http://www.linuxfoundation.org/en/Net:Iproute2">iproute2</a></li>
+<li><a class="reference external" href="http://www.skbuff.net/iputils/">arping</a> (part of iputils)</li>
+<li><a class="reference external" href="http://www.python.org/">Python</a>, version 2.4 or above, not 3.0</li>
+<li><a class="reference external" href="http://pyopenssl.sourceforge.net/">Python OpenSSL bindings</a></li>
+<li><a class="reference external" href="http://code.google.com/p/simplejson/">simplejson Python module</a></li>
+<li><a class="reference external" href="http://pyparsing.wikispaces.com/">pyparsing Python module</a></li>
+<li><a class="reference external" href="http://trac.dbzteam.org/pyinotify/">pyinotify Python module</a></li>
+<li><a class="reference external" href="http://www.dest-unreach.org/socat/">socat</a></li>
 </ul>
 <p>These programs are supplied as part of most Linux distributions, so
 usually they can be installed via the standard package manager. Also
@@ -115,10 +115,10 @@ following directories:</p>
         <div class="sphinxsidebarwrapper">
             <h3><a href="index.html">Table Of Contents</a></h3>
             <ul>
-<li><a class="reference" href="">Ganeti quick installation guide</a><ul>
-<li><a class="reference" href="#software-requirements">Software Requirements</a></li>
-<li><a class="reference" href="#installation-of-the-software">Installation of the software</a></li>
-<li><a class="reference" href="#cluster-initialisation">Cluster initialisation</a></li>
+<li><a class="reference external" href="">Ganeti quick installation guide</a><ul>
+<li><a class="reference external" href="#software-requirements">Software Requirements</a></li>
+<li><a class="reference external" href="#installation-of-the-software">Installation of the software</a></li>
+<li><a class="reference external" href="#cluster-initialisation">Cluster initialisation</a></li>
 </ul>
 </li>
 </ul>
@@ -160,12 +160,12 @@ following directories:</p>
         <li class="right" >
           <a href="index.html" title="Welcome to Ganeti’s documentation!"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.1.2 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.1.2.1 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">
       &copy; Copyright 2006, 2007, 2008, 2009, Google Inc..
-      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 0.6.3.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 0.6.2.
     </div>
   </body>
 </html>

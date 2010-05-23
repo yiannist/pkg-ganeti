@@ -86,7 +86,7 @@ file containing N copies of the opcodes).
 .PP
 Report bugs to  <URL:http://code.google.com/p/ganeti/> or contact the
 developers using the ganeti mailing list
-<ganeti@googlegroups.com>\&.
+<ganeti@googlegroups.com>.
 .SH "SEE ALSO"
 .PP
 Ganeti overview and specifications:

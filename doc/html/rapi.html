@@ -5,13 +5,13 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Ganeti remote API &mdash; Ganeti v2.1.2 documentation</title>
+    <title>Ganeti remote API &mdash; Ganeti v2.1.2.1 documentation</title>
     <link rel="stylesheet" href="_static/default.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.1.2',
+        VERSION:     '2.1.2.1',
         COLLAPSE_MODINDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -19,7 +19,7 @@
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.1.2 documentation" href="index.html" />
+    <link rel="top" title="Ganeti v2.1.2.1 documentation" href="index.html" />
     <link rel="next" title="Developer notes" href="devnotes.html" />
     <link rel="prev" title="Ganeti automatic instance allocation" href="iallocator.html" /> 
   </head>
@@ -33,7 +33,7 @@
         <li class="right" >
           <a href="iallocator.html" title="Ganeti automatic instance allocation"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.1.2 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.1.2.1 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -45,152 +45,152 @@
   <div class="section" id="ganeti-remote-api">
 <h1><a class="toc-backref" href="#id38">Ganeti remote API</a><a class="headerlink" href="#ganeti-remote-api" title="Permalink to this headline">¶</a></h1>
 <p>Documents Ganeti version 2.1</p>
-<div class="contents topic">
-<p class="topic-title first"><a id="contents" name="contents">Contents</a></p>
+<div class="contents topic" id="contents">
+<p class="topic-title first">Contents</p>
 <ul class="simple">
-<li><a class="reference" href="#ganeti-remote-api" id="id38" name="id38">Ganeti remote API</a><ul>
-<li><a class="reference" href="#introduction" id="id39" name="id39">Introduction</a></li>
-<li><a class="reference" href="#users-and-passwords" id="id40" name="id40">Users and passwords</a></li>
-<li><a class="reference" href="#protocol" id="id41" name="id41">Protocol</a></li>
-<li><a class="reference" href="#put-or-post" id="id42" name="id42">PUT or POST?</a></li>
-<li><a class="reference" href="#generic-parameter-types" id="id43" name="id43">Generic parameter types</a><ul>
-<li><a class="reference" href="#bool" id="id44" name="id44"><tt class="docutils literal"><span class="pre">bool</span></tt></a></li>
+<li><a class="reference internal" href="#ganeti-remote-api" id="id38">Ganeti remote API</a><ul>
+<li><a class="reference internal" href="#introduction" id="id39">Introduction</a></li>
+<li><a class="reference internal" href="#users-and-passwords" id="id40">Users and passwords</a></li>
+<li><a class="reference internal" href="#protocol" id="id41">Protocol</a></li>
+<li><a class="reference internal" href="#put-or-post" id="id42">PUT or POST?</a></li>
+<li><a class="reference internal" href="#generic-parameter-types" id="id43">Generic parameter types</a><ul>
+<li><a class="reference internal" href="#bool" id="id44"><tt class="docutils literal"><span class="pre">bool</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference" href="#generic-parameters" id="id45" name="id45">Generic parameters</a><ul>
-<li><a class="reference" href="#bulk" id="id46" name="id46"><tt class="docutils literal"><span class="pre">bulk</span></tt></a></li>
-<li><a class="reference" href="#dry-run" id="id47" name="id47"><tt class="docutils literal"><span class="pre">dry-run</span></tt></a></li>
-<li><a class="reference" href="#force" id="id48" name="id48"><tt class="docutils literal"><span class="pre">force</span></tt></a></li>
+<li><a class="reference internal" href="#generic-parameters" id="id45">Generic parameters</a><ul>
+<li><a class="reference internal" href="#bulk" id="id46"><tt class="docutils literal"><span class="pre">bulk</span></tt></a></li>
+<li><a class="reference internal" href="#dry-run" id="id47"><tt class="docutils literal"><span class="pre">dry-run</span></tt></a></li>
+<li><a class="reference internal" href="#force" id="id48"><tt class="docutils literal"><span class="pre">force</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference" href="#usage-examples" id="id49" name="id49">Usage examples</a><ul>
-<li><a class="reference" href="#shell" id="id50" name="id50">Shell</a></li>
-<li><a class="reference" href="#python" id="id51" name="id51">Python</a></li>
-<li><a class="reference" href="#javascript" id="id52" name="id52">JavaScript</a></li>
+<li><a class="reference internal" href="#usage-examples" id="id49">Usage examples</a><ul>
+<li><a class="reference internal" href="#shell" id="id50">Shell</a></li>
+<li><a class="reference internal" href="#python" id="id51">Python</a></li>
+<li><a class="reference internal" href="#javascript" id="id52">JavaScript</a></li>
 </ul>
 </li>
-<li><a class="reference" href="#resources" id="id53" name="id53">Resources</a><ul>
-<li><a class="reference" href="#id2" id="id54" name="id54"><tt class="docutils literal"><span class="pre">/</span></tt></a><ul>
-<li><a class="reference" href="#get" id="id55" name="id55"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+<li><a class="reference internal" href="#resources" id="id53">Resources</a><ul>
+<li><a class="reference internal" href="#id2" id="id54"><tt class="docutils literal"><span class="pre">/</span></tt></a><ul>
+<li><a class="reference internal" href="#get" id="id55"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference" href="#id3" id="id56" name="id56"><tt class="docutils literal"><span class="pre">/2</span></tt></a><ul>
-<li><a class="reference" href="#id4" id="id57" name="id57"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+<li><a class="reference internal" href="#id3" id="id56"><tt class="docutils literal"><span class="pre">/2</span></tt></a><ul>
+<li><a class="reference internal" href="#id4" id="id57"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference" href="#info" id="id58" name="id58"><tt class="docutils literal"><span class="pre">/2/info</span></tt></a><ul>
-<li><a class="reference" href="#id5" id="id59" name="id59"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+<li><a class="reference internal" href="#info" id="id58"><tt class="docutils literal"><span class="pre">/2/info</span></tt></a><ul>
+<li><a class="reference internal" href="#id5" id="id59"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference" href="#redistribute-config" id="id60" name="id60"><tt class="docutils literal"><span class="pre">/2/redistribute-config</span></tt></a><ul>
-<li><a class="reference" href="#put" id="id61" name="id61"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
+<li><a class="reference internal" href="#redistribute-config" id="id60"><tt class="docutils literal"><span class="pre">/2/redistribute-config</span></tt></a><ul>
+<li><a class="reference internal" href="#put" id="id61"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference" href="#instances" id="id62" name="id62"><tt class="docutils literal"><span class="pre">/2/instances</span></tt></a><ul>
-<li><a class="reference" href="#id6" id="id63" name="id63"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
-<li><a class="reference" href="#post" id="id64" name="id64"><tt class="docutils literal"><span class="pre">POST</span></tt></a></li>
+<li><a class="reference internal" href="#instances" id="id62"><tt class="docutils literal"><span class="pre">/2/instances</span></tt></a><ul>
+<li><a class="reference internal" href="#id6" id="id63"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+<li><a class="reference internal" href="#post" id="id64"><tt class="docutils literal"><span class="pre">POST</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference" href="#instances-instance-name" id="id65" name="id65"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]</span></tt></a><ul>
-<li><a class="reference" href="#id7" id="id66" name="id66"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
-<li><a class="reference" href="#delete" id="id67" name="id67"><tt class="docutils literal"><span class="pre">DELETE</span></tt></a></li>
+<li><a class="reference internal" href="#instances-instance-name" id="id65"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]</span></tt></a><ul>
+<li><a class="reference internal" href="#id7" id="id66"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+<li><a class="reference internal" href="#delete" id="id67"><tt class="docutils literal"><span class="pre">DELETE</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference" href="#instances-instance-name-info" id="id68" name="id68"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/info</span></tt></a><ul>
-<li><a class="reference" href="#id8" id="id69" name="id69"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+<li><a class="reference internal" href="#instances-instance-name-info" id="id68"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/info</span></tt></a><ul>
+<li><a class="reference internal" href="#id8" id="id69"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference" href="#instances-instance-name-reboot" id="id70" name="id70"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/reboot</span></tt></a><ul>
-<li><a class="reference" href="#id9" id="id71" name="id71"><tt class="docutils literal"><span class="pre">POST</span></tt></a></li>
+<li><a class="reference internal" href="#instances-instance-name-reboot" id="id70"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/reboot</span></tt></a><ul>
+<li><a class="reference internal" href="#id9" id="id71"><tt class="docutils literal"><span class="pre">POST</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference" href="#instances-instance-name-shutdown" id="id72" name="id72"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/shutdown</span></tt></a><ul>
-<li><a class="reference" href="#id10" id="id73" name="id73"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
+<li><a class="reference internal" href="#instances-instance-name-shutdown" id="id72"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/shutdown</span></tt></a><ul>
+<li><a class="reference internal" href="#id10" id="id73"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference" href="#instances-instance-name-startup" id="id74" name="id74"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/startup</span></tt></a><ul>
-<li><a class="reference" href="#id11" id="id75" name="id75"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
+<li><a class="reference internal" href="#instances-instance-name-startup" id="id74"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/startup</span></tt></a><ul>
+<li><a class="reference internal" href="#id11" id="id75"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference" href="#instances-instance-name-reinstall" id="id76" name="id76"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/reinstall</span></tt></a><ul>
-<li><a class="reference" href="#id12" id="id77" name="id77"><tt class="docutils literal"><span class="pre">POST</span></tt></a></li>
+<li><a class="reference internal" href="#instances-instance-name-reinstall" id="id76"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/reinstall</span></tt></a><ul>
+<li><a class="reference internal" href="#id12" id="id77"><tt class="docutils literal"><span class="pre">POST</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference" href="#instances-instance-name-replace-disks" id="id78" name="id78"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/replace-disks</span></tt></a><ul>
-<li><a class="reference" href="#id13" id="id79" name="id79"><tt class="docutils literal"><span class="pre">POST</span></tt></a></li>
+<li><a class="reference internal" href="#instances-instance-name-replace-disks" id="id78"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/replace-disks</span></tt></a><ul>
+<li><a class="reference internal" href="#id13" id="id79"><tt class="docutils literal"><span class="pre">POST</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference" href="#instances-instance-name-activate-disks" id="id80" name="id80"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/activate-disks</span></tt></a><ul>
-<li><a class="reference" href="#id14" id="id81" name="id81"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
+<li><a class="reference internal" href="#instances-instance-name-activate-disks" id="id80"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/activate-disks</span></tt></a><ul>
+<li><a class="reference internal" href="#id14" id="id81"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference" href="#instances-instance-name-deactivate-disks" id="id82" name="id82"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/deactivate-disks</span></tt></a><ul>
-<li><a class="reference" href="#id15" id="id83" name="id83"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
+<li><a class="reference internal" href="#instances-instance-name-deactivate-disks" id="id82"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/deactivate-disks</span></tt></a><ul>
+<li><a class="reference internal" href="#id15" id="id83"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference" href="#instances-instance-name-tags" id="id84" name="id84"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/tags</span></tt></a><ul>
-<li><a class="reference" href="#id16" id="id85" name="id85"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
-<li><a class="reference" href="#id17" id="id86" name="id86"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
-<li><a class="reference" href="#id18" id="id87" name="id87"><tt class="docutils literal"><span class="pre">DELETE</span></tt></a></li>
+<li><a class="reference internal" href="#instances-instance-name-tags" id="id84"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/tags</span></tt></a><ul>
+<li><a class="reference internal" href="#id16" id="id85"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+<li><a class="reference internal" href="#id17" id="id86"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
+<li><a class="reference internal" href="#id18" id="id87"><tt class="docutils literal"><span class="pre">DELETE</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference" href="#jobs" id="id88" name="id88"><tt class="docutils literal"><span class="pre">/2/jobs</span></tt></a><ul>
-<li><a class="reference" href="#id19" id="id89" name="id89"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+<li><a class="reference internal" href="#jobs" id="id88"><tt class="docutils literal"><span class="pre">/2/jobs</span></tt></a><ul>
+<li><a class="reference internal" href="#id19" id="id89"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference" href="#jobs-job-id" id="id90" name="id90"><tt class="docutils literal"><span class="pre">/2/jobs/[job_id]</span></tt></a><ul>
-<li><a class="reference" href="#id20" id="id91" name="id91"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
-<li><a class="reference" href="#id21" id="id92" name="id92"><tt class="docutils literal"><span class="pre">DELETE</span></tt></a></li>
+<li><a class="reference internal" href="#jobs-job-id" id="id90"><tt class="docutils literal"><span class="pre">/2/jobs/[job_id]</span></tt></a><ul>
+<li><a class="reference internal" href="#id20" id="id91"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+<li><a class="reference internal" href="#id21" id="id92"><tt class="docutils literal"><span class="pre">DELETE</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference" href="#nodes" id="id93" name="id93"><tt class="docutils literal"><span class="pre">/2/nodes</span></tt></a><ul>
-<li><a class="reference" href="#id22" id="id94" name="id94"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+<li><a class="reference internal" href="#nodes" id="id93"><tt class="docutils literal"><span class="pre">/2/nodes</span></tt></a><ul>
+<li><a class="reference internal" href="#id22" id="id94"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference" href="#nodes-node-name" id="id95" name="id95"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]</span></tt></a></li>
-<li><a class="reference" href="#nodes-node-name-evacuate" id="id96" name="id96"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/evacuate</span></tt></a><ul>
-<li><a class="reference" href="#id23" id="id97" name="id97"><tt class="docutils literal"><span class="pre">POST</span></tt></a></li>
+<li><a class="reference internal" href="#nodes-node-name" id="id95"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]</span></tt></a></li>
+<li><a class="reference internal" href="#nodes-node-name-evacuate" id="id96"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/evacuate</span></tt></a><ul>
+<li><a class="reference internal" href="#id23" id="id97"><tt class="docutils literal"><span class="pre">POST</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference" href="#nodes-node-name-migrate" id="id98" name="id98"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/migrate</span></tt></a><ul>
-<li><a class="reference" href="#id24" id="id99" name="id99"><tt class="docutils literal"><span class="pre">POST</span></tt></a></li>
+<li><a class="reference internal" href="#nodes-node-name-migrate" id="id98"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/migrate</span></tt></a><ul>
+<li><a class="reference internal" href="#id24" id="id99"><tt class="docutils literal"><span class="pre">POST</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference" href="#nodes-node-name-role" id="id100" name="id100"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/role</span></tt></a><ul>
-<li><a class="reference" href="#id25" id="id101" name="id101"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
-<li><a class="reference" href="#id26" id="id102" name="id102"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
+<li><a class="reference internal" href="#nodes-node-name-role" id="id100"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/role</span></tt></a><ul>
+<li><a class="reference internal" href="#id25" id="id101"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+<li><a class="reference internal" href="#id26" id="id102"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference" href="#nodes-node-name-storage" id="id103" name="id103"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/storage</span></tt></a><ul>
-<li><a class="reference" href="#id27" id="id104" name="id104"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+<li><a class="reference internal" href="#nodes-node-name-storage" id="id103"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/storage</span></tt></a><ul>
+<li><a class="reference internal" href="#id27" id="id104"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference" href="#nodes-node-name-storage-modify" id="id105" name="id105"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/storage/modify</span></tt></a><ul>
-<li><a class="reference" href="#id28" id="id106" name="id106"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
+<li><a class="reference internal" href="#nodes-node-name-storage-modify" id="id105"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/storage/modify</span></tt></a><ul>
+<li><a class="reference internal" href="#id28" id="id106"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference" href="#nodes-node-name-storage-repair" id="id107" name="id107"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/storage/repair</span></tt></a><ul>
-<li><a class="reference" href="#id29" id="id108" name="id108"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
+<li><a class="reference internal" href="#nodes-node-name-storage-repair" id="id107"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/storage/repair</span></tt></a><ul>
+<li><a class="reference internal" href="#id29" id="id108"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference" href="#nodes-node-name-tags" id="id109" name="id109"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/tags</span></tt></a><ul>
-<li><a class="reference" href="#id30" id="id110" name="id110"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
-<li><a class="reference" href="#id31" id="id111" name="id111"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
-<li><a class="reference" href="#id32" id="id112" name="id112"><tt class="docutils literal"><span class="pre">DELETE</span></tt></a></li>
+<li><a class="reference internal" href="#nodes-node-name-tags" id="id109"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/tags</span></tt></a><ul>
+<li><a class="reference internal" href="#id30" id="id110"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+<li><a class="reference internal" href="#id31" id="id111"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
+<li><a class="reference internal" href="#id32" id="id112"><tt class="docutils literal"><span class="pre">DELETE</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference" href="#os" id="id113" name="id113"><tt class="docutils literal"><span class="pre">/2/os</span></tt></a><ul>
-<li><a class="reference" href="#id33" id="id114" name="id114"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+<li><a class="reference internal" href="#os" id="id113"><tt class="docutils literal"><span class="pre">/2/os</span></tt></a><ul>
+<li><a class="reference internal" href="#id33" id="id114"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference" href="#tags" id="id115" name="id115"><tt class="docutils literal"><span class="pre">/2/tags</span></tt></a><ul>
-<li><a class="reference" href="#id34" id="id116" name="id116"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
-<li><a class="reference" href="#id35" id="id117" name="id117"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
-<li><a class="reference" href="#id36" id="id118" name="id118"><tt class="docutils literal"><span class="pre">DELETE</span></tt></a></li>
+<li><a class="reference internal" href="#tags" id="id115"><tt class="docutils literal"><span class="pre">/2/tags</span></tt></a><ul>
+<li><a class="reference internal" href="#id34" id="id116"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+<li><a class="reference internal" href="#id35" id="id117"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
+<li><a class="reference internal" href="#id36" id="id118"><tt class="docutils literal"><span class="pre">DELETE</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference" href="#version" id="id119" name="id119"><tt class="docutils literal"><span class="pre">/version</span></tt></a><ul>
-<li><a class="reference" href="#id37" id="id120" name="id120"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+<li><a class="reference internal" href="#version" id="id119"><tt class="docutils literal"><span class="pre">/version</span></tt></a><ul>
+<li><a class="reference internal" href="#id37" id="id120"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
 </ul>
 </li>
 </ul>
@@ -224,7 +224,7 @@ operations modifying the cluster. Lines starting with the hash sign
 passwords may not start with an opening brace (<tt class="docutils literal"><span class="pre">{</span></tt>) or they must be
 prefixed with <tt class="docutils literal"><span class="pre">{cleartext}</span></tt>. To use the hashed form, get the MD5 hash
 of the string <tt class="docutils literal"><span class="pre">$username:Ganeti</span> <span class="pre">Remote</span> <span class="pre">API:$password</span></tt> (e.g. <tt class="docutils literal"><span class="pre">echo</span> <span class="pre">-n</span>
-<span class="pre">'jack:Ganeti</span> <span class="pre">Remote</span> <span class="pre">API:abc123'</span> <span class="pre">|</span> <span class="pre">openssl</span> <span class="pre">md5</span></tt>) <a class="footnote-reference" href="#pwhash" id="id1" name="id1">[1]</a> and prefix
+<span class="pre">'jack:Ganeti</span> <span class="pre">Remote</span> <span class="pre">API:abc123'</span> <span class="pre">|</span> <span class="pre">openssl</span> <span class="pre">md5</span></tt>) <a class="footnote-reference" href="#pwhash" id="id1">[1]</a> and prefix
 it with <tt class="docutils literal"><span class="pre">{ha1}</span></tt>. Using the scheme prefix for all passwords is
 recommended. Scheme prefixes are not case sensitive.</p>
 <p>Example:</p>
@@ -241,8 +241,8 @@ jessica {HA1}7046452df2cbb530877058712cf17bd4 write</pre>
 <table class="docutils footnote" frame="void" id="pwhash" rules="none">
 <colgroup><col class="label" /><col /></colgroup>
 <tbody valign="top">
-<tr><td class="label"><a class="fn-backref" href="#id1" name="pwhash">[1]</a></td><td>Using the MD5 hash of username, realm and password is
-described in <a class="reference" href="http://tools.ietf.org/rfc/rfc2617.txt">RFC2617</a> (&#8220;HTTP Authentication&#8221;), sections 3.2.2.2 and
+<tr><td class="label"><a class="fn-backref" href="#id1">[1]</a></td><td>Using the MD5 hash of username, realm and password is
+described in <a class="reference external" href="http://tools.ietf.org/rfc/rfc2617.txt">RFC2617</a> (&#8220;HTTP Authentication&#8221;), sections 3.2.2.2 and
 3.3. The reason for using it over another algorithm is forward
 compatibility. If <tt class="docutils literal"><span class="pre">ganeti-rapi</span></tt> were to implement HTTP Digest
 authentication in the future, the same hash could be used.
@@ -253,8 +253,8 @@ In the current version <tt class="docutils literal"><span class="pre">ganeti-rap
 </div>
 <div class="section" id="protocol">
 <h2><a class="toc-backref" href="#id41">Protocol</a><a class="headerlink" href="#protocol" title="Permalink to this headline">¶</a></h2>
-<p>The protocol used is <a class="reference" href="http://www.json.org/">JSON</a> over HTTP designed after the <a class="reference" href="http://en.wikipedia.org/wiki/Representational_State_Transfer">REST</a> principle.
-HTTP Basic authentication as per <a class="reference" href="http://tools.ietf.org/rfc/rfc2617.txt">RFC2617</a> is supported.</p>
+<p>The protocol used is <a class="reference external" href="http://www.json.org/">JSON</a> over HTTP designed after the <a class="reference external" href="http://en.wikipedia.org/wiki/Representational_State_Transfer">REST</a> principle.
+HTTP Basic authentication as per <a class="reference external" href="http://tools.ietf.org/rfc/rfc2617.txt">RFC2617</a> is supported.</p>
 </div>
 <div class="section" id="put-or-post">
 <h2><a class="toc-backref" href="#id42">PUT or POST?</a><a class="headerlink" href="#put-or-post" title="Permalink to this headline">¶</a></h2>
@@ -320,7 +320,7 @@ as it supports network connections.</p>
 </div>
 <div class="section" id="python">
 <h3><a class="toc-backref" href="#id51">Python</a><a class="headerlink" href="#python" title="Permalink to this headline">¶</a></h3>
-<div class="highlight-python"><div class="highlight"><pre><span class="kn">import</span> <span class="nn">urllib2</span>
+<div class="highlight-python"><div class="highlight"><pre><span class="k">import</span> <span class="nn">urllib2</span>
 <span class="n">f</span> <span class="o">=</span> <span class="n">urllib2</span><span class="o">.</span><span class="n">urlopen</span><span class="p">(</span><span class="s">&#39;https://CLUSTERNAME:5080/2/info&#39;</span><span class="p">)</span>
 <span class="k">print</span> <span class="n">f</span><span class="o">.</span><span class="n">read</span><span class="p">()</span>
 </pre></div>
@@ -335,20 +335,20 @@ potential problems, including browser blocking request due to
 non-standard ports or different domain names. Fetching the data on
 the webserver is easier.</p>
 </div>
-<div class="highlight-javascript"><div class="highlight"><pre><span class="kd">var</span> <span class="nx">url</span> <span class="o">=</span> <span class="s1">&#39;https://CLUSTERNAME:5080/2/info&#39;</span><span class="p">;</span>
-<span class="kd">var</span> <span class="nx">info</span><span class="p">;</span>
-<span class="kd">var</span> <span class="nx">xmlreq</span> <span class="o">=</span> <span class="k">new</span> <span class="nx">XMLHttpRequest</span><span class="p">();</span>
-<span class="nx">xmlreq</span><span class="p">.</span><span class="nx">onreadystatechange</span> <span class="o">=</span> <span class="kd">function</span> <span class="p">()</span> <span class="p">{</span>
-  <span class="k">if</span> <span class="p">(</span><span class="nx">xmlreq</span><span class="p">.</span><span class="nx">readyState</span> <span class="o">!=</span> <span class="mi">4</span><span class="p">)</span> <span class="k">return</span><span class="p">;</span>
+<div class="highlight-javascript"><div class="highlight"><pre><span class="k">var</span> <span class="nx">url</span> <span class="o">=</span> <span class="s1">&#39;https://CLUSTERNAME:5080/2/info&#39;</span><span class="o">;</span>
+<span class="k">var</span> <span class="nx">info</span><span class="o">;</span>
+<span class="k">var</span> <span class="nx">xmlreq</span> <span class="o">=</span> <span class="k">new</span> <span class="nx">XMLHttpRequest</span><span class="p">();</span>
+<span class="nx">xmlreq</span><span class="p">.</span><span class="nx">onreadystatechange</span> <span class="o">=</span> <span class="k">function</span> <span class="p">()</span> <span class="p">{</span>
+  <span class="k">if</span> <span class="p">(</span><span class="nx">xmlreq</span><span class="p">.</span><span class="nx">readyState</span> <span class="o">!=</span> <span class="mi">4</span><span class="p">)</span> <span class="k">return</span><span class="o">;</span>
   <span class="k">if</span> <span class="p">(</span><span class="nx">xmlreq</span><span class="p">.</span><span class="nx">status</span> <span class="o">==</span> <span class="mi">200</span><span class="p">)</span> <span class="p">{</span>
     <span class="nx">info</span> <span class="o">=</span> <span class="nb">eval</span><span class="p">(</span><span class="s2">&quot;(&quot;</span> <span class="o">+</span> <span class="nx">xmlreq</span><span class="p">.</span><span class="nx">responseText</span> <span class="o">+</span> <span class="s2">&quot;)&quot;</span><span class="p">);</span>
     <span class="nx">alert</span><span class="p">(</span><span class="nx">info</span><span class="p">);</span>
   <span class="p">}</span> <span class="k">else</span> <span class="p">{</span>
     <span class="nx">alert</span><span class="p">(</span><span class="s1">&#39;Error fetching cluster info&#39;</span><span class="p">);</span>
   <span class="p">}</span>
-  <span class="nx">xmlreq</span> <span class="o">=</span> <span class="kc">null</span><span class="p">;</span>
+  <span class="nx">xmlreq</span> <span class="o">=</span> <span class="kc">null</span><span class="o">;</span>
 <span class="p">};</span>
-<span class="nx">xmlreq</span><span class="p">.</span><span class="nx">open</span><span class="p">(</span><span class="s1">&#39;GET&#39;</span><span class="p">,</span> <span class="nx">url</span><span class="p">,</span> <span class="kc">true</span><span class="p">);</span>
+<span class="nx">xmlreq</span><span class="p">.</span><span class="nx">open</span><span class="p">(</span><span class="s1">&#39;GET&#39;</span><span class="o">,</span> <span class="nx">url</span><span class="o">,</span> <span class="kc">true</span><span class="p">);</span>
 <span class="nx">xmlreq</span><span class="p">.</span><span class="nx">send</span><span class="p">(</span><span class="kc">null</span><span class="p">);</span>
 </pre></div>
 </div>
@@ -385,29 +385,29 @@ the webserver is easier.</p>
 <p>Returns cluster information.</p>
 <p>Example:</p>
 <div class="highlight-javascript"><div class="highlight"><pre><span class="p">{</span>
-  <span class="s2">&quot;config_version&quot;</span><span class="o">:</span> <span class="mi">2000000</span><span class="p">,</span>
-  <span class="s2">&quot;name&quot;</span><span class="o">:</span> <span class="s2">&quot;cluster&quot;</span><span class="p">,</span>
-  <span class="s2">&quot;software_version&quot;</span><span class="o">:</span> <span class="s2">&quot;2.0.0~beta2&quot;</span><span class="p">,</span>
-  <span class="s2">&quot;os_api_version&quot;</span><span class="o">:</span> <span class="mi">10</span><span class="p">,</span>
-  <span class="s2">&quot;export_version&quot;</span><span class="o">:</span> <span class="mi">0</span><span class="p">,</span>
-  <span class="s2">&quot;candidate_pool_size&quot;</span><span class="o">:</span> <span class="mi">10</span><span class="p">,</span>
+  <span class="s2">&quot;config_version&quot;</span><span class="o">:</span> <span class="mi">2000000</span><span class="o">,</span>
+  <span class="s2">&quot;name&quot;</span><span class="o">:</span> <span class="s2">&quot;cluster&quot;</span><span class="o">,</span>
+  <span class="s2">&quot;software_version&quot;</span><span class="o">:</span> <span class="s2">&quot;2.0.0~beta2&quot;</span><span class="o">,</span>
+  <span class="s2">&quot;os_api_version&quot;</span><span class="o">:</span> <span class="mi">10</span><span class="o">,</span>
+  <span class="s2">&quot;export_version&quot;</span><span class="o">:</span> <span class="mi">0</span><span class="o">,</span>
+  <span class="s2">&quot;candidate_pool_size&quot;</span><span class="o">:</span> <span class="mi">10</span><span class="o">,</span>
   <span class="s2">&quot;enabled_hypervisors&quot;</span><span class="o">:</span> <span class="p">[</span>
     <span class="s2">&quot;fake&quot;</span>
-  <span class="p">],</span>
+  <span class="p">]</span><span class="o">,</span>
   <span class="s2">&quot;hvparams&quot;</span><span class="o">:</span> <span class="p">{</span>
     <span class="s2">&quot;fake&quot;</span><span class="o">:</span> <span class="p">{}</span>
-   <span class="p">},</span>
-  <span class="s2">&quot;default_hypervisor&quot;</span><span class="o">:</span> <span class="s2">&quot;fake&quot;</span><span class="p">,</span>
-  <span class="s2">&quot;master&quot;</span><span class="o">:</span> <span class="s2">&quot;node1.example.com&quot;</span><span class="p">,</span>
+   <span class="p">}</span><span class="o">,</span>
+  <span class="s2">&quot;default_hypervisor&quot;</span><span class="o">:</span> <span class="s2">&quot;fake&quot;</span><span class="o">,</span>
+  <span class="s2">&quot;master&quot;</span><span class="o">:</span> <span class="s2">&quot;node1.example.com&quot;</span><span class="o">,</span>
   <span class="s2">&quot;architecture&quot;</span><span class="o">:</span> <span class="p">[</span>
-    <span class="s2">&quot;64bit&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;64bit&quot;</span><span class="o">,</span>
     <span class="s2">&quot;x86_64&quot;</span>
-  <span class="p">],</span>
-  <span class="s2">&quot;protocol_version&quot;</span><span class="o">:</span> <span class="mi">20</span><span class="p">,</span>
+  <span class="p">]</span><span class="o">,</span>
+  <span class="s2">&quot;protocol_version&quot;</span><span class="o">:</span> <span class="mi">20</span><span class="o">,</span>
   <span class="s2">&quot;beparams&quot;</span><span class="o">:</span> <span class="p">{</span>
     <span class="s2">&quot;default&quot;</span><span class="o">:</span> <span class="p">{</span>
-      <span class="s2">&quot;auto_balance&quot;</span><span class="o">:</span> <span class="kc">true</span><span class="p">,</span>
-      <span class="s2">&quot;vcpus&quot;</span><span class="o">:</span> <span class="mi">1</span><span class="p">,</span>
+      <span class="s2">&quot;auto_balance&quot;</span><span class="o">:</span> <span class="kc">true</span><span class="o">,</span>
+      <span class="s2">&quot;vcpus&quot;</span><span class="o">:</span> <span class="mi">1</span><span class="o">,</span>
       <span class="s2">&quot;memory&quot;</span><span class="o">:</span> <span class="mi">128</span>
      <span class="p">}</span>
     <span class="p">}</span>
@@ -435,11 +435,11 @@ the webserver is easier.</p>
 <p>Example:</p>
 <div class="highlight-javascript"><div class="highlight"><pre><span class="p">[</span>
   <span class="p">{</span>
-    <span class="s2">&quot;name&quot;</span><span class="o">:</span> <span class="s2">&quot;web.example.com&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;name&quot;</span><span class="o">:</span> <span class="s2">&quot;web.example.com&quot;</span><span class="o">,</span>
     <span class="s2">&quot;uri&quot;</span><span class="o">:</span> <span class="s2">&quot;\/instances\/web.example.com&quot;</span>
-  <span class="p">},</span>
+  <span class="p">}</span><span class="o">,</span>
   <span class="p">{</span>
-    <span class="s2">&quot;name&quot;</span><span class="o">:</span> <span class="s2">&quot;mail.example.com&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;name&quot;</span><span class="o">:</span> <span class="s2">&quot;mail.example.com&quot;</span><span class="o">,</span>
     <span class="s2">&quot;uri&quot;</span><span class="o">:</span> <span class="s2">&quot;\/instances\/mail.example.com&quot;</span>
   <span class="p">}</span>
 <span class="p">]</span>
@@ -451,28 +451,28 @@ instances as a list.</p>
 <p>Example:</p>
 <div class="highlight-javascript"><div class="highlight"><pre><span class="p">[</span>
   <span class="p">{</span>
-     <span class="s2">&quot;status&quot;</span><span class="o">:</span> <span class="s2">&quot;running&quot;</span><span class="p">,</span>
-     <span class="s2">&quot;disk_usage&quot;</span><span class="o">:</span> <span class="mi">20480</span><span class="p">,</span>
+     <span class="s2">&quot;status&quot;</span><span class="o">:</span> <span class="s2">&quot;running&quot;</span><span class="o">,</span>
+     <span class="s2">&quot;disk_usage&quot;</span><span class="o">:</span> <span class="mi">20480</span><span class="o">,</span>
      <span class="s2">&quot;nic.bridges&quot;</span><span class="o">:</span> <span class="p">[</span>
        <span class="s2">&quot;xen-br0&quot;</span>
-      <span class="p">],</span>
-     <span class="s2">&quot;name&quot;</span><span class="o">:</span> <span class="s2">&quot;web.example.com&quot;</span><span class="p">,</span>
-     <span class="s2">&quot;tags&quot;</span><span class="o">:</span> <span class="p">[</span><span class="s2">&quot;tag1&quot;</span><span class="p">,</span> <span class="s2">&quot;tag2&quot;</span><span class="p">],</span>
+      <span class="p">]</span><span class="o">,</span>
+     <span class="s2">&quot;name&quot;</span><span class="o">:</span> <span class="s2">&quot;web.example.com&quot;</span><span class="o">,</span>
+     <span class="s2">&quot;tags&quot;</span><span class="o">:</span> <span class="p">[</span><span class="s2">&quot;tag1&quot;</span><span class="o">,</span> <span class="s2">&quot;tag2&quot;</span><span class="p">]</span><span class="o">,</span>
      <span class="s2">&quot;beparams&quot;</span><span class="o">:</span> <span class="p">{</span>
-       <span class="s2">&quot;vcpus&quot;</span><span class="o">:</span> <span class="mi">2</span><span class="p">,</span>
+       <span class="s2">&quot;vcpus&quot;</span><span class="o">:</span> <span class="mi">2</span><span class="o">,</span>
        <span class="s2">&quot;memory&quot;</span><span class="o">:</span> <span class="mi">512</span>
-     <span class="p">},</span>
+     <span class="p">}</span><span class="o">,</span>
      <span class="s2">&quot;disk.sizes&quot;</span><span class="o">:</span> <span class="p">[</span>
          <span class="mi">20480</span>
-     <span class="p">],</span>
-     <span class="s2">&quot;pnode&quot;</span><span class="o">:</span> <span class="s2">&quot;node1.example.com&quot;</span><span class="p">,</span>
-     <span class="s2">&quot;nic.macs&quot;</span><span class="o">:</span> <span class="p">[</span><span class="s2">&quot;01:23:45:67:89:01&quot;</span><span class="p">],</span>
-     <span class="s2">&quot;snodes&quot;</span><span class="o">:</span> <span class="p">[</span><span class="s2">&quot;node2.example.com&quot;</span><span class="p">],</span>
-     <span class="s2">&quot;disk_template&quot;</span><span class="o">:</span> <span class="s2">&quot;drbd&quot;</span><span class="p">,</span>
-     <span class="s2">&quot;admin_state&quot;</span><span class="o">:</span> <span class="kc">true</span><span class="p">,</span>
-     <span class="s2">&quot;os&quot;</span><span class="o">:</span> <span class="s2">&quot;debian-etch&quot;</span><span class="p">,</span>
+     <span class="p">]</span><span class="o">,</span>
+     <span class="s2">&quot;pnode&quot;</span><span class="o">:</span> <span class="s2">&quot;node1.example.com&quot;</span><span class="o">,</span>
+     <span class="s2">&quot;nic.macs&quot;</span><span class="o">:</span> <span class="p">[</span><span class="s2">&quot;01:23:45:67:89:01&quot;</span><span class="p">]</span><span class="o">,</span>
+     <span class="s2">&quot;snodes&quot;</span><span class="o">:</span> <span class="p">[</span><span class="s2">&quot;node2.example.com&quot;</span><span class="p">]</span><span class="o">,</span>
+     <span class="s2">&quot;disk_template&quot;</span><span class="o">:</span> <span class="s2">&quot;drbd&quot;</span><span class="o">,</span>
+     <span class="s2">&quot;admin_state&quot;</span><span class="o">:</span> <span class="kc">true</span><span class="o">,</span>
+     <span class="s2">&quot;os&quot;</span><span class="o">:</span> <span class="s2">&quot;debian-etch&quot;</span><span class="o">,</span>
      <span class="s2">&quot;oper_state&quot;</span><span class="o">:</span> <span class="kc">true</span>
-  <span class="p">},</span>
+  <span class="p">}</span><span class="o">,</span>
   <span class="p">...</span>
 <span class="p">]</span>
 </pre></div>
@@ -608,7 +608,7 @@ size (useful for forcing activation when recorded size is wrong).</p>
 <h4><a class="toc-backref" href="#id85"><tt class="docutils literal"><span class="pre">GET</span></tt></a><a class="headerlink" href="#id16" title="Permalink to this headline">¶</a></h4>
 <p>Returns a list of tags.</p>
 <p>Example:</p>
-<div class="highlight-javascript"><div class="highlight"><pre><span class="p">[</span><span class="s2">&quot;tag1&quot;</span><span class="p">,</span> <span class="s2">&quot;tag2&quot;</span><span class="p">,</span> <span class="s2">&quot;tag3&quot;</span><span class="p">]</span>
+<div class="highlight-javascript"><div class="highlight"><pre><span class="p">[</span><span class="s2">&quot;tag1&quot;</span><span class="o">,</span> <span class="s2">&quot;tag2&quot;</span><span class="o">,</span> <span class="s2">&quot;tag3&quot;</span><span class="p">]</span>
 </pre></div>
 </div>
 </div>
@@ -624,7 +624,8 @@ result will be a job id.</p>
 <p>Delete a tag.</p>
 <p>In order to delete a set of tags, the DELETE request should be addressed
 to URI like:</p>
-<div class="highlight-javascript"><pre>/tags?tag=[tag]&amp;tag=[tag]</pre>
+<div class="highlight-javascript"><div class="highlight"><pre><span class="o">/</span><span class="nx">tags</span><span class="o">?</span><span class="nx">tag</span><span class="o">=</span><span class="p">[</span><span class="nx">tag</span><span class="p">]</span><span class="o">&amp;</span><span class="nx">tag</span><span class="o">=</span><span class="p">[</span><span class="nx">tag</span><span class="p">]</span>
+</pre></div>
 </div>
 <p>It supports the <tt class="docutils literal"><span class="pre">dry-run</span></tt> argument.</p>
 </div>
@@ -657,7 +658,7 @@ the job</li>
 <li>opresult: OpCodes results as a list</li>
 </ul>
 <p>For a successful opcode, the <tt class="docutils literal"><span class="pre">opresult</span></tt> field corresponding to it will
-contain the raw result from its <a class="reference" href="glossary.html#term-logicalunit"><em>LogicalUnit</em></a>. In case an opcode
+contain the raw result from its <a class="reference external" href="glossary.html#term-logicalunit"><em class="xref">LogicalUnit</em></a>. In case an opcode
 has failed, its element in the opresult list will be a list of two
 elements:</p>
 <ul class="simple">
@@ -723,11 +724,11 @@ while by a resource we refer to an instance&#8217;s disk, or NIC, etc.</p>
 <p>Example:</p>
 <div class="highlight-javascript"><div class="highlight"><pre><span class="p">[</span>
   <span class="p">{</span>
-    <span class="s2">&quot;id&quot;</span><span class="o">:</span> <span class="s2">&quot;node1.example.com&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;id&quot;</span><span class="o">:</span> <span class="s2">&quot;node1.example.com&quot;</span><span class="o">,</span>
     <span class="s2">&quot;uri&quot;</span><span class="o">:</span> <span class="s2">&quot;\/nodes\/node1.example.com&quot;</span>
-  <span class="p">},</span>
+  <span class="p">}</span><span class="o">,</span>
   <span class="p">{</span>
-    <span class="s2">&quot;id&quot;</span><span class="o">:</span> <span class="s2">&quot;node2.example.com&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;id&quot;</span><span class="o">:</span> <span class="s2">&quot;node2.example.com&quot;</span><span class="o">,</span>
     <span class="s2">&quot;uri&quot;</span><span class="o">:</span> <span class="s2">&quot;\/nodes\/node2.example.com&quot;</span>
   <span class="p">}</span>
 <span class="p">]</span>
@@ -739,17 +740,17 @@ list.</p>
 <p>Example:</p>
 <div class="highlight-javascript"><div class="highlight"><pre><span class="p">[</span>
   <span class="p">{</span>
-    <span class="s2">&quot;pinst_cnt&quot;</span><span class="o">:</span> <span class="mi">1</span><span class="p">,</span>
-    <span class="s2">&quot;mfree&quot;</span><span class="o">:</span> <span class="mi">31280</span><span class="p">,</span>
-    <span class="s2">&quot;mtotal&quot;</span><span class="o">:</span> <span class="mi">32763</span><span class="p">,</span>
-    <span class="s2">&quot;name&quot;</span><span class="o">:</span> <span class="s2">&quot;www.example.com&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;tags&quot;</span><span class="o">:</span> <span class="p">[],</span>
-    <span class="s2">&quot;mnode&quot;</span><span class="o">:</span> <span class="mi">512</span><span class="p">,</span>
-    <span class="s2">&quot;dtotal&quot;</span><span class="o">:</span> <span class="mi">5246208</span><span class="p">,</span>
-    <span class="s2">&quot;sinst_cnt&quot;</span><span class="o">:</span> <span class="mi">2</span><span class="p">,</span>
-    <span class="s2">&quot;dfree&quot;</span><span class="o">:</span> <span class="mi">5171712</span><span class="p">,</span>
+    <span class="s2">&quot;pinst_cnt&quot;</span><span class="o">:</span> <span class="mi">1</span><span class="o">,</span>
+    <span class="s2">&quot;mfree&quot;</span><span class="o">:</span> <span class="mi">31280</span><span class="o">,</span>
+    <span class="s2">&quot;mtotal&quot;</span><span class="o">:</span> <span class="mi">32763</span><span class="o">,</span>
+    <span class="s2">&quot;name&quot;</span><span class="o">:</span> <span class="s2">&quot;www.example.com&quot;</span><span class="o">,</span>
+    <span class="s2">&quot;tags&quot;</span><span class="o">:</span> <span class="p">[]</span><span class="o">,</span>
+    <span class="s2">&quot;mnode&quot;</span><span class="o">:</span> <span class="mi">512</span><span class="o">,</span>
+    <span class="s2">&quot;dtotal&quot;</span><span class="o">:</span> <span class="mi">5246208</span><span class="o">,</span>
+    <span class="s2">&quot;sinst_cnt&quot;</span><span class="o">:</span> <span class="mi">2</span><span class="o">,</span>
+    <span class="s2">&quot;dfree&quot;</span><span class="o">:</span> <span class="mi">5171712</span><span class="o">,</span>
     <span class="s2">&quot;offline&quot;</span><span class="o">:</span> <span class="kc">false</span>
-  <span class="p">},</span>
+  <span class="p">}</span><span class="o">,</span>
   <span class="p">...</span>
 <span class="p">]</span>
 </pre></div>
@@ -858,7 +859,7 @@ result will be a job id.</p>
 <h4><a class="toc-backref" href="#id110"><tt class="docutils literal"><span class="pre">GET</span></tt></a><a class="headerlink" href="#id30" title="Permalink to this headline">¶</a></h4>
 <p>Returns a list of tags.</p>
 <p>Example:</p>
-<div class="highlight-javascript"><div class="highlight"><pre><span class="p">[</span><span class="s2">&quot;tag1&quot;</span><span class="p">,</span> <span class="s2">&quot;tag2&quot;</span><span class="p">,</span> <span class="s2">&quot;tag3&quot;</span><span class="p">]</span>
+<div class="highlight-javascript"><div class="highlight"><pre><span class="p">[</span><span class="s2">&quot;tag1&quot;</span><span class="o">,</span> <span class="s2">&quot;tag2&quot;</span><span class="o">,</span> <span class="s2">&quot;tag3&quot;</span><span class="p">]</span>
 </pre></div>
 </div>
 </div>
@@ -874,7 +875,8 @@ will be a job id.</p>
 <p>Deletes tags.</p>
 <p>In order to delete a set of tags, the DELETE request should be addressed
 to URI like:</p>
-<div class="highlight-javascript"><pre>/tags?tag=[tag]&amp;tag=[tag]</pre>
+<div class="highlight-javascript"><div class="highlight"><pre><span class="o">/</span><span class="nx">tags</span><span class="o">?</span><span class="nx">tag</span><span class="o">=</span><span class="p">[</span><span class="nx">tag</span><span class="p">]</span><span class="o">&amp;</span><span class="nx">tag</span><span class="o">=</span><span class="p">[</span><span class="nx">tag</span><span class="p">]</span>
+</pre></div>
 </div>
 <p>It supports the <tt class="docutils literal"><span class="pre">dry-run</span></tt> argument.</p>
 </div>
@@ -902,7 +904,7 @@ operation for Ganeti 2.0, it is not recommended to execute it too often.</p>
 <h4><a class="toc-backref" href="#id116"><tt class="docutils literal"><span class="pre">GET</span></tt></a><a class="headerlink" href="#id34" title="Permalink to this headline">¶</a></h4>
 <p>Returns the cluster tags.</p>
 <p>Example:</p>
-<div class="highlight-javascript"><div class="highlight"><pre><span class="p">[</span><span class="s2">&quot;tag1&quot;</span><span class="p">,</span> <span class="s2">&quot;tag2&quot;</span><span class="p">,</span> <span class="s2">&quot;tag3&quot;</span><span class="p">]</span>
+<div class="highlight-javascript"><div class="highlight"><pre><span class="p">[</span><span class="s2">&quot;tag1&quot;</span><span class="o">,</span> <span class="s2">&quot;tag2&quot;</span><span class="o">,</span> <span class="s2">&quot;tag3&quot;</span><span class="p">]</span>
 </pre></div>
 </div>
 </div>
@@ -918,7 +920,8 @@ will be a job id.</p>
 <p>Deletes tags.</p>
 <p>In order to delete a set of tags, the DELETE request should be addressed
 to URI like:</p>
-<div class="highlight-javascript"><pre>/tags?tag=[tag]&amp;tag=[tag]</pre>
+<div class="highlight-javascript"><div class="highlight"><pre><span class="o">/</span><span class="nx">tags</span><span class="o">?</span><span class="nx">tag</span><span class="o">=</span><span class="p">[</span><span class="nx">tag</span><span class="p">]</span><span class="o">&amp;</span><span class="nx">tag</span><span class="o">=</span><span class="p">[</span><span class="nx">tag</span><span class="p">]</span>
+</pre></div>
 </div>
 <p>It supports the <tt class="docutils literal"><span class="pre">dry-run</span></tt> argument.</p>
 </div>
@@ -946,149 +949,149 @@ returns <tt class="docutils literal"><span class="pre">2</span></tt>.</p>
         <div class="sphinxsidebarwrapper">
             <h3><a href="index.html">Table Of Contents</a></h3>
             <ul>
-<li><a class="reference" href="">Ganeti remote API</a><ul>
-<li><a class="reference" href="#introduction">Introduction</a></li>
-<li><a class="reference" href="#users-and-passwords">Users and passwords</a></li>
-<li><a class="reference" href="#protocol">Protocol</a></li>
-<li><a class="reference" href="#put-or-post">PUT or POST?</a></li>
-<li><a class="reference" href="#generic-parameter-types">Generic parameter types</a><ul>
-<li><a class="reference" href="#bool"><tt class="docutils literal"><span class="pre">bool</span></tt></a></li>
+<li><a class="reference external" href="">Ganeti remote API</a><ul>
+<li><a class="reference external" href="#introduction">Introduction</a></li>
+<li><a class="reference external" href="#users-and-passwords">Users and passwords</a></li>
+<li><a class="reference external" href="#protocol">Protocol</a></li>
+<li><a class="reference external" href="#put-or-post">PUT or POST?</a></li>
+<li><a class="reference external" href="#generic-parameter-types">Generic parameter types</a><ul>
+<li><a class="reference external" href="#bool"><tt class="docutils literal"><span class="pre">bool</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference" href="#generic-parameters">Generic parameters</a><ul>
-<li><a class="reference" href="#bulk"><tt class="docutils literal"><span class="pre">bulk</span></tt></a></li>
-<li><a class="reference" href="#dry-run"><tt class="docutils literal"><span class="pre">dry-run</span></tt></a></li>
-<li><a class="reference" href="#force"><tt class="docutils literal"><span class="pre">force</span></tt></a></li>
+<li><a class="reference external" href="#generic-parameters">Generic parameters</a><ul>
+<li><a class="reference external" href="#bulk"><tt class="docutils literal"><span class="pre">bulk</span></tt></a></li>
+<li><a class="reference external" href="#dry-run"><tt class="docutils literal"><span class="pre">dry-run</span></tt></a></li>
+<li><a class="reference external" href="#force"><tt class="docutils literal"><span class="pre">force</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference" href="#usage-examples">Usage examples</a><ul>
-<li><a class="reference" href="#shell">Shell</a></li>
-<li><a class="reference" href="#python">Python</a></li>
-<li><a class="reference" href="#javascript">JavaScript</a></li>
+<li><a class="reference external" href="#usage-examples">Usage examples</a><ul>
+<li><a class="reference external" href="#shell">Shell</a></li>
+<li><a class="reference external" href="#python">Python</a></li>
+<li><a class="reference external" href="#javascript">JavaScript</a></li>
 </ul>
 </li>
-<li><a class="reference" href="#resources">Resources</a><ul>
-<li><a class="reference" href="#id2"><tt class="docutils literal"><span class="pre">/</span></tt></a><ul>
-<li><a class="reference" href="#get"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+<li><a class="reference external" href="#resources">Resources</a><ul>
+<li><a class="reference external" href="#id2"><tt class="docutils literal"><span class="pre">/</span></tt></a><ul>
+<li><a class="reference external" href="#get"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference" href="#id3"><tt class="docutils literal"><span class="pre">/2</span></tt></a><ul>
-<li><a class="reference" href="#id4"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+<li><a class="reference external" href="#id3"><tt class="docutils literal"><span class="pre">/2</span></tt></a><ul>
+<li><a class="reference external" href="#id4"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference" href="#info"><tt class="docutils literal"><span class="pre">/2/info</span></tt></a><ul>
-<li><a class="reference" href="#id5"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+<li><a class="reference external" href="#info"><tt class="docutils literal"><span class="pre">/2/info</span></tt></a><ul>
+<li><a class="reference external" href="#id5"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference" href="#redistribute-config"><tt class="docutils literal"><span class="pre">/2/redistribute-config</span></tt></a><ul>
-<li><a class="reference" href="#put"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
+<li><a class="reference external" href="#redistribute-config"><tt class="docutils literal"><span class="pre">/2/redistribute-config</span></tt></a><ul>
+<li><a class="reference external" href="#put"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference" href="#instances"><tt class="docutils literal"><span class="pre">/2/instances</span></tt></a><ul>
-<li><a class="reference" href="#id6"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
-<li><a class="reference" href="#post"><tt class="docutils literal"><span class="pre">POST</span></tt></a></li>
+<li><a class="reference external" href="#instances"><tt class="docutils literal"><span class="pre">/2/instances</span></tt></a><ul>
+<li><a class="reference external" href="#id6"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+<li><a class="reference external" href="#post"><tt class="docutils literal"><span class="pre">POST</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference" href="#instances-instance-name"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]</span></tt></a><ul>
-<li><a class="reference" href="#id7"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
-<li><a class="reference" href="#delete"><tt class="docutils literal"><span class="pre">DELETE</span></tt></a></li>
+<li><a class="reference external" href="#instances-instance-name"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]</span></tt></a><ul>
+<li><a class="reference external" href="#id7"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+<li><a class="reference external" href="#delete"><tt class="docutils literal"><span class="pre">DELETE</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference" href="#instances-instance-name-info"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/info</span></tt></a><ul>
-<li><a class="reference" href="#id8"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+<li><a class="reference external" href="#instances-instance-name-info"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/info</span></tt></a><ul>
+<li><a class="reference external" href="#id8"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference" href="#instances-instance-name-reboot"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/reboot</span></tt></a><ul>
-<li><a class="reference" href="#id9"><tt class="docutils literal"><span class="pre">POST</span></tt></a></li>
+<li><a class="reference external" href="#instances-instance-name-reboot"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/reboot</span></tt></a><ul>
+<li><a class="reference external" href="#id9"><tt class="docutils literal"><span class="pre">POST</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference" href="#instances-instance-name-shutdown"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/shutdown</span></tt></a><ul>
-<li><a class="reference" href="#id10"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
+<li><a class="reference external" href="#instances-instance-name-shutdown"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/shutdown</span></tt></a><ul>
+<li><a class="reference external" href="#id10"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference" href="#instances-instance-name-startup"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/startup</span></tt></a><ul>
-<li><a class="reference" href="#id11"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
+<li><a class="reference external" href="#instances-instance-name-startup"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/startup</span></tt></a><ul>
+<li><a class="reference external" href="#id11"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference" href="#instances-instance-name-reinstall"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/reinstall</span></tt></a><ul>
-<li><a class="reference" href="#id12"><tt class="docutils literal"><span class="pre">POST</span></tt></a></li>
+<li><a class="reference external" href="#instances-instance-name-reinstall"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/reinstall</span></tt></a><ul>
+<li><a class="reference external" href="#id12"><tt class="docutils literal"><span class="pre">POST</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference" href="#instances-instance-name-replace-disks"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/replace-disks</span></tt></a><ul>
-<li><a class="reference" href="#id13"><tt class="docutils literal"><span class="pre">POST</span></tt></a></li>
+<li><a class="reference external" href="#instances-instance-name-replace-disks"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/replace-disks</span></tt></a><ul>
+<li><a class="reference external" href="#id13"><tt class="docutils literal"><span class="pre">POST</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference" href="#instances-instance-name-activate-disks"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/activate-disks</span></tt></a><ul>
-<li><a class="reference" href="#id14"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
+<li><a class="reference external" href="#instances-instance-name-activate-disks"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/activate-disks</span></tt></a><ul>
+<li><a class="reference external" href="#id14"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference" href="#instances-instance-name-deactivate-disks"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/deactivate-disks</span></tt></a><ul>
-<li><a class="reference" href="#id15"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
+<li><a class="reference external" href="#instances-instance-name-deactivate-disks"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/deactivate-disks</span></tt></a><ul>
+<li><a class="reference external" href="#id15"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference" href="#instances-instance-name-tags"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/tags</span></tt></a><ul>
-<li><a class="reference" href="#id16"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
-<li><a class="reference" href="#id17"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
-<li><a class="reference" href="#id18"><tt class="docutils literal"><span class="pre">DELETE</span></tt></a></li>
+<li><a class="reference external" href="#instances-instance-name-tags"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/tags</span></tt></a><ul>
+<li><a class="reference external" href="#id16"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+<li><a class="reference external" href="#id17"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
+<li><a class="reference external" href="#id18"><tt class="docutils literal"><span class="pre">DELETE</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference" href="#jobs"><tt class="docutils literal"><span class="pre">/2/jobs</span></tt></a><ul>
-<li><a class="reference" href="#id19"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+<li><a class="reference external" href="#jobs"><tt class="docutils literal"><span class="pre">/2/jobs</span></tt></a><ul>
+<li><a class="reference external" href="#id19"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference" href="#jobs-job-id"><tt class="docutils literal"><span class="pre">/2/jobs/[job_id]</span></tt></a><ul>
-<li><a class="reference" href="#id20"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
-<li><a class="reference" href="#id21"><tt class="docutils literal"><span class="pre">DELETE</span></tt></a></li>
+<li><a class="reference external" href="#jobs-job-id"><tt class="docutils literal"><span class="pre">/2/jobs/[job_id]</span></tt></a><ul>
+<li><a class="reference external" href="#id20"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+<li><a class="reference external" href="#id21"><tt class="docutils literal"><span class="pre">DELETE</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference" href="#nodes"><tt class="docutils literal"><span class="pre">/2/nodes</span></tt></a><ul>
-<li><a class="reference" href="#id22"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+<li><a class="reference external" href="#nodes"><tt class="docutils literal"><span class="pre">/2/nodes</span></tt></a><ul>
+<li><a class="reference external" href="#id22"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference" href="#nodes-node-name"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]</span></tt></a></li>
-<li><a class="reference" href="#nodes-node-name-evacuate"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/evacuate</span></tt></a><ul>
-<li><a class="reference" href="#id23"><tt class="docutils literal"><span class="pre">POST</span></tt></a></li>
+<li><a class="reference external" href="#nodes-node-name"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]</span></tt></a></li>
+<li><a class="reference external" href="#nodes-node-name-evacuate"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/evacuate</span></tt></a><ul>
+<li><a class="reference external" href="#id23"><tt class="docutils literal"><span class="pre">POST</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference" href="#nodes-node-name-migrate"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/migrate</span></tt></a><ul>
-<li><a class="reference" href="#id24"><tt class="docutils literal"><span class="pre">POST</span></tt></a></li>
+<li><a class="reference external" href="#nodes-node-name-migrate"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/migrate</span></tt></a><ul>
+<li><a class="reference external" href="#id24"><tt class="docutils literal"><span class="pre">POST</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference" href="#nodes-node-name-role"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/role</span></tt></a><ul>
-<li><a class="reference" href="#id25"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
-<li><a class="reference" href="#id26"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
+<li><a class="reference external" href="#nodes-node-name-role"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/role</span></tt></a><ul>
+<li><a class="reference external" href="#id25"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+<li><a class="reference external" href="#id26"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference" href="#nodes-node-name-storage"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/storage</span></tt></a><ul>
-<li><a class="reference" href="#id27"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+<li><a class="reference external" href="#nodes-node-name-storage"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/storage</span></tt></a><ul>
+<li><a class="reference external" href="#id27"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference" href="#nodes-node-name-storage-modify"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/storage/modify</span></tt></a><ul>
-<li><a class="reference" href="#id28"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
+<li><a class="reference external" href="#nodes-node-name-storage-modify"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/storage/modify</span></tt></a><ul>
+<li><a class="reference external" href="#id28"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference" href="#nodes-node-name-storage-repair"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/storage/repair</span></tt></a><ul>
-<li><a class="reference" href="#id29"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
+<li><a class="reference external" href="#nodes-node-name-storage-repair"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/storage/repair</span></tt></a><ul>
+<li><a class="reference external" href="#id29"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference" href="#nodes-node-name-tags"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/tags</span></tt></a><ul>
-<li><a class="reference" href="#id30"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
-<li><a class="reference" href="#id31"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
-<li><a class="reference" href="#id32"><tt class="docutils literal"><span class="pre">DELETE</span></tt></a></li>
+<li><a class="reference external" href="#nodes-node-name-tags"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/tags</span></tt></a><ul>
+<li><a class="reference external" href="#id30"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+<li><a class="reference external" href="#id31"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
+<li><a class="reference external" href="#id32"><tt class="docutils literal"><span class="pre">DELETE</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference" href="#os"><tt class="docutils literal"><span class="pre">/2/os</span></tt></a><ul>
-<li><a class="reference" href="#id33"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+<li><a class="reference external" href="#os"><tt class="docutils literal"><span class="pre">/2/os</span></tt></a><ul>
+<li><a class="reference external" href="#id33"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference" href="#tags"><tt class="docutils literal"><span class="pre">/2/tags</span></tt></a><ul>
-<li><a class="reference" href="#id34"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
-<li><a class="reference" href="#id35"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
-<li><a class="reference" href="#id36"><tt class="docutils literal"><span class="pre">DELETE</span></tt></a></li>
+<li><a class="reference external" href="#tags"><tt class="docutils literal"><span class="pre">/2/tags</span></tt></a><ul>
+<li><a class="reference external" href="#id34"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+<li><a class="reference external" href="#id35"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
+<li><a class="reference external" href="#id36"><tt class="docutils literal"><span class="pre">DELETE</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference" href="#version"><tt class="docutils literal"><span class="pre">/version</span></tt></a><ul>
-<li><a class="reference" href="#id37"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+<li><a class="reference external" href="#version"><tt class="docutils literal"><span class="pre">/version</span></tt></a><ul>
+<li><a class="reference external" href="#id37"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
 </ul>
 </li>
 </ul>
@@ -1134,12 +1137,12 @@ returns <tt class="docutils literal"><span class="pre">2</span></tt>.</p>
         <li class="right" >
           <a href="iallocator.html" title="Ganeti automatic instance allocation"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.1.2 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.1.2.1 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">
       &copy; Copyright 2006, 2007, 2008, 2009, Google Inc..
-      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 0.6.3.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 0.6.2.
     </div>
   </body>
 </html>
