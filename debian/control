@@ -18,8 +18,9 @@ Depends: ${shlibs:Depends}, ${misc:Depends}, ${python:Depends}, lvm2,
  openssh-client, openssh-server, bridge-utils, iproute, iputils-arping,
  openssl, python-simplejson, python-pyparsing, python-openssl, python-pyinotify,
  socat, libjs-jquery
-Recommends: drbd8-utils (>= 8.0.7), kvm | xen-linux-system-2.6.26-2-xen-amd64 |
- xen-linux-system-2.6.26-2-xen-686, ganeti-instance-debootstrap
+Recommends: drbd8-utils (>= 8.0.7), qemu-kvm |
+ xen-linux-system-2.6.32-5-xen-amd64 | xen-linux-system-2.6.32-5-xen-686,
+ ganeti-instance-debootstrap
 Suggests: drbd8-module-source (>= 8.0.7)
 Provides: ${python:Provides}
 Description: Cluster-based virtualization management software
