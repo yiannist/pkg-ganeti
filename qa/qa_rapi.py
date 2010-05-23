@@ -33,11 +33,62 @@ import qa_config
 import qa_utils
 import qa_error
 
-from qa_utils import AssertEqual, AssertNotEqual, AssertIn, StartSSH
+from qa_utils import (AssertEqual, AssertNotEqual, AssertIn, AssertMatch,
+                      StartSSH)
 
 
-# Create opener which doesn't try to look for proxies.
-NoProxyOpener = urllib2.build_opener(urllib2.ProxyHandler({}))
+class OpenerFactory:
+  """A factory singleton to construct urllib opener chain.
+
+  This is needed because qa_config is not initialized yet at module load time
+
+  """
+  _opener = None
+  _rapi_user = None
+  _rapi_secret = None
+
+  @classmethod
+  def SetCredentials(cls, rapi_user, rapi_secret):
+    """Set the credentials for authorized access.
+
+    """
+    cls._rapi_user = rapi_user
+    cls._rapi_secret = rapi_secret
+
+  @classmethod
+  def Opener(cls):
+    """Construct the opener if not yet done.
+
+    """
+    if not cls._opener:
+      if not cls._rapi_user or not cls._rapi_secret:
+        raise errors.ProgrammerError("SetCredentials was never called.")
+
+      # Create opener which doesn't try to look for proxies and does auth
+      master = qa_config.GetMasterNode()
+      host = master["primary"]
+      port = qa_config.get("rapi-port", default=constants.DEFAULT_RAPI_PORT)
+      passman = urllib2.HTTPPasswordMgrWithDefaultRealm()
+      passman.add_password(None, 'https://%s:%s' % (host, port),
+                           cls._rapi_user,
+                           cls._rapi_secret)
+      authhandler = urllib2.HTTPBasicAuthHandler(passman)
+      cls._opener = urllib2.build_opener(urllib2.ProxyHandler({}), authhandler)
+
+    return cls._opener
+
+
+class RapiRequest(urllib2.Request):
+  """This class supports other methods beside GET/POST.
+
+  """
+
+  def __init__(self, method, url, headers, data):
+    urllib2.Request.__init__(self, url, data=data, headers=headers)
+    self._method = method
+
+  def get_method(self):
+    return self._method
 
 
 INSTANCE_FIELDS = ("name", "os", "pnode", "snodes",
@@ -50,6 +101,12 @@ INSTANCE_FIELDS = ("name", "os", "pnode", "snodes",
 NODE_FIELDS = ("name", "dtotal", "dfree",
                "mtotal", "mnode", "mfree",
                "pinst_cnt", "sinst_cnt", "tags")
+
+JOB_FIELDS = frozenset([
+  "id", "ops", "status", "summary",
+  "opstatus", "opresult", "oplog",
+  "received_ts", "start_ts", "end_ts",
+  ])
 
 LIST_FIELDS = ("id", "uri")
 
@@ -65,15 +122,36 @@ def _DoTests(uris):
   master = qa_config.GetMasterNode()
   host = master["primary"]
   port = qa_config.get("rapi-port", default=constants.DEFAULT_RAPI_PORT)
+  results = []
 
-  for uri, verify in uris:
+  for uri, verify, method, body in uris:
     assert uri.startswith("/")
 
     url = "https://%s:%s%s" % (host, port, uri)
 
-    print "Testing %s ..." % url
+    headers = {}
 
-    response = NoProxyOpener.open(url)
+    if body:
+      data = serializer.DumpJson(body, indent=False)
+      headers["Content-Type"] = "application/json"
+    else:
+      data = None
+
+    if headers or data:
+      details = []
+      if headers:
+        details.append("headers=%s" %
+                       serializer.DumpJson(headers, indent=False).rstrip())
+      if data:
+        details.append("data=%s" % data.rstrip())
+      info = "(%s)" % (", ".join(details), )
+    else:
+      info = ""
+
+    print "Testing %s %s %s..." % (method, url, info)
+
+    req = RapiRequest(method, url, headers, data)
+    response = OpenerFactory.Opener().open(req)
 
     AssertEqual(response.info()["Content-type"], "application/json")
 
@@ -85,13 +163,21 @@ def _DoTests(uris):
       else:
         AssertEqual(data, verify)
 
+      results.append(data)
+
+  return results
+
+
+def _VerifyReturnsJob(data):
+  AssertMatch(data, r'^\d+$')
+
 
 def TestVersion():
   """Testing remote API version.
 
   """
   _DoTests([
-    ("/version", constants.RAPI_VERSION),
+    ("/version", constants.RAPI_VERSION, 'GET', None),
     ])
 
 
@@ -99,17 +185,18 @@ def TestEmptyCluster():
   """Testing remote API on an empty cluster.
 
   """
-  master_name = qa_config.GetMasterNode()["primary"]
+  master = qa_config.GetMasterNode()
+  master_full = qa_utils.ResolveNodeName(master)
 
   def _VerifyInfo(data):
     AssertIn("name", data)
     AssertIn("master", data)
-    AssertEqual(data["master"], master_name)
+    AssertEqual(data["master"], master_full)
 
   def _VerifyNodes(data):
     master_entry = {
-      "id": master_name,
-      "uri": "/2/nodes/%s" % master_name,
+      "id": master_full,
+      "uri": "/2/nodes/%s" % master_full,
       }
     AssertIn(master_entry, data)
 
@@ -119,14 +206,14 @@ def TestEmptyCluster():
         AssertIn(entry, node)
 
   _DoTests([
-    ("/", None),
-    ("/2/info", _VerifyInfo),
-    ("/2/tags", None),
-    ("/2/nodes", _VerifyNodes),
-    ("/2/nodes?bulk=1", _VerifyNodesBulk),
-    ("/2/instances", []),
-    ("/2/instances?bulk=1", []),
-    ("/2/os", None),
+    ("/", None, 'GET', None),
+    ("/2/info", _VerifyInfo, 'GET', None),
+    ("/2/tags", None, 'GET', None),
+    ("/2/nodes", _VerifyNodes, 'GET', None),
+    ("/2/nodes?bulk=1", _VerifyNodesBulk, 'GET', None),
+    ("/2/instances", [], 'GET', None),
+    ("/2/instances?bulk=1", [], 'GET', None),
+    ("/2/os", None, 'GET', None),
     ])
 
 
@@ -148,9 +235,13 @@ def TestInstance(instance):
       _VerifyInstance(instance_data)
 
   _DoTests([
-    ("/2/instances/%s" % instance["name"], _VerifyInstance),
-    ("/2/instances", _VerifyInstancesList),
-    ("/2/instances?bulk=1", _VerifyInstancesBulk),
+    ("/2/instances/%s" % instance["name"], _VerifyInstance, 'GET', None),
+    ("/2/instances", _VerifyInstancesList, 'GET', None),
+    ("/2/instances?bulk=1", _VerifyInstancesBulk, 'GET', None),
+    ("/2/instances/%s/activate-disks" % instance["name"],
+     _VerifyReturnsJob, 'PUT', None),
+    ("/2/instances/%s/deactivate-disks" % instance["name"],
+     _VerifyReturnsJob, 'PUT', None),
     ])
 
 
@@ -172,9 +263,9 @@ def TestNode(node):
       _VerifyNode(node_data)
 
   _DoTests([
-    ("/2/nodes/%s" % node["primary"], _VerifyNode),
-    ("/2/nodes", _VerifyNodesList),
-    ("/2/nodes?bulk=1", _VerifyNodesBulk),
+    ("/2/nodes/%s" % node["primary"], _VerifyNode, 'GET', None),
+    ("/2/nodes", _VerifyNodesList, 'GET', None),
+    ("/2/nodes?bulk=1", _VerifyNodesBulk, 'GET', None),
     ])
 
 
@@ -192,14 +283,65 @@ def TestTags(kind, name, tags):
     raise errors.ProgrammerError("Unknown tag kind")
 
   def _VerifyTags(data):
-    # Create copies to modify
-    should = tags[:]
-    should.sort()
-
-    returned = data[:]
-    returned.sort()
-    AssertEqual(should, returned)
+    AssertEqual(sorted(tags), sorted(data))
 
   _DoTests([
-    (uri, _VerifyTags),
+    (uri, _VerifyTags, 'GET', None),
     ])
+
+
+def _WaitForRapiJob(job_id):
+  """Waits for a job to finish.
+
+  """
+  master = qa_config.GetMasterNode()
+
+  def _VerifyJob(data):
+    AssertEqual(data["id"], job_id)
+    for field in JOB_FIELDS:
+      AssertIn(field, data)
+
+  _DoTests([
+    ("/2/jobs/%s" % job_id, _VerifyJob, "GET", None),
+    ])
+
+  # FIXME: Use "gnt-job watch" until RAPI supports waiting for job
+  cmd = ["gnt-job", "watch", str(job_id)]
+  AssertEqual(StartSSH(master["primary"],
+                       utils.ShellQuoteArgs(cmd)).wait(), 0)
+
+
+def TestRapiInstanceAdd(node):
+  """Test adding a new instance via RAPI"""
+  instance = qa_config.AcquireInstance()
+  try:
+    body = {
+      "name": instance["name"],
+      "os": qa_config.get("os"),
+      "disk_template": constants.DT_PLAIN,
+      "pnode": node["primary"],
+      "memory": utils.ParseUnit(qa_config.get("mem")),
+      "disks": [utils.ParseUnit(size) for size in qa_config.get("disk")],
+      }
+
+    (job_id, ) = _DoTests([
+      ("/2/instances", _VerifyReturnsJob, "POST", body),
+      ])
+
+    _WaitForRapiJob(job_id)
+
+    return instance
+  except:
+    qa_config.ReleaseInstance(instance)
+    raise
+
+
+def TestRapiInstanceRemove(instance):
+  """Test removing instance via RAPI"""
+  (job_id, ) = _DoTests([
+    ("/2/instances/%s" % instance["name"], _VerifyReturnsJob, "DELETE", None),
+    ])
+
+  _WaitForRapiJob(job_id)
+
+  qa_config.ReleaseInstance(instance)

@@ -96,10 +96,13 @@ SOCKET_DIR_MODE = 0700
 SUB_RUN_DIRS = [ RUN_GANETI_DIR, BDEV_CACHE_DIR, DISK_LINKS_DIR ]
 LOCK_DIR = _autoconf.LOCALSTATEDIR + "/lock"
 SSCONF_LOCK_FILE = LOCK_DIR + "/ganeti-ssconf.lock"
+# User-id pool lock directory
+# The user-ids that are in use have a corresponding lock file in this directory
+UIDPOOL_LOCKDIR = RUN_GANETI_DIR + "/uid-pool"
 CLUSTER_CONF_FILE = DATA_DIR + "/config.data"
-SSL_CERT_FILE = DATA_DIR + "/server.pem"
+NODED_CERT_FILE = DATA_DIR + "/server.pem"
 RAPI_CERT_FILE = DATA_DIR + "/rapi.pem"
-HMAC_CLUSTER_KEY = DATA_DIR + "/hmac.key"
+CONFD_HMAC_KEY = DATA_DIR + "/hmac.key"
 WATCHER_STATEFILE = DATA_DIR + "/watcher.data"
 WATCHER_PAUSEFILE = DATA_DIR + "/watcher.pause"
 INSTANCE_UPFILE = RUN_GANETI_DIR + "/instance-status"
@@ -114,6 +117,8 @@ SYSCONFDIR = _autoconf.SYSCONFDIR
 TOOLSDIR = _autoconf.TOOLSDIR
 CONF_DIR = SYSCONFDIR + "/ganeti"
 
+ALL_CERT_FILES = frozenset([NODED_CERT_FILE, RAPI_CERT_FILE])
+
 MASTER_SOCKET = SOCKET_DIR + "/ganeti-master"
 
 NODED = "ganeti-noded"
@@ -127,7 +132,7 @@ MULTITHREADED_DAEMONS = frozenset([MASTERD])
 
 DAEMONS_SSL = {
   # daemon-name: (default-cert-path, default-key-path)
-  NODED: (SSL_CERT_FILE, SSL_CERT_FILE),
+  NODED: (NODED_CERT_FILE, NODED_CERT_FILE),
   RAPI: (RAPI_CERT_FILE, RAPI_CERT_FILE),
 }
 
@@ -263,6 +268,9 @@ DTS_NET_MIRROR = frozenset([DT_DRBD8])
 # the set of non-lvm-based disk templates
 DTS_NOT_LVM = frozenset([DT_DISKLESS, DT_FILE])
 
+# the set of disk templates which can be grown
+DTS_GROWABLE = frozenset([DT_PLAIN, DT_DRBD8, DT_FILE])
+
 # logical disk types
 LD_LV = "lvm"
 LD_DRBD8 = "drbd8"
@@ -308,6 +316,8 @@ FILE_DRIVER = frozenset([FD_LOOP, FD_BLKTAP])
 # import/export config options
 INISECT_EXP = "export"
 INISECT_INS = "instance"
+INISECT_HYP = "hypervisor"
+INISECT_BEP = "backend"
 
 # dynamic device modification
 
@@ -321,7 +331,6 @@ EXIT_NOTCLUSTER = 5
 EXIT_NOTMASTER = 11
 EXIT_NODESETUP_ERROR = 12
 EXIT_CONFIRMATION = 13 # need user confirmation
-EXIT_NOTCANDIDATE = 14
 
 # tags
 TAG_CLUSTER = "cluster"
@@ -422,6 +431,9 @@ HV_INIT_SCRIPT = "init_script"
 HV_MIGRATION_PORT = "migration_port"
 HV_USE_LOCALTIME = "use_localtime"
 HV_DISK_CACHE = "disk_cache"
+HV_SECURITY_MODEL = "security_model"
+HV_SECURITY_DOMAIN = "security_domain"
+HV_KVM_FLAG = "kvm_flag"
 
 HVS_PARAMETER_TYPES = {
   HV_BOOT_ORDER: VTYPE_STRING,
@@ -449,6 +461,9 @@ HVS_PARAMETER_TYPES = {
   HV_MIGRATION_PORT: VTYPE_INT,
   HV_USE_LOCALTIME: VTYPE_BOOL,
   HV_DISK_CACHE: VTYPE_STRING,
+  HV_SECURITY_MODEL: VTYPE_STRING,
+  HV_SECURITY_DOMAIN: VTYPE_STRING,
+  HV_KVM_FLAG: VTYPE_STRING,
   }
 
 HVS_PARAMETERS = frozenset(HVS_PARAMETER_TYPES.keys())
@@ -550,6 +565,19 @@ HT_BO_NETWORK = "network"
 
 HT_KVM_VALID_BO_TYPES = frozenset([HT_BO_CDROM, HT_BO_DISK, HT_BO_NETWORK])
 
+# Security models
+HT_SM_NONE = "none"
+HT_SM_USER = "user"
+HT_SM_POOL = "pool"
+
+HT_KVM_VALID_SM_TYPES = frozenset([HT_SM_NONE, HT_SM_USER, HT_SM_POOL])
+
+# Kvm flag values
+HT_KVM_ENABLED = "enabled"
+HT_KVM_DISABLED = "disabled"
+
+HT_KVM_FLAG_VALUES = frozenset([HT_KVM_ENABLED, HT_KVM_DISABLED])
+
 # Cluster Verify steps
 VERIFY_NPLUSONE_MEM = 'nplusone_mem'
 VERIFY_OPTIONAL_CHECKS = frozenset([VERIFY_NPLUSONE_MEM])
@@ -568,6 +596,10 @@ NV_PVLIST = "pvlist"
 NV_DRBDLIST = "drbd-list"
 NV_NODESETUP = "nodesetup"
 NV_TIME = "time"
+
+# SSL certificate check constants (in days)
+SSL_CERT_EXPIRATION_WARN = 30
+SSL_CERT_EXPIRATION_ERROR = 7
 
 # Allocator framework constants
 IALLOCATOR_VERSION = 2
@@ -640,6 +672,9 @@ SS_OFFLINE_NODES = "offline_nodes"
 SS_ONLINE_NODES = "online_nodes"
 SS_INSTANCE_LIST = "instance_list"
 SS_RELEASE_VERSION = "release_version"
+SS_HYPERVISOR_LIST = "hypervisor_list"
+SS_MAINTAIN_NODE_HEALTH = "maintain_node_health"
+SS_UID_POOL = "uid_pool"
 
 # cluster wide default parameters
 DEFAULT_ENABLED_HYPERVISOR = HT_XEN_PVM
@@ -689,6 +724,9 @@ HVC_DEFAULTS = {
     HV_MIGRATION_PORT: 8102,
     HV_USE_LOCALTIME: False,
     HV_DISK_CACHE: HT_CACHE_DEFAULT,
+    HV_SECURITY_MODEL: HT_SM_NONE,
+    HV_SECURITY_DOMAIN: '',
+    HV_KVM_FLAG: "",
     },
   HT_FAKE: {
     },
@@ -804,3 +842,10 @@ CONFD_CLIENT_EXPIRE_TIMEOUT = 10
 #   (assuming we can't use jumbo frames)
 # We just set this to 60K, which should be enough
 MAX_UDP_DATA_SIZE = 61440
+
+# User-id pool minimum/maximum acceptable user-ids.
+UIDPOOL_UID_MIN = 0
+UIDPOOL_UID_MAX = 2**32-1 # Assuming 32 bit user-ids
+
+# Name or path of the pgrep command
+PGREP = "pgrep"

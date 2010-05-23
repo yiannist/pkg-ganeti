@@ -183,7 +183,7 @@ NAME="AEN56"
 ><B
 CLASS="COMMAND"
 >copyfile</B
->  [-n <TT
+>  [--use-replication-network] [-n <TT
 CLASS="REPLACEABLE"
 ><I
 >node</I
@@ -208,6 +208,13 @@ CLASS="OPTION"
 > is not given at all, the file will be
         copied to all nodes.
 
+        Passing the <CODE
+CLASS="OPTION"
+>--use-replication-network</CODE
+> option
+        will cause the copy to be done over the replication network
+        (only matters if the primary/secondary IPs are different).
+
         Example:
         <PRE
 CLASS="SCREEN"
@@ -225,7 +232,7 @@ CLASS="FILENAME"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN69"
+NAME="AEN71"
 ></A
 ><H3
 >DESTROY</H3
@@ -255,7 +262,7 @@ CLASS="REPLACEABLE"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN78"
+NAME="AEN80"
 ></A
 ><H3
 >GETMASTER</H3
@@ -271,7 +278,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN83"
+NAME="AEN85"
 ></A
 ><H3
 >INFO</H3
@@ -288,7 +295,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN88"
+NAME="AEN90"
 ></A
 ><H3
 >INIT</H3
@@ -396,7 +403,12 @@ CLASS="REPLACEABLE"
 ><I
 >value</I
 ></TT
->...]]<BR> {<TT
+>...]]<BR> [--maintain-node-health  {yes | no}]<BR> [--uid-pool <TT
+CLASS="REPLACEABLE"
+><I
+>user-id pool definition</I
+></TT
+>]<BR> {<TT
 CLASS="REPLACEABLE"
 ><I
 >clustername</I
@@ -716,11 +728,44 @@ CLASS="VARIABLELIST"
 ></DIV
 >
       </P
+><P
+>        The option <CODE
+CLASS="OPTION"
+>--maintain-node-health</CODE
+> allows to
+        enable/disable automatic maintenance actions on
+        nodes. Currently these include automatic shutdown of instances
+        and deactivation of DRBD devices on offline nodes; in the
+        future it might be extended to automatic removal of unknown
+        LVM volumes, etc.
+      </P
+><P
+>        The <CODE
+CLASS="OPTION"
+>--uid-pool</CODE
+> option initializes the user-id pool.
+        The <TT
+CLASS="REPLACEABLE"
+><I
+>user-id pool definition</I
+></TT
+> can contain a
+        list of user-ids and/or a list of user-id ranges. The parameter format
+        is a comma-separated list of numeric user-ids or user-id ranges.
+        The ranges are defined by a lower and higher boundary, separated
+        by a dash. The boundaries are inclusive.
+        If the <CODE
+CLASS="OPTION"
+>--uid-pool</CODE
+> option is not supplied, the
+        user-id pool is initialized to an empty list. An empty list means that
+        the user-id pool feature is disabled.
+      </P
 ></DIV
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN236"
+NAME="AEN252"
 ></A
 ><H3
 >LIST-TAGS</H3
@@ -735,7 +780,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN241"
+NAME="AEN257"
 ></A
 ><H3
 >MASTERFAILOVER</H3
@@ -764,7 +809,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN249"
+NAME="AEN265"
 ></A
 ><H3
 >MODIFY</H3
@@ -848,12 +893,27 @@ CLASS="REPLACEABLE"
 ><I
 >value</I
 ></TT
->...]]<BR> [-C <TT
+>...]]<BR> [--uid-pool <TT
+CLASS="REPLACEABLE"
+><I
+>user-id pool definition</I
+></TT
+>]<BR> [--add-uids <TT
+CLASS="REPLACEABLE"
+><I
+>user-id pool definition</I
+></TT
+>]<BR> [--remove-uids <TT
+CLASS="REPLACEABLE"
+><I
+>user-id pool definition</I
+></TT
+>]<BR> [-C <TT
 CLASS="REPLACEABLE"
 ><I
 >candidate_pool_size</I
 ></TT
->]</P
+>]<BR> [--maintain-node-health  {yes | no}]</P
 ><P
 >          Modify the options for the cluster.
         </P
@@ -876,11 +936,19 @@ CLASS="OPTION"
           <CODE
 CLASS="OPTION"
 >--backend-parameters</CODE
-> and
+>,
           <CODE
 CLASS="OPTION"
 >--nic-parameters</CODE
-> and options are
+>,
+          <CODE
+CLASS="OPTION"
+>--maintain-node-health</CODE
+> and
+          <CODE
+CLASS="OPTION"
+>--uid-pool</CODE
+> options are
           described in the <B
 CLASS="COMMAND"
 >init</B
@@ -890,7 +958,7 @@ CLASS="COMMAND"
 >        The <CODE
 CLASS="OPTION"
 >-C</CODE
-> options specifies the
+> option specifies the
         <CODE
 CLASS="VARNAME"
 >candidate_pool_size</CODE
@@ -910,11 +978,22 @@ CLASS="REFENTRYTITLE"
         automatically promote as many nodes as required and possible
         to reach the intended number.
       </P
+><P
+>        The <CODE
+CLASS="OPTION"
+>--add-uids</CODE
+> and <CODE
+CLASS="OPTION"
+>--remove-uids</CODE
+>
+        options can be used to modify the user-id pool by adding/removing
+        a list of user-ids or user-id ranges.
+    </P
 ></DIV
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN302"
+NAME="AEN337"
 ></A
 ><H3
 >QUEUE</H3
@@ -952,7 +1031,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN316"
+NAME="AEN351"
 ></A
 ><H3
 >WATCHER</H3
@@ -998,7 +1077,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN333"
+NAME="AEN368"
 ></A
 ><H3
 >redist-conf</H3
@@ -1033,7 +1112,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN343"
+NAME="AEN378"
 ></A
 ><H3
 >REMOVE-TAGS</H3
@@ -1070,7 +1149,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN354"
+NAME="AEN389"
 ></A
 ><H3
 >RENAME</H3
@@ -1102,7 +1181,62 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN364"
+NAME="AEN399"
+></A
+><H3
+>RENEW-CRYPTO</H3
+><P
+><B
+CLASS="COMMAND"
+>renew-crypto</B
+>  [-f]<BR> [--new-cluster-certificate] [--new-confd-hmac-key]<BR> [--new-rapi-certificate] [--rapi-certificate <TT
+CLASS="REPLACEABLE"
+><I
+>rapi-cert</I
+></TT
+>]</P
+><P
+>        This command will stop all
+        Ganeti daemons in the cluster and start them again once the new
+        certificates and keys are replicated. The options
+        <CODE
+CLASS="OPTION"
+>--new-cluster-certificate</CODE
+> and
+        <CODE
+CLASS="OPTION"
+>--new-confd-hmac-key</CODE
+> can be used to regenerate the
+        cluster-internal SSL certificate respective the HMAC key used by
+        <SPAN
+CLASS="CITEREFENTRY"
+><SPAN
+CLASS="REFENTRYTITLE"
+>ganeti-confd</SPAN
+>(8)</SPAN
+>. To generate a new self-signed RAPI certificate (used
+        by <SPAN
+CLASS="CITEREFENTRY"
+><SPAN
+CLASS="REFENTRYTITLE"
+>ganeti-rapi</SPAN
+>(8)</SPAN
+>) specify <CODE
+CLASS="OPTION"
+>--new-rapi-certificate</CODE
+>. If
+        you want to use your own certificate, e.g. one signed by a certificate
+        authority (CA), pass its filename to
+        <CODE
+CLASS="OPTION"
+>--rapi-certificate</CODE
+>.
+      </P
+></DIV
+><DIV
+CLASS="REFSECT2"
+><A
+NAME="AEN422"
 ></A
 ><H3
 >REPAIR-DISK-SIZES</H3
@@ -1138,7 +1272,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN373"
+NAME="AEN431"
 ></A
 ><H3
 >SEARCH-TAGS</H3
@@ -1203,7 +1337,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN388"
+NAME="AEN446"
 ></A
 ><H3
 >VERIFY</H3
@@ -1229,7 +1363,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN396"
+NAME="AEN454"
 ></A
 ><H3
 >VERIFY-DISKS</H3
@@ -1255,7 +1389,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN403"
+NAME="AEN461"
 ></A
 ><H3
 >VERSION</H3
@@ -1272,7 +1406,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN408"
+NAME="AEN466"
 ></A
 ><H2
 >REPORTING BUGS</H2
@@ -1289,7 +1423,7 @@ TARGET="_top"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN412"
+NAME="AEN470"
 ></A
 ><H2
 >SEE ALSO</H2
@@ -1405,7 +1539,7 @@ CLASS="REFENTRYTITLE"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN459"
+NAME="AEN517"
 ></A
 ><H2
 >COPYRIGHT</H2

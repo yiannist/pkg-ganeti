@@ -3,7 +3,7 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GANETI-WATCHER" "8" "12 March 2010" "ganeti 2.0" ""
+.TH "GANETI-WATCHER" "8" "07 May 2010" "ganeti 2.0" ""
 
 .SH NAME
 ganeti-watcher \- ganeti cluster watcher
@@ -15,7 +15,9 @@ ganeti-watcher \- ganeti cluster watcher
 .PP
 The \fBganeti-watcher\fR is a periodically run script
 which is responsible for keeping the instances in the correct
-status.
+status. It has two separate functions, one for the master node
+and another one that runs on every node.
+.SS "MASTER OPERATIONS"
 .PP
 Its primary function is to try to keep running all instances
 which are marked as \fBup\fR in the configuration
@@ -24,14 +26,29 @@ file, by trying to start them a limited number of times.
 Its other function is to ``repair'' DRBD links by
 reactivating the block devices of instances which have
 secondaries on nodes that have been rebooted.
+.SS "NODE OPERATIONS"
+.PP
+The watcher will restart any down daemons that are appropriate
+for the current node.
+.PP
+In addition, it will execute any scripts which exist under the
+``watcher'' directory in the ganeti hooks directory
+(@SYSCONFDIR@/ganeti/hooks). This should be used for
+lightweight actions, like starting any extra daemons.
+.PP
+If the cluster
+parameter maintain_node_health is enabled,
+then the watcher will also shutdown instances and DRBD devices
+if the node is declared as offline by known master candidates.
 .PP
 The watcher does synchronous queries but will submit jobs for
 executing the changes. Due to locking, it could be that the jobs
 execute much later than the watcher executes them.
+.SH "FILES"
 .PP
 The command has a state file located at
-\fI@LOCALSTATEDIR@/lib/ganeti/watcher.data\fR and a log
-file at
+\fI@LOCALSTATEDIR@/lib/ganeti/watcher.data\fR
+(only used on the master) and a log file at
 \fI@LOCALSTATEDIR@/log/ganeti/watcher.log\fR\&. Removal of
 either file will not affect correct operation; the removal of
 the state file will just cause the restart counters for the

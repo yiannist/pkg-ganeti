@@ -52,39 +52,86 @@ CLASS="COMMAND"
 >ganeti-watcher</B
 > is a periodically run script
       which is responsible for keeping the instances in the correct
-      status.
+      status. It has two separate functions, one for the master node
+      and another one that runs on every node.
     </P
+><DIV
+CLASS="REFSECT2"
+><A
+NAME="AEN23"
+></A
+><H3
+>Master operations</H3
 ><P
->      Its primary function is to try to keep running all instances
-      which are marked as <SPAN
+>        Its primary function is to try to keep running all instances
+        which are marked as <SPAN
 CLASS="emphasis"
 ><I
 CLASS="EMPHASIS"
 >up</I
 ></SPAN
 > in the configuration
-      file, by trying to start them a limited number of times.
-    </P
+        file, by trying to start them a limited number of times.
+      </P
 ><P
->      Its other function is to <SPAN
+>        Its other function is to <SPAN
 CLASS="QUOTE"
 >"repair"</SPAN
 > DRBD links by
-      reactivating the block devices of instances which have
-      secondaries on nodes that have been rebooted.
-    </P
+        reactivating the block devices of instances which have
+        secondaries on nodes that have been rebooted.
+      </P
+></DIV
+><DIV
+CLASS="REFSECT2"
+><A
+NAME="AEN29"
+></A
+><H3
+>Node operations</H3
 ><P
->      The watcher does synchronous queries but will submit jobs for
-      executing the changes. Due to locking, it could be that the jobs
-      execute much later than the watcher executes them.
-    </P
+>        The watcher will restart any down daemons that are appropriate
+        for the current node.
+      </P
+><P
+>        In addition, it will execute any scripts which exist under the
+        <SPAN
+CLASS="QUOTE"
+>"watcher"</SPAN
+> directory in the ganeti hooks directory
+        (@SYSCONFDIR@/ganeti/hooks). This should be used for
+        lightweight actions, like starting any extra daemons.
+      </P
+><P
+>        If the cluster
+        parameter <TT
+CLASS="LITERAL"
+>maintain_node_health</TT
+> is enabled,
+        then the watcher will also shutdown instances and DRBD devices
+        if the node is declared as offline by known master candidates.
+      </P
+><P
+>        The watcher does synchronous queries but will submit jobs for
+        executing the changes. Due to locking, it could be that the jobs
+        execute much later than the watcher executes them.
+      </P
+></DIV
+></DIV
+><DIV
+CLASS="REFSECT1"
+><A
+NAME="AEN37"
+></A
+><H2
+>FILES</H2
 ><P
 >      The command has a state file located at
       <TT
 CLASS="FILENAME"
 >@LOCALSTATEDIR@/lib/ganeti/watcher.data</TT
-> and a log
-      file at
+>
+      (only used on the master) and a log file at
       <TT
 CLASS="FILENAME"
 >@LOCALSTATEDIR@/log/ganeti/watcher.log</TT
@@ -97,7 +144,7 @@ CLASS="FILENAME"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN31"
+NAME="AEN42"
 ></A
 ><H2
 >REPORTING BUGS</H2
@@ -114,7 +161,7 @@ TARGET="_top"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN35"
+NAME="AEN46"
 ></A
 ><H2
 >SEE ALSO</H2
@@ -230,7 +277,7 @@ CLASS="REFENTRYTITLE"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN82"
+NAME="AEN93"
 ></A
 ><H2
 >COPYRIGHT</H2

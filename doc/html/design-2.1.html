@@ -5,13 +5,13 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Ganeti 2.1 design &mdash; Ganeti v2.1.1 documentation</title>
+    <title>Ganeti 2.1 design &mdash; Ganeti v2.1.2 documentation</title>
     <link rel="stylesheet" href="_static/default.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.1.1',
+        VERSION:     '2.1.2',
         COLLAPSE_MODINDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -19,7 +19,7 @@
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.1.1 documentation" href="index.html" />
+    <link rel="top" title="Ganeti v2.1.2 documentation" href="index.html" />
     <link rel="next" title="Ganeti locking" href="locking.html" />
     <link rel="prev" title="Ganeti 2.0 design" href="design-2.0.html" /> 
   </head>
@@ -33,7 +33,7 @@
         <li class="right" >
           <a href="design-2.0.html" title="Ganeti 2.0 design"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.1.1 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.1.2 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -71,11 +71,12 @@ adding new features and improvements over 2.0, in a timely fashion.</p>
 <li><a class="reference" href="#non-bridged-instances-support" id="id30" name="id30">Non bridged instances support</a></li>
 <li><a class="reference" href="#introducing-persistent-uuids" id="id31" name="id31">Introducing persistent UUIDs</a></li>
 <li><a class="reference" href="#automated-disk-repairs-infrastructure" id="id32" name="id32">Automated disk repairs infrastructure</a></li>
+<li><a class="reference" href="#user-id-pool" id="id33" name="id33">User-id pool</a></li>
 </ul>
 </li>
-<li><a class="reference" href="#external-interface-changes" id="id33" name="id33">External interface changes</a><ul>
-<li><a class="reference" href="#os-api" id="id34" name="id34">OS API</a></li>
-<li><a class="reference" href="#iallocator-changes" id="id35" name="id35">IAllocator changes</a></li>
+<li><a class="reference" href="#external-interface-changes" id="id34" name="id34">External interface changes</a><ul>
+<li><a class="reference" href="#os-api" id="id35" name="id35">OS API</a></li>
+<li><a class="reference" href="#iallocator-changes" id="id36" name="id36">IAllocator changes</a></li>
 </ul>
 </li>
 </ul>
@@ -87,7 +88,7 @@ adding new features and improvements over 2.0, in a timely fashion.</p>
 <div class="section" id="objective">
 <h2><a class="toc-backref" href="#id17">Objective</a><a class="headerlink" href="#objective" title="Permalink to this headline">¶</a></h2>
 <p>Ganeti 2.1 will add features to help further automatization of cluster
-operations, further improbe scalability to even bigger clusters, and
+operations, further improve scalability to even bigger clusters, and
 make it easier to debug the Ganeti core.</p>
 </div>
 <div class="section" id="background">
@@ -707,11 +708,152 @@ secondaries can just be moved away.</p>
 all instances on the node.</p>
 </div>
 </div>
+<div class="section" id="user-id-pool">
+<h4><a class="toc-backref" href="#id33">User-id pool</a><a class="headerlink" href="#user-id-pool" title="Permalink to this headline">¶</a></h4>
+<p>In order to allow running different processes under unique user-ids
+on a node, we introduce the user-id pool concept.</p>
+<p>The user-id pool is a cluster-wide configuration parameter.
+It is a list of user-ids and/or user-id ranges that are reserved
+for running Ganeti processes (including KVM instances).
+The code guarantees that on a given node a given user-id is only
+handed out if there is no other process running with that user-id.</p>
+<p>Please note, that this can only be guaranteed if all processes in
+the system - that run under a user-id belonging to the pool - are
+started by reserving a user-id first. That can be accomplished
+either by using the RequestUnusedUid() function to get an unused
+user-id or by implementing the same locking mechanism.</p>
+<div class="section" id="implementation">
+<h5>Implementation<a class="headerlink" href="#implementation" title="Permalink to this headline">¶</a></h5>
+<p>The functions that are specific to the user-id pool feature are located
+in a separate module: <tt class="docutils literal"><span class="pre">lib/uidpool.py</span></tt>.</p>
+<div class="section" id="storage">
+<h6>Storage<a class="headerlink" href="#storage" title="Permalink to this headline">¶</a></h6>
+<p>The user-id pool is a single cluster parameter. It is stored in the
+<em>Cluster</em> object under the <tt class="docutils literal"><span class="pre">uid_pool</span></tt> name as a list of integer
+tuples. These tuples represent the boundaries of user-id ranges.
+For single user-ids, the boundaries are equal.</p>
+<p>The internal user-id pool representation is converted into a
+string: a newline separated list of user-ids or user-id ranges.
+This string representation is distributed to all the nodes via the
+<em>ssconf</em> mechanism. This means that the user-id pool can be
+accessed in a read-only way on any node without consulting the master
+node or master candidate nodes.</p>
+</div>
+<div class="section" id="initial-value">
+<h6>Initial value<a class="headerlink" href="#initial-value" title="Permalink to this headline">¶</a></h6>
+<p>The value of the user-id pool cluster parameter can be initialized
+at cluster initialization time using the</p>
+<p><tt class="docutils literal"><span class="pre">gnt-cluster</span> <span class="pre">init</span> <span class="pre">--uid-pool</span> <span class="pre">&lt;uid-pool</span> <span class="pre">definition&gt;</span> <span class="pre">...</span></tt></p>
+<p>command.</p>
+<p>As there is no sensible default value for the user-id pool parameter,
+it is initialized to an empty list if no <tt class="docutils literal"><span class="pre">--uid-pool</span></tt> option is
+supplied at cluster init time.</p>
+<p>If the user-id pool is empty, the user-id pool feature is considered
+to be disabled.</p>
+</div>
+<div class="section" id="manipulation">
+<h6>Manipulation<a class="headerlink" href="#manipulation" title="Permalink to this headline">¶</a></h6>
+<p>The user-id pool cluster parameter can be modified from the
+command-line with the following commands:</p>
+<ul class="simple">
+<li><tt class="docutils literal"><span class="pre">gnt-cluster</span> <span class="pre">modify</span> <span class="pre">--uid-pool</span> <span class="pre">&lt;uid-pool</span> <span class="pre">definition&gt;</span></tt></li>
+<li><tt class="docutils literal"><span class="pre">gnt-cluster</span> <span class="pre">modify</span> <span class="pre">--add-uids</span> <span class="pre">&lt;uid-pool</span> <span class="pre">definition&gt;</span></tt></li>
+<li><tt class="docutils literal"><span class="pre">gnt-cluster</span> <span class="pre">modify</span> <span class="pre">--remove-uids</span> <span class="pre">&lt;uid-pool</span> <span class="pre">definition&gt;</span></tt></li>
+</ul>
+<p>The <tt class="docutils literal"><span class="pre">--uid-pool</span></tt> option overwrites the current setting with the
+supplied <tt class="docutils literal"><span class="pre">&lt;uid-pool</span> <span class="pre">definition&gt;</span></tt>, while
+<tt class="docutils literal"><span class="pre">--add-uids</span></tt>/<tt class="docutils literal"><span class="pre">--remove-uids</span></tt> adds/removes the listed uids
+or uid-ranges from the pool.</p>
+<p>The <tt class="docutils literal"><span class="pre">&lt;uid-pool</span> <span class="pre">definition&gt;</span></tt> should be a comma-separated list of
+user-ids or user-id ranges. A range should be defined by a lower and
+a higher boundary. The boundaries should be separated with a dash.
+The boundaries are inclusive.</p>
+<p>The <tt class="docutils literal"><span class="pre">&lt;uid-pool</span> <span class="pre">definition&gt;</span></tt> is parsed into the internal
+representation, sanity-checked and stored in the <tt class="docutils literal"><span class="pre">uid_pool</span></tt>
+attribute of the <em>Cluster</em> object.</p>
+<p>It is also immediately converted into a string (formatted in the
+input format) and distributed to all nodes via the <em>ssconf</em> mechanism.</p>
+</div>
+<div class="section" id="inspection">
+<h6>Inspection<a class="headerlink" href="#inspection" title="Permalink to this headline">¶</a></h6>
+<p>The current value of the user-id pool cluster parameter is printed
+by the <tt class="docutils literal"><span class="pre">gnt-cluster</span> <span class="pre">info</span></tt> command.</p>
+<p>The output format is accepted by the <tt class="docutils literal"><span class="pre">gnt-cluster</span> <span class="pre">modify</span> <span class="pre">--uid-pool</span></tt>
+command.</p>
+</div>
+<div class="section" id="locking">
+<h6>Locking<a class="headerlink" href="#locking" title="Permalink to this headline">¶</a></h6>
+<p>The <tt class="docutils literal"><span class="pre">uidpool.py</span></tt> module provides a function (<tt class="docutils literal"><span class="pre">RequestUnusedUid</span></tt>)
+for requesting an unused user-id from the pool.</p>
+<p>This will try to find a random user-id that is not currently in use.
+The algorithm is the following:</p>
+<ol class="arabic simple">
+<li>Randomize the list of user-ids in the user-id pool</li>
+<li>Iterate over this randomized UID list</li>
+<li>Create a lock file (it doesn&#8217;t matter if it already exists)</li>
+<li>Acquire an exclusive POSIX lock on the file, to provide mutual
+exclusion for the following non-atomic operations</li>
+<li>Check if there is a process in the system with the given UID</li>
+<li>If there isn&#8217;t, return the UID, otherwise unlock the file and
+continue the iteration over the user-ids</li>
+</ol>
+<p>The user can than start a new process with this user-id.
+Once a process is successfully started, the exclusive POSIX lock can
+be released, but the lock file will remain in the filesystem.
+The presence of such a lock file means that the given user-id is most
+probably in use. The lack of a uid lock file does not guarantee that
+there are no processes with that user-id.</p>
+<p>After acquiring the exclusive POSIX lock, <tt class="docutils literal"><span class="pre">RequestUnusedUid</span></tt>
+always performs a check to see if there is a process running with the
+given uid.</p>
+<p>A user-id can be returned to the pool, by calling the
+<tt class="docutils literal"><span class="pre">ReleaseUid</span></tt> function. This will remove the corresponding lock file.
+Note, that it doesn&#8217;t check if there is any process still running
+with that user-id. The removal of the lock file only means that there
+are most probably no processes with the given user-id. This helps
+in speeding up the process of finding a user-id that is guaranteed to
+be unused.</p>
+<p>There is a convenience function, called <tt class="docutils literal"><span class="pre">ExecWithUnusedUid</span></tt> that
+wraps the execution of a function (or any callable) that requires a
+unique user-id. <tt class="docutils literal"><span class="pre">ExecWithUnusedUid</span></tt> takes care of requesting an
+unused user-id and unlocking the lock file. It also automatically
+returns the user-id to the pool if the callable raises an exception.</p>
+</div>
+</div>
+<div class="section" id="code-examples">
+<h5>Code examples<a class="headerlink" href="#code-examples" title="Permalink to this headline">¶</a></h5>
+<p>Requesting a user-id from the pool:</p>
+<div class="highlight-python"><pre>from ganeti import ssconf
+from ganeti import uidpool
+
+# Get list of all user-ids in the uid-pool from ssconf
+ss = ssconf.SimpleStore()
+uid_pool = uidpool.ParseUidPool(ss.GetUidPool(), separator="\n")
+all_uids = set(uidpool.ExpandUidPool(uid_pool))
+
+uid = uidpool.RequestUnusedUid(all_uids)
+try:
+  &lt;start a process with the UID&gt;
+  # Once the process is started, we can release the file lock
+  uid.Unlock()
+except ..., err:
+  # Return the UID to the pool
+  uidpool.ReleaseUid(uid)</pre>
+</div>
+<p>Releasing a user-id:</p>
+<div class="highlight-python"><pre>from ganeti import uidpool
+
+uid = &lt;get the UID the process is running under&gt;
+&lt;stop the process&gt;
+uidpool.ReleaseUid(uid)</pre>
+</div>
+</div>
+</div>
 </div>
 <div class="section" id="external-interface-changes">
-<h3><a class="toc-backref" href="#id33">External interface changes</a><a class="headerlink" href="#external-interface-changes" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id34">External interface changes</a><a class="headerlink" href="#external-interface-changes" title="Permalink to this headline">¶</a></h3>
 <div class="section" id="os-api">
-<h4><a class="toc-backref" href="#id34">OS API</a><a class="headerlink" href="#os-api" title="Permalink to this headline">¶</a></h4>
+<h4><a class="toc-backref" href="#id35">OS API</a><a class="headerlink" href="#os-api" title="Permalink to this headline">¶</a></h4>
 <p>The OS API of Ganeti 2.0 has been built with extensibility in mind.
 Since we pass everything as environment variables it&#8217;s a lot easier to
 send new information to the OSes without breaking retrocompatibility.
@@ -791,7 +933,7 @@ parameter-&gt;values associations, which will then be passed to the OS.</p>
 </div>
 </div>
 <div class="section" id="iallocator-changes">
-<h4><a class="toc-backref" href="#id35">IAllocator changes</a><a class="headerlink" href="#iallocator-changes" title="Permalink to this headline">¶</a></h4>
+<h4><a class="toc-backref" href="#id36">IAllocator changes</a><a class="headerlink" href="#iallocator-changes" title="Permalink to this headline">¶</a></h4>
 <div class="section" id="id14">
 <h5>Current State and shortcomings<a class="headerlink" href="#id14" title="Permalink to this headline">¶</a></h5>
 <p>The iallocator interface allows creation of instances without manually
@@ -942,6 +1084,18 @@ specification</li>
 <li><a class="reference" href="#evacuate-node">Evacuate node</a></li>
 </ul>
 </li>
+<li><a class="reference" href="#user-id-pool">User-id pool</a><ul>
+<li><a class="reference" href="#implementation">Implementation</a><ul>
+<li><a class="reference" href="#storage">Storage</a></li>
+<li><a class="reference" href="#initial-value">Initial value</a></li>
+<li><a class="reference" href="#manipulation">Manipulation</a></li>
+<li><a class="reference" href="#inspection">Inspection</a></li>
+<li><a class="reference" href="#locking">Locking</a></li>
+</ul>
+</li>
+<li><a class="reference" href="#code-examples">Code examples</a></li>
+</ul>
+</li>
 </ul>
 </li>
 <li><a class="reference" href="#external-interface-changes">External interface changes</a><ul>
@@ -1007,7 +1161,7 @@ specification</li>
         <li class="right" >
           <a href="design-2.0.html" title="Ganeti 2.0 design"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.1.1 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.1.2 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

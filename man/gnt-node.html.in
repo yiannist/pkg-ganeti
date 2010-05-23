@@ -1372,7 +1372,7 @@ CLASS="COMMAND"
 >powercycle</B
 >  [<CODE
 CLASS="OPTION"
->--confirm</CODE
+>--yes</CODE
 >] [<CODE
 CLASS="OPTION"
 >--force</CODE

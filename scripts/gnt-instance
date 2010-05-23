@@ -423,12 +423,16 @@ def BatchCreate(opts, args):
     ToStderr("Can't parse the instance definition file: %s" % str(err))
     return 1
 
+  if not isinstance(instance_data, dict):
+    ToStderr("The instance definition file is not in dict format.")
+    return 1
+
   jex = JobExecutor(opts=opts)
 
   # Iterate over the instances and do:
   #  * Populate the specs with default value
   #  * Validate the instance specs
-  i_names = utils.NiceSort(instance_data.keys())
+  i_names = utils.NiceSort(instance_data.keys()) # pylint: disable-msg=E1103
   for name in i_names:
     specs = instance_data[name]
     specs = _PopulateWithDefaults(specs)
@@ -872,9 +876,8 @@ def MigrateInstance(opts, args):
     else:
       usertext = ("Instance %s will be migrated. Note that migration" %
                   (instance_name,))
-    usertext += (" is **experimental** in this version."
-                " This might impact the instance if anything goes wrong."
-                " Continue?")
+    usertext += (" might impact the instance if anything goes wrong"
+                 " (e.g. due to bugs in the hypervisor). Continue?")
     if not AskUser(usertext):
       return 1
 
@@ -1171,7 +1174,7 @@ def ShowInstanceConfig(opts, args):
                                       vnc_bind_address)
       buf.write("    - console connection: vnc to %s\n" % vnc_console_port)
 
-    for key in instance["hv_actual"]:
+    for key in sorted(instance["hv_actual"]):
       if key in instance["hv_instance"]:
         val = instance["hv_instance"][key]
       else:
@@ -1207,8 +1210,8 @@ def SetInstanceParams(opts, args):
   @return: the desired exit code
 
   """
-  if not (opts.nics or opts.disks or
-          opts.hvparams or opts.beparams):
+  if not (opts.nics or opts.disks or opts.disk_template or
+          opts.hvparams or opts.beparams or opts.os):
     ToStderr("Please give at least one of the parameters.")
     return 1
 
@@ -1247,11 +1250,22 @@ def SetInstanceParams(opts, args):
                                    errors.ECODE_INVAL)
       disk_dict['size'] = utils.ParseUnit(disk_dict['size'])
 
+  if (opts.disk_template and
+      opts.disk_template in constants.DTS_NET_MIRROR and
+      not opts.node):
+    ToStderr("Changing the disk template to a mirrored one requires"
+             " specifying a secondary node")
+    return 1
+
   op = opcodes.OpSetInstanceParams(instance_name=args[0],
                                    nics=opts.nics,
                                    disks=opts.disks,
+                                   disk_template=opts.disk_template,
+                                   remote_node=opts.node,
                                    hvparams=opts.hvparams,
                                    beparams=opts.beparams,
+                                   os_name=opts.os,
+                                   force_variant=opts.force_variant,
                                    force=opts.force)
 
   # even if here we process the result, we allow submit only
@@ -1261,7 +1275,7 @@ def SetInstanceParams(opts, args):
     ToStdout("Modified instance %s", args[0])
     for param, data in result:
       ToStdout(" - %-5s -> %s", param, data)
-    ToStdout("Please don't forget that these parameters take effect"
+    ToStdout("Please don't forget that most parameters take effect"
              " only at the next start of the instance.")
   return 0
 
@@ -1330,6 +1344,7 @@ add_opts = [
   NWSYNC_OPT,
   OS_OPT,
   FORCE_VARIANT_OPT,
+  NO_INSTALL_OPT,
   OS_SIZE_OPT,
   SUBMIT_OPT,
   ]
@@ -1407,7 +1422,8 @@ commands = {
     "Replaces all disks for the instance"),
   'modify': (
     SetInstanceParams, ARGS_ONE_INSTANCE,
-    [BACKEND_OPT, DISK_OPT, FORCE_OPT, HVOPTS_OPT, NET_OPT, SUBMIT_OPT],
+    [BACKEND_OPT, DISK_OPT, FORCE_OPT, HVOPTS_OPT, NET_OPT, SUBMIT_OPT,
+     DISK_TEMPLATE_OPT, SINGLE_NODE_OPT, OS_OPT, FORCE_VARIANT_OPT],
     "<instance>", "Alters the parameters of an instance"),
   'shutdown': (
     GenericManyOps("shutdown", _ShutdownInstance), [ArgInstance()],

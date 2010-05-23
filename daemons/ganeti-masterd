@@ -108,7 +108,14 @@ class IOServer(SocketServer.UnixStreamServer):
     """Add task to workerpool to process request.
 
     """
+    (pid, uid, gid) = utils.GetSocketCredentials(request)
+    logging.info("Accepted connection from pid=%s, uid=%s, gid=%s",
+                 pid, uid, gid)
+
     self.request_workers.AddTask(self, request, client_address)
+
+  def handle_error(self, request, client_address):
+    logging.exception("Error while handling request")
 
   @utils.SignalHandled([signal.SIGINT, signal.SIGTERM])
   def serve_forever(self, signal_handlers=None): # pylint: disable-msg=W0221
@@ -163,8 +170,8 @@ class ClientRqHandler(SocketServer.BaseRequestHandler):
         logging.error("wrong request received: %s", msg)
         break
 
-      method = request.get(luxi.KEY_METHOD, None)
-      args = request.get(luxi.KEY_ARGS, None)
+      method = request.get(luxi.KEY_METHOD, None) # pylint: disable-msg=E1103
+      args = request.get(luxi.KEY_ARGS, None) # pylint: disable-msg=E1103
       if method is None or args is None:
         logging.error("no method or args in request")
         break
@@ -469,6 +476,8 @@ def CheckAgreement():
   if retries == 0:
     logging.critical("Cluster inconsistent, most of the nodes didn't answer"
                      " after multiple retries. Aborting startup")
+    logging.critical("Use the --no-voting option if you understand what"
+                     " effects it has on the cluster state")
     return False
   # here a real node is at the top of the list
   all_votes = sum(item[1] for item in votes)
