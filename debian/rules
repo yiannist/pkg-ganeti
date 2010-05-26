@@ -48,6 +48,7 @@ install: build
 	$(MAKE) install DESTDIR=$(CURDIR)/debian/`dh_listpackages`
 	cp $(CURDIR)/doc/examples/ganeti.initd $(CURDIR)/debian/ganeti2.ganeti.init
 	cp $(CURDIR)/doc/examples/ganeti.cron $(CURDIR)/debian/ganeti2.ganeti.cron.d
+	cp $(CURDIR)/doc/examples/ganeti.default $(CURDIR)/debian/ganeti2.ganeti.default
 	# No longer needed with ganeti 2.1
 	#mv $(CURDIR)/debian/ganeti2/usr/share/doc/ganeti $(CURDIR)/debian/ganeti2/usr/share/doc/ganeti2
 	install -m 0755 $(CURDIR)/doc/examples/dumb-allocator \
