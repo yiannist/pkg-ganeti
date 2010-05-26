@@ -31,10 +31,13 @@ clean:
 
 	# Add here commands to clean up after the build process.
 	#$(MAKE) clean
-	#$(MAKE) distclean
+	[ ! -f Makefile ] || $(MAKE) distclean
+	# this is not removed by make distclean :(
+	rm -f ganeti
 
-	rm -f debian/ganeti2.init
+	rm -f debian/ganeti2.ganeti.init
 	rm -f debian/ganeti2.ganeti.cron.d
+	rm -f debian/ganeti2.ganeti.default
 
 	dh_clean
 
