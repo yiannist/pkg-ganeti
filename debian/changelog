@@ -1,3 +1,10 @@
+ganeti (2.1.2.1-2) unstable; urgency=low
+
+  * Ship the defaults file provided by upstream (Closes: #579452)
+  * Fix debian/rules clean target
+
+ -- Iustin Pop <iustin@debian.org>  Thu, 27 May 2010 00:24:33 +0200
+
 ganeti (2.1.2.1-1) unstable; urgency=low
 
   * New upstream version
