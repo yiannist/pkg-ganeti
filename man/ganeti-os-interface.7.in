@@ -3,7 +3,7 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GANETI-OS-INTERFACE" "7" "07 May 2010" "ganeti 2.1" ""
+.TH "GANETI-OS-INTERFACE" "7" "03 June 2010" "ganeti 2.1" ""
 
 .SH NAME
 ganeti-os-interface \- specifications for guest OS types
@@ -250,7 +250,7 @@ Note that the script must be executable.
 .PP
 Report bugs to  <URL:http://code.google.com/p/ganeti/> or contact the
 developers using the ganeti mailing list
-<ganeti@googlegroups.com>.
+<ganeti@googlegroups.com>\&.
 .SH "SEE ALSO"
 .PP
 Ganeti overview and specifications:

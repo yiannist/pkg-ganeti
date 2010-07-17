@@ -3,7 +3,7 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GNT-NODE" "8" "07 May 2010" "ganeti 2.0" ""
+.TH "GNT-NODE" "8" "03 June 2010" "ganeti 2.0" ""
 
 .SH NAME
 gnt-node \- node administration
@@ -136,6 +136,7 @@ output will be restricted to the given names.
 \fBlist\fR [ \fB--sync\fR ]
     [ \fB--no-headers\fR ] [ \fB--separator=\fISEPARATOR\fB\fR ]
     [ \fB--units=\fIUNITS\fB\fR ] [ \fB-o \fI[+]FIELD,...\fB\fR ]
+    [ \fB--roman\fR ]
     [ \fBnode\fR\fI ...\fR ]
 
 .PP
@@ -159,6 +160,10 @@ any running jobs. This might give inconsistent results for the
 free disk/memory. The \fB--sync\fR can be used to
 grab locks for all the nodes and ensure consistent view of the
 cluster (but this might stall the query for a long time).
+.PP
+Passing the \fB--roman\fR option gnt-node list will try to
+output some of its fields in a latin-friendly way. This is not the
+default for backwards compatibility.
 .PP
 The \fB-o\fR option takes a comma-separated list of
 output fields. The available fields and their meaning are:
@@ -596,7 +601,7 @@ needed if the target node is the master node.
 .PP
 Report bugs to  <URL:http://code.google.com/p/ganeti/> or contact the
 developers using the ganeti mailing list
-<ganeti@googlegroups.com>.
+<ganeti@googlegroups.com>\&.
 .SH "SEE ALSO"
 .PP
 Ganeti overview and specifications:

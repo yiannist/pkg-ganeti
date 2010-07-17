@@ -5,13 +5,13 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Ganeti remote API &mdash; Ganeti v2.1.2.1 documentation</title>
+    <title>Ganeti remote API &mdash; Ganeti v2.1.3 documentation</title>
     <link rel="stylesheet" href="_static/default.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.1.2.1',
+        VERSION:     '2.1.3',
         COLLAPSE_MODINDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -19,7 +19,7 @@
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.1.2.1 documentation" href="index.html" />
+    <link rel="top" title="Ganeti v2.1.3 documentation" href="index.html" />
     <link rel="next" title="Developer notes" href="devnotes.html" />
     <link rel="prev" title="Ganeti automatic instance allocation" href="iallocator.html" /> 
   </head>
@@ -33,7 +33,7 @@
         <li class="right" >
           <a href="iallocator.html" title="Ganeti automatic instance allocation"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.1.2.1 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.1.3 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -43,154 +43,163 @@
           <div class="body">
             
   <div class="section" id="ganeti-remote-api">
-<h1><a class="toc-backref" href="#id38">Ganeti remote API</a><a class="headerlink" href="#ganeti-remote-api" title="Permalink to this headline">¶</a></h1>
+<h1><a class="toc-backref" href="#id40">Ganeti remote API</a><a class="headerlink" href="#ganeti-remote-api" title="Permalink to this headline">¶</a></h1>
 <p>Documents Ganeti version 2.1</p>
 <div class="contents topic" id="contents">
 <p class="topic-title first">Contents</p>
 <ul class="simple">
-<li><a class="reference internal" href="#ganeti-remote-api" id="id38">Ganeti remote API</a><ul>
-<li><a class="reference internal" href="#introduction" id="id39">Introduction</a></li>
-<li><a class="reference internal" href="#users-and-passwords" id="id40">Users and passwords</a></li>
-<li><a class="reference internal" href="#protocol" id="id41">Protocol</a></li>
-<li><a class="reference internal" href="#put-or-post" id="id42">PUT or POST?</a></li>
-<li><a class="reference internal" href="#generic-parameter-types" id="id43">Generic parameter types</a><ul>
-<li><a class="reference internal" href="#bool" id="id44"><tt class="docutils literal"><span class="pre">bool</span></tt></a></li>
+<li><a class="reference internal" href="#ganeti-remote-api" id="id40">Ganeti remote API</a><ul>
+<li><a class="reference internal" href="#introduction" id="id41">Introduction</a></li>
+<li><a class="reference internal" href="#users-and-passwords" id="id42">Users and passwords</a></li>
+<li><a class="reference internal" href="#protocol" id="id43">Protocol</a></li>
+<li><a class="reference internal" href="#put-or-post" id="id44">PUT or POST?</a></li>
+<li><a class="reference internal" href="#generic-parameter-types" id="id45">Generic parameter types</a><ul>
+<li><a class="reference internal" href="#bool" id="id46"><tt class="docutils literal"><span class="pre">bool</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#generic-parameters" id="id45">Generic parameters</a><ul>
-<li><a class="reference internal" href="#bulk" id="id46"><tt class="docutils literal"><span class="pre">bulk</span></tt></a></li>
-<li><a class="reference internal" href="#dry-run" id="id47"><tt class="docutils literal"><span class="pre">dry-run</span></tt></a></li>
-<li><a class="reference internal" href="#force" id="id48"><tt class="docutils literal"><span class="pre">force</span></tt></a></li>
+<li><a class="reference internal" href="#generic-parameters" id="id47">Generic parameters</a><ul>
+<li><a class="reference internal" href="#bulk" id="id48"><tt class="docutils literal"><span class="pre">bulk</span></tt></a></li>
+<li><a class="reference internal" href="#dry-run" id="id49"><tt class="docutils literal"><span class="pre">dry-run</span></tt></a></li>
+<li><a class="reference internal" href="#force" id="id50"><tt class="docutils literal"><span class="pre">force</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#usage-examples" id="id49">Usage examples</a><ul>
-<li><a class="reference internal" href="#shell" id="id50">Shell</a></li>
-<li><a class="reference internal" href="#python" id="id51">Python</a></li>
-<li><a class="reference internal" href="#javascript" id="id52">JavaScript</a></li>
+<li><a class="reference internal" href="#usage-examples" id="id51">Usage examples</a><ul>
+<li><a class="reference internal" href="#ganeti-rapi-client" id="id52">Ganeti RAPI client</a></li>
+<li><a class="reference internal" href="#shell" id="id53">Shell</a></li>
+<li><a class="reference internal" href="#python" id="id54">Python</a></li>
+<li><a class="reference internal" href="#javascript" id="id55">JavaScript</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#resources" id="id53">Resources</a><ul>
-<li><a class="reference internal" href="#id2" id="id54"><tt class="docutils literal"><span class="pre">/</span></tt></a><ul>
-<li><a class="reference internal" href="#get" id="id55"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+<li><a class="reference internal" href="#resources" id="id56">Resources</a><ul>
+<li><a class="reference internal" href="#id2" id="id57"><tt class="docutils literal"><span class="pre">/</span></tt></a><ul>
+<li><a class="reference internal" href="#get" id="id58"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#id3" id="id56"><tt class="docutils literal"><span class="pre">/2</span></tt></a><ul>
-<li><a class="reference internal" href="#id4" id="id57"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+<li><a class="reference internal" href="#id3" id="id59"><tt class="docutils literal"><span class="pre">/2</span></tt></a><ul>
+<li><a class="reference internal" href="#id4" id="id60"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#info" id="id58"><tt class="docutils literal"><span class="pre">/2/info</span></tt></a><ul>
-<li><a class="reference internal" href="#id5" id="id59"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+<li><a class="reference internal" href="#info" id="id61"><tt class="docutils literal"><span class="pre">/2/info</span></tt></a><ul>
+<li><a class="reference internal" href="#id5" id="id62"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#redistribute-config" id="id60"><tt class="docutils literal"><span class="pre">/2/redistribute-config</span></tt></a><ul>
-<li><a class="reference internal" href="#put" id="id61"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
+<li><a class="reference internal" href="#redistribute-config" id="id63"><tt class="docutils literal"><span class="pre">/2/redistribute-config</span></tt></a><ul>
+<li><a class="reference internal" href="#put" id="id64"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#instances" id="id62"><tt class="docutils literal"><span class="pre">/2/instances</span></tt></a><ul>
-<li><a class="reference internal" href="#id6" id="id63"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
-<li><a class="reference internal" href="#post" id="id64"><tt class="docutils literal"><span class="pre">POST</span></tt></a></li>
+<li><a class="reference internal" href="#features" id="id65"><tt class="docutils literal"><span class="pre">/2/features</span></tt></a><ul>
+<li><a class="reference internal" href="#id6" id="id66"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#instances-instance-name" id="id65"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]</span></tt></a><ul>
-<li><a class="reference internal" href="#id7" id="id66"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
-<li><a class="reference internal" href="#delete" id="id67"><tt class="docutils literal"><span class="pre">DELETE</span></tt></a></li>
+<li><a class="reference internal" href="#instances" id="id67"><tt class="docutils literal"><span class="pre">/2/instances</span></tt></a><ul>
+<li><a class="reference internal" href="#id7" id="id68"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+<li><a class="reference internal" href="#post" id="id69"><tt class="docutils literal"><span class="pre">POST</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#instances-instance-name-info" id="id68"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/info</span></tt></a><ul>
-<li><a class="reference internal" href="#id8" id="id69"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+<li><a class="reference internal" href="#instances-instance-name" id="id70"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]</span></tt></a><ul>
+<li><a class="reference internal" href="#id8" id="id71"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+<li><a class="reference internal" href="#delete" id="id72"><tt class="docutils literal"><span class="pre">DELETE</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#instances-instance-name-reboot" id="id70"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/reboot</span></tt></a><ul>
-<li><a class="reference internal" href="#id9" id="id71"><tt class="docutils literal"><span class="pre">POST</span></tt></a></li>
+<li><a class="reference internal" href="#instances-instance-name-info" id="id73"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/info</span></tt></a><ul>
+<li><a class="reference internal" href="#id9" id="id74"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#instances-instance-name-shutdown" id="id72"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/shutdown</span></tt></a><ul>
-<li><a class="reference internal" href="#id10" id="id73"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
+<li><a class="reference internal" href="#instances-instance-name-reboot" id="id75"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/reboot</span></tt></a><ul>
+<li><a class="reference internal" href="#id10" id="id76"><tt class="docutils literal"><span class="pre">POST</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#instances-instance-name-startup" id="id74"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/startup</span></tt></a><ul>
-<li><a class="reference internal" href="#id11" id="id75"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
+<li><a class="reference internal" href="#instances-instance-name-shutdown" id="id77"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/shutdown</span></tt></a><ul>
+<li><a class="reference internal" href="#id11" id="id78"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#instances-instance-name-reinstall" id="id76"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/reinstall</span></tt></a><ul>
-<li><a class="reference internal" href="#id12" id="id77"><tt class="docutils literal"><span class="pre">POST</span></tt></a></li>
+<li><a class="reference internal" href="#instances-instance-name-startup" id="id79"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/startup</span></tt></a><ul>
+<li><a class="reference internal" href="#id12" id="id80"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#instances-instance-name-replace-disks" id="id78"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/replace-disks</span></tt></a><ul>
-<li><a class="reference internal" href="#id13" id="id79"><tt class="docutils literal"><span class="pre">POST</span></tt></a></li>
+<li><a class="reference internal" href="#instances-instance-name-reinstall" id="id81"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/reinstall</span></tt></a><ul>
+<li><a class="reference internal" href="#id13" id="id82"><tt class="docutils literal"><span class="pre">POST</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#instances-instance-name-activate-disks" id="id80"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/activate-disks</span></tt></a><ul>
-<li><a class="reference internal" href="#id14" id="id81"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
+<li><a class="reference internal" href="#instances-instance-name-replace-disks" id="id83"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/replace-disks</span></tt></a><ul>
+<li><a class="reference internal" href="#id14" id="id84"><tt class="docutils literal"><span class="pre">POST</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#instances-instance-name-deactivate-disks" id="id82"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/deactivate-disks</span></tt></a><ul>
-<li><a class="reference internal" href="#id15" id="id83"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
+<li><a class="reference internal" href="#instances-instance-name-activate-disks" id="id85"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/activate-disks</span></tt></a><ul>
+<li><a class="reference internal" href="#id15" id="id86"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#instances-instance-name-tags" id="id84"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/tags</span></tt></a><ul>
-<li><a class="reference internal" href="#id16" id="id85"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
-<li><a class="reference internal" href="#id17" id="id86"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
-<li><a class="reference internal" href="#id18" id="id87"><tt class="docutils literal"><span class="pre">DELETE</span></tt></a></li>
+<li><a class="reference internal" href="#instances-instance-name-deactivate-disks" id="id87"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/deactivate-disks</span></tt></a><ul>
+<li><a class="reference internal" href="#id16" id="id88"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#jobs" id="id88"><tt class="docutils literal"><span class="pre">/2/jobs</span></tt></a><ul>
-<li><a class="reference internal" href="#id19" id="id89"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+<li><a class="reference internal" href="#instances-instance-name-tags" id="id89"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/tags</span></tt></a><ul>
+<li><a class="reference internal" href="#id17" id="id90"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+<li><a class="reference internal" href="#id18" id="id91"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
+<li><a class="reference internal" href="#id19" id="id92"><tt class="docutils literal"><span class="pre">DELETE</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#jobs-job-id" id="id90"><tt class="docutils literal"><span class="pre">/2/jobs/[job_id]</span></tt></a><ul>
-<li><a class="reference internal" href="#id20" id="id91"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
-<li><a class="reference internal" href="#id21" id="id92"><tt class="docutils literal"><span class="pre">DELETE</span></tt></a></li>
+<li><a class="reference internal" href="#jobs" id="id93"><tt class="docutils literal"><span class="pre">/2/jobs</span></tt></a><ul>
+<li><a class="reference internal" href="#id20" id="id94"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#nodes" id="id93"><tt class="docutils literal"><span class="pre">/2/nodes</span></tt></a><ul>
-<li><a class="reference internal" href="#id22" id="id94"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+<li><a class="reference internal" href="#jobs-job-id" id="id95"><tt class="docutils literal"><span class="pre">/2/jobs/[job_id]</span></tt></a><ul>
+<li><a class="reference internal" href="#id21" id="id96"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+<li><a class="reference internal" href="#id22" id="id97"><tt class="docutils literal"><span class="pre">DELETE</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#nodes-node-name" id="id95"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]</span></tt></a></li>
-<li><a class="reference internal" href="#nodes-node-name-evacuate" id="id96"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/evacuate</span></tt></a><ul>
-<li><a class="reference internal" href="#id23" id="id97"><tt class="docutils literal"><span class="pre">POST</span></tt></a></li>
+<li><a class="reference internal" href="#jobs-job-id-wait" id="id98"><tt class="docutils literal"><span class="pre">/2/jobs/[job_id]/wait</span></tt></a><ul>
+<li><a class="reference internal" href="#id23" id="id99"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#nodes-node-name-migrate" id="id98"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/migrate</span></tt></a><ul>
-<li><a class="reference internal" href="#id24" id="id99"><tt class="docutils literal"><span class="pre">POST</span></tt></a></li>
+<li><a class="reference internal" href="#nodes" id="id100"><tt class="docutils literal"><span class="pre">/2/nodes</span></tt></a><ul>
+<li><a class="reference internal" href="#id24" id="id101"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#nodes-node-name-role" id="id100"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/role</span></tt></a><ul>
-<li><a class="reference internal" href="#id25" id="id101"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
-<li><a class="reference internal" href="#id26" id="id102"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
+<li><a class="reference internal" href="#nodes-node-name" id="id102"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]</span></tt></a></li>
+<li><a class="reference internal" href="#nodes-node-name-evacuate" id="id103"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/evacuate</span></tt></a><ul>
+<li><a class="reference internal" href="#id25" id="id104"><tt class="docutils literal"><span class="pre">POST</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#nodes-node-name-storage" id="id103"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/storage</span></tt></a><ul>
-<li><a class="reference internal" href="#id27" id="id104"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+<li><a class="reference internal" href="#nodes-node-name-migrate" id="id105"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/migrate</span></tt></a><ul>
+<li><a class="reference internal" href="#id26" id="id106"><tt class="docutils literal"><span class="pre">POST</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#nodes-node-name-storage-modify" id="id105"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/storage/modify</span></tt></a><ul>
-<li><a class="reference internal" href="#id28" id="id106"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
+<li><a class="reference internal" href="#nodes-node-name-role" id="id107"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/role</span></tt></a><ul>
+<li><a class="reference internal" href="#id27" id="id108"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+<li><a class="reference internal" href="#id28" id="id109"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#nodes-node-name-storage-repair" id="id107"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/storage/repair</span></tt></a><ul>
-<li><a class="reference internal" href="#id29" id="id108"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
+<li><a class="reference internal" href="#nodes-node-name-storage" id="id110"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/storage</span></tt></a><ul>
+<li><a class="reference internal" href="#id29" id="id111"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#nodes-node-name-tags" id="id109"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/tags</span></tt></a><ul>
-<li><a class="reference internal" href="#id30" id="id110"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
-<li><a class="reference internal" href="#id31" id="id111"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
-<li><a class="reference internal" href="#id32" id="id112"><tt class="docutils literal"><span class="pre">DELETE</span></tt></a></li>
+<li><a class="reference internal" href="#nodes-node-name-storage-modify" id="id112"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/storage/modify</span></tt></a><ul>
+<li><a class="reference internal" href="#id30" id="id113"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#os" id="id113"><tt class="docutils literal"><span class="pre">/2/os</span></tt></a><ul>
-<li><a class="reference internal" href="#id33" id="id114"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+<li><a class="reference internal" href="#nodes-node-name-storage-repair" id="id114"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/storage/repair</span></tt></a><ul>
+<li><a class="reference internal" href="#id31" id="id115"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#tags" id="id115"><tt class="docutils literal"><span class="pre">/2/tags</span></tt></a><ul>
-<li><a class="reference internal" href="#id34" id="id116"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
-<li><a class="reference internal" href="#id35" id="id117"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
-<li><a class="reference internal" href="#id36" id="id118"><tt class="docutils literal"><span class="pre">DELETE</span></tt></a></li>
+<li><a class="reference internal" href="#nodes-node-name-tags" id="id116"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/tags</span></tt></a><ul>
+<li><a class="reference internal" href="#id32" id="id117"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+<li><a class="reference internal" href="#id33" id="id118"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
+<li><a class="reference internal" href="#id34" id="id119"><tt class="docutils literal"><span class="pre">DELETE</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#version" id="id119"><tt class="docutils literal"><span class="pre">/version</span></tt></a><ul>
-<li><a class="reference internal" href="#id37" id="id120"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+<li><a class="reference internal" href="#os" id="id120"><tt class="docutils literal"><span class="pre">/2/os</span></tt></a><ul>
+<li><a class="reference internal" href="#id35" id="id121"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#tags" id="id122"><tt class="docutils literal"><span class="pre">/2/tags</span></tt></a><ul>
+<li><a class="reference internal" href="#id36" id="id123"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+<li><a class="reference internal" href="#id37" id="id124"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
+<li><a class="reference internal" href="#id38" id="id125"><tt class="docutils literal"><span class="pre">DELETE</span></tt></a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#version" id="id126"><tt class="docutils literal"><span class="pre">/version</span></tt></a><ul>
+<li><a class="reference internal" href="#id39" id="id127"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
 </ul>
 </li>
 </ul>
@@ -200,7 +209,7 @@
 </ul>
 </div>
 <div class="section" id="introduction">
-<h2><a class="toc-backref" href="#id39">Introduction</a><a class="headerlink" href="#introduction" title="Permalink to this headline">¶</a></h2>
+<h2><a class="toc-backref" href="#id41">Introduction</a><a class="headerlink" href="#introduction" title="Permalink to this headline">¶</a></h2>
 <p>Ganeti supports a remote API for enable external tools to easily
 retrieve information about a cluster&#8217;s state. The remote API daemon,
 <em>ganeti-rapi</em>, is automatically started on the master node. By default
@@ -210,7 +219,7 @@ which is used by default, can also be disabled by passing command line
 parameters.</p>
 </div>
 <div class="section" id="users-and-passwords">
-<h2><a class="toc-backref" href="#id40">Users and passwords</a><a class="headerlink" href="#users-and-passwords" title="Permalink to this headline">¶</a></h2>
+<h2><a class="toc-backref" href="#id42">Users and passwords</a><a class="headerlink" href="#users-and-passwords" title="Permalink to this headline">¶</a></h2>
 <p><tt class="docutils literal"><span class="pre">ganeti-rapi</span></tt> reads users and passwords from a file (usually
 <tt class="docutils literal"><span class="pre">/var/lib/ganeti/rapi_users</span></tt>) on startup. After modifying the password
 file, <tt class="docutils literal"><span class="pre">ganeti-rapi</span></tt> must be restarted.</p>
@@ -252,12 +261,12 @@ In the current version <tt class="docutils literal"><span class="pre">ganeti-rap
 </table>
 </div>
 <div class="section" id="protocol">
-<h2><a class="toc-backref" href="#id41">Protocol</a><a class="headerlink" href="#protocol" title="Permalink to this headline">¶</a></h2>
+<h2><a class="toc-backref" href="#id43">Protocol</a><a class="headerlink" href="#protocol" title="Permalink to this headline">¶</a></h2>
 <p>The protocol used is <a class="reference external" href="http://www.json.org/">JSON</a> over HTTP designed after the <a class="reference external" href="http://en.wikipedia.org/wiki/Representational_State_Transfer">REST</a> principle.
 HTTP Basic authentication as per <a class="reference external" href="http://tools.ietf.org/rfc/rfc2617.txt">RFC2617</a> is supported.</p>
 </div>
 <div class="section" id="put-or-post">
-<h2><a class="toc-backref" href="#id42">PUT or POST?</a><a class="headerlink" href="#put-or-post" title="Permalink to this headline">¶</a></h2>
+<h2><a class="toc-backref" href="#id44">PUT or POST?</a><a class="headerlink" href="#put-or-post" title="Permalink to this headline">¶</a></h2>
 <p>According to RFC2616 the main difference between PUT and POST is that
 POST can create new resources but PUT can only create the resource the
 URI was pointing to on the PUT request.</p>
@@ -268,20 +277,20 @@ for each resource.</p>
 <tt class="docutils literal"><span class="pre">lib/rapi/rlib2.py</span></tt>.</p>
 </div>
 <div class="section" id="generic-parameter-types">
-<h2><a class="toc-backref" href="#id43">Generic parameter types</a><a class="headerlink" href="#generic-parameter-types" title="Permalink to this headline">¶</a></h2>
+<h2><a class="toc-backref" href="#id45">Generic parameter types</a><a class="headerlink" href="#generic-parameter-types" title="Permalink to this headline">¶</a></h2>
 <p>A few generic refered parameter types and the values they allow.</p>
 <div class="section" id="bool">
-<h3><a class="toc-backref" href="#id44"><tt class="docutils literal"><span class="pre">bool</span></tt></a><a class="headerlink" href="#bool" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id46"><tt class="docutils literal"><span class="pre">bool</span></tt></a><a class="headerlink" href="#bool" title="Permalink to this headline">¶</a></h3>
 <p>A boolean option will accept <tt class="docutils literal"><span class="pre">1</span></tt> or <tt class="docutils literal"><span class="pre">0</span></tt> as numbers but not
 i.e. <tt class="xref docutils literal"><span class="pre">True</span></tt> or <tt class="xref docutils literal"><span class="pre">False</span></tt>.</p>
 </div>
 </div>
 <div class="section" id="generic-parameters">
-<h2><a class="toc-backref" href="#id45">Generic parameters</a><a class="headerlink" href="#generic-parameters" title="Permalink to this headline">¶</a></h2>
+<h2><a class="toc-backref" href="#id47">Generic parameters</a><a class="headerlink" href="#generic-parameters" title="Permalink to this headline">¶</a></h2>
 <p>A few parameter mean the same thing across all resources which implement
 it.</p>
 <div class="section" id="bulk">
-<h3><a class="toc-backref" href="#id46"><tt class="docutils literal"><span class="pre">bulk</span></tt></a><a class="headerlink" href="#bulk" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id48"><tt class="docutils literal"><span class="pre">bulk</span></tt></a><a class="headerlink" href="#bulk" title="Permalink to this headline">¶</a></h3>
 <p>Bulk-mode means that for the resources which usually return just a list
 of child resources (e.g. <tt class="docutils literal"><span class="pre">/2/instances</span></tt> which returns just instance
 names), the output will instead contain detailed data for all these
@@ -289,7 +298,7 @@ subresources. This is more efficient than query-ing the sub-resources
 themselves.</p>
 </div>
 <div class="section" id="dry-run">
-<h3><a class="toc-backref" href="#id47"><tt class="docutils literal"><span class="pre">dry-run</span></tt></a><a class="headerlink" href="#dry-run" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id49"><tt class="docutils literal"><span class="pre">dry-run</span></tt></a><a class="headerlink" href="#dry-run" title="Permalink to this headline">¶</a></h3>
 <p>The boolean <em>dry-run</em> argument, if provided and set, signals to Ganeti
 that the job should not be executed, only the pre-execution checks will
 be done.</p>
@@ -298,17 +307,21 @@ the meantime the cluster state could have changed) if the operation is
 likely to succeed or at least start executing.</p>
 </div>
 <div class="section" id="force">
-<h3><a class="toc-backref" href="#id48"><tt class="docutils literal"><span class="pre">force</span></tt></a><a class="headerlink" href="#force" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id50"><tt class="docutils literal"><span class="pre">force</span></tt></a><a class="headerlink" href="#force" title="Permalink to this headline">¶</a></h3>
 <p>Force operation to continue even if it will cause the cluster to become
 inconsistent (e.g. because there are not enough master candidates).</p>
 </div>
 </div>
 <div class="section" id="usage-examples">
-<h2><a class="toc-backref" href="#id49">Usage examples</a><a class="headerlink" href="#usage-examples" title="Permalink to this headline">¶</a></h2>
+<h2><a class="toc-backref" href="#id51">Usage examples</a><a class="headerlink" href="#usage-examples" title="Permalink to this headline">¶</a></h2>
 <p>You can access the API using your favorite programming language as long
 as it supports network connections.</p>
+<div class="section" id="ganeti-rapi-client">
+<h3><a class="toc-backref" href="#id52">Ganeti RAPI client</a><a class="headerlink" href="#ganeti-rapi-client" title="Permalink to this headline">¶</a></h3>
+<p>Ganeti includes a standalone RAPI client, <tt class="docutils literal"><span class="pre">lib/rapi/client.py</span></tt>.</p>
+</div>
 <div class="section" id="shell">
-<h3><a class="toc-backref" href="#id50">Shell</a><a class="headerlink" href="#shell" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id53">Shell</a><a class="headerlink" href="#shell" title="Permalink to this headline">¶</a></h3>
 <p>Using wget:</p>
 <div class="highlight-sh"><div class="highlight"><pre>wget -q -O - https://CLUSTERNAME:5080/2/info
 </pre></div>
@@ -319,7 +332,7 @@ as it supports network connections.</p>
 </div>
 </div>
 <div class="section" id="python">
-<h3><a class="toc-backref" href="#id51">Python</a><a class="headerlink" href="#python" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id54">Python</a><a class="headerlink" href="#python" title="Permalink to this headline">¶</a></h3>
 <div class="highlight-python"><div class="highlight"><pre><span class="k">import</span> <span class="nn">urllib2</span>
 <span class="n">f</span> <span class="o">=</span> <span class="n">urllib2</span><span class="o">.</span><span class="n">urlopen</span><span class="p">(</span><span class="s">&#39;https://CLUSTERNAME:5080/2/info&#39;</span><span class="p">)</span>
 <span class="k">print</span> <span class="n">f</span><span class="o">.</span><span class="n">read</span><span class="p">()</span>
@@ -327,7 +340,7 @@ as it supports network connections.</p>
 </div>
 </div>
 <div class="section" id="javascript">
-<h3><a class="toc-backref" href="#id52">JavaScript</a><a class="headerlink" href="#javascript" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id55">JavaScript</a><a class="headerlink" href="#javascript" title="Permalink to this headline">¶</a></h3>
 <div class="admonition warning">
 <p class="first admonition-title">Warning</p>
 <p class="last">While it&#8217;s possible to use JavaScript, it poses several
@@ -355,33 +368,33 @@ the webserver is easier.</p>
 </div>
 </div>
 <div class="section" id="resources">
-<h2><a class="toc-backref" href="#id53">Resources</a><a class="headerlink" href="#resources" title="Permalink to this headline">¶</a></h2>
+<h2><a class="toc-backref" href="#id56">Resources</a><a class="headerlink" href="#resources" title="Permalink to this headline">¶</a></h2>
 <div class="section" id="id2">
-<h3><a class="toc-backref" href="#id54"><tt class="docutils literal"><span class="pre">/</span></tt></a><a class="headerlink" href="#id2" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id57"><tt class="docutils literal"><span class="pre">/</span></tt></a><a class="headerlink" href="#id2" title="Permalink to this headline">¶</a></h3>
 <p>The root resource.</p>
 <p>It supports the following commands: <tt class="docutils literal"><span class="pre">GET</span></tt>.</p>
 <div class="section" id="get">
-<h4><a class="toc-backref" href="#id55"><tt class="docutils literal"><span class="pre">GET</span></tt></a><a class="headerlink" href="#get" title="Permalink to this headline">¶</a></h4>
+<h4><a class="toc-backref" href="#id58"><tt class="docutils literal"><span class="pre">GET</span></tt></a><a class="headerlink" href="#get" title="Permalink to this headline">¶</a></h4>
 <p>Shows the list of mapped resources.</p>
 <p>Returns: a dictionary with &#8216;name&#8217; and &#8216;uri&#8217; keys for each of them.</p>
 </div>
 </div>
 <div class="section" id="id3">
-<h3><a class="toc-backref" href="#id56"><tt class="docutils literal"><span class="pre">/2</span></tt></a><a class="headerlink" href="#id3" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id59"><tt class="docutils literal"><span class="pre">/2</span></tt></a><a class="headerlink" href="#id3" title="Permalink to this headline">¶</a></h3>
 <p>The <tt class="docutils literal"><span class="pre">/2</span></tt> resource, the root of the version 2 API.</p>
 <p>It supports the following commands: <tt class="docutils literal"><span class="pre">GET</span></tt>.</p>
 <div class="section" id="id4">
-<h4><a class="toc-backref" href="#id57"><tt class="docutils literal"><span class="pre">GET</span></tt></a><a class="headerlink" href="#id4" title="Permalink to this headline">¶</a></h4>
+<h4><a class="toc-backref" href="#id60"><tt class="docutils literal"><span class="pre">GET</span></tt></a><a class="headerlink" href="#id4" title="Permalink to this headline">¶</a></h4>
 <p>Show the list of mapped resources.</p>
 <p>Returns: a dictionary with <tt class="docutils literal"><span class="pre">name</span></tt> and <tt class="docutils literal"><span class="pre">uri</span></tt> keys for each of them.</p>
 </div>
 </div>
 <div class="section" id="info">
-<h3><a class="toc-backref" href="#id58"><tt class="docutils literal"><span class="pre">/2/info</span></tt></a><a class="headerlink" href="#info" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id61"><tt class="docutils literal"><span class="pre">/2/info</span></tt></a><a class="headerlink" href="#info" title="Permalink to this headline">¶</a></h3>
 <p>Cluster information resource.</p>
 <p>It supports the following commands: <tt class="docutils literal"><span class="pre">GET</span></tt>.</p>
 <div class="section" id="id5">
-<h4><a class="toc-backref" href="#id59"><tt class="docutils literal"><span class="pre">GET</span></tt></a><a class="headerlink" href="#id5" title="Permalink to this headline">¶</a></h4>
+<h4><a class="toc-backref" href="#id62"><tt class="docutils literal"><span class="pre">GET</span></tt></a><a class="headerlink" href="#id5" title="Permalink to this headline">¶</a></h4>
 <p>Returns cluster information.</p>
 <p>Example:</p>
 <div class="highlight-javascript"><div class="highlight"><pre><span class="p">{</span>
@@ -417,20 +430,32 @@ the webserver is easier.</p>
 </div>
 </div>
 <div class="section" id="redistribute-config">
-<h3><a class="toc-backref" href="#id60"><tt class="docutils literal"><span class="pre">/2/redistribute-config</span></tt></a><a class="headerlink" href="#redistribute-config" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id63"><tt class="docutils literal"><span class="pre">/2/redistribute-config</span></tt></a><a class="headerlink" href="#redistribute-config" title="Permalink to this headline">¶</a></h3>
 <p>Redistribute configuration to all nodes.</p>
 <p>It supports the following commands: <tt class="docutils literal"><span class="pre">PUT</span></tt>.</p>
 <div class="section" id="put">
-<h4><a class="toc-backref" href="#id61"><tt class="docutils literal"><span class="pre">PUT</span></tt></a><a class="headerlink" href="#put" title="Permalink to this headline">¶</a></h4>
+<h4><a class="toc-backref" href="#id64"><tt class="docutils literal"><span class="pre">PUT</span></tt></a><a class="headerlink" href="#put" title="Permalink to this headline">¶</a></h4>
 <p>Redistribute configuration to all nodes. The result will be a job id.</p>
 </div>
 </div>
+<div class="section" id="features">
+<h3><a class="toc-backref" href="#id65"><tt class="docutils literal"><span class="pre">/2/features</span></tt></a><a class="headerlink" href="#features" title="Permalink to this headline">¶</a></h3>
+<div class="section" id="id6">
+<h4><a class="toc-backref" href="#id66"><tt class="docutils literal"><span class="pre">GET</span></tt></a><a class="headerlink" href="#id6" title="Permalink to this headline">¶</a></h4>
+<p>Returns a list of features supported by the RAPI server. Available
+features:</p>
+<dl class="docutils">
+<dt><tt class="docutils literal"><span class="pre">instance-create-reqv1</span></tt></dt>
+<dd>Instance creation request data version 1 supported.</dd>
+</dl>
+</div>
+</div>
 <div class="section" id="instances">
-<h3><a class="toc-backref" href="#id62"><tt class="docutils literal"><span class="pre">/2/instances</span></tt></a><a class="headerlink" href="#instances" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id67"><tt class="docutils literal"><span class="pre">/2/instances</span></tt></a><a class="headerlink" href="#instances" title="Permalink to this headline">¶</a></h3>
 <p>The instances resource.</p>
 <p>It supports the following commands: <tt class="docutils literal"><span class="pre">GET</span></tt>, <tt class="docutils literal"><span class="pre">POST</span></tt>.</p>
-<div class="section" id="id6">
-<h4><a class="toc-backref" href="#id63"><tt class="docutils literal"><span class="pre">GET</span></tt></a><a class="headerlink" href="#id6" title="Permalink to this headline">¶</a></h4>
+<div class="section" id="id7">
+<h4><a class="toc-backref" href="#id68"><tt class="docutils literal"><span class="pre">GET</span></tt></a><a class="headerlink" href="#id7" title="Permalink to this headline">¶</a></h4>
 <p>Returns a list of all available instances.</p>
 <p>Example:</p>
 <div class="highlight-javascript"><div class="highlight"><pre><span class="p">[</span>
@@ -479,35 +504,87 @@ instances as a list.</p>
 </div>
 </div>
 <div class="section" id="post">
-<h4><a class="toc-backref" href="#id64"><tt class="docutils literal"><span class="pre">POST</span></tt></a><a class="headerlink" href="#post" title="Permalink to this headline">¶</a></h4>
+<h4><a class="toc-backref" href="#id69"><tt class="docutils literal"><span class="pre">POST</span></tt></a><a class="headerlink" href="#post" title="Permalink to this headline">¶</a></h4>
 <p>Creates an instance.</p>
 <p>If the optional bool <em>dry-run</em> argument is provided, the job will not be
 actually executed, only the pre-execution checks will be done. Query-ing
 the job result will return, in both dry-run and normal case, the list of
 nodes selected for the instance.</p>
 <p>Returns: a job ID that can be used later for polling.</p>
+<p>Body parameters:</p>
+<dl class="docutils">
+<dt><tt class="docutils literal"><span class="pre">__version__</span></tt> (int, required)</dt>
+<dd>Must be <tt class="docutils literal"><span class="pre">1</span></tt> (older Ganeti versions used a different format for
+instance creation requests, version <tt class="docutils literal"><span class="pre">0</span></tt>, but that format is not
+documented).</dd>
+<dt><tt class="docutils literal"><span class="pre">mode</span></tt></dt>
+<dd>Instance creation mode (string, required).</dd>
+<dt><tt class="docutils literal"><span class="pre">name</span></tt> (string, required)</dt>
+<dd>Instance name</dd>
+<dt><tt class="docutils literal"><span class="pre">disk_template</span></tt> (string, required)</dt>
+<dd>Disk template for instance</dd>
+<dt><tt class="docutils literal"><span class="pre">disks</span></tt> (list, required)</dt>
+<dd>List of disk definitions. Example: <tt class="docutils literal"><span class="pre">[{&quot;size&quot;:</span> <span class="pre">100},</span> <span class="pre">{&quot;size&quot;:</span> <span class="pre">5}]</span></tt>.
+Each disk definition must contain a <tt class="docutils literal"><span class="pre">size</span></tt> value and can contain an
+optional <tt class="docutils literal"><span class="pre">mode</span></tt> value denoting the disk access mode (<tt class="docutils literal"><span class="pre">ro</span></tt> or
+<tt class="docutils literal"><span class="pre">rw</span></tt>).</dd>
+<dt><tt class="docutils literal"><span class="pre">nics</span></tt> (list, required)</dt>
+<dd>List of NIC (network interface) definitions. Example: <tt class="docutils literal"><span class="pre">[{},</span> <span class="pre">{},</span>
+<span class="pre">{&quot;ip&quot;:</span> <span class="pre">&quot;1.2.3.4&quot;}]</span></tt>. Each NIC definition can contain the optional
+values <tt class="docutils literal"><span class="pre">ip</span></tt>, <tt class="docutils literal"><span class="pre">mode</span></tt>, <tt class="docutils literal"><span class="pre">link</span></tt> and <tt class="docutils literal"><span class="pre">bridge</span></tt>.</dd>
+<dt><tt class="docutils literal"><span class="pre">os</span></tt> (string)</dt>
+<dd>Instance operating system.</dd>
+<dt><tt class="docutils literal"><span class="pre">force_variant</span></tt> (bool)</dt>
+<dd>Whether to force an unknown variant.</dd>
+<dt><tt class="docutils literal"><span class="pre">pnode</span></tt> (string)</dt>
+<dd>Primary node.</dd>
+<dt><tt class="docutils literal"><span class="pre">snode</span></tt> (string)</dt>
+<dd>Secondary node.</dd>
+<dt><tt class="docutils literal"><span class="pre">src_node</span></tt> (string)</dt>
+<dd>Source node for import.</dd>
+<dt><tt class="docutils literal"><span class="pre">src_path</span></tt> (string)</dt>
+<dd>Source directory for import.</dd>
+<dt><tt class="docutils literal"><span class="pre">start</span></tt> (bool)</dt>
+<dd>Whether to start instance after creation.</dd>
+<dt><tt class="docutils literal"><span class="pre">ip_check</span></tt> (bool)</dt>
+<dd>Whether to ensure instance&#8217;s IP address is inactive.</dd>
+<dt><tt class="docutils literal"><span class="pre">name_check</span></tt> (bool)</dt>
+<dd>Whether to ensure instance&#8217;s name is resolvable.</dd>
+<dt><tt class="docutils literal"><span class="pre">file_storage_dir</span></tt> (string)</dt>
+<dd>File storage directory.</dd>
+<dt><tt class="docutils literal"><span class="pre">file_driver</span></tt> (string)</dt>
+<dd>File storage driver.</dd>
+<dt><tt class="docutils literal"><span class="pre">iallocator</span></tt> (string)</dt>
+<dd>Instance allocator name.</dd>
+<dt><tt class="docutils literal"><span class="pre">hypervisor</span></tt> (string)</dt>
+<dd>Hypervisor name.</dd>
+<dt><tt class="docutils literal"><span class="pre">hvparams</span></tt> (dict)</dt>
+<dd>Hypervisor parameters, hypervisor-dependent.</dd>
+<dt><tt class="docutils literal"><span class="pre">beparams</span></tt></dt>
+<dd>Backend parameters.</dd>
+</dl>
 </div>
 </div>
 <div class="section" id="instances-instance-name">
-<h3><a class="toc-backref" href="#id65"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]</span></tt></a><a class="headerlink" href="#instances-instance-name" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id70"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]</span></tt></a><a class="headerlink" href="#instances-instance-name" title="Permalink to this headline">¶</a></h3>
 <p>Instance-specific resource.</p>
 <p>It supports the following commands: <tt class="docutils literal"><span class="pre">GET</span></tt>, <tt class="docutils literal"><span class="pre">DELETE</span></tt>.</p>
-<div class="section" id="id7">
-<h4><a class="toc-backref" href="#id66"><tt class="docutils literal"><span class="pre">GET</span></tt></a><a class="headerlink" href="#id7" title="Permalink to this headline">¶</a></h4>
+<div class="section" id="id8">
+<h4><a class="toc-backref" href="#id71"><tt class="docutils literal"><span class="pre">GET</span></tt></a><a class="headerlink" href="#id8" title="Permalink to this headline">¶</a></h4>
 <p>Returns information about an instance, similar to the bulk output from
 the instance list.</p>
 </div>
 <div class="section" id="delete">
-<h4><a class="toc-backref" href="#id67"><tt class="docutils literal"><span class="pre">DELETE</span></tt></a><a class="headerlink" href="#delete" title="Permalink to this headline">¶</a></h4>
+<h4><a class="toc-backref" href="#id72"><tt class="docutils literal"><span class="pre">DELETE</span></tt></a><a class="headerlink" href="#delete" title="Permalink to this headline">¶</a></h4>
 <p>Deletes an instance.</p>
 <p>It supports the <tt class="docutils literal"><span class="pre">dry-run</span></tt> argument.</p>
 </div>
 </div>
 <div class="section" id="instances-instance-name-info">
-<h3><a class="toc-backref" href="#id68"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/info</span></tt></a><a class="headerlink" href="#instances-instance-name-info" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id73"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/info</span></tt></a><a class="headerlink" href="#instances-instance-name-info" title="Permalink to this headline">¶</a></h3>
 <p>It supports the following commands: <tt class="docutils literal"><span class="pre">GET</span></tt>.</p>
-<div class="section" id="id8">
-<h4><a class="toc-backref" href="#id69"><tt class="docutils literal"><span class="pre">GET</span></tt></a><a class="headerlink" href="#id8" title="Permalink to this headline">¶</a></h4>
+<div class="section" id="id9">
+<h4><a class="toc-backref" href="#id74"><tt class="docutils literal"><span class="pre">GET</span></tt></a><a class="headerlink" href="#id9" title="Permalink to this headline">¶</a></h4>
 <p>Requests detailed information about the instance. An optional parameter,
 <tt class="docutils literal"><span class="pre">static</span></tt> (bool), can be set to return only static information from the
 configuration without querying the instance&#8217;s nodes. The result will be
@@ -515,11 +592,11 @@ a job id.</p>
 </div>
 </div>
 <div class="section" id="instances-instance-name-reboot">
-<h3><a class="toc-backref" href="#id70"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/reboot</span></tt></a><a class="headerlink" href="#instances-instance-name-reboot" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id75"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/reboot</span></tt></a><a class="headerlink" href="#instances-instance-name-reboot" title="Permalink to this headline">¶</a></h3>
 <p>Reboots URI for an instance.</p>
 <p>It supports the following commands: <tt class="docutils literal"><span class="pre">POST</span></tt>.</p>
-<div class="section" id="id9">
-<h4><a class="toc-backref" href="#id71"><tt class="docutils literal"><span class="pre">POST</span></tt></a><a class="headerlink" href="#id9" title="Permalink to this headline">¶</a></h4>
+<div class="section" id="id10">
+<h4><a class="toc-backref" href="#id76"><tt class="docutils literal"><span class="pre">POST</span></tt></a><a class="headerlink" href="#id10" title="Permalink to this headline">¶</a></h4>
 <p>Reboots the instance.</p>
 <p>The URI takes optional <tt class="docutils literal"><span class="pre">type=soft|hard|full</span></tt> and
 <tt class="docutils literal"><span class="pre">ignore_secondaries=0|1</span></tt> parameters.</p>
@@ -535,21 +612,21 @@ instance even if secondary disks are failing.</p>
 </div>
 </div>
 <div class="section" id="instances-instance-name-shutdown">
-<h3><a class="toc-backref" href="#id72"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/shutdown</span></tt></a><a class="headerlink" href="#instances-instance-name-shutdown" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id77"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/shutdown</span></tt></a><a class="headerlink" href="#instances-instance-name-shutdown" title="Permalink to this headline">¶</a></h3>
 <p>Instance shutdown URI.</p>
 <p>It supports the following commands: <tt class="docutils literal"><span class="pre">PUT</span></tt>.</p>
-<div class="section" id="id10">
-<h4><a class="toc-backref" href="#id73"><tt class="docutils literal"><span class="pre">PUT</span></tt></a><a class="headerlink" href="#id10" title="Permalink to this headline">¶</a></h4>
+<div class="section" id="id11">
+<h4><a class="toc-backref" href="#id78"><tt class="docutils literal"><span class="pre">PUT</span></tt></a><a class="headerlink" href="#id11" title="Permalink to this headline">¶</a></h4>
 <p>Shutdowns an instance.</p>
 <p>It supports the <tt class="docutils literal"><span class="pre">dry-run</span></tt> argument.</p>
 </div>
 </div>
 <div class="section" id="instances-instance-name-startup">
-<h3><a class="toc-backref" href="#id74"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/startup</span></tt></a><a class="headerlink" href="#instances-instance-name-startup" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id79"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/startup</span></tt></a><a class="headerlink" href="#instances-instance-name-startup" title="Permalink to this headline">¶</a></h3>
 <p>Instance startup URI.</p>
 <p>It supports the following commands: <tt class="docutils literal"><span class="pre">PUT</span></tt>.</p>
-<div class="section" id="id11">
-<h4><a class="toc-backref" href="#id75"><tt class="docutils literal"><span class="pre">PUT</span></tt></a><a class="headerlink" href="#id11" title="Permalink to this headline">¶</a></h4>
+<div class="section" id="id12">
+<h4><a class="toc-backref" href="#id80"><tt class="docutils literal"><span class="pre">PUT</span></tt></a><a class="headerlink" href="#id12" title="Permalink to this headline">¶</a></h4>
 <p>Startup an instance.</p>
 <p>The URI takes an optional <tt class="docutils literal"><span class="pre">force=1|0</span></tt> parameter to start the
 instance even if secondary disks are failing.</p>
@@ -557,20 +634,20 @@ instance even if secondary disks are failing.</p>
 </div>
 </div>
 <div class="section" id="instances-instance-name-reinstall">
-<h3><a class="toc-backref" href="#id76"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/reinstall</span></tt></a><a class="headerlink" href="#instances-instance-name-reinstall" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id81"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/reinstall</span></tt></a><a class="headerlink" href="#instances-instance-name-reinstall" title="Permalink to this headline">¶</a></h3>
 <p>Installs the operating system again.</p>
 <p>It supports the following commands: <tt class="docutils literal"><span class="pre">POST</span></tt>.</p>
-<div class="section" id="id12">
-<h4><a class="toc-backref" href="#id77"><tt class="docutils literal"><span class="pre">POST</span></tt></a><a class="headerlink" href="#id12" title="Permalink to this headline">¶</a></h4>
+<div class="section" id="id13">
+<h4><a class="toc-backref" href="#id82"><tt class="docutils literal"><span class="pre">POST</span></tt></a><a class="headerlink" href="#id13" title="Permalink to this headline">¶</a></h4>
 <p>Takes the parameters <tt class="docutils literal"><span class="pre">os</span></tt> (OS template name) and <tt class="docutils literal"><span class="pre">nostartup</span></tt> (bool).</p>
 </div>
 </div>
 <div class="section" id="instances-instance-name-replace-disks">
-<h3><a class="toc-backref" href="#id78"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/replace-disks</span></tt></a><a class="headerlink" href="#instances-instance-name-replace-disks" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id83"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/replace-disks</span></tt></a><a class="headerlink" href="#instances-instance-name-replace-disks" title="Permalink to this headline">¶</a></h3>
 <p>Replaces disks on an instance.</p>
 <p>It supports the following commands: <tt class="docutils literal"><span class="pre">POST</span></tt>.</p>
-<div class="section" id="id13">
-<h4><a class="toc-backref" href="#id79"><tt class="docutils literal"><span class="pre">POST</span></tt></a><a class="headerlink" href="#id13" title="Permalink to this headline">¶</a></h4>
+<div class="section" id="id14">
+<h4><a class="toc-backref" href="#id84"><tt class="docutils literal"><span class="pre">POST</span></tt></a><a class="headerlink" href="#id14" title="Permalink to this headline">¶</a></h4>
 <p>Takes the parameters <tt class="docutils literal"><span class="pre">mode</span></tt> (one of <tt class="docutils literal"><span class="pre">replace_on_primary</span></tt>,
 <tt class="docutils literal"><span class="pre">replace_on_secondary</span></tt>, <tt class="docutils literal"><span class="pre">replace_new_secondary</span></tt> or
 <tt class="docutils literal"><span class="pre">replace_auto</span></tt>), <tt class="docutils literal"><span class="pre">disks</span></tt> (comma separated list of disk indexes),
@@ -582,45 +659,45 @@ the broken disk(s) on its own and replacing it.</p>
 </div>
 </div>
 <div class="section" id="instances-instance-name-activate-disks">
-<h3><a class="toc-backref" href="#id80"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/activate-disks</span></tt></a><a class="headerlink" href="#instances-instance-name-activate-disks" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id85"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/activate-disks</span></tt></a><a class="headerlink" href="#instances-instance-name-activate-disks" title="Permalink to this headline">¶</a></h3>
 <p>Activate disks on an instance.</p>
 <p>It supports the following commands: <tt class="docutils literal"><span class="pre">PUT</span></tt>.</p>
-<div class="section" id="id14">
-<h4><a class="toc-backref" href="#id81"><tt class="docutils literal"><span class="pre">PUT</span></tt></a><a class="headerlink" href="#id14" title="Permalink to this headline">¶</a></h4>
+<div class="section" id="id15">
+<h4><a class="toc-backref" href="#id86"><tt class="docutils literal"><span class="pre">PUT</span></tt></a><a class="headerlink" href="#id15" title="Permalink to this headline">¶</a></h4>
 <p>Takes the bool parameter <tt class="docutils literal"><span class="pre">ignore_size</span></tt>. When set ignore the recorded
 size (useful for forcing activation when recorded size is wrong).</p>
 </div>
 </div>
 <div class="section" id="instances-instance-name-deactivate-disks">
-<h3><a class="toc-backref" href="#id82"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/deactivate-disks</span></tt></a><a class="headerlink" href="#instances-instance-name-deactivate-disks" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id87"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/deactivate-disks</span></tt></a><a class="headerlink" href="#instances-instance-name-deactivate-disks" title="Permalink to this headline">¶</a></h3>
 <p>Deactivate disks on an instance.</p>
 <p>It supports the following commands: <tt class="docutils literal"><span class="pre">PUT</span></tt>.</p>
-<div class="section" id="id15">
-<h4><a class="toc-backref" href="#id83"><tt class="docutils literal"><span class="pre">PUT</span></tt></a><a class="headerlink" href="#id15" title="Permalink to this headline">¶</a></h4>
+<div class="section" id="id16">
+<h4><a class="toc-backref" href="#id88"><tt class="docutils literal"><span class="pre">PUT</span></tt></a><a class="headerlink" href="#id16" title="Permalink to this headline">¶</a></h4>
 <p>Takes no parameters.</p>
 </div>
 </div>
 <div class="section" id="instances-instance-name-tags">
-<h3><a class="toc-backref" href="#id84"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/tags</span></tt></a><a class="headerlink" href="#instances-instance-name-tags" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id89"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/tags</span></tt></a><a class="headerlink" href="#instances-instance-name-tags" title="Permalink to this headline">¶</a></h3>
 <p>Manages per-instance tags.</p>
 <p>It supports the following commands: <tt class="docutils literal"><span class="pre">GET</span></tt>, <tt class="docutils literal"><span class="pre">PUT</span></tt>, <tt class="docutils literal"><span class="pre">DELETE</span></tt>.</p>
-<div class="section" id="id16">
-<h4><a class="toc-backref" href="#id85"><tt class="docutils literal"><span class="pre">GET</span></tt></a><a class="headerlink" href="#id16" title="Permalink to this headline">¶</a></h4>
+<div class="section" id="id17">
+<h4><a class="toc-backref" href="#id90"><tt class="docutils literal"><span class="pre">GET</span></tt></a><a class="headerlink" href="#id17" title="Permalink to this headline">¶</a></h4>
 <p>Returns a list of tags.</p>
 <p>Example:</p>
 <div class="highlight-javascript"><div class="highlight"><pre><span class="p">[</span><span class="s2">&quot;tag1&quot;</span><span class="o">,</span> <span class="s2">&quot;tag2&quot;</span><span class="o">,</span> <span class="s2">&quot;tag3&quot;</span><span class="p">]</span>
 </pre></div>
 </div>
 </div>
-<div class="section" id="id17">
-<h4><a class="toc-backref" href="#id86"><tt class="docutils literal"><span class="pre">PUT</span></tt></a><a class="headerlink" href="#id17" title="Permalink to this headline">¶</a></h4>
+<div class="section" id="id18">
+<h4><a class="toc-backref" href="#id91"><tt class="docutils literal"><span class="pre">PUT</span></tt></a><a class="headerlink" href="#id18" title="Permalink to this headline">¶</a></h4>
 <p>Add a set of tags.</p>
 <p>The request as a list of strings should be <tt class="docutils literal"><span class="pre">PUT</span></tt> to this URI. The
 result will be a job id.</p>
 <p>It supports the <tt class="docutils literal"><span class="pre">dry-run</span></tt> argument.</p>
 </div>
-<div class="section" id="id18">
-<h4><a class="toc-backref" href="#id87"><tt class="docutils literal"><span class="pre">DELETE</span></tt></a><a class="headerlink" href="#id18" title="Permalink to this headline">¶</a></h4>
+<div class="section" id="id19">
+<h4><a class="toc-backref" href="#id92"><tt class="docutils literal"><span class="pre">DELETE</span></tt></a><a class="headerlink" href="#id19" title="Permalink to this headline">¶</a></h4>
 <p>Delete a tag.</p>
 <p>In order to delete a set of tags, the DELETE request should be addressed
 to URI like:</p>
@@ -631,21 +708,21 @@ to URI like:</p>
 </div>
 </div>
 <div class="section" id="jobs">
-<h3><a class="toc-backref" href="#id88"><tt class="docutils literal"><span class="pre">/2/jobs</span></tt></a><a class="headerlink" href="#jobs" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id93"><tt class="docutils literal"><span class="pre">/2/jobs</span></tt></a><a class="headerlink" href="#jobs" title="Permalink to this headline">¶</a></h3>
 <p>The <tt class="docutils literal"><span class="pre">/2/jobs</span></tt> resource.</p>
 <p>It supports the following commands: <tt class="docutils literal"><span class="pre">GET</span></tt>.</p>
-<div class="section" id="id19">
-<h4><a class="toc-backref" href="#id89"><tt class="docutils literal"><span class="pre">GET</span></tt></a><a class="headerlink" href="#id19" title="Permalink to this headline">¶</a></h4>
+<div class="section" id="id20">
+<h4><a class="toc-backref" href="#id94"><tt class="docutils literal"><span class="pre">GET</span></tt></a><a class="headerlink" href="#id20" title="Permalink to this headline">¶</a></h4>
 <p>Returns a dictionary of jobs.</p>
 <p>Returns: a dictionary with jobs id and uri.</p>
 </div>
 </div>
 <div class="section" id="jobs-job-id">
-<h3><a class="toc-backref" href="#id90"><tt class="docutils literal"><span class="pre">/2/jobs/[job_id]</span></tt></a><a class="headerlink" href="#jobs-job-id" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id95"><tt class="docutils literal"><span class="pre">/2/jobs/[job_id]</span></tt></a><a class="headerlink" href="#jobs-job-id" title="Permalink to this headline">¶</a></h3>
 <p>Individual job URI.</p>
 <p>It supports the following commands: <tt class="docutils literal"><span class="pre">GET</span></tt>, <tt class="docutils literal"><span class="pre">DELETE</span></tt>.</p>
-<div class="section" id="id20">
-<h4><a class="toc-backref" href="#id91"><tt class="docutils literal"><span class="pre">GET</span></tt></a><a class="headerlink" href="#id20" title="Permalink to this headline">¶</a></h4>
+<div class="section" id="id21">
+<h4><a class="toc-backref" href="#id96"><tt class="docutils literal"><span class="pre">GET</span></tt></a><a class="headerlink" href="#id21" title="Permalink to this headline">¶</a></h4>
 <p>Returns a job status.</p>
 <p>Returns: a dictionary with job parameters.</p>
 <p>The result includes:</p>
@@ -709,17 +786,36 @@ should be run.</dd>
 <p>Note that in the above list, by entity we refer to a node or instance,
 while by a resource we refer to an instance&#8217;s disk, or NIC, etc.</p>
 </div>
-<div class="section" id="id21">
-<h4><a class="toc-backref" href="#id92"><tt class="docutils literal"><span class="pre">DELETE</span></tt></a><a class="headerlink" href="#id21" title="Permalink to this headline">¶</a></h4>
+<div class="section" id="id22">
+<h4><a class="toc-backref" href="#id97"><tt class="docutils literal"><span class="pre">DELETE</span></tt></a><a class="headerlink" href="#id22" title="Permalink to this headline">¶</a></h4>
 <p>Cancel a not-yet-started job.</p>
 </div>
 </div>
+<div class="section" id="jobs-job-id-wait">
+<h3><a class="toc-backref" href="#id98"><tt class="docutils literal"><span class="pre">/2/jobs/[job_id]/wait</span></tt></a><a class="headerlink" href="#jobs-job-id-wait" title="Permalink to this headline">¶</a></h3>
+<div class="section" id="id23">
+<h4><a class="toc-backref" href="#id99"><tt class="docutils literal"><span class="pre">GET</span></tt></a><a class="headerlink" href="#id23" title="Permalink to this headline">¶</a></h4>
+<p>Waits for changes on a job. Takes the following body parameters in a
+dict:</p>
+<dl class="docutils">
+<dt><tt class="docutils literal"><span class="pre">fields</span></tt></dt>
+<dd>The job fields on which to watch for changes.</dd>
+<dt><tt class="docutils literal"><span class="pre">previous_job_info</span></tt></dt>
+<dd>Previously received field values or None if not yet available.</dd>
+<dt><tt class="docutils literal"><span class="pre">previous_log_serial</span></tt></dt>
+<dd>Highest log serial number received so far or None if not yet
+available.</dd>
+</dl>
+<p>Returns None if no changes have been detected and a dict with two keys,
+<tt class="docutils literal"><span class="pre">job_info</span></tt> and <tt class="docutils literal"><span class="pre">log_entries</span></tt> otherwise.</p>
+</div>
+</div>
 <div class="section" id="nodes">
-<h3><a class="toc-backref" href="#id93"><tt class="docutils literal"><span class="pre">/2/nodes</span></tt></a><a class="headerlink" href="#nodes" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id100"><tt class="docutils literal"><span class="pre">/2/nodes</span></tt></a><a class="headerlink" href="#nodes" title="Permalink to this headline">¶</a></h3>
 <p>Nodes resource.</p>
 <p>It supports the following commands: <tt class="docutils literal"><span class="pre">GET</span></tt>.</p>
-<div class="section" id="id22">
-<h4><a class="toc-backref" href="#id94"><tt class="docutils literal"><span class="pre">GET</span></tt></a><a class="headerlink" href="#id22" title="Permalink to this headline">¶</a></h4>
+<div class="section" id="id24">
+<h4><a class="toc-backref" href="#id101"><tt class="docutils literal"><span class="pre">GET</span></tt></a><a class="headerlink" href="#id24" title="Permalink to this headline">¶</a></h4>
 <p>Returns a list of all nodes.</p>
 <p>Example:</p>
 <div class="highlight-javascript"><div class="highlight"><pre><span class="p">[</span>
@@ -758,16 +854,16 @@ list.</p>
 </div>
 </div>
 <div class="section" id="nodes-node-name">
-<h3><a class="toc-backref" href="#id95"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]</span></tt></a><a class="headerlink" href="#nodes-node-name" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id102"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]</span></tt></a><a class="headerlink" href="#nodes-node-name" title="Permalink to this headline">¶</a></h3>
 <p>Returns information about a node.</p>
 <p>It supports the following commands: <tt class="docutils literal"><span class="pre">GET</span></tt>.</p>
 </div>
 <div class="section" id="nodes-node-name-evacuate">
-<h3><a class="toc-backref" href="#id96"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/evacuate</span></tt></a><a class="headerlink" href="#nodes-node-name-evacuate" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id103"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/evacuate</span></tt></a><a class="headerlink" href="#nodes-node-name-evacuate" title="Permalink to this headline">¶</a></h3>
 <p>Evacuates all secondary instances off a node.</p>
 <p>It supports the following commands: <tt class="docutils literal"><span class="pre">POST</span></tt>.</p>
-<div class="section" id="id23">
-<h4><a class="toc-backref" href="#id97"><tt class="docutils literal"><span class="pre">POST</span></tt></a><a class="headerlink" href="#id23" title="Permalink to this headline">¶</a></h4>
+<div class="section" id="id25">
+<h4><a class="toc-backref" href="#id104"><tt class="docutils literal"><span class="pre">POST</span></tt></a><a class="headerlink" href="#id25" title="Permalink to this headline">¶</a></h4>
 <p>To evacuate a node, either one of the <tt class="docutils literal"><span class="pre">iallocator</span></tt> or <tt class="docutils literal"><span class="pre">remote_node</span></tt>
 parameters must be passed:</p>
 <div class="highlight-javascript"><div class="highlight"><pre><span class="nx">evacuate</span><span class="o">?</span><span class="nx">iallocator</span><span class="o">=</span><span class="p">[</span><span class="nx">iallocator</span><span class="p">]</span>
@@ -777,11 +873,11 @@ parameters must be passed:</p>
 </div>
 </div>
 <div class="section" id="nodes-node-name-migrate">
-<h3><a class="toc-backref" href="#id98"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/migrate</span></tt></a><a class="headerlink" href="#nodes-node-name-migrate" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id105"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/migrate</span></tt></a><a class="headerlink" href="#nodes-node-name-migrate" title="Permalink to this headline">¶</a></h3>
 <p>Migrates all primary instances from a node.</p>
 <p>It supports the following commands: <tt class="docutils literal"><span class="pre">POST</span></tt>.</p>
-<div class="section" id="id24">
-<h4><a class="toc-backref" href="#id99"><tt class="docutils literal"><span class="pre">POST</span></tt></a><a class="headerlink" href="#id24" title="Permalink to this headline">¶</a></h4>
+<div class="section" id="id26">
+<h4><a class="toc-backref" href="#id106"><tt class="docutils literal"><span class="pre">POST</span></tt></a><a class="headerlink" href="#id26" title="Permalink to this headline">¶</a></h4>
 <p>No parameters are required, but the bool parameter <tt class="docutils literal"><span class="pre">live</span></tt> can be set
 to use live migration (if available).</p>
 <blockquote>
@@ -789,7 +885,7 @@ migrate?live=[0|1]</blockquote>
 </div>
 </div>
 <div class="section" id="nodes-node-name-role">
-<h3><a class="toc-backref" href="#id100"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/role</span></tt></a><a class="headerlink" href="#nodes-node-name-role" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id107"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/role</span></tt></a><a class="headerlink" href="#nodes-node-name-role" title="Permalink to this headline">¶</a></h3>
 <p>Manages node role.</p>
 <p>It supports the following commands: <tt class="docutils literal"><span class="pre">GET</span></tt>, <tt class="docutils literal"><span class="pre">PUT</span></tt>.</p>
 <p>The role is always one of the following:</p>
@@ -802,16 +898,16 @@ migrate?live=[0|1]</blockquote>
 <li>regular</li>
 </ul>
 </blockquote>
-<div class="section" id="id25">
-<h4><a class="toc-backref" href="#id101"><tt class="docutils literal"><span class="pre">GET</span></tt></a><a class="headerlink" href="#id25" title="Permalink to this headline">¶</a></h4>
+<div class="section" id="id27">
+<h4><a class="toc-backref" href="#id108"><tt class="docutils literal"><span class="pre">GET</span></tt></a><a class="headerlink" href="#id27" title="Permalink to this headline">¶</a></h4>
 <p>Returns the current node role.</p>
 <p>Example:</p>
 <div class="highlight-javascript"><div class="highlight"><pre><span class="s2">&quot;master-candidate&quot;</span>
 </pre></div>
 </div>
 </div>
-<div class="section" id="id26">
-<h4><a class="toc-backref" href="#id102"><tt class="docutils literal"><span class="pre">PUT</span></tt></a><a class="headerlink" href="#id26" title="Permalink to this headline">¶</a></h4>
+<div class="section" id="id28">
+<h4><a class="toc-backref" href="#id109"><tt class="docutils literal"><span class="pre">PUT</span></tt></a><a class="headerlink" href="#id28" title="Permalink to this headline">¶</a></h4>
 <p>Change the node role.</p>
 <p>The request is a string which should be PUT to this URI. The result will
 be a job id.</p>
@@ -819,10 +915,10 @@ be a job id.</p>
 </div>
 </div>
 <div class="section" id="nodes-node-name-storage">
-<h3><a class="toc-backref" href="#id103"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/storage</span></tt></a><a class="headerlink" href="#nodes-node-name-storage" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id110"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/storage</span></tt></a><a class="headerlink" href="#nodes-node-name-storage" title="Permalink to this headline">¶</a></h3>
 <p>Manages storage units on the node.</p>
-<div class="section" id="id27">
-<h4><a class="toc-backref" href="#id104"><tt class="docutils literal"><span class="pre">GET</span></tt></a><a class="headerlink" href="#id27" title="Permalink to this headline">¶</a></h4>
+<div class="section" id="id29">
+<h4><a class="toc-backref" href="#id111"><tt class="docutils literal"><span class="pre">GET</span></tt></a><a class="headerlink" href="#id29" title="Permalink to this headline">¶</a></h4>
 <p>Requests a list of storage units on a node. Requires the parameters
 <tt class="docutils literal"><span class="pre">storage_type</span></tt> (one of <tt class="docutils literal"><span class="pre">file</span></tt>, <tt class="docutils literal"><span class="pre">lvm-pv</span></tt> or <tt class="docutils literal"><span class="pre">lvm-vg</span></tt>) and
 <tt class="docutils literal"><span class="pre">output_fields</span></tt>. The result will be a job id, using which the result
@@ -830,10 +926,10 @@ can be retrieved.</p>
 </div>
 </div>
 <div class="section" id="nodes-node-name-storage-modify">
-<h3><a class="toc-backref" href="#id105"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/storage/modify</span></tt></a><a class="headerlink" href="#nodes-node-name-storage-modify" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id112"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/storage/modify</span></tt></a><a class="headerlink" href="#nodes-node-name-storage-modify" title="Permalink to this headline">¶</a></h3>
 <p>Modifies storage units on the node.</p>
-<div class="section" id="id28">
-<h4><a class="toc-backref" href="#id106"><tt class="docutils literal"><span class="pre">PUT</span></tt></a><a class="headerlink" href="#id28" title="Permalink to this headline">¶</a></h4>
+<div class="section" id="id30">
+<h4><a class="toc-backref" href="#id113"><tt class="docutils literal"><span class="pre">PUT</span></tt></a><a class="headerlink" href="#id30" title="Permalink to this headline">¶</a></h4>
 <p>Modifies parameters of storage units on the node. Requires the
 parameters <tt class="docutils literal"><span class="pre">storage_type</span></tt> (one of <tt class="docutils literal"><span class="pre">file</span></tt>, <tt class="docutils literal"><span class="pre">lvm-pv</span></tt> or <tt class="docutils literal"><span class="pre">lvm-vg</span></tt>)
 and <tt class="docutils literal"><span class="pre">name</span></tt> (name of the storage unit).  Parameters can be passed
@@ -842,36 +938,36 @@ result will be a job id.</p>
 </div>
 </div>
 <div class="section" id="nodes-node-name-storage-repair">
-<h3><a class="toc-backref" href="#id107"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/storage/repair</span></tt></a><a class="headerlink" href="#nodes-node-name-storage-repair" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id114"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/storage/repair</span></tt></a><a class="headerlink" href="#nodes-node-name-storage-repair" title="Permalink to this headline">¶</a></h3>
 <p>Repairs a storage unit on the node.</p>
-<div class="section" id="id29">
-<h4><a class="toc-backref" href="#id108"><tt class="docutils literal"><span class="pre">PUT</span></tt></a><a class="headerlink" href="#id29" title="Permalink to this headline">¶</a></h4>
+<div class="section" id="id31">
+<h4><a class="toc-backref" href="#id115"><tt class="docutils literal"><span class="pre">PUT</span></tt></a><a class="headerlink" href="#id31" title="Permalink to this headline">¶</a></h4>
 <p>Repairs a storage unit on the node. Requires the parameters
 <tt class="docutils literal"><span class="pre">storage_type</span></tt> (currently only <tt class="docutils literal"><span class="pre">lvm-vg</span></tt> can be repaired) and
 <tt class="docutils literal"><span class="pre">name</span></tt> (name of the storage unit). The result will be a job id.</p>
 </div>
 </div>
 <div class="section" id="nodes-node-name-tags">
-<h3><a class="toc-backref" href="#id109"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/tags</span></tt></a><a class="headerlink" href="#nodes-node-name-tags" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id116"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/tags</span></tt></a><a class="headerlink" href="#nodes-node-name-tags" title="Permalink to this headline">¶</a></h3>
 <p>Manages per-node tags.</p>
 <p>It supports the following commands: <tt class="docutils literal"><span class="pre">GET</span></tt>, <tt class="docutils literal"><span class="pre">PUT</span></tt>, <tt class="docutils literal"><span class="pre">DELETE</span></tt>.</p>
-<div class="section" id="id30">
-<h4><a class="toc-backref" href="#id110"><tt class="docutils literal"><span class="pre">GET</span></tt></a><a class="headerlink" href="#id30" title="Permalink to this headline">¶</a></h4>
+<div class="section" id="id32">
+<h4><a class="toc-backref" href="#id117"><tt class="docutils literal"><span class="pre">GET</span></tt></a><a class="headerlink" href="#id32" title="Permalink to this headline">¶</a></h4>
 <p>Returns a list of tags.</p>
 <p>Example:</p>
 <div class="highlight-javascript"><div class="highlight"><pre><span class="p">[</span><span class="s2">&quot;tag1&quot;</span><span class="o">,</span> <span class="s2">&quot;tag2&quot;</span><span class="o">,</span> <span class="s2">&quot;tag3&quot;</span><span class="p">]</span>
 </pre></div>
 </div>
 </div>
-<div class="section" id="id31">
-<h4><a class="toc-backref" href="#id111"><tt class="docutils literal"><span class="pre">PUT</span></tt></a><a class="headerlink" href="#id31" title="Permalink to this headline">¶</a></h4>
+<div class="section" id="id33">
+<h4><a class="toc-backref" href="#id118"><tt class="docutils literal"><span class="pre">PUT</span></tt></a><a class="headerlink" href="#id33" title="Permalink to this headline">¶</a></h4>
 <p>Add a set of tags.</p>
 <p>The request as a list of strings should be PUT to this URI. The result
 will be a job id.</p>
 <p>It supports the <tt class="docutils literal"><span class="pre">dry-run</span></tt> argument.</p>
 </div>
-<div class="section" id="id32">
-<h4><a class="toc-backref" href="#id112"><tt class="docutils literal"><span class="pre">DELETE</span></tt></a><a class="headerlink" href="#id32" title="Permalink to this headline">¶</a></h4>
+<div class="section" id="id34">
+<h4><a class="toc-backref" href="#id119"><tt class="docutils literal"><span class="pre">DELETE</span></tt></a><a class="headerlink" href="#id34" title="Permalink to this headline">¶</a></h4>
 <p>Deletes tags.</p>
 <p>In order to delete a set of tags, the DELETE request should be addressed
 to URI like:</p>
@@ -882,11 +978,11 @@ to URI like:</p>
 </div>
 </div>
 <div class="section" id="os">
-<h3><a class="toc-backref" href="#id113"><tt class="docutils literal"><span class="pre">/2/os</span></tt></a><a class="headerlink" href="#os" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id120"><tt class="docutils literal"><span class="pre">/2/os</span></tt></a><a class="headerlink" href="#os" title="Permalink to this headline">¶</a></h3>
 <p>OS resource.</p>
 <p>It supports the following commands: <tt class="docutils literal"><span class="pre">GET</span></tt>.</p>
-<div class="section" id="id33">
-<h4><a class="toc-backref" href="#id114"><tt class="docutils literal"><span class="pre">GET</span></tt></a><a class="headerlink" href="#id33" title="Permalink to this headline">¶</a></h4>
+<div class="section" id="id35">
+<h4><a class="toc-backref" href="#id121"><tt class="docutils literal"><span class="pre">GET</span></tt></a><a class="headerlink" href="#id35" title="Permalink to this headline">¶</a></h4>
 <p>Return a list of all OSes.</p>
 <p>Can return error 500 in case of a problem. Since this is a costly
 operation for Ganeti 2.0, it is not recommended to execute it too often.</p>
@@ -897,26 +993,26 @@ operation for Ganeti 2.0, it is not recommended to execute it too often.</p>
 </div>
 </div>
 <div class="section" id="tags">
-<h3><a class="toc-backref" href="#id115"><tt class="docutils literal"><span class="pre">/2/tags</span></tt></a><a class="headerlink" href="#tags" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id122"><tt class="docutils literal"><span class="pre">/2/tags</span></tt></a><a class="headerlink" href="#tags" title="Permalink to this headline">¶</a></h3>
 <p>Manages cluster tags.</p>
 <p>It supports the following commands: <tt class="docutils literal"><span class="pre">GET</span></tt>, <tt class="docutils literal"><span class="pre">PUT</span></tt>, <tt class="docutils literal"><span class="pre">DELETE</span></tt>.</p>
-<div class="section" id="id34">
-<h4><a class="toc-backref" href="#id116"><tt class="docutils literal"><span class="pre">GET</span></tt></a><a class="headerlink" href="#id34" title="Permalink to this headline">¶</a></h4>
+<div class="section" id="id36">
+<h4><a class="toc-backref" href="#id123"><tt class="docutils literal"><span class="pre">GET</span></tt></a><a class="headerlink" href="#id36" title="Permalink to this headline">¶</a></h4>
 <p>Returns the cluster tags.</p>
 <p>Example:</p>
 <div class="highlight-javascript"><div class="highlight"><pre><span class="p">[</span><span class="s2">&quot;tag1&quot;</span><span class="o">,</span> <span class="s2">&quot;tag2&quot;</span><span class="o">,</span> <span class="s2">&quot;tag3&quot;</span><span class="p">]</span>
 </pre></div>
 </div>
 </div>
-<div class="section" id="id35">
-<h4><a class="toc-backref" href="#id117"><tt class="docutils literal"><span class="pre">PUT</span></tt></a><a class="headerlink" href="#id35" title="Permalink to this headline">¶</a></h4>
+<div class="section" id="id37">
+<h4><a class="toc-backref" href="#id124"><tt class="docutils literal"><span class="pre">PUT</span></tt></a><a class="headerlink" href="#id37" title="Permalink to this headline">¶</a></h4>
 <p>Adds a set of tags.</p>
 <p>The request as a list of strings should be PUT to this URI. The result
 will be a job id.</p>
 <p>It supports the <tt class="docutils literal"><span class="pre">dry-run</span></tt> argument.</p>
 </div>
-<div class="section" id="id36">
-<h4><a class="toc-backref" href="#id118"><tt class="docutils literal"><span class="pre">DELETE</span></tt></a><a class="headerlink" href="#id36" title="Permalink to this headline">¶</a></h4>
+<div class="section" id="id38">
+<h4><a class="toc-backref" href="#id125"><tt class="docutils literal"><span class="pre">DELETE</span></tt></a><a class="headerlink" href="#id38" title="Permalink to this headline">¶</a></h4>
 <p>Deletes tags.</p>
 <p>In order to delete a set of tags, the DELETE request should be addressed
 to URI like:</p>
@@ -927,13 +1023,13 @@ to URI like:</p>
 </div>
 </div>
 <div class="section" id="version">
-<h3><a class="toc-backref" href="#id119"><tt class="docutils literal"><span class="pre">/version</span></tt></a><a class="headerlink" href="#version" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id126"><tt class="docutils literal"><span class="pre">/version</span></tt></a><a class="headerlink" href="#version" title="Permalink to this headline">¶</a></h3>
 <p>The version resource.</p>
 <p>This resource should be used to determine the remote API version and to
 adapt clients accordingly.</p>
 <p>It supports the following commands: <tt class="docutils literal"><span class="pre">GET</span></tt>.</p>
-<div class="section" id="id37">
-<h4><a class="toc-backref" href="#id120"><tt class="docutils literal"><span class="pre">GET</span></tt></a><a class="headerlink" href="#id37" title="Permalink to this headline">¶</a></h4>
+<div class="section" id="id39">
+<h4><a class="toc-backref" href="#id127"><tt class="docutils literal"><span class="pre">GET</span></tt></a><a class="headerlink" href="#id39" title="Permalink to this headline">¶</a></h4>
 <p>Returns the remote API version. Ganeti 1.2 returned <tt class="docutils literal"><span class="pre">1</span></tt> and Ganeti 2.0
 returns <tt class="docutils literal"><span class="pre">2</span></tt>.</p>
 </div>
@@ -965,6 +1061,7 @@ returns <tt class="docutils literal"><span class="pre">2</span></tt>.</p>
 </ul>
 </li>
 <li><a class="reference external" href="#usage-examples">Usage examples</a><ul>
+<li><a class="reference external" href="#ganeti-rapi-client">Ganeti RAPI client</a></li>
 <li><a class="reference external" href="#shell">Shell</a></li>
 <li><a class="reference external" href="#python">Python</a></li>
 <li><a class="reference external" href="#javascript">JavaScript</a></li>
@@ -987,111 +1084,119 @@ returns <tt class="docutils literal"><span class="pre">2</span></tt>.</p>
 <li><a class="reference external" href="#put"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#instances"><tt class="docutils literal"><span class="pre">/2/instances</span></tt></a><ul>
+<li><a class="reference external" href="#features"><tt class="docutils literal"><span class="pre">/2/features</span></tt></a><ul>
 <li><a class="reference external" href="#id6"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+</ul>
+</li>
+<li><a class="reference external" href="#instances"><tt class="docutils literal"><span class="pre">/2/instances</span></tt></a><ul>
+<li><a class="reference external" href="#id7"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
 <li><a class="reference external" href="#post"><tt class="docutils literal"><span class="pre">POST</span></tt></a></li>
 </ul>
 </li>
 <li><a class="reference external" href="#instances-instance-name"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]</span></tt></a><ul>
-<li><a class="reference external" href="#id7"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+<li><a class="reference external" href="#id8"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
 <li><a class="reference external" href="#delete"><tt class="docutils literal"><span class="pre">DELETE</span></tt></a></li>
 </ul>
 </li>
 <li><a class="reference external" href="#instances-instance-name-info"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/info</span></tt></a><ul>
-<li><a class="reference external" href="#id8"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+<li><a class="reference external" href="#id9"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
 </ul>
 </li>
 <li><a class="reference external" href="#instances-instance-name-reboot"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/reboot</span></tt></a><ul>
-<li><a class="reference external" href="#id9"><tt class="docutils literal"><span class="pre">POST</span></tt></a></li>
+<li><a class="reference external" href="#id10"><tt class="docutils literal"><span class="pre">POST</span></tt></a></li>
 </ul>
 </li>
 <li><a class="reference external" href="#instances-instance-name-shutdown"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/shutdown</span></tt></a><ul>
-<li><a class="reference external" href="#id10"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
-</ul>
-</li>
-<li><a class="reference external" href="#instances-instance-name-startup"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/startup</span></tt></a><ul>
 <li><a class="reference external" href="#id11"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#instances-instance-name-reinstall"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/reinstall</span></tt></a><ul>
-<li><a class="reference external" href="#id12"><tt class="docutils literal"><span class="pre">POST</span></tt></a></li>
+<li><a class="reference external" href="#instances-instance-name-startup"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/startup</span></tt></a><ul>
+<li><a class="reference external" href="#id12"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#instances-instance-name-replace-disks"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/replace-disks</span></tt></a><ul>
+<li><a class="reference external" href="#instances-instance-name-reinstall"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/reinstall</span></tt></a><ul>
 <li><a class="reference external" href="#id13"><tt class="docutils literal"><span class="pre">POST</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#instances-instance-name-activate-disks"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/activate-disks</span></tt></a><ul>
-<li><a class="reference external" href="#id14"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
+<li><a class="reference external" href="#instances-instance-name-replace-disks"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/replace-disks</span></tt></a><ul>
+<li><a class="reference external" href="#id14"><tt class="docutils literal"><span class="pre">POST</span></tt></a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#instances-instance-name-deactivate-disks"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/deactivate-disks</span></tt></a><ul>
+<li><a class="reference external" href="#instances-instance-name-activate-disks"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/activate-disks</span></tt></a><ul>
 <li><a class="reference external" href="#id15"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
 </ul>
 </li>
+<li><a class="reference external" href="#instances-instance-name-deactivate-disks"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/deactivate-disks</span></tt></a><ul>
+<li><a class="reference external" href="#id16"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
+</ul>
+</li>
 <li><a class="reference external" href="#instances-instance-name-tags"><tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/tags</span></tt></a><ul>
-<li><a class="reference external" href="#id16"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
-<li><a class="reference external" href="#id17"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
-<li><a class="reference external" href="#id18"><tt class="docutils literal"><span class="pre">DELETE</span></tt></a></li>
+<li><a class="reference external" href="#id17"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+<li><a class="reference external" href="#id18"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
+<li><a class="reference external" href="#id19"><tt class="docutils literal"><span class="pre">DELETE</span></tt></a></li>
 </ul>
 </li>
 <li><a class="reference external" href="#jobs"><tt class="docutils literal"><span class="pre">/2/jobs</span></tt></a><ul>
-<li><a class="reference external" href="#id19"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+<li><a class="reference external" href="#id20"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
 </ul>
 </li>
 <li><a class="reference external" href="#jobs-job-id"><tt class="docutils literal"><span class="pre">/2/jobs/[job_id]</span></tt></a><ul>
-<li><a class="reference external" href="#id20"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
-<li><a class="reference external" href="#id21"><tt class="docutils literal"><span class="pre">DELETE</span></tt></a></li>
+<li><a class="reference external" href="#id21"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+<li><a class="reference external" href="#id22"><tt class="docutils literal"><span class="pre">DELETE</span></tt></a></li>
+</ul>
+</li>
+<li><a class="reference external" href="#jobs-job-id-wait"><tt class="docutils literal"><span class="pre">/2/jobs/[job_id]/wait</span></tt></a><ul>
+<li><a class="reference external" href="#id23"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
 </ul>
 </li>
 <li><a class="reference external" href="#nodes"><tt class="docutils literal"><span class="pre">/2/nodes</span></tt></a><ul>
-<li><a class="reference external" href="#id22"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+<li><a class="reference external" href="#id24"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
 </ul>
 </li>
 <li><a class="reference external" href="#nodes-node-name"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]</span></tt></a></li>
 <li><a class="reference external" href="#nodes-node-name-evacuate"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/evacuate</span></tt></a><ul>
-<li><a class="reference external" href="#id23"><tt class="docutils literal"><span class="pre">POST</span></tt></a></li>
+<li><a class="reference external" href="#id25"><tt class="docutils literal"><span class="pre">POST</span></tt></a></li>
 </ul>
 </li>
 <li><a class="reference external" href="#nodes-node-name-migrate"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/migrate</span></tt></a><ul>
-<li><a class="reference external" href="#id24"><tt class="docutils literal"><span class="pre">POST</span></tt></a></li>
+<li><a class="reference external" href="#id26"><tt class="docutils literal"><span class="pre">POST</span></tt></a></li>
 </ul>
 </li>
 <li><a class="reference external" href="#nodes-node-name-role"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/role</span></tt></a><ul>
-<li><a class="reference external" href="#id25"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
-<li><a class="reference external" href="#id26"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
-</ul>
-</li>
-<li><a class="reference external" href="#nodes-node-name-storage"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/storage</span></tt></a><ul>
 <li><a class="reference external" href="#id27"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
-</ul>
-</li>
-<li><a class="reference external" href="#nodes-node-name-storage-modify"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/storage/modify</span></tt></a><ul>
 <li><a class="reference external" href="#id28"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
 </ul>
 </li>
+<li><a class="reference external" href="#nodes-node-name-storage"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/storage</span></tt></a><ul>
+<li><a class="reference external" href="#id29"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+</ul>
+</li>
+<li><a class="reference external" href="#nodes-node-name-storage-modify"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/storage/modify</span></tt></a><ul>
+<li><a class="reference external" href="#id30"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
+</ul>
+</li>
 <li><a class="reference external" href="#nodes-node-name-storage-repair"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/storage/repair</span></tt></a><ul>
-<li><a class="reference external" href="#id29"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
+<li><a class="reference external" href="#id31"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
 </ul>
 </li>
 <li><a class="reference external" href="#nodes-node-name-tags"><tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/tags</span></tt></a><ul>
-<li><a class="reference external" href="#id30"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
-<li><a class="reference external" href="#id31"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
-<li><a class="reference external" href="#id32"><tt class="docutils literal"><span class="pre">DELETE</span></tt></a></li>
+<li><a class="reference external" href="#id32"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+<li><a class="reference external" href="#id33"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
+<li><a class="reference external" href="#id34"><tt class="docutils literal"><span class="pre">DELETE</span></tt></a></li>
 </ul>
 </li>
 <li><a class="reference external" href="#os"><tt class="docutils literal"><span class="pre">/2/os</span></tt></a><ul>
-<li><a class="reference external" href="#id33"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+<li><a class="reference external" href="#id35"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
 </ul>
 </li>
 <li><a class="reference external" href="#tags"><tt class="docutils literal"><span class="pre">/2/tags</span></tt></a><ul>
-<li><a class="reference external" href="#id34"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
-<li><a class="reference external" href="#id35"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
-<li><a class="reference external" href="#id36"><tt class="docutils literal"><span class="pre">DELETE</span></tt></a></li>
+<li><a class="reference external" href="#id36"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+<li><a class="reference external" href="#id37"><tt class="docutils literal"><span class="pre">PUT</span></tt></a></li>
+<li><a class="reference external" href="#id38"><tt class="docutils literal"><span class="pre">DELETE</span></tt></a></li>
 </ul>
 </li>
 <li><a class="reference external" href="#version"><tt class="docutils literal"><span class="pre">/version</span></tt></a><ul>
-<li><a class="reference external" href="#id37"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
+<li><a class="reference external" href="#id39"><tt class="docutils literal"><span class="pre">GET</span></tt></a></li>
 </ul>
 </li>
 </ul>
@@ -1137,7 +1242,7 @@ returns <tt class="docutils literal"><span class="pre">2</span></tt>.</p>
         <li class="right" >
           <a href="iallocator.html" title="Ganeti automatic instance allocation"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.1.2.1 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.1.3 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

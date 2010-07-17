@@ -3,7 +3,7 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GANETI-NODED" "8" "07 May 2010" "ganeti 2.0" ""
+.TH "GANETI-NODED" "8" "03 June 2010" "ganeti 2.0" ""
 
 .SH NAME
 ganeti-noded \- ganeti node daemon
@@ -16,11 +16,30 @@ ganeti-noded \- ganeti node daemon
 The \fBganeti-noded\fR is the daemon which is
 responsible for the node functions in the ganeti system.
 .PP
+By default, in order to be able to support features such as node
+powercycling even on systems with a very damaged root disk, ganeti-noded
+mlocks itself in ram. You can disable this feature by passing in the
+\fB--no-mlock\fR\&.
+.PP
 For testing purposes, you can give the \fB-f\fR
 option and the program won't detach from the running terminal.
 .PP
 Debug-level message can be activated by giving the
 \fB-d\fR option.
+.PP
+Logging to syslog, rather than its own log file, can be enabled by
+passing in the \fB--syslog\fR option.
+.PP
+The ganeti-noded daemon listens to port 1811 TCP, on all interfaces, by
+default. This can be overridden by an entry in /etc/services or by
+passing the \fB-p\fR option. The \fB-b\fR option
+can be used to specify the address to bind to (defaults to 0.0.0.0).
+.PP
+Ganeti noded communication is protected via SSL, with a key generated at
+cluster init time. This can be disabled with the
+\fB--no-ssl\fR option, or a different ssl key and certificate
+can be specified using the \fB-K\fR and \fB-C\fR
+options.
 .SS "ROLE"
 .PP
 The role of the node daemon is to do almost all the actions
@@ -42,7 +61,7 @@ over HTTP(S).
 .PP
 Report bugs to  <URL:http://code.google.com/p/ganeti/> or contact the
 developers using the ganeti mailing list
-<ganeti@googlegroups.com>.
+<ganeti@googlegroups.com>\&.
 .SH "SEE ALSO"
 .PP
 Ganeti overview and specifications:

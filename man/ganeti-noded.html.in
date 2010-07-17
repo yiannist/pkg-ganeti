@@ -54,6 +54,15 @@ CLASS="COMMAND"
       responsible for the node functions in the ganeti system.
     </P
 ><P
+>      By default, in order to be able to support features such as node
+      powercycling even on systems with a very damaged root disk, ganeti-noded
+      mlocks itself in ram. You can disable this feature by passing in the
+      <CODE
+CLASS="OPTION"
+>--no-mlock</CODE
+>.
+    </P
+><P
 >      For testing purposes, you can give the <CODE
 CLASS="OPTION"
 >-f</CODE
@@ -67,10 +76,45 @@ CLASS="OPTION"
 >-d</CODE
 > option.
     </P
+><P
+>      Logging to syslog, rather than its own log file, can be enabled by
+      passing in the <CODE
+CLASS="OPTION"
+>--syslog</CODE
+> option.
+    </P
+><P
+>      The ganeti-noded daemon listens to port 1811 TCP, on all interfaces, by
+      default. This can be overridden by an entry in /etc/services or by
+      passing the <CODE
+CLASS="OPTION"
+>-p</CODE
+> option. The <CODE
+CLASS="OPTION"
+>-b</CODE
+> option
+      can be used to specify the address to bind to (defaults to 0.0.0.0).
+    </P
+><P
+>      Ganeti noded communication is protected via SSL, with a key generated at
+      cluster init time. This can be disabled with the
+      <CODE
+CLASS="OPTION"
+>--no-ssl</CODE
+> option, or a different ssl key and certificate
+      can be specified using the <CODE
+CLASS="OPTION"
+>-K</CODE
+> and <CODE
+CLASS="OPTION"
+>-C</CODE
+>
+      options.
+    </P
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN30"
+NAME="AEN41"
 ></A
 ><H3
 >ROLE</H3
@@ -93,7 +137,7 @@ NAME="AEN30"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN35"
+NAME="AEN46"
 ></A
 ><H3
 >COMMUNICATION PROTOCOL</H3
@@ -106,7 +150,7 @@ NAME="AEN35"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN38"
+NAME="AEN49"
 ></A
 ><H2
 >REPORTING BUGS</H2
@@ -117,13 +161,13 @@ TARGET="_top"
 >http://code.google.com/p/ganeti/</A
 > or contact the
       developers using the ganeti mailing list
-      &#60;ganeti@googlegroups.com&#62;.
+      &lt;ganeti@googlegroups.com&gt;.
     </P
 ></DIV
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN42"
+NAME="AEN53"
 ></A
 ><H2
 >SEE ALSO</H2
@@ -239,7 +283,7 @@ CLASS="REFENTRYTITLE"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN89"
+NAME="AEN100"
 ></A
 ><H2
 >COPYRIGHT</H2

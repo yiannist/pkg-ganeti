@@ -286,16 +286,24 @@ NAME="AEN85"
 ><B
 CLASS="COMMAND"
 >info</B
-> </P
+>  [--roman]</P
 ><P
 >        Shows runtime cluster information: cluster name, architecture
         (32 or 64 bit), master node, node list and instance list.
+      </P
+><P
+>        Passing the <CODE
+CLASS="OPTION"
+>--roman</CODE
+> option gnt-cluster info will try
+        to print its integer fields in a latin friendly way. This allows
+        further diffusion of Ganeti among ancient cultures.
       </P
 ></DIV
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN90"
+NAME="AEN93"
 ></A
 ><H3
 >INIT</H3
@@ -643,6 +651,20 @@ CLASS="QUOTE"
 >.
               </P
 ></DD
+><DT
+>migration_bandwidth</DT
+><DD
+><P
+>Valid for the KVM hypervisor.</P
+><P
+>                This option specifies the maximum bandwidth that KVM will
+                use for instance live migrations. The value is in MiB/s.
+              </P
+><P
+>This option is only effective with kvm versions &#62;= 78
+              and qemu-kvm versions &#62;= 0.10.0.
+              </P
+></DD
 ></DL
 ></DIV
 >
@@ -765,7 +787,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN252"
+NAME="AEN261"
 ></A
 ><H3
 >LIST-TAGS</H3
@@ -780,7 +802,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN257"
+NAME="AEN266"
 ></A
 ><H3
 >MASTERFAILOVER</H3
@@ -809,7 +831,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN265"
+NAME="AEN274"
 ></A
 ><H3
 >MODIFY</H3
@@ -993,7 +1015,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN337"
+NAME="AEN346"
 ></A
 ><H3
 >QUEUE</H3
@@ -1031,7 +1053,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN351"
+NAME="AEN360"
 ></A
 ><H3
 >WATCHER</H3
@@ -1077,7 +1099,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN368"
+NAME="AEN377"
 ></A
 ><H3
 >redist-conf</H3
@@ -1112,7 +1134,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN378"
+NAME="AEN387"
 ></A
 ><H3
 >REMOVE-TAGS</H3
@@ -1149,7 +1171,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN389"
+NAME="AEN398"
 ></A
 ><H3
 >RENAME</H3
@@ -1181,7 +1203,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN399"
+NAME="AEN408"
 ></A
 ><H3
 >RENEW-CRYPTO</H3
@@ -1236,7 +1258,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN422"
+NAME="AEN431"
 ></A
 ><H3
 >REPAIR-DISK-SIZES</H3
@@ -1272,7 +1294,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN431"
+NAME="AEN440"
 ></A
 ><H3
 >SEARCH-TAGS</H3
@@ -1337,7 +1359,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN446"
+NAME="AEN455"
 ></A
 ><H3
 >VERIFY</H3
@@ -1363,7 +1385,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN454"
+NAME="AEN463"
 ></A
 ><H3
 >VERIFY-DISKS</H3
@@ -1389,7 +1411,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN461"
+NAME="AEN470"
 ></A
 ><H3
 >VERSION</H3
@@ -1406,7 +1428,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN466"
+NAME="AEN475"
 ></A
 ><H2
 >REPORTING BUGS</H2
@@ -1417,13 +1439,13 @@ TARGET="_top"
 >http://code.google.com/p/ganeti/</A
 > or contact the
       developers using the ganeti mailing list
-      &#60;ganeti@googlegroups.com&#62;.
+      &lt;ganeti@googlegroups.com&gt;.
     </P
 ></DIV
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN470"
+NAME="AEN479"
 ></A
 ><H2
 >SEE ALSO</H2
@@ -1539,7 +1561,7 @@ CLASS="REFENTRYTITLE"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN517"
+NAME="AEN526"
 ></A
 ><H2
 >COPYRIGHT</H2

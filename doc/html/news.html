@@ -5,13 +5,13 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>News &mdash; Ganeti v2.1.2.1 documentation</title>
+    <title>News &mdash; Ganeti v2.1.3 documentation</title>
     <link rel="stylesheet" href="_static/default.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.1.2.1',
+        VERSION:     '2.1.3',
         COLLAPSE_MODINDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -19,7 +19,7 @@
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.1.2.1 documentation" href="index.html" />
+    <link rel="top" title="Ganeti v2.1.3 documentation" href="index.html" />
     <link rel="next" title="Glossary" href="glossary.html" />
     <link rel="prev" title="Developer notes" href="devnotes.html" /> 
   </head>
@@ -33,7 +33,7 @@
         <li class="right" >
           <a href="devnotes.html" title="Developer notes"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.1.2.1 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.1.3 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -44,6 +44,61 @@
             
   <div class="section" id="news">
 <h1>News<a class="headerlink" href="#news" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="version-2-1-3">
+<h2>Version 2.1.3<a class="headerlink" href="#version-2-1-3" title="Permalink to this headline">¶</a></h2>
+<p><em>(Unreleased)</em></p>
+<p>A medium sized development cycle. Some new features, and some
+fixes/small improvements/cleanups.</p>
+<div class="section" id="significant-features">
+<h3>Significant features<a class="headerlink" href="#significant-features" title="Permalink to this headline">¶</a></h3>
+<p>The node deamon now tries to mlock itself into memory, unless the
+<tt class="docutils literal"><span class="pre">--no-mlock</span></tt> flag is passed. It also doesn&#8217;t fail if it can&#8217;t write
+its logs, and falls back to console logging. This allows emergency
+features such as <tt class="docutils literal"><span class="pre">gnt-node</span> <span class="pre">powercycle</span></tt> to work even in the event of a
+broken node disk (tested offlining the disk hosting the node&#8217;s
+filesystem and dropping its memory caches; don&#8217;t try this at home)</p>
+<p>KVM: add vhost-net acceleration support. It can be tested with a new
+enough version of the kernel and of qemu-kvm.</p>
+<p>KVM: Add instance chrooting feature. If you use privilege dropping for
+your VMs you can also now force them to chroot to an empty directory,
+before starting the emulated guest.</p>
+<p>KVM: Add maximum migration bandwith and maximum downtime tweaking
+support (requires a new-enough version of qemu-kvm).</p>
+<p>Cluster verify will now warn if the master node doesn&#8217;t have the master
+ip configured on it.</p>
+<p>Add a new (incompatible) instance creation request format to RAPI which
+supports all parameters (previously only a subset was supported, and it
+wasn&#8217;t possible to extend the old format to accomodate all the new
+features. The old format is still supported, and a client can check for
+this feature, before using it, by checking for its presence in the
+<tt class="docutils literal"><span class="pre">features</span></tt> RAPI resource.</p>
+<p>Now with ancient latin support. Try it passing the <tt class="docutils literal"><span class="pre">--roman</span></tt> option to
+<tt class="docutils literal"><span class="pre">gnt-instance</span> <span class="pre">info</span></tt>, <tt class="docutils literal"><span class="pre">gnt-cluster</span> <span class="pre">info</span></tt> or <tt class="docutils literal"><span class="pre">gnt-node</span> <span class="pre">list</span></tt>
+(requires the python-roman module to be installed, in order to work).</p>
+</div>
+<div class="section" id="other-changes">
+<h3>Other changes<a class="headerlink" href="#other-changes" title="Permalink to this headline">¶</a></h3>
+<p>As usual many internal code refactorings, documentation updates, and
+such. Among others:</p>
+<blockquote>
+<ul class="simple">
+<li>Lots of improvements and cleanups to the experimental Remote API
+(RAPI) client library.</li>
+<li>A new unit test suite for the core daemon libraries.</li>
+<li>A fix to creating missing directories makes sure the umask is not
+applied anymore. This enforces the same directory permissions
+everywhere.</li>
+<li>Better handling terminating daemons with ctrl+c (used when running
+them in debugging mode).</li>
+<li>Fix a race condition in live migrating a KVM instance, when stat()
+on the old proc status file returned EINVAL, which is an unexpected
+value.</li>
+<li>Fixed manpage checking with newer man and utf-8 charachters. But now
+you need the en_US.UTF-8 locale enabled to build Ganeti from git.</li>
+</ul>
+</blockquote>
+</div>
+</div>
 <div class="section" id="version-2-1-2-1">
 <h2>Version 2.1.2.1<a class="headerlink" href="#version-2-1-2-1" title="Permalink to this headline">¶</a></h2>
 <p><em>(Released Fri, 7 May 2010)</em></p>
@@ -54,8 +109,8 @@
 <p><em>(Released Fri, 7 May 2010)</em></p>
 <p>Another release with a long development cycle, during which many
 different features were added.</p>
-<div class="section" id="significant-features">
-<h3>Significant features<a class="headerlink" href="#significant-features" title="Permalink to this headline">¶</a></h3>
+<div class="section" id="id1">
+<h3>Significant features<a class="headerlink" href="#id1" title="Permalink to this headline">¶</a></h3>
 <p>The KVM hypervisor now can run the individual instances as non-root, to
 reduce the impact of a VM being hijacked due to bugs in the
 hypervisor. It is possible to run all instances as a single (non-root)
@@ -95,8 +150,8 @@ number of NICs.</p>
 <p>Cluster verify has added a few new checks: SSL certificates validity,
 /etc/hosts consistency across the cluster, etc.</p>
 </div>
-<div class="section" id="other-changes">
-<h3>Other changes<a class="headerlink" href="#other-changes" title="Permalink to this headline">¶</a></h3>
+<div class="section" id="id2">
+<h3>Other changes<a class="headerlink" href="#id2" title="Permalink to this headline">¶</a></h3>
 <p>As usual, many internal changes were done, documentation fixes,
 etc. Among others:</p>
 <ul class="simple">
@@ -833,10 +888,15 @@ post-configuration update hook)</li>
             <h3><a href="index.html">Table Of Contents</a></h3>
             <ul>
 <li><a class="reference external" href="">News</a><ul>
-<li><a class="reference external" href="#version-2-1-2-1">Version 2.1.2.1</a></li>
-<li><a class="reference external" href="#version-2-1-2">Version 2.1.2</a><ul>
+<li><a class="reference external" href="#version-2-1-3">Version 2.1.3</a><ul>
 <li><a class="reference external" href="#significant-features">Significant features</a></li>
 <li><a class="reference external" href="#other-changes">Other changes</a></li>
+</ul>
+</li>
+<li><a class="reference external" href="#version-2-1-2-1">Version 2.1.2.1</a></li>
+<li><a class="reference external" href="#version-2-1-2">Version 2.1.2</a><ul>
+<li><a class="reference external" href="#id1">Significant features</a></li>
+<li><a class="reference external" href="#id2">Other changes</a></li>
 </ul>
 </li>
 <li><a class="reference external" href="#version-2-1-1">Version 2.1.1</a><ul>
@@ -914,7 +974,7 @@ post-configuration update hook)</li>
         <li class="right" >
           <a href="devnotes.html" title="Developer notes"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.1.2.1 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.1.3 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

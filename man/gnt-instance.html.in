@@ -873,6 +873,46 @@ CLASS="QUOTE"
                 mode for your kvm binary will be used.
                 </P
 ></DD
+><DT
+>migration_downtime</DT
+><DD
+><P
+>Valid for the KVM hypervisor.</P
+><P
+>The maximum amount of time (in ms) a KVM instance is
+                allowed to be frozen during a live migration, in order to copy
+                dirty memory pages. Default value is 30ms, but you may need to
+                increase this value for busy instances.
+                </P
+><P
+>This option is only effective with kvm versions &#62;= 87
+                and qemu-kvm versions &#62;= 0.11.0.
+                </P
+></DD
+><DT
+>use_chroot</DT
+><DD
+><P
+>Valid for the KVM hypervisor.</P
+><P
+>This boolean option determines wether to run the KVM
+                instance in a chroot directory.
+                </P
+><P
+>If it is set to <SPAN
+CLASS="QUOTE"
+>"true"</SPAN
+>, an empty directory
+                is created before starting the instance and its path is passed via
+                the -chroot flag to kvm.
+                The directory is removed when the instance is stopped.
+                </P
+><P
+>It is set to <SPAN
+CLASS="QUOTE"
+>"false"</SPAN
+> by default.</P
+></DD
 ></DL
 ></DIV
 >
@@ -1036,7 +1076,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN373"
+NAME="AEN388"
 ></A
 ><H4
 >BATCH-CREATE</H4
@@ -1217,7 +1257,7 @@ instance5: 11225</PRE
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN440"
+NAME="AEN455"
 ></A
 ><H4
 >REMOVE</H4
@@ -1296,7 +1336,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN462"
+NAME="AEN477"
 ></A
 ><H4
 >LIST</H4
@@ -1314,7 +1354,7 @@ CLASS="REPLACEABLE"
 ><I
 >[+]FIELD,...</I
 ></TT
->] [instance...]</P
+>] [--roman] [instance...]</P
 ><P
 >          Shows the currently configured instances with memory usage,
           disk usage, the node they are running on, and their run
@@ -1331,6 +1371,13 @@ CLASS="OPTION"
 > option
           takes an argument which denotes what will be used between
           the output fields. Both these options are to help scripting.
+        </P
+><P
+>          The <CODE
+CLASS="OPTION"
+>--roman</CODE
+> option allows latin people to better
+          understand the cluster instances' status.
         </P
 ><P
 >          The <CODE
@@ -1727,7 +1774,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN666"
+NAME="AEN684"
 ></A
 ><H4
 >INFO</H4
@@ -1735,7 +1782,7 @@ NAME="AEN666"
 ><B
 CLASS="COMMAND"
 >info</B
->  [-s | --static] {--all | <TT
+>  [-s | --static] [--roman] {--all | <TT
 CLASS="REPLACEABLE"
 ><I
 >instance</I
@@ -1765,11 +1812,19 @@ CLASS="OPTION"
 > to get info about all instances,
           rather than explicitly passing the ones you're interested in.
         </P
+><P
+>          The <CODE
+CLASS="OPTION"
+>--roman</CODE
+> option can be used to cause envy among
+          people who like ancient cultures, but are stuck with non-latin-friendly
+          cluster virtualization technologies.
+        </P
 ></DIV
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN683"
+NAME="AEN704"
 ></A
 ><H4
 >MODIFY</H4
@@ -1971,7 +2026,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN755"
+NAME="AEN776"
 ></A
 ><H4
 >REINSTALL</H4
@@ -2061,7 +2116,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN790"
+NAME="AEN811"
 ></A
 ><H4
 >RENAME</H4
@@ -2109,14 +2164,14 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN805"
+NAME="AEN826"
 ></A
 ><H3
 >Starting/stopping/connecting to console</H3
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN807"
+NAME="AEN828"
 ></A
 ><H4
 >STARTUP</H4
@@ -2308,7 +2363,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN894"
+NAME="AEN915"
 ></A
 ><H4
 >SHUTDOWN</H4
@@ -2406,7 +2461,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN938"
+NAME="AEN959"
 ></A
 ><H4
 >REBOOT</H4
@@ -2441,7 +2496,7 @@ CLASS="OPTION"
           starts the instance. A full reboot does the equivalent
           of <B
 CLASS="COMMAND"
->gnt-instance shutdown &#38;&#38; gnt-instance
+>gnt-instance shutdown &amp;&amp; gnt-instance
           startup</B
 >. The default is hard reboot.
         </P
@@ -2522,7 +2577,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN990"
+NAME="AEN1011"
 ></A
 ><H4
 >CONSOLE</H4
@@ -2568,14 +2623,14 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN1003"
+NAME="AEN1024"
 ></A
 ><H3
 >Disk management</H3
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN1005"
+NAME="AEN1026"
 ></A
 ><H4
 >REPLACE-DISKS</H4
@@ -2739,7 +2794,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN1063"
+NAME="AEN1084"
 ></A
 ><H4
 >ACTIVATE-DISKS</H4
@@ -2835,7 +2890,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN1084"
+NAME="AEN1105"
 ></A
 ><H4
 >DEACTIVATE-DISKS</H4
@@ -2873,7 +2928,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN1095"
+NAME="AEN1116"
 ></A
 ><H4
 >GROW-DISK</H4
@@ -3027,7 +3082,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN1142"
+NAME="AEN1163"
 ></A
 ><H4
 >RECREATE-DISKS</H4
@@ -3077,14 +3132,14 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN1157"
+NAME="AEN1178"
 ></A
 ><H3
 >Recovery</H3
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN1159"
+NAME="AEN1180"
 ></A
 ><H4
 >FAILOVER</H4
@@ -3154,7 +3209,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN1180"
+NAME="AEN1201"
 ></A
 ><H4
 >MIGRATE</H4
@@ -3251,7 +3306,7 @@ y/[n]/?: y
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN1205"
+NAME="AEN1226"
 ></A
 ><H4
 >MOVE</H4
@@ -3319,14 +3374,14 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN1226"
+NAME="AEN1247"
 ></A
 ><H3
 >TAGS</H3
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN1228"
+NAME="AEN1249"
 ></A
 ><H4
 >ADD-TAGS</H4
@@ -3368,7 +3423,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN1241"
+NAME="AEN1262"
 ></A
 ><H4
 >LIST-TAGS</H4
@@ -3388,7 +3443,7 @@ CLASS="REPLACEABLE"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN1248"
+NAME="AEN1269"
 ></A
 ><H4
 >REMOVE-TAGS</H4
@@ -3432,7 +3487,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN1261"
+NAME="AEN1282"
 ></A
 ><H2
 >REPORTING BUGS</H2
@@ -3443,13 +3498,13 @@ TARGET="_top"
 >http://code.google.com/p/ganeti/</A
 > or contact the
       developers using the ganeti mailing list
-      &#60;ganeti@googlegroups.com&#62;.
+      &lt;ganeti@googlegroups.com&gt;.
     </P
 ></DIV
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN1265"
+NAME="AEN1286"
 ></A
 ><H2
 >SEE ALSO</H2
@@ -3565,7 +3620,7 @@ CLASS="REFENTRYTITLE"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN1312"
+NAME="AEN1333"
 ></A
 ><H2
 >COPYRIGHT</H2

@@ -90,7 +90,8 @@ BDEV_CACHE_DIR = RUN_GANETI_DIR + "/bdev-cache"
 DISK_LINKS_DIR = RUN_GANETI_DIR + "/instance-disks"
 RUN_DIRS_MODE = 0755
 SOCKET_DIR = RUN_GANETI_DIR + "/socket"
-SOCKET_DIR_MODE = 0700
+SECURE_DIR_MODE = 0700
+SOCKET_DIR_MODE = SECURE_DIR_MODE
 # keep RUN_GANETI_DIR first here, to make sure all get created when the node
 # daemon is started (this takes care of RUN_DIR being tmpfs)
 SUB_RUN_DIRS = [ RUN_GANETI_DIR, BDEV_CACHE_DIR, DISK_LINKS_DIR ]
@@ -168,6 +169,11 @@ LOG_OS_DIR = LOG_DIR + "os"
 LOG_WATCHER = LOG_DIR + "watcher.log"
 LOG_COMMANDS = LOG_DIR + "commands.log"
 LOG_BURNIN = LOG_DIR + "burnin.log"
+
+DEV_CONSOLE = "/dev/console"
+
+# luxi related constants
+LUXI_EOM = "\3"
 
 # one of 'no', 'yes', 'only'
 SYSLOG_USAGE = _autoconf.SYSLOG_USAGE
@@ -320,7 +326,6 @@ INISECT_HYP = "hypervisor"
 INISECT_BEP = "backend"
 
 # dynamic device modification
-
 DDM_ADD = 'add'
 DDM_REMOVE = 'remove'
 
@@ -429,11 +434,15 @@ HV_USB_MOUSE = "usb_mouse"
 HV_DEVICE_MODEL = "device_model"
 HV_INIT_SCRIPT = "init_script"
 HV_MIGRATION_PORT = "migration_port"
+HV_MIGRATION_BANDWIDTH = "migration_bandwidth"
+HV_MIGRATION_DOWNTIME = "migration_downtime"
 HV_USE_LOCALTIME = "use_localtime"
 HV_DISK_CACHE = "disk_cache"
 HV_SECURITY_MODEL = "security_model"
 HV_SECURITY_DOMAIN = "security_domain"
 HV_KVM_FLAG = "kvm_flag"
+HV_VHOST_NET = "vhost_net"
+HV_KVM_USE_CHROOT = "use_chroot"
 
 HVS_PARAMETER_TYPES = {
   HV_BOOT_ORDER: VTYPE_STRING,
@@ -459,11 +468,15 @@ HVS_PARAMETER_TYPES = {
   HV_DEVICE_MODEL: VTYPE_STRING,
   HV_INIT_SCRIPT: VTYPE_STRING,
   HV_MIGRATION_PORT: VTYPE_INT,
+  HV_MIGRATION_BANDWIDTH: VTYPE_INT,
+  HV_MIGRATION_DOWNTIME: VTYPE_INT,
   HV_USE_LOCALTIME: VTYPE_BOOL,
   HV_DISK_CACHE: VTYPE_STRING,
   HV_SECURITY_MODEL: VTYPE_STRING,
   HV_SECURITY_DOMAIN: VTYPE_STRING,
   HV_KVM_FLAG: VTYPE_STRING,
+  HV_VHOST_NET: VTYPE_BOOL,
+  HV_KVM_USE_CHROOT: VTYPE_BOOL,
   }
 
 HVS_PARAMETERS = frozenset(HVS_PARAMETER_TYPES.keys())
@@ -596,6 +609,7 @@ NV_PVLIST = "pvlist"
 NV_DRBDLIST = "drbd-list"
 NV_NODESETUP = "nodesetup"
 NV_TIME = "time"
+NV_MASTERIP = "master-ip"
 
 # SSL certificate check constants (in days)
 SSL_CERT_EXPIRATION_WARN = 30
@@ -619,6 +633,8 @@ JOB_QUEUE_ARCHIVE_DIR = QUEUE_DIR + "/archive"
 JOB_QUEUE_DRAIN_FILE = QUEUE_DIR + "/drain"
 JOB_QUEUE_SIZE_HARD_LIMIT = 5000
 JOB_QUEUE_SIZE_SOFT_LIMIT = JOB_QUEUE_SIZE_HARD_LIMIT * 0.8
+JOB_QUEUE_DIRS = [QUEUE_DIR, JOB_QUEUE_ARCHIVE_DIR]
+JOB_QUEUE_DIRS_MODE = SECURE_DIR_MODE
 
 JOB_ID_TEMPLATE = r"\d+"
 
@@ -722,11 +738,15 @@ HVC_DEFAULTS = {
     HV_DISK_TYPE: HT_DISK_PARAVIRTUAL,
     HV_USB_MOUSE: '',
     HV_MIGRATION_PORT: 8102,
+    HV_MIGRATION_BANDWIDTH: 32, # MiB/s
+    HV_MIGRATION_DOWNTIME: 30,  # ms
     HV_USE_LOCALTIME: False,
     HV_DISK_CACHE: HT_CACHE_DEFAULT,
     HV_SECURITY_MODEL: HT_SM_NONE,
     HV_SECURITY_DOMAIN: '',
     HV_KVM_FLAG: "",
+    HV_VHOST_NET: False,
+    HV_KVM_USE_CHROOT: False,
     },
   HT_FAKE: {
     },
@@ -737,6 +757,7 @@ HVC_DEFAULTS = {
 
 HVC_GLOBALS = frozenset([
   HV_MIGRATION_PORT,
+  HV_MIGRATION_BANDWIDTH,
   ])
 
 BEC_DEFAULTS = {

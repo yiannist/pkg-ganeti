@@ -23,6 +23,7 @@
 
 """
 
+import errno
 import os
 import os.path
 import re
@@ -51,7 +52,16 @@ class KVMHypervisor(hv_base.BaseHypervisor):
   _UIDS_DIR = _ROOT_DIR + "/uid" # contains instances reserved uids
   _CTRL_DIR = _ROOT_DIR + "/ctrl" # contains instances control sockets
   _CONF_DIR = _ROOT_DIR + "/conf" # contains instances startup data
-  _DIRS = [_ROOT_DIR, _PIDS_DIR, _UIDS_DIR, _CTRL_DIR, _CONF_DIR]
+  # KVM instances with chroot enabled are started in empty chroot directories.
+  _CHROOT_DIR = _ROOT_DIR + "/chroot" # for empty chroot directories
+  # After an instance is stopped, its chroot directory is removed.
+  # If the chroot directory is not empty, it can't be removed.
+  # A non-empty chroot directory indicates a possible security incident.
+  # To support forensics, the non-empty chroot directory is quarantined in
+  # a separate directory, called 'chroot-quarantine'.
+  _CHROOT_QUARANTINE_DIR = _ROOT_DIR + "/chroot-quarantine"
+  _DIRS = [_ROOT_DIR, _PIDS_DIR, _UIDS_DIR, _CTRL_DIR, _CONF_DIR,
+           _CHROOT_DIR, _CHROOT_QUARANTINE_DIR]
 
   PARAMETERS = {
     constants.HV_KERNEL_PATH: hv_base.OPT_FILE_CHECK,
@@ -78,6 +88,8 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     constants.HV_USB_MOUSE:
       hv_base.ParamInSet(False, constants.HT_KVM_VALID_MOUSE_TYPES),
     constants.HV_MIGRATION_PORT: hv_base.NET_PORT_CHECK,
+    constants.HV_MIGRATION_BANDWIDTH: hv_base.NO_CHECK,
+    constants.HV_MIGRATION_DOWNTIME: hv_base.NO_CHECK,
     constants.HV_USE_LOCALTIME: hv_base.NO_CHECK,
     constants.HV_DISK_CACHE:
       hv_base.ParamInSet(True, constants.HT_VALID_CACHE_TYPES),
@@ -86,6 +98,8 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     constants.HV_SECURITY_DOMAIN: hv_base.NO_CHECK,
     constants.HV_KVM_FLAG:
       hv_base.ParamInSet(False, constants.HT_KVM_FLAG_VALUES),
+    constants.HV_VHOST_NET: hv_base.NO_CHECK,
+    constants.HV_KVM_USE_CHROOT: hv_base.NO_CHECK,
     }
 
   _MIGRATION_STATUS_RE = re.compile('Migration\s+status:\s+(\w+)',
@@ -229,13 +243,20 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     return utils.PathJoin(cls._CONF_DIR, "%s.runtime" % instance_name)
 
   @classmethod
+  def _InstanceChrootDir(cls, instance_name):
+    """Returns the name of the KVM chroot dir of the instance
+
+    """
+    return utils.PathJoin(cls._CHROOT_DIR, instance_name)
+
+  @classmethod
   def _TryReadUidFile(cls, uid_file):
     """Try to read a uid file
 
     """
     if os.path.exists(uid_file):
       try:
-        uid = int(utils.ReadFile(uid_file))
+        uid = int(utils.ReadOneLineFile(uid_file))
         return uid
       except EnvironmentError:
         logging.warning("Can't read uid file", exc_info=True)
@@ -245,7 +266,7 @@ class KVMHypervisor(hv_base.BaseHypervisor):
 
   @classmethod
   def _RemoveInstanceRuntimeFiles(cls, pidfile, instance_name):
-    """Removes an instance's rutime sockets/files.
+    """Removes an instance's rutime sockets/files/dirs.
 
     """
     utils.RemoveFile(pidfile)
@@ -257,6 +278,24 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     utils.RemoveFile(uid_file)
     if uid is not None:
       uidpool.ReleaseUid(uid)
+    try:
+      chroot_dir = cls._InstanceChrootDir(instance_name)
+      utils.RemoveDir(chroot_dir)
+    except OSError, err:
+      if err.errno == errno.ENOTEMPTY:
+        # The chroot directory is expected to be empty, but it isn't.
+        new_chroot_dir = tempfile.mkdtemp(dir=cls._CHROOT_QUARANTINE_DIR,
+                                          prefix="%s-%s-" %
+                                          (instance_name,
+                                           utils.TimestampForFilename()))
+        logging.warning("The chroot directory of instance %s can not be"
+                        " removed as it is not empty. Moving it to the"
+                        " quarantine instead. Please investigate the"
+                        " contents (%s) and clean up manually",
+                        instance_name, new_chroot_dir)
+        utils.RenameFile(chroot_dir, new_chroot_dir)
+      else:
+        raise
 
   def _WriteNetScript(self, instance, seq, nic):
     """Write a script to connect a net interface to the proper bridge.
@@ -528,6 +567,9 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     if hvp[constants.HV_USE_LOCALTIME]:
       kvm_cmd.extend(['-localtime'])
 
+    if hvp[constants.HV_KVM_USE_CHROOT]:
+      kvm_cmd.extend(['-chroot', self._InstanceChrootDir(instance.name)])
+
     # Save the current instance nics, but defer their expansion as parameters,
     # as we'll need to generate executable temp files for them.
     kvm_nics = instance.nics
@@ -611,19 +653,23 @@ class KVMHypervisor(hv_base.BaseHypervisor):
       kvm_cmd.extend(["-runas", hvp[constants.HV_SECURITY_DOMAIN]])
 
     if not kvm_nics:
-      kvm_cmd.extend(['-net', 'none'])
+      kvm_cmd.extend(["-net", "none"])
     else:
+      tap_extra = ""
       nic_type = hvparams[constants.HV_NIC_TYPE]
       if nic_type == constants.HT_NIC_PARAVIRTUAL:
         nic_model = "model=virtio"
+        if hvparams[constants.HV_VHOST_NET]:
+          tap_extra = ",vhost=on"
       else:
         nic_model = "model=%s" % nic_type
 
       for nic_seq, nic in enumerate(kvm_nics):
         nic_val = "nic,vlan=%s,macaddr=%s,%s" % (nic_seq, nic.mac, nic_model)
         script = self._WriteNetScript(instance, nic_seq, nic)
-        kvm_cmd.extend(['-net', nic_val])
-        kvm_cmd.extend(['-net', 'tap,vlan=%s,script=%s' % (nic_seq, script)])
+        tap_val = "tap,vlan=%s,script=%s%s" % (nic_seq, script, tap_extra)
+        kvm_cmd.extend(["-net", nic_val])
+        kvm_cmd.extend(["-net", tap_val])
         temp_files.append(script)
 
     if incoming:
@@ -634,10 +680,14 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     vnc_pwd = None
     if vnc_pwd_file:
       try:
-        vnc_pwd = utils.ReadFile(vnc_pwd_file)
+        vnc_pwd = utils.ReadOneLineFile(vnc_pwd_file, strict=True)
       except EnvironmentError, err:
         raise errors.HypervisorError("Failed to open VNC password file %s: %s"
                                      % (vnc_pwd_file, err))
+
+    if hvp[constants.HV_KVM_USE_CHROOT]:
+      utils.EnsureDirs([(self._InstanceChrootDir(name),
+                         constants.SECURE_DIR_MODE)])
 
     if security_model == constants.HT_SM_POOL:
       ss = ssconf.SimpleStore()
@@ -805,6 +855,14 @@ class KVMHypervisor(hv_base.BaseHypervisor):
 
     if not live:
       self._CallMonitorCommand(instance_name, 'stop')
+
+    migrate_command = ('migrate_set_speed %dm' %
+        instance.hvparams[constants.HV_MIGRATION_BANDWIDTH])
+    self._CallMonitorCommand(instance_name, migrate_command)
+
+    migrate_command = ('migrate_set_downtime %dms' %
+        instance.hvparams[constants.HV_MIGRATION_DOWNTIME])
+    self._CallMonitorCommand(instance_name, migrate_command)
 
     migrate_command = 'migrate -d tcp:%s:%s' % (target, port)
     self._CallMonitorCommand(instance_name, migrate_command)

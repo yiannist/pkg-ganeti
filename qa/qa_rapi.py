@@ -22,12 +22,17 @@
 
 """
 
-import urllib2
+import tempfile
 
 from ganeti import utils
 from ganeti import constants
 from ganeti import errors
 from ganeti import serializer
+from ganeti import cli
+from ganeti import rapi
+
+import ganeti.rapi.client
+import ganeti.rapi.client_utils
 
 import qa_config
 import qa_utils
@@ -37,58 +42,38 @@ from qa_utils import (AssertEqual, AssertNotEqual, AssertIn, AssertMatch,
                       StartSSH)
 
 
-class OpenerFactory:
-  """A factory singleton to construct urllib opener chain.
-
-  This is needed because qa_config is not initialized yet at module load time
-
-  """
-  _opener = None
-  _rapi_user = None
-  _rapi_secret = None
-
-  @classmethod
-  def SetCredentials(cls, rapi_user, rapi_secret):
-    """Set the credentials for authorized access.
-
-    """
-    cls._rapi_user = rapi_user
-    cls._rapi_secret = rapi_secret
-
-  @classmethod
-  def Opener(cls):
-    """Construct the opener if not yet done.
-
-    """
-    if not cls._opener:
-      if not cls._rapi_user or not cls._rapi_secret:
-        raise errors.ProgrammerError("SetCredentials was never called.")
-
-      # Create opener which doesn't try to look for proxies and does auth
-      master = qa_config.GetMasterNode()
-      host = master["primary"]
-      port = qa_config.get("rapi-port", default=constants.DEFAULT_RAPI_PORT)
-      passman = urllib2.HTTPPasswordMgrWithDefaultRealm()
-      passman.add_password(None, 'https://%s:%s' % (host, port),
-                           cls._rapi_user,
-                           cls._rapi_secret)
-      authhandler = urllib2.HTTPBasicAuthHandler(passman)
-      cls._opener = urllib2.build_opener(urllib2.ProxyHandler({}), authhandler)
-
-    return cls._opener
+_rapi_ca = None
+_rapi_client = None
 
 
-class RapiRequest(urllib2.Request):
-  """This class supports other methods beside GET/POST.
+def Setup(username, password):
+  """Configures the RAPI client.
 
   """
+  global _rapi_ca
+  global _rapi_client
 
-  def __init__(self, method, url, headers, data):
-    urllib2.Request.__init__(self, url, data=data, headers=headers)
-    self._method = method
+  master = qa_config.GetMasterNode()
 
-  def get_method(self):
-    return self._method
+  # Load RAPI certificate from master node
+  cmd = ["cat", constants.RAPI_CERT_FILE]
+
+  # Write to temporary file
+  _rapi_ca = tempfile.NamedTemporaryFile()
+  _rapi_ca.write(qa_utils.GetCommandOutput(master["primary"],
+                                           utils.ShellQuoteArgs(cmd)))
+  _rapi_ca.flush()
+
+  port = qa_config.get("rapi-port", default=constants.DEFAULT_RAPI_PORT)
+  cfg_ssl = rapi.client.CertAuthorityVerify(cafile=_rapi_ca.name)
+
+  _rapi_client = rapi.client.GanetiRapiClient(master["primary"], port=port,
+                                              username=username,
+                                              password=password,
+                                              config_ssl_verification=cfg_ssl,
+                                              ignore_proxy=True)
+
+  print "RAPI protocol version: %s" % _rapi_client.GetVersion()
 
 
 INSTANCE_FIELDS = ("name", "os", "pnode", "snodes",
@@ -119,43 +104,12 @@ def Enabled():
 
 
 def _DoTests(uris):
-  master = qa_config.GetMasterNode()
-  host = master["primary"]
-  port = qa_config.get("rapi-port", default=constants.DEFAULT_RAPI_PORT)
   results = []
 
   for uri, verify, method, body in uris:
     assert uri.startswith("/")
 
-    url = "https://%s:%s%s" % (host, port, uri)
-
-    headers = {}
-
-    if body:
-      data = serializer.DumpJson(body, indent=False)
-      headers["Content-Type"] = "application/json"
-    else:
-      data = None
-
-    if headers or data:
-      details = []
-      if headers:
-        details.append("headers=%s" %
-                       serializer.DumpJson(headers, indent=False).rstrip())
-      if data:
-        details.append("data=%s" % data.rstrip())
-      info = "(%s)" % (", ".join(details), )
-    else:
-      info = ""
-
-    print "Testing %s %s %s..." % (method, url, info)
-
-    req = RapiRequest(method, url, headers, data)
-    response = OpenerFactory.Opener().open(req)
-
-    AssertEqual(response.info()["Content-type"], "application/json")
-
-    data = serializer.LoadJson(response.read())
+    data = _rapi_client._SendRequest(method, uri, None, body)
 
     if verify is not None:
       if callable(verify):
@@ -305,28 +259,44 @@ def _WaitForRapiJob(job_id):
     ("/2/jobs/%s" % job_id, _VerifyJob, "GET", None),
     ])
 
-  # FIXME: Use "gnt-job watch" until RAPI supports waiting for job
-  cmd = ["gnt-job", "watch", str(job_id)]
-  AssertEqual(StartSSH(master["primary"],
-                       utils.ShellQuoteArgs(cmd)).wait(), 0)
+  rapi.client_utils.PollJob(_rapi_client, job_id, cli.StdioJobPollReportCb())
 
 
-def TestRapiInstanceAdd(node):
+def TestRapiInstanceAdd(node, use_client):
   """Test adding a new instance via RAPI"""
   instance = qa_config.AcquireInstance()
   try:
-    body = {
-      "name": instance["name"],
-      "os": qa_config.get("os"),
-      "disk_template": constants.DT_PLAIN,
-      "pnode": node["primary"],
-      "memory": utils.ParseUnit(qa_config.get("mem")),
-      "disks": [utils.ParseUnit(size) for size in qa_config.get("disk")],
-      }
+    memory = utils.ParseUnit(qa_config.get("mem"))
+    disk_sizes = [utils.ParseUnit(size) for size in qa_config.get("disk")]
 
-    (job_id, ) = _DoTests([
-      ("/2/instances", _VerifyReturnsJob, "POST", body),
-      ])
+    if use_client:
+      disks = [{"size": size} for size in disk_sizes]
+      nics = [{}]
+
+      beparams = {
+        constants.BE_MEMORY: memory,
+        }
+
+      job_id = _rapi_client.CreateInstance(constants.INSTANCE_CREATE,
+                                           instance["name"],
+                                           constants.DT_PLAIN,
+                                           disks, nics,
+                                           os=qa_config.get("os"),
+                                           pnode=node["primary"],
+                                           beparams=beparams)
+    else:
+      body = {
+        "name": instance["name"],
+        "os": qa_config.get("os"),
+        "disk_template": constants.DT_PLAIN,
+        "pnode": node["primary"],
+        "memory": memory,
+        "disks": disk_sizes,
+        }
+
+      (job_id, ) = _DoTests([
+        ("/2/instances", _VerifyReturnsJob, "POST", body),
+        ])
 
     _WaitForRapiJob(job_id)
 
@@ -336,11 +306,14 @@ def TestRapiInstanceAdd(node):
     raise
 
 
-def TestRapiInstanceRemove(instance):
+def TestRapiInstanceRemove(instance, use_client):
   """Test removing instance via RAPI"""
-  (job_id, ) = _DoTests([
-    ("/2/instances/%s" % instance["name"], _VerifyReturnsJob, "DELETE", None),
-    ])
+  if use_client:
+    job_id = _rapi_client.DeleteInstance(instance["name"])
+  else:
+    (job_id, ) = _DoTests([
+      ("/2/instances/%s" % instance["name"], _VerifyReturnsJob, "DELETE", None),
+      ])
 
   _WaitForRapiJob(job_id)
 
