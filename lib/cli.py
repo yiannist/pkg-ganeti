@@ -1778,6 +1778,7 @@ def GenericInstanceCreate(mode, opts, args):
   if mode == constants.INSTANCE_CREATE:
     start = opts.start
     os_type = opts.os
+    force_variant = opts.force_variant
     src_node = None
     src_path = None
     no_install = opts.no_install
@@ -1785,6 +1786,7 @@ def GenericInstanceCreate(mode, opts, args):
   elif mode == constants.INSTANCE_IMPORT:
     start = False
     os_type = None
+    force_variant = False
     src_node = opts.src_node
     src_path = opts.src_dir
     no_install = None
@@ -1809,6 +1811,7 @@ def GenericInstanceCreate(mode, opts, args):
                                 mode=mode,
                                 start=start,
                                 os_type=os_type,
+                                force_variant=force_variant,
                                 src_node=src_node,
                                 src_path=src_path,
                                 no_install=no_install,
@@ -2000,9 +2003,9 @@ def GenerateTable(headers, fields, separator, data,
 
   if separator is None:
     mlens = [0 for name in fields]
-    format = ' '.join(format_fields)
+    format_str = ' '.join(format_fields)
   else:
-    format = separator.replace("%", "%%").join(format_fields)
+    format_str = separator.replace("%", "%%").join(format_fields)
 
   for row in data:
     if row is None:
@@ -2028,7 +2031,7 @@ def GenerateTable(headers, fields, separator, data,
         mlens[idx] = max(mlens[idx], len(hdr))
         args.append(mlens[idx])
       args.append(hdr)
-    result.append(format % tuple(args))
+    result.append(format_str % tuple(args))
 
   if separator is None:
     assert len(mlens) == len(fields)
@@ -2044,7 +2047,7 @@ def GenerateTable(headers, fields, separator, data,
       if separator is None:
         args.append(mlens[idx])
       args.append(line[idx])
-    result.append(format % tuple(args))
+    result.append(format_str % tuple(args))
 
   return result
 
