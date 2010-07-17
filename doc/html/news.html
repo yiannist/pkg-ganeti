@@ -5,13 +5,13 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>News &mdash; Ganeti v2.1.3 documentation</title>
+    <title>News &mdash; Ganeti v2.1.4 documentation</title>
     <link rel="stylesheet" href="_static/default.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.1.3',
+        VERSION:     '2.1.4',
         COLLAPSE_MODINDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -19,7 +19,7 @@
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.1.3 documentation" href="index.html" />
+    <link rel="top" title="Ganeti v2.1.4 documentation" href="index.html" />
     <link rel="next" title="Glossary" href="glossary.html" />
     <link rel="prev" title="Developer notes" href="devnotes.html" /> 
   </head>
@@ -33,7 +33,7 @@
         <li class="right" >
           <a href="devnotes.html" title="Developer notes"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.1.3 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.1.4 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -44,9 +44,32 @@
             
   <div class="section" id="news">
 <h1>News<a class="headerlink" href="#news" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="version-2-1-4">
+<h2>Version 2.1.4<a class="headerlink" href="#version-2-1-4" title="Permalink to this headline">¶</a></h2>
+<p><em>(Released Fri, 18 Jun 2010)</em></p>
+<p>A small bugfix release:</p>
+<blockquote>
+<ul class="simple">
+<li>Fix live migration of KVM instances started with older Ganeti
+versions which had fewer hypervisor parameters</li>
+<li>Fix gnt-instance grow-disk on down instances</li>
+<li>Fix an error-reporting bug during instance migration</li>
+<li>Better checking of the <tt class="docutils literal"><span class="pre">--net</span></tt> and <tt class="docutils literal"><span class="pre">--disk</span></tt> values, to avoid
+silently ignoring broken ones</li>
+<li>Fix an RPC error reporting bug affecting, for example, RAPI client
+users</li>
+<li>Fix bug triggered by different API version os-es on different nodes</li>
+<li>Fix a bug in instance startup with custom hvparams: OS level
+parameters would fail to be applied.</li>
+<li>Fix the RAPI client under Python 2.6 (but more work is needed to
+make it work completely well with OpenSSL)</li>
+<li>Fix handling of errors when resolving names from DNS</li>
+</ul>
+</blockquote>
+</div>
 <div class="section" id="version-2-1-3">
 <h2>Version 2.1.3<a class="headerlink" href="#version-2-1-3" title="Permalink to this headline">¶</a></h2>
-<p><em>(Unreleased)</em></p>
+<p><em>(Released Thu, 3 Jun 2010)</em></p>
 <p>A medium sized development cycle. Some new features, and some
 fixes/small improvements/cleanups.</p>
 <div class="section" id="significant-features">
@@ -888,6 +911,7 @@ post-configuration update hook)</li>
             <h3><a href="index.html">Table Of Contents</a></h3>
             <ul>
 <li><a class="reference external" href="">News</a><ul>
+<li><a class="reference external" href="#version-2-1-4">Version 2.1.4</a></li>
 <li><a class="reference external" href="#version-2-1-3">Version 2.1.3</a><ul>
 <li><a class="reference external" href="#significant-features">Significant features</a></li>
 <li><a class="reference external" href="#other-changes">Other changes</a></li>
@@ -974,7 +998,7 @@ post-configuration update hook)</li>
         <li class="right" >
           <a href="devnotes.html" title="Developer notes"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.1.3 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.1.4 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">
