@@ -3,7 +3,7 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GNT-INSTANCE" "8" "07 May 2010" "ganeti 2.0" ""
+.TH "GNT-INSTANCE" "8" "03 June 2010" "ganeti 2.0" ""
 
 .SH NAME
 gnt-instance \- ganeti instance administration
@@ -398,6 +398,30 @@ If ``enabled'' the -enable-kvm flag is
 passed to kvm. If ``disabled'' -disable-kvm is
 passed. If unset no flag is passed, and the default running
 mode for your kvm binary will be used.
+.TP
+\fBmigration_downtime\fR
+Valid for the KVM hypervisor.
+
+The maximum amount of time (in ms) a KVM instance is
+allowed to be frozen during a live migration, in order to copy
+dirty memory pages. Default value is 30ms, but you may need to
+increase this value for busy instances.
+
+This option is only effective with kvm versions >= 87
+and qemu-kvm versions >= 0.11.0.
+.TP
+\fBuse_chroot\fR
+Valid for the KVM hypervisor.
+
+This boolean option determines wether to run the KVM
+instance in a chroot directory.
+
+If it is set to ``true'', an empty directory
+is created before starting the instance and its path is passed via
+the -chroot flag to kvm.
+The directory is removed when the instance is stopped.
+
+It is set to ``false'' by default.
 .PP
 The \fB--iallocator\fR option specifies the instance
 allocator plugin to use. If you pass in this option the allocator
@@ -616,7 +640,7 @@ Example:
 .fi
 .SS "LIST"
 
-\fBlist\fR [ \fB--no-headers\fR ] [ \fB--separator=\fISEPARATOR\fB\fR ] [ \fB-o \fI[+]FIELD,...\fB\fR ] [ \fBinstance\fR\fI ...\fR ]
+\fBlist\fR [ \fB--no-headers\fR ] [ \fB--separator=\fISEPARATOR\fB\fR ] [ \fB-o \fI[+]FIELD,...\fB\fR ] [ \fB--roman\fR ] [ \fBinstance\fR\fI ...\fR ]
 
 .PP
 Shows the currently configured instances with memory usage,
@@ -627,6 +651,9 @@ The \fB--no-headers\fR option will skip the
 initial header line. The \fB--separator\fR option
 takes an argument which denotes what will be used between
 the output fields. Both these options are to help scripting.
+.PP
+The \fB--roman\fR option allows latin people to better
+understand the cluster instances' status.
 .PP
 The \fB-o\fR option takes a comma-separated list
 of output fields. The available fields and their meaning
@@ -831,7 +858,7 @@ The default output field list is:
 name, os, pnode, admin_state, oper_state, oper_ram\&.
 .SS "INFO"
 
-\fBinfo\fR [ \fB-s\fR | \fB--static\fR ] { \fB--all\fR | \fB\fIinstance\fB\fR\fI ...\fR }
+\fBinfo\fR [ \fB-s\fR | \fB--static\fR ] [ \fB--roman\fR ] { \fB--all\fR | \fB\fIinstance\fB\fR\fI ...\fR }
 
 .PP
 Show detailed information about the given instance(s). This is
@@ -845,6 +872,10 @@ querying nodes, making the operation faster.
 .PP
 Use the \fB--all\fR to get info about all instances,
 rather than explicitly passing the ones you're interested in.
+.PP
+The \fB--roman\fR option can be used to cause envy among
+people who like ancient cultures, but are stuck with non-latin-friendly
+cluster virtualization technologies.
 .SS "MODIFY"
 
 \fBmodify\fR
@@ -1521,7 +1552,7 @@ used). A file name of - will be interpreted as stdin.
 .PP
 Report bugs to  <URL:http://code.google.com/p/ganeti/> or contact the
 developers using the ganeti mailing list
-<ganeti@googlegroups.com>.
+<ganeti@googlegroups.com>\&.
 .SH "SEE ALSO"
 .PP
 Ganeti overview and specifications:

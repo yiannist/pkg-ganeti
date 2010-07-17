@@ -3,7 +3,7 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GANETI-CONFD" "8" "07 May 2010" "ganeti 2.1" ""
+.TH "GANETI-CONFD" "8" "03 June 2010" "ganeti 2.1" ""
 
 .SH NAME
 ganeti-confd \- ganeti conf daemon
@@ -47,7 +47,7 @@ daemon for ganeti.
 .PP
 Report bugs to  <URL:http://code.google.com/p/ganeti/> or contact the
 developers using the ganeti mailing list
-<ganeti@googlegroups.com>.
+<ganeti@googlegroups.com>\&.
 .SH "SEE ALSO"
 .PP
 Ganeti overview and specifications:

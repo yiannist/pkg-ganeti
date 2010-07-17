@@ -126,6 +126,7 @@ rapi_PYTHON = \
 	lib/rapi/__init__.py \
 	lib/rapi/baserlib.py \
 	lib/rapi/client.py \
+	lib/rapi/client_utils.py \
 	lib/rapi/connector.py \
 	lib/rapi/rlib2.py
 
@@ -319,8 +320,11 @@ TEST_FILES = \
 	test/data/proc_drbd83.txt
 
 python_tests = \
+	test/ganeti.asyncnotifier_unittest.py \
+	test/ganeti.backend_unittest.py \
 	test/ganeti.bdev_unittest.py \
 	test/ganeti.cli_unittest.py \
+	test/ganeti.daemon_unittest.py \
 	test/ganeti.cmdlib_unittest.py \
 	test/ganeti.compat_unittest.py \
 	test/ganeti.confd.client_unittest.py \
@@ -335,10 +339,12 @@ python_tests = \
 	test/ganeti.opcodes_unittest.py \
 	test/ganeti.rapi.client_unittest.py \
 	test/ganeti.rapi.resources_unittest.py \
+	test/ganeti.rapi.rlib2_unittest.py \
 	test/ganeti.serializer_unittest.py \
 	test/ganeti.ssh_unittest.py \
 	test/ganeti.uidpool_unittest.py \
 	test/ganeti.utils_unittest.py \
+	test/ganeti.utils_mlockall_unittest.py \
 	test/ganeti.workerpool_unittest.py \
 	test/docs_unittest.py \
 	test/tempfile_fork_unittest.py

@@ -476,6 +476,8 @@ def VerifyNode(what, cluster_name):
 
   """
   result = {}
+  my_name = utils.HostInfo().name
+  port = utils.GetDaemonPort(constants.NODED)
 
   if constants.NV_HYPERVISOR in what:
     result[constants.NV_HYPERVISOR] = tmp = {}
@@ -500,7 +502,6 @@ def VerifyNode(what, cluster_name):
 
   if constants.NV_NODENETTEST in what:
     result[constants.NV_NODENETTEST] = tmp = {}
-    my_name = utils.HostInfo().name
     my_pip = my_sip = None
     for name, pip, sip in what[constants.NV_NODENETTEST]:
       if name == my_name:
@@ -511,7 +512,6 @@ def VerifyNode(what, cluster_name):
       tmp[my_name] = ("Can't find my own primary/secondary IP"
                       " in the node list")
     else:
-      port = utils.GetDaemonPort(constants.NODED)
       for name, pip, sip in what[constants.NV_NODENETTEST]:
         fail = []
         if not utils.TcpPing(pip, port, source=my_pip):
@@ -522,6 +522,17 @@ def VerifyNode(what, cluster_name):
         if fail:
           tmp[name] = ("failure using the %s interface(s)" %
                        " and ".join(fail))
+
+  if constants.NV_MASTERIP in what:
+    # FIXME: add checks on incoming data structures (here and in the
+    # rest of the function)
+    master_name, master_ip = what[constants.NV_MASTERIP]
+    if master_name == my_name:
+      source = constants.LOCALHOST_IP_ADDRESS
+    else:
+      source = None
+    result[constants.NV_MASTERIP] = utils.TcpPing(master_ip, port,
+                                                  source=source)
 
   if constants.NV_LVLIST in what:
     try:
@@ -2030,8 +2041,6 @@ def ExportSnapshot(disk, dest_node, instance, cluster_name, idx, debug):
   export_script = inst_os.export_script
 
   logfile = _InstanceLogName("export", inst_os.name, instance.name)
-  if not os.path.exists(constants.LOG_OS_DIR):
-    os.mkdir(constants.LOG_OS_DIR, 0750)
 
   real_disk = _OpenRealBD(disk)
 
@@ -2184,8 +2193,6 @@ def ImportOSIntoInstance(instance, src_node, src_images, cluster_name, debug):
   import_script = inst_os.import_script
 
   logfile = _InstanceLogName("import", instance.os, instance.name)
-  if not os.path.exists(constants.LOG_OS_DIR):
-    os.mkdir(constants.LOG_OS_DIR, 0750)
 
   comprcmd = "gunzip"
   impcmd = utils.BuildShellCmd("(cd %s; %s >%s 2>&1)", inst_os.path,
@@ -2679,6 +2686,11 @@ def PowercycleNode(hypervisor_type):
     pid = 0
   if pid > 0:
     return "Reboot scheduled in 5 seconds"
+  # ensure the child is running on ram
+  try:
+    utils.Mlockall()
+  except Exception: # pylint: disable-msg=W0703
+    pass
   time.sleep(5)
   hyper.PowercycleNode()
 

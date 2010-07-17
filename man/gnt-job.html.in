@@ -308,7 +308,15 @@ CLASS="VARIABLELIST"
 >opstart</DT
 ><DD
 ><P
->the list of opcode start times</P
+>the list of opcode start times (before
+              acquiring locks)</P
+></DD
+><DT
+>opexec</DT
+><DD
+><P
+>the list of opcode execution start times (after
+              acquiring any necessary locks)</P
 ></DD
 ><DT
 >opend</DT
@@ -340,7 +348,7 @@ CLASS="CONSTANT"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN135"
+NAME="AEN139"
 ></A
 ><H3
 >WATCH</H3
@@ -363,7 +371,7 @@ CLASS="REPLACEABLE"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN142"
+NAME="AEN146"
 ></A
 ><H2
 >REPORTING BUGS</H2
@@ -374,13 +382,13 @@ TARGET="_top"
 >http://code.google.com/p/ganeti/</A
 > or contact the
       developers using the ganeti mailing list
-      &#60;ganeti@googlegroups.com&#62;.
+      &lt;ganeti@googlegroups.com&gt;.
     </P
 ></DIV
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN146"
+NAME="AEN150"
 ></A
 ><H2
 >SEE ALSO</H2
@@ -496,7 +504,7 @@ CLASS="REFENTRYTITLE"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN193"
+NAME="AEN197"
 ></A
 ><H2
 >COPYRIGHT</H2

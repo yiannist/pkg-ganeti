@@ -57,6 +57,11 @@ except ImportError:
   import sha
   sha1 = sha.new
 
+try:
+  import ctypes
+except ImportError:
+  ctypes = None
+
 from ganeti import errors
 from ganeti import constants
 
@@ -82,6 +87,10 @@ _RANDOM_UUID_FILE = "/proc/sys/kernel/random/uuid"
 # "blksize_t, pid_t, and ssize_t shall be signed integer types"
 _STRUCT_UCRED = "iII"
 _STRUCT_UCRED_SIZE = struct.calcsize(_STRUCT_UCRED)
+
+# Flags for mlockall() (from bits/mman.h)
+_MCL_CURRENT = 1
+_MCL_FUTURE = 2
 
 
 class RunResult(object):
@@ -372,6 +381,24 @@ def RemoveFile(filename):
       raise
 
 
+def RemoveDir(dirname):
+  """Remove an empty directory.
+
+  Remove a directory, ignoring non-existing ones.
+  Other errors are passed. This includes the case,
+  where the directory is not empty, so it can't be removed.
+
+  @type dirname: str
+  @param dirname: the empty directory to be removed
+
+  """
+  try:
+    os.rmdir(dirname)
+  except OSError, err:
+    if err.errno != errno.ENOENT:
+      raise
+
+
 def RenameFile(old, new, mkdir=False, mkdir_mode=0750):
   """Renames a file.
 
@@ -566,16 +593,28 @@ def IsProcessAlive(pid):
   @return: True if the process exists
 
   """
+  def _TryStat(name):
+    try:
+      os.stat(name)
+      return True
+    except EnvironmentError, err:
+      if err.errno in (errno.ENOENT, errno.ENOTDIR):
+        return False
+      elif err.errno == errno.EINVAL:
+        raise RetryAgain(err)
+      raise
+
+  assert isinstance(pid, int), "pid must be an integer"
   if pid <= 0:
     return False
 
+  proc_entry = "/proc/%d/status" % pid
+  # /proc in a multiprocessor environment can have strange behaviors.
+  # Retry the os.stat a few times until we get a good result.
   try:
-    os.stat("/proc/%d/status" % pid)
-    return True
-  except EnvironmentError, err:
-    if err.errno in (errno.ENOENT, errno.ENOTDIR):
-      return False
-    raise
+    return Retry(_TryStat, (0.01, 1.5, 0.1), 0.5, args=[proc_entry])
+  except RetryTimeout, err:
+    err.RaiseInner()
 
 
 def ReadPidFile(pidfile):
@@ -589,7 +628,7 @@ def ReadPidFile(pidfile):
 
   """
   try:
-    raw_data = ReadFile(pidfile)
+    raw_data = ReadOneLineFile(pidfile)
   except EnvironmentError, err:
     if err.errno != errno.ENOENT:
       logging.exception("Can't read pid file")
@@ -1367,6 +1406,11 @@ def EnsureDirs(dirs):
       if err.errno != errno.EEXIST:
         raise errors.GenericError("Cannot create needed directory"
                                   " '%s': %s" % (dir_name, err))
+    try:
+      os.chmod(dir_name, dir_mode)
+    except EnvironmentError, err:
+      raise errors.GenericError("Cannot change directory permissions on"
+                                " '%s': %s" % (dir_name, err))
     if not os.path.isdir(dir_name):
       raise errors.GenericError("%s is not a directory" % dir_name)
 
@@ -1484,6 +1528,24 @@ def WriteFile(file_name, fn=None, data=None,
       RemoveFile(new_name)
 
   return result
+
+
+def ReadOneLineFile(file_name, strict=False):
+  """Return the first non-empty line from a file.
+
+  @type strict: boolean
+  @param strict: if True, abort if the file has more than one
+      non-empty line
+
+  """
+  file_lines = ReadFile(file_name).splitlines()
+  full_lines = filter(bool, file_lines)
+  if not file_lines or not full_lines:
+    raise errors.GenericError("No data in one-liner file %s" % file_name)
+  elif strict and len(full_lines) > 1:
+    raise errors.GenericError("Too many lines in one-liner file %s" %
+                              file_name)
+  return full_lines[0]
 
 
 def FirstFree(seq, base=0):
@@ -1707,6 +1769,39 @@ def CloseFDs(noclose_fds=None):
     if noclose_fds and fd in noclose_fds:
       continue
     _CloseFDNoErr(fd)
+
+
+def Mlockall():
+  """Lock current process' virtual address space into RAM.
+
+  This is equivalent to the C call mlockall(MCL_CURRENT|MCL_FUTURE),
+  see mlock(2) for more details. This function requires ctypes module.
+
+  """
+  if ctypes is None:
+    logging.warning("Cannot set memory lock, ctypes module not found")
+    return
+
+  libc = ctypes.cdll.LoadLibrary("libc.so.6")
+  if libc is None:
+    logging.error("Cannot set memory lock, ctypes cannot load libc")
+    return
+
+  # Some older version of the ctypes module don't have built-in functionality
+  # to access the errno global variable, where function error codes are stored.
+  # By declaring this variable as a pointer to an integer we can then access
+  # its value correctly, should the mlockall call fail, in order to see what
+  # the actual error code was.
+  # pylint: disable-msg=W0212
+  libc.__errno_location.restype = ctypes.POINTER(ctypes.c_int)
+
+  if libc.mlockall(_MCL_CURRENT | _MCL_FUTURE):
+    # pylint: disable-msg=W0212
+    logging.error("Cannot set memory lock: %s",
+                  os.strerror(libc.__errno_location().contents.value))
+    return
+
+  logging.debug("Memory lock set")
 
 
 def Daemonize(logfile):
@@ -1997,8 +2092,43 @@ def GetDaemonPort(daemon_name):
   return port
 
 
+class LogFileHandler(logging.FileHandler):
+  """Log handler that doesn't fallback to stderr.
+
+  When an error occurs while writing on the logfile, logging.FileHandler tries
+  to log on stderr. This doesn't work in ganeti since stderr is redirected to
+  the logfile. This class avoids failures reporting errors to /dev/console.
+
+  """
+  def __init__(self, filename, mode="a", encoding=None):
+    """Open the specified file and use it as the stream for logging.
+
+    Also open /dev/console to report errors while logging.
+
+    """
+    logging.FileHandler.__init__(self, filename, mode, encoding)
+    self.console = open(constants.DEV_CONSOLE, "a")
+
+  def handleError(self, record): # pylint: disable-msg=C0103
+    """Handle errors which occur during an emit() call.
+
+    Try to handle errors with FileHandler method, if it fails write to
+    /dev/console.
+
+    """
+    try:
+      logging.FileHandler.handleError(self, record)
+    except Exception: # pylint: disable-msg=W0703
+      try:
+        self.console.write("Cannot log message:\n%s\n" % self.format(record))
+      except Exception: # pylint: disable-msg=W0703
+        # Log handler tried everything it could, now just give up
+        pass
+
+
 def SetupLogging(logfile, debug=0, stderr_logging=False, program="",
-                 multithreaded=False, syslog=constants.SYSLOG_USAGE):
+                 multithreaded=False, syslog=constants.SYSLOG_USAGE,
+                 console_logging=False):
   """Configures the logging module.
 
   @type logfile: str
@@ -2017,6 +2147,9 @@ def SetupLogging(logfile, debug=0, stderr_logging=False, program="",
       - if no, syslog is not used
       - if yes, syslog is used (in addition to file-logging)
       - if only, only syslog is used
+  @type console_logging: boolean
+  @param console_logging: if True, will use a FileHandler which falls back to
+      the system console if logging fails
   @raise EnvironmentError: if we can't open the log file and
       syslog/stderr logging is disabled
 
@@ -2068,7 +2201,10 @@ def SetupLogging(logfile, debug=0, stderr_logging=False, program="",
     # the error if stderr_logging is True, and if false we re-raise the
     # exception since otherwise we could run but without any logs at all
     try:
-      logfile_handler = logging.FileHandler(logfile)
+      if console_logging:
+        logfile_handler = LogFileHandler(logfile)
+      else:
+        logfile_handler = logging.FileHandler(logfile)
       logfile_handler.setFormatter(formatter)
       if debug:
         logfile_handler.setLevel(logging.DEBUG)
@@ -2394,6 +2530,26 @@ def RunInSeparateProcess(fn, *args):
   return bool(exitcode)
 
 
+def IgnoreSignals(fn, *args, **kwargs):
+  """Tries to call a function ignoring failures due to EINTR.
+
+  """
+  try:
+    return fn(*args, **kwargs)
+  except EnvironmentError, err:
+    if err.errno == errno.EINTR:
+      return None
+    else:
+      raise
+  except (select.error, socket.error), err:
+    # In python 2.6 and above select.error is an IOError, so it's handled
+    # above, in 2.5 and below it's not, and it's handled here.
+    if err.args and err.args[0] == errno.EINTR:
+      return None
+    else:
+      raise
+
+
 def LockedMethod(fn):
   """Synchronized object access decorator.
 
@@ -2498,11 +2654,24 @@ def ReadWatcherPauseFile(filename, now=None, remove_after=3600):
 class RetryTimeout(Exception):
   """Retry loop timed out.
 
+  Any arguments which was passed by the retried function to RetryAgain will be
+  preserved in RetryTimeout, if it is raised. If such argument was an exception
+  the RaiseInner helper method will reraise it.
+
   """
+  def RaiseInner(self):
+    if self.args and isinstance(self.args[0], Exception):
+      raise self.args[0]
+    else:
+      raise RetryTimeout(*self.args)
 
 
 class RetryAgain(Exception):
   """Retry again.
+
+  Any arguments passed to RetryAgain will be preserved, if a timeout occurs, as
+  arguments to RetryTimeout. If an exception is passed, the RaiseInner() method
+  of the RetryTimeout() method can be used to reraise it.
 
   """
 
@@ -2612,11 +2781,12 @@ def Retry(fn, delay, timeout, args=None, wait_fn=time.sleep,
   assert calc_delay is None or callable(calc_delay)
 
   while True:
+    retry_args = []
     try:
       # pylint: disable-msg=W0142
       return fn(*args)
-    except RetryAgain:
-      pass
+    except RetryAgain, err:
+      retry_args = err.args
     except RetryTimeout:
       raise errors.ProgrammerError("Nested retry loop detected that didn't"
                                    " handle RetryTimeout")
@@ -2624,7 +2794,8 @@ def Retry(fn, delay, timeout, args=None, wait_fn=time.sleep,
     remaining_time = end_time - _time_fn()
 
     if remaining_time < 0.0:
-      raise RetryTimeout()
+      # pylint: disable-msg=W0142
+      raise RetryTimeout(*retry_args)
 
     assert remaining_time >= 0.0
 

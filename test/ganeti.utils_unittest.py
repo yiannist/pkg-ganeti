@@ -38,6 +38,8 @@ import OpenSSL
 import warnings
 import distutils.version
 import glob
+import md5
+import errno
 
 import ganeti
 import testutils
@@ -51,7 +53,7 @@ from ganeti.utils import IsProcessAlive, RunCmd, \
      ShellQuote, ShellQuoteArgs, TcpPing, ListVisibleFiles, \
      SetEtcHostsEntry, RemoveEtcHostsEntry, FirstFree, OwnIpAddress, \
      TailFile, ForceDictType, SafeEncode, IsNormAbsPath, FormatTime, \
-     UnescapeAndSplit, RunParts, PathJoin, HostInfo
+     UnescapeAndSplit, RunParts, PathJoin, HostInfo, ReadOneLineFile
 
 from ganeti.errors import LockError, UnitParseError, GenericError, \
      ProgrammerError, OpPrereqError
@@ -516,6 +518,107 @@ class TestMatchNameComponent(unittest.TestCase):
                      None)
 
 
+class TestReadFile(testutils.GanetiTestCase):
+
+  def testReadAll(self):
+    data = utils.ReadFile(self._TestDataFilename("cert1.pem"))
+    self.assertEqual(len(data), 814)
+
+    h = md5.new()
+    h.update(data)
+    self.assertEqual(h.hexdigest(), "a491efb3efe56a0535f924d5f8680fd4")
+
+  def testReadSize(self):
+    data = utils.ReadFile(self._TestDataFilename("cert1.pem"),
+                          size=100)
+    self.assertEqual(len(data), 100)
+
+    h = md5.new()
+    h.update(data)
+    self.assertEqual(h.hexdigest(), "893772354e4e690b9efd073eed433ce7")
+
+  def testError(self):
+    self.assertRaises(EnvironmentError, utils.ReadFile,
+                      "/dev/null/does-not-exist")
+
+
+class TestReadOneLineFile(testutils.GanetiTestCase):
+
+  def setUp(self):
+    testutils.GanetiTestCase.setUp(self)
+
+  def testDefault(self):
+    data = ReadOneLineFile(self._TestDataFilename("cert1.pem"))
+    self.assertEqual(len(data), 27)
+    self.assertEqual(data, "-----BEGIN CERTIFICATE-----")
+
+  def testNotStrict(self):
+    data = ReadOneLineFile(self._TestDataFilename("cert1.pem"), strict=False)
+    self.assertEqual(len(data), 27)
+    self.assertEqual(data, "-----BEGIN CERTIFICATE-----")
+
+  def testStrictFailure(self):
+    self.assertRaises(errors.GenericError, ReadOneLineFile,
+                      self._TestDataFilename("cert1.pem"), strict=True)
+
+  def testLongLine(self):
+    dummydata = (1024 * "Hello World! ")
+    myfile = self._CreateTempFile()
+    utils.WriteFile(myfile, data=dummydata)
+    datastrict = ReadOneLineFile(myfile, strict=True)
+    datalax = ReadOneLineFile(myfile, strict=False)
+    self.assertEqual(dummydata, datastrict)
+    self.assertEqual(dummydata, datalax)
+
+  def testNewline(self):
+    myfile = self._CreateTempFile()
+    myline = "myline"
+    for nl in ["", "\n", "\r\n"]:
+      dummydata = "%s%s" % (myline, nl)
+      utils.WriteFile(myfile, data=dummydata)
+      datalax = ReadOneLineFile(myfile, strict=False)
+      self.assertEqual(myline, datalax)
+      datastrict = ReadOneLineFile(myfile, strict=True)
+      self.assertEqual(myline, datastrict)
+
+  def testWhitespaceAndMultipleLines(self):
+    myfile = self._CreateTempFile()
+    for nl in ["", "\n", "\r\n"]:
+      for ws in [" ", "\t", "\t\t  \t", "\t "]:
+        dummydata = (1024 * ("Foo bar baz %s%s" % (ws, nl)))
+        utils.WriteFile(myfile, data=dummydata)
+        datalax = ReadOneLineFile(myfile, strict=False)
+        if nl:
+          self.assert_(set("\r\n") & set(dummydata))
+          self.assertRaises(errors.GenericError, ReadOneLineFile,
+                            myfile, strict=True)
+          explen = len("Foo bar baz ") + len(ws)
+          self.assertEqual(len(datalax), explen)
+          self.assertEqual(datalax, dummydata[:explen])
+          self.assertFalse(set("\r\n") & set(datalax))
+        else:
+          datastrict = ReadOneLineFile(myfile, strict=True)
+          self.assertEqual(dummydata, datastrict)
+          self.assertEqual(dummydata, datalax)
+
+  def testEmptylines(self):
+    myfile = self._CreateTempFile()
+    myline = "myline"
+    for nl in ["\n", "\r\n"]:
+      for ol in ["", "otherline"]:
+        dummydata = "%s%s%s%s%s%s" % (nl, nl, myline, nl, ol, nl)
+        utils.WriteFile(myfile, data=dummydata)
+        self.assert_(set("\r\n") & set(dummydata))
+        datalax = ReadOneLineFile(myfile, strict=False)
+        self.assertEqual(myline, datalax)
+        if ol:
+          self.assertRaises(errors.GenericError, ReadOneLineFile,
+                            myfile, strict=True)
+        else:
+          datastrict = ReadOneLineFile(myfile, strict=True)
+          self.assertEqual(myline, datastrict)
+
+
 class TestTimestampForFilename(unittest.TestCase):
   def test(self):
     self.assert_("." not in utils.TimestampForFilename())
@@ -904,8 +1007,8 @@ class TestOwnIpAddress(unittest.TestCase):
   def testNowOwnAddress(self):
     """check that I don't own an address"""
 
-    # network 192.0.2.0/24 is reserved for test/documentation as per
-    # rfc 3330, so we *should* not have an address of this range... if
+    # Network 192.0.2.0/24 is reserved for test/documentation as per
+    # RFC 5735, so we *should* not have an address of this range... if
     # this fails, we should extend the test to multiple addresses
     DST_IP = "192.0.2.1"
     self.failIf(OwnIpAddress(DST_IP), "Should not own IP address %s" % DST_IP)
@@ -1320,8 +1423,8 @@ class TestForceDictType(unittest.TestCase):
     self.assertRaises(errors.TypeEnforcementError, self._fdt, {'d': '4 L'})
 
 
-class TestIsAbsNormPath(unittest.TestCase):
-  """Testing case for IsProcessAlive"""
+class TestIsNormAbsPath(unittest.TestCase):
+  """Testing case for IsNormAbsPath"""
 
   def _pathTestHelper(self, path, result):
     if result:
@@ -1604,19 +1707,40 @@ class TestMakedirs(unittest.TestCase):
 
 
 class TestRetry(testutils.GanetiTestCase):
+  def setUp(self):
+    testutils.GanetiTestCase.setUp(self)
+    self.retries = 0
+
   @staticmethod
   def _RaiseRetryAgain():
     raise utils.RetryAgain()
 
+  @staticmethod
+  def _RaiseRetryAgainWithArg(args):
+    raise utils.RetryAgain(*args)
+
   def _WrongNestedLoop(self):
     return utils.Retry(self._RaiseRetryAgain, 0.01, 0.02)
+
+  def _RetryAndSucceed(self, retries):
+    if self.retries < retries:
+      self.retries += 1
+      raise utils.RetryAgain()
+    else:
+      return True
 
   def testRaiseTimeout(self):
     self.failUnlessRaises(utils.RetryTimeout, utils.Retry,
                           self._RaiseRetryAgain, 0.01, 0.02)
+    self.failUnlessRaises(utils.RetryTimeout, utils.Retry,
+                          self._RetryAndSucceed, 0.01, 0, args=[1])
+    self.failUnlessEqual(self.retries, 1)
 
   def testComplete(self):
     self.failUnlessEqual(utils.Retry(lambda: True, 0, 1), True)
+    self.failUnlessEqual(utils.Retry(self._RetryAndSucceed, 0, 1, args=[2]),
+                         True)
+    self.failUnlessEqual(self.retries, 2)
 
   def testNestedLoop(self):
     try:
@@ -1624,6 +1748,45 @@ class TestRetry(testutils.GanetiTestCase):
                             self._WrongNestedLoop, 0, 1)
     except utils.RetryTimeout:
       self.fail("Didn't detect inner loop's exception")
+
+  def testTimeoutArgument(self):
+    retry_arg="my_important_debugging_message"
+    try:
+      utils.Retry(self._RaiseRetryAgainWithArg, 0.01, 0.02, args=[[retry_arg]])
+    except utils.RetryTimeout, err:
+      self.failUnlessEqual(err.args, (retry_arg, ))
+    else:
+      self.fail("Expected timeout didn't happen")
+
+  def testRaiseInnerWithExc(self):
+    retry_arg="my_important_debugging_message"
+    try:
+      try:
+        utils.Retry(self._RaiseRetryAgainWithArg, 0.01, 0.02,
+                    args=[[errors.GenericError(retry_arg, retry_arg)]])
+      except utils.RetryTimeout, err:
+        err.RaiseInner()
+      else:
+        self.fail("Expected timeout didn't happen")
+    except errors.GenericError, err:
+      self.failUnlessEqual(err.args, (retry_arg, retry_arg))
+    else:
+      self.fail("Expected GenericError didn't happen")
+
+  def testRaiseInnerWithMsg(self):
+    retry_arg="my_important_debugging_message"
+    try:
+      try:
+        utils.Retry(self._RaiseRetryAgainWithArg, 0.01, 0.02,
+                    args=[[retry_arg, retry_arg]])
+      except utils.RetryTimeout, err:
+        err.RaiseInner()
+      else:
+        self.fail("Expected timeout didn't happen")
+    except utils.RetryTimeout, err:
+      self.failUnlessEqual(err.args, (retry_arg, retry_arg))
+    else:
+      self.fail("Expected RetryTimeout didn't happen")
 
 
 class TestLineSplitter(unittest.TestCase):
@@ -1659,6 +1822,61 @@ class TestLineSplitter(unittest.TestCase):
     self.assertEqual(lines, ["", "", "Hello World", "Foo", " Bar", " BazMoo",
                              "", "x"])
 
+
+class TestIgnoreSignals(unittest.TestCase):
+  """Test the IgnoreSignals decorator"""
+
+  @staticmethod
+  def _Raise(exception):
+    raise exception
+
+  @staticmethod
+  def _Return(rval):
+    return rval
+
+  def testIgnoreSignals(self):
+    sock_err_intr = socket.error(errno.EINTR, "Message")
+    sock_err_inval = socket.error(errno.EINVAL, "Message")
+
+    env_err_intr = EnvironmentError(errno.EINTR, "Message")
+    env_err_inval = EnvironmentError(errno.EINVAL, "Message")
+
+    self.assertRaises(socket.error, self._Raise, sock_err_intr)
+    self.assertRaises(socket.error, self._Raise, sock_err_inval)
+    self.assertRaises(EnvironmentError, self._Raise, env_err_intr)
+    self.assertRaises(EnvironmentError, self._Raise, env_err_inval)
+
+    self.assertEquals(utils.IgnoreSignals(self._Raise, sock_err_intr), None)
+    self.assertEquals(utils.IgnoreSignals(self._Raise, env_err_intr), None)
+    self.assertRaises(socket.error, utils.IgnoreSignals, self._Raise,
+                      sock_err_inval)
+    self.assertRaises(EnvironmentError, utils.IgnoreSignals, self._Raise,
+                      env_err_inval)
+
+    self.assertEquals(utils.IgnoreSignals(self._Return, True), True)
+    self.assertEquals(utils.IgnoreSignals(self._Return, 33), 33)
+
+
+class TestEnsureDirs(unittest.TestCase):
+  """Tests for EnsureDirs"""
+
+  def setUp(self):
+    self.dir = tempfile.mkdtemp()
+    self.old_umask = os.umask(0777)
+
+  def testEnsureDirs(self):
+    utils.EnsureDirs([
+        (utils.PathJoin(self.dir, "foo"), 0777),
+        (utils.PathJoin(self.dir, "bar"), 0000),
+        ])
+    self.assertEquals(os.stat(utils.PathJoin(self.dir, "foo"))[0] & 0777, 0777)
+    self.assertEquals(os.stat(utils.PathJoin(self.dir, "bar"))[0] & 0777, 0000)
+
+  def tearDown(self):
+    os.rmdir(utils.PathJoin(self.dir, "foo"))
+    os.rmdir(utils.PathJoin(self.dir, "bar"))
+    os.rmdir(self.dir)
+    os.umask(self.old_umask)
 
 if __name__ == '__main__':
   testutils.GanetiTestProgram()

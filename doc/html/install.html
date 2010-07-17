@@ -5,13 +5,13 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Ganeti installation tutorial &mdash; Ganeti v2.1.2.1 documentation</title>
+    <title>Ganeti installation tutorial &mdash; Ganeti v2.1.3 documentation</title>
     <link rel="stylesheet" href="_static/default.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.1.2.1',
+        VERSION:     '2.1.3',
         COLLAPSE_MODINDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -19,7 +19,7 @@
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.1.2.1 documentation" href="index.html" />
+    <link rel="top" title="Ganeti v2.1.3 documentation" href="index.html" />
     <link rel="next" title="Ganeti administrator’s guide" href="admin.html" />
     <link rel="prev" title="Ganeti quick installation guide" href="install-quick.html" /> 
   </head>
@@ -33,7 +33,7 @@
         <li class="right" >
           <a href="install-quick.html" title="Ganeti quick installation guide"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.1.2.1 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.1.3 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -508,12 +508,12 @@ cluster commands</li>
 installation script. An example OS that works under Debian and can
 install Debian and Ubuntu instace OSes is provided on the project web
 site.  Download it from the project page and follow the instructions in
-the <tt class="docutils literal"><span class="pre">README</span></tt> file.  Here is the installation procedure (replace 0.7
+the <tt class="docutils literal"><span class="pre">README</span></tt> file.  Here is the installation procedure (replace 0.9
 with the latest version that is compatible with your ganeti version):</p>
 <div class="highlight-text"><div class="highlight"><pre>cd /usr/local/src/
-wget http://ganeti.googlecode.com/files/ganeti-instance-debootstrap-0.7.tar.gz
-tar xzf ganeti-instance-debootstrap-0.7.tar.gz
-cd ganeti-instance-debootstrap-0.7
+wget http://ganeti.googlecode.com/files/ganeti-instance-debootstrap-0.9.tar.gz
+tar xzf ganeti-instance-debootstrap-0.9.tar.gz
+cd ganeti-instance-debootstrap-0.9
 ./configure
 make
 make install
@@ -531,6 +531,20 @@ installed.</p>
 <div class="last highlight-text"><div class="highlight"><pre>apt-get install debootstrap dump kpartx
 </pre></div>
 </div>
+</div>
+<div class="admonition-kvm admonition ">
+<p class="first admonition-title">KVM</p>
+<p>In order for debootstrap instances to be able to shutdown cleanly
+they must install have basic acpi support inside the instance. Which
+packages are needed depend on the exact flavor of debian or ubuntu
+which you&#8217;re installing, but the example defaults file has a
+commented out configuration line that works for debian lenny and
+squeeze:</p>
+<div class="highlight-text"><div class="highlight"><pre>EXTRA_PKGS=&quot;acpi-support-base,console-tools,udev&quot;
+</pre></div>
+</div>
+<p class="last">kbd can be used instead of console-tools, and more packages can be
+added, of course, if needed.</p>
 </div>
 <p>Alternatively, you can create your own OS definitions. See the manpage
 <em>ganeti-os-interface</em>.</p>
@@ -744,7 +758,7 @@ instance level.</td></tr>
         <li class="right" >
           <a href="install-quick.html" title="Ganeti quick installation guide"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.1.2.1 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.1.3 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

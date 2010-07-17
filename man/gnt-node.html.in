@@ -353,7 +353,7 @@ CLASS="REPLACEABLE"
 ><I
 >[+]FIELD,...</I
 ></TT
->]<BR> [node...]</P
+>]<BR> [--roman]<BR> [node...]</P
 ><P
 >        Lists the nodes in the cluster.
       </P
@@ -393,6 +393,14 @@ CLASS="OPTION"
 > can be used to
         grab locks for all the nodes and ensure consistent view of the
         cluster (but this might stall the query for a long time).
+      </P
+><P
+>        Passing the <CODE
+CLASS="OPTION"
+>--roman</CODE
+> option gnt-node list will try to
+        output some of its fields in a latin-friendly way. This is not the
+        default for backwards compatibility.
       </P
 ><P
 >        The <CODE
@@ -701,7 +709,7 @@ CLASS="ACRONYM"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN271"
+NAME="AEN275"
 ></A
 ><H3
 >LIST-TAGS</H3
@@ -721,7 +729,7 @@ CLASS="REPLACEABLE"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN278"
+NAME="AEN282"
 ></A
 ><H3
 >MIGRATE</H3
@@ -763,7 +771,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN292"
+NAME="AEN296"
 ></A
 ><H3
 >MODIFY</H3
@@ -843,7 +851,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN320"
+NAME="AEN324"
 ></A
 ><H3
 >REMOVE</H3
@@ -873,7 +881,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN329"
+NAME="AEN333"
 ></A
 ><H3
 >REMOVE-TAGS</H3
@@ -915,7 +923,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN342"
+NAME="AEN346"
 ></A
 ><H3
 >VOLUMES</H3
@@ -1042,7 +1050,7 @@ node1.example.com /dev/hdc1 xenvg instance1.example.com-sda_11001.data 256  inst
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN392"
+NAME="AEN396"
 ></A
 ><H3
 >LIST-STORAGE</H3
@@ -1226,7 +1234,7 @@ node2 lvm-pv /dev/sdb1 698.6G   0M 698.6G Y
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN457"
+NAME="AEN461"
 ></A
 ><H3
 >MODIFY-STORAGE</H3
@@ -1273,7 +1281,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN474"
+NAME="AEN478"
 ></A
 ><H3
 >REPAIR-STORAGE</H3
@@ -1362,7 +1370,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN496"
+NAME="AEN500"
 ></A
 ><H3
 >POWERCYCLE</H3
@@ -1413,7 +1421,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN512"
+NAME="AEN516"
 ></A
 ><H2
 >REPORTING BUGS</H2
@@ -1424,13 +1432,13 @@ TARGET="_top"
 >http://code.google.com/p/ganeti/</A
 > or contact the
       developers using the ganeti mailing list
-      &#60;ganeti@googlegroups.com&#62;.
+      &lt;ganeti@googlegroups.com&gt;.
     </P
 ></DIV
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN516"
+NAME="AEN520"
 ></A
 ><H2
 >SEE ALSO</H2
@@ -1546,7 +1554,7 @@ CLASS="REFENTRYTITLE"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN563"
+NAME="AEN567"
 ></A
 ><H2
 >COPYRIGHT</H2

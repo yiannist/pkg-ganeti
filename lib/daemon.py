@@ -25,7 +25,6 @@
 import asyncore
 import os
 import signal
-import errno
 import logging
 import sched
 import time
@@ -73,7 +72,26 @@ class AsyncoreScheduler(sched.scheduler):
     sched.scheduler.__init__(self, timefunc, AsyncoreDelayFunction)
 
 
-class AsyncUDPSocket(asyncore.dispatcher):
+class GanetiBaseAsyncoreDispatcher(asyncore.dispatcher):
+  """Base Ganeti Asyncore Dispacher
+
+  """
+  # this method is overriding an asyncore.dispatcher method
+  def handle_error(self):
+    """Log an error in handling any request, and proceed.
+
+    """
+    logging.exception("Error while handling asyncore request")
+
+  # this method is overriding an asyncore.dispatcher method
+  def writable(self):
+    """Most of the time we don't want to check for writability.
+
+    """
+    return False
+
+
+class AsyncUDPSocket(GanetiBaseAsyncoreDispatcher):
   """An improved asyncore udp socket.
 
   """
@@ -81,7 +99,7 @@ class AsyncUDPSocket(asyncore.dispatcher):
     """Constructor for AsyncUDPSocket
 
     """
-    asyncore.dispatcher.__init__(self)
+    GanetiBaseAsyncoreDispatcher.__init__(self)
     self._out_queue = []
     self.create_socket(socket.AF_INET, socket.SOCK_DGRAM)
 
@@ -92,27 +110,14 @@ class AsyncUDPSocket(asyncore.dispatcher):
     # differ and treat all messages equally.
     pass
 
-  def do_read(self):
-    try:
-      payload, address = self.recvfrom(constants.MAX_UDP_DATA_SIZE)
-    except socket.error, err:
-      if err.errno == errno.EINTR:
-        # we got a signal while trying to read. no need to do anything,
-        # handle_read will be called again if there is data on the socket.
-        return
-      else:
-        raise
-    ip, port = address
-    self.handle_datagram(payload, ip, port)
-
   # this method is overriding an asyncore.dispatcher method
   def handle_read(self):
-    try:
-      self.do_read()
-    except: # pylint: disable-msg=W0702
-      # we need to catch any exception here, log it, but proceed, because even
-      # if we failed handling a single request, we still want to continue.
-      logging.error("Unexpected exception", exc_info=True)
+    recv_result = utils.IgnoreSignals(self.recvfrom,
+                                      constants.MAX_UDP_DATA_SIZE)
+    if recv_result is not None:
+      payload, address = recv_result
+      ip, port = address
+      self.handle_datagram(payload, ip, port)
 
   def handle_datagram(self, payload, ip, port):
     """Handle an already read udp datagram
@@ -126,27 +131,14 @@ class AsyncUDPSocket(asyncore.dispatcher):
     # something scheduled to be written
     return bool(self._out_queue)
 
+  # this method is overriding an asyncore.dispatcher method
   def handle_write(self):
-    try:
-      if not self._out_queue:
-        logging.error("handle_write called with empty output queue")
-        return
-      (ip, port, payload) = self._out_queue[0]
-      try:
-        self.sendto(payload, 0, (ip, port))
-      except socket.error, err:
-        if err.errno == errno.EINTR:
-          # we got a signal while trying to write. no need to do anything,
-          # handle_write will be called again because we haven't emptied the
-          # _out_queue, and we'll try again
-          return
-        else:
-          raise
-      self._out_queue.pop(0)
-    except: # pylint: disable-msg=W0702
-      # we need to catch any exception here, log it, but proceed, because even
-      # if we failed sending a single datagram we still want to continue.
-      logging.error("Unexpected exception", exc_info=True)
+    if not self._out_queue:
+      logging.error("handle_write called with empty output queue")
+      return
+    (ip, port, payload) = self._out_queue[0]
+    utils.IgnoreSignals(self.sendto, payload, 0, (ip, port))
+    self._out_queue.pop(0)
 
   def enqueue_send(self, ip, port, payload):
     """Enqueue a datagram to be sent when possible
@@ -168,7 +160,7 @@ class AsyncUDPSocket(asyncore.dispatcher):
     """
     result = utils.WaitForFdCondition(self, select.POLLIN, timeout)
     if result is not None and result & select.POLLIN:
-      self.do_read()
+      self.handle_read()
       return True
     else:
       return False
@@ -190,6 +182,7 @@ class Mainloop(object):
 
   @utils.SignalHandled([signal.SIGCHLD])
   @utils.SignalHandled([signal.SIGTERM])
+  @utils.SignalHandled([signal.SIGINT])
   def Run(self, signal_handlers=None):
     """Runs the mainloop.
 
@@ -216,7 +209,7 @@ class Mainloop(object):
         handler = signal_handlers[sig]
         if handler.called:
           self._CallSignalWaiters(sig)
-          running = (sig != signal.SIGTERM)
+          running = sig not in (signal.SIGTERM, signal.SIGINT)
           handler.Clear()
 
   def _CallSignalWaiters(self, signum):
@@ -241,7 +234,8 @@ class Mainloop(object):
     self._signal_wait.append(owner)
 
 
-def GenericMain(daemon_name, optionparser, dirs, check_fn, exec_fn):
+def GenericMain(daemon_name, optionparser, dirs, check_fn, exec_fn,
+                console_logging=False):
   """Shared main function for daemons.
 
   @type daemon_name: string
@@ -249,14 +243,18 @@ def GenericMain(daemon_name, optionparser, dirs, check_fn, exec_fn):
   @type optionparser: optparse.OptionParser
   @param optionparser: initialized optionparser with daemon-specific options
                        (common -f -d options will be handled by this module)
-  @type dirs: list of strings
-  @param dirs: list of directories that must exist for this daemon to work
+  @type dirs: list of (string, integer)
+  @param dirs: list of directories that must be created if they don't exist,
+               and the permissions to be used to create them
   @type check_fn: function which accepts (options, args)
   @param check_fn: function that checks start conditions and exits if they're
                    not met
   @type exec_fn: function which accepts (options, args)
   @param exec_fn: function that's executed with the daemon's pid file held, and
                   runs the daemon itself.
+  @type console_logging: boolean
+  @param console_logging: if True, the daemon will fall back to the system
+                          console if logging fails
 
   """
   optionparser.add_option("-f", "--foreground", dest="fork",
@@ -324,7 +322,8 @@ def GenericMain(daemon_name, optionparser, dirs, check_fn, exec_fn):
                        stderr_logging=not options.fork,
                        multithreaded=multithread,
                        program=daemon_name,
-                       syslog=options.syslog)
+                       syslog=options.syslog,
+                       console_logging=console_logging)
     logging.info("%s daemon startup", daemon_name)
     exec_fn(options, args)
   finally:

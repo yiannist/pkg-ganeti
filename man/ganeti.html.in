@@ -38,8 +38,8 @@ CLASS="SCREEN"
 ># gnt-cluster init cluster1.example.com
 # gnt-node add node2.example.com
 # gnt-instance add -n node2.example.com \
-&#62; -o debootstrap --disk 0:size=30g \
-&#62; -t plain instance1.example.com
+&gt; -o debootstrap --disk 0:size=30g \
+&gt; -t plain instance1.example.com
     </PRE
 ></DIV
 ><DIV
@@ -319,7 +319,7 @@ TARGET="_top"
 >http://code.google.com/p/ganeti/</A
 > or contact the
       developers using the ganeti mailing list
-      &#60;ganeti@googlegroups.com&#62;.
+      &lt;ganeti@googlegroups.com&gt;.
     </P
 ></DIV
 ><DIV

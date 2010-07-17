@@ -3,7 +3,7 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GNT-CLUSTER" "8" "07 May 2010" "ganeti 2.0" ""
+.TH "GNT-CLUSTER" "8" "03 June 2010" "ganeti 2.0" ""
 
 .SH NAME
 gnt-cluster \- ganeti administration, cluster-wide
@@ -108,11 +108,15 @@ the argument \fI--yes-do-it.\fR
 Displays the current master node.
 .SS "INFO"
 
-\fBinfo\fR
+\fBinfo\fR [ \fB--roman\fR ]
 
 .PP
 Shows runtime cluster information: cluster name, architecture
 (32 or 64 bit), master node, node list and instance list.
+.PP
+Passing the \fB--roman\fR option gnt-cluster info will try
+to print its integer fields in a latin friendly way. This allows
+further diffusion of Ganeti among ancient cultures.
 .SS "INIT"
 
 \fBinit\fR
@@ -242,6 +246,15 @@ configured on all nodes in
 the \fI/etc/xen/xend-config.sxp\fR
 file, under the
 key ``xend-relocation-port''\&.
+.TP
+\fBmigration_bandwidth\fR
+Valid for the KVM hypervisor.
+
+This option specifies the maximum bandwidth that KVM will
+use for instance live migrations. The value is in MiB/s.
+
+This option is only effective with kvm versions >= 78
+and qemu-kvm versions >= 0.10.0.
 .PP
 The \fB--backend-parameters\fR option allows you to set
 the default backend parameters for the cluster. The parameter
@@ -526,7 +539,7 @@ Show the cluster version.
 .PP
 Report bugs to  <URL:http://code.google.com/p/ganeti/> or contact the
 developers using the ganeti mailing list
-<ganeti@googlegroups.com>.
+<ganeti@googlegroups.com>\&.
 .SH "SEE ALSO"
 .PP
 Ganeti overview and specifications:
