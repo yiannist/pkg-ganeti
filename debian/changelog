@@ -1,3 +1,10 @@
+ganeti (2.1.6-1) unstable; urgency=low
+
+  * New upstream version(s)
+  * Standard version 3.9.0 (no changes needed)
+
+ -- Iustin Pop <iustin@debian.org>  Sat, 17 Jul 2010 19:18:07 +0200
+
 ganeti (2.1.2.1-2) unstable; urgency=low
 
   * Ship the defaults file provided by upstream (Closes: #579452)
