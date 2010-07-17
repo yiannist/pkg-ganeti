@@ -3,7 +3,7 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GANETI" "7" "18 June 2010" "ganeti 2.0" ""
+.TH "GANETI" "7" "01 July 2010" "ganeti 2.0" ""
 
 .SH NAME
 ganeti \- cluster-based virtualization management

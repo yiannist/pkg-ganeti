@@ -1,3 +1,5 @@
+
+
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
   "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 
@@ -5,21 +7,22 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Ganeti 2.0 design &mdash; Ganeti v2.1.4 documentation</title>
+    <title>Ganeti 2.0 design &mdash; Ganeti v2.1.5 documentation</title>
     <link rel="stylesheet" href="_static/default.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.1.4',
-        COLLAPSE_MODINDEX: false,
+        VERSION:     '2.1.5',
+        COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
       };
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.1.4 documentation" href="index.html" />
+    <link rel="top" title="Ganeti v2.1.5 documentation" href="index.html" />
     <link rel="next" title="Ganeti 2.1 design" href="design-2.1.html" />
     <link rel="prev" title="Security in Ganeti" href="security.html" /> 
   </head>
@@ -33,7 +36,7 @@
         <li class="right" >
           <a href="security.html" title="Security in Ganeti"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.1.4 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.1.5 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -51,19 +54,19 @@ paving the way for additional features in future 2.x versions.</p>
 <div class="contents topic" id="contents">
 <p class="topic-title first">Contents</p>
 <ul class="simple">
-<li><a class="reference internal" href="#ganeti-2-0-design" id="id9">Ganeti 2.0 design</a><ul>
-<li><a class="reference internal" href="#objective" id="id10">Objective</a></li>
-<li><a class="reference internal" href="#background" id="id11">Background</a><ul>
-<li><a class="reference internal" href="#scalability-problems" id="id12">Scalability problems</a></li>
-<li><a class="reference internal" href="#artificial-restrictions" id="id13">Artificial restrictions</a></li>
-<li><a class="reference internal" href="#architecture-issues" id="id14">Architecture issues</a></li>
+<li><a class="reference external" href="#ganeti-2-0-design" id="id9">Ganeti 2.0 design</a><ul>
+<li><a class="reference external" href="#objective" id="id10">Objective</a></li>
+<li><a class="reference external" href="#background" id="id11">Background</a><ul>
+<li><a class="reference external" href="#scalability-problems" id="id12">Scalability problems</a></li>
+<li><a class="reference external" href="#artificial-restrictions" id="id13">Artificial restrictions</a></li>
+<li><a class="reference external" href="#architecture-issues" id="id14">Architecture issues</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#overview" id="id15">Overview</a></li>
-<li><a class="reference internal" href="#detailed-design" id="id16">Detailed design</a><ul>
-<li><a class="reference internal" href="#core-changes" id="id17">Core changes</a></li>
-<li><a class="reference internal" href="#feature-changes" id="id18">Feature changes</a></li>
-<li><a class="reference internal" href="#interface-changes" id="id19">Interface changes</a></li>
+<li><a class="reference external" href="#overview" id="id15">Overview</a></li>
+<li><a class="reference external" href="#detailed-design" id="id16">Detailed design</a><ul>
+<li><a class="reference external" href="#core-changes" id="id17">Core changes</a></li>
+<li><a class="reference external" href="#feature-changes" id="id18">Feature changes</a></li>
+<li><a class="reference external" href="#interface-changes" id="id19">Interface changes</a></li>
 </ul>
 </li>
 </ul>
@@ -172,18 +175,18 @@ the operation of the cluster</li>
 <h3><a class="toc-backref" href="#id17">Core changes</a><a class="headerlink" href="#core-changes" title="Permalink to this headline">¶</a></h3>
 <p>The main changes will be switching from a per-process model to a
 daemon based model, where the individual gnt-* commands will be
-clients that talk to this daemon (see <a class="reference internal" href="#master-daemon">Master daemon</a>). This will
+clients that talk to this daemon (see <a class="reference external" href="#master-daemon">Master daemon</a>). This will
 allow us to get rid of the global cluster lock for most operations,
-having instead a per-object lock (see <a class="reference internal" href="#granular-locking">Granular locking</a>). Also, the
+having instead a per-object lock (see <a class="reference external" href="#granular-locking">Granular locking</a>). Also, the
 daemon will be able to queue jobs, and this will allow the individual
 clients to submit jobs without waiting for them to finish, and also
-see the result of old requests (see <a class="reference internal" href="#job-queue">Job Queue</a>).</p>
+see the result of old requests (see <a class="reference external" href="#job-queue">Job Queue</a>).</p>
 <p>Beside these major changes, another &#8216;core&#8217; change but that will not be
 as visible to the users will be changing the model of object attribute
 storage, and separate that into name spaces (such that an Xen PVM
 instance will not have the Xen HVM parameters). This will allow future
 flexibility in defining additional parameters. For more details see
-<a class="reference internal" href="#object-parameters">Object parameters</a>.</p>
+<a class="reference external" href="#object-parameters">Object parameters</a>.</p>
 <p>The various changes brought in by the master daemon model and the
 read-write RAPI will require changes to the cluster security; we move
 away from Twisted and use HTTP(s) for intra- and extra-cluster
@@ -225,8 +228,8 @@ the master daemon using JSON-encoded messages.</p>
 via a python library that will expose a simple API for its
 users. Internally, the protocol will simply encode all objects in JSON
 format and decode them on the receiver side.</p>
-<p>For more details about the RAPI daemon see <a class="reference internal" href="#remote-api-changes">Remote API changes</a>, and
-for the node daemon see <a class="reference internal" href="#node-daemon-changes">Node daemon changes</a>.</p>
+<p>For more details about the RAPI daemon see <a class="reference external" href="#remote-api-changes">Remote API changes</a>, and
+for the node daemon see <a class="reference external" href="#node-daemon-changes">Node daemon changes</a>.</p>
 <div class="section" id="the-luxi-protocol">
 <h5>The LUXI protocol<a class="headerlink" href="#the-luxi-protocol" title="Permalink to this headline">¶</a></h5>
 <p>As described above, the protocol for making requests or queries to the
@@ -252,7 +255,7 @@ guaranteed to receive the response in a reasonable time via a timeout.</p>
 <li>archive job (see the job queue design doc)</li>
 <li>wait for job change, which allows a client to wait without polling</li>
 </ul>
-<p>For more details of the actual operation list, see the <a class="reference internal" href="#job-queue">Job Queue</a>.</p>
+<p>For more details of the actual operation list, see the <a class="reference external" href="#job-queue">Job Queue</a>.</p>
 <p>Both requests and responses will consist of a JSON-encoded message
 followed by the <tt class="docutils literal"><span class="pre">ETX</span></tt> character (ASCII decimal 3), which is not a
 valid character in JSON messages and thus can serve as a message
@@ -370,7 +373,7 @@ and instead have always one logfile per daemon model:</p>
 <li>rapi-access.log, an additional log file for the RAPI that will be
 in the standard HTTP log format for possible parsing by other tools</li>
 </ul>
-<p>Since the <a class="reference external" href="glossary.html#term-watcher"><em class="xref">watcher</em></a> will only submit jobs to the master for
+<p>Since the <a class="reference internal" href="glossary.html#term-watcher"><em class="xref std std-term">watcher</em></a> will only submit jobs to the master for
 startup of the instances, its log file will contain less information
 than before, mainly that it will start the instance, but not the
 results.</p>
@@ -596,7 +599,7 @@ are called like this:</p>
 <span class="c"># these functions are called with the proper locks held</span>
 <span class="n">lu</span><span class="o">.</span><span class="n">CheckPrereq</span><span class="p">()</span>
 <span class="n">lu</span><span class="o">.</span><span class="n">Exec</span><span class="p">()</span>
-<span class="o">...</span> <span class="n">locks</span> <span class="n">declared</span> <span class="k">for</span> <span class="n">removal</span> <span class="n">are</span> <span class="n">removed</span><span class="p">,</span> <span class="n">all</span> <span class="n">acquired</span> <span class="n">locks</span> <span class="n">released</span> <span class="o">...</span>
+<span class="o">...</span> <span class="n">locks</span> <span class="n">declared</span> <span class="k">for</span> <span class="n">removal</span> <span class="n">are</span> <span class="n">removed</span><span class="p">,</span> <span class="nb">all</span> <span class="n">acquired</span> <span class="n">locks</span> <span class="n">released</span> <span class="o">...</span>
 </pre></div>
 </div>
 <p>The Processor and the LogicalUnit class will contain exact documentation
@@ -801,7 +804,7 @@ or PAE mode)</li>
 <tr><td>&nbsp;</td><td class="field-body"><p class="first">a hypervisor parameter (or hypervisor specific parameter) is defined
 as a parameter that is interpreted by the hypervisor support code in
 Ganeti and usually is specific to a particular hypervisor (like the
-kernel path for <a class="reference external" href="glossary.html#term-pvm"><em class="xref">PVM</em></a> which makes no sense for <a class="reference external" href="glossary.html#term-hvm"><em class="xref">HVM</em></a>).</p>
+kernel path for <a class="reference internal" href="glossary.html#term-pvm"><em class="xref std std-term">PVM</em></a> which makes no sense for <a class="reference internal" href="glossary.html#term-hvm"><em class="xref std std-term">HVM</em></a>).</p>
 </td>
 </tr>
 <tr class="field"><th class="field-name" colspan="2">backend parameter:</th></tr>
@@ -1511,7 +1514,7 @@ the only valid values are 0 and 1.</dd>
 </dl>
 <p>These are only the basic variables we are thinking of now, but more
 may come during the implementation and they will be documented in the
-<em>ganeti-os-api</em> man page. All these variables will be
+<em class="manpage">ganeti-os-api</em> man page. All these variables will be
 available to all scripts.</p>
 <p>Some scripts will need a few more information to work. These will have
 per-script variables, such as for example:</p>
@@ -1600,7 +1603,7 @@ response body. Typical examples of queries would be: list of nodes,
 instances, cluster info, etc.</p>
 <p>In the case of job submission, the client receive a job ID, the
 identifier which allows to query the job progress in the job queue
-(see <a class="reference internal" href="#job-queue">Job Queue</a>).</p>
+(see <a class="reference external" href="#job-queue">Job Queue</a>).</p>
 <p>Internally, each exported object has an version identifier, which is
 used as a state identifier in the HTTP header E-Tag field for
 requests/responses to avoid race conditions.</p>
@@ -1997,121 +2000,121 @@ to set, string</td>
       </div>
       <div class="sphinxsidebar">
         <div class="sphinxsidebarwrapper">
-            <h3><a href="index.html">Table Of Contents</a></h3>
-            <ul>
-<li><a class="reference external" href="">Ganeti 2.0 design</a><ul>
-<li><a class="reference external" href="#objective">Objective</a></li>
-<li><a class="reference external" href="#background">Background</a><ul>
-<li><a class="reference external" href="#scalability-problems">Scalability problems</a></li>
-<li><a class="reference external" href="#artificial-restrictions">Artificial restrictions</a></li>
-<li><a class="reference external" href="#architecture-issues">Architecture issues</a></li>
+  <h3><a href="index.html">Table Of Contents</a></h3>
+  <ul>
+<li><a class="reference internal" href="#">Ganeti 2.0 design</a><ul>
+<li><a class="reference internal" href="#objective">Objective</a></li>
+<li><a class="reference internal" href="#background">Background</a><ul>
+<li><a class="reference internal" href="#scalability-problems">Scalability problems</a></li>
+<li><a class="reference internal" href="#artificial-restrictions">Artificial restrictions</a></li>
+<li><a class="reference internal" href="#architecture-issues">Architecture issues</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#overview">Overview</a></li>
-<li><a class="reference external" href="#detailed-design">Detailed design</a><ul>
-<li><a class="reference external" href="#core-changes">Core changes</a><ul>
-<li><a class="reference external" href="#master-daemon">Master daemon</a><ul>
-<li><a class="reference external" href="#the-luxi-protocol">The LUXI protocol</a></li>
-<li><a class="reference external" href="#master-daemon-implementation">Master daemon implementation</a></li>
-<li><a class="reference external" href="#master-startup-failover">Master startup/failover</a></li>
-<li><a class="reference external" href="#logging">Logging</a></li>
-<li><a class="reference external" href="#node-daemon-changes">Node daemon changes</a></li>
-<li><a class="reference external" href="#caveats">Caveats</a></li>
+<li><a class="reference internal" href="#overview">Overview</a></li>
+<li><a class="reference internal" href="#detailed-design">Detailed design</a><ul>
+<li><a class="reference internal" href="#core-changes">Core changes</a><ul>
+<li><a class="reference internal" href="#master-daemon">Master daemon</a><ul>
+<li><a class="reference internal" href="#the-luxi-protocol">The LUXI protocol</a></li>
+<li><a class="reference internal" href="#master-daemon-implementation">Master daemon implementation</a></li>
+<li><a class="reference internal" href="#master-startup-failover">Master startup/failover</a></li>
+<li><a class="reference internal" href="#logging">Logging</a></li>
+<li><a class="reference internal" href="#node-daemon-changes">Node daemon changes</a></li>
+<li><a class="reference internal" href="#caveats">Caveats</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#granular-locking">Granular locking</a><ul>
-<li><a class="reference external" href="#library-details">Library details</a></li>
-<li><a class="reference external" href="#the-locks">The Locks</a></li>
-<li><a class="reference external" href="#handling-conversion-to-more-granularity">Handling conversion to more granularity</a></li>
-<li><a class="reference external" href="#adding-removing-locks">Adding/Removing locks</a></li>
-<li><a class="reference external" href="#asynchronous-operations">Asynchronous operations</a></li>
-<li><a class="reference external" href="#locking-granularity">Locking granularity</a></li>
-<li><a class="reference external" href="#code-examples">Code examples</a></li>
-<li><a class="reference external" href="#id3">Caveats</a></li>
+<li><a class="reference internal" href="#granular-locking">Granular locking</a><ul>
+<li><a class="reference internal" href="#library-details">Library details</a></li>
+<li><a class="reference internal" href="#the-locks">The Locks</a></li>
+<li><a class="reference internal" href="#handling-conversion-to-more-granularity">Handling conversion to more granularity</a></li>
+<li><a class="reference internal" href="#adding-removing-locks">Adding/Removing locks</a></li>
+<li><a class="reference internal" href="#asynchronous-operations">Asynchronous operations</a></li>
+<li><a class="reference internal" href="#locking-granularity">Locking granularity</a></li>
+<li><a class="reference internal" href="#code-examples">Code examples</a></li>
+<li><a class="reference internal" href="#id3">Caveats</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#job-queue">Job Queue</a><ul>
-<li><a class="reference external" href="#job-executionlife-of-a-ganeti-job">Job execution—“Life of a Ganeti job”</a></li>
-<li><a class="reference external" href="#job-storage">Job storage</a></li>
-<li><a class="reference external" href="#queue-structure">Queue structure</a></li>
-<li><a class="reference external" href="#locking">Locking</a></li>
-<li><a class="reference external" href="#internal-rpc">Internal RPC</a></li>
-<li><a class="reference external" href="#client-rpc">Client RPC</a></li>
-<li><a class="reference external" href="#job-and-opcode-status">Job and opcode status</a></li>
-<li><a class="reference external" href="#history">History</a></li>
-<li><a class="reference external" href="#ganeti-updates">Ganeti updates</a></li>
+<li><a class="reference internal" href="#job-queue">Job Queue</a><ul>
+<li><a class="reference internal" href="#job-executionlife-of-a-ganeti-job">Job execution—“Life of a Ganeti job”</a></li>
+<li><a class="reference internal" href="#job-storage">Job storage</a></li>
+<li><a class="reference internal" href="#queue-structure">Queue structure</a></li>
+<li><a class="reference internal" href="#locking">Locking</a></li>
+<li><a class="reference internal" href="#internal-rpc">Internal RPC</a></li>
+<li><a class="reference internal" href="#client-rpc">Client RPC</a></li>
+<li><a class="reference internal" href="#job-and-opcode-status">Job and opcode status</a></li>
+<li><a class="reference internal" href="#history">History</a></li>
+<li><a class="reference internal" href="#ganeti-updates">Ganeti updates</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#object-parameters">Object parameters</a><ul>
-<li><a class="reference external" href="#cluster-parameters">Cluster parameters</a></li>
-<li><a class="reference external" href="#node-parameters">Node parameters</a></li>
-<li><a class="reference external" href="#instance-parameters">Instance parameters</a></li>
-<li><a class="reference external" href="#parameter-validation">Parameter validation</a></li>
-<li><a class="reference external" href="#default-value-application">Default value application</a></li>
-<li><a class="reference external" href="#opcode-changes">Opcode changes</a></li>
-<li><a class="reference external" href="#id5">Caveats</a></li>
-<li><a class="reference external" href="#security">Security</a></li>
+<li><a class="reference internal" href="#object-parameters">Object parameters</a><ul>
+<li><a class="reference internal" href="#cluster-parameters">Cluster parameters</a></li>
+<li><a class="reference internal" href="#node-parameters">Node parameters</a></li>
+<li><a class="reference internal" href="#instance-parameters">Instance parameters</a></li>
+<li><a class="reference internal" href="#parameter-validation">Parameter validation</a></li>
+<li><a class="reference internal" href="#default-value-application">Default value application</a></li>
+<li><a class="reference internal" href="#opcode-changes">Opcode changes</a></li>
+<li><a class="reference internal" href="#id5">Caveats</a></li>
+<li><a class="reference internal" href="#security">Security</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#node-flags">Node flags</a><ul>
-<li><a class="reference external" href="#master-candidate-flag"><em>master candidate</em> flag</a></li>
-<li><a class="reference external" href="#offline-flag"><em>offline</em> flag</a></li>
-<li><a class="reference external" href="#drained-flag"><em>drained</em> flag</a></li>
-<li><a class="reference external" href="#interaction-between-flags">Interaction between flags</a></li>
-</ul>
-</li>
-</ul>
-</li>
-<li><a class="reference external" href="#feature-changes">Feature changes</a><ul>
-<li><a class="reference external" href="#disk-handling-changes">Disk handling changes</a><ul>
-<li><a class="reference external" href="#drbd-minor-allocation">DRBD minor allocation</a></li>
-<li><a class="reference external" href="#removal-of-obsolete-device-types-md-drbd7">Removal of obsolete device types (MD, DRBD7)</a></li>
-<li><a class="reference external" href="#file-based-storage-support">File-based storage support</a></li>
-<li><a class="reference external" href="#better-lvm-allocation">Better LVM allocation</a></li>
-<li><a class="reference external" href="#drbd8-peer-authentication-at-handshake">DRBD8 peer authentication at handshake</a></li>
-<li><a class="reference external" href="#lvm-self-repair-optional">LVM self-repair (optional)</a></li>
-<li><a class="reference external" href="#failover-to-any-node">Failover to any node</a></li>
-<li><a class="reference external" href="#id6">Caveats</a></li>
-</ul>
-</li>
-<li><a class="reference external" href="#variable-number-of-disk-nics-per-instance">Variable number of disk/NICs per instance</a><ul>
-<li><a class="reference external" href="#variable-number-of-disks">Variable number of disks</a></li>
-<li><a class="reference external" href="#variable-number-of-nics">Variable number of NICs</a></li>
+<li><a class="reference internal" href="#node-flags">Node flags</a><ul>
+<li><a class="reference internal" href="#master-candidate-flag"><em>master candidate</em> flag</a></li>
+<li><a class="reference internal" href="#offline-flag"><em>offline</em> flag</a></li>
+<li><a class="reference internal" href="#drained-flag"><em>drained</em> flag</a></li>
+<li><a class="reference internal" href="#interaction-between-flags">Interaction between flags</a></li>
 </ul>
 </li>
 </ul>
 </li>
-<li><a class="reference external" href="#interface-changes">Interface changes</a><ul>
-<li><a class="reference external" href="#os-interface">OS interface</a><ul>
-<li><a class="reference external" href="#the-scripts">The Scripts</a><ul>
-<li><a class="reference external" href="#incompatibilities-with-1-2">Incompatibilities with 1.2</a></li>
-<li><a class="reference external" href="#input">Input</a></li>
-<li><a class="reference external" href="#output-behaviour">Output/Behaviour</a></li>
+<li><a class="reference internal" href="#feature-changes">Feature changes</a><ul>
+<li><a class="reference internal" href="#disk-handling-changes">Disk handling changes</a><ul>
+<li><a class="reference internal" href="#drbd-minor-allocation">DRBD minor allocation</a></li>
+<li><a class="reference internal" href="#removal-of-obsolete-device-types-md-drbd7">Removal of obsolete device types (MD, DRBD7)</a></li>
+<li><a class="reference internal" href="#file-based-storage-support">File-based storage support</a></li>
+<li><a class="reference internal" href="#better-lvm-allocation">Better LVM allocation</a></li>
+<li><a class="reference internal" href="#drbd8-peer-authentication-at-handshake">DRBD8 peer authentication at handshake</a></li>
+<li><a class="reference internal" href="#lvm-self-repair-optional">LVM self-repair (optional)</a></li>
+<li><a class="reference internal" href="#failover-to-any-node">Failover to any node</a></li>
+<li><a class="reference internal" href="#id6">Caveats</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#other-declarative-style-features">Other declarative style features</a></li>
-<li><a class="reference external" href="#caveats-notes">Caveats/Notes</a></li>
+<li><a class="reference internal" href="#variable-number-of-disk-nics-per-instance">Variable number of disk/NICs per instance</a><ul>
+<li><a class="reference internal" href="#variable-number-of-disks">Variable number of disks</a></li>
+<li><a class="reference internal" href="#variable-number-of-nics">Variable number of NICs</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#remote-api-changes">Remote API changes</a><ul>
-<li><a class="reference external" href="#design">Design</a></li>
-<li><a class="reference external" href="#resource-representation">Resource representation</a></li>
-<li><a class="reference external" href="#id7">Security</a></li>
-<li><a class="reference external" href="#id8">Caveats</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#command-line-changes">Command line changes</a><ul>
-<li><a class="reference external" href="#notes-about-device-removal-addition">Notes about device removal/addition</a></li>
-<li><a class="reference external" href="#gnt-instance-commands">gnt-instance commands</a></li>
-<li><a class="reference external" href="#network-device-options">Network Device Options</a></li>
-<li><a class="reference external" href="#disk-device-options">Disk Device Options</a></li>
-<li><a class="reference external" href="#adding-devices">Adding devices</a></li>
-<li><a class="reference external" href="#removing-devices">Removing devices</a></li>
-<li><a class="reference external" href="#modifying-devices">Modifying devices</a></li>
-<li><a class="reference external" href="#hypervisor-options">Hypervisor Options</a></li>
-<li><a class="reference external" href="#modifying-hypervisor-parameters">Modifying hypervisor parameters</a></li>
-<li><a class="reference external" href="#gnt-cluster-commands">gnt-cluster commands</a></li>
-<li><a class="reference external" href="#hypervisor-cluster-defaults">Hypervisor cluster defaults</a></li>
+<li><a class="reference internal" href="#interface-changes">Interface changes</a><ul>
+<li><a class="reference internal" href="#os-interface">OS interface</a><ul>
+<li><a class="reference internal" href="#the-scripts">The Scripts</a><ul>
+<li><a class="reference internal" href="#incompatibilities-with-1-2">Incompatibilities with 1.2</a></li>
+<li><a class="reference internal" href="#input">Input</a></li>
+<li><a class="reference internal" href="#output-behaviour">Output/Behaviour</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#other-declarative-style-features">Other declarative style features</a></li>
+<li><a class="reference internal" href="#caveats-notes">Caveats/Notes</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#remote-api-changes">Remote API changes</a><ul>
+<li><a class="reference internal" href="#design">Design</a></li>
+<li><a class="reference internal" href="#resource-representation">Resource representation</a></li>
+<li><a class="reference internal" href="#id7">Security</a></li>
+<li><a class="reference internal" href="#id8">Caveats</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#command-line-changes">Command line changes</a><ul>
+<li><a class="reference internal" href="#notes-about-device-removal-addition">Notes about device removal/addition</a></li>
+<li><a class="reference internal" href="#gnt-instance-commands">gnt-instance commands</a></li>
+<li><a class="reference internal" href="#network-device-options">Network Device Options</a></li>
+<li><a class="reference internal" href="#disk-device-options">Disk Device Options</a></li>
+<li><a class="reference internal" href="#adding-devices">Adding devices</a></li>
+<li><a class="reference internal" href="#removing-devices">Removing devices</a></li>
+<li><a class="reference internal" href="#modifying-devices">Modifying devices</a></li>
+<li><a class="reference internal" href="#hypervisor-options">Hypervisor Options</a></li>
+<li><a class="reference internal" href="#modifying-hypervisor-parameters">Modifying hypervisor parameters</a></li>
+<li><a class="reference internal" href="#gnt-cluster-commands">gnt-cluster commands</a></li>
+<li><a class="reference internal" href="#hypervisor-cluster-defaults">Hypervisor cluster defaults</a></li>
 </ul>
 </li>
 </ul>
@@ -2122,30 +2125,30 @@ to set, string</td>
 </li>
 </ul>
 
-            <h4>Previous topic</h4>
-            <p class="topless"><a href="security.html"
-                                  title="previous chapter">Security in Ganeti</a></p>
-            <h4>Next topic</h4>
-            <p class="topless"><a href="design-2.1.html"
-                                  title="next chapter">Ganeti 2.1 design</a></p>
-            <h3>This Page</h3>
-            <ul class="this-page-menu">
-              <li><a href="_sources/design-2.0.txt"
-                     rel="nofollow">Show Source</a></li>
-            </ul>
-          <div id="searchbox" style="display: none">
-            <h3>Quick search</h3>
-              <form class="search" action="search.html" method="get">
-                <input type="text" name="q" size="18" />
-                <input type="submit" value="Go" />
-                <input type="hidden" name="check_keywords" value="yes" />
-                <input type="hidden" name="area" value="default" />
-              </form>
-              <p class="searchtip" style="font-size: 90%">
-              Enter search terms or a module, class or function name.
-              </p>
-          </div>
-          <script type="text/javascript">$('#searchbox').show(0);</script>
+  <h4>Previous topic</h4>
+  <p class="topless"><a href="security.html"
+                        title="previous chapter">Security in Ganeti</a></p>
+  <h4>Next topic</h4>
+  <p class="topless"><a href="design-2.1.html"
+                        title="next chapter">Ganeti 2.1 design</a></p>
+  <h3>This Page</h3>
+  <ul class="this-page-menu">
+    <li><a href="_sources/design-2.0.txt"
+           rel="nofollow">Show Source</a></li>
+  </ul>
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" size="18" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
         </div>
       </div>
       <div class="clearer"></div>
@@ -2159,12 +2162,12 @@ to set, string</td>
         <li class="right" >
           <a href="security.html" title="Security in Ganeti"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.1.4 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.1.5 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">
-      &copy; Copyright 2006, 2007, 2008, 2009, Google Inc..
-      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 0.6.2.
+        &copy; Copyright 2006, 2007, 2008, 2009, Google Inc..
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.0b2.
     </div>
   </body>
 </html>

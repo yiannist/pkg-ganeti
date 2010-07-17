@@ -1,3 +1,5 @@
+
+
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
   "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 
@@ -5,21 +7,22 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Ganeti customisation using hooks &mdash; Ganeti v2.1.4 documentation</title>
+    <title>Ganeti customisation using hooks &mdash; Ganeti v2.1.5 documentation</title>
     <link rel="stylesheet" href="_static/default.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.1.4',
-        COLLAPSE_MODINDEX: false,
+        VERSION:     '2.1.5',
+        COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
       };
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.1.4 documentation" href="index.html" />
+    <link rel="top" title="Ganeti v2.1.5 documentation" href="index.html" />
     <link rel="next" title="Ganeti automatic instance allocation" href="iallocator.html" />
     <link rel="prev" title="Ganeti locking" href="locking.html" /> 
   </head>
@@ -33,7 +36,7 @@
         <li class="right" >
           <a href="locking.html" title="Ganeti locking"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.1.4 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.1.5 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -48,61 +51,61 @@
 <div class="contents topic" id="contents">
 <p class="topic-title first">Contents</p>
 <ul class="simple">
-<li><a class="reference internal" href="#ganeti-customisation-using-hooks" id="id2">Ganeti customisation using hooks</a><ul>
-<li><a class="reference internal" href="#introduction" id="id3">Introduction</a></li>
-<li><a class="reference internal" href="#organisation" id="id4">Organisation</a><ul>
-<li><a class="reference internal" href="#pre-scripts" id="id5"><em>pre</em> scripts</a></li>
-<li><a class="reference internal" href="#post-scripts" id="id6"><em>post</em> scripts</a></li>
-<li><a class="reference internal" href="#naming" id="id7">Naming</a></li>
-<li><a class="reference internal" href="#order-of-execution" id="id8">Order of execution</a></li>
-<li><a class="reference internal" href="#execution-environment" id="id9">Execution environment</a></li>
+<li><a class="reference external" href="#ganeti-customisation-using-hooks" id="id2">Ganeti customisation using hooks</a><ul>
+<li><a class="reference external" href="#introduction" id="id3">Introduction</a></li>
+<li><a class="reference external" href="#organisation" id="id4">Organisation</a><ul>
+<li><a class="reference external" href="#pre-scripts" id="id5"><em>pre</em> scripts</a></li>
+<li><a class="reference external" href="#post-scripts" id="id6"><em>post</em> scripts</a></li>
+<li><a class="reference external" href="#naming" id="id7">Naming</a></li>
+<li><a class="reference external" href="#order-of-execution" id="id8">Order of execution</a></li>
+<li><a class="reference external" href="#execution-environment" id="id9">Execution environment</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#operation-list" id="id10">Operation list</a><ul>
-<li><a class="reference internal" href="#node-operations" id="id11">Node operations</a><ul>
-<li><a class="reference internal" href="#op-add-node" id="id12">OP_ADD_NODE</a></li>
-<li><a class="reference internal" href="#op-remove-node" id="id13">OP_REMOVE_NODE</a></li>
-<li><a class="reference internal" href="#op-node-set-params" id="id14">OP_NODE_SET_PARAMS</a></li>
-<li><a class="reference internal" href="#op-node-evacuate" id="id15">OP_NODE_EVACUATE</a></li>
-<li><a class="reference internal" href="#op-node-migrate" id="id16">OP_NODE_MIGRATE</a></li>
+<li><a class="reference external" href="#operation-list" id="id10">Operation list</a><ul>
+<li><a class="reference external" href="#node-operations" id="id11">Node operations</a><ul>
+<li><a class="reference external" href="#op-add-node" id="id12">OP_ADD_NODE</a></li>
+<li><a class="reference external" href="#op-remove-node" id="id13">OP_REMOVE_NODE</a></li>
+<li><a class="reference external" href="#op-node-set-params" id="id14">OP_NODE_SET_PARAMS</a></li>
+<li><a class="reference external" href="#op-node-evacuate" id="id15">OP_NODE_EVACUATE</a></li>
+<li><a class="reference external" href="#op-node-migrate" id="id16">OP_NODE_MIGRATE</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#instance-operations" id="id17">Instance operations</a><ul>
-<li><a class="reference internal" href="#op-instance-add" id="id18">OP_INSTANCE_ADD</a></li>
-<li><a class="reference internal" href="#op-instance-reinstall" id="id19">OP_INSTANCE_REINSTALL</a></li>
-<li><a class="reference internal" href="#op-backup-export" id="id20">OP_BACKUP_EXPORT</a></li>
-<li><a class="reference internal" href="#op-instance-start" id="id21">OP_INSTANCE_START</a></li>
-<li><a class="reference internal" href="#op-instance-shutdown" id="id22">OP_INSTANCE_SHUTDOWN</a></li>
-<li><a class="reference internal" href="#op-instance-reboot" id="id23">OP_INSTANCE_REBOOT</a></li>
-<li><a class="reference internal" href="#op-instance-modify" id="id24">OP_INSTANCE_MODIFY</a></li>
-<li><a class="reference internal" href="#op-instance-failover" id="id25">OP_INSTANCE_FAILOVER</a></li>
-<li><a class="reference internal" href="#op-instance-migrate" id="id26">OP_INSTANCE_MIGRATE</a></li>
-<li><a class="reference internal" href="#op-instance-remove" id="id27">OP_INSTANCE_REMOVE</a></li>
-<li><a class="reference internal" href="#op-instance-replace-disks" id="id28">OP_INSTANCE_REPLACE_DISKS</a></li>
-<li><a class="reference internal" href="#op-instance-grow-disk" id="id29">OP_INSTANCE_GROW_DISK</a></li>
-<li><a class="reference internal" href="#op-instance-rename" id="id30">OP_INSTANCE_RENAME</a></li>
-<li><a class="reference internal" href="#op-instance-move" id="id31">OP_INSTANCE_MOVE</a></li>
-<li><a class="reference internal" href="#op-instance-recreate-disks" id="id32">OP_INSTANCE_RECREATE_DISKS</a></li>
-<li><a class="reference internal" href="#id1" id="id33">OP_INSTANCE_REPLACE_DISKS</a></li>
+<li><a class="reference external" href="#instance-operations" id="id17">Instance operations</a><ul>
+<li><a class="reference external" href="#op-instance-add" id="id18">OP_INSTANCE_ADD</a></li>
+<li><a class="reference external" href="#op-instance-reinstall" id="id19">OP_INSTANCE_REINSTALL</a></li>
+<li><a class="reference external" href="#op-backup-export" id="id20">OP_BACKUP_EXPORT</a></li>
+<li><a class="reference external" href="#op-instance-start" id="id21">OP_INSTANCE_START</a></li>
+<li><a class="reference external" href="#op-instance-shutdown" id="id22">OP_INSTANCE_SHUTDOWN</a></li>
+<li><a class="reference external" href="#op-instance-reboot" id="id23">OP_INSTANCE_REBOOT</a></li>
+<li><a class="reference external" href="#op-instance-modify" id="id24">OP_INSTANCE_MODIFY</a></li>
+<li><a class="reference external" href="#op-instance-failover" id="id25">OP_INSTANCE_FAILOVER</a></li>
+<li><a class="reference external" href="#op-instance-migrate" id="id26">OP_INSTANCE_MIGRATE</a></li>
+<li><a class="reference external" href="#op-instance-remove" id="id27">OP_INSTANCE_REMOVE</a></li>
+<li><a class="reference external" href="#op-instance-replace-disks" id="id28">OP_INSTANCE_REPLACE_DISKS</a></li>
+<li><a class="reference external" href="#op-instance-grow-disk" id="id29">OP_INSTANCE_GROW_DISK</a></li>
+<li><a class="reference external" href="#op-instance-rename" id="id30">OP_INSTANCE_RENAME</a></li>
+<li><a class="reference external" href="#op-instance-move" id="id31">OP_INSTANCE_MOVE</a></li>
+<li><a class="reference external" href="#op-instance-recreate-disks" id="id32">OP_INSTANCE_RECREATE_DISKS</a></li>
+<li><a class="reference external" href="#id1" id="id33">OP_INSTANCE_REPLACE_DISKS</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#cluster-operations" id="id34">Cluster operations</a><ul>
-<li><a class="reference internal" href="#op-post-init-cluster" id="id35">OP_POST_INIT_CLUSTER</a></li>
-<li><a class="reference internal" href="#op-destroy-cluster" id="id36">OP_DESTROY_CLUSTER</a></li>
-<li><a class="reference internal" href="#op-cluster-verify" id="id37">OP_CLUSTER_VERIFY</a></li>
-<li><a class="reference internal" href="#op-cluster-rename" id="id38">OP_CLUSTER_RENAME</a></li>
-<li><a class="reference internal" href="#op-cluster-set-params" id="id39">OP_CLUSTER_SET_PARAMS</a></li>
+<li><a class="reference external" href="#cluster-operations" id="id34">Cluster operations</a><ul>
+<li><a class="reference external" href="#op-post-init-cluster" id="id35">OP_POST_INIT_CLUSTER</a></li>
+<li><a class="reference external" href="#op-destroy-cluster" id="id36">OP_DESTROY_CLUSTER</a></li>
+<li><a class="reference external" href="#op-cluster-verify" id="id37">OP_CLUSTER_VERIFY</a></li>
+<li><a class="reference external" href="#op-cluster-rename" id="id38">OP_CLUSTER_RENAME</a></li>
+<li><a class="reference external" href="#op-cluster-set-params" id="id39">OP_CLUSTER_SET_PARAMS</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#obsolete-operations" id="id40">Obsolete operations</a></li>
+<li><a class="reference external" href="#obsolete-operations" id="id40">Obsolete operations</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#environment-variables" id="id41">Environment variables</a><ul>
-<li><a class="reference internal" href="#common-variables" id="id42">Common variables</a></li>
-<li><a class="reference internal" href="#specialised-variables" id="id43">Specialised variables</a></li>
+<li><a class="reference external" href="#environment-variables" id="id41">Environment variables</a><ul>
+<li><a class="reference external" href="#common-variables" id="id42">Common variables</a></li>
+<li><a class="reference external" href="#specialised-variables" id="id43">Specialised variables</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#examples" id="id44">Examples</a></li>
+<li><a class="reference external" href="#examples" id="id44">Examples</a></li>
 </ul>
 </li>
 </ul>
@@ -856,91 +859,91 @@ GANETI_OP_TARGET=instance2.example.com</pre>
       </div>
       <div class="sphinxsidebar">
         <div class="sphinxsidebarwrapper">
-            <h3><a href="index.html">Table Of Contents</a></h3>
-            <ul>
-<li><a class="reference external" href="">Ganeti customisation using hooks</a><ul>
-<li><a class="reference external" href="#introduction">Introduction</a></li>
-<li><a class="reference external" href="#organisation">Organisation</a><ul>
-<li><a class="reference external" href="#pre-scripts"><em>pre</em> scripts</a></li>
-<li><a class="reference external" href="#post-scripts"><em>post</em> scripts</a></li>
-<li><a class="reference external" href="#naming">Naming</a></li>
-<li><a class="reference external" href="#order-of-execution">Order of execution</a></li>
-<li><a class="reference external" href="#execution-environment">Execution environment</a></li>
+  <h3><a href="index.html">Table Of Contents</a></h3>
+  <ul>
+<li><a class="reference internal" href="#">Ganeti customisation using hooks</a><ul>
+<li><a class="reference internal" href="#introduction">Introduction</a></li>
+<li><a class="reference internal" href="#organisation">Organisation</a><ul>
+<li><a class="reference internal" href="#pre-scripts"><em>pre</em> scripts</a></li>
+<li><a class="reference internal" href="#post-scripts"><em>post</em> scripts</a></li>
+<li><a class="reference internal" href="#naming">Naming</a></li>
+<li><a class="reference internal" href="#order-of-execution">Order of execution</a></li>
+<li><a class="reference internal" href="#execution-environment">Execution environment</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#operation-list">Operation list</a><ul>
-<li><a class="reference external" href="#node-operations">Node operations</a><ul>
-<li><a class="reference external" href="#op-add-node">OP_ADD_NODE</a></li>
-<li><a class="reference external" href="#op-remove-node">OP_REMOVE_NODE</a></li>
-<li><a class="reference external" href="#op-node-set-params">OP_NODE_SET_PARAMS</a></li>
-<li><a class="reference external" href="#op-node-evacuate">OP_NODE_EVACUATE</a></li>
-<li><a class="reference external" href="#op-node-migrate">OP_NODE_MIGRATE</a></li>
+<li><a class="reference internal" href="#operation-list">Operation list</a><ul>
+<li><a class="reference internal" href="#node-operations">Node operations</a><ul>
+<li><a class="reference internal" href="#op-add-node">OP_ADD_NODE</a></li>
+<li><a class="reference internal" href="#op-remove-node">OP_REMOVE_NODE</a></li>
+<li><a class="reference internal" href="#op-node-set-params">OP_NODE_SET_PARAMS</a></li>
+<li><a class="reference internal" href="#op-node-evacuate">OP_NODE_EVACUATE</a></li>
+<li><a class="reference internal" href="#op-node-migrate">OP_NODE_MIGRATE</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#instance-operations">Instance operations</a><ul>
-<li><a class="reference external" href="#op-instance-add">OP_INSTANCE_ADD</a></li>
-<li><a class="reference external" href="#op-instance-reinstall">OP_INSTANCE_REINSTALL</a></li>
-<li><a class="reference external" href="#op-backup-export">OP_BACKUP_EXPORT</a></li>
-<li><a class="reference external" href="#op-instance-start">OP_INSTANCE_START</a></li>
-<li><a class="reference external" href="#op-instance-shutdown">OP_INSTANCE_SHUTDOWN</a></li>
-<li><a class="reference external" href="#op-instance-reboot">OP_INSTANCE_REBOOT</a></li>
-<li><a class="reference external" href="#op-instance-modify">OP_INSTANCE_MODIFY</a></li>
-<li><a class="reference external" href="#op-instance-failover">OP_INSTANCE_FAILOVER</a></li>
-<li><a class="reference external" href="#op-instance-migrate">OP_INSTANCE_MIGRATE</a></li>
-<li><a class="reference external" href="#op-instance-remove">OP_INSTANCE_REMOVE</a></li>
-<li><a class="reference external" href="#op-instance-replace-disks">OP_INSTANCE_REPLACE_DISKS</a></li>
-<li><a class="reference external" href="#op-instance-grow-disk">OP_INSTANCE_GROW_DISK</a></li>
-<li><a class="reference external" href="#op-instance-rename">OP_INSTANCE_RENAME</a></li>
-<li><a class="reference external" href="#op-instance-move">OP_INSTANCE_MOVE</a></li>
-<li><a class="reference external" href="#op-instance-recreate-disks">OP_INSTANCE_RECREATE_DISKS</a></li>
-<li><a class="reference external" href="#id1">OP_INSTANCE_REPLACE_DISKS</a></li>
+<li><a class="reference internal" href="#instance-operations">Instance operations</a><ul>
+<li><a class="reference internal" href="#op-instance-add">OP_INSTANCE_ADD</a></li>
+<li><a class="reference internal" href="#op-instance-reinstall">OP_INSTANCE_REINSTALL</a></li>
+<li><a class="reference internal" href="#op-backup-export">OP_BACKUP_EXPORT</a></li>
+<li><a class="reference internal" href="#op-instance-start">OP_INSTANCE_START</a></li>
+<li><a class="reference internal" href="#op-instance-shutdown">OP_INSTANCE_SHUTDOWN</a></li>
+<li><a class="reference internal" href="#op-instance-reboot">OP_INSTANCE_REBOOT</a></li>
+<li><a class="reference internal" href="#op-instance-modify">OP_INSTANCE_MODIFY</a></li>
+<li><a class="reference internal" href="#op-instance-failover">OP_INSTANCE_FAILOVER</a></li>
+<li><a class="reference internal" href="#op-instance-migrate">OP_INSTANCE_MIGRATE</a></li>
+<li><a class="reference internal" href="#op-instance-remove">OP_INSTANCE_REMOVE</a></li>
+<li><a class="reference internal" href="#op-instance-replace-disks">OP_INSTANCE_REPLACE_DISKS</a></li>
+<li><a class="reference internal" href="#op-instance-grow-disk">OP_INSTANCE_GROW_DISK</a></li>
+<li><a class="reference internal" href="#op-instance-rename">OP_INSTANCE_RENAME</a></li>
+<li><a class="reference internal" href="#op-instance-move">OP_INSTANCE_MOVE</a></li>
+<li><a class="reference internal" href="#op-instance-recreate-disks">OP_INSTANCE_RECREATE_DISKS</a></li>
+<li><a class="reference internal" href="#id1">OP_INSTANCE_REPLACE_DISKS</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#cluster-operations">Cluster operations</a><ul>
-<li><a class="reference external" href="#op-post-init-cluster">OP_POST_INIT_CLUSTER</a></li>
-<li><a class="reference external" href="#op-destroy-cluster">OP_DESTROY_CLUSTER</a></li>
-<li><a class="reference external" href="#op-cluster-verify">OP_CLUSTER_VERIFY</a></li>
-<li><a class="reference external" href="#op-cluster-rename">OP_CLUSTER_RENAME</a></li>
-<li><a class="reference external" href="#op-cluster-set-params">OP_CLUSTER_SET_PARAMS</a></li>
+<li><a class="reference internal" href="#cluster-operations">Cluster operations</a><ul>
+<li><a class="reference internal" href="#op-post-init-cluster">OP_POST_INIT_CLUSTER</a></li>
+<li><a class="reference internal" href="#op-destroy-cluster">OP_DESTROY_CLUSTER</a></li>
+<li><a class="reference internal" href="#op-cluster-verify">OP_CLUSTER_VERIFY</a></li>
+<li><a class="reference internal" href="#op-cluster-rename">OP_CLUSTER_RENAME</a></li>
+<li><a class="reference internal" href="#op-cluster-set-params">OP_CLUSTER_SET_PARAMS</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#obsolete-operations">Obsolete operations</a></li>
+<li><a class="reference internal" href="#obsolete-operations">Obsolete operations</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#environment-variables">Environment variables</a><ul>
-<li><a class="reference external" href="#common-variables">Common variables</a></li>
-<li><a class="reference external" href="#specialised-variables">Specialised variables</a></li>
+<li><a class="reference internal" href="#environment-variables">Environment variables</a><ul>
+<li><a class="reference internal" href="#common-variables">Common variables</a></li>
+<li><a class="reference internal" href="#specialised-variables">Specialised variables</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#examples">Examples</a></li>
+<li><a class="reference internal" href="#examples">Examples</a></li>
 </ul>
 </li>
 </ul>
 
-            <h4>Previous topic</h4>
-            <p class="topless"><a href="locking.html"
-                                  title="previous chapter">Ganeti locking</a></p>
-            <h4>Next topic</h4>
-            <p class="topless"><a href="iallocator.html"
-                                  title="next chapter">Ganeti automatic instance allocation</a></p>
-            <h3>This Page</h3>
-            <ul class="this-page-menu">
-              <li><a href="_sources/hooks.txt"
-                     rel="nofollow">Show Source</a></li>
-            </ul>
-          <div id="searchbox" style="display: none">
-            <h3>Quick search</h3>
-              <form class="search" action="search.html" method="get">
-                <input type="text" name="q" size="18" />
-                <input type="submit" value="Go" />
-                <input type="hidden" name="check_keywords" value="yes" />
-                <input type="hidden" name="area" value="default" />
-              </form>
-              <p class="searchtip" style="font-size: 90%">
-              Enter search terms or a module, class or function name.
-              </p>
-          </div>
-          <script type="text/javascript">$('#searchbox').show(0);</script>
+  <h4>Previous topic</h4>
+  <p class="topless"><a href="locking.html"
+                        title="previous chapter">Ganeti locking</a></p>
+  <h4>Next topic</h4>
+  <p class="topless"><a href="iallocator.html"
+                        title="next chapter">Ganeti automatic instance allocation</a></p>
+  <h3>This Page</h3>
+  <ul class="this-page-menu">
+    <li><a href="_sources/hooks.txt"
+           rel="nofollow">Show Source</a></li>
+  </ul>
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" size="18" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
         </div>
       </div>
       <div class="clearer"></div>
@@ -954,12 +957,12 @@ GANETI_OP_TARGET=instance2.example.com</pre>
         <li class="right" >
           <a href="locking.html" title="Ganeti locking"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.1.4 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.1.5 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">
-      &copy; Copyright 2006, 2007, 2008, 2009, Google Inc..
-      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 0.6.2.
+        &copy; Copyright 2006, 2007, 2008, 2009, Google Inc..
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.0b2.
     </div>
   </body>
 </html>

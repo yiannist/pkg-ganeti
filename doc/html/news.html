@@ -1,3 +1,5 @@
+
+
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
   "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 
@@ -5,21 +7,22 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>News &mdash; Ganeti v2.1.4 documentation</title>
+    <title>News &mdash; Ganeti v2.1.5 documentation</title>
     <link rel="stylesheet" href="_static/default.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.1.4',
-        COLLAPSE_MODINDEX: false,
+        VERSION:     '2.1.5',
+        COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
       };
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.1.4 documentation" href="index.html" />
+    <link rel="top" title="Ganeti v2.1.5 documentation" href="index.html" />
     <link rel="next" title="Glossary" href="glossary.html" />
     <link rel="prev" title="Developer notes" href="devnotes.html" /> 
   </head>
@@ -33,7 +36,7 @@
         <li class="right" >
           <a href="devnotes.html" title="Developer notes"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.1.4 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.1.5 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -44,6 +47,26 @@
             
   <div class="section" id="news">
 <h1>News<a class="headerlink" href="#news" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="version-2-1-5">
+<h2>Version 2.1.5<a class="headerlink" href="#version-2-1-5" title="Permalink to this headline">¶</a></h2>
+<p><em>(Released Thu, 01 Jul 2010)</em></p>
+<dl class="docutils">
+<dt>A small bugfix release:</dt>
+<dd><ul class="first last simple">
+<li>Fix disk adoption: broken by strict &#8211;disk option checking in 2.1.4</li>
+<li>Fix batch-create: broken in the whole 2.1 series due to a lookup on
+a non-existing option</li>
+<li>Fix instance create: the &#8211;force-variant option was ignored</li>
+<li>Improve pylint 0.21 compatibility and warnings with Python 2.6</li>
+<li>Fix modify node storage with non-FQDN arguments</li>
+<li>Fix RAPI client to authenticate under Python 2.6 when used
+for more than 5 requests needing authentication</li>
+<li>Fix gnt-instance modify -t (storage) giving a wrong error message
+when converting a non-shutdown drbd instance to plain</li>
+</ul>
+</dd>
+</dl>
+</div>
 <div class="section" id="version-2-1-4">
 <h2>Version 2.1.4<a class="headerlink" href="#version-2-1-4" title="Permalink to this headline">¶</a></h2>
 <p><em>(Released Fri, 18 Jun 2010)</em></p>
@@ -908,83 +931,84 @@ post-configuration update hook)</li>
       </div>
       <div class="sphinxsidebar">
         <div class="sphinxsidebarwrapper">
-            <h3><a href="index.html">Table Of Contents</a></h3>
-            <ul>
-<li><a class="reference external" href="">News</a><ul>
-<li><a class="reference external" href="#version-2-1-4">Version 2.1.4</a></li>
-<li><a class="reference external" href="#version-2-1-3">Version 2.1.3</a><ul>
-<li><a class="reference external" href="#significant-features">Significant features</a></li>
-<li><a class="reference external" href="#other-changes">Other changes</a></li>
+  <h3><a href="index.html">Table Of Contents</a></h3>
+  <ul>
+<li><a class="reference internal" href="#">News</a><ul>
+<li><a class="reference internal" href="#version-2-1-5">Version 2.1.5</a></li>
+<li><a class="reference internal" href="#version-2-1-4">Version 2.1.4</a></li>
+<li><a class="reference internal" href="#version-2-1-3">Version 2.1.3</a><ul>
+<li><a class="reference internal" href="#significant-features">Significant features</a></li>
+<li><a class="reference internal" href="#other-changes">Other changes</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#version-2-1-2-1">Version 2.1.2.1</a></li>
-<li><a class="reference external" href="#version-2-1-2">Version 2.1.2</a><ul>
-<li><a class="reference external" href="#id1">Significant features</a></li>
-<li><a class="reference external" href="#id2">Other changes</a></li>
+<li><a class="reference internal" href="#version-2-1-2-1">Version 2.1.2.1</a></li>
+<li><a class="reference internal" href="#version-2-1-2">Version 2.1.2</a><ul>
+<li><a class="reference internal" href="#id1">Significant features</a></li>
+<li><a class="reference internal" href="#id2">Other changes</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#version-2-1-1">Version 2.1.1</a><ul>
-<li><a class="reference external" href="#major-changes">Major changes</a></li>
-<li><a class="reference external" href="#bug-fixes">Bug fixes</a></li>
-<li><a class="reference external" href="#new-features">New features</a></li>
+<li><a class="reference internal" href="#version-2-1-1">Version 2.1.1</a><ul>
+<li><a class="reference internal" href="#major-changes">Major changes</a></li>
+<li><a class="reference internal" href="#bug-fixes">Bug fixes</a></li>
+<li><a class="reference internal" href="#new-features">New features</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#version-2-1-0">Version 2.1.0</a><ul>
-<li><a class="reference external" href="#details">Details</a></li>
+<li><a class="reference internal" href="#version-2-1-0">Version 2.1.0</a><ul>
+<li><a class="reference internal" href="#details">Details</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#version-2-0-6">Version 2.0.6</a></li>
-<li><a class="reference external" href="#version-2-0-5">Version 2.0.5</a></li>
-<li><a class="reference external" href="#version-2-0-4">Version 2.0.4</a></li>
-<li><a class="reference external" href="#version-2-0-3">Version 2.0.3</a></li>
-<li><a class="reference external" href="#version-2-0-2">Version 2.0.2</a></li>
-<li><a class="reference external" href="#version-2-0-1">Version 2.0.1</a></li>
-<li><a class="reference external" href="#version-2-0-0-final">Version 2.0.0 final</a></li>
-<li><a class="reference external" href="#version-2-0-release-candidate-5">Version 2.0 release candidate 5</a></li>
-<li><a class="reference external" href="#version-2-0-release-candidate-4">Version 2.0 release candidate 4</a></li>
-<li><a class="reference external" href="#version-2-0-release-candidate-3">Version 2.0 release candidate 3</a></li>
-<li><a class="reference external" href="#version-2-0-release-candidate-2">Version 2.0 release candidate 2</a></li>
-<li><a class="reference external" href="#version-2-0-release-candidate-1">Version 2.0 release candidate 1</a></li>
-<li><a class="reference external" href="#version-2-0-beta-2">Version 2.0 beta 2</a></li>
-<li><a class="reference external" href="#version-2-0-beta-1">Version 2.0 beta 1</a></li>
-<li><a class="reference external" href="#version-1-2-7">Version 1.2.7</a></li>
-<li><a class="reference external" href="#version-1-2-6">Version 1.2.6</a></li>
-<li><a class="reference external" href="#version-1-2-5">Version 1.2.5</a></li>
-<li><a class="reference external" href="#version-1-2-4">Version 1.2.4</a></li>
-<li><a class="reference external" href="#version-1-2-3">Version 1.2.3</a></li>
-<li><a class="reference external" href="#version-1-2-2">Version 1.2.2</a></li>
-<li><a class="reference external" href="#version-1-2-1">Version 1.2.1</a></li>
-<li><a class="reference external" href="#version-1-2-0">Version 1.2.0</a></li>
-<li><a class="reference external" href="#version-1-2b3">Version 1.2b3</a></li>
-<li><a class="reference external" href="#version-1-2b2">Version 1.2b2</a></li>
+<li><a class="reference internal" href="#version-2-0-6">Version 2.0.6</a></li>
+<li><a class="reference internal" href="#version-2-0-5">Version 2.0.5</a></li>
+<li><a class="reference internal" href="#version-2-0-4">Version 2.0.4</a></li>
+<li><a class="reference internal" href="#version-2-0-3">Version 2.0.3</a></li>
+<li><a class="reference internal" href="#version-2-0-2">Version 2.0.2</a></li>
+<li><a class="reference internal" href="#version-2-0-1">Version 2.0.1</a></li>
+<li><a class="reference internal" href="#version-2-0-0-final">Version 2.0.0 final</a></li>
+<li><a class="reference internal" href="#version-2-0-release-candidate-5">Version 2.0 release candidate 5</a></li>
+<li><a class="reference internal" href="#version-2-0-release-candidate-4">Version 2.0 release candidate 4</a></li>
+<li><a class="reference internal" href="#version-2-0-release-candidate-3">Version 2.0 release candidate 3</a></li>
+<li><a class="reference internal" href="#version-2-0-release-candidate-2">Version 2.0 release candidate 2</a></li>
+<li><a class="reference internal" href="#version-2-0-release-candidate-1">Version 2.0 release candidate 1</a></li>
+<li><a class="reference internal" href="#version-2-0-beta-2">Version 2.0 beta 2</a></li>
+<li><a class="reference internal" href="#version-2-0-beta-1">Version 2.0 beta 1</a></li>
+<li><a class="reference internal" href="#version-1-2-7">Version 1.2.7</a></li>
+<li><a class="reference internal" href="#version-1-2-6">Version 1.2.6</a></li>
+<li><a class="reference internal" href="#version-1-2-5">Version 1.2.5</a></li>
+<li><a class="reference internal" href="#version-1-2-4">Version 1.2.4</a></li>
+<li><a class="reference internal" href="#version-1-2-3">Version 1.2.3</a></li>
+<li><a class="reference internal" href="#version-1-2-2">Version 1.2.2</a></li>
+<li><a class="reference internal" href="#version-1-2-1">Version 1.2.1</a></li>
+<li><a class="reference internal" href="#version-1-2-0">Version 1.2.0</a></li>
+<li><a class="reference internal" href="#version-1-2b3">Version 1.2b3</a></li>
+<li><a class="reference internal" href="#version-1-2b2">Version 1.2b2</a></li>
 </ul>
 </li>
 </ul>
 
-            <h4>Previous topic</h4>
-            <p class="topless"><a href="devnotes.html"
-                                  title="previous chapter">Developer notes</a></p>
-            <h4>Next topic</h4>
-            <p class="topless"><a href="glossary.html"
-                                  title="next chapter">Glossary</a></p>
-            <h3>This Page</h3>
-            <ul class="this-page-menu">
-              <li><a href="_sources/news.txt"
-                     rel="nofollow">Show Source</a></li>
-            </ul>
-          <div id="searchbox" style="display: none">
-            <h3>Quick search</h3>
-              <form class="search" action="search.html" method="get">
-                <input type="text" name="q" size="18" />
-                <input type="submit" value="Go" />
-                <input type="hidden" name="check_keywords" value="yes" />
-                <input type="hidden" name="area" value="default" />
-              </form>
-              <p class="searchtip" style="font-size: 90%">
-              Enter search terms or a module, class or function name.
-              </p>
-          </div>
-          <script type="text/javascript">$('#searchbox').show(0);</script>
+  <h4>Previous topic</h4>
+  <p class="topless"><a href="devnotes.html"
+                        title="previous chapter">Developer notes</a></p>
+  <h4>Next topic</h4>
+  <p class="topless"><a href="glossary.html"
+                        title="next chapter">Glossary</a></p>
+  <h3>This Page</h3>
+  <ul class="this-page-menu">
+    <li><a href="_sources/news.txt"
+           rel="nofollow">Show Source</a></li>
+  </ul>
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" size="18" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
         </div>
       </div>
       <div class="clearer"></div>
@@ -998,12 +1022,12 @@ post-configuration update hook)</li>
         <li class="right" >
           <a href="devnotes.html" title="Developer notes"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.1.4 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.1.5 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">
-      &copy; Copyright 2006, 2007, 2008, 2009, Google Inc..
-      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 0.6.2.
+        &copy; Copyright 2006, 2007, 2008, 2009, Google Inc..
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.0b2.
     </div>
   </body>
 </html>

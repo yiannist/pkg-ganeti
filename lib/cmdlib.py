@@ -2780,7 +2780,7 @@ class LUDiagnoseOS(NoHooksLU):
         valid = True
         variants = None
         for osl in os_data.values():
-          valid = valid and osl and osl[0][1]
+          valid = bool(valid and osl and osl[0][1])
           if not valid:
             variants = set()
             break
@@ -3254,7 +3254,7 @@ class LUModifyNodeStorage(NoHooksLU):
   REQ_BGL = False
 
   def CheckArguments(self):
-    self.opnode_name = _ExpandNodeName(self.cfg, self.op.node_name)
+    self.op.node_name = _ExpandNodeName(self.cfg, self.op.node_name)
 
     _CheckStorageType(self.op.storage_type)
 
@@ -8407,13 +8407,13 @@ class LUSetInstanceParams(LogicalUnit):
                                    " %s to %s" % (instance.disk_template,
                                                   self.op.disk_template),
                                    errors.ECODE_INVAL)
+      _CheckInstanceDown(self, instance, "cannot change disk template")
       if self.op.disk_template in constants.DTS_NET_MIRROR:
         _CheckNodeOnline(self, self.op.remote_node)
         _CheckNodeNotDrained(self, self.op.remote_node)
         disks = [{"size": d.size} for d in instance.disks]
         required = _ComputeDiskSize(self.op.disk_template, disks)
         _CheckNodesFreeDisk(self, [self.op.remote_node], required)
-        _CheckInstanceDown(self, instance, "cannot change disk template")
 
     # hvparams processing
     if self.op.hvparams:
