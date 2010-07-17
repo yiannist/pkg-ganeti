@@ -1,7 +1,7 @@
 # Configure script for Ganeti
 m4_define([gnt_version_major], [2])
 m4_define([gnt_version_minor], [1])
-m4_define([gnt_version_revision], [5])
+m4_define([gnt_version_revision], [6])
 m4_define([gnt_version_suffix], [])
 m4_define([gnt_version_full],
           m4_format([%d.%d.%d%s],
@@ -248,6 +248,17 @@ then
 fi
 
 AC_SUBST(SOCAT_USE_ESCAPE)
+
+if man --help | grep -q -e --warnings
+then
+  MAN_HAS_WARNINGS=1
+else
+  MAN_HAS_WARNINGS=
+  AC_MSG_WARN([man doesn't support --warnings, man pages checks
+               will not be possible])
+fi
+
+AC_SUBST(MAN_HAS_WARNINGS)
 
 # Check for Python
 AM_PATH_PYTHON(2.4)
