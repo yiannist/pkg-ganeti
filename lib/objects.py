@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -47,6 +47,7 @@ __all__ = ["ConfigObject", "ConfigData", "NIC", "Disk", "Instance",
 
 _TIMESTAMPS = ["ctime", "mtime"]
 _UUID = ["uuid"]
+
 
 def FillDict(defaults_dict, custom_dict, skip_keys=None):
   """Basic function to apply settings on top a default dict.
@@ -339,6 +340,21 @@ class ConfigData(ConfigObject):
     obj.instances = cls._ContainerFromDicts(obj.instances, dict, Instance)
     return obj
 
+  def HasAnyDiskOfType(self, dev_type):
+    """Check if in there is at disk of the given type in the configuration.
+
+    @type dev_type: L{constants.LDS_BLOCK}
+    @param dev_type: the type to look for
+    @rtype: boolean
+    @return: boolean indicating if a disk of the given type was found or not
+
+    """
+    for instance in self.instances.values():
+      for disk in instance.disks:
+        if disk.IsBasedOnDiskType(dev_type):
+          return True
+    return False
+
   def UpgradeConfig(self):
     """Fill defaults for missing configuration values.
 
@@ -348,6 +364,12 @@ class ConfigData(ConfigObject):
       node.UpgradeConfig()
     for instance in self.instances.values():
       instance.UpgradeConfig()
+    if self.cluster.drbd_usermode_helper is None:
+      # To decide if we set an helper let's check if at least one instance has
+      # a DRBD disk. This does not cover all the possible scenarios but it
+      # gives a good approximation.
+      if self.HasAnyDiskOfType(constants.LD_DRBD8):
+        self.cluster.drbd_usermode_helper = constants.DEFAULT_DRBD_HELPER
 
 
 class NIC(ConfigObject):
@@ -382,7 +404,8 @@ class NIC(ConfigObject):
         self.nicparams[constants.NIC_MODE] = constants.NIC_MODE_BRIDGED
         self.nicparams[constants.NIC_LINK] = self.bridge
     # bridge is no longer used it 2.1. The slot is left there to support
-    # upgrading, but will be removed in 2.2
+    # upgrading, but can be removed once upgrades to the current version
+    # straight from 2.0 are deprecated.
     if self.bridge is not None:
       self.bridge = None
 
@@ -434,6 +457,21 @@ class Disk(ConfigObject):
     if self.dev_type == constants.LD_DRBD8:
       return 0
     return -1
+
+  def IsBasedOnDiskType(self, dev_type):
+    """Check if the disk or its children are based on the given type.
+
+    @type dev_type: L{constants.LDS_BLOCK}
+    @param dev_type: the type to look for
+    @rtype: boolean
+    @return: boolean indicating if a device of the given type was found or not
+
+    """
+    if self.children:
+      for child in self.children:
+        if child.IsBasedOnDiskType(dev_type):
+          return True
+    return self.dev_type == dev_type
 
   def GetNodes(self, node):
     """This function returns the nodes this device lives on.
@@ -656,6 +694,7 @@ class Instance(TaggableObject):
     "hypervisor",
     "hvparams",
     "beparams",
+    "osparams",
     "admin_up",
     "nics",
     "disks",
@@ -811,10 +850,21 @@ class Instance(TaggableObject):
           del self.hvparams[key]
         except KeyError:
           pass
+    if self.osparams is None:
+      self.osparams = {}
 
 
 class OS(ConfigObject):
-  """Config object representing an operating system."""
+  """Config object representing an operating system.
+
+  @type supported_parameters: list
+  @ivar supported_parameters: a list of tuples, name and description,
+      containing the supported parameters by this OS
+
+  @type VARIANT_DELIM: string
+  @cvar VARIANT_DELIM: the variant delimiter
+
+  """
   __slots__ = [
     "name",
     "path",
@@ -823,8 +873,45 @@ class OS(ConfigObject):
     "export_script",
     "import_script",
     "rename_script",
+    "verify_script",
     "supported_variants",
+    "supported_parameters",
     ]
+
+  VARIANT_DELIM = "+"
+
+  @classmethod
+  def SplitNameVariant(cls, name):
+    """Splits the name into the proper name and variant.
+
+    @param name: the OS (unprocessed) name
+    @rtype: list
+    @return: a list of two elements; if the original name didn't
+        contain a variant, it's returned as an empty string
+
+    """
+    nv = name.split(cls.VARIANT_DELIM, 1)
+    if len(nv) == 1:
+      nv.append("")
+    return nv
+
+  @classmethod
+  def GetName(cls, name):
+    """Returns the proper name of the os (without the variant).
+
+    @param name: the OS (unprocessed) name
+
+    """
+    return cls.SplitNameVariant(name)[0]
+
+  @classmethod
+  def GetVariant(cls, name):
+    """Returns the variant the os (without the base name).
+
+    @param name: the OS (unprocessed) name
+
+    """
+    return cls.SplitNameVariant(name)[1]
 
 
 class Node(TaggableObject):
@@ -849,6 +936,8 @@ class Cluster(TaggableObject):
     "tcpudp_port_pool",
     "mac_prefix",
     "volume_group_name",
+    "reserved_lvs",
+    "drbd_usermode_helper",
     "default_bridge",
     "default_hypervisor",
     "master_node",
@@ -860,12 +949,16 @@ class Cluster(TaggableObject):
     "hvparams",
     "os_hvp",
     "beparams",
+    "osparams",
     "nicparams",
     "candidate_pool_size",
     "modify_etc_hosts",
     "modify_ssh_setup",
     "maintain_node_health",
     "uid_pool",
+    "default_iallocator",
+    "hidden_os",
+    "blacklisted_os",
     ] + _TIMESTAMPS + _UUID
 
   def UpgradeConfig(self):
@@ -881,9 +974,12 @@ class Cluster(TaggableObject):
         self.hvparams[hypervisor] = FillDict(
             constants.HVC_DEFAULTS[hypervisor], self.hvparams[hypervisor])
 
-    # TODO: Figure out if it's better to put this into OS than Cluster
     if self.os_hvp is None:
       self.os_hvp = {}
+
+    # osparams added before 2.2
+    if self.osparams is None:
+      self.osparams = {}
 
     self.beparams = UpgradeGroupedParams(self.beparams,
                                          constants.BEC_DEFAULTS)
@@ -901,11 +997,13 @@ class Cluster(TaggableObject):
       self.modify_ssh_setup = True
 
     # default_bridge is no longer used it 2.1. The slot is left there to
-    # support auto-upgrading, but will be removed in 2.2
+    # support auto-upgrading. It can be removed once we decide to deprecate
+    # upgrading straight from 2.0.
     if self.default_bridge is not None:
       self.default_bridge = None
 
-    # default_hypervisor is just the first enabled one in 2.1
+    # default_hypervisor is just the first enabled one in 2.1. This slot and
+    # code can be removed once upgrading straight from 2.0 is deprecated.
     if self.default_hypervisor is not None:
       self.enabled_hypervisors = ([self.default_hypervisor] +
         [hvname for hvname in self.enabled_hypervisors
@@ -918,6 +1016,20 @@ class Cluster(TaggableObject):
 
     if self.uid_pool is None:
       self.uid_pool = []
+
+    if self.default_iallocator is None:
+      self.default_iallocator = ""
+
+    # reserved_lvs added before 2.2
+    if self.reserved_lvs is None:
+      self.reserved_lvs = []
+
+    # hidden and blacklisted operating systems added before 2.2.1
+    if self.hidden_os is None:
+      self.hidden_os = []
+
+    if self.blacklisted_os is None:
+      self.blacklisted_os = []
 
   def ToDict(self):
     """Custom function for cluster.
@@ -960,9 +1072,31 @@ class Cluster(TaggableObject):
 
     return ret_dict
 
+  def SimpleFillHV(self, hv_name, os_name, hvparams, skip_globals=False):
+    """Fill a given hvparams dict with cluster defaults.
+
+    @type hv_name: string
+    @param hv_name: the hypervisor to use
+    @type os_name: string
+    @param os_name: the OS to use for overriding the hypervisor defaults
+    @type skip_globals: boolean
+    @param skip_globals: if True, the global hypervisor parameters will
+        not be filled
+    @rtype: dict
+    @return: a copy of the given hvparams with missing keys filled from
+        the cluster defaults
+
+    """
+    if skip_globals:
+      skip_keys = constants.HVC_GLOBALS
+    else:
+      skip_keys = []
+
+    def_dict = self.GetHVDefaults(hv_name, os_name, skip_keys=skip_keys)
+    return FillDict(def_dict, hvparams, skip_keys=skip_keys)
 
   def FillHV(self, instance, skip_globals=False):
-    """Fill an instance's hvparams dict.
+    """Fill an instance's hvparams dict with cluster defaults.
 
     @type instance: L{objects.Instance}
     @param instance: the instance parameter to fill
@@ -974,17 +1108,23 @@ class Cluster(TaggableObject):
         the cluster defaults
 
     """
-    if skip_globals:
-      skip_keys = constants.HVC_GLOBALS
-    else:
-      skip_keys = []
+    return self.SimpleFillHV(instance.hypervisor, instance.os,
+                             instance.hvparams, skip_globals)
 
-    def_dict = self.GetHVDefaults(instance.hypervisor, instance.os,
-                                  skip_keys=skip_keys)
-    return FillDict(def_dict, instance.hvparams, skip_keys=skip_keys)
+  def SimpleFillBE(self, beparams):
+    """Fill a given beparams dict with cluster defaults.
+
+    @type beparams: dict
+    @param beparams: the dict to fill
+    @rtype: dict
+    @return: a copy of the passed in beparams with missing keys filled
+        from the cluster defaults
+
+    """
+    return FillDict(self.beparams.get(constants.PP_DEFAULT, {}), beparams)
 
   def FillBE(self, instance):
-    """Fill an instance's beparams dict.
+    """Fill an instance's beparams dict with cluster defaults.
 
     @type instance: L{objects.Instance}
     @param instance: the instance parameter to fill
@@ -993,8 +1133,39 @@ class Cluster(TaggableObject):
         the cluster defaults
 
     """
-    return FillDict(self.beparams.get(constants.PP_DEFAULT, {}),
-                    instance.beparams)
+    return self.SimpleFillBE(instance.beparams)
+
+  def SimpleFillNIC(self, nicparams):
+    """Fill a given nicparams dict with cluster defaults.
+
+    @type nicparams: dict
+    @param nicparams: the dict to fill
+    @rtype: dict
+    @return: a copy of the passed in nicparams with missing keys filled
+        from the cluster defaults
+
+    """
+    return FillDict(self.nicparams.get(constants.PP_DEFAULT, {}), nicparams)
+
+  def SimpleFillOS(self, os_name, os_params):
+    """Fill an instance's osparams dict with cluster defaults.
+
+    @type os_name: string
+    @param os_name: the OS name to use
+    @type os_params: dict
+    @param os_params: the dict to fill with default values
+    @rtype: dict
+    @return: a copy of the instance's osparams with missing keys filled from
+        the cluster defaults
+
+    """
+    name_only = os_name.split("+", 1)[0]
+    # base OS
+    result = self.osparams.get(name_only, {})
+    # OS with variant
+    result = FillDict(result, self.osparams.get(os_name, {}))
+    # specified params
+    return FillDict(result, os_params)
 
 
 class BlockDevStatus(ConfigObject):
@@ -1007,6 +1178,38 @@ class BlockDevStatus(ConfigObject):
     "estimated_time",
     "is_degraded",
     "ldisk_status",
+    ]
+
+
+class ImportExportStatus(ConfigObject):
+  """Config object representing the status of an import or export."""
+  __slots__ = [
+    "recent_output",
+    "listen_port",
+    "connected",
+    "progress_mbytes",
+    "progress_throughput",
+    "progress_eta",
+    "progress_percent",
+    "exit_status",
+    "error_message",
+    ] + _TIMESTAMPS
+
+
+class ImportExportOptions(ConfigObject):
+  """Options for import/export daemon
+
+  @ivar key_name: X509 key name (None for cluster certificate)
+  @ivar ca_pem: Remote peer CA in PEM format (None for cluster certificate)
+  @ivar compress: Compression method (one of L{constants.IEC_ALL})
+  @ivar magic: Used to ensure the connection goes to the right disk
+
+  """
+  __slots__ = [
+    "key_name",
+    "ca_pem",
+    "compress",
+    "magic",
     ]
 
 

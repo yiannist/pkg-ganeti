@@ -1,7 +1,7 @@
 #!/usr/bin/python
 #
 
-# Copyright (C) 2007 Google Inc.
+# Copyright (C) 2007, 2008, 2009, 2010 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -39,6 +39,9 @@ import qa_tags
 import qa_utils
 
 from ganeti import utils
+from ganeti import rapi
+
+import ganeti.rapi.client
 
 
 def RunTest(fn, *args):
@@ -82,6 +85,7 @@ def SetupCluster(rapi_user, rapi_secret):
   if qa_config.TestEnabled('create-cluster'):
     RunTest(qa_cluster.TestClusterInit, rapi_user, rapi_secret)
     RunTest(qa_node.TestNodeAddAll)
+    RunTest(qa_cluster.TestJobqueue)
   else:
     # consider the nodes are already there
     qa_node.MarkNodeAddedAll()
@@ -98,6 +102,9 @@ def RunClusterTests():
 
   if qa_config.TestEnabled('cluster-verify'):
     RunTest(qa_cluster.TestClusterVerify)
+
+  if qa_config.TestEnabled('cluster-reserved-lvs'):
+    RunTest(qa_cluster.TestClusterReservedLvs)
 
   if qa_config.TestEnabled('cluster-rename'):
     RunTest(qa_cluster.TestClusterRename)
@@ -138,6 +145,7 @@ def RunOsTests():
   RunTest(qa_os.TestOsPartiallyValid)
   RunTest(qa_os.TestOsModifyValid)
   RunTest(qa_os.TestOsModifyInvalid)
+  RunTest(qa_os.TestOsStates)
 
 
 def RunCommonInstanceTests(instance):
@@ -156,6 +164,8 @@ def RunCommonInstanceTests(instance):
 
   if qa_config.TestEnabled('instance-modify'):
     RunTest(qa_instance.TestInstanceModify, instance)
+    if qa_rapi.Enabled():
+      RunTest(qa_rapi.TestRapiInstanceModify, instance)
 
   if qa_config.TestEnabled('instance-console'):
     RunTest(qa_instance.TestInstanceConsole, instance)
@@ -169,9 +179,16 @@ def RunCommonInstanceTests(instance):
     RunTest(qa_instance.TestInstanceReboot, instance)
 
   if qa_config.TestEnabled('instance-rename'):
-    RunTest(qa_instance.TestInstanceShutdown, instance)
-    RunTest(qa_instance.TestInstanceRename, instance)
-    RunTest(qa_instance.TestInstanceStartup, instance)
+    rename_target = qa_config.get("rename", None)
+    if rename_target is None:
+      print qa_utils.FormatError("Can rename instance, 'rename' entry is"
+                                 " missing from configuration")
+    else:
+      RunTest(qa_instance.TestInstanceShutdown, instance)
+      RunTest(qa_instance.TestInstanceRename, instance, rename_target)
+      if qa_rapi.Enabled():
+        RunTest(qa_rapi.TestRapiInstanceRename, instance, rename_target)
+      RunTest(qa_instance.TestInstanceStartup, instance)
 
   if qa_config.TestEnabled('tags'):
     RunTest(qa_tags.TestInstanceTags, instance)
@@ -186,11 +203,17 @@ def RunCommonInstanceTests(instance):
     RunTest(qa_rapi.TestInstance, instance)
 
 
-def RunExportImportTests(instance, pnode):
+def RunExportImportTests(instance, pnode, snode):
   """Tries to export and import the instance.
+
+  @param pnode: current primary node of the instance
+  @param snode: current secondary node of the instance, if any,
+      otherwise None
 
   """
   if qa_config.TestEnabled('instance-export'):
+    RunTest(qa_instance.TestInstanceExportNoTarget, instance)
+
     expnode = qa_config.AcquireNode(exclude=pnode)
     try:
       name = RunTest(qa_instance.TestInstanceExport, instance, expnode)
@@ -207,6 +230,23 @@ def RunExportImportTests(instance, pnode):
           qa_config.ReleaseInstance(newinst)
     finally:
       qa_config.ReleaseNode(expnode)
+
+  if (qa_rapi.Enabled() and
+      qa_config.TestEnabled("inter-cluster-instance-move")):
+    newinst = qa_config.AcquireInstance()
+    try:
+      if snode is None:
+        excl = [pnode]
+      else:
+        excl = [pnode, snode]
+      tnode = qa_config.AcquireNode(exclude=excl)
+      try:
+        RunTest(qa_rapi.TestInterClusterInstanceMove, instance, newinst,
+                pnode, snode, tnode)
+      finally:
+        qa_config.ReleaseNode(tnode)
+    finally:
+      qa_config.ReleaseInstance(newinst)
 
 
 def RunDaemonTests(instance, pnode):
@@ -235,6 +275,12 @@ def RunHardwareFailureTests(instance, pnode, snode):
   if qa_config.TestEnabled('instance-failover'):
     RunTest(qa_instance.TestInstanceFailover, instance)
 
+  if qa_config.TestEnabled("instance-migrate"):
+    RunTest(qa_instance.TestInstanceMigrate, instance)
+
+    if qa_rapi.Enabled():
+      RunTest(qa_rapi.TestRapiInstanceMigrate, instance)
+
   if qa_config.TestEnabled('instance-replace-disks'):
     othernode = qa_config.AcquireNode(exclude=[pnode, snode])
     try:
@@ -256,6 +302,7 @@ def RunHardwareFailureTests(instance, pnode, snode):
             instance, pnode, snode)
 
 
+@rapi.client.UsesRapiClient
 def main():
   """Main program.
 
@@ -321,7 +368,7 @@ def main():
     if qa_config.TestEnabled('instance-add-plain-disk'):
       instance = RunTest(qa_instance.TestInstanceAddWithPlainDisk, pnode)
       RunCommonInstanceTests(instance)
-      RunExportImportTests(instance, pnode)
+      RunExportImportTests(instance, pnode, None)
       RunDaemonTests(instance, pnode)
       RunTest(qa_instance.TestInstanceRemove, instance)
       del instance
@@ -341,12 +388,24 @@ def main():
             RunTest(qa_instance.TestInstanceShutdown, instance)
             RunTest(qa_instance.TestInstanceConvertDisk, instance, snode)
             RunTest(qa_instance.TestInstanceStartup, instance)
-          RunExportImportTests(instance, pnode)
+          RunExportImportTests(instance, pnode, snode)
           RunHardwareFailureTests(instance, pnode, snode)
           RunTest(qa_instance.TestInstanceRemove, instance)
           del instance
         finally:
           qa_config.ReleaseNode(snode)
+
+    if (qa_config.TestEnabled('instance-add-plain-disk') and
+        qa_config.TestEnabled("instance-export")):
+      instance = RunTest(qa_instance.TestInstanceAddWithPlainDisk, pnode)
+      expnode = qa_config.AcquireNode(exclude=pnode)
+      try:
+        RunTest(qa_instance.TestInstanceExportWithRemove, instance, expnode)
+        RunTest(qa_instance.TestBackupList, expnode)
+      finally:
+        qa_config.ReleaseNode(expnode)
+      del expnode
+      del instance
 
   finally:
     qa_config.ReleaseNode(pnode)

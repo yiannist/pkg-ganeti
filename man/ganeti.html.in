@@ -21,7 +21,7 @@ NAME="AEN1"
 ><DIV
 CLASS="REFNAMEDIV"
 ><A
-NAME="AEN14"
+NAME="AEN15"
 ></A
 ><H2
 >Name</H2
@@ -29,7 +29,7 @@ NAME="AEN14"
 ><DIV
 CLASS="REFSYNOPSISDIV"
 ><A
-NAME="AEN17"
+NAME="AEN18"
 ></A
 ><H2
 >Synopsis</H2
@@ -45,21 +45,20 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN19"
+NAME="AEN20"
 ></A
 ><H2
 >DESCRIPTION</H2
 ><P
->      The ganeti software manages physical nodes and virtual instances
+>      The Ganeti software manages physical nodes and virtual instances
       of a cluster based on a virtualization software. The current
-      version (2.0) supports Xen 3.0 (also tested with 3.1) and KVM
-      hypervisors.
+      version (2.2) supports Xen 3.x and KVM (72 or above) as hypervisors.
     </P
 ></DIV
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN22"
+NAME="AEN23"
 ></A
 ><H2
 >Quick start</H2
@@ -79,7 +78,7 @@ CLASS="USERINPUT"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN27"
+NAME="AEN28"
 ></A
 ><H2
 >Cluster architecture</H2
@@ -102,7 +101,7 @@ CLASS="ACRONYM"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN34"
+NAME="AEN35"
 ></A
 ><H3
 >Node roles</H3
@@ -139,7 +138,7 @@ CLASS="EMPHASIS"
               (configuration file and jobs) and can become a master
               via the <B
 CLASS="COMMAND"
->gnt-cluster masterfailover</B
+>gnt-cluster master-failover</B
 >
               command. Nodes that are not in this state cannot
               transition into the master role due to missing
@@ -170,7 +169,7 @@ CLASS="EMPHASIS"
 >offline</DT
 ><DD
 ><P
->These nodes are still recorder in the ganeti
+>These nodes are still recorded in the Ganeti
               configuration, but except for the master daemon startup
               voting procedure, they are not actually contacted by the
               master. This state was added in order to allow broken
@@ -185,7 +184,7 @@ CLASS="EMPHASIS"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN61"
+NAME="AEN62"
 ></A
 ><H3
 >Cluster configuration</H3
@@ -222,7 +221,7 @@ CLASS="FILENAME"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN69"
+NAME="AEN70"
 ></A
 ><H3
 >Jobs</H3
@@ -255,7 +254,7 @@ CLASS="VARIABLELIST"
 >canceling</DT
 ><DD
 ><P
->The jos is waiting for locks, but is has been
+>The job is waiting for locks, but is has been
               marked for cancellation. It will not transition to
               <SPAN
 CLASS="emphasis"
@@ -308,7 +307,7 @@ CLASS="EMPHASIS"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN103"
+NAME="AEN104"
 ></A
 ><H2
 >REPORTING BUGS</H2
@@ -318,14 +317,14 @@ HREF="http://code.google.com/p/ganeti/"
 TARGET="_top"
 >http://code.google.com/p/ganeti/</A
 > or contact the
-      developers using the ganeti mailing list
+      developers using the Ganeti mailing list
       &lt;ganeti@googlegroups.com&gt;.
     </P
 ></DIV
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN107"
+NAME="AEN108"
 ></A
 ><H2
 >SEE ALSO</H2
@@ -441,12 +440,12 @@ CLASS="REFENTRYTITLE"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN154"
+NAME="AEN155"
 ></A
 ><H2
 >COPYRIGHT</H2
 ><P
->      Copyright (C) 2006, 2007, 2008, 2009 Google Inc. Permission is
+>      Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc. Permission is
       granted to copy, distribute and/or modify under the terms of the
       <ACRONYM
 CLASS="ACRONYM"

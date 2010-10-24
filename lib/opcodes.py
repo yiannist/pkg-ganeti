@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -175,6 +175,8 @@ class OpCode(BaseOpCode):
     field_name = getattr(self, "OP_DSC_FIELD", None)
     if field_name:
       field_value = getattr(self, field_name, None)
+      if isinstance(field_value, (list, tuple)):
+        field_value = ",".join(str(i) for i in field_value)
       txt = "%s(%s)" % (txt, field_value)
     return txt
 
@@ -299,16 +301,22 @@ class OpSetClusterParams(OpCode):
   OP_ID = "OP_CLUSTER_SET_PARAMS"
   __slots__ = [
     "vg_name",
+    "drbd_helper",
     "enabled_hypervisors",
     "hvparams",
     "os_hvp",
     "beparams",
+    "osparams",
     "nicparams",
     "candidate_pool_size",
     "maintain_node_health",
     "uid_pool",
     "add_uids",
     "remove_uids",
+    "default_iallocator",
+    "reserved_lvs",
+    "hidden_os",
+    "blacklisted_os",
     ]
 
 
@@ -431,21 +439,13 @@ class OpPowercycleNode(OpCode):
     ]
 
 
-class OpEvacuateNode(OpCode):
-  """Relocate secondary instances from a node."""
-  OP_ID = "OP_NODE_EVACUATE"
-  OP_DSC_FIELD = "node_name"
-  __slots__ = [
-    "node_name", "remote_node", "iallocator", "early_release",
-    ]
-
-
 class OpMigrateNode(OpCode):
   """Migrate all instances from a node."""
   OP_ID = "OP_NODE_MIGRATE"
   OP_DSC_FIELD = "node_name"
   __slots__ = [
     "node_name",
+    "mode",
     "live",
     ]
 
@@ -460,7 +460,15 @@ class OpNodeEvacuationStrategy(OpCode):
 # instance opcodes
 
 class OpCreateInstance(OpCode):
-  """Create an instance."""
+  """Create an instance.
+
+  @ivar instance_name: Instance name
+  @ivar mode: Instance creation mode (one of L{constants.INSTANCE_CREATE_MODES})
+  @ivar source_handshake: Signed handshake from source (remote import only)
+  @ivar source_x509_ca: Source X509 CA in PEM format (remote import only)
+  @ivar source_instance_name: Previous name of instance (remote import only)
+
+  """
   OP_ID = "OP_INSTANCE_CREATE"
   OP_DSC_FIELD = "instance_name"
   __slots__ = [
@@ -472,8 +480,10 @@ class OpCreateInstance(OpCode):
     "wait_for_sync", "ip_check", "name_check",
     "file_storage_dir", "file_driver",
     "iallocator",
-    "hypervisor", "hvparams", "beparams",
-    "dry_run",
+    "hypervisor", "hvparams", "beparams", "osparams",
+    "source_handshake",
+    "source_x509_ca",
+    "source_instance_name",
     ]
 
 
@@ -499,7 +509,7 @@ class OpRenameInstance(OpCode):
   """Rename an instance."""
   OP_ID = "OP_INSTANCE_RENAME"
   __slots__ = [
-    "instance_name", "ignore_ip", "new_name",
+    "instance_name", "ip_check", "new_name", "name_check",
     ]
 
 
@@ -554,11 +564,12 @@ class OpMigrateInstance(OpCode):
   node.
 
   @ivar instance_name: the name of the instance
+  @ivar mode: the migration mode (live, non-live or None for auto)
 
   """
   OP_ID = "OP_INSTANCE_MIGRATE"
   OP_DSC_FIELD = "instance_name"
-  __slots__ = ["instance_name", "live", "cleanup"]
+  __slots__ = ["instance_name", "mode", "cleanup", "live"]
 
 
 class OpMoveInstance(OpCode):
@@ -624,7 +635,7 @@ class OpSetInstanceParams(OpCode):
   OP_DSC_FIELD = "instance_name"
   __slots__ = [
     "instance_name",
-    "hvparams", "beparams", "force",
+    "hvparams", "beparams", "osparams", "force",
     "nics", "disks", "disk_template",
     "remote_node", "os_name", "force_variant",
     ]
@@ -653,12 +664,47 @@ class OpQueryExports(OpCode):
   __slots__ = ["nodes", "use_locking"]
 
 
+class OpPrepareExport(OpCode):
+  """Prepares an instance export.
+
+  @ivar instance_name: Instance name
+  @ivar mode: Export mode (one of L{constants.EXPORT_MODES})
+
+  """
+  OP_ID = "OP_BACKUP_PREPARE"
+  OP_DSC_FIELD = "instance_name"
+  __slots__ = [
+    "instance_name", "mode",
+    ]
+
+
 class OpExportInstance(OpCode):
-  """Export an instance."""
+  """Export an instance.
+
+  For local exports, the export destination is the node name. For remote
+  exports, the export destination is a list of tuples, each consisting of
+  hostname/IP address, port, HMAC and HMAC salt. The HMAC is calculated using
+  the cluster domain secret over the value "${index}:${hostname}:${port}". The
+  destination X509 CA must be a signed certificate.
+
+  @ivar mode: Export mode (one of L{constants.EXPORT_MODES})
+  @ivar target_node: Export destination
+  @ivar x509_key_name: X509 key to use (remote export only)
+  @ivar destination_x509_ca: Destination X509 CA in PEM format (remote export
+                             only)
+
+  """
   OP_ID = "OP_BACKUP_EXPORT"
   OP_DSC_FIELD = "instance_name"
   __slots__ = [
+    # TODO: Rename target_node as it changes meaning for different export modes
+    # (e.g. "destination")
     "instance_name", "target_node", "shutdown", "shutdown_timeout",
+    "remove_instance",
+    "ignore_remove_failures",
+    "mode",
+    "x509_key_name",
+    "destination_x509_ca",
     ]
 
 
@@ -720,7 +766,7 @@ class OpTestDelay(OpCode):
   """
   OP_ID = "OP_TEST_DELAY"
   OP_DSC_FIELD = "duration"
-  __slots__ = ["duration", "on_master", "on_nodes"]
+  __slots__ = ["duration", "on_master", "on_nodes", "repeat"]
 
 
 class OpTestAllocator(OpCode):
@@ -741,6 +787,19 @@ class OpTestAllocator(OpCode):
     "mem_size", "disks", "disk_template",
     "os", "tags", "nics", "vcpus", "hypervisor",
     "evac_nodes",
+    ]
+
+
+class OpTestJobqueue(OpCode):
+  """Utility opcode to test some aspects of the job queue.
+
+  """
+  OP_ID = "OP_TEST_JQUEUE"
+  __slots__ = [
+    "notify_waitlock",
+    "notify_exec",
+    "log_messages",
+    "fail",
     ]
 
 

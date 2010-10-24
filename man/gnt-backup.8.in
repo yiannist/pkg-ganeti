@@ -3,10 +3,10 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GNT-BACKUP" "8" "24 August 2010" "ganeti 2.1" ""
+.TH "GNT-BACKUP" "8" "19 October 2010" "Ganeti 2.2" ""
 
 .SH NAME
-gnt-backup \- ganeti instance import/export
+gnt-backup \- Ganeti instance import/export
 .SH SYNOPSIS
 
 \fBgnt-backup \fR \fBcommand\fR [ \fBarguments...\fR ]
@@ -14,12 +14,12 @@ gnt-backup \- ganeti instance import/export
 .SH "DESCRIPTION"
 .PP
 The \fBgnt-backup\fR is used for importing and exporting
-instances and their configuration from a ganeti system. It is useful for
-backing instances up and also to migrate them between clusters.
+instances and their configuration from a Ganeti system. It is useful for
+backing up instances and also to migrate them between clusters.
 .SH "COMMANDS"
 .SS "EXPORT"
 
-\fBexport\fR \fB-n \fInode\fB\fR [ \fB--shutdown-timeout=\fIN\fB\fR ] [ \fB--noshutdown\fR ] \fB\fIinstance\fB\fR
+\fBexport\fR \fB-n \fInode\fB\fR [ \fB--shutdown-timeout=\fIN\fB\fR ] [ \fB--noshutdown\fR ] [ \fB--remove-instance\fR ] [ \fB--ignore-remove-failures\fR ] \fB\fIinstance\fB\fR
 
 .PP
 Exports an instance to the target node. All the instance data
@@ -37,6 +37,10 @@ snapshot disk of the instance without shutting it down first.
 While this is faster and involves no downtime, it cannot be
 guaranteed that the instance data will be in a consistent state
 in the exported dump.
+.PP
+The \fB--remove\fR option can be used to remove the
+instance after it was exported. This is useful to make one last
+backup before removing the instance.
 .PP
 The exit code of the command is 0 if all disks were backed up
 successfully, 1 if no data was backed up or if the
@@ -110,9 +114,8 @@ reused. Each NIC can take up to three parameters (all
 optional):
 .TP
 \fBmac\fR
-either a value or GENERATE
-to generate a new unique MAC, or
-AUTO to reuse the old MAC
+either a value or 'generate' to generate a new
+unique MAC, or 'auto' to reuse the old MAC
 .TP
 \fBip\fR
 specifies the IP address assigned to the
@@ -241,7 +244,7 @@ short hostname.
 .SH "REPORTING BUGS"
 .PP
 Report bugs to  <URL:http://code.google.com/p/ganeti/> or contact the
-developers using the ganeti mailing list
+developers using the Ganeti mailing list
 <ganeti@googlegroups.com>\&.
 .SH "SEE ALSO"
 .PP
@@ -266,7 +269,7 @@ Ganeti daemons:
 \fBganeti-rapi\fR(8) (remote API daemon).
 .SH "COPYRIGHT"
 .PP
-Copyright (C) 2006, 2007, 2008, 2009 Google Inc. Permission is
+Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc. Permission is
 granted to copy, distribute and/or modify under the terms of the
 GNU General Public License as published by the Free Software
 Foundation; either version 2 of the License, or (at your option)

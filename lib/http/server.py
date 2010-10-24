@@ -277,6 +277,14 @@ class HttpServerRequestExecutor(object):
         try:
           try:
             request_msg_reader = self._ReadRequest()
+
+            # RFC2616, 14.23: All Internet-based HTTP/1.1 servers MUST respond
+            # with a 400 (Bad Request) status code to any HTTP/1.1 request
+            # message which lacks a Host header field.
+            if (self.request_msg.start_line.version == http.HTTP_1_1 and
+                http.HTTP_HOST not in self.request_msg.headers):
+              raise http.HttpBadRequest(message="Missing Host header")
+
             self._HandleRequest()
 
             # Only wait for client to close if we didn't have any exception.
@@ -319,7 +327,7 @@ class HttpServerRequestExecutor(object):
     handler_context = _HttpServerRequest(self.request_msg.start_line.method,
                                          self.request_msg.start_line.path,
                                          self.request_msg.headers,
-                                         self.request_msg.decoded_body)
+                                         self.request_msg.body)
 
     logging.debug("Handling request %r", handler_context)
 
@@ -339,12 +347,12 @@ class HttpServerRequestExecutor(object):
         logging.exception("Unknown exception")
         raise http.HttpInternalServerError(message="Unknown error")
 
-      # TODO: Content-type
-      encoder = http.HttpJsonConverter()
+      if not isinstance(result, basestring):
+        raise http.HttpError("Handler function didn't return string type")
+
       self.response_msg.start_line.code = http.HTTP_OK
-      self.response_msg.body = encoder.Encode(result)
       self.response_msg.headers = handler_context.resp_headers
-      self.response_msg.headers[http.HTTP_CONTENT_TYPE] = encoder.CONTENT_TYPE
+      self.response_msg.body = result
     finally:
       # No reason to keep this any longer, even for exceptions
       handler_context.private = None
@@ -428,6 +436,7 @@ class HttpServerRequestExecutor(object):
 
     """
     return self.error_message_format % values
+
 
 class HttpServer(http.HttpBase, asyncore.dispatcher):
   """Generic HTTP server class

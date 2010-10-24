@@ -46,9 +46,7 @@ class _MyErrorLoggingAsyncNotifier(asyncnotifier.ErrorLoggingAsyncNotifier):
 
   def handle_error(self):
     self.error_count += 1
-    # We should also terminate while handling an error, so that any unexpected
-    # error is registered and can be checked.
-    os.kill(os.getpid(), signal.SIGTERM)
+    raise
 
 
 class TestSingleFileEventHandler(testutils.GanetiTestCase):
@@ -93,7 +91,7 @@ class TestSingleFileEventHandler(testutils.GanetiTestCase):
     utils.WriteFile(self.chk_files[self.NOTIFIER_TERM], data="dummy")
     self.mainloop.Run()
     self.assert_(self.notified[self.NOTIFIER_TERM])
-    self.assert_(not self.notified[self.NOTIFIER_NORM])
+    self.assertFalse(self.notified[self.NOTIFIER_NORM])
     self.assertEquals(self.notifiers[self.NOTIFIER_TERM].error_count, 0)
     self.assertEquals(self.notifiers[self.NOTIFIER_NORM].error_count, 0)
 
@@ -107,7 +105,7 @@ class TestSingleFileEventHandler(testutils.GanetiTestCase):
     utils.WriteFile(self.chk_files[self.NOTIFIER_TERM], data="dummy")
     self.mainloop.Run()
     self.assert_(self.notified[self.NOTIFIER_TERM])
-    self.assert_(not self.notified[self.NOTIFIER_NORM])
+    self.assertFalse(self.notified[self.NOTIFIER_NORM])
     self.assertEquals(self.notifiers[self.NOTIFIER_TERM].error_count, 0)
     self.assertEquals(self.notifiers[self.NOTIFIER_NORM].error_count, 0)
 
@@ -117,7 +115,7 @@ class TestSingleFileEventHandler(testutils.GanetiTestCase):
     utils.WriteFile(self.chk_files[self.NOTIFIER_TERM], data="dummy")
     self.mainloop.Run()
     self.assert_(self.notified[self.NOTIFIER_TERM])
-    self.assert_(not self.notified[self.NOTIFIER_NORM])
+    self.assertFalse(self.notified[self.NOTIFIER_NORM])
     self.assertEquals(self.notifiers[self.NOTIFIER_TERM].error_count, 0)
     self.assertEquals(self.notifiers[self.NOTIFIER_NORM].error_count, 0)
 
@@ -127,7 +125,7 @@ class TestSingleFileEventHandler(testutils.GanetiTestCase):
     self.mainloop.Run()
     self.assert_(self.notified[self.NOTIFIER_TERM])
     # NORM notifier is disabled by default
-    self.assert_(not self.notified[self.NOTIFIER_NORM])
+    self.assertFalse(self.notified[self.NOTIFIER_NORM])
     self.assertEquals(self.notifiers[self.NOTIFIER_TERM].error_count, 0)
     self.assertEquals(self.notifiers[self.NOTIFIER_NORM].error_count, 0)
 
@@ -144,7 +142,7 @@ class TestSingleFileEventHandler(testutils.GanetiTestCase):
   def testError(self):
     self.ihandler[self.NOTIFIER_ERR].enable()
     utils.WriteFile(self.chk_files[self.NOTIFIER_ERR], data="dummy")
-    self.mainloop.Run()
+    self.assertRaises(errors.GenericError, self.mainloop.Run)
     self.assert_(self.notified[self.NOTIFIER_ERR])
     self.assertEquals(self.notifiers[self.NOTIFIER_ERR].error_count, 1)
     self.assertEquals(self.notifiers[self.NOTIFIER_NORM].error_count, 0)

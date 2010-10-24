@@ -16,10 +16,13 @@ Contents:
    security.rst
    design-2.0.rst
    design-2.1.rst
+   design-2.2.rst
+   cluster-merge.rst
    locking.rst
    hooks.rst
    iallocator.rst
    rapi.rst
+   move-instance.rst
    devnotes.rst
    news.rst
    glossary.rst

@@ -3,10 +3,10 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GNT-DEBUG" "8" "24 August 2010" "ganeti 2.0" ""
+.TH "GNT-DEBUG" "8" "19 October 2010" "Ganeti 2.2" ""
 
 .SH NAME
-gnt-debug \- debug commands
+gnt-debug \- Debug commands
 .SH SYNOPSIS
 
 \fBgnt-debug \fR \fBcommand\fR [ \fBarguments...\fR ]
@@ -14,7 +14,7 @@ gnt-debug \- debug commands
 .SH "DESCRIPTION"
 .PP
 The \fBgnt-debug\fR is used for debugging the
-ganeti system.
+Ganeti system.
 .SH "COMMANDS"
 .SS "ALLOCATOR"
 
@@ -39,7 +39,7 @@ otherwise (\fIMODE\fR is
 \fBrelocate\fR) an existing instance name must
 be passed as the first argument.
 .PP
-This build of ganeti will look for iallocator scripts in the
+This build of Ganeti will look for iallocator scripts in the
 following directories: \fI@CUSTOM_IALLOCATOR_SEARCH_PATH@\fR;
 for more details about this framework, see the HTML or PDF
 documentation.
@@ -48,9 +48,9 @@ documentation.
 \fBdelay\fR [ \fB--debug\fR ] [ \fB--no-master\fR ] [ \fB-n \fINODE\fB\fR\fI ...\fR ] \fB\fIduration\fB\fR
 
 .PP
-Run a test opcode (a sleep) on the master (internally in the
-command) and on selected nodes (via an RPC call). This server
-no other purpose but to execute a test operation.
+Run a test opcode (a sleep) on the master and on selected nodes
+(via an RPC call). This serves no other purpose but to execute a
+test operation.
 .PP
 The \fB-n\fR option can be given multiple times to
 select the nodes for the RPC call. By default, the delay will
@@ -64,28 +64,71 @@ interpreted as a floating point number.
 \fBsubmit-job\fR [ \fB--verbose\fR ] [ \fB--timing-stats\fR ] [ \fB--job-repeat N\fR ] [ \fB--op-repeat N\fR ] \fBopcodes_file\fR\fI ...\fR
 
 .PP
-This command builds a list of opcodes from JSON-format files
-and submits for each file a job to the master daemon. It can
-be used to test some options that are not available via the
-command line.
+This command builds a list of opcodes from files in JSON format
+and submits a job per file to the master daemon. It can be used
+to test options that are not available via command line.
 .PP
-The \fBverbose\fR option will job the job IDs of
-the submitted jobs and the progress in waiting for the jobs;
-the \fBtiming-stats\fR option will show some
-overall statistics with the number of total opcodes and jobs
-submitted, and time time for each stage (submit, exec, total).
+The \fBverbose\fR option will additionally display
+the corresponding job IDs and the progress in waiting for the
+jobs; the \fBtiming-stats\fR option will show some
+overall statistics inluding the number of total opcodes, jobs
+submitted and time spent in each stage (submit, exec, total).
 .PP
 The \fBjob-repeat\fR and \fBop-repeat\fR
-options allow to submit multiple copies of the passed
-arguments; the job repeat will cause N copies of each job
-(input file) to be submitted (equivalent to passing the
-arguments N times) while the op repeat will cause each job to
-contain multiple copies of the opcodes (equivalent to each
-file containing N copies of the opcodes).
+options allow to submit multiple copies of the passed arguments;
+job-repeat will cause N copies of each job (input file) to be
+submitted (equivalent to passing the arguments N times) while
+op-repeat will cause N copies of each of the opcodes in the file
+to be executed (equivalent to each file containing N copies of
+the opcodes).
+.SS "TEST-JOBQUEUE"
+
+\fBtest-jobqueue\fR
+
+.PP
+Executes a few tests on the job queue. This command might generate
+failed jobs deliberately.
+.SS "LOCKS"
+
+\fBlocks\fR [ \fB--no-headers\fR ] [ \fB--separator=\fISEPARATOR\fB\fR ]
+    [ \fB-o \fI[+]FIELD,...\fB\fR ] [ \fB--interval=\fISECONDS\fB\fR ]
+   
+
+.PP
+Shows a list of locks in the master daemon.
+.PP
+The \fB--no-headers\fR option will skip the initial
+header line. The \fB--separator\fR option takes an
+argument which denotes what will be used between the output
+fields. Both these options are to help scripting.
+.PP
+The \fB-o\fR option takes a comma-separated list of
+output fields. The available fields and their meaning are:
+.TP
+\fBname\fR
+Lock name
+.TP
+\fBmode\fR
+Mode in which the lock is currently acquired (exclusive or
+shared)
+.TP
+\fBowner\fR
+Current lock owner(s)
+.TP
+\fBpending\fR
+Threads waiting for the lock
+.PP
+If the value of the option starts with the character
++, the new fields will be added to the default
+list. This allows to quickly see the default list plus a few other
+fields, instead of retyping the entire list of fields.
+.PP
+Use \fB--interval\fR to repeat the listing. A delay
+specified by the option value in seconds is inserted.
 .SH "REPORTING BUGS"
 .PP
 Report bugs to  <URL:http://code.google.com/p/ganeti/> or contact the
-developers using the ganeti mailing list
+developers using the Ganeti mailing list
 <ganeti@googlegroups.com>\&.
 .SH "SEE ALSO"
 .PP
@@ -110,7 +153,7 @@ Ganeti daemons:
 \fBganeti-rapi\fR(8) (remote API daemon).
 .SH "COPYRIGHT"
 .PP
-Copyright (C) 2006, 2007, 2008, 2009 Google Inc. Permission is
+Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc. Permission is
 granted to copy, distribute and/or modify under the terms of the
 GNU General Public License as published by the Free Software
 Foundation; either version 2 of the License, or (at your option)

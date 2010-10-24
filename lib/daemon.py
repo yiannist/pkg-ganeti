@@ -23,7 +23,11 @@
 
 
 import asyncore
+import asynchat
+import collections
+import grp
 import os
+import pwd
 import signal
 import logging
 import sched
@@ -35,6 +39,11 @@ import sys
 from ganeti import utils
 from ganeti import constants
 from ganeti import errors
+from ganeti import netutils
+
+
+_DEFAULT_RUN_USER = "root"
+_DEFAULT_RUN_GROUP = "root"
 
 
 class SchedulerBreakout(Exception):
@@ -91,17 +100,224 @@ class GanetiBaseAsyncoreDispatcher(asyncore.dispatcher):
     return False
 
 
+def FormatAddress(family, address):
+  """Format a client's address
+
+  @type family: integer
+  @param family: socket family (one of socket.AF_*)
+  @type address: family specific (usually tuple)
+  @param address: address, as reported by this class
+
+  """
+  if family == socket.AF_INET and len(address) == 2:
+    return "%s:%d" % address
+  elif family == socket.AF_UNIX and len(address) == 3:
+    return "pid=%s, uid=%s, gid=%s" % address
+  else:
+    return str(address)
+
+
+class AsyncStreamServer(GanetiBaseAsyncoreDispatcher):
+  """A stream server to use with asyncore.
+
+  Each request is accepted, and then dispatched to a separate asyncore
+  dispatcher to handle.
+
+  """
+
+  _REQUEST_QUEUE_SIZE = 5
+
+  def __init__(self, family, address):
+    """Constructor for AsyncUnixStreamSocket
+
+    @type family: integer
+    @param family: socket family (one of socket.AF_*)
+    @type address: address family dependent
+    @param address: address to bind the socket to
+
+    """
+    GanetiBaseAsyncoreDispatcher.__init__(self)
+    self.family = family
+    self.create_socket(self.family, socket.SOCK_STREAM)
+    self.set_reuse_addr()
+    self.bind(address)
+    self.listen(self._REQUEST_QUEUE_SIZE)
+
+  # this method is overriding an asyncore.dispatcher method
+  def handle_accept(self):
+    """Accept a new client connection.
+
+    Creates a new instance of the handler class, which will use asyncore to
+    serve the client.
+
+    """
+    accept_result = utils.IgnoreSignals(self.accept)
+    if accept_result is not None:
+      connected_socket, client_address = accept_result
+      if self.family == socket.AF_UNIX:
+        # override the client address, as for unix sockets nothing meaningful
+        # is passed in from accept anyway
+        client_address = netutils.GetSocketCredentials(connected_socket)
+      logging.info("Accepted connection from %s",
+                   FormatAddress(self.family, client_address))
+      self.handle_connection(connected_socket, client_address)
+
+  def handle_connection(self, connected_socket, client_address):
+    """Handle an already accepted connection.
+
+    """
+    raise NotImplementedError
+
+
+class AsyncTerminatedMessageStream(asynchat.async_chat):
+  """A terminator separated message stream asyncore module.
+
+  Handles a stream connection receiving messages terminated by a defined
+  separator. For each complete message handle_message is called.
+
+  """
+  def __init__(self, connected_socket, peer_address, terminator, family,
+               unhandled_limit):
+    """AsyncTerminatedMessageStream constructor.
+
+    @type connected_socket: socket.socket
+    @param connected_socket: connected stream socket to receive messages from
+    @param peer_address: family-specific peer address
+    @type terminator: string
+    @param terminator: terminator separating messages in the stream
+    @type family: integer
+    @param family: socket family
+    @type unhandled_limit: integer or None
+    @param unhandled_limit: maximum unanswered messages
+
+    """
+    # python 2.4/2.5 uses conn=... while 2.6 has sock=... we have to cheat by
+    # using a positional argument rather than a keyword one.
+    asynchat.async_chat.__init__(self, connected_socket)
+    self.connected_socket = connected_socket
+    # on python 2.4 there is no "family" attribute for the socket class
+    # FIXME: when we move to python 2.5 or above remove the family parameter
+    #self.family = self.connected_socket.family
+    self.family = family
+    self.peer_address = peer_address
+    self.terminator = terminator
+    self.unhandled_limit = unhandled_limit
+    self.set_terminator(terminator)
+    self.ibuffer = []
+    self.receive_count = 0
+    self.send_count = 0
+    self.oqueue = collections.deque()
+    self.iqueue = collections.deque()
+
+  # this method is overriding an asynchat.async_chat method
+  def collect_incoming_data(self, data):
+    self.ibuffer.append(data)
+
+  def _can_handle_message(self):
+    return (self.unhandled_limit is None or
+            (self.receive_count < self.send_count + self.unhandled_limit) and
+             not self.iqueue)
+
+  # this method is overriding an asynchat.async_chat method
+  def found_terminator(self):
+    message = "".join(self.ibuffer)
+    self.ibuffer = []
+    message_id = self.receive_count
+    # We need to increase the receive_count after checking if the message can
+    # be handled, but before calling handle_message
+    can_handle = self._can_handle_message()
+    self.receive_count += 1
+    if can_handle:
+      self.handle_message(message, message_id)
+    else:
+      self.iqueue.append((message, message_id))
+
+  def handle_message(self, message, message_id):
+    """Handle a terminated message.
+
+    @type message: string
+    @param message: message to handle
+    @type message_id: integer
+    @param message_id: stream's message sequence number
+
+    """
+    pass
+    # TODO: move this method to raise NotImplementedError
+    # raise NotImplementedError
+
+  def send_message(self, message):
+    """Send a message to the remote peer. This function is thread-safe.
+
+    @type message: string
+    @param message: message to send, without the terminator
+
+    @warning: If calling this function from a thread different than the one
+    performing the main asyncore loop, remember that you have to wake that one
+    up.
+
+    """
+    # If we just append the message we received to the output queue, this
+    # function can be safely called by multiple threads at the same time, and
+    # we don't need locking, since deques are thread safe. handle_write in the
+    # asyncore thread will handle the next input message if there are any
+    # enqueued.
+    self.oqueue.append(message)
+
+  # this method is overriding an asyncore.dispatcher method
+  def readable(self):
+    # read from the socket if we can handle the next requests
+    return self._can_handle_message() and asynchat.async_chat.readable(self)
+
+  # this method is overriding an asyncore.dispatcher method
+  def writable(self):
+    # the output queue may become full just after we called writable. This only
+    # works if we know we'll have something else waking us up from the select,
+    # in such case, anyway.
+    return asynchat.async_chat.writable(self) or self.oqueue
+
+  # this method is overriding an asyncore.dispatcher method
+  def handle_write(self):
+    if self.oqueue:
+      # if we have data in the output queue, then send_message was called.
+      # this means we can process one more message from the input queue, if
+      # there are any.
+      data = self.oqueue.popleft()
+      self.push(data + self.terminator)
+      self.send_count += 1
+      if self.iqueue:
+        self.handle_message(*self.iqueue.popleft())
+    self.initiate_send()
+
+  def close_log(self):
+    logging.info("Closing connection from %s",
+                 FormatAddress(self.family, self.peer_address))
+    self.close()
+
+  # this method is overriding an asyncore.dispatcher method
+  def handle_expt(self):
+    self.close_log()
+
+  # this method is overriding an asyncore.dispatcher method
+  def handle_error(self):
+    """Log an error in handling any request, and proceed.
+
+    """
+    logging.exception("Error while handling asyncore request")
+    self.close_log()
+
+
 class AsyncUDPSocket(GanetiBaseAsyncoreDispatcher):
   """An improved asyncore udp socket.
 
   """
-  def __init__(self):
+  def __init__(self, family):
     """Constructor for AsyncUDPSocket
 
     """
     GanetiBaseAsyncoreDispatcher.__init__(self)
     self._out_queue = []
-    self.create_socket(socket.AF_INET, socket.SOCK_DGRAM)
+    self._family = family
+    self.create_socket(family, socket.SOCK_DGRAM)
 
   # this method is overriding an asyncore.dispatcher method
   def handle_connect(self):
@@ -116,7 +332,12 @@ class AsyncUDPSocket(GanetiBaseAsyncoreDispatcher):
                                       constants.MAX_UDP_DATA_SIZE)
     if recv_result is not None:
       payload, address = recv_result
-      ip, port = address
+      if self._family == socket.AF_INET6:
+        # we ignore 'flow info' and 'scope id' as we don't need them
+        ip, port, _, _ = address
+      else:
+        ip, port = address
+
       self.handle_datagram(payload, ip, port)
 
   def handle_datagram(self, payload, ip, port):
@@ -164,6 +385,60 @@ class AsyncUDPSocket(GanetiBaseAsyncoreDispatcher):
       return True
     else:
       return False
+
+
+class AsyncAwaker(GanetiBaseAsyncoreDispatcher):
+  """A way to notify the asyncore loop that something is going on.
+
+  If an asyncore daemon is multithreaded when a thread tries to push some data
+  to a socket, the main loop handling asynchronous requests might be sleeping
+  waiting on a select(). To avoid this it can create an instance of the
+  AsyncAwaker, which other threads can use to wake it up.
+
+  """
+  def __init__(self, signal_fn=None):
+    """Constructor for AsyncAwaker
+
+    @type signal_fn: function
+    @param signal_fn: function to call when awaken
+
+    """
+    GanetiBaseAsyncoreDispatcher.__init__(self)
+    assert signal_fn == None or callable(signal_fn)
+    (self.in_socket, self.out_socket) = socket.socketpair(socket.AF_UNIX,
+                                                          socket.SOCK_STREAM)
+    self.in_socket.setblocking(0)
+    self.in_socket.shutdown(socket.SHUT_WR)
+    self.out_socket.shutdown(socket.SHUT_RD)
+    self.set_socket(self.in_socket)
+    self.need_signal = True
+    self.signal_fn = signal_fn
+    self.connected = True
+
+  # this method is overriding an asyncore.dispatcher method
+  def handle_read(self):
+    utils.IgnoreSignals(self.recv, 4096)
+    if self.signal_fn:
+      self.signal_fn()
+    self.need_signal = True
+
+  # this method is overriding an asyncore.dispatcher method
+  def close(self):
+    asyncore.dispatcher.close(self)
+    self.out_socket.close()
+
+  def signal(self):
+    """Signal the asyncore main loop.
+
+    Any data we send here will be ignored, but it will cause the select() call
+    to return.
+
+    """
+    # Yes, there is a race condition here. No, we don't care, at worst we're
+    # sending more than one wakeup token, which doesn't harm at all.
+    if self.need_signal:
+      self.need_signal = False
+      self.out_socket.send("\0")
 
 
 class Mainloop(object):
@@ -235,7 +510,9 @@ class Mainloop(object):
 
 
 def GenericMain(daemon_name, optionparser, dirs, check_fn, exec_fn,
-                console_logging=False):
+                multithreaded=False, console_logging=False,
+                default_ssl_cert=None, default_ssl_key=None,
+                user=_DEFAULT_RUN_USER, group=_DEFAULT_RUN_GROUP):
   """Shared main function for daemons.
 
   @type daemon_name: string
@@ -252,9 +529,19 @@ def GenericMain(daemon_name, optionparser, dirs, check_fn, exec_fn,
   @type exec_fn: function which accepts (options, args)
   @param exec_fn: function that's executed with the daemon's pid file held, and
                   runs the daemon itself.
+  @type multithreaded: bool
+  @param multithreaded: Whether the daemon uses threads
   @type console_logging: boolean
   @param console_logging: if True, the daemon will fall back to the system
                           console if logging fails
+  @type default_ssl_cert: string
+  @param default_ssl_cert: Default SSL certificate path
+  @type default_ssl_key: string
+  @param default_ssl_key: Default SSL key path
+  @param user: Default user to run as
+  @type user: string
+  @param group: Default group to run as
+  @type group: string
 
   """
   optionparser.add_option("-f", "--foreground", dest="fork",
@@ -269,42 +556,54 @@ def GenericMain(daemon_name, optionparser, dirs, check_fn, exec_fn,
                           constants.SYSLOG_USAGE,
                           default=constants.SYSLOG_USAGE,
                           choices=["no", "yes", "only"])
-  if daemon_name in constants.DAEMONS_PORTS:
-    # for networked daemons we also allow choosing the bind port and address.
-    # by default we use the port provided by utils.GetDaemonPort, and bind to
-    # 0.0.0.0 (which is represented by and empty bind address.
-    port = utils.GetDaemonPort(daemon_name)
-    optionparser.add_option("-p", "--port", dest="port",
-                            help="Network port (%s default)." % port,
-                            default=port, type="int")
-    optionparser.add_option("-b", "--bind", dest="bind_address",
-                            help="Bind address",
-                            default="", metavar="ADDRESS")
 
-  if daemon_name in constants.DAEMONS_SSL:
-    default_cert, default_key = constants.DAEMONS_SSL[daemon_name]
+  if daemon_name in constants.DAEMONS_PORTS:
+    default_bind_address = constants.IP4_ADDRESS_ANY
+    default_port = netutils.GetDaemonPort(daemon_name)
+
+    # For networked daemons we allow choosing the port and bind address
+    optionparser.add_option("-p", "--port", dest="port",
+                            help="Network port (default: %s)" % default_port,
+                            default=default_port, type="int")
+    optionparser.add_option("-b", "--bind", dest="bind_address",
+                            help=("Bind address (default: %s)" %
+                                  default_bind_address),
+                            default=default_bind_address, metavar="ADDRESS")
+
+  if default_ssl_key is not None and default_ssl_cert is not None:
     optionparser.add_option("--no-ssl", dest="ssl",
                             help="Do not secure HTTP protocol with SSL",
                             default=True, action="store_false")
     optionparser.add_option("-K", "--ssl-key", dest="ssl_key",
-                            help="SSL key",
-                            default=default_key, type="string")
+                            help=("SSL key path (default: %s)" %
+                                  default_ssl_key),
+                            default=default_ssl_key, type="string",
+                            metavar="SSL_KEY_PATH")
     optionparser.add_option("-C", "--ssl-cert", dest="ssl_cert",
-                            help="SSL certificate",
-                            default=default_cert, type="string")
+                            help=("SSL certificate path (default: %s)" %
+                                  default_ssl_cert),
+                            default=default_ssl_cert, type="string",
+                            metavar="SSL_CERT_PATH")
 
-  multithread = utils.no_fork = daemon_name in constants.MULTITHREADED_DAEMONS
+  # Disable the use of fork(2) if the daemon uses threads
+  utils.no_fork = multithreaded
 
   options, args = optionparser.parse_args()
 
-  if hasattr(options, 'ssl') and options.ssl:
-    if not (options.ssl_cert and options.ssl_key):
-      print >> sys.stderr, "Need key and certificate to use ssl"
-      sys.exit(constants.EXIT_FAILURE)
-    for fname in (options.ssl_cert, options.ssl_key):
-      if not os.path.isfile(fname):
-        print >> sys.stderr, "Need ssl file %s to run" % fname
+  if getattr(options, "ssl", False):
+    ssl_paths = {
+      "certificate": options.ssl_cert,
+      "key": options.ssl_key,
+      }
+
+    for name, path in ssl_paths.iteritems():
+      if not os.path.isfile(path):
+        print >> sys.stderr, "SSL %s file '%s' was not found" % (name, path)
         sys.exit(constants.EXIT_FAILURE)
+
+    # TODO: By initiating http.HttpSslParams here we would only read the files
+    # once and have a proper validation (isfile returns False on directories)
+    # at the same time.
 
   if check_fn is not None:
     check_fn(options, args)
@@ -312,15 +611,21 @@ def GenericMain(daemon_name, optionparser, dirs, check_fn, exec_fn,
   utils.EnsureDirs(dirs)
 
   if options.fork:
+    try:
+      uid = pwd.getpwnam(user).pw_uid
+      gid = grp.getgrnam(group).gr_gid
+    except KeyError:
+      raise errors.ConfigurationError("User or group not existing on system:"
+                                      " %s:%s" % (user, group))
     utils.CloseFDs()
-    utils.Daemonize(logfile=constants.DAEMONS_LOGFILES[daemon_name])
+    utils.Daemonize(constants.DAEMONS_LOGFILES[daemon_name], uid, gid)
 
   utils.WritePidFile(daemon_name)
   try:
     utils.SetupLogging(logfile=constants.DAEMONS_LOGFILES[daemon_name],
                        debug=options.debug,
                        stderr_logging=not options.fork,
-                       multithreaded=multithread,
+                       multithreaded=multithreaded,
                        program=daemon_name,
                        syslog=options.syslog,
                        console_logging=console_logging)

@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -44,9 +44,10 @@ from ganeti import rpc
 from ganeti import objects
 from ganeti import serializer
 from ganeti import uidpool
+from ganeti import netutils
 
 
-_config_lock = locking.SharedLock()
+_config_lock = locking.SharedLock("ConfigWriter")
 
 # job id used for resource management at config upgrade time
 _UPGRADE_CONFIG_JID = "jid-cfg-upgrade"
@@ -150,7 +151,7 @@ class ConfigWriter:
     # _DistributeConfig, we compute it here once and reuse it; it's
     # better to raise an error before starting to modify the config
     # file than after it was modified
-    self._my_hostname = utils.HostInfo().name
+    self._my_hostname = netutils.HostInfo().name
     self._last_cluster_serial = -1
     self._OpenConfig()
 
@@ -816,6 +817,13 @@ class ConfigWriter:
     """
     return self._config_data.cluster.rsahostkeypub
 
+  @locking.ssynchronized(_config_lock, shared=1)
+  def GetDefaultIAllocator(self):
+    """Get the default instance allocator for this cluster.
+
+    """
+    return self._config_data.cluster.default_iallocator
+
   @locking.ssynchronized(_config_lock)
   def AddInstance(self, instance, ec_id):
     """Add an instance to the config.
@@ -1237,9 +1245,11 @@ class ConfigWriter:
     This is because some data elements need uniqueness across the
     whole configuration, etc.
 
-    @warning: this function will call L{_WriteConfig()}, so it needs
-        to either be called with the lock held or from a safe place
-        (the constructor)
+    @warning: this function will call L{_WriteConfig()}, but also
+        L{DropECReservations} so it needs to be called only from a
+        "safe" place (the constructor). If one wanted to call it with
+        the lock held, a DropECReservationUnlocked would need to be
+        created first, to avoid causing deadlock.
 
     """
     modified = False
@@ -1418,6 +1428,22 @@ class ConfigWriter:
     self._WriteConfig()
 
   @locking.ssynchronized(_config_lock, shared=1)
+  def GetDRBDHelper(self):
+    """Return DRBD usermode helper.
+
+    """
+    return self._config_data.cluster.drbd_usermode_helper
+
+  @locking.ssynchronized(_config_lock)
+  def SetDRBDHelper(self, drbd_helper):
+    """Set DRBD usermode helper.
+
+    """
+    self._config_data.cluster.drbd_usermode_helper = drbd_helper
+    self._config_data.cluster.serial_no += 1
+    self._WriteConfig()
+
+  @locking.ssynchronized(_config_lock, shared=1)
   def GetMACPrefix(self):
     """Return the mac prefix.
 
@@ -1433,6 +1459,13 @@ class ConfigWriter:
 
     """
     return self._config_data.cluster
+
+  @locking.ssynchronized(_config_lock, shared=1)
+  def HasAnyDiskOfType(self, dev_type):
+    """Check if in there is at disk of the given type in the configuration.
+
+    """
+    return self._config_data.HasAnyDiskOfType(dev_type)
 
   @locking.ssynchronized(_config_lock)
   def Update(self, target, feedback_fn):

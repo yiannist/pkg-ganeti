@@ -153,8 +153,8 @@ class OpExecCbBase: # pylint: disable-msg=W0232
 
     """
 
-  def ReportLocks(self, msg):
-    """Report lock operations.
+  def CheckCancel(self):
+    """Check whether job has been cancelled.
 
     """
 
@@ -183,7 +183,6 @@ class Processor(object):
     opcodes.OpRemoveNode: cmdlib.LURemoveNode,
     opcodes.OpSetNodeParams: cmdlib.LUSetNodeParams,
     opcodes.OpPowercycleNode: cmdlib.LUPowercycleNode,
-    opcodes.OpEvacuateNode: cmdlib.LUEvacuateNode,
     opcodes.OpMigrateNode: cmdlib.LUMigrateNode,
     opcodes.OpNodeEvacuationStrategy: cmdlib.LUNodeEvacuationStrategy,
     # instance lu
@@ -210,6 +209,7 @@ class Processor(object):
     opcodes.OpDiagnoseOS: cmdlib.LUDiagnoseOS,
     # exports lu
     opcodes.OpQueryExports: cmdlib.LUQueryExports,
+    opcodes.OpPrepareExport: cmdlib.LUPrepareExport,
     opcodes.OpExportInstance: cmdlib.LUExportInstance,
     opcodes.OpRemoveExport: cmdlib.LURemoveExport,
     # tags lu
@@ -220,6 +220,7 @@ class Processor(object):
     # test lu
     opcodes.OpTestDelay: cmdlib.LUTestDelay,
     opcodes.OpTestAllocator: cmdlib.LUTestAllocator,
+    opcodes.OpTestJobqueue: cmdlib.LUTestJobqueue,
     }
 
   def __init__(self, context, ec_id):
@@ -237,59 +238,6 @@ class Processor(object):
     self.rpc = rpc.RpcRunner(context.cfg)
     self.hmclass = HooksMaster
 
-  def _ReportLocks(self, level, names, shared, timeout, acquired, result):
-    """Reports lock operations.
-
-    @type level: int
-    @param level: Lock level
-    @type names: list or string
-    @param names: Lock names
-    @type shared: bool
-    @param shared: Whether the locks should be acquired in shared mode
-    @type timeout: None or float
-    @param timeout: Timeout for acquiring the locks
-    @type acquired: bool
-    @param acquired: Whether the locks have already been acquired
-    @type result: None or set
-    @param result: Result from L{locking.GanetiLockManager.acquire}
-
-    """
-    parts = []
-
-    # Build message
-    if acquired:
-      if result is None:
-        parts.append("timeout")
-      else:
-        parts.append("acquired")
-    else:
-      parts.append("waiting")
-      if timeout is None:
-        parts.append("blocking")
-      else:
-        parts.append("timeout=%0.6fs" % timeout)
-
-    parts.append(locking.LEVEL_NAMES[level])
-
-    if names == locking.ALL_SET:
-      parts.append("ALL")
-    elif isinstance(names, basestring):
-      parts.append(names)
-    else:
-      parts.append(",".join(sorted(names)))
-
-    if shared:
-      parts.append("shared")
-    else:
-      parts.append("exclusive")
-
-    msg = "/".join(parts)
-
-    logging.debug("LU locks %s", msg)
-
-    if self._cbs:
-      self._cbs.ReportLocks(msg)
-
   def _AcquireLocks(self, level, names, shared, timeout):
     """Acquires locks via the Ganeti lock manager.
 
@@ -303,12 +251,11 @@ class Processor(object):
     @param timeout: Timeout for acquiring the locks
 
     """
-    self._ReportLocks(level, names, shared, timeout, False, None)
+    if self._cbs:
+      self._cbs.CheckCancel()
 
     acquired = self.context.glm.acquire(level, names, shared=shared,
                                         timeout=timeout)
-
-    self._ReportLocks(level, names, shared, timeout, True, acquired)
 
     return acquired
 
@@ -321,7 +268,7 @@ class Processor(object):
     hm = HooksMaster(self.rpc.call_hooks_runner, lu)
     h_results = hm.RunPhase(constants.HOOKS_PHASE_PRE)
     lu.HooksCallBack(constants.HOOKS_PHASE_PRE, h_results,
-                     self._Feedback, None)
+                     self.Log, None)
 
     if getattr(lu.op, "dry_run", False):
       # in this mode, no post-hooks are run, and the config is not
@@ -332,10 +279,10 @@ class Processor(object):
       return lu.dry_run_result
 
     try:
-      result = lu.Exec(self._Feedback)
+      result = lu.Exec(self.Log)
       h_results = hm.RunPhase(constants.HOOKS_PHASE_POST)
       result = lu.HooksCallBack(constants.HOOKS_PHASE_POST, h_results,
-                                self._Feedback, result)
+                                self.Log, result)
     finally:
       # FIXME: This needs locks if not lu_class.REQ_BGL
       if write_count != self.context.cfg.write_count:
@@ -470,7 +417,7 @@ class Processor(object):
     finally:
       self._cbs = None
 
-  def _Feedback(self, *args):
+  def Log(self, *args):
     """Forward call to feedback callback function.
 
     """
@@ -482,7 +429,7 @@ class Processor(object):
 
     """
     logging.debug("Step %d/%d %s", current, total, message)
-    self._Feedback("STEP %d/%d %s" % (current, total, message))
+    self.Log("STEP %d/%d %s" % (current, total, message))
 
   def LogWarning(self, message, *args, **kwargs):
     """Log a warning to the logs and the user.
@@ -499,9 +446,9 @@ class Processor(object):
       message = message % tuple(args)
     if message:
       logging.warning(message)
-      self._Feedback(" - WARNING: %s" % message)
+      self.Log(" - WARNING: %s" % message)
     if "hint" in kwargs:
-      self._Feedback("      Hint: %s" % kwargs["hint"])
+      self.Log("      Hint: %s" % kwargs["hint"])
 
   def LogInfo(self, message, *args):
     """Log an informational message to the logs and the user.
@@ -510,7 +457,7 @@ class Processor(object):
     if args:
       message = message % tuple(args)
     logging.info(message)
-    self._Feedback(" - INFO: %s" % message)
+    self.Log(" - INFO: %s" % message)
 
   def GetECId(self):
     if not self._ec_id:

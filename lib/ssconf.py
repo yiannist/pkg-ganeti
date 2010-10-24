@@ -35,6 +35,7 @@ from ganeti import constants
 from ganeti import utils
 from ganeti import serializer
 from ganeti import objects
+from ganeti import netutils
 
 
 SSCONF_LOCK_TIMEOUT = 10
@@ -336,6 +337,9 @@ class SimpleStore(object):
       for name, value in values.iteritems():
         if value and not value.endswith("\n"):
           value += "\n"
+        if len(value) > self._MAX_SIZE:
+          raise errors.ConfigurationError("ssconf file %s above maximum size" %
+                                          name)
         utils.WriteFile(self.KeyToFilename(name), data=value, mode=0444)
     finally:
       ssconf_lock.Unlock()
@@ -474,7 +478,7 @@ def GetMasterAndMyself(ss=None):
   """
   if ss is None:
     ss = SimpleStore()
-  return ss.GetMasterNode(), utils.HostInfo().name
+  return ss.GetMasterNode(), netutils.HostInfo().name
 
 
 def CheckMaster(debug, ss=None):

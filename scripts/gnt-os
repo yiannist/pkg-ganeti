@@ -1,7 +1,7 @@
 #!/usr/bin/python
 #
 
-# Copyright (C) 2006, 2007 Google Inc.
+# Copyright (C) 2006, 2007, 2010 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -29,6 +29,7 @@
 import sys
 
 from ganeti.cli import *
+from ganeti import constants
 from ganeti import opcodes
 from ganeti import utils
 
@@ -43,8 +44,7 @@ def ListOS(opts, args):
   @return: the desired exit code
 
   """
-  op = opcodes.OpDiagnoseOS(output_fields=["name", "valid", "variants"],
-                            names=[])
+  op = opcodes.OpDiagnoseOS(output_fields=["name", "variants"], names=[])
   result = SubmitOpCode(op, opts=opts)
 
   if not result:
@@ -57,15 +57,66 @@ def ListOS(opts, args):
     headers = None
 
   os_names = []
-  for (name, valid, variants) in result:
-    if valid:
-      os_names.extend([[n] for n in CalculateOSNames(name, variants)])
+  for (name, variants) in result:
+    os_names.extend([[n] for n in CalculateOSNames(name, variants)])
 
   data = GenerateTable(separator=None, headers=headers, fields=["name"],
                        data=os_names, units=None)
 
   for line in data:
     ToStdout(line)
+
+  return 0
+
+
+def ShowOSInfo(opts, args):
+  """List detailed information about OSes in the cluster.
+
+  @param opts: the command line options selected by the user
+  @type args: list
+  @param args: should be an empty list
+  @rtype: int
+  @return: the desired exit code
+
+  """
+  op = opcodes.OpDiagnoseOS(output_fields=["name", "valid", "variants",
+                                           "parameters", "api_versions",
+                                           "blacklisted", "hidden"],
+                            names=[])
+  result = SubmitOpCode(op, opts=opts)
+
+  if not result:
+    ToStderr("Can't get the OS list")
+    return 1
+
+  do_filter = bool(args)
+
+  for (name, valid, variants, parameters, api_versions, blk, hid) in result:
+    if do_filter:
+      if name not in args:
+        continue
+      else:
+        args.remove(name)
+    ToStdout("%s:", name)
+    ToStdout("  - valid: %s", valid)
+    ToStdout("  - hidden: %s", hid)
+    ToStdout("  - blacklisted: %s", blk)
+    if valid:
+      ToStdout("  - API versions:")
+      for version in sorted(api_versions):
+        ToStdout("    - %s", version)
+      ToStdout("  - variants:")
+      for vname in variants:
+        ToStdout("    - %s", vname)
+      ToStdout("  - parameters:")
+      for pname, pdesc in parameters:
+        ToStdout("    - %s: %s", pname, pdesc)
+    ToStdout("")
+
+  if args:
+    for name in args:
+      ToStdout("%s: ", name)
+      ToStdout("")
 
   return 0
 
@@ -86,6 +137,7 @@ def _OsStatus(status, diagnose):
   else:
     return "invalid - %s" % diagnose
 
+
 def DiagnoseOS(opts, args):
   """Analyse all OSes on this cluster.
 
@@ -97,7 +149,8 @@ def DiagnoseOS(opts, args):
 
   """
   op = opcodes.OpDiagnoseOS(output_fields=["name", "valid", "variants",
-                                           "node_status"], names=[])
+                                           "node_status", "hidden",
+                                           "blacklisted"], names=[])
   result = SubmitOpCode(op, opts=opts)
 
   if not result:
@@ -106,25 +159,39 @@ def DiagnoseOS(opts, args):
 
   has_bad = False
 
-  for os_name, _, os_variants, node_data in result:
+  for os_name, _, os_variants, node_data, hid, blk in result:
     nodes_valid = {}
     nodes_bad = {}
     nodes_hidden = {}
     for node_name, node_info in node_data.iteritems():
       nodes_hidden[node_name] = []
       if node_info: # at least one entry in the per-node list
-        (first_os_path, first_os_status, first_os_msg,
-         first_os_variants) = node_info.pop(0)
-        if not first_os_variants:
-          first_os_variants = []
-        first_os_msg = ("%s (path: %s) [variants: %s]" %
-                        (_OsStatus(first_os_status, first_os_msg),
-                         first_os_path, utils.CommaJoin(first_os_variants)))
-        if first_os_status:
-          nodes_valid[node_name] = first_os_msg
+        (fo_path, fo_status, fo_msg, fo_variants,
+         fo_params, fo_api) = node_info.pop(0)
+        fo_msg = "%s (path: %s)" % (_OsStatus(fo_status, fo_msg), fo_path)
+        if fo_api:
+          max_os_api = max(fo_api)
+          fo_msg += " [API versions: %s]" % utils.CommaJoin(fo_api)
         else:
-          nodes_bad[node_name] = first_os_msg
-        for hpath, hstatus, hmsg in node_info:
+          max_os_api = 0
+          fo_msg += " [no API versions declared]"
+
+        if max_os_api >= constants.OS_API_V15:
+          if fo_variants:
+            fo_msg += " [variants: %s]" % utils.CommaJoin(fo_variants)
+          else:
+            fo_msg += " [no variants]"
+        if max_os_api >= constants.OS_API_V20:
+          if fo_params:
+            fo_msg += (" [parameters: %s]" %
+                       utils.CommaJoin([v[0] for v in fo_params]))
+          else:
+            fo_msg += " [no parameters]"
+        if fo_status:
+          nodes_valid[node_name] = fo_msg
+        else:
+          nodes_bad[node_name] = fo_msg
+        for hpath, hstatus, hmsg, _, _, _ in node_info:
           nodes_hidden[node_name].append("    [hidden] path: %s, status: %s" %
                                          (hpath, _OsStatus(hstatus, hmsg)))
       else:
@@ -146,7 +213,12 @@ def DiagnoseOS(opts, args):
         for msg in nodes_hidden[node_name]:
           ToStdout(msg)
 
-    ToStdout("OS: %s [global status: %s]", os_name, status)
+    st_msg = "OS: %s [global status: %s]" % (os_name, status)
+    if hid:
+      st_msg += " [hidden]"
+    if blk:
+      st_msg += " [blacklisted]"
+    ToStdout(st_msg)
     if os_variants:
       ToStdout("  Variants: [%s]" % utils.CommaJoin(os_variants))
     _OutputPerNodeOSStatus(nodes_valid)
@@ -168,27 +240,59 @@ def ModifyOS(opts, args):
   """
   os = args[0]
 
-  op = opcodes.OpSetClusterParams(vg_name=None,
-                                  enabled_hypervisors=None,
-                                  hvparams=None,
-                                  beparams=None,
-                                  nicparams=None,
-                                  candidate_pool_size=None,
-                                  os_hvp={
-                                    os: dict(opts.hvparams)
-                                    })
-  SubmitOpCode(op)
+  if opts.hvparams:
+    os_hvp = {os: dict(opts.hvparams)}
+  else:
+    os_hvp = None
+
+  if opts.osparams:
+    osp = {os: opts.osparams}
+  else:
+    osp = None
+
+  if opts.hidden is not None:
+    if opts.hidden:
+      ohid = [(constants.DDM_ADD, os)]
+    else:
+      ohid = [(constants.DDM_REMOVE, os)]
+  else:
+    ohid = None
+
+  if opts.blacklisted is not None:
+    if opts.blacklisted:
+      oblk = [(constants.DDM_ADD, os)]
+    else:
+      oblk = [(constants.DDM_REMOVE, os)]
+  else:
+    oblk = None
+
+  if not (os_hvp or osp or ohid or oblk):
+    ToStderr("At least one of OS parameters or hypervisor parameters"
+             " must be passed")
+    return 1
+
+  op = opcodes.OpSetClusterParams(os_hvp=os_hvp,
+                                  osparams=osp,
+                                  hidden_os=ohid,
+                                  blacklisted_os=oblk)
+  SubmitOpCode(op, opts=opts)
 
   return 0
 
 
 commands = {
   'list': (
-    ListOS, ARGS_NONE, [NOHDR_OPT], "", "Lists all valid OSes on the master"),
+    ListOS, ARGS_NONE, [NOHDR_OPT], "", "Lists all valid operating systems"
+    " on the cluster"),
   'diagnose': (
-    DiagnoseOS, ARGS_NONE, [], "", "Diagnose all OSes"),
+    DiagnoseOS, ARGS_NONE, [], "", "Diagnose all operating systems"),
+  'info': (
+    ShowOSInfo, [ArgOs()], [], "", "Show detailed information about "
+    "operating systems"),
   'modify': (
-    ModifyOS, ARGS_ONE_OS, [HVLIST_OPT], "", "Modify os parameters"),
+    ModifyOS, ARGS_ONE_OS, [HVLIST_OPT, OSPARAMS_OPT, DRY_RUN_OPT,
+                            HID_OS_OPT, BLK_OS_OPT], "",
+    "Modify the OS parameters"),
   }
 
 if __name__ == '__main__':

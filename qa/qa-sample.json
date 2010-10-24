@@ -14,12 +14,12 @@
     {
       "# Master node": null,
       "primary": "xen-test-0",
-      "secondary": "192.168.1.1"
+      "secondary": "192.0.2.1"
     },
 
     {
       "primary": "xen-test-1",
-      "secondary": "192.168.1.2"
+      "secondary": "192.0.2.2"
     }
   ],
 
@@ -48,6 +48,7 @@
     "cluster-renew-crypto": true,
     "cluster-destroy": true,
     "cluster-rename": true,
+    "cluster-reserved-lvs": true,
 
     "node-info": true,
     "node-volumes": true,
@@ -71,6 +72,7 @@
     "instance-import": true,
     "instance-info": true,
     "instance-list": true,
+    "instance-migrate": true,
     "instance-modify": true,
     "instance-reboot": true,
     "instance-reinstall": true,
@@ -83,6 +85,9 @@
 
     "# Disabled by default because it takes rather long": null,
     "instance-replace-disks": false,
+
+    "# Whether to test the tools/move-instance utility": null,
+    "inter-cluster-instance-move": false,
 
     "# Make sure not to include the disk(s) required for Dom0 to be up": null,
     "# in the volume group used for instances. Otherwise the whole": null,

@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -26,11 +26,13 @@ import re
 from ganeti import _autoconf
 
 # various versions
-PROTOCOL_VERSION = 30
+PROTOCOL_VERSION = 40
 RELEASE_VERSION = _autoconf.PACKAGE_VERSION
 OS_API_V10 = 10
 OS_API_V15 = 15
-OS_API_VERSIONS = frozenset([OS_API_V10, OS_API_V15])
+OS_API_V20 = 20
+OS_API_VERSIONS = frozenset([OS_API_V10, OS_API_V15, OS_API_V20])
+VCS_VERSION = _autoconf.VCS_VERSION
 EXPORT_VERSION = 0
 RAPI_VERSION = 2
 
@@ -82,16 +84,26 @@ CONFIG_MINOR = int(_autoconf.VERSION_MINOR)
 CONFIG_REVISION = 0
 CONFIG_VERSION = BuildVersion(CONFIG_MAJOR, CONFIG_MINOR, CONFIG_REVISION)
 
+# user separation
+DAEMONS_GROUP = _autoconf.DAEMONS_GROUP
+MASTERD_USER = _autoconf.MASTERD_USER
+RAPI_USER = _autoconf.RAPI_USER
+
 # file paths
 DATA_DIR = _autoconf.LOCALSTATEDIR + "/lib/ganeti"
 RUN_DIR = _autoconf.LOCALSTATEDIR + "/run"
 RUN_GANETI_DIR = RUN_DIR + "/ganeti"
 BDEV_CACHE_DIR = RUN_GANETI_DIR + "/bdev-cache"
 DISK_LINKS_DIR = RUN_GANETI_DIR + "/instance-disks"
-RUN_DIRS_MODE = 0755
+RUN_DIRS_MODE = 0775
 SOCKET_DIR = RUN_GANETI_DIR + "/socket"
 SECURE_DIR_MODE = 0700
-SOCKET_DIR_MODE = SECURE_DIR_MODE
+SECURE_FILE_MODE = 0600
+SOCKET_DIR_MODE = 0750
+CRYPTO_KEYS_DIR = RUN_GANETI_DIR + "/crypto"
+CRYPTO_KEYS_DIR_MODE = SECURE_DIR_MODE
+IMPORT_EXPORT_DIR = RUN_GANETI_DIR + "/import-export"
+IMPORT_EXPORT_DIR_MODE = 0755
 # keep RUN_GANETI_DIR first here, to make sure all get created when the node
 # daemon is started (this takes care of RUN_DIR being tmpfs)
 SUB_RUN_DIRS = [ RUN_GANETI_DIR, BDEV_CACHE_DIR, DISK_LINKS_DIR ]
@@ -104,6 +116,7 @@ CLUSTER_CONF_FILE = DATA_DIR + "/config.data"
 NODED_CERT_FILE = DATA_DIR + "/server.pem"
 RAPI_CERT_FILE = DATA_DIR + "/rapi.pem"
 CONFD_HMAC_KEY = DATA_DIR + "/hmac.key"
+CLUSTER_DOMAIN_SECRET_FILE = DATA_DIR + "/cluster-domain-secret"
 WATCHER_STATEFILE = DATA_DIR + "/watcher.data"
 WATCHER_PAUSEFILE = DATA_DIR + "/watcher.pause"
 INSTANCE_UPFILE = RUN_GANETI_DIR + "/instance-status"
@@ -129,19 +142,12 @@ MASTERD = "ganeti-masterd"
 # used in the ganeti-nbma project
 NLD = "ganeti-nld"
 
-MULTITHREADED_DAEMONS = frozenset([MASTERD])
-
-DAEMONS_SSL = {
-  # daemon-name: (default-cert-path, default-key-path)
-  NODED: (NODED_CERT_FILE, NODED_CERT_FILE),
-  RAPI: (RAPI_CERT_FILE, RAPI_CERT_FILE),
-}
-
 DAEMONS_PORTS = {
   # daemon-name: ("proto", "default-port")
   NODED: ("tcp", 1811),
   CONFD: ("udp", 1814),
   RAPI: ("tcp", 5080),
+  "ssh": ("tcp", 22),
   # used in the ganeti-nbma project
   NLD: ("udp", 1816),
 }
@@ -165,12 +171,16 @@ DAEMONS_LOGFILES = {
   # used in the ganeti-nbma project
   NLD: LOG_DIR + "nl-daemon.log",
   }
+
 LOG_OS_DIR = LOG_DIR + "os"
 LOG_WATCHER = LOG_DIR + "watcher.log"
 LOG_COMMANDS = LOG_DIR + "commands.log"
 LOG_BURNIN = LOG_DIR + "burnin.log"
+LOG_SETUP_SSH = LOG_DIR + "setup-ssh.log"
 
 DEV_CONSOLE = "/dev/console"
+
+PROC_MOUNTS = "/proc/mounts"
 
 # luxi related constants
 LUXI_EOM = "\3"
@@ -195,6 +205,56 @@ KVM_PATH = _autoconf.KVM_PATH
 SOCAT_PATH = _autoconf.SOCAT_PATH
 SOCAT_USE_ESCAPE = _autoconf.SOCAT_USE_ESCAPE
 SOCAT_ESCAPE_CODE = "0x1d"
+
+# For RSA keys more bits are better, but they also make operations more
+# expensive. NIST SP 800-131 recommends a minimum of 2048 bits from the year
+# 2010 on.
+RSA_KEY_BITS = 2048
+
+# Ciphers allowed for SSL connections. For the format, see ciphers(1). A better
+# way to disable ciphers would be to use the exclamation mark (!), but socat
+# versions below 1.5 can't parse exclamation marks in options properly. When
+# modifying the ciphers, ensure to not accidentially add something after it's
+# been removed. Use the "openssl" utility to check the allowed ciphers, e.g.
+# "openssl ciphers -v HIGH:-DES".
+OPENSSL_CIPHERS = "HIGH:-DES:-3DES:-EXPORT:-ADH"
+
+# Digest used to sign certificates ("openssl x509" uses SHA1 by default)
+X509_CERT_SIGN_DIGEST = "SHA1"
+
+# Default validity of certificates in days
+X509_CERT_DEFAULT_VALIDITY = 365 * 5
+
+# commonName (CN) used in certificates
+X509_CERT_CN = "ganeti.example.com"
+
+X509_CERT_SIGNATURE_HEADER = "X-Ganeti-Signature"
+
+IMPORT_EXPORT_DAEMON = _autoconf.PKGLIBDIR + "/import-export"
+
+# Import/export daemon mode
+IEM_IMPORT = "import"
+IEM_EXPORT = "export"
+
+# Import/export transport compression
+IEC_NONE = "none"
+IEC_GZIP = "gzip"
+IEC_ALL = frozenset([
+  IEC_NONE,
+  IEC_GZIP,
+  ])
+
+IE_CUSTOM_SIZE = "fd"
+
+IE_MAGIC_RE = re.compile(r"^[-_.a-zA-Z0-9]{5,100}$")
+
+# Import/export I/O
+# Direct file I/O, equivalent to a shell's I/O redirection using '<' or '>'
+IEIO_FILE = "file"
+# Raw block device I/O using "dd"
+IEIO_RAW_DISK = "raw"
+# OS definition import/export script
+IEIO_SCRIPT = "script"
 
 VALUE_DEFAULT = "default"
 VALUE_AUTO = "auto"
@@ -277,6 +337,9 @@ DTS_NOT_LVM = frozenset([DT_DISKLESS, DT_FILE])
 # the set of disk templates which can be grown
 DTS_GROWABLE = frozenset([DT_PLAIN, DT_DRBD8, DT_FILE])
 
+# the set of disk templates that allow adoption
+DTS_MAY_ADOPT = frozenset([DT_PLAIN])
+
 # logical disk types
 LD_LV = "lvm"
 LD_DRBD8 = "drbd8"
@@ -305,6 +368,20 @@ REPLACE_DISK_PRI = "replace_on_primary"    # replace disks on primary
 REPLACE_DISK_SEC = "replace_on_secondary"  # replace disks on secondary
 REPLACE_DISK_CHG = "replace_new_secondary" # change secondary node
 REPLACE_DISK_AUTO = "replace_auto"
+REPLACE_MODES = frozenset([
+  REPLACE_DISK_PRI,
+  REPLACE_DISK_SEC,
+  REPLACE_DISK_CHG,
+  REPLACE_DISK_AUTO,
+  ])
+
+# Instance export mode
+EXPORT_MODE_LOCAL = "local"
+EXPORT_MODE_REMOTE = "remote"
+EXPORT_MODES = frozenset([
+  EXPORT_MODE_LOCAL,
+  EXPORT_MODE_REMOTE,
+  ])
 
 # lock recalculate mode
 LOCKS_REPLACE = 'replace'
@@ -313,6 +390,22 @@ LOCKS_APPEND = 'append'
 # instance creation modes
 INSTANCE_CREATE = "create"
 INSTANCE_IMPORT = "import"
+INSTANCE_REMOTE_IMPORT = "remote-import"
+INSTANCE_CREATE_MODES = frozenset([
+  INSTANCE_CREATE,
+  INSTANCE_IMPORT,
+  INSTANCE_REMOTE_IMPORT,
+  ])
+
+# Remote import/export handshake message and version
+RIE_VERSION = 0
+RIE_HANDSHAKE = "Hi, I'm Ganeti"
+
+# Remote import/export certificate validity in seconds
+RIE_CERT_VALIDITY = 24 * 60 * 60
+
+# Remote import/export connect timeout for socat
+RIE_CONNECT_TIMEOUT = 60
 
 DISK_TEMPLATES = frozenset([DT_DISKLESS, DT_PLAIN,
                             DT_DRBD8, DT_FILE])
@@ -324,10 +417,12 @@ INISECT_EXP = "export"
 INISECT_INS = "instance"
 INISECT_HYP = "hypervisor"
 INISECT_BEP = "backend"
+INISECT_OSP = "os"
 
 # dynamic device modification
-DDM_ADD = 'add'
-DDM_REMOVE = 'remove'
+DDM_ADD = "add"
+DDM_REMOVE = "remove"
+DDMS_VALUES = frozenset([DDM_ADD, DDM_REMOVE])
 
 # common exit codes
 EXIT_SUCCESS = 0
@@ -341,23 +436,33 @@ EXIT_CONFIRMATION = 13 # need user confirmation
 TAG_CLUSTER = "cluster"
 TAG_NODE = "node"
 TAG_INSTANCE = "instance"
+VALID_TAG_TYPES = frozenset([
+  TAG_CLUSTER,
+  TAG_NODE,
+  TAG_INSTANCE,
+  ])
 MAX_TAG_LEN = 128
 MAX_TAGS_PER_OBJ = 4096
 
 # others
 DEFAULT_BRIDGE = "xen-br0"
 SYNC_SPEED = 60 * 1024
-LOCALHOST_IP_ADDRESS = "127.0.0.1"
+IP4_ADDRESS_LOCALHOST = "127.0.0.1"
+IP4_ADDRESS_ANY = "0.0.0.0"
+IP6_ADDRESS_LOCALHOST = "::1"
+IP6_ADDRESS_ANY = "::"
 TCP_PING_TIMEOUT = 10
 GANETI_RUNAS = "root"
 DEFAULT_VG = "xenvg"
-BIND_ADDRESS_GLOBAL = "0.0.0.0"
+DEFAULT_DRBD_HELPER = "/bin/true"
 MIN_VG_SIZE = 20480
 DEFAULT_MAC_PREFIX = "aa:00:00"
 LVM_STRIPECOUNT = _autoconf.LVM_STRIPECOUNT
 # default maximum instance wait time, in seconds.
 DEFAULT_SHUTDOWN_TIMEOUT = 120
 NODE_MAX_CLOCK_SKEW = 150
+# Time for an intra-cluster disk transfer to wait for a connection
+DISK_TRANSFER_CONNECT_TIMEOUT = 30
 
 # runparts results
 (RUNPARTS_SKIP,
@@ -375,11 +480,17 @@ OS_SCRIPT_CREATE = 'create'
 OS_SCRIPT_IMPORT = 'import'
 OS_SCRIPT_EXPORT = 'export'
 OS_SCRIPT_RENAME = 'rename'
+OS_SCRIPT_VERIFY = 'verify'
 OS_SCRIPTS = frozenset([OS_SCRIPT_CREATE, OS_SCRIPT_IMPORT,
-                        OS_SCRIPT_EXPORT, OS_SCRIPT_RENAME])
+                        OS_SCRIPT_EXPORT, OS_SCRIPT_RENAME,
+                        OS_SCRIPT_VERIFY])
 
 OS_API_FILE = 'ganeti_api_version'
 OS_VARIANTS_FILE = 'variants.list'
+OS_PARAMETERS_FILE = 'parameters.list'
+
+OS_VALIDATE_PARAMETERS = 'parameters'
+OS_VALIDATE_CALLS = frozenset([OS_VALIDATE_PARAMETERS])
 
 # ssh constants
 SSH_CONFIG_DIR = _autoconf.SSH_CONFIG_DIR
@@ -400,11 +511,13 @@ REBOOT_TYPES = frozenset([INSTANCE_REBOOT_SOFT,
                           INSTANCE_REBOOT_FULL])
 
 VTYPE_STRING = 'string'
+VTYPE_MAYBE_STRING = "maybe-string"
 VTYPE_BOOL = 'bool'
 VTYPE_SIZE = 'size' # size, in MiBs
 VTYPE_INT = 'int'
 ENFORCEABLE_TYPES = frozenset([
                       VTYPE_STRING,
+                      VTYPE_MAYBE_STRING,
                       VTYPE_BOOL,
                       VTYPE_SIZE,
                       VTYPE_INT,
@@ -436,6 +549,7 @@ HV_INIT_SCRIPT = "init_script"
 HV_MIGRATION_PORT = "migration_port"
 HV_MIGRATION_BANDWIDTH = "migration_bandwidth"
 HV_MIGRATION_DOWNTIME = "migration_downtime"
+HV_MIGRATION_MODE = "migration_mode"
 HV_USE_LOCALTIME = "use_localtime"
 HV_DISK_CACHE = "disk_cache"
 HV_SECURITY_MODEL = "security_model"
@@ -443,6 +557,8 @@ HV_SECURITY_DOMAIN = "security_domain"
 HV_KVM_FLAG = "kvm_flag"
 HV_VHOST_NET = "vhost_net"
 HV_KVM_USE_CHROOT = "use_chroot"
+HV_CPU_MASK = "cpu_mask"
+HV_MEM_PATH = "mem_path"
 
 HVS_PARAMETER_TYPES = {
   HV_BOOT_ORDER: VTYPE_STRING,
@@ -470,6 +586,7 @@ HVS_PARAMETER_TYPES = {
   HV_MIGRATION_PORT: VTYPE_INT,
   HV_MIGRATION_BANDWIDTH: VTYPE_INT,
   HV_MIGRATION_DOWNTIME: VTYPE_INT,
+  HV_MIGRATION_MODE: VTYPE_STRING,
   HV_USE_LOCALTIME: VTYPE_BOOL,
   HV_DISK_CACHE: VTYPE_STRING,
   HV_SECURITY_MODEL: VTYPE_STRING,
@@ -477,6 +594,8 @@ HVS_PARAMETER_TYPES = {
   HV_KVM_FLAG: VTYPE_STRING,
   HV_VHOST_NET: VTYPE_BOOL,
   HV_KVM_USE_CHROOT: VTYPE_BOOL,
+  HV_CPU_MASK: VTYPE_STRING,
+  HV_MEM_PATH: VTYPE_STRING,
   }
 
 HVS_PARAMETERS = frozenset(HVS_PARAMETER_TYPES.keys())
@@ -515,19 +634,26 @@ NICS_PARAMETERS = frozenset(NICS_PARAMETER_TYPES.keys())
 IDISK_SIZE = "size"
 IDISK_MODE = "mode"
 IDISK_ADOPT = "adopt"
-IDISK_PARAMS = frozenset([IDISK_SIZE, IDISK_MODE, IDISK_ADOPT])
 IDISK_PARAMS_TYPES = {
   IDISK_SIZE: VTYPE_SIZE,
   IDISK_MODE: VTYPE_STRING,
   IDISK_ADOPT: VTYPE_STRING,
   }
+IDISK_PARAMS = frozenset(IDISK_PARAMS_TYPES.keys())
+
 INIC_MAC = "mac"
 INIC_IP = "ip"
 INIC_MODE = "mode"
 INIC_LINK = "link"
 INIC_BRIDGE = "bridge"
-INIC_PARAMS = frozenset([INIC_MAC, INIC_IP, INIC_MODE, INIC_LINK, INIC_BRIDGE])
-INIC_PARAMS_TYPES = dict([(name, VTYPE_STRING) for name in INIC_PARAMS])
+INIC_PARAMS_TYPES = {
+  INIC_BRIDGE: VTYPE_STRING,
+  INIC_IP: VTYPE_MAYBE_STRING,
+  INIC_LINK: VTYPE_STRING,
+  INIC_MAC: VTYPE_STRING,
+  INIC_MODE: VTYPE_STRING,
+  }
+INIC_PARAMS = frozenset(INIC_PARAMS_TYPES.keys())
 
 # Hypervisor constants
 HT_XEN_PVM = "xen-pvm"
@@ -535,12 +661,20 @@ HT_FAKE = "fake"
 HT_XEN_HVM = "xen-hvm"
 HT_KVM = "kvm"
 HT_CHROOT = "chroot"
-HYPER_TYPES = frozenset([HT_XEN_PVM, HT_FAKE, HT_XEN_HVM, HT_KVM, HT_CHROOT])
+HT_LXC = "lxc"
+HYPER_TYPES = frozenset([
+  HT_XEN_PVM,
+  HT_FAKE,
+  HT_XEN_HVM,
+  HT_KVM,
+  HT_CHROOT,
+  HT_LXC,
+  ])
 HTS_REQ_PORT = frozenset([HT_XEN_HVM, HT_KVM])
 
 VNC_BASE_PORT = 5900
 VNC_PASSWORD_FILE = CONF_DIR + "/vnc-cluster-password"
-VNC_DEFAULT_BIND_ADDRESS = '0.0.0.0'
+VNC_DEFAULT_BIND_ADDRESS = IP4_ADDRESS_ANY
 
 # NIC types
 HT_NIC_RTL8139 = "rtl8139"
@@ -608,25 +742,32 @@ HT_KVM_DISABLED = "disabled"
 
 HT_KVM_FLAG_VALUES = frozenset([HT_KVM_ENABLED, HT_KVM_DISABLED])
 
+# Migration type
+HT_MIGRATION_LIVE = "live"
+HT_MIGRATION_NONLIVE = "non-live"
+HT_MIGRATION_MODES = frozenset([HT_MIGRATION_LIVE, HT_MIGRATION_NONLIVE])
+
 # Cluster Verify steps
 VERIFY_NPLUSONE_MEM = 'nplusone_mem'
 VERIFY_OPTIONAL_CHECKS = frozenset([VERIFY_NPLUSONE_MEM])
 
 # Node verify constants
+NV_DRBDHELPER = "drbd-helper"
+NV_DRBDLIST = "drbd-list"
 NV_FILELIST = "filelist"
 NV_HVINFO = "hvinfo"
 NV_HYPERVISOR = "hypervisor"
 NV_INSTANCELIST = "instancelist"
+NV_LVLIST = "lvlist"
+NV_MASTERIP = "master-ip"
 NV_NODELIST = "nodelist"
 NV_NODENETTEST = "node-net-test"
+NV_NODESETUP = "nodesetup"
+NV_OSLIST = "oslist"
+NV_PVLIST = "pvlist"
+NV_TIME = "time"
 NV_VERSION = "version"
 NV_VGLIST = "vglist"
-NV_LVLIST = "lvlist"
-NV_PVLIST = "pvlist"
-NV_DRBDLIST = "drbd-list"
-NV_NODESETUP = "nodesetup"
-NV_TIME = "time"
-NV_MASTERIP = "master-ip"
 
 # SSL certificate check constants (in days)
 SSL_CERT_EXPIRATION_WARN = 30
@@ -636,9 +777,18 @@ SSL_CERT_EXPIRATION_ERROR = 7
 IALLOCATOR_VERSION = 2
 IALLOCATOR_DIR_IN = "in"
 IALLOCATOR_DIR_OUT = "out"
+VALID_IALLOCATOR_DIRECTIONS = frozenset([
+  IALLOCATOR_DIR_IN,
+  IALLOCATOR_DIR_OUT,
+  ])
 IALLOCATOR_MODE_ALLOC = "allocate"
 IALLOCATOR_MODE_RELOC = "relocate"
 IALLOCATOR_MODE_MEVAC = "multi-evacuate"
+VALID_IALLOCATOR_MODES = frozenset([
+  IALLOCATOR_MODE_ALLOC,
+  IALLOCATOR_MODE_RELOC,
+  IALLOCATOR_MODE_MEVAC,
+  ])
 IALLOCATOR_SEARCH_PATH = _autoconf.IALLOCATOR_SEARCH_PATH
 
 # Job queue
@@ -649,7 +799,6 @@ JOB_QUEUE_SERIAL_FILE = QUEUE_DIR + "/serial"
 JOB_QUEUE_ARCHIVE_DIR = QUEUE_DIR + "/archive"
 JOB_QUEUE_DRAIN_FILE = QUEUE_DIR + "/drain"
 JOB_QUEUE_SIZE_HARD_LIMIT = 5000
-JOB_QUEUE_SIZE_SOFT_LIMIT = JOB_QUEUE_SIZE_HARD_LIMIT * 0.8
 JOB_QUEUE_DIRS = [QUEUE_DIR, JOB_QUEUE_ARCHIVE_DIR]
 JOB_QUEUE_DIRS_MODE = SECURE_DIR_MODE
 
@@ -666,6 +815,11 @@ JOB_STATUS_RUNNING = "running"
 JOB_STATUS_CANCELED = "canceled"
 JOB_STATUS_SUCCESS = "success"
 JOB_STATUS_ERROR = "error"
+JOBS_FINALIZED = frozenset([
+  JOB_STATUS_CANCELED,
+  JOB_STATUS_SUCCESS,
+  JOB_STATUS_ERROR,
+  ])
 
 # OpCode status
 # not yet finalized
@@ -684,6 +838,21 @@ OPS_FINALIZED = frozenset([OP_STATUS_CANCELED,
 # Execution log types
 ELOG_MESSAGE = "message"
 ELOG_PROGRESS = "progress"
+ELOG_REMOTE_IMPORT = "remote-import"
+ELOG_JQUEUE_TEST = "jqueue-test"
+
+# Job queue test
+JQT_MSGPREFIX = "TESTMSG="
+JQT_EXPANDNAMES = "expandnames"
+JQT_EXEC = "exec"
+JQT_LOGMSG = "logmsg"
+JQT_STARTMSG = "startmsg"
+JQT_ALL = frozenset([
+  JQT_EXPANDNAMES,
+  JQT_EXEC,
+  JQT_LOGMSG,
+  JQT_STARTMSG,
+  ])
 
 # max dynamic devices
 MAX_NICS = 8
@@ -722,19 +891,21 @@ HVC_DEFAULTS = {
     HV_ROOT_PATH: '/dev/sda1',
     HV_KERNEL_ARGS: 'ro',
     HV_MIGRATION_PORT: 8002,
+    HV_MIGRATION_MODE: HT_MIGRATION_LIVE,
     },
   HT_XEN_HVM: {
     HV_BOOT_ORDER: "cd",
     HV_CDROM_IMAGE_PATH: '',
     HV_NIC_TYPE: HT_NIC_RTL8139,
     HV_DISK_TYPE: HT_DISK_PARAVIRTUAL,
-    HV_VNC_BIND_ADDRESS: '0.0.0.0',
+    HV_VNC_BIND_ADDRESS: IP4_ADDRESS_ANY,
     HV_VNC_PASSWORD_FILE: VNC_PASSWORD_FILE,
     HV_ACPI: True,
     HV_PAE: True,
     HV_KERNEL_PATH: "/usr/lib/xen/boot/hvmloader",
     HV_DEVICE_MODEL: "/usr/lib/xen/bin/qemu-dm",
     HV_MIGRATION_PORT: 8002,
+    HV_MIGRATION_MODE: HT_MIGRATION_NONLIVE,
     HV_USE_LOCALTIME: False,
     },
   HT_KVM: {
@@ -757,6 +928,7 @@ HVC_DEFAULTS = {
     HV_MIGRATION_PORT: 8102,
     HV_MIGRATION_BANDWIDTH: 32, # MiB/s
     HV_MIGRATION_DOWNTIME: 30,  # ms
+    HV_MIGRATION_MODE: HT_MIGRATION_LIVE,
     HV_USE_LOCALTIME: False,
     HV_DISK_CACHE: HT_CACHE_DEFAULT,
     HV_SECURITY_MODEL: HT_SM_NONE,
@@ -764,17 +936,22 @@ HVC_DEFAULTS = {
     HV_KVM_FLAG: "",
     HV_VHOST_NET: False,
     HV_KVM_USE_CHROOT: False,
+    HV_MEM_PATH: "",
     },
   HT_FAKE: {
     },
   HT_CHROOT: {
     HV_INIT_SCRIPT: "/ganeti-chroot",
     },
+  HT_LXC: {
+    HV_CPU_MASK: "",
+    },
   }
 
 HVC_GLOBALS = frozenset([
   HV_MIGRATION_PORT,
   HV_MIGRATION_BANDWIDTH,
+  HV_MIGRATION_MODE,
   ])
 
 BEC_DEFAULTS = {

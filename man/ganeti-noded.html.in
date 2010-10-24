@@ -21,15 +21,15 @@ NAME="AEN1"
 ><DIV
 CLASS="REFNAMEDIV"
 ><A
-NAME="AEN14"
+NAME="AEN15"
 ></A
 ><H2
 >Name</H2
->ganeti-noded&nbsp;--&nbsp;ganeti node daemon</DIV
+>ganeti-noded&nbsp;--&nbsp;Ganeti node daemon</DIV
 ><DIV
 CLASS="REFSYNOPSISDIV"
 ><A
-NAME="AEN17"
+NAME="AEN18"
 ></A
 ><H2
 >Synopsis</H2
@@ -42,7 +42,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN22"
+NAME="AEN23"
 ></A
 ><H2
 >DESCRIPTION</H2
@@ -51,16 +51,26 @@ NAME="AEN22"
 CLASS="COMMAND"
 >ganeti-noded</B
 > is the daemon which is
-      responsible for the node functions in the ganeti system.
+      responsible for the node functions in the Ganeti system.
     </P
 ><P
 >      By default, in order to be able to support features such as node
-      powercycling even on systems with a very damaged root disk, ganeti-noded
-      mlocks itself in ram. You can disable this feature by passing in the
+      powercycling even on systems with a very damaged root disk,
+      <B
+CLASS="COMMAND"
+>ganeti-noded</B
+> locks itself in RAM using
+      <SPAN
+CLASS="CITEREFENTRY"
+><SPAN
+CLASS="REFENTRYTITLE"
+>mlockall</SPAN
+>(2)</SPAN
+>. You can disable this feature by passing in the
       <CODE
 CLASS="OPTION"
 >--no-mlock</CODE
->.
+> to the daemon.
     </P
 ><P
 >      For testing purposes, you can give the <CODE
@@ -84,16 +94,23 @@ CLASS="OPTION"
 > option.
     </P
 ><P
->      The ganeti-noded daemon listens to port 1811 TCP, on all interfaces, by
-      default. This can be overridden by an entry in /etc/services or by
-      passing the <CODE
+>      The <B
+CLASS="COMMAND"
+>ganeti-noded</B
+> daemon listens to port 1811 TCP, on
+      all interfaces, by default. This can be overridden by an entry the
+      services database (<TT
+CLASS="FILENAME"
+>/etc/services</TT
+>) or by passing the
+      <CODE
 CLASS="OPTION"
 >-p</CODE
 > option. The <CODE
 CLASS="OPTION"
 >-b</CODE
-> option
-      can be used to specify the address to bind to (defaults to 0.0.0.0).
+> option can be used to
+      specify the address to bind to (defaults to 0.0.0.0).
     </P
 ><P
 >      Ganeti noded communication is protected via SSL, with a key generated at
@@ -101,7 +118,7 @@ CLASS="OPTION"
       <CODE
 CLASS="OPTION"
 >--no-ssl</CODE
-> option, or a different ssl key and certificate
+> option, or a different SSL key and certificate
       can be specified using the <CODE
 CLASS="OPTION"
 >-K</CODE
@@ -114,7 +131,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN41"
+NAME="AEN48"
 ></A
 ><H3
 >ROLE</H3
@@ -137,20 +154,20 @@ NAME="AEN41"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN46"
+NAME="AEN53"
 ></A
 ><H3
 >COMMUNICATION PROTOCOL</H3
 ><P
->        Currently the master-node RPC is done using a simple json-RPC
-        over HTTP(S).
+>        Currently the master-node RPC is done using a simple RPC protocol built
+        using JSON over HTTP(S).
       </P
 ></DIV
 ></DIV
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN49"
+NAME="AEN56"
 ></A
 ><H2
 >REPORTING BUGS</H2
@@ -160,14 +177,14 @@ HREF="http://code.google.com/p/ganeti/"
 TARGET="_top"
 >http://code.google.com/p/ganeti/</A
 > or contact the
-      developers using the ganeti mailing list
+      developers using the Ganeti mailing list
       &lt;ganeti@googlegroups.com&gt;.
     </P
 ></DIV
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN53"
+NAME="AEN60"
 ></A
 ><H2
 >SEE ALSO</H2
@@ -283,12 +300,12 @@ CLASS="REFENTRYTITLE"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN100"
+NAME="AEN107"
 ></A
 ><H2
 >COPYRIGHT</H2
 ><P
->      Copyright (C) 2006, 2007, 2008, 2009 Google Inc. Permission is
+>      Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc. Permission is
       granted to copy, distribute and/or modify under the terms of the
       <ACRONYM
 CLASS="ACRONYM"

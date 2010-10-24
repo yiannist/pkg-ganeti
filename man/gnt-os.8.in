@@ -3,10 +3,10 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GNT-OS" "8" "24 August 2010" "ganeti 2.0" ""
+.TH "GNT-OS" "8" "19 October 2010" "Ganeti 2.2" ""
 
 .SH NAME
-gnt-os \- instance operating system administration
+gnt-os \- Instance operating system administration
 .SH SYNOPSIS
 
 \fBgnt-os \fR \fBcommand\fR [ \fBarguments...\fR ]
@@ -15,7 +15,7 @@ gnt-os \- instance operating system administration
 .PP
 The \fBgnt-os\fR is used for managing the list
 of available operating system flavours for the instances in the
-ganeti cluster.
+Ganeti cluster.
 .SH "COMMANDS"
 
 \fBlist\fR
@@ -24,6 +24,9 @@ ganeti cluster.
 Gives the list of available/supported OS to use in the
 instances. When creating the instance you can give the OS-name
 as an option.
+.PP
+Note that hidden or blacklisted OSes are not displayed by this
+command, use \fBdiagnose\fR for showing those.
 
 \fBdiagnose\fR
 
@@ -35,15 +38,34 @@ nodes. It could be that some OS is missing from a node, or is
 only partially installed, and this command will show the details
 of all the OSes and the reasons they are or are not valid.
 
+\fBinfo\fR
+
+.PP
+This command will list detailed information about each OS
+available in the cluster, including its validity status, the
+supported API versions, the supported parameters (if any) and
+their documentations, etc.
+
 \fBmodify\fR [ \fB-H \fIHYPERVISOR\fB [ : option=\fIvalue\fB\fI ...\fB ]\fR ] \fB\fIOS\fB\fR
 
 .PP
-This command will allow you to modify OS parameters. At the moment
-we just support per-os-hypervisor settings. You can run modify
+This command will allow you to modify OS parameters.
+.PP
+To modify the per-OS hypervisor parameters (which override the
+global hypervisor parameters), you can run modify
 \fB-H\fR with the same syntax as in
 \fBgnt-cluster init\fR to override default hypervisor
 parameters of the cluster for specified
 \fIOS\fR argument.
+.PP
+To modify the hidden and blacklisted states of an OS, pass the
+options \fB--hidden \fIyes|no\fB\fR,
+or respectively \fB--blacklisted ...\fR\&. The 'hidden'
+state means that an OS won't be listed by default in the OS
+list, but is available for installation. The 'blacklisted' state
+means that the OS is not listed and is also not allowed for new
+instance creations (but can be used for reinstalling old
+instances).
 .PP
 Note: The \fIOS\fR doesn't have to exists.
 This allows preseeding the settings for
@@ -52,7 +74,7 @@ This allows preseeding the settings for
 .SH "REPORTING BUGS"
 .PP
 Report bugs to  <URL:http://code.google.com/p/ganeti/> or contact the
-developers using the ganeti mailing list
+developers using the Ganeti mailing list
 <ganeti@googlegroups.com>\&.
 .SH "SEE ALSO"
 .PP
@@ -77,7 +99,7 @@ Ganeti daemons:
 \fBganeti-rapi\fR(8) (remote API daemon).
 .SH "COPYRIGHT"
 .PP
-Copyright (C) 2006, 2007, 2008, 2009 Google Inc. Permission is
+Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc. Permission is
 granted to copy, distribute and/or modify under the terms of the
 GNU General Public License as published by the Free Software
 Foundation; either version 2 of the License, or (at your option)

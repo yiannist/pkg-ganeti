@@ -1,7 +1,7 @@
 #!/usr/bin/python
 #
 
-# Copyright (C) 2006, 2007 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -37,6 +37,7 @@ from ganeti import constants
 from ganeti import compat
 from ganeti import utils
 from ganeti import errors
+from ganeti import netutils
 
 
 _SHUTDOWN_CLUSTER = "cluster"
@@ -227,8 +228,9 @@ def GenericManyOps(operation, fn):
     for name in inames:
       op = fn(name, opts)
       jex.QueueJob(name, op)
-    jex.WaitOrShow(not opts.submit_only)
-    return 0
+    results = jex.WaitOrShow(not opts.submit_only)
+    rcode = compat.all(row[0] for row in results)
+    return int(not rcode)
   return realfn
 
 
@@ -242,12 +244,7 @@ def ListInstances(opts, args):
   @return: the desired exit code
 
   """
-  if opts.output is None:
-    selected_fields = _LIST_DEF_FIELDS
-  elif opts.output.startswith("+"):
-    selected_fields = _LIST_DEF_FIELDS + opts.output[1:].split(",")
-  else:
-    selected_fields = opts.output.split(",")
+  selected_fields = ParseFields(opts.output, _LIST_DEF_FIELDS)
 
   output = GetClient().QueryInstances(args, selected_fields, opts.do_locking)
 
@@ -257,6 +254,7 @@ def ListInstances(opts, args):
       "snodes": "Secondary_Nodes", "admin_state": "Autostart",
       "oper_state": "Running",
       "oper_ram": "Memory", "disk_template": "Disk_template",
+      "oper_vcpus": "VCPUs",
       "ip": "IP_address", "mac": "MAC_address",
       "nic_mode": "NIC_Mode", "nic_link": "NIC_Link",
       "bridge": "Bridge",
@@ -313,6 +311,9 @@ def ListInstances(opts, args):
         else:
           val = "stopped"
       elif field == "oper_ram":
+        if val is None:
+          val = "(node down)"
+      elif field == "oper_vcpus":
         if val is None:
           val = "(node down)"
       elif field == "sda_size" or field == "sdb_size":
@@ -523,8 +524,7 @@ def ReinstallInstance(opts, args):
 
   # second, if requested, ask for an OS
   if opts.select_os is True:
-    op = opcodes.OpDiagnoseOS(output_fields=["name", "valid", "variants"],
-                              names=[])
+    op = opcodes.OpDiagnoseOS(output_fields=["name", "variants"], names=[])
     result = SubmitOpCode(op, opts=opts)
 
     if not result:
@@ -534,12 +534,11 @@ def ReinstallInstance(opts, args):
     ToStdout("Available OS templates:")
     number = 0
     choices = []
-    for (name, valid, variants) in result:
-      if valid:
-        for entry in CalculateOSNames(name, variants):
-          ToStdout("%3s: %s", number, entry)
-          choices.append(("%s" % number, entry, entry))
-          number += 1
+    for (name, variants) in result:
+      for entry in CalculateOSNames(name, variants):
+        ToStdout("%3s: %s", number, entry)
+        choices.append(("%s" % number, entry, entry))
+        number += 1
 
     choices.append(('x', 'exit', 'Exit gnt-instance reinstall'))
     selected = AskUser("Enter OS template number (or x to abort):",
@@ -553,16 +552,17 @@ def ReinstallInstance(opts, args):
   else:
     os_name = opts.os
 
-  # third, get confirmation: multi-reinstall requires --force-multi
-  # *and* --force, single-reinstall just --force
+  # third, get confirmation: multi-reinstall requires --force-multi,
+  # single-reinstall either --force or --force-multi (--force-multi is
+  # a stronger --force)
   multi_on = opts.multi_mode != _SHUTDOWN_INSTANCES or len(inames) > 1
   if multi_on:
     warn_msg = "Note: this will remove *all* data for the below instances!\n"
-    if not ((opts.force_multi and opts.force) or
+    if not (opts.force_multi or
             _ConfirmOperation(inames, "reinstall", extra=warn_msg)):
       return 1
   else:
-    if not opts.force:
+    if not (opts.force or opts.force_multi):
       usertext = ("This will reinstall the instance %s and remove"
                   " all data. Continue?") % inames[0]
       if not AskUser(usertext):
@@ -621,10 +621,20 @@ def RenameInstance(opts, args):
   @return: the desired exit code
 
   """
+  if not opts.name_check:
+    if not AskUser("As you disabled the check of the DNS entry, please verify"
+                   " that '%s' is a FQDN. Continue?" % args[1]):
+      return 1
+
   op = opcodes.OpRenameInstance(instance_name=args[0],
                                 new_name=args[1],
-                                ignore_ip=not opts.ip_check)
-  SubmitOrSend(op, opts)
+                                ip_check=opts.ip_check,
+                                name_check=opts.name_check)
+  result = SubmitOrSend(op, opts)
+
+  if result:
+    ToStdout("Instance '%s' renamed to '%s'", args[0], result)
+
   return 0
 
 
@@ -885,7 +895,17 @@ def MigrateInstance(opts, args):
     if not AskUser(usertext):
       return 1
 
-  op = opcodes.OpMigrateInstance(instance_name=instance_name, live=opts.live,
+  # this should be removed once --non-live is deprecated
+  if not opts.live and opts.migration_mode is not None:
+    raise errors.OpPrereqError("Only one of the --non-live and "
+                               "--migration-mode options can be passed",
+                               errors.ECODE_INVAL)
+  if not opts.live: # --non-live passed
+    mode = constants.HT_MIGRATION_NONLIVE
+  else:
+    mode = opts.migration_mode
+
+  op = opcodes.OpMigrateInstance(instance_name=instance_name, mode=mode,
                                  cleanup=opts.cleanup)
   SubmitOpCode(op, cl=cl, opts=opts)
   return 0
@@ -1112,6 +1132,21 @@ def _FormatList(buf, data, indent_level):
       _FormatList(buf, elem, indent_level+1)
 
 
+def _FormatParameterDict(buf, per_inst, actual):
+  """Formats a parameter dictionary.
+
+  @type buf: L{StringIO}
+  @param buf: the buffer into which to write
+  @type per_inst: dict
+  @param per_inst: the instance's own parameters
+  @type actual: dict
+  @param actual: the current parameter set (including defaults)
+
+  """
+  for key in sorted(actual):
+    val = per_inst.get(key, "default (%s)" % actual[key])
+    buf.write("    - %s: %s\n" % (key, val))
+
 def ShowInstanceConfig(opts, args):
   """Compute instance run-time status.
 
@@ -1160,6 +1195,7 @@ def ShowInstanceConfig(opts, args):
     buf.write("    - primary: %s\n" % instance["pnode"])
     buf.write("    - secondaries: %s\n" % utils.CommaJoin(instance["snodes"]))
     buf.write("  Operating system: %s\n" % instance["os"])
+    _FormatParameterDict(buf, instance["os_instance"], instance["os_actual"])
     if instance.has_key("network_port"):
       buf.write("  Allocated network port: %s\n" %
                 compat.TryToRoman(instance["network_port"],
@@ -1172,11 +1208,11 @@ def ShowInstanceConfig(opts, args):
     if vnc_bind_address:
       port = instance["network_port"]
       display = int(port) - constants.VNC_BASE_PORT
-      if display > 0 and vnc_bind_address == constants.BIND_ADDRESS_GLOBAL:
+      if display > 0 and vnc_bind_address == constants.IP4_ADDRESS_ANY:
         vnc_console_port = "%s:%s (display %s)" % (instance["pnode"],
                                                    port,
                                                    display)
-      elif display > 0 and utils.IsValidIP(vnc_bind_address):
+      elif display > 0 and netutils.IsValidIP4(vnc_bind_address):
         vnc_console_port = ("%s:%s (node %s) (display %s)" %
                              (vnc_bind_address, port,
                               instance["pnode"], display))
@@ -1186,12 +1222,7 @@ def ShowInstanceConfig(opts, args):
                                       vnc_bind_address)
       buf.write("    - console connection: vnc to %s\n" % vnc_console_port)
 
-    for key in sorted(instance["hv_actual"]):
-      if key in instance["hv_instance"]:
-        val = instance["hv_instance"][key]
-      else:
-        val = "default (%s)" % instance["hv_actual"][key]
-      buf.write("    - %s: %s\n" % (key, val))
+    _FormatParameterDict(buf, instance["hv_instance"], instance["hv_actual"])
     buf.write("  Hardware:\n")
     buf.write("    - VCPUs: %s\n" %
               compat.TryToRoman(instance["be_actual"][constants.BE_VCPUS],
@@ -1226,7 +1257,7 @@ def SetInstanceParams(opts, args):
 
   """
   if not (opts.nics or opts.disks or opts.disk_template or
-          opts.hvparams or opts.beparams or opts.os):
+          opts.hvparams or opts.beparams or opts.os or opts.osparams):
     ToStderr("Please give at least one of the parameters.")
     return 1
 
@@ -1280,6 +1311,7 @@ def SetInstanceParams(opts, args):
                                    hvparams=opts.hvparams,
                                    beparams=opts.beparams,
                                    os_name=opts.os,
+                                   osparams=opts.osparams,
                                    force_variant=opts.force_variant,
                                    force=opts.force)
 
@@ -1357,11 +1389,13 @@ add_opts = [
   NONICS_OPT,
   NOSTART_OPT,
   NWSYNC_OPT,
+  OSPARAMS_OPT,
   OS_OPT,
   FORCE_VARIANT_OPT,
   NO_INSTALL_OPT,
   OS_SIZE_OPT,
   SUBMIT_OPT,
+  DRY_RUN_OPT,
   ]
 
 commands = {
@@ -1370,7 +1404,7 @@ commands = {
     "[...] -t disk-type -n node[:secondary-node] -o os-type <name>",
     "Creates and adds a new instance to the cluster"),
   'batch-create': (
-    BatchCreate, [ArgFile(min=1, max=1)], [],
+    BatchCreate, [ArgFile(min=1, max=1)], [DRY_RUN_OPT],
     "<instances.json>",
     "Create a bunch of instances based on specs in the file."),
   'console': (
@@ -1379,17 +1413,19 @@ commands = {
     "[--show-cmd] <instance>", "Opens a console on the specified instance"),
   'failover': (
     FailoverInstance, ARGS_ONE_INSTANCE,
-    [FORCE_OPT, IGNORE_CONSIST_OPT, SUBMIT_OPT, SHUTDOWN_TIMEOUT_OPT],
+    [FORCE_OPT, IGNORE_CONSIST_OPT, SUBMIT_OPT, SHUTDOWN_TIMEOUT_OPT,
+     DRY_RUN_OPT],
     "[-f] <instance>", "Stops the instance and starts it on the backup node,"
     " using the remote mirror (only for instances of type drbd)"),
   'migrate': (
     MigrateInstance, ARGS_ONE_INSTANCE,
-    [FORCE_OPT, NONLIVE_OPT, CLEANUP_OPT],
+    [FORCE_OPT, NONLIVE_OPT, MIGRATION_MODE_OPT, CLEANUP_OPT, DRY_RUN_OPT],
     "[-f] <instance>", "Migrate instance to its secondary node"
     " (only for instances of type drbd)"),
   'move': (
     MoveInstance, ARGS_ONE_INSTANCE,
-    [FORCE_OPT, SUBMIT_OPT, SINGLE_NODE_OPT, SHUTDOWN_TIMEOUT_OPT],
+    [FORCE_OPT, SUBMIT_OPT, SINGLE_NODE_OPT, SHUTDOWN_TIMEOUT_OPT,
+     DRY_RUN_OPT],
     "[-f] <instance>", "Move instance to an arbitrary node"
     " (only for instances of type file and lv)"),
   'info': (
@@ -1403,8 +1439,9 @@ commands = {
     "[<instance>...]",
     "Lists the instances and their status. The available fields are"
     " (see the man page for details): status, oper_state, oper_ram,"
-    " name, os, pnode, snodes, admin_state, admin_ram, disk_template,"
-    " ip, mac, nic_mode, nic_link, sda_size, sdb_size, vcpus, serial_no,"
+    " oper_vcpus, name, os, pnode, snodes, admin_state, admin_ram,"
+    " disk_template, ip, mac, nic_mode, nic_link, sda_size, sdb_size,"
+    " vcpus, serial_no,"
     " nic.count, nic.mac/N, nic.ip/N, nic.mode/N, nic.link/N,"
     " nic.macs, nic.ips, nic.modes, nic.links,"
     " disk.count, disk.size/N, disk.sizes,"
@@ -1418,62 +1455,67 @@ commands = {
     [FORCE_OPT, OS_OPT, FORCE_VARIANT_OPT, m_force_multi, m_node_opt,
      m_pri_node_opt, m_sec_node_opt, m_clust_opt, m_inst_opt, m_node_tags_opt,
      m_pri_node_tags_opt, m_sec_node_tags_opt, m_inst_tags_opt, SELECT_OS_OPT,
-     SUBMIT_OPT],
+     SUBMIT_OPT, DRY_RUN_OPT],
     "[-f] <instance>", "Reinstall a stopped instance"),
   'remove': (
     RemoveInstance, ARGS_ONE_INSTANCE,
-    [FORCE_OPT, SHUTDOWN_TIMEOUT_OPT, IGNORE_FAILURES_OPT, SUBMIT_OPT],
+    [FORCE_OPT, SHUTDOWN_TIMEOUT_OPT, IGNORE_FAILURES_OPT, SUBMIT_OPT,
+     DRY_RUN_OPT],
     "[-f] <instance>", "Shuts down the instance and removes it"),
   'rename': (
     RenameInstance,
     [ArgInstance(min=1, max=1), ArgHost(min=1, max=1)],
-    [NOIPCHECK_OPT, SUBMIT_OPT],
+    [NOIPCHECK_OPT, NONAMECHECK_OPT, SUBMIT_OPT, DRY_RUN_OPT],
     "<instance> <new_name>", "Rename the instance"),
   'replace-disks': (
     ReplaceDisks, ARGS_ONE_INSTANCE,
     [AUTO_REPLACE_OPT, DISKIDX_OPT, IALLOCATOR_OPT, EARLY_RELEASE_OPT,
-     NEW_SECONDARY_OPT, ON_PRIMARY_OPT, ON_SECONDARY_OPT, SUBMIT_OPT],
+     NEW_SECONDARY_OPT, ON_PRIMARY_OPT, ON_SECONDARY_OPT, SUBMIT_OPT,
+     DRY_RUN_OPT],
     "[-s|-p|-n NODE|-I NAME] <instance>",
     "Replaces all disks for the instance"),
   'modify': (
     SetInstanceParams, ARGS_ONE_INSTANCE,
     [BACKEND_OPT, DISK_OPT, FORCE_OPT, HVOPTS_OPT, NET_OPT, SUBMIT_OPT,
-     DISK_TEMPLATE_OPT, SINGLE_NODE_OPT, OS_OPT, FORCE_VARIANT_OPT],
+     DISK_TEMPLATE_OPT, SINGLE_NODE_OPT, OS_OPT, FORCE_VARIANT_OPT,
+     OSPARAMS_OPT, DRY_RUN_OPT],
     "<instance>", "Alters the parameters of an instance"),
   'shutdown': (
     GenericManyOps("shutdown", _ShutdownInstance), [ArgInstance()],
     [m_node_opt, m_pri_node_opt, m_sec_node_opt, m_clust_opt,
      m_node_tags_opt, m_pri_node_tags_opt, m_sec_node_tags_opt,
-     m_inst_tags_opt, m_inst_opt, m_force_multi, TIMEOUT_OPT, SUBMIT_OPT],
+     m_inst_tags_opt, m_inst_opt, m_force_multi, TIMEOUT_OPT, SUBMIT_OPT,
+     DRY_RUN_OPT],
     "<instance>", "Stops an instance"),
   'startup': (
     GenericManyOps("startup", _StartupInstance), [ArgInstance()],
     [FORCE_OPT, m_force_multi, m_node_opt, m_pri_node_opt, m_sec_node_opt,
      m_node_tags_opt, m_pri_node_tags_opt, m_sec_node_tags_opt,
      m_inst_tags_opt, m_clust_opt, m_inst_opt, SUBMIT_OPT, HVOPTS_OPT,
-     BACKEND_OPT],
+     BACKEND_OPT, DRY_RUN_OPT],
     "<instance>", "Starts an instance"),
   'reboot': (
     GenericManyOps("reboot", _RebootInstance), [ArgInstance()],
     [m_force_multi, REBOOT_TYPE_OPT, IGNORE_SECONDARIES_OPT, m_node_opt,
      m_pri_node_opt, m_sec_node_opt, m_clust_opt, m_inst_opt, SUBMIT_OPT,
      m_node_tags_opt, m_pri_node_tags_opt, m_sec_node_tags_opt,
-     m_inst_tags_opt, SHUTDOWN_TIMEOUT_OPT],
+     m_inst_tags_opt, SHUTDOWN_TIMEOUT_OPT, DRY_RUN_OPT],
     "<instance>", "Reboots an instance"),
   'activate-disks': (
-    ActivateDisks, ARGS_ONE_INSTANCE, [SUBMIT_OPT, IGNORE_SIZE_OPT],
+    ActivateDisks, ARGS_ONE_INSTANCE,
+    [SUBMIT_OPT, IGNORE_SIZE_OPT],
     "<instance>", "Activate an instance's disks"),
   'deactivate-disks': (
-    DeactivateDisks, ARGS_ONE_INSTANCE, [SUBMIT_OPT],
+    DeactivateDisks, ARGS_ONE_INSTANCE, [SUBMIT_OPT, DRY_RUN_OPT],
     "<instance>", "Deactivate an instance's disks"),
   'recreate-disks': (
-    RecreateDisks, ARGS_ONE_INSTANCE, [SUBMIT_OPT, DISKIDX_OPT],
+    RecreateDisks, ARGS_ONE_INSTANCE, [SUBMIT_OPT, DISKIDX_OPT, DRY_RUN_OPT],
     "<instance>", "Recreate an instance's disks"),
   'grow-disk': (
     GrowDisk,
     [ArgInstance(min=1, max=1), ArgUnknown(min=1, max=1),
      ArgUnknown(min=1, max=1)],
-    [SUBMIT_OPT, NWSYNC_OPT],
+    [SUBMIT_OPT, NWSYNC_OPT, DRY_RUN_OPT],
     "<instance> <disk> <size>", "Grow an instance's disk"),
   'list-tags': (
     ListTags, ARGS_ONE_INSTANCE, [],
@@ -1490,8 +1532,6 @@ commands = {
 
 #: dictionary with aliases for commands
 aliases = {
-  'activate_block_devs': 'activate-disks',
-  'replace_disks': 'replace-disks',
   'start': 'startup',
   'stop': 'shutdown',
   }

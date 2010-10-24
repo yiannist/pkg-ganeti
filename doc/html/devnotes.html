@@ -1,5 +1,3 @@
-
-
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
   "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 
@@ -7,24 +5,23 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Developer notes &mdash; Ganeti v2.1.7 documentation</title>
+    <title>Developer notes &mdash; Ganeti v2.2.1 documentation</title>
     <link rel="stylesheet" href="_static/default.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.1.7',
-        COLLAPSE_INDEX: false,
+        VERSION:     '2.2.1',
+        COLLAPSE_MODINDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
       };
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
-    <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.1.7 documentation" href="index.html" />
+    <link rel="top" title="Ganeti v2.2.1 documentation" href="index.html" />
     <link rel="next" title="News" href="news.html" />
-    <link rel="prev" title="Ganeti remote API" href="rapi.html" /> 
+    <link rel="prev" title="Moving instances between clusters" href="move-instance.html" /> 
   </head>
   <body>
     <div class="related">
@@ -34,9 +31,9 @@
           <a href="news.html" title="News"
              accesskey="N">next</a></li>
         <li class="right" >
-          <a href="rapi.html" title="Ganeti remote API"
+          <a href="move-instance.html" title="Moving instances between clusters"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.1.7 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.2.1 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -49,7 +46,7 @@
 <h1>Developer notes<a class="headerlink" href="#developer-notes" title="Permalink to this headline">¶</a></h1>
 <div class="section" id="build-dependencies">
 <h2>Build dependencies<a class="headerlink" href="#build-dependencies" title="Permalink to this headline">¶</a></h2>
-<p>Most dependencies from <a class="reference internal" href="install-quick.html"><em>Ganeti quick installation guide</em></a>, plus:</p>
+<p>Most dependencies from <a class="reference external" href="install-quick.html"><em>Ganeti quick installation guide</em></a>, plus:</p>
 <ul class="simple">
 <li><a class="reference external" href="http://www.gnu.org/software/make/">GNU make</a></li>
 <li><a class="reference external" href="http://www.gnu.org/software/tar/">GNU tar</a></li>
@@ -104,43 +101,43 @@ for reloading the OpenSSH daemon&#8217;s host keys.</p>
       </div>
       <div class="sphinxsidebar">
         <div class="sphinxsidebarwrapper">
-  <h3><a href="index.html">Table Of Contents</a></h3>
-  <ul>
-<li><a class="reference internal" href="#">Developer notes</a><ul>
-<li><a class="reference internal" href="#build-dependencies">Build dependencies</a></li>
-<li><a class="reference internal" href="#configuring-for-development">Configuring for development</a></li>
+            <h3><a href="index.html">Table Of Contents</a></h3>
+            <ul>
+<li><a class="reference external" href="#">Developer notes</a><ul>
+<li><a class="reference external" href="#build-dependencies">Build dependencies</a></li>
+<li><a class="reference external" href="#configuring-for-development">Configuring for development</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#packaging-notes">Packaging notes</a><ul>
-<li><a class="reference internal" href="#daemon-util"><tt class="docutils literal"><span class="pre">daemon-util</span></tt></a></li>
+<li><a class="reference external" href="#packaging-notes">Packaging notes</a><ul>
+<li><a class="reference external" href="#daemon-util"><tt class="docutils literal"><span class="pre">daemon-util</span></tt></a></li>
 </ul>
 </li>
 </ul>
 
-  <h4>Previous topic</h4>
-  <p class="topless"><a href="rapi.html"
-                        title="previous chapter">Ganeti remote API</a></p>
-  <h4>Next topic</h4>
-  <p class="topless"><a href="news.html"
-                        title="next chapter">News</a></p>
-  <h3>This Page</h3>
-  <ul class="this-page-menu">
-    <li><a href="_sources/devnotes.txt"
-           rel="nofollow">Show Source</a></li>
-  </ul>
-<div id="searchbox" style="display: none">
-  <h3>Quick search</h3>
-    <form class="search" action="search.html" method="get">
-      <input type="text" name="q" size="18" />
-      <input type="submit" value="Go" />
-      <input type="hidden" name="check_keywords" value="yes" />
-      <input type="hidden" name="area" value="default" />
-    </form>
-    <p class="searchtip" style="font-size: 90%">
-    Enter search terms or a module, class or function name.
-    </p>
-</div>
-<script type="text/javascript">$('#searchbox').show(0);</script>
+            <h4>Previous topic</h4>
+            <p class="topless"><a href="move-instance.html"
+                                  title="previous chapter">Moving instances between clusters</a></p>
+            <h4>Next topic</h4>
+            <p class="topless"><a href="news.html"
+                                  title="next chapter">News</a></p>
+            <h3>This Page</h3>
+            <ul class="this-page-menu">
+              <li><a href="_sources/devnotes.txt"
+                     rel="nofollow">Show Source</a></li>
+            </ul>
+          <div id="searchbox" style="display: none">
+            <h3>Quick search</h3>
+              <form class="search" action="search.html" method="get">
+                <input type="text" name="q" size="18" />
+                <input type="submit" value="Go" />
+                <input type="hidden" name="check_keywords" value="yes" />
+                <input type="hidden" name="area" value="default" />
+              </form>
+              <p class="searchtip" style="font-size: 90%">
+              Enter search terms or a module, class or function name.
+              </p>
+          </div>
+          <script type="text/javascript">$('#searchbox').show(0);</script>
         </div>
       </div>
       <div class="clearer"></div>
@@ -152,14 +149,14 @@ for reloading the OpenSSH daemon&#8217;s host keys.</p>
           <a href="news.html" title="News"
              >next</a></li>
         <li class="right" >
-          <a href="rapi.html" title="Ganeti remote API"
+          <a href="move-instance.html" title="Moving instances between clusters"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.1.7 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.2.1 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">
-        &copy; Copyright 2006, 2007, 2008, 2009, Google Inc..
-      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.0b2.
+      &copy; Copyright 2006, 2007, 2008, 2009, 2010, Google Inc..
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 0.6.7.
     </div>
   </body>
 </html>

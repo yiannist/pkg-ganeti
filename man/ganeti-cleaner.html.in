@@ -21,15 +21,15 @@ NAME="AEN1"
 ><DIV
 CLASS="REFNAMEDIV"
 ><A
-NAME="AEN11"
+NAME="AEN12"
 ></A
 ><H2
 >Name</H2
->ganeti-cleaner&nbsp;--&nbsp;ganeti job queue cleaner</DIV
+>ganeti-cleaner&nbsp;--&nbsp;Ganeti job queue cleaner</DIV
 ><DIV
 CLASS="REFSYNOPSISDIV"
 ><A
-NAME="AEN14"
+NAME="AEN15"
 ></A
 ><H2
 >Synopsis</H2
@@ -42,7 +42,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN17"
+NAME="AEN18"
 ></A
 ><H2
 >DESCRIPTION</H2
@@ -51,7 +51,8 @@ NAME="AEN17"
 CLASS="COMMAND"
 >ganeti-cleaner</B
 > is a periodically run script to clean
-      old job files from the job queue archive.
+      old job files from the job queue archive and to remove expired X509
+      certificates and keys.
     </P
 ><P
 >      <B
@@ -62,13 +63,18 @@ CLASS="COMMAND"
       <TT
 CLASS="FILENAME"
 >@LOCALSTATEDIR@/lib/ganeti/queue/archive</TT
->.
+> and all
+      expired certificates and keys from
+      <TT
+CLASS="FILENAME"
+>@LOCALSTATEDIR@/run/ganeti/crypto</TT
+>
     </P
 ></DIV
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN24"
+NAME="AEN26"
 ></A
 ><H2
 >REPORTING BUGS</H2
@@ -78,14 +84,14 @@ HREF="http://code.google.com/p/ganeti/"
 TARGET="_top"
 >http://code.google.com/p/ganeti/</A
 > or contact the
-      developers using the ganeti mailing list
+      developers using the Ganeti mailing list
       &lt;ganeti@googlegroups.com&gt;.
     </P
 ></DIV
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN28"
+NAME="AEN30"
 ></A
 ><H2
 >SEE ALSO</H2
@@ -201,12 +207,12 @@ CLASS="REFENTRYTITLE"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN75"
+NAME="AEN77"
 ></A
 ><H2
 >COPYRIGHT</H2
 ><P
->      Copyright (C) 2006, 2007, 2008, 2009 Google Inc. Permission is
+>      Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc. Permission is
       granted to copy, distribute and/or modify under the terms of the
       <ACRONYM
 CLASS="ACRONYM"

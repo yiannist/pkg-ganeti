@@ -3,10 +3,10 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GANETI-RAPI" "8" "24 August 2010" "ganeti 2.0" ""
+.TH "GANETI-RAPI" "8" "19 October 2010" "Ganeti 2.2" ""
 
 .SH NAME
-ganeti-rapi \- ganeti remote API daemon
+ganeti-rapi \- Ganeti remote API daemon
 .SH SYNOPSIS
 
 \fBganeti-rapi \fR [ \fB-d\fR ] [ \fB-f\fR ] [ \fB--no-ssl\fR ] [ \fB-K \fISSL_KEY_FILE\fB\fR ] [ \fB-C \fISSL_CERT_FILE\fB\fR ]
@@ -59,10 +59,13 @@ The first user (\fBrclient\fR) will have
 read-write rights, whereas the second user does only have read
 (query) rights, and as such is no different than not using
 authentication at all.
+.PP
+More details (including on how to use hashed passwords) can be found
+in the Ganeti documentation.
 .SH "REPORTING BUGS"
 .PP
 Report bugs to  <URL:http://code.google.com/p/ganeti/> or contact the
-developers using the ganeti mailing list
+developers using the Ganeti mailing list
 <ganeti@googlegroups.com>\&.
 .SH "SEE ALSO"
 .PP
@@ -87,7 +90,7 @@ Ganeti daemons:
 \fBganeti-rapi\fR(8) (remote API daemon).
 .SH "COPYRIGHT"
 .PP
-Copyright (C) 2006, 2007, 2008, 2009 Google Inc. Permission is
+Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc. Permission is
 granted to copy, distribute and/or modify under the terms of the
 GNU General Public License as published by the Free Software
 Foundation; either version 2 of the License, or (at your option)

@@ -25,7 +25,7 @@ NAME="AEN15"
 ></A
 ><H2
 >Name</H2
->gnt-os&nbsp;--&nbsp;instance operating system administration</DIV
+>gnt-os&nbsp;--&nbsp;Instance operating system administration</DIV
 ><DIV
 CLASS="REFSYNOPSISDIV"
 ><A
@@ -52,7 +52,7 @@ CLASS="COMMAND"
 >gnt-os</B
 > is used for managing the list
       of available operating system flavours for the instances in the
-      ganeti cluster.
+      Ganeti cluster.
     </P
 ></DIV
 ><DIV
@@ -73,6 +73,13 @@ CLASS="COMMAND"
       as an option.
     </P
 ><P
+>      Note that hidden or blacklisted OSes are not displayed by this
+      command, use <B
+CLASS="COMMAND"
+>diagnose</B
+> for showing those.
+    </P
+><P
 ><B
 CLASS="COMMAND"
 >diagnose</B
@@ -87,6 +94,17 @@ CLASS="COMMAND"
       nodes. It could be that some OS is missing from a node, or is
       only partially installed, and this command will show the details
       of all the OSes and the reasons they are or are not valid.
+    </P
+><P
+><B
+CLASS="COMMAND"
+>info</B
+> </P
+><P
+>      This command will list detailed information about each OS
+      available in the cluster, including its validity status, the
+      supported API versions, the supported parameters (if any) and
+      their documentations, etc.
     </P
 ><P
 ><B
@@ -109,8 +127,12 @@ CLASS="REPLACEABLE"
 ></TT
 >}</P
 ><P
->      This command will allow you to modify OS parameters. At the moment
-      we just support per-os-hypervisor settings. You can run modify
+>      This command will allow you to modify OS parameters.
+
+    </P
+><P
+>      To modify the per-OS hypervisor parameters (which override the
+      global hypervisor parameters), you can run modify
       <CODE
 CLASS="OPTION"
 >-H</CODE
@@ -126,6 +148,27 @@ CLASS="REPLACEABLE"
 >OS</I
 ></TT
 > argument.
+    </P
+><P
+>      To modify the hidden and blacklisted states of an OS, pass the
+      options <CODE
+CLASS="OPTION"
+>--hidden <TT
+CLASS="REPLACEABLE"
+><I
+>yes|no</I
+></TT
+></CODE
+>,
+      or respectively <CODE
+CLASS="OPTION"
+>--blacklisted ...</CODE
+>. The 'hidden'
+      state means that an OS won't be listed by default in the OS
+      list, but is available for installation. The 'blacklisted' state
+      means that the OS is not listed and is also not allowed for new
+      instance creations (but can be used for reinstalling old
+      instances).
     </P
 ><P
 >      Note: The <TT
@@ -150,7 +193,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN53"
+NAME="AEN63"
 ></A
 ><H2
 >REPORTING BUGS</H2
@@ -160,14 +203,14 @@ HREF="http://code.google.com/p/ganeti/"
 TARGET="_top"
 >http://code.google.com/p/ganeti/</A
 > or contact the
-      developers using the ganeti mailing list
+      developers using the Ganeti mailing list
       &lt;ganeti@googlegroups.com&gt;.
     </P
 ></DIV
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN57"
+NAME="AEN67"
 ></A
 ><H2
 >SEE ALSO</H2
@@ -283,12 +326,12 @@ CLASS="REFENTRYTITLE"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN104"
+NAME="AEN114"
 ></A
 ><H2
 >COPYRIGHT</H2
 ><P
->      Copyright (C) 2006, 2007, 2008, 2009 Google Inc. Permission is
+>      Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc. Permission is
       granted to copy, distribute and/or modify under the terms of the
       <ACRONYM
 CLASS="ACRONYM"

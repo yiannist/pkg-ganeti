@@ -26,39 +26,67 @@
 import itertools
 
 try:
+  # pylint: disable-msg=F0401
   import functools
 except ImportError:
   functools = None
 
 try:
+  # pylint: disable-msg=F0401
   import roman
 except ImportError:
   roman = None
 
 
-def all(seq, pred=bool): # pylint: disable-msg=W0622
-  """Returns True if pred(x) is True for every element in the iterable.
+# compat.md5_hash and compat.sha1_hash can be called to generate and md5 and a
+# sha1 hashing modules, under python 2.4, 2.5 and 2.6, even though some changes
+# went on. compat.sha1 is python-version specific and is used for python
+# modules (hmac, for example) which have changed their behavior as well from
+# one version to the other.
+try:
+  # pylint: disable-msg=F0401
+  # Yes, we're not using the imports in this module.
+  # pylint: disable-msg=W0611
+  from hashlib import md5 as md5_hash
+  from hashlib import sha1 as sha1_hash
+  # this additional version is needed for compatibility with the hmac module
+  sha1 = sha1_hash
+except ImportError:
+  from md5 import new as md5_hash
+  import sha
+  sha1 = sha
+  sha1_hash = sha.new
 
-  Please note that this function provides a C{pred} parameter which isn't
-  available in the version included in Python 2.5 and above.
+
+def _all(seq):
+  """Returns True if all elements in the iterable are True.
 
   """
-  for _ in itertools.ifilterfalse(pred, seq):
+  for _ in itertools.ifilterfalse(bool, seq):
     return False
   return True
 
-
-def any(seq, pred=bool): # pylint: disable-msg=W0622
-  """Returns True if pred(x) is True for at least one element in the iterable.
-
-  Please note that this function provides a C{pred} parameter which isn't
-  available in the version included in Python 2.5 and above.
+def _any(seq):
+  """Returns True if any element of the iterable are True.
 
   """
-  for _ in itertools.ifilter(pred, seq):
+  for _ in itertools.ifilter(bool, seq):
     return True
   return False
 
+try:
+  # pylint: disable-msg=E0601
+  # pylint: disable-msg=W0622
+  all = all
+except NameError:
+  all = _all
+
+try:
+  # pylint: disable-msg=E0601
+  # pylint: disable-msg=W0622
+  any = any
+except NameError:
+  any = _any
 
 def partition(seq, pred=bool): # pylint: disable-msg=W0622
   """Partition a list in two, based on the given predicate.
@@ -87,6 +115,12 @@ def _partial(func, *args, **keywords): # pylint: disable-msg=W0622
   return newfunc
 
 
+if functools is None:
+  partial = _partial
+else:
+  partial = functools.partial
+
+
 def TryToRoman(val, convert=True):
   """Try to convert a value to roman numerals
 
@@ -109,8 +143,3 @@ def TryToRoman(val, convert=True):
   else:
     return val
 
-
-if functools is None:
-  partial = _partial
-else:
-  partial = functools.partial

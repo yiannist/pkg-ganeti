@@ -21,15 +21,15 @@ NAME="AEN1"
 ><DIV
 CLASS="REFNAMEDIV"
 ><A
-NAME="AEN14"
+NAME="AEN15"
 ></A
 ><H2
 >Name</H2
->gnt-debug&nbsp;--&nbsp;debug commands</DIV
+>gnt-debug&nbsp;--&nbsp;Debug commands</DIV
 ><DIV
 CLASS="REFSYNOPSISDIV"
 ><A
-NAME="AEN17"
+NAME="AEN18"
 ></A
 ><H2
 >Synopsis</H2
@@ -42,7 +42,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN22"
+NAME="AEN23"
 ></A
 ><H2
 >DESCRIPTION</H2
@@ -51,20 +51,20 @@ NAME="AEN22"
 CLASS="COMMAND"
 >gnt-debug</B
 > is used for debugging the
-      ganeti system.
+      Ganeti system.
     </P
 ></DIV
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN26"
+NAME="AEN27"
 ></A
 ><H2
 >COMMANDS</H2
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN28"
+NAME="AEN29"
 ></A
 ><H3
 >ALLOCATOR</H3
@@ -203,7 +203,7 @@ CLASS="EMPHASIS"
         be passed as the first argument.
       </P
 ><P
->        This build of ganeti will look for iallocator scripts in the
+>        This build of Ganeti will look for iallocator scripts in the
         following directories: <TT
 CLASS="FILENAME"
 >@CUSTOM_IALLOCATOR_SEARCH_PATH@</TT
@@ -215,7 +215,7 @@ CLASS="FILENAME"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN70"
+NAME="AEN71"
 ></A
 ><H3
 >DELAY</H3
@@ -235,9 +235,9 @@ CLASS="REPLACEABLE"
 ></TT
 >}</P
 ><P
->        Run a test opcode (a sleep) on the master (internally in the
-        command) and on selected nodes (via an RPC call). This server
-        no other purpose but to execute a test operation.
+>        Run a test opcode (a sleep) on the master and on selected nodes
+        (via an RPC call). This serves no other purpose but to execute a
+        test operation.
       </P
 ><P
 >        The <CODE
@@ -264,7 +264,7 @@ CLASS="REPLACEABLE"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN86"
+NAME="AEN87"
 ></A
 ><H3
 >SUBMIT-JOB</H3
@@ -280,23 +280,22 @@ CLASS="OPTION"
 >N</CODE
 >] {opcodes_file...}</P
 ><P
->        This command builds a list of opcodes from JSON-format files
-        and submits for each file a job to the master daemon. It can
-        be used to test some options that are not available via the
-        command line.
+>        This command builds a list of opcodes from files in JSON format
+        and submits a job per file to the master daemon. It can be used
+        to test options that are not available via command line.
       </P
 ><P
 >        The <CODE
 CLASS="OPTION"
 >verbose</CODE
-> option will job the job IDs of
-        the submitted jobs and the progress in waiting for the jobs;
-        the <CODE
+> option will additionally display
+        the corresponding job IDs and the progress in waiting for the
+        jobs; the <CODE
 CLASS="OPTION"
 >timing-stats</CODE
 > option will show some
-        overall statistics with the number of total opcodes and jobs
-        submitted, and time time for each stage (submit, exec, total).
+        overall statistics inluding the number of total opcodes, jobs
+        submitted and time spent in each stage (submit, exec, total).
       </P
 ><P
 >        The <CODE
@@ -306,19 +305,136 @@ CLASS="OPTION"
 CLASS="OPTION"
 >op-repeat</CODE
 >
-        options allow to submit multiple copies of the passed
-        arguments; the job repeat will cause N copies of each job
-        (input file) to be submitted (equivalent to passing the
-        arguments N times) while the op repeat will cause each job to
-        contain multiple copies of the opcodes (equivalent to each
-        file containing N copies of the opcodes).
+        options allow to submit multiple copies of the passed arguments;
+        job-repeat will cause N copies of each job (input file) to be
+        submitted (equivalent to passing the arguments N times) while
+        op-repeat will cause N copies of each of the opcodes in the file
+        to be executed (equivalent to each file containing N copies of
+        the opcodes).
+      </P
+></DIV
+><DIV
+CLASS="REFSECT2"
+><A
+NAME="AEN105"
+></A
+><H3
+>TEST-JOBQUEUE</H3
+><P
+><B
+CLASS="COMMAND"
+>test-jobqueue</B
+> </P
+><P
+>        Executes a few tests on the job queue. This command might generate
+        failed jobs deliberately.
+      </P
+></DIV
+><DIV
+CLASS="REFSECT2"
+><A
+NAME="AEN110"
+></A
+><H3
+>LOCKS</H3
+><P
+><B
+CLASS="COMMAND"
+>locks</B
+>  [--no-headers] [--separator=<TT
+CLASS="REPLACEABLE"
+><I
+>SEPARATOR</I
+></TT
+>]<BR> [-o <TT
+CLASS="REPLACEABLE"
+><I
+>[+]FIELD,...</I
+></TT
+>] [--interval=<TT
+CLASS="REPLACEABLE"
+><I
+>SECONDS</I
+></TT
+>]<BR></P
+><P
+>        Shows a list of locks in the master daemon.
+      </P
+><P
+>        The <CODE
+CLASS="OPTION"
+>--no-headers</CODE
+> option will skip the initial
+        header line. The <CODE
+CLASS="OPTION"
+>--separator</CODE
+> option takes an
+        argument which denotes what will be used between the output
+        fields. Both these options are to help scripting.
+      </P
+><P
+>        The <CODE
+CLASS="OPTION"
+>-o</CODE
+> option takes a comma-separated list of
+        output fields. The available fields and their meaning are:
+        <P
+></P
+><DIV
+CLASS="VARIABLELIST"
+><DL
+><DT
+>name</DT
+><DD
+><P
+>Lock name</P
+></DD
+><DT
+>mode</DT
+><DD
+><P
+>                Mode in which the lock is currently acquired (exclusive or
+                shared)
+              </P
+></DD
+><DT
+>owner</DT
+><DD
+><P
+>Current lock owner(s)</P
+></DD
+><DT
+>pending</DT
+><DD
+><P
+>Threads waiting for the lock</P
+></DD
+></DL
+></DIV
+>
+      </P
+><P
+>        If the value of the option starts with the character
+        <CODE
+CLASS="CONSTANT"
+>+</CODE
+>, the new fields will be added to the default
+        list. This allows to quickly see the default list plus a few other
+        fields, instead of retyping the entire list of fields.
+      </P
+><P
+>        Use <CODE
+CLASS="OPTION"
+>--interval</CODE
+> to repeat the listing. A delay
+        specified by the option value in seconds is inserted.
       </P
 ></DIV
 ></DIV
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN104"
+NAME="AEN150"
 ></A
 ><H2
 >REPORTING BUGS</H2
@@ -328,14 +444,14 @@ HREF="http://code.google.com/p/ganeti/"
 TARGET="_top"
 >http://code.google.com/p/ganeti/</A
 > or contact the
-      developers using the ganeti mailing list
+      developers using the Ganeti mailing list
       &lt;ganeti@googlegroups.com&gt;.
     </P
 ></DIV
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN108"
+NAME="AEN154"
 ></A
 ><H2
 >SEE ALSO</H2
@@ -451,12 +567,12 @@ CLASS="REFENTRYTITLE"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN155"
+NAME="AEN201"
 ></A
 ><H2
 >COPYRIGHT</H2
 ><P
->      Copyright (C) 2006, 2007, 2008, 2009 Google Inc. Permission is
+>      Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc. Permission is
       granted to copy, distribute and/or modify under the terms of the
       <ACRONYM
 CLASS="ACRONYM"

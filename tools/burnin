@@ -1,7 +1,7 @@
 #!/usr/bin/python
 #
 
-# Copyright (C) 2006, 2007 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -114,6 +114,7 @@ OPTIONS = [
                  metavar="<OS>",
                  completion_suggest=cli.OPT_COMPL_ONE_OS),
   cli.HYPERVISOR_OPT,
+  cli.OSPARAMS_OPT,
   cli.cli_option("--disk-size", dest="disk_size",
                  help="Disk size (determines disk count)",
                  default="128m", type="string", metavar="<size,size,...>",
@@ -374,7 +375,7 @@ class Burner(object):
 
   def CommitQueue(self):
     """Execute all submitted opcodes in case of parallel burnin"""
-    if not self.opts.parallel:
+    if not self.opts.parallel or not self.queued_ops:
       return
 
     if self.queue_retry:
@@ -509,16 +510,16 @@ class Burner(object):
       Err(msg, exit_code=err_code)
     self.nodes = [data[0] for data in result if not (data[1] or data[2])]
 
-    op_diagnose = opcodes.OpDiagnoseOS(output_fields=["name", "valid",
-                                                      "variants"], names=[])
+    op_diagnose = opcodes.OpDiagnoseOS(output_fields=["name", "variants"],
+                                       names=[])
     result = self.ExecOp(True, op_diagnose)
 
     if not result:
       Err("Can't get the OS list")
 
     found = False
-    for (name, valid, variants) in result:
-      if valid and self.opts.os in cli.CalculateOSNames(name, variants):
+    for (name, variants) in result:
+      if self.opts.os in cli.CalculateOSNames(name, variants):
         found = True
         break
 
@@ -580,6 +581,7 @@ class Burner(object):
                                     beparams=self.bep,
                                     hvparams=self.hvp,
                                     hypervisor=self.hypervisor,
+                                    osparams=self.opts.osparams,
                                     )
       remove_instance = lambda name: lambda: self.to_rem.append(name)
       self.ExecOrQueue(instance, [op], post_process=remove_instance(instance))
@@ -667,10 +669,10 @@ class Burner(object):
     Log("Migrating instances")
     for instance in self.instances:
       Log("instance %s", instance, indent=1)
-      op1 = opcodes.OpMigrateInstance(instance_name=instance, live=True,
+      op1 = opcodes.OpMigrateInstance(instance_name=instance, mode=None,
                                       cleanup=False)
 
-      op2 = opcodes.OpMigrateInstance(instance_name=instance, live=True,
+      op2 = opcodes.OpMigrateInstance(instance_name=instance, mode=None,
                                       cleanup=True)
       Log("migration and migration cleanup", indent=2)
       self.ExecOrQueue(instance, [op1, op2])
@@ -708,8 +710,9 @@ class Burner(object):
                           (enode, pnode, snode))
 
       exp_op = opcodes.OpExportInstance(instance_name=instance,
-                                           target_node=enode,
-                                           shutdown=True)
+                                        target_node=enode,
+                                        mode=constants.EXPORT_MODE_LOCAL,
+                                        shutdown=True)
       rem_op = opcodes.OpRemoveInstance(instance_name=instance,
                                         ignore_failures=True)
       imp_dir = utils.PathJoin(constants.EXPORT_DIR, full_name)
@@ -732,6 +735,7 @@ class Burner(object):
                                         iallocator=self.opts.iallocator,
                                         beparams=self.bep,
                                         hvparams=self.hvp,
+                                        osparams=self.opts.osparams,
                                         )
 
       erem_op = opcodes.OpRemoveExport(instance_name=instance)
@@ -993,7 +997,7 @@ class Burner(object):
         self.BurnReplaceDisks2()
 
       if (opts.disk_template in constants.DTS_GROWABLE and
-          compat.any(self.disk_growth, lambda n: n > 0)):
+          compat.any(n > 0 for n in self.disk_growth)):
         self.BurnGrowDisks()
 
       if opts.do_failover and opts.disk_template in constants.DTS_NET_MIRROR:

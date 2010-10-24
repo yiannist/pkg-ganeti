@@ -25,7 +25,7 @@ NAME="AEN14"
 ></A
 ><H2
 >Name</H2
->gnt-cluster&nbsp;--&nbsp;ganeti administration, cluster-wide</DIV
+>gnt-cluster&nbsp;--&nbsp;Ganeti administration, cluster-wide</DIV
 ><DIV
 CLASS="REFSYNOPSISDIV"
 ><A
@@ -51,7 +51,7 @@ NAME="AEN22"
 CLASS="COMMAND"
 >gnt-cluster</B
 > is used for cluster-wide
-      administration in the ganeti system.
+      administration in the Ganeti system.
     </P
 ></DIV
 ><DIV
@@ -416,6 +416,11 @@ CLASS="REPLACEABLE"
 ><I
 >user-id pool definition</I
 ></TT
+>]<BR> [-I <TT
+CLASS="REPLACEABLE"
+><I
+>default instance allocator</I
+></TT
 >]<BR> {<TT
 CLASS="REPLACEABLE"
 ><I
@@ -468,7 +473,7 @@ CLASS="OPTION"
 CLASS="OPTION"
 >-g</CODE
 > option will let you specify a volume group
-        different than 'xenvg' for ganeti to use when creating instance disks.
+        different than "xenvg" for Ganeti to use when creating instance disks.
         This volume group must have the same name on all nodes. Once the
         cluster is initialized this can be altered by using the
         <B
@@ -783,11 +788,28 @@ CLASS="OPTION"
         user-id pool is initialized to an empty list. An empty list means that
         the user-id pool feature is disabled.
       </P
+><P
+>        The <CODE
+CLASS="OPTION"
+>-I (--default-iallocator)</CODE
+> option specifies the
+        default instance allocator. The instance allocator will be used for
+        operations like instance creation, instance and node migration, etc.
+        when no manual override is specified. If this option is not specified,
+        the default instance allocator will be blank, which means that relevant
+        operations will require the administrator to manually specify either an
+        instance allocator, or a set of nodes.
+        The default iallocator can be changed later using the
+        <B
+CLASS="COMMAND"
+>modify</B
+> command.
+      </P
 ></DIV
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN261"
+NAME="AEN267"
 ></A
 ><H3
 >LIST-TAGS</H3
@@ -802,14 +824,14 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN266"
+NAME="AEN272"
 ></A
 ><H3
->MASTERFAILOVER</H3
+>MASTER-FAILOVER</H3
 ><P
 ><B
 CLASS="COMMAND"
->masterfailover</B
+>master-failover</B
 >  [--no-voting]</P
 ><P
 >        Failover the master role to the current node.
@@ -820,18 +842,55 @@ CLASS="OPTION"
 >--no-voting</CODE
 > option skips the remote node agreement
         checks. This is dangerous, but necessary in some cases (for example
-        failing over the master role in a 2 node cluster with the original master
-        down). If the original master then comes up, it won't be able to start
-        its master daemon because it won't have enough votes, but so won't the
-        new master, if the master daemon ever needs a restart. You can pass
-        --no-voting to ganeti-masterd on the new master to solve this problem,
-        and gnt-cluster redist-conf to make sure the cluster is consistent again.
+        failing over the master role in a 2 node cluster with the original
+        master down). If the original master then comes up, it won't be able to
+        start its master daemon because it won't have enough votes, but so
+        won't the new master, if the master daemon ever needs a restart. You
+        can pass <CODE
+CLASS="OPTION"
+>--no-voting</CODE
+> to
+        <B
+CLASS="COMMAND"
+>ganeti-masterd</B
+> on the new master to solve this
+        problem, and run <B
+CLASS="COMMAND"
+>gnt-cluster redist-conf</B
+> to make
+        sure the cluster is consistent again.
       </P
 ></DIV
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN274"
+NAME="AEN283"
+></A
+><H3
+>MASTER-PING</H3
+><P
+><B
+CLASS="COMMAND"
+>master-ping</B
+> </P
+><P
+>        Checks if the master daemon is alive.
+      </P
+><P
+>        If the master daemon is alive and can respond to a basic query
+        (the equivalent of <B
+CLASS="COMMAND"
+>gnt-cluster info</B
+>), then
+        the exit code of the command will be 0. If the master daemon
+        is not alive (either due to a crash or because this is not the
+        master node), the exit code will be 1.
+      </P
+></DIV
+><DIV
+CLASS="REFSECT2"
+><A
+NAME="AEN290"
 ></A
 ><H3
 >MODIFY</H3
@@ -935,7 +994,17 @@ CLASS="REPLACEABLE"
 ><I
 >candidate_pool_size</I
 ></TT
->]<BR> [--maintain-node-health  {yes | no}]</P
+>]<BR> [--maintain-node-health  {yes | no}]<BR> [-I <TT
+CLASS="REPLACEABLE"
+><I
+>default instance allocator</I
+></TT
+>]<BR> [--reserved-lvs=<TT
+CLASS="REPLACEABLE"
+><I
+>NAMES</I
+></TT
+>]</P
 ><P
 >          Modify the options for the cluster.
         </P
@@ -966,10 +1035,14 @@ CLASS="OPTION"
           <CODE
 CLASS="OPTION"
 >--maintain-node-health</CODE
-> and
+>,
           <CODE
 CLASS="OPTION"
 >--uid-pool</CODE
+> and
+          <CODE
+CLASS="OPTION"
+>-I</CODE
 > options are
           described in the <B
 CLASS="COMMAND"
@@ -1010,12 +1083,40 @@ CLASS="OPTION"
 >
         options can be used to modify the user-id pool by adding/removing
         a list of user-ids or user-id ranges.
-    </P
+      </P
+><P
+>        The option <CODE
+CLASS="OPTION"
+>--reserved-lvs</CODE
+> specifies a list
+        (comma-separated) of logical volume group names (regular
+        expressions) that will be ignored by the cluster verify
+        operation. This is useful if the volume group used for Ganeti
+        is shared with the system for other uses. Note that it's not
+        recommended to create and mark as ignored logical volume names
+        which match Ganeti's own name format (starting with UUID and
+        then <TT
+CLASS="LITERAL"
+>.diskN</TT
+>), as this option only skips the
+        verification, but not the actual use of the names given.
+      </P
+><P
+>        To remove all reserved logical volumes, pass in an empty
+        argument to the option, as in <CODE
+CLASS="OPTION"
+>--reserved-lvs=</CODE
+>
+        or <CODE
+CLASS="OPTION"
+>--reserved-lvs ''</CODE
+>.
+      </P
 ></DIV
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN346"
+NAME="AEN375"
 ></A
 ><H3
 >QUEUE</H3
@@ -1053,7 +1154,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN360"
+NAME="AEN389"
 ></A
 ><H3
 >WATCHER</H3
@@ -1099,7 +1200,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN377"
+NAME="AEN406"
 ></A
 ><H3
 >redist-conf</H3
@@ -1134,7 +1235,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN387"
+NAME="AEN416"
 ></A
 ><H3
 >REMOVE-TAGS</H3
@@ -1171,7 +1272,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN398"
+NAME="AEN427"
 ></A
 ><H3
 >RENAME</H3
@@ -1203,7 +1304,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN408"
+NAME="AEN437"
 ></A
 ><H3
 >RENEW-CRYPTO</H3
@@ -1215,6 +1316,11 @@ CLASS="COMMAND"
 CLASS="REPLACEABLE"
 ><I
 >rapi-cert</I
+></TT
+>]<BR> [--new-cluster-domain-secret] [--cluster-domain-secret <TT
+CLASS="REPLACEABLE"
+><I
+>filename</I
 ></TT
 >]</P
 ><P
@@ -1236,8 +1342,10 @@ CLASS="CITEREFENTRY"
 CLASS="REFENTRYTITLE"
 >ganeti-confd</SPAN
 >(8)</SPAN
->. To generate a new self-signed RAPI certificate (used
-        by <SPAN
+>.
+      </P
+><P
+>        To generate a new self-signed RAPI certificate (used by <SPAN
 CLASS="CITEREFENTRY"
 ><SPAN
 CLASS="REFENTRYTITLE"
@@ -1254,11 +1362,23 @@ CLASS="OPTION"
 >--rapi-certificate</CODE
 >.
       </P
+><P
+>        <CODE
+CLASS="OPTION"
+>--new-cluster-domain-secret</CODE
+> generates a new, random
+        cluster domain secret. <CODE
+CLASS="OPTION"
+>--cluster-domain-secret</CODE
+> reads
+        the secret from a file. The cluster domain secret is used to sign
+        information exchanged between separate clusters via a third party.
+      </P
 ></DIV
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN431"
+NAME="AEN468"
 ></A
 ><H3
 >REPAIR-DISK-SIZES</H3
@@ -1294,7 +1414,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN440"
+NAME="AEN477"
 ></A
 ><H3
 >SEARCH-TAGS</H3
@@ -1359,7 +1479,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN455"
+NAME="AEN492"
 ></A
 ><H3
 >VERIFY</H3
@@ -1377,7 +1497,7 @@ CLASS="COMMAND"
 >        If the <CODE
 CLASS="OPTION"
 >--no-nplus1-mem</CODE
-> option is given, ganeti won't
+> option is given, Ganeti won't
         check whether if it loses a node it can restart all the instances on
         their secondaries (and report an error otherwise).
       </P
@@ -1385,7 +1505,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN463"
+NAME="AEN500"
 ></A
 ><H3
 >VERIFY-DISKS</H3
@@ -1411,7 +1531,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN470"
+NAME="AEN507"
 ></A
 ><H3
 >VERSION</H3
@@ -1428,7 +1548,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN475"
+NAME="AEN512"
 ></A
 ><H2
 >REPORTING BUGS</H2
@@ -1438,14 +1558,14 @@ HREF="http://code.google.com/p/ganeti/"
 TARGET="_top"
 >http://code.google.com/p/ganeti/</A
 > or contact the
-      developers using the ganeti mailing list
+      developers using the Ganeti mailing list
       &lt;ganeti@googlegroups.com&gt;.
     </P
 ></DIV
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN479"
+NAME="AEN516"
 ></A
 ><H2
 >SEE ALSO</H2
@@ -1561,12 +1681,12 @@ CLASS="REFENTRYTITLE"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN526"
+NAME="AEN563"
 ></A
 ><H2
 >COPYRIGHT</H2
 ><P
->      Copyright (C) 2006, 2007, 2008, 2009 Google Inc. Permission is
+>      Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc. Permission is
       granted to copy, distribute and/or modify under the terms of the
       <ACRONYM
 CLASS="ACRONYM"

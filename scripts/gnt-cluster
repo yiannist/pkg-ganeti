@@ -1,7 +1,7 @@
 #!/usr/bin/python
 #
 
-# Copyright (C) 2006, 2007 Google Inc.
+# Copyright (C) 2006, 2007, 2010 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -63,6 +63,14 @@ def InitCluster(opts, args):
   if opts.lvm_storage and not opts.vg_name:
     vg_name = constants.DEFAULT_VG
 
+  if not opts.drbd_storage and opts.drbd_helper:
+    ToStderr("Options --no-drbd-storage and --drbd-usermode-helper conflict.")
+    return 1
+
+  drbd_helper = opts.drbd_helper
+  if opts.drbd_storage and not opts.drbd_helper:
+    drbd_helper = constants.DEFAULT_DRBD_HELPER
+
   hvlist = opts.enabled_hypervisors
   if hvlist is None:
     hvlist = constants.DEFAULT_ENABLED_HYPERVISOR
@@ -111,7 +119,9 @@ def InitCluster(opts, args):
                         modify_etc_hosts=opts.modify_etc_hosts,
                         modify_ssh_setup=opts.modify_ssh_setup,
                         maintain_node_health=opts.maintain_node_health,
+                        drbd_helper=drbd_helper,
                         uid_pool=uid_pool,
+                        default_iallocator=opts.default_iallocator,
                         )
   op = opcodes.OpPostInitCluster()
   SubmitOpCode(op, opts=opts)
@@ -152,17 +162,26 @@ def RenameCluster(opts, args):
   @return: the desired exit code
 
   """
-  name = args[0]
+  cl = GetClient()
+
+  (cluster_name, ) = cl.QueryConfigValues(["cluster_name"])
+
+  new_name = args[0]
   if not opts.force:
-    usertext = ("This will rename the cluster to '%s'. If you are connected"
-                " over the network to the cluster name, the operation is very"
-                " dangerous as the IP address will be removed from the node"
-                " and the change may not go through. Continue?") % name
+    usertext = ("This will rename the cluster from '%s' to '%s'. If you are"
+                " connected over the network to the cluster name, the"
+                " operation is very dangerous as the IP address will be"
+                " removed from the node and the change may not go through."
+                " Continue?") % (cluster_name, new_name)
     if not AskUser(usertext):
       return 1
 
-  op = opcodes.OpRenameCluster(name=name)
-  SubmitOpCode(op, opts=opts)
+  op = opcodes.OpRenameCluster(name=new_name)
+  result = SubmitOpCode(op, opts=opts, cl=cl)
+
+  if result:
+    ToStdout("Cluster renamed from '%s' to '%s'", cluster_name, result)
+
   return 0
 
 
@@ -274,8 +293,11 @@ def ShowClusterConfig(opts, args):
   ToStdout("Hypervisor parameters:")
   _PrintGroupedParams(result["hvparams"])
 
-  ToStdout("OS specific hypervisor parameters:")
+  ToStdout("OS-specific hypervisor parameters:")
   _PrintGroupedParams(result["os_hvp"])
+
+  ToStdout("OS parameters:")
+  _PrintGroupedParams(result["osparams"])
 
   ToStdout("Cluster parameters:")
   ToStdout("  - candidate pool size: %s",
@@ -283,12 +305,19 @@ def ShowClusterConfig(opts, args):
                               convert=opts.roman_integers))
   ToStdout("  - master netdev: %s", result["master_netdev"])
   ToStdout("  - lvm volume group: %s", result["volume_group_name"])
+  if result["reserved_lvs"]:
+    reserved_lvs = utils.CommaJoin(result["reserved_lvs"])
+  else:
+    reserved_lvs = "(none)"
+  ToStdout("  - lvm reserved volumes: %s", reserved_lvs)
+  ToStdout("  - drbd usermode helper: %s", result["drbd_usermode_helper"])
   ToStdout("  - file storage path: %s", result["file_storage_dir"])
   ToStdout("  - maintenance of node health: %s",
            result["maintain_node_health"])
   ToStdout("  - uid pool: %s",
             uidpool.FormatUidPool(result["uid_pool"],
                                   roman=opts.roman_integers))
+  ToStdout("  - default instance allocator: %s", result["default_iallocator"])
 
   ToStdout("Default instance parameters:")
   _PrintGroupedParams(result["beparams"], roman=opts.roman_integers)
@@ -399,8 +428,10 @@ def VerifyDisks(opts, args):
   @return: the desired exit code
 
   """
+  cl = GetClient()
+
   op = opcodes.OpVerifyDisks()
-  result = SubmitOpCode(op, opts=opts)
+  result = SubmitOpCode(op, opts=opts, cl=cl)
   if not isinstance(result, (list, tuple)) or len(result) != 3:
     raise errors.ProgrammerError("Unknown result type for OpVerifyDisks")
 
@@ -422,15 +453,17 @@ def VerifyDisks(opts, args):
       op = opcodes.OpActivateInstanceDisks(instance_name=iname)
       try:
         ToStdout("Activating disks for instance '%s'", iname)
-        SubmitOpCode(op, opts=opts)
+        SubmitOpCode(op, opts=opts, cl=cl)
       except errors.GenericError, err:
         nret, msg = FormatError(err)
         retcode |= nret
         ToStderr("Error activating disks for instance %s: %s", iname, msg)
 
   if missing:
+    (vg_name, ) = cl.QueryConfigValues(["volume_group_name"])
+
     for iname, ival in missing.iteritems():
-      all_missing = compat.all(ival, lambda x: x[0] in bad_nodes)
+      all_missing = compat.all(x[0] in bad_nodes for x in ival)
       if all_missing:
         ToStdout("Instance %s cannot be verified as it lives on"
                  " broken nodes", iname)
@@ -439,11 +472,12 @@ def VerifyDisks(opts, args):
         ival.sort()
         for node, vol in ival:
           if node in bad_nodes:
-            ToStdout("\tbroken node %s /dev/xenvg/%s", node, vol)
+            ToStdout("\tbroken node %s /dev/%s/%s", node, vg_name, vol)
           else:
-            ToStdout("\t%s /dev/xenvg/%s", node, vol)
+            ToStdout("\t%s /dev/%s/%s", node, vg_name, vol)
+
     ToStdout("You need to run replace_disks for all the above"
-           " instances, if this message persist after fixing nodes.")
+             " instances, if this message persist after fixing nodes.")
     retcode |= 1
 
   return retcode
@@ -489,6 +523,24 @@ def MasterFailover(opts, args):
   return bootstrap.MasterFailover(no_voting=opts.no_voting)
 
 
+def MasterPing(opts, args):
+  """Checks if the master is alive.
+
+  @param opts: the command line options selected by the user
+  @type args: list
+  @param args: should be an empty list
+  @rtype: int
+  @return: the desired exit code
+
+  """
+  try:
+    cl = GetClient()
+    cl.QueryClusterInfo()
+    return 0
+  except Exception: # pylint: disable-msg=W0703
+    return 1
+
+
 def SearchTags(opts, args):
   """Searches the tags on all the cluster.
 
@@ -510,7 +562,8 @@ def SearchTags(opts, args):
 
 
 def _RenewCrypto(new_cluster_cert, new_rapi_cert, rapi_cert_filename,
-                 new_confd_hmac_key, force):
+                 new_confd_hmac_key, new_cds, cds_filename,
+                 force):
   """Renews cluster certificates, keys and secrets.
 
   @type new_cluster_cert: bool
@@ -521,6 +574,10 @@ def _RenewCrypto(new_cluster_cert, new_rapi_cert, rapi_cert_filename,
   @param rapi_cert_filename: Path to file containing new RAPI certificate
   @type new_confd_hmac_key: bool
   @param new_confd_hmac_key: Whether to generate a new HMAC key
+  @type new_cds: bool
+  @param new_cds: Whether to generate a new cluster domain secret
+  @type cds_filename: string
+  @param cds_filename: Path to file containing new cluster domain secret
   @type force: bool
   @param force: Whether to ask user for confirmation
 
@@ -528,6 +585,12 @@ def _RenewCrypto(new_cluster_cert, new_rapi_cert, rapi_cert_filename,
   if new_rapi_cert and rapi_cert_filename:
     ToStderr("Only one of the --new-rapi-certficate and --rapi-certificate"
              " options can be specified at the same time.")
+    return 1
+
+  if new_cds and cds_filename:
+    ToStderr("Only one of the --new-cluster-domain-secret and"
+             " --cluster-domain-secret options can be specified at"
+             " the same time.")
     return 1
 
   if rapi_cert_filename:
@@ -552,6 +615,16 @@ def _RenewCrypto(new_cluster_cert, new_rapi_cert, rapi_cert_filename,
   else:
     rapi_cert_pem = None
 
+  if cds_filename:
+    try:
+      cds = utils.ReadFile(cds_filename)
+    except Exception, err: # pylint: disable-msg=W0703
+      ToStderr("Can't load new cluster domain secret from %s: %s" %
+               (cds_filename, str(err)))
+      return 1
+  else:
+    cds = None
+
   if not force:
     usertext = ("This requires all daemons on all nodes to be restarted and"
                 " may take some time. Continue?")
@@ -562,7 +635,9 @@ def _RenewCrypto(new_cluster_cert, new_rapi_cert, rapi_cert_filename,
     ctx.feedback_fn("Updating certificates and keys")
     bootstrap.GenerateClusterCrypto(new_cluster_cert, new_rapi_cert,
                                     new_confd_hmac_key,
-                                    rapi_cert_pem=rapi_cert_pem)
+                                    new_cds,
+                                    rapi_cert_pem=rapi_cert_pem,
+                                    cds=cds)
 
     files_to_copy = []
 
@@ -574,6 +649,9 @@ def _RenewCrypto(new_cluster_cert, new_rapi_cert, rapi_cert_filename,
 
     if new_confd_hmac_key:
       files_to_copy.append(constants.CONFD_HMAC_KEY)
+
+    if new_cds or cds:
+      files_to_copy.append(constants.CLUSTER_DOMAIN_SECRET_FILE)
 
     if files_to_copy:
       for node_name in ctx.nonmaster_nodes:
@@ -598,6 +676,8 @@ def RenewCrypto(opts, args):
                       opts.new_rapi_cert,
                       opts.rapi_cert,
                       opts.new_confd_hmac_key,
+                      opts.new_cluster_domain_secret,
+                      opts.cluster_domain_secret,
                       opts.force)
 
 
@@ -612,13 +692,16 @@ def SetClusterParams(opts, args):
 
   """
   if not (not opts.lvm_storage or opts.vg_name or
+          not opts.drbd_storage or opts.drbd_helper or
           opts.enabled_hypervisors or opts.hvparams or
           opts.beparams or opts.nicparams or
           opts.candidate_pool_size is not None or
           opts.uid_pool is not None or
           opts.maintain_node_health is not None or
           opts.add_uids is not None or
-          opts.remove_uids is not None):
+          opts.remove_uids is not None or
+          opts.default_iallocator is not None or
+          opts.reserved_lvs is not None):
     ToStderr("Please give at least one of the parameters.")
     return 1
 
@@ -629,6 +712,14 @@ def SetClusterParams(opts, args):
 
   if not opts.lvm_storage:
     vg_name = ""
+
+  drbd_helper = opts.drbd_helper
+  if not opts.drbd_storage and opts.drbd_helper:
+    ToStderr("Options --no-drbd-storage and --drbd-usermode-helper conflict.")
+    return 1
+
+  if not opts.drbd_storage:
+    drbd_helper = ""
 
   hvlist = opts.enabled_hypervisors
   if hvlist is not None:
@@ -660,7 +751,14 @@ def SetClusterParams(opts, args):
   if remove_uids is not None:
     remove_uids = uidpool.ParseUidPool(remove_uids)
 
+  if opts.reserved_lvs is not None:
+    if opts.reserved_lvs == "":
+      opts.reserved_lvs = []
+    else:
+      opts.reserved_lvs = utils.UnescapeAndSplit(opts.reserved_lvs, sep=",")
+
   op = opcodes.OpSetClusterParams(vg_name=vg_name,
+                                  drbd_helper=drbd_helper,
                                   enabled_hypervisors=hvlist,
                                   hvparams=hvparams,
                                   os_hvp=None,
@@ -670,7 +768,9 @@ def SetClusterParams(opts, args):
                                   maintain_node_health=mnh,
                                   uid_pool=uid_pool,
                                   add_uids=add_uids,
-                                  remove_uids=remove_uids)
+                                  remove_uids=remove_uids,
+                                  default_iallocator=opts.default_iallocator,
+                                  reserved_lvs=opts.reserved_lvs)
   SubmitOpCode(op, opts=opts)
   return 0
 
@@ -753,33 +853,38 @@ commands = {
      HVLIST_OPT, MAC_PREFIX_OPT, MASTER_NETDEV_OPT, NIC_PARAMS_OPT,
      NOLVM_STORAGE_OPT, NOMODIFY_ETCHOSTS_OPT, NOMODIFY_SSH_SETUP_OPT,
      SECONDARY_IP_OPT, VG_NAME_OPT, MAINTAIN_NODE_HEALTH_OPT,
-     UIDPOOL_OPT],
+     UIDPOOL_OPT, DRBD_HELPER_OPT, NODRBD_STORAGE_OPT,
+     DEFAULT_IALLOCATOR_OPT],
     "[opts...] <cluster_name>", "Initialises a new cluster configuration"),
   'destroy': (
     DestroyCluster, ARGS_NONE, [YES_DOIT_OPT],
     "", "Destroy cluster"),
   'rename': (
     RenameCluster, [ArgHost(min=1, max=1)],
-    [FORCE_OPT],
+    [FORCE_OPT, DRY_RUN_OPT],
     "<new_name>",
     "Renames the cluster"),
   'redist-conf': (
-    RedistributeConfig, ARGS_NONE, [SUBMIT_OPT],
+    RedistributeConfig, ARGS_NONE, [SUBMIT_OPT, DRY_RUN_OPT],
     "", "Forces a push of the configuration file and ssconf files"
     " to the nodes in the cluster"),
   'verify': (
     VerifyCluster, ARGS_NONE,
-    [VERBOSE_OPT, DEBUG_SIMERR_OPT, ERROR_CODES_OPT, NONPLUS1_OPT],
+    [VERBOSE_OPT, DEBUG_SIMERR_OPT, ERROR_CODES_OPT, NONPLUS1_OPT,
+     DRY_RUN_OPT],
     "", "Does a check on the cluster configuration"),
   'verify-disks': (
     VerifyDisks, ARGS_NONE, [],
     "", "Does a check on the cluster disk status"),
   'repair-disk-sizes': (
-    RepairDiskSizes, ARGS_MANY_INSTANCES, [],
+    RepairDiskSizes, ARGS_MANY_INSTANCES, [DRY_RUN_OPT],
     "", "Updates mismatches in recorded disk sizes"),
-  'masterfailover': (
+  'master-failover': (
     MasterFailover, ARGS_NONE, [NOVOTING_OPT],
     "", "Makes the current node the master"),
+  'master-ping': (
+    MasterPing, ARGS_NONE, [],
+    "", "Checks if the master is alive"),
   'version': (
     ShowClusterVersion, ARGS_NONE, [],
     "", "Shows the cluster version"),
@@ -823,17 +928,27 @@ commands = {
     SetClusterParams, ARGS_NONE,
     [BACKEND_OPT, CP_SIZE_OPT, ENABLED_HV_OPT, HVLIST_OPT,
      NIC_PARAMS_OPT, NOLVM_STORAGE_OPT, VG_NAME_OPT, MAINTAIN_NODE_HEALTH_OPT,
-     UIDPOOL_OPT, ADD_UIDS_OPT, REMOVE_UIDS_OPT],
+     UIDPOOL_OPT, ADD_UIDS_OPT, REMOVE_UIDS_OPT, DRBD_HELPER_OPT,
+     NODRBD_STORAGE_OPT, DEFAULT_IALLOCATOR_OPT, RESERVED_LVS_OPT,
+     DRY_RUN_OPT],
     "[opts...]",
     "Alters the parameters of the cluster"),
   "renew-crypto": (
     RenewCrypto, ARGS_NONE,
     [NEW_CLUSTER_CERT_OPT, NEW_RAPI_CERT_OPT, RAPI_CERT_OPT,
-     NEW_CONFD_HMAC_KEY_OPT, FORCE_OPT],
+     NEW_CONFD_HMAC_KEY_OPT, FORCE_OPT,
+     NEW_CLUSTER_DOMAIN_SECRET_OPT, CLUSTER_DOMAIN_SECRET_OPT],
     "[opts...]",
     "Renews cluster certificates, keys and secrets"),
   }
 
 
+#: dictionary with aliases for commands
+aliases = {
+  'masterfailover': 'master-failover',
+}
+
+
 if __name__ == '__main__':
-  sys.exit(GenericMain(commands, override={"tag_type": constants.TAG_CLUSTER}))
+  sys.exit(GenericMain(commands, override={"tag_type": constants.TAG_CLUSTER},
+                       aliases=aliases))

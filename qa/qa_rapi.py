@@ -1,6 +1,6 @@
 #
 
-# Copyright (C) 2007, 2008 Google Inc.
+# Copyright (C) 2007, 2008, 2009, 2010 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -39,11 +39,13 @@ import qa_utils
 import qa_error
 
 from qa_utils import (AssertEqual, AssertNotEqual, AssertIn, AssertMatch,
-                      StartSSH)
+                      StartLocalCommand)
 
 
 _rapi_ca = None
 _rapi_client = None
+_rapi_username = None
+_rapi_password = None
 
 
 def Setup(username, password):
@@ -52,6 +54,11 @@ def Setup(username, password):
   """
   global _rapi_ca
   global _rapi_client
+  global _rapi_username
+  global _rapi_password
+
+  _rapi_username = username
+  _rapi_password = password
 
   master = qa_config.GetMasterNode()
 
@@ -65,13 +72,13 @@ def Setup(username, password):
   _rapi_ca.flush()
 
   port = qa_config.get("rapi-port", default=constants.DEFAULT_RAPI_PORT)
-  cfg_ssl = rapi.client.CertAuthorityVerify(cafile=_rapi_ca.name)
+  cfg_curl = rapi.client.GenericCurlConfig(cafile=_rapi_ca.name,
+                                           proxy="")
 
   _rapi_client = rapi.client.GanetiRapiClient(master["primary"], port=port,
                                               username=username,
                                               password=password,
-                                              config_ssl_verification=cfg_ssl,
-                                              ignore_proxy=True)
+                                              curl_config_fn=cfg_curl)
 
   print "RAPI protocol version: %s" % _rapi_client.GetVersion()
 
@@ -81,7 +88,7 @@ INSTANCE_FIELDS = ("name", "os", "pnode", "snodes",
                    "disk_template", "disk.sizes",
                    "nic.ips", "nic.macs", "nic.modes", "nic.links",
                    "beparams", "hvparams",
-                   "oper_state", "oper_ram", "status", "tags")
+                   "oper_state", "oper_ram", "oper_vcpus", "status", "tags")
 
 NODE_FIELDS = ("name", "dtotal", "dfree",
                "mtotal", "mnode", "mfree",
@@ -109,6 +116,7 @@ def _DoTests(uris):
   for uri, verify, method, body in uris:
     assert uri.startswith("/")
 
+    print "%s %s" % (method, uri)
     data = _rapi_client._SendRequest(method, uri, None, body)
 
     if verify is not None:
@@ -117,7 +125,7 @@ def _DoTests(uris):
       else:
         AssertEqual(data, verify)
 
-      results.append(data)
+    results.append(data)
 
   return results
 
@@ -198,6 +206,19 @@ def TestInstance(instance):
      _VerifyReturnsJob, 'PUT', None),
     ])
 
+  # Test OpPrepareExport
+  (job_id, ) = _DoTests([
+    ("/2/instances/%s/prepare-export?mode=%s" %
+     (instance["name"], constants.EXPORT_MODE_REMOTE),
+     _VerifyReturnsJob, "PUT", None),
+    ])
+
+  result = _WaitForRapiJob(job_id)[0]
+  AssertEqual(len(result["handshake"]), 3)
+  AssertEqual(result["handshake"][0], constants.RIE_VERSION)
+  AssertEqual(len(result["x509_key_name"]), 3)
+  AssertIn("-----BEGIN CERTIFICATE-----", result["x509_ca"])
+
 
 def TestNode(node):
   """Testing getting node(s) info via remote API.
@@ -239,9 +260,24 @@ def TestTags(kind, name, tags):
   def _VerifyTags(data):
     AssertEqual(sorted(tags), sorted(data))
 
+  query = "&".join("tag=%s" % i for i in tags)
+
+  # Add tags
+  (job_id, ) = _DoTests([
+    ("%s?%s" % (uri, query), _VerifyReturnsJob, "PUT", None),
+    ])
+  _WaitForRapiJob(job_id)
+
+  # Retrieve tags
   _DoTests([
     (uri, _VerifyTags, 'GET', None),
     ])
+
+  # Remove tags
+  (job_id, ) = _DoTests([
+    ("%s?%s" % (uri, query), _VerifyReturnsJob, "DELETE", None),
+    ])
+  _WaitForRapiJob(job_id)
 
 
 def _WaitForRapiJob(job_id):
@@ -259,7 +295,8 @@ def _WaitForRapiJob(job_id):
     ("/2/jobs/%s" % job_id, _VerifyJob, "GET", None),
     ])
 
-  rapi.client_utils.PollJob(_rapi_client, job_id, cli.StdioJobPollReportCb())
+  return rapi.client_utils.PollJob(_rapi_client, job_id,
+                                   cli.StdioJobPollReportCb())
 
 
 def TestRapiInstanceAdd(node, use_client):
@@ -318,3 +355,83 @@ def TestRapiInstanceRemove(instance, use_client):
   _WaitForRapiJob(job_id)
 
   qa_config.ReleaseInstance(instance)
+
+
+def TestRapiInstanceMigrate(instance):
+  """Test migrating instance via RAPI"""
+  # Move to secondary node
+  _WaitForRapiJob(_rapi_client.MigrateInstance(instance["name"]))
+  # And back to previous primary
+  _WaitForRapiJob(_rapi_client.MigrateInstance(instance["name"]))
+
+
+def TestRapiInstanceRename(instance, rename_target):
+  """Test renaming instance via RAPI"""
+  rename_source = instance["name"]
+
+  for name1, name2 in [(rename_source, rename_target),
+                       (rename_target, rename_source)]:
+    _WaitForRapiJob(_rapi_client.RenameInstance(name1, name2))
+
+
+def TestRapiInstanceModify(instance):
+  """Test modifying instance via RAPI"""
+  def _ModifyInstance(**kwargs):
+    _WaitForRapiJob(_rapi_client.ModifyInstance(instance["name"], **kwargs))
+
+  _ModifyInstance(hvparams={
+    constants.HV_KERNEL_ARGS: "single",
+    })
+
+  _ModifyInstance(beparams={
+    constants.BE_VCPUS: 3,
+    })
+
+  _ModifyInstance(beparams={
+    constants.BE_VCPUS: constants.VALUE_DEFAULT,
+    })
+
+  _ModifyInstance(hvparams={
+    constants.HV_KERNEL_ARGS: constants.VALUE_DEFAULT,
+    })
+
+
+def TestInterClusterInstanceMove(src_instance, dest_instance,
+                                 pnode, snode, tnode):
+  """Test tools/move-instance"""
+  master = qa_config.GetMasterNode()
+
+  rapi_pw_file = tempfile.NamedTemporaryFile()
+  rapi_pw_file.write(_rapi_password)
+  rapi_pw_file.flush()
+
+  # TODO: Run some instance tests before moving back
+
+  if snode is None:
+    # instance is not redundant, but we still need to pass a node
+    # (which will be ignored)
+    fsec = tnode
+  else:
+    fsec = snode
+  # note: pnode:snode are the *current* nodes, so we move it first to
+  # tnode:pnode, then back to pnode:snode
+  for si, di, pn, sn in [(src_instance["name"], dest_instance["name"],
+                          tnode["primary"], pnode["primary"]),
+                         (dest_instance["name"], src_instance["name"],
+                          pnode["primary"], fsec["primary"])]:
+    cmd = [
+      "../tools/move-instance",
+      "--verbose",
+      "--src-ca-file=%s" % _rapi_ca.name,
+      "--src-username=%s" % _rapi_username,
+      "--src-password-file=%s" % rapi_pw_file.name,
+      "--dest-instance-name=%s" % di,
+      "--dest-primary-node=%s" % pn,
+      "--dest-secondary-node=%s" % sn,
+      "--net=0:mac=%s" % constants.VALUE_GENERATE,
+      master["primary"],
+      master["primary"],
+      si,
+      ]
+
+    AssertEqual(StartLocalCommand(cmd).wait(), 0)

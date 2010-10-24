@@ -1,7 +1,7 @@
 #!/usr/bin/python
 #
 
-# Copyright (C) 2006, 2007 Google Inc.
+# Copyright (C) 2006, 2007, 2010 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -27,16 +27,18 @@ import unittest
 import time
 import Queue
 import threading
+import random
 
 from ganeti import locking
 from ganeti import errors
+from ganeti import utils
 
 import testutils
 
 
 # This is used to test the ssynchronize decorator.
 # Since it's passed as input to a decorator it must be declared as a global.
-_decoratorlock = locking.SharedLock()
+_decoratorlock = locking.SharedLock("decorator lock")
 
 #: List for looping tests
 ITERATIONS = range(8)
@@ -90,7 +92,7 @@ class _ConditionTestCase(_ThreadedTestCase):
     self.cond = cls(self.lock)
 
   def _testAcquireRelease(self):
-    self.assert_(not self.cond._is_owned())
+    self.assertFalse(self.cond._is_owned())
     self.assertRaises(RuntimeError, self.cond.wait)
     self.assertRaises(RuntimeError, self.cond.notifyAll)
 
@@ -100,7 +102,7 @@ class _ConditionTestCase(_ThreadedTestCase):
     self.assert_(self.cond._is_owned())
     self.cond.release()
 
-    self.assert_(not self.cond._is_owned())
+    self.assertFalse(self.cond._is_owned())
     self.assertRaises(RuntimeError, self.cond.wait)
     self.assertRaises(RuntimeError, self.cond.notifyAll)
 
@@ -122,7 +124,7 @@ class _ConditionTestCase(_ThreadedTestCase):
     self.assertEqual(self.done.get(True, 1), "NN")
     self.assert_(self.cond._is_owned())
     self.cond.release()
-    self.assert_(not self.cond._is_owned())
+    self.assertFalse(self.cond._is_owned())
 
 
 class TestSingleNotifyPipeCondition(_ConditionTestCase):
@@ -164,20 +166,22 @@ class TestPipeCondition(_ConditionTestCase):
     self._testNotification()
 
   def _TestWait(self, fn):
-    self._addThread(target=fn)
-    self._addThread(target=fn)
-    self._addThread(target=fn)
+    threads = [
+      self._addThread(target=fn),
+      self._addThread(target=fn),
+      self._addThread(target=fn),
+      ]
 
     # Wait for threads to be waiting
-    self.assertEqual(self.done.get(True, 1), "A")
-    self.assertEqual(self.done.get(True, 1), "A")
-    self.assertEqual(self.done.get(True, 1), "A")
+    for _ in threads:
+      self.assertEqual(self.done.get(True, 1), "A")
 
     self.assertRaises(Queue.Empty, self.done.get_nowait)
 
     self.cond.acquire()
-    self.assertEqual(self.cond._nwaiters, 3)
-    # This new thread can"t acquire the lock, and thus call wait, before we
+    self.assertEqual(len(self.cond._waiters), 3)
+    self.assertEqual(self.cond._waiters, set(threads))
+    # This new thread can't acquire the lock, and thus call wait, before we
     # release it
     self._addThread(target=fn)
     self.cond.notifyAll()
@@ -256,28 +260,28 @@ class TestSharedLock(_ThreadedTestCase):
 
   def setUp(self):
     _ThreadedTestCase.setUp(self)
-    self.sl = locking.SharedLock()
+    self.sl = locking.SharedLock("TestSharedLock")
 
   def testSequenceAndOwnership(self):
-    self.assert_(not self.sl._is_owned())
+    self.assertFalse(self.sl._is_owned())
     self.sl.acquire(shared=1)
     self.assert_(self.sl._is_owned())
     self.assert_(self.sl._is_owned(shared=1))
-    self.assert_(not self.sl._is_owned(shared=0))
+    self.assertFalse(self.sl._is_owned(shared=0))
     self.sl.release()
-    self.assert_(not self.sl._is_owned())
+    self.assertFalse(self.sl._is_owned())
     self.sl.acquire()
     self.assert_(self.sl._is_owned())
-    self.assert_(not self.sl._is_owned(shared=1))
+    self.assertFalse(self.sl._is_owned(shared=1))
     self.assert_(self.sl._is_owned(shared=0))
     self.sl.release()
-    self.assert_(not self.sl._is_owned())
+    self.assertFalse(self.sl._is_owned())
     self.sl.acquire(shared=1)
     self.assert_(self.sl._is_owned())
     self.assert_(self.sl._is_owned(shared=1))
-    self.assert_(not self.sl._is_owned(shared=0))
+    self.assertFalse(self.sl._is_owned(shared=0))
     self.sl.release()
-    self.assert_(not self.sl._is_owned())
+    self.assertFalse(self.sl._is_owned())
 
   def testBooleanValue(self):
     # semaphores are supposed to return a true value on a successful acquire
@@ -350,7 +354,7 @@ class TestSharedLock(_ThreadedTestCase):
     self.sl.release()
     self._waitThreads()
     self.failUnlessEqual(self.done.get_nowait(), 'DEL')
-    self.sl = locking.SharedLock()
+    self.sl = locking.SharedLock(self.sl.name)
 
   @_Repeat
   def testExclusiveBlocksSharer(self):
@@ -378,7 +382,7 @@ class TestSharedLock(_ThreadedTestCase):
     self.sl.release()
     self._waitThreads()
     self.failUnlessEqual(self.done.get_nowait(), 'DEL')
-    self.sl = locking.SharedLock()
+    self.sl = locking.SharedLock(self.sl.name)
 
   @_Repeat
   def testWaitingExclusiveBlocksSharer(self):
@@ -441,7 +445,7 @@ class TestSharedLock(_ThreadedTestCase):
     # The threads who were pending return ERR
     for _ in range(4):
       self.assertEqual(self.done.get_nowait(), 'ERR')
-    self.sl = locking.SharedLock()
+    self.sl = locking.SharedLock(self.sl.name)
 
   @_Repeat
   def testDeletePendingDeleteExclusiveSharers(self):
@@ -457,7 +461,7 @@ class TestSharedLock(_ThreadedTestCase):
     self.assertEqual(self.done.get_nowait(), 'ERR')
     self.assertEqual(self.done.get_nowait(), 'ERR')
     self.assertEqual(self.done.get_nowait(), 'ERR')
-    self.sl = locking.SharedLock()
+    self.sl = locking.SharedLock(self.sl.name)
 
   @_Repeat
   def testExclusiveAcquireTimeout(self):
@@ -698,6 +702,37 @@ class TestSharedLock(_ThreadedTestCase):
     self.assertRaises(Queue.Empty, self.done.get_nowait)
 
 
+class TestSharedLockInCondition(_ThreadedTestCase):
+  """SharedLock as a condition lock tests"""
+
+  def setUp(self):
+    _ThreadedTestCase.setUp(self)
+    self.sl = locking.SharedLock("TestSharedLockInCondition")
+    self.setCondition()
+
+  def setCondition(self):
+    self.cond = threading.Condition(self.sl)
+
+  def testKeepMode(self):
+    self.cond.acquire(shared=1)
+    self.assert_(self.sl._is_owned(shared=1))
+    self.cond.wait(0)
+    self.assert_(self.sl._is_owned(shared=1))
+    self.cond.release()
+    self.cond.acquire(shared=0)
+    self.assert_(self.sl._is_owned(shared=0))
+    self.cond.wait(0)
+    self.assert_(self.sl._is_owned(shared=0))
+    self.cond.release()
+
+
+class TestSharedLockInPipeCondition(TestSharedLockInCondition):
+  """SharedLock as a pipe condition lock tests"""
+
+  def setCondition(self):
+    self.cond = locking.PipeCondition(self.sl)
+
+
 class TestSSynchronizedDecorator(_ThreadedTestCase):
   """Shared Lock Synchronized decorator test"""
 
@@ -716,9 +751,9 @@ class TestSSynchronizedDecorator(_ThreadedTestCase):
 
   def testDecoratedFunctions(self):
     self._doItExclusive()
-    self.assert_(not _decoratorlock._is_owned())
+    self.assertFalse(_decoratorlock._is_owned())
     self._doItSharer()
-    self.assert_(not _decoratorlock._is_owned())
+    self.assertFalse(_decoratorlock._is_owned())
 
   def testSharersCanCoexist(self):
     _decoratorlock.acquire(shared=1)
@@ -765,11 +800,11 @@ class TestLockSet(_ThreadedTestCase):
   def _setUpLS(self):
     """Helper to (re)initialize the lock set"""
     self.resources = ['one', 'two', 'three']
-    self.ls = locking.LockSet(members=self.resources)
+    self.ls = locking.LockSet(self.resources, "TestLockSet")
 
   def testResources(self):
     self.assertEquals(self.ls._names(), set(self.resources))
-    newls = locking.LockSet()
+    newls = locking.LockSet([], "TestLockSet.testResources")
     self.assertEquals(newls._names(), set())
 
   def testAcquireRelease(self):
@@ -995,8 +1030,8 @@ class TestLockSet(_ThreadedTestCase):
           self.ls.release()
         else:
           self.assert_(acquired is None)
-          self.assert_(not self.ls._list_owned())
-          self.assert_(not self.ls._is_owned())
+          self.assertFalse(self.ls._list_owned())
+          self.assertFalse(self.ls._is_owned())
           self.done.put("not acquired")
 
       self._addThread(target=_AcquireOne)
@@ -1068,7 +1103,7 @@ class TestLockSet(_ThreadedTestCase):
 
         self.ls.release(names=name)
 
-      self.assert_(not self.ls._list_owned())
+      self.assertFalse(self.ls._list_owned())
 
       self._waitThreads()
 
@@ -1257,19 +1292,19 @@ class TestGanetiLockManager(_ThreadedTestCase):
 
   def testInitAndResources(self):
     locking.GanetiLockManager._instance = None
-    self.GL = locking.GanetiLockManager()
+    self.GL = locking.GanetiLockManager([], [])
     self.assertEqual(self.GL._names(locking.LEVEL_CLUSTER), set(['BGL']))
     self.assertEqual(self.GL._names(locking.LEVEL_NODE), set())
     self.assertEqual(self.GL._names(locking.LEVEL_INSTANCE), set())
 
     locking.GanetiLockManager._instance = None
-    self.GL = locking.GanetiLockManager(nodes=self.nodes)
+    self.GL = locking.GanetiLockManager(self.nodes, [])
     self.assertEqual(self.GL._names(locking.LEVEL_CLUSTER), set(['BGL']))
     self.assertEqual(self.GL._names(locking.LEVEL_NODE), set(self.nodes))
     self.assertEqual(self.GL._names(locking.LEVEL_INSTANCE), set())
 
     locking.GanetiLockManager._instance = None
-    self.GL = locking.GanetiLockManager(instances=self.instances)
+    self.GL = locking.GanetiLockManager([], self.instances)
     self.assertEqual(self.GL._names(locking.LEVEL_CLUSTER), set(['BGL']))
     self.assertEqual(self.GL._names(locking.LEVEL_NODE), set())
     self.assertEqual(self.GL._names(locking.LEVEL_INSTANCE),
@@ -1389,6 +1424,248 @@ class TestGanetiLockManager(_ThreadedTestCase):
     self._waitThreads()
     self.assertEqual(self.done.get(True, 1), 'DONE')
     self.GL.release(locking.LEVEL_CLUSTER, ['BGL'])
+
+
+class TestLockMonitor(_ThreadedTestCase):
+  def setUp(self):
+    _ThreadedTestCase.setUp(self)
+    self.lm = locking.LockMonitor()
+
+  def testSingleThread(self):
+    locks = []
+
+    for i in range(100):
+      name = "TestLock%s" % i
+      locks.append(locking.SharedLock(name, monitor=self.lm))
+
+    self.assertEqual(len(self.lm._locks), len(locks))
+
+    self.assertEqual(len(self.lm.QueryLocks(["name"], False)),
+                     100)
+
+    # Delete all locks
+    del locks[:]
+
+    # The garbage collector might needs some time
+    def _CheckLocks():
+      if self.lm._locks:
+        raise utils.RetryAgain()
+
+    utils.Retry(_CheckLocks, 0.1, 30.0)
+
+    self.assertFalse(self.lm._locks)
+
+  def testMultiThread(self):
+    locks = []
+
+    def _CreateLock(prev, next, name):
+      prev.wait()
+      locks.append(locking.SharedLock(name, monitor=self.lm))
+      if next:
+        next.set()
+
+    expnames = []
+
+    first = threading.Event()
+    prev = first
+
+    # Use a deterministic random generator
+    for i in random.Random(4263).sample(range(100), 33):
+      name = "MtTestLock%s" % i
+      expnames.append(name)
+
+      ev = threading.Event()
+      self._addThread(target=_CreateLock, args=(prev, ev, name))
+      prev = ev
+
+    # Add locks
+    first.set()
+    self._waitThreads()
+
+    # Check order in which locks were added
+    self.assertEqual([i.name for i in locks], expnames)
+
+    # Sync queries are not supported
+    self.assertRaises(NotImplementedError, self.lm.QueryLocks, ["name"], True)
+
+    # Check query result
+    self.assertEqual(self.lm.QueryLocks(["name", "mode", "owner", "pending"],
+                                        False),
+                     [[name, None, None, []]
+                      for name in utils.NiceSort(expnames)])
+
+    # Test exclusive acquire
+    for tlock in locks[::4]:
+      tlock.acquire(shared=0)
+      try:
+        def _GetExpResult(name):
+          if tlock.name == name:
+            return [name, "exclusive", [threading.currentThread().getName()],
+                    []]
+          return [name, None, None, []]
+
+        self.assertEqual(self.lm.QueryLocks(["name", "mode", "owner",
+                                             "pending"], False),
+                         [_GetExpResult(name)
+                          for name in utils.NiceSort(expnames)])
+      finally:
+        tlock.release()
+
+    # Test shared acquire
+    def _Acquire(lock, shared, ev, notify):
+      lock.acquire(shared=shared)
+      try:
+        notify.set()
+        ev.wait()
+      finally:
+        lock.release()
+
+    for tlock1 in locks[::11]:
+      for tlock2 in locks[::-15]:
+        if tlock2 == tlock1:
+          # Avoid deadlocks
+          continue
+
+        for tlock3 in locks[::10]:
+          if tlock3 in (tlock2, tlock1):
+            # Avoid deadlocks
+            continue
+
+          releaseev = threading.Event()
+
+          # Acquire locks
+          acquireev = []
+          tthreads1 = []
+          for i in range(3):
+            ev = threading.Event()
+            tthreads1.append(self._addThread(target=_Acquire,
+                                             args=(tlock1, 1, releaseev, ev)))
+            acquireev.append(ev)
+
+          ev = threading.Event()
+          tthread2 = self._addThread(target=_Acquire,
+                                     args=(tlock2, 1, releaseev, ev))
+          acquireev.append(ev)
+
+          ev = threading.Event()
+          tthread3 = self._addThread(target=_Acquire,
+                                     args=(tlock3, 0, releaseev, ev))
+          acquireev.append(ev)
+
+          # Wait for all locks to be acquired
+          for i in acquireev:
+            i.wait()
+
+          # Check query result
+          for (name, mode, owner) in self.lm.QueryLocks(["name", "mode",
+                                                         "owner"], False):
+            if name == tlock1.name:
+              self.assertEqual(mode, "shared")
+              self.assertEqual(set(owner), set(i.getName() for i in tthreads1))
+              continue
+
+            if name == tlock2.name:
+              self.assertEqual(mode, "shared")
+              self.assertEqual(owner, [tthread2.getName()])
+              continue
+
+            if name == tlock3.name:
+              self.assertEqual(mode, "exclusive")
+              self.assertEqual(owner, [tthread3.getName()])
+              continue
+
+            self.assert_(name in expnames)
+            self.assert_(mode is None)
+            self.assert_(owner is None)
+
+          # Release locks again
+          releaseev.set()
+
+          self._waitThreads()
+
+          self.assertEqual(self.lm.QueryLocks(["name", "mode", "owner"], False),
+                           [[name, None, None]
+                            for name in utils.NiceSort(expnames)])
+
+  def testDelete(self):
+    lock = locking.SharedLock("TestLock", monitor=self.lm)
+
+    self.assertEqual(len(self.lm._locks), 1)
+    self.assertEqual(self.lm.QueryLocks(["name", "mode", "owner"], False),
+                     [[lock.name, None, None]])
+
+    lock.delete()
+
+    self.assertEqual(self.lm.QueryLocks(["name", "mode", "owner"], False),
+                     [[lock.name, "deleted", None]])
+    self.assertEqual(len(self.lm._locks), 1)
+
+  def testPending(self):
+    def _Acquire(lock, shared, prev, next):
+      prev.wait()
+
+      lock.acquire(shared=shared, test_notify=next.set)
+      try:
+        pass
+      finally:
+        lock.release()
+
+    lock = locking.SharedLock("ExcLock", monitor=self.lm)
+
+    for shared in [0, 1]:
+      lock.acquire()
+      try:
+        self.assertEqual(len(self.lm._locks), 1)
+        self.assertEqual(self.lm.QueryLocks(["name", "mode", "owner"], False),
+                         [[lock.name, "exclusive",
+                           [threading.currentThread().getName()]]])
+
+        threads = []
+
+        first = threading.Event()
+        prev = first
+
+        for i in range(5):
+          ev = threading.Event()
+          threads.append(self._addThread(target=_Acquire,
+                                          args=(lock, shared, prev, ev)))
+          prev = ev
+
+        # Start acquires
+        first.set()
+
+        # Wait for last acquire to start waiting
+        prev.wait()
+
+        # NOTE: This works only because QueryLocks will acquire the
+        # lock-internal lock again and won't be able to get the information
+        # until it has the lock. By then the acquire should be registered in
+        # SharedLock.__pending (otherwise it's a bug).
+
+        # All acquires are waiting now
+        if shared:
+          pending = [("shared", sorted([t.getName() for t in threads]))]
+        else:
+          pending = [("exclusive", [t.getName()]) for t in threads]
+
+        self.assertEqual(self.lm.QueryLocks(["name", "mode", "owner",
+                                             "pending"], False),
+                         [[lock.name, "exclusive",
+                           [threading.currentThread().getName()],
+                           pending]])
+
+        self.assertEqual(len(self.lm._locks), 1)
+      finally:
+        lock.release()
+
+      self._waitThreads()
+
+      # No pending acquires
+      self.assertEqual(self.lm.QueryLocks(["name", "mode", "owner", "pending"],
+                                          False),
+                       [[lock.name, None, None, []]])
+
+      self.assertEqual(len(self.lm._locks), 1)
 
 
 if __name__ == '__main__':

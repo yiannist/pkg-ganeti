@@ -26,10 +26,23 @@
 
 import os
 import logging
+import re
 
 from ganeti import utils
 from ganeti import errors
 from ganeti import constants
+
+
+def FormatParamikoFingerprint(fingerprint):
+  """Format paramiko PKey fingerprint.
+
+  @type fingerprint: str
+  @param fingerprint: PKey fingerprint
+  @return: The string hex representation of the fingerprint
+
+  """
+  assert len(fingerprint) % 2 == 0
+  return ":".join(re.findall(r"..", fingerprint.lower()))
 
 
 def GetUserFiles(user, mkdir=False):
@@ -243,7 +256,7 @@ class SshRunner:
       if node.startswith(remotehostname + "."):
         msg = "hostname not FQDN"
       else:
-        msg = "hostname mistmatch"
+        msg = "hostname mismatch"
       return False, ("%s: expected %s but got %s" %
                      (msg, node, remotehostname))
 

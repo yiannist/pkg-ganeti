@@ -35,6 +35,7 @@ from ganeti import constants
 from ganeti import errors
 from ganeti import objects
 from ganeti import utils
+from ganeti import netutils
 
 import testutils
 
@@ -59,8 +60,8 @@ class TestConfigRunner(unittest.TestCase):
 
   def _init_cluster(self, cfg):
     """Initializes the cfg object"""
-    me = utils.HostInfo()
-    ip = constants.LOCALHOST_IP_ADDRESS
+    me = netutils.HostInfo()
+    ip = constants.IP4_ADDRESS_LOCALHOST
 
     cluster_config = objects.Cluster(
       serial_no=1,
@@ -68,6 +69,7 @@ class TestConfigRunner(unittest.TestCase):
       highest_used_port=(constants.FIRST_DRBD_PORT - 1),
       mac_prefix="aa:00:00",
       volume_group_name="xenvg",
+      drbd_usermode_helper="/bin/true",
       nicparams={constants.PP_DEFAULT: constants.NICC_DEFAULTS},
       tcpudp_port_pool=set(),
       enabled_hypervisors=[constants.HT_FAKE],

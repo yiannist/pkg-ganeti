@@ -5,24 +5,27 @@ net {
 	unplug-watermark	128 _is_default;
 	connect-int     	10 _is_default; # seconds
 	ping-int        	10 _is_default; # seconds
-	sndbuf-size     	131070 _is_default; # bytes
+	sndbuf-size     	0 _is_default; # bytes
+	rcvbuf-size     	0 _is_default; # bytes
 	ko-count        	0 _is_default;
-	after-sb-0pri   	disconnect _is_default;
-	after-sb-1pri   	disconnect _is_default;
+	cram-hmac-alg   	"md5";
+	shared-secret   	"a6526cb6118297c9c82c7003924e236ceac0d867";
+	after-sb-0pri   	discard-zero-changes;
+	after-sb-1pri   	consensus;
 	after-sb-2pri   	disconnect _is_default;
 	rr-conflict     	disconnect _is_default;
 	ping-timeout    	5 _is_default; # 1/10 seconds
 }
 syncer {
-	rate            	250k _is_default; # bytes/second
+	rate            	61440k; # bytes/second
 	after           	-1 _is_default;
-	al-extents      	127 _is_default;
+	al-extents      	257;
 }
 protocol C;
 _this_host {
-	device			"/dev/drbd59";
-	address			192.168.1.1:11002;
+	device			minor 0;
+	address			ipv6 [2001:db8:65::1]:11048;
 }
 _remote_host {
-	address			192.168.1.2:11002;
+	address			ipv6 [2001:db8:66::1]:11048;
 }

@@ -25,7 +25,7 @@ NAME="AEN11"
 ></A
 ><H2
 >Name</H2
->ganeti-confd&nbsp;--&nbsp;ganeti conf daemon</DIV
+>ganeti-confd&nbsp;--&nbsp;Ganeti conf daemon</DIV
 ><DIV
 CLASS="REFSYNOPSISDIV"
 ><A
@@ -103,8 +103,8 @@ NAME="AEN32"
 >        The confd protocol is an HMAC authenticated json-encoded custom format,
         over UDP. A client library is provided to make it easy to write
         software to query confd. More information can be found in the Ganeti
-        2.1 design doc, and an example usage can be seen in the (external) nbma
-        daemon for ganeti.
+        2.1 design doc, and an example usage can be seen in the (external) NBMA
+        daemon for Ganeti.
       </P
 ></DIV
 ></DIV
@@ -121,7 +121,7 @@ HREF="http://code.google.com/p/ganeti/"
 TARGET="_top"
 >http://code.google.com/p/ganeti/</A
 > or contact the
-      developers using the ganeti mailing list
+      developers using the Ganeti mailing list
       &lt;ganeti@googlegroups.com&gt;.
     </P
 ></DIV
@@ -249,7 +249,7 @@ NAME="AEN86"
 ><H2
 >COPYRIGHT</H2
 ><P
->      Copyright (C) 2006, 2007, 2008, 2009 Google Inc. Permission is
+>      Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc. Permission is
       granted to copy, distribute and/or modify under the terms of the
       <ACRONYM
 CLASS="ACRONYM"

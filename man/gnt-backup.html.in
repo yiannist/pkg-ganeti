@@ -25,7 +25,7 @@ NAME="AEN14"
 ></A
 ><H2
 >Name</H2
->gnt-backup&nbsp;--&nbsp;ganeti instance import/export</DIV
+>gnt-backup&nbsp;--&nbsp;Ganeti instance import/export</DIV
 ><DIV
 CLASS="REFSYNOPSISDIV"
 ><A
@@ -51,8 +51,8 @@ NAME="AEN22"
 CLASS="COMMAND"
 >gnt-backup</B
 > is used for importing and exporting
-      instances and their configuration from a ganeti system. It is useful for
-      backing instances up and also to migrate them between clusters.
+      instances and their configuration from a Ganeti system. It is useful for
+      backing up instances and also to migrate them between clusters.
     </P
 ></DIV
 ><DIV
@@ -83,7 +83,7 @@ CLASS="REPLACEABLE"
 ><I
 >N</I
 ></TT
->] [--noshutdown] {<TT
+>] [--noshutdown] [--remove-instance] [--ignore-remove-failures] {<TT
 CLASS="REPLACEABLE"
 ><I
 >instance</I
@@ -120,6 +120,14 @@ CLASS="OPTION"
         in the exported dump.
       </P
 ><P
+>        The <CODE
+CLASS="OPTION"
+>--remove</CODE
+> option can be used to remove the
+        instance after it was exported. This is useful to make one last
+        backup before removing the instance.
+      </P
+><P
 >        The exit code of the command is 0 if all disks were backed up
         successfully, 1 if no data was backed up or if the
         configuration export failed, and 2 if just some of the disks
@@ -140,7 +148,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN48"
+NAME="AEN52"
 ></A
 ><H3
 >IMPORT</H3
@@ -317,15 +325,8 @@ CLASS="VARIABLELIST"
 >mac</DT
 ><DD
 ><P
->either a value or <CODE
-CLASS="CONSTANT"
->GENERATE</CODE
->
-              to generate a new unique MAC, or
-              <CODE
-CLASS="CONSTANT"
->AUTO</CODE
-> to reuse the old MAC</P
+>either a value or 'generate' to generate a new
+              unique MAC, or 'auto' to reuse the old MAC</P
 ></DD
 ><DT
 >ip</DT
@@ -516,7 +517,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN184"
+NAME="AEN186"
 ></A
 ><H3
 >LIST</H3
@@ -550,7 +551,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN194"
+NAME="AEN196"
 ></A
 ><H3
 >REMOVE</H3
@@ -573,7 +574,7 @@ CLASS="ACRONYM"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN201"
+NAME="AEN203"
 ></A
 ><H2
 >REPORTING BUGS</H2
@@ -583,14 +584,14 @@ HREF="http://code.google.com/p/ganeti/"
 TARGET="_top"
 >http://code.google.com/p/ganeti/</A
 > or contact the
-      developers using the ganeti mailing list
+      developers using the Ganeti mailing list
       &lt;ganeti@googlegroups.com&gt;.
     </P
 ></DIV
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN205"
+NAME="AEN207"
 ></A
 ><H2
 >SEE ALSO</H2
@@ -706,12 +707,12 @@ CLASS="REFENTRYTITLE"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN252"
+NAME="AEN254"
 ></A
 ><H2
 >COPYRIGHT</H2
 ><P
->      Copyright (C) 2006, 2007, 2008, 2009 Google Inc. Permission is
+>      Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc. Permission is
       granted to copy, distribute and/or modify under the terms of the
       <ACRONYM
 CLASS="ACRONYM"

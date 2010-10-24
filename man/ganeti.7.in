@@ -3,7 +3,7 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GANETI" "7" "24 August 2010" "ganeti 2.0" ""
+.TH "GANETI" "7" "19 October 2010" "Ganeti 2.2" ""
 
 .SH NAME
 ganeti \- cluster-based virtualization management
@@ -19,10 +19,9 @@ ganeti \- cluster-based virtualization management
 .fi
 .SH "DESCRIPTION"
 .PP
-The ganeti software manages physical nodes and virtual instances
+The Ganeti software manages physical nodes and virtual instances
 of a cluster based on a virtualization software. The current
-version (2.0) supports Xen 3.0 (also tested with 3.1) and KVM
-hypervisors.
+version (2.2) supports Xen 3.x and KVM (72 or above) as hypervisors.
 .SH "QUICK START"
 .PP
 First you must install the software on all the cluster nodes,
@@ -53,7 +52,7 @@ the cluster state. See more details under
 \fBmaster_candidate\fR
 The node receives the full cluster configuration
 (configuration file and jobs) and can become a master
-via the \fBgnt-cluster masterfailover\fR
+via the \fBgnt-cluster master-failover\fR
 command. Nodes that are not in this state cannot
 transition into the master role due to missing
 state.
@@ -68,7 +67,7 @@ set them to \fBoffline\fR or remove them
 from the cluster.
 .TP
 \fBoffline\fR
-These nodes are still recorder in the ganeti
+These nodes are still recorded in the Ganeti
 configuration, but except for the master daemon startup
 voting procedure, they are not actually contacted by the
 master. This state was added in order to allow broken
@@ -106,7 +105,7 @@ The job is waiting for for locks before the
 first of its opcodes.
 .TP
 \fBcanceling\fR
-The jos is waiting for locks, but is has been
+The job is waiting for locks, but is has been
 marked for cancellation. It will not transition to
 \fBrunning\fR, but to
 \fBcanceled\fR\&.
@@ -127,7 +126,7 @@ daemon has been stopped during the job execution.
 .SH "REPORTING BUGS"
 .PP
 Report bugs to  <URL:http://code.google.com/p/ganeti/> or contact the
-developers using the ganeti mailing list
+developers using the Ganeti mailing list
 <ganeti@googlegroups.com>\&.
 .SH "SEE ALSO"
 .PP
@@ -152,7 +151,7 @@ Ganeti daemons:
 \fBganeti-rapi\fR(8) (remote API daemon).
 .SH "COPYRIGHT"
 .PP
-Copyright (C) 2006, 2007, 2008, 2009 Google Inc. Permission is
+Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc. Permission is
 granted to copy, distribute and/or modify under the terms of the
 GNU General Public License as published by the Free Software
 Foundation; either version 2 of the License, or (at your option)

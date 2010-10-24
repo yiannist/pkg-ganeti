@@ -1,7 +1,7 @@
 # Configure script for Ganeti
 m4_define([gnt_version_major], [2])
-m4_define([gnt_version_minor], [1])
-m4_define([gnt_version_revision], [7])
+m4_define([gnt_version_minor], [2])
+m4_define([gnt_version_revision], [1])
 m4_define([gnt_version_suffix], [])
 m4_define([gnt_version_full],
           m4_format([%d.%d.%d%s],
@@ -135,6 +135,54 @@ AC_ARG_WITH([lvm-stripecount],
   [lvm_stripecount="1"])
 AC_SUBST(LVM_STRIPECOUNT, $lvm_stripecount)
 
+# --with-user-prefix=...
+AC_ARG_WITH([user-prefix],
+  [AS_HELP_STRING([--with-user-prefix=PREFIX],
+    [prefix for daemon users]
+    [ (default is to run all daemons as root)]
+  )],
+  [user_masterd="root";
+   user_rapi="${withval}rapi";
+   user_confd="root";
+   user_noded="root"],
+  [user_masterd="root";
+   user_rapi="root";
+   user_confd="root";
+   user_noded="root"])
+AC_SUBST(MASTERD_USER, $user_masterd)
+AC_SUBST(RAPI_USER, $user_rapi)
+AC_SUBST(CONFD_USER, $user_confd)
+AC_SUBST(NODED_USER, $user_noded)
+
+# --with-group-prefix=...
+AC_ARG_WITH([group-prefix],
+  [AS_HELP_STRING([--with-group-prefix=PREFIX],
+    [prefix for daemon POSIX groups]
+    [ (default is to run all daemons under group root)]
+  )],
+  [group_rapi="root";
+   group_admin="root";
+   group_confd="root";
+   group_masterd="root";
+   group_daemons="${withval}daemons";],
+  [group_rapi="root";
+   group_admin="root";
+   group_confd="root";
+   group_masterd="root";
+   group_daemons="root"])
+AC_SUBST(RAPI_GROUP, $group_rapi)
+AC_SUBST(ADMIN_GROUP, $group_admin)
+AC_SUBST(CONFD_GROUP, $group_confd)
+AC_SUBST(MASTERD_GROUP, $group_masterd)
+AC_SUBST(DAEMONS_GROUP, $group_daemons)
+
+# Print the config to the user
+AC_MSG_NOTICE([Running ganeti-masterd as $group_masterd:$group_masterd])
+AC_MSG_NOTICE([Running ganeti-rapi as $user_rapi:$group_rapi])
+AC_MSG_NOTICE([Running ganeti-confd as $user_confd:$group_confd])
+AC_MSG_NOTICE([Group for daemons is $group_daemons])
+AC_MSG_NOTICE([Group for clients is $group_admin])
+
 # --enable-drbd-barriers
 AC_ARG_ENABLE([drbd-barriers],
   [AS_HELP_STRING([--enable-drbd-barriers],
@@ -267,6 +315,14 @@ AC_PYTHON_MODULE(OpenSSL, t)
 AC_PYTHON_MODULE(simplejson, t)
 AC_PYTHON_MODULE(pyparsing, t)
 AC_PYTHON_MODULE(pyinotify, t)
+AC_PYTHON_MODULE(pycurl, t)
+
+# This is optional but then we've limited functionality
+AC_PYTHON_MODULE(paramiko)
+if test "$HAVE_PYMOD_PARAMIKO" = "no"; then
+  AC_MSG_WARN([You do not have paramiko installed. While this is optional you
+               have to setup SSH and noded on the joining nodes yourself.])
+fi
 
 AC_CONFIG_FILES([ Makefile ])
 

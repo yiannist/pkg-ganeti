@@ -21,15 +21,15 @@ NAME="AEN1"
 ><DIV
 CLASS="REFNAMEDIV"
 ><A
-NAME="AEN12"
+NAME="AEN13"
 ></A
 ><H2
 >Name</H2
->ganeti-rapi&nbsp;--&nbsp;ganeti remote API daemon</DIV
+>ganeti-rapi&nbsp;--&nbsp;Ganeti remote API daemon</DIV
 ><DIV
 CLASS="REFSYNOPSISDIV"
 ><A
-NAME="AEN15"
+NAME="AEN16"
 ></A
 ><H2
 >Synopsis</H2
@@ -52,7 +52,7 @@ CLASS="REPLACEABLE"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN25"
+NAME="AEN26"
 ></A
 ><H2
 >DESCRIPTION</H2
@@ -105,7 +105,7 @@ CLASS="FILENAME"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN38"
+NAME="AEN39"
 ></A
 ><H2
 >ACCESS CONTROLS</H2
@@ -157,11 +157,14 @@ CLASS="USERINPUT"
     read-write rights, whereas the second user does only have read
     (query) rights, and as such is no different than not using
     authentication at all.</P
+><P
+>More details (including on how to use hashed passwords) can be found
+      in the Ganeti documentation.</P
 ></DIV
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN51"
+NAME="AEN53"
 ></A
 ><H2
 >REPORTING BUGS</H2
@@ -171,14 +174,14 @@ HREF="http://code.google.com/p/ganeti/"
 TARGET="_top"
 >http://code.google.com/p/ganeti/</A
 > or contact the
-      developers using the ganeti mailing list
+      developers using the Ganeti mailing list
       &lt;ganeti@googlegroups.com&gt;.
     </P
 ></DIV
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN55"
+NAME="AEN57"
 ></A
 ><H2
 >SEE ALSO</H2
@@ -294,12 +297,12 @@ CLASS="REFENTRYTITLE"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN102"
+NAME="AEN104"
 ></A
 ><H2
 >COPYRIGHT</H2
 ><P
->      Copyright (C) 2006, 2007, 2008, 2009 Google Inc. Permission is
+>      Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc. Permission is
       granted to copy, distribute and/or modify under the terms of the
       <ACRONYM
 CLASS="ACRONYM"

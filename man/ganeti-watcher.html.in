@@ -21,15 +21,15 @@ NAME="AEN1"
 ><DIV
 CLASS="REFNAMEDIV"
 ><A
-NAME="AEN13"
+NAME="AEN14"
 ></A
 ><H2
 >Name</H2
->ganeti-watcher&nbsp;--&nbsp;ganeti cluster watcher</DIV
+>ganeti-watcher&nbsp;--&nbsp;Ganeti cluster watcher</DIV
 ><DIV
 CLASS="REFSYNOPSISDIV"
 ><A
-NAME="AEN16"
+NAME="AEN17"
 ></A
 ><H2
 >Synopsis</H2
@@ -42,7 +42,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN19"
+NAME="AEN20"
 ></A
 ><H2
 >DESCRIPTION</H2
@@ -58,7 +58,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN23"
+NAME="AEN24"
 ></A
 ><H3
 >Master operations</H3
@@ -85,7 +85,7 @@ CLASS="QUOTE"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN29"
+NAME="AEN30"
 ></A
 ><H3
 >Node operations</H3
@@ -98,7 +98,7 @@ NAME="AEN29"
         <SPAN
 CLASS="QUOTE"
 >"watcher"</SPAN
-> directory in the ganeti hooks directory
+> directory in the Ganeti hooks directory
         (@SYSCONFDIR@/ganeti/hooks). This should be used for
         lightweight actions, like starting any extra daemons.
       </P
@@ -121,7 +121,7 @@ CLASS="LITERAL"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN37"
+NAME="AEN38"
 ></A
 ><H2
 >FILES</H2
@@ -144,7 +144,7 @@ CLASS="FILENAME"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN42"
+NAME="AEN43"
 ></A
 ><H2
 >REPORTING BUGS</H2
@@ -154,14 +154,14 @@ HREF="http://code.google.com/p/ganeti/"
 TARGET="_top"
 >http://code.google.com/p/ganeti/</A
 > or contact the
-      developers using the ganeti mailing list
+      developers using the Ganeti mailing list
       &lt;ganeti@googlegroups.com&gt;.
     </P
 ></DIV
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN46"
+NAME="AEN47"
 ></A
 ><H2
 >SEE ALSO</H2
@@ -277,12 +277,12 @@ CLASS="REFENTRYTITLE"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN93"
+NAME="AEN94"
 ></A
 ><H2
 >COPYRIGHT</H2
 ><P
->      Copyright (C) 2006, 2007, 2008, 2009 Google Inc. Permission is
+>      Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc. Permission is
       granted to copy, distribute and/or modify under the terms of the
       <ACRONYM
 CLASS="ACRONYM"

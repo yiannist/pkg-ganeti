@@ -129,15 +129,11 @@ def TestInstanceReinstall(instance):
                        utils.ShellQuoteArgs(cmd)).wait(), 0)
 
 
-def TestInstanceRename(instance):
+def TestInstanceRename(instance, rename_target):
   """gnt-instance rename"""
   master = qa_config.GetMasterNode()
 
   rename_source = instance['name']
-  rename_target = qa_config.get('rename', None)
-  if rename_target is None:
-    print qa_utils.FormatError('"rename" entry is missing')
-    return
 
   for name1, name2 in [(rename_source, rename_target),
                        (rename_target, rename_source)]:
@@ -157,6 +153,20 @@ def TestInstanceFailover(instance):
   # ... and back
   cmd = ['gnt-instance', 'failover', '--force', instance['name']]
   AssertEqual(StartSSH(master['primary'],
+                       utils.ShellQuoteArgs(cmd)).wait(), 0)
+
+
+def TestInstanceMigrate(instance):
+  """gnt-instance migrate"""
+  master = qa_config.GetMasterNode()
+
+  cmd = ["gnt-instance", "migrate", "--force", instance["name"]]
+  AssertEqual(StartSSH(master["primary"],
+                       utils.ShellQuoteArgs(cmd)).wait(), 0)
+
+  # ... and back
+  cmd = ["gnt-instance", "migrate", "--force", instance["name"]]
+  AssertEqual(StartSSH(master["primary"],
                        utils.ShellQuoteArgs(cmd)).wait(), 0)
 
 
@@ -270,7 +280,7 @@ def TestReplaceDisks(instance, pnode, snode, othernode):
 
 
 def TestInstanceExport(instance, node):
-  """gnt-backup export"""
+  """gnt-backup export -n ..."""
   master = qa_config.GetMasterNode()
 
   cmd = ['gnt-backup', 'export', '-n', node['primary'], instance['name']]
@@ -278,6 +288,25 @@ def TestInstanceExport(instance, node):
                        utils.ShellQuoteArgs(cmd)).wait(), 0)
 
   return qa_utils.ResolveInstanceName(instance)
+
+
+def TestInstanceExportWithRemove(instance, node):
+  """gnt-backup export --remove-instance"""
+  master = qa_config.GetMasterNode()
+
+  cmd = ['gnt-backup', 'export', '-n', node['primary'], "--remove-instance",
+         instance['name']]
+  AssertEqual(StartSSH(master['primary'],
+                       utils.ShellQuoteArgs(cmd)).wait(), 0)
+
+
+def TestInstanceExportNoTarget(instance):
+  """gnt-backup export (without target node, should fail)"""
+  master = qa_config.GetMasterNode()
+
+  cmd = ["gnt-backup", "export", instance["name"]]
+  AssertNotEqual(StartSSH(master['primary'],
+                          utils.ShellQuoteArgs(cmd)).wait(), 0)
 
 
 def TestInstanceImport(node, newinst, expnode, name):
