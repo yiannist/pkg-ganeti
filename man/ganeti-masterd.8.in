@@ -3,10 +3,10 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GANETI-MASTERD" "8" "24 August 2010" "ganeti 2.0" ""
+.TH "GANETI-MASTERD" "8" "19 October 2010" "Ganeti 2.2" ""
 
 .SH NAME
-ganeti-masterd \- ganeti master daemon
+ganeti-masterd \- Ganeti master daemon
 .SH SYNOPSIS
 
 \fBganeti-masterd \fR [ \fB-f\fR ] [ \fB-d\fR ] [ \fB--no-voting\fR ]
@@ -32,8 +32,8 @@ and so on are done via this daemon.
 .PP
 The only action that can be done without the master daemon is
 the failover of the master role to another node in the
-cluster, via the \fBgnt-cluster masterfailover\fR
-command.
+cluster, via the \fBgnt-cluster
+master-failover\fR command.
 .PP
 If the master daemon is stopped, the instances are not
 affected, but they won't be restarted automatically in case of
@@ -78,7 +78,7 @@ Ganeti.
 .SH "REPORTING BUGS"
 .PP
 Report bugs to  <URL:http://code.google.com/p/ganeti/> or contact the
-developers using the ganeti mailing list
+developers using the Ganeti mailing list
 <ganeti@googlegroups.com>\&.
 .SH "SEE ALSO"
 .PP
@@ -103,7 +103,7 @@ Ganeti daemons:
 \fBganeti-rapi\fR(8) (remote API daemon).
 .SH "COPYRIGHT"
 .PP
-Copyright (C) 2006, 2007, 2008, 2009 Google Inc. Permission is
+Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc. Permission is
 granted to copy, distribute and/or modify under the terms of the
 GNU General Public License as published by the Free Software
 Foundation; either version 2 of the License, or (at your option)

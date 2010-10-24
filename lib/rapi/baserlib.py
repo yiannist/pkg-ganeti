@@ -190,7 +190,10 @@ def SubmitJob(op, cl=None):
   except errors.JobQueueDrainError:
     raise http.HttpServiceUnavailable("Job queue is drained, cannot submit")
   except luxi.NoMasterError, err:
-    raise http.HttpBadGateway("Master seems to unreachable: %s" % str(err))
+    raise http.HttpBadGateway("Master seems to be unreachable: %s" % str(err))
+  except luxi.PermissionError:
+    raise http.HttpInternalServerError("Internal error: no permission to"
+                                       " connect to the master daemon")
   except luxi.TimeoutError, err:
     raise http.HttpGatewayTimeout("Timeout while talking to the master"
                                   " daemon. Error: %s" % str(err))
@@ -217,17 +220,21 @@ def GetClient():
     return luxi.Client()
   except luxi.NoMasterError, err:
     raise http.HttpBadGateway("Master seems to unreachable: %s" % str(err))
+  except luxi.PermissionError:
+    raise http.HttpInternalServerError("Internal error: no permission to"
+                                       " connect to the master daemon")
 
 
-def FeedbackFn(ts, log_type, log_msg): # pylint: disable-msg=W0613
-  """Feedback logging function for http case.
+def FeedbackFn(msg):
+  """Feedback logging function for jobs.
 
   We don't have a stdout for printing log messages, so log them to the
   http log at least.
 
-  @param ts: the timestamp (unused)
+  @param msg: the message
 
   """
+  (_, log_type, log_msg) = msg
   logging.info("%s: %s", log_type, log_msg)
 
 
@@ -297,14 +304,15 @@ class R_Generic(object):
     """
     self.items = items
     self.queryargs = queryargs
-    self.req = req
-    self.sn = None
+    self._req = req
 
-  def getSerialNumber(self):
-    """Get Serial Number.
+  def _GetRequestBody(self):
+    """Returns the body data.
 
     """
-    return self.sn
+    return self._req.private.body_data
+
+  request_body = property(fget=_GetRequestBody)
 
   def _checkIntVariable(self, name, default=0):
     """Return the parsed value of an int argument.
@@ -345,30 +353,30 @@ class R_Generic(object):
 
     """
     if args:
-      return CheckParameter(self.req.request_body, name, default=args[0])
+      return CheckParameter(self.request_body, name, default=args[0])
 
-    return CheckParameter(self.req.request_body, name)
+    return CheckParameter(self.request_body, name)
 
   def useLocking(self):
     """Check if the request specifies locking.
 
     """
-    return self._checkIntVariable('lock')
+    return bool(self._checkIntVariable("lock"))
 
   def useBulk(self):
     """Check if the request specifies bulk querying.
 
     """
-    return self._checkIntVariable('bulk')
+    return bool(self._checkIntVariable("bulk"))
 
   def useForce(self):
     """Check if the request specifies a forced operation.
 
     """
-    return self._checkIntVariable('force')
+    return bool(self._checkIntVariable("force"))
 
   def dryRun(self):
     """Check if the request specifies dry-run mode.
 
     """
-    return self._checkIntVariable('dry-run')
+    return bool(self._checkIntVariable("dry-run"))

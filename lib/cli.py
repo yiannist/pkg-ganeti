@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -38,6 +38,7 @@ from ganeti import ssconf
 from ganeti import rpc
 from ganeti import ssh
 from ganeti import compat
+from ganeti import netutils
 
 from optparse import (OptionParser, TitledHelpFormatter,
                       Option, OptionValueError)
@@ -51,7 +52,9 @@ __all__ = [
   "AUTO_PROMOTE_OPT",
   "AUTO_REPLACE_OPT",
   "BACKEND_OPT",
+  "BLK_OS_OPT",
   "CLEANUP_OPT",
+  "CLUSTER_DOMAIN_SECRET_OPT",
   "CONFIRM_OPT",
   "CP_SIZE_OPT",
   "DEBUG_OPT",
@@ -60,6 +63,8 @@ __all__ = [
   "DISK_OPT",
   "DISK_TEMPLATE_OPT",
   "DRAINED_OPT",
+  "DRY_RUN_OPT",
+  "DRBD_HELPER_OPT",
   "EARLY_RELEASE_OPT",
   "ENABLED_HV_OPT",
   "ERROR_CODES_OPT",
@@ -69,27 +74,34 @@ __all__ = [
   "FORCE_OPT",
   "FORCE_VARIANT_OPT",
   "GLOBAL_FILEDIR_OPT",
+  "HID_OS_OPT",
   "HVLIST_OPT",
   "HVOPTS_OPT",
   "HYPERVISOR_OPT",
   "IALLOCATOR_OPT",
+  "DEFAULT_IALLOCATOR_OPT",
   "IDENTIFY_DEFAULTS_OPT",
   "IGNORE_CONSIST_OPT",
   "IGNORE_FAILURES_OPT",
+  "IGNORE_REMOVE_FAILURES_OPT",
   "IGNORE_SECONDARIES_OPT",
   "IGNORE_SIZE_OPT",
+  "INTERVAL_OPT",
   "MAC_PREFIX_OPT",
   "MAINTAIN_NODE_HEALTH_OPT",
   "MASTER_NETDEV_OPT",
   "MC_OPT",
+  "MIGRATION_MODE_OPT",
   "NET_OPT",
   "NEW_CLUSTER_CERT_OPT",
+  "NEW_CLUSTER_DOMAIN_SECRET_OPT",
   "NEW_CONFD_HMAC_KEY_OPT",
   "NEW_RAPI_CERT_OPT",
   "NEW_SECONDARY_OPT",
   "NIC_PARAMS_OPT",
   "NODE_LIST_OPT",
   "NODE_PLACEMENT_OPT",
+  "NODRBD_STORAGE_OPT",
   "NOHDR_OPT",
   "NOIPCHECK_OPT",
   "NO_INSTALL_OPT",
@@ -108,12 +120,15 @@ __all__ = [
   "ON_PRIMARY_OPT",
   "ON_SECONDARY_OPT",
   "OFFLINE_OPT",
+  "OSPARAMS_OPT",
   "OS_OPT",
   "OS_SIZE_OPT",
   "RAPI_CERT_OPT",
   "READD_OPT",
   "REBOOT_TYPE_OPT",
+  "REMOVE_INSTANCE_OPT",
   "REMOVE_UIDS_OPT",
+  "RESERVED_LVS_OPT",
   "ROMAN_OPT",
   "SECONDARY_IP_OPT",
   "SELECT_OS_OPT",
@@ -152,6 +167,7 @@ __all__ = [
   "GenerateTable",
   "AskUser",
   "FormatTimestamp",
+  "FormatLogMessage",
   # Tags functions
   "ListTags",
   "AddTags",
@@ -182,6 +198,7 @@ __all__ = [
   "cli_option",
   "SplitNodeOption",
   "CalculateOSNames",
+  "ParseFields",
   ]
 
 NO_PREFIX = "no_"
@@ -360,7 +377,7 @@ def AddTags(opts, args):
   if not args:
     raise errors.OpPrereqError("No tags to be added")
   op = opcodes.OpAddTags(kind=kind, name=name, tags=args)
-  SubmitOpCode(op)
+  SubmitOpCode(op, opts=opts)
 
 
 def RemoveTags(opts, args):
@@ -377,7 +394,7 @@ def RemoveTags(opts, args):
   if not args:
     raise errors.OpPrereqError("No tags to be removed")
   op = opcodes.OpDelTags(kind=kind, name=name, tags=args)
-  SubmitOpCode(op)
+  SubmitOpCode(op, opts=opts)
 
 
 def check_unit(option, opt, value): # pylint: disable-msg=W0613
@@ -563,11 +580,11 @@ SYNC_OPT = cli_option("--sync", dest="do_locking",
                       help=("Grab locks while doing the queries"
                             " in order to ensure more consistent results"))
 
-_DRY_RUN_OPT = cli_option("--dry-run", default=False,
-                          action="store_true",
-                          help=("Do not execute the operation, just run the"
-                                " check steps and verify it it could be"
-                                " executed"))
+DRY_RUN_OPT = cli_option("--dry-run", default=False,
+                         action="store_true",
+                         help=("Do not execute the operation, just run the"
+                               " check steps and verify it it could be"
+                               " executed"))
 
 VERBOSE_OPT = cli_option("-v", "--verbose", default=False,
                          action="store_true",
@@ -608,9 +625,19 @@ IALLOCATOR_OPT = cli_option("-I", "--iallocator", metavar="<NAME>",
                             default=None, type="string",
                             completion_suggest=OPT_COMPL_ONE_IALLOCATOR)
 
+DEFAULT_IALLOCATOR_OPT = cli_option("-I", "--default-iallocator",
+                            metavar="<NAME>",
+                            help="Set the default instance allocator plugin",
+                            default=None, type="string",
+                            completion_suggest=OPT_COMPL_ONE_IALLOCATOR)
+
 OS_OPT = cli_option("-o", "--os-type", dest="os", help="What OS to run",
                     metavar="<os>",
                     completion_suggest=OPT_COMPL_ONE_OS)
+
+OSPARAMS_OPT = cli_option("-O", "--os-parameters", dest="osparams",
+                         type="keyval", default={},
+                         help="OS parameters")
 
 FORCE_VARIANT_OPT = cli_option("--force-variant", dest="force_variant",
                                action="store_true", default=False,
@@ -678,6 +705,12 @@ NONLIVE_OPT = cli_option("--non-live", dest="live",
                          " freeze the instance, save the state, transfer and"
                          " only then resume running on the secondary node)")
 
+MIGRATION_MODE_OPT = cli_option("--migration-mode", dest="migration_mode",
+                                default=None,
+                                choices=list(constants.HT_MIGRATION_MODES),
+                                help="Override default migration mode (choose"
+                                " either live or non-live")
+
 NODE_PLACEMENT_OPT = cli_option("-n", "--node", dest="node",
                                 help="Target node and optional secondary node",
                                 metavar="<pnode>[:<snode>]",
@@ -729,6 +762,18 @@ IGNORE_FAILURES_OPT = cli_option("--ignore-failures", dest="ignore_failures",
                                  help="Remove the instance from the cluster"
                                  " configuration even if there are failures"
                                  " during the removal process")
+
+IGNORE_REMOVE_FAILURES_OPT = cli_option("--ignore-remove-failures",
+                                        dest="ignore_remove_failures",
+                                        action="store_true", default=False,
+                                        help="Remove the instance from the"
+                                        " cluster configuration even if there"
+                                        " are failures during the removal"
+                                        " process")
+
+REMOVE_INSTANCE_OPT = cli_option("--remove-instance", dest="remove_instance",
+                                 action="store_true", default=False,
+                                 help="Remove the instance from the cluster")
 
 NEW_SECONDARY_OPT = cli_option("-n", "--new-secondary", dest="dst_node",
                                help="Specifies the new secondary node",
@@ -840,7 +885,6 @@ MASTER_NETDEV_OPT = cli_option("--master-netdev", dest="master_netdev",
                                metavar="NETDEV",
                                default=constants.DEFAULT_BRIDGE)
 
-
 GLOBAL_FILEDIR_OPT = cli_option("--file-storage-dir", dest="file_storage_dir",
                                 help="Specify the default directory (cluster-"
                                 "wide) for storing the file-based disks [%s]" %
@@ -888,6 +932,11 @@ SHUTDOWN_TIMEOUT_OPT = cli_option("--shutdown-timeout",
                          default=constants.DEFAULT_SHUTDOWN_TIMEOUT,
                          help="Maximum time to wait for instance shutdown")
 
+INTERVAL_OPT = cli_option("--interval", dest="interval", type="int",
+                          default=None,
+                          help=("Number of seconds between repetions of the"
+                                " command"))
+
 EARLY_RELEASE_OPT = cli_option("--early-release",
                                dest="early_release", default=False,
                                action="store_true",
@@ -913,6 +962,18 @@ NEW_CONFD_HMAC_KEY_OPT = cli_option("--new-confd-hmac-key",
                                     default=False, action="store_true",
                                     help=("Create a new HMAC key for %s" %
                                           constants.CONFD))
+
+CLUSTER_DOMAIN_SECRET_OPT = cli_option("--cluster-domain-secret",
+                                       dest="cluster_domain_secret",
+                                       default=None,
+                                       help=("Load new new cluster domain"
+                                             " secret from file"))
+
+NEW_CLUSTER_DOMAIN_SECRET_OPT = cli_option("--new-cluster-domain-secret",
+                                           dest="new_cluster_domain_secret",
+                                           default=False, action="store_true",
+                                           help=("Create a new cluster domain"
+                                                 " secret"))
 
 USE_REPL_NET_OPT = cli_option("--use-replication-network",
                               dest="use_replication_network",
@@ -951,11 +1012,36 @@ REMOVE_UIDS_OPT = cli_option("--remove-uids", default=None,
                                    " ranges separated by commas, to be"
                                    " removed from the user-id pool"))
 
+RESERVED_LVS_OPT = cli_option("--reserved-lvs", default=None,
+                             action="store", dest="reserved_lvs",
+                             help=("A comma-separated list of reserved"
+                                   " logical volumes names, that will be"
+                                   " ignored by cluster verify"))
+
 ROMAN_OPT = cli_option("--roman",
                        dest="roman_integers", default=False,
                        action="store_true",
                        help="Use roman numbers for positive integers")
 
+DRBD_HELPER_OPT = cli_option("--drbd-usermode-helper", dest="drbd_helper",
+                             action="store", default=None,
+                             help="Specifies usermode helper for DRBD")
+
+NODRBD_STORAGE_OPT = cli_option("--no-drbd-storage", dest="drbd_storage",
+                                action="store_false", default=True,
+                                help="Disable support for DRBD")
+
+HID_OS_OPT = cli_option("--hidden", dest="hidden",
+                        type="bool", default=None, metavar=_YORNO,
+                        help="Sets the hidden flag on the OS")
+
+BLK_OS_OPT = cli_option("--blacklisted", dest="blacklisted",
+                        type="bool", default=None, metavar=_YORNO,
+                        help="Sets the blacklisted flag on the OS")
+
+
+#: Options provided by all commands
+COMMON_OPTS = [DEBUG_OPT]
 
 
 def _ParseArgs(argv, commands, aliases):
@@ -976,7 +1062,8 @@ def _ParseArgs(argv, commands, aliases):
     binary = argv[0].split("/")[-1]
 
   if len(argv) > 1 and argv[1] == "--version":
-    ToStdout("%s (ganeti) %s", binary, constants.RELEASE_VERSION)
+    ToStdout("%s (ganeti %s) %s", binary, constants.VCS_VERSION,
+             constants.RELEASE_VERSION)
     # Quit right away. That way we don't have to care about this special
     # argument. optparse.py does it the same.
     sys.exit(0)
@@ -1023,7 +1110,7 @@ def _ParseArgs(argv, commands, aliases):
     cmd = aliases[cmd]
 
   func, args_def, parser_opts, usage, description = commands[cmd]
-  parser = OptionParser(option_list=parser_opts + [_DRY_RUN_OPT, DEBUG_OPT],
+  parser = OptionParser(option_list=parser_opts + COMMON_OPTS,
                         description=description,
                         formatter=TitledHelpFormatter(),
                         usage="%%prog %s %s" % (cmd, usage))
@@ -1134,14 +1221,25 @@ def CalculateOSNames(os_name, os_variants):
     return [os_name]
 
 
-def UsesRPC(fn):
-  def wrapper(*args, **kwargs):
-    rpc.Init()
-    try:
-      return fn(*args, **kwargs)
-    finally:
-      rpc.Shutdown()
-  return wrapper
+def ParseFields(selected, default):
+  """Parses the values of "--field"-like options.
+
+  @type selected: string or None
+  @param selected: User-selected options
+  @type default: list
+  @param default: Default fields
+
+  """
+  if selected is None:
+    return default
+
+  if selected.startswith("+"):
+    return default + selected[1:].split(",")
+
+  return selected.split(",")
+
+
+UsesRPC = rpc.RunWithRPC
 
 
 def AskUser(text, choices=None):
@@ -1425,7 +1523,7 @@ class StdioJobPollReportCb(JobPollReportCbBase):
 
     """
     ToStdout("%s %s", time.ctime(utils.MergeTime(timestamp)),
-             utils.SafeEncode(log_msg))
+             FormatLogMessage(log_type, log_msg))
 
   def ReportNotChanged(self, job_id, status):
     """Called if a job hasn't changed in a while.
@@ -1443,7 +1541,17 @@ class StdioJobPollReportCb(JobPollReportCbBase):
       self.notified_waitlock = True
 
 
-def PollJob(job_id, cl=None, feedback_fn=None):
+def FormatLogMessage(log_type, log_msg):
+  """Formats a job message according to its type.
+
+  """
+  if log_type != constants.ELOG_MESSAGE:
+    log_msg = str(log_msg)
+
+  return utils.SafeEncode(log_msg)
+
+
+def PollJob(job_id, cl=None, feedback_fn=None, reporter=None):
   """Function to poll for the result of a job.
 
   @type job_id: job identified
@@ -1456,15 +1564,18 @@ def PollJob(job_id, cl=None, feedback_fn=None):
   if cl is None:
     cl = GetClient()
 
-  if feedback_fn:
-    reporter = FeedbackFnJobPollReportCb(feedback_fn)
-  else:
-    reporter = StdioJobPollReportCb()
+  if reporter is None:
+    if feedback_fn:
+      reporter = FeedbackFnJobPollReportCb(feedback_fn)
+    else:
+      reporter = StdioJobPollReportCb()
+  elif feedback_fn:
+    raise errors.ProgrammerError("Can't specify reporter and feedback function")
 
   return GenericPollJob(job_id, _LuxiJobPollCb(cl), reporter)
 
 
-def SubmitOpCode(op, cl=None, feedback_fn=None, opts=None):
+def SubmitOpCode(op, cl=None, feedback_fn=None, opts=None, reporter=None):
   """Legacy function to submit an opcode.
 
   This is just a simple wrapper over the construction of the processor
@@ -1477,9 +1588,10 @@ def SubmitOpCode(op, cl=None, feedback_fn=None, opts=None):
 
   SetGenericOpcodeOpts([op], opts)
 
-  job_id = SendJob([op], cl)
+  job_id = SendJob([op], cl=cl)
 
-  op_results = PollJob(job_id, cl=cl, feedback_fn=feedback_fn)
+  op_results = PollJob(job_id, cl=cl, feedback_fn=feedback_fn,
+                       reporter=reporter)
 
   return op_results[0]
 
@@ -1519,7 +1631,8 @@ def SetGenericOpcodeOpts(opcode_list, options):
   if not options:
     return
   for op in opcode_list:
-    op.dry_run = options.dry_run
+    if hasattr(options, "dry_run"):
+      op.dry_run = options.dry_run
     op.debug_level = options.debug
 
 
@@ -1576,7 +1689,7 @@ def FormatError(err):
   elif isinstance(err, errors.HooksFailure):
     obuf.write("Failure: hooks general failure: %s" % msg)
   elif isinstance(err, errors.ResolverError):
-    this_host = utils.HostInfo.SysName()
+    this_host = netutils.HostInfo.SysName()
     if err.args[0] == this_host:
       msg = "Failure: can't resolve my own hostname ('%s')"
     else:
@@ -1604,17 +1717,22 @@ def FormatError(err):
     obuf.write("Parameter Error: %s" % msg)
   elif isinstance(err, errors.ParameterError):
     obuf.write("Failure: unknown/wrong parameter name '%s'" % msg)
-  elif isinstance(err, errors.GenericError):
-    obuf.write("Unhandled Ganeti error: %s" % msg)
   elif isinstance(err, luxi.NoMasterError):
     obuf.write("Cannot communicate with the master daemon.\nIs it running"
                " and listening for connections?")
   elif isinstance(err, luxi.TimeoutError):
     obuf.write("Timeout while talking to the master daemon. Error:\n"
                "%s" % msg)
+  elif isinstance(err, luxi.PermissionError):
+    obuf.write("It seems you don't have permissions to connect to the"
+               " master daemon.\nPlease retry as a different user.")
   elif isinstance(err, luxi.ProtocolError):
     obuf.write("Unhandled protocol error while talking to the master daemon:\n"
                "%s" % msg)
+  elif isinstance(err, errors.JobLost):
+    obuf.write("Error checking job status: %s" % msg)
+  elif isinstance(err, errors.GenericError):
+    obuf.write("Unhandled Ganeti error: %s" % msg)
   elif isinstance(err, JobSubmittedException):
     obuf.write("JobID: %s\n" % err.args[0])
     retcode = 0
@@ -1683,6 +1801,30 @@ def GenericMain(commands, override=None, aliases=None):
   return result
 
 
+def ParseNicOption(optvalue):
+  """Parses the value of the --net option(s).
+
+  """
+  try:
+    nic_max = max(int(nidx[0]) + 1 for nidx in optvalue)
+  except (TypeError, ValueError), err:
+    raise errors.OpPrereqError("Invalid NIC index passed: %s" % str(err))
+
+  nics = [{}] * nic_max
+  for nidx, ndict in optvalue:
+    nidx = int(nidx)
+
+    if not isinstance(ndict, dict):
+      raise errors.OpPrereqError("Invalid nic/%d value: expected dict,"
+                                 " got %s" % (nidx, ndict))
+
+    utils.ForceDictType(ndict, constants.INIC_PARAMS_TYPES)
+
+    nics[nidx] = ndict
+
+  return nics
+
+
 def GenericInstanceCreate(mode, opts, args):
   """Add an instance to the cluster via either creation or import.
 
@@ -1704,17 +1846,7 @@ def GenericInstanceCreate(mode, opts, args):
     hypervisor, hvparams = opts.hypervisor
 
   if opts.nics:
-    try:
-      nic_max = max(int(nidx[0]) + 1 for nidx in opts.nics)
-    except ValueError, err:
-      raise errors.OpPrereqError("Invalid NIC index passed: %s" % str(err))
-    nics = [{}] * nic_max
-    for nidx, ndict in opts.nics:
-      nidx = int(nidx)
-      if not isinstance(ndict, dict):
-        msg = "Invalid nic/%d value: expected dict, got %s" % (nidx, ndict)
-        raise errors.OpPrereqError(msg)
-      nics[nidx] = ndict
+    nics = ParseNicOption(opts.nics)
   elif opts.no_nics:
     # no nics
     nics = []
@@ -1808,6 +1940,7 @@ def GenericInstanceCreate(mode, opts, args):
                                 hypervisor=hypervisor,
                                 hvparams=hvparams,
                                 beparams=opts.beparams,
+                                osparams=opts.osparams,
                                 mode=mode,
                                 start=start,
                                 os_type=os_type,
@@ -2224,11 +2357,18 @@ class JobExecutor(object):
     SetGenericOpcodeOpts(ops, self.opts)
     self.queue.append((name, ops))
 
-  def SubmitPending(self):
+  def SubmitPending(self, each=False):
     """Submit all pending jobs.
 
     """
-    results = self.cl.SubmitManyJobs([row[1] for row in self.queue])
+    if each:
+      results = []
+      for row in self.queue:
+        # SubmitJob will remove the success status, but raise an exception if
+        # the submission fails, so we'll notice that anyway.
+        results.append([True, self.cl.SubmitJob(row[1])])
+    else:
+      results = self.cl.SubmitManyJobs([row[1] for row in self.queue])
     for (idx, ((status, data), (name, _))) in enumerate(zip(results,
                                                             self.queue)):
       self.jobs.append((idx, status, data, name))
@@ -2243,12 +2383,13 @@ class JobExecutor(object):
     assert result
 
     for job_data, status in zip(self.jobs, result):
-      if status[0] in (constants.JOB_STATUS_QUEUED,
-                    constants.JOB_STATUS_WAITLOCK,
-                    constants.JOB_STATUS_CANCELING):
-        # job is still waiting
+      if (isinstance(status, list) and status and
+          status[0] in (constants.JOB_STATUS_QUEUED,
+                        constants.JOB_STATUS_WAITLOCK,
+                        constants.JOB_STATUS_CANCELING)):
+        # job is still present and waiting
         continue
-      # good candidate found
+      # good candidate found (either running job or lost job)
       self.jobs.remove(job_data)
       return job_data
 
@@ -2284,6 +2425,11 @@ class JobExecutor(object):
       try:
         job_result = PollJob(jid, cl=self.cl, feedback_fn=self.feedback_fn)
         success = True
+      except errors.JobLost, err:
+        _, job_result = FormatError(err)
+        ToStderr("Job %s for %s has been archived, cannot check its result",
+                 jid, name)
+        success = False
       except (errors.GenericError, luxi.ProtocolError), err:
         _, job_result = FormatError(err)
         success = False
@@ -2315,3 +2461,4 @@ class JobExecutor(object):
           ToStdout("%s: %s", result, name)
         else:
           ToStderr("Failure for %s: %s", name, result)
+      return [row[1:3] for row in self.jobs]

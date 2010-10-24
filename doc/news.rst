@@ -4,6 +4,196 @@
 News
 ====
 
+Version 2.2.1
+-------------
+
+*(Released Tue, 19 Oct 2010)*
+
+- Disable SSL session ID cache in RPC client
+
+
+Version 2.2.1 rc1
+-----------------
+
+*(Released Thu, 14 Oct 2010)*
+
+- Fix interaction between Curl/GnuTLS and the Python's HTTP server
+  (thanks Apollon Oikonomopoulos!), finally allowing the use of Curl
+  with GnuTLS
+- Fix problems with interaction between Curl and Python's HTTP server,
+  resulting in increased speed in many RPC calls
+- Improve our release script to prevent breakage with older aclocal and
+  Python 2.6
+
+
+Version 2.2.1 rc0
+-----------------
+
+*(Released Thu, 7 Oct 2010)*
+
+- Fixed issue 125, replace hardcoded “xenvg” in ``gnt-cluster`` with
+  value retrieved from master
+- Added support for blacklisted or hidden OS definitions
+- Added simple lock monitor (accessible via (``gnt-debug locks``)
+- Added support for -mem-path in KVM hypervisor abstraction layer
+- Allow overriding instance parameters in tool for inter-cluster
+  instance moves (``tools/move-instance``)
+- Improved opcode summaries (e.g. in ``gnt-job list``)
+- Improve consistency of OS listing by sorting it
+- Documentation updates
+
+
+Version 2.2.0.1
+---------------
+
+*(Released Fri, 8 Oct 2010)*
+
+- Rebuild with a newer autotools version, to fix python 2.6 compatibility
+
+
+Version 2.2.0
+-------------
+
+*(Released Mon, 4 Oct 2010)*
+
+- Fixed regression in ``gnt-instance rename``
+
+
+Version 2.2.0 rc2
+-----------------
+
+*(Released Wed, 22 Sep 2010)*
+
+- Fixed OS_VARIANT variable for OS scripts
+- Fixed cluster tag operations via RAPI
+- Made ``setup-ssh`` exit with non-zero code if an error occurred
+- Disabled RAPI CA checks in watcher
+
+
+Version 2.2.0 rc1
+-----------------
+
+*(Released Mon, 23 Aug 2010)*
+
+- Support DRBD versions of the format "a.b.c.d"
+- Updated manpages
+- Re-introduce support for usage from multiple threads in RAPI client
+- Instance renames and modify via RAPI
+- Work around race condition between processing and archival in job
+  queue
+- Mark opcodes following failed one as failed, too
+- Job field ``lock_status`` was removed due to difficulties making it
+  work with the changed job queue in Ganeti 2.2; a better way to monitor
+  locks is expected for a later 2.2.x release
+- Fixed dry-run behaviour with many commands
+- Support ``ssh-agent`` again when adding nodes
+- Many additional bugfixes
+
+
+Version 2.2.0 rc0
+-----------------
+
+*(Released Fri, 30 Jul 2010)*
+
+Important change: the internal RPC mechanism between Ganeti nodes has
+changed from using a home-grown http library (based on the Python base
+libraries) to use the PycURL library. This requires that PycURL is
+installed on nodes. Please note that on Debian/Ubuntu, PycURL is linked
+against GnuTLS by default. cURL's support for GnuTLS had known issues
+before cURL 7.21.0 and we recommend using the latest cURL release or
+linking against OpenSSL. Most other distributions already link PycURL
+and cURL against OpenSSL. The command::
+
+  python -c 'import pycurl; print pycurl.version'
+
+can be used to determine the libraries PycURL and cURL are linked
+against.
+
+Other significant changes:
+
+- Rewrote much of the internals of the job queue, in order to achieve
+  better parallelism; this decouples job query operations from the job
+  processing, and it should allow much nicer behaviour of the master
+  daemon under load, and it also has uncovered some long-standing bugs
+  related to the job serialisation (now fixed)
+- Added a default iallocator setting to the cluster parameters,
+  eliminating the need to always pass nodes or an iallocator for
+  operations that require selection of new node(s)
+- Added experimental support for the LXC virtualization method
+- Added support for OS parameters, which allows the installation of
+  instances to pass parameter to OS scripts in order to customise the
+  instance
+- Added a hypervisor parameter controlling the migration type (live or
+  non-live), since hypervisors have various levels of reliability; this
+  has renamed the 'live' parameter to 'mode'
+- Added a cluster parameter ``reserved_lvs`` that denotes reserved
+  logical volumes, meaning that cluster verify will ignore them and not
+  flag their presence as errors
+- The watcher will now reset the error count for failed instances after
+  8 hours, thus allowing self-healing if the problem that caused the
+  instances to be down/fail to start has cleared in the meantime
+- Added a cluster parameter ``drbd_usermode_helper`` that makes Ganeti
+  check for, and warn, if the drbd module parameter ``usermode_helper``
+  is not consistent with the cluster-wide setting; this is needed to
+  make diagnose easier of failed drbd creations
+- Started adding base IPv6 support, but this is not yet
+  enabled/available for use
+- Rename operations (cluster, instance) will now return the new name,
+  which is especially useful if a short name was passed in
+- Added support for instance migration in RAPI
+- Added a tool to pre-configure nodes for the SSH setup, before joining
+  them to the cluster; this will allow in the future a simplified model
+  for node joining (but not yet fully enabled in 2.2); this needs the
+  paramiko python library
+- Fixed handling of name-resolving errors
+- Fixed consistency of job results on the error path
+- Fixed master-failover race condition when executed multiple times in
+  sequence
+- Fixed many bugs related to the job queue (mostly introduced during the
+  2.2 development cycle, so not all are impacting 2.1)
+- Fixed instance migration with missing disk symlinks
+- Fixed handling of unknown jobs in ``gnt-job archive``
+- And many other small fixes/improvements
+
+Internal changes:
+
+- Enhanced both the unittest and the QA coverage
+- Switched the opcode validation to a generic model, and extended the
+  validation to all opcode parameters
+- Changed more parts of the code that write shell scripts to use the
+  same class for this
+- Switched the master daemon to use the asyncore library for the Luxi
+  server endpoint
+
+
+Version 2.2.0 beta 0
+--------------------
+
+*(Released Thu, 17 Jun 2010)*
+
+- Added tool (``move-instance``) and infrastructure to move instances
+  between separate clusters (see :doc:`separate documentation
+  <move-instance>` and :doc:`design document <design-2.2>`)
+- Added per-request RPC timeout
+- RAPI now requires a Content-Type header for requests with a body (e.g.
+  ``PUT`` or ``POST``) which must be set to ``application/json`` (see
+  :rfc:`2616` (HTTP/1.1), section 7.2.1)
+- ``ganeti-watcher`` attempts to restart ``ganeti-rapi`` if RAPI is not
+  reachable
+- Implemented initial support for running Ganeti daemons as separate
+  users, see configure-time flags ``--with-user-prefix`` and
+  ``--with-group-prefix`` (only ``ganeti-rapi`` is supported at this
+  time)
+- Instances can be removed after export (``gnt-backup export
+  --remove-instance``)
+- Self-signed certificates generated by Ganeti now use a 2048 bit RSA
+  key (instead of 1024 bit)
+- Added new cluster configuration file for cluster domain secret
+- Import/export now use SSL instead of SSH
+- Added support for showing estimated time when exporting an instance,
+  see the ``ganeti-os-interface(7)`` manpage and look for
+  ``EXP_SIZE_FD``
+
 Version 2.1.7
 -------------
 
@@ -19,6 +209,7 @@ Bugfixes only:
   - Adjust error message when the ganeti user's .ssh directory is
     missing
   - Add same-node-check when changing the disk template to drbd
+
 
 Version 2.1.6
 -------------

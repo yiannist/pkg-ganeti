@@ -45,6 +45,8 @@ from ganeti import daemon
 from ganeti import http
 from ganeti import utils
 from ganeti import storage
+from ganeti import serializer
+from ganeti import netutils
 
 import ganeti.http.server # pylint: disable-msg=W0611
 
@@ -92,6 +94,21 @@ def _RequireJobQueueLock(fn):
   return wrapper
 
 
+def _DecodeImportExportIO(ieio, ieioargs):
+  """Decodes import/export I/O information.
+
+  """
+  if ieio == constants.IEIO_RAW_DISK:
+    assert len(ieioargs) == 1
+    return (objects.Disk.FromDict(ieioargs[0]), )
+
+  if ieio == constants.IEIO_SCRIPT:
+    assert len(ieioargs) == 2
+    return (objects.Disk.FromDict(ieioargs[0]), ieioargs[1])
+
+  return ieioargs
+
+
 class MlockallRequestExecutor(http.server.HttpServerRequestExecutor):
   """Custom Request Executor class that ensures NodeHttpServer children are
   locked in ram.
@@ -132,14 +149,13 @@ class NodeHttpServer(http.server.HttpServer):
       raise http.HttpNotFound()
 
     try:
-      rvalue = method(req.request_body)
-      return True, rvalue
+      result = (True, method(serializer.LoadJson(req.request_body)))
 
     except backend.RPCFail, err:
       # our custom failure exception; str(err) works fine if the
       # exception was constructed with a single argument, and in
       # this case, err.message == err.args[0] == str(err)
-      return (False, str(err))
+      result = (False, str(err))
     except errors.QuitGanetiException, err:
       # Tell parent to quit
       logging.info("Shutting down the node daemon, arguments: %s",
@@ -147,10 +163,12 @@ class NodeHttpServer(http.server.HttpServer):
       os.kill(self.noded_pid, signal.SIGTERM)
       # And return the error's arguments, which must be already in
       # correct tuple format
-      return err.args
+      result = err.args
     except Exception, err:
       logging.exception("Error in RPC call")
-      return False, "Error while executing backend function: %s" % str(err)
+      result = (False, "Error while executing backend function: %s" % str(err))
+
+    return serializer.DumpJson(result, indent=False)
 
   # the new block devices  --------------------------
 
@@ -344,21 +362,14 @@ class NodeHttpServer(http.server.HttpServer):
     disks = [objects.Disk.FromDict(cf) for cf in disks]
     return backend.DrbdWaitSync(nodes_ip, disks)
 
-  # export/import  --------------------------
-
   @staticmethod
-  def perspective_snapshot_export(params):
-    """Export a given snapshot.
+  def perspective_drbd_helper(params):
+    """Query drbd helper.
 
     """
-    disk = objects.Disk.FromDict(params[0])
-    dest_node = params[1]
-    instance = objects.Instance.FromDict(params[2])
-    cluster_name = params[3]
-    dev_idx = params[4]
-    debug = params[5]
-    return backend.ExportSnapshot(disk, dest_node, instance,
-                                  cluster_name, dev_idx, debug)
+    return backend.GetDrbdUsermodeHelper()
+
+  # export/import  --------------------------
 
   @staticmethod
   def perspective_finalize_export(params):
@@ -482,16 +493,6 @@ class NodeHttpServer(http.server.HttpServer):
     return backend.RunRenameInstance(inst, old_name, debug)
 
   @staticmethod
-  def perspective_instance_os_import(params):
-    """Run the import function of an OS onto a given instance.
-
-    """
-    inst_s, src_node, src_images, cluster_name, debug = params
-    inst = objects.Instance.FromDict(inst_s)
-    return backend.ImportOSIntoInstance(inst, src_node, src_images,
-                                        cluster_name, debug)
-
-  @staticmethod
   def perspective_instance_shutdown(params):
     """Shutdown an instance.
 
@@ -589,15 +590,15 @@ class NodeHttpServer(http.server.HttpServer):
     """Do a TcpPing on the remote node.
 
     """
-    return utils.TcpPing(params[1], params[2], timeout=params[3],
-                         live_port_needed=params[4], source=params[0])
+    return netutils.TcpPing(params[1], params[2], timeout=params[3],
+                            live_port_needed=params[4], source=params[0])
 
   @staticmethod
   def perspective_node_has_ip_address(params):
     """Checks if a node has the given ip address.
 
     """
-    return utils.OwnIpAddress(params[0])
+    return netutils.OwnIpAddress(params[0])
 
   @staticmethod
   def perspective_node_info(params):
@@ -719,6 +720,14 @@ class NodeHttpServer(http.server.HttpServer):
     os_obj = backend.OSFromDisk(name)
     return os_obj.ToDict()
 
+  @staticmethod
+  def perspective_os_validate(params):
+    """Run a given OS' validation routine.
+
+    """
+    required, name, checks, params = params
+    return backend.ValidateOS(required, name, checks, params)
+
   # hooks -----------------------
 
   @staticmethod
@@ -810,15 +819,6 @@ class NodeHttpServer(http.server.HttpServer):
     # TODO: What if a file fails to rename?
     return [backend.JobQueueRename(old, new) for old, new in params]
 
-  @staticmethod
-  def perspective_jobqueue_set_drain(params):
-    """Set/unset the queue drain flag.
-
-    """
-    drain_flag = params[0]
-    return backend.JobQueueSetDrainFlag(drain_flag)
-
-
   # hypervisor ---------------
 
   @staticmethod
@@ -828,6 +828,79 @@ class NodeHttpServer(http.server.HttpServer):
     """
     (hvname, hvparams) = params
     return backend.ValidateHVParams(hvname, hvparams)
+
+  # Crypto
+
+  @staticmethod
+  def perspective_x509_cert_create(params):
+    """Creates a new X509 certificate for SSL/TLS.
+
+    """
+    (validity, ) = params
+    return backend.CreateX509Certificate(validity)
+
+  @staticmethod
+  def perspective_x509_cert_remove(params):
+    """Removes a X509 certificate.
+
+    """
+    (name, ) = params
+    return backend.RemoveX509Certificate(name)
+
+  # Import and export
+
+  @staticmethod
+  def perspective_import_start(params):
+    """Starts an import daemon.
+
+    """
+    (opts_s, instance, dest, dest_args) = params
+
+    opts = objects.ImportExportOptions.FromDict(opts_s)
+
+    return backend.StartImportExportDaemon(constants.IEM_IMPORT, opts,
+                                           None, None,
+                                           objects.Instance.FromDict(instance),
+                                           dest,
+                                           _DecodeImportExportIO(dest,
+                                                                 dest_args))
+
+  @staticmethod
+  def perspective_export_start(params):
+    """Starts an export daemon.
+
+    """
+    (opts_s, host, port, instance, source, source_args) = params
+
+    opts = objects.ImportExportOptions.FromDict(opts_s)
+
+    return backend.StartImportExportDaemon(constants.IEM_EXPORT, opts,
+                                           host, port,
+                                           objects.Instance.FromDict(instance),
+                                           source,
+                                           _DecodeImportExportIO(source,
+                                                                 source_args))
+
+  @staticmethod
+  def perspective_impexp_status(params):
+    """Retrieves the status of an import or export daemon.
+
+    """
+    return backend.GetImportExportStatus(params[0])
+
+  @staticmethod
+  def perspective_impexp_abort(params):
+    """Aborts an import or export.
+
+    """
+    return backend.AbortImportExport(params[0])
+
+  @staticmethod
+  def perspective_impexp_cleanup(params):
+    """Cleans up after an import or export.
+
+    """
+    return backend.CleanupImportExport(params[0])
 
 
 def CheckNoded(_, args):
@@ -894,7 +967,11 @@ def main():
   dirs = [(val, constants.RUN_DIRS_MODE) for val in constants.SUB_RUN_DIRS]
   dirs.append((constants.LOG_OS_DIR, 0750))
   dirs.append((constants.LOCK_DIR, 1777))
+  dirs.append((constants.CRYPTO_KEYS_DIR, constants.CRYPTO_KEYS_DIR_MODE))
+  dirs.append((constants.IMPORT_EXPORT_DIR, constants.IMPORT_EXPORT_DIR_MODE))
   daemon.GenericMain(constants.NODED, parser, dirs, CheckNoded, ExecNoded,
+                     default_ssl_cert=constants.NODED_CERT_FILE,
+                     default_ssl_key=constants.NODED_CERT_FILE,
                      console_logging=True)
 
 

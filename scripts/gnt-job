@@ -61,12 +61,7 @@ def ListJobs(opts, args):
   @return: the desired exit code
 
   """
-  if opts.output is None:
-    selected_fields = _LIST_DEF_FIELDS
-  elif opts.output.startswith("+"):
-    selected_fields = _LIST_DEF_FIELDS + opts.output[1:].split(",")
-  else:
-    selected_fields = opts.output.split(",")
+  selected_fields = ParseFields(opts.output, _LIST_DEF_FIELDS)
 
   output = GetClient().QueryJobs(args, selected_fields)
   if not opts.no_headers:
@@ -85,7 +80,6 @@ def ListJobs(opts, args):
       "start_ts": "Start",
       "end_ts": "End",
       "received_ts": "Received",
-      "lock_status": "LockStatus",
       }
   else:
     headers = None
@@ -109,8 +103,6 @@ def ListJobs(opts, args):
         val = FormatTimestamp(val)
       elif field in ("opstart", "opexec", "opend"):
         val = [FormatTimestamp(entry) for entry in val]
-      elif field == "lock_status" and not val:
-        val = "-"
 
       row[idx] = str(val)
 
@@ -134,10 +126,13 @@ def ArchiveJobs(opts, args):
   """
   client = GetClient()
 
+  rcode = 0
   for job_id in args:
-    client.ArchiveJob(job_id)
+    if not client.ArchiveJob(job_id):
+      ToStderr("Failed to archive job with ID '%s'", job_id)
+      rcode = 1
 
-  return 0
+  return rcode
 
 
 def AutoArchiveJobs(opts, args):
@@ -295,9 +290,10 @@ def ShowJobs(opts, args):
       else:
         format_msg(3, "No processing end time")
       format_msg(3, "Input fields:")
-      for key, val in opcode.iteritems():
+      for key in utils.NiceSort(opcode.keys()):
         if key == "OP_ID":
           continue
+        val = opcode[key]
         if isinstance(val, (tuple, list)):
           val = ",".join([str(item) for item in val])
         format_msg(4, "%s: %s" % (key, val))
@@ -321,7 +317,7 @@ def ShowJobs(opts, args):
       format_msg(3, "Execution log:")
       for serial, log_ts, log_type, log_msg in log:
         time_txt = FormatTimestamp(log_ts)
-        encoded = utils.SafeEncode(log_msg)
+        encoded = FormatLogMessage(log_type, log_msg)
         format_msg(4, "%s:%s:%s %s" % (serial, time_txt, log_type, encoded))
   return 0
 
@@ -367,7 +363,7 @@ commands = {
     "<job-id> [<job-id> ...]", "Archive specified jobs"),
   'autoarchive': (
     AutoArchiveJobs,
-    [ArgSuggest(min=1, max=1, choices=["1d", "1w", "4w"])],
+    [ArgSuggest(min=1, max=1, choices=["1d", "1w", "4w", "all"])],
     [],
     "<age>", "Auto archive jobs older than the given age"),
   'cancel': (

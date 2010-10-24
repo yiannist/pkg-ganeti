@@ -29,11 +29,13 @@ inheritance from parent classes requires it.
 # pylint: disable-msg=C0103
 # C0103: Invalid name ganeti-masterd
 
+import grp
+import os
+import pwd
 import sys
-import SocketServer
+import socket
 import time
-import collections
-import signal
+import tempfile
 import logging
 
 from optparse import OptionParser
@@ -52,7 +54,7 @@ from ganeti import ssconf
 from ganeti import workerpool
 from ganeti import rpc
 from ganeti import bootstrap
-from ganeti import serializer
+from ganeti import netutils
 
 
 CLIENT_REQUEST_WORKERS = 16
@@ -62,72 +64,101 @@ EXIT_NODESETUP_ERROR = constants.EXIT_NODESETUP_ERROR
 
 
 class ClientRequestWorker(workerpool.BaseWorker):
-   # pylint: disable-msg=W0221
-  def RunTask(self, server, request, client_address):
+  # pylint: disable-msg=W0221
+  def RunTask(self, server, message, client):
     """Process the request.
 
-    This is copied from the code in ThreadingMixIn.
-
     """
+    client_ops = ClientOps(server)
+
     try:
-      server.finish_request(request, client_address)
-      server.close_request(request)
+      (method, args) = luxi.ParseRequest(message)
+    except luxi.ProtocolError, err:
+      logging.error("Protocol Error: %s", err)
+      client.close_log()
+      return
+
+    success = False
+    try:
+      result = client_ops.handle_request(method, args)
+      success = True
+    except errors.GenericError, err:
+      logging.exception("Unexpected exception")
+      success = False
+      result = errors.EncodeException(err)
+    except:
+      logging.exception("Unexpected exception")
+      err = sys.exc_info()
+      result = "Caught exception: %s" % str(err[1])
+
+    try:
+      reply = luxi.FormatResponse(success, result)
+      client.send_message(reply)
+      # awake the main thread so that it can write out the data.
+      server.awaker.signal()
     except: # pylint: disable-msg=W0702
-      server.handle_error(request, client_address)
-      server.close_request(request)
+      logging.exception("Send error")
+      client.close_log()
 
 
-class IOServer(SocketServer.UnixStreamServer):
-  """IO thread class.
-
-  This class takes care of initializing the other threads, setting
-  signal handlers (which are processed only in this thread), and doing
-  cleanup at shutdown.
+class MasterClientHandler(daemon.AsyncTerminatedMessageStream):
+  """Handler for master peers.
 
   """
-  def __init__(self, address, rqhandler):
-    """IOServer constructor
+  _MAX_UNHANDLED = 1
+  def __init__(self, server, connected_socket, client_address, family):
+    daemon.AsyncTerminatedMessageStream.__init__(self, connected_socket,
+                                                 client_address,
+                                                 constants.LUXI_EOM,
+                                                 family, self._MAX_UNHANDLED)
+    self.server = server
 
-    @param address: the address to bind this IOServer to
-    @param rqhandler: RequestHandler type object
+  def handle_message(self, message, _):
+    self.server.request_workers.AddTask((self.server, message, self))
+
+
+class MasterServer(daemon.AsyncStreamServer):
+  """Master Server.
+
+  This is the main asynchronous master server. It handles connections to the
+  master socket.
+
+  """
+  family = socket.AF_UNIX
+
+  def __init__(self, mainloop, address, uid, gid):
+    """MasterServer constructor
+
+    @type mainloop: ganeti.daemon.Mainloop
+    @param mainloop: Mainloop used to poll for I/O events
+    @param address: the unix socket address to bind the MasterServer to
+    @param uid: The uid of the owner of the socket
+    @param gid: The gid of the owner of the socket
 
     """
-    SocketServer.UnixStreamServer.__init__(self, address, rqhandler)
+    temp_name = tempfile.mktemp(dir=os.path.dirname(address))
+    daemon.AsyncStreamServer.__init__(self, self.family, temp_name)
+    os.chmod(temp_name, 0770)
+    os.chown(temp_name, uid, gid)
+    os.rename(temp_name, address)
+
+    self.mainloop = mainloop
+    self.awaker = daemon.AsyncAwaker()
 
     # We'll only start threads once we've forked.
     self.context = None
     self.request_workers = None
+
+  def handle_connection(self, connected_socket, client_address):
+    # TODO: add connection count and limit the number of open connections to a
+    # maximum number to avoid breaking for lack of file descriptors or memory.
+    MasterClientHandler(self, connected_socket, client_address, self.family)
 
   def setup_queue(self):
     self.context = GanetiContext()
     self.request_workers = workerpool.WorkerPool("ClientReq",
                                                  CLIENT_REQUEST_WORKERS,
                                                  ClientRequestWorker)
-
-  def process_request(self, request, client_address):
-    """Add task to workerpool to process request.
-
-    """
-    (pid, uid, gid) = utils.GetSocketCredentials(request)
-    logging.info("Accepted connection from pid=%s, uid=%s, gid=%s",
-                 pid, uid, gid)
-
-    self.request_workers.AddTask(self, request, client_address)
-
-  def handle_error(self, request, client_address):
-    logging.exception("Error while handling request")
-
-  @utils.SignalHandled([signal.SIGINT, signal.SIGTERM])
-  def serve_forever(self, signal_handlers=None): # pylint: disable-msg=W0221
-    """Handle one request at a time until told to quit."""
-    assert isinstance(signal_handlers, dict) and \
-           len(signal_handlers) > 0, \
-           "Broken SignalHandled decorator"
-    # Since we use SignalHandled only once, the resulting dict will map all
-    # signals to the same handler. We'll just use the first one.
-    sighandler = signal_handlers.values()[0]
-    while not sighandler.called:
-      self.handle_request()
 
   def server_cleanup(self):
     """Cleanup the server.
@@ -137,78 +168,12 @@ class IOServer(SocketServer.UnixStreamServer):
 
     """
     try:
-      self.server_close()
+      self.close()
     finally:
       if self.request_workers:
         self.request_workers.TerminateWorkers()
       if self.context:
         self.context.jobqueue.Shutdown()
-
-
-class ClientRqHandler(SocketServer.BaseRequestHandler):
-  """Client handler"""
-  READ_SIZE = 4096
-
-  def setup(self):
-    # pylint: disable-msg=W0201
-    # setup() is the api for initialising for this class
-    self._buffer = ""
-    self._msgs = collections.deque()
-    self._ops = ClientOps(self.server)
-
-  def handle(self):
-    while True:
-      msg = self.read_message()
-      if msg is None:
-        logging.debug("client closed connection")
-        break
-
-      request = serializer.LoadJson(msg)
-      logging.debug("request: %s", request)
-      if not isinstance(request, dict):
-        logging.error("wrong request received: %s", msg)
-        break
-
-      method = request.get(luxi.KEY_METHOD, None) # pylint: disable-msg=E1103
-      args = request.get(luxi.KEY_ARGS, None) # pylint: disable-msg=E1103
-      if method is None or args is None:
-        logging.error("no method or args in request")
-        break
-
-      success = False
-      try:
-        result = self._ops.handle_request(method, args)
-        success = True
-      except errors.GenericError, err:
-        logging.exception("Unexpected exception")
-        success = False
-        result = errors.EncodeException(err)
-      except:
-        logging.exception("Unexpected exception")
-        err = sys.exc_info()
-        result = "Caught exception: %s" % str(err[1])
-
-      response = {
-        luxi.KEY_SUCCESS: success,
-        luxi.KEY_RESULT: result,
-        }
-      logging.debug("response: %s", response)
-      self.send_message(serializer.DumpJson(response))
-
-  def read_message(self):
-    while not self._msgs:
-      data = self.request.recv(self.READ_SIZE)
-      if not data:
-        return None
-      new_msgs = (self._buffer + data).split(constants.LUXI_EOM)
-      self._buffer = new_msgs.pop()
-      self._msgs.extend(new_msgs)
-    return self._msgs.popleft()
-
-  def send_message(self, msg):
-    #print "sending", msg
-    # TODO: sendall is not guaranteed to send everything
-    self.request.sendall(msg + constants.LUXI_EOM)
 
 
 class ClientOps:
@@ -311,6 +276,11 @@ class ClientOps:
       logging.info("Received tags query request")
       op = opcodes.OpGetTags(kind=kind, name=name)
       return self._Query(op)
+
+    elif method == luxi.REQ_QUERY_LOCKS:
+      (fields, sync) = args
+      logging.info("Received locks query request")
+      return self.server.context.glm.QueryLocks(fields, sync)
 
     elif method == luxi.REQ_QUEUE_SET_DRAIN_FLAG:
       drain_flag = args
@@ -437,6 +407,7 @@ def _SetWatcherPause(until):
   return until
 
 
+@rpc.RunWithRPC
 def CheckAgreement():
   """Check the agreement on who is the master.
 
@@ -457,7 +428,7 @@ def CheckAgreement():
   other node to be up too to confirm our status.
 
   """
-  myself = utils.HostInfo().name
+  myself = netutils.HostInfo().name
   #temp instantiation of a config writer, used only to get the node list
   cfg = config.ConfigWriter()
   node_list = cfg.GetNodeList()
@@ -497,12 +468,14 @@ def CheckAgreement():
   return result
 
 
-def CheckAgreementWithRpc():
-  rpc.Init()
-  try:
-    return CheckAgreement()
-  finally:
-    rpc.Shutdown()
+@rpc.RunWithRPC
+def ActivateMasterIP():
+  # activate ip
+  master_node = ssconf.SimpleStore().GetMasterNode()
+  result = rpc.RpcRunner.call_node_start_master(master_node, False, False)
+  msg = result.fail_msg
+  if msg:
+    logging.error("Can't activate master IP address: %s", msg)
 
 
 def CheckMasterd(options, args):
@@ -514,6 +487,15 @@ def CheckMasterd(options, args):
     sys.exit(constants.EXIT_FAILURE)
 
   ssconf.CheckMaster(options.debug)
+
+  try:
+    options.uid = pwd.getpwnam(constants.MASTERD_USER).pw_uid
+    options.gid = grp.getgrnam(constants.DAEMONS_GROUP).gr_gid
+  except KeyError:
+    print >> sys.stderr, ("User or group not existing on system: %s:%s" %
+                          (constants.MASTERD_USER, constants.DAEMONS_GROUP))
+    sys.exit(constants.EXIT_FAILURE)
+
 
   # If CheckMaster didn't fail we believe we are the master, but we have to
   # confirm with the other nodes.
@@ -535,11 +517,17 @@ def CheckMasterd(options, args):
 
   # CheckAgreement uses RPC and threads, hence it needs to be run in a separate
   # process before we call utils.Daemonize in the current process.
-  if not utils.RunInSeparateProcess(CheckAgreementWithRpc):
+  if not utils.RunInSeparateProcess(CheckAgreement):
     sys.exit(constants.EXIT_FAILURE)
 
+  # ActivateMasterIP also uses RPC/threads, so we run it again via a
+  # separate process.
 
-def ExecMasterd (options, args): # pylint: disable-msg=W0613
+  # TODO: decide whether failure to activate the master IP is a fatal error
+  utils.RunInSeparateProcess(ActivateMasterIP)
+
+
+def ExecMasterd(options, args): # pylint: disable-msg=W0613
   """Main master daemon function, executed with the PID file held.
 
   """
@@ -547,20 +535,15 @@ def ExecMasterd (options, args): # pylint: disable-msg=W0613
   # concurrent execution.
   utils.RemoveFile(constants.MASTER_SOCKET)
 
-  master = IOServer(constants.MASTER_SOCKET, ClientRqHandler)
+  mainloop = daemon.Mainloop()
+  master = MasterServer(mainloop, constants.MASTER_SOCKET,
+                        options.uid, options.gid)
   try:
     rpc.Init()
     try:
-      # activate ip
-      master_node = ssconf.SimpleStore().GetMasterNode()
-      result = rpc.RpcRunner.call_node_start_master(master_node, False, False)
-      msg = result.fail_msg
-      if msg:
-        logging.error("Can't activate master IP address: %s", msg)
-
       master.setup_queue()
       try:
-        master.serve_forever()
+        mainloop.Run()
       finally:
         master.server_cleanup()
     finally:
@@ -586,7 +569,8 @@ def main():
           (constants.SOCKET_DIR, constants.SOCKET_DIR_MODE),
          ]
   daemon.GenericMain(constants.MASTERD, parser, dirs,
-                     CheckMasterd, ExecMasterd)
+                     CheckMasterd, ExecMasterd,
+                     multithreaded=True)
 
 
 if __name__ == "__main__":

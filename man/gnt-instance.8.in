@@ -3,10 +3,10 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GNT-INSTANCE" "8" "24 August 2010" "ganeti 2.0" ""
+.TH "GNT-INSTANCE" "8" "19 October 2010" "Ganeti 2.2" ""
 
 .SH NAME
-gnt-instance \- ganeti instance administration
+gnt-instance \- Ganeti instance administration
 .SH SYNOPSIS
 
 \fBgnt-instance \fR \fBcommand\fR [ \fBarguments...\fR ]
@@ -14,7 +14,7 @@ gnt-instance \- ganeti instance administration
 .SH "DESCRIPTION"
 .PP
 The \fBgnt-instance\fR is used for instance
-administration in the ganeti system.
+administration in the Ganeti system.
 .SH "COMMANDS"
 .SS "CREATION/REMOVAL/QUERYING"
 .SS "ADD"
@@ -47,7 +47,7 @@ default of read-write) can also be specified.  The size is
 interpreted (when no unit is given) in mebibytes. You can
 also use one of the suffixes
 m, g or
-t to specificy the exact the units used;
+t to specify the exact the units used;
 these suffixes map to mebibytes, gibibytes and tebibytes.
 .PP
 When using the \fBadopt\fR key in the disk
@@ -95,8 +95,8 @@ up according the the cluster level nic parameters.
 Each NIC can take these parameters (all optional):
 .TP
 \fBmac\fR
-either a value or GENERATE
-to generate a new unique MAC
+either a value or 'generate' to generate a
+new unique MAC
 .TP
 \fBip\fR
 specifies the IP address assigned to the
@@ -370,7 +370,7 @@ The security model for kvm. Currently one of
 ``none'', ``user'' or
 ``pool''\&. Under ``none'', the
 default, nothing is done and instances are run as
-the ganeti daemon user (normally root).
+the Ganeti daemon user (normally root).
 
 Under ``user'' kvm will drop
 privileges and become the user specified by the
@@ -384,9 +384,9 @@ instances share the same user on the same node.
 \fBsecurity_domain\fR
 Valid for the KVM hypervisor.
 
-Under security model ``user'' the username to
-run the instance under. It must be a valid username
-existing on the host.
+Under security model ``user'' the
+username to run the instance under. It must be a valid
+username existing on the host.
 
 Cannot be set under security model ``none''
 or ``pool''\&.
@@ -398,6 +398,26 @@ If ``enabled'' the -enable-kvm flag is
 passed to kvm. If ``disabled'' -disable-kvm is
 passed. If unset no flag is passed, and the default running
 mode for your kvm binary will be used.
+.TP
+\fBmem_path\fR
+Valid for the KVM hypervisor.
+
+This option passes the -mem-path argument to kvm with
+the path (on the node) to the mount point of the hugetlbfs
+file system, along with the -mem-prealloc argument too.
+.TP
+\fBuse_chroot\fR
+Valid for the KVM hypervisor.
+
+This boolean option determines wether to run the KVM
+instance in a chroot directory.
+
+If it is set to ``true'', an empty directory
+is created before starting the instance and its path is passed via
+the -chroot flag to kvm.
+The directory is removed when the instance is stopped.
+
+It is set to ``false'' by default.
 .TP
 \fBmigration_downtime\fR
 Valid for the KVM hypervisor.
@@ -416,12 +436,24 @@ Valid for the KVM hypervisor.
 This boolean option determines wether to run the KVM
 instance in a chroot directory.
 
-If it is set to ``true'', an empty directory
-is created before starting the instance and its path is passed via
-the -chroot flag to kvm.
-The directory is removed when the instance is stopped.
+If it is set to ``true'', an empty
+directory is created before starting the instance and
+its path is passed via the \fB-chroot\fR
+flag to kvm.  The directory is removed when the
+instance is stopped.
 
-It is set to ``false'' by default.
+It is set to ``false'' by
+default.
+.TP
+\fBcpu_mask\fR
+Valid for the LXC hypervisor.
+
+The processes belonging to the given instance are
+only scheduled on the specified CPUs.
+
+The parameter format is a comma-separated list of CPU IDs or
+CPU ID ranges. The ranges are defined by a lower and higher
+boundary, separated by a dash. The boundaries are inclusive.
 .TP
 \fBusb_mouse\fR
 Valid for the KVM hypervisor.
@@ -528,7 +560,7 @@ parameters. The accepted parameters are:
 \fBdisk_size\fR
 The size of the disks of the instance.
 .TP
-\fBdisk_templace\fR
+\fBdisk_template\fR
 The disk template to use for the instance,
 the same as in the \fBadd\fR
 command.
@@ -605,7 +637,8 @@ the parameters taken from the cluster defaults):
 }
 .fi
 .PP
-The command will display the job id for each submitted instance, as follows:
+The command will display the job id for each submitted
+instance, as follows:
 
 .nf
 # gnt-instance batch-create instances.json
@@ -647,7 +680,8 @@ Example:
 .fi
 .SS "LIST"
 
-\fBlist\fR [ \fB--no-headers\fR ] [ \fB--separator=\fISEPARATOR\fB\fR ] [ \fB-o \fI[+]FIELD,...\fB\fR ] [ \fB--roman\fR ] [ \fBinstance\fR\fI ...\fR ]
+\fBlist\fR [ \fB--no-headers\fR ] [ \fB--separator=\fISEPARATOR\fB\fR ]
+    [ \fB--units=\fIUNITS\fB\fR ] [ \fB-o \fI[+]FIELD,...\fB\fR ] [ \fB--roman\fR ] [ \fBinstance\fR\fI ...\fR ]
 
 .PP
 Shows the currently configured instances with memory usage,
@@ -658,6 +692,14 @@ The \fB--no-headers\fR option will skip the
 initial header line. The \fB--separator\fR option
 takes an argument which denotes what will be used between
 the output fields. Both these options are to help scripting.
+.PP
+The units used to display the numeric values in the output
+varies, depending on the options given. By default, the values
+will be formatted in the most appropriate unit. If the
+\fB--separator\fR option is given, then the values
+are shown in mebibytes to allow parsing by scripts. In both
+cases, the \fB--units\fR option can be used to
+enforce a given output unit.
 .PP
 The \fB--roman\fR option allows latin people to better
 understand the cluster instances' status.
@@ -711,8 +753,12 @@ running)
 the actual memory usage of the instance as seen
 by the hypervisor
 .TP
+\fBoper_vcpus\fR
+the actual number of VCPUs the instance is using
+as seen by the hypervisor
+.TP
 \fBip\fR
-the ip address ganeti recognizes as associated with
+the ip address Ganeti recognizes as associated with
 the first instance interface
 .TP
 \fBmac\fR
@@ -853,7 +899,8 @@ of fields.
 .PP
 There is a subtle grouping about the available output
 fields: all fields except for \fBoper_state\fR,
-\fBoper_ram\fR and \fBstatus\fR are
+\fBoper_ram\fR, \fBoper_vcpus\fR and
+\fBstatus\fR are
 configuration value and not run-time values. So if you don't
 select any of the these fields, the query will be satisfied
 instantly from the cluster configuration, without having to
@@ -965,8 +1012,7 @@ be required to confirm this action, unless the
 are selected (either by passing multiple arguments or by
 using the \fB--node\fR,
 \fB--primary\fR, \fB--secondary\fR or
-\fB--all\fR options), the user must pass both the
-\fB--force\fR and
+\fB--all\fR options), the user must pass the
 \fB--force-multiple\fR options to skip the
 interactive confirmation.
 .PP
@@ -976,7 +1022,7 @@ ID will be shown so that it can be examined via
 \fBgnt-job info\fR\&.
 .SS "RENAME"
 
-\fBrename\fR [ \fB--no-ip-check\fR ] [ \fB--submit\fR ] \fB\fIinstance\fB\fR \fB\fInew_name\fB\fR
+\fBrename\fR [ \fB--no-ip-check\fR ] [ \fB--no-name-check\fR ] [ \fB--submit\fR ] \fB\fIinstance\fB\fR \fB\fInew_name\fB\fR
 
 .PP
 Renames the given instance. The instance must be stopped
@@ -986,6 +1032,12 @@ resolvable and the IP it resolves to must not be reachable
 (in order to prevent duplicate IPs the next time the
 instance is started). The IP test can be skipped if the
 \fB--no-ip-check\fR option is passed.
+.PP
+The \fB--no-name-check\fR skips the check for the
+new instance name via the resolver (e.g. in DNS or /etc/hosts,
+depending on your setup). Since the name check is used to
+compute the IP address, if you pass this option you must
+also pass the \fB--no-ip-check\fR option.
 .PP
 The \fB--submit\fR option is used to send the job to
 the master daemon but not wait for its completion. The job
@@ -1440,7 +1492,7 @@ Example:
 \fBmigrate\fR [ \fB-f\fR ] \fB--cleanup\fR \fB\fIinstance\fB\fR
 
 
-\fBmigrate\fR [ \fB-f\fR ] [ \fB--non-live\fR ] \fB\fIinstance\fB\fR
+\fBmigrate\fR [ \fB-f\fR ] [ \fB--non-live\fR ] [ \fB--migration-mode=live|non-live\fR ] \fB\fIinstance\fB\fR
 
 .PP
 Migrate will move the instance to its secondary node without
@@ -1451,19 +1503,25 @@ The migration command needs a perfectly healthy instance, as
 we rely on the dual-master capability of drbd8 and the disks
 of the instance are not allowed to be degraded.
 .PP
-The \fB--non-live\fR option will switch (for the
-hypervisors that support it) between a "fully live"
-(i.e. the interruption is as minimal as possible) migration
-and one in which the instance is frozen, its state saved and
-transported to the remote node, and then resumed there. This
-all depends on the hypervisor support for two different
-methods. In any case, it is not an error to pass this
-parameter (it will just be ignored if the hypervisor doesn't
-support it).
+The \fB--non-live\fR
+and \fB--migration-mode=non-live\fR options will
+switch (for the hypervisors that support it) between a
+"fully live" (i.e. the interruption is as minimal as
+possible) migration and one in which the instance is frozen,
+its state saved and transported to the remote node, and then
+resumed there. This all depends on the hypervisor support
+for two different methods. In any case, it is not an error
+to pass this parameter (it will just be ignored if the
+hypervisor doesn't support it). The
+option \fB--migration-mode=live\fR option will
+request a fully-live migration. The default, when neither
+option is passed, depends on the hypervisor parameters (and
+can be viewed with the \fBgnt-cluster info\fR
+command).
 .PP
 If the \fB--cleanup\fR option is passed, the
 operation changes from migration to attempting recovery from
-a failed previous migration. In this mode, ganeti checks if
+a failed previous migration. In this mode, Ganeti checks if
 the instance runs on the correct node (and updates its
 configuration if not) and ensures the instances's disks are
 configured correctly. In this mode, the
@@ -1558,7 +1616,7 @@ used). A file name of - will be interpreted as stdin.
 .SH "REPORTING BUGS"
 .PP
 Report bugs to  <URL:http://code.google.com/p/ganeti/> or contact the
-developers using the ganeti mailing list
+developers using the Ganeti mailing list
 <ganeti@googlegroups.com>\&.
 .SH "SEE ALSO"
 .PP
@@ -1583,7 +1641,7 @@ Ganeti daemons:
 \fBganeti-rapi\fR(8) (remote API daemon).
 .SH "COPYRIGHT"
 .PP
-Copyright (C) 2006, 2007, 2008, 2009 Google Inc. Permission is
+Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc. Permission is
 granted to copy, distribute and/or modify under the terms of the
 GNU General Public License as published by the Free Software
 Foundation; either version 2 of the License, or (at your option)

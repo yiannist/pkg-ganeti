@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007 Google Inc.
+# Copyright (C) 2006, 2007, 2010 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -33,6 +33,7 @@ from ganeti import errors
 from ganeti import constants
 from ganeti import objects
 from ganeti import compat
+from ganeti import netutils
 
 
 # Size of reads in _CanReadDevice
@@ -389,7 +390,7 @@ class LogicalVolume(BlockDev):
     pvs_info.reverse()
 
     pvlist = [ pv[1] for pv in pvs_info ]
-    if compat.any(pvlist, lambda v: ":" in v):
+    if compat.any(":" in v for v in pvlist):
       _ThrowError("Some of your PVs have the invalid character ':' in their"
                   " name, this is not supported - please filter them out"
                   " in lvm.conf using either 'filter' or 'preferred_names'")
@@ -463,7 +464,7 @@ class LogicalVolume(BlockDev):
     """
     if (not cls._VALID_NAME_RE.match(name) or
         name in cls._INVALID_NAMES or
-        compat.any(cls._INVALID_SUBSTRINGS, lambda x: x in name)):
+        compat.any(substring in name for substring in cls._INVALID_SUBSTRINGS)):
       _ThrowError("Invalid LVM name '%s'", name)
 
   def Remove(self):
@@ -814,7 +815,7 @@ class BaseDRBD(BlockDev): # pylint: disable-msg=W0223
   0.7 and 8.x versions of DRBD.
 
   """
-  _VERSION_RE = re.compile(r"^version: (\d+)\.(\d+)\.(\d+)"
+  _VERSION_RE = re.compile(r"^version: (\d+)\.(\d+)\.(\d+)(?:\.\d+)?"
                            r" \(api:(\d+)/proto:(\d+)(?:-(\d+))?\)")
   _VALID_LINE_RE = re.compile("^ *([0-9]+): cs:([^ ]+).*$")
   _UNUSED_LINE_RE = re.compile("^ *([0-9]+): cs:Unconfigured$")
@@ -825,6 +826,7 @@ class BaseDRBD(BlockDev): # pylint: disable-msg=W0223
   _ST_CONNECTED = "Connected"
 
   _STATUS_FILE = "/proc/drbd"
+  _USERMODE_HELPER_FILE = "/sys/module/drbd/parameters/usermode_helper"
 
   @staticmethod
   def _GetProcData(filename=_STATUS_FILE):
@@ -871,7 +873,7 @@ class BaseDRBD(BlockDev): # pylint: disable-msg=W0223
     return results
 
   @classmethod
-  def _GetVersion(cls):
+  def _GetVersion(cls, proc_data):
     """Return the DRBD version.
 
     This will return a dict with keys:
@@ -883,7 +885,6 @@ class BaseDRBD(BlockDev): # pylint: disable-msg=W0223
       - proto2 (only on drbd > 8.2.X)
 
     """
-    proc_data = cls._GetProcData()
     first_line = proc_data[0].strip()
     version = cls._VERSION_RE.match(first_line)
     if not version:
@@ -901,6 +902,23 @@ class BaseDRBD(BlockDev): # pylint: disable-msg=W0223
       retval['proto2'] = values[5]
 
     return retval
+
+  @staticmethod
+  def GetUsermodeHelper(filename=_USERMODE_HELPER_FILE):
+    """Returns DRBD usermode_helper currently set.
+
+    """
+    try:
+      helper = utils.ReadFile(filename).splitlines()[0]
+    except EnvironmentError, err:
+      if err.errno == errno.ENOENT:
+        _ThrowError("The file %s cannot be opened, check if the module"
+                    " is loaded (%s)", filename, str(err))
+      else:
+        _ThrowError("Can't read DRBD helper file %s: %s", filename, str(err))
+    if not helper:
+      _ThrowError("Can't read any data from %s", filename)
+    return helper
 
   @staticmethod
   def _DevPath(minor):
@@ -1015,7 +1033,7 @@ class DRBD8(BaseDRBD):
         children = []
     super(DRBD8, self).__init__(unique_id, children, size)
     self.major = self._DRBD_MAJOR
-    version = self._GetVersion()
+    version = self._GetVersion(self._GetProcData())
     if version['k_major'] != 8 :
       _ThrowError("Mismatch in DRBD kernel version and requested ganeti"
                   " usage: kernel is %s.%s, ganeti wants 8.x",
@@ -1079,7 +1097,10 @@ class DRBD8(BaseDRBD):
     # pyparsing setup
     lbrace = pyp.Literal("{").suppress()
     rbrace = pyp.Literal("}").suppress()
+    lbracket = pyp.Literal("[").suppress()
+    rbracket = pyp.Literal("]").suppress()
     semi = pyp.Literal(";").suppress()
+    colon = pyp.Literal(":").suppress()
     # this also converts the value to an int
     number = pyp.Word(pyp.nums).setParseAction(lambda s, l, t: int(t[0]))
 
@@ -1092,19 +1113,19 @@ class DRBD8(BaseDRBD):
     # value types
     value = pyp.Word(pyp.alphanums + '_-/.:')
     quoted = dbl_quote + pyp.CharsNotIn('"') + dbl_quote
-    addr_type = (pyp.Optional(pyp.Literal("ipv4")).suppress() +
-                 pyp.Optional(pyp.Literal("ipv6")).suppress())
-    addr_port = (addr_type + pyp.Word(pyp.nums + '.') +
-                 pyp.Literal(':').suppress() + number)
+    ipv4_addr = (pyp.Optional(pyp.Literal("ipv4")).suppress() +
+                 pyp.Word(pyp.nums + ".") + colon + number)
+    ipv6_addr = (pyp.Optional(pyp.Literal("ipv6")).suppress() +
+                 pyp.Optional(lbracket) + pyp.Word(pyp.hexnums + ":") +
+                 pyp.Optional(rbracket) + colon + number)
     # meta device, extended syntax
-    meta_value = ((value ^ quoted) + pyp.Literal('[').suppress() +
-                  number + pyp.Word(']').suppress())
+    meta_value = ((value ^ quoted) + lbracket + number + rbracket)
     # device name, extended syntax
     device_value = pyp.Literal("minor").suppress() + number
 
     # a statement
     stmt = (~rbrace + keyword + ~lbrace +
-            pyp.Optional(addr_port ^ value ^ quoted ^ meta_value ^
+            pyp.Optional(ipv4_addr ^ ipv6_addr ^ value ^ quoted ^ meta_value ^
                          device_value) +
             pyp.Optional(defa) + semi +
             pyp.Optional(pyp.restOfLine).suppress())
@@ -1238,7 +1259,7 @@ class DRBD8(BaseDRBD):
     if size:
       args.extend(["-d", "%sm" % size])
     if not constants.DRBD_BARRIERS: # disable barriers, if configured so
-      version = cls._GetVersion()
+      version = cls._GetVersion(cls._GetProcData())
       # various DRBD versions support different disk barrier options;
       # what we aim here is to revert back to the 'drain' method of
       # disk flushes and to disable metadata barriers, in effect going
@@ -1280,8 +1301,22 @@ class DRBD8(BaseDRBD):
     # about its peer.
     cls._SetMinorSyncSpeed(minor, constants.SYNC_SPEED)
 
+    if netutils.IsValidIP6(lhost):
+      if not netutils.IsValidIP6(rhost):
+        _ThrowError("drbd%d: can't connect ip %s to ip %s" %
+                    (minor, lhost, rhost))
+      family = "ipv6"
+    elif netutils.IsValidIP4(lhost):
+      if not netutils.IsValidIP4(rhost):
+        _ThrowError("drbd%d: can't connect ip %s to ip %s" %
+                    (minor, lhost, rhost))
+      family = "ipv4"
+    else:
+      _ThrowError("drbd%d: Invalid ip %s" % (minor, lhost))
+
     args = ["drbdsetup", cls._DevPath(minor), "net",
-            "%s:%s" % (lhost, lport), "%s:%s" % (rhost, rport), protocol,
+            "%s:%s:%s" % (family, lhost, lport),
+            "%s:%s:%s" % (family, rhost, rport), protocol,
             "-A", "discard-zero-changes",
             "-B", "consensus",
             "--create-device",

@@ -1,5 +1,3 @@
-
-
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
   "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 
@@ -7,22 +5,21 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Ganeti walk-through &mdash; Ganeti v2.1.7 documentation</title>
+    <title>Ganeti walk-through &mdash; Ganeti v2.2.1 documentation</title>
     <link rel="stylesheet" href="_static/default.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.1.7',
-        COLLAPSE_INDEX: false,
+        VERSION:     '2.2.1',
+        COLLAPSE_MODINDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
       };
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
-    <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.1.7 documentation" href="index.html" />
+    <link rel="top" title="Ganeti v2.2.1 documentation" href="index.html" />
     <link rel="next" title="Security in Ganeti" href="security.html" />
     <link rel="prev" title="Ganeti administrator’s guide" href="admin.html" /> 
   </head>
@@ -36,7 +33,7 @@
         <li class="right" >
           <a href="admin.html" title="Ganeti administrator’s guide"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.1.7 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.2.1 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -47,36 +44,36 @@
             
   <div class="section" id="ganeti-walk-through">
 <h1><a class="toc-backref" href="#id1">Ganeti walk-through</a><a class="headerlink" href="#ganeti-walk-through" title="Permalink to this headline">¶</a></h1>
-<p>Documents Ganeti version 2.1</p>
+<p>Documents Ganeti version 2.2</p>
 <div class="contents topic" id="contents">
 <p class="topic-title first">Contents</p>
 <ul class="simple">
-<li><a class="reference external" href="#ganeti-walk-through" id="id1">Ganeti walk-through</a><ul>
-<li><a class="reference external" href="#introduction" id="id2">Introduction</a></li>
-<li><a class="reference external" href="#cluster-creation" id="id3">Cluster creation</a></li>
-<li><a class="reference external" href="#running-a-burnin" id="id4">Running a burnin</a></li>
-<li><a class="reference external" href="#instance-operations" id="id5">Instance operations</a><ul>
-<li><a class="reference external" href="#creation" id="id6">Creation</a></li>
-<li><a class="reference external" href="#accessing-instances" id="id7">Accessing instances</a></li>
-<li><a class="reference external" href="#removal" id="id8">Removal</a></li>
+<li><a class="reference internal" href="#ganeti-walk-through" id="id1">Ganeti walk-through</a><ul>
+<li><a class="reference internal" href="#introduction" id="id2">Introduction</a></li>
+<li><a class="reference internal" href="#cluster-creation" id="id3">Cluster creation</a></li>
+<li><a class="reference internal" href="#running-a-burnin" id="id4">Running a burnin</a></li>
+<li><a class="reference internal" href="#instance-operations" id="id5">Instance operations</a><ul>
+<li><a class="reference internal" href="#creation" id="id6">Creation</a></li>
+<li><a class="reference internal" href="#accessing-instances" id="id7">Accessing instances</a></li>
+<li><a class="reference internal" href="#removal" id="id8">Removal</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#recovering-from-hardware-failures" id="id9">Recovering from hardware failures</a><ul>
-<li><a class="reference external" href="#recovering-from-node-failure" id="id10">Recovering from node failure</a><ul>
-<li><a class="reference external" href="#re-adding-a-node-to-the-cluster" id="id11">Re-adding a node to the cluster</a></li>
+<li><a class="reference internal" href="#recovering-from-hardware-failures" id="id9">Recovering from hardware failures</a><ul>
+<li><a class="reference internal" href="#recovering-from-node-failure" id="id10">Recovering from node failure</a><ul>
+<li><a class="reference internal" href="#re-adding-a-node-to-the-cluster" id="id11">Re-adding a node to the cluster</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#disk-failures" id="id12">Disk failures</a></li>
+<li><a class="reference internal" href="#disk-failures" id="id12">Disk failures</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#common-cluster-problems" id="id13">Common cluster problems</a><ul>
-<li><a class="reference external" href="#instance-status" id="id14">Instance status</a></li>
-<li><a class="reference external" href="#unallocated-drbd-minors" id="id15">Unallocated DRBD minors</a></li>
-<li><a class="reference external" href="#orphan-volumes" id="id16">Orphan volumes</a></li>
-<li><a class="reference external" href="#n-1-errors" id="id17">N+1 errors</a></li>
-<li><a class="reference external" href="#network-issues" id="id18">Network issues</a></li>
-<li><a class="reference external" href="#migration-problems" id="id19">Migration problems</a></li>
-<li><a class="reference external" href="#in-use-disks-at-instance-shutdown" id="id20">In use disks at instance shutdown</a></li>
+<li><a class="reference internal" href="#common-cluster-problems" id="id13">Common cluster problems</a><ul>
+<li><a class="reference internal" href="#instance-status" id="id14">Instance status</a></li>
+<li><a class="reference internal" href="#unallocated-drbd-minors" id="id15">Unallocated DRBD minors</a></li>
+<li><a class="reference internal" href="#orphan-volumes" id="id16">Orphan volumes</a></li>
+<li><a class="reference internal" href="#n-1-errors" id="id17">N+1 errors</a></li>
+<li><a class="reference internal" href="#network-issues" id="id18">Network issues</a></li>
+<li><a class="reference internal" href="#migration-problems" id="id19">Migration problems</a></li>
+<li><a class="reference internal" href="#in-use-disks-at-instance-shutdown" id="id20">In use disks at instance shutdown</a></li>
 </ul>
 </li>
 </ul>
@@ -91,7 +88,7 @@ a step-by-step example to managing instances and the cluster.</p>
 <p>Our simulated, example cluster will have three machines, named
 <tt class="docutils literal"><span class="pre">node1</span></tt>, <tt class="docutils literal"><span class="pre">node2</span></tt>, <tt class="docutils literal"><span class="pre">node3</span></tt>. Note that in real life machines will
 usually FQDNs but here we use short names for brevity. We will use a
-secondary network for replication data, <tt class="docutils literal"><span class="pre">192.168.2.0/24</span></tt>, with nodes
+secondary network for replication data, <tt class="docutils literal"><span class="pre">192.0.2.0/24</span></tt>, with nodes
 having the last octet the same as their index. The cluster name will be
 <tt class="docutils literal"><span class="pre">example-cluster</span></tt>. All nodes have the same simulated hardware
 configuration, two disks of 750GB, 32GB of memory and 4 CPUs.</p>
@@ -100,9 +97,9 @@ configuration, two disks of 750GB, 32GB of memory and 4 CPUs.</p>
 </div>
 <div class="section" id="cluster-creation">
 <h2><a class="toc-backref" href="#id3">Cluster creation</a><a class="headerlink" href="#cluster-creation" title="Permalink to this headline">¶</a></h2>
-<p>Follow the <a class="reference internal" href="install.html"><em>Ganeti installation tutorial</em></a> document and prepare the nodes. Then it&#8217;s time
+<p>Follow the <a class="reference external" href="install.html"><em>Ganeti installation tutorial</em></a> document and prepare the nodes. Then it&#8217;s time
 to initialise the cluster:</p>
-<div class="highlight-text"><div class="highlight"><pre>node1# gnt-cluster init -s 192.168.2.1 --enabled-hypervisors=xen-pvm cluster
+<div class="highlight-text"><div class="highlight"><pre>node1# gnt-cluster init -s 192.0.2.1 --enabled-hypervisors=xen-pvm example-cluster
 node1#
 </pre></div>
 </div>
@@ -125,24 +122,24 @@ node1#
 </pre></div>
 </div>
 <p>Since this proceeded correctly, let&#8217;s add the other two nodes:</p>
-<div class="highlight-text"><div class="highlight"><pre>node1# gnt-node add -s 192.168.2.2 node2
+<div class="highlight-text"><div class="highlight"><pre>node1# gnt-node add -s 192.0.2.2 node2
 -- WARNING --
 Performing this operation is going to replace the ssh daemon keypair
 on the target machine (node2) with the ones of the current one
 and grant full intra-cluster ssh root access to/from it
 
-The authenticity of host &#39;node2 (192.168.1.2)&#39; can&#39;t be established.
+The authenticity of host &#39;node2 (192.0.2.2)&#39; can&#39;t be established.
 RSA key fingerprint is 9f:…
 Are you sure you want to continue connecting (yes/no)? yes
 root@node2&#39;s password:
 Mon Oct 26 02:11:54 2009  - INFO: Node will be a master candidate
-node1# gnt-node add -s 192.168.2.3 node3
+node1# gnt-node add -s 192.0.2.3 node3
 -- WARNING --
 Performing this operation is going to replace the ssh daemon keypair
 on the target machine (node2) with the ones of the current one
 and grant full intra-cluster ssh root access to/from it
 
-The authenticity of host &#39;node3 (192.168.1.3)&#39; can&#39;t be established.
+The authenticity of host &#39;node3 (192.0.2.3)&#39; can&#39;t be established.
 RSA key fingerprint is 9f:…
 Are you sure you want to continue connecting (yes/no)? yes
 root@node2&#39;s password:
@@ -445,8 +442,8 @@ node1#
 which has one primary and one secondary instance, crashes:</p>
 <div class="highlight-text"><div class="highlight"><pre>node1# gnt-node info node3
 Node name: node3
-  primary ip: 172.24.227.1
-  secondary ip: 192.168.2.3
+  primary ip: 198.51.100.1
+  secondary ip: 192.0.2.3
   master candidate: True
   drained: False
   offline: False
@@ -643,7 +640,7 @@ node3      ?     ?      ?     ?     ?     0     0
 <p>Let&#8217;s say node3 has been repaired and is now ready to be
 reused. Re-adding it is simple:</p>
 <div class="highlight-text"><div class="highlight"><pre>node1# gnt-node add --readd node3
-The authenticity of host &#39;node3 (172.24.227.1)&#39; can&#39;t be established.
+The authenticity of host &#39;node3 (198.51.100.1)&#39; can&#39;t be established.
 RSA key fingerprint is 9f:2e:5a:2e:e0:bd:00:09:e4:5c:32:f2:27:57:7a:f4.
 Are you sure you want to continue connecting (yes/no)? yes
 Mon Oct 26 05:27:39 2009  - INFO: Readding a node, the offline/drained flags were reset
@@ -1099,64 +1096,64 @@ instance4 /dev/drbd2.</p>
       </div>
       <div class="sphinxsidebar">
         <div class="sphinxsidebarwrapper">
-  <h3><a href="index.html">Table Of Contents</a></h3>
-  <ul>
-<li><a class="reference internal" href="#">Ganeti walk-through</a><ul>
-<li><a class="reference internal" href="#introduction">Introduction</a></li>
-<li><a class="reference internal" href="#cluster-creation">Cluster creation</a></li>
-<li><a class="reference internal" href="#running-a-burnin">Running a burnin</a></li>
-<li><a class="reference internal" href="#instance-operations">Instance operations</a><ul>
-<li><a class="reference internal" href="#creation">Creation</a></li>
-<li><a class="reference internal" href="#accessing-instances">Accessing instances</a></li>
-<li><a class="reference internal" href="#removal">Removal</a></li>
+            <h3><a href="index.html">Table Of Contents</a></h3>
+            <ul>
+<li><a class="reference external" href="#">Ganeti walk-through</a><ul>
+<li><a class="reference external" href="#introduction">Introduction</a></li>
+<li><a class="reference external" href="#cluster-creation">Cluster creation</a></li>
+<li><a class="reference external" href="#running-a-burnin">Running a burnin</a></li>
+<li><a class="reference external" href="#instance-operations">Instance operations</a><ul>
+<li><a class="reference external" href="#creation">Creation</a></li>
+<li><a class="reference external" href="#accessing-instances">Accessing instances</a></li>
+<li><a class="reference external" href="#removal">Removal</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#recovering-from-hardware-failures">Recovering from hardware failures</a><ul>
-<li><a class="reference internal" href="#recovering-from-node-failure">Recovering from node failure</a><ul>
-<li><a class="reference internal" href="#re-adding-a-node-to-the-cluster">Re-adding a node to the cluster</a></li>
+<li><a class="reference external" href="#recovering-from-hardware-failures">Recovering from hardware failures</a><ul>
+<li><a class="reference external" href="#recovering-from-node-failure">Recovering from node failure</a><ul>
+<li><a class="reference external" href="#re-adding-a-node-to-the-cluster">Re-adding a node to the cluster</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#disk-failures">Disk failures</a></li>
+<li><a class="reference external" href="#disk-failures">Disk failures</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#common-cluster-problems">Common cluster problems</a><ul>
-<li><a class="reference internal" href="#instance-status">Instance status</a></li>
-<li><a class="reference internal" href="#unallocated-drbd-minors">Unallocated DRBD minors</a></li>
-<li><a class="reference internal" href="#orphan-volumes">Orphan volumes</a></li>
-<li><a class="reference internal" href="#n-1-errors">N+1 errors</a></li>
-<li><a class="reference internal" href="#network-issues">Network issues</a></li>
-<li><a class="reference internal" href="#migration-problems">Migration problems</a></li>
-<li><a class="reference internal" href="#in-use-disks-at-instance-shutdown">In use disks at instance shutdown</a></li>
+<li><a class="reference external" href="#common-cluster-problems">Common cluster problems</a><ul>
+<li><a class="reference external" href="#instance-status">Instance status</a></li>
+<li><a class="reference external" href="#unallocated-drbd-minors">Unallocated DRBD minors</a></li>
+<li><a class="reference external" href="#orphan-volumes">Orphan volumes</a></li>
+<li><a class="reference external" href="#n-1-errors">N+1 errors</a></li>
+<li><a class="reference external" href="#network-issues">Network issues</a></li>
+<li><a class="reference external" href="#migration-problems">Migration problems</a></li>
+<li><a class="reference external" href="#in-use-disks-at-instance-shutdown">In use disks at instance shutdown</a></li>
 </ul>
 </li>
 </ul>
 </li>
 </ul>
 
-  <h4>Previous topic</h4>
-  <p class="topless"><a href="admin.html"
-                        title="previous chapter">Ganeti administrator&#8217;s guide</a></p>
-  <h4>Next topic</h4>
-  <p class="topless"><a href="security.html"
-                        title="next chapter">Security in Ganeti</a></p>
-  <h3>This Page</h3>
-  <ul class="this-page-menu">
-    <li><a href="_sources/walkthrough.txt"
-           rel="nofollow">Show Source</a></li>
-  </ul>
-<div id="searchbox" style="display: none">
-  <h3>Quick search</h3>
-    <form class="search" action="search.html" method="get">
-      <input type="text" name="q" size="18" />
-      <input type="submit" value="Go" />
-      <input type="hidden" name="check_keywords" value="yes" />
-      <input type="hidden" name="area" value="default" />
-    </form>
-    <p class="searchtip" style="font-size: 90%">
-    Enter search terms or a module, class or function name.
-    </p>
-</div>
-<script type="text/javascript">$('#searchbox').show(0);</script>
+            <h4>Previous topic</h4>
+            <p class="topless"><a href="admin.html"
+                                  title="previous chapter">Ganeti administrator&#8217;s guide</a></p>
+            <h4>Next topic</h4>
+            <p class="topless"><a href="security.html"
+                                  title="next chapter">Security in Ganeti</a></p>
+            <h3>This Page</h3>
+            <ul class="this-page-menu">
+              <li><a href="_sources/walkthrough.txt"
+                     rel="nofollow">Show Source</a></li>
+            </ul>
+          <div id="searchbox" style="display: none">
+            <h3>Quick search</h3>
+              <form class="search" action="search.html" method="get">
+                <input type="text" name="q" size="18" />
+                <input type="submit" value="Go" />
+                <input type="hidden" name="check_keywords" value="yes" />
+                <input type="hidden" name="area" value="default" />
+              </form>
+              <p class="searchtip" style="font-size: 90%">
+              Enter search terms or a module, class or function name.
+              </p>
+          </div>
+          <script type="text/javascript">$('#searchbox').show(0);</script>
         </div>
       </div>
       <div class="clearer"></div>
@@ -1170,12 +1167,12 @@ instance4 /dev/drbd2.</p>
         <li class="right" >
           <a href="admin.html" title="Ganeti administrator’s guide"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.1.7 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.2.1 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">
-        &copy; Copyright 2006, 2007, 2008, 2009, Google Inc..
-      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.0b2.
+      &copy; Copyright 2006, 2007, 2008, 2009, 2010, Google Inc..
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 0.6.7.
     </div>
   </body>
 </html>

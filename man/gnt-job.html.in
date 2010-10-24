@@ -25,7 +25,7 @@ NAME="AEN12"
 ></A
 ><H2
 >Name</H2
->gnt-job&nbsp;--&nbsp;job commands</DIV
+>gnt-job&nbsp;--&nbsp;Job commands</DIV
 ><DIV
 CLASS="REFSYNOPSISDIV"
 ><A
@@ -324,12 +324,6 @@ CLASS="VARIABLELIST"
 ><P
 >the list of opcode end times</P
 ></DD
-><DT
->lock_status</DT
-><DD
-><P
->the lock status (useful for debugging)</P
-></DD
 ></DL
 ></DIV
 >
@@ -348,7 +342,7 @@ CLASS="CONSTANT"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN139"
+NAME="AEN135"
 ></A
 ><H3
 >WATCH</H3
@@ -371,7 +365,7 @@ CLASS="REPLACEABLE"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN146"
+NAME="AEN142"
 ></A
 ><H2
 >REPORTING BUGS</H2
@@ -381,14 +375,14 @@ HREF="http://code.google.com/p/ganeti/"
 TARGET="_top"
 >http://code.google.com/p/ganeti/</A
 > or contact the
-      developers using the ganeti mailing list
+      developers using the Ganeti mailing list
       &lt;ganeti@googlegroups.com&gt;.
     </P
 ></DIV
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN150"
+NAME="AEN146"
 ></A
 ><H2
 >SEE ALSO</H2
@@ -504,12 +498,12 @@ CLASS="REFENTRYTITLE"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN197"
+NAME="AEN193"
 ></A
 ><H2
 >COPYRIGHT</H2
 ><P
->      Copyright (C) 2006, 2007, 2008, 2009 Google Inc. Permission is
+>      Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc. Permission is
       granted to copy, distribute and/or modify under the terms of the
       <ACRONYM
 CLASS="ACRONYM"

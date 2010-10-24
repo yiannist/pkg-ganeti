@@ -3,10 +3,10 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GANETI-CLEANER" "8" "24 August 2010" "ganeti 2.0" ""
+.TH "GANETI-CLEANER" "8" "19 October 2010" "Ganeti 2.2" ""
 
 .SH NAME
-ganeti-cleaner \- ganeti job queue cleaner
+ganeti-cleaner \- Ganeti job queue cleaner
 .SH SYNOPSIS
 
 \fBganeti-cleaner\fR
@@ -14,15 +14,18 @@ ganeti-cleaner \- ganeti job queue cleaner
 .SH "DESCRIPTION"
 .PP
 The \fBganeti-cleaner\fR is a periodically run script to clean
-old job files from the job queue archive.
+old job files from the job queue archive and to remove expired X509
+certificates and keys.
 .PP
 \fBganeti-cleaner\fR automatically removes all files older than
 21 days from
-\fI@LOCALSTATEDIR@/lib/ganeti/queue/archive\fR\&.
+\fI@LOCALSTATEDIR@/lib/ganeti/queue/archive\fR and all
+expired certificates and keys from
+\fI@LOCALSTATEDIR@/run/ganeti/crypto\fR
 .SH "REPORTING BUGS"
 .PP
 Report bugs to  <URL:http://code.google.com/p/ganeti/> or contact the
-developers using the ganeti mailing list
+developers using the Ganeti mailing list
 <ganeti@googlegroups.com>\&.
 .SH "SEE ALSO"
 .PP
@@ -47,7 +50,7 @@ Ganeti daemons:
 \fBganeti-rapi\fR(8) (remote API daemon).
 .SH "COPYRIGHT"
 .PP
-Copyright (C) 2006, 2007, 2008, 2009 Google Inc. Permission is
+Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc. Permission is
 granted to copy, distribute and/or modify under the terms of the
 GNU General Public License as published by the Free Software
 Foundation; either version 2 of the License, or (at your option)

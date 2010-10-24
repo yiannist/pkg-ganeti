@@ -25,8 +25,7 @@ NAME="AEN15"
 ></A
 ><H2
 >Name</H2
->ganeti-os-interface&nbsp;--&nbsp;specifications for guest OS types
-    </DIV
+>ganeti-os-interface&nbsp;--&nbsp;Specifications for guest OS types</DIV
 ><DIV
 CLASS="REFSECT1"
 ><A
@@ -94,7 +93,7 @@ CLASS="VARIABLELIST"
 >OS_API_VERSION</DT
 ><DD
 ><P
->The OS api version that the rest of the
+>The OS API version that the rest of the
             environment conforms to.</P
 ></DD
 ><DT
@@ -105,17 +104,18 @@ CLASS="VARIABLELIST"
             on.</P
 ></DD
 ><DT
->INSTANCE_OS</DT
+>INSTANCE_OS, OS_NAME</DT
 ><DD
 ><P
->The name os the instance's OS as Ganeti knows
-            it. This can simplify the OS scripts by providing the same
-            scripts under multiple names, and then the scripts can use
-            this name to alter their behaviour.</P
+>Both names point to the name of the instance's OS
+            as Ganeti knows it. This can simplify the OS scripts by
+            providing the same scripts under multiple names, and then
+            the scripts can use this name to alter their
+            behaviour.</P
 ><P
->Under OS api 15 changing the script behavior based
-            on this variable is deprecated: OS_VARIANT should be used
-            instead (see below).</P
+>With OS API 15 changing the
+            script behavior based on this variable is deprecated:
+            OS_VARIANT should be used instead (see below).</P
 ></DD
 ><DT
 >OS_VARIANT</DT
@@ -128,7 +128,7 @@ CLASS="FILENAME"
 >variants.list</TT
 > file, and may support more.
             Any more supported variants should be properly documented in the
-            per-os documentation.</P
+            per-OS  documentation.</P
 ></DD
 ><DT
 >HYPERVISOR</DT
@@ -317,7 +317,7 @@ CLASS="EMPHASIS"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN119"
+NAME="AEN120"
 ></A
 ><H3
 >create</H3
@@ -344,12 +344,12 @@ CLASS="ENVAR"
 > variable is set to '1' when
       this create request is reinstalling and existing instance, rather than
       creating one anew. This can be used, for example, to preserve some
-      data in the old instance in an os-specific way.</P
+      data in the old instance in an OS-specific way.</P
 ></DIV
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN127"
+NAME="AEN128"
 ></A
 ><H3
 >export</H3
@@ -385,11 +385,27 @@ CLASS="EMPHASIS"
         here for easier usage by shell scripts (rather than parse the
         DISK_... variables).
       </P
+><P
+>        To provide the user with an estimate on how long the export will take,
+        a predicted size can be written to the file descriptor passed in the
+        variable <CODE
+CLASS="ENVAR"
+>EXP_SIZE_FD</CODE
+>. The value is in bytes and must be
+        terminated by a newline character (\n). Older versions of Ganeti don't
+        support this feature, hence the variable should be checked before use.
+        Example: <PRE
+CLASS="SCREEN"
+>if test -n "$EXP_SIZE_FD"; then
+  blockdev --getsize64 $blockdev &#62;&amp;$EXP_SIZE_FD
+fi</PRE
+>
+      </P
 ></DIV
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN135"
+NAME="AEN139"
 ></A
 ><H3
 >import</H3
@@ -433,7 +449,7 @@ CLASS="EMPHASIS"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN146"
+NAME="AEN150"
 ></A
 ><H3
 >rename</H3
@@ -474,7 +490,7 @@ CLASS="ENVAR"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN155"
+NAME="AEN159"
 ></A
 ><H3
 >ganeti_api_version</H3
@@ -483,11 +499,11 @@ NAME="AEN155"
 CLASS="FILENAME"
 >ganeti_api_version</TT
 > file is a plain
-        text file containing the version(s) of the guest OS api that
+        text file containing the version(s) of the guest OS API that
         this OS definition complies with, one per line. The version
         documented by this man page is 15, so this file must contain
         the number 15 followed by a newline if only this version is
-        supported. A script compatible more than one ganeti version
+        supported. A script compatible with more than one Ganeti version
         should contain the most recent version first (i.e. 15),
         followed by the old version(s) (in this case 10 and/or 5).
       </P
@@ -495,7 +511,7 @@ CLASS="FILENAME"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN159"
+NAME="AEN163"
 ></A
 ><H3
 >variants.list</H3
@@ -512,20 +528,20 @@ CLASS="FILENAME"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN163"
+NAME="AEN167"
 ></A
 ><H2
 >NOTES</H2
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN165"
+NAME="AEN169"
 ></A
 ><H3
->Retrocompatibility</H3
+>Backwards compatibility</H3
 ><P
->        Ganeti 2.1 is compatible with both api version 10, and 15.
-        In api version 10 the <TT
+>        Ganeti 2.2 is compatible with both API version 10, and 15.
+        In API version 10 the <TT
 CLASS="FILENAME"
 >variants.list</TT
 >
@@ -536,7 +552,7 @@ CLASS="FILENAME"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN169"
+NAME="AEN173"
 ></A
 ><H3
 >Common behaviour</H3
@@ -555,14 +571,14 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN174"
+NAME="AEN178"
 ></A
 ><H3
 >Upgrading from old versions</H3
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN176"
+NAME="AEN180"
 ></A
 ><H4
 >Version 10 to 15</H4
@@ -580,12 +596,12 @@ CLASS="FILENAME"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN180"
+NAME="AEN184"
 ></A
 ><H4
 >Version 5 to 10</H4
 ><P
->          The method os passing data has changed from command line
+>          The method for passing data has changed from command line
           options to environment variables, so scripts should be
           modified to use these. For an example of how this can be
           done in a way compatible with both versions, feel free to
@@ -606,7 +622,7 @@ CLASS="FILENAME"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN185"
+NAME="AEN189"
 ></A
 ><H4
 >Version 4 to 5</H4
@@ -637,7 +653,7 @@ exit 0
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN192"
+NAME="AEN196"
 ></A
 ><H2
 >REPORTING BUGS</H2
@@ -647,14 +663,14 @@ HREF="http://code.google.com/p/ganeti/"
 TARGET="_top"
 >http://code.google.com/p/ganeti/</A
 > or contact the
-      developers using the ganeti mailing list
+      developers using the Ganeti mailing list
       &lt;ganeti@googlegroups.com&gt;.
     </P
 ></DIV
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN196"
+NAME="AEN200"
 ></A
 ><H2
 >SEE ALSO</H2
@@ -770,12 +786,12 @@ CLASS="REFENTRYTITLE"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN243"
+NAME="AEN247"
 ></A
 ><H2
 >COPYRIGHT</H2
 ><P
->      Copyright (C) 2006, 2007, 2008, 2009 Google Inc. Permission is
+>      Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc. Permission is
       granted to copy, distribute and/or modify under the terms of the
       <ACRONYM
 CLASS="ACRONYM"

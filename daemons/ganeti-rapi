@@ -52,13 +52,14 @@ class RemoteApiRequestContext(object):
     self.handler = None
     self.handler_fn = None
     self.handler_access = None
+    self.body_data = None
 
 
 class JsonErrorRequestExecutor(http.server.HttpServerRequestExecutor):
   """Custom Request Executor class that formats HTTP errors in JSON.
 
   """
-  error_content_type = "application/json"
+  error_content_type = http.HTTP_APP_JSON
 
   def _FormatErrorMessage(self, values):
     """Formats the body of an error message.
@@ -118,6 +119,9 @@ class RemoteApiHttpServer(http.auth.HttpServerRequestAuthentication,
       if ctx.handler_access is None:
         raise AssertionError("Permissions definition missing")
 
+      # This is only made available in HandleRequest
+      ctx.body_data = None
+
       req.private = ctx
 
     # Check for expected attributes
@@ -165,11 +169,26 @@ class RemoteApiHttpServer(http.auth.HttpServerRequestAuthentication,
     """
     ctx = self._GetRequestContext(req)
 
+    # Deserialize request parameters
+    if req.request_body:
+      # RFC2616, 7.2.1: Any HTTP/1.1 message containing an entity-body SHOULD
+      # include a Content-Type header field defining the media type of that
+      # body. [...] If the media type remains unknown, the recipient SHOULD
+      # treat it as type "application/octet-stream".
+      req_content_type = req.request_headers.get(http.HTTP_CONTENT_TYPE,
+                                                 http.HTTP_APP_OCTET_STREAM)
+      if req_content_type.lower() != http.HTTP_APP_JSON.lower():
+        raise http.HttpUnsupportedMediaType()
+
+      try:
+        ctx.body_data = serializer.LoadJson(req.request_body)
+      except Exception:
+        raise http.HttpBadRequest(message="Unable to parse JSON data")
+    else:
+      ctx.body_data = None
+
     try:
       result = ctx.handler_fn()
-      sn = ctx.handler.getSerialNumber()
-      if sn:
-        req.response_headers[http.HTTP_ETAG] = str(sn)
     except luxi.TimeoutError:
       raise http.HttpGatewayTimeout()
     except luxi.ProtocolError, err:
@@ -179,7 +198,9 @@ class RemoteApiHttpServer(http.auth.HttpServerRequestAuthentication,
       logging.exception("Error while handling the %s request", method)
       raise
 
-    return result
+    req.resp_headers[http.HTTP_CONTENT_TYPE] = http.HTTP_APP_JSON
+
+    return serializer.DumpJson(result)
 
 
 def CheckRapi(options, args):
@@ -193,21 +214,23 @@ def CheckRapi(options, args):
 
   ssconf.CheckMaster(options.debug)
 
+  # Read SSL certificate (this is a little hackish to read the cert as root)
+  if options.ssl:
+    options.ssl_params = http.HttpSslParams(ssl_key_path=options.ssl_key,
+                                            ssl_cert_path=options.ssl_cert)
+  else:
+    options.ssl_params = None
+
 
 def ExecRapi(options, _):
   """Main remote API function, executed with the PID file held.
 
   """
-  # Read SSL certificate
-  if options.ssl:
-    ssl_params = http.HttpSslParams(ssl_key_path=options.ssl_key,
-                                    ssl_cert_path=options.ssl_cert)
-  else:
-    ssl_params = None
 
   mainloop = daemon.Mainloop()
   server = RemoteApiHttpServer(mainloop, options.bind_address, options.port,
-                               ssl_params=ssl_params, ssl_verify_peer=False,
+                               ssl_params=options.ssl_params,
+                               ssl_verify_peer=False,
                                request_executor_class=JsonErrorRequestExecutor)
   # pylint: disable-msg=E1101
   # it seems pylint doesn't see the second parent class there
@@ -224,11 +247,14 @@ def main():
   """
   parser = optparse.OptionParser(description="Ganeti Remote API",
                     usage="%prog [-f] [-d] [-p port] [-b ADDRESS]",
-                    version="%%prog (ganeti) %s" % constants.RAPI_VERSION)
+                    version="%%prog (ganeti) %s" % constants.RELEASE_VERSION)
 
   dirs = [(val, constants.RUN_DIRS_MODE) for val in constants.SUB_RUN_DIRS]
   dirs.append((constants.LOG_OS_DIR, 0750))
-  daemon.GenericMain(constants.RAPI, parser, dirs, CheckRapi, ExecRapi)
+  daemon.GenericMain(constants.RAPI, parser, dirs, CheckRapi, ExecRapi,
+                     default_ssl_cert=constants.RAPI_CERT_FILE,
+                     default_ssl_key=constants.RAPI_CERT_FILE,
+                     user=constants.RAPI_USER, group=constants.DAEMONS_GROUP)
 
 
 if __name__ == "__main__":

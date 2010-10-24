@@ -3,10 +3,10 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GANETI-CONFD" "8" "24 August 2010" "ganeti 2.1" ""
+.TH "GANETI-CONFD" "8" "19 October 2010" "Ganeti 2.2" ""
 
 .SH NAME
-ganeti-confd \- ganeti conf daemon
+ganeti-confd \- Ganeti conf daemon
 .SH SYNOPSIS
 
 \fBganeti-confd \fR [ \fB-f\fR ] [ \fB-d\fR ]
@@ -41,12 +41,12 @@ to get query answers.
 The confd protocol is an HMAC authenticated json-encoded custom format,
 over UDP. A client library is provided to make it easy to write
 software to query confd. More information can be found in the Ganeti
-2.1 design doc, and an example usage can be seen in the (external) nbma
-daemon for ganeti.
+2.1 design doc, and an example usage can be seen in the (external) NBMA
+daemon for Ganeti.
 .SH "REPORTING BUGS"
 .PP
 Report bugs to  <URL:http://code.google.com/p/ganeti/> or contact the
-developers using the ganeti mailing list
+developers using the Ganeti mailing list
 <ganeti@googlegroups.com>\&.
 .SH "SEE ALSO"
 .PP
@@ -71,7 +71,7 @@ Ganeti daemons:
 \fBganeti-rapi\fR(8) (remote API daemon).
 .SH "COPYRIGHT"
 .PP
-Copyright (C) 2006, 2007, 2008, 2009 Google Inc. Permission is
+Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc. Permission is
 granted to copy, distribute and/or modify under the terms of the
 GNU General Public License as published by the Free Software
 Foundation; either version 2 of the License, or (at your option)

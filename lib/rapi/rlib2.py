@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2008 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -58,7 +58,7 @@ I_FIELDS = ["name", "admin_state", "os",
             "network_port",
             "disk.sizes", "disk_usage",
             "beparams", "hvparams",
-            "oper_state", "oper_ram", "status",
+            "oper_state", "oper_ram", "oper_vcpus", "status",
             ] + _COMMON_FIELDS
 
 N_FIELDS = ["name", "offline", "master_candidate", "drained",
@@ -148,8 +148,7 @@ class R_2_os(baserlib.R_Generic):
 
     """
     cl = baserlib.GetClient()
-    op = opcodes.OpDiagnoseOS(output_fields=["name", "valid", "variants"],
-                              names=[])
+    op = opcodes.OpDiagnoseOS(output_fields=["name", "variants"], names=[])
     job_id = baserlib.SubmitJob([op], cl)
     # we use custom feedback function, instead of print we log the status
     result = cli.PollJob(job_id, cl, feedback_fn=baserlib.FeedbackFn)
@@ -159,9 +158,8 @@ class R_2_os(baserlib.R_Generic):
       raise http.HttpBadGateway(message="Can't get OS list")
 
     os_names = []
-    for (name, valid, variants) in diagnose_data:
-      if valid:
-        os_names.extend(cli.CalculateOSNames(name, variants))
+    for (name, variants) in diagnose_data:
+      os_names.extend(cli.CalculateOSNames(name, variants))
 
     return os_names
 
@@ -343,11 +341,11 @@ class R_2_nodes_name_role(baserlib.R_Generic):
     @return: a job id
 
     """
-    if not isinstance(self.req.request_body, basestring):
+    if not isinstance(self.request_body, basestring):
       raise http.HttpBadRequest("Invalid body contents, not a string")
 
     node_name = self.items[0]
-    role = self.req.request_body
+    role = self.request_body
 
     if role == _NR_REGULAR:
       candidate = False
@@ -389,12 +387,32 @@ class R_2_nodes_name_evacuate(baserlib.R_Generic):
     node_name = self.items[0]
     remote_node = self._checkStringVariable("remote_node", default=None)
     iallocator = self._checkStringVariable("iallocator", default=None)
+    early_r = bool(self._checkIntVariable("early_release", default=0))
+    dry_run = bool(self.dryRun())
 
-    op = opcodes.OpEvacuateNode(node_name=node_name,
-                                remote_node=remote_node,
-                                iallocator=iallocator)
+    cl = baserlib.GetClient()
 
-    return baserlib.SubmitJob([op])
+    op = opcodes.OpNodeEvacuationStrategy(nodes=[node_name],
+                                          iallocator=iallocator,
+                                          remote_node=remote_node)
+
+    job_id = baserlib.SubmitJob([op], cl)
+    # we use custom feedback function, instead of print we log the status
+    result = cli.PollJob(job_id, cl, feedback_fn=baserlib.FeedbackFn)
+
+    jobs = []
+    for iname, node in result:
+      if dry_run:
+        jid = None
+      else:
+        op = opcodes.OpReplaceDisks(instance_name=iname,
+                                    remote_node=node, disks=[],
+                                    mode=constants.REPLACE_DISK_CHG,
+                                    early_release=early_r)
+        jid = baserlib.SubmitJob([op])
+      jobs.append((jid, iname, node))
+
+    return jobs
 
 
 class R_2_nodes_name_migrate(baserlib.R_Generic):
@@ -406,9 +424,19 @@ class R_2_nodes_name_migrate(baserlib.R_Generic):
 
     """
     node_name = self.items[0]
-    live = bool(self._checkIntVariable("live", default=1))
 
-    op = opcodes.OpMigrateNode(node_name=node_name, live=live)
+    if "live" in self.queryargs and "mode" in self.queryargs:
+      raise http.HttpBadRequest("Only one of 'live' and 'mode' should"
+                                " be passed")
+    elif "live" in self.queryargs:
+      if self._checkIntVariable("live", default=1):
+        mode = constants.HT_MIGRATION_LIVE
+      else:
+        mode = constants.HT_MIGRATION_NONLIVE
+    else:
+      mode = self._checkStringVariable("mode", default=None)
+
+    op = opcodes.OpMigrateNode(node_name=node_name, mode=mode)
 
     return baserlib.SubmitJob([op])
 
@@ -560,7 +588,8 @@ def _ParseInstanceCreateRequestVersion1(data, dry_run):
   return opcodes.OpCreateInstance(
     mode=baserlib.CheckParameter(data, "mode"),
     instance_name=baserlib.CheckParameter(data, "name"),
-    os_type=baserlib.CheckParameter(data, "os", default=None),
+    os_type=baserlib.CheckParameter(data, "os"),
+    osparams=baserlib.CheckParameter(data, "osparams", default={}),
     force_variant=baserlib.CheckParameter(data, "force_variant",
                                           default=False),
     pnode=baserlib.CheckParameter(data, "pnode", default=None),
@@ -578,6 +607,12 @@ def _ParseInstanceCreateRequestVersion1(data, dry_run):
                                              default=None),
     file_driver=baserlib.CheckParameter(data, "file_driver",
                                         default=constants.FD_LOOP),
+    source_handshake=baserlib.CheckParameter(data, "source_handshake",
+                                             default=None),
+    source_x509_ca=baserlib.CheckParameter(data, "source_x509_ca",
+                                           default=None),
+    source_instance_name=baserlib.CheckParameter(data, "source_instance_name",
+                                                 default=None),
     iallocator=baserlib.CheckParameter(data, "iallocator", default=None),
     hypervisor=baserlib.CheckParameter(data, "hypervisor", default=None),
     hvparams=hvparams,
@@ -616,9 +651,9 @@ class R_2_instances(baserlib.R_Generic):
 
     """
     # Do not modify anymore, request data version 0 is deprecated
-    beparams = baserlib.MakeParamsDict(self.req.request_body,
+    beparams = baserlib.MakeParamsDict(self.request_body,
                                        constants.BES_PARAMETERS)
-    hvparams = baserlib.MakeParamsDict(self.req.request_body,
+    hvparams = baserlib.MakeParamsDict(self.request_body,
                                        constants.HVS_PARAMETERS)
     fn = self.getBodyParameter
 
@@ -673,7 +708,7 @@ class R_2_instances(baserlib.R_Generic):
     @return: a job id
 
     """
-    if not isinstance(self.req.request_body, dict):
+    if not isinstance(self.request_body, dict):
       raise http.HttpBadRequest("Invalid body contents, not a dictionary")
 
     # Default to request data version 0
@@ -682,7 +717,7 @@ class R_2_instances(baserlib.R_Generic):
     if data_version == 0:
       op = self._ParseVersion0CreateRequest()
     elif data_version == 1:
-      op = _ParseInstanceCreateRequestVersion1(self.req.request_body,
+      op = _ParseInstanceCreateRequestVersion1(self.request_body,
                                                self.dryRun())
     else:
       raise http.HttpBadRequest("Unsupported request data version %s" %
@@ -891,6 +926,183 @@ class R_2_instances_name_deactivate_disks(baserlib.R_Generic):
     return baserlib.SubmitJob([op])
 
 
+class R_2_instances_name_prepare_export(baserlib.R_Generic):
+  """/2/instances/[instance_name]/prepare-export resource.
+
+  """
+  def PUT(self):
+    """Prepares an export for an instance.
+
+    @return: a job id
+
+    """
+    instance_name = self.items[0]
+    mode = self._checkStringVariable("mode")
+
+    op = opcodes.OpPrepareExport(instance_name=instance_name,
+                                 mode=mode)
+
+    return baserlib.SubmitJob([op])
+
+
+def _ParseExportInstanceRequest(name, data):
+  """Parses a request for an instance export.
+
+  @rtype: L{opcodes.OpExportInstance}
+  @return: Instance export opcode
+
+  """
+  mode = baserlib.CheckParameter(data, "mode",
+                                 default=constants.EXPORT_MODE_LOCAL)
+  target_node = baserlib.CheckParameter(data, "destination")
+  shutdown = baserlib.CheckParameter(data, "shutdown", exptype=bool)
+  remove_instance = baserlib.CheckParameter(data, "remove_instance",
+                                            exptype=bool, default=False)
+  x509_key_name = baserlib.CheckParameter(data, "x509_key_name", default=None)
+  destination_x509_ca = baserlib.CheckParameter(data, "destination_x509_ca",
+                                                default=None)
+
+  return opcodes.OpExportInstance(instance_name=name,
+                                  mode=mode,
+                                  target_node=target_node,
+                                  shutdown=shutdown,
+                                  remove_instance=remove_instance,
+                                  x509_key_name=x509_key_name,
+                                  destination_x509_ca=destination_x509_ca)
+
+
+class R_2_instances_name_export(baserlib.R_Generic):
+  """/2/instances/[instance_name]/export resource.
+
+  """
+  def PUT(self):
+    """Exports an instance.
+
+    @return: a job id
+
+    """
+    if not isinstance(self.request_body, dict):
+      raise http.HttpBadRequest("Invalid body contents, not a dictionary")
+
+    op = _ParseExportInstanceRequest(self.items[0], self.request_body)
+
+    return baserlib.SubmitJob([op])
+
+
+def _ParseMigrateInstanceRequest(name, data):
+  """Parses a request for an instance migration.
+
+  @rtype: L{opcodes.OpMigrateInstance}
+  @return: Instance migration opcode
+
+  """
+  mode = baserlib.CheckParameter(data, "mode", default=None)
+  cleanup = baserlib.CheckParameter(data, "cleanup", exptype=bool,
+                                    default=False)
+
+  return opcodes.OpMigrateInstance(instance_name=name, mode=mode,
+                                   cleanup=cleanup)
+
+
+class R_2_instances_name_migrate(baserlib.R_Generic):
+  """/2/instances/[instance_name]/migrate resource.
+
+  """
+  def PUT(self):
+    """Migrates an instance.
+
+    @return: a job id
+
+    """
+    baserlib.CheckType(self.request_body, dict, "Body contents")
+
+    op = _ParseMigrateInstanceRequest(self.items[0], self.request_body)
+
+    return baserlib.SubmitJob([op])
+
+
+def _ParseRenameInstanceRequest(name, data):
+  """Parses a request for renaming an instance.
+
+  @rtype: L{opcodes.OpRenameInstance}
+  @return: Instance rename opcode
+
+  """
+  new_name = baserlib.CheckParameter(data, "new_name")
+  ip_check = baserlib.CheckParameter(data, "ip_check", default=True)
+  name_check = baserlib.CheckParameter(data, "name_check", default=True)
+
+  return opcodes.OpRenameInstance(instance_name=name, new_name=new_name,
+                                  name_check=name_check, ip_check=ip_check)
+
+
+class R_2_instances_name_rename(baserlib.R_Generic):
+  """/2/instances/[instance_name]/rename resource.
+
+  """
+  def PUT(self):
+    """Changes the name of an instance.
+
+    @return: a job id
+
+    """
+    baserlib.CheckType(self.request_body, dict, "Body contents")
+
+    op = _ParseRenameInstanceRequest(self.items[0], self.request_body)
+
+    return baserlib.SubmitJob([op])
+
+
+def _ParseModifyInstanceRequest(name, data):
+  """Parses a request for modifying an instance.
+
+  @rtype: L{opcodes.OpSetInstanceParams}
+  @return: Instance modify opcode
+
+  """
+  osparams = baserlib.CheckParameter(data, "osparams", default={})
+  force = baserlib.CheckParameter(data, "force", default=False)
+  nics = baserlib.CheckParameter(data, "nics", default=[])
+  disks = baserlib.CheckParameter(data, "disks", default=[])
+  disk_template = baserlib.CheckParameter(data, "disk_template", default=None)
+  remote_node = baserlib.CheckParameter(data, "remote_node", default=None)
+  os_name = baserlib.CheckParameter(data, "os_name", default=None)
+  force_variant = baserlib.CheckParameter(data, "force_variant", default=False)
+
+  # HV/BE parameters
+  hvparams = baserlib.CheckParameter(data, "hvparams", default={})
+  utils.ForceDictType(hvparams, constants.HVS_PARAMETER_TYPES,
+                      allowed_values=[constants.VALUE_DEFAULT])
+
+  beparams = baserlib.CheckParameter(data, "beparams", default={})
+  utils.ForceDictType(beparams, constants.BES_PARAMETER_TYPES,
+                      allowed_values=[constants.VALUE_DEFAULT])
+
+  return opcodes.OpSetInstanceParams(instance_name=name, hvparams=hvparams,
+                                     beparams=beparams, osparams=osparams,
+                                     force=force, nics=nics, disks=disks,
+                                     disk_template=disk_template,
+                                     remote_node=remote_node, os_name=os_name,
+                                     force_variant=force_variant)
+
+
+class R_2_instances_name_modify(baserlib.R_Generic):
+  """/2/instances/[instance_name]/modify resource.
+
+  """
+  def PUT(self):
+    """Changes some parameters of an instance.
+
+    @return: a job id
+
+    """
+    baserlib.CheckType(self.request_body, dict, "Body contents")
+
+    op = _ParseModifyInstanceRequest(self.items[0], self.request_body)
+
+    return baserlib.SubmitJob([op])
+
+
 class _R_Tags(baserlib.R_Generic):
   """ Quasiclass for tagging resources
 
@@ -908,10 +1120,10 @@ class _R_Tags(baserlib.R_Generic):
     """
     baserlib.R_Generic.__init__(self, items, queryargs, req)
 
-    if self.TAG_LEVEL != constants.TAG_CLUSTER:
-      self.name = items[0]
+    if self.TAG_LEVEL == constants.TAG_CLUSTER:
+      self.name = None
     else:
-      self.name = ""
+      self.name = items[0]
 
   def GET(self):
     """Returns a list of tags.

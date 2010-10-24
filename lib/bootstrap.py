@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2008 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2010 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -27,7 +27,6 @@ import os
 import os.path
 import re
 import logging
-import tempfile
 import time
 
 from ganeti import rpc
@@ -40,6 +39,8 @@ from ganeti import objects
 from ganeti import ssconf
 from ganeti import serializer
 from ganeti import hypervisor
+from ganeti import bdev
+from ganeti import netutils
 
 
 def _InitSSHSetup():
@@ -66,40 +67,6 @@ def _InitSSHSetup():
   utils.AddAuthorizedKey(auth_keys, utils.ReadFile(pub_key))
 
 
-def GenerateSelfSignedSslCert(file_name, validity=(365 * 5)):
-  """Generates a self-signed SSL certificate.
-
-  @type file_name: str
-  @param file_name: Path to output file
-  @type validity: int
-  @param validity: Validity for certificate in days
-
-  """
-  (fd, tmp_file_name) = tempfile.mkstemp(dir=os.path.dirname(file_name))
-  try:
-    try:
-      # Set permissions before writing key
-      os.chmod(tmp_file_name, 0600)
-
-      result = utils.RunCmd(["openssl", "req", "-new", "-newkey", "rsa:1024",
-                             "-days", str(validity), "-nodes", "-x509",
-                             "-keyout", tmp_file_name, "-out", tmp_file_name,
-                             "-batch"])
-      if result.failed:
-        raise errors.OpExecError("Could not generate SSL certificate, command"
-                                 " %s had exitcode %s and error message %s" %
-                                 (result.cmd, result.exit_code, result.output))
-
-      # Make read-only
-      os.chmod(tmp_file_name, 0400)
-
-      os.rename(tmp_file_name, file_name)
-    finally:
-      utils.RemoveFile(tmp_file_name)
-  finally:
-    os.close(fd)
-
-
 def GenerateHmacKey(file_name):
   """Writes a new HMAC key.
 
@@ -112,10 +79,11 @@ def GenerateHmacKey(file_name):
 
 
 def GenerateClusterCrypto(new_cluster_cert, new_rapi_cert, new_confd_hmac_key,
-                          rapi_cert_pem=None,
+                          new_cds, rapi_cert_pem=None, cds=None,
                           nodecert_file=constants.NODED_CERT_FILE,
                           rapicert_file=constants.RAPI_CERT_FILE,
-                          hmackey_file=constants.CONFD_HMAC_KEY):
+                          hmackey_file=constants.CONFD_HMAC_KEY,
+                          cds_file=constants.CLUSTER_DOMAIN_SECRET_FILE):
   """Updates the cluster certificates, keys and secrets.
 
   @type new_cluster_cert: bool
@@ -124,8 +92,12 @@ def GenerateClusterCrypto(new_cluster_cert, new_rapi_cert, new_confd_hmac_key,
   @param new_rapi_cert: Whether to generate a new RAPI certificate
   @type new_confd_hmac_key: bool
   @param new_confd_hmac_key: Whether to generate a new HMAC key
+  @type new_cds: bool
+  @param new_cds: Whether to generate a new cluster domain secret
   @type rapi_cert_pem: string
   @param rapi_cert_pem: New RAPI certificate in PEM format
+  @type cds: string
+  @param cds: New cluster domain secret
   @type nodecert_file: string
   @param nodecert_file: optional override of the node cert file path
   @type rapicert_file: string
@@ -141,7 +113,7 @@ def GenerateClusterCrypto(new_cluster_cert, new_rapi_cert, new_confd_hmac_key,
       utils.CreateBackup(nodecert_file)
 
     logging.debug("Generating new cluster certificate at %s", nodecert_file)
-    GenerateSelfSignedSslCert(nodecert_file)
+    utils.GenerateSelfSignedSslCert(nodecert_file)
 
   # confd HMAC key
   if new_confd_hmac_key or not os.path.exists(hmackey_file):
@@ -161,18 +133,30 @@ def GenerateClusterCrypto(new_cluster_cert, new_rapi_cert, new_confd_hmac_key,
       utils.CreateBackup(rapicert_file)
 
     logging.debug("Generating new RAPI certificate at %s", rapicert_file)
-    GenerateSelfSignedSslCert(rapicert_file)
+    utils.GenerateSelfSignedSslCert(rapicert_file)
+
+  # Cluster domain secret
+  if cds:
+    logging.debug("Writing cluster domain secret to %s", cds_file)
+    utils.WriteFile(cds_file, data=cds, backup=True)
+
+  elif new_cds or not os.path.exists(cds_file):
+    logging.debug("Generating new cluster domain secret at %s", cds_file)
+    GenerateHmacKey(cds_file)
 
 
 def _InitGanetiServerSetup(master_name):
   """Setup the necessary configuration for the initial node daemon.
 
   This creates the nodepass file containing the shared password for
-  the cluster and also generates the SSL certificate.
+  the cluster, generates the SSL certificate and starts the node daemon.
+
+  @type master_name: str
+  @param master_name: Name of the master node
 
   """
   # Generate cluster secrets
-  GenerateClusterCrypto(True, False, False)
+  GenerateClusterCrypto(True, False, False, False)
 
   result = utils.RunCmd([constants.DAEMON_UTIL, "start", constants.NODED])
   if result.failed:
@@ -231,13 +215,14 @@ def _InitFileStorage(file_storage_dir):
   return file_storage_dir
 
 
+#pylint: disable-msg=R0913
 def InitCluster(cluster_name, mac_prefix,
                 master_netdev, file_storage_dir, candidate_pool_size,
                 secondary_ip=None, vg_name=None, beparams=None,
                 nicparams=None, hvparams=None, enabled_hypervisors=None,
                 modify_etc_hosts=True, modify_ssh_setup=True,
-                maintain_node_health=False,
-                uid_pool=None):
+                maintain_node_health=False, drbd_helper=None,
+                uid_pool=None, default_iallocator=None):
   """Initialise the cluster.
 
   @type candidate_pool_size: int
@@ -258,7 +243,7 @@ def InitCluster(cluster_name, mac_prefix,
                                " entries: %s" % invalid_hvs,
                                errors.ECODE_INVAL)
 
-  hostname = utils.GetHostInfo()
+  hostname = netutils.GetHostInfo()
 
   if hostname.ip.startswith("127."):
     raise errors.OpPrereqError("This host's IP resolves to the private"
@@ -266,25 +251,26 @@ def InitCluster(cluster_name, mac_prefix,
                                (hostname.ip, constants.ETC_HOSTS),
                                errors.ECODE_ENVIRON)
 
-  if not utils.OwnIpAddress(hostname.ip):
+  if not netutils.OwnIpAddress(hostname.ip):
     raise errors.OpPrereqError("Inconsistency: this host's name resolves"
                                " to %s,\nbut this ip address does not"
                                " belong to this host. Aborting." %
                                hostname.ip, errors.ECODE_ENVIRON)
 
-  clustername = utils.GetHostInfo(utils.HostInfo.NormalizeName(cluster_name))
+  clustername = \
+    netutils.GetHostInfo(netutils.HostInfo.NormalizeName(cluster_name))
 
-  if utils.TcpPing(clustername.ip, constants.DEFAULT_NODED_PORT,
+  if netutils.TcpPing(clustername.ip, constants.DEFAULT_NODED_PORT,
                    timeout=5):
     raise errors.OpPrereqError("Cluster IP already active. Aborting.",
                                errors.ECODE_NOTUNIQUE)
 
   if secondary_ip:
-    if not utils.IsValidIP(secondary_ip):
+    if not netutils.IsValidIP4(secondary_ip):
       raise errors.OpPrereqError("Invalid secondary ip given",
                                  errors.ECODE_INVAL)
     if (secondary_ip != hostname.ip and
-        not utils.OwnIpAddress(secondary_ip)):
+        not netutils.OwnIpAddress(secondary_ip)):
       raise errors.OpPrereqError("You gave %s as secondary IP,"
                                  " but it does not belong to this host." %
                                  secondary_ip, errors.ECODE_ENVIRON)
@@ -298,6 +284,20 @@ def InitCluster(cluster_name, mac_prefix,
     if vgstatus:
       raise errors.OpPrereqError("Error: %s\nspecify --no-lvm-storage if"
                                  " you are not using lvm" % vgstatus,
+                                 errors.ECODE_INVAL)
+
+  if drbd_helper is not None:
+    try:
+      curr_helper = bdev.BaseDRBD.GetUsermodeHelper()
+    except errors.BlockDeviceError, err:
+      raise errors.OpPrereqError("Error while checking drbd helper"
+                                 " (specify --no-drbd-storage if you are not"
+                                 " using drbd): %s" % str(err),
+                                 errors.ECODE_ENVIRON)
+    if drbd_helper != curr_helper:
+      raise errors.OpPrereqError("Error: requiring %s as drbd helper but %s"
+                                 " is the current helper" % (drbd_helper,
+                                                             curr_helper),
                                  errors.ECODE_INVAL)
 
   file_storage_dir = _InitFileStorage(file_storage_dir)
@@ -325,7 +325,7 @@ def InitCluster(cluster_name, mac_prefix,
     hv_class = hypervisor.GetHypervisor(hv_name)
     hv_class.CheckParameterSyntax(hv_params)
 
-  # set up the inter-node password and certificate
+  # set up the inter-node password and certificate, start noded
   _InitGanetiServerSetup(hostname.name)
 
   # set up ssh config and /etc/hosts
@@ -337,6 +337,15 @@ def InitCluster(cluster_name, mac_prefix,
 
   if modify_ssh_setup:
     _InitSSHSetup()
+
+  if default_iallocator is not None:
+    alloc_script = utils.FindFile(default_iallocator,
+                                  constants.IALLOCATOR_SEARCH_PATH,
+                                  os.path.isfile)
+    if alloc_script is None:
+      raise errors.OpPrereqError("Invalid default iallocator script '%s'"
+                                 " specified" % default_iallocator,
+                                 errors.ECODE_INVAL)
 
   now = time.time()
 
@@ -365,6 +374,8 @@ def InitCluster(cluster_name, mac_prefix,
     mtime=now,
     uuid=utils.NewUUID(),
     maintain_node_health=maintain_node_health,
+    drbd_usermode_helper=drbd_helper,
+    default_iallocator=default_iallocator,
     )
   master_node_config = objects.Node(name=hostname.name,
                                     primary_ip=hostname.ip,
@@ -475,6 +486,7 @@ def SetupNodeDaemon(cluster_name, node, ssh_key_check):
   # and then connect with ssh to set password and start ganeti-noded
   # note that all the below variables are sanitized at this point,
   # either by being constants or by the checks above
+  # TODO: Could this command exceed a shell's maximum command length?
   mycommand = ("umask 077 && "
                "cat > '%s' << '!EOF.' && \n"
                "%s!EOF.\n"
@@ -567,7 +579,7 @@ def MasterFailover(no_voting=False):
   total_timeout = 30
   # Here we have a phase where no master should be running
   def _check_ip():
-    if utils.TcpPing(master_ip, constants.DEFAULT_NODED_PORT):
+    if netutils.TcpPing(master_ip, constants.DEFAULT_NODED_PORT):
       raise utils.RetryAgain()
 
   try:
@@ -634,7 +646,7 @@ def GatherMasterVotes(node_list):
   @return: list of (node, votes)
 
   """
-  myself = utils.HostInfo().name
+  myself = netutils.HostInfo().name
   try:
     node_list.remove(myself)
   except ValueError:

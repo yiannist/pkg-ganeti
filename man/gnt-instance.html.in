@@ -25,7 +25,7 @@ NAME="AEN15"
 ></A
 ><H2
 >Name</H2
->gnt-instance&nbsp;--&nbsp;ganeti instance administration</DIV
+>gnt-instance&nbsp;--&nbsp;Ganeti instance administration</DIV
 ><DIV
 CLASS="REFSYNOPSISDIV"
 ><A
@@ -51,7 +51,7 @@ NAME="AEN23"
 CLASS="COMMAND"
 >gnt-instance</B
 > is used for instance
-      administration in the ganeti system.
+      administration in the Ganeti system.
     </P
 ></DIV
 ><DIV
@@ -186,7 +186,7 @@ CLASS="LITERAL"
           <TT
 CLASS="LITERAL"
 >t</TT
-> to specificy the exact the units used;
+> to specify the exact the units used;
           these suffixes map to mebibytes, gibibytes and tebibytes.
         </P
 ><P
@@ -284,11 +284,8 @@ CLASS="VARIABLELIST"
 >mac</DT
 ><DD
 ><P
->either a value or <CODE
-CLASS="CONSTANT"
->GENERATE</CODE
->
-                  to generate a new unique MAC</P
+>either a value or 'generate' to generate a
+                  new unique MAC</P
 ></DD
 ><DT
 >ip</DT
@@ -811,7 +808,7 @@ CLASS="QUOTE"
 >"none"</SPAN
 >, the
                 default, nothing is done and instances are run as
-                the ganeti daemon user (normally root).
+                the Ganeti daemon user (normally root).
                 </P
 ><P
 >Under <SPAN
@@ -840,9 +837,9 @@ CLASS="QUOTE"
 >Under security model <SPAN
 CLASS="QUOTE"
 >"user"</SPAN
-> the username to
-                run the instance under. It must be a valid username
-                existing on the host.
+> the
+                username to run the instance under. It must be a valid
+                username existing on the host.
                 </P
 ><P
 >Cannot be set under security model <SPAN
@@ -874,6 +871,41 @@ CLASS="QUOTE"
                 </P
 ></DD
 ><DT
+>mem_path</DT
+><DD
+><P
+>Valid for the KVM hypervisor.</P
+><P
+>This option passes the -mem-path argument to kvm with
+                the path (on the node) to the mount point of the hugetlbfs
+                file system, along with the -mem-prealloc argument too.
+                </P
+></DD
+><DT
+>use_chroot</DT
+><DD
+><P
+>Valid for the KVM hypervisor.</P
+><P
+>This boolean option determines wether to run the KVM
+                instance in a chroot directory.
+                </P
+><P
+>If it is set to <SPAN
+CLASS="QUOTE"
+>"true"</SPAN
+>, an empty directory
+                is created before starting the instance and its path is passed via
+                the -chroot flag to kvm.
+                The directory is removed when the instance is stopped.
+                </P
+><P
+>It is set to <SPAN
+CLASS="QUOTE"
+>"false"</SPAN
+> by default.</P
+></DD
+><DT
 >migration_downtime</DT
 ><DD
 ><P
@@ -902,16 +934,36 @@ CLASS="QUOTE"
 >If it is set to <SPAN
 CLASS="QUOTE"
 >"true"</SPAN
->, an empty directory
-                is created before starting the instance and its path is passed via
-                the -chroot flag to kvm.
-                The directory is removed when the instance is stopped.
+>, an empty
+                directory is created before starting the instance and
+                its path is passed via the <CODE
+CLASS="OPTION"
+>-chroot</CODE
+>
+                flag to kvm.  The directory is removed when the
+                instance is stopped.
                 </P
 ><P
 >It is set to <SPAN
 CLASS="QUOTE"
 >"false"</SPAN
-> by default.</P
+> by
+                default.</P
+></DD
+><DT
+>cpu_mask</DT
+><DD
+><P
+>Valid for the LXC hypervisor.</P
+><P
+>The processes belonging to the given instance are
+                only scheduled on the specified CPUs.
+                </P
+><P
+>                The parameter format is a comma-separated list of CPU IDs or
+                CPU ID ranges. The ranges are defined by a lower and higher
+                boundary, separated by a dash. The boundaries are inclusive.
+                </P
 ></DD
 ><DT
 >usb_mouse</DT
@@ -1096,7 +1148,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN396"
+NAME="AEN416"
 ></A
 ><H4
 >BATCH-CREATE</H4
@@ -1135,7 +1187,7 @@ CLASS="VARIABLELIST"
 >The size of the disks of the instance.</P
 ></DD
 ><DT
->disk_templace</DT
+>disk_template</DT
 ><DD
 ><P
 >The disk template to use for the instance,
@@ -1265,7 +1317,8 @@ CLASS="SCREEN"
 >
         </P
 ><P
->          The command will display the job id for each submitted instance, as follows:
+>          The command will display the job id for each submitted
+          instance, as follows:
           <PRE
 CLASS="SCREEN"
 ># gnt-instance batch-create instances.json
@@ -1277,7 +1330,7 @@ instance5: 11225</PRE
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN463"
+NAME="AEN483"
 ></A
 ><H4
 >REMOVE</H4
@@ -1356,7 +1409,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN485"
+NAME="AEN505"
 ></A
 ><H4
 >LIST</H4
@@ -1368,6 +1421,11 @@ CLASS="COMMAND"
 CLASS="REPLACEABLE"
 ><I
 >SEPARATOR</I
+></TT
+>]<BR> [--units=<TT
+CLASS="REPLACEABLE"
+><I
+>UNITS</I
 ></TT
 >] [-o <TT
 CLASS="REPLACEABLE"
@@ -1391,6 +1449,21 @@ CLASS="OPTION"
 > option
           takes an argument which denotes what will be used between
           the output fields. Both these options are to help scripting.
+        </P
+><P
+>          The units used to display the numeric values in the output
+          varies, depending on the options given. By default, the values
+          will be formatted in the most appropriate unit. If the
+          <CODE
+CLASS="OPTION"
+>--separator</CODE
+> option is given, then the values
+          are shown in mebibytes to allow parsing by scripts. In both
+          cases, the <CODE
+CLASS="OPTION"
+>--units</CODE
+> option can be used to
+          enforce a given output unit.
         </P
 ><P
 >          The <CODE
@@ -1499,10 +1572,17 @@ CLASS="COMPUTEROUTPUT"
                   by the hypervisor</P
 ></DD
 ><DT
+>oper_vcpus</DT
+><DD
+><P
+>the actual number of VCPUs the instance is using
+                  as seen by the hypervisor</P
+></DD
+><DT
 >ip</DT
 ><DD
 ><P
->the ip address ganeti recognizes as associated with
+>the ip address Ganeti recognizes as associated with
                 the first instance interface</P
 ></DD
 ><DT
@@ -1775,7 +1855,11 @@ CLASS="OPTION"
           <CODE
 CLASS="OPTION"
 >oper_ram</CODE
-> and <CODE
+>, <CODE
+CLASS="OPTION"
+>oper_vcpus</CODE
+> and
+          <CODE
 CLASS="OPTION"
 >status</CODE
 > are
@@ -1794,7 +1878,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN692"
+NAME="AEN723"
 ></A
 ><H4
 >INFO</H4
@@ -1844,7 +1928,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN712"
+NAME="AEN743"
 ></A
 ><H4
 >MODIFY</H4
@@ -2046,7 +2130,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN784"
+NAME="AEN815"
 ></A
 ><H4
 >REINSTALL</H4
@@ -2109,11 +2193,7 @@ CLASS="OPTION"
           <CODE
 CLASS="OPTION"
 >--all</CODE
-> options), the user must pass both the
-          <CODE
-CLASS="OPTION"
->--force</CODE
-> and
+> options), the user must pass the
           <CODE
 CLASS="OPTION"
 >--force-multiple</CODE
@@ -2136,7 +2216,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN819"
+NAME="AEN849"
 ></A
 ><H4
 >RENAME</H4
@@ -2144,7 +2224,7 @@ NAME="AEN819"
 ><B
 CLASS="COMMAND"
 >rename</B
->  [--no-ip-check] [--submit] {<TT
+>  [--no-ip-check] [--no-name-check] [--submit] {<TT
 CLASS="REPLACEABLE"
 ><I
 >instance</I
@@ -2170,6 +2250,19 @@ CLASS="OPTION"
 ><P
 >          The <CODE
 CLASS="OPTION"
+>--no-name-check</CODE
+> skips the check for the
+          new instance name via the resolver (e.g. in DNS or /etc/hosts,
+          depending on your setup). Since the name check is used to
+          compute the IP address, if you pass this option you must
+          also pass the <CODE
+CLASS="OPTION"
+>--no-ip-check</CODE
+> option.
+        </P
+><P
+>          The <CODE
+CLASS="OPTION"
 >--submit</CODE
 > option is used to send the job to
           the master daemon but not wait for its completion. The job
@@ -2184,14 +2277,14 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN834"
+NAME="AEN868"
 ></A
 ><H3
 >Starting/stopping/connecting to console</H3
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN836"
+NAME="AEN870"
 ></A
 ><H4
 >STARTUP</H4
@@ -2383,7 +2476,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN923"
+NAME="AEN957"
 ></A
 ><H4
 >SHUTDOWN</H4
@@ -2481,7 +2574,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN967"
+NAME="AEN1001"
 ></A
 ><H4
 >REBOOT</H4
@@ -2597,7 +2690,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN1019"
+NAME="AEN1053"
 ></A
 ><H4
 >CONSOLE</H4
@@ -2643,14 +2736,14 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN1032"
+NAME="AEN1066"
 ></A
 ><H3
 >Disk management</H3
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN1034"
+NAME="AEN1068"
 ></A
 ><H4
 >REPLACE-DISKS</H4
@@ -2814,7 +2907,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN1092"
+NAME="AEN1126"
 ></A
 ><H4
 >ACTIVATE-DISKS</H4
@@ -2910,7 +3003,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN1113"
+NAME="AEN1147"
 ></A
 ><H4
 >DEACTIVATE-DISKS</H4
@@ -2948,7 +3041,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN1124"
+NAME="AEN1158"
 ></A
 ><H4
 >GROW-DISK</H4
@@ -3102,7 +3195,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN1171"
+NAME="AEN1205"
 ></A
 ><H4
 >RECREATE-DISKS</H4
@@ -3152,14 +3245,14 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN1186"
+NAME="AEN1220"
 ></A
 ><H3
 >Recovery</H3
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN1188"
+NAME="AEN1222"
 ></A
 ><H4
 >FAILOVER</H4
@@ -3229,7 +3322,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN1209"
+NAME="AEN1243"
 ></A
 ><H4
 >MIGRATE</H4
@@ -3247,7 +3340,7 @@ CLASS="REPLACEABLE"
 ><B
 CLASS="COMMAND"
 >migrate</B
->  [-f] [--non-live] {<TT
+>  [-f] [--non-live] [--migration-mode=live|non-live] {<TT
 CLASS="REPLACEABLE"
 ><I
 >instance</I
@@ -3267,15 +3360,30 @@ CLASS="REPLACEABLE"
 >          The <CODE
 CLASS="OPTION"
 >--non-live</CODE
-> option will switch (for the
-          hypervisors that support it) between a "fully live"
-          (i.e. the interruption is as minimal as possible) migration
-          and one in which the instance is frozen, its state saved and
-          transported to the remote node, and then resumed there. This
-          all depends on the hypervisor support for two different
-          methods. In any case, it is not an error to pass this
-          parameter (it will just be ignored if the hypervisor doesn't
-          support it).
+>
+          and <CODE
+CLASS="OPTION"
+>--migration-mode=non-live</CODE
+> options will
+          switch (for the hypervisors that support it) between a
+          "fully live" (i.e. the interruption is as minimal as
+          possible) migration and one in which the instance is frozen,
+          its state saved and transported to the remote node, and then
+          resumed there. This all depends on the hypervisor support
+          for two different methods. In any case, it is not an error
+          to pass this parameter (it will just be ignored if the
+          hypervisor doesn't support it). The
+          option <CODE
+CLASS="OPTION"
+>--migration-mode=live</CODE
+> option will
+          request a fully-live migration. The default, when neither
+          option is passed, depends on the hypervisor parameters (and
+          can be viewed with the <B
+CLASS="COMMAND"
+>gnt-cluster info</B
+>
+          command).
         </P
 ><P
 >          If the <CODE
@@ -3283,7 +3391,7 @@ CLASS="OPTION"
 >--cleanup</CODE
 > option is passed, the
           operation changes from migration to attempting recovery from
-          a failed previous migration. In this mode, ganeti checks if
+          a failed previous migration. In this mode, Ganeti checks if
           the instance runs on the correct node (and updates its
           configuration if not) and ensures the instances's disks are
           configured correctly. In this mode, the
@@ -3326,7 +3434,7 @@ y/[n]/?: y
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN1234"
+NAME="AEN1272"
 ></A
 ><H4
 >MOVE</H4
@@ -3394,14 +3502,14 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN1255"
+NAME="AEN1293"
 ></A
 ><H3
 >TAGS</H3
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN1257"
+NAME="AEN1295"
 ></A
 ><H4
 >ADD-TAGS</H4
@@ -3443,7 +3551,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN1270"
+NAME="AEN1308"
 ></A
 ><H4
 >LIST-TAGS</H4
@@ -3463,7 +3571,7 @@ CLASS="REPLACEABLE"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN1277"
+NAME="AEN1315"
 ></A
 ><H4
 >REMOVE-TAGS</H4
@@ -3507,7 +3615,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN1290"
+NAME="AEN1328"
 ></A
 ><H2
 >REPORTING BUGS</H2
@@ -3517,14 +3625,14 @@ HREF="http://code.google.com/p/ganeti/"
 TARGET="_top"
 >http://code.google.com/p/ganeti/</A
 > or contact the
-      developers using the ganeti mailing list
+      developers using the Ganeti mailing list
       &lt;ganeti@googlegroups.com&gt;.
     </P
 ></DIV
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN1294"
+NAME="AEN1332"
 ></A
 ><H2
 >SEE ALSO</H2
@@ -3640,12 +3748,12 @@ CLASS="REFENTRYTITLE"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN1341"
+NAME="AEN1379"
 ></A
 ><H2
 >COPYRIGHT</H2
 ><P
->      Copyright (C) 2006, 2007, 2008, 2009 Google Inc. Permission is
+>      Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc. Permission is
       granted to copy, distribute and/or modify under the terms of the
       <ACRONYM
 CLASS="ACRONYM"

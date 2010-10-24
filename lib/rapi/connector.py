@@ -159,6 +159,10 @@ def GetHandlers(node_name_pattern, instance_name_pattern, job_id_pattern):
   """Returns all supported resources and their handlers.
 
   """
+  # Important note: New resources should always be added under /2. During a
+  # discussion in July 2010 it was decided that having per-resource versions
+  # is more flexible and future-compatible than versioning the whole remote
+  # API.
   return {
     "/": R_root,
 
@@ -205,11 +209,21 @@ def GetHandlers(node_name_pattern, instance_name_pattern, job_id_pattern):
       rlib2.R_2_instances_name_activate_disks,
     re.compile(r'^/2/instances/(%s)/deactivate-disks$' % instance_name_pattern):
       rlib2.R_2_instances_name_deactivate_disks,
+    re.compile(r'^/2/instances/(%s)/prepare-export$' % instance_name_pattern):
+      rlib2.R_2_instances_name_prepare_export,
+    re.compile(r'^/2/instances/(%s)/export$' % instance_name_pattern):
+      rlib2.R_2_instances_name_export,
+    re.compile(r'^/2/instances/(%s)/migrate$' % instance_name_pattern):
+      rlib2.R_2_instances_name_migrate,
+    re.compile(r'^/2/instances/(%s)/rename$' % instance_name_pattern):
+      rlib2.R_2_instances_name_rename,
+    re.compile(r'^/2/instances/(%s)/modify$' % instance_name_pattern):
+      rlib2.R_2_instances_name_modify,
 
     "/2/jobs": rlib2.R_2_jobs,
-    re.compile(r'/2/jobs/(%s)$' % job_id_pattern):
+    re.compile(r"^/2/jobs/(%s)$" % job_id_pattern):
       rlib2.R_2_jobs_id,
-    re.compile(r'/2/jobs/(%s)/wait$' % job_id_pattern):
+    re.compile(r"^/2/jobs/(%s)/wait$" % job_id_pattern):
       rlib2.R_2_jobs_id_wait,
 
     "/2/tags": rlib2.R_2_tags,

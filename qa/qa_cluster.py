@@ -26,7 +26,6 @@
 import tempfile
 
 from ganeti import constants
-from ganeti import bootstrap
 from ganeti import utils
 
 import qa_config
@@ -138,6 +137,37 @@ def TestClusterVerify():
                        utils.ShellQuoteArgs(cmd)).wait(), 0)
 
 
+def TestJobqueue():
+  """gnt-debug test-jobqueue"""
+  master = qa_config.GetMasterNode()
+
+  cmd = ["gnt-debug", "test-jobqueue"]
+  AssertEqual(StartSSH(master["primary"],
+                       utils.ShellQuoteArgs(cmd)).wait(), 0)
+
+
+def TestClusterReservedLvs():
+  """gnt-cluster reserved lvs"""
+  master = qa_config.GetMasterNode()
+  CVERIFY = ['gnt-cluster', 'verify']
+  for rcode, cmd in [
+    (0, CVERIFY),
+    (0, ['gnt-cluster', 'modify', '--reserved-lvs', '']),
+    (0, ['lvcreate', '-L1G', '-nqa-test', 'xenvg']),
+    (1, CVERIFY),
+    (0, ['gnt-cluster', 'modify', '--reserved-lvs', 'qa-test,other-test']),
+    (0, CVERIFY),
+    (0, ['gnt-cluster', 'modify', '--reserved-lvs', 'qa-.*']),
+    (0, CVERIFY),
+    (0, ['gnt-cluster', 'modify', '--reserved-lvs', '']),
+    (1, CVERIFY),
+    (0, ['lvremove', '-f', 'xenvg/qa-test']),
+    (0, CVERIFY),
+    ]:
+    AssertEqual(StartSSH(master['primary'],
+                         utils.ShellQuoteArgs(cmd)).wait(), rcode)
+
+
 def TestClusterInfo():
   """gnt-cluster info"""
   master = qa_config.GetMasterNode()
@@ -171,10 +201,14 @@ def TestClusterRenewCrypto():
 
   # Conflicting options
   cmd = ["gnt-cluster", "renew-crypto", "--force",
-         "--new-cluster-certificate", "--new-confd-hmac-key",
-         "--new-rapi-certificate", "--rapi-certificate=/dev/null"]
-  AssertNotEqual(StartSSH(master["primary"],
-                          utils.ShellQuoteArgs(cmd)).wait(), 0)
+         "--new-cluster-certificate", "--new-confd-hmac-key"]
+  conflicting = [
+    ["--new-rapi-certificate", "--rapi-certificate=/dev/null"],
+    ["--new-cluster-domain-secret", "--cluster-domain-secret=/dev/null"],
+    ]
+  for i in conflicting:
+    AssertNotEqual(StartSSH(master["primary"],
+                            utils.ShellQuoteArgs(cmd + i)).wait(), 0)
 
   # Invalid RAPI certificate
   cmd = ["gnt-cluster", "renew-crypto", "--force",
@@ -191,7 +225,7 @@ def TestClusterRenewCrypto():
     # Ensure certificate doesn't cause "gnt-cluster verify" to complain
     validity = constants.SSL_CERT_EXPIRATION_WARN * 3
 
-    bootstrap.GenerateSelfSignedSslCert(fh.name, validity=validity)
+    utils.GenerateSelfSignedSslCert(fh.name, validity=validity)
 
     tmpcert = qa_utils.UploadFile(master["primary"], fh.name)
     try:
@@ -204,10 +238,27 @@ def TestClusterRenewCrypto():
       AssertEqual(StartSSH(master["primary"],
                            utils.ShellQuoteArgs(cmd)).wait(), 0)
 
+    # Custom cluster domain secret
+    cds_fh = tempfile.NamedTemporaryFile()
+    cds_fh.write(utils.GenerateSecret())
+    cds_fh.write("\n")
+    cds_fh.flush()
+
+    tmpcds = qa_utils.UploadFile(master["primary"], cds_fh.name)
+    try:
+      cmd = ["gnt-cluster", "renew-crypto", "--force",
+             "--cluster-domain-secret=%s" % tmpcds]
+      AssertEqual(StartSSH(master["primary"],
+                           utils.ShellQuoteArgs(cmd)).wait(), 0)
+    finally:
+      cmd = ["rm", "-f", tmpcds]
+      AssertEqual(StartSSH(master["primary"],
+                           utils.ShellQuoteArgs(cmd)).wait(), 0)
+
     # Normal case
     cmd = ["gnt-cluster", "renew-crypto", "--force",
            "--new-cluster-certificate", "--new-confd-hmac-key",
-           "--new-rapi-certificate"]
+           "--new-rapi-certificate", "--new-cluster-domain-secret"]
     AssertEqual(StartSSH(master["primary"],
                          utils.ShellQuoteArgs(cmd)).wait(), 0)
 
@@ -279,16 +330,16 @@ def TestClusterBurnin():
 
 
 def TestClusterMasterFailover():
-  """gnt-cluster masterfailover"""
+  """gnt-cluster master-failover"""
   master = qa_config.GetMasterNode()
 
   failovermaster = qa_config.AcquireNode(exclude=master)
   try:
-    cmd = ['gnt-cluster', 'masterfailover']
+    cmd = ['gnt-cluster', 'master-failover']
     AssertEqual(StartSSH(failovermaster['primary'],
                          utils.ShellQuoteArgs(cmd)).wait(), 0)
 
-    cmd = ['gnt-cluster', 'masterfailover']
+    cmd = ['gnt-cluster', 'master-failover']
     AssertEqual(StartSSH(master['primary'],
                          utils.ShellQuoteArgs(cmd)).wait(), 0)
   finally:

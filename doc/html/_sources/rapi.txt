@@ -53,7 +53,7 @@ Example::
 
 
 .. [#pwhash] Using the MD5 hash of username, realm and password is
-   described in RFC2617_ ("HTTP Authentication"), sections 3.2.2.2 and
+   described in :rfc:`2617` ("HTTP Authentication"), sections 3.2.2.2 and
    3.3. The reason for using it over another algorithm is forward
    compatibility. If ``ganeti-rapi`` were to implement HTTP Digest
    authentication in the future, the same hash could be used.
@@ -65,19 +65,51 @@ Protocol
 --------
 
 The protocol used is JSON_ over HTTP designed after the REST_ principle.
-HTTP Basic authentication as per RFC2617_ is supported.
+HTTP Basic authentication as per :rfc:`2617` is supported.
 
 .. _JSON: http://www.json.org/
 .. _REST: http://en.wikipedia.org/wiki/Representational_State_Transfer
-.. _RFC2617: http://tools.ietf.org/rfc/rfc2617.txt
+
+
+A note on JSON as used by RAPI
+++++++++++++++++++++++++++++++
+
+JSON_ as used by Ganeti RAPI does not conform to the specification in
+:rfc:`4627`. Section 2 defines a JSON text to be either an object
+(``{"key": "value", …}``) or an array (``[1, 2, 3, …]``). In violation
+of this RAPI uses plain strings (``"master-candidate"``, ``"1234"``) for
+some requests or responses. Changing this now would likely break
+existing clients and cause a lot of trouble.
+
+.. highlight:: ruby
+
+Unlike Python's `JSON encoder and decoder
+<http://docs.python.org/library/json.html>`_, other programming
+languages or libraries may only provide a strict implementation, not
+allowing plain values. For those, responses can usually be wrapped in an
+array whose first element is then used, e.g. the response ``"1234"``
+becomes ``["1234"]``. This works equally well for more complex values.
+Example in Ruby::
+
+  require "json"
+
+  # Insert code to get response here
+  response = "\"1234\""
+
+  decoded = JSON.parse("[#{response}]").first
+
+Short of modifying the encoder to allow encoding to a less strict
+format, requests will have to be formatted by hand. Newer RAPI requests
+already use a dictionary as their input data and shouldn't cause any
+problems.
 
 
 PUT or POST?
 ------------
 
-According to RFC2616 the main difference between PUT and POST is that
-POST can create new resources but PUT can only create the resource the
-URI was pointing to on the PUT request.
+According to :rfc:`2616` the main difference between PUT and POST is
+that POST can create new resources but PUT can only create the resource
+the URI was pointing to on the PUT request.
 
 Unfortunately, due to historic reasons, the Ganeti RAPI library is not
 consistent with this usage, so just use the methods as documented below
@@ -375,12 +407,12 @@ Body parameters:
   Must be ``1`` (older Ganeti versions used a different format for
   instance creation requests, version ``0``, but that format is not
   documented).
-``mode``
-  Instance creation mode (string, required).
+``mode`` (string, required)
+  Instance creation mode.
 ``name`` (string, required)
-  Instance name
+  Instance name.
 ``disk_template`` (string, required)
-  Disk template for instance
+  Disk template for instance.
 ``disks`` (list, required)
   List of disk definitions. Example: ``[{"size": 100}, {"size": 5}]``.
   Each disk definition must contain a ``size`` value and can contain an
@@ -388,10 +420,13 @@ Body parameters:
   ``rw``).
 ``nics`` (list, required)
   List of NIC (network interface) definitions. Example: ``[{}, {},
-  {"ip": "1.2.3.4"}]``. Each NIC definition can contain the optional
-  values ``ip``, ``mode``, ``link`` and ``bridge``.
-``os`` (string)
+  {"ip": "198.51.100.4"}]``. Each NIC definition can contain the
+  optional values ``ip``, ``mode``, ``link`` and ``bridge``.
+``os`` (string, required)
   Instance operating system.
+``osparams`` (dictionary)
+  Dictionary with OS parameters. If not valid for the given OS, the job
+  will fail.
 ``force_variant`` (bool)
   Whether to force an unknown variant.
 ``pnode`` (string)
@@ -414,11 +449,17 @@ Body parameters:
   File storage driver.
 ``iallocator`` (string)
   Instance allocator name.
+``source_handshake`` (list)
+  Signed handshake from source (remote import only).
+``source_x509_ca`` (string)
+  Source X509 CA in PEM format (remote import only).
+``source_instance_name`` (string)
+  Source instance name (remote import only).
 ``hypervisor`` (string)
   Hypervisor name.
 ``hvparams`` (dict)
   Hypervisor parameters, hypervisor-dependent.
-``beparams``
+``beparams`` (dict)
   Backend parameters.
 
 
@@ -577,6 +618,128 @@ It supports the following commands: ``PUT``.
 ~~~~~~~
 
 Takes no parameters.
+
+
+``/2/instances/[instance_name]/prepare-export``
++++++++++++++++++++++++++++++++++++++++++++++++++
+
+Prepares an export of an instance.
+
+It supports the following commands: ``PUT``.
+
+``PUT``
+~~~~~~~
+
+Takes one parameter, ``mode``, for the export mode. Returns a job ID.
+
+
+``/2/instances/[instance_name]/export``
++++++++++++++++++++++++++++++++++++++++++++++++++
+
+Exports an instance.
+
+It supports the following commands: ``PUT``.
+
+``PUT``
+~~~~~~~
+
+Returns a job ID.
+
+Body parameters:
+
+``mode`` (string)
+  Export mode.
+``destination`` (required)
+  Destination information, depends on export mode.
+``shutdown`` (bool, required)
+  Whether to shutdown instance before export.
+``remove_instance`` (bool)
+  Whether to remove instance after export.
+``x509_key_name``
+  Name of X509 key (remote export only).
+``destination_x509_ca``
+  Destination X509 CA (remote export only).
+
+
+``/2/instances/[instance_name]/migrate``
+++++++++++++++++++++++++++++++++++++++++
+
+Migrates an instance.
+
+Supports the following commands: ``PUT``.
+
+``PUT``
+~~~~~~~
+
+Returns a job ID.
+
+Body parameters:
+
+``mode`` (string)
+  Migration mode.
+``cleanup`` (bool)
+  Whether a previously failed migration should be cleaned up.
+
+
+``/2/instances/[instance_name]/rename``
+++++++++++++++++++++++++++++++++++++++++
+
+Renames an instance.
+
+Supports the following commands: ``PUT``.
+
+``PUT``
+~~~~~~~
+
+Returns a job ID.
+
+Body parameters:
+
+``new_name`` (string, required)
+  New instance name.
+``ip_check`` (bool)
+  Whether to ensure instance's IP address is inactive.
+``name_check`` (bool)
+  Whether to ensure instance's name is resolvable.
+
+
+``/2/instances/[instance_name]/modify``
+++++++++++++++++++++++++++++++++++++++++
+
+Modifies an instance.
+
+Supports the following commands: ``PUT``.
+
+``PUT``
+~~~~~~~
+
+Returns a job ID.
+
+Body parameters:
+
+``osparams`` (dict)
+  Dictionary with OS parameters.
+``hvparams`` (dict)
+  Hypervisor parameters, hypervisor-dependent.
+``beparams`` (dict)
+  Backend parameters.
+``force`` (bool)
+  Whether to force the operation.
+``nics`` (list)
+  List of NIC changes. Each item is of the form ``(op, settings)``.
+  ``op`` can be ``add`` to add a new NIC with the specified settings,
+  ``remove`` to remove the last NIC or a number to modify the settings
+  of the NIC with that index.
+``disks`` (list)
+  List of disk changes. See ``nics``.
+``disk_template`` (string)
+  Disk template for instance.
+``remote_node`` (string)
+  Secondary node (used when changing disk template).
+``os_name`` (string)
+  Change instance's OS name. Does not reinstall the instance.
+``force_variant`` (bool)
+  Whether to force an unknown variant.
 
 
 ``/2/instances/[instance_name]/tags``
@@ -816,6 +979,21 @@ parameters must be passed::
     evacuate?iallocator=[iallocator]
     evacuate?remote_node=[nodeX.example.com]
 
+The result value will be a list, each element being a triple of the job
+id (for this specific evacuation), the instance which is being evacuated
+by this job, and the node to which it is being relocated. In case the
+node is already empty, the result will be an empty list (without any
+jobs being submitted).
+
+And additional parameter ``early_release`` signifies whether to try to
+parallelize the evacuations, at the risk of increasing I/O contention
+and increasing the chances of data loss, if the primary node of any of
+the instances being evacuated is not fully healthy.
+
+If the dry-run parameter was specified, then the evacuation jobs were
+not actually submitted, and the job IDs will be null.
+
+
 ``/2/nodes/[node_name]/migrate``
 +++++++++++++++++++++++++++++++++
 
@@ -826,10 +1004,15 @@ It supports the following commands: ``POST``.
 ``POST``
 ~~~~~~~~
 
-No parameters are required, but the bool parameter ``live`` can be set
-to use live migration (if available).
+If no mode is explicitly specified, each instances' hypervisor default
+migration mode will be used. Query parameters:
 
-    migrate?live=[0|1]
+``live`` (bool)
+  If set, use live migration if available.
+``mode`` (string)
+  Sets migration mode, ``live`` for live migration and ``non-live`` for
+  non-live migration. Supported by Ganeti 2.2 and above.
+
 
 ``/2/nodes/[node_name]/role``
 +++++++++++++++++++++++++++++

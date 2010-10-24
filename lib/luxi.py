@@ -33,6 +33,7 @@ import socket
 import collections
 import time
 import errno
+import logging
 
 from ganeti import serializer
 from ganeti import constants
@@ -40,8 +41,8 @@ from ganeti import errors
 from ganeti import utils
 
 
-KEY_METHOD = 'method'
-KEY_ARGS = 'args'
+KEY_METHOD = "method"
+KEY_ARGS = "args"
 KEY_SUCCESS = "success"
 KEY_RESULT = "result"
 
@@ -58,6 +59,7 @@ REQ_QUERY_EXPORTS = "QueryExports"
 REQ_QUERY_CONFIG_VALUES = "QueryConfigValues"
 REQ_QUERY_CLUSTER_INFO = "QueryClusterInfo"
 REQ_QUERY_TAGS = "QueryTags"
+REQ_QUERY_LOCKS = "QueryLocks"
 REQ_QUEUE_SET_DRAIN_FLAG = "SetDrainFlag"
 REQ_SET_WATCHER_PAUSE = "SetWatcherPause"
 
@@ -68,28 +70,20 @@ DEF_RWTO = 60
 WFJC_TIMEOUT = (DEF_RWTO - 1) / 2
 
 
-class ProtocolError(Exception):
-  """Denotes an error in the server communication"""
+class ProtocolError(errors.GenericError):
+  """Denotes an error in the LUXI protocol."""
 
 
 class ConnectionClosedError(ProtocolError):
-  """Connection closed error"""
+  """Connection closed error."""
 
 
 class TimeoutError(ProtocolError):
-  """Operation timeout error"""
-
-
-class EncodingError(ProtocolError):
-  """Encoding failure on the sending side"""
-
-
-class DecodingError(ProtocolError):
-  """Decoding failure on the receiving side"""
+  """Operation timeout error."""
 
 
 class RequestError(ProtocolError):
-  """Error on request
+  """Error on request.
 
   This signifies an error in the request format or request handling,
   but not (e.g.) an error in starting up an instance.
@@ -102,10 +96,18 @@ class RequestError(ProtocolError):
 
 
 class NoMasterError(ProtocolError):
-  """The master cannot be reached
+  """The master cannot be reached.
 
   This means that the master daemon is not running or the socket has
   been removed.
+
+  """
+
+
+class PermissionError(ProtocolError):
+  """Permission denied while connecting to the master socket.
+
+  This means the user doesn't have the proper rights.
 
   """
 
@@ -175,9 +177,12 @@ class Transport:
     except socket.timeout, err:
       raise TimeoutError("Connect timed out: %s" % str(err))
     except socket.error, err:
-      if err.args[0] in (errno.ENOENT, errno.ECONNREFUSED):
+      error_code = err.args[0]
+      if error_code in (errno.ENOENT, errno.ECONNREFUSED):
         raise NoMasterError(address)
-      if err.args[0] == errno.EAGAIN:
+      elif error_code in (errno.EPERM, errno.EACCES):
+        raise PermissionError(address)
+      elif error_code == errno.EAGAIN:
         # Server's socket backlog is full at the moment
         raise utils.RetryAgain()
       raise
@@ -196,7 +201,8 @@ class Transport:
 
     """
     if constants.LUXI_EOM in msg:
-      raise EncodingError("Message terminator found in payload")
+      raise ProtocolError("Message terminator found in payload")
+
     self._CheckSocket()
     try:
       # TODO: sendall is not guaranteed to send everything
@@ -251,6 +257,99 @@ class Transport:
       self.socket = None
 
 
+def ParseRequest(msg):
+  """Parses a LUXI request message.
+
+  """
+  try:
+    request = serializer.LoadJson(msg)
+  except ValueError, err:
+    raise ProtocolError("Invalid LUXI request (parsing error): %s" % err)
+
+  logging.debug("LUXI request: %s", request)
+
+  if not isinstance(request, dict):
+    logging.error("LUXI request not a dict: %r", msg)
+    raise ProtocolError("Invalid LUXI request (not a dict)")
+
+  method = request.get(KEY_METHOD, None) # pylint: disable-msg=E1103
+  args = request.get(KEY_ARGS, None) # pylint: disable-msg=E1103
+
+  if method is None or args is None:
+    logging.error("LUXI request missing method or arguments: %r", msg)
+    raise ProtocolError(("Invalid LUXI request (no method or arguments"
+                         " in request): %r") % msg)
+
+  return (method, args)
+
+
+def ParseResponse(msg):
+  """Parses a LUXI response message.
+
+  """
+  # Parse the result
+  try:
+    data = serializer.LoadJson(msg)
+  except Exception, err:
+    raise ProtocolError("Error while deserializing response: %s" % str(err))
+
+  # Validate response
+  if not (isinstance(data, dict) and
+          KEY_SUCCESS in data and
+          KEY_RESULT in data):
+    raise ProtocolError("Invalid response from server: %r" % data)
+
+  return (data[KEY_SUCCESS], data[KEY_RESULT])
+
+
+def FormatResponse(success, result):
+  """Formats a LUXI response message.
+
+  """
+  response = {
+    KEY_SUCCESS: success,
+    KEY_RESULT: result,
+    }
+
+  logging.debug("LUXI response: %s", response)
+
+  return serializer.DumpJson(response)
+
+
+def FormatRequest(method, args):
+  """Formats a LUXI request message.
+
+  """
+  # Build request
+  request = {
+    KEY_METHOD: method,
+    KEY_ARGS: args,
+    }
+
+  # Serialize the request
+  return serializer.DumpJson(request, indent=False)
+
+
+def CallLuxiMethod(transport_cb, method, args):
+  """Send a LUXI request via a transport and return the response.
+
+  """
+  assert callable(transport_cb)
+
+  request_msg = FormatRequest(method, args)
+
+  # Send request and wait for response
+  response_msg = transport_cb(request_msg)
+
+  (success, result) = ParseResponse(response_msg)
+
+  if success:
+    return result
+
+  errors.MaybeRaise(result)
+  raise RequestError(result)
+
+
 class Client(object):
   """High-level client implementation.
 
@@ -300,46 +399,20 @@ class Client(object):
     except Exception: # pylint: disable-msg=W0703
       pass
 
-  def CallMethod(self, method, args):
-    """Send a generic request and return the response.
-
-    """
-    # Build request
-    request = {
-      KEY_METHOD: method,
-      KEY_ARGS: args,
-      }
-
-    # Serialize the request
-    send_data = serializer.DumpJson(request, indent=False)
-
+  def _SendMethodCall(self, data):
     # Send request and wait for response
     try:
       self._InitTransport()
-      result = self.transport.Call(send_data)
+      return self.transport.Call(data)
     except Exception:
       self._CloseTransport()
       raise
 
-    # Parse the result
-    try:
-      data = serializer.LoadJson(result)
-    except Exception, err:
-      raise ProtocolError("Error while deserializing response: %s" % str(err))
+  def CallMethod(self, method, args):
+    """Send a generic request and return the response.
 
-    # Validate response
-    if (not isinstance(data, dict) or
-        KEY_SUCCESS not in data or
-        KEY_RESULT not in data):
-      raise DecodingError("Invalid response from server: %s" % str(data))
-
-    result = data[KEY_RESULT]
-
-    if not data[KEY_SUCCESS]:
-      errors.MaybeRaise(result)
-      raise RequestError(result)
-
-    return result
+    """
+    return CallLuxiMethod(self._SendMethodCall, method, args)
 
   def SetQueueDrainFlag(self, drain_flag):
     return self.CallMethod(REQ_QUEUE_SET_DRAIN_FLAG, drain_flag)
@@ -418,3 +491,6 @@ class Client(object):
 
   def QueryTags(self, kind, name):
     return self.CallMethod(REQ_QUERY_TAGS, (kind, name))
+
+  def QueryLocks(self, fields, sync):
+    return self.CallMethod(REQ_QUERY_LOCKS, (fields, sync))

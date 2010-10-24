@@ -3,10 +3,10 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GNT-CLUSTER" "8" "24 August 2010" "ganeti 2.0" ""
+.TH "GNT-CLUSTER" "8" "19 October 2010" "Ganeti 2.2" ""
 
 .SH NAME
-gnt-cluster \- ganeti administration, cluster-wide
+gnt-cluster \- Ganeti administration, cluster-wide
 .SH SYNOPSIS
 
 \fBgnt-cluster \fR \fBcommand\fR [ \fBarguments...\fR ]
@@ -14,7 +14,7 @@ gnt-cluster \- ganeti administration, cluster-wide
 .SH "DESCRIPTION"
 .PP
 The \fBgnt-cluster\fR is used for cluster-wide
-administration in the ganeti system.
+administration in the Ganeti system.
 .SH "COMMANDS"
 .SS "ADD-TAGS"
 
@@ -135,6 +135,7 @@ further diffusion of Ganeti among ancient cultures.
     [ \fB--nic-parameters \fInic-param\fB=\fIvalue\fB [ ,\fInic-param\fB=\fIvalue\fB\fI ...\fB ]\fR ]
     [ \fB--maintain-node-health  { yes | no }\fR ]
     [ \fB--uid-pool \fIuser-id pool definition\fB\fR ]
+    [ \fB-I \fIdefault instance allocator\fB\fR ]
     \fB\fIclustername\fB\fR
 
 .PP
@@ -165,7 +166,7 @@ using tunneling, etc. For performance reasons, it's
 recommended to use a separate network, of course.
 .PP
 The \fB-g\fR option will let you specify a volume group
-different than 'xenvg' for ganeti to use when creating instance disks.
+different than "xenvg" for Ganeti to use when creating instance disks.
 This volume group must have the same name on all nodes. Once the
 cluster is initialized this can be altered by using the
 \fBmodify\fR command. If you don't want to use lvm
@@ -307,27 +308,51 @@ by a dash. The boundaries are inclusive.
 If the \fB--uid-pool\fR option is not supplied, the
 user-id pool is initialized to an empty list. An empty list means that
 the user-id pool feature is disabled.
+.PP
+The \fB-I (--default-iallocator)\fR option specifies the
+default instance allocator. The instance allocator will be used for
+operations like instance creation, instance and node migration, etc.
+when no manual override is specified. If this option is not specified,
+the default instance allocator will be blank, which means that relevant
+operations will require the administrator to manually specify either an
+instance allocator, or a set of nodes.
+The default iallocator can be changed later using the
+\fBmodify\fR command.
 .SS "LIST-TAGS"
 
 \fBlist-tags\fR
 
 .PP
 List the tags of the cluster.
-.SS "MASTERFAILOVER"
+.SS "MASTER-FAILOVER"
 
-\fBmasterfailover\fR [ \fB--no-voting\fR ]
+\fBmaster-failover\fR [ \fB--no-voting\fR ]
 
 .PP
 Failover the master role to the current node.
 .PP
 The \fB--no-voting\fR option skips the remote node agreement
 checks. This is dangerous, but necessary in some cases (for example
-failing over the master role in a 2 node cluster with the original master
-down). If the original master then comes up, it won't be able to start
-its master daemon because it won't have enough votes, but so won't the
-new master, if the master daemon ever needs a restart. You can pass
---no-voting to ganeti-masterd on the new master to solve this problem,
-and gnt-cluster redist-conf to make sure the cluster is consistent again.
+failing over the master role in a 2 node cluster with the original
+master down). If the original master then comes up, it won't be able to
+start its master daemon because it won't have enough votes, but so
+won't the new master, if the master daemon ever needs a restart. You
+can pass \fB--no-voting\fR to
+\fBganeti-masterd\fR on the new master to solve this
+problem, and run \fBgnt-cluster redist-conf\fR to make
+sure the cluster is consistent again.
+.SS "MASTER-PING"
+
+\fBmaster-ping\fR
+
+.PP
+Checks if the master daemon is alive.
+.PP
+If the master daemon is alive and can respond to a basic query
+(the equivalent of \fBgnt-cluster info\fR), then
+the exit code of the command will be 0. If the master daemon
+is not alive (either due to a crash or because this is not the
+master node), the exit code will be 1.
 .SS "MODIFY"
 
 \fBmodify\fR
@@ -343,6 +368,8 @@ and gnt-cluster redist-conf to make sure the cluster is consistent again.
     [ \fB--remove-uids \fIuser-id pool definition\fB\fR ]
     [ \fB-C \fIcandidate_pool_size\fB\fR ]
     [ \fB--maintain-node-health  { yes | no }\fR ]
+    [ \fB-I \fIdefault instance allocator\fB\fR ]
+    [ \fB--reserved-lvs=\fINAMES\fB\fR ]
 
 .PP
 Modify the options for the cluster.
@@ -352,8 +379,9 @@ The \fB-g\fR, \fB--no-lvm-storarge\fR,
 \fB--hypervisor-parameters\fR,
 \fB--backend-parameters\fR,
 \fB--nic-parameters\fR,
-\fB--maintain-node-health\fR and
-\fB--uid-pool\fR options are
+\fB--maintain-node-health\fR,
+\fB--uid-pool\fR and
+\fB-I\fR options are
 described in the \fBinit\fR command.
 .PP
 The \fB-C\fR option specifies the
@@ -367,6 +395,20 @@ to reach the intended number.
 The \fB--add-uids\fR and \fB--remove-uids\fR
 options can be used to modify the user-id pool by adding/removing
 a list of user-ids or user-id ranges.
+.PP
+The option \fB--reserved-lvs\fR specifies a list
+(comma-separated) of logical volume group names (regular
+expressions) that will be ignored by the cluster verify
+operation. This is useful if the volume group used for Ganeti
+is shared with the system for other uses. Note that it's not
+recommended to create and mark as ignored logical volume names
+which match Ganeti's own name format (starting with UUID and
+then \&.diskN), as this option only skips the
+verification, but not the actual use of the names given.
+.PP
+To remove all reserved logical volumes, pass in an empty
+argument to the option, as in \fB--reserved-lvs=\fR
+or \fB--reserved-lvs ''\fR\&.
 .SS "QUEUE"
 
 \fBqueue\fR [ \fBdrain\fR ] [ \fBundrain\fR ] [ \fBinfo\fR ]
@@ -443,6 +485,7 @@ run with the \fB-f\fR option.
 \fBrenew-crypto\fR [ \fB-f\fR ]
     [ \fB--new-cluster-certificate\fR ] [ \fB--new-confd-hmac-key\fR ]
     [ \fB--new-rapi-certificate\fR ] [ \fB--rapi-certificate \fIrapi-cert\fB\fR ]
+    [ \fB--new-cluster-domain-secret\fR ] [ \fB--cluster-domain-secret \fIfilename\fB\fR ]
 
 .PP
 This command will stop all
@@ -451,11 +494,17 @@ certificates and keys are replicated. The options
 \fB--new-cluster-certificate\fR and
 \fB--new-confd-hmac-key\fR can be used to regenerate the
 cluster-internal SSL certificate respective the HMAC key used by
-\fBganeti-confd\fR(8)\&. To generate a new self-signed RAPI certificate (used
-by \fBganeti-rapi\fR(8)) specify \fB--new-rapi-certificate\fR\&. If
+\fBganeti-confd\fR(8)\&.
+.PP
+To generate a new self-signed RAPI certificate (used by \fBganeti-rapi\fR(8)) specify \fB--new-rapi-certificate\fR\&. If
 you want to use your own certificate, e.g. one signed by a certificate
 authority (CA), pass its filename to
 \fB--rapi-certificate\fR\&.
+.PP
+\fB--new-cluster-domain-secret\fR generates a new, random
+cluster domain secret. \fB--cluster-domain-secret\fR reads
+the secret from a file. The cluster domain secret is used to sign
+information exchanged between separate clusters via a third party.
 .SS "REPAIR-DISK-SIZES"
 
 \fBrepair-disk-sizes\fR [ \fBinstance\fR\fI ...\fR ]
@@ -514,7 +563,7 @@ Verify correctness of cluster configuration. This is safe with
 respect to running instances, and incurs no downtime of the
 instances.
 .PP
-If the \fB--no-nplus1-mem\fR option is given, ganeti won't
+If the \fB--no-nplus1-mem\fR option is given, Ganeti won't
 check whether if it loses a node it can restart all the instances on
 their secondaries (and report an error otherwise).
 .SS "VERIFY-DISKS"
@@ -538,7 +587,7 @@ Show the cluster version.
 .SH "REPORTING BUGS"
 .PP
 Report bugs to  <URL:http://code.google.com/p/ganeti/> or contact the
-developers using the ganeti mailing list
+developers using the Ganeti mailing list
 <ganeti@googlegroups.com>\&.
 .SH "SEE ALSO"
 .PP
@@ -563,7 +612,7 @@ Ganeti daemons:
 \fBganeti-rapi\fR(8) (remote API daemon).
 .SH "COPYRIGHT"
 .PP
-Copyright (C) 2006, 2007, 2008, 2009 Google Inc. Permission is
+Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc. Permission is
 granted to copy, distribute and/or modify under the terms of the
 GNU General Public License as published by the Free Software
 Foundation; either version 2 of the License, or (at your option)

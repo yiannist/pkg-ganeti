@@ -2,7 +2,7 @@
 
   <!-- Fill in your name for FIRSTNAME and SURNAME. -->
   <!-- Please adjust the date whenever revising the manpage. -->
-  <!ENTITY dhdate      "<date>February 12, 2009</date>">
+  <!ENTITY dhdate      "<date>June 08, 2010</date>">
   <!-- SECTION should be 1-8, maybe w/ subsection other parameters are
        allowed: see man(7), man(1). -->
   <!ENTITY dhsection   "<manvolnum>8</manvolnum>">
@@ -30,12 +30,12 @@
     &dhucpackage;
 
     &dhsection;
-    <refmiscinfo>ganeti 2.0</refmiscinfo>
+    <refmiscinfo>Ganeti 2.2</refmiscinfo>
   </refmeta>
   <refnamediv>
     <refname>&dhpackage;</refname>
 
-    <refpurpose>ganeti administration, cluster-wide</refpurpose>
+    <refpurpose>Ganeti administration, cluster-wide</refpurpose>
   </refnamediv>
   <refsynopsisdiv>
     <cmdsynopsis>
@@ -50,7 +50,7 @@
 
     <para>
       The <command>&dhpackage;</command> is used for cluster-wide
-      administration in the ganeti system.
+      administration in the Ganeti system.
     </para>
 
   </refsect1>
@@ -254,6 +254,8 @@
         <sbr>
         <arg>--uid-pool <replaceable>user-id pool definition</replaceable></arg>
         <sbr>
+        <arg>-I <replaceable>default instance allocator</replaceable></arg>
+        <sbr>
         <arg choice="req"><replaceable>clustername</replaceable></arg>
       </cmdsynopsis>
 
@@ -293,7 +295,7 @@
 
       <para>
         The <option>-g</option> option will let you specify a volume group
-        different than 'xenvg' for ganeti to use when creating instance disks.
+        different than "xenvg" for Ganeti to use when creating instance disks.
         This volume group must have the same name on all nodes. Once the
         cluster is initialized this can be altered by using the
         <command>modify</command> command. If you don't want to use lvm
@@ -537,6 +539,18 @@
         the user-id pool feature is disabled.
       </para>
 
+      <para>
+        The <option>-I (--default-iallocator)</option> option specifies the
+        default instance allocator. The instance allocator will be used for
+        operations like instance creation, instance and node migration, etc.
+        when no manual override is specified. If this option is not specified,
+        the default instance allocator will be blank, which means that relevant
+        operations will require the administrator to manually specify either an
+        instance allocator, or a set of nodes.
+        The default iallocator can be changed later using the
+        <command>modify</command> command.
+      </para>
+
     </refsect2>
 
     <refsect2>
@@ -550,10 +564,10 @@
     </refsect2>
 
     <refsect2>
-      <title>MASTERFAILOVER</title>
+      <title>MASTER-FAILOVER</title>
 
       <cmdsynopsis>
-        <command>masterfailover</command>
+        <command>master-failover</command>
         <arg>--no-voting</arg>
       </cmdsynopsis>
 
@@ -564,12 +578,35 @@
       <para>
         The <option>--no-voting</option> option skips the remote node agreement
         checks. This is dangerous, but necessary in some cases (for example
-        failing over the master role in a 2 node cluster with the original master
-        down). If the original master then comes up, it won't be able to start
-        its master daemon because it won't have enough votes, but so won't the
-        new master, if the master daemon ever needs a restart. You can pass
-        --no-voting to ganeti-masterd on the new master to solve this problem,
-        and gnt-cluster redist-conf to make sure the cluster is consistent again.
+        failing over the master role in a 2 node cluster with the original
+        master down). If the original master then comes up, it won't be able to
+        start its master daemon because it won't have enough votes, but so
+        won't the new master, if the master daemon ever needs a restart. You
+        can pass <option>--no-voting</option> to
+        <command>ganeti-masterd</command> on the new master to solve this
+        problem, and run <command>gnt-cluster redist-conf</command> to make
+        sure the cluster is consistent again.
+      </para>
+
+    </refsect2>
+
+    <refsect2>
+      <title>MASTER-PING</title>
+
+      <cmdsynopsis>
+        <command>master-ping</command>
+      </cmdsynopsis>
+
+      <para>
+        Checks if the master daemon is alive.
+      </para>
+
+      <para>
+        If the master daemon is alive and can respond to a basic query
+        (the equivalent of <command>gnt-cluster info</command>), then
+        the exit code of the command will be 0. If the master daemon
+        is not alive (either due to a crash or because this is not the
+        master node), the exit code will be 1.
       </para>
 
     </refsect2>
@@ -602,6 +639,11 @@
         <arg choice="opt">-C <replaceable>candidate_pool_size</replaceable></arg>
         <sbr>
         <arg>--maintain-node-health <group choice="req"><arg>yes</arg><arg>no</arg></group></arg>
+        <sbr>
+        <arg choice="opt">-I <replaceable>default instance allocator</replaceable></arg>
+
+        <sbr>
+        <arg>--reserved-lvs=<replaceable>NAMES</replaceable></arg>
 
       </cmdsynopsis>
 
@@ -615,8 +657,9 @@
           <option>--hypervisor-parameters</option>,
           <option>--backend-parameters</option>,
           <option>--nic-parameters</option>,
-          <option>--maintain-node-health</option> and
-          <option>--uid-pool</option> options are
+          <option>--maintain-node-health</option>,
+          <option>--uid-pool</option> and
+          <option>-I</option> options are
           described in the <command>init</command> command.
         </para>
 
@@ -636,6 +679,26 @@
         The <option>--add-uids</option> and <option>--remove-uids</option>
         options can be used to modify the user-id pool by adding/removing
         a list of user-ids or user-id ranges.
+      </para>
+
+      <para>
+        The option <option>--reserved-lvs</option> specifies a list
+        (comma-separated) of logical volume group names (regular
+        expressions) that will be ignored by the cluster verify
+        operation. This is useful if the volume group used for Ganeti
+        is shared with the system for other uses. Note that it's not
+        recommended to create and mark as ignored logical volume names
+        which match Ganeti's own name format (starting with UUID and
+        then <literal>.diskN</literal>), as this option only skips the
+        verification, but not the actual use of the names given.
+      </para>
+
+      <para>
+        To remove all reserved logical volumes, pass in an empty
+        argument to the option, as in <option>--reserved-lvs=</option>
+        or <option>--reserved-lvs ''</option>.
+      </para>
+
     </refsect2>
 
     <refsect2>
@@ -783,6 +846,9 @@
         <sbr>
         <arg choice="opt">--new-rapi-certificate</arg>
         <arg choice="opt">--rapi-certificate <replaceable>rapi-cert</replaceable></arg>
+        <sbr>
+        <arg choice="opt">--new-cluster-domain-secret</arg>
+        <arg choice="opt">--cluster-domain-secret <replaceable>filename</replaceable></arg>
       </cmdsynopsis>
 
       <para>
@@ -794,13 +860,23 @@
         cluster-internal SSL certificate respective the HMAC key used by
         <citerefentry>
         <refentrytitle>ganeti-confd</refentrytitle><manvolnum>8</manvolnum>
-        </citerefentry>. To generate a new self-signed RAPI certificate (used
-        by <citerefentry>
+        </citerefentry>.
+      </para>
+
+      <para>
+        To generate a new self-signed RAPI certificate (used by <citerefentry>
         <refentrytitle>ganeti-rapi</refentrytitle><manvolnum>8</manvolnum>
         </citerefentry>) specify <option>--new-rapi-certificate</option>. If
         you want to use your own certificate, e.g. one signed by a certificate
         authority (CA), pass its filename to
         <option>--rapi-certificate</option>.
+      </para>
+
+      <para>
+        <option>--new-cluster-domain-secret</option> generates a new, random
+        cluster domain secret. <option>--cluster-domain-secret</option> reads
+        the secret from a file. The cluster domain secret is used to sign
+        information exchanged between separate clusters via a third party.
       </para>
     </refsect2>
 
@@ -887,7 +963,7 @@
       </para>
 
       <para>
-        If the <option>--no-nplus1-mem</option> option is given, ganeti won't
+        If the <option>--no-nplus1-mem</option> option is given, Ganeti won't
         check whether if it loses a node it can restart all the instances on
         their secondaries (and report an error otherwise).
       </para>

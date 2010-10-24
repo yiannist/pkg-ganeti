@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2008 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -30,6 +30,7 @@ from ganeti import constants
 from ganeti import errors
 from ganeti import utils
 from ganeti.hypervisor import hv_base
+from ganeti import netutils
 
 
 class XenHypervisor(hv_base.BaseHypervisor):
@@ -409,7 +410,7 @@ class XenHypervisor(hv_base.BaseHypervisor):
 
     port = instance.hvparams[constants.HV_MIGRATION_PORT]
 
-    if not utils.TcpPing(target, port, live_port_needed=True):
+    if not netutils.TcpPing(target, port, live_port_needed=True):
       raise errors.HypervisorError("Remote host %s not listening on port"
                                    " %s, cannot migrate" % (target, port))
 
@@ -457,6 +458,7 @@ class XenPvmHypervisor(XenHypervisor):
     constants.HV_ROOT_PATH: hv_base.REQUIRED_CHECK,
     constants.HV_KERNEL_ARGS: hv_base.NO_CHECK,
     constants.HV_MIGRATION_PORT: hv_base.NET_PORT_CHECK,
+    constants.HV_MIGRATION_MODE: hv_base.MIGRATION_MODE_CHECK,
     }
 
   @classmethod
@@ -549,12 +551,13 @@ class XenHvmHypervisor(XenHypervisor):
       hv_base.ParamInSet(True, constants.HT_HVM_VALID_NIC_TYPES),
     constants.HV_PAE: hv_base.NO_CHECK,
     constants.HV_VNC_BIND_ADDRESS:
-      (False, utils.IsValidIP,
+      (False, netutils.IsValidIP4,
        "VNC bind address is not a valid IP address", None, None),
     constants.HV_KERNEL_PATH: hv_base.REQ_FILE_CHECK,
     constants.HV_DEVICE_MODEL: hv_base.REQ_FILE_CHECK,
     constants.HV_VNC_PASSWORD_FILE: hv_base.REQ_FILE_CHECK,
     constants.HV_MIGRATION_PORT: hv_base.NET_PORT_CHECK,
+    constants.HV_MIGRATION_MODE: hv_base.MIGRATION_MODE_CHECK,
     constants.HV_USE_LOCALTIME: hv_base.NO_CHECK,
     }
 

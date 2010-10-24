@@ -1,5 +1,3 @@
-
-
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
   "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 
@@ -7,22 +5,21 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Security in Ganeti &mdash; Ganeti v2.1.7 documentation</title>
+    <title>Security in Ganeti &mdash; Ganeti v2.2.1 documentation</title>
     <link rel="stylesheet" href="_static/default.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.1.7',
-        COLLAPSE_INDEX: false,
+        VERSION:     '2.2.1',
+        COLLAPSE_MODINDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
       };
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
-    <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.1.7 documentation" href="index.html" />
+    <link rel="top" title="Ganeti v2.2.1 documentation" href="index.html" />
     <link rel="next" title="Ganeti 2.0 design" href="design-2.0.html" />
     <link rel="prev" title="Ganeti walk-through" href="walkthrough.html" /> 
   </head>
@@ -36,7 +33,7 @@
         <li class="right" >
           <a href="walkthrough.html" title="Ganeti walk-through"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.1.7 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.2.1 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -130,10 +127,19 @@ non-Linux system at the moment.</p>
 <div class="section" id="remote-api">
 <h2>Remote API<a class="headerlink" href="#remote-api" title="Permalink to this headline">¶</a></h2>
 <p>Starting with Ganeti 2.0, Remote API traffic is encrypted using SSL/TLS
-by default. It supports Basic authentication as per RFC2617.</p>
+by default. It supports Basic authentication as per <span class="target" id="index-6"></span><a class="reference external" href="http://tools.ietf.org/html/rfc2617.html"><strong>RFC 2617</strong></a>.</p>
 <p>Paths for certificate, private key and CA files required for SSL/TLS
 will be set at source configure time. Symlinks or command line
 parameters may be used to use different files.</p>
+</div>
+<div class="section" id="inter-cluster-instance-moves">
+<h2>Inter-cluster instance moves<a class="headerlink" href="#inter-cluster-instance-moves" title="Permalink to this headline">¶</a></h2>
+<p>To move instances between clusters, different clusters must be able to
+communicate with each other over a secure channel. Up to and including
+Ganeti 2.1, clusters were self-contained entities and had no knowledge
+of other clusters. With Ganeti 2.2, clusters can exchange data if tokens
+(an encryption certificate) was exchanged by a trusted third party
+before.</p>
 </div>
 <div class="section" id="kvm-security">
 <h2>KVM Security<a class="headerlink" href="#kvm-security" title="Permalink to this headline">¶</a></h2>
@@ -179,42 +185,43 @@ from a jailbroken instance.</p>
       </div>
       <div class="sphinxsidebar">
         <div class="sphinxsidebarwrapper">
-  <h3><a href="index.html">Table Of Contents</a></h3>
-  <ul>
-<li><a class="reference internal" href="#">Security in Ganeti</a><ul>
-<li><a class="reference internal" href="#host-issues">Host issues</a></li>
-<li><a class="reference internal" href="#cluster-issues">Cluster issues</a></li>
-<li><a class="reference internal" href="#master-daemon">Master daemon</a></li>
-<li><a class="reference internal" href="#remote-api">Remote API</a></li>
-<li><a class="reference internal" href="#kvm-security">KVM Security</a></li>
+            <h3><a href="index.html">Table Of Contents</a></h3>
+            <ul>
+<li><a class="reference external" href="#">Security in Ganeti</a><ul>
+<li><a class="reference external" href="#host-issues">Host issues</a></li>
+<li><a class="reference external" href="#cluster-issues">Cluster issues</a></li>
+<li><a class="reference external" href="#master-daemon">Master daemon</a></li>
+<li><a class="reference external" href="#remote-api">Remote API</a></li>
+<li><a class="reference external" href="#inter-cluster-instance-moves">Inter-cluster instance moves</a></li>
+<li><a class="reference external" href="#kvm-security">KVM Security</a></li>
 </ul>
 </li>
 </ul>
 
-  <h4>Previous topic</h4>
-  <p class="topless"><a href="walkthrough.html"
-                        title="previous chapter">Ganeti walk-through</a></p>
-  <h4>Next topic</h4>
-  <p class="topless"><a href="design-2.0.html"
-                        title="next chapter">Ganeti 2.0 design</a></p>
-  <h3>This Page</h3>
-  <ul class="this-page-menu">
-    <li><a href="_sources/security.txt"
-           rel="nofollow">Show Source</a></li>
-  </ul>
-<div id="searchbox" style="display: none">
-  <h3>Quick search</h3>
-    <form class="search" action="search.html" method="get">
-      <input type="text" name="q" size="18" />
-      <input type="submit" value="Go" />
-      <input type="hidden" name="check_keywords" value="yes" />
-      <input type="hidden" name="area" value="default" />
-    </form>
-    <p class="searchtip" style="font-size: 90%">
-    Enter search terms or a module, class or function name.
-    </p>
-</div>
-<script type="text/javascript">$('#searchbox').show(0);</script>
+            <h4>Previous topic</h4>
+            <p class="topless"><a href="walkthrough.html"
+                                  title="previous chapter">Ganeti walk-through</a></p>
+            <h4>Next topic</h4>
+            <p class="topless"><a href="design-2.0.html"
+                                  title="next chapter">Ganeti 2.0 design</a></p>
+            <h3>This Page</h3>
+            <ul class="this-page-menu">
+              <li><a href="_sources/security.txt"
+                     rel="nofollow">Show Source</a></li>
+            </ul>
+          <div id="searchbox" style="display: none">
+            <h3>Quick search</h3>
+              <form class="search" action="search.html" method="get">
+                <input type="text" name="q" size="18" />
+                <input type="submit" value="Go" />
+                <input type="hidden" name="check_keywords" value="yes" />
+                <input type="hidden" name="area" value="default" />
+              </form>
+              <p class="searchtip" style="font-size: 90%">
+              Enter search terms or a module, class or function name.
+              </p>
+          </div>
+          <script type="text/javascript">$('#searchbox').show(0);</script>
         </div>
       </div>
       <div class="clearer"></div>
@@ -228,12 +235,12 @@ from a jailbroken instance.</p>
         <li class="right" >
           <a href="walkthrough.html" title="Ganeti walk-through"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.1.7 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.2.1 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">
-        &copy; Copyright 2006, 2007, 2008, 2009, Google Inc..
-      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.0b2.
+      &copy; Copyright 2006, 2007, 2008, 2009, 2010, Google Inc..
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 0.6.7.
     </div>
   </body>
 </html>

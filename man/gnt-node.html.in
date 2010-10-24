@@ -25,7 +25,7 @@ NAME="AEN14"
 ></A
 ><H2
 >Name</H2
->gnt-node&nbsp;--&nbsp;node administration</DIV
+>gnt-node&nbsp;--&nbsp;Node administration</DIV
 ><DIV
 CLASS="REFSYNOPSISDIV"
 ><A
@@ -51,7 +51,7 @@ NAME="AEN22"
 CLASS="COMMAND"
 >gnt-node</B
 > is used for managing the
-      (physical) nodes in the ganeti system.
+      (physical) nodes in the Ganeti system.
     </P
 ></DIV
 ><DIV
@@ -90,7 +90,7 @@ CLASS="REPLACEABLE"
 >        This command is used to join a new node to the cluster. You
         will have to provide the password for root of the node to be
         able to add the node in the cluster. The command needs to be
-        run on the ganeti master.
+        run on the Ganeti master.
       </P
 ><P
 >        Note that the command is potentially destructive, as it will
@@ -135,7 +135,7 @@ CLASS="LITERAL"
         <PRE
 CLASS="SCREEN"
 ># gnt-node add node5.example.com
-# gnt-node add -s 192.168.44.5 node5.example.com
+# gnt-node add -s 192.0.2.5 node5.example.com
         </PRE
 >
       </P
@@ -737,7 +737,7 @@ NAME="AEN282"
 ><B
 CLASS="COMMAND"
 >migrate</B
->  [-f] [--non-live] {<TT
+>  [-f] [--non-live] [--migration-mode=live|non-live] {<TT
 CLASS="REPLACEABLE"
 ><I
 >node</I
@@ -753,11 +753,15 @@ CLASS="REPLACEABLE"
 CLASS="COMMAND"
 >gnt-instance migrate</B
 > command,
-        the <CODE
+        the options <CODE
 CLASS="OPTION"
 >--no-live</CODE
-> option can be given to do a
-        non-live migration.
+>
+        and <CODE
+CLASS="OPTION"
+>--migration-mode</CODE
+> can be given to
+        influence the migration type.
       </P
 ><P
 >        Example:
@@ -771,7 +775,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN296"
+NAME="AEN298"
 ></A
 ><H3
 >MODIFY</H3
@@ -851,7 +855,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN324"
+NAME="AEN326"
 ></A
 ><H3
 >REMOVE</H3
@@ -881,7 +885,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN333"
+NAME="AEN335"
 ></A
 ><H3
 >REMOVE-TAGS</H3
@@ -923,7 +927,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN346"
+NAME="AEN348"
 ></A
 ><H3
 >VOLUMES</H3
@@ -1050,7 +1054,7 @@ node1.example.com /dev/hdc1 xenvg instance1.example.com-sda_11001.data 256  inst
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN396"
+NAME="AEN398"
 ></A
 ><H3
 >LIST-STORAGE</H3
@@ -1234,7 +1238,7 @@ node2 lvm-pv /dev/sdb1 698.6G   0M 698.6G Y
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN461"
+NAME="AEN463"
 ></A
 ><H3
 >MODIFY-STORAGE</H3
@@ -1281,7 +1285,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN478"
+NAME="AEN480"
 ></A
 ><H3
 >REPAIR-STORAGE</H3
@@ -1370,7 +1374,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN500"
+NAME="AEN502"
 ></A
 ><H3
 >POWERCYCLE</H3
@@ -1394,7 +1398,7 @@ CLASS="REPLACEABLE"
 >        This commands (tries to) forcefully reboot a node. It is a
         command that can be used if the node environemnt is broken,
         such that the admin can no longer login over ssh, but the
-        ganeti node daemon is still working.
+        Ganeti node daemon is still working.
       </P
 ><P
 >        Note that this command is not guaranteed to work; it depends
@@ -1421,7 +1425,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN516"
+NAME="AEN518"
 ></A
 ><H2
 >REPORTING BUGS</H2
@@ -1431,14 +1435,14 @@ HREF="http://code.google.com/p/ganeti/"
 TARGET="_top"
 >http://code.google.com/p/ganeti/</A
 > or contact the
-      developers using the ganeti mailing list
+      developers using the Ganeti mailing list
       &lt;ganeti@googlegroups.com&gt;.
     </P
 ></DIV
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN520"
+NAME="AEN522"
 ></A
 ><H2
 >SEE ALSO</H2
@@ -1554,12 +1558,12 @@ CLASS="REFENTRYTITLE"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN567"
+NAME="AEN569"
 ></A
 ><H2
 >COPYRIGHT</H2
 ><P
->      Copyright (C) 2006, 2007, 2008, 2009 Google Inc. Permission is
+>      Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc. Permission is
       granted to copy, distribute and/or modify under the terms of the
       <ACRONYM
 CLASS="ACRONYM"

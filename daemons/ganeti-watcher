@@ -1,7 +1,7 @@
 #!/usr/bin/python
 #
 
-# Copyright (C) 2006, 2007, 2008 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -47,10 +47,19 @@ from ganeti import luxi
 from ganeti import ssconf
 from ganeti import bdev
 from ganeti import hypervisor
+from ganeti import rapi
 from ganeti.confd import client as confd_client
+from ganeti import netutils
+
+import ganeti.rapi.client # pylint: disable-msg=W0611
 
 
 MAXTRIES = 5
+# Delete any record that is older than 8 hours; this value is based on
+# the fact that the current retry counter is 5, and watcher runs every
+# 5 minutes, so it takes around half an hour to exceed the retry
+# counter, so 8 hours (16*1/2h) seems like a reasonable reset time
+RETRY_EXPIRATION = 8 * 3600
 BAD_STATES = ['ERROR_down']
 HELPLESS_STATES = ['ERROR_nodedown', 'ERROR_nodeoffline']
 NOTICE = 'NOTICE'
@@ -206,7 +215,7 @@ class NodeMaintenance(object):
     """Check node status versus cluster desired state.
 
     """
-    my_name = utils.HostInfo().name
+    my_name = netutils.HostInfo().name
     req = confd_client.ConfdClientRequest(type=
                                           constants.CONFD_REQ_NODE_ROLE_BYNAME,
                                           query=my_name)
@@ -322,6 +331,28 @@ class WatcherState(object):
 
     return 0
 
+  def MaintainInstanceList(self, instances):
+    """Perform maintenance on the recorded instances.
+
+    @type instances: list of string
+    @param instances: the list of currently existing instances
+
+    """
+    idict = self._data["instance"]
+    # First, delete obsolete instances
+    obsolete_instances = set(idict).difference(instances)
+    for inst in obsolete_instances:
+      logging.debug("Forgetting obsolete instance %s", inst)
+      del idict[inst]
+
+    # Second, delete expired records
+    earliest = time.time() - RETRY_EXPIRATION
+    expired_instances = [i for i in idict
+                         if idict[i][KEY_RESTART_WHEN] < earliest]
+    for inst in expired_instances:
+      logging.debug("Expiring record for instance %s", inst)
+      del idict[inst]
+
   def RecordRestartAttempt(self, instance):
     """Record a restart attempt.
 
@@ -435,7 +466,7 @@ class Watcher(object):
   def __init__(self, opts, notepad):
     self.notepad = notepad
     master = client.QueryConfigValues(["master_node"])[0]
-    if master != utils.HostInfo().name:
+    if master != netutils.HostInfo().name:
       raise NotMasterError("This is not the master node")
     # first archive old jobs
     self.ArchiveJobs(opts.job_age)
@@ -509,12 +540,15 @@ class Watcher(object):
     """Make a pass over the list of instances, restarting downed ones.
 
     """
+    notepad.MaintainInstanceList(self.instances.keys())
+
     for instance in self.instances.values():
       if instance.state in BAD_STATES:
         n = notepad.NumberOfRestartAttempts(instance)
 
         if n > MAXTRIES:
-          # stay quiet.
+          logging.warning("Not restarting instance %s, retries exhausted",
+                          instance.name)
           continue
         elif n < MAXTRIES:
           last = " (Attempt #%d)" % (n + 1)
@@ -595,6 +629,33 @@ def OpenStateFile(path):
   return os.fdopen(statefile_fd, "w+")
 
 
+def IsRapiResponding(hostname):
+  """Connects to RAPI port and does a simple test.
+
+  Connects to RAPI port of hostname and does a simple test. At this time, the
+  test is GetVersion.
+
+  @type hostname: string
+  @param hostname: hostname of the node to connect to.
+  @rtype: bool
+  @return: Whether RAPI is working properly
+
+  """
+  curl_config = rapi.client.GenericCurlConfig()
+  rapi_client = rapi.client.GanetiRapiClient(hostname,
+                                             curl_config_fn=curl_config)
+  try:
+    master_version = rapi_client.GetVersion()
+  except rapi.client.CertificateError, err:
+    logging.warning("RAPI Error: CertificateError (%s)", err)
+    return False
+  except rapi.client.GanetiApiError, err:
+    logging.warning("RAPI Error: GanetiApiError (%s)", err)
+    return False
+  logging.debug("RAPI Result: master_version is %s", master_version)
+  return master_version == constants.RAPI_VERSION
+
+
 def ParseOptions():
   """Parse the command line options.
 
@@ -615,6 +676,7 @@ def ParseOptions():
   return options, args
 
 
+@rapi.client.UsesRapiClient
 def main():
   """Main function.
 
@@ -667,6 +729,18 @@ def main():
 
       # we are on master now
       utils.EnsureDaemon(constants.RAPI)
+
+      # If RAPI isn't responding to queries, try one restart.
+      logging.debug("Attempting to talk with RAPI.")
+      if not IsRapiResponding(constants.IP4_ADDRESS_LOCALHOST):
+        logging.warning("Couldn't get answer from Ganeti RAPI daemon."
+                        " Restarting Ganeti RAPI.")
+        utils.StopDaemon(constants.RAPI)
+        utils.EnsureDaemon(constants.RAPI)
+        logging.debug("Second attempt to talk with RAPI")
+        if not IsRapiResponding(constants.IP4_ADDRESS_LOCALHOST):
+          logging.fatal("RAPI is not responding. Please investigate.")
+      logging.debug("Successfully talked to RAPI.")
 
       try:
         watcher = Watcher(options, notepad)

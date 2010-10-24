@@ -21,15 +21,15 @@ NAME="AEN1"
 ><DIV
 CLASS="REFNAMEDIV"
 ><A
-NAME="AEN12"
+NAME="AEN13"
 ></A
 ><H2
 >Name</H2
->ganeti-masterd&nbsp;--&nbsp;ganeti master daemon</DIV
+>ganeti-masterd&nbsp;--&nbsp;Ganeti master daemon</DIV
 ><DIV
 CLASS="REFSYNOPSISDIV"
 ><A
-NAME="AEN15"
+NAME="AEN16"
 ></A
 ><H2
 >Synopsis</H2
@@ -42,7 +42,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN21"
+NAME="AEN22"
 ></A
 ><H2
 >DESCRIPTION</H2
@@ -71,7 +71,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN29"
+NAME="AEN30"
 ></A
 ><H3
 >ROLE</H3
@@ -87,9 +87,9 @@ NAME="AEN29"
         the failover of the master role to another node in the
         cluster, via the <B
 CLASS="COMMAND"
->gnt-cluster masterfailover</B
->
-        command.
+>gnt-cluster
+        master-failover</B
+> command.
       </P
 ><P
 >        If the master daemon is stopped, the instances are not
@@ -100,7 +100,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN35"
+NAME="AEN36"
 ></A
 ><H3
 >STARTUP</H3
@@ -127,7 +127,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN40"
+NAME="AEN41"
 ></A
 ><H3
 >JOB QUEUE</H3
@@ -164,7 +164,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN48"
+NAME="AEN49"
 ></A
 ><H3
 >COMMUNICATION PROTOCOL</H3
@@ -179,7 +179,7 @@ NAME="AEN48"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN51"
+NAME="AEN52"
 ></A
 ><H2
 >REPORTING BUGS</H2
@@ -189,14 +189,14 @@ HREF="http://code.google.com/p/ganeti/"
 TARGET="_top"
 >http://code.google.com/p/ganeti/</A
 > or contact the
-      developers using the ganeti mailing list
+      developers using the Ganeti mailing list
       &lt;ganeti@googlegroups.com&gt;.
     </P
 ></DIV
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN55"
+NAME="AEN56"
 ></A
 ><H2
 >SEE ALSO</H2
@@ -312,12 +312,12 @@ CLASS="REFENTRYTITLE"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN102"
+NAME="AEN103"
 ></A
 ><H2
 >COPYRIGHT</H2
 ><P
->      Copyright (C) 2006, 2007, 2008, 2009 Google Inc. Permission is
+>      Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc. Permission is
       granted to copy, distribute and/or modify under the terms of the
       <ACRONYM
 CLASS="ACRONYM"

@@ -44,29 +44,6 @@ from ganeti import config
 options = None
 args = None
 
-# Dictionary with instance old keys, and new hypervisor keys
-INST_HV_CHG = {
-  'hvm_pae': constants.HV_PAE,
-  'vnc_bind_address': constants.HV_VNC_BIND_ADDRESS,
-  'initrd_path': constants.HV_INITRD_PATH,
-  'hvm_nic_type': constants.HV_NIC_TYPE,
-  'kernel_path': constants.HV_KERNEL_PATH,
-  'hvm_acpi': constants.HV_ACPI,
-  'hvm_cdrom_image_path': constants.HV_CDROM_IMAGE_PATH,
-  'hvm_boot_order': constants.HV_BOOT_ORDER,
-  'hvm_disk_type': constants.HV_DISK_TYPE,
-  }
-
-# Instance beparams changes
-INST_BE_CHG = {
-  'vcpus': constants.BE_VCPUS,
-  'memory': constants.BE_MEMORY,
-  'auto_balance': constants.BE_AUTO_BALANCE,
-  }
-
-# Field names
-F_SERIAL = 'serial_no'
-
 
 class Error(Exception):
   """Generic exception"""
@@ -113,6 +90,9 @@ def main():
   parser.add_option('--path', help="Convert configuration in this"
                     " directory instead of '%s'" % constants.DATA_DIR,
                     default=constants.DATA_DIR, dest="data_dir")
+  parser.add_option("--no-verify",
+                    help="Do not verify configuration after upgrade",
+                    action="store_true", dest="no_verify", default=False)
   (options, args) = parser.parse_args()
 
   # We need to keep filenames locally because they might be renamed between
@@ -123,6 +103,7 @@ def main():
   options.KNOWN_HOSTS_PATH = options.data_dir + "/known_hosts"
   options.RAPI_CERT_FILE = options.data_dir + "/rapi.pem"
   options.CONFD_HMAC_KEY = options.data_dir + "/hmac.key"
+  options.CDS_FILE = options.data_dir + "/cluster-domain-secret"
 
   SetupLogging()
 
@@ -134,13 +115,13 @@ def main():
     usertext = ("%s MUST be run on the master node. Is this the master"
                 " node and are ALL instances down?" % program)
     if not cli.AskUser(usertext):
-      sys.exit(1)
+      sys.exit(constants.EXIT_FAILURE)
 
   # Check whether it's a Ganeti configuration directory
   if not (os.path.isfile(options.CONFIG_DATA_PATH) and
-          os.path.isfile(options.SERVER_PEM_PATH) or
+          os.path.isfile(options.SERVER_PEM_PATH) and
           os.path.isfile(options.KNOWN_HOSTS_PATH)):
-    raise Error(("%s does not seem to be a known Ganeti configuration"
+    raise Error(("%s does not seem to be a Ganeti configuration"
                  " directory") % options.data_dir)
 
   config_data = serializer.LoadJson(utils.ReadFile(options.CONFIG_DATA_PATH))
@@ -160,11 +141,19 @@ def main():
     raise Error("Inconsistent configuration: found config_version in"
                 " configuration file")
 
-  if config_major == 2 and config_minor == 0:
+  # Upgrade from 2.0/2.1 to 2.2
+  if config_major == 2 and config_minor in (0, 1):
     if config_revision != 0:
-      logging.warning("Config revision is not 0")
+      logging.warning("Config revision is %s, not 0", config_revision)
 
-    config_data["version"] = constants.BuildVersion(2, 1, 0)
+    config_data["version"] = constants.BuildVersion(2, 2, 0)
+
+  elif config_major == 2 and config_minor == 2:
+    logging.info("No changes necessary")
+
+  else:
+    raise Error("Configuration version %d.%d.%d not supported by this tool" %
+                (config_major, config_minor, config_revision))
 
   try:
     logging.info("Writing configuration file to %s", options.CONFIG_DATA_PATH)
@@ -175,18 +164,19 @@ def main():
                     backup=True)
 
     if not options.dry_run:
-      bootstrap.GenerateClusterCrypto(False, False, False,
+      bootstrap.GenerateClusterCrypto(False, False, False, False,
                                       nodecert_file=options.SERVER_PEM_PATH,
                                       rapicert_file=options.RAPI_CERT_FILE,
-                                      hmackey_file=options.CONFD_HMAC_KEY)
+                                      hmackey_file=options.CONFD_HMAC_KEY,
+                                      cds_file=options.CDS_FILE)
 
-  except:
+  except Exception:
     logging.critical("Writing configuration failed. It is probably in an"
                      " inconsistent state and needs manual intervention.")
     raise
 
   # test loading the config file
-  if not options.dry_run:
+  if not (options.dry_run or options.no_verify):
     logging.info("Testing the new config file...")
     cfg = config.ConfigWriter(cfg_file=options.CONFIG_DATA_PATH,
                               offline=True)

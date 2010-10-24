@@ -2,7 +2,7 @@
 
   <!-- Fill in your name for FIRSTNAME and SURNAME. -->
   <!-- Please adjust the date whenever revising the manpage. -->
-  <!ENTITY dhdate      "<date>February 12, 2009</date>">
+  <!ENTITY dhdate      "<date>June 08, 2010</date>">
   <!-- SECTION should be 1-8, maybe w/ subsection other parameters are
        allowed: see man(7), man(1). -->
   <!ENTITY dhsection   "<manvolnum>8</manvolnum>">
@@ -22,6 +22,7 @@
       <year>2007</year>
       <year>2008</year>
       <year>2009</year>
+      <year>2010</year>
       <holder>Google Inc.</holder>
     </copyright>
     &dhdate;
@@ -30,12 +31,12 @@
     &dhucpackage;
 
     &dhsection;
-    <refmiscinfo>ganeti 2.0</refmiscinfo>
+    <refmiscinfo>Ganeti 2.2</refmiscinfo>
   </refmeta>
   <refnamediv>
     <refname>&dhpackage;</refname>
 
-    <refpurpose>debug commands</refpurpose>
+    <refpurpose>Debug commands</refpurpose>
   </refnamediv>
   <refsynopsisdiv>
     <cmdsynopsis>
@@ -50,7 +51,7 @@
 
     <para>
       The <command>&dhpackage;</command> is used for debugging the
-      ganeti system.
+      Ganeti system.
     </para>
 
   </refsect1>
@@ -101,7 +102,7 @@
       </para>
 
       <para>
-        This build of ganeti will look for iallocator scripts in the
+        This build of Ganeti will look for iallocator scripts in the
         following directories: <filename
         class="directory">@CUSTOM_IALLOCATOR_SEARCH_PATH@</filename>;
         for more details about this framework, see the HTML or PDF
@@ -121,9 +122,9 @@
       </cmdsynopsis>
 
       <para>
-        Run a test opcode (a sleep) on the master (internally in the
-        command) and on selected nodes (via an RPC call). This server
-        no other purpose but to execute a test operation.
+        Run a test opcode (a sleep) on the master and on selected nodes
+        (via an RPC call). This serves no other purpose but to execute a
+        test operation.
       </para>
 
       <para>
@@ -153,32 +154,114 @@
       </cmdsynopsis>
 
       <para>
-        This command builds a list of opcodes from JSON-format files
-        and submits for each file a job to the master daemon. It can
-        be used to test some options that are not available via the
-        command line.
+        This command builds a list of opcodes from files in JSON format
+        and submits a job per file to the master daemon. It can be used
+        to test options that are not available via command line.
       </para>
 
       <para>
-        The <option>verbose</option> option will job the job IDs of
-        the submitted jobs and the progress in waiting for the jobs;
-        the <option>timing-stats</option> option will show some
-        overall statistics with the number of total opcodes and jobs
-        submitted, and time time for each stage (submit, exec, total).
+        The <option>verbose</option> option will additionally display
+        the corresponding job IDs and the progress in waiting for the
+        jobs; the <option>timing-stats</option> option will show some
+        overall statistics inluding the number of total opcodes, jobs
+        submitted and time spent in each stage (submit, exec, total).
       </para>
 
       <para>
         The <option>job-repeat</option> and <option>op-repeat</option>
-        options allow to submit multiple copies of the passed
-        arguments; the job repeat will cause N copies of each job
-        (input file) to be submitted (equivalent to passing the
-        arguments N times) while the op repeat will cause each job to
-        contain multiple copies of the opcodes (equivalent to each
-        file containing N copies of the opcodes).
+        options allow to submit multiple copies of the passed arguments;
+        job-repeat will cause N copies of each job (input file) to be
+        submitted (equivalent to passing the arguments N times) while
+        op-repeat will cause N copies of each of the opcodes in the file
+        to be executed (equivalent to each file containing N copies of
+        the opcodes).
       </para>
 
     </refsect2>
 
+    <refsect2>
+      <title>TEST-JOBQUEUE</title>
+
+      <cmdsynopsis>
+        <command>test-jobqueue</command>
+      </cmdsynopsis>
+
+      <para>
+        Executes a few tests on the job queue. This command might generate
+        failed jobs deliberately.
+      </para>
+    </refsect2>
+
+    <refsect2>
+      <title>LOCKS</title>
+      <cmdsynopsis>
+        <command>locks</command>
+        <arg>--no-headers</arg>
+        <arg>--separator=<replaceable>SEPARATOR</replaceable></arg>
+        <sbr>
+        <arg>-o <replaceable>[+]FIELD,...</replaceable></arg>
+        <arg>--interval=<replaceable>SECONDS</replaceable></arg>
+        <sbr>
+      </cmdsynopsis>
+
+      <para>
+        Shows a list of locks in the master daemon.
+      </para>
+
+      <para>
+        The <option>--no-headers</option> option will skip the initial
+        header line. The <option>--separator</option> option takes an
+        argument which denotes what will be used between the output
+        fields. Both these options are to help scripting.
+      </para>
+
+      <para>
+        The <option>-o</option> option takes a comma-separated list of
+        output fields. The available fields and their meaning are:
+        <variablelist>
+          <varlistentry>
+            <term>name</term>
+            <listitem>
+              <simpara>Lock name</simpara>
+            </listitem>
+          </varlistentry>
+          <varlistentry>
+            <term>mode</term>
+            <listitem>
+              <simpara>
+                Mode in which the lock is currently acquired (exclusive or
+                shared)
+              </simpara>
+            </listitem>
+          </varlistentry>
+          <varlistentry>
+            <term>owner</term>
+            <listitem>
+              <simpara>Current lock owner(s)</simpara>
+            </listitem>
+          </varlistentry>
+          <varlistentry>
+            <term>pending</term>
+            <listitem>
+              <simpara>Threads waiting for the lock</simpara>
+            </listitem>
+          </varlistentry>
+        </variablelist>
+      </para>
+
+      <para>
+        If the value of the option starts with the character
+        <constant>+</constant>, the new fields will be added to the default
+        list. This allows to quickly see the default list plus a few other
+        fields, instead of retyping the entire list of fields.
+      </para>
+
+      <para>
+        Use <option>--interval</option> to repeat the listing. A delay
+        specified by the option value in seconds is inserted.
+      </para>
+
+    </refsect2>
   </refsect1>
 
   &footer;

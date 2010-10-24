@@ -32,7 +32,6 @@ import errno
 from cStringIO import StringIO
 
 from ganeti import constants
-from ganeti import serializer
 from ganeti import utils
 
 
@@ -65,6 +64,9 @@ HTTP_WWW_AUTHENTICATE = "WWW-Authenticate"
 HTTP_AUTHORIZATION = "Authorization"
 HTTP_AUTHENTICATION_INFO = "Authentication-Info"
 HTTP_ALLOW = "Allow"
+
+HTTP_APP_OCTET_STREAM = "application/octet-stream"
+HTTP_APP_JSON = "application/json"
 
 _SSL_UNEXPECTED_EOF = "Unexpected EOF"
 
@@ -178,6 +180,17 @@ class HttpMethodNotAllowed(HttpException):
   code = 405
 
 
+class HttpNotAcceptable(HttpException):
+  """406 Not Acceptable
+
+  RFC2616, 10.4.7: The resource identified by the request is only capable of
+  generating response entities which have content characteristics not
+  acceptable according to the accept headers sent in the request.
+
+  """
+  code = 406
+
+
 class HttpRequestTimeout(HttpException):
   """408 Request Timeout
 
@@ -233,6 +246,17 @@ class HttpPreconditionFailed(HttpException):
 
   """
   code = 412
+
+
+class HttpUnsupportedMediaType(HttpException):
+  """415 Unsupported Media Type
+
+  RFC2616, 10.4.16: The server is refusing to service the request because the
+  entity of the request is in a format not supported by the requested resource
+  for the requested method.
+
+  """
+  code = 415
 
 
 class HttpInternalServerError(HttpException):
@@ -297,18 +321,6 @@ class HttpVersionNotSupported(HttpException):
 
   """
   code = 505
-
-
-class HttpJsonConverter: # pylint: disable-msg=W0232
-  CONTENT_TYPE = "application/json"
-
-  @staticmethod
-  def Encode(data):
-    return serializer.DumpJson(data)
-
-  @staticmethod
-  def Decode(data):
-    return serializer.LoadJson(data)
 
 
 def SocketOperation(sock, op, arg1, timeout):
@@ -538,6 +550,7 @@ class HttpSslParams(object):
     """
     self.ssl_key_pem = utils.ReadFile(ssl_key_path)
     self.ssl_cert_pem = utils.ReadFile(ssl_cert_path)
+    self.ssl_cert_path = ssl_cert_path
 
   def GetKey(self):
     return OpenSSL.crypto.load_privatekey(OpenSSL.crypto.FILETYPE_PEM,
@@ -584,6 +597,10 @@ class HttpBase(object):
     ctx = OpenSSL.SSL.Context(OpenSSL.SSL.SSLv23_METHOD)
     ctx.set_options(OpenSSL.SSL.OP_NO_SSLv2)
 
+    ciphers = self.GetSslCiphers()
+    logging.debug("Setting SSL cipher string %s", ciphers)
+    ctx.set_cipher_list(ciphers)
+
     ctx.use_privatekey(self._ssl_key)
     ctx.use_certificate(self._ssl_cert)
     ctx.check_privatekey()
@@ -593,7 +610,22 @@ class HttpBase(object):
                      OpenSSL.SSL.VERIFY_FAIL_IF_NO_PEER_CERT,
                      self._SSLVerifyCallback)
 
+      # Also add our certificate as a trusted CA to be sent to the client.
+      # This is required at least for GnuTLS clients to work.
+      try:
+        # This will fail for PyOpenssl versions before 0.10
+        ctx.add_client_ca(self._ssl_cert)
+      except AttributeError:
+        # Fall back to letting OpenSSL read the certificate file directly.
+        ctx.load_client_ca(ssl_params.ssl_cert_path)
+
     return OpenSSL.SSL.Connection(ctx, sock)
+
+  def GetSslCiphers(self): # pylint: disable-msg=R0201
+    """Returns the ciphers string for SSL.
+
+    """
+    return constants.OPENSSL_CIPHERS
 
   def _SSLVerifyCallback(self, conn, cert, errnum, errdepth, ok):
     """Verify the certificate provided by the peer
@@ -618,7 +650,6 @@ class HttpMessage(object):
     self.start_line = None
     self.headers = None
     self.body = None
-    self.decoded_body = None
 
 
 class HttpClientToServerStartLine(object):
@@ -777,7 +808,7 @@ class HttpMessageReader(object):
       buf = self._ContinueParsing(buf, eof)
 
       # Must be done only after the buffer has been evaluated
-      # TODO: Connection-length < len(data read) and connection closed
+      # TODO: Content-Length < len(data read) and connection closed
       if (eof and
           self.parser_status in (self.PS_START_LINE,
                                  self.PS_HEADERS)):
@@ -789,16 +820,8 @@ class HttpMessageReader(object):
     assert self.parser_status == self.PS_COMPLETE
     assert not buf, "Parser didn't read full response"
 
+    # Body is complete
     msg.body = self.body_buffer.getvalue()
-
-    # TODO: Content-type, error handling
-    if msg.body:
-      msg.decoded_body = HttpJsonConverter().Decode(msg.body)
-    else:
-      msg.decoded_body = None
-
-    if msg.decoded_body:
-      logging.debug("Message body: %s", msg.decoded_body)
 
   def _ContinueParsing(self, buf, eof):
     """Main function for HTTP message state machine.

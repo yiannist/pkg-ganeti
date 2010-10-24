@@ -28,10 +28,15 @@ import time
 import tempfile
 import shutil
 
+from ganeti import mcpu
 from ganeti import cmdlib
+from ganeti import opcodes
 from ganeti import errors
+from ganeti import utils
+from ganeti import luxi
 
 import testutils
+import mocks
 
 
 class TestCertVerification(testutils.GanetiTestCase):
@@ -52,56 +57,103 @@ class TestCertVerification(testutils.GanetiTestCase):
     self.assertEqual(errcode, cmdlib.LUVerifyCluster.ETYPE_ERROR)
 
     # Try to load non-certificate file
-    invalid_cert = self._TestDataFilename("bdev-net1.txt")
+    invalid_cert = self._TestDataFilename("bdev-net.txt")
     (errcode, msg) = cmdlib._VerifyCertificate(invalid_cert)
     self.assertEqual(errcode, cmdlib.LUVerifyCluster.ETYPE_ERROR)
 
 
-class TestVerifyCertificateInner(unittest.TestCase):
-  FAKEFILE = "/tmp/fake/cert/file.pem"
+class TestOpcodeParams(testutils.GanetiTestCase):
+  def testParamsStructures(self):
+    for op in sorted(mcpu.Processor.DISPATCH_TABLE):
+      lu = mcpu.Processor.DISPATCH_TABLE[op]
+      lu_name = lu.__name__
+      self.failIf(hasattr(lu, "_OP_REQP"), "LU '%s' has old-style _OP_REQP" %
+                  lu_name)
+      self.failIf(hasattr(lu, "_OP_DEFS"), "LU '%s' has old-style _OP_DEFS" %
+                  lu_name)
+      # this needs to remain a list!
+      defined_params = [v[0] for v in lu._OP_PARAMS]
+      for row in lu._OP_PARAMS:
+        # this relies on there being at least one element
+        param_name = row[0]
+        self.failIf(len(row) != 3, "LU '%s' parameter %s has invalid length" %
+                    (lu_name, param_name))
+        self.failIf(defined_params.count(param_name) > 1, "LU '%s' parameter"
+                    " '%s' is defined multiple times" % (lu_name, param_name))
 
+  def testParamsDefined(self):
+    for op in sorted(mcpu.Processor.DISPATCH_TABLE):
+      lu = mcpu.Processor.DISPATCH_TABLE[op]
+      lu_name = lu.__name__
+      # TODO: this doesn't deal with recursive slots definitions
+      all_params = set(op.__slots__)
+      defined_params = set(v[0] for v in lu._OP_PARAMS)
+      missing = all_params.difference(defined_params)
+      self.failIf(missing, "Undeclared parameter types for LU '%s': %s" %
+                  (lu_name, utils.CommaJoin(missing)))
+      extra = defined_params.difference(all_params)
+      self.failIf(extra, "Extra parameter types for LU '%s': %s" %
+                  (lu_name, utils.CommaJoin(extra)))
+
+
+class TestIAllocatorChecks(testutils.GanetiTestCase):
+  def testFunction(self):
+    class TestLU(object):
+      def __init__(self, opcode):
+        self.cfg = mocks.FakeConfig()
+        self.op = opcode
+
+    class TestOpcode(opcodes.OpCode):
+      OP_ID = "OP_TEST"
+      __slots__ = ["iallocator", "node"]
+
+    default_iallocator = mocks.FakeConfig().GetDefaultIAllocator()
+    other_iallocator = default_iallocator + "_not"
+
+    op = TestOpcode()
+    lu = TestLU(op)
+
+    c_i = lambda: cmdlib._CheckIAllocatorOrNode(lu, "iallocator", "node")
+
+    # Neither node nor iallocator given
+    op.iallocator = None
+    op.node = None
+    c_i()
+    self.assertEqual(lu.op.iallocator, default_iallocator)
+    self.assertEqual(lu.op.node, None)
+
+    # Both, iallocator and node given
+    op.iallocator = "test"
+    op.node = "test"
+    self.assertRaises(errors.OpPrereqError, c_i)
+
+    # Only iallocator given
+    op.iallocator = other_iallocator
+    op.node = None
+    c_i()
+    self.assertEqual(lu.op.iallocator, other_iallocator)
+    self.assertEqual(lu.op.node, None)
+
+    # Only node given
+    op.iallocator = None
+    op.node = "node"
+    c_i()
+    self.assertEqual(lu.op.iallocator, None)
+    self.assertEqual(lu.op.node, "node")
+
+    # No node, iallocator or default iallocator
+    op.iallocator = None
+    op.node = None
+    lu.cfg.GetDefaultIAllocator = lambda: None
+    self.assertRaises(errors.OpPrereqError, c_i)
+
+
+class TestLUTestJobqueue(unittest.TestCase):
   def test(self):
-    vci = cmdlib._VerifyCertificateInner
-
-    # Valid
-    self.assertEqual(vci(self.FAKEFILE, False, 1263916313, 1298476313,
-                         1266940313, warn_days=30, error_days=7),
-                     (None, None))
-
-    # Not yet valid
-    (errcode, msg) = vci(self.FAKEFILE, False, 1266507600, 1267544400,
-                         1266075600, warn_days=30, error_days=7)
-    self.assertEqual(errcode, cmdlib.LUVerifyCluster.ETYPE_WARNING)
-
-    # Expiring soon
-    (errcode, msg) = vci(self.FAKEFILE, False, 1266507600, 1267544400,
-                         1266939600, warn_days=30, error_days=7)
-    self.assertEqual(errcode, cmdlib.LUVerifyCluster.ETYPE_ERROR)
-
-    (errcode, msg) = vci(self.FAKEFILE, False, 1266507600, 1267544400,
-                         1266939600, warn_days=30, error_days=1)
-    self.assertEqual(errcode, cmdlib.LUVerifyCluster.ETYPE_WARNING)
-
-    (errcode, msg) = vci(self.FAKEFILE, False, 1266507600, None,
-                         1266939600, warn_days=30, error_days=7)
-    self.assertEqual(errcode, None)
-
-    # Expired
-    (errcode, msg) = vci(self.FAKEFILE, True, 1266507600, 1267544400,
-                         1266939600, warn_days=30, error_days=7)
-    self.assertEqual(errcode, cmdlib.LUVerifyCluster.ETYPE_ERROR)
-
-    (errcode, msg) = vci(self.FAKEFILE, True, None, 1267544400,
-                         1266939600, warn_days=30, error_days=7)
-    self.assertEqual(errcode, cmdlib.LUVerifyCluster.ETYPE_ERROR)
-
-    (errcode, msg) = vci(self.FAKEFILE, True, 1266507600, None,
-                         1266939600, warn_days=30, error_days=7)
-    self.assertEqual(errcode, cmdlib.LUVerifyCluster.ETYPE_ERROR)
-
-    (errcode, msg) = vci(self.FAKEFILE, True, None, None,
-                         1266939600, warn_days=30, error_days=7)
-    self.assertEqual(errcode, cmdlib.LUVerifyCluster.ETYPE_ERROR)
+    self.assert_(cmdlib.LUTestJobqueue._CLIENT_CONNECT_TIMEOUT <
+                 (luxi.WFJC_TIMEOUT * 0.75),
+                 msg=("Client timeout too high, might not notice bugs"
+                      " in WaitForJobChange"))
 
 
 if __name__ == "__main__":

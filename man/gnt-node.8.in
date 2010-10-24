@@ -3,10 +3,10 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GNT-NODE" "8" "24 August 2010" "ganeti 2.0" ""
+.TH "GNT-NODE" "8" "19 October 2010" "Ganeti 2.2" ""
 
 .SH NAME
-gnt-node \- node administration
+gnt-node \- Node administration
 .SH SYNOPSIS
 
 \fBgnt-node \fR \fBcommand\fR [ \fBarguments...\fR ]
@@ -14,7 +14,7 @@ gnt-node \- node administration
 .SH "DESCRIPTION"
 .PP
 The \fBgnt-node\fR is used for managing the
-(physical) nodes in the ganeti system.
+(physical) nodes in the Ganeti system.
 .SH "COMMANDS"
 .SS "ADD"
 
@@ -26,7 +26,7 @@ Adds the given node to the cluster.
 This command is used to join a new node to the cluster. You
 will have to provide the password for root of the node to be
 able to add the node in the cluster. The command needs to be
-run on the ganeti master.
+run on the Ganeti master.
 .PP
 Note that the command is potentially destructive, as it will
 forcibly join the specified host the cluster, not paying
@@ -49,7 +49,7 @@ Example:
 
 .nf
 # gnt-node add node5.example.com
-# gnt-node add -s 192.168.44.5 node5.example.com
+# gnt-node add -s 192.0.2.5 node5.example.com
         
 .fi
 .SS "ADD-TAGS"
@@ -328,7 +328,7 @@ queried. Otherwise, only the given nodes will be listed.
 List the tags of the given node.
 .SS "MIGRATE"
 
-\fBmigrate\fR [ \fB-f\fR ] [ \fB--non-live\fR ] \fB\fInode\fB\fR
+\fBmigrate\fR [ \fB-f\fR ] [ \fB--non-live\fR ] [ \fB--migration-mode=live|non-live\fR ] \fB\fInode\fB\fR
 
 .PP
 This command will migrate all instances having the given
@@ -336,8 +336,9 @@ node as primary to their secondary nodes. This works only for
 instances having a drbd disk template.
 .PP
 As for the \fBgnt-instance migrate\fR command,
-the \fB--no-live\fR option can be given to do a
-non-live migration.
+the options \fB--no-live\fR
+and \fB--migration-mode\fR can be given to
+influence the migration type.
 .PP
 Example:
 
@@ -587,7 +588,7 @@ Example:
 This commands (tries to) forcefully reboot a node. It is a
 command that can be used if the node environemnt is broken,
 such that the admin can no longer login over ssh, but the
-ganeti node daemon is still working.
+Ganeti node daemon is still working.
 .PP
 Note that this command is not guaranteed to work; it depends
 on the hypervisor how effective is the reboot attempt. For
@@ -600,7 +601,7 @@ needed if the target node is the master node.
 .SH "REPORTING BUGS"
 .PP
 Report bugs to  <URL:http://code.google.com/p/ganeti/> or contact the
-developers using the ganeti mailing list
+developers using the Ganeti mailing list
 <ganeti@googlegroups.com>\&.
 .SH "SEE ALSO"
 .PP
@@ -625,7 +626,7 @@ Ganeti daemons:
 \fBganeti-rapi\fR(8) (remote API daemon).
 .SH "COPYRIGHT"
 .PP
-Copyright (C) 2006, 2007, 2008, 2009 Google Inc. Permission is
+Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc. Permission is
 granted to copy, distribute and/or modify under the terms of the
 GNU General Public License as published by the Free Software
 Foundation; either version 2 of the License, or (at your option)
