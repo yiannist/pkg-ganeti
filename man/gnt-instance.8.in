@@ -3,7 +3,7 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GNT-INSTANCE" "8" "16 July 2010" "ganeti 2.0" ""
+.TH "GNT-INSTANCE" "8" "24 August 2010" "ganeti 2.0" ""
 
 .SH NAME
 gnt-instance \- ganeti instance administration
@@ -422,6 +422,13 @@ the -chroot flag to kvm.
 The directory is removed when the instance is stopped.
 
 It is set to ``false'' by default.
+.TP
+\fBusb_mouse\fR
+Valid for the KVM hypervisor.
+
+This option specifies the usb mouse type to be used.
+It can be ``mouse'' or ``tablet''\&. When
+using VNC it's recommended to set it to ``tablet''\&.
 .PP
 The \fB--iallocator\fR option specifies the instance
 allocator plugin to use. If you pass in this option the allocator

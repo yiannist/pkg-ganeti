@@ -3,7 +3,7 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GANETI-MASTERD" "8" "16 July 2010" "ganeti 2.0" ""
+.TH "GANETI-MASTERD" "8" "24 August 2010" "ganeti 2.0" ""
 
 .SH NAME
 ganeti-masterd \- ganeti master daemon
