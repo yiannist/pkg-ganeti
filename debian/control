@@ -5,7 +5,7 @@ Maintainer: Debian Ganeti Team <pkg-ganeti-devel@lists.alioth.debian.org>
 Uploaders: Guido Trotter <ultrotter@debian.org>, Iustin Pop <iustin@debian.org>
 Build-Depends: debhelper (>= 7)
 Build-Depends-Indep: python-simplejson, python-pyparsing, python-openssl,
- python-support (>= 0.6), socat, python-pyinotify
+ python-support (>= 0.6), socat, python-pyinotify, python-pycurl
 Standards-Version: 3.9.0
 Homepage: http://code.google.com/p/ganeti/
 Vcs-Browser: http://git.debian.org/?p=pkg-ganeti/ganeti.git
@@ -16,7 +16,8 @@ Architecture: all
 Conflicts: ganeti
 Depends: ${shlibs:Depends}, ${misc:Depends}, ${python:Depends}, lvm2,
  openssh-client, openssh-server, bridge-utils, iproute, iputils-arping,
- openssl, python-simplejson, python-pyparsing, python-openssl, python-pyinotify,
+ openssl, python-simplejson, python-pyparsing, python-openssl,
+ python-pyinotify, python-pycurl,
  socat, libjs-jquery
 Recommends: drbd8-utils (>= 8.0.7), qemu-kvm |
  xen-linux-system-2.6.32-5-xen-amd64 | xen-linux-system-2.6.32-5-xen-686,
