@@ -1,0 +1,84 @@
+From: Iustin Pop <iustin@google.com>
+Date: Wed, 13 Oct 2010 10:29:26 +0000 (+0200)
+Subject: "Fix" handling of old software versions on startup
+X-Git-Url: http://git.ganeti.org/?p=ganeti.git;a=commitdiff_plain;h=4b63dc7a96890c0a32f218d98b8162cbc7dacd98
+
+"Fix" handling of old software versions on startup
+
+Currently, masterd startup with old software versions is very confusing
+for users: we present two tracebacks, with a message in the middle about
+"version mismatch". This can lead to users believing that all that needs
+to be done is to fix the config file.
+
+This patch attempts to improve this by handling this case in masterd
+itself (not in the child), and showing a more friendly message for this
+case.
+
+Signed-off-by: Iustin Pop <iustin@google.com>
+Reviewed-by: Michael Hanselmann <hansmi@google.com>
+---
+
+--- a/daemons/ganeti-masterd
++++ b/daemons/ganeti-masterd
+@@ -496,6 +496,28 @@
+                           (constants.MASTERD_USER, constants.DAEMONS_GROUP))
+     sys.exit(constants.EXIT_FAILURE)
+ 
++  # Check the configuration is sane before anything else
++  try:
++    config.ConfigWriter()
++  except errors.ConfigVersionMismatch, err:
++    v1 = "%s.%s.%s" % constants.SplitVersion(err.args[0])
++    v2 = "%s.%s.%s" % constants.SplitVersion(err.args[1])
++    print >> sys.stderr,  \
++        ("Configuration version mismatch. The current Ganeti software"
++         " expects version %s, but the on-disk configuration file has"
++         " version %s. This is likely the result of upgrading the"
++         " software without running the upgrade procedure. Please contact"
++         " your cluster administrator or complete the upgrade using the"
++         " cfgupgrade utility, after reading the upgrade notes." %
++         (v1, v2))
++    sys.exit(constants.EXIT_FAILURE)
++  except errors.ConfigurationError, err:
++    print >> sys.stderr, \
++        ("Configuration error while opening the configuration file: %s\n"
++         "This might be caused by an incomplete software upgrade or"
++         " by a corrupted configuration file. Until the problem is fixed"
++         " the master daemon cannot start." % str(err))
++    sys.exit(constants.EXIT_FAILURE)
+ 
+   # If CheckMaster didn't fail we believe we are the master, but we have to
+   # confirm with the other nodes.
+--- a/lib/config.py
++++ b/lib/config.py
+@@ -63,10 +63,7 @@
+ 
+   """
+   if data.version != constants.CONFIG_VERSION:
+-    raise errors.ConfigurationError("Cluster configuration version"
+-                                    " mismatch, got %s instead of %s" %
+-                                    (data.version,
+-                                     constants.CONFIG_VERSION))
++    raise errors.ConfigVersionMismatch(constants.CONFIG_VERSION, data.version)
+ 
+ 
+ class TemporaryReservationManager:
+--- a/lib/errors.py
++++ b/lib/errors.py
+@@ -110,6 +110,16 @@
+   pass
+ 
+ 
++class ConfigVersionMismatch(ConfigurationError):
++  """Version mismatch in the configuration file.
++
++  The error has two arguments: the expected and the actual found
++  version.
++
++  """
++  pass
++
++
+ class ReservationError(GenericError):
+   """Errors reserving a resource.
+ 
