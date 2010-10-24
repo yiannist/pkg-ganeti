@@ -1,3 +1,12 @@
+ganeti (2.2.1-1) experimental; urgency=low
+
+  * New upstream version(s), uploading to experimental during the Squeeze
+    freeze
+  * Standards version 3.9.1 (no changes needed)
+  * Fixed case of special values in gnt-backup(8) (Closes: #596347)
+
+ -- Iustin Pop <iustin@debian.org>  Sun, 24 Oct 2010 17:10:15 +0200
+
 ganeti (2.1.6-1) unstable; urgency=low
 
   * New upstream version(s)
