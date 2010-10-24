@@ -3,12 +3,12 @@ Description: Remove obsolete ssconf files
   upgrade has completed or not; this is not needed for upstream,
   although it is a good cleanup
 Author: Iustin Pop <iustin@debian.org>
-Last-Update: 2010-04-17
+Last-Update: 2010-10-24
 --- a/tools/cfgupgrade12
 +++ b/tools/cfgupgrade12
 @@ -404,6 +404,10 @@
          logging.debug("Writing RAPI certificate to %s", options.RAPI_CERT_FILE)
-         bootstrap.GenerateSelfSignedSslCert(options.RAPI_CERT_FILE)
+         utils.GenerateSelfSignedSslCert(options.RAPI_CERT_FILE)
  
 +      ss_hyp = SsconfName('hypervisor')
 +      if os.path.exists(ss_hyp):
