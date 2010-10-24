@@ -3,7 +3,7 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GANETI-RAPI" "8" "16 July 2010" "ganeti 2.0" ""
+.TH "GANETI-RAPI" "8" "24 August 2010" "ganeti 2.0" ""
 
 .SH NAME
 ganeti-rapi \- ganeti remote API daemon
@@ -38,7 +38,7 @@ the modification operations require authentication, in the form
 of basic authentication.
 .PP
 The users and their rights are defined in a file named
-\fIrapi_users\fR, located in the \fI@LOCALSTATEDIR@/ganeti\fR
+\fIrapi_users\fR, located in the \fI@LOCALSTATEDIR@/lib/ganeti\fR
 directory. The users should be listed one per line, in the
 following format:
 

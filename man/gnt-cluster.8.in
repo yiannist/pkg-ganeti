@@ -3,7 +3,7 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GNT-CLUSTER" "8" "16 July 2010" "ganeti 2.0" ""
+.TH "GNT-CLUSTER" "8" "24 August 2010" "ganeti 2.0" ""
 
 .SH NAME
 gnt-cluster \- ganeti administration, cluster-wide
@@ -122,7 +122,7 @@ further diffusion of Ganeti among ancient cultures.
 \fBinit\fR
     [ \fB-s \fIsecondary_ip\fB\fR ]
     [ \fB-g \fIvg-name\fB\fR ]
-    [ \fB--master-netdev \fIvg-name\fB\fR ]
+    [ \fB--master-netdev \fIinterface-name\fB\fR ]
     [ \fB-m \fImac-prefix\fB\fR ]
     [ \fB--no-lvm-storage\fR ]
     [ \fB--no-etc-hosts\fR ]

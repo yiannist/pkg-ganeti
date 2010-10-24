@@ -121,7 +121,7 @@ CLASS="FILENAME"
 >rapi_users</TT
 >, located in the <TT
 CLASS="FILENAME"
->@LOCALSTATEDIR@/ganeti</TT
+>@LOCALSTATEDIR@/lib/ganeti</TT
 >
       directory. The users should be listed one per line, in the
       following format:

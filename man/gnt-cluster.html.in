@@ -324,7 +324,7 @@ CLASS="REPLACEABLE"
 >]<BR> [--master-netdev <TT
 CLASS="REPLACEABLE"
 ><I
->vg-name</I
+>interface-name</I
 ></TT
 >]<BR> [-m <TT
 CLASS="REPLACEABLE"
