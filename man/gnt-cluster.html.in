@@ -316,7 +316,7 @@ CLASS="REPLACEABLE"
 ><I
 >secondary_ip</I
 ></TT
->]<BR> [-g <TT
+>]<BR> [--vg-name <TT
 CLASS="REPLACEABLE"
 ><I
 >vg-name</I
@@ -421,7 +421,12 @@ CLASS="REPLACEABLE"
 ><I
 >default instance allocator</I
 ></TT
->]<BR> {<TT
+>]<BR> [--primary-ip-version <TT
+CLASS="REPLACEABLE"
+><I
+>version</I
+></TT
+>]<BR> [--prealloc-wipe-disks  {yes | no}]<BR> {<TT
 CLASS="REPLACEABLE"
 ><I
 >clustername</I
@@ -471,7 +476,7 @@ CLASS="OPTION"
 ><P
 >        The <CODE
 CLASS="OPTION"
->-g</CODE
+>--vg-name</CODE
 > option will let you specify a volume group
         different than "xenvg" for Ganeti to use when creating instance disks.
         This volume group must have the same name on all nodes. Once the
@@ -556,6 +561,15 @@ CLASS="OPTION"
         the list of enabled hypervisors, and the first entry of this list
         will be used by default. Currently, the following hypervisors are
         available:
+      </P
+><P
+>        The <CODE
+CLASS="OPTION"
+>--prealloc-wipe-disks</CODE
+> sets a cluster wide
+        configuration value for wiping disks prior to allocation. This
+        increases security on instance level as the instance can't
+        access untouched data from it's underlying storage.
       </P
 ><P
 >        <P
@@ -805,11 +819,20 @@ CLASS="COMMAND"
 >modify</B
 > command.
       </P
+><P
+>        The <CODE
+CLASS="OPTION"
+>--primary-ip-version</CODE
+> option specifies the
+        IP version used for the primary address. Possible values are 4 and
+        6 for IPv4 and IPv6, respectively. This option is used when resolving
+        node names and the cluster name.
+      </P
 ></DIV
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN267"
+NAME="AEN279"
 ></A
 ><H3
 >LIST-TAGS</H3
@@ -824,7 +847,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN272"
+NAME="AEN284"
 ></A
 ><H3
 >MASTER-FAILOVER</H3
@@ -864,7 +887,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN283"
+NAME="AEN295"
 ></A
 ><H3
 >MASTER-PING</H3
@@ -890,7 +913,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN290"
+NAME="AEN302"
 ></A
 ><H3
 >MODIFY</H3
@@ -898,7 +921,7 @@ NAME="AEN290"
 ><B
 CLASS="COMMAND"
 >modify</B
-> <BR> [-g <TT
+> <BR> [--vg-name <TT
 CLASS="REPLACEABLE"
 ><I
 >vg-name</I
@@ -994,7 +1017,7 @@ CLASS="REPLACEABLE"
 ><I
 >candidate_pool_size</I
 ></TT
->]<BR> [--maintain-node-health  {yes | no}]<BR> [-I <TT
+>]<BR> [--maintain-node-health  {yes | no}]<BR> [--prealloc-wipe-disks  {yes | no}]<BR> [-I <TT
 CLASS="REPLACEABLE"
 ><I
 >default instance allocator</I
@@ -1011,7 +1034,7 @@ CLASS="REPLACEABLE"
 ><P
 >          The <CODE
 CLASS="OPTION"
->-g</CODE
+>--vg-name</CODE
 >, <CODE
 CLASS="OPTION"
 >--no-lvm-storarge</CODE
@@ -1038,13 +1061,13 @@ CLASS="OPTION"
 >,
           <CODE
 CLASS="OPTION"
->--uid-pool</CODE
-> and
+>--prealloc-wipe-disks</CODE
+>,
           <CODE
 CLASS="OPTION"
->-I</CODE
-> options are
-          described in the <B
+>--uid-pool</CODE
+> options are described in
+          the <B
 CLASS="COMMAND"
 >init</B
 > command.
@@ -1112,11 +1135,25 @@ CLASS="OPTION"
 >--reserved-lvs ''</CODE
 >.
       </P
+><P
+>        The <CODE
+CLASS="OPTION"
+>-I</CODE
+> is described in
+        the <B
+CLASS="COMMAND"
+>init</B
+> command. To clear the default
+        iallocator, just pass an empty string (<TT
+CLASS="LITERAL"
+>''</TT
+>).
+      </P
 ></DIV
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN375"
+NAME="AEN396"
 ></A
 ><H3
 >QUEUE</H3
@@ -1154,7 +1191,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN389"
+NAME="AEN410"
 ></A
 ><H3
 >WATCHER</H3
@@ -1200,7 +1237,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN406"
+NAME="AEN427"
 ></A
 ><H3
 >redist-conf</H3
@@ -1235,7 +1272,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN416"
+NAME="AEN437"
 ></A
 ><H3
 >REMOVE-TAGS</H3
@@ -1272,7 +1309,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN427"
+NAME="AEN448"
 ></A
 ><H3
 >RENAME</H3
@@ -1304,7 +1341,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN437"
+NAME="AEN458"
 ></A
 ><H3
 >RENEW-CRYPTO</H3
@@ -1378,7 +1415,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN468"
+NAME="AEN489"
 ></A
 ><H3
 >REPAIR-DISK-SIZES</H3
@@ -1414,7 +1451,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN477"
+NAME="AEN498"
 ></A
 ><H3
 >SEARCH-TAGS</H3
@@ -1479,7 +1516,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN492"
+NAME="AEN513"
 ></A
 ><H3
 >VERIFY</H3
@@ -1505,7 +1542,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN500"
+NAME="AEN521"
 ></A
 ><H3
 >VERIFY-DISKS</H3
@@ -1531,7 +1568,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN507"
+NAME="AEN528"
 ></A
 ><H3
 >VERSION</H3
@@ -1548,7 +1585,7 @@ CLASS="COMMAND"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN512"
+NAME="AEN533"
 ></A
 ><H2
 >REPORTING BUGS</H2
@@ -1565,7 +1602,7 @@ TARGET="_top"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN516"
+NAME="AEN537"
 ></A
 ><H2
 >SEE ALSO</H2
@@ -1681,7 +1718,7 @@ CLASS="REFENTRYTITLE"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN563"
+NAME="AEN584"
 ></A
 ><H2
 >COPYRIGHT</H2

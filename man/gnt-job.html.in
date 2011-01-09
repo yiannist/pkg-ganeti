@@ -257,6 +257,12 @@ CLASS="VARIABLELIST"
 >the status of the job</P
 ></DD
 ><DT
+>priority</DT
+><DD
+><P
+>current priority of the job</P
+></DD
+><DT
 >received_ts</DT
 ><DD
 ><P
@@ -324,6 +330,12 @@ CLASS="VARIABLELIST"
 ><P
 >the list of opcode end times</P
 ></DD
+><DT
+>oppriority</DT
+><DD
+><P
+>the priority of each opcode</P
+></DD
 ></DL
 ></DIV
 >
@@ -342,7 +354,7 @@ CLASS="CONSTANT"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN135"
+NAME="AEN143"
 ></A
 ><H3
 >WATCH</H3
@@ -365,7 +377,7 @@ CLASS="REPLACEABLE"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN142"
+NAME="AEN150"
 ></A
 ><H2
 >REPORTING BUGS</H2
@@ -382,7 +394,7 @@ TARGET="_top"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN146"
+NAME="AEN154"
 ></A
 ><H2
 >SEE ALSO</H2
@@ -498,7 +510,7 @@ CLASS="REFENTRYTITLE"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN193"
+NAME="AEN201"
 ></A
 ><H2
 >COPYRIGHT</H2

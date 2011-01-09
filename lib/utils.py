@@ -61,7 +61,6 @@ except ImportError:
 from ganeti import errors
 from ganeti import constants
 from ganeti import compat
-from ganeti import netutils
 
 
 _locksheld = []
@@ -82,6 +81,9 @@ X509_SIGNATURE = re.compile(r"^%s:\s*(?P<salt>%s+)/(?P<sign>%s+)$" %
                             re.S | re.I)
 
 _VALID_SERVICE_NAME_RE = re.compile("^[-_.a-zA-Z0-9]{1,128}$")
+
+UUID_RE = re.compile('^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-'
+                     '[a-f0-9]{4}-[a-f0-9]{12}$')
 
 # Certificate verification results
 (CERT_WARNING,
@@ -162,7 +164,8 @@ def _BuildCmdEnvironment(env, reset):
   return cmd_env
 
 
-def RunCmd(cmd, env=None, output=None, cwd="/", reset_env=False):
+def RunCmd(cmd, env=None, output=None, cwd="/", reset_env=False,
+           interactive=False):
   """Execute a (shell) command.
 
   The command should not read from its standard input, as it will be
@@ -181,6 +184,9 @@ def RunCmd(cmd, env=None, output=None, cwd="/", reset_env=False):
       directory for the command; the default will be /
   @type reset_env: boolean
   @param reset_env: whether to reset or keep the default os environment
+  @type interactive: boolean
+  @param interactive: weather we pipe stdin, stdout and stderr
+                      (default behaviour) or run the command interactive
   @rtype: L{RunResult}
   @return: RunResult instance
   @raise errors.ProgrammerError: if we call this when forks are disabled
@@ -188,6 +194,10 @@ def RunCmd(cmd, env=None, output=None, cwd="/", reset_env=False):
   """
   if no_fork:
     raise errors.ProgrammerError("utils.RunCmd() called with fork() disabled")
+
+  if output and interactive:
+    raise errors.ProgrammerError("Parameters 'output' and 'interactive' can"
+                                 " not be provided at the same time")
 
   if isinstance(cmd, basestring):
     strcmd = cmd
@@ -206,7 +216,7 @@ def RunCmd(cmd, env=None, output=None, cwd="/", reset_env=False):
 
   try:
     if output is None:
-      out, err, status = _RunCmdPipe(cmd, cmd_env, shell, cwd)
+      out, err, status = _RunCmdPipe(cmd, cmd_env, shell, cwd, interactive)
     else:
       status = _RunCmdFile(cmd, cmd_env, shell, output, cwd)
       out = err = ""
@@ -225,6 +235,53 @@ def RunCmd(cmd, env=None, output=None, cwd="/", reset_env=False):
     signal_ = -status
 
   return RunResult(exitcode, signal_, out, err, strcmd)
+
+
+def SetupDaemonEnv(cwd="/", umask=077):
+  """Setup a daemon's environment.
+
+  This should be called between the first and second fork, due to
+  setsid usage.
+
+  @param cwd: the directory to which to chdir
+  @param umask: the umask to setup
+
+  """
+  os.chdir(cwd)
+  os.umask(umask)
+  os.setsid()
+
+
+def SetupDaemonFDs(output_file, output_fd):
+  """Setups up a daemon's file descriptors.
+
+  @param output_file: if not None, the file to which to redirect
+      stdout/stderr
+  @param output_fd: if not None, the file descriptor for stdout/stderr
+
+  """
+  # check that at most one is defined
+  assert [output_file, output_fd].count(None) >= 1
+
+  # Open /dev/null (read-only, only for stdin)
+  devnull_fd = os.open(os.devnull, os.O_RDONLY)
+
+  if output_fd is not None:
+    pass
+  elif output_file is not None:
+    # Open output file
+    try:
+      output_fd = os.open(output_file,
+                          os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0600)
+    except EnvironmentError, err:
+      raise Exception("Opening output file failed: %s" % err)
+  else:
+    output_fd = os.open(os.devnull, os.O_WRONLY)
+
+  # Redirect standard I/O
+  os.dup2(devnull_fd, 0)
+  os.dup2(output_fd, 1)
+  os.dup2(output_fd, 2)
 
 
 def StartDaemon(cmd, env=None, cwd="/", output=None, output_fd=None,
@@ -291,8 +348,8 @@ def StartDaemon(cmd, env=None, cwd="/", output=None, output_fd=None,
         finally:
           _CloseFDNoErr(errpipe_write)
 
-        # Wait for daemon to be started (or an error message to arrive) and read
-        # up to 100 KB as an error message
+        # Wait for daemon to be started (or an error message to
+        # arrive) and read up to 100 KB as an error message
         errormsg = RetryOnSignal(os.read, errpipe_read, 100 * 1024)
       finally:
         _CloseFDNoErr(errpipe_read)
@@ -334,9 +391,7 @@ def _StartDaemonChild(errpipe_read, errpipe_write,
     _CloseFDNoErr(pidpipe_read)
 
     # First child process
-    os.chdir("/")
-    os.umask(077)
-    os.setsid()
+    SetupDaemonEnv()
 
     # And fork for the second time
     pid = os.fork()
@@ -344,7 +399,8 @@ def _StartDaemonChild(errpipe_read, errpipe_write,
       # Exit first child process
       os._exit(0) # pylint: disable-msg=W0212
 
-    # Make sure pipe is closed on execv* (and thereby notifies original process)
+    # Make sure pipe is closed on execv* (and thereby notifies
+    # original process)
     SetCloseOnExecFlag(errpipe_write, True)
 
     # List of file descriptors to be left open
@@ -352,20 +408,7 @@ def _StartDaemonChild(errpipe_read, errpipe_write,
 
     # Open PID file
     if pidfile:
-      try:
-        # TODO: Atomic replace with another locked file instead of writing into
-        # it after creating
-        fd_pidfile = os.open(pidfile, os.O_WRONLY | os.O_CREAT, 0600)
-
-        # Lock the PID file (and fail if not possible to do so). Any code
-        # wanting to send a signal to the daemon should try to lock the PID
-        # file before reading it. If acquiring the lock succeeds, the daemon is
-        # no longer running and the signal should not be sent.
-        LockFile(fd_pidfile)
-
-        os.write(fd_pidfile, "%d\n" % os.getpid())
-      except Exception, err:
-        raise Exception("Creating and locking PID file failed: %s" % err)
+      fd_pidfile = WritePidFile(pidfile)
 
       # Keeping the file open to hold the lock
       noclose_fds.append(fd_pidfile)
@@ -374,27 +417,7 @@ def _StartDaemonChild(errpipe_read, errpipe_write,
     else:
       fd_pidfile = None
 
-    # Open /dev/null
-    fd_devnull = os.open(os.devnull, os.O_RDWR)
-
-    assert not output or (bool(output) ^ (fd_output is not None))
-
-    if fd_output is not None:
-      pass
-    elif output:
-      # Open output file
-      try:
-        # TODO: Implement flag to set append=yes/no
-        fd_output = os.open(output, os.O_WRONLY | os.O_CREAT, 0600)
-      except EnvironmentError, err:
-        raise Exception("Opening output file failed: %s" % err)
-    else:
-      fd_output = fd_devnull
-
-    # Redirect standard I/O
-    os.dup2(fd_devnull, 0)
-    os.dup2(fd_output, 1)
-    os.dup2(fd_output, 2)
+    SetupDaemonFDs(output, fd_output)
 
     # Send daemon PID to parent
     RetryOnSignal(os.write, pidpipe_write, str(os.getpid()))
@@ -412,9 +435,7 @@ def _StartDaemonChild(errpipe_read, errpipe_write,
   except: # pylint: disable-msg=W0702
     try:
       # Report errors to original process
-      buf = str(sys.exc_info()[1])
-
-      RetryOnSignal(os.write, errpipe_write, buf)
+      WriteErrorToFD(errpipe_write, str(sys.exc_info()[1]))
     except: # pylint: disable-msg=W0702
       # Ignore errors in error handling
       pass
@@ -422,7 +443,24 @@ def _StartDaemonChild(errpipe_read, errpipe_write,
   os._exit(1) # pylint: disable-msg=W0212
 
 
-def _RunCmdPipe(cmd, env, via_shell, cwd):
+def WriteErrorToFD(fd, err):
+  """Possibly write an error message to a fd.
+
+  @type fd: None or int (file descriptor)
+  @param fd: if not None, the error will be written to this fd
+  @param err: string, the error message
+
+  """
+  if fd is None:
+    return
+
+  if not err:
+    err = "<unknown error>"
+
+  RetryOnSignal(os.write, fd, err)
+
+
+def _RunCmdPipe(cmd, env, via_shell, cwd, interactive):
   """Run a command and return its output.
 
   @type  cmd: string or list
@@ -433,46 +471,57 @@ def _RunCmdPipe(cmd, env, via_shell, cwd):
   @param via_shell: if we should run via the shell
   @type cwd: string
   @param cwd: the working directory for the program
+  @type interactive: boolean
+  @param interactive: Run command interactive (without piping)
   @rtype: tuple
   @return: (out, err, status)
 
   """
   poller = select.poll()
+
+  stderr = subprocess.PIPE
+  stdout = subprocess.PIPE
+  stdin = subprocess.PIPE
+
+  if interactive:
+    stderr = stdout = stdin = None
+
   child = subprocess.Popen(cmd, shell=via_shell,
-                           stderr=subprocess.PIPE,
-                           stdout=subprocess.PIPE,
-                           stdin=subprocess.PIPE,
+                           stderr=stderr,
+                           stdout=stdout,
+                           stdin=stdin,
                            close_fds=True, env=env,
                            cwd=cwd)
 
-  child.stdin.close()
-  poller.register(child.stdout, select.POLLIN)
-  poller.register(child.stderr, select.POLLIN)
   out = StringIO()
   err = StringIO()
-  fdmap = {
-    child.stdout.fileno(): (out, child.stdout),
-    child.stderr.fileno(): (err, child.stderr),
-    }
-  for fd in fdmap:
-    SetNonblockFlag(fd, True)
+  if not interactive:
+    child.stdin.close()
+    poller.register(child.stdout, select.POLLIN)
+    poller.register(child.stderr, select.POLLIN)
+    fdmap = {
+      child.stdout.fileno(): (out, child.stdout),
+      child.stderr.fileno(): (err, child.stderr),
+      }
+    for fd in fdmap:
+      SetNonblockFlag(fd, True)
 
-  while fdmap:
-    pollresult = RetryOnSignal(poller.poll)
+    while fdmap:
+      pollresult = RetryOnSignal(poller.poll)
 
-    for fd, event in pollresult:
-      if event & select.POLLIN or event & select.POLLPRI:
-        data = fdmap[fd][1].read()
-        # no data from read signifies EOF (the same as POLLHUP)
-        if not data:
+      for fd, event in pollresult:
+        if event & select.POLLIN or event & select.POLLPRI:
+          data = fdmap[fd][1].read()
+          # no data from read signifies EOF (the same as POLLHUP)
+          if not data:
+            poller.unregister(fd)
+            del fdmap[fd]
+            continue
+          fdmap[fd][0].write(data)
+        if (event & select.POLLNVAL or event & select.POLLHUP or
+            event & select.POLLERR):
           poller.unregister(fd)
           del fdmap[fd]
-          continue
-        fdmap[fd][0].write(data)
-      if (event & select.POLLNVAL or event & select.POLLHUP or
-          event & select.POLLERR):
-        poller.unregister(fd)
-        del fdmap[fd]
 
   out = out.getvalue()
   err = err.getvalue()
@@ -1422,50 +1471,42 @@ def SetEtcHostsEntry(file_name, ip, hostname, aliases):
   @param aliases: the list of aliases to add for the hostname
 
   """
-  # FIXME: use WriteFile + fn rather than duplicating its efforts
   # Ensure aliases are unique
   aliases = UniqueSequence([hostname] + aliases)[1:]
 
-  fd, tmpname = tempfile.mkstemp(dir=os.path.dirname(file_name))
-  try:
-    out = os.fdopen(fd, 'w')
+  def _WriteEtcHosts(fd):
+    # Duplicating file descriptor because os.fdopen's result will automatically
+    # close the descriptor, but we would still like to have its functionality.
+    out = os.fdopen(os.dup(fd), "w")
     try:
-      f = open(file_name, 'r')
-      try:
-        for line in f:
-          fields = line.split()
-          if fields and not fields[0].startswith('#') and ip == fields[0]:
-            continue
-          out.write(line)
+      for line in ReadFile(file_name).splitlines(True):
+        fields = line.split()
+        if fields and not fields[0].startswith("#") and ip == fields[0]:
+          continue
+        out.write(line)
 
-        out.write("%s\t%s" % (ip, hostname))
-        if aliases:
-          out.write(" %s" % ' '.join(aliases))
-        out.write('\n')
-
-        out.flush()
-        os.fsync(out)
-        os.chmod(tmpname, 0644)
-        os.rename(tmpname, file_name)
-      finally:
-        f.close()
+      out.write("%s\t%s" % (ip, hostname))
+      if aliases:
+        out.write(" %s" % " ".join(aliases))
+      out.write("\n")
+      out.flush()
     finally:
       out.close()
-  except:
-    RemoveFile(tmpname)
-    raise
+
+  WriteFile(file_name, fn=_WriteEtcHosts, mode=0644)
 
 
-def AddHostToEtcHosts(hostname):
+def AddHostToEtcHosts(hostname, ip):
   """Wrapper around SetEtcHostsEntry.
 
   @type hostname: str
   @param hostname: a hostname that will be resolved and added to
       L{constants.ETC_HOSTS}
+  @type ip: str
+  @param ip: The ip address of the host
 
   """
-  hi = netutils.HostInfo(name=hostname)
-  SetEtcHostsEntry(constants.ETC_HOSTS, hi.ip, hi.name, [hi.ShortName()])
+  SetEtcHostsEntry(constants.ETC_HOSTS, ip, hostname, [hostname.split(".")[0]])
 
 
 def RemoveEtcHostsEntry(file_name, hostname):
@@ -1479,37 +1520,29 @@ def RemoveEtcHostsEntry(file_name, hostname):
   @param hostname: the hostname to be removed
 
   """
-  # FIXME: use WriteFile + fn rather than duplicating its efforts
-  fd, tmpname = tempfile.mkstemp(dir=os.path.dirname(file_name))
-  try:
-    out = os.fdopen(fd, 'w')
+  def _WriteEtcHosts(fd):
+    # Duplicating file descriptor because os.fdopen's result will automatically
+    # close the descriptor, but we would still like to have its functionality.
+    out = os.fdopen(os.dup(fd), "w")
     try:
-      f = open(file_name, 'r')
-      try:
-        for line in f:
-          fields = line.split()
-          if len(fields) > 1 and not fields[0].startswith('#'):
-            names = fields[1:]
-            if hostname in names:
-              while hostname in names:
-                names.remove(hostname)
-              if names:
-                out.write("%s %s\n" % (fields[0], ' '.join(names)))
-              continue
+      for line in ReadFile(file_name).splitlines(True):
+        fields = line.split()
+        if len(fields) > 1 and not fields[0].startswith("#"):
+          names = fields[1:]
+          if hostname in names:
+            while hostname in names:
+              names.remove(hostname)
+            if names:
+              out.write("%s %s\n" % (fields[0], " ".join(names)))
+            continue
 
-          out.write(line)
+        out.write(line)
 
-        out.flush()
-        os.fsync(out)
-        os.chmod(tmpname, 0644)
-        os.rename(tmpname, file_name)
-      finally:
-        f.close()
+      out.flush()
     finally:
       out.close()
-  except:
-    RemoveFile(tmpname)
-    raise
+
+  WriteFile(file_name, fn=_WriteEtcHosts, mode=0644)
 
 
 def RemoveHostFromEtcHosts(hostname):
@@ -1521,9 +1554,8 @@ def RemoveHostFromEtcHosts(hostname):
       L{constants.ETC_HOSTS}
 
   """
-  hi = netutils.HostInfo(name=hostname)
-  RemoveEtcHostsEntry(constants.ETC_HOSTS, hi.name)
-  RemoveEtcHostsEntry(constants.ETC_HOSTS, hi.ShortName())
+  RemoveEtcHostsEntry(constants.ETC_HOSTS, hostname)
+  RemoveEtcHostsEntry(constants.ETC_HOSTS, hostname.split(".")[0])
 
 
 def TimestampForFilename():
@@ -1840,6 +1872,71 @@ def WriteFile(file_name, fn=None, data=None,
   return result
 
 
+def GetFileID(path=None, fd=None):
+  """Returns the file 'id', i.e. the dev/inode and mtime information.
+
+  Either the path to the file or the fd must be given.
+
+  @param path: the file path
+  @param fd: a file descriptor
+  @return: a tuple of (device number, inode number, mtime)
+
+  """
+  if [path, fd].count(None) != 1:
+    raise errors.ProgrammerError("One and only one of fd/path must be given")
+
+  if fd is None:
+    st = os.stat(path)
+  else:
+    st = os.fstat(fd)
+
+  return (st.st_dev, st.st_ino, st.st_mtime)
+
+
+def VerifyFileID(fi_disk, fi_ours):
+  """Verifies that two file IDs are matching.
+
+  Differences in the inode/device are not accepted, but and older
+  timestamp for fi_disk is accepted.
+
+  @param fi_disk: tuple (dev, inode, mtime) representing the actual
+      file data
+  @param fi_ours: tuple (dev, inode, mtime) representing the last
+      written file data
+  @rtype: boolean
+
+  """
+  (d1, i1, m1) = fi_disk
+  (d2, i2, m2) = fi_ours
+
+  return (d1, i1) == (d2, i2) and m1 <= m2
+
+
+def SafeWriteFile(file_name, file_id, **kwargs):
+  """Wraper over L{WriteFile} that locks the target file.
+
+  By keeping the target file locked during WriteFile, we ensure that
+  cooperating writers will safely serialise access to the file.
+
+  @type file_name: str
+  @param file_name: the target filename
+  @type file_id: tuple
+  @param file_id: a result from L{GetFileID}
+
+  """
+  fd = os.open(file_name, os.O_RDONLY | os.O_CREAT)
+  try:
+    LockFile(fd)
+    if file_id is not None:
+      disk_id = GetFileID(fd=fd)
+      if not VerifyFileID(disk_id, file_id):
+        raise errors.LockError("Cannot overwrite file %s, it has been modified"
+                               " since last written" % file_name)
+    return WriteFile(file_name, **kwargs)
+  finally:
+    os.close(fd)
+
+
 def ReadOneLineFile(file_name, strict=False):
   """Return the first non-empty line from a file.
 
@@ -2114,7 +2211,7 @@ def Mlockall(_ctypes=ctypes):
   logging.debug("Memory lock set")
 
 
-def Daemonize(logfile, run_uid, run_gid):
+def Daemonize(logfile):
   """Daemonize the current process.
 
   This detaches the current process from the controlling terminal and
@@ -2122,48 +2219,45 @@ def Daemonize(logfile, run_uid, run_gid):
 
   @type logfile: str
   @param logfile: the logfile to which we should redirect stdout/stderr
-  @type run_uid: int
-  @param run_uid: Run the child under this uid
-  @type run_gid: int
-  @param run_gid: Run the child under this gid
   @rtype: int
   @return: the value zero
 
   """
   # pylint: disable-msg=W0212
   # yes, we really want os._exit
-  UMASK = 077
-  WORKDIR = "/"
+
+  # TODO: do another attempt to merge Daemonize and StartDaemon, or at
+  # least abstract the pipe functionality between them
+
+  # Create pipe for sending error messages
+  (rpipe, wpipe) = os.pipe()
 
   # this might fail
   pid = os.fork()
   if (pid == 0):  # The first child.
-    os.setsid()
-    # FIXME: When removing again and moving to start-stop-daemon privilege drop
-    #        make sure to check for config permission and bail out when invoked
-    #        with wrong user.
-    os.setgid(run_gid)
-    os.setuid(run_uid)
+    SetupDaemonEnv()
+
     # this might fail
     pid = os.fork() # Fork a second child.
     if (pid == 0):  # The second child.
-      os.chdir(WORKDIR)
-      os.umask(UMASK)
+      _CloseFDNoErr(rpipe)
     else:
       # exit() or _exit()?  See below.
       os._exit(0) # Exit parent (the first child) of the second child.
   else:
-    os._exit(0) # Exit parent of the first child.
+    _CloseFDNoErr(wpipe)
+    # Wait for daemon to be started (or an error message to
+    # arrive) and read up to 100 KB as an error message
+    errormsg = RetryOnSignal(os.read, rpipe, 100 * 1024)
+    if errormsg:
+      sys.stderr.write("Error when starting daemon process: %r\n" % errormsg)
+      rcode = 1
+    else:
+      rcode = 0
+    os._exit(rcode) # Exit parent of the first child.
 
-  for fd in range(3):
-    _CloseFDNoErr(fd)
-  i = os.open("/dev/null", os.O_RDONLY) # stdin
-  assert i == 0, "Can't close/reopen stdin"
-  i = os.open(logfile, os.O_WRONLY|os.O_CREAT|os.O_APPEND, 0600) # stdout
-  assert i == 1, "Can't close/reopen stdout"
-  # Duplicate standard output to standard error.
-  os.dup2(1, 2)
-  return 0
+  SetupDaemonFDs(logfile, None)
+  return wpipe
 
 
 def DaemonPidFileName(name):
@@ -2205,23 +2299,31 @@ def StopDaemon(name):
   return True
 
 
-def WritePidFile(name):
+def WritePidFile(pidfile):
   """Write the current process pidfile.
 
-  The file will be written to L{constants.RUN_GANETI_DIR}I{/name.pid}
-
-  @type name: str
-  @param name: the daemon name to use
-  @raise errors.GenericError: if the pid file already exists and
+  @type pidfile: sting
+  @param pidfile: the path to the file to be written
+  @raise errors.LockError: if the pid file already exists and
       points to a live process
+  @rtype: int
+  @return: the file descriptor of the lock file; do not close this unless
+      you want to unlock the pid file
 
   """
-  pid = os.getpid()
-  pidfilename = DaemonPidFileName(name)
-  if IsProcessAlive(ReadPidFile(pidfilename)):
-    raise errors.GenericError("%s contains a live process" % pidfilename)
+  # We don't rename nor truncate the file to not drop locks under
+  # existing processes
+  fd_pidfile = os.open(pidfile, os.O_WRONLY | os.O_CREAT, 0600)
 
-  WriteFile(pidfilename, data="%d\n" % pid)
+  # Lock the PID file (and fail if not possible to do so). Any code
+  # wanting to send a signal to the daemon should try to lock the PID
+  # file before reading it. If acquiring the lock succeeds, the daemon is
+  # no longer running and the signal should not be sent.
+  LockFile(fd_pidfile)
+
+  os.write(fd_pidfile, "%d\n" % os.getpid())
+
+  return fd_pidfile
 
 
 def RemovePidFile(name):
@@ -2920,6 +3022,33 @@ def CommaJoin(names):
 
   """
   return ", ".join([str(val) for val in names])
+
+
+def FindMatch(data, name):
+  """Tries to find an item in a dictionary matching a name.
+
+  Callers have to ensure the data names aren't contradictory (e.g. a regexp
+  that matches a string). If the name isn't a direct key, all regular
+  expression objects in the dictionary are matched against it.
+
+  @type data: dict
+  @param data: Dictionary containing data
+  @type name: string
+  @param name: Name to look for
+  @rtype: tuple; (value in dictionary, matched groups as list)
+
+  """
+  if name in data:
+    return (data[name], [])
+
+  for key, value in data.items():
+    # Regex objects
+    if hasattr(key, "match"):
+      m = key.match(name)
+      if m:
+        return (value, list(m.groups()))
+
+  return None
 
 
 def BytesToMebibyte(value):

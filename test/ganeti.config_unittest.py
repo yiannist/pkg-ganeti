@@ -1,7 +1,7 @@
 #!/usr/bin/python
 #
 
-# Copyright (C) 2006, 2007 Google Inc.
+# Copyright (C) 2006, 2007, 2010 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -37,7 +37,14 @@ from ganeti import objects
 from ganeti import utils
 from ganeti import netutils
 
+from ganeti.config import TemporaryReservationManager
+
 import testutils
+import mocks
+
+
+def _StubGetEntResolver():
+  return mocks.FakeGetentResolver()
 
 
 class TestConfigRunner(unittest.TestCase):
@@ -55,12 +62,13 @@ class TestConfigRunner(unittest.TestCase):
 
   def _get_object(self):
     """Returns a instance of ConfigWriter"""
-    cfg = config.ConfigWriter(cfg_file=self.cfg_file, offline=True)
+    cfg = config.ConfigWriter(cfg_file=self.cfg_file, offline=True,
+                              _getents=_StubGetEntResolver)
     return cfg
 
   def _init_cluster(self, cfg):
     """Initializes the cfg object"""
-    me = netutils.HostInfo()
+    me = netutils.Hostname()
     ip = constants.IP4_ADDRESS_LOCALHOST
 
     cluster_config = objects.Cluster(
@@ -178,6 +186,24 @@ class TestConfigRunner(unittest.TestCase):
                       CheckSyntax, {mode: m_bridged, link: None})
     self.assertRaises(errors.ConfigurationError,
                       CheckSyntax, {mode: m_bridged, link: ''})
+
+
+class TestTRM(unittest.TestCase):
+  EC_ID = 1
+
+  def testEmpty(self):
+    t = TemporaryReservationManager()
+    t.Reserve(self.EC_ID, "a")
+    self.assertFalse(t.Reserved(self.EC_ID))
+    self.assertTrue(t.Reserved("a"))
+    self.assertEqual(len(t.GetReserved()), 1)
+
+  def testDuplicate(self):
+    t = TemporaryReservationManager()
+    t.Reserve(self.EC_ID, "a")
+    self.assertRaises(errors.ReservationError, t.Reserve, 2, "a")
+    t.DropECReservations(self.EC_ID)
+    self.assertFalse(t.Reserved("a"))
 
 
 if __name__ == '__main__':

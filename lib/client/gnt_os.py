@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#
 #
 
 # Copyright (C) 2006, 2007, 2010 Google Inc.
@@ -25,8 +25,6 @@
 # W0613: Unused argument, since all functions follow the same API
 # W0614: Unused import %s from wildcard import (since we need cli)
 # C0103: Invalid name gnt-os
-
-import sys
 
 from ganeti.cli import *
 from ganeti import constants
@@ -282,18 +280,22 @@ def ModifyOS(opts, args):
 
 commands = {
   'list': (
-    ListOS, ARGS_NONE, [NOHDR_OPT], "", "Lists all valid operating systems"
-    " on the cluster"),
+    ListOS, ARGS_NONE, [NOHDR_OPT, PRIORITY_OPT],
+    "", "Lists all valid operating systems on the cluster"),
   'diagnose': (
-    DiagnoseOS, ARGS_NONE, [], "", "Diagnose all operating systems"),
+    DiagnoseOS, ARGS_NONE, [PRIORITY_OPT],
+    "", "Diagnose all operating systems"),
   'info': (
-    ShowOSInfo, [ArgOs()], [], "", "Show detailed information about "
+    ShowOSInfo, [ArgOs()], [PRIORITY_OPT],
+    "", "Show detailed information about "
     "operating systems"),
   'modify': (
-    ModifyOS, ARGS_ONE_OS, [HVLIST_OPT, OSPARAMS_OPT, DRY_RUN_OPT,
-                            HID_OS_OPT, BLK_OS_OPT], "",
-    "Modify the OS parameters"),
+    ModifyOS, ARGS_ONE_OS,
+    [HVLIST_OPT, OSPARAMS_OPT, DRY_RUN_OPT, PRIORITY_OPT,
+     HID_OS_OPT, BLK_OS_OPT],
+    "", "Modify the OS parameters"),
   }
 
-if __name__ == '__main__':
-  sys.exit(GenericMain(commands))
+
+def Main():
+  return GenericMain(commands)

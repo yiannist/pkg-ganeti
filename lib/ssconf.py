@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2008 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2010 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -29,6 +29,7 @@ configuration data, which is mostly static and available to all nodes.
 import sys
 import re
 import os
+import errno
 
 from ganeti import errors
 from ganeti import constants
@@ -281,11 +282,13 @@ class SimpleStore(object):
     constants.SS_NODE_SECONDARY_IPS,
     constants.SS_OFFLINE_NODES,
     constants.SS_ONLINE_NODES,
+    constants.SS_PRIMARY_IP_FAMILY,
     constants.SS_INSTANCE_LIST,
     constants.SS_RELEASE_VERSION,
     constants.SS_HYPERVISOR_LIST,
     constants.SS_MAINTAIN_NODE_HEALTH,
     constants.SS_UID_POOL,
+    constants.SS_NODEGROUPS,
     )
   _MAX_SIZE = 131072
 
@@ -306,7 +309,7 @@ class SimpleStore(object):
     filename = self._cfg_dir + '/' + self._SS_FILEPREFIX + key
     return filename
 
-  def _ReadFile(self, key):
+  def _ReadFile(self, key, default=None):
     """Generic routine to read keys.
 
     This will read the file which holds the value requested. Errors
@@ -317,6 +320,8 @@ class SimpleStore(object):
     try:
       data = utils.ReadFile(filename, size=self._MAX_SIZE)
     except EnvironmentError, err:
+      if err.errno == errno.ENOENT and default is not None:
+        return default
       raise errors.ConfigurationError("Can't read from the ssconf file:"
                                       " '%s'" % str(err))
     data = data.rstrip('\n')
@@ -422,6 +427,14 @@ class SimpleStore(object):
     nl = data.splitlines(False)
     return nl
 
+  def GetNodegroupList(self):
+    """Return the list of nodegroups.
+
+    """
+    data = self._ReadFile(constants.SS_NODEGROUPS)
+    nl = data.splitlines(False)
+    return nl
+
   def GetClusterTags(self):
     """Return the cluster tags.
 
@@ -460,6 +473,17 @@ class SimpleStore(object):
     data = self._ReadFile(constants.SS_UID_POOL)
     return data
 
+  def GetPrimaryIPFamily(self):
+    """Return the cluster-wide primary address family.
+
+    """
+    try:
+      return int(self._ReadFile(constants.SS_PRIMARY_IP_FAMILY,
+                                default=netutils.IP4Address.family))
+    except (ValueError, TypeError), err:
+      raise errors.ConfigurationError("Error while trying to parse primary ip"
+                                      " family: %s" % err)
+
 
 def GetMasterAndMyself(ss=None):
   """Get the master node and my own hostname.
@@ -478,7 +502,7 @@ def GetMasterAndMyself(ss=None):
   """
   if ss is None:
     ss = SimpleStore()
-  return ss.GetMasterNode(), netutils.HostInfo().name
+  return ss.GetMasterNode(), netutils.Hostname.GetSysName()
 
 
 def CheckMaster(debug, ss=None):

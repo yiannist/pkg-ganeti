@@ -37,12 +37,26 @@ NAME="AEN17"
 ><B
 CLASS="COMMAND"
 >ganeti-watcher </B
-> </P
+>  [<CODE
+CLASS="OPTION"
+>--debug</CODE
+>] [<CODE
+CLASS="OPTION"
+>--job-age=<TT
+CLASS="REPLACEABLE"
+><I
+>age</I
+></TT
+></CODE
+>] [<CODE
+CLASS="OPTION"
+>--ignore-pause</CODE
+>]</P
 ></DIV
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN20"
+NAME="AEN27"
 ></A
 ><H2
 >DESCRIPTION</H2
@@ -55,10 +69,31 @@ CLASS="COMMAND"
       status. It has two separate functions, one for the master node
       and another one that runs on every node.
     </P
+><P
+>      If the watcher is disabled at cluster level (via
+      the <B
+CLASS="COMMAND"
+>gnt-cluster watcher pause</B
+> command), it
+      will exit without doing anything. The cluster-level pause can be
+      overriden via the <CODE
+CLASS="OPTION"
+>--ignore-pause</CODE
+> option, for
+      example if during a maintenance the watcher needs to be disabled
+      in general, but the administrator wants to run it just once.
+    </P
+><P
+>      The <CODE
+CLASS="OPTION"
+>--debug</CODE
+> option will increase the verbosity
+      of the watcher and also activate logging to the standard error.
+    </P
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN24"
+NAME="AEN36"
 ></A
 ><H3
 >Master operations</H3
@@ -74,18 +109,27 @@ CLASS="EMPHASIS"
         file, by trying to start them a limited number of times.
       </P
 ><P
->        Its other function is to <SPAN
+>        Another function is to <SPAN
 CLASS="QUOTE"
 >"repair"</SPAN
 > DRBD links by
         reactivating the block devices of instances which have
         secondaries on nodes that have been rebooted.
       </P
+><P
+>        The watcher will also archive old jobs (older than the age
+        given via the <CODE
+CLASS="OPTION"
+>--job-age</CODE
+> option, which
+        defaults to 6 hours), in order to keep the job queue
+        manageable.
+      </P
 ></DIV
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN30"
+NAME="AEN44"
 ></A
 ><H3
 >Node operations</H3
@@ -114,14 +158,14 @@ CLASS="LITERAL"
 ><P
 >        The watcher does synchronous queries but will submit jobs for
         executing the changes. Due to locking, it could be that the jobs
-        execute much later than the watcher executes them.
+        execute much later than the watcher submits them.
       </P
 ></DIV
 ></DIV
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN38"
+NAME="AEN52"
 ></A
 ><H2
 >FILES</H2
@@ -144,7 +188,7 @@ CLASS="FILENAME"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN43"
+NAME="AEN57"
 ></A
 ><H2
 >REPORTING BUGS</H2
@@ -161,7 +205,7 @@ TARGET="_top"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN47"
+NAME="AEN61"
 ></A
 ><H2
 >SEE ALSO</H2
@@ -277,7 +321,7 @@ CLASS="REFENTRYTITLE"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN94"
+NAME="AEN108"
 ></A
 ><H2
 >COPYRIGHT</H2

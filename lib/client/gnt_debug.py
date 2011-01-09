@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#
 #
 
 # Copyright (C) 2006, 2007, 2010 Google Inc.
@@ -25,7 +25,6 @@
 # W0614: Unused import %s from wildcard import (since we need cli)
 # C0103: Invalid name gnt-backup
 
-import sys
 import simplejson
 import time
 import socket
@@ -37,6 +36,7 @@ from ganeti import constants
 from ganeti import opcodes
 from ganeti import utils
 from ganeti import errors
+from ganeti import compat
 
 
 #: Default fields for L{ListLocks}
@@ -167,6 +167,64 @@ def TestAllocator(opts, args):
   return 0
 
 
+def _TestJobSubmission(opts):
+  """Tests submitting jobs.
+
+  """
+  ToStdout("Testing job submission")
+
+  testdata = [
+    (0, 0, constants.OP_PRIO_LOWEST),
+    (0, 0, constants.OP_PRIO_HIGHEST),
+    ]
+
+  for priority in (constants.OP_PRIO_SUBMIT_VALID |
+                   frozenset([constants.OP_PRIO_LOWEST,
+                              constants.OP_PRIO_HIGHEST])):
+    for offset in [-1, +1]:
+      testdata.extend([
+        (0, 0, priority + offset),
+        (3, 0, priority + offset),
+        (0, 3, priority + offset),
+        (4, 2, priority + offset),
+        ])
+
+  cl = cli.GetClient()
+
+  for before, after, failpriority in testdata:
+    ops = []
+    ops.extend([opcodes.OpTestDelay(duration=0) for _ in range(before)])
+    ops.append(opcodes.OpTestDelay(duration=0, priority=failpriority))
+    ops.extend([opcodes.OpTestDelay(duration=0) for _ in range(after)])
+
+    try:
+      cl.SubmitJob(ops)
+    except errors.GenericError, err:
+      if opts.debug:
+        ToStdout("Ignoring error: %s", err)
+    else:
+      raise errors.OpExecError("Submitting opcode with priority %s did not"
+                               " fail when it should (allowed are %s)" %
+                               (failpriority, constants.OP_PRIO_SUBMIT_VALID))
+
+    jobs = [
+      [opcodes.OpTestDelay(duration=0),
+       opcodes.OpTestDelay(duration=0, dry_run=False),
+       opcodes.OpTestDelay(duration=0, dry_run=True)],
+      ops,
+      ]
+    result = cl.SubmitManyJobs(jobs)
+    if not (len(result) == 2 and
+            compat.all(len(i) == 2 for i in result) and
+            compat.all(isinstance(i[1], basestring) for i in result) and
+            result[0][0] and not result[1][0]):
+      raise errors.OpExecError("Submitting multiple jobs did not work as"
+                               " expected, result %s" % result)
+    assert len(result) == 2
+
+  ToStdout("Job submission tests were successful")
+
+
 class _JobQueueTestReporter(cli.StdioJobPollReportCb):
   def __init__(self):
     """Initializes this class.
@@ -268,6 +326,8 @@ def TestJobqueue(opts, _):
   """Runs a few tests on the job queue.
 
   """
+  _TestJobSubmission(opts)
+
   (TM_SUCCESS,
    TM_MULTISUCCESS,
    TM_FAIL,
@@ -471,7 +531,7 @@ commands = {
                 action="append", help="Select nodes to sleep on"),
      cli_option("-r", "--repeat", type="int", default="0", dest="repeat",
                 help="Number of times to repeat the sleep"),
-     DRY_RUN_OPT,
+     DRY_RUN_OPT, PRIORITY_OPT,
      ],
     "[opts...] <duration>", "Executes a TestDelay OpCode"),
   'submit-job': (
@@ -485,7 +545,7 @@ commands = {
                 action="store_true", help="Show timing stats"),
      cli_option("--each", default=False, action="store_true",
                 help="Submit each job separately"),
-     DRY_RUN_OPT,
+     DRY_RUN_OPT, PRIORITY_OPT,
      ],
     "<op_list_file...>", "Submits jobs built from json files"
     " containing a list of serialized opcodes"),
@@ -513,11 +573,11 @@ commands = {
                 help="Select number of VCPUs for the instance"),
      cli_option("--tags", default=None,
                 help="Comma separated list of tags"),
-     DRY_RUN_OPT,
+     DRY_RUN_OPT, PRIORITY_OPT,
      ],
     "{opts...} <instance>", "Executes a TestAllocator OpCode"),
   "test-jobqueue": (
-    TestJobqueue, ARGS_NONE, [],
+    TestJobqueue, ARGS_NONE, [PRIORITY_OPT],
     "", "Test a few aspects of the job queue"),
   "locks": (
     ListLocks, ARGS_NONE, [NOHDR_OPT, SEP_OPT, FIELDS_OPT, INTERVAL_OPT],
@@ -525,5 +585,5 @@ commands = {
   }
 
 
-if __name__ == '__main__':
-  sys.exit(GenericMain(commands))
+def Main():
+  return GenericMain(commands)

@@ -28,10 +28,12 @@ import time
 import Queue
 import threading
 import random
+import itertools
 
 from ganeti import locking
 from ganeti import errors
 from ganeti import utils
+from ganeti import compat
 
 import testutils
 
@@ -701,6 +703,106 @@ class TestSharedLock(_ThreadedTestCase):
 
     self.assertRaises(Queue.Empty, self.done.get_nowait)
 
+  def testPriority(self):
+    # Acquire in exclusive mode
+    self.assert_(self.sl.acquire(shared=0))
+
+    # Queue acquires
+    def _Acquire(prev, next, shared, priority, result):
+      prev.wait()
+      self.sl.acquire(shared=shared, priority=priority, test_notify=next.set)
+      try:
+        self.done.put(result)
+      finally:
+        self.sl.release()
+
+    counter = itertools.count(0)
+    priorities = range(-20, 30)
+    first = threading.Event()
+    prev = first
+
+    # Data structure:
+    # {
+    #   priority:
+    #     [(shared/exclusive, set(acquire names), set(pending threads)),
+    #      (shared/exclusive, ...),
+    #      ...,
+    #     ],
+    # }
+    perprio = {}
+
+    # References shared acquire per priority in L{perprio}. Data structure:
+    # {
+    #   priority: (shared=1, set(acquire names), set(pending threads)),
+    # }
+    prioshared = {}
+
+    for seed in [4979, 9523, 14902, 32440]:
+      # Use a deterministic random generator
+      rnd = random.Random(seed)
+      for priority in [rnd.choice(priorities) for _ in range(30)]:
+        modes = [0, 1]
+        rnd.shuffle(modes)
+        for shared in modes:
+          # Unique name
+          acqname = "%s/shr=%s/prio=%s" % (counter.next(), shared, priority)
+
+          ev = threading.Event()
+          thread = self._addThread(target=_Acquire,
+                                   args=(prev, ev, shared, priority, acqname))
+          prev = ev
+
+          # Record expected aqcuire, see above for structure
+          data = (shared, set([acqname]), set([thread]))
+          priolist = perprio.setdefault(priority, [])
+          if shared:
+            priosh = prioshared.get(priority, None)
+            if priosh:
+              # Shared acquires are merged
+              for i, j in zip(priosh[1:], data[1:]):
+                i.update(j)
+              assert data[0] == priosh[0]
+            else:
+              prioshared[priority] = data
+              priolist.append(data)
+          else:
+            priolist.append(data)
+
+    # Start all acquires and wait for them
+    first.set()
+    prev.wait()
+
+    # Check lock information
+    self.assertEqual(self.sl.GetInfo(["name"]), [self.sl.name])
+    self.assertEqual(self.sl.GetInfo(["mode", "owner"]),
+                     ["exclusive", [threading.currentThread().getName()]])
+    self.assertEqual(self.sl.GetInfo(["name", "pending"]),
+                     [self.sl.name,
+                      [(["exclusive", "shared"][int(bool(shared))],
+                        sorted([t.getName() for t in threads]))
+                       for acquires in [perprio[i]
+                                        for i in sorted(perprio.keys())]
+                       for (shared, _, threads) in acquires]])
+
+    # Let threads acquire the lock
+    self.sl.release()
+
+    # Wait for everything to finish
+    self._waitThreads()
+
+    self.assert_(self.sl._check_empty())
+
+    # Check acquires by priority
+    for acquires in [perprio[i] for i in sorted(perprio.keys())]:
+      for (_, names, _) in acquires:
+        # For shared acquires, the set will contain 1..n entries. For exclusive
+        # acquires only one.
+        while names:
+          names.remove(self.done.get_nowait())
+      self.assertFalse(compat.any(names for (_, names, _) in acquires))
+
+    self.assertRaises(Queue.Empty, self.done.get_nowait)
+
 
 class TestSharedLockInCondition(_ThreadedTestCase):
   """SharedLock as a condition lock tests"""
@@ -1259,6 +1361,57 @@ class TestLockSet(_ThreadedTestCase):
     self.assertEqual(self.done.get_nowait(), 'DONE')
     self._setUpLS()
 
+  def testPriority(self):
+    def _Acquire(prev, next, name, priority, success_fn):
+      prev.wait()
+      self.assert_(self.ls.acquire(name, shared=0,
+                                   priority=priority,
+                                   test_notify=lambda _: next.set()))
+      try:
+        success_fn()
+      finally:
+        self.ls.release()
+
+    # Get all in exclusive mode
+    self.assert_(self.ls.acquire(locking.ALL_SET, shared=0))
+
+    done_two = Queue.Queue(0)
+
+    first = threading.Event()
+    prev = first
+
+    acquires = [("one", prio, self.done) for prio in range(1, 33)]
+    acquires.extend([("two", prio, done_two) for prio in range(1, 33)])
+
+    # Use a deterministic random generator
+    random.Random(741).shuffle(acquires)
+
+    for (name, prio, done) in acquires:
+      ev = threading.Event()
+      self._addThread(target=_Acquire,
+                      args=(prev, ev, name, prio,
+                            compat.partial(done.put, "Prio%s" % prio)))
+      prev = ev
+
+    # Start acquires
+    first.set()
+
+    # Wait for last acquire to start
+    prev.wait()
+
+    # Let threads acquire locks
+    self.ls.release()
+
+    # Wait for threads to finish
+    self._waitThreads()
+
+    for i in range(1, 33):
+      self.assertEqual(self.done.get_nowait(), "Prio%s" % i)
+      self.assertEqual(done_two.get_nowait(), "Prio%s" % i)
+
+    self.assertRaises(Queue.Empty, self.done.get_nowait)
+    self.assertRaises(Queue.Empty, done_two.get_nowait)
+
 
 class TestGanetiLockManager(_ThreadedTestCase):
 
@@ -1266,8 +1419,7 @@ class TestGanetiLockManager(_ThreadedTestCase):
     _ThreadedTestCase.setUp(self)
     self.nodes=['n1', 'n2']
     self.instances=['i1', 'i2', 'i3']
-    self.GL = locking.GanetiLockManager(nodes=self.nodes,
-                                        instances=self.instances)
+    self.GL = locking.GanetiLockManager(self.nodes, self.instances)
 
   def tearDown(self):
     # Don't try this at home...
@@ -1282,7 +1434,7 @@ class TestGanetiLockManager(_ThreadedTestCase):
       self.assertEqual(i, locking.LEVELS[i])
 
   def testDoubleGLFails(self):
-    self.assertRaises(AssertionError, locking.GanetiLockManager)
+    self.assertRaises(AssertionError, locking.GanetiLockManager, [], [])
 
   def testLockNames(self):
     self.assertEqual(self.GL._names(locking.LEVEL_CLUSTER), set(['BGL']))
@@ -1381,6 +1533,20 @@ class TestGanetiLockManager(_ThreadedTestCase):
                       locking.LEVEL_NODE, ['n1'])
     self.assertRaises(AssertionError, self.GL.acquire,
                       locking.LEVEL_INSTANCE, ['i2'])
+
+  def testModifiableLevels(self):
+    self.assertRaises(AssertionError, self.GL.add, locking.LEVEL_CLUSTER,
+                      ['BGL2'])
+    self.GL.acquire(locking.LEVEL_CLUSTER, ['BGL'])
+    self.GL.add(locking.LEVEL_INSTANCE, ['i4'])
+    self.GL.remove(locking.LEVEL_INSTANCE, ['i3'])
+    self.GL.remove(locking.LEVEL_INSTANCE, ['i1'])
+    self.assertEqual(self.GL._names(locking.LEVEL_INSTANCE), set(['i2', 'i4']))
+    self.GL.add(locking.LEVEL_NODE, ['n3'])
+    self.GL.remove(locking.LEVEL_NODE, ['n1'])
+    self.assertEqual(self.GL._names(locking.LEVEL_NODE), set(['n2', 'n3']))
+    self.assertRaises(AssertionError, self.GL.remove, locking.LEVEL_CLUSTER,
+                      ['BGL2'])
 
   # Helper function to run as a thread that shared the BGL and then acquires
   # some locks at another level.

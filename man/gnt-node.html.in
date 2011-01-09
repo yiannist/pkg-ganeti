@@ -77,6 +77,17 @@ CLASS="REPLACEABLE"
 ><I
 >secondary_ip</I
 ></TT
+>] [-g <TT
+CLASS="REPLACEABLE"
+><I
+>nodegroup</I
+></TT
+>] [--master-capable=<CODE
+CLASS="OPTION"
+>yes|no</CODE
+>] [--vm-capable=<CODE
+CLASS="OPTION"
+>yes|no</CODE
 >] {<TT
 CLASS="REPLACEABLE"
 ><I
@@ -131,11 +142,38 @@ CLASS="LITERAL"
         before re-adding it.
       </P
 ><P
+>        The <CODE
+CLASS="OPTION"
+>-g</CODE
+> is used to add the new node into a specific
+        node group, specified by uuid or name. If only one node group exists
+        you can skip this option, otherwise it's mandatory.
+      </P
+><P
+>        The <CODE
+CLASS="OPTION"
+>vm_capable</CODE
+>
+        and <CODE
+CLASS="OPTION"
+>master_capable</CODE
+> options are described
+        in <SPAN
+CLASS="CITEREFENTRY"
+><SPAN
+CLASS="REFENTRYTITLE"
+>ganeti</SPAN
+>(7)</SPAN
+>,
+        and are used to set the properties of the new node.
+      </P
+><P
 >        Example:
         <PRE
 CLASS="SCREEN"
 ># gnt-node add node5.example.com
 # gnt-node add -s 192.0.2.5 node5.example.com
+# gnt-node add -g group2 -s 192.0.2.9 node9.group2.example.com
         </PRE
 >
       </P
@@ -143,7 +181,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN51"
+NAME="AEN65"
 ></A
 ><H3
 >ADD-TAGS</H3
@@ -185,7 +223,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN64"
+NAME="AEN78"
 ></A
 ><H3
 >EVACUATE</H3
@@ -267,7 +305,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN90"
+NAME="AEN104"
 ></A
 ><H3
 >FAILOVER</H3
@@ -307,7 +345,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN103"
+NAME="AEN117"
 ></A
 ><H3
 >INFO</H3
@@ -330,7 +368,7 @@ CLASS="REPLACEABLE"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN110"
+NAME="AEN124"
 ></A
 ><H3
 >LIST</H3
@@ -668,6 +706,18 @@ CLASS="EMPHASIS"
 >
               </P
 ></DD
+><DT
+>master_capable</DT
+><DD
+><P
+>whether the node can become a master candidate</P
+></DD
+><DT
+>vm_capable</DT
+><DD
+><P
+>whether the node can host instances</P
+></DD
 ></DL
 ></DIV
 >
@@ -709,7 +759,7 @@ CLASS="ACRONYM"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN275"
+NAME="AEN297"
 ></A
 ><H3
 >LIST-TAGS</H3
@@ -729,7 +779,7 @@ CLASS="REPLACEABLE"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN282"
+NAME="AEN304"
 ></A
 ><H3
 >MIGRATE</H3
@@ -775,7 +825,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN298"
+NAME="AEN320"
 ></A
 ><H3
 >MODIFY</H3
@@ -792,6 +842,17 @@ CLASS="OPTION"
 >] [--offline=<CODE
 CLASS="OPTION"
 >yes|no</CODE
+>] [--master-capable=<CODE
+CLASS="OPTION"
+>yes|no</CODE
+>] [--vm-capable=<CODE
+CLASS="OPTION"
+>yes|no</CODE
+>] [-s <TT
+CLASS="REPLACEABLE"
+><I
+>secondary_ip</I
+></TT
 >] [--auto-promote] {<TT
 CLASS="REPLACEABLE"
 ><I
@@ -811,8 +872,8 @@ CLASS="LITERAL"
         <TT
 CLASS="LITERAL"
 >yes</TT
->. The meaning of the roles are described
-        in the manpage <SPAN
+>. The meaning of the roles and flags are
+        described in the manpage <SPAN
 CLASS="CITEREFENTRY"
 ><SPAN
 CLASS="REFENTRYTITLE"
@@ -844,6 +905,14 @@ CLASS="SCREEN"
 >
       </P
 ><P
+>        The <CODE
+CLASS="OPTION"
+>-s</CODE
+> can be used to change the node's secondary ip.
+        No drbd instances can be running on the node, while this operation is
+        taking place.
+      </P
+><P
 >Example (setting the node back to online and master candidate):
         <PRE
 CLASS="SCREEN"
@@ -855,7 +924,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN326"
+NAME="AEN356"
 ></A
 ><H3
 >REMOVE</H3
@@ -885,7 +954,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN335"
+NAME="AEN365"
 ></A
 ><H3
 >REMOVE-TAGS</H3
@@ -927,7 +996,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN348"
+NAME="AEN378"
 ></A
 ><H3
 >VOLUMES</H3
@@ -1054,7 +1123,7 @@ node1.example.com /dev/hdc1 xenvg instance1.example.com-sda_11001.data 256  inst
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN398"
+NAME="AEN428"
 ></A
 ><H3
 >LIST-STORAGE</H3
@@ -1238,7 +1307,7 @@ node2 lvm-pv /dev/sdb1 698.6G   0M 698.6G Y
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN463"
+NAME="AEN493"
 ></A
 ><H3
 >MODIFY-STORAGE</H3
@@ -1285,7 +1354,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN480"
+NAME="AEN510"
 ></A
 ><H3
 >REPAIR-STORAGE</H3
@@ -1374,7 +1443,7 @@ CLASS="SCREEN"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN502"
+NAME="AEN532"
 ></A
 ><H3
 >POWERCYCLE</H3
@@ -1425,7 +1494,7 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN518"
+NAME="AEN548"
 ></A
 ><H2
 >REPORTING BUGS</H2
@@ -1442,7 +1511,7 @@ TARGET="_top"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN522"
+NAME="AEN552"
 ></A
 ><H2
 >SEE ALSO</H2
@@ -1558,7 +1627,7 @@ CLASS="REFENTRYTITLE"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN569"
+NAME="AEN599"
 ></A
 ><H2
 >COPYRIGHT</H2

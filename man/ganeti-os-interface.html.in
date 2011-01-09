@@ -275,11 +275,26 @@ CLASS="ENVAR"
             NIC of the instance.</P
 ></DD
 ><DT
+>NIC_%N_MODE</DT
+><DD
+><P
+>The NIC mode, either routed or bridged</P
+></DD
+><DT
 >NIC_%N_BRIDGE</DT
 ><DD
 ><P
->The bridge to which this NIC will be attached
-            to.</P
+>The bridge to which this NIC will be attached. This
+            variable is defined only when the NIC is in bridged mode.</P
+></DD
+><DT
+>NIC_%N_LINK</DT
+><DD
+><P
+>If the NIC is in bridged mode, this is the same as
+            NIC_%N_BRIDGE. If it is in routed mode, the routing table
+            which will be used by the hypervisor to insert the appropriate
+            routes.</P
 ></DD
 ><DT
 >NIC_%N_FRONTEND_TYPE</DT
@@ -317,7 +332,7 @@ CLASS="EMPHASIS"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN120"
+NAME="AEN128"
 ></A
 ><H3
 >create</H3
@@ -349,7 +364,7 @@ CLASS="ENVAR"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN128"
+NAME="AEN136"
 ></A
 ><H3
 >export</H3
@@ -405,7 +420,7 @@ fi</PRE
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN139"
+NAME="AEN147"
 ></A
 ><H3
 >import</H3
@@ -449,7 +464,7 @@ CLASS="EMPHASIS"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN150"
+NAME="AEN158"
 ></A
 ><H3
 >rename</H3
@@ -490,7 +505,7 @@ CLASS="ENVAR"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN159"
+NAME="AEN167"
 ></A
 ><H3
 >ganeti_api_version</H3
@@ -511,7 +526,7 @@ CLASS="FILENAME"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN163"
+NAME="AEN171"
 ></A
 ><H3
 >variants.list</H3
@@ -528,14 +543,14 @@ CLASS="FILENAME"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN167"
+NAME="AEN175"
 ></A
 ><H2
 >NOTES</H2
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN169"
+NAME="AEN177"
 ></A
 ><H3
 >Backwards compatibility</H3
@@ -552,7 +567,7 @@ CLASS="FILENAME"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN173"
+NAME="AEN181"
 ></A
 ><H3
 >Common behaviour</H3
@@ -571,14 +586,14 @@ CLASS="OPTION"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN178"
+NAME="AEN186"
 ></A
 ><H3
 >Upgrading from old versions</H3
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN180"
+NAME="AEN188"
 ></A
 ><H4
 >Version 10 to 15</H4
@@ -596,7 +611,7 @@ CLASS="FILENAME"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN184"
+NAME="AEN192"
 ></A
 ><H4
 >Version 5 to 10</H4
@@ -622,7 +637,7 @@ CLASS="FILENAME"
 ><DIV
 CLASS="REFSECT3"
 ><A
-NAME="AEN189"
+NAME="AEN197"
 ></A
 ><H4
 >Version 4 to 5</H4
@@ -653,7 +668,7 @@ exit 0
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN196"
+NAME="AEN204"
 ></A
 ><H2
 >REPORTING BUGS</H2
@@ -670,7 +685,7 @@ TARGET="_top"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN200"
+NAME="AEN208"
 ></A
 ><H2
 >SEE ALSO</H2
@@ -786,7 +801,7 @@ CLASS="REFENTRYTITLE"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN247"
+NAME="AEN255"
 ></A
 ><H2
 >COPYRIGHT</H2

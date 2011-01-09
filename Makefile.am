@@ -15,13 +15,17 @@ BUILD_BASH_COMPLETION = $(top_srcdir)/autotools/build-bash-completion
 RUN_IN_TEMPDIR = $(top_srcdir)/autotools/run-in-tempdir
 CHECK_PYTHON_CODE = $(top_srcdir)/autotools/check-python-code
 CHECK_MAN = $(top_srcdir)/autotools/check-man
+CHECK_VERSION = $(top_srcdir)/autotools/check-version
 REPLACE_VARS_SED = autotools/replace_vars.sed
 
+clientdir = $(pkgpythondir)/client
 hypervisordir = $(pkgpythondir)/hypervisor
 httpdir = $(pkgpythondir)/http
 masterddir = $(pkgpythondir)/masterd
 confddir = $(pkgpythondir)/confd
 rapidir = $(pkgpythondir)/rapi
+serverdir = $(pkgpythondir)/server
+watcherdir = $(pkgpythondir)/watcher
 impexpddir = $(pkgpythondir)/impexpd
 toolsdir = $(pkglibdir)/tools
 docdir = $(datadir)/doc/$(PACKAGE)
@@ -38,6 +42,7 @@ DIRS = \
 	doc/examples/hooks \
 	doc/examples/gnt-debug \
 	lib \
+	lib/client \
 	lib/build \
 	lib/confd \
 	lib/http \
@@ -45,22 +50,29 @@ DIRS = \
 	lib/impexpd \
 	lib/masterd \
 	lib/rapi \
+	lib/server \
+	lib/watcher \
 	man \
 	qa \
-	scripts \
 	test \
 	test/data \
 	tools
 
-BUILDTIME_DIRS = \
+BUILDTIME_DIR_AUTOCREATE = \
+	scripts \
 	doc/api \
-	doc/coverage \
+	doc/coverage
+
+BUILDTIME_DIRS = \
+	$(BUILDTIME_DIR_AUTOCREATE) \
 	doc/html
 
 DIRCHECK_EXCLUDE = \
 	$(BUILDTIME_DIRS) \
 	ganeti-[0-9]*.[0-9]*.[0-9]* \
 	doc/html/_*
+
+all_dirfiles = $(addsuffix /.dir,$(DIRS) $(BUILDTIME_DIR_AUTOCREATE))
 
 MAINTAINERCLEANFILES = \
 	$(docpng) \
@@ -74,6 +86,8 @@ maintainer-clean-local:
 
 CLEANFILES = \
 	$(addsuffix /*.py[co],$(DIRS)) \
+	$(all_dirfiles) \
+	$(PYTHON_BOOTSTRAP) \
 	autotools/replace_vars.sed \
 	daemons/daemon-util \
 	daemons/ensure-dirs \
@@ -86,15 +100,17 @@ CLEANFILES = \
 	doc/examples/hooks/ipsec \
 	$(man_MANS) \
 	$(manhtml) \
-	stamp-directories \
 	stamp-srclinks \
 	$(nodist_pkgpython_PYTHON)
 
+# BUILT_SOURCES should only be used as a dependency on phony targets. Otherwise
+# it'll cause the target to rebuild every time.
 BUILT_SOURCES = \
 	ganeti \
 	stamp-srclinks \
-	stamp-directories \
-	lib/_autoconf.py
+	lib/_autoconf.py \
+	$(all_dirfiles) \
+	$(PYTHON_BOOTSTRAP)
 
 nodist_pkgpython_PYTHON = \
 	lib/_autoconf.py
@@ -115,6 +131,7 @@ pkgpython_PYTHON = \
 	lib/constants.py \
 	lib/daemon.py \
 	lib/errors.py \
+	lib/ht.py \
 	lib/jqueue.py \
 	lib/jstore.py \
 	lib/locking.py \
@@ -124,6 +141,7 @@ pkgpython_PYTHON = \
 	lib/objects.py \
 	lib/opcodes.py \
 	lib/rpc.py \
+	lib/runtime.py \
 	lib/serializer.py \
 	lib/ssconf.py \
 	lib/ssh.py \
@@ -131,6 +149,16 @@ pkgpython_PYTHON = \
 	lib/utils.py \
 	lib/uidpool.py \
 	lib/workerpool.py
+
+client_PYTHON = \
+	lib/client/__init__.py \
+	lib/client/gnt_backup.py \
+	lib/client/gnt_cluster.py \
+	lib/client/gnt_debug.py \
+	lib/client/gnt_instance.py \
+	lib/client/gnt_job.py \
+	lib/client/gnt_node.py \
+	lib/client/gnt_os.py
 
 hypervisor_PYTHON = \
 	lib/hypervisor/__init__.py \
@@ -168,11 +196,22 @@ masterd_PYTHON = \
 impexpd_PYTHON = \
 	lib/impexpd/__init__.py
 
+watcher_PYTHON = \
+	lib/watcher/__init__.py
+
+server_PYTHON = \
+	lib/server/__init__.py \
+	lib/server/confd.py \
+	lib/server/masterd.py \
+	lib/server/noded.py \
+	lib/server/rapi.py
+
 docrst = \
 	doc/admin.rst \
 	doc/design-2.0.rst \
 	doc/design-2.1.rst \
 	doc/design-2.2.rst \
+	doc/design-2.3.rst \
 	doc/cluster-merge.rst \
 	doc/devnotes.rst \
 	doc/glossary.rst \
@@ -188,9 +227,13 @@ docrst = \
 	doc/security.rst \
 	doc/walkthrough.rst
 
-doc/html/.stamp: $(docrst) $(docpng) doc/conf.py configure.ac
+$(RUN_IN_TEMPDIR): | $(all_dirfiles)
+
+doc/html/index.html: $(docrst) $(docpng) doc/conf.py configure.ac \
+	$(RUN_IN_TEMPDIR)
 	@test -n "$(SPHINX)" || \
 	    { echo 'sphinx-build' not found during configure; exit 1; }
+	@mkdir_p@ $(dir $@)
 	PYTHONPATH=. $(RUN_IN_TEMPDIR) $(SPHINX) -q -W -b html \
 	    -d . \
 	    -D version="$(VERSION_MAJOR).$(VERSION_MINOR)" \
@@ -199,7 +242,7 @@ doc/html/.stamp: $(docrst) $(docpng) doc/conf.py configure.ac
 	rm -f doc/html/.buildinfo doc/html/objects.inv
 	touch $@
 
-doc/html: doc/html/.stamp
+doc/html: doc/html/index.html
 
 doc/news.rst: NEWS
 	set -e; \
@@ -245,15 +288,24 @@ gnt_scripts = \
 	scripts/gnt-node \
 	scripts/gnt-os
 
-dist_sbin_SCRIPTS = \
+PYTHON_BOOTSTRAP = \
+	daemons/ganeti-confd \
+	daemons/ganeti-masterd \
 	daemons/ganeti-noded \
 	daemons/ganeti-watcher \
-	daemons/ganeti-masterd \
-	daemons/ganeti-confd \
 	daemons/ganeti-rapi \
-	$(gnt_scripts)
+	scripts/gnt-backup \
+	scripts/gnt-cluster \
+	scripts/gnt-debug \
+	scripts/gnt-instance \
+	scripts/gnt-job \
+	scripts/gnt-node \
+	scripts/gnt-os
+
+dist_sbin_SCRIPTS =
 
 nodist_sbin_SCRIPTS = \
+	$(PYTHON_BOOTSTRAP) \
 	daemons/ganeti-cleaner
 
 dist_tools_SCRIPTS = \
@@ -282,6 +334,8 @@ EXTRA_DIST = \
 	autotools/build-bash-completion \
 	autotools/check-python-code \
 	autotools/check-man \
+	autotools/check-tar \
+	autotools/check-version \
 	autotools/docbook-wrapper \
 	autotools/gen-coverage \
 	autotools/testrunner \
@@ -392,6 +446,7 @@ python_tests = \
 	test/ganeti.rapi.resources_unittest.py \
 	test/ganeti.rapi.rlib2_unittest.py \
 	test/ganeti.rpc_unittest.py \
+	test/ganeti.runtime_unittest.py \
 	test/ganeti.serializer_unittest.py \
 	test/ganeti.ssh_unittest.py \
 	test/ganeti.uidpool_unittest.py \
@@ -427,12 +482,15 @@ all_python_code = \
 	$(pkglib_python_scripts) \
 	$(python_tests) \
 	$(pkgpython_PYTHON) \
+	$(client_PYTHON) \
 	$(hypervisor_PYTHON) \
 	$(rapi_PYTHON) \
+	$(server_PYTHON) \
 	$(http_PYTHON) \
 	$(confd_PYTHON) \
 	$(masterd_PYTHON) \
 	$(impexpd_PYTHON) \
+	$(watcher_PYTHON) \
 	$(noinst_PYTHON)
 
 srclink_files = \
@@ -453,7 +511,8 @@ lint_python_code = \
 	$(dist_sbin_SCRIPTS) \
 	$(dist_tools_SCRIPTS) \
 	$(pkglib_python_scripts) \
-	$(BUILD_BASH_COMPLETION)
+	$(BUILD_BASH_COMPLETION) \
+	$(PYTHON_BOOTSTRAP)
 
 test/daemon-util_unittest.bash: daemons/daemon-util
 
@@ -463,21 +522,18 @@ devel/upload: devel/upload.in $(REPLACE_VARS_SED)
 	sed -f $(REPLACE_VARS_SED) < $< > $@
 	chmod u+x $@
 
-daemons/%: daemons/%.in \
-		$(REPLACE_VARS_SED)
+daemons/%: daemons/%.in $(REPLACE_VARS_SED)
 	sed -f $(REPLACE_VARS_SED) < $< > $@
 	chmod +x $@
 
-doc/examples/%: doc/examples/%.in \
-		$(REPLACE_VARS_SED)
+doc/examples/%: doc/examples/%.in $(REPLACE_VARS_SED)
 	sed -f $(REPLACE_VARS_SED) < $< > $@
 
-doc/examples/hooks/%: doc/examples/hooks/%.in \
-		$(REPLACE_VARS_SED)
+doc/examples/hooks/%: doc/examples/hooks/%.in $(REPLACE_VARS_SED)
 	sed -f $(REPLACE_VARS_SED) < $< > $@
 
 doc/examples/bash_completion: $(BUILD_BASH_COMPLETION) $(RUN_IN_TEMPDIR) \
-	lib/cli.py $(gnt_scripts) tools/burnin
+	lib/cli.py $(gnt_scripts) $(client_PYTHON) tools/burnin
 	PYTHONPATH=. $(RUN_IN_TEMPDIR) $(CURDIR)/$(BUILD_BASH_COMPLETION) > $@
 
 doc/%.png: doc/%.dot
@@ -520,7 +576,7 @@ regen-vcs-version:
 	  $(MAKE) vcs-version; \
 	fi
 
-lib/_autoconf.py: Makefile stamp-directories vcs-version
+lib/_autoconf.py: Makefile vcs-version | lib/.dir
 	set -e; \
 	VCSVER=`cat $(abs_top_srcdir)/vcs-version`; \
 	{ echo '# This file is automatically generated, do not edit!'; \
@@ -558,6 +614,7 @@ lib/_autoconf.py: Makefile stamp-directories vcs-version
 	  echo "KVM_PATH = '$(KVM_PATH)'"; \
 	  echo "SOCAT_PATH = '$(SOCAT)'"; \
 	  echo "SOCAT_USE_ESCAPE = $(SOCAT_USE_ESCAPE)"; \
+	  echo "SOCAT_USE_COMPRESS = $(SOCAT_USE_COMPRESS)"; \
 	  echo "LVM_STRIPECOUNT = $(LVM_STRIPECOUNT)"; \
 	  echo "TOOLSDIR = '$(toolsdir)'"; \
 	  echo "GNT_SCRIPTS = [$(foreach i,$(notdir $(gnt_scripts)),'$(i)',)]"; \
@@ -565,8 +622,14 @@ lib/_autoconf.py: Makefile stamp-directories vcs-version
 	  echo "DRBD_BARRIERS = $(DRBD_BARRIERS)"; \
 	  echo "SYSLOG_USAGE = '$(SYSLOG_USAGE)'"; \
 	  echo "DAEMONS_GROUP = '$(DAEMONS_GROUP)'"; \
+	  echo "ADMIN_GROUP = '$(ADMIN_GROUP)'"; \
 	  echo "MASTERD_USER = '$(MASTERD_USER)'"; \
+	  echo "MASTERD_GROUP = '$(MASTERD_GROUP)'"; \
 	  echo "RAPI_USER = '$(RAPI_USER)'"; \
+	  echo "RAPI_GROUP = '$(RAPI_GROUP)'"; \
+	  echo "CONFD_USER = '$(CONFD_USER)'"; \
+	  echo "CONFD_GROUP = '$(CONFD_GROUP)'"; \
+	  echo "NODED_USER = '$(NODED_USER)'"; \
 	  echo "VCS_VERSION = '$$VCSVER'"; \
 	} > $@
 
@@ -595,9 +658,39 @@ $(REPLACE_VARS_SED): Makefile
 	  echo 's#@GNTDAEMONSGROUP@#$(DAEMONS_GROUP)#g'; \
 	} > $@
 
+# Using deferred evaluation
+daemons/ganeti-%: MODULE = ganeti.server.$(patsubst ganeti-%,%,$(notdir $@))
+daemons/ganeti-watcher: MODULE = ganeti.watcher
+scripts/%: MODULE = ganeti.client.$(subst -,_,$(notdir $@))
+
+$(PYTHON_BOOTSTRAP): Makefile | $(all_dirfiles)
+	test -n "$(MODULE)" || { echo Missing module; exit 1; }
+	set -e; \
+	{ echo '#!/usr/bin/python'; \
+	  echo '# This file is automatically generated, do not edit!'; \
+	  echo "# Edit $(MODULE) instead."; \
+	  echo; \
+	  echo '"""Bootstrap script for L{$(MODULE)}"""'; \
+	  echo; \
+	  echo '# pylint: disable-msg=C0103'; \
+	  echo '# C0103: Invalid name'; \
+	  echo; \
+	  echo 'import sys'; \
+	  echo 'import $(MODULE) as main'; \
+	  echo; \
+	  echo '# Temporarily alias commands until bash completion'; \
+	  echo '# generator is changed'; \
+	  echo 'if hasattr(main, "commands"):'; \
+		echo '  commands = main.commands # pylint: disable-msg=E1101'; \
+	  echo; \
+	  echo 'if __name__ == "__main__":'; \
+	  echo '  sys.exit(main.Main())'; \
+	} > $@
+	chmod u+x $@
+
 # We need to create symlinks because "make distcheck" will not install Python
 # files when building.
-stamp-srclinks: Makefile stamp-directories
+stamp-srclinks: Makefile | $(all_dirfiles)
 	set -e; \
 	for i in $(srclink_files); do \
 		if test ! -f $$i -a -f $(abs_top_srcdir)/$$i; then \
@@ -635,9 +728,10 @@ check-dirs: $(BUILT_SOURCES)
 
 check-local: check-dirs
 	$(CHECK_PYTHON_CODE) $(check_python_code)
+	$(CHECK_VERSION) $(VERSION) $(top_srcdir)/NEWS
 
 .PHONY: lint
-lint: ganeti $(BUILT_SOURCES)
+lint: $(BUILT_SOURCES)
 	@test -n "$(PYLINT)" || { echo 'pylint' not found during configure; exit 1; }
 	$(PYLINT) $(LINT_OPTS) $(lint_python_code)
 
@@ -662,19 +756,45 @@ distcheck-hook:
 		echo "Found backup files in final archive." 1>&2; \
 		exit 1; \
 	fi
+# Empty files or directories should not be distributed. They can cause
+# unnecessary warnings for packagers. Directories used by automake during
+# distcheck must be excluded.
+	if find $(top_distdir) -empty -and -not \( \
+			-path $(top_distdir)/_build -or \
+			-path $(top_distdir)/_inst \) | grep .; then \
+		echo "Found empty files or directories in final archive." 1>&2; \
+		exit 1; \
+	fi
+	if test -n "$(BUILD_RELEASE)" && \
+	   grep -n -H -E '^\*.*unreleased' $(top_distdir)/NEWS; then \
+		echo "Found unreleased version in NEWS." >&2; \
+		exit 1; \
+	fi
+
+# When building a release, stricter checks should be used
+distcheck-release dist-release: export BUILD_RELEASE = 1
+distcheck-release: distcheck
+
+dist-release: dist
+	set -e; \
+	for i in $(DIST_ARCHIVES); do \
+		echo -n "Checking $$i ... "; \
+		autotools/check-tar < $$i; \
+		echo OK; \
+	done
 
 install-exec-local:
 	@mkdir_p@ "$(DESTDIR)${localstatedir}/lib/ganeti" \
 	  "$(DESTDIR)${localstatedir}/log/ganeti" \
 	  "$(DESTDIR)${localstatedir}/run/ganeti"
 
-stamp-directories: Makefile
-	@mkdir_p@ $(DIRS)
-	touch $@
+# To avoid conflicts between directory names and other targets, a file inside
+# the directory is used to ensure its existence.
+%.dir:
+	@mkdir_p@ $* && touch $@
 
 .PHONY: apidoc
 apidoc: epydoc.conf $(RUN_IN_TEMPDIR) $(BUILT_SOURCES)
-	test -e doc/api || mkdir doc/api
 	$(RUN_IN_TEMPDIR) epydoc -v \
 		--conf $(CURDIR)/epydoc.conf \
 		--output $(CURDIR)/doc/api
@@ -690,7 +810,6 @@ TAGS: $(BUILT_SOURCES)
 .PHONY: coverage
 coverage: $(BUILT_SOURCES) $(python_tests)
 	set -e; \
-	mkdir -p doc/coverage; \
 	COVERAGE_FILE=$(CURDIR)/doc/coverage/data \
 	TEXT_COVERAGE=$(CURDIR)/doc/coverage/report.txt \
 	HTML_COVERAGE=$(CURDIR)/doc/coverage \

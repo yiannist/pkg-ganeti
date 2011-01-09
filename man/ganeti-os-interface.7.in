@@ -3,7 +3,7 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GANETI-OS-INTERFACE" "7" "19 October 2010" "Ganeti 2.2" ""
+.TH "GANETI-OS-INTERFACE" "7" "20 December 2010" "Ganeti 2.2" ""
 
 .SH NAME
 ganeti-os-interface \- Specifications for guest OS types
@@ -105,9 +105,18 @@ interface.
 The IP address, if any, associated with the N-th
 NIC of the instance.
 .TP
+\fBNIC_%N_MODE\fR
+The NIC mode, either routed or bridged
+.TP
 \fBNIC_%N_BRIDGE\fR
-The bridge to which this NIC will be attached
-to.
+The bridge to which this NIC will be attached. This
+variable is defined only when the NIC is in bridged mode.
+.TP
+\fBNIC_%N_LINK\fR
+If the NIC is in bridged mode, this is the same as
+NIC_%N_BRIDGE. If it is in routed mode, the routing table
+which will be used by the hypervisor to insert the appropriate
+routes.
 .TP
 \fBNIC_%N_FRONTEND_TYPE\fR
 (Optional) If applicable, the type of the exported

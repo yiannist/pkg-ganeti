@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007 Google Inc.
+# Copyright (C) 2006, 2007, 2010 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -31,6 +31,7 @@ import re
 from ganeti import utils
 from ganeti import errors
 from ganeti import constants
+from ganeti import netutils
 
 
 def FormatParamikoFingerprint(fingerprint):
@@ -79,8 +80,17 @@ class SshRunner:
   """Wrapper for SSH commands.
 
   """
-  def __init__(self, cluster_name):
+  def __init__(self, cluster_name, ipv6=False):
+    """Initializes this class.
+
+    @type cluster_name: str
+    @param cluster_name: name of the cluster
+    @type ipv6: bool
+    @param ipv6: If true, force ssh to use IPv6 addresses only
+
+    """
     self.cluster_name = cluster_name
+    self.ipv6 = ipv6
 
   def _BuildSshOptions(self, batch, ask_key, use_cluster_key,
                        strict_host_check, private_key=None, quiet=True):
@@ -140,6 +150,9 @@ class SshRunner:
         options.append("-oStrictHostKeyChecking=yes")
       else:
         options.append("-oStrictHostKeyChecking=no")
+
+    if self.ipv6:
+      options.append("-6")
 
     return options
 
@@ -208,6 +221,9 @@ class SshRunner:
     command = [constants.SCP, "-p"]
     command.extend(self._BuildSshOptions(True, False, True, True))
     command.append(filename)
+    if netutils.IP6Address.IsValid(node):
+      node = netutils.FormatAddress((node, None))
+
     command.append("%s:%s" % (node, filename))
 
     result = utils.RunCmd(command)

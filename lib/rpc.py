@@ -44,6 +44,7 @@ from ganeti import serializer
 from ganeti import constants
 from ganeti import errors
 from ganeti import netutils
+from ganeti import ssconf
 
 # pylint has a bug here, doesn't see this import
 import ganeti.http.client  # pylint: disable-msg=W0611
@@ -118,7 +119,12 @@ def _ConfigRpcCurl(curl):
   curl.setopt(pycurl.CONNECTTIMEOUT, _RPC_CONNECT_TIMEOUT)
 
 
-class _RpcThreadLocal(threading.local):
+# Aliasing this module avoids the following warning by epydoc: "Warning: No
+# information available for ganeti.rpc._RpcThreadLocal's base threading.local"
+_threading = threading
+
+
+class _RpcThreadLocal(_threading.local):
   def GetHttpClientPool(self):
     """Returns a per-thread HTTP client pool.
 
@@ -132,6 +138,10 @@ class _RpcThreadLocal(threading.local):
       self.hcp = pool
 
     return pool
+
+
+# Remove module alias (see above)
+del _threading
 
 
 _thread_local = _RpcThreadLocal()
@@ -257,6 +267,35 @@ class RpcResult(object):
     raise ec(*args) # pylint: disable-msg=W0142
 
 
+def _AddressLookup(node_list,
+                   ssc=ssconf.SimpleStore,
+                   nslookup_fn=netutils.Hostname.GetIP):
+  """Return addresses for given node names.
+
+  @type node_list: list
+  @param node_list: List of node names
+  @type ssc: class
+  @param ssc: SimpleStore class that is used to obtain node->ip mappings
+  @type nslookup_fn: callable
+  @param nslookup_fn: function use to do NS lookup
+  @rtype: list of addresses and/or None's
+  @returns: List of corresponding addresses, if found
+
+  """
+  ss = ssc()
+  iplist = ss.GetNodePrimaryIPList()
+  family = ss.GetPrimaryIPFamily()
+  addresses = []
+  ipmap = dict(entry.split() for entry in iplist)
+  for node in node_list:
+    address = ipmap.get(node)
+    if address is None:
+      address = nslookup_fn(node, family=family)
+    addresses.append(address)
+
+  return addresses
+
+
 class Client:
   """RPC Client class.
 
@@ -269,13 +308,14 @@ class Client:
   cause bugs.
 
   """
-  def __init__(self, procedure, body, port):
+  def __init__(self, procedure, body, port, address_lookup_fn=_AddressLookup):
     assert procedure in _TIMEOUTS, ("New RPC call not declared in the"
                                     " timeouts table")
     self.procedure = procedure
     self.body = body
     self.port = port
     self._request = {}
+    self._address_lookup_fn = address_lookup_fn
 
   def ConnectList(self, node_list, address_list=None, read_timeout=None):
     """Add a list of nodes to the target nodes.
@@ -286,15 +326,16 @@ class Client:
     @keyword address_list: either None or a list with node addresses,
         which must have the same length as the node list
     @type read_timeout: int
-    @param read_timeout: overwrites the default read timeout for the
-        given operation
+    @param read_timeout: overwrites default timeout for operation
 
     """
     if address_list is None:
-      address_list = [None for _ in node_list]
-    else:
-      assert len(node_list) == len(address_list), \
-             "Name and address lists should have the same length"
+      # Always use IP address instead of node name
+      address_list = self._address_lookup_fn(node_list)
+
+    assert len(node_list) == len(address_list), \
+           "Name and address lists must have the same length"
+
     for node, address in zip(node_list, address_list):
       self.ConnectNode(node, address, read_timeout=read_timeout)
 
@@ -304,11 +345,16 @@ class Client:
     @type name: str
     @param name: the node name
     @type address: str
-    @keyword address: the node address, if known
+    @param address: the node address, if known
+    @type read_timeout: int
+    @param read_timeout: overwrites default timeout for operation
 
     """
     if address is None:
-      address = name
+      # Always use IP address instead of node name
+      address = self._address_lookup_fn([name])[0]
+
+    assert(address is not None)
 
     if read_timeout is None:
       read_timeout = _TIMEOUTS[self.procedure]
@@ -396,7 +442,7 @@ class RpcRunner(object):
     @type bep: dict or None
     @param bep: a dictionary with overridden backend parameters
     @type osp: dict or None
-    @param osp: a dictionary with overriden os parameters
+    @param osp: a dictionary with overridden os parameters
     @rtype: dict
     @return: the instance dict, with the hvparams filled with the
         cluster defaults
@@ -715,14 +761,15 @@ class RpcRunner(object):
                                  shutdown_timeout])
 
   @_RpcTimeout(_TMO_1DAY)
-  def call_instance_os_add(self, node, inst, reinstall, debug):
+  def call_instance_os_add(self, node, inst, reinstall, debug, osparams=None):
     """Installs an OS on the given instance.
 
     This is a single-node call.
 
     """
     return self._SingleNodeCall(node, "instance_os_add",
-                                [self._InstDict(inst), reinstall, debug])
+                                [self._InstDict(inst, osp=osparams),
+                                 reinstall, debug])
 
   @_RpcTimeout(_TMO_SLOW)
   def call_instance_run_rename(self, node, inst, old_name, debug):
@@ -838,14 +885,20 @@ class RpcRunner(object):
                                [vg_name, hypervisor_type])
 
   @_RpcTimeout(_TMO_NORMAL)
-  def call_node_add(self, node, dsa, dsapub, rsa, rsapub, ssh, sshpub):
-    """Add a node to the cluster.
+  def call_etc_hosts_modify(self, node, mode, name, ip):
+    """Modify hosts file with name
 
-    This is a single-node call.
+    @type node: string
+    @param node: The node to call
+    @type mode: string
+    @param mode: The mode to operate. Currently "add" or "remove"
+    @type name: string
+    @param name: The host name to be modified
+    @type ip: string
+    @param ip: The ip of the entry (just valid if mode is "add")
 
     """
-    return self._SingleNodeCall(node, "node_add",
-                                [dsa, dsapub, rsa, rsapub, ssh, sshpub])
+    return self._SingleNodeCall(node, "etc_hosts_modify", [mode, name, ip])
 
   @_RpcTimeout(_TMO_NORMAL)
   def call_node_verify(self, node_list, checkdict, cluster_name):
@@ -908,6 +961,16 @@ class RpcRunner(object):
     """
     return self._SingleNodeCall(node, "blockdev_create",
                                 [bdev.ToDict(), size, owner, on_primary, info])
+
+  @_RpcTimeout(_TMO_SLOW)
+  def call_blockdev_wipe(self, node, bdev, offset, size):
+    """Request wipe at given offset with given size of a block device.
+
+    This is a single-node call.
+
+    """
+    return self._SingleNodeCall(node, "blockdev_wipe",
+                                [bdev.ToDict(), offset, size])
 
   @_RpcTimeout(_TMO_NORMAL)
   def call_blockdev_remove(self, node, bdev):
@@ -981,6 +1044,26 @@ class RpcRunner(object):
     if not result.fail_msg:
       result.payload = [objects.BlockDevStatus.FromDict(i)
                         for i in result.payload]
+    return result
+
+  @_RpcTimeout(_TMO_NORMAL)
+  def call_blockdev_getmirrorstatus_multi(self, node_list, node_disks):
+    """Request status of (mirroring) devices from multiple nodes.
+
+    This is a multi-node call.
+
+    """
+    result = self._MultiNodeCall(node_list, "blockdev_getmirrorstatus_multi",
+                                 [dict((name, [dsk.ToDict() for dsk in disks])
+                                       for name, disks in node_disks.items())])
+    for nres in result.values():
+      if nres.fail_msg:
+        continue
+
+      for idx, (success, status) in enumerate(nres.payload):
+        if success:
+          nres.payload[idx] = (success, objects.BlockDevStatus.FromDict(status))
+
     return result
 
   @_RpcTimeout(_TMO_NORMAL)

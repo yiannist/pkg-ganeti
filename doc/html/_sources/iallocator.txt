@@ -171,6 +171,14 @@ request
   nodes
     the names of the nodes to be evacuated
 
+nodegroups
+  a dictionary with the data for the cluster's node groups; it is keyed
+  on the group UUID, and the values are a dictionary with the following
+  keys:
+
+  name
+    the node group name
+
 instances
   a dictionary with the data for the current existing instance on the
   cluster, indexed by instance name; the contents are similar to the
@@ -230,6 +238,9 @@ nodes
 
   i_pri_up_memory:
     total memory required by running primary instances
+
+  group:
+    the node group that this node belongs to
 
   No allocations should be made on nodes having either the ``drained``
   or ``offline`` flags set. More details about these of node status

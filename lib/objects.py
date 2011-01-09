@@ -41,9 +41,11 @@ from cStringIO import StringIO
 from ganeti import errors
 from ganeti import constants
 
+from socket import AF_INET
+
 
 __all__ = ["ConfigObject", "ConfigData", "NIC", "Disk", "Instance",
-           "OS", "Node", "Cluster", "FillDict"]
+           "OS", "Node", "NodeGroup", "Cluster", "FillDict"]
 
 _TIMESTAMPS = ["ctime", "mtime"]
 _UUID = ["uuid"]
@@ -200,6 +202,8 @@ class ConfigObject(object):
     if not isinstance(c_type, type):
       raise TypeError("Container type %s passed to _ContainerFromDicts is"
                       " not a type" % type(c_type))
+    if source is None:
+      source = c_type()
     if c_type is dict:
       ret = dict([(k, e_type.FromDict(v)) for k, v in source.iteritems()])
     elif c_type in (list, tuple, set, frozenset):
@@ -312,8 +316,14 @@ class TaggableObject(ConfigObject):
 
 class ConfigData(ConfigObject):
   """Top-level config object."""
-  __slots__ = (["version", "cluster", "nodes", "instances", "serial_no"] +
-               _TIMESTAMPS)
+  __slots__ = [
+    "version",
+    "cluster",
+    "nodes",
+    "nodegroups",
+    "instances",
+    "serial_no",
+    ] + _TIMESTAMPS
 
   def ToDict(self):
     """Custom function for top-level config data.
@@ -324,7 +334,7 @@ class ConfigData(ConfigObject):
     """
     mydict = super(ConfigData, self).ToDict()
     mydict["cluster"] = mydict["cluster"].ToDict()
-    for key in "nodes", "instances":
+    for key in "nodes", "instances", "nodegroups":
       mydict[key] = self._ContainerToDicts(mydict[key])
 
     return mydict
@@ -338,6 +348,7 @@ class ConfigData(ConfigObject):
     obj.cluster = Cluster.FromDict(obj.cluster)
     obj.nodes = cls._ContainerFromDicts(obj.nodes, dict, Node)
     obj.instances = cls._ContainerFromDicts(obj.instances, dict, Instance)
+    obj.nodegroups = cls._ContainerFromDicts(obj.nodegroups, dict, NodeGroup)
     return obj
 
   def HasAnyDiskOfType(self, dev_type):
@@ -364,6 +375,10 @@ class ConfigData(ConfigObject):
       node.UpgradeConfig()
     for instance in self.instances.values():
       instance.UpgradeConfig()
+    if self.nodegroups is None:
+      self.nodegroups = {}
+    for nodegroup in self.nodegroups.values():
+      nodegroup.UpgradeConfig()
     if self.cluster.drbd_usermode_helper is None:
       # To decide if we set an helper let's check if at least one instance has
       # a DRBD disk. This does not cover all the possible scenarios but it
@@ -924,7 +939,52 @@ class Node(TaggableObject):
     "master_candidate",
     "offline",
     "drained",
+    "group",
+    "master_capable",
+    "vm_capable",
     ] + _TIMESTAMPS + _UUID
+
+  def UpgradeConfig(self):
+    """Fill defaults for missing configuration values.
+
+    """
+    # pylint: disable-msg=E0203
+    # because these are "defined" via slots, not manually
+    if self.master_capable is None:
+      self.master_capable = True
+
+    if self.vm_capable is None:
+      self.vm_capable = True
+
+
+class NodeGroup(ConfigObject):
+  """Config object representing a node group."""
+  __slots__ = [
+    "name",
+    "members",
+    ] + _TIMESTAMPS + _UUID
+
+  def ToDict(self):
+    """Custom function for nodegroup.
+
+    This discards the members object, which gets recalculated and is only kept
+    in memory.
+
+    """
+    mydict = super(NodeGroup, self).ToDict()
+    del mydict["members"]
+    return mydict
+
+  @classmethod
+  def FromDict(cls, val):
+    """Custom function for nodegroup.
+
+    The members slot is initialized to an empty list, upon deserialization.
+
+    """
+    obj = super(NodeGroup, cls).FromDict(val)
+    obj.members = []
+    return obj
 
 
 class Cluster(TaggableObject):
@@ -959,6 +1019,8 @@ class Cluster(TaggableObject):
     "default_iallocator",
     "hidden_os",
     "blacklisted_os",
+    "primary_ip_family",
+    "prealloc_wipe_disks",
     ] + _TIMESTAMPS + _UUID
 
   def UpgradeConfig(self):
@@ -1030,6 +1092,13 @@ class Cluster(TaggableObject):
 
     if self.blacklisted_os is None:
       self.blacklisted_os = []
+
+    # primary_ip_family added before 2.3
+    if self.primary_ip_family is None:
+      self.primary_ip_family = AF_INET
+
+    if self.prealloc_wipe_disks is None:
+      self.prealloc_wipe_disks = False
 
   def ToDict(self):
     """Custom function for cluster.

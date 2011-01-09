@@ -21,8 +21,8 @@ Users and passwords
 -------------------
 
 ``ganeti-rapi`` reads users and passwords from a file (usually
-``/var/lib/ganeti/rapi_users``) on startup. After modifying the password
-file, ``ganeti-rapi`` must be restarted.
+``/var/lib/ganeti/rapi_users``) on startup. Changes to the file will be
+read automatically.
 
 Each line consists of two or three fields separated by whitespace. The
 first two fields are for username and password. The third field is

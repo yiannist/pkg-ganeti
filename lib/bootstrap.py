@@ -41,6 +41,10 @@ from ganeti import serializer
 from ganeti import hypervisor
 from ganeti import bdev
 from ganeti import netutils
+from ganeti import backend
+
+# ec_id for InitConfig's temporary reservation manager
+_INITCONF_ECID = "initconfig-ecid"
 
 
 def _InitSSHSetup():
@@ -222,7 +226,8 @@ def InitCluster(cluster_name, mac_prefix,
                 nicparams=None, hvparams=None, enabled_hypervisors=None,
                 modify_etc_hosts=True, modify_ssh_setup=True,
                 maintain_node_health=False, drbd_helper=None,
-                uid_pool=None, default_iallocator=None):
+                uid_pool=None, default_iallocator=None,
+                primary_ip_version=None, prealloc_wipe_disks=False):
   """Initialise the cluster.
 
   @type candidate_pool_size: int
@@ -243,39 +248,55 @@ def InitCluster(cluster_name, mac_prefix,
                                " entries: %s" % invalid_hvs,
                                errors.ECODE_INVAL)
 
-  hostname = netutils.GetHostInfo()
 
-  if hostname.ip.startswith("127."):
-    raise errors.OpPrereqError("This host's IP resolves to the private"
-                               " range (%s). Please fix DNS or %s." %
+  ipcls = None
+  if primary_ip_version == constants.IP4_VERSION:
+    ipcls = netutils.IP4Address
+  elif primary_ip_version == constants.IP6_VERSION:
+    ipcls = netutils.IP6Address
+  else:
+    raise errors.OpPrereqError("Invalid primary ip version: %d." %
+                               primary_ip_version)
+
+  hostname = netutils.GetHostname(family=ipcls.family)
+  if not ipcls.IsValid(hostname.ip):
+    raise errors.OpPrereqError("This host's IP (%s) is not a valid IPv%d"
+                               " address." % (hostname.ip, primary_ip_version))
+
+  if ipcls.IsLoopback(hostname.ip):
+    raise errors.OpPrereqError("This host's IP (%s) resolves to a loopback"
+                               " address. Please fix DNS or %s." %
                                (hostname.ip, constants.ETC_HOSTS),
                                errors.ECODE_ENVIRON)
 
-  if not netutils.OwnIpAddress(hostname.ip):
+  if not ipcls.Own(hostname.ip):
     raise errors.OpPrereqError("Inconsistency: this host's name resolves"
                                " to %s,\nbut this ip address does not"
-                               " belong to this host. Aborting." %
+                               " belong to this host" %
                                hostname.ip, errors.ECODE_ENVIRON)
 
-  clustername = \
-    netutils.GetHostInfo(netutils.HostInfo.NormalizeName(cluster_name))
+  clustername = netutils.GetHostname(name=cluster_name, family=ipcls.family)
 
-  if netutils.TcpPing(clustername.ip, constants.DEFAULT_NODED_PORT,
-                   timeout=5):
-    raise errors.OpPrereqError("Cluster IP already active. Aborting.",
+  if netutils.TcpPing(clustername.ip, constants.DEFAULT_NODED_PORT, timeout=5):
+    raise errors.OpPrereqError("Cluster IP already active",
                                errors.ECODE_NOTUNIQUE)
 
-  if secondary_ip:
-    if not netutils.IsValidIP4(secondary_ip):
-      raise errors.OpPrereqError("Invalid secondary ip given",
+  if not secondary_ip:
+    if primary_ip_version == constants.IP6_VERSION:
+      raise errors.OpPrereqError("When using a IPv6 primary address, a valid"
+                                 " IPv4 address must be given as secondary",
                                  errors.ECODE_INVAL)
-    if (secondary_ip != hostname.ip and
-        not netutils.OwnIpAddress(secondary_ip)):
-      raise errors.OpPrereqError("You gave %s as secondary IP,"
-                                 " but it does not belong to this host." %
-                                 secondary_ip, errors.ECODE_ENVIRON)
-  else:
     secondary_ip = hostname.ip
+
+  if not netutils.IP4Address.IsValid(secondary_ip):
+    raise errors.OpPrereqError("Secondary IP address (%s) has to be a valid"
+                               " IPv4 address." % secondary_ip,
+                               errors.ECODE_INVAL)
+
+  if not netutils.IP4Address.Own(secondary_ip):
+    raise errors.OpPrereqError("You gave %s as secondary IP,"
+                               " but it does not belong to this host." %
+                               secondary_ip, errors.ECODE_ENVIRON)
 
   if vg_name is not None:
     # Check if volume group is valid
@@ -325,15 +346,12 @@ def InitCluster(cluster_name, mac_prefix,
     hv_class = hypervisor.GetHypervisor(hv_name)
     hv_class.CheckParameterSyntax(hv_params)
 
-  # set up the inter-node password and certificate, start noded
-  _InitGanetiServerSetup(hostname.name)
-
   # set up ssh config and /etc/hosts
   sshline = utils.ReadFile(constants.SSH_HOST_RSA_PUB)
   sshkey = sshline.split(" ")[1]
 
   if modify_etc_hosts:
-    utils.AddHostToEtcHosts(hostname.name)
+    utils.AddHostToEtcHosts(hostname.name, hostname.ip)
 
   if modify_ssh_setup:
     _InitSSHSetup()
@@ -372,10 +390,11 @@ def InitCluster(cluster_name, mac_prefix,
     uid_pool=uid_pool,
     ctime=now,
     mtime=now,
-    uuid=utils.NewUUID(),
     maintain_node_health=maintain_node_health,
     drbd_usermode_helper=drbd_helper,
     default_iallocator=default_iallocator,
+    primary_ip_family=ipcls.family,
+    prealloc_wipe_disks=prealloc_wipe_disks,
     )
   master_node_config = objects.Node(name=hostname.name,
                                     primary_ip=hostname.ip,
@@ -385,9 +404,13 @@ def InitCluster(cluster_name, mac_prefix,
                                     offline=False, drained=False,
                                     )
   InitConfig(constants.CONFIG_VERSION, cluster_config, master_node_config)
-  cfg = config.ConfigWriter()
+  cfg = config.ConfigWriter(offline=True)
   ssh.WriteKnownHostsFile(cfg, constants.SSH_KNOWN_HOSTS_FILE)
   cfg.Update(cfg.GetClusterInfo(), logging.error)
+  backend.WriteSsconfFiles(cfg.GetSsconfValues())
+
+  # set up the inter-node password and certificate
+  _InitGanetiServerSetup(hostname.name)
 
   # start the master ip
   # TODO: Review rpc call from bootstrap
@@ -412,13 +435,26 @@ def InitConfig(version, cluster_config, master_node_config,
   @param cfg_file: configuration file path
 
   """
+  uuid_generator = config.TemporaryReservationManager()
+  cluster_config.uuid = uuid_generator.Generate([], utils.NewUUID,
+                                                _INITCONF_ECID)
+  master_node_config.uuid = uuid_generator.Generate([], utils.NewUUID,
+                                                    _INITCONF_ECID)
   nodes = {
     master_node_config.name: master_node_config,
     }
-
+  default_nodegroup = objects.NodeGroup(
+    uuid=uuid_generator.Generate([], utils.NewUUID, _INITCONF_ECID),
+    name="default",
+    members=[master_node_config.name],
+    )
+  nodegroups = {
+    default_nodegroup.uuid: default_nodegroup,
+    }
   now = time.time()
   config_data = objects.ConfigData(version=version,
                                    cluster=cluster_config,
+                                   nodegroups=nodegroups,
                                    nodes=nodes,
                                    instances={},
                                    serial_no=1,
@@ -460,7 +496,9 @@ def SetupNodeDaemon(cluster_name, node, ssh_key_check):
   @param ssh_key_check: whether to do a strict key check
 
   """
-  sshrunner = ssh.SshRunner(cluster_name)
+  family = ssconf.SimpleStore().GetPrimaryIPFamily()
+  sshrunner = ssh.SshRunner(cluster_name,
+                            ipv6=family==netutils.IP6Address.family)
 
   noded_cert = utils.ReadFile(constants.NODED_CERT_FILE)
   rapi_cert = utils.ReadFile(constants.RAPI_CERT_FILE)
@@ -482,30 +520,25 @@ def SetupNodeDaemon(cluster_name, node, ssh_key_check):
   if not confd_hmac_key.endswith("\n"):
     confd_hmac_key += "\n"
 
+  bind_address = constants.IP4_ADDRESS_ANY
+  if family == netutils.IP6Address.family:
+    bind_address = constants.IP6_ADDRESS_ANY
+
   # set up inter-node password and certificate and restarts the node daemon
   # and then connect with ssh to set password and start ganeti-noded
   # note that all the below variables are sanitized at this point,
   # either by being constants or by the checks above
-  # TODO: Could this command exceed a shell's maximum command length?
-  mycommand = ("umask 077 && "
-               "cat > '%s' << '!EOF.' && \n"
-               "%s!EOF.\n"
-               "cat > '%s' << '!EOF.' && \n"
-               "%s!EOF.\n"
-               "cat > '%s' << '!EOF.' && \n"
-               "%s!EOF.\n"
-               "chmod 0400 %s %s %s && "
-               "%s start %s" %
-               (constants.NODED_CERT_FILE, noded_cert,
-                constants.RAPI_CERT_FILE, rapi_cert,
-                constants.CONFD_HMAC_KEY, confd_hmac_key,
-                constants.NODED_CERT_FILE, constants.RAPI_CERT_FILE,
-                constants.CONFD_HMAC_KEY,
-                constants.DAEMON_UTIL, constants.NODED))
+  sshrunner.CopyFileToNode(node, constants.NODED_CERT_FILE)
+  sshrunner.CopyFileToNode(node, constants.RAPI_CERT_FILE)
+  sshrunner.CopyFileToNode(node, constants.CONFD_HMAC_KEY)
+  mycommand = ("%s stop-all; %s start %s -b '%s'" % (constants.DAEMON_UTIL,
+                                                     constants.DAEMON_UTIL,
+                                                     constants.NODED,
+                                                     bind_address))
 
   result = sshrunner.Run(node, 'root', mycommand, batch=False,
                          ask_key=ssh_key_check,
-                         use_cluster_key=False,
+                         use_cluster_key=True,
                          strict_host_check=ssh_key_check)
   if result.failed:
     raise errors.OpExecError("Remote command on node %s, error: %s,"
@@ -569,11 +602,35 @@ def MasterFailover(no_voting=False):
 
   logging.info("Setting master to %s, old master: %s", new_master, old_master)
 
+  try:
+    # instantiate a real config writer, as we now know we have the
+    # configuration data
+    cfg = config.ConfigWriter(accept_foreign=True)
+
+    cluster_info = cfg.GetClusterInfo()
+    cluster_info.master_node = new_master
+    # this will also regenerate the ssconf files, since we updated the
+    # cluster info
+    cfg.Update(cluster_info, logging.error)
+  except errors.ConfigurationError, err:
+    logging.error("Error while trying to set the new master: %s",
+                  str(err))
+    return 1
+
+  # if cfg.Update worked, then it means the old master daemon won't be
+  # able now to write its own config file (we rely on locking in both
+  # backend.UploadFile() and ConfigWriter._Write(); hence the next
+  # step is to kill the old master
+
+  logging.info("Stopping the master daemon on node %s", old_master)
+
   result = rpc.RpcRunner.call_node_stop_master(old_master, True)
   msg = result.fail_msg
   if msg:
     logging.error("Could not disable the master role on the old master"
                  " %s, please disable manually: %s", old_master, msg)
+
+  logging.info("Checking master IP non-reachability...")
 
   master_ip = sstore.GetMasterIP()
   total_timeout = 30
@@ -589,15 +646,7 @@ def MasterFailover(no_voting=False):
                     " continuing but activating the master on the current"
                     " node will probably fail", total_timeout)
 
-  # instantiate a real config writer, as we now know we have the
-  # configuration data
-  cfg = config.ConfigWriter()
-
-  cluster_info = cfg.GetClusterInfo()
-  cluster_info.master_node = new_master
-  # this will also regenerate the ssconf files, since we updated the
-  # cluster info
-  cfg.Update(cluster_info, logging.error)
+  logging.info("Starting the master daemons on the new master")
 
   result = rpc.RpcRunner.call_node_start_master(new_master, True, no_voting)
   msg = result.fail_msg
@@ -606,6 +655,7 @@ def MasterFailover(no_voting=False):
                   " %s, please check: %s", new_master, msg)
     rcode = 1
 
+  logging.info("Master failed over from %s to %s", old_master, new_master)
   return rcode
 
 
@@ -646,7 +696,7 @@ def GatherMasterVotes(node_list):
   @return: list of (node, votes)
 
   """
-  myself = netutils.HostInfo().name
+  myself = netutils.Hostname.GetSysName()
   try:
     node_list.remove(myself)
   except ValueError:
@@ -668,6 +718,7 @@ def GatherMasterVotes(node_list):
     if msg:
       logging.warning("Error contacting node %s: %s", node, msg)
       fail = True
+    # for now we accept both length 3 and 4 (data[3] is primary ip version)
     elif not isinstance(data, (tuple, list)) or len(data) < 3:
       logging.warning("Invalid data received from node %s: %s", node, data)
       fail = True

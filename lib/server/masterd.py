@@ -1,7 +1,7 @@
-#!/usr/bin/python
+#
 #
 
-# Copyright (C) 2006, 2007 Google Inc.
+# Copyright (C) 2006, 2007, 2010 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -72,7 +72,7 @@ class ClientRequestWorker(workerpool.BaseWorker):
     client_ops = ClientOps(server)
 
     try:
-      (method, args) = luxi.ParseRequest(message)
+      (method, args, version) = luxi.ParseRequest(message)
     except luxi.ProtocolError, err:
       logging.error("Protocol Error: %s", err)
       client.close_log()
@@ -80,6 +80,11 @@ class ClientRequestWorker(workerpool.BaseWorker):
 
     success = False
     try:
+      # Verify client's version if there was one in the request
+      if version is not None and version != constants.LUXI_VERSION:
+        raise errors.LuxiError("LUXI version mismatch, server %s, request %s" %
+                               (constants.LUXI_VERSION, version))
+
       result = client_ops.handle_request(method, args)
       success = True
     except errors.GenericError, err:
@@ -314,6 +319,9 @@ class ClientOps:
     """
     # Queries don't have a job id
     proc = mcpu.Processor(self.server.context, None)
+
+    # TODO: Executing an opcode using locks will acquire them in blocking mode.
+    # Consider using a timeout for retries.
     return proc.ExecOpCode(op, None)
 
 
@@ -428,7 +436,7 @@ def CheckAgreement():
   other node to be up too to confirm our status.
 
   """
-  myself = netutils.HostInfo().name
+  myself = netutils.Hostname.GetSysName()
   #temp instantiation of a config writer, used only to get the node list
   cfg = config.ConfigWriter()
   node_list = cfg.GetNodeList()
@@ -496,6 +504,28 @@ def CheckMasterd(options, args):
                           (constants.MASTERD_USER, constants.DAEMONS_GROUP))
     sys.exit(constants.EXIT_FAILURE)
 
+  # Check the configuration is sane before anything else
+  try:
+    config.ConfigWriter()
+  except errors.ConfigVersionMismatch, err:
+    v1 = "%s.%s.%s" % constants.SplitVersion(err.args[0])
+    v2 = "%s.%s.%s" % constants.SplitVersion(err.args[1])
+    print >> sys.stderr,  \
+        ("Configuration version mismatch. The current Ganeti software"
+         " expects version %s, but the on-disk configuration file has"
+         " version %s. This is likely the result of upgrading the"
+         " software without running the upgrade procedure. Please contact"
+         " your cluster administrator or complete the upgrade using the"
+         " cfgupgrade utility, after reading the upgrade notes." %
+         (v1, v2))
+    sys.exit(constants.EXIT_FAILURE)
+  except errors.ConfigurationError, err:
+    print >> sys.stderr, \
+        ("Configuration error while opening the configuration file: %s\n"
+         "This might be caused by an incomplete software upgrade or"
+         " by a corrupted configuration file. Until the problem is fixed"
+         " the master daemon cannot start." % str(err))
+    sys.exit(constants.EXIT_FAILURE)
 
   # If CheckMaster didn't fail we believe we are the master, but we have to
   # confirm with the other nodes.
@@ -527,8 +557,8 @@ def CheckMasterd(options, args):
   utils.RunInSeparateProcess(ActivateMasterIP)
 
 
-def ExecMasterd(options, args): # pylint: disable-msg=W0613
-  """Main master daemon function, executed with the PID file held.
+def PrepMasterd(options, _):
+  """Prep master daemon function, executed with the PID file held.
 
   """
   # This is safe to do as the pid file guarantees against
@@ -538,6 +568,14 @@ def ExecMasterd(options, args): # pylint: disable-msg=W0613
   mainloop = daemon.Mainloop()
   master = MasterServer(mainloop, constants.MASTER_SOCKET,
                         options.uid, options.gid)
+  return (mainloop, master)
+
+
+def ExecMasterd(options, args, prep_data): # pylint: disable-msg=W0613
+  """Main master daemon function, executed with the PID file held.
+
+  """
+  (mainloop, master) = prep_data
   try:
     rpc.Init()
     try:
@@ -552,7 +590,7 @@ def ExecMasterd(options, args): # pylint: disable-msg=W0613
     utils.RemoveFile(constants.MASTER_SOCKET)
 
 
-def main():
+def Main():
   """Main function"""
   parser = OptionParser(description="Ganeti master daemon",
                         usage="%prog [-f] [-d]",
@@ -565,13 +603,5 @@ def main():
   parser.add_option("--yes-do-it", dest="yes_do_it",
                     help="Override interactive check for --no-voting",
                     default=False, action="store_true")
-  dirs = [(constants.RUN_GANETI_DIR, constants.RUN_DIRS_MODE),
-          (constants.SOCKET_DIR, constants.SOCKET_DIR_MODE),
-         ]
-  daemon.GenericMain(constants.MASTERD, parser, dirs,
-                     CheckMasterd, ExecMasterd,
-                     multithreaded=True)
-
-
-if __name__ == "__main__":
-  main()
+  daemon.GenericMain(constants.MASTERD, parser, CheckMasterd, PrepMasterd,
+                     ExecMasterd, multithreaded=True)

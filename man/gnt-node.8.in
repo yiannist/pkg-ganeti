@@ -3,7 +3,7 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GNT-NODE" "8" "19 October 2010" "Ganeti 2.2" ""
+.TH "GNT-NODE" "8" "20 December 2010" "Ganeti 2.2" ""
 
 .SH NAME
 gnt-node \- Node administration
@@ -18,7 +18,7 @@ The \fBgnt-node\fR is used for managing the
 .SH "COMMANDS"
 .SS "ADD"
 
-\fBadd\fR [ \fB--readd\fR ] [ \fB-s \fIsecondary_ip\fB\fR ] \fB\fInodename\fB\fR
+\fBadd\fR [ \fB--readd\fR ] [ \fB-s \fIsecondary_ip\fB\fR ] [ \fB-g \fInodegroup\fB\fR ] [ \fB--master-capable=yes|no\fR ] [ \fB--vm-capable=yes|no\fR ] \fB\fInodename\fB\fR
 
 .PP
 Adds the given node to the cluster.
@@ -45,11 +45,21 @@ the cluster. Also, the drained and
 offline flags of the node will be cleared
 before re-adding it.
 .PP
+The \fB-g\fR is used to add the new node into a specific
+node group, specified by uuid or name. If only one node group exists
+you can skip this option, otherwise it's mandatory.
+.PP
+The \fBvm_capable\fR
+and \fBmaster_capable\fR options are described
+in \fBganeti\fR(7),
+and are used to set the properties of the new node.
+.PP
 Example:
 
 .nf
 # gnt-node add node5.example.com
 # gnt-node add -s 192.0.2.5 node5.example.com
+# gnt-node add -g group2 -s 192.0.2.9 node9.group2.example.com
         
 .fi
 .SS "ADD-TAGS"
@@ -297,6 +307,12 @@ node
 \fBO\fR for an offline
 node
 .RE
+.TP
+\fBmaster_capable\fR
+whether the node can become a master candidate
+.TP
+\fBvm_capable\fR
+whether the node can host instances
 .PP
 If the value of the option starts with the character
 +, the new fields will be added to the
@@ -348,14 +364,14 @@ Example:
 .fi
 .SS "MODIFY"
 
-\fBmodify\fR [ \fB-f\fR ] [ \fB--submit\fR ] [ \fB--master-candidate=yes|no\fR ] [ \fB--drained=yes|no\fR ] [ \fB--offline=yes|no\fR ] [ \fB--auto-promote\fR ] \fB\fInode\fB\fR
+\fBmodify\fR [ \fB-f\fR ] [ \fB--submit\fR ] [ \fB--master-candidate=yes|no\fR ] [ \fB--drained=yes|no\fR ] [ \fB--offline=yes|no\fR ] [ \fB--master-capable=yes|no\fR ] [ \fB--vm-capable=yes|no\fR ] [ \fB-s \fIsecondary_ip\fB\fR ] [ \fB--auto-promote\fR ] \fB\fInode\fB\fR
 
 .PP
 This command changes the role of the node. Each options takes
 either a literal yes or
 no, and only one option should be given as
-yes\&. The meaning of the roles are described
-in the manpage \fBganeti\fR(7)\&.
+yes\&. The meaning of the roles and flags are
+described in the manpage \fBganeti\fR(7)\&.
 .PP
 In case a node is demoted from the master candidate role, the
 operation will be refused unless you pass
@@ -374,6 +390,10 @@ master candidate role if is in that role):
 # gnt-node modify --offline=yes node1.example.com
         
 .fi
+.PP
+The \fB-s\fR can be used to change the node's secondary ip.
+No drbd instances can be running on the node, while this operation is
+taking place.
 .PP
 Example (setting the node back to online and master candidate):
 

@@ -1,7 +1,7 @@
-#!/usr/bin/python
+#
 #
 
-# Copyright (C) 2006, 2007 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -31,13 +31,22 @@ import optparse
 import sys
 import os
 import os.path
+import errno
 
+try:
+  from pyinotify import pyinotify # pylint: disable-msg=E0611
+except ImportError:
+  import pyinotify
+
+from ganeti import asyncnotifier
 from ganeti import constants
 from ganeti import http
 from ganeti import daemon
 from ganeti import ssconf
 from ganeti import luxi
 from ganeti import serializer
+from ganeti import compat
+from ganeti import utils
 from ganeti.rapi import connector
 
 import ganeti.http.auth   # pylint: disable-msg=W0611
@@ -82,16 +91,41 @@ class RemoteApiHttpServer(http.auth.HttpServerRequestAuthentication,
 
   def __init__(self, *args, **kwargs):
     # pylint: disable-msg=W0233
-  # it seems pylint doesn't see the second parent class there
+    # it seems pylint doesn't see the second parent class there
     http.server.HttpServer.__init__(self, *args, **kwargs)
     http.auth.HttpServerRequestAuthentication.__init__(self)
     self._resmap = connector.Mapper()
+    self._users = None
 
-    # Load password file
-    if os.path.isfile(constants.RAPI_USERS_FILE):
-      self._users = http.auth.ReadPasswordFile(constants.RAPI_USERS_FILE)
-    else:
-      self._users = None
+  def LoadUsers(self, filename):
+    """Loads a file containing users and passwords.
+
+    @type filename: string
+    @param filename: Path to file
+
+    """
+    logging.info("Reading users file at %s", filename)
+    try:
+      try:
+        contents = utils.ReadFile(filename)
+      except EnvironmentError, err:
+        self._users = None
+        if err.errno == errno.ENOENT:
+          logging.warning("No users file at %s", filename)
+        else:
+          logging.warning("Error while reading %s: %s", filename, err)
+        return False
+
+      users = http.auth.ParsePasswordFile(contents)
+
+    except Exception, err: # pylint: disable-msg=W0703
+      # We don't care about the type of exception
+      logging.error("Error while parsing %s: %s", filename, err)
+      return False
+
+    self._users = users
+
+    return True
 
   def _GetRequestContext(self, req):
     """Returns the context for a request.
@@ -203,6 +237,54 @@ class RemoteApiHttpServer(http.auth.HttpServerRequestAuthentication,
     return serializer.DumpJson(result)
 
 
+class FileEventHandler(asyncnotifier.FileEventHandlerBase):
+  def __init__(self, wm, path, cb):
+    """Initializes this class.
+
+    @param wm: Inotify watch manager
+    @type path: string
+    @param path: File path
+    @type cb: callable
+    @param cb: Function called on file change
+
+    """
+    asyncnotifier.FileEventHandlerBase.__init__(self, wm)
+
+    self._cb = cb
+    self._filename = os.path.basename(path)
+
+    # Different Pyinotify versions have the flag constants at different places,
+    # hence not accessing them directly
+    mask = (pyinotify.EventsCodes.ALL_FLAGS["IN_CLOSE_WRITE"] |
+            pyinotify.EventsCodes.ALL_FLAGS["IN_DELETE"] |
+            pyinotify.EventsCodes.ALL_FLAGS["IN_MOVED_FROM"] |
+            pyinotify.EventsCodes.ALL_FLAGS["IN_MOVED_TO"])
+
+    self._handle = self.AddWatch(os.path.dirname(path), mask)
+
+  def process_default(self, event):
+    """Called upon inotify event.
+
+    """
+    if event.name == self._filename:
+      logging.debug("Received inotify event %s", event)
+      self._cb()
+
+
+def SetupFileWatcher(filename, cb):
+  """Configures an inotify watcher for a file.
+
+  @type filename: string
+  @param filename: File to watch
+  @type cb: callable
+  @param cb: Function called on file change
+
+  """
+  wm = pyinotify.WatchManager()
+  handler = FileEventHandler(wm, filename, cb)
+  asyncnotifier.AsyncNotifier(wm, default_proc_fun=handler)
+
+
 def CheckRapi(options, args):
   """Initial checks whether to run or exit with a failure.
 
@@ -222,8 +304,8 @@ def CheckRapi(options, args):
     options.ssl_params = None
 
 
-def ExecRapi(options, _):
-  """Main remote API function, executed with the PID file held.
+def PrepRapi(options, _):
+  """Prep remote API function, executed with the PID file held.
 
   """
 
@@ -232,16 +314,32 @@ def ExecRapi(options, _):
                                ssl_params=options.ssl_params,
                                ssl_verify_peer=False,
                                request_executor_class=JsonErrorRequestExecutor)
+
+  # Setup file watcher (it'll be driven by asyncore)
+  SetupFileWatcher(constants.RAPI_USERS_FILE,
+                   compat.partial(server.LoadUsers, constants.RAPI_USERS_FILE))
+
+  server.LoadUsers(constants.RAPI_USERS_FILE)
+
   # pylint: disable-msg=E1101
   # it seems pylint doesn't see the second parent class there
   server.Start()
+
+  return (mainloop, server)
+
+
+def ExecRapi(options, args, prep_data): # pylint: disable-msg=W0613
+  """Main remote API function, executed with the PID file held.
+
+  """
+  (mainloop, server) = prep_data
   try:
     mainloop.Run()
   finally:
     server.Stop()
 
 
-def main():
+def Main():
   """Main function.
 
   """
@@ -249,13 +347,6 @@ def main():
                     usage="%prog [-f] [-d] [-p port] [-b ADDRESS]",
                     version="%%prog (ganeti) %s" % constants.RELEASE_VERSION)
 
-  dirs = [(val, constants.RUN_DIRS_MODE) for val in constants.SUB_RUN_DIRS]
-  dirs.append((constants.LOG_OS_DIR, 0750))
-  daemon.GenericMain(constants.RAPI, parser, dirs, CheckRapi, ExecRapi,
+  daemon.GenericMain(constants.RAPI, parser, CheckRapi, PrepRapi, ExecRapi,
                      default_ssl_cert=constants.RAPI_CERT_FILE,
-                     default_ssl_key=constants.RAPI_CERT_FILE,
-                     user=constants.RAPI_USER, group=constants.DAEMONS_GROUP)
-
-
-if __name__ == "__main__":
-  main()
+                     default_ssl_key=constants.RAPI_CERT_FILE)

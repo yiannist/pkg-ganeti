@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#
 #
 
 # Copyright (C) 2006, 2007 Google Inc.
@@ -25,8 +25,6 @@
 # W0613: Unused argument, since all functions follow the same API
 # W0614: Unused import %s from wildcard import (since we need cli)
 # C0103: Invalid name gnt-job
-
-import sys
 
 from ganeti.cli import *
 from ganeti import constants
@@ -69,6 +67,7 @@ def ListJobs(opts, args):
     headers = {
       "id": "ID",
       "status": "Status",
+      "priority": "Prio",
       "ops": "OpCodes",
       "opresult": "OpCode_result",
       "opstatus": "OpCode_status",
@@ -77,12 +76,15 @@ def ListJobs(opts, args):
       "opstart": "OpCode_start",
       "opexec": "OpCode_exec",
       "opend": "OpCode_end",
+      "oppriority": "OpCode_prio",
       "start_ts": "Start",
       "end_ts": "End",
       "received_ts": "Received",
       }
   else:
     headers = None
+
+  numfields = ["priority"]
 
   # change raw values to nicer strings
   for row_id, row in enumerate(output):
@@ -107,7 +109,8 @@ def ListJobs(opts, args):
       row[idx] = str(val)
 
   data = GenerateTable(separator=opts.separator, headers=headers,
-                       fields=selected_fields, data=output)
+                       fields=selected_fields, data=output,
+                       numfields=numfields)
   for line in data:
     ToStdout(line)
 
@@ -176,13 +179,17 @@ def CancelJobs(opts, args):
 
   """
   client = GetClient()
+  result = constants.EXIT_SUCCESS
 
   for job_id in args:
-    (_, msg) = client.CancelJob(job_id)
+    (success, msg) = client.CancelJob(job_id)
+
+    if not success:
+      result = constants.EXIT_FAILURE
+
     ToStdout(msg)
 
-  # TODO: Different exit value if not all jobs were canceled?
-  return 0
+  return result
 
 
 def ShowJobs(opts, args):
@@ -379,5 +386,5 @@ commands = {
   }
 
 
-if __name__ == '__main__':
-  sys.exit(GenericMain(commands))
+def Main():
+  return GenericMain(commands)
