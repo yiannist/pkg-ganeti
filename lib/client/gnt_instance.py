@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#
 #
 
 # Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc.
@@ -25,7 +25,6 @@
 # W0614: Unused import %s from wildcard import (since we need cli)
 # C0103: Invalid name gnt-instance
 
-import sys
 import os
 import itertools
 import simplejson
@@ -572,7 +571,8 @@ def ReinstallInstance(opts, args):
   for instance_name in inames:
     op = opcodes.OpReinstallInstance(instance_name=instance_name,
                                      os_type=os_name,
-                                     force_variant=opts.force_variant)
+                                     force_variant=opts.force_variant,
+                                     osparams=opts.osparams)
     jex.QueueJob(instance_name, op)
 
   jex.WaitOrShow(not opts.submit_only)
@@ -744,7 +744,8 @@ def _StartupInstance(name, opts):
 
   """
   op = opcodes.OpStartupInstance(instance_name=name,
-                                 force=opts.force)
+                                 force=opts.force,
+                                 ignore_offline_nodes=opts.ignore_offline)
   # do not add these parameters to the opcode unless they're defined
   if opts.hvparams:
     op.hvparams = opts.hvparams
@@ -782,7 +783,8 @@ def _ShutdownInstance(name, opts):
 
   """
   return opcodes.OpShutdownInstance(instance_name=name,
-                                    timeout=opts.timeout)
+                                    timeout=opts.timeout,
+                                    ignore_offline_nodes=opts.ignore_offline)
 
 
 def ReplaceDisks(opts, args):
@@ -1212,7 +1214,7 @@ def ShowInstanceConfig(opts, args):
         vnc_console_port = "%s:%s (display %s)" % (instance["pnode"],
                                                    port,
                                                    display)
-      elif display > 0 and netutils.IsValidIP4(vnc_bind_address):
+      elif display > 0 and netutils.IP4Address.IsValid(vnc_bind_address):
         vnc_console_port = ("%s:%s (node %s) (display %s)" %
                              (vnc_bind_address, port,
                               instance["pnode"], display))
@@ -1375,62 +1377,46 @@ m_inst_tags_opt = cli_option("--tags", dest="multi_mode",
 
 # this is defined separately due to readability only
 add_opts = [
-  BACKEND_OPT,
-  DISK_OPT,
-  DISK_TEMPLATE_OPT,
-  FILESTORE_DIR_OPT,
-  FILESTORE_DRIVER_OPT,
-  HYPERVISOR_OPT,
-  IALLOCATOR_OPT,
-  NET_OPT,
-  NODE_PLACEMENT_OPT,
-  NOIPCHECK_OPT,
-  NONAMECHECK_OPT,
-  NONICS_OPT,
   NOSTART_OPT,
-  NWSYNC_OPT,
-  OSPARAMS_OPT,
   OS_OPT,
   FORCE_VARIANT_OPT,
   NO_INSTALL_OPT,
-  OS_SIZE_OPT,
-  SUBMIT_OPT,
-  DRY_RUN_OPT,
   ]
 
 commands = {
   'add': (
-    AddInstance, [ArgHost(min=1, max=1)], add_opts,
+    AddInstance, [ArgHost(min=1, max=1)], COMMON_CREATE_OPTS + add_opts,
     "[...] -t disk-type -n node[:secondary-node] -o os-type <name>",
     "Creates and adds a new instance to the cluster"),
   'batch-create': (
-    BatchCreate, [ArgFile(min=1, max=1)], [DRY_RUN_OPT],
+    BatchCreate, [ArgFile(min=1, max=1)], [DRY_RUN_OPT, PRIORITY_OPT],
     "<instances.json>",
     "Create a bunch of instances based on specs in the file."),
   'console': (
     ConnectToInstanceConsole, ARGS_ONE_INSTANCE,
-    [SHOWCMD_OPT],
+    [SHOWCMD_OPT, PRIORITY_OPT],
     "[--show-cmd] <instance>", "Opens a console on the specified instance"),
   'failover': (
     FailoverInstance, ARGS_ONE_INSTANCE,
     [FORCE_OPT, IGNORE_CONSIST_OPT, SUBMIT_OPT, SHUTDOWN_TIMEOUT_OPT,
-     DRY_RUN_OPT],
+     DRY_RUN_OPT, PRIORITY_OPT],
     "[-f] <instance>", "Stops the instance and starts it on the backup node,"
     " using the remote mirror (only for instances of type drbd)"),
   'migrate': (
     MigrateInstance, ARGS_ONE_INSTANCE,
-    [FORCE_OPT, NONLIVE_OPT, MIGRATION_MODE_OPT, CLEANUP_OPT, DRY_RUN_OPT],
+    [FORCE_OPT, NONLIVE_OPT, MIGRATION_MODE_OPT, CLEANUP_OPT, DRY_RUN_OPT,
+     PRIORITY_OPT],
     "[-f] <instance>", "Migrate instance to its secondary node"
     " (only for instances of type drbd)"),
   'move': (
     MoveInstance, ARGS_ONE_INSTANCE,
     [FORCE_OPT, SUBMIT_OPT, SINGLE_NODE_OPT, SHUTDOWN_TIMEOUT_OPT,
-     DRY_RUN_OPT],
+     DRY_RUN_OPT, PRIORITY_OPT],
     "[-f] <instance>", "Move instance to an arbitrary node"
     " (only for instances of type file and lv)"),
   'info': (
     ShowInstanceConfig, ARGS_MANY_INSTANCES,
-    [STATIC_OPT, ALL_OPT, ROMAN_OPT],
+    [STATIC_OPT, ALL_OPT, ROMAN_OPT, PRIORITY_OPT],
     "[-s] {--all | <instance>...}",
     "Show information on the specified instance(s)"),
   'list': (
@@ -1455,78 +1441,80 @@ commands = {
     [FORCE_OPT, OS_OPT, FORCE_VARIANT_OPT, m_force_multi, m_node_opt,
      m_pri_node_opt, m_sec_node_opt, m_clust_opt, m_inst_opt, m_node_tags_opt,
      m_pri_node_tags_opt, m_sec_node_tags_opt, m_inst_tags_opt, SELECT_OS_OPT,
-     SUBMIT_OPT, DRY_RUN_OPT],
+     SUBMIT_OPT, DRY_RUN_OPT, PRIORITY_OPT, OSPARAMS_OPT],
     "[-f] <instance>", "Reinstall a stopped instance"),
   'remove': (
     RemoveInstance, ARGS_ONE_INSTANCE,
     [FORCE_OPT, SHUTDOWN_TIMEOUT_OPT, IGNORE_FAILURES_OPT, SUBMIT_OPT,
-     DRY_RUN_OPT],
+     DRY_RUN_OPT, PRIORITY_OPT],
     "[-f] <instance>", "Shuts down the instance and removes it"),
   'rename': (
     RenameInstance,
     [ArgInstance(min=1, max=1), ArgHost(min=1, max=1)],
-    [NOIPCHECK_OPT, NONAMECHECK_OPT, SUBMIT_OPT, DRY_RUN_OPT],
+    [NOIPCHECK_OPT, NONAMECHECK_OPT, SUBMIT_OPT, DRY_RUN_OPT, PRIORITY_OPT],
     "<instance> <new_name>", "Rename the instance"),
   'replace-disks': (
     ReplaceDisks, ARGS_ONE_INSTANCE,
     [AUTO_REPLACE_OPT, DISKIDX_OPT, IALLOCATOR_OPT, EARLY_RELEASE_OPT,
      NEW_SECONDARY_OPT, ON_PRIMARY_OPT, ON_SECONDARY_OPT, SUBMIT_OPT,
-     DRY_RUN_OPT],
+     DRY_RUN_OPT, PRIORITY_OPT],
     "[-s|-p|-n NODE|-I NAME] <instance>",
     "Replaces all disks for the instance"),
   'modify': (
     SetInstanceParams, ARGS_ONE_INSTANCE,
     [BACKEND_OPT, DISK_OPT, FORCE_OPT, HVOPTS_OPT, NET_OPT, SUBMIT_OPT,
      DISK_TEMPLATE_OPT, SINGLE_NODE_OPT, OS_OPT, FORCE_VARIANT_OPT,
-     OSPARAMS_OPT, DRY_RUN_OPT],
+     OSPARAMS_OPT, DRY_RUN_OPT, PRIORITY_OPT],
     "<instance>", "Alters the parameters of an instance"),
   'shutdown': (
     GenericManyOps("shutdown", _ShutdownInstance), [ArgInstance()],
     [m_node_opt, m_pri_node_opt, m_sec_node_opt, m_clust_opt,
      m_node_tags_opt, m_pri_node_tags_opt, m_sec_node_tags_opt,
      m_inst_tags_opt, m_inst_opt, m_force_multi, TIMEOUT_OPT, SUBMIT_OPT,
-     DRY_RUN_OPT],
+     DRY_RUN_OPT, PRIORITY_OPT, IGNORE_OFFLINE_OPT],
     "<instance>", "Stops an instance"),
   'startup': (
     GenericManyOps("startup", _StartupInstance), [ArgInstance()],
     [FORCE_OPT, m_force_multi, m_node_opt, m_pri_node_opt, m_sec_node_opt,
      m_node_tags_opt, m_pri_node_tags_opt, m_sec_node_tags_opt,
      m_inst_tags_opt, m_clust_opt, m_inst_opt, SUBMIT_OPT, HVOPTS_OPT,
-     BACKEND_OPT, DRY_RUN_OPT],
+     BACKEND_OPT, DRY_RUN_OPT, PRIORITY_OPT, IGNORE_OFFLINE_OPT],
     "<instance>", "Starts an instance"),
   'reboot': (
     GenericManyOps("reboot", _RebootInstance), [ArgInstance()],
     [m_force_multi, REBOOT_TYPE_OPT, IGNORE_SECONDARIES_OPT, m_node_opt,
      m_pri_node_opt, m_sec_node_opt, m_clust_opt, m_inst_opt, SUBMIT_OPT,
      m_node_tags_opt, m_pri_node_tags_opt, m_sec_node_tags_opt,
-     m_inst_tags_opt, SHUTDOWN_TIMEOUT_OPT, DRY_RUN_OPT],
+     m_inst_tags_opt, SHUTDOWN_TIMEOUT_OPT, DRY_RUN_OPT, PRIORITY_OPT],
     "<instance>", "Reboots an instance"),
   'activate-disks': (
     ActivateDisks, ARGS_ONE_INSTANCE,
-    [SUBMIT_OPT, IGNORE_SIZE_OPT],
+    [SUBMIT_OPT, IGNORE_SIZE_OPT, PRIORITY_OPT],
     "<instance>", "Activate an instance's disks"),
   'deactivate-disks': (
-    DeactivateDisks, ARGS_ONE_INSTANCE, [SUBMIT_OPT, DRY_RUN_OPT],
+    DeactivateDisks, ARGS_ONE_INSTANCE,
+    [SUBMIT_OPT, DRY_RUN_OPT, PRIORITY_OPT],
     "<instance>", "Deactivate an instance's disks"),
   'recreate-disks': (
-    RecreateDisks, ARGS_ONE_INSTANCE, [SUBMIT_OPT, DISKIDX_OPT, DRY_RUN_OPT],
+    RecreateDisks, ARGS_ONE_INSTANCE,
+    [SUBMIT_OPT, DISKIDX_OPT, DRY_RUN_OPT, PRIORITY_OPT],
     "<instance>", "Recreate an instance's disks"),
   'grow-disk': (
     GrowDisk,
     [ArgInstance(min=1, max=1), ArgUnknown(min=1, max=1),
      ArgUnknown(min=1, max=1)],
-    [SUBMIT_OPT, NWSYNC_OPT, DRY_RUN_OPT],
+    [SUBMIT_OPT, NWSYNC_OPT, DRY_RUN_OPT, PRIORITY_OPT],
     "<instance> <disk> <size>", "Grow an instance's disk"),
   'list-tags': (
-    ListTags, ARGS_ONE_INSTANCE, [],
+    ListTags, ARGS_ONE_INSTANCE, [PRIORITY_OPT],
     "<instance_name>", "List the tags of the given instance"),
   'add-tags': (
     AddTags, [ArgInstance(min=1, max=1), ArgUnknown()],
-    [TAG_SRC_OPT],
+    [TAG_SRC_OPT, PRIORITY_OPT],
     "<instance_name> tag...", "Add tags to the given instance"),
   'remove-tags': (
     RemoveTags, [ArgInstance(min=1, max=1), ArgUnknown()],
-    [TAG_SRC_OPT],
+    [TAG_SRC_OPT, PRIORITY_OPT],
     "<instance_name> tag...", "Remove tags from given instance"),
   }
 
@@ -1537,6 +1525,6 @@ aliases = {
   }
 
 
-if __name__ == '__main__':
-  sys.exit(GenericMain(commands, aliases=aliases,
-                       override={"tag_type": constants.TAG_INSTANCE}))
+def Main():
+  return GenericMain(commands, aliases=aliases,
+                     override={"tag_type": constants.TAG_INSTANCE})

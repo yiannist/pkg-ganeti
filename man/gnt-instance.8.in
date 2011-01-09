@@ -3,7 +3,7 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GNT-INSTANCE" "8" "19 October 2010" "Ganeti 2.2" ""
+.TH "GNT-INSTANCE" "8" "20 December 2010" "Ganeti 2.2" ""
 
 .SH NAME
 gnt-instance \- Ganeti instance administration
@@ -955,7 +955,10 @@ in the form of \fBname=value[,...]\fR\&. For details which options can be specif
 The \fB-t\fR option will change the disk template
 of the instance. Currently only conversions between the
 plain and drbd disk templates are supported, and the
-instance must be stopped before attempting the conversion.
+instance must be stopped before attempting the
+conversion. When changing from the plain to the drbd disk
+template, a new secondary node must be specified via
+the \fB-n\fR option.
 .PP
 The \fB--disk
 add:size=\fISIZE\fB\fR option
@@ -994,7 +997,8 @@ instance is running, there is no effect on the instance.
 .SS "REINSTALL"
 
 \fBreinstall\fR [ \fB-o \fIos-type\fB\fR ] [ \fB--select-os\fR ] [ \fB-f \fIforce\fB\fR ] [ \fB--force-multiple\fR ]
-    [ \fB--instance\fR | \fB--node\fR | \fB--primary\fR | \fB--secondary\fR | \fB--all\fR ] [ \fB--submit\fR ] [ \fB\fIinstance\fB\fR\fI ...\fR ]
+    [ \fB--instance\fR | \fB--node\fR | \fB--primary\fR | \fB--secondary\fR | \fB--all\fR ]
+    [ \fB-O \fIOS_PARAMETERS\fB\fR ] [ \fB--submit\fR ] [ \fB\fIinstance\fB\fR\fI ...\fR ]
 
 .PP
 Reinstalls the operating system on the given instance(s). The
@@ -1004,7 +1008,8 @@ system is changed.
 .PP
 The \fB--select-os\fR option switches to an
 interactive OS reinstall. The user is prompted to select the OS
-template from the list of available OS templates.
+template from the list of available OS templates. OS parameters
+can be overridden using \fB-O\fR\&.
 .PP
 Since this is a potentially dangerous command, the user will
 be required to confirm this action, unless the
@@ -1047,7 +1052,7 @@ ID will be shown so that it can be examined via
 .SS "STARTUP"
 
 \fBstartup\fR
-    [ \fB--force\fR ]
+    [ \fB--force\fR ] [ \fB--ignore-offline\fR ]
     [ \fB--force-multiple\fR ]
     [ \fB--instance\fR | \fB--node\fR | \fB--primary\fR | \fB--secondary\fR | \fB--all\fR | \fB--tags\fR | \fB--node-tags\fR | \fB--pri-node-tags\fR | \fB--sec-node-tags\fR ]
     [ \fB-H key=value...\fR ] [ \fB-B key=value...\fR ]
@@ -1104,7 +1109,9 @@ option, the last one wins, so in order to guarantee the
 desired result, don't pass more than one such option.
 .PP
 Use \fB--force\fR to start even if secondary disks are
-failing.
+failing. \fB--ignore-offline\fR can be used to ignore
+offline primary nodes and mark the instance as started even if
+the primary is not available.
 .PP
 The \fB--force-multiple\fR will skip the
 interactive confirmation in the case the more than one
@@ -1148,7 +1155,7 @@ Example:
 
 \fBshutdown\fR
     [ \fB--timeout=\fIN\fB\fR ]
-    [ \fB--force-multiple\fR ]
+    [ \fB--force-multiple\fR ] [ \fB--ignore-offline\fR ]
     [ \fB--instance\fR | \fB--node\fR | \fB--primary\fR | \fB--secondary\fR | \fB--all\fR | \fB--tags\fR | \fB--node-tags\fR | \fB--pri-node-tags\fR | \fB--sec-node-tags\fR ]
     [ \fB--submit\fR ]
     [ \fB\fIname\fB\fR\fI ...\fR ]
@@ -1176,6 +1183,11 @@ The \fB--submit\fR option is used to send the job to
 the master daemon but not wait for its completion. The job
 ID will be shown so that it can be examined via
 \fBgnt-job info\fR\&.
+.PP
+\fB--ignore-offline\fR can be used to ignore offline
+primary nodes and force the instance to be marked as stopped. This
+option should be used with care as it can lead to an
+inconsistent cluster state.
 .PP
 Example:
 

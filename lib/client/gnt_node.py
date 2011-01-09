@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#
 #
 
 # Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc.
@@ -26,15 +26,13 @@
 # W0614: Unused import %s from wildcard import (since we need cli)
 # C0103: Invalid name gnt-node
 
-import sys
-
 from ganeti.cli import *
+from ganeti import bootstrap
 from ganeti import opcodes
 from ganeti import utils
 from ganeti import constants
 from ganeti import compat
 from ganeti import errors
-from ganeti import bootstrap
 from ganeti import netutils
 
 
@@ -77,7 +75,8 @@ _LIST_HEADERS = {
   "master": "IsMaster",
   "offline": "Offline", "drained": "Drained",
   "role": "Role",
-  "ctime": "CTime", "mtime": "MTime", "uuid": "UUID"
+  "ctime": "CTime", "mtime": "MTime", "uuid": "UUID",
+  "master_capable": "MasterCapable", "vm_capable": "VMCapable",
   }
 
 
@@ -116,6 +115,12 @@ _REPAIRABLE_STORAGE_TYPES = \
 _MODIFIABLE_STORAGE_TYPES = constants.MODIFIABLE_STORAGE_FIELDS.keys()
 
 
+NONODE_SETUP_OPT = cli_option("--no-node-setup", default=True,
+                              action="store_false", dest="node_setup",
+                              help=("Do not make initial SSH setup on remote"
+                                    " node (needs to be done manually)"))
+
+
 def ConvertStorageType(user_storage_type):
   """Converts a user storage type to its internal name.
 
@@ -125,6 +130,34 @@ def ConvertStorageType(user_storage_type):
   except KeyError:
     raise errors.OpPrereqError("Unknown storage type: %s" % user_storage_type,
                                errors.ECODE_INVAL)
+
+
+def _RunSetupSSH(options, nodes):
+  """Wrapper around utils.RunCmd to call setup-ssh
+
+  @param options: The command line options
+  @param nodes: The nodes to setup
+
+  """
+  cmd = [constants.SETUP_SSH]
+
+  # Pass --debug|--verbose to the external script if set on our invocation
+  # --debug overrides --verbose
+  if options.debug:
+    cmd.append("--debug")
+  elif options.verbose:
+    cmd.append("--verbose")
+  if not options.ssh_key_check:
+    cmd.append("--no-ssh-key-check")
+
+  cmd.extend(nodes)
+
+  result = utils.RunCmd(cmd, interactive=True)
+
+  if result.failed:
+    errmsg = ("Command '%s' failed with exit code %s; output %r" %
+              (result.cmd, result.exit_code, result.output))
+    raise errors.OpExecError(errmsg)
 
 
 @UsesRPC
@@ -139,8 +172,7 @@ def AddNode(opts, args):
 
   """
   cl = GetClient()
-  dns_data = netutils.GetHostInfo(netutils.HostInfo.NormalizeName(args[0]))
-  node = dns_data.name
+  node = netutils.GetHostname(name=args[0]).name
   readd = opts.readd
 
   try:
@@ -167,7 +199,7 @@ def AddNode(opts, args):
   output = cl.QueryConfigValues(['cluster_name'])
   cluster_name = output[0]
 
-  if not readd:
+  if not readd and opts.node_setup:
     ToStderr("-- WARNING -- \n"
              "Performing this operation is going to replace the ssh daemon"
              " keypair\n"
@@ -175,10 +207,15 @@ def AddNode(opts, args):
              " current one\n"
              "and grant full intra-cluster ssh root access to/from it\n", node)
 
+  if opts.node_setup:
+    _RunSetupSSH(opts, [node])
+
   bootstrap.SetupNodeDaemon(cluster_name, node, opts.ssh_key_check)
 
   op = opcodes.OpAddNode(node_name=args[0], secondary_ip=sip,
-                         readd=opts.readd)
+                         readd=opts.readd, group=opts.nodegroup,
+                         vm_capable=opts.vm_capable,
+                         master_capable=opts.master_capable)
   SubmitOpCode(op, opts=opts)
 
 
@@ -215,7 +252,8 @@ def ListNodes(opts, args):
       val = row[idx]
       if field in list_type_fields:
         val = ",".join(val)
-      elif field in ('master', 'master_candidate', 'offline', 'drained'):
+      elif field in ('master', 'master_candidate', 'offline', 'drained',
+                     'master_capable', 'vm_capable'):
         if val:
           val = 'Y'
         else:
@@ -387,29 +425,33 @@ def ShowNodeConfig(opts, args):
   cl = GetClient()
   result = cl.QueryNodes(fields=["name", "pip", "sip",
                                  "pinst_list", "sinst_list",
-                                 "master_candidate", "drained", "offline"],
+                                 "master_candidate", "drained", "offline",
+                                 "master_capable", "vm_capable"],
                          names=args, use_locking=False)
 
   for (name, primary_ip, secondary_ip, pinst, sinst,
-       is_mc, drained, offline) in result:
+       is_mc, drained, offline, master_capable, vm_capable) in result:
     ToStdout("Node name: %s", name)
     ToStdout("  primary ip: %s", primary_ip)
     ToStdout("  secondary ip: %s", secondary_ip)
     ToStdout("  master candidate: %s", is_mc)
     ToStdout("  drained: %s", drained)
     ToStdout("  offline: %s", offline)
-    if pinst:
-      ToStdout("  primary for instances:")
-      for iname in utils.NiceSort(pinst):
-        ToStdout("    - %s", iname)
-    else:
-      ToStdout("  primary for no instances")
-    if sinst:
-      ToStdout("  secondary for instances:")
-      for iname in utils.NiceSort(sinst):
-        ToStdout("    - %s", iname)
-    else:
-      ToStdout("  secondary for no instances")
+    ToStdout("  master_capable: %s", master_capable)
+    ToStdout("  vm_capable: %s", vm_capable)
+    if vm_capable:
+      if pinst:
+        ToStdout("  primary for instances:")
+        for iname in utils.NiceSort(pinst):
+          ToStdout("    - %s", iname)
+      else:
+        ToStdout("  primary for no instances")
+      if sinst:
+        ToStdout("  secondary for instances:")
+        for iname in utils.NiceSort(sinst):
+          ToStdout("    - %s", iname)
+      else:
+        ToStdout("  secondary for no instances")
 
   return 0
 
@@ -613,7 +655,9 @@ def SetNodeParams(opts, args):
   @return: the desired exit code
 
   """
-  if [opts.master_candidate, opts.drained, opts.offline].count(None) == 3:
+  all_changes = [opts.master_candidate, opts.drained, opts.offline,
+                 opts.master_capable, opts.vm_capable, opts.secondary_ip]
+  if all_changes.count(None) == len(all_changes):
     ToStderr("Please give at least one of the parameters.")
     return 1
 
@@ -621,6 +665,9 @@ def SetNodeParams(opts, args):
                                master_candidate=opts.master_candidate,
                                offline=opts.offline,
                                drained=opts.drained,
+                               master_capable=opts.master_capable,
+                               vm_capable=opts.vm_capable,
+                               secondary_ip=opts.secondary_ip,
                                force=opts.force,
                                auto_promote=opts.auto_promote)
 
@@ -637,22 +684,27 @@ def SetNodeParams(opts, args):
 commands = {
   'add': (
     AddNode, [ArgHost(min=1, max=1)],
-    [SECONDARY_IP_OPT, READD_OPT, NOSSH_KEYCHECK_OPT],
-    "[-s ip] [--readd] [--no-ssh-key-check] <node_name>",
+    [SECONDARY_IP_OPT, READD_OPT, NOSSH_KEYCHECK_OPT, NONODE_SETUP_OPT,
+     VERBOSE_OPT, NODEGROUP_OPT, PRIORITY_OPT, CAPAB_MASTER_OPT,
+     CAPAB_VM_OPT],
+    "[-s ip] [--readd] [--no-ssh-key-check] [--no-node-setup]  [--verbose] "
+    " <node_name>",
     "Add a node to the cluster"),
   'evacuate': (
     EvacuateNode, [ArgNode(min=1)],
-    [FORCE_OPT, IALLOCATOR_OPT, NEW_SECONDARY_OPT, EARLY_RELEASE_OPT],
+    [FORCE_OPT, IALLOCATOR_OPT, NEW_SECONDARY_OPT, EARLY_RELEASE_OPT,
+     PRIORITY_OPT],
     "[-f] {-I <iallocator> | -n <dst>} <node>",
     "Relocate the secondary instances from a node"
     " to other nodes (only for instances with drbd disk template)"),
   'failover': (
-    FailoverNode, ARGS_ONE_NODE, [FORCE_OPT, IGNORE_CONSIST_OPT],
+    FailoverNode, ARGS_ONE_NODE, [FORCE_OPT, IGNORE_CONSIST_OPT, PRIORITY_OPT],
     "[-f] <node>",
     "Stops the primary instances on a node and start them on their"
     " secondary node (only for instances with drbd disk template)"),
   'migrate': (
-    MigrateNode, ARGS_ONE_NODE, [FORCE_OPT, NONLIVE_OPT, MIGRATION_MODE_OPT],
+    MigrateNode, ARGS_ONE_NODE,
+    [FORCE_OPT, NONLIVE_OPT, MIGRATION_MODE_OPT, PRIORITY_OPT],
     "[-f] <node>",
     "Migrate all the primary instance on a node away from it"
     " (only for instances of type drbd)"),
@@ -669,22 +721,24 @@ commands = {
   'modify': (
     SetNodeParams, ARGS_ONE_NODE,
     [FORCE_OPT, SUBMIT_OPT, MC_OPT, DRAINED_OPT, OFFLINE_OPT,
-     AUTO_PROMOTE_OPT, DRY_RUN_OPT],
+     CAPAB_MASTER_OPT, CAPAB_VM_OPT, SECONDARY_IP_OPT,
+     AUTO_PROMOTE_OPT, DRY_RUN_OPT, PRIORITY_OPT],
     "<node_name>", "Alters the parameters of a node"),
   'powercycle': (
     PowercycleNode, ARGS_ONE_NODE,
-    [FORCE_OPT, CONFIRM_OPT, DRY_RUN_OPT],
+    [FORCE_OPT, CONFIRM_OPT, DRY_RUN_OPT, PRIORITY_OPT],
     "<node_name>", "Tries to forcefully powercycle a node"),
   'remove': (
-    RemoveNode, ARGS_ONE_NODE, [DRY_RUN_OPT],
+    RemoveNode, ARGS_ONE_NODE, [DRY_RUN_OPT, PRIORITY_OPT],
     "<node_name>", "Removes a node from the cluster"),
   'volumes': (
     ListVolumes, [ArgNode()],
-    [NOHDR_OPT, SEP_OPT, USEUNITS_OPT, FIELDS_OPT],
+    [NOHDR_OPT, SEP_OPT, USEUNITS_OPT, FIELDS_OPT, PRIORITY_OPT],
     "[<node_name>...]", "List logical volumes on node(s)"),
   'list-storage': (
     ListStorage, ARGS_MANY_NODES,
-    [NOHDR_OPT, SEP_OPT, USEUNITS_OPT, FIELDS_OPT, _STORAGE_TYPE_OPT],
+    [NOHDR_OPT, SEP_OPT, USEUNITS_OPT, FIELDS_OPT, _STORAGE_TYPE_OPT,
+     PRIORITY_OPT],
     "[<node_name>...]", "List physical volumes on node(s). The available"
     " fields are (see the man page for details): %s." %
     (utils.CommaJoin(_LIST_STOR_HEADERS))),
@@ -693,27 +747,28 @@ commands = {
     [ArgNode(min=1, max=1),
      ArgChoice(min=1, max=1, choices=_MODIFIABLE_STORAGE_TYPES),
      ArgFile(min=1, max=1)],
-    [ALLOCATABLE_OPT, DRY_RUN_OPT],
+    [ALLOCATABLE_OPT, DRY_RUN_OPT, PRIORITY_OPT],
     "<node_name> <storage_type> <name>", "Modify storage volume on a node"),
   'repair-storage': (
     RepairStorage,
     [ArgNode(min=1, max=1),
      ArgChoice(min=1, max=1, choices=_REPAIRABLE_STORAGE_TYPES),
      ArgFile(min=1, max=1)],
-    [IGNORE_CONSIST_OPT, DRY_RUN_OPT],
+    [IGNORE_CONSIST_OPT, DRY_RUN_OPT, PRIORITY_OPT],
     "<node_name> <storage_type> <name>",
     "Repairs a storage volume on a node"),
   'list-tags': (
     ListTags, ARGS_ONE_NODE, [],
     "<node_name>", "List the tags of the given node"),
   'add-tags': (
-    AddTags, [ArgNode(min=1, max=1), ArgUnknown()], [TAG_SRC_OPT],
+    AddTags, [ArgNode(min=1, max=1), ArgUnknown()], [TAG_SRC_OPT, PRIORITY_OPT],
     "<node_name> tag...", "Add tags to the given node"),
   'remove-tags': (
-    RemoveTags, [ArgNode(min=1, max=1), ArgUnknown()], [TAG_SRC_OPT],
+    RemoveTags, [ArgNode(min=1, max=1), ArgUnknown()],
+    [TAG_SRC_OPT, PRIORITY_OPT],
     "<node_name> tag...", "Remove tags from the given node"),
   }
 
 
-if __name__ == '__main__':
-  sys.exit(GenericMain(commands, override={"tag_type": constants.TAG_NODE}))
+def Main():
+  return GenericMain(commands, override={"tag_type": constants.TAG_NODE})

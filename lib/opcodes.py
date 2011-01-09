@@ -117,10 +117,11 @@ class OpCode(BaseOpCode):
                children of this class.
   @ivar dry_run: Whether the LU should be run in dry-run mode, i.e. just
                  the check steps
+  @ivar priority: Opcode priority for queue
 
   """
   OP_ID = "OP_ABSTRACT"
-  __slots__ = ["dry_run", "debug_level"]
+  __slots__ = ["dry_run", "debug_level", "priority"]
 
   def __getstate__(self):
     """Specialized getstate for opcodes.
@@ -317,6 +318,7 @@ class OpSetClusterParams(OpCode):
     "reserved_lvs",
     "hidden_os",
     "blacklisted_os",
+    "prealloc_wipe_disks",
     ]
 
 
@@ -362,11 +364,18 @@ class OpAddNode(OpCode):
                name is already in the cluster; use this parameter to 'repair'
                a node that had its configuration broken, or was reinstalled
                without removal from the cluster.
+  @type group: C{str}
+  @ivar group: The node group to which this node will belong.
+  @type vm_capable: C{bool}
+  @ivar vm_capable: The vm_capable node attribute
+  @type master_capable: C{bool}
+  @ivar master_capable: The master_capable node attribute
 
   """
   OP_ID = "OP_NODE_ADD"
   OP_DSC_FIELD = "node_name"
-  __slots__ = ["node_name", "primary_ip", "secondary_ip", "readd"]
+  __slots__ = ["node_name", "primary_ip", "secondary_ip", "readd", "group",
+               "vm_capable", "master_capable"]
 
 
 class OpQueryNodes(OpCode):
@@ -426,6 +435,9 @@ class OpSetNodeParams(OpCode):
     "offline",
     "drained",
     "auto_promote",
+    "master_capable",
+    "vm_capable",
+    "secondary_ip",
     ]
 
 
@@ -491,7 +503,7 @@ class OpReinstallInstance(OpCode):
   """Reinstall an instance's OS."""
   OP_ID = "OP_INSTANCE_REINSTALL"
   OP_DSC_FIELD = "instance_name"
-  __slots__ = ["instance_name", "os_type", "force_variant"]
+  __slots__ = ["instance_name", "os_type", "force_variant", "osparams"]
 
 
 class OpRemoveInstance(OpCode):
@@ -518,7 +530,7 @@ class OpStartupInstance(OpCode):
   OP_ID = "OP_INSTANCE_STARTUP"
   OP_DSC_FIELD = "instance_name"
   __slots__ = [
-    "instance_name", "force", "hvparams", "beparams",
+    "instance_name", "force", "hvparams", "beparams", "ignore_offline_nodes",
     ]
 
 
@@ -526,7 +538,9 @@ class OpShutdownInstance(OpCode):
   """Shutdown an instance."""
   OP_ID = "OP_INSTANCE_SHUTDOWN"
   OP_DSC_FIELD = "instance_name"
-  __slots__ = ["instance_name", "timeout"]
+  __slots__ = [
+    "instance_name", "timeout", "ignore_offline_nodes",
+    ]
 
 
 class OpRebootInstance(OpCode):
@@ -799,6 +813,18 @@ class OpTestJobqueue(OpCode):
     "notify_waitlock",
     "notify_exec",
     "log_messages",
+    "fail",
+    ]
+
+
+class OpTestDummy(OpCode):
+  """Utility opcode used by unittests.
+
+  """
+  OP_ID = "OP_TEST_DUMMY"
+  __slots__ = [
+    "result",
+    "messages",
     "fail",
     ]
 

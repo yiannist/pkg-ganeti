@@ -53,6 +53,8 @@ __all__ = [
   "AUTO_REPLACE_OPT",
   "BACKEND_OPT",
   "BLK_OS_OPT",
+  "CAPAB_MASTER_OPT",
+  "CAPAB_VM_OPT",
   "CLEANUP_OPT",
   "CLUSTER_DOMAIN_SECRET_OPT",
   "CONFIRM_OPT",
@@ -83,6 +85,7 @@ __all__ = [
   "IDENTIFY_DEFAULTS_OPT",
   "IGNORE_CONSIST_OPT",
   "IGNORE_FAILURES_OPT",
+  "IGNORE_OFFLINE_OPT",
   "IGNORE_REMOVE_FAILURES_OPT",
   "IGNORE_SECONDARIES_OPT",
   "IGNORE_SIZE_OPT",
@@ -101,6 +104,7 @@ __all__ = [
   "NIC_PARAMS_OPT",
   "NODE_LIST_OPT",
   "NODE_PLACEMENT_OPT",
+  "NODEGROUP_OPT",
   "NODRBD_STORAGE_OPT",
   "NOHDR_OPT",
   "NOIPCHECK_OPT",
@@ -123,6 +127,9 @@ __all__ = [
   "OSPARAMS_OPT",
   "OS_OPT",
   "OS_SIZE_OPT",
+  "PREALLOC_WIPE_DISKS_OPT",
+  "PRIMARY_IP_VERSION_OPT",
+  "PRIORITY_OPT",
   "RAPI_CERT_OPT",
   "READD_OPT",
   "REBOOT_TYPE_OPT",
@@ -194,15 +201,29 @@ __all__ = [
   "OPT_COMPL_ONE_IALLOCATOR",
   "OPT_COMPL_ONE_INSTANCE",
   "OPT_COMPL_ONE_NODE",
+  "OPT_COMPL_ONE_NODEGROUP",
   "OPT_COMPL_ONE_OS",
   "cli_option",
   "SplitNodeOption",
   "CalculateOSNames",
   "ParseFields",
+  "COMMON_CREATE_OPTS",
   ]
 
 NO_PREFIX = "no_"
 UN_PREFIX = "-"
+
+#: Priorities (sorted)
+_PRIORITY_NAMES = [
+  ("low", constants.OP_PRIO_LOW),
+  ("normal", constants.OP_PRIO_NORMAL),
+  ("high", constants.OP_PRIO_HIGH),
+  ]
+
+#: Priority dictionary for easier lookup
+# TODO: Replace this and _PRIORITY_NAMES with a single sorted dictionary once
+# we migrate to Python 2.6
+_PRIONAME_TO_VALUE = dict(_PRIORITY_NAMES)
 
 
 class _Argument:
@@ -503,7 +524,8 @@ def check_bool(option, opt, value): # pylint: disable-msg=W0613
  OPT_COMPL_ONE_INSTANCE,
  OPT_COMPL_ONE_OS,
  OPT_COMPL_ONE_IALLOCATOR,
- OPT_COMPL_INST_ADD_NODES) = range(100, 106)
+ OPT_COMPL_INST_ADD_NODES,
+ OPT_COMPL_ONE_NODEGROUP) = range(100, 107)
 
 OPT_COMPL_ALL = frozenset([
   OPT_COMPL_MANY_NODES,
@@ -512,6 +534,7 @@ OPT_COMPL_ALL = frozenset([
   OPT_COMPL_ONE_OS,
   OPT_COMPL_ONE_IALLOCATOR,
   OPT_COMPL_INST_ADD_NODES,
+  OPT_COMPL_ONE_NODEGROUP,
   ])
 
 
@@ -566,6 +589,11 @@ FORCE_OPT = cli_option("-f", "--force", dest="force", action="store_true",
 
 CONFIRM_OPT = cli_option("--yes", dest="confirm", action="store_true",
                          default=False, help="Do not require confirmation")
+
+IGNORE_OFFLINE_OPT = cli_option("--ignore-offline", dest="ignore_offline",
+                                  action="store_true", default=False,
+                                  help=("Ignore offline nodes and do as much"
+                                        " as possible"))
 
 TAG_SRC_OPT = cli_option("--from", dest="tags_source",
                          default=None, help="File with tag names")
@@ -722,6 +750,13 @@ NODE_LIST_OPT = cli_option("-n", "--node", dest="nodes", default=[],
                            " times, if not given defaults to all nodes)",
                            completion_suggest=OPT_COMPL_ONE_NODE)
 
+NODEGROUP_OPT = cli_option("-g", "--node-group",
+                           dest="nodegroup",
+                           help="Node group (name or uuid)",
+                           metavar="<nodegroup>",
+                           default=None, type="string",
+                           completion_suggest=OPT_COMPL_ONE_NODEGROUP)
+
 SINGLE_NODE_OPT = cli_option("-n", "--node", dest="node", help="Target node",
                              metavar="<node>",
                              completion_suggest=OPT_COMPL_ONE_NODE)
@@ -838,6 +873,14 @@ DRAINED_OPT = cli_option("-D", "--drained", dest="drained", metavar=_YORNO,
                          type="bool", default=None,
                          help="Set the drained flag on the node")
 
+CAPAB_MASTER_OPT = cli_option("--master-capable", dest="master_capable",
+                    type="bool", default=None, metavar=_YORNO,
+                    help="Set the master_capable flag on the node")
+
+CAPAB_VM_OPT = cli_option("--vm-capable", dest="vm_capable",
+                    type="bool", default=None, metavar=_YORNO,
+                    help="Set the vm_capable flag on the node")
+
 ALLOCATABLE_OPT = cli_option("--allocatable", dest="allocatable",
                              type="bool", default=None, metavar=_YORNO,
                              help="Set the allocatable flag on a volume")
@@ -860,7 +903,7 @@ CP_SIZE_OPT = cli_option("-C", "--candidate-pool-size", default=None,
                          dest="candidate_pool_size", type="int",
                          help="Set the candidate pool size")
 
-VG_NAME_OPT = cli_option("-g", "--vg-name", dest="vg_name",
+VG_NAME_OPT = cli_option("--vg-name", dest="vg_name",
                          help="Enables LVM and specifies the volume group"
                          " name (cluster-wide) for disk allocation [xenvg]",
                          metavar="VG", default=None)
@@ -1031,6 +1074,18 @@ NODRBD_STORAGE_OPT = cli_option("--no-drbd-storage", dest="drbd_storage",
                                 action="store_false", default=True,
                                 help="Disable support for DRBD")
 
+PRIMARY_IP_VERSION_OPT = \
+    cli_option("--primary-ip-version", default=constants.IP4_VERSION,
+               action="store", dest="primary_ip_version",
+               metavar="%d|%d" % (constants.IP4_VERSION,
+                                  constants.IP6_VERSION),
+               help="Cluster-wide IP version for primary IP")
+
+PRIORITY_OPT = cli_option("--priority", default=None, dest="priority",
+                          metavar="|".join(name for name, _ in _PRIORITY_NAMES),
+                          choices=_PRIONAME_TO_VALUE.keys(),
+                          help="Priority for opcode processing")
+
 HID_OS_OPT = cli_option("--hidden", dest="hidden",
                         type="bool", default=None, metavar=_YORNO,
                         help="Sets the hidden flag on the OS")
@@ -1039,9 +1094,38 @@ BLK_OS_OPT = cli_option("--blacklisted", dest="blacklisted",
                         type="bool", default=None, metavar=_YORNO,
                         help="Sets the blacklisted flag on the OS")
 
+PREALLOC_WIPE_DISKS_OPT = cli_option("--prealloc-wipe-disks", default=None,
+                                     type="bool", metavar=_YORNO,
+                                     dest="prealloc_wipe_disks",
+                                     help=("Wipe disks prior to instance"
+                                           " creation"))
+
 
 #: Options provided by all commands
 COMMON_OPTS = [DEBUG_OPT]
+
+# common options for creating instances. add and import then add their own
+# specific ones.
+COMMON_CREATE_OPTS = [
+  BACKEND_OPT,
+  DISK_OPT,
+  DISK_TEMPLATE_OPT,
+  FILESTORE_DIR_OPT,
+  FILESTORE_DRIVER_OPT,
+  HYPERVISOR_OPT,
+  IALLOCATOR_OPT,
+  NET_OPT,
+  NODE_PLACEMENT_OPT,
+  NOIPCHECK_OPT,
+  NONAMECHECK_OPT,
+  NONICS_OPT,
+  NWSYNC_OPT,
+  OSPARAMS_OPT,
+  OS_SIZE_OPT,
+  SUBMIT_OPT,
+  DRY_RUN_OPT,
+  PRIORITY_OPT,
+  ]
 
 
 def _ParseArgs(argv, commands, aliases):
@@ -1631,9 +1715,11 @@ def SetGenericOpcodeOpts(opcode_list, options):
   if not options:
     return
   for op in opcode_list:
+    op.debug_level = options.debug
     if hasattr(options, "dry_run"):
       op.dry_run = options.dry_run
-    op.debug_level = options.debug
+    if getattr(options, "priority", None) is not None:
+      op.priority = _PRIONAME_TO_VALUE[options.priority]
 
 
 def GetClient():
@@ -1689,7 +1775,7 @@ def FormatError(err):
   elif isinstance(err, errors.HooksFailure):
     obuf.write("Failure: hooks general failure: %s" % msg)
   elif isinstance(err, errors.ResolverError):
-    this_host = netutils.HostInfo.SysName()
+    this_host = netutils.Hostname.GetSysName()
     if err.args[0] == this_host:
       msg = "Failure: can't resolve my own hostname ('%s')"
     else:

@@ -3,7 +3,7 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GANETI" "7" "19 October 2010" "Ganeti 2.2" ""
+.TH "GANETI" "7" "20 December 2010" "Ganeti 2.2" ""
 
 .SH NAME
 ganeti \- cluster-based virtualization management
@@ -73,6 +73,23 @@ voting procedure, they are not actually contacted by the
 master. This state was added in order to allow broken
 machines (that are being repaired) to remain in the
 cluster but without creating problems.
+.SS "NODE FLAGS"
+.PP
+Nodes have two flags which govern which roles they can take:
+.TP
+\fBmaster_capable\fR
+The node can become a master candidate, and
+furthermore the master node. When this flag is
+disabled, the node cannot become a candidate; this can
+be useful for special networking cases, or less
+reliable hardware.
+.TP
+\fBvm_capable\fR
+The node can host instances. When enabled (the default
+state), the node will participate in instance
+allocation, capacity calculation, etc. When disabled,
+the node will be skipped in many cluster checks and
+operations.
 .SS "CLUSTER CONFIGURATION"
 .PP
 The master node keeps and is responsible for the cluster
@@ -123,6 +140,20 @@ The job has finished successfully.
 \fBerror\fR
 The job has failed during runtime, or the master
 daemon has been stopped during the job execution.
+.SH "COMMON OPTIONS"
+.PP
+Many Ganeti commands provide the following options. The availability for
+a certain command can be checked by calling the command using the
+\fB--help\fR option.
+
+\fBgnt-\fI\&...\fB \fIcommand\fB\fR [ \fB--dry-run\fR ] [ \fB--priority  { low | normal | high }\fR ]
+
+.PP
+The \fB--dry-run\fR option can be used to check whether an
+operation would succeed.
+.PP
+The option \fB--priority\fR sets the priority for opcodes
+submitted by the command.
 .SH "REPORTING BUGS"
 .PP
 Report bugs to  <URL:http://code.google.com/p/ganeti/> or contact the

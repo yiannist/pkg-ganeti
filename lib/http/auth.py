@@ -27,7 +27,6 @@ import re
 import base64
 import binascii
 
-from ganeti import utils
 from ganeti import compat
 from ganeti import http
 
@@ -287,8 +286,8 @@ class PasswordFileUser(object):
     self.options = options
 
 
-def ReadPasswordFile(file_name):
-  """Reads a password file.
+def ParsePasswordFile(contents):
+  """Parses the contents of a password file.
 
   Lines in the password file are of the following format::
 
@@ -298,15 +297,15 @@ def ReadPasswordFile(file_name):
   options are optional and separated by comma (','). Empty lines and comments
   ('#') are ignored.
 
-  @type file_name: str
-  @param file_name: Path to password file
+  @type contents: str
+  @param contents: Contents of password file
   @rtype: dict
   @return: Dictionary containing L{PasswordFileUser} instances
 
   """
   users = {}
 
-  for line in utils.ReadFile(file_name).splitlines():
+  for line in contents.splitlines():
     line = line.strip()
 
     # Ignore empty lines and comments

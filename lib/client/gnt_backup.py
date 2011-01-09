@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#
 #
 
 # Copyright (C) 2006, 2007, 2010 Google Inc.
@@ -25,8 +25,6 @@
 # W0613: Unused argument, since all functions follow the same API
 # W0614: Unused import %s from wildcard import (since we need cli)
 # C0103: Invalid name gnt-backup
-
-import sys
 
 from ganeti.cli import *
 from ganeti import opcodes
@@ -117,26 +115,9 @@ def RemoveExport(opts, args):
 
 # this is defined separately due to readability only
 import_opts = [
-  BACKEND_OPT,
-  DISK_OPT,
-  DISK_TEMPLATE_OPT,
-  FILESTORE_DIR_OPT,
-  FILESTORE_DRIVER_OPT,
-  HYPERVISOR_OPT,
-  IALLOCATOR_OPT,
   IDENTIFY_DEFAULTS_OPT,
-  NET_OPT,
-  NODE_PLACEMENT_OPT,
-  NOIPCHECK_OPT,
-  NONAMECHECK_OPT,
-  NONICS_OPT,
-  NWSYNC_OPT,
-  OSPARAMS_OPT,
-  OS_SIZE_OPT,
   SRC_DIR_OPT,
   SRC_NODE_OPT,
-  SUBMIT_OPT,
-  DRY_RUN_OPT,
   ]
 
 
@@ -148,18 +129,19 @@ commands = {
   'export': (
     ExportInstance, ARGS_ONE_INSTANCE,
     [FORCE_OPT, SINGLE_NODE_OPT, NOSHUTDOWN_OPT, SHUTDOWN_TIMEOUT_OPT,
-     REMOVE_INSTANCE_OPT, IGNORE_REMOVE_FAILURES_OPT, DRY_RUN_OPT],
+     REMOVE_INSTANCE_OPT, IGNORE_REMOVE_FAILURES_OPT, DRY_RUN_OPT,
+     PRIORITY_OPT],
     "-n <target_node> [opts...] <name>",
     "Exports an instance to an image"),
   'import': (
-    ImportInstance, ARGS_ONE_INSTANCE, import_opts,
+    ImportInstance, ARGS_ONE_INSTANCE, COMMON_CREATE_OPTS + import_opts,
     "[...] -t disk-type -n node[:secondary-node] <name>",
     "Imports an instance from an exported image"),
   'remove': (
-    RemoveExport, [ArgUnknown(min=1, max=1)], [DRY_RUN_OPT],
+    RemoveExport, [ArgUnknown(min=1, max=1)], [DRY_RUN_OPT, PRIORITY_OPT],
     "<name>", "Remove exports of named instance from the filesystem."),
   }
 
 
-if __name__ == '__main__':
-  sys.exit(GenericMain(commands))
+def Main():
+  return GenericMain(commands)

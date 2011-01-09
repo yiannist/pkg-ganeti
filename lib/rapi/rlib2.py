@@ -59,6 +59,7 @@ I_FIELDS = ["name", "admin_state", "os",
             "disk.sizes", "disk_usage",
             "beparams", "hvparams",
             "oper_state", "oper_ram", "oper_vcpus", "status",
+            "custom_hvparams", "custom_beparams", "custom_nicparams",
             ] + _COMMON_FIELDS
 
 N_FIELDS = ["name", "offline", "master_candidate", "drained",
@@ -68,6 +69,7 @@ N_FIELDS = ["name", "offline", "master_candidate", "drained",
             "ctotal", "cnodes", "csockets",
             "pip", "sip", "role",
             "pinst_list", "sinst_list",
+            "master_capable", "vm_capable",
             ] + _COMMON_FIELDS
 
 _NR_DRAINED = "drained"

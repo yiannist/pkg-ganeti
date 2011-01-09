@@ -1,7 +1,7 @@
-#!/usr/bin/python
+#
 #
 
-# Copyright (C) 2006, 2007 Google Inc.
+# Copyright (C) 2006, 2007, 2010 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -184,6 +184,15 @@ class NodeHttpServer(http.server.HttpServer):
     return backend.BlockdevCreate(bdev, size, owner, on_primary, info)
 
   @staticmethod
+  def perspective_blockdev_wipe(params):
+    """Wipe a block device.
+
+    """
+    bdev_s, offset, size = params
+    bdev = objects.Disk.FromDict(bdev_s)
+    return backend.BlockdevWipe(bdev, offset, size)
+
+  @staticmethod
   def perspective_blockdev_remove(params):
     """Remove a block device.
 
@@ -261,6 +270,28 @@ class NodeHttpServer(http.server.HttpServer):
              for dsk_s in params]
     return [status.ToDict()
             for status in backend.BlockdevGetmirrorstatus(disks)]
+
+  @staticmethod
+  def perspective_blockdev_getmirrorstatus_multi(params):
+    """Return the mirror status for a list of disks.
+
+    """
+    (node_disks, ) = params
+
+    node_name = netutils.Hostname.GetSysName()
+
+    disks = [objects.Disk.FromDict(dsk_s)
+             for dsk_s in node_disks.get(node_name, [])]
+
+    result = []
+
+    for (success, status) in backend.BlockdevGetmirrorstatusMulti(disks):
+      if success:
+        result.append((success, status.ToDict()))
+      else:
+        result.append((success, status))
+
+    return result
 
   @staticmethod
   def perspective_blockdev_find(params):
@@ -598,7 +629,7 @@ class NodeHttpServer(http.server.HttpServer):
     """Checks if a node has the given ip address.
 
     """
-    return netutils.OwnIpAddress(params[0])
+    return netutils.IPAddress.Own(params[0])
 
   @staticmethod
   def perspective_node_info(params):
@@ -609,12 +640,13 @@ class NodeHttpServer(http.server.HttpServer):
     return backend.GetNodeInfo(vgname, hypervisor_type)
 
   @staticmethod
-  def perspective_node_add(params):
-    """Complete the registration of this node in the cluster.
+  def perspective_etc_hosts_modify(params):
+    """Modify a node entry in /etc/hosts.
 
     """
-    return backend.AddNode(params[0], params[1], params[2],
-                           params[3], params[4], params[5])
+    backend.EtcHostsModify(params[0], params[1], params[2])
+
+    return True
 
   @staticmethod
   def perspective_node_verify(params):
@@ -913,8 +945,8 @@ def CheckNoded(_, args):
     sys.exit(constants.EXIT_FAILURE)
 
 
-def ExecNoded(options, _):
-  """Main node daemon function, executed with the PID file held.
+def PrepNoded(options, _):
+  """Preparation node daemon function, executed with the PID file held.
 
   """
   if options.mlock:
@@ -946,13 +978,21 @@ def ExecNoded(options, _):
                           ssl_params=ssl_params, ssl_verify_peer=True,
                           request_executor_class=request_executor_class)
   server.Start()
+  return (mainloop, server)
+
+
+def ExecNoded(options, args, prep_data): # pylint: disable-msg=W0613
+  """Main node daemon function, executed with the PID file held.
+
+  """
+  (mainloop, server) = prep_data
   try:
     mainloop.Run()
   finally:
     server.Stop()
 
 
-def main():
+def Main():
   """Main function for the node daemon.
 
   """
@@ -964,16 +1004,7 @@ def main():
                     help="Do not mlock the node memory in ram",
                     default=True, action="store_false")
 
-  dirs = [(val, constants.RUN_DIRS_MODE) for val in constants.SUB_RUN_DIRS]
-  dirs.append((constants.LOG_OS_DIR, 0750))
-  dirs.append((constants.LOCK_DIR, 1777))
-  dirs.append((constants.CRYPTO_KEYS_DIR, constants.CRYPTO_KEYS_DIR_MODE))
-  dirs.append((constants.IMPORT_EXPORT_DIR, constants.IMPORT_EXPORT_DIR_MODE))
-  daemon.GenericMain(constants.NODED, parser, dirs, CheckNoded, ExecNoded,
+  daemon.GenericMain(constants.NODED, parser, CheckNoded, PrepNoded, ExecNoded,
                      default_ssl_cert=constants.NODED_CERT_FILE,
                      default_ssl_key=constants.NODED_CERT_FILE,
                      console_logging=True)
-
-
-if __name__ == '__main__':
-  main()

@@ -442,6 +442,14 @@ class TestParseFields(unittest.TestCase):
                      ["def", "ault", "name", "foo"])
 
 
+class TestConstants(unittest.TestCase):
+  def testPriority(self):
+    self.assertEqual(set(cli._PRIONAME_TO_VALUE.values()),
+                     set(constants.OP_PRIO_SUBMIT_VALID))
+    self.assertEqual(list(value for _, value in cli._PRIORITY_NAMES),
+                     sorted(constants.OP_PRIO_SUBMIT_VALID, reverse=True))
+
+
 class TestParseNicOption(unittest.TestCase):
   def test(self):
     self.assertEqual(cli.ParseNicOption([("0", { "link": "eth0", })]),

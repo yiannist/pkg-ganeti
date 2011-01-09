@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#
 #
 
 # Copyright (C) 2006, 2007, 2010 Google Inc.
@@ -26,7 +26,6 @@
 # W0614: Unused import %s from wildcard import (since we need cli)
 # C0103: Invalid name gnt-cluster
 
-import sys
 import os.path
 import time
 import OpenSSL
@@ -105,6 +104,15 @@ def InitCluster(opts, args):
   if uid_pool is not None:
     uid_pool = uidpool.ParseUidPool(uid_pool)
 
+  if opts.prealloc_wipe_disks is None:
+    opts.prealloc_wipe_disks = False
+
+  try:
+    primary_ip_version = int(opts.primary_ip_version)
+  except (ValueError, TypeError), err:
+    ToStderr("Invalid primary ip version value: %s" % str(err))
+    return 1
+
   bootstrap.InitCluster(cluster_name=args[0],
                         secondary_ip=opts.secondary_ip,
                         vg_name=vg_name,
@@ -122,6 +130,8 @@ def InitCluster(opts, args):
                         drbd_helper=drbd_helper,
                         uid_pool=uid_pool,
                         default_iallocator=opts.default_iallocator,
+                        primary_ip_version=primary_ip_version,
+                        prealloc_wipe_disks=opts.prealloc_wipe_disks,
                         )
   op = opcodes.OpPostInitCluster()
   SubmitOpCode(op, opts=opts)
@@ -318,6 +328,8 @@ def ShowClusterConfig(opts, args):
             uidpool.FormatUidPool(result["uid_pool"],
                                   roman=opts.roman_integers))
   ToStdout("  - default instance allocator: %s", result["default_iallocator"])
+  ToStdout("  - primary ip version: %d", result["primary_ip_version"])
+  ToStdout("  - preallocation wipe disks: %s", result["prealloc_wipe_disks"])
 
   ToStdout("Default instance parameters:")
   _PrintGroupedParams(result["beparams"], roman=opts.roman_integers)
@@ -701,7 +713,8 @@ def SetClusterParams(opts, args):
           opts.add_uids is not None or
           opts.remove_uids is not None or
           opts.default_iallocator is not None or
-          opts.reserved_lvs is not None):
+          opts.reserved_lvs is not None or
+          opts.prealloc_wipe_disks is not None):
     ToStderr("Please give at least one of the parameters.")
     return 1
 
@@ -770,6 +783,7 @@ def SetClusterParams(opts, args):
                                   add_uids=add_uids,
                                   remove_uids=remove_uids,
                                   default_iallocator=opts.default_iallocator,
+                                  prealloc_wipe_disks=opts.prealloc_wipe_disks,
                                   reserved_lvs=opts.reserved_lvs)
   SubmitOpCode(op, opts=opts)
   return 0
@@ -854,7 +868,7 @@ commands = {
      NOLVM_STORAGE_OPT, NOMODIFY_ETCHOSTS_OPT, NOMODIFY_SSH_SETUP_OPT,
      SECONDARY_IP_OPT, VG_NAME_OPT, MAINTAIN_NODE_HEALTH_OPT,
      UIDPOOL_OPT, DRBD_HELPER_OPT, NODRBD_STORAGE_OPT,
-     DEFAULT_IALLOCATOR_OPT],
+     DEFAULT_IALLOCATOR_OPT, PRIMARY_IP_VERSION_OPT, PREALLOC_WIPE_DISKS_OPT],
     "[opts...] <cluster_name>", "Initialises a new cluster configuration"),
   'destroy': (
     DestroyCluster, ARGS_NONE, [YES_DOIT_OPT],
@@ -865,19 +879,19 @@ commands = {
     "<new_name>",
     "Renames the cluster"),
   'redist-conf': (
-    RedistributeConfig, ARGS_NONE, [SUBMIT_OPT, DRY_RUN_OPT],
+    RedistributeConfig, ARGS_NONE, [SUBMIT_OPT, DRY_RUN_OPT, PRIORITY_OPT],
     "", "Forces a push of the configuration file and ssconf files"
     " to the nodes in the cluster"),
   'verify': (
     VerifyCluster, ARGS_NONE,
     [VERBOSE_OPT, DEBUG_SIMERR_OPT, ERROR_CODES_OPT, NONPLUS1_OPT,
-     DRY_RUN_OPT],
+     DRY_RUN_OPT, PRIORITY_OPT],
     "", "Does a check on the cluster configuration"),
   'verify-disks': (
-    VerifyDisks, ARGS_NONE, [],
+    VerifyDisks, ARGS_NONE, [PRIORITY_OPT],
     "", "Does a check on the cluster disk status"),
   'repair-disk-sizes': (
-    RepairDiskSizes, ARGS_MANY_INSTANCES, [DRY_RUN_OPT],
+    RepairDiskSizes, ARGS_MANY_INSTANCES, [DRY_RUN_OPT, PRIORITY_OPT],
     "", "Updates mismatches in recorded disk sizes"),
   'master-failover': (
     MasterFailover, ARGS_NONE, [NOVOTING_OPT],
@@ -905,14 +919,14 @@ commands = {
   'list-tags': (
     ListTags, ARGS_NONE, [], "", "List the tags of the cluster"),
   'add-tags': (
-    AddTags, [ArgUnknown()], [TAG_SRC_OPT],
+    AddTags, [ArgUnknown()], [TAG_SRC_OPT, PRIORITY_OPT],
     "tag...", "Add tags to the cluster"),
   'remove-tags': (
-    RemoveTags, [ArgUnknown()], [TAG_SRC_OPT],
+    RemoveTags, [ArgUnknown()], [TAG_SRC_OPT, PRIORITY_OPT],
     "tag...", "Remove tags from the cluster"),
   'search-tags': (
-    SearchTags, [ArgUnknown(min=1, max=1)],
-    [], "", "Searches the tags on all objects on"
+    SearchTags, [ArgUnknown(min=1, max=1)], [PRIORITY_OPT], "",
+    "Searches the tags on all objects on"
     " the cluster for a given pattern (regex)"),
   'queue': (
     QueueOps,
@@ -930,7 +944,7 @@ commands = {
      NIC_PARAMS_OPT, NOLVM_STORAGE_OPT, VG_NAME_OPT, MAINTAIN_NODE_HEALTH_OPT,
      UIDPOOL_OPT, ADD_UIDS_OPT, REMOVE_UIDS_OPT, DRBD_HELPER_OPT,
      NODRBD_STORAGE_OPT, DEFAULT_IALLOCATOR_OPT, RESERVED_LVS_OPT,
-     DRY_RUN_OPT],
+     DRY_RUN_OPT, PRIORITY_OPT, PREALLOC_WIPE_DISKS_OPT],
     "[opts...]",
     "Alters the parameters of the cluster"),
   "renew-crypto": (
@@ -949,6 +963,6 @@ aliases = {
 }
 
 
-if __name__ == '__main__':
-  sys.exit(GenericMain(commands, override={"tag_type": constants.TAG_CLUSTER},
-                       aliases=aliases))
+def Main():
+  return GenericMain(commands, override={"tag_type": constants.TAG_CLUSTER},
+                     aliases=aliases)

@@ -5,13 +5,13 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Ganeti automatic instance allocation &mdash; Ganeti v2.2.1 documentation</title>
+    <title>Ganeti automatic instance allocation &mdash; Ganeti v2.3.1 documentation</title>
     <link rel="stylesheet" href="_static/default.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.2.1',
+        VERSION:     '2.3.1',
         COLLAPSE_MODINDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -19,7 +19,7 @@
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.2.1 documentation" href="index.html" />
+    <link rel="top" title="Ganeti v2.3.1 documentation" href="index.html" />
     <link rel="next" title="Ganeti remote API" href="rapi.html" />
     <link rel="prev" title="Ganeti customisation using hooks" href="hooks.html" /> 
   </head>
@@ -33,7 +33,7 @@
         <li class="right" >
           <a href="hooks.html" title="Ganeti customisation using hooks"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.2.1 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.3.1 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -212,6 +212,15 @@ secondary of the instance.</p>
 <dd>the names of the nodes to be evacuated</dd>
 </dl>
 </dd>
+<dt>nodegroups</dt>
+<dd><p class="first">a dictionary with the data for the cluster&#8217;s node groups; it is keyed
+on the group UUID, and the values are a dictionary with the following
+keys:</p>
+<dl class="last docutils">
+<dt>name</dt>
+<dd>the node group name</dd>
+</dl>
+</dd>
 <dt>instances</dt>
 <dd><p class="first">a dictionary with the data for the current existing instance on the
 cluster, indexed by instance name; the contents are similar to the
@@ -259,6 +268,8 @@ replication); note that this can be the same as the primary one</dd>
 <dd>total memory required by primary instances</dd>
 <dt>i_pri_up_memory:</dt>
 <dd>total memory required by running primary instances</dd>
+<dt>group:</dt>
+<dd>the node group that this node belongs to</dd>
 </dl>
 <p class="last">No allocations should be made on nodes having either the <tt class="docutils literal"><span class="pre">drained</span></tt>
 or <tt class="docutils literal"><span class="pre">offline</span></tt> flags set. More details about these of node status
@@ -581,7 +592,7 @@ Can't compute nodes using iallocator 'dumb-allocator': Can't find a suitable nod
         <li class="right" >
           <a href="hooks.html" title="Ganeti customisation using hooks"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.2.1 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.3.1 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

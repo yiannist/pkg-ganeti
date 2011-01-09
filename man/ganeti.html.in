@@ -187,6 +187,47 @@ CLASS="REFSECT2"
 NAME="AEN62"
 ></A
 ><H3
+>Node flags</H3
+><P
+>Nodes have two flags which govern which roles they can take:
+        <P
+></P
+><DIV
+CLASS="VARIABLELIST"
+><DL
+><DT
+>master_capable</DT
+><DD
+><P
+>                The node can become a master candidate, and
+                furthermore the master node. When this flag is
+                disabled, the node cannot become a candidate; this can
+                be useful for special networking cases, or less
+                reliable hardware.
+              </P
+></DD
+><DT
+>vm_capable</DT
+><DD
+><P
+>                The node can host instances. When enabled (the default
+                state), the node will participate in instance
+                allocation, capacity calculation, etc. When disabled,
+                the node will be skipped in many cluster checks and
+                operations.
+              </P
+></DD
+></DL
+></DIV
+>
+      </P
+></DIV
+><DIV
+CLASS="REFSECT2"
+><A
+NAME="AEN74"
+></A
+><H3
 >Cluster configuration</H3
 ><P
 >The master node keeps and is responsible for the cluster
@@ -221,7 +262,7 @@ CLASS="FILENAME"
 ><DIV
 CLASS="REFSECT2"
 ><A
-NAME="AEN70"
+NAME="AEN82"
 ></A
 ><H3
 >Jobs</H3
@@ -307,7 +348,52 @@ CLASS="EMPHASIS"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN104"
+NAME="AEN116"
+></A
+><H2
+>Common options</H2
+><P
+>      Many Ganeti commands provide the following options. The availability for
+      a certain command can be checked by calling the command using the
+      <CODE
+CLASS="OPTION"
+>--help</CODE
+> option.
+    </P
+><P
+><B
+CLASS="COMMAND"
+>gnt-<TT
+CLASS="REPLACEABLE"
+><I
+>...</I
+></TT
+> <TT
+CLASS="REPLACEABLE"
+><I
+>command</I
+></TT
+></B
+>  [--dry-run] [--priority  {low | normal | high}]</P
+><P
+>      The <CODE
+CLASS="OPTION"
+>--dry-run</CODE
+> option can be used to check whether an
+      operation would succeed.
+    </P
+><P
+>      The option <CODE
+CLASS="OPTION"
+>--priority</CODE
+> sets the priority for opcodes
+      submitted by the command.
+    </P
+></DIV
+><DIV
+CLASS="REFSECT1"
+><A
+NAME="AEN134"
 ></A
 ><H2
 >REPORTING BUGS</H2
@@ -324,7 +410,7 @@ TARGET="_top"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN108"
+NAME="AEN138"
 ></A
 ><H2
 >SEE ALSO</H2
@@ -440,7 +526,7 @@ CLASS="REFENTRYTITLE"
 ><DIV
 CLASS="REFSECT1"
 ><A
-NAME="AEN155"
+NAME="AEN185"
 ></A
 ><H2
 >COPYRIGHT</H2

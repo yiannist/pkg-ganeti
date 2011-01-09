@@ -3,7 +3,7 @@
 .\" <http://shell.ipoline.com/~elmert/comp/docbook2X/> 
 .\" Please send any bug reports, improvements, comments, patches, 
 .\" etc. to Steve Cheng <steve@ggi-project.org>.
-.TH "GNT-CLUSTER" "8" "19 October 2010" "Ganeti 2.2" ""
+.TH "GNT-CLUSTER" "8" "20 December 2010" "Ganeti 2.2" ""
 
 .SH NAME
 gnt-cluster \- Ganeti administration, cluster-wide
@@ -121,7 +121,7 @@ further diffusion of Ganeti among ancient cultures.
 
 \fBinit\fR
     [ \fB-s \fIsecondary_ip\fB\fR ]
-    [ \fB-g \fIvg-name\fB\fR ]
+    [ \fB--vg-name \fIvg-name\fB\fR ]
     [ \fB--master-netdev \fIinterface-name\fB\fR ]
     [ \fB-m \fImac-prefix\fB\fR ]
     [ \fB--no-lvm-storage\fR ]
@@ -136,6 +136,8 @@ further diffusion of Ganeti among ancient cultures.
     [ \fB--maintain-node-health  { yes | no }\fR ]
     [ \fB--uid-pool \fIuser-id pool definition\fB\fR ]
     [ \fB-I \fIdefault instance allocator\fB\fR ]
+    [ \fB--primary-ip-version \fIversion\fB\fR ]
+    [ \fB--prealloc-wipe-disks  { yes | no }\fR ]
     \fB\fIclustername\fB\fR
 
 .PP
@@ -165,7 +167,7 @@ network is actually a separate physical network, or is done
 using tunneling, etc. For performance reasons, it's
 recommended to use a separate network, of course.
 .PP
-The \fB-g\fR option will let you specify a volume group
+The \fB--vg-name\fR option will let you specify a volume group
 different than "xenvg" for Ganeti to use when creating instance disks.
 This volume group must have the same name on all nodes. Once the
 cluster is initialized this can be altered by using the
@@ -206,6 +208,11 @@ this cluster. Instance hypervisors can only be chosen from
 the list of enabled hypervisors, and the first entry of this list
 will be used by default. Currently, the following hypervisors are
 available:
+.PP
+The \fB--prealloc-wipe-disks\fR sets a cluster wide
+configuration value for wiping disks prior to allocation. This
+increases security on instance level as the instance can't
+access untouched data from it's underlying storage.
 .PP
 .TP
 \fBxen-pvm\fR
@@ -318,6 +325,11 @@ operations will require the administrator to manually specify either an
 instance allocator, or a set of nodes.
 The default iallocator can be changed later using the
 \fBmodify\fR command.
+.PP
+The \fB--primary-ip-version\fR option specifies the
+IP version used for the primary address. Possible values are 4 and
+6 for IPv4 and IPv6, respectively. This option is used when resolving
+node names and the cluster name.
 .SS "LIST-TAGS"
 
 \fBlist-tags\fR
@@ -356,7 +368,7 @@ master node), the exit code will be 1.
 .SS "MODIFY"
 
 \fBmodify\fR
-    [ \fB-g \fIvg-name\fB\fR ]
+    [ \fB--vg-name \fIvg-name\fB\fR ]
     [ \fB--no-lvm-storage\fR ]
     [ \fB--enabled-hypervisors
 \fIhypervisors\fB\fR ]
@@ -368,21 +380,22 @@ master node), the exit code will be 1.
     [ \fB--remove-uids \fIuser-id pool definition\fB\fR ]
     [ \fB-C \fIcandidate_pool_size\fB\fR ]
     [ \fB--maintain-node-health  { yes | no }\fR ]
+    [ \fB--prealloc-wipe-disks  { yes | no }\fR ]
     [ \fB-I \fIdefault instance allocator\fB\fR ]
     [ \fB--reserved-lvs=\fINAMES\fB\fR ]
 
 .PP
 Modify the options for the cluster.
 .PP
-The \fB-g\fR, \fB--no-lvm-storarge\fR,
+The \fB--vg-name\fR, \fB--no-lvm-storarge\fR,
 \fB--enabled-hypervisors\fR,
 \fB--hypervisor-parameters\fR,
 \fB--backend-parameters\fR,
 \fB--nic-parameters\fR,
 \fB--maintain-node-health\fR,
-\fB--uid-pool\fR and
-\fB-I\fR options are
-described in the \fBinit\fR command.
+\fB--prealloc-wipe-disks\fR,
+\fB--uid-pool\fR options are described in
+the \fBinit\fR command.
 .PP
 The \fB-C\fR option specifies the
 candidate_pool_size cluster parameter. This
@@ -409,6 +422,10 @@ verification, but not the actual use of the names given.
 To remove all reserved logical volumes, pass in an empty
 argument to the option, as in \fB--reserved-lvs=\fR
 or \fB--reserved-lvs ''\fR\&.
+.PP
+The \fB-I\fR is described in
+the \fBinit\fR command. To clear the default
+iallocator, just pass an empty string (\&'').
 .SS "QUEUE"
 
 \fBqueue\fR [ \fBdrain\fR ] [ \fBundrain\fR ] [ \fBinfo\fR ]

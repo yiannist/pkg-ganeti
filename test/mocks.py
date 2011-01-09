@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007 Google Inc.
+# Copyright (C) 2006, 2007, 2010 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -20,6 +20,9 @@
 
 
 """Module implementing a fake ConfigWriter"""
+
+
+import os
 
 from ganeti import utils
 from ganeti import netutils
@@ -50,7 +53,7 @@ class FakeConfig:
         return "test.cluster"
 
     def GetMasterNode(self):
-        return netutils.HostInfo().name
+        return netutils.Hostname.GetSysName()
 
     def GetDefaultIAllocator(Self):
         return "testallocator"
@@ -79,3 +82,24 @@ class FakeContext:
         self.cfg = FakeConfig()
         # TODO: decide what features a mock Ganeti Lock Manager must have
         self.GLM = None
+
+
+class FakeGetentResolver:
+    """Fake runtime.GetentResolver"""
+
+    def __init__(self):
+        # As we nomally don't run under root we use our own uid/gid for all
+        # fields. This way we don't run into permission denied problems.
+        uid = os.getuid()
+        gid = os.getgid()
+
+        self.masterd_uid = uid
+        self.masterd_gid = gid
+        self.confd_uid = uid
+        self.confd_gid = gid
+        self.rapi_uid = uid
+        self.rapi_gid = gid
+        self.noded_uid = uid
+
+        self.daemons_gid = gid
+        self.admin_gid = gid

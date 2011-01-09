@@ -31,6 +31,9 @@ much memory.
 
 """
 
+# pylint: disable-msg=R0904
+# R0904: Too many public methods
+
 import os
 import random
 import logging
@@ -45,6 +48,7 @@ from ganeti import objects
 from ganeti import serializer
 from ganeti import uidpool
 from ganeti import netutils
+from ganeti import runtime
 
 
 _config_lock = locking.SharedLock("ConfigWriter")
@@ -63,10 +67,7 @@ def _ValidateConfig(data):
 
   """
   if data.version != constants.CONFIG_VERSION:
-    raise errors.ConfigurationError("Cluster configuration version"
-                                    " mismatch, got %s instead of %s" %
-                                    (data.version,
-                                     constants.CONFIG_VERSION))
+    raise errors.ConfigVersionMismatch(constants.CONFIG_VERSION, data.version)
 
 
 class TemporaryReservationManager:
@@ -80,15 +81,15 @@ class TemporaryReservationManager:
     self._ec_reserved = {}
 
   def Reserved(self, resource):
-    for holder_reserved in self._ec_reserved.items():
+    for holder_reserved in self._ec_reserved.values():
       if resource in holder_reserved:
         return True
     return False
 
   def Reserve(self, ec_id, resource):
     if self.Reserved(resource):
-      raise errors.ReservationError("Duplicate reservation for resource: %s." %
-                                    (resource))
+      raise errors.ReservationError("Duplicate reservation for resource '%s'"
+                                    % str(resource))
     if ec_id not in self._ec_reserved:
       self._ec_reserved[ec_id] = set([resource])
     else:
@@ -131,7 +132,8 @@ class ConfigWriter:
   @ivar _all_rms: a list of all temporary reservation managers
 
   """
-  def __init__(self, cfg_file=None, offline=False):
+  def __init__(self, cfg_file=None, offline=False, _getents=runtime.GetEnts,
+               accept_foreign=False):
     self.write_count = 0
     self._lock = _config_lock
     self._config_data = None
@@ -140,6 +142,7 @@ class ConfigWriter:
       self._cfg_file = constants.CLUSTER_CONF_FILE
     else:
       self._cfg_file = cfg_file
+    self._getents = _getents
     self._temporary_ids = TemporaryReservationManager()
     self._temporary_drbds = {}
     self._temporary_macs = TemporaryReservationManager()
@@ -151,9 +154,10 @@ class ConfigWriter:
     # _DistributeConfig, we compute it here once and reuse it; it's
     # better to raise an error before starting to modify the config
     # file than after it was modified
-    self._my_hostname = netutils.HostInfo().name
+    self._my_hostname = netutils.Hostname.GetSysName()
     self._last_cluster_serial = -1
-    self._OpenConfig()
+    self._cfg_id = None
+    self._OpenConfig(accept_foreign)
 
   # this method needs to be static, so that we can call it on the class
   @staticmethod
@@ -453,8 +457,23 @@ class ConfigWriter:
       if [node.master_candidate, node.drained, node.offline].count(True) > 1:
         result.append("Node %s state is invalid: master_candidate=%s,"
                       " drain=%s, offline=%s" %
-                      (node.name, node.master_candidate, node.drain,
+                      (node.name, node.master_candidate, node.drained,
                        node.offline))
+
+    # nodegroups checks
+    nodegroups_names = set()
+    for nodegroup_uuid in data.nodegroups:
+      nodegroup = data.nodegroups[nodegroup_uuid]
+      if nodegroup.uuid != nodegroup_uuid:
+        result.append("nodegroup '%s' (uuid: '%s') indexed by wrong uuid '%s'"
+                      % (nodegroup.name, nodegroup.uuid, nodegroup_uuid))
+      if utils.UUID_RE.match(nodegroup.name.lower()):
+        result.append("nodegroup '%s' (uuid: '%s') has uuid-like name" %
+                      (nodegroup.name, nodegroup.uuid))
+      if nodegroup.name in nodegroups_names:
+        result.append("duplicate nodegroup name '%s'" % nodegroup.name)
+      else:
+        nodegroups_names.add(nodegroup.name)
 
     # drbd minors check
     _, duplicates = self._UnlockedComputeDRBDMap()
@@ -824,6 +843,68 @@ class ConfigWriter:
     """
     return self._config_data.cluster.default_iallocator
 
+  @locking.ssynchronized(_config_lock, shared=1)
+  def GetPrimaryIPFamily(self):
+    """Get cluster primary ip family.
+
+    @return: primary ip family
+
+    """
+    return self._config_data.cluster.primary_ip_family
+
+  @locking.ssynchronized(_config_lock, shared=1)
+  def LookupNodeGroup(self, target):
+    """Lookup a node group's UUID.
+
+    @type target: string or None
+    @param target: group name or UUID or None to look for the default
+    @rtype: string
+    @return: nodegroup UUID
+    @raises errors.OpPrereqError: when the target group cannot be found
+
+    """
+    if target is None:
+      if len(self._config_data.nodegroups) != 1:
+        raise errors.OpPrereqError("More than one nodegroup exists. Target"
+                                   " group must be specified explicitely.")
+      else:
+        return self._config_data.nodegroups.keys()[0]
+    if target in self._config_data.nodegroups:
+      return target
+    for nodegroup in self._config_data.nodegroups.values():
+      if nodegroup.name == target:
+        return nodegroup.uuid
+    raise errors.OpPrereqError("Nodegroup '%s' not found" % target)
+
+  @locking.ssynchronized(_config_lock, shared=1)
+  def GetNodeGroup(self, uuid):
+    """Lookup a node group.
+
+    @type uuid: string
+    @param uuid: group UUID
+    @rtype: L{objects.NodeGroup} or None
+    @return: nodegroup object, or None if not found
+
+    """
+    if uuid not in self._config_data.nodegroups:
+      return None
+
+    return self._config_data.nodegroups[uuid]
+
+  @locking.ssynchronized(_config_lock, shared=1)
+  def GetAllNodeGroupsInfo(self):
+    """Get the configuration of all node groups.
+
+    """
+    return dict(self._config_data.nodegroups)
+
+  @locking.ssynchronized(_config_lock, shared=1)
+  def GetNodeGroupList(self):
+    """Get a list of node groups.
+
+    """
+    return self._config_data.nodegroups.keys()
+
   @locking.ssynchronized(_config_lock)
   def AddInstance(self, instance, ec_id):
     """Add an instance to the config.
@@ -924,10 +1005,14 @@ class ConfigWriter:
       if disk.dev_type == constants.LD_FILE:
         # rename the file paths in logical and physical id
         file_storage_dir = os.path.dirname(os.path.dirname(disk.logical_id[1]))
+        disk_fname = "disk%s" % disk.iv_name.split("/")[1]
         disk.physical_id = disk.logical_id = (disk.logical_id[0],
                                               utils.PathJoin(file_storage_dir,
                                                              inst.name,
-                                                             disk.iv_name))
+                                                             disk_fname))
+
+    # Force update of ssconf files
+    self._config_data.cluster.serial_no += 1
 
     self._config_data.instances[inst.name] = inst
     self._WriteConfig()
@@ -1020,6 +1105,7 @@ class ConfigWriter:
 
     node.serial_no = 1
     node.ctime = node.mtime = time.time()
+    self._UnlockedAddNodeToGroup(node.name, node.group)
     self._config_data.nodes[node.name] = node
     self._config_data.cluster.serial_no += 1
     self._WriteConfig()
@@ -1034,6 +1120,7 @@ class ConfigWriter:
     if node_name not in self._config_data.nodes:
       raise errors.ConfigurationError("Unknown node '%s'" % node_name)
 
+    self._UnlockedRemoveNodeFromGroup(self._config_data.nodes[node_name])
     del self._config_data.nodes[node_name]
     self._config_data.cluster.serial_no += 1
     self._WriteConfig()
@@ -1078,6 +1165,25 @@ class ConfigWriter:
     """
     return self._UnlockedGetNodeInfo(node_name)
 
+  @locking.ssynchronized(_config_lock, shared=1)
+  def GetNodeInstances(self, node_name):
+    """Get the instances of a node, as stored in the config.
+
+    @param node_name: the node name, e.g. I{node1.example.com}
+
+    @rtype: (list, list)
+    @return: a tuple with two lists: the primary and the secondary instances
+
+    """
+    pri = []
+    sec = []
+    for inst in self._config_data.instances.values():
+      if inst.primary_node == node_name:
+        pri.append(inst.name)
+      if node_name in inst.secondary_nodes:
+        sec.append(inst.name)
+    return (pri, sec)
+
   def _UnlockedGetNodeList(self):
     """Return the list of nodes which are in the configuration.
 
@@ -1112,6 +1218,15 @@ class ConfigWriter:
     return self._UnlockedGetOnlineNodeList()
 
   @locking.ssynchronized(_config_lock, shared=1)
+  def GetNonVmCapableNodeList(self):
+    """Return the list of nodes which are not vm capable.
+
+    """
+    all_nodes = [self._UnlockedGetNodeInfo(node)
+                 for node in self._UnlockedGetNodeList()]
+    return [node.name for node in all_nodes if not node.vm_capable]
+
+  @locking.ssynchronized(_config_lock, shared=1)
   def GetAllNodesInfo(self):
     """Get the configuration of all nodes.
 
@@ -1137,7 +1252,7 @@ class ConfigWriter:
     for node in self._config_data.nodes.values():
       if exceptions and node.name in exceptions:
         continue
-      if not (node.offline or node.drained):
+      if not (node.offline or node.drained) and node.master_capable:
         mc_max += 1
       if node.master_candidate:
         mc_now += 1
@@ -1178,7 +1293,7 @@ class ConfigWriter:
           break
         node = self._config_data.nodes[name]
         if (node.master_candidate or node.offline or node.drained or
-            node.name in exceptions):
+            node.name in exceptions or not node.master_capable):
           continue
         mod_list.append(node)
         node.master_candidate = True
@@ -1194,6 +1309,34 @@ class ConfigWriter:
 
     return mod_list
 
+  def _UnlockedAddNodeToGroup(self, node_name, nodegroup_uuid):
+    """Add a given node to the specified group.
+
+    """
+    if nodegroup_uuid not in self._config_data.nodegroups:
+      # This can happen if a node group gets deleted between its lookup and
+      # when we're adding the first node to it, since we don't keep a lock in
+      # the meantime. It's ok though, as we'll fail cleanly if the node group
+      # is not found anymore.
+      raise errors.OpExecError("Unknown node group: %s" % nodegroup_uuid)
+    if node_name not in self._config_data.nodegroups[nodegroup_uuid].members:
+      self._config_data.nodegroups[nodegroup_uuid].members.append(node_name)
+
+  def _UnlockedRemoveNodeFromGroup(self, node):
+    """Remove a given node from its group.
+
+    """
+    nodegroup = node.group
+    if nodegroup not in self._config_data.nodegroups:
+      logging.warning("Warning: node '%s' has unknown node group '%s'"
+                      " (while being removed from it)", node.name, nodegroup)
+    nodegroup_obj = self._config_data.nodegroups[nodegroup]
+    if node.name not in nodegroup_obj.members:
+      logging.warning("Warning: node '%s' not a member of its node group '%s'"
+                      " (while being removed from it)", node.name, nodegroup)
+    else:
+      nodegroup_obj.members.remove(node.name)
+
   def _BumpSerialNo(self):
     """Bump up the serial number of the config.
 
@@ -1207,9 +1350,10 @@ class ConfigWriter:
     """
     return (self._config_data.instances.values() +
             self._config_data.nodes.values() +
+            self._config_data.nodegroups.values() +
             [self._config_data.cluster])
 
-  def _OpenConfig(self):
+  def _OpenConfig(self, accept_foreign):
     """Read the config data from disk.
 
     """
@@ -1228,6 +1372,13 @@ class ConfigWriter:
       raise errors.ConfigurationError("Incomplete configuration"
                                       " (missing cluster.rsahostkeypub)")
 
+    if data.cluster.master_node != self._my_hostname and not accept_foreign:
+      msg = ("The configuration denotes node %s as master, while my"
+             " hostname is %s; opening a foreign configuration is only"
+             " possible in accept_foreign mode" %
+             (data.cluster.master_node, self._my_hostname))
+      raise errors.ConfigurationError(msg)
+
     # Upgrade configuration if needed
     data.UpgradeConfig()
 
@@ -1238,6 +1389,8 @@ class ConfigWriter:
 
     # And finally run our (custom) config upgrade sequence
     self._UpgradeConfig()
+
+    self._cfg_id = utils.GetFileID(path=self._cfg_file)
 
   def _UpgradeConfig(self):
     """Run upgrade steps that cannot be done purely in the objects.
@@ -1257,6 +1410,24 @@ class ConfigWriter:
       if item.uuid is None:
         item.uuid = self._GenerateUniqueID(_UPGRADE_CONFIG_JID)
         modified = True
+    if not self._config_data.nodegroups:
+      default_nodegroup_uuid = self._GenerateUniqueID(_UPGRADE_CONFIG_JID)
+      default_nodegroup = objects.NodeGroup(
+          uuid=default_nodegroup_uuid,
+          name="default",
+          members=[],
+          )
+      self._config_data.nodegroups[default_nodegroup_uuid] = default_nodegroup
+      modified = True
+    for node in self._config_data.nodes.values():
+      if not node.group:
+        node.group = self.LookupNodeGroup(None)
+        modified = True
+      # This is technically *not* an upgrade, but needs to be done both when
+      # nodegroups are being added, and upon normally loading the config,
+      # because the members list of a node group is discarded upon
+      # serializing/deserializing the object.
+      self._UnlockedAddNodeToGroup(node.name, node.group)
     if modified:
       self._WriteConfig()
       # This is ok even if it acquires the internal lock, as _UpgradeConfig is
@@ -1330,7 +1501,18 @@ class ConfigWriter:
     self._BumpSerialNo()
     txt = serializer.Dump(self._config_data.ToDict())
 
-    utils.WriteFile(destination, data=txt)
+    getents = self._getents()
+    try:
+      fd = utils.SafeWriteFile(destination, self._cfg_id, data=txt,
+                               close=False, gid=getents.confd_gid, mode=0640)
+    except errors.LockError:
+      raise errors.ConfigurationError("The configuration file has been"
+                                      " modified since the last write, cannot"
+                                      " update")
+    try:
+      self._cfg_id = utils.GetFileID(fd=fd)
+    finally:
+      os.close(fd)
 
     self.write_count += 1
 
@@ -1390,6 +1572,10 @@ class ConfigWriter:
 
     uid_pool = uidpool.FormatUidPool(cluster.uid_pool, separator="\n")
 
+    nodegroups = ["%s %s" % (nodegroup.uuid, nodegroup.name) for nodegroup in
+                  self._config_data.nodegroups.values()]
+    nodegroups_data = fn(utils.NiceSort(nodegroups))
+
     return {
       constants.SS_CLUSTER_NAME: cluster.cluster_name,
       constants.SS_CLUSTER_TAGS: cluster_tags,
@@ -1404,12 +1590,21 @@ class ConfigWriter:
       constants.SS_NODE_SECONDARY_IPS: node_snd_ips_data,
       constants.SS_OFFLINE_NODES: off_data,
       constants.SS_ONLINE_NODES: on_data,
+      constants.SS_PRIMARY_IP_FAMILY: str(cluster.primary_ip_family),
       constants.SS_INSTANCE_LIST: instance_data,
       constants.SS_RELEASE_VERSION: constants.RELEASE_VERSION,
       constants.SS_HYPERVISOR_LIST: hypervisor_list,
       constants.SS_MAINTAIN_NODE_HEALTH: str(cluster.maintain_node_health),
       constants.SS_UID_POOL: uid_pool,
+      constants.SS_NODEGROUPS: nodegroups_data,
       }
+
+  @locking.ssynchronized(_config_lock, shared=1)
+  def GetSsconfValues(self):
+    """Wrapper using lock around _UnlockedGetSsconf().
+
+    """
+    return self._UnlockedGetSsconfValues()
 
   @locking.ssynchronized(_config_lock, shared=1)
   def GetVGName(self):

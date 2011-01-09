@@ -24,7 +24,8 @@
 """
 
 
-import simplejson
+from ganeti import utils
+from ganeti import serializer
 
 import qa_error
 
@@ -39,11 +40,7 @@ def Load(path):
   """
   global cfg
 
-  f = open(path, 'r')
-  try:
-    cfg = simplejson.load(f)
-  finally:
-    f.close()
+  cfg = serializer.LoadJson(utils.ReadFile(path))
 
   Validate()
 
@@ -63,8 +60,10 @@ def get(name, default=None):
 
 
 def TestEnabled(test):
-  """Returns True if the given test is enabled."""
-  return cfg.get('tests', {}).get(test, False)
+  """Returns True if the given test is enabled.
+
+  """
+  return cfg.get("tests", {}).get(test, True)
 
 
 def GetMasterNode():

@@ -59,6 +59,7 @@ from ganeti import objects
 from ganeti import ssconf
 from ganeti import serializer
 from ganeti import netutils
+from ganeti import runtime
 
 
 _BOOT_ID_PATH = "/proc/sys/kernel/random/boot_id"
@@ -225,7 +226,7 @@ def GetMasterInfo():
   for consumption here or from the node daemon.
 
   @rtype: tuple
-  @return: master_netdev, master_ip, master_name
+  @return: master_netdev, master_ip, master_name, primary_ip_family
   @raise RPCFail: in case of errors
 
   """
@@ -234,9 +235,10 @@ def GetMasterInfo():
     master_netdev = cfg.GetMasterNetdev()
     master_ip = cfg.GetMasterIP()
     master_node = cfg.GetMasterNode()
+    primary_ip_family = cfg.GetPrimaryIPFamily()
   except errors.ConfigurationError, err:
     _Fail("Cluster configuration incomplete: %s", err, exc=True)
-  return (master_netdev, master_ip, master_node)
+  return (master_netdev, master_ip, master_node, primary_ip_family)
 
 
 def StartMaster(start_daemons, no_voting):
@@ -257,7 +259,7 @@ def StartMaster(start_daemons, no_voting):
 
   """
   # GetMasterInfo will raise an exception if not able to return data
-  master_netdev, master_ip, _ = GetMasterInfo()
+  master_netdev, master_ip, _, family = GetMasterInfo()
 
   err_msgs = []
   # either start the master and rapi daemons
@@ -279,7 +281,7 @@ def StartMaster(start_daemons, no_voting):
   # or activate the IP
   else:
     if netutils.TcpPing(master_ip, constants.DEFAULT_NODED_PORT):
-      if netutils.OwnIpAddress(master_ip):
+      if netutils.IPAddress.Own(master_ip):
         # we already have the ip:
         logging.debug("Master IP already configured, doing nothing")
       else:
@@ -287,7 +289,12 @@ def StartMaster(start_daemons, no_voting):
         logging.error(msg)
         err_msgs.append(msg)
     else:
-      result = utils.RunCmd(["ip", "address", "add", "%s/32" % master_ip,
+      ipcls = netutils.IP4Address
+      if family == netutils.IP6Address.family:
+        ipcls = netutils.IP6Address
+
+      result = utils.RunCmd(["ip", "address", "add",
+                             "%s/%d" % (master_ip, ipcls.iplen),
                              "dev", master_netdev, "label",
                              "%s:0" % master_netdev])
       if result.failed:
@@ -295,9 +302,16 @@ def StartMaster(start_daemons, no_voting):
         logging.error(msg)
         err_msgs.append(msg)
 
-      result = utils.RunCmd(["arping", "-q", "-U", "-c 3", "-I", master_netdev,
-                             "-s", master_ip, master_ip])
-      # we'll ignore the exit code of arping
+      # we ignore the exit code of the following cmds
+      if ipcls == netutils.IP4Address:
+        utils.RunCmd(["arping", "-q", "-U", "-c 3", "-I", master_netdev, "-s",
+                      master_ip, master_ip])
+      elif ipcls == netutils.IP6Address:
+        try:
+          utils.RunCmd(["ndisc6", "-q", "-r 3", master_ip, master_netdev])
+        except errors.OpExecError:
+          # TODO: Better error reporting
+          logging.warning("Can't execute ndisc6, please install if missing")
 
   if err_msgs:
     _Fail("; ".join(err_msgs))
@@ -320,9 +334,14 @@ def StopMaster(stop_daemons):
   # need to decide in which case we fail the RPC for this
 
   # GetMasterInfo will raise an exception if not able to return data
-  master_netdev, master_ip, _ = GetMasterInfo()
+  master_netdev, master_ip, _, family = GetMasterInfo()
 
-  result = utils.RunCmd(["ip", "address", "del", "%s/32" % master_ip,
+  ipcls = netutils.IP4Address
+  if family == netutils.IP6Address.family:
+    ipcls = netutils.IP6Address
+
+  result = utils.RunCmd(["ip", "address", "del",
+                         "%s/%d" % (master_ip, ipcls.iplen),
                          "dev", master_netdev])
   if result.failed:
     logging.error("Can't remove the master IP, error: %s", result.output)
@@ -336,52 +355,26 @@ def StopMaster(stop_daemons):
                     result.cmd, result.exit_code, result.output)
 
 
-def AddNode(dsa, dsapub, rsa, rsapub, sshkey, sshpub):
-  """Joins this node to the cluster.
+def EtcHostsModify(mode, host, ip):
+  """Modify a host entry in /etc/hosts.
 
-  This does the following:
-      - updates the hostkeys of the machine (rsa and dsa)
-      - adds the ssh private key to the user
-      - adds the ssh public key to the users' authorized_keys file
-
-  @type dsa: str
-  @param dsa: the DSA private key to write
-  @type dsapub: str
-  @param dsapub: the DSA public key to write
-  @type rsa: str
-  @param rsa: the RSA private key to write
-  @type rsapub: str
-  @param rsapub: the RSA public key to write
-  @type sshkey: str
-  @param sshkey: the SSH private key to write
-  @type sshpub: str
-  @param sshpub: the SSH public key to write
-  @rtype: boolean
-  @return: the success of the operation
+  @param mode: The mode to operate. Either add or remove entry
+  @param host: The host to operate on
+  @param ip: The ip associated with the entry
 
   """
-  sshd_keys =  [(constants.SSH_HOST_RSA_PRIV, rsa, 0600),
-                (constants.SSH_HOST_RSA_PUB, rsapub, 0644),
-                (constants.SSH_HOST_DSA_PRIV, dsa, 0600),
-                (constants.SSH_HOST_DSA_PUB, dsapub, 0644)]
-  for name, content, mode in sshd_keys:
-    utils.WriteFile(name, data=content, mode=mode)
-
-  try:
-    priv_key, pub_key, auth_keys = ssh.GetUserFiles(constants.GANETI_RUNAS,
-                                                    mkdir=True)
-  except errors.OpExecError, err:
-    _Fail("Error while processing user ssh files: %s", err, exc=True)
-
-  for name, content in [(priv_key, sshkey), (pub_key, sshpub)]:
-    utils.WriteFile(name, data=content, mode=0600)
-
-  utils.AddAuthorizedKey(auth_keys, sshpub)
-
-  result = utils.RunCmd([constants.DAEMON_UTIL, "reload-ssh-keys"])
-  if result.failed:
-    _Fail("Unable to reload SSH keys (command %r, exit code %s, output %r)",
-          result.cmd, result.exit_code, result.output)
+  if mode == constants.ETC_HOSTS_ADD:
+    if not ip:
+      RPCFail("Mode 'add' needs 'ip' parameter, but parameter not"
+              " present")
+    utils.AddHostToEtcHosts(host, ip)
+  elif mode == constants.ETC_HOSTS_REMOVE:
+    if ip:
+      RPCFail("Mode 'remove' does not allow 'ip' parameter, but"
+              " parameter is present")
+    utils.RemoveHostFromEtcHosts(host)
+  else:
+    RPCFail("Mode not supported")
 
 
 def LeaveCluster(modify_ssh_setup):
@@ -446,9 +439,15 @@ def GetNodeInfo(vgname, hypervisor_type):
 
   """
   outputarray = {}
-  vginfo = _GetVGInfo(vgname)
-  outputarray['vg_size'] = vginfo['vg_size']
-  outputarray['vg_free'] = vginfo['vg_free']
+
+  vginfo = bdev.LogicalVolume.GetVGInfo([vgname])
+  vg_free = vg_size = None
+  if vginfo:
+    vg_free = int(round(vginfo[0][0], 0))
+    vg_size = int(round(vginfo[0][1], 0))
+
+  outputarray['vg_size'] = vg_size
+  outputarray['vg_free'] = vg_free
 
   hyper = hypervisor.GetHypervisor(hypervisor_type)
   hyp_info = hyper.GetNodeInfo()
@@ -490,10 +489,11 @@ def VerifyNode(what, cluster_name):
 
   """
   result = {}
-  my_name = netutils.HostInfo().name
+  my_name = netutils.Hostname.GetSysName()
   port = netutils.GetDaemonPort(constants.NODED)
+  vm_capable = my_name not in what.get(constants.NV_VMNODES, [])
 
-  if constants.NV_HYPERVISOR in what:
+  if constants.NV_HYPERVISOR in what and vm_capable:
     result[constants.NV_HYPERVISOR] = tmp = {}
     for hv_name in what[constants.NV_HYPERVISOR]:
       try:
@@ -548,14 +548,14 @@ def VerifyNode(what, cluster_name):
     result[constants.NV_MASTERIP] = netutils.TcpPing(master_ip, port,
                                                   source=source)
 
-  if constants.NV_LVLIST in what:
+  if constants.NV_LVLIST in what and vm_capable:
     try:
       val = GetVolumeList(what[constants.NV_LVLIST])
     except RPCFail, err:
       val = str(err)
     result[constants.NV_LVLIST] = val
 
-  if constants.NV_INSTANCELIST in what:
+  if constants.NV_INSTANCELIST in what and vm_capable:
     # GetInstanceList can fail
     try:
       val = GetInstanceList(what[constants.NV_INSTANCELIST])
@@ -563,10 +563,10 @@ def VerifyNode(what, cluster_name):
       val = str(err)
     result[constants.NV_INSTANCELIST] = val
 
-  if constants.NV_VGLIST in what:
+  if constants.NV_VGLIST in what and vm_capable:
     result[constants.NV_VGLIST] = utils.ListVolumeGroups()
 
-  if constants.NV_PVLIST in what:
+  if constants.NV_PVLIST in what and vm_capable:
     result[constants.NV_PVLIST] = \
       bdev.LogicalVolume.GetPVInfo(what[constants.NV_PVLIST],
                                    filter_allocatable=False)
@@ -575,11 +575,11 @@ def VerifyNode(what, cluster_name):
     result[constants.NV_VERSION] = (constants.PROTOCOL_VERSION,
                                     constants.RELEASE_VERSION)
 
-  if constants.NV_HVINFO in what:
+  if constants.NV_HVINFO in what and vm_capable:
     hyper = hypervisor.GetHypervisor(what[constants.NV_HVINFO])
     result[constants.NV_HVINFO] = hyper.GetNodeInfo()
 
-  if constants.NV_DRBDLIST in what:
+  if constants.NV_DRBDLIST in what and vm_capable:
     try:
       used_minors = bdev.DRBD8.GetUsedDevs().keys()
     except errors.BlockDeviceError, err:
@@ -587,7 +587,7 @@ def VerifyNode(what, cluster_name):
       used_minors = str(err)
     result[constants.NV_DRBDLIST] = used_minors
 
-  if constants.NV_DRBDHELPER in what:
+  if constants.NV_DRBDHELPER in what and vm_capable:
     status = True
     try:
       payload = bdev.BaseDRBD.GetUsermodeHelper()
@@ -612,7 +612,7 @@ def VerifyNode(what, cluster_name):
   if constants.NV_TIME in what:
     result[constants.NV_TIME] = utils.SplitTime(time.time())
 
-  if constants.NV_OSLIST in what:
+  if constants.NV_OSLIST in what and vm_capable:
     result[constants.NV_OSLIST] = DiagnoseOS()
 
   return result
@@ -935,46 +935,6 @@ def RunRenameInstance(instance, old_name, debug):
              for val in utils.TailFile(logfile, lines=20)]
     _Fail("OS rename script failed (%s), last lines in the"
           " log file:\n%s", result.fail_reason, "\n".join(lines), log=False)
-
-
-def _GetVGInfo(vg_name):
-  """Get information about the volume group.
-
-  @type vg_name: str
-  @param vg_name: the volume group which we query
-  @rtype: dict
-  @return:
-    A dictionary with the following keys:
-      - C{vg_size} is the total size of the volume group in MiB
-      - C{vg_free} is the free size of the volume group in MiB
-      - C{pv_count} are the number of physical disks in that VG
-
-    If an error occurs during gathering of data, we return the same dict
-    with keys all set to None.
-
-  """
-  retdic = dict.fromkeys(["vg_size", "vg_free", "pv_count"])
-
-  retval = utils.RunCmd(["vgs", "-ovg_size,vg_free,pv_count", "--noheadings",
-                         "--nosuffix", "--units=m", "--separator=:", vg_name])
-
-  if retval.failed:
-    logging.error("volume group %s not present", vg_name)
-    return retdic
-  valarr = retval.stdout.strip().rstrip(':').split(':')
-  if len(valarr) == 3:
-    try:
-      retdic = {
-        "vg_size": int(round(float(valarr[0]), 0)),
-        "vg_free": int(round(float(valarr[1]), 0)),
-        "pv_count": int(valarr[2]),
-        }
-    except (TypeError, ValueError), err:
-      logging.exception("Fail to parse vgs output: %s", err)
-  else:
-    logging.error("vgs output has the wrong number of fields (expected"
-                  " three): %s", str(valarr))
-  return retdic
 
 
 def _GetBlockDevSymlinkPath(instance_name, idx):
@@ -1328,6 +1288,52 @@ def BlockdevCreate(disk, size, owner, on_primary, info):
   return device.unique_id
 
 
+def _WipeDevice(path, offset, size):
+  """This function actually wipes the device.
+
+  @param path: The path to the device to wipe
+  @param offset: The offset in MiB in the file
+  @param size: The size in MiB to write
+
+  """
+  cmd = [constants.DD_CMD, "if=/dev/zero", "seek=%d" % offset,
+         "bs=%d" % constants.WIPE_BLOCK_SIZE, "oflag=direct", "of=%s" % path,
+         "count=%d" % size]
+  result = utils.RunCmd(cmd)
+
+  if result.failed:
+    _Fail("Wipe command '%s' exited with error: %s; output: %s", result.cmd,
+          result.fail_reason, result.output)
+
+
+def BlockdevWipe(disk, offset, size):
+  """Wipes a block device.
+
+  @type disk: L{objects.Disk}
+  @param disk: the disk object we want to wipe
+  @type offset: int
+  @param offset: The offset in MiB in the file
+  @type size: int
+  @param size: The size in MiB to write
+
+  """
+  try:
+    rdev = _RecursiveFindBD(disk)
+  except errors.BlockDeviceError:
+    rdev = None
+
+  if not rdev:
+    _Fail("Cannot execute wipe for device %s: device not found", disk.iv_name)
+
+  # Do cross verify some of the parameters
+  if offset > rdev.size:
+    _Fail("Offset is bigger than device size")
+  if (offset + size) > rdev.size:
+    _Fail("The provided offset and size to wipe is bigger than device size")
+
+  _WipeDevice(rdev.dev_path, offset, size)
+
+
 def BlockdevRemove(disk):
   """Remove a block device.
 
@@ -1533,9 +1539,7 @@ def BlockdevGetmirrorstatus(disks):
   @type disks: list of L{objects.Disk}
   @param disks: the list of disks which we should query
   @rtype: disk
-  @return:
-      a list of (mirror_done, estimated_time) tuples, which
-      are the result of L{bdev.BlockDev.CombinedSyncStatus}
+  @return: List of L{objects.BlockDevStatus}, one for each disk
   @raise errors.BlockDeviceError: if any of the disks cannot be
       found
 
@@ -1549,6 +1553,37 @@ def BlockdevGetmirrorstatus(disks):
     stats.append(rbd.CombinedSyncStatus())
 
   return stats
+
+
+def BlockdevGetmirrorstatusMulti(disks):
+  """Get the mirroring status of a list of devices.
+
+  @type disks: list of L{objects.Disk}
+  @param disks: the list of disks which we should query
+  @rtype: disk
+  @return: List of tuples, (bool, status), one for each disk; bool denotes
+    success/failure, status is L{objects.BlockDevStatus} on success, string
+    otherwise
+
+  """
+  result = []
+  for disk in disks:
+    try:
+      rbd = _RecursiveFindBD(disk)
+      if rbd is None:
+        result.append((False, "Can't find device %s" % disk))
+        continue
+
+      status = rbd.CombinedSyncStatus()
+    except errors.BlockDeviceError, err:
+      logging.exception("Error while getting disk status")
+      result.append((False, str(err)))
+    else:
+      result.append((True, status))
+
+  assert len(disks) == len(result)
+
+  return result
 
 
 def _RecursiveFindBD(disk):
@@ -1712,8 +1747,9 @@ def UploadFile(file_name, data, mode, uid, gid, atime, mtime):
 
   raw_data = _Decompress(data)
 
-  utils.WriteFile(file_name, data=raw_data, mode=mode, uid=uid, gid=gid,
-                  atime=atime, mtime=mtime)
+  utils.SafeWriteFile(file_name, None,
+                      data=raw_data, mode=mode, uid=uid, gid=gid,
+                      atime=atime, mtime=mtime)
 
 
 def WriteSsconfFiles(values):
@@ -2007,8 +2043,9 @@ def OSEnvironment(instance, inst_os, debug=0):
   """
   result = OSCoreEnv(instance.os, inst_os, instance.osparams, debug=debug)
 
-  result['INSTANCE_NAME'] = instance.name
-  result['INSTANCE_OS'] = instance.os
+  for attr in ["name", "os", "uuid", "ctime", "mtime"]:
+    result["INSTANCE_%s" % attr.upper()] = str(getattr(instance, attr))
+
   result['HYPERVISOR'] = instance.hypervisor
   result['DISK_COUNT'] = '%d' % len(instance.disks)
   result['NIC_COUNT'] = '%d' % len(instance.nics)
@@ -2412,9 +2449,11 @@ def JobQueueUpdate(file_name, content):
 
   """
   _EnsureJobQueueFile(file_name)
+  getents = runtime.GetEnts()
 
   # Write and replace the file atomically
-  utils.WriteFile(file_name, data=_Decompress(content))
+  utils.WriteFile(file_name, data=_Decompress(content), uid=getents.masterd_uid,
+                  gid=getents.masterd_gid)
 
 
 def JobQueueRename(old, new):
@@ -2596,7 +2635,7 @@ def CreateX509Certificate(validity, cryptodir=constants.CRYPTO_KEYS_DIR):
 
   """
   (key_pem, cert_pem) = \
-    utils.GenerateSelfSignedX509Cert(netutils.HostInfo.SysName(),
+    utils.GenerateSelfSignedX509Cert(netutils.Hostname.GetSysName(),
                                      min(validity, _MAX_SSL_CERT_VALIDITY))
 
   cert_dir = tempfile.mkdtemp(dir=cryptodir,
@@ -2939,7 +2978,7 @@ def _FindDisks(nodes_ip, disks):
 
   """
   # set the correct physical ID
-  my_name = netutils.HostInfo().name
+  my_name = netutils.Hostname.GetSysName()
   for cf in disks:
     cf.SetPhysicalID(my_name, nodes_ip)
 

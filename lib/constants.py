@@ -86,8 +86,22 @@ CONFIG_VERSION = BuildVersion(CONFIG_MAJOR, CONFIG_MINOR, CONFIG_REVISION)
 
 # user separation
 DAEMONS_GROUP = _autoconf.DAEMONS_GROUP
+ADMIN_GROUP = _autoconf.ADMIN_GROUP
 MASTERD_USER = _autoconf.MASTERD_USER
+MASTERD_GROUP = _autoconf.MASTERD_GROUP
 RAPI_USER = _autoconf.RAPI_USER
+RAPI_GROUP = _autoconf.RAPI_GROUP
+CONFD_USER = _autoconf.CONFD_USER
+CONFD_GROUP = _autoconf.CONFD_GROUP
+NODED_USER = _autoconf.NODED_USER
+
+
+# Wipe
+DD_CMD = "dd"
+WIPE_BLOCK_SIZE = 1024**2
+MAX_WIPE_CHUNK = 1024 # 1GB
+MIN_WIPE_CHUNK_PERCENT = 10
+
 
 # file paths
 DATA_DIR = _autoconf.LOCALSTATEDIR + "/lib/ganeti"
@@ -124,6 +138,7 @@ SSH_KNOWN_HOSTS_FILE = DATA_DIR + "/known_hosts"
 RAPI_USERS_FILE = DATA_DIR + "/rapi_users"
 QUEUE_DIR = DATA_DIR + "/queue"
 DAEMON_UTIL = _autoconf.PKGLIBDIR + "/daemon-util"
+SETUP_SSH = _autoconf.TOOLSDIR + "/setup-ssh"
 ETC_HOSTS = "/etc/hosts"
 DEFAULT_FILE_STORAGE_DIR = _autoconf.FILE_STORAGE_DIR
 ENABLE_FILE_STORAGE = _autoconf.ENABLE_FILE_STORAGE
@@ -184,6 +199,7 @@ PROC_MOUNTS = "/proc/mounts"
 
 # luxi related constants
 LUXI_EOM = "\3"
+LUXI_VERSION = CONFIG_VERSION
 
 # one of 'no', 'yes', 'only'
 SYSLOG_USAGE = _autoconf.SYSLOG_USAGE
@@ -204,6 +220,7 @@ XEN_INITRD = _autoconf.XEN_INITRD
 KVM_PATH = _autoconf.KVM_PATH
 SOCAT_PATH = _autoconf.SOCAT_PATH
 SOCAT_USE_ESCAPE = _autoconf.SOCAT_USE_ESCAPE
+SOCAT_USE_COMPRESS = _autoconf.SOCAT_USE_COMPRESS
 SOCAT_ESCAPE_CODE = "0x1d"
 
 # For RSA keys more bits are better, but they also make operations more
@@ -451,6 +468,8 @@ IP4_ADDRESS_LOCALHOST = "127.0.0.1"
 IP4_ADDRESS_ANY = "0.0.0.0"
 IP6_ADDRESS_LOCALHOST = "::1"
 IP6_ADDRESS_ANY = "::"
+IP4_VERSION = 4
+IP6_VERSION = 6
 TCP_PING_TIMEOUT = 10
 GANETI_RUNAS = "root"
 DEFAULT_VG = "xenvg"
@@ -768,6 +787,7 @@ NV_PVLIST = "pvlist"
 NV_TIME = "time"
 NV_VERSION = "version"
 NV_VGLIST = "vglist"
+NV_VMNODES = "vmnodes"
 
 # SSL certificate check constants (in days)
 SSL_CERT_EXPIRATION_WARN = 30
@@ -820,6 +840,12 @@ JOBS_FINALIZED = frozenset([
   JOB_STATUS_SUCCESS,
   JOB_STATUS_ERROR,
   ])
+JOB_STATUS_ALL = frozenset([
+  JOB_STATUS_QUEUED,
+  JOB_STATUS_WAITLOCK,
+  JOB_STATUS_CANCELING,
+  JOB_STATUS_RUNNING,
+  ]) | JOBS_FINALIZED
 
 # OpCode status
 # not yet finalized
@@ -835,11 +861,31 @@ OPS_FINALIZED = frozenset([OP_STATUS_CANCELED,
                            OP_STATUS_SUCCESS,
                            OP_STATUS_ERROR])
 
+# OpCode priority
+OP_PRIO_LOWEST = +19
+OP_PRIO_HIGHEST = -20
+
+OP_PRIO_LOW = +10
+OP_PRIO_NORMAL = 0
+OP_PRIO_HIGH = -10
+
+OP_PRIO_SUBMIT_VALID = frozenset([
+  OP_PRIO_LOW,
+  OP_PRIO_NORMAL,
+  OP_PRIO_HIGH,
+  ])
+
+OP_PRIO_DEFAULT = OP_PRIO_NORMAL
+
 # Execution log types
 ELOG_MESSAGE = "message"
 ELOG_PROGRESS = "progress"
 ELOG_REMOTE_IMPORT = "remote-import"
 ELOG_JQUEUE_TEST = "jqueue-test"
+
+# /etc/hosts modification
+ETC_HOSTS_ADD = "add"
+ETC_HOSTS_REMOVE = "remove"
 
 # Job queue test
 JQT_MSGPREFIX = "TESTMSG="
@@ -872,11 +918,13 @@ SS_NODE_PRIMARY_IPS = "node_primary_ips"
 SS_NODE_SECONDARY_IPS = "node_secondary_ips"
 SS_OFFLINE_NODES = "offline_nodes"
 SS_ONLINE_NODES = "online_nodes"
+SS_PRIMARY_IP_FAMILY = "primary_ip_family"
 SS_INSTANCE_LIST = "instance_list"
 SS_RELEASE_VERSION = "release_version"
 SS_HYPERVISOR_LIST = "hypervisor_list"
 SS_MAINTAIN_NODE_HEALTH = "maintain_node_health"
 SS_UID_POOL = "uid_pool"
+SS_NODEGROUPS = "nodegroups"
 
 # cluster wide default parameters
 DEFAULT_ENABLED_HYPERVISOR = HT_XEN_PVM

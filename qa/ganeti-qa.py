@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python -u
 #
 
 # Copyright (C) 2007, 2008, 2009, 2010 Google Inc.
@@ -44,6 +44,16 @@ from ganeti import rapi
 import ganeti.rapi.client
 
 
+def _FormatHeader(line, end=72, char="-"):
+  """Fill a line up to the end column.
+
+  """
+  line = "---- " + line + " "
+  line += "-" * (end-len(line))
+  line = line.rstrip()
+  return line
+
+
 def RunTest(fn, *args):
   """Runs a test after printing a header.
 
@@ -51,16 +61,22 @@ def RunTest(fn, *args):
   if fn.__doc__:
     desc = fn.__doc__.splitlines()[0].strip()
   else:
-    desc = '%r' % fn
+    desc = "%r" % fn
 
-  now = str(datetime.datetime.now())
+  desc = desc.rstrip(".")
+
+  tstart = datetime.datetime.now()
 
   print
-  print '---', now, ('-' * (55 - len(now)))
-  print desc
-  print '-' * 60
+  print _FormatHeader("%s start %s" % (tstart, desc))
 
-  return fn(*args)
+  try:
+    retval = fn(*args)
+    return retval
+  finally:
+    tstop = datetime.datetime.now()
+    tdelta = tstop - tstart
+    print _FormatHeader("%s time=%s %s" % (tstop, tdelta, desc))
 
 
 def RunEnvTests():
@@ -85,10 +101,16 @@ def SetupCluster(rapi_user, rapi_secret):
   if qa_config.TestEnabled('create-cluster'):
     RunTest(qa_cluster.TestClusterInit, rapi_user, rapi_secret)
     RunTest(qa_node.TestNodeAddAll)
-    RunTest(qa_cluster.TestJobqueue)
   else:
     # consider the nodes are already there
     qa_node.MarkNodeAddedAll()
+
+  if qa_config.TestEnabled("test-jobqueue"):
+    RunTest(qa_cluster.TestJobqueue)
+
+  # enable the watcher (unconditionally)
+  RunTest(qa_daemon.TestResumeWatcher)
+
   if qa_config.TestEnabled('node-info'):
     RunTest(qa_node.TestNodeInfo)
 
@@ -105,6 +127,10 @@ def RunClusterTests():
 
   if qa_config.TestEnabled('cluster-reserved-lvs'):
     RunTest(qa_cluster.TestClusterReservedLvs)
+
+  if qa_config.TestEnabled("cluster-modify"):
+    RunTest(qa_cluster.TestClusterModifyBe)
+    # TODO: add more cluster modify tests
 
   if qa_config.TestEnabled('cluster-rename'):
     RunTest(qa_cluster.TestClusterRename)
@@ -193,14 +219,19 @@ def RunCommonInstanceTests(instance):
   if qa_config.TestEnabled('tags'):
     RunTest(qa_tags.TestInstanceTags, instance)
 
+  if qa_rapi.Enabled():
+    RunTest(qa_rapi.TestInstance, instance)
+
+
+def RunCommonNodeTests():
+  """Run a few common node tests.
+
+  """
   if qa_config.TestEnabled('node-volumes'):
     RunTest(qa_node.TestNodeVolumes)
 
   if qa_config.TestEnabled("node-storage"):
     RunTest(qa_node.TestNodeStorage)
-
-  if qa_rapi.Enabled():
-    RunTest(qa_rapi.TestInstance, instance)
 
 
 def RunExportImportTests(instance, pnode, snode):
@@ -258,14 +289,16 @@ def RunDaemonTests(instance, pnode):
   consecutive_failures = \
     qa_config.TestEnabled('instance-consecutive-failures')
 
+  RunTest(qa_daemon.TestPauseWatcher)
   if automatic_restart or consecutive_failures:
-    qa_daemon.PrintCronWarning()
 
     if automatic_restart:
       RunTest(qa_daemon.TestInstanceAutomaticRestart, pnode, instance)
 
     if consecutive_failures:
       RunTest(qa_daemon.TestInstanceConsecutiveFailures, pnode, instance)
+
+  RunTest(qa_daemon.TestResumeWatcher)
 
 
 def RunHardwareFailureTests(instance, pnode, snode):
@@ -341,13 +374,17 @@ def main():
   if qa_config.TestEnabled('tags'):
     RunTest(qa_tags.TestClusterTags)
 
-  if qa_config.TestEnabled('node-readd'):
-    master = qa_config.GetMasterNode()
-    pnode = qa_config.AcquireNode(exclude=master)
-    try:
+  RunCommonNodeTests()
+
+  pnode = qa_config.AcquireNode(exclude=qa_config.GetMasterNode())
+  try:
+    if qa_config.TestEnabled('node-readd'):
       RunTest(qa_node.TestNodeReadd, pnode)
-    finally:
-      qa_config.ReleaseNode(pnode)
+
+    if qa_config.TestEnabled("node-modify"):
+      RunTest(qa_node.TestNodeModify, pnode)
+  finally:
+    qa_config.ReleaseNode(pnode)
 
   pnode = qa_config.AcquireNode()
   try:
@@ -383,6 +420,8 @@ def main():
         snode = qa_config.AcquireNode(exclude=pnode)
         try:
           instance = RunTest(func, pnode, snode)
+          if qa_config.TestEnabled("cluster-verify"):
+            RunTest(qa_cluster.TestClusterVerify)
           RunCommonInstanceTests(instance)
           if qa_config.TestEnabled('instance-convert-disk'):
             RunTest(qa_instance.TestInstanceShutdown, instance)
@@ -397,15 +436,19 @@ def main():
 
     if (qa_config.TestEnabled('instance-add-plain-disk') and
         qa_config.TestEnabled("instance-export")):
-      instance = RunTest(qa_instance.TestInstanceAddWithPlainDisk, pnode)
-      expnode = qa_config.AcquireNode(exclude=pnode)
-      try:
-        RunTest(qa_instance.TestInstanceExportWithRemove, instance, expnode)
-        RunTest(qa_instance.TestBackupList, expnode)
-      finally:
-        qa_config.ReleaseNode(expnode)
-      del expnode
-      del instance
+      for shutdown in [False, True]:
+        instance = RunTest(qa_instance.TestInstanceAddWithPlainDisk, pnode)
+        expnode = qa_config.AcquireNode(exclude=pnode)
+        try:
+          if shutdown:
+            # Stop instance before exporting and removing it
+            RunTest(qa_instance.TestInstanceShutdown, instance)
+          RunTest(qa_instance.TestInstanceExportWithRemove, instance, expnode)
+          RunTest(qa_instance.TestBackupList, expnode)
+        finally:
+          qa_config.ReleaseNode(expnode)
+        del expnode
+        del instance
 
   finally:
     qa_config.ReleaseNode(pnode)

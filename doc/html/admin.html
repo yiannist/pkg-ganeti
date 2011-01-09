@@ -5,13 +5,13 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Ganeti administrator’s guide &mdash; Ganeti v2.2.1 documentation</title>
+    <title>Ganeti administrator’s guide &mdash; Ganeti v2.3.1 documentation</title>
     <link rel="stylesheet" href="_static/default.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.2.1',
+        VERSION:     '2.3.1',
         COLLAPSE_MODINDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -19,7 +19,7 @@
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.2.1 documentation" href="index.html" />
+    <link rel="top" title="Ganeti v2.3.1 documentation" href="index.html" />
     <link rel="next" title="Ganeti walk-through" href="walkthrough.html" />
     <link rel="prev" title="Ganeti installation tutorial" href="install.html" /> 
   </head>
@@ -33,7 +33,7 @@
         <li class="right" >
           <a href="install.html" title="Ganeti installation tutorial"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.2.1 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.3.1 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -44,7 +44,7 @@
             
   <div class="section" id="ganeti-administrator-s-guide">
 <h1><a class="toc-backref" href="#id2">Ganeti administrator&#8217;s guide</a><a class="headerlink" href="#ganeti-administrator-s-guide" title="Permalink to this headline">¶</a></h1>
-<p>Documents Ganeti version 2.2</p>
+<p>Documents Ganeti version 2.3</p>
 <div class="contents topic" id="contents">
 <p class="topic-title first">Contents</p>
 <ul class="simple">
@@ -221,6 +221,21 @@ nodes, but is only functional on master candidate nodes</li>
 offers an HTTP-based API for the cluster</li>
 <li>the <strong>ganeti-masterd</strong> daemon which runs on the master node and
 allows control of the cluster</li>
+</ul>
+<p>Beside the node role, there are other node flags that influence its
+behaviour:</p>
+<ul class="simple">
+<li>the <em>master_capable</em> flag denotes whether the node can ever become a
+master candidate; setting this to &#8216;no&#8217; means that auto-promotion will
+never make this node a master candidate; this flag can be useful for a
+remote node that only runs local instances, and having it become a
+master is impractical due to networking or other constraints</li>
+<li>the <em>vm_capable</em> flag denotes whether the node can host instances or
+not; for example, one might use a non-vm_capable node just as a master
+candidate, for configuration backups; setting this flag to no
+disallows placement of instances of this node, deactivates hypervisor
+and related checks on it (e.g. bridge checks, LVM check, etc.), and
+removes it from cluster capacity computations</li>
 </ul>
 </div>
 <div class="section" id="instance">
@@ -632,7 +647,7 @@ gnt-instance add -t plain ... INSTANCE
 
 # later convert it to redundant
 gnt-instance stop INSTANCE
-gnt-instance modify -t drbd INSTANCE
+gnt-instance modify -t drbd -n NEW_SECONDARY INSTANCE
 gnt-instance start INSTANCE
 
 # and convert it back
@@ -1629,7 +1644,7 @@ in the source archive.</p>
         <li class="right" >
           <a href="install.html" title="Ganeti installation tutorial"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.2.1 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.3.1 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

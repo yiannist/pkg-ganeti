@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2008 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2010 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -25,9 +25,7 @@
 import asyncore
 import asynchat
 import collections
-import grp
 import os
-import pwd
 import signal
 import logging
 import sched
@@ -40,10 +38,8 @@ from ganeti import utils
 from ganeti import constants
 from ganeti import errors
 from ganeti import netutils
-
-
-_DEFAULT_RUN_USER = "root"
-_DEFAULT_RUN_GROUP = "root"
+from ganeti import ssconf
+from ganeti import runtime
 
 
 class SchedulerBreakout(Exception):
@@ -100,23 +96,6 @@ class GanetiBaseAsyncoreDispatcher(asyncore.dispatcher):
     return False
 
 
-def FormatAddress(family, address):
-  """Format a client's address
-
-  @type family: integer
-  @param family: socket family (one of socket.AF_*)
-  @type address: family specific (usually tuple)
-  @param address: address, as reported by this class
-
-  """
-  if family == socket.AF_INET and len(address) == 2:
-    return "%s:%d" % address
-  elif family == socket.AF_UNIX and len(address) == 3:
-    return "pid=%s, uid=%s, gid=%s" % address
-  else:
-    return str(address)
-
-
 class AsyncStreamServer(GanetiBaseAsyncoreDispatcher):
   """A stream server to use with asyncore.
 
@@ -159,7 +138,7 @@ class AsyncStreamServer(GanetiBaseAsyncoreDispatcher):
         # is passed in from accept anyway
         client_address = netutils.GetSocketCredentials(connected_socket)
       logging.info("Accepted connection from %s",
-                   FormatAddress(self.family, client_address))
+                   netutils.FormatAddress(client_address, family=self.family))
       self.handle_connection(connected_socket, client_address)
 
   def handle_connection(self, connected_socket, client_address):
@@ -290,7 +269,7 @@ class AsyncTerminatedMessageStream(asynchat.async_chat):
 
   def close_log(self):
     logging.info("Closing connection from %s",
-                 FormatAddress(self.family, self.peer_address))
+                 netutils.FormatAddress(self.peer_address, family=self.family))
     self.close()
 
   # this method is overriding an asyncore.dispatcher method
@@ -509,10 +488,61 @@ class Mainloop(object):
     self._signal_wait.append(owner)
 
 
-def GenericMain(daemon_name, optionparser, dirs, check_fn, exec_fn,
+def _VerifyDaemonUser(daemon_name):
+  """Verifies the process uid matches the configured uid.
+
+  This method verifies that a daemon is started as the user it is
+  intended to be run
+
+  @param daemon_name: The name of daemon to be started
+  @return: A tuple with the first item indicating success or not,
+           the second item current uid and third with expected uid
+
+  """
+  getents = runtime.GetEnts()
+  running_uid = os.getuid()
+  daemon_uids = {
+    constants.MASTERD: getents.masterd_uid,
+    constants.RAPI: getents.rapi_uid,
+    constants.NODED: getents.noded_uid,
+    constants.CONFD: getents.confd_uid,
+    }
+
+  return (daemon_uids[daemon_name] == running_uid, running_uid,
+          daemon_uids[daemon_name])
+
+
+def _BeautifyError(err):
+  """Try to format an error better.
+
+  Since we're dealing with daemon startup errors, in many cases this
+  will be due to socket error and such, so we try to format these cases better.
+
+  @param err: an exception object
+  @rtype: string
+  @return: the formatted error description
+
+  """
+  try:
+    if isinstance(err, socket.error):
+      return "Socket-related error: %s (errno=%s)" % (err.args[1], err.args[0])
+    elif isinstance(err, EnvironmentError):
+      if err.filename is None:
+        return "%s (errno=%s)" % (err.strerror, err.errno)
+      else:
+        return "%s (file %s) (errno=%s)" % (err.strerror, err.filename,
+                                            err.errno)
+    else:
+      return str(err)
+  except Exception: # pylint: disable-msg=W0703
+    logging.exception("Error while handling existing error %s", err)
+    return "%s" % str(err)
+
+
+def GenericMain(daemon_name, optionparser,
+                check_fn, prepare_fn, exec_fn,
                 multithreaded=False, console_logging=False,
-                default_ssl_cert=None, default_ssl_key=None,
-                user=_DEFAULT_RUN_USER, group=_DEFAULT_RUN_GROUP):
+                default_ssl_cert=None, default_ssl_key=None):
   """Shared main function for daemons.
 
   @type daemon_name: string
@@ -520,13 +550,14 @@ def GenericMain(daemon_name, optionparser, dirs, check_fn, exec_fn,
   @type optionparser: optparse.OptionParser
   @param optionparser: initialized optionparser with daemon-specific options
                        (common -f -d options will be handled by this module)
-  @type dirs: list of (string, integer)
-  @param dirs: list of directories that must be created if they don't exist,
-               and the permissions to be used to create them
   @type check_fn: function which accepts (options, args)
   @param check_fn: function that checks start conditions and exits if they're
                    not met
-  @type exec_fn: function which accepts (options, args)
+  @type prepare_fn: function which accepts (options, args)
+  @param prepare_fn: function that is run before forking, or None;
+      it's result will be passed as the third parameter to exec_fn, or
+      if None was passed in, we will just pass None to exec_fn
+  @type exec_fn: function which accepts (options, args, prepare_results)
   @param exec_fn: function that's executed with the daemon's pid file held, and
                   runs the daemon itself.
   @type multithreaded: bool
@@ -538,10 +569,6 @@ def GenericMain(daemon_name, optionparser, dirs, check_fn, exec_fn,
   @param default_ssl_cert: Default SSL certificate path
   @type default_ssl_key: string
   @param default_ssl_key: Default SSL key path
-  @param user: Default user to run as
-  @type user: string
-  @param group: Default group to run as
-  @type group: string
 
   """
   optionparser.add_option("-f", "--foreground", dest="fork",
@@ -559,6 +586,13 @@ def GenericMain(daemon_name, optionparser, dirs, check_fn, exec_fn,
 
   if daemon_name in constants.DAEMONS_PORTS:
     default_bind_address = constants.IP4_ADDRESS_ANY
+    family = ssconf.SimpleStore().GetPrimaryIPFamily()
+    # family will default to AF_INET if there is no ssconf file (e.g. when
+    # upgrading a cluster from 2.2 -> 2.3. This is intended, as Ganeti clusters
+    # <= 2.2 can not be AF_INET6
+    if family == netutils.IP6Address.family:
+      default_bind_address = constants.IP6_ADDRESS_ANY
+
     default_port = netutils.GetDaemonPort(daemon_name)
 
     # For networked daemons we allow choosing the port and bind address
@@ -566,7 +600,7 @@ def GenericMain(daemon_name, optionparser, dirs, check_fn, exec_fn,
                             help="Network port (default: %s)" % default_port,
                             default=default_port, type="int")
     optionparser.add_option("-b", "--bind", dest="bind_address",
-                            help=("Bind address (default: %s)" %
+                            help=("Bind address (default: '%s')" %
                                   default_bind_address),
                             default=default_bind_address, metavar="ADDRESS")
 
@@ -605,31 +639,46 @@ def GenericMain(daemon_name, optionparser, dirs, check_fn, exec_fn,
     # once and have a proper validation (isfile returns False on directories)
     # at the same time.
 
+  result, running_uid, expected_uid = _VerifyDaemonUser(daemon_name)
+  if not result:
+    msg = ("%s started using wrong user ID (%d), expected %d" %
+           (daemon_name, running_uid, expected_uid))
+    print >> sys.stderr, msg
+    sys.exit(constants.EXIT_FAILURE)
+
   if check_fn is not None:
     check_fn(options, args)
 
-  utils.EnsureDirs(dirs)
-
   if options.fork:
-    try:
-      uid = pwd.getpwnam(user).pw_uid
-      gid = grp.getgrnam(group).gr_gid
-    except KeyError:
-      raise errors.ConfigurationError("User or group not existing on system:"
-                                      " %s:%s" % (user, group))
     utils.CloseFDs()
-    utils.Daemonize(constants.DAEMONS_LOGFILES[daemon_name], uid, gid)
+    wpipe = utils.Daemonize(logfile=constants.DAEMONS_LOGFILES[daemon_name])
+  else:
+    wpipe = None
 
-  utils.WritePidFile(daemon_name)
+  utils.WritePidFile(utils.DaemonPidFileName(daemon_name))
   try:
-    utils.SetupLogging(logfile=constants.DAEMONS_LOGFILES[daemon_name],
-                       debug=options.debug,
-                       stderr_logging=not options.fork,
-                       multithreaded=multithreaded,
-                       program=daemon_name,
-                       syslog=options.syslog,
-                       console_logging=console_logging)
-    logging.info("%s daemon startup", daemon_name)
-    exec_fn(options, args)
+    try:
+      utils.SetupLogging(logfile=constants.DAEMONS_LOGFILES[daemon_name],
+                         debug=options.debug,
+                         stderr_logging=not options.fork,
+                         multithreaded=multithreaded,
+                         program=daemon_name,
+                         syslog=options.syslog,
+                         console_logging=console_logging)
+      if callable(prepare_fn):
+        prep_results = prepare_fn(options, args)
+      else:
+        prep_results = None
+      logging.info("%s daemon startup", daemon_name)
+    except Exception, err:
+      utils.WriteErrorToFD(wpipe, _BeautifyError(err))
+      raise
+
+    if wpipe is not None:
+      # we're done with the preparation phase, we close the pipe to
+      # let the parent know it's safe to exit
+      os.close(wpipe)
+
+    exec_fn(options, args, prep_results)
   finally:
     utils.RemovePidFile(daemon_name)

@@ -5,13 +5,13 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>News &mdash; Ganeti v2.2.1 documentation</title>
+    <title>News &mdash; Ganeti v2.3.1 documentation</title>
     <link rel="stylesheet" href="_static/default.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.2.1',
+        VERSION:     '2.3.1',
         COLLAPSE_MODINDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -19,7 +19,7 @@
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.2.1 documentation" href="index.html" />
+    <link rel="top" title="Ganeti v2.3.1 documentation" href="index.html" />
     <link rel="next" title="Glossary" href="glossary.html" />
     <link rel="prev" title="Developer notes" href="devnotes.html" /> 
   </head>
@@ -33,7 +33,7 @@
         <li class="right" >
           <a href="devnotes.html" title="Developer notes"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.2.1 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.3.1 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -44,6 +44,94 @@
             
   <div class="section" id="news">
 <h1>News<a class="headerlink" href="#news" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="version-2-3-1">
+<h2>Version 2.3.1<a class="headerlink" href="#version-2-3-1" title="Permalink to this headline">¶</a></h2>
+<p><em>(Released Mon, 20 Dec 2010)</em></p>
+<p>Released version 2.3.1~rc1 without any changes.</p>
+</div>
+<div class="section" id="version-2-3-1-rc1">
+<h2>Version 2.3.1 rc1<a class="headerlink" href="#version-2-3-1-rc1" title="Permalink to this headline">¶</a></h2>
+<p><em>(Released Wed, 1 Dec 2010)</em></p>
+<ul class="simple">
+<li>impexpd: Disable OpenSSL compression in socat if possible (backport
+from master, commit e90739d625b, see <a class="reference external" href="install-quick.html"><em>installation guide</em></a> for details)</li>
+<li>Changed unittest coverage report to exclude test scripts</li>
+<li>Added script to check version format</li>
+</ul>
+</div>
+<div class="section" id="version-2-3-0">
+<h2>Version 2.3.0<a class="headerlink" href="#version-2-3-0" title="Permalink to this headline">¶</a></h2>
+<p><em>(Released Wed, 1 Dec 2010)</em></p>
+<p>Released version 2.3.0~rc1 without any changes.</p>
+</div>
+<div class="section" id="version-2-3-0-rc1">
+<h2>Version 2.3.0 rc1<a class="headerlink" href="#version-2-3-0-rc1" title="Permalink to this headline">¶</a></h2>
+<p><em>(Released Fri, 19 Nov 2010)</em></p>
+<p>A number of bugfixes and documentation updates:</p>
+<ul class="simple">
+<li>Update ganeti-os-interface documentation</li>
+<li>Fixed a bug related to duplicate MACs or similar items which should be
+unique</li>
+<li>Fix breakage in OS state modify</li>
+<li>Reinstall instance: disallow offline secondaries (fixes bug related to
+OS changing but reinstall failing)</li>
+<li>plus all the other fixes between 2.2.1 and 2.2.2</li>
+</ul>
+</div>
+<div class="section" id="version-2-3-0-rc0">
+<h2>Version 2.3.0 rc0<a class="headerlink" href="#version-2-3-0-rc0" title="Permalink to this headline">¶</a></h2>
+<p><em>(Released Tue, 2 Nov 2010)</em></p>
+<ul class="simple">
+<li>Fixed clearing of the default iallocator using <tt class="docutils literal"><span class="pre">gnt-cluster</span> <span class="pre">modify</span></tt></li>
+<li>Fixed master failover race with watcher</li>
+<li>Fixed a bug in <tt class="docutils literal"><span class="pre">gnt-node</span> <span class="pre">modify</span></tt> which could lead to an inconsistent
+configuration</li>
+<li>Accept previously stopped instance for export with instance removal</li>
+<li>Simplify and extend the environment variables for instance OS scripts</li>
+<li>Added new node flags, <tt class="docutils literal"><span class="pre">master_capable</span></tt> and <tt class="docutils literal"><span class="pre">vm_capable</span></tt></li>
+<li>Added optional instance disk wiping prior during allocation. This is a
+cluster-wide option and can be set/modified using
+<tt class="docutils literal"><span class="pre">gnt-cluster</span> <span class="pre">{init,modify}</span> <span class="pre">--prealloc-wipe-disks</span></tt>.</li>
+<li>Added IPv6 support, see <a class="reference external" href="design-2.3.html"><em>design document</em></a> and
+<a class="reference external" href="install-quick.html"><em>Ganeti quick installation guide</em></a></li>
+<li>Added a new watcher option (<tt class="docutils literal"><span class="pre">--ignore-pause</span></tt>)</li>
+<li>Added option to ignore offline node on instance start/stop
+(<tt class="docutils literal"><span class="pre">--ignore-offline</span></tt>)</li>
+<li>Allow overriding OS parameters with <tt class="docutils literal"><span class="pre">gnt-instance</span> <span class="pre">reinstall</span></tt></li>
+<li>Added ability to change node&#8217;s secondary IP address using <tt class="docutils literal"><span class="pre">gnt-node</span>
+<span class="pre">modify</span></tt></li>
+<li>Implemented privilege separation for all daemons except
+<tt class="docutils literal"><span class="pre">ganeti-noded</span></tt>, see <tt class="docutils literal"><span class="pre">configure</span></tt> options</li>
+<li>Complain if an instance&#8217;s disk is marked faulty in <tt class="docutils literal"><span class="pre">gnt-cluster</span>
+<span class="pre">verify</span></tt></li>
+<li>Implemented job priorities (see <tt class="docutils literal"><span class="pre">ganeti(7)</span></tt> manpage)</li>
+<li>Ignore failures while shutting down instances during failover from
+offline node</li>
+<li>Exit daemon&#8217;s bootstrap process only once daemon is ready</li>
+<li>Export more information via <tt class="docutils literal"><span class="pre">LUQueryInstances</span></tt>/remote API</li>
+<li>Improved documentation, QA and unittests</li>
+<li>RAPI daemon now watches <tt class="docutils literal"><span class="pre">rapi_users</span></tt> all the time and doesn&#8217;t need a
+restart if the file was created or changed</li>
+<li>Added LUXI protocol version sent with each request and response,
+allowing detection of server/client mismatches</li>
+<li>Moved the Python scripts among gnt-* and ganeti-* into modules</li>
+<li>Moved all code related to setting up SSH to an external script,
+<tt class="docutils literal"><span class="pre">setup-ssh</span></tt></li>
+<li>Infrastructure changes for node group support in future versions</li>
+</ul>
+</div>
+<div class="section" id="version-2-2-2">
+<h2>Version 2.2.2<a class="headerlink" href="#version-2-2-2" title="Permalink to this headline">¶</a></h2>
+<p><em>(Released Fri, 19 Nov 2010)</em></p>
+<p>A few small bugs fixed, and some improvements to the build system:</p>
+<ul class="simple">
+<li>Fix documentation regarding conversion to drbd</li>
+<li>Fix validation of parameters in cluster modify (<tt class="docutils literal"><span class="pre">gnt-cluster</span> <span class="pre">modify</span>
+<span class="pre">-B</span></tt>)</li>
+<li>Fix error handling in node modify with multiple changes</li>
+<li>Allow remote imports without checked names</li>
+</ul>
+</div>
 <div class="section" id="version-2-2-1">
 <h2>Version 2.2.1<a class="headerlink" href="#version-2-2-1" title="Permalink to this headline">¶</a></h2>
 <p><em>(Released Tue, 19 Oct 2010)</em></p>
@@ -220,6 +308,18 @@ key (instead of 1024 bit)</li>
 <li>Added support for showing estimated time when exporting an instance,
 see the <tt class="docutils literal"><span class="pre">ganeti-os-interface(7)</span></tt> manpage and look for
 <tt class="docutils literal"><span class="pre">EXP_SIZE_FD</span></tt></li>
+</ul>
+</div>
+<div class="section" id="version-2-1-8">
+<h2>Version 2.1.8<a class="headerlink" href="#version-2-1-8" title="Permalink to this headline">¶</a></h2>
+<p><em>(Released Tue, 16 Nov 2010)</em></p>
+<p>Some more bugfixes. Unless critical bugs occur, this will be the last
+2.1 release:</p>
+<ul class="simple">
+<li>Fix case of MAC special-values</li>
+<li>Fix mac checker regex</li>
+<li>backend: Fix typo causing “out of range” error</li>
+<li>Add missing &#8211;units in gnt-instance list man page</li>
 </ul>
 </div>
 <div class="section" id="version-2-1-7">
@@ -1150,6 +1250,12 @@ post-configuration update hook)</li>
             <h3><a href="index.html">Table Of Contents</a></h3>
             <ul>
 <li><a class="reference external" href="#">News</a><ul>
+<li><a class="reference external" href="#version-2-3-1">Version 2.3.1</a></li>
+<li><a class="reference external" href="#version-2-3-1-rc1">Version 2.3.1 rc1</a></li>
+<li><a class="reference external" href="#version-2-3-0">Version 2.3.0</a></li>
+<li><a class="reference external" href="#version-2-3-0-rc1">Version 2.3.0 rc1</a></li>
+<li><a class="reference external" href="#version-2-3-0-rc0">Version 2.3.0 rc0</a></li>
+<li><a class="reference external" href="#version-2-2-2">Version 2.2.2</a></li>
 <li><a class="reference external" href="#version-2-2-1">Version 2.2.1</a></li>
 <li><a class="reference external" href="#version-2-2-1-rc1">Version 2.2.1 rc1</a></li>
 <li><a class="reference external" href="#version-2-2-1-rc0">Version 2.2.1 rc0</a></li>
@@ -1159,6 +1265,7 @@ post-configuration update hook)</li>
 <li><a class="reference external" href="#version-2-2-0-rc1">Version 2.2.0 rc1</a></li>
 <li><a class="reference external" href="#version-2-2-0-rc0">Version 2.2.0 rc0</a></li>
 <li><a class="reference external" href="#version-2-2-0-beta-0">Version 2.2.0 beta 0</a></li>
+<li><a class="reference external" href="#version-2-1-8">Version 2.1.8</a></li>
 <li><a class="reference external" href="#version-2-1-7">Version 2.1.7</a></li>
 <li><a class="reference external" href="#version-2-1-6">Version 2.1.6</a></li>
 <li><a class="reference external" href="#version-2-1-5">Version 2.1.5</a></li>
@@ -1249,7 +1356,7 @@ post-configuration update hook)</li>
         <li class="right" >
           <a href="devnotes.html" title="Developer notes"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.2.1 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.3.1 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

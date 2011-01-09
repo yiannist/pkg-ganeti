@@ -4,6 +4,108 @@
 News
 ====
 
+
+Version 2.3.1
+-------------
+
+*(Released Mon, 20 Dec 2010)*
+
+Released version 2.3.1~rc1 without any changes.
+
+
+Version 2.3.1 rc1
+-----------------
+
+*(Released Wed, 1 Dec 2010)*
+
+- impexpd: Disable OpenSSL compression in socat if possible (backport
+  from master, commit e90739d625b, see :doc:`installation guide
+  <install-quick>` for details)
+- Changed unittest coverage report to exclude test scripts
+- Added script to check version format
+
+
+Version 2.3.0
+-------------
+
+*(Released Wed, 1 Dec 2010)*
+
+Released version 2.3.0~rc1 without any changes.
+
+
+Version 2.3.0 rc1
+-----------------
+
+*(Released Fri, 19 Nov 2010)*
+
+A number of bugfixes and documentation updates:
+
+- Update ganeti-os-interface documentation
+- Fixed a bug related to duplicate MACs or similar items which should be
+  unique
+- Fix breakage in OS state modify
+- Reinstall instance: disallow offline secondaries (fixes bug related to
+  OS changing but reinstall failing)
+- plus all the other fixes between 2.2.1 and 2.2.2
+
+
+Version 2.3.0 rc0
+-----------------
+
+*(Released Tue, 2 Nov 2010)*
+
+- Fixed clearing of the default iallocator using ``gnt-cluster modify``
+- Fixed master failover race with watcher
+- Fixed a bug in ``gnt-node modify`` which could lead to an inconsistent
+  configuration
+- Accept previously stopped instance for export with instance removal
+- Simplify and extend the environment variables for instance OS scripts
+- Added new node flags, ``master_capable`` and ``vm_capable``
+- Added optional instance disk wiping prior during allocation. This is a
+  cluster-wide option and can be set/modified using
+  ``gnt-cluster {init,modify} --prealloc-wipe-disks``.
+- Added IPv6 support, see :doc:`design document <design-2.3>` and
+  :doc:`install-quick`
+- Added a new watcher option (``--ignore-pause``)
+- Added option to ignore offline node on instance start/stop
+  (``--ignore-offline``)
+- Allow overriding OS parameters with ``gnt-instance reinstall``
+- Added ability to change node's secondary IP address using ``gnt-node
+  modify``
+- Implemented privilege separation for all daemons except
+  ``ganeti-noded``, see ``configure`` options
+- Complain if an instance's disk is marked faulty in ``gnt-cluster
+  verify``
+- Implemented job priorities (see ``ganeti(7)`` manpage)
+- Ignore failures while shutting down instances during failover from
+  offline node
+- Exit daemon's bootstrap process only once daemon is ready
+- Export more information via ``LUQueryInstances``/remote API
+- Improved documentation, QA and unittests
+- RAPI daemon now watches ``rapi_users`` all the time and doesn't need a
+  restart if the file was created or changed
+- Added LUXI protocol version sent with each request and response,
+  allowing detection of server/client mismatches
+- Moved the Python scripts among gnt-* and ganeti-* into modules
+- Moved all code related to setting up SSH to an external script,
+  ``setup-ssh``
+- Infrastructure changes for node group support in future versions
+
+
+Version 2.2.2
+-------------
+
+*(Released Fri, 19 Nov 2010)*
+
+A few small bugs fixed, and some improvements to the build system:
+
+- Fix documentation regarding conversion to drbd
+- Fix validation of parameters in cluster modify (``gnt-cluster modify
+  -B``)
+- Fix error handling in node modify with multiple changes
+- Allow remote imports without checked names
+
+
 Version 2.2.1
 -------------
 
@@ -193,6 +295,21 @@ Version 2.2.0 beta 0
 - Added support for showing estimated time when exporting an instance,
   see the ``ganeti-os-interface(7)`` manpage and look for
   ``EXP_SIZE_FD``
+
+
+Version 2.1.8
+-------------
+
+*(Released Tue, 16 Nov 2010)*
+
+Some more bugfixes. Unless critical bugs occur, this will be the last
+2.1 release:
+
+- Fix case of MAC special-values
+- Fix mac checker regex
+- backend: Fix typo causing “out of range” error
+- Add missing --units in gnt-instance list man page
+
 
 Version 2.1.7
 -------------
@@ -1156,7 +1273,7 @@ Version 1.2b2
   post-configuration update hook)
 - Other small bugfixes
 
-.. vim: set textwidth=72 :
+.. vim: set textwidth=72 syntax=rst :
 .. Local Variables:
 .. mode: rst
 .. fill-column: 72

@@ -1,7 +1,7 @@
-#!/usr/bin/python
+#
 #
 
-# Copyright (C) 2009, Google Inc.
+# Copyright (C) 2009, 2010 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -66,8 +66,8 @@ class ConfdAsyncUDPServer(daemon.AsyncUDPSocket):
     @param processor: ConfdProcessor to use to handle queries
 
     """
-    daemon.AsyncUDPSocket.__init__(self,
-                                   netutils.GetAddressFamily(bind_address))
+    family = netutils.IPAddress.GetAddressFamily(bind_address)
+    daemon.AsyncUDPSocket.__init__(self, family)
     self.bind_address = bind_address
     self.port = port
     self.processor = processor
@@ -258,12 +258,13 @@ def CheckConfd(_, args):
   # conflict with that. If so, we might warn or EXIT_FAILURE.
 
 
-def ExecConfd(options, _):
-  """Main confd function, executed with PID file held
+def PrepConfd(options, _):
+  """Prep confd function, executed with PID file held
 
   """
   # TODO: clarify how the server and reloader variables work (they are
   # not used)
+
   # pylint: disable-msg=W0612
   mainloop = daemon.Mainloop()
 
@@ -281,10 +282,18 @@ def ExecConfd(options, _):
   # Configuration reloader
   reloader = ConfdConfigurationReloader(processor, mainloop)
 
+  return mainloop
+
+
+def ExecConfd(options, args, prep_data): # pylint: disable-msg=W0613
+  """Main confd function, executed with PID file held
+
+  """
+  mainloop = prep_data
   mainloop.Run()
 
 
-def main():
+def Main():
   """Main function for the confd daemon.
 
   """
@@ -293,10 +302,4 @@ def main():
                         version="%%prog (ganeti) %s" %
                         constants.RELEASE_VERSION)
 
-  dirs = [(val, constants.RUN_DIRS_MODE) for val in constants.SUB_RUN_DIRS]
-  dirs.append((constants.LOCK_DIR, 1777))
-  daemon.GenericMain(constants.CONFD, parser, dirs, CheckConfd, ExecConfd)
-
-
-if __name__ == "__main__":
-  main()
+  daemon.GenericMain(constants.CONFD, parser, CheckConfd, PrepConfd, ExecConfd)

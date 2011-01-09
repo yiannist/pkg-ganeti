@@ -1,6 +1,6 @@
 # Configure script for Ganeti
 m4_define([gnt_version_major], [2])
-m4_define([gnt_version_minor], [2])
+m4_define([gnt_version_minor], [3])
 m4_define([gnt_version_revision], [1])
 m4_define([gnt_version_suffix], [])
 m4_define([gnt_version_full],
@@ -141,9 +141,9 @@ AC_ARG_WITH([user-prefix],
     [prefix for daemon users]
     [ (default is to run all daemons as root)]
   )],
-  [user_masterd="root";
+  [user_masterd="${withval}masterd";
    user_rapi="${withval}rapi";
-   user_confd="root";
+   user_confd="${withval}confd";
    user_noded="root"],
   [user_masterd="root";
    user_rapi="root";
@@ -160,10 +160,10 @@ AC_ARG_WITH([group-prefix],
     [prefix for daemon POSIX groups]
     [ (default is to run all daemons under group root)]
   )],
-  [group_rapi="root";
-   group_admin="root";
-   group_confd="root";
-   group_masterd="root";
+  [group_rapi="${withval}rapi";
+   group_admin="${withval}admin";
+   group_confd="${withval}confd";
+   group_masterd="${withval}masterd";
    group_daemons="${withval}daemons";],
   [group_rapi="root";
    group_admin="root";
@@ -296,6 +296,29 @@ then
 fi
 
 AC_SUBST(SOCAT_USE_ESCAPE)
+
+SOCAT_USE_COMPRESS=
+AC_ARG_ENABLE([socat-compress],
+  [AS_HELP_STRING([--enable-socat-compress],
+    [use OpenSSL compression option available in patched socat builds
+     (see INSTALL for details; default: detect automatically)])],
+  [[if test "$enableval" = yes; then
+      SOCAT_USE_COMPRESS=True
+    else
+      SOCAT_USE_COMPRESS=False
+    fi
+  ]])
+
+if test -z "$SOCAT_USE_COMPRESS"
+then
+  if $SOCAT -hhh | grep -w -q openssl-compress; then
+    SOCAT_USE_COMPRESS=True
+  else
+    SOCAT_USE_COMPRESS=False
+  fi
+fi
+
+AC_SUBST(SOCAT_USE_COMPRESS)
 
 if man --help | grep -q -e --warnings
 then

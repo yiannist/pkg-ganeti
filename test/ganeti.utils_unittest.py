@@ -177,13 +177,15 @@ class TestPidFileFunctions(unittest.TestCase):
 
   def testPidFileFunctions(self):
     pid_file = self.f_dpn('test')
-    utils.WritePidFile('test')
+    fd = utils.WritePidFile(self.f_dpn('test'))
     self.failUnless(os.path.exists(pid_file),
                     "PID file should have been created")
     read_pid = utils.ReadPidFile(pid_file)
     self.failUnlessEqual(read_pid, os.getpid())
     self.failUnless(utils.IsProcessAlive(read_pid))
-    self.failUnlessRaises(errors.GenericError, utils.WritePidFile, 'test')
+    self.failUnlessRaises(errors.LockError, utils.WritePidFile,
+                          self.f_dpn('test'))
+    os.close(fd)
     utils.RemovePidFile('test')
     self.failIf(os.path.exists(pid_file),
                 "PID file should not exist anymore")
@@ -194,6 +196,9 @@ class TestPidFileFunctions(unittest.TestCase):
     fh.close()
     self.failUnlessEqual(utils.ReadPidFile(pid_file), 0,
                          "ReadPidFile should return 0 for invalid pid file")
+    # but now, even with the file existing, we should be able to lock it
+    fd = utils.WritePidFile(self.f_dpn('test'))
+    os.close(fd)
     utils.RemovePidFile('test')
     self.failIf(os.path.exists(pid_file),
                 "PID file should not exist anymore")
@@ -203,7 +208,7 @@ class TestPidFileFunctions(unittest.TestCase):
     r_fd, w_fd = os.pipe()
     new_pid = os.fork()
     if new_pid == 0: #child
-      utils.WritePidFile('child')
+      utils.WritePidFile(self.f_dpn('child'))
       os.write(w_fd, 'a')
       signal.pause()
       os._exit(0)
@@ -1244,11 +1249,8 @@ class TestListVisibleFiles(unittest.TestCase):
 class TestNewUUID(unittest.TestCase):
   """Test case for NewUUID"""
 
-  _re_uuid = re.compile('^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-'
-                        '[a-f0-9]{4}-[a-f0-9]{12}$')
-
   def runTest(self):
-    self.failUnless(self._re_uuid.match(utils.NewUUID()))
+    self.failUnless(utils.UUID_RE.match(utils.NewUUID()))
 
 
 class TestUniqueSequence(unittest.TestCase):
@@ -2322,6 +2324,70 @@ class TestCommaJoin(unittest.TestCase):
     self.assertEqual(utils.CommaJoin(["Hello", "World"]), "Hello, World")
     self.assertEqual(utils.CommaJoin(["Hello", "World", 99]),
                      "Hello, World, 99")
+
+
+class TestFindMatch(unittest.TestCase):
+  def test(self):
+    data = {
+      "aaaa": "Four A",
+      "bb": {"Two B": True},
+      re.compile(r"^x(foo|bar|bazX)([0-9]+)$"): (1, 2, 3),
+      }
+
+    self.assertEqual(utils.FindMatch(data, "aaaa"), ("Four A", []))
+    self.assertEqual(utils.FindMatch(data, "bb"), ({"Two B": True}, []))
+
+    for i in ["foo", "bar", "bazX"]:
+      for j in range(1, 100, 7):
+        self.assertEqual(utils.FindMatch(data, "x%s%s" % (i, j)),
+                         ((1, 2, 3), [i, str(j)]))
+
+  def testNoMatch(self):
+    self.assert_(utils.FindMatch({}, "") is None)
+    self.assert_(utils.FindMatch({}, "foo") is None)
+    self.assert_(utils.FindMatch({}, 1234) is None)
+
+    data = {
+      "X": "Hello World",
+      re.compile("^(something)$"): "Hello World",
+      }
+
+    self.assert_(utils.FindMatch(data, "") is None)
+    self.assert_(utils.FindMatch(data, "Hello World") is None)
+
+
+class TestFileID(testutils.GanetiTestCase):
+  def testEquality(self):
+    name = self._CreateTempFile()
+    oldi = utils.GetFileID(path=name)
+    self.failUnless(utils.VerifyFileID(oldi, oldi))
+
+  def testUpdate(self):
+    name = self._CreateTempFile()
+    oldi = utils.GetFileID(path=name)
+    os.utime(name, None)
+    fd = os.open(name, os.O_RDWR)
+    try:
+      newi = utils.GetFileID(fd=fd)
+      self.failUnless(utils.VerifyFileID(oldi, newi))
+      self.failUnless(utils.VerifyFileID(newi, oldi))
+    finally:
+      os.close(fd)
+
+  def testWriteFile(self):
+    name = self._CreateTempFile()
+    oldi = utils.GetFileID(path=name)
+    mtime = oldi[2]
+    os.utime(name, (mtime + 10, mtime + 10))
+    self.assertRaises(errors.LockError, utils.SafeWriteFile, name,
+                      oldi, data="")
+    os.utime(name, (mtime - 10, mtime - 10))
+    utils.SafeWriteFile(name, oldi, data="")
+    oldi = utils.GetFileID(path=name)
+    mtime = oldi[2]
+    os.utime(name, (mtime + 10, mtime + 10))
+    # this doesn't raise, since we passed None
+    utils.SafeWriteFile(name, None, data="")
 
 
 if __name__ == '__main__':
