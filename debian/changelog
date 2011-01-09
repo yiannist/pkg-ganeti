@@ -1,3 +1,10 @@
+ganeti (2.3.1-1) experimental; urgency=low
+
+  * New upstream version (Closes: #597957, #607679)
+  * Remove obsolete patches integrated upstream
+
+ -- Iustin Pop <iustin@debian.org>  Sun, 09 Jan 2011 19:01:15 +0100
+
 ganeti (2.2.1-1) experimental; urgency=low
 
   * New upstream version(s), uploading to experimental during the Squeeze
