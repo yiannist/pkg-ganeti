@@ -22,7 +22,7 @@ Depends: ${shlibs:Depends}, ${misc:Depends}, ${python:Depends}, lvm2,
  socat, libjs-jquery
 Recommends: drbd8-utils (>= 8.0.7), qemu-kvm |
  xen-linux-system-2.6.32-5-xen-amd64 | xen-linux-system-2.6.32-5-xen-686,
- ganeti-instance-debootstrap
+ ganeti-instance-debootstrap, ndisc6
 Suggests: drbd8-module-source (>= 8.0.7)
 Provides: ${python:Provides}
 Description: Cluster-based virtualization management software
