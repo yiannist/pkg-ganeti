@@ -1,1 +1,2 @@
 ganeti2 binary: hyphen-used-as-minus-sign
+ganeti2 binary: package-contains-empty-directory usr/lib/ganeti/iallocators/

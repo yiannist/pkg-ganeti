@@ -54,8 +54,6 @@ install: build
 	cp $(CURDIR)/doc/examples/ganeti.default $(CURDIR)/debian/ganeti2.ganeti.default
 	# No longer needed with ganeti 2.1
 	#mv $(CURDIR)/debian/ganeti2/usr/share/doc/ganeti $(CURDIR)/debian/ganeti2/usr/share/doc/ganeti2
-	install -m 0755 $(CURDIR)/doc/examples/dumb-allocator \
-	  $(CURDIR)/debian/ganeti2/usr/lib/ganeti/iallocators/dumb
 	install -m 0644 $(CURDIR)/doc/examples/bash_completion \
 	  $(CURDIR)/debian/ganeti2/etc/bash_completion.d/ganeti
 	install -m 0644 $(CURDIR)/debian/ganeti2.overrides \
