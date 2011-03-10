@@ -1,10 +1,6 @@
 # format version number, currently 3; this line is compulsory!
 version=3
 
-# new version of download list
-opts=\
-downloadurlmangle=s_code\.google\.com/p/ganeti/downloads/_ganeti\.googlecode\.com/files/_;\
-s/detail\?name=([^&]*).*/$1/,\
-filenamemangle=s/detail\?name=([^&]*).*/$1/ \
+# code.google.com/p/$project/downloads/list has links to $project.googlecode.com/files/
 http://code.google.com/p/ganeti/downloads/list \
-	detail\?name=ganeti-(\d+\.\d+[\d.]*)\.tar\.gz(?:&.*)?
+    http://ganeti.googlecode.com/files/ganeti-(\d+\.\d+[\d.]*)\.tar\.gz
