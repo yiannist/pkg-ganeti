@@ -21,7 +21,7 @@ Users and passwords
 -------------------
 
 ``ganeti-rapi`` reads users and passwords from a file (usually
-``/var/lib/ganeti/rapi_users``) on startup. Changes to the file will be
+``/var/lib/ganeti/rapi/users``) on startup. Changes to the file will be
 read automatically.
 
 Each line consists of two or three fields separated by whitespace. The
@@ -328,6 +328,213 @@ features:
 
 ``instance-create-reqv1``
   Instance creation request data version 1 supported.
+``instance-reinstall-reqv1``
+  Instance reinstall supports body parameters.
+
+
+``/2/modify``
+++++++++++++++++++++++++++++++++++++++++
+
+Modifies cluster parameters.
+
+Supports the following commands: ``PUT``.
+
+``PUT``
+~~~~~~~
+
+Returns a job ID.
+
+Body parameters:
+
+``vg_name`` (string)
+  Volume group name.
+``enabled_hypervisors`` (list)
+  List of enabled hypervisors.
+``hvparams`` (dict)
+  Cluster-wide hypervisor parameter defaults, hypervisor-dependent.
+``beparams`` (dict)
+  Cluster-wide backend parameter defaults.
+``os_hvp`` (dict)
+  Cluster-wide per-OS hypervisor parameter defaults.
+``osparams`` (dict)
+  Dictionary with OS parameters.
+``candidate_pool_size`` (int)
+  Master candidate pool size.
+``uid_pool`` (list)
+  Set UID pool. Must be list of lists describing UID ranges (two items,
+  start and end inclusive).
+``add_uids``
+  Extend UID pool. Must be list of lists describing UID ranges (two
+  items, start and end inclusive) to be added.
+``remove_uids``
+  Shrink UID pool. Must be list of lists describing UID ranges (two
+  items, start and end inclusive) to be removed.
+``maintain_node_health`` (bool)
+  Whether to automatically maintain node health.
+``prealloc_wipe_disks`` (bool)
+  Whether to wipe disks before allocating them to instances.
+``nicparams`` (dict)
+  Cluster-wide NIC parameter defaults.
+``ndparams`` (dict)
+  Cluster-wide node parameter defaults.
+``drbd_helper`` (string)
+  DRBD helper program.
+``default_iallocator`` (string)
+  Default iallocator for cluster.
+``master_netdev`` (string)
+  Master network device.
+``reserved_lvs`` (list)
+  List of reserved LVs (strings).
+``hidden_os`` (list)
+  List of modifications as lists. Each modification must have two items,
+  the operation and the OS name. The operation can be ``add`` or
+  ``remove``.
+``blacklisted_os`` (list)
+  List of modifications as lists. Each modification must have two items,
+  the operation and the OS name. The operation can be ``add`` or
+  ``remove``.
+
+
+``/2/groups``
++++++++++++++
+
+The groups resource.
+
+It supports the following commands: ``GET``, ``POST``.
+
+``GET``
+~~~~~~~
+
+Returns a list of all existing node groups.
+
+Example::
+
+    [
+      {
+        "name": "group1",
+        "uri": "\/2\/groups\/group1"
+      },
+      {
+        "name": "group2",
+        "uri": "\/2\/groups\/group2"
+      }
+    ]
+
+If the optional bool *bulk* argument is provided and set to a true value
+(i.e ``?bulk=1``), the output contains detailed information about node
+groups as a list.
+
+Example::
+
+    [
+      {
+        "name": "group1",
+        "node_cnt": 2,
+        "node_list": [
+          "node1.example.com",
+          "node2.example.com"
+        ],
+        "uuid": "0d7d407c-262e-49af-881a-6a430034bf43"
+      },
+      {
+        "name": "group2",
+        "node_cnt": 1,
+        "node_list": [
+          "node3.example.com"
+        ],
+        "uuid": "f5a277e7-68f9-44d3-a378-4b25ecb5df5c"
+      }
+    ]
+
+``POST``
+~~~~~~~~
+
+Creates a node group.
+
+If the optional bool *dry-run* argument is provided, the job will not be
+actually executed, only the pre-execution checks will be done.
+
+Returns: a job ID that can be used later for polling.
+
+Body parameters:
+
+``name`` (string, required)
+  Node group name.
+
+
+``/2/groups/[group_name]``
+++++++++++++++++++++++++++
+
+Returns information about a node group.
+
+It supports the following commands: ``GET``, ``DELETE``.
+
+``GET``
+~~~~~~~
+
+Returns information about a node group, similar to the bulk output from
+the node group list.
+
+``DELETE``
+~~~~~~~~~~
+
+Deletes a node group.
+
+It supports the ``dry-run`` argument.
+
+
+``/2/groups/[group_name]/modify``
++++++++++++++++++++++++++++++++++
+
+Modifies the parameters of a node group.
+
+Supports the following commands: ``PUT``.
+
+``PUT``
+~~~~~~~
+
+Returns a job ID.
+
+Body parameters:
+
+``alloc_policy`` (string)
+  If present, the new allocation policy for the node group.
+
+
+``/2/groups/[group_name]/rename``
++++++++++++++++++++++++++++++++++
+
+Renames a node group.
+
+Supports the following commands: ``PUT``.
+
+``PUT``
+~~~~~~~
+
+Returns a job ID.
+
+Body parameters:
+
+``new_name`` (string, required)
+  New node group name.
+
+
+``/2/groups/[group_name]/assign-nodes``
++++++++++++++++++++++++++++++++++++++++
+
+Assigns nodes to a group.
+
+Supports the following commands: ``PUT``.
+
+``PUT``
+~~~~~~~
+
+Returns a job ID. It supports the ``dry-run`` and ``force`` arguments.
+
+Body parameters:
+
+``nodes`` (list, required)
+  One or more nodes to assign to the group.
 
 
 ``/2/instances``
@@ -429,6 +636,8 @@ Body parameters:
   will fail.
 ``force_variant`` (bool)
   Whether to force an unknown variant.
+``no_install`` (bool)
+  Do not install the OS (will enable no-start)
 ``pnode`` (string)
   Primary node.
 ``snode`` (string)
@@ -568,7 +777,20 @@ It supports the following commands: ``POST``.
 ``POST``
 ~~~~~~~~
 
-Takes the parameters ``os`` (OS template name) and ``nostartup`` (bool).
+Returns a job ID.
+
+Body parameters:
+
+``os`` (string, required)
+  Instance operating system.
+``start`` (bool, defaults to true)
+  Whether to start instance after reinstallation.
+``osparams`` (dict)
+  Dictionary with (temporary) OS parameters.
+
+For backwards compatbility, this resource also takes the query
+parameters ``os`` (OS template name) and ``nostartup`` (bool). New
+clients should use the body parameters.
 
 
 ``/2/instances/[instance_name]/replace-disks``
@@ -618,6 +840,26 @@ It supports the following commands: ``PUT``.
 ~~~~~~~
 
 Takes no parameters.
+
+
+``/2/instances/[instance_name]/disk/[disk_index]/grow``
++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+Grows one disk of an instance.
+
+Supports the following commands: ``POST``.
+
+``POST``
+~~~~~~~~
+
+Returns a job ID.
+
+Body parameters:
+
+``amount`` (int, required)
+  Amount of disk space to add.
+``wait_for_sync`` (bool)
+  Whether to wait for the disk to synchronize.
 
 
 ``/2/instances/[instance_name]/prepare-export``
@@ -740,6 +982,37 @@ Body parameters:
   Change instance's OS name. Does not reinstall the instance.
 ``force_variant`` (bool)
   Whether to force an unknown variant.
+
+
+``/2/instances/[instance_name]/console``
+++++++++++++++++++++++++++++++++++++++++
+
+Request information for connecting to instance's console.
+
+Supports the following commands: ``GET``.
+
+``GET``
+~~~~~~~
+
+Returns a dictionary containing information about the instance's
+console. Contained keys:
+
+``instance``
+  Instance name.
+``kind``
+  Console type, one of ``ssh``, ``vnc`` or ``msg``.
+``message``
+  Message to display (``msg`` type only).
+``host``
+  Host to connect to (``ssh`` and ``vnc`` only).
+``port``
+  TCP port to connect to (``vnc`` only).
+``user``
+  Username to use (``ssh`` only).
+``command``
+  Command to execute on machine (``ssh`` only)
+``display``
+  VNC display number (``vnc`` only).
 
 
 ``/2/instances/[instance_name]/tags``

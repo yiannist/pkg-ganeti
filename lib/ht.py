@@ -74,7 +74,12 @@ def TInt(val):
   """Checks if the given value is an integer.
 
   """
-  return isinstance(val, int)
+  # For backwards compatibility with older Python versions, boolean values are
+  # also integers and should be excluded in this test.
+  #
+  # >>> (isinstance(False, int), isinstance(True, int))
+  # (True, True)
+  return isinstance(val, int) and not isinstance(val, bool)
 
 
 def TFloat(val):
@@ -158,14 +163,14 @@ def TMap(fn, test):
 #: a non-empty string
 TNonEmptyString = TAnd(TString, TTrue)
 
-
 #: a maybe non-empty string
 TMaybeString = TOr(TNonEmptyString, TNone)
-
 
 #: a maybe boolean (bool or none)
 TMaybeBool = TOr(TBool, TNone)
 
+#: Maybe a dictionary (dict or None)
+TMaybeDict = TOr(TDict, TNone)
 
 #: a positive integer
 TPositiveInt = TAnd(TInt, lambda v: v >= 0)

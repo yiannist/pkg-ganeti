@@ -33,6 +33,15 @@
     }
   ],
 
+  "groups": {
+    "group-with-nodes": "default",
+    "inexistent-groups": [
+      "group1",
+      "group2",
+      "group3"
+    ]
+  },
+
   "tests": {
     "env": true,
     "os": true,
@@ -52,12 +61,18 @@
     "cluster-rename": true,
     "cluster-reserved-lvs": true,
     "cluster-modify": true,
+    "cluster-oob": true,
 
+    "group-list": true,
+    "group-rwops": true,
+
+    "node-list": true,
     "node-info": true,
     "node-volumes": true,
     "node-readd": true,
     "node-storage": true,
     "node-modify": true,
+    "node-oob": true,
 
     "# This test needs at least three nodes": null,
     "node-evacuate": false,

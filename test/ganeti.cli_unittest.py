@@ -1,7 +1,7 @@
 #!/usr/bin/python
 #
 
-# Copyright (C) 2008 Google Inc.
+# Copyright (C) 2008, 2011 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -31,6 +31,7 @@ from ganeti import constants
 from ganeti import cli
 from ganeti import errors
 from ganeti import utils
+from ganeti import objects
 from ganeti.errors import OpPrereqError, ParameterError
 
 
@@ -246,6 +247,263 @@ class TestGenerateTable(unittest.TestCase):
       ]
     self._test(self.HEADERS, ["f1", "f2"], None, data,
                None, None, "m", exp)
+
+
+class TestFormatQueryResult(unittest.TestCase):
+  def test(self):
+    fields = [
+      objects.QueryFieldDefinition(name="name", title="Name",
+                                   kind=constants.QFT_TEXT),
+      objects.QueryFieldDefinition(name="size", title="Size",
+                                   kind=constants.QFT_NUMBER),
+      objects.QueryFieldDefinition(name="act", title="Active",
+                                   kind=constants.QFT_BOOL),
+      objects.QueryFieldDefinition(name="mem", title="Memory",
+                                   kind=constants.QFT_UNIT),
+      objects.QueryFieldDefinition(name="other", title="SomeList",
+                                   kind=constants.QFT_OTHER),
+      ]
+
+    response = objects.QueryResponse(fields=fields, data=[
+      [(constants.RS_NORMAL, "nodeA"), (constants.RS_NORMAL, 128),
+       (constants.RS_NORMAL, False), (constants.RS_NORMAL, 1468006),
+       (constants.RS_NORMAL, [])],
+      [(constants.RS_NORMAL, "other"), (constants.RS_NORMAL, 512),
+       (constants.RS_NORMAL, True), (constants.RS_NORMAL, 16),
+       (constants.RS_NORMAL, [1, 2, 3])],
+      [(constants.RS_NORMAL, "xyz"), (constants.RS_NORMAL, 1024),
+       (constants.RS_NORMAL, True), (constants.RS_NORMAL, 4096),
+       (constants.RS_NORMAL, [{}, {}])],
+      ])
+
+    self.assertEqual(cli.FormatQueryResult(response, unit="h", header=True),
+      (cli.QR_NORMAL, [
+      "Name  Size Active Memory SomeList",
+      "nodeA  128 N        1.4T []",
+      "other  512 Y         16M [1, 2, 3]",
+      "xyz   1024 Y        4.0G [{}, {}]",
+      ]))
+
+  def testTimestampAndUnit(self):
+    fields = [
+      objects.QueryFieldDefinition(name="name", title="Name",
+                                   kind=constants.QFT_TEXT),
+      objects.QueryFieldDefinition(name="size", title="Size",
+                                   kind=constants.QFT_UNIT),
+      objects.QueryFieldDefinition(name="mtime", title="ModTime",
+                                   kind=constants.QFT_TIMESTAMP),
+      ]
+
+    response = objects.QueryResponse(fields=fields, data=[
+      [(constants.RS_NORMAL, "a"), (constants.RS_NORMAL, 1024),
+       (constants.RS_NORMAL, 0)],
+      [(constants.RS_NORMAL, "b"), (constants.RS_NORMAL, 144996),
+       (constants.RS_NORMAL, 1291746295)],
+      ])
+
+    self.assertEqual(cli.FormatQueryResult(response, unit="m", header=True),
+      (cli.QR_NORMAL, [
+      "Name   Size ModTime",
+      "a      1024 %s" % utils.FormatTime(0),
+      "b    144996 %s" % utils.FormatTime(1291746295),
+      ]))
+
+  def testOverride(self):
+    fields = [
+      objects.QueryFieldDefinition(name="name", title="Name",
+                                   kind=constants.QFT_TEXT),
+      objects.QueryFieldDefinition(name="cust", title="Custom",
+                                   kind=constants.QFT_OTHER),
+      objects.QueryFieldDefinition(name="xt", title="XTime",
+                                   kind=constants.QFT_TIMESTAMP),
+      ]
+
+    response = objects.QueryResponse(fields=fields, data=[
+      [(constants.RS_NORMAL, "x"), (constants.RS_NORMAL, ["a", "b", "c"]),
+       (constants.RS_NORMAL, 1234)],
+      [(constants.RS_NORMAL, "y"), (constants.RS_NORMAL, range(10)),
+       (constants.RS_NORMAL, 1291746295)],
+      ])
+
+    override = {
+      "cust": (utils.CommaJoin, False),
+      "xt": (hex, True),
+      }
+
+    self.assertEqual(cli.FormatQueryResult(response, unit="h", header=True,
+                                           format_override=override),
+      (cli.QR_NORMAL, [
+      "Name Custom                            XTime",
+      "x    a, b, c                           0x4d2",
+      "y    0, 1, 2, 3, 4, 5, 6, 7, 8, 9 0x4cfe7bf7",
+      ]))
+
+  def testSeparator(self):
+    fields = [
+      objects.QueryFieldDefinition(name="name", title="Name",
+                                   kind=constants.QFT_TEXT),
+      objects.QueryFieldDefinition(name="count", title="Count",
+                                   kind=constants.QFT_NUMBER),
+      objects.QueryFieldDefinition(name="desc", title="Description",
+                                   kind=constants.QFT_TEXT),
+      ]
+
+    response = objects.QueryResponse(fields=fields, data=[
+      [(constants.RS_NORMAL, "instance1.example.com"),
+       (constants.RS_NORMAL, 21125), (constants.RS_NORMAL, "Hello World!")],
+      [(constants.RS_NORMAL, "mail.other.net"),
+       (constants.RS_NORMAL, -9000), (constants.RS_NORMAL, "a,b,c")],
+      ])
+
+    for sep in [":", "|", "#", "|||", "###", "@@@", "@#@"]:
+      for header in [None, "Name%sCount%sDescription" % (sep, sep)]:
+        exp = []
+        if header:
+          exp.append(header)
+        exp.extend([
+          "instance1.example.com%s21125%sHello World!" % (sep, sep),
+          "mail.other.net%s-9000%sa,b,c" % (sep, sep),
+          ])
+
+        self.assertEqual(cli.FormatQueryResult(response, separator=sep,
+                                               header=bool(header)),
+                         (cli.QR_NORMAL, exp))
+
+  def testStatusWithUnknown(self):
+    fields = [
+      objects.QueryFieldDefinition(name="id", title="ID",
+                                   kind=constants.QFT_NUMBER),
+      objects.QueryFieldDefinition(name="unk", title="unk",
+                                   kind=constants.QFT_UNKNOWN),
+      objects.QueryFieldDefinition(name="unavail", title="Unavail",
+                                   kind=constants.QFT_BOOL),
+      objects.QueryFieldDefinition(name="nodata", title="NoData",
+                                   kind=constants.QFT_TEXT),
+      objects.QueryFieldDefinition(name="offline", title="OffLine",
+                                   kind=constants.QFT_TEXT),
+      ]
+
+    response = objects.QueryResponse(fields=fields, data=[
+      [(constants.RS_NORMAL, 1), (constants.RS_UNKNOWN, None),
+       (constants.RS_NORMAL, False), (constants.RS_NORMAL, ""),
+       (constants.RS_OFFLINE, None)],
+      [(constants.RS_NORMAL, 2), (constants.RS_UNKNOWN, None),
+       (constants.RS_NODATA, None), (constants.RS_NORMAL, "x"),
+       (constants.RS_OFFLINE, None)],
+      [(constants.RS_NORMAL, 3), (constants.RS_UNKNOWN, None),
+       (constants.RS_NORMAL, False), (constants.RS_UNAVAIL, None),
+       (constants.RS_OFFLINE, None)],
+      ])
+
+    self.assertEqual(cli.FormatQueryResult(response, header=True,
+                                           separator="|", verbose=True),
+      (cli.QR_UNKNOWN, [
+      "ID|unk|Unavail|NoData|OffLine",
+      "1|(unknown)|N||(offline)",
+      "2|(unknown)|(nodata)|x|(offline)",
+      "3|(unknown)|N|(unavail)|(offline)",
+      ]))
+    self.assertEqual(cli.FormatQueryResult(response, header=True,
+                                           separator="|", verbose=False),
+      (cli.QR_UNKNOWN, [
+      "ID|unk|Unavail|NoData|OffLine",
+      "1|??|N||*",
+      "2|??|?|x|*",
+      "3|??|N|-|*",
+      ]))
+
+  def testNoData(self):
+    fields = [
+      objects.QueryFieldDefinition(name="id", title="ID",
+                                   kind=constants.QFT_NUMBER),
+      objects.QueryFieldDefinition(name="name", title="Name",
+                                   kind=constants.QFT_TEXT),
+      ]
+
+    response = objects.QueryResponse(fields=fields, data=[])
+
+    self.assertEqual(cli.FormatQueryResult(response, header=True),
+                     (cli.QR_NORMAL, ["ID Name"]))
+
+  def testNoDataWithUnknown(self):
+    fields = [
+      objects.QueryFieldDefinition(name="id", title="ID",
+                                   kind=constants.QFT_NUMBER),
+      objects.QueryFieldDefinition(name="unk", title="unk",
+                                   kind=constants.QFT_UNKNOWN),
+      ]
+
+    response = objects.QueryResponse(fields=fields, data=[])
+
+    self.assertEqual(cli.FormatQueryResult(response, header=False),
+                     (cli.QR_UNKNOWN, []))
+
+  def testStatus(self):
+    fields = [
+      objects.QueryFieldDefinition(name="id", title="ID",
+                                   kind=constants.QFT_NUMBER),
+      objects.QueryFieldDefinition(name="unavail", title="Unavail",
+                                   kind=constants.QFT_BOOL),
+      objects.QueryFieldDefinition(name="nodata", title="NoData",
+                                   kind=constants.QFT_TEXT),
+      objects.QueryFieldDefinition(name="offline", title="OffLine",
+                                   kind=constants.QFT_TEXT),
+      ]
+
+    response = objects.QueryResponse(fields=fields, data=[
+      [(constants.RS_NORMAL, 1), (constants.RS_NORMAL, False),
+       (constants.RS_NORMAL, ""), (constants.RS_OFFLINE, None)],
+      [(constants.RS_NORMAL, 2), (constants.RS_NODATA, None),
+       (constants.RS_NORMAL, "x"), (constants.RS_NORMAL, "abc")],
+      [(constants.RS_NORMAL, 3), (constants.RS_NORMAL, False),
+       (constants.RS_UNAVAIL, None), (constants.RS_OFFLINE, None)],
+      ])
+
+    self.assertEqual(cli.FormatQueryResult(response, header=False,
+                                           separator="|", verbose=True),
+      (cli.QR_INCOMPLETE, [
+      "1|N||(offline)",
+      "2|(nodata)|x|abc",
+      "3|N|(unavail)|(offline)",
+      ]))
+    self.assertEqual(cli.FormatQueryResult(response, header=False,
+                                           separator="|", verbose=False),
+      (cli.QR_INCOMPLETE, [
+      "1|N||*",
+      "2|?|x|abc",
+      "3|N|-|*",
+      ]))
+
+  def testInvalidFieldType(self):
+    fields = [
+      objects.QueryFieldDefinition(name="x", title="x",
+                                   kind="#some#other#type"),
+      ]
+
+    response = objects.QueryResponse(fields=fields, data=[])
+
+    self.assertRaises(NotImplementedError, cli.FormatQueryResult, response)
+
+  def testInvalidFieldStatus(self):
+    fields = [
+      objects.QueryFieldDefinition(name="x", title="x",
+                                   kind=constants.QFT_TEXT),
+      ]
+
+    response = objects.QueryResponse(fields=fields, data=[[(-1, None)]])
+    self.assertRaises(NotImplementedError, cli.FormatQueryResult, response)
+
+    response = objects.QueryResponse(fields=fields, data=[[(-1, "x")]])
+    self.assertRaises(AssertionError, cli.FormatQueryResult, response)
+
+  def testEmptyFieldTitle(self):
+    fields = [
+      objects.QueryFieldDefinition(name="x", title="",
+                                   kind=constants.QFT_TEXT),
+      ]
+
+    response = objects.QueryResponse(fields=fields, data=[])
+    self.assertRaises(AssertionError, cli.FormatQueryResult, response)
 
 
 class _MockJobPollCb(cli.JobPollCbBase, cli.JobPollReportCbBase):

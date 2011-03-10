@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -32,6 +32,7 @@ by a node reboot.  Run from cron or similar.
 # C0103: Invalid name ganeti-watcher
 
 import os
+import os.path
 import sys
 import time
 import logging
@@ -39,6 +40,7 @@ from optparse import OptionParser
 
 from ganeti import utils
 from ganeti import constants
+from ganeti import compat
 from ganeti import serializer
 from ganeti import errors
 from ganeti import opcodes
@@ -390,23 +392,24 @@ class Instance(object):
   """Abstraction for a Virtual Machine instance.
 
   """
-  def __init__(self, name, state, autostart):
+  def __init__(self, name, state, autostart, snodes):
     self.name = name
     self.state = state
     self.autostart = autostart
+    self.snodes = snodes
 
   def Restart(self):
     """Encapsulates the start of an instance.
 
     """
-    op = opcodes.OpStartupInstance(instance_name=self.name, force=False)
+    op = opcodes.OpInstanceStartup(instance_name=self.name, force=False)
     cli.SubmitOpCode(op, cl=client)
 
   def ActivateDisks(self):
     """Encapsulates the activation of all disks of an instance.
 
     """
-    op = opcodes.OpActivateInstanceDisks(instance_name=self.name)
+    op = opcodes.OpInstanceActivateDisks(instance_name=self.name)
     cli.SubmitOpCode(op, cl=client)
 
 
@@ -415,11 +418,11 @@ def GetClusterData():
 
   """
   op1_fields = ["name", "status", "admin_state", "snodes"]
-  op1 = opcodes.OpQueryInstances(output_fields=op1_fields, names=[],
-                                 use_locking=True)
+  op1 = opcodes.OpInstanceQuery(output_fields=op1_fields, names=[],
+                                use_locking=True)
   op2_fields = ["name", "bootid", "offline"]
-  op2 = opcodes.OpQueryNodes(output_fields=op2_fields, names=[],
-                             use_locking=True)
+  op2 = opcodes.OpNodeQuery(output_fields=op2_fields, names=[],
+                            use_locking=True)
 
   job_id = client.SubmitJob([op1, op2])
 
@@ -445,7 +448,7 @@ def GetClusterData():
         smap[node] = []
       smap[node].append(name)
 
-    instances[name] = Instance(name, status, autostart)
+    instances[name] = Instance(name, status, autostart, snodes)
 
   nodes =  dict([(name, (bootid, offline))
                  for name, bootid, offline in all_results[1]])
@@ -575,19 +578,31 @@ class Watcher(object):
           notepad.RemoveInstance(instance)
           logging.info("Restart of %s succeeded", instance.name)
 
-  @staticmethod
-  def VerifyDisks():
+  def _CheckForOfflineNodes(self, instance):
+    """Checks if given instances has any secondary in offline status.
+
+    @param instance: The instance object
+    @return: True if any of the secondary is offline, False otherwise
+
+    """
+    bootids = []
+    for node in instance.snodes:
+      bootids.append(self.bootids[node])
+
+    return compat.any(offline for (_, offline) in bootids)
+
+  def VerifyDisks(self):
     """Run gnt-cluster verify-disks.
 
     """
-    op = opcodes.OpVerifyDisks()
+    op = opcodes.OpClusterVerifyDisks()
     job_id = client.SubmitJob([op])
     result = cli.PollJob(job_id, cl=client, feedback_fn=logging.debug)[0]
     client.ArchiveJob(job_id)
     if not isinstance(result, (tuple, list)):
       logging.error("Can't get a valid result from verify-disks")
       return
-    offline_disk_instances = result[2]
+    offline_disk_instances = result[1]
     if not offline_disk_instances:
       # nothing to do
       return
@@ -595,14 +610,23 @@ class Watcher(object):
                   utils.CommaJoin(offline_disk_instances))
     # we submit only one job, and wait for it. not optimal, but spams
     # less the job queue
-    job = [opcodes.OpActivateInstanceDisks(instance_name=name)
-           for name in offline_disk_instances]
-    job_id = cli.SendJob(job, cl=client)
+    job = []
+    for name in offline_disk_instances:
+      instance = self.instances[name]
+      if (instance.state in HELPLESS_STATES or
+          self._CheckForOfflineNodes(instance)):
+        logging.info("Skip instance %s because it is in helpless state or has"
+                     " one offline secondary", name)
+        continue
+      job.append(opcodes.OpInstanceActivateDisks(instance_name=name))
 
-    try:
-      cli.PollJob(job_id, cl=client, feedback_fn=logging.debug)
-    except Exception: # pylint: disable-msg=W0703
-      logging.exception("Error while activating disks")
+    if job:
+      job_id = cli.SendJob(job, cl=client)
+
+      try:
+        cli.PollJob(job_id, cl=client, feedback_fn=logging.debug)
+      except Exception: # pylint: disable-msg=W0703
+        logging.exception("Error while activating disks")
 
 
 def OpenStateFile(path):
@@ -691,8 +715,8 @@ def Main():
     print >> sys.stderr, ("Usage: %s [-f] " % sys.argv[0])
     return constants.EXIT_FAILURE
 
-  utils.SetupLogging(constants.LOG_WATCHER, debug=options.debug,
-                     stderr_logging=options.debug)
+  utils.SetupLogging(constants.LOG_WATCHER, sys.argv[0],
+                     debug=options.debug, stderr_logging=options.debug)
 
   if ShouldPause() and not options.ignore_pause:
     logging.debug("Pause has been set, exiting")

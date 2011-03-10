@@ -1,0 +1,238 @@
+.TH gnt-group 8 "" "Ganeti" "Version @GANETI_VERSION@"
+.SH Name
+.PP
+gnt-group - Ganeti node-group administration
+.SH Synopsis
+.PP
+\f[B]gnt-group\f[] {command} [arguments...]
+.SH DESCRIPTION
+.PP
+The \f[B]gnt-group\f[] command is used for node group
+administration in the Ganeti system.
+.SH COMMANDS
+.SS ADD
+.PP
+\f[B]add\f[]
+.PD 0
+.P
+.PD
+[--node-parameters=\f[I]NDPARAMS\f[]]
+.PD 0
+.P
+.PD
+[--alloc-policy=\f[I]POLICY\f[]]
+.PD 0
+.P
+.PD
+{\f[I]group\f[]}
+.PP
+Creates a new group with the given name. The node group will be
+initially empty; to add nodes to it, use
+\f[B]gnt-group\ assign-nodes\f[].
+.PP
+The \f[B]--node-parameters\f[] option allows you to set default
+node parameters for nodes in the group. Please see
+\f[B]ganeti\f[](7) for more information about supported key=value
+pairs.
+.PP
+The \f[B]--alloc-policy\f[] option allows you to set an allocation
+policy for the group at creation time. Possible values are:
+.TP
+.B unallocable
+nodes in the group should not be candidates for instance
+allocation, and the operation (e.g., instance creation) should fail
+if only groups in this state could be found to satisfy the
+requirements.
+.RS
+.RE
+.TP
+.B last_resort
+nodes in the group should not be used for instance allocations,
+unless this would be the only way to have the operation succeed.
+.RS
+.RE
+.TP
+.B preferred
+nodes in the group can be used freely for allocation of instances
+(this is the default). Note that prioritization among groups in
+this state will be deferred to the iallocator plugin that\[aq]s
+being used.
+.RS
+.RE
+.SS ASSIGN-NODES
+.PP
+\f[B]assign-nodes\f[]
+.PD 0
+.P
+.PD
+[--force]
+.PD 0
+.P
+.PD
+{\f[I]group\f[]}
+{\f[I]node\f[]...}
+.PP
+Assigns one or more nodes to the specified group, moving them from
+their original group (or groups).
+.PP
+By default, this command will refuse to proceed if the move would
+split between groups any instance that was not previously split (a
+split instance is an instance with a mirrored disk template, e.g.
+DRBD, that has the primary and secondary nodes in different node
+groups). You can force the operation with \f[B]--force\f[].
+.SS MODIFY
+.PP
+\f[B]modify\f[]
+.PD 0
+.P
+.PD
+[--node-parameters=\f[I]NDPARAMS\f[]]
+.PD 0
+.P
+.PD
+[--alloc-policy=\f[I]POLICY\f[]]
+.PD 0
+.P
+.PD
+{\f[I]group\f[]}
+.PP
+Modifies some parameters from the node group.
+.PP
+The \f[B]--node-parameters\f[] and \f[B]--alloc-policy\f[] optiosn
+are documented in the \f[B]add\f[] command above.
+.SS REMOVE
+.PP
+\f[B]remove\f[] {\f[I]group\f[]}
+.PP
+Deletes the indicated node group, which must be empty. There must
+always be at least one group, so the last group cannot be removed.
+.SS LIST
+.PP
+\f[B]list\f[] [--no-headers] [--separator=\f[I]SEPARATOR\f[]]
+[-v]
+.PD 0
+.P
+.PD
+[-o \f[I][+]FIELD,...\f[]] [group...]
+.PP
+Lists all existing node groups in the cluster.
+.PP
+The \f[B]--no-headers\f[] option will skip the initial header line.
+The \f[B]--separator\f[] option takes an argument which denotes
+what will be used between the output fields. Both these options are
+to help scripting.
+.PP
+The \f[B]-v\f[] option activates verbose mode, which changes the
+display of special field states (see \f[B]ganeti(7)\f[]).
+.PP
+The \f[B]-o\f[] option takes a comma-separated list of output
+fields. If the value of the option starts with the character
+\f[B]+\f[], the new fields will be added to the default list. This
+allows to quickly see the default list plus a few other fields,
+instead of retyping the entire list of fields.
+.PP
+The available fields and their meaning are:
+.TP
+.B name
+the group name
+.RS
+.RE
+.TP
+.B uuid
+the group\[aq]s UUID
+.RS
+.RE
+.TP
+.B node_cnt
+the number of nodes in the node group
+.RS
+.RE
+.TP
+.B node_list
+the list of nodes that belong to this group
+.RS
+.RE
+.TP
+.B pinst_cnt
+the number of primary instances in the group (i.e., the number of
+primary instances nodes in this group have)
+.RS
+.RE
+.TP
+.B pinst_list
+the list of primary instances in the group
+.RS
+.RE
+.TP
+.B alloc_policy
+the current allocation policy for the group
+.RS
+.RE
+.TP
+.B ctime
+the creation time of the group; note that this field contains
+spaces and as such it\[aq]s harder to parse
+.RS
+.PP
+if this attribute is not present (e.g. when upgrading from older
+versions), then "N/A" will be shown instead
+.RE
+.TP
+.B mtime
+the last modification time of the group; note that this field
+contains spaces and as such it\[aq]s harder to parse
+.RS
+.RE
+.TP
+.B serial_no
+the so called \[aq]serial number\[aq] of the group; this is a
+numeric field that is incremented each time the node is modified,
+and it can be used to detect modifications
+.RS
+.RE
+.PP
+If no group names are given, then all groups are included.
+Otherwise, only the named groups will be listed.
+.SS LIST-FIELDS
+.PP
+\f[B]list-fields\f[] [field...]
+.PP
+List available fields for node groups.
+.SS RENAME
+.PP
+\f[B]rename\f[] {\f[I]oldname\f[]} {\f[I]newname\f[]}
+.PP
+Renames a given group from \f[I]oldname\f[] to \f[I]newname\f[].
+.SH REPORTING BUGS
+.PP
+Report bugs to project website (http://code.google.com/p/ganeti/)
+or contact the developers using the
+Ganeti mailing list (ganeti@googlegroups.com).
+.SH SEE ALSO
+.PP
+Ganeti overview and specifications: \f[B]ganeti\f[](7) (general
+overview), \f[B]ganeti-os-interface\f[](7) (guest OS definitions).
+.PP
+Ganeti commands: \f[B]gnt-cluster\f[](8) (cluster-wide commands),
+\f[B]gnt-job\f[](8) (job-related commands), \f[B]gnt-node\f[](8)
+(node-related commands), \f[B]gnt-instance\f[](8) (instance
+commands), \f[B]gnt-os\f[](8) (guest OS commands),
+\f[B]gnt-group\f[](8) (node group commands), \f[B]gnt-backup\f[](8)
+(instance import/export commands), \f[B]gnt-debug\f[](8) (debug
+commands).
+.PP
+Ganeti daemons: \f[B]ganeti-watcher\f[](8) (automatic instance
+restarter), \f[B]ganeti-cleaner\f[](8) (job queue cleaner),
+\f[B]ganeti-noded\f[](8) (node daemon), \f[B]ganeti-masterd\f[](8)
+(master daemon), \f[B]ganeti-rapi\f[](8) (remote API daemon).
+.SH COPYRIGHT
+.PP
+Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc. Permission
+is granted to copy, distribute and/or modify under the terms of the
+GNU General Public License as published by the Free Software
+Foundation; either version 2 of the License, or (at your option)
+any later version.
+.PP
+On Debian systems, the complete text of the GNU General Public
+License can be found in /usr/share/common-licenses/GPL.
+

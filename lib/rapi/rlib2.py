@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -70,7 +70,14 @@ N_FIELDS = ["name", "offline", "master_candidate", "drained",
             "pip", "sip", "role",
             "pinst_list", "sinst_list",
             "master_capable", "vm_capable",
+            "group.uuid",
             ] + _COMMON_FIELDS
+
+G_FIELDS = ["name", "uuid",
+            "alloc_policy",
+            "node_cnt", "node_list",
+            "ctime", "mtime", "serial_no",
+            ]  # "tags" is missing to be able to use _COMMON_FIELDS here.
 
 _NR_DRAINED = "drained"
 _NR_MASTER_CANDIATE = "master-candidate"
@@ -92,6 +99,9 @@ _REQ_DATA_VERSION = "__version__"
 # Feature string for instance creation request data version 1
 _INST_CREATE_REQV1 = "instance-create-reqv1"
 
+# Feature string for instance reinstall request version 1
+_INST_REINSTALL_REQV1 = "instance-reinstall-reqv1"
+
 # Timeout for /2/jobs/[job_id]/wait. Gives job up to 10 seconds to change.
 _WFJC_TIMEOUT = 10
 
@@ -112,7 +122,7 @@ class R_version(baserlib.R_Generic):
 
 
 class R_2_info(baserlib.R_Generic):
-  """Cluster info.
+  """/2/info resource.
 
   """
   @staticmethod
@@ -133,7 +143,7 @@ class R_2_features(baserlib.R_Generic):
     """Returns list of optional RAPI features implemented.
 
     """
-    return [_INST_CREATE_REQV1]
+    return [_INST_CREATE_REQV1, _INST_REINSTALL_REQV1]
 
 
 class R_2_os(baserlib.R_Generic):
@@ -150,7 +160,7 @@ class R_2_os(baserlib.R_Generic):
 
     """
     cl = baserlib.GetClient()
-    op = opcodes.OpDiagnoseOS(output_fields=["name", "variants"], names=[])
+    op = opcodes.OpOsDiagnose(output_fields=["name", "variants"], names=[])
     job_id = baserlib.SubmitJob([op], cl)
     # we use custom feedback function, instead of print we log the status
     result = cli.PollJob(job_id, cl, feedback_fn=baserlib.FeedbackFn)
@@ -175,7 +185,23 @@ class R_2_redist_config(baserlib.R_Generic):
     """Redistribute configuration to all nodes.
 
     """
-    return baserlib.SubmitJob([opcodes.OpRedistributeConfig()])
+    return baserlib.SubmitJob([opcodes.OpClusterRedistConf()])
+
+
+class R_2_cluster_modify(baserlib.R_Generic):
+  """/2/modify resource.
+
+  """
+  def PUT(self):
+    """Modifies cluster parameters.
+
+    @return: a job id
+
+    """
+    op = baserlib.FillOpcode(opcodes.OpClusterSetParams, self.request_body,
+                             None)
+
+    return baserlib.SubmitJob([op])
 
 
 class R_2_jobs(baserlib.R_Generic):
@@ -303,7 +329,7 @@ class R_2_nodes(baserlib.R_Generic):
 
 
 class R_2_nodes_name(baserlib.R_Generic):
-  """/2/nodes/[node_name] resources.
+  """/2/nodes/[node_name] resource.
 
   """
   def GET(self):
@@ -369,7 +395,7 @@ class R_2_nodes_name_role(baserlib.R_Generic):
     else:
       raise http.HttpBadRequest("Can't set '%s' role" % role)
 
-    op = opcodes.OpSetNodeParams(node_name=node_name,
+    op = opcodes.OpNodeSetParams(node_name=node_name,
                                  master_candidate=candidate,
                                  offline=offline,
                                  drained=drained,
@@ -394,23 +420,23 @@ class R_2_nodes_name_evacuate(baserlib.R_Generic):
 
     cl = baserlib.GetClient()
 
-    op = opcodes.OpNodeEvacuationStrategy(nodes=[node_name],
-                                          iallocator=iallocator,
-                                          remote_node=remote_node)
+    op = opcodes.OpNodeEvacStrategy(nodes=[node_name],
+                                    iallocator=iallocator,
+                                    remote_node=remote_node)
 
     job_id = baserlib.SubmitJob([op], cl)
     # we use custom feedback function, instead of print we log the status
     result = cli.PollJob(job_id, cl, feedback_fn=baserlib.FeedbackFn)
 
     jobs = []
-    for iname, node in result:
+    for iname, node in result[0]:
       if dry_run:
         jid = None
       else:
-        op = opcodes.OpReplaceDisks(instance_name=iname,
-                                    remote_node=node, disks=[],
-                                    mode=constants.REPLACE_DISK_CHG,
-                                    early_release=early_r)
+        op = opcodes.OpInstanceReplaceDisks(instance_name=iname,
+                                            remote_node=node, disks=[],
+                                            mode=constants.REPLACE_DISK_CHG,
+                                            early_release=early_r)
         jid = baserlib.SubmitJob([op])
       jobs.append((jid, iname, node))
 
@@ -438,16 +464,16 @@ class R_2_nodes_name_migrate(baserlib.R_Generic):
     else:
       mode = self._checkStringVariable("mode", default=None)
 
-    op = opcodes.OpMigrateNode(node_name=node_name, mode=mode)
+    op = opcodes.OpNodeMigrate(node_name=node_name, mode=mode)
 
     return baserlib.SubmitJob([op])
 
 
 class R_2_nodes_name_storage(baserlib.R_Generic):
-  """/2/nodes/[node_name]/storage ressource.
+  """/2/nodes/[node_name]/storage resource.
 
   """
-  # LUQueryNodeStorage acquires locks, hence restricting access to GET
+  # LUNodeQueryStorage acquires locks, hence restricting access to GET
   GET_ACCESS = [rapi.RAPI_ACCESS_WRITE]
 
   def GET(self):
@@ -463,14 +489,14 @@ class R_2_nodes_name_storage(baserlib.R_Generic):
       raise http.HttpBadRequest("Missing the required 'output_fields'"
                                 " parameter")
 
-    op = opcodes.OpQueryNodeStorage(nodes=[node_name],
+    op = opcodes.OpNodeQueryStorage(nodes=[node_name],
                                     storage_type=storage_type,
                                     output_fields=output_fields.split(","))
     return baserlib.SubmitJob([op])
 
 
 class R_2_nodes_name_storage_modify(baserlib.R_Generic):
-  """/2/nodes/[node_name]/storage/modify ressource.
+  """/2/nodes/[node_name]/storage/modify resource.
 
   """
   def PUT(self):
@@ -492,7 +518,7 @@ class R_2_nodes_name_storage_modify(baserlib.R_Generic):
       changes[constants.SF_ALLOCATABLE] = \
         bool(self._checkIntVariable("allocatable", default=1))
 
-    op = opcodes.OpModifyNodeStorage(node_name=node_name,
+    op = opcodes.OpNodeModifyStorage(node_name=node_name,
                                      storage_type=storage_type,
                                      name=name,
                                      changes=changes)
@@ -500,7 +526,7 @@ class R_2_nodes_name_storage_modify(baserlib.R_Generic):
 
 
 class R_2_nodes_name_storage_repair(baserlib.R_Generic):
-  """/2/nodes/[node_name]/storage/repair ressource.
+  """/2/nodes/[node_name]/storage/repair resource.
 
   """
   def PUT(self):
@@ -522,10 +548,166 @@ class R_2_nodes_name_storage_repair(baserlib.R_Generic):
     return baserlib.SubmitJob([op])
 
 
+def _ParseCreateGroupRequest(data, dry_run):
+  """Parses a request for creating a node group.
+
+  @rtype: L{opcodes.OpGroupAdd}
+  @return: Group creation opcode
+
+  """
+  group_name = baserlib.CheckParameter(data, "name")
+  alloc_policy = baserlib.CheckParameter(data, "alloc_policy", default=None)
+
+  return opcodes.OpGroupAdd(group_name=group_name,
+                            alloc_policy=alloc_policy,
+                            dry_run=dry_run)
+
+
+class R_2_groups(baserlib.R_Generic):
+  """/2/groups resource.
+
+  """
+  def GET(self):
+    """Returns a list of all node groups.
+
+    """
+    client = baserlib.GetClient()
+
+    if self.useBulk():
+      bulkdata = client.QueryGroups([], G_FIELDS, False)
+      return baserlib.MapBulkFields(bulkdata, G_FIELDS)
+    else:
+      data = client.QueryGroups([], ["name"], False)
+      groupnames = [row[0] for row in data]
+      return baserlib.BuildUriList(groupnames, "/2/groups/%s",
+                                   uri_fields=("name", "uri"))
+
+  def POST(self):
+    """Create a node group.
+
+    @return: a job id
+
+    """
+    baserlib.CheckType(self.request_body, dict, "Body contents")
+    op = _ParseCreateGroupRequest(self.request_body, self.dryRun())
+    return baserlib.SubmitJob([op])
+
+
+class R_2_groups_name(baserlib.R_Generic):
+  """/2/groups/[group_name] resource.
+
+  """
+  def GET(self):
+    """Send information about a node group.
+
+    """
+    group_name = self.items[0]
+    client = baserlib.GetClient()
+
+    result = baserlib.HandleItemQueryErrors(client.QueryGroups,
+                                            names=[group_name], fields=G_FIELDS,
+                                            use_locking=self.useLocking())
+
+    return baserlib.MapFields(G_FIELDS, result[0])
+
+  def DELETE(self):
+    """Delete a node group.
+
+    """
+    op = opcodes.OpGroupRemove(group_name=self.items[0],
+                               dry_run=bool(self.dryRun()))
+
+    return baserlib.SubmitJob([op])
+
+
+def _ParseModifyGroupRequest(name, data):
+  """Parses a request for modifying a node group.
+
+  @rtype: L{opcodes.OpGroupSetParams}
+  @return: Group modify opcode
+
+  """
+  alloc_policy = baserlib.CheckParameter(data, "alloc_policy", default=None)
+  return opcodes.OpGroupSetParams(group_name=name, alloc_policy=alloc_policy)
+
+
+class R_2_groups_name_modify(baserlib.R_Generic):
+  """/2/groups/[group_name]/modify resource.
+
+  """
+  def PUT(self):
+    """Changes some parameters of node group.
+
+    @return: a job id
+
+    """
+    baserlib.CheckType(self.request_body, dict, "Body contents")
+
+    op = _ParseModifyGroupRequest(self.items[0], self.request_body)
+
+    return baserlib.SubmitJob([op])
+
+
+def _ParseRenameGroupRequest(name, data, dry_run):
+  """Parses a request for renaming a node group.
+
+  @type name: string
+  @param name: name of the node group to rename
+  @type data: dict
+  @param data: the body received by the rename request
+  @type dry_run: bool
+  @param dry_run: whether to perform a dry run
+
+  @rtype: L{opcodes.OpGroupRename}
+  @return: Node group rename opcode
+
+  """
+  old_name = name
+  new_name = baserlib.CheckParameter(data, "new_name")
+
+  return opcodes.OpGroupRename(old_name=old_name, new_name=new_name,
+                               dry_run=dry_run)
+
+
+class R_2_groups_name_rename(baserlib.R_Generic):
+  """/2/groups/[group_name]/rename resource.
+
+  """
+  def PUT(self):
+    """Changes the name of a node group.
+
+    @return: a job id
+
+    """
+    baserlib.CheckType(self.request_body, dict, "Body contents")
+    op = _ParseRenameGroupRequest(self.items[0], self.request_body,
+                                  self.dryRun())
+    return baserlib.SubmitJob([op])
+
+
+class R_2_groups_name_assign_nodes(baserlib.R_Generic):
+  """/2/groups/[group_name]/assign-nodes resource.
+
+  """
+  def PUT(self):
+    """Assigns nodes to a group.
+
+    @return: a job id
+
+    """
+    op = baserlib.FillOpcode(opcodes.OpGroupAssignNodes, self.request_body, {
+      "group_name": self.items[0],
+      "dry_run": self.dryRun(),
+      "force": self.useForce(),
+      })
+
+    return baserlib.SubmitJob([op])
+
+
 def _ParseInstanceCreateRequestVersion1(data, dry_run):
   """Parses an instance creation request version 1.
 
-  @rtype: L{opcodes.OpCreateInstance}
+  @rtype: L{opcodes.OpInstanceCreate}
   @return: Instance creation opcode
 
   """
@@ -587,13 +769,14 @@ def _ParseInstanceCreateRequestVersion1(data, dry_run):
   beparams = baserlib.CheckParameter(data, "beparams", default={})
   utils.ForceDictType(beparams, constants.BES_PARAMETER_TYPES)
 
-  return opcodes.OpCreateInstance(
+  return opcodes.OpInstanceCreate(
     mode=baserlib.CheckParameter(data, "mode"),
     instance_name=baserlib.CheckParameter(data, "name"),
     os_type=baserlib.CheckParameter(data, "os"),
     osparams=baserlib.CheckParameter(data, "osparams", default={}),
     force_variant=baserlib.CheckParameter(data, "force_variant",
                                           default=False),
+    no_install=baserlib.CheckParameter(data, "no_install", default=False),
     pnode=baserlib.CheckParameter(data, "pnode", default=None),
     snode=baserlib.CheckParameter(data, "snode", default=None),
     disk_template=baserlib.CheckParameter(data, "disk_template"),
@@ -648,7 +831,7 @@ class R_2_instances(baserlib.R_Generic):
 
     Request data version 0 is deprecated and should not be used anymore.
 
-    @rtype: L{opcodes.OpCreateInstance}
+    @rtype: L{opcodes.OpInstanceCreate}
     @return: Instance creation opcode
 
     """
@@ -682,7 +865,7 @@ class R_2_instances(baserlib.R_Generic):
       nics[0]["bridge"] = fn("bridge")
 
     # Do not modify anymore, request data version 0 is deprecated
-    return opcodes.OpCreateInstance(
+    return opcodes.OpInstanceCreate(
       mode=constants.INSTANCE_CREATE,
       instance_name=fn('name'),
       disks=disks,
@@ -729,7 +912,7 @@ class R_2_instances(baserlib.R_Generic):
 
 
 class R_2_instances_name(baserlib.R_Generic):
-  """/2/instances/[instance_name] resources.
+  """/2/instances/[instance_name] resource.
 
   """
   def GET(self):
@@ -750,7 +933,7 @@ class R_2_instances_name(baserlib.R_Generic):
     """Delete an instance.
 
     """
-    op = opcodes.OpRemoveInstance(instance_name=self.items[0],
+    op = opcodes.OpInstanceRemove(instance_name=self.items[0],
                                   ignore_failures=False,
                                   dry_run=bool(self.dryRun()))
     return baserlib.SubmitJob([op])
@@ -767,7 +950,7 @@ class R_2_instances_name_info(baserlib.R_Generic):
     instance_name = self.items[0]
     static = bool(self._checkIntVariable("static", default=0))
 
-    op = opcodes.OpQueryInstanceData(instances=[instance_name],
+    op = opcodes.OpInstanceQueryData(instances=[instance_name],
                                      static=static)
     return baserlib.SubmitJob([op])
 
@@ -789,7 +972,7 @@ class R_2_instances_name_reboot(baserlib.R_Generic):
     reboot_type = self.queryargs.get('type',
                                      [constants.INSTANCE_REBOOT_HARD])[0]
     ignore_secondaries = bool(self._checkIntVariable('ignore_secondaries'))
-    op = opcodes.OpRebootInstance(instance_name=instance_name,
+    op = opcodes.OpInstanceReboot(instance_name=instance_name,
                                   reboot_type=reboot_type,
                                   ignore_secondaries=ignore_secondaries,
                                   dry_run=bool(self.dryRun()))
@@ -812,7 +995,7 @@ class R_2_instances_name_startup(baserlib.R_Generic):
     """
     instance_name = self.items[0]
     force_startup = bool(self._checkIntVariable('force'))
-    op = opcodes.OpStartupInstance(instance_name=instance_name,
+    op = opcodes.OpInstanceStartup(instance_name=instance_name,
                                    force=force_startup,
                                    dry_run=bool(self.dryRun()))
 
@@ -830,10 +1013,34 @@ class R_2_instances_name_shutdown(baserlib.R_Generic):
 
     """
     instance_name = self.items[0]
-    op = opcodes.OpShutdownInstance(instance_name=instance_name,
+    op = opcodes.OpInstanceShutdown(instance_name=instance_name,
                                     dry_run=bool(self.dryRun()))
 
     return baserlib.SubmitJob([op])
+
+
+def _ParseInstanceReinstallRequest(name, data):
+  """Parses a request for reinstalling an instance.
+
+  """
+  if not isinstance(data, dict):
+    raise http.HttpBadRequest("Invalid body contents, not a dictionary")
+
+  ostype = baserlib.CheckParameter(data, "os", default=None)
+  start = baserlib.CheckParameter(data, "start", exptype=bool,
+                                  default=True)
+  osparams = baserlib.CheckParameter(data, "osparams", default=None)
+
+  ops = [
+    opcodes.OpInstanceShutdown(instance_name=name),
+    opcodes.OpInstanceReinstall(instance_name=name, os_type=ostype,
+                                osparams=osparams),
+    ]
+
+  if start:
+    ops.append(opcodes.OpInstanceStartup(instance_name=name, force=False))
+
+  return ops
 
 
 class R_2_instances_name_reinstall(baserlib.R_Generic):
@@ -850,16 +1057,22 @@ class R_2_instances_name_reinstall(baserlib.R_Generic):
     automatically.
 
     """
-    instance_name = self.items[0]
-    ostype = self._checkStringVariable('os')
-    nostartup = self._checkIntVariable('nostartup')
-    ops = [
-      opcodes.OpShutdownInstance(instance_name=instance_name),
-      opcodes.OpReinstallInstance(instance_name=instance_name, os_type=ostype),
-      ]
-    if not nostartup:
-      ops.append(opcodes.OpStartupInstance(instance_name=instance_name,
-                                           force=False))
+    if self.request_body:
+      if self.queryargs:
+        raise http.HttpBadRequest("Can't combine query and body parameters")
+
+      body = self.request_body
+    elif self.queryargs:
+      # Legacy interface, do not modify/extend
+      body = {
+        "os": self._checkStringVariable("os"),
+        "start": not self._checkIntVariable("nostartup"),
+        }
+    else:
+      body = {}
+
+    ops = _ParseInstanceReinstallRequest(self.items[0], body)
+
     return baserlib.SubmitJob(ops)
 
 
@@ -885,11 +1098,11 @@ class R_2_instances_name_replace_disks(baserlib.R_Generic):
     else:
       disks = []
 
-    op = opcodes.OpReplaceDisks(instance_name=instance_name,
-                                remote_node=remote_node,
-                                mode=mode,
-                                disks=disks,
-                                iallocator=iallocator)
+    op = opcodes.OpInstanceReplaceDisks(instance_name=instance_name,
+                                        remote_node=remote_node,
+                                        mode=mode,
+                                        disks=disks,
+                                        iallocator=iallocator)
 
     return baserlib.SubmitJob([op])
 
@@ -907,7 +1120,7 @@ class R_2_instances_name_activate_disks(baserlib.R_Generic):
     instance_name = self.items[0]
     ignore_size = bool(self._checkIntVariable('ignore_size'))
 
-    op = opcodes.OpActivateInstanceDisks(instance_name=instance_name,
+    op = opcodes.OpInstanceActivateDisks(instance_name=instance_name,
                                          ignore_size=ignore_size)
 
     return baserlib.SubmitJob([op])
@@ -923,7 +1136,7 @@ class R_2_instances_name_deactivate_disks(baserlib.R_Generic):
     """
     instance_name = self.items[0]
 
-    op = opcodes.OpDeactivateInstanceDisks(instance_name=instance_name)
+    op = opcodes.OpInstanceDeactivateDisks(instance_name=instance_name)
 
     return baserlib.SubmitJob([op])
 
@@ -941,7 +1154,7 @@ class R_2_instances_name_prepare_export(baserlib.R_Generic):
     instance_name = self.items[0]
     mode = self._checkStringVariable("mode")
 
-    op = opcodes.OpPrepareExport(instance_name=instance_name,
+    op = opcodes.OpBackupPrepare(instance_name=instance_name,
                                  mode=mode)
 
     return baserlib.SubmitJob([op])
@@ -950,7 +1163,7 @@ class R_2_instances_name_prepare_export(baserlib.R_Generic):
 def _ParseExportInstanceRequest(name, data):
   """Parses a request for an instance export.
 
-  @rtype: L{opcodes.OpExportInstance}
+  @rtype: L{opcodes.OpBackupExport}
   @return: Instance export opcode
 
   """
@@ -964,13 +1177,13 @@ def _ParseExportInstanceRequest(name, data):
   destination_x509_ca = baserlib.CheckParameter(data, "destination_x509_ca",
                                                 default=None)
 
-  return opcodes.OpExportInstance(instance_name=name,
-                                  mode=mode,
-                                  target_node=target_node,
-                                  shutdown=shutdown,
-                                  remove_instance=remove_instance,
-                                  x509_key_name=x509_key_name,
-                                  destination_x509_ca=destination_x509_ca)
+  return opcodes.OpBackupExport(instance_name=name,
+                                mode=mode,
+                                target_node=target_node,
+                                shutdown=shutdown,
+                                remove_instance=remove_instance,
+                                x509_key_name=x509_key_name,
+                                destination_x509_ca=destination_x509_ca)
 
 
 class R_2_instances_name_export(baserlib.R_Generic):
@@ -994,7 +1207,7 @@ class R_2_instances_name_export(baserlib.R_Generic):
 def _ParseMigrateInstanceRequest(name, data):
   """Parses a request for an instance migration.
 
-  @rtype: L{opcodes.OpMigrateInstance}
+  @rtype: L{opcodes.OpInstanceMigrate}
   @return: Instance migration opcode
 
   """
@@ -1002,7 +1215,7 @@ def _ParseMigrateInstanceRequest(name, data):
   cleanup = baserlib.CheckParameter(data, "cleanup", exptype=bool,
                                     default=False)
 
-  return opcodes.OpMigrateInstance(instance_name=name, mode=mode,
+  return opcodes.OpInstanceMigrate(instance_name=name, mode=mode,
                                    cleanup=cleanup)
 
 
@@ -1026,7 +1239,7 @@ class R_2_instances_name_migrate(baserlib.R_Generic):
 def _ParseRenameInstanceRequest(name, data):
   """Parses a request for renaming an instance.
 
-  @rtype: L{opcodes.OpRenameInstance}
+  @rtype: L{opcodes.OpInstanceRename}
   @return: Instance rename opcode
 
   """
@@ -1034,7 +1247,7 @@ def _ParseRenameInstanceRequest(name, data):
   ip_check = baserlib.CheckParameter(data, "ip_check", default=True)
   name_check = baserlib.CheckParameter(data, "name_check", default=True)
 
-  return opcodes.OpRenameInstance(instance_name=name, new_name=new_name,
+  return opcodes.OpInstanceRename(instance_name=name, new_name=new_name,
                                   name_check=name_check, ip_check=ip_check)
 
 
@@ -1058,7 +1271,7 @@ class R_2_instances_name_rename(baserlib.R_Generic):
 def _ParseModifyInstanceRequest(name, data):
   """Parses a request for modifying an instance.
 
-  @rtype: L{opcodes.OpSetInstanceParams}
+  @rtype: L{opcodes.OpInstanceSetParams}
   @return: Instance modify opcode
 
   """
@@ -1080,7 +1293,7 @@ def _ParseModifyInstanceRequest(name, data):
   utils.ForceDictType(beparams, constants.BES_PARAMETER_TYPES,
                       allowed_values=[constants.VALUE_DEFAULT])
 
-  return opcodes.OpSetInstanceParams(instance_name=name, hvparams=hvparams,
+  return opcodes.OpInstanceSetParams(instance_name=name, hvparams=hvparams,
                                      beparams=beparams, osparams=osparams,
                                      force=force, nics=nics, disks=disks,
                                      disk_template=disk_template,
@@ -1103,6 +1316,48 @@ class R_2_instances_name_modify(baserlib.R_Generic):
     op = _ParseModifyInstanceRequest(self.items[0], self.request_body)
 
     return baserlib.SubmitJob([op])
+
+
+class R_2_instances_name_disk_grow(baserlib.R_Generic):
+  """/2/instances/[instance_name]/disk/[disk_index]/grow resource.
+
+  """
+  def POST(self):
+    """Increases the size of an instance disk.
+
+    @return: a job id
+
+    """
+    op = baserlib.FillOpcode(opcodes.OpInstanceGrowDisk, self.request_body, {
+      "instance_name": self.items[0],
+      "disk": int(self.items[1]),
+      })
+
+    return baserlib.SubmitJob([op])
+
+
+class R_2_instances_name_console(baserlib.R_Generic):
+  """/2/instances/[instance_name]/console resource.
+
+  """
+  GET_ACCESS = [rapi.RAPI_ACCESS_WRITE]
+
+  def GET(self):
+    """Request information for connecting to instance's console.
+
+    @return: Serialized instance console description, see
+             L{objects.InstanceConsole}
+
+    """
+    client = baserlib.GetClient()
+
+    ((console, ), ) = client.QueryInstances([self.items[0]], ["console"], False)
+
+    if console is None:
+      raise http.HttpServiceUnavailable("Instance console unavailable")
+
+    assert isinstance(console, dict)
+    return console
 
 
 class _R_Tags(baserlib.R_Generic):
@@ -1189,7 +1444,7 @@ class R_2_nodes_name_tags(_R_Tags):
 
 
 class R_2_tags(_R_Tags):
-  """ /2/instances/tags resource.
+  """ /2/tags resource.
 
   Manages cluster tags.
 

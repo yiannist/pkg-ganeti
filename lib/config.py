@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -177,6 +177,18 @@ class ConfigWriter:
     byte3 = random.randrange(0, 256)
     mac = "%s:%02x:%02x:%02x" % (prefix, byte1, byte2, byte3)
     return mac
+
+  @locking.ssynchronized(_config_lock, shared=1)
+  def GetNdParams(self, node):
+    """Get the node params populated with cluster defaults.
+
+    @type node: L{object.Node}
+    @param node: The node we want to know the params for
+    @return: A dict with the filled in node params
+
+    """
+    nodegroup = self._UnlockedGetNodeGroup(node.group)
+    return self._config_data.cluster.FillND(node, nodegroup)
 
   @locking.ssynchronized(_config_lock, shared=1)
   def GenerateMAC(self, ec_id):
@@ -355,29 +367,52 @@ class ConfigWriter:
         configuration errors
 
     """
+    # pylint: disable-msg=R0914
     result = []
     seen_macs = []
     ports = {}
     data = self._config_data
+    cluster = data.cluster
     seen_lids = []
     seen_pids = []
 
     # global cluster checks
-    if not data.cluster.enabled_hypervisors:
+    if not cluster.enabled_hypervisors:
       result.append("enabled hypervisors list doesn't have any entries")
-    invalid_hvs = set(data.cluster.enabled_hypervisors) - constants.HYPER_TYPES
+    invalid_hvs = set(cluster.enabled_hypervisors) - constants.HYPER_TYPES
     if invalid_hvs:
       result.append("enabled hypervisors contains invalid entries: %s" %
                     invalid_hvs)
-    missing_hvp = (set(data.cluster.enabled_hypervisors) -
-                   set(data.cluster.hvparams.keys()))
+    missing_hvp = (set(cluster.enabled_hypervisors) -
+                   set(cluster.hvparams.keys()))
     if missing_hvp:
       result.append("hypervisor parameters missing for the enabled"
                     " hypervisor(s) %s" % utils.CommaJoin(missing_hvp))
 
-    if data.cluster.master_node not in data.nodes:
+    if cluster.master_node not in data.nodes:
       result.append("cluster has invalid primary node '%s'" %
-                    data.cluster.master_node)
+                    cluster.master_node)
+
+    def _helper(owner, attr, value, template):
+      try:
+        utils.ForceDictType(value, template)
+      except errors.GenericError, err:
+        result.append("%s has invalid %s: %s" % (owner, attr, err))
+
+    def _helper_nic(owner, params):
+      try:
+        objects.NIC.CheckParameterSyntax(params)
+      except errors.ConfigurationError, err:
+        result.append("%s has invalid nicparams: %s" % (owner, err))
+
+    # check cluster parameters
+    _helper("cluster", "beparams", cluster.SimpleFillBE({}),
+            constants.BES_PARAMETER_TYPES)
+    _helper("cluster", "nicparams", cluster.SimpleFillNIC({}),
+            constants.NICS_PARAMETER_TYPES)
+    _helper_nic("cluster", cluster.SimpleFillNIC({}))
+    _helper("cluster", "ndparams", cluster.SimpleFillND({}),
+            constants.NDS_PARAMETER_TYPES)
 
     # per-instance checks
     for instance_name in data.instances:
@@ -398,6 +433,17 @@ class ConfigWriter:
                         (instance_name, idx, nic.mac))
         else:
           seen_macs.append(nic.mac)
+        if nic.nicparams:
+          filled = cluster.SimpleFillNIC(nic.nicparams)
+          owner = "instance %s nic %d" % (instance.name, idx)
+          _helper(owner, "nicparams",
+                  filled, constants.NICS_PARAMETER_TYPES)
+          _helper_nic(owner, filled)
+
+      # parameter checks
+      if instance.beparams:
+        _helper("instance %s" % instance.name, "beparams",
+                cluster.FillBE(instance), constants.BES_PARAMETER_TYPES)
 
       # gather the drbd ports for duplicate checks
       for dsk in instance.disks:
@@ -420,7 +466,7 @@ class ConfigWriter:
         result.extend(self._CheckDiskIDs(disk, seen_lids, seen_pids))
 
     # cluster-wide pool of free ports
-    for free_port in data.cluster.tcpudp_port_pool:
+    for free_port in cluster.tcpudp_port_pool:
       if free_port not in ports:
         ports[free_port] = []
       ports[free_port].append(("cluster", "port marked as free"))
@@ -436,11 +482,11 @@ class ConfigWriter:
 
     # highest used tcp port check
     if keys:
-      if keys[-1] > data.cluster.highest_used_port:
+      if keys[-1] > cluster.highest_used_port:
         result.append("Highest used port mismatch, saved %s, computed %s" %
-                      (data.cluster.highest_used_port, keys[-1]))
+                      (cluster.highest_used_port, keys[-1]))
 
-    if not data.nodes[data.cluster.master_node].master_candidate:
+    if not data.nodes[cluster.master_node].master_candidate:
       result.append("Master node is not a master candidate")
 
     # master candidate checks
@@ -459,21 +505,33 @@ class ConfigWriter:
                       " drain=%s, offline=%s" %
                       (node.name, node.master_candidate, node.drained,
                        node.offline))
+      if node.group not in data.nodegroups:
+        result.append("Node '%s' has invalid group '%s'" %
+                      (node.name, node.group))
+      else:
+        _helper("node %s" % node.name, "ndparams",
+                cluster.FillND(node, data.nodegroups[node.group]),
+                constants.NDS_PARAMETER_TYPES)
 
     # nodegroups checks
     nodegroups_names = set()
     for nodegroup_uuid in data.nodegroups:
       nodegroup = data.nodegroups[nodegroup_uuid]
       if nodegroup.uuid != nodegroup_uuid:
-        result.append("nodegroup '%s' (uuid: '%s') indexed by wrong uuid '%s'"
+        result.append("node group '%s' (uuid: '%s') indexed by wrong uuid '%s'"
                       % (nodegroup.name, nodegroup.uuid, nodegroup_uuid))
       if utils.UUID_RE.match(nodegroup.name.lower()):
-        result.append("nodegroup '%s' (uuid: '%s') has uuid-like name" %
+        result.append("node group '%s' (uuid: '%s') has uuid-like name" %
                       (nodegroup.name, nodegroup.uuid))
       if nodegroup.name in nodegroups_names:
-        result.append("duplicate nodegroup name '%s'" % nodegroup.name)
+        result.append("duplicate node group name '%s'" % nodegroup.name)
       else:
         nodegroups_names.add(nodegroup.name)
+      if nodegroup.ndparams:
+        _helper("group %s" % nodegroup.name, "ndparams",
+                cluster.SimpleFillND(nodegroup.ndparams),
+                constants.NDS_PARAMETER_TYPES)
+
 
     # drbd minors check
     _, duplicates = self._UnlockedComputeDRBDMap()
@@ -482,13 +540,13 @@ class ConfigWriter:
                     " %s and %s" % (minor, node, instance_a, instance_b))
 
     # IP checks
-    default_nicparams = data.cluster.nicparams[constants.PP_DEFAULT]
+    default_nicparams = cluster.nicparams[constants.PP_DEFAULT]
     ips = {}
 
     def _AddIpAddress(ip, name):
       ips.setdefault(ip, []).append(name)
 
-    _AddIpAddress(data.cluster.master_ip, "cluster_ip")
+    _AddIpAddress(cluster.master_ip, "cluster_ip")
 
     for node in data.nodes.values():
       _AddIpAddress(node.primary_ip, "node:%s/primary" % node.name)
@@ -852,8 +910,76 @@ class ConfigWriter:
     """
     return self._config_data.cluster.primary_ip_family
 
-  @locking.ssynchronized(_config_lock, shared=1)
-  def LookupNodeGroup(self, target):
+  @locking.ssynchronized(_config_lock)
+  def AddNodeGroup(self, group, ec_id, check_uuid=True):
+    """Add a node group to the configuration.
+
+    This method calls group.UpgradeConfig() to fill any missing attributes
+    according to their default values.
+
+    @type group: L{objects.NodeGroup}
+    @param group: the NodeGroup object to add
+    @type ec_id: string
+    @param ec_id: unique id for the job to use when creating a missing UUID
+    @type check_uuid: bool
+    @param check_uuid: add an UUID to the group if it doesn't have one or, if
+                       it does, ensure that it does not exist in the
+                       configuration already
+
+    """
+    self._UnlockedAddNodeGroup(group, ec_id, check_uuid)
+    self._WriteConfig()
+
+  def _UnlockedAddNodeGroup(self, group, ec_id, check_uuid):
+    """Add a node group to the configuration.
+
+    """
+    logging.info("Adding node group %s to configuration", group.name)
+
+    # Some code might need to add a node group with a pre-populated UUID
+    # generated with ConfigWriter.GenerateUniqueID(). We allow them to bypass
+    # the "does this UUID" exist already check.
+    if check_uuid:
+      self._EnsureUUID(group, ec_id)
+
+    try:
+      existing_uuid = self._UnlockedLookupNodeGroup(group.name)
+    except errors.OpPrereqError:
+      pass
+    else:
+      raise errors.OpPrereqError("Desired group name '%s' already exists as a"
+                                 " node group (UUID: %s)" %
+                                 (group.name, existing_uuid),
+                                 errors.ECODE_EXISTS)
+
+    group.serial_no = 1
+    group.ctime = group.mtime = time.time()
+    group.UpgradeConfig()
+
+    self._config_data.nodegroups[group.uuid] = group
+    self._config_data.cluster.serial_no += 1
+
+  @locking.ssynchronized(_config_lock)
+  def RemoveNodeGroup(self, group_uuid):
+    """Remove a node group from the configuration.
+
+    @type group_uuid: string
+    @param group_uuid: the UUID of the node group to remove
+
+    """
+    logging.info("Removing node group %s from configuration", group_uuid)
+
+    if group_uuid not in self._config_data.nodegroups:
+      raise errors.ConfigurationError("Unknown node group '%s'" % group_uuid)
+
+    assert len(self._config_data.nodegroups) != 1, \
+            "Group '%s' is the only group, cannot be removed" % group_uuid
+
+    del self._config_data.nodegroups[group_uuid]
+    self._config_data.cluster.serial_no += 1
+    self._WriteConfig()
+
+  def _UnlockedLookupNodeGroup(self, target):
     """Lookup a node group's UUID.
 
     @type target: string or None
@@ -865,7 +991,7 @@ class ConfigWriter:
     """
     if target is None:
       if len(self._config_data.nodegroups) != 1:
-        raise errors.OpPrereqError("More than one nodegroup exists. Target"
+        raise errors.OpPrereqError("More than one node group exists. Target"
                                    " group must be specified explicitely.")
       else:
         return self._config_data.nodegroups.keys()[0]
@@ -874,10 +1000,24 @@ class ConfigWriter:
     for nodegroup in self._config_data.nodegroups.values():
       if nodegroup.name == target:
         return nodegroup.uuid
-    raise errors.OpPrereqError("Nodegroup '%s' not found" % target)
+    raise errors.OpPrereqError("Node group '%s' not found" % target,
+                               errors.ECODE_NOENT)
 
   @locking.ssynchronized(_config_lock, shared=1)
-  def GetNodeGroup(self, uuid):
+  def LookupNodeGroup(self, target):
+    """Lookup a node group's UUID.
+
+    This function is just a wrapper over L{_UnlockedLookupNodeGroup}.
+
+    @type target: string or None
+    @param target: group name or UUID or None to look for the default
+    @rtype: string
+    @return: nodegroup UUID
+
+    """
+    return self._UnlockedLookupNodeGroup(target)
+
+  def _UnlockedGetNodeGroup(self, uuid):
     """Lookup a node group.
 
     @type uuid: string
@@ -890,6 +1030,18 @@ class ConfigWriter:
       return None
 
     return self._config_data.nodegroups[uuid]
+
+  @locking.ssynchronized(_config_lock, shared=1)
+  def GetNodeGroup(self, uuid):
+    """Lookup a node group.
+
+    @type uuid: string
+    @param uuid: group UUID
+    @rtype: L{objects.NodeGroup} or None
+    @return: nodegroup object, or None if not found
+
+    """
+    return self._UnlockedGetNodeGroup(uuid)
 
   @locking.ssynchronized(_config_lock, shared=1)
   def GetAllNodeGroupsInfo(self):
@@ -1218,6 +1370,15 @@ class ConfigWriter:
     return self._UnlockedGetOnlineNodeList()
 
   @locking.ssynchronized(_config_lock, shared=1)
+  def GetVmCapableNodeList(self):
+    """Return the list of nodes which are not vm capable.
+
+    """
+    all_nodes = [self._UnlockedGetNodeInfo(node)
+                 for node in self._UnlockedGetNodeList()]
+    return [node.name for node in all_nodes if node.vm_capable]
+
+  @locking.ssynchronized(_config_lock, shared=1)
   def GetNonVmCapableNodeList(self):
     """Return the list of nodes which are not vm capable.
 
@@ -1411,13 +1572,10 @@ class ConfigWriter:
         item.uuid = self._GenerateUniqueID(_UPGRADE_CONFIG_JID)
         modified = True
     if not self._config_data.nodegroups:
-      default_nodegroup_uuid = self._GenerateUniqueID(_UPGRADE_CONFIG_JID)
-      default_nodegroup = objects.NodeGroup(
-          uuid=default_nodegroup_uuid,
-          name="default",
-          members=[],
-          )
-      self._config_data.nodegroups[default_nodegroup_uuid] = default_nodegroup
+      default_nodegroup_name = constants.INITIAL_NODE_GROUP_NAME
+      default_nodegroup = objects.NodeGroup(name=default_nodegroup_name,
+                                            members=[])
+      self._UnlockedAddNodeGroup(default_nodegroup, _UPGRADE_CONFIG_JID, True)
       modified = True
     for node in self._config_data.nodes.values():
       if not node.group:
@@ -1689,6 +1847,8 @@ class ConfigWriter:
       update_serial = True
     elif isinstance(target, objects.Instance):
       test = target in self._config_data.instances.values()
+    elif isinstance(target, objects.NodeGroup):
+      test = target in self._config_data.nodegroups.values()
     else:
       raise errors.ProgrammerError("Invalid object type (%s) passed to"
                                    " ConfigWriter.Update" % type(target))

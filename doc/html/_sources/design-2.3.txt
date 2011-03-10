@@ -52,7 +52,7 @@ To manage node groups and the nodes belonging to them, the following new
 commands and flags will be introduced::
 
   gnt-group add <group> # add a new node group
-  gnt-group del <group> # delete an empty node group
+  gnt-group remove <group> # delete an empty node group
   gnt-group list # list node groups
   gnt-group rename <oldname> <newname> # rename a node group
   gnt-node {list,info} -g <group> # list only nodes belonging to a node group
@@ -77,12 +77,13 @@ The ``alloc_policy`` attribute can have the following values:
 
 - last_resort: the node group should not be used for instance
   allocations, unless this would be the only way to have the operation
-  succeed.
+  succeed. Prioritization among groups in this state will be deferred to
+  the iallocator plugin that's being used.
 
 - preferred: the node group can be used freely for allocation of
   instances (this is the default state for newly created node
   groups). Note that prioritization among groups in this state will be
-  deferred to the  iallocator plugin that's being used.
+  deferred to the iallocator plugin that's being used.
 
 Node group operations
 +++++++++++++++++++++
@@ -290,8 +291,8 @@ By default, all LUs will invalidate the caches for all nodes and
 instances they lock. If an LU uses the BGL, then it will invalidate the
 entire cache. In time, it is expected that LUs will be modified to not
 invalidate, if they are not expected to change the node's and/or
-instance's state (e.g. ``LUConnectConsole``, or
-``LUActivateInstanceDisks``).
+instance's state (e.g. ``LUInstanceConsole``, or
+``LUInstanceActivateDisks``).
 
 Invalidation of a node's properties will also invalidate the capacity
 data associated with that node.

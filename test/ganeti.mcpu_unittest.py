@@ -1,7 +1,7 @@
 #!/usr/bin/python
 #
 
-# Copyright (C) 2009 Google Inc.
+# Copyright (C) 2009, 2011 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -25,6 +25,7 @@
 import unittest
 
 from ganeti import mcpu
+from ganeti import opcodes
 
 import testutils
 
@@ -52,6 +53,15 @@ class TestLockAttemptTimeoutStrategy(unittest.TestCase):
 
     for _ in range(10):
       self.assert_(strat.NextAttempt() is None)
+
+
+class TestDispatchTable(unittest.TestCase):
+  def test(self):
+    for opcls in opcodes.OP_MAPPING.values():
+      if not opcls.WITH_LU:
+        continue
+      self.assertTrue(opcls in mcpu.Processor.DISPATCH_TABLE,
+                      msg="%s missing handler class" % opcls)
 
 
 if __name__ == "__main__":

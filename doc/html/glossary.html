@@ -5,13 +5,13 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Glossary &mdash; Ganeti v2.3.1 documentation</title>
+    <title>Glossary &mdash; Ganeti v2.4.0 documentation</title>
     <link rel="stylesheet" href="_static/default.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.3.1',
+        VERSION:     '2.4.0',
         COLLAPSE_MODINDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -19,7 +19,8 @@
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.3.1 documentation" href="index.html" />
+    <link rel="top" title="Ganeti v2.4.0 documentation" href="index.html" />
+    <link rel="next" title="Ganeti Node OOB Management Framework" href="design-oob.html" />
     <link rel="prev" title="News" href="news.html" /> 
   </head>
   <body>
@@ -27,9 +28,12 @@
       <h3>Navigation</h3>
       <ul>
         <li class="right" style="margin-right: 10px">
+          <a href="design-oob.html" title="Ganeti Node OOB Management Framework"
+             accesskey="N">next</a></li>
+        <li class="right" >
           <a href="news.html" title="News"
-             accesskey="P">previous</a></li>
-        <li><a href="index.html">Ganeti v2.3.1 documentation</a> &raquo;</li> 
+             accesskey="P">previous</a> |</li>
+        <li><a href="index.html">Ganeti v2.4.0 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -41,6 +45,10 @@
   <div class="section" id="glossary">
 <h1>Glossary<a class="headerlink" href="#glossary" title="Permalink to this headline">¶</a></h1>
 <dl class="glossary docutils">
+<dt id="term-be-parameter">BE Parameter</dt>
+<dd>BE stands for Backend. BE parameters are hypervisor-independent
+instance parameters such as the amount of RAM/virtual CPUs it has
+been allocated.</dd>
 <dt id="term-hvm">HVM</dt>
 <dd>Hardware virtualization mode, where the virtual machine is
 oblivious to the fact that&#8217;s being virtualized and all the
@@ -48,6 +56,9 @@ hardware is emulated.</dd>
 <dt id="term-logicalunit">LogicalUnit</dt>
 <dd>The code associated with an OpCode, e.g. the code that implements
 the startup of an instance.</dd>
+<dt id="term-luxi">LUXI</dt>
+<dd>Local UniX Interface. The IPC method over unix sockets used between
+the cli tools and the master daemon.</dd>
 <dt id="term-opcode">OpCode</dt>
 <dd>A data structure encapsulating a basic cluster operation; for
 example, start instance, add instance, etc.</dd>
@@ -71,6 +82,9 @@ DRBD devices, etc. For more details, see the man page
             <h4>Previous topic</h4>
             <p class="topless"><a href="news.html"
                                   title="previous chapter">News</a></p>
+            <h4>Next topic</h4>
+            <p class="topless"><a href="design-oob.html"
+                                  title="next chapter">Ganeti Node OOB Management Framework</a></p>
             <h3>This Page</h3>
             <ul class="this-page-menu">
               <li><a href="_sources/glossary.txt"
@@ -97,9 +111,12 @@ DRBD devices, etc. For more details, see the man page
       <h3>Navigation</h3>
       <ul>
         <li class="right" style="margin-right: 10px">
+          <a href="design-oob.html" title="Ganeti Node OOB Management Framework"
+             >next</a></li>
+        <li class="right" >
           <a href="news.html" title="News"
-             >previous</a></li>
-        <li><a href="index.html">Ganeti v2.3.1 documentation</a> &raquo;</li> 
+             >previous</a> |</li>
+        <li><a href="index.html">Ganeti v2.4.0 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

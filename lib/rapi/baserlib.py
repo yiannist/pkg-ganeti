@@ -115,7 +115,7 @@ def _Tags_PUT(kind, tags, name, dry_run):
   """Helper function to set tags.
 
   """
-  return SubmitJob([opcodes.OpAddTags(kind=kind, name=name,
+  return SubmitJob([opcodes.OpTagsSet(kind=kind, name=name,
                                       tags=tags, dry_run=dry_run)])
 
 
@@ -123,7 +123,7 @@ def _Tags_DELETE(kind, tags, name, dry_run):
   """Helper function to delete tags.
 
   """
-  return SubmitJob([opcodes.OpDelTags(kind=kind, name=name,
+  return SubmitJob([opcodes.OpTagsDel(kind=kind, name=name,
                                       tags=tags, dry_run=dry_run)])
 
 
@@ -168,6 +168,46 @@ def MakeParamsDict(opts, params):
     result[p] = value
 
   return result
+
+
+def FillOpcode(opcls, body, static):
+  """Fills an opcode with body parameters.
+
+  Parameter types are checked.
+
+  @type opcls: L{opcodes.OpCode}
+  @param opcls: Opcode class
+  @type body: dict
+  @param body: Body parameters as received from client
+  @type static: dict
+  @param static: Static parameters which can't be modified by client
+  @return: Opcode object
+
+  """
+  CheckType(body, dict, "Body contents")
+
+  if static:
+    overwritten = set(body.keys()) & set(static.keys())
+    if overwritten:
+      raise http.HttpBadRequest("Can't overwrite static parameters %r" %
+                                overwritten)
+
+  # Combine parameters
+  params = body.copy()
+
+  if static:
+    params.update(static)
+
+  # Convert keys to strings (simplejson decodes them as unicode)
+  params = dict((str(key), value) for (key, value) in params.items())
+
+  try:
+    op = opcls(**params) # pylint: disable-msg=W0142
+    op.Validate(False)
+  except (errors.OpPrereqError, TypeError), err:
+    raise http.HttpBadRequest("Invalid body parameters: %s" % err)
+
+  return op
 
 
 def SubmitJob(op, cl=None):

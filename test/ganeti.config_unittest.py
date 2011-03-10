@@ -79,6 +79,7 @@ class TestConfigRunner(unittest.TestCase):
       volume_group_name="xenvg",
       drbd_usermode_helper="/bin/true",
       nicparams={constants.PP_DEFAULT: constants.NICC_DEFAULTS},
+      ndparams=constants.NDC_DEFAULTS,
       tcpudp_port_pool=set(),
       enabled_hypervisors=[constants.HT_FAKE],
       master_node=me.name,
@@ -186,6 +187,57 @@ class TestConfigRunner(unittest.TestCase):
                       CheckSyntax, {mode: m_bridged, link: None})
     self.assertRaises(errors.ConfigurationError,
                       CheckSyntax, {mode: m_bridged, link: ''})
+
+  def testGetNdParamsDefault(self):
+    cfg = self._get_object()
+    node = cfg.GetNodeInfo(cfg.GetNodeList()[0])
+    self.assertEqual(cfg.GetNdParams(node), constants.NDC_DEFAULTS)
+
+  def testGetNdParamsModifiedNode(self):
+    my_ndparams = {
+        constants.ND_OOB_PROGRAM: "/bin/node-oob",
+        }
+
+    cfg = self._get_object()
+    node = cfg.GetNodeInfo(cfg.GetNodeList()[0])
+    node.ndparams = my_ndparams
+    cfg.Update(node, None)
+    self.assertEqual(cfg.GetNdParams(node), my_ndparams)
+
+  def testAddGroupFillsFieldsIfMissing(self):
+    cfg = self._get_object()
+    group = objects.NodeGroup(name="test", members=[])
+    cfg.AddNodeGroup(group, "my-job")
+    self.assert_(utils.UUID_RE.match(group.uuid))
+    self.assertEqual(constants.ALLOC_POLICY_PREFERRED, group.alloc_policy)
+
+  def testAddGroupPreservesFields(self):
+    cfg = self._get_object()
+    group = objects.NodeGroup(name="test", members=[],
+                              alloc_policy=constants.ALLOC_POLICY_LAST_RESORT)
+    cfg.AddNodeGroup(group, "my-job")
+    self.assertEqual(constants.ALLOC_POLICY_LAST_RESORT, group.alloc_policy)
+
+  def testAddGroupDoesNotPreserveFields(self):
+    cfg = self._get_object()
+    group = objects.NodeGroup(name="test", members=[],
+                              serial_no=17, ctime=123, mtime=456)
+    cfg.AddNodeGroup(group, "my-job")
+    self.assertEqual(1, group.serial_no)
+    self.assert_(group.ctime > 1200000000)
+    self.assert_(group.mtime > 1200000000)
+
+  def testAddGroupCanSkipUUIDCheck(self):
+    cfg = self._get_object()
+    uuid = cfg.GenerateUniqueID("my-job")
+    group = objects.NodeGroup(name="test", members=[], uuid=uuid,
+                              serial_no=17, ctime=123, mtime=456)
+
+    self.assertRaises(errors.ConfigurationError,
+                      cfg.AddNodeGroup, group, "my-job")
+
+    cfg.AddNodeGroup(group, "my-job", check_uuid=False) # Does not raise.
+    self.assertEqual(uuid, group.uuid)
 
 
 class TestTRM(unittest.TestCase):

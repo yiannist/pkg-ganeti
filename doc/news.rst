@@ -4,6 +4,241 @@
 News
 ====
 
+Version 2.4.0
+-------------
+
+*(Released Mon, 07 Mar 2011)*
+
+Final 2.4.0 release. Just a few small fixes:
+
+- Fixed RAPI node evacuate
+- Fixed the kvm-ifup script
+- Fixed internal error handling for special job cases
+- Updated man page to specify the escaping feature for options
+
+
+Version 2.4.0 rc3
+-----------------
+
+*(Released Mon, 28 Feb 2011)*
+
+A critical fix for the ``prealloc_wipe_disks`` feature: it is possible
+that this feature wiped the disks of the wrong instance, leading to loss
+of data.
+
+Other changes:
+
+- Fixed title of query field containing instance name
+- Expanded the glossary in the documentation
+- Fixed one unittest (internal issue)
+
+
+Version 2.4.0 rc2
+-----------------
+
+*(Released Mon, 21 Feb 2011)*
+
+A number of bug fixes plus just a couple functionality changes.
+
+On the user-visible side, the ``gnt-* list`` command output has changed
+with respect to "special" field states. The current rc1 style of display
+can be re-enabled by passing a new ``--verbose`` (``-v``) flag, but in
+the default output mode special fields states are displayed as follows:
+
+- Offline resource: ``*``
+- Unavailable/not applicable: ``-``
+- Data missing (RPC failure): ``?``
+- Unknown field: ``??``
+
+Another user-visible change is the addition of ``--force-join`` to
+``gnt-node add``.
+
+As for bug fixes:
+
+- ``tools/cluster-merge`` has seen many fixes and is now enabled again
+- Fixed regression in RAPI/instance reinstall where all parameters were
+  required (instead of optional)
+- Fixed ``gnt-cluster repair-disk-sizes``, was broken since Ganeti 2.2
+- Fixed iallocator usage (offline nodes were not considered offline)
+- Fixed ``gnt-node list`` with respect to non-vm_capable nodes
+- Fixed hypervisor and OS parameter validation with respect to
+  non-vm_capable nodes
+- Fixed ``gnt-cluster verify`` with respect to offline nodes (mostly
+  cosmetic)
+- Fixed ``tools/listrunner`` with respect to agent-based usage
+
+
+Version 2.4.0 rc1
+-----------------
+
+*(Released Fri,  4 Feb 2011)*
+
+Many changes and fixes since the beta1 release. While there were some
+internal changes, the code has been mostly stabilised for the RC
+release.
+
+Note: the dumb allocator was removed in this release, as it was not kept
+up-to-date with the IAllocator protocol changes. It is recommended to
+use the ``hail`` command from the ganeti-htools package.
+
+Note: the 2.4 and up versions of Ganeti are not compatible with the
+0.2.x branch of ganeti-htools. You need to upgrade to
+ganeti-htools-0.3.0 (or later).
+
+Regressions fixed from 2.3
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- Fixed the ``gnt-cluster verify-disks`` command
+- Made ``gnt-cluster verify-disks`` work in parallel (as opposed to
+  serially on nodes)
+- Fixed disk adoption breakage
+- Fixed wrong headers in instance listing for field aliases
+
+Other bugs fixed
+~~~~~~~~~~~~~~~~
+
+- Fixed corner case in KVM handling of NICs
+- Fixed many cases of wrong handling of non-vm_capable nodes
+- Fixed a bug where a missing instance symlink was not possible to
+  recreate with any ``gnt-*`` command (now ``gnt-instance
+  activate-disks`` does it)
+- Fixed the volume group name as reported by ``gnt-cluster
+  verify-disks``
+- Increased timeouts for the import-export code, hopefully leading to
+  fewer aborts due network or instance timeouts
+- Fixed bug in ``gnt-node list-storage``
+- Fixed bug where not all daemons were started on cluster
+  initialisation, but only at the first watcher run
+- Fixed many bugs in the OOB implementation
+- Fixed watcher behaviour in presence of instances with offline
+  secondaries
+- Fixed instance list output for instances running on the wrong node
+- a few fixes to the cluster-merge tool, but it still cannot merge
+  multi-node groups (currently it is not recommended to use this tool)
+
+
+Improvements
+~~~~~~~~~~~~
+
+- Improved network configuration for the KVM hypervisor
+- Added e1000 as a supported NIC for Xen-HVM
+- Improved the lvmstrap tool to also be able to use partitions, as
+  opposed to full disks
+- Improved speed of disk wiping (the cluster parameter
+  ``prealloc_wipe_disks``, so that it has a low impact on the total time
+  of instance creations
+- Added documentation for the OS parameters
+- Changed ``gnt-instance deactivate-disks`` so that it can work if the
+  hypervisor is not responding
+- Added display of blacklisted and hidden OS information in
+  ``gnt-cluster info``
+- Extended ``gnt-cluster verify`` to also validate hypervisor, backend,
+  NIC and node parameters, which might create problems with currently
+  invalid (but undetected) configuration files, but prevents validation
+  failures when unrelated parameters are modified
+- Changed cluster initialisation to wait for the master daemon to become
+  available
+- Expanded the RAPI interface:
+
+  - Added config redistribution resource
+  - Added activation/deactivation of instance disks
+  - Added export of console information
+
+- Implemented log file reopening on SIGHUP, which allows using
+  logrotate(8) for the Ganeti log files
+- Added a basic OOB helper script as an example
+
+
+Version 2.4.0 beta1
+-------------------
+
+*(Released Fri, 14 Jan 2011)*
+
+User-visible
+~~~~~~~~~~~~
+
+- Fixed timezone issues when formatting timestamps
+- Added support for node groups, available via ``gnt-group`` and other
+  commands
+- Added out-of-band framework and management, see :doc:`design
+  document <design-oob>`
+- Removed support for roman numbers from ``gnt-node list`` and
+  ``gnt-instance list``.
+- Allowed modification of master network interface via ``gnt-cluster
+  modify --master-netdev``
+- Accept offline secondaries while shutting down instance disks
+- Added ``blockdev_prefix`` parameter to Xen PVM and HVM hypervisors
+- Added support for multiple LVM volume groups
+- Avoid sorting nodes for ``gnt-node list`` if specific nodes are
+  requested
+- Added commands to list available fields:
+
+  - ``gnt-node list-fields``
+  - ``gnt-group list-fields``
+  - ``gnt-instance list-fields``
+
+- Updated documentation and man pages
+
+Integration
+~~~~~~~~~~~
+
+- Moved ``rapi_users`` file into separate directory, now named
+  ``.../ganeti/rapi/users``, ``cfgupgrade`` moves the file and creates a
+  symlink
+- Added new tool for running commands on many machines,
+  ``tools/ganeti-listrunner``
+- Implemented more verbose result in ``OpInstanceConsole`` opcode, also
+  improving the ``gnt-instance console`` output
+- Allowed customisation of disk index separator at ``configure`` time
+- Export node group allocation policy to :doc:`iallocator <iallocator>`
+- Added support for non-partitioned md disks in ``lvmstrap``
+- Added script to gracefully power off KVM instances
+- Split ``utils`` module into smaller parts
+- Changed query operations to return more detailed information, e.g.
+  whether an information is unavailable due to an offline node. To use
+  this new functionality, the LUXI call ``Query`` must be used. Field
+  information is now stored by the master daemon and can be retrieved
+  using ``QueryFields``. Instances, nodes and groups can also be queried
+  using the new opcodes ``OpQuery`` and ``OpQueryFields`` (not yet
+  exposed via RAPI). The following commands make use of this
+  infrastructure change:
+
+  - ``gnt-group list``
+  - ``gnt-group list-fields``
+  - ``gnt-node list``
+  - ``gnt-node list-fields``
+  - ``gnt-instance list``
+  - ``gnt-instance list-fields``
+  - ``gnt-debug locks``
+
+Remote API
+~~~~~~~~~~
+
+- New RAPI resources (see :doc:`rapi`):
+
+  - ``/2/modify``
+  - ``/2/groups``
+  - ``/2/groups/[group_name]``
+  - ``/2/groups/[group_name]/assign-nodes``
+  - ``/2/groups/[group_name]/modify``
+  - ``/2/groups/[group_name]/rename``
+  - ``/2/instances/[instance_name]/disk/[disk_index]/grow``
+
+- RAPI changes:
+
+  - Implemented ``no_install`` for instance creation
+  - Implemented OS parameters for instance reinstallation, allowing
+    use of special settings on reinstallation (e.g. for preserving data)
+
+Misc
+~~~~
+
+- Added IPv6 support in import/export
+- Pause DRBD synchronization while wiping disks on instance creation
+- Updated unittests and QA scripts
+- Improved network parameters passed to KVM
+- Converted man pages from docbook to reStructuredText
+
 
 Version 2.3.1
 -------------
@@ -80,7 +315,7 @@ Version 2.3.0 rc0
 - Ignore failures while shutting down instances during failover from
   offline node
 - Exit daemon's bootstrap process only once daemon is ready
-- Export more information via ``LUQueryInstances``/remote API
+- Export more information via ``LUInstanceQuery``/remote API
 - Improved documentation, QA and unittests
 - RAPI daemon now watches ``rapi_users`` all the time and doesn't need a
   restart if the file was created or changed
@@ -133,7 +368,7 @@ Version 2.2.1 rc0
 
 *(Released Thu, 7 Oct 2010)*
 
-- Fixed issue 125, replace hardcoded “xenvg” in ``gnt-cluster`` with
+- Fixed issue 125, replace hardcoded "xenvg" in ``gnt-cluster`` with
   value retrieved from master
 - Added support for blacklisted or hidden OS definitions
 - Added simple lock monitor (accessible via (``gnt-debug locks``)
@@ -307,7 +542,7 @@ Some more bugfixes. Unless critical bugs occur, this will be the last
 
 - Fix case of MAC special-values
 - Fix mac checker regex
-- backend: Fix typo causing “out of range” error
+- backend: Fix typo causing "out of range" error
 - Add missing --units in gnt-instance list man page
 
 
@@ -604,7 +839,7 @@ Bug fixes
   directory (e.g. read-only file-system where we can't open the files
   read-write, etc.)
 - Fixed the behaviour of gnt-node modify for master candidate demotion;
-  now it either aborts cleanly or, if given the new “auto_promote”
+  now it either aborts cleanly or, if given the new "auto_promote"
   parameter, will automatically promote other nodes as needed
 - Fixed compatibility with (unreleased yet) Python 2.6.5 that would
   completely prevent Ganeti from working
@@ -633,7 +868,7 @@ Bug fixes
 New features
 ~~~~~~~~~~~~
 
-- Added an “early_release” more for instance replace disks and node
+- Added an "early_release" more for instance replace disks and node
   evacuate, where we release locks earlier and thus allow higher
   parallelism within the cluster
 - Added watcher hooks, intended to allow the watcher to restart other

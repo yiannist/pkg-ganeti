@@ -5,13 +5,13 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Ganeti 2.0 design &mdash; Ganeti v2.3.1 documentation</title>
+    <title>Ganeti 2.0 design &mdash; Ganeti v2.4.0 documentation</title>
     <link rel="stylesheet" href="_static/default.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.3.1',
+        VERSION:     '2.4.0',
         COLLAPSE_MODINDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -19,7 +19,7 @@
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.3.1 documentation" href="index.html" />
+    <link rel="top" title="Ganeti v2.4.0 documentation" href="index.html" />
     <link rel="next" title="Ganeti 2.1 design" href="design-2.1.html" />
     <link rel="prev" title="Security in Ganeti" href="security.html" /> 
   </head>
@@ -33,7 +33,7 @@
         <li class="right" >
           <a href="security.html" title="Security in Ganeti"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.3.1 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.4.0 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -332,8 +332,6 @@ a quorum of at least half plus one nodes for the following:</p>
 <li>we have the latest configuration and job list (as
 determined by the serial number on the configuration and
 highest job ID on the job queue)</li>
-<li>there is not even a single node having a newer
-configuration file</li>
 <li>if we are not failing over (but just starting), the
 quorum agrees that we are the designated master</li>
 <li>if any of the above is false, we prevent the current operation
@@ -945,10 +943,10 @@ know about defaults).</p>
 <p>The parameter changes will have impact on the OpCodes, especially on
 the following ones:</p>
 <ul class="simple">
-<li><tt class="docutils literal"><span class="pre">OpCreateInstance</span></tt>, where the new hv and be parameters will be sent
+<li><tt class="docutils literal"><span class="pre">OpInstanceCreate</span></tt>, where the new hv and be parameters will be sent
 as dictionaries; note that all hv and be parameters are now optional,
 as the values can be instead taken from the cluster</li>
-<li><tt class="docutils literal"><span class="pre">OpQueryInstances</span></tt>, where we have to be able to query these new
+<li><tt class="docutils literal"><span class="pre">OpInstanceQuery</span></tt>, where we have to be able to query these new
 parameters; the syntax for names will be <tt class="docutils literal"><span class="pre">hvparam/$NAME</span></tt> and
 <tt class="docutils literal"><span class="pre">beparam/$NAME</span></tt> for querying an individual parameter out of one
 dictionary, and <tt class="docutils literal"><span class="pre">hvparams</span></tt>, respectively <tt class="docutils literal"><span class="pre">beparams</span></tt>, for the whole
@@ -2159,7 +2157,7 @@ to set, string</td>
         <li class="right" >
           <a href="security.html" title="Security in Ganeti"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.3.1 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.4.0 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

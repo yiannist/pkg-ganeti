@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2010 Google Inc.
+# Copyright (C) 2010, 2011 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -161,11 +161,15 @@ class _DiskImportExportBase(object):
 
     self._lu = lu
     self.node_name = node_name
-    self._opts = opts
+    self._opts = opts.Copy()
     self._instance = instance
     self._timeouts = timeouts
     self._cbs = cbs
     self._private = private
+
+    # Set master daemon's timeout in options for import/export daemon
+    assert self._opts.connect_timeout is None
+    self._opts.connect_timeout = timeouts.connect
 
     # Parent loop
     self._loop = None
@@ -192,7 +196,7 @@ class _DiskImportExportBase(object):
 
     """
     if self._daemon:
-      return self._daemon.recent_output
+      return "\n".join(self._daemon.recent_output)
 
     return None
 
@@ -865,7 +869,7 @@ class _TransferInstSourceCb(_TransferInstCbBase):
     if ie.success:
       self.feedback_fn("%s finished sending data" % dtp.data.name)
     else:
-      self.feedback_fn("%s failed to send data: %s (recent output: %r)" %
+      self.feedback_fn("%s failed to send data: %s (recent output: %s)" %
                        (dtp.data.name, ie.final_message, ie.recent_output))
 
     dtp.RecordResult(ie.success)
@@ -915,7 +919,7 @@ class _TransferInstDestCb(_TransferInstCbBase):
     if ie.success:
       self.feedback_fn("%s finished receiving data" % dtp.data.name)
     else:
-      self.feedback_fn("%s failed to receive data: %s (recent output: %r)" %
+      self.feedback_fn("%s failed to receive data: %s (recent output: %s)" %
                        (dtp.data.name, ie.final_message, ie.recent_output))
 
     dtp.RecordResult(ie.success)
@@ -1116,7 +1120,7 @@ class _RemoteExportCb(ImportExportCbBase):
     if ie.success:
       self._feedback_fn("Disk %s finished sending data" % idx)
     else:
-      self._feedback_fn("Disk %s failed to send data: %s (recent output: %r)" %
+      self._feedback_fn("Disk %s failed to send data: %s (recent output: %s)" %
                         (idx, ie.final_message, ie.recent_output))
 
     self._dresults[idx] = bool(ie.success)
@@ -1151,8 +1155,6 @@ class ExportInstanceHelper:
     instance = self._instance
     src_node = instance.primary_node
 
-    vgname = self._lu.cfg.GetVGName()
-
     for idx, disk in enumerate(instance.disks):
       self._feedback_fn("Creating a snapshot of disk/%s on node %s" %
                         (idx, src_node))
@@ -1160,13 +1162,17 @@ class ExportInstanceHelper:
       # result.payload will be a snapshot of an lvm leaf of the one we
       # passed
       result = self._lu.rpc.call_blockdev_snapshot(src_node, disk)
+      new_dev = False
       msg = result.fail_msg
       if msg:
         self._lu.LogWarning("Could not snapshot disk/%s on node %s: %s",
                             idx, src_node, msg)
-        new_dev = False
+      elif (not isinstance(result.payload, (tuple, list)) or
+            len(result.payload) != 2):
+        self._lu.LogWarning("Could not snapshot disk/%s on node %s: invalid"
+                            " result '%s'", idx, src_node, result.payload)
       else:
-        disk_id = (vgname, result.payload)
+        disk_id = tuple(result.payload)
         new_dev = objects.Disk(dev_type=constants.LD_LV, size=disk.size,
                                logical_id=disk_id, physical_id=disk_id,
                                iv_name=disk.iv_name)
@@ -1270,9 +1276,12 @@ class ExportInstanceHelper:
     try:
       for idx, (dev, (host, port, magic)) in enumerate(zip(instance.disks,
                                                            disk_info)):
+        # Decide whether to use IPv6
+        ipv6 = netutils.IP6Address.IsValid(host)
+
         opts = objects.ImportExportOptions(key_name=key_name,
                                            ca_pem=dest_ca_pem,
-                                           magic=magic)
+                                           magic=magic, ipv6=ipv6)
 
         self._feedback_fn("Sending disk %s to %s:%s" % (idx, host, port))
         finished_fn = compat.partial(self._TransferFinished, idx)
@@ -1398,19 +1407,22 @@ class _RemoteImportCb(ImportExportCbBase):
       self._feedback_fn("Disk %s finished receiving data" % idx)
     else:
       self._feedback_fn(("Disk %s failed to receive data: %s"
-                         " (recent output: %r)") %
+                         " (recent output: %s)") %
                         (idx, ie.final_message, ie.recent_output))
 
     self._dresults[idx] = bool(ie.success)
 
 
-def RemoteImport(lu, feedback_fn, instance, source_x509_ca, cds, timeouts):
+def RemoteImport(lu, feedback_fn, instance, pnode, source_x509_ca,
+                 cds, timeouts):
   """Imports an instance from another cluster.
 
   @param lu: Logical unit instance
   @param feedback_fn: Feedback function
   @type instance: L{objects.Instance}
   @param instance: Instance object
+  @type pnode: L{objects.Node}
+  @param pnode: Primary node of instance as an object
   @type source_x509_ca: OpenSSL.crypto.X509
   @param source_x509_ca: Import source's X509 CA
   @type cds: string
@@ -1423,6 +1435,9 @@ def RemoteImport(lu, feedback_fn, instance, source_x509_ca, cds, timeouts):
                                                   source_x509_ca)
 
   magic_base = utils.GenerateSecret(6)
+
+  # Decide whether to use IPv6
+  ipv6 = netutils.IP6Address.IsValid(pnode.primary_ip)
 
   # Create crypto key
   result = lu.rpc.call_x509_cert_create(instance.primary_node,
@@ -1440,7 +1455,7 @@ def RemoteImport(lu, feedback_fn, instance, source_x509_ca, cds, timeouts):
       utils.SignX509Certificate(x509_cert, cds, utils.GenerateSecret(8))
 
     cbs = _RemoteImportCb(feedback_fn, cds, signed_x509_cert_pem,
-                          len(instance.disks), instance.primary_node)
+                          len(instance.disks), pnode.primary_ip)
 
     ieloop = ImportExportLoop(lu)
     try:
@@ -1450,7 +1465,7 @@ def RemoteImport(lu, feedback_fn, instance, source_x509_ca, cds, timeouts):
         # Import daemon options
         opts = objects.ImportExportOptions(key_name=x509_key_name,
                                            ca_pem=source_ca_pem,
-                                           magic=magic)
+                                           magic=magic, ipv6=ipv6)
 
         ieloop.Add(DiskImport(lu, instance.primary_node, opts, instance,
                               constants.IEIO_SCRIPT, (dev, idx),
@@ -1554,7 +1569,12 @@ def CheckRemoteExportDiskInfo(cds, disk_index, disk_info):
   if not utils.VerifySha1Hmac(cds, msg, hmac_digest, salt=hmac_salt):
     raise errors.GenericError("HMAC is wrong")
 
-  return (netutils.Hostname.GetNormalizedName(host),
+  if netutils.IP6Address.IsValid(host) or netutils.IP4Address.IsValid(host):
+    destination = host
+  else:
+    destination = netutils.Hostname.GetNormalizedName(host)
+
+  return (destination,
           utils.ValidateServiceName(port),
           magic)
 

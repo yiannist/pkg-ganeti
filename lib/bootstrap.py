@@ -42,9 +42,14 @@ from ganeti import hypervisor
 from ganeti import bdev
 from ganeti import netutils
 from ganeti import backend
+from ganeti import luxi
+
 
 # ec_id for InitConfig's temporary reservation manager
 _INITCONF_ECID = "initconfig-ecid"
+
+#: After how many seconds daemon must be responsive
+_DAEMON_READY_TIMEOUT = 10.0
 
 
 def _InitSSHSetup():
@@ -181,10 +186,30 @@ def _WaitForNodeDaemon(node_name):
       raise utils.RetryAgain()
 
   try:
-    utils.Retry(_CheckNodeDaemon, 1.0, 10.0)
+    utils.Retry(_CheckNodeDaemon, 1.0, _DAEMON_READY_TIMEOUT)
   except utils.RetryTimeout:
     raise errors.OpExecError("Node daemon on %s didn't answer queries within"
-                             " 10 seconds" % node_name)
+                             " %s seconds" % (node_name, _DAEMON_READY_TIMEOUT))
+
+
+def _WaitForMasterDaemon():
+  """Wait for master daemon to become responsive.
+
+  """
+  def _CheckMasterDaemon():
+    try:
+      cl = luxi.Client()
+      (cluster_name, ) = cl.QueryConfigValues(["cluster_name"])
+    except Exception:
+      raise utils.RetryAgain()
+
+    logging.debug("Received cluster name %s from master", cluster_name)
+
+  try:
+    utils.Retry(_CheckMasterDaemon, 1.0, _DAEMON_READY_TIMEOUT)
+  except utils.RetryTimeout:
+    raise errors.OpExecError("Master daemon didn't answer queries within"
+                             " %s seconds" % _DAEMON_READY_TIMEOUT)
 
 
 def _InitFileStorage(file_storage_dir):
@@ -219,14 +244,13 @@ def _InitFileStorage(file_storage_dir):
   return file_storage_dir
 
 
-#pylint: disable-msg=R0913
-def InitCluster(cluster_name, mac_prefix,
+def InitCluster(cluster_name, mac_prefix, # pylint: disable-msg=R0913
                 master_netdev, file_storage_dir, candidate_pool_size,
                 secondary_ip=None, vg_name=None, beparams=None,
-                nicparams=None, hvparams=None, enabled_hypervisors=None,
-                modify_etc_hosts=True, modify_ssh_setup=True,
-                maintain_node_health=False, drbd_helper=None,
-                uid_pool=None, default_iallocator=None,
+                nicparams=None, ndparams=None, hvparams=None,
+                enabled_hypervisors=None, modify_etc_hosts=True,
+                modify_ssh_setup=True, maintain_node_health=False,
+                drbd_helper=None, uid_pool=None, default_iallocator=None,
                 primary_ip_version=None, prealloc_wipe_disks=False):
   """Initialise the cluster.
 
@@ -340,6 +364,11 @@ def InitCluster(cluster_name, mac_prefix,
   utils.ForceDictType(nicparams, constants.NICS_PARAMETER_TYPES)
   objects.NIC.CheckParameterSyntax(nicparams)
 
+  if ndparams is not None:
+    utils.ForceDictType(ndparams, constants.NDS_PARAMETER_TYPES)
+  else:
+    ndparams = dict(constants.NDC_DEFAULTS)
+
   # hvparams is a mapping of hypervisor->hvparams dict
   for hv_name, hv_params in hvparams.iteritems():
     utils.ForceDictType(hv_params, constants.HVS_PARAMETER_TYPES)
@@ -383,6 +412,7 @@ def InitCluster(cluster_name, mac_prefix,
     enabled_hypervisors=enabled_hypervisors,
     beparams={constants.PP_DEFAULT: beparams},
     nicparams={constants.PP_DEFAULT: nicparams},
+    ndparams=ndparams,
     hvparams=hvparams,
     candidate_pool_size=candidate_pool_size,
     modify_etc_hosts=modify_etc_hosts,
@@ -402,6 +432,7 @@ def InitCluster(cluster_name, mac_prefix,
                                     serial_no=1,
                                     master_candidate=True,
                                     offline=False, drained=False,
+                                    ctime=now, mtime=now,
                                     )
   InitConfig(constants.CONFIG_VERSION, cluster_config, master_node_config)
   cfg = config.ConfigWriter(offline=True)
@@ -412,10 +443,14 @@ def InitCluster(cluster_name, mac_prefix,
   # set up the inter-node password and certificate
   _InitGanetiServerSetup(hostname.name)
 
-  # start the master ip
-  # TODO: Review rpc call from bootstrap
-  # TODO: Warn on failed start master
-  rpc.RpcRunner.call_node_start_master(hostname.name, True, False)
+  logging.debug("Starting daemons")
+  result = utils.RunCmd([constants.DAEMON_UTIL, "start-all"])
+  if result.failed:
+    raise errors.OpExecError("Could not start daemons, command %s"
+                             " had exitcode %s and error %s" %
+                             (result.cmd, result.exit_code, result.output))
+
+  _WaitForMasterDaemon()
 
 
 def InitConfig(version, cluster_config, master_node_config,
@@ -445,7 +480,7 @@ def InitConfig(version, cluster_config, master_node_config,
     }
   default_nodegroup = objects.NodeGroup(
     uuid=uuid_generator.Generate([], utils.NewUUID, _INITCONF_ECID),
-    name="default",
+    name=constants.INITIAL_NODE_GROUP_NAME,
     members=[master_node_config.name],
     )
   nodegroups = {
@@ -498,27 +533,7 @@ def SetupNodeDaemon(cluster_name, node, ssh_key_check):
   """
   family = ssconf.SimpleStore().GetPrimaryIPFamily()
   sshrunner = ssh.SshRunner(cluster_name,
-                            ipv6=family==netutils.IP6Address.family)
-
-  noded_cert = utils.ReadFile(constants.NODED_CERT_FILE)
-  rapi_cert = utils.ReadFile(constants.RAPI_CERT_FILE)
-  confd_hmac_key = utils.ReadFile(constants.CONFD_HMAC_KEY)
-
-  # in the base64 pem encoding, neither '!' nor '.' are valid chars,
-  # so we use this to detect an invalid certificate; as long as the
-  # cert doesn't contain this, the here-document will be correctly
-  # parsed by the shell sequence below. HMAC keys are hexadecimal strings,
-  # so the same restrictions apply.
-  for content in (noded_cert, rapi_cert, confd_hmac_key):
-    if re.search('^!EOF\.', content, re.MULTILINE):
-      raise errors.OpExecError("invalid SSL certificate or HMAC key")
-
-  if not noded_cert.endswith("\n"):
-    noded_cert += "\n"
-  if not rapi_cert.endswith("\n"):
-    rapi_cert += "\n"
-  if not confd_hmac_key.endswith("\n"):
-    confd_hmac_key += "\n"
+                            ipv6=(family == netutils.IP6Address.family))
 
   bind_address = constants.IP4_ADDRESS_ANY
   if family == netutils.IP6Address.family:
@@ -531,10 +546,9 @@ def SetupNodeDaemon(cluster_name, node, ssh_key_check):
   sshrunner.CopyFileToNode(node, constants.NODED_CERT_FILE)
   sshrunner.CopyFileToNode(node, constants.RAPI_CERT_FILE)
   sshrunner.CopyFileToNode(node, constants.CONFD_HMAC_KEY)
-  mycommand = ("%s stop-all; %s start %s -b '%s'" % (constants.DAEMON_UTIL,
-                                                     constants.DAEMON_UTIL,
-                                                     constants.NODED,
-                                                     bind_address))
+  mycommand = ("%s stop-all; %s start %s -b %s" %
+               (constants.DAEMON_UTIL, constants.DAEMON_UTIL, constants.NODED,
+                utils.ShellQuote(bind_address)))
 
   result = sshrunner.Run(node, 'root', mycommand, batch=False,
                          ask_key=ssh_key_check,

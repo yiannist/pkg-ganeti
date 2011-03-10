@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2010 Google Inc.
+# Copyright (C) 2006, 2007, 2010, 2011 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -55,6 +55,8 @@ from ganeti import workerpool
 from ganeti import rpc
 from ganeti import bootstrap
 from ganeti import netutils
+from ganeti import objects
+from ganeti import query
 
 
 CLIENT_REQUEST_WORKERS = 16
@@ -227,6 +229,40 @@ class ClientOps:
       return queue.WaitForJobChanges(job_id, fields, prev_job_info,
                                      prev_log_serial, timeout)
 
+    elif method == luxi.REQ_QUERY:
+      req = objects.QueryRequest.FromDict(args)
+
+      if req.what in constants.QR_OP_QUERY:
+        result = self._Query(opcodes.OpQuery(what=req.what, fields=req.fields,
+                                             filter=req.filter))
+      elif req.what == constants.QR_LOCK:
+        if req.filter is not None:
+          raise errors.OpPrereqError("Lock queries can't be filtered")
+        return self.server.context.glm.QueryLocks(req.fields)
+      elif req.what in constants.QR_OP_LUXI:
+        raise NotImplementedError
+      else:
+        raise errors.OpPrereqError("Resource type '%s' unknown" % req.what,
+                                   errors.ECODE_INVAL)
+
+      return result
+
+    elif method == luxi.REQ_QUERY_FIELDS:
+      req = objects.QueryFieldsRequest.FromDict(args)
+
+      if req.what in constants.QR_OP_QUERY:
+        result = self._Query(opcodes.OpQueryFields(what=req.what,
+                                                   fields=req.fields))
+      elif req.what == constants.QR_LOCK:
+        return query.QueryFields(query.LOCK_FIELDS, req.fields)
+      elif req.what in constants.QR_OP_LUXI:
+        raise NotImplementedError
+      else:
+        raise errors.OpPrereqError("Resource type '%s' unknown" % req.what,
+                                   errors.ECODE_INVAL)
+
+      return result
+
     elif method == luxi.REQ_QUERY_JOBS:
       (job_ids, fields) = args
       if isinstance(job_ids, (tuple, list)) and job_ids:
@@ -242,8 +278,8 @@ class ClientOps:
       if use_locking:
         raise errors.OpPrereqError("Sync queries are not allowed",
                                    errors.ECODE_INVAL)
-      op = opcodes.OpQueryInstances(names=names, output_fields=fields,
-                                    use_locking=use_locking)
+      op = opcodes.OpInstanceQuery(names=names, output_fields=fields,
+                                   use_locking=use_locking)
       return self._Query(op)
 
     elif method == luxi.REQ_QUERY_NODES:
@@ -252,8 +288,17 @@ class ClientOps:
       if use_locking:
         raise errors.OpPrereqError("Sync queries are not allowed",
                                    errors.ECODE_INVAL)
-      op = opcodes.OpQueryNodes(names=names, output_fields=fields,
-                                use_locking=use_locking)
+      op = opcodes.OpNodeQuery(names=names, output_fields=fields,
+                               use_locking=use_locking)
+      return self._Query(op)
+
+    elif method == luxi.REQ_QUERY_GROUPS:
+      (names, fields, use_locking) = args
+      logging.info("Received group query request for %s", names)
+      if use_locking:
+        raise errors.OpPrereqError("Sync queries are not allowed",
+                                   errors.ECODE_INVAL)
+      op = opcodes.OpGroupQuery(names=names, output_fields=fields)
       return self._Query(op)
 
     elif method == luxi.REQ_QUERY_EXPORTS:
@@ -262,30 +307,32 @@ class ClientOps:
         raise errors.OpPrereqError("Sync queries are not allowed",
                                    errors.ECODE_INVAL)
       logging.info("Received exports query request")
-      op = opcodes.OpQueryExports(nodes=nodes, use_locking=use_locking)
+      op = opcodes.OpBackupQuery(nodes=nodes, use_locking=use_locking)
       return self._Query(op)
 
     elif method == luxi.REQ_QUERY_CONFIG_VALUES:
       fields = args
       logging.info("Received config values query request for %s", fields)
-      op = opcodes.OpQueryConfigValues(output_fields=fields)
+      op = opcodes.OpClusterConfigQuery(output_fields=fields)
       return self._Query(op)
 
     elif method == luxi.REQ_QUERY_CLUSTER_INFO:
       logging.info("Received cluster info query request")
-      op = opcodes.OpQueryClusterInfo()
+      op = opcodes.OpClusterQuery()
       return self._Query(op)
 
     elif method == luxi.REQ_QUERY_TAGS:
       kind, name = args
       logging.info("Received tags query request")
-      op = opcodes.OpGetTags(kind=kind, name=name)
+      op = opcodes.OpTagsGet(kind=kind, name=name)
       return self._Query(op)
 
     elif method == luxi.REQ_QUERY_LOCKS:
       (fields, sync) = args
       logging.info("Received locks query request")
-      return self.server.context.glm.QueryLocks(fields, sync)
+      if sync:
+        raise NotImplementedError("Synchronous queries are not implemented")
+      return self.server.context.glm.OldStyleQueryLocks(fields)
 
     elif method == luxi.REQ_QUEUE_SET_DRAIN_FLAG:
       drain_flag = args
@@ -350,6 +397,7 @@ class GanetiContext(object):
     # Locking manager
     self.glm = locking.GanetiLockManager(
                 self.cfg.GetNodeList(),
+                self.cfg.GetNodeGroupList(),
                 self.cfg.GetInstanceList())
 
     # Job queue

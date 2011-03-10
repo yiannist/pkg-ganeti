@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -39,6 +39,7 @@ from ganeti import rpc
 from ganeti import ssh
 from ganeti import compat
 from ganeti import netutils
+from ganeti import qlang
 
 from optparse import (OptionParser, TitledHelpFormatter,
                       Option, OptionValueError)
@@ -48,6 +49,7 @@ __all__ = [
   # Command line options
   "ADD_UIDS_OPT",
   "ALLOCATABLE_OPT",
+  "ALLOC_POLICY_OPT",
   "ALL_OPT",
   "AUTO_PROMOTE_OPT",
   "AUTO_REPLACE_OPT",
@@ -102,9 +104,12 @@ __all__ = [
   "NEW_RAPI_CERT_OPT",
   "NEW_SECONDARY_OPT",
   "NIC_PARAMS_OPT",
+  "NODE_FORCE_JOIN_OPT",
   "NODE_LIST_OPT",
   "NODE_PLACEMENT_OPT",
   "NODEGROUP_OPT",
+  "NODE_PARAMS_OPT",
+  "NODE_POWERED_OPT",
   "NODRBD_STORAGE_OPT",
   "NOHDR_OPT",
   "NOIPCHECK_OPT",
@@ -159,6 +164,8 @@ __all__ = [
   # Generic functions for CLI programs
   "GenericMain",
   "GenericInstanceCreate",
+  "GenericList",
+  "GenericListFields",
   "GetClient",
   "GetOnlineNodes",
   "JobExecutor",
@@ -171,6 +178,8 @@ __all__ = [
   # Formatting functions
   "ToStderr", "ToStdout",
   "FormatError",
+  "FormatQueryResult",
+  "FormatParameterDict",
   "GenerateTable",
   "AskUser",
   "FormatTimestamp",
@@ -182,13 +191,16 @@ __all__ = [
   # command line options support infrastructure
   "ARGS_MANY_INSTANCES",
   "ARGS_MANY_NODES",
+  "ARGS_MANY_GROUPS",
   "ARGS_NONE",
   "ARGS_ONE_INSTANCE",
   "ARGS_ONE_NODE",
+  "ARGS_ONE_GROUP",
   "ARGS_ONE_OS",
   "ArgChoice",
   "ArgCommand",
   "ArgFile",
+  "ArgGroup",
   "ArgHost",
   "ArgInstance",
   "ArgJobId",
@@ -224,6 +236,11 @@ _PRIORITY_NAMES = [
 # TODO: Replace this and _PRIORITY_NAMES with a single sorted dictionary once
 # we migrate to Python 2.6
 _PRIONAME_TO_VALUE = dict(_PRIORITY_NAMES)
+
+# Query result status for clients
+(QR_NORMAL,
+ QR_UNKNOWN,
+ QR_INCOMPLETE) = range(3)
 
 
 class _Argument:
@@ -278,6 +295,13 @@ class ArgNode(_Argument):
 
   """
 
+
+class ArgGroup(_Argument):
+  """Node group argument.
+
+  """
+
+
 class ArgJobId(_Argument):
   """Job ID argument.
 
@@ -311,8 +335,10 @@ class ArgOs(_Argument):
 ARGS_NONE = []
 ARGS_MANY_INSTANCES = [ArgInstance()]
 ARGS_MANY_NODES = [ArgNode()]
+ARGS_MANY_GROUPS = [ArgGroup()]
 ARGS_ONE_INSTANCE = [ArgInstance(min=1, max=1)]
 ARGS_ONE_NODE = [ArgNode(min=1, max=1)]
+ARGS_ONE_GROUP = [ArgInstance(min=1, max=1)]
 ARGS_ONE_OS = [ArgOs(min=1, max=1)]
 
 
@@ -397,7 +423,7 @@ def AddTags(opts, args):
   _ExtendTags(opts, args)
   if not args:
     raise errors.OpPrereqError("No tags to be added")
-  op = opcodes.OpAddTags(kind=kind, name=name, tags=args)
+  op = opcodes.OpTagsSet(kind=kind, name=name, tags=args)
   SubmitOpCode(op, opts=opts)
 
 
@@ -414,7 +440,7 @@ def RemoveTags(opts, args):
   _ExtendTags(opts, args)
   if not args:
     raise errors.OpPrereqError("No tags to be removed")
-  op = opcodes.OpDelTags(kind=kind, name=name, tags=args)
+  op = opcodes.OpTagsDel(kind=kind, name=name, tags=args)
   SubmitOpCode(op, opts=opts)
 
 
@@ -578,7 +604,7 @@ SEP_OPT = cli_option("--separator", default=None,
 
 USEUNITS_OPT = cli_option("--units", default=None,
                           dest="units", choices=('h', 'm', 'g', 't'),
-                          help="Specify units for output (one of hmgt)")
+                          help="Specify units for output (one of h/m/g/t)")
 
 FIELDS_OPT = cli_option("-o", "--output", dest="output", action="store",
                         type="string", metavar="FIELDS",
@@ -860,6 +886,10 @@ NOSSH_KEYCHECK_OPT = cli_option("--no-ssh-key-check", dest="ssh_key_check",
                                 default=True, action="store_false",
                                 help="Disable SSH key fingerprint checking")
 
+NODE_FORCE_JOIN_OPT = cli_option("--force-join", dest="force_join",
+                                 default=False, action="store_true",
+                                 help="Force the joining of a node,"
+                                      " needed when merging clusters")
 
 MC_OPT = cli_option("-C", "--master-candidate", dest="master_candidate",
                     type="bool", default=None, metavar=_YORNO,
@@ -867,11 +897,14 @@ MC_OPT = cli_option("-C", "--master-candidate", dest="master_candidate",
 
 OFFLINE_OPT = cli_option("-O", "--offline", dest="offline", metavar=_YORNO,
                          type="bool", default=None,
-                         help="Set the offline flag on the node")
+                         help=("Set the offline flag on the node"
+                               " (cluster does not communicate with offline"
+                               " nodes)"))
 
 DRAINED_OPT = cli_option("-D", "--drained", dest="drained", metavar=_YORNO,
                          type="bool", default=None,
-                         help="Set the drained flag on the node")
+                         help=("Set the drained flag on the node"
+                               " (excluded from allocation operations)"))
 
 CAPAB_MASTER_OPT = cli_option("--master-capable", dest="master_capable",
                     type="bool", default=None, metavar=_YORNO,
@@ -904,8 +937,9 @@ CP_SIZE_OPT = cli_option("-C", "--candidate-pool-size", default=None,
                          help="Set the candidate pool size")
 
 VG_NAME_OPT = cli_option("--vg-name", dest="vg_name",
-                         help="Enables LVM and specifies the volume group"
-                         " name (cluster-wide) for disk allocation [xenvg]",
+                         help=("Enables LVM and specifies the volume group"
+                               " name (cluster-wide) for disk allocation"
+                               " [%s]" % constants.DEFAULT_VG),
                          metavar="VG", default=None)
 
 YES_DOIT_OPT = cli_option("--yes-do-it", dest="yes_do_it",
@@ -923,10 +957,11 @@ MAC_PREFIX_OPT = cli_option("-m", "--mac-prefix", dest="mac_prefix",
 
 MASTER_NETDEV_OPT = cli_option("--master-netdev", dest="master_netdev",
                                help="Specify the node interface (cluster-wide)"
-                               " on which the master IP address will be added "
-                               " [%s]" % constants.DEFAULT_BRIDGE,
+                               " on which the master IP address will be added"
+                               " (cluster init default: %s)" %
+                               constants.DEFAULT_BRIDGE,
                                metavar="NETDEV",
-                               default=constants.DEFAULT_BRIDGE)
+                               default=None)
 
 GLOBAL_FILEDIR_OPT = cli_option("--file-storage-dir", dest="file_storage_dir",
                                 help="Specify the default directory (cluster-"
@@ -1099,6 +1134,19 @@ PREALLOC_WIPE_DISKS_OPT = cli_option("--prealloc-wipe-disks", default=None,
                                      dest="prealloc_wipe_disks",
                                      help=("Wipe disks prior to instance"
                                            " creation"))
+
+NODE_PARAMS_OPT = cli_option("--node-parameters", dest="ndparams",
+                             type="keyval", default=None,
+                             help="Node parameters")
+
+ALLOC_POLICY_OPT = cli_option("--alloc-policy", dest="alloc_policy",
+                              action="store", metavar="POLICY", default=None,
+                              help="Allocation policy for the node group")
+
+NODE_POWERED_OPT = cli_option("--node-powered", default=None,
+                              type="bool", metavar=_YORNO,
+                              dest="node_powered",
+                              help="Specify if the SoR for node is powered")
 
 
 #: Options provided by all commands
@@ -1807,8 +1855,11 @@ def FormatError(err):
     obuf.write("Cannot communicate with the master daemon.\nIs it running"
                " and listening for connections?")
   elif isinstance(err, luxi.TimeoutError):
-    obuf.write("Timeout while talking to the master daemon. Error:\n"
-               "%s" % msg)
+    obuf.write("Timeout while talking to the master daemon. Jobs might have"
+               " been submitted and will continue to run even if the call"
+               " timed out. Useful commands in this situation are \"gnt-job"
+               " list\", \"gnt-job cancel\" and \"gnt-job watch\". Error:\n")
+    obuf.write(msg)
   elif isinstance(err, luxi.PermissionError):
     obuf.write("It seems you don't have permissions to connect to the"
                " master daemon.\nPlease retry as a different user.")
@@ -1868,8 +1919,8 @@ def GenericMain(commands, override=None, aliases=None):
     for key, val in override.iteritems():
       setattr(options, key, val)
 
-  utils.SetupLogging(constants.LOG_COMMANDS, debug=options.debug,
-                     stderr_logging=True, program=binary)
+  utils.SetupLogging(constants.LOG_COMMANDS, binary, debug=options.debug,
+                     stderr_logging=True)
 
   if old_cmdline:
     logging.info("run with arguments '%s'", old_cmdline)
@@ -1883,6 +1934,11 @@ def GenericMain(commands, override=None, aliases=None):
     result, err_msg = FormatError(err)
     logging.exception("Error during command processing")
     ToStderr(err_msg)
+  except KeyboardInterrupt:
+    result = constants.EXIT_FAILURE
+    ToStderr("Aborted. Note that if the operation created any jobs, they"
+             " might have been submitted and"
+             " will continue to run in the background.")
 
   return result
 
@@ -2012,7 +2068,7 @@ def GenericInstanceCreate(mode, opts, args):
   else:
     raise errors.ProgrammerError("Invalid creation mode %s" % mode)
 
-  op = opcodes.OpCreateInstance(instance_name=instance,
+  op = opcodes.OpInstanceCreate(instance_name=instance,
                                 disks=disks,
                                 disk_template=opts.disk_template,
                                 nics=nics,
@@ -2269,6 +2325,361 @@ def GenerateTable(headers, fields, separator, data,
     result.append(format_str % tuple(args))
 
   return result
+
+
+def _FormatBool(value):
+  """Formats a boolean value as a string.
+
+  """
+  if value:
+    return "Y"
+  return "N"
+
+
+#: Default formatting for query results; (callback, align right)
+_DEFAULT_FORMAT_QUERY = {
+  constants.QFT_TEXT: (str, False),
+  constants.QFT_BOOL: (_FormatBool, False),
+  constants.QFT_NUMBER: (str, True),
+  constants.QFT_TIMESTAMP: (utils.FormatTime, False),
+  constants.QFT_OTHER: (str, False),
+  constants.QFT_UNKNOWN: (str, False),
+  }
+
+
+def _GetColumnFormatter(fdef, override, unit):
+  """Returns formatting function for a field.
+
+  @type fdef: L{objects.QueryFieldDefinition}
+  @type override: dict
+  @param override: Dictionary for overriding field formatting functions,
+    indexed by field name, contents like L{_DEFAULT_FORMAT_QUERY}
+  @type unit: string
+  @param unit: Unit used for formatting fields of type L{constants.QFT_UNIT}
+  @rtype: tuple; (callable, bool)
+  @return: Returns the function to format a value (takes one parameter) and a
+    boolean for aligning the value on the right-hand side
+
+  """
+  fmt = override.get(fdef.name, None)
+  if fmt is not None:
+    return fmt
+
+  assert constants.QFT_UNIT not in _DEFAULT_FORMAT_QUERY
+
+  if fdef.kind == constants.QFT_UNIT:
+    # Can't keep this information in the static dictionary
+    return (lambda value: utils.FormatUnit(value, unit), True)
+
+  fmt = _DEFAULT_FORMAT_QUERY.get(fdef.kind, None)
+  if fmt is not None:
+    return fmt
+
+  raise NotImplementedError("Can't format column type '%s'" % fdef.kind)
+
+
+class _QueryColumnFormatter:
+  """Callable class for formatting fields of a query.
+
+  """
+  def __init__(self, fn, status_fn, verbose):
+    """Initializes this class.
+
+    @type fn: callable
+    @param fn: Formatting function
+    @type status_fn: callable
+    @param status_fn: Function to report fields' status
+    @type verbose: boolean
+    @param verbose: whether to use verbose field descriptions or not
+
+    """
+    self._fn = fn
+    self._status_fn = status_fn
+    if verbose:
+      self._desc_index = 0
+    else:
+      self._desc_index = 1
+
+  def __call__(self, data):
+    """Returns a field's string representation.
+
+    """
+    (status, value) = data
+
+    # Report status
+    self._status_fn(status)
+
+    if status == constants.RS_NORMAL:
+      return self._fn(value)
+
+    assert value is None, \
+           "Found value %r for abnormal status %s" % (value, status)
+
+    if status in constants.RSS_DESCRIPTION:
+      return constants.RSS_DESCRIPTION[status][self._desc_index]
+
+    raise NotImplementedError("Unknown status %s" % status)
+
+
+def FormatQueryResult(result, unit=None, format_override=None, separator=None,
+                      header=False, verbose=False):
+  """Formats data in L{objects.QueryResponse}.
+
+  @type result: L{objects.QueryResponse}
+  @param result: result of query operation
+  @type unit: string
+  @param unit: Unit used for formatting fields of type L{constants.QFT_UNIT},
+    see L{utils.text.FormatUnit}
+  @type format_override: dict
+  @param format_override: Dictionary for overriding field formatting functions,
+    indexed by field name, contents like L{_DEFAULT_FORMAT_QUERY}
+  @type separator: string or None
+  @param separator: String used to separate fields
+  @type header: bool
+  @param header: Whether to output header row
+  @type verbose: boolean
+  @param verbose: whether to use verbose field descriptions or not
+
+  """
+  if unit is None:
+    if separator:
+      unit = "m"
+    else:
+      unit = "h"
+
+  if format_override is None:
+    format_override = {}
+
+  stats = dict.fromkeys(constants.RS_ALL, 0)
+
+  def _RecordStatus(status):
+    if status in stats:
+      stats[status] += 1
+
+  columns = []
+  for fdef in result.fields:
+    assert fdef.title and fdef.name
+    (fn, align_right) = _GetColumnFormatter(fdef, format_override, unit)
+    columns.append(TableColumn(fdef.title,
+                               _QueryColumnFormatter(fn, _RecordStatus,
+                                                     verbose),
+                               align_right))
+
+  table = FormatTable(result.data, columns, header, separator)
+
+  # Collect statistics
+  assert len(stats) == len(constants.RS_ALL)
+  assert compat.all(count >= 0 for count in stats.values())
+
+  # Determine overall status. If there was no data, unknown fields must be
+  # detected via the field definitions.
+  if (stats[constants.RS_UNKNOWN] or
+      (not result.data and _GetUnknownFields(result.fields))):
+    status = QR_UNKNOWN
+  elif compat.any(count > 0 for key, count in stats.items()
+                  if key != constants.RS_NORMAL):
+    status = QR_INCOMPLETE
+  else:
+    status = QR_NORMAL
+
+  return (status, table)
+
+
+def _GetUnknownFields(fdefs):
+  """Returns list of unknown fields included in C{fdefs}.
+
+  @type fdefs: list of L{objects.QueryFieldDefinition}
+
+  """
+  return [fdef for fdef in fdefs
+          if fdef.kind == constants.QFT_UNKNOWN]
+
+
+def _WarnUnknownFields(fdefs):
+  """Prints a warning to stderr if a query included unknown fields.
+
+  @type fdefs: list of L{objects.QueryFieldDefinition}
+
+  """
+  unknown = _GetUnknownFields(fdefs)
+  if unknown:
+    ToStderr("Warning: Queried for unknown fields %s",
+             utils.CommaJoin(fdef.name for fdef in unknown))
+    return True
+
+  return False
+
+
+def GenericList(resource, fields, names, unit, separator, header, cl=None,
+                format_override=None, verbose=False):
+  """Generic implementation for listing all items of a resource.
+
+  @param resource: One of L{constants.QR_OP_LUXI}
+  @type fields: list of strings
+  @param fields: List of fields to query for
+  @type names: list of strings
+  @param names: Names of items to query for
+  @type unit: string or None
+  @param unit: Unit used for formatting fields of type L{constants.QFT_UNIT} or
+    None for automatic choice (human-readable for non-separator usage,
+    otherwise megabytes); this is a one-letter string
+  @type separator: string or None
+  @param separator: String used to separate fields
+  @type header: bool
+  @param header: Whether to show header row
+  @type format_override: dict
+  @param format_override: Dictionary for overriding field formatting functions,
+    indexed by field name, contents like L{_DEFAULT_FORMAT_QUERY}
+  @type verbose: boolean
+  @param verbose: whether to use verbose field descriptions or not
+
+  """
+  if cl is None:
+    cl = GetClient()
+
+  if not names:
+    names = None
+
+  response = cl.Query(resource, fields, qlang.MakeSimpleFilter("name", names))
+
+  found_unknown = _WarnUnknownFields(response.fields)
+
+  (status, data) = FormatQueryResult(response, unit=unit, separator=separator,
+                                     header=header,
+                                     format_override=format_override,
+                                     verbose=verbose)
+
+  for line in data:
+    ToStdout(line)
+
+  assert ((found_unknown and status == QR_UNKNOWN) or
+          (not found_unknown and status != QR_UNKNOWN))
+
+  if status == QR_UNKNOWN:
+    return constants.EXIT_UNKNOWN_FIELD
+
+  # TODO: Should the list command fail if not all data could be collected?
+  return constants.EXIT_SUCCESS
+
+
+def GenericListFields(resource, fields, separator, header, cl=None):
+  """Generic implementation for listing fields for a resource.
+
+  @param resource: One of L{constants.QR_OP_LUXI}
+  @type fields: list of strings
+  @param fields: List of fields to query for
+  @type separator: string or None
+  @param separator: String used to separate fields
+  @type header: bool
+  @param header: Whether to show header row
+
+  """
+  if cl is None:
+    cl = GetClient()
+
+  if not fields:
+    fields = None
+
+  response = cl.QueryFields(resource, fields)
+
+  found_unknown = _WarnUnknownFields(response.fields)
+
+  columns = [
+    TableColumn("Name", str, False),
+    TableColumn("Title", str, False),
+    # TODO: Add field description to master daemon
+    ]
+
+  rows = [[fdef.name, fdef.title] for fdef in response.fields]
+
+  for line in FormatTable(rows, columns, header, separator):
+    ToStdout(line)
+
+  if found_unknown:
+    return constants.EXIT_UNKNOWN_FIELD
+
+  return constants.EXIT_SUCCESS
+
+
+class TableColumn:
+  """Describes a column for L{FormatTable}.
+
+  """
+  def __init__(self, title, fn, align_right):
+    """Initializes this class.
+
+    @type title: string
+    @param title: Column title
+    @type fn: callable
+    @param fn: Formatting function
+    @type align_right: bool
+    @param align_right: Whether to align values on the right-hand side
+
+    """
+    self.title = title
+    self.format = fn
+    self.align_right = align_right
+
+
+def _GetColFormatString(width, align_right):
+  """Returns the format string for a field.
+
+  """
+  if align_right:
+    sign = ""
+  else:
+    sign = "-"
+
+  return "%%%s%ss" % (sign, width)
+
+
+def FormatTable(rows, columns, header, separator):
+  """Formats data as a table.
+
+  @type rows: list of lists
+  @param rows: Row data, one list per row
+  @type columns: list of L{TableColumn}
+  @param columns: Column descriptions
+  @type header: bool
+  @param header: Whether to show header row
+  @type separator: string or None
+  @param separator: String used to separate columns
+
+  """
+  if header:
+    data = [[col.title for col in columns]]
+    colwidth = [len(col.title) for col in columns]
+  else:
+    data = []
+    colwidth = [0 for _ in columns]
+
+  # Format row data
+  for row in rows:
+    assert len(row) == len(columns)
+
+    formatted = [col.format(value) for value, col in zip(row, columns)]
+
+    if separator is None:
+      # Update column widths
+      for idx, (oldwidth, value) in enumerate(zip(colwidth, formatted)):
+        # Modifying a list's items while iterating is fine
+        colwidth[idx] = max(oldwidth, len(value))
+
+    data.append(formatted)
+
+  if separator is not None:
+    # Return early if a separator is used
+    return [separator.join(row) for row in data]
+
+  if columns and not columns[-1].align_right:
+    # Avoid unnecessary spaces at end of line
+    colwidth[-1] = 0
+
+  # Build format string
+  fmt = " ".join([_GetColFormatString(width, col.align_right)
+                  for col, width in zip(columns, colwidth)])
+
+  return [fmt % tuple(row) for row in data]
 
 
 def FormatTimestamp(ts):
@@ -2548,3 +2959,21 @@ class JobExecutor(object):
         else:
           ToStderr("Failure for %s: %s", name, result)
       return [row[1:3] for row in self.jobs]
+
+
+def FormatParameterDict(buf, param_dict, actual, level=1):
+  """Formats a parameter dictionary.
+
+  @type buf: L{StringIO}
+  @param buf: the buffer into which to write
+  @type param_dict: dict
+  @param param_dict: the own parameters
+  @type actual: dict
+  @param actual: the current parameter set (including defaults)
+  @param level: Level of indent
+
+  """
+  indent = "  " * level
+  for key in sorted(actual):
+    val = param_dict.get(key, "default (%s)" % actual[key])
+    buf.write("%s- %s: %s\n" % (indent, key, val))

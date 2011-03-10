@@ -9,13 +9,16 @@
 abs_top_builddir = @abs_top_builddir@
 abs_top_srcdir = @abs_top_srcdir@
 
+# Use bash in order to be able to use pipefail
+SHELL=/bin/bash
+
 ACLOCAL_AMFLAGS = -I autotools
-DOCBOOK_WRAPPER = $(top_srcdir)/autotools/docbook-wrapper
 BUILD_BASH_COMPLETION = $(top_srcdir)/autotools/build-bash-completion
 RUN_IN_TEMPDIR = $(top_srcdir)/autotools/run-in-tempdir
 CHECK_PYTHON_CODE = $(top_srcdir)/autotools/check-python-code
 CHECK_MAN = $(top_srcdir)/autotools/check-man
 CHECK_VERSION = $(top_srcdir)/autotools/check-version
+CHECK_NEWS = $(top_srcdir)/autotools/check-news
 REPLACE_VARS_SED = autotools/replace_vars.sed
 
 clientdir = $(pkgpythondir)/client
@@ -27,6 +30,7 @@ rapidir = $(pkgpythondir)/rapi
 serverdir = $(pkgpythondir)/server
 watcherdir = $(pkgpythondir)/watcher
 impexpddir = $(pkgpythondir)/impexpd
+utilsdir = $(pkgpythondir)/utils
 toolsdir = $(pkglibdir)/tools
 docdir = $(datadir)/doc/$(PACKAGE)
 
@@ -51,6 +55,7 @@ DIRS = \
 	lib/masterd \
 	lib/rapi \
 	lib/server \
+	lib/utils \
 	lib/watcher \
 	man \
 	qa \
@@ -79,6 +84,7 @@ MAINTAINERCLEANFILES = \
 	$(maninput) \
 	doc/install-quick.rst \
 	doc/news.rst \
+	doc/upgrade.rst \
 	vcs-version
 
 maintainer-clean-local:
@@ -88,6 +94,7 @@ CLEANFILES = \
 	$(addsuffix /*.py[co],$(DIRS)) \
 	$(all_dirfiles) \
 	$(PYTHON_BOOTSTRAP) \
+	epydoc.conf \
 	autotools/replace_vars.sed \
 	daemons/daemon-util \
 	daemons/ensure-dirs \
@@ -95,11 +102,13 @@ CLEANFILES = \
 	devel/upload \
 	doc/examples/bash_completion \
 	doc/examples/ganeti.initd \
+	doc/examples/ganeti-kvm-poweroff.initd \
 	doc/examples/ganeti.cron \
 	doc/examples/gnt-config-backup \
 	doc/examples/hooks/ipsec \
 	$(man_MANS) \
 	$(manhtml) \
+	tools/kvm-ifup \
 	stamp-srclinks \
 	$(nodist_pkgpython_PYTHON)
 
@@ -140,13 +149,14 @@ pkgpython_PYTHON = \
 	lib/netutils.py \
 	lib/objects.py \
 	lib/opcodes.py \
+	lib/qlang.py \
+	lib/query.py \
 	lib/rpc.py \
 	lib/runtime.py \
 	lib/serializer.py \
 	lib/ssconf.py \
 	lib/ssh.py \
 	lib/storage.py \
-	lib/utils.py \
 	lib/uidpool.py \
 	lib/workerpool.py
 
@@ -155,6 +165,7 @@ client_PYTHON = \
 	lib/client/gnt_backup.py \
 	lib/client/gnt_cluster.py \
 	lib/client/gnt_debug.py \
+	lib/client/gnt_group.py \
 	lib/client/gnt_instance.py \
 	lib/client/gnt_job.py \
 	lib/client/gnt_node.py \
@@ -206,12 +217,30 @@ server_PYTHON = \
 	lib/server/noded.py \
 	lib/server/rapi.py
 
+utils_PYTHON = \
+	lib/utils/__init__.py \
+	lib/utils/algo.py \
+	lib/utils/filelock.py \
+	lib/utils/hash.py \
+	lib/utils/io.py \
+	lib/utils/log.py \
+	lib/utils/mlock.py \
+	lib/utils/nodesetup.py \
+	lib/utils/process.py \
+	lib/utils/retry.py \
+	lib/utils/text.py \
+	lib/utils/wrapper.py \
+	lib/utils/x509.py
+
 docrst = \
 	doc/admin.rst \
 	doc/design-2.0.rst \
 	doc/design-2.1.rst \
 	doc/design-2.2.rst \
 	doc/design-2.3.rst \
+	doc/design-2.4.rst \
+	doc/design-oob.rst \
+	doc/design-query2.rst \
 	doc/cluster-merge.rst \
 	doc/devnotes.rst \
 	doc/glossary.rst \
@@ -225,6 +254,7 @@ docrst = \
 	doc/news.rst \
 	doc/rapi.rst \
 	doc/security.rst \
+	doc/upgrade.rst \
 	doc/walkthrough.rst
 
 $(RUN_IN_TEMPDIR): | $(all_dirfiles)
@@ -244,15 +274,11 @@ doc/html/index.html: $(docrst) $(docpng) doc/conf.py configure.ac \
 
 doc/html: doc/html/index.html
 
-doc/news.rst: NEWS
-	set -e; \
-	{ echo '.. This file is automatically updated at build time from $<.'; \
-	  echo '.. Do not edit.'; \
-	  echo; \
-	  cat $<; \
-	} > $@
-
 doc/install-quick.rst: INSTALL
+doc/news.rst: NEWS
+doc/upgrade.rst: UPGRADE
+
+doc/install-quick.rst doc/news.rst doc/upgrade.rst:
 	set -e; \
 	{ echo '.. This file is automatically updated at build time from $<.'; \
 	  echo '.. Do not edit.'; \
@@ -275,6 +301,7 @@ noinst_DATA = \
 	doc/examples/bash_completion \
 	doc/examples/ganeti.cron \
 	doc/examples/ganeti.initd \
+	doc/examples/ganeti-kvm-poweroff.initd \
 	doc/examples/gnt-config-backup \
 	doc/examples/hooks/ipsec \
 	$(manhtml)
@@ -283,6 +310,7 @@ gnt_scripts = \
 	scripts/gnt-backup \
 	scripts/gnt-cluster \
 	scripts/gnt-debug \
+	scripts/gnt-group \
 	scripts/gnt-instance \
 	scripts/gnt-job \
 	scripts/gnt-node \
@@ -297,12 +325,28 @@ PYTHON_BOOTSTRAP = \
 	scripts/gnt-backup \
 	scripts/gnt-cluster \
 	scripts/gnt-debug \
+	scripts/gnt-group \
 	scripts/gnt-instance \
 	scripts/gnt-job \
 	scripts/gnt-node \
 	scripts/gnt-os
 
-dist_sbin_SCRIPTS =
+qa_scripts = \
+	qa/ganeti-qa.py \
+	qa/qa_cluster.py \
+	qa/qa_config.py \
+	qa/qa_daemon.py \
+	qa/qa_env.py \
+	qa/qa_error.py \
+	qa/qa_instance.py \
+	qa/qa_node.py \
+	qa/qa_os.py \
+	qa/qa_rapi.py \
+	qa/qa_tags.py \
+	qa/qa_utils.py
+
+dist_sbin_SCRIPTS = \
+	tools/ganeti-listrunner
 
 nodist_sbin_SCRIPTS = \
 	$(PYTHON_BOOTSTRAP) \
@@ -326,17 +370,20 @@ pkglib_python_scripts = \
 pkglib_SCRIPTS = \
 	daemons/daemon-util \
 	daemons/ensure-dirs \
+	tools/kvm-ifup \
 	$(pkglib_python_scripts)
 
 EXTRA_DIST = \
 	NEWS \
+	UPGRADE \
+	epydoc.conf.in \
 	pylintrc \
 	autotools/build-bash-completion \
 	autotools/check-python-code \
 	autotools/check-man \
+	autotools/check-news \
 	autotools/check-tar \
 	autotools/check-version \
-	autotools/docbook-wrapper \
 	autotools/gen-coverage \
 	autotools/testrunner \
 	$(RUN_IN_TEMPDIR) \
@@ -345,15 +392,16 @@ EXTRA_DIST = \
 	daemons/ganeti-cleaner.in \
 	$(pkglib_python_scripts) \
 	devel/upload.in \
+	tools/kvm-ifup.in \
 	$(docdot) \
 	$(docpng) \
 	$(docrst) \
 	doc/conf.py \
 	doc/html \
 	doc/examples/ganeti.initd.in \
+	doc/examples/ganeti-kvm-poweroff.initd.in \
 	doc/examples/ganeti.cron.in \
 	doc/examples/gnt-config-backup.in \
-	doc/examples/dumb-allocator \
 	doc/examples/ganeti.default \
 	doc/examples/ganeti.default-debug \
 	doc/examples/hooks/ethers \
@@ -365,27 +413,17 @@ EXTRA_DIST = \
 	test/mocks.py \
 	$(dist_TESTS) \
 	$(TEST_FILES) \
-	man/footer.sgml \
-	$(mansgml) \
+	man/footer.rst \
+	$(manrst) \
 	$(maninput) \
-	qa/ganeti-qa.py \
 	qa/qa-sample.json \
-	qa/qa_cluster.py \
-	qa/qa_config.py \
-	qa/qa_daemon.py \
-	qa/qa_env.py \
-	qa/qa_error.py \
-	qa/qa_instance.py \
-	qa/qa_node.py \
-	qa/qa_os.py \
-	qa/qa_rapi.py \
-	qa/qa_tags.py \
-	qa/qa_utils.py
+	$(qa_scripts)
 
 man_MANS = \
 	man/ganeti.7 \
 	man/ganeti-cleaner.8 \
 	man/ganeti-confd.8 \
+	man/ganeti-listrunner.8 \
 	man/ganeti-masterd.8 \
 	man/ganeti-noded.8 \
 	man/ganeti-os-interface.7 \
@@ -394,16 +432,18 @@ man_MANS = \
 	man/gnt-backup.8 \
 	man/gnt-cluster.8 \
 	man/gnt-debug.8 \
+	man/gnt-group.8 \
 	man/gnt-instance.8 \
 	man/gnt-job.8 \
 	man/gnt-node.8 \
 	man/gnt-os.8
 
-mansgml = $(patsubst %.7,%.sgml,$(patsubst %.8,%.sgml,$(man_MANS)))
-manhtml = $(patsubst %.sgml,%.html,$(mansgml))
+manrst = $(patsubst %.7,%.rst,$(patsubst %.8,%.rst,$(man_MANS)))
+manhtml = $(patsubst %.rst,%.html,$(manrst))
 maninput = \
 	$(patsubst %.7,%.7.in,$(patsubst %.8,%.8.in,$(man_MANS))) \
-	$(patsubst %.html,%.html.in,$(manhtml))
+	$(patsubst %.html,%.html.in,$(manhtml)) \
+	man/footer.man man/footer.html
 
 TEST_FILES = \
 	test/data/bdev-drbd-8.0.txt \
@@ -423,6 +463,7 @@ python_tests = \
 	test/ganeti.backend_unittest.py \
 	test/ganeti.bdev_unittest.py \
 	test/ganeti.cli_unittest.py \
+	test/ganeti.client.gnt_instance_unittest.py \
 	test/ganeti.daemon_unittest.py \
 	test/ganeti.cmdlib_unittest.py \
 	test/ganeti.compat_unittest.py \
@@ -431,8 +472,14 @@ python_tests = \
 	test/ganeti.constants_unittest.py \
 	test/ganeti.errors_unittest.py \
 	test/ganeti.hooks_unittest.py \
+	test/ganeti.ht_unittest.py \
 	test/ganeti.http_unittest.py \
+	test/ganeti.hypervisor_unittest.py \
+	test/ganeti.hypervisor.hv_chroot_unittest.py \
+	test/ganeti.hypervisor.hv_fake_unittest.py \
 	test/ganeti.hypervisor.hv_kvm_unittest.py \
+	test/ganeti.hypervisor.hv_lxc_unittest.py \
+	test/ganeti.hypervisor.hv_xen_unittest.py \
 	test/ganeti.impexpd_unittest.py \
 	test/ganeti.jqueue_unittest.py \
 	test/ganeti.locking_unittest.py \
@@ -442,6 +489,9 @@ python_tests = \
 	test/ganeti.netutils_unittest.py \
 	test/ganeti.objects_unittest.py \
 	test/ganeti.opcodes_unittest.py \
+	test/ganeti.qlang_unittest.py \
+	test/ganeti.query_unittest.py \
+	test/ganeti.rapi.baserlib_unittest.py \
 	test/ganeti.rapi.client_unittest.py \
 	test/ganeti.rapi.resources_unittest.py \
 	test/ganeti.rapi.rlib2_unittest.py \
@@ -450,8 +500,19 @@ python_tests = \
 	test/ganeti.serializer_unittest.py \
 	test/ganeti.ssh_unittest.py \
 	test/ganeti.uidpool_unittest.py \
+	test/ganeti.utils.algo_unittest.py \
+	test/ganeti.utils.filelock_unittest.py \
+	test/ganeti.utils.hash_unittest.py \
+	test/ganeti.utils.io_unittest.py \
+	test/ganeti.utils.log_unittest.py \
+	test/ganeti.utils.mlock_unittest.py \
+	test/ganeti.utils.nodesetup_unittest.py \
+	test/ganeti.utils.process_unittest.py \
+	test/ganeti.utils.retry_unittest.py \
+	test/ganeti.utils.text_unittest.py \
+	test/ganeti.utils.wrapper_unittest.py \
+	test/ganeti.utils.x509_unittest.py \
 	test/ganeti.utils_unittest.py \
-	test/ganeti.utils_mlockall_unittest.py \
 	test/ganeti.workerpool_unittest.py \
 	test/cfgupgrade_unittest.py \
 	test/docs_unittest.py \
@@ -490,11 +551,13 @@ all_python_code = \
 	$(confd_PYTHON) \
 	$(masterd_PYTHON) \
 	$(impexpd_PYTHON) \
+	$(utils_PYTHON) \
 	$(watcher_PYTHON) \
-	$(noinst_PYTHON)
+	$(noinst_PYTHON) \
+	$(qa_scripts)
 
 srclink_files = \
-	man/footer.sgml \
+	man/footer.rst \
 	test/check-cert-expired_unittest.bash \
 	test/daemon-util_unittest.bash \
 	test/ganeti-cleaner_unittest.bash \
@@ -518,6 +581,10 @@ test/daemon-util_unittest.bash: daemons/daemon-util
 
 test/ganeti-cleaner_unittest.bash: daemons/ganeti-cleaner
 
+tools/kvm-ifup: tools/kvm-ifup.in $(REPLACE_VARS_SED)
+	sed -f $(REPLACE_VARS_SED) < $< > $@
+	chmod +x $@
+
 devel/upload: devel/upload.in $(REPLACE_VARS_SED)
 	sed -f $(REPLACE_VARS_SED) < $< > $@
 	chmod u+x $@
@@ -540,16 +607,30 @@ doc/%.png: doc/%.dot
 	@test -n "$(DOT)" || { echo 'dot' not found during configure; exit 1; }
 	$(DOT) -Tpng -o $@ $<
 
-man/%.7.in man/%.8.in: man/%.sgml man/footer.sgml $(DOCBOOK_WRAPPER)
-	@test -n "$(DOCBOOK2MAN)" || \
-	  { echo 'docbook2man' not found during configure; exit 1; }
-	$(DOCBOOK_WRAPPER) "$(DOCBOOK2MAN)" $< $(notdir $(@:.in=)) $@
+man/footer.man: man/footer.rst
+	@test -n "$(PANDOC)" || \
+	  { echo 'pandoc' not found during configure; exit 1; }
+	$(PANDOC) -f rst -t man -o $@ $<
+
+man/footer.html: man/footer.rst
+	@test -n "$(PANDOC)" || \
+	  { echo 'pandoc' not found during configure; exit 1; }
+	$(PANDOC) -f rst -t html -o $@ $<
+
+man/%.7.in man/%.8.in: man/%.rst man/footer.man
+	@test -n "$(PANDOC)" || \
+	  { echo 'pandoc' not found during configure; exit 1; }
+	set -o pipefail ; \
+	$(PANDOC) -s -f rst -t man -A man/footer.man $< | \
+	  sed -e 's/\\@/@/g' > $@
 	if test -n "$(MAN_HAS_WARNINGS)"; then $(CHECK_MAN) $@; fi
 
-man/%.html.in: man/%.sgml man/footer.sgml $(DOCBOOK_WRAPPER)
-	@test -n "$(DOCBOOK2HTML)" || \
-	  { echo 'docbook2html' not found during configure; exit 1; }
-	$(DOCBOOK_WRAPPER) "$(DOCBOOK2HTML) --nochunks" $< $(notdir $(@:.in=)) $@
+man/%.html.in: man/%.rst man/footer.html
+	@test -n "$(PANDOC)" || \
+	  { echo 'pandoc' not found during configure; exit 1; }
+	set -o pipefail ; \
+	$(PANDOC) -s -f rst -t html -A man/footer.html $< | \
+	  sed -e 's/\\@/@/g' > $@
 
 man/%.7: man/%.7.in $(REPLACE_VARS_SED)
 	sed -f $(REPLACE_VARS_SED) < $< > $@
@@ -559,6 +640,9 @@ man/%.8: man/%.8.in $(REPLACE_VARS_SED)
 
 man/%.html: man/%.html.in $(REPLACE_VARS_SED)
 	sed -f $(REPLACE_VARS_SED) < $< > $@
+
+epydoc.conf: epydoc.conf.in
+	sed -e 's#@MODULES@#$(lint_python_code)#g' < $< > $@
 
 vcs-version:
 	if test -d .git; then \
@@ -631,6 +715,7 @@ lib/_autoconf.py: Makefile vcs-version | lib/.dir
 	  echo "CONFD_GROUP = '$(CONFD_GROUP)'"; \
 	  echo "NODED_USER = '$(NODED_USER)'"; \
 	  echo "VCS_VERSION = '$$VCSVER'"; \
+	  echo "DISK_SEPARATOR = '$(DISK_SEPARATOR)'"; \
 	} > $@
 
 $(REPLACE_VARS_SED): Makefile
@@ -644,6 +729,8 @@ $(REPLACE_VARS_SED): Makefile
 	  echo 's#@CUSTOM_XEN_BOOTLOADER@#$(XEN_BOOTLOADER)#g'; \
 	  echo 's#@CUSTOM_XEN_KERNEL@#$(XEN_KERNEL)#g'; \
 	  echo 's#@CUSTOM_XEN_INITRD@#$(XEN_INITRD)#g'; \
+	  echo 's#@CUSTOM_IALLOCATOR_SEARCH_PATH@#$(IALLOCATOR_SEARCH_PATH)#g'; \
+	  echo 's#@CUSTOM_EXPORT_DIR@#$(EXPORT_DIR)#g'; \
 	  echo 's#@RPL_FILE_STORAGE_DIR@#$(FILE_STORAGE_DIR)#g'; \
 	  echo 's#@RPL_SSH_INITD_SCRIPT@#$(SSH_INITD_SCRIPT)#g'; \
 	  echo 's#@PKGLIBDIR@#$(pkglibdir)#g'; \
@@ -729,11 +816,15 @@ check-dirs: $(BUILT_SOURCES)
 check-local: check-dirs
 	$(CHECK_PYTHON_CODE) $(check_python_code)
 	$(CHECK_VERSION) $(VERSION) $(top_srcdir)/NEWS
+	$(CHECK_NEWS) < $(top_srcdir)/NEWS
 
 .PHONY: lint
 lint: $(BUILT_SOURCES)
 	@test -n "$(PYLINT)" || { echo 'pylint' not found during configure; exit 1; }
 	$(PYLINT) $(LINT_OPTS) $(lint_python_code)
+	cd $(top_srcdir)/qa && \
+	  PYTHONPATH=$(abs_top_srcdir) $(PYLINT) $(LINT_OPTS) \
+	  --rcfile  ../pylintrc $(patsubst qa/%.py,%,$(qa_scripts))
 
 # a dist hook rule for updating the vcs-version file; this is
 # hardcoded due to where it needs to build the file...
