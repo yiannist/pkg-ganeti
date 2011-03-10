@@ -1,7 +1,7 @@
 #!/usr/bin/python
 #
 
-# Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -258,7 +258,6 @@ class Burner(object):
 
   def __init__(self):
     """Constructor."""
-    utils.SetupLogging(constants.LOG_BURNIN, debug=False, stderr_logging=True)
     self.url_opener = SimpleOpener()
     self._feed_buf = StringIO()
     self.nodes = []
@@ -320,11 +319,6 @@ class Burner(object):
             msg, MAX_RETRIES - retry_count + 1, MAX_RETRIES, err)
         self.MaybeRetry(retry_count - 1, msg, fn, *args)
 
-  def _SetDebug(self, ops):
-    """Set the debug value on the given opcodes"""
-    for op in ops:
-      op.debug_level = self.opts.debug
-
   def _ExecOp(self, *ops):
     """Execute one or more opcodes and manage the exec buffer.
 
@@ -350,13 +344,13 @@ class Burner(object):
       rval = MAX_RETRIES
     else:
       rval = 0
-    self._SetDebug(ops)
+    cli.SetGenericOpcodeOpts(ops, self.opts)
     return self.MaybeRetry(rval, "opcode", self._ExecOp, *ops)
 
   def ExecOrQueue(self, name, ops, post_process=None):
     """Execute an opcode and manage the exec buffer."""
     if self.opts.parallel:
-      self._SetDebug(ops)
+      cli.SetGenericOpcodeOpts(ops, self.opts)
       self.queued_ops.append((ops, name, post_process))
     else:
       val = self.ExecOp(self.queue_retry, *ops) # pylint: disable-msg=W0142
@@ -502,15 +496,17 @@ class Burner(object):
     else:
       names = []
     try:
-      op = opcodes.OpQueryNodes(output_fields=["name", "offline", "drained"],
-                                names=names, use_locking=True)
+      op = opcodes.OpNodeQuery(output_fields=["name", "offline", "drained"],
+                               names=names, use_locking=True)
       result = self.ExecOp(True, op)
     except errors.GenericError, err:
       err_code, msg = cli.FormatError(err)
       Err(msg, exit_code=err_code)
     self.nodes = [data[0] for data in result if not (data[1] or data[2])]
 
-    op_diagnose = opcodes.OpDiagnoseOS(output_fields=["name", "variants"],
+    op_diagnose = opcodes.OpOsDiagnose(output_fields=["name",
+                                                      "variants",
+                                                      "hidden"],
                                        names=[])
     result = self.ExecOp(True, op_diagnose)
 
@@ -518,7 +514,7 @@ class Burner(object):
       Err("Can't get the OS list")
 
     found = False
-    for (name, variants) in result:
+    for (name, variants, _) in result:
       if self.opts.os in cli.CalculateOSNames(name, variants):
         found = True
         break
@@ -562,7 +558,7 @@ class Burner(object):
 
       Log(msg, indent=2)
 
-      op = opcodes.OpCreateInstance(instance_name=instance,
+      op = opcodes.OpInstanceCreate(instance_name=instance,
                                     disks = [ {"size": size}
                                               for size in self.disk_size],
                                     disk_template=self.opts.disk_template,
@@ -594,8 +590,8 @@ class Burner(object):
       Log("instance %s", instance, indent=1)
       for idx, growth in enumerate(self.disk_growth):
         if growth > 0:
-          op = opcodes.OpGrowDisk(instance_name=instance, disk=idx,
-                                  amount=growth, wait_for_sync=True)
+          op = opcodes.OpInstanceGrowDisk(instance_name=instance, disk=idx,
+                                          amount=growth, wait_for_sync=True)
           Log("increase disk/%s by %s MB", idx, growth, indent=2)
           self.ExecOrQueue(instance, [op])
 
@@ -603,14 +599,15 @@ class Burner(object):
   def BurnReplaceDisks1D8(self):
     """Replace disks on primary and secondary for drbd8."""
     Log("Replacing disks on the same nodes")
+    early_release = self.opts.early_release
     for instance in self.instances:
       Log("instance %s", instance, indent=1)
       ops = []
       for mode in constants.REPLACE_DISK_SEC, constants.REPLACE_DISK_PRI:
-        op = opcodes.OpReplaceDisks(instance_name=instance,
-                                    mode=mode,
-                                    disks=[i for i in range(self.disk_count)],
-                                    early_release=self.opts.early_release)
+        op = opcodes.OpInstanceReplaceDisks(instance_name=instance,
+                                            mode=mode,
+                                            disks=list(range(self.disk_count)),
+                                            early_release=early_release)
         Log("run %s", mode, indent=2)
         ops.append(op)
       self.ExecOrQueue(instance, ops)
@@ -630,12 +627,12 @@ class Burner(object):
         msg = "with iallocator %s" % self.opts.iallocator
       else:
         msg = tnode
-      op = opcodes.OpReplaceDisks(instance_name=instance,
-                                  mode=mode,
-                                  remote_node=tnode,
-                                  iallocator=self.opts.iallocator,
-                                  disks=[],
-                                  early_release=self.opts.early_release)
+      op = opcodes.OpInstanceReplaceDisks(instance_name=instance,
+                                          mode=mode,
+                                          remote_node=tnode,
+                                          iallocator=self.opts.iallocator,
+                                          disks=[],
+                                          early_release=self.opts.early_release)
       Log("run %s %s", mode, msg, indent=2)
       self.ExecOrQueue(instance, [op])
 
@@ -646,7 +643,7 @@ class Burner(object):
     Log("Failing over instances")
     for instance in self.instances:
       Log("instance %s", instance, indent=1)
-      op = opcodes.OpFailoverInstance(instance_name=instance,
+      op = opcodes.OpInstanceFailover(instance_name=instance,
                                       ignore_consistency=False)
       self.ExecOrQueue(instance, [op])
 
@@ -659,7 +656,7 @@ class Burner(object):
                  self.instances)
     for tnode, instance in mytor:
       Log("instance %s", instance, indent=1)
-      op = opcodes.OpMoveInstance(instance_name=instance,
+      op = opcodes.OpInstanceMove(instance_name=instance,
                                   target_node=tnode)
       self.ExecOrQueue(instance, [op])
 
@@ -669,10 +666,10 @@ class Burner(object):
     Log("Migrating instances")
     for instance in self.instances:
       Log("instance %s", instance, indent=1)
-      op1 = opcodes.OpMigrateInstance(instance_name=instance, mode=None,
+      op1 = opcodes.OpInstanceMigrate(instance_name=instance, mode=None,
                                       cleanup=False)
 
-      op2 = opcodes.OpMigrateInstance(instance_name=instance, mode=None,
+      op2 = opcodes.OpInstanceMigrate(instance_name=instance, mode=None,
                                       cleanup=True)
       Log("migration and migration cleanup", indent=2)
       self.ExecOrQueue(instance, [op1, op2])
@@ -692,8 +689,8 @@ class Burner(object):
     for pnode, snode, enode, instance in mytor:
       Log("instance %s", instance, indent=1)
       # read the full name of the instance
-      nam_op = opcodes.OpQueryInstances(output_fields=["name"],
-                                        names=[instance], use_locking=True)
+      nam_op = opcodes.OpInstanceQuery(output_fields=["name"],
+                                       names=[instance], use_locking=True)
       full_name = self.ExecOp(False, nam_op)[0][0]
 
       if self.opts.iallocator:
@@ -709,14 +706,14 @@ class Burner(object):
         import_log_msg = ("import from %s to %s, %s" %
                           (enode, pnode, snode))
 
-      exp_op = opcodes.OpExportInstance(instance_name=instance,
-                                        target_node=enode,
-                                        mode=constants.EXPORT_MODE_LOCAL,
-                                        shutdown=True)
-      rem_op = opcodes.OpRemoveInstance(instance_name=instance,
+      exp_op = opcodes.OpBackupExport(instance_name=instance,
+                                      target_node=enode,
+                                      mode=constants.EXPORT_MODE_LOCAL,
+                                      shutdown=True)
+      rem_op = opcodes.OpInstanceRemove(instance_name=instance,
                                         ignore_failures=True)
       imp_dir = utils.PathJoin(constants.EXPORT_DIR, full_name)
-      imp_op = opcodes.OpCreateInstance(instance_name=instance,
+      imp_op = opcodes.OpInstanceCreate(instance_name=instance,
                                         disks = [ {"size": size}
                                                   for size in self.disk_size],
                                         disk_template=self.opts.disk_template,
@@ -738,7 +735,7 @@ class Burner(object):
                                         osparams=self.opts.osparams,
                                         )
 
-      erem_op = opcodes.OpRemoveExport(instance_name=instance)
+      erem_op = opcodes.OpBackupRemove(instance_name=instance)
 
       Log("export to node %s", enode, indent=2)
       Log("remove instance", indent=2)
@@ -749,17 +746,17 @@ class Burner(object):
   @staticmethod
   def StopInstanceOp(instance):
     """Stop given instance."""
-    return opcodes.OpShutdownInstance(instance_name=instance)
+    return opcodes.OpInstanceShutdown(instance_name=instance)
 
   @staticmethod
   def StartInstanceOp(instance):
     """Start given instance."""
-    return opcodes.OpStartupInstance(instance_name=instance, force=False)
+    return opcodes.OpInstanceStartup(instance_name=instance, force=False)
 
   @staticmethod
   def RenameInstanceOp(instance, instance_new):
     """Rename instance."""
-    return opcodes.OpRenameInstance(instance_name=instance,
+    return opcodes.OpInstanceRename(instance_name=instance,
                                     new_name=instance_new)
 
   @_DoCheckInstances
@@ -779,7 +776,7 @@ class Burner(object):
     Log("Removing instances")
     for instance in self.to_rem:
       Log("instance %s", instance, indent=1)
-      op = opcodes.OpRemoveInstance(instance_name=instance,
+      op = opcodes.OpInstanceRemove(instance_name=instance,
                                     ignore_failures=True)
       self.ExecOrQueue(instance, [op])
 
@@ -813,9 +810,9 @@ class Burner(object):
     for instance in self.instances:
       Log("instance %s", instance, indent=1)
       op1 = self.StopInstanceOp(instance)
-      op2 = opcodes.OpReinstallInstance(instance_name=instance)
+      op2 = opcodes.OpInstanceReinstall(instance_name=instance)
       Log("reinstall without passing the OS", indent=2)
-      op3 = opcodes.OpReinstallInstance(instance_name=instance,
+      op3 = opcodes.OpInstanceReinstall(instance_name=instance,
                                         os_type=self.opts.os)
       Log("reinstall specifying the OS", indent=2)
       op4 = self.StartInstanceOp(instance)
@@ -830,7 +827,7 @@ class Burner(object):
       Log("instance %s", instance, indent=1)
       ops = []
       for reboot_type in self.opts.reboot_types:
-        op = opcodes.OpRebootInstance(instance_name=instance,
+        op = opcodes.OpInstanceReboot(instance_name=instance,
                                       reboot_type=reboot_type,
                                       ignore_secondaries=False)
         Log("reboot with type '%s'", reboot_type, indent=2)
@@ -845,8 +842,8 @@ class Burner(object):
     for instance in self.instances:
       Log("instance %s", instance, indent=1)
       op_start = self.StartInstanceOp(instance)
-      op_act = opcodes.OpActivateInstanceDisks(instance_name=instance)
-      op_deact = opcodes.OpDeactivateInstanceDisks(instance_name=instance)
+      op_act = opcodes.OpInstanceActivateDisks(instance_name=instance)
+      op_deact = opcodes.OpInstanceDeactivateDisks(instance_name=instance)
       op_stop = self.StopInstanceOp(instance)
       Log("activate disks when online", indent=2)
       Log("activate disks when offline", indent=2)
@@ -860,10 +857,10 @@ class Burner(object):
     Log("Adding and removing disks")
     for instance in self.instances:
       Log("instance %s", instance, indent=1)
-      op_add = opcodes.OpSetInstanceParams(\
+      op_add = opcodes.OpInstanceSetParams(\
         instance_name=instance,
         disks=[(constants.DDM_ADD, {"size": self.disk_size[0]})])
-      op_rem = opcodes.OpSetInstanceParams(\
+      op_rem = opcodes.OpInstanceSetParams(\
         instance_name=instance, disks=[(constants.DDM_REMOVE, {})])
       op_stop = self.StopInstanceOp(instance)
       op_start = self.StartInstanceOp(instance)
@@ -877,9 +874,9 @@ class Burner(object):
     Log("Adding and removing NICs")
     for instance in self.instances:
       Log("instance %s", instance, indent=1)
-      op_add = opcodes.OpSetInstanceParams(\
+      op_add = opcodes.OpInstanceSetParams(\
         instance_name=instance, nics=[(constants.DDM_ADD, {})])
-      op_rem = opcodes.OpSetInstanceParams(\
+      op_rem = opcodes.OpInstanceSetParams(\
         instance_name=instance, nics=[(constants.DDM_REMOVE, {})])
       Log("adding a NIC", indent=2)
       Log("removing last NIC", indent=2)
@@ -1067,14 +1064,17 @@ class Burner(object):
           else: # non-expected error
             raise
 
-    return 0
+    return constants.EXIT_SUCCESS
 
 
 def main():
-  """Main function"""
+  """Main function.
 
-  burner = Burner()
-  return burner.BurninCluster()
+  """
+  utils.SetupLogging(constants.LOG_BURNIN, sys.argv[0],
+                     debug=False, stderr_logging=True)
+
+  return Burner().BurninCluster()
 
 
 if __name__ == "__main__":

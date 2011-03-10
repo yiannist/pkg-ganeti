@@ -5,13 +5,13 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Merging clusters &mdash; Ganeti v2.3.1 documentation</title>
+    <title>Merging clusters &mdash; Ganeti v2.4.0 documentation</title>
     <link rel="stylesheet" href="_static/default.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.3.1',
+        VERSION:     '2.4.0',
         COLLAPSE_MODINDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -19,9 +19,9 @@
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.3.1 documentation" href="index.html" />
+    <link rel="top" title="Ganeti v2.4.0 documentation" href="index.html" />
     <link rel="next" title="Ganeti locking" href="locking.html" />
-    <link rel="prev" title="Ganeti 2.3 design" href="design-2.3.html" /> 
+    <link rel="prev" title="Ganeti 2.4 design" href="design-2.4.html" /> 
   </head>
   <body>
     <div class="related">
@@ -31,9 +31,9 @@
           <a href="locking.html" title="Ganeti locking"
              accesskey="N">next</a></li>
         <li class="right" >
-          <a href="design-2.3.html" title="Ganeti 2.3 design"
+          <a href="design-2.4.html" title="Ganeti 2.4 design"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.3.1 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.4.0 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -58,8 +58,8 @@ Ganeti Cluster Merger &lt;design-2.1.rst&gt;</cite> document.</p>
 <p>The tool has to be invoked on the cluster you like to merge the other
 clusters into.</p>
 <p>The usage of <tt class="docutils literal"><span class="pre">cluster-merge</span></tt> is as follows:</p>
-<div class="highlight-python"><pre>cluster-merge [--debug|--verbose] [--watcher-pause-period SECONDS] &lt;cluster&gt; \
-&lt;cluster...&gt;</pre>
+<div class="highlight-python"><pre>cluster-merge [--debug|--verbose] [--watcher-pause-period SECONDS] \
+[--groups [merge|rename]] &lt;cluster&gt; [&lt;cluster...&gt;]</pre>
 </div>
 <p>You can provide multiple clusters. The tool will then go over every
 cluster in serial and perform the steps to merge it into the invoking
@@ -73,6 +73,15 @@ performed right now.</dd>
 <dt><tt class="docutils literal"><span class="pre">--watcher-pause-period</span></tt></dt>
 <dd>Define the period of time in seconds the watcher shall be disabled,
 default is 1800 seconds (30 minutes).</dd>
+<dt><tt class="docutils literal"><span class="pre">--groups</span></tt></dt>
+<dd>This option controls how <tt class="docutils literal"><span class="pre">cluster-merge</span></tt> handles duplicate node
+group names on the merging clusters. If <tt class="docutils literal"><span class="pre">merge</span></tt> is specified then
+all node groups with the same name will be merged into one. If
+<tt class="docutils literal"><span class="pre">rename</span></tt> is specified, then conflicting node groups on the remove
+clusters will have their cluster name appended to the group name. If
+this option is not speicifed, then <tt class="docutils literal"><span class="pre">cluster-merge</span></tt> will refuse to
+continue if it finds conflicting group names, otherwise it will
+proceed as normal.</dd>
 </dl>
 </div>
 <div class="section" id="rollback">
@@ -103,8 +112,8 @@ the tool again. It doesn&#8217;t keep state over invokations.</p>
 </ul>
 
             <h4>Previous topic</h4>
-            <p class="topless"><a href="design-2.3.html"
-                                  title="previous chapter">Ganeti 2.3 design</a></p>
+            <p class="topless"><a href="design-2.4.html"
+                                  title="previous chapter">Ganeti 2.4 design</a></p>
             <h4>Next topic</h4>
             <p class="topless"><a href="locking.html"
                                   title="next chapter">Ganeti locking</a></p>
@@ -137,9 +146,9 @@ the tool again. It doesn&#8217;t keep state over invokations.</p>
           <a href="locking.html" title="Ganeti locking"
              >next</a></li>
         <li class="right" >
-          <a href="design-2.3.html" title="Ganeti 2.3 design"
+          <a href="design-2.4.html" title="Ganeti 2.4 design"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.3.1 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.4.0 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

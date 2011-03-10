@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -25,9 +25,9 @@
 # W0614: Unused import %s from wildcard import (since we need cli)
 # C0103: Invalid name gnt-instance
 
-import os
 import itertools
 import simplejson
+import logging
 from cStringIO import StringIO
 
 from ganeti.cli import *
@@ -37,6 +37,8 @@ from ganeti import compat
 from ganeti import utils
 from ganeti import errors
 from ganeti import netutils
+from ganeti import ssh
+from ganeti import objects
 
 
 _SHUTDOWN_CLUSTER = "cluster"
@@ -54,8 +56,6 @@ _SHUTDOWN_NODES_TAGS_MODES = (
     _SHUTDOWN_NODES_PRI_BY_TAGS,
     _SHUTDOWN_NODES_SEC_BY_TAGS)
 
-
-_VALUE_TRUE = "true"
 
 #: default list of options for L{ListInstances}
 _LIST_DEF_FIELDS = [
@@ -193,7 +193,7 @@ def _EnsureInstancesExist(client, names):
   @raise errors.OpPrereqError: in case any instance is missing
 
   """
-  # TODO: change LUQueryInstances to that it actually returns None
+  # TODO: change LUInstanceQuery to that it actually returns None
   # instead of raising an exception, or devise a better mechanism
   result = client.QueryInstances(names, ["name"], False)
   for orig_name, row in zip(names, result):
@@ -217,6 +217,9 @@ def GenericManyOps(operation, fn):
     cl = GetClient()
     inames = _ExpandMultiNames(opts.multi_mode, args, client=cl)
     if not inames:
+      if opts.multi_mode == _SHUTDOWN_CLUSTER:
+        ToStdout("Cluster is empty, no instances to shutdown")
+        return 0
       raise errors.OpPrereqError("Selection filter does not match"
                                  " any instances", errors.ECODE_INVAL)
     multi_on = opts.multi_mode != _SHUTDOWN_INSTANCES or len(inames) > 1
@@ -245,97 +248,30 @@ def ListInstances(opts, args):
   """
   selected_fields = ParseFields(opts.output, _LIST_DEF_FIELDS)
 
-  output = GetClient().QueryInstances(args, selected_fields, opts.do_locking)
+  fmtoverride = dict.fromkeys(["tags", "disk.sizes", "nic.macs", "nic.ips",
+                               "nic.modes", "nic.links", "nic.bridges",
+                               "snodes"],
+                              (lambda value: ",".join(str(item)
+                                                      for item in value),
+                               False))
 
-  if not opts.no_headers:
-    headers = {
-      "name": "Instance", "os": "OS", "pnode": "Primary_node",
-      "snodes": "Secondary_Nodes", "admin_state": "Autostart",
-      "oper_state": "Running",
-      "oper_ram": "Memory", "disk_template": "Disk_template",
-      "oper_vcpus": "VCPUs",
-      "ip": "IP_address", "mac": "MAC_address",
-      "nic_mode": "NIC_Mode", "nic_link": "NIC_Link",
-      "bridge": "Bridge",
-      "sda_size": "Disk/0", "sdb_size": "Disk/1",
-      "disk_usage": "DiskUsage",
-      "status": "Status", "tags": "Tags",
-      "network_port": "Network_port",
-      "hv/kernel_path": "Kernel_path",
-      "hv/initrd_path": "Initrd_path",
-      "hv/boot_order": "Boot_order",
-      "hv/acpi": "ACPI",
-      "hv/pae": "PAE",
-      "hv/cdrom_image_path": "CDROM_image_path",
-      "hv/nic_type": "NIC_type",
-      "hv/disk_type": "Disk_type",
-      "hv/vnc_bind_address": "VNC_bind_address",
-      "serial_no": "SerialNo", "hypervisor": "Hypervisor",
-      "hvparams": "Hypervisor_parameters",
-      "be/memory": "Configured_memory",
-      "be/vcpus": "VCPUs",
-      "vcpus": "VCPUs",
-      "be/auto_balance": "Auto_balance",
-      "disk.count": "Disks", "disk.sizes": "Disk_sizes",
-      "nic.count": "NICs", "nic.ips": "NIC_IPs",
-      "nic.modes": "NIC_modes", "nic.links": "NIC_links",
-      "nic.bridges": "NIC_bridges", "nic.macs": "NIC_MACs",
-      "ctime": "CTime", "mtime": "MTime", "uuid": "UUID",
-      }
-  else:
-    headers = None
+  return GenericList(constants.QR_INSTANCE, selected_fields, args, opts.units,
+                     opts.separator, not opts.no_headers,
+                     format_override=fmtoverride, verbose=opts.verbose)
 
-  unitfields = ["be/memory", "oper_ram", "sd(a|b)_size", "disk\.size/.*"]
-  numfields = ["be/memory", "oper_ram", "sd(a|b)_size", "be/vcpus",
-               "serial_no", "(disk|nic)\.count", "disk\.size/.*"]
 
-  list_type_fields = ("tags", "disk.sizes", "nic.macs", "nic.ips",
-                      "nic.modes", "nic.links", "nic.bridges")
-  # change raw values to nicer strings
-  for row in output:
-    for idx, field in enumerate(selected_fields):
-      val = row[idx]
-      if field == "snodes":
-        val = ",".join(val) or "-"
-      elif field == "admin_state":
-        if val:
-          val = "yes"
-        else:
-          val = "no"
-      elif field == "oper_state":
-        if val is None:
-          val = "(node down)"
-        elif val: # True
-          val = "running"
-        else:
-          val = "stopped"
-      elif field == "oper_ram":
-        if val is None:
-          val = "(node down)"
-      elif field == "oper_vcpus":
-        if val is None:
-          val = "(node down)"
-      elif field == "sda_size" or field == "sdb_size":
-        if val is None:
-          val = "N/A"
-      elif field == "ctime" or field == "mtime":
-        val = utils.FormatTime(val)
-      elif field in list_type_fields:
-        val = ",".join(str(item) for item in val)
-      elif val is None:
-        val = "-"
-      if opts.roman_integers and isinstance(val, int):
-        val = compat.TryToRoman(val)
-      row[idx] = str(val)
+def ListInstanceFields(opts, args):
+  """List instance fields.
 
-  data = GenerateTable(separator=opts.separator, headers=headers,
-                       fields=selected_fields, unitfields=unitfields,
-                       numfields=numfields, data=output, units=opts.units)
+  @param opts: the command line options selected by the user
+  @type args: list
+  @param args: fields to list, or empty for all
+  @rtype: int
+  @return: the desired exit code
 
-  for line in data:
-    ToStdout(line)
-
-  return 0
+  """
+  return GenericListFields(constants.QR_INSTANCE, args, opts.separator,
+                           not opts.no_headers)
 
 
 def AddInstance(opts, args):
@@ -474,7 +410,7 @@ def BatchCreate(opts, args):
     elif not tmp_nics:
       tmp_nics = [{}]
 
-    op = opcodes.OpCreateInstance(instance_name=name,
+    op = opcodes.OpInstanceCreate(instance_name=name,
                                   disks=disks,
                                   disk_template=specs['template'],
                                   mode=constants.INSTANCE_CREATE,
@@ -523,7 +459,7 @@ def ReinstallInstance(opts, args):
 
   # second, if requested, ask for an OS
   if opts.select_os is True:
-    op = opcodes.OpDiagnoseOS(output_fields=["name", "variants"], names=[])
+    op = opcodes.OpOsDiagnose(output_fields=["name", "variants"], names=[])
     result = SubmitOpCode(op, opts=opts)
 
     if not result:
@@ -569,7 +505,7 @@ def ReinstallInstance(opts, args):
 
   jex = JobExecutor(verbose=multi_on, opts=opts)
   for instance_name in inames:
-    op = opcodes.OpReinstallInstance(instance_name=instance_name,
+    op = opcodes.OpInstanceReinstall(instance_name=instance_name,
                                      os_type=os_name,
                                      force_variant=opts.force_variant,
                                      osparams=opts.osparams)
@@ -603,7 +539,7 @@ def RemoveInstance(opts, args):
     if not AskUser(usertext):
       return 1
 
-  op = opcodes.OpRemoveInstance(instance_name=instance_name,
+  op = opcodes.OpInstanceRemove(instance_name=instance_name,
                                 ignore_failures=opts.ignore_failures,
                                 shutdown_timeout=opts.shutdown_timeout)
   SubmitOrSend(op, opts, cl=cl)
@@ -626,7 +562,7 @@ def RenameInstance(opts, args):
                    " that '%s' is a FQDN. Continue?" % args[1]):
       return 1
 
-  op = opcodes.OpRenameInstance(instance_name=args[0],
+  op = opcodes.OpInstanceRename(instance_name=args[0],
                                 new_name=args[1],
                                 ip_check=opts.ip_check,
                                 name_check=opts.name_check)
@@ -654,7 +590,7 @@ def ActivateDisks(opts, args):
 
   """
   instance_name = args[0]
-  op = opcodes.OpActivateInstanceDisks(instance_name=instance_name,
+  op = opcodes.OpInstanceActivateDisks(instance_name=instance_name,
                                        ignore_size=opts.ignore_size)
   disks_info = SubmitOrSend(op, opts)
   for host, iname, nname in disks_info:
@@ -676,7 +612,8 @@ def DeactivateDisks(opts, args):
 
   """
   instance_name = args[0]
-  op = opcodes.OpDeactivateInstanceDisks(instance_name=instance_name)
+  op = opcodes.OpInstanceDeactivateDisks(instance_name=instance_name,
+                                         force=opts.force)
   SubmitOrSend(op, opts)
   return 0
 
@@ -701,7 +638,7 @@ def RecreateDisks(opts, args):
   else:
     opts.disks = []
 
-  op = opcodes.OpRecreateInstanceDisks(instance_name=instance_name,
+  op = opcodes.OpInstanceRecreateDisks(instance_name=instance_name,
                                        disks=opts.disks)
   SubmitOrSend(op, opts)
   return 0
@@ -726,8 +663,9 @@ def GrowDisk(opts, args):
     raise errors.OpPrereqError("Invalid disk index: %s" % str(err),
                                errors.ECODE_INVAL)
   amount = utils.ParseUnit(args[2])
-  op = opcodes.OpGrowDisk(instance_name=instance, disk=disk, amount=amount,
-                          wait_for_sync=opts.wait_for_sync)
+  op = opcodes.OpInstanceGrowDisk(instance_name=instance,
+                                  disk=disk, amount=amount,
+                                  wait_for_sync=opts.wait_for_sync)
   SubmitOrSend(op, opts)
   return 0
 
@@ -743,7 +681,7 @@ def _StartupInstance(name, opts):
   @return: the opcode needed for the operation
 
   """
-  op = opcodes.OpStartupInstance(instance_name=name,
+  op = opcodes.OpInstanceStartup(instance_name=name,
                                  force=opts.force,
                                  ignore_offline_nodes=opts.ignore_offline)
   # do not add these parameters to the opcode unless they're defined
@@ -765,7 +703,7 @@ def _RebootInstance(name, opts):
   @return: the opcode needed for the operation
 
   """
-  return opcodes.OpRebootInstance(instance_name=name,
+  return opcodes.OpInstanceReboot(instance_name=name,
                                   reboot_type=opts.reboot_type,
                                   ignore_secondaries=opts.ignore_secondaries,
                                   shutdown_timeout=opts.shutdown_timeout)
@@ -782,7 +720,7 @@ def _ShutdownInstance(name, opts):
   @return: the opcode needed for the operation
 
   """
-  return opcodes.OpShutdownInstance(instance_name=name,
+  return opcodes.OpInstanceShutdown(instance_name=name,
                                     timeout=opts.timeout,
                                     ignore_offline_nodes=opts.ignore_offline)
 
@@ -825,10 +763,10 @@ def ReplaceDisks(opts, args):
     # replace secondary
     mode = constants.REPLACE_DISK_CHG
 
-  op = opcodes.OpReplaceDisks(instance_name=args[0], disks=disks,
-                              remote_node=new_2ndary, mode=mode,
-                              iallocator=iallocator,
-                              early_release=opts.early_release)
+  op = opcodes.OpInstanceReplaceDisks(instance_name=args[0], disks=disks,
+                                      remote_node=new_2ndary, mode=mode,
+                                      iallocator=iallocator,
+                                      early_release=opts.early_release)
   SubmitOrSend(op, opts)
   return 0
 
@@ -859,7 +797,7 @@ def FailoverInstance(opts, args):
     if not AskUser(usertext):
       return 1
 
-  op = opcodes.OpFailoverInstance(instance_name=instance_name,
+  op = opcodes.OpInstanceFailover(instance_name=instance_name,
                                   ignore_consistency=opts.ignore_consistency,
                                   shutdown_timeout=opts.shutdown_timeout)
   SubmitOrSend(op, opts, cl=cl)
@@ -907,7 +845,7 @@ def MigrateInstance(opts, args):
   else:
     mode = opts.migration_mode
 
-  op = opcodes.OpMigrateInstance(instance_name=instance_name, mode=mode,
+  op = opcodes.OpInstanceMigrate(instance_name=instance_name, mode=mode,
                                  cleanup=opts.cleanup)
   SubmitOpCode(op, cl=cl, opts=opts)
   return 0
@@ -934,7 +872,7 @@ def MoveInstance(opts, args):
     if not AskUser(usertext):
       return 1
 
-  op = opcodes.OpMoveInstance(instance_name=instance_name,
+  op = opcodes.OpInstanceMove(instance_name=instance_name,
                               target_node=opts.node,
                               shutdown_timeout=opts.shutdown_timeout)
   SubmitOrSend(op, opts, cl=cl)
@@ -953,18 +891,69 @@ def ConnectToInstanceConsole(opts, args):
   """
   instance_name = args[0]
 
-  op = opcodes.OpConnectConsole(instance_name=instance_name)
-  cmd = SubmitOpCode(op, opts=opts)
+  op = opcodes.OpInstanceConsole(instance_name=instance_name)
 
-  if opts.show_command:
-    ToStdout("%s", utils.ShellQuoteArgs(cmd))
+  cl = GetClient()
+  try:
+    cluster_name = cl.QueryConfigValues(["cluster_name"])[0]
+    console_data = SubmitOpCode(op, opts=opts, cl=cl)
+  finally:
+    # Ensure client connection is closed while external commands are run
+    cl.Close()
+
+  del cl
+
+  return _DoConsole(objects.InstanceConsole.FromDict(console_data),
+                    opts.show_command, cluster_name)
+
+
+def _DoConsole(console, show_command, cluster_name, feedback_fn=ToStdout,
+               _runcmd_fn=utils.RunCmd):
+  """Acts based on the result of L{opcodes.OpInstanceConsole}.
+
+  @type console: L{objects.InstanceConsole}
+  @param console: Console object
+  @type show_command: bool
+  @param show_command: Whether to just display commands
+  @type cluster_name: string
+  @param cluster_name: Cluster name as retrieved from master daemon
+
+  """
+  assert console.Validate()
+
+  if console.kind == constants.CONS_MESSAGE:
+    feedback_fn(console.message)
+  elif console.kind == constants.CONS_VNC:
+    feedback_fn("Instance %s has VNC listening on %s:%s (display %s),"
+                " URL <vnc://%s:%s/>",
+                console.instance, console.host, console.port,
+                console.display, console.host, console.port)
+  elif console.kind == constants.CONS_SSH:
+    # Convert to string if not already one
+    if isinstance(console.command, basestring):
+      cmd = console.command
+    else:
+      cmd = utils.ShellQuoteArgs(console.command)
+
+    srun = ssh.SshRunner(cluster_name=cluster_name)
+    ssh_cmd = srun.BuildCmd(console.host, console.user, cmd,
+                            batch=True, quiet=False, tty=True)
+
+    if show_command:
+      feedback_fn(utils.ShellQuoteArgs(ssh_cmd))
+    else:
+      result = _runcmd_fn(ssh_cmd, interactive=True)
+      if result.failed:
+        logging.error("Console command \"%s\" failed with reason '%s' and"
+                      " output %r", result.cmd, result.fail_reason,
+                      result.output)
+        raise errors.OpExecError("Connection to console of instance %s failed,"
+                                 " please check cluster configuration" %
+                                 console.instance)
   else:
-    try:
-      os.execvp(cmd[0], cmd)
-    finally:
-      ToStderr("Can't run console command %s with arguments:\n'%s'",
-               cmd[0], " ".join(cmd))
-      os._exit(1) # pylint: disable-msg=W0212
+    raise errors.GenericError("Unknown console type '%s'" % console.kind)
+
+  return constants.EXIT_SUCCESS
 
 
 def _FormatLogicalID(dev_type, logical_id, roman):
@@ -1134,21 +1123,6 @@ def _FormatList(buf, data, indent_level):
       _FormatList(buf, elem, indent_level+1)
 
 
-def _FormatParameterDict(buf, per_inst, actual):
-  """Formats a parameter dictionary.
-
-  @type buf: L{StringIO}
-  @param buf: the buffer into which to write
-  @type per_inst: dict
-  @param per_inst: the instance's own parameters
-  @type actual: dict
-  @param actual: the current parameter set (including defaults)
-
-  """
-  for key in sorted(actual):
-    val = per_inst.get(key, "default (%s)" % actual[key])
-    buf.write("    - %s: %s\n" % (key, val))
-
 def ShowInstanceConfig(opts, args):
   """Compute instance run-time status.
 
@@ -1170,7 +1144,7 @@ def ShowInstanceConfig(opts, args):
     return 1
 
   retcode = 0
-  op = opcodes.OpQueryInstanceData(instances=args, static=opts.static)
+  op = opcodes.OpInstanceQueryData(instances=args, static=opts.static)
   result = SubmitOpCode(op, opts=opts)
   if not result:
     ToStdout("No instances.")
@@ -1197,7 +1171,8 @@ def ShowInstanceConfig(opts, args):
     buf.write("    - primary: %s\n" % instance["pnode"])
     buf.write("    - secondaries: %s\n" % utils.CommaJoin(instance["snodes"]))
     buf.write("  Operating system: %s\n" % instance["os"])
-    _FormatParameterDict(buf, instance["os_instance"], instance["os_actual"])
+    FormatParameterDict(buf, instance["os_instance"], instance["os_actual"],
+                        level=2)
     if instance.has_key("network_port"):
       buf.write("  Allocated network port: %s\n" %
                 compat.TryToRoman(instance["network_port"],
@@ -1224,7 +1199,8 @@ def ShowInstanceConfig(opts, args):
                                       vnc_bind_address)
       buf.write("    - console connection: vnc to %s\n" % vnc_console_port)
 
-    _FormatParameterDict(buf, instance["hv_instance"], instance["hv_actual"])
+    FormatParameterDict(buf, instance["hv_instance"], instance["hv_actual"],
+                        level=2)
     buf.write("  Hardware:\n")
     buf.write("    - VCPUs: %s\n" %
               compat.TryToRoman(instance["be_actual"][constants.BE_VCPUS],
@@ -1236,6 +1212,7 @@ def ShowInstanceConfig(opts, args):
     for idx, (ip, mac, mode, link) in enumerate(instance["nics"]):
       buf.write("      - nic/%d: MAC: %s, IP: %s, mode: %s, link: %s\n" %
                 (idx, mac, ip, mode, link))
+    buf.write("  Disk template: %s\n" % instance["disk_template"])
     buf.write("  Disks:\n")
 
     for idx, device in enumerate(instance["disks"]):
@@ -1305,7 +1282,7 @@ def SetInstanceParams(opts, args):
              " specifying a secondary node")
     return 1
 
-  op = opcodes.OpSetInstanceParams(instance_name=args[0],
+  op = opcodes.OpInstanceSetParams(instance_name=args[0],
                                    nics=opts.nics,
                                    disks=opts.disks,
                                    disk_template=opts.disk_template,
@@ -1421,21 +1398,18 @@ commands = {
     "Show information on the specified instance(s)"),
   'list': (
     ListInstances, ARGS_MANY_INSTANCES,
-    [NOHDR_OPT, SEP_OPT, USEUNITS_OPT, FIELDS_OPT, SYNC_OPT, ROMAN_OPT],
+    [NOHDR_OPT, SEP_OPT, USEUNITS_OPT, FIELDS_OPT, VERBOSE_OPT],
     "[<instance>...]",
-    "Lists the instances and their status. The available fields are"
-    " (see the man page for details): status, oper_state, oper_ram,"
-    " oper_vcpus, name, os, pnode, snodes, admin_state, admin_ram,"
-    " disk_template, ip, mac, nic_mode, nic_link, sda_size, sdb_size,"
-    " vcpus, serial_no,"
-    " nic.count, nic.mac/N, nic.ip/N, nic.mode/N, nic.link/N,"
-    " nic.macs, nic.ips, nic.modes, nic.links,"
-    " disk.count, disk.size/N, disk.sizes,"
-    " hv/NAME, be/memory, be/vcpus, be/auto_balance,"
-    " hypervisor."
-    " The default field"
-    " list is (in order): %s." % utils.CommaJoin(_LIST_DEF_FIELDS),
+    "Lists the instances and their status. The available fields can be shown"
+    " using the \"list-fields\" command (see the man page for details)."
+    " The default field list is (in order): %s." %
+    utils.CommaJoin(_LIST_DEF_FIELDS),
     ),
+  "list-fields": (
+    ListInstanceFields, [ArgUnknown()],
+    [NOHDR_OPT, SEP_OPT],
+    "[fields...]",
+    "Lists all available fields for instances"),
   'reinstall': (
     ReinstallInstance, [ArgInstance()],
     [FORCE_OPT, OS_OPT, FORCE_VARIANT_OPT, m_force_multi, m_node_opt,
@@ -1493,8 +1467,8 @@ commands = {
     "<instance>", "Activate an instance's disks"),
   'deactivate-disks': (
     DeactivateDisks, ARGS_ONE_INSTANCE,
-    [SUBMIT_OPT, DRY_RUN_OPT, PRIORITY_OPT],
-    "<instance>", "Deactivate an instance's disks"),
+    [FORCE_OPT, SUBMIT_OPT, DRY_RUN_OPT, PRIORITY_OPT],
+    "[-f] <instance>", "Deactivate an instance's disks"),
   'recreate-disks': (
     RecreateDisks, ARGS_ONE_INSTANCE,
     [SUBMIT_OPT, DISKIDX_OPT, DRY_RUN_OPT, PRIORITY_OPT],

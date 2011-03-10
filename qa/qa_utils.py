@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2007 Google Inc.
+# Copyright (C) 2007, 2011 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -27,8 +27,12 @@ import os
 import re
 import sys
 import subprocess
+import random
+import tempfile
 
 from ganeti import utils
+from ganeti import compat
+from ganeti import constants
 
 import qa_config
 import qa_error
@@ -39,11 +43,15 @@ _WARNING_SEQ = None
 _ERROR_SEQ = None
 _RESET_SEQ = None
 
+_MULTIPLEXERS = {}
+
 
 def _SetupColours():
   """Initializes the colour constants.
 
   """
+  # pylint: disable-msg=W0603
+  # due to global usage
   global _INFO_SEQ, _WARNING_SEQ, _ERROR_SEQ, _RESET_SEQ
 
   # Don't use colours if stdout isn't a terminal
@@ -101,13 +109,57 @@ def AssertMatch(string, pattern):
     raise qa_error.Error("%r doesn't match /%r/" % (string, pattern))
 
 
-def GetSSHCommand(node, cmd, strict=True):
+def AssertCommand(cmd, fail=False, node=None):
+  """Checks that a remote command succeeds.
+
+  @param cmd: either a string (the command to execute) or a list (to
+      be converted using L{utils.ShellQuoteArgs} into a string)
+  @type fail: boolean
+  @param fail: if the command is expected to fail instead of succeeding
+  @param node: if passed, it should be the node on which the command
+      should be executed, instead of the master node (can be either a
+      dict or a string)
+
+  """
+  if node is None:
+    node = qa_config.GetMasterNode()
+
+  if isinstance(node, basestring):
+    nodename = node
+  else:
+    nodename = node["primary"]
+
+  if isinstance(cmd, basestring):
+    cmdstr = cmd
+  else:
+    cmdstr = utils.ShellQuoteArgs(cmd)
+
+  rcode = StartSSH(nodename, cmdstr).wait()
+
+  if fail:
+    if rcode == 0:
+      raise qa_error.Error("Command '%s' on node %s was expected to fail but"
+                           " didn't" % (cmdstr, nodename))
+  else:
+    if rcode != 0:
+      raise qa_error.Error("Command '%s' on node %s failed, exit code %s" %
+                           (cmdstr, nodename, rcode))
+
+  return rcode
+
+
+def GetSSHCommand(node, cmd, strict=True, opts=None):
   """Builds SSH command to be executed.
 
-  Args:
-  - node: Node the command should run on
-  - cmd: Command to be executed as a list with all parameters
-  - strict: Whether to enable strict host key checking
+  @type node: string
+  @param node: node the command should run on
+  @type cmd: string
+  @param cmd: command to be executed in the node; if None or empty
+      string, no command will be executed
+  @type strict: boolean
+  @param strict: whether to enable strict host key checking
+  @type opts: list
+  @param opts: list of additional options
 
   """
   args = [ 'ssh', '-oEscapeChar=none', '-oBatchMode=yes', '-l', 'root', '-t' ]
@@ -119,8 +171,15 @@ def GetSSHCommand(node, cmd, strict=True):
   args.append('-oStrictHostKeyChecking=%s' % tmp)
   args.append('-oClearAllForwardings=yes')
   args.append('-oForwardAgent=yes')
+  if opts:
+    args.extend(opts)
+  if node in _MULTIPLEXERS:
+    spath = _MULTIPLEXERS[node][0]
+    args.append('-oControlPath=%s' % spath)
+    args.append('-oControlMaster=no')
   args.append(node)
-  args.append(cmd)
+  if cmd:
+    args.append(cmd)
 
   return args
 
@@ -138,6 +197,34 @@ def StartSSH(node, cmd, strict=True):
 
   """
   return StartLocalCommand(GetSSHCommand(node, cmd, strict=strict))
+
+
+def StartMultiplexer(node):
+  """Starts a multiplexer command.
+
+  @param node: the node for which to open the multiplexer
+
+  """
+  if node in _MULTIPLEXERS:
+    return
+
+  # Note: yes, we only need mktemp, since we'll remove the file anyway
+  sname = tempfile.mktemp(prefix="ganeti-qa-multiplexer.")
+  utils.RemoveFile(sname)
+  opts = ["-N", "-oControlPath=%s" % sname, "-oControlMaster=yes"]
+  print "Created socket at %s" % sname
+  child = StartLocalCommand(GetSSHCommand(node, None, opts=opts))
+  _MULTIPLEXERS[node] = (sname, child)
+
+
+def CloseMultiplexers():
+  """Closes all current multiplexers and cleans up.
+
+  """
+  for node in _MULTIPLEXERS.keys():
+    (sname, child) = _MULTIPLEXERS.pop(node)
+    utils.KillProcess(child.pid, timeout=10, waitpid=True)
+    utils.RemoveFile(sname)
 
 
 def GetCommandOutput(node, cmd):
@@ -174,6 +261,32 @@ def UploadFile(node, src):
     return p.stdout.read().strip()
   finally:
     f.close()
+
+
+def UploadData(node, data, mode=0600, filename=None):
+  """Uploads data to a node and returns the filename.
+
+  Caller needs to remove the returned file on the node when it's not needed
+  anymore.
+
+  """
+  if filename:
+    tmp = "tmp=%s" % utils.ShellQuote(filename)
+  else:
+    tmp = "tmp=$(tempfile --mode %o --prefix gnt)" % mode
+  cmd = ("%s && "
+         "[[ -f \"${tmp}\" ]] && "
+         "cat > \"${tmp}\" && "
+         "echo \"${tmp}\"") % tmp
+
+  p = subprocess.Popen(GetSSHCommand(node, cmd), shell=False,
+                       stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+  p.stdin.write(data)
+  p.stdin.close()
+  AssertEqual(p.wait(), 0)
+
+  # Return temporary filename
+  return p.stdout.read().strip()
 
 
 def BackupFile(node, path):
@@ -245,6 +358,101 @@ def GetNodeInstances(node, secondaries=False):
       instances.append(name)
 
   return instances
+
+
+def _SelectQueryFields(rnd, fields):
+  """Generates a list of fields for query tests.
+
+  """
+  # Create copy for shuffling
+  fields = list(fields)
+  rnd.shuffle(fields)
+
+  # Check all fields
+  yield fields
+  yield sorted(fields)
+
+  # Duplicate fields
+  yield fields + fields
+
+  # Check small groups of fields
+  while fields:
+    yield [fields.pop() for _ in range(rnd.randint(2, 10)) if fields]
+
+
+def _List(listcmd, fields, names):
+  """Runs a list command.
+
+  """
+  master = qa_config.GetMasterNode()
+
+  cmd = [listcmd, "list", "--separator=|", "--no-header",
+         "--output", ",".join(fields)]
+
+  if names:
+    cmd.extend(names)
+
+  return GetCommandOutput(master["primary"],
+                          utils.ShellQuoteArgs(cmd)).splitlines()
+
+
+def GenericQueryTest(cmd, fields):
+  """Runs a number of tests on query commands.
+
+  @param cmd: Command name
+  @param fields: List of field names
+
+  """
+  rnd = random.Random(hash(cmd))
+
+  fields = list(fields)
+  rnd.shuffle(fields)
+
+  # Test a number of field combinations
+  for testfields in _SelectQueryFields(rnd, fields):
+    AssertCommand([cmd, "list", "--output", ",".join(testfields)])
+
+  namelist_fn = compat.partial(_List, cmd, ["name"])
+
+  # When no names were requested, the list must be sorted
+  names = namelist_fn(None)
+  AssertEqual(names, utils.NiceSort(names))
+
+  # When requesting specific names, the order must be kept
+  revnames = list(reversed(names))
+  AssertEqual(namelist_fn(revnames), revnames)
+
+  randnames = list(names)
+  rnd.shuffle(randnames)
+  AssertEqual(namelist_fn(randnames), randnames)
+
+  # Listing unknown items must fail
+  AssertCommand([cmd, "list", "this.name.certainly.does.not.exist"], fail=True)
+
+  # Check exit code for listing unknown field
+  AssertEqual(AssertCommand([cmd, "list", "--output=field/does/not/exist"],
+                            fail=True),
+              constants.EXIT_UNKNOWN_FIELD)
+
+
+def GenericQueryFieldsTest(cmd, fields):
+  master = qa_config.GetMasterNode()
+
+  # Listing fields
+  AssertCommand([cmd, "list-fields"])
+  AssertCommand([cmd, "list-fields"] + fields)
+
+  # Check listed fields (all, must be sorted)
+  realcmd = [cmd, "list-fields", "--separator=|", "--no-headers"]
+  output = GetCommandOutput(master["primary"],
+                            utils.ShellQuoteArgs(realcmd)).splitlines()
+  AssertEqual([line.split("|", 1)[0] for line in output],
+              utils.NiceSort(fields))
+
+  # Check exit code for listing unknown field
+  AssertEqual(AssertCommand([cmd, "list-fields", "field/does/not/exist"],
+                            fail=True),
+              constants.EXIT_UNKNOWN_FIELD)
 
 
 def _FormatWithColor(text, seq):

@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2007, 2010 Google Inc.
+# Copyright (C) 2007, 2010, 2011 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -26,17 +26,16 @@
 from ganeti import utils
 
 import qa_config
-import qa_utils
 
-from qa_utils import AssertEqual, StartSSH
+from qa_utils import AssertCommand
 
 
 def TestSshConnection():
   """Test SSH connection.
 
   """
-  for node in qa_config.get('nodes'):
-    AssertEqual(StartSSH(node['primary'], 'exit').wait(), 0)
+  for node in qa_config.get("nodes"):
+    AssertCommand("exit", node=node)
 
 
 def TestGanetiCommands():
@@ -60,7 +59,7 @@ def TestGanetiCommands():
   cmd = ' && '.join([utils.ShellQuoteArgs(i) for i in cmds])
 
   for node in qa_config.get('nodes'):
-    AssertEqual(StartSSH(node['primary'], cmd).wait(), 0)
+    AssertCommand(cmd, node=node)
 
 
 def TestIcmpPing():
@@ -69,19 +68,22 @@ def TestIcmpPing():
   """
   nodes = qa_config.get('nodes')
 
-  pingargs = ['-w', '3', '-c', '1 ']
-  pingprimary = "ping"
+  pingprimary = pingsecondary = "fping"
   if qa_config.get("primary_ip_version") == 6:
-    pingprimary = "ping6"
+    pingprimary = "fping6"
+
+  pricmd = [pingprimary, "-e"]
+  seccmd = [pingsecondary, "-e"]
+  for i in nodes:
+    pricmd.append(i["primary"])
+    if i.has_key("secondary"):
+      seccmd.append(i["secondary"])
+
+  pristr = utils.ShellQuoteArgs(pricmd)
+  if seccmd:
+    cmdall = "%s && %s" % (pristr, utils.ShellQuoteArgs(seccmd))
+  else:
+    cmdall = pristr
 
   for node in nodes:
-    check = []
-    for i in nodes:
-      cmd = [pingprimary] + pingargs + [i['primary']]
-      check.append(utils.ShellQuoteArgs(cmd))
-      if i.has_key('secondary'):
-        cmd = ["ping"] + pingargs + [i["secondary"]]
-        check.append(utils.ShellQuoteArgs(cmd))
-
-    cmdall = ' && '.join(check)
-    AssertEqual(StartSSH(node['primary'], cmdall).wait(), 0)
+    AssertCommand(cmdall, node=node)

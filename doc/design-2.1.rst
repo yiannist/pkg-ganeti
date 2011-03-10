@@ -580,7 +580,7 @@ Redistribute Config
 Current State and shortcomings
 ++++++++++++++++++++++++++++++
 
-Currently LURedistributeConfig triggers a copy of the updated
+Currently LUClusterRedistConf triggers a copy of the updated
 configuration file to all master candidates and of the ssconf files to
 all nodes. There are other files which are maintained manually but which
 are important to keep in sync. These are:
@@ -780,7 +780,7 @@ We will change Ganeti to use UUIDs for entity tracking, but in a
 staggered way. In 2.1, we will simply add an “uuid” attribute to each
 of the instances, nodes and cluster itself. This will be reported on
 instance creation for nodes, and on node adds for the nodes. It will
-be of course avaiblable for querying via the OpQueryNodes/Instance and
+be of course avaiblable for querying via the OpNodeQuery/Instance and
 cluster information, and via RAPI as well.
 
 Note that Ganeti will not provide any way to change this attribute.

@@ -28,9 +28,13 @@ from ganeti import _autoconf
 from ganeti import utils
 from ganeti import cmdlib
 from ganeti import build
+from ganeti import compat
 from ganeti.rapi import connector
 
 import testutils
+
+
+VALID_URI_RE = re.compile(r"^[-/a-z0-9]*$")
 
 
 class TestDocs(unittest.TestCase):
@@ -68,6 +72,17 @@ class TestDocs(unittest.TestCase):
                  msg=("Missing documentation for hook %s/%s" %
                       (lucls.HTYPE, lucls.HPATH)))
 
+  def _CheckRapiResource(self, uri, fixup, handler):
+    docline = "%s resource." % uri
+    self.assertEqual(handler.__doc__.splitlines()[0].strip(), docline,
+                     msg=("First line of %r's docstring is not %r" %
+                          (handler, docline)))
+
+    # Apply fixes before testing
+    for (rx, value) in fixup.items():
+      uri = rx.sub(value, uri)
+
+    self.assertTrue(VALID_URI_RE.match(uri), msg="Invalid URI %r" % uri)
 
   def testRapiDocs(self):
     """Check whether all RAPI resources are documented.
@@ -75,13 +90,31 @@ class TestDocs(unittest.TestCase):
     """
     rapidoc = self._ReadDocFile("rapi.rst")
 
-    node_name = "[node_name]"
-    instance_name = "[instance_name]"
-    job_id = "[job_id]"
+    node_name = re.escape("[node_name]")
+    instance_name = re.escape("[instance_name]")
+    group_name = re.escape("[group_name]")
+    job_id = re.escape("[job_id]")
+    disk_index = re.escape("[disk_index]")
 
-    resources = connector.GetHandlers(re.escape(node_name),
-                                      re.escape(instance_name),
-                                      re.escape(job_id))
+    resources = connector.GetHandlers(node_name, instance_name, group_name,
+                                      job_id, disk_index)
+
+    handler_dups = utils.FindDuplicates(resources.values())
+    self.assertFalse(handler_dups,
+                     msg=("Resource handlers used more than once: %r" %
+                          handler_dups))
+
+    uri_check_fixup = {
+      re.compile(node_name): "node1examplecom",
+      re.compile(instance_name): "inst1examplecom",
+      re.compile(group_name): "group4440",
+      re.compile(job_id): "9409",
+      re.compile(disk_index): "123",
+      }
+
+    assert compat.all(VALID_URI_RE.match(value)
+                      for value in uri_check_fixup.values()), \
+           "Fixup values must be valid URIs, too"
 
     titles = []
 
@@ -95,20 +128,24 @@ class TestDocs(unittest.TestCase):
     prefix_exception = frozenset(["/", "/version", "/2"])
 
     undocumented = []
+    used_uris = []
 
     for key, handler in resources.iteritems():
       # Regex objects
       if hasattr(key, "match"):
         self.assert_(key.pattern.startswith("^/2/"),
                      msg="Pattern %r does not start with '^/2/'" % key.pattern)
+        self.assertEqual(key.pattern[-1], "$")
 
         found = False
         for title in titles:
-          if (title.startswith("``") and
-              title.endswith("``") and
-              key.match(title[2:-2])):
-            found = True
-            break
+          if title.startswith("``") and title.endswith("``"):
+            uri = title[2:-2]
+            if key.match(uri):
+              self._CheckRapiResource(uri, uri_check_fixup, handler)
+              used_uris.append(uri)
+              found = True
+              break
 
         if not found:
           # TODO: Find better way of identifying resource
@@ -118,12 +155,20 @@ class TestDocs(unittest.TestCase):
         self.assert_(key.startswith("/2/") or key in prefix_exception,
                      msg="Path %r does not start with '/2/'" % key)
 
-        if ("``%s``" % key) not in titles:
+        if ("``%s``" % key) in titles:
+          self._CheckRapiResource(key, {}, handler)
+          used_uris.append(key)
+        else:
           undocumented.append(key)
 
     self.failIf(undocumented,
                 msg=("Missing RAPI resource documentation for %s" %
                      utils.CommaJoin(undocumented)))
+
+    uri_dups = utils.FindDuplicates(used_uris)
+    self.failIf(uri_dups,
+                msg=("URIs matched by more than one resource: %s" %
+                     utils.CommaJoin(uri_dups)))
 
 
 class TestManpages(unittest.TestCase):
@@ -131,7 +176,7 @@ class TestManpages(unittest.TestCase):
 
   @staticmethod
   def _ReadManFile(name):
-    return utils.ReadFile("%s/man/%s.sgml" %
+    return utils.ReadFile("%s/man/%s.rst" %
                           (testutils.GetSourceDir(), name))
 
   @staticmethod
@@ -148,8 +193,8 @@ class TestManpages(unittest.TestCase):
     missing = []
 
     for cmd in commands:
-      pattern = "<cmdsynopsis>\s*<command>%s</command>" % re.escape(cmd)
-      if not re.findall(pattern, mantext, re.S):
+      pattern = r"^(\| )?\*\*%s\*\*" % re.escape(cmd)
+      if not re.findall(pattern, mantext, re.DOTALL | re.MULTILINE):
         missing.append(cmd)
 
     self.failIf(missing,

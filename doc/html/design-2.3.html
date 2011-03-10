@@ -5,13 +5,13 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Ganeti 2.3 design &mdash; Ganeti v2.3.1 documentation</title>
+    <title>Ganeti 2.3 design &mdash; Ganeti v2.4.0 documentation</title>
     <link rel="stylesheet" href="_static/default.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.3.1',
+        VERSION:     '2.4.0',
         COLLAPSE_MODINDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -19,8 +19,8 @@
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.3.1 documentation" href="index.html" />
-    <link rel="next" title="Merging clusters" href="cluster-merge.html" />
+    <link rel="top" title="Ganeti v2.4.0 documentation" href="index.html" />
+    <link rel="next" title="Ganeti 2.4 design" href="design-2.4.html" />
     <link rel="prev" title="Ganeti 2.2 design" href="design-2.2.html" /> 
   </head>
   <body>
@@ -28,12 +28,12 @@
       <h3>Navigation</h3>
       <ul>
         <li class="right" style="margin-right: 10px">
-          <a href="cluster-merge.html" title="Merging clusters"
+          <a href="design-2.4.html" title="Ganeti 2.4 design"
              accesskey="N">next</a></li>
         <li class="right" >
           <a href="design-2.2.html" title="Ganeti 2.2 design"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.3.1 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.4.0 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -134,7 +134,7 @@ one.</p>
 <p>To manage node groups and the nodes belonging to them, the following new
 commands and flags will be introduced:</p>
 <div class="highlight-python"><pre>gnt-group add &lt;group&gt; # add a new node group
-gnt-group del &lt;group&gt; # delete an empty node group
+gnt-group remove &lt;group&gt; # delete an empty node group
 gnt-group list # list node groups
 gnt-group rename &lt;oldname&gt; &lt;newname&gt; # rename a node group
 gnt-node {list,info} -g &lt;group&gt; # list only nodes belonging to a node group
@@ -156,11 +156,12 @@ allocations, and the operation should fail if only groups in this
 state could be found that would satisfy the requirements.</li>
 <li>last_resort: the node group should not be used for instance
 allocations, unless this would be the only way to have the operation
-succeed.</li>
+succeed. Prioritization among groups in this state will be deferred to
+the iallocator plugin that&#8217;s being used.</li>
 <li>preferred: the node group can be used freely for allocation of
 instances (this is the default state for newly created node
 groups). Note that prioritization among groups in this state will be
-deferred to the  iallocator plugin that&#8217;s being used.</li>
+deferred to the iallocator plugin that&#8217;s being used.</li>
 </ul>
 </div>
 <div class="section" id="node-group-operations">
@@ -350,8 +351,8 @@ state will be invalidated.</p>
 instances they lock. If an LU uses the BGL, then it will invalidate the
 entire cache. In time, it is expected that LUs will be modified to not
 invalidate, if they are not expected to change the node&#8217;s and/or
-instance&#8217;s state (e.g. <tt class="docutils literal"><span class="pre">LUConnectConsole</span></tt>, or
-<tt class="docutils literal"><span class="pre">LUActivateInstanceDisks</span></tt>).</p>
+instance&#8217;s state (e.g. <tt class="docutils literal"><span class="pre">LUInstanceConsole</span></tt>, or
+<tt class="docutils literal"><span class="pre">LUInstanceActivateDisks</span></tt>).</p>
 <p>Invalidation of a node&#8217;s properties will also invalidate the capacity
 data associated with that node.</p>
 </div>
@@ -1044,8 +1045,8 @@ ${localstatedir}/log/ganeti/ (0770; gntmasterd:gntdaemons)
             <p class="topless"><a href="design-2.2.html"
                                   title="previous chapter">Ganeti 2.2 design</a></p>
             <h4>Next topic</h4>
-            <p class="topless"><a href="cluster-merge.html"
-                                  title="next chapter">Merging clusters</a></p>
+            <p class="topless"><a href="design-2.4.html"
+                                  title="next chapter">Ganeti 2.4 design</a></p>
             <h3>This Page</h3>
             <ul class="this-page-menu">
               <li><a href="_sources/design-2.3.txt"
@@ -1072,12 +1073,12 @@ ${localstatedir}/log/ganeti/ (0770; gntmasterd:gntdaemons)
       <h3>Navigation</h3>
       <ul>
         <li class="right" style="margin-right: 10px">
-          <a href="cluster-merge.html" title="Merging clusters"
+          <a href="design-2.4.html" title="Ganeti 2.4 design"
              >next</a></li>
         <li class="right" >
           <a href="design-2.2.html" title="Ganeti 2.2 design"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.3.1 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.4.0 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

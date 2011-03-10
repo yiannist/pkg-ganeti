@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2010 Google Inc.
+# Copyright (C) 2006, 2007, 2010, 2011 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -70,6 +70,10 @@ def InitCluster(opts, args):
   if opts.drbd_storage and not opts.drbd_helper:
     drbd_helper = constants.DEFAULT_DRBD_HELPER
 
+  master_netdev = opts.master_netdev
+  if master_netdev is None:
+    master_netdev = constants.DEFAULT_BRIDGE
+
   hvlist = opts.enabled_hypervisors
   if hvlist is None:
     hvlist = constants.DEFAULT_ENABLED_HYPERVISOR
@@ -86,6 +90,13 @@ def InitCluster(opts, args):
   # prepare nicparams dict
   nicparams = objects.FillDict(constants.NICC_DEFAULTS, nicparams)
   utils.ForceDictType(nicparams, constants.NICS_PARAMETER_TYPES)
+
+  # prepare ndparams dict
+  if opts.ndparams is None:
+    ndparams = dict(constants.NDC_DEFAULTS)
+  else:
+    ndparams = objects.FillDict(constants.NDC_DEFAULTS, opts.ndparams)
+    utils.ForceDictType(ndparams, constants.NDS_PARAMETER_TYPES)
 
   # prepare hvparams dict
   for hv in constants.HYPER_TYPES:
@@ -117,12 +128,13 @@ def InitCluster(opts, args):
                         secondary_ip=opts.secondary_ip,
                         vg_name=vg_name,
                         mac_prefix=opts.mac_prefix,
-                        master_netdev=opts.master_netdev,
+                        master_netdev=master_netdev,
                         file_storage_dir=opts.file_storage_dir,
                         enabled_hypervisors=hvlist,
                         hvparams=hvparams,
                         beparams=beparams,
                         nicparams=nicparams,
+                        ndparams=ndparams,
                         candidate_pool_size=opts.candidate_pool_size,
                         modify_etc_hosts=opts.modify_etc_hosts,
                         modify_ssh_setup=opts.modify_ssh_setup,
@@ -133,7 +145,7 @@ def InitCluster(opts, args):
                         primary_ip_version=primary_ip_version,
                         prealloc_wipe_disks=opts.prealloc_wipe_disks,
                         )
-  op = opcodes.OpPostInitCluster()
+  op = opcodes.OpClusterPostInit()
   SubmitOpCode(op, opts=opts)
   return 0
 
@@ -154,7 +166,7 @@ def DestroyCluster(opts, args):
              " destroy this cluster, supply the --yes-do-it option.")
     return 1
 
-  op = opcodes.OpDestroyCluster()
+  op = opcodes.OpClusterDestroy()
   master = SubmitOpCode(op, opts=opts)
   # if we reached this, the opcode didn't fail; we can proceed to
   # shutdown all the daemons
@@ -186,7 +198,7 @@ def RenameCluster(opts, args):
     if not AskUser(usertext):
       return 1
 
-  op = opcodes.OpRenameCluster(name=new_name)
+  op = opcodes.OpClusterRename(name=new_name)
   result = SubmitOpCode(op, opts=opts, cl=cl)
 
   if result:
@@ -205,7 +217,7 @@ def RedistributeConfig(opts, args):
   @return: the desired exit code
 
   """
-  op = opcodes.OpRedistributeConfig()
+  op = opcodes.OpClusterRedistConf()
   SubmitOrSend(op, opts)
   return 0
 
@@ -309,6 +321,9 @@ def ShowClusterConfig(opts, args):
   ToStdout("OS parameters:")
   _PrintGroupedParams(result["osparams"])
 
+  ToStdout("Hidden OSes: %s", utils.CommaJoin(result["hidden_os"]))
+  ToStdout("Blacklisted OSes: %s", utils.CommaJoin(result["blacklisted_os"]))
+
   ToStdout("Cluster parameters:")
   ToStdout("  - candidate pool size: %s",
             compat.TryToRoman(result["candidate_pool_size"],
@@ -330,6 +345,9 @@ def ShowClusterConfig(opts, args):
   ToStdout("  - default instance allocator: %s", result["default_iallocator"])
   ToStdout("  - primary ip version: %d", result["primary_ip_version"])
   ToStdout("  - preallocation wipe disks: %s", result["prealloc_wipe_disks"])
+
+  ToStdout("Default node parameters:")
+  _PrintGroupedParams(result["ndparams"], roman=opts.roman_integers)
 
   ToStdout("Default instance parameters:")
   _PrintGroupedParams(result["beparams"], roman=opts.roman_integers)
@@ -420,7 +438,7 @@ def VerifyCluster(opts, args):
   skip_checks = []
   if opts.skip_nplusone_mem:
     skip_checks.append(constants.VERIFY_NPLUSONE_MEM)
-  op = opcodes.OpVerifyCluster(skip_checks=skip_checks,
+  op = opcodes.OpClusterVerify(skip_checks=skip_checks,
                                verbose=opts.verbose,
                                error_codes=opts.error_codes,
                                debug_simulate_errors=opts.simulate_errors)
@@ -442,10 +460,10 @@ def VerifyDisks(opts, args):
   """
   cl = GetClient()
 
-  op = opcodes.OpVerifyDisks()
+  op = opcodes.OpClusterVerifyDisks()
   result = SubmitOpCode(op, opts=opts, cl=cl)
   if not isinstance(result, (list, tuple)) or len(result) != 3:
-    raise errors.ProgrammerError("Unknown result type for OpVerifyDisks")
+    raise errors.ProgrammerError("Unknown result type for OpClusterVerifyDisks")
 
   bad_nodes, instances, missing = result
 
@@ -462,7 +480,7 @@ def VerifyDisks(opts, args):
     for iname in instances:
       if iname in missing:
         continue
-      op = opcodes.OpActivateInstanceDisks(instance_name=iname)
+      op = opcodes.OpInstanceActivateDisks(instance_name=iname)
       try:
         ToStdout("Activating disks for instance '%s'", iname)
         SubmitOpCode(op, opts=opts, cl=cl)
@@ -472,8 +490,6 @@ def VerifyDisks(opts, args):
         ToStderr("Error activating disks for instance %s: %s", iname, msg)
 
   if missing:
-    (vg_name, ) = cl.QueryConfigValues(["volume_group_name"])
-
     for iname, ival in missing.iteritems():
       all_missing = compat.all(x[0] in bad_nodes for x in ival)
       if all_missing:
@@ -484,11 +500,11 @@ def VerifyDisks(opts, args):
         ival.sort()
         for node, vol in ival:
           if node in bad_nodes:
-            ToStdout("\tbroken node %s /dev/%s/%s", node, vg_name, vol)
+            ToStdout("\tbroken node %s /dev/%s", node, vol)
           else:
-            ToStdout("\t%s /dev/%s/%s", node, vg_name, vol)
+            ToStdout("\t%s /dev/%s", node, vol)
 
-    ToStdout("You need to run replace_disks for all the above"
+    ToStdout("You need to run replace or recreate disks for all the above"
              " instances, if this message persist after fixing nodes.")
     retcode |= 1
 
@@ -505,7 +521,7 @@ def RepairDiskSizes(opts, args):
   @return: the desired exit code
 
   """
-  op = opcodes.OpRepairDiskSizes(instances=args)
+  op = opcodes.OpClusterRepairDiskSizes(instances=args)
   SubmitOpCode(op, opts=opts)
 
 
@@ -563,7 +579,7 @@ def SearchTags(opts, args):
   @return: the desired exit code
 
   """
-  op = opcodes.OpSearchTags(pattern=args[0])
+  op = opcodes.OpTagsSearch(pattern=args[0])
   result = SubmitOpCode(op, opts=opts)
   if not result:
     return 1
@@ -706,7 +722,7 @@ def SetClusterParams(opts, args):
   if not (not opts.lvm_storage or opts.vg_name or
           not opts.drbd_storage or opts.drbd_helper or
           opts.enabled_hypervisors or opts.hvparams or
-          opts.beparams or opts.nicparams or
+          opts.beparams or opts.nicparams or opts.ndparams or
           opts.candidate_pool_size is not None or
           opts.uid_pool is not None or
           opts.maintain_node_health is not None or
@@ -714,6 +730,7 @@ def SetClusterParams(opts, args):
           opts.remove_uids is not None or
           opts.default_iallocator is not None or
           opts.reserved_lvs is not None or
+          opts.master_netdev is not None or
           opts.prealloc_wipe_disks is not None):
     ToStderr("Please give at least one of the parameters.")
     return 1
@@ -749,6 +766,9 @@ def SetClusterParams(opts, args):
   nicparams = opts.nicparams
   utils.ForceDictType(nicparams, constants.NICS_PARAMETER_TYPES)
 
+  ndparams = opts.ndparams
+  if ndparams is not None:
+    utils.ForceDictType(ndparams, constants.NDS_PARAMETER_TYPES)
 
   mnh = opts.maintain_node_health
 
@@ -770,13 +790,14 @@ def SetClusterParams(opts, args):
     else:
       opts.reserved_lvs = utils.UnescapeAndSplit(opts.reserved_lvs, sep=",")
 
-  op = opcodes.OpSetClusterParams(vg_name=vg_name,
+  op = opcodes.OpClusterSetParams(vg_name=vg_name,
                                   drbd_helper=drbd_helper,
                                   enabled_hypervisors=hvlist,
                                   hvparams=hvparams,
                                   os_hvp=None,
                                   beparams=beparams,
                                   nicparams=nicparams,
+                                  ndparams=ndparams,
                                   candidate_pool_size=opts.candidate_pool_size,
                                   maintain_node_health=mnh,
                                   uid_pool=uid_pool,
@@ -784,6 +805,7 @@ def SetClusterParams(opts, args):
                                   remove_uids=remove_uids,
                                   default_iallocator=opts.default_iallocator,
                                   prealloc_wipe_disks=opts.prealloc_wipe_disks,
+                                  master_netdev=opts.master_netdev,
                                   reserved_lvs=opts.reserved_lvs)
   SubmitOpCode(op, opts=opts)
   return 0
@@ -868,7 +890,8 @@ commands = {
      NOLVM_STORAGE_OPT, NOMODIFY_ETCHOSTS_OPT, NOMODIFY_SSH_SETUP_OPT,
      SECONDARY_IP_OPT, VG_NAME_OPT, MAINTAIN_NODE_HEALTH_OPT,
      UIDPOOL_OPT, DRBD_HELPER_OPT, NODRBD_STORAGE_OPT,
-     DEFAULT_IALLOCATOR_OPT, PRIMARY_IP_VERSION_OPT, PREALLOC_WIPE_DISKS_OPT],
+     DEFAULT_IALLOCATOR_OPT, PRIMARY_IP_VERSION_OPT, PREALLOC_WIPE_DISKS_OPT,
+     NODE_PARAMS_OPT],
     "[opts...] <cluster_name>", "Initialises a new cluster configuration"),
   'destroy': (
     DestroyCluster, ARGS_NONE, [YES_DOIT_OPT],
@@ -940,11 +963,11 @@ commands = {
     "{pause <timespec>|continue|info}", "Change watcher properties"),
   'modify': (
     SetClusterParams, ARGS_NONE,
-    [BACKEND_OPT, CP_SIZE_OPT, ENABLED_HV_OPT, HVLIST_OPT,
+    [BACKEND_OPT, CP_SIZE_OPT, ENABLED_HV_OPT, HVLIST_OPT, MASTER_NETDEV_OPT,
      NIC_PARAMS_OPT, NOLVM_STORAGE_OPT, VG_NAME_OPT, MAINTAIN_NODE_HEALTH_OPT,
      UIDPOOL_OPT, ADD_UIDS_OPT, REMOVE_UIDS_OPT, DRBD_HELPER_OPT,
      NODRBD_STORAGE_OPT, DEFAULT_IALLOCATOR_OPT, RESERVED_LVS_OPT,
-     DRY_RUN_OPT, PRIORITY_OPT, PREALLOC_WIPE_DISKS_OPT],
+     DRY_RUN_OPT, PRIORITY_OPT, PREALLOC_WIPE_DISKS_OPT, NODE_PARAMS_OPT],
     "[opts...]",
     "Alters the parameters of the cluster"),
   "renew-crypto": (

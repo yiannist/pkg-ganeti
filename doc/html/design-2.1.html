@@ -5,13 +5,13 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Ganeti 2.1 design &mdash; Ganeti v2.3.1 documentation</title>
+    <title>Ganeti 2.1 design &mdash; Ganeti v2.4.0 documentation</title>
     <link rel="stylesheet" href="_static/default.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.3.1',
+        VERSION:     '2.4.0',
         COLLAPSE_MODINDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -19,7 +19,7 @@
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.3.1 documentation" href="index.html" />
+    <link rel="top" title="Ganeti v2.4.0 documentation" href="index.html" />
     <link rel="next" title="Ganeti 2.2 design" href="design-2.2.html" />
     <link rel="prev" title="Ganeti 2.0 design" href="design-2.0.html" /> 
   </head>
@@ -33,7 +33,7 @@
         <li class="right" >
           <a href="design-2.0.html" title="Ganeti 2.0 design"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.3.1 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.4.0 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -589,7 +589,7 @@ recognize what query the answer is answering.</li>
 <h4><a class="toc-backref" href="#id29">Redistribute Config</a><a class="headerlink" href="#redistribute-config" title="Permalink to this headline">¶</a></h4>
 <div class="section" id="id5">
 <h5>Current State and shortcomings<a class="headerlink" href="#id5" title="Permalink to this headline">¶</a></h5>
-<p>Currently LURedistributeConfig triggers a copy of the updated
+<p>Currently LUClusterRedistConf triggers a copy of the updated
 configuration file to all master candidates and of the ssconf files to
 all nodes. There are other files which are maintained manually but which
 are important to keep in sync. These are:</p>
@@ -770,7 +770,7 @@ one.</p>
 staggered way. In 2.1, we will simply add an “uuid” attribute to each
 of the instances, nodes and cluster itself. This will be reported on
 instance creation for nodes, and on node adds for the nodes. It will
-be of course avaiblable for querying via the OpQueryNodes/Instance and
+be of course avaiblable for querying via the OpNodeQuery/Instance and
 cluster information, and via RAPI as well.</p>
 <p>Note that Ganeti will not provide any way to change this attribute.</p>
 <p>Upgrading from Ganeti 2.0 will automatically add an ‘uuid’ attribute
@@ -1317,7 +1317,7 @@ specification</li>
         <li class="right" >
           <a href="design-2.0.html" title="Ganeti 2.0 design"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.3.1 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.4.0 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

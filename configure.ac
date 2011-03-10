@@ -1,7 +1,7 @@
 # Configure script for Ganeti
 m4_define([gnt_version_major], [2])
-m4_define([gnt_version_minor], [3])
-m4_define([gnt_version_revision], [1])
+m4_define([gnt_version_minor], [4])
+m4_define([gnt_version_revision], [0])
 m4_define([gnt_version_suffix], [])
 m4_define([gnt_version_full],
           m4_format([%d.%d.%d%s],
@@ -223,23 +223,25 @@ then
 fi
 AC_SUBST(SYSLOG_USAGE, $SYSLOG)
 
+# --with-disk-separator=...
+AC_ARG_WITH([disk-separator],
+  [AS_HELP_STRING([--with-disk-separator=STRING],
+    [Disk index separator, useful if the default of ':' is handled specially by the hypervisor]
+  )],
+  [disk_separator="$withval"],
+  [disk_separator=":"])
+AC_SUBST(DISK_SEPARATOR, $disk_separator)
+
 # Check common programs
 AC_PROG_INSTALL
 AC_PROG_LN_S
 
-# Check for docbook programs
-AC_ARG_VAR(DOCBOOK2MAN, [docbook2man path])
-AC_PATH_PROG(DOCBOOK2MAN, [docbook2man], [])
-if test -z "$DOCBOOK2MAN"
+# Check for pandoc
+AC_ARG_VAR(PANDOC, [pandoc path])
+AC_PATH_PROG(PANDOC, [pandoc], [])
+if test -z "$PANDOC"
 then
-  AC_MSG_WARN([docbook2man not found, man pages rebuild will not be possible])
-fi
-
-AC_ARG_VAR(DOCBOOK2HTML, [docbook2html path])
-AC_PATH_PROG(DOCBOOK2HTML, [docbook2html], [])
-if test -z "$DOCBOOK2HTML"
-then
-  AC_MSG_WARN([docbook2html not found, man pages rebuild will not be possible])
+  AC_MSG_WARN([pandoc not found, man pages rebuild will not be possible])
 fi
 
 # Check for python-sphinx

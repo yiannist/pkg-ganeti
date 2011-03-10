@@ -303,7 +303,7 @@ Workflow
    instance specification and for the public part of an encryption key
 
    - Instance information can already be retrieved using an existing API
-     (``OpQueryInstanceData``).
+     (``OpInstanceQueryData``).
    - An RSA encryption key and a corresponding self-signed X509
      certificate is generated using the "openssl" command. This key will
      be used to encrypt the data sent to the destination cluster.
@@ -317,7 +317,7 @@ Workflow
    instance move with the key received from the source cluster and
    receives the public part of the destination's encryption key
 
-   - The current API to create instances (``OpCreateInstance``) will be
+   - The current API to create instances (``OpInstanceCreate``) will be
      extended to support an import from a remote cluster.
    - A valid, unexpired X509 certificate signed with the destination
      cluster's secret will be required. By verifying the signature, we
@@ -329,7 +329,7 @@ Workflow
 
    - The destination cluster generates another key and certificate,
      signs and sends it to the third party, who will have to pass it to
-     the API for exporting an instance (``OpExportInstance``). This
+     the API for exporting an instance (``OpBackupExport``). This
      certificate is used to ensure we're sending the disk data to the
      correct destination cluster.
    - Once a disk can be imported, the API sends the destination
@@ -340,7 +340,7 @@ Workflow
    together with all necessary information to source cluster and tells
    it to start the move
 
-   - The existing API for exporting instances (``OpExportInstance``)
+   - The existing API for exporting instances (``OpBackupExport``)
      will be extended to export instances to remote clusters.
 
 #. Source cluster connects to destination cluster for each disk and
@@ -716,16 +716,16 @@ hidden from the user and respectively the list of OSes which are
 blacklisted from new installations.
 
 These lists will be modifiable via ``gnt-os modify`` (implemented via
-``OpSetClusterParams``), such that even not-yet-existing OSes can be
+``OpClusterSetParams``), such that even not-yet-existing OSes can be
 preseeded into a given state.
 
 For the hidden OSes, they are fully functional except that they are not
-returned in the default OS list (as computed via ``OpDiagnoseOS``),
+returned in the default OS list (as computed via ``OpOsDiagnose``),
 unless the hidden state is requested.
 
 For the blacklisted OSes, they are also not shown (unless the
 blacklisted state is requested), and they are also prevented from
-installation via ``OpCreateInstance`` (in create mode).
+installation via ``OpInstanceCreate`` (in create mode).
 
 Both these attributes are per-OS, not per-variant. Thus they apply to
 all of an OS' variants, and it's impossible to blacklist or hide just

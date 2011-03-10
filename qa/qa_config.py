@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2007 Google Inc.
+# Copyright (C) 2007, 2011 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -26,6 +26,7 @@
 
 from ganeti import utils
 from ganeti import serializer
+from ganeti import compat
 
 import qa_error
 
@@ -38,7 +39,7 @@ def Load(path):
   """Loads the passed configuration file.
 
   """
-  global cfg
+  global cfg # pylint: disable-msg=W0603
 
   cfg = serializer.LoadJson(utils.ReadFile(path))
 
@@ -59,11 +60,15 @@ def get(name, default=None):
   return cfg.get(name, default)
 
 
-def TestEnabled(test):
-  """Returns True if the given test is enabled.
+def TestEnabled(tests):
+  """Returns True if the given tests are enabled.
+
+  @param tests: a single test, or a list of tests to check
 
   """
-  return cfg.get("tests", {}).get(test, True)
+  if isinstance(tests, basestring):
+    tests = [tests]
+  return compat.all(cfg.get("tests", {}).get(t, True) for t in tests)
 
 
 def GetMasterNode():

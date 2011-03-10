@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -75,6 +75,9 @@ _X509_CERT_FILE = "cert"
 _IES_STATUS_FILE = "status"
 _IES_PID_FILE = "pid"
 _IES_CA_FILE = "ca"
+
+#: Valid LVS output line regex
+_LVSLINE_REGEX = re.compile("^ *([^|]+)\|([^|]+)\|([0-9.]+)\|([^|]{6})\|?$")
 
 
 class RPCFail(Exception):
@@ -440,19 +443,20 @@ def GetNodeInfo(vgname, hypervisor_type):
   """
   outputarray = {}
 
-  vginfo = bdev.LogicalVolume.GetVGInfo([vgname])
-  vg_free = vg_size = None
-  if vginfo:
-    vg_free = int(round(vginfo[0][0], 0))
-    vg_size = int(round(vginfo[0][1], 0))
+  if vgname is not None:
+    vginfo = bdev.LogicalVolume.GetVGInfo([vgname])
+    vg_free = vg_size = None
+    if vginfo:
+      vg_free = int(round(vginfo[0][0], 0))
+      vg_size = int(round(vginfo[0][1], 0))
+    outputarray['vg_size'] = vg_size
+    outputarray['vg_free'] = vg_free
 
-  outputarray['vg_size'] = vg_size
-  outputarray['vg_free'] = vg_free
-
-  hyper = hypervisor.GetHypervisor(hypervisor_type)
-  hyp_info = hyper.GetNodeInfo()
-  if hyp_info is not None:
-    outputarray.update(hyp_info)
+  if hypervisor_type is not None:
+    hyper = hypervisor.GetHypervisor(hypervisor_type)
+    hyp_info = hyper.GetNodeInfo()
+    if hyp_info is not None:
+      outputarray.update(hyp_info)
 
   outputarray["bootid"] = utils.ReadFile(_BOOT_ID_PATH, size=128).rstrip("\n")
 
@@ -502,6 +506,15 @@ def VerifyNode(what, cluster_name):
         val = "Error while checking hypervisor: %s" % str(err)
       tmp[hv_name] = val
 
+  if constants.NV_HVPARAMS in what and vm_capable:
+    result[constants.NV_HVPARAMS] = tmp = []
+    for source, hv_name, hvparms in what[constants.NV_HVPARAMS]:
+      try:
+        logging.info("Validating hv %s, %s", hv_name, hvparms)
+        hypervisor.GetHypervisor(hv_name).ValidateParameters(hvparms)
+      except errors.HypervisorError, err:
+        tmp.append((source, hv_name, str(err)))
+
   if constants.NV_FILELIST in what:
     result[constants.NV_FILELIST] = utils.FingerprintFiles(
       what[constants.NV_FILELIST])
@@ -548,9 +561,25 @@ def VerifyNode(what, cluster_name):
     result[constants.NV_MASTERIP] = netutils.TcpPing(master_ip, port,
                                                   source=source)
 
+  if constants.NV_OOB_PATHS in what:
+    result[constants.NV_OOB_PATHS] = tmp = []
+    for path in what[constants.NV_OOB_PATHS]:
+      try:
+        st = os.stat(path)
+      except OSError, err:
+        tmp.append("error stating out of band helper: %s" % err)
+      else:
+        if stat.S_ISREG(st.st_mode):
+          if stat.S_IMODE(st.st_mode) & stat.S_IXUSR:
+            tmp.append(None)
+          else:
+            tmp.append("out of band helper %s is not executable" % path)
+        else:
+          tmp.append("out of band helper %s is not a file" % path)
+
   if constants.NV_LVLIST in what and vm_capable:
     try:
-      val = GetVolumeList(what[constants.NV_LVLIST])
+      val = GetVolumeList(utils.ListVolumeGroups().keys())
     except RPCFail, err:
       val = str(err)
     result[constants.NV_LVLIST] = val
@@ -618,17 +647,18 @@ def VerifyNode(what, cluster_name):
   return result
 
 
-def GetVolumeList(vg_name):
+def GetVolumeList(vg_names):
   """Compute list of logical volumes and their size.
 
-  @type vg_name: str
-  @param vg_name: the volume group whose LVs we should list
+  @type vg_names: list
+  @param vg_names: the volume groups whose LVs we should list, or
+      empty for all volume groups
   @rtype: dict
   @return:
       dictionary of all partions (key) with value being a tuple of
       their size (in MiB), inactive and online status::
 
-        {'test1': ('20.06', True, True)}
+        {'xenvg/test1': ('20.06', True, True)}
 
       in case of errors, a string is returned with the error
       details.
@@ -636,20 +666,21 @@ def GetVolumeList(vg_name):
   """
   lvs = {}
   sep = '|'
+  if not vg_names:
+    vg_names = []
   result = utils.RunCmd(["lvs", "--noheadings", "--units=m", "--nosuffix",
                          "--separator=%s" % sep,
-                         "-olv_name,lv_size,lv_attr", vg_name])
+                         "-ovg_name,lv_name,lv_size,lv_attr"] + vg_names)
   if result.failed:
     _Fail("Failed to list logical volumes, lvs output: %s", result.output)
 
-  valid_line_re = re.compile("^ *([^|]+)\|([0-9.]+)\|([^|]{6})\|?$")
   for line in result.stdout.splitlines():
     line = line.strip()
-    match = valid_line_re.match(line)
+    match = _LVSLINE_REGEX.match(line)
     if not match:
       logging.error("Invalid line returned from lvs output: '%s'", line)
       continue
-    name, size, attr = match.groups()
+    vg_name, name, size, attr = match.groups()
     inactive = attr[4] == '-'
     online = attr[5] == 'o'
     virtual = attr[0] == 'v'
@@ -657,7 +688,7 @@ def GetVolumeList(vg_name):
       # we don't want to report such volumes as existing, since they
       # don't really hold data
       continue
-    lvs[name] = (size, inactive, online)
+    lvs[vg_name+"/"+name] = (size, inactive, online)
 
   return lvs
 
@@ -938,8 +969,8 @@ def RunRenameInstance(instance, old_name, debug):
 
 
 def _GetBlockDevSymlinkPath(instance_name, idx):
-  return utils.PathJoin(constants.DISK_LINKS_DIR,
-                        "%s:%d" % (instance_name, idx))
+  return utils.PathJoin(constants.DISK_LINKS_DIR, "%s%s%d" %
+                        (instance_name, constants.DISK_SEPARATOR, idx))
 
 
 def _SymlinkBlockDev(instance_name, device_path, idx):
@@ -1334,6 +1365,41 @@ def BlockdevWipe(disk, offset, size):
   _WipeDevice(rdev.dev_path, offset, size)
 
 
+def BlockdevPauseResumeSync(disks, pause):
+  """Pause or resume the sync of the block device.
+
+  @type disks: list of L{objects.Disk}
+  @param disks: the disks object we want to pause/resume
+  @type pause: bool
+  @param pause: Wheater to pause or resume
+
+  """
+  success = []
+  for disk in disks:
+    try:
+      rdev = _RecursiveFindBD(disk)
+    except errors.BlockDeviceError:
+      rdev = None
+
+    if not rdev:
+      success.append((False, ("Cannot change sync for device %s:"
+                              " device not found" % disk.iv_name)))
+      continue
+
+    result = rdev.PauseResumeSync(pause)
+
+    if result:
+      success.append((result, None))
+    else:
+      if pause:
+        msg = "Pause"
+      else:
+        msg = "Resume"
+      success.append((result, "%s for device %s failed" % (msg, disk.iv_name)))
+
+  return success
+
+
 def BlockdevRemove(disk):
   """Remove a block device.
 
@@ -1426,7 +1492,7 @@ def _RecursiveAssembleBD(disk, owner, as_primary):
   return result
 
 
-def BlockdevAssemble(disk, owner, as_primary):
+def BlockdevAssemble(disk, owner, as_primary, idx):
   """Activate a block device for an instance.
 
   This is a wrapper over _RecursiveAssembleBD.
@@ -1441,8 +1507,12 @@ def BlockdevAssemble(disk, owner, as_primary):
     if isinstance(result, bdev.BlockDev):
       # pylint: disable-msg=E1103
       result = result.dev_path
+      if as_primary:
+        _SymlinkBlockDev(owner, result, idx)
   except errors.BlockDeviceError, err:
     _Fail("Error while assembling disk: %s", err, exc=True)
+  except OSError, err:
+    _Fail("Error while symlinking disk: %s", err, exc=True)
 
   return result
 
@@ -1750,6 +1820,27 @@ def UploadFile(file_name, data, mode, uid, gid, atime, mtime):
   utils.SafeWriteFile(file_name, None,
                       data=raw_data, mode=mode, uid=uid, gid=gid,
                       atime=atime, mtime=mtime)
+
+
+def RunOob(oob_program, command, node, timeout):
+  """Executes oob_program with given command on given node.
+
+  @param oob_program: The path to the executable oob_program
+  @param command: The command to invoke on oob_program
+  @param node: The node given as an argument to the program
+  @param timeout: Timeout after which we kill the oob program
+
+  @return: stdout
+  @raise RPCFail: If execution fails for some reason
+
+  """
+  result = utils.RunCmd([oob_program, command, node], timeout=timeout)
+
+  if result.failed:
+    _Fail("'%s' failed with reason '%s'; output: %s", result.cmd,
+          result.fail_reason, result.output)
+
+  return result.stdout
 
 
 def WriteSsconfFiles(values):
@@ -2119,7 +2210,7 @@ def BlockdevSnapshot(disk):
   @type disk: L{objects.Disk}
   @param disk: the disk to be snapshotted
   @rtype: string
-  @return: snapshot disk path
+  @return: snapshot disk ID as (vg, lv)
 
   """
   if disk.dev_type == constants.LD_DRBD8:
@@ -2163,7 +2254,7 @@ def FinalizeExport(instance, snap_disks):
   config.set(constants.INISECT_EXP, 'timestamp', '%d' % int(time.time()))
   config.set(constants.INISECT_EXP, 'source', instance.primary_node)
   config.set(constants.INISECT_EXP, 'os', instance.os)
-  config.set(constants.INISECT_EXP, 'compression', 'gzip')
+  config.set(constants.INISECT_EXP, "compression", "none")
 
   config.add_section(constants.INISECT_INS)
   config.set(constants.INISECT_INS, 'name', instance.name)
@@ -2437,7 +2528,7 @@ def _EnsureJobQueueFile(file_name):
 def JobQueueUpdate(file_name, content):
   """Updates a file in the queue directory.
 
-  This is just a wrapper over L{utils.WriteFile}, with proper
+  This is just a wrapper over L{utils.io.WriteFile}, with proper
   checking.
 
   @type file_name: str
@@ -2875,6 +2966,11 @@ def StartImportExportDaemon(mode, opts, host, port, instance, ieio, ieioargs):
     if port:
       cmd.append("--port=%s" % port)
 
+    if opts.ipv6:
+      cmd.append("--ipv6")
+    else:
+      cmd.append("--ipv4")
+
     if opts.compress:
       cmd.append("--compress=%s" % opts.compress)
 
@@ -2889,6 +2985,15 @@ def StartImportExportDaemon(mode, opts, host, port, instance, ieio, ieioargs):
 
     if cmd_suffix:
       cmd.append("--cmd-suffix=%s" % cmd_suffix)
+
+    if mode == constants.IEM_EXPORT:
+      # Retry connection a few times when connecting to remote peer
+      cmd.append("--connect-retries=%s" % constants.RIE_CONNECT_RETRIES)
+      cmd.append("--connect-timeout=%s" % constants.RIE_CONNECT_ATTEMPT_TIMEOUT)
+    elif opts.connect_timeout is not None:
+      assert mode == constants.IEM_IMPORT
+      # Overall timeout for establishing connection while listening
+      cmd.append("--connect-timeout=%s" % opts.connect_timeout)
 
     logfile = _InstanceLogName(prefix, instance.os, instance.name)
 
@@ -3319,7 +3424,7 @@ class DevCacheManager(object):
   def RemoveCache(cls, dev_path):
     """Remove data for a dev_path.
 
-    This is just a wrapper over L{utils.RemoveFile} with a converted
+    This is just a wrapper over L{utils.io.RemoveFile} with a converted
     path name and logging.
 
     @type dev_path: str

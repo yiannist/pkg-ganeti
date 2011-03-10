@@ -5,13 +5,13 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Ganeti 2.2 design &mdash; Ganeti v2.3.1 documentation</title>
+    <title>Ganeti 2.2 design &mdash; Ganeti v2.4.0 documentation</title>
     <link rel="stylesheet" href="_static/default.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.3.1',
+        VERSION:     '2.4.0',
         COLLAPSE_MODINDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -19,7 +19,7 @@
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.3.1 documentation" href="index.html" />
+    <link rel="top" title="Ganeti v2.4.0 documentation" href="index.html" />
     <link rel="next" title="Ganeti 2.3 design" href="design-2.3.html" />
     <link rel="prev" title="Ganeti 2.1 design" href="design-2.1.html" /> 
   </head>
@@ -33,7 +33,7 @@
         <li class="right" >
           <a href="design-2.1.html" title="Ganeti 2.1 design"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.3.1 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.4.0 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -374,7 +374,7 @@ directly, where it&#8217;ll be written to the new block device directly again.</
 <li>Third party tells source cluster to shut down instance, asks for the
 instance specification and for the public part of an encryption key<ul>
 <li>Instance information can already be retrieved using an existing API
-(<tt class="docutils literal"><span class="pre">OpQueryInstanceData</span></tt>).</li>
+(<tt class="docutils literal"><span class="pre">OpInstanceQueryData</span></tt>).</li>
 <li>An RSA encryption key and a corresponding self-signed X509
 certificate is generated using the &#8220;openssl&#8221; command. This key will
 be used to encrypt the data sent to the destination cluster.<ul>
@@ -389,7 +389,7 @@ salting and a secret shared between Ganeti clusters.</li>
 same specifications as on source cluster and to prepare for an
 instance move with the key received from the source cluster and
 receives the public part of the destination&#8217;s encryption key<ul>
-<li>The current API to create instances (<tt class="docutils literal"><span class="pre">OpCreateInstance</span></tt>) will be
+<li>The current API to create instances (<tt class="docutils literal"><span class="pre">OpInstanceCreate</span></tt>) will be
 extended to support an import from a remote cluster.</li>
 <li>A valid, unexpired X509 certificate signed with the destination
 cluster&#8217;s secret will be required. By verifying the signature, we
@@ -401,7 +401,7 @@ IP address or port sent by the destination cluster.</li>
 </li>
 <li>The destination cluster generates another key and certificate,
 signs and sends it to the third party, who will have to pass it to
-the API for exporting an instance (<tt class="docutils literal"><span class="pre">OpExportInstance</span></tt>). This
+the API for exporting an instance (<tt class="docutils literal"><span class="pre">OpBackupExport</span></tt>). This
 certificate is used to ensure we&#8217;re sending the disk data to the
 correct destination cluster.</li>
 <li>Once a disk can be imported, the API sends the destination
@@ -412,7 +412,7 @@ signature to the third party.</li>
 <li>Third party hands public part of the destination&#8217;s encryption key
 together with all necessary information to source cluster and tells
 it to start the move<ul>
-<li>The existing API for exporting instances (<tt class="docutils literal"><span class="pre">OpExportInstance</span></tt>)
+<li>The existing API for exporting instances (<tt class="docutils literal"><span class="pre">OpBackupExport</span></tt>)
 will be extended to export instances to remote clusters.</li>
 </ul>
 </li>
@@ -771,14 +771,14 @@ useful to &#8220;hide&#8221; a set of OSes, but keep it otherwise functional.</p
 hidden from the user and respectively the list of OSes which are
 blacklisted from new installations.</p>
 <p>These lists will be modifiable via <tt class="docutils literal"><span class="pre">gnt-os</span> <span class="pre">modify</span></tt> (implemented via
-<tt class="docutils literal"><span class="pre">OpSetClusterParams</span></tt>), such that even not-yet-existing OSes can be
+<tt class="docutils literal"><span class="pre">OpClusterSetParams</span></tt>), such that even not-yet-existing OSes can be
 preseeded into a given state.</p>
 <p>For the hidden OSes, they are fully functional except that they are not
-returned in the default OS list (as computed via <tt class="docutils literal"><span class="pre">OpDiagnoseOS</span></tt>),
+returned in the default OS list (as computed via <tt class="docutils literal"><span class="pre">OpOsDiagnose</span></tt>),
 unless the hidden state is requested.</p>
 <p>For the blacklisted OSes, they are also not shown (unless the
 blacklisted state is requested), and they are also prevented from
-installation via <tt class="docutils literal"><span class="pre">OpCreateInstance</span></tt> (in create mode).</p>
+installation via <tt class="docutils literal"><span class="pre">OpInstanceCreate</span></tt> (in create mode).</p>
 <p>Both these attributes are per-OS, not per-variant. Thus they apply to
 all of an OS&#8217; variants, and it&#8217;s impossible to blacklist or hide just
 one variant. Further improvements might allow a given OS variant to be
@@ -1067,7 +1067,7 @@ scripts).</p>
         <li class="right" >
           <a href="design-2.1.html" title="Ganeti 2.1 design"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.3.1 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.4.0 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

@@ -178,6 +178,8 @@ nodegroups
 
   name
     the node group name
+  alloc_policy
+    the allocation policy of the node group
 
 instances
   a dictionary with the data for the current existing instance on the
@@ -246,10 +248,10 @@ nodes
   or ``offline`` flags set. More details about these of node status
   flags is available in the manpage :manpage:`ganeti(7)`.
 
-.. [*] Note that no run-time data is present for offline or drained
-   nodes; this means the tags total_memory, reserved_memory,
-   free_memory, total_disk, free_disk, total_cpus, i_pri_memory and
-   i_pri_up memory will be absent
+.. [*] Note that no run-time data is present for offline, drained or
+   non-vm_capable nodes; this means the tags total_memory,
+   reserved_memory, free_memory, total_disk, free_disk, total_cpus,
+   i_pri_memory and i_pri_up memory will be absent
 
 
 Response message
@@ -320,7 +322,7 @@ Input message, new instance allocation::
       "disk_template": "drbd",
       "memory": 2048,
       "disk_space_total": 3328,
-      "os": "etch-image"
+      "os": "debootstrap+default"
     },
     "cluster_name": "cluster1.example.com",
     "instances": {
@@ -350,7 +352,7 @@ Input message, new instance allocation::
         "nodes": [
           "nodee1.com"
         ],
-        "os": "etch-image"
+        "os": "debootstrap+default"
       },
       "instance2.example.com": {
         "tags": [],
@@ -379,7 +381,7 @@ Input message, new instance allocation::
           "node2.example.com",
           "node3.example.com"
         ],
-        "os": "etch-image"
+        "os": "debootstrap+default"
       }
     },
     "version": 1,
@@ -481,18 +483,26 @@ Command line messages
 ~~~~~~~~~~~~~~~~~~~~~
 ::
 
-  # gnt-instance add -t plain -m 2g --os-size 1g --swap-size 512m --iallocator dumb-allocator -o etch-image instance3
+  # gnt-instance add -t plain -m 2g --os-size 1g --swap-size 512m --iallocator hail -o debootstrap+default instance3
   Selected nodes for the instance: node1.example.com
   * creating instance disks...
   [...]
 
-  # gnt-instance add -t plain -m 3400m --os-size 1g --swap-size 512m --iallocator dumb-allocator -o etch-image instance4
+  # gnt-instance add -t plain -m 3400m --os-size 1g --swap-size 512m --iallocator hail -o debootstrap+default instance4
   Failure: prerequisites not met for this operation:
-  Can't compute nodes using iallocator 'dumb-allocator': Can't find a suitable node for position 1 (already selected: )
+  Can't compute nodes using iallocator 'hail': Can't find a suitable node for position 1 (already selected: )
 
-  # gnt-instance add -t drbd -m 1400m --os-size 1g --swap-size 512m --iallocator dumb-allocator -o etch-image instance5
+  # gnt-instance add -t drbd -m 1400m --os-size 1g --swap-size 512m --iallocator hail -o debootstrap+default instance5
   Failure: prerequisites not met for this operation:
-  Can't compute nodes using iallocator 'dumb-allocator': Can't find a suitable node for position 2 (already selected: node1.example.com)
+  Can't compute nodes using iallocator 'hail': Can't find a suitable node for position 2 (already selected: node1.example.com)
+
+Reference implementation
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+Ganeti's default iallocator is "hail" which is part of the separate
+ganeti-htools project. In order to see its source code please clone
+``git://git.ganeti.org/htools.git``. Note that htools is implemented
+using the Haskell programming language.
 
 .. vim: set textwidth=72 :
 .. Local Variables:

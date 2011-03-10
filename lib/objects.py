@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -36,6 +36,7 @@ pass to and from external parties.
 import ConfigParser
 import re
 import copy
+import time
 from cStringIO import StringIO
 
 from ganeti import errors
@@ -389,7 +390,7 @@ class ConfigData(ConfigObject):
 
 class NIC(ConfigObject):
   """Config object representing a network card."""
-  __slots__ = ["mac", "ip", "bridge", "nicparams"]
+  __slots__ = ["mac", "ip", "nicparams"]
 
   @classmethod
   def CheckParameterSyntax(cls, nicparams):
@@ -408,21 +409,6 @@ class NIC(ConfigObject):
         not nicparams[constants.NIC_LINK]):
       err = "Missing bridged nic link"
       raise errors.ConfigurationError(err)
-
-  def UpgradeConfig(self):
-    """Fill defaults for missing configuration values.
-
-    """
-    if self.nicparams is None:
-      self.nicparams = {}
-      if self.bridge is not None:
-        self.nicparams[constants.NIC_MODE] = constants.NIC_MODE_BRIDGED
-        self.nicparams[constants.NIC_LINK] = self.bridge
-    # bridge is no longer used it 2.1. The slot is left there to support
-    # upgrading, but can be removed once upgrades to the current version
-    # straight from 2.0 are deprecated.
-    if self.bridge is not None:
-      self.bridge = None
 
 
 class Disk(ConfigObject):
@@ -541,6 +527,28 @@ class Disk(ConfigObject):
             # entry (but probably the other results in the list will
             # be different)
     return result
+
+  def ComputeGrowth(self, amount):
+    """Compute the per-VG growth requirements.
+
+    This only works for VG-based disks.
+
+    @type amount: integer
+    @param amount: the desired increase in (user-visible) disk space
+    @rtype: dict
+    @return: a dictionary of volume-groups and the required size
+
+    """
+    if self.dev_type == constants.LD_LV:
+      return {self.logical_id[0]: amount}
+    elif self.dev_type == constants.LD_DRBD8:
+      if self.children:
+        return self.children[0].ComputeGrowth(amount)
+      else:
+        return {}
+    else:
+      # Other disk types do not require VG space
+      return {}
 
   def RecordGrow(self, amount):
     """Update the size of this disk after growth.
@@ -768,8 +776,10 @@ class Instance(TaggableObject):
     @param lvmap: optional dictionary to receive the
         'node' : ['lv', ...] data.
 
-    @return: None if lvmap arg is given, otherwise, a dictionary
-        of the form { 'nodename' : ['volume1', 'volume2', ...], ... }
+    @return: None if lvmap arg is given, otherwise, a dictionary of
+        the form { 'nodename' : ['volume1', 'volume2', ...], ... };
+        volumeN is of the form "vg_name/lv_name", compatible with
+        GetVolumeList()
 
     """
     if node == None:
@@ -788,7 +798,7 @@ class Instance(TaggableObject):
 
     for dev in devs:
       if dev.dev_type == constants.LD_LV:
-        lvmap[node].append(dev.logical_id[1])
+        lvmap[node].append(dev.logical_id[0]+"/"+dev.logical_id[1])
 
       elif dev.dev_type in constants.LDS_DRBD:
         if dev.children:
@@ -820,7 +830,7 @@ class Instance(TaggableObject):
                                  errors.ECODE_INVAL)
     except IndexError:
       raise errors.OpPrereqError("Invalid disk index: %d (instace has disks"
-                                 " 0 to %d" % (idx, len(self.disks)),
+                                 " 0 to %d" % (idx, len(self.disks) - 1),
                                  errors.ECODE_INVAL)
 
   def ToDict(self):
@@ -942,6 +952,8 @@ class Node(TaggableObject):
     "group",
     "master_capable",
     "vm_capable",
+    "ndparams",
+    "powered",
     ] + _TIMESTAMPS + _UUID
 
   def UpgradeConfig(self):
@@ -956,12 +968,21 @@ class Node(TaggableObject):
     if self.vm_capable is None:
       self.vm_capable = True
 
+    if self.ndparams is None:
+      self.ndparams = {}
+
+    if self.powered is None:
+      self.powered = True
+
 
 class NodeGroup(ConfigObject):
   """Config object representing a node group."""
   __slots__ = [
     "name",
     "members",
+    "ndparams",
+    "serial_no",
+    "alloc_policy",
     ] + _TIMESTAMPS + _UUID
 
   def ToDict(self):
@@ -985,6 +1006,46 @@ class NodeGroup(ConfigObject):
     obj = super(NodeGroup, cls).FromDict(val)
     obj.members = []
     return obj
+
+  def UpgradeConfig(self):
+    """Fill defaults for missing configuration values.
+
+    """
+    if self.ndparams is None:
+      self.ndparams = {}
+
+    if self.serial_no is None:
+      self.serial_no = 1
+
+    if self.alloc_policy is None:
+      self.alloc_policy = constants.ALLOC_POLICY_PREFERRED
+
+    # We only update mtime, and not ctime, since we would not be able to provide
+    # a correct value for creation time.
+    if self.mtime is None:
+      self.mtime = time.time()
+
+  def FillND(self, node):
+    """Return filled out ndparams for L{object.Node}
+
+    @type node: L{objects.Node}
+    @param node: A Node object to fill
+    @return a copy of the node's ndparams with defaults filled
+
+    """
+    return self.SimpleFillND(node.ndparams)
+
+  def SimpleFillND(self, ndparams):
+    """Fill a given ndparams dict with defaults.
+
+    @type ndparams: dict
+    @param ndparams: the dict to fill
+    @rtype: dict
+    @return: a copy of the passed in ndparams with missing keys filled
+        from the node group defaults
+
+    """
+    return FillDict(self.ndparams, ndparams)
 
 
 class Cluster(TaggableObject):
@@ -1011,6 +1072,7 @@ class Cluster(TaggableObject):
     "beparams",
     "osparams",
     "nicparams",
+    "ndparams",
     "candidate_pool_size",
     "modify_etc_hosts",
     "modify_ssh_setup",
@@ -1043,6 +1105,9 @@ class Cluster(TaggableObject):
     if self.osparams is None:
       self.osparams = {}
 
+    if self.ndparams is None:
+      self.ndparams = constants.NDC_DEFAULTS
+
     self.beparams = UpgradeGroupedParams(self.beparams,
                                          constants.BEC_DEFAULTS)
     migrate_default_bridge = not self.nicparams
@@ -1058,7 +1123,7 @@ class Cluster(TaggableObject):
     if self.modify_ssh_setup is None:
       self.modify_ssh_setup = True
 
-    # default_bridge is no longer used it 2.1. The slot is left there to
+    # default_bridge is no longer used in 2.1. The slot is left there to
     # support auto-upgrading. It can be removed once we decide to deprecate
     # upgrading straight from 2.0.
     if self.default_bridge is not None:
@@ -1236,6 +1301,30 @@ class Cluster(TaggableObject):
     # specified params
     return FillDict(result, os_params)
 
+  def FillND(self, node, nodegroup):
+    """Return filled out ndparams for L{objects.NodeGroup} and L{object.Node}
+
+    @type node: L{objects.Node}
+    @param node: A Node object to fill
+    @type nodegroup: L{objects.NodeGroup}
+    @param nodegroup: A Node object to fill
+    @return a copy of the node's ndparams with defaults filled
+
+    """
+    return self.SimpleFillND(nodegroup.FillND(node))
+
+  def SimpleFillND(self, ndparams):
+    """Fill a given ndparams dict with defaults.
+
+    @type ndparams: dict
+    @param ndparams: the dict to fill
+    @rtype: dict
+    @return: a copy of the passed in ndparams with missing keys filled
+        from the cluster defaults
+
+    """
+    return FillDict(self.ndparams, ndparams)
+
 
 class BlockDevStatus(ConfigObject):
   """Config object representing the status of a block device."""
@@ -1272,6 +1361,8 @@ class ImportExportOptions(ConfigObject):
   @ivar ca_pem: Remote peer CA in PEM format (None for cluster certificate)
   @ivar compress: Compression method (one of L{constants.IEC_ALL})
   @ivar magic: Used to ensure the connection goes to the right disk
+  @ivar ipv6: Whether to use IPv6
+  @ivar connect_timeout: Number of seconds for establishing connection
 
   """
   __slots__ = [
@@ -1279,6 +1370,8 @@ class ImportExportOptions(ConfigObject):
     "ca_pem",
     "compress",
     "magic",
+    "ipv6",
+    "connect_timeout",
     ]
 
 
@@ -1314,6 +1407,121 @@ class ConfdReply(ConfigObject):
     "answer",
     "serial",
     ]
+
+
+class QueryFieldDefinition(ConfigObject):
+  """Object holding a query field definition.
+
+  @ivar name: Field name
+  @ivar title: Human-readable title
+  @ivar kind: Field type
+
+  """
+  __slots__ = [
+    "name",
+    "title",
+    "kind",
+    ]
+
+
+class _QueryResponseBase(ConfigObject):
+  __slots__ = [
+    "fields",
+    ]
+
+  def ToDict(self):
+    """Custom function for serializing.
+
+    """
+    mydict = super(_QueryResponseBase, self).ToDict()
+    mydict["fields"] = self._ContainerToDicts(mydict["fields"])
+    return mydict
+
+  @classmethod
+  def FromDict(cls, val):
+    """Custom function for de-serializing.
+
+    """
+    obj = super(_QueryResponseBase, cls).FromDict(val)
+    obj.fields = cls._ContainerFromDicts(obj.fields, list, QueryFieldDefinition)
+    return obj
+
+
+class QueryRequest(ConfigObject):
+  """Object holding a query request.
+
+  """
+  __slots__ = [
+    "what",
+    "fields",
+    "filter",
+    ]
+
+
+class QueryResponse(_QueryResponseBase):
+  """Object holding the response to a query.
+
+  @ivar fields: List of L{QueryFieldDefinition} objects
+  @ivar data: Requested data
+
+  """
+  __slots__ = [
+    "data",
+    ]
+
+
+class QueryFieldsRequest(ConfigObject):
+  """Object holding a request for querying available fields.
+
+  """
+  __slots__ = [
+    "what",
+    "fields",
+    ]
+
+
+class QueryFieldsResponse(_QueryResponseBase):
+  """Object holding the response to a query for fields.
+
+  @ivar fields: List of L{QueryFieldDefinition} objects
+
+  """
+  __slots__ = [
+    ]
+
+
+class InstanceConsole(ConfigObject):
+  """Object describing how to access the console of an instance.
+
+  """
+  __slots__ = [
+    "instance",
+    "kind",
+    "message",
+    "host",
+    "port",
+    "user",
+    "command",
+    "display",
+    ]
+
+  def Validate(self):
+    """Validates contents of this object.
+
+    """
+    assert self.kind in constants.CONS_ALL, "Unknown console type"
+    assert self.instance, "Missing instance name"
+    assert self.message or self.kind in [constants.CONS_SSH, constants.CONS_VNC]
+    assert self.host or self.kind == constants.CONS_MESSAGE
+    assert self.port or self.kind in [constants.CONS_MESSAGE,
+                                      constants.CONS_SSH]
+    assert self.user or self.kind in [constants.CONS_MESSAGE,
+                                      constants.CONS_VNC]
+    assert self.command or self.kind in [constants.CONS_MESSAGE,
+                                         constants.CONS_VNC]
+    assert self.display or self.kind in [constants.CONS_MESSAGE,
+                                         constants.CONS_SSH]
+    return True
 
 
 class SerializableConfigParser(ConfigParser.SafeConfigParser):

@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -26,7 +26,6 @@ import re
 from ganeti import _autoconf
 
 # various versions
-PROTOCOL_VERSION = 40
 RELEASE_VERSION = _autoconf.PACKAGE_VERSION
 OS_API_V10 = 10
 OS_API_V15 = 15
@@ -84,6 +83,9 @@ CONFIG_MINOR = int(_autoconf.VERSION_MINOR)
 CONFIG_REVISION = 0
 CONFIG_VERSION = BuildVersion(CONFIG_MAJOR, CONFIG_MINOR, CONFIG_REVISION)
 
+#: RPC protocol version
+PROTOCOL_VERSION = BuildVersion(CONFIG_MAJOR, CONFIG_MINOR, 0)
+
 # user separation
 DAEMONS_GROUP = _autoconf.DAEMONS_GROUP
 ADMIN_GROUP = _autoconf.ADMIN_GROUP
@@ -135,10 +137,11 @@ WATCHER_STATEFILE = DATA_DIR + "/watcher.data"
 WATCHER_PAUSEFILE = DATA_DIR + "/watcher.pause"
 INSTANCE_UPFILE = RUN_GANETI_DIR + "/instance-status"
 SSH_KNOWN_HOSTS_FILE = DATA_DIR + "/known_hosts"
-RAPI_USERS_FILE = DATA_DIR + "/rapi_users"
+RAPI_USERS_FILE = DATA_DIR + "/rapi/users"
 QUEUE_DIR = DATA_DIR + "/queue"
 DAEMON_UTIL = _autoconf.PKGLIBDIR + "/daemon-util"
 SETUP_SSH = _autoconf.TOOLSDIR + "/setup-ssh"
+KVM_IFUP = _autoconf.PKGLIBDIR + "/kvm-ifup"
 ETC_HOSTS = "/etc/hosts"
 DEFAULT_FILE_STORAGE_DIR = _autoconf.FILE_STORAGE_DIR
 ENABLE_FILE_STORAGE = _autoconf.ENABLE_FILE_STORAGE
@@ -197,7 +200,7 @@ DEV_CONSOLE = "/dev/console"
 
 PROC_MOUNTS = "/proc/mounts"
 
-# luxi related constants
+# Local UniX Interface related constants
 LUXI_EOM = "\3"
 LUXI_VERSION = CONFIG_VERSION
 
@@ -223,6 +226,18 @@ SOCAT_USE_ESCAPE = _autoconf.SOCAT_USE_ESCAPE
 SOCAT_USE_COMPRESS = _autoconf.SOCAT_USE_COMPRESS
 SOCAT_ESCAPE_CODE = "0x1d"
 
+#: Console as SSH command
+CONS_SSH = "ssh"
+
+#: Console as VNC server
+CONS_VNC = "vnc"
+
+#: Display a message for console access
+CONS_MESSAGE = "msg"
+
+#: All console types
+CONS_ALL = frozenset([CONS_SSH, CONS_VNC, CONS_MESSAGE])
+
 # For RSA keys more bits are better, but they also make operations more
 # expensive. NIST SP 800-131 recommends a minimum of 2048 bits from the year
 # 2010 on.
@@ -231,7 +246,7 @@ RSA_KEY_BITS = 2048
 # Ciphers allowed for SSL connections. For the format, see ciphers(1). A better
 # way to disable ciphers would be to use the exclamation mark (!), but socat
 # versions below 1.5 can't parse exclamation marks in options properly. When
-# modifying the ciphers, ensure to not accidentially add something after it's
+# modifying the ciphers, ensure not to accidentially add something after it's
 # been removed. Use the "openssl" utility to check the allowed ciphers, e.g.
 # "openssl ciphers -v HIGH:-DES".
 OPENSSL_CIPHERS = "HIGH:-DES:-3DES:-EXPORT:-ADH"
@@ -294,6 +309,7 @@ HOOKS_VERSION = 2
 # hooks subject type (what object type does the LU deal with)
 HTYPE_CLUSTER = "CLUSTER"
 HTYPE_NODE = "NODE"
+HTYPE_GROUP = "GROUP"
 HTYPE_INSTANCE = "INSTANCE"
 
 HKR_SKIP = 0
@@ -421,8 +437,17 @@ RIE_HANDSHAKE = "Hi, I'm Ganeti"
 # Remote import/export certificate validity in seconds
 RIE_CERT_VALIDITY = 24 * 60 * 60
 
-# Remote import/export connect timeout for socat
-RIE_CONNECT_TIMEOUT = 60
+# Overall timeout for establishing connection
+RIE_CONNECT_TIMEOUT = 180
+
+# Export only: how long to wait per connection attempt (seconds)
+RIE_CONNECT_ATTEMPT_TIMEOUT = 20
+
+# Export only: number of attempts to connect
+RIE_CONNECT_RETRIES = 10
+
+#: Give child process up to 5 seconds to exit after sending a signal
+CHILD_LINGER_TIMEOUT = 5.0
 
 DISK_TEMPLATES = frozenset([DT_DISKLESS, DT_PLAIN,
                             DT_DRBD8, DT_FILE])
@@ -448,6 +473,9 @@ EXIT_NOTCLUSTER = 5
 EXIT_NOTMASTER = 11
 EXIT_NODESETUP_ERROR = 12
 EXIT_CONFIRMATION = 13 # need user confirmation
+
+#: Exit code for query operations with unknown fields
+EXIT_UNKNOWN_FIELD = 14
 
 # tags
 TAG_CLUSTER = "cluster"
@@ -481,7 +509,9 @@ LVM_STRIPECOUNT = _autoconf.LVM_STRIPECOUNT
 DEFAULT_SHUTDOWN_TIMEOUT = 120
 NODE_MAX_CLOCK_SKEW = 150
 # Time for an intra-cluster disk transfer to wait for a connection
-DISK_TRANSFER_CONNECT_TIMEOUT = 30
+DISK_TRANSFER_CONNECT_TIMEOUT = 60
+# Disk index separator
+DISK_SEPARATOR = _autoconf.DISK_SEPARATOR
 
 # runparts results
 (RUNPARTS_SKIP,
@@ -578,6 +608,7 @@ HV_VHOST_NET = "vhost_net"
 HV_KVM_USE_CHROOT = "use_chroot"
 HV_CPU_MASK = "cpu_mask"
 HV_MEM_PATH = "mem_path"
+HV_BLOCKDEV_PREFIX = "blockdev_prefix"
 
 HVS_PARAMETER_TYPES = {
   HV_BOOT_ORDER: VTYPE_STRING,
@@ -615,11 +646,12 @@ HVS_PARAMETER_TYPES = {
   HV_KVM_USE_CHROOT: VTYPE_BOOL,
   HV_CPU_MASK: VTYPE_STRING,
   HV_MEM_PATH: VTYPE_STRING,
+  HV_BLOCKDEV_PREFIX: VTYPE_STRING,
   }
 
 HVS_PARAMETERS = frozenset(HVS_PARAMETER_TYPES.keys())
 
-# BE parameter names
+# Backend parameter names
 BE_MEMORY = "memory"
 BE_VCPUS = "vcpus"
 BE_AUTO_BALANCE = "auto_balance"
@@ -631,6 +663,41 @@ BES_PARAMETER_TYPES = {
     }
 
 BES_PARAMETERS = frozenset(BES_PARAMETER_TYPES.keys())
+
+# Node parameter names
+ND_OOB_PROGRAM = "oob_program"
+
+NDS_PARAMETER_TYPES = {
+    ND_OOB_PROGRAM: VTYPE_MAYBE_STRING,
+    }
+
+NDS_PARAMETERS = frozenset(NDS_PARAMETER_TYPES.keys())
+
+# OOB supported commands
+OOB_POWER_ON = "power-on"
+OOB_POWER_OFF = "power-off"
+OOB_POWER_CYCLE = "power-cycle"
+OOB_POWER_STATUS = "power-status"
+OOB_HEALTH = "health"
+
+OOB_COMMANDS = frozenset([OOB_POWER_ON, OOB_POWER_OFF, OOB_POWER_CYCLE,
+                          OOB_POWER_STATUS, OOB_HEALTH])
+
+OOB_POWER_STATUS_POWERED = "powered"
+
+OOB_TIMEOUT = 60 # 60 seconds
+
+OOB_STATUS_OK = "OK"
+OOB_STATUS_WARNING = "WARNING"
+OOB_STATUS_CRITICAL = "CRITICAL"
+OOB_STATUS_UNKNOWN = "UNKNOWN"
+
+OOB_STATUSES = frozenset([
+  OOB_STATUS_OK,
+  OOB_STATUS_WARNING,
+  OOB_STATUS_CRITICAL,
+  OOB_STATUS_UNKNOWN,
+  ])
 
 # Instance Parameters Profile
 PP_DEFAULT = "default"
@@ -653,10 +720,12 @@ NICS_PARAMETERS = frozenset(NICS_PARAMETER_TYPES.keys())
 IDISK_SIZE = "size"
 IDISK_MODE = "mode"
 IDISK_ADOPT = "adopt"
+IDISK_VG = "vg"
 IDISK_PARAMS_TYPES = {
   IDISK_SIZE: VTYPE_SIZE,
   IDISK_MODE: VTYPE_STRING,
   IDISK_ADOPT: VTYPE_STRING,
+  IDISK_VG: VTYPE_STRING,
   }
 IDISK_PARAMS = frozenset(IDISK_PARAMS_TYPES.keys())
 
@@ -707,7 +776,8 @@ HT_NIC_E1000 = "e1000"
 HT_NIC_PARAVIRTUAL = HT_DISK_PARAVIRTUAL = "paravirtual"
 
 HT_HVM_VALID_NIC_TYPES = frozenset([HT_NIC_RTL8139, HT_NIC_NE2K_PCI,
-                                    HT_NIC_NE2K_ISA, HT_NIC_PARAVIRTUAL])
+                                    HT_NIC_E1000, HT_NIC_NE2K_ISA,
+                                    HT_NIC_PARAVIRTUAL])
 HT_KVM_VALID_NIC_TYPES = frozenset([HT_NIC_RTL8139, HT_NIC_NE2K_PCI,
                                     HT_NIC_NE2K_ISA, HT_NIC_I82551,
                                     HT_NIC_I85557B, HT_NIC_I8259ER,
@@ -776,6 +846,7 @@ NV_DRBDLIST = "drbd-list"
 NV_FILELIST = "filelist"
 NV_HVINFO = "hvinfo"
 NV_HYPERVISOR = "hypervisor"
+NV_HVPARAMS = "hvparms"
 NV_INSTANCELIST = "instancelist"
 NV_LVLIST = "lvlist"
 NV_MASTERIP = "master-ip"
@@ -788,6 +859,7 @@ NV_TIME = "time"
 NV_VERSION = "version"
 NV_VGLIST = "vglist"
 NV_VMNODES = "vmnodes"
+NV_OOB_PATHS = "oob-paths"
 
 # SSL certificate check constants (in days)
 SSL_CERT_EXPIRATION_WARN = 30
@@ -900,6 +972,71 @@ JQT_ALL = frozenset([
   JQT_STARTMSG,
   ])
 
+# Query resources
+QR_INSTANCE = "instance"
+QR_NODE = "node"
+QR_LOCK = "lock"
+QR_GROUP = "group"
+
+#: List of resources which can be queried using L{opcodes.OpQuery}
+QR_OP_QUERY = frozenset([QR_INSTANCE, QR_NODE, QR_GROUP])
+
+#: List of resources which can be queried using Local UniX Interface
+QR_OP_LUXI = QR_OP_QUERY.union([
+  QR_LOCK,
+  ])
+
+# Query field types
+QFT_UNKNOWN = "unknown"
+QFT_TEXT = "text"
+QFT_BOOL = "bool"
+QFT_NUMBER = "number"
+QFT_UNIT = "unit"
+QFT_TIMESTAMP = "timestamp"
+QFT_OTHER = "other"
+
+#: All query field types
+QFT_ALL = frozenset([
+  QFT_UNKNOWN,
+  QFT_TEXT,
+  QFT_BOOL,
+  QFT_NUMBER,
+  QFT_UNIT,
+  QFT_TIMESTAMP,
+  QFT_OTHER,
+  ])
+
+# Query result field status (don't change or reuse values as they're used by
+# clients)
+#: Normal field status
+RS_NORMAL = 0
+#: Unknown field
+RS_UNKNOWN = 1
+#: No data (e.g. RPC error), can be used instead of L{RS_OFFLINE}
+RS_NODATA = 2
+#: Value unavailable/unsupported for item; if this field is supported
+#: but we cannot get the data for the moment, RS_NODATA or
+#: RS_OFFLINE should be used
+RS_UNAVAIL = 3
+#: Resource marked offline
+RS_OFFLINE = 4
+
+RS_ALL = frozenset([
+  RS_NORMAL,
+  RS_UNKNOWN,
+  RS_NODATA,
+  RS_UNAVAIL,
+  RS_OFFLINE,
+  ])
+
+#: Dictionary with special field cases and their verbose/terse formatting
+RSS_DESCRIPTION = {
+  RS_UNKNOWN: ("(unknown)", "??"),
+  RS_NODATA:  ("(nodata)",  "?"),
+  RS_OFFLINE: ("(offline)", "*"),
+  RS_UNAVAIL: ("(unavail)", "-"),
+  }
+
 # max dynamic devices
 MAX_NICS = 8
 MAX_DISKS = 16
@@ -940,6 +1077,7 @@ HVC_DEFAULTS = {
     HV_KERNEL_ARGS: 'ro',
     HV_MIGRATION_PORT: 8002,
     HV_MIGRATION_MODE: HT_MIGRATION_LIVE,
+    HV_BLOCKDEV_PREFIX: "sd",
     },
   HT_XEN_HVM: {
     HV_BOOT_ORDER: "cd",
@@ -955,6 +1093,7 @@ HVC_DEFAULTS = {
     HV_MIGRATION_PORT: 8002,
     HV_MIGRATION_MODE: HT_MIGRATION_NONLIVE,
     HV_USE_LOCALTIME: False,
+    HV_BLOCKDEV_PREFIX: "hd",
     },
   HT_KVM: {
     HV_KERNEL_PATH: "/boot/vmlinuz-2.6-kvmU",
@@ -1006,6 +1145,10 @@ BEC_DEFAULTS = {
   BE_MEMORY: 128,
   BE_VCPUS: 1,
   BE_AUTO_BALANCE: True,
+  }
+
+NDC_DEFAULTS = {
+  ND_OOB_PROGRAM: None,
   }
 
 NICC_DEFAULTS = {
@@ -1112,3 +1255,16 @@ UIDPOOL_UID_MAX = 2**32-1 # Assuming 32 bit user-ids
 
 # Name or path of the pgrep command
 PGREP = "pgrep"
+
+# Name of the node group that gets created at cluster init or upgrade
+INITIAL_NODE_GROUP_NAME = "default"
+
+# Possible values for NodeGroup.alloc_policy
+ALLOC_POLICY_PREFERRED = "preferred"
+ALLOC_POLICY_LAST_RESORT = "last_resort"
+ALLOC_POLICY_UNALLOCABLE = "unallocable"
+VALID_ALLOC_POLICIES = [
+  ALLOC_POLICY_PREFERRED,
+  ALLOC_POLICY_LAST_RESORT,
+  ALLOC_POLICY_UNALLOCABLE,
+  ]

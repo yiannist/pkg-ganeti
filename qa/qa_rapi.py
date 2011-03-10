@@ -1,6 +1,6 @@
 #
 
-# Copyright (C) 2007, 2008, 2009, 2010 Google Inc.
+# Copyright (C) 2007, 2008, 2009, 2010, 2011 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -27,19 +27,18 @@ import tempfile
 from ganeti import utils
 from ganeti import constants
 from ganeti import errors
-from ganeti import serializer
 from ganeti import cli
 from ganeti import rapi
+from ganeti import objects
 
-import ganeti.rapi.client
+import ganeti.rapi.client        # pylint: disable-msg=W0611
 import ganeti.rapi.client_utils
 
 import qa_config
 import qa_utils
 import qa_error
 
-from qa_utils import (AssertEqual, AssertNotEqual, AssertIn, AssertMatch,
-                      StartLocalCommand)
+from qa_utils import (AssertEqual, AssertIn, AssertMatch, StartLocalCommand)
 
 
 _rapi_ca = None
@@ -52,6 +51,8 @@ def Setup(username, password):
   """Configures the RAPI client.
 
   """
+  # pylint: disable-msg=W0603
+  # due to global usage
   global _rapi_ca
   global _rapi_client
   global _rapi_username
@@ -94,6 +95,12 @@ NODE_FIELDS = ("name", "dtotal", "dfree",
                "mtotal", "mnode", "mfree",
                "pinst_cnt", "sinst_cnt", "tags")
 
+GROUP_FIELDS = frozenset([
+  "name", "uuid",
+  "alloc_policy",
+  "node_cnt", "node_list",
+  ])
+
 JOB_FIELDS = frozenset([
   "id", "ops", "status", "summary",
   "opstatus", "opresult", "oplog",
@@ -111,6 +118,8 @@ def Enabled():
 
 
 def _DoTests(uris):
+  # pylint: disable-msg=W0212
+  # due to _SendRequest usage
   results = []
 
   for uri, verify, method, body in uris:
@@ -167,12 +176,26 @@ def TestEmptyCluster():
       for entry in NODE_FIELDS:
         AssertIn(entry, node)
 
+  def _VerifyGroups(data):
+    default_group = {
+      "name": constants.INITIAL_NODE_GROUP_NAME,
+      "uri": "/2/groups/" + constants.INITIAL_NODE_GROUP_NAME,
+      }
+    AssertIn(default_group, data)
+
+  def _VerifyGroupsBulk(data):
+    for group in data:
+      for field in GROUP_FIELDS:
+        AssertIn(field, group)
+
   _DoTests([
     ("/", None, 'GET', None),
     ("/2/info", _VerifyInfo, 'GET', None),
     ("/2/tags", None, 'GET', None),
     ("/2/nodes", _VerifyNodes, 'GET', None),
     ("/2/nodes?bulk=1", _VerifyNodesBulk, 'GET', None),
+    ("/2/groups", _VerifyGroups, 'GET', None),
+    ("/2/groups?bulk=1", _VerifyGroupsBulk, 'GET', None),
     ("/2/instances", [], 'GET', None),
     ("/2/instances?bulk=1", [], 'GET', None),
     ("/2/os", None, 'GET', None),
@@ -224,7 +247,7 @@ def TestInstance(instance):
      _VerifyReturnsJob, 'PUT', None),
     ])
 
-  # Test OpPrepareExport
+  # Test OpBackupPrepare
   (job_id, ) = _DoTests([
     ("/2/instances/%s/prepare-export?mode=%s" %
      (instance["name"], constants.EXPORT_MODE_REMOTE),
@@ -302,8 +325,6 @@ def _WaitForRapiJob(job_id):
   """Waits for a job to finish.
 
   """
-  master = qa_config.GetMasterNode()
-
   def _VerifyJob(data):
     AssertEqual(data["id"], job_id)
     for field in JOB_FIELDS:
@@ -315,6 +336,68 @@ def _WaitForRapiJob(job_id):
 
   return rapi.client_utils.PollJob(_rapi_client, job_id,
                                    cli.StdioJobPollReportCb())
+
+
+def TestRapiNodeGroups():
+  """Test several node group operations using RAPI.
+
+  """
+  groups = qa_config.get("groups", {})
+  group1, group2, group3 = groups.get("inexistent-groups",
+                                      ["group1", "group2", "group3"])[:3]
+
+  # Create a group with no attributes
+  body = {
+    "name": group1,
+    }
+
+  (job_id, ) = _DoTests([
+    ("/2/groups", _VerifyReturnsJob, "POST", body),
+    ])
+
+  _WaitForRapiJob(job_id)
+
+  # Create a group specifying alloc_policy
+  body = {
+    "name": group2,
+    "alloc_policy": constants.ALLOC_POLICY_UNALLOCABLE,
+    }
+
+  (job_id, ) = _DoTests([
+    ("/2/groups", _VerifyReturnsJob, "POST", body),
+    ])
+
+  _WaitForRapiJob(job_id)
+
+  # Modify alloc_policy
+  body = {
+    "alloc_policy": constants.ALLOC_POLICY_UNALLOCABLE,
+    }
+
+  (job_id, ) = _DoTests([
+    ("/2/groups/%s/modify" % group1, _VerifyReturnsJob, "PUT", body),
+    ])
+
+  _WaitForRapiJob(job_id)
+
+  # Rename a group
+  body = {
+    "new_name": group3,
+    }
+
+  (job_id, ) = _DoTests([
+    ("/2/groups/%s/rename" % group2, _VerifyReturnsJob, "PUT", body),
+    ])
+
+  _WaitForRapiJob(job_id)
+
+  # Delete groups
+  for group in [group1, group3]:
+    (job_id, ) = _DoTests([
+      ("/2/groups/%s" % group, _VerifyReturnsJob, "DELETE", None),
+      ])
+
+    _WaitForRapiJob(job_id)
 
 
 def TestRapiInstanceAdd(node, use_client):
@@ -383,13 +466,14 @@ def TestRapiInstanceMigrate(instance):
   _WaitForRapiJob(_rapi_client.MigrateInstance(instance["name"]))
 
 
-def TestRapiInstanceRename(instance, rename_target):
+def TestRapiInstanceRename(rename_source, rename_target):
   """Test renaming instance via RAPI"""
-  rename_source = instance["name"]
+  _WaitForRapiJob(_rapi_client.RenameInstance(rename_source, rename_target))
 
-  for name1, name2 in [(rename_source, rename_target),
-                       (rename_target, rename_source)]:
-    _WaitForRapiJob(_rapi_client.RenameInstance(name1, name2))
+
+def TestRapiInstanceReinstall(instance):
+  """Test reinstalling an instance via RAPI"""
+  _WaitForRapiJob(_rapi_client.ReinstallInstance(instance["name"]))
 
 
 def TestRapiInstanceModify(instance):
@@ -412,6 +496,25 @@ def TestRapiInstanceModify(instance):
   _ModifyInstance(hvparams={
     constants.HV_KERNEL_ARGS: constants.VALUE_DEFAULT,
     })
+
+
+def TestRapiInstanceConsole(instance):
+  """Test getting instance console information via RAPI"""
+  result = _rapi_client.GetInstanceConsole(instance["name"])
+  console = objects.InstanceConsole.FromDict(result)
+  AssertEqual(console.Validate(), True)
+  AssertEqual(console.instance, qa_utils.ResolveInstanceName(instance["name"]))
+
+
+def TestRapiStoppedInstanceConsole(instance):
+  """Test getting stopped instance's console information via RAPI"""
+  try:
+    _rapi_client.GetInstanceConsole(instance["name"])
+  except rapi.client.GanetiApiError, err:
+    AssertEqual(err.code, 503)
+  else:
+    raise qa_error.Error("Getting console for stopped instance didn't"
+                         " return HTTP 503")
 
 
 def TestInterClusterInstanceMove(src_instance, dest_instance,

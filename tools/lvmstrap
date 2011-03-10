@@ -1,7 +1,7 @@
 #!/usr/bin/python
 #
 
-# Copyright (C) 2006, 2007 Google Inc.
+# Copyright (C) 2006, 2007, 2011 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -44,17 +44,47 @@ import os
 import sys
 import optparse
 import time
+import errno
+import re
 
 from ganeti.utils import RunCmd, ReadFile
 from ganeti import constants
 from ganeti import cli
+from ganeti import compat
 
 USAGE = ("\tlvmstrap diskinfo\n"
-         "\tlvmstrap [--vgname=NAME] [--allow-removable]"
+         "\tlvmstrap [--vg-name=NAME] [--allow-removable]"
          " { --alldisks | --disks DISKLIST }"
          " create")
 
 verbose_flag = False
+
+#: Supported disk types (as prefixes)
+SUPPORTED_TYPES = [
+  "hd",
+  "sd",
+  "md",
+  "ubd",
+  ]
+
+#: Excluded filesystem types
+EXCLUDED_FS = frozenset([
+  "nfs",
+  "nfs4",
+  "autofs",
+  "tmpfs",
+  "proc",
+  "sysfs",
+  "usbfs",
+  "devpts",
+  ])
+
+#: A regular expression that matches partitions (must be kept in sync
+# with L{SUPPORTED_TYPES}
+PART_RE = re.compile("^((?:h|s|m|ub)d[a-z]{1,2})[0-9]+$")
+
+#: Minimum partition size to be considered (1 GB)
+PART_MINSIZE = 1024 * 1024 * 1024
 
 
 class Error(Exception):
@@ -167,6 +197,40 @@ def ParseOptions():
   verbose_flag = options.verbose
 
   return options, args
+
+
+def IsPartitioned(disk):
+  """Returns whether a given disk should be used partitioned or as-is.
+
+  Currently only md devices are used as is.
+
+  """
+  return not (disk.startswith('md') or PART_RE.match(disk))
+
+
+def DeviceName(disk):
+  """Returns the appropriate device name for a disk.
+
+  For non-partitioned devices, it returns the name as is, otherwise it
+  returns the first partition.
+
+  """
+  if IsPartitioned(disk):
+    device = '/dev/%s1' % disk
+  else:
+    device = '/dev/%s' % disk
+  return device
+
+
+def SysfsName(disk):
+  """Returns the sysfs name for a disk or partition.
+
+  """
+  match = PART_RE.match(disk)
+  if match:
+    # this is a partition, which resides in /sys/block under a different name
+    disk = "%s/%s"  % (match.group(1), disk)
+  return "/sys/block/%s" % disk
 
 
 def ExecCommand(command):
@@ -379,12 +443,11 @@ def GetDiskList(opts):
   """
   dlist = []
   for name in os.listdir("/sys/block"):
-    if (not name.startswith("hd") and
-        not name.startswith("sd") and
-        not name.startswith("ubd")):
+    if not compat.any([name.startswith(pfx) for pfx in SUPPORTED_TYPES]):
       continue
 
-    size = ReadSize("/sys/block/%s" % name)
+    disksysfsname = "/sys/block/%s" % name
+    size = ReadSize(disksysfsname)
 
     f = open("/sys/block/%s/removable" % name)
     removable = int(f.read().strip())
@@ -393,18 +456,21 @@ def GetDiskList(opts):
     if removable and not opts.removable_ok:
       continue
 
-    dev = ReadDev("/sys/block/%s" % name)
+    dev = ReadDev(disksysfsname)
     CheckSysDev(name, dev)
-    inuse = not CheckReread(name)
+    inuse = InUse(name)
     # Enumerate partitions of the block device
     partitions = []
-    for partname in os.listdir("/sys/block/%s" % name):
+    for partname in os.listdir(disksysfsname):
       if not partname.startswith(name):
         continue
-      partdev = ReadDev("/sys/block/%s/%s" % (name, partname))
-      partsize = ReadSize("/sys/block/%s/%s" % (name, partname))
-      CheckSysDev(partname, partdev)
-      partitions.append((partname, partsize, partdev))
+      partsysfsname = "%s/%s" % (disksysfsname, partname)
+      partdev = ReadDev(partsysfsname)
+      partsize = ReadSize(partsysfsname)
+      if partsize >= PART_MINSIZE:
+        CheckSysDev(partname, partdev)
+        partinuse = InUse(partname)
+        partitions.append((partname, partsize, partdev, partinuse))
     partitions.sort()
     dlist.append((name, size, dev, partitions, inuse))
   dlist.sort()
@@ -429,7 +495,7 @@ def GetMountInfo():
   for line in mountlines:
     _, mountpoint, fstype, _ = line.split(None, 3)
     # fs type blacklist
-    if fstype in ["nfs", "nfs4", "autofs", "tmpfs", "proc", "sysfs"]:
+    if fstype in EXCLUDED_FS:
       continue
     try:
       dev = os.stat(mountpoint).st_dev
@@ -444,6 +510,14 @@ def GetMountInfo():
       continue
     mounts[dev] = mountpoint
   return mounts
+
+
+def GetSwapInfo():
+  """Reads /proc/swaps and returns the list of swap backing stores.
+
+  """
+  swaplines = ReadFile("/proc/swaps").splitlines()[1:]
+  return [line.split(None, 1)[0] for line in swaplines]
 
 
 def DevInfo(name, dev, mountinfo):
@@ -480,6 +554,12 @@ def ShowDiskInfo(opts):
   choice about which disks should be allocated to our volume group.
 
   """
+  def _inuse(inuse):
+    if inuse:
+      return "yes"
+    else:
+      return "no"
+
   mounts = GetMountInfo()
   dlist = GetDiskList(opts)
 
@@ -497,13 +577,9 @@ def ShowDiskInfo(opts):
   flatlist = []
   # Flatten the [(disk, [partition,...]), ...] list
   for name, size, dev, parts, inuse in dlist:
-    if inuse:
-      str_inuse = "yes"
-    else:
-      str_inuse = "no"
-    flatlist.append((name, size, dev, str_inuse))
-    for partname, partsize, partdev in parts:
-      flatlist.append((partname, partsize, partdev, ""))
+    flatlist.append((name, size, dev, _inuse(inuse)))
+    for partname, partsize, partdev, partinuse in parts:
+      flatlist.append((partname, partsize, partdev, _inuse(partinuse)))
 
   strlist = []
   for name, size, dev, in_use in flatlist:
@@ -531,24 +607,83 @@ def ShowDiskInfo(opts):
     print line
 
 
+def CheckSysfsHolders(name):
+  """Check to see if a device is 'hold' at sysfs level.
+
+  This is usually the case for Physical Volumes under LVM.
+
+  @rtype: boolean
+  @return: true if the device is available according to sysfs
+
+  """
+  try:
+    contents = os.listdir("%s/holders/" % SysfsName(name))
+  except OSError, err:
+    if err.errno == errno.ENOENT:
+      contents = []
+    else:
+      raise
+  return not bool(contents)
+
+
 def CheckReread(name):
   """Check to see if a block device is in use.
 
-  Uses blockdev to reread the partition table of a block device, and
-  thus compute the in-use status. See the discussion in GetDiskList
-  about the meaning of 'in use'.
+  Uses blockdev to reread the partition table of a block device (or
+  fuser if the device is not partitionable), and thus compute the
+  in-use status.  See the discussion in GetDiskList about the meaning
+  of 'in use'.
 
   @rtype: boolean
   @return: the in-use status of the device
 
   """
+  use_blockdev = IsPartitioned(name)
+  if use_blockdev:
+    cmd = "blockdev --rereadpt /dev/%s" % name
+  else:
+    cmd = "fuser -vam /dev/%s" % name
+
   for _ in range(3):
-    result = ExecCommand("blockdev --rereadpt /dev/%s" % name)
-    if not result.failed:
+    result = ExecCommand(cmd)
+    if not use_blockdev and result.failed:
+      break
+    elif use_blockdev and not result.failed:
       break
     time.sleep(2)
 
-  return not result.failed
+  if use_blockdev:
+    return not result.failed
+  else:
+    return result.failed
+
+
+def CheckMounted(name):
+  """Check to see if a block device is a mountpoint.
+
+  In recent distros/kernels, this is reported directly via fuser, but
+  on older ones not, so we do an additional check here (manually).
+
+  """
+  minfo = GetMountInfo()
+  dev = ReadDev(SysfsName(name))
+  return dev not in minfo
+
+
+def CheckSwap(name):
+  """Check to see if a block device is being used as swap.
+
+  """
+  name = "/dev/%s" % name
+  return name not in GetSwapInfo()
+
+
+def InUse(name):
+  """Returns if a disk is in use or not.
+
+  """
+  return not (CheckSysfsHolders(name) and CheckReread(name) and
+              CheckMounted(name) and CheckSwap(name))
 
 
 def WipeDisk(name):
@@ -562,7 +697,7 @@ def WipeDisk(name):
 
   """
 
-  if not CheckReread(name):
+  if InUse(name):
     raise OperationalError("CRITICAL: disk %s you selected seems to be in"
                            " use. ABORTING!" % name)
 
@@ -582,7 +717,8 @@ def WipeDisk(name):
                            " %d. I don't know how to cleanup. Sorry." %
                            (name, bytes_written))
 
-  if not CheckReread(name):
+  if InUse(name):
+    # try to restore the data
     fd = os.open("/dev/%s" % name, os.O_RDWR | os.O_SYNC)
     os.write(fd, olddata)
     os.close(fd)
@@ -623,12 +759,13 @@ def CreatePVOnDisk(name):
   @param name: the device name, e.g. sda
 
   """
-  result = ExecCommand("pvcreate -yff /dev/%s1 " % name)
+  device = DeviceName(name)
+  result = ExecCommand("pvcreate -yff %s" % device)
   if result.failed:
     raise OperationalError("I cannot create a physical volume on"
-                           " partition /dev/%s1. Error message: %s."
+                           " %s. Error message: %s."
                            " Please clean up yourself." %
-                           (name, result.output))
+                           (device, result.output))
 
 
 def CreateVG(vgname, disks):
@@ -640,7 +777,7 @@ def CreateVG(vgname, disks):
   @param disks: a list of disk names, e.g. ['sda','sdb']
 
   """
-  pnames = ["'/dev/%s1'" % disk for disk in disks]
+  pnames = [DeviceName(d) for d in disks]
   result = ExecCommand("vgcreate -s 64MB '%s' %s" % (vgname, " ".join(pnames)))
   if result.failed:
     raise OperationalError("I cannot create the volume group %s from"
@@ -668,9 +805,14 @@ def ValidateDiskList(options):
                       " non-removable block devices).")
   sysd_free = []
   sysd_used = []
-  for name, _, _, _, used in sysdisks:
+  for name, _, _, parts, used in sysdisks:
     if used:
       sysd_used.append(name)
+      for partname, _, _, partused in parts:
+        if partused:
+          sysd_used.append(partname)
+        else:
+          sysd_free.append(partname)
     else:
       sysd_free.append(name)
 
@@ -718,7 +860,8 @@ def BootStrap():
 
   for disk in disklist:
     WipeDisk(disk)
-    PartitionDisk(disk)
+    if IsPartitioned(disk):
+      PartitionDisk(disk)
   for disk in disklist:
     CreatePVOnDisk(disk)
   CreateVG(vgname, disklist)
@@ -768,8 +911,8 @@ def main():
     print >> sys.stderr, str(err)
     sys.exit(1)
   except ProgrammingError, err:
-    print >> sys.stderr, ("Internal application error. Please signal this"
-                          " to xencluster-team.")
+    print >> sys.stderr, ("Internal application error. Please report this"
+                          " to the Ganeti developer list.")
     print >> sys.stderr, "Error description: %s" % str(err)
     sys.exit(1)
   except Error, err:

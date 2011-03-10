@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2010 Google Inc.
+# Copyright (C) 2006, 2007, 2010, 2011 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -184,6 +184,15 @@ class NodeHttpServer(http.server.HttpServer):
     return backend.BlockdevCreate(bdev, size, owner, on_primary, info)
 
   @staticmethod
+  def perspective_blockdev_pause_resume_sync(params):
+    """Pause/resume sync of a block device.
+
+    """
+    disks_s, pause = params
+    disks = [objects.Disk.FromDict(bdev_s) for bdev_s in disks_s]
+    return backend.BlockdevPauseResumeSync(disks, pause)
+
+  @staticmethod
   def perspective_blockdev_wipe(params):
     """Wipe a block device.
 
@@ -214,11 +223,11 @@ class NodeHttpServer(http.server.HttpServer):
     """Assemble a block device.
 
     """
-    bdev_s, owner, on_primary = params
+    bdev_s, owner, on_primary, idx = params
     bdev = objects.Disk.FromDict(bdev_s)
     if bdev is None:
       raise ValueError("can't unserialize data!")
-    return backend.BlockdevAssemble(bdev, owner, on_primary)
+    return backend.BlockdevAssemble(bdev, owner, on_primary, idx)
 
   @staticmethod
   def perspective_blockdev_shutdown(params):
@@ -725,6 +734,18 @@ class NodeHttpServer(http.server.HttpServer):
 
     """
     return backend.GetMasterInfo()
+
+  @staticmethod
+  def perspective_run_oob(params):
+    """Runs oob on node.
+
+    """
+    output = backend.RunOob(params[0], params[1], params[2], params[3])
+    if output:
+      result = serializer.LoadJson(output)
+    else:
+      result = None
+    return result
 
   @staticmethod
   def perspective_write_ssconf_files(params):

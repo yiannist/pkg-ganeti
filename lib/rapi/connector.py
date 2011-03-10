@@ -38,6 +38,7 @@ from ganeti.rapi import rlib2
 
 
 _NAME_PATTERN = r"[\w\._-]+"
+_DISK_PATTERN = r"\d+"
 
 # the connection map is created at the end of this file
 CONNECTOR = {}
@@ -92,18 +93,18 @@ class R_root(baserlib.R_Generic):
   """/ resource.
 
   """
-  @staticmethod
-  def GET():
+  _ROOT_PATTERN = re.compile("^R_([a-zA-Z0-9]+)$")
+
+  @classmethod
+  def GET(cls):
     """Show the list of mapped resources.
 
     @return: a dictionary with 'name' and 'uri' keys for each of them.
 
     """
-    root_pattern = re.compile('^R_([a-zA-Z0-9]+)$')
-
     rootlist = []
     for handler in CONNECTOR.values():
-      m = root_pattern.match(handler.__name__)
+      m = cls._ROOT_PATTERN.match(handler.__name__)
       if m:
         name = m.group(1)
         if name != 'root':
@@ -133,7 +134,9 @@ def _getResources(id_):
 
 
 class R_2(baserlib.R_Generic):
-  """ /2 resource, the root of the version 2 API.
+  """/2 resource.
+
+  This is the root of the version 2 API.
 
   """
   @staticmethod
@@ -146,7 +149,8 @@ class R_2(baserlib.R_Generic):
     return baserlib.BuildUriList(_getResources("2"), "/2/%s")
 
 
-def GetHandlers(node_name_pattern, instance_name_pattern, job_id_pattern):
+def GetHandlers(node_name_pattern, instance_name_pattern,
+                group_name_pattern, job_id_pattern, disk_pattern):
   """Returns all supported resources and their handlers.
 
   """
@@ -210,6 +214,21 @@ def GetHandlers(node_name_pattern, instance_name_pattern, job_id_pattern):
       rlib2.R_2_instances_name_rename,
     re.compile(r'^/2/instances/(%s)/modify$' % instance_name_pattern):
       rlib2.R_2_instances_name_modify,
+    re.compile(r"^/2/instances/(%s)/disk/(%s)/grow$" %
+               (instance_name_pattern, disk_pattern)):
+      rlib2.R_2_instances_name_disk_grow,
+    re.compile(r'^/2/instances/(%s)/console$' % instance_name_pattern):
+      rlib2.R_2_instances_name_console,
+
+    "/2/groups": rlib2.R_2_groups,
+    re.compile(r'^/2/groups/(%s)$' % group_name_pattern):
+      rlib2.R_2_groups_name,
+    re.compile(r'^/2/groups/(%s)/modify$' % group_name_pattern):
+      rlib2.R_2_groups_name_modify,
+    re.compile(r'^/2/groups/(%s)/rename$' % group_name_pattern):
+      rlib2.R_2_groups_name_rename,
+    re.compile(r'^/2/groups/(%s)/assign-nodes$' % group_name_pattern):
+      rlib2.R_2_groups_name_assign_nodes,
 
     "/2/jobs": rlib2.R_2_jobs,
     re.compile(r"^/2/jobs/(%s)$" % job_id_pattern):
@@ -222,8 +241,9 @@ def GetHandlers(node_name_pattern, instance_name_pattern, job_id_pattern):
     "/2/os": rlib2.R_2_os,
     "/2/redistribute-config": rlib2.R_2_redist_config,
     "/2/features": rlib2.R_2_features,
+    "/2/modify": rlib2.R_2_cluster_modify,
     }
 
 
-CONNECTOR.update(GetHandlers(_NAME_PATTERN, _NAME_PATTERN,
-                             constants.JOB_ID_TEMPLATE))
+CONNECTOR.update(GetHandlers(_NAME_PATTERN, _NAME_PATTERN, _NAME_PATTERN,
+                             constants.JOB_ID_TEMPLATE, _DISK_PATTERN))

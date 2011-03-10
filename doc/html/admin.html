@@ -5,13 +5,13 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Ganeti administrator’s guide &mdash; Ganeti v2.3.1 documentation</title>
+    <title>Ganeti administrator’s guide &mdash; Ganeti v2.4.0 documentation</title>
     <link rel="stylesheet" href="_static/default.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.3.1',
+        VERSION:     '2.4.0',
         COLLAPSE_MODINDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -19,9 +19,9 @@
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.3.1 documentation" href="index.html" />
+    <link rel="top" title="Ganeti v2.4.0 documentation" href="index.html" />
     <link rel="next" title="Ganeti walk-through" href="walkthrough.html" />
-    <link rel="prev" title="Ganeti installation tutorial" href="install.html" /> 
+    <link rel="prev" title="Upgrade notes" href="upgrade.html" /> 
   </head>
   <body>
     <div class="related">
@@ -31,9 +31,9 @@
           <a href="walkthrough.html" title="Ganeti walk-through"
              accesskey="N">next</a></li>
         <li class="right" >
-          <a href="install.html" title="Ganeti installation tutorial"
+          <a href="upgrade.html" title="Upgrade notes"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.3.1 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.4.0 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -44,7 +44,7 @@
             
   <div class="section" id="ganeti-administrator-s-guide">
 <h1><a class="toc-backref" href="#id2">Ganeti administrator&#8217;s guide</a><a class="headerlink" href="#ganeti-administrator-s-guide" title="Permalink to this headline">¶</a></h1>
-<p>Documents Ganeti version 2.3</p>
+<p>Documents Ganeti version 2.4</p>
 <div class="contents topic" id="contents">
 <p class="topic-title first">Contents</p>
 <ul class="simple">
@@ -145,18 +145,23 @@
 </ul>
 </li>
 <li><a class="reference internal" href="#job-operations" id="id66">Job operations</a></li>
-<li><a class="reference internal" href="#ganeti-tools" id="id67">Ganeti tools</a><ul>
-<li><a class="reference internal" href="#lvmstrap" id="id68">lvmstrap</a></li>
-<li><a class="reference internal" href="#cfgupgrade" id="id69">cfgupgrade</a></li>
-<li><a class="reference internal" href="#cfgshell" id="id70">cfgshell</a></li>
-<li><a class="reference internal" href="#burnin" id="id71">burnin</a></li>
-<li><a class="reference internal" href="#sanitize-config" id="id72">sanitize-config</a></li>
-<li><a class="reference internal" href="#move-instance" id="id73">move-instance</a></li>
+<li><a class="reference internal" href="#special-ganeti-deployments" id="id67">Special Ganeti deployments</a><ul>
+<li><a class="reference internal" href="#running-ganeti-under-ganeti" id="id68">Running Ganeti under Ganeti</a></li>
+<li><a class="reference internal" href="#multi-site-model" id="id69">Multi-site model</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#other-ganeti-projects" id="id74">Other Ganeti projects</a><ul>
-<li><a class="reference internal" href="#nbma-tools" id="id75">NBMA tools</a></li>
-<li><a class="reference internal" href="#ganeti-htools" id="id76">ganeti-htools</a></li>
+<li><a class="reference internal" href="#ganeti-tools" id="id70">Ganeti tools</a><ul>
+<li><a class="reference internal" href="#lvmstrap" id="id71">lvmstrap</a></li>
+<li><a class="reference internal" href="#cfgupgrade" id="id72">cfgupgrade</a></li>
+<li><a class="reference internal" href="#cfgshell" id="id73">cfgshell</a></li>
+<li><a class="reference internal" href="#burnin" id="id74">burnin</a></li>
+<li><a class="reference internal" href="#sanitize-config" id="id75">sanitize-config</a></li>
+<li><a class="reference internal" href="#move-instance" id="id76">move-instance</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#other-ganeti-projects" id="id77">Other Ganeti projects</a><ul>
+<li><a class="reference internal" href="#nbma-tools" id="id78">NBMA tools</a></li>
+<li><a class="reference internal" href="#ganeti-htools" id="id79">ganeti-htools</a></li>
 </ul>
 </li>
 </ul>
@@ -316,7 +321,13 @@ basic cluster operation (e.g. starting an instance) is represented
 internall by Ganeti as an <em>OpCode</em> (abbreviation from operation
 code). These OpCodes are executed as part of a <em>Job</em>. The OpCodes in a
 single Job are processed serially by Ganeti, but different Jobs will be
-processed (depending on resource availability) in parallel.</p>
+processed (depending on resource availability) in parallel. They will
+not be executed in the submission order, but depending on resource
+availability, locks and (starting with Ganeti 2.3) priority. An earlier
+job may have to wait for a lock while a newer job doesn&#8217;t need any locks
+and can be executed right away. Operations requiring a certain order
+need to be submitted as a single job, or the client must submit one job
+at a time and wait for it to finish before continuing.</p>
 <p>For example, shutting down the entire cluster can be done by running the
 command <tt class="docutils literal"><span class="pre">gnt-instance</span> <span class="pre">shutdown</span> <span class="pre">--all</span></tt>, which will submit for each
 instance a separate job containing the “shutdown instance” OpCode.</p>
@@ -472,7 +483,7 @@ adoption mode.</p>
 then create a Ganeti instance in the usual way, except that instead of
 passing the disk information you specify the current volumes:</p>
 <div class="highlight-text"><div class="highlight"><pre>gnt-instance add -t plain -n HOME_NODE ... \
-  --disk 0:adopt=lv_name INSTANCE_NAME
+  --disk 0:adopt=lv_name[,vg=vg_name] INSTANCE_NAME
 </pre></div>
 </div>
 <p>This will take over the given logical volumes, rename them to the Ganeti
@@ -1229,7 +1240,7 @@ objects that support it (instances, nodes, and the cluster).</p>
 <p>Note that the set of characters present in a tag and the maximum tag
 length are restricted. Currently the maximum length is 128 characters,
 there can be at most 4096 tags per object, and the set of characters is
-comprised by alphanumeric characters and additionally <tt class="docutils literal"><span class="pre">.+*/:-</span></tt>.</p>
+comprised by alphanumeric characters and additionally <tt class="docutils literal"><span class="pre">.+*/:&#64;-</span></tt>.</p>
 </div>
 <div class="section" id="operations">
 <h3><a class="toc-backref" href="#id64">Operations</a><a class="headerlink" href="#operations" title="Permalink to this headline">¶</a></h3>
@@ -1354,14 +1365,82 @@ you need to see an older job, either move the file manually in the
 top-level queue directory, or look at its contents (it&#8217;s a
 JSON-formatted file).</p>
 </div>
+<div class="section" id="special-ganeti-deployments">
+<h2><a class="toc-backref" href="#id67">Special Ganeti deployments</a><a class="headerlink" href="#special-ganeti-deployments" title="Permalink to this headline">¶</a></h2>
+<p>Since Ganeti 2.4, it is possible to extend the Ganeti deployment with
+two custom scenarios: Ganeti inside Ganeti and multi-site model.</p>
+<div class="section" id="running-ganeti-under-ganeti">
+<h3><a class="toc-backref" href="#id68">Running Ganeti under Ganeti</a><a class="headerlink" href="#running-ganeti-under-ganeti" title="Permalink to this headline">¶</a></h3>
+<p>It is sometimes useful to be able to use a Ganeti instance as a Ganeti
+node (part of another cluster, usually). One example scenario is two
+small clusters, where we want to have an additional master candidate
+that holds the cluster configuration and can be used for helping with
+the master voting process.</p>
+<p>However, these Ganeti instance should not host instances themselves, and
+should not be considered in the normal capacity planning, evacuation
+strategies, etc. In order to accomplish this, mark these nodes as
+non-<tt class="docutils literal"><span class="pre">vm_capable</span></tt>:</p>
+<div class="highlight-text"><div class="highlight"><pre>node1# gnt-node modify --vm-capable=no node3
+</pre></div>
+</div>
+<p>The vm_capable status can be listed as usual via <tt class="docutils literal"><span class="pre">gnt-node</span> <span class="pre">list</span></tt>:</p>
+<div class="highlight-text"><div class="highlight"><pre>node1# gnt-node list -oname,vm_capable
+Node  VMCapable
+node1 Y
+node2 Y
+node3 N
+</pre></div>
+</div>
+<p>When this flag is set, the cluster will not do any operations that
+relate to instances on such nodes, e.g. hypervisor operations,
+disk-related operations, etc. Basically they will just keep the ssconf
+files, and if master candidates the full configuration.</p>
+</div>
+<div class="section" id="multi-site-model">
+<h3><a class="toc-backref" href="#id69">Multi-site model</a><a class="headerlink" href="#multi-site-model" title="Permalink to this headline">¶</a></h3>
+<p>If Ganeti is deployed in multi-site model, with each site being a node
+group (so that instances are not relocated across the WAN by mistake),
+it is conceivable that either the WAN latency is high or that some sites
+have a lower reliability than others. In this case, it doesn&#8217;t make
+sense to replicate the job information across all sites (or even outside
+of a “central” node group), so it should be possible to restrict which
+nodes can become master candidates via the auto-promotion algorithm.</p>
+<p>Ganeti 2.4 introduces for this purpose a new <tt class="docutils literal"><span class="pre">master_capable</span></tt> flag,
+which (when unset) prevents nodes from being marked as master
+candidates, either manually or automatically.</p>
+<p>As usual, the node modify operation can change this flag:</p>
+<div class="highlight-text"><div class="highlight"><pre>node1# gnt-node modify --auto-promote --master-capable=no node3
+Fri Jan  7 06:23:07 2011  - INFO: Demoting from master candidate
+Fri Jan  7 06:23:08 2011  - INFO: Promoted nodes to master candidate role: node4
+Modified node node3
+ - master_capable -&gt; False
+ - master_candidate -&gt; False
+</pre></div>
+</div>
+<p>And the node list operation will list this flag:</p>
+<div class="highlight-text"><div class="highlight"><pre>node1# gnt-node list -oname,master_capable node1 node2 node3
+Node  MasterCapable
+node1 Y
+node2 Y
+node3 N
+</pre></div>
+</div>
+<p>Note that marking a node both not <tt class="docutils literal"><span class="pre">vm_capable</span></tt> and not
+<tt class="docutils literal"><span class="pre">master_capable</span></tt> makes the node practically unusable from Ganeti&#8217;s
+point of view. Hence these two flags should be used probably in
+contrast: some nodes will be only master candidates (master_capable but
+not vm_capable), and other nodes will only hold instances (vm_capable
+but not master_capable).</p>
+</div>
+</div>
 <div class="section" id="ganeti-tools">
-<h2><a class="toc-backref" href="#id67">Ganeti tools</a><a class="headerlink" href="#ganeti-tools" title="Permalink to this headline">¶</a></h2>
+<h2><a class="toc-backref" href="#id70">Ganeti tools</a><a class="headerlink" href="#ganeti-tools" title="Permalink to this headline">¶</a></h2>
 <p>Beside the usual <tt class="docutils literal"><span class="pre">gnt-</span></tt> and <tt class="docutils literal"><span class="pre">ganeti-</span></tt> commands which are provided
 and installed in <tt class="docutils literal"><span class="pre">$prefix/sbin</span></tt> at install time, there are a couple of
 other tools installed which are used seldom but can be helpful in some
 cases.</p>
 <div class="section" id="lvmstrap">
-<h3><a class="toc-backref" href="#id68">lvmstrap</a><a class="headerlink" href="#lvmstrap" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id71">lvmstrap</a><a class="headerlink" href="#lvmstrap" title="Permalink to this headline">¶</a></h3>
 <p>The <tt class="docutils literal"><span class="pre">lvmstrap</span></tt> tool, introduced in <a class="reference external" href="install.html#configure-lvm-label"><em>Configuring LVM</em></a> section,
 has two modes of operation:</p>
 <ul class="simple">
@@ -1375,7 +1454,7 @@ of them</li>
 </div>
 </div>
 <div class="section" id="cfgupgrade">
-<h3><a class="toc-backref" href="#id69">cfgupgrade</a><a class="headerlink" href="#cfgupgrade" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id72">cfgupgrade</a><a class="headerlink" href="#cfgupgrade" title="Permalink to this headline">¶</a></h3>
 <p>The <tt class="docutils literal"><span class="pre">cfgupgrade</span></tt> tools is used to upgrade between major (and minor)
 Ganeti versions. Point-releases are usually transparent for the admin.</p>
 <p>More information about the upgrade procedure is listed on the wiki at
@@ -1384,7 +1463,7 @@ Ganeti versions. Point-releases are usually transparent for the admin.</p>
 called <tt class="docutils literal"><span class="pre">cfgupgrade12</span></tt>.</p>
 </div>
 <div class="section" id="cfgshell">
-<h3><a class="toc-backref" href="#id70">cfgshell</a><a class="headerlink" href="#cfgshell" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id73">cfgshell</a><a class="headerlink" href="#cfgshell" title="Permalink to this headline">¶</a></h3>
 <div class="admonition note">
 <p class="first admonition-title">Note</p>
 <p class="last">This command is not actively maintained; make sure you backup
@@ -1396,7 +1475,7 @@ example, from removing an instance or a node from the configuration
 file.</p>
 </div>
 <div class="section" id="burnin">
-<span id="burnin-label"></span><h3><a class="toc-backref" href="#id71">burnin</a><a class="headerlink" href="#burnin" title="Permalink to this headline">¶</a></h3>
+<span id="burnin-label"></span><h3><a class="toc-backref" href="#id74">burnin</a><a class="headerlink" href="#burnin" title="Permalink to this headline">¶</a></h3>
 <div class="admonition warning">
 <p class="first admonition-title">Warning</p>
 <p class="last">This command will erase existing instances if given as
@@ -1429,7 +1508,7 @@ instance OS definitions are executing properly the rename, import and
 export operations.</p>
 </div>
 <div class="section" id="sanitize-config">
-<h3><a class="toc-backref" href="#id72">sanitize-config</a><a class="headerlink" href="#sanitize-config" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id75">sanitize-config</a><a class="headerlink" href="#sanitize-config" title="Permalink to this headline">¶</a></h3>
 <p>This tool takes the Ganeti configuration and outputs a &#8220;sanitized&#8221;
 version, by randomizing or clearing:</p>
 <ul class="simple">
@@ -1449,18 +1528,18 @@ recreated from it and if the instance disks have not been lost it
 permits recovery from the loss of all master candidates.</p>
 </div>
 <div class="section" id="move-instance">
-<h3><a class="toc-backref" href="#id73">move-instance</a><a class="headerlink" href="#move-instance" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id76">move-instance</a><a class="headerlink" href="#move-instance" title="Permalink to this headline">¶</a></h3>
 <p>See <a class="reference external" href="move-instance.html"><em>separate documentation for move-instance</em></a>.</p>
 </div>
 </div>
 <div class="section" id="other-ganeti-projects">
-<h2><a class="toc-backref" href="#id74">Other Ganeti projects</a><a class="headerlink" href="#other-ganeti-projects" title="Permalink to this headline">¶</a></h2>
+<h2><a class="toc-backref" href="#id77">Other Ganeti projects</a><a class="headerlink" href="#other-ganeti-projects" title="Permalink to this headline">¶</a></h2>
 <p>There are two other Ganeti-related projects that can be useful in a
 Ganeti deployment. These can be downloaded from the project site
 (<a class="reference external" href="http://code.google.com/p/ganeti/">http://code.google.com/p/ganeti/</a>) and the repositories are also on the
 project git site (<a class="reference external" href="http://git.ganeti.org">http://git.ganeti.org</a>).</p>
 <div class="section" id="nbma-tools">
-<h3><a class="toc-backref" href="#id75">NBMA tools</a><a class="headerlink" href="#nbma-tools" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id78">NBMA tools</a><a class="headerlink" href="#nbma-tools" title="Permalink to this headline">¶</a></h3>
 <p>The <tt class="docutils literal"><span class="pre">ganeti-nbma</span></tt> software is designed to allow instances to live on a
 separate, virtual network from the nodes, and in an environment where
 nodes are not guaranteed to be able to reach each other via multicasting
@@ -1468,7 +1547,7 @@ or broadcasting. For more information see the README in the source
 archive.</p>
 </div>
 <div class="section" id="ganeti-htools">
-<h3><a class="toc-backref" href="#id76">ganeti-htools</a><a class="headerlink" href="#ganeti-htools" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id79">ganeti-htools</a><a class="headerlink" href="#ganeti-htools" title="Permalink to this headline">¶</a></h3>
 <p>The <tt class="docutils literal"><span class="pre">ganeti-htools</span></tt> software consists of a set of tools:</p>
 <ul class="simple">
 <li><tt class="docutils literal"><span class="pre">hail</span></tt>: an advanced iallocator script compared to Ganeti&#8217;s builtin
@@ -1589,6 +1668,11 @@ in the source archive.</p>
 </ul>
 </li>
 <li><a class="reference external" href="#job-operations">Job operations</a></li>
+<li><a class="reference external" href="#special-ganeti-deployments">Special Ganeti deployments</a><ul>
+<li><a class="reference external" href="#running-ganeti-under-ganeti">Running Ganeti under Ganeti</a></li>
+<li><a class="reference external" href="#multi-site-model">Multi-site model</a></li>
+</ul>
+</li>
 <li><a class="reference external" href="#ganeti-tools">Ganeti tools</a><ul>
 <li><a class="reference external" href="#lvmstrap">lvmstrap</a></li>
 <li><a class="reference external" href="#cfgupgrade">cfgupgrade</a></li>
@@ -1608,8 +1692,8 @@ in the source archive.</p>
 </ul>
 
             <h4>Previous topic</h4>
-            <p class="topless"><a href="install.html"
-                                  title="previous chapter">Ganeti installation tutorial</a></p>
+            <p class="topless"><a href="upgrade.html"
+                                  title="previous chapter">Upgrade notes</a></p>
             <h4>Next topic</h4>
             <p class="topless"><a href="walkthrough.html"
                                   title="next chapter">Ganeti walk-through</a></p>
@@ -1642,9 +1726,9 @@ in the source archive.</p>
           <a href="walkthrough.html" title="Ganeti walk-through"
              >next</a></li>
         <li class="right" >
-          <a href="install.html" title="Ganeti installation tutorial"
+          <a href="upgrade.html" title="Upgrade notes"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.3.1 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.4.0 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

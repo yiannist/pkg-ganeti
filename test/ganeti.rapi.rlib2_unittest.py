@@ -31,10 +31,19 @@ from ganeti import constants
 from ganeti import opcodes
 from ganeti import compat
 from ganeti import http
+from ganeti import query
 
 from ganeti.rapi import rlib2
 
 import testutils
+
+
+class TestConstants(unittest.TestCase):
+  def testConsole(self):
+    # Exporting the console field without authentication might expose
+    # information
+    assert "console" in query.INSTANCE_FIELDS
+    self.assertTrue("console" not in rlib2.I_FIELDS)
 
 
 class TestParseInstanceCreateRequestVersion1(testutils.GanetiTestCase):
@@ -118,7 +127,7 @@ class TestParseInstanceCreateRequestVersion1(testutils.GanetiTestCase):
 
                 for dry_run in [False, True]:
                   op = self.Parse(data, dry_run)
-                  self.assert_(isinstance(op, opcodes.OpCreateInstance))
+                  self.assert_(isinstance(op, opcodes.OpInstanceCreate))
                   self.assertEqual(op.mode, mode)
                   self.assertEqual(op.disk_template, disk_template)
                   self.assertEqual(op.dry_run, dry_run)
@@ -196,7 +205,7 @@ class TestParseExportInstanceRequest(testutils.GanetiTestCase):
       "destination_x509_ca": ("x", "y", "z"),
       }
     op = self.Parse(name, data)
-    self.assert_(isinstance(op, opcodes.OpExportInstance))
+    self.assert_(isinstance(op, opcodes.OpBackupExport))
     self.assertEqual(op.instance_name, name)
     self.assertEqual(op.mode, constants.EXPORT_MODE_REMOTE)
     self.assertEqual(op.shutdown, True)
@@ -211,7 +220,7 @@ class TestParseExportInstanceRequest(testutils.GanetiTestCase):
       "shutdown": False,
       }
     op = self.Parse(name, data)
-    self.assert_(isinstance(op, opcodes.OpExportInstance))
+    self.assert_(isinstance(op, opcodes.OpBackupExport))
     self.assertEqual(op.instance_name, name)
     self.assertEqual(op.mode, constants.EXPORT_MODE_LOCAL)
     self.assertEqual(op.remove_instance, False)
@@ -239,7 +248,7 @@ class TestParseMigrateInstanceRequest(testutils.GanetiTestCase):
           "mode": mode,
           }
         op = self.Parse(name, data)
-        self.assert_(isinstance(op, opcodes.OpMigrateInstance))
+        self.assert_(isinstance(op, opcodes.OpInstanceMigrate))
         self.assertEqual(op.instance_name, name)
         self.assertEqual(op.mode, mode)
         self.assertEqual(op.cleanup, cleanup)
@@ -248,7 +257,7 @@ class TestParseMigrateInstanceRequest(testutils.GanetiTestCase):
     name = "instnohZeex0"
 
     op = self.Parse(name, {})
-    self.assert_(isinstance(op, opcodes.OpMigrateInstance))
+    self.assert_(isinstance(op, opcodes.OpInstanceMigrate))
     self.assertEqual(op.instance_name, name)
     self.assertEqual(op.mode, None)
     self.assertFalse(op.cleanup)
@@ -273,7 +282,7 @@ class TestParseRenameInstanceRequest(testutils.GanetiTestCase):
             }
 
           op = self.Parse(name, data)
-          self.assert_(isinstance(op, opcodes.OpRenameInstance))
+          self.assert_(isinstance(op, opcodes.OpInstanceRename))
           self.assertEqual(op.instance_name, name)
           self.assertEqual(op.new_name, new_name)
           self.assertEqual(op.ip_check, ip_check)
@@ -288,7 +297,7 @@ class TestParseRenameInstanceRequest(testutils.GanetiTestCase):
         }
 
       op = self.Parse(name, data)
-      self.assert_(isinstance(op, opcodes.OpRenameInstance))
+      self.assert_(isinstance(op, opcodes.OpInstanceRename))
       self.assertEqual(op.instance_name, name)
       self.assertEqual(op.new_name, new_name)
       self.assert_(op.ip_check)
@@ -327,7 +336,7 @@ class TestParseModifyInstanceRequest(testutils.GanetiTestCase):
                     }
 
                   op = self.Parse(name, data)
-                  self.assert_(isinstance(op, opcodes.OpSetInstanceParams))
+                  self.assert_(isinstance(op, opcodes.OpInstanceSetParams))
                   self.assertEqual(op.instance_name, name)
                   self.assertEqual(op.hvparams, hvparams)
                   self.assertEqual(op.beparams, beparams)
@@ -344,7 +353,7 @@ class TestParseModifyInstanceRequest(testutils.GanetiTestCase):
     name = "instir8aish31"
 
     op = self.Parse(name, {})
-    self.assert_(isinstance(op, opcodes.OpSetInstanceParams))
+    self.assert_(isinstance(op, opcodes.OpInstanceSetParams))
     self.assertEqual(op.instance_name, name)
     self.assertEqual(op.hvparams, {})
     self.assertEqual(op.beparams, {})
@@ -356,6 +365,90 @@ class TestParseModifyInstanceRequest(testutils.GanetiTestCase):
     self.assert_(op.remote_node is None)
     self.assert_(op.os_name is None)
     self.assertFalse(op.force_variant)
+
+
+class TestParseInstanceReinstallRequest(testutils.GanetiTestCase):
+  def setUp(self):
+    testutils.GanetiTestCase.setUp(self)
+
+    self.Parse = rlib2._ParseInstanceReinstallRequest
+
+  def _Check(self, ops, name):
+    expcls = [
+      opcodes.OpInstanceShutdown,
+      opcodes.OpInstanceReinstall,
+      opcodes.OpInstanceStartup,
+      ]
+
+    self.assert_(compat.all(isinstance(op, exp)
+                            for op, exp in zip(ops, expcls)))
+    self.assert_(compat.all(op.instance_name == name for op in ops))
+
+  def test(self):
+    name = "shoo0tihohma"
+
+    ops = self.Parse(name, {"os": "sys1", "start": True,})
+    self.assertEqual(len(ops), 3)
+    self._Check(ops, name)
+    self.assertEqual(ops[1].os_type, "sys1")
+    self.assertFalse(ops[1].osparams)
+
+    ops = self.Parse(name, {"os": "sys2", "start": False,})
+    self.assertEqual(len(ops), 2)
+    self._Check(ops, name)
+    self.assertEqual(ops[1].os_type, "sys2")
+
+    osparams = {
+      "reformat": "1",
+      }
+    ops = self.Parse(name, {"os": "sys4035", "start": True,
+                            "osparams": osparams,})
+    self.assertEqual(len(ops), 3)
+    self._Check(ops, name)
+    self.assertEqual(ops[1].os_type, "sys4035")
+    self.assertEqual(ops[1].osparams, osparams)
+
+  def testDefaults(self):
+    name = "noolee0g"
+
+    ops = self.Parse(name, {"os": "linux1"})
+    self.assertEqual(len(ops), 3)
+    self._Check(ops, name)
+    self.assertEqual(ops[1].os_type, "linux1")
+    self.assertFalse(ops[1].osparams)
+
+
+class TestParseRenameGroupRequest(testutils.GanetiTestCase):
+  def setUp(self):
+    testutils.GanetiTestCase.setUp(self)
+
+    self.Parse = rlib2._ParseRenameGroupRequest
+
+  def test(self):
+    name = "instij0eeph7"
+    data = {
+      "new_name": "ua0aiyoo",
+      }
+
+    op = self.Parse(name, data, False)
+
+    self.assert_(isinstance(op, opcodes.OpGroupRename))
+    self.assertEqual(op.old_name, name)
+    self.assertEqual(op.new_name, "ua0aiyoo")
+    self.assertFalse(op.dry_run)
+
+  def testDryRun(self):
+    name = "instij0eeph7"
+    data = {
+      "new_name": "ua0aiyoo",
+      }
+
+    op = self.Parse(name, data, True)
+
+    self.assert_(isinstance(op, opcodes.OpGroupRename))
+    self.assertEqual(op.old_name, name)
+    self.assertEqual(op.new_name, "ua0aiyoo")
+    self.assert_(op.dry_run)
 
 
 if __name__ == '__main__':

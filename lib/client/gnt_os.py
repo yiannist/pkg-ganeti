@@ -42,7 +42,7 @@ def ListOS(opts, args):
   @return: the desired exit code
 
   """
-  op = opcodes.OpDiagnoseOS(output_fields=["name", "variants"], names=[])
+  op = opcodes.OpOsDiagnose(output_fields=["name", "variants"], names=[])
   result = SubmitOpCode(op, opts=opts)
 
   if not result:
@@ -77,7 +77,7 @@ def ShowOSInfo(opts, args):
   @return: the desired exit code
 
   """
-  op = opcodes.OpDiagnoseOS(output_fields=["name", "valid", "variants",
+  op = opcodes.OpOsDiagnose(output_fields=["name", "valid", "variants",
                                            "parameters", "api_versions",
                                            "blacklisted", "hidden"],
                             names=[])
@@ -146,7 +146,7 @@ def DiagnoseOS(opts, args):
   @return: the desired exit code
 
   """
-  op = opcodes.OpDiagnoseOS(output_fields=["name", "valid", "variants",
+  op = opcodes.OpOsDiagnose(output_fields=["name", "valid", "variants",
                                            "node_status", "hidden",
                                            "blacklisted"], names=[])
   result = SubmitOpCode(op, opts=opts)
@@ -269,7 +269,7 @@ def ModifyOS(opts, args):
              " must be passed")
     return 1
 
-  op = opcodes.OpSetClusterParams(os_hvp=os_hvp,
+  op = opcodes.OpClusterSetParams(os_hvp=os_hvp,
                                   osparams=osp,
                                   hidden_os=ohid,
                                   blacklisted_os=oblk)

@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2010 Google Inc.
+# Copyright (C) 2006, 2007, 2010, 2011 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -30,9 +30,6 @@ from ganeti.cli import *
 from ganeti import opcodes
 from ganeti import constants
 from ganeti import errors
-
-
-_VALUE_TRUE = "true"
 
 
 def PrintExportList(opts, args):
@@ -76,12 +73,12 @@ def ExportInstance(opts, args):
     raise errors.OpPrereqError("Target node must be specified",
                                errors.ECODE_INVAL)
 
-  op = opcodes.OpExportInstance(instance_name=args[0],
-                                target_node=opts.node,
-                                shutdown=opts.shutdown,
-                                shutdown_timeout=opts.shutdown_timeout,
-                                remove_instance=opts.remove_instance,
-                                ignore_remove_failures=ignore_remove_failures)
+  op = opcodes.OpBackupExport(instance_name=args[0],
+                              target_node=opts.node,
+                              shutdown=opts.shutdown,
+                              shutdown_timeout=opts.shutdown_timeout,
+                              remove_instance=opts.remove_instance,
+                              ignore_remove_failures=ignore_remove_failures)
 
   SubmitOpCode(op, opts=opts)
   return 0
@@ -107,7 +104,7 @@ def RemoveExport(opts, args):
   @return: the desired exit code
 
   """
-  op = opcodes.OpRemoveExport(instance_name=args[0])
+  op = opcodes.OpBackupRemove(instance_name=args[0])
 
   SubmitOpCode(op, opts=opts)
   return 0

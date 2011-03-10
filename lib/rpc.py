@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -226,12 +226,9 @@ class RpcResult(object):
         self.fail_msg = None
         self.payload = data[1]
 
-    assert hasattr(self, "call")
-    assert hasattr(self, "data")
-    assert hasattr(self, "fail_msg")
-    assert hasattr(self, "node")
-    assert hasattr(self, "offline")
-    assert hasattr(self, "payload")
+    for attr_name in ["call", "data", "fail_msg",
+                      "node", "offline", "payload"]:
+      assert hasattr(self, attr_name), "Missing attribute %s" % attr_name
 
   @staticmethod
   def _EnsureErr(val):
@@ -992,14 +989,24 @@ class RpcRunner(object):
                                 [(d.ToDict(), uid) for d, uid in devlist])
 
   @_RpcTimeout(_TMO_NORMAL)
-  def call_blockdev_assemble(self, node, disk, owner, on_primary):
+  def call_blockdev_pause_resume_sync(self, node, disks, pause):
+    """Request a pause/resume of given block device.
+
+    This is a single-node call.
+
+    """
+    return self._SingleNodeCall(node, "blockdev_pause_resume_sync",
+                                [[bdev.ToDict() for bdev in disks], pause])
+
+  @_RpcTimeout(_TMO_NORMAL)
+  def call_blockdev_assemble(self, node, disk, owner, on_primary, idx):
     """Request assembling of a given block device.
 
     This is a single-node call.
 
     """
     return self._SingleNodeCall(node, "blockdev_assemble",
-                                [disk.ToDict(), owner, on_primary])
+                                [disk.ToDict(), owner, on_primary, idx])
 
   @_RpcTimeout(_TMO_NORMAL)
   def call_blockdev_shutdown(self, node, disk):
@@ -1089,7 +1096,7 @@ class RpcRunner(object):
     return self._SingleNodeCall(node, "blockdev_close", params)
 
   @_RpcTimeout(_TMO_NORMAL)
-  def call_blockdev_getsizes(self, node, disks):
+  def call_blockdev_getsize(self, node, disks):
     """Returns the size of the given disks.
 
     This is a single-node call.
@@ -1175,6 +1182,16 @@ class RpcRunner(object):
 
     """
     return cls._StaticMultiNodeCall(node_list, "write_ssconf_files", [values])
+
+  @_RpcTimeout(_TMO_NORMAL)
+  def call_run_oob(self, node, oob_program, command, remote_node, timeout):
+    """Runs OOB.
+
+    This is a single-node call.
+
+    """
+    return self._SingleNodeCall(node, "run_oob", [oob_program, command,
+                                                  remote_node, timeout])
 
   @_RpcTimeout(_TMO_FAST)
   def call_os_diagnose(self, node_list):
@@ -1394,7 +1411,7 @@ class RpcRunner(object):
                                 [old_file_storage_dir, new_file_storage_dir])
 
   @classmethod
-  @_RpcTimeout(_TMO_FAST)
+  @_RpcTimeout(_TMO_URGENT)
   def call_jobqueue_update(cls, node_list, address_list, file_name, content):
     """Update job queue.
 
@@ -1416,7 +1433,7 @@ class RpcRunner(object):
     return cls._StaticSingleNodeCall(node, "jobqueue_purge", [])
 
   @classmethod
-  @_RpcTimeout(_TMO_FAST)
+  @_RpcTimeout(_TMO_URGENT)
   def call_jobqueue_rename(cls, node_list, address_list, rename):
     """Rename a job queue file.
 

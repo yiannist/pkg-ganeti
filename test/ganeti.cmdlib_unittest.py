@@ -1,7 +1,7 @@
 #!/usr/bin/python
 #
 
-# Copyright (C) 2008 Google Inc.
+# Copyright (C) 2008, 2011 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -28,12 +28,15 @@ import time
 import tempfile
 import shutil
 
+from ganeti import constants
 from ganeti import mcpu
 from ganeti import cmdlib
 from ganeti import opcodes
 from ganeti import errors
 from ganeti import utils
 from ganeti import luxi
+from ganeti import ht
+from ganeti import objects
 
 import testutils
 import mocks
@@ -54,12 +57,12 @@ class TestCertVerification(testutils.GanetiTestCase):
     nonexist_filename = os.path.join(self.tmpdir, "does-not-exist")
 
     (errcode, msg) = cmdlib._VerifyCertificate(nonexist_filename)
-    self.assertEqual(errcode, cmdlib.LUVerifyCluster.ETYPE_ERROR)
+    self.assertEqual(errcode, cmdlib.LUClusterVerify.ETYPE_ERROR)
 
     # Try to load non-certificate file
     invalid_cert = self._TestDataFilename("bdev-net.txt")
     (errcode, msg) = cmdlib._VerifyCertificate(invalid_cert)
-    self.assertEqual(errcode, cmdlib.LUVerifyCluster.ETYPE_ERROR)
+    self.assertEqual(errcode, cmdlib.LUClusterVerify.ETYPE_ERROR)
 
 
 class TestOpcodeParams(testutils.GanetiTestCase):
@@ -67,33 +70,12 @@ class TestOpcodeParams(testutils.GanetiTestCase):
     for op in sorted(mcpu.Processor.DISPATCH_TABLE):
       lu = mcpu.Processor.DISPATCH_TABLE[op]
       lu_name = lu.__name__
-      self.failIf(hasattr(lu, "_OP_REQP"), "LU '%s' has old-style _OP_REQP" %
-                  lu_name)
-      self.failIf(hasattr(lu, "_OP_DEFS"), "LU '%s' has old-style _OP_DEFS" %
-                  lu_name)
-      # this needs to remain a list!
-      defined_params = [v[0] for v in lu._OP_PARAMS]
-      for row in lu._OP_PARAMS:
-        # this relies on there being at least one element
-        param_name = row[0]
-        self.failIf(len(row) != 3, "LU '%s' parameter %s has invalid length" %
-                    (lu_name, param_name))
-        self.failIf(defined_params.count(param_name) > 1, "LU '%s' parameter"
-                    " '%s' is defined multiple times" % (lu_name, param_name))
-
-  def testParamsDefined(self):
-    for op in sorted(mcpu.Processor.DISPATCH_TABLE):
-      lu = mcpu.Processor.DISPATCH_TABLE[op]
-      lu_name = lu.__name__
-      # TODO: this doesn't deal with recursive slots definitions
-      all_params = set(op.__slots__)
-      defined_params = set(v[0] for v in lu._OP_PARAMS)
-      missing = all_params.difference(defined_params)
-      self.failIf(missing, "Undeclared parameter types for LU '%s': %s" %
-                  (lu_name, utils.CommaJoin(missing)))
-      extra = defined_params.difference(all_params)
-      self.failIf(extra, "Extra parameter types for LU '%s': %s" %
-                  (lu_name, utils.CommaJoin(extra)))
+      self.failIf(hasattr(lu, "_OP_REQP"),
+                  msg=("LU '%s' has old-style _OP_REQP" % lu_name))
+      self.failIf(hasattr(lu, "_OP_DEFS"),
+                  msg=("LU '%s' has old-style _OP_DEFS" % lu_name))
+      self.failIf(hasattr(lu, "_OP_PARAMS"),
+                  msg=("LU '%s' has old-style _OP_PARAMS" % lu_name))
 
 
 class TestIAllocatorChecks(testutils.GanetiTestCase):
@@ -103,14 +85,16 @@ class TestIAllocatorChecks(testutils.GanetiTestCase):
         self.cfg = mocks.FakeConfig()
         self.op = opcode
 
-    class TestOpcode(opcodes.OpCode):
-      OP_ID = "OP_TEST"
-      __slots__ = ["iallocator", "node"]
+    class OpTest(opcodes.OpCode):
+       OP_PARAMS = [
+        ("iallocator", None, ht.NoType),
+        ("node", None, ht.NoType),
+        ]
 
     default_iallocator = mocks.FakeConfig().GetDefaultIAllocator()
     other_iallocator = default_iallocator + "_not"
 
-    op = TestOpcode()
+    op = OpTest()
     lu = TestLU(op)
 
     c_i = lambda: cmdlib._CheckIAllocatorOrNode(lu, "iallocator", "node")
@@ -148,12 +132,79 @@ class TestIAllocatorChecks(testutils.GanetiTestCase):
     self.assertRaises(errors.OpPrereqError, c_i)
 
 
-class TestLUTestJobqueue(unittest.TestCase):
+class TestLUTestJqueue(unittest.TestCase):
   def test(self):
-    self.assert_(cmdlib.LUTestJobqueue._CLIENT_CONNECT_TIMEOUT <
+    self.assert_(cmdlib.LUTestJqueue._CLIENT_CONNECT_TIMEOUT <
                  (luxi.WFJC_TIMEOUT * 0.75),
                  msg=("Client timeout too high, might not notice bugs"
                       " in WaitForJobChange"))
+
+
+class TestLUQuery(unittest.TestCase):
+  def test(self):
+    self.assertEqual(sorted(cmdlib._QUERY_IMPL.keys()),
+                     sorted(constants.QR_OP_QUERY))
+
+    assert constants.QR_NODE in constants.QR_OP_QUERY
+    assert constants.QR_INSTANCE in constants.QR_OP_QUERY
+
+    for i in constants.QR_OP_QUERY:
+      self.assert_(cmdlib._GetQueryImplementation(i))
+
+    self.assertRaises(errors.OpPrereqError, cmdlib._GetQueryImplementation, "")
+    self.assertRaises(errors.OpPrereqError, cmdlib._GetQueryImplementation,
+                      "xyz")
+
+
+class TestLUGroupAssignNodes(unittest.TestCase):
+
+  def testCheckAssignmentForSplitInstances(self):
+    node_data = dict((name, objects.Node(name=name, group=group))
+                     for (name, group) in [("n1a", "g1"), ("n1b", "g1"),
+                                           ("n2a", "g2"), ("n2b", "g2"),
+                                           ("n3a", "g3"), ("n3b", "g3"),
+                                           ("n3c", "g3"),
+                                           ])
+
+    def Instance(name, pnode, snode):
+      if snode is None:
+        disks = []
+        disk_template = constants.DT_DISKLESS
+      else:
+        disks = [objects.Disk(dev_type=constants.LD_DRBD8,
+                              logical_id=[pnode, snode, 1, 17, 17])]
+        disk_template = constants.DT_DRBD8
+
+      return objects.Instance(name=name, primary_node=pnode, disks=disks,
+                              disk_template=disk_template)
+
+    instance_data = dict((name, Instance(name, pnode, snode))
+                         for name, pnode, snode in [("inst1a", "n1a", "n1b"),
+                                                    ("inst1b", "n1b", "n1a"),
+                                                    ("inst2a", "n2a", "n2b"),
+                                                    ("inst3a", "n3a", None),
+                                                    ("inst3b", "n3b", "n1b"),
+                                                    ("inst3c", "n3b", "n2b"),
+                                                    ])
+
+    # Test first with the existing state.
+    (new, prev) = \
+      cmdlib.LUGroupAssignNodes.CheckAssignmentForSplitInstances([],
+                                                                 node_data,
+                                                                 instance_data)
+
+    self.assertEqual([], new)
+    self.assertEqual(set(["inst3b", "inst3c"]), set(prev))
+
+    # And now some changes.
+    (new, prev) = \
+      cmdlib.LUGroupAssignNodes.CheckAssignmentForSplitInstances([("n1b",
+                                                                   "g3")],
+                                                                 node_data,
+                                                                 instance_data)
+
+    self.assertEqual(set(["inst1a", "inst1b"]), set(new))
+    self.assertEqual(set(["inst3c"]), set(prev))
 
 
 if __name__ == "__main__":

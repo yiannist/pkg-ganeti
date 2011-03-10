@@ -34,11 +34,13 @@ import collections
 import time
 import errno
 import logging
+import warnings
 
 from ganeti import serializer
 from ganeti import constants
 from ganeti import errors
 from ganeti import utils
+from ganeti import objects
 
 
 KEY_METHOD = "method"
@@ -53,9 +55,12 @@ REQ_WAIT_FOR_JOB_CHANGE = "WaitForJobChange"
 REQ_CANCEL_JOB = "CancelJob"
 REQ_ARCHIVE_JOB = "ArchiveJob"
 REQ_AUTOARCHIVE_JOBS = "AutoArchiveJobs"
+REQ_QUERY = "Query"
+REQ_QUERY_FIELDS = "QueryFields"
 REQ_QUERY_JOBS = "QueryJobs"
 REQ_QUERY_INSTANCES = "QueryInstances"
 REQ_QUERY_NODES = "QueryNodes"
+REQ_QUERY_GROUPS = "QueryGroups"
 REQ_QUERY_EXPORTS = "QueryExports"
 REQ_QUERY_CONFIG_VALUES = "QueryConfigValues"
 REQ_QUERY_CLUSTER_INFO = "QueryClusterInfo"
@@ -228,12 +233,12 @@ class Transport:
       while True:
         try:
           data = self.socket.recv(4096)
+        except socket.timeout, err:
+          raise TimeoutError("Receive timeout: %s" % str(err))
         except socket.error, err:
           if err.args and err.args[0] == errno.EAGAIN:
             continue
           raise
-        except socket.timeout, err:
-          raise TimeoutError("Receive timeout: %s" % str(err))
         break
       if not data:
         raise ConnectionClosedError("Connection closed while reading")
@@ -422,6 +427,12 @@ class Client(object):
       self._CloseTransport()
       raise
 
+  def Close(self):
+    """Close the underlying connection.
+
+    """
+    self._CloseTransport()
+
   def CallMethod(self, method, args):
     """Send a generic request and return the response.
 
@@ -486,6 +497,34 @@ class Client(object):
         break
     return result
 
+  def Query(self, what, fields, filter_):
+    """Query for resources/items.
+
+    @param what: One of L{constants.QR_OP_LUXI}
+    @type fields: List of strings
+    @param fields: List of requested fields
+    @type filter_: None or list
+    @param filter_: Query filter
+    @rtype: L{objects.QueryResponse}
+
+    """
+    req = objects.QueryRequest(what=what, fields=fields, filter=filter_)
+    result = self.CallMethod(REQ_QUERY, req.ToDict())
+    return objects.QueryResponse.FromDict(result)
+
+  def QueryFields(self, what, fields):
+    """Query for available fields.
+
+    @param what: One of L{constants.QR_OP_LUXI}
+    @type fields: None or list of strings
+    @param fields: List of requested fields
+    @rtype: L{objects.QueryFieldsResponse}
+
+    """
+    req = objects.QueryFieldsRequest(what=what, fields=fields)
+    result = self.CallMethod(REQ_QUERY_FIELDS, req.ToDict())
+    return objects.QueryFieldsResponse.FromDict(result)
+
   def QueryJobs(self, job_ids, fields):
     return self.CallMethod(REQ_QUERY_JOBS, (job_ids, fields))
 
@@ -494,6 +533,9 @@ class Client(object):
 
   def QueryNodes(self, names, fields, use_locking):
     return self.CallMethod(REQ_QUERY_NODES, (names, fields, use_locking))
+
+  def QueryGroups(self, names, fields, use_locking):
+    return self.CallMethod(REQ_QUERY_GROUPS, (names, fields, use_locking))
 
   def QueryExports(self, nodes, use_locking):
     return self.CallMethod(REQ_QUERY_EXPORTS, (nodes, use_locking))
@@ -508,4 +550,6 @@ class Client(object):
     return self.CallMethod(REQ_QUERY_TAGS, (kind, name))
 
   def QueryLocks(self, fields, sync):
+    warnings.warn("This LUXI call is deprecated and will be removed, use"
+                  " Query(\"%s\", ...) instead" % constants.QR_LOCK)
     return self.CallMethod(REQ_QUERY_LOCKS, (fields, sync))

@@ -30,6 +30,7 @@ import pycurl
 from ganeti import constants
 from ganeti import http
 from ganeti import serializer
+from ganeti import utils
 
 from ganeti.rapi import connector
 from ganeti.rapi import rlib2
@@ -39,6 +40,15 @@ import testutils
 
 
 _URI_RE = re.compile(r"https://(?P<host>.*):(?P<port>\d+)(?P<path>/.*)")
+
+# List of resource handlers which aren't used by the RAPI client
+_KNOWN_UNUSED = set([
+  connector.R_root,
+  connector.R_2,
+  ])
+
+# Global variable for collecting used handlers
+_used_handlers = None
 
 
 def _GetPathFromUri(uri):
@@ -107,8 +117,12 @@ class RapiMock(object):
     self._last_req_data = request_body
 
     try:
-      HandlerClass, items, args = self._mapper.getController(path)
-      self._last_handler = HandlerClass(items, args, None)
+      (handler_cls, items, args) = self._mapper.getController(path)
+
+      # Record handler as used
+      _used_handlers.add(handler_cls)
+
+      self._last_handler = handler_cls(items, args, None)
       if not hasattr(self._last_handler, method.upper()):
         raise http.HttpNotImplemented(message="Method not implemented")
 
@@ -131,6 +145,7 @@ class TestConstants(unittest.TestCase):
     self.assertEqual(client.HTTP_APP_JSON, http.HTTP_APP_JSON)
     self.assertEqual(client._REQ_DATA_VERSION_FIELD, rlib2._REQ_DATA_VERSION)
     self.assertEqual(client._INST_CREATE_REQV1, rlib2._INST_CREATE_REQV1)
+    self.assertEqual(client._INST_REINSTALL_REQV1, rlib2._INST_REINSTALL_REQV1)
     self.assertEqual(client._INST_NIC_PARAMS, constants.INIC_PARAMS)
 
 
@@ -349,6 +364,9 @@ class GanetiRapiClientTests(testutils.GanetiTestCase):
 
   def assertDryRun(self):
     self.assertTrue(self.rapi.GetLastHandler().dryRun())
+
+  def assertUseForce(self):
+    self.assertTrue(self.rapi.GetLastHandler().useForce())
 
   def testEncodeQuery(self):
     query = [
@@ -660,6 +678,7 @@ class GanetiRapiClientTests(testutils.GanetiTestCase):
     self.assertDryRun()
 
   def testReinstallInstance(self):
+    self.rapi.AddResponse(serializer.DumpJson([]))
     self.rapi.AddResponse("19119")
     self.assertEqual(19119, self.client.ReinstallInstance("baz-instance",
                                                           os="DOS",
@@ -668,6 +687,44 @@ class GanetiRapiClientTests(testutils.GanetiTestCase):
     self.assertItems(["baz-instance"])
     self.assertQuery("os", ["DOS"])
     self.assertQuery("nostartup", ["1"])
+    self.assertEqual(self.rapi.CountPending(), 0)
+
+  def testReinstallInstanceNew(self):
+    self.rapi.AddResponse(serializer.DumpJson([rlib2._INST_REINSTALL_REQV1]))
+    self.rapi.AddResponse("25689")
+    self.assertEqual(25689, self.client.ReinstallInstance("moo-instance",
+                                                          os="Debian",
+                                                          no_startup=True))
+    self.assertHandler(rlib2.R_2_instances_name_reinstall)
+    self.assertItems(["moo-instance"])
+    data = serializer.LoadJson(self.rapi.GetLastRequestData())
+    self.assertEqual(len(data), 2)
+    self.assertEqual(data["os"], "Debian")
+    self.assertEqual(data["start"], False)
+    self.assertEqual(self.rapi.CountPending(), 0)
+
+  def testReinstallInstanceWithOsparams1(self):
+    self.rapi.AddResponse(serializer.DumpJson([]))
+    self.assertRaises(client.GanetiApiError, self.client.ReinstallInstance,
+                      "doo-instance", osparams={"x": "y"})
+    self.assertEqual(self.rapi.CountPending(), 0)
+
+  def testReinstallInstanceWithOsparams2(self):
+    osparams = {
+      "Hello": "World",
+      "foo": "bar",
+      }
+    self.rapi.AddResponse(serializer.DumpJson([rlib2._INST_REINSTALL_REQV1]))
+    self.rapi.AddResponse("1717")
+    self.assertEqual(1717, self.client.ReinstallInstance("zoo-instance",
+                                                         osparams=osparams))
+    self.assertHandler(rlib2.R_2_instances_name_reinstall)
+    self.assertItems(["zoo-instance"])
+    data = serializer.LoadJson(self.rapi.GetLastRequestData())
+    self.assertEqual(len(data), 2)
+    self.assertEqual(data["osparams"], osparams)
+    self.assertEqual(data["start"], True)
+    self.assertEqual(self.rapi.CountPending(), 0)
 
   def testReplaceInstanceDisks(self):
     self.rapi.AddResponse("999")
@@ -936,6 +993,187 @@ class GanetiRapiClientTests(testutils.GanetiTestCase):
     self.assertDryRun()
     self.assertQuery("tag", ["awesome"])
 
+  def testGetGroups(self):
+    groups = [{"name": "group1",
+               "uri": "/2/groups/group1",
+               },
+              {"name": "group2",
+               "uri": "/2/groups/group2",
+               },
+              ]
+    self.rapi.AddResponse(serializer.DumpJson(groups))
+    self.assertEqual(["group1", "group2"], self.client.GetGroups())
+    self.assertHandler(rlib2.R_2_groups)
+
+  def testGetGroupsBulk(self):
+    groups = [{"name": "group1",
+               "uri": "/2/groups/group1",
+               "node_cnt": 2,
+               "node_list": ["gnt1.test",
+                             "gnt2.test",
+                             ],
+               },
+              {"name": "group2",
+               "uri": "/2/groups/group2",
+               "node_cnt": 1,
+               "node_list": ["gnt3.test",
+                             ],
+               },
+              ]
+    self.rapi.AddResponse(serializer.DumpJson(groups))
+
+    self.assertEqual(groups, self.client.GetGroups(bulk=True))
+    self.assertHandler(rlib2.R_2_groups)
+    self.assertBulk()
+
+  def testGetGroup(self):
+    group = {"ctime": None,
+             "name": "default",
+             }
+    self.rapi.AddResponse(serializer.DumpJson(group))
+    self.assertEqual({"ctime": None, "name": "default"},
+                     self.client.GetGroup("default"))
+    self.assertHandler(rlib2.R_2_groups_name)
+    self.assertItems(["default"])
+
+  def testCreateGroup(self):
+    self.rapi.AddResponse("12345")
+    job_id = self.client.CreateGroup("newgroup", dry_run=True)
+    self.assertEqual(job_id, 12345)
+    self.assertHandler(rlib2.R_2_groups)
+    self.assertDryRun()
+
+  def testDeleteGroup(self):
+    self.rapi.AddResponse("12346")
+    job_id = self.client.DeleteGroup("newgroup", dry_run=True)
+    self.assertEqual(job_id, 12346)
+    self.assertHandler(rlib2.R_2_groups_name)
+    self.assertDryRun()
+
+  def testRenameGroup(self):
+    self.rapi.AddResponse("12347")
+    job_id = self.client.RenameGroup("oldname", "newname")
+    self.assertEqual(job_id, 12347)
+    self.assertHandler(rlib2.R_2_groups_name_rename)
+
+  def testModifyGroup(self):
+    self.rapi.AddResponse("12348")
+    job_id = self.client.ModifyGroup("mygroup", alloc_policy="foo")
+    self.assertEqual(job_id, 12348)
+    self.assertHandler(rlib2.R_2_groups_name_modify)
+
+  def testAssignGroupNodes(self):
+    self.rapi.AddResponse("12349")
+    job_id = self.client.AssignGroupNodes("mygroup", ["node1", "node2"],
+                                          force=True, dry_run=True)
+    self.assertEqual(job_id, 12349)
+    self.assertHandler(rlib2.R_2_groups_name_assign_nodes)
+    self.assertDryRun()
+    self.assertUseForce()
+
+  def testModifyInstance(self):
+    self.rapi.AddResponse("23681")
+    job_id = self.client.ModifyInstance("inst7210", os_name="linux")
+    self.assertEqual(job_id, 23681)
+    self.assertItems(["inst7210"])
+    self.assertHandler(rlib2.R_2_instances_name_modify)
+    self.assertEqual(serializer.LoadJson(self.rapi.GetLastRequestData()),
+                     { "os_name": "linux", })
+
+  def testModifyCluster(self):
+    for mnh in [None, False, True]:
+      self.rapi.AddResponse("14470")
+      self.assertEqual(14470,
+        self.client.ModifyCluster(maintain_node_health=mnh))
+      self.assertHandler(rlib2.R_2_cluster_modify)
+      self.assertItems([])
+      data = serializer.LoadJson(self.rapi.GetLastRequestData())
+      self.assertEqual(len(data), 1)
+      self.assertEqual(data["maintain_node_health"], mnh)
+      self.assertEqual(self.rapi.CountPending(), 0)
+
+  def testRedistributeConfig(self):
+    self.rapi.AddResponse("3364")
+    job_id = self.client.RedistributeConfig()
+    self.assertEqual(job_id, 3364)
+    self.assertItems([])
+    self.assertHandler(rlib2.R_2_redist_config)
+
+  def testActivateInstanceDisks(self):
+    self.rapi.AddResponse("23547")
+    job_id = self.client.ActivateInstanceDisks("inst28204")
+    self.assertEqual(job_id, 23547)
+    self.assertItems(["inst28204"])
+    self.assertHandler(rlib2.R_2_instances_name_activate_disks)
+    self.assertFalse(self.rapi.GetLastHandler().queryargs)
+
+  def testActivateInstanceDisksIgnoreSize(self):
+    self.rapi.AddResponse("11044")
+    job_id = self.client.ActivateInstanceDisks("inst28204", ignore_size=True)
+    self.assertEqual(job_id, 11044)
+    self.assertItems(["inst28204"])
+    self.assertHandler(rlib2.R_2_instances_name_activate_disks)
+    self.assertQuery("ignore_size", ["1"])
+
+  def testDeactivateInstanceDisks(self):
+    self.rapi.AddResponse("14591")
+    job_id = self.client.DeactivateInstanceDisks("inst28234")
+    self.assertEqual(job_id, 14591)
+    self.assertItems(["inst28234"])
+    self.assertHandler(rlib2.R_2_instances_name_deactivate_disks)
+    self.assertFalse(self.rapi.GetLastHandler().queryargs)
+
+  def testGetInstanceConsole(self):
+    self.rapi.AddResponse("26876")
+    job_id = self.client.GetInstanceConsole("inst21491")
+    self.assertEqual(job_id, 26876)
+    self.assertItems(["inst21491"])
+    self.assertHandler(rlib2.R_2_instances_name_console)
+    self.assertFalse(self.rapi.GetLastHandler().queryargs)
+    self.assertFalse(self.rapi.GetLastRequestData())
+
+  def testGrowInstanceDisk(self):
+    for idx, wait_for_sync in enumerate([None, False, True]):
+      amount = 128 + (512 * idx)
+      self.assertEqual(self.rapi.CountPending(), 0)
+      self.rapi.AddResponse("30783")
+      self.assertEqual(30783,
+        self.client.GrowInstanceDisk("eze8ch", idx, amount,
+                                     wait_for_sync=wait_for_sync))
+      self.assertHandler(rlib2.R_2_instances_name_disk_grow)
+      self.assertItems(["eze8ch", str(idx)])
+      data = serializer.LoadJson(self.rapi.GetLastRequestData())
+      if wait_for_sync is None:
+        self.assertEqual(len(data), 1)
+        self.assert_("wait_for_sync" not in data)
+      else:
+        self.assertEqual(len(data), 2)
+        self.assertEqual(data["wait_for_sync"], wait_for_sync)
+      self.assertEqual(data["amount"], amount)
+      self.assertEqual(self.rapi.CountPending(), 0)
+
+
+class RapiTestRunner(unittest.TextTestRunner):
+  def run(self, *args):
+    global _used_handlers
+    assert _used_handlers is None
+
+    _used_handlers = set()
+    try:
+      # Run actual tests
+      result = unittest.TextTestRunner.run(self, *args)
+
+      diff = (set(connector.CONNECTOR.values()) - _used_handlers -
+             _KNOWN_UNUSED)
+      if diff:
+        raise AssertionError("The following RAPI resources were not used by the"
+                             " RAPI client: %r" % utils.CommaJoin(diff))
+    finally:
+      # Reset global variable
+      _used_handlers = None
+
+    return result
+
 
 if __name__ == '__main__':
-  client.UsesRapiClient(testutils.GanetiTestProgram)()
+  client.UsesRapiClient(testutils.GanetiTestProgram)(testRunner=RapiTestRunner)

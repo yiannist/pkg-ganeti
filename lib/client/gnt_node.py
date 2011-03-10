@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -27,13 +27,14 @@
 # C0103: Invalid name gnt-node
 
 from ganeti.cli import *
+from ganeti import cli
 from ganeti import bootstrap
 from ganeti import opcodes
 from ganeti import utils
 from ganeti import constants
-from ganeti import compat
 from ganeti import errors
 from ganeti import netutils
+from cStringIO import StringIO
 
 
 #: default list of field for L{ListNodes}
@@ -60,27 +61,11 @@ _LIST_STOR_DEF_FIELDS = [
   ]
 
 
-#: headers (and full field list for L{ListNodes}
-_LIST_HEADERS = {
-  "name": "Node", "pinst_cnt": "Pinst", "sinst_cnt": "Sinst",
-  "pinst_list": "PriInstances", "sinst_list": "SecInstances",
-  "pip": "PrimaryIP", "sip": "SecondaryIP",
-  "dtotal": "DTotal", "dfree": "DFree",
-  "mtotal": "MTotal", "mnode": "MNode", "mfree": "MFree",
-  "bootid": "BootID",
-  "ctotal": "CTotal", "cnodes": "CNodes", "csockets": "CSockets",
-  "tags": "Tags",
-  "serial_no": "SerialNo",
-  "master_candidate": "MasterC",
-  "master": "IsMaster",
-  "offline": "Offline", "drained": "Drained",
-  "role": "Role",
-  "ctime": "CTime", "mtime": "MTime", "uuid": "UUID",
-  "master_capable": "MasterCapable", "vm_capable": "VMCapable",
-  }
+#: default list of power commands
+_LIST_POWER_COMMANDS = ["on", "off", "cycle", "status"]
 
 
-#: headers (and full field list for L{ListStorage}
+#: headers (and full field list) for L{ListStorage}
 _LIST_STOR_HEADERS = {
   constants.SF_NODE: "Node",
   constants.SF_TYPE: "Type",
@@ -149,6 +134,8 @@ def _RunSetupSSH(options, nodes):
     cmd.append("--verbose")
   if not options.ssh_key_check:
     cmd.append("--no-ssh-key-check")
+  if options.force_join:
+    cmd.append("--force-join")
 
   cmd.extend(nodes)
 
@@ -212,9 +199,9 @@ def AddNode(opts, args):
 
   bootstrap.SetupNodeDaemon(cluster_name, node, opts.ssh_key_check)
 
-  op = opcodes.OpAddNode(node_name=args[0], secondary_ip=sip,
+  op = opcodes.OpNodeAdd(node_name=args[0], secondary_ip=sip,
                          readd=opts.readd, group=opts.nodegroup,
-                         vm_capable=opts.vm_capable,
+                         vm_capable=opts.vm_capable, ndparams=opts.ndparams,
                          master_capable=opts.master_capable)
   SubmitOpCode(op, opts=opts)
 
@@ -224,55 +211,33 @@ def ListNodes(opts, args):
 
   @param opts: the command line options selected by the user
   @type args: list
-  @param args: should be an empty list
+  @param args: nodes to list, or empty for all
   @rtype: int
   @return: the desired exit code
 
   """
   selected_fields = ParseFields(opts.output, _LIST_DEF_FIELDS)
 
-  output = GetClient().QueryNodes(args, selected_fields, opts.do_locking)
+  fmtoverride = dict.fromkeys(["pinst_list", "sinst_list", "tags"],
+                              (",".join, False))
 
-  if not opts.no_headers:
-    headers = _LIST_HEADERS
-  else:
-    headers = None
+  return GenericList(constants.QR_NODE, selected_fields, args, opts.units,
+                     opts.separator, not opts.no_headers,
+                     format_override=fmtoverride, verbose=opts.verbose)
 
-  unitfields = ["dtotal", "dfree", "mtotal", "mnode", "mfree"]
 
-  numfields = ["dtotal", "dfree",
-               "mtotal", "mnode", "mfree",
-               "pinst_cnt", "sinst_cnt",
-               "ctotal", "serial_no"]
+def ListNodeFields(opts, args):
+  """List node fields.
 
-  list_type_fields = ("pinst_list", "sinst_list", "tags")
-  # change raw values to nicer strings
-  for row in output:
-    for idx, field in enumerate(selected_fields):
-      val = row[idx]
-      if field in list_type_fields:
-        val = ",".join(val)
-      elif field in ('master', 'master_candidate', 'offline', 'drained',
-                     'master_capable', 'vm_capable'):
-        if val:
-          val = 'Y'
-        else:
-          val = 'N'
-      elif field == "ctime" or field == "mtime":
-        val = utils.FormatTime(val)
-      elif val is None:
-        val = "?"
-      elif opts.roman_integers and isinstance(val, int):
-        val = compat.TryToRoman(val)
-      row[idx] = str(val)
+  @param opts: the command line options selected by the user
+  @type args: list
+  @param args: fields to list, or empty for all
+  @rtype: int
+  @return: the desired exit code
 
-  data = GenerateTable(separator=opts.separator, headers=headers,
-                       fields=selected_fields, unitfields=unitfields,
-                       numfields=numfields, data=output, units=opts.units)
-  for line in data:
-    ToStdout(line)
-
-  return 0
+  """
+  return GenericListFields(constants.QR_NODE, args, opts.separator,
+                           not opts.no_headers)
 
 
 def EvacuateNode(opts, args):
@@ -291,9 +256,9 @@ def EvacuateNode(opts, args):
   dst_node = opts.dst_node
   iallocator = opts.iallocator
 
-  op = opcodes.OpNodeEvacuationStrategy(nodes=args,
-                                        iallocator=iallocator,
-                                        remote_node=dst_node)
+  op = opcodes.OpNodeEvacStrategy(nodes=args,
+                                  iallocator=iallocator,
+                                  remote_node=dst_node)
 
   result = SubmitOpCode(op, cl=cl, opts=opts)
   if not result:
@@ -312,10 +277,10 @@ def EvacuateNode(opts, args):
     iname = row[0]
     node = row[1]
     ToStdout("Will relocate instance %s to node %s", iname, node)
-    op = opcodes.OpReplaceDisks(instance_name=iname,
-                                remote_node=node, disks=[],
-                                mode=constants.REPLACE_DISK_CHG,
-                                early_release=opts.early_release)
+    op = opcodes.OpInstanceReplaceDisks(instance_name=iname,
+                                        remote_node=node, disks=[],
+                                        mode=constants.REPLACE_DISK_CHG,
+                                        early_release=opts.early_release)
     jex.QueueJob(iname, op)
   results = jex.GetResults()
   bad_cnt = len([row for row in results if not row[0]])
@@ -363,7 +328,7 @@ def FailoverNode(opts, args):
 
   jex = JobExecutor(cl=cl, opts=opts)
   for iname in pinst:
-    op = opcodes.OpFailoverInstance(instance_name=iname,
+    op = opcodes.OpInstanceFailover(instance_name=iname,
                                     ignore_consistency=opts.ignore_consistency)
     jex.QueueJob(iname, op)
   results = jex.GetResults()
@@ -406,7 +371,7 @@ def MigrateNode(opts, args):
     mode = constants.HT_MIGRATION_NONLIVE
   else:
     mode = opts.migration_mode
-  op = opcodes.OpMigrateNode(node_name=args[0], mode=mode)
+  op = opcodes.OpNodeMigrate(node_name=args[0], mode=mode)
   SubmitOpCode(op, cl=cl, opts=opts)
 
 
@@ -426,17 +391,21 @@ def ShowNodeConfig(opts, args):
   result = cl.QueryNodes(fields=["name", "pip", "sip",
                                  "pinst_list", "sinst_list",
                                  "master_candidate", "drained", "offline",
-                                 "master_capable", "vm_capable"],
+                                 "master_capable", "vm_capable", "powered",
+                                 "ndparams", "custom_ndparams"],
                          names=args, use_locking=False)
 
-  for (name, primary_ip, secondary_ip, pinst, sinst,
-       is_mc, drained, offline, master_capable, vm_capable) in result:
+  for (name, primary_ip, secondary_ip, pinst, sinst, is_mc, drained, offline,
+       master_capable, vm_capable, powered, ndparams,
+       ndparams_custom) in result:
     ToStdout("Node name: %s", name)
     ToStdout("  primary ip: %s", primary_ip)
     ToStdout("  secondary ip: %s", secondary_ip)
     ToStdout("  master candidate: %s", is_mc)
     ToStdout("  drained: %s", drained)
     ToStdout("  offline: %s", offline)
+    if powered is not None:
+      ToStdout("  powered: %s", powered)
     ToStdout("  master_capable: %s", master_capable)
     ToStdout("  vm_capable: %s", vm_capable)
     if vm_capable:
@@ -452,6 +421,10 @@ def ShowNodeConfig(opts, args):
           ToStdout("    - %s", iname)
       else:
         ToStdout("  secondary for no instances")
+    ToStdout("  node parameters:")
+    buf = StringIO()
+    FormatParameterDict(buf, ndparams_custom, ndparams, level=2)
+    ToStdout(buf.getvalue().rstrip("\n"))
 
   return 0
 
@@ -467,7 +440,7 @@ def RemoveNode(opts, args):
   @return: the desired exit code
 
   """
-  op = opcodes.OpRemoveNode(node_name=args[0])
+  op = opcodes.OpNodeRemove(node_name=args[0])
   SubmitOpCode(op, opts=opts)
   return 0
 
@@ -488,11 +461,68 @@ def PowercycleNode(opts, args):
       not AskUser("Are you sure you want to hard powercycle node %s?" % node)):
     return 2
 
-  op = opcodes.OpPowercycleNode(node_name=node, force=opts.force)
+  op = opcodes.OpNodePowercycle(node_name=node, force=opts.force)
   result = SubmitOpCode(op, opts=opts)
   if result:
     ToStderr(result)
   return 0
+
+
+def PowerNode(opts, args):
+  """Change/ask power state of a node.
+
+  @param opts: the command line options selected by the user
+  @type args: list
+  @param args: should contain only one element, the name of
+      the node to be removed
+  @rtype: int
+  @return: the desired exit code
+
+  """
+  command = args[0]
+  node = args[1]
+
+  if command not in _LIST_POWER_COMMANDS:
+    ToStderr("power subcommand %s not supported." % command)
+    return constants.EXIT_FAILURE
+
+  oob_command = "power-%s" % command
+
+  opcodelist = []
+  if oob_command == constants.OOB_POWER_OFF:
+    opcodelist.append(opcodes.OpNodeSetParams(node_name=node, offline=True,
+                                              auto_promote=opts.auto_promote))
+
+  opcodelist.append(opcodes.OpOobCommand(node_names=[node],
+                                         command=oob_command))
+
+  cli.SetGenericOpcodeOpts(opcodelist, opts)
+
+  job_id = cli.SendJob(opcodelist)
+
+  # We just want the OOB Opcode status
+  # If it fails PollJob gives us the error message in it
+  result = cli.PollJob(job_id)[-1]
+
+  if result:
+    (_, data_tuple) = result[0]
+    if data_tuple[0] != constants.RS_NORMAL:
+      if data_tuple[0] == constants.RS_UNAVAIL:
+        result = "OOB is not supported"
+      else:
+        result = "RPC failed, look out for warning in the output"
+      ToStderr(result)
+      return constants.EXIT_FAILURE
+    else:
+      if oob_command == constants.OOB_POWER_STATUS:
+        text = "The machine is %spowered"
+        if data_tuple[1][constants.OOB_POWER_STATUS_POWERED]:
+          result = text % ""
+        else:
+          result = text % "not "
+        ToStdout(result)
+
+  return constants.EXIT_SUCCESS
 
 
 def ListVolumes(opts, args):
@@ -509,7 +539,7 @@ def ListVolumes(opts, args):
   """
   selected_fields = ParseFields(opts.output, _LIST_VOL_DEF_FIELDS)
 
-  op = opcodes.OpQueryNodeVolumes(nodes=args, output_fields=selected_fields)
+  op = opcodes.OpNodeQueryvols(nodes=args, output_fields=selected_fields)
   output = SubmitOpCode(op, opts=opts)
 
   if not opts.no_headers:
@@ -553,7 +583,7 @@ def ListStorage(opts, args):
 
   selected_fields = ParseFields(opts.output, _LIST_STOR_DEF_FIELDS)
 
-  op = opcodes.OpQueryNodeStorage(nodes=args,
+  op = opcodes.OpNodeQueryStorage(nodes=args,
                                   storage_type=storage_type,
                                   output_fields=selected_fields)
   output = SubmitOpCode(op, opts=opts)
@@ -615,7 +645,7 @@ def ModifyStorage(opts, args):
     changes[constants.SF_ALLOCATABLE] = opts.allocatable
 
   if changes:
-    op = opcodes.OpModifyNodeStorage(node_name=node_name,
+    op = opcodes.OpNodeModifyStorage(node_name=node_name,
                                      storage_type=storage_type,
                                      name=volume_name,
                                      changes=changes)
@@ -656,12 +686,13 @@ def SetNodeParams(opts, args):
 
   """
   all_changes = [opts.master_candidate, opts.drained, opts.offline,
-                 opts.master_capable, opts.vm_capable, opts.secondary_ip]
+                 opts.master_capable, opts.vm_capable, opts.secondary_ip,
+                 opts.ndparams]
   if all_changes.count(None) == len(all_changes):
     ToStderr("Please give at least one of the parameters.")
     return 1
 
-  op = opcodes.OpSetNodeParams(node_name=args[0],
+  op = opcodes.OpNodeSetParams(node_name=args[0],
                                master_candidate=opts.master_candidate,
                                offline=opts.offline,
                                drained=opts.drained,
@@ -669,7 +700,9 @@ def SetNodeParams(opts, args):
                                vm_capable=opts.vm_capable,
                                secondary_ip=opts.secondary_ip,
                                force=opts.force,
-                               auto_promote=opts.auto_promote)
+                               ndparams=opts.ndparams,
+                               auto_promote=opts.auto_promote,
+                               powered=opts.node_powered)
 
   # even if here we process the result, we allow submit only
   result = SubmitOrSend(op, opts)
@@ -684,10 +717,11 @@ def SetNodeParams(opts, args):
 commands = {
   'add': (
     AddNode, [ArgHost(min=1, max=1)],
-    [SECONDARY_IP_OPT, READD_OPT, NOSSH_KEYCHECK_OPT, NONODE_SETUP_OPT,
-     VERBOSE_OPT, NODEGROUP_OPT, PRIORITY_OPT, CAPAB_MASTER_OPT,
-     CAPAB_VM_OPT],
-    "[-s ip] [--readd] [--no-ssh-key-check] [--no-node-setup]  [--verbose] "
+    [SECONDARY_IP_OPT, READD_OPT, NOSSH_KEYCHECK_OPT, NODE_FORCE_JOIN_OPT,
+     NONODE_SETUP_OPT, VERBOSE_OPT, NODEGROUP_OPT, PRIORITY_OPT,
+     CAPAB_MASTER_OPT, CAPAB_VM_OPT, NODE_PARAMS_OPT],
+    "[-s ip] [--readd] [--no-ssh-key-check] [--force-join]"
+    " [--no-node-setup] [--verbose]"
     " <node_name>",
     "Add a node to the cluster"),
   'evacuate': (
@@ -713,21 +747,35 @@ commands = {
     "[<node_name>...]", "Show information about the node(s)"),
   'list': (
     ListNodes, ARGS_MANY_NODES,
-    [NOHDR_OPT, SEP_OPT, USEUNITS_OPT, FIELDS_OPT, SYNC_OPT, ROMAN_OPT],
+    [NOHDR_OPT, SEP_OPT, USEUNITS_OPT, FIELDS_OPT, VERBOSE_OPT],
     "[nodes...]",
-    "Lists the nodes in the cluster. The available fields are (see the man"
-    " page for details): %s. The default field list is (in order): %s." %
-    (utils.CommaJoin(_LIST_HEADERS), utils.CommaJoin(_LIST_DEF_FIELDS))),
+    "Lists the nodes in the cluster. The available fields can be shown using"
+    " the \"list-fields\" command (see the man page for details)."
+    " The default field list is (in order): %s." %
+    utils.CommaJoin(_LIST_DEF_FIELDS)),
+  "list-fields": (
+    ListNodeFields, [ArgUnknown()],
+    [NOHDR_OPT, SEP_OPT],
+    "[fields...]",
+    "Lists all available fields for nodes"),
   'modify': (
     SetNodeParams, ARGS_ONE_NODE,
     [FORCE_OPT, SUBMIT_OPT, MC_OPT, DRAINED_OPT, OFFLINE_OPT,
      CAPAB_MASTER_OPT, CAPAB_VM_OPT, SECONDARY_IP_OPT,
-     AUTO_PROMOTE_OPT, DRY_RUN_OPT, PRIORITY_OPT],
+     AUTO_PROMOTE_OPT, DRY_RUN_OPT, PRIORITY_OPT, NODE_PARAMS_OPT,
+     NODE_POWERED_OPT],
     "<node_name>", "Alters the parameters of a node"),
   'powercycle': (
     PowercycleNode, ARGS_ONE_NODE,
     [FORCE_OPT, CONFIRM_OPT, DRY_RUN_OPT, PRIORITY_OPT],
     "<node_name>", "Tries to forcefully powercycle a node"),
+  'power': (
+    PowerNode,
+    [ArgChoice(min=1, max=1, choices=_LIST_POWER_COMMANDS),
+     ArgNode(min=1, max=1)],
+    [SUBMIT_OPT, AUTO_PROMOTE_OPT, PRIORITY_OPT],
+    "on|off|cycle|status <node>",
+    "Change power state of node by calling out-of-band helper."),
   'remove': (
     RemoveNode, ARGS_ONE_NODE, [DRY_RUN_OPT, PRIORITY_OPT],
     "<node_name>", "Removes a node from the cluster"),

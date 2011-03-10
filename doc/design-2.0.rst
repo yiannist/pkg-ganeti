@@ -294,9 +294,6 @@ failover:
       determined by the serial number on the configuration and
       highest job ID on the job queue)
 
-    - there is not even a single node having a newer
-      configuration file
-
     - if we are not failing over (but just starting), the
       quorum agrees that we are the designated master
 
@@ -961,10 +958,10 @@ Opcode changes
 The parameter changes will have impact on the OpCodes, especially on
 the following ones:
 
-- ``OpCreateInstance``, where the new hv and be parameters will be sent
+- ``OpInstanceCreate``, where the new hv and be parameters will be sent
   as dictionaries; note that all hv and be parameters are now optional,
   as the values can be instead taken from the cluster
-- ``OpQueryInstances``, where we have to be able to query these new
+- ``OpInstanceQuery``, where we have to be able to query these new
   parameters; the syntax for names will be ``hvparam/$NAME`` and
   ``beparam/$NAME`` for querying an individual parameter out of one
   dictionary, and ``hvparams``, respectively ``beparams``, for the whole
