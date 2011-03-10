@@ -1,3 +1,12 @@
+ganeti (2.4.1-1) unstable; urgency=low
+
+  * New upstream version (many changes, please read the NEWS file for the
+    2.4 beta and rc releases)
+  * Needs ganeti-htools 0.3.0 or newer, so added conflicts with older
+    versions
+
+ -- Iustin Pop <iustin@debian.org>  Thu, 10 Mar 2011 19:52:44 +0100
+
 ganeti (2.3.1-1) experimental; urgency=low
 
   * New upstream version (Closes: #597957, #607679)
