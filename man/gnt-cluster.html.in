@@ -161,7 +161,7 @@
     ><strong
       >init</strong
       ><br
-       />[-s <em
+       />[{-s|--secondary-ip} <em
       >secondary_ip</em
       >]<br
        />[--vg-name <em
@@ -170,7 +170,7 @@
        />[--master-netdev <em
       >interface-name</em
       >]<br
-       />[-m <em
+       />[{-m|--mac-prefix} <em
       >mac-prefix</em
       >]<br
        />[--no-lvm-storage]<br
@@ -185,7 +185,7 @@
        />[-t <em
       >hypervisor name</em
       >]<br
-       />[--hypervisor-parameters <em
+       />[{-H|--hypervisor-parameters} <em
       >hypervisor</em
       >:<em
       >hv-param</em
@@ -196,7 +196,7 @@
       >=<em
       >value</em
       >...]]<br
-       />[--backend-parameters <em
+       />[{-B|--backend-parameters} <em
       >be-param</em
       >=<em
       >value</em
@@ -205,7 +205,7 @@
       >=<em
       >value</em
       >...]]<br
-       />[--nic-parameters <em
+       />[{-N|--nic-parameters} <em
       >nic-param</em
       >=<em
       >value</em
@@ -218,7 +218,7 @@
        />[--uid-pool <em
       >user-id pool definition</em
       >]<br
-       />[-I <em
+       />[{-I|--default-iallocator} <em
       >default instance allocator</em
       >]<br
        />[--primary-ip-version <em
@@ -227,6 +227,9 @@
        />[--prealloc-wipe-disks {yes | no}]<br
        />[--node-parameters <em
       >ndparams</em
+      >]<br
+       />[{-C|--candidate-pool-size} <em
+      >candidate_pool_size</em
       >]<br
        />{<em
       >clustername</em
@@ -239,7 +242,7 @@
       > is not any random name. It has to be resolvable to an IP address using DNS, and it is best if you give the fully-qualified domain name. This hostname must resolve to an IP address reserved exclusively for this purpose, i.e. not already in use.</p
     ><p
     >The cluster can run in two modes: single-home or dual-homed. In the first case, all traffic (both public traffic, inter-node traffic and data replication traffic) goes over the same interface. In the dual-homed case, the data replication traffic goes over the second network. The <code
-      >-s</code
+      >-s (--secondary-ip)</code
       > option here marks the cluster as dual-homed and its parameter represents this node's address on the second network. If you initialise the cluster with <code
       >-s</code
       >, all nodes added must have a secondary IP as well.</p
@@ -261,8 +264,12 @@
       > option is useful for specifying a different interface on which the master will activate its IP address. It's important that all nodes have this interface because you'll need it for a master failover.</p
     ><p
     >The <code
-      >-m</code
-      > option will let you specify a three byte prefix under which the virtual MAC addresses of your instances will be generated. The prefix must be specified in the format XX:XX:XX and the default is aa:00:00.</p
+      >-m (--mac-prefix)</code
+      > option will let you specify a three byte prefix under which the virtual MAC addresses of your instances will be generated. The prefix must be specified in the format <code
+      >XX:XX:XX</code
+      > and the default is <code
+      >aa:00:00</code
+      >.</p
     ><p
     >The <code
       >--no-lvm-storage</code
@@ -283,12 +290,12 @@
       > option allows you set the directory to use for storing the instance disk files when using file storage as backend for instance disks.</p
     ><p
     >The <code
-      >--enabled-hypervisors</code
-      > option allows you to set the list of hypervisors that will be enabled for this cluster. Instance hypervisors can only be chosen from the list of enabled hypervisors, and the first entry of this list will be used by default. Currently, the following hypervisors are available:</p
-    ><p
-    >The <code
       >--prealloc-wipe-disks</code
       > sets a cluster wide configuration value for wiping disks prior to allocation. This increases security on instance level as the instance can't access untouched data from it's underlying storage.</p
+    ><p
+    >The <code
+      >--enabled-hypervisors</code
+      > option allows you to set the list of hypervisors that will be enabled for this cluster. Instance hypervisors can only be chosen from the list of enabled hypervisors, and the first entry of this list will be used by default. Currently, the following hypervisors are available:</p
     ><dl
     ><dt
       >xen-pvm</dt
@@ -325,7 +332,7 @@
     >Either a single hypervisor name or a comma-separated list of hypervisor names can be specified. If this option is not specified, only the xen-pvm hypervisor is enabled by default.</p
     ><p
     >The <code
-      >--hypervisor-parameters</code
+      >-H (--hypervisor-parameters)</code
       > option allows you to set default hypervisor specific parameters for the cluster. The format of this option is the name of the hypervisor, followed by a colon and a comma-separated list of key=value pairs. The keys available for each hypervisors are detailed in the gnt-instance(8) man page, in the <strong
       >add</strong
       > command plus the following parameters which are only configurable globally (at cluster level):</p
@@ -353,7 +360,7 @@
       ></dl
     ><p
     >The <code
-      >--backend-parameters</code
+      >-B (--backend-parameters)</code
       > option allows you to set the default backend parameters for the cluster. The parameter format is a comma-separated list of key=value pairs with the following supported keys:</p
     ><dl
     ><dt
@@ -377,7 +384,7 @@
       ></dl
     ><p
     >The <code
-      >--nic-parameters</code
+      >-N (--nic-parameters)</code
       > option allows you to set the default nic parameters for the cluster. The parameter format is a comma-separated list of key=value pairs with the following supported keys:</p
     ><dl
     ><dt
@@ -421,6 +428,12 @@
       > option allows you to set default node parameters for the cluster. Please see <strong
       >ganeti</strong
       >(7) for more information about supported key=value pairs.</p
+    ><p
+    >The <code
+      >-C (--candidate-pool-size)</code
+      > option specifies the <code
+      >candidate_pool_size</code
+      > cluster parameter. This is the number of nodes that the master will try to keep as master_candidates. For more details about this role and other node roles, see the ganeti(7).</p
     ></div
   ><div id="list-tags"
   ><h2
@@ -480,7 +493,7 @@
        />[--enabled-hypervisors <em
       >hypervisors</em
       >]<br
-       />[--hypervisor-parameters <em
+       />[{-H|--hypervisor-parameters} <em
       >hypervisor</em
       >:<em
       >hv-param</em
@@ -491,7 +504,7 @@
       >=<em
       >value</em
       >...]]<br
-       />[--backend-parameters <em
+       />[{-B|--backend-parameters} <em
       >be-param</em
       >=<em
       >value</em
@@ -500,7 +513,7 @@
       >=<em
       >value</em
       >...]]<br
-       />[--nic-parameters <em
+       />[{-N|--nic-parameters} <em
       >nic-param</em
       >=<em
       >value</em
@@ -518,12 +531,12 @@
        />[--remove-uids <em
       >user-id pool definition</em
       >]<br
-       />[-C <em
+       />[{-C|--candidate-pool-size} <em
       >candidate_pool_size</em
       >]<br
        />[--maintain-node-health {yes | no}]<br
        />[--prealloc-wipe-disks {yes | no}]<br
-       />[-I <em
+       />[{-I|--default-iallocator} <em
       >default instance allocator</em
       >]<br
        />[--reserved-lvs=<em
@@ -545,11 +558,13 @@
       >, <code
       >--enabled-hypervisors</code
       >, <code
-      >--hypervisor-parameters</code
+      >-H (--hypervisor-parameters)</code
       >, <code
-      >--backend-parameters</code
+      >-B (--backend-parameters)</code
       >, <code
       >--nic-parameters</code
+      >, <code
+      >-C (--candidate-pool-size)</code
       >, <code
       >--maintain-node-health</code
       >, <code
@@ -563,12 +578,6 @@
       > options are described in the <strong
       >init</strong
       > command.</p
-    ><p
-    >The <code
-      >-C</code
-      > option specifies the <code
-      >candidate_pool_size</code
-      > cluster parameter. This is the number of nodes that the master will try to keep as master_candidates. For more details about this role and other node roles, see the ganeti(7). If you increase the size, the master will automatically promote as many nodes as required and possible to reach the intended number.</p
     ><p
     >The <code
       >--add-uids</code
@@ -587,7 +596,7 @@
       >.</p
     ><p
     >The <code
-      >-I</code
+      >-I (--default-iallocator)</code
       > is described in the <strong
       >init</strong
       > command. To clear the default iallocator, just pass an empty string ('').</p
