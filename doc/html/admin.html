@@ -5,13 +5,13 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Ganeti administrator’s guide &mdash; Ganeti v2.4.1 documentation</title>
+    <title>Ganeti administrator’s guide &mdash; Ganeti v2.4.2 documentation</title>
     <link rel="stylesheet" href="_static/default.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.4.1',
+        VERSION:     '2.4.2',
         COLLAPSE_MODINDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -19,7 +19,7 @@
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.4.1 documentation" href="index.html" />
+    <link rel="top" title="Ganeti v2.4.2 documentation" href="index.html" />
     <link rel="next" title="Ganeti walk-through" href="walkthrough.html" />
     <link rel="prev" title="Upgrade notes" href="upgrade.html" /> 
   </head>
@@ -33,7 +33,7 @@
         <li class="right" >
           <a href="upgrade.html" title="Upgrade notes"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.4.1 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.4.2 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -74,94 +74,99 @@
 </li>
 <li><a class="reference internal" href="#export-import" id="id20">Export/Import</a></li>
 <li><a class="reference internal" href="#import-of-foreign-instances" id="id21">Import of foreign instances</a></li>
-</ul>
-</li>
-<li><a class="reference internal" href="#instance-ha-features" id="id22">Instance HA features</a><ul>
-<li><a class="reference internal" href="#changing-the-primary-node" id="id23">Changing the primary node</a><ul>
-<li><a class="reference internal" href="#failing-over-an-instance" id="id24">Failing over an instance</a></li>
-<li><a class="reference internal" href="#live-migrating-an-instance" id="id25">Live migrating an instance</a></li>
-<li><a class="reference internal" href="#moving-an-instance-offline" id="id26">Moving an instance (offline)</a></li>
-</ul>
-</li>
-<li><a class="reference internal" href="#disk-operations" id="id27">Disk operations</a><ul>
-<li><a class="reference internal" href="#preparing-for-disk-operations" id="id28">Preparing for disk operations</a></li>
-<li><a class="reference internal" href="#restoring-redundancy-for-drbd-based-instances" id="id29">Restoring redundancy for DRBD-based instances</a></li>
-<li><a class="reference internal" href="#re-creating-disks-for-non-redundant-instances" id="id30">Re-creating disks for non-redundant instances</a></li>
-<li><a class="reference internal" href="#conversion-of-an-instance-s-disk-type" id="id31">Conversion of an instance&#8217;s disk type</a></li>
-</ul>
-</li>
-<li><a class="reference internal" href="#debugging-instances" id="id32">Debugging instances</a><ul>
-<li><a class="reference internal" href="#accessing-an-instance-s-disks" id="id33">Accessing an instance&#8217;s disks</a></li>
-<li><a class="reference internal" href="#accessing-an-instance-s-console" id="id34">Accessing an instance&#8217;s console</a></li>
-</ul>
-</li>
-<li><a class="reference internal" href="#other-instance-operations" id="id35">Other instance operations</a><ul>
-<li><a class="reference internal" href="#reboot" id="id36">Reboot</a></li>
-</ul>
-</li>
-<li><a class="reference internal" href="#instance-os-definitions-debugging" id="id37">Instance OS definitions debugging</a><ul>
-<li><a class="reference internal" href="#instance-relocation" id="id38">Instance relocation</a></li>
+<li><a class="reference internal" href="#instance-kernel-selection" id="id22">Instance kernel selection</a><ul>
+<li><a class="reference internal" href="#xen-pvm" id="id23">Xen-PVM</a></li>
+<li><a class="reference internal" href="#kvm" id="id24">KVM</a></li>
 </ul>
 </li>
 </ul>
 </li>
-<li><a class="reference internal" href="#node-operations" id="id39">Node operations</a><ul>
-<li><a class="reference internal" href="#add-readd" id="id40">Add/readd</a></li>
-<li><a class="reference internal" href="#changing-the-node-role" id="id41">Changing the node role</a><ul>
-<li><a class="reference internal" href="#failing-over-the-master-node" id="id42">Failing over the master node</a></li>
-<li><a class="reference internal" href="#changing-between-the-other-roles" id="id43">Changing between the other roles</a></li>
+<li><a class="reference internal" href="#instance-ha-features" id="id25">Instance HA features</a><ul>
+<li><a class="reference internal" href="#changing-the-primary-node" id="id26">Changing the primary node</a><ul>
+<li><a class="reference internal" href="#failing-over-an-instance" id="id27">Failing over an instance</a></li>
+<li><a class="reference internal" href="#live-migrating-an-instance" id="id28">Live migrating an instance</a></li>
+<li><a class="reference internal" href="#moving-an-instance-offline" id="id29">Moving an instance (offline)</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#evacuating-nodes" id="id44">Evacuating nodes</a><ul>
-<li><a class="reference internal" href="#primary-instance-conversion" id="id45">Primary instance conversion</a></li>
-<li><a class="reference internal" href="#secondary-instance-evacuation" id="id46">Secondary instance evacuation</a></li>
+<li><a class="reference internal" href="#disk-operations" id="id30">Disk operations</a><ul>
+<li><a class="reference internal" href="#preparing-for-disk-operations" id="id31">Preparing for disk operations</a></li>
+<li><a class="reference internal" href="#restoring-redundancy-for-drbd-based-instances" id="id32">Restoring redundancy for DRBD-based instances</a></li>
+<li><a class="reference internal" href="#re-creating-disks-for-non-redundant-instances" id="id33">Re-creating disks for non-redundant instances</a></li>
+<li><a class="reference internal" href="#conversion-of-an-instance-s-disk-type" id="id34">Conversion of an instance&#8217;s disk type</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#id1" id="id47">Removal</a></li>
-<li><a class="reference internal" href="#storage-handling" id="id48">Storage handling</a><ul>
-<li><a class="reference internal" href="#logical-volumes" id="id49">Logical volumes</a></li>
-<li><a class="reference internal" href="#generalized-storage-handling" id="id50">Generalized storage handling</a></li>
-<li><a class="reference internal" href="#use-of-the-storage-commands" id="id51">Use of the storage commands</a></li>
+<li><a class="reference internal" href="#debugging-instances" id="id35">Debugging instances</a><ul>
+<li><a class="reference internal" href="#accessing-an-instance-s-disks" id="id36">Accessing an instance&#8217;s disks</a></li>
+<li><a class="reference internal" href="#accessing-an-instance-s-console" id="id37">Accessing an instance&#8217;s console</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#other-instance-operations" id="id38">Other instance operations</a><ul>
+<li><a class="reference internal" href="#reboot" id="id39">Reboot</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#instance-os-definitions-debugging" id="id40">Instance OS definitions debugging</a><ul>
+<li><a class="reference internal" href="#instance-relocation" id="id41">Instance relocation</a></li>
 </ul>
 </li>
 </ul>
 </li>
-<li><a class="reference internal" href="#cluster-operations" id="id52">Cluster operations</a><ul>
-<li><a class="reference internal" href="#standard-operations" id="id53">Standard operations</a></li>
-<li><a class="reference internal" href="#global-node-commands" id="id54">Global node commands</a></li>
-<li><a class="reference internal" href="#cluster-verification" id="id55">Cluster verification</a></li>
-<li><a class="reference internal" href="#configuration-redistribution" id="id56">Configuration redistribution</a></li>
-<li><a class="reference internal" href="#cluster-renaming" id="id57">Cluster renaming</a></li>
-<li><a class="reference internal" href="#queue-operations" id="id58">Queue operations</a></li>
-<li><a class="reference internal" href="#watcher-control" id="id59">Watcher control</a></li>
-<li><a class="reference internal" href="#node-auto-maintenance" id="id60">Node auto-maintenance</a></li>
-<li><a class="reference internal" href="#removing-a-cluster-entirely" id="id61">Removing a cluster entirely</a></li>
+<li><a class="reference internal" href="#node-operations" id="id42">Node operations</a><ul>
+<li><a class="reference internal" href="#add-readd" id="id43">Add/readd</a></li>
+<li><a class="reference internal" href="#changing-the-node-role" id="id44">Changing the node role</a><ul>
+<li><a class="reference internal" href="#failing-over-the-master-node" id="id45">Failing over the master node</a></li>
+<li><a class="reference internal" href="#changing-between-the-other-roles" id="id46">Changing between the other roles</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#tags-handling" id="id62">Tags handling</a><ul>
-<li><a class="reference internal" href="#limitations" id="id63">Limitations</a></li>
-<li><a class="reference internal" href="#operations" id="id64">Operations</a></li>
-<li><a class="reference internal" href="#global-tag-search" id="id65">Global tag search</a></li>
+<li><a class="reference internal" href="#evacuating-nodes" id="id47">Evacuating nodes</a><ul>
+<li><a class="reference internal" href="#primary-instance-conversion" id="id48">Primary instance conversion</a></li>
+<li><a class="reference internal" href="#secondary-instance-evacuation" id="id49">Secondary instance evacuation</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#job-operations" id="id66">Job operations</a></li>
-<li><a class="reference internal" href="#special-ganeti-deployments" id="id67">Special Ganeti deployments</a><ul>
-<li><a class="reference internal" href="#running-ganeti-under-ganeti" id="id68">Running Ganeti under Ganeti</a></li>
-<li><a class="reference internal" href="#multi-site-model" id="id69">Multi-site model</a></li>
+<li><a class="reference internal" href="#id1" id="id50">Removal</a></li>
+<li><a class="reference internal" href="#storage-handling" id="id51">Storage handling</a><ul>
+<li><a class="reference internal" href="#logical-volumes" id="id52">Logical volumes</a></li>
+<li><a class="reference internal" href="#generalized-storage-handling" id="id53">Generalized storage handling</a></li>
+<li><a class="reference internal" href="#use-of-the-storage-commands" id="id54">Use of the storage commands</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#ganeti-tools" id="id70">Ganeti tools</a><ul>
-<li><a class="reference internal" href="#lvmstrap" id="id71">lvmstrap</a></li>
-<li><a class="reference internal" href="#cfgupgrade" id="id72">cfgupgrade</a></li>
-<li><a class="reference internal" href="#cfgshell" id="id73">cfgshell</a></li>
-<li><a class="reference internal" href="#burnin" id="id74">burnin</a></li>
-<li><a class="reference internal" href="#sanitize-config" id="id75">sanitize-config</a></li>
-<li><a class="reference internal" href="#move-instance" id="id76">move-instance</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#other-ganeti-projects" id="id77">Other Ganeti projects</a><ul>
-<li><a class="reference internal" href="#nbma-tools" id="id78">NBMA tools</a></li>
-<li><a class="reference internal" href="#ganeti-htools" id="id79">ganeti-htools</a></li>
+<li><a class="reference internal" href="#cluster-operations" id="id55">Cluster operations</a><ul>
+<li><a class="reference internal" href="#standard-operations" id="id56">Standard operations</a></li>
+<li><a class="reference internal" href="#global-node-commands" id="id57">Global node commands</a></li>
+<li><a class="reference internal" href="#cluster-verification" id="id58">Cluster verification</a></li>
+<li><a class="reference internal" href="#configuration-redistribution" id="id59">Configuration redistribution</a></li>
+<li><a class="reference internal" href="#cluster-renaming" id="id60">Cluster renaming</a></li>
+<li><a class="reference internal" href="#queue-operations" id="id61">Queue operations</a></li>
+<li><a class="reference internal" href="#watcher-control" id="id62">Watcher control</a></li>
+<li><a class="reference internal" href="#node-auto-maintenance" id="id63">Node auto-maintenance</a></li>
+<li><a class="reference internal" href="#removing-a-cluster-entirely" id="id64">Removing a cluster entirely</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#tags-handling" id="id65">Tags handling</a><ul>
+<li><a class="reference internal" href="#limitations" id="id66">Limitations</a></li>
+<li><a class="reference internal" href="#operations" id="id67">Operations</a></li>
+<li><a class="reference internal" href="#global-tag-search" id="id68">Global tag search</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#job-operations" id="id69">Job operations</a></li>
+<li><a class="reference internal" href="#special-ganeti-deployments" id="id70">Special Ganeti deployments</a><ul>
+<li><a class="reference internal" href="#running-ganeti-under-ganeti" id="id71">Running Ganeti under Ganeti</a></li>
+<li><a class="reference internal" href="#multi-site-model" id="id72">Multi-site model</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#ganeti-tools" id="id73">Ganeti tools</a><ul>
+<li><a class="reference internal" href="#lvmstrap" id="id74">lvmstrap</a></li>
+<li><a class="reference internal" href="#cfgupgrade" id="id75">cfgupgrade</a></li>
+<li><a class="reference internal" href="#cfgshell" id="id76">cfgshell</a></li>
+<li><a class="reference internal" href="#burnin" id="id77">burnin</a></li>
+<li><a class="reference internal" href="#sanitize-config" id="id78">sanitize-config</a></li>
+<li><a class="reference internal" href="#move-instance" id="id79">move-instance</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#other-ganeti-projects" id="id80">Other Ganeti projects</a><ul>
+<li><a class="reference internal" href="#nbma-tools" id="id81">NBMA tools</a></li>
+<li><a class="reference internal" href="#ganeti-htools" id="id82">ganeti-htools</a></li>
 </ul>
 </li>
 </ul>
@@ -493,15 +498,65 @@ non-managed configuration that the instance had, the transition should
 be seamless for the instance. For more than one disk, just pass another
 disk parameter (e.g. <tt class="docutils literal"><span class="pre">--disk</span> <span class="pre">1:adopt=...</span></tt>).</p>
 </div>
+<div class="section" id="instance-kernel-selection">
+<h3><a class="toc-backref" href="#id22">Instance kernel selection</a><a class="headerlink" href="#instance-kernel-selection" title="Permalink to this headline">¶</a></h3>
+<p>The kernel that instances uses to bootup can come either from the node,
+or from instances themselves, depending on the setup.</p>
+<div class="section" id="xen-pvm">
+<h4><a class="toc-backref" href="#id23">Xen-PVM</a><a class="headerlink" href="#xen-pvm" title="Permalink to this headline">¶</a></h4>
+<p>With Xen PVM, there are three options.</p>
+<p>First, you can use a kernel from the node, by setting the hypervisor
+parameters as such:</p>
+<ul class="simple">
+<li><tt class="docutils literal"><span class="pre">kernel_path</span></tt> to a valid file on the node (and appropriately
+<tt class="docutils literal"><span class="pre">initrd_path</span></tt>)</li>
+<li><tt class="docutils literal"><span class="pre">kernel_args</span></tt> optionally set to a valid Linux setting (e.g. <tt class="docutils literal"><span class="pre">ro</span></tt>)</li>
+<li><tt class="docutils literal"><span class="pre">root_path</span></tt> to a valid setting (e.g. <tt class="docutils literal"><span class="pre">/dev/xvda1</span></tt>)</li>
+<li><tt class="docutils literal"><span class="pre">bootloader_path</span></tt> and <tt class="docutils literal"><span class="pre">bootloader_args</span></tt> to empty</li>
+</ul>
+<p>Alternatively, you can delete the kernel management to instances, and
+use either <tt class="docutils literal"><span class="pre">pvgrub</span></tt> or the deprecated <tt class="docutils literal"><span class="pre">pygrub</span></tt>. For this, you must
+install the kernels and initrds in the instance, and create a valid grub
+v1 configuration file.</p>
+<p>For <tt class="docutils literal"><span class="pre">pvgrub</span></tt> (new in version 2.4.2), you need to set:</p>
+<ul class="simple">
+<li><tt class="docutils literal"><span class="pre">kernel_path</span></tt> to point to the <tt class="docutils literal"><span class="pre">pvgrub</span></tt> loader present on the node
+(e.g. <tt class="docutils literal"><span class="pre">/usr/lib/xen/boot/pv-grub-x86_32.gz</span></tt>)</li>
+<li><tt class="docutils literal"><span class="pre">kernel_args</span></tt> to the path to the grub config file, relative to the
+instance (e.g. <tt class="docutils literal"><span class="pre">(hd0,0)/grub/menu.lst</span></tt>)</li>
+<li><tt class="docutils literal"><span class="pre">root_path</span></tt> <strong>must</strong> be empty</li>
+<li><tt class="docutils literal"><span class="pre">bootloader_path</span></tt> and <tt class="docutils literal"><span class="pre">bootloader_args</span></tt> to empty</li>
+</ul>
+<p>While <tt class="docutils literal"><span class="pre">pygrub</span></tt> is deprecated, here is how you can configure it:</p>
+<ul class="simple">
+<li><tt class="docutils literal"><span class="pre">bootloader_path</span></tt> to the pygrub binary (e.g. <tt class="docutils literal"><span class="pre">/usr/bin/pygrub</span></tt>)</li>
+<li>the other settings are not important</li>
+</ul>
+<p>More information can be found in the Xen wiki pages for <a class="reference external" href="http://wiki.xensource.com/xenwiki/PvGrub">pvgrub</a> and <a class="reference external" href="http://wiki.xensource.com/xenwiki/PyGrub">pygrub</a>.</p>
+</div>
+<div class="section" id="kvm">
+<h4><a class="toc-backref" href="#id24">KVM</a><a class="headerlink" href="#kvm" title="Permalink to this headline">¶</a></h4>
+<p>For KVM also the kernel can be loaded either way.</p>
+<p>For loading the kernels from the node, you need to set:</p>
+<ul class="simple">
+<li><tt class="docutils literal"><span class="pre">kernel_path</span></tt> to a valid value</li>
+<li><tt class="docutils literal"><span class="pre">initrd_path</span></tt> optionally set if you use an initrd</li>
+<li><tt class="docutils literal"><span class="pre">kernel_args</span></tt> optionally set to a valid value (e.g. <tt class="docutils literal"><span class="pre">ro</span></tt>)</li>
+</ul>
+<p>If you want instead to have the instance boot from its disk (and execute
+its bootloader), simply set the <tt class="docutils literal"><span class="pre">kernel_path</span></tt> parameter to an empty
+string, and all the others will be ignored.</p>
+</div>
+</div>
 </div>
 <div class="section" id="instance-ha-features">
-<h2><a class="toc-backref" href="#id22">Instance HA features</a><a class="headerlink" href="#instance-ha-features" title="Permalink to this headline">¶</a></h2>
+<h2><a class="toc-backref" href="#id25">Instance HA features</a><a class="headerlink" href="#instance-ha-features" title="Permalink to this headline">¶</a></h2>
 <div class="admonition note">
 <p class="first admonition-title">Note</p>
 <p class="last">This section only applies to multi-node clusters</p>
 </div>
 <div class="section" id="changing-the-primary-node">
-<span id="instance-change-primary-label"></span><h3><a class="toc-backref" href="#id23">Changing the primary node</a><a class="headerlink" href="#changing-the-primary-node" title="Permalink to this headline">¶</a></h3>
+<span id="instance-change-primary-label"></span><h3><a class="toc-backref" href="#id26">Changing the primary node</a><a class="headerlink" href="#changing-the-primary-node" title="Permalink to this headline">¶</a></h3>
 <p>There are three ways to exchange an instance&#8217;s primary and secondary
 nodes; the right one to choose depends on how the instance has been
 created and the status of its current primary node. See
@@ -512,7 +567,7 @@ third node, while keeping the current secondary is not possible in a
 single step, only via multiple operations as detailed in
 <a class="reference internal" href="#instance-relocation-label"><em>Instance relocation</em></a>.</p>
 <div class="section" id="failing-over-an-instance">
-<h4><a class="toc-backref" href="#id24">Failing over an instance</a><a class="headerlink" href="#failing-over-an-instance" title="Permalink to this headline">¶</a></h4>
+<h4><a class="toc-backref" href="#id27">Failing over an instance</a><a class="headerlink" href="#failing-over-an-instance" title="Permalink to this headline">¶</a></h4>
 <p>If an instance is built in highly available mode you can at any time
 fail it over to its secondary node, even if the primary has somehow
 failed and it&#8217;s not up anymore. Doing it is really easy, on the master
@@ -524,7 +579,7 @@ node you can just run:</p>
 primary, and vice-versa.</p>
 </div>
 <div class="section" id="live-migrating-an-instance">
-<h4><a class="toc-backref" href="#id25">Live migrating an instance</a><a class="headerlink" href="#live-migrating-an-instance" title="Permalink to this headline">¶</a></h4>
+<h4><a class="toc-backref" href="#id28">Live migrating an instance</a><a class="headerlink" href="#live-migrating-an-instance" title="Permalink to this headline">¶</a></h4>
 <p>If an instance is built in highly available mode, it currently runs and
 both its nodes are running fine, you can at migrate it over to its
 secondary node, without downtime. On the master node you need to run:</p>
@@ -536,7 +591,7 @@ long the migration will take. In any case, for both KVM and Xen
 hypervisors, the migration will be transparent to the instance.</p>
 </div>
 <div class="section" id="moving-an-instance-offline">
-<h4><a class="toc-backref" href="#id26">Moving an instance (offline)</a><a class="headerlink" href="#moving-an-instance-offline" title="Permalink to this headline">¶</a></h4>
+<h4><a class="toc-backref" href="#id29">Moving an instance (offline)</a><a class="headerlink" href="#moving-an-instance-offline" title="Permalink to this headline">¶</a></h4>
 <p>If an instance has not been create as mirrored, then the only way to
 change its primary node is to execute the move command:</p>
 <div class="highlight-text"><div class="highlight"><pre>gnt-instance move -n NEW_NODE INSTANCE
@@ -554,13 +609,13 @@ disks and the speed of both the nodes&#8217; I/O system and their networking.</p
 </div>
 </div>
 <div class="section" id="disk-operations">
-<h3><a class="toc-backref" href="#id27">Disk operations</a><a class="headerlink" href="#disk-operations" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id30">Disk operations</a><a class="headerlink" href="#disk-operations" title="Permalink to this headline">¶</a></h3>
 <p>Disk failures are a common cause of errors in any server
 deployment. Ganeti offers protection from single-node failure if your
 instances were created in HA mode, and it also offers ways to restore
 redundancy after a failure.</p>
 <div class="section" id="preparing-for-disk-operations">
-<h4><a class="toc-backref" href="#id28">Preparing for disk operations</a><a class="headerlink" href="#preparing-for-disk-operations" title="Permalink to this headline">¶</a></h4>
+<h4><a class="toc-backref" href="#id31">Preparing for disk operations</a><a class="headerlink" href="#preparing-for-disk-operations" title="Permalink to this headline">¶</a></h4>
 <p>It is important to note that for Ganeti to be able to do any disk
 operation, the Linux machines on top of which Ganeti must be consistent;
 for LVM, this means that the LVM commands must not return failures; it
@@ -604,7 +659,7 @@ physical volumes should not longer be available for allocation.</p>
 these two operations, see <a class="reference internal" href="#storage-units-label"><em>Generalized storage handling</em></a>.</p>
 </div>
 <div class="section" id="restoring-redundancy-for-drbd-based-instances">
-<span id="rest-redundancy-label"></span><h4><a class="toc-backref" href="#id29">Restoring redundancy for DRBD-based instances</a><a class="headerlink" href="#restoring-redundancy-for-drbd-based-instances" title="Permalink to this headline">¶</a></h4>
+<span id="rest-redundancy-label"></span><h4><a class="toc-backref" href="#id32">Restoring redundancy for DRBD-based instances</a><a class="headerlink" href="#restoring-redundancy-for-drbd-based-instances" title="Permalink to this headline">¶</a></h4>
 <p>A DRBD instance has two nodes, and the storage on one of them has
 failed. Depending on which node (primary or secondary) has failed, you
 have three options at hand:</p>
@@ -636,7 +691,7 @@ size, node I/O system and network speed. But it is (baring any network
 interruption) completely transparent for the instance.</p>
 </div>
 <div class="section" id="re-creating-disks-for-non-redundant-instances">
-<h4><a class="toc-backref" href="#id30">Re-creating disks for non-redundant instances</a><a class="headerlink" href="#re-creating-disks-for-non-redundant-instances" title="Permalink to this headline">¶</a></h4>
+<h4><a class="toc-backref" href="#id33">Re-creating disks for non-redundant instances</a><a class="headerlink" href="#re-creating-disks-for-non-redundant-instances" title="Permalink to this headline">¶</a></h4>
 <p>
 <span class="versionmodified">New in version 2.1.</span></p>
 <p>For non-redundant instances, there isn&#8217;t a copy (except backups) to
@@ -649,7 +704,7 @@ command:</p>
 <p>Note that this will fail if the disks already exists.</p>
 </div>
 <div class="section" id="conversion-of-an-instance-s-disk-type">
-<h4><a class="toc-backref" href="#id31">Conversion of an instance&#8217;s disk type</a><a class="headerlink" href="#conversion-of-an-instance-s-disk-type" title="Permalink to this headline">¶</a></h4>
+<h4><a class="toc-backref" href="#id34">Conversion of an instance&#8217;s disk type</a><a class="headerlink" href="#conversion-of-an-instance-s-disk-type" title="Permalink to this headline">¶</a></h4>
 <p>It is possible to convert between a non-redundant instance of type
 <tt class="docutils literal"><span class="pre">plain</span></tt> (LVM storage) and redundant <tt class="docutils literal"><span class="pre">drbd</span></tt> via the <tt class="docutils literal"><span class="pre">gnt-instance</span>
 <span class="pre">modify</span></tt> command:</p>
@@ -676,9 +731,9 @@ instance has up-to-date backups.</p>
 </div>
 </div>
 <div class="section" id="debugging-instances">
-<h3><a class="toc-backref" href="#id32">Debugging instances</a><a class="headerlink" href="#debugging-instances" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id35">Debugging instances</a><a class="headerlink" href="#debugging-instances" title="Permalink to this headline">¶</a></h3>
 <div class="section" id="accessing-an-instance-s-disks">
-<h4><a class="toc-backref" href="#id33">Accessing an instance&#8217;s disks</a><a class="headerlink" href="#accessing-an-instance-s-disks" title="Permalink to this headline">¶</a></h4>
+<h4><a class="toc-backref" href="#id36">Accessing an instance&#8217;s disks</a><a class="headerlink" href="#accessing-an-instance-s-disks" title="Permalink to this headline">¶</a></h4>
 <p>From an instance&#8217;s primary node you can have access to its disks. Never
 ever mount the underlying logical volume manually on a fault tolerant
 instance, or will break replication and your data will be
@@ -716,7 +771,7 @@ the above command runs successfully before you start the instance,
 otherwise the instance will suffer corruption.</p>
 </div>
 <div class="section" id="accessing-an-instance-s-console">
-<h4><a class="toc-backref" href="#id34">Accessing an instance&#8217;s console</a><a class="headerlink" href="#accessing-an-instance-s-console" title="Permalink to this headline">¶</a></h4>
+<h4><a class="toc-backref" href="#id37">Accessing an instance&#8217;s console</a><a class="headerlink" href="#accessing-an-instance-s-console" title="Permalink to this headline">¶</a></h4>
 <p>The command to access a running instance&#8217;s console is:</p>
 <div class="highlight-text"><div class="highlight"><pre>gnt-instance console INSTANCE_NAME
 </pre></div>
@@ -725,9 +780,9 @@ otherwise the instance will suffer corruption.</p>
 </div>
 </div>
 <div class="section" id="other-instance-operations">
-<h3><a class="toc-backref" href="#id35">Other instance operations</a><a class="headerlink" href="#other-instance-operations" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id38">Other instance operations</a><a class="headerlink" href="#other-instance-operations" title="Permalink to this headline">¶</a></h3>
 <div class="section" id="reboot">
-<h4><a class="toc-backref" href="#id36">Reboot</a><a class="headerlink" href="#reboot" title="Permalink to this headline">¶</a></h4>
+<h4><a class="toc-backref" href="#id39">Reboot</a><a class="headerlink" href="#reboot" title="Permalink to this headline">¶</a></h4>
 <p>There is a wrapper command for rebooting instances:</p>
 <div class="highlight-text"><div class="highlight"><pre>gnt-instance reboot instance2
 </pre></div>
@@ -740,14 +795,14 @@ again the disks of the instance).</p>
 </div>
 </div>
 <div class="section" id="instance-os-definitions-debugging">
-<h3><a class="toc-backref" href="#id37">Instance OS definitions debugging</a><a class="headerlink" href="#instance-os-definitions-debugging" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id40">Instance OS definitions debugging</a><a class="headerlink" href="#instance-os-definitions-debugging" title="Permalink to this headline">¶</a></h3>
 <p>Should you have any problems with instance operating systems the command
 to see a complete status for all your nodes is:</p>
 <div class="highlight-text"><div class="highlight"><pre>gnt-os diagnose
 </pre></div>
 </div>
 <div class="section" id="instance-relocation">
-<span id="instance-relocation-label"></span><h4><a class="toc-backref" href="#id38">Instance relocation</a><a class="headerlink" href="#instance-relocation" title="Permalink to this headline">¶</a></h4>
+<span id="instance-relocation-label"></span><h4><a class="toc-backref" href="#id41">Instance relocation</a><a class="headerlink" href="#instance-relocation" title="Permalink to this headline">¶</a></h4>
 <p>While it is not possible to move an instance from nodes <tt class="docutils literal"><span class="pre">(A,</span> <span class="pre">B)</span></tt> to
 nodes <tt class="docutils literal"><span class="pre">(C,</span> <span class="pre">D)</span></tt> in a single move, it is possible to do so in a few
 steps:</p>
@@ -769,11 +824,11 @@ B).</p>
 </div>
 </div>
 <div class="section" id="node-operations">
-<h2><a class="toc-backref" href="#id39">Node operations</a><a class="headerlink" href="#node-operations" title="Permalink to this headline">¶</a></h2>
+<h2><a class="toc-backref" href="#id42">Node operations</a><a class="headerlink" href="#node-operations" title="Permalink to this headline">¶</a></h2>
 <p>There are much fewer node operations available than for instances, but
 they are equivalently important for maintaining a healthy cluster.</p>
 <div class="section" id="add-readd">
-<h3><a class="toc-backref" href="#id40">Add/readd</a><a class="headerlink" href="#add-readd" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id43">Add/readd</a><a class="headerlink" href="#add-readd" title="Permalink to this headline">¶</a></h3>
 <p>It is at any time possible to extend the cluster with one more node, by
 using the node add operation:</p>
 <div class="highlight-text"><div class="highlight"><pre>gnt-node add NEW_NODE
@@ -792,12 +847,12 @@ keeping its existing configuration in the cluster (primary/secondary IP,
 etc.), in other words you won&#8217;t need to use <tt class="docutils literal"><span class="pre">-s</span></tt> here.</p>
 </div>
 <div class="section" id="changing-the-node-role">
-<h3><a class="toc-backref" href="#id41">Changing the node role</a><a class="headerlink" href="#changing-the-node-role" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id44">Changing the node role</a><a class="headerlink" href="#changing-the-node-role" title="Permalink to this headline">¶</a></h3>
 <p>A node can be in different roles, as explained in the
 <a class="reference internal" href="#terminology-label"><em>Ganeti terminology</em></a> section. Promoting a node to the master role is
 special, while the other roles are handled all via a single command.</p>
 <div class="section" id="failing-over-the-master-node">
-<h4><a class="toc-backref" href="#id42">Failing over the master node</a><a class="headerlink" href="#failing-over-the-master-node" title="Permalink to this headline">¶</a></h4>
+<h4><a class="toc-backref" href="#id45">Failing over the master node</a><a class="headerlink" href="#failing-over-the-master-node" title="Permalink to this headline">¶</a></h4>
 <p>If you want to promote a different node to the master role (for whatever
 reason), run on any other master-candidate node the command:</p>
 <div class="highlight-text"><div class="highlight"><pre>gnt-cluster master-failover
@@ -808,7 +863,7 @@ this on a non master-candidate node, you will get an error telling you
 which nodes are valid.</p>
 </div>
 <div class="section" id="changing-between-the-other-roles">
-<h4><a class="toc-backref" href="#id43">Changing between the other roles</a><a class="headerlink" href="#changing-between-the-other-roles" title="Permalink to this headline">¶</a></h4>
+<h4><a class="toc-backref" href="#id46">Changing between the other roles</a><a class="headerlink" href="#changing-between-the-other-roles" title="Permalink to this headline">¶</a></h4>
 <p>The <tt class="docutils literal"><span class="pre">gnt-node</span> <span class="pre">modify</span></tt> command can be used to select a new role:</p>
 <div class="highlight-text"><div class="highlight"><pre># change to master candidate
 gnt-node modify -C yes NODE
@@ -828,7 +883,7 @@ master candidates in the cluster - see <a class="reference internal" href="#clus
 </div>
 </div>
 <div class="section" id="evacuating-nodes">
-<h3><a class="toc-backref" href="#id44">Evacuating nodes</a><a class="headerlink" href="#evacuating-nodes" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id47">Evacuating nodes</a><a class="headerlink" href="#evacuating-nodes" title="Permalink to this headline">¶</a></h3>
 <p>There are two steps of moving instances off a node:</p>
 <ul class="simple">
 <li>moving the primary instances (actually converting them into secondary
@@ -837,7 +892,7 @@ instances)</li>
 the step above)</li>
 </ul>
 <div class="section" id="primary-instance-conversion">
-<h4><a class="toc-backref" href="#id45">Primary instance conversion</a><a class="headerlink" href="#primary-instance-conversion" title="Permalink to this headline">¶</a></h4>
+<h4><a class="toc-backref" href="#id48">Primary instance conversion</a><a class="headerlink" href="#primary-instance-conversion" title="Permalink to this headline">¶</a></h4>
 <p>For this step, you can use either individual instance move
 commands (as seen in <a class="reference internal" href="#instance-change-primary-label"><em>Changing the primary node</em></a>) or the bulk
 per-node versions; these are:</p>
@@ -854,7 +909,7 @@ to change in one step the primary node to another node as primary, while
 keeping the same secondary node.</p>
 </div>
 <div class="section" id="secondary-instance-evacuation">
-<h4><a class="toc-backref" href="#id46">Secondary instance evacuation</a><a class="headerlink" href="#secondary-instance-evacuation" title="Permalink to this headline">¶</a></h4>
+<h4><a class="toc-backref" href="#id49">Secondary instance evacuation</a><a class="headerlink" href="#secondary-instance-evacuation" title="Permalink to this headline">¶</a></h4>
 <p>For the evacuation of secondary instances, a command called
 <strong>gnt-node evacuate</strong> is provided and its syntax is:</p>
 <div class="highlight-text"><div class="highlight"><pre>gnt-node evacuate -I IALLOCATOR_SCRIPT NODE
@@ -867,7 +922,7 @@ simply move all instances to DESTINATION_NODE.</p>
 </div>
 </div>
 <div class="section" id="id1">
-<h3><a class="toc-backref" href="#id47">Removal</a><a class="headerlink" href="#id1" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id50">Removal</a><a class="headerlink" href="#id1" title="Permalink to this headline">¶</a></h3>
 <p>Once a node no longer has any instances (neither primary nor secondary),
 it&#8217;s easy to remove it from the cluster:</p>
 <div class="highlight-text"><div class="highlight"><pre>gnt-node remove NODE_NAME
@@ -877,13 +932,13 @@ it&#8217;s easy to remove it from the cluster:</p>
 it hopefully like before it joined to the cluster.</p>
 </div>
 <div class="section" id="storage-handling">
-<h3><a class="toc-backref" href="#id48">Storage handling</a><a class="headerlink" href="#storage-handling" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id51">Storage handling</a><a class="headerlink" href="#storage-handling" title="Permalink to this headline">¶</a></h3>
 <p>When using LVM (either standalone or with DRBD), it can become tedious
 to debug and fix it in case of errors. Furthermore, even file-based
 storage can become complicated to handle manually on many hosts. Ganeti
 provides a couple of commands to help with automation.</p>
 <div class="section" id="logical-volumes">
-<h4><a class="toc-backref" href="#id49">Logical volumes</a><a class="headerlink" href="#logical-volumes" title="Permalink to this headline">¶</a></h4>
+<h4><a class="toc-backref" href="#id52">Logical volumes</a><a class="headerlink" href="#logical-volumes" title="Permalink to this headline">¶</a></h4>
 <p>This is a command specific to LVM handling. It allows listing the
 logical volumes on a given node or on all nodes and their association to
 instances via the <tt class="docutils literal"><span class="pre">volumes</span></tt> command:</p>
@@ -900,7 +955,7 @@ node2 /dev/sdb1 xenvg f0fac192-….disk0 512M instance18
 underlying physical volume and (possibly) to an instance.</p>
 </div>
 <div class="section" id="generalized-storage-handling">
-<span id="storage-units-label"></span><h4><a class="toc-backref" href="#id50">Generalized storage handling</a><a class="headerlink" href="#generalized-storage-handling" title="Permalink to this headline">¶</a></h4>
+<span id="storage-units-label"></span><h4><a class="toc-backref" href="#id53">Generalized storage handling</a><a class="headerlink" href="#generalized-storage-handling" title="Permalink to this headline">¶</a></h4>
 <p>
 <span class="versionmodified">New in version 2.1.</span></p>
 <p>Starting with Ganeti 2.1, a new storage framework has been implemented
@@ -937,7 +992,7 @@ implemented for LVM physical volumes and allows toggling the
 </div>
 </div>
 <div class="section" id="use-of-the-storage-commands">
-<h4><a class="toc-backref" href="#id51">Use of the storage commands</a><a class="headerlink" href="#use-of-the-storage-commands" title="Permalink to this headline">¶</a></h4>
+<h4><a class="toc-backref" href="#id54">Use of the storage commands</a><a class="headerlink" href="#use-of-the-storage-commands" title="Permalink to this headline">¶</a></h4>
 <p>All these commands are needed when recovering a node from a disk
 failure:</p>
 <ul class="simple">
@@ -952,13 +1007,13 @@ disk), by running the <tt class="docutils literal"><span class="pre">repair-stor
 </div>
 </div>
 <div class="section" id="cluster-operations">
-<h2><a class="toc-backref" href="#id52">Cluster operations</a><a class="headerlink" href="#cluster-operations" title="Permalink to this headline">¶</a></h2>
+<h2><a class="toc-backref" href="#id55">Cluster operations</a><a class="headerlink" href="#cluster-operations" title="Permalink to this headline">¶</a></h2>
 <p>Beside the cluster initialisation command (which is detailed in the
 <a class="reference external" href="install.html"><em>Ganeti installation tutorial</em></a> document) and the master failover command which is
 explained under node handling, there are a couple of other cluster
 operations available.</p>
 <div class="section" id="standard-operations">
-<span id="cluster-config-label"></span><h3><a class="toc-backref" href="#id53">Standard operations</a><a class="headerlink" href="#standard-operations" title="Permalink to this headline">¶</a></h3>
+<span id="cluster-config-label"></span><h3><a class="toc-backref" href="#id56">Standard operations</a><a class="headerlink" href="#standard-operations" title="Permalink to this headline">¶</a></h3>
 <p>One of the few commands that can be run on any node (not only the
 master) is the <tt class="docutils literal"><span class="pre">getmaster</span></tt> command:</p>
 <div class="highlight-text"><div class="highlight"><pre>node2# gnt-cluster getmaster
@@ -1019,7 +1074,7 @@ Export interface: 0</dd>
 <p>This is not very useful except when debugging Ganeti.</p>
 </div>
 <div class="section" id="global-node-commands">
-<h3><a class="toc-backref" href="#id54">Global node commands</a><a class="headerlink" href="#global-node-commands" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id57">Global node commands</a><a class="headerlink" href="#global-node-commands" title="Permalink to this headline">¶</a></h3>
 <p>There are two commands provided for replicating files to all nodes of a
 cluster and for running commands on all the nodes:</p>
 <div class="highlight-text"><div class="highlight"><pre>node1# gnt-cluster copyfile /path/to/file
@@ -1031,7 +1086,7 @@ obtained using <em>dsh(1)</em> and similar commands. But they are
 useful to update an OS script from the master node, for example.</p>
 </div>
 <div class="section" id="cluster-verification">
-<h3><a class="toc-backref" href="#id55">Cluster verification</a><a class="headerlink" href="#cluster-verification" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id58">Cluster verification</a><a class="headerlink" href="#cluster-verification" title="Permalink to this headline">¶</a></h3>
 <p>There are three commands that relate to global cluster checks. The first
 one is <tt class="docutils literal"><span class="pre">verify</span></tt> which gives an overview on the cluster state,
 highlighting any issues. In normal operation, this command should return
@@ -1069,7 +1124,7 @@ returned invalid data, and thus we ignored all primary instances of that
 node.</p>
 </div>
 <div class="section" id="configuration-redistribution">
-<h3><a class="toc-backref" href="#id56">Configuration redistribution</a><a class="headerlink" href="#configuration-redistribution" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id59">Configuration redistribution</a><a class="headerlink" href="#configuration-redistribution" title="Permalink to this headline">¶</a></h3>
 <p>If the verify command complains about file mismatches between the master
 and other nodes, due to some node problems or if you manually modified
 configuration files, you can force an push of the master configuration
@@ -1082,7 +1137,7 @@ node1#
 the other nodes.</p>
 </div>
 <div class="section" id="cluster-renaming">
-<h3><a class="toc-backref" href="#id57">Cluster renaming</a><a class="headerlink" href="#cluster-renaming" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id60">Cluster renaming</a><a class="headerlink" href="#cluster-renaming" title="Permalink to this headline">¶</a></h3>
 <p>It is possible to rename a cluster, or to change its IP address, via the
 <tt class="docutils literal"><span class="pre">rename</span></tt> command. If only the IP has changed, you need to pass the
 current name and Ganeti will realise its IP has changed:</p>
@@ -1100,7 +1155,7 @@ Neither the name nor the IP address of the cluster has changed
 initialisation so the operation is not completed.</p>
 </div>
 <div class="section" id="queue-operations">
-<h3><a class="toc-backref" href="#id58">Queue operations</a><a class="headerlink" href="#queue-operations" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id61">Queue operations</a><a class="headerlink" href="#queue-operations" title="Permalink to this headline">¶</a></h3>
 <p>The job queue execution in Ganeti 2.0 and higher can be inspected,
 suspended and resumed via the <tt class="docutils literal"><span class="pre">queue</span></tt> command:</p>
 <div class="highlight-text"><div class="highlight"><pre>node1~# gnt-cluster queue info
@@ -1128,7 +1183,7 @@ failover the master, it will not have effect on the new master.</p>
 </div>
 </div>
 <div class="section" id="watcher-control">
-<h3><a class="toc-backref" href="#id59">Watcher control</a><a class="headerlink" href="#watcher-control" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id62">Watcher control</a><a class="headerlink" href="#watcher-control" title="Permalink to this headline">¶</a></h3>
 <p>The <em>ganeti-watcher</em> is a program, usually scheduled via
 <tt class="docutils literal"><span class="pre">cron</span></tt>, that takes care of cluster maintenance operations (restarting
 downed instances, activating down DRBD disks, etc.). However, during
@@ -1164,7 +1219,7 @@ failover the master, it will not have effect on the new master.</p>
 </div>
 </div>
 <div class="section" id="node-auto-maintenance">
-<h3><a class="toc-backref" href="#id60">Node auto-maintenance</a><a class="headerlink" href="#node-auto-maintenance" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id63">Node auto-maintenance</a><a class="headerlink" href="#node-auto-maintenance" title="Permalink to this headline">¶</a></h3>
 <p>If the cluster parameter <tt class="docutils literal"><span class="pre">maintain_node_health</span></tt> is enabled (see the
 manpage for <strong>gnt-cluster</strong>, the init and modify subcommands),
 then the following will happen automatically:</p>
@@ -1177,7 +1232,7 @@ if the nodes are completely dedicated to Ganeti; otherwise it might be
 possible to lose data due to auto-maintenance actions.</p>
 </div>
 <div class="section" id="removing-a-cluster-entirely">
-<h3><a class="toc-backref" href="#id61">Removing a cluster entirely</a><a class="headerlink" href="#removing-a-cluster-entirely" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id64">Removing a cluster entirely</a><a class="headerlink" href="#removing-a-cluster-entirely" title="Permalink to this headline">¶</a></h3>
 <p>The usual method to cleanup a cluster is to run <tt class="docutils literal"><span class="pre">gnt-cluster</span> <span class="pre">destroy</span></tt>
 however if the Ganeti installation is broken in any way then this will
 not run.</p>
@@ -1232,18 +1287,18 @@ and rerun <tt class="docutils literal"><span class="pre">gnt-cluster</span> <spa
 </div>
 </div>
 <div class="section" id="tags-handling">
-<h2><a class="toc-backref" href="#id62">Tags handling</a><a class="headerlink" href="#tags-handling" title="Permalink to this headline">¶</a></h2>
+<h2><a class="toc-backref" href="#id65">Tags handling</a><a class="headerlink" href="#tags-handling" title="Permalink to this headline">¶</a></h2>
 <p>The tags handling (addition, removal, listing) is similar for all the
 objects that support it (instances, nodes, and the cluster).</p>
 <div class="section" id="limitations">
-<h3><a class="toc-backref" href="#id63">Limitations</a><a class="headerlink" href="#limitations" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id66">Limitations</a><a class="headerlink" href="#limitations" title="Permalink to this headline">¶</a></h3>
 <p>Note that the set of characters present in a tag and the maximum tag
 length are restricted. Currently the maximum length is 128 characters,
 there can be at most 4096 tags per object, and the set of characters is
 comprised by alphanumeric characters and additionally <tt class="docutils literal"><span class="pre">.+*/:&#64;-</span></tt>.</p>
 </div>
 <div class="section" id="operations">
-<h3><a class="toc-backref" href="#id64">Operations</a><a class="headerlink" href="#operations" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id67">Operations</a><a class="headerlink" href="#operations" title="Permalink to this headline">¶</a></h3>
 <p>Tags can be added via <tt class="docutils literal"><span class="pre">add-tags</span></tt>:</p>
 <div class="highlight-text"><div class="highlight"><pre>gnt-instance add-tags INSTANCE a b c
 gnt-node add-tags INSTANCE a b c
@@ -1268,7 +1323,7 @@ gnt-cluster list-tags
 </div>
 </div>
 <div class="section" id="global-tag-search">
-<h3><a class="toc-backref" href="#id65">Global tag search</a><a class="headerlink" href="#global-tag-search" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id68">Global tag search</a><a class="headerlink" href="#global-tag-search" title="Permalink to this headline">¶</a></h3>
 <p>It is also possible to execute a global search on the all tags defined
 in the cluster configuration, via a cluster command:</p>
 <div class="highlight-text"><div class="highlight"><pre>gnt-cluster search-tags REGEXP
@@ -1286,7 +1341,7 @@ hierarchical kind of way):</p>
 </div>
 </div>
 <div class="section" id="job-operations">
-<h2><a class="toc-backref" href="#id66">Job operations</a><a class="headerlink" href="#job-operations" title="Permalink to this headline">¶</a></h2>
+<h2><a class="toc-backref" href="#id69">Job operations</a><a class="headerlink" href="#job-operations" title="Permalink to this headline">¶</a></h2>
 <p>The various jobs submitted by the instance/node/cluster commands can be
 examined, canceled and archived by various invocations of the
 <tt class="docutils literal"><span class="pre">gnt-job</span></tt> command.</p>
@@ -1366,11 +1421,11 @@ top-level queue directory, or look at its contents (it&#8217;s a
 JSON-formatted file).</p>
 </div>
 <div class="section" id="special-ganeti-deployments">
-<h2><a class="toc-backref" href="#id67">Special Ganeti deployments</a><a class="headerlink" href="#special-ganeti-deployments" title="Permalink to this headline">¶</a></h2>
+<h2><a class="toc-backref" href="#id70">Special Ganeti deployments</a><a class="headerlink" href="#special-ganeti-deployments" title="Permalink to this headline">¶</a></h2>
 <p>Since Ganeti 2.4, it is possible to extend the Ganeti deployment with
 two custom scenarios: Ganeti inside Ganeti and multi-site model.</p>
 <div class="section" id="running-ganeti-under-ganeti">
-<h3><a class="toc-backref" href="#id68">Running Ganeti under Ganeti</a><a class="headerlink" href="#running-ganeti-under-ganeti" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id71">Running Ganeti under Ganeti</a><a class="headerlink" href="#running-ganeti-under-ganeti" title="Permalink to this headline">¶</a></h3>
 <p>It is sometimes useful to be able to use a Ganeti instance as a Ganeti
 node (part of another cluster, usually). One example scenario is two
 small clusters, where we want to have an additional master candidate
@@ -1397,7 +1452,7 @@ disk-related operations, etc. Basically they will just keep the ssconf
 files, and if master candidates the full configuration.</p>
 </div>
 <div class="section" id="multi-site-model">
-<h3><a class="toc-backref" href="#id69">Multi-site model</a><a class="headerlink" href="#multi-site-model" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id72">Multi-site model</a><a class="headerlink" href="#multi-site-model" title="Permalink to this headline">¶</a></h3>
 <p>If Ganeti is deployed in multi-site model, with each site being a node
 group (so that instances are not relocated across the WAN by mistake),
 it is conceivable that either the WAN latency is high or that some sites
@@ -1434,13 +1489,13 @@ but not master_capable).</p>
 </div>
 </div>
 <div class="section" id="ganeti-tools">
-<h2><a class="toc-backref" href="#id70">Ganeti tools</a><a class="headerlink" href="#ganeti-tools" title="Permalink to this headline">¶</a></h2>
+<h2><a class="toc-backref" href="#id73">Ganeti tools</a><a class="headerlink" href="#ganeti-tools" title="Permalink to this headline">¶</a></h2>
 <p>Beside the usual <tt class="docutils literal"><span class="pre">gnt-</span></tt> and <tt class="docutils literal"><span class="pre">ganeti-</span></tt> commands which are provided
 and installed in <tt class="docutils literal"><span class="pre">$prefix/sbin</span></tt> at install time, there are a couple of
 other tools installed which are used seldom but can be helpful in some
 cases.</p>
 <div class="section" id="lvmstrap">
-<h3><a class="toc-backref" href="#id71">lvmstrap</a><a class="headerlink" href="#lvmstrap" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id74">lvmstrap</a><a class="headerlink" href="#lvmstrap" title="Permalink to this headline">¶</a></h3>
 <p>The <tt class="docutils literal"><span class="pre">lvmstrap</span></tt> tool, introduced in <a class="reference external" href="install.html#configure-lvm-label"><em>Configuring LVM</em></a> section,
 has two modes of operation:</p>
 <ul class="simple">
@@ -1454,7 +1509,7 @@ of them</li>
 </div>
 </div>
 <div class="section" id="cfgupgrade">
-<h3><a class="toc-backref" href="#id72">cfgupgrade</a><a class="headerlink" href="#cfgupgrade" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id75">cfgupgrade</a><a class="headerlink" href="#cfgupgrade" title="Permalink to this headline">¶</a></h3>
 <p>The <tt class="docutils literal"><span class="pre">cfgupgrade</span></tt> tools is used to upgrade between major (and minor)
 Ganeti versions. Point-releases are usually transparent for the admin.</p>
 <p>More information about the upgrade procedure is listed on the wiki at
@@ -1463,7 +1518,7 @@ Ganeti versions. Point-releases are usually transparent for the admin.</p>
 called <tt class="docutils literal"><span class="pre">cfgupgrade12</span></tt>.</p>
 </div>
 <div class="section" id="cfgshell">
-<h3><a class="toc-backref" href="#id73">cfgshell</a><a class="headerlink" href="#cfgshell" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id76">cfgshell</a><a class="headerlink" href="#cfgshell" title="Permalink to this headline">¶</a></h3>
 <div class="admonition note">
 <p class="first admonition-title">Note</p>
 <p class="last">This command is not actively maintained; make sure you backup
@@ -1475,7 +1530,7 @@ example, from removing an instance or a node from the configuration
 file.</p>
 </div>
 <div class="section" id="burnin">
-<span id="burnin-label"></span><h3><a class="toc-backref" href="#id74">burnin</a><a class="headerlink" href="#burnin" title="Permalink to this headline">¶</a></h3>
+<span id="burnin-label"></span><h3><a class="toc-backref" href="#id77">burnin</a><a class="headerlink" href="#burnin" title="Permalink to this headline">¶</a></h3>
 <div class="admonition warning">
 <p class="first admonition-title">Warning</p>
 <p class="last">This command will erase existing instances if given as
@@ -1508,7 +1563,7 @@ instance OS definitions are executing properly the rename, import and
 export operations.</p>
 </div>
 <div class="section" id="sanitize-config">
-<h3><a class="toc-backref" href="#id75">sanitize-config</a><a class="headerlink" href="#sanitize-config" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id78">sanitize-config</a><a class="headerlink" href="#sanitize-config" title="Permalink to this headline">¶</a></h3>
 <p>This tool takes the Ganeti configuration and outputs a &#8220;sanitized&#8221;
 version, by randomizing or clearing:</p>
 <ul class="simple">
@@ -1528,18 +1583,18 @@ recreated from it and if the instance disks have not been lost it
 permits recovery from the loss of all master candidates.</p>
 </div>
 <div class="section" id="move-instance">
-<h3><a class="toc-backref" href="#id76">move-instance</a><a class="headerlink" href="#move-instance" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id79">move-instance</a><a class="headerlink" href="#move-instance" title="Permalink to this headline">¶</a></h3>
 <p>See <a class="reference external" href="move-instance.html"><em>separate documentation for move-instance</em></a>.</p>
 </div>
 </div>
 <div class="section" id="other-ganeti-projects">
-<h2><a class="toc-backref" href="#id77">Other Ganeti projects</a><a class="headerlink" href="#other-ganeti-projects" title="Permalink to this headline">¶</a></h2>
+<h2><a class="toc-backref" href="#id80">Other Ganeti projects</a><a class="headerlink" href="#other-ganeti-projects" title="Permalink to this headline">¶</a></h2>
 <p>There are two other Ganeti-related projects that can be useful in a
 Ganeti deployment. These can be downloaded from the project site
 (<a class="reference external" href="http://code.google.com/p/ganeti/">http://code.google.com/p/ganeti/</a>) and the repositories are also on the
 project git site (<a class="reference external" href="http://git.ganeti.org">http://git.ganeti.org</a>).</p>
 <div class="section" id="nbma-tools">
-<h3><a class="toc-backref" href="#id78">NBMA tools</a><a class="headerlink" href="#nbma-tools" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id81">NBMA tools</a><a class="headerlink" href="#nbma-tools" title="Permalink to this headline">¶</a></h3>
 <p>The <tt class="docutils literal"><span class="pre">ganeti-nbma</span></tt> software is designed to allow instances to live on a
 separate, virtual network from the nodes, and in an environment where
 nodes are not guaranteed to be able to reach each other via multicasting
@@ -1547,7 +1602,7 @@ or broadcasting. For more information see the README in the source
 archive.</p>
 </div>
 <div class="section" id="ganeti-htools">
-<h3><a class="toc-backref" href="#id79">ganeti-htools</a><a class="headerlink" href="#ganeti-htools" title="Permalink to this headline">¶</a></h3>
+<h3><a class="toc-backref" href="#id82">ganeti-htools</a><a class="headerlink" href="#ganeti-htools" title="Permalink to this headline">¶</a></h3>
 <p>The <tt class="docutils literal"><span class="pre">ganeti-htools</span></tt> software consists of a set of tools:</p>
 <ul class="simple">
 <li><tt class="docutils literal"><span class="pre">hail</span></tt>: an advanced iallocator script compared to Ganeti&#8217;s builtin
@@ -1597,6 +1652,11 @@ in the source archive.</p>
 </li>
 <li><a class="reference external" href="#export-import">Export/Import</a></li>
 <li><a class="reference external" href="#import-of-foreign-instances">Import of foreign instances</a></li>
+<li><a class="reference external" href="#instance-kernel-selection">Instance kernel selection</a><ul>
+<li><a class="reference external" href="#xen-pvm">Xen-PVM</a></li>
+<li><a class="reference external" href="#kvm">KVM</a></li>
+</ul>
+</li>
 </ul>
 </li>
 <li><a class="reference external" href="#instance-ha-features">Instance HA features</a><ul>
@@ -1728,7 +1788,7 @@ in the source archive.</p>
         <li class="right" >
           <a href="upgrade.html" title="Upgrade notes"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.4.1 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.4.2 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

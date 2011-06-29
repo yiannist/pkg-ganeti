@@ -43,7 +43,7 @@
       ><strong
 	>add</strong
 	><br
-	 />{-t {diskless | file | plain | drbd}}<br
+	 />{-t|--disk-template {diskless | file | plain | drbd}}<br
 	 />{--disk=<em
 	>N</em
 	>: {size=<em
@@ -52,25 +52,27 @@
 	>LV</em
 	>}[,vg=<em
 	>VG</em
+	>][,metavg=<em
+	>VG</em
 	>][,mode=<em
 	>ro|rw</em
 	>]<br
-	 /> | -s <em
+	 /> | {-s|--os-size} <em
 	>SIZE</em
 	>}<br
 	 />[--no-ip-check] [--no-name-check] [--no-start] [--no-install]<br
 	 />[--net=<em
 	>N</em
 	> [:options...] | --no-nics]<br
-	 />[-B <em
+	 />[{-B|--backend-parameters} <em
 	>BEPARAMS</em
 	>]<br
-	 />[-H <em
+	 />[{-H|--hypervisor-parameters} <em
 	>HYPERVISOR</em
 	> [: option=<em
 	>value</em
 	>... ]]<br
-	 />[-O, --os-parameters <em
+	 />[{-O|--os-parameters} <em
 	>param</em
 	>=<em
 	>value</em
@@ -78,12 +80,12 @@
 	 />[--file-storage-dir <em
 	>dir_path</em
 	>] [--file-driver {loop | blktap}]<br
-	 />{-n <em
+	 />{{-n|--node} <em
 	>node[:secondary-node]</em
-	> | --iallocator <em
+	> | {-I|--iallocator} <em
 	>name</em
 	>}<br
-	 />{-o <em
+	 />{{-o|--os-type} <em
 	>os-type</em
 	>}<br
 	 />[--submit]<br
@@ -97,7 +99,11 @@
       ><p
       >The <code
 	>disk</code
-	> option specifies the parameters for the disks of the instance. The numbering of disks starts at zero, and at least one disk needs to be passed. For each disk, either the size or the adoption source needs to be given, and optionally the access mode (read-only or the default of read-write) and LVM volume group can also be specified. The size is interpreted (when no unit is given) in mebibytes. You can also use one of the suffixes <em
+	> option specifies the parameters for the disks of the instance. The numbering of disks starts at zero, and at least one disk needs to be passed. For each disk, either the size or the adoption source needs to be given, and optionally the access mode (read-only or the default of read-write) and the LVM volume group can also be specified (via the <code
+	>vg</code
+	> key). For DRBD devices, a different VG can be specified for the metadata device using the <code
+	>metavg</code
+	> key. The size is interpreted (when no unit is given) in mebibytes. You can also use one of the suffixes <em
 	>m</em
 	>, <em
 	>g</em
@@ -174,15 +180,15 @@
 	> option.</p
       ><p
       >The <code
-	>-o</code
-	> options specifies the operating system to be installed. The available operating systems can be listed with <strong
+	>-o (--os-type)</code
+	> option specifies the operating system to be installed. The available operating systems can be listed with <strong
 	>gnt-os list</strong
 	>. Passing <code
 	>--no-install</code
 	> will however skip the OS installation, allowing a manual import if so desired. Note that the no-installation mode will automatically disable the start-up of the instance (without an OS, it most likely won't be able to start-up successfully).</p
       ><p
       >The <code
-	>-B</code
+	>-B (--backend-parameters)</code
 	> option specifies the backend parameters for the instance. If no such parameters are specified, the values are inherited from the cluster. Possible parameters are:</p
       ><dl
       ><dt
@@ -206,7 +212,7 @@
 	></dl
       ><p
       >The <code
-	>-H</code
+	>-H (--hypervisor-parameters)</code
 	> option specified the hypervisor to use for the instance (must be one of the enabled hypervisors on the cluster) and optionally custom parameters for this instance. If not other options are used (i.e. the invocation is just -H <em
 	>NAME</em
 	>) the instance will inherit the cluster options. The defaults below show the cluster defaults at cluster creation time.</p
@@ -251,7 +257,7 @@
 	  ><p
 	  >The default is not to set an HVM boot order which is interpreted as 'dc'.</p
 	  ><p
-	  >For KVM the boot order is either &quot;cdrom&quot;, &quot;disk&quot; or &quot;network&quot;. Please note that older versions of KVM couldn't netboot from virtio interfaces. This has been fixed in more recent versions and is confirmed to work at least with qemu-kvm 0.11.1.</p
+	  >For KVM the boot order is either &quot;floppy&quot;, &quot;cdrom&quot;, &quot;disk&quot; or &quot;network&quot;. Please note that older versions of KVM couldn't netboot from virtio interfaces. This has been fixed in more recent versions and is confirmed to work at least with qemu-kvm 0.11.1.</p
 	  ></dd
 	><dt
 	>blockdev_prefix</dt
@@ -262,6 +268,14 @@
 	  >Relevant to nonpvops guest kernels, in which the disk device names are given by the host. Allows to specify 'xvd', which helps run Red Hat based installers, driven by anaconda.</p
 	  ></dd
 	><dt
+	>floppy_image_path</dt
+	><dd
+	><p
+	  >Valid for the KVM hypervisor.</p
+	  ><p
+	  >The path to a floppy disk image to attach to the instance. This is useful to install Windows operating systems on Virt/IO disks because you can specify here the floppy for the drivers at installation time.</p
+	  ></dd
+	><dt
 	>cdrom_image_path</dt
 	><dd
 	><p
@@ -270,14 +284,42 @@
 	  >The path to a CDROM image to attach to the instance.</p
 	  ></dd
 	><dt
+	>cdrom2_image_path</dt
+	><dd
+	><p
+	  >Valid for the KVM hypervisor.</p
+	  ><p
+	  >The path to a second CDROM image to attach to the instance. <strong
+	    >NOTE</strong
+	    >: This image can't be used to boot the system. To do that you have to use the 'cdrom_image_path' option.</p
+	  ></dd
+	><dt
 	>nic_type</dt
 	><dd
 	><p
 	  >Valid for the Xen HVM and KVM hypervisors.</p
 	  ><p
 	  >This parameter determines the way the network cards are presented to the instance. The possible options are:</p
-	  ><p
-	  >rtl8139 (default for Xen HVM) (HVM &amp; KVM) ne2k_isa (HVM &amp; KVM) ne2k_pci (HVM &amp; KVM) i82551 (KVM) i82557b (KVM) i82559er (KVM) pcnet (KVM) e1000 (KVM) paravirtual (default for KVM) (HVM &amp; KVM)</p
+	  ><ul
+	  ><li
+	    >rtl8139 (default for Xen HVM) (HVM &amp; KVM)</li
+	    ><li
+	    >ne2k_isa (HVM &amp; KVM)</li
+	    ><li
+	    >ne2k_pci (HVM &amp; KVM)</li
+	    ><li
+	    >i82551 (KVM)</li
+	    ><li
+	    >i82557b (KVM)</li
+	    ><li
+	    >i82559er (KVM)</li
+	    ><li
+	    >pcnet (KVM)</li
+	    ><li
+	    >e1000 (KVM)</li
+	    ><li
+	    >paravirtual (default for KVM) (HVM &amp; KVM)</li
+	    ></ul
 	  ></dd
 	><dt
 	>disk_type</dt
@@ -286,8 +328,42 @@
 	  >Valid for the Xen HVM and KVM hypervisors.</p
 	  ><p
 	  >This parameter determines the way the disks are presented to the instance. The possible options are:</p
+	  ><ul
+	  ><li
+	    >ioemu [default] (HVM &amp; KVM)</li
+	    ><li
+	    >ide (HVM &amp; KVM)</li
+	    ><li
+	    >scsi (KVM)</li
+	    ><li
+	    >sd (KVM)</li
+	    ><li
+	    >mtd (KVM)</li
+	    ><li
+	    >pflash (KVM)</li
+	    ></ul
+	  ></dd
+	><dt
+	>cdrom_disk_type</dt
+	><dd
+	><p
+	  >Valid for the KVM hypervisor.</p
 	  ><p
-	  >ioemu (default for HVM &amp; KVM) (HVM &amp; KVM) ide (HVM &amp; KVM) scsi (KVM) sd (KVM) mtd (KVM) pflash (KVM)</p
+	  >This parameter determines the way the cdroms disks are presented to the instance. The default behavior is to get the same value of the eariler parameter (disk_type). The possible options are:</p
+	  ><ul
+	  ><li
+	    >paravirtual</li
+	    ><li
+	    >ide</li
+	    ><li
+	    >scsi</li
+	    ><li
+	    >sd</li
+	    ><li
+	    >mtd</li
+	    ><li
+	    >pflash</li
+	    ></ul
 	  ></dd
 	><dt
 	>vnc_bind_address</dt
@@ -386,6 +462,8 @@
 	  >This options specifies the name of the root device. This is always needed for Xen PVM, while for KVM it is only used if the <code
 	    >kernel_path</code
 	    > option is also specified.</p
+	  ><p
+	  >Please note, that if this setting is an empty string and the hypervisor is Xen it will not be written to the Xen configuration file</p
 	  ></dd
 	><dt
 	>serial_console</dt
@@ -409,11 +487,23 @@
 	><p
 	  >Valid for the KVM hypervisor.</p
 	  ><p
-	  >The security model for kvm. Currently one of &quot;none&quot;, &quot;user&quot; or &quot;pool&quot;. Under &quot;none&quot;, the default, nothing is done and instances are run as the Ganeti daemon user (normally root).</p
+	  >The security model for kvm. Currently one of <em
+	    >none</em
+	    >, <em
+	    >user</em
+	    > or <em
+	    >pool</em
+	    >. Under <em
+	    >none</em
+	    >, the default, nothing is done and instances are run as the Ganeti daemon user (normally root).</p
 	  ><p
-	  >Under &quot;user&quot; kvm will drop privileges and become the user specified by the security_domain parameter.</p
+	  >Under <em
+	    >user</em
+	    > kvm will drop privileges and become the user specified by the security_domain parameter.</p
 	  ><p
-	  >Under &quot;pool&quot; a global cluster pool of users will be used, making sure no two instances share the same user on the same node. (this mode is not implemented yet)</p
+	  >Under <em
+	    >pool</em
+	    > a global cluster pool of users will be used, making sure no two instances share the same user on the same node. (this mode is not implemented yet)</p
 	  ></dd
 	><dt
 	>security_domain</dt
@@ -421,9 +511,15 @@
 	><p
 	  >Valid for the KVM hypervisor.</p
 	  ><p
-	  >Under security model &quot;user&quot; the username to run the instance under. It must be a valid username existing on the host.</p
+	  >Under security model <em
+	    >user</em
+	    > the username to run the instance under. It must be a valid username existing on the host.</p
 	  ><p
-	  >Cannot be set under security model &quot;none&quot; or &quot;pool&quot;.</p
+	  >Cannot be set under security model <em
+	    >none</em
+	    > or <em
+	    >pool</em
+	    >.</p
 	  ></dd
 	><dt
 	>kvm_flag</dt
@@ -431,7 +527,11 @@
 	><p
 	  >Valid for the KVM hypervisor.</p
 	  ><p
-	  >If &quot;enabled&quot; the -enable-kvm flag is passed to kvm. If &quot;disabled&quot; -disable-kvm is passed. If unset no flag is passed, and the default running mode for your kvm binary will be used.</p
+	  >If <em
+	    >enabled</em
+	    > the -enable-kvm flag is passed to kvm. If <em
+	    >disabled</em
+	    > -disable-kvm is passed. If unset no flag is passed, and the default running mode for your kvm binary will be used.</p
 	  ></dd
 	><dt
 	>mem_path</dt
@@ -488,10 +588,8 @@
 	></dl
       ><p
       >The <code
-	>-O</code
-	> (<code
-	>--os-parameters</code
-	>) option allows customisation of the OS parameters. The actual parameter names and values depends on the OS being used, but the syntax is the same key=value. For example, setting a hypothetical <code
+	>-O (--os-parameters)</code
+	> option allows customisation of the OS parameters. The actual parameter names and values depends on the OS being used, but the syntax is the same key=value. For example, setting a hypothetical <code
 	>dhcp</code
 	> parameter to yes can be achieved by:</p
       ><pre
@@ -501,13 +599,13 @@
 	></pre
       ><p
       >The <code
-	>--iallocator</code
+	>-I (--iallocator)</code
 	> option specifies the instance allocator plugin to use. If you pass in this option the allocator will select nodes for this instance automatically, so you don't need to pass them with the <code
 	>-n</code
 	> option. For more information please refer to the instance allocator documentation.</p
       ><p
       >The <code
-	>-t</code
+	>-t (--disk-template)</code
 	> options specifies the disk layout type for the instance. The available choices are:</p
       ><dl
       ><dt
@@ -537,7 +635,7 @@
 	></dl
       ><p
       >The optional second value of the <code
-	>--node</code
+	>-n (--node)</code
 	> is used for the drbd template type and specifies the remote node.</p
       ><p
       >If you do not want gnt-instance to wait for the disk mirror to be synced, use the <code
@@ -773,7 +871,7 @@ instance5: 11225
 	>] [--units=<em
 	>UNITS</em
 	>] [-v]<br
-	 />[-o <em
+	 />[{-o|--output} <em
 	>[+]FIELD,...</em
 	>] [instance...]</p
       ><p
@@ -798,7 +896,7 @@ instance5: 11225
 	>).</p
       ><p
       >The <code
-	>-o</code
+	>-o (--output)</code
 	> option takes a comma-separated list of output fields. The available fields and their meaning are:</p
       ><dl
       ><dt
@@ -1090,15 +1188,17 @@ instance5: 11225
 	> are configuration value and not run-time values. So if you don't select any of the these fields, the query will be satisfied instantly from the cluster configuration, without having to ask the remote nodes for the data. This can be helpful for big clusters when you only want some data and it makes sense to specify a reduced set of output fields.</p
       ><p
       >The default output field list is: name, os, pnode, admin_state, oper_state, oper_ram.</p
-      ><p
-      >LIST-FIELDS ~~~~~~~~~~</p
-      ><p
-      ><strong
-	>list-fields</strong
-	> [field...]</p
-      ><p
-      >Lists available fields for instances.</p
       ></div
+    ></div
+  ><div id="list-fields"
+  ><h2
+    >LIST-FIELDS</h2
+    ><p
+    ><strong
+      >list-fields</strong
+      > [field...]</p
+    ><p
+    >Lists available fields for instances.</p
     ><div id="info"
     ><h3
       >INFO</h3
@@ -1132,10 +1232,10 @@ instance5: 11225
       ><strong
 	>modify</strong
 	><br
-	 />[-H <em
+	 />[{-H|--hypervisor-parameters} <em
 	>HYPERVISOR_PARAMETERS</em
 	>]<br
-	 />[-B <em
+	 />[{-B|--backend-parameters} <em
 	>BACKEND_PARAMETERS</em
 	>]<br
 	 />[--net add<em
@@ -1147,19 +1247,21 @@ instance5: 11225
 	>SIZE</em
 	>[,vg=<em
 	>VG</em
+	>][,metavg=<em
+	>VG</em
 	>] | --disk remove |<br
 	 /> --disk <em
 	>N</em
 	>:mode=<em
 	>MODE</em
 	>]<br
-	 />[-t plain | -t drbd -n <em
+	 />[{-t|--disk-template} plain | {-t|--disk-template} drbd -n <em
 	>new_secondary</em
-	>]<br
+	>] [--no-wait-for-sync]<br
 	 />[--os-type=<em
 	>OS</em
 	> [--force-variant]]<br
-	 />[-O, --os-parameters <em
+	 />[{-O|--os-parameters} <em
 	>param</em
 	>=<em
 	>value</em
@@ -1172,20 +1274,24 @@ instance5: 11225
       >Modifies the memory size, number of vcpus, ip address, MAC address and/or nic parameters for an instance. It can also add and remove disks and NICs to/from the instance. Note that you need to give at least one of the arguments, otherwise the command complains.</p
       ><p
       >The <code
-	>-H</code
+	>-H (--hypervisor-parameters)</code
 	>, <code
-	>-B</code
+	>-B (--backend-parameters)</code
 	> and <code
-	>-O</code
+	>-O (--os-parameters)</code
 	> options specifies hypervisor, backend and OS parameter options in the form of name=value[,...]. For details which options can be specified, see the <strong
 	>add</strong
 	> command.</p
       ><p
       >The <code
-	>-t</code
+	>-t (--disk-template)</code
 	> option will change the disk template of the instance. Currently only conversions between the plain and drbd disk templates are supported, and the instance must be stopped before attempting the conversion. When changing from the plain to the drbd disk template, a new secondary node must be specified via the <code
 	>-n</code
-	> option.</p
+	> option. The option <code
+	>--no-wait-for-sync</code
+	> can be used when converting to the <code
+	>drbd</code
+	> template in order to make the instance available for startup before DRBD has finished resyncing.</p
       ><p
       >The <code
 	>--disk add:size=</code
@@ -1195,7 +1301,11 @@ instance5: 11225
 	>vg=</code
 	><em
 	>VG</em
-	> option specifies LVM volume group other than default vg to create disk on. The <code
+	> option specifies LVM volume group other than default vg to create the disk on. For DRBD disks, the <code
+	>metavg=</code
+	><em
+	>VG</em
+	> option specifies the volume group for the metadata device. The <code
 	>--disk remove</code
 	> option will remove the last disk of the instance. The <code
 	>--disk</code
@@ -1228,7 +1338,7 @@ instance5: 11225
 	> option will change the parameters of the Nth instance NIC.</p
       ><p
       >The option <code
-	>--os-type</code
+	>-o (--os-type)</code
 	> will change the OS name for the instance (without reinstallation). In case an OS variant is specified that is not found, then by default the modification is refused, unless <code
 	>--force-variant</code
 	> is passed. An invalid OS will also be refused, unless the <code
@@ -1249,27 +1359,27 @@ instance5: 11225
       ><p
       ><strong
 	>reinstall</strong
-	> [-o <em
+	> [{-o|--os-type} <em
 	>os-type</em
 	>] [--select-os] [-f <em
 	>force</em
 	>]<br
 	 />[--force-multiple]<br
 	 />[--instance | --node | --primary | --secondary | --all]<br
-	 />[-O <em
+	 />[{-O|--os-parameters} <em
 	>OS_PARAMETERS</em
 	>] [--submit] {<em
 	>instance</em
 	>...}</p
       ><p
       >Reinstalls the operating system on the given instance(s). The instance(s) must be stopped when running this command. If the <code
-	>--os-type</code
+	>-o (--os-type)</code
 	> is specified, the operating system is changed.</p
       ><p
       >The <code
 	>--select-os</code
 	> option switches to an interactive OS reinstall. The user is prompted to select the OS template from the list of available OS templates. OS parameters can be overridden using <code
-	>-O</code
+	>-O (--os-parameters)</code
 	> (more documentation for this option under the <strong
 	>add</strong
 	> command).</p
@@ -1338,9 +1448,10 @@ instance5: 11225
 	 />[--force-multiple]<br
 	 />[--instance | --node | --primary | --secondary | --all |<br
 	 />--tags | --node-tags | --pri-node-tags | --sec-node-tags]<br
-	 />[-H <code
+	 />[{-H|--hypervisor-parameters} <code
 	>key=value...</code
-	>] [-B <code
+	>]<br
+	 />[{-B|--backend-parameters} <code
 	>key=value...</code
 	>]<br
 	 />[--submit]<br
@@ -1419,9 +1530,9 @@ instance5: 11225
 	> will skip the interactive confirmation in the case the more than one instance will be affected.</p
       ><p
       >The <code
-	>-H</code
+	>-H (--hypervisor-parameters)</code
 	> and <code
-	>-B</code
+	>-B (--backend-parameters)</code
 	> options specify temporary hypervisor and backend parameters that can be used to start an instance with modified parameters. They can be useful for quick testing without having to modify an instance back and forth, e.g.:</p
       ><pre
       ><code
@@ -1518,7 +1629,7 @@ instance5: 11225
       ><strong
 	>reboot</strong
 	><br
-	 />[--type=<em
+	 />[{-t|--type} <em
 	>REBOOT-TYPE</em
 	>]<br
 	 />[--ignore-secondaries]<br
@@ -1534,7 +1645,7 @@ instance5: 11225
 	>...]</p
       ><p
       >Reboots one or more instances. The type of reboot depends on the value of <code
-	>--type</code
+	>-t (--type)</code
 	>. A soft reboot does a hypervisor reboot, a hard reboot does a instance stop, recreates the hypervisor config for the instance and starts the instance. A full reboot does the equivalent of <strong
 	>gnt-instance shutdown &amp;&amp; gnt-instance startup</strong
 	>. The default is hard reboot.</p
@@ -1816,20 +1927,34 @@ node1.example.com:disk/1:/dev/drbd1
     ><div id="recreate-disks"
     ><h3
       >RECREATE-DISKS</h3
-      ><p
-      ><strong
-	>recreate-disks</strong
-	> [--submit] [--disks=<code
-	>indices</code
-	>] {<em
-	>instance</em
-	>}</p
+      ><dl
+      ><dt
+	><strong
+	  >recreate-disks</strong
+	  > [--submit] [--disks=<code
+	  >indices</code
+	  >] [-n node1:[node2]]</dt
+	><dd
+	><p
+	  >{<em
+	    >instance</em
+	    >}</p
+	  ></dd
+	></dl
       ><p
       >Recreates the disks of the given instance, or only a subset of the disks (if the option <code
 	>disks</code
 	> is passed, which must be a comma-separated list of disk indices, starting from zero).</p
       ><p
       >Note that this functionality should only be used for missing disks; if any of the given disks already exists, the operation will fail. While this is suboptimal, recreate-disks should hopefully not be needed in normal operation and as such the impact of this is low.</p
+      ><p
+      >Optionally the instance's disks can be recreated on different nodes. This can be useful if, for example, the original nodes of the instance have gone down (and are marked offline), so we can't recreate on the same nodes. To do this, pass the new node(s) via <code
+	>-n</code
+	> option, with a syntax similar to the <strong
+	>add</strong
+	> command. The number of nodes passed must equal the number of nodes that the instance currently has. Note that changing nodes is only allowed for 'all disk' replacement (when <code
+	>--disks</code
+	> is not passed).</p
       ><p
       >The <code
 	>--submit</code
@@ -1944,7 +2069,7 @@ y/[n]/?: y
       ><p
       ><strong
 	>move</strong
-	> [-f] [-n <em
+	> [-f] [--ignore-consistency] [-n <em
 	>node</em
 	>] [--shutdown-timeout=<em
 	>N</em
@@ -1961,6 +2086,10 @@ y/[n]/?: y
 	> is used to specify how much time to wait before forcing the shutdown (e.g. <code
 	>xm destroy</code
 	> in XEN, killing the kvm process for KVM, etc.). By default two minutes are given to each instance to stop.</p
+      ><p
+      >The <code
+	>--ignore-consistency</code
+	> option will make Ganeti ignore any errors in trying to shutdown the instance on its node; useful if the hypervisor is broken and you want to recuperate the data.</p
       ><p
       >The <code
 	>--submit</code
@@ -1997,7 +2126,9 @@ y/[n]/?: y
       ><p
       >If the <code
 	>--from</code
-	> option is given, the list of tags will be extended with the contents of that file (each line becomes a tag). In this case, there is not need to pass tags on the command line (if you do, both sources will be used). A file name of - will be interpreted as stdin.</p
+	> option is given, the list of tags will be extended with the contents of that file (each line becomes a tag). In this case, there is not need to pass tags on the command line (if you do, both sources will be used). A file name of <code
+	>-</code
+	> will be interpreted as stdin.</p
       ></div
     ><div id="list-tags"
     ><h3
@@ -2029,7 +2160,9 @@ y/[n]/?: y
       ><p
       >If the <code
 	>--from</code
-	> option is given, the list of tags to be removed will be extended with the contents of that file (each line becomes a tag). In this case, there is not need to pass tags on the command line (if you do, tags from both sources will be removed). A file name of - will be interpreted as stdin.</p
+	> option is given, the list of tags to be removed will be extended with the contents of that file (each line becomes a tag). In this case, there is not need to pass tags on the command line (if you do, tags from both sources will be removed). A file name of <code
+	>-</code
+	> will be interpreted as stdin.</p
       ></div
     ></div
   ></div

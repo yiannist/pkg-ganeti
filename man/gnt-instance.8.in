@@ -17,58 +17,61 @@ administration in the Ganeti system.
 .PD 0
 .P
 .PD
-{-t {diskless | file | plain |
-drbd}}
+{-t|--disk-template {diskless | file |
+plain | drbd}}
 .PD 0
 .P
 .PD
-{--disk=\f[I]N\f[]: {size=\f[I]VAL\f[] |
-adopt=\f[I]LV\f[]}[,vg=\f[I]VG\f[]][,mode=\f[I]ro|rw\f[]]
+{--disk=\f[I]N\f[]: {size=\f[I]VAL\f[]
+|
+adopt=\f[I]LV\f[]}[,vg=\f[I]VG\f[]][,metavg=\f[I]VG\f[]][,mode=\f[I]ro|rw\f[]]
 .PD 0
 .P
 .PD
  |
--s \f[I]SIZE\f[]}
+{-s|--os-size} \f[I]SIZE\f[]}
 .PD 0
 .P
 .PD
-[--no-ip-check] [--no-name-check]
-[--no-start] [--no-install]
+[--no-ip-check]
+[--no-name-check] [--no-start]
+[--no-install]
 .PD 0
 .P
 .PD
-[--net=\f[I]N\f[]
-[:options...] | --no-nics]
+[--net=\f[I]N\f[] [:options...] |
+--no-nics]
 .PD 0
 .P
 .PD
-[-B
+[{-B|--backend-parameters}
 \f[I]BEPARAMS\f[]]
 .PD 0
 .P
 .PD
-[-H \f[I]HYPERVISOR\f[] [:
-option=\f[I]value\f[]... ]]
+[{-H|--hypervisor-parameters}
+\f[I]HYPERVISOR\f[] [: option=\f[I]value\f[]...
+]]
 .PD 0
 .P
 .PD
-[-O, --os-parameters
+[{-O|--os-parameters}
 \f[I]param\f[]=\f[I]value\f[]... ]
 .PD 0
 .P
 .PD
 [--file-storage-dir
-\f[I]dir_path\f[]] [--file-driver {loop | blktap}]
+\f[I]dir_path\f[]] [--file-driver {loop |
+blktap}]
 .PD 0
 .P
 .PD
-{-n
-\f[I]node[:secondary-node]\f[] | --iallocator
-\f[I]name\f[]}
+{{-n|--node} \f[I]node[:secondary-node]\f[] |
+{-I|--iallocator} \f[I]name\f[]}
 .PD 0
 .P
 .PD
-{-o
+{{-o|--os-type}
 \f[I]os-type\f[]}
 .PD 0
 .P
@@ -87,11 +90,13 @@ The \f[B]disk\f[] option specifies the parameters for the disks of
 the instance. The numbering of disks starts at zero, and at least
 one disk needs to be passed. For each disk, either the size or the
 adoption source needs to be given, and optionally the access mode
-(read-only or the default of read-write) and LVM volume group can
-also be specified. The size is interpreted (when no unit is given)
-in mebibytes. You can also use one of the suffixes \f[I]m\f[],
-\f[I]g\f[] or \f[I]t\f[] to specify the exact the units used; these
-suffixes map to mebibytes, gibibytes and tebibytes.
+(read-only or the default of read-write) and the LVM volume group
+can also be specified (via the \f[B]vg\f[] key). For DRBD devices,
+a different VG can be specified for the metadata device using the
+\f[B]metavg\f[] key. The size is interpreted (when no unit is
+given) in mebibytes. You can also use one of the suffixes
+\f[I]m\f[], \f[I]g\f[] or \f[I]t\f[] to specify the exact the units
+used; these suffixes map to mebibytes, gibibytes and tebibytes.
 .PP
 When using the \f[B]adopt\f[] key in the disk definition, Ganeti
 will reuse those volumes (instead of creating new ones) as the
@@ -162,8 +167,8 @@ default at cluster level. Alternatively, if no network is desired
 for the instance, you can prevent the default of one NIC with the
 \f[B]--no-nics\f[] option.
 .PP
-The \f[B]-o\f[] options specifies the operating system to be
-installed. The available operating systems can be listed with
+The \f[B]-o\ (--os-type)\f[] option specifies the operating system
+to be installed. The available operating systems can be listed with
 \f[B]gnt-os list\f[].
 Passing \f[B]--no-install\f[] will however skip the OS
 installation, allowing a manual import if so desired. Note that the
@@ -171,9 +176,10 @@ no-installation mode will automatically disable the start-up of the
 instance (without an OS, it most likely won\[aq]t be able to
 start-up successfully).
 .PP
-The \f[B]-B\f[] option specifies the backend parameters for the
-instance. If no such parameters are specified, the values are
-inherited from the cluster. Possible parameters are:
+The \f[B]-B\ (--backend-parameters)\f[] option specifies the
+backend parameters for the instance. If no such parameters are
+specified, the values are inherited from the cluster. Possible
+parameters are:
 .TP
 .B memory
 the memory size of the instance; as usual, suffixes can be used to
@@ -193,12 +199,13 @@ whether the instance is considered in the N+1 cluster checks
 .RS
 .RE
 .PP
-The \f[B]-H\f[] option specified the hypervisor to use for the
-instance (must be one of the enabled hypervisors on the cluster)
-and optionally custom parameters for this instance. If not other
-options are used (i.e. the invocation is just -H \f[I]NAME\f[]) the
-instance will inherit the cluster options. The defaults below show
-the cluster defaults at cluster creation time.
+The \f[B]-H\ (--hypervisor-parameters)\f[] option specified the
+hypervisor to use for the instance (must be one of the enabled
+hypervisors on the cluster) and optionally custom parameters for
+this instance. If not other options are used (i.e. the invocation
+is just -H \f[I]NAME\f[]) the instance will inherit the cluster
+options. The defaults below show the cluster defaults at cluster
+creation time.
 .PP
 The possible hypervisor options are as follows:
 .TP
@@ -235,10 +242,10 @@ network boot (PXE)
 The default is not to set an HVM boot order which is interpreted as
 \[aq]dc\[aq].
 .PP
-For KVM the boot order is either "cdrom", "disk" or "network".
-Please note that older versions of KVM couldn\[aq]t netboot from
-virtio interfaces. This has been fixed in more recent versions and
-is confirmed to work at least with qemu-kvm 0.11.1.
+For KVM the boot order is either "floppy", "cdrom", "disk" or
+"network". Please note that older versions of KVM couldn\[aq]t
+netboot from virtio interfaces. This has been fixed in more recent
+versions and is confirmed to work at least with qemu-kvm 0.11.1.
 .RE
 .TP
 .B blockdev_prefix
@@ -250,11 +257,30 @@ are given by the host. Allows to specify \[aq]xvd\[aq], which helps
 run Red Hat based installers, driven by anaconda.
 .RE
 .TP
+.B floppy_image_path
+Valid for the KVM hypervisor.
+.RS
+.PP
+The path to a floppy disk image to attach to the instance. This is
+useful to install Windows operating systems on Virt/IO disks
+because you can specify here the floppy for the drivers at
+installation time.
+.RE
+.TP
 .B cdrom_image_path
 Valid for the Xen HVM and KVM hypervisors.
 .RS
 .PP
 The path to a CDROM image to attach to the instance.
+.RE
+.TP
+.B cdrom2_image_path
+Valid for the KVM hypervisor.
+.RS
+.PP
+The path to a second CDROM image to attach to the instance.
+\f[B]NOTE\f[]: This image can\[aq]t be used to boot the system. To
+do that you have to use the \[aq]cdrom_image_path\[aq] option.
 .RE
 .TP
 .B nic_type
@@ -263,10 +289,24 @@ Valid for the Xen HVM and KVM hypervisors.
 .PP
 This parameter determines the way the network cards are presented
 to the instance. The possible options are:
-.PP
-rtl8139 (default for Xen HVM) (HVM & KVM) ne2k_isa (HVM & KVM)
-ne2k_pci (HVM & KVM) i82551 (KVM) i82557b (KVM) i82559er (KVM)
-pcnet (KVM) e1000 (KVM) paravirtual (default for KVM) (HVM & KVM)
+.IP \[bu] 2
+rtl8139 (default for Xen HVM) (HVM & KVM)
+.IP \[bu] 2
+ne2k_isa (HVM & KVM)
+.IP \[bu] 2
+ne2k_pci (HVM & KVM)
+.IP \[bu] 2
+i82551 (KVM)
+.IP \[bu] 2
+i82557b (KVM)
+.IP \[bu] 2
+i82559er (KVM)
+.IP \[bu] 2
+pcnet (KVM)
+.IP \[bu] 2
+e1000 (KVM)
+.IP \[bu] 2
+paravirtual (default for KVM) (HVM & KVM)
 .RE
 .TP
 .B disk_type
@@ -275,9 +315,39 @@ Valid for the Xen HVM and KVM hypervisors.
 .PP
 This parameter determines the way the disks are presented to the
 instance. The possible options are:
+.IP \[bu] 2
+ioemu [default] (HVM & KVM)
+.IP \[bu] 2
+ide (HVM & KVM)
+.IP \[bu] 2
+scsi (KVM)
+.IP \[bu] 2
+sd (KVM)
+.IP \[bu] 2
+mtd (KVM)
+.IP \[bu] 2
+pflash (KVM)
+.RE
+.TP
+.B cdrom_disk_type
+Valid for the KVM hypervisor.
+.RS
 .PP
-ioemu (default for HVM & KVM) (HVM & KVM) ide (HVM & KVM) scsi
-(KVM) sd (KVM) mtd (KVM) pflash (KVM)
+This parameter determines the way the cdroms disks are presented to
+the instance. The default behavior is to get the same value of the
+eariler parameter (disk_type). The possible options are:
+.IP \[bu] 2
+paravirtual
+.IP \[bu] 2
+ide
+.IP \[bu] 2
+scsi
+.IP \[bu] 2
+sd
+.IP \[bu] 2
+mtd
+.IP \[bu] 2
+pflash
 .RE
 .TP
 .B vnc_bind_address
@@ -383,6 +453,10 @@ Valid for the Xen PVM and KVM hypervisors.
 This options specifies the name of the root device. This is always
 needed for Xen PVM, while for KVM it is only used if the
 \f[B]kernel_path\f[] option is also specified.
+.PP
+Please note, that if this setting is an empty string and the
+hypervisor is Xen it will not be written to the Xen configuration
+file
 .RE
 .TP
 .B serial_console
@@ -412,35 +486,37 @@ KVM documentation for more details.
 Valid for the KVM hypervisor.
 .RS
 .PP
-The security model for kvm. Currently one of "none", "user" or
-"pool". Under "none", the default, nothing is done and instances
-are run as the Ganeti daemon user (normally root).
+The security model for kvm. Currently one of \f[I]none\f[],
+\f[I]user\f[] or \f[I]pool\f[].
+Under \f[I]none\f[], the default, nothing is done and instances are
+run as the Ganeti daemon user (normally root).
 .PP
-Under "user" kvm will drop privileges and become the user specified
-by the security_domain parameter.
+Under \f[I]user\f[] kvm will drop privileges and become the user
+specified by the security_domain parameter.
 .PP
-Under "pool" a global cluster pool of users will be used, making
-sure no two instances share the same user on the same node. (this
-mode is not implemented yet)
+Under \f[I]pool\f[] a global cluster pool of users will be used,
+making sure no two instances share the same user on the same node.
+(this mode is not implemented yet)
 .RE
 .TP
 .B security_domain
 Valid for the KVM hypervisor.
 .RS
 .PP
-Under security model "user" the username to run the instance under.
-It must be a valid username existing on the host.
+Under security model \f[I]user\f[] the username to run the instance
+under. It must be a valid username existing on the host.
 .PP
-Cannot be set under security model "none" or "pool".
+Cannot be set under security model \f[I]none\f[] or \f[I]pool\f[].
 .RE
 .TP
 .B kvm_flag
 Valid for the KVM hypervisor.
 .RS
 .PP
-If "enabled" the -enable-kvm flag is passed to kvm. If "disabled"
--disable-kvm is passed. If unset no flag is passed, and the default
-running mode for your kvm binary will be used.
+If \f[I]enabled\f[] the -enable-kvm flag is passed to kvm. If
+\f[I]disabled\f[] -disable-kvm is passed. If unset no flag is
+passed, and the default running mode for your kvm binary will be
+used.
 .RE
 .TP
 .B mem_path
@@ -500,24 +576,24 @@ This option specifies the usb mouse type to be used. It can be
 to "tablet".
 .RE
 .PP
-The \f[B]-O\f[] (\f[B]--os-parameters\f[]) option allows
-customisation of the OS parameters. The actual parameter names and
-values depends on the OS being used, but the syntax is the same
-key=value. For example, setting a hypothetical \f[B]dhcp\f[]
-parameter to yes can be achieved by:
+The \f[B]-O\ (--os-parameters)\f[] option allows customisation of
+the OS parameters. The actual parameter names and values depends on
+the OS being used, but the syntax is the same key=value. For
+example, setting a hypothetical \f[B]dhcp\f[] parameter to yes can
+be achieved by:
 .PP
 \f[CR]
       gnt-instance\ add\ -O\ dhcp=yes\ ...
 \f[]
 .PP
-The \f[B]--iallocator\f[] option specifies the instance allocator
-plugin to use. If you pass in this option the allocator will select
-nodes for this instance automatically, so you don\[aq]t need to
-pass them with the \f[B]-n\f[] option. For more information please
-refer to the instance allocator documentation.
+The \f[B]-I\ (--iallocator)\f[] option specifies the instance
+allocator plugin to use. If you pass in this option the allocator
+will select nodes for this instance automatically, so you don\[aq]t
+need to pass them with the \f[B]-n\f[] option. For more information
+please refer to the instance allocator documentation.
 .PP
-The \f[B]-t\f[] options specifies the disk layout type for the
-instance. The available choices are:
+The \f[B]-t\ (--disk-template)\f[] options specifies the disk
+layout type for the instance. The available choices are:
 .TP
 .B diskless
 This creates an instance with no disks. Its useful for testing only
@@ -540,8 +616,8 @@ Disk devices will be drbd (version 8.x) on top of lvm volumes.
 .RS
 .RE
 .PP
-The optional second value of the \f[B]--node\f[] is used for the
-drbd template type and specifies the remote node.
+The optional second value of the \f[B]-n\ (--node)\f[] is used for
+the drbd template type and specifies the remote node.
 .PP
 If you do not want gnt-instance to wait for the disk mirror to be
 synced, use the \f[B]--no-wait-for-sync\f[] option.
@@ -756,7 +832,8 @@ Example:
 .PD 0
 .P
 .PD
-[-o \f[I][+]FIELD,...\f[]] [instance...]
+[{-o|--output} \f[I][+]FIELD,...\f[]]
+[instance...]
 .PP
 Shows the currently configured instances with memory usage, disk
 usage, the node they are running on, and their run status.
@@ -776,8 +853,8 @@ be used to enforce a given output unit.
 The \f[B]-v\f[] option activates verbose mode, which changes the
 display of special field states (see \f[B]ganeti(7)\f[]).
 .PP
-The \f[B]-o\f[] option takes a comma-separated list of output
-fields. The available fields and their meaning are:
+The \f[B]-o\ (--output)\f[] option takes a comma-separated list of
+output fields. The available fields and their meaning are:
 .TP
 .B name
 the instance name
@@ -1032,8 +1109,7 @@ and it makes sense to specify a reduced set of output fields.
 .PP
 The default output field list is: name, os, pnode, admin_state,
 oper_state, oper_ram.
-.PP
-LIST-FIELDS ~~~~~~~~~~
+.SS LIST-FIELDS
 .PP
 \f[B]list-fields\f[] [field...]
 .PP
@@ -1063,12 +1139,12 @@ cluster virtualization technologies.
 .PD 0
 .P
 .PD
-[-H
+[{-H|--hypervisor-parameters}
 \f[I]HYPERVISOR_PARAMETERS\f[]]
 .PD 0
 .P
 .PD
-[-B
+[{-B|--backend-parameters}
 \f[I]BACKEND_PARAMETERS\f[]]
 .PD 0
 .P
@@ -1080,8 +1156,8 @@ add\f[I][:options]\f[] | --net remove | --net
 .P
 .PD
 [--disk
-add:size=\f[I]SIZE\f[][,vg=\f[I]VG\f[]] | --disk remove
-|
+add:size=\f[I]SIZE\f[][,vg=\f[I]VG\f[]][,metavg=\f[I]VG\f[]] |
+--disk remove |
 .PD 0
 .P
 .PD
@@ -1090,8 +1166,9 @@ add:size=\f[I]SIZE\f[][,vg=\f[I]VG\f[]] | --disk remove
 .PD 0
 .P
 .PD
-[-t plain | -t drbd -n
-\f[I]new_secondary\f[]]
+[{-t|--disk-template}
+plain | {-t|--disk-template} drbd -n \f[I]new_secondary\f[]]
+[--no-wait-for-sync]
 .PD 0
 .P
 .PD
@@ -1100,7 +1177,7 @@ add:size=\f[I]SIZE\f[][,vg=\f[I]VG\f[]] | --disk remove
 .PD 0
 .P
 .PD
-[-O, --os-parameters
+[{-O|--os-parameters}
 \f[I]param\f[]=\f[I]value\f[]...
 ]
 .PD 0
@@ -1117,26 +1194,32 @@ and/or nic parameters for an instance. It can also add and remove
 disks and NICs to/from the instance. Note that you need to give at
 least one of the arguments, otherwise the command complains.
 .PP
-The \f[B]-H\f[], \f[B]-B\f[] and \f[B]-O\f[] options specifies
-hypervisor, backend and OS parameter options in the form of
-name=value[,...]. For details which options can be specified, see
-the \f[B]add\f[] command.
+The \f[B]-H\ (--hypervisor-parameters)\f[],
+\f[B]-B\ (--backend-parameters)\f[] and
+\f[B]-O\ (--os-parameters)\f[] options specifies hypervisor,
+backend and OS parameter options in the form of name=value[,...].
+For details which options can be specified, see the \f[B]add\f[]
+command.
 .PP
-The \f[B]-t\f[] option will change the disk template of the
-instance. Currently only conversions between the plain and drbd
-disk templates are supported, and the instance must be stopped
-before attempting the conversion. When changing from the plain to
-the drbd disk template, a new secondary node must be specified via
-the \f[B]-n\f[] option.
+The \f[B]-t\ (--disk-template)\f[] option will change the disk
+template of the instance. Currently only conversions between the
+plain and drbd disk templates are supported, and the instance must
+be stopped before attempting the conversion. When changing from the
+plain to the drbd disk template, a new secondary node must be
+specified via the \f[B]-n\f[] option. The option
+\f[B]--no-wait-for-sync\f[] can be used when converting to the
+\f[B]drbd\f[] template in order to make the instance available for
+startup before DRBD has finished resyncing.
 .PP
 The \f[B]--disk\ add:size=\f[]\f[I]SIZE\f[] option adds a disk to
 the instance. The optional \f[B]vg=\f[]\f[I]VG\f[] option specifies
-LVM volume group other than default vg to create disk on. The
-\f[B]--disk\ remove\f[] option will remove the last disk of the
-instance. The \f[B]--disk\f[]
-\f[I]N\f[]\f[B]:mode=\f[]\f[I]MODE\f[] option will change the mode
-of the Nth disk of the instance between read-only (\f[B]ro\f[]) and
-read-write (\f[B]rw\f[]).
+LVM volume group other than default vg to create the disk on. For
+DRBD disks, the \f[B]metavg=\f[]\f[I]VG\f[] option specifies the
+volume group for the metadata device. The \f[B]--disk\ remove\f[]
+option will remove the last disk of the instance. The
+\f[B]--disk\f[] \f[I]N\f[]\f[B]:mode=\f[]\f[I]MODE\f[] option will
+change the mode of the Nth disk of the instance between read-only
+(\f[B]ro\f[]) and read-write (\f[B]rw\f[]).
 .PP
 The \f[B]--net\ add:\f[]\f[I]options\f[] option will add a new NIC
 to the instance. The available options are the same as in the
@@ -1145,7 +1228,7 @@ to the instance. The available options are the same as in the
 while the \f[B]--net\f[] \f[I]N\f[]:\f[I]options\f[] option will
 change the parameters of the Nth instance NIC.
 .PP
-The option \f[B]--os-type\f[] will change the OS name for the
+The option \f[B]-o\ (--os-type)\f[] will change the OS name for the
 instance (without reinstallation). In case an OS variant is
 specified that is not found, then by default the modification is
 refused, unless \f[B]--force-variant\f[] is passed. An invalid OS
@@ -1159,7 +1242,8 @@ All the changes take effect at the next restart. If the instance is
 running, there is no effect on the instance.
 .SS REINSTALL
 .PP
-\f[B]reinstall\f[] [-o \f[I]os-type\f[]] [--select-os] [-f
+\f[B]reinstall\f[] [{-o|--os-type} \f[I]os-type\f[]] [--select-os]
+[-f
 \f[I]force\f[]]
 .PD 0
 .P
@@ -1169,22 +1253,24 @@ running, there is no effect on the instance.
 .P
 .PD
 [--instance
-| --node | --primary | --secondary | --all]
+| --node | --primary | --secondary |
+--all]
 .PD 0
 .P
 .PD
-[-O
-\f[I]OS_PARAMETERS\f[]] [--submit] {\f[I]instance\f[]...}
+[{-O|--os-parameters} \f[I]OS_PARAMETERS\f[]]
+[--submit] {\f[I]instance\f[]...}
 .PP
 Reinstalls the operating system on the given instance(s). The
 instance(s) must be stopped when running this command. If the
-\f[B]--os-type\f[] is specified, the operating system is changed.
+\f[B]-o\ (--os-type)\f[] is specified, the operating system is
+changed.
 .PP
 The \f[B]--select-os\f[] option switches to an interactive OS
 reinstall. The user is prompted to select the OS template from the
 list of available OS templates. OS parameters can be overridden
-using \f[B]-O\f[] (more documentation for this option under the
-\f[B]add\f[] command).
+using \f[B]-O\ (--os-parameters)\f[] (more documentation for this
+option under the \f[B]add\f[] command).
 .PP
 Since this is a potentially dangerous command, the user will be
 required to confirm this action, unless the \f[B]-f\f[] flag is
@@ -1244,12 +1330,17 @@ that it can be examined via \f[B]gnt-job info\f[].
 .P
 .PD
 --tags |
---node-tags | --pri-node-tags | --sec-node-tags]
+--node-tags | --pri-node-tags |
+--sec-node-tags]
 .PD 0
 .P
 .PD
-[-H
-\f[B]key=value...\f[]] [-B
+[{-H|--hypervisor-parameters}
+\f[B]key=value...\f[]]
+.PD 0
+.P
+.PD
+[{-B|--backend-parameters}
 \f[B]key=value...\f[]]
 .PD 0
 .P
@@ -1329,7 +1420,8 @@ The \f[B]--force-multiple\f[] will skip the interactive
 confirmation in the case the more than one instance will be
 affected.
 .PP
-The \f[B]-H\f[] and \f[B]-B\f[] options specify temporary
+The \f[B]-H\ (--hypervisor-parameters)\f[] and
+\f[B]-B\ (--backend-parameters)\f[] options specify temporary
 hypervisor and backend parameters that can be used to start an
 instance with modified parameters. They can be useful for quick
 testing without having to modify an instance back and forth, e.g.:
@@ -1426,7 +1518,8 @@ Example:
 .PD 0
 .P
 .PD
-[--type=\f[I]REBOOT-TYPE\f[]]
+[{-t|--type}
+\f[I]REBOOT-TYPE\f[]]
 .PD 0
 .P
 .PD
@@ -1460,7 +1553,7 @@ Example:
 [\f[I]name\f[]...]
 .PP
 Reboots one or more instances. The type of reboot depends on the
-value of \f[B]--type\f[].
+value of \f[B]-t\ (--type)\f[].
 A soft reboot does a hypervisor reboot, a hard reboot does a
 instance stop, recreates the hypervisor config for the instance and
 starts the instance. A full reboot does the equivalent of
@@ -1667,9 +1760,11 @@ Also note that disk shrinking is not supported; use
 \f[B]gnt-backup export\f[] and then \f[B]gnt-backup import\f[] to
 reduce the disk size of an instance.
 .SS RECREATE-DISKS
-.PP
-\f[B]recreate-disks\f[] [--submit] [--disks=\f[B]indices\f[]]
+.TP
+.B \f[B]recreate-disks\f[] [--submit] [--disks=\f[B]indices\f[]] [-n node1:[node2]]
 {\f[I]instance\f[]}
+.RS
+.RE
 .PP
 Recreates the disks of the given instance, or only a subset of the
 disks (if the option \f[B]disks\f[] is passed, which must be a
@@ -1679,6 +1774,16 @@ Note that this functionality should only be used for missing disks;
 if any of the given disks already exists, the operation will fail.
 While this is suboptimal, recreate-disks should hopefully not be
 needed in normal operation and as such the impact of this is low.
+.PP
+Optionally the instance\[aq]s disks can be recreated on different
+nodes. This can be useful if, for example, the original nodes of
+the instance have gone down (and are marked offline), so we
+can\[aq]t recreate on the same nodes. To do this, pass the new
+node(s) via \f[B]-n\f[] option, with a syntax similar to the
+\f[B]add\f[] command. The number of nodes passed must equal the
+number of nodes that the instance currently has. Note that changing
+nodes is only allowed for \[aq]all disk\[aq] replacement (when
+\f[B]--disks\f[] is not passed).
 .PP
 The \f[B]--submit\f[] option is used to send the job to the master
 daemon but not wait for its completion. The job ID will be shown so
@@ -1773,7 +1878,7 @@ Example (and expected output):
 \f[]
 .SS MOVE
 .PP
-\f[B]move\f[] [-f] [-n \f[I]node\f[]]
+\f[B]move\f[] [-f] [--ignore-consistency] [-n \f[I]node\f[]]
 [--shutdown-timeout=\f[I]N\f[]] [--submit] {\f[I]instance\f[]}
 .PP
 Move will move the instance to an arbitrary node in the cluster.
@@ -1787,6 +1892,10 @@ The \f[B]--shutdown-timeout\f[] is used to specify how much time to
 wait before forcing the shutdown (e.g. \f[B]xm\ destroy\f[] in XEN,
 killing the kvm process for KVM, etc.). By default two minutes are
 given to each instance to stop.
+.PP
+The \f[B]--ignore-consistency\f[] option will make Ganeti ignore
+any errors in trying to shutdown the instance on its node; useful
+if the hypervisor is broken and you want to recuperate the data.
 .PP
 The \f[B]--submit\f[] option is used to send the job to the master
 daemon but not wait for its completion. The job ID will be shown so
@@ -1809,8 +1918,8 @@ characters, the entire operation will abort.
 If the \f[B]--from\f[] option is given, the list of tags will be
 extended with the contents of that file (each line becomes a tag).
 In this case, there is not need to pass tags on the command line
-(if you do, both sources will be used). A file name of - will be
-interpreted as stdin.
+(if you do, both sources will be used). A file name of \f[B]-\f[]
+will be interpreted as stdin.
 .SS LIST-TAGS
 .PP
 \f[B]list-tags\f[] {\f[I]instancename\f[]}
@@ -1828,7 +1937,7 @@ If the \f[B]--from\f[] option is given, the list of tags to be
 removed will be extended with the contents of that file (each line
 becomes a tag). In this case, there is not need to pass tags on the
 command line (if you do, tags from both sources will be removed). A
-file name of - will be interpreted as stdin.
+file name of \f[B]-\f[] will be interpreted as stdin.
 .SH REPORTING BUGS
 .PP
 Report bugs to project website (http://code.google.com/p/ganeti/)

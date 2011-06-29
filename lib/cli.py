@@ -27,6 +27,7 @@ import textwrap
 import os.path
 import time
 import logging
+import errno
 from cStringIO import StringIO
 
 from ganeti import utils
@@ -338,7 +339,8 @@ ARGS_MANY_NODES = [ArgNode()]
 ARGS_MANY_GROUPS = [ArgGroup()]
 ARGS_ONE_INSTANCE = [ArgInstance(min=1, max=1)]
 ARGS_ONE_NODE = [ArgNode(min=1, max=1)]
-ARGS_ONE_GROUP = [ArgInstance(min=1, max=1)]
+# TODO
+ARGS_ONE_GROUP = [ArgGroup(min=1, max=1)]
 ARGS_ONE_OS = [ArgOs(min=1, max=1)]
 
 
@@ -888,8 +890,7 @@ NOSSH_KEYCHECK_OPT = cli_option("--no-ssh-key-check", dest="ssh_key_check",
 
 NODE_FORCE_JOIN_OPT = cli_option("--force-join", dest="force_join",
                                  default=False, action="store_true",
-                                 help="Force the joining of a node,"
-                                      " needed when merging clusters")
+                                 help="Force the joining of a node")
 
 MC_OPT = cli_option("-C", "--master-candidate", dest="master_candidate",
                     type="bool", default=None, metavar=_YORNO,
@@ -1939,6 +1940,12 @@ def GenericMain(commands, override=None, aliases=None):
     ToStderr("Aborted. Note that if the operation created any jobs, they"
              " might have been submitted and"
              " will continue to run in the background.")
+  except IOError, err:
+    if err.errno == errno.EPIPE:
+      # our terminal went away, we'll exit
+      sys.exit(constants.EXIT_FAILURE)
+    else:
+      raise
 
   return result
 
@@ -2795,13 +2802,20 @@ def _ToStream(stream, txt, *args):
   @param txt: the message
 
   """
-  if args:
-    args = tuple(args)
-    stream.write(txt % args)
-  else:
-    stream.write(txt)
-  stream.write('\n')
-  stream.flush()
+  try:
+    if args:
+      args = tuple(args)
+      stream.write(txt % args)
+    else:
+      stream.write(txt)
+    stream.write('\n')
+    stream.flush()
+  except IOError, err:
+    if err.errno == errno.EPIPE:
+      # our terminal went away, we'll exit
+      sys.exit(constants.EXIT_FAILURE)
+    else:
+      raise
 
 
 def ToStdout(txt, *args):
