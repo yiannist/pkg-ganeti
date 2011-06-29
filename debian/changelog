@@ -1,3 +1,10 @@
+ganeti (2.4.2-1) unstable; urgency=low
+
+  * New upstream version (fixing many bugs, see the upstream NEWS file)
+  * Standards version 3.9.2 (no changes needed)
+
+ -- Iustin Pop <iustin@debian.org>  Wed, 29 Jun 2011 21:34:26 +0200
+
 ganeti (2.4.1-1) unstable; urgency=low
 
   * New upstream version (many changes, please read the NEWS file for the
