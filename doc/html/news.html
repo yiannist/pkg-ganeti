@@ -5,13 +5,13 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>News &mdash; Ganeti v2.4.2 documentation</title>
+    <title>News &mdash; Ganeti v2.4.3 documentation</title>
     <link rel="stylesheet" href="_static/default.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.4.2',
+        VERSION:     '2.4.3',
         COLLAPSE_MODINDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -19,7 +19,7 @@
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.4.2 documentation" href="index.html" />
+    <link rel="top" title="Ganeti v2.4.3 documentation" href="index.html" />
     <link rel="next" title="Glossary" href="glossary.html" />
     <link rel="prev" title="Developer notes" href="devnotes.html" /> 
   </head>
@@ -33,7 +33,7 @@
         <li class="right" >
           <a href="devnotes.html" title="Developer notes"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.4.2 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.4.3 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -44,6 +44,40 @@
             
   <div class="section" id="news">
 <h1>News<a class="headerlink" href="#news" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="version-2-4-3">
+<h2>Version 2.4.3<a class="headerlink" href="#version-2-4-3" title="Permalink to this headline">¶</a></h2>
+<p><em>(Released Fri, 5 Aug 2011)</em></p>
+<p>Many bug-fixes and a few small features:</p>
+<ul class="simple">
+<li>Fixed argument order in <tt class="docutils literal"><span class="pre">ReserveLV</span></tt> and <tt class="docutils literal"><span class="pre">ReserveMAC</span></tt> which caused
+issues when you tried to add an instance with two MAC addresses in one
+request</li>
+<li>KVM: fixed per-instance stored UID value</li>
+<li>KVM: configure bridged NICs at migration start</li>
+<li>KVM: Fix a bug where instance will not start with never KVM versions
+(&gt;= 0.14)</li>
+<li>Added OS search path to <tt class="docutils literal"><span class="pre">gnt-cluster</span> <span class="pre">info</span></tt></li>
+<li>Fixed an issue with <tt class="docutils literal"><span class="pre">file_storage_dir</span></tt> where you were forced to
+provide an absolute path, but the documentation states it is a
+relative path, the documentation was right</li>
+<li>Added a new parameter to instance stop/start called <tt class="docutils literal"><span class="pre">--no-remember</span></tt>
+that will make the state change to not be remembered</li>
+<li>Implemented <tt class="docutils literal"><span class="pre">no_remember</span></tt> at RAPI level</li>
+<li>Improved the documentation</li>
+<li>Node evacuation: don&#8217;t call IAllocator if node is already empty</li>
+<li>Fixed bug in DRBD8 replace disks on current nodes</li>
+<li>Fixed bug in recreate-disks for DRBD instances</li>
+<li>Moved assertion checking locks in <tt class="docutils literal"><span class="pre">gnt-instance</span> <span class="pre">replace-disks</span></tt>
+causing it to abort with not owning the right locks for some situation</li>
+<li>Job queue: Fixed potential race condition when cancelling queued jobs</li>
+<li>Fixed off-by-one bug in job serial generation</li>
+<li><tt class="docutils literal"><span class="pre">gnt-node</span> <span class="pre">volumes</span></tt>: Fix instance names</li>
+<li>Fixed aliases in bash completion</li>
+<li>Fixed a bug in reopening log files after beeing sent a SIGHUP</li>
+<li>Added a flag to burnin to allow specifying VCPU count</li>
+<li>Bugfixes to non-root Ganeti configuration</li>
+</ul>
+</div>
 <div class="section" id="version-2-4-2">
 <h2>Version 2.4.2<a class="headerlink" href="#version-2-4-2" title="Permalink to this headline">¶</a></h2>
 <p><em>(Released Thu, 12 May 2011)</em></p>
@@ -124,7 +158,7 @@ and man pages.</p>
 <h2>Version 2.4.1<a class="headerlink" href="#version-2-4-1" title="Permalink to this headline">¶</a></h2>
 <p><em>(Released Wed, 09 Mar 2011)</em></p>
 <p>Emergency bug-fix release. <tt class="docutils literal"><span class="pre">tools/cfgupgrade</span></tt> was broken and overwrote
-the RAPI users file if run twice (even with <tt class="docutils literal"><span class="pre">-dry-run</span></tt>).</p>
+the RAPI users file if run twice (even with <tt class="docutils literal"><span class="pre">--dry-run</span></tt>).</p>
 <p>The release fixes that bug (nothing else changed).</p>
 </div>
 <div class="section" id="version-2-4-0">
@@ -1561,6 +1595,7 @@ post-configuration update hook)</li>
             <h3><a href="index.html">Table Of Contents</a></h3>
             <ul>
 <li><a class="reference external" href="#">News</a><ul>
+<li><a class="reference external" href="#version-2-4-3">Version 2.4.3</a></li>
 <li><a class="reference external" href="#version-2-4-2">Version 2.4.2</a></li>
 <li><a class="reference external" href="#version-2-4-1">Version 2.4.1</a></li>
 <li><a class="reference external" href="#version-2-4-0">Version 2.4.0</a></li>
@@ -1685,7 +1720,7 @@ post-configuration update hook)</li>
         <li class="right" >
           <a href="devnotes.html" title="Developer notes"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.4.2 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.4.3 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

@@ -128,7 +128,7 @@ display of special field states (see \f[B]ganeti(7)\f[]).
 The \f[B]-o\f[] option takes a comma-separated list of output
 fields. If the value of the option starts with the character
 \f[B]+\f[], the new fields will be added to the default list. This
-allows to quickly see the default list plus a few other fields,
+allows one to quickly see the default list plus a few other fields,
 instead of retyping the entire list of fields.
 .PP
 The available fields and their meaning are:

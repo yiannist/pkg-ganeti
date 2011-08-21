@@ -714,6 +714,7 @@ lib/_autoconf.py: Makefile vcs-version | lib/.dir
 	  echo "CONFD_USER = '$(CONFD_USER)'"; \
 	  echo "CONFD_GROUP = '$(CONFD_GROUP)'"; \
 	  echo "NODED_USER = '$(NODED_USER)'"; \
+	  echo "NODED_GROUP = '$(NODED_GROUP)'"; \
 	  echo "VCS_VERSION = '$$VCSVER'"; \
 	  echo "DISK_SEPARATOR = '$(DISK_SEPARATOR)'"; \
 	} > $@
@@ -768,7 +769,9 @@ $(PYTHON_BOOTSTRAP): Makefile | $(all_dirfiles)
 	  echo '# Temporarily alias commands until bash completion'; \
 	  echo '# generator is changed'; \
 	  echo 'if hasattr(main, "commands"):'; \
-		echo '  commands = main.commands # pylint: disable-msg=E1101'; \
+	  echo '  commands = main.commands # pylint: disable-msg=E1101'; \
+	  echo 'if hasattr(main, "aliases"):'; \
+	  echo '  aliases = main.aliases # pylint: disable-msg=E1101'; \
 	  echo; \
 	  echo 'if __name__ == "__main__":'; \
 	  echo '  sys.exit(main.Main())'; \

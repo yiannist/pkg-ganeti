@@ -5,13 +5,13 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Ganeti customisation using hooks &mdash; Ganeti v2.4.2 documentation</title>
+    <title>Ganeti customisation using hooks &mdash; Ganeti v2.4.3 documentation</title>
     <link rel="stylesheet" href="_static/default.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.4.2',
+        VERSION:     '2.4.3',
         COLLAPSE_MODINDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -19,7 +19,7 @@
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.4.2 documentation" href="index.html" />
+    <link rel="top" title="Ganeti v2.4.3 documentation" href="index.html" />
     <link rel="next" title="Ganeti automatic instance allocation" href="iallocator.html" />
     <link rel="prev" title="Ganeti locking" href="locking.html" /> 
   </head>
@@ -33,7 +33,7 @@
         <li class="right" >
           <a href="locking.html" title="Ganeti locking"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.4.2 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.4.3 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -60,22 +60,22 @@
 </li>
 <li><a class="reference internal" href="#operation-list" id="id10">Operation list</a><ul>
 <li><a class="reference internal" href="#node-operations" id="id11">Node operations</a><ul>
-<li><a class="reference internal" href="#op-add-node" id="id12">OP_ADD_NODE</a></li>
-<li><a class="reference internal" href="#op-remove-node" id="id13">OP_REMOVE_NODE</a></li>
+<li><a class="reference internal" href="#op-node-add" id="id12">OP_NODE_ADD</a></li>
+<li><a class="reference internal" href="#op-node-remove" id="id13">OP_NODE_REMOVE</a></li>
 <li><a class="reference internal" href="#op-node-set-params" id="id14">OP_NODE_SET_PARAMS</a></li>
 <li><a class="reference internal" href="#op-node-evacuate" id="id15">OP_NODE_EVACUATE</a></li>
 <li><a class="reference internal" href="#op-node-migrate" id="id16">OP_NODE_MIGRATE</a></li>
 </ul>
 </li>
 <li><a class="reference internal" href="#node-group-operations" id="id17">Node group operations</a><ul>
-<li><a class="reference internal" href="#op-add-group" id="id18">OP_ADD_GROUP</a></li>
+<li><a class="reference internal" href="#op-group-add" id="id18">OP_GROUP_ADD</a></li>
 <li><a class="reference internal" href="#op-group-set-params" id="id19">OP_GROUP_SET_PARAMS</a></li>
-<li><a class="reference internal" href="#op-remove-group" id="id20">OP_REMOVE_GROUP</a></li>
-<li><a class="reference internal" href="#op-rename-group" id="id21">OP_RENAME_GROUP</a></li>
+<li><a class="reference internal" href="#op-group-remove" id="id20">OP_GROUP_REMOVE</a></li>
+<li><a class="reference internal" href="#op-group-rename" id="id21">OP_GROUP_RENAME</a></li>
 </ul>
 </li>
 <li><a class="reference internal" href="#instance-operations" id="id22">Instance operations</a><ul>
-<li><a class="reference internal" href="#op-instance-add" id="id23">OP_INSTANCE_ADD</a></li>
+<li><a class="reference internal" href="#op-instance-create" id="id23">OP_INSTANCE_CREATE</a></li>
 <li><a class="reference internal" href="#op-instance-reinstall" id="id24">OP_INSTANCE_REINSTALL</a></li>
 <li><a class="reference internal" href="#op-backup-export" id="id25">OP_BACKUP_EXPORT</a></li>
 <li><a class="reference internal" href="#op-instance-startup" id="id26">OP_INSTANCE_STARTUP</a></li>
@@ -94,8 +94,8 @@
 </ul>
 </li>
 <li><a class="reference internal" href="#cluster-operations" id="id39">Cluster operations</a><ul>
-<li><a class="reference internal" href="#op-post-init-cluster" id="id40">OP_POST_INIT_CLUSTER</a></li>
-<li><a class="reference internal" href="#op-destroy-cluster" id="id41">OP_DESTROY_CLUSTER</a></li>
+<li><a class="reference internal" href="#op-cluster-post-init" id="id40">OP_CLUSTER_POST_INIT</a></li>
+<li><a class="reference internal" href="#op-cluster-destroy" id="id41">OP_CLUSTER_DESTROY</a></li>
 <li><a class="reference internal" href="#op-cluster-verify" id="id42">OP_CLUSTER_VERIFY</a></li>
 <li><a class="reference internal" href="#op-cluster-rename" id="id43">OP_CLUSTER_RENAME</a></li>
 <li><a class="reference internal" href="#op-cluster-set-params" id="id44">OP_CLUSTER_SET_PARAMS</a></li>
@@ -199,8 +199,8 @@ environments, but most of the variables are common.</p>
 <h2><a class="toc-backref" href="#id10">Operation list</a><a class="headerlink" href="#operation-list" title="Permalink to this headline">¶</a></h2>
 <div class="section" id="node-operations">
 <h3><a class="toc-backref" href="#id11">Node operations</a><a class="headerlink" href="#node-operations" title="Permalink to this headline">¶</a></h3>
-<div class="section" id="op-add-node">
-<h4><a class="toc-backref" href="#id12">OP_ADD_NODE</a><a class="headerlink" href="#op-add-node" title="Permalink to this headline">¶</a></h4>
+<div class="section" id="op-node-add">
+<h4><a class="toc-backref" href="#id12">OP_NODE_ADD</a><a class="headerlink" href="#op-node-add" title="Permalink to this headline">¶</a></h4>
 <p>Adds a node to the cluster.</p>
 <table class="docutils field-list" frame="void" rules="none">
 <col class="field-name" />
@@ -217,8 +217,8 @@ environments, but most of the variables are common.</p>
 </tbody>
 </table>
 </div>
-<div class="section" id="op-remove-node">
-<h4><a class="toc-backref" href="#id13">OP_REMOVE_NODE</a><a class="headerlink" href="#op-remove-node" title="Permalink to this headline">¶</a></h4>
+<div class="section" id="op-node-remove">
+<h4><a class="toc-backref" href="#id13">OP_NODE_REMOVE</a><a class="headerlink" href="#op-node-remove" title="Permalink to this headline">¶</a></h4>
 <p>Removes a node from the cluster. On the removed node the hooks are
 called during the execution of the operation and not after its
 completion.</p>
@@ -294,8 +294,8 @@ completion.</p>
 </div>
 <div class="section" id="node-group-operations">
 <h3><a class="toc-backref" href="#id17">Node group operations</a><a class="headerlink" href="#node-group-operations" title="Permalink to this headline">¶</a></h3>
-<div class="section" id="op-add-group">
-<h4><a class="toc-backref" href="#id18">OP_ADD_GROUP</a><a class="headerlink" href="#op-add-group" title="Permalink to this headline">¶</a></h4>
+<div class="section" id="op-group-add">
+<h4><a class="toc-backref" href="#id18">OP_GROUP_ADD</a><a class="headerlink" href="#op-group-add" title="Permalink to this headline">¶</a></h4>
 <p>Adds a node group to the cluster.</p>
 <table class="docutils field-list" frame="void" rules="none">
 <col class="field-name" />
@@ -330,8 +330,8 @@ completion.</p>
 </tbody>
 </table>
 </div>
-<div class="section" id="op-remove-group">
-<h4><a class="toc-backref" href="#id20">OP_REMOVE_GROUP</a><a class="headerlink" href="#op-remove-group" title="Permalink to this headline">¶</a></h4>
+<div class="section" id="op-group-remove">
+<h4><a class="toc-backref" href="#id20">OP_GROUP_REMOVE</a><a class="headerlink" href="#op-group-remove" title="Permalink to this headline">¶</a></h4>
 <p>Removes a node group from the cluster. Since the node group must be
 empty for removal to succeed, the concept of &#8220;nodes in the group&#8221; does
 not exist, and the hook is only executed in the master node.</p>
@@ -350,8 +350,8 @@ not exist, and the hook is only executed in the master node.</p>
 </tbody>
 </table>
 </div>
-<div class="section" id="op-rename-group">
-<h4><a class="toc-backref" href="#id21">OP_RENAME_GROUP</a><a class="headerlink" href="#op-rename-group" title="Permalink to this headline">¶</a></h4>
+<div class="section" id="op-group-rename">
+<h4><a class="toc-backref" href="#id21">OP_GROUP_RENAME</a><a class="headerlink" href="#op-group-rename" title="Permalink to this headline">¶</a></h4>
 <p>Renames a node group.</p>
 <table class="docutils field-list" frame="void" rules="none">
 <col class="field-name" />
@@ -379,8 +379,8 @@ INSTANCE_NICn_IP, INSTANCE_NICn_BRIDGE, INSTANCE_NICn_MAC,
 INSTANCE_DISK_COUNT, INSTANCE_DISKn_SIZE, INSTANCE_DISKn_MODE.</p>
 <p>The INSTANCE_NICn_* and INSTANCE_DISKn_* variables represent the
 properties of the <em>n</em> -th NIC and disk, and are zero-indexed.</p>
-<div class="section" id="op-instance-add">
-<h4><a class="toc-backref" href="#id23">OP_INSTANCE_ADD</a><a class="headerlink" href="#op-instance-add" title="Permalink to this headline">¶</a></h4>
+<div class="section" id="op-instance-create">
+<h4><a class="toc-backref" href="#id23">OP_INSTANCE_CREATE</a><a class="headerlink" href="#op-instance-create" title="Permalink to this headline">¶</a></h4>
 <p>Creates a new instance.</p>
 <table class="docutils field-list" frame="void" rules="none">
 <col class="field-name" />
@@ -674,8 +674,8 @@ and secondary before migration.</p>
 </div>
 <div class="section" id="cluster-operations">
 <h3><a class="toc-backref" href="#id39">Cluster operations</a><a class="headerlink" href="#cluster-operations" title="Permalink to this headline">¶</a></h3>
-<div class="section" id="op-post-init-cluster">
-<h4><a class="toc-backref" href="#id40">OP_POST_INIT_CLUSTER</a><a class="headerlink" href="#op-post-init-cluster" title="Permalink to this headline">¶</a></h4>
+<div class="section" id="op-cluster-post-init">
+<h4><a class="toc-backref" href="#id40">OP_CLUSTER_POST_INIT</a><a class="headerlink" href="#op-cluster-post-init" title="Permalink to this headline">¶</a></h4>
 <p>This hook is called via a special &#8220;empty&#8221; LU right after cluster
 initialization.</p>
 <table class="docutils field-list" frame="void" rules="none">
@@ -693,8 +693,8 @@ initialization.</p>
 </tbody>
 </table>
 </div>
-<div class="section" id="op-destroy-cluster">
-<h4><a class="toc-backref" href="#id41">OP_DESTROY_CLUSTER</a><a class="headerlink" href="#op-destroy-cluster" title="Permalink to this headline">¶</a></h4>
+<div class="section" id="op-cluster-destroy">
+<h4><a class="toc-backref" href="#id41">OP_CLUSTER_DESTROY</a><a class="headerlink" href="#op-cluster-destroy" title="Permalink to this headline">¶</a></h4>
 <p>The post phase of this hook is called during the execution of destroy
 operation and not after its completion.</p>
 <table class="docutils field-list" frame="void" rules="none">
@@ -982,22 +982,22 @@ GANETI_OP_TARGET=instance2.example.com</pre>
 </li>
 <li><a class="reference external" href="#operation-list">Operation list</a><ul>
 <li><a class="reference external" href="#node-operations">Node operations</a><ul>
-<li><a class="reference external" href="#op-add-node">OP_ADD_NODE</a></li>
-<li><a class="reference external" href="#op-remove-node">OP_REMOVE_NODE</a></li>
+<li><a class="reference external" href="#op-node-add">OP_NODE_ADD</a></li>
+<li><a class="reference external" href="#op-node-remove">OP_NODE_REMOVE</a></li>
 <li><a class="reference external" href="#op-node-set-params">OP_NODE_SET_PARAMS</a></li>
 <li><a class="reference external" href="#op-node-evacuate">OP_NODE_EVACUATE</a></li>
 <li><a class="reference external" href="#op-node-migrate">OP_NODE_MIGRATE</a></li>
 </ul>
 </li>
 <li><a class="reference external" href="#node-group-operations">Node group operations</a><ul>
-<li><a class="reference external" href="#op-add-group">OP_ADD_GROUP</a></li>
+<li><a class="reference external" href="#op-group-add">OP_GROUP_ADD</a></li>
 <li><a class="reference external" href="#op-group-set-params">OP_GROUP_SET_PARAMS</a></li>
-<li><a class="reference external" href="#op-remove-group">OP_REMOVE_GROUP</a></li>
-<li><a class="reference external" href="#op-rename-group">OP_RENAME_GROUP</a></li>
+<li><a class="reference external" href="#op-group-remove">OP_GROUP_REMOVE</a></li>
+<li><a class="reference external" href="#op-group-rename">OP_GROUP_RENAME</a></li>
 </ul>
 </li>
 <li><a class="reference external" href="#instance-operations">Instance operations</a><ul>
-<li><a class="reference external" href="#op-instance-add">OP_INSTANCE_ADD</a></li>
+<li><a class="reference external" href="#op-instance-create">OP_INSTANCE_CREATE</a></li>
 <li><a class="reference external" href="#op-instance-reinstall">OP_INSTANCE_REINSTALL</a></li>
 <li><a class="reference external" href="#op-backup-export">OP_BACKUP_EXPORT</a></li>
 <li><a class="reference external" href="#op-instance-startup">OP_INSTANCE_STARTUP</a></li>
@@ -1016,8 +1016,8 @@ GANETI_OP_TARGET=instance2.example.com</pre>
 </ul>
 </li>
 <li><a class="reference external" href="#cluster-operations">Cluster operations</a><ul>
-<li><a class="reference external" href="#op-post-init-cluster">OP_POST_INIT_CLUSTER</a></li>
-<li><a class="reference external" href="#op-destroy-cluster">OP_DESTROY_CLUSTER</a></li>
+<li><a class="reference external" href="#op-cluster-post-init">OP_CLUSTER_POST_INIT</a></li>
+<li><a class="reference external" href="#op-cluster-destroy">OP_CLUSTER_DESTROY</a></li>
 <li><a class="reference external" href="#op-cluster-verify">OP_CLUSTER_VERIFY</a></li>
 <li><a class="reference external" href="#op-cluster-rename">OP_CLUSTER_RENAME</a></li>
 <li><a class="reference external" href="#op-cluster-set-params">OP_CLUSTER_SET_PARAMS</a></li>
@@ -1073,7 +1073,7 @@ GANETI_OP_TARGET=instance2.example.com</pre>
         <li class="right" >
           <a href="locking.html" title="Ganeti locking"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.4.2 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.4.3 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

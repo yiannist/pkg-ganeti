@@ -265,7 +265,7 @@
 	><p
 	  >Valid for the Xen HVM and PVM hypervisors.</p
 	  ><p
-	  >Relevant to nonpvops guest kernels, in which the disk device names are given by the host. Allows to specify 'xvd', which helps run Red Hat based installers, driven by anaconda.</p
+	  >Relevant to non-pvops guest kernels, in which the disk device names are given by the host. Allows one to specify 'xvd', which helps run Red Hat based installers, driven by anaconda.</p
 	  ></dd
 	><dt
 	>floppy_image_path</dt
@@ -1175,7 +1175,7 @@ instance5: 11225
       ><p
       >If the value of the option starts with the character <code
 	>+</code
-	>, the new field(s) will be added to the default list. This allows to quickly see the default list plus a few other fields, instead of retyping the entire list of fields.</p
+	>, the new field(s) will be added to the default list. This allows one to quickly see the default list plus a few other fields, instead of retyping the entire list of fields.</p
       ><p
       >There is a subtle grouping about the available output fields: all fields except for <code
 	>oper_state</code
@@ -1445,7 +1445,7 @@ instance5: 11225
 	>startup</strong
 	><br
 	 />[--force] [--ignore-offline]<br
-	 />[--force-multiple]<br
+	 />[--force-multiple] [--no-remember]<br
 	 />[--instance | --node | --primary | --secondary | --all |<br
 	 />--tags | --node-tags | --pri-node-tags | --sec-node-tags]<br
 	 />[{-H|--hypervisor-parameters} <code
@@ -1530,6 +1530,10 @@ instance5: 11225
 	> will skip the interactive confirmation in the case the more than one instance will be affected.</p
       ><p
       >The <code
+	>--no-remember</code
+	> option will perform the startup but not change the state of the instance in the configuration file (if it was stopped before, Ganeti will still thinks it needs to be stopped). This can be used for testing, or for a one shot-start where you don't want the watcher to restart the instance if it crashes.</p
+      ><p
+      >The <code
 	>-H (--hypervisor-parameters)</code
 	> and <code
 	>-B (--backend-parameters)</code
@@ -1566,7 +1570,7 @@ instance5: 11225
 	 />[--timeout=<em
 	>N</em
 	>]<br
-	 />[--force-multiple] [--ignore-offline]<br
+	 />[--force-multiple] [--ignore-offline] [--no-remember]<br
 	 />[--instance | --node | --primary | --secondary | --all |<br
 	 />--tags | --node-tags | --pri-node-tags | --sec-node-tags]<br
 	 />[--submit]<br
@@ -1613,6 +1617,12 @@ instance5: 11225
       ><code
 	>--ignore-offline</code
 	> can be used to ignore offline primary nodes and force the instance to be marked as stopped. This option should be used with care as it can lead to an inconsistent cluster state.</p
+      ><p
+      >The <code
+	>--no-remember</code
+	> option will perform the shutdown but not change the state of the instance in the configuration file (if it was running before, Ganeti will still thinks it needs to be running). This can be useful for a cluster-wide shutdown, where some instances are marked as up and some as down, and you don't want to change the running state: you just need to disable the watcher, shutdown all instances with <code
+	>--no-remember</code
+	>, and when the watcher is activated again it will restore the correct runtime state for all instances.</p
       ><p
       >Example:</p
       ><pre

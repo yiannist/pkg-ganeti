@@ -26,10 +26,10 @@ Logging to syslog, rather than its own log file, can be enabled by
 passing in the \f[B]--syslog\f[] option.
 .PP
 The \f[B]ganeti-noded\f[] daemon listens to port 1811 TCP, on all
-interfaces, by default. This can be overridden by an entry the
-services database (usually /etc/services) or by passing the
-\f[B]-p\f[] option. The \f[B]-b\f[] option can be used to specify
-the address to bind to (defaults to \f[B]0.0.0.0\f[]).
+interfaces, by default. The port can be overridden by an entry the
+services database (usually \f[B]/etc/services\f[]) or by passing
+the \f[B]-p\f[] option. The \f[B]-b\f[] option can be used to
+specify the address to bind to (defaults to \f[B]0.0.0.0\f[]).
 .PP
 Ganeti noded communication is protected via SSL, with a key
 generated at cluster init time. This can be disabled with the

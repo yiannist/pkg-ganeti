@@ -322,12 +322,12 @@ fi
       >#!/bin/sh
 
 case $OSP_DHCP in
-    &quot;&quot;|yes|no)
-        ;;
-    *)
-        echo &quot;Invalid value '$OSP_DHCP' for the dhcp parameter&quot; 1&gt;&amp;2
-        exit 1;
-        ;;
+  &quot;&quot;|yes|no)
+      ;;
+  *)
+    echo &quot;Invalid value '$OSP_DHCP' for the dhcp parameter&quot; 1&gt;&amp;2
+    exit 1;
+    ;;
 esac
 
 exit 0
