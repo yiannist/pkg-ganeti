@@ -455,7 +455,7 @@
     ><p
     >If the value of the option starts with the character <code
       >+</code
-      >, the new fields will be added to the default list. This allows to quickly see the default list plus a few other fields, instead of retyping the entire list of fields.</p
+      >, the new fields will be added to the default list. This allows one to quickly see the default list plus a few other fields, instead of retyping the entire list of fields.</p
     ><p
     >Note that some of this fields are known from the configuration of the cluster (e.g. name, pinst, sinst, pip, sip and thus the master does not need to contact the node for this data (making the listing fast if only fields from this set are selected), whereas the other fields are &quot;live&quot; fields and we need to make a query to the cluster nodes.</p
     ><p

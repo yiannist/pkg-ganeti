@@ -1,7 +1,7 @@
 # Configure script for Ganeti
 m4_define([gnt_version_major], [2])
 m4_define([gnt_version_minor], [4])
-m4_define([gnt_version_revision], [2])
+m4_define([gnt_version_revision], [3])
 m4_define([gnt_version_suffix], [])
 m4_define([gnt_version_full],
           m4_format([%d.%d.%d%s],
@@ -164,16 +164,19 @@ AC_ARG_WITH([group-prefix],
    group_admin="${withval}admin";
    group_confd="${withval}confd";
    group_masterd="${withval}masterd";
+   group_noded="root";
    group_daemons="${withval}daemons";],
   [group_rapi="root";
    group_admin="root";
    group_confd="root";
    group_masterd="root";
+   group_noded="root";
    group_daemons="root"])
 AC_SUBST(RAPI_GROUP, $group_rapi)
 AC_SUBST(ADMIN_GROUP, $group_admin)
 AC_SUBST(CONFD_GROUP, $group_confd)
 AC_SUBST(MASTERD_GROUP, $group_masterd)
+AC_SUBST(NODED_GROUP, $group_noded)
 AC_SUBST(DAEMONS_GROUP, $group_daemons)
 
 # Print the config to the user

@@ -252,9 +252,9 @@ versions and is confirmed to work at least with qemu-kvm 0.11.1.
 Valid for the Xen HVM and PVM hypervisors.
 .RS
 .PP
-Relevant to nonpvops guest kernels, in which the disk device names
-are given by the host. Allows to specify \[aq]xvd\[aq], which helps
-run Red Hat based installers, driven by anaconda.
+Relevant to non-pvops guest kernels, in which the disk device names
+are given by the host. Allows one to specify \[aq]xvd\[aq], which
+helps run Red Hat based installers, driven by anaconda.
 .RE
 .TP
 .B floppy_image_path
@@ -1094,8 +1094,8 @@ Whether the instance is considered in N+1 checks.
 .RE
 .PP
 If the value of the option starts with the character \f[B]+\f[],
-the new field(s) will be added to the default list. This allows to
-quickly see the default list plus a few other fields, instead of
+the new field(s) will be added to the default list. This allows one
+to quickly see the default list plus a few other fields, instead of
 retyping the entire list of fields.
 .PP
 There is a subtle grouping about the available output fields: all
@@ -1321,16 +1321,17 @@ that it can be examined via \f[B]gnt-job info\f[].
 .P
 .PD
 [--force-multiple]
+[--no-remember]
 .PD 0
 .P
 .PD
-[--instance
-| --node | --primary | --secondary | --all |
+[--instance | --node | --primary |
+--secondary | --all |
 .PD 0
 .P
 .PD
---tags |
---node-tags | --pri-node-tags |
+--tags | --node-tags |
+--pri-node-tags |
 --sec-node-tags]
 .PD 0
 .P
@@ -1420,6 +1421,13 @@ The \f[B]--force-multiple\f[] will skip the interactive
 confirmation in the case the more than one instance will be
 affected.
 .PP
+The \f[B]--no-remember\f[] option will perform the startup but not
+change the state of the instance in the configuration file (if it
+was stopped before, Ganeti will still thinks it needs to be
+stopped). This can be used for testing, or for a one shot-start
+where you don\[aq]t want the watcher to restart the instance if it
+crashes.
+.PP
 The \f[B]-H\ (--hypervisor-parameters)\f[] and
 \f[B]-B\ (--backend-parameters)\f[] options specify temporary
 hypervisor and backend parameters that can be used to start an
@@ -1459,17 +1467,17 @@ Example:
 .P
 .PD
 [--force-multiple]
-[--ignore-offline]
+[--ignore-offline] [--no-remember]
 .PD 0
 .P
 .PD
-[--instance | --node | --primary |
---secondary | --all |
+[--instance |
+--node | --primary | --secondary | --all |
 .PD 0
 .P
 .PD
---tags | --node-tags |
---pri-node-tags |
+--tags |
+--node-tags | --pri-node-tags |
 --sec-node-tags]
 .PD 0
 .P
@@ -1505,6 +1513,16 @@ that it can be examined via \f[B]gnt-job info\f[].
 nodes and force the instance to be marked as stopped. This option
 should be used with care as it can lead to an inconsistent cluster
 state.
+.PP
+The \f[B]--no-remember\f[] option will perform the shutdown but not
+change the state of the instance in the configuration file (if it
+was running before, Ganeti will still thinks it needs to be
+running). This can be useful for a cluster-wide shutdown, where
+some instances are marked as up and some as down, and you don\[aq]t
+want to change the running state: you just need to disable the
+watcher, shutdown all instances with \f[B]--no-remember\f[], and
+when the watcher is activated again it will restore the correct
+runtime state for all instances.
 .PP
 Example:
 .PP

@@ -52,7 +52,9 @@
   ><p
   >The <strong
     >ganeti-noded</strong
-    > daemon listens to port 1811 TCP, on all interfaces, by default. This can be overridden by an entry the services database (usually /etc/services) or by passing the <code
+    > daemon listens to port 1811 TCP, on all interfaces, by default. The port can be overridden by an entry the services database (usually <code
+    >/etc/services</code
+    >) or by passing the <code
     >-p</code
     > option. The <code
     >-b</code

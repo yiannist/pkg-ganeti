@@ -506,6 +506,12 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     """Generate KVM information to start an instance.
 
     """
+    kvm_version = self._GetKVMVersion()
+    if kvm_version:
+      _, v_major, v_min, _ = kvm_version
+    else:
+      raise errors.HypervisorError("Unable to get KVM version")
+
     pidfile  = self._InstancePidFile(instance.name)
     kvm = constants.KVM_PATH
     kvm_cmd = [kvm]
@@ -548,16 +554,12 @@ class KVMHypervisor(hv_base.BaseHypervisor):
         raise errors.HypervisorError("Instance has read-only disks which"
                                      " are not supported by KVM")
       # TODO: handle FD_LOOP and FD_BLKTAP (?)
+      boot_val = ""
       if boot_disk:
         kvm_cmd.extend(['-boot', 'c'])
-        if disk_type != constants.HT_DISK_IDE:
-          boot_val = ',boot=on'
-        else:
-          boot_val = ''
-        # We only boot from the first disk
         boot_disk = False
-      else:
-        boot_val = ''
+        if (v_major, v_min) < (0, 14) and disk_type != constants.HT_DISK_IDE:
+          boot_val = ",boot=on"
 
       drive_val = 'file=%s,format=raw%s%s%s' % (dev_path, if_val, boot_val,
                                                 cache_val)
@@ -855,11 +857,13 @@ class KVMHypervisor(hv_base.BaseHypervisor):
       utils.EnsureDirs([(self._InstanceChrootDir(name),
                          constants.SECURE_DIR_MODE)])
 
-    if not incoming:
-      # Configure the network now for starting instances, during
-      # FinalizeMigration for incoming instances
-      for nic_seq, nic in enumerate(kvm_nics):
-        self._ConfigureNIC(instance, nic_seq, nic, taps[nic_seq])
+    # Configure the network now for starting instances and bridged interfaces,
+    # during FinalizeMigration for incoming instances' routed interfaces
+    for nic_seq, nic in enumerate(kvm_nics):
+      if (incoming and
+          nic.nicparams[constants.NIC_MODE] != constants.NIC_MODE_BRIDGED):
+        continue
+      self._ConfigureNIC(instance, nic_seq, nic, taps[nic_seq])
 
     if security_model == constants.HT_SM_POOL:
       ss = ssconf.SimpleStore()
@@ -875,7 +879,7 @@ class KVMHypervisor(hv_base.BaseHypervisor):
         raise
       else:
         uid.Unlock()
-        utils.WriteFile(self._InstanceUidFile(name), data=str(uid))
+        utils.WriteFile(self._InstanceUidFile(name), data=uid.AsStr())
     else:
       self._RunKVMCmd(name, kvm_cmd, tapfds)
 
@@ -1024,6 +1028,9 @@ class KVMHypervisor(hv_base.BaseHypervisor):
       kvm_nics = kvm_runtime[1]
 
       for nic_seq, nic in enumerate(kvm_nics):
+        if nic.nicparams[constants.NIC_MODE] == constants.NIC_MODE_BRIDGED:
+          # Bridged interfaces have already been configured
+          continue
         try:
           tap = utils.ReadFile(self._InstanceNICFile(instance.name, nic_seq))
         except EnvironmentError, err:

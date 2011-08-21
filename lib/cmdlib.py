@@ -40,6 +40,7 @@ import socket
 import tempfile
 import shutil
 import itertools
+import operator
 
 from ganeti import ssh
 from ganeti import utils
@@ -3770,10 +3771,12 @@ class LUNodeQueryvols(NoHooksLU):
     nodenames = self.acquired_locks[locking.LEVEL_NODE]
     volumes = self.rpc.call_node_volumes(nodenames)
 
-    ilist = [self.cfg.GetInstanceInfo(iname) for iname
-             in self.cfg.GetInstanceList()]
+    ilist = self.cfg.GetAllInstancesInfo()
 
-    lv_by_node = dict([(inst, inst.MapLVsByNode()) for inst in ilist])
+    vol2inst = dict(((node, vol), inst.name)
+                    for inst in ilist.values()
+                    for (node, vols) in inst.MapLVsByNode().items()
+                    for vol in vols)
 
     output = []
     for node in nodenames:
@@ -3785,8 +3788,8 @@ class LUNodeQueryvols(NoHooksLU):
         self.LogWarning("Can't compute volume data on node %s: %s", node, msg)
         continue
 
-      node_vols = nresult.payload[:]
-      node_vols.sort(key=lambda vol: vol['dev'])
+      node_vols = sorted(nresult.payload,
+                         key=operator.itemgetter("dev"))
 
       for vol in node_vols:
         node_output = []
@@ -3802,14 +3805,7 @@ class LUNodeQueryvols(NoHooksLU):
           elif field == "size":
             val = int(float(vol['size']))
           elif field == "instance":
-            for inst in ilist:
-              if node not in lv_by_node[inst]:
-                continue
-              if vol['name'] in lv_by_node[inst][node]:
-                val = inst.name
-                break
-            else:
-              val = '-'
+            val = vol2inst.get((node, vol["vg"] + "/" + vol["name"]), "-")
           else:
             raise errors.ParameterError(field)
           node_output.append(str(val))
@@ -5191,7 +5187,8 @@ class LUInstanceStartup(LogicalUnit):
     instance = self.instance
     force = self.op.force
 
-    self.cfg.MarkInstanceUp(instance.name)
+    if not self.op.no_remember:
+      self.cfg.MarkInstanceUp(instance.name)
 
     if self.primary_offline:
       assert self.op.ignore_offline_nodes
@@ -5332,7 +5329,8 @@ class LUInstanceShutdown(LogicalUnit):
     node_current = instance.primary_node
     timeout = self.op.timeout
 
-    self.cfg.MarkInstanceDown(instance.name)
+    if not self.op.no_remember:
+      self.cfg.MarkInstanceDown(instance.name)
 
     if self.primary_offline:
       assert self.op.ignore_offline_nodes
@@ -5522,31 +5520,44 @@ class LUInstanceRecreateDisks(LogicalUnit):
     """Recreate the disks.
 
     """
-    # change primary node, if needed
-    if self.op.nodes:
-      self.instance.primary_node = self.op.nodes[0]
-      self.LogWarning("Changing the instance's nodes, you will have to"
-                      " remove any disks left on the older nodes manually")
+    instance = self.instance
 
     to_skip = []
-    for idx, disk in enumerate(self.instance.disks):
+    mods = [] # keeps track of needed logical_id changes
+
+    for idx, disk in enumerate(instance.disks):
       if idx not in self.op.disks: # disk idx has not been passed in
         to_skip.append(idx)
         continue
       # update secondaries for disks, if needed
       if self.op.nodes:
         if disk.dev_type == constants.LD_DRBD8:
-          # need to update the nodes
+          # need to update the nodes and minors
           assert len(self.op.nodes) == 2
-          logical_id = list(disk.logical_id)
-          logical_id[0] = self.op.nodes[0]
-          logical_id[1] = self.op.nodes[1]
-          disk.logical_id = tuple(logical_id)
+          assert len(disk.logical_id) == 6 # otherwise disk internals
+                                           # have changed
+          (_, _, old_port, _, _, old_secret) = disk.logical_id
+          new_minors = self.cfg.AllocateDRBDMinor(self.op.nodes, instance.name)
+          new_id = (self.op.nodes[0], self.op.nodes[1], old_port,
+                    new_minors[0], new_minors[1], old_secret)
+          assert len(disk.logical_id) == len(new_id)
+          mods.append((idx, new_id))
+
+    # now that we have passed all asserts above, we can apply the mods
+    # in a single run (to avoid partial changes)
+    for idx, new_id in mods:
+      instance.disks[idx].logical_id = new_id
+
+    # change primary node, if needed
+    if self.op.nodes:
+      instance.primary_node = self.op.nodes[0]
+      self.LogWarning("Changing the instance's nodes, you will have to"
+                      " remove any disks left on the older nodes manually")
 
     if self.op.nodes:
-      self.cfg.Update(self.instance, feedback_fn)
+      self.cfg.Update(instance, feedback_fn)
 
-    _CreateDisks(self, self.instance, to_skip=to_skip)
+    _CreateDisks(self, instance, to_skip=to_skip)
 
 
 class LUInstanceRename(LogicalUnit):
@@ -7094,9 +7105,8 @@ class LUInstanceCreate(LogicalUnit):
       raise errors.OpPrereqError("Invalid file driver name '%s'" %
                                  self.op.file_driver, errors.ECODE_INVAL)
 
-    if self.op.file_storage_dir and os.path.isabs(self.op.file_storage_dir):
-      raise errors.OpPrereqError("File storage directory path not absolute",
-                                 errors.ECODE_INVAL)
+    if self.op.disk_template == constants.DT_FILE:
+      opcodes.RequireFileStorage()
 
     ### Node/iallocator related checks
     _CheckIAllocatorOrNode(self, "iallocator", "pnode")
@@ -7444,10 +7454,35 @@ class LUInstanceCreate(LogicalUnit):
       if name in os_defs and os_defs[name] == self.op.osparams[name]:
         del self.op.osparams[name]
 
+  def _CalculateFileStorageDir(self):
+    """Calculate final instance file storage dir.
+
+    """
+    # file storage dir calculation/check
+    self.instance_file_storage_dir = None
+    if self.op.disk_template == constants.DT_FILE:
+      # build the full file storage dir path
+      joinargs = []
+
+      cfg_storagedir = self.cfg.GetFileStorageDir()
+      if not cfg_storagedir:
+        raise errors.OpPrereqError("Cluster file storage dir not defined")
+      joinargs.append(cfg_storagedir)
+
+      if self.op.file_storage_dir is not None:
+        joinargs.append(self.op.file_storage_dir)
+
+      joinargs.append(self.op.instance_name)
+
+      # pylint: disable-msg=W0142
+      self.instance_file_storage_dir = utils.PathJoin(*joinargs)
+
   def CheckPrereq(self):
     """Check prerequisites.
 
     """
+    self._CalculateFileStorageDir()
+
     if self.op.mode == constants.INSTANCE_IMPORT:
       export_info = self._ReadExportInfo()
       self._ReadExportParams(export_info)
@@ -7745,25 +7780,12 @@ class LUInstanceCreate(LogicalUnit):
     else:
       network_port = None
 
-    if constants.ENABLE_FILE_STORAGE:
-      # this is needed because os.path.join does not accept None arguments
-      if self.op.file_storage_dir is None:
-        string_file_storage_dir = ""
-      else:
-        string_file_storage_dir = self.op.file_storage_dir
-
-      # build the full file storage dir path
-      file_storage_dir = utils.PathJoin(self.cfg.GetFileStorageDir(),
-                                        string_file_storage_dir, instance)
-    else:
-      file_storage_dir = ""
-
     disks = _GenerateDiskTemplate(self,
                                   self.op.disk_template,
                                   instance, pnode_name,
                                   self.secondaries,
                                   self.disks,
-                                  file_storage_dir,
+                                  self.instance_file_storage_dir,
                                   self.op.file_driver,
                                   0,
                                   feedback_fn)
@@ -8340,22 +8362,23 @@ class TLReplaceDisks(Tasklet):
       else:
         fn = self._ExecDrbd8DiskOnly
 
-      return fn(feedback_fn)
-
+      result = fn(feedback_fn)
     finally:
       # Deactivate the instance disks if we're replacing them on a
       # down instance
       if activate_disks:
         _SafeShutdownInstanceDisks(self.lu, self.instance)
 
-      if __debug__:
-        # Verify owned locks
-        owned_locks = self.lu.context.glm.list_owned(locking.LEVEL_NODE)
-        assert ((self.early_release and not owned_locks) or
-                (not self.early_release and
-                 set(owned_locks) == set(self.node_secondary_ip))), \
-          ("Not owning the correct locks, early_release=%s, owned=%r" %
-           (self.early_release, owned_locks))
+    if __debug__:
+      # Verify owned locks
+      owned_locks = self.lu.context.glm.list_owned(locking.LEVEL_NODE)
+      assert ((self.early_release and not owned_locks) or
+              (not self.early_release and
+               set(owned_locks) == set(self.node_secondary_ip))), \
+        ("Not owning the correct locks, early_release=%s, owned=%r" %
+         (self.early_release, owned_locks))
+
+    return result
 
   def _CheckVolumeGroup(self, nodes):
     self.lu.LogInfo("Checking volume groups")
@@ -8408,6 +8431,12 @@ class TLReplaceDisks(Tasklet):
                                  (node_name, self.instance.name))
 
   def _CreateNewStorage(self, node_name):
+    """Create new storage on the primary or secondary node.
+
+    This is only used for same-node replaces, not for changing the
+    secondary node, hence we don't want to modify the existing disk.
+
+    """
     iv_names = {}
 
     for idx, dev in enumerate(self.instance.disks):
@@ -8429,7 +8458,7 @@ class TLReplaceDisks(Tasklet):
                              logical_id=(vg_meta, names[1]))
 
       new_lvs = [lv_data, lv_meta]
-      old_lvs = dev.children
+      old_lvs = [child.Copy() for child in dev.children]
       iv_names[dev.iv_name] = (dev, old_lvs, new_lvs)
 
       # we pass force_create=True to force the LVM creation
@@ -8471,7 +8500,7 @@ class TLReplaceDisks(Tasklet):
     """Releases the lock for a given node."""
     self.lu.context.glm.release(locking.LEVEL_NODE, node_name)
 
-  def _ExecDrbd8DiskOnly(self, feedback_fn):
+  def _ExecDrbd8DiskOnly(self, feedback_fn): # pylint: disable-msg=W0613
     """Replace a disk on the primary or secondary for DRBD 8.
 
     The algorithm for replace is quite complicated:
@@ -8554,10 +8583,14 @@ class TLReplaceDisks(Tasklet):
                                              rename_new_to_old)
       result.Raise("Can't rename new LVs on node %s" % self.target_node)
 
+      # Intermediate steps of in memory modifications
       for old, new in zip(old_lvs, new_lvs):
         new.logical_id = old.logical_id
         self.cfg.SetDiskID(new, self.target_node)
 
+      # We need to modify old_lvs so that removal later removes the
+      # right LVs, not the newly added ones; note that old_lvs is a
+      # copy here
       for disk in old_lvs:
         disk.logical_id = ren_fn(disk, temp_suffix)
         self.cfg.SetDiskID(disk, self.target_node)
@@ -8576,10 +8609,6 @@ class TLReplaceDisks(Tasklet):
                                hint=("cleanup manually the unused logical"
                                      "volumes"))
         raise errors.OpExecError("Can't add local storage to drbd: %s" % msg)
-
-      dev.children = new_lvs
-
-      self.cfg.Update(self.instance, feedback_fn)
 
     cstep = 5
     if self.early_release:
@@ -8846,10 +8875,13 @@ class LUNodeEvacStrategy(NoHooksLU):
       locks[locking.LEVEL_NODE] = self.op.nodes + [self.op.remote_node]
 
   def Exec(self, feedback_fn):
+    instances = []
+    for node in self.op.nodes:
+      instances.extend(_GetNodeSecondaryInstances(self.cfg, node))
+    if not instances:
+      return []
+
     if self.op.remote_node is not None:
-      instances = []
-      for node in self.op.nodes:
-        instances.extend(_GetNodeSecondaryInstances(self.cfg, node))
       result = []
       for i in instances:
         if i.primary_node == self.op.remote_node:
