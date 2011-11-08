@@ -4,6 +4,18 @@
 News
 ====
 
+Version 2.4.4
+-------------
+
+*(Released Tue, 23 Aug 2011)*
+
+Small bug-fixes:
+
+- Fixed documentation for importing with ``--src-dir`` option
+- Fixed a bug in ``ensure-dirs`` with queue/archive permissions
+- Fixed a parsing issue with DRBD 8.3.11 in the Linux kernel
+
+
 Version 2.4.3
 -------------
 
@@ -35,7 +47,7 @@ Many bug-fixes and a few small features:
 - Fixed off-by-one bug in job serial generation
 - ``gnt-node volumes``: Fix instance names
 - Fixed aliases in bash completion
-- Fixed a bug in reopening log files after beeing sent a SIGHUP
+- Fixed a bug in reopening log files after being sent a SIGHUP
 - Added a flag to burnin to allow specifying VCPU count
 - Bugfixes to non-root Ganeti configuration
 

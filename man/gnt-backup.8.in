@@ -230,6 +230,9 @@ refer to the instance allocator documentation.
 The optional second value of the \f[B]--node\f[] is used for the
 drbd template and specifies the remote node.
 .PP
+The \f[B]--src-dir\f[] option allows importing instances from a
+directory below \f[B]@CUSTOM_EXPORT_DIR@\f[].
+.PP
 Since many of the parameters are by default read from the exported
 instance information and used as such, the new instance will have
 all parameters explicitly specified, the opposite of a newly added

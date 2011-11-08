@@ -5,13 +5,13 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Ganeti administrator’s guide &mdash; Ganeti v2.4.3 documentation</title>
+    <title>Ganeti administrator’s guide &mdash; Ganeti v2.4.4 documentation</title>
     <link rel="stylesheet" href="_static/default.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.4.3',
+        VERSION:     '2.4.4',
         COLLAPSE_MODINDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -19,7 +19,7 @@
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.4.3 documentation" href="index.html" />
+    <link rel="top" title="Ganeti v2.4.4 documentation" href="index.html" />
     <link rel="next" title="Ganeti walk-through" href="walkthrough.html" />
     <link rel="prev" title="Upgrade notes" href="upgrade.html" /> 
   </head>
@@ -33,7 +33,7 @@
         <li class="right" >
           <a href="upgrade.html" title="Upgrade notes"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.4.3 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.4.4 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -514,15 +514,15 @@ parameters as such:</p>
 <li><tt class="docutils literal"><span class="pre">root_path</span></tt> to a valid setting (e.g. <tt class="docutils literal"><span class="pre">/dev/xvda1</span></tt>)</li>
 <li><tt class="docutils literal"><span class="pre">bootloader_path</span></tt> and <tt class="docutils literal"><span class="pre">bootloader_args</span></tt> to empty</li>
 </ul>
-<p>Alternatively, you can delete the kernel management to instances, and
+<p>Alternatively, you can delegate the kernel management to instances, and
 use either <tt class="docutils literal"><span class="pre">pvgrub</span></tt> or the deprecated <tt class="docutils literal"><span class="pre">pygrub</span></tt>. For this, you must
-install the kernels and initrds in the instance, and create a valid grub
+install the kernels and initrds in the instance and create a valid GRUB
 v1 configuration file.</p>
 <p>For <tt class="docutils literal"><span class="pre">pvgrub</span></tt> (new in version 2.4.2), you need to set:</p>
 <ul class="simple">
 <li><tt class="docutils literal"><span class="pre">kernel_path</span></tt> to point to the <tt class="docutils literal"><span class="pre">pvgrub</span></tt> loader present on the node
 (e.g. <tt class="docutils literal"><span class="pre">/usr/lib/xen/boot/pv-grub-x86_32.gz</span></tt>)</li>
-<li><tt class="docutils literal"><span class="pre">kernel_args</span></tt> to the path to the grub config file, relative to the
+<li><tt class="docutils literal"><span class="pre">kernel_args</span></tt> to the path to the GRUB config file, relative to the
 instance (e.g. <tt class="docutils literal"><span class="pre">(hd0,0)/grub/menu.lst</span></tt>)</li>
 <li><tt class="docutils literal"><span class="pre">root_path</span></tt> <strong>must</strong> be empty</li>
 <li><tt class="docutils literal"><span class="pre">bootloader_path</span></tt> and <tt class="docutils literal"><span class="pre">bootloader_args</span></tt> to empty</li>
@@ -1788,7 +1788,7 @@ in the source archive.</p>
         <li class="right" >
           <a href="upgrade.html" title="Upgrade notes"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.4.3 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.4.4 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

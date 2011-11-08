@@ -263,6 +263,12 @@
       >--node</code
       > is used for the drbd template and specifies the remote node.</p
     ><p
+    >The <code
+      >--src-dir</code
+      > option allows importing instances from a directory below <code
+      >@CUSTOM_EXPORT_DIR@</code
+      >.</p
+    ><p
     >Since many of the parameters are by default read from the exported instance information and used as such, the new instance will have all parameters explicitly specified, the opposite of a newly added instance which has most parameters specified via cluster defaults. To change the import behaviour to recognize parameters whose saved value matches the current cluster default and mark it as such (default value), pass the <code
       >--identify-defaults</code
       > option. This will affect the hypervisor, backend and NIC parameters, both read from the export file and passed in via the command line.</p
