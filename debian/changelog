@@ -1,3 +1,9 @@
+ganeti (2.4.5-1) unstable; urgency=low
+
+  * New upstream versions (again, many bugs fixed)
+
+ -- Iustin Pop <iustin@debian.org>  Wed, 09 Nov 2011 04:37:12 +0900
+
 ganeti (2.4.2-1) unstable; urgency=low
 
   * New upstream version (fixing many bugs, see the upstream NEWS file)
