@@ -7,7 +7,7 @@ Build-Depends: debhelper (>= 7)
 Build-Depends-Indep: python-simplejson, python-pyparsing, python-openssl,
  python-support (>= 0.6), socat, python-pyinotify, python-pycurl,
  python-paramiko
-Standards-Version: 3.9.2
+Standards-Version: 3.9.3
 Homepage: http://code.google.com/p/ganeti/
 Vcs-Browser: http://git.debian.org/?p=pkg-ganeti/ganeti.git
 Vcs-Git: git://git.debian.org/pkg-ganeti/ganeti.git
