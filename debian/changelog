@@ -1,3 +1,10 @@
+ganeti (2.4.5-2) unstable; urgency=low
+
+  * Backport patch to support KVM versions 1.0 and later
+  * Standards version 3.9.3 (no changes needed)
+
+ -- Iustin Pop <iustin@debian.org>  Sat, 24 Mar 2012 20:59:10 +0100
+
 ganeti (2.4.5-1) unstable; urgency=low
 
   * New upstream versions (again, many bugs fixed)
