@@ -1,3 +1,4 @@
 fix-startup-with-old-config.patch
 cfgupgrade12-remove-old-ssconf.patch
 fix-old-style-imports.patch
+fix-lvm-2.0.2-88-attrs.patch
