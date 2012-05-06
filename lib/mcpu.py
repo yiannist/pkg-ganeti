@@ -39,6 +39,7 @@ from ganeti import rpc
 from ganeti import cmdlib
 from ganeti import locking
 from ganeti import utils
+from ganeti import compat
 
 
 _OP_PREFIX = "Op"
@@ -121,7 +122,7 @@ class LockAttemptTimeoutStrategy(object):
     return timeout
 
 
-class OpExecCbBase: # pylint: disable-msg=W0232
+class OpExecCbBase: # pylint: disable=W0232
   """Base class for OpCode execution callbacks.
 
   """
@@ -142,6 +143,14 @@ class OpExecCbBase: # pylint: disable-msg=W0232
     """Check whether job has been cancelled.
 
     """
+
+  def SubmitManyJobs(self, jobs):
+    """Submits jobs for processing.
+
+    See L{jqueue.JobQueue.SubmitManyJobs}.
+
+    """
+    raise NotImplementedError
 
 
 def _LUNameForOpName(opname):
@@ -208,6 +217,26 @@ class Processor(object):
 
     return acquired
 
+  def _ProcessResult(self, result):
+    """Examines opcode result.
+
+    If necessary, additional processing on the result is done.
+
+    """
+    if isinstance(result, cmdlib.ResultWithJobs):
+      # Submit jobs
+      job_submission = self._cbs.SubmitManyJobs(result.jobs)
+
+      # Build dictionary
+      result = result.other
+
+      assert constants.JOB_IDS_KEY not in result, \
+        "Key '%s' found in additional return values" % constants.JOB_IDS_KEY
+
+      result[constants.JOB_IDS_KEY] = job_submission
+
+    return result
+
   def _ExecLU(self, lu):
     """Logical Unit execution sequence.
 
@@ -228,7 +257,7 @@ class Processor(object):
       return lu.dry_run_result
 
     try:
-      result = lu.Exec(self.Log)
+      result = self._ProcessResult(lu.Exec(self.Log))
       h_results = hm.RunPhase(constants.HOOKS_PHASE_POST)
       result = lu.HooksCallBack(constants.HOOKS_PHASE_POST, h_results,
                                 self.Log, result)
@@ -273,8 +302,8 @@ class Processor(object):
           # Acquiring locks
           needed_locks = lu.needed_locks[level]
 
-          acquired = self._AcquireLocks(level, needed_locks, share,
-                                        calc_timeout(), priority)
+          self._AcquireLocks(level, needed_locks, share,
+                             calc_timeout(), priority)
         else:
           # Adding locks
           add_locks = lu.add_locks[level]
@@ -288,11 +317,7 @@ class Processor(object):
               " with another job, who added them first" % add_locks,
               errors.ECODE_FAULT)
 
-          acquired = add_locks
-
         try:
-          lu.acquired_locks[level] = acquired
-
           result = self._LockAndExecLU(lu, level + 1, calc_timeout, priority)
         finally:
           if level in lu.remove_locks:
@@ -323,7 +348,7 @@ class Processor(object):
     """
     if not isinstance(op, opcodes.OpCode):
       raise errors.ProgrammerError("Non-opcode instance passed"
-                                   " to ExecOpcode")
+                                   " to ExecOpcode (%s)" % type(op))
 
     lu_class = self.DISPATCH_TABLE.get(op.__class__, None)
     if lu_class is None:
@@ -348,8 +373,8 @@ class Processor(object):
         assert lu.needed_locks is not None, "needed_locks not set by LU"
 
         try:
-          return self._LockAndExecLU(lu, locking.LEVEL_INSTANCE, calc_timeout,
-                                     priority)
+          result = self._LockAndExecLU(lu, locking.LEVEL_INSTANCE, calc_timeout,
+                                       priority)
         finally:
           if self._ec_id:
             self.context.cfg.DropECReservations(self._ec_id)
@@ -357,6 +382,15 @@ class Processor(object):
         self.context.glm.release(locking.LEVEL_CLUSTER)
     finally:
       self._cbs = None
+
+    resultcheck_fn = op.OP_RESULT
+    if not (resultcheck_fn is None or resultcheck_fn(result)):
+      logging.error("Expected opcode result matching %s, got %s",
+                    resultcheck_fn, result)
+      raise errors.OpResultError("Opcode result does not match %s" %
+                                 resultcheck_fn)
+
+    return result
 
   def Log(self, *args):
     """Forward call to feedback callback function.
@@ -426,49 +460,89 @@ class HooksMaster(object):
     self.callfn = callfn
     self.lu = lu
     self.op = lu.op
-    self.env, node_list_pre, node_list_post = self._BuildEnv()
-    self.node_list = {constants.HOOKS_PHASE_PRE: node_list_pre,
-                      constants.HOOKS_PHASE_POST: node_list_post}
+    self.pre_env = self._BuildEnv(constants.HOOKS_PHASE_PRE)
 
-  def _BuildEnv(self):
+    if self.lu.HPATH is None:
+      nodes = (None, None)
+    else:
+      nodes = map(frozenset, self.lu.BuildHooksNodes())
+
+    (self.pre_nodes, self.post_nodes) = nodes
+
+  def _BuildEnv(self, phase):
     """Compute the environment and the target nodes.
 
     Based on the opcode and the current node list, this builds the
     environment for the hooks and the target node list for the run.
 
     """
-    env = {
-      "PATH": "/sbin:/bin:/usr/sbin:/usr/bin",
-      "GANETI_HOOKS_VERSION": constants.HOOKS_VERSION,
-      "GANETI_OP_CODE": self.op.OP_ID,
-      "GANETI_OBJECT_TYPE": self.lu.HTYPE,
-      "GANETI_DATA_DIR": constants.DATA_DIR,
-      }
+    if phase == constants.HOOKS_PHASE_PRE:
+      prefix = "GANETI_"
+    elif phase == constants.HOOKS_PHASE_POST:
+      prefix = "GANETI_POST_"
+    else:
+      raise AssertionError("Unknown phase '%s'" % phase)
+
+    env = {}
 
     if self.lu.HPATH is not None:
-      lu_env, lu_nodes_pre, lu_nodes_post = self.lu.BuildHooksEnv()
+      lu_env = self.lu.BuildHooksEnv()
       if lu_env:
-        for key in lu_env:
-          env["GANETI_" + key] = lu_env[key]
+        assert not compat.any(key.upper().startswith(prefix) for key in lu_env)
+        env.update(("%s%s" % (prefix, key), value)
+                   for (key, value) in lu_env.items())
+
+    if phase == constants.HOOKS_PHASE_PRE:
+      assert compat.all((key.startswith("GANETI_") and
+                         not key.startswith("GANETI_POST_"))
+                        for key in env)
+
+    elif phase == constants.HOOKS_PHASE_POST:
+      assert compat.all(key.startswith("GANETI_POST_") for key in env)
+      assert isinstance(self.pre_env, dict)
+
+      # Merge with pre-phase environment
+      assert not compat.any(key.startswith("GANETI_POST_")
+                            for key in self.pre_env)
+      env.update(self.pre_env)
     else:
-      lu_nodes_pre = lu_nodes_post = []
+      raise AssertionError("Unknown phase '%s'" % phase)
 
-    return env, frozenset(lu_nodes_pre), frozenset(lu_nodes_post)
+    return env
 
-  def _RunWrapper(self, node_list, hpath, phase):
+  def _RunWrapper(self, node_list, hpath, phase, phase_env):
     """Simple wrapper over self.callfn.
 
     This method fixes the environment before doing the rpc call.
 
     """
-    env = self.env.copy()
-    env["GANETI_HOOKS_PHASE"] = phase
-    env["GANETI_HOOKS_PATH"] = hpath
-    if self.lu.cfg is not None:
-      env["GANETI_CLUSTER"] = self.lu.cfg.GetClusterName()
-      env["GANETI_MASTER"] = self.lu.cfg.GetMasterNode()
+    cfg = self.lu.cfg
 
+    env = {
+      "PATH": "/sbin:/bin:/usr/sbin:/usr/bin",
+      "GANETI_HOOKS_VERSION": constants.HOOKS_VERSION,
+      "GANETI_OP_CODE": self.op.OP_ID,
+      "GANETI_DATA_DIR": constants.DATA_DIR,
+      "GANETI_HOOKS_PHASE": phase,
+      "GANETI_HOOKS_PATH": hpath,
+      }
+
+    if self.lu.HTYPE:
+      env["GANETI_OBJECT_TYPE"] = self.lu.HTYPE
+
+    if cfg is not None:
+      env["GANETI_CLUSTER"] = cfg.GetClusterName()
+      env["GANETI_MASTER"] = cfg.GetMasterNode()
+
+    if phase_env:
+      assert not (set(env) & set(phase_env)), "Environment variables conflict"
+      env.update(phase_env)
+
+    # Convert everything to strings
     env = dict([(str(key), str(val)) for key, val in env.iteritems()])
+
+    assert compat.all(key == "PATH" or key.startswith("GANETI_")
+                      for key in env)
 
     return self.callfn(node_list, hpath, phase, env)
 
@@ -485,17 +559,24 @@ class HooksMaster(object):
     @raise errors.HooksAbort: on failure of one of the hooks
 
     """
-    if not self.node_list[phase] and not nodes:
+    if phase == constants.HOOKS_PHASE_PRE:
+      if nodes is None:
+        nodes = self.pre_nodes
+      env = self.pre_env
+    elif phase == constants.HOOKS_PHASE_POST:
+      if nodes is None:
+        nodes = self.post_nodes
+      env = self._BuildEnv(phase)
+    else:
+      raise AssertionError("Unknown phase '%s'" % phase)
+
+    if not nodes:
       # empty node list, we should not attempt to run this as either
       # we're in the cluster init phase and the rpc client part can't
       # even attempt to run, or this LU doesn't do hooks at all
       return
-    hpath = self.lu.HPATH
-    if nodes is not None:
-      results = self._RunWrapper(nodes, hpath, phase)
-    else:
-      results = self._RunWrapper(self.node_list[phase], hpath, phase)
-    errs = []
+
+    results = self._RunWrapper(nodes, self.lu.HPATH, phase, env)
     if not results:
       msg = "Communication Failure"
       if phase == constants.HOOKS_PHASE_PRE:
@@ -503,15 +584,19 @@ class HooksMaster(object):
       else:
         self.lu.LogWarning(msg)
         return results
+
+    errs = []
     for node_name in results:
       res = results[node_name]
       if res.offline:
         continue
+
       msg = res.fail_msg
       if msg:
         self.lu.LogWarning("Communication failure to node %s: %s",
                            node_name, msg)
         continue
+
       for script, hkr, output in res.payload:
         if hkr == constants.HKR_FAIL:
           if phase == constants.HOOKS_PHASE_PRE:
@@ -521,8 +606,10 @@ class HooksMaster(object):
               output = "(no output)"
             self.lu.LogWarning("On %s script %s failed, output: %s" %
                                (node_name, script, output))
+
     if errs and phase == constants.HOOKS_PHASE_PRE:
       raise errors.HooksAbort(errs)
+
     return results
 
   def RunConfigUpdate(self):
@@ -535,4 +622,4 @@ class HooksMaster(object):
     phase = constants.HOOKS_PHASE_POST
     hpath = constants.HOOKS_NAME_CFGUPDATE
     nodes = [self.lu.cfg.GetMasterNode()]
-    self._RunWrapper(nodes, hpath, phase)
+    self._RunWrapper(nodes, hpath, phase, self.pre_env)

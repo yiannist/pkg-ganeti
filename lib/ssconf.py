@@ -41,7 +41,7 @@ from ganeti import netutils
 
 SSCONF_LOCK_TIMEOUT = 10
 
-RE_VALID_SSCONF_NAME = re.compile(r'^[-_a-z0-9]+$')
+RE_VALID_SSCONF_NAME = re.compile(r"^[-_a-z0-9]+$")
 
 
 class SimpleConfigReader(object):
@@ -111,17 +111,17 @@ class SimpleConfigReader(object):
     self._ip_to_inst_by_link = {}
     self._instances_ips = []
     self._inst_ips_by_link = {}
-    c_nparams = self._config_data['cluster']['nicparams'][constants.PP_DEFAULT]
-    for iname in self._config_data['instances']:
-      instance = self._config_data['instances'][iname]
-      for nic in instance['nics']:
-        if 'ip' in nic and nic['ip']:
-          params = objects.FillDict(c_nparams, nic['nicparams'])
-          if not params['link'] in self._inst_ips_by_link:
-            self._inst_ips_by_link[params['link']] = []
-            self._ip_to_inst_by_link[params['link']] = {}
-          self._ip_to_inst_by_link[params['link']][nic['ip']] = iname
-          self._inst_ips_by_link[params['link']].append(nic['ip'])
+    c_nparams = self._config_data["cluster"]["nicparams"][constants.PP_DEFAULT]
+    for iname in self._config_data["instances"]:
+      instance = self._config_data["instances"][iname]
+      for nic in instance["nics"]:
+        if "ip" in nic and nic["ip"]:
+          params = objects.FillDict(c_nparams, nic["nicparams"])
+          if not params["link"] in self._inst_ips_by_link:
+            self._inst_ips_by_link[params["link"]] = []
+            self._ip_to_inst_by_link[params["link"]] = {}
+          self._ip_to_inst_by_link[params["link"]][nic["ip"]] = iname
+          self._inst_ips_by_link[params["link"]].append(nic["ip"])
 
     self._nodes_primary_ips = []
     self._mc_primary_ips = []
@@ -154,6 +154,9 @@ class SimpleConfigReader(object):
 
   def GetFileStorageDir(self):
     return self._config_data["cluster"]["file_storage_dir"]
+
+  def GetSharedFileStorageDir(self):
+    return self._config_data["cluster"]["shared_file_storage_dir"]
 
   def GetNodeList(self):
     return self._config_data["nodes"].keys()
@@ -272,6 +275,7 @@ class SimpleStore(object):
     constants.SS_CLUSTER_NAME,
     constants.SS_CLUSTER_TAGS,
     constants.SS_FILE_STORAGE_DIR,
+    constants.SS_SHARED_FILE_STORAGE_DIR,
     constants.SS_MASTER_CANDIDATES,
     constants.SS_MASTER_CANDIDATES_IPS,
     constants.SS_MASTER_IP,
@@ -306,7 +310,7 @@ class SimpleStore(object):
       raise errors.ProgrammerError("Invalid key requested from SSConf: '%s'"
                                    % str(key))
 
-    filename = self._cfg_dir + '/' + self._SS_FILEPREFIX + key
+    filename = self._cfg_dir + "/" + self._SS_FILEPREFIX + key
     return filename
 
   def _ReadFile(self, key, default=None):
@@ -324,7 +328,7 @@ class SimpleStore(object):
         return default
       raise errors.ConfigurationError("Can't read from the ssconf file:"
                                       " '%s'" % str(err))
-    data = data.rstrip('\n')
+    data = data.rstrip("\n")
     return data
 
   def WriteFiles(self, values):
@@ -345,7 +349,8 @@ class SimpleStore(object):
         if len(value) > self._MAX_SIZE:
           raise errors.ConfigurationError("ssconf file %s above maximum size" %
                                           name)
-        utils.WriteFile(self.KeyToFilename(name), data=value, mode=0444)
+        utils.WriteFile(self.KeyToFilename(name), data=value,
+                        mode=constants.SS_FILE_PERMS)
     finally:
       ssconf_lock.Unlock()
 
@@ -368,6 +373,12 @@ class SimpleStore(object):
 
     """
     return self._ReadFile(constants.SS_FILE_STORAGE_DIR)
+
+  def GetSharedFileStorageDir(self):
+    """Get the shared file storage dir.
+
+    """
+    return self._ReadFile(constants.SS_SHARED_FILE_STORAGE_DIR)
 
   def GetMasterCandidates(self):
     """Return the list of master candidates.

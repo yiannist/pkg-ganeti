@@ -43,6 +43,19 @@ ECODE_FAULT = "internal_error"
 # environment error (e.g. node disk error)
 ECODE_ENVIRON = "environment_error"
 
+#: List of all failure types
+ECODE_ALL = frozenset([
+  ECODE_RESOLVER,
+  ECODE_NORES,
+  ECODE_INVAL,
+  ECODE_STATE,
+  ECODE_NOENT,
+  ECODE_EXISTS,
+  ECODE_NOTUNIQUE,
+  ECODE_FAULT,
+  ECODE_ENVIRON,
+  ])
+
 
 class GenericError(Exception):
   """Base exception for Ganeti.
@@ -172,6 +185,12 @@ class OpPrereqError(GenericError):
 
 class OpExecError(GenericError):
   """Error during OpCode execution.
+
+  """
+
+
+class OpResultError(GenericError):
+  """Issue with OpCode result.
 
   """
 
@@ -378,6 +397,24 @@ class LuxiError(GenericError):
   """
 
 
+class QueryFilterParseError(ParseError):
+  """Error while parsing query filter.
+
+  """
+  def GetDetails(self):
+    """Returns a list of strings with details about the error.
+
+    """
+    try:
+      (_, inner) = self.args
+    except IndexError:
+      return None
+
+    return [str(inner.line),
+            (" " * (inner.column - 1)) + "^",
+            str(inner)]
+
+
 # errors should be added above
 
 
@@ -445,4 +482,4 @@ def MaybeRaise(result):
   error = GetEncodedError(result)
   if error:
     (errcls, args) = error
-    raise errcls, args
+    raise errcls(args)

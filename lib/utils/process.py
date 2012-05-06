@@ -57,7 +57,7 @@ def DisableFork():
   """Disables the use of fork(2).
 
   """
-  global _no_fork # pylint: disable-msg=W0603
+  global _no_fork # pylint: disable=W0603
 
   _no_fork = True
 
@@ -83,7 +83,6 @@ class RunResult(object):
   """
   __slots__ = ["exit_code", "signal", "stdout", "stderr",
                "failed", "fail_reason", "cmd"]
-
 
   def __init__(self, exit_code, signal_, stdout, stderr, cmd, timeout_action,
                timeout):
@@ -142,7 +141,8 @@ def _BuildCmdEnvironment(env, reset):
 
 
 def RunCmd(cmd, env=None, output=None, cwd="/", reset_env=False,
-           interactive=False, timeout=None, noclose_fds=None):
+           interactive=False, timeout=None, noclose_fds=None,
+           _postfork_fn=None):
   """Execute a (shell) command.
 
   The command should not read from its standard input, as it will be
@@ -162,7 +162,7 @@ def RunCmd(cmd, env=None, output=None, cwd="/", reset_env=False,
   @type reset_env: boolean
   @param reset_env: whether to reset or keep the default os environment
   @type interactive: boolean
-  @param interactive: weather we pipe stdin, stdout and stderr
+  @param interactive: whether we pipe stdin, stdout and stderr
                       (default behaviour) or run the command interactive
   @type timeout: int
   @param timeout: If not None, timeout in seconds until child process gets
@@ -170,6 +170,7 @@ def RunCmd(cmd, env=None, output=None, cwd="/", reset_env=False,
   @type noclose_fds: list
   @param noclose_fds: list of additional (fd >=3) file descriptors to leave
                       open for the child process
+  @param _postfork_fn: Callback run after fork but before timeout (unittest)
   @rtype: L{RunResult}
   @return: RunResult instance
   @raise errors.ProgrammerError: if we call this when forks are disabled
@@ -201,8 +202,11 @@ def RunCmd(cmd, env=None, output=None, cwd="/", reset_env=False,
     if output is None:
       out, err, status, timeout_action = _RunCmdPipe(cmd, cmd_env, shell, cwd,
                                                      interactive, timeout,
-                                                     noclose_fds)
+                                                     noclose_fds,
+                                                     _postfork_fn=_postfork_fn)
     else:
+      assert _postfork_fn is None, \
+          "_postfork_fn not supported if output provided"
       timeout_action = _TIMEOUT_NONE
       status = _RunCmdFile(cmd, cmd_env, shell, output, cwd, noclose_fds)
       out = err = ""
@@ -338,7 +342,7 @@ def StartDaemon(cmd, env=None, cwd="/", output=None, output_fd=None,
                                 output, output_fd, pidfile)
             finally:
               # Well, maybe child process failed
-              os._exit(1) # pylint: disable-msg=W0212
+              os._exit(1) # pylint: disable=W0212
         finally:
           utils_wrapper.CloseFdNoError(errpipe_write)
 
@@ -392,7 +396,7 @@ def _StartDaemonChild(errpipe_read, errpipe_write,
     pid = os.fork()
     if pid != 0:
       # Exit first child process
-      os._exit(0) # pylint: disable-msg=W0212
+      os._exit(0) # pylint: disable=W0212
 
     # Make sure pipe is closed on execv* (and thereby notifies
     # original process)
@@ -427,15 +431,15 @@ def _StartDaemonChild(errpipe_read, errpipe_write,
       os.execvp(args[0], args)
     else:
       os.execvpe(args[0], args, env)
-  except: # pylint: disable-msg=W0702
+  except: # pylint: disable=W0702
     try:
       # Report errors to original process
       WriteErrorToFD(errpipe_write, str(sys.exc_info()[1]))
-    except: # pylint: disable-msg=W0702
+    except: # pylint: disable=W0702
       # Ignore errors in error handling
       pass
 
-  os._exit(1) # pylint: disable-msg=W0212
+  os._exit(1) # pylint: disable=W0212
 
 
 def WriteErrorToFD(fd, err):
@@ -477,7 +481,8 @@ def _WaitForProcess(child, timeout):
 
 
 def _RunCmdPipe(cmd, env, via_shell, cwd, interactive, timeout, noclose_fds,
-                _linger_timeout=constants.CHILD_LINGER_TIMEOUT):
+                _linger_timeout=constants.CHILD_LINGER_TIMEOUT,
+                _postfork_fn=None):
   """Run a command and return its output.
 
   @type  cmd: string or list
@@ -495,6 +500,7 @@ def _RunCmdPipe(cmd, env, via_shell, cwd, interactive, timeout, noclose_fds,
   @type noclose_fds: list
   @param noclose_fds: list of additional (fd >=3) file descriptors to leave
                       open for the child process
+  @param _postfork_fn: Function run after fork but before timeout (unittest)
   @rtype: tuple
   @return: (out, err, status)
 
@@ -522,6 +528,9 @@ def _RunCmdPipe(cmd, env, via_shell, cwd, interactive, timeout, noclose_fds,
                            close_fds=close_fds, env=env,
                            cwd=cwd,
                            preexec_fn=preexec_fn)
+
+  if _postfork_fn:
+    _postfork_fn(child.pid)
 
   out = StringIO()
   err = StringIO()
@@ -690,7 +699,7 @@ def RunParts(dir_name, env=None, reset_env=False):
     else:
       try:
         result = RunCmd([fname], env=env, reset_env=reset_env)
-      except Exception, err: # pylint: disable-msg=W0703
+      except Exception, err: # pylint: disable=W0703
         rr.append((relname, constants.RUNPARTS_ERR, str(err)))
       else:
         rr.append((relname, constants.RUNPARTS_RUN, result))
@@ -841,7 +850,7 @@ def Daemonize(logfile):
     process and a callable to reopen log files
 
   """
-  # pylint: disable-msg=W0212
+  # pylint: disable=W0212
   # yes, we really want os._exit
 
   # TODO: do another attempt to merge Daemonize and StartDaemon, or at
@@ -966,12 +975,12 @@ def RunInSeparateProcess(fn, *args):
       # Call function
       result = int(bool(fn(*args)))
       assert result in (0, 1)
-    except: # pylint: disable-msg=W0702
+    except: # pylint: disable=W0702
       logging.exception("Error while calling function in separate process")
       # 0 and 1 are reserved for the return value
       result = 33
 
-    os._exit(result) # pylint: disable-msg=W0212
+    os._exit(result) # pylint: disable=W0212
 
   # Parent process
 

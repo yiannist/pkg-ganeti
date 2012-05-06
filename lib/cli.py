@@ -28,6 +28,7 @@ import os.path
 import time
 import logging
 import errno
+import itertools
 from cStringIO import StringIO
 
 from ganeti import utils
@@ -52,6 +53,7 @@ __all__ = [
   "ALLOCATABLE_OPT",
   "ALLOC_POLICY_OPT",
   "ALL_OPT",
+  "ALLOW_FAILOVER_OPT",
   "AUTO_PROMOTE_OPT",
   "AUTO_REPLACE_OPT",
   "BACKEND_OPT",
@@ -70,16 +72,19 @@ __all__ = [
   "DRAINED_OPT",
   "DRY_RUN_OPT",
   "DRBD_HELPER_OPT",
+  "DST_NODE_OPT",
   "EARLY_RELEASE_OPT",
   "ENABLED_HV_OPT",
   "ERROR_CODES_OPT",
   "FIELDS_OPT",
   "FILESTORE_DIR_OPT",
   "FILESTORE_DRIVER_OPT",
+  "FORCE_FILTER_OPT",
   "FORCE_OPT",
   "FORCE_VARIANT_OPT",
   "GLOBAL_FILEDIR_OPT",
   "HID_OS_OPT",
+  "GLOBAL_SHARED_FILEDIR_OPT",
   "HVLIST_OPT",
   "HVOPTS_OPT",
   "HYPERVISOR_OPT",
@@ -134,8 +139,11 @@ __all__ = [
   "OSPARAMS_OPT",
   "OS_OPT",
   "OS_SIZE_OPT",
+  "OOB_TIMEOUT_OPT",
+  "POWER_DELAY_OPT",
   "PREALLOC_WIPE_DISKS_OPT",
   "PRIMARY_IP_VERSION_OPT",
+  "PRIMARY_ONLY_OPT",
   "PRIORITY_OPT",
   "RAPI_CERT_OPT",
   "READD_OPT",
@@ -145,6 +153,7 @@ __all__ = [
   "RESERVED_LVS_OPT",
   "ROMAN_OPT",
   "SECONDARY_IP_OPT",
+  "SECONDARY_ONLY_OPT",
   "SELECT_OS_OPT",
   "SEP_OPT",
   "SHOWCMD_OPT",
@@ -153,10 +162,13 @@ __all__ = [
   "SRC_DIR_OPT",
   "SRC_NODE_OPT",
   "SUBMIT_OPT",
+  "STARTUP_PAUSED_OPT",
   "STATIC_OPT",
   "SYNC_OPT",
+  "TAG_ADD_OPT",
   "TAG_SRC_OPT",
   "TIMEOUT_OPT",
+  "TO_GROUP_OPT",
   "UIDPOOL_OPT",
   "USEUNITS_OPT",
   "USE_REPL_NET_OPT",
@@ -164,6 +176,7 @@ __all__ = [
   "VG_NAME_OPT",
   "YES_DOIT_OPT",
   # Generic functions for CLI programs
+  "ConfirmOperation",
   "GenericMain",
   "GenericInstanceCreate",
   "GenericList",
@@ -244,9 +257,12 @@ _PRIONAME_TO_VALUE = dict(_PRIORITY_NAMES)
  QR_UNKNOWN,
  QR_INCOMPLETE) = range(3)
 
+#: Maximum batch size for ChooseJob
+_CHOOSE_BATCH = 25
+
 
 class _Argument:
-  def __init__(self, min=0, max=None): # pylint: disable-msg=W0622
+  def __init__(self, min=0, max=None): # pylint: disable=W0622
     self.min = min
     self.max = max
 
@@ -261,7 +277,7 @@ class ArgSuggest(_Argument):
   Value can be any of the ones passed to the constructor.
 
   """
-  # pylint: disable-msg=W0622
+  # pylint: disable=W0622
   def __init__(self, min=0, max=None, choices=None):
     _Argument.__init__(self, min=min, max=max)
     self.choices = choices
@@ -356,7 +372,9 @@ def _ExtractTagsObject(opts, args):
   kind = opts.tag_type
   if kind == constants.TAG_CLUSTER:
     retval = kind, kind
-  elif kind == constants.TAG_NODE or kind == constants.TAG_INSTANCE:
+  elif kind in (constants.TAG_NODEGROUP,
+                constants.TAG_NODE,
+                constants.TAG_INSTANCE):
     if not args:
       raise errors.OpPrereqError("no arguments passed to the command")
     name = args.pop(0)
@@ -447,7 +465,7 @@ def RemoveTags(opts, args):
   SubmitOpCode(op, opts=opts)
 
 
-def check_unit(option, opt, value): # pylint: disable-msg=W0613
+def check_unit(option, opt, value): # pylint: disable=W0613
   """OptParsers custom converter for units.
 
   """
@@ -494,7 +512,7 @@ def _SplitKeyVal(opt, data):
   return kv_dict
 
 
-def check_ident_key_val(option, opt, value):  # pylint: disable-msg=W0613
+def check_ident_key_val(option, opt, value):  # pylint: disable=W0613
   """Custom parser for ident:key=val,key=val options.
 
   This will store the parsed values as a tuple (ident, {key: val}). As such,
@@ -502,7 +520,7 @@ def check_ident_key_val(option, opt, value):  # pylint: disable-msg=W0613
 
   """
   if ":" not in value:
-    ident, rest = value, ''
+    ident, rest = value, ""
   else:
     ident, rest = value.split(":", 1)
 
@@ -522,7 +540,7 @@ def check_ident_key_val(option, opt, value):  # pylint: disable-msg=W0613
   return retval
 
 
-def check_key_val(option, opt, value):  # pylint: disable-msg=W0613
+def check_key_val(option, opt, value):  # pylint: disable=W0613
   """Custom parser class for key=val,key=val options.
 
   This will store the parsed values as a dict {key: val}.
@@ -531,7 +549,7 @@ def check_key_val(option, opt, value):  # pylint: disable-msg=W0613
   return _SplitKeyVal(opt, value)
 
 
-def check_bool(option, opt, value): # pylint: disable-msg=W0613
+def check_bool(option, opt, value): # pylint: disable=W0613
   """Custom parser for yes/no options.
 
   This will store the parsed value as either True or False.
@@ -606,7 +624,7 @@ SEP_OPT = cli_option("--separator", default=None,
                            " (defaults to one space)"))
 
 USEUNITS_OPT = cli_option("--units", default=None,
-                          dest="units", choices=('h', 'm', 'g', 't'),
+                          dest="units", choices=("h", "m", "g", "t"),
                           help="Specify units for output (one of h/m/g/t)")
 
 FIELDS_OPT = cli_option("-o", "--output", dest="output", action="store",
@@ -623,6 +641,10 @@ IGNORE_OFFLINE_OPT = cli_option("--ignore-offline", dest="ignore_offline",
                                   action="store_true", default=False,
                                   help=("Ignore offline nodes and do as much"
                                         " as possible"))
+
+TAG_ADD_OPT = cli_option("--tags", dest="tags",
+                         default=None, help="Comma-separated list of instance"
+                                            " tags")
 
 TAG_SRC_OPT = cli_option("--from", dest="tags_source",
                          default=None, help="File with tag names")
@@ -657,8 +679,8 @@ NWSYNC_OPT = cli_option("--no-wait-for-sync", dest="wait_for_sync",
                         help="Don't wait for sync (DANGEROUS!)")
 
 DISK_TEMPLATE_OPT = cli_option("-t", "--disk-template", dest="disk_template",
-                               help="Custom disk setup (diskless, file,"
-                               " plain or drbd)",
+                               help=("Custom disk setup (%s)" %
+                                     utils.CommaJoin(constants.DISK_TEMPLATES)),
                                default=None, metavar="TEMPL",
                                choices=list(constants.DISK_TEMPLATES))
 
@@ -709,9 +731,9 @@ BACKEND_OPT = cli_option("-B", "--backend-parameters", dest="beparams",
                          type="keyval", default={},
                          help="Backend parameters")
 
-HVOPTS_OPT =  cli_option("-H", "--hypervisor-parameters", type="keyval",
-                         default={}, dest="hvparams",
-                         help="Hypervisor parameters")
+HVOPTS_OPT = cli_option("-H", "--hypervisor-parameters", type="keyval",
+                        default={}, dest="hvparams",
+                        help="Hypervisor parameters")
 
 HYPERVISOR_OPT = cli_option("-H", "--hypervisor-parameters", dest="hypervisor",
                             help="Hypervisor and hypervisor options, in the"
@@ -756,6 +778,12 @@ IGNORE_CONSIST_OPT = cli_option("--ignore-consistency",
                                 help="Ignore the consistency of the disks on"
                                 " the secondary")
 
+ALLOW_FAILOVER_OPT = cli_option("--allow-failover",
+                                dest="allow_failover",
+                                action="store_true", default=False,
+                                help="If migration is not possible fallback to"
+                                     " failover")
+
 NONLIVE_OPT = cli_option("--non-live", dest="live",
                          default=True, action="store_false",
                          help="Do a non-live migration (this usually means"
@@ -779,7 +807,8 @@ NODE_LIST_OPT = cli_option("-n", "--node", dest="nodes", default=[],
                            " times, if not given defaults to all nodes)",
                            completion_suggest=OPT_COMPL_ONE_NODE)
 
-NODEGROUP_OPT = cli_option("-g", "--node-group",
+NODEGROUP_OPT_NAME = "--node-group"
+NODEGROUP_OPT = cli_option("-g", NODEGROUP_OPT_NAME,
                            dest="nodegroup",
                            help="Node group (name or uuid)",
                            metavar="<nodegroup>",
@@ -839,6 +868,11 @@ REMOVE_INSTANCE_OPT = cli_option("--remove-instance", dest="remove_instance",
                                  action="store_true", default=False,
                                  help="Remove the instance from the cluster")
 
+DST_NODE_OPT = cli_option("-n", "--target-node", dest="dst_node",
+                               help="Specifies the new node for the instance",
+                               metavar="NODE", default=None,
+                               completion_suggest=OPT_COMPL_ONE_NODE)
+
 NEW_SECONDARY_OPT = cli_option("-n", "--new-secondary", dest="dst_node",
                                help="Specifies the new secondary node",
                                metavar="NODE", default=None,
@@ -847,12 +881,16 @@ NEW_SECONDARY_OPT = cli_option("-n", "--new-secondary", dest="dst_node",
 ON_PRIMARY_OPT = cli_option("-p", "--on-primary", dest="on_primary",
                             default=False, action="store_true",
                             help="Replace the disk(s) on the primary"
-                            " node (only for the drbd template)")
+                                 " node (applies only to internally mirrored"
+                                 " disk templates, e.g. %s)" %
+                                 utils.CommaJoin(constants.DTS_INT_MIRROR))
 
 ON_SECONDARY_OPT = cli_option("-s", "--on-secondary", dest="on_secondary",
                               default=False, action="store_true",
                               help="Replace the disk(s) on the secondary"
-                              " node (only for the drbd template)")
+                                   " node (applies only to internally mirrored"
+                                   " disk templates, e.g. %s)" %
+                                   utils.CommaJoin(constants.DTS_INT_MIRROR))
 
 AUTO_PROMOTE_OPT = cli_option("--auto-promote", dest="auto_promote",
                               default=False, action="store_true",
@@ -862,7 +900,9 @@ AUTO_PROMOTE_OPT = cli_option("--auto-promote", dest="auto_promote",
 AUTO_REPLACE_OPT = cli_option("-a", "--auto", dest="auto",
                               default=False, action="store_true",
                               help="Automatically replace faulty disks"
-                              " (only for the drbd template)")
+                                   " (applies only to internally mirrored"
+                                   " disk templates, e.g. %s)" %
+                                   utils.CommaJoin(constants.DTS_INT_MIRROR))
 
 IGNORE_SIZE_OPT = cli_option("--ignore-size", dest="ignore_size",
                              default=False, action="store_true",
@@ -944,7 +984,7 @@ VG_NAME_OPT = cli_option("--vg-name", dest="vg_name",
                                " [%s]" % constants.DEFAULT_VG),
                          metavar="VG", default=None)
 
-YES_DOIT_OPT = cli_option("--yes-do-it", dest="yes_do_it",
+YES_DOIT_OPT = cli_option("--yes-do-it", "--ya-rly", dest="yes_do_it",
                           help="Destroy cluster", action="store_true")
 
 NOVOTING_OPT = cli_option("--no-voting", dest="no_voting",
@@ -971,6 +1011,15 @@ GLOBAL_FILEDIR_OPT = cli_option("--file-storage-dir", dest="file_storage_dir",
                                 constants.DEFAULT_FILE_STORAGE_DIR,
                                 metavar="DIR",
                                 default=constants.DEFAULT_FILE_STORAGE_DIR)
+
+GLOBAL_SHARED_FILEDIR_OPT = cli_option("--shared-file-storage-dir",
+                            dest="shared_file_storage_dir",
+                            help="Specify the default directory (cluster-"
+                            "wide) for storing the shared file-based"
+                            " disks [%s]" %
+                            constants.DEFAULT_SHARED_FILE_STORAGE_DIR,
+                            metavar="SHAREDDIR",
+                            default=constants.DEFAULT_SHARED_FILE_STORAGE_DIR)
 
 NOMODIFY_ETCHOSTS_OPT = cli_option("--no-etc-hosts", dest="modify_etc_hosts",
                                    help="Don't modify /etc/hosts",
@@ -1150,11 +1199,44 @@ NODE_POWERED_OPT = cli_option("--node-powered", default=None,
                               dest="node_powered",
                               help="Specify if the SoR for node is powered")
 
+OOB_TIMEOUT_OPT = cli_option("--oob-timeout", dest="oob_timeout", type="int",
+                         default=constants.OOB_TIMEOUT,
+                         help="Maximum time to wait for out-of-band helper")
+
+POWER_DELAY_OPT = cli_option("--power-delay", dest="power_delay", type="float",
+                             default=constants.OOB_POWER_DELAY,
+                             help="Time in seconds to wait between power-ons")
+
+FORCE_FILTER_OPT = cli_option("-F", "--filter", dest="force_filter",
+                              action="store_true", default=False,
+                              help=("Whether command argument should be treated"
+                                    " as filter"))
+
 NO_REMEMBER_OPT = cli_option("--no-remember",
                              dest="no_remember",
                              action="store_true", default=False,
                              help="Perform but do not record the change"
                              " in the configuration")
+
+PRIMARY_ONLY_OPT = cli_option("-p", "--primary-only",
+                              default=False, action="store_true",
+                              help="Evacuate primary instances only")
+
+SECONDARY_ONLY_OPT = cli_option("-s", "--secondary-only",
+                                default=False, action="store_true",
+                                help="Evacuate secondary instances only"
+                                     " (applies only to internally mirrored"
+                                     " disk templates, e.g. %s)" %
+                                     utils.CommaJoin(constants.DTS_INT_MIRROR))
+
+STARTUP_PAUSED_OPT = cli_option("--paused", dest="startup_paused",
+                                action="store_true", default=False,
+                                help="Pause instance at startup")
+
+TO_GROUP_OPT = cli_option("--to", dest="to", metavar="<group>",
+                          help="Destination node group (name or uuid)",
+                          default=None, action="append",
+                          completion_suggest=OPT_COMPL_ONE_NODEGROUP)
 
 
 #: Options provided by all commands
@@ -1179,6 +1261,7 @@ COMMON_CREATE_OPTS = [
   OSPARAMS_OPT,
   OS_SIZE_OPT,
   SUBMIT_OPT,
+  TAG_ADD_OPT,
   DRY_RUN_OPT,
   PRIORITY_OPT,
   ]
@@ -1338,8 +1421,8 @@ def SplitNodeOption(value):
   """Splits the value of a --node option.
 
   """
-  if value and ':' in value:
-    return value.split(':', 1)
+  if value and ":" in value:
+    return value.split(":", 1)
   else:
     return (value, None)
 
@@ -1356,7 +1439,7 @@ def CalculateOSNames(os_name, os_variants):
 
   """
   if os_variants:
-    return ['%s+%s' % (os_name, v) for v in os_variants]
+    return ["%s+%s" % (os_name, v) for v in os_variants]
   else:
     return [os_name]
 
@@ -1398,12 +1481,12 @@ def AskUser(text, choices=None):
 
   """
   if choices is None:
-    choices = [('y', True, 'Perform the operation'),
-               ('n', False, 'Do not perform the operation')]
+    choices = [("y", True, "Perform the operation"),
+               ("n", False, "Do not perform the operation")]
   if not choices or not isinstance(choices, list):
     raise errors.ProgrammerError("Invalid choices argument to AskUser")
   for entry in choices:
-    if not isinstance(entry, tuple) or len(entry) < 3 or entry[0] == '?':
+    if not isinstance(entry, tuple) or len(entry) < 3 or entry[0] == "?":
       raise errors.ProgrammerError("Invalid choices element to AskUser")
 
   answer = choices[-1][1]
@@ -1418,18 +1501,18 @@ def AskUser(text, choices=None):
   try:
     chars = [entry[0] for entry in choices]
     chars[-1] = "[%s]" % chars[-1]
-    chars.append('?')
+    chars.append("?")
     maps = dict([(entry[0], entry[1]) for entry in choices])
     while True:
       f.write(text)
-      f.write('\n')
+      f.write("\n")
       f.write("/".join(chars))
       f.write(": ")
       line = f.readline(2).strip().lower()
       if line in maps:
         answer = maps[line]
         break
-      elif line == '?':
+      elif line == "?":
         for entry in choices:
           f.write(" %s - %s\n" % (entry[0], entry[2]))
         f.write("\n")
@@ -1676,7 +1759,7 @@ class StdioJobPollReportCb(JobPollReportCbBase):
       ToStderr("Job %s is waiting in queue", job_id)
       self.notified_queued = True
 
-    elif status == constants.JOB_STATUS_WAITLOCK and not self.notified_waitlock:
+    elif status == constants.JOB_STATUS_WAITING and not self.notified_waitlock:
       ToStderr("Job %s is trying to acquire all necessary locks", job_id)
       self.notified_waitlock = True
 
@@ -1876,6 +1959,9 @@ def FormatError(err):
                "%s" % msg)
   elif isinstance(err, errors.JobLost):
     obuf.write("Error checking job status: %s" % msg)
+  elif isinstance(err, errors.QueryFilterParseError):
+    obuf.write("Error while parsing query filter: %s\n" % err.args[0])
+    obuf.write("\n".join(err.GetDetails()))
   elif isinstance(err, errors.GenericError):
     obuf.write("Unhandled Ganeti error: %s" % msg)
   elif isinstance(err, JobSubmittedException):
@@ -1883,7 +1969,7 @@ def FormatError(err):
     retcode = 0
   else:
     obuf.write("Unhandled exception: %s" % msg)
-  return retcode, obuf.getvalue().rstrip('\n')
+  return retcode, obuf.getvalue().rstrip("\n")
 
 
 def GenericMain(commands, override=None, aliases=None):
@@ -2026,7 +2112,7 @@ def GenericInstanceCreate(mode, opts, args):
       raise errors.OpPrereqError("Please use either the '--disk' or"
                                  " '-s' option")
     if opts.sd_size is not None:
-      opts.disks = [(0, {"size": opts.sd_size})]
+      opts.disks = [(0, {constants.IDISK_SIZE: opts.sd_size})]
 
     if opts.disks:
       try:
@@ -2041,24 +2127,30 @@ def GenericInstanceCreate(mode, opts, args):
       if not isinstance(ddict, dict):
         msg = "Invalid disk/%d value: expected dict, got %s" % (didx, ddict)
         raise errors.OpPrereqError(msg)
-      elif "size" in ddict:
-        if "adopt" in ddict:
+      elif constants.IDISK_SIZE in ddict:
+        if constants.IDISK_ADOPT in ddict:
           raise errors.OpPrereqError("Only one of 'size' and 'adopt' allowed"
                                      " (disk %d)" % didx)
         try:
-          ddict["size"] = utils.ParseUnit(ddict["size"])
+          ddict[constants.IDISK_SIZE] = \
+            utils.ParseUnit(ddict[constants.IDISK_SIZE])
         except ValueError, err:
           raise errors.OpPrereqError("Invalid disk size for disk %d: %s" %
                                      (didx, err))
-      elif "adopt" in ddict:
+      elif constants.IDISK_ADOPT in ddict:
         if mode == constants.INSTANCE_IMPORT:
           raise errors.OpPrereqError("Disk adoption not allowed for instance"
                                      " import")
-        ddict["size"] = 0
+        ddict[constants.IDISK_SIZE] = 0
       else:
         raise errors.OpPrereqError("Missing size or adoption source for"
                                    " disk %d" % didx)
       disks[didx] = ddict
+
+  if opts.tags is not None:
+    tags = opts.tags.split(",")
+  else:
+    tags = []
 
   utils.ForceDictType(opts.beparams, constants.BES_PARAMETER_TYPES)
   utils.ForceDictType(hvparams, constants.HVS_PARAMETER_TYPES)
@@ -2103,6 +2195,7 @@ def GenericInstanceCreate(mode, opts, args):
                                 force_variant=force_variant,
                                 src_node=src_node,
                                 src_path=src_path,
+                                tags=tags,
                                 no_install=no_install,
                                 identify_defaults=identify_defaults)
 
@@ -2171,7 +2264,7 @@ class _RunWhileClusterStoppedHelper:
     """
     # Pause watcher by acquiring an exclusive lock on watcher state file
     self.feedback_fn("Blocking watcher")
-    watcher_block = utils.FileLock.Open(constants.WATCHER_STATEFILE)
+    watcher_block = utils.FileLock.Open(constants.WATCHER_LOCK_FILE)
     try:
       # TODO: Currently, this just blocks. There's no timeout.
       # TODO: Should it be a shared lock?
@@ -2273,8 +2366,8 @@ def GenerateTable(headers, fields, separator, data,
   if unitfields is None:
     unitfields = []
 
-  numfields = utils.FieldSet(*numfields)   # pylint: disable-msg=W0142
-  unitfields = utils.FieldSet(*unitfields) # pylint: disable-msg=W0142
+  numfields = utils.FieldSet(*numfields)   # pylint: disable=W0142
+  unitfields = utils.FieldSet(*unitfields) # pylint: disable=W0142
 
   format_fields = []
   for field in fields:
@@ -2292,7 +2385,7 @@ def GenerateTable(headers, fields, separator, data,
 
   if separator is None:
     mlens = [0 for name in fields]
-    format_str = ' '.join(format_fields)
+    format_str = " ".join(format_fields)
   else:
     format_str = separator.replace("%", "%%").join(format_fields)
 
@@ -2331,7 +2424,7 @@ def GenerateTable(headers, fields, separator, data,
   for line in data:
     args = []
     if line is None:
-      line = ['-' for _ in fields]
+      line = ["-" for _ in fields]
     for idx in range(len(fields)):
       if separator is None:
         args.append(mlens[idx])
@@ -2409,10 +2502,7 @@ class _QueryColumnFormatter:
     """
     self._fn = fn
     self._status_fn = status_fn
-    if verbose:
-      self._desc_index = 0
-    else:
-      self._desc_index = 1
+    self._verbose = verbose
 
   def __call__(self, data):
     """Returns a field's string representation.
@@ -2429,10 +2519,28 @@ class _QueryColumnFormatter:
     assert value is None, \
            "Found value %r for abnormal status %s" % (value, status)
 
-    if status in constants.RSS_DESCRIPTION:
-      return constants.RSS_DESCRIPTION[status][self._desc_index]
+    return FormatResultError(status, self._verbose)
 
+
+def FormatResultError(status, verbose):
+  """Formats result status other than L{constants.RS_NORMAL}.
+
+  @param status: The result status
+  @type verbose: boolean
+  @param verbose: Whether to return the verbose text
+  @return: Text of result status
+
+  """
+  assert status != constants.RS_NORMAL, \
+         "FormatResultError called with status equal to constants.RS_NORMAL"
+  try:
+    (verbose_text, normal_text) = constants.RSS_DESCRIPTION[status]
+  except KeyError:
     raise NotImplementedError("Unknown status %s" % status)
+  else:
+    if verbose:
+      return verbose_text
+    return normal_text
 
 
 def FormatQueryResult(result, unit=None, format_override=None, separator=None,
@@ -2525,10 +2633,10 @@ def _WarnUnknownFields(fdefs):
 
 
 def GenericList(resource, fields, names, unit, separator, header, cl=None,
-                format_override=None, verbose=False):
+                format_override=None, verbose=False, force_filter=False):
   """Generic implementation for listing all items of a resource.
 
-  @param resource: One of L{constants.QR_OP_LUXI}
+  @param resource: One of L{constants.QR_VIA_LUXI}
   @type fields: list of strings
   @param fields: List of fields to query for
   @type names: list of strings
@@ -2541,6 +2649,8 @@ def GenericList(resource, fields, names, unit, separator, header, cl=None,
   @param separator: String used to separate fields
   @type header: bool
   @param header: Whether to show header row
+  @type force_filter: bool
+  @param force_filter: Whether to always treat names as filter
   @type format_override: dict
   @param format_override: Dictionary for overriding field formatting functions,
     indexed by field name, contents like L{_DEFAULT_FORMAT_QUERY}
@@ -2554,7 +2664,9 @@ def GenericList(resource, fields, names, unit, separator, header, cl=None,
   if not names:
     names = None
 
-  response = cl.Query(resource, fields, qlang.MakeSimpleFilter("name", names))
+  filter_ = qlang.MakeFilter(names, force_filter)
+
+  response = cl.Query(resource, fields, filter_)
 
   found_unknown = _WarnUnknownFields(response.fields)
 
@@ -2579,7 +2691,7 @@ def GenericList(resource, fields, names, unit, separator, header, cl=None,
 def GenericListFields(resource, fields, separator, header, cl=None):
   """Generic implementation for listing fields for a resource.
 
-  @param resource: One of L{constants.QR_OP_LUXI}
+  @param resource: One of L{constants.QR_VIA_LUXI}
   @type fields: list of strings
   @param fields: List of fields to query for
   @type separator: string or None
@@ -2601,10 +2713,10 @@ def GenericListFields(resource, fields, separator, header, cl=None):
   columns = [
     TableColumn("Name", str, False),
     TableColumn("Title", str, False),
-    # TODO: Add field description to master daemon
+    TableColumn("Description", str, False),
     ]
 
-  rows = [[fdef.name, fdef.title] for fdef in response.fields]
+  rows = [[fdef.name, fdef.title, fdef.doc] for fdef in response.fields]
 
   for line in FormatTable(rows, columns, header, separator):
     ToStdout(line)
@@ -2706,8 +2818,8 @@ def FormatTimestamp(ts):
   @return: a string with the formatted timestamp
 
   """
-  if not isinstance (ts, (tuple, list)) or len(ts) != 2:
-    return '?'
+  if not isinstance(ts, (tuple, list)) or len(ts) != 2:
+    return "?"
   sec, usec = ts
   return time.strftime("%F %T", time.localtime(sec)) + ".%06d" % usec
 
@@ -2730,11 +2842,11 @@ def ParseTimespec(value):
   if not value:
     raise errors.OpPrereqError("Empty time specification passed")
   suffix_map = {
-    's': 1,
-    'm': 60,
-    'h': 3600,
-    'd': 86400,
-    'w': 604800,
+    "s": 1,
+    "m": 60,
+    "h": 3600,
+    "d": 86400,
+    "w": 604800,
     }
   if value[-1] not in suffix_map:
     try:
@@ -2755,7 +2867,7 @@ def ParseTimespec(value):
 
 
 def GetOnlineNodes(nodes, cl=None, nowarn=False, secondary_ips=False,
-                   filter_master=False):
+                   filter_master=False, nodegroup=None):
   """Returns the names of online nodes.
 
   This function will also log a warning on stderr with the names of
@@ -2776,28 +2888,60 @@ def GetOnlineNodes(nodes, cl=None, nowarn=False, secondary_ips=False,
   @param filter_master: if True, do not return the master node in the list
       (useful in coordination with secondary_ips where we cannot check our
       node name against the list)
+  @type nodegroup: string
+  @param nodegroup: If set, only return nodes in this node group
 
   """
   if cl is None:
     cl = GetClient()
 
-  if secondary_ips:
-    name_idx = 2
-  else:
-    name_idx = 0
+  filter_ = []
+
+  if nodes:
+    filter_.append(qlang.MakeSimpleFilter("name", nodes))
+
+  if nodegroup is not None:
+    filter_.append([qlang.OP_OR, [qlang.OP_EQUAL, "group", nodegroup],
+                                 [qlang.OP_EQUAL, "group.uuid", nodegroup]])
 
   if filter_master:
-    master_node = cl.QueryConfigValues(["master_node"])[0]
-    filter_fn = lambda x: x != master_node
-  else:
-    filter_fn = lambda _: True
+    filter_.append([qlang.OP_NOT, [qlang.OP_TRUE, "master"]])
 
-  result = cl.QueryNodes(names=nodes, fields=["name", "offline", "sip"],
-                         use_locking=False)
-  offline = [row[0] for row in result if row[1]]
+  if filter_:
+    if len(filter_) > 1:
+      final_filter = [qlang.OP_AND] + filter_
+    else:
+      assert len(filter_) == 1
+      final_filter = filter_[0]
+  else:
+    final_filter = None
+
+  result = cl.Query(constants.QR_NODE, ["name", "offline", "sip"], final_filter)
+
+  def _IsOffline(row):
+    (_, (_, offline), _) = row
+    return offline
+
+  def _GetName(row):
+    ((_, name), _, _) = row
+    return name
+
+  def _GetSip(row):
+    (_, _, (_, sip)) = row
+    return sip
+
+  (offline, online) = compat.partition(result.data, _IsOffline)
+
   if offline and not nowarn:
-    ToStderr("Note: skipping offline node(s): %s" % utils.CommaJoin(offline))
-  return [row[name_idx] for row in result if not row[1] and filter_fn(row[0])]
+    ToStderr("Note: skipping offline node(s): %s" %
+             utils.CommaJoin(map(_GetName, offline)))
+
+  if secondary_ips:
+    fn = _GetSip
+  else:
+    fn = _GetName
+
+  return map(fn, online)
 
 
 def _ToStream(stream, txt, *args):
@@ -2815,7 +2959,7 @@ def _ToStream(stream, txt, *args):
       stream.write(txt % args)
     else:
       stream.write(txt)
-    stream.write('\n')
+    stream.write("\n")
     stream.flush()
   except IOError, err:
     if err.errno == errno.EPIPE:
@@ -2865,15 +3009,33 @@ class JobExecutor(object):
     self.jobs = []
     self.opts = opts
     self.feedback_fn = feedback_fn
+    self._counter = itertools.count()
+
+  @staticmethod
+  def _IfName(name, fmt):
+    """Helper function for formatting name.
+
+    """
+    if name:
+      return fmt % name
+
+    return ""
 
   def QueueJob(self, name, *ops):
     """Record a job for later submit.
 
     @type name: string
     @param name: a description of the job, will be used in WaitJobSet
+
     """
     SetGenericOpcodeOpts(ops, self.opts)
-    self.queue.append((name, ops))
+    self.queue.append((self._counter.next(), name, ops))
+
+  def AddJobId(self, name, status, job_id):
+    """Adds a job ID to the internal queue.
+
+    """
+    self.jobs.append((self._counter.next(), status, job_id, name))
 
   def SubmitPending(self, each=False):
     """Submit all pending jobs.
@@ -2881,14 +3043,13 @@ class JobExecutor(object):
     """
     if each:
       results = []
-      for row in self.queue:
+      for (_, _, ops) in self.queue:
         # SubmitJob will remove the success status, but raise an exception if
         # the submission fails, so we'll notice that anyway.
-        results.append([True, self.cl.SubmitJob(row[1])])
+        results.append([True, self.cl.SubmitJob(ops)])
     else:
-      results = self.cl.SubmitManyJobs([row[1] for row in self.queue])
-    for (idx, ((status, data), (name, _))) in enumerate(zip(results,
-                                                            self.queue)):
+      results = self.cl.SubmitManyJobs([ops for (_, _, ops) in self.queue])
+    for ((status, data), (idx, name, _)) in zip(results, self.queue):
       self.jobs.append((idx, status, data, name))
 
   def _ChooseJob(self):
@@ -2897,13 +3058,14 @@ class JobExecutor(object):
     """
     assert self.jobs, "_ChooseJob called with empty job list"
 
-    result = self.cl.QueryJobs([i[2] for i in self.jobs], ["status"])
+    result = self.cl.QueryJobs([i[2] for i in self.jobs[:_CHOOSE_BATCH]],
+                               ["status"])
     assert result
 
     for job_data, status in zip(self.jobs, result):
       if (isinstance(status, list) and status and
           status[0] in (constants.JOB_STATUS_QUEUED,
-                        constants.JOB_STATUS_WAITLOCK,
+                        constants.JOB_STATUS_WAITING,
                         constants.JOB_STATUS_CANCELING)):
         # job is still present and waiting
         continue
@@ -2934,25 +3096,26 @@ class JobExecutor(object):
     # first, remove any non-submitted jobs
     self.jobs, failures = compat.partition(self.jobs, lambda x: x[1])
     for idx, _, jid, name in failures:
-      ToStderr("Failed to submit job for %s: %s", name, jid)
+      ToStderr("Failed to submit job%s: %s", self._IfName(name, " for %s"), jid)
       results.append((idx, False, jid))
 
     while self.jobs:
       (idx, _, jid, name) = self._ChooseJob()
-      ToStdout("Waiting for job %s for %s...", jid, name)
+      ToStdout("Waiting for job %s%s ...", jid, self._IfName(name, " for %s"))
       try:
         job_result = PollJob(jid, cl=self.cl, feedback_fn=self.feedback_fn)
         success = True
       except errors.JobLost, err:
         _, job_result = FormatError(err)
-        ToStderr("Job %s for %s has been archived, cannot check its result",
-                 jid, name)
+        ToStderr("Job %s%s has been archived, cannot check its result",
+                 jid, self._IfName(name, " for %s"))
         success = False
       except (errors.GenericError, luxi.ProtocolError), err:
         _, job_result = FormatError(err)
         success = False
         # the error message will always be shown, verbose or not
-        ToStderr("Job %s for %s has failed: %s", jid, name, job_result)
+        ToStderr("Job %s%s has failed: %s",
+                 jid, self._IfName(name, " for %s"), job_result)
 
       results.append((idx, success, job_result))
 
@@ -2998,3 +3161,42 @@ def FormatParameterDict(buf, param_dict, actual, level=1):
   for key in sorted(actual):
     val = param_dict.get(key, "default (%s)" % actual[key])
     buf.write("%s- %s: %s\n" % (indent, key, val))
+
+
+def ConfirmOperation(names, list_type, text, extra=""):
+  """Ask the user to confirm an operation on a list of list_type.
+
+  This function is used to request confirmation for doing an operation
+  on a given list of list_type.
+
+  @type names: list
+  @param names: the list of names that we display when
+      we ask for confirmation
+  @type list_type: str
+  @param list_type: Human readable name for elements in the list (e.g. nodes)
+  @type text: str
+  @param text: the operation that the user should confirm
+  @rtype: boolean
+  @return: True or False depending on user's confirmation.
+
+  """
+  count = len(names)
+  msg = ("The %s will operate on %d %s.\n%s"
+         "Do you want to continue?" % (text, count, list_type, extra))
+  affected = (("\nAffected %s:\n" % list_type) +
+              "\n".join(["  %s" % name for name in names]))
+
+  choices = [("y", True, "Yes, execute the %s" % text),
+             ("n", False, "No, abort the %s" % text)]
+
+  if count > 20:
+    choices.insert(1, ("v", "v", "View the list of affected %s" % list_type))
+    question = msg
+  else:
+    question = msg + affected
+
+  choice = AskUser(question, choices)
+  if choice == "v":
+    choices.pop(1)
+    choice = AskUser(msg + affected, choices)
+  return choice

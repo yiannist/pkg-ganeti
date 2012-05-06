@@ -11,7 +11,7 @@ required files. This directory must be present across all nodes
 by Ganeti.
 .SH REFERENCE
 .PP
-There are six required files: \f[I]create\f[], \f[I]import\f[],
+There are eight required files: \f[I]create\f[], \f[I]import\f[],
 \f[I]export\f[], \f[I]rename\f[], \f[I]verify\f[] (executables),
 \f[I]ganeti_api_version\f[], \f[I]variants.list\f[] and
 \f[I]parameters.list\f[] (text files).
@@ -20,6 +20,12 @@ There are six required files: \f[I]create\f[], \f[I]import\f[],
 All commands will get their input via environment variables. A
 common set of variables will be exported for all commands, and some
 of them might have extra ones. Note that all counts are zero-based.
+.PP
+Since Ganeti version 2.5, the environment will be cleaned up before
+being passed to scripts, therefore they will not inherit the
+environment in with which the ganeti node daemon was started. If
+you depend on any environment variables (non-Ganeti), then you will
+need to define or source them appropriately.
 .TP
 .B OS_API_VERSION
 The OS API version that the rest of the environment conforms to.
@@ -139,7 +145,7 @@ instance, this can be one of: \f[B]rtl8139\f[], \f[B]ne2k_pci\f[],
 .TP
 .B OSP_\f[I]name\f[]
 Each OS parameter (see below) will be exported in its own variable,
-prefixed with \f[B]OSP\f[], and upper-cased. For example, a
+prefixed with \f[B]OSP_\f[], and upper-cased. For example, a
 \f[B]dhcp\f[] parameter will be exported as \f[B]OSP_DHCP\f[].
 .RS
 .RE
@@ -164,7 +170,7 @@ It can configure the IP statically or not, depending on the
 deployment environment.
 .PP
 The \f[B]INSTANCE_REINSTALL\f[] variable is set to \f[B]1\f[] when
-this create request is reinstalling and existing instance, rather
+this create request is reinstalling an existing instance, rather
 than creating one anew. This can be used, for example, to preserve
 some data in the old instance in an OS-specific way.
 .SS export
@@ -178,8 +184,8 @@ The specific disk to backup is denoted by two additional
 environment variables: \f[B]EXPORT_INDEX\f[] which denotes the
 index in the instance disks structure (and could be used for
 example to skip the second disk if not needed for backup) and
-\f[B]EXPORT_PATH\f[] which has the same value as
-\f[B]DISK_N_PATH\f[] but is duplicate here for easier usage by
+\f[B]EXPORT_DEVICE\f[] which has the same value as
+\f[B]DISK_N_PATH\f[] but is duplicated here for easier usage by
 shell scripts (rather than parse the \f[B]DISK_...\f[] variables).
 .PP
 To provide the user with an estimate on how long the export will
@@ -201,7 +207,7 @@ a backup as done by \f[B]export\f[].
 The arguments are the similar to those passed to \f[B]export\f[],
 whose output will be provided on stdin.
 .PP
-The difference in variables is that the current disk is called by
+The difference in variables is that the current disk is denoted by
 \f[B]IMPORT_DEVICE\f[] and \f[B]IMPORT_INDEX\f[] (instead of
 \f[B]EXPORT_...\f[]).
 .SS rename
@@ -236,7 +242,7 @@ succeeded.
 Currently (API version 20), only one parameter is supported:
 \f[B]parameters\f[].
 This should validate the \f[B]OSP_\f[] variables from the
-environment, and output diagnostic message in case the validation
+environment, and output diagnostic messages in case the validation
 fails.
 .PP
 For the \f[B]dhcp\f[] parameter given as example above, a
@@ -261,17 +267,18 @@ verification script could be:
 .PP
 The ganeti_api_version file is a plain text file containing the
 version(s) of the guest OS API that this OS definition complies
-with, one per line. The version documented by this man page is 15,
-so this file must contain the number 15 followed by a newline if
+with, one per line. The version documented by this man page is 20,
+so this file must contain the number 20 followed by a newline if
 only this version is supported. A script compatible with more than
 one Ganeti version should contain the most recent version first
-(i.e. 15), followed by the old version(s) (in this case 10 and/or
-5).
+(i.e. 20), followed by the old version(s) (in this case 15 and/or
+10).
 .SS variants.list
 .PP
 variants.list is a plain text file containing all the declared
-supported variants for this OS, one per line. At least one variant
-must be supported.
+supported variants for this OS, one per line. If this file is
+missing or empty, then the OS won\[aq]t be considered to support
+variants.
 .SS parameters.list
 .PP
 This file declares the parameters supported by the OS, one
@@ -292,9 +299,9 @@ follows:
 .SH NOTES
 .SS Backwards compatibility
 .PP
-Ganeti 2.3 and up is compatible with API version 10, 15 and 20. The
-OS parameters and related scripts (verify) are only supported in
-version 20. The variants functionality (variants.list, and
+Ganeti 2.3 and up is compatible with API versions 10, 15 and 20.
+The OS parameters and related scripts (verify) are only supported
+in version 20. The variants functionality (variants.list, and
 OS_VARIANT env. var) are supported/present only in version 15 and
 up.
 .SS Common behaviour
@@ -313,7 +320,9 @@ empty verify script which returns success can be used.
 The \f[B]variants.list\f[] file has been added, so OSes should
 support at least one variant, declaring it in that file and must be
 prepared to parse the OS_VARIANT environment variable. OSes are
-free to support more variants than just the declared ones.
+free to support more variants than just the declared ones. Note
+that this file is optional; without it, the variants functionality
+is disabled.
 .SS Version 5 to 10
 .PP
 The method for passing data has changed from command line options
@@ -362,13 +371,18 @@ Ganeti daemons: \f[B]ganeti-watcher\f[](8) (automatic instance
 restarter), \f[B]ganeti-cleaner\f[](8) (job queue cleaner),
 \f[B]ganeti-noded\f[](8) (node daemon), \f[B]ganeti-masterd\f[](8)
 (master daemon), \f[B]ganeti-rapi\f[](8) (remote API daemon).
+.PP
+Ganeti htools: \f[B]htools\f[](1) (generic binary),
+\f[B]hbal\f[](1) (cluster balancer), \f[B]hspace\f[](1) (capacity
+calculation), \f[B]hail\f[](1) (IAllocator plugin),
+\f[B]hscan\f[](1) (data gatherer from remote clusters).
 .SH COPYRIGHT
 .PP
-Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc. Permission
-is granted to copy, distribute and/or modify under the terms of the
-GNU General Public License as published by the Free Software
-Foundation; either version 2 of the License, or (at your option)
-any later version.
+Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Google Inc.
+Permission is granted to copy, distribute and/or modify under the
+terms of the GNU General Public License as published by the Free
+Software Foundation; either version 2 of the License, or (at your
+option) any later version.
 .PP
 On Debian systems, the complete text of the GNU General Public
 License can be found in /usr/share/common-licenses/GPL.

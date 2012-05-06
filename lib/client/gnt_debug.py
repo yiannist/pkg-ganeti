@@ -20,7 +20,7 @@
 
 """Debugging commands"""
 
-# pylint: disable-msg=W0401,W0614,C0103
+# pylint: disable=W0401,W0614,C0103
 # W0401: Wildcard import ganeti.cli
 # W0614: Unused import %s from wildcard import (since we need cli)
 # C0103: Invalid name gnt-backup
@@ -37,6 +37,7 @@ from ganeti import opcodes
 from ganeti import utils
 from ganeti import errors
 from ganeti import compat
+from ganeti import ht
 
 
 #: Default fields for L{ListLocks}
@@ -89,7 +90,7 @@ def GenericOpCodes(opts, args):
     ToStdout("Loading...")
   for job_idx in range(opts.rep_job):
     for fname in args:
-      # pylint: disable-msg=W0142
+      # pylint: disable=W0142
       op_data = simplejson.loads(utils.ReadFile(fname))
       op_list = [opcodes.OpCode.LoadOpCode(val) for val in op_data]
       op_list = op_list * opts.rep_op
@@ -112,9 +113,9 @@ def GenericOpCodes(opts, args):
     t3 = time.time()
     ToStdout("C:op     %4d" % op_cnt)
     ToStdout("C:job    %4d" % job_cnt)
-    ToStdout("T:submit %4.4f" % (t2-t1))
-    ToStdout("T:exec   %4.4f" % (t3-t2))
-    ToStdout("T:total  %4.4f" % (t3-t1))
+    ToStdout("T:submit %4.4f" % (t2 - t1))
+    ToStdout("T:exec   %4.4f" % (t3 - t2))
+    ToStdout("T:total  %4.4f" % (t3 - t1))
   return 0
 
 
@@ -129,8 +130,10 @@ def TestAllocator(opts, args):
 
   """
   try:
-    disks = [{"size": utils.ParseUnit(val), "mode": 'w'}
-             for val in opts.disks.split(",")]
+    disks = [{
+      constants.IDISK_SIZE: utils.ParseUnit(val),
+      constants.IDISK_MODE: constants.DISK_RDWR,
+      } for val in opts.disks.split(",")]
   except errors.UnitParseError, err:
     ToStderr("Invalid disks parameter '%s': %s", opts.disks, err)
     return 1
@@ -140,19 +143,28 @@ def TestAllocator(opts, args):
     while len(row) < 3:
       row.append(None)
     for i in range(3):
-      if row[i] == '':
+      if row[i] == "":
         row[i] = None
-  nic_dict = [{"mac": v[0], "ip": v[1], "bridge": v[2]} for v in nics]
+  nic_dict = [{
+    constants.INIC_MAC: v[0],
+    constants.INIC_IP: v[1],
+    # The iallocator interface defines a "bridge" item
+    "bridge": v[2],
+    } for v in nics]
 
   if opts.tags is None:
     opts.tags = []
   else:
     opts.tags = opts.tags.split(",")
+  if opts.target_groups is None:
+    target_groups = []
+  else:
+    target_groups = opts.target_groups
 
   op = opcodes.OpTestAllocator(mode=opts.mode,
                                name=args[0],
-                               evac_nodes=args,
-                               mem_size=opts.mem,
+                               instances=args,
+                               memory=opts.memory,
                                disks=disks,
                                disk_template=opts.disk_template,
                                nics=nic_dict,
@@ -161,10 +173,94 @@ def TestAllocator(opts, args):
                                tags=opts.tags,
                                direction=opts.direction,
                                allocator=opts.iallocator,
-                               )
+                               evac_mode=opts.evac_mode,
+                               target_groups=target_groups)
   result = SubmitOpCode(op, opts=opts)
   ToStdout("%s" % result)
   return 0
+
+
+def _TestJobDependency(opts):
+  """Tests job dependencies.
+
+  """
+  ToStdout("Testing job dependencies")
+
+  cl = cli.GetClient()
+
+  try:
+    SubmitOpCode(opcodes.OpTestDelay(duration=0, depends=[(-1, None)]), cl=cl)
+  except errors.GenericError, err:
+    if opts.debug:
+      ToStdout("Ignoring error: %s", err)
+  else:
+    raise errors.OpExecError("Submitting plain opcode with relative job ID"
+                             " did not fail as expected")
+
+  # TODO: Test dependencies on errors
+  jobs = [
+    [opcodes.OpTestDelay(duration=1)],
+    [opcodes.OpTestDelay(duration=1,
+                         depends=[(-1, [])])],
+    [opcodes.OpTestDelay(duration=1,
+                         depends=[(-2, [constants.JOB_STATUS_SUCCESS])])],
+    [opcodes.OpTestDelay(duration=1,
+                         depends=[])],
+    [opcodes.OpTestDelay(duration=1,
+                         depends=[(-2, [constants.JOB_STATUS_SUCCESS])])],
+    ]
+
+  # Function for checking result
+  check_fn = ht.TListOf(ht.TAnd(ht.TIsLength(2),
+                                ht.TItems([ht.TBool,
+                                           ht.TOr(ht.TNonEmptyString,
+                                                  ht.TJobId)])))
+
+  result = cl.SubmitManyJobs(jobs)
+  if not check_fn(result):
+    raise errors.OpExecError("Job submission doesn't match %s: %s" %
+                             (check_fn, result))
+
+  # Wait for jobs to finish
+  jex = JobExecutor(cl=cl, opts=opts)
+
+  for (status, job_id) in result:
+    jex.AddJobId(None, status, job_id)
+
+  job_results = jex.GetResults()
+  if not compat.all(row[0] for row in job_results):
+    raise errors.OpExecError("At least one of the submitted jobs failed: %s" %
+                             job_results)
+
+  # Get details about jobs
+  data = cl.QueryJobs([job_id for (_, job_id) in result],
+                      ["id", "opexec", "ops"])
+  data_job_id = [job_id for (job_id, _, _) in data]
+  data_opexec = [opexec for (_, opexec, _) in data]
+  data_op = [[opcodes.OpCode.LoadOpCode(op) for op in ops]
+             for (_, _, ops) in data]
+
+  assert compat.all(not op.depends or len(op.depends) == 1
+                    for ops in data_op
+                    for op in ops)
+
+  # Check resolved job IDs in dependencies
+  for (job_idx, res_jobdep) in [(1, data_job_id[0]),
+                                (2, data_job_id[0]),
+                                (4, data_job_id[2])]:
+    if data_op[job_idx][0].depends[0][0] != res_jobdep:
+      raise errors.OpExecError("Job %s's opcode doesn't depend on correct job"
+                               " ID (%s)" % (job_idx, res_jobdep))
+
+  # Check execution order
+  if not (data_opexec[0] <= data_opexec[1] and
+          data_opexec[0] <= data_opexec[2] and
+          data_opexec[2] <= data_opexec[4]):
+    raise errors.OpExecError("Jobs did not run in correct order: %s" % data)
+
+  assert len(jobs) == 5 and compat.all(len(ops) == 1 for ops in jobs)
+
+  ToStdout("Job dependency tests were successful")
 
 
 def _TestJobSubmission(opts):
@@ -300,10 +396,10 @@ class _JobQueueTestReporter(cli.StdioJobPollReportCb):
       logging.debug("Status of job %s is %s", job_id, status)
 
       if test == constants.JQT_EXPANDNAMES:
-        if status != constants.JOB_STATUS_WAITLOCK:
+        if status != constants.JOB_STATUS_WAITING:
           raise errors.OpExecError("Job status while expanding names is '%s',"
                                    " not '%s' as expected" %
-                                   (status, constants.JOB_STATUS_WAITLOCK))
+                                   (status, constants.JOB_STATUS_WAITING))
       elif test in (constants.JQT_EXEC, constants.JQT_LOGMSG):
         if status != constants.JOB_STATUS_RUNNING:
           raise errors.OpExecError("Job status while executing opcode is '%s',"
@@ -327,6 +423,7 @@ def TestJobqueue(opts, _):
 
   """
   _TestJobSubmission(opts)
+  _TestJobDependency(opts)
 
   (TM_SUCCESS,
    TM_MULTISUCCESS,
@@ -467,7 +564,7 @@ def TestJobqueue(opts, _):
   return 0
 
 
-def ListLocks(opts, args): # pylint: disable-msg=W0613
+def ListLocks(opts, args): # pylint: disable=W0613
   """List all locks.
 
   @param opts: the command line options selected by the user
@@ -518,7 +615,7 @@ def ListLocks(opts, args): # pylint: disable-msg=W0613
 
 
 commands = {
-  'delay': (
+  "delay": (
     Delay, [ArgUnknown(min=1, max=1)],
     [cli_option("--no-master", dest="on_master", default=True,
                 action="store_false", help="Do not sleep in the master code"),
@@ -529,7 +626,7 @@ commands = {
      DRY_RUN_OPT, PRIORITY_OPT,
      ],
     "[opts...] <duration>", "Executes a TestDelay OpCode"),
-  'submit-job': (
+  "submit-job": (
     GenericOpCodes, [ArgFile(min=1)],
     [VERBOSE_OPT,
      cli_option("--op-repeat", type="int", default="1", dest="rep_op",
@@ -544,17 +641,18 @@ commands = {
      ],
     "<op_list_file...>", "Submits jobs built from json files"
     " containing a list of serialized opcodes"),
-  'allocator': (
+  "iallocator": (
     TestAllocator, [ArgUnknown(min=1)],
-    [cli_option("--dir", dest="direction",
-                default="in", choices=["in", "out"],
+    [cli_option("--dir", dest="direction", default=constants.IALLOCATOR_DIR_IN,
+                choices=list(constants.VALID_IALLOCATOR_DIRECTIONS),
                 help="Show allocator input (in) or allocator"
                 " results (out)"),
      IALLOCATOR_OPT,
      cli_option("-m", "--mode", default="relocate",
-                choices=["relocate", "allocate", "multi-evacuate"],
-                help="Request mode, either allocate or relocate"),
-     cli_option("--mem", default=128, type="unit",
+                choices=list(constants.VALID_IALLOCATOR_MODES),
+                help=("Request mode (one of %s)" %
+                      utils.CommaJoin(constants.VALID_IALLOCATOR_MODES))),
+     cli_option("--memory", default=128, type="unit",
                 help="Memory size for the instance (MiB)"),
      cli_option("--disks", default="4096,4096",
                 help="Comma separated list of disk sizes (MiB)"),
@@ -568,6 +666,12 @@ commands = {
                 help="Select number of VCPUs for the instance"),
      cli_option("--tags", default=None,
                 help="Comma separated list of tags"),
+     cli_option("--evac-mode", default=constants.IALLOCATOR_NEVAC_ALL,
+                choices=list(constants.IALLOCATOR_NEVAC_MODES),
+                help=("Node evacuation mode (one of %s)" %
+                      utils.CommaJoin(constants.IALLOCATOR_NEVAC_MODES))),
+     cli_option("--target-groups", help="Target groups for relocation",
+                default=[], action="append"),
      DRY_RUN_OPT, PRIORITY_OPT,
      ],
     "{opts...} <instance>", "Executes a TestAllocator OpCode"),
@@ -580,6 +684,11 @@ commands = {
     "[--interval N]", "Show a list of locks in the master daemon"),
   }
 
+#: dictionary with aliases for commands
+aliases = {
+  "allocator": "iallocator",
+  }
+
 
 def Main():
-  return GenericMain(commands)
+  return GenericMain(commands, aliases=aliases)

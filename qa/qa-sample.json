@@ -70,6 +70,9 @@
     "cluster-reserved-lvs": true,
     "cluster-modify": true,
     "cluster-oob": true,
+    "cluster-epo": true,
+    "cluster-redist-conf": true,
+    "cluster-repair-disk-sizes": true,
 
     "group-list": true,
     "group-rwops": true,

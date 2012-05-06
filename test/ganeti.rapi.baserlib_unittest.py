@@ -35,7 +35,7 @@ import testutils
 class TestFillOpcode(unittest.TestCase):
   class OpTest(opcodes.OpCode):
     OP_PARAMS = [
-      ("test", None, ht.TMaybeString),
+      ("test", None, ht.TMaybeString, None),
       ]
 
   def test(self):
@@ -79,6 +79,22 @@ class TestFillOpcode(unittest.TestCase):
                       self.OpTest, "", None)
     self.assertRaises(http.HttpBadRequest, baserlib.FillOpcode,
                       self.OpTest, range(10), None)
+
+  def testRenameBothSpecified(self):
+    self.assertRaises(http.HttpBadRequest, baserlib.FillOpcode,
+                      self.OpTest, { "old": 123, "new": 999, }, None,
+                      rename={ "old": "new", })
+
+  def testRename(self):
+    value = "Hello World"
+    op = baserlib.FillOpcode(self.OpTest, { "data": value, }, None,
+                             rename={ "data": "test", })
+    self.assertEqual(op.test, value)
+
+  def testRenameStatic(self):
+    self.assertRaises(http.HttpBadRequest, baserlib.FillOpcode,
+                      self.OpTest, { "data": 0, }, { "test": None, },
+                      rename={ "data": "test", })
 
 
 if __name__ == "__main__":

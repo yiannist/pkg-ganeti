@@ -182,7 +182,7 @@ other. For example::
   (xend-relocation-hosts-allow '^192\\.0\\.2\\.[0-9]+$')
 
 
-The second line assumess that the hypervisor parameter
+The second line assumes that the hypervisor parameter
 ``migration_port`` is set 8002, otherwise modify it to match. The last
 line assumes that all your nodes have secondary IPs in the
 192.0.2.0/24 network, adjust it accordingly to your setup.
@@ -552,8 +552,8 @@ node, by using the ``--master-netdev <device>`` option.
 
 You can use a different name than ``xenvg`` for the volume group (but
 note that the name must be identical on all nodes). In this case you
-need to specify it by passing the *-g <VGNAME>* option to ``gnt-cluster
-init``.
+need to specify it by passing the *--vg-name <VGNAME>* option to
+``gnt-cluster init``.
 
 To set up the cluster as an Xen HVM cluster, use the
 ``--enabled-hypervisors=xen-hvm`` option to enable the HVM hypervisor

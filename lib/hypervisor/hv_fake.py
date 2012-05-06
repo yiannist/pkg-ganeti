@@ -147,7 +147,7 @@ class FakeHypervisor(hv_base.BaseHypervisor):
     file_name = self._InstanceFile(instance_name)
     utils.RemoveFile(file_name)
 
-  def StartInstance(self, instance, block_devices):
+  def StartInstance(self, instance, block_devices, startup_paused):
     """Start an instance.
 
     For the fake hypervisor, it just creates a file in the base dir,
@@ -200,7 +200,7 @@ class FakeHypervisor(hv_base.BaseHypervisor):
     result = self.GetLinuxNodeInfo()
     # substract running instances
     all_instances = self.GetAllInstancesInfo()
-    result['memory_free'] -= min(result['memory_free'],
+    result["memory_free"] -= min(result["memory_free"],
                                  sum([row[2] for row in all_instances]))
     return result
 

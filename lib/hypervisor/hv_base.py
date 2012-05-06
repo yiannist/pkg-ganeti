@@ -72,15 +72,19 @@ _CPU_MASK_CHECK = (_IsCpuMaskWellFormed,
                    "CPU mask definition is not well-formed",
                    None, None)
 
+# Check for validity of port number
+_NET_PORT_CHECK = (lambda x: 0 < x < 65535, "invalid port number",
+                   None, None)
+
 # nice wrappers for users
 REQ_FILE_CHECK = (True, ) + _FILE_CHECK
 OPT_FILE_CHECK = (False, ) + _FILE_CHECK
 REQ_DIR_CHECK = (True, ) + _DIR_CHECK
 OPT_DIR_CHECK = (False, ) + _DIR_CHECK
-NET_PORT_CHECK = (True, lambda x: x > 0 and x < 65535, "invalid port number",
-                  None, None)
-OPT_CPU_MASK_CHECK = (False, ) + _CPU_MASK_CHECK
+REQ_NET_PORT_CHECK = (True, ) + _NET_PORT_CHECK
+OPT_NET_PORT_CHECK = (False, ) + _NET_PORT_CHECK
 REQ_CPU_MASK_CHECK = (True, ) + _CPU_MASK_CHECK
+OPT_CPU_MASK_CHECK = (False, ) + _CPU_MASK_CHECK
 
 # no checks at all
 NO_CHECK = (False, None, None, None, None)
@@ -134,7 +138,7 @@ class BaseHypervisor(object):
   def __init__(self):
     pass
 
-  def StartInstance(self, instance, block_devices):
+  def StartInstance(self, instance, block_devices, startup_paused):
     """Start an instance."""
     raise NotImplementedError
 
@@ -231,7 +235,7 @@ class BaseHypervisor(object):
     """
     raise NotImplementedError
 
-  def MigrationInfo(self, instance): # pylint: disable-msg=R0201,W0613
+  def MigrationInfo(self, instance): # pylint: disable=R0201,W0613
     """Get instance information to perform a migration.
 
     By default assume no information is needed.
@@ -242,7 +246,7 @@ class BaseHypervisor(object):
     @return: instance migration information - serialized form
 
     """
-    return ''
+    return ""
 
   def AcceptInstance(self, instance, info, target):
     """Prepare to accept an instance.
@@ -381,16 +385,16 @@ class BaseHypervisor(object):
         if len(splitfields) > 1:
           key = splitfields[0].strip()
           val = splitfields[1].strip()
-          if key == 'MemTotal':
-            result['memory_total'] = int(val.split()[0])/1024
-          elif key in ('MemFree', 'Buffers', 'Cached'):
-            sum_free += int(val.split()[0])/1024
-          elif key == 'Active':
-            result['memory_dom0'] = int(val.split()[0])/1024
+          if key == "MemTotal":
+            result["memory_total"] = int(val.split()[0]) / 1024
+          elif key in ("MemFree", "Buffers", "Cached"):
+            sum_free += int(val.split()[0]) / 1024
+          elif key == "Active":
+            result["memory_dom0"] = int(val.split()[0]) / 1024
     except (ValueError, TypeError), err:
       raise errors.HypervisorError("Failed to compute memory usage: %s" %
                                    (err,))
-    result['memory_free'] = sum_free
+    result["memory_free"] = sum_free
 
     cpu_total = 0
     try:
@@ -402,10 +406,10 @@ class BaseHypervisor(object):
         fh.close()
     except EnvironmentError, err:
       raise errors.HypervisorError("Failed to list node info: %s" % (err,))
-    result['cpu_total'] = cpu_total
+    result["cpu_total"] = cpu_total
     # FIXME: export correct data here
-    result['cpu_nodes'] = 1
-    result['cpu_sockets'] = 1
+    result["cpu_nodes"] = 1
+    result["cpu_sockets"] = 1
 
     return result
 

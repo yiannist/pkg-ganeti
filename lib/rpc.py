@@ -23,7 +23,7 @@
 
 """
 
-# pylint: disable-msg=C0103,R0201,R0904
+# pylint: disable=C0103,R0201,R0904
 # C0103: Invalid name, since call_ are not valid
 # R0201: Method could be a function, we keep all rpcs instance methods
 # as not to change them back and forth between static/instance methods
@@ -48,7 +48,7 @@ from ganeti import ssconf
 from ganeti import runtime
 
 # pylint has a bug here, doesn't see this import
-import ganeti.http.client  # pylint: disable-msg=W0611
+import ganeti.http.client  # pylint: disable=W0611
 
 
 # Timeout for connecting to nodes (seconds)
@@ -262,7 +262,7 @@ class RpcResult(object):
       args = (msg, ecode)
     else:
       args = (msg, )
-    raise ec(*args) # pylint: disable-msg=W0142
+    raise ec(*args) # pylint: disable=W0142
 
 
 def _AddressLookup(node_list,
@@ -591,6 +591,15 @@ class RpcRunner(object):
   #
 
   @_RpcTimeout(_TMO_URGENT)
+  def call_bdev_sizes(self, node_list, devices):
+    """Gets the sizes of requested block devices present on a node
+
+    This is a multi-node call.
+
+    """
+    return self._MultiNodeCall(node_list, "bdev_sizes", [devices])
+
+  @_RpcTimeout(_TMO_URGENT)
   def call_lv_list(self, node_list, vg_name):
     """Gets the logical volumes present in a given volume group.
 
@@ -652,14 +661,14 @@ class RpcRunner(object):
     return self._SingleNodeCall(node, "bridges_exist", [bridges_list])
 
   @_RpcTimeout(_TMO_NORMAL)
-  def call_instance_start(self, node, instance, hvp, bep):
+  def call_instance_start(self, node, instance, hvp, bep, startup_paused):
     """Starts an instance.
 
     This is a single-node call.
 
     """
     idict = self._InstDict(instance, hvp=hvp, bep=bep)
-    return self._SingleNodeCall(node, "instance_start", [idict])
+    return self._SingleNodeCall(node, "instance_start", [idict, startup_paused])
 
   @_RpcTimeout(_TMO_NORMAL)
   def call_instance_shutdown(self, node, instance, timeout):
@@ -1254,14 +1263,14 @@ class RpcRunner(object):
     return self._SingleNodeCall(node, "iallocator_runner", [name, idata])
 
   @_RpcTimeout(_TMO_NORMAL)
-  def call_blockdev_grow(self, node, cf_bdev, amount):
+  def call_blockdev_grow(self, node, cf_bdev, amount, dryrun):
     """Request a snapshot of the given block device.
 
     This is a single-node call.
 
     """
     return self._SingleNodeCall(node, "blockdev_grow",
-                                [cf_bdev.ToDict(), amount])
+                                [cf_bdev.ToDict(), amount, dryrun])
 
   @_RpcTimeout(_TMO_1DAY)
   def call_blockdev_export(self, node, cf_bdev,
@@ -1489,7 +1498,8 @@ class RpcRunner(object):
     return self._SingleNodeCall(node, "x509_cert_remove", [name])
 
   @_RpcTimeout(_TMO_NORMAL)
-  def call_import_start(self, node, opts, instance, dest, dest_args):
+  def call_import_start(self, node, opts, instance, component,
+                        dest, dest_args):
     """Starts a listener for an import.
 
     This is a single-node call.
@@ -1498,16 +1508,18 @@ class RpcRunner(object):
     @param node: Node name
     @type instance: C{objects.Instance}
     @param instance: Instance object
+    @type component: string
+    @param component: which part of the instance is being imported
 
     """
     return self._SingleNodeCall(node, "import_start",
                                 [opts.ToDict(),
-                                 self._InstDict(instance), dest,
+                                 self._InstDict(instance), component, dest,
                                  _EncodeImportExportIO(dest, dest_args)])
 
   @_RpcTimeout(_TMO_NORMAL)
   def call_export_start(self, node, opts, host, port,
-                        instance, source, source_args):
+                        instance, component, source, source_args):
     """Starts an export daemon.
 
     This is a single-node call.
@@ -1516,11 +1528,14 @@ class RpcRunner(object):
     @param node: Node name
     @type instance: C{objects.Instance}
     @param instance: Instance object
+    @type component: string
+    @param component: which part of the instance is being imported
 
     """
     return self._SingleNodeCall(node, "export_start",
                                 [opts.ToDict(), host, port,
-                                 self._InstDict(instance), source,
+                                 self._InstDict(instance),
+                                 component, source,
                                  _EncodeImportExportIO(source, source_args)])
 
   @_RpcTimeout(_TMO_FAST)

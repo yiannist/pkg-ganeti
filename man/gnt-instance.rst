@@ -275,6 +275,31 @@ vnc\_x509\_path
 vnc\_x509\_verify
     Valid for the KVM hypervisor.
 
+spice\_bind
+    Valid for the KVM hypervisor.
+
+    Specifies the address or interface on which the SPICE server will
+    listen. Valid values are:
+
+    - IPv4 addresses, including 0.0.0.0 and 127.0.0.1
+    - IPv6 addresses, including :: and ::1
+    - names of network interfaces
+
+    If a network interface is specified, the SPICE server will be bound
+    to one of the addresses of that interface.
+
+spice\_ip\_version
+    Valid for the KVM hypervisor.
+
+    Specifies which version of the IP protocol should be used by the
+    SPICE server.
+
+    It is mainly intended to be used for specifying what kind of IP
+    addresses should be used if a network interface with both IPv4 and
+    IPv6 addresses is specified via the ``spice_bind`` parameter. In
+    this case, if the ``spice_ip_version`` parameter is not used, the
+    default IP version of the cluster will be used.
+
 acpi
     Valid for the Xen HVM and KVM hypervisors.
 
@@ -432,6 +457,21 @@ usb\_mouse
     This option specifies the usb mouse type to be used. It can be
     "mouse" or "tablet". When using VNC it's recommended to set it to
     "tablet".
+
+keymap
+    Valid for the KVM hypervisor.
+
+    This option specifies the keyboard mapping to be used. It is only
+    needed when using the VNC console. For example: "fr" or "en-gb".
+
+reboot\_behavior
+    Valid for Xen PVM, Xen HVM and KVM hypervisors.
+
+    Normally if an instance reboots, the hypervisor will restart it. If
+    this option is set to ``exit``, the hypervisor will treat a reboot
+    as a shutdown instead.
+
+    It is set to ``reboot`` by default.
 
 
 The ``-O (--os-parameters)`` option allows customisation of the OS
@@ -613,7 +653,7 @@ REMOVE
 ^^^^^^
 
 **remove** [--ignore-failures] [--shutdown-timeout=*N*] [--submit]
-{*instance*}
+[--force] {*instance*}
 
 Remove an instance. This will remove all data from the instance and
 there is *no way back*. If you are not sure if you use an instance
@@ -634,6 +674,8 @@ The ``--submit`` option is used to send the job to the master daemon
 but not wait for its completion. The job ID will be shown so that it
 can be examined via **gnt-job info**.
 
+The ``--force`` option is used to skip the interactive confirmation.
+
 Example::
 
     # gnt-instance remove instance1.example.com
@@ -644,7 +686,7 @@ LIST
 
 | **list**
 | [--no-headers] [--separator=*SEPARATOR*] [--units=*UNITS*] [-v]
-| [{-o|--output} *[+]FIELD,...*] [instance...]
+| [{-o|--output} *[+]FIELD,...*] [--filter] [instance...]
 
 Shows the currently configured instances with memory usage, disk
 usage, the node they are running on, and their run status.
@@ -667,160 +709,7 @@ special field states (see **ganeti(7)**).
 The ``-o (--output)`` option takes a comma-separated list of output
 fields. The available fields and their meaning are:
 
-name
-    the instance name
-
-os
-    the OS of the instance
-
-pnode
-    the primary node of the instance
-
-snodes
-    comma-separated list of secondary nodes for the instance; usually
-    this will be just one node
-
-admin\_state
-    the desired state of the instance (either "yes" or "no" denoting
-    the instance should run or not)
-
-disk\_template
-    the disk template of the instance
-
-oper\_state
-    the actual state of the instance; can be one of the values
-    "running", "stopped", "(node down)"
-
-status
-    combined form of ``admin_state`` and ``oper_stat``; this can be one of:
-    ``ERROR_nodedown`` if the node of the instance is down, ``ERROR_down`` if
-    the instance should run but is down, ``ERROR_up`` if the instance should be
-    stopped but is actually running, ``ERROR_wrongnode`` if the instance is
-    running but not on the primary, ``ADMIN_down`` if the instance has been
-    stopped (and is stopped) and ``running`` if the instance is set to be
-    running (and is running)
-
-oper\_ram
-    the actual memory usage of the instance as seen by the hypervisor
-
-oper\_vcpus
-    the actual number of VCPUs the instance is using as seen by the
-    hypervisor
-
-ip
-    the ip address Ganeti recognizes as associated with the first
-    instance interface
-
-mac
-    the first instance interface MAC address
-
-nic\_mode
-    the mode of the first instance NIC (routed or bridged)
-
-nic\_link
-    the link of the first instance NIC
-
-sda\_size
-    the size of the instance's first disk
-
-sdb\_size
-    the size of the instance's second disk, if any
-
-vcpus
-    the number of VCPUs allocated to the instance
-
-tags
-    comma-separated list of the instances's tags
-
-serial\_no
-    the so called 'serial number' of the instance; this is a numeric
-    field that is incremented each time the instance is modified, and
-    it can be used to track modifications
-
-ctime
-    the creation time of the instance; note that this field contains
-    spaces and as such it's harder to parse
-
-    if this attribute is not present (e.g. when upgrading from older
-    versions), then "N/A" will be shown instead
-
-mtime
-    the last modification time of the instance; note that this field
-    contains spaces and as such it's harder to parse
-
-    if this attribute is not present (e.g. when upgrading from older
-    versions), then "N/A" will be shown instead
-
-uuid
-    Show the UUID of the instance (generated automatically by Ganeti)
-
-network\_port
-    If the instance has a network port assigned to it (e.g. for VNC
-    connections), this will be shown, otherwise - will be displayed.
-
-beparams
-    A text format of the entire beparams for the instance. It's more
-    useful to select individual fields from this dictionary, see
-    below.
-
-disk.count
-    The number of instance disks.
-
-disk.size/N
-    The size of the instance's Nth disk. This is a more generic form of
-    the sda\_size and sdb\_size fields.
-
-disk.sizes
-    A comma-separated list of the disk sizes for this instance.
-
-disk\_usage
-    The total disk space used by this instance on each of its nodes.
-    This is not the instance-visible disk size, but the actual disk
-    "cost" of the instance.
-
-nic.mac/N
-    The MAC of the Nth instance NIC.
-
-nic.ip/N
-    The IP address of the Nth instance NIC.
-
-nic.mode/N
-    The mode of the Nth instance NIC
-
-nic.link/N
-    The link of the Nth instance NIC
-
-nic.macs
-    A comma-separated list of all the MACs of the instance's NICs.
-
-nic.ips
-    A comma-separated list of all the IP addresses of the instance's
-    NICs.
-
-nic.modes
-    A comma-separated list of all the modes of the instance's NICs.
-
-nic.links
-    A comma-separated list of all the link parameters of the instance's
-    NICs.
-
-nic.count
-    The number of instance nics.
-
-hv/*NAME*
-    The value of the hypervisor parameter called *NAME*. For details of
-    what hypervisor parameters exist and their meaning, see the **add**
-    command.
-
-be/memory
-    The configured memory for the instance.
-
-be/vcpus
-    The configured number of VCPUs for the instance.
-
-be/auto\_balance
-    Whether the instance is considered in N+1 checks.
-
+@QUERY_FIELDS_INSTANCE@
 
 If the value of the option starts with the character ``+``, the new
 field(s) will be added to the default list. This allows one to quickly
@@ -836,8 +725,14 @@ remote nodes for the data. This can be helpful for big clusters when
 you only want some data and it makes sense to specify a reduced set of
 output fields.
 
-The default output field list is: name, os, pnode, admin\_state,
-oper\_state, oper\_ram.
+If exactly one argument is given and it appears to be a query filter
+(see **ganeti(7)**), the query result is filtered accordingly. For
+ambiguous cases (e.g. a single field name as a filter) the ``--filter``
+(``-F``) option forces the argument to be treated as a filter (e.g.
+``gnt-instance list -F admin_state``).
+
+The default output field list is: ``name``, ``os``, ``pnode``,
+``admin_state``, ``oper_state``, ``oper_ram``.
 
 
 LIST-FIELDS
@@ -973,9 +868,10 @@ the next time the instance is started). The IP test can be skipped if
 the ``--no-ip-check`` option is passed.
 
 The ``--no-name-check`` skips the check for the new instance name via
-the resolver (e.g. in DNS or /etc/hosts, depending on your
-setup). Since the name check is used to compute the IP address, if you
-pass this option you must also pass the ``--no-ip-check`` option.
+the resolver (e.g. in DNS or /etc/hosts, depending on your setup) and
+that the resolved name matches the provided name. Since the name check
+is used to compute the IP address, if you pass this option you must also
+pass the ``--no-ip-check`` option.
 
 The ``--submit`` option is used to send the job to the master daemon
 but not wait for its completion. The job ID will be shown so that it
@@ -994,7 +890,7 @@ STARTUP
 | --tags \| --node-tags \| --pri-node-tags \| --sec-node-tags]
 | [{-H|--hypervisor-parameters} ``key=value...``]
 | [{-B|--backend-parameters} ``key=value...``]
-| [--submit]
+| [--submit] [--paused]
 | {*name*...}
 
 Starts one or more instances, depending on the following options.  The
@@ -1035,7 +931,6 @@ four available modes are:
     will start all instances in the cluster on secondary nodes with the
     tags given as arguments
 
-
 Note that although you can pass more than one selection option, the
 last one wins, so in order to guarantee the desired result, don't pass
 more than one such option.
@@ -1059,7 +954,7 @@ be used to start an instance with modified parameters. They can be
 useful for quick testing without having to modify an instance back and
 forth, e.g.::
 
-    # gnt-instance start -H root_args="single" instance1
+    # gnt-instance start -H kernel_args="single" instance1
     # gnt-instance start -B memory=2048 instance2
 
 
@@ -1067,11 +962,16 @@ The first form will start the instance instance1 in single-user mode,
 and the instance instance2 with 2GB of RAM (this time only, unless
 that is the actual instance memory size already). Note that the values
 override the instance parameters (and not extend them): an instance
-with "root\_args=ro" when started with -H root\_args=single will
+with "kernel\_args=ro" when started with -H kernel\_args=single will
 result in "single", not "ro single".  The ``--submit`` option is used
 to send the job to the master daemon but not wait for its
 completion. The job ID will be shown so that it can be examined via
 **gnt-job info**.
+
+The ``--paused`` option is only valid for Xen and kvm hypervisors.  This
+pauses the instance at the start of bootup, awaiting ``gnt-instance
+console`` to unpause it, allowing the entire boot process to be
+monitored for debugging.
 
 Example::
 
@@ -1184,6 +1084,10 @@ For HVM instances, this will attempt to connect to the serial console
 of the instance. To connect to the virtualized "physical" console of a
 HVM instance, use a VNC client with the connection info from the
 **info** command.
+
+For Xen/kvm instances, if the instance is paused, this attempts to
+unpause the instance after waiting a few seconds for the connection to
+the console to be made.
 
 Example::
 
@@ -1386,8 +1290,12 @@ FAILOVER
 **failover** [-f] [--ignore-consistency] [--shutdown-timeout=*N*]
 [--submit] {*instance*}
 
-Failover will fail the instance over its secondary node. This works
-only for instances having a drbd disk template.
+Failover will stop the instance (if running), change its primary node,
+and if it was originally running it will start it again (on the new
+primary). This only works for instances with drbd template (in which
+case you can only fail to the secondary node) and for externally
+mirrored templates (shared storage) (which can change to any other
+node).
 
 Normally the failover will check the consistency of the disks before
 failing over the instance. If you are trying to migrate instances off
@@ -1416,8 +1324,8 @@ MIGRATE
 
 **migrate** [-f] {--cleanup} {*instance*}
 
-**migrate** [-f] [--non-live] [--migration-mode=live\|non-live]
-{*instance*}
+**migrate** [-f] [--allow-failover] [--non-live]
+[--migration-mode=live\|non-live] {*instance*}
 
 Migrate will move the instance to its secondary node without
 shutdown. It only works for instances having the drbd8 disk template
@@ -1447,6 +1355,11 @@ are configured correctly. In this mode, the ``--non-live`` option is
 ignored.
 
 The option ``-f`` will skip the prompting for confirmation.
+
+If ``--allow-failover`` is specified it tries to fallback to failover if
+it already can determine that a migration wont work (i.e. if the
+instance is shutdown). Please note that the fallback will not happen
+during execution. If a migration fails during execution it still fails.
 
 Example (and expected output)::
 
@@ -1500,6 +1413,23 @@ Example::
     # gnt-instance move -n node3.example.com instance1.example.com
 
 
+CHANGE-GROUP
+~~~~~~~~~~~~
+
+**change-group** [--iallocator *NAME*] [--to *GROUP*...] {*instance*}
+
+This command moves an instance to another node group. The move is
+calculated by an iallocator, either given on the command line or as a
+cluster default.
+
+If no specific destination groups are specified using ``--to``, all
+groups except the one containing the instance are considered.
+
+Example::
+
+    # gnt-instance change-group -I hail --to rack2 inst1.example.com
+
+
 TAGS
 ~~~~
 
@@ -1537,3 +1467,9 @@ be extended with the contents of that file (each line becomes a tag).
 In this case, there is not need to pass tags on the command line (if
 you do, tags from both sources will be removed). A file name of ``-``
 will be interpreted as stdin.
+
+.. vim: set textwidth=72 :
+.. Local Variables:
+.. mode: rst
+.. fill-column: 72
+.. End:

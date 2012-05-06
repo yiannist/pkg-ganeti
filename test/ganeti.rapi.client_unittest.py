@@ -31,6 +31,8 @@ from ganeti import constants
 from ganeti import http
 from ganeti import serializer
 from ganeti import utils
+from ganeti import query
+from ganeti import objects
 
 from ganeti.rapi import connector
 from ganeti.rapi import rlib2
@@ -101,6 +103,9 @@ class RapiMock(object):
     self._last_handler = None
     self._last_req_data = None
 
+  def ResetResponses(self):
+    del self._responses[:]
+
   def AddResponse(self, response, code=200):
     self._responses.insert(0, (code, response))
 
@@ -146,7 +151,27 @@ class TestConstants(unittest.TestCase):
     self.assertEqual(client._REQ_DATA_VERSION_FIELD, rlib2._REQ_DATA_VERSION)
     self.assertEqual(client._INST_CREATE_REQV1, rlib2._INST_CREATE_REQV1)
     self.assertEqual(client._INST_REINSTALL_REQV1, rlib2._INST_REINSTALL_REQV1)
+    self.assertEqual(client._NODE_MIGRATE_REQV1, rlib2._NODE_MIGRATE_REQV1)
+    self.assertEqual(client._NODE_EVAC_RES1, rlib2._NODE_EVAC_RES1)
     self.assertEqual(client._INST_NIC_PARAMS, constants.INIC_PARAMS)
+    self.assertEqual(client.JOB_STATUS_QUEUED, constants.JOB_STATUS_QUEUED)
+    self.assertEqual(client.JOB_STATUS_WAITING, constants.JOB_STATUS_WAITING)
+    self.assertEqual(client.JOB_STATUS_CANCELING,
+                     constants.JOB_STATUS_CANCELING)
+    self.assertEqual(client.JOB_STATUS_RUNNING, constants.JOB_STATUS_RUNNING)
+    self.assertEqual(client.JOB_STATUS_CANCELED, constants.JOB_STATUS_CANCELED)
+    self.assertEqual(client.JOB_STATUS_SUCCESS, constants.JOB_STATUS_SUCCESS)
+    self.assertEqual(client.JOB_STATUS_ERROR, constants.JOB_STATUS_ERROR)
+    self.assertEqual(client.JOB_STATUS_FINALIZED, constants.JOBS_FINALIZED)
+    self.assertEqual(client.JOB_STATUS_ALL, constants.JOB_STATUS_ALL)
+
+    # Node evacuation
+    self.assertEqual(client.NODE_EVAC_PRI, constants.IALLOCATOR_NEVAC_PRI)
+    self.assertEqual(client.NODE_EVAC_SEC, constants.IALLOCATOR_NEVAC_SEC)
+    self.assertEqual(client.NODE_EVAC_ALL, constants.IALLOCATOR_NEVAC_ALL)
+
+    # Legacy name
+    self.assertEqual(client.JOB_STATUS_WAITLOCK, constants.JOB_STATUS_WAITING)
 
 
 class RapiMockTest(unittest.TestCase):
@@ -495,91 +520,11 @@ class GanetiRapiClientTests(testutils.GanetiTestCase):
     self.assertQuery("static", ["1"])
 
   def testCreateInstanceOldVersion(self):
-    # No NICs
+    # The old request format, version 0, is no longer supported
     self.rapi.AddResponse(None, code=404)
     self.assertRaises(client.GanetiApiError, self.client.CreateInstance,
                       "create", "inst1.example.com", "plain", [], [])
     self.assertEqual(self.rapi.CountPending(), 0)
-
-    # More than one NIC
-    self.rapi.AddResponse(None, code=404)
-    self.assertRaises(client.GanetiApiError, self.client.CreateInstance,
-                      "create", "inst1.example.com", "plain", [],
-                      [{}, {}, {}])
-    self.assertEqual(self.rapi.CountPending(), 0)
-
-    # Unsupported NIC fields
-    self.rapi.AddResponse(None, code=404)
-    self.assertRaises(client.GanetiApiError, self.client.CreateInstance,
-                      "create", "inst1.example.com", "plain", [],
-                      [{"x": True, "y": False}])
-    self.assertEqual(self.rapi.CountPending(), 0)
-
-    # Unsupported disk fields
-    self.rapi.AddResponse(None, code=404)
-    self.assertRaises(client.GanetiApiError, self.client.CreateInstance,
-                      "create", "inst1.example.com", "plain",
-                      [{}, {"moo": "foo",}], [{}])
-    self.assertEqual(self.rapi.CountPending(), 0)
-
-    # Unsupported fields
-    self.rapi.AddResponse(None, code=404)
-    self.assertRaises(client.GanetiApiError, self.client.CreateInstance,
-                      "create", "inst1.example.com", "plain", [], [{}],
-                      hello_world=123)
-    self.assertEqual(self.rapi.CountPending(), 0)
-
-    self.rapi.AddResponse(None, code=404)
-    self.assertRaises(client.GanetiApiError, self.client.CreateInstance,
-                      "create", "inst1.example.com", "plain", [], [{}],
-                      memory=128)
-    self.assertEqual(self.rapi.CountPending(), 0)
-
-    # Normal creation
-    testnics = [
-      [{}],
-      [{ "mac": constants.VALUE_AUTO, }],
-      [{ "ip": "192.0.2.99", "mode": constants.NIC_MODE_ROUTED, }],
-      ]
-
-    testdisks = [
-      [],
-      [{ "size": 128, }],
-      [{ "size": 321, }, { "size": 4096, }],
-      ]
-
-    for idx, nics in enumerate(testnics):
-      for disks in testdisks:
-        beparams = {
-          constants.BE_MEMORY: 512,
-          constants.BE_AUTO_BALANCE: False,
-          }
-        hvparams = {
-          constants.HV_MIGRATION_PORT: 9876,
-          constants.HV_VNC_TLS: True,
-          }
-
-        self.rapi.AddResponse(None, code=404)
-        self.rapi.AddResponse(serializer.DumpJson(3122617 + idx))
-        job_id = self.client.CreateInstance("create", "inst1.example.com",
-                                            "plain", disks, nics,
-                                            pnode="node99", dry_run=True,
-                                            hvparams=hvparams,
-                                            beparams=beparams)
-        self.assertEqual(job_id, 3122617 + idx)
-        self.assertHandler(rlib2.R_2_instances)
-        self.assertDryRun()
-        self.assertEqual(self.rapi.CountPending(), 0)
-
-        data = serializer.LoadJson(self.rapi.GetLastRequestData())
-        self.assertEqual(data["name"], "inst1.example.com")
-        self.assertEqual(data["disk_template"], "plain")
-        self.assertEqual(data["pnode"], "node99")
-        self.assertEqual(data[constants.BE_MEMORY], 512)
-        self.assertEqual(data[constants.BE_AUTO_BALANCE], False)
-        self.assertEqual(data[constants.HV_MIGRATION_PORT], 9876)
-        self.assertEqual(data[constants.HV_VNC_TLS], True)
-        self.assertEqual(data["disks"], [disk["size"] for disk in disks])
 
   def testCreateInstance(self):
     self.rapi.AddResponse(serializer.DumpJson([rlib2._INST_CREATE_REQV1]))
@@ -729,24 +674,21 @@ class GanetiRapiClientTests(testutils.GanetiTestCase):
   def testReplaceInstanceDisks(self):
     self.rapi.AddResponse("999")
     job_id = self.client.ReplaceInstanceDisks("instance-name",
-        disks=[0, 1], dry_run=True, iallocator="hail")
+        disks=[0, 1], iallocator="hail")
     self.assertEqual(999, job_id)
     self.assertHandler(rlib2.R_2_instances_name_replace_disks)
     self.assertItems(["instance-name"])
     self.assertQuery("disks", ["0,1"])
     self.assertQuery("mode", ["replace_auto"])
     self.assertQuery("iallocator", ["hail"])
-    self.assertDryRun()
 
     self.rapi.AddResponse("1000")
     job_id = self.client.ReplaceInstanceDisks("instance-bar",
-        disks=[1], mode="replace_on_secondary", remote_node="foo-node",
-        dry_run=True)
+        disks=[1], mode="replace_on_secondary", remote_node="foo-node")
     self.assertEqual(1000, job_id)
     self.assertItems(["instance-bar"])
     self.assertQuery("disks", ["1"])
     self.assertQuery("remote_node", ["foo-node"])
-    self.assertDryRun()
 
     self.rapi.AddResponse("5175")
     self.assertEqual(5175, self.client.ReplaceInstanceDisks("instance-moo"))
@@ -797,6 +739,36 @@ class GanetiRapiClientTests(testutils.GanetiTestCase):
         self.assertEqual(len(data), 2)
         self.assertEqual(data["mode"], mode)
         self.assertEqual(data["cleanup"], cleanup)
+
+  def testFailoverInstanceDefaults(self):
+    self.rapi.AddResponse("7639")
+    job_id = self.client.FailoverInstance("inst13579")
+    self.assertEqual(job_id, 7639)
+    self.assertHandler(rlib2.R_2_instances_name_failover)
+    self.assertItems(["inst13579"])
+
+    data = serializer.LoadJson(self.rapi.GetLastRequestData())
+    self.assertFalse(data)
+
+  def testFailoverInstance(self):
+    for iallocator in ["dumb", "hail"]:
+      for ignore_consistency in [False, True]:
+        for target_node in ["node-a", "node2"]:
+          self.rapi.AddResponse("19161")
+          job_id = \
+            self.client.FailoverInstance("inst251", iallocator=iallocator,
+                                         ignore_consistency=ignore_consistency,
+                                         target_node=target_node)
+          self.assertEqual(job_id, 19161)
+          self.assertHandler(rlib2.R_2_instances_name_failover)
+          self.assertItems(["inst251"])
+
+          data = serializer.LoadJson(self.rapi.GetLastRequestData())
+          self.assertEqual(len(data), 3)
+          self.assertEqual(data["iallocator"], iallocator)
+          self.assertEqual(data["ignore_consistency"], ignore_consistency)
+          self.assertEqual(data["target_node"], target_node)
+          self.assertEqual(self.rapi.CountPending(), 0)
 
   def testRenameInstanceDefaults(self):
     new_name = "newnametha7euqu"
@@ -881,32 +853,72 @@ class GanetiRapiClientTests(testutils.GanetiTestCase):
     self.assertItems(["node-foo"])
 
   def testEvacuateNode(self):
+    self.rapi.AddResponse(serializer.DumpJson([rlib2._NODE_EVAC_RES1]))
     self.rapi.AddResponse("9876")
     job_id = self.client.EvacuateNode("node-1", remote_node="node-2")
     self.assertEqual(9876, job_id)
     self.assertHandler(rlib2.R_2_nodes_name_evacuate)
     self.assertItems(["node-1"])
-    self.assertQuery("remote_node", ["node-2"])
+    self.assertEqual(serializer.LoadJson(self.rapi.GetLastRequestData()),
+                     { "remote_node": "node-2", })
+    self.assertEqual(self.rapi.CountPending(), 0)
 
+    self.rapi.AddResponse(serializer.DumpJson([rlib2._NODE_EVAC_RES1]))
     self.rapi.AddResponse("8888")
-    job_id = self.client.EvacuateNode("node-3", iallocator="hail", dry_run=True)
+    job_id = self.client.EvacuateNode("node-3", iallocator="hail", dry_run=True,
+                                      mode=constants.IALLOCATOR_NEVAC_ALL,
+                                      early_release=True)
     self.assertEqual(8888, job_id)
     self.assertItems(["node-3"])
-    self.assertQuery("iallocator", ["hail"])
+    self.assertEqual(serializer.LoadJson(self.rapi.GetLastRequestData()), {
+      "iallocator": "hail",
+      "mode": "all",
+      "early_release": True,
+      })
     self.assertDryRun()
 
     self.assertRaises(client.GanetiApiError,
                       self.client.EvacuateNode,
                       "node-4", iallocator="hail", remote_node="node-5")
+    self.assertEqual(self.rapi.CountPending(), 0)
+
+  def testEvacuateNodeOldResponse(self):
+    self.rapi.AddResponse(serializer.DumpJson([]))
+    self.assertRaises(client.GanetiApiError, self.client.EvacuateNode,
+                      "node-4", accept_old=False)
+    self.assertEqual(self.rapi.CountPending(), 0)
+
+    for mode in [client.NODE_EVAC_PRI, client.NODE_EVAC_ALL]:
+      self.rapi.AddResponse(serializer.DumpJson([]))
+      self.assertRaises(client.GanetiApiError, self.client.EvacuateNode,
+                        "node-4", accept_old=True, mode=mode)
+      self.assertEqual(self.rapi.CountPending(), 0)
+
+    self.rapi.AddResponse(serializer.DumpJson([]))
+    self.rapi.AddResponse(serializer.DumpJson("21533"))
+    result = self.client.EvacuateNode("node-3", iallocator="hail",
+                                      dry_run=True, accept_old=True,
+                                      mode=client.NODE_EVAC_SEC,
+                                      early_release=True)
+    self.assertEqual(result, "21533")
+    self.assertItems(["node-3"])
+    self.assertQuery("iallocator", ["hail"])
+    self.assertQuery("early_release", ["1"])
+    self.assertFalse(self.rapi.GetLastRequestData())
+    self.assertDryRun()
+    self.assertEqual(self.rapi.CountPending(), 0)
 
   def testMigrateNode(self):
+    self.rapi.AddResponse(serializer.DumpJson([]))
     self.rapi.AddResponse("1111")
     self.assertEqual(1111, self.client.MigrateNode("node-a", dry_run=True))
     self.assertHandler(rlib2.R_2_nodes_name_migrate)
     self.assertItems(["node-a"])
     self.assert_("mode" not in self.rapi.GetLastHandler().queryargs)
     self.assertDryRun()
+    self.assertFalse(self.rapi.GetLastRequestData())
 
+    self.rapi.AddResponse(serializer.DumpJson([]))
     self.rapi.AddResponse("1112")
     self.assertEqual(1112, self.client.MigrateNode("node-a", dry_run=True,
                                                    mode="live"))
@@ -914,6 +926,36 @@ class GanetiRapiClientTests(testutils.GanetiTestCase):
     self.assertItems(["node-a"])
     self.assertQuery("mode", ["live"])
     self.assertDryRun()
+    self.assertFalse(self.rapi.GetLastRequestData())
+
+    self.rapi.AddResponse(serializer.DumpJson([]))
+    self.assertRaises(client.GanetiApiError, self.client.MigrateNode,
+                      "node-c", target_node="foonode")
+    self.assertEqual(self.rapi.CountPending(), 0)
+
+  def testMigrateNodeBodyData(self):
+    self.rapi.AddResponse(serializer.DumpJson([rlib2._NODE_MIGRATE_REQV1]))
+    self.rapi.AddResponse("27539")
+    self.assertEqual(27539, self.client.MigrateNode("node-a", dry_run=False,
+                                                    mode="live"))
+    self.assertHandler(rlib2.R_2_nodes_name_migrate)
+    self.assertItems(["node-a"])
+    self.assertFalse(self.rapi.GetLastHandler().queryargs)
+    self.assertEqual(serializer.LoadJson(self.rapi.GetLastRequestData()),
+                     { "mode": "live", })
+
+    self.rapi.AddResponse(serializer.DumpJson([rlib2._NODE_MIGRATE_REQV1]))
+    self.rapi.AddResponse("14219")
+    self.assertEqual(14219, self.client.MigrateNode("node-x", dry_run=True,
+                                                    target_node="node9",
+                                                    iallocator="ial"))
+    self.assertHandler(rlib2.R_2_nodes_name_migrate)
+    self.assertItems(["node-x"])
+    self.assertDryRun()
+    self.assertEqual(serializer.LoadJson(self.rapi.GetLastRequestData()),
+                     { "target_node": "node9", "iallocator": "ial", })
+
+    self.assertEqual(self.rapi.CountPending(), 0)
 
   def testGetNodeRole(self):
     self.rapi.AddResponse("\"master\"")
@@ -1151,6 +1193,152 @@ class GanetiRapiClientTests(testutils.GanetiTestCase):
         self.assertEqual(data["wait_for_sync"], wait_for_sync)
       self.assertEqual(data["amount"], amount)
       self.assertEqual(self.rapi.CountPending(), 0)
+
+  def testGetGroupTags(self):
+    self.rapi.AddResponse("[]")
+    self.assertEqual([], self.client.GetGroupTags("fooGroup"))
+    self.assertHandler(rlib2.R_2_groups_name_tags)
+    self.assertItems(["fooGroup"])
+
+  def testAddGroupTags(self):
+    self.rapi.AddResponse("1234")
+    self.assertEqual(1234,
+        self.client.AddGroupTags("fooGroup", ["awesome"], dry_run=True))
+    self.assertHandler(rlib2.R_2_groups_name_tags)
+    self.assertItems(["fooGroup"])
+    self.assertDryRun()
+    self.assertQuery("tag", ["awesome"])
+
+  def testDeleteGroupTags(self):
+    self.rapi.AddResponse("25826")
+    self.assertEqual(25826, self.client.DeleteGroupTags("foo", ["awesome"],
+                                                        dry_run=True))
+    self.assertHandler(rlib2.R_2_groups_name_tags)
+    self.assertItems(["foo"])
+    self.assertDryRun()
+    self.assertQuery("tag", ["awesome"])
+
+  def testQuery(self):
+    for idx, what in enumerate(constants.QR_VIA_RAPI):
+      for idx2, filter_ in enumerate([None, ["?", "name"]]):
+        job_id = 11010 + (idx << 4) + (idx2 << 16)
+        fields = sorted(query.ALL_FIELDS[what].keys())[:10]
+
+        self.rapi.AddResponse(str(job_id))
+        self.assertEqual(self.client.Query(what, fields, filter_=filter_),
+                         job_id)
+        self.assertItems([what])
+        self.assertHandler(rlib2.R_2_query)
+        self.assertFalse(self.rapi.GetLastHandler().queryargs)
+        data = serializer.LoadJson(self.rapi.GetLastRequestData())
+        self.assertEqual(data["fields"], fields)
+        if filter_ is None:
+          self.assertTrue("filter" not in data)
+        else:
+          self.assertEqual(data["filter"], filter_)
+        self.assertEqual(self.rapi.CountPending(), 0)
+
+  def testQueryFields(self):
+    exp_result = objects.QueryFieldsResponse(fields=[
+      objects.QueryFieldDefinition(name="pnode", title="PNode",
+                                   kind=constants.QFT_NUMBER),
+      objects.QueryFieldDefinition(name="other", title="Other",
+                                   kind=constants.QFT_BOOL),
+      ])
+
+    for what in constants.QR_VIA_RAPI:
+      for fields in [None, ["name", "_unknown_"], ["&", "?|"]]:
+        self.rapi.AddResponse(serializer.DumpJson(exp_result.ToDict()))
+        result = self.client.QueryFields(what, fields=fields)
+        self.assertItems([what])
+        self.assertHandler(rlib2.R_2_query_fields)
+        self.assertFalse(self.rapi.GetLastRequestData())
+
+        queryargs = self.rapi.GetLastHandler().queryargs
+        if fields is None:
+          self.assertFalse(queryargs)
+        else:
+          self.assertEqual(queryargs, {
+            "fields": [",".join(fields)],
+            })
+
+        self.assertEqual(objects.QueryFieldsResponse.FromDict(result).ToDict(),
+                         exp_result.ToDict())
+
+        self.assertEqual(self.rapi.CountPending(), 0)
+
+  def testWaitForJobCompletionNoChange(self):
+    resp = serializer.DumpJson({
+      "status": constants.JOB_STATUS_WAITING,
+      })
+
+    for retries in [1, 5, 25]:
+      for _ in range(retries):
+        self.rapi.AddResponse(resp)
+
+      self.assertFalse(self.client.WaitForJobCompletion(22789, period=None,
+                                                        retries=retries))
+      self.assertHandler(rlib2.R_2_jobs_id)
+      self.assertItems(["22789"])
+
+      self.assertEqual(self.rapi.CountPending(), 0)
+
+  def testWaitForJobCompletionAlreadyFinished(self):
+    self.rapi.AddResponse(serializer.DumpJson({
+      "status": constants.JOB_STATUS_SUCCESS,
+      }))
+
+    self.assertTrue(self.client.WaitForJobCompletion(22793, period=None,
+                                                     retries=1))
+    self.assertHandler(rlib2.R_2_jobs_id)
+    self.assertItems(["22793"])
+
+    self.assertEqual(self.rapi.CountPending(), 0)
+
+  def testWaitForJobCompletionEmptyResponse(self):
+    self.rapi.AddResponse("{}")
+    self.assertFalse(self.client.WaitForJobCompletion(22793, period=None,
+                                                     retries=10))
+    self.assertHandler(rlib2.R_2_jobs_id)
+    self.assertItems(["22793"])
+
+    self.assertEqual(self.rapi.CountPending(), 0)
+
+  def testWaitForJobCompletionOutOfRetries(self):
+    for retries in [3, 10, 21]:
+      for _ in range(retries):
+        self.rapi.AddResponse(serializer.DumpJson({
+          "status": constants.JOB_STATUS_RUNNING,
+          }))
+
+      self.assertFalse(self.client.WaitForJobCompletion(30948, period=None,
+                                                        retries=retries - 1))
+      self.assertHandler(rlib2.R_2_jobs_id)
+      self.assertItems(["30948"])
+
+      self.assertEqual(self.rapi.CountPending(), 1)
+      self.rapi.ResetResponses()
+
+  def testWaitForJobCompletionSuccessAndFailure(self):
+    for retries in [1, 4, 13]:
+      for (success, end_status) in [(False, constants.JOB_STATUS_ERROR),
+                                    (True, constants.JOB_STATUS_SUCCESS)]:
+        for _ in range(retries):
+          self.rapi.AddResponse(serializer.DumpJson({
+            "status": constants.JOB_STATUS_RUNNING,
+            }))
+
+        self.rapi.AddResponse(serializer.DumpJson({
+          "status": end_status,
+          }))
+
+        result = self.client.WaitForJobCompletion(3187, period=None,
+                                                  retries=retries + 1)
+        self.assertEqual(result, success)
+        self.assertHandler(rlib2.R_2_jobs_id)
+        self.assertItems(["3187"])
+
+        self.assertEqual(self.rapi.CountPending(), 0)
 
 
 class RapiTestRunner(unittest.TextTestRunner):

@@ -23,6 +23,7 @@
 """
 
 import tempfile
+import random
 
 from ganeti import utils
 from ganeti import constants
@@ -30,8 +31,11 @@ from ganeti import errors
 from ganeti import cli
 from ganeti import rapi
 from ganeti import objects
+from ganeti import query
+from ganeti import compat
+from ganeti import qlang
 
-import ganeti.rapi.client        # pylint: disable-msg=W0611
+import ganeti.rapi.client        # pylint: disable=W0611
 import ganeti.rapi.client_utils
 
 import qa_config
@@ -51,7 +55,7 @@ def Setup(username, password):
   """Configures the RAPI client.
 
   """
-  # pylint: disable-msg=W0603
+  # pylint: disable=W0603
   # due to global usage
   global _rapi_ca
   global _rapi_client
@@ -114,11 +118,11 @@ def Enabled():
   """Return whether remote API tests should be run.
 
   """
-  return qa_config.TestEnabled('rapi')
+  return qa_config.TestEnabled("rapi")
 
 
 def _DoTests(uris):
-  # pylint: disable-msg=W0212
+  # pylint: disable=W0212
   # due to _SendRequest usage
   results = []
 
@@ -140,7 +144,7 @@ def _DoTests(uris):
 
 
 def _VerifyReturnsJob(data):
-  AssertMatch(data, r'^\d+$')
+  AssertMatch(data, r"^\d+$")
 
 
 def TestVersion():
@@ -148,7 +152,7 @@ def TestVersion():
 
   """
   _DoTests([
-    ("/version", constants.RAPI_VERSION, 'GET', None),
+    ("/version", constants.RAPI_VERSION, "GET", None),
     ])
 
 
@@ -189,16 +193,16 @@ def TestEmptyCluster():
         AssertIn(field, group)
 
   _DoTests([
-    ("/", None, 'GET', None),
-    ("/2/info", _VerifyInfo, 'GET', None),
-    ("/2/tags", None, 'GET', None),
-    ("/2/nodes", _VerifyNodes, 'GET', None),
-    ("/2/nodes?bulk=1", _VerifyNodesBulk, 'GET', None),
-    ("/2/groups", _VerifyGroups, 'GET', None),
-    ("/2/groups?bulk=1", _VerifyGroupsBulk, 'GET', None),
-    ("/2/instances", [], 'GET', None),
-    ("/2/instances?bulk=1", [], 'GET', None),
-    ("/2/os", None, 'GET', None),
+    ("/", None, "GET", None),
+    ("/2/info", _VerifyInfo, "GET", None),
+    ("/2/tags", None, "GET", None),
+    ("/2/nodes", _VerifyNodes, "GET", None),
+    ("/2/nodes?bulk=1", _VerifyNodesBulk, "GET", None),
+    ("/2/groups", _VerifyGroups, "GET", None),
+    ("/2/groups?bulk=1", _VerifyGroupsBulk, "GET", None),
+    ("/2/instances", [], "GET", None),
+    ("/2/instances?bulk=1", [], "GET", None),
+    ("/2/os", None, "GET", None),
     ])
 
   # Test HTTP Not Found
@@ -220,6 +224,122 @@ def TestEmptyCluster():
       raise qa_error.Error("Non-implemented method didn't fail")
 
 
+def TestRapiQuery():
+  """Testing resource queries via remote API.
+
+  """
+  master_name = qa_utils.ResolveNodeName(qa_config.GetMasterNode())
+  rnd = random.Random(7818)
+
+  for what in constants.QR_VIA_RAPI:
+    all_fields = query.ALL_FIELDS[what].keys()
+    rnd.shuffle(all_fields)
+
+    # No fields, should return everything
+    result = _rapi_client.QueryFields(what)
+    qresult = objects.QueryFieldsResponse.FromDict(result)
+    AssertEqual(len(qresult.fields), len(all_fields))
+
+    # One field
+    result = _rapi_client.QueryFields(what, fields=["name"])
+    qresult = objects.QueryFieldsResponse.FromDict(result)
+    AssertEqual(len(qresult.fields), 1)
+
+    # Specify all fields, order must be correct
+    result = _rapi_client.QueryFields(what, fields=all_fields)
+    qresult = objects.QueryFieldsResponse.FromDict(result)
+    AssertEqual(len(qresult.fields), len(all_fields))
+    AssertEqual([fdef.name for fdef in qresult.fields], all_fields)
+
+    # Unknown field
+    result = _rapi_client.QueryFields(what, fields=["_unknown!"])
+    qresult = objects.QueryFieldsResponse.FromDict(result)
+    AssertEqual(len(qresult.fields), 1)
+    AssertEqual(qresult.fields[0].name, "_unknown!")
+    AssertEqual(qresult.fields[0].kind, constants.QFT_UNKNOWN)
+
+    # Try once more, this time without the client
+    _DoTests([
+      ("/2/query/%s/fields" % what, None, "GET", None),
+      ("/2/query/%s/fields?fields=name,name,%s" % (what, all_fields[0]),
+       None, "GET", None),
+      ])
+
+    # Try missing query argument
+    try:
+      _DoTests([
+        ("/2/query/%s" % what, None, "GET", None),
+        ])
+    except rapi.client.GanetiApiError, err:
+      AssertEqual(err.code, 400)
+    else:
+      raise qa_error.Error("Request missing 'fields' parameter didn't fail")
+
+    def _Check(exp_fields, data):
+      qresult = objects.QueryResponse.FromDict(data)
+      AssertEqual([fdef.name for fdef in qresult.fields], exp_fields)
+      if not isinstance(qresult.data, list):
+        raise qa_error.Error("Query did not return a list")
+
+    _DoTests([
+      # Specify fields in query
+      ("/2/query/%s?fields=%s" % (what, ",".join(all_fields)),
+       compat.partial(_Check, all_fields), "GET", None),
+
+      ("/2/query/%s?fields=name" % what,
+       compat.partial(_Check, ["name"]), "GET", None),
+
+      # Note the spaces
+      ("/2/query/%s?fields=name,%%20name%%09,name%%20" % what,
+       compat.partial(_Check, ["name"] * 3), "GET", None),
+
+      # PUT with fields in query
+      ("/2/query/%s?fields=name" % what,
+       compat.partial(_Check, ["name"]), "PUT", {}),
+
+      # Fields in body
+      ("/2/query/%s" % what, compat.partial(_Check, all_fields), "PUT", {
+         "fields": all_fields,
+         }),
+
+      ("/2/query/%s" % what, compat.partial(_Check, ["name"] * 4), "PUT", {
+         "fields": ["name"] * 4,
+         }),
+      ])
+
+    def _CheckFilter():
+      _DoTests([
+        # With filter
+        ("/2/query/%s" % what, compat.partial(_Check, all_fields), "PUT", {
+           "fields": all_fields,
+           "filter": [qlang.OP_TRUE, "name"],
+           }),
+        ])
+
+    if what == constants.QR_LOCK:
+      # Locks can't be filtered
+      try:
+        _CheckFilter()
+      except rapi.client.GanetiApiError, err:
+        AssertEqual(err.code, 500)
+      else:
+        raise qa_error.Error("Filtering locks didn't fail")
+    else:
+      _CheckFilter()
+
+    if what == constants.QR_NODE:
+      # Test with filter
+      (nodes, ) = _DoTests([("/2/query/%s" % what,
+        compat.partial(_Check, ["name", "master"]), "PUT", {
+        "fields": ["name", "master"],
+        "filter": [qlang.OP_TRUE, "master"],
+        })])
+      qresult = objects.QueryResponse.FromDict(nodes)
+      AssertEqual(qresult.data, [
+        [[constants.RS_NORMAL, master_name], [constants.RS_NORMAL, True]],
+        ])
+
+
 def TestInstance(instance):
   """Testing getting instance(s) info via remote API.
 
@@ -238,13 +358,13 @@ def TestInstance(instance):
       _VerifyInstance(instance_data)
 
   _DoTests([
-    ("/2/instances/%s" % instance["name"], _VerifyInstance, 'GET', None),
-    ("/2/instances", _VerifyInstancesList, 'GET', None),
-    ("/2/instances?bulk=1", _VerifyInstancesBulk, 'GET', None),
+    ("/2/instances/%s" % instance["name"], _VerifyInstance, "GET", None),
+    ("/2/instances", _VerifyInstancesList, "GET", None),
+    ("/2/instances?bulk=1", _VerifyInstancesBulk, "GET", None),
     ("/2/instances/%s/activate-disks" % instance["name"],
-     _VerifyReturnsJob, 'PUT', None),
+     _VerifyReturnsJob, "PUT", None),
     ("/2/instances/%s/deactivate-disks" % instance["name"],
-     _VerifyReturnsJob, 'PUT', None),
+     _VerifyReturnsJob, "PUT", None),
     ])
 
   # Test OpBackupPrepare
@@ -279,9 +399,9 @@ def TestNode(node):
       _VerifyNode(node_data)
 
   _DoTests([
-    ("/2/nodes/%s" % node["primary"], _VerifyNode, 'GET', None),
-    ("/2/nodes", _VerifyNodesList, 'GET', None),
-    ("/2/nodes?bulk=1", _VerifyNodesBulk, 'GET', None),
+    ("/2/nodes/%s" % node["primary"], _VerifyNode, "GET", None),
+    ("/2/nodes", _VerifyNodesList, "GET", None),
+    ("/2/nodes?bulk=1", _VerifyNodesBulk, "GET", None),
     ])
 
 
@@ -295,28 +415,30 @@ def TestTags(kind, name, tags):
     uri = "/2/nodes/%s/tags" % name
   elif kind == constants.TAG_INSTANCE:
     uri = "/2/instances/%s/tags" % name
+  elif kind == constants.TAG_NODEGROUP:
+    uri = "/2/groups/%s/tags" % name
   else:
     raise errors.ProgrammerError("Unknown tag kind")
 
   def _VerifyTags(data):
     AssertEqual(sorted(tags), sorted(data))
 
-  query = "&".join("tag=%s" % i for i in tags)
+  queryargs = "&".join("tag=%s" % i for i in tags)
 
   # Add tags
   (job_id, ) = _DoTests([
-    ("%s?%s" % (uri, query), _VerifyReturnsJob, "PUT", None),
+    ("%s?%s" % (uri, queryargs), _VerifyReturnsJob, "PUT", None),
     ])
   _WaitForRapiJob(job_id)
 
   # Retrieve tags
   _DoTests([
-    (uri, _VerifyTags, 'GET', None),
+    (uri, _VerifyTags, "GET", None),
     ])
 
   # Remove tags
   (job_id, ) = _DoTests([
-    ("%s?%s" % (uri, query), _VerifyReturnsJob, "DELETE", None),
+    ("%s?%s" % (uri, queryargs), _VerifyReturnsJob, "DELETE", None),
     ])
   _WaitForRapiJob(job_id)
 
@@ -406,15 +528,14 @@ def TestRapiInstanceAdd(node, use_client):
   try:
     memory = utils.ParseUnit(qa_config.get("mem"))
     disk_sizes = [utils.ParseUnit(size) for size in qa_config.get("disk")]
+    disks = [{"size": size} for size in disk_sizes]
+    nics = [{}]
+
+    beparams = {
+      constants.BE_MEMORY: memory,
+      }
 
     if use_client:
-      disks = [{"size": size} for size in disk_sizes]
-      nics = [{}]
-
-      beparams = {
-        constants.BE_MEMORY: memory,
-        }
-
       job_id = _rapi_client.CreateInstance(constants.INSTANCE_CREATE,
                                            instance["name"],
                                            constants.DT_PLAIN,
@@ -424,12 +545,15 @@ def TestRapiInstanceAdd(node, use_client):
                                            beparams=beparams)
     else:
       body = {
+        "__version__": 1,
+        "mode": constants.INSTANCE_CREATE,
         "name": instance["name"],
-        "os": qa_config.get("os"),
+        "os_type": qa_config.get("os"),
         "disk_template": constants.DT_PLAIN,
         "pnode": node["primary"],
-        "memory": memory,
-        "disks": disk_sizes,
+        "beparams": beparams,
+        "disks": disks,
+        "nics": nics,
         }
 
       (job_id, ) = _DoTests([
@@ -466,6 +590,24 @@ def TestRapiInstanceMigrate(instance):
   _WaitForRapiJob(_rapi_client.MigrateInstance(instance["name"]))
 
 
+def TestRapiInstanceFailover(instance):
+  """Test failing over instance via RAPI"""
+  # Move to secondary node
+  _WaitForRapiJob(_rapi_client.FailoverInstance(instance["name"]))
+  # And back to previous primary
+  _WaitForRapiJob(_rapi_client.FailoverInstance(instance["name"]))
+
+
+def TestRapiInstanceShutdown(instance):
+  """Test stopping an instance via RAPI"""
+  _WaitForRapiJob(_rapi_client.ShutdownInstance(instance["name"]))
+
+
+def TestRapiInstanceStartup(instance):
+  """Test starting an instance via RAPI"""
+  _WaitForRapiJob(_rapi_client.StartupInstance(instance["name"]))
+
+
 def TestRapiInstanceRename(rename_source, rename_target):
   """Test renaming instance via RAPI"""
   _WaitForRapiJob(_rapi_client.RenameInstance(rename_source, rename_target))
@@ -474,6 +616,14 @@ def TestRapiInstanceRename(rename_source, rename_target):
 def TestRapiInstanceReinstall(instance):
   """Test reinstalling an instance via RAPI"""
   _WaitForRapiJob(_rapi_client.ReinstallInstance(instance["name"]))
+
+
+def TestRapiInstanceReplaceDisks(instance):
+  """Test replacing instance disks via RAPI"""
+  _WaitForRapiJob(_rapi_client.ReplaceInstanceDisks(instance["name"],
+    mode=constants.REPLACE_DISK_AUTO, disks=[]))
+  _WaitForRapiJob(_rapi_client.ReplaceInstanceDisks(instance["name"],
+    mode=constants.REPLACE_DISK_SEC, disks="0"))
 
 
 def TestRapiInstanceModify(instance):
@@ -515,6 +665,13 @@ def TestRapiStoppedInstanceConsole(instance):
   else:
     raise qa_error.Error("Getting console for stopped instance didn't"
                          " return HTTP 503")
+
+
+def GetOperatingSystems():
+  """Retrieves a list of all available operating systems.
+
+  """
+  return _rapi_client.GetOperatingSystems()
 
 
 def TestInterClusterInstanceMove(src_instance, dest_instance,

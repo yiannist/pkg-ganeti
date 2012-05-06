@@ -20,7 +20,7 @@
 
 """Instance related commands"""
 
-# pylint: disable-msg=W0401,W0614,C0103
+# pylint: disable=W0401,W0614,C0103
 # W0401: Wildcard import ganeti.cli
 # W0614: Unused import %s from wildcard import (since we need cli)
 # C0103: Invalid name gnt-instance
@@ -41,20 +41,21 @@ from ganeti import ssh
 from ganeti import objects
 
 
-_SHUTDOWN_CLUSTER = "cluster"
-_SHUTDOWN_NODES_BOTH = "nodes"
-_SHUTDOWN_NODES_PRI = "nodes-pri"
-_SHUTDOWN_NODES_SEC = "nodes-sec"
-_SHUTDOWN_NODES_BOTH_BY_TAGS = "nodes-by-tags"
-_SHUTDOWN_NODES_PRI_BY_TAGS = "nodes-pri-by-tags"
-_SHUTDOWN_NODES_SEC_BY_TAGS = "nodes-sec-by-tags"
-_SHUTDOWN_INSTANCES = "instances"
-_SHUTDOWN_INSTANCES_BY_TAGS = "instances-by-tags"
+_EXPAND_CLUSTER = "cluster"
+_EXPAND_NODES_BOTH = "nodes"
+_EXPAND_NODES_PRI = "nodes-pri"
+_EXPAND_NODES_SEC = "nodes-sec"
+_EXPAND_NODES_BOTH_BY_TAGS = "nodes-by-tags"
+_EXPAND_NODES_PRI_BY_TAGS = "nodes-pri-by-tags"
+_EXPAND_NODES_SEC_BY_TAGS = "nodes-sec-by-tags"
+_EXPAND_INSTANCES = "instances"
+_EXPAND_INSTANCES_BY_TAGS = "instances-by-tags"
 
-_SHUTDOWN_NODES_TAGS_MODES = (
-    _SHUTDOWN_NODES_BOTH_BY_TAGS,
-    _SHUTDOWN_NODES_PRI_BY_TAGS,
-    _SHUTDOWN_NODES_SEC_BY_TAGS)
+_EXPAND_NODES_TAGS_MODES = frozenset([
+  _EXPAND_NODES_BOTH_BY_TAGS,
+  _EXPAND_NODES_PRI_BY_TAGS,
+  _EXPAND_NODES_SEC_BY_TAGS,
+  ])
 
 
 #: default list of options for L{ListInstances}
@@ -66,16 +67,16 @@ _LIST_DEF_FIELDS = [
 def _ExpandMultiNames(mode, names, client=None):
   """Expand the given names using the passed mode.
 
-  For _SHUTDOWN_CLUSTER, all instances will be returned. For
-  _SHUTDOWN_NODES_PRI/SEC, all instances having those nodes as
-  primary/secondary will be returned. For _SHUTDOWN_NODES_BOTH, all
+  For _EXPAND_CLUSTER, all instances will be returned. For
+  _EXPAND_NODES_PRI/SEC, all instances having those nodes as
+  primary/secondary will be returned. For _EXPAND_NODES_BOTH, all
   instances having those nodes as either primary or secondary will be
-  returned. For _SHUTDOWN_INSTANCES, the given instances will be
+  returned. For _EXPAND_INSTANCES, the given instances will be
   returned.
 
-  @param mode: one of L{_SHUTDOWN_CLUSTER}, L{_SHUTDOWN_NODES_BOTH},
-      L{_SHUTDOWN_NODES_PRI}, L{_SHUTDOWN_NODES_SEC} or
-      L{_SHUTDOWN_INSTANCES}
+  @param mode: one of L{_EXPAND_CLUSTER}, L{_EXPAND_NODES_BOTH},
+      L{_EXPAND_NODES_PRI}, L{_EXPAND_NODES_SEC} or
+      L{_EXPAND_INSTANCES}
   @param names: a list of names; for cluster, it must be empty,
       and for node and instance it must be a list of valid item
       names (short names are valid as usual, e.g. node1 instead of
@@ -86,21 +87,20 @@ def _ExpandMultiNames(mode, names, client=None):
   @raise errors.OpPrereqError: for invalid input parameters
 
   """
-  # pylint: disable-msg=W0142
+  # pylint: disable=W0142
 
   if client is None:
     client = GetClient()
-  if mode == _SHUTDOWN_CLUSTER:
+  if mode == _EXPAND_CLUSTER:
     if names:
       raise errors.OpPrereqError("Cluster filter mode takes no arguments",
                                  errors.ECODE_INVAL)
     idata = client.QueryInstances([], ["name"], False)
     inames = [row[0] for row in idata]
 
-  elif mode in (_SHUTDOWN_NODES_BOTH,
-                _SHUTDOWN_NODES_PRI,
-                _SHUTDOWN_NODES_SEC) + _SHUTDOWN_NODES_TAGS_MODES:
-    if mode in _SHUTDOWN_NODES_TAGS_MODES:
+  elif (mode in _EXPAND_NODES_TAGS_MODES or
+        mode in (_EXPAND_NODES_BOTH, _EXPAND_NODES_PRI, _EXPAND_NODES_SEC)):
+    if mode in _EXPAND_NODES_TAGS_MODES:
       if not names:
         raise errors.OpPrereqError("No node tags passed", errors.ECODE_INVAL)
       ndata = client.QueryNodes([], ["name", "pinst_list",
@@ -116,21 +116,21 @@ def _ExpandMultiNames(mode, names, client=None):
     pri_names = list(itertools.chain(*ipri))
     isec = [row[2] for row in ndata]
     sec_names = list(itertools.chain(*isec))
-    if mode in (_SHUTDOWN_NODES_BOTH, _SHUTDOWN_NODES_BOTH_BY_TAGS):
+    if mode in (_EXPAND_NODES_BOTH, _EXPAND_NODES_BOTH_BY_TAGS):
       inames = pri_names + sec_names
-    elif mode in (_SHUTDOWN_NODES_PRI, _SHUTDOWN_NODES_PRI_BY_TAGS):
+    elif mode in (_EXPAND_NODES_PRI, _EXPAND_NODES_PRI_BY_TAGS):
       inames = pri_names
-    elif mode in (_SHUTDOWN_NODES_SEC, _SHUTDOWN_NODES_SEC_BY_TAGS):
+    elif mode in (_EXPAND_NODES_SEC, _EXPAND_NODES_SEC_BY_TAGS):
       inames = sec_names
     else:
       raise errors.ProgrammerError("Unhandled shutdown type")
-  elif mode == _SHUTDOWN_INSTANCES:
+  elif mode == _EXPAND_INSTANCES:
     if not names:
       raise errors.OpPrereqError("No instance names passed",
                                  errors.ECODE_INVAL)
     idata = client.QueryInstances(names, ["name"], False)
     inames = [row[0] for row in idata]
-  elif mode == _SHUTDOWN_INSTANCES_BY_TAGS:
+  elif mode == _EXPAND_INSTANCES_BY_TAGS:
     if not names:
       raise errors.OpPrereqError("No instance tags passed",
                                  errors.ECODE_INVAL)
@@ -140,44 +140,6 @@ def _ExpandMultiNames(mode, names, client=None):
     raise errors.OpPrereqError("Unknown mode '%s'" % mode, errors.ECODE_INVAL)
 
   return inames
-
-
-def _ConfirmOperation(inames, text, extra=""):
-  """Ask the user to confirm an operation on a list of instances.
-
-  This function is used to request confirmation for doing an operation
-  on a given list of instances.
-
-  @type inames: list
-  @param inames: the list of names that we display when
-      we ask for confirmation
-  @type text: str
-  @param text: the operation that the user should confirm
-      (e.g. I{shutdown} or I{startup})
-  @rtype: boolean
-  @return: True or False depending on user's confirmation.
-
-  """
-  count = len(inames)
-  msg = ("The %s will operate on %d instances.\n%s"
-         "Do you want to continue?" % (text, count, extra))
-  affected = ("\nAffected instances:\n" +
-              "\n".join(["  %s" % name for name in inames]))
-
-  choices = [('y', True, 'Yes, execute the %s' % text),
-             ('n', False, 'No, abort the %s' % text)]
-
-  if count > 20:
-    choices.insert(1, ('v', 'v', 'View the list of affected instances'))
-    ask = msg
-  else:
-    ask = msg + affected
-
-  choice = AskUser(ask, choices)
-  if choice == 'v':
-    choices.pop(1)
-    choice = AskUser(msg + affected, choices)
-  return choice
 
 
 def _EnsureInstancesExist(client, names):
@@ -213,18 +175,18 @@ def GenericManyOps(operation, fn):
   """
   def realfn(opts, args):
     if opts.multi_mode is None:
-      opts.multi_mode = _SHUTDOWN_INSTANCES
+      opts.multi_mode = _EXPAND_INSTANCES
     cl = GetClient()
     inames = _ExpandMultiNames(opts.multi_mode, args, client=cl)
     if not inames:
-      if opts.multi_mode == _SHUTDOWN_CLUSTER:
+      if opts.multi_mode == _EXPAND_CLUSTER:
         ToStdout("Cluster is empty, no instances to shutdown")
         return 0
       raise errors.OpPrereqError("Selection filter does not match"
                                  " any instances", errors.ECODE_INVAL)
-    multi_on = opts.multi_mode != _SHUTDOWN_INSTANCES or len(inames) > 1
+    multi_on = opts.multi_mode != _EXPAND_INSTANCES or len(inames) > 1
     if not (opts.force_multi or not multi_on
-            or _ConfirmOperation(inames, operation)):
+            or ConfirmOperation(inames, "instances", operation)):
       return 1
     jex = JobExecutor(verbose=multi_on, cl=cl, opts=opts)
     for name in inames:
@@ -250,14 +212,15 @@ def ListInstances(opts, args):
 
   fmtoverride = dict.fromkeys(["tags", "disk.sizes", "nic.macs", "nic.ips",
                                "nic.modes", "nic.links", "nic.bridges",
-                               "snodes"],
+                               "snodes", "snodes.group", "snodes.group.uuid"],
                               (lambda value: ",".join(str(item)
                                                       for item in value),
                                False))
 
   return GenericList(constants.QR_INSTANCE, selected_fields, args, opts.units,
                      opts.separator, not opts.no_headers,
-                     format_override=fmtoverride, verbose=opts.verbose)
+                     format_override=fmtoverride, verbose=opts.verbose,
+                     force_filter=opts.force_filter)
 
 
 def ListInstanceFields(opts, args):
@@ -324,7 +287,7 @@ def BatchCreate(opts, args):
                     "hvparams": {},
                     "file_storage_dir": None,
                     "force_variant": False,
-                    "file_driver": 'loop'}
+                    "file_driver": "loop"}
 
   def _PopulateWithDefaults(spec):
     """Returns a new hash combined with default values."""
@@ -335,31 +298,31 @@ def BatchCreate(opts, args):
   def _Validate(spec):
     """Validate the instance specs."""
     # Validate fields required under any circumstances
-    for required_field in ('os', 'template'):
+    for required_field in ("os", "template"):
       if required_field not in spec:
         raise errors.OpPrereqError('Required field "%s" is missing.' %
                                    required_field, errors.ECODE_INVAL)
     # Validate special fields
-    if spec['primary_node'] is not None:
-      if (spec['template'] in constants.DTS_NET_MIRROR and
-          spec['secondary_node'] is None):
-        raise errors.OpPrereqError('Template requires secondary node, but'
-                                   ' there was no secondary provided.',
+    if spec["primary_node"] is not None:
+      if (spec["template"] in constants.DTS_INT_MIRROR and
+          spec["secondary_node"] is None):
+        raise errors.OpPrereqError("Template requires secondary node, but"
+                                   " there was no secondary provided.",
                                    errors.ECODE_INVAL)
-    elif spec['iallocator'] is None:
-      raise errors.OpPrereqError('You have to provide at least a primary_node'
-                                 ' or an iallocator.',
+    elif spec["iallocator"] is None:
+      raise errors.OpPrereqError("You have to provide at least a primary_node"
+                                 " or an iallocator.",
                                  errors.ECODE_INVAL)
 
-    if (spec['hvparams'] and
-        not isinstance(spec['hvparams'], dict)):
-      raise errors.OpPrereqError('Hypervisor parameters must be a dict.',
+    if (spec["hvparams"] and
+        not isinstance(spec["hvparams"], dict)):
+      raise errors.OpPrereqError("Hypervisor parameters must be a dict.",
                                  errors.ECODE_INVAL)
 
   json_filename = args[0]
   try:
     instance_data = simplejson.loads(utils.ReadFile(json_filename))
-  except Exception, err: # pylint: disable-msg=W0703
+  except Exception, err: # pylint: disable=W0703
     ToStderr("Can't parse the instance definition file: %s" % str(err))
     return 1
 
@@ -372,17 +335,17 @@ def BatchCreate(opts, args):
   # Iterate over the instances and do:
   #  * Populate the specs with default value
   #  * Validate the instance specs
-  i_names = utils.NiceSort(instance_data.keys()) # pylint: disable-msg=E1103
+  i_names = utils.NiceSort(instance_data.keys()) # pylint: disable=E1103
   for name in i_names:
     specs = instance_data[name]
     specs = _PopulateWithDefaults(specs)
     _Validate(specs)
 
-    hypervisor = specs['hypervisor']
-    hvparams = specs['hvparams']
+    hypervisor = specs["hypervisor"]
+    hvparams = specs["hvparams"]
 
     disks = []
-    for elem in specs['disk_size']:
+    for elem in specs["disk_size"]:
       try:
         size = utils.ParseUnit(elem)
       except (TypeError, ValueError), err:
@@ -391,44 +354,44 @@ def BatchCreate(opts, args):
                                    (elem, name, err), errors.ECODE_INVAL)
       disks.append({"size": size})
 
-    utils.ForceDictType(specs['backend'], constants.BES_PARAMETER_TYPES)
+    utils.ForceDictType(specs["backend"], constants.BES_PARAMETER_TYPES)
     utils.ForceDictType(hvparams, constants.HVS_PARAMETER_TYPES)
 
     tmp_nics = []
-    for field in ('ip', 'mac', 'mode', 'link', 'bridge'):
+    for field in constants.INIC_PARAMS:
       if field in specs:
         if not tmp_nics:
           tmp_nics.append({})
         tmp_nics[0][field] = specs[field]
 
-    if specs['nics'] is not None and tmp_nics:
+    if specs["nics"] is not None and tmp_nics:
       raise errors.OpPrereqError("'nics' list incompatible with using"
                                  " individual nic fields as well",
                                  errors.ECODE_INVAL)
-    elif specs['nics'] is not None:
-      tmp_nics = specs['nics']
+    elif specs["nics"] is not None:
+      tmp_nics = specs["nics"]
     elif not tmp_nics:
       tmp_nics = [{}]
 
     op = opcodes.OpInstanceCreate(instance_name=name,
                                   disks=disks,
-                                  disk_template=specs['template'],
+                                  disk_template=specs["template"],
                                   mode=constants.INSTANCE_CREATE,
-                                  os_type=specs['os'],
+                                  os_type=specs["os"],
                                   force_variant=specs["force_variant"],
-                                  pnode=specs['primary_node'],
-                                  snode=specs['secondary_node'],
+                                  pnode=specs["primary_node"],
+                                  snode=specs["secondary_node"],
                                   nics=tmp_nics,
-                                  start=specs['start'],
-                                  ip_check=specs['ip_check'],
-                                  name_check=specs['name_check'],
+                                  start=specs["start"],
+                                  ip_check=specs["ip_check"],
+                                  name_check=specs["name_check"],
                                   wait_for_sync=True,
-                                  iallocator=specs['iallocator'],
+                                  iallocator=specs["iallocator"],
                                   hypervisor=hypervisor,
                                   hvparams=hvparams,
-                                  beparams=specs['backend'],
-                                  file_storage_dir=specs['file_storage_dir'],
-                                  file_driver=specs['file_driver'])
+                                  beparams=specs["backend"],
+                                  file_storage_dir=specs["file_storage_dir"],
+                                  file_driver=specs["file_driver"])
 
     jex.QueueJob(name, op)
   # we never want to wait, just show the submitted job IDs
@@ -450,7 +413,7 @@ def ReinstallInstance(opts, args):
   """
   # first, compute the desired name list
   if opts.multi_mode is None:
-    opts.multi_mode = _SHUTDOWN_INSTANCES
+    opts.multi_mode = _EXPAND_INSTANCES
 
   inames = _ExpandMultiNames(opts.multi_mode, args)
   if not inames:
@@ -475,31 +438,37 @@ def ReinstallInstance(opts, args):
         choices.append(("%s" % number, entry, entry))
         number += 1
 
-    choices.append(('x', 'exit', 'Exit gnt-instance reinstall'))
+    choices.append(("x", "exit", "Exit gnt-instance reinstall"))
     selected = AskUser("Enter OS template number (or x to abort):",
                        choices)
 
-    if selected == 'exit':
+    if selected == "exit":
       ToStderr("User aborted reinstall, exiting")
       return 1
 
     os_name = selected
+    os_msg = "change the OS to '%s'" % selected
   else:
     os_name = opts.os
+    if opts.os is not None:
+      os_msg = "change the OS to '%s'" % os_name
+    else:
+      os_msg = "keep the same OS"
 
   # third, get confirmation: multi-reinstall requires --force-multi,
   # single-reinstall either --force or --force-multi (--force-multi is
   # a stronger --force)
-  multi_on = opts.multi_mode != _SHUTDOWN_INSTANCES or len(inames) > 1
+  multi_on = opts.multi_mode != _EXPAND_INSTANCES or len(inames) > 1
   if multi_on:
-    warn_msg = "Note: this will remove *all* data for the below instances!\n"
+    warn_msg = ("Note: this will remove *all* data for the"
+                " below instances! It will %s.\n" % os_msg)
     if not (opts.force_multi or
-            _ConfirmOperation(inames, "reinstall", extra=warn_msg)):
+            ConfirmOperation(inames, "instances", "reinstall", extra=warn_msg)):
       return 1
   else:
     if not (opts.force or opts.force_multi):
-      usertext = ("This will reinstall the instance %s and remove"
-                  " all data. Continue?") % inames[0]
+      usertext = ("This will reinstall the instance '%s' (and %s) which"
+                  " removes all data. Continue?") % (inames[0], os_msg)
       if not AskUser(usertext):
         return 1
 
@@ -693,7 +662,8 @@ def _StartupInstance(name, opts):
   op = opcodes.OpInstanceStartup(instance_name=name,
                                  force=opts.force,
                                  ignore_offline_nodes=opts.ignore_offline,
-                                 no_remember=opts.no_remember)
+                                 no_remember=opts.no_remember,
+                                 startup_paused=opts.startup_paused)
   # do not add these parameters to the opcode unless they're defined
   if opts.hvparams:
     op.hvparams = opts.hvparams
@@ -798,6 +768,12 @@ def FailoverInstance(opts, args):
   cl = GetClient()
   instance_name = args[0]
   force = opts.force
+  iallocator = opts.iallocator
+  target_node = opts.dst_node
+
+  if iallocator and target_node:
+    raise errors.OpPrereqError("Specify either an iallocator (-I), or a target"
+                               " node (-n) but not both", errors.ECODE_INVAL)
 
   if not force:
     _EnsureInstancesExist(cl, [instance_name])
@@ -810,7 +786,9 @@ def FailoverInstance(opts, args):
 
   op = opcodes.OpInstanceFailover(instance_name=instance_name,
                                   ignore_consistency=opts.ignore_consistency,
-                                  shutdown_timeout=opts.shutdown_timeout)
+                                  shutdown_timeout=opts.shutdown_timeout,
+                                  iallocator=iallocator,
+                                  target_node=target_node)
   SubmitOrSend(op, opts, cl=cl)
   return 0
 
@@ -830,6 +808,12 @@ def MigrateInstance(opts, args):
   cl = GetClient()
   instance_name = args[0]
   force = opts.force
+  iallocator = opts.iallocator
+  target_node = opts.dst_node
+
+  if iallocator and target_node:
+    raise errors.OpPrereqError("Specify either an iallocator (-I), or a target"
+                               " node (-n) but not both", errors.ECODE_INVAL)
 
   if not force:
     _EnsureInstancesExist(cl, [instance_name])
@@ -857,7 +841,9 @@ def MigrateInstance(opts, args):
     mode = opts.migration_mode
 
   op = opcodes.OpInstanceMigrate(instance_name=instance_name, mode=mode,
-                                 cleanup=opts.cleanup)
+                                 cleanup=opts.cleanup, iallocator=iallocator,
+                                 target_node=target_node,
+                                 allow_failover=opts.allow_failover)
   SubmitOpCode(op, cl=cl, opts=opts)
   return 0
 
@@ -903,17 +889,25 @@ def ConnectToInstanceConsole(opts, args):
   """
   instance_name = args[0]
 
-  op = opcodes.OpInstanceConsole(instance_name=instance_name)
-
   cl = GetClient()
   try:
     cluster_name = cl.QueryConfigValues(["cluster_name"])[0]
-    console_data = SubmitOpCode(op, opts=opts, cl=cl)
+    ((console_data, oper_state), ) = \
+      cl.QueryInstances([instance_name], ["console", "oper_state"], False)
   finally:
     # Ensure client connection is closed while external commands are run
     cl.Close()
 
   del cl
+
+  if not console_data:
+    if oper_state:
+      # Instance is running
+      raise errors.OpExecError("Console information for instance %s is"
+                               " unavailable" % instance_name)
+    else:
+      raise errors.OpExecError("Instance %s is not running, can't get console" %
+                               instance_name)
 
   return _DoConsole(objects.InstanceConsole.FromDict(console_data),
                     opts.show_command, cluster_name)
@@ -991,7 +985,7 @@ def _FormatLogicalID(dev_type, logical_id, roman):
   return data
 
 
-def _FormatBlockDevInfo(idx, top_level, dev, static, roman):
+def _FormatBlockDevInfo(idx, top_level, dev, roman):
   """Show block device information.
 
   This is only used by L{ShowInstanceConfig}, but it's too big to be
@@ -1003,9 +997,6 @@ def _FormatBlockDevInfo(idx, top_level, dev, static, roman):
   @param top_level: if this a top-level disk?
   @type dev: dict
   @param dev: dictionary with disk information
-  @type static: boolean
-  @param static: wheter the device information doesn't contain
-      runtime information but only static data
   @type roman: boolean
   @param roman: whether to try to use roman integers
   @return: a list of either strings, tuples or lists
@@ -1093,15 +1084,17 @@ def _FormatBlockDevInfo(idx, top_level, dev, static, roman):
   elif dev["physical_id"] is not None:
     data.append("physical_id:")
     data.append([dev["physical_id"]])
-  if not static:
+
+  if dev["pstatus"]:
     data.append(("on primary", helper(dev["dev_type"], dev["pstatus"])))
-  if dev["sstatus"] and not static:
+
+  if dev["sstatus"]:
     data.append(("on secondary", helper(dev["dev_type"], dev["sstatus"])))
 
   if dev["children"]:
     data.append("child devices:")
     for c_idx, child in enumerate(dev["children"]):
-      data.append(_FormatBlockDevInfo(c_idx, False, child, static, roman))
+      data.append(_FormatBlockDevInfo(c_idx, False, child, roman))
   d1.append(data)
   return d1
 
@@ -1126,13 +1119,13 @@ def _FormatList(buf, data, indent_level):
                  if isinstance(elem, tuple)] or [0])
   for elem in data:
     if isinstance(elem, basestring):
-      buf.write("%*s%s\n" % (2*indent_level, "", elem))
+      buf.write("%*s%s\n" % (2 * indent_level, "", elem))
     elif isinstance(elem, tuple):
       key, value = elem
       spacer = "%*s" % (max_tlen - len(key), "")
-      buf.write("%*s%s:%s %s\n" % (2*indent_level, "", key, spacer, value))
+      buf.write("%*s%s:%s %s\n" % (2 * indent_level, "", key, spacer, value))
     elif isinstance(elem, list):
-      _FormatList(buf, elem, indent_level+1)
+      _FormatList(buf, elem, indent_level + 1)
 
 
 def ShowInstanceConfig(opts, args):
@@ -1175,7 +1168,7 @@ def ShowInstanceConfig(opts, args):
     buf.write("Creation time: %s\n" % utils.FormatTime(instance["ctime"]))
     buf.write("Modification time: %s\n" % utils.FormatTime(instance["mtime"]))
     buf.write("State: configured to be %s" % instance["config_state"])
-    if not opts.static:
+    if instance["run_state"]:
       buf.write(", actual state is %s" % instance["run_state"])
     buf.write("\n")
     ##buf.write("Considered for memory checks in cluster verify: %s\n" %
@@ -1186,7 +1179,7 @@ def ShowInstanceConfig(opts, args):
     buf.write("  Operating system: %s\n" % instance["os"])
     FormatParameterDict(buf, instance["os_instance"], instance["os_actual"],
                         level=2)
-    if instance.has_key("network_port"):
+    if "network_port" in instance:
       buf.write("  Allocated network port: %s\n" %
                 compat.TryToRoman(instance["network_port"],
                                   convert=opts.roman_integers))
@@ -1229,10 +1222,10 @@ def ShowInstanceConfig(opts, args):
     buf.write("  Disks:\n")
 
     for idx, device in enumerate(instance["disks"]):
-      _FormatList(buf, _FormatBlockDevInfo(idx, True, device, opts.static,
+      _FormatList(buf, _FormatBlockDevInfo(idx, True, device,
                   opts.roman_integers), 2)
 
-  ToStdout(buf.getvalue().rstrip('\n'))
+  ToStdout(buf.getvalue().rstrip("\n"))
   return retcode
 
 
@@ -1283,13 +1276,13 @@ def SetInstanceParams(opts, args):
     except (TypeError, ValueError):
       pass
     if disk_op == constants.DDM_ADD:
-      if 'size' not in disk_dict:
+      if "size" not in disk_dict:
         raise errors.OpPrereqError("Missing required parameter 'size'",
                                    errors.ECODE_INVAL)
-      disk_dict['size'] = utils.ParseUnit(disk_dict['size'])
+      disk_dict["size"] = utils.ParseUnit(disk_dict["size"])
 
   if (opts.disk_template and
-      opts.disk_template in constants.DTS_NET_MIRROR and
+      opts.disk_template in constants.DTS_INT_MIRROR and
       not opts.node):
     ToStderr("Changing the disk template to a mirrored one requires"
              " specifying a secondary node")
@@ -1320,6 +1313,39 @@ def SetInstanceParams(opts, args):
   return 0
 
 
+def ChangeGroup(opts, args):
+  """Moves an instance to another group.
+
+  """
+  (instance_name, ) = args
+
+  cl = GetClient()
+
+  op = opcodes.OpInstanceChangeGroup(instance_name=instance_name,
+                                     iallocator=opts.iallocator,
+                                     target_groups=opts.to,
+                                     early_release=opts.early_release)
+  result = SubmitOpCode(op, cl=cl, opts=opts)
+
+  # Keep track of submitted jobs
+  jex = JobExecutor(cl=cl, opts=opts)
+
+  for (status, job_id) in result[constants.JOB_IDS_KEY]:
+    jex.AddJobId(None, status, job_id)
+
+  results = jex.GetResults()
+  bad_cnt = len([row for row in results if not row[0]])
+  if bad_cnt == 0:
+    ToStdout("Instance '%s' changed group successfully.", instance_name)
+    rcode = constants.EXIT_SUCCESS
+  else:
+    ToStdout("There were %s errors while changing group of instance '%s'.",
+             bad_cnt, instance_name)
+    rcode = constants.EXIT_FAILURE
+
+  return rcode
+
+
 # multi-instance selection options
 m_force_multi = cli_option("--force-multiple", dest="force_multi",
                            help="Do not ask for confirmation when more than"
@@ -1328,42 +1354,42 @@ m_force_multi = cli_option("--force-multiple", dest="force_multi",
 
 m_pri_node_opt = cli_option("--primary", dest="multi_mode",
                             help="Filter by nodes (primary only)",
-                            const=_SHUTDOWN_NODES_PRI, action="store_const")
+                            const=_EXPAND_NODES_PRI, action="store_const")
 
 m_sec_node_opt = cli_option("--secondary", dest="multi_mode",
                             help="Filter by nodes (secondary only)",
-                            const=_SHUTDOWN_NODES_SEC, action="store_const")
+                            const=_EXPAND_NODES_SEC, action="store_const")
 
 m_node_opt = cli_option("--node", dest="multi_mode",
                         help="Filter by nodes (primary and secondary)",
-                        const=_SHUTDOWN_NODES_BOTH, action="store_const")
+                        const=_EXPAND_NODES_BOTH, action="store_const")
 
 m_clust_opt = cli_option("--all", dest="multi_mode",
                          help="Select all instances in the cluster",
-                         const=_SHUTDOWN_CLUSTER, action="store_const")
+                         const=_EXPAND_CLUSTER, action="store_const")
 
 m_inst_opt = cli_option("--instance", dest="multi_mode",
                         help="Filter by instance name [default]",
-                        const=_SHUTDOWN_INSTANCES, action="store_const")
+                        const=_EXPAND_INSTANCES, action="store_const")
 
 m_node_tags_opt = cli_option("--node-tags", dest="multi_mode",
                              help="Filter by node tag",
-                             const=_SHUTDOWN_NODES_BOTH_BY_TAGS,
+                             const=_EXPAND_NODES_BOTH_BY_TAGS,
                              action="store_const")
 
 m_pri_node_tags_opt = cli_option("--pri-node-tags", dest="multi_mode",
                                  help="Filter by primary node tag",
-                                 const=_SHUTDOWN_NODES_PRI_BY_TAGS,
+                                 const=_EXPAND_NODES_PRI_BY_TAGS,
                                  action="store_const")
 
 m_sec_node_tags_opt = cli_option("--sec-node-tags", dest="multi_mode",
                                  help="Filter by secondary node tag",
-                                 const=_SHUTDOWN_NODES_SEC_BY_TAGS,
+                                 const=_EXPAND_NODES_SEC_BY_TAGS,
                                  action="store_const")
 
 m_inst_tags_opt = cli_option("--tags", dest="multi_mode",
                              help="Filter by instance tag",
-                             const=_SHUTDOWN_INSTANCES_BY_TAGS,
+                             const=_EXPAND_INSTANCES_BY_TAGS,
                              action="store_const")
 
 # this is defined separately due to readability only
@@ -1375,44 +1401,47 @@ add_opts = [
   ]
 
 commands = {
-  'add': (
+  "add": (
     AddInstance, [ArgHost(min=1, max=1)], COMMON_CREATE_OPTS + add_opts,
     "[...] -t disk-type -n node[:secondary-node] -o os-type <name>",
     "Creates and adds a new instance to the cluster"),
-  'batch-create': (
+  "batch-create": (
     BatchCreate, [ArgFile(min=1, max=1)], [DRY_RUN_OPT, PRIORITY_OPT],
     "<instances.json>",
     "Create a bunch of instances based on specs in the file."),
-  'console': (
+  "console": (
     ConnectToInstanceConsole, ARGS_ONE_INSTANCE,
     [SHOWCMD_OPT, PRIORITY_OPT],
     "[--show-cmd] <instance>", "Opens a console on the specified instance"),
-  'failover': (
+  "failover": (
     FailoverInstance, ARGS_ONE_INSTANCE,
     [FORCE_OPT, IGNORE_CONSIST_OPT, SUBMIT_OPT, SHUTDOWN_TIMEOUT_OPT,
-     DRY_RUN_OPT, PRIORITY_OPT],
-    "[-f] <instance>", "Stops the instance and starts it on the backup node,"
-    " using the remote mirror (only for instances of type drbd)"),
-  'migrate': (
+     DRY_RUN_OPT, PRIORITY_OPT, DST_NODE_OPT, IALLOCATOR_OPT],
+    "[-f] <instance>", "Stops the instance, changes its primary node and"
+    " (if it was originally running) starts it on the new node"
+    " (the secondary for mirrored instances or any node"
+    " for shared storage)."),
+  "migrate": (
     MigrateInstance, ARGS_ONE_INSTANCE,
     [FORCE_OPT, NONLIVE_OPT, MIGRATION_MODE_OPT, CLEANUP_OPT, DRY_RUN_OPT,
-     PRIORITY_OPT],
+     PRIORITY_OPT, DST_NODE_OPT, IALLOCATOR_OPT, ALLOW_FAILOVER_OPT],
     "[-f] <instance>", "Migrate instance to its secondary node"
-    " (only for instances of type drbd)"),
-  'move': (
+    " (only for mirrored instances)"),
+  "move": (
     MoveInstance, ARGS_ONE_INSTANCE,
     [FORCE_OPT, SUBMIT_OPT, SINGLE_NODE_OPT, SHUTDOWN_TIMEOUT_OPT,
      DRY_RUN_OPT, PRIORITY_OPT, IGNORE_CONSIST_OPT],
     "[-f] <instance>", "Move instance to an arbitrary node"
     " (only for instances of type file and lv)"),
-  'info': (
+  "info": (
     ShowInstanceConfig, ARGS_MANY_INSTANCES,
     [STATIC_OPT, ALL_OPT, ROMAN_OPT, PRIORITY_OPT],
     "[-s] {--all | <instance>...}",
     "Show information on the specified instance(s)"),
-  'list': (
+  "list": (
     ListInstances, ARGS_MANY_INSTANCES,
-    [NOHDR_OPT, SEP_OPT, USEUNITS_OPT, FIELDS_OPT, VERBOSE_OPT],
+    [NOHDR_OPT, SEP_OPT, USEUNITS_OPT, FIELDS_OPT, VERBOSE_OPT,
+     FORCE_FILTER_OPT],
     "[<instance>...]",
     "Lists the instances and their status. The available fields can be shown"
     " using the \"list-fields\" command (see the man page for details)."
@@ -1424,84 +1453,88 @@ commands = {
     [NOHDR_OPT, SEP_OPT],
     "[fields...]",
     "Lists all available fields for instances"),
-  'reinstall': (
+  "reinstall": (
     ReinstallInstance, [ArgInstance()],
     [FORCE_OPT, OS_OPT, FORCE_VARIANT_OPT, m_force_multi, m_node_opt,
      m_pri_node_opt, m_sec_node_opt, m_clust_opt, m_inst_opt, m_node_tags_opt,
      m_pri_node_tags_opt, m_sec_node_tags_opt, m_inst_tags_opt, SELECT_OS_OPT,
      SUBMIT_OPT, DRY_RUN_OPT, PRIORITY_OPT, OSPARAMS_OPT],
     "[-f] <instance>", "Reinstall a stopped instance"),
-  'remove': (
+  "remove": (
     RemoveInstance, ARGS_ONE_INSTANCE,
     [FORCE_OPT, SHUTDOWN_TIMEOUT_OPT, IGNORE_FAILURES_OPT, SUBMIT_OPT,
      DRY_RUN_OPT, PRIORITY_OPT],
     "[-f] <instance>", "Shuts down the instance and removes it"),
-  'rename': (
+  "rename": (
     RenameInstance,
     [ArgInstance(min=1, max=1), ArgHost(min=1, max=1)],
     [NOIPCHECK_OPT, NONAMECHECK_OPT, SUBMIT_OPT, DRY_RUN_OPT, PRIORITY_OPT],
     "<instance> <new_name>", "Rename the instance"),
-  'replace-disks': (
+  "replace-disks": (
     ReplaceDisks, ARGS_ONE_INSTANCE,
     [AUTO_REPLACE_OPT, DISKIDX_OPT, IALLOCATOR_OPT, EARLY_RELEASE_OPT,
      NEW_SECONDARY_OPT, ON_PRIMARY_OPT, ON_SECONDARY_OPT, SUBMIT_OPT,
      DRY_RUN_OPT, PRIORITY_OPT],
     "[-s|-p|-n NODE|-I NAME] <instance>",
     "Replaces all disks for the instance"),
-  'modify': (
+  "modify": (
     SetInstanceParams, ARGS_ONE_INSTANCE,
     [BACKEND_OPT, DISK_OPT, FORCE_OPT, HVOPTS_OPT, NET_OPT, SUBMIT_OPT,
      DISK_TEMPLATE_OPT, SINGLE_NODE_OPT, OS_OPT, FORCE_VARIANT_OPT,
      OSPARAMS_OPT, DRY_RUN_OPT, PRIORITY_OPT, NWSYNC_OPT],
     "<instance>", "Alters the parameters of an instance"),
-  'shutdown': (
+  "shutdown": (
     GenericManyOps("shutdown", _ShutdownInstance), [ArgInstance()],
     [m_node_opt, m_pri_node_opt, m_sec_node_opt, m_clust_opt,
      m_node_tags_opt, m_pri_node_tags_opt, m_sec_node_tags_opt,
      m_inst_tags_opt, m_inst_opt, m_force_multi, TIMEOUT_OPT, SUBMIT_OPT,
      DRY_RUN_OPT, PRIORITY_OPT, IGNORE_OFFLINE_OPT, NO_REMEMBER_OPT],
     "<instance>", "Stops an instance"),
-  'startup': (
+  "startup": (
     GenericManyOps("startup", _StartupInstance), [ArgInstance()],
     [FORCE_OPT, m_force_multi, m_node_opt, m_pri_node_opt, m_sec_node_opt,
      m_node_tags_opt, m_pri_node_tags_opt, m_sec_node_tags_opt,
      m_inst_tags_opt, m_clust_opt, m_inst_opt, SUBMIT_OPT, HVOPTS_OPT,
      BACKEND_OPT, DRY_RUN_OPT, PRIORITY_OPT, IGNORE_OFFLINE_OPT,
-     NO_REMEMBER_OPT],
+     NO_REMEMBER_OPT, STARTUP_PAUSED_OPT],
     "<instance>", "Starts an instance"),
-  'reboot': (
+  "reboot": (
     GenericManyOps("reboot", _RebootInstance), [ArgInstance()],
     [m_force_multi, REBOOT_TYPE_OPT, IGNORE_SECONDARIES_OPT, m_node_opt,
      m_pri_node_opt, m_sec_node_opt, m_clust_opt, m_inst_opt, SUBMIT_OPT,
      m_node_tags_opt, m_pri_node_tags_opt, m_sec_node_tags_opt,
      m_inst_tags_opt, SHUTDOWN_TIMEOUT_OPT, DRY_RUN_OPT, PRIORITY_OPT],
     "<instance>", "Reboots an instance"),
-  'activate-disks': (
+  "activate-disks": (
     ActivateDisks, ARGS_ONE_INSTANCE,
     [SUBMIT_OPT, IGNORE_SIZE_OPT, PRIORITY_OPT],
     "<instance>", "Activate an instance's disks"),
-  'deactivate-disks': (
+  "deactivate-disks": (
     DeactivateDisks, ARGS_ONE_INSTANCE,
     [FORCE_OPT, SUBMIT_OPT, DRY_RUN_OPT, PRIORITY_OPT],
     "[-f] <instance>", "Deactivate an instance's disks"),
-  'recreate-disks': (
+  "recreate-disks": (
     RecreateDisks, ARGS_ONE_INSTANCE,
     [SUBMIT_OPT, DISKIDX_OPT, NODE_PLACEMENT_OPT, DRY_RUN_OPT, PRIORITY_OPT],
     "<instance>", "Recreate an instance's disks"),
-  'grow-disk': (
+  "grow-disk": (
     GrowDisk,
     [ArgInstance(min=1, max=1), ArgUnknown(min=1, max=1),
      ArgUnknown(min=1, max=1)],
     [SUBMIT_OPT, NWSYNC_OPT, DRY_RUN_OPT, PRIORITY_OPT],
     "<instance> <disk> <size>", "Grow an instance's disk"),
-  'list-tags': (
+  "change-group": (
+    ChangeGroup, ARGS_ONE_INSTANCE,
+    [TO_GROUP_OPT, IALLOCATOR_OPT, EARLY_RELEASE_OPT],
+    "[-I <iallocator>] [--to <group>]", "Change group of instance"),
+  "list-tags": (
     ListTags, ARGS_ONE_INSTANCE, [PRIORITY_OPT],
     "<instance_name>", "List the tags of the given instance"),
-  'add-tags': (
+  "add-tags": (
     AddTags, [ArgInstance(min=1, max=1), ArgUnknown()],
     [TAG_SRC_OPT, PRIORITY_OPT],
     "<instance_name> tag...", "Add tags to the given instance"),
-  'remove-tags': (
+  "remove-tags": (
     RemoveTags, [ArgInstance(min=1, max=1), ArgUnknown()],
     [TAG_SRC_OPT, PRIORITY_OPT],
     "<instance_name> tag...", "Remove tags from given instance"),
@@ -1509,8 +1542,8 @@ commands = {
 
 #: dictionary with aliases for commands
 aliases = {
-  'start': 'startup',
-  'stop': 'shutdown',
+  "start": "startup",
+  "stop": "shutdown",
   }
 
 

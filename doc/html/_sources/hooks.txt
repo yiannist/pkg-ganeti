@@ -1,7 +1,7 @@
 Ganeti customisation using hooks
 ================================
 
-Documents ganeti version 2.0
+Documents Ganeti version 2.5
 
 .. contents::
 
@@ -64,7 +64,7 @@ have been run.
 Naming
 ~~~~~~
 
-The allowed names for the scripts consist of (similar to *run-parts* )
+The allowed names for the scripts consist of (similar to *run-parts*)
 upper and lower case, digits, underscores and hyphens. In other words,
 the regexp ``^[a-zA-Z0-9_-]+$``. Also, non-executable scripts will be
 ignored.
@@ -210,6 +210,16 @@ Renames a node group.
 
 :directory: group-rename
 :env. vars: OLD_NAME, NEW_NAME
+:pre-execution: master node and all nodes in the group
+:post-execution: master node and all nodes in the group
+
+OP_GROUP_EVACUATE
++++++++++++++++++
+
+Evacuates a node group.
+
+:directory: group-evacuate
+:env. vars: GROUP_NAME, TARGET_GROUPS
 :pre-execution: master node and all nodes in the group
 :post-execution: master node and all nodes in the group
 
@@ -393,6 +403,16 @@ Replace the disks of an instance.
 :pre-execution: master node, primary and new secondary nodes
 :post-execution: master node, primary and new secondary nodes
 
+OP_INSTANCE_CHANGE_GROUP
+++++++++++++++++++++++++
+
+Moves an instance to another group.
+
+:directory: instance-change-group
+:env. vars: TARGET_GROUPS
+:pre-execution: master node
+:post-execution: master node
+
 
 Cluster operations
 ~~~~~~~~~~~~~~~~~~
@@ -419,10 +439,10 @@ operation and not after its completion.
 :pre-execution: none
 :post-execution: master node
 
-OP_CLUSTER_VERIFY
-+++++++++++++++++
+OP_CLUSTER_VERIFY_GROUP
++++++++++++++++++++++++
 
-Verifies the cluster status. This is a special LU with regard to
+Verifies all nodes in a group. This is a special LU with regard to
 hooks, as the result of the opcode will be combined with the result of
 post-execution hooks, in order to allow administrators to enhance the
 cluster verification procedure.
@@ -430,7 +450,7 @@ cluster verification procedure.
 :directory: cluster-verify
 :env. vars: CLUSTER, MASTER, CLUSTER_TAGS, NODE_TAGS_<name>
 :pre-execution: none
-:post-execution: all nodes
+:post-execution: all nodes in a group
 
 OP_CLUSTER_RENAME
 +++++++++++++++++
@@ -468,8 +488,10 @@ anymore in Ganeti 2.0:
 Environment variables
 ---------------------
 
-Note that all variables listed here are actually prefixed with
-*GANETI_* in order to provide a clear namespace.
+Note that all variables listed here are actually prefixed with *GANETI_*
+in order to provide a clear namespace. In addition, post-execution
+scripts receive another set of variables, prefixed with *GANETI_POST_*,
+representing the status after the opcode executed.
 
 Common variables
 ~~~~~~~~~~~~~~~~
@@ -578,6 +600,9 @@ MASTER_CAPABLE
 
 VM_CAPABLE
   Whether the node can host instances.
+
+INSTANCE_TAGS
+  A space-delimited list of the instance's tags.
 
 NODE_NAME
   The target node of this operation (not the node on which the hook

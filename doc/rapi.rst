@@ -53,8 +53,8 @@ Example::
 
 
 .. [#pwhash] Using the MD5 hash of username, realm and password is
-   described in :rfc:`2617` ("HTTP Authentication"), sections 3.2.2.2 and
-   3.3. The reason for using it over another algorithm is forward
+   described in :rfc:`2617` ("HTTP Authentication"), sections 3.2.2.2
+   and 3.3. The reason for using it over another algorithm is forward
    compatibility. If ``ganeti-rapi`` were to implement HTTP Digest
    authentication in the future, the same hash could be used.
    In the current version ``ganeti-rapi``'s realm, ``Ganeti Remote
@@ -330,10 +330,23 @@ Redistribute configuration to all nodes. The result will be a job id.
 Returns a list of features supported by the RAPI server. Available
 features:
 
-``instance-create-reqv1``
+.. pyassert::
+
+  rlib2.ALL_FEATURES == set([rlib2._INST_CREATE_REQV1,
+                             rlib2._INST_REINSTALL_REQV1,
+                             rlib2._NODE_MIGRATE_REQV1,
+                             rlib2._NODE_EVAC_RES1])
+
+:pyeval:`rlib2._INST_CREATE_REQV1`
   Instance creation request data version 1 supported.
-``instance-reinstall-reqv1``
+:pyeval:`rlib2._INST_REINSTALL_REQV1`
   Instance reinstall supports body parameters.
+:pyeval:`rlib2._NODE_MIGRATE_REQV1`
+  Whether migrating a node (``/2/nodes/[node_name]/migrate``) supports
+  request body parameters.
+:pyeval:`rlib2._NODE_EVAC_RES1`
+  Whether evacuating a node (``/2/nodes/[node_name]/evacuate``) returns
+  a new-style result (see resource description)
 
 
 ``/2/modify``
@@ -350,53 +363,7 @@ Returns a job ID.
 
 Body parameters:
 
-``vg_name`` (string)
-  Volume group name.
-``enabled_hypervisors`` (list)
-  List of enabled hypervisors.
-``hvparams`` (dict)
-  Cluster-wide hypervisor parameter defaults, hypervisor-dependent.
-``beparams`` (dict)
-  Cluster-wide backend parameter defaults.
-``os_hvp`` (dict)
-  Cluster-wide per-OS hypervisor parameter defaults.
-``osparams`` (dict)
-  Dictionary with OS parameters.
-``candidate_pool_size`` (int)
-  Master candidate pool size.
-``uid_pool`` (list)
-  Set UID pool. Must be list of lists describing UID ranges (two items,
-  start and end inclusive).
-``add_uids``
-  Extend UID pool. Must be list of lists describing UID ranges (two
-  items, start and end inclusive) to be added.
-``remove_uids``
-  Shrink UID pool. Must be list of lists describing UID ranges (two
-  items, start and end inclusive) to be removed.
-``maintain_node_health`` (bool)
-  Whether to automatically maintain node health.
-``prealloc_wipe_disks`` (bool)
-  Whether to wipe disks before allocating them to instances.
-``nicparams`` (dict)
-  Cluster-wide NIC parameter defaults.
-``ndparams`` (dict)
-  Cluster-wide node parameter defaults.
-``drbd_helper`` (string)
-  DRBD helper program.
-``default_iallocator`` (string)
-  Default iallocator for cluster.
-``master_netdev`` (string)
-  Master network device.
-``reserved_lvs`` (list)
-  List of reserved LVs (strings).
-``hidden_os`` (list)
-  List of modifications as lists. Each modification must have two items,
-  the operation and the OS name. The operation can be ``add`` or
-  ``remove``.
-``blacklisted_os`` (list)
-  List of modifications as lists. Each modification must have two items,
-  the operation and the OS name. The operation can be ``add`` or
-  ``remove``.
+.. opcode_params:: OP_CLUSTER_SET_PARAMS
 
 
 ``/2/groups``
@@ -427,6 +394,8 @@ Example::
 If the optional bool *bulk* argument is provided and set to a true value
 (i.e ``?bulk=1``), the output contains detailed information about node
 groups as a list.
+
+Returned fields: :pyeval:`utils.CommaJoin(sorted(rlib2.G_FIELDS))`
 
 Example::
 
@@ -462,8 +431,10 @@ Returns: a job ID that can be used later for polling.
 
 Body parameters:
 
-``name`` (string, required)
-  Node group name.
+.. opcode_params:: OP_GROUP_ADD
+
+Earlier versions used a parameter named ``name`` which, while still
+supported, has been renamed to ``group_name``.
 
 
 ``/2/groups/[group_name]``
@@ -478,6 +449,8 @@ It supports the following commands: ``GET``, ``DELETE``.
 
 Returns information about a node group, similar to the bulk output from
 the node group list.
+
+Returned fields: :pyeval:`utils.CommaJoin(sorted(rlib2.G_FIELDS))`
 
 ``DELETE``
 ~~~~~~~~~~
@@ -501,8 +474,12 @@ Returns a job ID.
 
 Body parameters:
 
-``alloc_policy`` (string)
-  If present, the new allocation policy for the node group.
+.. opcode_params:: OP_GROUP_SET_PARAMS
+   :exclude: group_name
+
+Job result:
+
+.. opcode_result:: OP_GROUP_SET_PARAMS
 
 
 ``/2/groups/[group_name]/rename``
@@ -519,8 +496,12 @@ Returns a job ID.
 
 Body parameters:
 
-``new_name`` (string, required)
-  New node group name.
+.. opcode_params:: OP_GROUP_RENAME
+   :exclude: group_name
+
+Job result:
+
+.. opcode_result:: OP_GROUP_RENAME
 
 
 ``/2/groups/[group_name]/assign-nodes``
@@ -537,8 +518,48 @@ Returns a job ID. It supports the ``dry-run`` and ``force`` arguments.
 
 Body parameters:
 
-``nodes`` (list, required)
-  One or more nodes to assign to the group.
+.. opcode_params:: OP_GROUP_ASSIGN_NODES
+   :exclude: group_name, force, dry_run
+
+
+``/2/groups/[group_name]/tags``
++++++++++++++++++++++++++++++++
+
+Manages per-nodegroup tags.
+
+Supports the following commands: ``GET``, ``PUT``, ``DELETE``.
+
+``GET``
+~~~~~~~
+
+Returns a list of tags.
+
+Example::
+
+    ["tag1", "tag2", "tag3"]
+
+``PUT``
+~~~~~~~
+
+Add a set of tags.
+
+The request as a list of strings should be ``PUT`` to this URI. The
+result will be a job id.
+
+It supports the ``dry-run`` argument.
+
+
+``DELETE``
+~~~~~~~~~~
+
+Delete a tag.
+
+In order to delete a set of tags, the DELETE request should be addressed
+to URI like::
+
+    /tags?tag=[tag]&tag=[tag]
+
+It supports the ``dry-run`` argument.
 
 
 ``/2/instances``
@@ -569,6 +590,8 @@ Example::
 If the optional bool *bulk* argument is provided and set to a true value
 (i.e ``?bulk=1``), the output contains detailed information about
 instances as a list.
+
+Returned fields: :pyeval:`utils.CommaJoin(sorted(rlib2.I_FIELDS))`
 
 Example::
 
@@ -616,64 +639,18 @@ Body parameters:
 
 ``__version__`` (int, required)
   Must be ``1`` (older Ganeti versions used a different format for
-  instance creation requests, version ``0``, but that format is not
-  documented).
-``mode`` (string, required)
-  Instance creation mode.
-``name`` (string, required)
-  Instance name.
-``disk_template`` (string, required)
-  Disk template for instance.
-``disks`` (list, required)
-  List of disk definitions. Example: ``[{"size": 100}, {"size": 5}]``.
-  Each disk definition must contain a ``size`` value and can contain an
-  optional ``mode`` value denoting the disk access mode (``ro`` or
-  ``rw``).
-``nics`` (list, required)
-  List of NIC (network interface) definitions. Example: ``[{}, {},
-  {"ip": "198.51.100.4"}]``. Each NIC definition can contain the
-  optional values ``ip``, ``mode``, ``link`` and ``bridge``.
-``os`` (string, required)
-  Instance operating system.
-``osparams`` (dictionary)
-  Dictionary with OS parameters. If not valid for the given OS, the job
-  will fail.
-``force_variant`` (bool)
-  Whether to force an unknown variant.
-``no_install`` (bool)
-  Do not install the OS (will enable no-start)
-``pnode`` (string)
-  Primary node.
-``snode`` (string)
-  Secondary node.
-``src_node`` (string)
-  Source node for import.
-``src_path`` (string)
-  Source directory for import.
-``start`` (bool)
-  Whether to start instance after creation.
-``ip_check`` (bool)
-  Whether to ensure instance's IP address is inactive.
-``name_check`` (bool)
-  Whether to ensure instance's name is resolvable.
-``file_storage_dir`` (string)
-  File storage directory.
-``file_driver`` (string)
-  File storage driver.
-``iallocator`` (string)
-  Instance allocator name.
-``source_handshake`` (list)
-  Signed handshake from source (remote import only).
-``source_x509_ca`` (string)
-  Source X509 CA in PEM format (remote import only).
-``source_instance_name`` (string)
-  Source instance name (remote import only).
-``hypervisor`` (string)
-  Hypervisor name.
-``hvparams`` (dict)
-  Hypervisor parameters, hypervisor-dependent.
-``beparams`` (dict)
-  Backend parameters.
+  instance creation requests, version ``0``, but that format is no
+  longer supported)
+
+.. opcode_params:: OP_INSTANCE_CREATE
+
+Earlier versions used parameters named ``name`` and ``os``. These have
+been replaced by ``instance_name`` and ``os_type`` to match the
+underlying opcode. The old names can still be used.
+
+Job result:
+
+.. opcode_result:: OP_INSTANCE_CREATE
 
 
 ``/2/instances/[instance_name]``
@@ -688,6 +665,8 @@ It supports the following commands: ``GET``, ``DELETE``.
 
 Returns information about an instance, similar to the bulk output from
 the instance list.
+
+Returned fields: :pyeval:`utils.CommaJoin(sorted(rlib2.I_FIELDS))`
 
 ``DELETE``
 ~~~~~~~~~~
@@ -753,6 +732,9 @@ Shutdowns an instance.
 
 It supports the ``dry-run`` argument.
 
+.. opcode_params:: OP_INSTANCE_SHUTDOWN
+   :exclude: instance_name, dry_run
+
 
 ``/2/instances/[instance_name]/startup``
 ++++++++++++++++++++++++++++++++++++++++
@@ -807,16 +789,15 @@ It supports the following commands: ``POST``.
 ``POST``
 ~~~~~~~~
 
-Takes the parameters ``mode`` (one of ``replace_on_primary``,
-``replace_on_secondary``, ``replace_new_secondary`` or
-``replace_auto``), ``disks`` (comma separated list of disk indexes),
-``remote_node`` and ``iallocator``.
+Returns a job ID.
 
-Either ``remote_node`` or ``iallocator`` needs to be defined when using
-``mode=replace_new_secondary``.
+Body parameters:
 
-``mode`` is a mandatory parameter. ``replace_auto`` tries to determine
-the broken disk(s) on its own and replacing it.
+.. opcode_params:: OP_INSTANCE_REPLACE_DISKS
+   :exclude: instance_name
+
+Ganeti 2.4 and below used query parameters. Those are deprecated and
+should no longer be used.
 
 
 ``/2/instances/[instance_name]/activate-disks``
@@ -860,10 +841,8 @@ Returns a job ID.
 
 Body parameters:
 
-``amount`` (int, required)
-  Amount of disk space to add.
-``wait_for_sync`` (bool)
-  Whether to wait for the disk to synchronize.
+.. opcode_params:: OP_INSTANCE_GROW_DISK
+   :exclude: instance_name, disk
 
 
 ``/2/instances/[instance_name]/prepare-export``
@@ -893,18 +872,9 @@ Returns a job ID.
 
 Body parameters:
 
-``mode`` (string)
-  Export mode.
-``destination`` (required)
-  Destination information, depends on export mode.
-``shutdown`` (bool, required)
-  Whether to shutdown instance before export.
-``remove_instance`` (bool)
-  Whether to remove instance after export.
-``x509_key_name``
-  Name of X509 key (remote export only).
-``destination_x509_ca``
-  Destination X509 CA (remote export only).
+.. opcode_params:: OP_BACKUP_EXPORT
+   :exclude: instance_name
+   :alias: target_node=destination
 
 
 ``/2/instances/[instance_name]/migrate``
@@ -921,10 +891,26 @@ Returns a job ID.
 
 Body parameters:
 
-``mode`` (string)
-  Migration mode.
-``cleanup`` (bool)
-  Whether a previously failed migration should be cleaned up.
+.. opcode_params:: OP_INSTANCE_MIGRATE
+   :exclude: instance_name, live
+
+
+``/2/instances/[instance_name]/failover``
++++++++++++++++++++++++++++++++++++++++++
+
+Does a failover of an instance.
+
+Supports the following commands: ``PUT``.
+
+``PUT``
+~~~~~~~
+
+Returns a job ID.
+
+Body parameters:
+
+.. opcode_params:: OP_INSTANCE_FAILOVER
+   :exclude: instance_name
 
 
 ``/2/instances/[instance_name]/rename``
@@ -941,12 +927,12 @@ Returns a job ID.
 
 Body parameters:
 
-``new_name`` (string, required)
-  New instance name.
-``ip_check`` (bool)
-  Whether to ensure instance's IP address is inactive.
-``name_check`` (bool)
-  Whether to ensure instance's name is resolvable.
+.. opcode_params:: OP_INSTANCE_RENAME
+   :exclude: instance_name
+
+Job result:
+
+.. opcode_result:: OP_INSTANCE_RENAME
 
 
 ``/2/instances/[instance_name]/modify``
@@ -963,29 +949,12 @@ Returns a job ID.
 
 Body parameters:
 
-``osparams`` (dict)
-  Dictionary with OS parameters.
-``hvparams`` (dict)
-  Hypervisor parameters, hypervisor-dependent.
-``beparams`` (dict)
-  Backend parameters.
-``force`` (bool)
-  Whether to force the operation.
-``nics`` (list)
-  List of NIC changes. Each item is of the form ``(op, settings)``.
-  ``op`` can be ``add`` to add a new NIC with the specified settings,
-  ``remove`` to remove the last NIC or a number to modify the settings
-  of the NIC with that index.
-``disks`` (list)
-  List of disk changes. See ``nics``.
-``disk_template`` (string)
-  Disk template for instance.
-``remote_node`` (string)
-  Secondary node (used when changing disk template).
-``os_name`` (string)
-  Change instance's OS name. Does not reinstall the instance.
-``force_variant`` (bool)
-  Whether to force an unknown variant.
+.. opcode_params:: OP_INSTANCE_SET_PARAMS
+   :exclude: instance_name
+
+Job result:
+
+.. opcode_result:: OP_INSTANCE_SET_PARAMS
 
 
 ``/2/instances/[instance_name]/console``
@@ -1001,22 +970,32 @@ Supports the following commands: ``GET``.
 Returns a dictionary containing information about the instance's
 console. Contained keys:
 
+.. pyassert::
+
+   constants.CONS_ALL == frozenset([
+     constants.CONS_MESSAGE,
+     constants.CONS_SSH,
+     constants.CONS_VNC,
+     ])
+
 ``instance``
   Instance name.
 ``kind``
-  Console type, one of ``ssh``, ``vnc`` or ``msg``.
+  Console type, one of :pyeval:`constants.CONS_SSH`,
+  :pyeval:`constants.CONS_VNC` or :pyeval:`constants.CONS_MESSAGE`.
 ``message``
-  Message to display (``msg`` type only).
+  Message to display (:pyeval:`constants.CONS_MESSAGE` type only).
 ``host``
-  Host to connect to (``ssh`` and ``vnc`` only).
+  Host to connect to (:pyeval:`constants.CONS_SSH` and
+  :pyeval:`constants.CONS_VNC` only).
 ``port``
-  TCP port to connect to (``vnc`` only).
+  TCP port to connect to (:pyeval:`constants.CONS_VNC` only).
 ``user``
-  Username to use (``ssh`` only).
+  Username to use (:pyeval:`constants.CONS_SSH` only).
 ``command``
-  Command to execute on machine (``ssh`` only)
+  Command to execute on machine (:pyeval:`constants.CONS_SSH` only)
 ``display``
-  VNC display number (``vnc`` only).
+  VNC display number (:pyeval:`constants.CONS_VNC` only).
 
 
 ``/2/instances/[instance_name]/tags``
@@ -1073,6 +1052,14 @@ Returns a dictionary of jobs.
 
 Returns: a dictionary with jobs id and uri.
 
+If the optional bool *bulk* argument is provided and set to a true value
+(i.e. ``?bulk=1``), the output contains detailed information about jobs
+as a list.
+
+Returned fields for bulk requests (unlike other bulk requests, these
+fields are not the same as for per-job requests):
+:pyeval:`utils.CommaJoin(sorted(rlib2.J_FIELDS_BULK))`
+
 ``/2/jobs/[job_id]``
 ++++++++++++++++++++
 
@@ -1084,9 +1071,8 @@ It supports the following commands: ``GET``, ``DELETE``.
 ``GET``
 ~~~~~~~
 
-Returns a job status.
-
-Returns: a dictionary with job parameters.
+Returns a dictionary with job parameters, containing the fields
+:pyeval:`utils.CommaJoin(sorted(rlib2.J_FIELDS))`.
 
 The result includes:
 
@@ -1114,42 +1100,49 @@ executing, so it's possible to retry the OpCode without side
 effects. But whether it make sense to retry depends on the error
 classification:
 
-``resolver_error``
+.. pyassert::
+
+   errors.ECODE_ALL == set([errors.ECODE_RESOLVER, errors.ECODE_NORES,
+     errors.ECODE_INVAL, errors.ECODE_STATE, errors.ECODE_NOENT,
+     errors.ECODE_EXISTS, errors.ECODE_NOTUNIQUE, errors.ECODE_FAULT,
+     errors.ECODE_ENVIRON])
+
+:pyeval:`errors.ECODE_RESOLVER`
   Resolver errors. This usually means that a name doesn't exist in DNS,
   so if it's a case of slow DNS propagation the operation can be retried
   later.
 
-``insufficient_resources``
+:pyeval:`errors.ECODE_NORES`
   Not enough resources (iallocator failure, disk space, memory,
   etc.). If the resources on the cluster increase, the operation might
   succeed.
 
-``wrong_input``
+:pyeval:`errors.ECODE_INVAL`
   Wrong arguments (at syntax level). The operation will not ever be
   accepted unless the arguments change.
 
-``wrong_state``
+:pyeval:`errors.ECODE_STATE`
   Wrong entity state. For example, live migration has been requested for
   a down instance, or instance creation on an offline node. The
   operation can be retried once the resource has changed state.
 
-``unknown_entity``
+:pyeval:`errors.ECODE_NOENT`
   Entity not found. For example, information has been requested for an
   unknown instance.
 
-``already_exists``
+:pyeval:`errors.ECODE_EXISTS`
   Entity already exists. For example, instance creation has been
   requested for an already-existing instance.
 
-``resource_not_unique``
+:pyeval:`errors.ECODE_NOTUNIQUE`
   Resource not unique (e.g. MAC or IP duplication).
 
-``internal_error``
+:pyeval:`errors.ECODE_FAULT`
   Internal cluster error. For example, a node is unreachable but not set
   offline, or the ganeti node daemons are not working, etc. A
   ``gnt-cluster verify`` should be run.
 
-``environment_error``
+:pyeval:`errors.ECODE_ENVIRON`
   Environment error (e.g. node disk error). A ``gnt-cluster verify``
   should be run.
 
@@ -1211,9 +1204,11 @@ Example::
       }
     ]
 
-If the optional 'bulk' argument is provided and set to 'true' value (i.e
-'?bulk=1'), the output contains detailed information about nodes as a
-list.
+If the optional bool *bulk* argument is provided and set to a true value
+(i.e ``?bulk=1``), the output contains detailed information about nodes
+as a list.
+
+Returned fields: :pyeval:`utils.CommaJoin(sorted(rlib2.N_FIELDS))`
 
 Example::
 
@@ -1240,35 +1235,33 @@ Returns information about a node.
 
 It supports the following commands: ``GET``.
 
+Returned fields: :pyeval:`utils.CommaJoin(sorted(rlib2.N_FIELDS))`
+
 ``/2/nodes/[node_name]/evacuate``
 +++++++++++++++++++++++++++++++++
 
-Evacuates all secondary instances off a node.
+Evacuates instances off a node.
 
 It supports the following commands: ``POST``.
 
 ``POST``
 ~~~~~~~~
 
-To evacuate a node, either one of the ``iallocator`` or ``remote_node``
-parameters must be passed::
+Returns a job ID. The result of the job will contain the IDs of the
+individual jobs submitted to evacuate the node.
 
-    evacuate?iallocator=[iallocator]
-    evacuate?remote_node=[nodeX.example.com]
+Body parameters:
 
-The result value will be a list, each element being a triple of the job
-id (for this specific evacuation), the instance which is being evacuated
-by this job, and the node to which it is being relocated. In case the
-node is already empty, the result will be an empty list (without any
-jobs being submitted).
+.. opcode_params:: OP_NODE_EVACUATE
+   :exclude: nodes
 
-And additional parameter ``early_release`` signifies whether to try to
-parallelize the evacuations, at the risk of increasing I/O contention
-and increasing the chances of data loss, if the primary node of any of
-the instances being evacuated is not fully healthy.
+Up to and including Ganeti 2.4 query arguments were used. Those are no
+longer supported. The new request can be detected by the presence of the
+:pyeval:`rlib2._NODE_EVAC_RES1` feature string.
 
-If the dry-run parameter was specified, then the evacuation jobs were
-not actually submitted, and the job IDs will be null.
+Job result:
+
+.. opcode_result:: OP_NODE_EVACUATE
 
 
 ``/2/nodes/[node_name]/migrate``
@@ -1282,13 +1275,18 @@ It supports the following commands: ``POST``.
 ~~~~~~~~
 
 If no mode is explicitly specified, each instances' hypervisor default
-migration mode will be used. Query parameters:
+migration mode will be used. Body parameters:
 
-``live`` (bool)
-  If set, use live migration if available.
-``mode`` (string)
-  Sets migration mode, ``live`` for live migration and ``non-live`` for
-  non-live migration. Supported by Ganeti 2.2 and above.
+.. opcode_params:: OP_NODE_MIGRATE
+   :exclude: node_name
+
+The query arguments used up to and including Ganeti 2.4 are deprecated
+and should no longer be used. The new request format can be detected by
+the presence of the :pyeval:`rlib2._NODE_MIGRATE_REQV1` feature string.
+
+Job result:
+
+.. opcode_result:: OP_NODE_MIGRATE
 
 
 ``/2/nodes/[node_name]/role``
@@ -1336,8 +1334,15 @@ Manages storage units on the node.
 ``GET``
 ~~~~~~~
 
+.. pyassert::
+
+   constants.VALID_STORAGE_TYPES == set([constants.ST_FILE,
+                                         constants.ST_LVM_PV,
+                                         constants.ST_LVM_VG])
+
 Requests a list of storage units on a node. Requires the parameters
-``storage_type`` (one of ``file``, ``lvm-pv`` or ``lvm-vg``) and
+``storage_type`` (one of :pyeval:`constants.ST_FILE`,
+:pyeval:`constants.ST_LVM_PV` or :pyeval:`constants.ST_LVM_VG`) and
 ``output_fields``. The result will be a job id, using which the result
 can be retrieved.
 
@@ -1350,10 +1355,11 @@ Modifies storage units on the node.
 ~~~~~~~
 
 Modifies parameters of storage units on the node. Requires the
-parameters ``storage_type`` (one of ``file``, ``lvm-pv`` or ``lvm-vg``)
+parameters ``storage_type`` (one of :pyeval:`constants.ST_FILE`,
+:pyeval:`constants.ST_LVM_PV` or :pyeval:`constants.ST_LVM_VG`)
 and ``name`` (name of the storage unit).  Parameters can be passed
-additionally. Currently only ``allocatable`` (bool) is supported. The
-result will be a job id.
+additionally. Currently only :pyeval:`constants.SF_ALLOCATABLE` (bool)
+is supported. The result will be a job id.
 
 ``/2/nodes/[node_name]/storage/repair``
 +++++++++++++++++++++++++++++++++++++++
@@ -1363,9 +1369,16 @@ Repairs a storage unit on the node.
 ``PUT``
 ~~~~~~~
 
+.. pyassert::
+
+   constants.VALID_STORAGE_OPERATIONS == {
+    constants.ST_LVM_VG: set([constants.SO_FIX_CONSISTENCY]),
+    }
+
 Repairs a storage unit on the node. Requires the parameters
-``storage_type`` (currently only ``lvm-vg`` can be repaired) and
-``name`` (name of the storage unit). The result will be a job id.
+``storage_type`` (currently only :pyeval:`constants.ST_LVM_VG` can be
+repaired) and ``name`` (name of the storage unit). The result will be a
+job id.
 
 ``/2/nodes/[node_name]/tags``
 +++++++++++++++++++++++++++++
@@ -1404,6 +1417,50 @@ to URI like::
     /tags?tag=[tag]&tag=[tag]
 
 It supports the ``dry-run`` argument.
+
+
+``/2/query/[resource]``
++++++++++++++++++++++++
+
+Requests resource information. Available fields can be found in man
+pages and using ``/2/query/[resource]/fields``. The resource is one of
+:pyeval:`utils.CommaJoin(constants.QR_VIA_RAPI)`. See the :doc:`query2
+design document <design-query2>` for more details.
+
+Supports the following commands: ``GET``, ``PUT``.
+
+``GET``
+~~~~~~~
+
+Returns list of included fields and actual data. Takes a query parameter
+named "fields", containing a comma-separated list of field names. Does
+not support filtering.
+
+``PUT``
+~~~~~~~
+
+Returns list of included fields and actual data. The list of requested
+fields can either be given as the query parameter "fields" or as a body
+parameter with the same name. The optional body parameter "filter" can
+be given and must be either ``null`` or a list containing filter
+operators.
+
+
+``/2/query/[resource]/fields``
+++++++++++++++++++++++++++++++
+
+Request list of available fields for a resource. The resource is one of
+:pyeval:`utils.CommaJoin(constants.QR_VIA_RAPI)`. See the
+:doc:`query2 design document <design-query2>` for more details.
+
+Supports the following commands: ``GET``.
+
+``GET``
+~~~~~~~
+
+Returns a list of field descriptions for available fields. Takes an
+optional query parameter named "fields", containing a comma-separated
+list of field names.
 
 
 ``/2/os``

@@ -5,13 +5,13 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Ganeti Node OOB Management Framework &mdash; Ganeti v2.4.5 documentation</title>
+    <title>Ganeti Node OOB Management Framework &mdash; Ganeti v2.5.0 documentation</title>
     <link rel="stylesheet" href="_static/default.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.4.5',
+        VERSION:     '2.5.0',
         COLLAPSE_MODINDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -19,7 +19,7 @@
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.4.5 documentation" href="index.html" />
+    <link rel="top" title="Ganeti v2.5.0 documentation" href="index.html" />
     <link rel="next" title="Query version 2 design" href="design-query2.html" />
     <link rel="prev" title="Glossary" href="glossary.html" /> 
   </head>
@@ -33,7 +33,7 @@
         <li class="right" >
           <a href="glossary.html" title="Glossary"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.4.5 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.5.0 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -94,6 +94,36 @@ getting locked for an undefined amount of time.</p>
 <div class="line">Command: <tt class="docutils literal"><span class="pre">modify|init</span></tt></div>
 <div class="line">Parameters: <tt class="docutils literal"><span class="pre">--oob-program</span></tt></div>
 <div class="line">Options: <tt class="docutils literal"><span class="pre">--oob-program</span></tt>: executable OOB program (absolute path)</div>
+</div>
+</div>
+<div class="section" id="new-gnt-cluster-epo-command">
+<h3>New <tt class="docutils literal"><span class="pre">gnt-cluster</span> <span class="pre">epo</span></tt> Command<a class="headerlink" href="#new-gnt-cluster-epo-command" title="Permalink to this headline">¶</a></h3>
+<div class="line-block">
+<div class="line">Program: <tt class="docutils literal"><span class="pre">gnt-cluster</span></tt></div>
+<div class="line">Command: <tt class="docutils literal"><span class="pre">epo</span></tt></div>
+<div class="line">Parameter: <tt class="docutils literal"><span class="pre">--on</span></tt> <tt class="docutils literal"><span class="pre">--force</span></tt> <tt class="docutils literal"><span class="pre">--groups</span></tt> <tt class="docutils literal"><span class="pre">--all</span></tt></div>
+<div class="line">Options: <tt class="docutils literal"><span class="pre">--on</span></tt>: By default epo turns off, with <tt class="docutils literal"><span class="pre">--on</span></tt> it tries to get the</div>
+<div class="line-block">
+<div class="line-block">
+<div class="line">cluster back online</div>
+</div>
+<div class="line"><tt class="docutils literal"><span class="pre">--force</span></tt>: To force the operation without asking for confirmation</div>
+<div class="line"><tt class="docutils literal"><span class="pre">--groups</span></tt>: To operate on groups instead of nodes</div>
+<div class="line"><tt class="docutils literal"><span class="pre">--all</span></tt>: To operate on the whole cluster</div>
+</div>
+</div>
+<p>This is a convenience command to allow easy emergency power off of a whole
+cluster or part of it. It takes care of all steps needed to get the cluster into
+a sane state to turn off the nodes.</p>
+<p>With <tt class="docutils literal"><span class="pre">--on</span></tt> it does the reverse and tries to bring the rest of the cluster back
+to life.</p>
+<div class="admonition note">
+<p class="first admonition-title">Note</p>
+<p class="last">The master node is not able to shut itself cleanly down. Therefore, this
+command will not do all the work on single node clusters. On multi node
+clusters the command tries to find another master or if that is not possible
+prepares everything to the point where the user has to shutdown the master
+node itself alone this applies also to the single node cluster configuration.</p>
 </div>
 </div>
 <div class="section" id="new-gnt-node-property">
@@ -529,6 +559,7 @@ with status WARNING or CRITICAL will be logged for each run of <tt class="docuti
 <li><a class="reference external" href="#overview">Overview</a></li>
 <li><a class="reference external" href="#detailed-design">Detailed Design</a><ul>
 <li><a class="reference external" href="#new-gnt-cluster-parameter">New <tt class="docutils literal"><span class="pre">gnt-cluster</span></tt> Parameter</a></li>
+<li><a class="reference external" href="#new-gnt-cluster-epo-command">New <tt class="docutils literal"><span class="pre">gnt-cluster</span> <span class="pre">epo</span></tt> Command</a></li>
 <li><a class="reference external" href="#new-gnt-node-property">New <tt class="docutils literal"><span class="pre">gnt-node</span></tt> Property</a></li>
 <li><a class="reference external" href="#addition-to-gnt-cluster-verify">Addition to <tt class="docutils literal"><span class="pre">gnt-cluster</span> <span class="pre">verify</span></tt></a></li>
 <li><a class="reference external" href="#new-node-state">New Node State</a></li>
@@ -589,7 +620,7 @@ with status WARNING or CRITICAL will be logged for each run of <tt class="docuti
         <li class="right" >
           <a href="glossary.html" title="Glossary"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.4.5 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.5.0 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

@@ -235,6 +235,100 @@ single-quoted, due to shell behaviour):
       #\ gnt-instance\ modify\ -H\ kernel_path=an\\\\,example\ instance1
       #\ gnt-instance\ modify\ -H\ kernel_path=\[aq]an\\,example\[aq]\ instance1
 \f[]
+.SS Query filters
+.PP
+Most commands listing resources (e.g. instances or nodes) support
+filtering. The filter language is similar to Python expressions
+with some elements from Perl. The language is not generic. Each
+condition must consist of a field name and a value (except for
+boolean checks), a field can not be compared to another field.
+Keywords are case-sensitive.
+.PP
+Syntax in pseudo-BNF:
+.PP
+\f[CR]
+      <quoted-string>\ ::=\ /*\ String\ quoted\ with\ single\ or\ double\ quotes,
+      \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ backslash\ for\ escaping\ */
+      
+      <integer>\ ::=\ /*\ Number\ in\ base-10\ positional\ notation\ */
+      
+      <re>\ ::=\ /*\ Regular\ expression\ */
+      
+      /*
+      \ \ Modifier\ "i":\ Case-insensitive\ matching,\ see
+      \ \ http://docs.python.org/library/re#re.IGNORECASE
+      
+      \ \ Modifier\ "s":\ Make\ the\ "."\ special\ character\ match\ any\ character,
+      \ \ including\ newline,\ see\ http://docs.python.org/library/re#re.DOTALL
+      */
+      <re-modifiers>\ ::=\ /*\ empty\ */\ |\ i\ |\ s
+      
+      <value>\ ::=\ <quoted-string>\ |\ <integer>
+      
+      <condition>\ ::=
+      \ \ {\ /*\ Value\ comparison\ */
+      \ \ \ \ <field>\ {\ ==\ |\ !=\ }\ <value>
+      
+      \ \ \ \ /*\ Collection\ membership\ */
+      \ \ \ \ |\ <value>\ [\ not\ ]\ in\ <field>
+      
+      \ \ \ \ /*\ Regular\ expressions\ (recognized\ delimiters
+      \ \ \ \ \ \ \ are\ "/",\ "#",\ "^",\ and\ "|";\ backslash\ for\ escaping)
+      \ \ \ \ */
+      \ \ \ \ |\ <field>\ {\ =~\ |\ !~\ }\ m/<re>/<re-modifiers>
+      
+      \ \ \ \ /*\ Globbing\ */
+      \ \ \ \ |\ <field>\ {\ =*\ |\ !*\ }\ <quoted-string>
+      
+      \ \ \ \ /*\ Boolean\ */
+      \ \ \ \ |\ <field>
+      \ \ }
+      
+      <filter>\ ::=
+      \ \ {\ [\ not\ ]\ <condition>\ |\ (\ <filter>\ )\ }
+      \ \ [\ {\ and\ |\ or\ }\ <filter>\ ]
+\f[]
+.PP
+Operators:
+.TP
+.B \f[I]==\f[]
+Equality
+.RS
+.RE
+.TP
+.B \f[I]!=\f[]
+Inequality
+.RS
+.RE
+.TP
+.B \f[I]=~\f[]
+Pattern match using regular expression
+.RS
+.RE
+.TP
+.B \f[I]!~\f[]
+Logically negated from \f[I]=~\f[]
+.RS
+.RE
+.TP
+.B \f[I]=*\f[]
+Globbing, see \f[B]glob\f[](7), though only * and ?
+are supported
+.RS
+.RE
+.TP
+.B \f[I]!*\f[]
+Logically negated from \f[I]=*\f[]
+.RS
+.RE
+.TP
+.B \f[I]in\f[], \f[I]not in\f[]
+Collection membership and negation
+.RS
+.RE
+.PP
+As a shortcut globbing patterns can be specified as names, e.g.
+\f[B]gnt-instance\ list\ \[aq]*.site1\[aq]\ \[aq]*.site2\[aq]\f[].
 .SH Common daemon functionality
 .PP
 All Ganeti daemons re-open the log file(s) when sent a SIGHUP
@@ -262,13 +356,18 @@ Ganeti daemons: \f[B]ganeti-watcher\f[](8) (automatic instance
 restarter), \f[B]ganeti-cleaner\f[](8) (job queue cleaner),
 \f[B]ganeti-noded\f[](8) (node daemon), \f[B]ganeti-masterd\f[](8)
 (master daemon), \f[B]ganeti-rapi\f[](8) (remote API daemon).
+.PP
+Ganeti htools: \f[B]htools\f[](1) (generic binary),
+\f[B]hbal\f[](1) (cluster balancer), \f[B]hspace\f[](1) (capacity
+calculation), \f[B]hail\f[](1) (IAllocator plugin),
+\f[B]hscan\f[](1) (data gatherer from remote clusters).
 .SH COPYRIGHT
 .PP
-Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc. Permission
-is granted to copy, distribute and/or modify under the terms of the
-GNU General Public License as published by the Free Software
-Foundation; either version 2 of the License, or (at your option)
-any later version.
+Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Google Inc.
+Permission is granted to copy, distribute and/or modify under the
+terms of the GNU General Public License as published by the Free
+Software Foundation; either version 2 of the License, or (at your
+option) any later version.
 .PP
 On Debian systems, the complete text of the GNU General Public
 License can be found in /usr/share/common-licenses/GPL.

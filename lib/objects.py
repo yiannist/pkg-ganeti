@@ -26,7 +26,7 @@ pass to and from external parties.
 
 """
 
-# pylint: disable-msg=E0203,W0201
+# pylint: disable=E0203,W0201
 
 # E0203: Access to member %r before its definition, since we use
 # objects.py which doesn't explicitely initialise its members
@@ -170,7 +170,7 @@ class ConfigObject(object):
       raise errors.ConfigurationError("Invalid object passed to FromDict:"
                                       " expected dict, got %s" % type(val))
     val_str = dict([(str(k), v) for k, v in val.iteritems()])
-    obj = cls(**val_str) # pylint: disable-msg=W0142
+    obj = cls(**val_str) # pylint: disable=W0142
     return obj
 
   @staticmethod
@@ -441,6 +441,8 @@ class Disk(ConfigObject):
     """
     if self.dev_type == constants.LD_LV:
       return "/dev/%s/%s" % (self.logical_id[0], self.logical_id[1])
+    elif self.dev_type == constants.LD_BLOCKDEV:
+      return self.logical_id[1]
     return None
 
   def ChildrenNeeded(self):
@@ -483,7 +485,8 @@ class Disk(ConfigObject):
     devices needs to (or can) be assembled.
 
     """
-    if self.dev_type in [constants.LD_LV, constants.LD_FILE]:
+    if self.dev_type in [constants.LD_LV, constants.LD_FILE,
+                         constants.LD_BLOCKDEV]:
       result = [node]
     elif self.dev_type in constants.LDS_DRBD:
       result = [self.logical_id[0], self.logical_id[1]]
@@ -558,7 +561,7 @@ class Disk(ConfigObject):
     actual algorithms from bdev.
 
     """
-    if self.dev_type == constants.LD_LV or self.dev_type == constants.LD_FILE:
+    if self.dev_type in (constants.LD_LV, constants.LD_FILE):
       self.size += amount
     elif self.dev_type == constants.LD_DRBD8:
       if self.children:
@@ -659,7 +662,7 @@ class Disk(ConfigObject):
 
     """
     if self.dev_type == constants.LD_LV:
-      val =  "<LogicalVolume(/dev/%s/%s" % self.logical_id
+      val = "<LogicalVolume(/dev/%s/%s" % self.logical_id
     elif self.dev_type in constants.LDS_DRBD:
       node_a, node_b, port, minor_a, minor_b = self.logical_id[:5]
       val = "<DRBD8("
@@ -786,7 +789,9 @@ class Instance(TaggableObject):
       node = self.primary_node
 
     if lvmap is None:
-      lvmap = { node : [] }
+      lvmap = {
+        node: [],
+        }
       ret = lvmap
     else:
       if not node in lvmap:
@@ -798,7 +803,7 @@ class Instance(TaggableObject):
 
     for dev in devs:
       if dev.dev_type == constants.LD_LV:
-        lvmap[node].append(dev.logical_id[0]+"/"+dev.logical_id[1])
+        lvmap[node].append(dev.logical_id[0] + "/" + dev.logical_id[1])
 
       elif dev.dev_type in constants.LDS_DRBD:
         if dev.children:
@@ -960,7 +965,7 @@ class Node(TaggableObject):
     """Fill defaults for missing configuration values.
 
     """
-    # pylint: disable-msg=E0203
+    # pylint: disable=E0203
     # because these are "defined" via slots, not manually
     if self.master_capable is None:
       self.master_capable = True
@@ -975,7 +980,7 @@ class Node(TaggableObject):
       self.powered = True
 
 
-class NodeGroup(ConfigObject):
+class NodeGroup(TaggableObject):
   """Config object representing a node group."""
   __slots__ = [
     "name",
@@ -1026,7 +1031,7 @@ class NodeGroup(ConfigObject):
       self.mtime = time.time()
 
   def FillND(self, node):
-    """Return filled out ndparams for L{object.Node}
+    """Return filled out ndparams for L{objects.Node}
 
     @type node: L{objects.Node}
     @param node: A Node object to fill
@@ -1066,6 +1071,7 @@ class Cluster(TaggableObject):
     "master_netdev",
     "cluster_name",
     "file_storage_dir",
+    "shared_file_storage_dir",
     "enabled_hypervisors",
     "hvparams",
     "os_hvp",
@@ -1089,7 +1095,7 @@ class Cluster(TaggableObject):
     """Fill defaults for missing configuration values.
 
     """
-    # pylint: disable-msg=E0203
+    # pylint: disable=E0203
     # because these are "defined" via slots, not manually
     if self.hvparams is None:
       self.hvparams = constants.HVC_DEFAULTS
@@ -1164,6 +1170,10 @@ class Cluster(TaggableObject):
 
     if self.prealloc_wipe_disks is None:
       self.prealloc_wipe_disks = False
+
+    # shared_file_storage_dir added before 2.5
+    if self.shared_file_storage_dir is None:
+      self.shared_file_storage_dir = ""
 
   def ToDict(self):
     """Custom function for cluster.
@@ -1302,7 +1312,7 @@ class Cluster(TaggableObject):
     return FillDict(result, os_params)
 
   def FillND(self, node, nodegroup):
-    """Return filled out ndparams for L{objects.NodeGroup} and L{object.Node}
+    """Return filled out ndparams for L{objects.NodeGroup} and L{objects.Node}
 
     @type node: L{objects.Node}
     @param node: A Node object to fill
@@ -1415,12 +1425,14 @@ class QueryFieldDefinition(ConfigObject):
   @ivar name: Field name
   @ivar title: Human-readable title
   @ivar kind: Field type
+  @ivar doc: Human-readable description
 
   """
   __slots__ = [
     "name",
     "title",
     "kind",
+    "doc",
     ]
 
 

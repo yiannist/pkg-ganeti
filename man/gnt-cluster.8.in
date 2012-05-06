@@ -24,7 +24,8 @@ In this case, there is not need to pass tags on the command line
 interpreted as stdin.
 .SS COMMAND
 .PP
-\f[B]command\f[] [-n \f[I]node\f[]] {\f[I]command\f[]}
+\f[B]command\f[] [-n \f[I]node\f[]] [-g \f[I]group\f[]]
+{\f[I]command\f[]}
 .PP
 Executes a command on all nodes. If the option \f[B]-n\f[] is not
 given, the command will be executed on all nodes, otherwise it will
@@ -33,6 +34,13 @@ times for running it on multiple nodes, like:
 .PP
 \f[CR]
       #\ gnt-cluster\ command\ -n\ node1.example.com\ -n\ node2.example.com\ date
+\f[]
+.PP
+The \f[B]-g\f[] option can be used to run a command only on a
+specific node group, e.g.:
+.PP
+\f[CR]
+      #\ gnt-cluster\ command\ -g\ default\ date
 \f[]
 .PP
 The command is executed serially on the selected nodes. If the
@@ -58,15 +66,21 @@ and the command which will be executed will be
 .SS COPYFILE
 .PP
 \f[B]copyfile\f[] [--use-replication-network] [-n \f[I]node\f[]]
+[-g \f[I]group\f[]]
+.PD 0
+.P
+.PD
 {\f[I]file\f[]}
 .PP
 Copies a file to all or to some nodes. The argument specifies the
 source file (on the current system), the \f[B]-n\f[] argument
 specifies the target node, or nodes if the option is given multiple
 times. If \f[B]-n\f[] is not given at all, the file will be copied
-to all nodes. Passing the \f[B]--use-replication-network\f[] option
-will cause the copy to be done over the replication network (only
-matters if the primary/secondary IPs are different). Example:
+to all nodes. The \f[B]-g\f[] option can be used to only select
+nodes in a specific node group. Passing the
+\f[B]--use-replication-network\f[] option will cause the copy to be
+done over the replication network (only matters if the
+primary/secondary IPs are different). Example:
 .PP
 \f[CR]
       #\ gnt-cluster\ -n\ node1.example.com\ -n\ node2.example.com\ copyfile\ /tmp/test
@@ -83,6 +97,26 @@ Remove all configuration files related to the cluster, so that a
 .PP
 Since this is a dangerous command, you are required to pass the
 argument \f[I]--yes-do-it.\f[]
+.SS EPO
+.PP
+\f[B]epo\f[] [--on] [--groups|--all] [--power-delay]
+\f[I]arguments\f[]
+.PP
+Performs an emergency power-off on nodes given as arguments. If
+\f[B]--groups\f[] is given, arguments are node groups. If
+\f[B]--all\f[] is provided, the whole cluster will be shut down.
+.PP
+The \f[B]--on\f[] flag recovers the cluster after an emergency
+power-off. When powering on the cluster you can use
+\f[B]--power-delay\f[] to define the time in seconds (fractions
+allowed) waited between powering on individual nodes.
+.PP
+Please note that the master node will not be turned down or up
+automatically. It will just be left in a state, where you can
+manully perform the shutdown of that one node. If the master is in
+the list of affected nodes and this is not a complete cluster
+emergency power-off (e.g. using \f[B]--all\f[]), you\[aq]re
+required to do a master failover to another node not affected.
 .SS GETMASTER
 .PP
 \f[B]getmaster\f[]
@@ -143,11 +177,6 @@ further diffusion of Ganeti among ancient cultures.
 .PD
 [--enabled-hypervisors
 \f[I]hypervisors\f[]]
-.PD 0
-.P
-.PD
-[-t
-\f[I]hypervisor name\f[]]
 .PD 0
 .P
 .PD
@@ -398,11 +427,13 @@ The \f[B]-I\ (--default-iallocator)\f[] option specifies the
 default instance allocator. The instance allocator will be used for
 operations like instance creation, instance and node migration,
 etc. when no manual override is specified. If this option is not
-specified, the default instance allocator will be blank, which
-means that relevant operations will require the administrator to
-manually specify either an instance allocator, or a set of nodes.
-The default iallocator can be changed later using the
-\f[B]modify\f[] command.
+specified and htools was not enabled at build time, the default
+instance allocator will be blank, which means that relevant
+operations will require the administrator to manually specify
+either an instance allocator, or a set of nodes. If the option is
+not specified but htools was enabled, the default iallocator will
+be \f[B]hail\f[](1) (assuming it can be found on disk). The default
+iallocator can be changed later using the \f[B]modify\f[] command.
 .PP
 The \f[B]--primary-ip-version\f[] option specifies the IP version
 used for the primary address. Possible values are 4 and 6 for IPv4
@@ -711,7 +742,7 @@ Example:
 \f[]
 .SS VERIFY
 .PP
-\f[B]verify\f[] [--no-nplus1-mem]
+\f[B]verify\f[] [--no-nplus1-mem] [--node-group \f[I]nodegroup\f[]]
 .PP
 Verify correctness of cluster configuration. This is safe with
 respect to running instances, and incurs no downtime of the
@@ -720,6 +751,11 @@ instances.
 If the \f[B]--no-nplus1-mem\f[] option is given, Ganeti won\[aq]t
 check whether if it loses a node it can restart all the instances
 on their secondaries (and report an error otherwise).
+.PP
+With \f[B]--node-group\f[], restrict the verification to those
+nodes and instances that live in the named group. This will not
+verify global settings, but will allow to perform verification of a
+group while other operations are ongoing in other groups.
 .SS VERIFY-DISKS
 .PP
 \f[B]verify-disks\f[]
@@ -758,13 +794,18 @@ Ganeti daemons: \f[B]ganeti-watcher\f[](8) (automatic instance
 restarter), \f[B]ganeti-cleaner\f[](8) (job queue cleaner),
 \f[B]ganeti-noded\f[](8) (node daemon), \f[B]ganeti-masterd\f[](8)
 (master daemon), \f[B]ganeti-rapi\f[](8) (remote API daemon).
+.PP
+Ganeti htools: \f[B]htools\f[](1) (generic binary),
+\f[B]hbal\f[](1) (cluster balancer), \f[B]hspace\f[](1) (capacity
+calculation), \f[B]hail\f[](1) (IAllocator plugin),
+\f[B]hscan\f[](1) (data gatherer from remote clusters).
 .SH COPYRIGHT
 .PP
-Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc. Permission
-is granted to copy, distribute and/or modify under the terms of the
-GNU General Public License as published by the Free Software
-Foundation; either version 2 of the License, or (at your option)
-any later version.
+Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Google Inc.
+Permission is granted to copy, distribute and/or modify under the
+terms of the GNU General Public License as published by the Free
+Software Foundation; either version 2 of the License, or (at your
+option) any later version.
 .PP
 On Debian systems, the complete text of the GNU General Public
 License can be found in /usr/share/common-licenses/GPL.

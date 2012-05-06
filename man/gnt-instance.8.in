@@ -382,6 +382,37 @@ Valid for the KVM hypervisor.
 .RS
 .RE
 .TP
+.B spice_bind
+Valid for the KVM hypervisor.
+.RS
+.PP
+Specifies the address or interface on which the SPICE server will
+listen. Valid values are:
+.IP \[bu] 2
+IPv4 addresses, including 0.0.0.0 and 127.0.0.1
+.IP \[bu] 2
+IPv6 addresses, including :: and ::1
+.IP \[bu] 2
+names of network interfaces
+.PP
+If a network interface is specified, the SPICE server will be bound
+to one of the addresses of that interface.
+.RE
+.TP
+.B spice_ip_version
+Valid for the KVM hypervisor.
+.RS
+.PP
+Specifies which version of the IP protocol should be used by the
+SPICE server.
+.PP
+It is mainly intended to be used for specifying what kind of IP
+addresses should be used if a network interface with both IPv4 and
+IPv6 addresses is specified via the \f[B]spice_bind\f[] parameter.
+In this case, if the \f[B]spice_ip_version\f[] parameter is not
+used, the default IP version of the cluster will be used.
+.RE
+.TP
 .B acpi
 Valid for the Xen HVM and KVM hypervisors.
 .RS
@@ -574,6 +605,25 @@ Valid for the KVM hypervisor.
 This option specifies the usb mouse type to be used. It can be
 "mouse" or "tablet". When using VNC it\[aq]s recommended to set it
 to "tablet".
+.RE
+.TP
+.B keymap
+Valid for the KVM hypervisor.
+.RS
+.PP
+This option specifies the keyboard mapping to be used. It is only
+needed when using the VNC console. For example: "fr" or "en-gb".
+.RE
+.TP
+.B reboot_behavior
+Valid for Xen PVM, Xen HVM and KVM hypervisors.
+.RS
+.PP
+Normally if an instance reboots, the hypervisor will restart it. If
+this option is set to \f[B]exit\f[], the hypervisor will treat a
+reboot as a shutdown instead.
+.PP
+It is set to \f[B]reboot\f[] by default.
 .RE
 .PP
 The \f[B]-O\ (--os-parameters)\f[] option allows customisation of
@@ -793,7 +843,7 @@ follows:
 .SS REMOVE
 .PP
 \f[B]remove\f[] [--ignore-failures] [--shutdown-timeout=\f[I]N\f[]]
-[--submit] {\f[I]instance\f[]}
+[--submit] [--force] {\f[I]instance\f[]}
 .PP
 Remove an instance. This will remove all data from the instance and
 there is \f[I]no way back\f[].
@@ -815,6 +865,9 @@ The \f[B]--submit\f[] option is used to send the job to the master
 daemon but not wait for its completion. The job ID will be shown so
 that it can be examined via \f[B]gnt-job info\f[].
 .PP
+The \f[B]--force\f[] option is used to skip the interactive
+confirmation.
+.PP
 Example:
 .PP
 \f[CR]
@@ -832,7 +885,7 @@ Example:
 .PD 0
 .P
 .PD
-[{-o|--output} \f[I][+]FIELD,...\f[]]
+[{-o|--output} \f[I][+]FIELD,...\f[]] [--filter]
 [instance...]
 .PP
 Shows the currently configured instances with memory usage, disk
@@ -856,240 +909,736 @@ display of special field states (see \f[B]ganeti(7)\f[]).
 The \f[B]-o\ (--output)\f[] option takes a comma-separated list of
 output fields. The available fields and their meaning are:
 .TP
-.B name
-the instance name
+.B \f[B]admin_state\f[]
+Desired state of instance (if set, the instance should be up)
 .RS
 .RE
 .TP
-.B os
-the OS of the instance
+.B \f[B]be/auto_balance\f[]
+The "auto_balance" backend parameter
 .RS
 .RE
 .TP
-.B pnode
-the primary node of the instance
+.B \f[B]be/memory\f[]
+The "memory" backend parameter
 .RS
 .RE
 .TP
-.B snodes
-comma-separated list of secondary nodes for the instance; usually
-this will be just one node
+.B \f[B]be/vcpus\f[]
+The "vcpus" backend parameter
 .RS
 .RE
 .TP
-.B admin_state
-the desired state of the instance (either "yes" or "no" denoting
-the instance should run or not)
+.B \f[B]beparams\f[]
+Backend parameters (merged)
 .RS
 .RE
 .TP
-.B disk_template
-the disk template of the instance
+.B \f[B]bridge\f[]
+Bridge of 1st network interface
 .RS
 .RE
 .TP
-.B oper_state
-the actual state of the instance; can be one of the values
-"running", "stopped", "(node down)"
+.B \f[B]console\f[]
+Instance console information
 .RS
 .RE
 .TP
-.B status
-combined form of \f[B]admin_state\f[] and \f[B]oper_stat\f[]; this
-can be one of: \f[B]ERROR_nodedown\f[] if the node of the instance
-is down, \f[B]ERROR_down\f[] if the instance should run but is
-down, \f[B]ERROR_up\f[] if the instance should be stopped but is
-actually running, \f[B]ERROR_wrongnode\f[] if the instance is
-running but not on the primary, \f[B]ADMIN_down\f[] if the instance
-has been stopped (and is stopped) and \f[B]running\f[] if the
-instance is set to be running (and is running)
+.B \f[B]ctime\f[]
+Creation timestamp
 .RS
 .RE
 .TP
-.B oper_ram
-the actual memory usage of the instance as seen by the hypervisor
+.B \f[B]custom_beparams\f[]
+Custom backend parameters
 .RS
 .RE
 .TP
-.B oper_vcpus
-the actual number of VCPUs the instance is using as seen by the
-hypervisor
+.B \f[B]custom_hvparams\f[]
+Custom hypervisor parameters
 .RS
 .RE
 .TP
-.B ip
-the ip address Ganeti recognizes as associated with the first
-instance interface
+.B \f[B]custom_nicparams\f[]
+Custom network interface parameters
 .RS
 .RE
 .TP
-.B mac
-the first instance interface MAC address
+.B \f[B]custom_osparams\f[]
+Custom operating system parameters
 .RS
 .RE
 .TP
-.B nic_mode
-the mode of the first instance NIC (routed or bridged)
+.B \f[B]disk.count\f[]
+Number of disks
 .RS
 .RE
 .TP
-.B nic_link
-the link of the first instance NIC
+.B \f[B]disk.size/0\f[]
+Disk size of 1st disk
 .RS
 .RE
 .TP
-.B sda_size
-the size of the instance\[aq]s first disk
+.B \f[B]disk.size/1\f[]
+Disk size of 2nd disk
 .RS
 .RE
 .TP
-.B sdb_size
-the size of the instance\[aq]s second disk, if any
+.B \f[B]disk.size/2\f[]
+Disk size of 3rd disk
 .RS
 .RE
 .TP
-.B vcpus
-the number of VCPUs allocated to the instance
+.B \f[B]disk.size/3\f[]
+Disk size of 4th disk
 .RS
 .RE
 .TP
-.B tags
-comma-separated list of the instances\[aq]s tags
+.B \f[B]disk.size/4\f[]
+Disk size of 5th disk
 .RS
 .RE
 .TP
-.B serial_no
-the so called \[aq]serial number\[aq] of the instance; this is a
-numeric field that is incremented each time the instance is
-modified, and it can be used to track modifications
+.B \f[B]disk.size/5\f[]
+Disk size of 6th disk
 .RS
 .RE
 .TP
-.B ctime
-the creation time of the instance; note that this field contains
-spaces and as such it\[aq]s harder to parse
-.RS
-.PP
-if this attribute is not present (e.g. when upgrading from older
-versions), then "N/A" will be shown instead
-.RE
-.TP
-.B mtime
-the last modification time of the instance; note that this field
-contains spaces and as such it\[aq]s harder to parse
-.RS
-.PP
-if this attribute is not present (e.g. when upgrading from older
-versions), then "N/A" will be shown instead
-.RE
-.TP
-.B uuid
-Show the UUID of the instance (generated automatically by Ganeti)
+.B \f[B]disk.size/6\f[]
+Disk size of 7th disk
 .RS
 .RE
 .TP
-.B network_port
-If the instance has a network port assigned to it (e.g. for VNC
-connections), this will be shown, otherwise - will be displayed.
+.B \f[B]disk.size/7\f[]
+Disk size of 8th disk
 .RS
 .RE
 .TP
-.B beparams
-A text format of the entire beparams for the instance. It\[aq]s
-more useful to select individual fields from this dictionary, see
-below.
+.B \f[B]disk.size/8\f[]
+Disk size of 9th disk
 .RS
 .RE
 .TP
-.B disk.count
-The number of instance disks.
+.B \f[B]disk.size/9\f[]
+Disk size of 10th disk
 .RS
 .RE
 .TP
-.B disk.size/N
-The size of the instance\[aq]s Nth disk. This is a more generic
-form of the sda_size and sdb_size fields.
+.B \f[B]disk.size/10\f[]
+Disk size of 11th disk
 .RS
 .RE
 .TP
-.B disk.sizes
-A comma-separated list of the disk sizes for this instance.
+.B \f[B]disk.size/11\f[]
+Disk size of 12th disk
 .RS
 .RE
 .TP
-.B disk_usage
-The total disk space used by this instance on each of its nodes.
-This is not the instance-visible disk size, but the actual disk
-"cost" of the instance.
+.B \f[B]disk.size/12\f[]
+Disk size of 13th disk
 .RS
 .RE
 .TP
-.B nic.mac/N
-The MAC of the Nth instance NIC.
+.B \f[B]disk.size/13\f[]
+Disk size of 14th disk
 .RS
 .RE
 .TP
-.B nic.ip/N
-The IP address of the Nth instance NIC.
+.B \f[B]disk.size/14\f[]
+Disk size of 15th disk
 .RS
 .RE
 .TP
-.B nic.mode/N
-The mode of the Nth instance NIC
+.B \f[B]disk.size/15\f[]
+Disk size of 16th disk
 .RS
 .RE
 .TP
-.B nic.link/N
-The link of the Nth instance NIC
+.B \f[B]disk.sizes\f[]
+List of disk sizes
 .RS
 .RE
 .TP
-.B nic.macs
-A comma-separated list of all the MACs of the instance\[aq]s NICs.
+.B \f[B]disk_template\f[]
+Instance disk template
 .RS
 .RE
 .TP
-.B nic.ips
-A comma-separated list of all the IP addresses of the
-instance\[aq]s NICs.
+.B \f[B]disk_usage\f[]
+Total disk space used by instance on each of its nodes; this is not
+the disk size visible to the instance, but the usage on the node
 .RS
 .RE
 .TP
-.B nic.modes
-A comma-separated list of all the modes of the instance\[aq]s NICs.
+.B \f[B]hv/acpi\f[]
+The "acpi" hypervisor parameter
 .RS
 .RE
 .TP
-.B nic.links
-A comma-separated list of all the link parameters of the
-instance\[aq]s NICs.
+.B \f[B]hv/blockdev_prefix\f[]
+The "blockdev_prefix" hypervisor parameter
 .RS
 .RE
 .TP
-.B nic.count
-The number of instance nics.
+.B \f[B]hv/boot_order\f[]
+The "boot_order" hypervisor parameter
 .RS
 .RE
 .TP
-.B hv/\f[I]NAME\f[]
-The value of the hypervisor parameter called \f[I]NAME\f[].
-For details of what hypervisor parameters exist and their meaning,
-see the \f[B]add\f[] command.
+.B \f[B]hv/bootloader_args\f[]
+The "bootloader_args" hypervisor parameter
 .RS
 .RE
 .TP
-.B be/memory
-The configured memory for the instance.
+.B \f[B]hv/bootloader_path\f[]
+The "bootloader_path" hypervisor parameter
 .RS
 .RE
 .TP
-.B be/vcpus
-The configured number of VCPUs for the instance.
+.B \f[B]hv/cdrom2_image_path\f[]
+The "cdrom2_image_path" hypervisor parameter
 .RS
 .RE
 .TP
-.B be/auto_balance
-Whether the instance is considered in N+1 checks.
+.B \f[B]hv/cdrom_disk_type\f[]
+The "cdrom_disk_type" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[B]hv/cdrom_image_path\f[]
+The "cdrom_image_path" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[B]hv/cpu_mask\f[]
+The "cpu_mask" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[B]hv/device_model\f[]
+The "device_model" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[B]hv/disk_cache\f[]
+The "disk_cache" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[B]hv/disk_type\f[]
+The "disk_type" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[B]hv/floppy_image_path\f[]
+The "floppy_image_path" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[B]hv/init_script\f[]
+The "init_script" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[B]hv/initrd_path\f[]
+The "initrd_path" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[B]hv/kernel_args\f[]
+The "kernel_args" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[B]hv/kernel_path\f[]
+The "kernel_path" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[B]hv/keymap\f[]
+The "keymap" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[B]hv/kvm_flag\f[]
+The "kvm_flag" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[B]hv/mem_path\f[]
+The "mem_path" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[B]hv/migration_downtime\f[]
+The "migration_downtime" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[B]hv/nic_type\f[]
+The "nic_type" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[B]hv/pae\f[]
+The "pae" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[B]hv/reboot_behavior\f[]
+The "reboot_behavior" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[B]hv/root_path\f[]
+The "root_path" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[B]hv/security_domain\f[]
+The "security_domain" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[B]hv/security_model\f[]
+The "security_model" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[B]hv/serial_console\f[]
+The "serial_console" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[B]hv/spice_bind\f[]
+The "spice_bind" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[B]hv/spice_ip_version\f[]
+The "spice_ip_version" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[B]hv/usb_mouse\f[]
+The "usb_mouse" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[B]hv/use_bootloader\f[]
+The "use_bootloader" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[B]hv/use_chroot\f[]
+The "use_chroot" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[B]hv/use_localtime\f[]
+The "use_localtime" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[B]hv/vhost_net\f[]
+The "vhost_net" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[B]hv/vnc_bind_address\f[]
+The "vnc_bind_address" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[B]hv/vnc_password_file\f[]
+The "vnc_password_file" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[B]hv/vnc_tls\f[]
+The "vnc_tls" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[B]hv/vnc_x509_path\f[]
+The "vnc_x509_path" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[B]hv/vnc_x509_verify\f[]
+The "vnc_x509_verify" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[B]hvparams\f[]
+Hypervisor parameters (merged)
+.RS
+.RE
+.TP
+.B \f[B]hypervisor\f[]
+Hypervisor name
+.RS
+.RE
+.TP
+.B \f[B]ip\f[]
+IP address of 1st network interface
+.RS
+.RE
+.TP
+.B \f[B]mac\f[]
+MAC address of 1st network interface
+.RS
+.RE
+.TP
+.B \f[B]mtime\f[]
+Modification timestamp
+.RS
+.RE
+.TP
+.B \f[B]name\f[]
+Instance name
+.RS
+.RE
+.TP
+.B \f[B]network_port\f[]
+Instance network port if available (e.g. for VNC console)
+.RS
+.RE
+.TP
+.B \f[B]nic.bridge/0\f[]
+Bridge of 1st network interface
+.RS
+.RE
+.TP
+.B \f[B]nic.bridge/1\f[]
+Bridge of 2nd network interface
+.RS
+.RE
+.TP
+.B \f[B]nic.bridge/2\f[]
+Bridge of 3rd network interface
+.RS
+.RE
+.TP
+.B \f[B]nic.bridge/3\f[]
+Bridge of 4th network interface
+.RS
+.RE
+.TP
+.B \f[B]nic.bridge/4\f[]
+Bridge of 5th network interface
+.RS
+.RE
+.TP
+.B \f[B]nic.bridge/5\f[]
+Bridge of 6th network interface
+.RS
+.RE
+.TP
+.B \f[B]nic.bridge/6\f[]
+Bridge of 7th network interface
+.RS
+.RE
+.TP
+.B \f[B]nic.bridge/7\f[]
+Bridge of 8th network interface
+.RS
+.RE
+.TP
+.B \f[B]nic.bridges\f[]
+List containing each network interface\[aq]s bridge
+.RS
+.RE
+.TP
+.B \f[B]nic.count\f[]
+Number of network interfaces
+.RS
+.RE
+.TP
+.B \f[B]nic.ip/0\f[]
+IP address of 1st network interface
+.RS
+.RE
+.TP
+.B \f[B]nic.ip/1\f[]
+IP address of 2nd network interface
+.RS
+.RE
+.TP
+.B \f[B]nic.ip/2\f[]
+IP address of 3rd network interface
+.RS
+.RE
+.TP
+.B \f[B]nic.ip/3\f[]
+IP address of 4th network interface
+.RS
+.RE
+.TP
+.B \f[B]nic.ip/4\f[]
+IP address of 5th network interface
+.RS
+.RE
+.TP
+.B \f[B]nic.ip/5\f[]
+IP address of 6th network interface
+.RS
+.RE
+.TP
+.B \f[B]nic.ip/6\f[]
+IP address of 7th network interface
+.RS
+.RE
+.TP
+.B \f[B]nic.ip/7\f[]
+IP address of 8th network interface
+.RS
+.RE
+.TP
+.B \f[B]nic.ips\f[]
+List containing each network interface\[aq]s IP address
+.RS
+.RE
+.TP
+.B \f[B]nic.link/0\f[]
+Link of 1st network interface
+.RS
+.RE
+.TP
+.B \f[B]nic.link/1\f[]
+Link of 2nd network interface
+.RS
+.RE
+.TP
+.B \f[B]nic.link/2\f[]
+Link of 3rd network interface
+.RS
+.RE
+.TP
+.B \f[B]nic.link/3\f[]
+Link of 4th network interface
+.RS
+.RE
+.TP
+.B \f[B]nic.link/4\f[]
+Link of 5th network interface
+.RS
+.RE
+.TP
+.B \f[B]nic.link/5\f[]
+Link of 6th network interface
+.RS
+.RE
+.TP
+.B \f[B]nic.link/6\f[]
+Link of 7th network interface
+.RS
+.RE
+.TP
+.B \f[B]nic.link/7\f[]
+Link of 8th network interface
+.RS
+.RE
+.TP
+.B \f[B]nic.links\f[]
+List containing each network interface\[aq]s link
+.RS
+.RE
+.TP
+.B \f[B]nic.mac/0\f[]
+MAC address of 1st network interface
+.RS
+.RE
+.TP
+.B \f[B]nic.mac/1\f[]
+MAC address of 2nd network interface
+.RS
+.RE
+.TP
+.B \f[B]nic.mac/2\f[]
+MAC address of 3rd network interface
+.RS
+.RE
+.TP
+.B \f[B]nic.mac/3\f[]
+MAC address of 4th network interface
+.RS
+.RE
+.TP
+.B \f[B]nic.mac/4\f[]
+MAC address of 5th network interface
+.RS
+.RE
+.TP
+.B \f[B]nic.mac/5\f[]
+MAC address of 6th network interface
+.RS
+.RE
+.TP
+.B \f[B]nic.mac/6\f[]
+MAC address of 7th network interface
+.RS
+.RE
+.TP
+.B \f[B]nic.mac/7\f[]
+MAC address of 8th network interface
+.RS
+.RE
+.TP
+.B \f[B]nic.macs\f[]
+List containing each network interface\[aq]s MAC address
+.RS
+.RE
+.TP
+.B \f[B]nic.mode/0\f[]
+Mode of 1st network interface
+.RS
+.RE
+.TP
+.B \f[B]nic.mode/1\f[]
+Mode of 2nd network interface
+.RS
+.RE
+.TP
+.B \f[B]nic.mode/2\f[]
+Mode of 3rd network interface
+.RS
+.RE
+.TP
+.B \f[B]nic.mode/3\f[]
+Mode of 4th network interface
+.RS
+.RE
+.TP
+.B \f[B]nic.mode/4\f[]
+Mode of 5th network interface
+.RS
+.RE
+.TP
+.B \f[B]nic.mode/5\f[]
+Mode of 6th network interface
+.RS
+.RE
+.TP
+.B \f[B]nic.mode/6\f[]
+Mode of 7th network interface
+.RS
+.RE
+.TP
+.B \f[B]nic.mode/7\f[]
+Mode of 8th network interface
+.RS
+.RE
+.TP
+.B \f[B]nic.modes\f[]
+List containing each network interface\[aq]s mode
+.RS
+.RE
+.TP
+.B \f[B]nic_link\f[]
+Link of 1st network interface
+.RS
+.RE
+.TP
+.B \f[B]nic_mode\f[]
+Mode of 1st network interface
+.RS
+.RE
+.TP
+.B \f[B]oper_ram\f[]
+Actual memory usage as seen by hypervisor
+.RS
+.RE
+.TP
+.B \f[B]oper_state\f[]
+Actual state of instance
+.RS
+.RE
+.TP
+.B \f[B]oper_vcpus\f[]
+Actual number of VCPUs as seen by hypervisor
+.RS
+.RE
+.TP
+.B \f[B]os\f[]
+Operating system
+.RS
+.RE
+.TP
+.B \f[B]osparams\f[]
+Operating system parameters (merged)
+.RS
+.RE
+.TP
+.B \f[B]pnode\f[]
+Primary node
+.RS
+.RE
+.TP
+.B \f[B]pnode.group\f[]
+Primary node\[aq]s group
+.RS
+.RE
+.TP
+.B \f[B]pnode.group.uuid\f[]
+Primary node\[aq]s group UUID
+.RS
+.RE
+.TP
+.B \f[B]sda_size\f[]
+Disk size of 1st disk
+.RS
+.RE
+.TP
+.B \f[B]sdb_size\f[]
+Disk size of 2nd disk
+.RS
+.RE
+.TP
+.B \f[B]serial_no\f[]
+Instance object serial number, incremented on each modification
+.RS
+.RE
+.TP
+.B \f[B]snodes\f[]
+Secondary nodes; usually this will just be one node
+.RS
+.RE
+.TP
+.B \f[B]snodes.group\f[]
+Node groups of secondary nodes
+.RS
+.RE
+.TP
+.B \f[B]snodes.group.uuid\f[]
+Node group UUIDs of secondary nodes
+.RS
+.RE
+.TP
+.B \f[B]status\f[]
+Instance status; "running" if instance is set to be running and
+actually is, "ADMIN_down" if instance is stopped and is not
+running, "ERROR_wrongnode" if instance running, but not on its
+designated primary node, "ERROR_up" if instance should be stopped,
+but is actually running, "ERROR_down" if instance should run, but
+doesn\[aq]t, "ERROR_nodedown" if instance\[aq]s primary node is
+down, "ERROR_nodeoffline" if instance\[aq]s primary node is marked
+offline
+.RS
+.RE
+.TP
+.B \f[B]tags\f[]
+Tags
+.RS
+.RE
+.TP
+.B \f[B]uuid\f[]
+Instance UUID
+.RS
+.RE
+.TP
+.B \f[B]vcpus\f[]
+The "vcpus" backend parameter
 .RS
 .RE
 .PP
@@ -1107,8 +1656,16 @@ configuration, without having to ask the remote nodes for the data.
 This can be helpful for big clusters when you only want some data
 and it makes sense to specify a reduced set of output fields.
 .PP
-The default output field list is: name, os, pnode, admin_state,
-oper_state, oper_ram.
+If exactly one argument is given and it appears to be a query
+filter (see \f[B]ganeti(7)\f[]), the query result is filtered
+accordingly. For ambiguous cases (e.g. a single field name as a
+filter) the \f[B]--filter\f[] (\f[B]-F\f[]) option forces the
+argument to be treated as a filter (e.g.
+\f[B]gnt-instance\ list\ -F\ admin_state\f[]).
+.PP
+The default output field list is: \f[B]name\f[], \f[B]os\f[],
+\f[B]pnode\f[], \f[B]admin_state\f[], \f[B]oper_state\f[],
+\f[B]oper_ram\f[].
 .SS LIST-FIELDS
 .PP
 \f[B]list-fields\f[] [field...]
@@ -1301,9 +1858,9 @@ can be skipped if the \f[B]--no-ip-check\f[] option is passed.
 .PP
 The \f[B]--no-name-check\f[] skips the check for the new instance
 name via the resolver (e.g. in DNS or /etc/hosts, depending on your
-setup). Since the name check is used to compute the IP address, if
-you pass this option you must also pass the \f[B]--no-ip-check\f[]
-option.
+setup) and that the resolved name matches the provided name. Since
+the name check is used to compute the IP address, if you pass this
+option you must also pass the \f[B]--no-ip-check\f[] option.
 .PP
 The \f[B]--submit\f[] option is used to send the job to the master
 daemon but not wait for its completion. The job ID will be shown so
@@ -1347,6 +1904,7 @@ that it can be examined via \f[B]gnt-job info\f[].
 .P
 .PD
 [--submit]
+[--paused]
 .PD 0
 .P
 .PD
@@ -1435,7 +1993,7 @@ instance with modified parameters. They can be useful for quick
 testing without having to modify an instance back and forth, e.g.:
 .PP
 \f[CR]
-      #\ gnt-instance\ start\ -H\ root_args="single"\ instance1
+      #\ gnt-instance\ start\ -H\ kernel_args="single"\ instance1
       #\ gnt-instance\ start\ -B\ memory=2048\ instance2
 \f[]
 .PP
@@ -1443,11 +2001,16 @@ The first form will start the instance instance1 in single-user
 mode, and the instance instance2 with 2GB of RAM (this time only,
 unless that is the actual instance memory size already). Note that
 the values override the instance parameters (and not extend them):
-an instance with "root_args=ro" when started with -H
-root_args=single will result in "single", not "ro single". The
+an instance with "kernel_args=ro" when started with -H
+kernel_args=single will result in "single", not "ro single". The
 \f[B]--submit\f[] option is used to send the job to the master
 daemon but not wait for its completion. The job ID will be shown so
 that it can be examined via \f[B]gnt-job info\f[].
+.PP
+The \f[B]--paused\f[] option is only valid for Xen and kvm
+hypervisors. This pauses the instance at the start of bootup,
+awaiting \f[B]gnt-instance\ console\f[] to unpause it, allowing the
+entire boot process to be monitored for debugging.
 .PP
 Example:
 .PP
@@ -1616,6 +2179,10 @@ For HVM instances, this will attempt to connect to the serial
 console of the instance. To connect to the virtualized "physical"
 console of a HVM instance, use a VNC client with the connection
 info from the \f[B]info\f[] command.
+.PP
+For Xen/kvm instances, if the instance is paused, this attempts to
+unpause the instance after waiting a few seconds for the connection
+to the console to be made.
 .PP
 Example:
 .PP
@@ -1812,8 +2379,12 @@ that it can be examined via \f[B]gnt-job info\f[].
 \f[B]failover\f[] [-f] [--ignore-consistency]
 [--shutdown-timeout=\f[I]N\f[]] [--submit] {\f[I]instance\f[]}
 .PP
-Failover will fail the instance over its secondary node. This works
-only for instances having a drbd disk template.
+Failover will stop the instance (if running), change its primary
+node, and if it was originally running it will start it again (on
+the new primary). This only works for instances with drbd template
+(in which case you can only fail to the secondary node) and for
+externally mirrored templates (shared storage) (which can change to
+any other node).
 .PP
 Normally the failover will check the consistency of the disks
 before failing over the instance. If you are trying to migrate
@@ -1841,8 +2412,8 @@ Example:
 .PP
 \f[B]migrate\f[] [-f] {--cleanup} {\f[I]instance\f[]}
 .PP
-\f[B]migrate\f[] [-f] [--non-live] [--migration-mode=live|non-live]
-{\f[I]instance\f[]}
+\f[B]migrate\f[] [-f] [--allow-failover] [--non-live]
+[--migration-mode=live|non-live] {\f[I]instance\f[]}
 .PP
 Migrate will move the instance to its secondary node without
 shutdown. It only works for instances having the drbd8 disk
@@ -1873,6 +2444,12 @@ instances\[aq]s disks are configured correctly. In this mode, the
 \f[B]--non-live\f[] option is ignored.
 .PP
 The option \f[B]-f\f[] will skip the prompting for confirmation.
+.PP
+If \f[B]--allow-failover\f[] is specified it tries to fallback to
+failover if it already can determine that a migration wont work
+(i.e. if the instance is shutdown). Please note that the fallback
+will not happen during execution. If a migration fails during
+execution it still fails.
 .PP
 Example (and expected output):
 .PP
@@ -1923,6 +2500,24 @@ Example:
 .PP
 \f[CR]
       #\ gnt-instance\ move\ -n\ node3.example.com\ instance1.example.com
+\f[]
+.SS CHANGE-GROUP
+.PP
+\f[B]change-group\f[] [--iallocator \f[I]NAME\f[]] [--to
+\f[I]GROUP\f[]...] {\f[I]instance\f[]}
+.PP
+This command moves an instance to another node group. The move is
+calculated by an iallocator, either given on the command line or as
+a cluster default.
+.PP
+If no specific destination groups are specified using
+\f[B]--to\f[], all groups except the one containing the instance
+are considered.
+.PP
+Example:
+.PP
+\f[CR]
+      #\ gnt-instance\ change-group\ -I\ hail\ --to\ rack2\ inst1.example.com
 \f[]
 .SS TAGS
 .SS ADD-TAGS
@@ -1978,13 +2573,18 @@ Ganeti daemons: \f[B]ganeti-watcher\f[](8) (automatic instance
 restarter), \f[B]ganeti-cleaner\f[](8) (job queue cleaner),
 \f[B]ganeti-noded\f[](8) (node daemon), \f[B]ganeti-masterd\f[](8)
 (master daemon), \f[B]ganeti-rapi\f[](8) (remote API daemon).
+.PP
+Ganeti htools: \f[B]htools\f[](1) (generic binary),
+\f[B]hbal\f[](1) (cluster balancer), \f[B]hspace\f[](1) (capacity
+calculation), \f[B]hail\f[](1) (IAllocator plugin),
+\f[B]hscan\f[](1) (data gatherer from remote clusters).
 .SH COPYRIGHT
 .PP
-Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc. Permission
-is granted to copy, distribute and/or modify under the terms of the
-GNU General Public License as published by the Free Software
-Foundation; either version 2 of the License, or (at your option)
-any later version.
+Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Google Inc.
+Permission is granted to copy, distribute and/or modify under the
+terms of the GNU General Public License as published by the Free
+Software Foundation; either version 2 of the License, or (at your
+option) any later version.
 .PP
 On Debian systems, the complete text of the GNU General Public
 License can be found in /usr/share/common-licenses/GPL.

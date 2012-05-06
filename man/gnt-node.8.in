@@ -92,10 +92,14 @@ interpreted as stdin.
 .PP
 \f[B]evacuate\f[] [-f] [--early-release] [--iallocator
 \f[I]NAME\f[] | --new-secondary \f[I]destination_node\f[]]
-{\f[I]node\f[]...}
+[--primary-only | --secondary-only] [--early-release]
+{\f[I]node\f[]}
 .PP
-This command will move all secondary instances away from the given
-node(s). It works only for instances having a drbd disk template.
+This command will move instances away from the given node. If
+\f[B]--primary-only\f[] is given, only primary instances are
+evacuated, with \f[B]--secondary-only\f[] only secondaries. If
+neither is given, all instances are evacuated. It works only for
+instances having a drbd disk template.
 .PP
 The new location for the instances can be specified in two ways:
 .IP \[bu] 2
@@ -115,6 +119,23 @@ when recovering from a disk failure on the current secondary (thus
 the old storage is already broken) or when the storage on the
 primary node is known to be fine (thus we won\[aq]t need the old
 storage for potential recovery).
+.PP
+Note that this command is equivalent to using per-instance commands
+for each affected instance individually:
+.IP \[bu] 2
+\f[B]--primary-only\f[] is equivalent to
+\f[B]gnt-instance\ failover/migration\f[] for non-DRBD instances,
+but for DRBD instances it\[aq]s different, and usually is a slow
+process (it will change the primary to another node while keeping
+the secondary, this requiring data copies, whereas failover/migrate
+will only toggle the primary/secondary roles, a fast process)
+.IP \[bu] 2
+\f[B]--secondary-only\f[] is equivalent to
+\f[B]gnt-instance\ replace-disks\f[] in the secondary node change
+mode (only valid for DRBD instances)
+.IP \[bu] 2
+when neither of the above is done a combination of the two cases is
+run
 .PP
 Example:
 .PP
@@ -158,7 +179,12 @@ the output will be restricted to the given names.
 .P
 .PD
 [--units=\f[I]UNITS\f[]]
-[-v] [{-o|--output} \f[I][+]FIELD,...\f[]]
+[-v] [{-o|--output}
+\f[I][+]FIELD,...\f[]]
+.PD 0
+.P
+.PD
+[--filter]
 .PD 0
 .P
 .PD
@@ -187,180 +213,170 @@ display of special field states (see \f[B]ganeti(7)\f[]).
 The \f[B]-o\ (--output)\f[] option takes a comma-separated list of
 output fields. The available fields and their meaning are:
 .TP
-.B name
-the node name
+.B \f[B]bootid\f[]
+Random UUID renewed for each system reboot, can be used for
+detecting reboots by tracking changes
 .RS
 .RE
 .TP
-.B pinst_cnt
-the number of instances having this node as primary
+.B \f[B]cnodes\f[]
+Number of NUMA domains on node (if exported by hypervisor)
 .RS
 .RE
 .TP
-.B pinst_list
-the list of instances having this node as primary, comma separated
+.B \f[B]csockets\f[]
+Number of physical CPU sockets (if exported by hypervisor)
 .RS
 .RE
 .TP
-.B sinst_cnt
-the number of instances having this node as a secondary node
+.B \f[B]ctime\f[]
+Creation timestamp
 .RS
 .RE
 .TP
-.B sinst_list
-the list of instances having this node as a secondary node, comma
-separated
+.B \f[B]ctotal\f[]
+Number of logical processors
 .RS
 .RE
 .TP
-.B pip
-the primary ip of this node (used for cluster communication)
+.B \f[B]custom_ndparams\f[]
+Custom node parameters
 .RS
 .RE
 .TP
-.B sip
-the secondary ip of this node (used for data replication in dual-ip
-clusters, see gnt-cluster(8)
+.B \f[B]dfree\f[]
+Available disk space in volume group
 .RS
 .RE
 .TP
-.B dtotal
-total disk space in the volume group used for instance disk
-allocations
+.B \f[B]drained\f[]
+Whether node is drained
 .RS
 .RE
 .TP
-.B dfree
-available disk space in the volume group
+.B \f[B]dtotal\f[]
+Total disk space in volume group used for instance disk allocation
 .RS
 .RE
 .TP
-.B mtotal
-total memory on the physical node
+.B \f[B]group\f[]
+Node group
 .RS
 .RE
 .TP
-.B mnode
-the memory used by the node itself
+.B \f[B]group.uuid\f[]
+UUID of node group
 .RS
 .RE
 .TP
-.B mfree
-memory available for instance allocations
+.B \f[B]master\f[]
+Whether node is master
 .RS
 .RE
 .TP
-.B bootid
-the node bootid value; this is a linux specific feature that
-assigns a new UUID to the node at each boot and can be use to
-detect node reboots (by tracking changes in this value)
+.B \f[B]master_candidate\f[]
+Whether node is a master candidate
 .RS
 .RE
 .TP
-.B tags
-comma-separated list of the node\[aq]s tags
+.B \f[B]master_capable\f[]
+Whether node can become a master candidate
 .RS
 .RE
 .TP
-.B serial_no
-the so called \[aq]serial number\[aq] of the node; this is a
-numeric field that is incremented each time the node is modified,
-and it can be used to detect modifications
+.B \f[B]mfree\f[]
+Memory available for instance allocations
 .RS
 .RE
 .TP
-.B ctime
-the creation time of the node; note that this field contains spaces
-and as such it\[aq]s harder to parse
-.RS
-.PP
-if this attribute is not present (e.g. when upgrading from older
-versions), then "N/A" will be shown instead
-.RE
-.TP
-.B mtime
-the last modification time of the node; note that this field
-contains spaces and as such it\[aq]s harder to parse
-.RS
-.PP
-if this attribute is not present (e.g. when upgrading from older
-versions), then "N/A" will be shown instead
-.RE
-.TP
-.B uuid
-Show the UUID of the node (generated automatically by Ganeti)
+.B \f[B]mnode\f[]
+Amount of memory used by node (dom0 for Xen)
 .RS
 .RE
 .TP
-.B ctotal
-the toal number of logical processors
+.B \f[B]mtime\f[]
+Modification timestamp
 .RS
 .RE
 .TP
-.B cnodes
-the number of NUMA domains on the node, if the hypervisor can
-export this information
+.B \f[B]mtotal\f[]
+Total amount of memory of physical machine
 .RS
 .RE
 .TP
-.B csockets
-the number of physical CPU sockets, if the hypervisor can export
-this information
+.B \f[B]name\f[]
+Node name
 .RS
 .RE
 .TP
-.B master_candidate
-whether the node is a master candidate or not
+.B \f[B]ndparams\f[]
+Merged node parameters
 .RS
 .RE
 .TP
-.B drained
-whether the node is drained or not; the cluster still communicates
-with drained nodes but excludes them from allocation operations
+.B \f[B]offline\f[]
+Whether node is marked offline
 .RS
 .RE
 .TP
-.B offline
-whether the node is offline or not; if offline, the cluster does
-not communicate with offline nodes; useful for nodes that are not
-reachable in order to avoid delays
+.B \f[B]pinst_cnt\f[]
+Number of instances with this node as primary
 .RS
 .RE
 .TP
-.B role
-A condensed version of the node flags; this field will output a
-one-character field, with the following possible values:
-.RS
-.IP \[bu] 2
-\f[I]M\f[] for the master node
-.IP \[bu] 2
-\f[I]C\f[] for a master candidate
-.IP \[bu] 2
-\f[I]R\f[] for a regular node
-.IP \[bu] 2
-\f[I]D\f[] for a drained node
-.IP \[bu] 2
-\f[I]O\f[] for an offline node
-.RE
-.TP
-.B master_capable
-whether the node can become a master candidate
+.B \f[B]pinst_list\f[]
+List of instances with this node as primary
 .RS
 .RE
 .TP
-.B vm_capable
-whether the node can host instances
+.B \f[B]pip\f[]
+Primary IP address
 .RS
 .RE
 .TP
-.B group
-the name of the node\[aq]s group, if known (the query is done
-without locking, so data consistency is not guaranteed)
+.B \f[B]powered\f[]
+Whether node is thought to be powered on
 .RS
 .RE
 .TP
-.B group.uuid
-the UUID of the node\[aq]s group
+.B \f[B]role\f[]
+Node role; "M" for master, "C" for master candidate, "R" for
+regular, "D" for a drained, "O" for offline
+.RS
+.RE
+.TP
+.B \f[B]serial_no\f[]
+Node object serial number, incremented on each modification
+.RS
+.RE
+.TP
+.B \f[B]sinst_cnt\f[]
+Number of instances with this node as secondary
+.RS
+.RE
+.TP
+.B \f[B]sinst_list\f[]
+List of instances with this node as secondary
+.RS
+.RE
+.TP
+.B \f[B]sip\f[]
+Secondary IP address
+.RS
+.RE
+.TP
+.B \f[B]tags\f[]
+Tags
+.RS
+.RE
+.TP
+.B \f[B]uuid\f[]
+Node UUID
+.RS
+.RE
+.TP
+.B \f[B]vm_capable\f[]
+Whether node can host instances
 .RS
 .RE
 .PP
@@ -369,18 +385,26 @@ the new fields will be added to the default list. This allows one
 to quickly see the default list plus a few other fields, instead of
 retyping the entire list of fields.
 .PP
-Note that some of this fields are known from the configuration of
-the cluster (e.g. name, pinst, sinst, pip, sip and thus the master
-does not need to contact the node for this data (making the listing
-fast if only fields from this set are selected), whereas the other
-fields are "live" fields and we need to make a query to the cluster
-nodes.
+Note that some of these fields are known from the configuration of
+the cluster (e.g. \f[B]name\f[], \f[B]pinst\f[], \f[B]sinst\f[],
+\f[B]pip\f[], \f[B]sip\f[]) and thus the master does not need to
+contact the node for this data (making the listing fast if only
+fields from this set are selected), whereas the other fields are
+"live" fields and require a query to the cluster nodes.
 .PP
 Depending on the virtualization type and implementation details,
-the mtotal, mnode and mfree may have slighly varying meanings. For
-example, some solutions share the node memory with the pool of
-memory used for instances (KVM), whereas others have separate
-memory for the node and for the instances (Xen).
+the \f[B]mtotal\f[], \f[B]mnode\f[] and \f[B]mfree\f[] fields may
+have slighly varying meanings. For example, some solutions share
+the node memory with the pool of memory used for instances (KVM),
+whereas others have separate memory for the node and for the
+instances (Xen).
+.PP
+If exactly one argument is given and it appears to be a query
+filter (see \f[B]ganeti(7)\f[]), the query result is filtered
+accordingly. For ambiguous cases (e.g. a single field name as a
+filter) the \f[B]--filter\f[] (\f[B]-F\f[]) option forces the
+argument to be treated as a filter (e.g.
+\f[B]gnt-node\ list\ -F\ master_candidate\f[]).
 .PP
 If no node names are given, then all nodes are queried. Otherwise,
 only the given nodes will be listed.
@@ -717,7 +741,7 @@ Example:
 \f[B]powercycle\f[] [\f[B]--yes\f[]] [\f[B]--force\f[]]
 {\f[I]node\f[]}
 .PP
-This commands (tries to) forcefully reboot a node. It is a command
+This command (tries to) forcefully reboot a node. It is a command
 that can be used if the node environemnt is broken, such that the
 admin can no longer login over ssh, but the Ganeti node daemon is
 still working.
@@ -732,15 +756,49 @@ the \f[B]--force\f[] option is needed if the target node is the
 master node.
 .SS POWER
 .PP
-\f[B]power\f[] on|off|cycle|status {\f[I]node\f[]}
+\f[B]power\f[] [\f[B]--force\f[]] [\f[B]--ignore-status\f[]]
+[\f[B]--all\f[]] [\f[B]--power-delay\f[]] on|off|cycle|status
+[\f[I]nodes\f[]]
 .PP
-This commands calls out to out-of-band management to change the
+This command calls out to out-of-band management to change the
 power state of given node. With \f[B]status\f[] you get the power
 status as reported by the out-of-band managment script.
 .PP
 Note that this command will only work if the out-of-band
 functionality is configured and enabled on the cluster. If this is
 not the case, please use the \f[B]powercycle\f[] command above.
+.PP
+Using \f[B]--force\f[] you skip the confirmation to do the
+operation. Currently this only has effect on \f[B]off\f[] and
+\f[B]cycle\f[].
+On those two you can \f[I]not\f[] operate on the master. However,
+the command will provide you with the command to invoke to operate
+on the master nerver-mind. This is considered harmful and Ganeti
+does not support the use of it.
+.PP
+Providing \f[B]--ignore-status\f[] will ignore the offline=N state
+of a node and continue with power off.
+.PP
+\f[B]--power-delay\f[] specifies the time in seconds (factions
+allowed) waited between powering on the next node. This is by
+default 2 seconds but can increased if needed with this option.
+.PP
+\f[I]nodes\f[] are optional. If not provided it will call out for
+every node in the cluster. Except for the \f[B]off\f[] and
+\f[B]cycle\f[] command where you\[aq]ve to explicit use
+\f[B]--all\f[] to select all.
+.SS HEALTH
+.PP
+\f[B]health\f[] [\f[I]nodes\f[]]
+.PP
+This command calls out to out-of-band management to ask for the
+health status of all or given nodes. The health contains the node
+name and then the items element with their status in a
+\f[B]item=status\f[] manner. Where \f[B]item\f[] is script specific
+and \f[B]status\f[] can be one of \f[B]OK\f[], \f[B]WARNING\f[],
+\f[B]CRITICAL\f[] or \f[B]UNKNOWN\f[].
+Items with status \f[B]WARNING\f[] or \f[B]CRITICAL\f[] are logged
+and annotated in the command line output.
 .SH REPORTING BUGS
 .PP
 Report bugs to project website (http://code.google.com/p/ganeti/)
@@ -763,13 +821,18 @@ Ganeti daemons: \f[B]ganeti-watcher\f[](8) (automatic instance
 restarter), \f[B]ganeti-cleaner\f[](8) (job queue cleaner),
 \f[B]ganeti-noded\f[](8) (node daemon), \f[B]ganeti-masterd\f[](8)
 (master daemon), \f[B]ganeti-rapi\f[](8) (remote API daemon).
+.PP
+Ganeti htools: \f[B]htools\f[](1) (generic binary),
+\f[B]hbal\f[](1) (cluster balancer), \f[B]hspace\f[](1) (capacity
+calculation), \f[B]hail\f[](1) (IAllocator plugin),
+\f[B]hscan\f[](1) (data gatherer from remote clusters).
 .SH COPYRIGHT
 .PP
-Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc. Permission
-is granted to copy, distribute and/or modify under the terms of the
-GNU General Public License as published by the Free Software
-Foundation; either version 2 of the License, or (at your option)
-any later version.
+Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Google Inc.
+Permission is granted to copy, distribute and/or modify under the
+terms of the GNU General Public License as published by the Free
+Software Foundation; either version 2 of the License, or (at your
+option) any later version.
 .PP
 On Debian systems, the complete text of the GNU General Public
 License can be found in /usr/share/common-licenses/GPL.

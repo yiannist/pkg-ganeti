@@ -5,13 +5,13 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Developer notes &mdash; Ganeti v2.4.5 documentation</title>
+    <title>Developer notes &mdash; Ganeti v2.5.0 documentation</title>
     <link rel="stylesheet" href="_static/default.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.4.5',
+        VERSION:     '2.5.0',
         COLLAPSE_MODINDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -19,7 +19,7 @@
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.4.5 documentation" href="index.html" />
+    <link rel="top" title="Ganeti v2.5.0 documentation" href="index.html" />
     <link rel="next" title="News" href="news.html" />
     <link rel="prev" title="Moving instances between clusters" href="move-instance.html" /> 
   </head>
@@ -33,7 +33,7 @@
         <li class="right" >
           <a href="move-instance.html" title="Moving instances between clusters"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.4.5 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.5.0 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -46,7 +46,7 @@
 <h1>Developer notes<a class="headerlink" href="#developer-notes" title="Permalink to this headline">¶</a></h1>
 <div class="section" id="build-dependencies">
 <h2>Build dependencies<a class="headerlink" href="#build-dependencies" title="Permalink to this headline">¶</a></h2>
-<p>Most dependencies from <a class="reference external" href="install-quick.html"><em>Ganeti quick installation guide</em></a>, plus:</p>
+<p>Most dependencies from <a class="reference external" href="install-quick.html"><em>Ganeti quick installation guide</em></a>, plus (for Python):</p>
 <ul class="simple">
 <li><a class="reference external" href="http://www.gnu.org/software/make/">GNU make</a></li>
 <li><a class="reference external" href="http://www.gnu.org/software/tar/">GNU tar</a></li>
@@ -56,8 +56,35 @@
 (tested with version 0.6.1)</li>
 <li><a class="reference external" href="http://www.graphviz.org/">graphviz</a></li>
 <li>the <cite>en_US.UTF-8</cite> locale must be enabled on the system</li>
+<li><a class="reference external" href="http://www.logilab.org/857">pylint</a> and its associated
+dependencies</li>
+<li><a class="reference external" href="https://github.com/jcrocholl/pep8/">pep8</a></li>
 </ul>
+<p>Note that for pylint, at the current moment the following versions
+need to be used:</p>
+<div class="highlight-python"><pre>$ pylint --version
+pylint 0.21.1,
+astng 0.20.1, common 0.50.3</pre>
+</div>
 <p>To generate unittest coverage reports (<tt class="docutils literal"><span class="pre">make</span> <span class="pre">coverage</span></tt>), <a class="reference external" href="http://pypi.python.org/pypi/coverage">coverage</a> needs to be installed.</p>
+<p>For Haskell development, again all things from the quick install
+document, plus:</p>
+<ul class="simple">
+<li><a class="reference external" href="http://www.haskell.org/haddock/">haddock</a>, documentation
+generator (equivalent to epydoc for Python)</li>
+<li><a class="reference external" href="http://hackage.haskell.org/package/hscolour">HsColour</a>, again
+used for documentation (it&#8217;s source-code pretty-printing)</li>
+<li><a class="reference external" href="http://community.haskell.org/~ndm/hlint/">hlint</a>, a source code
+linter (equivalent to pylint for Python)</li>
+<li>the <a class="reference external" href="http://hackage.haskell.org/package/QuickCheck">QuickCheck</a>
+library, version 2.x</li>
+<li><tt class="docutils literal"><span class="pre">hpc</span></tt>, which comes with the compiler, so you should already have
+it</li>
+</ul>
+<p>Under Debian, these can be installed (on top of the required ones from
+the quick install document) via:</p>
+<div class="highlight-python"><pre>apt-get install libghc-quickcheck2-dev hscolour hlint</pre>
+</div>
 </div>
 <div class="section" id="configuring-for-development">
 <h2>Configuring for development<a class="headerlink" href="#configuring-for-development" title="Permalink to this headline">¶</a></h2>
@@ -80,7 +107,7 @@ before use.</p>
 <h2><tt class="docutils literal"><span class="pre">daemon-util</span></tt><a class="headerlink" href="#daemon-util" title="Permalink to this headline">¶</a></h2>
 <p>This script, in the source code as <tt class="docutils literal"><span class="pre">daemons/daemon-util.in</span></tt>, is used
 to start/stop Ganeti and do a few other things related to system
-daemons. Is is recommended to use <tt class="docutils literal"><span class="pre">daemon-util</span></tt> also from the system&#8217;s
+daemons. It is recommended to use <tt class="docutils literal"><span class="pre">daemon-util</span></tt> also from the system&#8217;s
 init scripts. That way the code starting and stopping daemons is shared
 and future changes have to be made in only one place.</p>
 <p><tt class="docutils literal"><span class="pre">daemon-util</span></tt> reads extra arguments from variables (<tt class="docutils literal"><span class="pre">*_ARGS</span></tt>) in
@@ -149,7 +176,7 @@ for reloading the OpenSSH daemon&#8217;s host keys.</p>
         <li class="right" >
           <a href="move-instance.html" title="Moving instances between clusters"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.4.5 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.5.0 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

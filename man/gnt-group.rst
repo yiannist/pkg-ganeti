@@ -93,7 +93,7 @@ LIST
 ~~~~
 
 | **list** [--no-headers] [--separator=*SEPARATOR*] [-v]
-| [-o *[+]FIELD,...*] [group...]
+| [-o *[+]FIELD,...*] [--filter] [group...]
 
 Lists all existing node groups in the cluster.
 
@@ -113,43 +113,12 @@ the entire list of fields.
 
 The available fields and their meaning are:
 
-name
-    the group name
+@QUERY_FIELDS_GROUP@
 
-uuid
-    the group's UUID
-
-node_cnt
-    the number of nodes in the node group
-
-node_list
-    the list of nodes that belong to this group
-
-pinst_cnt
-    the number of primary instances in the group (i.e., the number of
-    primary instances nodes in this group have)
-
-pinst_list
-    the list of primary instances in the group
-
-alloc_policy
-    the current allocation policy for the group
-
-ctime
-    the creation time of the group; note that this field contains spaces
-    and as such it's harder to parse
-
-    if this attribute is not present (e.g. when upgrading from older
-    versions), then "N/A" will be shown instead
-
-mtime
-    the last modification time of the group; note that this field
-    contains spaces and as such it's harder to parse
-
-serial_no
-    the so called 'serial number' of the group; this is a numeric field
-    that is incremented each time the node is modified, and it can be
-    used to detect modifications
+If exactly one argument is given and it appears to be a query filter
+(see **ganeti(7)**), the query result is filtered accordingly. For
+ambiguous cases (e.g. a single field name as a filter) the ``--filter``
+(``-F``) option forces the argument to be treated as a filter.
 
 If no group names are given, then all groups are included. Otherwise,
 only the named groups will be listed.
@@ -167,3 +136,65 @@ RENAME
 | **rename** {*oldname*} {*newname*}
 
 Renames a given group from *oldname* to *newname*.
+
+
+EVACUATE
+~~~~~~~~
+
+**evacuate** [--iallocator *NAME*] [--to *GROUP*...] {*group*}
+
+This command will move all instances out of the given node group.
+Instances are placed in a new group by an iallocator, either given on
+the command line or as a cluster default.
+
+If no specific destination groups are specified using ``--to``, all
+groups except the evacuated group are considered.
+
+Example::
+
+    # gnt-group evacuate -I hail --to rack4 rack1
+
+
+TAGS
+~~~~
+
+ADD-TAGS
+^^^^^^^^
+
+**add-tags** [--from *file*] {*groupname*} {*tag*...}
+
+Add tags to the given node group. If any of the tags contains invalid
+characters, the entire operation will abort.
+
+If the ``--from`` option is given, the list of tags will be extended
+with the contents of that file (each line becomes a tag). In this case,
+there is not need to pass tags on the command line (if you do, both
+sources will be used). A file name of ``-`` will be interpreted as
+stdin.
+
+LIST-TAGS
+^^^^^^^^^
+
+**list-tags** {*groupname*}
+
+List the tags of the given node group.
+
+REMOVE-TAGS
+^^^^^^^^^^^
+
+**remove-tags** [--from *file*] {*groupname*} {*tag*...}
+
+Remove tags from the given node group. If any of the tags are not
+existing on the node, the entire operation will abort.
+
+If the ``--from`` option is given, the list of tags to be removed will
+be extended with the contents of that file (each line becomes a tag). In
+this case, there is not need to pass tags on the command line (if you
+do, tags from both sources will be removed). A file name of ``-`` will
+be interpreted as stdin.
+
+.. vim: set textwidth=72 :
+.. Local Variables:
+.. mode: rst
+.. fill-column: 72
+.. End:

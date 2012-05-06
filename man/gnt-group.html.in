@@ -154,7 +154,7 @@
       >] [-v]<br
        />[-o <em
       >[+]FIELD,...</em
-      >] [group...]</p
+      >] [--filter] [group...]</p
     ><p
     >Lists all existing node groups in the cluster.</p
     ><p
@@ -179,68 +179,110 @@
     >The available fields and their meaning are:</p
     ><dl
     ><dt
-      >name</dt
+      ><code
+	>alloc_policy</code
+	></dt
       ><dd
       ><p
-	>the group name</p
+	>Allocation policy for group</p
 	></dd
       ><dt
-      >uuid</dt
+      ><code
+	>ctime</code
+	></dt
       ><dd
       ><p
-	>the group's UUID</p
+	>Creation timestamp</p
 	></dd
       ><dt
-      >node_cnt</dt
+      ><code
+	>mtime</code
+	></dt
       ><dd
       ><p
-	>the number of nodes in the node group</p
+	>Modification timestamp</p
 	></dd
       ><dt
-      >node_list</dt
+      ><code
+	>name</code
+	></dt
       ><dd
       ><p
-	>the list of nodes that belong to this group</p
+	>Group name</p
 	></dd
       ><dt
-      >pinst_cnt</dt
+      ><code
+	>ndparams</code
+	></dt
       ><dd
       ><p
-	>the number of primary instances in the group (i.e., the number of primary instances nodes in this group have)</p
+	>Node parameters</p
 	></dd
       ><dt
-      >pinst_list</dt
+      ><code
+	>node_cnt</code
+	></dt
       ><dd
       ><p
-	>the list of primary instances in the group</p
+	>Number of nodes</p
 	></dd
       ><dt
-      >alloc_policy</dt
+      ><code
+	>node_list</code
+	></dt
       ><dd
       ><p
-	>the current allocation policy for the group</p
+	>List of nodes</p
 	></dd
       ><dt
-      >ctime</dt
+      ><code
+	>pinst_cnt</code
+	></dt
       ><dd
       ><p
-	>the creation time of the group; note that this field contains spaces and as such it's harder to parse</p
-	><p
-	>if this attribute is not present (e.g. when upgrading from older versions), then &quot;N/A&quot; will be shown instead</p
+	>Number of primary instances</p
 	></dd
       ><dt
-      >mtime</dt
+      ><code
+	>pinst_list</code
+	></dt
       ><dd
       ><p
-	>the last modification time of the group; note that this field contains spaces and as such it's harder to parse</p
+	>List of primary instances</p
 	></dd
       ><dt
-      >serial_no</dt
+      ><code
+	>serial_no</code
+	></dt
       ><dd
       ><p
-	>the so called 'serial number' of the group; this is a numeric field that is incremented each time the node is modified, and it can be used to detect modifications</p
+	>Group object serial number, incremented on each modification</p
+	></dd
+      ><dt
+      ><code
+	>tags</code
+	></dt
+      ><dd
+      ><p
+	>Tags</p
+	></dd
+      ><dt
+      ><code
+	>uuid</code
+	></dt
+      ><dd
+      ><p
+	>Group UUID</p
 	></dd
       ></dl
+    ><p
+    >If exactly one argument is given and it appears to be a query filter (see <strong
+      >ganeti(7)</strong
+      >), the query result is filtered accordingly. For ambiguous cases (e.g. a single field name as a filter) the <code
+      >--filter</code
+      > (<code
+      >-F</code
+      >) option forces the argument to be treated as a filter.</p
     ><p
     >If no group names are given, then all groups are included. Otherwise, only the named groups will be listed.</p
     ></div
@@ -271,6 +313,93 @@
       > to <em
       >newname</em
       >.</p
+    ></div
+  ><div id="evacuate"
+  ><h2
+    >EVACUATE</h2
+    ><p
+    ><strong
+      >evacuate</strong
+      > [--iallocator <em
+      >NAME</em
+      >] [--to <em
+      >GROUP</em
+      >...] {<em
+      >group</em
+      >}</p
+    ><p
+    >This command will move all instances out of the given node group. Instances are placed in a new group by an iallocator, either given on the command line or as a cluster default.</p
+    ><p
+    >If no specific destination groups are specified using <code
+      >--to</code
+      >, all groups except the evacuated group are considered.</p
+    ><p
+    >Example:</p
+    ><pre
+    ><code
+      ># gnt-group evacuate -I hail --to rack4 rack1
+</code
+      ></pre
+    ></div
+  ><div id="tags"
+  ><h2
+    >TAGS</h2
+    ><div id="add-tags"
+    ><h3
+      >ADD-TAGS</h3
+      ><p
+      ><strong
+	>add-tags</strong
+	> [--from <em
+	>file</em
+	>] {<em
+	>groupname</em
+	>} {<em
+	>tag</em
+	>...}</p
+      ><p
+      >Add tags to the given node group. If any of the tags contains invalid characters, the entire operation will abort.</p
+      ><p
+      >If the <code
+	>--from</code
+	> option is given, the list of tags will be extended with the contents of that file (each line becomes a tag). In this case, there is not need to pass tags on the command line (if you do, both sources will be used). A file name of <code
+	>-</code
+	> will be interpreted as stdin.</p
+      ></div
+    ><div id="list-tags"
+    ><h3
+      >LIST-TAGS</h3
+      ><p
+      ><strong
+	>list-tags</strong
+	> {<em
+	>groupname</em
+	>}</p
+      ><p
+      >List the tags of the given node group.</p
+      ></div
+    ><div id="remove-tags"
+    ><h3
+      >REMOVE-TAGS</h3
+      ><p
+      ><strong
+	>remove-tags</strong
+	> [--from <em
+	>file</em
+	>] {<em
+	>groupname</em
+	>} {<em
+	>tag</em
+	>...}</p
+      ><p
+      >Remove tags from the given node group. If any of the tags are not existing on the node, the entire operation will abort.</p
+      ><p
+      >If the <code
+	>--from</code
+	> option is given, the list of tags to be removed will be extended with the contents of that file (each line becomes a tag). In this case, there is not need to pass tags on the command line (if you do, tags from both sources will be removed). A file name of <code
+	>-</code
+	> will be interpreted as stdin.</p
+      ></div
     ></div
   ></div
 >
@@ -323,12 +452,24 @@
     >(8) (master daemon), <strong
     >ganeti-rapi</strong
     >(8) (remote API daemon).</p
+  ><p
+  >Ganeti htools: <strong
+    >htools</strong
+    >(1) (generic binary), <strong
+    >hbal</strong
+    >(1) (cluster balancer), <strong
+    >hspace</strong
+    >(1) (capacity calculation), <strong
+    >hail</strong
+    >(1) (IAllocator plugin), <strong
+    >hscan</strong
+    >(1) (data gatherer from remote clusters).</p
   ></div
 ><div id="copyright"
 ><h1
   >COPYRIGHT</h1
   ><p
-  >Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc. Permission is granted to copy, distribute and/or modify under the terms of the GNU General Public License as published by the Free Software Foundation; either version 2 of the License, or (at your option) any later version.</p
+  >Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Google Inc. Permission is granted to copy, distribute and/or modify under the terms of the GNU General Public License as published by the Free Software Foundation; either version 2 of the License, or (at your option) any later version.</p
   ><p
   >On Debian systems, the complete text of the GNU General Public License can be found in /usr/share/common-licenses/GPL.</p
   ></div

@@ -21,7 +21,7 @@
 
 """Ganeti node daemon"""
 
-# pylint: disable-msg=C0103,W0142
+# pylint: disable=C0103,W0142
 
 # C0103: Functions in this module need to have a given name structure,
 # and the name of the daemon doesn't match
@@ -49,7 +49,7 @@ from ganeti import storage
 from ganeti import serializer
 from ganeti import netutils
 
-import ganeti.http.server # pylint: disable-msg=W0611
+import ganeti.http.server # pylint: disable=W0611
 
 
 queue_lock = None
@@ -61,7 +61,7 @@ def _PrepareQueueLock():
   @return: None for success, otherwise an exception object
 
   """
-  global queue_lock # pylint: disable-msg=W0603
+  global queue_lock # pylint: disable=W0603
 
   if queue_lock is not None:
     return None
@@ -129,7 +129,7 @@ class NodeHttpServer(http.server.HttpServer):
   """
   # too many public methods, and unused args - all methods get params
   # due to the API
-  # pylint: disable-msg=R0904,W0613
+  # pylint: disable=R0904,W0613
   def __init__(self, *args, **kwargs):
     http.server.HttpServer.__init__(self, *args, **kwargs)
     self.noded_pid = os.getpid()
@@ -337,7 +337,8 @@ class NodeHttpServer(http.server.HttpServer):
     """
     cfbd = objects.Disk.FromDict(params[0])
     amount = params[1]
-    return backend.BlockdevGrow(cfbd, amount)
+    dryrun = params[2]
+    return backend.BlockdevGrow(cfbd, amount, dryrun)
 
   @staticmethod
   def perspective_blockdev_close(params):
@@ -458,6 +459,15 @@ class NodeHttpServer(http.server.HttpServer):
     export = params[0]
     return backend.RemoveExport(export)
 
+  # block device ---------------------
+  @staticmethod
+  def perspective_bdev_sizes(params):
+    """Query the list of block devices
+
+    """
+    devices = params[0]
+    return backend.GetBlockDevSizes(devices)
+
   # volume  --------------------------
 
   @staticmethod
@@ -547,8 +557,9 @@ class NodeHttpServer(http.server.HttpServer):
     """Start an instance.
 
     """
-    instance = objects.Instance.FromDict(params[0])
-    return backend.StartInstance(instance)
+    (instance_name, startup_paused) = params
+    instance = objects.Instance.FromDict(instance_name)
+    return backend.StartInstance(instance, startup_paused)
 
   @staticmethod
   def perspective_migration_info(params):
@@ -700,7 +711,6 @@ class NodeHttpServer(http.server.HttpServer):
     """
     return backend.DemoteFromMC()
 
-
   @staticmethod
   def perspective_node_powercycle(params):
     """Tries to powercycle the nod.
@@ -708,7 +718,6 @@ class NodeHttpServer(http.server.HttpServer):
     """
     hypervisor_type = params[0]
     return backend.PowercycleNode(hypervisor_type)
-
 
   # cluster --------------------------
 
@@ -908,14 +917,14 @@ class NodeHttpServer(http.server.HttpServer):
     """Starts an import daemon.
 
     """
-    (opts_s, instance, dest, dest_args) = params
+    (opts_s, instance, component, dest, dest_args) = params
 
     opts = objects.ImportExportOptions.FromDict(opts_s)
 
     return backend.StartImportExportDaemon(constants.IEM_IMPORT, opts,
                                            None, None,
                                            objects.Instance.FromDict(instance),
-                                           dest,
+                                           component, dest,
                                            _DecodeImportExportIO(dest,
                                                                  dest_args))
 
@@ -924,14 +933,14 @@ class NodeHttpServer(http.server.HttpServer):
     """Starts an export daemon.
 
     """
-    (opts_s, host, port, instance, source, source_args) = params
+    (opts_s, host, port, instance, component, source, source_args) = params
 
     opts = objects.ImportExportOptions.FromDict(opts_s)
 
     return backend.StartImportExportDaemon(constants.IEM_EXPORT, opts,
                                            host, port,
                                            objects.Instance.FromDict(instance),
-                                           source,
+                                           component, source,
                                            _DecodeImportExportIO(source,
                                                                  source_args))
 
@@ -1010,7 +1019,7 @@ def PrepNoded(options, _):
   return (mainloop, server)
 
 
-def ExecNoded(options, args, prep_data): # pylint: disable-msg=W0613
+def ExecNoded(options, args, prep_data): # pylint: disable=W0613
   """Main node daemon function, executed with the PID file held.
 
   """

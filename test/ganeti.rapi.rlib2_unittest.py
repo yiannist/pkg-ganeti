@@ -45,6 +45,16 @@ class TestConstants(unittest.TestCase):
     assert "console" in query.INSTANCE_FIELDS
     self.assertTrue("console" not in rlib2.I_FIELDS)
 
+  def testFields(self):
+    checks = {
+      constants.QR_INSTANCE: rlib2.I_FIELDS,
+      constants.QR_NODE: rlib2.N_FIELDS,
+      constants.QR_GROUP: rlib2.G_FIELDS,
+      }
+
+    for (qr, fields) in checks.items():
+      self.assertFalse(set(fields) - set(query.ALL_FIELDS[qr].keys()))
+
 
 class TestParseInstanceCreateRequestVersion1(testutils.GanetiTestCase):
   def setUp(self):
@@ -62,9 +72,6 @@ class TestParseInstanceCreateRequestVersion1(testutils.GanetiTestCase):
 
       # Disk with mode
       [{"size": 123, "mode": constants.DISK_RDWR, }],
-
-      # With unknown setting
-      [{"size": 123, "unknown": 999 }],
       ]
 
     nic_variants = [
@@ -79,11 +86,8 @@ class TestParseInstanceCreateRequestVersion1(testutils.GanetiTestCase):
         { "ip": "192.0.2.6", "mode": constants.NIC_MODE_ROUTED,
           "mac": "01:23:45:67:68:9A",
         },
-        { "mode": constants.NIC_MODE_BRIDGED, "link": "n0", "bridge": "br1", },
+        { "mode": constants.NIC_MODE_BRIDGED, "link": "br1" },
       ],
-
-      # Unknown settings
-      [{ "unknown": 999, }, { "foobar": "Hello World", }],
       ]
 
     beparam_variants = [
@@ -146,14 +150,68 @@ class TestParseInstanceCreateRequestVersion1(testutils.GanetiTestCase):
                     self.assertFalse("foobar" in opnic)
 
                   if beparams is None:
-                    self.assertEqualValues(op.beparams, {})
+                    self.assertFalse(hasattr(op, "beparams"))
                   else:
                     self.assertEqualValues(op.beparams, beparams)
 
                   if hvparams is None:
-                    self.assertEqualValues(op.hvparams, {})
+                    self.assertFalse(hasattr(op, "hvparams"))
                   else:
                     self.assertEqualValues(op.hvparams, hvparams)
+
+  def testLegacyName(self):
+    name = "inst29128.example.com"
+    data = {
+      "name": name,
+      "disks": [],
+      "nics": [],
+      "mode": constants.INSTANCE_CREATE,
+      "disk_template": constants.DT_PLAIN,
+      }
+    op = self.Parse(data, False)
+    self.assert_(isinstance(op, opcodes.OpInstanceCreate))
+    self.assertEqual(op.instance_name, name)
+    self.assertFalse(hasattr(op, "name"))
+
+    # Define both
+    data = {
+      "name": name,
+      "instance_name": "other.example.com",
+      "disks": [],
+      "nics": [],
+      "mode": constants.INSTANCE_CREATE,
+      "disk_template": constants.DT_PLAIN,
+      }
+    self.assertRaises(http.HttpBadRequest, self.Parse, data, False)
+
+  def testLegacyOs(self):
+    name = "inst4673.example.com"
+    os = "linux29206"
+    data = {
+      "name": name,
+      "os_type": os,
+      "disks": [],
+      "nics": [],
+      "mode": constants.INSTANCE_CREATE,
+      "disk_template": constants.DT_PLAIN,
+      }
+    op = self.Parse(data, False)
+    self.assert_(isinstance(op, opcodes.OpInstanceCreate))
+    self.assertEqual(op.instance_name, name)
+    self.assertEqual(op.os_type, os)
+    self.assertFalse(hasattr(op, "os"))
+
+    # Define both
+    data = {
+      "instance_name": name,
+      "os": os,
+      "os_type": "linux9584",
+      "disks": [],
+      "nics": [],
+      "mode": constants.INSTANCE_CREATE,
+      "disk_template": constants.DT_PLAIN,
+      }
+    self.assertRaises(http.HttpBadRequest, self.Parse, data, False)
 
   def testErrors(self):
     # Test all required fields
@@ -163,7 +221,6 @@ class TestParseInstanceCreateRequestVersion1(testutils.GanetiTestCase):
       "nics": [],
       "mode": constants.INSTANCE_CREATE,
       "disk_template": constants.DT_PLAIN,
-      "os": "debootstrap",
       }
 
     for name in reqfields.keys():
@@ -173,14 +230,8 @@ class TestParseInstanceCreateRequestVersion1(testutils.GanetiTestCase):
 
     # Invalid disks and nics
     for field in ["disks", "nics"]:
-      invalid_values = [None, 1, "", {}, [1, 2, 3], ["hda1", "hda2"]]
-
-      if field == "disks":
-        invalid_values.append([
-          # Disks without size
-          {},
-          { "mode": constants.DISK_RDWR, },
-          ])
+      invalid_values = [None, 1, "", {}, [1, 2, 3], ["hda1", "hda2"],
+                        [{"_unknown_": 999, }]]
 
       for invvalue in invalid_values:
         data = reqfields.copy()
@@ -201,8 +252,8 @@ class TestParseExportInstanceRequest(testutils.GanetiTestCase):
       "destination": [(1, 2, 3), (99, 99, 99)],
       "shutdown": True,
       "remove_instance": True,
-      "x509_key_name": ("name", "hash"),
-      "destination_x509_ca": ("x", "y", "z"),
+      "x509_key_name": ["name", "hash"],
+      "destination_x509_ca": "---cert---"
       }
     op = self.Parse(name, data)
     self.assert_(isinstance(op, opcodes.OpBackupExport))
@@ -211,7 +262,7 @@ class TestParseExportInstanceRequest(testutils.GanetiTestCase):
     self.assertEqual(op.shutdown, True)
     self.assertEqual(op.remove_instance, True)
     self.assertEqualValues(op.x509_key_name, ("name", "hash"))
-    self.assertEqualValues(op.destination_x509_ca, ("x", "y", "z"))
+    self.assertEqual(op.destination_x509_ca, "---cert---")
 
   def testDefaults(self):
     name = "inst1"
@@ -222,8 +273,10 @@ class TestParseExportInstanceRequest(testutils.GanetiTestCase):
     op = self.Parse(name, data)
     self.assert_(isinstance(op, opcodes.OpBackupExport))
     self.assertEqual(op.instance_name, name)
-    self.assertEqual(op.mode, constants.EXPORT_MODE_LOCAL)
-    self.assertEqual(op.remove_instance, False)
+    self.assertEqual(op.target_node, "node2")
+    self.assertFalse(hasattr(op, "mode"))
+    self.assertFalse(hasattr(op, "remove_instance"))
+    self.assertFalse(hasattr(op, "destination"))
 
   def testErrors(self):
     self.assertRaises(http.HttpBadRequest, self.Parse, "err1",
@@ -259,8 +312,8 @@ class TestParseMigrateInstanceRequest(testutils.GanetiTestCase):
     op = self.Parse(name, {})
     self.assert_(isinstance(op, opcodes.OpInstanceMigrate))
     self.assertEqual(op.instance_name, name)
-    self.assertEqual(op.mode, None)
-    self.assertFalse(op.cleanup)
+    self.assertFalse(hasattr(op, "mode"))
+    self.assertFalse(hasattr(op, "cleanup"))
 
 
 class TestParseRenameInstanceRequest(testutils.GanetiTestCase):
@@ -300,8 +353,8 @@ class TestParseRenameInstanceRequest(testutils.GanetiTestCase):
       self.assert_(isinstance(op, opcodes.OpInstanceRename))
       self.assertEqual(op.instance_name, name)
       self.assertEqual(op.new_name, new_name)
-      self.assert_(op.ip_check)
-      self.assert_(op.name_check)
+      self.assertFalse(hasattr(op, "ip_check"))
+      self.assertFalse(hasattr(op, "name_check"))
 
 
 class TestParseModifyInstanceRequest(testutils.GanetiTestCase):
@@ -345,9 +398,9 @@ class TestParseModifyInstanceRequest(testutils.GanetiTestCase):
                   self.assertEqual(op.nics, nics)
                   self.assertEqual(op.disks, disks)
                   self.assertEqual(op.disk_template, disk_template)
-                  self.assert_(op.remote_node is None)
-                  self.assert_(op.os_name is None)
-                  self.assertFalse(op.force_variant)
+                  self.assertFalse(hasattr(op, "remote_node"))
+                  self.assertFalse(hasattr(op, "os_name"))
+                  self.assertFalse(hasattr(op, "force_variant"))
 
   def testDefaults(self):
     name = "instir8aish31"
@@ -355,16 +408,9 @@ class TestParseModifyInstanceRequest(testutils.GanetiTestCase):
     op = self.Parse(name, {})
     self.assert_(isinstance(op, opcodes.OpInstanceSetParams))
     self.assertEqual(op.instance_name, name)
-    self.assertEqual(op.hvparams, {})
-    self.assertEqual(op.beparams, {})
-    self.assertEqual(op.osparams, {})
-    self.assertFalse(op.force)
-    self.assertEqual(op.nics, [])
-    self.assertEqual(op.disks, [])
-    self.assert_(op.disk_template is None)
-    self.assert_(op.remote_node is None)
-    self.assert_(op.os_name is None)
-    self.assertFalse(op.force_variant)
+    for i in ["hvparams", "beparams", "osparams", "force", "nics", "disks",
+              "disk_template", "remote_node", "os_name", "force_variant"]:
+      self.assertFalse(hasattr(op, i))
 
 
 class TestParseInstanceReinstallRequest(testutils.GanetiTestCase):
@@ -433,7 +479,7 @@ class TestParseRenameGroupRequest(testutils.GanetiTestCase):
     op = self.Parse(name, data, False)
 
     self.assert_(isinstance(op, opcodes.OpGroupRename))
-    self.assertEqual(op.old_name, name)
+    self.assertEqual(op.group_name, name)
     self.assertEqual(op.new_name, "ua0aiyoo")
     self.assertFalse(op.dry_run)
 
@@ -446,9 +492,139 @@ class TestParseRenameGroupRequest(testutils.GanetiTestCase):
     op = self.Parse(name, data, True)
 
     self.assert_(isinstance(op, opcodes.OpGroupRename))
-    self.assertEqual(op.old_name, name)
+    self.assertEqual(op.group_name, name)
     self.assertEqual(op.new_name, "ua0aiyoo")
     self.assert_(op.dry_run)
+
+
+class TestParseInstanceReplaceDisksRequest(unittest.TestCase):
+  def setUp(self):
+    self.Parse = rlib2._ParseInstanceReplaceDisksRequest
+
+  def test(self):
+    name = "inst22568"
+
+    for disks in [range(1, 4), "1,2,3", "1, 2, 3"]:
+      data = {
+        "mode": constants.REPLACE_DISK_SEC,
+        "disks": disks,
+        "iallocator": "myalloc",
+        }
+
+      op = self.Parse(name, data)
+      self.assert_(isinstance(op, opcodes.OpInstanceReplaceDisks))
+      self.assertEqual(op.mode, constants.REPLACE_DISK_SEC)
+      self.assertEqual(op.disks, [1, 2, 3])
+      self.assertEqual(op.iallocator, "myalloc")
+
+  def testDefaults(self):
+    name = "inst11413"
+    data = {
+      "mode": constants.REPLACE_DISK_AUTO,
+      }
+
+    op = self.Parse(name, data)
+    self.assert_(isinstance(op, opcodes.OpInstanceReplaceDisks))
+    self.assertEqual(op.mode, constants.REPLACE_DISK_AUTO)
+    self.assertFalse(hasattr(op, "iallocator"))
+    self.assertFalse(hasattr(op, "disks"))
+
+  def testNoDisks(self):
+    self.assertRaises(http.HttpBadRequest, self.Parse, "inst20661", {})
+
+    for disks in [None, "", {}]:
+      self.assertRaises(http.HttpBadRequest, self.Parse, "inst20661", {
+        "disks": disks,
+        })
+
+  def testWrong(self):
+    self.assertRaises(http.HttpBadRequest, self.Parse, "inst",
+                      { "mode": constants.REPLACE_DISK_AUTO,
+                        "disks": "hello world",
+                      })
+
+
+class TestParseModifyGroupRequest(unittest.TestCase):
+  def setUp(self):
+    self.Parse = rlib2._ParseModifyGroupRequest
+
+  def test(self):
+    name = "group6002"
+
+    for policy in constants.VALID_ALLOC_POLICIES:
+      data = {
+        "alloc_policy": policy,
+        }
+
+      op = self.Parse(name, data)
+      self.assert_(isinstance(op, opcodes.OpGroupSetParams))
+      self.assertEqual(op.group_name, name)
+      self.assertEqual(op.alloc_policy, policy)
+
+  def testUnknownPolicy(self):
+    data = {
+      "alloc_policy": "_unknown_policy_",
+      }
+
+    self.assertRaises(http.HttpBadRequest, self.Parse, "name", data)
+
+  def testDefaults(self):
+    name = "group6679"
+    data = {}
+
+    op = self.Parse(name, data)
+    self.assert_(isinstance(op, opcodes.OpGroupSetParams))
+    self.assertEqual(op.group_name, name)
+    self.assertFalse(hasattr(op, "alloc_policy"))
+
+
+class TestParseCreateGroupRequest(unittest.TestCase):
+  def setUp(self):
+    self.Parse = rlib2._ParseCreateGroupRequest
+
+  def test(self):
+    name = "group3618"
+
+    for policy in constants.VALID_ALLOC_POLICIES:
+      data = {
+        "group_name": name,
+        "alloc_policy": policy,
+        }
+
+      op = self.Parse(data, False)
+      self.assert_(isinstance(op, opcodes.OpGroupAdd))
+      self.assertEqual(op.group_name, name)
+      self.assertEqual(op.alloc_policy, policy)
+      self.assertFalse(op.dry_run)
+
+  def testUnknownPolicy(self):
+    data = {
+      "alloc_policy": "_unknown_policy_",
+      }
+
+    self.assertRaises(http.HttpBadRequest, self.Parse, "name", data)
+
+  def testDefaults(self):
+    name = "group15395"
+    data = {
+      "group_name": name,
+      }
+
+    op = self.Parse(data, True)
+    self.assert_(isinstance(op, opcodes.OpGroupAdd))
+    self.assertEqual(op.group_name, name)
+    self.assertFalse(hasattr(op, "alloc_policy"))
+    self.assertTrue(op.dry_run)
+
+  def testLegacyName(self):
+    name = "group29852"
+    data = {
+      "name": name,
+      }
+
+    op = self.Parse(data, True)
+    self.assert_(isinstance(op, opcodes.OpGroupAdd))
+    self.assertEqual(op.group_name, name)
 
 
 if __name__ == '__main__':

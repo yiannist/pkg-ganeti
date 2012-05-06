@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2008, 2010 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2010, 2011 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -43,6 +43,7 @@ from ganeti import bdev
 from ganeti import netutils
 from ganeti import backend
 from ganeti import luxi
+from ganeti import jstore
 
 
 # ec_id for InitConfig's temporary reservation manager
@@ -220,14 +221,11 @@ def _InitFileStorage(file_storage_dir):
       time) or the normalized path to the storage directory
 
   """
-  if not constants.ENABLE_FILE_STORAGE:
-    return ""
-
   file_storage_dir = os.path.normpath(file_storage_dir)
 
   if not os.path.isabs(file_storage_dir):
-    raise errors.OpPrereqError("The file storage directory you passed is"
-                               " not an absolute path.", errors.ECODE_INVAL)
+    raise errors.OpPrereqError("File storage directory '%s' is not an absolute"
+                               " path" % file_storage_dir, errors.ECODE_INVAL)
 
   if not os.path.exists(file_storage_dir):
     try:
@@ -244,10 +242,10 @@ def _InitFileStorage(file_storage_dir):
   return file_storage_dir
 
 
-def InitCluster(cluster_name, mac_prefix, # pylint: disable-msg=R0913
-                master_netdev, file_storage_dir, candidate_pool_size,
-                secondary_ip=None, vg_name=None, beparams=None,
-                nicparams=None, ndparams=None, hvparams=None,
+def InitCluster(cluster_name, mac_prefix, # pylint: disable=R0913
+                master_netdev, file_storage_dir, shared_file_storage_dir,
+                candidate_pool_size, secondary_ip=None, vg_name=None,
+                beparams=None, nicparams=None, ndparams=None, hvparams=None,
                 enabled_hypervisors=None, modify_etc_hosts=True,
                 modify_ssh_setup=True, maintain_node_health=False,
                 drbd_helper=None, uid_pool=None, default_iallocator=None,
@@ -271,7 +269,6 @@ def InitCluster(cluster_name, mac_prefix, # pylint: disable-msg=R0913
     raise errors.OpPrereqError("Enabled hypervisors contains invalid"
                                " entries: %s" % invalid_hvs,
                                errors.ECODE_INVAL)
-
 
   ipcls = None
   if primary_ip_version == constants.IP4_VERSION:
@@ -345,7 +342,15 @@ def InitCluster(cluster_name, mac_prefix, # pylint: disable-msg=R0913
                                                              curr_helper),
                                  errors.ECODE_INVAL)
 
-  file_storage_dir = _InitFileStorage(file_storage_dir)
+  if constants.ENABLE_FILE_STORAGE:
+    file_storage_dir = _InitFileStorage(file_storage_dir)
+  else:
+    file_storage_dir = ""
+
+  if constants.ENABLE_SHARED_FILE_STORAGE:
+    shared_file_storage_dir = _InitFileStorage(shared_file_storage_dir)
+  else:
+    shared_file_storage_dir = ""
 
   if not re.match("^[0-9a-z]{2}:[0-9a-z]{2}:[0-9a-z]{2}$", mac_prefix):
     raise errors.OpPrereqError("Invalid mac prefix given '%s'" % mac_prefix,
@@ -393,6 +398,12 @@ def InitCluster(cluster_name, mac_prefix, # pylint: disable-msg=R0913
       raise errors.OpPrereqError("Invalid default iallocator script '%s'"
                                  " specified" % default_iallocator,
                                  errors.ECODE_INVAL)
+  elif constants.HTOOLS:
+    # htools was enabled at build-time, we default to it
+    if utils.FindFile(constants.IALLOC_HAIL,
+                      constants.IALLOCATOR_SEARCH_PATH,
+                      os.path.isfile):
+      default_iallocator = constants.IALLOC_HAIL
 
   now = time.time()
 
@@ -409,6 +420,7 @@ def InitCluster(cluster_name, mac_prefix, # pylint: disable-msg=R0913
     master_netdev=master_netdev,
     cluster_name=clustername.name,
     file_storage_dir=file_storage_dir,
+    shared_file_storage_dir=shared_file_storage_dir,
     enabled_hypervisors=enabled_hypervisors,
     beparams={constants.PP_DEFAULT: beparams},
     nicparams={constants.PP_DEFAULT: nicparams},
@@ -648,6 +660,7 @@ def MasterFailover(no_voting=False):
 
   master_ip = sstore.GetMasterIP()
   total_timeout = 30
+
   # Here we have a phase where no master should be running
   def _check_ip():
     if netutils.TcpPing(master_ip, constants.DEFAULT_NODED_PORT):
@@ -659,6 +672,10 @@ def MasterFailover(no_voting=False):
     logging.warning("The master IP is still reachable after %s seconds,"
                     " continuing but activating the master on the current"
                     " node will probably fail", total_timeout)
+
+  if jstore.CheckDrainFlag():
+    logging.info("Undraining job queue")
+    jstore.SetDrainFlag(False)
 
   logging.info("Starting the master daemons on the new master")
 

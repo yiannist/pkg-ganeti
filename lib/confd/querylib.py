@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2009, Google Inc.
+# Copyright (C) 2009 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -50,7 +50,7 @@ class ConfdQuery(object):
     """
     self.reader = reader
 
-  def Exec(self, query): # pylint: disable-msg=R0201,W0613
+  def Exec(self, query): # pylint: disable=R0201,W0613
     """Process a single UDP request from a client.
 
     Different queries should override this function, which by defaults returns
@@ -194,11 +194,6 @@ class InstanceIpToNodePrimaryIpQuery(ConfdQuery):
         network_link = query[constants.CONFD_REQQ_LINK]
       else:
         network_link = None # default will be used
-    elif isinstance(query, basestring):
-      # 2.1 beta1 and beta2 mode, to be deprecated for 2.2
-      instances_list = [query]
-      network_link = None
-      mode = constants.CONFD_REQQ_IP
     else:
       logging.debug("Invalid query argument type for: %s", query)
       return QUERY_ARGUMENT_ERROR

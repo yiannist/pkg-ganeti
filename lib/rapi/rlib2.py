@@ -19,25 +19,39 @@
 # 02110-1301, USA.
 
 
-"""Remote API version 2 baserlib.library.
+"""Remote API resource implementations.
 
-  PUT or POST?
-  ============
+PUT or POST?
+============
 
-  According to RFC2616 the main difference between PUT and POST is that
-  POST can create new resources but PUT can only create the resource the
-  URI was pointing to on the PUT request.
+According to RFC2616 the main difference between PUT and POST is that
+POST can create new resources but PUT can only create the resource the
+URI was pointing to on the PUT request.
 
-  To be in context of this module for instance creation POST on
-  /2/instances is legitim while PUT would be not, due to it does create a
-  new entity and not just replace /2/instances with it.
+In the context of this module POST on ``/2/instances`` to change an existing
+entity is legitimate, while PUT would not be. PUT creates a new entity (e.g. a
+new instance) with a name specified in the request.
 
-  So when adding new methods, if they are operating on the URI entity itself,
-  PUT should be prefered over POST.
+Quoting from RFC2616, section 9.6::
+
+  The fundamental difference between the POST and PUT requests is reflected in
+  the different meaning of the Request-URI. The URI in a POST request
+  identifies the resource that will handle the enclosed entity. That resource
+  might be a data-accepting process, a gateway to some other protocol, or a
+  separate entity that accepts annotations. In contrast, the URI in a PUT
+  request identifies the entity enclosed with the request -- the user agent
+  knows what URI is intended and the server MUST NOT attempt to apply the
+  request to some other resource. If the server desires that the request be
+  applied to a different URI, it MUST send a 301 (Moved Permanently) response;
+  the user agent MAY then make its own decision regarding whether or not to
+  redirect the request.
+
+So when adding new methods, if they are operating on the URI entity itself,
+PUT should be prefered over POST.
 
 """
 
-# pylint: disable-msg=C0103
+# pylint: disable=C0103
 
 # C0103: Invalid name, since the R_* names are not conforming
 
@@ -45,8 +59,9 @@ from ganeti import opcodes
 from ganeti import http
 from ganeti import constants
 from ganeti import cli
-from ganeti import utils
 from ganeti import rapi
+from ganeti import ht
+from ganeti import compat
 from ganeti.rapi import baserlib
 
 
@@ -73,11 +88,23 @@ N_FIELDS = ["name", "offline", "master_candidate", "drained",
             "group.uuid",
             ] + _COMMON_FIELDS
 
-G_FIELDS = ["name", "uuid",
-            "alloc_policy",
-            "node_cnt", "node_list",
-            "ctime", "mtime", "serial_no",
-            ]  # "tags" is missing to be able to use _COMMON_FIELDS here.
+G_FIELDS = [
+  "alloc_policy",
+  "name",
+  "node_cnt",
+  "node_list",
+  ] + _COMMON_FIELDS
+
+J_FIELDS_BULK = [
+  "id", "ops", "status", "summary",
+  "opstatus",
+  "received_ts", "start_ts", "end_ts",
+  ]
+
+J_FIELDS = J_FIELDS_BULK + [
+  "oplog",
+  "opresult",
+  ]
 
 _NR_DRAINED = "drained"
 _NR_MASTER_CANDIATE = "master-candidate"
@@ -86,12 +113,14 @@ _NR_OFFLINE = "offline"
 _NR_REGULAR = "regular"
 
 _NR_MAP = {
-  "M": _NR_MASTER,
-  "C": _NR_MASTER_CANDIATE,
-  "D": _NR_DRAINED,
-  "O": _NR_OFFLINE,
-  "R": _NR_REGULAR,
+  constants.NR_MASTER: _NR_MASTER,
+  constants.NR_MCANDIDATE: _NR_MASTER_CANDIATE,
+  constants.NR_DRAINED: _NR_DRAINED,
+  constants.NR_OFFLINE: _NR_OFFLINE,
+  constants.NR_REGULAR: _NR_REGULAR,
   }
+
+assert frozenset(_NR_MAP.keys()) == constants.NR_ALL
 
 # Request data version field
 _REQ_DATA_VERSION = "__version__"
@@ -101,6 +130,19 @@ _INST_CREATE_REQV1 = "instance-create-reqv1"
 
 # Feature string for instance reinstall request version 1
 _INST_REINSTALL_REQV1 = "instance-reinstall-reqv1"
+
+# Feature string for node migration version 1
+_NODE_MIGRATE_REQV1 = "node-migrate-reqv1"
+
+# Feature string for node evacuation with LU-generated jobs
+_NODE_EVAC_RES1 = "node-evac-res1"
+
+ALL_FEATURES = frozenset([
+  _INST_CREATE_REQV1,
+  _INST_REINSTALL_REQV1,
+  _NODE_MIGRATE_REQV1,
+  _NODE_EVAC_RES1,
+  ])
 
 # Timeout for /2/jobs/[job_id]/wait. Gives job up to 10 seconds to change.
 _WFJC_TIMEOUT = 10
@@ -143,7 +185,7 @@ class R_2_features(baserlib.R_Generic):
     """Returns list of optional RAPI features implemented.
 
     """
-    return [_INST_CREATE_REQV1, _INST_REINSTALL_REQV1]
+    return list(ALL_FEATURES)
 
 
 class R_2_os(baserlib.R_Generic):
@@ -208,19 +250,21 @@ class R_2_jobs(baserlib.R_Generic):
   """/2/jobs resource.
 
   """
-  @staticmethod
-  def GET():
+  def GET(self):
     """Returns a dictionary of jobs.
 
     @return: a dictionary with jobs id and uri.
 
     """
-    fields = ["id"]
-    cl = baserlib.GetClient()
-    # Convert the list of lists to the list of ids
-    result = [job_id for [job_id] in cl.QueryJobs(None, fields)]
-    return baserlib.BuildUriList(result, "/2/jobs/%s",
-                                 uri_fields=("id", "uri"))
+    client = baserlib.GetClient()
+
+    if self.useBulk():
+      bulkdata = client.QueryJobs(None, J_FIELDS_BULK)
+      return baserlib.MapBulkFields(bulkdata, J_FIELDS_BULK)
+    else:
+      jobdata = map(compat.fst, client.QueryJobs(None, ["id"]))
+      return baserlib.BuildUriList(jobdata, "/2/jobs/%s",
+                                   uri_fields=("id", "uri"))
 
 
 class R_2_jobs_id(baserlib.R_Generic):
@@ -240,15 +284,11 @@ class R_2_jobs_id(baserlib.R_Generic):
             - opresult: OpCodes results as a list of lists
 
     """
-    fields = ["id", "ops", "status", "summary",
-              "opstatus", "opresult", "oplog",
-              "received_ts", "start_ts", "end_ts",
-              ]
     job_id = self.items[0]
-    result = baserlib.GetClient().QueryJobs([job_id, ], fields)[0]
+    result = baserlib.GetClient().QueryJobs([job_id, ], J_FIELDS)[0]
     if result is None:
       raise http.HttpNotFound()
-    return baserlib.MapFields(fields, result)
+    return baserlib.MapFields(J_FIELDS, result)
 
   def DELETE(self):
     """Cancel not-yet-started job.
@@ -409,38 +449,15 @@ class R_2_nodes_name_evacuate(baserlib.R_Generic):
 
   """
   def POST(self):
-    """Evacuate all secondary instances off a node.
+    """Evacuate all instances off a node.
 
     """
-    node_name = self.items[0]
-    remote_node = self._checkStringVariable("remote_node", default=None)
-    iallocator = self._checkStringVariable("iallocator", default=None)
-    early_r = bool(self._checkIntVariable("early_release", default=0))
-    dry_run = bool(self.dryRun())
+    op = baserlib.FillOpcode(opcodes.OpNodeEvacuate, self.request_body, {
+      "node_name": self.items[0],
+      "dry_run": self.dryRun(),
+      })
 
-    cl = baserlib.GetClient()
-
-    op = opcodes.OpNodeEvacStrategy(nodes=[node_name],
-                                    iallocator=iallocator,
-                                    remote_node=remote_node)
-
-    job_id = baserlib.SubmitJob([op], cl)
-    # we use custom feedback function, instead of print we log the status
-    result = cli.PollJob(job_id, cl, feedback_fn=baserlib.FeedbackFn)
-
-    jobs = []
-    for iname, node in result[0]:
-      if dry_run:
-        jid = None
-      else:
-        op = opcodes.OpInstanceReplaceDisks(instance_name=iname,
-                                            remote_node=node, disks=[],
-                                            mode=constants.REPLACE_DISK_CHG,
-                                            early_release=early_r)
-        jid = baserlib.SubmitJob([op])
-      jobs.append((jid, iname, node))
-
-    return jobs
+    return baserlib.SubmitJob([op])
 
 
 class R_2_nodes_name_migrate(baserlib.R_Generic):
@@ -453,18 +470,29 @@ class R_2_nodes_name_migrate(baserlib.R_Generic):
     """
     node_name = self.items[0]
 
-    if "live" in self.queryargs and "mode" in self.queryargs:
-      raise http.HttpBadRequest("Only one of 'live' and 'mode' should"
-                                " be passed")
-    elif "live" in self.queryargs:
-      if self._checkIntVariable("live", default=1):
-        mode = constants.HT_MIGRATION_LIVE
-      else:
-        mode = constants.HT_MIGRATION_NONLIVE
-    else:
-      mode = self._checkStringVariable("mode", default=None)
+    if self.queryargs:
+      # Support old-style requests
+      if "live" in self.queryargs and "mode" in self.queryargs:
+        raise http.HttpBadRequest("Only one of 'live' and 'mode' should"
+                                  " be passed")
 
-    op = opcodes.OpNodeMigrate(node_name=node_name, mode=mode)
+      if "live" in self.queryargs:
+        if self._checkIntVariable("live", default=1):
+          mode = constants.HT_MIGRATION_LIVE
+        else:
+          mode = constants.HT_MIGRATION_NONLIVE
+      else:
+        mode = self._checkStringVariable("mode", default=None)
+
+      data = {
+        "mode": mode,
+        }
+    else:
+      data = self.request_body
+
+    op = baserlib.FillOpcode(opcodes.OpNodeMigrate, data, {
+      "node_name": node_name,
+      })
 
     return baserlib.SubmitJob([op])
 
@@ -555,12 +583,16 @@ def _ParseCreateGroupRequest(data, dry_run):
   @return: Group creation opcode
 
   """
-  group_name = baserlib.CheckParameter(data, "name")
-  alloc_policy = baserlib.CheckParameter(data, "alloc_policy", default=None)
+  override = {
+    "dry_run": dry_run,
+    }
 
-  return opcodes.OpGroupAdd(group_name=group_name,
-                            alloc_policy=alloc_policy,
-                            dry_run=dry_run)
+  rename = {
+    "name": "group_name",
+    }
+
+  return baserlib.FillOpcode(opcodes.OpGroupAdd, data, override,
+                             rename=rename)
 
 
 class R_2_groups(baserlib.R_Generic):
@@ -627,8 +659,9 @@ def _ParseModifyGroupRequest(name, data):
   @return: Group modify opcode
 
   """
-  alloc_policy = baserlib.CheckParameter(data, "alloc_policy", default=None)
-  return opcodes.OpGroupSetParams(group_name=name, alloc_policy=alloc_policy)
+  return baserlib.FillOpcode(opcodes.OpGroupSetParams, data, {
+    "group_name": name,
+    })
 
 
 class R_2_groups_name_modify(baserlib.R_Generic):
@@ -662,11 +695,10 @@ def _ParseRenameGroupRequest(name, data, dry_run):
   @return: Node group rename opcode
 
   """
-  old_name = name
-  new_name = baserlib.CheckParameter(data, "new_name")
-
-  return opcodes.OpGroupRename(old_name=old_name, new_name=new_name,
-                               dry_run=dry_run)
+  return baserlib.FillOpcode(opcodes.OpGroupRename, data, {
+    "group_name": name,
+    "dry_run": dry_run,
+    })
 
 
 class R_2_groups_name_rename(baserlib.R_Generic):
@@ -711,99 +743,17 @@ def _ParseInstanceCreateRequestVersion1(data, dry_run):
   @return: Instance creation opcode
 
   """
-  # Disks
-  disks_input = baserlib.CheckParameter(data, "disks", exptype=list)
+  override = {
+    "dry_run": dry_run,
+    }
 
-  disks = []
-  for idx, i in enumerate(disks_input):
-    baserlib.CheckType(i, dict, "Disk %d specification" % idx)
+  rename = {
+    "os": "os_type",
+    "name": "instance_name",
+    }
 
-    # Size is mandatory
-    try:
-      size = i[constants.IDISK_SIZE]
-    except KeyError:
-      raise http.HttpBadRequest("Disk %d specification wrong: missing disk"
-                                " size" % idx)
-
-    disk = {
-      constants.IDISK_SIZE: size,
-      }
-
-    # Optional disk access mode
-    try:
-      disk_access = i[constants.IDISK_MODE]
-    except KeyError:
-      pass
-    else:
-      disk[constants.IDISK_MODE] = disk_access
-
-    disks.append(disk)
-
-  assert len(disks_input) == len(disks)
-
-  # Network interfaces
-  nics_input = baserlib.CheckParameter(data, "nics", exptype=list)
-
-  nics = []
-  for idx, i in enumerate(nics_input):
-    baserlib.CheckType(i, dict, "NIC %d specification" % idx)
-
-    nic = {}
-
-    for field in constants.INIC_PARAMS:
-      try:
-        value = i[field]
-      except KeyError:
-        continue
-
-      nic[field] = value
-
-    nics.append(nic)
-
-  assert len(nics_input) == len(nics)
-
-  # HV/BE parameters
-  hvparams = baserlib.CheckParameter(data, "hvparams", default={})
-  utils.ForceDictType(hvparams, constants.HVS_PARAMETER_TYPES)
-
-  beparams = baserlib.CheckParameter(data, "beparams", default={})
-  utils.ForceDictType(beparams, constants.BES_PARAMETER_TYPES)
-
-  return opcodes.OpInstanceCreate(
-    mode=baserlib.CheckParameter(data, "mode"),
-    instance_name=baserlib.CheckParameter(data, "name"),
-    os_type=baserlib.CheckParameter(data, "os"),
-    osparams=baserlib.CheckParameter(data, "osparams", default={}),
-    force_variant=baserlib.CheckParameter(data, "force_variant",
-                                          default=False),
-    no_install=baserlib.CheckParameter(data, "no_install", default=False),
-    pnode=baserlib.CheckParameter(data, "pnode", default=None),
-    snode=baserlib.CheckParameter(data, "snode", default=None),
-    disk_template=baserlib.CheckParameter(data, "disk_template"),
-    disks=disks,
-    nics=nics,
-    src_node=baserlib.CheckParameter(data, "src_node", default=None),
-    src_path=baserlib.CheckParameter(data, "src_path", default=None),
-    start=baserlib.CheckParameter(data, "start", default=True),
-    wait_for_sync=True,
-    ip_check=baserlib.CheckParameter(data, "ip_check", default=True),
-    name_check=baserlib.CheckParameter(data, "name_check", default=True),
-    file_storage_dir=baserlib.CheckParameter(data, "file_storage_dir",
-                                             default=None),
-    file_driver=baserlib.CheckParameter(data, "file_driver",
-                                        default=constants.FD_LOOP),
-    source_handshake=baserlib.CheckParameter(data, "source_handshake",
-                                             default=None),
-    source_x509_ca=baserlib.CheckParameter(data, "source_x509_ca",
-                                           default=None),
-    source_instance_name=baserlib.CheckParameter(data, "source_instance_name",
-                                                 default=None),
-    iallocator=baserlib.CheckParameter(data, "iallocator", default=None),
-    hypervisor=baserlib.CheckParameter(data, "hypervisor", default=None),
-    hvparams=hvparams,
-    beparams=beparams,
-    dry_run=dry_run,
-    )
+  return baserlib.FillOpcode(opcodes.OpInstanceCreate, data, override,
+                             rename=rename)
 
 
 class R_2_instances(baserlib.R_Generic):
@@ -826,67 +776,6 @@ class R_2_instances(baserlib.R_Generic):
       return baserlib.BuildUriList(instanceslist, "/2/instances/%s",
                                    uri_fields=("id", "uri"))
 
-  def _ParseVersion0CreateRequest(self):
-    """Parses an instance creation request version 0.
-
-    Request data version 0 is deprecated and should not be used anymore.
-
-    @rtype: L{opcodes.OpInstanceCreate}
-    @return: Instance creation opcode
-
-    """
-    # Do not modify anymore, request data version 0 is deprecated
-    beparams = baserlib.MakeParamsDict(self.request_body,
-                                       constants.BES_PARAMETERS)
-    hvparams = baserlib.MakeParamsDict(self.request_body,
-                                       constants.HVS_PARAMETERS)
-    fn = self.getBodyParameter
-
-    # disk processing
-    disk_data = fn('disks')
-    if not isinstance(disk_data, list):
-      raise http.HttpBadRequest("The 'disks' parameter should be a list")
-    disks = []
-    for idx, d in enumerate(disk_data):
-      if not isinstance(d, int):
-        raise http.HttpBadRequest("Disk %d specification wrong: should"
-                                  " be an integer" % idx)
-      disks.append({"size": d})
-
-    # nic processing (one nic only)
-    nics = [{"mac": fn("mac", constants.VALUE_AUTO)}]
-    if fn("ip", None) is not None:
-      nics[0]["ip"] = fn("ip")
-    if fn("mode", None) is not None:
-      nics[0]["mode"] = fn("mode")
-    if fn("link", None) is not None:
-      nics[0]["link"] = fn("link")
-    if fn("bridge", None) is not None:
-      nics[0]["bridge"] = fn("bridge")
-
-    # Do not modify anymore, request data version 0 is deprecated
-    return opcodes.OpInstanceCreate(
-      mode=constants.INSTANCE_CREATE,
-      instance_name=fn('name'),
-      disks=disks,
-      disk_template=fn('disk_template'),
-      os_type=fn('os'),
-      pnode=fn('pnode', None),
-      snode=fn('snode', None),
-      iallocator=fn('iallocator', None),
-      nics=nics,
-      start=fn('start', True),
-      ip_check=fn('ip_check', True),
-      name_check=fn('name_check', True),
-      wait_for_sync=True,
-      hypervisor=fn('hypervisor', None),
-      hvparams=hvparams,
-      beparams=beparams,
-      file_storage_dir=fn('file_storage_dir', None),
-      file_driver=fn('file_driver', constants.FD_LOOP),
-      dry_run=bool(self.dryRun()),
-      )
-
   def POST(self):
     """Create an instance.
 
@@ -900,10 +789,13 @@ class R_2_instances(baserlib.R_Generic):
     data_version = self.getBodyParameter(_REQ_DATA_VERSION, 0)
 
     if data_version == 0:
-      op = self._ParseVersion0CreateRequest()
+      raise http.HttpBadRequest("Instance creation request version 0 is no"
+                                " longer supported")
     elif data_version == 1:
-      op = _ParseInstanceCreateRequestVersion1(self.request_body,
-                                               self.dryRun())
+      data = self.request_body.copy()
+      # Remove "__version__"
+      data.pop(_REQ_DATA_VERSION, None)
+      op = _ParseInstanceCreateRequestVersion1(data, self.dryRun())
     else:
       raise http.HttpBadRequest("Unsupported request data version %s" %
                                 data_version)
@@ -969,9 +861,9 @@ class R_2_instances_name_reboot(baserlib.R_Generic):
 
     """
     instance_name = self.items[0]
-    reboot_type = self.queryargs.get('type',
+    reboot_type = self.queryargs.get("type",
                                      [constants.INSTANCE_REBOOT_HARD])[0]
-    ignore_secondaries = bool(self._checkIntVariable('ignore_secondaries'))
+    ignore_secondaries = bool(self._checkIntVariable("ignore_secondaries"))
     op = opcodes.OpInstanceReboot(instance_name=instance_name,
                                   reboot_type=reboot_type,
                                   ignore_secondaries=ignore_secondaries,
@@ -994,14 +886,28 @@ class R_2_instances_name_startup(baserlib.R_Generic):
 
     """
     instance_name = self.items[0]
-    force_startup = bool(self._checkIntVariable('force'))
-    no_remember = bool(self._checkIntVariable('no_remember'))
+    force_startup = bool(self._checkIntVariable("force"))
+    no_remember = bool(self._checkIntVariable("no_remember"))
     op = opcodes.OpInstanceStartup(instance_name=instance_name,
                                    force=force_startup,
                                    dry_run=bool(self.dryRun()),
                                    no_remember=no_remember)
 
     return baserlib.SubmitJob([op])
+
+
+def _ParseShutdownInstanceRequest(name, data, dry_run, no_remember):
+  """Parses a request for an instance shutdown.
+
+  @rtype: L{opcodes.OpInstanceShutdown}
+  @return: Instance shutdown opcode
+
+  """
+  return baserlib.FillOpcode(opcodes.OpInstanceShutdown, data, {
+    "instance_name": name,
+    "dry_run": dry_run,
+    "no_remember": no_remember,
+    })
 
 
 class R_2_instances_name_shutdown(baserlib.R_Generic):
@@ -1013,12 +919,12 @@ class R_2_instances_name_shutdown(baserlib.R_Generic):
   def PUT(self):
     """Shutdown an instance.
 
+    @return: a job id
+
     """
-    instance_name = self.items[0]
-    no_remember = bool(self._checkIntVariable('no_remember'))
-    op = opcodes.OpInstanceShutdown(instance_name=instance_name,
-                                    dry_run=bool(self.dryRun()),
-                                    no_remember=no_remember)
+    no_remember = bool(self._checkIntVariable("no_remember"))
+    op = _ParseShutdownInstanceRequest(self.items[0], self.request_body,
+                                       bool(self.dryRun()), no_remember)
 
     return baserlib.SubmitJob([op])
 
@@ -1080,6 +986,36 @@ class R_2_instances_name_reinstall(baserlib.R_Generic):
     return baserlib.SubmitJob(ops)
 
 
+def _ParseInstanceReplaceDisksRequest(name, data):
+  """Parses a request for an instance export.
+
+  @rtype: L{opcodes.OpInstanceReplaceDisks}
+  @return: Instance export opcode
+
+  """
+  override = {
+    "instance_name": name,
+    }
+
+  # Parse disks
+  try:
+    raw_disks = data.pop("disks")
+  except KeyError:
+    pass
+  else:
+    if raw_disks:
+      if ht.TListOf(ht.TInt)(raw_disks): # pylint: disable=E1102
+        data["disks"] = raw_disks
+      else:
+        # Backwards compatibility for strings of the format "1, 2, 3"
+        try:
+          data["disks"] = [int(part) for part in raw_disks.split(",")]
+        except (TypeError, ValueError), err:
+          raise http.HttpBadRequest("Invalid disk index passed: %s" % str(err))
+
+  return baserlib.FillOpcode(opcodes.OpInstanceReplaceDisks, data, override)
+
+
 class R_2_instances_name_replace_disks(baserlib.R_Generic):
   """/2/instances/[instance_name]/replace-disks resource.
 
@@ -1088,25 +1024,20 @@ class R_2_instances_name_replace_disks(baserlib.R_Generic):
     """Replaces disks on an instance.
 
     """
-    instance_name = self.items[0]
-    remote_node = self._checkStringVariable("remote_node", default=None)
-    mode = self._checkStringVariable("mode", default=None)
-    raw_disks = self._checkStringVariable("disks", default=None)
-    iallocator = self._checkStringVariable("iallocator", default=None)
-
-    if raw_disks:
-      try:
-        disks = [int(part) for part in raw_disks.split(",")]
-      except ValueError, err:
-        raise http.HttpBadRequest("Invalid disk index passed: %s" % str(err))
+    if self.request_body:
+      body = self.request_body
+    elif self.queryargs:
+      # Legacy interface, do not modify/extend
+      body = {
+        "remote_node": self._checkStringVariable("remote_node", default=None),
+        "mode": self._checkStringVariable("mode", default=None),
+        "disks": self._checkStringVariable("disks", default=None),
+        "iallocator": self._checkStringVariable("iallocator", default=None),
+        }
     else:
-      disks = []
+      body = {}
 
-    op = opcodes.OpInstanceReplaceDisks(instance_name=instance_name,
-                                        remote_node=remote_node,
-                                        mode=mode,
-                                        disks=disks,
-                                        iallocator=iallocator)
+    op = _ParseInstanceReplaceDisksRequest(self.items[0], body)
 
     return baserlib.SubmitJob([op])
 
@@ -1122,7 +1053,7 @@ class R_2_instances_name_activate_disks(baserlib.R_Generic):
 
     """
     instance_name = self.items[0]
-    ignore_size = bool(self._checkIntVariable('ignore_size'))
+    ignore_size = bool(self._checkIntVariable("ignore_size"))
 
     op = opcodes.OpInstanceActivateDisks(instance_name=instance_name,
                                          ignore_size=ignore_size)
@@ -1171,23 +1102,15 @@ def _ParseExportInstanceRequest(name, data):
   @return: Instance export opcode
 
   """
-  mode = baserlib.CheckParameter(data, "mode",
-                                 default=constants.EXPORT_MODE_LOCAL)
-  target_node = baserlib.CheckParameter(data, "destination")
-  shutdown = baserlib.CheckParameter(data, "shutdown", exptype=bool)
-  remove_instance = baserlib.CheckParameter(data, "remove_instance",
-                                            exptype=bool, default=False)
-  x509_key_name = baserlib.CheckParameter(data, "x509_key_name", default=None)
-  destination_x509_ca = baserlib.CheckParameter(data, "destination_x509_ca",
-                                                default=None)
+  # Rename "destination" to "target_node"
+  try:
+    data["target_node"] = data.pop("destination")
+  except KeyError:
+    pass
 
-  return opcodes.OpBackupExport(instance_name=name,
-                                mode=mode,
-                                target_node=target_node,
-                                shutdown=shutdown,
-                                remove_instance=remove_instance,
-                                x509_key_name=x509_key_name,
-                                destination_x509_ca=destination_x509_ca)
+  return baserlib.FillOpcode(opcodes.OpBackupExport, data, {
+    "instance_name": name,
+    })
 
 
 class R_2_instances_name_export(baserlib.R_Generic):
@@ -1215,12 +1138,9 @@ def _ParseMigrateInstanceRequest(name, data):
   @return: Instance migration opcode
 
   """
-  mode = baserlib.CheckParameter(data, "mode", default=None)
-  cleanup = baserlib.CheckParameter(data, "cleanup", exptype=bool,
-                                    default=False)
-
-  return opcodes.OpInstanceMigrate(instance_name=name, mode=mode,
-                                   cleanup=cleanup)
+  return baserlib.FillOpcode(opcodes.OpInstanceMigrate, data, {
+    "instance_name": name,
+    })
 
 
 class R_2_instances_name_migrate(baserlib.R_Generic):
@@ -1240,6 +1160,25 @@ class R_2_instances_name_migrate(baserlib.R_Generic):
     return baserlib.SubmitJob([op])
 
 
+class R_2_instances_name_failover(baserlib.R_Generic):
+  """/2/instances/[instance_name]/failover resource.
+
+  """
+  def PUT(self):
+    """Does a failover of an instance.
+
+    @return: a job id
+
+    """
+    baserlib.CheckType(self.request_body, dict, "Body contents")
+
+    op = baserlib.FillOpcode(opcodes.OpInstanceFailover, self.request_body, {
+      "instance_name": self.items[0],
+      })
+
+    return baserlib.SubmitJob([op])
+
+
 def _ParseRenameInstanceRequest(name, data):
   """Parses a request for renaming an instance.
 
@@ -1247,12 +1186,9 @@ def _ParseRenameInstanceRequest(name, data):
   @return: Instance rename opcode
 
   """
-  new_name = baserlib.CheckParameter(data, "new_name")
-  ip_check = baserlib.CheckParameter(data, "ip_check", default=True)
-  name_check = baserlib.CheckParameter(data, "name_check", default=True)
-
-  return opcodes.OpInstanceRename(instance_name=name, new_name=new_name,
-                                  name_check=name_check, ip_check=ip_check)
+  return baserlib.FillOpcode(opcodes.OpInstanceRename, data, {
+    "instance_name": name,
+    })
 
 
 class R_2_instances_name_rename(baserlib.R_Generic):
@@ -1279,30 +1215,9 @@ def _ParseModifyInstanceRequest(name, data):
   @return: Instance modify opcode
 
   """
-  osparams = baserlib.CheckParameter(data, "osparams", default={})
-  force = baserlib.CheckParameter(data, "force", default=False)
-  nics = baserlib.CheckParameter(data, "nics", default=[])
-  disks = baserlib.CheckParameter(data, "disks", default=[])
-  disk_template = baserlib.CheckParameter(data, "disk_template", default=None)
-  remote_node = baserlib.CheckParameter(data, "remote_node", default=None)
-  os_name = baserlib.CheckParameter(data, "os_name", default=None)
-  force_variant = baserlib.CheckParameter(data, "force_variant", default=False)
-
-  # HV/BE parameters
-  hvparams = baserlib.CheckParameter(data, "hvparams", default={})
-  utils.ForceDictType(hvparams, constants.HVS_PARAMETER_TYPES,
-                      allowed_values=[constants.VALUE_DEFAULT])
-
-  beparams = baserlib.CheckParameter(data, "beparams", default={})
-  utils.ForceDictType(beparams, constants.BES_PARAMETER_TYPES,
-                      allowed_values=[constants.VALUE_DEFAULT])
-
-  return opcodes.OpInstanceSetParams(instance_name=name, hvparams=hvparams,
-                                     beparams=beparams, osparams=osparams,
-                                     force=force, nics=nics, disks=disks,
-                                     disk_template=disk_template,
-                                     remote_node=remote_node, os_name=os_name,
-                                     force_variant=force_variant)
+  return baserlib.FillOpcode(opcodes.OpInstanceSetParams, data, {
+    "instance_name": name,
+    })
 
 
 class R_2_instances_name_modify(baserlib.R_Generic):
@@ -1364,6 +1279,81 @@ class R_2_instances_name_console(baserlib.R_Generic):
     return console
 
 
+def _GetQueryFields(args):
+  """
+
+  """
+  try:
+    fields = args["fields"]
+  except KeyError:
+    raise http.HttpBadRequest("Missing 'fields' query argument")
+
+  return _SplitQueryFields(fields[0])
+
+
+def _SplitQueryFields(fields):
+  """
+
+  """
+  return [i.strip() for i in fields.split(",")]
+
+
+class R_2_query(baserlib.R_Generic):
+  """/2/query/[resource] resource.
+
+  """
+  # Results might contain sensitive information
+  GET_ACCESS = [rapi.RAPI_ACCESS_WRITE]
+
+  def _Query(self, fields, filter_):
+    return baserlib.GetClient().Query(self.items[0], fields, filter_).ToDict()
+
+  def GET(self):
+    """Returns resource information.
+
+    @return: Query result, see L{objects.QueryResponse}
+
+    """
+    return self._Query(_GetQueryFields(self.queryargs), None)
+
+  def PUT(self):
+    """Submits job querying for resources.
+
+    @return: Query result, see L{objects.QueryResponse}
+
+    """
+    body = self.request_body
+
+    baserlib.CheckType(body, dict, "Body contents")
+
+    try:
+      fields = body["fields"]
+    except KeyError:
+      fields = _GetQueryFields(self.queryargs)
+
+    return self._Query(fields, self.request_body.get("filter", None))
+
+
+class R_2_query_fields(baserlib.R_Generic):
+  """/2/query/[resource]/fields resource.
+
+  """
+  def GET(self):
+    """Retrieves list of available fields for a resource.
+
+    @return: List of serialized L{objects.QueryFieldDefinition}
+
+    """
+    try:
+      raw_fields = self.queryargs["fields"]
+    except KeyError:
+      fields = None
+    else:
+      fields = _SplitQueryFields(raw_fields[0])
+
+    return baserlib.GetClient().QueryFields(self.items[0], fields).ToDict()
+
+
 class _R_Tags(baserlib.R_Generic):
   """ Quasiclass for tagging resources
 
@@ -1392,7 +1382,7 @@ class _R_Tags(baserlib.R_Generic):
     Example: ["tag1", "tag2", "tag3"]
 
     """
-    # pylint: disable-msg=W0212
+    # pylint: disable=W0212
     return baserlib._Tags_GET(self.TAG_LEVEL, name=self.name)
 
   def PUT(self):
@@ -1402,12 +1392,12 @@ class _R_Tags(baserlib.R_Generic):
     you'll have back a job id.
 
     """
-    # pylint: disable-msg=W0212
-    if 'tag' not in self.queryargs:
+    # pylint: disable=W0212
+    if "tag" not in self.queryargs:
       raise http.HttpBadRequest("Please specify tag(s) to add using the"
                                 " the 'tag' parameter")
     return baserlib._Tags_PUT(self.TAG_LEVEL,
-                              self.queryargs['tag'], name=self.name,
+                              self.queryargs["tag"], name=self.name,
                               dry_run=bool(self.dryRun()))
 
   def DELETE(self):
@@ -1418,13 +1408,13 @@ class _R_Tags(baserlib.R_Generic):
     /tags?tag=[tag]&tag=[tag]
 
     """
-    # pylint: disable-msg=W0212
-    if 'tag' not in self.queryargs:
+    # pylint: disable=W0212
+    if "tag" not in self.queryargs:
       # no we not gonna delete all tags
       raise http.HttpBadRequest("Cannot delete all tags - please specify"
                                 " tag(s) using the 'tag' parameter")
     return baserlib._Tags_DELETE(self.TAG_LEVEL,
-                                 self.queryargs['tag'],
+                                 self.queryargs["tag"],
                                  name=self.name,
                                  dry_run=bool(self.dryRun()))
 
@@ -1445,6 +1435,15 @@ class R_2_nodes_name_tags(_R_Tags):
 
   """
   TAG_LEVEL = constants.TAG_NODE
+
+
+class R_2_groups_name_tags(_R_Tags):
+  """ /2/groups/[group_name]/tags resource.
+
+  Manages per-nodegroup tags.
+
+  """
+  TAG_LEVEL = constants.TAG_NODEGROUP
 
 
 class R_2_tags(_R_Tags):

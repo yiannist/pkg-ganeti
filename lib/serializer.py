@@ -24,7 +24,7 @@ This module introduces a simple abstraction over the serialization
 backend (currently json).
 
 """
-# pylint: disable-msg=C0103
+# pylint: disable=C0103
 
 # C0103: Invalid name, since pylint doesn't see that Dump points to a
 # function and not a constant
@@ -38,7 +38,7 @@ from ganeti import utils
 
 _JSON_INDENT = 2
 
-_RE_EOLSP = re.compile('[ \t]+$', re.MULTILINE)
+_RE_EOLSP = re.compile("[ \t]+$", re.MULTILINE)
 
 
 def _GetJsonDumpers(_encoder_class=simplejson.JSONEncoder):
@@ -79,8 +79,8 @@ def DumpJson(data, indent=True):
     fn = _DumpJson
 
   txt = _RE_EOLSP.sub("", fn(data))
-  if not txt.endswith('\n'):
-    txt += '\n'
+  if not txt.endswith("\n"):
+    txt += "\n"
 
   return txt
 
@@ -108,10 +108,10 @@ def DumpSignedJson(data, key, salt=None, key_selector=None):
   """
   txt = DumpJson(data, indent=False)
   if salt is None:
-    salt = ''
+    salt = ""
   signed_dict = {
-    'msg': txt,
-    'salt': salt,
+    "msg": txt,
+    "salt": salt,
     }
 
   if key_selector:
@@ -138,16 +138,16 @@ def LoadSignedJson(txt, key):
   """
   signed_dict = LoadJson(txt)
   if not isinstance(signed_dict, dict):
-    raise errors.SignatureError('Invalid external message')
+    raise errors.SignatureError("Invalid external message")
   try:
-    msg = signed_dict['msg']
-    salt = signed_dict['salt']
-    hmac_sign = signed_dict['hmac']
+    msg = signed_dict["msg"]
+    salt = signed_dict["salt"]
+    hmac_sign = signed_dict["hmac"]
   except KeyError:
-    raise errors.SignatureError('Invalid external message')
+    raise errors.SignatureError("Invalid external message")
 
   if callable(key):
-    # pylint: disable-msg=E1103
+    # pylint: disable=E1103
     key_selector = signed_dict.get("key_selector", None)
     hmac_key = key(key_selector)
     if not hmac_key:
@@ -159,7 +159,7 @@ def LoadSignedJson(txt, key):
 
   if not utils.VerifySha1Hmac(hmac_key, msg, hmac_sign,
                               salt=salt + key_selector):
-    raise errors.SignatureError('Invalid Signature')
+    raise errors.SignatureError("Invalid Signature")
 
   return LoadJson(msg), salt
 

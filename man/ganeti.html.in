@@ -284,6 +284,130 @@
 </code
       ></pre
     ></div
+  ><div id="query-filters"
+  ><h2
+    >Query filters</h2
+    ><p
+    >Most commands listing resources (e.g. instances or nodes) support filtering. The filter language is similar to Python expressions with some elements from Perl. The language is not generic. Each condition must consist of a field name and a value (except for boolean checks), a field can not be compared to another field. Keywords are case-sensitive.</p
+    ><p
+    >Syntax in pseudo-BNF:</p
+    ><pre
+    ><code
+      >&lt;quoted-string&gt; ::= /* String quoted with single or double quotes,
+                       backslash for escaping */
+
+&lt;integer&gt; ::= /* Number in base-10 positional notation */
+
+&lt;re&gt; ::= /* Regular expression */
+
+/*
+  Modifier &quot;i&quot;: Case-insensitive matching, see
+  http://docs.python.org/library/re#re.IGNORECASE
+
+  Modifier &quot;s&quot;: Make the &quot;.&quot; special character match any character,
+  including newline, see http://docs.python.org/library/re#re.DOTALL
+*/
+&lt;re-modifiers&gt; ::= /* empty */ | i | s
+
+&lt;value&gt; ::= &lt;quoted-string&gt; | &lt;integer&gt;
+
+&lt;condition&gt; ::=
+  { /* Value comparison */
+    &lt;field&gt; { == | != } &lt;value&gt;
+
+    /* Collection membership */
+    | &lt;value&gt; [ not ] in &lt;field&gt;
+
+    /* Regular expressions (recognized delimiters
+       are &quot;/&quot;, &quot;#&quot;, &quot;^&quot;, and &quot;|&quot;; backslash for escaping)
+    */
+    | &lt;field&gt; { =~ | !~ } m/&lt;re&gt;/&lt;re-modifiers&gt;
+
+    /* Globbing */
+    | &lt;field&gt; { =* | !* } &lt;quoted-string&gt;
+
+    /* Boolean */
+    | &lt;field&gt;
+  }
+
+&lt;filter&gt; ::=
+  { [ not ] &lt;condition&gt; | ( &lt;filter&gt; ) }
+  [ { and | or } &lt;filter&gt; ]
+</code
+      ></pre
+    ><p
+    >Operators:</p
+    ><dl
+    ><dt
+      ><em
+	>==</em
+	></dt
+      ><dd
+      ><p
+	>Equality</p
+	></dd
+      ><dt
+      ><em
+	>!=</em
+	></dt
+      ><dd
+      ><p
+	>Inequality</p
+	></dd
+      ><dt
+      ><em
+	>=~</em
+	></dt
+      ><dd
+      ><p
+	>Pattern match using regular expression</p
+	></dd
+      ><dt
+      ><em
+	>!~</em
+	></dt
+      ><dd
+      ><p
+	>Logically negated from <em
+	  >=~</em
+	  ></p
+	></dd
+      ><dt
+      ><em
+	>=*</em
+	></dt
+      ><dd
+      ><p
+	>Globbing, see <strong
+	  >glob</strong
+	  >(7), though only * and ? are supported</p
+	></dd
+      ><dt
+      ><em
+	>!*</em
+	></dt
+      ><dd
+      ><p
+	>Logically negated from <em
+	  >=*</em
+	  ></p
+	></dd
+      ><dt
+      ><em
+	>in</em
+	>, <em
+	>not in</em
+	></dt
+      ><dd
+      ><p
+	>Collection membership and negation</p
+	></dd
+      ></dl
+    ><p
+    >As a shortcut globbing patterns can be specified as names, e.g. <code
+      >gnt-instance list '*.site1' '*.site2'</code
+      >.</p
+    ></div
   ></div
 ><div id="common-daemon-functionality"
 ><h1
@@ -343,12 +467,24 @@
     >(8) (master daemon), <strong
     >ganeti-rapi</strong
     >(8) (remote API daemon).</p
+  ><p
+  >Ganeti htools: <strong
+    >htools</strong
+    >(1) (generic binary), <strong
+    >hbal</strong
+    >(1) (cluster balancer), <strong
+    >hspace</strong
+    >(1) (capacity calculation), <strong
+    >hail</strong
+    >(1) (IAllocator plugin), <strong
+    >hscan</strong
+    >(1) (data gatherer from remote clusters).</p
   ></div
 ><div id="copyright"
 ><h1
   >COPYRIGHT</h1
   ><p
-  >Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc. Permission is granted to copy, distribute and/or modify under the terms of the GNU General Public License as published by the Free Software Foundation; either version 2 of the License, or (at your option) any later version.</p
+  >Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Google Inc. Permission is granted to copy, distribute and/or modify under the terms of the GNU General Public License as published by the Free Software Foundation; either version 2 of the License, or (at your option) any later version.</p
   ><p
   >On Debian systems, the complete text of the GNU General Public License can be found in /usr/share/common-licenses/GPL.</p
   ></div

@@ -19,7 +19,10 @@ Contents:
    design-2.1.rst
    design-2.2.rst
    design-2.3.rst
+   design-htools-2.3.rst
    design-2.4.rst
+   design-2.5.rst
+   design-draft.rst
    cluster-merge.rst
    locking.rst
    hooks.rst
@@ -35,6 +38,10 @@ Contents:
 
    design-oob.rst
    design-query2.rst
+   design-lu-generated-jobs.rst
+   design-chained-jobs.rst
+   design-multi-reloc.rst
+   design-shared-storage.rst
 
 Also see the :ref:`search`.
 

@@ -100,6 +100,8 @@ items:
   Jobs
 ``lock``
   Locks
+``os``
+  Operating systems
 
 .. _data-query:
 
@@ -284,6 +286,10 @@ A field definition is a dictionary with the following entries:
   formatting any unknown types the same way as "other", which should be
   a string representation in most cases.
 
+``doc`` (string)
+  Human-readable description. Must start with uppercase character and
+  must not end with punctuation or contain newlines.
+
 .. TODO: Investigate whether there are fields with floating point
 .. numbers
 
@@ -322,7 +328,7 @@ methods.  Unavailable values are set to ``None``. If unknown fields were
 requested, the whole query fails as the client expects exactly the
 fields it requested.
 
-.. _luxi:
+.. _query2-luxi:
 
 LUXI
 ++++

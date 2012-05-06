@@ -1,0 +1,161 @@
+.TH HSCAN 1 "" "Ganeti" "Version @GANETI_VERSION@"
+.SH NAME
+.PP
+hscan - Scan clusters via RAPI and save node/instance data
+.SH SYNOPSIS
+.PP
+\f[B]hscan\f[] [-p] [--no-headers] [-d \f[I]path\f[] ]
+\f[I]cluster...\f[]
+.PP
+\f[B]hscan\f[] --version
+.SH DESCRIPTION
+.PP
+hscan is a tool for scanning clusters via RAPI and saving their
+data in the input format used by \f[B]hbal\f[](1) and
+\f[B]hspace\f[](1). It will also show a one-line score for each
+cluster scanned or, if desired, the cluster state as show by the
+\f[B]-p\f[] option to the other tools.
+.PP
+For each cluster, one file named \f[I]cluster\f[]\f[B].data\f[]
+will be generated holding the node and instance data. This file can
+then be used in \f[B]hbal\f[](1) or \f[B]hspace\f[](1) via the
+\f[I]-t\f[] option. In case the cluster name contains slashes (as
+it can happen when the cluster is a fully-specified URL), these
+will be replaced with underscores.
+.PP
+The one-line output for each cluster will show the following:
+.TP
+.B Name
+The name of the cluster (or the IP address that was given, etc.)
+.RS
+.RE
+.TP
+.B Nodes
+The number of nodes in the cluster
+.RS
+.RE
+.TP
+.B Inst
+The number of instances in the cluster
+.RS
+.RE
+.TP
+.B BNode
+The number of nodes failing N+1
+.RS
+.RE
+.TP
+.B BInst
+The number of instances living on N+1-failed nodes
+.RS
+.RE
+.TP
+.B t_mem
+Total memory in the cluster
+.RS
+.RE
+.TP
+.B f_mem
+Free memory in the cluster
+.RS
+.RE
+.TP
+.B t_disk
+Total disk in the cluster
+.RS
+.RE
+.TP
+.B f_disk
+Free disk space in the cluster
+.RS
+.RE
+.TP
+.B Score
+The score of the cluster, as would be reported by \f[B]hbal\f[](1)
+if run on the generated data files.
+.RS
+.RE
+.PP
+In case of errors while collecting data, all fields after the name
+of the cluster are replaced with the error display.
+.PP
+\f[B]Note:\f[] this output format is not yet final so it should not
+be used for scripting yet.
+.SH OPTIONS
+.PP
+The options that can be passed to the program are as follows:
+.TP
+.B -p, --print-nodes
+Prints the node status for each cluster after the cluster\[aq]s
+one-line status display, in a format designed to allow the user to
+understand the node\[aq]s most important parameters. For details,
+see the man page for \f[B]htools\f[](1).
+.RS
+.RE
+.TP
+.B -d \f[I]path\f[]
+Save the node and instance data for each cluster under
+\f[I]path\f[], instead of the current directory.
+.RS
+.RE
+.TP
+.B -V, --version
+Just show the program version and exit.
+.RS
+.RE
+.SH EXIT STATUS
+.PP
+The exist status of the command will be zero, unless for some
+reason loading the input data failed fatally (e.g. wrong node or
+instance data).
+.SH BUGS
+.PP
+The program does not check its input data for consistency, and
+aborts with cryptic errors messages in this case.
+.SH EXAMPLE
+.PP
+\f[CR]
+      $\ hscan\ cluster1
+      Name\ \ \ \ \ Nodes\ \ Inst\ BNode\ BInst\ \ t_mem\ \ f_mem\ t_disk\ f_disk\ \ \ \ \ \ Score
+      cluster1\ \ \ \ \ 2\ \ \ \ \ 2\ \ \ \ \ 0\ \ \ \ \ 0\ \ \ 1008\ \ \ \ 652\ \ \ \ 255\ \ \ \ 253\ 0.24404762
+      $\ ls\ -l\ cluster1.data
+      -rw-r--r--\ 1\ root\ root\ 364\ 2009-03-23\ 07:26\ cluster1.data
+\f[]
+.SH REPORTING BUGS
+.PP
+Report bugs to project website (http://code.google.com/p/ganeti/)
+or contact the developers using the
+Ganeti mailing list (ganeti@googlegroups.com).
+.SH SEE ALSO
+.PP
+Ganeti overview and specifications: \f[B]ganeti\f[](7) (general
+overview), \f[B]ganeti-os-interface\f[](7) (guest OS definitions).
+.PP
+Ganeti commands: \f[B]gnt-cluster\f[](8) (cluster-wide commands),
+\f[B]gnt-job\f[](8) (job-related commands), \f[B]gnt-node\f[](8)
+(node-related commands), \f[B]gnt-instance\f[](8) (instance
+commands), \f[B]gnt-os\f[](8) (guest OS commands),
+\f[B]gnt-group\f[](8) (node group commands), \f[B]gnt-backup\f[](8)
+(instance import/export commands), \f[B]gnt-debug\f[](8) (debug
+commands).
+.PP
+Ganeti daemons: \f[B]ganeti-watcher\f[](8) (automatic instance
+restarter), \f[B]ganeti-cleaner\f[](8) (job queue cleaner),
+\f[B]ganeti-noded\f[](8) (node daemon), \f[B]ganeti-masterd\f[](8)
+(master daemon), \f[B]ganeti-rapi\f[](8) (remote API daemon).
+.PP
+Ganeti htools: \f[B]htools\f[](1) (generic binary),
+\f[B]hbal\f[](1) (cluster balancer), \f[B]hspace\f[](1) (capacity
+calculation), \f[B]hail\f[](1) (IAllocator plugin),
+\f[B]hscan\f[](1) (data gatherer from remote clusters).
+.SH COPYRIGHT
+.PP
+Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Google Inc.
+Permission is granted to copy, distribute and/or modify under the
+terms of the GNU General Public License as published by the Free
+Software Foundation; either version 2 of the License, or (at your
+option) any later version.
+.PP
+On Debian systems, the complete text of the GNU General Public
+License can be found in /usr/share/common-licenses/GPL.
+

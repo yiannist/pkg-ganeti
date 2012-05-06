@@ -23,7 +23,7 @@
 
 """
 
-# pylint: disable-msg=C0103
+# pylint: disable=C0103
 # due to invalid name
 
 import sys
@@ -46,7 +46,7 @@ from ganeti import utils
 from ganeti import rapi
 from ganeti import constants
 
-import ganeti.rapi.client # pylint: disable-msg=W0611
+import ganeti.rapi.client # pylint: disable=W0611
 
 
 def _FormatHeader(line, end=72):
@@ -54,7 +54,7 @@ def _FormatHeader(line, end=72):
 
   """
   line = "---- " + line + " "
-  line += "-" * (end-len(line))
+  line += "-" * (end - len(line))
   line = line.rstrip()
   return line
 
@@ -69,6 +69,7 @@ def _DescriptionOf(fn):
     desc = "%r" % fn
 
   return desc.rstrip(".")
+
 
 def RunTest(fn, *args):
   """Runs a test after printing a header.
@@ -163,30 +164,54 @@ def RunClusterTests():
     ("cluster-info", qa_cluster.TestClusterVersion),
     ("cluster-info", qa_cluster.TestClusterInfo),
     ("cluster-info", qa_cluster.TestClusterGetmaster),
+    ("cluster-redist-conf", qa_cluster.TestClusterRedistConf),
     ("cluster-copyfile", qa_cluster.TestClusterCopyfile),
     ("cluster-command", qa_cluster.TestClusterCommand),
     ("cluster-burnin", qa_cluster.TestClusterBurnin),
     ("cluster-master-failover", qa_cluster.TestClusterMasterFailover),
+    ("cluster-master-failover",
+     qa_cluster.TestClusterMasterFailoverWithDrainedQueue),
     ("cluster-oob", qa_cluster.TestClusterOob),
     ("rapi", qa_rapi.TestVersion),
     ("rapi", qa_rapi.TestEmptyCluster),
+    ("rapi", qa_rapi.TestRapiQuery),
     ]:
     RunTestIf(test, fn)
+
+
+def RunRepairDiskSizes():
+  """Run the repair disk-sizes test.
+
+  """
+  RunTestIf("cluster-repair-disk-sizes", qa_cluster.TestClusterRepairDiskSizes)
 
 
 def RunOsTests():
   """Runs all tests related to gnt-os.
 
   """
+  if qa_config.TestEnabled("rapi"):
+    rapi_getos = qa_rapi.GetOperatingSystems
+  else:
+    rapi_getos = None
+
   for fn in [
     qa_os.TestOsList,
     qa_os.TestOsDiagnose,
+    ]:
+    RunTestIf("os", fn)
+
+  for fn in [
     qa_os.TestOsValid,
     qa_os.TestOsInvalid,
     qa_os.TestOsPartiallyValid,
+    ]:
+    RunTestIf("os", fn, rapi_getos)
+
+  for fn in [
     qa_os.TestOsModifyValid,
     qa_os.TestOsModifyInvalid,
-    qa_os.TestOsStates,
+    qa_os.TestOsStatesNonExisting,
     ]:
     RunTestIf("os", fn)
 
@@ -199,6 +224,12 @@ def RunCommonInstanceTests(instance):
   RunTestIf(["instance-shutdown", "instance-console", "rapi"],
             qa_rapi.TestRapiStoppedInstanceConsole, instance)
   RunTestIf("instance-shutdown", qa_instance.TestInstanceStartup, instance)
+
+  # Test shutdown/start via RAPI
+  RunTestIf(["instance-shutdown", "rapi"],
+            qa_rapi.TestRapiInstanceShutdown, instance)
+  RunTestIf(["instance-shutdown", "rapi"],
+            qa_rapi.TestRapiInstanceStartup, instance)
 
   RunTestIf("instance-list", qa_instance.TestInstanceList)
 
@@ -220,7 +251,7 @@ def RunCommonInstanceTests(instance):
 
   RunTestIf("instance-reboot", qa_instance.TestInstanceReboot, instance)
 
-  if qa_config.TestEnabled('instance-rename'):
+  if qa_config.TestEnabled("instance-rename"):
     rename_source = instance["name"]
     rename_target = qa_config.get("rename", None)
     RunTest(qa_instance.TestInstanceShutdown, instance)
@@ -273,6 +304,8 @@ def RunGroupRwTests():
   RunTestIf("group-rwops", qa_group.TestGroupAddWithOptions)
   RunTestIf("group-rwops", qa_group.TestGroupModify)
   RunTestIf(["group-rwops", "rapi"], qa_rapi.TestRapiNodeGroups)
+  RunTestIf(["group-rwops", "tags"], qa_tags.TestGroupTags,
+            qa_group.GetDefaultGroup())
 
 
 def RunExportImportTests(instance, pnode, snode):
@@ -283,7 +316,7 @@ def RunExportImportTests(instance, pnode, snode):
       otherwise None
 
   """
-  if qa_config.TestEnabled('instance-export'):
+  if qa_config.TestEnabled("instance-export"):
     RunTest(qa_instance.TestInstanceExportNoTarget, instance)
 
     expnode = qa_config.AcquireNode(exclude=pnode)
@@ -292,7 +325,7 @@ def RunExportImportTests(instance, pnode, snode):
 
       RunTest(qa_instance.TestBackupList, expnode)
 
-      if qa_config.TestEnabled('instance-import'):
+      if qa_config.TestEnabled("instance-import"):
         newinst = qa_config.AcquireInstance()
         try:
           RunTest(qa_instance.TestInstanceImport, pnode, newinst,
@@ -339,14 +372,17 @@ def RunHardwareFailureTests(instance, pnode, snode):
 
   """
   RunTestIf("instance-failover", qa_instance.TestInstanceFailover, instance)
+  RunTestIf(["instance-failover", "rapi"],
+            qa_rapi.TestRapiInstanceFailover, instance)
 
   RunTestIf("instance-migrate", qa_instance.TestInstanceMigrate, instance)
   RunTestIf(["instance-migrate", "rapi"],
             qa_rapi.TestRapiInstanceMigrate, instance)
 
-  if qa_config.TestEnabled('instance-replace-disks'):
+  if qa_config.TestEnabled("instance-replace-disks"):
     othernode = qa_config.AcquireNode(exclude=[pnode, snode])
     try:
+      RunTestIf("rapi", qa_rapi.TestRapiInstanceReplaceDisks, instance)
       RunTest(qa_instance.TestReplaceDisks,
               instance, pnode, snode, othernode)
     finally:
@@ -407,17 +443,19 @@ def RunQa():
           RunTest(qa_rapi.TestRapiInstanceRemove, rapi_instance, use_client)
           del rapi_instance
 
-    if qa_config.TestEnabled('instance-add-plain-disk'):
+    if qa_config.TestEnabled("instance-add-plain-disk"):
       instance = RunTest(qa_instance.TestInstanceAddWithPlainDisk, pnode)
       RunCommonInstanceTests(instance)
       RunGroupListTests()
+      RunTestIf("cluster-epo", qa_cluster.TestClusterEpo)
       RunExportImportTests(instance, pnode, None)
       RunDaemonTests(instance)
+      RunRepairDiskSizes()
       RunTest(qa_instance.TestInstanceRemove, instance)
       del instance
 
     multinode_tests = [
-      ('instance-add-drbd-disk',
+      ("instance-add-drbd-disk",
        qa_instance.TestInstanceAddWithDrbdDisk),
     ]
 
@@ -431,12 +469,13 @@ def RunQa():
           RunTest(qa_group.TestAssignNodesIncludingSplit,
                   constants.INITIAL_NODE_GROUP_NAME,
                   pnode["primary"], snode["primary"])
-          if qa_config.TestEnabled('instance-convert-disk'):
+          if qa_config.TestEnabled("instance-convert-disk"):
             RunTest(qa_instance.TestInstanceShutdown, instance)
             RunTest(qa_instance.TestInstanceConvertDisk, instance, snode)
             RunTest(qa_instance.TestInstanceStartup, instance)
           RunExportImportTests(instance, pnode, snode)
           RunHardwareFailureTests(instance, pnode, snode)
+          RunRepairDiskSizes()
           RunTest(qa_instance.TestInstanceRemove, instance)
           del instance
         finally:
@@ -471,7 +510,7 @@ def main():
 
   """
   parser = optparse.OptionParser(usage="%prog [options] <config-file>")
-  parser.add_option('--yes-do-it', dest='yes_do_it',
+  parser.add_option("--yes-do-it", dest="yes_do_it",
       action="store_true",
       help="Really execute the tests")
   (qa_config.options, args) = parser.parse_args()
@@ -495,5 +534,5 @@ def main():
   finally:
     qa_utils.CloseMultiplexers()
 
-if __name__ == '__main__':
+if __name__ == "__main__":
   main()

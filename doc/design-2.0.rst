@@ -187,6 +187,8 @@ format and decode them on the receiver side.
 For more details about the RAPI daemon see `Remote API changes`_, and
 for the node daemon see `Node daemon changes`_.
 
+.. _luxi:
+
 The LUXI protocol
 +++++++++++++++++
 
@@ -605,6 +607,8 @@ other threaded code (eg for the job queue) but in general these should
 be leaf locks or carefully structured non-leaf ones, to avoid deadlock
 race conditions.
 
+
+.. _jqueue-original-design:
 
 Job Queue
 ~~~~~~~~~

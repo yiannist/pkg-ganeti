@@ -5,13 +5,13 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Ganeti 2.0 design &mdash; Ganeti v2.4.5 documentation</title>
+    <title>Ganeti 2.0 design &mdash; Ganeti v2.5.0 documentation</title>
     <link rel="stylesheet" href="_static/default.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.4.5',
+        VERSION:     '2.5.0',
         COLLAPSE_MODINDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -19,7 +19,7 @@
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.4.5 documentation" href="index.html" />
+    <link rel="top" title="Ganeti v2.5.0 documentation" href="index.html" />
     <link rel="next" title="Ganeti 2.1 design" href="design-2.1.html" />
     <link rel="prev" title="Security in Ganeti" href="security.html" /> 
   </head>
@@ -33,7 +33,7 @@
         <li class="right" >
           <a href="security.html" title="Security in Ganeti"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.4.5 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.5.0 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -228,7 +228,7 @@ format and decode them on the receiver side.</p>
 <p>For more details about the RAPI daemon see <a class="reference internal" href="#remote-api-changes">Remote API changes</a>, and
 for the node daemon see <a class="reference internal" href="#node-daemon-changes">Node daemon changes</a>.</p>
 <div class="section" id="the-luxi-protocol">
-<h5>The LUXI protocol<a class="headerlink" href="#the-luxi-protocol" title="Permalink to this headline">¶</a></h5>
+<span id="luxi"></span><h5>The LUXI protocol<a class="headerlink" href="#the-luxi-protocol" title="Permalink to this headline">¶</a></h5>
 <p>As described above, the protocol for making requests or queries to the
 master daemon will be a UNIX-socket based simple RPC of JSON-encoded
 messages.</p>
@@ -615,7 +615,7 @@ race conditions.</p>
 </div>
 </div>
 <div class="section" id="job-queue">
-<h4>Job Queue<a class="headerlink" href="#job-queue" title="Permalink to this headline">¶</a></h4>
+<span id="jqueue-original-design"></span><h4>Job Queue<a class="headerlink" href="#job-queue" title="Permalink to this headline">¶</a></h4>
 <p>Granular locking is not enough to speed up operations, we also need a
 queue to store these and to be able to process as many as possible in
 parallel.</p>
@@ -2157,7 +2157,7 @@ to set, string</td>
         <li class="right" >
           <a href="security.html" title="Security in Ganeti"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.4.5 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.5.0 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

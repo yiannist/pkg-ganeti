@@ -51,6 +51,7 @@ LOG_HEADERS = {
   2: ""
   }
 
+
 class InstanceDown(Exception):
   """The checked instance was not up"""
 
@@ -73,8 +74,8 @@ def Log(msg, *args, **kwargs):
   """
   if args:
     msg = msg % args
-  indent = kwargs.get('indent', 0)
-  sys.stdout.write("%*s%s%s\n" % (2*indent, "",
+  indent = kwargs.get("indent", 0)
+  sys.stdout.write("%*s%s%s\n" % (2 * indent, "",
                                   LOG_HEADERS.get(indent, "  "), msg))
   sys.stdout.flush()
 
@@ -90,12 +91,12 @@ def Err(msg, exit_code=1):
 
 class SimpleOpener(urllib.FancyURLopener):
   """A simple url opener"""
-  # pylint: disable-msg=W0221
+  # pylint: disable=W0221
 
   def prompt_user_passwd(self, host, realm, clear_cache=0):
     """No-interaction version of prompt_user_passwd."""
     # we follow parent class' API
-    # pylint: disable-msg=W0613
+    # pylint: disable=W0613
     return None, None
 
   def http_error_default(self, url, fp, errcode, errmsg, headers):
@@ -185,7 +186,8 @@ OPTIONS = [
   cli.cli_option("-t", "--disk-template", dest="disk_template",
                  choices=list(constants.DISK_TEMPLATES),
                  default=constants.DT_DRBD8,
-                 help="Disk template (diskless, file, plain or drbd) [drbd]"),
+                 help="Disk template (diskless, file, plain, sharedfile"
+                 " or drbd) [drbd]"),
   cli.cli_option("-n", "--nodes", dest="nodes", default="",
                  help=("Comma separated list of nodes to perform"
                        " the burnin on (defaults to all nodes)"),
@@ -230,7 +232,7 @@ def _DoCheckInstances(fn):
   def wrapper(self, *args, **kwargs):
     val = fn(self, *args, **kwargs)
     for instance in self.instances:
-      self._CheckInstanceAlive(instance) # pylint: disable-msg=W0212
+      self._CheckInstanceAlive(instance) # pylint: disable=W0212
     return val
 
   return wrapper
@@ -310,7 +312,7 @@ class Burner(object):
         Log("Idempotent %s succeeded after %d retries",
             msg, MAX_RETRIES - retry_count)
       return val
-    except Exception, err: # pylint: disable-msg=W0703
+    except Exception, err: # pylint: disable=W0703
       if retry_count == 0:
         Log("Non-idempotent %s failed, aborting", msg)
         raise
@@ -356,7 +358,7 @@ class Burner(object):
       cli.SetGenericOpcodeOpts(ops, self.opts)
       self.queued_ops.append((ops, name, post_process))
     else:
-      val = self.ExecOp(self.queue_retry, *ops) # pylint: disable-msg=W0142
+      val = self.ExecOp(self.queue_retry, *ops) # pylint: disable=W0142
       if post_process is not None:
         post_process()
       return val
@@ -398,10 +400,10 @@ class Burner(object):
     self.ClearFeedbackBuf()
     jex = cli.JobExecutor(cl=self.cl, feedback_fn=self.Feedback)
     for ops, name, _ in jobs:
-      jex.QueueJob(name, *ops) # pylint: disable-msg=W0142
+      jex.QueueJob(name, *ops) # pylint: disable=W0142
     try:
       results = jex.GetResults()
-    except Exception, err: # pylint: disable-msg=W0703
+    except Exception, err: # pylint: disable=W0703
       Log("Jobs failed: %s", err)
       raise BurninFailure()
 
@@ -412,7 +414,7 @@ class Burner(object):
         if post_process:
           try:
             post_process()
-          except Exception, err: # pylint: disable-msg=W0703
+          except Exception, err: # pylint: disable=W0703
             Log("Post process call for job %s failed: %s", name, err)
             fail = True
         val.append(result)
@@ -442,6 +444,7 @@ class Burner(object):
 
     supported_disk_templates = (constants.DT_DISKLESS,
                                 constants.DT_FILE,
+                                constants.DT_SHARED_FILE,
                                 constants.DT_PLAIN,
                                 constants.DT_DRBD8)
     if options.disk_template not in supported_disk_templates:
@@ -553,7 +556,7 @@ class Burner(object):
       if self.opts.iallocator:
         pnode = snode = None
         msg = "with iallocator %s" % self.opts.iallocator
-      elif self.opts.disk_template not in constants.DTS_NET_MIRROR:
+      elif self.opts.disk_template not in constants.DTS_INT_MIRROR:
         snode = None
         msg = "on %s" % pnode
       else:
@@ -562,8 +565,8 @@ class Burner(object):
       Log(msg, indent=2)
 
       op = opcodes.OpInstanceCreate(instance_name=instance,
-                                    disks = [ {"size": size}
-                                              for size in self.disk_size],
+                                    disks=[{"size": size}
+                                           for size in self.disk_size],
                                     disk_template=self.opts.disk_template,
                                     nics=self.opts.nics,
                                     mode=constants.INSTANCE_CREATE,
@@ -701,7 +704,7 @@ class Burner(object):
         import_log_msg = ("import from %s"
                           " with iallocator %s" %
                           (enode, self.opts.iallocator))
-      elif self.opts.disk_template not in constants.DTS_NET_MIRROR:
+      elif self.opts.disk_template not in constants.DTS_INT_MIRROR:
         snode = None
         import_log_msg = ("import from %s to %s" %
                           (enode, pnode))
@@ -717,8 +720,8 @@ class Burner(object):
                                         ignore_failures=True)
       imp_dir = utils.PathJoin(constants.EXPORT_DIR, full_name)
       imp_op = opcodes.OpInstanceCreate(instance_name=instance,
-                                        disks = [ {"size": size}
-                                                  for size in self.disk_size],
+                                        disks=[{"size": size}
+                                               for size in self.disk_size],
                                         disk_template=self.opts.disk_template,
                                         nics=self.opts.nics,
                                         mode=constants.INSTANCE_IMPORT,
@@ -983,29 +986,31 @@ class Burner(object):
 
     if (len(self.nodes) == 1 and
         opts.disk_template not in (constants.DT_DISKLESS, constants.DT_PLAIN,
-                                   constants.DT_FILE)):
+                                   constants.DT_FILE,
+                                   constants.DT_SHARED_FILE)):
       Err("When one node is available/selected the disk template must"
           " be 'diskless', 'file' or 'plain'")
 
     has_err = True
     try:
       self.BurnCreateInstances()
-      if opts.do_replace1 and opts.disk_template in constants.DTS_NET_MIRROR:
+      if opts.do_replace1 and opts.disk_template in constants.DTS_INT_MIRROR:
         self.BurnReplaceDisks1D8()
       if (opts.do_replace2 and len(self.nodes) > 2 and
-          opts.disk_template in constants.DTS_NET_MIRROR) :
+          opts.disk_template in constants.DTS_INT_MIRROR):
         self.BurnReplaceDisks2()
 
       if (opts.disk_template in constants.DTS_GROWABLE and
           compat.any(n > 0 for n in self.disk_growth)):
         self.BurnGrowDisks()
 
-      if opts.do_failover and opts.disk_template in constants.DTS_NET_MIRROR:
+      if opts.do_failover and opts.disk_template in constants.DTS_MIRRORED:
         self.BurnFailover()
 
       if opts.do_migrate:
-        if opts.disk_template != constants.DT_DRBD8:
-          Log("Skipping migration (disk template not DRBD8)")
+        if opts.disk_template not in constants.DTS_MIRRORED:
+          Log("Skipping migration (disk template %s does not support it)",
+              opts.disk_template)
         elif not self.hv_class.CAN_MIGRATE:
           Log("Skipping migration (hypervisor %s does not support it)",
               self.hypervisor)
@@ -1018,6 +1023,7 @@ class Burner(object):
 
       if (opts.do_importexport and
           opts.disk_template not in (constants.DT_DISKLESS,
+                                     constants.DT_SHARED_FILE,
                                      constants.DT_FILE)):
         self.BurnImportExport()
 
@@ -1060,7 +1066,7 @@ class Burner(object):
       if not self.opts.keep_instances:
         try:
           self.BurnRemove()
-        except Exception, err:  # pylint: disable-msg=W0703
+        except Exception, err:  # pylint: disable=W0703
           if has_err: # already detected errors, so errors in removal
                       # are quite expected
             Log("Note: error detected during instance remove: %s", err)

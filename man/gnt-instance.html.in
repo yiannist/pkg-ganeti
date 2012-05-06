@@ -398,6 +398,38 @@
 	  >Valid for the KVM hypervisor.</p
 	  ></dd
 	><dt
+	>spice_bind</dt
+	><dd
+	><p
+	  >Valid for the KVM hypervisor.</p
+	  ><p
+	  >Specifies the address or interface on which the SPICE server will listen. Valid values are:</p
+	  ><ul
+	  ><li
+	    >IPv4 addresses, including 0.0.0.0 and 127.0.0.1</li
+	    ><li
+	    >IPv6 addresses, including :: and ::1</li
+	    ><li
+	    >names of network interfaces</li
+	    ></ul
+	  ><p
+	  >If a network interface is specified, the SPICE server will be bound to one of the addresses of that interface.</p
+	  ></dd
+	><dt
+	>spice_ip_version</dt
+	><dd
+	><p
+	  >Valid for the KVM hypervisor.</p
+	  ><p
+	  >Specifies which version of the IP protocol should be used by the SPICE server.</p
+	  ><p
+	  >It is mainly intended to be used for specifying what kind of IP addresses should be used if a network interface with both IPv4 and IPv6 addresses is specified via the <code
+	    >spice_bind</code
+	    > parameter. In this case, if the <code
+	    >spice_ip_version</code
+	    > parameter is not used, the default IP version of the cluster will be used.</p
+	  ></dd
+	><dt
 	>acpi</dt
 	><dd
 	><p
@@ -584,6 +616,28 @@
 	  >Valid for the KVM hypervisor.</p
 	  ><p
 	  >This option specifies the usb mouse type to be used. It can be &quot;mouse&quot; or &quot;tablet&quot;. When using VNC it's recommended to set it to &quot;tablet&quot;.</p
+	  ></dd
+	><dt
+	>keymap</dt
+	><dd
+	><p
+	  >Valid for the KVM hypervisor.</p
+	  ><p
+	  >This option specifies the keyboard mapping to be used. It is only needed when using the VNC console. For example: &quot;fr&quot; or &quot;en-gb&quot;.</p
+	  ></dd
+	><dt
+	>reboot_behavior</dt
+	><dd
+	><p
+	  >Valid for Xen PVM, Xen HVM and KVM hypervisors.</p
+	  ><p
+	  >Normally if an instance reboots, the hypervisor will restart it. If this option is set to <code
+	    >exit</code
+	    >, the hypervisor will treat a reboot as a shutdown instead.</p
+	  ><p
+	  >It is set to <code
+	    >reboot</code
+	    > by default.</p
 	  ></dd
 	></dl
       ><p
@@ -826,7 +880,7 @@ instance5: 11225
 	>remove</strong
 	> [--ignore-failures] [--shutdown-timeout=<em
 	>N</em
-	>] [--submit] {<em
+	>] [--submit] [--force] {<em
 	>instance</em
 	>}</p
       ><p
@@ -852,6 +906,10 @@ instance5: 11225
 	>gnt-job info</strong
 	>.</p
       ><p
+      >The <code
+	>--force</code
+	> option is used to skip the interactive confirmation.</p
+      ><p
       >Example:</p
       ><pre
       ><code
@@ -873,7 +931,7 @@ instance5: 11225
 	>] [-v]<br
 	 />[{-o|--output} <em
 	>[+]FIELD,...</em
-	>] [instance...]</p
+	>] [--filter] [instance...]</p
       ><p
       >Shows the currently configured instances with memory usage, disk usage, the node they are running on, and their run status.</p
       ><p
@@ -900,276 +958,1164 @@ instance5: 11225
 	> option takes a comma-separated list of output fields. The available fields and their meaning are:</p
       ><dl
       ><dt
-	>name</dt
-	><dd
-	><p
-	  >the instance name</p
-	  ></dd
-	><dt
-	>os</dt
-	><dd
-	><p
-	  >the OS of the instance</p
-	  ></dd
-	><dt
-	>pnode</dt
-	><dd
-	><p
-	  >the primary node of the instance</p
-	  ></dd
-	><dt
-	>snodes</dt
-	><dd
-	><p
-	  >comma-separated list of secondary nodes for the instance; usually this will be just one node</p
-	  ></dd
-	><dt
-	>admin_state</dt
-	><dd
-	><p
-	  >the desired state of the instance (either &quot;yes&quot; or &quot;no&quot; denoting the instance should run or not)</p
-	  ></dd
-	><dt
-	>disk_template</dt
-	><dd
-	><p
-	  >the disk template of the instance</p
-	  ></dd
-	><dt
-	>oper_state</dt
-	><dd
-	><p
-	  >the actual state of the instance; can be one of the values &quot;running&quot;, &quot;stopped&quot;, &quot;(node down)&quot;</p
-	  ></dd
-	><dt
-	>status</dt
-	><dd
-	><p
-	  >combined form of <code
-	    >admin_state</code
-	    > and <code
-	    >oper_stat</code
-	    >; this can be one of: <code
-	    >ERROR_nodedown</code
-	    > if the node of the instance is down, <code
-	    >ERROR_down</code
-	    > if the instance should run but is down, <code
-	    >ERROR_up</code
-	    > if the instance should be stopped but is actually running, <code
-	    >ERROR_wrongnode</code
-	    > if the instance is running but not on the primary, <code
-	    >ADMIN_down</code
-	    > if the instance has been stopped (and is stopped) and <code
-	    >running</code
-	    > if the instance is set to be running (and is running)</p
-	  ></dd
-	><dt
-	>oper_ram</dt
-	><dd
-	><p
-	  >the actual memory usage of the instance as seen by the hypervisor</p
-	  ></dd
-	><dt
-	>oper_vcpus</dt
-	><dd
-	><p
-	  >the actual number of VCPUs the instance is using as seen by the hypervisor</p
-	  ></dd
-	><dt
-	>ip</dt
-	><dd
-	><p
-	  >the ip address Ganeti recognizes as associated with the first instance interface</p
-	  ></dd
-	><dt
-	>mac</dt
-	><dd
-	><p
-	  >the first instance interface MAC address</p
-	  ></dd
-	><dt
-	>nic_mode</dt
-	><dd
-	><p
-	  >the mode of the first instance NIC (routed or bridged)</p
-	  ></dd
-	><dt
-	>nic_link</dt
-	><dd
-	><p
-	  >the link of the first instance NIC</p
-	  ></dd
-	><dt
-	>sda_size</dt
-	><dd
-	><p
-	  >the size of the instance's first disk</p
-	  ></dd
-	><dt
-	>sdb_size</dt
-	><dd
-	><p
-	  >the size of the instance's second disk, if any</p
-	  ></dd
-	><dt
-	>vcpus</dt
-	><dd
-	><p
-	  >the number of VCPUs allocated to the instance</p
-	  ></dd
-	><dt
-	>tags</dt
-	><dd
-	><p
-	  >comma-separated list of the instances's tags</p
-	  ></dd
-	><dt
-	>serial_no</dt
-	><dd
-	><p
-	  >the so called 'serial number' of the instance; this is a numeric field that is incremented each time the instance is modified, and it can be used to track modifications</p
-	  ></dd
-	><dt
-	>ctime</dt
-	><dd
-	><p
-	  >the creation time of the instance; note that this field contains spaces and as such it's harder to parse</p
-	  ><p
-	  >if this attribute is not present (e.g. when upgrading from older versions), then &quot;N/A&quot; will be shown instead</p
-	  ></dd
-	><dt
-	>mtime</dt
-	><dd
-	><p
-	  >the last modification time of the instance; note that this field contains spaces and as such it's harder to parse</p
-	  ><p
-	  >if this attribute is not present (e.g. when upgrading from older versions), then &quot;N/A&quot; will be shown instead</p
-	  ></dd
-	><dt
-	>uuid</dt
-	><dd
-	><p
-	  >Show the UUID of the instance (generated automatically by Ganeti)</p
-	  ></dd
-	><dt
-	>network_port</dt
-	><dd
-	><p
-	  >If the instance has a network port assigned to it (e.g. for VNC connections), this will be shown, otherwise - will be displayed.</p
-	  ></dd
-	><dt
-	>beparams</dt
-	><dd
-	><p
-	  >A text format of the entire beparams for the instance. It's more useful to select individual fields from this dictionary, see below.</p
-	  ></dd
-	><dt
-	>disk.count</dt
-	><dd
-	><p
-	  >The number of instance disks.</p
-	  ></dd
-	><dt
-	>disk.size/N</dt
-	><dd
-	><p
-	  >The size of the instance's Nth disk. This is a more generic form of the sda_size and sdb_size fields.</p
-	  ></dd
-	><dt
-	>disk.sizes</dt
-	><dd
-	><p
-	  >A comma-separated list of the disk sizes for this instance.</p
-	  ></dd
-	><dt
-	>disk_usage</dt
-	><dd
-	><p
-	  >The total disk space used by this instance on each of its nodes. This is not the instance-visible disk size, but the actual disk &quot;cost&quot; of the instance.</p
-	  ></dd
-	><dt
-	>nic.mac/N</dt
-	><dd
-	><p
-	  >The MAC of the Nth instance NIC.</p
-	  ></dd
-	><dt
-	>nic.ip/N</dt
-	><dd
-	><p
-	  >The IP address of the Nth instance NIC.</p
-	  ></dd
-	><dt
-	>nic.mode/N</dt
-	><dd
-	><p
-	  >The mode of the Nth instance NIC</p
-	  ></dd
-	><dt
-	>nic.link/N</dt
-	><dd
-	><p
-	  >The link of the Nth instance NIC</p
-	  ></dd
-	><dt
-	>nic.macs</dt
-	><dd
-	><p
-	  >A comma-separated list of all the MACs of the instance's NICs.</p
-	  ></dd
-	><dt
-	>nic.ips</dt
-	><dd
-	><p
-	  >A comma-separated list of all the IP addresses of the instance's NICs.</p
-	  ></dd
-	><dt
-	>nic.modes</dt
-	><dd
-	><p
-	  >A comma-separated list of all the modes of the instance's NICs.</p
-	  ></dd
-	><dt
-	>nic.links</dt
-	><dd
-	><p
-	  >A comma-separated list of all the link parameters of the instance's NICs.</p
-	  ></dd
-	><dt
-	>nic.count</dt
-	><dd
-	><p
-	  >The number of instance nics.</p
-	  ></dd
-	><dt
-	>hv/<em
-	  >NAME</em
+	><code
+	  >admin_state</code
 	  ></dt
 	><dd
 	><p
-	  >The value of the hypervisor parameter called <em
-	    >NAME</em
-	    >. For details of what hypervisor parameters exist and their meaning, see the <strong
-	    >add</strong
-	    > command.</p
+	  >Desired state of instance (if set, the instance should be up)</p
 	  ></dd
 	><dt
-	>be/memory</dt
+	><code
+	  >be/auto_balance</code
+	  ></dt
 	><dd
 	><p
-	  >The configured memory for the instance.</p
+	  >The &quot;auto_balance&quot; backend parameter</p
 	  ></dd
 	><dt
-	>be/vcpus</dt
+	><code
+	  >be/memory</code
+	  ></dt
 	><dd
 	><p
-	  >The configured number of VCPUs for the instance.</p
+	  >The &quot;memory&quot; backend parameter</p
 	  ></dd
 	><dt
-	>be/auto_balance</dt
+	><code
+	  >be/vcpus</code
+	  ></dt
 	><dd
 	><p
-	  >Whether the instance is considered in N+1 checks.</p
+	  >The &quot;vcpus&quot; backend parameter</p
+	  ></dd
+	><dt
+	><code
+	  >beparams</code
+	  ></dt
+	><dd
+	><p
+	  >Backend parameters (merged)</p
+	  ></dd
+	><dt
+	><code
+	  >bridge</code
+	  ></dt
+	><dd
+	><p
+	  >Bridge of 1st network interface</p
+	  ></dd
+	><dt
+	><code
+	  >console</code
+	  ></dt
+	><dd
+	><p
+	  >Instance console information</p
+	  ></dd
+	><dt
+	><code
+	  >ctime</code
+	  ></dt
+	><dd
+	><p
+	  >Creation timestamp</p
+	  ></dd
+	><dt
+	><code
+	  >custom_beparams</code
+	  ></dt
+	><dd
+	><p
+	  >Custom backend parameters</p
+	  ></dd
+	><dt
+	><code
+	  >custom_hvparams</code
+	  ></dt
+	><dd
+	><p
+	  >Custom hypervisor parameters</p
+	  ></dd
+	><dt
+	><code
+	  >custom_nicparams</code
+	  ></dt
+	><dd
+	><p
+	  >Custom network interface parameters</p
+	  ></dd
+	><dt
+	><code
+	  >custom_osparams</code
+	  ></dt
+	><dd
+	><p
+	  >Custom operating system parameters</p
+	  ></dd
+	><dt
+	><code
+	  >disk.count</code
+	  ></dt
+	><dd
+	><p
+	  >Number of disks</p
+	  ></dd
+	><dt
+	><code
+	  >disk.size/0</code
+	  ></dt
+	><dd
+	><p
+	  >Disk size of 1st disk</p
+	  ></dd
+	><dt
+	><code
+	  >disk.size/1</code
+	  ></dt
+	><dd
+	><p
+	  >Disk size of 2nd disk</p
+	  ></dd
+	><dt
+	><code
+	  >disk.size/2</code
+	  ></dt
+	><dd
+	><p
+	  >Disk size of 3rd disk</p
+	  ></dd
+	><dt
+	><code
+	  >disk.size/3</code
+	  ></dt
+	><dd
+	><p
+	  >Disk size of 4th disk</p
+	  ></dd
+	><dt
+	><code
+	  >disk.size/4</code
+	  ></dt
+	><dd
+	><p
+	  >Disk size of 5th disk</p
+	  ></dd
+	><dt
+	><code
+	  >disk.size/5</code
+	  ></dt
+	><dd
+	><p
+	  >Disk size of 6th disk</p
+	  ></dd
+	><dt
+	><code
+	  >disk.size/6</code
+	  ></dt
+	><dd
+	><p
+	  >Disk size of 7th disk</p
+	  ></dd
+	><dt
+	><code
+	  >disk.size/7</code
+	  ></dt
+	><dd
+	><p
+	  >Disk size of 8th disk</p
+	  ></dd
+	><dt
+	><code
+	  >disk.size/8</code
+	  ></dt
+	><dd
+	><p
+	  >Disk size of 9th disk</p
+	  ></dd
+	><dt
+	><code
+	  >disk.size/9</code
+	  ></dt
+	><dd
+	><p
+	  >Disk size of 10th disk</p
+	  ></dd
+	><dt
+	><code
+	  >disk.size/10</code
+	  ></dt
+	><dd
+	><p
+	  >Disk size of 11th disk</p
+	  ></dd
+	><dt
+	><code
+	  >disk.size/11</code
+	  ></dt
+	><dd
+	><p
+	  >Disk size of 12th disk</p
+	  ></dd
+	><dt
+	><code
+	  >disk.size/12</code
+	  ></dt
+	><dd
+	><p
+	  >Disk size of 13th disk</p
+	  ></dd
+	><dt
+	><code
+	  >disk.size/13</code
+	  ></dt
+	><dd
+	><p
+	  >Disk size of 14th disk</p
+	  ></dd
+	><dt
+	><code
+	  >disk.size/14</code
+	  ></dt
+	><dd
+	><p
+	  >Disk size of 15th disk</p
+	  ></dd
+	><dt
+	><code
+	  >disk.size/15</code
+	  ></dt
+	><dd
+	><p
+	  >Disk size of 16th disk</p
+	  ></dd
+	><dt
+	><code
+	  >disk.sizes</code
+	  ></dt
+	><dd
+	><p
+	  >List of disk sizes</p
+	  ></dd
+	><dt
+	><code
+	  >disk_template</code
+	  ></dt
+	><dd
+	><p
+	  >Instance disk template</p
+	  ></dd
+	><dt
+	><code
+	  >disk_usage</code
+	  ></dt
+	><dd
+	><p
+	  >Total disk space used by instance on each of its nodes; this is not the disk size visible to the instance, but the usage on the node</p
+	  ></dd
+	><dt
+	><code
+	  >hv/acpi</code
+	  ></dt
+	><dd
+	><p
+	  >The &quot;acpi&quot; hypervisor parameter</p
+	  ></dd
+	><dt
+	><code
+	  >hv/blockdev_prefix</code
+	  ></dt
+	><dd
+	><p
+	  >The &quot;blockdev_prefix&quot; hypervisor parameter</p
+	  ></dd
+	><dt
+	><code
+	  >hv/boot_order</code
+	  ></dt
+	><dd
+	><p
+	  >The &quot;boot_order&quot; hypervisor parameter</p
+	  ></dd
+	><dt
+	><code
+	  >hv/bootloader_args</code
+	  ></dt
+	><dd
+	><p
+	  >The &quot;bootloader_args&quot; hypervisor parameter</p
+	  ></dd
+	><dt
+	><code
+	  >hv/bootloader_path</code
+	  ></dt
+	><dd
+	><p
+	  >The &quot;bootloader_path&quot; hypervisor parameter</p
+	  ></dd
+	><dt
+	><code
+	  >hv/cdrom2_image_path</code
+	  ></dt
+	><dd
+	><p
+	  >The &quot;cdrom2_image_path&quot; hypervisor parameter</p
+	  ></dd
+	><dt
+	><code
+	  >hv/cdrom_disk_type</code
+	  ></dt
+	><dd
+	><p
+	  >The &quot;cdrom_disk_type&quot; hypervisor parameter</p
+	  ></dd
+	><dt
+	><code
+	  >hv/cdrom_image_path</code
+	  ></dt
+	><dd
+	><p
+	  >The &quot;cdrom_image_path&quot; hypervisor parameter</p
+	  ></dd
+	><dt
+	><code
+	  >hv/cpu_mask</code
+	  ></dt
+	><dd
+	><p
+	  >The &quot;cpu_mask&quot; hypervisor parameter</p
+	  ></dd
+	><dt
+	><code
+	  >hv/device_model</code
+	  ></dt
+	><dd
+	><p
+	  >The &quot;device_model&quot; hypervisor parameter</p
+	  ></dd
+	><dt
+	><code
+	  >hv/disk_cache</code
+	  ></dt
+	><dd
+	><p
+	  >The &quot;disk_cache&quot; hypervisor parameter</p
+	  ></dd
+	><dt
+	><code
+	  >hv/disk_type</code
+	  ></dt
+	><dd
+	><p
+	  >The &quot;disk_type&quot; hypervisor parameter</p
+	  ></dd
+	><dt
+	><code
+	  >hv/floppy_image_path</code
+	  ></dt
+	><dd
+	><p
+	  >The &quot;floppy_image_path&quot; hypervisor parameter</p
+	  ></dd
+	><dt
+	><code
+	  >hv/init_script</code
+	  ></dt
+	><dd
+	><p
+	  >The &quot;init_script&quot; hypervisor parameter</p
+	  ></dd
+	><dt
+	><code
+	  >hv/initrd_path</code
+	  ></dt
+	><dd
+	><p
+	  >The &quot;initrd_path&quot; hypervisor parameter</p
+	  ></dd
+	><dt
+	><code
+	  >hv/kernel_args</code
+	  ></dt
+	><dd
+	><p
+	  >The &quot;kernel_args&quot; hypervisor parameter</p
+	  ></dd
+	><dt
+	><code
+	  >hv/kernel_path</code
+	  ></dt
+	><dd
+	><p
+	  >The &quot;kernel_path&quot; hypervisor parameter</p
+	  ></dd
+	><dt
+	><code
+	  >hv/keymap</code
+	  ></dt
+	><dd
+	><p
+	  >The &quot;keymap&quot; hypervisor parameter</p
+	  ></dd
+	><dt
+	><code
+	  >hv/kvm_flag</code
+	  ></dt
+	><dd
+	><p
+	  >The &quot;kvm_flag&quot; hypervisor parameter</p
+	  ></dd
+	><dt
+	><code
+	  >hv/mem_path</code
+	  ></dt
+	><dd
+	><p
+	  >The &quot;mem_path&quot; hypervisor parameter</p
+	  ></dd
+	><dt
+	><code
+	  >hv/migration_downtime</code
+	  ></dt
+	><dd
+	><p
+	  >The &quot;migration_downtime&quot; hypervisor parameter</p
+	  ></dd
+	><dt
+	><code
+	  >hv/nic_type</code
+	  ></dt
+	><dd
+	><p
+	  >The &quot;nic_type&quot; hypervisor parameter</p
+	  ></dd
+	><dt
+	><code
+	  >hv/pae</code
+	  ></dt
+	><dd
+	><p
+	  >The &quot;pae&quot; hypervisor parameter</p
+	  ></dd
+	><dt
+	><code
+	  >hv/reboot_behavior</code
+	  ></dt
+	><dd
+	><p
+	  >The &quot;reboot_behavior&quot; hypervisor parameter</p
+	  ></dd
+	><dt
+	><code
+	  >hv/root_path</code
+	  ></dt
+	><dd
+	><p
+	  >The &quot;root_path&quot; hypervisor parameter</p
+	  ></dd
+	><dt
+	><code
+	  >hv/security_domain</code
+	  ></dt
+	><dd
+	><p
+	  >The &quot;security_domain&quot; hypervisor parameter</p
+	  ></dd
+	><dt
+	><code
+	  >hv/security_model</code
+	  ></dt
+	><dd
+	><p
+	  >The &quot;security_model&quot; hypervisor parameter</p
+	  ></dd
+	><dt
+	><code
+	  >hv/serial_console</code
+	  ></dt
+	><dd
+	><p
+	  >The &quot;serial_console&quot; hypervisor parameter</p
+	  ></dd
+	><dt
+	><code
+	  >hv/spice_bind</code
+	  ></dt
+	><dd
+	><p
+	  >The &quot;spice_bind&quot; hypervisor parameter</p
+	  ></dd
+	><dt
+	><code
+	  >hv/spice_ip_version</code
+	  ></dt
+	><dd
+	><p
+	  >The &quot;spice_ip_version&quot; hypervisor parameter</p
+	  ></dd
+	><dt
+	><code
+	  >hv/usb_mouse</code
+	  ></dt
+	><dd
+	><p
+	  >The &quot;usb_mouse&quot; hypervisor parameter</p
+	  ></dd
+	><dt
+	><code
+	  >hv/use_bootloader</code
+	  ></dt
+	><dd
+	><p
+	  >The &quot;use_bootloader&quot; hypervisor parameter</p
+	  ></dd
+	><dt
+	><code
+	  >hv/use_chroot</code
+	  ></dt
+	><dd
+	><p
+	  >The &quot;use_chroot&quot; hypervisor parameter</p
+	  ></dd
+	><dt
+	><code
+	  >hv/use_localtime</code
+	  ></dt
+	><dd
+	><p
+	  >The &quot;use_localtime&quot; hypervisor parameter</p
+	  ></dd
+	><dt
+	><code
+	  >hv/vhost_net</code
+	  ></dt
+	><dd
+	><p
+	  >The &quot;vhost_net&quot; hypervisor parameter</p
+	  ></dd
+	><dt
+	><code
+	  >hv/vnc_bind_address</code
+	  ></dt
+	><dd
+	><p
+	  >The &quot;vnc_bind_address&quot; hypervisor parameter</p
+	  ></dd
+	><dt
+	><code
+	  >hv/vnc_password_file</code
+	  ></dt
+	><dd
+	><p
+	  >The &quot;vnc_password_file&quot; hypervisor parameter</p
+	  ></dd
+	><dt
+	><code
+	  >hv/vnc_tls</code
+	  ></dt
+	><dd
+	><p
+	  >The &quot;vnc_tls&quot; hypervisor parameter</p
+	  ></dd
+	><dt
+	><code
+	  >hv/vnc_x509_path</code
+	  ></dt
+	><dd
+	><p
+	  >The &quot;vnc_x509_path&quot; hypervisor parameter</p
+	  ></dd
+	><dt
+	><code
+	  >hv/vnc_x509_verify</code
+	  ></dt
+	><dd
+	><p
+	  >The &quot;vnc_x509_verify&quot; hypervisor parameter</p
+	  ></dd
+	><dt
+	><code
+	  >hvparams</code
+	  ></dt
+	><dd
+	><p
+	  >Hypervisor parameters (merged)</p
+	  ></dd
+	><dt
+	><code
+	  >hypervisor</code
+	  ></dt
+	><dd
+	><p
+	  >Hypervisor name</p
+	  ></dd
+	><dt
+	><code
+	  >ip</code
+	  ></dt
+	><dd
+	><p
+	  >IP address of 1st network interface</p
+	  ></dd
+	><dt
+	><code
+	  >mac</code
+	  ></dt
+	><dd
+	><p
+	  >MAC address of 1st network interface</p
+	  ></dd
+	><dt
+	><code
+	  >mtime</code
+	  ></dt
+	><dd
+	><p
+	  >Modification timestamp</p
+	  ></dd
+	><dt
+	><code
+	  >name</code
+	  ></dt
+	><dd
+	><p
+	  >Instance name</p
+	  ></dd
+	><dt
+	><code
+	  >network_port</code
+	  ></dt
+	><dd
+	><p
+	  >Instance network port if available (e.g. for VNC console)</p
+	  ></dd
+	><dt
+	><code
+	  >nic.bridge/0</code
+	  ></dt
+	><dd
+	><p
+	  >Bridge of 1st network interface</p
+	  ></dd
+	><dt
+	><code
+	  >nic.bridge/1</code
+	  ></dt
+	><dd
+	><p
+	  >Bridge of 2nd network interface</p
+	  ></dd
+	><dt
+	><code
+	  >nic.bridge/2</code
+	  ></dt
+	><dd
+	><p
+	  >Bridge of 3rd network interface</p
+	  ></dd
+	><dt
+	><code
+	  >nic.bridge/3</code
+	  ></dt
+	><dd
+	><p
+	  >Bridge of 4th network interface</p
+	  ></dd
+	><dt
+	><code
+	  >nic.bridge/4</code
+	  ></dt
+	><dd
+	><p
+	  >Bridge of 5th network interface</p
+	  ></dd
+	><dt
+	><code
+	  >nic.bridge/5</code
+	  ></dt
+	><dd
+	><p
+	  >Bridge of 6th network interface</p
+	  ></dd
+	><dt
+	><code
+	  >nic.bridge/6</code
+	  ></dt
+	><dd
+	><p
+	  >Bridge of 7th network interface</p
+	  ></dd
+	><dt
+	><code
+	  >nic.bridge/7</code
+	  ></dt
+	><dd
+	><p
+	  >Bridge of 8th network interface</p
+	  ></dd
+	><dt
+	><code
+	  >nic.bridges</code
+	  ></dt
+	><dd
+	><p
+	  >List containing each network interface's bridge</p
+	  ></dd
+	><dt
+	><code
+	  >nic.count</code
+	  ></dt
+	><dd
+	><p
+	  >Number of network interfaces</p
+	  ></dd
+	><dt
+	><code
+	  >nic.ip/0</code
+	  ></dt
+	><dd
+	><p
+	  >IP address of 1st network interface</p
+	  ></dd
+	><dt
+	><code
+	  >nic.ip/1</code
+	  ></dt
+	><dd
+	><p
+	  >IP address of 2nd network interface</p
+	  ></dd
+	><dt
+	><code
+	  >nic.ip/2</code
+	  ></dt
+	><dd
+	><p
+	  >IP address of 3rd network interface</p
+	  ></dd
+	><dt
+	><code
+	  >nic.ip/3</code
+	  ></dt
+	><dd
+	><p
+	  >IP address of 4th network interface</p
+	  ></dd
+	><dt
+	><code
+	  >nic.ip/4</code
+	  ></dt
+	><dd
+	><p
+	  >IP address of 5th network interface</p
+	  ></dd
+	><dt
+	><code
+	  >nic.ip/5</code
+	  ></dt
+	><dd
+	><p
+	  >IP address of 6th network interface</p
+	  ></dd
+	><dt
+	><code
+	  >nic.ip/6</code
+	  ></dt
+	><dd
+	><p
+	  >IP address of 7th network interface</p
+	  ></dd
+	><dt
+	><code
+	  >nic.ip/7</code
+	  ></dt
+	><dd
+	><p
+	  >IP address of 8th network interface</p
+	  ></dd
+	><dt
+	><code
+	  >nic.ips</code
+	  ></dt
+	><dd
+	><p
+	  >List containing each network interface's IP address</p
+	  ></dd
+	><dt
+	><code
+	  >nic.link/0</code
+	  ></dt
+	><dd
+	><p
+	  >Link of 1st network interface</p
+	  ></dd
+	><dt
+	><code
+	  >nic.link/1</code
+	  ></dt
+	><dd
+	><p
+	  >Link of 2nd network interface</p
+	  ></dd
+	><dt
+	><code
+	  >nic.link/2</code
+	  ></dt
+	><dd
+	><p
+	  >Link of 3rd network interface</p
+	  ></dd
+	><dt
+	><code
+	  >nic.link/3</code
+	  ></dt
+	><dd
+	><p
+	  >Link of 4th network interface</p
+	  ></dd
+	><dt
+	><code
+	  >nic.link/4</code
+	  ></dt
+	><dd
+	><p
+	  >Link of 5th network interface</p
+	  ></dd
+	><dt
+	><code
+	  >nic.link/5</code
+	  ></dt
+	><dd
+	><p
+	  >Link of 6th network interface</p
+	  ></dd
+	><dt
+	><code
+	  >nic.link/6</code
+	  ></dt
+	><dd
+	><p
+	  >Link of 7th network interface</p
+	  ></dd
+	><dt
+	><code
+	  >nic.link/7</code
+	  ></dt
+	><dd
+	><p
+	  >Link of 8th network interface</p
+	  ></dd
+	><dt
+	><code
+	  >nic.links</code
+	  ></dt
+	><dd
+	><p
+	  >List containing each network interface's link</p
+	  ></dd
+	><dt
+	><code
+	  >nic.mac/0</code
+	  ></dt
+	><dd
+	><p
+	  >MAC address of 1st network interface</p
+	  ></dd
+	><dt
+	><code
+	  >nic.mac/1</code
+	  ></dt
+	><dd
+	><p
+	  >MAC address of 2nd network interface</p
+	  ></dd
+	><dt
+	><code
+	  >nic.mac/2</code
+	  ></dt
+	><dd
+	><p
+	  >MAC address of 3rd network interface</p
+	  ></dd
+	><dt
+	><code
+	  >nic.mac/3</code
+	  ></dt
+	><dd
+	><p
+	  >MAC address of 4th network interface</p
+	  ></dd
+	><dt
+	><code
+	  >nic.mac/4</code
+	  ></dt
+	><dd
+	><p
+	  >MAC address of 5th network interface</p
+	  ></dd
+	><dt
+	><code
+	  >nic.mac/5</code
+	  ></dt
+	><dd
+	><p
+	  >MAC address of 6th network interface</p
+	  ></dd
+	><dt
+	><code
+	  >nic.mac/6</code
+	  ></dt
+	><dd
+	><p
+	  >MAC address of 7th network interface</p
+	  ></dd
+	><dt
+	><code
+	  >nic.mac/7</code
+	  ></dt
+	><dd
+	><p
+	  >MAC address of 8th network interface</p
+	  ></dd
+	><dt
+	><code
+	  >nic.macs</code
+	  ></dt
+	><dd
+	><p
+	  >List containing each network interface's MAC address</p
+	  ></dd
+	><dt
+	><code
+	  >nic.mode/0</code
+	  ></dt
+	><dd
+	><p
+	  >Mode of 1st network interface</p
+	  ></dd
+	><dt
+	><code
+	  >nic.mode/1</code
+	  ></dt
+	><dd
+	><p
+	  >Mode of 2nd network interface</p
+	  ></dd
+	><dt
+	><code
+	  >nic.mode/2</code
+	  ></dt
+	><dd
+	><p
+	  >Mode of 3rd network interface</p
+	  ></dd
+	><dt
+	><code
+	  >nic.mode/3</code
+	  ></dt
+	><dd
+	><p
+	  >Mode of 4th network interface</p
+	  ></dd
+	><dt
+	><code
+	  >nic.mode/4</code
+	  ></dt
+	><dd
+	><p
+	  >Mode of 5th network interface</p
+	  ></dd
+	><dt
+	><code
+	  >nic.mode/5</code
+	  ></dt
+	><dd
+	><p
+	  >Mode of 6th network interface</p
+	  ></dd
+	><dt
+	><code
+	  >nic.mode/6</code
+	  ></dt
+	><dd
+	><p
+	  >Mode of 7th network interface</p
+	  ></dd
+	><dt
+	><code
+	  >nic.mode/7</code
+	  ></dt
+	><dd
+	><p
+	  >Mode of 8th network interface</p
+	  ></dd
+	><dt
+	><code
+	  >nic.modes</code
+	  ></dt
+	><dd
+	><p
+	  >List containing each network interface's mode</p
+	  ></dd
+	><dt
+	><code
+	  >nic_link</code
+	  ></dt
+	><dd
+	><p
+	  >Link of 1st network interface</p
+	  ></dd
+	><dt
+	><code
+	  >nic_mode</code
+	  ></dt
+	><dd
+	><p
+	  >Mode of 1st network interface</p
+	  ></dd
+	><dt
+	><code
+	  >oper_ram</code
+	  ></dt
+	><dd
+	><p
+	  >Actual memory usage as seen by hypervisor</p
+	  ></dd
+	><dt
+	><code
+	  >oper_state</code
+	  ></dt
+	><dd
+	><p
+	  >Actual state of instance</p
+	  ></dd
+	><dt
+	><code
+	  >oper_vcpus</code
+	  ></dt
+	><dd
+	><p
+	  >Actual number of VCPUs as seen by hypervisor</p
+	  ></dd
+	><dt
+	><code
+	  >os</code
+	  ></dt
+	><dd
+	><p
+	  >Operating system</p
+	  ></dd
+	><dt
+	><code
+	  >osparams</code
+	  ></dt
+	><dd
+	><p
+	  >Operating system parameters (merged)</p
+	  ></dd
+	><dt
+	><code
+	  >pnode</code
+	  ></dt
+	><dd
+	><p
+	  >Primary node</p
+	  ></dd
+	><dt
+	><code
+	  >pnode.group</code
+	  ></dt
+	><dd
+	><p
+	  >Primary node's group</p
+	  ></dd
+	><dt
+	><code
+	  >pnode.group.uuid</code
+	  ></dt
+	><dd
+	><p
+	  >Primary node's group UUID</p
+	  ></dd
+	><dt
+	><code
+	  >sda_size</code
+	  ></dt
+	><dd
+	><p
+	  >Disk size of 1st disk</p
+	  ></dd
+	><dt
+	><code
+	  >sdb_size</code
+	  ></dt
+	><dd
+	><p
+	  >Disk size of 2nd disk</p
+	  ></dd
+	><dt
+	><code
+	  >serial_no</code
+	  ></dt
+	><dd
+	><p
+	  >Instance object serial number, incremented on each modification</p
+	  ></dd
+	><dt
+	><code
+	  >snodes</code
+	  ></dt
+	><dd
+	><p
+	  >Secondary nodes; usually this will just be one node</p
+	  ></dd
+	><dt
+	><code
+	  >snodes.group</code
+	  ></dt
+	><dd
+	><p
+	  >Node groups of secondary nodes</p
+	  ></dd
+	><dt
+	><code
+	  >snodes.group.uuid</code
+	  ></dt
+	><dd
+	><p
+	  >Node group UUIDs of secondary nodes</p
+	  ></dd
+	><dt
+	><code
+	  >status</code
+	  ></dt
+	><dd
+	><p
+	  >Instance status; &quot;running&quot; if instance is set to be running and actually is, &quot;ADMIN_down&quot; if instance is stopped and is not running, &quot;ERROR_wrongnode&quot; if instance running, but not on its designated primary node, &quot;ERROR_up&quot; if instance should be stopped, but is actually running, &quot;ERROR_down&quot; if instance should run, but doesn't, &quot;ERROR_nodedown&quot; if instance's primary node is down, &quot;ERROR_nodeoffline&quot; if instance's primary node is marked offline</p
+	  ></dd
+	><dt
+	><code
+	  >tags</code
+	  ></dt
+	><dd
+	><p
+	  >Tags</p
+	  ></dd
+	><dt
+	><code
+	  >uuid</code
+	  ></dt
+	><dd
+	><p
+	  >Instance UUID</p
+	  ></dd
+	><dt
+	><code
+	  >vcpus</code
+	  ></dt
+	><dd
+	><p
+	  >The &quot;vcpus&quot; backend parameter</p
 	  ></dd
 	></dl
       ><p
@@ -1187,7 +2133,29 @@ instance5: 11225
 	>status</code
 	> are configuration value and not run-time values. So if you don't select any of the these fields, the query will be satisfied instantly from the cluster configuration, without having to ask the remote nodes for the data. This can be helpful for big clusters when you only want some data and it makes sense to specify a reduced set of output fields.</p
       ><p
-      >The default output field list is: name, os, pnode, admin_state, oper_state, oper_ram.</p
+      >If exactly one argument is given and it appears to be a query filter (see <strong
+	>ganeti(7)</strong
+	>), the query result is filtered accordingly. For ambiguous cases (e.g. a single field name as a filter) the <code
+	>--filter</code
+	> (<code
+	>-F</code
+	>) option forces the argument to be treated as a filter (e.g. <code
+	>gnt-instance list -F admin_state</code
+	>).</p
+      ><p
+      >The default output field list is: <code
+	>name</code
+	>, <code
+	>os</code
+	>, <code
+	>pnode</code
+	>, <code
+	>admin_state</code
+	>, <code
+	>oper_state</code
+	>, <code
+	>oper_ram</code
+	>.</p
       ></div
     ></div
   ><div id="list-fields"
@@ -1423,7 +2391,7 @@ instance5: 11225
       ><p
       >The <code
 	>--no-name-check</code
-	> skips the check for the new instance name via the resolver (e.g. in DNS or /etc/hosts, depending on your setup). Since the name check is used to compute the IP address, if you pass this option you must also pass the <code
+	> skips the check for the new instance name via the resolver (e.g. in DNS or /etc/hosts, depending on your setup) and that the resolved name matches the provided name. Since the name check is used to compute the IP address, if you pass this option you must also pass the <code
 	>--no-ip-check</code
 	> option.</p
       ><p
@@ -1454,7 +2422,7 @@ instance5: 11225
 	 />[{-B|--backend-parameters} <code
 	>key=value...</code
 	>]<br
-	 />[--submit]<br
+	 />[--submit] [--paused]<br
 	 />{<em
 	>name</em
 	>...}</p
@@ -1540,16 +2508,22 @@ instance5: 11225
 	> options specify temporary hypervisor and backend parameters that can be used to start an instance with modified parameters. They can be useful for quick testing without having to modify an instance back and forth, e.g.:</p
       ><pre
       ><code
-	># gnt-instance start -H root_args=&quot;single&quot; instance1
+	># gnt-instance start -H kernel_args=&quot;single&quot; instance1
 # gnt-instance start -B memory=2048 instance2
 </code
 	></pre
       ><p
-      >The first form will start the instance instance1 in single-user mode, and the instance instance2 with 2GB of RAM (this time only, unless that is the actual instance memory size already). Note that the values override the instance parameters (and not extend them): an instance with &quot;root_args=ro&quot; when started with -H root_args=single will result in &quot;single&quot;, not &quot;ro single&quot;. The <code
+      >The first form will start the instance instance1 in single-user mode, and the instance instance2 with 2GB of RAM (this time only, unless that is the actual instance memory size already). Note that the values override the instance parameters (and not extend them): an instance with &quot;kernel_args=ro&quot; when started with -H kernel_args=single will result in &quot;single&quot;, not &quot;ro single&quot;. The <code
 	>--submit</code
 	> option is used to send the job to the master daemon but not wait for its completion. The job ID will be shown so that it can be examined via <strong
 	>gnt-job info</strong
 	>.</p
+      ><p
+      >The <code
+	>--paused</code
+	> option is only valid for Xen and kvm hypervisors. This pauses the instance at the start of bootup, awaiting <code
+	>gnt-instance console</code
+	> to unpause it, allowing the entire boot process to be monitored for debugging.</p
       ><p
       >Example:</p
       ><pre
@@ -1719,6 +2693,8 @@ instance5: 11225
       >For HVM instances, this will attempt to connect to the serial console of the instance. To connect to the virtualized &quot;physical&quot; console of a HVM instance, use a VNC client with the connection info from the <strong
 	>info</strong
 	> command.</p
+      ><p
+      >For Xen/kvm instances, if the instance is paused, this attempts to unpause the instance after waiting a few seconds for the connection to the console to be made.</p
       ><p
       >Example:</p
       ><pre
@@ -1988,7 +2964,7 @@ node1.example.com:disk/1:/dev/drbd1
 	>instance</em
 	>}</p
       ><p
-      >Failover will fail the instance over its secondary node. This works only for instances having a drbd disk template.</p
+      >Failover will stop the instance (if running), change its primary node, and if it was originally running it will start it again (on the new primary). This only works for instances with drbd template (in which case you can only fail to the secondary node) and for externally mirrored templates (shared storage) (which can change to any other node).</p
       ><p
       >Normally the failover will check the consistency of the disks before failing over the instance. If you are trying to migrate instances off a dead node, this will fail. Use the <code
 	>--ignore-consistency</code
@@ -2023,7 +2999,7 @@ node1.example.com:disk/1:/dev/drbd1
       ><p
       ><strong
 	>migrate</strong
-	> [-f] [--non-live] [--migration-mode=live|non-live] {<em
+	> [-f] [--allow-failover] [--non-live] [--migration-mode=live|non-live] {<em
 	>instance</em
 	>}</p
       ><p
@@ -2050,6 +3026,10 @@ node1.example.com:disk/1:/dev/drbd1
       >The option <code
 	>-f</code
 	> will skip the prompting for confirmation.</p
+      ><p
+      >If <code
+	>--allow-failover</code
+	> is specified it tries to fallback to failover if it already can determine that a migration wont work (i.e. if the instance is shutdown). Please note that the fallback will not happen during execution. If a migration fails during execution it still fails.</p
       ><p
       >Example (and expected output):</p
       ><pre
@@ -2114,6 +3094,33 @@ y/[n]/?: y
 </code
 	></pre
       ></div
+    ></div
+  ><div id="change-group"
+  ><h2
+    >CHANGE-GROUP</h2
+    ><p
+    ><strong
+      >change-group</strong
+      > [--iallocator <em
+      >NAME</em
+      >] [--to <em
+      >GROUP</em
+      >...] {<em
+      >instance</em
+      >}</p
+    ><p
+    >This command moves an instance to another node group. The move is calculated by an iallocator, either given on the command line or as a cluster default.</p
+    ><p
+    >If no specific destination groups are specified using <code
+      >--to</code
+      >, all groups except the one containing the instance are considered.</p
+    ><p
+    >Example:</p
+    ><pre
+    ><code
+      ># gnt-instance change-group -I hail --to rack2 inst1.example.com
+</code
+      ></pre
     ></div
   ><div id="tags"
   ><h2
@@ -2226,12 +3233,24 @@ y/[n]/?: y
     >(8) (master daemon), <strong
     >ganeti-rapi</strong
     >(8) (remote API daemon).</p
+  ><p
+  >Ganeti htools: <strong
+    >htools</strong
+    >(1) (generic binary), <strong
+    >hbal</strong
+    >(1) (cluster balancer), <strong
+    >hspace</strong
+    >(1) (capacity calculation), <strong
+    >hail</strong
+    >(1) (IAllocator plugin), <strong
+    >hscan</strong
+    >(1) (data gatherer from remote clusters).</p
   ></div
 ><div id="copyright"
 ><h1
   >COPYRIGHT</h1
   ><p
-  >Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc. Permission is granted to copy, distribute and/or modify under the terms of the GNU General Public License as published by the Free Software Foundation; either version 2 of the License, or (at your option) any later version.</p
+  >Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Google Inc. Permission is granted to copy, distribute and/or modify under the terms of the GNU General Public License as published by the Free Software Foundation; either version 2 of the License, or (at your option) any later version.</p
   ><p
   >On Debian systems, the complete text of the GNU General Public License can be found in /usr/share/common-licenses/GPL.</p
   ></div

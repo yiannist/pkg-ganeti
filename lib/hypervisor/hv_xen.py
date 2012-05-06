@@ -46,8 +46,8 @@ class XenHypervisor(hv_base.BaseHypervisor):
   REBOOT_RETRY_INTERVAL = 10
 
   ANCILLARY_FILES = [
-    '/etc/xen/xend-config.sxp',
-    '/etc/xen/scripts/vif-bridge',
+    "/etc/xen/xend-config.sxp",
+    "/etc/xen/scripts/vif-bridge",
     ]
 
   @classmethod
@@ -142,7 +142,7 @@ class XenHypervisor(hv_base.BaseHypervisor):
                                      " line: %s, error: %s" % (line, err))
 
       # skip the Domain-0 (optional)
-      if include_node or data[0] != 'Domain-0':
+      if include_node or data[0] != "Domain-0":
         result.append(data)
 
     return result
@@ -163,7 +163,7 @@ class XenHypervisor(hv_base.BaseHypervisor):
     @return: tuple (name, id, memory, vcpus, stat, times)
 
     """
-    xm_list = self._GetXMList(instance_name=="Domain-0")
+    xm_list = self._GetXMList(instance_name == "Domain-0")
     result = None
     for data in xm_list:
       if data[0] == instance_name:
@@ -180,12 +180,16 @@ class XenHypervisor(hv_base.BaseHypervisor):
     xm_list = self._GetXMList(False)
     return xm_list
 
-  def StartInstance(self, instance, block_devices):
+  def StartInstance(self, instance, block_devices, startup_paused):
     """Start an instance.
 
     """
     self._WriteConfigFile(instance, block_devices)
-    result = utils.RunCmd(["xm", "create", instance.name])
+    cmd = ["xm", "create"]
+    if startup_paused:
+      cmd.extend(["--paused"])
+    cmd.extend([instance.name])
+    result = utils.RunCmd(cmd)
 
     if result.failed:
       raise errors.HypervisorError("Failed to start instance %s: %s (%s)" %
@@ -271,26 +275,26 @@ class XenHypervisor(hv_base.BaseHypervisor):
       if len(splitfields) > 1:
         key = splitfields[0].strip()
         val = splitfields[1].strip()
-        if key == 'memory' or key == 'total_memory':
-          result['memory_total'] = int(val)
-        elif key == 'free_memory':
-          result['memory_free'] = int(val)
-        elif key == 'nr_cpus':
-          nr_cpus = result['cpu_total'] = int(val)
-        elif key == 'nr_nodes':
-          result['cpu_nodes'] = int(val)
-        elif key == 'cores_per_socket':
+        if key == "memory" or key == "total_memory":
+          result["memory_total"] = int(val)
+        elif key == "free_memory":
+          result["memory_free"] = int(val)
+        elif key == "nr_cpus":
+          nr_cpus = result["cpu_total"] = int(val)
+        elif key == "nr_nodes":
+          result["cpu_nodes"] = int(val)
+        elif key == "cores_per_socket":
           cores_per_socket = int(val)
-        elif key == 'threads_per_core':
+        elif key == "threads_per_core":
           threads_per_core = int(val)
 
     if (cores_per_socket is not None and
         threads_per_core is not None and nr_cpus is not None):
-      result['cpu_sockets'] = nr_cpus / (cores_per_socket * threads_per_core)
+      result["cpu_sockets"] = nr_cpus / (cores_per_socket * threads_per_core)
 
     dom0_info = self.GetInstanceInfo("Domain-0")
     if dom0_info is not None:
-      result['memory_dom0'] = dom0_info[2]
+      result["memory_dom0"] = dom0_info[2]
 
     return result
 
@@ -303,7 +307,8 @@ class XenHypervisor(hv_base.BaseHypervisor):
                                    kind=constants.CONS_SSH,
                                    host=instance.primary_node,
                                    user=constants.GANETI_RUNAS,
-                                   command=["xm", "console", instance.name])
+                                   command=[constants.XM_CONSOLE_WRAPPER,
+                                            instance.name])
 
   def Verify(self):
     """Verify the hypervisor.
@@ -339,7 +344,7 @@ class XenHypervisor(hv_base.BaseHypervisor):
     if len(block_devices) > 24:
       # 'z' - 'a' = 24
       raise errors.HypervisorError("Too many disks")
-    namespace = [blockdev_prefix + chr(i + ord('a')) for i in range(24)]
+    namespace = [blockdev_prefix + chr(i + ord("a")) for i in range(24)]
     for sd_name, (cfdev, dev_path) in zip(namespace, block_devices):
       if cfdev.mode == constants.DISK_RDWR:
         mode = "w"
@@ -461,10 +466,12 @@ class XenPvmHypervisor(XenHypervisor):
     constants.HV_INITRD_PATH: hv_base.OPT_FILE_CHECK,
     constants.HV_ROOT_PATH: hv_base.NO_CHECK,
     constants.HV_KERNEL_ARGS: hv_base.NO_CHECK,
-    constants.HV_MIGRATION_PORT: hv_base.NET_PORT_CHECK,
+    constants.HV_MIGRATION_PORT: hv_base.REQ_NET_PORT_CHECK,
     constants.HV_MIGRATION_MODE: hv_base.MIGRATION_MODE_CHECK,
     # TODO: Add a check for the blockdev prefix (matching [a-z:] or similar).
     constants.HV_BLOCKDEV_PREFIX: hv_base.NO_CHECK,
+    constants.HV_REBOOT_BEHAVIOR:
+      hv_base.ParamInSet(True, constants.REBOOT_BEHAVIORS)
     }
 
   @classmethod
@@ -524,7 +531,10 @@ class XenPvmHypervisor(XenHypervisor):
     if hvp[constants.HV_ROOT_PATH]:
       config.write("root = '%s'\n" % hvp[constants.HV_ROOT_PATH])
     config.write("on_poweroff = 'destroy'\n")
-    config.write("on_reboot = 'restart'\n")
+    if hvp[constants.HV_REBOOT_BEHAVIOR] == constants.INSTANCE_REBOOT_ALLOWED:
+      config.write("on_reboot = 'restart'\n")
+    else:
+      config.write("on_reboot = 'destroy'\n")
     config.write("on_crash = 'restart'\n")
     config.write("extra = '%s'\n" % hvp[constants.HV_KERNEL_ARGS])
     # just in case it exists
@@ -564,11 +574,13 @@ class XenHvmHypervisor(XenHypervisor):
     constants.HV_KERNEL_PATH: hv_base.REQ_FILE_CHECK,
     constants.HV_DEVICE_MODEL: hv_base.REQ_FILE_CHECK,
     constants.HV_VNC_PASSWORD_FILE: hv_base.REQ_FILE_CHECK,
-    constants.HV_MIGRATION_PORT: hv_base.NET_PORT_CHECK,
+    constants.HV_MIGRATION_PORT: hv_base.REQ_NET_PORT_CHECK,
     constants.HV_MIGRATION_MODE: hv_base.MIGRATION_MODE_CHECK,
     constants.HV_USE_LOCALTIME: hv_base.NO_CHECK,
     # TODO: Add a check for the blockdev prefix (matching [a-z:] or similar).
     constants.HV_BLOCKDEV_PREFIX: hv_base.NO_CHECK,
+    constants.HV_REBOOT_BEHAVIOR:
+      hv_base.ParamInSet(True, constants.REBOOT_BEHAVIORS)
     }
 
   @classmethod
@@ -661,7 +673,10 @@ class XenHvmHypervisor(XenHypervisor):
     config.write("disk = [%s]\n" % (",".join(disk_data)))
 
     config.write("on_poweroff = 'destroy'\n")
-    config.write("on_reboot = 'restart'\n")
+    if hvp[constants.HV_REBOOT_BEHAVIOR] == constants.INSTANCE_REBOOT_ALLOWED:
+      config.write("on_reboot = 'restart'\n")
+    else:
+      config.write("on_reboot = 'destroy'\n")
     config.write("on_crash = 'restart'\n")
     # just in case it exists
     utils.RemoveFile("/etc/xen/auto/%s" % instance.name)

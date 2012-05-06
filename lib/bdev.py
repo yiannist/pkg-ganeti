@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2010 Google Inc.
+# Copyright (C) 2006, 2007, 2010, 2011, 2012 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -24,6 +24,7 @@
 import re
 import time
 import errno
+import stat
 import pyparsing as pyp
 import os
 import logging
@@ -320,7 +321,6 @@ class BlockDev(object):
                                   is_degraded=is_degraded,
                                   ldisk_status=ldisk_status)
 
-
   def SetInfo(self, text):
     """Update metadata with info text.
 
@@ -330,10 +330,14 @@ class BlockDev(object):
     for child in self._children:
       child.SetInfo(text)
 
-  def Grow(self, amount):
+  def Grow(self, amount, dryrun):
     """Grow the block device.
 
+    @type amount: integer
     @param amount: the amount (in mebibytes) to grow with
+    @type dryrun: boolean
+    @param dryrun: whether to execute the operation in simulation mode
+        only, without actually increasing the size
 
     """
     raise NotImplementedError
@@ -403,12 +407,12 @@ class LogicalVolume(BlockDev):
     pvs_info.sort()
     pvs_info.reverse()
 
-    pvlist = [ pv[1] for pv in pvs_info ]
+    pvlist = [pv[1] for pv in pvs_info]
     if compat.any(":" in v for v in pvlist):
       _ThrowError("Some of your PVs have the invalid character ':' in their"
                   " name, this is not supported - please filter them out"
                   " in lvm.conf using either 'filter' or 'preferred_names'")
-    free_size = sum([ pv[0] for pv in pvs_info ])
+    free_size = sum([pv[0] for pv in pvs_info])
     current_pvs = len(pvlist)
     stripes = min(current_pvs, constants.LVM_STRIPECOUNT)
 
@@ -595,15 +599,15 @@ class LogicalVolume(BlockDev):
                 # one line for any non-empty string
       logging.error("Can't parse LVS output, no lines? Got '%s'", str(out))
       return False
-    out = out[-1].strip().rstrip(',')
+    out = out[-1].strip().rstrip(",")
     out = out.split(",")
     if len(out) != 5:
       logging.error("Can't parse LVS output, len(%s) != 5", str(out))
       return False
 
     status, major, minor, pe_size, stripes = out
-    if len(status) != 6:
-      logging.error("lvs lv_attr is not 6 characters (%s)", status)
+    if len(status) < 6:
+      logging.error("lvs lv_attr is not at least 6 characters (%s)", status)
       return False
 
     try:
@@ -628,7 +632,7 @@ class LogicalVolume(BlockDev):
     self.minor = minor
     self.pe_size = pe_size
     self.stripe_count = stripes
-    self._degraded = status[0] == 'v' # virtual volume, i.e. doesn't backing
+    self._degraded = status[0] == "v" # virtual volume, i.e. doesn't backing
                                       # storage
     self.attached = True
     return True
@@ -740,8 +744,8 @@ class LogicalVolume(BlockDev):
     BlockDev.SetInfo(self, text)
 
     # Replace invalid characters
-    text = re.sub('^[^A-Za-z0-9_+.]', '_', text)
-    text = re.sub('[^-A-Za-z0-9_+.]', '_', text)
+    text = re.sub("^[^A-Za-z0-9_+.]", "_", text)
+    text = re.sub("[^-A-Za-z0-9_+.]", "_", text)
 
     # Only up to 128 characters are allowed
     text = text[:128]
@@ -752,7 +756,7 @@ class LogicalVolume(BlockDev):
       _ThrowError("Command: %s error: %s - %s", result.cmd, result.fail_reason,
                   result.output)
 
-  def Grow(self, amount):
+  def Grow(self, amount, dryrun):
     """Grow the logical volume.
 
     """
@@ -763,13 +767,15 @@ class LogicalVolume(BlockDev):
     rest = amount % full_stripe_size
     if rest != 0:
       amount += full_stripe_size - rest
+    cmd = ["lvextend", "-L", "+%dm" % amount]
+    if dryrun:
+      cmd.append("--test")
     # we try multiple algorithms since the 'best' ones might not have
     # space available in the right place, but later ones might (since
     # they have less constraints); also note that only recent LVM
     # supports 'cling'
     for alloc_policy in "contiguous", "cling", "normal":
-      result = utils.RunCmd(["lvextend", "--alloc", alloc_policy,
-                             "-L", "+%dm" % amount, self.dev_path])
+      result = utils.RunCmd(cmd + ["--alloc", alloc_policy, self.dev_path])
       if not result.failed:
         return
     _ThrowError("Can't grow LV %s: %s", self.dev_path, result.output)
@@ -883,7 +889,7 @@ class DRBD8Status(object):
       self.est_time = None
 
 
-class BaseDRBD(BlockDev): # pylint: disable-msg=W0223
+class BaseDRBD(BlockDev): # pylint: disable=W0223
   """Base DRBD class.
 
   This class contains a few bits of common functionality between the
@@ -967,14 +973,14 @@ class BaseDRBD(BlockDev): # pylint: disable-msg=W0223
                                     first_line)
 
     values = version.groups()
-    retval = {'k_major': int(values[0]),
-              'k_minor': int(values[1]),
-              'k_point': int(values[2]),
-              'api': int(values[3]),
-              'proto': int(values[4]),
+    retval = {"k_major": int(values[0]),
+              "k_minor": int(values[1]),
+              "k_point": int(values[2]),
+              "api": int(values[3]),
+              "proto": int(values[4]),
              }
     if values[5] is not None:
-      retval['proto2'] = values[5]
+      retval["proto2"] = values[5]
 
     return retval
 
@@ -1109,10 +1115,10 @@ class DRBD8(BaseDRBD):
     super(DRBD8, self).__init__(unique_id, children, size)
     self.major = self._DRBD_MAJOR
     version = self._GetVersion(self._GetProcData())
-    if version['k_major'] != 8 :
+    if version["k_major"] != 8:
       _ThrowError("Mismatch in DRBD kernel version and requested ganeti"
                   " usage: kernel is %s.%s, ganeti wants 8.x",
-                  version['k_major'], version['k_minor'])
+                  version["k_major"], version["k_minor"])
 
     if (self._lhost is not None and self._lhost == self._rhost and
         self._lport == self._rport):
@@ -1127,6 +1133,17 @@ class DRBD8(BaseDRBD):
     This will not work if the given minor is in use.
 
     """
+    # Zero the metadata first, in order to make sure drbdmeta doesn't
+    # try to auto-detect existing filesystems or similar (see
+    # http://code.google.com/p/ganeti/issues/detail?id=182); we only
+    # care about the first 128MB of data in the device, even though it
+    # can be bigger
+    result = utils.RunCmd([constants.DD_CMD,
+                           "if=/dev/zero", "of=%s" % dev_path,
+                           "bs=1048576", "count=128", "oflag=direct"])
+    if result.failed:
+      _ThrowError("Can't wipe the meta device: %s", result.output)
+
     result = utils.RunCmd(["drbdmeta", "--force", cls._DevPath(minor),
                            "v08", dev_path, "0", "create-md"])
     if result.failed:
@@ -1179,7 +1196,7 @@ class DRBD8(BaseDRBD):
     # this also converts the value to an int
     number = pyp.Word(pyp.nums).setParseAction(lambda s, l, t: int(t[0]))
 
-    comment = pyp.Literal ("#") + pyp.Optional(pyp.restOfLine)
+    comment = pyp.Literal("#") + pyp.Optional(pyp.restOfLine)
     defa = pyp.Literal("_is_default").suppress()
     dbl_quote = pyp.Literal('"').suppress()
 
@@ -1206,7 +1223,7 @@ class DRBD8(BaseDRBD):
             pyp.Optional(pyp.restOfLine).suppress())
 
     # an entire section
-    section_name = pyp.Word(pyp.alphas + '_')
+    section_name = pyp.Word(pyp.alphas + "_")
     section = section_name + lbrace + pyp.ZeroOrMore(pyp.Group(stmt)) + rbrace
 
     bnf = pyp.ZeroOrMore(pyp.Group(section ^ stmt))
@@ -1339,18 +1356,18 @@ class DRBD8(BaseDRBD):
       # what we aim here is to revert back to the 'drain' method of
       # disk flushes and to disable metadata barriers, in effect going
       # back to pre-8.0.7 behaviour
-      vmaj = version['k_major']
-      vmin = version['k_minor']
-      vrel = version['k_point']
+      vmaj = version["k_major"]
+      vmin = version["k_minor"]
+      vrel = version["k_point"]
       assert vmaj == 8
       if vmin == 0: # 8.0.x
         if vrel >= 12:
-          args.extend(['-i', '-m'])
+          args.extend(["-i", "-m"])
       elif vmin == 2: # 8.2.x
         if vrel >= 7:
-          args.extend(['-i', '-m'])
+          args.extend(["-i", "-m"])
       elif vmaj >= 3: # 8.3.x or newer
-        args.extend(['-i', '-a', 'm'])
+        args.extend(["-i", "-a", "m"])
     result = utils.RunCmd(args)
     if result.failed:
       _ThrowError("drbd%d: can't attach local disk: %s", minor, result.output)
@@ -1748,7 +1765,7 @@ class DRBD8(BaseDRBD):
 
     """
     # TODO: Rewrite to not use a for loop just because there is 'break'
-    # pylint: disable-msg=W0631
+    # pylint: disable=W0631
     net_data = (self._lhost, self._lport, self._rhost, self._rport)
     for minor in (self._aminor,):
       info = self._GetDevInfo(self._GetShowData(minor))
@@ -1913,7 +1930,7 @@ class DRBD8(BaseDRBD):
     cls._InitMeta(aminor, meta.dev_path)
     return cls(unique_id, children, size)
 
-  def Grow(self, amount):
+  def Grow(self, amount, dryrun):
     """Resize the DRBD device and its backing storage.
 
     """
@@ -1921,7 +1938,10 @@ class DRBD8(BaseDRBD):
       _ThrowError("drbd%d: Grow called while not attached", self._aminor)
     if len(self._children) != 2 or None in self._children:
       _ThrowError("drbd%d: cannot grow diskless device", self.minor)
-    self._children[0].Grow(amount)
+    self._children[0].Grow(amount, dryrun)
+    if dryrun:
+      # DRBD does not support dry-run mode, so we'll return here
+      return
     result = utils.RunCmd(["drbdsetup", self.dev_path, "resize", "-s",
                            "%dm" % (self.size + amount)])
     if result.failed:
@@ -2003,7 +2023,7 @@ class FileStorage(BlockDev):
     # TODO: implement rename for file-based storage
     _ThrowError("Rename is not supported for file-based storage")
 
-  def Grow(self, amount):
+  def Grow(self, amount, dryrun):
     """Grow the file
 
     @param amount: the amount (in mebibytes) to grow with
@@ -2014,6 +2034,9 @@ class FileStorage(BlockDev):
     current_size = self.GetActualSize()
     new_size = current_size + amount * 1024 * 1024
     assert new_size > current_size, "Cannot Grow with a negative amount"
+    # We can't really simulate the growth
+    if dryrun:
+      return
     try:
       f = open(self.dev_path, "a+")
       f.truncate(new_size)
@@ -2072,12 +2095,123 @@ class FileStorage(BlockDev):
     return FileStorage(unique_id, children, size)
 
 
+class PersistentBlockDevice(BlockDev):
+  """A block device with persistent node
+
+  May be either directly attached, or exposed through DM (e.g. dm-multipath).
+  udev helpers are probably required to give persistent, human-friendly
+  names.
+
+  For the time being, pathnames are required to lie under /dev.
+
+  """
+  def __init__(self, unique_id, children, size):
+    """Attaches to a static block device.
+
+    The unique_id is a path under /dev.
+
+    """
+    super(PersistentBlockDevice, self).__init__(unique_id, children, size)
+    if not isinstance(unique_id, (tuple, list)) or len(unique_id) != 2:
+      raise ValueError("Invalid configuration data %s" % str(unique_id))
+    self.dev_path = unique_id[1]
+    if not os.path.realpath(self.dev_path).startswith("/dev/"):
+      raise ValueError("Full path '%s' lies outside /dev" %
+                              os.path.realpath(self.dev_path))
+    # TODO: this is just a safety guard checking that we only deal with devices
+    # we know how to handle. In the future this will be integrated with
+    # external storage backends and possible values will probably be collected
+    # from the cluster configuration.
+    if unique_id[0] != constants.BLOCKDEV_DRIVER_MANUAL:
+      raise ValueError("Got persistent block device of invalid type: %s" %
+                       unique_id[0])
+
+    self.major = self.minor = None
+    self.Attach()
+
+  @classmethod
+  def Create(cls, unique_id, children, size):
+    """Create a new device
+
+    This is a noop, we only return a PersistentBlockDevice instance
+
+    """
+    return PersistentBlockDevice(unique_id, children, 0)
+
+  def Remove(self):
+    """Remove a device
+
+    This is a noop
+
+    """
+    pass
+
+  def Rename(self, new_id):
+    """Rename this device.
+
+    """
+    _ThrowError("Rename is not supported for PersistentBlockDev storage")
+
+  def Attach(self):
+    """Attach to an existing block device.
+
+
+    """
+    self.attached = False
+    try:
+      st = os.stat(self.dev_path)
+    except OSError, err:
+      logging.error("Error stat()'ing %s: %s", self.dev_path, str(err))
+      return False
+
+    if not stat.S_ISBLK(st.st_mode):
+      logging.error("%s is not a block device", self.dev_path)
+      return False
+
+    self.major = os.major(st.st_rdev)
+    self.minor = os.minor(st.st_rdev)
+    self.attached = True
+
+    return True
+
+  def Assemble(self):
+    """Assemble the device.
+
+    """
+    pass
+
+  def Shutdown(self):
+    """Shutdown the device.
+
+    """
+    pass
+
+  def Open(self, force=False):
+    """Make the device ready for I/O.
+
+    """
+    pass
+
+  def Close(self):
+    """Notifies that the device will no longer be used for I/O.
+
+    """
+    pass
+
+  def Grow(self, amount, dryrun):
+    """Grow the logical volume.
+
+    """
+    _ThrowError("Grow is not supported for PersistentBlockDev storage")
+
+
 DEV_MAP = {
   constants.LD_LV: LogicalVolume,
   constants.LD_DRBD8: DRBD8,
+  constants.LD_BLOCKDEV: PersistentBlockDevice,
   }
 
-if constants.ENABLE_FILE_STORAGE:
+if constants.ENABLE_FILE_STORAGE or constants.ENABLE_SHARED_FILE_STORAGE:
   DEV_MAP[constants.LD_FILE] = FileStorage
 
 

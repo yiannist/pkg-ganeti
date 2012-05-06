@@ -27,6 +27,8 @@ import unittest
 import time
 import tempfile
 import shutil
+import operator
+import itertools
 
 from ganeti import constants
 from ganeti import mcpu
@@ -37,6 +39,8 @@ from ganeti import utils
 from ganeti import luxi
 from ganeti import ht
 from ganeti import objects
+from ganeti import compat
+from ganeti import rpc
 
 import testutils
 import mocks
@@ -57,12 +61,12 @@ class TestCertVerification(testutils.GanetiTestCase):
     nonexist_filename = os.path.join(self.tmpdir, "does-not-exist")
 
     (errcode, msg) = cmdlib._VerifyCertificate(nonexist_filename)
-    self.assertEqual(errcode, cmdlib.LUClusterVerify.ETYPE_ERROR)
+    self.assertEqual(errcode, cmdlib.LUClusterVerifyConfig.ETYPE_ERROR)
 
     # Try to load non-certificate file
     invalid_cert = self._TestDataFilename("bdev-net.txt")
     (errcode, msg) = cmdlib._VerifyCertificate(invalid_cert)
-    self.assertEqual(errcode, cmdlib.LUClusterVerify.ETYPE_ERROR)
+    self.assertEqual(errcode, cmdlib.LUClusterVerifyConfig.ETYPE_ERROR)
 
 
 class TestOpcodeParams(testutils.GanetiTestCase):
@@ -87,8 +91,8 @@ class TestIAllocatorChecks(testutils.GanetiTestCase):
 
     class OpTest(opcodes.OpCode):
        OP_PARAMS = [
-        ("iallocator", None, ht.NoType),
-        ("node", None, ht.NoType),
+        ("iallocator", None, ht.NoType, None),
+        ("node", None, ht.NoType, None),
         ]
 
     default_iallocator = mocks.FakeConfig().GetDefaultIAllocator()
@@ -143,12 +147,12 @@ class TestLUTestJqueue(unittest.TestCase):
 class TestLUQuery(unittest.TestCase):
   def test(self):
     self.assertEqual(sorted(cmdlib._QUERY_IMPL.keys()),
-                     sorted(constants.QR_OP_QUERY))
+                     sorted(constants.QR_VIA_OP))
 
-    assert constants.QR_NODE in constants.QR_OP_QUERY
-    assert constants.QR_INSTANCE in constants.QR_OP_QUERY
+    assert constants.QR_NODE in constants.QR_VIA_OP
+    assert constants.QR_INSTANCE in constants.QR_VIA_OP
 
-    for i in constants.QR_OP_QUERY:
+    for i in constants.QR_VIA_OP:
       self.assert_(cmdlib._GetQueryImplementation(i))
 
     self.assertRaises(errors.OpPrereqError, cmdlib._GetQueryImplementation, "")
@@ -205,6 +209,225 @@ class TestLUGroupAssignNodes(unittest.TestCase):
 
     self.assertEqual(set(["inst1a", "inst1b"]), set(new))
     self.assertEqual(set(["inst3c"]), set(prev))
+
+
+class TestClusterVerifySsh(unittest.TestCase):
+  def testMultipleGroups(self):
+    fn = cmdlib.LUClusterVerifyGroup._SelectSshCheckNodes
+    mygroupnodes = [
+      objects.Node(name="node20", group="my", offline=False),
+      objects.Node(name="node21", group="my", offline=False),
+      objects.Node(name="node22", group="my", offline=False),
+      objects.Node(name="node23", group="my", offline=False),
+      objects.Node(name="node24", group="my", offline=False),
+      objects.Node(name="node25", group="my", offline=False),
+      objects.Node(name="node26", group="my", offline=True),
+      ]
+    nodes = [
+      objects.Node(name="node1", group="g1", offline=True),
+      objects.Node(name="node2", group="g1", offline=False),
+      objects.Node(name="node3", group="g1", offline=False),
+      objects.Node(name="node4", group="g1", offline=True),
+      objects.Node(name="node5", group="g1", offline=False),
+      objects.Node(name="node10", group="xyz", offline=False),
+      objects.Node(name="node11", group="xyz", offline=False),
+      objects.Node(name="node40", group="alloff", offline=True),
+      objects.Node(name="node41", group="alloff", offline=True),
+      objects.Node(name="node50", group="aaa", offline=False),
+      ] + mygroupnodes
+    assert not utils.FindDuplicates(map(operator.attrgetter("name"), nodes))
+
+    (online, perhost) = fn(mygroupnodes, "my", nodes)
+    self.assertEqual(online, ["node%s" % i for i in range(20, 26)])
+    self.assertEqual(set(perhost.keys()), set(online))
+
+    self.assertEqual(perhost, {
+      "node20": ["node10", "node2", "node50"],
+      "node21": ["node11", "node3", "node50"],
+      "node22": ["node10", "node5", "node50"],
+      "node23": ["node11", "node2", "node50"],
+      "node24": ["node10", "node3", "node50"],
+      "node25": ["node11", "node5", "node50"],
+      })
+
+  def testSingleGroup(self):
+    fn = cmdlib.LUClusterVerifyGroup._SelectSshCheckNodes
+    nodes = [
+      objects.Node(name="node1", group="default", offline=True),
+      objects.Node(name="node2", group="default", offline=False),
+      objects.Node(name="node3", group="default", offline=False),
+      objects.Node(name="node4", group="default", offline=True),
+      ]
+    assert not utils.FindDuplicates(map(operator.attrgetter("name"), nodes))
+
+    (online, perhost) = fn(nodes, "default", nodes)
+    self.assertEqual(online, ["node2", "node3"])
+    self.assertEqual(set(perhost.keys()), set(online))
+
+    self.assertEqual(perhost, {
+      "node2": [],
+      "node3": [],
+      })
+
+
+class TestClusterVerifyFiles(unittest.TestCase):
+  @staticmethod
+  def _FakeErrorIf(errors, cond, ecode, item, msg, *args, **kwargs):
+    assert ((ecode == cmdlib.LUClusterVerifyGroup.ENODEFILECHECK and
+             ht.TNonEmptyString(item)) or
+            (ecode == cmdlib.LUClusterVerifyGroup.ECLUSTERFILECHECK and
+             item is None))
+
+    if args:
+      msg = msg % args
+
+    if cond:
+      errors.append((item, msg))
+
+  _VerifyFiles = cmdlib.LUClusterVerifyGroup._VerifyFiles
+
+  def test(self):
+    errors = []
+    master_name = "master.example.com"
+    nodeinfo = [
+      objects.Node(name=master_name, offline=False),
+      objects.Node(name="node2.example.com", offline=False),
+      objects.Node(name="node3.example.com", master_candidate=True),
+      objects.Node(name="node4.example.com", offline=False),
+      objects.Node(name="nodata.example.com"),
+      objects.Node(name="offline.example.com", offline=True),
+      ]
+    cluster = objects.Cluster(modify_etc_hosts=True,
+                              enabled_hypervisors=[constants.HT_XEN_HVM])
+    files_all = set([
+      constants.CLUSTER_DOMAIN_SECRET_FILE,
+      constants.RAPI_CERT_FILE,
+      ])
+    files_all_opt = set([
+      constants.RAPI_USERS_FILE,
+      ])
+    files_mc = set([
+      constants.CLUSTER_CONF_FILE,
+      ])
+    files_vm = set()
+    nvinfo = {
+      master_name: rpc.RpcResult(data=(True, {
+        constants.NV_FILELIST: {
+          constants.CLUSTER_CONF_FILE: "82314f897f38b35f9dab2f7c6b1593e0",
+          constants.RAPI_CERT_FILE: "babbce8f387bc082228e544a2146fee4",
+          constants.CLUSTER_DOMAIN_SECRET_FILE: "cds-47b5b3f19202936bb4",
+        }})),
+      "node2.example.com": rpc.RpcResult(data=(True, {
+        constants.NV_FILELIST: {
+          constants.RAPI_CERT_FILE: "97f0356500e866387f4b84233848cc4a",
+          }
+        })),
+      "node3.example.com": rpc.RpcResult(data=(True, {
+        constants.NV_FILELIST: {
+          constants.RAPI_CERT_FILE: "97f0356500e866387f4b84233848cc4a",
+          constants.CLUSTER_DOMAIN_SECRET_FILE: "cds-47b5b3f19202936bb4",
+          }
+        })),
+      "node4.example.com": rpc.RpcResult(data=(True, {
+        constants.NV_FILELIST: {
+          constants.RAPI_CERT_FILE: "97f0356500e866387f4b84233848cc4a",
+          constants.CLUSTER_CONF_FILE: "conf-a6d4b13e407867f7a7b4f0f232a8f527",
+          constants.CLUSTER_DOMAIN_SECRET_FILE: "cds-47b5b3f19202936bb4",
+          constants.RAPI_USERS_FILE: "rapiusers-ea3271e8d810ef3",
+          }
+        })),
+      "nodata.example.com": rpc.RpcResult(data=(True, {})),
+      "offline.example.com": rpc.RpcResult(offline=True),
+      }
+    assert set(nvinfo.keys()) == set(map(operator.attrgetter("name"), nodeinfo))
+
+    self._VerifyFiles(compat.partial(self._FakeErrorIf, errors), nodeinfo,
+                      master_name, nvinfo,
+                      (files_all, files_all_opt, files_mc, files_vm))
+    self.assertEqual(sorted(errors), sorted([
+      (None, ("File %s found with 2 different checksums (variant 1 on"
+              " node2.example.com, node3.example.com, node4.example.com;"
+              " variant 2 on master.example.com)" % constants.RAPI_CERT_FILE)),
+      (None, ("File %s is missing from node(s) node2.example.com" %
+              constants.CLUSTER_DOMAIN_SECRET_FILE)),
+      (None, ("File %s should not exist on node(s) node4.example.com" %
+              constants.CLUSTER_CONF_FILE)),
+      (None, ("File %s is missing from node(s) node3.example.com" %
+              constants.CLUSTER_CONF_FILE)),
+      (None, ("File %s found with 2 different checksums (variant 1 on"
+              " master.example.com; variant 2 on node4.example.com)" %
+              constants.CLUSTER_CONF_FILE)),
+      (None, ("File %s is optional, but it must exist on all or no nodes (not"
+              " found on master.example.com, node2.example.com,"
+              " node3.example.com)" % constants.RAPI_USERS_FILE)),
+      ("nodata.example.com", "Node did not return file checksum data"),
+      ]))
+
+
+class _FakeLU:
+  def __init__(self):
+    self.warning_log = []
+    self.info_log = []
+
+  def LogWarning(self, text, *args):
+    self.warning_log.append((text, args))
+
+  def LogInfo(self, text, *args):
+    self.info_log.append((text, args))
+
+
+class TestLoadNodeEvacResult(unittest.TestCase):
+  def testSuccess(self):
+    for moved in [[], [
+      ("inst20153.example.com", "grp2", ["nodeA4509", "nodeB2912"]),
+      ]]:
+      for early_release in [False, True]:
+        for use_nodes in [False, True]:
+          jobs = [
+            [opcodes.OpInstanceReplaceDisks().__getstate__()],
+            [opcodes.OpInstanceMigrate().__getstate__()],
+            ]
+
+          alloc_result = (moved, [], jobs)
+          assert cmdlib.IAllocator._NEVAC_RESULT(alloc_result)
+
+          lu = _FakeLU()
+          result = cmdlib._LoadNodeEvacResult(lu, alloc_result,
+                                              early_release, use_nodes)
+
+          if moved:
+            (_, (info_args, )) = lu.info_log.pop(0)
+            for (instname, instgroup, instnodes) in moved:
+              self.assertTrue(instname in info_args)
+              if use_nodes:
+                for i in instnodes:
+                  self.assertTrue(i in info_args)
+              else:
+                self.assertTrue(instgroup in info_args)
+
+          self.assertFalse(lu.info_log)
+          self.assertFalse(lu.warning_log)
+
+          for op in itertools.chain(*result):
+            if hasattr(op.__class__, "early_release"):
+              self.assertEqual(op.early_release, early_release)
+            else:
+              self.assertFalse(hasattr(op, "early_release"))
+
+  def testFailed(self):
+    alloc_result = ([], [
+      ("inst5191.example.com", "errormsg21178"),
+      ], [])
+    assert cmdlib.IAllocator._NEVAC_RESULT(alloc_result)
+
+    lu = _FakeLU()
+    self.assertRaises(errors.OpExecError, cmdlib._LoadNodeEvacResult,
+                      lu, alloc_result, False, False)
+    self.assertFalse(lu.info_log)
+    (_, (args, )) = lu.warning_log.pop(0)
+    self.assertTrue("inst5191.example.com" in args)
+    self.assertTrue("errormsg21178" in args)
+    self.assertFalse(lu.warning_log)
 
 
 if __name__ == "__main__":

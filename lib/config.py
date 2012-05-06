@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -31,13 +31,14 @@ much memory.
 
 """
 
-# pylint: disable-msg=R0904
+# pylint: disable=R0904
 # R0904: Too many public methods
 
 import os
 import random
 import logging
 import time
+import itertools
 
 from ganeti import errors
 from ganeti import locking
@@ -125,6 +126,13 @@ class TemporaryReservationManager:
     return new_resource
 
 
+def _MatchNameComponentIgnoreCase(short_name, names):
+  """Wrapper around L{utils.text.MatchNameComponent}.
+
+  """
+  return utils.MatchNameComponent(short_name, names, case_sensitive=False)
+
+
 class ConfigWriter:
   """The interface to the cluster configuration.
 
@@ -182,7 +190,7 @@ class ConfigWriter:
   def GetNdParams(self, node):
     """Get the node params populated with cluster defaults.
 
-    @type node: L{object.Node}
+    @type node: L{objects.Node}
     @param node: The node we want to know the params for
     @return: A dict with the filled in node params
 
@@ -367,7 +375,7 @@ class ConfigWriter:
         configuration errors
 
     """
-    # pylint: disable-msg=R0914
+    # pylint: disable=R0914
     result = []
     seen_macs = []
     ports = {}
@@ -532,7 +540,6 @@ class ConfigWriter:
                 cluster.SimpleFillND(nodegroup.ndparams),
                 constants.NDS_PARAMETER_TYPES)
 
-
     # drbd minors check
     _, duplicates = self._UnlockedComputeDRBDMap()
     for node, minor, instance_a, instance_b in duplicates:
@@ -647,12 +654,15 @@ class ConfigWriter:
   def AddTcpUdpPort(self, port):
     """Adds a new port to the available port pool.
 
+    @warning: this method does not "flush" the configuration (via
+        L{_WriteConfig}); callers should do that themselves once the
+        configuration is stable
+
     """
     if not isinstance(port, int):
       raise errors.ProgrammerError("Invalid type passed for port")
 
     self._config_data.cluster.tcpudp_port_pool.add(port)
-    self._WriteConfig()
 
   @locking.ssynchronized(_config_lock, shared=1)
   def GetPortList(self):
@@ -878,6 +888,13 @@ class ConfigWriter:
     return self._config_data.cluster.file_storage_dir
 
   @locking.ssynchronized(_config_lock, shared=1)
+  def GetSharedFileStorageDir(self):
+    """Get the shared file storage dir for this cluster.
+
+    """
+    return self._config_data.cluster.shared_file_storage_dir
+
+  @locking.ssynchronized(_config_lock, shared=1)
   def GetHypervisorType(self):
     """Get the hypervisor type for this cluster.
 
@@ -1057,6 +1074,17 @@ class ConfigWriter:
     """
     return self._config_data.nodegroups.keys()
 
+  @locking.ssynchronized(_config_lock, shared=1)
+  def GetNodeGroupMembersByNodes(self, nodes):
+    """Get nodes which are member in the same nodegroups as the given nodes.
+
+    """
+    ngfn = lambda node_name: self._UnlockedGetNodeInfo(node_name).group
+    return frozenset(member_name
+                     for node_name in nodes
+                     for member_name in
+                       self._UnlockedGetNodeGroup(ngfn(node_name)).members)
+
   @locking.ssynchronized(_config_lock)
   def AddInstance(self, instance, ec_id):
     """Add an instance to the config.
@@ -1134,6 +1162,14 @@ class ConfigWriter:
     """
     if instance_name not in self._config_data.instances:
       raise errors.ConfigurationError("Unknown instance '%s'" % instance_name)
+
+    # If a network port has been allocated to the instance,
+    # return it to the pool of free ports.
+    inst = self._config_data.instances[instance_name]
+    network_port = getattr(inst, "network_port", None)
+    if network_port is not None:
+      self._config_data.cluster.tcpudp_port_pool.add(network_port)
+
     del self._config_data.instances[instance_name]
     self._config_data.cluster.serial_no += 1
     self._WriteConfig()
@@ -1194,14 +1230,12 @@ class ConfigWriter:
     """
     return self._UnlockedGetInstanceList()
 
-  @locking.ssynchronized(_config_lock, shared=1)
   def ExpandInstanceName(self, short_name):
     """Attempt to expand an incomplete instance name.
 
     """
-    return utils.MatchNameComponent(short_name,
-                                    self._config_data.instances.keys(),
-                                    case_sensitive=False)
+    # Locking is done in L{ConfigWriter.GetInstanceList}
+    return _MatchNameComponentIgnoreCase(short_name, self.GetInstanceList())
 
   def _UnlockedGetInstanceInfo(self, instance_name):
     """Returns information about an instance.
@@ -1229,6 +1263,38 @@ class ConfigWriter:
 
     """
     return self._UnlockedGetInstanceInfo(instance_name)
+
+  @locking.ssynchronized(_config_lock, shared=1)
+  def GetInstanceNodeGroups(self, instance_name, primary_only=False):
+    """Returns set of node group UUIDs for instance's nodes.
+
+    @rtype: frozenset
+
+    """
+    instance = self._UnlockedGetInstanceInfo(instance_name)
+    if not instance:
+      raise errors.ConfigurationError("Unknown instance '%s'" % instance_name)
+
+    if primary_only:
+      nodes = [instance.primary_node]
+    else:
+      nodes = instance.all_nodes
+
+    return frozenset(self._UnlockedGetNodeInfo(node_name).group
+                     for node_name in nodes)
+
+  @locking.ssynchronized(_config_lock, shared=1)
+  def GetMultiInstanceInfo(self, instances):
+    """Get the configuration of multiple instances.
+
+    @param instances: list of instance names
+    @rtype: list
+    @return: list of tuples (instance, instance_info), where
+        instance_info is what would GetInstanceInfo return for the
+        node, while keeping the original order
+
+    """
+    return [(name, self._UnlockedGetInstanceInfo(name)) for name in instances]
 
   @locking.ssynchronized(_config_lock, shared=1)
   def GetAllInstancesInfo(self):
@@ -1277,14 +1343,12 @@ class ConfigWriter:
     self._config_data.cluster.serial_no += 1
     self._WriteConfig()
 
-  @locking.ssynchronized(_config_lock, shared=1)
   def ExpandNodeName(self, short_name):
-    """Attempt to expand an incomplete instance name.
+    """Attempt to expand an incomplete node name.
 
     """
-    return utils.MatchNameComponent(short_name,
-                                    self._config_data.nodes.keys(),
-                                    case_sensitive=False)
+    # Locking is done in L{ConfigWriter.GetNodeList}
+    return _MatchNameComponentIgnoreCase(short_name, self.GetNodeList())
 
   def _UnlockedGetNodeInfo(self, node_name):
     """Get the configuration of a node, as stored in the config.
@@ -1336,6 +1400,26 @@ class ConfigWriter:
         sec.append(inst.name)
     return (pri, sec)
 
+  @locking.ssynchronized(_config_lock, shared=1)
+  def GetNodeGroupInstances(self, uuid, primary_only=False):
+    """Get the instances of a node group.
+
+    @param uuid: Node group UUID
+    @param primary_only: Whether to only consider primary nodes
+    @rtype: frozenset
+    @return: List of instance names in node group
+
+    """
+    if primary_only:
+      nodes_fn = lambda inst: [inst.primary_node]
+    else:
+      nodes_fn = lambda inst: inst.all_nodes
+
+    return frozenset(inst.name
+                     for inst in self._config_data.instances.values()
+                     for node_name in nodes_fn(inst)
+                     if self._UnlockedGetNodeInfo(node_name).group == uuid)
+
   def _UnlockedGetNodeList(self):
     """Return the list of nodes which are in the configuration.
 
@@ -1386,6 +1470,19 @@ class ConfigWriter:
     all_nodes = [self._UnlockedGetNodeInfo(node)
                  for node in self._UnlockedGetNodeList()]
     return [node.name for node in all_nodes if not node.vm_capable]
+
+  @locking.ssynchronized(_config_lock, shared=1)
+  def GetMultiNodeInfo(self, nodes):
+    """Get the configuration of multiple nodes.
+
+    @param nodes: list of node names
+    @rtype: list
+    @return: list of tuples of (node, node_info), where node_info is
+        what would GetNodeInfo return for the node, in the original
+        order
+
+    """
+    return [(name, self._UnlockedGetNodeInfo(name)) for name in nodes]
 
   @locking.ssynchronized(_config_lock, shared=1)
   def GetAllNodesInfo(self):
@@ -1508,6 +1605,79 @@ class ConfigWriter:
                       " (while being removed from it)", node.name, nodegroup)
     else:
       nodegroup_obj.members.remove(node.name)
+
+  @locking.ssynchronized(_config_lock)
+  def AssignGroupNodes(self, mods):
+    """Changes the group of a number of nodes.
+
+    @type mods: list of tuples; (node name, new group UUID)
+    @param mods: Node membership modifications
+
+    """
+    groups = self._config_data.nodegroups
+    nodes = self._config_data.nodes
+
+    resmod = []
+
+    # Try to resolve names/UUIDs first
+    for (node_name, new_group_uuid) in mods:
+      try:
+        node = nodes[node_name]
+      except KeyError:
+        raise errors.ConfigurationError("Unable to find node '%s'" % node_name)
+
+      if node.group == new_group_uuid:
+        # Node is being assigned to its current group
+        logging.debug("Node '%s' was assigned to its current group (%s)",
+                      node_name, node.group)
+        continue
+
+      # Try to find current group of node
+      try:
+        old_group = groups[node.group]
+      except KeyError:
+        raise errors.ConfigurationError("Unable to find old group '%s'" %
+                                        node.group)
+
+      # Try to find new group for node
+      try:
+        new_group = groups[new_group_uuid]
+      except KeyError:
+        raise errors.ConfigurationError("Unable to find new group '%s'" %
+                                        new_group_uuid)
+
+      assert node.name in old_group.members, \
+        ("Inconsistent configuration: node '%s' not listed in members for its"
+         " old group '%s'" % (node.name, old_group.uuid))
+      assert node.name not in new_group.members, \
+        ("Inconsistent configuration: node '%s' already listed in members for"
+         " its new group '%s'" % (node.name, new_group.uuid))
+
+      resmod.append((node, old_group, new_group))
+
+    # Apply changes
+    for (node, old_group, new_group) in resmod:
+      assert node.uuid != new_group.uuid and old_group.uuid != new_group.uuid, \
+        "Assigning to current group is not possible"
+
+      node.group = new_group.uuid
+
+      # Update members of involved groups
+      if node.name in old_group.members:
+        old_group.members.remove(node.name)
+      if node.name not in new_group.members:
+        new_group.members.append(node.name)
+
+    # Update timestamps and serials (only once per node/group object)
+    now = time.time()
+    for obj in frozenset(itertools.chain(*resmod)): # pylint: disable-msg=W0142
+      obj.serial_no += 1
+      obj.mtime = now
+
+    # Force ssconf update
+    self._config_data.cluster.serial_no += 1
+
+    self._WriteConfig()
 
   def _BumpSerialNo(self):
     """Bump up the serial number of the config.
@@ -1745,10 +1915,11 @@ class ConfigWriter:
                   self._config_data.nodegroups.values()]
     nodegroups_data = fn(utils.NiceSort(nodegroups))
 
-    return {
+    ssconf_values = {
       constants.SS_CLUSTER_NAME: cluster.cluster_name,
       constants.SS_CLUSTER_TAGS: cluster_tags,
       constants.SS_FILE_STORAGE_DIR: cluster.file_storage_dir,
+      constants.SS_SHARED_FILE_STORAGE_DIR: cluster.shared_file_storage_dir,
       constants.SS_MASTER_CANDIDATES: mc_data,
       constants.SS_MASTER_CANDIDATES_IPS: mc_ips_data,
       constants.SS_MASTER_IP: cluster.master_ip,
@@ -1767,6 +1938,13 @@ class ConfigWriter:
       constants.SS_UID_POOL: uid_pool,
       constants.SS_NODEGROUPS: nodegroups_data,
       }
+    bad_values = [(k, v) for k, v in ssconf_values.items()
+                  if not isinstance(v, (str, basestring))]
+    if bad_values:
+      err = utils.CommaJoin("%s=%s" % (k, v) for k, v in bad_values)
+      raise errors.ConfigurationError("Some ssconf key(s) have non-string"
+                                      " values: %s" % err)
+    return ssconf_values
 
   @locking.ssynchronized(_config_lock, shared=1)
   def GetSsconfValues(self):

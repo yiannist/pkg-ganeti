@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2010 Google Inc.
+# Copyright (C) 2010, 2011 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -24,15 +24,16 @@
 """
 
 import itertools
+import operator
 
 try:
-  # pylint: disable-msg=F0401
+  # pylint: disable=F0401
   import functools
 except ImportError:
   functools = None
 
 try:
-  # pylint: disable-msg=F0401
+  # pylint: disable=F0401
   import roman
 except ImportError:
   roman = None
@@ -44,9 +45,9 @@ except ImportError:
 # modules (hmac, for example) which have changed their behavior as well from
 # one version to the other.
 try:
-  # pylint: disable-msg=F0401
+  # pylint: disable=F0401
   # Yes, we're not using the imports in this module.
-  # pylint: disable-msg=W0611
+  # pylint: disable=W0611
   from hashlib import md5 as md5_hash
   from hashlib import sha1 as sha1_hash
   # this additional version is needed for compatibility with the hmac module
@@ -66,6 +67,7 @@ def _all(seq):
     return False
   return True
 
+
 def _any(seq):
   """Returns True if any element of the iterable are True.
 
@@ -74,21 +76,23 @@ def _any(seq):
     return True
   return False
 
+
 try:
-  # pylint: disable-msg=E0601
-  # pylint: disable-msg=W0622
+  # pylint: disable=E0601
+  # pylint: disable=W0622
   all = all
 except NameError:
   all = _all
 
 try:
-  # pylint: disable-msg=E0601
-  # pylint: disable-msg=W0622
+  # pylint: disable=E0601
+  # pylint: disable=W0622
   any = any
 except NameError:
   any = _any
 
-def partition(seq, pred=bool): # pylint: disable-msg=W0622
+
+def partition(seq, pred=bool): # pylint: disable=W0622
   """Partition a list in two, based on the given predicate.
 
   """
@@ -98,7 +102,7 @@ def partition(seq, pred=bool): # pylint: disable-msg=W0622
 
 # Even though we're using Python's built-in "partial" function if available,
 # this one is always defined for testing.
-def _partial(func, *args, **keywords): # pylint: disable-msg=W0622
+def _partial(func, *args, **keywords): # pylint: disable=W0622
   """Decorator with partial application of arguments and keywords.
 
   This function was copied from Python's documentation.
@@ -107,7 +111,7 @@ def _partial(func, *args, **keywords): # pylint: disable-msg=W0622
   def newfunc(*fargs, **fkeywords):
     newkeywords = keywords.copy()
     newkeywords.update(fkeywords)
-    return func(*(args + fargs), **newkeywords) # pylint: disable-msg=W0142
+    return func(*(args + fargs), **newkeywords) # pylint: disable=W0142
 
   newfunc.func = func
   newfunc.args = args
@@ -143,3 +147,8 @@ def TryToRoman(val, convert=True):
   else:
     return val
 
+#: returns the first element of a list-like value
+fst = operator.itemgetter(0)
+
+#: returns the second element of a list-like value
+snd = operator.itemgetter(1)

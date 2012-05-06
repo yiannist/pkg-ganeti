@@ -26,7 +26,7 @@ the command line scripts.
 
 """
 
-# Allow wildcard import in pylint: disable-msg=W0401
+# Allow wildcard import in pylint: disable=W0401
 
 import os
 import re
@@ -57,8 +57,8 @@ from ganeti.utils.x509 import *
 
 _VALID_SERVICE_NAME_RE = re.compile("^[-_.a-zA-Z0-9]{1,128}$")
 
-UUID_RE = re.compile('^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-'
-                     '[a-f0-9]{4}-[a-f0-9]{12}$')
+UUID_RE = re.compile("^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-"
+                     "[a-f0-9]{4}-[a-f0-9]{12}$")
 
 
 def ForceDictType(target, key_types, allowed_values=None):
@@ -98,7 +98,7 @@ def ForceDictType(target, key_types, allowed_values=None):
         pass
       elif not isinstance(target[key], basestring):
         if isinstance(target[key], bool) and not target[key]:
-          target[key] = ''
+          target[key] = ""
         else:
           msg = "'%s' (value %s) is not a valid string" % (key, target[key])
           raise errors.TypeEnforcementError(msg)
@@ -546,15 +546,15 @@ def SignalHandled(signums):
   """
   def wrap(fn):
     def sig_function(*args, **kwargs):
-      assert 'signal_handlers' not in kwargs or \
-             kwargs['signal_handlers'] is None or \
-             isinstance(kwargs['signal_handlers'], dict), \
+      assert "signal_handlers" not in kwargs or \
+             kwargs["signal_handlers"] is None or \
+             isinstance(kwargs["signal_handlers"], dict), \
              "Wrong signal_handlers parameter in original function call"
-      if 'signal_handlers' in kwargs and kwargs['signal_handlers'] is not None:
-        signal_handlers = kwargs['signal_handlers']
+      if "signal_handlers" in kwargs and kwargs["signal_handlers"] is not None:
+        signal_handlers = kwargs["signal_handlers"]
       else:
         signal_handlers = {}
-        kwargs['signal_handlers'] = signal_handlers
+        kwargs["signal_handlers"] = signal_handlers
       sighandler = SignalHandler(signums)
       try:
         for sig in signums:
@@ -573,7 +573,7 @@ class SignalWakeupFd(object):
     _set_wakeup_fd_fn = signal.set_wakeup_fd
   except AttributeError:
     # Not supported
-    def _SetWakeupFd(self, _): # pylint: disable-msg=R0201
+    def _SetWakeupFd(self, _): # pylint: disable=R0201
       return -1
   else:
     def _SetWakeupFd(self, fd):
