@@ -24,6 +24,7 @@
 import re
 
 from ganeti import _autoconf
+from ganeti import _vcsversion
 
 # various versions
 RELEASE_VERSION = _autoconf.PACKAGE_VERSION
@@ -31,7 +32,7 @@ OS_API_V10 = 10
 OS_API_V15 = 15
 OS_API_V20 = 20
 OS_API_VERSIONS = frozenset([OS_API_V10, OS_API_V15, OS_API_V20])
-VCS_VERSION = _autoconf.VCS_VERSION
+VCS_VERSION = _vcsversion.VCS_VERSION
 EXPORT_VERSION = 0
 RAPI_VERSION = 2
 
@@ -101,7 +102,7 @@ NODED_GROUP = _autoconf.NODED_GROUP
 
 # Wipe
 DD_CMD = "dd"
-WIPE_BLOCK_SIZE = 1024**2
+WIPE_BLOCK_SIZE = 1024 ** 2
 MAX_WIPE_CHUNK = 1024 # 1GB
 MIN_WIPE_CHUNK_PERCENT = 10
 
@@ -121,9 +122,14 @@ CRYPTO_KEYS_DIR = RUN_GANETI_DIR + "/crypto"
 CRYPTO_KEYS_DIR_MODE = SECURE_DIR_MODE
 IMPORT_EXPORT_DIR = RUN_GANETI_DIR + "/import-export"
 IMPORT_EXPORT_DIR_MODE = 0755
+ADOPTABLE_BLOCKDEV_ROOT = "/dev/disk/"
 # keep RUN_GANETI_DIR first here, to make sure all get created when the node
 # daemon is started (this takes care of RUN_DIR being tmpfs)
-SUB_RUN_DIRS = [ RUN_GANETI_DIR, BDEV_CACHE_DIR, DISK_LINKS_DIR ]
+SUB_RUN_DIRS = [
+  RUN_GANETI_DIR,
+  BDEV_CACHE_DIR,
+  DISK_LINKS_DIR,
+  ]
 LOCK_DIR = _autoconf.LOCALSTATEDIR + "/lock"
 SSCONF_LOCK_FILE = LOCK_DIR + "/ganeti-ssconf.lock"
 # User-id pool lock directory
@@ -134,21 +140,37 @@ NODED_CERT_FILE = DATA_DIR + "/server.pem"
 RAPI_CERT_FILE = DATA_DIR + "/rapi.pem"
 CONFD_HMAC_KEY = DATA_DIR + "/hmac.key"
 CLUSTER_DOMAIN_SECRET_FILE = DATA_DIR + "/cluster-domain-secret"
-WATCHER_STATEFILE = DATA_DIR + "/watcher.data"
-WATCHER_PAUSEFILE = DATA_DIR + "/watcher.pause"
-INSTANCE_UPFILE = RUN_GANETI_DIR + "/instance-status"
+INSTANCE_STATUS_FILE = RUN_GANETI_DIR + "/instance-status"
 SSH_KNOWN_HOSTS_FILE = DATA_DIR + "/known_hosts"
 RAPI_USERS_FILE = DATA_DIR + "/rapi/users"
 QUEUE_DIR = DATA_DIR + "/queue"
 DAEMON_UTIL = _autoconf.PKGLIBDIR + "/daemon-util"
 SETUP_SSH = _autoconf.TOOLSDIR + "/setup-ssh"
 KVM_IFUP = _autoconf.PKGLIBDIR + "/kvm-ifup"
+KVM_CONSOLE_WRAPPER = _autoconf.PKGLIBDIR + "/tools/kvm-console-wrapper"
+XM_CONSOLE_WRAPPER = _autoconf.PKGLIBDIR + "/tools/xm-console-wrapper"
 ETC_HOSTS = "/etc/hosts"
 DEFAULT_FILE_STORAGE_DIR = _autoconf.FILE_STORAGE_DIR
+DEFAULT_SHARED_FILE_STORAGE_DIR = _autoconf.SHARED_FILE_STORAGE_DIR
 ENABLE_FILE_STORAGE = _autoconf.ENABLE_FILE_STORAGE
+ENABLE_SHARED_FILE_STORAGE = _autoconf.ENABLE_SHARED_FILE_STORAGE
 SYSCONFDIR = _autoconf.SYSCONFDIR
 TOOLSDIR = _autoconf.TOOLSDIR
 CONF_DIR = SYSCONFDIR + "/ganeti"
+
+#: Lock file for watcher, locked in shared mode by watcher; lock in exclusive
+# mode to block watcher (see L{cli._RunWhileClusterStoppedHelper.Call}
+WATCHER_LOCK_FILE = LOCK_DIR + "/ganeti-watcher.lock"
+
+#: Status file for per-group watcher, locked in exclusive mode by watcher
+WATCHER_GROUP_STATE_FILE = DATA_DIR + "/watcher.%s.data"
+
+#: File for per-group instance status, merged into L{INSTANCE_STATUS_FILE} by
+#: per-group processes
+WATCHER_GROUP_INSTANCE_STATUS_FILE = DATA_DIR + "/watcher.%s.instance-status"
+
+#: File containing Unix timestamp until which watcher should be paused
+WATCHER_PAUSEFILE = DATA_DIR + "/watcher.pause"
 
 ALL_CERT_FILES = frozenset([NODED_CERT_FILE, RAPI_CERT_FILE])
 
@@ -205,7 +227,7 @@ PROC_MOUNTS = "/proc/mounts"
 LUXI_EOM = "\3"
 LUXI_VERSION = CONFIG_VERSION
 
-# one of 'no', 'yes', 'only'
+# one of "no", "yes", "only"
 SYSLOG_USAGE = _autoconf.SYSLOG_USAGE
 SYSLOG_NO = "no"
 SYSLOG_YES = "yes"
@@ -337,8 +359,14 @@ SF_ALLOCATABLE = "allocatable"
 SO_FIX_CONSISTENCY = "fix-consistency"
 
 # Available fields per storage type
-VALID_STORAGE_FIELDS = frozenset([SF_NAME, SF_TYPE, SF_SIZE,
-                                  SF_USED, SF_FREE, SF_ALLOCATABLE])
+VALID_STORAGE_FIELDS = frozenset([
+  SF_NAME,
+  SF_TYPE,
+  SF_SIZE,
+  SF_USED,
+  SF_FREE,
+  SF_ALLOCATABLE
+  ])
 
 VALID_STORAGE_TYPES = frozenset([ST_FILE, ST_LVM_PV, ST_LVM_VG])
 
@@ -361,24 +389,39 @@ DT_DISKLESS = "diskless"
 DT_PLAIN = "plain"
 DT_DRBD8 = "drbd"
 DT_FILE = "file"
+DT_SHARED_FILE = "sharedfile"
+DT_BLOCK = "blockdev"
 
 # the set of network-mirrored disk templates
-DTS_NET_MIRROR = frozenset([DT_DRBD8])
+DTS_INT_MIRROR = frozenset([DT_DRBD8])
+
+# the set of externally-mirrored disk templates (e.g. SAN, NAS)
+DTS_EXT_MIRROR = frozenset([DT_SHARED_FILE, DT_BLOCK])
 
 # the set of non-lvm-based disk templates
-DTS_NOT_LVM = frozenset([DT_DISKLESS, DT_FILE])
+DTS_NOT_LVM = frozenset([DT_DISKLESS, DT_FILE, DT_SHARED_FILE, DT_BLOCK])
 
 # the set of disk templates which can be grown
-DTS_GROWABLE = frozenset([DT_PLAIN, DT_DRBD8, DT_FILE])
+DTS_GROWABLE = frozenset([DT_PLAIN, DT_DRBD8, DT_FILE, DT_SHARED_FILE])
 
 # the set of disk templates that allow adoption
-DTS_MAY_ADOPT = frozenset([DT_PLAIN])
+DTS_MAY_ADOPT = frozenset([DT_PLAIN, DT_BLOCK])
+
+# the set of disk templates that *must* use adoption
+DTS_MUST_ADOPT = frozenset([DT_BLOCK])
+
+# the set of disk templates that allow migrations
+DTS_MIRRORED = frozenset.union(DTS_INT_MIRROR, DTS_EXT_MIRROR)
+
+# the set of file based disk templates
+DTS_FILEBASED = frozenset([DT_FILE, DT_SHARED_FILE])
 
 # logical disk types
 LD_LV = "lvm"
 LD_DRBD8 = "drbd8"
 LD_FILE = "file"
-LDS_BLOCK = frozenset([LD_LV, LD_DRBD8])
+LD_BLOCKDEV = "blockdev"
+LDS_BLOCK = frozenset([LD_LV, LD_DRBD8, LD_BLOCKDEV])
 
 # drbd constants
 DRBD_HMAC_ALG = "md5"
@@ -418,8 +461,8 @@ EXPORT_MODES = frozenset([
   ])
 
 # Lock recalculate mode
-LOCKS_REPLACE = 'replace'
-LOCKS_APPEND = 'append'
+LOCKS_REPLACE = "replace"
+LOCKS_APPEND = "append"
 
 # Lock timeout (sum) before we should go into blocking acquire (still
 # can be reset by priority change); computed as max time (10 hours)
@@ -458,8 +501,14 @@ RIE_CONNECT_RETRIES = 10
 #: Give child process up to 5 seconds to exit after sending a signal
 CHILD_LINGER_TIMEOUT = 5.0
 
-DISK_TEMPLATES = frozenset([DT_DISKLESS, DT_PLAIN,
-                            DT_DRBD8, DT_FILE])
+DISK_TEMPLATES = frozenset([
+  DT_DISKLESS,
+  DT_PLAIN,
+  DT_DRBD8,
+  DT_FILE,
+  DT_SHARED_FILE,
+  DT_BLOCK
+  ])
 
 FILE_DRIVER = frozenset([FD_LOOP, FD_BLKTAP])
 
@@ -488,10 +537,12 @@ EXIT_UNKNOWN_FIELD = 14
 
 # tags
 TAG_CLUSTER = "cluster"
+TAG_NODEGROUP = "nodegroup"
 TAG_NODE = "node"
 TAG_INSTANCE = "instance"
 VALID_TAG_TYPES = frozenset([
   TAG_CLUSTER,
+  TAG_NODEGROUP,
   TAG_NODE,
   TAG_INSTANCE,
   ])
@@ -507,6 +558,7 @@ IP6_ADDRESS_LOCALHOST = "::1"
 IP6_ADDRESS_ANY = "::"
 IP4_VERSION = 4
 IP6_VERSION = 6
+VALID_IP_VERSIONS = frozenset([IP4_VERSION, IP6_VERSION])
 TCP_PING_TIMEOUT = 10
 GANETI_RUNAS = "root"
 DEFAULT_VG = "xenvg"
@@ -521,6 +573,10 @@ NODE_MAX_CLOCK_SKEW = 150
 DISK_TRANSFER_CONNECT_TIMEOUT = 60
 # Disk index separator
 DISK_SEPARATOR = _autoconf.DISK_SEPARATOR
+IP_COMMAND_PATH = _autoconf.IP_PATH
+
+#: Key for job IDs in opcode result
+JOB_IDS_KEY = "jobs"
 
 # runparts results
 (RUNPARTS_SKIP,
@@ -534,20 +590,24 @@ RUNPARTS_STATUS = frozenset([RUNPARTS_SKIP, RUNPARTS_RUN, RUNPARTS_ERR])
  RPC_ENCODING_ZLIB_BASE64) = range(2)
 
 # os related constants
-OS_SCRIPT_CREATE = 'create'
-OS_SCRIPT_IMPORT = 'import'
-OS_SCRIPT_EXPORT = 'export'
-OS_SCRIPT_RENAME = 'rename'
-OS_SCRIPT_VERIFY = 'verify'
-OS_SCRIPTS = frozenset([OS_SCRIPT_CREATE, OS_SCRIPT_IMPORT,
-                        OS_SCRIPT_EXPORT, OS_SCRIPT_RENAME,
-                        OS_SCRIPT_VERIFY])
+OS_SCRIPT_CREATE = "create"
+OS_SCRIPT_IMPORT = "import"
+OS_SCRIPT_EXPORT = "export"
+OS_SCRIPT_RENAME = "rename"
+OS_SCRIPT_VERIFY = "verify"
+OS_SCRIPTS = frozenset([
+  OS_SCRIPT_CREATE,
+  OS_SCRIPT_IMPORT,
+  OS_SCRIPT_EXPORT,
+  OS_SCRIPT_RENAME,
+  OS_SCRIPT_VERIFY
+  ])
 
-OS_API_FILE = 'ganeti_api_version'
-OS_VARIANTS_FILE = 'variants.list'
-OS_PARAMETERS_FILE = 'parameters.list'
+OS_API_FILE = "ganeti_api_version"
+OS_VARIANTS_FILE = "variants.list"
+OS_PARAMETERS_FILE = "parameters.list"
 
-OS_VALIDATE_PARAMETERS = 'parameters'
+OS_VALIDATE_PARAMETERS = "parameters"
 OS_VALIDATE_CALLS = frozenset([OS_VALIDATE_PARAMETERS])
 
 # ssh constants
@@ -564,22 +624,36 @@ INSTANCE_REBOOT_SOFT = "soft"
 INSTANCE_REBOOT_HARD = "hard"
 INSTANCE_REBOOT_FULL = "full"
 
-REBOOT_TYPES = frozenset([INSTANCE_REBOOT_SOFT,
-                          INSTANCE_REBOOT_HARD,
-                          INSTANCE_REBOOT_FULL])
+REBOOT_TYPES = frozenset([
+  INSTANCE_REBOOT_SOFT,
+  INSTANCE_REBOOT_HARD,
+  INSTANCE_REBOOT_FULL
+  ])
 
-VTYPE_STRING = 'string'
+# instance reboot behaviors
+INSTANCE_REBOOT_ALLOWED = "reboot"
+INSTANCE_REBOOT_EXIT = "exit"
+
+REBOOT_BEHAVIORS = frozenset([
+  INSTANCE_REBOOT_ALLOWED,
+  INSTANCE_REBOOT_EXIT
+  ])
+
+VTYPE_STRING = "string"
 VTYPE_MAYBE_STRING = "maybe-string"
-VTYPE_BOOL = 'bool'
-VTYPE_SIZE = 'size' # size, in MiBs
-VTYPE_INT = 'int'
+VTYPE_BOOL = "bool"
+VTYPE_SIZE = "size" # size, in MiBs
+VTYPE_INT = "int"
 ENFORCEABLE_TYPES = frozenset([
-                      VTYPE_STRING,
-                      VTYPE_MAYBE_STRING,
-                      VTYPE_BOOL,
-                      VTYPE_SIZE,
-                      VTYPE_INT,
-                      ])
+  VTYPE_STRING,
+  VTYPE_MAYBE_STRING,
+  VTYPE_BOOL,
+  VTYPE_SIZE,
+  VTYPE_INT,
+  ])
+
+# Constant representing that the user does not specify any IP version
+IFACE_NO_IP_VERSION_SPECIFIED = 0
 
 # HV parameter names (global namespace)
 HV_BOOT_ORDER = "boot_order"
@@ -594,6 +668,8 @@ HV_VNC_PASSWORD_FILE = "vnc_password_file"
 HV_VNC_TLS = "vnc_tls"
 HV_VNC_X509 = "vnc_x509_path"
 HV_VNC_X509_VERIFY = "vnc_x509_verify"
+HV_KVM_SPICE_BIND = "spice_bind"
+HV_KVM_SPICE_IP_VERSION = "spice_ip_version"
 HV_ACPI = "acpi"
 HV_PAE = "pae"
 HV_USE_BOOTLOADER = "use_bootloader"
@@ -605,6 +681,7 @@ HV_INITRD_PATH = "initrd_path"
 HV_ROOT_PATH = "root_path"
 HV_SERIAL_CONSOLE = "serial_console"
 HV_USB_MOUSE = "usb_mouse"
+HV_KEYMAP = "keymap"
 HV_DEVICE_MODEL = "device_model"
 HV_INIT_SCRIPT = "init_script"
 HV_MIGRATION_PORT = "migration_port"
@@ -621,6 +698,7 @@ HV_KVM_USE_CHROOT = "use_chroot"
 HV_CPU_MASK = "cpu_mask"
 HV_MEM_PATH = "mem_path"
 HV_BLOCKDEV_PREFIX = "blockdev_prefix"
+HV_REBOOT_BEHAVIOR = "reboot_behavior"
 
 HVS_PARAMETER_TYPES = {
   HV_BOOT_ORDER: VTYPE_STRING,
@@ -635,6 +713,8 @@ HVS_PARAMETER_TYPES = {
   HV_VNC_TLS: VTYPE_BOOL,
   HV_VNC_X509: VTYPE_STRING,
   HV_VNC_X509_VERIFY: VTYPE_BOOL,
+  HV_KVM_SPICE_BIND: VTYPE_STRING,
+  HV_KVM_SPICE_IP_VERSION: VTYPE_INT,
   HV_ACPI: VTYPE_BOOL,
   HV_PAE: VTYPE_BOOL,
   HV_USE_BOOTLOADER: VTYPE_BOOL,
@@ -646,6 +726,7 @@ HVS_PARAMETER_TYPES = {
   HV_ROOT_PATH: VTYPE_MAYBE_STRING,
   HV_SERIAL_CONSOLE: VTYPE_BOOL,
   HV_USB_MOUSE: VTYPE_STRING,
+  HV_KEYMAP: VTYPE_STRING,
   HV_DEVICE_MODEL: VTYPE_STRING,
   HV_INIT_SCRIPT: VTYPE_STRING,
   HV_MIGRATION_PORT: VTYPE_INT,
@@ -662,6 +743,7 @@ HVS_PARAMETER_TYPES = {
   HV_CPU_MASK: VTYPE_STRING,
   HV_MEM_PATH: VTYPE_STRING,
   HV_BLOCKDEV_PREFIX: VTYPE_STRING,
+  HV_REBOOT_BEHAVIOR: VTYPE_STRING,
   }
 
 HVS_PARAMETERS = frozenset(HVS_PARAMETER_TYPES.keys())
@@ -695,12 +777,18 @@ OOB_POWER_CYCLE = "power-cycle"
 OOB_POWER_STATUS = "power-status"
 OOB_HEALTH = "health"
 
-OOB_COMMANDS = frozenset([OOB_POWER_ON, OOB_POWER_OFF, OOB_POWER_CYCLE,
-                          OOB_POWER_STATUS, OOB_HEALTH])
+OOB_COMMANDS = frozenset([
+  OOB_POWER_ON,
+  OOB_POWER_OFF,
+  OOB_POWER_CYCLE,
+  OOB_POWER_STATUS,
+  OOB_HEALTH
+  ])
 
 OOB_POWER_STATUS_POWERED = "powered"
 
 OOB_TIMEOUT = 60 # 60 seconds
+OOB_POWER_DELAY = 2.0 # 2 seconds
 
 OOB_STATUS_OK = "OK"
 OOB_STATUS_WARNING = "WARNING"
@@ -717,6 +805,7 @@ OOB_STATUSES = frozenset([
 # Instance Parameters Profile
 PP_DEFAULT = "default"
 
+# NIC_* constants are used inside the ganeti config
 NIC_MODE = "mode"
 NIC_LINK = "link"
 
@@ -732,6 +821,7 @@ NICS_PARAMETER_TYPES = {
 
 NICS_PARAMETERS = frozenset(NICS_PARAMETER_TYPES.keys())
 
+# IDISK_* constants are used in opcodes, to create/change disks
 IDISK_SIZE = "size"
 IDISK_MODE = "mode"
 IDISK_ADOPT = "adopt"
@@ -746,13 +836,12 @@ IDISK_PARAMS_TYPES = {
   }
 IDISK_PARAMS = frozenset(IDISK_PARAMS_TYPES.keys())
 
+# INIC_* constants are used in opcodes, to create/change nics
 INIC_MAC = "mac"
 INIC_IP = "ip"
 INIC_MODE = "mode"
 INIC_LINK = "link"
-INIC_BRIDGE = "bridge"
 INIC_PARAMS_TYPES = {
-  INIC_BRIDGE: VTYPE_STRING,
   INIC_IP: VTYPE_MAYBE_STRING,
   INIC_LINK: VTYPE_STRING,
   INIC_MAC: VTYPE_STRING,
@@ -792,14 +881,25 @@ HT_NIC_PCNET = "pcnet"
 HT_NIC_E1000 = "e1000"
 HT_NIC_PARAVIRTUAL = HT_DISK_PARAVIRTUAL = "paravirtual"
 
-HT_HVM_VALID_NIC_TYPES = frozenset([HT_NIC_RTL8139, HT_NIC_NE2K_PCI,
-                                    HT_NIC_E1000, HT_NIC_NE2K_ISA,
-                                    HT_NIC_PARAVIRTUAL])
-HT_KVM_VALID_NIC_TYPES = frozenset([HT_NIC_RTL8139, HT_NIC_NE2K_PCI,
-                                    HT_NIC_NE2K_ISA, HT_NIC_I82551,
-                                    HT_NIC_I85557B, HT_NIC_I8259ER,
-                                    HT_NIC_PCNET, HT_NIC_E1000,
-                                    HT_NIC_PARAVIRTUAL])
+HT_HVM_VALID_NIC_TYPES = frozenset([
+  HT_NIC_RTL8139,
+  HT_NIC_NE2K_PCI,
+  HT_NIC_E1000,
+  HT_NIC_NE2K_ISA,
+  HT_NIC_PARAVIRTUAL
+  ])
+HT_KVM_VALID_NIC_TYPES = frozenset([
+  HT_NIC_RTL8139,
+  HT_NIC_NE2K_PCI,
+  HT_NIC_NE2K_ISA,
+  HT_NIC_I82551,
+  HT_NIC_I85557B,
+  HT_NIC_I8259ER,
+  HT_NIC_PCNET,
+  HT_NIC_E1000,
+  HT_NIC_PARAVIRTUAL
+  ])
+
 # Disk types
 HT_DISK_IOEMU = "ioemu"
 HT_DISK_IDE = "ide"
@@ -812,15 +912,22 @@ HT_CACHE_DEFAULT = "default"
 HT_CACHE_NONE = "none"
 HT_CACHE_WTHROUGH = "writethrough"
 HT_CACHE_WBACK = "writeback"
-HT_VALID_CACHE_TYPES = frozenset([HT_CACHE_DEFAULT,
-                                  HT_CACHE_NONE,
-                                  HT_CACHE_WTHROUGH,
-                                  HT_CACHE_WBACK])
+HT_VALID_CACHE_TYPES = frozenset([
+  HT_CACHE_DEFAULT,
+  HT_CACHE_NONE,
+  HT_CACHE_WTHROUGH,
+  HT_CACHE_WBACK
+  ])
 
 HT_HVM_VALID_DISK_TYPES = frozenset([HT_DISK_PARAVIRTUAL, HT_DISK_IOEMU])
-HT_KVM_VALID_DISK_TYPES = frozenset([HT_DISK_PARAVIRTUAL, HT_DISK_IDE,
-                                     HT_DISK_SCSI, HT_DISK_SD, HT_DISK_MTD,
-                                     HT_DISK_PFLASH])
+HT_KVM_VALID_DISK_TYPES = frozenset([
+  HT_DISK_PARAVIRTUAL,
+  HT_DISK_IDE,
+  HT_DISK_SCSI,
+  HT_DISK_SD,
+  HT_DISK_MTD,
+  HT_DISK_PFLASH
+  ])
 
 # Mouse types:
 HT_MOUSE_MOUSE = "mouse"
@@ -834,8 +941,12 @@ HT_BO_CDROM = "cdrom"
 HT_BO_DISK = "disk"
 HT_BO_NETWORK = "network"
 
-HT_KVM_VALID_BO_TYPES = frozenset([HT_BO_FLOPPY, HT_BO_CDROM,
-                                   HT_BO_DISK, HT_BO_NETWORK])
+HT_KVM_VALID_BO_TYPES = frozenset([
+  HT_BO_FLOPPY,
+  HT_BO_CDROM,
+  HT_BO_DISK,
+  HT_BO_NETWORK
+  ])
 
 # Security models
 HT_SM_NONE = "none"
@@ -856,7 +967,7 @@ HT_MIGRATION_NONLIVE = "non-live"
 HT_MIGRATION_MODES = frozenset([HT_MIGRATION_LIVE, HT_MIGRATION_NONLIVE])
 
 # Cluster Verify steps
-VERIFY_NPLUSONE_MEM = 'nplusone_mem'
+VERIFY_NPLUSONE_MEM = "nplusone_mem"
 VERIFY_OPTIONAL_CHECKS = frozenset([VERIFY_NPLUSONE_MEM])
 
 # Node verify constants
@@ -881,6 +992,38 @@ NV_VMNODES = "vmnodes"
 NV_OOB_PATHS = "oob-paths"
 NV_BRIDGES = "bridges"
 
+# Instance status
+INSTST_RUNNING = "running"
+INSTST_ADMINDOWN = "ADMIN_down"
+INSTST_NODEOFFLINE = "ERROR_nodeoffline"
+INSTST_NODEDOWN = "ERROR_nodedown"
+INSTST_WRONGNODE = "ERROR_wrongnode"
+INSTST_ERRORUP = "ERROR_up"
+INSTST_ERRORDOWN = "ERROR_down"
+INSTST_ALL = frozenset([
+  INSTST_RUNNING,
+  INSTST_ADMINDOWN,
+  INSTST_NODEOFFLINE,
+  INSTST_NODEDOWN,
+  INSTST_WRONGNODE,
+  INSTST_ERRORUP,
+  INSTST_ERRORDOWN,
+  ])
+
+# Node roles
+NR_REGULAR = "R"
+NR_MASTER = "M"
+NR_MCANDIDATE = "C"
+NR_DRAINED = "D"
+NR_OFFLINE = "O"
+NR_ALL = frozenset([
+  NR_REGULAR,
+  NR_MASTER,
+  NR_MCANDIDATE,
+  NR_DRAINED,
+  NR_OFFLINE,
+  ])
+
 # SSL certificate check constants (in days)
 SSL_CERT_EXPIRATION_WARN = 30
 SSL_CERT_EXPIRATION_ERROR = 7
@@ -895,13 +1038,24 @@ VALID_IALLOCATOR_DIRECTIONS = frozenset([
   ])
 IALLOCATOR_MODE_ALLOC = "allocate"
 IALLOCATOR_MODE_RELOC = "relocate"
-IALLOCATOR_MODE_MEVAC = "multi-evacuate"
+IALLOCATOR_MODE_CHG_GROUP = "change-group"
+IALLOCATOR_MODE_NODE_EVAC = "node-evacuate"
 VALID_IALLOCATOR_MODES = frozenset([
   IALLOCATOR_MODE_ALLOC,
   IALLOCATOR_MODE_RELOC,
-  IALLOCATOR_MODE_MEVAC,
+  IALLOCATOR_MODE_CHG_GROUP,
+  IALLOCATOR_MODE_NODE_EVAC,
   ])
 IALLOCATOR_SEARCH_PATH = _autoconf.IALLOCATOR_SEARCH_PATH
+
+IALLOCATOR_NEVAC_PRI = "primary-only"
+IALLOCATOR_NEVAC_SEC = "secondary-only"
+IALLOCATOR_NEVAC_ALL = "all"
+IALLOCATOR_NEVAC_MODES = frozenset([
+  IALLOCATOR_NEVAC_PRI,
+  IALLOCATOR_NEVAC_SEC,
+  IALLOCATOR_NEVAC_ALL,
+  ])
 
 # Job queue
 JOB_QUEUE_VERSION = 1
@@ -915,13 +1069,14 @@ JOB_QUEUE_DIRS = [QUEUE_DIR, JOB_QUEUE_ARCHIVE_DIR]
 JOB_QUEUE_DIRS_MODE = SECURE_DIR_MODE
 
 JOB_ID_TEMPLATE = r"\d+"
+JOB_FILE_RE = re.compile(r"^job-(%s)$" % JOB_ID_TEMPLATE)
 
 # unchanged job return
 JOB_NOTCHANGED = "nochange"
 
 # Job status
 JOB_STATUS_QUEUED = "queued"
-JOB_STATUS_WAITLOCK = "waiting"
+JOB_STATUS_WAITING = "waiting"
 JOB_STATUS_CANCELING = "canceling"
 JOB_STATUS_RUNNING = "running"
 JOB_STATUS_CANCELED = "canceled"
@@ -934,7 +1089,7 @@ JOBS_FINALIZED = frozenset([
   ])
 JOB_STATUS_ALL = frozenset([
   JOB_STATUS_QUEUED,
-  JOB_STATUS_WAITLOCK,
+  JOB_STATUS_WAITING,
   JOB_STATUS_CANCELING,
   JOB_STATUS_RUNNING,
   ]) | JOBS_FINALIZED
@@ -942,16 +1097,18 @@ JOB_STATUS_ALL = frozenset([
 # OpCode status
 # not yet finalized
 OP_STATUS_QUEUED = "queued"
-OP_STATUS_WAITLOCK = "waiting"
+OP_STATUS_WAITING = "waiting"
 OP_STATUS_CANCELING = "canceling"
 OP_STATUS_RUNNING = "running"
 # finalized
 OP_STATUS_CANCELED = "canceled"
 OP_STATUS_SUCCESS = "success"
 OP_STATUS_ERROR = "error"
-OPS_FINALIZED = frozenset([OP_STATUS_CANCELED,
-                           OP_STATUS_SUCCESS,
-                           OP_STATUS_ERROR])
+OPS_FINALIZED = frozenset([
+  OP_STATUS_CANCELED,
+  OP_STATUS_SUCCESS,
+  OP_STATUS_ERROR
+  ])
 
 # OpCode priority
 OP_PRIO_LOWEST = +19
@@ -997,14 +1154,18 @@ QR_INSTANCE = "instance"
 QR_NODE = "node"
 QR_LOCK = "lock"
 QR_GROUP = "group"
+QR_OS = "os"
 
 #: List of resources which can be queried using L{opcodes.OpQuery}
-QR_OP_QUERY = frozenset([QR_INSTANCE, QR_NODE, QR_GROUP])
+QR_VIA_OP = frozenset([QR_INSTANCE, QR_NODE, QR_GROUP, QR_OS])
 
 #: List of resources which can be queried using Local UniX Interface
-QR_OP_LUXI = QR_OP_QUERY.union([
+QR_VIA_LUXI = QR_VIA_OP.union([
   QR_LOCK,
   ])
+
+#: List of resources which can be queried using RAPI
+QR_VIA_RAPI = QR_VIA_LUXI
 
 # Query field types
 QFT_UNKNOWN = "unknown"
@@ -1052,7 +1213,7 @@ RS_ALL = frozenset([
 #: Dictionary with special field cases and their verbose/terse formatting
 RSS_DESCRIPTION = {
   RS_UNKNOWN: ("(unknown)", "??"),
-  RS_NODATA:  ("(nodata)",  "?"),
+  RS_NODATA: ("(nodata)", "?"),
   RS_OFFLINE: ("(offline)", "*"),
   RS_UNAVAIL: ("(unavail)", "-"),
   }
@@ -1065,6 +1226,7 @@ MAX_DISKS = 16
 SS_CLUSTER_NAME = "cluster_name"
 SS_CLUSTER_TAGS = "cluster_tags"
 SS_FILE_STORAGE_DIR = "file_storage_dir"
+SS_SHARED_FILE_STORAGE_DIR = "shared_file_storage_dir"
 SS_MASTER_CANDIDATES = "master_candidates"
 SS_MASTER_CANDIDATES_IPS = "master_candidates_ips"
 SS_MASTER_IP = "master_ip"
@@ -1083,6 +1245,8 @@ SS_MAINTAIN_NODE_HEALTH = "maintain_node_health"
 SS_UID_POOL = "uid_pool"
 SS_NODEGROUPS = "nodegroups"
 
+SS_FILE_PERMS = 0444
+
 # cluster wide default parameters
 DEFAULT_ENABLED_HYPERVISOR = HT_XEN_PVM
 
@@ -1090,18 +1254,19 @@ HVC_DEFAULTS = {
   HT_XEN_PVM: {
     HV_USE_BOOTLOADER: False,
     HV_BOOTLOADER_PATH: XEN_BOOTLOADER,
-    HV_BOOTLOADER_ARGS: '',
+    HV_BOOTLOADER_ARGS: "",
     HV_KERNEL_PATH: "/boot/vmlinuz-2.6-xenU",
-    HV_INITRD_PATH: '',
-    HV_ROOT_PATH: '/dev/sda1',
-    HV_KERNEL_ARGS: 'ro',
+    HV_INITRD_PATH: "",
+    HV_ROOT_PATH: "/dev/sda1",
+    HV_KERNEL_ARGS: "ro",
     HV_MIGRATION_PORT: 8002,
     HV_MIGRATION_MODE: HT_MIGRATION_LIVE,
     HV_BLOCKDEV_PREFIX: "sd",
+    HV_REBOOT_BEHAVIOR: INSTANCE_REBOOT_ALLOWED,
     },
   HT_XEN_HVM: {
     HV_BOOT_ORDER: "cd",
-    HV_CDROM_IMAGE_PATH: '',
+    HV_CDROM_IMAGE_PATH: "",
     HV_NIC_TYPE: HT_NIC_RTL8139,
     HV_DISK_TYPE: HT_DISK_PARAVIRTUAL,
     HV_VNC_BIND_ADDRESS: IP4_ADDRESS_ANY,
@@ -1114,27 +1279,31 @@ HVC_DEFAULTS = {
     HV_MIGRATION_MODE: HT_MIGRATION_NONLIVE,
     HV_USE_LOCALTIME: False,
     HV_BLOCKDEV_PREFIX: "hd",
+    HV_REBOOT_BEHAVIOR: INSTANCE_REBOOT_ALLOWED,
     },
   HT_KVM: {
     HV_KERNEL_PATH: "/boot/vmlinuz-2.6-kvmU",
-    HV_INITRD_PATH: '',
-    HV_KERNEL_ARGS: 'ro',
-    HV_ROOT_PATH: '/dev/vda1',
+    HV_INITRD_PATH: "",
+    HV_KERNEL_ARGS: "ro",
+    HV_ROOT_PATH: "/dev/vda1",
     HV_ACPI: True,
     HV_SERIAL_CONSOLE: True,
-    HV_VNC_BIND_ADDRESS: '',
+    HV_VNC_BIND_ADDRESS: "",
     HV_VNC_TLS: False,
-    HV_VNC_X509: '',
+    HV_VNC_X509: "",
     HV_VNC_X509_VERIFY: False,
-    HV_VNC_PASSWORD_FILE: '',
-    HV_KVM_FLOPPY_IMAGE_PATH: '',
-    HV_CDROM_IMAGE_PATH: '',
-    HV_KVM_CDROM2_IMAGE_PATH: '',
+    HV_VNC_PASSWORD_FILE: "",
+    HV_KVM_SPICE_BIND: "",
+    HV_KVM_SPICE_IP_VERSION: IFACE_NO_IP_VERSION_SPECIFIED,
+    HV_KVM_FLOPPY_IMAGE_PATH: "",
+    HV_CDROM_IMAGE_PATH: "",
+    HV_KVM_CDROM2_IMAGE_PATH: "",
     HV_BOOT_ORDER: HT_BO_DISK,
     HV_NIC_TYPE: HT_NIC_PARAVIRTUAL,
     HV_DISK_TYPE: HT_DISK_PARAVIRTUAL,
-    HV_KVM_CDROM_DISK_TYPE: '',
-    HV_USB_MOUSE: '',
+    HV_KVM_CDROM_DISK_TYPE: "",
+    HV_USB_MOUSE: "",
+    HV_KEYMAP: "",
     HV_MIGRATION_PORT: 8102,
     HV_MIGRATION_BANDWIDTH: 32, # MiB/s
     HV_MIGRATION_DOWNTIME: 30,  # ms
@@ -1142,11 +1311,12 @@ HVC_DEFAULTS = {
     HV_USE_LOCALTIME: False,
     HV_DISK_CACHE: HT_CACHE_DEFAULT,
     HV_SECURITY_MODEL: HT_SM_NONE,
-    HV_SECURITY_DOMAIN: '',
+    HV_SECURITY_DOMAIN: "",
     HV_KVM_FLAG: "",
     HV_VHOST_NET: False,
     HV_KVM_USE_CHROOT: False,
     HV_MEM_PATH: "",
+    HV_REBOOT_BEHAVIOR: INSTANCE_REBOOT_ALLOWED,
     },
   HT_FAKE: {
     },
@@ -1253,7 +1423,7 @@ CONFD_CONFIG_RELOAD_RATELIMIT = 2
 # This allows us to distinguish different types of confd protocols and handle
 # them. For example by changing this we can move the whole payload to be
 # compressed, or move away from json.
-CONFD_MAGIC_FOURCC = 'plj0'
+CONFD_MAGIC_FOURCC = "plj0"
 
 # By default a confd request is sent to the minimum between this number and all
 # MCs. 6 was chosen because even in the case of a disastrous 50% response rate,
@@ -1274,7 +1444,7 @@ MAX_UDP_DATA_SIZE = 61440
 
 # User-id pool minimum/maximum acceptable user-ids.
 UIDPOOL_UID_MIN = 0
-UIDPOOL_UID_MAX = 2**32-1 # Assuming 32 bit user-ids
+UIDPOOL_UID_MAX = 2 ** 32 - 1 # Assuming 32 bit user-ids
 
 # Name or path of the pgrep command
 PGREP = "pgrep"
@@ -1291,3 +1461,11 @@ VALID_ALLOC_POLICIES = [
   ALLOC_POLICY_LAST_RESORT,
   ALLOC_POLICY_UNALLOCABLE,
   ]
+
+# Temporary external/shared storage parameters
+BLOCKDEV_DRIVER_MANUAL = "manual"
+
+# Whether htools was enabled at compilation time
+HTOOLS = _autoconf.HTOOLS
+# The hail iallocator
+IALLOC_HAIL = "hail"

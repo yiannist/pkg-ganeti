@@ -36,32 +36,32 @@ from qa_utils import AssertCommand, AssertEqual
 
 
 def _NodeAdd(node, readd=False):
-  if not readd and node.get('_added', False):
-    raise qa_error.Error("Node %s already in cluster" % node['primary'])
-  elif readd and not node.get('_added', False):
-    raise qa_error.Error("Node %s not yet in cluster" % node['primary'])
+  if not readd and node.get("_added", False):
+    raise qa_error.Error("Node %s already in cluster" % node["primary"])
+  elif readd and not node.get("_added", False):
+    raise qa_error.Error("Node %s not yet in cluster" % node["primary"])
 
-  cmd = ['gnt-node', 'add', "--no-ssh-key-check"]
-  if node.get('secondary', None):
-    cmd.append('--secondary-ip=%s' % node['secondary'])
+  cmd = ["gnt-node", "add", "--no-ssh-key-check"]
+  if node.get("secondary", None):
+    cmd.append("--secondary-ip=%s" % node["secondary"])
   if readd:
-    cmd.append('--readd')
-  cmd.append(node['primary'])
+    cmd.append("--readd")
+  cmd.append(node["primary"])
 
   AssertCommand(cmd)
 
-  node['_added'] = True
+  node["_added"] = True
 
 
 def _NodeRemove(node):
   AssertCommand(["gnt-node", "remove", node["primary"]])
-  node['_added'] = False
+  node["_added"] = False
 
 
 def TestNodeAddAll():
   """Adding all nodes to cluster."""
   master = qa_config.GetMasterNode()
-  for node in qa_config.get('nodes'):
+  for node in qa_config.get("nodes"):
     if node != master:
       _NodeAdd(node, readd=False)
 
@@ -73,15 +73,15 @@ def MarkNodeAddedAll():
 
   """
   master = qa_config.GetMasterNode()
-  for node in qa_config.get('nodes'):
+  for node in qa_config.get("nodes"):
     if node != master:
-      node['_added'] = True
+      node["_added"] = True
 
 
 def TestNodeRemoveAll():
   """Removing all nodes from cluster."""
   master = qa_config.GetMasterNode()
-  for node in qa_config.get('nodes'):
+  for node in qa_config.get("nodes"):
     if node != master:
       _NodeRemove(node)
 
@@ -240,7 +240,8 @@ def _AssertOobCall(verify_path, expected_args):
   master = qa_config.GetMasterNode()
 
   verify_output_cmd = utils.ShellQuoteArgs(["cat", verify_path])
-  output = qa_utils.GetCommandOutput(master["primary"], verify_output_cmd)
+  output = qa_utils.GetCommandOutput(master["primary"], verify_output_cmd,
+                                     tty=False)
 
   AssertEqual(expected_args, output.strip())
 
@@ -251,6 +252,7 @@ def TestOutOfBand():
 
   node = qa_config.AcquireNode(exclude=master)
 
+  master_name = master["primary"]
   node_name = node["primary"]
   full_node_name = qa_utils.ResolveNodeName(node)
 
@@ -267,8 +269,15 @@ def TestOutOfBand():
     AssertCommand(["gnt-node", "power", "on", node_name])
     _AssertOobCall(verify_path, "power-on %s" % full_node_name)
 
-    AssertCommand(["gnt-node", "power", "off", node_name])
+    AssertCommand(["gnt-node", "power", "-f", "off", node_name])
     _AssertOobCall(verify_path, "power-off %s" % full_node_name)
+
+    # Power off on master without options should fail
+    AssertCommand(["gnt-node", "power", "-f", "off", master_name], fail=True)
+    # With force master it should still fail
+    AssertCommand(["gnt-node", "power", "-f", "--ignore-status", "off",
+                   master_name],
+                  fail=True)
 
     # Verify we can't transform back to online when not yet powered on
     AssertCommand(["gnt-node", "modify", "-O", "no", node_name],
@@ -277,31 +286,46 @@ def TestOutOfBand():
     AssertCommand(["gnt-node", "modify", "-O", "no", "--node-powered", "yes",
                    node_name])
 
-    AssertCommand(["gnt-node", "power", "cycle", node_name])
+    AssertCommand(["gnt-node", "power", "-f", "cycle", node_name])
     _AssertOobCall(verify_path, "power-cycle %s" % full_node_name)
 
-    # This command should fail as it expects output which isn't provided yet
-    # But it should have called the oob helper nevermind
+    # Those commands should fail as they expect output which isn't provided yet
+    # But they should have called the oob helper nevermind
     AssertCommand(["gnt-node", "power", "status", node_name],
                   fail=True)
     _AssertOobCall(verify_path, "power-status %s" % full_node_name)
 
-    # Data, exit 0
-    _UpdateOobFile(data_path, serializer.DumpJson({ "powered": True }))
+    AssertCommand(["gnt-node", "health", node_name],
+                  fail=True)
+    _AssertOobCall(verify_path, "health %s" % full_node_name)
+
+    AssertCommand(["gnt-node", "health"], fail=True)
+
+    # Correct Data, exit 0
+    _UpdateOobFile(data_path, serializer.DumpJson({"powered": True}))
 
     AssertCommand(["gnt-node", "power", "status", node_name])
     _AssertOobCall(verify_path, "power-status %s" % full_node_name)
 
+    _UpdateOobFile(data_path, serializer.DumpJson([["temp", "OK"],
+                                                   ["disk0", "CRITICAL"]]))
+
+    AssertCommand(["gnt-node", "health", node_name])
+    _AssertOobCall(verify_path, "health %s" % full_node_name)
+
+    AssertCommand(["gnt-node", "health"])
+
+    # Those commands should fail as they expect no data regardless of exit 0
     AssertCommand(["gnt-node", "power", "on", node_name], fail=True)
     _AssertOobCall(verify_path, "power-on %s" % full_node_name)
 
     try:
-      AssertCommand(["gnt-node", "power", "off", node_name], fail=True)
+      AssertCommand(["gnt-node", "power", "-f", "off", node_name], fail=True)
       _AssertOobCall(verify_path, "power-off %s" % full_node_name)
     finally:
       AssertCommand(["gnt-node", "modify", "-O", "no", node_name])
 
-    AssertCommand(["gnt-node", "power", "cycle", node_name], fail=True)
+    AssertCommand(["gnt-node", "power", "-f", "cycle", node_name], fail=True)
     _AssertOobCall(verify_path, "power-cycle %s" % full_node_name)
 
     # Data, exit 1 (all should fail)
@@ -311,17 +335,23 @@ def TestOutOfBand():
     _AssertOobCall(verify_path, "power-on %s" % full_node_name)
 
     try:
-      AssertCommand(["gnt-node", "power", "off", node_name], fail=True)
+      AssertCommand(["gnt-node", "power", "-f", "off", node_name], fail=True)
       _AssertOobCall(verify_path, "power-off %s" % full_node_name)
     finally:
       AssertCommand(["gnt-node", "modify", "-O", "no", node_name])
 
-    AssertCommand(["gnt-node", "power", "cycle", node_name], fail=True)
+    AssertCommand(["gnt-node", "power", "-f", "cycle", node_name], fail=True)
     _AssertOobCall(verify_path, "power-cycle %s" % full_node_name)
 
     AssertCommand(["gnt-node", "power", "status", node_name],
                   fail=True)
     _AssertOobCall(verify_path, "power-status %s" % full_node_name)
+
+    AssertCommand(["gnt-node", "health", node_name],
+                  fail=True)
+    _AssertOobCall(verify_path, "health %s" % full_node_name)
+
+    AssertCommand(["gnt-node", "health"], fail=True)
 
     # No data, exit 1 (all should fail)
     _UpdateOobFile(data_path, "")
@@ -329,17 +359,23 @@ def TestOutOfBand():
     _AssertOobCall(verify_path, "power-on %s" % full_node_name)
 
     try:
-      AssertCommand(["gnt-node", "power", "off", node_name], fail=True)
+      AssertCommand(["gnt-node", "power", "-f", "off", node_name], fail=True)
       _AssertOobCall(verify_path, "power-off %s" % full_node_name)
     finally:
       AssertCommand(["gnt-node", "modify", "-O", "no", node_name])
 
-    AssertCommand(["gnt-node", "power", "cycle", node_name], fail=True)
+    AssertCommand(["gnt-node", "power", "-f", "cycle", node_name], fail=True)
     _AssertOobCall(verify_path, "power-cycle %s" % full_node_name)
 
     AssertCommand(["gnt-node", "power", "status", node_name],
                   fail=True)
     _AssertOobCall(verify_path, "power-status %s" % full_node_name)
+
+    AssertCommand(["gnt-node", "health", node_name],
+                  fail=True)
+    _AssertOobCall(verify_path, "health %s" % full_node_name)
+
+    AssertCommand(["gnt-node", "health"], fail=True)
 
     # Different OOB script for node
     verify_path2 = qa_utils.UploadData(master["primary"], "")

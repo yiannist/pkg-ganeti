@@ -93,7 +93,7 @@ def main():
   """Main program.
 
   """
-  global options, args # pylint: disable-msg=W0603
+  global options, args # pylint: disable=W0603
 
   # Option parsing
   parser = optparse.OptionParser(usage="%prog [--debug|--verbose] [--force]")
@@ -127,6 +127,7 @@ def main():
   options.CONFD_HMAC_KEY = options.data_dir + "/hmac.key"
   options.CDS_FILE = options.data_dir + "/cluster-domain-secret"
   options.SSCONF_MASTER_NODE = options.data_dir + "/ssconf_master_node"
+  options.WATCHER_STATEFILE = options.data_dir + "/watcher.data"
 
   SetupLogging()
 
@@ -172,13 +173,13 @@ def main():
                 " configuration file")
 
   # Upgrade from 2.0/2.1/2.2/2.3 to 2.4
-  if config_major == 2 and config_minor in (0, 1, 2, 3):
+  if config_major == 2 and config_minor in (0, 1, 2, 3, 4):
     if config_revision != 0:
       logging.warning("Config revision is %s, not 0", config_revision)
 
-    config_data["version"] = constants.BuildVersion(2, 4, 0)
+    config_data["version"] = constants.BuildVersion(2, 5, 0)
 
-  elif config_major == 2 and config_minor == 4:
+  elif config_major == 2 and config_minor == 5:
     logging.info("No changes necessary")
 
   else:
@@ -206,6 +207,12 @@ def main():
     if not options.dry_run:
       os.symlink(options.RAPI_USERS_FILE, options.RAPI_USERS_FILE_PRE24)
 
+  # Remove old watcher state file if it exists
+  if os.path.exists(options.WATCHER_STATEFILE):
+    logging.info("Removing watcher state file %s", options.WATCHER_STATEFILE)
+    if not options.dry_run:
+      utils.RemoveFile(options.WATCHER_STATEFILE)
+
   try:
     logging.info("Writing configuration file to %s", options.CONFIG_DATA_PATH)
     utils.WriteFile(file_name=options.CONFIG_DATA_PATH,
@@ -230,6 +237,7 @@ def main():
   if not (options.dry_run or options.no_verify):
     logging.info("Testing the new config file...")
     cfg = config.ConfigWriter(cfg_file=options.CONFIG_DATA_PATH,
+                              accept_foreign=options.ignore_hostname,
                               offline=True)
     # if we reached this, it's all fine
     vrfy = cfg.VerifyConfig()
@@ -239,6 +247,9 @@ def main():
         logging.error(" - %s", item)
     del cfg
     logging.info("File loaded successfully")
+
+  cli.ToStderr("Configuration successfully upgraded for version %s.",
+               constants.RELEASE_VERSION)
 
 
 if __name__ == "__main__":

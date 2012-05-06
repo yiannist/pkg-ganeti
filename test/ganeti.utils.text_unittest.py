@@ -106,6 +106,58 @@ class TestMatchNameComponent(unittest.TestCase):
                      None)
 
 
+class TestDnsNameGlobPattern(unittest.TestCase):
+  def setUp(self):
+    self.names = [
+      "node1.example.com",
+      "node2-0.example.com",
+      "node2-1.example.com",
+      "node1.example.net",
+      "web1.example.com",
+      "web2.example.com",
+      "sub.site.example.com",
+      ]
+
+  def _Test(self, pattern):
+    re_pat = utils.DnsNameGlobPattern(pattern)
+
+    return filter(re.compile(re_pat).match, self.names)
+
+  def test(self):
+    for pattern in ["xyz", "node", " ", "example.net", "x*.example.*",
+                    "x*.example.com"]:
+      self.assertEqual(self._Test(pattern), [])
+
+    for pattern in ["*", "???*"]:
+      self.assertEqual(self._Test(pattern), self.names)
+
+    self.assertEqual(self._Test("node1.*.net"), ["node1.example.net"])
+    self.assertEqual(self._Test("*.example.net"), ["node1.example.net"])
+    self.assertEqual(self._Test("web1.example.com"), ["web1.example.com"])
+
+    for pattern in ["*.*.*.*", "???", "*.site"]:
+      self.assertEqual(self._Test(pattern), ["sub.site.example.com"])
+
+    self.assertEqual(self._Test("node1"), [
+      "node1.example.com",
+      "node1.example.net",
+      ])
+    self.assertEqual(self._Test("node?*.example.*"), [
+      "node1.example.com",
+      "node2-0.example.com",
+      "node2-1.example.com",
+      "node1.example.net",
+      ])
+    self.assertEqual(self._Test("*-?"), [
+      "node2-0.example.com",
+      "node2-1.example.com",
+      ])
+    self.assertEqual(self._Test("node2-?.example.com"), [
+      "node2-0.example.com",
+      "node2-1.example.com",
+      ])
+
+
 class TestFormatUnit(unittest.TestCase):
   """Test case for the FormatUnit function"""
 
@@ -335,6 +387,12 @@ class TestUnescapeAndSplit(unittest.TestCase):
       b = [sep, sep, "c", "d.moo\\"]
       self.assertEqual(utils.UnescapeAndSplit("%s\\" % sep.join(a), sep=sep), b)
 
+  def testMultipleEscapes(self):
+    for sep in self._seps:
+      a = ["a", "b\\" + sep + "c", "d\\" + sep + "e\\" + sep + "f", "g"]
+      b = ["a", "b" + sep + "c", "d" + sep + "e" + sep + "f", "g"]
+      self.failUnlessEqual(utils.UnescapeAndSplit(sep.join(a), sep=sep), b)
+
 
 class TestCommaJoin(unittest.TestCase):
   def test(self):
@@ -448,6 +506,22 @@ class TestBuildShellCmd(unittest.TestCase):
     self.assertRaises(errors.ProgrammerError, utils.BuildShellCmd,
                       "ls %s", "ab;cd")
     self.assertEqual(utils.BuildShellCmd("ls %s", "ab"), "ls ab")
+
+
+class TestOrdinal(unittest.TestCase):
+  def test(self):
+    checks = {
+      0: "0th", 1: "1st", 2: "2nd", 3: "3rd", 4: "4th", 5: "5th", 6: "6th",
+      7: "7th", 8: "8th", 9: "9th", 10: "10th", 11: "11th", 12: "12th",
+      13: "13th", 14: "14th", 15: "15th", 16: "16th", 17: "17th",
+      18: "18th", 19: "19th", 20: "20th", 21: "21st", 25: "25th", 30: "30th",
+      32: "32nd", 40: "40th", 50: "50th", 55: "55th", 60: "60th", 62: "62nd",
+      70: "70th", 80: "80th", 83: "83rd", 90: "90th", 91: "91st",
+      582: "582nd", 999: "999th",
+      }
+
+    for value, ordinal in checks.items():
+      self.assertEqual(utils.FormatOrdinal(value), ordinal)
 
 
 if __name__ == "__main__":

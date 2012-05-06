@@ -65,14 +65,17 @@ def _ResetWatcherDaemon():
   """Removes the watcher daemon's state file.
 
   """
-  AssertCommand(["rm", "-f", constants.WATCHER_STATEFILE])
+  AssertCommand([
+    "bash", "-c",
+    "rm -vf %s" % (constants.WATCHER_GROUP_STATE_FILE % "*-*-*-*")
+    ])
 
 
 def _RunWatcherDaemon():
   """Runs the ganeti-watcher daemon on the master node.
 
   """
-  AssertCommand(["ganeti-watcher", "-d", "--ignore-pause"])
+  AssertCommand(["ganeti-watcher", "-d", "--ignore-pause", "--wait-children"])
 
 
 def TestPauseWatcher():

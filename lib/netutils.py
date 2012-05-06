@@ -28,13 +28,16 @@ the command line scripts.
 
 
 import errno
+import os
 import re
 import socket
 import struct
 import IN
+import logging
 
 from ganeti import constants
 from ganeti import errors
+from ganeti import utils
 
 # Structure definition for getsockopt(SOL_SOCKET, SO_PEERCRED, ...):
 # struct ucred { pid_t pid; uid_t uid; gid_t gid; };
@@ -48,6 +51,38 @@ from ganeti import errors
 _STRUCT_UCRED = "iII"
 _STRUCT_UCRED_SIZE = struct.calcsize(_STRUCT_UCRED)
 
+# Regexes used to find IP addresses in the output of ip.
+_IP_RE_TEXT = r"[.:a-z0-9]+"      # separate for testing purposes
+_IP_FAMILY_RE = re.compile(r"(?P<family>inet6?)\s+(?P<ip>%s)/" % _IP_RE_TEXT,
+                           re.IGNORECASE)
+
+# Dict used to convert from a string representing an IP family to an IP
+# version
+_NAME_TO_IP_VER = {
+  "inet": constants.IP4_VERSION,
+  "inet6": constants.IP6_VERSION,
+  }
+
+
+def _GetIpAddressesFromIpOutput(ip_output):
+  """Parses the output of the ip command and retrieves the IP addresses and
+  version.
+
+  @param ip_output: string containing the output of the ip command;
+  @rtype: dict; (int, list)
+  @return: a dict having as keys the IP versions and as values the
+           corresponding list of addresses found in the IP output.
+
+  """
+  addr = dict((i, []) for i in _NAME_TO_IP_VER.values())
+
+  for row in ip_output.splitlines():
+    match = _IP_FAMILY_RE.search(row)
+    if match and IPAddress.IsValid(match.group("ip")):
+      addr[_NAME_TO_IP_VER[match.group("family")]].append(match.group("ip"))
+
+  return addr
+
 
 def GetSocketCredentials(sock):
   """Returns the credentials of the foreign process connected to a socket.
@@ -60,6 +95,39 @@ def GetSocketCredentials(sock):
   peercred = sock.getsockopt(socket.SOL_SOCKET, IN.SO_PEERCRED,
                              _STRUCT_UCRED_SIZE)
   return struct.unpack(_STRUCT_UCRED, peercred)
+
+
+def IsValidInterface(ifname):
+  """Validate an interface name.
+
+  @type ifname: string
+  @param ifname: Name of the network interface
+  @return: boolean indicating whether the interface name is valid or not.
+
+  """
+  return os.path.exists(utils.PathJoin("/sys/class/net", ifname))
+
+
+def GetInterfaceIpAddresses(ifname):
+  """Returns the IP addresses associated to the interface.
+
+  @type ifname: string
+  @param ifname: Name of the network interface
+  @return: A dict having for keys the IP version (either
+           L{constants.IP4_VERSION} or L{constants.IP6_VERSION}) and for
+           values the lists of IP addresses of the respective version
+           associated to the interface
+
+  """
+  result = utils.RunCmd([constants.IP_COMMAND_PATH, "-o", "addr", "show",
+                         ifname])
+
+  if result.failed:
+    logging.error("Error running the ip command while getting the IP"
+                  " addresses of %s", ifname)
+    return None
+
+  return _GetIpAddressesFromIpOutput(result.output)
 
 
 def GetHostname(name=None, family=None):
@@ -187,7 +255,7 @@ def TcpPing(target, port, timeout=10, live_port_needed=False, source=None):
   to it.
 
   @type target: str
-  @param target: the IP or hostname to ping
+  @param target: the IP to ping
   @type port: int
   @param port: the port to connect to
   @type timeout: int
@@ -349,9 +417,9 @@ class IPAddress(object):
     assert 0 <= prefix <= cls.iplen
     target_int = cls._GetIPIntFromString(subnet[0])
     # Convert prefix netmask to integer value of netmask
-    netmask_int = (2**cls.iplen)-1 ^ ((2**cls.iplen)-1 >> prefix)
+    netmask_int = (2 ** cls.iplen) - 1 ^ ((2 ** cls.iplen) - 1 >> prefix)
     # Calculate hostmask
-    hostmask_int = netmask_int ^ (2**cls.iplen)-1
+    hostmask_int = netmask_int ^ (2 ** cls.iplen) - 1
     # Calculate network address by and'ing netmask
     network_int = target_int & netmask_int
     # Calculate broadcast address by or'ing hostmask
@@ -366,7 +434,7 @@ class IPAddress(object):
     @type address: str
     @param address: ip address whose family will be returned
     @rtype: int
-    @return: socket.AF_INET or socket.AF_INET6
+    @return: C{socket.AF_INET} or C{socket.AF_INET6}
     @raise errors.GenericError: for invalid addresses
 
     """
@@ -381,6 +449,43 @@ class IPAddress(object):
       pass
 
     raise errors.IPAddressError("Invalid address '%s'" % address)
+
+  @staticmethod
+  def GetVersionFromAddressFamily(family):
+    """Convert an IP address family to the corresponding IP version.
+
+    @type family: int
+    @param family: IP address family, one of socket.AF_INET or socket.AF_INET6
+    @return: an int containing the IP version, one of L{constants.IP4_VERSION}
+             or L{constants.IP6_VERSION}
+    @raise errors.ProgrammerError: for unknown families
+
+    """
+    if family == socket.AF_INET:
+      return constants.IP4_VERSION
+    elif family == socket.AF_INET6:
+      return constants.IP6_VERSION
+
+    raise errors.ProgrammerError("%s is not a valid IP address family" % family)
+
+  @staticmethod
+  def GetAddressFamilyFromVersion(version):
+    """Convert an IP version to the corresponding IP address family.
+
+    @type version: int
+    @param version: IP version, one of L{constants.IP4_VERSION} or
+                    L{constants.IP6_VERSION}
+    @return: an int containing the IP address family, one of C{socket.AF_INET}
+             or C{socket.AF_INET6}
+    @raise errors.ProgrammerError: for unknown IP versions
+
+    """
+    if version == constants.IP4_VERSION:
+      return socket.AF_INET
+    elif version == constants.IP6_VERSION:
+      return socket.AF_INET6
+
+    raise errors.ProgrammerError("%s is not a valid IP version" % version)
 
   @classmethod
   def IsLoopback(cls, address):
@@ -476,16 +581,16 @@ class IP6Address(IPAddress):
       # We have a shorthand address, expand it
       parts = []
       twoparts = address.split("::")
-      sep = len(twoparts[0].split(':')) + len(twoparts[1].split(':'))
-      parts = twoparts[0].split(':')
-      [parts.append("0") for _ in range(8 - sep)]
-      parts += twoparts[1].split(':')
+      sep = len(twoparts[0].split(":")) + len(twoparts[1].split(":"))
+      parts = twoparts[0].split(":")
+      parts.extend(["0"] * (8 - sep))
+      parts += twoparts[1].split(":")
     else:
       parts = address.split(":")
 
     address_int = 0
     for part in parts:
-      address_int = (address_int << 16) + int(part or '0', 16)
+      address_int = (address_int << 16) + int(part or "0", 16)
 
     return address_int
 

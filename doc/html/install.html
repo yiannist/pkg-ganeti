@@ -5,13 +5,13 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Ganeti installation tutorial &mdash; Ganeti v2.4.5 documentation</title>
+    <title>Ganeti installation tutorial &mdash; Ganeti v2.5.0 documentation</title>
     <link rel="stylesheet" href="_static/default.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.4.5',
+        VERSION:     '2.5.0',
         COLLAPSE_MODINDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -19,7 +19,7 @@
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.4.5 documentation" href="index.html" />
+    <link rel="top" title="Ganeti v2.5.0 documentation" href="index.html" />
     <link rel="next" title="Upgrade notes" href="upgrade.html" />
     <link rel="prev" title="Ganeti quick installation guide" href="install-quick.html" /> 
   </head>
@@ -33,7 +33,7 @@
         <li class="right" >
           <a href="install-quick.html" title="Ganeti quick installation guide"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.4.5 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.5.0 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -44,7 +44,7 @@
             
   <div class="section" id="ganeti-installation-tutorial">
 <h1><a class="toc-backref" href="#id2">Ganeti installation tutorial</a><a class="headerlink" href="#ganeti-installation-tutorial" title="Permalink to this headline">¶</a></h1>
-<p>Documents Ganeti version 2.4</p>
+<p>Documents Ganeti version 2.5</p>
 <div class="contents topic" id="contents">
 <p class="topic-title first">Contents</p>
 <ul class="simple">
@@ -240,7 +240,7 @@ other. For example:</p>
 (xend-relocation-hosts-allow &#39;^192\\.0\\.2\\.[0-9]+$&#39;)
 </pre></div>
 </div>
-<p>The second line assumess that the hypervisor parameter
+<p>The second line assumes that the hypervisor parameter
 <tt class="docutils literal"><span class="pre">migration_port</span></tt> is set 8002, otherwise modify it to match. The last
 line assumes that all your nodes have secondary IPs in the
 192.0.2.0/24 network, adjust it accordingly to your setup.</p>
@@ -586,8 +586,8 @@ different network interface which will get the cluster ip, on the master
 node, by using the <tt class="docutils literal"><span class="pre">--master-netdev</span> <span class="pre">&lt;device&gt;</span></tt> option.</p>
 <p>You can use a different name than <tt class="docutils literal"><span class="pre">xenvg</span></tt> for the volume group (but
 note that the name must be identical on all nodes). In this case you
-need to specify it by passing the <em>-g &lt;VGNAME&gt;</em> option to <tt class="docutils literal"><span class="pre">gnt-cluster</span>
-<span class="pre">init</span></tt>.</p>
+need to specify it by passing the <em>&#8211;vg-name &lt;VGNAME&gt;</em> option to
+<tt class="docutils literal"><span class="pre">gnt-cluster</span> <span class="pre">init</span></tt>.</p>
 <p>To set up the cluster as an Xen HVM cluster, use the
 <tt class="docutils literal"><span class="pre">--enabled-hypervisors=xen-hvm</span></tt> option to enable the HVM hypervisor
 (you can also add <tt class="docutils literal"><span class="pre">,xen-pvm</span></tt> to enable the PVM one too). You will also
@@ -762,7 +762,7 @@ instance level.</td></tr>
         <li class="right" >
           <a href="install-quick.html" title="Ganeti quick installation guide"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.4.5 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.5.0 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

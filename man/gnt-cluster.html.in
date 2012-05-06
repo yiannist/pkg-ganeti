@@ -59,6 +59,8 @@
       >command</strong
       > [-n <em
       >node</em
+      >] [-g <em
+      >group</em
       >] {<em
       >command</em
       >}</p
@@ -69,6 +71,15 @@
     ><pre
     ><code
       ># gnt-cluster command -n node1.example.com -n node2.example.com date
+</code
+      ></pre
+    ><p
+    >The <code
+      >-g</code
+      > option can be used to run a command only on a specific node group, e.g.:</p
+    ><pre
+    ><code
+      ># gnt-cluster command -g default date
 </code
       ></pre
     ><p
@@ -95,7 +106,10 @@
       >copyfile</strong
       > [--use-replication-network] [-n <em
       >node</em
-      >] {<em
+      >] [-g <em
+      >group</em
+      >]<br
+       />{<em
       >file</em
       >}</p
     ><p
@@ -103,7 +117,9 @@
       >-n</code
       > argument specifies the target node, or nodes if the option is given multiple times. If <code
       >-n</code
-      > is not given at all, the file will be copied to all nodes. Passing the <code
+      > is not given at all, the file will be copied to all nodes. The <code
+      >-g</code
+      > option can be used to only select nodes in a specific node group. Passing the <code
       >--use-replication-network</code
       > option will cause the copy to be done over the replication network (only matters if the primary/secondary IPs are different). Example:</p
     ><pre
@@ -129,6 +145,32 @@
     >Since this is a dangerous command, you are required to pass the argument <em
       >--yes-do-it.</em
       ></p
+    ></div
+  ><div id="epo"
+  ><h2
+    >EPO</h2
+    ><p
+    ><strong
+      >epo</strong
+      > [--on] [--groups|--all] [--power-delay] <em
+      >arguments</em
+      ></p
+    ><p
+    >Performs an emergency power-off on nodes given as arguments. If <code
+      >--groups</code
+      > is given, arguments are node groups. If <code
+      >--all</code
+      > is provided, the whole cluster will be shut down.</p
+    ><p
+    >The <code
+      >--on</code
+      > flag recovers the cluster after an emergency power-off. When powering on the cluster you can use <code
+      >--power-delay</code
+      > to define the time in seconds (fractions allowed) waited between powering on individual nodes.</p
+    ><p
+    >Please note that the master node will not be turned down or up automatically. It will just be left in a state, where you can manully perform the shutdown of that one node. If the master is in the list of affected nodes and this is not a complete cluster emergency power-off (e.g. using <code
+      >--all</code
+      >), you're required to do a master failover to another node not affected.</p
     ></div
   ><div id="getmaster"
   ><h2
@@ -181,9 +223,6 @@
       >]<br
        />[--enabled-hypervisors <em
       >hypervisors</em
-      >]<br
-       />[-t <em
-      >hypervisor name</em
       >]<br
        />[{-H|--hypervisor-parameters} <em
       >hypervisor</em
@@ -415,7 +454,9 @@
     ><p
     >The <code
       >-I (--default-iallocator)</code
-      > option specifies the default instance allocator. The instance allocator will be used for operations like instance creation, instance and node migration, etc. when no manual override is specified. If this option is not specified, the default instance allocator will be blank, which means that relevant operations will require the administrator to manually specify either an instance allocator, or a set of nodes. The default iallocator can be changed later using the <strong
+      > option specifies the default instance allocator. The instance allocator will be used for operations like instance creation, instance and node migration, etc. when no manual override is specified. If this option is not specified and htools was not enabled at build time, the default instance allocator will be blank, which means that relevant operations will require the administrator to manually specify either an instance allocator, or a set of nodes. If the option is not specified but htools was enabled, the default iallocator will be <strong
+      >hail</strong
+      >(1) (assuming it can be found on disk). The default iallocator can be changed later using the <strong
       >modify</strong
       > command.</p
     ><p
@@ -781,13 +822,19 @@
     ><p
     ><strong
       >verify</strong
-      > [--no-nplus1-mem]</p
+      > [--no-nplus1-mem] [--node-group <em
+      >nodegroup</em
+      >]</p
     ><p
     >Verify correctness of cluster configuration. This is safe with respect to running instances, and incurs no downtime of the instances.</p
     ><p
     >If the <code
       >--no-nplus1-mem</code
       > option is given, Ganeti won't check whether if it loses a node it can restart all the instances on their secondaries (and report an error otherwise).</p
+    ><p
+    >With <code
+      >--node-group</code
+      >, restrict the verification to those nodes and instances that live in the named group. This will not verify global settings, but will allow to perform verification of a group while other operations are ongoing in other groups.</p
     ></div
   ><div id="verify-disks"
   ><h2
@@ -864,12 +911,24 @@
     >(8) (master daemon), <strong
     >ganeti-rapi</strong
     >(8) (remote API daemon).</p
+  ><p
+  >Ganeti htools: <strong
+    >htools</strong
+    >(1) (generic binary), <strong
+    >hbal</strong
+    >(1) (cluster balancer), <strong
+    >hspace</strong
+    >(1) (capacity calculation), <strong
+    >hail</strong
+    >(1) (IAllocator plugin), <strong
+    >hscan</strong
+    >(1) (data gatherer from remote clusters).</p
   ></div
 ><div id="copyright"
 ><h1
   >COPYRIGHT</h1
   ><p
-  >Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc. Permission is granted to copy, distribute and/or modify under the terms of the GNU General Public License as published by the Free Software Foundation; either version 2 of the License, or (at your option) any later version.</p
+  >Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Google Inc. Permission is granted to copy, distribute and/or modify under the terms of the GNU General Public License as published by the Free Software Foundation; either version 2 of the License, or (at your option) any later version.</p
   ><p
   >On Debian systems, the complete text of the GNU General Public License can be found in /usr/share/common-licenses/GPL.</p
   ></div

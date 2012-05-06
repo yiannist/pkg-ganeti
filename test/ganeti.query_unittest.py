@@ -66,14 +66,14 @@ class TestQuery(unittest.TestCase):
     (STATIC, DISK) = range(10, 12)
 
     fielddef = query._PrepareFieldList([
-      (query._MakeField("name", "Name", constants.QFT_TEXT),
-       STATIC, lambda ctx, item: item["name"]),
-      (query._MakeField("master", "Master", constants.QFT_BOOL),
-       STATIC, lambda ctx, item: ctx.mastername == item["name"]),
+      (query._MakeField("name", "Name", constants.QFT_TEXT, "Name"),
+       STATIC, 0, lambda ctx, item: item["name"]),
+      (query._MakeField("master", "Master", constants.QFT_BOOL, "Master"),
+       STATIC, 0, lambda ctx, item: ctx.mastername == item["name"]),
       ] +
       [(query._MakeField("disk%s.size" % i, "DiskSize%s" % i,
-                         constants.QFT_UNIT),
-        DISK, compat.partial(_GetDiskSize, i))
+                         constants.QFT_UNIT, "Disk size %s" % i),
+        DISK, 0, compat.partial(_GetDiskSize, i))
        for i in range(4)], [])
 
     q = query.Query(fielddef, ["name"])
@@ -83,7 +83,8 @@ class TestQuery(unittest.TestCase):
     self.assertEqual(q.GetFields()[0].ToDict(),
       objects.QueryFieldDefinition(name="name",
                                    title="Name",
-                                   kind=constants.QFT_TEXT).ToDict())
+                                   kind=constants.QFT_TEXT,
+                                   doc="Name").ToDict())
 
     # Create data only once query has been prepared
     data = [
@@ -149,13 +150,14 @@ class TestQuery(unittest.TestCase):
                       _QueryData(data, mastername="node2"))
     self.assertEqual([fdef.ToDict() for fdef in q.GetFields()], [
                      { "name": "disk2.size", "title": "DiskSize2",
-                       "kind": constants.QFT_UNIT, },
+                       "kind": constants.QFT_UNIT, "doc": "Disk size 2", },
                      { "name": "disk1.size", "title": "DiskSize1",
-                       "kind": constants.QFT_UNIT, },
+                       "kind": constants.QFT_UNIT, "doc": "Disk size 1", },
                      { "name": "disk99.size", "title": "disk99.size",
-                       "kind": constants.QFT_UNKNOWN, },
+                       "kind": constants.QFT_UNKNOWN,
+                       "doc": "Unknown field 'disk99.size'", },
                      { "name": "disk0.size", "title": "DiskSize0",
-                       "kind": constants.QFT_UNIT, },
+                       "kind": constants.QFT_UNIT, "doc": "Disk size 0", },
                      ])
 
     # Empty query
@@ -172,55 +174,64 @@ class TestQuery(unittest.TestCase):
     # Duplicate titles
     for (a, b) in [("name", "name"), ("NAME", "name")]:
       self.assertRaises(AssertionError, query._PrepareFieldList, [
-        (query._MakeField("name", b, constants.QFT_TEXT), None,
+        (query._MakeField("name", b, constants.QFT_TEXT, "Name"), None, 0,
          lambda *args: None),
-        (query._MakeField("other", a, constants.QFT_TEXT), None,
+        (query._MakeField("other", a, constants.QFT_TEXT, "Other"), None, 0,
          lambda *args: None),
         ], [])
 
     # Non-lowercase names
     self.assertRaises(AssertionError, query._PrepareFieldList, [
-      (query._MakeField("NAME", "Name", constants.QFT_TEXT), None,
+      (query._MakeField("NAME", "Name", constants.QFT_TEXT, "Name"), None, 0,
        lambda *args: None),
       ], [])
     self.assertRaises(AssertionError, query._PrepareFieldList, [
-      (query._MakeField("Name", "Name", constants.QFT_TEXT), None,
+      (query._MakeField("Name", "Name", constants.QFT_TEXT, "Name"), None, 0,
        lambda *args: None),
       ], [])
 
     # Empty name
     self.assertRaises(AssertionError, query._PrepareFieldList, [
-      (query._MakeField("", "Name", constants.QFT_TEXT), None,
+      (query._MakeField("", "Name", constants.QFT_TEXT, "Name"), None, 0,
        lambda *args: None),
       ], [])
 
     # Empty title
     self.assertRaises(AssertionError, query._PrepareFieldList, [
-      (query._MakeField("name", "", constants.QFT_TEXT), None,
+      (query._MakeField("name", "", constants.QFT_TEXT, "Name"), None, 0,
        lambda *args: None),
       ], [])
 
     # Whitespace in title
     self.assertRaises(AssertionError, query._PrepareFieldList, [
-      (query._MakeField("name", "Co lu mn", constants.QFT_TEXT), None,
-       lambda *args: None),
+      (query._MakeField("name", "Co lu mn", constants.QFT_TEXT, "Name"),
+       None, 0, lambda *args: None),
       ], [])
 
     # No callable function
     self.assertRaises(AssertionError, query._PrepareFieldList, [
-      (query._MakeField("name", "Name", constants.QFT_TEXT), None, None),
+      (query._MakeField("name", "Name", constants.QFT_TEXT, "Name"),
+       None, 0, None),
       ], [])
+
+    # Invalid documentation
+    for doc in ["", ".", "Hello world\n", "Hello\nWo\nrld", "Hello World!",
+                "HelloWorld.", "only lowercase", ",", " x y z .\t", "  "]:
+      self.assertRaises(AssertionError, query._PrepareFieldList, [
+        (query._MakeField("name", "Name", constants.QFT_TEXT, doc),
+        None, 0, lambda *args: None),
+        ], [])
 
   def testUnknown(self):
     fielddef = query._PrepareFieldList([
-      (query._MakeField("name", "Name", constants.QFT_TEXT),
-       None, lambda _, item: "name%s" % item),
-      (query._MakeField("other0", "Other0", constants.QFT_TIMESTAMP),
-       None, lambda *args: 1234),
-      (query._MakeField("nodata", "NoData", constants.QFT_NUMBER),
-       None, lambda *args: query._FS_NODATA ),
-      (query._MakeField("unavail", "Unavail", constants.QFT_BOOL),
-       None, lambda *args: query._FS_UNAVAIL),
+      (query._MakeField("name", "Name", constants.QFT_TEXT, "Name"),
+       None, 0, lambda _, item: "name%s" % item),
+      (query._MakeField("other0", "Other0", constants.QFT_TIMESTAMP, "Other"),
+       None, 0, lambda *args: 1234),
+      (query._MakeField("nodata", "NoData", constants.QFT_NUMBER, "No data"),
+       None, 0, lambda *args: query._FS_NODATA ),
+      (query._MakeField("unavail", "Unavail", constants.QFT_BOOL, "Unavail"),
+       None, 0, lambda *args: query._FS_UNAVAIL),
       ], [])
 
     for selected in [["foo"], ["Hello", "World"],
@@ -234,7 +245,8 @@ class TestQuery(unittest.TestCase):
                         for i in range(1, 10)])
       self.assertEqual([fdef.ToDict() for fdef in q.GetFields()],
                        [{ "name": name, "title": name,
-                          "kind": constants.QFT_UNKNOWN, }
+                          "kind": constants.QFT_UNKNOWN,
+                          "doc": "Unknown field '%s'" % name}
                         for name in selected])
 
     q = query.Query(fielddef, ["name", "other0", "nodata", "unavail"])
@@ -256,10 +268,10 @@ class TestQuery(unittest.TestCase):
 
   def testAliases(self):
     fields = [
-      (query._MakeField("a", "a-title", constants.QFT_TEXT), None,
-       lambda *args: None),
-      (query._MakeField("b", "b-title", constants.QFT_TEXT), None,
-       lambda *args: None),
+      (query._MakeField("a", "a-title", constants.QFT_TEXT, "Field A"),
+       None, 0, lambda *args: None),
+      (query._MakeField("b", "b-title", constants.QFT_TEXT, "Field B"),
+       None, 0, lambda *args: None),
       ]
     # duplicate field
     self.assertRaises(AssertionError, query._PrepareFieldList, fields,
@@ -275,25 +287,26 @@ class TestQuery(unittest.TestCase):
 
 
 class TestGetNodeRole(unittest.TestCase):
-  def testMaster(self):
-    node = objects.Node(name="node1")
-    self.assertEqual(query._GetNodeRole(node, "node1"), "M")
+  def test(self):
+    tested_role = set()
 
-  def testMasterCandidate(self):
-    node = objects.Node(name="node1", master_candidate=True)
-    self.assertEqual(query._GetNodeRole(node, "master"), "C")
+    checks = [
+      (constants.NR_MASTER, "node1", objects.Node(name="node1")),
+      (constants.NR_MCANDIDATE, "master",
+       objects.Node(name="node1", master_candidate=True)),
+      (constants.NR_REGULAR, "master", objects.Node(name="node1")),
+      (constants.NR_DRAINED, "master",
+       objects.Node(name="node1", drained=True)),
+      (constants.NR_OFFLINE,
+       "master", objects.Node(name="node1", offline=True)),
+      ]
 
-  def testRegular(self):
-    node = objects.Node(name="node1")
-    self.assertEqual(query._GetNodeRole(node, "master"), "R")
+    for (role, master_name, node) in checks:
+      result = query._GetNodeRole(node, master_name)
+      self.assertEqual(result, role)
+      tested_role.add(result)
 
-  def testDrained(self):
-    node = objects.Node(name="node1", drained=True)
-    self.assertEqual(query._GetNodeRole(node, "master"), "D")
-
-  def testOffline(self):
-    node = objects.Node(name="node1", offline=True)
-    self.assertEqual(query._GetNodeRole(node, "master"), "O")
+    self.assertEqual(tested_role, constants.NR_ALL)
 
 
 class TestNodeQuery(unittest.TestCase):
@@ -355,6 +368,7 @@ class TestNodeQuery(unittest.TestCase):
                    master_candidate=(name != master_name and idx % 3 == 0),
                    offline=False,
                    drained=False,
+                   powered=True,
                    vm_capable=True,
                    master_capable=False,
                    ndparams={},
@@ -407,7 +421,11 @@ class TestNodeQuery(unittest.TestCase):
       ng_uuid: objects.NodeGroup(name="ng1", uuid=ng_uuid, ndparams={}),
       }
 
+    oob_not_powered_node = node_names[0]
+    nodes[0].powered = False
     oob_support = dict((name, False) for name in node_names)
+    oob_support[master_name] = True
+    oob_support[oob_not_powered_node] = True
 
     master_node.group = ng_uuid
 
@@ -446,7 +464,13 @@ class TestNodeQuery(unittest.TestCase):
                    row[field_index["ctime"]] == (constants.RS_NORMAL,
                                                  node.ctime) and
                    row[field_index["mtime"]] == (constants.RS_NORMAL,
-                                                 node.mtime)))
+                                                 node.mtime) and
+                   row[field_index["powered"]] == (constants.RS_NORMAL,
+                                                   True))) or
+                 (node.name == oob_not_powered_node and
+                  row[field_index["powered"]] == (constants.RS_NORMAL,
+                                                  False)) or
+                 row[field_index["powered"]] == (constants.RS_UNAVAIL, None)
                  for row, node in zip(result, nodes))
 
     live_data_row = result[node_to_row[live_data_name]]
@@ -540,20 +564,24 @@ class TestInstanceQuery(unittest.TestCase):
         },
       nicparams={
         constants.PP_DEFAULT: constants.NICC_DEFAULTS,
-        })
+        },
+      os_hvp={},
+      osparams={})
 
     instances = [
-      objects.Instance(name="inst1", hvparams={}, beparams={}, nics=[]),
-      objects.Instance(name="inst2", hvparams={}, nics=[],
+      objects.Instance(name="inst1", hvparams={}, beparams={}, osparams={},
+                       nics=[], os="deb1"),
+      objects.Instance(name="inst2", hvparams={}, nics=[], osparams={},
+        os="foomoo",
         beparams={
           constants.BE_MEMORY: 512,
         }),
-      objects.Instance(name="inst3", hvparams={}, beparams={},
-        nics=[objects.NIC(ip="192.0.2.99", nicparams={})]),
+      objects.Instance(name="inst3", hvparams={}, beparams={}, osparams={},
+        os="dos", nics=[objects.NIC(ip="192.0.2.99", nicparams={})]),
       ]
 
     iqd = query.InstanceQueryData(instances, cluster, None, [], [], {},
-                                  set(), {})
+                                  set(), {}, None, None)
     self.assertEqual(q.Query(iqd),
       [[(constants.RS_NORMAL, "inst1"),
         (constants.RS_NORMAL, 128),
@@ -582,7 +610,7 @@ class TestInstanceQuery(unittest.TestCase):
     q = self._Create(selected)
     self.assertEqual(q.RequestedData(),
                      set([query.IQ_CONFIG, query.IQ_LIVE, query.IQ_DISKUSAGE,
-                          query.IQ_CONSOLE]))
+                          query.IQ_CONSOLE, query.IQ_NODES]))
 
     cluster = objects.Cluster(cluster_name="testcluster",
       hvparams=constants.HVC_DEFAULTS,
@@ -593,7 +621,12 @@ class TestInstanceQuery(unittest.TestCase):
         constants.PP_DEFAULT: constants.NICC_DEFAULTS,
         },
       os_hvp={},
-      tcpudp_port_pool=set())
+      tcpudp_port_pool=set(),
+      osparams={
+        "deb99": {
+          "clean_install": "yes",
+          },
+        })
 
     offline_nodes = ["nodeoff1", "nodeoff2"]
     bad_nodes = ["nodebad1", "nodebad2", "nodebad3"] + offline_nodes
@@ -606,7 +639,8 @@ class TestInstanceQuery(unittest.TestCase):
         admin_up=True, hypervisor=constants.HT_XEN_PVM, os="linux1",
         primary_node="node1",
         disk_template=constants.DT_PLAIN,
-        disks=[]),
+        disks=[],
+        osparams={}),
       objects.Instance(name="inst2", hvparams={}, nics=[],
         uuid="73a0f8a7-068c-4630-ada2-c3440015ab1a",
         ctime=1291211000, mtime=1291211077, serial_no=1,
@@ -616,7 +650,8 @@ class TestInstanceQuery(unittest.TestCase):
         disks=[],
         beparams={
           constants.BE_MEMORY: 512,
-        }),
+        },
+        osparams={}),
       objects.Instance(name="inst3", hvparams={}, beparams={},
         uuid="11ec8dff-fb61-4850-bfe0-baa1803ff280",
         ctime=1291011000, mtime=1291013000, serial_no=1923,
@@ -630,7 +665,8 @@ class TestInstanceQuery(unittest.TestCase):
                         constants.NIC_LINK: constants.DEFAULT_BRIDGE,
                         }),
           objects.NIC(ip=None, mac=macs.pop(), nicparams={}),
-          ]),
+          ],
+        osparams={}),
       objects.Instance(name="inst4", hvparams={}, beparams={},
         uuid="68dab168-3ef5-4c9d-b4d3-801e0672068c",
         ctime=1291244390, mtime=1291244395, serial_no=25,
@@ -653,7 +689,8 @@ class TestInstanceQuery(unittest.TestCase):
                         constants.NIC_MODE: constants.NIC_MODE_BRIDGED,
                         constants.NIC_LINK: "eth123",
                         }),
-          ]),
+          ],
+        osparams={}),
       objects.Instance(name="inst5", hvparams={}, nics=[],
         uuid="0e3dca12-5b42-4e24-98a2-415267545bd0",
         ctime=1231211000, mtime=1261200000, serial_no=3,
@@ -663,7 +700,8 @@ class TestInstanceQuery(unittest.TestCase):
         disks=[],
         beparams={
           constants.BE_MEMORY: 512,
-        }),
+        },
+        osparams={}),
       objects.Instance(name="inst6", hvparams={}, nics=[],
         uuid="72de6580-c8d5-4661-b902-38b5785bb8b3",
         ctime=7513, mtime=11501, serial_no=13390,
@@ -673,7 +711,10 @@ class TestInstanceQuery(unittest.TestCase):
         disks=[],
         beparams={
           constants.BE_MEMORY: 768,
-        }),
+        },
+        osparams={
+          "clean_install": "no",
+          }),
       objects.Instance(name="inst7", hvparams={}, nics=[],
         uuid="ceec5dc4-b729-4f42-ae28-69b3cd24920e",
         ctime=None, mtime=None, serial_no=1947,
@@ -681,7 +722,8 @@ class TestInstanceQuery(unittest.TestCase):
         primary_node="node6",
         disk_template=constants.DT_DISKLESS,
         disks=[],
-        beparams={}),
+        beparams={},
+        osparams={}),
       ]
 
     assert not utils.FindDuplicates(inst.name for inst in instances)
@@ -725,7 +767,7 @@ class TestInstanceQuery(unittest.TestCase):
 
     iqd = query.InstanceQueryData(instances, cluster, disk_usage,
                                   offline_nodes, bad_nodes, live_data,
-                                  wrongnode_inst, consinfo)
+                                  wrongnode_inst, consinfo, {}, {})
     result = q.Query(iqd)
     self.assertEqual(len(result), len(instances))
     self.assert_(compat.all(len(row) == len(selected)
@@ -743,20 +785,20 @@ class TestInstanceQuery(unittest.TestCase):
                        (constants.RS_NORMAL, inst.name))
 
       if inst.primary_node in offline_nodes:
-        exp_status = "ERROR_nodeoffline"
+        exp_status = constants.INSTST_NODEOFFLINE
       elif inst.primary_node in bad_nodes:
-        exp_status = "ERROR_nodedown"
+        exp_status = constants.INSTST_NODEDOWN
       elif inst.name in live_data:
         if inst.name in wrongnode_inst:
-          exp_status = "ERROR_wrongnode"
+          exp_status = constants.INSTST_WRONGNODE
         elif inst.admin_up:
-          exp_status = "running"
+          exp_status = constants.INSTST_RUNNING
         else:
-          exp_status = "ERROR_up"
+          exp_status = constants.INSTST_ERRORUP
       elif inst.admin_up:
-        exp_status = "ERROR_down"
+        exp_status = constants.INSTST_ERRORDOWN
       else:
-        exp_status = "ADMIN_down"
+        exp_status = constants.INSTST_ADMINDOWN
 
       self.assertEqual(row[fieldidx["status"]],
                        (constants.RS_NORMAL, exp_status))
@@ -802,14 +844,34 @@ class TestInstanceQuery(unittest.TestCase):
         exp = (constants.RS_NORMAL, inst.name in live_data)
       self.assertEqual(row[fieldidx["oper_state"]], exp)
 
+      cust_exp = (constants.RS_NORMAL, {})
+      if inst.os == "deb99":
+        if inst.name == "inst6":
+          exp = (constants.RS_NORMAL, {"clean_install": "no"})
+          cust_exp = exp
+        else:
+          exp = (constants.RS_NORMAL, {"clean_install": "yes"})
+      else:
+        exp = (constants.RS_NORMAL, {})
+      self.assertEqual(row[fieldidx["osparams"]], exp)
+      self.assertEqual(row[fieldidx["custom_osparams"]], cust_exp)
+
       usage = disk_usage[inst.name]
       if usage is None:
         usage = 0
       self.assertEqual(row[fieldidx["disk_usage"]],
                        (constants.RS_NORMAL, usage))
 
-      self.assertEqual(row[fieldidx["sda_size"]], row[fieldidx["disk.size/0"]])
-      self.assertEqual(row[fieldidx["sdb_size"]], row[fieldidx["disk.size/1"]])
+      for alias, target in [("sda_size", "disk.size/0"),
+                            ("sdb_size", "disk.size/1"),
+                            ("vcpus", "be/vcpus"),
+                            ("ip", "nic.ip/0"),
+                            ("mac", "nic.mac/0"),
+                            ("bridge", "nic.bridge/0"),
+                            ("nic_mode", "nic.mode/0"),
+                            ("nic_link", "nic.link/0"),
+                            ]:
+        self.assertEqual(row[fieldidx[alias]], row[fieldidx[target]])
 
       for field in ["ctime", "mtime"]:
         if getattr(inst, field) is None:
@@ -822,10 +884,7 @@ class TestInstanceQuery(unittest.TestCase):
       self._CheckInstanceConsole(inst, row[fieldidx["console"]])
 
     # Ensure all possible status' have been tested
-    self.assertEqual(tested_status,
-                     set(["ERROR_nodeoffline", "ERROR_nodedown",
-                          "running", "ERROR_up", "ERROR_down",
-                          "ADMIN_down", "ERROR_wrongnode"]))
+    self.assertEqual(tested_status, constants.INSTST_ALL)
 
   def _CheckInstanceConsole(self, instance, (status, consdata)):
     if instance.name == "inst7":
@@ -912,6 +971,58 @@ class TestGroupQuery(unittest.TestCase):
                       ])
 
 
+class TestOsQuery(unittest.TestCase):
+  def _Create(self, selected):
+    return query.Query(query.OS_FIELDS, selected)
+
+  def test(self):
+    variants = ["v00", "plain", "v3", "var0", "v33", "v20"]
+    api_versions = [10, 0, 15, 5]
+    parameters = ["zpar3", "apar9"]
+
+    assert variants != sorted(variants) and variants != utils.NiceSort(variants)
+    assert (api_versions != sorted(api_versions) and
+            api_versions != utils.NiceSort(variants))
+    assert (parameters != sorted(parameters) and
+            parameters != utils.NiceSort(parameters))
+
+    data = [
+      query.OsInfo(name="debian", valid=False, hidden=False, blacklisted=False,
+                   variants=set(), api_versions=set(), parameters=set(),
+                   node_status={ "some": "status", }),
+      query.OsInfo(name="dos", valid=True, hidden=False, blacklisted=True,
+                   variants=set(variants),
+                   api_versions=set(api_versions),
+                   parameters=set(parameters),
+                   node_status={ "some": "other", "status": None, }),
+      ]
+
+
+    q = self._Create(["name", "valid", "hidden", "blacklisted", "variants",
+                      "api_versions", "parameters", "node_status"])
+    self.assertEqual(q.RequestedData(), set([]))
+    self.assertEqual(q.Query(data),
+                     [[(constants.RS_NORMAL, "debian"),
+                       (constants.RS_NORMAL, False),
+                       (constants.RS_NORMAL, False),
+                       (constants.RS_NORMAL, False),
+                       (constants.RS_NORMAL, []),
+                       (constants.RS_NORMAL, []),
+                       (constants.RS_NORMAL, []),
+                       (constants.RS_NORMAL, {"some": "status"})],
+                      [(constants.RS_NORMAL, "dos"),
+                       (constants.RS_NORMAL, True),
+                       (constants.RS_NORMAL, False),
+                       (constants.RS_NORMAL, True),
+                       (constants.RS_NORMAL,
+                        ["plain", "v00", "v3", "v20", "v33", "var0"]),
+                       (constants.RS_NORMAL, [0, 5, 10, 15]),
+                       (constants.RS_NORMAL, ["apar9", "zpar3"]),
+                       (constants.RS_NORMAL,
+                        { "some": "other", "status": None, })
+                       ]])
+
+
 class TestQueryFields(unittest.TestCase):
   def testAllFields(self):
     for fielddefs in query.ALL_FIELD_LISTS:
@@ -920,8 +1031,8 @@ class TestQueryFields(unittest.TestCase):
       response = objects.QueryFieldsResponse.FromDict(result)
       self.assertEqual([(fdef.name, fdef.title) for fdef in response.fields],
         [(fdef2.name, fdef2.title)
-         for (fdef2, _, _) in utils.NiceSort(fielddefs.values(),
-                                             key=lambda x: x[0].name)])
+         for (fdef2, _, _, _) in utils.NiceSort(fielddefs.values(),
+                                                key=lambda x: x[0].name)])
 
   def testSomeFields(self):
     rnd = random.Random(5357)
@@ -932,13 +1043,587 @@ class TestQueryFields(unittest.TestCase):
           sample_size = rnd.randint(5, 20)
         else:
           sample_size = rnd.randint(1, max(1, len(fielddefs) - 1))
-        fields = [fdef for (fdef, _, _) in rnd.sample(fielddefs.values(),
-                                                      sample_size)]
+        fields = [fdef for (fdef, _, _, _) in rnd.sample(fielddefs.values(),
+                                                         sample_size)]
         result = query.QueryFields(fielddefs, [fdef.name for fdef in fields])
         self.assert_(isinstance(result, dict))
         response = objects.QueryFieldsResponse.FromDict(result)
         self.assertEqual([(fdef.name, fdef.title) for fdef in response.fields],
                          [(fdef2.name, fdef2.title) for fdef2 in fields])
+
+
+class TestQueryFilter(unittest.TestCase):
+  def testRequestedNames(self):
+    innerfilter = [["=", "name", "x%s" % i] for i in range(4)]
+
+    for fielddefs in query.ALL_FIELD_LISTS:
+      assert "name" in fielddefs
+
+      # No name field
+      q = query.Query(fielddefs, ["name"], filter_=["=", "name", "abc"],
+                      namefield=None)
+      self.assertEqual(q.RequestedNames(), None)
+
+      # No filter
+      q = query.Query(fielddefs, ["name"], filter_=None, namefield="name")
+      self.assertEqual(q.RequestedNames(), None)
+
+      # Check empty query
+      q = query.Query(fielddefs, ["name"], filter_=["|"], namefield="name")
+      self.assertEqual(q.RequestedNames(), None)
+
+      # Check order
+      q = query.Query(fielddefs, ["name"], filter_=["|"] + innerfilter,
+                      namefield="name")
+      self.assertEqual(q.RequestedNames(), ["x0", "x1", "x2", "x3"])
+
+      # Check reverse order
+      q = query.Query(fielddefs, ["name"],
+                      filter_=["|"] + list(reversed(innerfilter)),
+                      namefield="name")
+      self.assertEqual(q.RequestedNames(), ["x3", "x2", "x1", "x0"])
+
+      # Duplicates
+      q = query.Query(fielddefs, ["name"],
+                      filter_=["|"] + innerfilter + list(reversed(innerfilter)),
+                      namefield="name")
+      self.assertEqual(q.RequestedNames(), ["x0", "x1", "x2", "x3"])
+
+      # Unknown name field
+      self.assertRaises(AssertionError, query.Query, fielddefs, ["name"],
+                        namefield="_unknown_field_")
+
+      # Filter with AND
+      q = query.Query(fielddefs, ["name"],
+                      filter_=["|", ["=", "name", "foo"],
+                                    ["&", ["=", "name", ""]]],
+                      namefield="name")
+      self.assertTrue(q.RequestedNames() is None)
+
+      # Filter with NOT
+      q = query.Query(fielddefs, ["name"],
+                      filter_=["|", ["=", "name", "foo"],
+                                    ["!", ["=", "name", ""]]],
+                      namefield="name")
+      self.assertTrue(q.RequestedNames() is None)
+
+      # Filter with only OR (names must be in correct order)
+      q = query.Query(fielddefs, ["name"],
+                      filter_=["|", ["=", "name", "x17361"],
+                                    ["|", ["=", "name", "x22015"]],
+                                    ["|", ["|", ["=", "name", "x13193"]]],
+                                    ["=", "name", "x15215"]],
+                      namefield="name")
+      self.assertEqual(q.RequestedNames(),
+                       ["x17361", "x22015", "x13193", "x15215"])
+
+  @staticmethod
+  def _GenNestedFilter(op, depth):
+    nested = ["=", "name", "value"]
+    for i in range(depth):
+      nested = [op, nested]
+    return nested
+
+  def testCompileFilter(self):
+    levels_max = query._FilterCompilerHelper._LEVELS_MAX
+
+    checks = [
+      [], ["="], ["=", "foo"], ["unknownop"], ["!"],
+      ["=", "_unknown_field", "value"],
+      self._GenNestedFilter("|", levels_max),
+      self._GenNestedFilter("|", levels_max * 3),
+      self._GenNestedFilter("!", levels_max),
+      ]
+
+    for fielddefs in query.ALL_FIELD_LISTS:
+      for filter_ in checks:
+        self.assertRaises(errors.ParameterError, query._CompileFilter,
+                          fielddefs, None, filter_)
+
+      for op in ["|", "!"]:
+        filter_ = self._GenNestedFilter(op, levels_max - 1)
+        self.assertTrue(callable(query._CompileFilter(fielddefs, None,
+                                                      filter_)))
+
+  def testQueryInputOrder(self):
+    fielddefs = query._PrepareFieldList([
+      (query._MakeField("pnode", "PNode", constants.QFT_TEXT, "Primary"),
+       None, 0, lambda ctx, item: item["pnode"]),
+      (query._MakeField("snode", "SNode", constants.QFT_TEXT, "Secondary"),
+       None, 0, lambda ctx, item: item["snode"]),
+      ], [])
+
+    data = [
+      { "pnode": "node1", "snode": "node44", },
+      { "pnode": "node30", "snode": "node90", },
+      { "pnode": "node25", "snode": "node1", },
+      { "pnode": "node20", "snode": "node1", },
+      ]
+
+    filter_ = ["|", ["=", "pnode", "node1"], ["=", "snode", "node1"]]
+
+    q = query.Query(fielddefs, ["pnode", "snode"], namefield="pnode",
+                    filter_=filter_)
+    self.assertTrue(q.RequestedNames() is None)
+    self.assertFalse(q.RequestedData())
+    self.assertEqual(q.Query(data),
+      [[(constants.RS_NORMAL, "node1"), (constants.RS_NORMAL, "node44")],
+       [(constants.RS_NORMAL, "node20"), (constants.RS_NORMAL, "node1")],
+       [(constants.RS_NORMAL, "node25"), (constants.RS_NORMAL, "node1")]])
+
+    # Try again with reversed input data
+    self.assertEqual(q.Query(reversed(data)),
+      [[(constants.RS_NORMAL, "node1"), (constants.RS_NORMAL, "node44")],
+       [(constants.RS_NORMAL, "node20"), (constants.RS_NORMAL, "node1")],
+       [(constants.RS_NORMAL, "node25"), (constants.RS_NORMAL, "node1")]])
+
+    # No name field, result must be in incoming order
+    q = query.Query(fielddefs, ["pnode", "snode"], namefield=None,
+                    filter_=filter_)
+    self.assertFalse(q.RequestedData())
+    self.assertEqual(q.Query(data),
+      [[(constants.RS_NORMAL, "node1"), (constants.RS_NORMAL, "node44")],
+       [(constants.RS_NORMAL, "node25"), (constants.RS_NORMAL, "node1")],
+       [(constants.RS_NORMAL, "node20"), (constants.RS_NORMAL, "node1")]])
+    self.assertEqual(q.OldStyleQuery(data), [
+      ["node1", "node44"],
+      ["node25", "node1"],
+      ["node20", "node1"],
+      ])
+    self.assertEqual(q.Query(reversed(data)),
+      [[(constants.RS_NORMAL, "node20"), (constants.RS_NORMAL, "node1")],
+       [(constants.RS_NORMAL, "node25"), (constants.RS_NORMAL, "node1")],
+       [(constants.RS_NORMAL, "node1"), (constants.RS_NORMAL, "node44")]])
+    self.assertEqual(q.OldStyleQuery(reversed(data)), [
+      ["node20", "node1"],
+      ["node25", "node1"],
+      ["node1", "node44"],
+      ])
+
+    # Name field, but no sorting, result must be in incoming order
+    q = query.Query(fielddefs, ["pnode", "snode"], namefield="pnode")
+    self.assertFalse(q.RequestedData())
+    self.assertEqual(q.Query(data, sort_by_name=False),
+      [[(constants.RS_NORMAL, "node1"), (constants.RS_NORMAL, "node44")],
+       [(constants.RS_NORMAL, "node30"), (constants.RS_NORMAL, "node90")],
+       [(constants.RS_NORMAL, "node25"), (constants.RS_NORMAL, "node1")],
+       [(constants.RS_NORMAL, "node20"), (constants.RS_NORMAL, "node1")]])
+    self.assertEqual(q.OldStyleQuery(data, sort_by_name=False), [
+      ["node1", "node44"],
+      ["node30", "node90"],
+      ["node25", "node1"],
+      ["node20", "node1"],
+      ])
+    self.assertEqual(q.Query(reversed(data), sort_by_name=False),
+      [[(constants.RS_NORMAL, "node20"), (constants.RS_NORMAL, "node1")],
+       [(constants.RS_NORMAL, "node25"), (constants.RS_NORMAL, "node1")],
+       [(constants.RS_NORMAL, "node30"), (constants.RS_NORMAL, "node90")],
+       [(constants.RS_NORMAL, "node1"), (constants.RS_NORMAL, "node44")]])
+    self.assertEqual(q.OldStyleQuery(reversed(data), sort_by_name=False), [
+      ["node20", "node1"],
+      ["node25", "node1"],
+      ["node30", "node90"],
+      ["node1", "node44"],
+      ])
+
+  def testEqualNamesOrder(self):
+    fielddefs = query._PrepareFieldList([
+      (query._MakeField("pnode", "PNode", constants.QFT_TEXT, "Primary"),
+       None, 0, lambda ctx, item: item["pnode"]),
+      (query._MakeField("num", "Num", constants.QFT_NUMBER, "Num"),
+       None, 0, lambda ctx, item: item["num"]),
+      ], [])
+
+    data = [
+      { "pnode": "node1", "num": 100, },
+      { "pnode": "node1", "num": 25, },
+      { "pnode": "node2", "num": 90, },
+      { "pnode": "node2", "num": 30, },
+      ]
+
+    q = query.Query(fielddefs, ["pnode", "num"], namefield="pnode",
+                    filter_=["|", ["=", "pnode", "node1"],
+                                  ["=", "pnode", "node2"],
+                                  ["=", "pnode", "node1"]])
+    self.assertEqual(q.RequestedNames(), ["node1", "node2"],
+                     msg="Did not return unique names")
+    self.assertFalse(q.RequestedData())
+    self.assertEqual(q.Query(data),
+      [[(constants.RS_NORMAL, "node1"), (constants.RS_NORMAL, 100)],
+       [(constants.RS_NORMAL, "node1"), (constants.RS_NORMAL, 25)],
+       [(constants.RS_NORMAL, "node2"), (constants.RS_NORMAL, 90)],
+       [(constants.RS_NORMAL, "node2"), (constants.RS_NORMAL, 30)]])
+    self.assertEqual(q.Query(data, sort_by_name=False),
+      [[(constants.RS_NORMAL, "node1"), (constants.RS_NORMAL, 100)],
+       [(constants.RS_NORMAL, "node1"), (constants.RS_NORMAL, 25)],
+       [(constants.RS_NORMAL, "node2"), (constants.RS_NORMAL, 90)],
+       [(constants.RS_NORMAL, "node2"), (constants.RS_NORMAL, 30)]])
+
+    data = [
+      { "pnode": "nodeX", "num": 50, },
+      { "pnode": "nodeY", "num": 40, },
+      { "pnode": "nodeX", "num": 30, },
+      { "pnode": "nodeX", "num": 20, },
+      { "pnode": "nodeM", "num": 10, },
+      ]
+
+    q = query.Query(fielddefs, ["pnode", "num"], namefield="pnode",
+                    filter_=["|", ["=", "pnode", "nodeX"],
+                                  ["=", "pnode", "nodeY"],
+                                  ["=", "pnode", "nodeY"],
+                                  ["=", "pnode", "nodeY"],
+                                  ["=", "pnode", "nodeM"]])
+    self.assertEqual(q.RequestedNames(), ["nodeX", "nodeY", "nodeM"],
+                     msg="Did not return unique names")
+    self.assertFalse(q.RequestedData())
+
+    # First sorted by name, then input order
+    self.assertEqual(q.Query(data, sort_by_name=True),
+      [[(constants.RS_NORMAL, "nodeM"), (constants.RS_NORMAL, 10)],
+       [(constants.RS_NORMAL, "nodeX"), (constants.RS_NORMAL, 50)],
+       [(constants.RS_NORMAL, "nodeX"), (constants.RS_NORMAL, 30)],
+       [(constants.RS_NORMAL, "nodeX"), (constants.RS_NORMAL, 20)],
+       [(constants.RS_NORMAL, "nodeY"), (constants.RS_NORMAL, 40)]])
+
+    # Input order
+    self.assertEqual(q.Query(data, sort_by_name=False),
+      [[(constants.RS_NORMAL, "nodeX"), (constants.RS_NORMAL, 50)],
+       [(constants.RS_NORMAL, "nodeY"), (constants.RS_NORMAL, 40)],
+       [(constants.RS_NORMAL, "nodeX"), (constants.RS_NORMAL, 30)],
+       [(constants.RS_NORMAL, "nodeX"), (constants.RS_NORMAL, 20)],
+       [(constants.RS_NORMAL, "nodeM"), (constants.RS_NORMAL, 10)]])
+
+  def testFilter(self):
+    (DK_A, DK_B) = range(1000, 1002)
+
+    fielddefs = query._PrepareFieldList([
+      (query._MakeField("name", "Name", constants.QFT_TEXT, "Name"),
+       DK_A, 0, lambda ctx, item: item["name"]),
+      (query._MakeField("other", "Other", constants.QFT_TEXT, "Other"),
+       DK_B, 0, lambda ctx, item: item["other"]),
+      ], [])
+
+    data = [
+      { "name": "node1", "other": "foo", },
+      { "name": "node2", "other": "bar", },
+      { "name": "node3", "other": "Hello", },
+      ]
+
+    # Empty filter
+    q = query.Query(fielddefs, ["name", "other"], namefield="name",
+                    filter_=["|"])
+    self.assertTrue(q.RequestedNames() is None)
+    self.assertEqual(q.RequestedData(), set([DK_A, DK_B]))
+    self.assertEqual(q.Query(data), [])
+
+    # Normal filter
+    q = query.Query(fielddefs, ["name", "other"], namefield="name",
+                    filter_=["=", "name", "node1"])
+    self.assertEqual(q.RequestedNames(), ["node1"])
+    self.assertEqual(q.Query(data),
+      [[(constants.RS_NORMAL, "node1"), (constants.RS_NORMAL, "foo")]])
+
+    q = query.Query(fielddefs, ["name", "other"], namefield="name",
+                    filter_=(["|", ["=", "name", "node1"],
+                                   ["=", "name", "node3"]]))
+    self.assertEqual(q.RequestedNames(), ["node1", "node3"])
+    self.assertEqual(q.Query(data),
+      [[(constants.RS_NORMAL, "node1"), (constants.RS_NORMAL, "foo")],
+       [(constants.RS_NORMAL, "node3"), (constants.RS_NORMAL, "Hello")]])
+
+    # Complex filter
+    q = query.Query(fielddefs, ["name", "other"], namefield="name",
+                    filter_=(["|", ["=", "name", "node1"],
+                                   ["|", ["=", "name", "node3"],
+                                         ["=", "name", "node2"]],
+                                   ["=", "name", "node3"]]))
+    self.assertEqual(q.RequestedNames(), ["node1", "node3", "node2"])
+    self.assertEqual(q.RequestedData(), set([DK_A, DK_B]))
+    self.assertEqual(q.Query(data),
+      [[(constants.RS_NORMAL, "node1"), (constants.RS_NORMAL, "foo")],
+       [(constants.RS_NORMAL, "node2"), (constants.RS_NORMAL, "bar")],
+       [(constants.RS_NORMAL, "node3"), (constants.RS_NORMAL, "Hello")]])
+
+    # Filter data type mismatch
+    for i in [-1, 0, 1, 123, [], None, True, False]:
+      self.assertRaises(errors.ParameterError, query.Query,
+                        fielddefs, ["name", "other"], namefield="name",
+                        filter_=["=", "name", i])
+
+    # Negative filter
+    q = query.Query(fielddefs, ["name", "other"], namefield="name",
+                    filter_=["!", ["|", ["=", "name", "node1"],
+                                        ["=", "name", "node3"]]])
+    self.assertTrue(q.RequestedNames() is None)
+    self.assertEqual(q.Query(data),
+      [[(constants.RS_NORMAL, "node2"), (constants.RS_NORMAL, "bar")]])
+
+    # Not equal
+    q = query.Query(fielddefs, ["name", "other"], namefield="name",
+                    filter_=["!=", "name", "node3"])
+    self.assertTrue(q.RequestedNames() is None)
+    self.assertEqual(q.Query(data),
+      [[(constants.RS_NORMAL, "node1"), (constants.RS_NORMAL, "foo")],
+       [(constants.RS_NORMAL, "node2"), (constants.RS_NORMAL, "bar")]])
+
+    # Data type
+    q = query.Query(fielddefs, [], namefield="name",
+                    filter_=["|", ["=", "other", "bar"],
+                                  ["=", "name", "foo"]])
+    self.assertTrue(q.RequestedNames() is None)
+    self.assertEqual(q.RequestedData(), set([DK_A, DK_B]))
+    self.assertEqual(q.Query(data), [[]])
+
+    # Only one data type
+    q = query.Query(fielddefs, ["other"], namefield="name",
+                    filter_=["=", "other", "bar"])
+    self.assertTrue(q.RequestedNames() is None)
+    self.assertEqual(q.RequestedData(), set([DK_B]))
+    self.assertEqual(q.Query(data), [[(constants.RS_NORMAL, "bar")]])
+
+    q = query.Query(fielddefs, [], namefield="name",
+                    filter_=["=", "other", "bar"])
+    self.assertTrue(q.RequestedNames() is None)
+    self.assertEqual(q.RequestedData(), set([DK_B]))
+    self.assertEqual(q.Query(data), [[]])
+
+  def testFilterContains(self):
+    fielddefs = query._PrepareFieldList([
+      (query._MakeField("name", "Name", constants.QFT_TEXT, "Name"),
+       None, 0, lambda ctx, item: item["name"]),
+      (query._MakeField("other", "Other", constants.QFT_OTHER, "Other"),
+       None, 0, lambda ctx, item: item["other"]),
+      ], [])
+
+    data = [
+      { "name": "node2", "other": ["x", "y", "bar"], },
+      { "name": "node3", "other": "Hello", },
+      { "name": "node1", "other": ["a", "b", "foo"], },
+      { "name": "empty", "other": []},
+      ]
+
+    q = query.Query(fielddefs, ["name", "other"], namefield="name",
+                    filter_=["=[]", "other", "bar"])
+    self.assertTrue(q.RequestedNames() is None)
+    self.assertEqual(q.Query(data), [
+      [(constants.RS_NORMAL, "node2"),
+       (constants.RS_NORMAL, ["x", "y", "bar"])],
+      ])
+
+    q = query.Query(fielddefs, ["name", "other"], namefield="name",
+                    filter_=["|", ["=[]", "other", "bar"],
+                                  ["=[]", "other", "a"],
+                                  ["=[]", "other", "b"]])
+    self.assertTrue(q.RequestedNames() is None)
+    self.assertEqual(q.Query(data), [
+      [(constants.RS_NORMAL, "node1"),
+       (constants.RS_NORMAL, ["a", "b", "foo"])],
+      [(constants.RS_NORMAL, "node2"),
+       (constants.RS_NORMAL, ["x", "y", "bar"])],
+      ])
+    self.assertEqual(q.OldStyleQuery(data), [
+      ["node1", ["a", "b", "foo"]],
+      ["node2", ["x", "y", "bar"]],
+      ])
+
+    # Boolean test
+    q = query.Query(fielddefs, ["name", "other"], namefield="name",
+                    filter_=["?", "other"])
+    self.assertEqual(q.OldStyleQuery(data), [
+      ["node1", ["a", "b", "foo"]],
+      ["node2", ["x", "y", "bar"]],
+      ["node3", "Hello"],
+      ])
+
+    q = query.Query(fielddefs, ["name", "other"], namefield="name",
+                    filter_=["!", ["?", "other"]])
+    self.assertEqual(q.OldStyleQuery(data), [
+      ["empty", []],
+      ])
+
+  def testFilterHostname(self):
+    fielddefs = query._PrepareFieldList([
+      (query._MakeField("name", "Name", constants.QFT_TEXT, "Name"),
+       None, query.QFF_HOSTNAME, lambda ctx, item: item["name"]),
+      ], [])
+
+    data = [
+      { "name": "node1.example.com", },
+      { "name": "node2.example.com", },
+      { "name": "node2.example.net", },
+      ]
+
+    q = query.Query(fielddefs, ["name"], namefield="name",
+                    filter_=["=", "name", "node2"])
+    self.assertEqual(q.RequestedNames(), ["node2"])
+    self.assertEqual(q.Query(data), [
+      [(constants.RS_NORMAL, "node2.example.com")],
+      [(constants.RS_NORMAL, "node2.example.net")],
+      ])
+
+    q = query.Query(fielddefs, ["name"], namefield="name",
+                    filter_=["=", "name", "node1"])
+    self.assertEqual(q.RequestedNames(), ["node1"])
+    self.assertEqual(q.Query(data), [
+      [(constants.RS_NORMAL, "node1.example.com")],
+      ])
+
+    q = query.Query(fielddefs, ["name"], namefield="name",
+                    filter_=["=", "name", "othername"])
+    self.assertEqual(q.RequestedNames(), ["othername"])
+    self.assertEqual(q.Query(data), [])
+
+    q = query.Query(fielddefs, ["name"], namefield="name",
+                    filter_=["|", ["=", "name", "node1.example.com"],
+                                  ["=", "name", "node2"]])
+    self.assertEqual(q.RequestedNames(), ["node1.example.com", "node2"])
+    self.assertEqual(q.Query(data), [
+      [(constants.RS_NORMAL, "node1.example.com")],
+      [(constants.RS_NORMAL, "node2.example.com")],
+      [(constants.RS_NORMAL, "node2.example.net")],
+      ])
+    self.assertEqual(q.OldStyleQuery(data), [
+      ["node1.example.com"],
+      ["node2.example.com"],
+      ["node2.example.net"],
+      ])
+
+    q = query.Query(fielddefs, ["name"], namefield="name",
+                    filter_=["!=", "name", "node1"])
+    self.assertTrue(q.RequestedNames() is None)
+    self.assertEqual(q.Query(data), [
+      [(constants.RS_NORMAL, "node2.example.com")],
+      [(constants.RS_NORMAL, "node2.example.net")],
+      ])
+    self.assertEqual(q.OldStyleQuery(data), [
+      ["node2.example.com"],
+      ["node2.example.net"],
+      ])
+
+  def testFilterBoolean(self):
+    fielddefs = query._PrepareFieldList([
+      (query._MakeField("name", "Name", constants.QFT_TEXT, "Name"),
+       None, query.QFF_HOSTNAME, lambda ctx, item: item["name"]),
+      (query._MakeField("value", "Value", constants.QFT_BOOL, "Value"),
+       None, 0, lambda ctx, item: item["value"]),
+      ], [])
+
+    data = [
+      { "name": "node1", "value": False, },
+      { "name": "node2", "value": True, },
+      { "name": "node3", "value": True, },
+      ]
+
+    q = query.Query(fielddefs, ["name", "value"],
+                    filter_=["|", ["=", "value", False],
+                                  ["=", "value", True]])
+    self.assertTrue(q.RequestedNames() is None)
+    self.assertEqual(q.Query(data), [
+      [(constants.RS_NORMAL, "node1"), (constants.RS_NORMAL, False)],
+      [(constants.RS_NORMAL, "node2"), (constants.RS_NORMAL, True)],
+      [(constants.RS_NORMAL, "node3"), (constants.RS_NORMAL, True)],
+      ])
+
+    q = query.Query(fielddefs, ["name", "value"],
+                    filter_=["|", ["=", "value", False],
+                                  ["!", ["=", "value", False]]])
+    self.assertTrue(q.RequestedNames() is None)
+    self.assertEqual(q.Query(data), [
+      [(constants.RS_NORMAL, "node1"), (constants.RS_NORMAL, False)],
+      [(constants.RS_NORMAL, "node2"), (constants.RS_NORMAL, True)],
+      [(constants.RS_NORMAL, "node3"), (constants.RS_NORMAL, True)],
+      ])
+
+    # Comparing bool with string
+    for i in ["False", "True", "0", "1", "no", "yes", "N", "Y"]:
+      self.assertRaises(errors.ParameterError, query.Query,
+                        fielddefs, ["name", "value"],
+                        filter_=["=", "value", i])
+
+    # Truth filter
+    q = query.Query(fielddefs, ["name", "value"], filter_=["?", "value"])
+    self.assertTrue(q.RequestedNames() is None)
+    self.assertEqual(q.Query(data), [
+      [(constants.RS_NORMAL, "node2"), (constants.RS_NORMAL, True)],
+      [(constants.RS_NORMAL, "node3"), (constants.RS_NORMAL, True)],
+      ])
+
+    # Negative bool filter
+    q = query.Query(fielddefs, ["name", "value"], filter_=["!", ["?", "value"]])
+    self.assertTrue(q.RequestedNames() is None)
+    self.assertEqual(q.Query(data), [
+      [(constants.RS_NORMAL, "node1"), (constants.RS_NORMAL, False)],
+      ])
+
+    # Complex truth filter
+    q = query.Query(fielddefs, ["name", "value"],
+                    filter_=["|", ["&", ["=", "name", "node1"],
+                                        ["!", ["?", "value"]]],
+                                  ["?", "value"]])
+    self.assertTrue(q.RequestedNames() is None)
+    self.assertEqual(q.Query(data), [
+      [(constants.RS_NORMAL, "node1"), (constants.RS_NORMAL, False)],
+      [(constants.RS_NORMAL, "node2"), (constants.RS_NORMAL, True)],
+      [(constants.RS_NORMAL, "node3"), (constants.RS_NORMAL, True)],
+      ])
+
+  def testFilterRegex(self):
+    fielddefs = query._PrepareFieldList([
+      (query._MakeField("name", "Name", constants.QFT_TEXT, "Name"),
+       None, 0, lambda ctx, item: item["name"]),
+      ], [])
+
+    data = [
+      { "name": "node1.example.com", },
+      { "name": "node2.site.example.com", },
+      { "name": "node2.example.net", },
+
+      # Empty name
+      { "name": "", },
+      ]
+
+    q = query.Query(fielddefs, ["name"], namefield="name",
+                    filter_=["=~", "name", "site"])
+    self.assertTrue(q.RequestedNames() is None)
+    self.assertEqual(q.Query(data), [
+      [(constants.RS_NORMAL, "node2.site.example.com")],
+      ])
+
+    q = query.Query(fielddefs, ["name"], namefield="name",
+                    filter_=["=~", "name", "^node2"])
+    self.assertTrue(q.RequestedNames() is None)
+    self.assertEqual(q.Query(data), [
+      [(constants.RS_NORMAL, "node2.example.net")],
+      [(constants.RS_NORMAL, "node2.site.example.com")],
+      ])
+
+    q = query.Query(fielddefs, ["name"], namefield="name",
+                    filter_=["=~", "name", r"(?i)\.COM$"])
+    self.assertTrue(q.RequestedNames() is None)
+    self.assertEqual(q.Query(data), [
+      [(constants.RS_NORMAL, "node1.example.com")],
+      [(constants.RS_NORMAL, "node2.site.example.com")],
+      ])
+
+    q = query.Query(fielddefs, ["name"], namefield="name",
+                    filter_=["=~", "name", r"."])
+    self.assertTrue(q.RequestedNames() is None)
+    self.assertEqual(q.Query(data), [
+      [(constants.RS_NORMAL, "node1.example.com")],
+      [(constants.RS_NORMAL, "node2.example.net")],
+      [(constants.RS_NORMAL, "node2.site.example.com")],
+      ])
+
+    q = query.Query(fielddefs, ["name"], namefield="name",
+                    filter_=["=~", "name", r"^$"])
+    self.assertTrue(q.RequestedNames() is None)
+    self.assertEqual(q.Query(data), [
+      [(constants.RS_NORMAL, "")],
+      ])
+
+    # Invalid regular expression
+    self.assertRaises(errors.ParameterError, query.Query, fielddefs, ["name"],
+                      filter_=["=~", "name", r"["])
 
 
 if __name__ == "__main__":

@@ -20,7 +20,7 @@
 
 """Node group related commands"""
 
-# pylint: disable-msg=W0401,W0614
+# pylint: disable=W0401,W0614
 # W0401: Wildcard import ganeti.cli
 # W0614: Unused import %s from wildcard import (since we need cli)
 
@@ -101,7 +101,8 @@ def ListGroups(opts, args):
 
   return GenericList(constants.QR_GROUP, desired_fields, args, None,
                      opts.separator, not opts.no_headers,
-                     format_override=fmtoverride, verbose=opts.verbose)
+                     format_override=fmtoverride, verbose=opts.verbose,
+                     force_filter=opts.force_filter)
 
 
 def ListGroupFields(opts, args):
@@ -129,17 +130,13 @@ def SetGroupParams(opts, args):
   @return: the desired exit code
 
   """
-  all_changes = {
-    "ndparams": opts.ndparams,
-    "alloc_policy": opts.alloc_policy,
-  }
-
-  if all_changes.values().count(None) == len(all_changes):
+  if opts.ndparams is None and opts.alloc_policy is None:
     ToStderr("Please give at least one of the parameters.")
     return 1
 
-  op = opcodes.OpGroupSetParams(group_name=args[0], # pylint: disable-msg=W0142
-                                **all_changes)
+  op = opcodes.OpGroupSetParams(group_name=args[0],
+                                ndparams=opts.ndparams,
+                                alloc_policy=opts.alloc_policy)
   result = SubmitOrSend(op, opts)
 
   if result:
@@ -175,9 +172,41 @@ def RenameGroup(opts, args):
   @return: the desired exit code
 
   """
-  old_name, new_name = args
-  op = opcodes.OpGroupRename(old_name=old_name, new_name=new_name)
+  group_name, new_name = args
+  op = opcodes.OpGroupRename(group_name=group_name, new_name=new_name)
   SubmitOpCode(op, opts=opts)
+
+
+def EvacuateGroup(opts, args):
+  """Evacuate a node group.
+
+  """
+  (group_name, ) = args
+
+  cl = GetClient()
+
+  op = opcodes.OpGroupEvacuate(group_name=group_name,
+                               iallocator=opts.iallocator,
+                               target_groups=opts.to,
+                               early_release=opts.early_release)
+  result = SubmitOpCode(op, cl=cl, opts=opts)
+
+  # Keep track of submitted jobs
+  jex = JobExecutor(cl=cl, opts=opts)
+
+  for (status, job_id) in result[constants.JOB_IDS_KEY]:
+    jex.AddJobId(None, status, job_id)
+
+  results = jex.GetResults()
+  bad_cnt = len([row for row in results if not row[0]])
+  if bad_cnt == 0:
+    ToStdout("All instances evacuated successfully.")
+    rcode = constants.EXIT_SUCCESS
+  else:
+    ToStdout("There were %s errors during the evacuation.", bad_cnt)
+    rcode = constants.EXIT_FAILURE
+
+  return rcode
 
 
 commands = {
@@ -189,7 +218,7 @@ commands = {
     "<group_name> <node>...", "Assign nodes to a group"),
   "list": (
     ListGroups, ARGS_MANY_GROUPS,
-    [NOHDR_OPT, SEP_OPT, FIELDS_OPT, VERBOSE_OPT],
+    [NOHDR_OPT, SEP_OPT, FIELDS_OPT, VERBOSE_OPT, FORCE_FILTER_OPT],
     "[<group_name>...]",
     "Lists the node groups in the cluster. The available fields can be shown"
     " using the \"list-fields\" command (see the man page for details)."
@@ -203,13 +232,30 @@ commands = {
     "<group_name>", "Alters the parameters of a node group"),
   "remove": (
     RemoveGroup, ARGS_ONE_GROUP, [DRY_RUN_OPT],
-    "[--dry-run] <group_name>",
+    "[--dry-run] <group-name>",
     "Remove an (empty) node group from the cluster"),
   "rename": (
     RenameGroup, [ArgGroup(min=2, max=2)], [DRY_RUN_OPT],
-    "[--dry-run] <old_name> <new_name>", "Rename a node group"),
-}
+    "[--dry-run] <group-name> <new-name>", "Rename a node group"),
+  "evacuate": (
+    EvacuateGroup, [ArgGroup(min=1, max=1)],
+    [TO_GROUP_OPT, IALLOCATOR_OPT, EARLY_RELEASE_OPT],
+    "[-I <iallocator>] [--to <group>]",
+    "Evacuate all instances within a group"),
+  "list-tags": (
+    ListTags, ARGS_ONE_GROUP, [PRIORITY_OPT],
+    "<instance_name>", "List the tags of the given instance"),
+  "add-tags": (
+    AddTags, [ArgGroup(min=1, max=1), ArgUnknown()],
+    [TAG_SRC_OPT, PRIORITY_OPT],
+    "<instance_name> tag...", "Add tags to the given instance"),
+  "remove-tags": (
+    RemoveTags, [ArgGroup(min=1, max=1), ArgUnknown()],
+    [TAG_SRC_OPT, PRIORITY_OPT],
+    "<instance_name> tag...", "Remove tags from given instance"),
+  }
 
 
 def Main():
-  return GenericMain(commands)
+  return GenericMain(commands,
+                     override={"tag_type": constants.TAG_NODEGROUP})

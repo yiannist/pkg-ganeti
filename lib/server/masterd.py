@@ -26,7 +26,7 @@ inheritance from parent classes requires it.
 
 """
 
-# pylint: disable-msg=C0103
+# pylint: disable=C0103
 # C0103: Invalid name ganeti-masterd
 
 import grp
@@ -66,7 +66,7 @@ EXIT_NODESETUP_ERROR = constants.EXIT_NODESETUP_ERROR
 
 
 class ClientRequestWorker(workerpool.BaseWorker):
-  # pylint: disable-msg=W0221
+  # pylint: disable=W0221
   def RunTask(self, server, message, client):
     """Process the request.
 
@@ -103,7 +103,7 @@ class ClientRequestWorker(workerpool.BaseWorker):
       client.send_message(reply)
       # awake the main thread so that it can write out the data.
       server.awaker.signal()
-    except: # pylint: disable-msg=W0702
+    except: # pylint: disable=W0702
       logging.exception("Send error")
       client.close_log()
 
@@ -113,6 +113,7 @@ class MasterClientHandler(daemon.AsyncTerminatedMessageStream):
 
   """
   _MAX_UNHANDLED = 1
+
   def __init__(self, server, connected_socket, client_address, family):
     daemon.AsyncTerminatedMessageStream.__init__(self, connected_socket,
                                                  client_address,
@@ -188,7 +189,7 @@ class ClientOps:
   def __init__(self, server):
     self.server = server
 
-  def handle_request(self, method, args): # pylint: disable-msg=R0911
+  def handle_request(self, method, args): # pylint: disable=R0911
     queue = self.server.context.jobqueue
 
     # TODO: Parameter validation
@@ -232,14 +233,14 @@ class ClientOps:
     elif method == luxi.REQ_QUERY:
       req = objects.QueryRequest.FromDict(args)
 
-      if req.what in constants.QR_OP_QUERY:
+      if req.what in constants.QR_VIA_OP:
         result = self._Query(opcodes.OpQuery(what=req.what, fields=req.fields,
                                              filter=req.filter))
       elif req.what == constants.QR_LOCK:
         if req.filter is not None:
           raise errors.OpPrereqError("Lock queries can't be filtered")
         return self.server.context.glm.QueryLocks(req.fields)
-      elif req.what in constants.QR_OP_LUXI:
+      elif req.what in constants.QR_VIA_LUXI:
         raise NotImplementedError
       else:
         raise errors.OpPrereqError("Resource type '%s' unknown" % req.what,
@@ -250,18 +251,13 @@ class ClientOps:
     elif method == luxi.REQ_QUERY_FIELDS:
       req = objects.QueryFieldsRequest.FromDict(args)
 
-      if req.what in constants.QR_OP_QUERY:
-        result = self._Query(opcodes.OpQueryFields(what=req.what,
-                                                   fields=req.fields))
-      elif req.what == constants.QR_LOCK:
-        return query.QueryFields(query.LOCK_FIELDS, req.fields)
-      elif req.what in constants.QR_OP_LUXI:
-        raise NotImplementedError
-      else:
+      try:
+        fielddefs = query.ALL_FIELDS[req.what]
+      except KeyError:
         raise errors.OpPrereqError("Resource type '%s' unknown" % req.what,
                                    errors.ECODE_INVAL)
 
-      return result
+      return query.QueryFields(fielddefs, req.fields)
 
     elif method == luxi.REQ_QUERY_JOBS:
       (job_ids, fields) = args
@@ -378,7 +374,7 @@ class GanetiContext(object):
   This class creates and holds common objects shared by all threads.
 
   """
-  # pylint: disable-msg=W0212
+  # pylint: disable=W0212
   # we do want to ensure a singleton here
   _instance = None
 
@@ -617,7 +613,7 @@ def PrepMasterd(options, _):
   return (mainloop, master)
 
 
-def ExecMasterd(options, args, prep_data): # pylint: disable-msg=W0613
+def ExecMasterd(options, args, prep_data): # pylint: disable=W0613
   """Main master daemon function, executed with the PID file held.
 
   """

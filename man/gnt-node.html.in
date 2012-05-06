@@ -130,11 +130,15 @@
       >NAME</em
       > | --new-secondary <em
       >destination_node</em
-      >] {<em
+      >] [--primary-only | --secondary-only] [--early-release] {<em
       >node</em
-      >...}</p
+      >}</p
     ><p
-    >This command will move all secondary instances away from the given node(s). It works only for instances having a drbd disk template.</p
+    >This command will move instances away from the given node. If <code
+      >--primary-only</code
+      > is given, only primary instances are evacuated, with <code
+      >--secondary-only</code
+      > only secondaries. If neither is given, all instances are evacuated. It works only for instances having a drbd disk template.</p
     ><p
     >The new location for the instances can be specified in two ways:</p
     ><ul
@@ -155,6 +159,24 @@
     >The <code
       >--early-release</code
       > changes the code so that the old storage on node being evacuated is removed early (before the resync is completed) and the internal Ganeti locks are also released for both the current secondary and the new secondary, thus allowing more parallelism in the cluster operation. This should be used only when recovering from a disk failure on the current secondary (thus the old storage is already broken) or when the storage on the primary node is known to be fine (thus we won't need the old storage for potential recovery).</p
+    ><p
+    >Note that this command is equivalent to using per-instance commands for each affected instance individually:</p
+    ><ul
+    ><li
+      ><code
+	>--primary-only</code
+	> is equivalent to <code
+	>gnt-instance failover/migration</code
+	> for non-DRBD instances, but for DRBD instances it's different, and usually is a slow process (it will change the primary to another node while keeping the secondary, this requiring data copies, whereas failover/migrate will only toggle the primary/secondary roles, a fast process)</li
+      ><li
+      ><code
+	>--secondary-only</code
+	> is equivalent to <code
+	>gnt-instance replace-disks</code
+	> in the secondary node change mode (only valid for DRBD instances)</li
+      ><li
+      >when neither of the above is done a combination of the two cases is run</li
+      ></ul
     ><p
     >Example:</p
     ><pre
@@ -213,6 +235,7 @@
       >] [-v] [{-o|--output} <em
       >[+]FIELD,...</em
       >]<br
+       />[--filter]<br
        />[node...]</p
     ><p
     >Lists the nodes in the cluster.</p
@@ -242,214 +265,268 @@
       > option takes a comma-separated list of output fields. The available fields and their meaning are:</p
     ><dl
     ><dt
-      >name</dt
+      ><code
+	>bootid</code
+	></dt
       ><dd
       ><p
-	>the node name</p
+	>Random UUID renewed for each system reboot, can be used for detecting reboots by tracking changes</p
 	></dd
       ><dt
-      >pinst_cnt</dt
+      ><code
+	>cnodes</code
+	></dt
       ><dd
       ><p
-	>the number of instances having this node as primary</p
+	>Number of NUMA domains on node (if exported by hypervisor)</p
 	></dd
       ><dt
-      >pinst_list</dt
+      ><code
+	>csockets</code
+	></dt
       ><dd
       ><p
-	>the list of instances having this node as primary, comma separated</p
+	>Number of physical CPU sockets (if exported by hypervisor)</p
 	></dd
       ><dt
-      >sinst_cnt</dt
+      ><code
+	>ctime</code
+	></dt
       ><dd
       ><p
-	>the number of instances having this node as a secondary node</p
+	>Creation timestamp</p
 	></dd
       ><dt
-      >sinst_list</dt
+      ><code
+	>ctotal</code
+	></dt
       ><dd
       ><p
-	>the list of instances having this node as a secondary node, comma separated</p
+	>Number of logical processors</p
 	></dd
       ><dt
-      >pip</dt
+      ><code
+	>custom_ndparams</code
+	></dt
       ><dd
       ><p
-	>the primary ip of this node (used for cluster communication)</p
+	>Custom node parameters</p
 	></dd
       ><dt
-      >sip</dt
+      ><code
+	>dfree</code
+	></dt
       ><dd
       ><p
-	>the secondary ip of this node (used for data replication in dual-ip clusters, see gnt-cluster(8)</p
+	>Available disk space in volume group</p
 	></dd
       ><dt
-      >dtotal</dt
+      ><code
+	>drained</code
+	></dt
       ><dd
       ><p
-	>total disk space in the volume group used for instance disk allocations</p
+	>Whether node is drained</p
 	></dd
       ><dt
-      >dfree</dt
+      ><code
+	>dtotal</code
+	></dt
       ><dd
       ><p
-	>available disk space in the volume group</p
+	>Total disk space in volume group used for instance disk allocation</p
 	></dd
       ><dt
-      >mtotal</dt
+      ><code
+	>group</code
+	></dt
       ><dd
       ><p
-	>total memory on the physical node</p
+	>Node group</p
 	></dd
       ><dt
-      >mnode</dt
+      ><code
+	>group.uuid</code
+	></dt
       ><dd
       ><p
-	>the memory used by the node itself</p
+	>UUID of node group</p
 	></dd
       ><dt
-      >mfree</dt
+      ><code
+	>master</code
+	></dt
       ><dd
       ><p
-	>memory available for instance allocations</p
+	>Whether node is master</p
 	></dd
       ><dt
-      >bootid</dt
+      ><code
+	>master_candidate</code
+	></dt
       ><dd
       ><p
-	>the node bootid value; this is a linux specific feature that assigns a new UUID to the node at each boot and can be use to detect node reboots (by tracking changes in this value)</p
+	>Whether node is a master candidate</p
 	></dd
       ><dt
-      >tags</dt
+      ><code
+	>master_capable</code
+	></dt
       ><dd
       ><p
-	>comma-separated list of the node's tags</p
+	>Whether node can become a master candidate</p
 	></dd
       ><dt
-      >serial_no</dt
+      ><code
+	>mfree</code
+	></dt
       ><dd
       ><p
-	>the so called 'serial number' of the node; this is a numeric field that is incremented each time the node is modified, and it can be used to detect modifications</p
+	>Memory available for instance allocations</p
 	></dd
       ><dt
-      >ctime</dt
+      ><code
+	>mnode</code
+	></dt
       ><dd
       ><p
-	>the creation time of the node; note that this field contains spaces and as such it's harder to parse</p
-	><p
-	>if this attribute is not present (e.g. when upgrading from older versions), then &quot;N/A&quot; will be shown instead</p
+	>Amount of memory used by node (dom0 for Xen)</p
 	></dd
       ><dt
-      >mtime</dt
+      ><code
+	>mtime</code
+	></dt
       ><dd
       ><p
-	>the last modification time of the node; note that this field contains spaces and as such it's harder to parse</p
-	><p
-	>if this attribute is not present (e.g. when upgrading from older versions), then &quot;N/A&quot; will be shown instead</p
+	>Modification timestamp</p
 	></dd
       ><dt
-      >uuid</dt
+      ><code
+	>mtotal</code
+	></dt
       ><dd
       ><p
-	>Show the UUID of the node (generated automatically by Ganeti)</p
+	>Total amount of memory of physical machine</p
 	></dd
       ><dt
-      >ctotal</dt
+      ><code
+	>name</code
+	></dt
       ><dd
       ><p
-	>the toal number of logical processors</p
+	>Node name</p
 	></dd
       ><dt
-      >cnodes</dt
+      ><code
+	>ndparams</code
+	></dt
       ><dd
       ><p
-	>the number of NUMA domains on the node, if the hypervisor can export this information</p
+	>Merged node parameters</p
 	></dd
       ><dt
-      >csockets</dt
+      ><code
+	>offline</code
+	></dt
       ><dd
       ><p
-	>the number of physical CPU sockets, if the hypervisor can export this information</p
+	>Whether node is marked offline</p
 	></dd
       ><dt
-      >master_candidate</dt
+      ><code
+	>pinst_cnt</code
+	></dt
       ><dd
       ><p
-	>whether the node is a master candidate or not</p
+	>Number of instances with this node as primary</p
 	></dd
       ><dt
-      >drained</dt
+      ><code
+	>pinst_list</code
+	></dt
       ><dd
       ><p
-	>whether the node is drained or not; the cluster still communicates with drained nodes but excludes them from allocation operations</p
+	>List of instances with this node as primary</p
 	></dd
       ><dt
-      >offline</dt
+      ><code
+	>pip</code
+	></dt
       ><dd
       ><p
-	>whether the node is offline or not; if offline, the cluster does not communicate with offline nodes; useful for nodes that are not reachable in order to avoid delays</p
+	>Primary IP address</p
 	></dd
       ><dt
-      >role</dt
+      ><code
+	>powered</code
+	></dt
       ><dd
       ><p
-	>A condensed version of the node flags; this field will output a one-character field, with the following possible values:</p
-	><ul
-	><li
-	  ><p
-	    ><em
-	      >M</em
-	      > for the master node</p
-	    ></li
-	  ><li
-	  ><p
-	    ><em
-	      >C</em
-	      > for a master candidate</p
-	    ></li
-	  ><li
-	  ><p
-	    ><em
-	      >R</em
-	      > for a regular node</p
-	    ></li
-	  ><li
-	  ><p
-	    ><em
-	      >D</em
-	      > for a drained node</p
-	    ></li
-	  ><li
-	  ><p
-	    ><em
-	      >O</em
-	      > for an offline node</p
-	    ></li
-	  ></ul
+	>Whether node is thought to be powered on</p
 	></dd
       ><dt
-      >master_capable</dt
+      ><code
+	>role</code
+	></dt
       ><dd
       ><p
-	>whether the node can become a master candidate</p
+	>Node role; &quot;M&quot; for master, &quot;C&quot; for master candidate, &quot;R&quot; for regular, &quot;D&quot; for a drained, &quot;O&quot; for offline</p
 	></dd
       ><dt
-      >vm_capable</dt
+      ><code
+	>serial_no</code
+	></dt
       ><dd
       ><p
-	>whether the node can host instances</p
+	>Node object serial number, incremented on each modification</p
 	></dd
       ><dt
-      >group</dt
+      ><code
+	>sinst_cnt</code
+	></dt
       ><dd
       ><p
-	>the name of the node's group, if known (the query is done without locking, so data consistency is not guaranteed)</p
+	>Number of instances with this node as secondary</p
 	></dd
       ><dt
-      >group.uuid</dt
+      ><code
+	>sinst_list</code
+	></dt
       ><dd
       ><p
-	>the UUID of the node's group</p
+	>List of instances with this node as secondary</p
+	></dd
+      ><dt
+      ><code
+	>sip</code
+	></dt
+      ><dd
+      ><p
+	>Secondary IP address</p
+	></dd
+      ><dt
+      ><code
+	>tags</code
+	></dt
+      ><dd
+      ><p
+	>Tags</p
+	></dd
+      ><dt
+      ><code
+	>uuid</code
+	></dt
+      ><dd
+      ><p
+	>Node UUID</p
+	></dd
+      ><dt
+      ><code
+	>vm_capable</code
+	></dt
+      ><dd
+      ><p
+	>Whether node can host instances</p
 	></dd
       ></dl
     ><p
@@ -457,9 +534,35 @@
       >+</code
       >, the new fields will be added to the default list. This allows one to quickly see the default list plus a few other fields, instead of retyping the entire list of fields.</p
     ><p
-    >Note that some of this fields are known from the configuration of the cluster (e.g. name, pinst, sinst, pip, sip and thus the master does not need to contact the node for this data (making the listing fast if only fields from this set are selected), whereas the other fields are &quot;live&quot; fields and we need to make a query to the cluster nodes.</p
+    >Note that some of these fields are known from the configuration of the cluster (e.g. <code
+      >name</code
+      >, <code
+      >pinst</code
+      >, <code
+      >sinst</code
+      >, <code
+      >pip</code
+      >, <code
+      >sip</code
+      >) and thus the master does not need to contact the node for this data (making the listing fast if only fields from this set are selected), whereas the other fields are &quot;live&quot; fields and require a query to the cluster nodes.</p
     ><p
-    >Depending on the virtualization type and implementation details, the mtotal, mnode and mfree may have slighly varying meanings. For example, some solutions share the node memory with the pool of memory used for instances (KVM), whereas others have separate memory for the node and for the instances (Xen).</p
+    >Depending on the virtualization type and implementation details, the <code
+      >mtotal</code
+      >, <code
+      >mnode</code
+      > and <code
+      >mfree</code
+      > fields may have slighly varying meanings. For example, some solutions share the node memory with the pool of memory used for instances (KVM), whereas others have separate memory for the node and for the instances (Xen).</p
+    ><p
+    >If exactly one argument is given and it appears to be a query filter (see <strong
+      >ganeti(7)</strong
+      >), the query result is filtered accordingly. For ambiguous cases (e.g. a single field name as a filter) the <code
+      >--filter</code
+      > (<code
+      >-F</code
+      >) option forces the argument to be treated as a filter (e.g. <code
+      >gnt-node list -F master_candidate</code
+      >).</p
     ><p
     >If no node names are given, then all nodes are queried. Otherwise, only the given nodes will be listed.</p
     ></div
@@ -871,7 +974,7 @@ node2 lvm-pv /dev/sdb1 698.6G   0M 698.6G Y
       >node</em
       >}</p
     ><p
-    >This commands (tries to) forcefully reboot a node. It is a command that can be used if the node environemnt is broken, such that the admin can no longer login over ssh, but the Ganeti node daemon is still working.</p
+    >This command (tries to) forcefully reboot a node. It is a command that can be used if the node environemnt is broken, such that the admin can no longer login over ssh, but the Ganeti node daemon is still working.</p
     ><p
     >Note that this command is not guaranteed to work; it depends on the hypervisor how effective is the reboot attempt. For Linux, this command require that the kernel option CONFIG_MAGIC_SYSRQ is enabled.</p
     ><p
@@ -887,17 +990,83 @@ node2 lvm-pv /dev/sdb1 698.6G   0M 698.6G Y
     ><p
     ><strong
       >power</strong
-      > on|off|cycle|status {<em
-      >node</em
-      >}</p
+      > [<code
+      >--force</code
+      >] [<code
+      >--ignore-status</code
+      >] [<code
+      >--all</code
+      >] [<code
+      >--power-delay</code
+      >] on|off|cycle|status [<em
+      >nodes</em
+      >]</p
     ><p
-    >This commands calls out to out-of-band management to change the power state of given node. With <code
+    >This command calls out to out-of-band management to change the power state of given node. With <code
       >status</code
       > you get the power status as reported by the out-of-band managment script.</p
     ><p
     >Note that this command will only work if the out-of-band functionality is configured and enabled on the cluster. If this is not the case, please use the <strong
       >powercycle</strong
       > command above.</p
+    ><p
+    >Using <code
+      >--force</code
+      > you skip the confirmation to do the operation. Currently this only has effect on <code
+      >off</code
+      > and <code
+      >cycle</code
+      >. On those two you can <em
+      >not</em
+      > operate on the master. However, the command will provide you with the command to invoke to operate on the master nerver-mind. This is considered harmful and Ganeti does not support the use of it.</p
+    ><p
+    >Providing <code
+      >--ignore-status</code
+      > will ignore the offline=N state of a node and continue with power off.</p
+    ><p
+    ><code
+      >--power-delay</code
+      > specifies the time in seconds (factions allowed) waited between powering on the next node. This is by default 2 seconds but can increased if needed with this option.</p
+    ><p
+    ><em
+      >nodes</em
+      > are optional. If not provided it will call out for every node in the cluster. Except for the <code
+      >off</code
+      > and <code
+      >cycle</code
+      > command where you've to explicit use <code
+      >--all</code
+      > to select all.</p
+    ></div
+  ><div id="health"
+  ><h2
+    >HEALTH</h2
+    ><p
+    ><strong
+      >health</strong
+      > [<em
+      >nodes</em
+      >]</p
+    ><p
+    >This command calls out to out-of-band management to ask for the health status of all or given nodes. The health contains the node name and then the items element with their status in a <code
+      >item=status</code
+      > manner. Where <code
+      >item</code
+      > is script specific and <code
+      >status</code
+      > can be one of <code
+      >OK</code
+      >, <code
+      >WARNING</code
+      >, <code
+      >CRITICAL</code
+      > or <code
+      >UNKNOWN</code
+      >. Items with status <code
+      >WARNING</code
+      > or <code
+      >CRITICAL</code
+      > are logged and annotated in the command line output.</p
     ></div
   ></div
 >
@@ -950,12 +1119,24 @@ node2 lvm-pv /dev/sdb1 698.6G   0M 698.6G Y
     >(8) (master daemon), <strong
     >ganeti-rapi</strong
     >(8) (remote API daemon).</p
+  ><p
+  >Ganeti htools: <strong
+    >htools</strong
+    >(1) (generic binary), <strong
+    >hbal</strong
+    >(1) (cluster balancer), <strong
+    >hspace</strong
+    >(1) (capacity calculation), <strong
+    >hail</strong
+    >(1) (IAllocator plugin), <strong
+    >hscan</strong
+    >(1) (data gatherer from remote clusters).</p
   ></div
 ><div id="copyright"
 ><h1
   >COPYRIGHT</h1
   ><p
-  >Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc. Permission is granted to copy, distribute and/or modify under the terms of the GNU General Public License as published by the Free Software Foundation; either version 2 of the License, or (at your option) any later version.</p
+  >Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Google Inc. Permission is granted to copy, distribute and/or modify under the terms of the GNU General Public License as published by the Free Software Foundation; either version 2 of the License, or (at your option) any later version.</p
   ><p
   >On Debian systems, the complete text of the GNU General Public License can be found in /usr/share/common-licenses/GPL.</p
   ></div

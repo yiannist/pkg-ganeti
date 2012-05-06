@@ -29,6 +29,7 @@ from ganeti import utils
 from ganeti import cmdlib
 from ganeti import build
 from ganeti import compat
+from ganeti import mcpu
 from ganeti.rapi import connector
 
 import testutils
@@ -51,20 +52,34 @@ class TestDocs(unittest.TestCase):
     """
     hooksdoc = self._ReadDocFile("hooks.rst")
 
+    # Reverse mapping from LU to opcode
+    lu2opcode = dict((lu, op)
+                     for (op, lu) in mcpu.Processor.DISPATCH_TABLE.items())
+    assert len(lu2opcode) == len(mcpu.Processor.DISPATCH_TABLE), \
+      "Found duplicate entries"
+
     for name in dir(cmdlib):
       obj = getattr(cmdlib, name)
 
       if (isinstance(obj, type) and
           issubclass(obj, cmdlib.LogicalUnit) and
           hasattr(obj, "HPATH")):
-        self._CheckHook(name, obj, hooksdoc)
+        self._CheckHook(name, obj, hooksdoc, lu2opcode)
 
-  def _CheckHook(self, name, lucls, hooksdoc):
+  def _CheckHook(self, name, lucls, hooksdoc, lu2opcode):
+    opcls = lu2opcode.get(lucls, None)
+
     if lucls.HTYPE is None:
       return
 
     # TODO: Improve this test (e.g. find hooks documented but no longer
     # existing)
+
+    if opcls:
+      self.assertTrue(re.findall("^%s$" % re.escape(opcls.OP_ID),
+                                 hooksdoc, re.M),
+                      msg=("Missing hook documentation for %s" %
+                           (opcls.OP_ID)))
 
     pattern = r"^:directory:\s*%s\s*$" % re.escape(lucls.HPATH)
 
@@ -95,9 +110,10 @@ class TestDocs(unittest.TestCase):
     group_name = re.escape("[group_name]")
     job_id = re.escape("[job_id]")
     disk_index = re.escape("[disk_index]")
+    query_res = re.escape("[resource]")
 
     resources = connector.GetHandlers(node_name, instance_name, group_name,
-                                      job_id, disk_index)
+                                      job_id, disk_index, query_res)
 
     handler_dups = utils.FindDuplicates(resources.values())
     self.assertFalse(handler_dups,
@@ -110,6 +126,7 @@ class TestDocs(unittest.TestCase):
       re.compile(group_name): "group4440",
       re.compile(job_id): "9409",
       re.compile(disk_index): "123",
+      re.compile(query_res): "lock",
       }
 
     assert compat.all(VALID_URI_RE.match(value)

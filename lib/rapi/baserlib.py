@@ -23,7 +23,7 @@
 
 """
 
-# pylint: disable-msg=C0103
+# pylint: disable=C0103
 
 # C0103: Invalid name, since the R_* names are not conforming
 
@@ -53,7 +53,10 @@ def BuildUriList(ids, uri_format, uri_fields=("name", "uri")):
   (field_id, field_uri) = uri_fields
 
   def _MapId(m_id):
-    return { field_id: m_id, field_uri: uri_format % m_id, }
+    return {
+      field_id: m_id,
+      field_uri: uri_format % m_id,
+      }
 
   # Make sure the result is sorted, makes it nicer to look at and simplifies
   # unittests.
@@ -92,12 +95,16 @@ def _Tags_GET(kind, name):
   """Helper function to retrieve tags.
 
   """
-  if kind == constants.TAG_INSTANCE or kind == constants.TAG_NODE:
+  if kind in (constants.TAG_INSTANCE,
+              constants.TAG_NODEGROUP,
+              constants.TAG_NODE):
     if not name:
       raise http.HttpBadRequest("Missing name on tag request")
     cl = GetClient()
     if kind == constants.TAG_INSTANCE:
       fn = cl.QueryInstances
+    elif kind == constants.TAG_NODEGROUP:
+      fn = cl.QueryGroups
     else:
       fn = cl.QueryNodes
     result = fn(names=[name], fields=["tags"], use_locking=False)
@@ -170,7 +177,7 @@ def MakeParamsDict(opts, params):
   return result
 
 
-def FillOpcode(opcls, body, static):
+def FillOpcode(opcls, body, static, rename=None):
   """Fills an opcode with body parameters.
 
   Parameter types are checked.
@@ -181,28 +188,42 @@ def FillOpcode(opcls, body, static):
   @param body: Body parameters as received from client
   @type static: dict
   @param static: Static parameters which can't be modified by client
+  @type rename: dict
+  @param rename: Renamed parameters, key as old name, value as new name
   @return: Opcode object
 
   """
-  CheckType(body, dict, "Body contents")
+  if body is None:
+    params = {}
+  else:
+    CheckType(body, dict, "Body contents")
+
+    # Make copy to be modified
+    params = body.copy()
+
+  if rename:
+    for old, new in rename.items():
+      if new in params and old in params:
+        raise http.HttpBadRequest("Parameter '%s' was renamed to '%s', but"
+                                  " both are specified" %
+                                  (old, new))
+      if old in params:
+        assert new not in params
+        params[new] = params.pop(old)
 
   if static:
-    overwritten = set(body.keys()) & set(static.keys())
+    overwritten = set(params.keys()) & set(static.keys())
     if overwritten:
       raise http.HttpBadRequest("Can't overwrite static parameters %r" %
                                 overwritten)
 
-  # Combine parameters
-  params = body.copy()
-
-  if static:
     params.update(static)
 
   # Convert keys to strings (simplejson decodes them as unicode)
   params = dict((str(key), value) for (key, value) in params.items())
 
   try:
-    op = opcls(**params) # pylint: disable-msg=W0142
+    op = opcls(**params) # pylint: disable=W0142
     op.Validate(False)
   except (errors.OpPrereqError, TypeError), err:
     raise http.HttpBadRequest("Invalid body parameters: %s" % err)

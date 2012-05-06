@@ -5,13 +5,13 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Welcome to Ganeti’s documentation! &mdash; Ganeti v2.4.5 documentation</title>
+    <title>Welcome to Ganeti’s documentation! &mdash; Ganeti v2.5.0 documentation</title>
     <link rel="stylesheet" href="_static/default.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.4.5',
+        VERSION:     '2.5.0',
         COLLAPSE_MODINDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -19,7 +19,7 @@
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.4.5 documentation" href="#" />
+    <link rel="top" title="Ganeti v2.5.0 documentation" href="#" />
     <link rel="next" title="Ganeti quick installation guide" href="install-quick.html" /> 
   </head>
   <body>
@@ -29,7 +29,7 @@
         <li class="right" style="margin-right: 10px">
           <a href="install-quick.html" title="Ganeti quick installation guide"
              accesskey="N">next</a></li>
-        <li><a href="#">Ganeti v2.4.5 documentation</a> &raquo;</li> 
+        <li><a href="#">Ganeti v2.5.0 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -117,7 +117,22 @@
 <li class="toctree-l2"><a class="reference external" href="design-2.3.html#external-interface-changes">External interface changes</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference external" href="design-htools-2.3.html">Synchronising htools to Ganeti 2.3</a><ul>
+<li class="toctree-l2"><a class="reference external" href="design-htools-2.3.html#shared-storage-support">Shared storage support</a></li>
+<li class="toctree-l2"><a class="reference external" href="design-htools-2.3.html#node-groups-support">Node groups support</a></li>
+</ul>
+</li>
 <li class="toctree-l1"><a class="reference external" href="design-2.4.html">Ganeti 2.4 design</a></li>
+<li class="toctree-l1"><a class="reference external" href="design-2.5.html">Ganeti 2.5 design</a></li>
+<li class="toctree-l1"><a class="reference external" href="design-draft.html">Design document drafts</a><ul>
+<li class="toctree-l2"><a class="reference external" href="design-x509-ca.html">Design for a X509 Certificate Authority</a></li>
+<li class="toctree-l2"><a class="reference external" href="design-http-server.html">Design for replacing Ganeti&#8217;s HTTP server</a></li>
+<li class="toctree-l2"><a class="reference external" href="design-impexp2.html">Design for import/export version 2</a></li>
+<li class="toctree-l2"><a class="reference external" href="design-cpu-pinning.html">Ganeti CPU Pinning</a></li>
+<li class="toctree-l2"><a class="reference external" href="design-ovf-support.html">Ganeti Instance Import/Export using Open Virtualization Format</a></li>
+<li class="toctree-l2"><a class="reference external" href="design-network.html">Network management</a></li>
+</ul>
+</li>
 <li class="toctree-l1"><a class="reference external" href="cluster-merge.html">Merging clusters</a><ul>
 <li class="toctree-l2"><a class="reference external" href="cluster-merge.html#merge-clusters">Merge Clusters</a></li>
 <li class="toctree-l2"><a class="reference external" href="cluster-merge.html#rollback">Rollback</a></li>
@@ -170,6 +185,16 @@
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference external" href="news.html">News</a><ul>
+<li class="toctree-l2"><a class="reference external" href="news.html#version-2-5-0">Version 2.5.0</a></li>
+<li class="toctree-l2"><a class="reference external" href="news.html#version-2-5-0-rc6">Version 2.5.0 rc6</a></li>
+<li class="toctree-l2"><a class="reference external" href="news.html#version-2-5-0-rc5">Version 2.5.0 rc5</a></li>
+<li class="toctree-l2"><a class="reference external" href="news.html#version-2-5-0-rc4">Version 2.5.0 rc4</a></li>
+<li class="toctree-l2"><a class="reference external" href="news.html#version-2-5-0-rc3">Version 2.5.0 rc3</a></li>
+<li class="toctree-l2"><a class="reference external" href="news.html#version-2-5-0-rc2">Version 2.5.0 rc2</a></li>
+<li class="toctree-l2"><a class="reference external" href="news.html#version-2-5-0-rc1">Version 2.5.0 rc1</a></li>
+<li class="toctree-l2"><a class="reference external" href="news.html#version-2-5-0-beta3">Version 2.5.0 beta3</a></li>
+<li class="toctree-l2"><a class="reference external" href="news.html#version-2-5-0-beta2">Version 2.5.0 beta2</a></li>
+<li class="toctree-l2"><a class="reference external" href="news.html#version-2-5-0-beta1">Version 2.5.0 beta1</a></li>
 <li class="toctree-l2"><a class="reference external" href="news.html#version-2-4-5">Version 2.4.5</a></li>
 <li class="toctree-l2"><a class="reference external" href="news.html#version-2-4-4">Version 2.4.4</a></li>
 <li class="toctree-l2"><a class="reference external" href="news.html#version-2-4-3">Version 2.4.3</a></li>
@@ -273,7 +298,7 @@
         <li class="right" style="margin-right: 10px">
           <a href="install-quick.html" title="Ganeti quick installation guide"
              >next</a></li>
-        <li><a href="#">Ganeti v2.4.5 documentation</a> &raquo;</li> 
+        <li><a href="#">Ganeti v2.5.0 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

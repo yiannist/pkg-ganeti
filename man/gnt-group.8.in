@@ -113,7 +113,7 @@ always be at least one group, so the last group cannot be removed.
 .PD 0
 .P
 .PD
-[-o \f[I][+]FIELD,...\f[]] [group...]
+[-o \f[I][+]FIELD,...\f[]] [--filter] [group...]
 .PP
 Lists all existing node groups in the cluster.
 .PP
@@ -133,63 +133,71 @@ instead of retyping the entire list of fields.
 .PP
 The available fields and their meaning are:
 .TP
-.B name
-the group name
+.B \f[B]alloc_policy\f[]
+Allocation policy for group
 .RS
 .RE
 .TP
-.B uuid
-the group\[aq]s UUID
+.B \f[B]ctime\f[]
+Creation timestamp
 .RS
 .RE
 .TP
-.B node_cnt
-the number of nodes in the node group
+.B \f[B]mtime\f[]
+Modification timestamp
 .RS
 .RE
 .TP
-.B node_list
-the list of nodes that belong to this group
+.B \f[B]name\f[]
+Group name
 .RS
 .RE
 .TP
-.B pinst_cnt
-the number of primary instances in the group (i.e., the number of
-primary instances nodes in this group have)
+.B \f[B]ndparams\f[]
+Node parameters
 .RS
 .RE
 .TP
-.B pinst_list
-the list of primary instances in the group
+.B \f[B]node_cnt\f[]
+Number of nodes
 .RS
 .RE
 .TP
-.B alloc_policy
-the current allocation policy for the group
+.B \f[B]node_list\f[]
+List of nodes
 .RS
 .RE
 .TP
-.B ctime
-the creation time of the group; note that this field contains
-spaces and as such it\[aq]s harder to parse
+.B \f[B]pinst_cnt\f[]
+Number of primary instances
 .RS
+.RE
+.TP
+.B \f[B]pinst_list\f[]
+List of primary instances
+.RS
+.RE
+.TP
+.B \f[B]serial_no\f[]
+Group object serial number, incremented on each modification
+.RS
+.RE
+.TP
+.B \f[B]tags\f[]
+Tags
+.RS
+.RE
+.TP
+.B \f[B]uuid\f[]
+Group UUID
+.RS
+.RE
 .PP
-if this attribute is not present (e.g. when upgrading from older
-versions), then "N/A" will be shown instead
-.RE
-.TP
-.B mtime
-the last modification time of the group; note that this field
-contains spaces and as such it\[aq]s harder to parse
-.RS
-.RE
-.TP
-.B serial_no
-the so called \[aq]serial number\[aq] of the group; this is a
-numeric field that is incremented each time the node is modified,
-and it can be used to detect modifications
-.RS
-.RE
+If exactly one argument is given and it appears to be a query
+filter (see \f[B]ganeti(7)\f[]), the query result is filtered
+accordingly. For ambiguous cases (e.g. a single field name as a
+filter) the \f[B]--filter\f[] (\f[B]-F\f[]) option forces the
+argument to be treated as a filter.
 .PP
 If no group names are given, then all groups are included.
 Otherwise, only the named groups will be listed.
@@ -203,6 +211,56 @@ List available fields for node groups.
 \f[B]rename\f[] {\f[I]oldname\f[]} {\f[I]newname\f[]}
 .PP
 Renames a given group from \f[I]oldname\f[] to \f[I]newname\f[].
+.SS EVACUATE
+.PP
+\f[B]evacuate\f[] [--iallocator \f[I]NAME\f[]] [--to
+\f[I]GROUP\f[]...] {\f[I]group\f[]}
+.PP
+This command will move all instances out of the given node group.
+Instances are placed in a new group by an iallocator, either given
+on the command line or as a cluster default.
+.PP
+If no specific destination groups are specified using
+\f[B]--to\f[], all groups except the evacuated group are
+considered.
+.PP
+Example:
+.PP
+\f[CR]
+      #\ gnt-group\ evacuate\ -I\ hail\ --to\ rack4\ rack1
+\f[]
+.SS TAGS
+.SS ADD-TAGS
+.PP
+\f[B]add-tags\f[] [--from \f[I]file\f[]] {\f[I]groupname\f[]}
+{\f[I]tag\f[]...}
+.PP
+Add tags to the given node group. If any of the tags contains
+invalid characters, the entire operation will abort.
+.PP
+If the \f[B]--from\f[] option is given, the list of tags will be
+extended with the contents of that file (each line becomes a tag).
+In this case, there is not need to pass tags on the command line
+(if you do, both sources will be used). A file name of \f[B]-\f[]
+will be interpreted as stdin.
+.SS LIST-TAGS
+.PP
+\f[B]list-tags\f[] {\f[I]groupname\f[]}
+.PP
+List the tags of the given node group.
+.SS REMOVE-TAGS
+.PP
+\f[B]remove-tags\f[] [--from \f[I]file\f[]] {\f[I]groupname\f[]}
+{\f[I]tag\f[]...}
+.PP
+Remove tags from the given node group. If any of the tags are not
+existing on the node, the entire operation will abort.
+.PP
+If the \f[B]--from\f[] option is given, the list of tags to be
+removed will be extended with the contents of that file (each line
+becomes a tag). In this case, there is not need to pass tags on the
+command line (if you do, tags from both sources will be removed). A
+file name of \f[B]-\f[] will be interpreted as stdin.
 .SH REPORTING BUGS
 .PP
 Report bugs to project website (http://code.google.com/p/ganeti/)
@@ -225,13 +283,18 @@ Ganeti daemons: \f[B]ganeti-watcher\f[](8) (automatic instance
 restarter), \f[B]ganeti-cleaner\f[](8) (job queue cleaner),
 \f[B]ganeti-noded\f[](8) (node daemon), \f[B]ganeti-masterd\f[](8)
 (master daemon), \f[B]ganeti-rapi\f[](8) (remote API daemon).
+.PP
+Ganeti htools: \f[B]htools\f[](1) (generic binary),
+\f[B]hbal\f[](1) (cluster balancer), \f[B]hspace\f[](1) (capacity
+calculation), \f[B]hail\f[](1) (IAllocator plugin),
+\f[B]hscan\f[](1) (data gatherer from remote clusters).
 .SH COPYRIGHT
 .PP
-Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc. Permission
-is granted to copy, distribute and/or modify under the terms of the
-GNU General Public License as published by the Free Software
-Foundation; either version 2 of the License, or (at your option)
-any later version.
+Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Google Inc.
+Permission is granted to copy, distribute and/or modify under the
+terms of the GNU General Public License as published by the Free
+Software Foundation; either version 2 of the License, or (at your
+option) any later version.
 .PP
 On Debian systems, the complete text of the GNU General Public
 License can be found in /usr/share/common-licenses/GPL.

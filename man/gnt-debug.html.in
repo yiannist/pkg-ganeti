@@ -33,12 +33,12 @@
 ><div id="commands"
 ><h1
   >COMMANDS</h1
-  ><div id="allocator"
+  ><div id="iallocator"
   ><h2
-    >ALLOCATOR</h2
+    >IALLOCATOR</h2
     ><p
     ><strong
-      >allocator</strong
+      >iallocator</strong
       > [--debug] [--dir <em
       >DIRECTION</em
       >] {--algorithm <em
@@ -185,25 +185,33 @@
       > option takes a comma-separated list of output fields. The available fields and their meaning are:</p
     ><dl
     ><dt
-      >name</dt
-      ><dd
-      ><p
-	>Lock name</p
-	></dd
-      ><dt
-      >mode</dt
+      ><code
+	>mode</code
+	></dt
       ><dd
       ><p
 	>Mode in which the lock is currently acquired (exclusive or shared)</p
 	></dd
       ><dt
-      >owner</dt
+      ><code
+	>name</code
+	></dt
+      ><dd
+      ><p
+	>Lock name</p
+	></dd
+      ><dt
+      ><code
+	>owner</code
+	></dt
       ><dd
       ><p
 	>Current lock owner(s)</p
 	></dd
       ><dt
-      >pending</dt
+      ><code
+	>pending</code
+	></dt
       ><dd
       ><p
 	>Threads waiting for the lock</p
@@ -269,12 +277,24 @@
     >(8) (master daemon), <strong
     >ganeti-rapi</strong
     >(8) (remote API daemon).</p
+  ><p
+  >Ganeti htools: <strong
+    >htools</strong
+    >(1) (generic binary), <strong
+    >hbal</strong
+    >(1) (cluster balancer), <strong
+    >hspace</strong
+    >(1) (capacity calculation), <strong
+    >hail</strong
+    >(1) (IAllocator plugin), <strong
+    >hscan</strong
+    >(1) (data gatherer from remote clusters).</p
   ></div
 ><div id="copyright"
 ><h1
   >COPYRIGHT</h1
   ><p
-  >Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc. Permission is granted to copy, distribute and/or modify under the terms of the GNU General Public License as published by the Free Software Foundation; either version 2 of the License, or (at your option) any later version.</p
+  >Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Google Inc. Permission is granted to copy, distribute and/or modify under the terms of the GNU General Public License as published by the Free Software Foundation; either version 2 of the License, or (at your option) any later version.</p
   ><p
   >On Debian systems, the complete text of the GNU General Public License can be found in /usr/share/common-licenses/GPL.</p
   ></div

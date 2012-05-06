@@ -5,13 +5,13 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Ganeti quick installation guide &mdash; Ganeti v2.4.5 documentation</title>
+    <title>Ganeti quick installation guide &mdash; Ganeti v2.5.0 documentation</title>
     <link rel="stylesheet" href="_static/default.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.4.5',
+        VERSION:     '2.5.0',
         COLLAPSE_MODINDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -19,7 +19,7 @@
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.4.5 documentation" href="index.html" />
+    <link rel="top" title="Ganeti v2.5.0 documentation" href="index.html" />
     <link rel="next" title="Ganeti installation tutorial" href="install.html" />
     <link rel="prev" title="Welcome to Ganeti’s documentation!" href="index.html" /> 
   </head>
@@ -33,7 +33,7 @@
         <li class="right" >
           <a href="index.html" title="Welcome to Ganeti’s documentation!"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.4.5 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.5.0 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -68,7 +68,8 @@ version 8.0.7 or above</li>
 <li><a class="reference external" href="http://www.python.org/">Python</a>, version 2.4 or above, not 3.0</li>
 <li><a class="reference external" href="http://pyopenssl.sourceforge.net/">Python OpenSSL bindings</a></li>
 <li><a class="reference external" href="http://code.google.com/p/simplejson/">simplejson Python module</a></li>
-<li><a class="reference external" href="http://pyparsing.wikispaces.com/">pyparsing Python module</a></li>
+<li><a class="reference external" href="http://pyparsing.wikispaces.com/">pyparsing Python module</a>, version
+1.4.6 or above</li>
 <li><a class="reference external" href="http://trac.dbzteam.org/pyinotify/">pyinotify Python module</a></li>
 <li><a class="reference external" href="http://pycurl.sourceforge.net/">PycURL Python module</a></li>
 <li><a class="reference external" href="http://starship.python.net/crew/theller/ctypes/">ctypes Python module</a>, if running on
@@ -87,6 +88,36 @@ packages, except for DRBD and Xen:</p>
                   python-pyparsing python-simplejson \
                   python-pyinotify python-pycurl socat</pre>
 </div>
+<p>If you want to also enable the <cite>htools</cite> components, which is recommended
+on bigger deployments (they give you automatic instance placement,
+cluster balancing, etc.), then you need to have a Haskell compiler
+installed. More specifically:</p>
+<ul class="simple">
+<li><a class="reference external" href="http://www.haskell.org/ghc/">GHC</a> version 6.10 or higher</li>
+<li>or even better, <a class="reference external" href="http://hackage.haskell.org/platform/">The Haskell Platform</a> which gives you a simple way
+to bootstrap Haskell</li>
+<li><a class="reference external" href="http://hackage.haskell.org/package/json">json</a>, a JSON library</li>
+<li><a class="reference external" href="http://hackage.haskell.org/package/network">network</a>, a basic
+network library</li>
+<li><a class="reference external" href="http://hackage.haskell.org/package/parallel">parallel</a>, a parallel
+programming library (note: tested with up to version 3.x)</li>
+<li><a class="reference external" href="http://hackage.haskell.org/package/curl">curl</a>, bindings for the
+curl library, only needed if you want these tools to connect to remote
+clusters (as opposed to the local one)</li>
+</ul>
+<p>All of these are also available as package in Debian/Ubuntu:</p>
+<div class="highlight-python"><pre>$ apt-get install ghc6 libghc6-json-dev libghc6-network-dev \
+                  libghc6-parallel-dev libghc6-curl-dev</pre>
+</div>
+<p>Note that more recent version have switched to GHC 7.x and the packages
+were renamed:</p>
+<div class="highlight-python"><pre>$ apt-get install ghc libghc-json-dev libghc-network-dev \
+                  libghc-parallel-dev libghc-curl-dev</pre>
+</div>
+<p>The compilation of the htools components is automatically enabled when
+the compiler and the requisite libraries are found. You can use the
+<tt class="docutils literal"><span class="pre">--enable-htools</span></tt> configure flag to force the selection (at which
+point <tt class="docutils literal"><span class="pre">./configure</span></tt> will fail if it doesn&#8217;t find the prerequisites).</p>
 <p>If you want to build from source, please see doc/devnotes.rst for more
 dependencies.</p>
 <div class="admonition note" id="socat-note">
@@ -191,7 +222,7 @@ following directories:</p>
         <li class="right" >
           <a href="index.html" title="Welcome to Ganeti’s documentation!"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.4.5 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.5.0 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

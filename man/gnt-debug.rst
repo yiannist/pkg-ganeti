@@ -19,10 +19,10 @@ The **gnt-debug** is used for debugging the Ganeti system.
 COMMANDS
 --------
 
-ALLOCATOR
-~~~~~~~~~
+IALLOCATOR
+~~~~~~~~~~
 
-**allocator** [--debug] [--dir *DIRECTION*] {--algorithm
+**iallocator** [--debug] [--dir *DIRECTION*] {--algorithm
 *ALLOCATOR* } [--mode *MODE*] [--mem *MEMORY*] [--disks *DISKS*]
 [--disk-template *TEMPLATE*] [--nics *NICS*] [--os-type *OS*]
 [--vcpus *VCPUS*] [--tags *TAGS*] {*instance*}
@@ -109,18 +109,7 @@ special field states (see **ganeti(7)**).
 The ``-o`` option takes a comma-separated list of output fields.
 The available fields and their meaning are:
 
-name
-    Lock name
-
-mode
-    Mode in which the lock is currently acquired (exclusive or shared)
-
-owner
-    Current lock owner(s)
-
-pending
-    Threads waiting for the lock
-
+@QUERY_FIELDS_LOCK@
 
 If the value of the option starts with the character ``+``, the new
 fields will be added to the default list. This allows one to quickly
@@ -129,3 +118,9 @@ the entire list of fields.
 
 Use ``--interval`` to repeat the listing. A delay specified by the
 option value in seconds is inserted.
+
+.. vim: set textwidth=72 :
+.. Local Variables:
+.. mode: rst
+.. fill-column: 72
+.. End:

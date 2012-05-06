@@ -35,7 +35,7 @@ from ganeti import errors
 _PARSEUNIT_REGEX = re.compile(r"^([.\d]+)\s*([a-zA-Z]+)?$")
 
 #: Characters which don't need to be quoted for shell commands
-_SHELL_UNQUOTED_RE = re.compile('^[-.,=:/_+@A-Za-z0-9]+$')
+_SHELL_UNQUOTED_RE = re.compile("^[-.,=:/_+@A-Za-z0-9]+$")
 
 #: MAC checker regexp
 _MAC_CHECK_RE = re.compile("^([0-9a-f]{2}:){5}[0-9a-f]{2}$", re.I)
@@ -74,11 +74,13 @@ def MatchNameComponent(key, name_list, case_sensitive=True):
   if not case_sensitive:
     re_flags |= re.IGNORECASE
     key = key.upper()
-  mo = re.compile("^%s(\..*)?$" % re.escape(key), re_flags)
+
+  name_re = re.compile(r"^%s(\..*)?$" % re.escape(key), re_flags)
+
   names_filtered = []
   string_matches = []
   for name in name_list:
-    if mo.match(name) is not None:
+    if name_re.match(name) is not None:
       names_filtered.append(name)
       if not case_sensitive and key == name.upper():
         string_matches.append(name)
@@ -87,7 +89,43 @@ def MatchNameComponent(key, name_list, case_sensitive=True):
     return string_matches[0]
   if len(names_filtered) == 1:
     return names_filtered[0]
+
   return None
+
+
+def _DnsNameGlobHelper(match):
+  """Helper function for L{DnsNameGlobPattern}.
+
+  Returns regular expression pattern for parts of the pattern.
+
+  """
+  text = match.group(0)
+
+  if text == "*":
+    return "[^.]*"
+  elif text == "?":
+    return "[^.]"
+  else:
+    return re.escape(text)
+
+
+def DnsNameGlobPattern(pattern):
+  """Generates regular expression from DNS name globbing pattern.
+
+  A DNS name globbing pattern (e.g. C{*.site}) is converted to a regular
+  expression. Escape sequences or ranges (e.g. [a-z]) are not supported.
+
+  Matching always starts at the leftmost part. An asterisk (*) matches all
+  characters except the dot (.) separating DNS name parts. A question mark (?)
+  matches a single character except the dot (.).
+
+  @type pattern: string
+  @param pattern: DNS name globbing pattern
+  @rtype: string
+  @return: Regular expression
+
+  """
+  return r"^%s(\..*)?$" % re.sub(r"\*|\?|[^*?]*", _DnsNameGlobHelper, pattern)
 
 
 def FormatUnit(value, units):
@@ -105,24 +143,24 @@ def FormatUnit(value, units):
   @return: the formatted value (with suffix)
 
   """
-  if units not in ('m', 'g', 't', 'h'):
+  if units not in ("m", "g", "t", "h"):
     raise errors.ProgrammerError("Invalid unit specified '%s'" % str(units))
 
-  suffix = ''
+  suffix = ""
 
-  if units == 'm' or (units == 'h' and value < 1024):
-    if units == 'h':
-      suffix = 'M'
+  if units == "m" or (units == "h" and value < 1024):
+    if units == "h":
+      suffix = "M"
     return "%d%s" % (round(value, 0), suffix)
 
-  elif units == 'g' or (units == 'h' and value < (1024 * 1024)):
-    if units == 'h':
-      suffix = 'G'
+  elif units == "g" or (units == "h" and value < (1024 * 1024)):
+    if units == "h":
+      suffix = "G"
     return "%0.1f%s" % (round(float(value) / 1024, 1), suffix)
 
   else:
-    if units == 'h':
-      suffix = 'T'
+    if units == "h":
+      suffix = "T"
     return "%0.1f%s" % (round(float(value) / 1024 / 1024, 1), suffix)
 
 
@@ -144,16 +182,16 @@ def ParseUnit(input_string):
   if unit:
     lcunit = unit.lower()
   else:
-    lcunit = 'm'
+    lcunit = "m"
 
-  if lcunit in ('m', 'mb', 'mib'):
+  if lcunit in ("m", "mb", "mib"):
     # Value already in MiB
     pass
 
-  elif lcunit in ('g', 'gb', 'gib'):
+  elif lcunit in ("g", "gb", "gib"):
     value *= 1024
 
-  elif lcunit in ('t', 'tb', 'tib'):
+  elif lcunit in ("t", "tb", "tib"):
     value *= 1024 * 1024
 
   else:
@@ -296,15 +334,15 @@ def SafeEncode(text):
   """
   if isinstance(text, unicode):
     # only if unicode; if str already, we handle it below
-    text = text.encode('ascii', 'backslashreplace')
+    text = text.encode("ascii", "backslashreplace")
   resu = ""
   for char in text:
     c = ord(char)
-    if char  == '\t':
-      resu += r'\t'
-    elif char == '\n':
-      resu += r'\n'
-    elif char == '\r':
+    if char == "\t":
+      resu += r"\t"
+    elif char == "\n":
+      resu += r"\n"
+    elif char == "\r":
       resu += r'\'r'
     elif c < 32 or c >= 127: # non-printable
       resu += "\\x%02x" % (c & 0xff)
@@ -345,10 +383,12 @@ def UnescapeAndSplit(text, sep=","):
       num_b = len(e1) - len(e1.rstrip("\\"))
       if num_b % 2 == 1 and slist:
         e2 = slist.pop(0)
-        # here the backslashes remain (all), and will be reduced in
-        # the next step
-        rlist.append(e1 + sep + e2)
+        # Merge the two elements and push the result back to the source list for
+        # revisiting. If e2 ended with backslashes, further merging may need to
+        # be done.
+        slist.insert(0, e1 + sep + e2)
         continue
+    # here the backslashes remain (all), and will be reduced in the next step
     rlist.append(e1)
   # finally, replace backslash-something with something
   rlist = [re.sub(r"\\(.)", r"\1", v) for v in rlist]
@@ -425,7 +465,7 @@ class LineSplitter:
     if args:
       # Python 2.4 doesn't have functools.partial yet
       self._line_fn = \
-        lambda line: line_fn(line, *args) # pylint: disable-msg=W0142
+        lambda line: line_fn(line, *args) # pylint: disable=W0142
     else:
       self._line_fn = line_fn
 
@@ -486,3 +526,29 @@ def BuildShellCmd(template, *args):
       raise errors.ProgrammerError("Shell argument '%s' contains"
                                    " invalid characters" % word)
   return template % args
+
+
+def FormatOrdinal(value):
+  """Formats a number as an ordinal in the English language.
+
+  E.g. the number 1 becomes "1st", 22 becomes "22nd".
+
+  @type value: integer
+  @param value: Number
+  @rtype: string
+
+  """
+  tens = value % 10
+
+  if value > 10 and value < 20:
+    suffix = "th"
+  elif tens == 1:
+    suffix = "st"
+  elif tens == 2:
+    suffix = "nd"
+  elif tens == 3:
+    suffix = "rd"
+  else:
+    suffix = "th"
+
+  return "%s%s" % (value, suffix)

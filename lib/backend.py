@@ -28,7 +28,7 @@
 
 """
 
-# pylint: disable-msg=E1103
+# pylint: disable=E1103
 
 # E1103: %s %r has no %r member (but some types could not be
 # inferred), because the _TryOSFromDisk returns either (True, os_obj)
@@ -296,7 +296,7 @@ def StartMaster(start_daemons, no_voting):
       if family == netutils.IP6Address.family:
         ipcls = netutils.IP6Address
 
-      result = utils.RunCmd(["ip", "address", "add",
+      result = utils.RunCmd([constants.IP_COMMAND_PATH, "address", "add",
                              "%s/%d" % (master_ip, ipcls.iplen),
                              "dev", master_netdev, "label",
                              "%s:0" % master_netdev])
@@ -343,7 +343,7 @@ def StopMaster(stop_daemons):
   if family == netutils.IP6Address.family:
     ipcls = netutils.IP6Address
 
-  result = utils.RunCmd(["ip", "address", "del",
+  result = utils.RunCmd([constants.IP_COMMAND_PATH, "address", "del",
                          "%s/%d" % (master_ip, ipcls.iplen),
                          "dev", master_netdev])
   if result.failed:
@@ -412,7 +412,7 @@ def LeaveCluster(modify_ssh_setup):
     utils.RemoveFile(constants.CONFD_HMAC_KEY)
     utils.RemoveFile(constants.RAPI_CERT_FILE)
     utils.RemoveFile(constants.NODED_CERT_FILE)
-  except: # pylint: disable-msg=W0702
+  except: # pylint: disable=W0702
     logging.exception("Error while removing cluster secrets")
 
   result = utils.RunCmd([constants.DAEMON_UTIL, "stop", constants.CONFD])
@@ -421,7 +421,7 @@ def LeaveCluster(modify_ssh_setup):
                   result.cmd, result.exit_code, result.output)
 
   # Raise a custom exception (handled in ganeti-noded)
-  raise errors.QuitGanetiException(True, 'Shutdown scheduled')
+  raise errors.QuitGanetiException(True, "Shutdown scheduled")
 
 
 def GetNodeInfo(vgname, hypervisor_type):
@@ -449,8 +449,8 @@ def GetNodeInfo(vgname, hypervisor_type):
     if vginfo:
       vg_free = int(round(vginfo[0][0], 0))
       vg_size = int(round(vginfo[0][1], 0))
-    outputarray['vg_size'] = vg_size
-    outputarray['vg_free'] = vg_free
+    outputarray["vg_size"] = vg_size
+    outputarray["vg_free"] = vg_free
 
   if hypervisor_type is not None:
     hyper = hypervisor.GetHypervisor(hypervisor_type)
@@ -520,12 +520,25 @@ def VerifyNode(what, cluster_name):
       what[constants.NV_FILELIST])
 
   if constants.NV_NODELIST in what:
-    result[constants.NV_NODELIST] = tmp = {}
-    random.shuffle(what[constants.NV_NODELIST])
-    for node in what[constants.NV_NODELIST]:
+    (nodes, bynode) = what[constants.NV_NODELIST]
+
+    # Add nodes from other groups (different for each node)
+    try:
+      nodes.extend(bynode[my_name])
+    except KeyError:
+      pass
+
+    # Use a random order
+    random.shuffle(nodes)
+
+    # Try to contact all nodes
+    val = {}
+    for node in nodes:
       success, message = _GetSshRunner(cluster_name).VerifyNodeHostname(node)
       if not success:
-        tmp[node] = message
+        val[node] = message
+
+    result[constants.NV_NODELIST] = val
 
   if constants.NV_NODENETTEST in what:
     result[constants.NV_NODENETTEST] = tmp = {}
@@ -651,6 +664,44 @@ def VerifyNode(what, cluster_name):
   return result
 
 
+def GetBlockDevSizes(devices):
+  """Return the size of the given block devices
+
+  @type devices: list
+  @param devices: list of block device nodes to query
+  @rtype: dict
+  @return:
+    dictionary of all block devices under /dev (key). The value is their
+    size in MiB.
+
+    {'/dev/disk/by-uuid/123456-12321231-312312-312': 124}
+
+  """
+  DEV_PREFIX = "/dev/"
+  blockdevs = {}
+
+  for devpath in devices:
+    if os.path.commonprefix([DEV_PREFIX, devpath]) != DEV_PREFIX:
+      continue
+
+    try:
+      st = os.stat(devpath)
+    except EnvironmentError, err:
+      logging.warning("Error stat()'ing device %s: %s", devpath, str(err))
+      continue
+
+    if stat.S_ISBLK(st.st_mode):
+      result = utils.RunCmd(["blockdev", "--getsize64", devpath])
+      if result.failed:
+        # We don't want to fail, just do not list this device as available
+        logging.warning("Cannot get size for block device %s", devpath)
+        continue
+
+      size = int(result.stdout) / (1024 * 1024)
+      blockdevs[devpath] = size
+  return blockdevs
+
+
 def GetVolumeList(vg_names):
   """Compute list of logical volumes and their size.
 
@@ -669,7 +720,7 @@ def GetVolumeList(vg_names):
 
   """
   lvs = {}
-  sep = '|'
+  sep = "|"
   if not vg_names:
     vg_names = []
   result = utils.RunCmd(["lvs", "--noheadings", "--units=m", "--nosuffix",
@@ -685,14 +736,14 @@ def GetVolumeList(vg_names):
       logging.error("Invalid line returned from lvs output: '%s'", line)
       continue
     vg_name, name, size, attr = match.groups()
-    inactive = attr[4] == '-'
-    online = attr[5] == 'o'
-    virtual = attr[0] == 'v'
+    inactive = attr[4] == "-"
+    online = attr[5] == "o"
+    virtual = attr[0] == "v"
     if virtual:
       # we don't want to report such volumes as existing, since they
       # don't really hold data
       continue
-    lvs[vg_name+"/"+name] = (size, inactive, online)
+    lvs[vg_name + "/" + name] = (size, inactive, online)
 
   return lvs
 
@@ -735,20 +786,20 @@ def NodeVolumes():
           result.output)
 
   def parse_dev(dev):
-    return dev.split('(')[0]
+    return dev.split("(")[0]
 
   def handle_dev(dev):
     return [parse_dev(x) for x in dev.split(",")]
 
   def map_line(line):
     line = [v.strip() for v in line]
-    return [{'name': line[0], 'size': line[1],
-             'dev': dev, 'vg': line[3]} for dev in handle_dev(line[2])]
+    return [{"name": line[0], "size": line[1],
+             "dev": dev, "vg": line[3]} for dev in handle_dev(line[2])]
 
   all_devs = []
   for line in result.stdout.splitlines():
-    if line.count('|') >= 3:
-      all_devs.extend(map_line(line.split('|')))
+    if line.count("|") >= 3:
+      all_devs.extend(map_line(line.split("|")))
     else:
       logging.warning("Strange line in the output from lvs: '%s'", line)
   return all_devs
@@ -813,9 +864,9 @@ def GetInstanceInfo(instance, hname):
 
   iinfo = hypervisor.GetHypervisor(hname).GetInstanceInfo(instance)
   if iinfo is not None:
-    output['memory'] = iinfo[2]
-    output['state'] = iinfo[4]
-    output['time'] = iinfo[5]
+    output["memory"] = iinfo[2]
+    output["state"] = iinfo[4]
+    output["time"] = iinfo[5]
 
   return output
 
@@ -869,16 +920,16 @@ def GetAllInstancesInfo(hypervisor_list):
     if iinfo:
       for name, _, memory, vcpus, state, times in iinfo:
         value = {
-          'memory': memory,
-          'vcpus': vcpus,
-          'state': state,
-          'time': times,
+          "memory": memory,
+          "vcpus": vcpus,
+          "state": state,
+          "time": times,
           }
         if name in output:
           # we only check static parameters, like memory and vcpus,
           # and not state and time which can change between the
           # invocations of the different hypervisors
-          for key in 'memory', 'vcpus':
+          for key in "memory", "vcpus":
             if value[key] != output[name][key]:
               _Fail("Instance %s is running twice"
                     " with different parameters", name)
@@ -887,7 +938,7 @@ def GetAllInstancesInfo(hypervisor_list):
   return output
 
 
-def _InstanceLogName(kind, os_name, instance):
+def _InstanceLogName(kind, os_name, instance, component):
   """Compute the OS log filename for a given instance and operation.
 
   The instance name and os name are passed in as strings since not all
@@ -899,11 +950,19 @@ def _InstanceLogName(kind, os_name, instance):
   @param os_name: the os name
   @type instance: string
   @param instance: the name of the instance being imported/added/etc.
+  @type component: string or None
+  @param component: the name of the component of the instance being
+      transferred
 
   """
   # TODO: Use tempfile.mkstemp to create unique filename
-  base = ("%s-%s-%s-%s.log" %
-          (kind, os_name, instance, utils.TimestampForFilename()))
+  if component:
+    assert "/" not in component
+    c_msg = "-%s" % component
+  else:
+    c_msg = ""
+  base = ("%s-%s-%s%s-%s.log" %
+          (kind, os_name, instance, c_msg, utils.TimestampForFilename()))
   return utils.PathJoin(constants.LOG_OS_DIR, base)
 
 
@@ -923,12 +982,12 @@ def InstanceOsAdd(instance, reinstall, debug):
 
   create_env = OSEnvironment(instance, inst_os, debug)
   if reinstall:
-    create_env['INSTANCE_REINSTALL'] = "1"
+    create_env["INSTANCE_REINSTALL"] = "1"
 
-  logfile = _InstanceLogName("add", instance.os, instance.name)
+  logfile = _InstanceLogName("add", instance.os, instance.name, None)
 
   result = utils.RunCmd([inst_os.create_script], env=create_env,
-                        cwd=inst_os.path, output=logfile,)
+                        cwd=inst_os.path, output=logfile, reset_env=True)
   if result.failed:
     logging.error("os create command '%s' returned error: %s, logfile: %s,"
                   " output: %s", result.cmd, result.fail_reason, logfile,
@@ -955,13 +1014,13 @@ def RunRenameInstance(instance, old_name, debug):
   inst_os = OSFromDisk(instance.os)
 
   rename_env = OSEnvironment(instance, inst_os, debug)
-  rename_env['OLD_INSTANCE_NAME'] = old_name
+  rename_env["OLD_INSTANCE_NAME"] = old_name
 
   logfile = _InstanceLogName("rename", instance.os,
-                             "%s-%s" % (old_name, instance.name))
+                             "%s-%s" % (old_name, instance.name), None)
 
   result = utils.RunCmd([inst_os.rename_script], env=rename_env,
-                        cwd=inst_os.path, output=logfile)
+                        cwd=inst_os.path, output=logfile, reset_env=True)
 
   if result.failed:
     logging.error("os create command '%s' returned error: %s output: %s",
@@ -1048,11 +1107,13 @@ def _GatherAndLinkBlockDevs(instance):
   return block_devices
 
 
-def StartInstance(instance):
+def StartInstance(instance, startup_paused):
   """Start an instance.
 
   @type instance: L{objects.Instance}
   @param instance: the instance object
+  @type startup_paused: bool
+  @param instance: pause instance at startup?
   @rtype: None
 
   """
@@ -1065,7 +1126,7 @@ def StartInstance(instance):
   try:
     block_devices = _GatherAndLinkBlockDevs(instance)
     hyper = hypervisor.GetHypervisor(instance.hypervisor)
-    hyper.StartInstance(instance, block_devices)
+    hyper.StartInstance(instance, block_devices, startup_paused)
   except errors.BlockDeviceError, err:
     _Fail("Block device error: %s", err, exc=True)
   except errors.HypervisorError, err:
@@ -1177,7 +1238,7 @@ def InstanceReboot(instance, reboot_type, shutdown_timeout):
   elif reboot_type == constants.INSTANCE_REBOOT_HARD:
     try:
       InstanceShutdown(instance, shutdown_timeout)
-      return StartInstance(instance)
+      return StartInstance(instance, False)
     except errors.HypervisorError, err:
       _Fail("Failed to hard reboot instance %s: %s", instance.name, err)
   else:
@@ -1210,10 +1271,21 @@ def AcceptInstance(instance, info, target):
   @param target: target host (usually ip), on this node
 
   """
+  # TODO: why is this required only for DTS_EXT_MIRROR?
+  if instance.disk_template in constants.DTS_EXT_MIRROR:
+    # Create the symlinks, as the disks are not active
+    # in any way
+    try:
+      _GatherAndLinkBlockDevs(instance)
+    except errors.BlockDeviceError, err:
+      _Fail("Block device error: %s", err, exc=True)
+
   hyper = hypervisor.GetHypervisor(instance.hypervisor)
   try:
     hyper.AcceptInstance(instance, info, target)
   except errors.HypervisorError, err:
+    if instance.disk_template in constants.DTS_EXT_MIRROR:
+      _RemoveBlockDevLinks(instance.name, instance.disks)
     _Fail("Failed to accept instance: %s", err, exc=True)
 
 
@@ -1280,8 +1352,8 @@ def BlockdevCreate(disk, size, owner, on_primary, info):
       it's not required to return anything.
 
   """
-  # TODO: remove the obsolete 'size' argument
-  # pylint: disable-msg=W0613
+  # TODO: remove the obsolete "size" argument
+  # pylint: disable=W0613
   clist = []
   if disk.children:
     for child in disk.children:
@@ -1293,7 +1365,7 @@ def BlockdevCreate(disk, size, owner, on_primary, info):
         # we need the children open in case the device itself has to
         # be assembled
         try:
-          # pylint: disable-msg=E1103
+          # pylint: disable=E1103
           crdev.Open()
         except errors.BlockDeviceError, err:
           _Fail("Can't make child '%s' read-write: %s", child, err)
@@ -1509,7 +1581,7 @@ def BlockdevAssemble(disk, owner, as_primary, idx):
   try:
     result = _RecursiveAssembleBD(disk, owner, as_primary)
     if isinstance(result, bdev.BlockDev):
-      # pylint: disable-msg=E1103
+      # pylint: disable=E1103
       result = result.dev_path
       if as_primary:
         _SymlinkBlockDev(owner, result, idx)
@@ -1780,7 +1852,7 @@ def BlockdevExport(disk, dest_node, dest_path, cluster_name):
                                                    destcmd)
 
   # all commands have been checked, so we're safe to combine them
-  command = '|'.join([expcmd, utils.ShellQuoteArgs(remotecmd)])
+  command = "|".join([expcmd, utils.ShellQuoteArgs(remotecmd)])
 
   result = utils.RunCmd(["bash", "-c", command])
 
@@ -1874,7 +1946,7 @@ def _ErrnoOrStr(err):
   @param err: the exception to format
 
   """
-  if hasattr(err, 'errno'):
+  if hasattr(err, "errno"):
     detail = errno.errorcode[err.errno]
   else:
     detail = str(err)
@@ -2000,23 +2072,28 @@ def _TryOSFromDisk(name, base_dir=None):
     return False, ("API version mismatch for path '%s': found %s, want %s." %
                    (os_dir, api_versions, constants.OS_API_VERSIONS))
 
-  # OS Files dictionary, we will populate it with the absolute path names
-  os_files = dict.fromkeys(constants.OS_SCRIPTS)
+  # OS Files dictionary, we will populate it with the absolute path
+  # names; if the value is True, then it is a required file, otherwise
+  # an optional one
+  os_files = dict.fromkeys(constants.OS_SCRIPTS, True)
 
   if max(api_versions) >= constants.OS_API_V15:
-    os_files[constants.OS_VARIANTS_FILE] = ''
+    os_files[constants.OS_VARIANTS_FILE] = False
 
   if max(api_versions) >= constants.OS_API_V20:
-    os_files[constants.OS_PARAMETERS_FILE] = ''
+    os_files[constants.OS_PARAMETERS_FILE] = True
   else:
     del os_files[constants.OS_SCRIPT_VERIFY]
 
-  for filename in os_files:
+  for (filename, required) in os_files.items():
     os_files[filename] = utils.PathJoin(os_dir, filename)
 
     try:
       st = os.stat(os_files[filename])
     except EnvironmentError, err:
+      if err.errno == errno.ENOENT and not required:
+        del os_files[filename]
+        continue
       return False, ("File '%s' under path '%s' is missing (%s)" %
                      (filename, os_dir, _ErrnoOrStr(err)))
 
@@ -2035,10 +2112,10 @@ def _TryOSFromDisk(name, base_dir=None):
     try:
       variants = utils.ReadFile(variants_file).splitlines()
     except EnvironmentError, err:
-      return False, ("Error while reading the OS variants file at %s: %s" %
-                     (variants_file, _ErrnoOrStr(err)))
-    if not variants:
-      return False, ("No supported os variant found")
+      # we accept missing files, but not other errors
+      if err.errno != errno.ENOENT:
+        return False, ("Error while reading the OS variants file at %s: %s" %
+                       (variants_file, _ErrnoOrStr(err)))
 
   parameters = []
   if constants.OS_PARAMETERS_FILE in os_files:
@@ -2110,20 +2187,22 @@ def OSCoreEnv(os_name, inst_os, os_params, debug=0):
   result = {}
   api_version = \
     max(constants.OS_API_VERSIONS.intersection(inst_os.api_versions))
-  result['OS_API_VERSION'] = '%d' % api_version
-  result['OS_NAME'] = inst_os.name
-  result['DEBUG_LEVEL'] = '%d' % debug
+  result["OS_API_VERSION"] = "%d" % api_version
+  result["OS_NAME"] = inst_os.name
+  result["DEBUG_LEVEL"] = "%d" % debug
 
   # OS variants
-  if api_version >= constants.OS_API_V15:
+  if api_version >= constants.OS_API_V15 and inst_os.supported_variants:
     variant = objects.OS.GetVariant(os_name)
     if not variant:
       variant = inst_os.supported_variants[0]
-    result['OS_VARIANT'] = variant
+  else:
+    variant = ""
+  result["OS_VARIANT"] = variant
 
   # OS params
   for pname, pvalue in os_params.items():
-    result['OSP_%s' % pname.upper()] = pvalue
+    result["OSP_%s" % pname.upper()] = pvalue
 
   return result
 
@@ -2148,38 +2227,38 @@ def OSEnvironment(instance, inst_os, debug=0):
   for attr in ["name", "os", "uuid", "ctime", "mtime", "primary_node"]:
     result["INSTANCE_%s" % attr.upper()] = str(getattr(instance, attr))
 
-  result['HYPERVISOR'] = instance.hypervisor
-  result['DISK_COUNT'] = '%d' % len(instance.disks)
-  result['NIC_COUNT'] = '%d' % len(instance.nics)
-  result['INSTANCE_SECONDARY_NODES'] = \
-      ('%s' % " ".join(instance.secondary_nodes))
+  result["HYPERVISOR"] = instance.hypervisor
+  result["DISK_COUNT"] = "%d" % len(instance.disks)
+  result["NIC_COUNT"] = "%d" % len(instance.nics)
+  result["INSTANCE_SECONDARY_NODES"] = \
+      ("%s" % " ".join(instance.secondary_nodes))
 
   # Disks
   for idx, disk in enumerate(instance.disks):
     real_disk = _OpenRealBD(disk)
-    result['DISK_%d_PATH' % idx] = real_disk.dev_path
-    result['DISK_%d_ACCESS' % idx] = disk.mode
+    result["DISK_%d_PATH" % idx] = real_disk.dev_path
+    result["DISK_%d_ACCESS" % idx] = disk.mode
     if constants.HV_DISK_TYPE in instance.hvparams:
-      result['DISK_%d_FRONTEND_TYPE' % idx] = \
+      result["DISK_%d_FRONTEND_TYPE" % idx] = \
         instance.hvparams[constants.HV_DISK_TYPE]
     if disk.dev_type in constants.LDS_BLOCK:
-      result['DISK_%d_BACKEND_TYPE' % idx] = 'block'
+      result["DISK_%d_BACKEND_TYPE" % idx] = "block"
     elif disk.dev_type == constants.LD_FILE:
-      result['DISK_%d_BACKEND_TYPE' % idx] = \
-        'file:%s' % disk.physical_id[0]
+      result["DISK_%d_BACKEND_TYPE" % idx] = \
+        "file:%s" % disk.physical_id[0]
 
   # NICs
   for idx, nic in enumerate(instance.nics):
-    result['NIC_%d_MAC' % idx] = nic.mac
+    result["NIC_%d_MAC" % idx] = nic.mac
     if nic.ip:
-      result['NIC_%d_IP' % idx] = nic.ip
-    result['NIC_%d_MODE' % idx] = nic.nicparams[constants.NIC_MODE]
+      result["NIC_%d_IP" % idx] = nic.ip
+    result["NIC_%d_MODE" % idx] = nic.nicparams[constants.NIC_MODE]
     if nic.nicparams[constants.NIC_MODE] == constants.NIC_MODE_BRIDGED:
-      result['NIC_%d_BRIDGE' % idx] = nic.nicparams[constants.NIC_LINK]
+      result["NIC_%d_BRIDGE" % idx] = nic.nicparams[constants.NIC_LINK]
     if nic.nicparams[constants.NIC_LINK]:
-      result['NIC_%d_LINK' % idx] = nic.nicparams[constants.NIC_LINK]
+      result["NIC_%d_LINK" % idx] = nic.nicparams[constants.NIC_LINK]
     if constants.HV_NIC_TYPE in instance.hvparams:
-      result['NIC_%d_FRONTEND_TYPE' % idx] = \
+      result["NIC_%d_FRONTEND_TYPE" % idx] = \
         instance.hvparams[constants.HV_NIC_TYPE]
 
   # HV/BE params
@@ -2190,7 +2269,7 @@ def OSEnvironment(instance, inst_os, debug=0):
   return result
 
 
-def BlockdevGrow(disk, amount):
+def BlockdevGrow(disk, amount, dryrun):
   """Grow a stack of block devices.
 
   This function is called recursively, with the childrens being the
@@ -2198,10 +2277,14 @@ def BlockdevGrow(disk, amount):
 
   @type disk: L{objects.Disk}
   @param disk: the disk to be grown
+  @type amount: integer
+  @param amount: the amount (in mebibytes) to grow with
+  @type dryrun: boolean
+  @param dryrun: whether to execute the operation in simulation mode
+      only, without actually increasing the size
   @rtype: (status, result)
-  @return: a tuple with the status of the operation
-      (True/False), and the errors message if status
-      is False
+  @return: a tuple with the status of the operation (True/False), and
+      the errors message if status is False
 
   """
   r_dev = _RecursiveFindBD(disk)
@@ -2209,7 +2292,7 @@ def BlockdevGrow(disk, amount):
     _Fail("Cannot find block device %s", disk)
 
   try:
-    r_dev.Grow(amount)
+    r_dev.Grow(amount, dryrun)
   except errors.BlockDeviceError, err:
     _Fail("Failed to grow block device: %s", err, exc=True)
 
@@ -2263,45 +2346,46 @@ def FinalizeExport(instance, snap_disks):
   config = objects.SerializableConfigParser()
 
   config.add_section(constants.INISECT_EXP)
-  config.set(constants.INISECT_EXP, 'version', '0')
-  config.set(constants.INISECT_EXP, 'timestamp', '%d' % int(time.time()))
-  config.set(constants.INISECT_EXP, 'source', instance.primary_node)
-  config.set(constants.INISECT_EXP, 'os', instance.os)
+  config.set(constants.INISECT_EXP, "version", "0")
+  config.set(constants.INISECT_EXP, "timestamp", "%d" % int(time.time()))
+  config.set(constants.INISECT_EXP, "source", instance.primary_node)
+  config.set(constants.INISECT_EXP, "os", instance.os)
   config.set(constants.INISECT_EXP, "compression", "none")
 
   config.add_section(constants.INISECT_INS)
-  config.set(constants.INISECT_INS, 'name', instance.name)
-  config.set(constants.INISECT_INS, 'memory', '%d' %
+  config.set(constants.INISECT_INS, "name", instance.name)
+  config.set(constants.INISECT_INS, "memory", "%d" %
              instance.beparams[constants.BE_MEMORY])
-  config.set(constants.INISECT_INS, 'vcpus', '%d' %
+  config.set(constants.INISECT_INS, "vcpus", "%d" %
              instance.beparams[constants.BE_VCPUS])
-  config.set(constants.INISECT_INS, 'disk_template', instance.disk_template)
-  config.set(constants.INISECT_INS, 'hypervisor', instance.hypervisor)
+  config.set(constants.INISECT_INS, "disk_template", instance.disk_template)
+  config.set(constants.INISECT_INS, "hypervisor", instance.hypervisor)
+  config.set(constants.INISECT_INS, "tags", " ".join(instance.GetTags()))
 
   nic_total = 0
   for nic_count, nic in enumerate(instance.nics):
     nic_total += 1
-    config.set(constants.INISECT_INS, 'nic%d_mac' %
-               nic_count, '%s' % nic.mac)
-    config.set(constants.INISECT_INS, 'nic%d_ip' % nic_count, '%s' % nic.ip)
+    config.set(constants.INISECT_INS, "nic%d_mac" %
+               nic_count, "%s" % nic.mac)
+    config.set(constants.INISECT_INS, "nic%d_ip" % nic_count, "%s" % nic.ip)
     for param in constants.NICS_PARAMETER_TYPES:
-      config.set(constants.INISECT_INS, 'nic%d_%s' % (nic_count, param),
-                 '%s' % nic.nicparams.get(param, None))
+      config.set(constants.INISECT_INS, "nic%d_%s" % (nic_count, param),
+                 "%s" % nic.nicparams.get(param, None))
   # TODO: redundant: on load can read nics until it doesn't exist
-  config.set(constants.INISECT_INS, 'nic_count' , '%d' % nic_total)
+  config.set(constants.INISECT_INS, "nic_count", "%d" % nic_total)
 
   disk_total = 0
   for disk_count, disk in enumerate(snap_disks):
     if disk:
       disk_total += 1
-      config.set(constants.INISECT_INS, 'disk%d_ivname' % disk_count,
-                 ('%s' % disk.iv_name))
-      config.set(constants.INISECT_INS, 'disk%d_dump' % disk_count,
-                 ('%s' % disk.physical_id[1]))
-      config.set(constants.INISECT_INS, 'disk%d_size' % disk_count,
-                 ('%d' % disk.size))
+      config.set(constants.INISECT_INS, "disk%d_ivname" % disk_count,
+                 ("%s" % disk.iv_name))
+      config.set(constants.INISECT_INS, "disk%d_dump" % disk_count,
+                 ("%s" % disk.physical_id[1]))
+      config.set(constants.INISECT_INS, "disk%d_size" % disk_count,
+                 ("%d" % disk.size))
 
-  config.set(constants.INISECT_INS, 'disk_count' , '%d' % disk_total)
+  config.set(constants.INISECT_INS, "disk_count", "%d" % disk_total)
 
   # New-style hypervisor/backend parameters
 
@@ -2417,15 +2501,15 @@ def BlockdevRename(devlist):
     _Fail("; ".join(msgs))
 
 
-def _TransformFileStorageDir(file_storage_dir):
+def _TransformFileStorageDir(fs_dir):
   """Checks whether given file_storage_dir is valid.
 
-  Checks wheter the given file_storage_dir is within the cluster-wide
-  default file_storage_dir stored in SimpleStore. Only paths under that
-  directory are allowed.
+  Checks wheter the given fs_dir is within the cluster-wide default
+  file_storage_dir or the shared_file_storage_dir, which are stored in
+  SimpleStore. Only paths under those directories are allowed.
 
-  @type file_storage_dir: str
-  @param file_storage_dir: the path to check
+  @type fs_dir: str
+  @param fs_dir: the path to check
 
   @return: the normalized path if valid, None otherwise
 
@@ -2433,13 +2517,15 @@ def _TransformFileStorageDir(file_storage_dir):
   if not constants.ENABLE_FILE_STORAGE:
     _Fail("File storage disabled at configure time")
   cfg = _GetConfig()
-  file_storage_dir = os.path.normpath(file_storage_dir)
-  base_file_storage_dir = cfg.GetFileStorageDir()
-  if (os.path.commonprefix([file_storage_dir, base_file_storage_dir]) !=
-      base_file_storage_dir):
+  fs_dir = os.path.normpath(fs_dir)
+  base_fstore = cfg.GetFileStorageDir()
+  base_shared = cfg.GetSharedFileStorageDir()
+  if ((os.path.commonprefix([fs_dir, base_fstore]) != base_fstore) and
+      (os.path.commonprefix([fs_dir, base_shared]) != base_shared)):
     _Fail("File storage directory '%s' is not under base file"
-          " storage directory '%s'", file_storage_dir, base_file_storage_dir)
-  return file_storage_dir
+          " storage directory '%s' or shared storage directory '%s'",
+          fs_dir, base_fstore, base_shared)
+  return fs_dir
 
 
 def CreateFileStorageDir(file_storage_dir):
@@ -2690,7 +2776,7 @@ def ValidateOS(required, osname, checks, osparams):
 
   validate_env = OSCoreEnv(osname, tbv, osparams)
   result = utils.RunCmd([tbv.verify_script] + checks, env=validate_env,
-                        cwd=tbv.path)
+                        cwd=tbv.path, reset_env=True)
   if result.failed:
     logging.error("os validate command '%s' returned error: %s output: %s",
                   result.cmd, result.fail_reason, result.output)
@@ -2902,7 +2988,8 @@ def _CreateImportExportStatusDir(prefix):
                                   (prefix, utils.TimestampForFilename())))
 
 
-def StartImportExportDaemon(mode, opts, host, port, instance, ieio, ieioargs):
+def StartImportExportDaemon(mode, opts, host, port, instance, component,
+                            ieio, ieioargs):
   """Starts an import or export daemon.
 
   @param mode: Import/output mode
@@ -2914,6 +3001,9 @@ def StartImportExportDaemon(mode, opts, host, port, instance, ieio, ieioargs):
   @param port: Remote port for export (None for import)
   @type instance: L{objects.Instance}
   @param instance: Instance object
+  @type component: string
+  @param component: which part of the instance is transferred now,
+      e.g. 'disk/0'
   @param ieio: Input/output type
   @param ieioargs: Input/output arguments
 
@@ -2953,7 +3043,7 @@ def StartImportExportDaemon(mode, opts, host, port, instance, ieio, ieioargs):
     if not os.path.exists(i):
       _Fail("File '%s' does not exist" % i)
 
-  status_dir = _CreateImportExportStatusDir(prefix)
+  status_dir = _CreateImportExportStatusDir("%s-%s" % (prefix, component))
   try:
     status_file = utils.PathJoin(status_dir, _IES_STATUS_FILE)
     pid_file = utils.PathJoin(status_dir, _IES_PID_FILE)
@@ -3011,7 +3101,7 @@ def StartImportExportDaemon(mode, opts, host, port, instance, ieio, ieioargs):
       # Overall timeout for establishing connection while listening
       cmd.append("--connect-timeout=%s" % opts.connect_timeout)
 
-    logfile = _InstanceLogName(prefix, instance.os, instance.name)
+    logfile = _InstanceLogName(prefix, instance.os, instance.name, component)
 
     # TODO: Once _InstanceLogName uses tempfile.mkstemp, StartDaemon has
     # support for receiving a file descriptor for output
@@ -3248,7 +3338,7 @@ def PowercycleNode(hypervisor_type):
   # ensure the child is running on ram
   try:
     utils.Mlockall()
-  except Exception: # pylint: disable-msg=W0703
+  except Exception: # pylint: disable=W0703
     pass
   time.sleep(5)
   hyper.PowercycleNode()
@@ -3273,7 +3363,7 @@ class HooksRunner(object):
       hooks_base_dir = constants.HOOKS_BASE_DIR
     # yeah, _BASE_DIR is not valid for attributes, we use it like a
     # constant
-    self._BASE_DIR = hooks_base_dir # pylint: disable-msg=C0103
+    self._BASE_DIR = hooks_base_dir # pylint: disable=C0103
 
   def RunHooks(self, hpath, phase, env):
     """Run the scripts in the hooks directory.
@@ -3303,7 +3393,6 @@ class HooksRunner(object):
       suffix = "post"
     else:
       _Fail("Unknown hooks phase '%s'", phase)
-
 
     subdir = "%s-%s.d" % (hpath, suffix)
     dir_name = utils.PathJoin(self._BASE_DIR, subdir)

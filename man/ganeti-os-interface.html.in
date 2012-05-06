@@ -24,7 +24,7 @@
 ><h1
   >REFERENCE</h1
   ><p
-  >There are six required files: <em
+  >There are eight required files: <em
     >create</em
     >, <em
     >import</em
@@ -46,6 +46,8 @@
     >Common environment</h2
     ><p
     >All commands will get their input via environment variables. A common set of variables will be exported for all commands, and some of them might have extra ones. Note that all counts are zero-based.</p
+    ><p
+    >Since Ganeti version 2.5, the environment will be cleaned up before being passed to scripts, therefore they will not inherit the environment in with which the ganeti node daemon was started. If you depend on any environment variables (non-Ganeti), then you will need to define or source them appropriately.</p
     ><dl
     ><dt
       >OS_API_VERSION</dt
@@ -192,7 +194,7 @@
       ><dd
       ><p
 	>Each OS parameter (see below) will be exported in its own variable, prefixed with <code
-	  >OSP</code
+	  >OSP_</code
 	  >, and upper-cased. For example, a <code
 	  >dhcp</code
 	  > parameter will be exported as <code
@@ -231,7 +233,7 @@
       >INSTANCE_REINSTALL</code
       > variable is set to <code
       >1</code
-      > when this create request is reinstalling and existing instance, rather than creating one anew. This can be used, for example, to preserve some data in the old instance in an OS-specific way.</p
+      > when this create request is reinstalling an existing instance, rather than creating one anew. This can be used, for example, to preserve some data in the old instance in an OS-specific way.</p
     ></div
   ><div id="export"
   ><h2
@@ -244,10 +246,10 @@
     >The specific disk to backup is denoted by two additional environment variables: <code
       >EXPORT_INDEX</code
       > which denotes the index in the instance disks structure (and could be used for example to skip the second disk if not needed for backup) and <code
-      >EXPORT_PATH</code
+      >EXPORT_DEVICE</code
       > which has the same value as <code
       >DISK_N_PATH</code
-      > but is duplicate here for easier usage by shell scripts (rather than parse the <code
+      > but is duplicated here for easier usage by shell scripts (rather than parse the <code
       >DISK_...</code
       > variables).</p
     ><p
@@ -276,7 +278,7 @@ fi
       >export</strong
       >, whose output will be provided on stdin.</p
     ><p
-    >The difference in variables is that the current disk is called by <code
+    >The difference in variables is that the current disk is denoted by <code
       >IMPORT_DEVICE</code
       > and <code
       >IMPORT_INDEX</code
@@ -312,7 +314,7 @@ fi
       >parameters</code
       >. This should validate the <code
       >OSP_</code
-      > variables from the environment, and output diagnostic message in case the validation fails.</p
+      > variables from the environment, and output diagnostic messages in case the validation fails.</p
     ><p
     >For the <code
       >dhcp</code
@@ -342,13 +344,13 @@ exit 0
   ><h2
     >ganeti_api_version</h2
     ><p
-    >The ganeti_api_version file is a plain text file containing the version(s) of the guest OS API that this OS definition complies with, one per line. The version documented by this man page is 15, so this file must contain the number 15 followed by a newline if only this version is supported. A script compatible with more than one Ganeti version should contain the most recent version first (i.e. 15), followed by the old version(s) (in this case 10 and/or 5).</p
+    >The ganeti_api_version file is a plain text file containing the version(s) of the guest OS API that this OS definition complies with, one per line. The version documented by this man page is 20, so this file must contain the number 20 followed by a newline if only this version is supported. A script compatible with more than one Ganeti version should contain the most recent version first (i.e. 20), followed by the old version(s) (in this case 15 and/or 10).</p
     ></div
   ><div id="variants.list"
   ><h2
     >variants.list</h2
     ><p
-    >variants.list is a plain text file containing all the declared supported variants for this OS, one per line. At least one variant must be supported.</p
+    >variants.list is a plain text file containing all the declared supported variants for this OS, one per line. If this file is missing or empty, then the OS won't be considered to support variants.</p
     ></div
   ><div id="parameters.list"
   ><h2
@@ -377,7 +379,7 @@ root_size The size of the root partition, in GiB
   ><h2
     >Backwards compatibility</h2
     ><p
-    >Ganeti 2.3 and up is compatible with API version 10, 15 and 20. The OS parameters and related scripts (verify) are only supported in version 20. The variants functionality (variants.list, and OS_VARIANT env. var) are supported/present only in version 15 and up.</p
+    >Ganeti 2.3 and up is compatible with API versions 10, 15 and 20. The OS parameters and related scripts (verify) are only supported in version 20. The variants functionality (variants.list, and OS_VARIANT env. var) are supported/present only in version 15 and up.</p
     ></div
   ><div id="common-behaviour"
   ><h2
@@ -408,7 +410,7 @@ root_size The size of the root partition, in GiB
       ><p
       >The <code
 	>variants.list</code
-	> file has been added, so OSes should support at least one variant, declaring it in that file and must be prepared to parse the OS_VARIANT environment variable. OSes are free to support more variants than just the declared ones.</p
+	> file has been added, so OSes should support at least one variant, declaring it in that file and must be prepared to parse the OS_VARIANT environment variable. OSes are free to support more variants than just the declared ones. Note that this file is optional; without it, the variants functionality is disabled.</p
       ></div
     ><div id="version-5-to-10"
     ><h3
@@ -485,12 +487,24 @@ exit 0
     >(8) (master daemon), <strong
     >ganeti-rapi</strong
     >(8) (remote API daemon).</p
+  ><p
+  >Ganeti htools: <strong
+    >htools</strong
+    >(1) (generic binary), <strong
+    >hbal</strong
+    >(1) (cluster balancer), <strong
+    >hspace</strong
+    >(1) (capacity calculation), <strong
+    >hail</strong
+    >(1) (IAllocator plugin), <strong
+    >hscan</strong
+    >(1) (data gatherer from remote clusters).</p
   ></div
 ><div id="copyright"
 ><h1
   >COPYRIGHT</h1
   ><p
-  >Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc. Permission is granted to copy, distribute and/or modify under the terms of the GNU General Public License as published by the Free Software Foundation; either version 2 of the License, or (at your option) any later version.</p
+  >Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Google Inc. Permission is granted to copy, distribute and/or modify under the terms of the GNU General Public License as published by the Free Software Foundation; either version 2 of the License, or (at your option) any later version.</p
   ><p
   >On Debian systems, the complete text of the GNU General Public License can be found in /usr/share/common-licenses/GPL.</p
   ></div

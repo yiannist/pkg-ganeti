@@ -5,13 +5,13 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Ganeti administrator’s guide &mdash; Ganeti v2.4.5 documentation</title>
+    <title>Ganeti administrator’s guide &mdash; Ganeti v2.5.0 documentation</title>
     <link rel="stylesheet" href="_static/default.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.4.5',
+        VERSION:     '2.5.0',
         COLLAPSE_MODINDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -19,7 +19,7 @@
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.4.5 documentation" href="index.html" />
+    <link rel="top" title="Ganeti v2.5.0 documentation" href="index.html" />
     <link rel="next" title="Ganeti walk-through" href="walkthrough.html" />
     <link rel="prev" title="Upgrade notes" href="upgrade.html" /> 
   </head>
@@ -33,7 +33,7 @@
         <li class="right" >
           <a href="upgrade.html" title="Upgrade notes"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.4.5 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.5.0 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -44,7 +44,7 @@
             
   <div class="section" id="ganeti-administrator-s-guide">
 <h1><a class="toc-backref" href="#id2">Ganeti administrator&#8217;s guide</a><a class="headerlink" href="#ganeti-administrator-s-guide" title="Permalink to this headline">¶</a></h1>
-<p>Documents Ganeti version 2.4</p>
+<p>Documents Ganeti version 2.5</p>
 <div class="contents topic" id="contents">
 <p class="topic-title first">Contents</p>
 <ul class="simple">
@@ -425,8 +425,8 @@ manually start one which is currently stopped you can run:</p>
 <p class="first admonition-title">Warning</p>
 <p class="last">Do not use the Xen or KVM commands directly to stop
 instances. If you run for example <tt class="docutils literal"><span class="pre">xm</span> <span class="pre">shutdown</span></tt> or <tt class="docutils literal"><span class="pre">xm</span> <span class="pre">destroy</span></tt>
-on an instance Ganeti will automatically restart it (via the
-<strong>ganeti-watcher</strong> command which is launched via cron).</p>
+on an instance Ganeti will automatically restart it (via
+the <strong>ganeti-watcher</strong> command which is launched via cron).</p>
 </div>
 </div>
 <div class="section" id="querying-instances">
@@ -1589,10 +1589,10 @@ permits recovery from the loss of all master candidates.</p>
 </div>
 <div class="section" id="other-ganeti-projects">
 <h2><a class="toc-backref" href="#id80">Other Ganeti projects</a><a class="headerlink" href="#other-ganeti-projects" title="Permalink to this headline">¶</a></h2>
-<p>There are two other Ganeti-related projects that can be useful in a
-Ganeti deployment. These can be downloaded from the project site
-(<a class="reference external" href="http://code.google.com/p/ganeti/">http://code.google.com/p/ganeti/</a>) and the repositories are also on the
-project git site (<a class="reference external" href="http://git.ganeti.org">http://git.ganeti.org</a>).</p>
+<p>Below is a list (which might not be up-to-date) of additional projects
+that can be useful in a Ganeti deployment. They can be downloaded from
+the project site (<a class="reference external" href="http://code.google.com/p/ganeti/">http://code.google.com/p/ganeti/</a>) and the repositories
+are also on the project git site (<a class="reference external" href="http://git.ganeti.org">http://git.ganeti.org</a>).</p>
 <div class="section" id="nbma-tools">
 <h3><a class="toc-backref" href="#id81">NBMA tools</a><a class="headerlink" href="#nbma-tools" title="Permalink to this headline">¶</a></h3>
 <p>The <tt class="docutils literal"><span class="pre">ganeti-nbma</span></tt> software is designed to allow instances to live on a
@@ -1603,15 +1603,11 @@ archive.</p>
 </div>
 <div class="section" id="ganeti-htools">
 <h3><a class="toc-backref" href="#id82">ganeti-htools</a><a class="headerlink" href="#ganeti-htools" title="Permalink to this headline">¶</a></h3>
-<p>The <tt class="docutils literal"><span class="pre">ganeti-htools</span></tt> software consists of a set of tools:</p>
-<ul class="simple">
-<li><tt class="docutils literal"><span class="pre">hail</span></tt>: an advanced iallocator script compared to Ganeti&#8217;s builtin
-one</li>
-<li><tt class="docutils literal"><span class="pre">hbal</span></tt>: a tool for rebalancing the cluster, i.e. moving instances
-around in order to better use the resources on the nodes</li>
-<li><tt class="docutils literal"><span class="pre">hspace</span></tt>: a tool for estimating the available capacity of a cluster,
-so that capacity planning can be done efficiently</li>
-</ul>
+<p>Before Ganeti version 2.5, this was a standalone project; since that
+version it is integrated into the Ganeti codebase (see
+<a class="reference external" href="install-quick.html"><em>Ganeti quick installation guide</em></a> for instructions on how to enable it). If you run
+an older Ganeti version, you will have to download and build it
+separately.</p>
 <p>For more information and installation instructions, see the README file
 in the source archive.</p>
 </div>
@@ -1788,7 +1784,7 @@ in the source archive.</p>
         <li class="right" >
           <a href="upgrade.html" title="Upgrade notes"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.4.5 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.5.0 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

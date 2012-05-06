@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -20,11 +20,13 @@
 
 """Node related commands"""
 
-# pylint: disable-msg=W0401,W0613,W0614,C0103
+# pylint: disable=W0401,W0613,W0614,C0103
 # W0401: Wildcard import ganeti.cli
 # W0613: Unused argument, since all functions follow the same API
 # W0614: Unused import %s from wildcard import (since we need cli)
 # C0103: Invalid name gnt-node
+
+import itertools
 
 from ganeti.cli import *
 from ganeti import cli
@@ -100,10 +102,19 @@ _REPAIRABLE_STORAGE_TYPES = \
 _MODIFIABLE_STORAGE_TYPES = constants.MODIFIABLE_STORAGE_FIELDS.keys()
 
 
+_OOB_COMMAND_ASK = frozenset([constants.OOB_POWER_OFF,
+                              constants.OOB_POWER_CYCLE])
+
+
 NONODE_SETUP_OPT = cli_option("--no-node-setup", default=True,
                               action="store_false", dest="node_setup",
                               help=("Do not make initial SSH setup on remote"
                                     " node (needs to be done manually)"))
+
+IGNORE_STATUS_OPT = cli_option("--ignore-status", default=False,
+                               action="store_true", dest="ignore_status",
+                               help=("Ignore the Node(s) offline status"
+                                     " (potentially DANGEROUS)"))
 
 
 def ConvertStorageType(user_storage_type):
@@ -163,7 +174,7 @@ def AddNode(opts, args):
   readd = opts.readd
 
   try:
-    output = cl.QueryNodes(names=[node], fields=['name', 'sip', 'master'],
+    output = cl.QueryNodes(names=[node], fields=["name", "sip", "master"],
                            use_locking=False)
     node_exists, sip, is_master = output[0]
   except (errors.OpPrereqError, errors.OpExecError):
@@ -186,7 +197,7 @@ def AddNode(opts, args):
     sip = opts.secondary_ip
 
   # read the cluster name from the master
-  output = cl.QueryConfigValues(['cluster_name'])
+  output = cl.QueryConfigValues(["cluster_name"])
   cluster_name = output[0]
 
   if not readd and opts.node_setup:
@@ -226,7 +237,8 @@ def ListNodes(opts, args):
 
   return GenericList(constants.QR_NODE, selected_fields, args, opts.units,
                      opts.separator, not opts.no_headers,
-                     format_override=fmtoverride, verbose=opts.verbose)
+                     format_override=fmtoverride, verbose=opts.verbose,
+                     force_filter=opts.force_filter)
 
 
 def ListNodeFields(opts, args):
@@ -253,47 +265,70 @@ def EvacuateNode(opts, args):
   @return: the desired exit code
 
   """
+  if opts.dst_node is not None:
+    ToStderr("New secondary node given (disabling iallocator), hence evacuating"
+             " secondary instances only.")
+    opts.secondary_only = True
+    opts.primary_only = False
+
+  if opts.secondary_only and opts.primary_only:
+    raise errors.OpPrereqError("Only one of the --primary-only and"
+                               " --secondary-only options can be passed",
+                               errors.ECODE_INVAL)
+  elif opts.primary_only:
+    mode = constants.IALLOCATOR_NEVAC_PRI
+  elif opts.secondary_only:
+    mode = constants.IALLOCATOR_NEVAC_SEC
+  else:
+    mode = constants.IALLOCATOR_NEVAC_ALL
+
+  # Determine affected instances
+  fields = []
+
+  if not opts.secondary_only:
+    fields.append("pinst_list")
+  if not opts.primary_only:
+    fields.append("sinst_list")
+
   cl = GetClient()
-  force = opts.force
 
-  dst_node = opts.dst_node
-  iallocator = opts.iallocator
+  result = cl.QueryNodes(names=args, fields=fields, use_locking=False)
+  instances = set(itertools.chain(*itertools.chain(*itertools.chain(result))))
 
-  op = opcodes.OpNodeEvacStrategy(nodes=args,
-                                  iallocator=iallocator,
-                                  remote_node=dst_node)
-
-  result = SubmitOpCode(op, cl=cl, opts=opts)
-  if not result:
-    # no instances to migrate
-    ToStderr("No secondary instances on node(s) %s, exiting.",
+  if not instances:
+    # No instances to evacuate
+    ToStderr("No instances to evacuate on node(s) %s, exiting.",
              utils.CommaJoin(args))
     return constants.EXIT_SUCCESS
 
-  if not force and not AskUser("Relocate instance(s) %s from node(s) %s?" %
-                               (",".join("'%s'" % name[0] for name in result),
-                               utils.CommaJoin(args))):
+  if not (opts.force or
+          AskUser("Relocate instance(s) %s from node(s) %s?" %
+                  (utils.CommaJoin(utils.NiceSort(instances)),
+                   utils.CommaJoin(args)))):
     return constants.EXIT_CONFIRMATION
 
+  # Evacuate node
+  op = opcodes.OpNodeEvacuate(node_name=args[0], mode=mode,
+                              remote_node=opts.dst_node,
+                              iallocator=opts.iallocator,
+                              early_release=opts.early_release)
+  result = SubmitOpCode(op, cl=cl, opts=opts)
+
+  # Keep track of submitted jobs
   jex = JobExecutor(cl=cl, opts=opts)
-  for row in result:
-    iname = row[0]
-    node = row[1]
-    ToStdout("Will relocate instance %s to node %s", iname, node)
-    op = opcodes.OpInstanceReplaceDisks(instance_name=iname,
-                                        remote_node=node, disks=[],
-                                        mode=constants.REPLACE_DISK_CHG,
-                                        early_release=opts.early_release)
-    jex.QueueJob(iname, op)
+
+  for (status, job_id) in result[constants.JOB_IDS_KEY]:
+    jex.AddJobId(None, status, job_id)
+
   results = jex.GetResults()
   bad_cnt = len([row for row in results if not row[0]])
   if bad_cnt == 0:
-    ToStdout("All %d instance(s) failed over successfully.", len(results))
+    ToStdout("All instances evacuated successfully.")
     rcode = constants.EXIT_SUCCESS
   else:
-    ToStdout("There were errors during the failover:\n"
-             "%d error(s) out of %d instance(s).", bad_cnt, len(results))
+    ToStdout("There were %s errors during the evacuation.", bad_cnt)
     rcode = constants.EXIT_FAILURE
+
   return rcode
 
 
@@ -332,7 +367,8 @@ def FailoverNode(opts, args):
   jex = JobExecutor(cl=cl, opts=opts)
   for iname in pinst:
     op = opcodes.OpInstanceFailover(instance_name=iname,
-                                    ignore_consistency=opts.ignore_consistency)
+                                    ignore_consistency=opts.ignore_consistency,
+                                    iallocator=opts.iallocator)
     jex.QueueJob(iname, op)
   results = jex.GetResults()
   bad_cnt = len([row for row in results if not row[0]])
@@ -353,7 +389,7 @@ def MigrateNode(opts, args):
   selected_fields = ["name", "pinst_list"]
 
   result = cl.QueryNodes(names=args, fields=selected_fields, use_locking=False)
-  node, pinst = result[0]
+  ((node, pinst), ) = result
 
   if not pinst:
     ToStdout("No primary instances on node %s, exiting." % node)
@@ -361,9 +397,10 @@ def MigrateNode(opts, args):
 
   pinst = utils.NiceSort(pinst)
 
-  if not force and not AskUser("Migrate instance(s) %s?" %
-                               (",".join("'%s'" % name for name in pinst))):
-    return 2
+  if not (force or
+          AskUser("Migrate instance(s) %s?" %
+                  utils.CommaJoin(utils.NiceSort(pinst)))):
+    return constants.EXIT_CONFIRMATION
 
   # this should be removed once --non-live is deprecated
   if not opts.live and opts.migration_mode is not None:
@@ -374,8 +411,29 @@ def MigrateNode(opts, args):
     mode = constants.HT_MIGRATION_NONLIVE
   else:
     mode = opts.migration_mode
-  op = opcodes.OpNodeMigrate(node_name=args[0], mode=mode)
-  SubmitOpCode(op, cl=cl, opts=opts)
+
+  op = opcodes.OpNodeMigrate(node_name=args[0], mode=mode,
+                             iallocator=opts.iallocator,
+                             target_node=opts.dst_node)
+
+  result = SubmitOpCode(op, cl=cl, opts=opts)
+
+  # Keep track of submitted jobs
+  jex = JobExecutor(cl=cl, opts=opts)
+
+  for (status, job_id) in result[constants.JOB_IDS_KEY]:
+    jex.AddJobId(None, status, job_id)
+
+  results = jex.GetResults()
+  bad_cnt = len([row for row in results if not row[0]])
+  if bad_cnt == 0:
+    ToStdout("All instances migrated successfully.")
+    rcode = constants.EXIT_SUCCESS
+  else:
+    ToStdout("There were %s errors during the node migration.", bad_cnt)
+    rcode = constants.EXIT_FAILURE
+
+  return rcode
 
 
 def ShowNodeConfig(opts, args):
@@ -482,8 +540,12 @@ def PowerNode(opts, args):
   @return: the desired exit code
 
   """
-  command = args[0]
-  node = args[1]
+  command = args.pop(0)
+
+  if opts.no_headers:
+    headers = None
+  else:
+    headers = {"node": "Node", "status": "Status"}
 
   if command not in _LIST_POWER_COMMANDS:
     ToStderr("power subcommand %s not supported." % command)
@@ -491,13 +553,27 @@ def PowerNode(opts, args):
 
   oob_command = "power-%s" % command
 
-  opcodelist = []
-  if oob_command == constants.OOB_POWER_OFF:
-    opcodelist.append(opcodes.OpNodeSetParams(node_name=node, offline=True,
-                                              auto_promote=opts.auto_promote))
+  if oob_command in _OOB_COMMAND_ASK:
+    if not args:
+      ToStderr("Please provide at least one node for this command")
+      return constants.EXIT_FAILURE
+    elif not opts.force and not ConfirmOperation(args, "nodes",
+                                                 "power %s" % command):
+      return constants.EXIT_FAILURE
+    assert len(args) > 0
 
-  opcodelist.append(opcodes.OpOobCommand(node_names=[node],
-                                         command=oob_command))
+  opcodelist = []
+  if not opts.ignore_status and oob_command == constants.OOB_POWER_OFF:
+    # TODO: This is a little ugly as we can't catch and revert
+    for node in args:
+      opcodelist.append(opcodes.OpNodeSetParams(node_name=node, offline=True,
+                                                auto_promote=opts.auto_promote))
+
+  opcodelist.append(opcodes.OpOobCommand(node_names=args,
+                                         command=oob_command,
+                                         ignore_status=opts.ignore_status,
+                                         timeout=opts.oob_timeout,
+                                         power_delay=opts.power_delay))
 
   cli.SetGenericOpcodeOpts(opcodelist, opts)
 
@@ -507,25 +583,82 @@ def PowerNode(opts, args):
   # If it fails PollJob gives us the error message in it
   result = cli.PollJob(job_id)[-1]
 
-  if result:
-    (_, data_tuple) = result[0]
-    if data_tuple[0] != constants.RS_NORMAL:
-      if data_tuple[0] == constants.RS_UNAVAIL:
-        result = "OOB is not supported"
-      else:
-        result = "RPC failed, look out for warning in the output"
-      ToStderr(result)
-      return constants.EXIT_FAILURE
-    else:
+  errs = 0
+  data = []
+  for node_result in result:
+    (node_tuple, data_tuple) = node_result
+    (_, node_name) = node_tuple
+    (data_status, data_node) = data_tuple
+    if data_status == constants.RS_NORMAL:
       if oob_command == constants.OOB_POWER_STATUS:
-        text = "The machine is %spowered"
-        if data_tuple[1][constants.OOB_POWER_STATUS_POWERED]:
-          result = text % ""
+        if data_node[constants.OOB_POWER_STATUS_POWERED]:
+          text = "powered"
         else:
-          result = text % "not "
-        ToStdout(result)
+          text = "unpowered"
+        data.append([node_name, text])
+      else:
+        # We don't expect data here, so we just say, it was successfully invoked
+        data.append([node_name, "invoked"])
+    else:
+      errs += 1
+      data.append([node_name, cli.FormatResultError(data_status, True)])
 
-  return constants.EXIT_SUCCESS
+  data = GenerateTable(separator=opts.separator, headers=headers,
+                       fields=["node", "status"], data=data)
+
+  for line in data:
+    ToStdout(line)
+
+  if errs:
+    return constants.EXIT_FAILURE
+  else:
+    return constants.EXIT_SUCCESS
+
+
+def Health(opts, args):
+  """Show health of a node using OOB.
+
+  @param opts: the command line options selected by the user
+  @type args: list
+  @param args: should contain only one element, the name of
+      the node to be removed
+  @rtype: int
+  @return: the desired exit code
+
+  """
+  op = opcodes.OpOobCommand(node_names=args, command=constants.OOB_HEALTH,
+                            timeout=opts.oob_timeout)
+  result = SubmitOpCode(op, opts=opts)
+
+  if opts.no_headers:
+    headers = None
+  else:
+    headers = {"node": "Node", "status": "Status"}
+
+  errs = 0
+  data = []
+  for node_result in result:
+    (node_tuple, data_tuple) = node_result
+    (_, node_name) = node_tuple
+    (data_status, data_node) = data_tuple
+    if data_status == constants.RS_NORMAL:
+      data.append([node_name, "%s=%s" % tuple(data_node[0])])
+      for item, status in data_node[1:]:
+        data.append(["", "%s=%s" % (item, status)])
+    else:
+      errs += 1
+      data.append([node_name, cli.FormatResultError(data_status, True)])
+
+  data = GenerateTable(separator=opts.separator, headers=headers,
+                       fields=["node", "status"], data=data)
+
+  for line in data:
+    ToStdout(line)
+
+  if errs:
+    return constants.EXIT_FAILURE
+  else:
+    return constants.EXIT_SUCCESS
 
 
 def ListVolumes(opts, args):
@@ -718,7 +851,7 @@ def SetNodeParams(opts, args):
 
 
 commands = {
-  'add': (
+  "add": (
     AddNode, [ArgHost(min=1, max=1)],
     [SECONDARY_IP_OPT, READD_OPT, NOSSH_KEYCHECK_OPT, NODE_FORCE_JOIN_OPT,
      NONODE_SETUP_OPT, VERBOSE_OPT, NODEGROUP_OPT, PRIORITY_OPT,
@@ -727,30 +860,32 @@ commands = {
     " [--no-node-setup] [--verbose]"
     " <node_name>",
     "Add a node to the cluster"),
-  'evacuate': (
-    EvacuateNode, [ArgNode(min=1)],
+  "evacuate": (
+    EvacuateNode, ARGS_ONE_NODE,
     [FORCE_OPT, IALLOCATOR_OPT, NEW_SECONDARY_OPT, EARLY_RELEASE_OPT,
-     PRIORITY_OPT],
+     PRIORITY_OPT, PRIMARY_ONLY_OPT, SECONDARY_ONLY_OPT],
     "[-f] {-I <iallocator> | -n <dst>} <node>",
-    "Relocate the secondary instances from a node"
-    " to other nodes (only for instances with drbd disk template)"),
-  'failover': (
-    FailoverNode, ARGS_ONE_NODE, [FORCE_OPT, IGNORE_CONSIST_OPT, PRIORITY_OPT],
+    "Relocate the primary and/or secondary instances from a node"),
+  "failover": (
+    FailoverNode, ARGS_ONE_NODE, [FORCE_OPT, IGNORE_CONSIST_OPT,
+                                  IALLOCATOR_OPT, PRIORITY_OPT],
     "[-f] <node>",
     "Stops the primary instances on a node and start them on their"
     " secondary node (only for instances with drbd disk template)"),
-  'migrate': (
+  "migrate": (
     MigrateNode, ARGS_ONE_NODE,
-    [FORCE_OPT, NONLIVE_OPT, MIGRATION_MODE_OPT, PRIORITY_OPT],
+    [FORCE_OPT, NONLIVE_OPT, MIGRATION_MODE_OPT, DST_NODE_OPT,
+     IALLOCATOR_OPT, PRIORITY_OPT],
     "[-f] <node>",
     "Migrate all the primary instance on a node away from it"
     " (only for instances of type drbd)"),
-  'info': (
+  "info": (
     ShowNodeConfig, ARGS_MANY_NODES, [],
     "[<node_name>...]", "Show information about the node(s)"),
-  'list': (
+  "list": (
     ListNodes, ARGS_MANY_NODES,
-    [NOHDR_OPT, SEP_OPT, USEUNITS_OPT, FIELDS_OPT, VERBOSE_OPT],
+    [NOHDR_OPT, SEP_OPT, USEUNITS_OPT, FIELDS_OPT, VERBOSE_OPT,
+     FORCE_FILTER_OPT],
     "[nodes...]",
     "Lists the nodes in the cluster. The available fields can be shown using"
     " the \"list-fields\" command (see the man page for details)."
@@ -761,46 +896,47 @@ commands = {
     [NOHDR_OPT, SEP_OPT],
     "[fields...]",
     "Lists all available fields for nodes"),
-  'modify': (
+  "modify": (
     SetNodeParams, ARGS_ONE_NODE,
     [FORCE_OPT, SUBMIT_OPT, MC_OPT, DRAINED_OPT, OFFLINE_OPT,
      CAPAB_MASTER_OPT, CAPAB_VM_OPT, SECONDARY_IP_OPT,
      AUTO_PROMOTE_OPT, DRY_RUN_OPT, PRIORITY_OPT, NODE_PARAMS_OPT,
      NODE_POWERED_OPT],
     "<node_name>", "Alters the parameters of a node"),
-  'powercycle': (
+  "powercycle": (
     PowercycleNode, ARGS_ONE_NODE,
     [FORCE_OPT, CONFIRM_OPT, DRY_RUN_OPT, PRIORITY_OPT],
     "<node_name>", "Tries to forcefully powercycle a node"),
-  'power': (
+  "power": (
     PowerNode,
     [ArgChoice(min=1, max=1, choices=_LIST_POWER_COMMANDS),
-     ArgNode(min=1, max=1)],
-    [SUBMIT_OPT, AUTO_PROMOTE_OPT, PRIORITY_OPT],
-    "on|off|cycle|status <node>",
+     ArgNode()],
+    [SUBMIT_OPT, AUTO_PROMOTE_OPT, PRIORITY_OPT, IGNORE_STATUS_OPT,
+     FORCE_OPT, NOHDR_OPT, SEP_OPT, OOB_TIMEOUT_OPT, POWER_DELAY_OPT],
+    "on|off|cycle|status [nodes...]",
     "Change power state of node by calling out-of-band helper."),
-  'remove': (
+  "remove": (
     RemoveNode, ARGS_ONE_NODE, [DRY_RUN_OPT, PRIORITY_OPT],
     "<node_name>", "Removes a node from the cluster"),
-  'volumes': (
+  "volumes": (
     ListVolumes, [ArgNode()],
     [NOHDR_OPT, SEP_OPT, USEUNITS_OPT, FIELDS_OPT, PRIORITY_OPT],
     "[<node_name>...]", "List logical volumes on node(s)"),
-  'list-storage': (
+  "list-storage": (
     ListStorage, ARGS_MANY_NODES,
     [NOHDR_OPT, SEP_OPT, USEUNITS_OPT, FIELDS_OPT, _STORAGE_TYPE_OPT,
      PRIORITY_OPT],
     "[<node_name>...]", "List physical volumes on node(s). The available"
     " fields are (see the man page for details): %s." %
     (utils.CommaJoin(_LIST_STOR_HEADERS))),
-  'modify-storage': (
+  "modify-storage": (
     ModifyStorage,
     [ArgNode(min=1, max=1),
      ArgChoice(min=1, max=1, choices=_MODIFIABLE_STORAGE_TYPES),
      ArgFile(min=1, max=1)],
     [ALLOCATABLE_OPT, DRY_RUN_OPT, PRIORITY_OPT],
     "<node_name> <storage_type> <name>", "Modify storage volume on a node"),
-  'repair-storage': (
+  "repair-storage": (
     RepairStorage,
     [ArgNode(min=1, max=1),
      ArgChoice(min=1, max=1, choices=_REPAIRABLE_STORAGE_TYPES),
@@ -808,16 +944,20 @@ commands = {
     [IGNORE_CONSIST_OPT, DRY_RUN_OPT, PRIORITY_OPT],
     "<node_name> <storage_type> <name>",
     "Repairs a storage volume on a node"),
-  'list-tags': (
+  "list-tags": (
     ListTags, ARGS_ONE_NODE, [],
     "<node_name>", "List the tags of the given node"),
-  'add-tags': (
+  "add-tags": (
     AddTags, [ArgNode(min=1, max=1), ArgUnknown()], [TAG_SRC_OPT, PRIORITY_OPT],
     "<node_name> tag...", "Add tags to the given node"),
-  'remove-tags': (
+  "remove-tags": (
     RemoveTags, [ArgNode(min=1, max=1), ArgUnknown()],
     [TAG_SRC_OPT, PRIORITY_OPT],
     "<node_name> tag...", "Remove tags from the given node"),
+  "health": (
+    Health, ARGS_MANY_NODES,
+    [NOHDR_OPT, SEP_OPT, SUBMIT_OPT, PRIORITY_OPT, OOB_TIMEOUT_OPT],
+    "[<node_name>...]", "List health of node(s) using out-of-band"),
   }
 
 

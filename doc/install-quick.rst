@@ -31,7 +31,8 @@ Before installing, please verify that you have the following programs:
 - `Python <http://www.python.org/>`_, version 2.4 or above, not 3.0
 - `Python OpenSSL bindings <http://pyopenssl.sourceforge.net/>`_
 - `simplejson Python module <http://code.google.com/p/simplejson/>`_
-- `pyparsing Python module <http://pyparsing.wikispaces.com/>`_
+- `pyparsing Python module <http://pyparsing.wikispaces.com/>`_, version
+  1.4.6 or above
 - `pyinotify Python module <http://trac.dbzteam.org/pyinotify/>`_
 - `PycURL Python module <http://pycurl.sourceforge.net/>`_
 - `ctypes Python module
@@ -52,6 +53,40 @@ packages, except for DRBD and Xen::
                     ndisc6 python python-pyopenssl openssl \
                     python-pyparsing python-simplejson \
                     python-pyinotify python-pycurl socat
+
+If you want to also enable the `htools` components, which is recommended
+on bigger deployments (they give you automatic instance placement,
+cluster balancing, etc.), then you need to have a Haskell compiler
+installed. More specifically:
+
+- `GHC <http://www.haskell.org/ghc/>`_ version 6.10 or higher
+- or even better, `The Haskell Platform
+  <http://hackage.haskell.org/platform/>`_ which gives you a simple way
+  to bootstrap Haskell
+- `json <http://hackage.haskell.org/package/json>`_, a JSON library
+- `network <http://hackage.haskell.org/package/network>`_, a basic
+  network library
+- `parallel <http://hackage.haskell.org/package/parallel>`_, a parallel
+  programming library (note: tested with up to version 3.x)
+- `curl <http://hackage.haskell.org/package/curl>`_, bindings for the
+  curl library, only needed if you want these tools to connect to remote
+  clusters (as opposed to the local one)
+
+All of these are also available as package in Debian/Ubuntu::
+
+  $ apt-get install ghc6 libghc6-json-dev libghc6-network-dev \
+                    libghc6-parallel-dev libghc6-curl-dev
+
+Note that more recent version have switched to GHC 7.x and the packages
+were renamed::
+
+  $ apt-get install ghc libghc-json-dev libghc-network-dev \
+                    libghc-parallel-dev libghc-curl-dev
+
+The compilation of the htools components is automatically enabled when
+the compiler and the requisite libraries are found. You can use the
+``--enable-htools`` configure flag to force the selection (at which
+point ``./configure`` will fail if it doesn't find the prerequisites).
 
 If you want to build from source, please see doc/devnotes.rst for more
 dependencies.

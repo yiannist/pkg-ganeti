@@ -87,10 +87,14 @@ EVACUATE
 ~~~~~~~~
 
 **evacuate** [-f] [--early-release] [--iallocator *NAME* \|
---new-secondary *destination\_node*] {*node*...}
+--new-secondary *destination\_node*]
+[--primary-only \| --secondary-only] [--early-release] {*node*}
 
-This command will move all secondary instances away from the given
-node(s). It works only for instances having a drbd disk template.
+This command will move instances away from the given node. If
+``--primary-only`` is given, only primary instances are evacuated, with
+``--secondary-only`` only secondaries. If neither is given, all
+instances are evacuated. It works only for instances having a drbd disk
+template.
 
 The new location for the instances can be specified in two ways:
 
@@ -101,7 +105,6 @@ The new location for the instances can be specified in two ways:
   parameter, so each instance will be in turn placed on the (per the
   script) optimal node
 
-
 The ``--early-release`` changes the code so that the old storage on
 node being evacuated is removed early (before the resync is
 completed) and the internal Ganeti locks are also released for both
@@ -111,6 +114,19 @@ recovering from a disk failure on the current secondary (thus the
 old storage is already broken) or when the storage on the primary
 node is known to be fine (thus we won't need the old storage for
 potential recovery).
+
+Note that this command is equivalent to using per-instance commands for
+each affected instance individually:
+
+- ``--primary-only`` is equivalent to ``gnt-instance
+  failover/migration`` for non-DRBD instances, but for DRBD instances
+  it's different, and usually is a slow process (it will change the
+  primary to another node while keeping the secondary, this requiring
+  data copies, whereas failover/migrate will only toggle the
+  primary/secondary roles, a fast process)
+- ``--secondary-only`` is equivalent to ``gnt-instance replace-disks``
+  in the secondary node change mode (only valid for DRBD instances)
+- when neither of the above is done a combination of the two cases is run
 
 Example::
 
@@ -151,6 +167,7 @@ LIST
 | **list**
 | [--no-headers] [--separator=*SEPARATOR*]
 | [--units=*UNITS*] [-v] [{-o|--output} *[+]FIELD,...*]
+| [--filter]
 | [node...]
 
 Lists the nodes in the cluster.
@@ -176,144 +193,30 @@ special field states (see **ganeti(7)**).
 The ``-o (--output)`` option takes a comma-separated list of output
 fields. The available fields and their meaning are:
 
-
-name
-    the node name
-
-pinst_cnt
-    the number of instances having this node as primary
-
-pinst_list
-    the list of instances having this node as primary, comma separated
-
-sinst_cnt
-    the number of instances having this node as a secondary node
-
-sinst_list
-    the list of instances having this node as a secondary node, comma
-    separated
-
-pip
-    the primary ip of this node (used for cluster communication)
-
-sip
-    the secondary ip of this node (used for data replication in dual-ip
-    clusters, see gnt-cluster(8)
-
-dtotal
-    total disk space in the volume group used for instance disk
-    allocations
-
-dfree
-    available disk space in the volume group
-
-mtotal
-    total memory on the physical node
-
-mnode
-    the memory used by the node itself
-
-mfree
-    memory available for instance allocations
-
-bootid
-    the node bootid value; this is a linux specific feature that
-    assigns a new UUID to the node at each boot and can be use to
-    detect node reboots (by tracking changes in this value)
-
-tags
-    comma-separated list of the node's tags
-
-serial_no
-    the so called 'serial number' of the node; this is a numeric field
-    that is incremented each time the node is modified, and it can be
-    used to detect modifications
-
-ctime
-    the creation time of the node; note that this field contains spaces
-    and as such it's harder to parse
-
-    if this attribute is not present (e.g. when upgrading from older
-    versions), then "N/A" will be shown instead
-
-mtime
-    the last modification time of the node; note that this field
-    contains spaces and as such it's harder to parse
-
-    if this attribute is not present (e.g. when upgrading from older
-    versions), then "N/A" will be shown instead
-
-uuid
-    Show the UUID of the node (generated automatically by Ganeti)
-
-ctotal
-    the toal number of logical processors
-
-cnodes
-    the number of NUMA domains on the node, if the hypervisor can
-    export this information
-
-csockets
-    the number of physical CPU sockets, if the hypervisor can export
-    this information
-
-master_candidate
-    whether the node is a master candidate or not
-
-drained
-    whether the node is drained or not; the cluster still communicates
-    with drained nodes but excludes them from allocation operations
-
-offline
-    whether the node is offline or not; if offline, the cluster does
-    not communicate with offline nodes; useful for nodes that are not
-    reachable in order to avoid delays
-
-role
-    A condensed version of the node flags; this field will output a
-    one-character field, with the following possible values:
-
-    - *M* for the master node
-
-    - *C* for a master candidate
-
-    - *R* for a regular node
-
-    - *D* for a drained node
-
-    - *O* for an offline node
-
-master_capable
-    whether the node can become a master candidate
-
-vm_capable
-    whether the node can host instances
-
-group
-    the name of the node's group, if known (the query is done without
-    locking, so data consistency is not guaranteed)
-
-group.uuid
-    the UUID of the node's group
-
+@QUERY_FIELDS_NODE@
 
 If the value of the option starts with the character ``+``, the new
 fields will be added to the default list. This allows one to quickly
 see the default list plus a few other fields, instead of retyping
 the entire list of fields.
 
-Note that some of this fields are known from the configuration of
-the cluster (e.g. name, pinst, sinst, pip, sip and thus the master
-does not need to contact the node for this data (making the listing
-fast if only fields from this set are selected), whereas the other
-fields are "live" fields and we need to make a query to the cluster
-nodes.
+Note that some of these fields are known from the configuration of the
+cluster (e.g. ``name``, ``pinst``, ``sinst``, ``pip``, ``sip``) and thus
+the master does not need to contact the node for this data (making the
+listing fast if only fields from this set are selected), whereas the
+other fields are "live" fields and require a query to the cluster nodes.
 
-Depending on the virtualization type and implementation details,
-the mtotal, mnode and mfree may have slighly varying meanings. For
-example, some solutions share the node memory with the pool of
-memory used for instances (KVM), whereas others have separate
+Depending on the virtualization type and implementation details, the
+``mtotal``, ``mnode`` and ``mfree`` fields may have slighly varying
+meanings. For example, some solutions share the node memory with the
+pool of memory used for instances (KVM), whereas others have separate
 memory for the node and for the instances (Xen).
+
+If exactly one argument is given and it appears to be a query filter
+(see **ganeti(7)**), the query result is filtered accordingly. For
+ambiguous cases (e.g. a single field name as a filter) the ``--filter``
+(``-F``) option forces the argument to be treated as a filter (e.g.
+``gnt-node list -F master_candidate``).
 
 If no node names are given, then all nodes are queried. Otherwise,
 only the given nodes will be listed.
@@ -592,7 +495,7 @@ POWERCYCLE
 
 **powercycle** [``--yes``] [``--force``] {*node*}
 
-This commands (tries to) forcefully reboot a node. It is a command
+This command (tries to) forcefully reboot a node. It is a command
 that can be used if the node environemnt is broken, such that the
 admin can no longer login over ssh, but the Ganeti node daemon is
 still working.
@@ -609,12 +512,49 @@ node.
 POWER
 ~~~~~
 
-**power** on|off|cycle|status {*node*}
+**power** [``--force``] [``--ignore-status``] [``--all``]
+[``--power-delay``] on|off|cycle|status [*nodes*]
 
-This commands calls out to out-of-band management to change the power
+This command calls out to out-of-band management to change the power
 state of given node. With ``status`` you get the power status as reported
 by the out-of-band managment script.
 
 Note that this command will only work if the out-of-band functionality
 is configured and enabled on the cluster. If this is not the case,
 please use the **powercycle** command above.
+
+Using ``--force`` you skip the confirmation to do the operation.
+Currently this only has effect on ``off`` and ``cycle``. On those two
+you can *not* operate on the master. However, the command will provide
+you with the command to invoke to operate on the master nerver-mind.
+This is considered harmful and Ganeti does not support the use of it.
+
+Providing ``--ignore-status`` will ignore the offline=N state of a node
+and continue with power off.
+
+``--power-delay`` specifies the time in seconds (factions allowed)
+waited between powering on the next node. This is by default 2 seconds
+but can increased if needed with this option.
+
+*nodes* are optional. If not provided it will call out for every node in
+the cluster. Except for the ``off`` and ``cycle`` command where you've
+to explicit use ``--all`` to select all.
+
+
+HEALTH
+~~~~~~
+
+**health** [*nodes*]
+
+This command calls out to out-of-band management to ask for the health status
+of all or given nodes. The health contains the node name and then the items
+element with their status in a ``item=status`` manner. Where ``item`` is script
+specific and ``status`` can be one of ``OK``, ``WARNING``, ``CRITICAL`` or
+``UNKNOWN``. Items with status ``WARNING`` or ``CRITICAL`` are logged and
+annotated in the command line output.
+
+.. vim: set textwidth=72 :
+.. Local Variables:
+.. mode: rst
+.. fill-column: 72
+.. End:

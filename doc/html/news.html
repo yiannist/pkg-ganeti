@@ -5,13 +5,13 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>News &mdash; Ganeti v2.4.5 documentation</title>
+    <title>News &mdash; Ganeti v2.5.0 documentation</title>
     <link rel="stylesheet" href="_static/default.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.4.5',
+        VERSION:     '2.5.0',
         COLLAPSE_MODINDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -19,7 +19,7 @@
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.4.5 documentation" href="index.html" />
+    <link rel="top" title="Ganeti v2.5.0 documentation" href="index.html" />
     <link rel="next" title="Glossary" href="glossary.html" />
     <link rel="prev" title="Developer notes" href="devnotes.html" /> 
   </head>
@@ -33,7 +33,7 @@
         <li class="right" >
           <a href="devnotes.html" title="Developer notes"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.4.5 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.5.0 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -44,6 +44,190 @@
             
   <div class="section" id="news">
 <h1>News<a class="headerlink" href="#news" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="version-2-5-0">
+<h2>Version 2.5.0<a class="headerlink" href="#version-2-5-0" title="Permalink to this headline">¶</a></h2>
+<p><em>(Released Thu, 12 Apr 2012)</em></p>
+<div class="section" id="incompatible-important-changes-and-bugfixes">
+<h3>Incompatible/important changes and bugfixes<a class="headerlink" href="#incompatible-important-changes-and-bugfixes" title="Permalink to this headline">¶</a></h3>
+<ul class="simple">
+<li>The default of the <tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/rename</span></tt> RAPI
+resource&#8217;s <tt class="docutils literal"><span class="pre">ip_check</span></tt> parameter changed from <tt class="xref docutils literal"><span class="pre">True</span></tt> to <tt class="xref docutils literal"><span class="pre">False</span></tt>
+to match the underlying LUXI interface.</li>
+<li>The <tt class="docutils literal"><span class="pre">/2/nodes/[node_name]/evacuate</span></tt> RAPI resource was changed to use
+body parameters, see <a class="reference external" href="rapi.html"><em>RAPI documentation</em></a>. The server does
+not maintain backwards-compatibility as the underlying operation
+changed in an incompatible way. The RAPI client can talk to old
+servers, but it needs to be told so as the return value changed.</li>
+<li>When creating file-based instances via RAPI, the <tt class="docutils literal"><span class="pre">file_driver</span></tt>
+parameter no longer defaults to <tt class="docutils literal"><span class="pre">loop</span></tt> and must be specified.</li>
+<li>The deprecated <tt class="docutils literal"><span class="pre">bridge</span></tt> NIC parameter is no longer supported. Use
+<tt class="docutils literal"><span class="pre">link</span></tt> instead.</li>
+<li>Support for the undocumented and deprecated RAPI instance creation
+request format version 0 has been dropped. Use version 1, supported
+since Ganeti 2.1.3 and <a class="reference external" href="rapi.html"><em>documented</em></a>, instead.</li>
+<li>Pyparsing 1.4.6 or above is required, see <a class="reference external" href="install.html"><em>installation
+documentation</em></a>.</li>
+<li>The &#8220;cluster-verify&#8221; hooks are now executed per group by the
+<tt class="docutils literal"><span class="pre">OP_CLUSTER_VERIFY_GROUP</span></tt> opcode. This maintains the same behavior
+if you just run <tt class="docutils literal"><span class="pre">gnt-cluster</span> <span class="pre">verify</span></tt>, which generates one opcode per
+group.</li>
+<li>The environment as passed to the OS scripts is cleared, and thus no
+environment variables defined in the node daemon&#8217;s environment will be
+inherited by the scripts.</li>
+<li>The <a class="reference external" href="iallocator.html"><em>iallocator</em></a> mode <tt class="docutils literal"><span class="pre">multi-evacuate</span></tt> has been
+deprecated.</li>
+<li><a class="reference external" href="design-multi-reloc.html"><em>New iallocator modes</em></a> have been added to
+support operations involving multiple node groups.</li>
+<li>Offline nodes are ignored when failing over an instance.</li>
+<li>Support for KVM version 1.0, which changed the version reporting format
+from 3 to 2 digits.</li>
+<li>TCP/IP ports used by DRBD disks are returned to a pool upon instance
+removal.</li>
+<li><tt class="docutils literal"><span class="pre">Makefile</span></tt> is now compatible with Automake 1.11.2</li>
+<li>Includes all bugfixes made in the 2.4 series</li>
+</ul>
+</div>
+<div class="section" id="new-features">
+<h3>New features<a class="headerlink" href="#new-features" title="Permalink to this headline">¶</a></h3>
+<ul class="simple">
+<li>The ganeti-htools project has been merged into the ganeti-core source
+tree and will be built as part of Ganeti (see <a class="reference external" href="install-quick.html"><em>Ganeti quick installation guide</em></a>).</li>
+<li>Implemented support for <a class="reference external" href="design-shared-storage.html"><em>shared storage</em></a>.</li>
+<li>Add support for disks larger than 2 TB in <tt class="docutils literal"><span class="pre">lvmstrap</span></tt> by supporting
+GPT-style partition tables (requires <a class="reference external" href="http://www.gnu.org/s/parted/">parted</a>).</li>
+<li>Added support for floppy drive and 2nd CD-ROM drive in KVM hypervisor.</li>
+<li>Allowed adding tags on instance creation.</li>
+<li>Export instance tags to hooks (<tt class="docutils literal"><span class="pre">INSTANCE_TAGS</span></tt>, see <a class="reference external" href="hooks.html"><em>Ganeti customisation using hooks</em></a>)</li>
+<li>Allow instances to be started in a paused state, enabling the user to
+see the complete console output on boot using the console.</li>
+<li>Added new hypervisor flag to control default reboot behaviour
+(<tt class="docutils literal"><span class="pre">reboot_behavior</span></tt>).</li>
+<li>Added support for KVM keymaps (hypervisor parameter <tt class="docutils literal"><span class="pre">keymap</span></tt>).</li>
+<li>Improved out-of-band management support:<ul>
+<li>Added <tt class="docutils literal"><span class="pre">gnt-node</span> <span class="pre">health</span></tt> command reporting the health status of
+nodes.</li>
+<li>Added <tt class="docutils literal"><span class="pre">gnt-node</span> <span class="pre">power</span></tt> command to manage power status of nodes.</li>
+<li>Added command for emergency power-off (EPO), <tt class="docutils literal"><span class="pre">gnt-cluster</span> <span class="pre">epo</span></tt>.</li>
+</ul>
+</li>
+<li>Instance migration can fall back to failover if instance is not
+running.</li>
+<li>Filters can be used when listing nodes, instances, groups and locks;
+see <em>ganeti(7)</em> manpage.</li>
+<li>Added post-execution status as variables to <a class="reference external" href="hooks.html"><em>hooks</em></a>
+environment.</li>
+<li>Instance tags are exported/imported together with the instance.</li>
+<li>When given an explicit job ID, <tt class="docutils literal"><span class="pre">gnt-job</span> <span class="pre">info</span></tt> will work for archived
+jobs.</li>
+<li>Jobs can define dependencies on other jobs (not yet supported via
+RAPI or command line, but used by internal commands and usable via
+LUXI).<ul>
+<li>Lock monitor (<tt class="docutils literal"><span class="pre">gnt-debug</span> <span class="pre">locks</span></tt>) shows jobs waiting for
+dependencies.</li>
+</ul>
+</li>
+<li>Instance failover is now available as a RAPI resource
+(<tt class="docutils literal"><span class="pre">/2/instances/[instance_name]/failover</span></tt>).</li>
+<li><tt class="docutils literal"><span class="pre">gnt-instance</span> <span class="pre">info</span></tt> defaults to static information if primary node
+is offline.</li>
+<li>Opcodes have a new <tt class="docutils literal"><span class="pre">comment</span></tt> attribute.</li>
+<li>Added basic SPICE support to KVM hypervisor.</li>
+<li><tt class="docutils literal"><span class="pre">tools/ganeti-listrunner</span></tt> allows passing of arguments to executable.</li>
+</ul>
+</div>
+<div class="section" id="node-group-improvements">
+<h3>Node group improvements<a class="headerlink" href="#node-group-improvements" title="Permalink to this headline">¶</a></h3>
+<ul class="simple">
+<li><tt class="docutils literal"><span class="pre">gnt-cluster</span> <span class="pre">verify</span></tt> has been modified to check groups separately,
+thereby improving performance.</li>
+<li>Node group support has been added to <tt class="docutils literal"><span class="pre">gnt-cluster</span> <span class="pre">verify-disks</span></tt>,
+which now operates per node group.</li>
+<li>Watcher has been changed to work better with node groups.<ul>
+<li>One process and state file per node group.</li>
+<li>Slow watcher in one group doesn&#8217;t block other group&#8217;s watcher.</li>
+</ul>
+</li>
+<li>Added new command, <tt class="docutils literal"><span class="pre">gnt-group</span> <span class="pre">evacuate</span></tt>, to move all instances in a
+node group to other groups.</li>
+<li>Added <tt class="docutils literal"><span class="pre">gnt-instance</span> <span class="pre">change-group</span></tt> to move an instance to another
+node group.</li>
+<li><tt class="docutils literal"><span class="pre">gnt-cluster</span> <span class="pre">command</span></tt> and <tt class="docutils literal"><span class="pre">gnt-cluster</span> <span class="pre">copyfile</span></tt> now support
+per-group operations.</li>
+<li>Node groups can be tagged.</li>
+<li>Some operations switch from an exclusive to a shared lock as soon as
+possible.</li>
+<li>Instance&#8217;s primary and secondary nodes&#8217; groups are now available as
+query fields (<tt class="docutils literal"><span class="pre">pnode.group</span></tt>, <tt class="docutils literal"><span class="pre">pnode.group.uuid</span></tt>, <tt class="docutils literal"><span class="pre">snodes.group</span></tt>
+and <tt class="docutils literal"><span class="pre">snodes.group.uuid</span></tt>).</li>
+</ul>
+</div>
+<div class="section" id="misc">
+<h3>Misc<a class="headerlink" href="#misc" title="Permalink to this headline">¶</a></h3>
+<ul class="simple">
+<li>Numerous updates to documentation and manpages.<ul>
+<li><a class="reference external" href="rapi.html"><em>RAPI</em></a> documentation now has detailed parameter
+descriptions.</li>
+<li>Some opcode/job results are now also documented, see <a class="reference external" href="rapi.html"><em>RAPI</em></a>.</li>
+</ul>
+</li>
+<li>A lockset&#8217;s internal lock is now also visible in lock monitor.</li>
+<li>Log messages from job queue workers now contain information about the
+opcode they&#8217;re processing.</li>
+<li><tt class="docutils literal"><span class="pre">gnt-instance</span> <span class="pre">console</span></tt> no longer requires the instance lock.</li>
+<li>A short delay when waiting for job changes reduces the number of LUXI
+requests significantly.</li>
+<li>DRBD metadata volumes are overwritten with zeros during disk creation.</li>
+<li>Out-of-band commands no longer acquire the cluster lock in exclusive
+mode.</li>
+<li><tt class="docutils literal"><span class="pre">devel/upload</span></tt> now uses correct permissions for directories.</li>
+</ul>
+</div>
+</div>
+<div class="section" id="version-2-5-0-rc6">
+<h2>Version 2.5.0 rc6<a class="headerlink" href="#version-2-5-0-rc6" title="Permalink to this headline">¶</a></h2>
+<p><em>(Released Fri, 23 Mar 2012)</em></p>
+<p>This was the sixth release candidate of the 2.5 series.</p>
+</div>
+<div class="section" id="version-2-5-0-rc5">
+<h2>Version 2.5.0 rc5<a class="headerlink" href="#version-2-5-0-rc5" title="Permalink to this headline">¶</a></h2>
+<p><em>(Released Mon, 9 Jan 2012)</em></p>
+<p>This was the fifth release candidate of the 2.5 series.</p>
+</div>
+<div class="section" id="version-2-5-0-rc4">
+<h2>Version 2.5.0 rc4<a class="headerlink" href="#version-2-5-0-rc4" title="Permalink to this headline">¶</a></h2>
+<p><em>(Released Thu, 27 Oct 2011)</em></p>
+<p>This was the fourth release candidate of the 2.5 series.</p>
+</div>
+<div class="section" id="version-2-5-0-rc3">
+<h2>Version 2.5.0 rc3<a class="headerlink" href="#version-2-5-0-rc3" title="Permalink to this headline">¶</a></h2>
+<p><em>(Released Wed, 26 Oct 2011)</em></p>
+<p>This was the third release candidate of the 2.5 series.</p>
+</div>
+<div class="section" id="version-2-5-0-rc2">
+<h2>Version 2.5.0 rc2<a class="headerlink" href="#version-2-5-0-rc2" title="Permalink to this headline">¶</a></h2>
+<p><em>(Released Tue, 18 Oct 2011)</em></p>
+<p>This was the second release candidate of the 2.5 series.</p>
+</div>
+<div class="section" id="version-2-5-0-rc1">
+<h2>Version 2.5.0 rc1<a class="headerlink" href="#version-2-5-0-rc1" title="Permalink to this headline">¶</a></h2>
+<p><em>(Released Tue, 4 Oct 2011)</em></p>
+<p>This was the first release candidate of the 2.5 series.</p>
+</div>
+<div class="section" id="version-2-5-0-beta3">
+<h2>Version 2.5.0 beta3<a class="headerlink" href="#version-2-5-0-beta3" title="Permalink to this headline">¶</a></h2>
+<p><em>(Released Wed, 31 Aug 2011)</em></p>
+<p>This was the third beta release of the 2.5 series.</p>
+</div>
+<div class="section" id="version-2-5-0-beta2">
+<h2>Version 2.5.0 beta2<a class="headerlink" href="#version-2-5-0-beta2" title="Permalink to this headline">¶</a></h2>
+<p><em>(Released Mon, 22 Aug 2011)</em></p>
+<p>This was the second beta release of the 2.5 series.</p>
+</div>
+<div class="section" id="version-2-5-0-beta1">
+<h2>Version 2.5.0 beta1<a class="headerlink" href="#version-2-5-0-beta1" title="Permalink to this headline">¶</a></h2>
+<p><em>(Released Fri, 12 Aug 2011)</em></p>
+<p>This was the first beta release of the 2.5 series.</p>
+</div>
 <div class="section" id="version-2-4-5">
 <h2>Version 2.4.5<a class="headerlink" href="#version-2-4-5" title="Permalink to this headline">¶</a></h2>
 <p><em>(Released Thu, 27 Oct 2011)</em></p>
@@ -400,8 +584,8 @@ use of special settings on reinstallation (e.g. for preserving data)</li>
 </li>
 </ul>
 </div>
-<div class="section" id="misc">
-<h3>Misc<a class="headerlink" href="#misc" title="Permalink to this headline">¶</a></h3>
+<div class="section" id="id1">
+<h3>Misc<a class="headerlink" href="#id1" title="Permalink to this headline">¶</a></h3>
 <ul class="simple">
 <li>Added IPv6 support in import/export</li>
 <li>Pause DRBD synchronization while wiping disks on instance creation</li>
@@ -659,7 +843,7 @@ between separate clusters (see <a class="reference external" href="move-instance
 <li>Added per-request RPC timeout</li>
 <li>RAPI now requires a Content-Type header for requests with a body (e.g.
 <tt class="docutils literal"><span class="pre">PUT</span></tt> or <tt class="docutils literal"><span class="pre">POST</span></tt>) which must be set to <tt class="docutils literal"><span class="pre">application/json</span></tt> (see
-<span class="target" id="index-1"></span><a class="reference external" href="http://tools.ietf.org/html/rfc2616.html"><strong>RFC 2616</strong></a> (HTTP/1.1), section 7.2.1)</li>
+<span class="target" id="index-10"></span><a class="reference external" href="http://tools.ietf.org/html/rfc2616.html"><strong>RFC 2616</strong></a> (HTTP/1.1), section 7.2.1)</li>
 <li><tt class="docutils literal"><span class="pre">ganeti-watcher</span></tt> attempts to restart <tt class="docutils literal"><span class="pre">ganeti-rapi</span></tt> if RAPI is not
 reachable</li>
 <li>Implemented initial support for running Ganeti daemons as separate
@@ -838,8 +1022,8 @@ you need the en_US.UTF-8 locale enabled to build Ganeti from git.</li>
 <p><em>(Released Fri, 7 May 2010)</em></p>
 <p>Another release with a long development cycle, during which many
 different features were added.</p>
-<div class="section" id="id1">
-<h3>Significant features<a class="headerlink" href="#id1" title="Permalink to this headline">¶</a></h3>
+<div class="section" id="id2">
+<h3>Significant features<a class="headerlink" href="#id2" title="Permalink to this headline">¶</a></h3>
 <p>The KVM hypervisor now can run the individual instances as non-root, to
 reduce the impact of a VM being hijacked due to bugs in the
 hypervisor. It is possible to run all instances as a single (non-root)
@@ -879,8 +1063,8 @@ number of NICs.</p>
 <p>Cluster verify has added a few new checks: SSL certificates validity,
 /etc/hosts consistency across the cluster, etc.</p>
 </div>
-<div class="section" id="id2">
-<h3>Other changes<a class="headerlink" href="#id2" title="Permalink to this headline">¶</a></h3>
+<div class="section" id="id3">
+<h3>Other changes<a class="headerlink" href="#id3" title="Permalink to this headline">¶</a></h3>
 <p>As usual, many internal changes were done, documentation fixes,
 etc. Among others:</p>
 <ul class="simple">
@@ -986,8 +1170,8 @@ proper use of <tt class="docutils literal"><span class="pre">__slots__</span></t
 <li>Many documentation fixes based on feedback from users</li>
 </ul>
 </div>
-<div class="section" id="new-features">
-<h3>New features<a class="headerlink" href="#new-features" title="Permalink to this headline">¶</a></h3>
+<div class="section" id="id4">
+<h3>New features<a class="headerlink" href="#id4" title="Permalink to this headline">¶</a></h3>
 <ul class="simple">
 <li>Added an &#8220;early_release&#8221; more for instance replace disks and node
 evacuate, where we release locks earlier and thus allow higher
@@ -1617,6 +1801,22 @@ post-configuration update hook)</li>
             <h3><a href="index.html">Table Of Contents</a></h3>
             <ul>
 <li><a class="reference external" href="#">News</a><ul>
+<li><a class="reference external" href="#version-2-5-0">Version 2.5.0</a><ul>
+<li><a class="reference external" href="#incompatible-important-changes-and-bugfixes">Incompatible/important changes and bugfixes</a></li>
+<li><a class="reference external" href="#new-features">New features</a></li>
+<li><a class="reference external" href="#node-group-improvements">Node group improvements</a></li>
+<li><a class="reference external" href="#misc">Misc</a></li>
+</ul>
+</li>
+<li><a class="reference external" href="#version-2-5-0-rc6">Version 2.5.0 rc6</a></li>
+<li><a class="reference external" href="#version-2-5-0-rc5">Version 2.5.0 rc5</a></li>
+<li><a class="reference external" href="#version-2-5-0-rc4">Version 2.5.0 rc4</a></li>
+<li><a class="reference external" href="#version-2-5-0-rc3">Version 2.5.0 rc3</a></li>
+<li><a class="reference external" href="#version-2-5-0-rc2">Version 2.5.0 rc2</a></li>
+<li><a class="reference external" href="#version-2-5-0-rc1">Version 2.5.0 rc1</a></li>
+<li><a class="reference external" href="#version-2-5-0-beta3">Version 2.5.0 beta3</a></li>
+<li><a class="reference external" href="#version-2-5-0-beta2">Version 2.5.0 beta2</a></li>
+<li><a class="reference external" href="#version-2-5-0-beta1">Version 2.5.0 beta1</a></li>
 <li><a class="reference external" href="#version-2-4-5">Version 2.4.5</a></li>
 <li><a class="reference external" href="#version-2-4-4">Version 2.4.4</a></li>
 <li><a class="reference external" href="#version-2-4-3">Version 2.4.3</a></li>
@@ -1635,7 +1835,7 @@ post-configuration update hook)</li>
 <li><a class="reference external" href="#user-visible">User-visible</a></li>
 <li><a class="reference external" href="#integration">Integration</a></li>
 <li><a class="reference external" href="#remote-api">Remote API</a></li>
-<li><a class="reference external" href="#misc">Misc</a></li>
+<li><a class="reference external" href="#id1">Misc</a></li>
 </ul>
 </li>
 <li><a class="reference external" href="#version-2-3-1">Version 2.3.1</a></li>
@@ -1665,14 +1865,14 @@ post-configuration update hook)</li>
 </li>
 <li><a class="reference external" href="#version-2-1-2-1">Version 2.1.2.1</a></li>
 <li><a class="reference external" href="#version-2-1-2">Version 2.1.2</a><ul>
-<li><a class="reference external" href="#id1">Significant features</a></li>
-<li><a class="reference external" href="#id2">Other changes</a></li>
+<li><a class="reference external" href="#id2">Significant features</a></li>
+<li><a class="reference external" href="#id3">Other changes</a></li>
 </ul>
 </li>
 <li><a class="reference external" href="#version-2-1-1">Version 2.1.1</a><ul>
 <li><a class="reference external" href="#major-changes">Major changes</a></li>
 <li><a class="reference external" href="#bug-fixes">Bug fixes</a></li>
-<li><a class="reference external" href="#new-features">New features</a></li>
+<li><a class="reference external" href="#id4">New features</a></li>
 </ul>
 </li>
 <li><a class="reference external" href="#version-2-1-0">Version 2.1.0</a><ul>
@@ -1744,7 +1944,7 @@ post-configuration update hook)</li>
         <li class="right" >
           <a href="devnotes.html" title="Developer notes"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.4.5 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.5.0 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

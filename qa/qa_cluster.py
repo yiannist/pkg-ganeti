@@ -27,13 +27,18 @@ import tempfile
 import os.path
 
 from ganeti import constants
+from ganeti import compat
 from ganeti import utils
 
 import qa_config
 import qa_utils
 import qa_error
 
-from qa_utils import AssertEqual, AssertCommand
+from qa_utils import AssertEqual, AssertCommand, GetCommandOutput
+
+
+#: cluster verify command
+_CLUSTER_VERIFY = ["gnt-cluster", "verify"]
 
 
 def _RemoveFileFromAllNodes(filename):
@@ -75,24 +80,24 @@ def TestClusterInit(rapi_user, rapi_secret):
     fh.close()
 
   # Initialize cluster
-  cmd = ['gnt-cluster', 'init']
+  cmd = ["gnt-cluster", "init"]
 
   cmd.append("--primary-ip-version=%d" %
              qa_config.get("primary_ip_version", 4))
 
-  if master.get('secondary', None):
-    cmd.append('--secondary-ip=%s' % master['secondary'])
+  if master.get("secondary", None):
+    cmd.append("--secondary-ip=%s" % master["secondary"])
 
-  bridge = qa_config.get('bridge', None)
+  bridge = qa_config.get("bridge", None)
   if bridge:
-    cmd.append('--bridge=%s' % bridge)
-    cmd.append('--master-netdev=%s' % bridge)
+    cmd.append("--bridge=%s" % bridge)
+    cmd.append("--master-netdev=%s" % bridge)
 
-  htype = qa_config.get('enabled-hypervisors', None)
+  htype = qa_config.get("enabled-hypervisors", None)
   if htype:
-    cmd.append('--enabled-hypervisors=%s' % htype)
+    cmd.append("--enabled-hypervisors=%s" % htype)
 
-  cmd.append(qa_config.get('name'))
+  cmd.append(qa_config.get("name"))
 
   AssertCommand(cmd)
 
@@ -123,21 +128,19 @@ def TestClusterInit(rapi_user, rapi_secret):
 
 def TestClusterRename():
   """gnt-cluster rename"""
-  cmd = ['gnt-cluster', 'rename', '-f']
+  cmd = ["gnt-cluster", "rename", "-f"]
 
-  original_name = qa_config.get('name')
-  rename_target = qa_config.get('rename', None)
+  original_name = qa_config.get("name")
+  rename_target = qa_config.get("rename", None)
   if rename_target is None:
     print qa_utils.FormatError('"rename" entry is missing')
     return
 
-  cmd_verify = ['gnt-cluster', 'verify']
-
   for data in [
     cmd + [rename_target],
-    cmd_verify,
+    _CLUSTER_VERIFY,
     cmd + [original_name],
-    cmd_verify,
+    _CLUSTER_VERIFY,
     ]:
     AssertCommand(data)
 
@@ -146,12 +149,12 @@ def TestClusterOob():
   """out-of-band framework"""
   oob_path_exists = "/tmp/ganeti-qa-oob-does-exist-%s" % utils.NewUUID()
 
-  AssertCommand(["gnt-cluster", "verify"])
+  AssertCommand(_CLUSTER_VERIFY)
   AssertCommand(["gnt-cluster", "modify", "--node-parameters",
                  "oob_program=/tmp/ganeti-qa-oob-does-not-exist-%s" %
                  utils.NewUUID()])
 
-  AssertCommand(["gnt-cluster", "verify"], fail=True)
+  AssertCommand(_CLUSTER_VERIFY, fail=True)
 
   AssertCommand(["touch", oob_path_exists])
   AssertCommand(["chmod", "0400", oob_path_exists])
@@ -161,12 +164,12 @@ def TestClusterOob():
     AssertCommand(["gnt-cluster", "modify", "--node-parameters",
                    "oob_program=%s" % oob_path_exists])
 
-    AssertCommand(["gnt-cluster", "verify"], fail=True)
+    AssertCommand(_CLUSTER_VERIFY, fail=True)
 
     AssertCommand(["chmod", "0500", oob_path_exists])
     AssertCommand(["gnt-cluster", "copyfile", oob_path_exists])
 
-    AssertCommand(["gnt-cluster", "verify"])
+    AssertCommand(_CLUSTER_VERIFY)
   finally:
     AssertCommand(["gnt-cluster", "command", "rm", oob_path_exists])
 
@@ -174,9 +177,47 @@ def TestClusterOob():
                  "oob_program="])
 
 
+def TestClusterEpo():
+  """gnt-cluster epo"""
+  master = qa_config.GetMasterNode()
+
+  # Assert that OOB is unavailable for all nodes
+  result_output = GetCommandOutput(master["primary"],
+                                   "gnt-node list --verbose --no-header -o"
+                                   " powered")
+  AssertEqual(compat.all(powered == "(unavail)"
+                         for powered in result_output.splitlines()), True)
+
+  # Conflicting
+  AssertCommand(["gnt-cluster", "epo", "--groups", "--all"], fail=True)
+  # --all doesn't expect arguments
+  AssertCommand(["gnt-cluster", "epo", "--all", "some_arg"], fail=True)
+
+  # Unless --all is given master is not allowed to be in the list
+  AssertCommand(["gnt-cluster", "epo", "-f", master["primary"]], fail=True)
+
+  # This shouldn't fail
+  AssertCommand(["gnt-cluster", "epo", "-f", "--all"])
+
+  # All instances should have been stopped now
+  result_output = GetCommandOutput(master["primary"],
+                                   "gnt-instance list --no-header -o status")
+  AssertEqual(compat.all(status == "ADMIN_down"
+                         for status in result_output.splitlines()), True)
+
+  # Now start everything again
+  AssertCommand(["gnt-cluster", "epo", "--on", "-f", "--all"])
+
+  # All instances should have been started now
+  result_output = GetCommandOutput(master["primary"],
+                                   "gnt-instance list --no-header -o status")
+  AssertEqual(compat.all(status == "running"
+                         for status in result_output.splitlines()), True)
+
+
 def TestClusterVerify():
   """gnt-cluster verify"""
-  AssertCommand(["gnt-cluster", "verify"])
+  AssertCommand(_CLUSTER_VERIFY)
   AssertCommand(["gnt-cluster", "verify-disks"])
 
 
@@ -187,21 +228,20 @@ def TestJobqueue():
 
 def TestClusterReservedLvs():
   """gnt-cluster reserved lvs"""
-  CVERIFY = ["gnt-cluster", "verify"]
   for fail, cmd in [
-    (False, CVERIFY),
+    (False, _CLUSTER_VERIFY),
     (False, ["gnt-cluster", "modify", "--reserved-lvs", ""]),
     (False, ["lvcreate", "-L1G", "-nqa-test", "xenvg"]),
-    (True,  CVERIFY),
+    (True, _CLUSTER_VERIFY),
     (False, ["gnt-cluster", "modify", "--reserved-lvs",
              "xenvg/qa-test,.*/other-test"]),
-    (False, CVERIFY),
+    (False, _CLUSTER_VERIFY),
     (False, ["gnt-cluster", "modify", "--reserved-lvs", ".*/qa-.*"]),
-    (False, CVERIFY),
+    (False, _CLUSTER_VERIFY),
     (False, ["gnt-cluster", "modify", "--reserved-lvs", ""]),
-    (True,  CVERIFY),
+    (True, _CLUSTER_VERIFY),
     (False, ["lvremove", "-f", "xenvg/qa-test"]),
-    (False, CVERIFY),
+    (False, _CLUSTER_VERIFY),
     ]:
     AssertCommand(cmd, fail=fail)
 
@@ -212,19 +252,19 @@ def TestClusterModifyBe():
     # mem
     (False, ["gnt-cluster", "modify", "-B", "memory=256"]),
     (False, ["sh", "-c", "gnt-cluster info|grep '^ *memory: 256$'"]),
-    (True,  ["gnt-cluster", "modify", "-B", "memory=a"]),
+    (True, ["gnt-cluster", "modify", "-B", "memory=a"]),
     (False, ["gnt-cluster", "modify", "-B", "memory=128"]),
     (False, ["sh", "-c", "gnt-cluster info|grep '^ *memory: 128$'"]),
     # vcpus
     (False, ["gnt-cluster", "modify", "-B", "vcpus=4"]),
     (False, ["sh", "-c", "gnt-cluster info|grep '^ *vcpus: 4$'"]),
-    (True,  ["gnt-cluster", "modify", "-B", "vcpus=a"]),
+    (True, ["gnt-cluster", "modify", "-B", "vcpus=a"]),
     (False, ["gnt-cluster", "modify", "-B", "vcpus=1"]),
     (False, ["sh", "-c", "gnt-cluster info|grep '^ *vcpus: 1$'"]),
     # auto_balance
     (False, ["gnt-cluster", "modify", "-B", "auto_balance=False"]),
     (False, ["sh", "-c", "gnt-cluster info|grep '^ *auto_balance: False$'"]),
-    (True,  ["gnt-cluster", "modify", "-B", "auto_balance=1"]),
+    (True, ["gnt-cluster", "modify", "-B", "auto_balance=1"]),
     (False, ["gnt-cluster", "modify", "-B", "auto_balance=True"]),
     (False, ["sh", "-c", "gnt-cluster info|grep '^ *auto_balance: True$'"]),
     ]:
@@ -235,9 +275,15 @@ def TestClusterModifyBe():
   if bep:
     AssertCommand(["gnt-cluster", "modify", "-B", bep])
 
+
 def TestClusterInfo():
   """gnt-cluster info"""
   AssertCommand(["gnt-cluster", "info"])
+
+
+def TestClusterRedistConf():
+  """gnt-cluster redist-conf"""
+  AssertCommand(["gnt-cluster", "redist-conf"])
 
 
 def TestClusterGetmaster():
@@ -262,7 +308,7 @@ def TestClusterRenewCrypto():
     ["--new-cluster-domain-secret", "--cluster-domain-secret=/dev/null"],
     ]
   for i in conflicting:
-    AssertCommand(cmd+i, fail=True)
+    AssertCommand(cmd + i, fail=True)
 
   # Invalid RAPI certificate
   cmd = ["gnt-cluster", "renew-crypto", "--force",
@@ -316,19 +362,19 @@ def TestClusterBurnin():
   """Burnin"""
   master = qa_config.GetMasterNode()
 
-  options = qa_config.get('options', {})
-  disk_template = options.get('burnin-disk-template', 'drbd')
-  parallel = options.get('burnin-in-parallel', False)
-  check_inst = options.get('burnin-check-instances', False)
-  do_rename = options.get('burnin-rename', '')
-  do_reboot = options.get('burnin-reboot', True)
+  options = qa_config.get("options", {})
+  disk_template = options.get("burnin-disk-template", "drbd")
+  parallel = options.get("burnin-in-parallel", False)
+  check_inst = options.get("burnin-check-instances", False)
+  do_rename = options.get("burnin-rename", "")
+  do_reboot = options.get("burnin-reboot", True)
   reboot_types = options.get("reboot-types", constants.REBOOT_TYPES)
 
   # Get as many instances as we need
   instances = []
   try:
     try:
-      num = qa_config.get('options', {}).get('burnin-instances', 1)
+      num = qa_config.get("options", {}).get("burnin-instances", 1)
       for _ in range(0, num):
         instances.append(qa_config.AcquireInstance())
     except qa_error.OutOfInstancesError:
@@ -337,26 +383,26 @@ def TestClusterBurnin():
     if len(instances) < 1:
       raise qa_error.Error("Burnin needs at least one instance")
 
-    script = qa_utils.UploadFile(master['primary'], '../tools/burnin')
+    script = qa_utils.UploadFile(master["primary"], "../tools/burnin")
     try:
       # Run burnin
       cmd = [script,
-             '--os=%s' % qa_config.get('os'),
-             '--disk-size=%s' % ",".join(qa_config.get('disk')),
-             '--disk-growth=%s' % ",".join(qa_config.get('disk-growth')),
-             '--disk-template=%s' % disk_template]
+             "--os=%s" % qa_config.get("os"),
+             "--disk-size=%s" % ",".join(qa_config.get("disk")),
+             "--disk-growth=%s" % ",".join(qa_config.get("disk-growth")),
+             "--disk-template=%s" % disk_template]
       if parallel:
-        cmd.append('--parallel')
-        cmd.append('--early-release')
+        cmd.append("--parallel")
+        cmd.append("--early-release")
       if check_inst:
-        cmd.append('--http-check')
+        cmd.append("--http-check")
       if do_rename:
-        cmd.append('--rename=%s' % do_rename)
+        cmd.append("--rename=%s" % do_rename)
       if not do_reboot:
-        cmd.append('--no-reboot')
+        cmd.append("--no-reboot")
       else:
-        cmd.append('--reboot-types=%s' % ",".join(reboot_types))
-      cmd += [inst['name'] for inst in instances]
+        cmd.append("--reboot-types=%s" % ",".join(reboot_types))
+      cmd += [inst["name"] for inst in instances]
       AssertCommand(cmd)
     finally:
       AssertCommand(["rm", "-f", script])
@@ -374,9 +420,40 @@ def TestClusterMasterFailover():
   cmd = ["gnt-cluster", "master-failover"]
   try:
     AssertCommand(cmd, node=failovermaster)
+    # Back to original master node
     AssertCommand(cmd, node=master)
   finally:
     qa_config.ReleaseNode(failovermaster)
+
+
+def TestClusterMasterFailoverWithDrainedQueue():
+  """gnt-cluster master-failover with drained queue"""
+  drain_check = ["test", "-f", constants.JOB_QUEUE_DRAIN_FILE]
+
+  master = qa_config.GetMasterNode()
+  failovermaster = qa_config.AcquireNode(exclude=master)
+
+  # Ensure queue is not drained
+  for node in [master, failovermaster]:
+    AssertCommand(drain_check, node=node, fail=True)
+
+  # Drain queue on failover master
+  AssertCommand(["touch", constants.JOB_QUEUE_DRAIN_FILE], node=failovermaster)
+
+  cmd = ["gnt-cluster", "master-failover"]
+  try:
+    AssertCommand(drain_check, node=failovermaster)
+    AssertCommand(cmd, node=failovermaster)
+    AssertCommand(drain_check, fail=True)
+    AssertCommand(drain_check, node=failovermaster, fail=True)
+
+    # Back to original master node
+    AssertCommand(cmd, node=master)
+  finally:
+    qa_config.ReleaseNode(failovermaster)
+
+  AssertCommand(drain_check, fail=True)
+  AssertCommand(drain_check, node=failovermaster, fail=True)
 
 
 def TestClusterCopyfile():
@@ -392,7 +469,7 @@ def TestClusterCopyfile():
   f.seek(0)
 
   # Upload file to master node
-  testname = qa_utils.UploadFile(master['primary'], f.name)
+  testname = qa_utils.UploadFile(master["primary"], f.name)
   try:
     # Copy file to all nodes
     AssertCommand(["gnt-cluster", "copyfile", testname])
@@ -405,8 +482,8 @@ def TestClusterCommand():
   """gnt-cluster command"""
   uniqueid = utils.NewUUID()
   rfile = "/tmp/gnt%s" % utils.NewUUID()
-  rcmd = utils.ShellQuoteArgs(['echo', '-n', uniqueid])
-  cmd = utils.ShellQuoteArgs(['gnt-cluster', 'command',
+  rcmd = utils.ShellQuoteArgs(["echo", "-n", uniqueid])
+  cmd = utils.ShellQuoteArgs(["gnt-cluster", "command",
                               "%s >%s" % (rcmd, rfile)])
 
   try:
@@ -419,3 +496,8 @@ def TestClusterCommand():
 def TestClusterDestroy():
   """gnt-cluster destroy"""
   AssertCommand(["gnt-cluster", "destroy", "--yes-do-it"])
+
+
+def TestClusterRepairDiskSizes():
+  """gnt-cluster repair-disk-sizes"""
+  AssertCommand(["gnt-cluster", "repair-disk-sizes"])

@@ -197,6 +197,84 @@ class TestTypeChecks(unittest.TestCase):
     self.assertFalse(fn({"x": None}))
     self.assertFalse(fn({"": 8234}))
 
+  def testStrictDictRequireAllExclusive(self):
+    fn = ht.TStrictDict(True, True, { "a": ht.TInt, })
+    self.assertFalse(fn(1))
+    self.assertFalse(fn(None))
+    self.assertFalse(fn({}))
+    self.assertFalse(fn({"a": "Hello", }))
+    self.assertFalse(fn({"unknown": 999,}))
+    self.assertFalse(fn({"unknown": None,}))
+
+    self.assertTrue(fn({"a": 123, }))
+    self.assertTrue(fn({"a": -5, }))
+
+    fn = ht.TStrictDict(True, True, { "a": ht.TInt, "x": ht.TString, })
+    self.assertFalse(fn({}))
+    self.assertFalse(fn({"a": -5, }))
+    self.assertTrue(fn({"a": 123, "x": "", }))
+    self.assertFalse(fn({"a": 123, "x": None, }))
+
+  def testStrictDictExclusive(self):
+    fn = ht.TStrictDict(False, True, { "a": ht.TInt, "b": ht.TList, })
+    self.assertTrue(fn({}))
+    self.assertTrue(fn({"a": 123, }))
+    self.assertTrue(fn({"b": range(4), }))
+    self.assertFalse(fn({"b": 123, }))
+
+    self.assertFalse(fn({"foo": {}, }))
+    self.assertFalse(fn({"bar": object(), }))
+
+  def testStrictDictRequireAll(self):
+    fn = ht.TStrictDict(True, False, { "a": ht.TInt, "m": ht.TInt, })
+    self.assertTrue(fn({"a": 1, "m": 2, "bar": object(), }))
+    self.assertFalse(fn({}))
+    self.assertFalse(fn({"a": 1, "bar": object(), }))
+    self.assertFalse(fn({"a": 1, "m": [], "bar": object(), }))
+
+  def testStrictDict(self):
+    fn = ht.TStrictDict(False, False, { "a": ht.TInt, })
+    self.assertTrue(fn({}))
+    self.assertFalse(fn({"a": ""}))
+    self.assertTrue(fn({"a": 11}))
+    self.assertTrue(fn({"other": 11}))
+    self.assertTrue(fn({"other": object()}))
+
+  def testJobId(self):
+    for i in [0, 1, 4395, 2347625220]:
+      self.assertTrue(ht.TJobId(i))
+      self.assertTrue(ht.TJobId(str(i)))
+      self.assertFalse(ht.TJobId(-(i + 1)))
+
+    for i in ["", "-", ".", ",", "a", "99j", "job-123", "\t", " 83 ",
+              None, [], {}, object()]:
+      self.assertFalse(ht.TJobId(i))
+
+  def testRelativeJobId(self):
+    for i in [-1, -93, -4395]:
+      self.assertTrue(ht.TRelativeJobId(i))
+      self.assertFalse(ht.TRelativeJobId(str(i)))
+
+    for i in [0, 1, 2, 10, 9289, "", "0", "-1", "-999"]:
+      self.assertFalse(ht.TRelativeJobId(i))
+      self.assertFalse(ht.TRelativeJobId(str(i)))
+
+  def testItems(self):
+    self.assertRaises(AssertionError, ht.TItems, [])
+
+    fn = ht.TItems([ht.TString])
+    self.assertFalse(fn([0]))
+    self.assertFalse(fn([None]))
+    self.assertTrue(fn(["Hello"]))
+    self.assertTrue(fn(["Hello", "World"]))
+    self.assertTrue(fn(["Hello", 0, 1, 2, "anything"]))
+
+    fn = ht.TItems([ht.TAny, ht.TInt, ht.TAny])
+    self.assertTrue(fn(["Hello", 0, []]))
+    self.assertTrue(fn(["Hello", 893782]))
+    self.assertTrue(fn([{}, -938210858947, None]))
+    self.assertFalse(fn(["Hello", []]))
+
 
 if __name__ == "__main__":
   testutils.GanetiTestProgram()

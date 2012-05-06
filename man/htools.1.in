@@ -1,0 +1,254 @@
+.TH HTOOLS 1 "" "Ganeti" "Version @GANETI_VERSION@"
+.SH NAME
+.PP
+htools - Cluster allocation and placement tools for Ganeti
+.SH SYNOPSIS
+.TP
+.B \f[B]hbal\f[]
+cluster balancer
+.RS
+.RE
+.TP
+.B \f[B]hspace\f[]
+cluster capacity computation
+.RS
+.RE
+.TP
+.B \f[B]hail\f[]
+IAllocator plugin
+.RS
+.RE
+.TP
+.B \f[B]hscan\f[]
+saves cluster state for later reuse
+.RS
+.RE
+.SH DESCRIPTION
+.PP
+\f[B]htools\f[] is a suite of tools designed to help with
+allocation/movement of instances and balancing of Ganeti clusters.
+\f[B]htools\f[] is also the generic binary that must be symlinked
+or hardlinked under each tool\[aq]s name in order to perform the
+different functions. Alternatively, the environment variable HTOOLS
+can be used to set the desired role.
+.PP
+Installed as \f[B]hbal\f[], it computes and optionally executes a
+suite of instance moves in order to balance the cluster.
+.PP
+Installed as \f[B]hspace\f[], it computes how many additional
+instances can be fit on a cluster, while maintaining N+1 status. It
+can run on models of existing clusters or of simulated clusters.
+.PP
+Installed as \f[B]hail\f[], it acts as an IAllocator plugin, i.e.
+it is used by Ganeti to compute new instance allocations and
+instance moves.
+.PP
+Installed as \f[B]hscan\f[], it scans the local or remote cluster
+state and saves it to files which can later be reused by the other
+roles.
+.SH COMMON OPTIONS
+.PP
+Options behave the same in all program modes, but not all program
+modes support all options. Some common options are:
+.TP
+.B -p, --print-nodes
+Prints the node status, in a format designed to allow the user to
+understand the node\[aq]s most important parameters. If the command
+in question makes a cluster transition (e.g. balancing or
+allocation), then usually both the initial and final node status is
+printed.
+.RS
+.PP
+It is possible to customise the listed information by passing a
+comma-separated list of field names to this option (the field list
+is currently undocumented), or to extend the default field list by
+prefixing the additional field list with a plus sign. By default,
+the node list will contain the following information:
+.TP
+.B F
+a character denoting the status of the node, with \[aq]-\[aq]
+meaning an offline node, \[aq]*\[aq] meaning N+1 failure and blank
+meaning a good node
+.RS
+.RE
+.TP
+.B Name
+the node name
+.RS
+.RE
+.TP
+.B t_mem
+the total node memory
+.RS
+.RE
+.TP
+.B n_mem
+the memory used by the node itself
+.RS
+.RE
+.TP
+.B i_mem
+the memory used by instances
+.RS
+.RE
+.TP
+.B x_mem
+amount memory which seems to be in use but cannot be determined why
+or by which instance; usually this means that the hypervisor has
+some overhead or that there are other reporting errors
+.RS
+.RE
+.TP
+.B f_mem
+the free node memory
+.RS
+.RE
+.TP
+.B r_mem
+the reserved node memory, which is the amount of free memory needed
+for N+1 compliance
+.RS
+.RE
+.TP
+.B t_dsk
+total disk
+.RS
+.RE
+.TP
+.B f_dsk
+free disk
+.RS
+.RE
+.TP
+.B pcpu
+the number of physical cpus on the node
+.RS
+.RE
+.TP
+.B vcpu
+the number of virtual cpus allocated to primary instances
+.RS
+.RE
+.TP
+.B pcnt
+number of primary instances
+.RS
+.RE
+.TP
+.B scnt
+number of secondary instances
+.RS
+.RE
+.TP
+.B p_fmem
+percent of free memory
+.RS
+.RE
+.TP
+.B p_fdsk
+percent of free disk
+.RS
+.RE
+.TP
+.B r_cpu
+ratio of virtual to physical cpus
+.RS
+.RE
+.TP
+.B lCpu
+the dynamic CPU load (if the information is available)
+.RS
+.RE
+.TP
+.B lMem
+the dynamic memory load (if the information is available)
+.RS
+.RE
+.TP
+.B lDsk
+the dynamic disk load (if the information is available)
+.RS
+.RE
+.TP
+.B lNet
+the dynamic net load (if the information is available)
+.RS
+.RE
+.RE
+.TP
+.B -v, --verbose
+Increase the output verbosity. Each usage of this option will
+increase the verbosity (currently more than 2 doesn\[aq]t make
+sense) from the default of one.
+.RS
+.RE
+.TP
+.B -q, --quiet
+Decrease the output verbosity. Each usage of this option will
+decrease the verbosity (less than zero doesn\[aq]t make sense) from
+the default of one.
+.RS
+.RE
+.TP
+.B -V, --version
+Just show the program version and exit.
+.RS
+.RE
+.SS UNITS
+.PP
+Some options accept not simply numerical values, but numerical
+values together with a unit. By default, such unit-accepting
+options use mebibytes. Using the lower-case letters of \f[I]m\f[],
+\f[I]g\f[] and \f[I]t\f[] (or their longer equivalents of
+\f[I]mib\f[], \f[I]gib\f[], \f[I]tib\f[], for which case
+doesn\[aq]t matter) explicit binary units can be selected. Units in
+the SI system can be selected using the upper-case letters of
+\f[I]M\f[], \f[I]G\f[] and \f[I]T\f[] (or their longer equivalents
+of \f[I]MB\f[], \f[I]GB\f[], \f[I]TB\f[], for which case
+doesn\[aq]t matter).
+.PP
+More details about the difference between the SI and binary systems
+can be read in the \f[I]units(7)\f[] man page.
+.SH ENVIRONMENT
+.PP
+The environment variable \f[B]HTOOLS\f[] can be used instead of
+renaming/symlinking the programs; simply set it to the desired role
+and then the name of the program is no longer used.
+.SH REPORTING BUGS
+.PP
+Report bugs to project website (http://code.google.com/p/ganeti/)
+or contact the developers using the
+Ganeti mailing list (ganeti@googlegroups.com).
+.SH SEE ALSO
+.PP
+Ganeti overview and specifications: \f[B]ganeti\f[](7) (general
+overview), \f[B]ganeti-os-interface\f[](7) (guest OS definitions).
+.PP
+Ganeti commands: \f[B]gnt-cluster\f[](8) (cluster-wide commands),
+\f[B]gnt-job\f[](8) (job-related commands), \f[B]gnt-node\f[](8)
+(node-related commands), \f[B]gnt-instance\f[](8) (instance
+commands), \f[B]gnt-os\f[](8) (guest OS commands),
+\f[B]gnt-group\f[](8) (node group commands), \f[B]gnt-backup\f[](8)
+(instance import/export commands), \f[B]gnt-debug\f[](8) (debug
+commands).
+.PP
+Ganeti daemons: \f[B]ganeti-watcher\f[](8) (automatic instance
+restarter), \f[B]ganeti-cleaner\f[](8) (job queue cleaner),
+\f[B]ganeti-noded\f[](8) (node daemon), \f[B]ganeti-masterd\f[](8)
+(master daemon), \f[B]ganeti-rapi\f[](8) (remote API daemon).
+.PP
+Ganeti htools: \f[B]htools\f[](1) (generic binary),
+\f[B]hbal\f[](1) (cluster balancer), \f[B]hspace\f[](1) (capacity
+calculation), \f[B]hail\f[](1) (IAllocator plugin),
+\f[B]hscan\f[](1) (data gatherer from remote clusters).
+.SH COPYRIGHT
+.PP
+Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Google Inc.
+Permission is granted to copy, distribute and/or modify under the
+terms of the GNU General Public License as published by the Free
+Software Foundation; either version 2 of the License, or (at your
+option) any later version.
+.PP
+On Debian systems, the complete text of the GNU General Public
+License can be found in /usr/share/common-licenses/GPL.
+

@@ -30,6 +30,7 @@ from ganeti import opcodes
 from ganeti import ht
 from ganeti import constants
 from ganeti import errors
+from ganeti import compat
 
 import testutils
 
@@ -46,6 +47,9 @@ class TestOpcodes(unittest.TestCase):
       self.assert_(len(cls.OP_ID) > 3)
       self.assertEqual(cls.OP_ID, cls.OP_ID.upper())
       self.assertEqual(cls.OP_ID, opcodes._NameToId(cls.__name__))
+      self.assertFalse(compat.any(cls.OP_ID.startswith(prefix)
+                                  for prefix in opcodes._SUMMARY_PREFIX.keys()))
+      self.assertTrue(cls.OP_RESULT is None or callable(cls.OP_RESULT))
 
       self.assertRaises(TypeError, cls, unsupported_parameter="some value")
 
@@ -92,7 +96,7 @@ class TestOpcodes(unittest.TestCase):
     class OpTest(opcodes.OpCode):
       OP_DSC_FIELD = "data"
       OP_PARAMS = [
-        ("data", ht.NoDefault, ht.TString),
+        ("data", ht.NoDefault, ht.TString, None),
         ]
 
     self.assertEqual(OpTest(data="").Summary(), "TEST()")
@@ -101,11 +105,23 @@ class TestOpcodes(unittest.TestCase):
     self.assertEqual(OpTest(data="node1.example.com").Summary(),
                      "TEST(node1.example.com)")
 
+  def testTinySummary(self):
+    self.assertFalse(utils.FindDuplicates(opcodes._SUMMARY_PREFIX.values()))
+    self.assertTrue(compat.all(prefix.endswith("_") and supplement.endswith("_")
+                               for (prefix, supplement) in
+                                 opcodes._SUMMARY_PREFIX.items()))
+
+    self.assertEqual(opcodes.OpClusterPostInit().TinySummary(), "C_POST_INIT")
+    self.assertEqual(opcodes.OpNodeRemove().TinySummary(), "N_REMOVE")
+    self.assertEqual(opcodes.OpInstanceMigrate().TinySummary(), "I_MIGRATE")
+    self.assertEqual(opcodes.OpGroupQuery().TinySummary(), "G_QUERY")
+    self.assertEqual(opcodes.OpTestJqueue().TinySummary(), "TEST_JQUEUE")
+
   def testListSummary(self):
     class OpTest(opcodes.OpCode):
       OP_DSC_FIELD = "data"
       OP_PARAMS = [
-        ("data", ht.NoDefault, ht.TList),
+        ("data", ht.NoDefault, ht.TList, None),
         ]
 
     self.assertEqual(OpTest(data=["a", "b", "c"]).Summary(),
@@ -136,12 +152,13 @@ class TestOpcodes(unittest.TestCase):
       self.assert_(hasattr(cls, "OP_PARAMS"),
                    msg="%s doesn't have OP_PARAMS" % cls.OP_ID)
 
-      param_names = [name for (name, _, _) in cls.GetAllParams()]
+      param_names = [name for (name, _, _, _) in cls.GetAllParams()]
 
       self.assertEqual(all_slots, param_names)
 
       # Without inheritance
-      self.assertEqual(cls.__slots__, [name for (name, _, _) in cls.OP_PARAMS])
+      self.assertEqual(cls.__slots__,
+                       [name for (name, _, _, _) in cls.OP_PARAMS])
 
       # This won't work if parameters are converted to a dictionary
       duplicates = utils.FindDuplicates(param_names)
@@ -150,23 +167,29 @@ class TestOpcodes(unittest.TestCase):
                             (duplicates, cls.OP_ID)))
 
       # Check parameter definitions
-      for attr_name, aval, test in cls.GetAllParams():
+      for attr_name, aval, test, doc in cls.GetAllParams():
         self.assert_(attr_name)
         self.assert_(test is None or test is ht.NoType or callable(test),
                      msg=("Invalid type check for %s.%s" %
                           (cls.OP_ID, attr_name)))
+        self.assertTrue(doc is None or isinstance(doc, basestring))
 
         if callable(aval):
           self.assertFalse(callable(aval()),
                            msg="Default value returned by function is callable")
 
+      # If any parameter has documentation, all others need to have it as well
+      has_doc = [doc is not None for (_, _, _, doc) in cls.OP_PARAMS]
+      self.assertTrue(not compat.any(has_doc) or compat.all(has_doc),
+                      msg="%s does not document all parameters" % cls)
+
   def testValidateNoModification(self):
     class OpTest(opcodes.OpCode):
       OP_PARAMS = [
-        ("nodef", ht.NoDefault, ht.TMaybeString),
-        ("wdef", "default", ht.TMaybeString),
-        ("number", 0, ht.TInt),
-        ("notype", None, ht.NoType),
+        ("nodef", ht.NoDefault, ht.TMaybeString, None),
+        ("wdef", "default", ht.TMaybeString, None),
+        ("number", 0, ht.TInt, None),
+        ("notype", None, ht.NoType, None),
         ]
 
     # Missing required parameter "nodef"
@@ -224,10 +247,10 @@ class TestOpcodes(unittest.TestCase):
     class OpTest(opcodes.OpCode):
       OP_PARAMS = [
         # Static default value
-        ("value1", "default", ht.TMaybeString),
+        ("value1", "default", ht.TMaybeString, None),
 
         # Default value callback
-        ("value2", lambda: "result", ht.TMaybeString),
+        ("value2", lambda: "result", ht.TMaybeString, None),
         ]
 
     op = OpTest()
@@ -249,6 +272,70 @@ class TestOpcodes(unittest.TestCase):
     self.assertEqual(op.value1, "hello")
     self.assertEqual(op.value2, "world")
     self.assertEqual(op.debug_level, 123)
+
+
+class TestOpcodeDepends(unittest.TestCase):
+  def test(self):
+    check_relative = opcodes._BuildJobDepCheck(True)
+    check_norelative = opcodes.TNoRelativeJobDependencies
+
+    for fn in [check_relative, check_norelative]:
+      self.assertTrue(fn(None))
+      self.assertTrue(fn([]))
+      self.assertTrue(fn([(1, [])]))
+      self.assertTrue(fn([(719833, [])]))
+      self.assertTrue(fn([("24879", [])]))
+      self.assertTrue(fn([(2028, [constants.JOB_STATUS_ERROR])]))
+      self.assertTrue(fn([
+        (2028, [constants.JOB_STATUS_ERROR]),
+        (18750, []),
+        (5063, [constants.JOB_STATUS_SUCCESS, constants.JOB_STATUS_ERROR]),
+        ]))
+
+      self.assertFalse(fn(1))
+      self.assertFalse(fn([(9, )]))
+      self.assertFalse(fn([(15194, constants.JOB_STATUS_ERROR)]))
+
+    for i in [
+      [(-1, [])],
+      [(-27740, [constants.JOB_STATUS_CANCELED, constants.JOB_STATUS_ERROR]),
+       (-1, [constants.JOB_STATUS_ERROR]),
+       (9921, [])],
+      ]:
+      self.assertTrue(check_relative(i))
+      self.assertFalse(check_norelative(i))
+
+
+class TestResultChecks(unittest.TestCase):
+  def testJobIdList(self):
+    for i in [[], [(False, "error")], [(False, "")],
+              [(True, 123), (True, "999")]]:
+      self.assertTrue(opcodes.TJobIdList(i))
+
+    for i in ["", [("x", 1)], [[], []], [[False, "", None], [True, 123]]]:
+      self.assertFalse(opcodes.TJobIdList(i))
+
+  def testJobIdListOnly(self):
+    self.assertTrue(opcodes.TJobIdListOnly({
+      constants.JOB_IDS_KEY: [],
+      }))
+    self.assertTrue(opcodes.TJobIdListOnly({
+      constants.JOB_IDS_KEY: [(True, "9282")],
+      }))
+
+    self.assertFalse(opcodes.TJobIdListOnly({
+      "x": None,
+      }))
+    self.assertFalse(opcodes.TJobIdListOnly({
+      constants.JOB_IDS_KEY: [],
+      "x": None,
+      }))
+    self.assertFalse(opcodes.TJobIdListOnly({
+      constants.JOB_IDS_KEY: [("foo", "bar")],
+      }))
+    self.assertFalse(opcodes.TJobIdListOnly({
+      constants.JOB_IDS_KEY: [("one", "two", "three")],
+      }))
 
 
 if __name__ == "__main__":

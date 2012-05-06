@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -21,7 +21,7 @@
 
 """Module implementing the master-side code."""
 
-# pylint: disable-msg=W0201,C0302
+# pylint: disable=W0201,C0302
 
 # W0201 since most LU attributes are defined in CheckPrereq or similar
 # functions
@@ -58,24 +58,33 @@ from ganeti import netutils
 from ganeti import query
 from ganeti import qlang
 from ganeti import opcodes
+from ganeti import ht
 
-import ganeti.masterd.instance # pylint: disable-msg=W0611
+import ganeti.masterd.instance # pylint: disable=W0611
 
 
-def _SupportsOob(cfg, node):
-  """Tells if node supports OOB.
+class ResultWithJobs:
+  """Data container for LU results with jobs.
 
-  @type cfg: L{config.ConfigWriter}
-  @param cfg: The cluster configuration
-  @type node: L{objects.Node}
-  @param node: The node
-  @return: The OOB script if supported or an empty string otherwise
+  Instances of this class returned from L{LogicalUnit.Exec} will be recognized
+  by L{mcpu.Processor._ProcessResult}. The latter will then submit the jobs
+  contained in the C{jobs} attribute and include the job IDs in the opcode
+  result.
 
   """
-  return cfg.GetNdParams(node)[constants.ND_OOB_PROGRAM]
+  def __init__(self, jobs, **kwargs):
+    """Initializes this class.
+
+    Additional return values can be specified as keyword arguments.
+
+    @type jobs: list of lists of L{opcode.OpCode}
+    @param jobs: A list of lists of opcode objects
+
+    """
+    self.jobs = jobs
+    self.other = kwargs
 
 
-# End types
 class LogicalUnit(object):
   """Logical Unit base class.
 
@@ -84,6 +93,7 @@ class LogicalUnit(object):
     - implement CheckPrereq (except when tasklets are used)
     - implement Exec (except when tasklets are used)
     - implement BuildHooksEnv
+    - implement BuildHooksNodes
     - redefine HPATH and HTYPE
     - optionally redefine their run requirements:
         REQ_BGL: the LU needs to hold the Big Ganeti Lock exclusively
@@ -108,22 +118,23 @@ class LogicalUnit(object):
     self.proc = processor
     self.op = op
     self.cfg = context.cfg
+    self.glm = context.glm
+    # readability alias
+    self.owned_locks = context.glm.list_owned
     self.context = context
     self.rpc = rpc
     # Dicts used to declare locking needs to mcpu
     self.needed_locks = None
-    self.acquired_locks = {}
     self.share_locks = dict.fromkeys(locking.LEVELS, 0)
     self.add_locks = {}
     self.remove_locks = {}
     # Used to force good behavior when calling helper functions
     self.recalculate_locks = {}
-    self.__ssh = None
     # logging
-    self.Log = processor.Log # pylint: disable-msg=C0103
-    self.LogWarning = processor.LogWarning # pylint: disable-msg=C0103
-    self.LogInfo = processor.LogInfo # pylint: disable-msg=C0103
-    self.LogStep = processor.LogStep # pylint: disable-msg=C0103
+    self.Log = processor.Log # pylint: disable=C0103
+    self.LogWarning = processor.LogWarning # pylint: disable=C0103
+    self.LogInfo = processor.LogInfo # pylint: disable=C0103
+    self.LogStep = processor.LogStep # pylint: disable=C0103
     # support for dry-run
     self.dry_run_result = None
     # support for generic debug attribute
@@ -138,16 +149,6 @@ class LogicalUnit(object):
     self.op.Validate(True)
 
     self.CheckArguments()
-
-  def __GetSSH(self):
-    """Returns the SshRunner object
-
-    """
-    if not self.__ssh:
-      self.__ssh = ssh.SshRunner(self.cfg.GetClusterName())
-    return self.__ssh
-
-  ssh = property(fget=__GetSSH)
 
   def CheckArguments(self):
     """Check syntactic validity for the opcode arguments.
@@ -274,21 +275,28 @@ class LogicalUnit(object):
   def BuildHooksEnv(self):
     """Build hooks environment for this LU.
 
-    This method should return a three-node tuple consisting of: a dict
-    containing the environment that will be used for running the
-    specific hook for this LU, a list of node names on which the hook
-    should run before the execution, and a list of node names on which
-    the hook should run after the execution.
+    @rtype: dict
+    @return: Dictionary containing the environment that will be used for
+      running the hooks for this LU. The keys of the dict must not be prefixed
+      with "GANETI_"--that'll be added by the hooks runner. The hooks runner
+      will extend the environment with additional variables. If no environment
+      should be defined, an empty dictionary should be returned (not C{None}).
+    @note: If the C{HPATH} attribute of the LU class is C{None}, this function
+      will not be called.
 
-    The keys of the dict must not have 'GANETI_' prefixed as this will
-    be handled in the hooks runner. Also note additional keys will be
-    added by the hooks runner. If the LU doesn't define any
-    environment, an empty dict (and not None) should be returned.
+    """
+    raise NotImplementedError
 
-    No nodes should be returned as an empty list (and not None).
+  def BuildHooksNodes(self):
+    """Build list of nodes to run LU's hooks.
 
-    Note that if the HPATH for a LU class is None, this function will
-    not be called.
+    @rtype: tuple; (list, list)
+    @return: Tuple containing a list of node names on which the hook
+      should run before the execution and a list of node names on which the
+      hook should run after the execution. No nodes should be returned as an
+      empty list (and not None).
+    @note: If the C{HPATH} attribute of the LU class is C{None}, this function
+      will not be called.
 
     """
     raise NotImplementedError
@@ -314,7 +322,7 @@ class LogicalUnit(object):
     """
     # API must be kept, thus we ignore the unused argument and could
     # be a function warnings
-    # pylint: disable-msg=W0613,R0201
+    # pylint: disable=W0613,R0201
     return lu_result
 
   def _ExpandAndLockInstance(self):
@@ -368,8 +376,8 @@ class LogicalUnit(object):
     # future we might want to have different behaviors depending on the value
     # of self.recalculate_locks[locking.LEVEL_NODE]
     wanted_nodes = []
-    for instance_name in self.acquired_locks[locking.LEVEL_INSTANCE]:
-      instance = self.context.cfg.GetInstanceInfo(instance_name)
+    locked_i = self.owned_locks(locking.LEVEL_INSTANCE)
+    for _, instance in self.cfg.GetMultiInstanceInfo(locked_i):
       wanted_nodes.append(instance.primary_node)
       if not primary_only:
         wanted_nodes.extend(instance.secondary_nodes)
@@ -382,7 +390,7 @@ class LogicalUnit(object):
     del self.recalculate_locks[locking.LEVEL_NODE]
 
 
-class NoHooksLU(LogicalUnit): # pylint: disable-msg=W0223
+class NoHooksLU(LogicalUnit): # pylint: disable=W0223
   """Simple LU which runs no hooks.
 
   This LU is intended as a parent for other LogicalUnits which will
@@ -398,7 +406,13 @@ class NoHooksLU(LogicalUnit): # pylint: disable-msg=W0223
     This just raises an error.
 
     """
-    assert False, "BuildHooksEnv called for NoHooksLUs"
+    raise AssertionError("BuildHooksEnv called for NoHooksLUs")
+
+  def BuildHooksNodes(self):
+    """Empty BuildHooksNodes for NoHooksLU.
+
+    """
+    raise AssertionError("BuildHooksNodes called for NoHooksLU")
 
 
 class Tasklet:
@@ -454,15 +468,19 @@ class _QueryBase:
   #: Attribute holding field definitions
   FIELDS = None
 
-  def __init__(self, names, fields, use_locking):
+  def __init__(self, filter_, fields, use_locking):
     """Initializes this class.
 
     """
-    self.names = names
     self.use_locking = use_locking
 
-    self.query = query.Query(self.FIELDS, fields)
+    self.query = query.Query(self.FIELDS, fields, filter_=filter_,
+                             namefield="name")
     self.requested_data = self.query.RequestedData()
+    self.names = self.query.RequestedNames()
+
+    # Sort only if no names were requested
+    self.sort_by_name = not self.names
 
     self.do_locking = None
     self.wanted = None
@@ -472,7 +490,7 @@ class _QueryBase:
 
     """
     if self.do_locking:
-      names = lu.acquired_locks[lock_level]
+      names = lu.owned_locks(lock_level)
     else:
       names = all_names
 
@@ -483,7 +501,7 @@ class _QueryBase:
 
     # caller specified names and we must keep the same order
     assert self.names
-    assert not self.do_locking or lu.acquired_locks[lock_level]
+    assert not self.do_locking or lu.glm.is_owned(lock_level)
 
     missing = set(self.wanted).difference(names)
     if missing:
@@ -492,15 +510,6 @@ class _QueryBase:
 
     # Return expanded names
     return self.wanted
-
-  @classmethod
-  def FieldsQuery(cls, fields):
-    """Returns list of available fields.
-
-    @return: List of L{objects.QueryFieldDefinition}
-
-    """
-    return query.QueryFields(cls.FIELDS, fields)
 
   def ExpandNames(self, lu):
     """Expand names for this query.
@@ -530,13 +539,85 @@ class _QueryBase:
     """Collect data and execute query.
 
     """
-    return query.GetQueryResponse(self.query, self._GetQueryData(lu))
+    return query.GetQueryResponse(self.query, self._GetQueryData(lu),
+                                  sort_by_name=self.sort_by_name)
 
   def OldStyleQuery(self, lu):
     """Collect data and execute query.
 
     """
-    return self.query.OldStyleQuery(self._GetQueryData(lu))
+    return self.query.OldStyleQuery(self._GetQueryData(lu),
+                                    sort_by_name=self.sort_by_name)
+
+
+def _ShareAll():
+  """Returns a dict declaring all lock levels shared.
+
+  """
+  return dict.fromkeys(locking.LEVELS, 1)
+
+
+def _CheckInstanceNodeGroups(cfg, instance_name, owned_groups):
+  """Checks if the owned node groups are still correct for an instance.
+
+  @type cfg: L{config.ConfigWriter}
+  @param cfg: The cluster configuration
+  @type instance_name: string
+  @param instance_name: Instance name
+  @type owned_groups: set or frozenset
+  @param owned_groups: List of currently owned node groups
+
+  """
+  inst_groups = cfg.GetInstanceNodeGroups(instance_name)
+
+  if not owned_groups.issuperset(inst_groups):
+    raise errors.OpPrereqError("Instance %s's node groups changed since"
+                               " locks were acquired, current groups are"
+                               " are '%s', owning groups '%s'; retry the"
+                               " operation" %
+                               (instance_name,
+                                utils.CommaJoin(inst_groups),
+                                utils.CommaJoin(owned_groups)),
+                               errors.ECODE_STATE)
+
+  return inst_groups
+
+
+def _CheckNodeGroupInstances(cfg, group_uuid, owned_instances):
+  """Checks if the instances in a node group are still correct.
+
+  @type cfg: L{config.ConfigWriter}
+  @param cfg: The cluster configuration
+  @type group_uuid: string
+  @param group_uuid: Node group UUID
+  @type owned_instances: set or frozenset
+  @param owned_instances: List of currently owned instances
+
+  """
+  wanted_instances = cfg.GetNodeGroupInstances(group_uuid)
+  if owned_instances != wanted_instances:
+    raise errors.OpPrereqError("Instances in node group '%s' changed since"
+                               " locks were acquired, wanted '%s', have '%s';"
+                               " retry the operation" %
+                               (group_uuid,
+                                utils.CommaJoin(wanted_instances),
+                                utils.CommaJoin(owned_instances)),
+                               errors.ECODE_STATE)
+
+  return wanted_instances
+
+
+def _SupportsOob(cfg, node):
+  """Tells if node supports OOB.
+
+  @type cfg: L{config.ConfigWriter}
+  @param cfg: The cluster configuration
+  @type node: L{objects.Node}
+  @param node: The node
+  @return: The OOB script if supported or an empty string otherwise
+
+  """
+  return cfg.GetNdParams(node)[constants.ND_OOB_PROGRAM]
 
 
 def _GetWantedNodes(lu, nodes):
@@ -608,6 +689,76 @@ def _GetUpdatedParams(old_params, update_dict,
     else:
       params_copy[key] = val
   return params_copy
+
+
+def _ReleaseLocks(lu, level, names=None, keep=None):
+  """Releases locks owned by an LU.
+
+  @type lu: L{LogicalUnit}
+  @param level: Lock level
+  @type names: list or None
+  @param names: Names of locks to release
+  @type keep: list or None
+  @param keep: Names of locks to retain
+
+  """
+  assert not (keep is not None and names is not None), \
+         "Only one of the 'names' and the 'keep' parameters can be given"
+
+  if names is not None:
+    should_release = names.__contains__
+  elif keep:
+    should_release = lambda name: name not in keep
+  else:
+    should_release = None
+
+  if should_release:
+    retain = []
+    release = []
+
+    # Determine which locks to release
+    for name in lu.owned_locks(level):
+      if should_release(name):
+        release.append(name)
+      else:
+        retain.append(name)
+
+    assert len(lu.owned_locks(level)) == (len(retain) + len(release))
+
+    # Release just some locks
+    lu.glm.release(level, names=release)
+
+    assert frozenset(lu.owned_locks(level)) == frozenset(retain)
+  else:
+    # Release everything
+    lu.glm.release(level)
+
+    assert not lu.glm.is_owned(level), "No locks should be owned"
+
+
+def _MapInstanceDisksToNodes(instances):
+  """Creates a map from (node, volume) to instance name.
+
+  @type instances: list of L{objects.Instance}
+  @rtype: dict; tuple of (node name, volume name) as key, instance name as value
+
+  """
+  return dict(((node, vol), inst.name)
+              for inst in instances
+              for (node, vols) in inst.MapLVsByNode().items()
+              for vol in vols)
+
+
+def _RunPostHook(lu, node_name):
+  """Runs the post-hook for an opcode on a single node.
+
+  """
+  hm = lu.proc.hmclass(lu.rpc.call_hooks_runner, lu)
+  try:
+    hm.RunPhase(constants.HOOKS_PHASE_POST, nodes=[node_name])
+  except:
+    # pylint: disable=W0702
+    lu.LogWarning("Errors occurred running hooks on %s" % node_name)
 
 
 def _CheckOutputFields(static, dynamic, selected):
@@ -783,7 +934,7 @@ def _ExpandInstanceName(cfg, name):
 
 def _BuildInstanceHookEnv(name, primary_node, secondary_nodes, os_type, status,
                           memory, vcpus, nics, disk_template, disks,
-                          bep, hvp, hypervisor_name):
+                          bep, hvp, hypervisor_name, tags):
   """Builds instance related env variables for hooks
 
   This builds the hook environment from individual variables.
@@ -815,6 +966,8 @@ def _BuildInstanceHookEnv(name, primary_node, secondary_nodes, os_type, status,
   @param hvp: the hypervisor parameters for the instance
   @type hypervisor_name: string
   @param hypervisor_name: the hypervisor for the instance
+  @type tags: list
+  @param tags: list of instance tags as strings
   @rtype: dict
   @return: the hook environment for this instance
 
@@ -861,6 +1014,11 @@ def _BuildInstanceHookEnv(name, primary_node, secondary_nodes, os_type, status,
     disk_count = 0
 
   env["INSTANCE_DISK_COUNT"] = disk_count
+
+  if not tags:
+    tags = []
+
+  env["INSTANCE_TAGS"] = " ".join(tags)
 
   for source, kind in [(bep, "BE"), (hvp, "HV")]:
     for key, value in source.items():
@@ -912,23 +1070,24 @@ def _BuildInstanceHookEnvByObject(lu, instance, override=None):
   bep = cluster.FillBE(instance)
   hvp = cluster.FillHV(instance)
   args = {
-    'name': instance.name,
-    'primary_node': instance.primary_node,
-    'secondary_nodes': instance.secondary_nodes,
-    'os_type': instance.os,
-    'status': instance.admin_up,
-    'memory': bep[constants.BE_MEMORY],
-    'vcpus': bep[constants.BE_VCPUS],
-    'nics': _NICListToTuple(lu, instance.nics),
-    'disk_template': instance.disk_template,
-    'disks': [(disk.size, disk.mode) for disk in instance.disks],
-    'bep': bep,
-    'hvp': hvp,
-    'hypervisor_name': instance.hypervisor,
+    "name": instance.name,
+    "primary_node": instance.primary_node,
+    "secondary_nodes": instance.secondary_nodes,
+    "os_type": instance.os,
+    "status": instance.admin_up,
+    "memory": bep[constants.BE_MEMORY],
+    "vcpus": bep[constants.BE_VCPUS],
+    "nics": _NICListToTuple(lu, instance.nics),
+    "disk_template": instance.disk_template,
+    "disks": [(disk.size, disk.mode) for disk in instance.disks],
+    "bep": bep,
+    "hvp": hvp,
+    "hypervisor_name": instance.hypervisor,
+    "tags": instance.tags,
   }
   if override:
     args.update(override)
-  return _BuildInstanceHookEnv(**args) # pylint: disable-msg=W0142
+  return _BuildInstanceHookEnv(**args) # pylint: disable=W0142
 
 
 def _AdjustCandidatePool(lu, exceptions):
@@ -990,9 +1149,13 @@ def _CheckOSVariant(os_obj, name):
   @param name: OS name passed by the user, to check for validity
 
   """
-  if not os_obj.supported_variants:
-    return
   variant = objects.OS.GetVariant(name)
+  if not os_obj.supported_variants:
+    if variant:
+      raise errors.OpPrereqError("OS '%s' doesn't support variants ('%s'"
+                                 " passed)" % (os_obj.name, variant),
+                                 errors.ECODE_INVAL)
+    return
   if not variant:
     raise errors.OpPrereqError("OS name must include a variant",
                                errors.ECODE_INVAL)
@@ -1036,7 +1199,7 @@ def _GetStorageTypeArgs(cfg, storage_type):
   # Special case for file storage
   if storage_type == constants.ST_FILE:
     # storage.FileStorage wants a list of storage directories
-    return [[cfg.GetFileStorageDir()]]
+    return [[cfg.GetFileStorageDir(), cfg.GetSharedFileStorageDir()]]
 
   return []
 
@@ -1076,7 +1239,7 @@ def _CheckIAllocatorOrNode(lu, iallocator_slot, node_slot):
   iallocator = getattr(lu.op, iallocator_slot, None)
 
   if node is not None and iallocator is not None:
-    raise errors.OpPrereqError("Do not specify both, iallocator and node.",
+    raise errors.OpPrereqError("Do not specify both, iallocator and node",
                                errors.ECODE_INVAL)
   elif node is None and iallocator is None:
     default_iallocator = lu.cfg.GetDefaultIAllocator()
@@ -1084,10 +1247,33 @@ def _CheckIAllocatorOrNode(lu, iallocator_slot, node_slot):
       setattr(lu.op, iallocator_slot, default_iallocator)
     else:
       raise errors.OpPrereqError("No iallocator or node given and no"
-                                 " cluster-wide default iallocator found."
-                                 " Please specify either an iallocator or a"
+                                 " cluster-wide default iallocator found;"
+                                 " please specify either an iallocator or a"
                                  " node, or set a cluster-wide default"
-                                 " iallocator.")
+                                 " iallocator")
+
+
+def _GetDefaultIAllocator(cfg, iallocator):
+  """Decides on which iallocator to use.
+
+  @type cfg: L{config.ConfigWriter}
+  @param cfg: Cluster configuration object
+  @type iallocator: string or None
+  @param iallocator: Iallocator specified in opcode
+  @rtype: string
+  @return: Iallocator name
+
+  """
+  if not iallocator:
+    # Use default iallocator
+    iallocator = cfg.GetDefaultIAllocator()
+
+  if not iallocator:
+    raise errors.OpPrereqError("No iallocator was specified, neither in the"
+                               " opcode nor as a cluster-wide default",
+                               errors.ECODE_INVAL)
+
+  return iallocator
 
 
 class LUClusterPostInit(LogicalUnit):
@@ -1101,9 +1287,15 @@ class LUClusterPostInit(LogicalUnit):
     """Build hooks env.
 
     """
-    env = {"OP_TARGET": self.cfg.GetClusterName()}
-    mn = self.cfg.GetMasterNode()
-    return env, [], [mn]
+    return {
+      "OP_TARGET": self.cfg.GetClusterName(),
+      }
+
+  def BuildHooksNodes(self):
+    """Build hooks nodes.
+
+    """
+    return ([], [self.cfg.GetMasterNode()])
 
   def Exec(self, feedback_fn):
     """Nothing to do.
@@ -1123,8 +1315,15 @@ class LUClusterDestroy(LogicalUnit):
     """Build hooks env.
 
     """
-    env = {"OP_TARGET": self.cfg.GetClusterName()}
-    return env, [], []
+    return {
+      "OP_TARGET": self.cfg.GetClusterName(),
+      }
+
+  def BuildHooksNodes(self):
+    """Build hooks nodes.
+
+    """
+    return ([], [])
 
   def CheckPrereq(self):
     """Check prerequisites.
@@ -1154,12 +1353,7 @@ class LUClusterDestroy(LogicalUnit):
     master = self.cfg.GetMasterNode()
 
     # Run post hooks on master node before it's removed
-    hm = self.proc.hmclass(self.rpc.call_hooks_runner, self)
-    try:
-      hm.RunPhase(constants.HOOKS_PHASE_POST, [master])
-    except:
-      # pylint: disable-msg=W0702
-      self.LogWarning("Errors occurred running hooks on %s" % master)
+    _RunPostHook(self, master)
 
     result = self.rpc.call_node_stop_master(master, False)
     result.Raise("Could not disable the master role")
@@ -1168,7 +1362,7 @@ class LUClusterDestroy(LogicalUnit):
 
 
 def _VerifyCertificate(filename):
-  """Verifies a certificate for LUClusterVerify.
+  """Verifies a certificate for L{LUClusterVerifyConfig}.
 
   @type filename: string
   @param filename: Path to PEM file
@@ -1177,8 +1371,8 @@ def _VerifyCertificate(filename):
   try:
     cert = OpenSSL.crypto.load_certificate(OpenSSL.crypto.FILETYPE_PEM,
                                            utils.ReadFile(filename))
-  except Exception, err: # pylint: disable-msg=W0703
-    return (LUClusterVerify.ETYPE_ERROR,
+  except Exception, err: # pylint: disable=W0703
+    return (LUClusterVerifyConfig.ETYPE_ERROR,
             "Failed to load X509 certificate %s: %s" % (filename, err))
 
   (errcode, msg) = \
@@ -1193,27 +1387,61 @@ def _VerifyCertificate(filename):
   if errcode is None:
     return (None, fnamemsg)
   elif errcode == utils.CERT_WARNING:
-    return (LUClusterVerify.ETYPE_WARNING, fnamemsg)
+    return (LUClusterVerifyConfig.ETYPE_WARNING, fnamemsg)
   elif errcode == utils.CERT_ERROR:
-    return (LUClusterVerify.ETYPE_ERROR, fnamemsg)
+    return (LUClusterVerifyConfig.ETYPE_ERROR, fnamemsg)
 
   raise errors.ProgrammerError("Unhandled certificate error code %r" % errcode)
 
 
-class LUClusterVerify(LogicalUnit):
-  """Verifies the cluster status.
+def _GetAllHypervisorParameters(cluster, instances):
+  """Compute the set of all hypervisor parameters.
+
+  @type cluster: L{objects.Cluster}
+  @param cluster: the cluster object
+  @param instances: list of L{objects.Instance}
+  @param instances: additional instances from which to obtain parameters
+  @rtype: list of (origin, hypervisor, parameters)
+  @return: a list with all parameters found, indicating the hypervisor they
+       apply to, and the origin (can be "cluster", "os X", or "instance Y")
 
   """
-  HPATH = "cluster-verify"
-  HTYPE = constants.HTYPE_CLUSTER
-  REQ_BGL = False
+  hvp_data = []
 
+  for hv_name in cluster.enabled_hypervisors:
+    hvp_data.append(("cluster", hv_name, cluster.GetHVDefaults(hv_name)))
+
+  for os_name, os_hvp in cluster.os_hvp.items():
+    for hv_name, hv_params in os_hvp.items():
+      if hv_params:
+        full_params = cluster.GetHVDefaults(hv_name, os_name=os_name)
+        hvp_data.append(("os %s" % os_name, hv_name, full_params))
+
+  # TODO: collapse identical parameter values in a single one
+  for instance in instances:
+    if instance.hvparams:
+      hvp_data.append(("instance %s" % instance.name, instance.hypervisor,
+                       cluster.FillHV(instance)))
+
+  return hvp_data
+
+
+class _VerifyErrors(object):
+  """Mix-in for cluster/group verify LUs.
+
+  It provides _Error and _ErrorIf, and updates the self.bad boolean. (Expects
+  self.op and self._feedback_fn to be available.)
+
+  """
   TCLUSTER = "cluster"
   TNODE = "node"
   TINSTANCE = "instance"
 
   ECLUSTERCFG = (TCLUSTER, "ECLUSTERCFG")
   ECLUSTERCERT = (TCLUSTER, "ECLUSTERCERT")
+  ECLUSTERFILECHECK = (TCLUSTER, "ECLUSTERFILECHECK")
+  ECLUSTERDANGLINGNODES = (TNODE, "ECLUSTERDANGLINGNODES")
+  ECLUSTERDANGLINGINST = (TNODE, "ECLUSTERDANGLINGINST")
   EINSTANCEBADNODE = (TINSTANCE, "EINSTANCEBADNODE")
   EINSTANCEDOWN = (TINSTANCE, "EINSTANCEDOWN")
   EINSTANCELAYOUT = (TINSTANCE, "EINSTANCELAYOUT")
@@ -1243,6 +1471,186 @@ class LUClusterVerify(LogicalUnit):
   ETYPE_ERROR = "ERROR"
   ETYPE_WARNING = "WARNING"
 
+  def _Error(self, ecode, item, msg, *args, **kwargs):
+    """Format an error message.
+
+    Based on the opcode's error_codes parameter, either format a
+    parseable error code, or a simpler error string.
+
+    This must be called only from Exec and functions called from Exec.
+
+    """
+    ltype = kwargs.get(self.ETYPE_FIELD, self.ETYPE_ERROR)
+    itype, etxt = ecode
+    # first complete the msg
+    if args:
+      msg = msg % args
+    # then format the whole message
+    if self.op.error_codes: # This is a mix-in. pylint: disable=E1101
+      msg = "%s:%s:%s:%s:%s" % (ltype, etxt, itype, item, msg)
+    else:
+      if item:
+        item = " " + item
+      else:
+        item = ""
+      msg = "%s: %s%s: %s" % (ltype, itype, item, msg)
+    # and finally report it via the feedback_fn
+    self._feedback_fn("  - %s" % msg) # Mix-in. pylint: disable=E1101
+
+  def _ErrorIf(self, cond, *args, **kwargs):
+    """Log an error message if the passed condition is True.
+
+    """
+    cond = (bool(cond)
+            or self.op.debug_simulate_errors) # pylint: disable=E1101
+    if cond:
+      self._Error(*args, **kwargs)
+    # do not mark the operation as failed for WARN cases only
+    if kwargs.get(self.ETYPE_FIELD, self.ETYPE_ERROR) == self.ETYPE_ERROR:
+      self.bad = self.bad or cond
+
+
+class LUClusterVerify(NoHooksLU):
+  """Submits all jobs necessary to verify the cluster.
+
+  """
+  REQ_BGL = False
+
+  def ExpandNames(self):
+    self.needed_locks = {}
+
+  def Exec(self, feedback_fn):
+    jobs = []
+
+    if self.op.group_name:
+      groups = [self.op.group_name]
+      depends_fn = lambda: None
+    else:
+      groups = self.cfg.GetNodeGroupList()
+
+      # Verify global configuration
+      jobs.append([opcodes.OpClusterVerifyConfig()])
+
+      # Always depend on global verification
+      depends_fn = lambda: [(-len(jobs), [])]
+
+    jobs.extend([opcodes.OpClusterVerifyGroup(group_name=group,
+                                              depends=depends_fn())]
+                for group in groups)
+
+    # Fix up all parameters
+    for op in itertools.chain(*jobs): # pylint: disable=W0142
+      op.debug_simulate_errors = self.op.debug_simulate_errors
+      op.verbose = self.op.verbose
+      op.error_codes = self.op.error_codes
+      try:
+        op.skip_checks = self.op.skip_checks
+      except AttributeError:
+        assert not isinstance(op, opcodes.OpClusterVerifyGroup)
+
+    return ResultWithJobs(jobs)
+
+
+class LUClusterVerifyConfig(NoHooksLU, _VerifyErrors):
+  """Verifies the cluster config.
+
+  """
+  REQ_BGL = False
+
+  def _VerifyHVP(self, hvp_data):
+    """Verifies locally the syntax of the hypervisor parameters.
+
+    """
+    for item, hv_name, hv_params in hvp_data:
+      msg = ("hypervisor %s parameters syntax check (source %s): %%s" %
+             (item, hv_name))
+      try:
+        hv_class = hypervisor.GetHypervisor(hv_name)
+        utils.ForceDictType(hv_params, constants.HVS_PARAMETER_TYPES)
+        hv_class.CheckParameterSyntax(hv_params)
+      except errors.GenericError, err:
+        self._ErrorIf(True, self.ECLUSTERCFG, None, msg % str(err))
+
+  def ExpandNames(self):
+    self.needed_locks = dict.fromkeys(locking.LEVELS, locking.ALL_SET)
+    self.share_locks = _ShareAll()
+
+  def CheckPrereq(self):
+    """Check prerequisites.
+
+    """
+    # Retrieve all information
+    self.all_group_info = self.cfg.GetAllNodeGroupsInfo()
+    self.all_node_info = self.cfg.GetAllNodesInfo()
+    self.all_inst_info = self.cfg.GetAllInstancesInfo()
+
+  def Exec(self, feedback_fn):
+    """Verify integrity of cluster, performing various test on nodes.
+
+    """
+    self.bad = False
+    self._feedback_fn = feedback_fn
+
+    feedback_fn("* Verifying cluster config")
+
+    for msg in self.cfg.VerifyConfig():
+      self._ErrorIf(True, self.ECLUSTERCFG, None, msg)
+
+    feedback_fn("* Verifying cluster certificate files")
+
+    for cert_filename in constants.ALL_CERT_FILES:
+      (errcode, msg) = _VerifyCertificate(cert_filename)
+      self._ErrorIf(errcode, self.ECLUSTERCERT, None, msg, code=errcode)
+
+    feedback_fn("* Verifying hypervisor parameters")
+
+    self._VerifyHVP(_GetAllHypervisorParameters(self.cfg.GetClusterInfo(),
+                                                self.all_inst_info.values()))
+
+    feedback_fn("* Verifying all nodes belong to an existing group")
+
+    # We do this verification here because, should this bogus circumstance
+    # occur, it would never be caught by VerifyGroup, which only acts on
+    # nodes/instances reachable from existing node groups.
+
+    dangling_nodes = set(node.name for node in self.all_node_info.values()
+                         if node.group not in self.all_group_info)
+
+    dangling_instances = {}
+    no_node_instances = []
+
+    for inst in self.all_inst_info.values():
+      if inst.primary_node in dangling_nodes:
+        dangling_instances.setdefault(inst.primary_node, []).append(inst.name)
+      elif inst.primary_node not in self.all_node_info:
+        no_node_instances.append(inst.name)
+
+    pretty_dangling = [
+        "%s (%s)" %
+        (node.name,
+         utils.CommaJoin(dangling_instances.get(node.name,
+                                                ["no instances"])))
+        for node in dangling_nodes]
+
+    self._ErrorIf(bool(dangling_nodes), self.ECLUSTERDANGLINGNODES, None,
+                  "the following nodes (and their instances) belong to a non"
+                  " existing group: %s", utils.CommaJoin(pretty_dangling))
+
+    self._ErrorIf(bool(no_node_instances), self.ECLUSTERDANGLINGINST, None,
+                  "the following instances have a non-existing primary-node:"
+                  " %s", utils.CommaJoin(no_node_instances))
+
+    return not self.bad
+
+
+class LUClusterVerifyGroup(LogicalUnit, _VerifyErrors):
+  """Verifies the status of a node group.
+
+  """
+  HPATH = "cluster-verify"
+  HTYPE = constants.HTYPE_CLUSTER
+  REQ_BGL = False
+
   _HOOKS_INDENT_RE = re.compile("^", re.M)
 
   class NodeImage(object):
@@ -1255,8 +1663,8 @@ class LUClusterVerify(LogicalUnit):
     @ivar instances: a list of running instances (runtime)
     @ivar pinst: list of configured primary instances (config)
     @ivar sinst: list of configured secondary instances (config)
-    @ivar sbp: diction of {secondary-node: list of instances} of all peers
-        of this node (config)
+    @ivar sbp: dictionary of {primary-node: list of instances} for all
+        instances for which this node is secondary (config)
     @ivar mfree: free memory, as reported by hypervisor (runtime)
     @ivar dfree: free disk, as reported by the node (runtime)
     @ivar offline: the offline status (config)
@@ -1296,48 +1704,94 @@ class LUClusterVerify(LogicalUnit):
       self.oslist = {}
 
   def ExpandNames(self):
+    # This raises errors.OpPrereqError on its own:
+    self.group_uuid = self.cfg.LookupNodeGroup(self.op.group_name)
+
+    # Get instances in node group; this is unsafe and needs verification later
+    inst_names = \
+      self.cfg.GetNodeGroupInstances(self.group_uuid, primary_only=True)
+
     self.needed_locks = {
-      locking.LEVEL_NODE: locking.ALL_SET,
-      locking.LEVEL_INSTANCE: locking.ALL_SET,
-    }
-    self.share_locks = dict.fromkeys(locking.LEVELS, 1)
+      locking.LEVEL_INSTANCE: inst_names,
+      locking.LEVEL_NODEGROUP: [self.group_uuid],
+      locking.LEVEL_NODE: [],
+      }
 
-  def _Error(self, ecode, item, msg, *args, **kwargs):
-    """Format an error message.
+    self.share_locks = _ShareAll()
 
-    Based on the opcode's error_codes parameter, either format a
-    parseable error code, or a simpler error string.
+  def DeclareLocks(self, level):
+    if level == locking.LEVEL_NODE:
+      # Get members of node group; this is unsafe and needs verification later
+      nodes = set(self.cfg.GetNodeGroup(self.group_uuid).members)
 
-    This must be called only from Exec and functions called from Exec.
+      all_inst_info = self.cfg.GetAllInstancesInfo()
 
-    """
-    ltype = kwargs.get(self.ETYPE_FIELD, self.ETYPE_ERROR)
-    itype, etxt = ecode
-    # first complete the msg
-    if args:
-      msg = msg % args
-    # then format the whole message
-    if self.op.error_codes:
-      msg = "%s:%s:%s:%s:%s" % (ltype, etxt, itype, item, msg)
-    else:
-      if item:
-        item = " " + item
-      else:
-        item = ""
-      msg = "%s: %s%s: %s" % (ltype, itype, item, msg)
-    # and finally report it via the feedback_fn
-    self._feedback_fn("  - %s" % msg)
+      # In Exec(), we warn about mirrored instances that have primary and
+      # secondary living in separate node groups. To fully verify that
+      # volumes for these instances are healthy, we will need to do an
+      # extra call to their secondaries. We ensure here those nodes will
+      # be locked.
+      for inst in self.owned_locks(locking.LEVEL_INSTANCE):
+        # Important: access only the instances whose lock is owned
+        if all_inst_info[inst].disk_template in constants.DTS_INT_MIRROR:
+          nodes.update(all_inst_info[inst].secondary_nodes)
 
-  def _ErrorIf(self, cond, *args, **kwargs):
-    """Log an error message if the passed condition is True.
+      self.needed_locks[locking.LEVEL_NODE] = nodes
 
-    """
-    cond = bool(cond) or self.op.debug_simulate_errors
-    if cond:
-      self._Error(*args, **kwargs)
-    # do not mark the operation as failed for WARN cases only
-    if kwargs.get(self.ETYPE_FIELD, self.ETYPE_ERROR) == self.ETYPE_ERROR:
-      self.bad = self.bad or cond
+  def CheckPrereq(self):
+    assert self.group_uuid in self.owned_locks(locking.LEVEL_NODEGROUP)
+    self.group_info = self.cfg.GetNodeGroup(self.group_uuid)
+
+    group_nodes = set(self.group_info.members)
+    group_instances = \
+      self.cfg.GetNodeGroupInstances(self.group_uuid, primary_only=True)
+
+    unlocked_nodes = \
+        group_nodes.difference(self.owned_locks(locking.LEVEL_NODE))
+
+    unlocked_instances = \
+        group_instances.difference(self.owned_locks(locking.LEVEL_INSTANCE))
+
+    if unlocked_nodes:
+      raise errors.OpPrereqError("Missing lock for nodes: %s" %
+                                 utils.CommaJoin(unlocked_nodes),
+                                 errors.ECODE_STATE)
+
+    if unlocked_instances:
+      raise errors.OpPrereqError("Missing lock for instances: %s" %
+                                 utils.CommaJoin(unlocked_instances),
+                                 errors.ECODE_STATE)
+
+    self.all_node_info = self.cfg.GetAllNodesInfo()
+    self.all_inst_info = self.cfg.GetAllInstancesInfo()
+
+    self.my_node_names = utils.NiceSort(group_nodes)
+    self.my_inst_names = utils.NiceSort(group_instances)
+
+    self.my_node_info = dict((name, self.all_node_info[name])
+                             for name in self.my_node_names)
+
+    self.my_inst_info = dict((name, self.all_inst_info[name])
+                             for name in self.my_inst_names)
+
+    # We detect here the nodes that will need the extra RPC calls for verifying
+    # split LV volumes; they should be locked.
+    extra_lv_nodes = set()
+
+    for inst in self.my_inst_info.values():
+      if inst.disk_template in constants.DTS_INT_MIRROR:
+        for nname in inst.all_nodes:
+          if self.all_node_info[nname].group != self.group_uuid:
+            extra_lv_nodes.add(nname)
+
+    unlocked_lv_nodes = \
+        extra_lv_nodes.difference(self.owned_locks(locking.LEVEL_NODE))
+
+    if unlocked_lv_nodes:
+      raise errors.OpPrereqError("Missing node locks for LV check: %s" %
+                                 utils.CommaJoin(unlocked_lv_nodes),
+                                 errors.ECODE_STATE)
+    self.extra_lv_nodes = list(extra_lv_nodes)
 
   def _VerifyNode(self, ninfo, nresult):
     """Perform some basic validation on data returned from a node.
@@ -1355,7 +1809,7 @@ class LUClusterVerify(LogicalUnit):
 
     """
     node = ninfo.name
-    _ErrorIf = self._ErrorIf # pylint: disable-msg=C0103
+    _ErrorIf = self._ErrorIf # pylint: disable=C0103
 
     # main result, nresult should be a non-empty dict
     test = not nresult or not isinstance(nresult, dict)
@@ -1406,7 +1860,7 @@ class LUClusterVerify(LogicalUnit):
                  hv_name, item, hv_result)
 
     test = nresult.get(constants.NV_NODESETUP,
-                           ["Missing NODESETUP results"])
+                       ["Missing NODESETUP results"])
     _ErrorIf(test, self.ENODESETUP, node, "node setup error: %s",
              "; ".join(test))
 
@@ -1424,7 +1878,7 @@ class LUClusterVerify(LogicalUnit):
 
     """
     node = ninfo.name
-    _ErrorIf = self._ErrorIf # pylint: disable-msg=C0103
+    _ErrorIf = self._ErrorIf # pylint: disable=C0103
 
     ntime = nresult.get(constants.NV_TIME, None)
     try:
@@ -1457,7 +1911,7 @@ class LUClusterVerify(LogicalUnit):
       return
 
     node = ninfo.name
-    _ErrorIf = self._ErrorIf # pylint: disable-msg=C0103
+    _ErrorIf = self._ErrorIf # pylint: disable=C0103
 
     # checks vg existence and size > 20G
     vglist = nresult.get(constants.NV_VGLIST, None)
@@ -1494,7 +1948,7 @@ class LUClusterVerify(LogicalUnit):
       return
 
     node = ninfo.name
-    _ErrorIf = self._ErrorIf # pylint: disable-msg=C0103
+    _ErrorIf = self._ErrorIf # pylint: disable=C0103
 
     missing = nresult.get(constants.NV_BRIDGES, None)
     test = not isinstance(missing, list)
@@ -1513,7 +1967,7 @@ class LUClusterVerify(LogicalUnit):
 
     """
     node = ninfo.name
-    _ErrorIf = self._ErrorIf # pylint: disable-msg=C0103
+    _ErrorIf = self._ErrorIf # pylint: disable=C0103
 
     test = constants.NV_NODELIST not in nresult
     _ErrorIf(test, self.ENODESSH, node,
@@ -1554,7 +2008,7 @@ class LUClusterVerify(LogicalUnit):
     available on the instance's node.
 
     """
-    _ErrorIf = self._ErrorIf # pylint: disable-msg=C0103
+    _ErrorIf = self._ErrorIf # pylint: disable=C0103
     node_current = instanceconfig.primary_node
 
     node_vol_should = {}
@@ -1576,12 +2030,6 @@ class LUClusterVerify(LogicalUnit):
       _ErrorIf(test, self.EINSTANCEDOWN, instance,
                "instance not running on its primary node %s",
                node_current)
-
-    for node, n_img in node_image.items():
-      if node != node_current:
-        test = instance in n_img.instances
-        _ErrorIf(test, self.EINSTANCEWRONGNODE, instance,
-                 "instance should not run on node %s", node)
 
     diskdata = [(nname, success, status, idx)
                 for (nname, disks) in diskstatus.items()
@@ -1612,7 +2060,8 @@ class LUClusterVerify(LogicalUnit):
 
     """
     for node, n_img in node_image.items():
-      if n_img.offline or n_img.rpc_fail or n_img.lvm_fail:
+      if (n_img.offline or n_img.rpc_fail or n_img.lvm_fail or
+          self.all_node_info[node].group != self.group_uuid):
         # skip non-healthy nodes
         continue
       for volume in n_img.volumes:
@@ -1622,18 +2071,6 @@ class LUClusterVerify(LogicalUnit):
         self._ErrorIf(test, self.ENODEORPHANLV, node,
                       "volume %s is unknown", volume)
 
-  def _VerifyOrphanInstances(self, instancelist, node_image):
-    """Verify the list of running instances.
-
-    This checks what instances are running but unknown to the cluster.
-
-    """
-    for node, n_img in node_image.items():
-      for o_inst in n_img.instances:
-        test = o_inst not in instancelist
-        self._ErrorIf(test, self.ENODEORPHANINSTANCE, node,
-                      "instance %s on node %s should not exist", o_inst, node)
-
   def _VerifyNPlusOneMemory(self, node_image, instance_cfg):
     """Verify N+1 Memory Resilience.
 
@@ -1641,6 +2078,7 @@ class LUClusterVerify(LogicalUnit):
     instances it was primary for.
 
     """
+    cluster_info = self.cfg.GetClusterInfo()
     for node, n_img in node_image.items():
       # This code checks that every node which is now listed as
       # secondary has enough memory to host all instances it is
@@ -1650,16 +2088,16 @@ class LUClusterVerify(LogicalUnit):
       # WARNING: we currently take into account down instances as well
       # as up ones, considering that even if they're down someone
       # might want to start them even in the event of a node failure.
-      if n_img.offline:
-        # we're skipping offline nodes from the N+1 warning, since
-        # most likely we don't have good memory infromation from them;
-        # we already list instances living on such nodes, and that's
-        # enough warning
+      if n_img.offline or self.all_node_info[node].group != self.group_uuid:
+        # we're skipping nodes marked offline and nodes in other groups from
+        # the N+1 warning, since most likely we don't have good memory
+        # infromation from them; we already list instances living on such
+        # nodes, and that's enough warning
         continue
       for prinode, instances in n_img.sbp.items():
         needed_mem = 0
         for instance in instances:
-          bep = self.cfg.GetClusterInfo().FillBE(instance_cfg[instance])
+          bep = cluster_info.FillBE(instance_cfg[instance])
           if bep[constants.BE_AUTO_BALANCE]:
             needed_mem += bep[constants.BE_MEMORY]
         test = n_img.mfree < needed_mem
@@ -1668,49 +2106,116 @@ class LUClusterVerify(LogicalUnit):
                       " should node %s fail (%dMiB needed, %dMiB available)",
                       prinode, needed_mem, n_img.mfree)
 
-  def _VerifyNodeFiles(self, ninfo, nresult, file_list, local_cksum,
-                       master_files):
-    """Verifies and computes the node required file checksums.
+  @classmethod
+  def _VerifyFiles(cls, errorif, nodeinfo, master_node, all_nvinfo,
+                   (files_all, files_all_opt, files_mc, files_vm)):
+    """Verifies file checksums collected from all nodes.
 
-    @type ninfo: L{objects.Node}
-    @param ninfo: the node to check
-    @param nresult: the remote results for the node
-    @param file_list: required list of files
-    @param local_cksum: dictionary of local files and their checksums
-    @param master_files: list of files that only masters should have
+    @param errorif: Callback for reporting errors
+    @param nodeinfo: List of L{objects.Node} objects
+    @param master_node: Name of master node
+    @param all_nvinfo: RPC results
 
     """
-    node = ninfo.name
-    _ErrorIf = self._ErrorIf # pylint: disable-msg=C0103
+    assert (len(files_all | files_all_opt | files_mc | files_vm) ==
+            sum(map(len, [files_all, files_all_opt, files_mc, files_vm]))), \
+           "Found file listed in more than one file list"
 
-    remote_cksum = nresult.get(constants.NV_FILELIST, None)
-    test = not isinstance(remote_cksum, dict)
-    _ErrorIf(test, self.ENODEFILECHECK, node,
-             "node hasn't returned file checksum data")
-    if test:
-      return
+    # Define functions determining which nodes to consider for a file
+    files2nodefn = [
+      (files_all, None),
+      (files_all_opt, None),
+      (files_mc, lambda node: (node.master_candidate or
+                               node.name == master_node)),
+      (files_vm, lambda node: node.vm_capable),
+      ]
 
-    for file_name in file_list:
-      node_is_mc = ninfo.master_candidate
-      must_have = (file_name not in master_files) or node_is_mc
-      # missing
-      test1 = file_name not in remote_cksum
-      # invalid checksum
-      test2 = not test1 and remote_cksum[file_name] != local_cksum[file_name]
-      # existing and good
-      test3 = not test1 and remote_cksum[file_name] == local_cksum[file_name]
-      _ErrorIf(test1 and must_have, self.ENODEFILECHECK, node,
-               "file '%s' missing", file_name)
-      _ErrorIf(test2 and must_have, self.ENODEFILECHECK, node,
-               "file '%s' has wrong checksum", file_name)
-      # not candidate and this is not a must-have file
-      _ErrorIf(test2 and not must_have, self.ENODEFILECHECK, node,
-               "file '%s' should not exist on non master"
-               " candidates (and the file is outdated)", file_name)
-      # all good, except non-master/non-must have combination
-      _ErrorIf(test3 and not must_have, self.ENODEFILECHECK, node,
-               "file '%s' should not exist"
-               " on non master candidates", file_name)
+    # Build mapping from filename to list of nodes which should have the file
+    nodefiles = {}
+    for (files, fn) in files2nodefn:
+      if fn is None:
+        filenodes = nodeinfo
+      else:
+        filenodes = filter(fn, nodeinfo)
+      nodefiles.update((filename,
+                        frozenset(map(operator.attrgetter("name"), filenodes)))
+                       for filename in files)
+
+    assert set(nodefiles) == (files_all | files_all_opt | files_mc | files_vm)
+
+    fileinfo = dict((filename, {}) for filename in nodefiles)
+    ignore_nodes = set()
+
+    for node in nodeinfo:
+      if node.offline:
+        ignore_nodes.add(node.name)
+        continue
+
+      nresult = all_nvinfo[node.name]
+
+      if nresult.fail_msg or not nresult.payload:
+        node_files = None
+      else:
+        node_files = nresult.payload.get(constants.NV_FILELIST, None)
+
+      test = not (node_files and isinstance(node_files, dict))
+      errorif(test, cls.ENODEFILECHECK, node.name,
+              "Node did not return file checksum data")
+      if test:
+        ignore_nodes.add(node.name)
+        continue
+
+      # Build per-checksum mapping from filename to nodes having it
+      for (filename, checksum) in node_files.items():
+        assert filename in nodefiles
+        fileinfo[filename].setdefault(checksum, set()).add(node.name)
+
+    for (filename, checksums) in fileinfo.items():
+      assert compat.all(len(i) > 10 for i in checksums), "Invalid checksum"
+
+      # Nodes having the file
+      with_file = frozenset(node_name
+                            for nodes in fileinfo[filename].values()
+                            for node_name in nodes) - ignore_nodes
+
+      expected_nodes = nodefiles[filename] - ignore_nodes
+
+      # Nodes missing file
+      missing_file = expected_nodes - with_file
+
+      if filename in files_all_opt:
+        # All or no nodes
+        errorif(missing_file and missing_file != expected_nodes,
+                cls.ECLUSTERFILECHECK, None,
+                "File %s is optional, but it must exist on all or no"
+                " nodes (not found on %s)",
+                filename, utils.CommaJoin(utils.NiceSort(missing_file)))
+      else:
+        # Non-optional files
+        errorif(missing_file, cls.ECLUSTERFILECHECK, None,
+                "File %s is missing from node(s) %s", filename,
+                utils.CommaJoin(utils.NiceSort(missing_file)))
+
+        # Warn if a node has a file it shouldn't
+        unexpected = with_file - expected_nodes
+        errorif(unexpected,
+                cls.ECLUSTERFILECHECK, None,
+                "File %s should not exist on node(s) %s",
+                filename, utils.CommaJoin(utils.NiceSort(unexpected)))
+
+      # See if there are multiple versions of the file
+      test = len(checksums) > 1
+      if test:
+        variants = ["variant %s on %s" %
+                    (idx + 1, utils.CommaJoin(utils.NiceSort(nodes)))
+                    for (idx, (checksum, nodes)) in
+                      enumerate(sorted(checksums.items()))]
+      else:
+        variants = []
+
+      errorif(test, cls.ECLUSTERFILECHECK, None,
+              "File %s found with %s different checksums (%s)",
+              filename, len(checksums), "; ".join(variants))
 
   def _VerifyNodeDrbd(self, ninfo, nresult, instanceinfo, drbd_helper,
                       drbd_map):
@@ -1726,7 +2231,7 @@ class LUClusterVerify(LogicalUnit):
 
     """
     node = ninfo.name
-    _ErrorIf = self._ErrorIf # pylint: disable-msg=C0103
+    _ErrorIf = self._ErrorIf # pylint: disable=C0103
 
     if drbd_helper:
       helper_result = nresult.get(constants.NV_DRBDHELPER, None)
@@ -1785,7 +2290,7 @@ class LUClusterVerify(LogicalUnit):
 
     """
     node = ninfo.name
-    _ErrorIf = self._ErrorIf # pylint: disable-msg=C0103
+    _ErrorIf = self._ErrorIf # pylint: disable=C0103
 
     remote_os = nresult.get(constants.NV_OSLIST, None)
     test = (not isinstance(remote_os, list) or
@@ -1826,7 +2331,7 @@ class LUClusterVerify(LogicalUnit):
 
     """
     node = ninfo.name
-    _ErrorIf = self._ErrorIf # pylint: disable-msg=C0103
+    _ErrorIf = self._ErrorIf # pylint: disable=C0103
 
     assert not nimg.os_fail, "Entered _VerifyNodeOS with failed OS rpc?"
 
@@ -1839,11 +2344,6 @@ class LUClusterVerify(LogicalUnit):
       _ErrorIf(len(os_data) > 1, self.ENODEOS, node,
                "OS '%s' has multiple entries (first one shadows the rest): %s",
                os_name, utils.CommaJoin([v[0] for v in os_data]))
-      # this will catched in backend too
-      _ErrorIf(compat.any(v >= constants.OS_API_V15 for v in f_api)
-               and not f_var, self.ENODEOS, node,
-               "OS %s with API at least %d does not declare any variant",
-               os_name, constants.OS_API_V15)
       # comparisons with the 'base' image
       test = os_name not in base.oslist
       _ErrorIf(test, self.ENODEOS, node,
@@ -1901,7 +2401,7 @@ class LUClusterVerify(LogicalUnit):
 
     """
     node = ninfo.name
-    _ErrorIf = self._ErrorIf # pylint: disable-msg=C0103
+    _ErrorIf = self._ErrorIf # pylint: disable=C0103
 
     nimg.lvm_fail = True
     lvdata = nresult.get(constants.NV_LVLIST, "Missing LV data")
@@ -1949,7 +2449,7 @@ class LUClusterVerify(LogicalUnit):
 
     """
     node = ninfo.name
-    _ErrorIf = self._ErrorIf # pylint: disable-msg=C0103
+    _ErrorIf = self._ErrorIf # pylint: disable=C0103
 
     # try to read free memory (from the hypervisor)
     hv_info = nresult.get(constants.NV_HVINFO, None)
@@ -1991,7 +2491,7 @@ class LUClusterVerify(LogicalUnit):
         list of tuples (success, payload)
 
     """
-    _ErrorIf = self._ErrorIf # pylint: disable-msg=C0103
+    _ErrorIf = self._ErrorIf # pylint: disable=C0103
 
     node_disks = {}
     node_disks_devonly = {}
@@ -2073,20 +2573,39 @@ class LUClusterVerify(LogicalUnit):
 
     return instdisk
 
-  def _VerifyHVP(self, hvp_data):
-    """Verifies locally the syntax of the hypervisor parameters.
+  @staticmethod
+  def _SshNodeSelector(group_uuid, all_nodes):
+    """Create endless iterators for all potential SSH check hosts.
 
     """
-    for item, hv_name, hv_params in hvp_data:
-      msg = ("hypervisor %s parameters syntax check (source %s): %%s" %
-             (item, hv_name))
-      try:
-        hv_class = hypervisor.GetHypervisor(hv_name)
-        utils.ForceDictType(hv_params, constants.HVS_PARAMETER_TYPES)
-        hv_class.CheckParameterSyntax(hv_params)
-      except errors.GenericError, err:
-        self._ErrorIf(True, self.ECLUSTERCFG, None, msg % str(err))
+    nodes = [node for node in all_nodes
+             if (node.group != group_uuid and
+                 not node.offline)]
+    keyfunc = operator.attrgetter("group")
 
+    return map(itertools.cycle,
+               [sorted(map(operator.attrgetter("name"), names))
+                for _, names in itertools.groupby(sorted(nodes, key=keyfunc),
+                                                  keyfunc)])
+
+  @classmethod
+  def _SelectSshCheckNodes(cls, group_nodes, group_uuid, all_nodes):
+    """Choose which nodes should talk to which other nodes.
+
+    We will make nodes contact all nodes in their group, and one node from
+    every other group.
+
+    @warning: This algorithm has a known issue if one node group is much
+      smaller than others (e.g. just one node). In such a case all other
+      nodes will talk to the single node.
+
+    """
+    online_nodes = sorted(node.name for node in group_nodes if not node.offline)
+    sel = cls._SshNodeSelector(group_uuid, all_nodes)
+
+    return (online_nodes,
+            dict((name, sorted([i.next() for i in sel]))
+                 for name in online_nodes))
 
   def BuildHooksEnv(self):
     """Build hooks env.
@@ -2095,43 +2614,45 @@ class LUClusterVerify(LogicalUnit):
     the output be logged in the verify output and the verification to fail.
 
     """
-    all_nodes = self.cfg.GetNodeList()
     env = {
       "CLUSTER_TAGS": " ".join(self.cfg.GetClusterInfo().GetTags())
       }
-    for node in self.cfg.GetAllNodesInfo().values():
-      env["NODE_TAGS_%s" % node.name] = " ".join(node.GetTags())
 
-    return env, [], all_nodes
+    env.update(("NODE_TAGS_%s" % node.name, " ".join(node.GetTags()))
+               for node in self.my_node_info.values())
 
-  def Exec(self, feedback_fn):
-    """Verify integrity of cluster, performing various test on nodes.
+    return env
+
+  def BuildHooksNodes(self):
+    """Build hooks nodes.
 
     """
-    # This method has too many local variables. pylint: disable-msg=R0914
+    return ([], self.my_node_names)
+
+  def Exec(self, feedback_fn):
+    """Verify integrity of the node group, performing various test on nodes.
+
+    """
+    # This method has too many local variables. pylint: disable=R0914
+    feedback_fn("* Verifying group '%s'" % self.group_info.name)
+
+    if not self.my_node_names:
+      # empty node group
+      feedback_fn("* Empty node group, skipping verification")
+      return True
+
     self.bad = False
-    _ErrorIf = self._ErrorIf # pylint: disable-msg=C0103
+    _ErrorIf = self._ErrorIf # pylint: disable=C0103
     verbose = self.op.verbose
     self._feedback_fn = feedback_fn
-    feedback_fn("* Verifying global settings")
-    for msg in self.cfg.VerifyConfig():
-      _ErrorIf(True, self.ECLUSTERCFG, None, msg)
-
-    # Check the cluster certificates
-    for cert_filename in constants.ALL_CERT_FILES:
-      (errcode, msg) = _VerifyCertificate(cert_filename)
-      _ErrorIf(errcode, self.ECLUSTERCERT, None, msg, code=errcode)
 
     vg_name = self.cfg.GetVGName()
     drbd_helper = self.cfg.GetDRBDHelper()
-    hypervisors = self.cfg.GetClusterInfo().enabled_hypervisors
     cluster = self.cfg.GetClusterInfo()
-    nodeinfo_byname = self.cfg.GetAllNodesInfo()
-    nodelist = utils.NiceSort(nodeinfo_byname.keys())
-    nodeinfo = [nodeinfo_byname[nname] for nname in nodelist]
-    instanceinfo = self.cfg.GetAllInstancesInfo()
-    instancelist = utils.NiceSort(instanceinfo.keys())
     groupinfo = self.cfg.GetAllNodeGroupsInfo()
+    hypervisors = cluster.enabled_hypervisors
+    node_data_list = [self.my_node_info[name] for name in self.my_node_names]
+
     i_non_redundant = [] # Non redundant instances
     i_non_a_balanced = [] # Non auto-balanced instances
     n_offline = 0 # Count of offline nodes
@@ -2139,47 +2660,29 @@ class LUClusterVerify(LogicalUnit):
     node_vol_should = {}
 
     # FIXME: verify OS list
+
+    # File verification
+    filemap = _ComputeAncillaryFiles(cluster, False)
+
     # do local checksums
-    master_files = [constants.CLUSTER_CONF_FILE]
     master_node = self.master_node = self.cfg.GetMasterNode()
     master_ip = self.cfg.GetMasterIP()
 
-    file_names = ssconf.SimpleStore().GetFileList()
-    file_names.extend(constants.ALL_CERT_FILES)
-    file_names.extend(master_files)
-    if cluster.modify_etc_hosts:
-      file_names.append(constants.ETC_HOSTS)
+    feedback_fn("* Gathering data (%d nodes)" % len(self.my_node_names))
 
-    local_checksums = utils.FingerprintFiles(file_names)
-
-    # Compute the set of hypervisor parameters
-    hvp_data = []
-    for hv_name in hypervisors:
-      hvp_data.append(("cluster", hv_name, cluster.GetHVDefaults(hv_name)))
-    for os_name, os_hvp in cluster.os_hvp.items():
-      for hv_name, hv_params in os_hvp.items():
-        if not hv_params:
-          continue
-        full_params = cluster.GetHVDefaults(hv_name, os_name=os_name)
-        hvp_data.append(("os %s" % os_name, hv_name, full_params))
-    # TODO: collapse identical parameter values in a single one
-    for instance in instanceinfo.values():
-      if not instance.hvparams:
-        continue
-      hvp_data.append(("instance %s" % instance.name, instance.hypervisor,
-                       cluster.FillHV(instance)))
-    # and verify them locally
-    self._VerifyHVP(hvp_data)
-
-    feedback_fn("* Gathering data (%d nodes)" % len(nodelist))
     node_verify_param = {
-      constants.NV_FILELIST: file_names,
-      constants.NV_NODELIST: [node.name for node in nodeinfo
-                              if not node.offline],
+      constants.NV_FILELIST:
+        utils.UniqueSequence(filename
+                             for files in filemap
+                             for filename in files),
+      constants.NV_NODELIST:
+        self._SelectSshCheckNodes(node_data_list, self.group_uuid,
+                                  self.all_node_info.values()),
       constants.NV_HYPERVISOR: hypervisors,
-      constants.NV_HVPARAMS: hvp_data,
-      constants.NV_NODENETTEST: [(node.name, node.primary_ip,
-                                  node.secondary_ip) for node in nodeinfo
+      constants.NV_HVPARAMS:
+        _GetAllHypervisorParameters(cluster, self.all_inst_info.values()),
+      constants.NV_NODENETTEST: [(node.name, node.primary_ip, node.secondary_ip)
+                                 for node in node_data_list
                                  if not node.offline],
       constants.NV_INSTANCELIST: hypervisors,
       constants.NV_VERSION: None,
@@ -2206,7 +2709,7 @@ class LUClusterVerify(LogicalUnit):
     default_nicpp = cluster.nicparams[constants.PP_DEFAULT]
     if default_nicpp[constants.NIC_MODE] == constants.NIC_MODE_BRIDGED:
       bridges.add(default_nicpp[constants.NIC_LINK])
-    for instance in instanceinfo.values():
+    for instance in self.my_inst_info.values():
       for nic in instance.nics:
         full_nic = cluster.SimpleFillNIC(nic.nicparams)
         if full_nic[constants.NIC_MODE] == constants.NIC_MODE_BRIDGED:
@@ -2219,11 +2722,11 @@ class LUClusterVerify(LogicalUnit):
     node_image = dict((node.name, self.NodeImage(offline=node.offline,
                                                  name=node.name,
                                                  vm_capable=node.vm_capable))
-                      for node in nodeinfo)
+                      for node in node_data_list)
 
     # Gather OOB paths
     oob_paths = []
-    for node in nodeinfo:
+    for node in self.all_node_info.values():
       path = _SupportsOob(self.cfg, node)
       if path and path not in oob_paths:
         oob_paths.append(path)
@@ -2231,14 +2734,13 @@ class LUClusterVerify(LogicalUnit):
     if oob_paths:
       node_verify_param[constants.NV_OOB_PATHS] = oob_paths
 
-    for instance in instancelist:
-      inst_config = instanceinfo[instance]
+    for instance in self.my_inst_names:
+      inst_config = self.my_inst_info[instance]
 
       for nname in inst_config.all_nodes:
         if nname not in node_image:
-          # ghost node
           gnode = self.NodeImage(name=nname)
-          gnode.ghost = True
+          gnode.ghost = (nname not in self.all_node_info)
           node_image[nname] = gnode
 
       inst_config.MapLVsByNode(node_vol_should)
@@ -2261,20 +2763,60 @@ class LUClusterVerify(LogicalUnit):
     # time before and after executing the request, we can at least have a time
     # window.
     nvinfo_starttime = time.time()
-    all_nvinfo = self.rpc.call_node_verify(nodelist, node_verify_param,
+    all_nvinfo = self.rpc.call_node_verify(self.my_node_names,
+                                           node_verify_param,
                                            self.cfg.GetClusterName())
     nvinfo_endtime = time.time()
 
+    if self.extra_lv_nodes and vg_name is not None:
+      extra_lv_nvinfo = \
+          self.rpc.call_node_verify(self.extra_lv_nodes,
+                                    {constants.NV_LVLIST: vg_name},
+                                    self.cfg.GetClusterName())
+    else:
+      extra_lv_nvinfo = {}
+
     all_drbd_map = self.cfg.ComputeDRBDMap()
 
-    feedback_fn("* Gathering disk information (%s nodes)" % len(nodelist))
-    instdisk = self._CollectDiskInfo(nodelist, node_image, instanceinfo)
+    feedback_fn("* Gathering disk information (%s nodes)" %
+                len(self.my_node_names))
+    instdisk = self._CollectDiskInfo(self.my_node_names, node_image,
+                                     self.my_inst_info)
+
+    feedback_fn("* Verifying configuration file consistency")
+
+    # If not all nodes are being checked, we need to make sure the master node
+    # and a non-checked vm_capable node are in the list.
+    absent_nodes = set(self.all_node_info).difference(self.my_node_info)
+    if absent_nodes:
+      vf_nvinfo = all_nvinfo.copy()
+      vf_node_info = list(self.my_node_info.values())
+      additional_nodes = []
+      if master_node not in self.my_node_info:
+        additional_nodes.append(master_node)
+        vf_node_info.append(self.all_node_info[master_node])
+      # Add the first vm_capable node we find which is not included
+      for node in absent_nodes:
+        nodeinfo = self.all_node_info[node]
+        if nodeinfo.vm_capable and not nodeinfo.offline:
+          additional_nodes.append(node)
+          vf_node_info.append(self.all_node_info[node])
+          break
+      key = constants.NV_FILELIST
+      vf_nvinfo.update(self.rpc.call_node_verify(additional_nodes,
+                                                 {key: node_verify_param[key]},
+                                                 self.cfg.GetClusterName()))
+    else:
+      vf_nvinfo = all_nvinfo
+      vf_node_info = self.my_node_info.values()
+
+    self._VerifyFiles(_ErrorIf, vf_node_info, master_node, vf_nvinfo, filemap)
 
     feedback_fn("* Verifying node status")
 
     refos_img = None
 
-    for node_i in nodeinfo:
+    for node_i in node_data_list:
       node = node_i.name
       nimg = node_image[node]
 
@@ -2307,31 +2849,45 @@ class LUClusterVerify(LogicalUnit):
       nimg.call_ok = self._VerifyNode(node_i, nresult)
       self._VerifyNodeTime(node_i, nresult, nvinfo_starttime, nvinfo_endtime)
       self._VerifyNodeNetwork(node_i, nresult)
-      self._VerifyNodeFiles(node_i, nresult, file_names, local_checksums,
-                            master_files)
-
       self._VerifyOob(node_i, nresult)
 
       if nimg.vm_capable:
         self._VerifyNodeLVM(node_i, nresult, vg_name)
-        self._VerifyNodeDrbd(node_i, nresult, instanceinfo, drbd_helper,
+        self._VerifyNodeDrbd(node_i, nresult, self.all_inst_info, drbd_helper,
                              all_drbd_map)
 
         self._UpdateNodeVolumes(node_i, nresult, nimg, vg_name)
         self._UpdateNodeInstances(node_i, nresult, nimg)
         self._UpdateNodeInfo(node_i, nresult, nimg, vg_name)
         self._UpdateNodeOS(node_i, nresult, nimg)
+
         if not nimg.os_fail:
           if refos_img is None:
             refos_img = nimg
           self._VerifyNodeOS(node_i, nimg, refos_img)
         self._VerifyNodeBridges(node_i, nresult, bridges)
 
+        # Check whether all running instancies are primary for the node. (This
+        # can no longer be done from _VerifyInstance below, since some of the
+        # wrong instances could be from other node groups.)
+        non_primary_inst = set(nimg.instances).difference(nimg.pinst)
+
+        for inst in non_primary_inst:
+          test = inst in self.all_inst_info
+          _ErrorIf(test, self.EINSTANCEWRONGNODE, inst,
+                   "instance should not run on node %s", node_i.name)
+          _ErrorIf(not test, self.ENODEORPHANINSTANCE, node_i.name,
+                   "node is running unknown instance %s", inst)
+
+    for node, result in extra_lv_nvinfo.items():
+      self._UpdateNodeVolumes(self.all_node_info[node], result.payload,
+                              node_image[node], vg_name)
+
     feedback_fn("* Verifying instance status")
-    for instance in instancelist:
+    for instance in self.my_inst_names:
       if verbose:
         feedback_fn("* Verifying instance %s" % instance)
-      inst_config = instanceinfo[instance]
+      inst_config = self.my_inst_info[instance]
       self._VerifyInstance(instance, inst_config, node_image,
                            instdisk[instance])
       inst_nodes_offline = []
@@ -2342,8 +2898,10 @@ class LUClusterVerify(LogicalUnit):
                self.ENODERPC, pnode, "instance %s, connection to"
                " primary node failed", instance)
 
-      _ErrorIf(pnode_img.offline, self.EINSTANCEBADNODE, instance,
-               "instance lives on offline node %s", inst_config.primary_node)
+      _ErrorIf(inst_config.admin_up and pnode_img.offline,
+               self.EINSTANCEBADNODE, instance,
+               "instance is marked as running and lives on offline node %s",
+               inst_config.primary_node)
 
       # If the instance is non-redundant we cannot survive losing its primary
       # node, so we are not N+1 compliant. On the other hand we have no disk
@@ -2358,13 +2916,13 @@ class LUClusterVerify(LogicalUnit):
                utils.CommaJoin(inst_config.secondary_nodes),
                code=self.ETYPE_WARNING)
 
-      if inst_config.disk_template in constants.DTS_NET_MIRROR:
+      if inst_config.disk_template in constants.DTS_INT_MIRROR:
         pnode = inst_config.primary_node
         instance_nodes = utils.NiceSort(inst_config.all_nodes)
         instance_groups = {}
 
         for node in instance_nodes:
-          instance_groups.setdefault(nodeinfo_byname[node].group,
+          instance_groups.setdefault(self.all_node_info[node].group,
                                      []).append(node)
 
         pretty_list = [
@@ -2403,14 +2961,22 @@ class LUClusterVerify(LogicalUnit):
 
     feedback_fn("* Verifying orphan volumes")
     reserved = utils.FieldSet(*cluster.reserved_lvs)
-    self._VerifyOrphanVolumes(node_vol_should, node_image, reserved)
 
-    feedback_fn("* Verifying orphan instances")
-    self._VerifyOrphanInstances(instancelist, node_image)
+    # We will get spurious "unknown volume" warnings if any node of this group
+    # is secondary for an instance whose primary is in another group. To avoid
+    # them, we find these instances and add their volumes to node_vol_should.
+    for inst in self.all_inst_info.values():
+      for secondary in inst.secondary_nodes:
+        if (secondary in self.my_node_info
+            and inst.name not in self.my_inst_info):
+          inst.MapLVsByNode(node_vol_should)
+          break
+
+    self._VerifyOrphanVolumes(node_vol_should, node_image, reserved)
 
     if constants.VERIFY_NPLUSONE_MEM not in self.op.skip_checks:
       feedback_fn("* Verifying N+1 Memory redundancy")
-      self._VerifyNPlusOneMemory(node_image, instanceinfo)
+      self._VerifyNPlusOneMemory(node_image, self.my_inst_info)
 
     feedback_fn("* Other Notes")
     if i_non_redundant:
@@ -2444,9 +3010,12 @@ class LUClusterVerify(LogicalUnit):
         and hook results
 
     """
-    # We only really run POST phase hooks, and are only interested in
-    # their results
-    if phase == constants.HOOKS_PHASE_POST:
+    # We only really run POST phase hooks, only for non-empty groups,
+    # and are only interested in their results
+    if not self.my_node_names:
+      # empty node group
+      pass
+    elif phase == constants.HOOKS_PHASE_POST:
       # Used to change hooks' output to proper indentation
       feedback_fn("* Hooks Results")
       assert hooks_results, "invalid result from hooks"
@@ -2458,21 +3027,19 @@ class LUClusterVerify(LogicalUnit):
         self._ErrorIf(test, self.ENODEHOOKS, node_name,
                       "Communication failure in hooks execution: %s", msg)
         if res.offline or msg:
-          # No need to investigate payload if node is offline or gave an error.
-          # override manually lu_result here as _ErrorIf only
-          # overrides self.bad
-          lu_result = 1
+          # No need to investigate payload if node is offline or gave
+          # an error.
           continue
         for script, hkr, output in res.payload:
           test = hkr == constants.HKR_FAIL
           self._ErrorIf(test, self.ENODEHOOKS, node_name,
                         "Script %s failed, output:", script)
           if test:
-            output = self._HOOKS_INDENT_RE.sub('      ', output)
+            output = self._HOOKS_INDENT_RE.sub("      ", output)
             feedback_fn("%s" % output)
-            lu_result = 0
+            lu_result = False
 
-      return lu_result
+    return lu_result
 
 
 class LUClusterVerifyDisks(NoHooksLU):
@@ -2482,11 +3049,91 @@ class LUClusterVerifyDisks(NoHooksLU):
   REQ_BGL = False
 
   def ExpandNames(self):
+    self.share_locks = _ShareAll()
     self.needed_locks = {
-      locking.LEVEL_NODE: locking.ALL_SET,
-      locking.LEVEL_INSTANCE: locking.ALL_SET,
-    }
-    self.share_locks = dict.fromkeys(locking.LEVELS, 1)
+      locking.LEVEL_NODEGROUP: locking.ALL_SET,
+      }
+
+  def Exec(self, feedback_fn):
+    group_names = self.owned_locks(locking.LEVEL_NODEGROUP)
+
+    # Submit one instance of L{opcodes.OpGroupVerifyDisks} per node group
+    return ResultWithJobs([[opcodes.OpGroupVerifyDisks(group_name=group)]
+                           for group in group_names])
+
+
+class LUGroupVerifyDisks(NoHooksLU):
+  """Verifies the status of all disks in a node group.
+
+  """
+  REQ_BGL = False
+
+  def ExpandNames(self):
+    # Raises errors.OpPrereqError on its own if group can't be found
+    self.group_uuid = self.cfg.LookupNodeGroup(self.op.group_name)
+
+    self.share_locks = _ShareAll()
+    self.needed_locks = {
+      locking.LEVEL_INSTANCE: [],
+      locking.LEVEL_NODEGROUP: [],
+      locking.LEVEL_NODE: [],
+      }
+
+  def DeclareLocks(self, level):
+    if level == locking.LEVEL_INSTANCE:
+      assert not self.needed_locks[locking.LEVEL_INSTANCE]
+
+      # Lock instances optimistically, needs verification once node and group
+      # locks have been acquired
+      self.needed_locks[locking.LEVEL_INSTANCE] = \
+        self.cfg.GetNodeGroupInstances(self.group_uuid)
+
+    elif level == locking.LEVEL_NODEGROUP:
+      assert not self.needed_locks[locking.LEVEL_NODEGROUP]
+
+      self.needed_locks[locking.LEVEL_NODEGROUP] = \
+        set([self.group_uuid] +
+            # Lock all groups used by instances optimistically; this requires
+            # going via the node before it's locked, requiring verification
+            # later on
+            [group_uuid
+             for instance_name in self.owned_locks(locking.LEVEL_INSTANCE)
+             for group_uuid in self.cfg.GetInstanceNodeGroups(instance_name)])
+
+    elif level == locking.LEVEL_NODE:
+      # This will only lock the nodes in the group to be verified which contain
+      # actual instances
+      self.recalculate_locks[locking.LEVEL_NODE] = constants.LOCKS_APPEND
+      self._LockInstancesNodes()
+
+      # Lock all nodes in group to be verified
+      assert self.group_uuid in self.owned_locks(locking.LEVEL_NODEGROUP)
+      member_nodes = self.cfg.GetNodeGroup(self.group_uuid).members
+      self.needed_locks[locking.LEVEL_NODE].extend(member_nodes)
+
+  def CheckPrereq(self):
+    owned_instances = frozenset(self.owned_locks(locking.LEVEL_INSTANCE))
+    owned_groups = frozenset(self.owned_locks(locking.LEVEL_NODEGROUP))
+    owned_nodes = frozenset(self.owned_locks(locking.LEVEL_NODE))
+
+    assert self.group_uuid in owned_groups
+
+    # Check if locked instances are still correct
+    _CheckNodeGroupInstances(self.cfg, self.group_uuid, owned_instances)
+
+    # Get instance information
+    self.instances = dict(self.cfg.GetMultiInstanceInfo(owned_instances))
+
+    # Check if node groups for locked instances are still correct
+    for (instance_name, inst) in self.instances.items():
+      assert owned_nodes.issuperset(inst.all_nodes), \
+        "Instance %s's nodes changed while we kept the lock" % instance_name
+
+      inst_groups = _CheckInstanceNodeGroups(self.cfg, instance_name,
+                                             owned_groups)
+
+      assert self.group_uuid in inst_groups, \
+        "Instance %s has no node in group %s" % (instance_name, self.group_uuid)
 
   def Exec(self, feedback_fn):
     """Verify integrity of cluster disks.
@@ -2497,50 +3144,41 @@ class LUClusterVerifyDisks(NoHooksLU):
         missing volumes
 
     """
-    result = res_nodes, res_instances, res_missing = {}, [], {}
+    res_nodes = {}
+    res_instances = set()
+    res_missing = {}
 
-    nodes = utils.NiceSort(self.cfg.GetVmCapableNodeList())
-    instances = self.cfg.GetAllInstancesInfo().values()
+    nv_dict = _MapInstanceDisksToNodes([inst
+                                        for inst in self.instances.values()
+                                        if inst.admin_up])
 
-    nv_dict = {}
-    for inst in instances:
-      inst_lvs = {}
-      if not inst.admin_up:
-        continue
-      inst.MapLVsByNode(inst_lvs)
-      # transform { iname: {node: [vol,],},} to {(node, vol): iname}
-      for node, vol_list in inst_lvs.iteritems():
-        for vol in vol_list:
-          nv_dict[(node, vol)] = inst
+    if nv_dict:
+      nodes = utils.NiceSort(set(self.owned_locks(locking.LEVEL_NODE)) &
+                             set(self.cfg.GetVmCapableNodeList()))
 
-    if not nv_dict:
-      return result
+      node_lvs = self.rpc.call_lv_list(nodes, [])
 
-    node_lvs = self.rpc.call_lv_list(nodes, [])
-    for node, node_res in node_lvs.items():
-      if node_res.offline:
-        continue
-      msg = node_res.fail_msg
-      if msg:
-        logging.warning("Error enumerating LVs on node %s: %s", node, msg)
-        res_nodes[node] = msg
-        continue
+      for (node, node_res) in node_lvs.items():
+        if node_res.offline:
+          continue
 
-      lvs = node_res.payload
-      for lv_name, (_, _, lv_online) in lvs.items():
-        inst = nv_dict.pop((node, lv_name), None)
-        if (not lv_online and inst is not None
-            and inst.name not in res_instances):
-          res_instances.append(inst.name)
+        msg = node_res.fail_msg
+        if msg:
+          logging.warning("Error enumerating LVs on node %s: %s", node, msg)
+          res_nodes[node] = msg
+          continue
 
-    # any leftover items in nv_dict are missing LVs, let's arrange the
-    # data better
-    for key, inst in nv_dict.iteritems():
-      if inst.name not in res_missing:
-        res_missing[inst.name] = []
-      res_missing[inst.name].append(key)
+        for lv_name, (_, _, lv_online) in node_res.payload.items():
+          inst = nv_dict.pop((node, lv_name), None)
+          if not (lv_online or inst is None):
+            res_instances.add(inst)
 
-    return result
+      # any leftover items in nv_dict are missing LVs, let's arrange the data
+      # better
+      for key, inst in nv_dict.iteritems():
+        res_missing.setdefault(inst, []).append(list(key))
+
+    return (res_nodes, list(res_instances), res_missing)
 
 
 class LUClusterRepairDiskSizes(NoHooksLU):
@@ -2551,10 +3189,7 @@ class LUClusterRepairDiskSizes(NoHooksLU):
 
   def ExpandNames(self):
     if self.op.instances:
-      self.wanted_names = []
-      for name in self.op.instances:
-        full_name = _ExpandInstanceName(self.cfg, name)
-        self.wanted_names.append(full_name)
+      self.wanted_names = _GetWantedInstances(self, self.op.instances)
       self.needed_locks = {
         locking.LEVEL_NODE: [],
         locking.LEVEL_INSTANCE: self.wanted_names,
@@ -2566,7 +3201,10 @@ class LUClusterRepairDiskSizes(NoHooksLU):
         locking.LEVEL_NODE: locking.ALL_SET,
         locking.LEVEL_INSTANCE: locking.ALL_SET,
         }
-    self.share_locks = dict(((i, 1) for i in locking.LEVELS))
+    self.share_locks = {
+      locking.LEVEL_NODE: 1,
+      locking.LEVEL_INSTANCE: 0,
+      }
 
   def DeclareLocks(self, level):
     if level == locking.LEVEL_NODE and self.wanted_names is not None:
@@ -2579,10 +3217,10 @@ class LUClusterRepairDiskSizes(NoHooksLU):
 
     """
     if self.wanted_names is None:
-      self.wanted_names = self.acquired_locks[locking.LEVEL_INSTANCE]
+      self.wanted_names = self.owned_locks(locking.LEVEL_INSTANCE)
 
-    self.wanted_instances = [self.cfg.GetInstanceInfo(name) for name
-                             in self.wanted_names]
+    self.wanted_instances = \
+        map(compat.snd, self.cfg.GetMultiInstanceInfo(self.wanted_names))
 
   def _EnsureChildSizes(self, disk):
     """Ensure children of the disk have the needed disk size.
@@ -2671,13 +3309,16 @@ class LUClusterRename(LogicalUnit):
     """Build hooks env.
 
     """
-    env = {
+    return {
       "OP_TARGET": self.cfg.GetClusterName(),
       "NEW_NAME": self.op.name,
       }
-    mn = self.cfg.GetMasterNode()
-    all_nodes = self.cfg.GetNodeList()
-    return env, [mn], all_nodes
+
+  def BuildHooksNodes(self):
+    """Build hooks nodes.
+
+    """
+    return ([self.cfg.GetMasterNode()], self.cfg.GetNodeList())
 
   def CheckPrereq(self):
     """Verify that the passed name is a valid one.
@@ -2771,12 +3412,17 @@ class LUClusterSetParams(LogicalUnit):
     """Build hooks env.
 
     """
-    env = {
+    return {
       "OP_TARGET": self.cfg.GetClusterName(),
       "NEW_VG_NAME": self.op.vg_name,
       }
+
+  def BuildHooksNodes(self):
+    """Build hooks nodes.
+
+    """
     mn = self.cfg.GetMasterNode()
-    return env, [mn], [mn]
+    return ([mn], [mn])
 
   def CheckPrereq(self):
     """Check prerequisites.
@@ -2796,7 +3442,7 @@ class LUClusterSetParams(LogicalUnit):
                                    " drbd-based instances exist",
                                    errors.ECODE_INVAL)
 
-    node_list = self.acquired_locks[locking.LEVEL_NODE]
+    node_list = self.owned_locks(locking.LEVEL_NODE)
 
     # if vg_name not None, checks given volume group on all nodes
     if self.op.vg_name:
@@ -2818,8 +3464,7 @@ class LUClusterSetParams(LogicalUnit):
     if self.op.drbd_helper:
       # checks given drbd helper on all nodes
       helpers = self.rpc.call_drbd_helper(node_list)
-      for node in node_list:
-        ninfo = self.cfg.GetNodeInfo(node)
+      for (node, ninfo) in self.cfg.GetMultiNodeInfo(node_list):
         if ninfo.offline:
           self.LogInfo("Not checking drbd helper on offline node %s", node)
           continue
@@ -3090,6 +3735,53 @@ def _UploadHelper(lu, nodes, fname):
         lu.proc.LogWarning(msg)
 
 
+def _ComputeAncillaryFiles(cluster, redist):
+  """Compute files external to Ganeti which need to be consistent.
+
+  @type redist: boolean
+  @param redist: Whether to include files which need to be redistributed
+
+  """
+  # Compute files for all nodes
+  files_all = set([
+    constants.SSH_KNOWN_HOSTS_FILE,
+    constants.CONFD_HMAC_KEY,
+    constants.CLUSTER_DOMAIN_SECRET_FILE,
+    ])
+
+  if not redist:
+    files_all.update(constants.ALL_CERT_FILES)
+    files_all.update(ssconf.SimpleStore().GetFileList())
+  else:
+    # we need to ship at least the RAPI certificate
+    files_all.add(constants.RAPI_CERT_FILE)
+
+  if cluster.modify_etc_hosts:
+    files_all.add(constants.ETC_HOSTS)
+
+  # Files which must either exist on all nodes or on none
+  files_all_opt = set([
+    constants.RAPI_USERS_FILE,
+    ])
+
+  # Files which should only be on master candidates
+  files_mc = set()
+  if not redist:
+    files_mc.add(constants.CLUSTER_CONF_FILE)
+
+  # Files which should only be on VM-capable nodes
+  files_vm = set(filename
+    for hv_name in cluster.enabled_hypervisors
+    for filename in hypervisor.GetHypervisor(hv_name).GetAncillaryFiles())
+
+  # Filenames must be unique
+  assert (len(files_all | files_all_opt | files_mc | files_vm) ==
+          sum(map(len, [files_all, files_all_opt, files_mc, files_vm]))), \
+         "Found file listed in more than one file list"
+
+  return (files_all, files_all_opt, files_mc, files_vm)
+
+
 def _RedistributeAncillaryFiles(lu, additional_nodes=None, additional_vm=True):
   """Distribute additional files which are part of the cluster configuration.
 
@@ -3103,40 +3795,42 @@ def _RedistributeAncillaryFiles(lu, additional_nodes=None, additional_vm=True):
   @param additional_vm: whether the additional nodes are vm-capable or not
 
   """
-  # 1. Gather target nodes
-  myself = lu.cfg.GetNodeInfo(lu.cfg.GetMasterNode())
-  dist_nodes = lu.cfg.GetOnlineNodeList()
-  nvm_nodes = lu.cfg.GetNonVmCapableNodeList()
-  vm_nodes = [name for name in dist_nodes if name not in nvm_nodes]
+  # Gather target nodes
+  cluster = lu.cfg.GetClusterInfo()
+  master_info = lu.cfg.GetNodeInfo(lu.cfg.GetMasterNode())
+
+  online_nodes = lu.cfg.GetOnlineNodeList()
+  vm_nodes = lu.cfg.GetVmCapableNodeList()
+
   if additional_nodes is not None:
-    dist_nodes.extend(additional_nodes)
+    online_nodes.extend(additional_nodes)
     if additional_vm:
       vm_nodes.extend(additional_nodes)
-  if myself.name in dist_nodes:
-    dist_nodes.remove(myself.name)
-  if myself.name in vm_nodes:
-    vm_nodes.remove(myself.name)
 
-  # 2. Gather files to distribute
-  dist_files = set([constants.ETC_HOSTS,
-                    constants.SSH_KNOWN_HOSTS_FILE,
-                    constants.RAPI_CERT_FILE,
-                    constants.RAPI_USERS_FILE,
-                    constants.CONFD_HMAC_KEY,
-                    constants.CLUSTER_DOMAIN_SECRET_FILE,
-                   ])
+  # Never distribute to master node
+  for nodelist in [online_nodes, vm_nodes]:
+    if master_info.name in nodelist:
+      nodelist.remove(master_info.name)
 
-  vm_files = set()
-  enabled_hypervisors = lu.cfg.GetClusterInfo().enabled_hypervisors
-  for hv_name in enabled_hypervisors:
-    hv_class = hypervisor.GetHypervisor(hv_name)
-    vm_files.update(hv_class.GetAncillaryFiles())
+  # Gather file lists
+  (files_all, files_all_opt, files_mc, files_vm) = \
+    _ComputeAncillaryFiles(cluster, True)
 
-  # 3. Perform the files upload
-  for fname in dist_files:
-    _UploadHelper(lu, dist_nodes, fname)
-  for fname in vm_files:
-    _UploadHelper(lu, vm_nodes, fname)
+  # Never re-distribute configuration file from here
+  assert not (constants.CLUSTER_CONF_FILE in files_all or
+              constants.CLUSTER_CONF_FILE in files_vm)
+  assert not files_mc, "Master candidates not handled in this function"
+
+  filemap = [
+    (online_nodes, files_all),
+    (online_nodes, files_all_opt),
+    (vm_nodes, files_vm),
+    ]
+
+  # Upload the files
+  for (node_list, files) in filemap:
+    for fname in files:
+      _UploadHelper(lu, node_list, fname)
 
 
 class LUClusterRedistConf(NoHooksLU):
@@ -3274,7 +3968,22 @@ class LUOobCommand(NoHooksLU):
   """Logical unit for OOB handling.
 
   """
-  REG_BGL = False
+  REQ_BGL = False
+  _SKIP_MASTER = (constants.OOB_POWER_OFF, constants.OOB_POWER_CYCLE)
+
+  def ExpandNames(self):
+    """Gather locks we need.
+
+    """
+    if self.op.node_names:
+      self.op.node_names = _GetWantedNodes(self, self.op.node_names)
+      lock_names = self.op.node_names
+    else:
+      lock_names = locking.ALL_SET
+
+    self.needed_locks = {
+      locking.LEVEL_NODE: lock_names,
+      }
 
   def CheckPrereq(self):
     """Check prerequisites.
@@ -3287,42 +3996,58 @@ class LUOobCommand(NoHooksLU):
 
     """
     self.nodes = []
-    for node_name in self.op.node_names:
-      node = self.cfg.GetNodeInfo(node_name)
+    self.master_node = self.cfg.GetMasterNode()
 
+    assert self.op.power_delay >= 0.0
+
+    if self.op.node_names:
+      if (self.op.command in self._SKIP_MASTER and
+          self.master_node in self.op.node_names):
+        master_node_obj = self.cfg.GetNodeInfo(self.master_node)
+        master_oob_handler = _SupportsOob(self.cfg, master_node_obj)
+
+        if master_oob_handler:
+          additional_text = ("run '%s %s %s' if you want to operate on the"
+                             " master regardless") % (master_oob_handler,
+                                                      self.op.command,
+                                                      self.master_node)
+        else:
+          additional_text = "it does not support out-of-band operations"
+
+        raise errors.OpPrereqError(("Operating on the master node %s is not"
+                                    " allowed for %s; %s") %
+                                   (self.master_node, self.op.command,
+                                    additional_text), errors.ECODE_INVAL)
+    else:
+      self.op.node_names = self.cfg.GetNodeList()
+      if self.op.command in self._SKIP_MASTER:
+        self.op.node_names.remove(self.master_node)
+
+    if self.op.command in self._SKIP_MASTER:
+      assert self.master_node not in self.op.node_names
+
+    for (node_name, node) in self.cfg.GetMultiNodeInfo(self.op.node_names):
       if node is None:
         raise errors.OpPrereqError("Node %s not found" % node_name,
                                    errors.ECODE_NOENT)
       else:
         self.nodes.append(node)
 
-      if (self.op.command == constants.OOB_POWER_OFF and not node.offline):
+      if (not self.op.ignore_status and
+          (self.op.command == constants.OOB_POWER_OFF and not node.offline)):
         raise errors.OpPrereqError(("Cannot power off node %s because it is"
                                     " not marked offline") % node_name,
                                    errors.ECODE_STATE)
-
-  def ExpandNames(self):
-    """Gather locks we need.
-
-    """
-    if self.op.node_names:
-      self.op.node_names = [_ExpandNodeName(self.cfg, name)
-                            for name in self.op.node_names]
-    else:
-      self.op.node_names = self.cfg.GetNodeList()
-
-    self.needed_locks = {
-      locking.LEVEL_NODE: self.op.node_names,
-      }
 
   def Exec(self, feedback_fn):
     """Execute OOB and return result if we expect any.
 
     """
-    master_node = self.cfg.GetMasterNode()
+    master_node = self.master_node
     ret = []
 
-    for node in self.nodes:
+    for idx, node in enumerate(utils.NiceSort(self.nodes,
+                                              key=lambda node: node.name)):
       node_entry = [(constants.RS_NORMAL, node.name)]
       ret.append(node_entry)
 
@@ -3339,14 +4064,14 @@ class LUOobCommand(NoHooksLU):
                                      self.op.timeout)
 
       if result.fail_msg:
-        self.LogWarning("On node '%s' out-of-band RPC failed with: %s",
+        self.LogWarning("Out-of-band RPC failed on node '%s': %s",
                         node.name, result.fail_msg)
         node_entry.append((constants.RS_NODATA, None))
       else:
         try:
           self._CheckPayload(result)
         except errors.OpExecError, err:
-          self.LogWarning("The payload returned by '%s' is not valid: %s",
+          self.LogWarning("Payload returned by node '%s' is not valid: %s",
                           node.name, err)
           node_entry.append((constants.RS_NODATA, None))
         else:
@@ -3355,8 +4080,8 @@ class LUOobCommand(NoHooksLU):
             for item, status in result.payload:
               if status in [constants.OOB_STATUS_WARNING,
                             constants.OOB_STATUS_CRITICAL]:
-                self.LogWarning("On node '%s' item '%s' has status '%s'",
-                                node.name, item, status)
+                self.LogWarning("Item '%s' on node '%s' has status '%s'",
+                                item, node.name, status)
 
           if self.op.command == constants.OOB_POWER_ON:
             node.powered = True
@@ -3375,6 +4100,10 @@ class LUOobCommand(NoHooksLU):
             self.cfg.Update(node, feedback_fn)
 
           node_entry.append((constants.RS_NORMAL, result.payload))
+
+          if (self.op.command == constants.OOB_POWER_ON and
+              idx < len(self.nodes) - 1):
+            time.sleep(self.op.power_delay)
 
     return ret
 
@@ -3415,35 +4144,27 @@ class LUOobCommand(NoHooksLU):
                                utils.CommaJoin(errs))
 
 
+class _OsQuery(_QueryBase):
+  FIELDS = query.OS_FIELDS
 
-class LUOsDiagnose(NoHooksLU):
-  """Logical unit for OS diagnose/query.
-
-  """
-  REQ_BGL = False
-  _HID = "hidden"
-  _BLK = "blacklisted"
-  _VLD = "valid"
-  _FIELDS_STATIC = utils.FieldSet()
-  _FIELDS_DYNAMIC = utils.FieldSet("name", _VLD, "node_status", "variants",
-                                   "parameters", "api_versions", _HID, _BLK)
-
-  def CheckArguments(self):
-    if self.op.names:
-      raise errors.OpPrereqError("Selective OS query not supported",
-                                 errors.ECODE_INVAL)
-
-    _CheckOutputFields(static=self._FIELDS_STATIC,
-                       dynamic=self._FIELDS_DYNAMIC,
-                       selected=self.op.output_fields)
-
-  def ExpandNames(self):
-    # Lock all nodes, in shared mode
+  def ExpandNames(self, lu):
+    # Lock all nodes in shared mode
     # Temporary removal of locks, should be reverted later
     # TODO: reintroduce locks when they are lighter-weight
-    self.needed_locks = {}
+    lu.needed_locks = {}
     #self.share_locks[locking.LEVEL_NODE] = 1
     #self.needed_locks[locking.LEVEL_NODE] = locking.ALL_SET
+
+    # The following variables interact with _QueryBase._GetNames
+    if self.names:
+      self.wanted = self.names
+    else:
+      self.wanted = locking.ALL_SET
+
+    self.do_locking = self.use_locking
+
+  def DeclareLocks(self, lu, level):
+    pass
 
   @staticmethod
   def _DiagnoseByOS(rlist):
@@ -3485,71 +4206,103 @@ class LUOsDiagnose(NoHooksLU):
                                         variants, params, api_versions))
     return all_os
 
-  def Exec(self, feedback_fn):
-    """Compute the list of OSes.
+  def _GetQueryData(self, lu):
+    """Computes the list of nodes and their attributes.
 
     """
-    valid_nodes = [node.name
-                   for node in self.cfg.GetAllNodesInfo().values()
-                   if not node.offline and node.vm_capable]
-    node_data = self.rpc.call_os_diagnose(valid_nodes)
-    pol = self._DiagnoseByOS(node_data)
-    output = []
-    cluster = self.cfg.GetClusterInfo()
+    # Locking is not used
+    assert not (compat.any(lu.glm.is_owned(level)
+                           for level in locking.LEVELS
+                           if level != locking.LEVEL_CLUSTER) or
+                self.do_locking or self.use_locking)
 
-    for os_name in utils.NiceSort(pol.keys()):
-      os_data = pol[os_name]
-      row = []
-      valid = True
-      (variants, params, api_versions) = null_state = (set(), set(), set())
+    valid_nodes = [node.name
+                   for node in lu.cfg.GetAllNodesInfo().values()
+                   if not node.offline and node.vm_capable]
+    pol = self._DiagnoseByOS(lu.rpc.call_os_diagnose(valid_nodes))
+    cluster = lu.cfg.GetClusterInfo()
+
+    data = {}
+
+    for (os_name, os_data) in pol.items():
+      info = query.OsInfo(name=os_name, valid=True, node_status=os_data,
+                          hidden=(os_name in cluster.hidden_os),
+                          blacklisted=(os_name in cluster.blacklisted_os))
+
+      variants = set()
+      parameters = set()
+      api_versions = set()
+
       for idx, osl in enumerate(os_data.values()):
-        valid = bool(valid and osl and osl[0][1])
-        if not valid:
-          (variants, params, api_versions) = null_state
+        info.valid = bool(info.valid and osl and osl[0][1])
+        if not info.valid:
           break
-        node_variants, node_params, node_api = osl[0][3:6]
-        if idx == 0: # first entry
-          variants = set(node_variants)
-          params = set(node_params)
-          api_versions = set(node_api)
-        else: # keep consistency
+
+        (node_variants, node_params, node_api) = osl[0][3:6]
+        if idx == 0:
+          # First entry
+          variants.update(node_variants)
+          parameters.update(node_params)
+          api_versions.update(node_api)
+        else:
+          # Filter out inconsistent values
           variants.intersection_update(node_variants)
-          params.intersection_update(node_params)
+          parameters.intersection_update(node_params)
           api_versions.intersection_update(node_api)
 
-      is_hid = os_name in cluster.hidden_os
-      is_blk = os_name in cluster.blacklisted_os
-      if ((self._HID not in self.op.output_fields and is_hid) or
-          (self._BLK not in self.op.output_fields and is_blk) or
-          (self._VLD not in self.op.output_fields and not valid)):
-        continue
+      info.variants = list(variants)
+      info.parameters = list(parameters)
+      info.api_versions = list(api_versions)
 
-      for field in self.op.output_fields:
-        if field == "name":
-          val = os_name
-        elif field == self._VLD:
-          val = valid
-        elif field == "node_status":
-          # this is just a copy of the dict
-          val = {}
-          for node_name, nos_list in os_data.items():
-            val[node_name] = nos_list
-        elif field == "variants":
-          val = utils.NiceSort(list(variants))
-        elif field == "parameters":
-          val = list(params)
-        elif field == "api_versions":
-          val = list(api_versions)
-        elif field == self._HID:
-          val = is_hid
-        elif field == self._BLK:
-          val = is_blk
-        else:
-          raise errors.ParameterError(field)
-        row.append(val)
-      output.append(row)
+      data[os_name] = info
 
-    return output
+    # Prepare data in requested order
+    return [data[name] for name in self._GetNames(lu, pol.keys(), None)
+            if name in data]
+
+
+class LUOsDiagnose(NoHooksLU):
+  """Logical unit for OS diagnose/query.
+
+  """
+  REQ_BGL = False
+
+  @staticmethod
+  def _BuildFilter(fields, names):
+    """Builds a filter for querying OSes.
+
+    """
+    name_filter = qlang.MakeSimpleFilter("name", names)
+
+    # Legacy behaviour: Hide hidden, blacklisted or invalid OSes if the
+    # respective field is not requested
+    status_filter = [[qlang.OP_NOT, [qlang.OP_TRUE, fname]]
+                     for fname in ["hidden", "blacklisted"]
+                     if fname not in fields]
+    if "valid" not in fields:
+      status_filter.append([qlang.OP_TRUE, "valid"])
+
+    if status_filter:
+      status_filter.insert(0, qlang.OP_AND)
+    else:
+      status_filter = None
+
+    if name_filter and status_filter:
+      return [qlang.OP_AND, name_filter, status_filter]
+    elif name_filter:
+      return name_filter
+    else:
+      return status_filter
+
+  def CheckArguments(self):
+    self.oq = _OsQuery(self._BuildFilter(self.op.output_fields, self.op.names),
+                       self.op.output_fields, False)
+
+  def ExpandNames(self):
+    self.oq.ExpandNames(self)
+
+  def Exec(self, feedback_fn):
+    return self.oq.OldStyleQuery(self)
 
 
 class LUNodeRemove(LogicalUnit):
@@ -3566,17 +4319,22 @@ class LUNodeRemove(LogicalUnit):
     node would then be impossible to remove.
 
     """
-    env = {
+    return {
       "OP_TARGET": self.op.node_name,
       "NODE_NAME": self.op.node_name,
       }
+
+  def BuildHooksNodes(self):
+    """Build hooks nodes.
+
+    """
     all_nodes = self.cfg.GetNodeList()
     try:
       all_nodes.remove(self.op.node_name)
     except ValueError:
-      logging.warning("Node %s which is about to be removed not found"
-                      " in the all nodes list", self.op.node_name)
-    return env, all_nodes, all_nodes
+      logging.warning("Node '%s', which is about to be removed, was not found"
+                      " in the list of all nodes", self.op.node_name)
+    return (all_nodes, all_nodes)
 
   def CheckPrereq(self):
     """Check prerequisites.
@@ -3593,19 +4351,15 @@ class LUNodeRemove(LogicalUnit):
     node = self.cfg.GetNodeInfo(self.op.node_name)
     assert node is not None
 
-    instance_list = self.cfg.GetInstanceList()
-
     masternode = self.cfg.GetMasterNode()
     if node.name == masternode:
-      raise errors.OpPrereqError("Node is the master node,"
-                                 " you need to failover first.",
-                                 errors.ECODE_INVAL)
+      raise errors.OpPrereqError("Node is the master node, failover to another"
+                                 " node is required", errors.ECODE_INVAL)
 
-    for instance_name in instance_list:
-      instance = self.cfg.GetInstanceInfo(instance_name)
+    for instance_name, instance in self.cfg.GetAllInstancesInfo().items():
       if node.name in instance.all_nodes:
         raise errors.OpPrereqError("Instance %s is still running on the node,"
-                                   " please remove first." % instance_name,
+                                   " please remove first" % instance_name,
                                    errors.ECODE_INVAL)
     self.op.node_name = node.name
     self.node = node
@@ -3625,12 +4379,7 @@ class LUNodeRemove(LogicalUnit):
     self.context.RemoveNode(node.name)
 
     # Run post hooks on the node before it's removed
-    hm = self.proc.hmclass(self.rpc.call_hooks_runner, self)
-    try:
-      hm.RunPhase(constants.HOOKS_PHASE_POST, [node.name])
-    except:
-      # pylint: disable-msg=W0702
-      self.LogWarning("Errors occurred running hooks on %s" % node.name)
+    _RunPostHook(self, node.name)
 
     result = self.rpc.call_node_leave_cluster(node.name, modify_ssh_setup)
     msg = result.fail_msg
@@ -3653,7 +4402,7 @@ class _NodeQuery(_QueryBase):
 
   def ExpandNames(self, lu):
     lu.needed_locks = {}
-    lu.share_locks[locking.LEVEL_NODE] = 1
+    lu.share_locks = _ShareAll()
 
     if self.names:
       self.wanted = _GetWantedNodes(lu, self.names)
@@ -3664,7 +4413,7 @@ class _NodeQuery(_QueryBase):
                        query.NQ_LIVE in self.requested_data)
 
     if self.do_locking:
-      # if we don't request only static fields, we need to lock the nodes
+      # If any non-static field is requested we need to lock the nodes
       lu.needed_locks[locking.LEVEL_NODE] = self.wanted
 
   def DeclareLocks(self, lu, level):
@@ -3728,12 +4477,12 @@ class LUNodeQuery(NoHooksLU):
   """Logical unit for querying nodes.
 
   """
-  # pylint: disable-msg=W0142
+  # pylint: disable=W0142
   REQ_BGL = False
 
   def CheckArguments(self):
-    self.nq = _NodeQuery(self.op.names, self.op.output_fields,
-                         self.op.use_locking)
+    self.nq = _NodeQuery(qlang.MakeSimpleFilter("name", self.op.names),
+                         self.op.output_fields, self.op.use_locking)
 
   def ExpandNames(self):
     self.nq.ExpandNames(self)
@@ -3768,15 +4517,11 @@ class LUNodeQueryvols(NoHooksLU):
     """Computes the list of nodes and their attributes.
 
     """
-    nodenames = self.acquired_locks[locking.LEVEL_NODE]
+    nodenames = self.owned_locks(locking.LEVEL_NODE)
     volumes = self.rpc.call_node_volumes(nodenames)
 
     ilist = self.cfg.GetAllInstancesInfo()
-
-    vol2inst = dict(((node, vol), inst.name)
-                    for inst in ilist.values()
-                    for (node, vols) in inst.MapLVsByNode().items()
-                    for vol in vols)
+    vol2inst = _MapInstanceDisksToNodes(ilist.values())
 
     output = []
     for node in nodenames:
@@ -3797,13 +4542,13 @@ class LUNodeQueryvols(NoHooksLU):
           if field == "node":
             val = node
           elif field == "phys":
-            val = vol['dev']
+            val = vol["dev"]
           elif field == "vg":
-            val = vol['vg']
+            val = vol["vg"]
           elif field == "name":
-            val = vol['name']
+            val = vol["name"]
           elif field == "size":
-            val = int(float(vol['size']))
+            val = int(float(vol["size"]))
           elif field == "instance":
             val = vol2inst.get((node, vol["vg"] + "/" + vol["name"]), "-")
           else:
@@ -3841,7 +4586,7 @@ class LUNodeQueryStorage(NoHooksLU):
     """Computes the list of nodes and their attributes.
 
     """
-    self.nodes = self.acquired_locks[locking.LEVEL_NODE]
+    self.nodes = self.owned_locks(locking.LEVEL_NODE)
 
     # Always get name to sort by
     if constants.SF_NAME in self.op.output_fields:
@@ -3903,8 +4648,7 @@ class _InstanceQuery(_QueryBase):
 
   def ExpandNames(self, lu):
     lu.needed_locks = {}
-    lu.share_locks[locking.LEVEL_INSTANCE] = 1
-    lu.share_locks[locking.LEVEL_NODE] = 1
+    lu.share_locks = _ShareAll()
 
     if self.names:
       self.wanted = _GetWantedInstances(lu, self.names)
@@ -3915,17 +4659,43 @@ class _InstanceQuery(_QueryBase):
                        query.IQ_LIVE in self.requested_data)
     if self.do_locking:
       lu.needed_locks[locking.LEVEL_INSTANCE] = self.wanted
+      lu.needed_locks[locking.LEVEL_NODEGROUP] = []
       lu.needed_locks[locking.LEVEL_NODE] = []
       lu.recalculate_locks[locking.LEVEL_NODE] = constants.LOCKS_REPLACE
 
+    self.do_grouplocks = (self.do_locking and
+                          query.IQ_NODES in self.requested_data)
+
   def DeclareLocks(self, lu, level):
-    if level == locking.LEVEL_NODE and self.do_locking:
-      lu._LockInstancesNodes() # pylint: disable-msg=W0212
+    if self.do_locking:
+      if level == locking.LEVEL_NODEGROUP and self.do_grouplocks:
+        assert not lu.needed_locks[locking.LEVEL_NODEGROUP]
+
+        # Lock all groups used by instances optimistically; this requires going
+        # via the node before it's locked, requiring verification later on
+        lu.needed_locks[locking.LEVEL_NODEGROUP] = \
+          set(group_uuid
+              for instance_name in lu.owned_locks(locking.LEVEL_INSTANCE)
+              for group_uuid in lu.cfg.GetInstanceNodeGroups(instance_name))
+      elif level == locking.LEVEL_NODE:
+        lu._LockInstancesNodes() # pylint: disable=W0212
+
+  @staticmethod
+  def _CheckGroupLocks(lu):
+    owned_instances = frozenset(lu.owned_locks(locking.LEVEL_INSTANCE))
+    owned_groups = frozenset(lu.owned_locks(locking.LEVEL_NODEGROUP))
+
+    # Check if node groups for locked instances are still correct
+    for instance_name in owned_instances:
+      _CheckInstanceNodeGroups(lu.cfg, instance_name, owned_groups)
 
   def _GetQueryData(self, lu):
     """Computes the list of instances and their attributes.
 
     """
+    if self.do_grouplocks:
+      self._CheckGroupLocks(lu)
+
     cluster = lu.cfg.GetClusterInfo()
     all_info = lu.cfg.GetAllInstancesInfo()
 
@@ -3970,7 +4740,7 @@ class _InstanceQuery(_QueryBase):
     if query.IQ_DISKUSAGE in self.requested_data:
       disk_usage = dict((inst.name,
                          _ComputeDiskSize(inst.disk_template,
-                                          [{"size": disk.size}
+                                          [{constants.IDISK_SIZE: disk.size}
                                            for disk in inst.disks]))
                         for inst in instance_list)
     else:
@@ -3988,23 +4758,34 @@ class _InstanceQuery(_QueryBase):
     else:
       consinfo = None
 
+    if query.IQ_NODES in self.requested_data:
+      node_names = set(itertools.chain(*map(operator.attrgetter("all_nodes"),
+                                            instance_list)))
+      nodes = dict(lu.cfg.GetMultiNodeInfo(node_names))
+      groups = dict((uuid, lu.cfg.GetNodeGroup(uuid))
+                    for uuid in set(map(operator.attrgetter("group"),
+                                        nodes.values())))
+    else:
+      nodes = None
+      groups = None
+
     return query.InstanceQueryData(instance_list, lu.cfg.GetClusterInfo(),
                                    disk_usage, offline_nodes, bad_nodes,
-                                   live_data, wrongnode_inst, consinfo)
+                                   live_data, wrongnode_inst, consinfo,
+                                   nodes, groups)
 
 
 class LUQuery(NoHooksLU):
   """Query for resources/items of a certain kind.
 
   """
-  # pylint: disable-msg=W0142
+  # pylint: disable=W0142
   REQ_BGL = False
 
   def CheckArguments(self):
     qcls = _GetQueryImplementation(self.op.what)
-    names = qlang.ReadSimpleFilter("name", self.op.filter)
 
-    self.impl = qcls(names, self.op.fields, False)
+    self.impl = qcls(self.op.filter, self.op.fields, self.op.use_locking)
 
   def ExpandNames(self):
     self.impl.ExpandNames(self)
@@ -4020,7 +4801,7 @@ class LUQueryFields(NoHooksLU):
   """Query for resources/items of a certain kind.
 
   """
-  # pylint: disable-msg=W0142
+  # pylint: disable=W0142
   REQ_BGL = False
 
   def CheckArguments(self):
@@ -4030,7 +4811,7 @@ class LUQueryFields(NoHooksLU):
     self.needed_locks = {}
 
   def Exec(self, feedback_fn):
-    return self.qcls.FieldsQuery(self.op.fields)
+    return query.QueryFields(self.qcls.FIELDS, self.op.fields)
 
 
 class LUNodeModifyStorage(NoHooksLU):
@@ -4104,7 +4885,7 @@ class LUNodeAdd(LogicalUnit):
     This will run on all nodes before, and on all nodes + the new node after.
 
     """
-    env = {
+    return {
       "OP_TARGET": self.op.node_name,
       "NODE_NAME": self.op.node_name,
       "NODE_PIP": self.op.primary_ip,
@@ -4112,9 +4893,16 @@ class LUNodeAdd(LogicalUnit):
       "MASTER_CAPABLE": str(self.op.master_capable),
       "VM_CAPABLE": str(self.op.vm_capable),
       }
-    nodes_0 = self.cfg.GetNodeList()
-    nodes_1 = nodes_0 + [self.op.node_name, ]
-    return env, nodes_0, nodes_1
+
+  def BuildHooksNodes(self):
+    """Build hooks nodes.
+
+    """
+    # Exclude added node
+    pre_nodes = list(set(self.cfg.GetNodeList()) - set([self.op.node_name]))
+    post_nodes = pre_nodes + [self.op.node_name, ]
+
+    return (pre_nodes, post_nodes)
 
   def CheckPrereq(self):
     """Check prerequisites.
@@ -4153,9 +4941,7 @@ class LUNodeAdd(LogicalUnit):
 
     self.changed_primary_ip = False
 
-    for existing_node_name in node_list:
-      existing_node = cfg.GetNodeInfo(existing_node_name)
-
+    for existing_node_name, existing_node in cfg.GetMultiNodeInfo(node_list):
       if self.op.readd and node == existing_node_name:
         if existing_node.secondary_ip != secondary_ip:
           raise errors.OpPrereqError("Readded node doesn't have the same IP"
@@ -4247,6 +5033,18 @@ class LUNodeAdd(LogicalUnit):
     if self.op.ndparams:
       utils.ForceDictType(self.op.ndparams, constants.NDS_PARAMETER_TYPES)
 
+    # check connectivity
+    result = self.rpc.call_version([self.new_node.name])[self.new_node.name]
+    result.Raise("Can't get version information from node %s" % node)
+    if constants.PROTOCOL_VERSION == result.payload:
+      logging.info("Communication to node %s fine, sw version %s match",
+                   node, result.payload)
+    else:
+      raise errors.OpPrereqError("Version mismatch master version %s,"
+                                 " node version %s" %
+                                 (constants.PROTOCOL_VERSION, result.payload),
+                                 errors.ECODE_ENVIRON)
+
   def Exec(self, feedback_fn):
     """Adds the new node to the cluster.
 
@@ -4262,7 +5060,7 @@ class LUNodeAdd(LogicalUnit):
     # later in the procedure; this also means that if the re-add
     # fails, we are left with a non-offlined, broken node
     if self.op.readd:
-      new_node.drained = new_node.offline = False # pylint: disable-msg=W0201
+      new_node.drained = new_node.offline = False # pylint: disable=W0201
       self.LogInfo("Readding a node, the offline/drained flags were reset")
       # if we demote the node, we do cleanup later in the procedure
       new_node.master_candidate = self.master_candidate
@@ -4282,17 +5080,6 @@ class LUNodeAdd(LogicalUnit):
     else:
       new_node.ndparams = {}
 
-    # check connectivity
-    result = self.rpc.call_version([node])[node]
-    result.Raise("Can't get version information from node %s" % node)
-    if constants.PROTOCOL_VERSION == result.payload:
-      logging.info("Communication to node %s fine, sw version %s match",
-                   node, result.payload)
-    else:
-      raise errors.OpExecError("Version mismatch master version %s,"
-                               " node version %s" %
-                               (constants.PROTOCOL_VERSION, result.payload))
-
     # Add node to our /etc/hosts, and add key to known_hosts
     if self.cfg.GetClusterInfo().modify_etc_hosts:
       master_node = self.cfg.GetMasterNode()
@@ -4308,7 +5095,7 @@ class LUNodeAdd(LogicalUnit):
 
     node_verify_list = [self.cfg.GetMasterNode()]
     node_verify_param = {
-      constants.NV_NODELIST: [node],
+      constants.NV_NODELIST: ([node], {}),
       # TODO: do a node-net-test as well?
     }
 
@@ -4405,21 +5192,22 @@ class LUNodeSetParams(LogicalUnit):
     # If we have locked all instances, before waiting to lock nodes, release
     # all the ones living on nodes unrelated to the current operation.
     if level == locking.LEVEL_NODE and self.lock_instances:
-      instances_release = []
-      instances_keep = []
       self.affected_instances = []
       if self.needed_locks[locking.LEVEL_NODE] is not locking.ALL_SET:
-        for instance_name in self.acquired_locks[locking.LEVEL_INSTANCE]:
-          instance = self.context.cfg.GetInstanceInfo(instance_name)
-          i_mirrored = instance.disk_template in constants.DTS_NET_MIRROR
-          if i_mirrored and self.op.node_name in instance.all_nodes:
+        instances_keep = []
+
+        # Build list of instances to release
+        locked_i = self.owned_locks(locking.LEVEL_INSTANCE)
+        for instance_name, instance in self.cfg.GetMultiInstanceInfo(locked_i):
+          if (instance.disk_template in constants.DTS_INT_MIRROR and
+              self.op.node_name in instance.all_nodes):
             instances_keep.append(instance_name)
             self.affected_instances.append(instance)
-          else:
-            instances_release.append(instance_name)
-        if instances_release:
-          self.context.glm.release(locking.LEVEL_INSTANCE, instances_release)
-          self.acquired_locks[locking.LEVEL_INSTANCE] = instances_keep
+
+        _ReleaseLocks(self, locking.LEVEL_INSTANCE, keep=instances_keep)
+
+        assert (set(self.owned_locks(locking.LEVEL_INSTANCE)) ==
+                set(instances_keep))
 
   def BuildHooksEnv(self):
     """Build hooks env.
@@ -4427,7 +5215,7 @@ class LUNodeSetParams(LogicalUnit):
     This runs on the master node.
 
     """
-    env = {
+    return {
       "OP_TARGET": self.op.node_name,
       "MASTER_CANDIDATE": str(self.op.master_candidate),
       "OFFLINE": str(self.op.offline),
@@ -4435,9 +5223,13 @@ class LUNodeSetParams(LogicalUnit):
       "MASTER_CAPABLE": str(self.op.master_capable),
       "VM_CAPABLE": str(self.op.vm_capable),
       }
-    nl = [self.cfg.GetMasterNode(),
-          self.op.node_name]
-    return env, nl, nl
+
+  def BuildHooksNodes(self):
+    """Build hooks nodes.
+
+    """
+    nl = [self.cfg.GetMasterNode(), self.op.node_name]
+    return (nl, nl)
 
   def CheckPrereq(self):
     """Check prerequisites.
@@ -4481,7 +5273,7 @@ class LUNodeSetParams(LogicalUnit):
 
     self.old_flags = old_flags = (node.master_candidate,
                                   node.drained, node.offline)
-    assert old_flags in self._F2R, "Un-handled old flags  %s" % str(old_flags)
+    assert old_flags in self._F2R, "Un-handled old flags %s" % str(old_flags)
     self.old_role = old_role = self._F2R[old_flags]
 
     # Check for ineffective changes
@@ -4497,12 +5289,12 @@ class LUNodeSetParams(LogicalUnit):
     if _SupportsOob(self.cfg, node):
       if self.op.offline is False and not (node.powered or
                                            self.op.powered == True):
-        raise errors.OpPrereqError(("Please power on node %s first before you"
-                                    " can reset offline state") %
+        raise errors.OpPrereqError(("Node %s needs to be turned on before its"
+                                    " offline status can be reset") %
                                    self.op.node_name)
     elif self.op.powered is not None:
       raise errors.OpPrereqError(("Unable to change powered state for node %s"
-                                  " which does not support out-of-band"
+                                  " as it does not support out-of-band"
                                   " handling") % self.op.node_name)
 
     # If we're being deofflined/drained, we'll MC ourself if needed
@@ -4718,6 +5510,7 @@ class LUClusterQuery(NoHooksLU):
       "volume_group_name": cluster.volume_group_name,
       "drbd_usermode_helper": cluster.drbd_usermode_helper,
       "file_storage_dir": cluster.file_storage_dir,
+      "shared_file_storage_dir": cluster.shared_file_storage_dir,
       "maintain_node_health": cluster.maintain_node_health,
       "ctime": cluster.ctime,
       "mtime": cluster.mtime,
@@ -5032,7 +5825,7 @@ def _CheckNodeFreeMemory(lu, node, reason, requested, hypervisor_name):
   nodeinfo = lu.rpc.call_node_info([node], None, hypervisor_name)
   nodeinfo[node].Raise("Can't get data from node %s" % node,
                        prereq=True, ecode=errors.ECODE_ENVIRON)
-  free_mem = nodeinfo[node].payload.get('memory_free', None)
+  free_mem = nodeinfo[node].payload.get("memory_free", None)
   if not isinstance(free_mem, int):
     raise errors.OpPrereqError("Can't compute free memory on node %s, result"
                                " was '%s'" % (node, free_mem),
@@ -5130,9 +5923,17 @@ class LUInstanceStartup(LogicalUnit):
     env = {
       "FORCE": self.op.force,
       }
+
     env.update(_BuildInstanceHookEnvByObject(self, self.instance))
+
+    return env
+
+  def BuildHooksNodes(self):
+    """Build hooks nodes.
+
+    """
     nl = [self.cfg.GetMasterNode()] + list(self.instance.all_nodes)
-    return env, nl, nl
+    return (nl, nl)
 
   def CheckPrereq(self):
     """Check prerequisites.
@@ -5199,7 +6000,8 @@ class LUInstanceStartup(LogicalUnit):
       _StartInstanceDisks(self, instance, force)
 
       result = self.rpc.call_instance_start(node_current, instance,
-                                            self.op.hvparams, self.op.beparams)
+                                            self.op.hvparams, self.op.beparams,
+                                            self.op.startup_paused)
       msg = result.fail_msg
       if msg:
         _ShutdownInstanceDisks(self, instance)
@@ -5228,9 +6030,17 @@ class LUInstanceReboot(LogicalUnit):
       "REBOOT_TYPE": self.op.reboot_type,
       "SHUTDOWN_TIMEOUT": self.op.shutdown_timeout,
       }
+
     env.update(_BuildInstanceHookEnvByObject(self, self.instance))
+
+    return env
+
+  def BuildHooksNodes(self):
+    """Build hooks nodes.
+
+    """
     nl = [self.cfg.GetMasterNode()] + list(self.instance.all_nodes)
-    return env, nl, nl
+    return (nl, nl)
 
   def CheckPrereq(self):
     """Check prerequisites.
@@ -5255,10 +6065,16 @@ class LUInstanceReboot(LogicalUnit):
     ignore_secondaries = self.op.ignore_secondaries
     reboot_type = self.op.reboot_type
 
+    remote_info = self.rpc.call_instance_info(instance.primary_node,
+                                              instance.name,
+                                              instance.hypervisor)
+    remote_info.Raise("Error checking node %s" % instance.primary_node)
+    instance_running = bool(remote_info.payload)
+
     node_current = instance.primary_node
 
-    if reboot_type in [constants.INSTANCE_REBOOT_SOFT,
-                       constants.INSTANCE_REBOOT_HARD]:
+    if instance_running and reboot_type in [constants.INSTANCE_REBOOT_SOFT,
+                                            constants.INSTANCE_REBOOT_HARD]:
       for disk in instance.disks:
         self.cfg.SetDiskID(disk, node_current)
       result = self.rpc.call_instance_reboot(node_current, instance,
@@ -5266,12 +6082,17 @@ class LUInstanceReboot(LogicalUnit):
                                              self.op.shutdown_timeout)
       result.Raise("Could not reboot instance")
     else:
-      result = self.rpc.call_instance_shutdown(node_current, instance,
-                                               self.op.shutdown_timeout)
-      result.Raise("Could not shutdown instance for full reboot")
-      _ShutdownInstanceDisks(self, instance)
+      if instance_running:
+        result = self.rpc.call_instance_shutdown(node_current, instance,
+                                                 self.op.shutdown_timeout)
+        result.Raise("Could not shutdown instance for full reboot")
+        _ShutdownInstanceDisks(self, instance)
+      else:
+        self.LogInfo("Instance %s was already stopped, starting now",
+                     instance.name)
       _StartInstanceDisks(self, instance, ignore_secondaries)
-      result = self.rpc.call_instance_start(node_current, instance, None, None)
+      result = self.rpc.call_instance_start(node_current, instance,
+                                            None, None, False)
       msg = result.fail_msg
       if msg:
         _ShutdownInstanceDisks(self, instance)
@@ -5300,8 +6121,14 @@ class LUInstanceShutdown(LogicalUnit):
     """
     env = _BuildInstanceHookEnvByObject(self, self.instance)
     env["TIMEOUT"] = self.op.timeout
+    return env
+
+  def BuildHooksNodes(self):
+    """Build hooks nodes.
+
+    """
     nl = [self.cfg.GetMasterNode()] + list(self.instance.all_nodes)
-    return env, nl, nl
+    return (nl, nl)
 
   def CheckPrereq(self):
     """Check prerequisites.
@@ -5361,9 +6188,14 @@ class LUInstanceReinstall(LogicalUnit):
     This runs on master, primary and secondary nodes of the instance.
 
     """
-    env = _BuildInstanceHookEnvByObject(self, self.instance)
+    return _BuildInstanceHookEnvByObject(self, self.instance)
+
+  def BuildHooksNodes(self):
+    """Build hooks nodes.
+
+    """
     nl = [self.cfg.GetMasterNode()] + list(self.instance.all_nodes)
-    return env, nl, nl
+    return (nl, nl)
 
   def CheckPrereq(self):
     """Check prerequisites.
@@ -5464,9 +6296,14 @@ class LUInstanceRecreateDisks(LogicalUnit):
     This runs on master, primary and secondary nodes of the instance.
 
     """
-    env = _BuildInstanceHookEnvByObject(self, self.instance)
+    return _BuildInstanceHookEnvByObject(self, self.instance)
+
+  def BuildHooksNodes(self):
+    """Build hooks nodes.
+
+    """
     nl = [self.cfg.GetMasterNode()] + list(self.instance.all_nodes)
-    return env, nl, nl
+    return (nl, nl)
 
   def CheckPrereq(self):
     """Check prerequisites.
@@ -5508,7 +6345,7 @@ class LUInstanceRecreateDisks(LogicalUnit):
     else:
       for idx in self.op.disks:
         if idx >= len(instance.disks):
-          raise errors.OpPrereqError("Invalid disk index passed '%s'" % idx,
+          raise errors.OpPrereqError("Invalid disk index '%s'" % idx,
                                      errors.ECODE_INVAL)
     if self.op.disks != range(len(instance.disks)) and self.op.nodes:
       raise errors.OpPrereqError("Can't recreate disks partially and"
@@ -5573,7 +6410,7 @@ class LUInstanceRename(LogicalUnit):
     """
     if self.op.ip_check and not self.op.name_check:
       # TODO: make the ip check more flexible and not depend on the name check
-      raise errors.OpPrereqError("Cannot do ip check without a name check",
+      raise errors.OpPrereqError("IP address check requires a name check",
                                  errors.ECODE_INVAL)
 
   def BuildHooksEnv(self):
@@ -5584,8 +6421,14 @@ class LUInstanceRename(LogicalUnit):
     """
     env = _BuildInstanceHookEnvByObject(self, self.instance)
     env["INSTANCE_NEW_NAME"] = self.op.new_name
+    return env
+
+  def BuildHooksNodes(self):
+    """Build hooks nodes.
+
+    """
     nl = [self.cfg.GetMasterNode()] + list(self.instance.all_nodes)
-    return env, nl, nl
+    return (nl, nl)
 
   def CheckPrereq(self):
     """Check prerequisites.
@@ -5604,9 +6447,14 @@ class LUInstanceRename(LogicalUnit):
     new_name = self.op.new_name
     if self.op.name_check:
       hostname = netutils.GetHostname(name=new_name)
-      if hostname != new_name:
+      if hostname.name != new_name:
         self.LogInfo("Resolved given name '%s' to '%s'", new_name,
                      hostname.name)
+      if not utils.MatchNameComponent(self.op.new_name, [hostname.name]):
+        raise errors.OpPrereqError(("Resolved hostname '%s' does not look the"
+                                    " same as given hostname '%s'") %
+                                    (hostname.name, self.op.new_name),
+                                    errors.ECODE_INVAL)
       new_name = self.op.new_name = hostname.name
       if (self.op.ip_check and
           netutils.TcpPing(hostname.ip, constants.DEFAULT_NODED_PORT)):
@@ -5627,15 +6475,17 @@ class LUInstanceRename(LogicalUnit):
     old_name = inst.name
 
     rename_file_storage = False
-    if (inst.disk_template == constants.DT_FILE and
+    if (inst.disk_template in constants.DTS_FILEBASED and
         self.op.new_name != inst.name):
       old_file_storage_dir = os.path.dirname(inst.disks[0].logical_id[1])
       rename_file_storage = True
 
     self.cfg.RenameInstance(inst.name, self.op.new_name)
-    # Change the instance lock. This is definitely safe while we hold the BGL
-    self.context.glm.remove(locking.LEVEL_INSTANCE, old_name)
-    self.context.glm.add(locking.LEVEL_INSTANCE, self.op.new_name)
+    # Change the instance lock. This is definitely safe while we hold the BGL.
+    # Otherwise the new lock would have to be added in acquired mode.
+    assert self.REQ_BGL
+    self.glm.remove(locking.LEVEL_INSTANCE, old_name)
+    self.glm.add(locking.LEVEL_INSTANCE, self.op.new_name)
 
     # re-read the instance from the configuration after rename
     inst = self.cfg.GetInstanceInfo(self.op.new_name)
@@ -5691,9 +6541,15 @@ class LUInstanceRemove(LogicalUnit):
     """
     env = _BuildInstanceHookEnvByObject(self, self.instance)
     env["SHUTDOWN_TIMEOUT"] = self.op.shutdown_timeout
+    return env
+
+  def BuildHooksNodes(self):
+    """Build hooks nodes.
+
+    """
     nl = [self.cfg.GetMasterNode()]
     nl_post = list(self.instance.all_nodes) + nl
-    return env, nl, nl_post
+    return (nl, nl_post)
 
   def CheckPrereq(self):
     """Check prerequisites.
@@ -5733,7 +6589,7 @@ def _RemoveInstance(lu, feedback_fn, instance, ignore_failures):
   """
   logging.info("Removing block devices for instance %s", instance.name)
 
-  if not _RemoveDisks(lu, instance):
+  if not _RemoveDisks(lu, instance, ignore_failures=ignore_failures):
     if not ignore_failures:
       raise errors.OpExecError("Can't remove instance's disks")
     feedback_fn("Warning: can't remove instance's disks")
@@ -5753,12 +6609,12 @@ class LUInstanceQuery(NoHooksLU):
   """Logical unit for querying instances.
 
   """
-  # pylint: disable-msg=W0142
+  # pylint: disable=W0142
   REQ_BGL = False
 
   def CheckArguments(self):
-    self.iq = _InstanceQuery(self.op.names, self.op.output_fields,
-                             self.op.use_locking)
+    self.iq = _InstanceQuery(qlang.MakeSimpleFilter("name", self.op.names),
+                             self.op.output_fields, self.op.use_locking)
 
   def ExpandNames(self):
     self.iq.ExpandNames(self)
@@ -5778,14 +6634,43 @@ class LUInstanceFailover(LogicalUnit):
   HTYPE = constants.HTYPE_INSTANCE
   REQ_BGL = False
 
+  def CheckArguments(self):
+    """Check the arguments.
+
+    """
+    self.iallocator = getattr(self.op, "iallocator", None)
+    self.target_node = getattr(self.op, "target_node", None)
+
   def ExpandNames(self):
     self._ExpandAndLockInstance()
+
+    if self.op.target_node is not None:
+      self.op.target_node = _ExpandNodeName(self.cfg, self.op.target_node)
+
     self.needed_locks[locking.LEVEL_NODE] = []
     self.recalculate_locks[locking.LEVEL_NODE] = constants.LOCKS_REPLACE
 
+    ignore_consistency = self.op.ignore_consistency
+    shutdown_timeout = self.op.shutdown_timeout
+    self._migrater = TLMigrateInstance(self, self.op.instance_name,
+                                       cleanup=False,
+                                       failover=True,
+                                       ignore_consistency=ignore_consistency,
+                                       shutdown_timeout=shutdown_timeout)
+    self.tasklets = [self._migrater]
+
   def DeclareLocks(self, level):
     if level == locking.LEVEL_NODE:
-      self._LockInstancesNodes()
+      instance = self.context.cfg.GetInstanceInfo(self.op.instance_name)
+      if instance.disk_template in constants.DTS_EXT_MIRROR:
+        if self.op.target_node is None:
+          self.needed_locks[locking.LEVEL_NODE] = locking.ALL_SET
+        else:
+          self.needed_locks[locking.LEVEL_NODE] = [instance.primary_node,
+                                                   self.op.target_node]
+        del self.recalculate_locks[locking.LEVEL_NODE]
+      else:
+        self._LockInstancesNodes()
 
   def BuildHooksEnv(self):
     """Build hooks env.
@@ -5793,128 +6678,33 @@ class LUInstanceFailover(LogicalUnit):
     This runs on master, primary and secondary nodes of the instance.
 
     """
-    instance = self.instance
+    instance = self._migrater.instance
     source_node = instance.primary_node
-    target_node = instance.secondary_nodes[0]
+    target_node = self.op.target_node
     env = {
       "IGNORE_CONSISTENCY": self.op.ignore_consistency,
       "SHUTDOWN_TIMEOUT": self.op.shutdown_timeout,
       "OLD_PRIMARY": source_node,
-      "OLD_SECONDARY": target_node,
       "NEW_PRIMARY": target_node,
-      "NEW_SECONDARY": source_node,
       }
+
+    if instance.disk_template in constants.DTS_INT_MIRROR:
+      env["OLD_SECONDARY"] = instance.secondary_nodes[0]
+      env["NEW_SECONDARY"] = source_node
+    else:
+      env["OLD_SECONDARY"] = env["NEW_SECONDARY"] = ""
+
     env.update(_BuildInstanceHookEnvByObject(self, instance))
+
+    return env
+
+  def BuildHooksNodes(self):
+    """Build hooks nodes.
+
+    """
+    instance = self._migrater.instance
     nl = [self.cfg.GetMasterNode()] + list(instance.secondary_nodes)
-    nl_post = list(nl)
-    nl_post.append(source_node)
-    return env, nl, nl_post
-
-  def CheckPrereq(self):
-    """Check prerequisites.
-
-    This checks that the instance is in the cluster.
-
-    """
-    self.instance = instance = self.cfg.GetInstanceInfo(self.op.instance_name)
-    assert self.instance is not None, \
-      "Cannot retrieve locked instance %s" % self.op.instance_name
-
-    bep = self.cfg.GetClusterInfo().FillBE(instance)
-    if instance.disk_template not in constants.DTS_NET_MIRROR:
-      raise errors.OpPrereqError("Instance's disk layout is not"
-                                 " network mirrored, cannot failover.",
-                                 errors.ECODE_STATE)
-
-    secondary_nodes = instance.secondary_nodes
-    if not secondary_nodes:
-      raise errors.ProgrammerError("no secondary node but using "
-                                   "a mirrored disk template")
-
-    target_node = secondary_nodes[0]
-    _CheckNodeOnline(self, target_node)
-    _CheckNodeNotDrained(self, target_node)
-    if instance.admin_up:
-      # check memory requirements on the secondary node
-      _CheckNodeFreeMemory(self, target_node, "failing over instance %s" %
-                           instance.name, bep[constants.BE_MEMORY],
-                           instance.hypervisor)
-    else:
-      self.LogInfo("Not checking memory on the secondary node as"
-                   " instance will not be started")
-
-    # check bridge existance
-    _CheckInstanceBridgesExist(self, instance, node=target_node)
-
-  def Exec(self, feedback_fn):
-    """Failover an instance.
-
-    The failover is done by shutting it down on its present node and
-    starting it on the secondary.
-
-    """
-    instance = self.instance
-    primary_node = self.cfg.GetNodeInfo(instance.primary_node)
-
-    source_node = instance.primary_node
-    target_node = instance.secondary_nodes[0]
-
-    if instance.admin_up:
-      feedback_fn("* checking disk consistency between source and target")
-      for dev in instance.disks:
-        # for drbd, these are drbd over lvm
-        if not _CheckDiskConsistency(self, dev, target_node, False):
-          if not self.op.ignore_consistency:
-            raise errors.OpExecError("Disk %s is degraded on target node,"
-                                     " aborting failover." % dev.iv_name)
-    else:
-      feedback_fn("* not checking disk consistency as instance is not running")
-
-    feedback_fn("* shutting down instance on source node")
-    logging.info("Shutting down instance %s on node %s",
-                 instance.name, source_node)
-
-    result = self.rpc.call_instance_shutdown(source_node, instance,
-                                             self.op.shutdown_timeout)
-    msg = result.fail_msg
-    if msg:
-      if self.op.ignore_consistency or primary_node.offline:
-        self.proc.LogWarning("Could not shutdown instance %s on node %s."
-                             " Proceeding anyway. Please make sure node"
-                             " %s is down. Error details: %s",
-                             instance.name, source_node, source_node, msg)
-      else:
-        raise errors.OpExecError("Could not shutdown instance %s on"
-                                 " node %s: %s" %
-                                 (instance.name, source_node, msg))
-
-    feedback_fn("* deactivating the instance's disks on source node")
-    if not _ShutdownInstanceDisks(self, instance, ignore_primary=True):
-      raise errors.OpExecError("Can't shut down the instance's disks.")
-
-    instance.primary_node = target_node
-    # distribute new instance config to the other nodes
-    self.cfg.Update(instance, feedback_fn)
-
-    # Only start the instance if it's marked as up
-    if instance.admin_up:
-      feedback_fn("* activating the instance's disks on target node")
-      logging.info("Starting instance %s on node %s",
-                   instance.name, target_node)
-
-      disks_ok, _ = _AssembleInstanceDisks(self, instance,
-                                           ignore_secondaries=True)
-      if not disks_ok:
-        _ShutdownInstanceDisks(self, instance)
-        raise errors.OpExecError("Can't activate the instance's disks")
-
-      feedback_fn("* starting the instance on the target node")
-      result = self.rpc.call_instance_start(target_node, instance, None, None)
-      msg = result.fail_msg
-      if msg:
-        _ShutdownInstanceDisks(self, instance)
-        raise errors.OpExecError("Could not start instance %s on node %s: %s" %
-                                 (instance.name, target_node, msg))
+    return (nl, nl + [instance.primary_node])
 
 
 class LUInstanceMigrate(LogicalUnit):
@@ -5931,16 +6721,30 @@ class LUInstanceMigrate(LogicalUnit):
   def ExpandNames(self):
     self._ExpandAndLockInstance()
 
+    if self.op.target_node is not None:
+      self.op.target_node = _ExpandNodeName(self.cfg, self.op.target_node)
+
     self.needed_locks[locking.LEVEL_NODE] = []
     self.recalculate_locks[locking.LEVEL_NODE] = constants.LOCKS_REPLACE
 
     self._migrater = TLMigrateInstance(self, self.op.instance_name,
-                                       self.op.cleanup)
+                                       cleanup=self.op.cleanup,
+                                       failover=False,
+                                       fallback=self.op.allow_failover)
     self.tasklets = [self._migrater]
 
   def DeclareLocks(self, level):
     if level == locking.LEVEL_NODE:
-      self._LockInstancesNodes()
+      instance = self.context.cfg.GetInstanceInfo(self.op.instance_name)
+      if instance.disk_template in constants.DTS_EXT_MIRROR:
+        if self.op.target_node is None:
+          self.needed_locks[locking.LEVEL_NODE] = locking.ALL_SET
+        else:
+          self.needed_locks[locking.LEVEL_NODE] = [instance.primary_node,
+                                                   self.op.target_node]
+        del self.recalculate_locks[locking.LEVEL_NODE]
+      else:
+        self._LockInstancesNodes()
 
   def BuildHooksEnv(self):
     """Build hooks env.
@@ -5950,20 +6754,30 @@ class LUInstanceMigrate(LogicalUnit):
     """
     instance = self._migrater.instance
     source_node = instance.primary_node
-    target_node = instance.secondary_nodes[0]
+    target_node = self.op.target_node
     env = _BuildInstanceHookEnvByObject(self, instance)
-    env["MIGRATE_LIVE"] = self._migrater.live
-    env["MIGRATE_CLEANUP"] = self.op.cleanup
     env.update({
-        "OLD_PRIMARY": source_node,
-        "OLD_SECONDARY": target_node,
-        "NEW_PRIMARY": target_node,
-        "NEW_SECONDARY": source_node,
-        })
+      "MIGRATE_LIVE": self._migrater.live,
+      "MIGRATE_CLEANUP": self.op.cleanup,
+      "OLD_PRIMARY": source_node,
+      "NEW_PRIMARY": target_node,
+      })
+
+    if instance.disk_template in constants.DTS_INT_MIRROR:
+      env["OLD_SECONDARY"] = target_node
+      env["NEW_SECONDARY"] = source_node
+    else:
+      env["OLD_SECONDARY"] = env["NEW_SECONDARY"] = None
+
+    return env
+
+  def BuildHooksNodes(self):
+    """Build hooks nodes.
+
+    """
+    instance = self._migrater.instance
     nl = [self.cfg.GetMasterNode()] + list(instance.secondary_nodes)
-    nl_post = list(nl)
-    nl_post.append(source_node)
-    return env, nl, nl_post
+    return (nl, nl + [instance.primary_node])
 
 
 class LUInstanceMove(LogicalUnit):
@@ -5996,9 +6810,18 @@ class LUInstanceMove(LogicalUnit):
       "SHUTDOWN_TIMEOUT": self.op.shutdown_timeout,
       }
     env.update(_BuildInstanceHookEnvByObject(self, self.instance))
-    nl = [self.cfg.GetMasterNode()] + [self.instance.primary_node,
-                                       self.op.target_node]
-    return env, nl, nl
+    return env
+
+  def BuildHooksNodes(self):
+    """Build hooks nodes.
+
+    """
+    nl = [
+      self.cfg.GetMasterNode(),
+      self.instance.primary_node,
+      self.op.target_node,
+      ]
+    return (nl, nl)
 
   def CheckPrereq(self):
     """Check prerequisites.
@@ -6133,7 +6956,8 @@ class LUInstanceMove(LogicalUnit):
         _ShutdownInstanceDisks(self, instance)
         raise errors.OpExecError("Can't activate the instance's disks")
 
-      result = self.rpc.call_instance_start(target_node, instance, None, None)
+      result = self.rpc.call_instance_start(target_node, instance,
+                                            None, None, False)
       msg = result.fail_msg
       if msg:
         _ShutdownInstanceDisks(self, instance)
@@ -6149,33 +6973,16 @@ class LUNodeMigrate(LogicalUnit):
   HTYPE = constants.HTYPE_NODE
   REQ_BGL = False
 
+  def CheckArguments(self):
+    pass
+
   def ExpandNames(self):
     self.op.node_name = _ExpandNodeName(self.cfg, self.op.node_name)
 
+    self.share_locks = _ShareAll()
     self.needed_locks = {
       locking.LEVEL_NODE: [self.op.node_name],
       }
-
-    self.recalculate_locks[locking.LEVEL_NODE] = constants.LOCKS_APPEND
-
-    # Create tasklets for migrating instances for all instances on this node
-    names = []
-    tasklets = []
-
-    for inst in _GetNodePrimaryInstances(self.cfg, self.op.node_name):
-      logging.debug("Migrating instance %s", inst.name)
-      names.append(inst.name)
-
-      tasklets.append(TLMigrateInstance(self, inst.name, False))
-
-    self.tasklets = tasklets
-
-    # Declare instance locks
-    self.needed_locks[locking.LEVEL_INSTANCE] = names
-
-  def DeclareLocks(self, level):
-    if level == locking.LEVEL_NODE:
-      self._LockInstancesNodes()
 
   def BuildHooksEnv(self):
     """Build hooks env.
@@ -6183,13 +6990,40 @@ class LUNodeMigrate(LogicalUnit):
     This runs on the master, the primary and all the secondaries.
 
     """
-    env = {
+    return {
       "NODE_NAME": self.op.node_name,
       }
 
-    nl = [self.cfg.GetMasterNode()]
+  def BuildHooksNodes(self):
+    """Build hooks nodes.
 
-    return (env, nl, nl)
+    """
+    nl = [self.cfg.GetMasterNode()]
+    return (nl, nl)
+
+  def CheckPrereq(self):
+    pass
+
+  def Exec(self, feedback_fn):
+    # Prepare jobs for migration instances
+    jobs = [
+      [opcodes.OpInstanceMigrate(instance_name=inst.name,
+                                 mode=self.op.mode,
+                                 live=self.op.live,
+                                 iallocator=self.op.iallocator,
+                                 target_node=self.op.target_node)]
+      for inst in _GetNodePrimaryInstances(self.cfg, self.op.node_name)
+      ]
+
+    # TODO: Run iallocator in this opcode and pass correct placement options to
+    # OpInstanceMigrate. Since other jobs can modify the cluster between
+    # running the iallocator and the actual migration, a good consistency model
+    # will have to be found.
+
+    assert (frozenset(self.owned_locks(locking.LEVEL_NODE)) ==
+            frozenset([self.op.node_name]))
+
+    return ResultWithJobs(jobs)
 
 
 class TLMigrateInstance(Tasklet):
@@ -6198,9 +7032,28 @@ class TLMigrateInstance(Tasklet):
   @type live: boolean
   @ivar live: whether the migration will be done live or non-live;
       this variable is initalized only after CheckPrereq has run
+  @type cleanup: boolean
+  @ivar cleanup: Wheater we cleanup from a failed migration
+  @type iallocator: string
+  @ivar iallocator: The iallocator used to determine target_node
+  @type target_node: string
+  @ivar target_node: If given, the target_node to reallocate the instance to
+  @type failover: boolean
+  @ivar failover: Whether operation results in failover or migration
+  @type fallback: boolean
+  @ivar fallback: Whether fallback to failover is allowed if migration not
+                  possible
+  @type ignore_consistency: boolean
+  @ivar ignore_consistency: Wheter we should ignore consistency between source
+                            and target node
+  @type shutdown_timeout: int
+  @ivar shutdown_timeout: In case of failover timeout of the shutdown
 
   """
-  def __init__(self, lu, instance_name, cleanup):
+  def __init__(self, lu, instance_name, cleanup=False,
+               failover=False, fallback=False,
+               ignore_consistency=False,
+               shutdown_timeout=constants.DEFAULT_SHUTDOWN_TIMEOUT):
     """Initializes this class.
 
     """
@@ -6210,6 +7063,10 @@ class TLMigrateInstance(Tasklet):
     self.instance_name = instance_name
     self.cleanup = cleanup
     self.live = False # will be overridden later
+    self.failover = failover
+    self.fallback = fallback
+    self.ignore_consistency = ignore_consistency
+    self.shutdown_timeout = shutdown_timeout
 
   def CheckPrereq(self):
     """Check prerequisites.
@@ -6220,54 +7077,148 @@ class TLMigrateInstance(Tasklet):
     instance_name = _ExpandInstanceName(self.lu.cfg, self.instance_name)
     instance = self.cfg.GetInstanceInfo(instance_name)
     assert instance is not None
+    self.instance = instance
 
-    if instance.disk_template != constants.DT_DRBD8:
-      raise errors.OpPrereqError("Instance's disk layout is not"
-                                 " drbd8, cannot migrate.", errors.ECODE_STATE)
+    if (not self.cleanup and not instance.admin_up and not self.failover and
+        self.fallback):
+      self.lu.LogInfo("Instance is marked down, fallback allowed, switching"
+                      " to failover")
+      self.failover = True
 
-    secondary_nodes = instance.secondary_nodes
-    if not secondary_nodes:
-      raise errors.ConfigurationError("No secondary node but using"
-                                      " drbd8 disk template")
+    if instance.disk_template not in constants.DTS_MIRRORED:
+      if self.failover:
+        text = "failovers"
+      else:
+        text = "migrations"
+      raise errors.OpPrereqError("Instance's disk layout '%s' does not allow"
+                                 " %s" % (instance.disk_template, text),
+                                 errors.ECODE_STATE)
+
+    if instance.disk_template in constants.DTS_EXT_MIRROR:
+      _CheckIAllocatorOrNode(self.lu, "iallocator", "target_node")
+
+      if self.lu.op.iallocator:
+        self._RunAllocator()
+      else:
+        # We set set self.target_node as it is required by
+        # BuildHooksEnv
+        self.target_node = self.lu.op.target_node
+
+      # self.target_node is already populated, either directly or by the
+      # iallocator run
+      target_node = self.target_node
+      if self.target_node == instance.primary_node:
+        raise errors.OpPrereqError("Cannot migrate instance %s"
+                                   " to its primary (%s)" %
+                                   (instance.name, instance.primary_node))
+
+      if len(self.lu.tasklets) == 1:
+        # It is safe to release locks only when we're the only tasklet
+        # in the LU
+        _ReleaseLocks(self.lu, locking.LEVEL_NODE,
+                      keep=[instance.primary_node, self.target_node])
+
+    else:
+      secondary_nodes = instance.secondary_nodes
+      if not secondary_nodes:
+        raise errors.ConfigurationError("No secondary node but using"
+                                        " %s disk template" %
+                                        instance.disk_template)
+      target_node = secondary_nodes[0]
+      if self.lu.op.iallocator or (self.lu.op.target_node and
+                                   self.lu.op.target_node != target_node):
+        if self.failover:
+          text = "failed over"
+        else:
+          text = "migrated"
+        raise errors.OpPrereqError("Instances with disk template %s cannot"
+                                   " be %s to arbitrary nodes"
+                                   " (neither an iallocator nor a target"
+                                   " node can be passed)" %
+                                   (instance.disk_template, text),
+                                   errors.ECODE_INVAL)
 
     i_be = self.cfg.GetClusterInfo().FillBE(instance)
 
-    target_node = secondary_nodes[0]
     # check memory requirements on the secondary node
-    _CheckNodeFreeMemory(self.lu, target_node, "migrating instance %s" %
-                         instance.name, i_be[constants.BE_MEMORY],
-                         instance.hypervisor)
+    if not self.cleanup and (not self.failover or instance.admin_up):
+      _CheckNodeFreeMemory(self.lu, target_node, "migrating instance %s" %
+                           instance.name, i_be[constants.BE_MEMORY],
+                           instance.hypervisor)
+    else:
+      self.lu.LogInfo("Not checking memory on the secondary node as"
+                      " instance will not be started")
 
     # check bridge existance
     _CheckInstanceBridgesExist(self.lu, instance, node=target_node)
 
     if not self.cleanup:
       _CheckNodeNotDrained(self.lu, target_node)
-      result = self.rpc.call_instance_migratable(instance.primary_node,
-                                                 instance)
-      result.Raise("Can't migrate, please use failover",
-                   prereq=True, ecode=errors.ECODE_STATE)
+      if not self.failover:
+        result = self.rpc.call_instance_migratable(instance.primary_node,
+                                                   instance)
+        if result.fail_msg and self.fallback:
+          self.lu.LogInfo("Can't migrate, instance offline, fallback to"
+                          " failover")
+          self.failover = True
+        else:
+          result.Raise("Can't migrate, please use failover",
+                       prereq=True, ecode=errors.ECODE_STATE)
 
-    self.instance = instance
+    assert not (self.failover and self.cleanup)
 
-    if self.lu.op.live is not None and self.lu.op.mode is not None:
-      raise errors.OpPrereqError("Only one of the 'live' and 'mode'"
-                                 " parameters are accepted",
-                                 errors.ECODE_INVAL)
-    if self.lu.op.live is not None:
-      if self.lu.op.live:
-        self.lu.op.mode = constants.HT_MIGRATION_LIVE
-      else:
-        self.lu.op.mode = constants.HT_MIGRATION_NONLIVE
-      # reset the 'live' parameter to None so that repeated
-      # invocations of CheckPrereq do not raise an exception
-      self.lu.op.live = None
-    elif self.lu.op.mode is None:
-      # read the default value from the hypervisor
-      i_hv = self.cfg.GetClusterInfo().FillHV(instance, skip_globals=False)
-      self.lu.op.mode = i_hv[constants.HV_MIGRATION_MODE]
+    if not self.failover:
+      if self.lu.op.live is not None and self.lu.op.mode is not None:
+        raise errors.OpPrereqError("Only one of the 'live' and 'mode'"
+                                   " parameters are accepted",
+                                   errors.ECODE_INVAL)
+      if self.lu.op.live is not None:
+        if self.lu.op.live:
+          self.lu.op.mode = constants.HT_MIGRATION_LIVE
+        else:
+          self.lu.op.mode = constants.HT_MIGRATION_NONLIVE
+        # reset the 'live' parameter to None so that repeated
+        # invocations of CheckPrereq do not raise an exception
+        self.lu.op.live = None
+      elif self.lu.op.mode is None:
+        # read the default value from the hypervisor
+        i_hv = self.cfg.GetClusterInfo().FillHV(self.instance,
+                                                skip_globals=False)
+        self.lu.op.mode = i_hv[constants.HV_MIGRATION_MODE]
 
-    self.live = self.lu.op.mode == constants.HT_MIGRATION_LIVE
+      self.live = self.lu.op.mode == constants.HT_MIGRATION_LIVE
+    else:
+      # Failover is never live
+      self.live = False
+
+  def _RunAllocator(self):
+    """Run the allocator based on input opcode.
+
+    """
+    ial = IAllocator(self.cfg, self.rpc,
+                     mode=constants.IALLOCATOR_MODE_RELOC,
+                     name=self.instance_name,
+                     # TODO See why hail breaks with a single node below
+                     relocate_from=[self.instance.primary_node,
+                                    self.instance.primary_node],
+                     )
+
+    ial.Run(self.lu.op.iallocator)
+
+    if not ial.success:
+      raise errors.OpPrereqError("Can't compute nodes using"
+                                 " iallocator '%s': %s" %
+                                 (self.lu.op.iallocator, ial.info),
+                                 errors.ECODE_NORES)
+    if len(ial.result) != ial.required_nodes:
+      raise errors.OpPrereqError("iallocator '%s' returned invalid number"
+                                 " of nodes (%s), required %s" %
+                                 (self.lu.op.iallocator, len(ial.result),
+                                  ial.required_nodes), errors.ECODE_FAULT)
+    self.target_node = ial.result[0]
+    self.lu.LogInfo("Selected nodes for instance %s via iallocator %s: %s",
+                 self.instance_name, self.lu.op.iallocator,
+                 utils.CommaJoin(ial.result))
 
   def _WaitUntilSync(self):
     """Poll with custom rpc for disk sync.
@@ -6362,15 +7313,15 @@ class TLMigrateInstance(Tasklet):
 
     if runningon_source and runningon_target:
       raise errors.OpExecError("Instance seems to be running on two nodes,"
-                               " or the hypervisor is confused. You will have"
+                               " or the hypervisor is confused; you will have"
                                " to ensure manually that it runs only on one"
-                               " and restart this operation.")
+                               " and restart this operation")
 
     if not (runningon_source or runningon_target):
-      raise errors.OpExecError("Instance does not seem to be running at all."
-                               " In this case, it's safer to repair by"
+      raise errors.OpExecError("Instance does not seem to be running at all;"
+                               " in this case it's safer to repair by"
                                " running 'gnt-instance stop' to ensure disk"
-                               " shutdown, and then restarting it.")
+                               " shutdown, and then restarting it")
 
     if runningon_target:
       # the migration has actually succeeded, we need to update the config
@@ -6384,16 +7335,17 @@ class TLMigrateInstance(Tasklet):
                        " primary node (%s)" % source_node)
       demoted_node = target_node
 
-    self._EnsureSecondary(demoted_node)
-    try:
+    if instance.disk_template in constants.DTS_INT_MIRROR:
+      self._EnsureSecondary(demoted_node)
+      try:
+        self._WaitUntilSync()
+      except errors.OpExecError:
+        # we ignore here errors, since if the device is standalone, it
+        # won't be able to sync
+        pass
+      self._GoStandalone()
+      self._GoReconnect(False)
       self._WaitUntilSync()
-    except errors.OpExecError:
-      # we ignore here errors, since if the device is standalone, it
-      # won't be able to sync
-      pass
-    self._GoStandalone()
-    self._GoReconnect(False)
-    self._WaitUntilSync()
 
     self.feedback_fn("* done")
 
@@ -6402,16 +7354,18 @@ class TLMigrateInstance(Tasklet):
 
     """
     target_node = self.target_node
+    if self.instance.disk_template in constants.DTS_EXT_MIRROR:
+      return
+
     try:
       self._EnsureSecondary(target_node)
       self._GoStandalone()
       self._GoReconnect(False)
       self._WaitUntilSync()
     except errors.OpExecError, err:
-      self.lu.LogWarning("Migration failed and I can't reconnect the"
-                         " drives: error '%s'\n"
-                         "Please look and recover the instance status" %
-                         str(err))
+      self.lu.LogWarning("Migration failed and I can't reconnect the drives,"
+                         " please try to recover the instance manually;"
+                         " error '%s'" % str(err))
 
   def _AbortMigration(self):
     """Call the hypervisor code to abort a started migration.
@@ -6453,7 +7407,7 @@ class TLMigrateInstance(Tasklet):
       if not _CheckDiskConsistency(self.lu, dev, target_node, False):
         raise errors.OpExecError("Disk %s is degraded or not fully"
                                  " synchronized on target node,"
-                                 " aborting migrate." % dev.iv_name)
+                                 " aborting migration" % dev.iv_name)
 
     # First get the migration information from the remote node
     result = self.rpc.call_migration_info(source_node, instance)
@@ -6466,11 +7420,12 @@ class TLMigrateInstance(Tasklet):
 
     self.migration_info = migration_info = result.payload
 
-    # Then switch the disks to master/master mode
-    self._EnsureSecondary(target_node)
-    self._GoStandalone()
-    self._GoReconnect(True)
-    self._WaitUntilSync()
+    if self.instance.disk_template not in constants.DTS_EXT_MIRROR:
+      # Then switch the disks to master/master mode
+      self._EnsureSecondary(target_node)
+      self._GoStandalone()
+      self._GoReconnect(True)
+      self._WaitUntilSync()
 
     self.feedback_fn("* preparing %s to accept the instance" % target_node)
     result = self.rpc.call_accept_instance(target_node,
@@ -6489,7 +7444,6 @@ class TLMigrateInstance(Tasklet):
                                (instance.name, msg))
 
     self.feedback_fn("* migrating instance to %s" % target_node)
-    time.sleep(10)
     result = self.rpc.call_instance_migrate(source_node, instance,
                                             self.nodes_ip[target_node],
                                             self.live)
@@ -6502,7 +7456,6 @@ class TLMigrateInstance(Tasklet):
       self._RevertDiskStatus()
       raise errors.OpExecError("Could not migrate instance %s: %s" %
                                (instance.name, msg))
-    time.sleep(10)
 
     instance.primary_node = target_node
     # distribute new instance config to the other nodes
@@ -6519,34 +7472,120 @@ class TLMigrateInstance(Tasklet):
       raise errors.OpExecError("Could not finalize instance migration: %s" %
                                msg)
 
-    self._EnsureSecondary(source_node)
-    self._WaitUntilSync()
-    self._GoStandalone()
-    self._GoReconnect(False)
-    self._WaitUntilSync()
+    if self.instance.disk_template not in constants.DTS_EXT_MIRROR:
+      self._EnsureSecondary(source_node)
+      self._WaitUntilSync()
+      self._GoStandalone()
+      self._GoReconnect(False)
+      self._WaitUntilSync()
 
     self.feedback_fn("* done")
+
+  def _ExecFailover(self):
+    """Failover an instance.
+
+    The failover is done by shutting it down on its present node and
+    starting it on the secondary.
+
+    """
+    instance = self.instance
+    primary_node = self.cfg.GetNodeInfo(instance.primary_node)
+
+    source_node = instance.primary_node
+    target_node = self.target_node
+
+    if instance.admin_up:
+      self.feedback_fn("* checking disk consistency between source and target")
+      for dev in instance.disks:
+        # for drbd, these are drbd over lvm
+        if not _CheckDiskConsistency(self.lu, dev, target_node, False):
+          if primary_node.offline:
+            self.feedback_fn("Node %s is offline, ignoring degraded disk %s on"
+                             " target node %s" %
+                             (primary_node.name, dev.iv_name, target_node))
+          elif not self.ignore_consistency:
+            raise errors.OpExecError("Disk %s is degraded on target node,"
+                                     " aborting failover" % dev.iv_name)
+    else:
+      self.feedback_fn("* not checking disk consistency as instance is not"
+                       " running")
+
+    self.feedback_fn("* shutting down instance on source node")
+    logging.info("Shutting down instance %s on node %s",
+                 instance.name, source_node)
+
+    result = self.rpc.call_instance_shutdown(source_node, instance,
+                                             self.shutdown_timeout)
+    msg = result.fail_msg
+    if msg:
+      if self.ignore_consistency or primary_node.offline:
+        self.lu.LogWarning("Could not shutdown instance %s on node %s,"
+                           " proceeding anyway; please make sure node"
+                           " %s is down; error details: %s",
+                           instance.name, source_node, source_node, msg)
+      else:
+        raise errors.OpExecError("Could not shutdown instance %s on"
+                                 " node %s: %s" %
+                                 (instance.name, source_node, msg))
+
+    self.feedback_fn("* deactivating the instance's disks on source node")
+    if not _ShutdownInstanceDisks(self.lu, instance, ignore_primary=True):
+      raise errors.OpExecError("Can't shut down the instance's disks")
+
+    instance.primary_node = target_node
+    # distribute new instance config to the other nodes
+    self.cfg.Update(instance, self.feedback_fn)
+
+    # Only start the instance if it's marked as up
+    if instance.admin_up:
+      self.feedback_fn("* activating the instance's disks on target node %s" %
+                       target_node)
+      logging.info("Starting instance %s on node %s",
+                   instance.name, target_node)
+
+      disks_ok, _ = _AssembleInstanceDisks(self.lu, instance,
+                                           ignore_secondaries=True)
+      if not disks_ok:
+        _ShutdownInstanceDisks(self.lu, instance)
+        raise errors.OpExecError("Can't activate the instance's disks")
+
+      self.feedback_fn("* starting the instance on the target node %s" %
+                       target_node)
+      result = self.rpc.call_instance_start(target_node, instance, None, None,
+                                            False)
+      msg = result.fail_msg
+      if msg:
+        _ShutdownInstanceDisks(self.lu, instance)
+        raise errors.OpExecError("Could not start instance %s on node %s: %s" %
+                                 (instance.name, target_node, msg))
 
   def Exec(self, feedback_fn):
     """Perform the migration.
 
     """
-    feedback_fn("Migrating instance %s" % self.instance.name)
-
     self.feedback_fn = feedback_fn
-
     self.source_node = self.instance.primary_node
-    self.target_node = self.instance.secondary_nodes[0]
-    self.all_nodes = [self.source_node, self.target_node]
-    self.nodes_ip = {
-      self.source_node: self.cfg.GetNodeInfo(self.source_node).secondary_ip,
-      self.target_node: self.cfg.GetNodeInfo(self.target_node).secondary_ip,
-      }
 
-    if self.cleanup:
-      return self._ExecCleanup()
+    # FIXME: if we implement migrate-to-any in DRBD, this needs fixing
+    if self.instance.disk_template in constants.DTS_INT_MIRROR:
+      self.target_node = self.instance.secondary_nodes[0]
+      # Otherwise self.target_node has been populated either
+      # directly, or through an iallocator.
+
+    self.all_nodes = [self.source_node, self.target_node]
+    self.nodes_ip = dict((name, node.secondary_ip) for (name, node)
+                         in self.cfg.GetMultiNodeInfo(self.all_nodes))
+
+    if self.failover:
+      feedback_fn("Failover instance %s" % self.instance.name)
+      self._ExecFailover()
     else:
-      return self._ExecMigration()
+      feedback_fn("Migrating instance %s" % self.instance.name)
+
+      if self.cleanup:
+        return self._ExecCleanup()
+      else:
+        return self._ExecMigration()
 
 
 def _CreateBlockDev(lu, node, instance, device, force_create,
@@ -6678,12 +7717,13 @@ def _GenerateDiskTemplate(lu, template_name,
                                       for i in range(disk_count)])
     for idx, disk in enumerate(disk_info):
       disk_index = idx + base_index
-      vg = disk.get("vg", vgname)
+      vg = disk.get(constants.IDISK_VG, vgname)
       feedback_fn("* disk %i, vg %s, name %s" % (idx, vg, names[idx]))
-      disk_dev = objects.Disk(dev_type=constants.LD_LV, size=disk["size"],
+      disk_dev = objects.Disk(dev_type=constants.LD_LV,
+                              size=disk[constants.IDISK_SIZE],
                               logical_id=(vg, names[idx]),
                               iv_name="disk/%d" % disk_index,
-                              mode=disk["mode"])
+                              mode=disk[constants.IDISK_MODE])
       disks.append(disk_dev)
   elif template_name == constants.DT_DRBD8:
     if len(secondary_nodes) != 1:
@@ -6699,14 +7739,15 @@ def _GenerateDiskTemplate(lu, template_name,
       names.append(lv_prefix + "_meta")
     for idx, disk in enumerate(disk_info):
       disk_index = idx + base_index
-      data_vg = disk.get("vg", vgname)
-      meta_vg = disk.get("metavg", data_vg)
+      data_vg = disk.get(constants.IDISK_VG, vgname)
+      meta_vg = disk.get(constants.IDISK_METAVG, data_vg)
       disk_dev = _GenerateDRBD8Branch(lu, primary_node, remote_node,
-                                      disk["size"], [data_vg, meta_vg],
-                                      names[idx*2:idx*2+2],
+                                      disk[constants.IDISK_SIZE],
+                                      [data_vg, meta_vg],
+                                      names[idx * 2:idx * 2 + 2],
                                       "disk/%d" % disk_index,
-                                      minors[idx*2], minors[idx*2+1])
-      disk_dev.mode = disk["mode"]
+                                      minors[idx * 2], minors[idx * 2 + 1])
+      disk_dev.mode = disk[constants.IDISK_MODE]
       disks.append(disk_dev)
   elif template_name == constants.DT_FILE:
     if len(secondary_nodes) != 0:
@@ -6716,13 +7757,44 @@ def _GenerateDiskTemplate(lu, template_name,
 
     for idx, disk in enumerate(disk_info):
       disk_index = idx + base_index
-      disk_dev = objects.Disk(dev_type=constants.LD_FILE, size=disk["size"],
+      disk_dev = objects.Disk(dev_type=constants.LD_FILE,
+                              size=disk[constants.IDISK_SIZE],
                               iv_name="disk/%d" % disk_index,
                               logical_id=(file_driver,
                                           "%s/disk%d" % (file_storage_dir,
                                                          disk_index)),
-                              mode=disk["mode"])
+                              mode=disk[constants.IDISK_MODE])
       disks.append(disk_dev)
+  elif template_name == constants.DT_SHARED_FILE:
+    if len(secondary_nodes) != 0:
+      raise errors.ProgrammerError("Wrong template configuration")
+
+    opcodes.RequireSharedFileStorage()
+
+    for idx, disk in enumerate(disk_info):
+      disk_index = idx + base_index
+      disk_dev = objects.Disk(dev_type=constants.LD_FILE,
+                              size=disk[constants.IDISK_SIZE],
+                              iv_name="disk/%d" % disk_index,
+                              logical_id=(file_driver,
+                                          "%s/disk%d" % (file_storage_dir,
+                                                         disk_index)),
+                              mode=disk[constants.IDISK_MODE])
+      disks.append(disk_dev)
+  elif template_name == constants.DT_BLOCK:
+    if len(secondary_nodes) != 0:
+      raise errors.ProgrammerError("Wrong template configuration")
+
+    for idx, disk in enumerate(disk_info):
+      disk_index = idx + base_index
+      disk_dev = objects.Disk(dev_type=constants.LD_BLOCKDEV,
+                              size=disk[constants.IDISK_SIZE],
+                              logical_id=(constants.BLOCKDEV_DRIVER_MANUAL,
+                                          disk[constants.IDISK_ADOPT]),
+                              iv_name="disk/%d" % disk_index,
+                              mode=disk[constants.IDISK_MODE])
+      disks.append(disk_dev)
+
   else:
     raise errors.ProgrammerError("Invalid disk template '%s'" % template_name)
   return disks
@@ -6811,8 +7883,8 @@ def _WipeDisks(lu, instance):
 
     for idx, success in enumerate(result.payload):
       if not success:
-        lu.LogWarning("Warning: Resume sync of disk %d failed. Please have a"
-                      " look at the status and troubleshoot the issue.", idx)
+        lu.LogWarning("Resume sync of disk %d failed, please have a"
+                      " look at the status and troubleshoot the issue", idx)
         logging.warn("resume-sync of instance %s for disks %d failed",
                      instance.name, idx)
 
@@ -6842,7 +7914,7 @@ def _CreateDisks(lu, instance, to_skip=None, target_node=None):
     pnode = target_node
     all_nodes = [pnode]
 
-  if instance.disk_template == constants.DT_FILE:
+  if instance.disk_template in constants.DTS_FILEBASED:
     file_storage_dir = os.path.dirname(instance.disks[0].logical_id[1])
     result = lu.rpc.call_file_storage_dir_create(pnode, file_storage_dir)
 
@@ -6862,7 +7934,7 @@ def _CreateDisks(lu, instance, to_skip=None, target_node=None):
       _CreateBlockDev(lu, node, instance, device, f_create, info, f_create)
 
 
-def _RemoveDisks(lu, instance, target_node=None):
+def _RemoveDisks(lu, instance, target_node=None, ignore_failures=False):
   """Remove all disks for an instance.
 
   This abstracts away some work from `AddInstance()` and
@@ -6883,6 +7955,7 @@ def _RemoveDisks(lu, instance, target_node=None):
   logging.info("Removing block devices for instance %s", instance.name)
 
   all_result = True
+  ports_to_release = set()
   for device in instance.disks:
     if target_node:
       edata = [(target_node, device)]
@@ -6895,6 +7968,14 @@ def _RemoveDisks(lu, instance, target_node=None):
         lu.LogWarning("Could not remove block device %s on node %s,"
                       " continuing anyway: %s", device.iv_name, node, msg)
         all_result = False
+
+    # if this is a DRBD disk, return its port to the pool
+    if device.dev_type in constants.LDS_DRBD:
+      ports_to_release.add(device.logical_id[2])
+
+  if all_result or ignore_failures:
+    for port in ports_to_release:
+      lu.cfg.AddTcpUdpPort(port)
 
   if instance.disk_template == constants.DT_FILE:
     file_storage_dir = os.path.dirname(instance.disks[0].logical_id[1])
@@ -6916,12 +7997,13 @@ def _ComputeDiskSizePerVG(disk_template, disks):
 
   """
   def _compute(disks, payload):
-    """Universal algorithm
+    """Universal algorithm.
 
     """
     vgs = {}
     for disk in disks:
-      vgs[disk["vg"]] = vgs.get("vg", 0) + disk["size"] + payload
+      vgs[disk[constants.IDISK_VG]] = \
+        vgs.get(constants.IDISK_VG, 0) + disk[constants.IDISK_SIZE] + payload
 
     return vgs
 
@@ -6932,11 +8014,12 @@ def _ComputeDiskSizePerVG(disk_template, disks):
     # 128 MB are added for drbd metadata for each disk
     constants.DT_DRBD8: _compute(disks, 128),
     constants.DT_FILE: {},
+    constants.DT_SHARED_FILE: {},
   }
 
   if disk_template not in req_size_dict:
     raise errors.ProgrammerError("Disk template '%s' size requirement"
-                                 " is unknown" %  disk_template)
+                                 " is unknown" % disk_template)
 
   return req_size_dict[disk_template]
 
@@ -6948,15 +8031,17 @@ def _ComputeDiskSize(disk_template, disks):
   # Required free disk space as a function of disk and swap space
   req_size_dict = {
     constants.DT_DISKLESS: None,
-    constants.DT_PLAIN: sum(d["size"] for d in disks),
+    constants.DT_PLAIN: sum(d[constants.IDISK_SIZE] for d in disks),
     # 128 MB are added for drbd metadata for each disk
-    constants.DT_DRBD8: sum(d["size"] + 128 for d in disks),
+    constants.DT_DRBD8: sum(d[constants.IDISK_SIZE] + 128 for d in disks),
     constants.DT_FILE: None,
+    constants.DT_SHARED_FILE: 0,
+    constants.DT_BLOCK: 0,
   }
 
   if disk_template not in req_size_dict:
     raise errors.ProgrammerError("Disk template '%s' size requirement"
-                                 " is unknown" %  disk_template)
+                                 " is unknown" % disk_template)
 
   return req_size_dict[disk_template]
 
@@ -7057,8 +8142,8 @@ class LUInstanceCreate(LogicalUnit):
 
     if self.op.ip_check and not self.op.name_check:
       # TODO: make the ip check more flexible and not depend on the name check
-      raise errors.OpPrereqError("Cannot do ip check without a name check",
-                                 errors.ECODE_INVAL)
+      raise errors.OpPrereqError("Cannot do IP address check without a name"
+                                 " check", errors.ECODE_INVAL)
 
     # check nics' parameter names
     for nic in self.op.nics:
@@ -7068,7 +8153,7 @@ class LUInstanceCreate(LogicalUnit):
     has_adopt = has_no_adopt = False
     for disk in self.op.disks:
       utils.ForceDictType(disk, constants.IDISK_PARAMS_TYPES)
-      if "adopt" in disk:
+      if constants.IDISK_ADOPT in disk:
         has_adopt = True
       else:
         has_no_adopt = True
@@ -7087,6 +8172,12 @@ class LUInstanceCreate(LogicalUnit):
       if self.op.mode == constants.INSTANCE_IMPORT:
         raise errors.OpPrereqError("Disk adoption not allowed for"
                                    " instance import", errors.ECODE_INVAL)
+    else:
+      if self.op.disk_template in constants.DTS_MUST_ADOPT:
+        raise errors.OpPrereqError("Disk template %s requires disk adoption,"
+                                   " but no 'adopt' parameter given" %
+                                   self.op.disk_template,
+                                   errors.ECODE_INVAL)
 
     self.adopt_disks = has_adopt
 
@@ -7107,12 +8198,14 @@ class LUInstanceCreate(LogicalUnit):
 
     if self.op.disk_template == constants.DT_FILE:
       opcodes.RequireFileStorage()
+    elif self.op.disk_template == constants.DT_SHARED_FILE:
+      opcodes.RequireSharedFileStorage()
 
     ### Node/iallocator related checks
     _CheckIAllocatorOrNode(self, "iallocator", "pnode")
 
     if self.op.pnode is not None:
-      if self.op.disk_template in constants.DTS_NET_MIRROR:
+      if self.op.disk_template in constants.DTS_INT_MIRROR:
         if self.op.snode is None:
           raise errors.OpPrereqError("The networked disk templates need"
                                      " a mirror node", errors.ECODE_INVAL)
@@ -7248,10 +8341,10 @@ class LUInstanceCreate(LogicalUnit):
                      mode=constants.IALLOCATOR_MODE_ALLOC,
                      name=self.op.instance_name,
                      disk_template=self.op.disk_template,
-                     tags=[],
+                     tags=self.op.tags,
                      os=self.op.os_type,
                      vcpus=self.be_full[constants.BE_VCPUS],
-                     mem_size=self.be_full[constants.BE_MEMORY],
+                     memory=self.be_full[constants.BE_MEMORY],
                      disks=self.disks,
                      nics=nics,
                      hypervisor=self.op.hypervisor,
@@ -7300,15 +8393,22 @@ class LUInstanceCreate(LogicalUnit):
       vcpus=self.be_full[constants.BE_VCPUS],
       nics=_NICListToTuple(self, self.nics),
       disk_template=self.op.disk_template,
-      disks=[(d["size"], d["mode"]) for d in self.disks],
+      disks=[(d[constants.IDISK_SIZE], d[constants.IDISK_MODE])
+             for d in self.disks],
       bep=self.be_full,
       hvp=self.hv_full,
       hypervisor_name=self.op.hypervisor,
+      tags=self.op.tags,
     ))
 
-    nl = ([self.cfg.GetMasterNode(), self.op.pnode] +
-          self.secondaries)
-    return env, nl, nl
+    return env
+
+  def BuildHooksNodes(self):
+    """Build hooks nodes.
+
+    """
+    nl = [self.cfg.GetMasterNode(), self.op.pnode] + self.secondaries
+    return nl, nl
 
   def _ReadExportInfo(self):
     """Reads the export information from disk.
@@ -7325,7 +8425,7 @@ class LUInstanceCreate(LogicalUnit):
     src_path = self.op.src_path
 
     if src_node is None:
-      locked_nodes = self.acquired_locks[locking.LEVEL_NODE]
+      locked_nodes = self.owned_locks(locking.LEVEL_NODE)
       exp_list = self.rpc.call_export_list(locked_nodes)
       found = False
       for node in exp_list:
@@ -7382,7 +8482,7 @@ class LUInstanceCreate(LogicalUnit):
         # TODO: import the disk iv_name too
         for idx in range(einfo.getint(constants.INISECT_INS, "disk_count")):
           disk_sz = einfo.getint(constants.INISECT_INS, "disk%d_size" % idx)
-          disks.append({"size": disk_sz})
+          disks.append({constants.IDISK_SIZE: disk_sz})
         self.op.disks = disks
       else:
         raise errors.OpPrereqError("No disk info specified and the export"
@@ -7400,9 +8500,13 @@ class LUInstanceCreate(LogicalUnit):
         nics.append(ndict)
       self.op.nics = nics
 
+    if not self.op.tags and einfo.has_option(constants.INISECT_INS, "tags"):
+      self.op.tags = einfo.get(constants.INISECT_INS, "tags").split()
+
     if (self.op.hypervisor is None and
         einfo.has_option(constants.INISECT_INS, "hypervisor")):
       self.op.hypervisor = einfo.get(constants.INISECT_INS, "hypervisor")
+
     if einfo.has_section(constants.INISECT_HYP):
       # use the export parameters but do not override the ones
       # specified by the user
@@ -7460,11 +8564,16 @@ class LUInstanceCreate(LogicalUnit):
     """
     # file storage dir calculation/check
     self.instance_file_storage_dir = None
-    if self.op.disk_template == constants.DT_FILE:
+    if self.op.disk_template in constants.DTS_FILEBASED:
       # build the full file storage dir path
       joinargs = []
 
-      cfg_storagedir = self.cfg.GetFileStorageDir()
+      if self.op.disk_template == constants.DT_SHARED_FILE:
+        get_fsd_fn = self.cfg.GetSharedFileStorageDir
+      else:
+        get_fsd_fn = self.cfg.GetFileStorageDir
+
+      cfg_storagedir = get_fsd_fn()
       if not cfg_storagedir:
         raise errors.OpPrereqError("Cluster file storage dir not defined")
       joinargs.append(cfg_storagedir)
@@ -7474,7 +8583,7 @@ class LUInstanceCreate(LogicalUnit):
 
       joinargs.append(self.op.instance_name)
 
-      # pylint: disable-msg=W0142
+      # pylint: disable=W0142
       self.instance_file_storage_dir = utils.PathJoin(*joinargs)
 
   def CheckPrereq(self):
@@ -7503,6 +8612,10 @@ class LUInstanceCreate(LogicalUnit):
                                   ",".join(enabled_hvs)),
                                  errors.ECODE_STATE)
 
+    # Check tag validity
+    for tag in self.op.tags:
+      objects.TaggableObject.ValidateTag(tag)
+
     # check hypervisor parameter syntax (locally)
     utils.ForceDictType(self.op.hvparams, constants.HVS_PARAMETER_TYPES)
     filled_hvp = cluster.SimpleFillHV(self.op.hypervisor, self.op.os_type,
@@ -7528,7 +8641,7 @@ class LUInstanceCreate(LogicalUnit):
     # NIC buildup
     self.nics = []
     for idx, nic in enumerate(self.op.nics):
-      nic_mode_req = nic.get("mode", None)
+      nic_mode_req = nic.get(constants.INIC_MODE, None)
       nic_mode = nic_mode_req
       if nic_mode is None:
         nic_mode = cluster.nicparams[constants.PP_DEFAULT][constants.NIC_MODE]
@@ -7540,7 +8653,7 @@ class LUInstanceCreate(LogicalUnit):
         default_ip_mode = constants.VALUE_NONE
 
       # ip validity checks
-      ip = nic.get("ip", default_ip_mode)
+      ip = nic.get(constants.INIC_IP, default_ip_mode)
       if ip is None or ip.lower() == constants.VALUE_NONE:
         nic_ip = None
       elif ip.lower() == constants.VALUE_AUTO:
@@ -7561,7 +8674,7 @@ class LUInstanceCreate(LogicalUnit):
                                    errors.ECODE_INVAL)
 
       # MAC address verification
-      mac = nic.get("mac", constants.VALUE_AUTO)
+      mac = nic.get(constants.INIC_MAC, constants.VALUE_AUTO)
       if mac not in (constants.VALUE_AUTO, constants.VALUE_GENERATE):
         mac = utils.NormalizeAndValidateMac(mac)
 
@@ -7572,18 +8685,8 @@ class LUInstanceCreate(LogicalUnit):
                                      " in cluster" % mac,
                                      errors.ECODE_NOTUNIQUE)
 
-      # bridge verification
-      bridge = nic.get("bridge", None)
-      link = nic.get("link", None)
-      if bridge and link:
-        raise errors.OpPrereqError("Cannot pass 'bridge' and 'link'"
-                                   " at the same time", errors.ECODE_INVAL)
-      elif bridge and nic_mode == constants.NIC_MODE_ROUTED:
-        raise errors.OpPrereqError("Cannot pass 'bridge' on a routed nic",
-                                   errors.ECODE_INVAL)
-      elif bridge:
-        link = bridge
-
+      #  Build nic parameters
+      link = nic.get(constants.INIC_LINK, None)
       nicparams = {}
       if nic_mode_req:
         nicparams[constants.NIC_MODE] = nic_mode_req
@@ -7595,13 +8698,14 @@ class LUInstanceCreate(LogicalUnit):
       self.nics.append(objects.NIC(mac=mac, ip=nic_ip, nicparams=nicparams))
 
     # disk checks/pre-build
+    default_vg = self.cfg.GetVGName()
     self.disks = []
     for disk in self.op.disks:
-      mode = disk.get("mode", constants.DISK_RDWR)
+      mode = disk.get(constants.IDISK_MODE, constants.DISK_RDWR)
       if mode not in constants.DISK_ACCESS_SET:
         raise errors.OpPrereqError("Invalid disk access mode '%s'" %
                                    mode, errors.ECODE_INVAL)
-      size = disk.get("size", None)
+      size = disk.get(constants.IDISK_SIZE, None)
       if size is None:
         raise errors.OpPrereqError("Missing disk size", errors.ECODE_INVAL)
       try:
@@ -7609,11 +8713,16 @@ class LUInstanceCreate(LogicalUnit):
       except (TypeError, ValueError):
         raise errors.OpPrereqError("Invalid disk size '%s'" % size,
                                    errors.ECODE_INVAL)
-      data_vg = disk.get("vg", self.cfg.GetVGName())
-      meta_vg = disk.get("metavg", data_vg)
-      new_disk = {"size": size, "mode": mode, "vg": data_vg, "metavg": meta_vg}
-      if "adopt" in disk:
-        new_disk["adopt"] = disk["adopt"]
+
+      data_vg = disk.get(constants.IDISK_VG, default_vg)
+      new_disk = {
+        constants.IDISK_SIZE: size,
+        constants.IDISK_MODE: mode,
+        constants.IDISK_VG: data_vg,
+        constants.IDISK_METAVG: disk.get(constants.IDISK_METAVG, data_vg),
+        }
+      if constants.IDISK_ADOPT in disk:
+        new_disk[constants.IDISK_ADOPT] = disk[constants.IDISK_ADOPT]
       self.disks.append(new_disk)
 
     if self.op.mode == constants.INSTANCE_IMPORT:
@@ -7629,7 +8738,7 @@ class LUInstanceCreate(LogicalUnit):
 
       disk_images = []
       for idx in range(export_disks):
-        option = 'disk%d_dump' % idx
+        option = "disk%d_dump" % idx
         if export_info.has_option(constants.INISECT_INS, option):
           # FIXME: are the old os-es, disk sizes, etc. useful?
           export_name = export_info.get(constants.INISECT_INS, option)
@@ -7640,9 +8749,9 @@ class LUInstanceCreate(LogicalUnit):
 
       self.src_images = disk_images
 
-      old_name = export_info.get(constants.INISECT_INS, 'name')
+      old_name = export_info.get(constants.INISECT_INS, "name")
       try:
-        exp_nic_count = export_info.getint(constants.INISECT_INS, 'nic_count')
+        exp_nic_count = export_info.getint(constants.INISECT_INS, "nic_count")
       except (TypeError, ValueError), err:
         raise errors.OpPrereqError("Invalid export file, nic_count is not"
                                    " an integer: %s" % str(err),
@@ -7650,7 +8759,7 @@ class LUInstanceCreate(LogicalUnit):
       if self.op.instance_name == old_name:
         for idx, nic in enumerate(self.nics):
           if nic.mac == constants.VALUE_AUTO and exp_nic_count >= idx:
-            nic_mac_ini = 'nic%d_mac' % idx
+            nic_mac_ini = "nic%d_mac" % idx
             nic.mac = export_info.get(constants.INISECT_INS, nic_mac_ini)
 
     # ENDIF: self.op.mode == constants.INSTANCE_IMPORT
@@ -7698,10 +8807,10 @@ class LUInstanceCreate(LogicalUnit):
     self.secondaries = []
 
     # mirror node verification
-    if self.op.disk_template in constants.DTS_NET_MIRROR:
+    if self.op.disk_template in constants.DTS_INT_MIRROR:
       if self.op.snode == pnode.name:
         raise errors.OpPrereqError("The secondary node cannot be the"
-                                   " primary node.", errors.ECODE_INVAL)
+                                   " primary node", errors.ECODE_INVAL)
       _CheckNodeOnline(self, self.op.snode)
       _CheckNodeNotDrained(self, self.op.snode)
       _CheckNodeVmCapable(self, self.op.snode)
@@ -7714,8 +8823,10 @@ class LUInstanceCreate(LogicalUnit):
       req_sizes = _ComputeDiskSizePerVG(self.op.disk_template, self.disks)
       _CheckNodesFreeDiskPerVG(self, nodenames, req_sizes)
 
-    else: # instead, we must check the adoption data
-      all_lvs = set([i["vg"] + "/" + i["adopt"] for i in self.disks])
+    elif self.op.disk_template == constants.DT_PLAIN: # Check the adoption data
+      all_lvs = set(["%s/%s" % (disk[constants.IDISK_VG],
+                                disk[constants.IDISK_ADOPT])
+                     for disk in self.disks])
       if len(all_lvs) != len(self.disks):
         raise errors.OpPrereqError("Duplicate volume names given for adoption",
                                    errors.ECODE_INVAL)
@@ -7748,7 +8859,39 @@ class LUInstanceCreate(LogicalUnit):
                                    errors.ECODE_STATE)
       # update the size of disk based on what is found
       for dsk in self.disks:
-        dsk["size"] = int(float(node_lvs[dsk["vg"] + "/" + dsk["adopt"]][0]))
+        dsk[constants.IDISK_SIZE] = \
+          int(float(node_lvs["%s/%s" % (dsk[constants.IDISK_VG],
+                                        dsk[constants.IDISK_ADOPT])][0]))
+
+    elif self.op.disk_template == constants.DT_BLOCK:
+      # Normalize and de-duplicate device paths
+      all_disks = set([os.path.abspath(disk[constants.IDISK_ADOPT])
+                       for disk in self.disks])
+      if len(all_disks) != len(self.disks):
+        raise errors.OpPrereqError("Duplicate disk names given for adoption",
+                                   errors.ECODE_INVAL)
+      baddisks = [d for d in all_disks
+                  if not d.startswith(constants.ADOPTABLE_BLOCKDEV_ROOT)]
+      if baddisks:
+        raise errors.OpPrereqError("Device node(s) %s lie outside %s and"
+                                   " cannot be adopted" %
+                                   (", ".join(baddisks),
+                                    constants.ADOPTABLE_BLOCKDEV_ROOT),
+                                   errors.ECODE_INVAL)
+
+      node_disks = self.rpc.call_bdev_sizes([pnode.name],
+                                            list(all_disks))[pnode.name]
+      node_disks.Raise("Cannot get block device information from node %s" %
+                       pnode.name)
+      node_disks = node_disks.payload
+      delta = all_disks.difference(node_disks.keys())
+      if delta:
+        raise errors.OpPrereqError("Missing block device(s): %s" %
+                                   utils.CommaJoin(delta),
+                                   errors.ECODE_INVAL)
+      for dsk in self.disks:
+        dsk[constants.IDISK_SIZE] = \
+          int(float(node_disks[dsk[constants.IDISK_ADOPT]]))
 
     _CheckHVParams(self, nodenames, self.op.hypervisor, self.op.hvparams)
 
@@ -7802,18 +8945,23 @@ class LUInstanceCreate(LogicalUnit):
                             osparams=self.op.osparams,
                             )
 
+    if self.op.tags:
+      for tag in self.op.tags:
+        iobj.AddTag(tag)
+
     if self.adopt_disks:
-      # rename LVs to the newly-generated names; we need to construct
-      # 'fake' LV disks with the old data, plus the new unique_id
-      tmp_disks = [objects.Disk.FromDict(v.ToDict()) for v in disks]
-      rename_to = []
-      for t_dsk, a_dsk in zip (tmp_disks, self.disks):
-        rename_to.append(t_dsk.logical_id)
-        t_dsk.logical_id = (t_dsk.logical_id[0], a_dsk["adopt"])
-        self.cfg.SetDiskID(t_dsk, pnode_name)
-      result = self.rpc.call_blockdev_rename(pnode_name,
-                                             zip(tmp_disks, rename_to))
-      result.Raise("Failed to rename adoped LVs")
+      if self.op.disk_template == constants.DT_PLAIN:
+        # rename LVs to the newly-generated names; we need to construct
+        # 'fake' LV disks with the old data, plus the new unique_id
+        tmp_disks = [objects.Disk.FromDict(v.ToDict()) for v in disks]
+        rename_to = []
+        for t_dsk, a_dsk in zip(tmp_disks, self.disks):
+          rename_to.append(t_dsk.logical_id)
+          t_dsk.logical_id = (t_dsk.logical_id[0], a_dsk[constants.IDISK_ADOPT])
+          self.cfg.SetDiskID(t_dsk, pnode_name)
+        result = self.rpc.call_blockdev_rename(pnode_name,
+                                               zip(tmp_disks, rename_to))
+        result.Raise("Failed to rename adoped LVs")
     else:
       feedback_fn("* creating instance disks...")
       try:
@@ -7833,16 +8981,13 @@ class LUInstanceCreate(LogicalUnit):
     # Declare that we don't want to remove the instance lock anymore, as we've
     # added the instance to the config
     del self.remove_locks[locking.LEVEL_INSTANCE]
-    # Unlock all the nodes
+
     if self.op.mode == constants.INSTANCE_IMPORT:
-      nodes_keep = [self.op.src_node]
-      nodes_release = [node for node in self.acquired_locks[locking.LEVEL_NODE]
-                       if node != self.op.src_node]
-      self.context.glm.release(locking.LEVEL_NODE, nodes_release)
-      self.acquired_locks[locking.LEVEL_NODE] = nodes_keep
+      # Release unused nodes
+      _ReleaseLocks(self, locking.LEVEL_NODE, keep=[self.op.src_node])
     else:
-      self.context.glm.release(locking.LEVEL_NODE)
-      del self.acquired_locks[locking.LEVEL_NODE]
+      # Release all nodes
+      _ReleaseLocks(self, locking.LEVEL_NODE)
 
     disk_abort = False
     if not self.adopt_disks and self.cfg.GetClusterInfo().prealloc_wipe_disks:
@@ -7859,9 +9004,8 @@ class LUInstanceCreate(LogicalUnit):
       pass
     elif self.op.wait_for_sync:
       disk_abort = not _WaitForSync(self, iobj)
-    elif iobj.disk_template in constants.DTS_NET_MIRROR:
+    elif iobj.disk_template in constants.DTS_INT_MIRROR:
       # make sure the disks are not degraded (still sync-ing is ok)
-      time.sleep(15)
       feedback_fn("* checking mirrors status")
       disk_abort = not _WaitForSync(self, iobj, oneshot=True)
     else:
@@ -7878,10 +9022,30 @@ class LUInstanceCreate(LogicalUnit):
     if iobj.disk_template != constants.DT_DISKLESS and not self.adopt_disks:
       if self.op.mode == constants.INSTANCE_CREATE:
         if not self.op.no_install:
+          pause_sync = (iobj.disk_template in constants.DTS_INT_MIRROR and
+                        not self.op.wait_for_sync)
+          if pause_sync:
+            feedback_fn("* pausing disk sync to install instance OS")
+            result = self.rpc.call_blockdev_pause_resume_sync(pnode_name,
+                                                              iobj.disks, True)
+            for idx, success in enumerate(result.payload):
+              if not success:
+                logging.warn("pause-sync of instance %s for disk %d failed",
+                             instance, idx)
+
           feedback_fn("* running the instance OS create scripts...")
           # FIXME: pass debug option from opcode to backend
           result = self.rpc.call_instance_os_add(pnode_name, iobj, False,
                                                  self.op.debug_level)
+          if pause_sync:
+            feedback_fn("* resuming disk sync")
+            result = self.rpc.call_blockdev_pause_resume_sync(pnode_name,
+                                                              iobj.disks, False)
+            for idx, success in enumerate(result.payload):
+              if not success:
+                logging.warn("resume-sync of instance %s for disk %d failed",
+                             instance, idx)
+
           result.Raise("Could not add os for instance %s"
                        " on node %s" % (instance, pnode_name))
 
@@ -7951,7 +9115,8 @@ class LUInstanceCreate(LogicalUnit):
       self.cfg.Update(iobj, feedback_fn)
       logging.info("Starting instance %s on node %s", instance, pnode_name)
       feedback_fn("* starting instance...")
-      result = self.rpc.call_instance_start(pnode_name, iobj, None, None)
+      result = self.rpc.call_instance_start(pnode_name, iobj,
+                                            None, None, False)
       result.Raise("Could not start instance")
 
     return list(iobj.all_nodes)
@@ -7994,9 +9159,9 @@ class LUInstanceConsole(NoHooksLU):
 
     if instance.name not in node_insts.payload:
       if instance.admin_up:
-        state = "ERROR_down"
+        state = constants.INSTST_ERRORDOWN
       else:
-        state = "ADMIN_down"
+        state = constants.INSTST_ADMINDOWN
       raise errors.OpExecError("Instance %s is not running (state %s)" %
                                (instance.name, state))
 
@@ -8041,23 +9206,28 @@ class LUInstanceReplaceDisks(LogicalUnit):
   def ExpandNames(self):
     self._ExpandAndLockInstance()
 
-    if self.op.iallocator is not None:
-      self.needed_locks[locking.LEVEL_NODE] = locking.ALL_SET
+    assert locking.LEVEL_NODE not in self.needed_locks
+    assert locking.LEVEL_NODEGROUP not in self.needed_locks
 
-    elif self.op.remote_node is not None:
-      remote_node = _ExpandNodeName(self.cfg, self.op.remote_node)
-      self.op.remote_node = remote_node
+    assert self.op.iallocator is None or self.op.remote_node is None, \
+      "Conflicting options"
+
+    if self.op.remote_node is not None:
+      self.op.remote_node = _ExpandNodeName(self.cfg, self.op.remote_node)
 
       # Warning: do not remove the locking of the new secondary here
       # unless DRBD8.AddChildren is changed to work in parallel;
       # currently it doesn't since parallel invocations of
       # FindUnusedMinor will conflict
-      self.needed_locks[locking.LEVEL_NODE] = [remote_node]
+      self.needed_locks[locking.LEVEL_NODE] = [self.op.remote_node]
       self.recalculate_locks[locking.LEVEL_NODE] = constants.LOCKS_APPEND
-
     else:
       self.needed_locks[locking.LEVEL_NODE] = []
       self.recalculate_locks[locking.LEVEL_NODE] = constants.LOCKS_REPLACE
+
+      if self.op.iallocator is not None:
+        # iallocator will select a new node in the same group
+        self.needed_locks[locking.LEVEL_NODEGROUP] = []
 
     self.replacer = TLReplaceDisks(self, self.op.instance_name, self.op.mode,
                                    self.op.iallocator, self.op.remote_node,
@@ -8066,11 +9236,26 @@ class LUInstanceReplaceDisks(LogicalUnit):
     self.tasklets = [self.replacer]
 
   def DeclareLocks(self, level):
-    # If we're not already locking all nodes in the set we have to declare the
-    # instance's primary/secondary nodes.
-    if (level == locking.LEVEL_NODE and
-        self.needed_locks[locking.LEVEL_NODE] is not locking.ALL_SET):
-      self._LockInstancesNodes()
+    if level == locking.LEVEL_NODEGROUP:
+      assert self.op.remote_node is None
+      assert self.op.iallocator is not None
+      assert not self.needed_locks[locking.LEVEL_NODEGROUP]
+
+      self.share_locks[locking.LEVEL_NODEGROUP] = 1
+      self.needed_locks[locking.LEVEL_NODEGROUP] = \
+        self.cfg.GetInstanceNodeGroups(self.op.instance_name)
+
+    elif level == locking.LEVEL_NODE:
+      if self.op.iallocator is not None:
+        assert self.op.remote_node is None
+        assert not self.needed_locks[locking.LEVEL_NODE]
+
+        # Lock member nodes of all locked groups
+        self.needed_locks[locking.LEVEL_NODE] = [node_name
+          for group_uuid in self.owned_locks(locking.LEVEL_NODEGROUP)
+          for node_name in self.cfg.GetNodeGroup(group_uuid).members]
+      else:
+        self._LockInstancesNodes()
 
   def BuildHooksEnv(self):
     """Build hooks env.
@@ -8085,13 +9270,33 @@ class LUInstanceReplaceDisks(LogicalUnit):
       "OLD_SECONDARY": instance.secondary_nodes[0],
       }
     env.update(_BuildInstanceHookEnvByObject(self, instance))
+    return env
+
+  def BuildHooksNodes(self):
+    """Build hooks nodes.
+
+    """
+    instance = self.replacer.instance
     nl = [
       self.cfg.GetMasterNode(),
       instance.primary_node,
       ]
     if self.op.remote_node is not None:
       nl.append(self.op.remote_node)
-    return env, nl, nl
+    return nl, nl
+
+  def CheckPrereq(self):
+    """Check prerequisites.
+
+    """
+    assert (self.glm.is_owned(locking.LEVEL_NODEGROUP) or
+            self.op.iallocator is None)
+
+    owned_groups = self.owned_locks(locking.LEVEL_NODEGROUP)
+    if owned_groups:
+      _CheckInstanceNodeGroups(self.cfg, self.op.instance_name, owned_groups)
+
+    return LogicalUnit.CheckPrereq(self)
 
 
 class TLReplaceDisks(Tasklet):
@@ -8154,7 +9359,7 @@ class TLReplaceDisks(Tasklet):
     ial = IAllocator(lu.cfg, lu.rpc,
                      mode=constants.IALLOCATOR_MODE_RELOC,
                      name=instance_name,
-                     relocate_from=relocate_from)
+                     relocate_from=list(relocate_from))
 
     ial.Run(iallocator_name)
 
@@ -8178,8 +9383,34 @@ class TLReplaceDisks(Tasklet):
     return remote_node_name
 
   def _FindFaultyDisks(self, node_name):
+    """Wrapper for L{_FindFaultyInstanceDisks}.
+
+    """
     return _FindFaultyInstanceDisks(self.cfg, self.rpc, self.instance,
                                     node_name, True)
+
+  def _CheckDisksActivated(self, instance):
+    """Checks if the instance disks are activated.
+
+    @param instance: The instance to check disks
+    @return: True if they are activated, False otherwise
+
+    """
+    nodes = instance.all_nodes
+
+    for idx, dev in enumerate(instance.disks):
+      for node in nodes:
+        self.lu.LogInfo("Checking disk/%d on %s", idx, node)
+        self.cfg.SetDiskID(dev, node)
+
+        result = self.rpc.call_blockdev_find(node, dev)
+
+        if result.offline:
+          continue
+        elif result.fail_msg or not result.payload:
+          return False
+
+    return True
 
   def CheckPrereq(self):
     """Check prerequisites.
@@ -8222,20 +9453,23 @@ class TLReplaceDisks(Tasklet):
       remote_node = self._RunAllocator(self.lu, self.iallocator_name,
                                        instance.name, instance.secondary_nodes)
 
-    if remote_node is not None:
+    if remote_node is None:
+      self.remote_node_info = None
+    else:
+      assert remote_node in self.lu.owned_locks(locking.LEVEL_NODE), \
+             "Remote node '%s' is not locked" % remote_node
+
       self.remote_node_info = self.cfg.GetNodeInfo(remote_node)
       assert self.remote_node_info is not None, \
         "Cannot retrieve locked node %s" % remote_node
-    else:
-      self.remote_node_info = None
 
     if remote_node == self.instance.primary_node:
       raise errors.OpPrereqError("The specified node is the primary node of"
-                                 " the instance.", errors.ECODE_INVAL)
+                                 " the instance", errors.ECODE_INVAL)
 
     if remote_node == secondary_node:
       raise errors.OpPrereqError("The specified node is already the"
-                                 " secondary node of the instance.",
+                                 " secondary node of the instance",
                                  errors.ECODE_INVAL)
 
     if self.disks and self.mode in (constants.REPLACE_DISK_AUTO,
@@ -8244,6 +9478,10 @@ class TLReplaceDisks(Tasklet):
                                  errors.ECODE_INVAL)
 
     if self.mode == constants.REPLACE_DISK_AUTO:
+      if not self._CheckDisksActivated(instance):
+        raise errors.OpPrereqError("Please run activate-disks on instance %s"
+                                   " first" % self.instance_name,
+                                   errors.ECODE_STATE)
       faulty_primary = self._FindFaultyDisks(instance.primary_node)
       faulty_secondary = self._FindFaultyDisks(secondary_node)
 
@@ -8307,24 +9545,25 @@ class TLReplaceDisks(Tasklet):
     for node in check_nodes:
       _CheckNodeOnline(self.lu, node)
 
-    touched_nodes = frozenset([self.new_node, self.other_node,
-                               self.target_node])
+    touched_nodes = frozenset(node_name for node_name in [self.new_node,
+                                                          self.other_node,
+                                                          self.target_node]
+                              if node_name is not None)
 
-    if self.lu.needed_locks[locking.LEVEL_NODE] == locking.ALL_SET:
-      # Release unneeded node locks
-      for name in self.lu.acquired_locks[locking.LEVEL_NODE]:
-        if name not in touched_nodes:
-          self._ReleaseNodeLock(name)
+    # Release unneeded node locks
+    _ReleaseLocks(self.lu, locking.LEVEL_NODE, keep=touched_nodes)
+
+    # Release any owned node group
+    if self.lu.glm.is_owned(locking.LEVEL_NODEGROUP):
+      _ReleaseLocks(self.lu, locking.LEVEL_NODEGROUP)
 
     # Check whether disks are valid
     for disk_idx in self.disks:
       instance.FindDisk(disk_idx)
 
     # Get secondary node IP addresses
-    self.node_secondary_ip = \
-      dict((node_name, self.cfg.GetNodeInfo(node_name).secondary_ip)
-           for node_name in touched_nodes
-           if node_name is not None)
+    self.node_secondary_ip = dict((name, node.secondary_ip) for (name, node)
+                                  in self.cfg.GetMultiNodeInfo(touched_nodes))
 
   def Exec(self, feedback_fn):
     """Execute disk replacement.
@@ -8335,12 +9574,19 @@ class TLReplaceDisks(Tasklet):
     if self.delay_iallocator:
       self._CheckPrereq2()
 
-    if (self.lu.needed_locks[locking.LEVEL_NODE] == locking.ALL_SET and
-        __debug__):
+    if __debug__:
       # Verify owned locks before starting operation
-      owned_locks = self.lu.context.glm.list_owned(locking.LEVEL_NODE)
-      assert set(owned_locks) == set(self.node_secondary_ip), \
-          "Not owning the correct locks: %s" % (owned_locks, )
+      owned_nodes = self.lu.owned_locks(locking.LEVEL_NODE)
+      assert set(owned_nodes) == set(self.node_secondary_ip), \
+          ("Incorrect node locks, owning %s, expected %s" %
+           (owned_nodes, self.node_secondary_ip.keys()))
+
+      owned_instances = self.lu.owned_locks(locking.LEVEL_INSTANCE)
+      assert list(owned_instances) == [self.instance_name], \
+          "Instance '%s' not locked" % self.instance_name
+
+      assert not self.lu.glm.is_owned(locking.LEVEL_NODEGROUP), \
+          "Should not own any node group lock at this point"
 
     if not self.disks:
       feedback_fn("No disks need replacement")
@@ -8371,12 +9617,12 @@ class TLReplaceDisks(Tasklet):
 
     if __debug__:
       # Verify owned locks
-      owned_locks = self.lu.context.glm.list_owned(locking.LEVEL_NODE)
-      assert ((self.early_release and not owned_locks) or
-              (not self.early_release and
-               set(owned_locks) == set(self.node_secondary_ip))), \
-        ("Not owning the correct locks, early_release=%s, owned=%r" %
-         (self.early_release, owned_locks))
+      owned_nodes = self.lu.owned_locks(locking.LEVEL_NODE)
+      nodes = frozenset(self.node_secondary_ip)
+      assert ((self.early_release and not owned_nodes) or
+              (not self.early_release and not (set(owned_nodes) - nodes))), \
+        ("Not owning the correct locks, early_release=%s, owned=%r,"
+         " nodes=%r" % (self.early_release, owned_nodes, nodes))
 
     return result
 
@@ -8496,11 +9742,7 @@ class TLReplaceDisks(Tasklet):
           self.lu.LogWarning("Can't remove old LV: %s" % msg,
                              hint="remove unused LVs manually")
 
-  def _ReleaseNodeLock(self, node_name):
-    """Releases the lock for a given node."""
-    self.lu.context.glm.release(locking.LEVEL_NODE, node_name)
-
-  def _ExecDrbd8DiskOnly(self, feedback_fn): # pylint: disable-msg=W0613
+  def _ExecDrbd8DiskOnly(self, feedback_fn): # pylint: disable=W0613
     """Replace a disk on the primary or secondary for DRBD 8.
 
     The algorithm for replace is quite complicated:
@@ -8617,7 +9859,8 @@ class TLReplaceDisks(Tasklet):
       self._RemoveOldStorage(self.target_node, iv_names)
       # WARNING: we release both node locks here, do not do other RPCs
       # than WaitForSync to the primary node
-      self._ReleaseNodeLock([self.target_node, self.other_node])
+      _ReleaseLocks(self.lu, locking.LEVEL_NODE,
+                    names=[self.target_node, self.other_node])
 
     # Wait for sync
     # This can fail as the old devices are degraded and _WaitForSync
@@ -8655,6 +9898,8 @@ class TLReplaceDisks(Tasklet):
 
     """
     steps_total = 6
+
+    pnode = self.instance.primary_node
 
     # Step: check device activation
     self.lu.LogStep(1, steps_total, "Check device existence")
@@ -8730,10 +9975,8 @@ class TLReplaceDisks(Tasklet):
                                  " soon as possible"))
 
     self.lu.LogInfo("Detaching primary drbds from the network (=> standalone)")
-    result = self.rpc.call_drbd_disconnect_net([self.instance.primary_node],
-                                               self.node_secondary_ip,
-                                               self.instance.disks)\
-                                              [self.instance.primary_node]
+    result = self.rpc.call_drbd_disconnect_net([pnode], self.node_secondary_ip,
+                                               self.instance.disks)[pnode]
 
     msg = result.fail_msg
     if msg:
@@ -8774,9 +10017,10 @@ class TLReplaceDisks(Tasklet):
       self._RemoveOldStorage(self.target_node, iv_names)
       # WARNING: we release all node locks here, do not do other RPCs
       # than WaitForSync to the primary node
-      self._ReleaseNodeLock([self.instance.primary_node,
-                             self.target_node,
-                             self.new_node])
+      _ReleaseLocks(self.lu, locking.LEVEL_NODE,
+                    names=[self.instance.primary_node,
+                           self.target_node,
+                           self.new_node])
 
     # Wait for sync
     # This can fail as the old devices are degraded and _WaitForSync
@@ -8856,8 +10100,8 @@ class LURepairNodeStorage(NoHooksLU):
                  (self.op.name, self.op.node_name))
 
 
-class LUNodeEvacStrategy(NoHooksLU):
-  """Computes the node evacuation strategy.
+class LUNodeEvacuate(NoHooksLU):
+  """Evacuates instances off a list of nodes.
 
   """
   REQ_BGL = False
@@ -8866,41 +10110,241 @@ class LUNodeEvacStrategy(NoHooksLU):
     _CheckIAllocatorOrNode(self, "iallocator", "remote_node")
 
   def ExpandNames(self):
-    self.op.nodes = _GetWantedNodes(self, self.op.nodes)
-    self.needed_locks = locks = {}
-    if self.op.remote_node is None:
-      locks[locking.LEVEL_NODE] = locking.ALL_SET
-    else:
-      self.op.remote_node = _ExpandNodeName(self.cfg, self.op.remote_node)
-      locks[locking.LEVEL_NODE] = self.op.nodes + [self.op.remote_node]
-
-  def Exec(self, feedback_fn):
-    instances = []
-    for node in self.op.nodes:
-      instances.extend(_GetNodeSecondaryInstances(self.cfg, node))
-    if not instances:
-      return []
+    self.op.node_name = _ExpandNodeName(self.cfg, self.op.node_name)
 
     if self.op.remote_node is not None:
-      result = []
-      for i in instances:
+      self.op.remote_node = _ExpandNodeName(self.cfg, self.op.remote_node)
+      assert self.op.remote_node
+
+      if self.op.remote_node == self.op.node_name:
+        raise errors.OpPrereqError("Can not use evacuated node as a new"
+                                   " secondary node", errors.ECODE_INVAL)
+
+      if self.op.mode != constants.IALLOCATOR_NEVAC_SEC:
+        raise errors.OpPrereqError("Without the use of an iallocator only"
+                                   " secondary instances can be evacuated",
+                                   errors.ECODE_INVAL)
+
+    # Declare locks
+    self.share_locks = _ShareAll()
+    self.needed_locks = {
+      locking.LEVEL_INSTANCE: [],
+      locking.LEVEL_NODEGROUP: [],
+      locking.LEVEL_NODE: [],
+      }
+
+    # Determine nodes (via group) optimistically, needs verification once locks
+    # have been acquired
+    self.lock_nodes = self._DetermineNodes()
+
+  def _DetermineNodes(self):
+    """Gets the list of nodes to operate on.
+
+    """
+    if self.op.remote_node is None:
+      # Iallocator will choose any node(s) in the same group
+      group_nodes = self.cfg.GetNodeGroupMembersByNodes([self.op.node_name])
+    else:
+      group_nodes = frozenset([self.op.remote_node])
+
+    # Determine nodes to be locked
+    return set([self.op.node_name]) | group_nodes
+
+  def _DetermineInstances(self):
+    """Builds list of instances to operate on.
+
+    """
+    assert self.op.mode in constants.IALLOCATOR_NEVAC_MODES
+
+    if self.op.mode == constants.IALLOCATOR_NEVAC_PRI:
+      # Primary instances only
+      inst_fn = _GetNodePrimaryInstances
+      assert self.op.remote_node is None, \
+        "Evacuating primary instances requires iallocator"
+    elif self.op.mode == constants.IALLOCATOR_NEVAC_SEC:
+      # Secondary instances only
+      inst_fn = _GetNodeSecondaryInstances
+    else:
+      # All instances
+      assert self.op.mode == constants.IALLOCATOR_NEVAC_ALL
+      inst_fn = _GetNodeInstances
+      # TODO: In 2.6, change the iallocator interface to take an evacuation mode
+      # per instance
+      raise errors.OpPrereqError("Due to an issue with the iallocator"
+                                 " interface it is not possible to evacuate"
+                                 " all instances at once; specify explicitly"
+                                 " whether to evacuate primary or secondary"
+                                 " instances",
+                                 errors.ECODE_INVAL)
+
+    return inst_fn(self.cfg, self.op.node_name)
+
+  def DeclareLocks(self, level):
+    if level == locking.LEVEL_INSTANCE:
+      # Lock instances optimistically, needs verification once node and group
+      # locks have been acquired
+      self.needed_locks[locking.LEVEL_INSTANCE] = \
+        set(i.name for i in self._DetermineInstances())
+
+    elif level == locking.LEVEL_NODEGROUP:
+      # Lock node groups for all potential target nodes optimistically, needs
+      # verification once nodes have been acquired
+      self.needed_locks[locking.LEVEL_NODEGROUP] = \
+        self.cfg.GetNodeGroupsFromNodes(self.lock_nodes)
+
+    elif level == locking.LEVEL_NODE:
+      self.needed_locks[locking.LEVEL_NODE] = self.lock_nodes
+
+  def CheckPrereq(self):
+    # Verify locks
+    owned_instances = self.owned_locks(locking.LEVEL_INSTANCE)
+    owned_nodes = self.owned_locks(locking.LEVEL_NODE)
+    owned_groups = self.owned_locks(locking.LEVEL_NODEGROUP)
+
+    need_nodes = self._DetermineNodes()
+
+    if not owned_nodes.issuperset(need_nodes):
+      raise errors.OpPrereqError("Nodes in same group as '%s' changed since"
+                                 " locks were acquired, current nodes are"
+                                 " are '%s', used to be '%s'; retry the"
+                                 " operation" %
+                                 (self.op.node_name,
+                                  utils.CommaJoin(need_nodes),
+                                  utils.CommaJoin(owned_nodes)),
+                                 errors.ECODE_STATE)
+
+    wanted_groups = self.cfg.GetNodeGroupsFromNodes(owned_nodes)
+    if owned_groups != wanted_groups:
+      raise errors.OpExecError("Node groups changed since locks were acquired,"
+                               " current groups are '%s', used to be '%s';"
+                               " retry the operation" %
+                               (utils.CommaJoin(wanted_groups),
+                                utils.CommaJoin(owned_groups)))
+
+    # Determine affected instances
+    self.instances = self._DetermineInstances()
+    self.instance_names = [i.name for i in self.instances]
+
+    if set(self.instance_names) != owned_instances:
+      raise errors.OpExecError("Instances on node '%s' changed since locks"
+                               " were acquired, current instances are '%s',"
+                               " used to be '%s'; retry the operation" %
+                               (self.op.node_name,
+                                utils.CommaJoin(self.instance_names),
+                                utils.CommaJoin(owned_instances)))
+
+    if self.instance_names:
+      self.LogInfo("Evacuating instances from node '%s': %s",
+                   self.op.node_name,
+                   utils.CommaJoin(utils.NiceSort(self.instance_names)))
+    else:
+      self.LogInfo("No instances to evacuate from node '%s'",
+                   self.op.node_name)
+
+    if self.op.remote_node is not None:
+      for i in self.instances:
         if i.primary_node == self.op.remote_node:
           raise errors.OpPrereqError("Node %s is the primary node of"
                                      " instance %s, cannot use it as"
                                      " secondary" %
                                      (self.op.remote_node, i.name),
                                      errors.ECODE_INVAL)
-        result.append([i.name, self.op.remote_node])
-    else:
-      ial = IAllocator(self.cfg, self.rpc,
-                       mode=constants.IALLOCATOR_MODE_MEVAC,
-                       evac_nodes=self.op.nodes)
-      ial.Run(self.op.iallocator, validate=True)
+
+  def Exec(self, feedback_fn):
+    assert (self.op.iallocator is not None) ^ (self.op.remote_node is not None)
+
+    if not self.instance_names:
+      # No instances to evacuate
+      jobs = []
+
+    elif self.op.iallocator is not None:
+      # TODO: Implement relocation to other group
+      ial = IAllocator(self.cfg, self.rpc, constants.IALLOCATOR_MODE_NODE_EVAC,
+                       evac_mode=self.op.mode,
+                       instances=list(self.instance_names))
+
+      ial.Run(self.op.iallocator)
+
       if not ial.success:
-        raise errors.OpExecError("No valid evacuation solution: %s" % ial.info,
-                                 errors.ECODE_NORES)
-      result = ial.result
-    return result
+        raise errors.OpPrereqError("Can't compute node evacuation using"
+                                   " iallocator '%s': %s" %
+                                   (self.op.iallocator, ial.info),
+                                   errors.ECODE_NORES)
+
+      jobs = _LoadNodeEvacResult(self, ial.result, self.op.early_release, True)
+
+    elif self.op.remote_node is not None:
+      assert self.op.mode == constants.IALLOCATOR_NEVAC_SEC
+      jobs = [
+        [opcodes.OpInstanceReplaceDisks(instance_name=instance_name,
+                                        remote_node=self.op.remote_node,
+                                        disks=[],
+                                        mode=constants.REPLACE_DISK_CHG,
+                                        early_release=self.op.early_release)]
+        for instance_name in self.instance_names
+        ]
+
+    else:
+      raise errors.ProgrammerError("No iallocator or remote node")
+
+    return ResultWithJobs(jobs)
+
+
+def _SetOpEarlyRelease(early_release, op):
+  """Sets C{early_release} flag on opcodes if available.
+
+  """
+  try:
+    op.early_release = early_release
+  except AttributeError:
+    assert not isinstance(op, opcodes.OpInstanceReplaceDisks)
+
+  return op
+
+
+def _NodeEvacDest(use_nodes, group, nodes):
+  """Returns group or nodes depending on caller's choice.
+
+  """
+  if use_nodes:
+    return utils.CommaJoin(nodes)
+  else:
+    return group
+
+
+def _LoadNodeEvacResult(lu, alloc_result, early_release, use_nodes):
+  """Unpacks the result of change-group and node-evacuate iallocator requests.
+
+  Iallocator modes L{constants.IALLOCATOR_MODE_NODE_EVAC} and
+  L{constants.IALLOCATOR_MODE_CHG_GROUP}.
+
+  @type lu: L{LogicalUnit}
+  @param lu: Logical unit instance
+  @type alloc_result: tuple/list
+  @param alloc_result: Result from iallocator
+  @type early_release: bool
+  @param early_release: Whether to release locks early if possible
+  @type use_nodes: bool
+  @param use_nodes: Whether to display node names instead of groups
+
+  """
+  (moved, failed, jobs) = alloc_result
+
+  if failed:
+    failreason = utils.CommaJoin("%s (%s)" % (name, reason)
+                                 for (name, reason) in failed)
+    lu.LogWarning("Unable to evacuate instances %s", failreason)
+    raise errors.OpExecError("Unable to evacuate instances %s" % failreason)
+
+  if moved:
+    lu.LogInfo("Instances to be moved: %s",
+               utils.CommaJoin("%s (to %s)" %
+                               (name, _NodeEvacDest(use_nodes, group, nodes))
+                               for (name, group, nodes) in moved))
+
+  return [map(compat.partial(_SetOpEarlyRelease, early_release),
+              map(opcodes.OpCode.LoadOpCode, ops))
+          for ops in jobs]
 
 
 class LUInstanceGrowDisk(LogicalUnit):
@@ -8931,8 +10375,14 @@ class LUInstanceGrowDisk(LogicalUnit):
       "AMOUNT": self.op.amount,
       }
     env.update(_BuildInstanceHookEnvByObject(self, self.instance))
+    return env
+
+  def BuildHooksNodes(self):
+    """Build hooks nodes.
+
+    """
     nl = [self.cfg.GetMasterNode()] + list(self.instance.all_nodes)
-    return env, nl, nl
+    return (nl, nl)
 
   def CheckPrereq(self):
     """Check prerequisites.
@@ -8951,13 +10401,14 @@ class LUInstanceGrowDisk(LogicalUnit):
 
     if instance.disk_template not in constants.DTS_GROWABLE:
       raise errors.OpPrereqError("Instance's disk layout does not support"
-                                 " growing.", errors.ECODE_INVAL)
+                                 " growing", errors.ECODE_INVAL)
 
     self.disk = instance.FindDisk(self.op.disk)
 
-    if instance.disk_template != constants.DT_FILE:
-      # TODO: check the free disk space for file, when that feature
-      # will be supported
+    if instance.disk_template not in (constants.DT_FILE,
+                                      constants.DT_SHARED_FILE):
+      # TODO: check the free disk space for file, when that feature will be
+      # supported
       _CheckNodesFreeDiskPerVG(self, nodenames,
                                self.disk.ComputeGrowth(self.op.amount))
 
@@ -8972,9 +10423,17 @@ class LUInstanceGrowDisk(LogicalUnit):
     if not disks_ok:
       raise errors.OpExecError("Cannot activate block device to grow")
 
+    # First run all grow ops in dry-run mode
     for node in instance.all_nodes:
       self.cfg.SetDiskID(disk, node)
-      result = self.rpc.call_blockdev_grow(node, disk, self.op.amount)
+      result = self.rpc.call_blockdev_grow(node, disk, self.op.amount, True)
+      result.Raise("Grow request failed to node %s" % node)
+
+    # We know that (as far as we can test) operations across different
+    # nodes will succeed, time to run it for real
+    for node in instance.all_nodes:
+      self.cfg.SetDiskID(disk, node)
+      result = self.rpc.call_blockdev_grow(node, disk, self.op.amount, False)
       result.Raise("Grow request failed to node %s" % node)
 
       # TODO: Rewrite code to work properly
@@ -8989,14 +10448,14 @@ class LUInstanceGrowDisk(LogicalUnit):
     if self.op.wait_for_sync:
       disk_abort = not _WaitForSync(self, instance, disks=[disk])
       if disk_abort:
-        self.proc.LogWarning("Warning: disk sync-ing has not returned a good"
-                             " status.\nPlease check the instance.")
+        self.proc.LogWarning("Disk sync-ing has not returned a good"
+                             " status; please check the instance")
       if not instance.admin_up:
         _SafeShutdownInstanceDisks(self, instance, disks=[disk])
     elif not instance.admin_up:
       self.proc.LogWarning("Not shutting down the disk even if the instance is"
                            " not supposed to be running because no wait for"
-                           " sync mode was requested.")
+                           " sync mode was requested")
 
 
 class LUInstanceQueryData(NoHooksLU):
@@ -9021,7 +10480,7 @@ class LUInstanceQueryData(NoHooksLU):
       self.wanted_names = None
 
     if self.op.use_locking:
-      self.share_locks = dict.fromkeys(locking.LEVELS, 1)
+      self.share_locks = _ShareAll()
 
       if self.wanted_names is None:
         self.needed_locks[locking.LEVEL_INSTANCE] = locking.ALL_SET
@@ -9029,7 +10488,6 @@ class LUInstanceQueryData(NoHooksLU):
         self.needed_locks[locking.LEVEL_INSTANCE] = self.wanted_names
 
       self.needed_locks[locking.LEVEL_NODE] = []
-      self.share_locks = dict.fromkeys(locking.LEVELS, 1)
       self.recalculate_locks[locking.LEVEL_NODE] = constants.LOCKS_REPLACE
 
   def DeclareLocks(self, level):
@@ -9044,10 +10502,10 @@ class LUInstanceQueryData(NoHooksLU):
     """
     if self.wanted_names is None:
       assert self.op.use_locking, "Locking was not used"
-      self.wanted_names = self.acquired_locks[locking.LEVEL_INSTANCE]
+      self.wanted_names = self.owned_locks(locking.LEVEL_INSTANCE)
 
-    self.wanted_instances = [self.cfg.GetInstanceInfo(name)
-                             for name in self.wanted_names]
+    self.wanted_instances = \
+        map(compat.snd, self.cfg.GetMultiInstanceInfo(self.wanted_names))
 
   def _ComputeBlockdevStatus(self, node, instance_name, dev):
     """Returns the status of a block device
@@ -9088,8 +10546,9 @@ class LUInstanceQueryData(NoHooksLU):
     dev_sstatus = self._ComputeBlockdevStatus(snode, instance.name, dev)
 
     if dev.children:
-      dev_children = [self._ComputeDiskStatus(instance, snode, child)
-                      for child in dev.children]
+      dev_children = map(compat.partial(self._ComputeDiskStatus,
+                                        instance, snode),
+                         dev.children)
     else:
       dev_children = []
 
@@ -9111,8 +10570,16 @@ class LUInstanceQueryData(NoHooksLU):
 
     cluster = self.cfg.GetClusterInfo()
 
-    for instance in self.wanted_instances:
-      if not self.op.static:
+    pri_nodes = self.cfg.GetMultiNodeInfo(i.primary_node
+                                          for i in self.wanted_instances)
+    for instance, (_, pnode) in zip(self.wanted_instances, pri_nodes):
+      if self.op.static or pnode.offline:
+        remote_state = None
+        if pnode.offline:
+          self.LogWarning("Primary node %s is marked offline, returning static"
+                          " information only for instance %s" %
+                          (pnode.name, instance.name))
+      else:
         remote_info = self.rpc.call_instance_info(instance.primary_node,
                                                   instance.name,
                                                   instance.hypervisor)
@@ -9122,15 +10589,14 @@ class LUInstanceQueryData(NoHooksLU):
           remote_state = "up"
         else:
           remote_state = "down"
-      else:
-        remote_state = None
+
       if instance.admin_up:
         config_state = "up"
       else:
         config_state = "down"
 
-      disks = [self._ComputeDiskStatus(instance, None, device)
-               for device in instance.disks]
+      disks = map(compat.partial(self._ComputeDiskStatus, instance, None),
+                  instance.disks)
 
       result[instance.name] = {
         "name": instance.name,
@@ -9193,11 +10659,11 @@ class LUInstanceSetParams(LogicalUnit):
           raise errors.OpPrereqError(msg, errors.ECODE_INVAL)
 
       if disk_op == constants.DDM_ADD:
-        mode = disk_dict.setdefault('mode', constants.DISK_RDWR)
+        mode = disk_dict.setdefault(constants.IDISK_MODE, constants.DISK_RDWR)
         if mode not in constants.DISK_ACCESS_SET:
           raise errors.OpPrereqError("Invalid disk access mode '%s'" % mode,
                                      errors.ECODE_INVAL)
-        size = disk_dict.get('size', None)
+        size = disk_dict.get(constants.IDISK_SIZE, None)
         if size is None:
           raise errors.OpPrereqError("Required disk parameter size missing",
                                      errors.ECODE_INVAL)
@@ -9206,10 +10672,10 @@ class LUInstanceSetParams(LogicalUnit):
         except (TypeError, ValueError), err:
           raise errors.OpPrereqError("Invalid disk size parameter: %s" %
                                      str(err), errors.ECODE_INVAL)
-        disk_dict['size'] = size
+        disk_dict[constants.IDISK_SIZE] = size
       else:
         # modification of disk
-        if 'size' in disk_dict:
+        if constants.IDISK_SIZE in disk_dict:
           raise errors.OpPrereqError("Disk size change not possible, use"
                                      " grow-disk", errors.ECODE_INVAL)
 
@@ -9223,7 +10689,7 @@ class LUInstanceSetParams(LogicalUnit):
                                  errors.ECODE_INVAL)
 
     if (self.op.disk_template and
-        self.op.disk_template in constants.DTS_NET_MIRROR and
+        self.op.disk_template in constants.DTS_INT_MIRROR and
         self.op.remote_node is None):
       raise errors.OpPrereqError("Changing the disk template to a mirrored"
                                  " one requires specifying a secondary node",
@@ -9246,32 +10712,32 @@ class LUInstanceSetParams(LogicalUnit):
           raise errors.OpPrereqError(msg, errors.ECODE_INVAL)
 
       # nic_dict should be a dict
-      nic_ip = nic_dict.get('ip', None)
+      nic_ip = nic_dict.get(constants.INIC_IP, None)
       if nic_ip is not None:
         if nic_ip.lower() == constants.VALUE_NONE:
-          nic_dict['ip'] = None
+          nic_dict[constants.INIC_IP] = None
         else:
           if not netutils.IPAddress.IsValid(nic_ip):
             raise errors.OpPrereqError("Invalid IP address '%s'" % nic_ip,
                                        errors.ECODE_INVAL)
 
-      nic_bridge = nic_dict.get('bridge', None)
-      nic_link = nic_dict.get('link', None)
+      nic_bridge = nic_dict.get("bridge", None)
+      nic_link = nic_dict.get(constants.INIC_LINK, None)
       if nic_bridge and nic_link:
         raise errors.OpPrereqError("Cannot pass 'bridge' and 'link'"
                                    " at the same time", errors.ECODE_INVAL)
       elif nic_bridge and nic_bridge.lower() == constants.VALUE_NONE:
-        nic_dict['bridge'] = None
+        nic_dict["bridge"] = None
       elif nic_link and nic_link.lower() == constants.VALUE_NONE:
-        nic_dict['link'] = None
+        nic_dict[constants.INIC_LINK] = None
 
       if nic_op == constants.DDM_ADD:
-        nic_mac = nic_dict.get('mac', None)
+        nic_mac = nic_dict.get(constants.INIC_MAC, None)
         if nic_mac is None:
-          nic_dict['mac'] = constants.VALUE_AUTO
+          nic_dict[constants.INIC_MAC] = constants.VALUE_AUTO
 
-      if 'mac' in nic_dict:
-        nic_mac = nic_dict['mac']
+      if constants.INIC_MAC in nic_dict:
+        nic_mac = nic_dict[constants.INIC_MAC]
         if nic_mac not in (constants.VALUE_AUTO, constants.VALUE_GENERATE):
           nic_mac = utils.NormalizeAndValidateMac(nic_mac)
 
@@ -9304,25 +10770,25 @@ class LUInstanceSetParams(LogicalUnit):
     """
     args = dict()
     if constants.BE_MEMORY in self.be_new:
-      args['memory'] = self.be_new[constants.BE_MEMORY]
+      args["memory"] = self.be_new[constants.BE_MEMORY]
     if constants.BE_VCPUS in self.be_new:
-      args['vcpus'] = self.be_new[constants.BE_VCPUS]
+      args["vcpus"] = self.be_new[constants.BE_VCPUS]
     # TODO: export disk changes. Note: _BuildInstanceHookEnv* don't export disk
     # information at all.
     if self.op.nics:
-      args['nics'] = []
+      args["nics"] = []
       nic_override = dict(self.op.nics)
       for idx, nic in enumerate(self.instance.nics):
         if idx in nic_override:
           this_nic_override = nic_override[idx]
         else:
           this_nic_override = {}
-        if 'ip' in this_nic_override:
-          ip = this_nic_override['ip']
+        if constants.INIC_IP in this_nic_override:
+          ip = this_nic_override[constants.INIC_IP]
         else:
           ip = nic.ip
-        if 'mac' in this_nic_override:
-          mac = this_nic_override['mac']
+        if constants.INIC_MAC in this_nic_override:
+          mac = this_nic_override[constants.INIC_MAC]
         else:
           mac = nic.mac
         if idx in self.nic_pnew:
@@ -9331,22 +10797,29 @@ class LUInstanceSetParams(LogicalUnit):
           nicparams = self.cluster.SimpleFillNIC(nic.nicparams)
         mode = nicparams[constants.NIC_MODE]
         link = nicparams[constants.NIC_LINK]
-        args['nics'].append((ip, mac, mode, link))
+        args["nics"].append((ip, mac, mode, link))
       if constants.DDM_ADD in nic_override:
-        ip = nic_override[constants.DDM_ADD].get('ip', None)
-        mac = nic_override[constants.DDM_ADD]['mac']
+        ip = nic_override[constants.DDM_ADD].get(constants.INIC_IP, None)
+        mac = nic_override[constants.DDM_ADD][constants.INIC_MAC]
         nicparams = self.nic_pnew[constants.DDM_ADD]
         mode = nicparams[constants.NIC_MODE]
         link = nicparams[constants.NIC_LINK]
-        args['nics'].append((ip, mac, mode, link))
+        args["nics"].append((ip, mac, mode, link))
       elif constants.DDM_REMOVE in nic_override:
-        del args['nics'][-1]
+        del args["nics"][-1]
 
     env = _BuildInstanceHookEnvByObject(self, self.instance, override=args)
     if self.op.disk_template:
       env["NEW_DISK_TEMPLATE"] = self.op.disk_template
+
+    return env
+
+  def BuildHooksNodes(self):
+    """Build hooks nodes.
+
+    """
     nl = [self.cfg.GetMasterNode()] + list(self.instance.all_nodes)
-    return env, nl, nl
+    return (nl, nl)
 
   def CheckPrereq(self):
     """Check prerequisites.
@@ -9383,7 +10856,7 @@ class LUInstanceSetParams(LogicalUnit):
                                                   self.op.disk_template),
                                    errors.ECODE_INVAL)
       _CheckInstanceDown(self, instance, "cannot change disk template")
-      if self.op.disk_template in constants.DTS_NET_MIRROR:
+      if self.op.disk_template in constants.DTS_INT_MIRROR:
         if self.op.remote_node == pnode:
           raise errors.OpPrereqError("Given new secondary node %s is the same"
                                      " as the primary node of the instance" %
@@ -9392,7 +10865,8 @@ class LUInstanceSetParams(LogicalUnit):
         _CheckNodeNotDrained(self, self.op.remote_node)
         # FIXME: here we assume that the old instance type is DT_PLAIN
         assert instance.disk_template == constants.DT_PLAIN
-        disks = [{"size": d.size, "vg": d.logical_id[0]}
+        disks = [{constants.IDISK_SIZE: d.size,
+                  constants.IDISK_VG: d.logical_id[0]}
                  for d in instance.disks]
         required = _ComputeDiskSizePerVG(self.op.disk_template, disks)
         _CheckNodesFreeDiskPerVG(self, [self.op.remote_node], required)
@@ -9449,8 +10923,8 @@ class LUInstanceSetParams(LogicalUnit):
       if msg:
         # Assume the primary node is unreachable and go ahead
         self.warn.append("Can't get info from primary node %s: %s" %
-                         (pnode,  msg))
-      elif not isinstance(pninfo.payload.get('memory_free', None), int):
+                         (pnode, msg))
+      elif not isinstance(pninfo.payload.get("memory_free", None), int):
         self.warn.append("Node data from primary node %s doesn't contain"
                          " free memory information" % pnode)
       elif instance_info.fail_msg:
@@ -9458,14 +10932,14 @@ class LUInstanceSetParams(LogicalUnit):
                         instance_info.fail_msg)
       else:
         if instance_info.payload:
-          current_mem = int(instance_info.payload['memory'])
+          current_mem = int(instance_info.payload["memory"])
         else:
           # Assume instance not running
           # (there is a slight race condition here, but it's not very probable,
           # and we have no other way to check)
           current_mem = 0
         miss_mem = (be_new[constants.BE_MEMORY] - current_mem -
-                    pninfo.payload['memory_free'])
+                    pninfo.payload["memory_free"])
         if miss_mem > 0:
           raise errors.OpPrereqError("This change will prevent the instance"
                                      " from starting, due to %d MB of memory"
@@ -9478,11 +10952,11 @@ class LUInstanceSetParams(LogicalUnit):
             continue
           nres.Raise("Can't get info from secondary node %s" % node,
                      prereq=True, ecode=errors.ECODE_STATE)
-          if not isinstance(nres.payload.get('memory_free', None), int):
+          if not isinstance(nres.payload.get("memory_free", None), int):
             raise errors.OpPrereqError("Secondary node %s didn't return free"
                                        " memory information" % node,
                                        errors.ECODE_STATE)
-          elif be_new[constants.BE_MEMORY] > nres.payload['memory_free']:
+          elif be_new[constants.BE_MEMORY] > nres.payload["memory_free"]:
             raise errors.OpPrereqError("This change will prevent the instance"
                                        " from failover to its secondary node"
                                        " %s, due to not enough memory" % node,
@@ -9518,8 +10992,8 @@ class LUInstanceSetParams(LogicalUnit):
                                  for key in constants.NICS_PARAMETERS
                                  if key in nic_dict])
 
-      if 'bridge' in nic_dict:
-        update_params_dict[constants.NIC_LINK] = nic_dict['bridge']
+      if "bridge" in nic_dict:
+        update_params_dict[constants.NIC_LINK] = nic_dict["bridge"]
 
       new_nic_params = _GetUpdatedParams(old_nic_params,
                                          update_params_dict)
@@ -9540,21 +11014,22 @@ class LUInstanceSetParams(LogicalUnit):
           else:
             raise errors.OpPrereqError(msg, errors.ECODE_ENVIRON)
       if new_nic_mode == constants.NIC_MODE_ROUTED:
-        if 'ip' in nic_dict:
-          nic_ip = nic_dict['ip']
+        if constants.INIC_IP in nic_dict:
+          nic_ip = nic_dict[constants.INIC_IP]
         else:
           nic_ip = old_nic_ip
         if nic_ip is None:
-          raise errors.OpPrereqError('Cannot set the nic ip to None'
-                                     ' on a routed nic', errors.ECODE_INVAL)
-      if 'mac' in nic_dict:
-        nic_mac = nic_dict['mac']
+          raise errors.OpPrereqError("Cannot set the nic ip to None"
+                                     " on a routed nic", errors.ECODE_INVAL)
+      if constants.INIC_MAC in nic_dict:
+        nic_mac = nic_dict[constants.INIC_MAC]
         if nic_mac is None:
-          raise errors.OpPrereqError('Cannot set the nic mac to None',
+          raise errors.OpPrereqError("Cannot set the nic mac to None",
                                      errors.ECODE_INVAL)
         elif nic_mac in (constants.VALUE_AUTO, constants.VALUE_GENERATE):
           # otherwise generate the mac
-          nic_dict['mac'] = self.cfg.GenerateMAC(self.proc.GetECId())
+          nic_dict[constants.INIC_MAC] = \
+            self.cfg.GenerateMAC(self.proc.GetECId())
         else:
           # or validate/reserve the current one
           try:
@@ -9601,8 +11076,9 @@ class LUInstanceSetParams(LogicalUnit):
     snode = self.op.remote_node
 
     # create a fake disk info for _GenerateDiskTemplate
-    disk_info = [{"size": d.size, "mode": d.mode,
-                  "vg": d.logical_id[0]} for d in instance.disks]
+    disk_info = [{constants.IDISK_SIZE: d.size, constants.IDISK_MODE: d.mode,
+                  constants.IDISK_VG: d.logical_id[0]}
+                 for d in instance.disks]
     new_disks = _GenerateDiskTemplate(self, self.op.disk_template,
                                       instance.name, pnode, [snode],
                                       disk_info, None, None, 0, feedback_fn)
@@ -9660,6 +11136,12 @@ class LUInstanceSetParams(LogicalUnit):
       child.size = parent.size
       child.mode = parent.mode
 
+    # this is a DRBD disk, return its port to the pool
+    # NOTE: this must be done right before the call to cfg.Update!
+    for disk in old_disks:
+      tcp_port = disk.logical_id[2]
+      self.cfg.AddTcpUdpPort(tcp_port)
+
     # update instance structure
     instance.disks = new_disks
     instance.disk_template = constants.DT_PLAIN
@@ -9708,9 +11190,15 @@ class LUInstanceSetParams(LogicalUnit):
             self.LogWarning("Could not remove disk/%d on node %s: %s,"
                             " continuing anyway", device_idx, node, msg)
         result.append(("disk/%d" % device_idx, "remove"))
+
+        # if this is a DRBD disk, return its port to the pool
+        if device.dev_type in constants.LDS_DRBD:
+          tcp_port = device.logical_id[2]
+          self.cfg.AddTcpUdpPort(tcp_port)
       elif disk_op == constants.DDM_ADD:
         # add a new disk
-        if instance.disk_template == constants.DT_FILE:
+        if instance.disk_template in (constants.DT_FILE,
+                                        constants.DT_SHARED_FILE):
           file_driver, file_path = instance.disks[0].logical_id
           file_path = os.path.dirname(file_path)
         else:
@@ -9744,8 +11232,9 @@ class LUInstanceSetParams(LogicalUnit):
                        (new_disk.size, new_disk.mode)))
       else:
         # change a given disk
-        instance.disks[disk_op].mode = disk_dict['mode']
-        result.append(("disk.mode/%d" % disk_op, disk_dict['mode']))
+        instance.disks[disk_op].mode = disk_dict[constants.IDISK_MODE]
+        result.append(("disk.mode/%d" % disk_op,
+                       disk_dict[constants.IDISK_MODE]))
 
     if self.op.disk_template:
       r_shut = _ShutdownInstanceDisks(self, instance)
@@ -9768,8 +11257,8 @@ class LUInstanceSetParams(LogicalUnit):
         result.append(("nic.%d" % len(instance.nics), "remove"))
       elif nic_op == constants.DDM_ADD:
         # mac and bridge should be set, by now
-        mac = nic_dict['mac']
-        ip = nic_dict.get('ip', None)
+        mac = nic_dict[constants.INIC_MAC]
+        ip = nic_dict.get(constants.INIC_IP, None)
         nicparams = self.nic_pinst[constants.DDM_ADD]
         new_nic = objects.NIC(mac=mac, ip=ip, nicparams=nicparams)
         instance.nics.append(new_nic)
@@ -9780,7 +11269,7 @@ class LUInstanceSetParams(LogicalUnit):
                         self.nic_pnew[constants.DDM_ADD][constants.NIC_LINK]
                        )))
       else:
-        for key in 'mac', 'ip':
+        for key in (constants.INIC_MAC, constants.INIC_IP):
           if key in nic_dict:
             setattr(instance.nics[nic_op], key, nic_dict[key])
         if nic_op in self.nic_pinst:
@@ -9820,6 +11309,147 @@ class LUInstanceSetParams(LogicalUnit):
     }
 
 
+class LUInstanceChangeGroup(LogicalUnit):
+  HPATH = "instance-change-group"
+  HTYPE = constants.HTYPE_INSTANCE
+  REQ_BGL = False
+
+  def ExpandNames(self):
+    self.share_locks = _ShareAll()
+    self.needed_locks = {
+      locking.LEVEL_NODEGROUP: [],
+      locking.LEVEL_NODE: [],
+      }
+
+    self._ExpandAndLockInstance()
+
+    if self.op.target_groups:
+      self.req_target_uuids = map(self.cfg.LookupNodeGroup,
+                                  self.op.target_groups)
+    else:
+      self.req_target_uuids = None
+
+    self.op.iallocator = _GetDefaultIAllocator(self.cfg, self.op.iallocator)
+
+  def DeclareLocks(self, level):
+    if level == locking.LEVEL_NODEGROUP:
+      assert not self.needed_locks[locking.LEVEL_NODEGROUP]
+
+      if self.req_target_uuids:
+        lock_groups = set(self.req_target_uuids)
+
+        # Lock all groups used by instance optimistically; this requires going
+        # via the node before it's locked, requiring verification later on
+        instance_groups = self.cfg.GetInstanceNodeGroups(self.op.instance_name)
+        lock_groups.update(instance_groups)
+      else:
+        # No target groups, need to lock all of them
+        lock_groups = locking.ALL_SET
+
+      self.needed_locks[locking.LEVEL_NODEGROUP] = lock_groups
+
+    elif level == locking.LEVEL_NODE:
+      if self.req_target_uuids:
+        # Lock all nodes used by instances
+        self.recalculate_locks[locking.LEVEL_NODE] = constants.LOCKS_APPEND
+        self._LockInstancesNodes()
+
+        # Lock all nodes in all potential target groups
+        lock_groups = (frozenset(self.owned_locks(locking.LEVEL_NODEGROUP)) -
+                       self.cfg.GetInstanceNodeGroups(self.op.instance_name))
+        member_nodes = [node_name
+                        for group in lock_groups
+                        for node_name in self.cfg.GetNodeGroup(group).members]
+        self.needed_locks[locking.LEVEL_NODE].extend(member_nodes)
+      else:
+        # Lock all nodes as all groups are potential targets
+        self.needed_locks[locking.LEVEL_NODE] = locking.ALL_SET
+
+  def CheckPrereq(self):
+    owned_instances = frozenset(self.owned_locks(locking.LEVEL_INSTANCE))
+    owned_groups = frozenset(self.owned_locks(locking.LEVEL_NODEGROUP))
+    owned_nodes = frozenset(self.owned_locks(locking.LEVEL_NODE))
+
+    assert (self.req_target_uuids is None or
+            owned_groups.issuperset(self.req_target_uuids))
+    assert owned_instances == set([self.op.instance_name])
+
+    # Get instance information
+    self.instance = self.cfg.GetInstanceInfo(self.op.instance_name)
+
+    # Check if node groups for locked instance are still correct
+    assert owned_nodes.issuperset(self.instance.all_nodes), \
+      ("Instance %s's nodes changed while we kept the lock" %
+       self.op.instance_name)
+
+    inst_groups = _CheckInstanceNodeGroups(self.cfg, self.op.instance_name,
+                                           owned_groups)
+
+    if self.req_target_uuids:
+      # User requested specific target groups
+      self.target_uuids = frozenset(self.req_target_uuids)
+    else:
+      # All groups except those used by the instance are potential targets
+      self.target_uuids = owned_groups - inst_groups
+
+    conflicting_groups = self.target_uuids & inst_groups
+    if conflicting_groups:
+      raise errors.OpPrereqError("Can't use group(s) '%s' as targets, they are"
+                                 " used by the instance '%s'" %
+                                 (utils.CommaJoin(conflicting_groups),
+                                  self.op.instance_name),
+                                 errors.ECODE_INVAL)
+
+    if not self.target_uuids:
+      raise errors.OpPrereqError("There are no possible target groups",
+                                 errors.ECODE_INVAL)
+
+  def BuildHooksEnv(self):
+    """Build hooks env.
+
+    """
+    assert self.target_uuids
+
+    env = {
+      "TARGET_GROUPS": " ".join(self.target_uuids),
+      }
+
+    env.update(_BuildInstanceHookEnvByObject(self, self.instance))
+
+    return env
+
+  def BuildHooksNodes(self):
+    """Build hooks nodes.
+
+    """
+    mn = self.cfg.GetMasterNode()
+    return ([mn], [mn])
+
+  def Exec(self, feedback_fn):
+    instances = list(self.owned_locks(locking.LEVEL_INSTANCE))
+
+    assert instances == [self.op.instance_name], "Instance not locked"
+
+    ial = IAllocator(self.cfg, self.rpc, constants.IALLOCATOR_MODE_CHG_GROUP,
+                     instances=instances, target_groups=list(self.target_uuids))
+
+    ial.Run(self.op.iallocator)
+
+    if not ial.success:
+      raise errors.OpPrereqError("Can't compute solution for changing group of"
+                                 " instance '%s' using iallocator '%s': %s" %
+                                 (self.op.instance_name, self.op.iallocator,
+                                  ial.info),
+                                 errors.ECODE_NORES)
+
+    jobs = _LoadNodeEvacResult(self, ial.result, self.op.early_release, False)
+
+    self.LogInfo("Iallocator returned %s job(s) for changing group of"
+                 " instance '%s'", len(jobs), self.op.instance_name)
+
+    return ResultWithJobs(jobs)
+
+
 class LUBackupQuery(NoHooksLU):
   """Query the exports list
 
@@ -9844,7 +11474,7 @@ class LUBackupQuery(NoHooksLU):
         that node.
 
     """
-    self.nodes = self.acquired_locks[locking.LEVEL_NODE]
+    self.nodes = self.owned_locks(locking.LEVEL_NODE)
     rpcresult = self.rpc.call_export_list(self.nodes)
     result = {}
     for node in rpcresult:
@@ -9967,12 +11597,18 @@ class LUBackupExport(LogicalUnit):
 
     env.update(_BuildInstanceHookEnvByObject(self, self.instance))
 
+    return env
+
+  def BuildHooksNodes(self):
+    """Build hooks nodes.
+
+    """
     nl = [self.cfg.GetMasterNode(), self.instance.primary_node]
 
     if self.op.mode == constants.EXPORT_MODE_LOCAL:
       nl.append(self.op.target_node)
 
-    return env, nl, nl
+    return (nl, nl)
 
   def CheckPrereq(self):
     """Check prerequisites.
@@ -10134,7 +11770,8 @@ class LUBackupExport(LogicalUnit):
             not self.op.remove_instance):
           assert not activate_disks
           feedback_fn("Starting instance %s" % instance.name)
-          result = self.rpc.call_instance_start(src_node, instance, None, None)
+          result = self.rpc.call_instance_start(src_node, instance,
+                                                None, None, False)
           msg = result.fail_msg
           if msg:
             feedback_fn("Failed to start instance: %s" % msg)
@@ -10220,7 +11857,7 @@ class LUBackupRemove(NoHooksLU):
       fqdn_warn = True
       instance_name = self.op.instance_name
 
-    locked_nodes = self.acquired_locks[locking.LEVEL_NODE]
+    locked_nodes = self.owned_locks(locking.LEVEL_NODE)
     exportlist = self.rpc.call_export_list(locked_nodes)
     found = False
     for node in exportlist:
@@ -10282,11 +11919,16 @@ class LUGroupAdd(LogicalUnit):
     """Build hooks env.
 
     """
-    env = {
+    return {
       "GROUP_NAME": self.op.group_name,
       }
+
+  def BuildHooksNodes(self):
+    """Build hooks nodes.
+
+    """
     mn = self.cfg.GetMasterNode()
-    return env, [mn], [mn]
+    return ([mn], [mn])
 
   def Exec(self, feedback_fn):
     """Add the node group to the cluster.
@@ -10335,12 +11977,12 @@ class LUGroupAssignNodes(NoHooksLU):
 
     """
     assert self.needed_locks[locking.LEVEL_NODEGROUP]
-    assert (frozenset(self.acquired_locks[locking.LEVEL_NODE]) ==
+    assert (frozenset(self.owned_locks(locking.LEVEL_NODE)) ==
             frozenset(self.op.nodes))
 
     expected_locks = (set([self.group_uuid]) |
                       self.cfg.GetNodeGroupsFromNodes(self.op.nodes))
-    actual_locks = self.acquired_locks[locking.LEVEL_NODEGROUP]
+    actual_locks = self.owned_locks(locking.LEVEL_NODEGROUP)
     if actual_locks != expected_locks:
       raise errors.OpExecError("Nodes changed groups since locks were acquired,"
                                " current groups are '%s', used to be '%s'" %
@@ -10380,13 +12022,9 @@ class LUGroupAssignNodes(NoHooksLU):
     """Assign nodes to a new group.
 
     """
-    for node in self.op.nodes:
-      self.node_data[node].group = self.group_uuid
+    mods = [(node_name, self.group_uuid) for node_name in self.op.nodes]
 
-    # FIXME: Depends on side-effects of modifying the result of
-    # C{cfg.GetAllNodesInfo}
-
-    self.cfg.Update(self.group, feedback_fn) # Saves all modified nodes.
+    self.cfg.AssignGroupNodes(mods)
 
   @staticmethod
   def CheckAssignmentForSplitInstances(changes, node_data, instance_data):
@@ -10399,7 +12037,7 @@ class LUGroupAssignNodes(NoHooksLU):
     In particular, it returns information about newly split instances, and
     instances that were already split, and remain so after the change.
 
-    Only instances whose disk template is listed in constants.DTS_NET_MIRROR are
+    Only instances whose disk template is listed in constants.DTS_INT_MIRROR are
     considered.
 
     @type changes: list of (node_name, new_group_uuid) pairs.
@@ -10422,7 +12060,7 @@ class LUGroupAssignNodes(NoHooksLU):
       return [instance.primary_node] + list(instance.secondary_nodes)
 
     for inst in instance_data.values():
-      if inst.disk_template not in constants.DTS_NET_MIRROR:
+      if inst.disk_template not in constants.DTS_INT_MIRROR:
         continue
 
       instance_nodes = InstanceNodes(inst)
@@ -10439,7 +12077,6 @@ class LUGroupAssignNodes(NoHooksLU):
 
 
 class _GroupQuery(_QueryBase):
-
   FIELDS = query.GROUP_FIELDS
 
   def ExpandNames(self, lu):
@@ -10523,10 +12160,14 @@ class LUGroupQuery(NoHooksLU):
   REQ_BGL = False
 
   def CheckArguments(self):
-    self.gq = _GroupQuery(self.op.names, self.op.output_fields, False)
+    self.gq = _GroupQuery(qlang.MakeSimpleFilter("name", self.op.names),
+                          self.op.output_fields, False)
 
   def ExpandNames(self):
     self.gq.ExpandNames(self)
+
+  def DeclareLocks(self, level):
+    self.gq.DeclareLocks(self, level)
 
   def Exec(self, feedback_fn):
     return self.gq.OldStyleQuery(self)
@@ -10577,12 +12218,17 @@ class LUGroupSetParams(LogicalUnit):
     """Build hooks env.
 
     """
-    env = {
+    return {
       "GROUP_NAME": self.op.group_name,
       "NEW_ALLOC_POLICY": self.op.alloc_policy,
       }
+
+  def BuildHooksNodes(self):
+    """Build hooks nodes.
+
+    """
     mn = self.cfg.GetMasterNode()
-    return env, [mn], [mn]
+    return ([mn], [mn])
 
   def Exec(self, feedback_fn):
     """Modifies the node group.
@@ -10599,7 +12245,6 @@ class LUGroupSetParams(LogicalUnit):
 
     self.cfg.Update(self.group, feedback_fn)
     return result
-
 
 
 class LUGroupRemove(LogicalUnit):
@@ -10645,11 +12290,16 @@ class LUGroupRemove(LogicalUnit):
     """Build hooks env.
 
     """
-    env = {
+    return {
       "GROUP_NAME": self.op.group_name,
       }
+
+  def BuildHooksNodes(self):
+    """Build hooks nodes.
+
+    """
     mn = self.cfg.GetMasterNode()
-    return env, [mn], [mn]
+    return ([mn], [mn])
 
   def Exec(self, feedback_fn):
     """Remove the node group.
@@ -10671,7 +12321,7 @@ class LUGroupRename(LogicalUnit):
 
   def ExpandNames(self):
     # This raises errors.OpPrereqError on its own:
-    self.group_uuid = self.cfg.LookupNodeGroup(self.op.old_name)
+    self.group_uuid = self.cfg.LookupNodeGroup(self.op.group_name)
 
     self.needed_locks = {
       locking.LEVEL_NODEGROUP: [self.group_uuid],
@@ -10680,8 +12330,7 @@ class LUGroupRename(LogicalUnit):
   def CheckPrereq(self):
     """Check prerequisites.
 
-    This checks that the given old_name exists as a node group, and that
-    new_name doesn't.
+    Ensures requested new name is not yet used.
 
     """
     try:
@@ -10698,21 +12347,25 @@ class LUGroupRename(LogicalUnit):
     """Build hooks env.
 
     """
-    env = {
-      "OLD_NAME": self.op.old_name,
+    return {
+      "OLD_NAME": self.op.group_name,
       "NEW_NAME": self.op.new_name,
       }
 
+  def BuildHooksNodes(self):
+    """Build hooks nodes.
+
+    """
     mn = self.cfg.GetMasterNode()
+
     all_nodes = self.cfg.GetAllNodesInfo()
-    run_nodes = [mn]
     all_nodes.pop(mn, None)
 
-    for node in all_nodes.values():
-      if node.group == self.group_uuid:
-        run_nodes.append(node.name)
+    run_nodes = [mn]
+    run_nodes.extend(node.name for node in all_nodes.values()
+                     if node.group == self.group_uuid)
 
-    return env, run_nodes, run_nodes
+    return (run_nodes, run_nodes)
 
   def Exec(self, feedback_fn):
     """Rename the node group.
@@ -10722,7 +12375,7 @@ class LUGroupRename(LogicalUnit):
 
     if group is None:
       raise errors.OpExecError("Could not retrieve group '%s' (UUID: %s)" %
-                               (self.op.old_name, self.group_uuid))
+                               (self.op.group_name, self.group_uuid))
 
     group.name = self.op.new_name
     self.cfg.Update(group, feedback_fn)
@@ -10730,14 +12383,170 @@ class LUGroupRename(LogicalUnit):
     return self.op.new_name
 
 
-class TagsLU(NoHooksLU): # pylint: disable-msg=W0223
+class LUGroupEvacuate(LogicalUnit):
+  HPATH = "group-evacuate"
+  HTYPE = constants.HTYPE_GROUP
+  REQ_BGL = False
+
+  def ExpandNames(self):
+    # This raises errors.OpPrereqError on its own:
+    self.group_uuid = self.cfg.LookupNodeGroup(self.op.group_name)
+
+    if self.op.target_groups:
+      self.req_target_uuids = map(self.cfg.LookupNodeGroup,
+                                  self.op.target_groups)
+    else:
+      self.req_target_uuids = []
+
+    if self.group_uuid in self.req_target_uuids:
+      raise errors.OpPrereqError("Group to be evacuated (%s) can not be used"
+                                 " as a target group (targets are %s)" %
+                                 (self.group_uuid,
+                                  utils.CommaJoin(self.req_target_uuids)),
+                                 errors.ECODE_INVAL)
+
+    self.op.iallocator = _GetDefaultIAllocator(self.cfg, self.op.iallocator)
+
+    self.share_locks = _ShareAll()
+    self.needed_locks = {
+      locking.LEVEL_INSTANCE: [],
+      locking.LEVEL_NODEGROUP: [],
+      locking.LEVEL_NODE: [],
+      }
+
+  def DeclareLocks(self, level):
+    if level == locking.LEVEL_INSTANCE:
+      assert not self.needed_locks[locking.LEVEL_INSTANCE]
+
+      # Lock instances optimistically, needs verification once node and group
+      # locks have been acquired
+      self.needed_locks[locking.LEVEL_INSTANCE] = \
+        self.cfg.GetNodeGroupInstances(self.group_uuid)
+
+    elif level == locking.LEVEL_NODEGROUP:
+      assert not self.needed_locks[locking.LEVEL_NODEGROUP]
+
+      if self.req_target_uuids:
+        lock_groups = set([self.group_uuid] + self.req_target_uuids)
+
+        # Lock all groups used by instances optimistically; this requires going
+        # via the node before it's locked, requiring verification later on
+        lock_groups.update(group_uuid
+                           for instance_name in
+                             self.owned_locks(locking.LEVEL_INSTANCE)
+                           for group_uuid in
+                             self.cfg.GetInstanceNodeGroups(instance_name))
+      else:
+        # No target groups, need to lock all of them
+        lock_groups = locking.ALL_SET
+
+      self.needed_locks[locking.LEVEL_NODEGROUP] = lock_groups
+
+    elif level == locking.LEVEL_NODE:
+      # This will only lock the nodes in the group to be evacuated which
+      # contain actual instances
+      self.recalculate_locks[locking.LEVEL_NODE] = constants.LOCKS_APPEND
+      self._LockInstancesNodes()
+
+      # Lock all nodes in group to be evacuated and target groups
+      owned_groups = frozenset(self.owned_locks(locking.LEVEL_NODEGROUP))
+      assert self.group_uuid in owned_groups
+      member_nodes = [node_name
+                      for group in owned_groups
+                      for node_name in self.cfg.GetNodeGroup(group).members]
+      self.needed_locks[locking.LEVEL_NODE].extend(member_nodes)
+
+  def CheckPrereq(self):
+    owned_instances = frozenset(self.owned_locks(locking.LEVEL_INSTANCE))
+    owned_groups = frozenset(self.owned_locks(locking.LEVEL_NODEGROUP))
+    owned_nodes = frozenset(self.owned_locks(locking.LEVEL_NODE))
+
+    assert owned_groups.issuperset(self.req_target_uuids)
+    assert self.group_uuid in owned_groups
+
+    # Check if locked instances are still correct
+    _CheckNodeGroupInstances(self.cfg, self.group_uuid, owned_instances)
+
+    # Get instance information
+    self.instances = dict(self.cfg.GetMultiInstanceInfo(owned_instances))
+
+    # Check if node groups for locked instances are still correct
+    for instance_name in owned_instances:
+      inst = self.instances[instance_name]
+      assert owned_nodes.issuperset(inst.all_nodes), \
+        "Instance %s's nodes changed while we kept the lock" % instance_name
+
+      inst_groups = _CheckInstanceNodeGroups(self.cfg, instance_name,
+                                             owned_groups)
+
+      assert self.group_uuid in inst_groups, \
+        "Instance %s has no node in group %s" % (instance_name, self.group_uuid)
+
+    if self.req_target_uuids:
+      # User requested specific target groups
+      self.target_uuids = self.req_target_uuids
+    else:
+      # All groups except the one to be evacuated are potential targets
+      self.target_uuids = [group_uuid for group_uuid in owned_groups
+                           if group_uuid != self.group_uuid]
+
+      if not self.target_uuids:
+        raise errors.OpPrereqError("There are no possible target groups",
+                                   errors.ECODE_INVAL)
+
+  def BuildHooksEnv(self):
+    """Build hooks env.
+
+    """
+    return {
+      "GROUP_NAME": self.op.group_name,
+      "TARGET_GROUPS": " ".join(self.target_uuids),
+      }
+
+  def BuildHooksNodes(self):
+    """Build hooks nodes.
+
+    """
+    mn = self.cfg.GetMasterNode()
+
+    assert self.group_uuid in self.owned_locks(locking.LEVEL_NODEGROUP)
+
+    run_nodes = [mn] + self.cfg.GetNodeGroup(self.group_uuid).members
+
+    return (run_nodes, run_nodes)
+
+  def Exec(self, feedback_fn):
+    instances = list(self.owned_locks(locking.LEVEL_INSTANCE))
+
+    assert self.group_uuid not in self.target_uuids
+
+    ial = IAllocator(self.cfg, self.rpc, constants.IALLOCATOR_MODE_CHG_GROUP,
+                     instances=instances, target_groups=self.target_uuids)
+
+    ial.Run(self.op.iallocator)
+
+    if not ial.success:
+      raise errors.OpPrereqError("Can't compute group evacuation using"
+                                 " iallocator '%s': %s" %
+                                 (self.op.iallocator, ial.info),
+                                 errors.ECODE_NORES)
+
+    jobs = _LoadNodeEvacResult(self, ial.result, self.op.early_release, False)
+
+    self.LogInfo("Iallocator returned %s job(s) for evacuating node group %s",
+                 len(jobs), self.op.group_name)
+
+    return ResultWithJobs(jobs)
+
+
+class TagsLU(NoHooksLU): # pylint: disable=W0223
   """Generic tags LU.
 
   This is an abstract class which is the parent of all the other tags LUs.
 
   """
-
   def ExpandNames(self):
+    self.group_uuid = None
     self.needed_locks = {}
     if self.op.kind == constants.TAG_NODE:
       self.op.name = _ExpandNodeName(self.cfg, self.op.name)
@@ -10745,6 +12554,8 @@ class TagsLU(NoHooksLU): # pylint: disable-msg=W0223
     elif self.op.kind == constants.TAG_INSTANCE:
       self.op.name = _ExpandInstanceName(self.cfg, self.op.name)
       self.needed_locks[locking.LEVEL_INSTANCE] = self.op.name
+    elif self.op.kind == constants.TAG_NODEGROUP:
+      self.group_uuid = self.cfg.LookupNodeGroup(self.op.name)
 
     # FIXME: Acquire BGL for cluster tag operations (as of this writing it's
     # not possible to acquire the BGL based on opcode parameters)
@@ -10759,6 +12570,8 @@ class TagsLU(NoHooksLU): # pylint: disable-msg=W0223
       self.target = self.cfg.GetNodeInfo(self.op.name)
     elif self.op.kind == constants.TAG_INSTANCE:
       self.target = self.cfg.GetInstanceInfo(self.op.name)
+    elif self.op.kind == constants.TAG_NODEGROUP:
+      self.target = self.cfg.GetNodeGroup(self.group_uuid)
     else:
       raise errors.OpPrereqError("Wrong tag type requested (%s)" %
                                  str(self.op.kind), errors.ECODE_INVAL)
@@ -10774,7 +12587,7 @@ class LUTagsGet(TagsLU):
     TagsLU.ExpandNames(self)
 
     # Share locks as this is only a read operation
-    self.share_locks = dict.fromkeys(locking.LEVELS, 1)
+    self.share_locks = _ShareAll()
 
   def Exec(self, feedback_fn):
     """Returns the tag list.
@@ -10814,6 +12627,8 @@ class LUTagsSearch(NoHooksLU):
     tgts.extend([("/instances/%s" % i.name, i) for i in ilist])
     nlist = cfg.GetAllNodesInfo().values()
     tgts.extend([("/nodes/%s" % n.name, n) for n in nlist])
+    tgts.extend(("/nodegroup/%s" % n.name, n)
+                for n in cfg.GetAllNodeGroupsInfo().values())
     results = []
     for path, target in tgts:
       for tag in target.GetTags():
@@ -10984,7 +12799,7 @@ class LUTestJqueue(NoHooksLU):
     # Wait for client to close
     try:
       try:
-        # pylint: disable-msg=E1101
+        # pylint: disable=E1101
         # Instance of '_socketobject' has no ... member
         conn.settimeout(cls._CLIENT_CONFIRM_TIMEOUT)
         conn.recv(1)
@@ -11081,18 +12896,8 @@ class IAllocator(object):
       easy usage
 
   """
-  # pylint: disable-msg=R0902
+  # pylint: disable=R0902
   # lots of instance attributes
-  _ALLO_KEYS = [
-    "name", "mem_size", "disks", "disk_template",
-    "os", "tags", "nics", "vcpus", "hypervisor",
-    ]
-  _RELO_KEYS = [
-    "name", "relocate_from",
-    ]
-  _EVAC_KEYS = [
-    "evac_nodes",
-    ]
 
   def __init__(self, cfg, rpc, mode, **kwargs):
     self.cfg = cfg
@@ -11101,28 +12906,27 @@ class IAllocator(object):
     self.in_text = self.out_text = self.in_data = self.out_data = None
     # init all input fields so that pylint is happy
     self.mode = mode
-    self.mem_size = self.disks = self.disk_template = None
+    self.memory = self.disks = self.disk_template = None
     self.os = self.tags = self.nics = self.vcpus = None
     self.hypervisor = None
     self.relocate_from = None
     self.name = None
-    self.evac_nodes = None
+    self.instances = None
+    self.evac_mode = None
+    self.target_groups = []
     # computed fields
     self.required_nodes = None
     # init result fields
     self.success = self.info = self.result = None
-    if self.mode == constants.IALLOCATOR_MODE_ALLOC:
-      keyset = self._ALLO_KEYS
-      fn = self._AddNewInstance
-    elif self.mode == constants.IALLOCATOR_MODE_RELOC:
-      keyset = self._RELO_KEYS
-      fn = self._AddRelocateInstance
-    elif self.mode == constants.IALLOCATOR_MODE_MEVAC:
-      keyset = self._EVAC_KEYS
-      fn = self._AddEvacuateNodes
-    else:
+
+    try:
+      (fn, keydata, self._result_check) = self._MODE_DATA[self.mode]
+    except KeyError:
       raise errors.ProgrammerError("Unknown mode '%s' passed to the"
                                    " IAllocator" % self.mode)
+
+    keyset = [n for (n, _) in keydata]
+
     for key in kwargs:
       if key not in keyset:
         raise errors.ProgrammerError("Invalid input parameter '%s' to"
@@ -11133,7 +12937,7 @@ class IAllocator(object):
       if key not in kwargs:
         raise errors.ProgrammerError("Missing input parameter '%s' to"
                                      " IAllocator" % key)
-    self._BuildInputData(fn)
+    self._BuildInputData(compat.partial(fn, self), keydata)
 
   def _ComputeClusterData(self):
     """Compute the generic allocator input data.
@@ -11162,7 +12966,7 @@ class IAllocator(object):
       hypervisor_name = self.hypervisor
     elif self.mode == constants.IALLOCATOR_MODE_RELOC:
       hypervisor_name = cfg.GetInstanceInfo(self.name).hypervisor
-    elif self.mode == constants.IALLOCATOR_MODE_MEVAC:
+    else:
       hypervisor_name = cluster_info.enabled_hypervisors[0]
 
     node_data = self.rpc.call_node_info(node_list, cfg.GetVGName(),
@@ -11188,12 +12992,12 @@ class IAllocator(object):
     """Compute node groups data.
 
     """
-    ng = {}
-    for guuid, gdata in cfg.GetAllNodeGroupsInfo().items():
-      ng[guuid] = {
-        "name": gdata.name,
-        "alloc_policy": gdata.alloc_policy,
-        }
+    ng = dict((guuid, {
+      "name": gdata.name,
+      "alloc_policy": gdata.alloc_policy,
+      })
+      for guuid, gdata in cfg.GetAllNodeGroupsInfo().items())
+
     return ng
 
   @staticmethod
@@ -11204,22 +13008,19 @@ class IAllocator(object):
     @returns: a dict of name: (node dict, node config)
 
     """
-    node_results = {}
-    for ninfo in node_cfg.values():
-      # fill in static (config-based) values
-      pnr = {
-        "tags": list(ninfo.GetTags()),
-        "primary_ip": ninfo.primary_ip,
-        "secondary_ip": ninfo.secondary_ip,
-        "offline": ninfo.offline,
-        "drained": ninfo.drained,
-        "master_candidate": ninfo.master_candidate,
-        "group": ninfo.group,
-        "master_capable": ninfo.master_capable,
-        "vm_capable": ninfo.vm_capable,
-        }
-
-      node_results[ninfo.name] = pnr
+    # fill in static (config-based) values
+    node_results = dict((ninfo.name, {
+      "tags": list(ninfo.GetTags()),
+      "primary_ip": ninfo.primary_ip,
+      "secondary_ip": ninfo.secondary_ip,
+      "offline": ninfo.offline,
+      "drained": ninfo.drained,
+      "master_candidate": ninfo.master_candidate,
+      "group": ninfo.group,
+      "master_capable": ninfo.master_capable,
+      "vm_capable": ninfo.vm_capable,
+      })
+      for ninfo in node_cfg.values())
 
     return node_results
 
@@ -11243,8 +13044,8 @@ class IAllocator(object):
                                 nname)
         remote_info = nresult.payload
 
-        for attr in ['memory_total', 'memory_free', 'memory_dom0',
-                     'vg_size', 'vg_free', 'cpu_total']:
+        for attr in ["memory_total", "memory_free", "memory_dom0",
+                     "vg_size", "vg_free", "cpu_total"]:
           if attr not in remote_info:
             raise errors.OpExecError("Node '%s' didn't return attribute"
                                      " '%s'" % (nname, attr))
@@ -11260,21 +13061,21 @@ class IAllocator(object):
             if iinfo.name not in node_iinfo[nname].payload:
               i_used_mem = 0
             else:
-              i_used_mem = int(node_iinfo[nname].payload[iinfo.name]['memory'])
+              i_used_mem = int(node_iinfo[nname].payload[iinfo.name]["memory"])
             i_mem_diff = beinfo[constants.BE_MEMORY] - i_used_mem
-            remote_info['memory_free'] -= max(0, i_mem_diff)
+            remote_info["memory_free"] -= max(0, i_mem_diff)
 
             if iinfo.admin_up:
               i_p_up_mem += beinfo[constants.BE_MEMORY]
 
         # compute memory used by instances
         pnr_dyn = {
-          "total_memory": remote_info['memory_total'],
-          "reserved_memory": remote_info['memory_dom0'],
-          "free_memory": remote_info['memory_free'],
-          "total_disk": remote_info['vg_size'],
-          "free_disk": remote_info['vg_free'],
-          "total_cpus": remote_info['cpu_total'],
+          "total_memory": remote_info["memory_total"],
+          "reserved_memory": remote_info["memory_dom0"],
+          "free_memory": remote_info["memory_free"],
+          "total_disk": remote_info["vg_size"],
+          "free_disk": remote_info["vg_free"],
+          "total_cpus": remote_info["cpu_total"],
           "i_pri_memory": i_p_mem,
           "i_pri_up_memory": i_p_up_mem,
           }
@@ -11293,11 +13094,12 @@ class IAllocator(object):
       nic_data = []
       for nic in iinfo.nics:
         filled_params = cluster_info.SimpleFillNIC(nic.nicparams)
-        nic_dict = {"mac": nic.mac,
-                    "ip": nic.ip,
-                    "mode": filled_params[constants.NIC_MODE],
-                    "link": filled_params[constants.NIC_LINK],
-                   }
+        nic_dict = {
+          "mac": nic.mac,
+          "ip": nic.ip,
+          "mode": filled_params[constants.NIC_MODE],
+          "link": filled_params[constants.NIC_LINK],
+          }
         if filled_params[constants.NIC_MODE] == constants.NIC_MODE_BRIDGED:
           nic_dict["bridge"] = filled_params[constants.NIC_LINK]
         nic_data.append(nic_dict)
@@ -11309,7 +13111,9 @@ class IAllocator(object):
         "os": iinfo.os,
         "nodes": [iinfo.primary_node] + list(iinfo.secondary_nodes),
         "nics": nic_data,
-        "disks": [{"size": dsk.size, "mode": dsk.mode} for dsk in iinfo.disks],
+        "disks": [{constants.IDISK_SIZE: dsk.size,
+                   constants.IDISK_MODE: dsk.mode}
+                  for dsk in iinfo.disks],
         "disk_template": iinfo.disk_template,
         "hypervisor": iinfo.hypervisor,
         }
@@ -11331,22 +13135,25 @@ class IAllocator(object):
     """
     disk_space = _ComputeDiskSize(self.disk_template, self.disks)
 
-    if self.disk_template in constants.DTS_NET_MIRROR:
+    if self.disk_template in constants.DTS_INT_MIRROR:
       self.required_nodes = 2
     else:
       self.required_nodes = 1
+
     request = {
       "name": self.name,
       "disk_template": self.disk_template,
       "tags": self.tags,
       "os": self.os,
       "vcpus": self.vcpus,
-      "memory": self.mem_size,
+      "memory": self.memory,
       "disks": self.disks,
       "disk_space_total": disk_space,
       "nics": self.nics,
       "required_nodes": self.required_nodes,
+      "hypervisor": self.hypervisor,
       }
+
     return request
 
   def _AddRelocateInstance(self):
@@ -11364,16 +13171,17 @@ class IAllocator(object):
       raise errors.ProgrammerError("Unknown instance '%s' passed to"
                                    " IAllocator" % self.name)
 
-    if instance.disk_template not in constants.DTS_NET_MIRROR:
+    if instance.disk_template not in constants.DTS_MIRRORED:
       raise errors.OpPrereqError("Can't relocate non-mirrored instances",
                                  errors.ECODE_INVAL)
 
-    if len(instance.secondary_nodes) != 1:
+    if instance.disk_template in constants.DTS_INT_MIRROR and \
+        len(instance.secondary_nodes) != 1:
       raise errors.OpPrereqError("Instance has not exactly one secondary node",
                                  errors.ECODE_STATE)
 
     self.required_nodes = 1
-    disk_sizes = [{'size': disk.size} for disk in instance.disks]
+    disk_sizes = [{constants.IDISK_SIZE: disk.size} for disk in instance.disks]
     disk_space = _ComputeDiskSize(instance.disk_template, disk_sizes)
 
     request = {
@@ -11384,16 +13192,25 @@ class IAllocator(object):
       }
     return request
 
-  def _AddEvacuateNodes(self):
-    """Add evacuate nodes data to allocator structure.
+  def _AddNodeEvacuate(self):
+    """Get data for node-evacuate requests.
 
     """
-    request = {
-      "evac_nodes": self.evac_nodes
+    return {
+      "instances": self.instances,
+      "evac_mode": self.evac_mode,
       }
-    return request
 
-  def _BuildInputData(self, fn):
+  def _AddChangeGroup(self):
+    """Get data for node-evacuate requests.
+
+    """
+    return {
+      "instances": self.instances,
+      "target_groups": self.target_groups,
+      }
+
+  def _BuildInputData(self, fn, keydata):
     """Build input data structures.
 
     """
@@ -11401,9 +13218,71 @@ class IAllocator(object):
 
     request = fn()
     request["type"] = self.mode
+    for keyname, keytype in keydata:
+      if keyname not in request:
+        raise errors.ProgrammerError("Request parameter %s is missing" %
+                                     keyname)
+      val = request[keyname]
+      if not keytype(val):
+        raise errors.ProgrammerError("Request parameter %s doesn't pass"
+                                     " validation, value %s, expected"
+                                     " type %s" % (keyname, val, keytype))
     self.in_data["request"] = request
 
     self.in_text = serializer.Dump(self.in_data)
+
+  _STRING_LIST = ht.TListOf(ht.TString)
+  _JOB_LIST = ht.TListOf(ht.TListOf(ht.TStrictDict(True, False, {
+     # pylint: disable=E1101
+     # Class '...' has no 'OP_ID' member
+     "OP_ID": ht.TElemOf([opcodes.OpInstanceFailover.OP_ID,
+                          opcodes.OpInstanceMigrate.OP_ID,
+                          opcodes.OpInstanceReplaceDisks.OP_ID])
+     })))
+
+  _NEVAC_MOVED = \
+    ht.TListOf(ht.TAnd(ht.TIsLength(3),
+                       ht.TItems([ht.TNonEmptyString,
+                                  ht.TNonEmptyString,
+                                  ht.TListOf(ht.TNonEmptyString),
+                                 ])))
+  _NEVAC_FAILED = \
+    ht.TListOf(ht.TAnd(ht.TIsLength(2),
+                       ht.TItems([ht.TNonEmptyString,
+                                  ht.TMaybeString,
+                                 ])))
+  _NEVAC_RESULT = ht.TAnd(ht.TIsLength(3),
+                          ht.TItems([_NEVAC_MOVED, _NEVAC_FAILED, _JOB_LIST]))
+
+  _MODE_DATA = {
+    constants.IALLOCATOR_MODE_ALLOC:
+      (_AddNewInstance,
+       [
+        ("name", ht.TString),
+        ("memory", ht.TInt),
+        ("disks", ht.TListOf(ht.TDict)),
+        ("disk_template", ht.TString),
+        ("os", ht.TString),
+        ("tags", _STRING_LIST),
+        ("nics", ht.TListOf(ht.TDict)),
+        ("vcpus", ht.TInt),
+        ("hypervisor", ht.TString),
+        ], ht.TList),
+    constants.IALLOCATOR_MODE_RELOC:
+      (_AddRelocateInstance,
+       [("name", ht.TString), ("relocate_from", _STRING_LIST)],
+       ht.TList),
+     constants.IALLOCATOR_MODE_NODE_EVAC:
+      (_AddNodeEvacuate, [
+        ("instances", _STRING_LIST),
+        ("evac_mode", ht.TElemOf(constants.IALLOCATOR_NEVAC_MODES)),
+        ], _NEVAC_RESULT),
+     constants.IALLOCATOR_MODE_CHG_GROUP:
+      (_AddChangeGroup, [
+        ("instances", _STRING_LIST),
+        ("target_groups", _STRING_LIST),
+        ], _NEVAC_RESULT),
+    }
 
   def Run(self, name, validate=True, call_fn=None):
     """Run an instance allocator and return the results.
@@ -11445,10 +13324,69 @@ class IAllocator(object):
                                  " missing key '%s'" % key)
       setattr(self, key, rdict[key])
 
-    if not isinstance(rdict["result"], list):
-      raise errors.OpExecError("Can't parse iallocator results: 'result' key"
-                               " is not a list")
+    if not self._result_check(self.result):
+      raise errors.OpExecError("Iallocator returned invalid result,"
+                               " expected %s, got %s" %
+                               (self._result_check, self.result),
+                               errors.ECODE_INVAL)
+
+    if self.mode == constants.IALLOCATOR_MODE_RELOC:
+      assert self.relocate_from is not None
+      assert self.required_nodes == 1
+
+      node2group = dict((name, ndata["group"])
+                        for (name, ndata) in self.in_data["nodes"].items())
+
+      fn = compat.partial(self._NodesToGroups, node2group,
+                          self.in_data["nodegroups"])
+
+      instance = self.cfg.GetInstanceInfo(self.name)
+      request_groups = fn(self.relocate_from + [instance.primary_node])
+      result_groups = fn(rdict["result"] + [instance.primary_node])
+
+      if self.success and not set(result_groups).issubset(request_groups):
+        raise errors.OpExecError("Groups of nodes returned by iallocator (%s)"
+                                 " differ from original groups (%s)" %
+                                 (utils.CommaJoin(result_groups),
+                                  utils.CommaJoin(request_groups)))
+
+    elif self.mode == constants.IALLOCATOR_MODE_NODE_EVAC:
+      assert self.evac_mode in constants.IALLOCATOR_NEVAC_MODES
+
     self.out_data = rdict
+
+  @staticmethod
+  def _NodesToGroups(node2group, groups, nodes):
+    """Returns a list of unique group names for a list of nodes.
+
+    @type node2group: dict
+    @param node2group: Map from node name to group UUID
+    @type groups: dict
+    @param groups: Group information
+    @type nodes: list
+    @param nodes: Node names
+
+    """
+    result = set()
+
+    for node in nodes:
+      try:
+        group_uuid = node2group[node]
+      except KeyError:
+        # Ignore unknown node
+        pass
+      else:
+        try:
+          group = groups[group_uuid]
+        except KeyError:
+          # Can't find group, let's use UUID
+          group_name = group_uuid
+        else:
+          group_name = group["name"]
+
+        result.add(group_name)
+
+    return sorted(result)
 
 
 class LUTestAllocator(NoHooksLU):
@@ -11464,7 +13402,7 @@ class LUTestAllocator(NoHooksLU):
 
     """
     if self.op.mode == constants.IALLOCATOR_MODE_ALLOC:
-      for attr in ["mem_size", "disks", "disk_template",
+      for attr in ["memory", "disks", "disk_template",
                    "os", "tags", "nics", "vcpus"]:
         if not hasattr(self.op, attr):
           raise errors.OpPrereqError("Missing attribute '%s' on opcode input" %
@@ -11481,10 +13419,10 @@ class LUTestAllocator(NoHooksLU):
                                    errors.ECODE_INVAL)
       for row in self.op.disks:
         if (not isinstance(row, dict) or
-            "size" not in row or
-            not isinstance(row["size"], int) or
-            "mode" not in row or
-            row["mode"] not in ['r', 'w']):
+            constants.IDISK_SIZE not in row or
+            not isinstance(row[constants.IDISK_SIZE], int) or
+            constants.IDISK_MODE not in row or
+            row[constants.IDISK_MODE] not in constants.DISK_ACCESS_SET):
           raise errors.OpPrereqError("Invalid contents of the 'disks'"
                                      " parameter", errors.ECODE_INVAL)
       if self.op.hypervisor is None:
@@ -11492,11 +13430,13 @@ class LUTestAllocator(NoHooksLU):
     elif self.op.mode == constants.IALLOCATOR_MODE_RELOC:
       fname = _ExpandInstanceName(self.cfg, self.op.name)
       self.op.name = fname
-      self.relocate_from = self.cfg.GetInstanceInfo(fname).secondary_nodes
-    elif self.op.mode == constants.IALLOCATOR_MODE_MEVAC:
-      if not hasattr(self.op, "evac_nodes"):
-        raise errors.OpPrereqError("Missing attribute 'evac_nodes' on"
-                                   " opcode input", errors.ECODE_INVAL)
+      self.relocate_from = \
+          list(self.cfg.GetInstanceInfo(fname).secondary_nodes)
+    elif self.op.mode in (constants.IALLOCATOR_MODE_CHG_GROUP,
+                          constants.IALLOCATOR_MODE_NODE_EVAC):
+      if not self.op.instances:
+        raise errors.OpPrereqError("Missing instances", errors.ECODE_INVAL)
+      self.op.instances = _GetWantedInstances(self, self.op.instances)
     else:
       raise errors.OpPrereqError("Invalid test allocator mode '%s'" %
                                  self.op.mode, errors.ECODE_INVAL)
@@ -11517,7 +13457,7 @@ class LUTestAllocator(NoHooksLU):
       ial = IAllocator(self.cfg, self.rpc,
                        mode=self.op.mode,
                        name=self.op.name,
-                       mem_size=self.op.mem_size,
+                       memory=self.op.memory,
                        disks=self.op.disks,
                        disk_template=self.op.disk_template,
                        os=self.op.os,
@@ -11532,10 +13472,16 @@ class LUTestAllocator(NoHooksLU):
                        name=self.op.name,
                        relocate_from=list(self.relocate_from),
                        )
-    elif self.op.mode == constants.IALLOCATOR_MODE_MEVAC:
+    elif self.op.mode == constants.IALLOCATOR_MODE_CHG_GROUP:
       ial = IAllocator(self.cfg, self.rpc,
                        mode=self.op.mode,
-                       evac_nodes=self.op.evac_nodes)
+                       instances=self.op.instances,
+                       target_groups=self.op.target_groups)
+    elif self.op.mode == constants.IALLOCATOR_MODE_NODE_EVAC:
+      ial = IAllocator(self.cfg, self.rpc,
+                       mode=self.op.mode,
+                       instances=self.op.instances,
+                       evac_mode=self.op.evac_mode)
     else:
       raise errors.ProgrammerError("Uncatched mode %s in"
                                    " LUTestAllocator.Exec", self.op.mode)
@@ -11553,13 +13499,16 @@ _QUERY_IMPL = {
   constants.QR_INSTANCE: _InstanceQuery,
   constants.QR_NODE: _NodeQuery,
   constants.QR_GROUP: _GroupQuery,
+  constants.QR_OS: _OsQuery,
   }
+
+assert set(_QUERY_IMPL.keys()) == constants.QR_VIA_OP
 
 
 def _GetQueryImplementation(name):
   """Returns the implemtnation for a query type.
 
-  @param name: Query type, must be one of L{constants.QR_OP_QUERY}
+  @param name: Query type, must be one of L{constants.QR_VIA_OP}
 
   """
   try:

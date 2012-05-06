@@ -50,7 +50,7 @@ def _SetupColours():
   """Initializes the colour constants.
 
   """
-  # pylint: disable-msg=W0603
+  # pylint: disable=W0603
   # due to global usage
   global _INFO_SEQ, _WARNING_SEQ, _ERROR_SEQ, _RESET_SEQ
 
@@ -82,7 +82,15 @@ def AssertIn(item, sequence):
 
   """
   if item not in sequence:
-    raise qa_error.Error('%r not in %r' % (item, sequence))
+    raise qa_error.Error("%r not in %r" % (item, sequence))
+
+
+def AssertNotIn(item, sequence):
+  """Raises an error when item is in sequence.
+
+  """
+  if item in sequence:
+    raise qa_error.Error("%r in %r" % (item, sequence))
 
 
 def AssertEqual(first, second):
@@ -90,7 +98,7 @@ def AssertEqual(first, second):
 
   """
   if not first == second:
-    raise qa_error.Error('%r == %r' % (first, second))
+    raise qa_error.Error("%r == %r" % (first, second))
 
 
 def AssertNotEqual(first, second):
@@ -98,7 +106,7 @@ def AssertNotEqual(first, second):
 
   """
   if not first != second:
-    raise qa_error.Error('%r != %r' % (first, second))
+    raise qa_error.Error("%r != %r" % (first, second))
 
 
 def AssertMatch(string, pattern):
@@ -148,7 +156,7 @@ def AssertCommand(cmd, fail=False, node=None):
   return rcode
 
 
-def GetSSHCommand(node, cmd, strict=True, opts=None):
+def GetSSHCommand(node, cmd, strict=True, opts=None, tty=True):
   """Builds SSH command to be executed.
 
   @type node: string
@@ -160,23 +168,28 @@ def GetSSHCommand(node, cmd, strict=True, opts=None):
   @param strict: whether to enable strict host key checking
   @type opts: list
   @param opts: list of additional options
+  @type tty: Bool
+  @param tty: If we should use tty
 
   """
-  args = [ 'ssh', '-oEscapeChar=none', '-oBatchMode=yes', '-l', 'root', '-t' ]
+  args = ["ssh", "-oEscapeChar=none", "-oBatchMode=yes", "-l", "root"]
+
+  if tty:
+    args.append("-t")
 
   if strict:
-    tmp = 'yes'
+    tmp = "yes"
   else:
-    tmp = 'no'
-  args.append('-oStrictHostKeyChecking=%s' % tmp)
-  args.append('-oClearAllForwardings=yes')
-  args.append('-oForwardAgent=yes')
+    tmp = "no"
+  args.append("-oStrictHostKeyChecking=%s" % tmp)
+  args.append("-oClearAllForwardings=yes")
+  args.append("-oForwardAgent=yes")
   if opts:
     args.extend(opts)
   if node in _MULTIPLEXERS:
     spath = _MULTIPLEXERS[node][0]
-    args.append('-oControlPath=%s' % spath)
-    args.append('-oControlMaster=no')
+    args.append("-oControlPath=%s" % spath)
+    args.append("-oControlMaster=no")
   args.append(node)
   if cmd:
     args.append(cmd)
@@ -227,11 +240,12 @@ def CloseMultiplexers():
     utils.RemoveFile(sname)
 
 
-def GetCommandOutput(node, cmd):
+def GetCommandOutput(node, cmd, tty=True):
   """Returns the output of a command executed on the given node.
 
   """
-  p = StartLocalCommand(GetSSHCommand(node, cmd), stdout=subprocess.PIPE)
+  p = StartLocalCommand(GetSSHCommand(node, cmd, tty=tty),
+                        stdout=subprocess.PIPE)
   AssertEqual(p.wait(), 0)
   return p.stdout.read()
 
@@ -251,7 +265,7 @@ def UploadFile(node, src):
          'cat > "${tmp}" && '
          'echo "${tmp}"') % mode
 
-  f = open(src, 'r')
+  f = open(src, "r")
   try:
     p = subprocess.Popen(GetSSHCommand(node, cmd), shell=False, stdin=f,
                          stdout=subprocess.PIPE)
@@ -311,9 +325,9 @@ def _ResolveName(cmd, key):
   """
   master = qa_config.GetMasterNode()
 
-  output = GetCommandOutput(master['primary'], utils.ShellQuoteArgs(cmd))
+  output = GetCommandOutput(master["primary"], utils.ShellQuoteArgs(cmd))
   for line in output.splitlines():
-    (lkey, lvalue) = line.split(':', 1)
+    (lkey, lvalue) = line.split(":", 1)
     if lkey == key:
       return lvalue.lstrip()
   raise KeyError("Key not found")
@@ -326,16 +340,16 @@ def ResolveInstanceName(instance):
   @param instance: Instance name
 
   """
-  return _ResolveName(['gnt-instance', 'info', instance],
-                      'Instance name')
+  return _ResolveName(["gnt-instance", "info", instance],
+                      "Instance name")
 
 
 def ResolveNodeName(node):
   """Gets the full name of a node.
 
   """
-  return _ResolveName(['gnt-node', 'info', node['primary']],
-                      'Node name')
+  return _ResolveName(["gnt-node", "info", node["primary"]],
+                      "Node name")
 
 
 def GetNodeInstances(node, secondaries=False):
@@ -346,15 +360,15 @@ def GetNodeInstances(node, secondaries=False):
   node_name = ResolveNodeName(node)
 
   # Get list of all instances
-  cmd = ['gnt-instance', 'list', '--separator=:', '--no-headers',
-         '--output=name,pnode,snodes']
-  output = GetCommandOutput(master['primary'], utils.ShellQuoteArgs(cmd))
+  cmd = ["gnt-instance", "list", "--separator=:", "--no-headers",
+         "--output=name,pnode,snodes"]
+  output = GetCommandOutput(master["primary"], utils.ShellQuoteArgs(cmd))
 
   instances = []
   for line in output.splitlines():
-    (name, pnode, snodes) = line.split(':', 2)
+    (name, pnode, snodes) = line.split(":", 2)
     if ((not secondaries and pnode == node_name) or
-        (secondaries and node_name in snodes.split(','))):
+        (secondaries and node_name in snodes.split(","))):
       instances.append(name)
 
   return instances
@@ -464,3 +478,44 @@ def _FormatWithColor(text, seq):
 FormatWarning = lambda text: _FormatWithColor(text, _WARNING_SEQ)
 FormatError = lambda text: _FormatWithColor(text, _ERROR_SEQ)
 FormatInfo = lambda text: _FormatWithColor(text, _INFO_SEQ)
+
+
+def AddToEtcHosts(hostnames):
+  """Adds hostnames to /etc/hosts.
+
+  @param hostnames: List of hostnames first used A records, all other CNAMEs
+
+  """
+  master = qa_config.GetMasterNode()
+  tmp_hosts = UploadData(master["primary"], "", mode=0644)
+
+  quoted_tmp_hosts = utils.ShellQuote(tmp_hosts)
+  data = []
+  for localhost in ("::1", "127.0.0.1"):
+    data.append("%s %s" % (localhost, " ".join(hostnames)))
+
+  try:
+    AssertCommand(("cat /etc/hosts > %s && echo -e '%s' >> %s && mv %s"
+                   " /etc/hosts") % (quoted_tmp_hosts, "\\n".join(data),
+                                     quoted_tmp_hosts, quoted_tmp_hosts))
+  except qa_error.Error:
+    AssertCommand(["rm", tmp_hosts])
+
+
+def RemoveFromEtcHosts(hostnames):
+  """Remove hostnames from /etc/hosts.
+
+  @param hostnames: List of hostnames first used A records, all other CNAMEs
+
+  """
+  master = qa_config.GetMasterNode()
+  tmp_hosts = UploadData(master["primary"], "", mode=0644)
+  quoted_tmp_hosts = utils.ShellQuote(tmp_hosts)
+
+  sed_data = " ".join(hostnames)
+  try:
+    AssertCommand(("sed -e '/^\(::1\|127\.0\.0\.1\)\s\+%s/d' /etc/hosts > %s"
+                   " && mv %s /etc/hosts") % (sed_data, quoted_tmp_hosts,
+                                              quoted_tmp_hosts))
+  except qa_error.Error:
+    AssertCommand(["rm", tmp_hosts])
