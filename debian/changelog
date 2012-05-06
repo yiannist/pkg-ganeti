@@ -1,3 +1,13 @@
+ganeti (2.5.0-1) unstable; urgency=low
+
+  * New significant upstream release; this integrates the htools source
+    code and as such it superseedes the ganeti-htools standalone source
+    package
+  * There are a number of incompatible changes at the API level, see the
+    upstream NEWS file
+
+ -- Iustin Pop <iustin@debian.org>  Sun, 06 May 2012 14:01:00 +0200
+
 ganeti (2.4.5-2) unstable; urgency=low
 
   * Backport patch to support KVM versions 1.0 and later

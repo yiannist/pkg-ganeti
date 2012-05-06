@@ -3,7 +3,9 @@ Section: admin
 Priority: extra
 Maintainer: Debian Ganeti Team <pkg-ganeti-devel@lists.alioth.debian.org>
 Uploaders: Guido Trotter <ultrotter@debian.org>, Iustin Pop <iustin@debian.org>
-Build-Depends: debhelper (>= 7)
+Build-Depends: debhelper (>= 7), ghc (>= 6.12), libghc-curl-dev,
+ libghc-json-dev, libghc-network-dev, libcurl4-gnutls-dev,
+ libghc-parallel-dev
 Build-Depends-Indep: python-simplejson, python-pyparsing, python-openssl,
  python-support (>= 0.6), socat, python-pyinotify, python-pycurl,
  python-paramiko
@@ -40,3 +42,17 @@ Description: Cluster-based virtualization management software
  management, operating system installation  (in cooperation with OS-specific
  install scripts), startup, shutdown, failover of instances between physical
  systems.
+
+Package: ganeti-htools
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Breaks: ganeti2 (<< 2.4)
+Description: Cluster allocation tools for Ganeti
+ These are additional tools used for enhanced allocation and capacity
+ calculation on Ganeti clusters.
+ .
+ The tools provided are:
+   - hail, an iallocator script for ganeti
+   - hbal, used to redistribute instances on the cluster
+   - hspace, used for capacity calculation
+   - hscan, used to gather cluster files for offline use in hbal/hspace
