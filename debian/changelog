@@ -1,3 +1,10 @@
+ganeti (2.5.0-2) unstable; urgency=low
+
+  * Fix Build-Depends (no more separate -Indep depends, add iproute)
+    (Closes: #671981)
+
+ -- Iustin Pop <iustin@debian.org>  Tue, 08 May 2012 22:34:10 +0200
+
 ganeti (2.5.0-1) unstable; urgency=low
 
   * New significant upstream release; this integrates the htools source
