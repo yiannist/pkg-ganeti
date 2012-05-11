@@ -5,13 +5,13 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Ganeti installation tutorial &mdash; Ganeti v2.5.0 documentation</title>
+    <title>Ganeti installation tutorial &mdash; Ganeti v2.5.1 documentation</title>
     <link rel="stylesheet" href="_static/default.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.5.0',
+        VERSION:     '2.5.1',
         COLLAPSE_MODINDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -19,7 +19,7 @@
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.5.0 documentation" href="index.html" />
+    <link rel="top" title="Ganeti v2.5.1 documentation" href="index.html" />
     <link rel="next" title="Upgrade notes" href="upgrade.html" />
     <link rel="prev" title="Ganeti quick installation guide" href="install-quick.html" /> 
   </head>
@@ -33,7 +33,7 @@
         <li class="right" >
           <a href="install-quick.html" title="Ganeti quick installation guide"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.5.0 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.5.1 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -387,6 +387,25 @@ traffic.</p>
 outside of ganeti. The vif scripts will only add /32 routes to your
 instances, through their interface, in the table you specified (under
 KVM, and in the main table under Xen).</p>
+<div class="admonition-bridging-issues-with-certain-kernels admonition ">
+<p class="first admonition-title">Bridging issues with certain kernels</p>
+<p>Some kernel versions (e.g. 2.6.32) have an issue where the bridge
+will automatically change its <tt class="docutils literal"><span class="pre">MAC</span></tt> address to the lower-numbered
+slave on port addition and removal. This means that, depending on
+the <tt class="docutils literal"><span class="pre">MAC</span></tt> address of the actual NIC on the node and the addresses
+of the instances, it could be that starting, stopping or migrating
+instances will lead to timeouts due to the address of the bridge
+(and thus node itself) changing.</p>
+<p>To prevent this, it&#8217;s enough to set the bridge manually to a
+specific <tt class="docutils literal"><span class="pre">MAC</span></tt> address, which will disable this automatic address
+change. In Debian, this can be done as follows in the bridge
+configuration snippet:</p>
+<div class="highlight-text"><div class="highlight"><pre>up ip link set addr $(cat /sys/class/net/$IFACE/address) dev $IFACE
+</pre></div>
+</div>
+<p class="last">which will &#8220;set&#8221; the bridge address to the initial one, disallowing
+changes.</p>
+</div>
 <div class="admonition-bridging-under-debian admonition ">
 <p class="first admonition-title">Bridging under Debian</p>
 <p>The recommended way to configure the Xen bridge is to edit your
@@ -402,6 +421,8 @@ iface xen-br0 inet static
    bridge_ports eth0
    bridge_stp off
    bridge_fd 0
+   # example for setting manually the bridge address to the eth0 NIC
+   up ip link set addr $(cat /sys/class/net/eth0/address) dev $IFACE
 </pre></div>
 </div>
 </div>
@@ -762,7 +783,7 @@ instance level.</td></tr>
         <li class="right" >
           <a href="install-quick.html" title="Ganeti quick installation guide"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.5.0 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.5.1 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">
