@@ -328,6 +328,7 @@ HOOKS_PHASE_POST = "post"
 HOOKS_NAME_CFGUPDATE = "config-update"
 HOOKS_NAME_WATCHER = "watcher"
 HOOKS_VERSION = 2
+HOOKS_PATH = "/sbin:/bin:/usr/sbin:/usr/bin"
 
 # hooks subject type (what object type does the LU deal with)
 HTYPE_CLUSTER = "CLUSTER"
@@ -1255,7 +1256,7 @@ HVC_DEFAULTS = {
     HV_USE_BOOTLOADER: False,
     HV_BOOTLOADER_PATH: XEN_BOOTLOADER,
     HV_BOOTLOADER_ARGS: "",
-    HV_KERNEL_PATH: "/boot/vmlinuz-2.6-xenU",
+    HV_KERNEL_PATH: XEN_KERNEL,
     HV_INITRD_PATH: "",
     HV_ROOT_PATH: "/dev/sda1",
     HV_KERNEL_ARGS: "ro",

@@ -5,13 +5,13 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>News &mdash; Ganeti v2.5.0 documentation</title>
+    <title>News &mdash; Ganeti v2.5.1 documentation</title>
     <link rel="stylesheet" href="_static/default.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.5.0',
+        VERSION:     '2.5.1',
         COLLAPSE_MODINDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -19,7 +19,7 @@
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.5.0 documentation" href="index.html" />
+    <link rel="top" title="Ganeti v2.5.1 documentation" href="index.html" />
     <link rel="next" title="Glossary" href="glossary.html" />
     <link rel="prev" title="Developer notes" href="devnotes.html" /> 
   </head>
@@ -33,7 +33,7 @@
         <li class="right" >
           <a href="devnotes.html" title="Developer notes"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.5.0 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.5.1 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -44,6 +44,38 @@
             
   <div class="section" id="news">
 <h1>News<a class="headerlink" href="#news" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="version-2-5-1">
+<h2>Version 2.5.1<a class="headerlink" href="#version-2-5-1" title="Permalink to this headline">¶</a></h2>
+<p><em>(Released Fri, 11 May 2012)</em></p>
+<p>A small bugfix release.</p>
+<p>The main issues solved are on the topic of compatibility with newer LVM
+releases:</p>
+<ul class="simple">
+<li>fixed parsing of <tt class="docutils literal"><span class="pre">lv_attr</span></tt> field</li>
+<li>adapted to new <tt class="docutils literal"><span class="pre">vgreduce</span> <span class="pre">--removemissing</span></tt> behaviour where sometimes
+the <tt class="docutils literal"><span class="pre">--force</span></tt> flag is needed</li>
+</ul>
+<p>Also on the topic of compatibility, <tt class="docutils literal"><span class="pre">tools/lvmstrap</span></tt> has been changed
+to accept kernel 3.x too (was hardcoded to 2.6.*).</p>
+<p>A regression present in 2.5.0 that broke handling (in the gnt-* scripts)
+of hook results and that also made display of other errors suboptimal
+was fixed; the code behaves now like 2.4 and earlier.</p>
+<p>Another change in 2.5, the cleanup of the OS scripts environment, is too
+aggressive: it removed even the <tt class="docutils literal"><span class="pre">PATH</span></tt> variable, which requires the OS
+scripts to <em>always</em> need to export it. Since this is a bit too strict,
+we now export a minimal PATH, the same that we export for hooks.</p>
+<p>The fix for issue 201 (Preserve bridge MTU in KVM ifup script) was
+integrated into this release.</p>
+<p>Finally, a few other miscellaneous changes were done (no new features,
+just small improvements):</p>
+<ul class="simple">
+<li>Fix <tt class="docutils literal"><span class="pre">gnt-group</span> <span class="pre">--help</span></tt> display</li>
+<li>Fix hardcoded Xen kernel path</li>
+<li>Fix grow-disk handling of invalid units</li>
+<li>Update synopsis for <tt class="docutils literal"><span class="pre">gnt-cluster</span> <span class="pre">repair-disk-sizes</span></tt></li>
+<li>Accept both PUT and POST in noded (makes future upgrade to 2.6 easier)</li>
+</ul>
+</div>
 <div class="section" id="version-2-5-0">
 <h2>Version 2.5.0<a class="headerlink" href="#version-2-5-0" title="Permalink to this headline">¶</a></h2>
 <p><em>(Released Thu, 12 Apr 2012)</em></p>
@@ -1801,6 +1833,7 @@ post-configuration update hook)</li>
             <h3><a href="index.html">Table Of Contents</a></h3>
             <ul>
 <li><a class="reference external" href="#">News</a><ul>
+<li><a class="reference external" href="#version-2-5-1">Version 2.5.1</a></li>
 <li><a class="reference external" href="#version-2-5-0">Version 2.5.0</a><ul>
 <li><a class="reference external" href="#incompatible-important-changes-and-bugfixes">Incompatible/important changes and bugfixes</a></li>
 <li><a class="reference external" href="#new-features">New features</a></li>
@@ -1944,7 +1977,7 @@ post-configuration update hook)</li>
         <li class="right" >
           <a href="devnotes.html" title="Developer notes"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.5.0 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.5.1 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">
