@@ -1,3 +1,15 @@
+ganeti (2.5.1-1) unstable; urgency=low
+
+  * New upstream bug-fix version:
+  * fixes compatibility with newer LVM versions
+  * `tools/lvmstrap` recognises kernel 3.x
+  * OS scripts environment includes a PATH
+  * fixed hooks abort handling (regression from 2.4) and improved error
+    display
+  * and a few other minor cosmetic fixes
+
+ -- Iustin Pop <iustin@debian.org>  Fri, 11 May 2012 20:39:01 +0200
+
 ganeti (2.5.0-2) unstable; urgency=low
 
   * Fix Build-Depends (no more separate -Indep depends, add iproute)
