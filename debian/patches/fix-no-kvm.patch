@@ -1,0 +1,17 @@
+Author: Iustin Pop <iustin@debian.org>
+Description: Fix obsolete -disable-kvm usage
+ This is already a bug upstream, but pending proper fixing (per version keying,
+ etc.), let's just use the correct version that will be shipped in Wheezy.
+Bug: https://code.google.com/p/ganeti/issues/detail?id=250
+Last-Update: 2012-07-26
+--- a/lib/hypervisor/hv_kvm.py
++++ b/lib/hypervisor/hv_kvm.py
+@@ -554,7 +554,7 @@
+     if hvp[constants.HV_KVM_FLAG] == constants.HT_KVM_ENABLED:
+       kvm_cmd.extend(["-enable-kvm"])
+     elif hvp[constants.HV_KVM_FLAG] == constants.HT_KVM_DISABLED:
+-      kvm_cmd.extend(["-disable-kvm"])
++      kvm_cmd.extend(["-no-kvm"])
+ 
+     if boot_network:
+       kvm_cmd.extend(["-boot", "n"])
