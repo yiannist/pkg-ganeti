@@ -1,3 +1,16 @@
+ganeti (2.5.2-1) unstable; urgency=low
+
+  * New upstream bug-fix version
+    - fixed KVM start and live migration with a custom keymap (Closes: #676930)
+    - fixed compatibility with KVM versions that don't support enabling multiple
+      boot devices (Closes: #624256)
+    - fixed bash-isms in kvm-ifup tool
+    - fixed parallel build mode
+  * Fixed dh_installinit invocation, which created invalid update-rc.d
+    calls in postinst/configure (Closes: #677674)
+
+ -- Iustin Pop <iustin@debian.org>  Thu, 26 Jul 2012 20:26:09 +0200
+
 ganeti (2.5.1-1) unstable; urgency=low
 
   * New upstream bug-fix version:
