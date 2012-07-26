@@ -257,7 +257,9 @@
 	  ><p
 	  >The default is not to set an HVM boot order which is interpreted as 'dc'.</p
 	  ><p
-	  >For KVM the boot order is either &quot;floppy&quot;, &quot;cdrom&quot;, &quot;disk&quot; or &quot;network&quot;. Please note that older versions of KVM couldn't netboot from virtio interfaces. This has been fixed in more recent versions and is confirmed to work at least with qemu-kvm 0.11.1.</p
+	  >For KVM the boot order is either &quot;floppy&quot;, &quot;cdrom&quot;, &quot;disk&quot; or &quot;network&quot;. Please note that older versions of KVM couldn't netboot from virtio interfaces. This has been fixed in more recent versions and is confirmed to work at least with qemu-kvm 0.11.1. Also note that if you have set the <code
+	    >kernel_path</code
+	    > option, that will be used for booting, and this setting will be silently ignored.</p
 	  ></dd
 	><dt
 	>blockdev_prefix</dt
@@ -459,7 +461,9 @@
 	><p
 	  >Valid for the Xen PVM and KVM hypervisors.</p
 	  ><p
-	  >This option specifies the path (on the node) to the kernel to boot the instance with. Xen PVM instances always require this, while for KVM if this option is empty, it will cause the machine to load the kernel from its disks.</p
+	  >This option specifies the path (on the node) to the kernel to boot the instance with. Xen PVM instances always require this, while for KVM if this option is empty, it will cause the machine to load the kernel from its disks (and the boot will be done accordingly to <code
+	    >boot_order</code
+	    >).</p
 	  ></dd
 	><dt
 	>kernel_args</dt

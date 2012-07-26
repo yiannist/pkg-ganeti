@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2008, 2009, 2010, 2011 Google Inc.
+# Copyright (C) 2008, 2009, 2010, 2011, 2012 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -147,7 +147,7 @@ class KVMHypervisor(hv_base.BaseHypervisor):
   # a separate directory, called 'chroot-quarantine'.
   _CHROOT_QUARANTINE_DIR = _ROOT_DIR + "/chroot-quarantine"
   _DIRS = [_ROOT_DIR, _PIDS_DIR, _UIDS_DIR, _CTRL_DIR, _CONF_DIR, _NICS_DIR,
-           _CHROOT_DIR, _CHROOT_QUARANTINE_DIR]
+           _CHROOT_DIR, _CHROOT_QUARANTINE_DIR, _KEYMAP_DIR]
 
   PARAMETERS = {
     constants.HV_KERNEL_PATH: hv_base.OPT_FILE_CHECK,
@@ -523,6 +523,13 @@ class KVMHypervisor(hv_base.BaseHypervisor):
   def _GenerateKVMRuntime(self, instance, block_devices, startup_paused):
     """Generate KVM information to start an instance.
 
+    @attention: this function must not have any side-effects; for
+        example, it must not write to the filesystem, or read values
+        from the current system the are expected to differ between
+        nodes, since it is only run once at instance startup;
+        actions/kvm arguments that can vary between systems should be
+        done in L{_ExecuteKVMRuntime}
+
     """
     _, v_major, v_min, _ = self._GetKVMVersion()
 
@@ -544,10 +551,14 @@ class KVMHypervisor(hv_base.BaseHypervisor):
       kvm_cmd.extend(["-no-reboot"])
 
     hvp = instance.hvparams
-    boot_disk = hvp[constants.HV_BOOT_ORDER] == constants.HT_BO_DISK
-    boot_cdrom = hvp[constants.HV_BOOT_ORDER] == constants.HT_BO_CDROM
-    boot_floppy = hvp[constants.HV_BOOT_ORDER] == constants.HT_BO_FLOPPY
-    boot_network = hvp[constants.HV_BOOT_ORDER] == constants.HT_BO_NETWORK
+    kernel_path = hvp[constants.HV_KERNEL_PATH]
+    if kernel_path:
+      boot_disk = boot_cdrom = boot_floppy = boot_network = False
+    else:
+      boot_disk = hvp[constants.HV_BOOT_ORDER] == constants.HT_BO_DISK
+      boot_cdrom = hvp[constants.HV_BOOT_ORDER] == constants.HT_BO_CDROM
+      boot_floppy = hvp[constants.HV_BOOT_ORDER] == constants.HT_BO_FLOPPY
+      boot_network = hvp[constants.HV_BOOT_ORDER] == constants.HT_BO_NETWORK
 
     self.ValidateParameters(hvp)
 
@@ -558,6 +569,10 @@ class KVMHypervisor(hv_base.BaseHypervisor):
 
     if boot_network:
       kvm_cmd.extend(["-boot", "n"])
+
+    # whether this is an older KVM version that uses the boot=on flag
+    # on devices
+    needs_boot_flag = (v_major, v_min) < (0, 14)
 
     disk_type = hvp[constants.HV_DISK_TYPE]
     if disk_type == constants.HT_DISK_PARAVIRTUAL:
@@ -586,7 +601,7 @@ class KVMHypervisor(hv_base.BaseHypervisor):
       if boot_disk:
         kvm_cmd.extend(["-boot", "c"])
         boot_disk = False
-        if (v_major, v_min) < (0, 14) and disk_type != constants.HT_DISK_IDE:
+        if needs_boot_flag and disk_type != constants.HT_DISK_IDE:
           boot_val = ",boot=on"
 
       drive_val = "file=%s,format=raw%s%s%s" % (dev_path, if_val, boot_val,
@@ -601,19 +616,22 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     iso_image = hvp[constants.HV_CDROM_IMAGE_PATH]
     if iso_image:
       options = ",format=raw,media=cdrom"
+      # set cdrom 'if' type
+      if boot_cdrom:
+        actual_cdrom_type = constants.HT_DISK_IDE
+      elif cdrom_disk_type == constants.HT_DISK_PARAVIRTUAL:
+        actual_cdrom_type = "virtio"
+      else:
+        actual_cdrom_type = cdrom_disk_type
+      if_val = ",if=%s" % actual_cdrom_type
+      # set boot flag, if needed
+      boot_val = ""
       if boot_cdrom:
         kvm_cmd.extend(["-boot", "d"])
-        if cdrom_disk_type != constants.HT_DISK_IDE:
-          options = "%s,boot=on,if=%s" % (options, constants.HT_DISK_IDE)
-        else:
-          options = "%s,boot=on" % options
-      else:
-        if cdrom_disk_type == constants.HT_DISK_PARAVIRTUAL:
-          if_val = ",if=virtio"
-        else:
-          if_val = ",if=%s" % cdrom_disk_type
-        options = "%s%s" % (options, if_val)
-      drive_val = "file=%s%s" % (iso_image, options)
+        if needs_boot_flag:
+          boot_val = ",boot=on"
+      # and finally build the entire '-drive' value
+      drive_val = "file=%s%s%s%s" % (iso_image, options, if_val, boot_val)
       kvm_cmd.extend(["-drive", drive_val])
 
     iso_image2 = hvp[constants.HV_KVM_CDROM2_IMAGE_PATH]
@@ -623,8 +641,7 @@ class KVMHypervisor(hv_base.BaseHypervisor):
         if_val = ",if=virtio"
       else:
         if_val = ",if=%s" % cdrom_disk_type
-      options = "%s%s" % (options, if_val)
-      drive_val = "file=%s%s" % (iso_image2, options)
+      drive_val = "file=%s%s%s" % (iso_image2, options, if_val)
       kvm_cmd.extend(["-drive", drive_val])
 
     floppy_image = hvp[constants.HV_KVM_FLOPPY_IMAGE_PATH]
@@ -638,7 +655,6 @@ class KVMHypervisor(hv_base.BaseHypervisor):
       drive_val = "file=%s%s" % (floppy_image, options)
       kvm_cmd.extend(["-drive", drive_val])
 
-    kernel_path = hvp[constants.HV_KERNEL_PATH]
     if kernel_path:
       kvm_cmd.extend(["-kernel", kernel_path])
       initrd_path = hvp[constants.HV_INITRD_PATH]
@@ -675,16 +691,6 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     elif vnc_bind_address:
       kvm_cmd.extend(["-usbdevice", constants.HT_MOUSE_TABLET])
 
-    keymap = hvp[constants.HV_KEYMAP]
-    if keymap:
-      keymap_path = self._InstanceKeymapFile(instance.name)
-      # If a keymap file is specified, KVM won't use its internal defaults. By
-      # first including the "en-us" layout, an error on loading the actual
-      # layout (e.g. because it can't be found) won't lead to a non-functional
-      # keyboard. A keyboard with incorrect keys is still better than none.
-      utils.WriteFile(keymap_path, data="include en-us\ninclude %s\n" % keymap)
-      kvm_cmd.extend(["-k", keymap_path])
-
     if vnc_bind_address:
       if netutils.IP4Address.IsValid(vnc_bind_address):
         if instance.network_port > constants.VNC_BASE_PORT:
@@ -720,6 +726,8 @@ class KVMHypervisor(hv_base.BaseHypervisor):
 
       kvm_cmd.extend(["-vnc", vnc_arg])
     elif spice_bind:
+      # FIXME: this is wrong here; the iface ip address differs
+      # between systems, so it should be done in _ExecuteKVMRuntime
       if netutils.IsValidInterface(spice_bind):
         # The user specified a network interface, we have to figure out the IP
         # address.
@@ -845,7 +853,7 @@ class KVMHypervisor(hv_base.BaseHypervisor):
       raise errors.HypervisorError("Failed to start instance %s" % name)
 
   def _ExecuteKVMRuntime(self, instance, kvm_runtime, incoming=None):
-    """Execute a KVM cmd, after completing it with some last minute data
+    """Execute a KVM cmd, after completing it with some last minute data.
 
     @type incoming: tuple of strings
     @param incoming: (target_host_ip, port)
@@ -875,6 +883,16 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     security_model = conf_hvp[constants.HV_SECURITY_MODEL]
     if security_model == constants.HT_SM_USER:
       kvm_cmd.extend(["-runas", conf_hvp[constants.HV_SECURITY_DOMAIN]])
+
+    keymap = conf_hvp[constants.HV_KEYMAP]
+    if keymap:
+      keymap_path = self._InstanceKeymapFile(name)
+      # If a keymap file is specified, KVM won't use its internal defaults. By
+      # first including the "en-us" layout, an error on loading the actual
+      # layout (e.g. because it can't be found) won't lead to a non-functional
+      # keyboard. A keyboard with incorrect keys is still better than none.
+      utils.WriteFile(keymap_path, data="include en-us\ninclude %s\n" % keymap)
+      kvm_cmd.extend(["-k", keymap_path])
 
     # We have reasons to believe changing something like the nic driver/type
     # upon migration won't exactly fly with the instance kernel, so for nic

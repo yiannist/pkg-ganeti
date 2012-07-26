@@ -5,13 +5,13 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>News &mdash; Ganeti v2.5.1 documentation</title>
+    <title>News &mdash; Ganeti v2.5.2 documentation</title>
     <link rel="stylesheet" href="_static/default.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.5.1',
+        VERSION:     '2.5.2',
         COLLAPSE_MODINDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -19,7 +19,7 @@
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.5.1 documentation" href="index.html" />
+    <link rel="top" title="Ganeti v2.5.2 documentation" href="index.html" />
     <link rel="next" title="Glossary" href="glossary.html" />
     <link rel="prev" title="Developer notes" href="devnotes.html" /> 
   </head>
@@ -33,7 +33,7 @@
         <li class="right" >
           <a href="devnotes.html" title="Developer notes"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.5.1 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.5.2 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -44,6 +44,23 @@
             
   <div class="section" id="news">
 <h1>News<a class="headerlink" href="#news" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="version-2-5-2">
+<h2>Version 2.5.2<a class="headerlink" href="#version-2-5-2" title="Permalink to this headline">¶</a></h2>
+<p><em>(Released Tue, 24 Jul 2012)</em></p>
+<p>A small bugfix release, with no new features:</p>
+<ul class="simple">
+<li>fixed bash-isms in kvm-ifup, for compatibility with systems which use a
+different default shell (e.g. Debian, Ubuntu)</li>
+<li>fixed KVM startup and live migration with a custom keymap (fixes Issue
+243 and Debian bug #650664)</li>
+<li>fixed compatibility with KVM versions that don&#8217;t support multiple boot
+devices (fixes Issue 230 and Debian bug #624256)</li>
+</ul>
+<p>Additionally, a few fixes were done to the build system (fixed parallel
+build failures) and to the unittests (fixed race condition in test for
+FileID functions, and the default enable/disable mode for QA test is now
+customisable).</p>
+</div>
 <div class="section" id="version-2-5-1">
 <h2>Version 2.5.1<a class="headerlink" href="#version-2-5-1" title="Permalink to this headline">¶</a></h2>
 <p><em>(Released Fri, 11 May 2012)</em></p>
@@ -1833,6 +1850,7 @@ post-configuration update hook)</li>
             <h3><a href="index.html">Table Of Contents</a></h3>
             <ul>
 <li><a class="reference external" href="#">News</a><ul>
+<li><a class="reference external" href="#version-2-5-2">Version 2.5.2</a></li>
 <li><a class="reference external" href="#version-2-5-1">Version 2.5.1</a></li>
 <li><a class="reference external" href="#version-2-5-0">Version 2.5.0</a><ul>
 <li><a class="reference external" href="#incompatible-important-changes-and-bugfixes">Incompatible/important changes and bugfixes</a></li>
@@ -1977,7 +1995,7 @@ post-configuration update hook)</li>
         <li class="right" >
           <a href="devnotes.html" title="Developer notes"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.5.1 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.5.2 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">
