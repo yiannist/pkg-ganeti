@@ -20,10 +20,17 @@ Ganeti system.
 COMMANDS
 --------
 
+ACTIVATE-MASTER-IP
+~~~~~~~~~~~~~~~~~~
+
+**activate-master-ip**
+
+Activates the master IP on the master node.
+
 ADD-TAGS
 ~~~~~~~~
 
-**add-tags** [--from *file*] {*tag*...}
+**add-tags** [\--from *file*] {*tag*...}
 
 Add tags to the cluster. If any of the tags contains invalid
 characters, the entire operation will abort.
@@ -37,7 +44,7 @@ interpreted as stdin.
 COMMAND
 ~~~~~~~
 
-**command** [-n *node*] [-g *group*] {*command*}
+**command** [-n *node*] [-g *group*] [-M] {*command*}
 
 Executes a command on all nodes. If the option ``-n`` is not given,
 the command will be executed on all nodes, otherwise it will be
@@ -50,6 +57,9 @@ The ``-g`` option can be used to run a command only on a specific node
 group, e.g.::
 
     # gnt-cluster command -g default date
+
+The ``-M`` option can be used to prepend the node name to all output
+lines.
 
 The command is executed serially on the selected nodes. If the
 master node is present in the list, the command will be executed
@@ -72,7 +82,7 @@ and the command which will be executed will be ``ls -l /etc``.
 COPYFILE
 ~~~~~~~~
 
-| **copyfile** [--use-replication-network] [-n *node*] [-g *group*]
+| **copyfile** [\--use-replication-network] [-n *node*] [-g *group*]
 | {*file*}
 
 Copies a file to all or to some nodes. The argument specifies the
@@ -89,21 +99,33 @@ primary/secondary IPs are different). Example::
 This will copy the file /tmp/test from the current node to the two
 named nodes.
 
+DEACTIVATE-MASTER-IP
+~~~~~~~~~~~~~~~~~~~~
+
+**deactivate-master-ip** [\--yes]
+
+Deactivates the master IP on the master node.
+
+This should be run only locally or on a connection to the node ip
+directly, as a connection to the master ip will be broken by this
+operation. Because of this risk it will require user confirmation
+unless the ``--yes`` option is passed.
+
 DESTROY
 ~~~~~~~
 
-**destroy** {--yes-do-it}
+**destroy** {\--yes-do-it}
 
 Remove all configuration files related to the cluster, so that a
 **gnt-cluster init** can be done again afterwards.
 
 Since this is a dangerous command, you are required to pass the
-argument *--yes-do-it.*
+argument *\--yes-do-it.*
 
 EPO
 ~~~
 
-**epo** [--on] [--groups|--all] [--power-delay] *arguments*
+**epo** [\--on] [\--groups|\--all] [\--power-delay] *arguments*
 
 Performs an emergency power-off on nodes given as arguments. If
 ``--groups`` is given, arguments are node groups. If ``--all`` is
@@ -131,7 +153,7 @@ Displays the current master node.
 INFO
 ~~~~
 
-**info** [--roman]
+**info** [\--roman]
 
 Shows runtime cluster information: cluster name, architecture (32
 or 64 bit), master node, node list and instance list.
@@ -144,25 +166,36 @@ INIT
 ~~~~
 
 | **init**
-| [{-s|--secondary-ip} *secondary\_ip*]
-| [--vg-name *vg-name*]
-| [--master-netdev *interface-name*]
-| [{-m|--mac-prefix} *mac-prefix*]
-| [--no-lvm-storage]
-| [--no-etc-hosts]
-| [--no-ssh-init]
-| [--file-storage-dir *dir*]
-| [--enabled-hypervisors *hypervisors*]
-| [{-H|--hypervisor-parameters} *hypervisor*:*hv-param*=*value*[,*hv-param*=*value*...]]
-| [{-B|--backend-parameters} *be-param*=*value* [,*be-param*=*value*...]]
-| [{-N|--nic-parameters} *nic-param*=*value* [,*nic-param*=*value*...]]
-| [--maintain-node-health {yes \| no}]
-| [--uid-pool *user-id pool definition*]
-| [{-I|--default-iallocator} *default instance allocator*]
-| [--primary-ip-version *version*]
-| [--prealloc-wipe-disks {yes \| no}]
-| [--node-parameters *ndparams*]
-| [{-C|--candidate-pool-size} *candidate\_pool\_size*]
+| [{-s|\--secondary-ip} *secondary\_ip*]
+| [\--vg-name *vg-name*]
+| [\--master-netdev *interface-name*]
+| [\--master-netmask *netmask*]
+| [\--use-external-mip-script {yes \| no}]
+| [{-m|\--mac-prefix} *mac-prefix*]
+| [\--no-lvm-storage]
+| [\--no-etc-hosts]
+| [\--no-ssh-init]
+| [\--file-storage-dir *dir*]
+| [\--enabled-hypervisors *hypervisors*]
+| [{-H|\--hypervisor-parameters} *hypervisor*:*hv-param*=*value*[,*hv-param*=*value*...]]
+| [{-B|\--backend-parameters} *be-param*=*value*[,*be-param*=*value*...]]
+| [{-N|\--nic-parameters} *nic-param*=*value*[,*nic-param*=*value*...]]
+| [{-D|\--disk-parameters} *disk-template*:*disk-param*=*value*[,*disk-param*=*value*...]]
+| [\--maintain-node-health {yes \| no}]
+| [\--uid-pool *user-id pool definition*]
+| [{-I|\--default-iallocator} *default instance allocator*]
+| [\--primary-ip-version *version*]
+| [\--prealloc-wipe-disks {yes \| no}]
+| [\--node-parameters *ndparams*]
+| [{-C|\--candidate-pool-size} *candidate\_pool\_size*]
+| [\--specs-cpu-count *spec-param*=*value* [,*spec-param*=*value*...]]
+| [\--specs-disk-count *spec-param*=*value* [,*spec-param*=*value*...]]
+| [\--specs-disk-size *spec-param*=*value* [,*spec-param*=*value*...]]
+| [\--specs-mem-size *spec-param*=*value* [,*spec-param*=*value*...]]
+| [\--specs-nic-count *spec-param*=*value* [,*spec-param*=*value*...]]
+| [\--ipol-disk-templates *template* [,*template*...]]
+| [\--disk-state *diskstate*]
+| [\--hypervisor-state *hvstate*]
 | {*clustername*}
 
 This commands is only run once initially on the first node of the
@@ -202,6 +235,17 @@ The ``--master-netdev`` option is useful for specifying a different
 interface on which the master will activate its IP address. It's
 important that all nodes have this interface because you'll need it
 for a master failover.
+
+The ``--master-netmask`` option allows to specify a netmask for the
+master IP. The netmask must be specified as an integer, and will be
+interpreted as a CIDR netmask. The default value is 32 for an IPv4
+address and 128 for an IPv6 address.
+
+The ``--use-external-mip-script`` option allows to specify whether to
+use an user-supplied master IP address setup script, whose location is
+``@SYSCONFDIR@/ganeti/scripts/master-ip-setup``. If the option value is
+set to False, the default script (located at
+``@PKGLIBDIR@/tools/master-ip-setup``) will be executed.
 
 The ``-m (--mac-prefix)`` option will let you specify a three byte
 prefix under which the virtual MAC addresses of your instances will be
@@ -289,15 +333,25 @@ vcpus
     Number of VCPUs to set for an instance by default, must be an
     integer, will be set to 1 if no specified.
 
-memory
-    Amount of memory to allocate for an instance by default, can be
-    either an integer or an integer followed by a unit (M for mebibytes
-    and G for gibibytes are supported), will be set to 128M if not
-    specified.
+maxmem
+    Maximum amount of memory to allocate for an instance by default, can
+    be either an integer or an integer followed by a unit (M for
+    mebibytes and G for gibibytes are supported), will be set to 128M if
+    not specified.
+
+minmem
+    Minimum amount of memory to allocate for an instance by default, can
+    be either an integer or an integer followed by a unit (M for
+    mebibytes and G for gibibytes are supported), will be set to 128M if
+    not specified.
 
 auto\_balance
     Value of the auto\_balance flag for instances to use by default,
     will be set to true if not specified.
+
+always\_failover
+    Default value for the ``always\_failover`` flag for instances; if
+    not set, ``False`` is used.
 
 
 The ``-N (--nic-parameters)`` option allows you to set the default nic
@@ -314,11 +368,96 @@ link
     network script it is interpreted as a routing table number or
     name.
 
+The ``-D (--disk-parameters)`` option allows you to set the default disk
+template parameters at cluster level. The format used for this option is
+similar to the one use by the  ``-H`` option: the disk template name
+must be specified first, followed by a colon and by a comma-separated
+list of key-value pairs. These parameters can only be specified at
+cluster and node group level; the cluster-level parameter are inherited
+by the node group at the moment of its creation, and can be further
+modified at node group level using the **gnt-group**(8) command.
+
+The following is the list of disk parameters available for the **drbd**
+template, with measurement units specified in square brackets at the end
+of the description (when applicable):
+
+resync-rate
+    Static re-synchronization rate. [KiB/s]
+
+data-stripes
+    Number of stripes to use for data LVs.
+
+meta-stripes
+    Number of stripes to use for meta LVs.
+
+disk-barriers
+    What kind of barriers to **disable** for disks. It can either assume
+    the value "n", meaning no barrier disabled, or a non-empty string
+    containing a subset of the characters "bfd". "b" means disable disk
+    barriers, "f" means disable disk flushes, "d" disables disk drains.
+
+meta-barriers
+    Boolean value indicating whether the meta barriers should be
+    disabled (True) or not (False).
+
+metavg
+    String containing the name of the default LVM volume group for DRBD
+    metadata. By default, it is set to ``xenvg``. It can be overridden
+    during the instance creation process by using the ``metavg`` key of
+    the ``--disk`` parameter.
+
+disk-custom
+    String containing additional parameters to be appended to the
+    arguments list of ``drbdsetup disk``.
+
+net-custom
+    String containing additional parameters to be appended to the
+    arguments list of ``drbdsetup net``.
+
+dynamic-resync
+    Boolean indicating whether to use the dynamic resync speed
+    controller or not. If enabled, c-plan-ahead must be non-zero and all
+    the c-* parameters will be used by DRBD. Otherwise, the value of
+    resync-rate will be used as a static resync speed.
+
+c-plan-ahead
+    Agility factor of the dynamic resync speed controller. (the higher,
+    the slower the algorithm will adapt the resync speed). A value of 0
+    (that is the default) disables the controller. [ds]
+
+c-fill-target
+    Maximum amount of in-flight resync data for the dynamic resync speed
+    controller. [sectors]
+
+c-delay-target
+    Maximum estimated peer response latency for the dynamic resync speed
+    controller. [ds]
+
+c-min-rate
+    Minimum resync speed for the dynamic resync speed controller. [KiB/s]
+
+c-max-rate
+    Upper bound on resync speed for the dynamic resync speed controller.
+    [KiB/s]
+
+List of parameters available for the **plain** template:
+
+stripes
+    Number of stripes to use for new LVs.
+
+List of parameters available for the **rbd** template:
+
+pool
+    The RADOS cluster pool, inside which all rbd volumes will reside.
+    When a new RADOS cluster is deployed, the default pool to put rbd
+    volumes (Images in RADOS terminology) is 'rbd'.
+
 The option ``--maintain-node-health`` allows one to enable/disable
 automatic maintenance actions on nodes. Currently these include
 automatic shutdown of instances and deactivation of DRBD devices on
 offline nodes; in the future it might be extended to automatic
-removal of unknown LVM volumes, etc.
+removal of unknown LVM volumes, etc. Note that this option is only
+useful if the use of ``ganeti-confd`` was enabled at compilation.
 
 The ``--uid-pool`` option initializes the user-id pool. The
 *user-id pool definition* can contain a list of user-ids and/or a
@@ -355,6 +494,26 @@ The ``-C (--candidate-pool-size)`` option specifies the
 that the master will try to keep as master\_candidates. For more
 details about this role and other node roles, see the ganeti(7).
 
+The ``--specs-...`` and ``--ipol-disk-templates`` options specify
+instance policy on the cluster. For the ``--specs-...`` options, each
+option can have three values: ``min``, ``max`` and ``std``, which can
+also be modified on group level (except for ``std``, which is defined
+once for the entire cluster). Please note, that ``std`` values are not
+the same as defaults set by ``--beparams``, but they are used for the
+capacity calculations. The ``--ipol-disk-templates`` option takes a
+comma-separated list of disk templates.
+
+- ``--specs-cpu-count`` limits the number of VCPUs that can be used by an
+  instance.
+- ``--specs-disk-count`` limits the number of disks
+- ``--specs-disk-size`` limits the disk size for every disk used
+- ``--specs-mem-size`` limits the amount of memory available
+- ``--specs-nic-count`` sets limits on the number of NICs used
+- ``--ipol-disk-templates`` limits the allowed disk templates
+
+For details about how to use ``--hypervisor-state`` and ``--disk-state``
+have a look at **ganeti**(7).
+
 LIST-TAGS
 ~~~~~~~~~
 
@@ -365,7 +524,7 @@ List the tags of the cluster.
 MASTER-FAILOVER
 ~~~~~~~~~~~~~~~
 
-**master-failover** [--no-voting]
+**master-failover** [\--no-voting]
 
 Failover the master role to the current node.
 
@@ -395,32 +554,49 @@ be 1.
 MODIFY
 ~~~~~~
 
-| **modify**
-| [--vg-name *vg-name*]
-| [--no-lvm-storage]
-| [--enabled-hypervisors *hypervisors*]
-| [{-H|--hypervisor-parameters} *hypervisor*:*hv-param*=*value*[,*hv-param*=*value*...]]
-| [{-B|--backend-parameters} *be-param*=*value* [,*be-param*=*value*...]]
-| [{-N|--nic-parameters} *nic-param*=*value* [,*nic-param*=*value*...]]
-| [--uid-pool *user-id pool definition*]
-| [--add-uids *user-id pool definition*]
-| [--remove-uids *user-id pool definition*]
-| [{-C|--candidate-pool-size} *candidate\_pool\_size*]
-| [--maintain-node-health {yes \| no}]
-| [--prealloc-wipe-disks {yes \| no}]
-| [{-I|--default-iallocator} *default instance allocator*]
-| [--reserved-lvs=*NAMES*]
-| [--node-parameters *ndparams*]
-| [--master-netdev *interface-name*]
+| **modify** [\--submit]
+| [\--vg-name *vg-name*]
+| [\--no-lvm-storage]
+| [\--enabled-hypervisors *hypervisors*]
+| [{-H|\--hypervisor-parameters} *hypervisor*:*hv-param*=*value*[,*hv-param*=*value*...]]
+| [{-B|\--backend-parameters} *be-param*=*value*[,*be-param*=*value*...]]
+| [{-N|\--nic-parameters} *nic-param*=*value*[,*nic-param*=*value*...]]
+| [{-D|\--disk-parameters} *disk-template*:*disk-param*=*value*[,*disk-param*=*value*...]]
+| [\--uid-pool *user-id pool definition*]
+| [\--add-uids *user-id pool definition*]
+| [\--remove-uids *user-id pool definition*]
+| [{-C|\--candidate-pool-size} *candidate\_pool\_size*]
+| [\--maintain-node-health {yes \| no}]
+| [\--prealloc-wipe-disks {yes \| no}]
+| [{-I|\--default-iallocator} *default instance allocator*]
+| [\--reserved-lvs=*NAMES*]
+| [\--node-parameters *ndparams*]
+| [\--master-netdev *interface-name*]
+| [\--master-netmask *netmask*]
+| [\--use-external-mip-script {yes \| no}]
+| [\--hypervisor-state *hvstate*]
+| [\--disk-state *diskstate*]
+| [\--specs-cpu-count *spec-param*=*value* [,*spec-param*=*value*...]]
+| [\--specs-disk-count *spec-param*=*value* [,*spec-param*=*value*...]]
+| [\--specs-disk-size *spec-param*=*value* [,*spec-param*=*value*...]]
+| [\--specs-mem-size *spec-param*=*value* [,*spec-param*=*value*...]]
+| [\--specs-nic-count *spec-param*=*value* [,*spec-param*=*value*...]]
+| [\--ipol-disk-templates *template* [,*template*...]]
+
 
 Modify the options for the cluster.
 
 The ``--vg-name``, ``--no-lvm-storarge``, ``--enabled-hypervisors``,
 ``-H (--hypervisor-parameters)``, ``-B (--backend-parameters)``,
-``--nic-parameters``, ``-C (--candidate-pool-size)``,
-``--maintain-node-health``, ``--prealloc-wipe-disks``, ``--uid-pool``,
-``--node-parameters``, ``--master-netdev`` options are described in
-the **init** command.
+``-D (--disk-parameters)``, ``--nic-parameters``, ``-C
+(--candidate-pool-size)``, ``--maintain-node-health``,
+``--prealloc-wipe-disks``, ``--uid-pool``, ``--node-parameters``,
+``--master-netdev``, ``--master-netmask`` and
+``--use-external-mip-script`` options are described in the **init**
+command.
+
+The ``--hypervisor-state`` and ``--disk-state`` options are described in
+detail in **ganeti(7)**.
 
 The ``--add-uids`` and ``--remove-uids`` options can be used to
 modify the user-id pool by adding/removing a list of user-ids or
@@ -441,6 +617,12 @@ to the option, as in ``--reserved-lvs=`` or ``--reserved-lvs ''``.
 The ``-I (--default-iallocator)`` is described in the **init**
 command. To clear the default iallocator, just pass an empty string
 ('').
+
+The ``--specs-...`` and ``--ipol-disk-templates`` options are described
+in the **init** command.
+
+See **ganeti(7)** for a description of ``--submit`` and other common
+options.
 
 QUEUE
 ~~~~~
@@ -472,24 +654,23 @@ The ``continue`` option will let the watcher continue.
 
 The ``info`` option shows whether the watcher is currently paused.
 
-redist-conf
+REDIST-CONF
 ~~~~~~~~~~~
 
-**redist-conf** [--submit]
+**redist-conf** [\--submit]
 
 This command forces a full push of configuration files from the
 master node to the other nodes in the cluster. This is normally not
 needed, but can be run if the **verify** complains about
 configuration mismatches.
 
-The ``--submit`` option is used to send the job to the master
-daemon but not wait for its completion. The job ID will be shown so
-that it can be examined via **gnt-job info**.
+See **ganeti(7)** for a description of ``--submit`` and other common
+options.
 
 REMOVE-TAGS
 ~~~~~~~~~~~
 
-**remove-tags** [--from *file*] {*tag*...}
+**remove-tags** [\--from *file*] {*tag*...}
 
 Remove tags from the cluster. If any of the tags are not existing
 on the cluster, the entire operation will abort.
@@ -518,9 +699,11 @@ RENEW-CRYPTO
 ~~~~~~~~~~~~
 
 | **renew-crypto** [-f]
-| [--new-cluster-certificate] [--new-confd-hmac-key]
-| [--new-rapi-certificate] [--rapi-certificate *rapi-cert*]
-| [--new-cluster-domain-secret] [--cluster-domain-secret *filename*]
+| [\--new-cluster-certificate] [\--new-confd-hmac-key]
+| [\--new-rapi-certificate] [\--rapi-certificate *rapi-cert*]
+| [\--new-spice-certificate | \--spice-certificate *spice-cert*
+| \--spice-ca-certificate *spice-ca-cert*]
+| [\--new-cluster-domain-secret] [\--cluster-domain-secret *filename*]
 
 This command will stop all Ganeti daemons in the cluster and start
 them again once the new certificates and keys are replicated. The
@@ -532,6 +715,12 @@ To generate a new self-signed RAPI certificate (used by
 ganeti-rapi(8)) specify ``--new-rapi-certificate``. If you want to
 use your own certificate, e.g. one signed by a certificate
 authority (CA), pass its filename to ``--rapi-certificate``.
+
+To generate a new self-signed SPICE certificate, used by SPICE
+connections to the KVM hypervisor, specify the
+``--new-spice-certificate`` option. If you want to provide a
+certificate, pass its filename to ``--spice-certificate`` and pass the
+signing CA certificate to ``--spice-ca-certificate``.
 
 ``--new-cluster-domain-secret`` generates a new, random cluster
 domain secret. ``--cluster-domain-secret`` reads the secret from a
@@ -551,7 +740,7 @@ arguments are given, all instances will be checked.
 
 Note that only active disks can be checked by this command; in case
 a disk cannot be activated it's advised to use
-**gnt-instance activate-disks --ignore-size ...** to force
+**gnt-instance activate-disks \--ignore-size ...** to force
 activation without regard to the current size.
 
 When the all disk sizes are consistent, the command will return no
@@ -585,7 +774,9 @@ node will be listed as /nodes/*name*, and an instance as
 VERIFY
 ~~~~~~
 
-**verify** [--no-nplus1-mem] [--node-group *nodegroup*]
+| **verify** [\--no-nplus1-mem] [\--node-group *nodegroup*]
+| [\--error-codes] [{-I|\--ignore-errors} *errorcode*]
+| [{-I|\--ignore-errors} *errorcode*...]
 
 Verify correctness of cluster configuration. This is safe with
 respect to running instances, and incurs no downtime of the
@@ -599,6 +790,39 @@ With ``--node-group``, restrict the verification to those nodes and
 instances that live in the named group. This will not verify global
 settings, but will allow to perform verification of a group while other
 operations are ongoing in other groups.
+
+The ``--error-codes`` option outputs each error in the following
+parseable format: *ftype*:*ecode*:*edomain*:*name*:*msg*.
+These fields have the following meaning:
+
+ftype
+    Failure type. Can be *WARNING* or *ERROR*.
+
+ecode
+    Error code of the failure. See below for a list of error codes.
+
+edomain
+    Can be *cluster*, *node* or *instance*.
+
+name
+    Contains the name of the item that is affected from the failure.
+
+msg
+    Contains a descriptive error message about the error
+
+``gnt-cluster verify`` will have a non-zero exit code if at least one of
+the failures that are found are of type *ERROR*.
+
+The ``--ignore-errors`` option can be used to change this behaviour,
+because it demotes the error represented by the error code received as a
+parameter to a warning. The option must be repeated for each error that
+should be ignored (e.g.: ``-I ENODEVERSION -I ENODEORPHANLV``). The
+``--error-codes`` option can be used to determine the error code of a
+given error.
+
+List of error codes:
+
+@CONSTANTS_ECODES@
 
 VERIFY-DISKS
 ~~~~~~~~~~~~

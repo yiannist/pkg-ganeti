@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2010, 2011 Google Inc.
+# Copyright (C) 2006, 2007, 2010, 2011, 2012 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -22,6 +22,7 @@
 
 """
 
+import sys
 import time
 import socket
 import errno
@@ -171,7 +172,7 @@ def GetClosedTempfile(*args, **kwargs):
   return path
 
 
-def ResetTempfileModule():
+def ResetTempfileModule(_time=time.time):
   """Resets the random name generator of the tempfile module.
 
   This function should be called after C{os.fork} in the child process to
@@ -182,13 +183,20 @@ def ResetTempfileModule():
 
   """
   # pylint: disable=W0212
-  if hasattr(tempfile, "_once_lock") and hasattr(tempfile, "_name_sequence"):
-    tempfile._once_lock.acquire()
+  if ((sys.hexversion >= 0x020703F0 and sys.hexversion < 0x03000000) or
+      sys.hexversion >= 0x030203F0):
+    # Python 2.7 automatically resets the RNG on pid changes (i.e. forking)
+    return
+
+  try:
+    lock = tempfile._once_lock
+    lock.acquire()
     try:
-      # Reset random name generator
-      tempfile._name_sequence = None
+      # Re-seed random name generator
+      if tempfile._name_sequence:
+        tempfile._name_sequence.rng.seed(hash(_time()) ^ os.getpid())
     finally:
-      tempfile._once_lock.release()
-  else:
+      lock.release()
+  except AttributeError:
     logging.critical("The tempfile module misses at least one of the"
                      " '_once_lock' and '_name_sequence' attributes")

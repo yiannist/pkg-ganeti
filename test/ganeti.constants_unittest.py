@@ -16,7 +16,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
-# 0.0510-1301, USA.
+# 02110-1301, USA.
 
 
 """Script for unittesting the constants module"""
@@ -24,9 +24,11 @@
 
 import unittest
 import re
+import itertools
 
 from ganeti import constants
 from ganeti import locking
+from ganeti import utils
 
 import testutils
 
@@ -76,6 +78,31 @@ class TestConstants(unittest.TestCase):
     self.failUnlessEqual(constants.OP_PRIO_DEFAULT, locking._DEFAULT_PRIORITY)
     self.failUnless(constants.OP_PRIO_NORMAL > constants.OP_PRIO_HIGH)
     self.failUnless(constants.OP_PRIO_HIGH > constants.OP_PRIO_HIGHEST)
+
+  def testDiskDefaults(self):
+    self.failUnless(set(constants.DISK_LD_DEFAULTS.keys()) ==
+                    constants.LOGICAL_DISK_TYPES)
+    self.failUnless(set(constants.DISK_DT_DEFAULTS.keys()) ==
+                    constants.DISK_TEMPLATES)
+
+
+class TestExportedNames(unittest.TestCase):
+  _VALID_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]+$")
+  _BUILTIN_NAME_RE = re.compile(r"^__\w+__$")
+  _EXCEPTIONS = frozenset([
+    "SplitVersion",
+    "BuildVersion",
+    ])
+
+  def test(self):
+    wrong = \
+      set(itertools.ifilterfalse(self._BUILTIN_NAME_RE.match,
+            itertools.ifilterfalse(self._VALID_NAME_RE.match,
+                                   dir(constants))))
+    wrong -= self._EXCEPTIONS
+    self.assertFalse(wrong,
+                     msg=("Invalid names exported from constants module: %s" %
+                          utils.CommaJoin(sorted(wrong))))
 
 
 class TestParameterNames(unittest.TestCase):

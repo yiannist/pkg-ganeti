@@ -16,7 +16,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
-# 0.0510-1301, USA.
+# 02110-1301, USA.
 
 
 """Script for unittesting the serializer module"""
@@ -52,10 +52,9 @@ class TestSerializer(testutils.GanetiTestCase):
     ]
 
   def _TestSerializer(self, dump_fn, load_fn):
-    for indent in [True, False]:
-      for data in self._TESTDATA:
-        self.failUnless(dump_fn(data, indent=indent).endswith("\n"))
-        self.assertEqualValues(load_fn(dump_fn(data, indent=indent)), data)
+    for data in self._TESTDATA:
+      self.failUnless(dump_fn(data).endswith("\n"))
+      self.assertEqualValues(load_fn(dump_fn(data)), data)
 
   def testGeneric(self):
     self._TestSerializer(serializer.Dump, serializer.Load)

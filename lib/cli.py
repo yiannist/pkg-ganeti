@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -29,6 +29,7 @@ import time
 import logging
 import errno
 import itertools
+import shlex
 from cStringIO import StringIO
 
 from ganeti import utils
@@ -42,6 +43,7 @@ from ganeti import ssh
 from ganeti import compat
 from ganeti import netutils
 from ganeti import qlang
+from ganeti import objects
 
 from optparse import (OptionParser, TitledHelpFormatter,
                       Option, OptionValueError)
@@ -49,6 +51,7 @@ from optparse import (OptionParser, TitledHelpFormatter,
 
 __all__ = [
   # Command line options
+  "ABSOLUTE_OPT",
   "ADD_UIDS_OPT",
   "ALLOCATABLE_OPT",
   "ALLOC_POLICY_OPT",
@@ -68,6 +71,7 @@ __all__ = [
   "DEBUG_SIMERR_OPT",
   "DISKIDX_OPT",
   "DISK_OPT",
+  "DISK_PARAMS_OPT",
   "DISK_TEMPLATE_OPT",
   "DRAINED_OPT",
   "DRY_RUN_OPT",
@@ -92,6 +96,7 @@ __all__ = [
   "DEFAULT_IALLOCATOR_OPT",
   "IDENTIFY_DEFAULTS_OPT",
   "IGNORE_CONSIST_OPT",
+  "IGNORE_ERRORS_OPT",
   "IGNORE_FAILURES_OPT",
   "IGNORE_OFFLINE_OPT",
   "IGNORE_REMOVE_FAILURES_OPT",
@@ -101,6 +106,7 @@ __all__ = [
   "MAC_PREFIX_OPT",
   "MAINTAIN_NODE_HEALTH_OPT",
   "MASTER_NETDEV_OPT",
+  "MASTER_NETMASK_OPT",
   "MC_OPT",
   "MIGRATION_MODE_OPT",
   "NET_OPT",
@@ -109,6 +115,7 @@ __all__ = [
   "NEW_CONFD_HMAC_KEY_OPT",
   "NEW_RAPI_CERT_OPT",
   "NEW_SECONDARY_OPT",
+  "NEW_SPICE_CERT_OPT",
   "NIC_PARAMS_OPT",
   "NODE_FORCE_JOIN_OPT",
   "NODE_LIST_OPT",
@@ -127,12 +134,15 @@ __all__ = [
   "NONICS_OPT",
   "NONLIVE_OPT",
   "NONPLUS1_OPT",
+  "NORUNTIME_CHGS_OPT",
   "NOSHUTDOWN_OPT",
   "NOSTART_OPT",
   "NOSSH_KEYCHECK_OPT",
   "NOVOTING_OPT",
   "NO_REMEMBER_OPT",
   "NWSYNC_OPT",
+  "OFFLINE_INST_OPT",
+  "ONLINE_INST_OPT",
   "ON_PRIMARY_OPT",
   "ON_SECONDARY_OPT",
   "OFFLINE_OPT",
@@ -151,6 +161,7 @@ __all__ = [
   "REMOVE_INSTANCE_OPT",
   "REMOVE_UIDS_OPT",
   "RESERVED_LVS_OPT",
+  "RUNTIME_MEM_OPT",
   "ROMAN_OPT",
   "SECONDARY_IP_OPT",
   "SECONDARY_ONLY_OPT",
@@ -159,6 +170,15 @@ __all__ = [
   "SHOWCMD_OPT",
   "SHUTDOWN_TIMEOUT_OPT",
   "SINGLE_NODE_OPT",
+  "SPECS_CPU_COUNT_OPT",
+  "SPECS_DISK_COUNT_OPT",
+  "SPECS_DISK_SIZE_OPT",
+  "SPECS_MEM_SIZE_OPT",
+  "SPECS_NIC_COUNT_OPT",
+  "IPOLICY_DISK_TEMPLATES",
+  "IPOLICY_VCPU_RATIO",
+  "SPICE_CACERT_OPT",
+  "SPICE_CERT_OPT",
   "SRC_DIR_OPT",
   "SRC_NODE_OPT",
   "SUBMIT_OPT",
@@ -171,12 +191,18 @@ __all__ = [
   "TO_GROUP_OPT",
   "UIDPOOL_OPT",
   "USEUNITS_OPT",
+  "USE_EXTERNAL_MIP_SCRIPT",
   "USE_REPL_NET_OPT",
   "VERBOSE_OPT",
   "VG_NAME_OPT",
   "YES_DOIT_OPT",
+  "DISK_STATE_OPT",
+  "HV_STATE_OPT",
+  "IGNORE_IPOLICY_OPT",
+  "INSTANCE_POLICY_OPTS",
   # Generic functions for CLI programs
   "ConfirmOperation",
+  "CreateIPolicyFromOpts",
   "GenericMain",
   "GenericInstanceCreate",
   "GenericList",
@@ -259,6 +285,19 @@ _PRIONAME_TO_VALUE = dict(_PRIORITY_NAMES)
 
 #: Maximum batch size for ChooseJob
 _CHOOSE_BATCH = 25
+
+
+# constants used to create InstancePolicy dictionary
+TISPECS_GROUP_TYPES = {
+  constants.ISPECS_MIN: constants.VTYPE_INT,
+  constants.ISPECS_MAX: constants.VTYPE_INT,
+  }
+
+TISPECS_CLUSTER_TYPES = {
+  constants.ISPECS_MIN: constants.VTYPE_INT,
+  constants.ISPECS_MAX: constants.VTYPE_INT,
+  constants.ISPECS_STD: constants.VTYPE_INT,
+  }
 
 
 class _Argument:
@@ -445,7 +484,7 @@ def AddTags(opts, args):
   if not args:
     raise errors.OpPrereqError("No tags to be added")
   op = opcodes.OpTagsSet(kind=kind, name=name, tags=args)
-  SubmitOpCode(op, opts=opts)
+  SubmitOrSend(op, opts)
 
 
 def RemoveTags(opts, args):
@@ -462,7 +501,7 @@ def RemoveTags(opts, args):
   if not args:
     raise errors.OpPrereqError("No tags to be removed")
   op = opcodes.OpTagsDel(kind=kind, name=name, tags=args)
-  SubmitOpCode(op, opts=opts)
+  SubmitOrSend(op, opts)
 
 
 def check_unit(option, opt, value): # pylint: disable=W0613
@@ -529,7 +568,9 @@ def check_ident_key_val(option, opt, value):  # pylint: disable=W0613
       msg = "Cannot pass options when removing parameter groups: %s" % value
       raise errors.ParameterError(msg)
     retval = (ident[len(NO_PREFIX):], False)
-  elif ident.startswith(UN_PREFIX):
+  elif (ident.startswith(UN_PREFIX) and
+        (len(ident) <= len(UN_PREFIX) or
+         not ident[len(UN_PREFIX)][0].isdigit())):
     if rest:
       msg = "Cannot pass options when removing parameter groups: %s" % value
       raise errors.ParameterError(msg)
@@ -562,6 +603,30 @@ def check_bool(option, opt, value): # pylint: disable=W0613
     return True
   else:
     raise errors.ParameterError("Invalid boolean value '%s'" % value)
+
+
+def check_list(option, opt, value): # pylint: disable=W0613
+  """Custom parser for comma-separated lists.
+
+  """
+  # we have to make this explicit check since "".split(",") is [""],
+  # not an empty list :(
+  if not value:
+    return []
+  else:
+    return utils.UnescapeAndSplit(value)
+
+
+def check_maybefloat(option, opt, value): # pylint: disable=W0613
+  """Custom parser for float numbers which might be also defaults.
+
+  """
+  value = value.lower()
+
+  if value == constants.VALUE_DEFAULT:
+    return value
+  else:
+    return float(value)
 
 
 # completion_suggestion is normally a list. Using numeric values not evaluating
@@ -597,12 +662,16 @@ class CliOption(Option):
     "keyval",
     "unit",
     "bool",
+    "list",
+    "maybefloat",
     )
   TYPE_CHECKER = Option.TYPE_CHECKER.copy()
   TYPE_CHECKER["identkeyval"] = check_ident_key_val
   TYPE_CHECKER["keyval"] = check_key_val
   TYPE_CHECKER["unit"] = check_unit
   TYPE_CHECKER["bool"] = check_bool
+  TYPE_CHECKER["list"] = check_list
+  TYPE_CHECKER["maybefloat"] = check_maybefloat
 
 
 # optparse.py sets make_option, so we do it for our own option class, too
@@ -678,6 +747,14 @@ NWSYNC_OPT = cli_option("--no-wait-for-sync", dest="wait_for_sync",
                         default=True, action="store_false",
                         help="Don't wait for sync (DANGEROUS!)")
 
+ONLINE_INST_OPT = cli_option("--online", dest="online_inst",
+                             action="store_true", default=False,
+                             help="Enable offline instance")
+
+OFFLINE_INST_OPT = cli_option("--offline", dest="offline_inst",
+                              action="store_true", default=False,
+                              help="Disable down instance")
+
 DISK_TEMPLATE_OPT = cli_option("-t", "--disk-template", dest="disk_template",
                                help=("Custom disk setup (%s)" %
                                      utils.CommaJoin(constants.DISK_TEMPLATES)),
@@ -727,6 +804,11 @@ NO_INSTALL_OPT = cli_option("--no-install", dest="no_install",
                             help="Do not install the OS (will"
                             " enable no-start)")
 
+NORUNTIME_CHGS_OPT = cli_option("--no-runtime-changes",
+                                dest="allow_runtime_chgs",
+                                default=True, action="store_false",
+                                help="Don't allow runtime changes")
+
 BACKEND_OPT = cli_option("-B", "--backend-parameters", dest="beparams",
                          type="keyval", default={},
                          help="Backend parameters")
@@ -734,6 +816,56 @@ BACKEND_OPT = cli_option("-B", "--backend-parameters", dest="beparams",
 HVOPTS_OPT = cli_option("-H", "--hypervisor-parameters", type="keyval",
                         default={}, dest="hvparams",
                         help="Hypervisor parameters")
+
+DISK_PARAMS_OPT = cli_option("-D", "--disk-parameters", dest="diskparams",
+                             help="Disk template parameters, in the format"
+                             " template:option=value,option=value,...",
+                             type="identkeyval", action="append", default=[])
+
+SPECS_MEM_SIZE_OPT = cli_option("--specs-mem-size", dest="ispecs_mem_size",
+                                 type="keyval", default={},
+                                 help="Memory size specs: list of key=value,"
+                                " where key is one of min, max, std"
+                                 " (in MB or using a unit)")
+
+SPECS_CPU_COUNT_OPT = cli_option("--specs-cpu-count", dest="ispecs_cpu_count",
+                                 type="keyval", default={},
+                                 help="CPU count specs: list of key=value,"
+                                 " where key is one of min, max, std")
+
+SPECS_DISK_COUNT_OPT = cli_option("--specs-disk-count",
+                                  dest="ispecs_disk_count",
+                                  type="keyval", default={},
+                                  help="Disk count specs: list of key=value,"
+                                  " where key is one of min, max, std")
+
+SPECS_DISK_SIZE_OPT = cli_option("--specs-disk-size", dest="ispecs_disk_size",
+                                 type="keyval", default={},
+                                 help="Disk size specs: list of key=value,"
+                                " where key is one of min, max, std"
+                                 " (in MB or using a unit)")
+
+SPECS_NIC_COUNT_OPT = cli_option("--specs-nic-count", dest="ispecs_nic_count",
+                                 type="keyval", default={},
+                                 help="NIC count specs: list of key=value,"
+                                 " where key is one of min, max, std")
+
+IPOLICY_DISK_TEMPLATES = cli_option("--ipolicy-disk-templates",
+                                 dest="ipolicy_disk_templates",
+                                 type="list", default=None,
+                                 help="Comma-separated list of"
+                                 " enabled disk templates")
+
+IPOLICY_VCPU_RATIO = cli_option("--ipolicy-vcpu-ratio",
+                                 dest="ipolicy_vcpu_ratio",
+                                 type="maybefloat", default=None,
+                                 help="The maximum allowed vcpu-to-cpu ratio")
+
+IPOLICY_SPINDLE_RATIO = cli_option("--ipolicy-spindle-ratio",
+                                   dest="ipolicy_spindle_ratio",
+                                   type="maybefloat", default=None,
+                                   help=("The maximum allowed instances to"
+                                         " spindle ratio"))
 
 HYPERVISOR_OPT = cli_option("-H", "--hypervisor-parameters", dest="hypervisor",
                             help="Hypervisor and hypervisor options, in the"
@@ -1005,6 +1137,18 @@ MASTER_NETDEV_OPT = cli_option("--master-netdev", dest="master_netdev",
                                metavar="NETDEV",
                                default=None)
 
+MASTER_NETMASK_OPT = cli_option("--master-netmask", dest="master_netmask",
+                                help="Specify the netmask of the master IP",
+                                metavar="NETMASK",
+                                default=None)
+
+USE_EXTERNAL_MIP_SCRIPT = cli_option("--use-external-mip-script",
+                                dest="use_external_mip_script",
+                                help="Specify whether to run a user-provided"
+                                " script for the master IP address turnup and"
+                                " turndown operations",
+                                type="bool", metavar=_YORNO, default=None)
+
 GLOBAL_FILEDIR_OPT = cli_option("--file-storage-dir", dest="file_storage_dir",
                                 help="Specify the default directory (cluster-"
                                 "wide) for storing the file-based disks [%s]" %
@@ -1084,6 +1228,21 @@ RAPI_CERT_OPT = cli_option("--rapi-certificate", dest="rapi_cert",
 NEW_RAPI_CERT_OPT = cli_option("--new-rapi-certificate", dest="new_rapi_cert",
                                default=None, action="store_true",
                                help=("Generate a new self-signed RAPI"
+                                     " certificate"))
+
+SPICE_CERT_OPT = cli_option("--spice-certificate", dest="spice_cert",
+                           default=None,
+                           help="File containing new SPICE certificate")
+
+SPICE_CACERT_OPT = cli_option("--spice-ca-certificate", dest="spice_cacert",
+                           default=None,
+                           help="File containing the certificate of the CA"
+                                " which signed the SPICE certificate")
+
+NEW_SPICE_CERT_OPT = cli_option("--new-spice-certificate",
+                               dest="new_spice_cert", default=None,
+                               action="store_true",
+                               help=("Generate a new self-signed SPICE"
                                      " certificate"))
 
 NEW_CONFD_HMAC_KEY_OPT = cli_option("--new-confd-hmac-key",
@@ -1238,6 +1397,39 @@ TO_GROUP_OPT = cli_option("--to", dest="to", metavar="<group>",
                           default=None, action="append",
                           completion_suggest=OPT_COMPL_ONE_NODEGROUP)
 
+IGNORE_ERRORS_OPT = cli_option("-I", "--ignore-errors", default=[],
+                               action="append", dest="ignore_errors",
+                               choices=list(constants.CV_ALL_ECODES_STRINGS),
+                               help="Error code to be ignored")
+
+DISK_STATE_OPT = cli_option("--disk-state", default=[], dest="disk_state",
+                            action="append",
+                            help=("Specify disk state information in the"
+                                  " format"
+                                  " storage_type/identifier:option=value,...;"
+                                  " note this is unused for now"),
+                            type="identkeyval")
+
+HV_STATE_OPT = cli_option("--hypervisor-state", default=[], dest="hv_state",
+                          action="append",
+                          help=("Specify hypervisor state information in the"
+                                " format hypervisor:option=value,...;"
+                                " note this is unused for now"),
+                          type="identkeyval")
+
+IGNORE_IPOLICY_OPT = cli_option("--ignore-ipolicy", dest="ignore_ipolicy",
+                                action="store_true", default=False,
+                                help="Ignore instance policy violations")
+
+RUNTIME_MEM_OPT = cli_option("-m", "--runtime-memory", dest="runtime_mem",
+                             help="Sets the instance's runtime memory,"
+                             " ballooning it up or down to the new value",
+                             default=None, type="unit", metavar="<size>")
+
+ABSOLUTE_OPT = cli_option("--absolute", dest="absolute",
+                          action="store_true", default=False,
+                          help="Marks the grow as absolute instead of the"
+                          " (default) relative mode")
 
 #: Options provided by all commands
 COMMON_OPTS = [DEBUG_OPT]
@@ -1266,8 +1458,20 @@ COMMON_CREATE_OPTS = [
   PRIORITY_OPT,
   ]
 
+# common instance policy options
+INSTANCE_POLICY_OPTS = [
+  SPECS_CPU_COUNT_OPT,
+  SPECS_DISK_COUNT_OPT,
+  SPECS_DISK_SIZE_OPT,
+  SPECS_MEM_SIZE_OPT,
+  SPECS_NIC_COUNT_OPT,
+  IPOLICY_DISK_TEMPLATES,
+  IPOLICY_VCPU_RATIO,
+  IPOLICY_SPINDLE_RATIO,
+  ]
 
-def _ParseArgs(argv, commands, aliases):
+
+def _ParseArgs(argv, commands, aliases, env_override):
   """Parser for the command line arguments.
 
   This function parses the arguments and returns the function which
@@ -1277,8 +1481,11 @@ def _ParseArgs(argv, commands, aliases):
   @param commands: dictionary with special contents, see the design
       doc for cmdline handling
   @param aliases: dictionary with command aliases {'alias': 'target, ...}
+  @param env_override: list of env variables allowed for default args
 
   """
+  assert not (env_override - set(commands))
+
   if len(argv) == 0:
     binary = "<command>"
   else:
@@ -1332,13 +1539,19 @@ def _ParseArgs(argv, commands, aliases):
 
     cmd = aliases[cmd]
 
+  if cmd in env_override:
+    args_env_name = ("%s_%s" % (binary.replace("-", "_"), cmd)).upper()
+    env_args = os.environ.get(args_env_name)
+    if env_args:
+      argv = utils.InsertAtPos(argv, 1, shlex.split(env_args))
+
   func, args_def, parser_opts, usage, description = commands[cmd]
   parser = OptionParser(option_list=parser_opts + COMMON_OPTS,
                         description=description,
                         formatter=TitledHelpFormatter(),
                         usage="%%prog %s %s" % (cmd, usage))
   parser.disable_interspersed_args()
-  options, args = parser.parse_args()
+  options, args = parser.parse_args(args=argv[1:])
 
   if not _CheckArguments(cmd, args_def, args):
     return None, None, None
@@ -1972,35 +2185,41 @@ def FormatError(err):
   return retcode, obuf.getvalue().rstrip("\n")
 
 
-def GenericMain(commands, override=None, aliases=None):
+def GenericMain(commands, override=None, aliases=None,
+                env_override=frozenset()):
   """Generic main function for all the gnt-* commands.
 
-  Arguments:
-    - commands: a dictionary with a special structure, see the design doc
-                for command line handling.
-    - override: if not None, we expect a dictionary with keys that will
-                override command line options; this can be used to pass
-                options from the scripts to generic functions
-    - aliases: dictionary with command aliases {'alias': 'target, ...}
+  @param commands: a dictionary with a special structure, see the design doc
+                   for command line handling.
+  @param override: if not None, we expect a dictionary with keys that will
+                   override command line options; this can be used to pass
+                   options from the scripts to generic functions
+  @param aliases: dictionary with command aliases {'alias': 'target, ...}
+  @param env_override: list of environment names which are allowed to submit
+                       default args for commands
 
   """
   # save the program name and the entire command line for later logging
   if sys.argv:
-    binary = os.path.basename(sys.argv[0]) or sys.argv[0]
+    binary = os.path.basename(sys.argv[0])
+    if not binary:
+      binary = sys.argv[0]
+
     if len(sys.argv) >= 2:
-      binary += " " + sys.argv[1]
-      old_cmdline = " ".join(sys.argv[2:])
+      logname = utils.ShellQuoteArgs([binary, sys.argv[1]])
     else:
-      old_cmdline = ""
+      logname = binary
+
+    cmdline = utils.ShellQuoteArgs([binary] + sys.argv[1:])
   else:
     binary = "<unknown program>"
-    old_cmdline = ""
+    cmdline = "<unknown>"
 
   if aliases is None:
     aliases = {}
 
   try:
-    func, options, args = _ParseArgs(sys.argv, commands, aliases)
+    func, options, args = _ParseArgs(sys.argv, commands, aliases, env_override)
   except errors.ParameterError, err:
     result, err_msg = FormatError(err)
     ToStderr(err_msg)
@@ -2013,13 +2232,10 @@ def GenericMain(commands, override=None, aliases=None):
     for key, val in override.iteritems():
       setattr(options, key, val)
 
-  utils.SetupLogging(constants.LOG_COMMANDS, binary, debug=options.debug,
+  utils.SetupLogging(constants.LOG_COMMANDS, logname, debug=options.debug,
                      stderr_logging=True)
 
-  if old_cmdline:
-    logging.info("run with arguments '%s'", old_cmdline)
-  else:
-    logging.info("run with no arguments")
+  logging.info("Command line: %s", cmdline)
 
   try:
     result = func(options, args)
@@ -2152,7 +2368,7 @@ def GenericInstanceCreate(mode, opts, args):
   else:
     tags = []
 
-  utils.ForceDictType(opts.beparams, constants.BES_PARAMETER_TYPES)
+  utils.ForceDictType(opts.beparams, constants.BES_PARAMETER_COMPAT)
   utils.ForceDictType(hvparams, constants.HVS_PARAMETER_TYPES)
 
   if mode == constants.INSTANCE_CREATE:
@@ -2197,7 +2413,8 @@ def GenericInstanceCreate(mode, opts, args):
                                 src_path=src_path,
                                 tags=tags,
                                 no_install=no_install,
-                                identify_defaults=identify_defaults)
+                                identify_defaults=identify_defaults,
+                                ignore_ipolicy=opts.ignore_ipolicy)
 
   SubmitOrSend(op, opts)
   return 0
@@ -2633,7 +2850,8 @@ def _WarnUnknownFields(fdefs):
 
 
 def GenericList(resource, fields, names, unit, separator, header, cl=None,
-                format_override=None, verbose=False, force_filter=False):
+                format_override=None, verbose=False, force_filter=False,
+                namefield=None, qfilter=None):
   """Generic implementation for listing all items of a resource.
 
   @param resource: One of L{constants.QR_VIA_LUXI}
@@ -2656,17 +2874,27 @@ def GenericList(resource, fields, names, unit, separator, header, cl=None,
     indexed by field name, contents like L{_DEFAULT_FORMAT_QUERY}
   @type verbose: boolean
   @param verbose: whether to use verbose field descriptions or not
+  @type namefield: string
+  @param namefield: Name of field to use for simple filters (see
+    L{qlang.MakeFilter} for details)
+  @type qfilter: list or None
+  @param qfilter: Query filter (in addition to names)
 
   """
-  if cl is None:
-    cl = GetClient()
-
   if not names:
     names = None
 
-  filter_ = qlang.MakeFilter(names, force_filter)
+  namefilter = qlang.MakeFilter(names, force_filter, namefield=namefield)
 
-  response = cl.Query(resource, fields, filter_)
+  if qfilter is None:
+    qfilter = namefilter
+  elif namefilter is not None:
+    qfilter = [qlang.OP_AND, namefilter, qfilter]
+
+  if cl is None:
+    cl = GetClient()
+
+  response = cl.Query(resource, fields, qfilter)
 
   found_unknown = _WarnUnknownFields(response.fields)
 
@@ -2820,8 +3048,9 @@ def FormatTimestamp(ts):
   """
   if not isinstance(ts, (tuple, list)) or len(ts) != 2:
     return "?"
-  sec, usec = ts
-  return time.strftime("%F %T", time.localtime(sec)) + ".%06d" % usec
+
+  (sec, usecs) = ts
+  return utils.FormatTime(sec, usecs=usecs)
 
 
 def ParseTimespec(value):
@@ -2895,24 +3124,24 @@ def GetOnlineNodes(nodes, cl=None, nowarn=False, secondary_ips=False,
   if cl is None:
     cl = GetClient()
 
-  filter_ = []
+  qfilter = []
 
   if nodes:
-    filter_.append(qlang.MakeSimpleFilter("name", nodes))
+    qfilter.append(qlang.MakeSimpleFilter("name", nodes))
 
   if nodegroup is not None:
-    filter_.append([qlang.OP_OR, [qlang.OP_EQUAL, "group", nodegroup],
+    qfilter.append([qlang.OP_OR, [qlang.OP_EQUAL, "group", nodegroup],
                                  [qlang.OP_EQUAL, "group.uuid", nodegroup]])
 
   if filter_master:
-    filter_.append([qlang.OP_NOT, [qlang.OP_TRUE, "master"]])
+    qfilter.append([qlang.OP_NOT, [qlang.OP_TRUE, "master"]])
 
-  if filter_:
-    if len(filter_) > 1:
-      final_filter = [qlang.OP_AND] + filter_
+  if qfilter:
+    if len(qfilter) > 1:
+      final_filter = [qlang.OP_AND] + qfilter
     else:
-      assert len(filter_) == 1
-      final_filter = filter_[0]
+      assert len(qfilter) == 1
+      final_filter = qfilter[0]
   else:
     final_filter = None
 
@@ -3046,7 +3275,7 @@ class JobExecutor(object):
       for (_, _, ops) in self.queue:
         # SubmitJob will remove the success status, but raise an exception if
         # the submission fails, so we'll notice that anyway.
-        results.append([True, self.cl.SubmitJob(ops)])
+        results.append([True, self.cl.SubmitJob(ops)[0]])
     else:
       results = self.cl.SubmitManyJobs([ops for (_, _, ops) in self.queue])
     for ((status, data), (idx, name, _)) in zip(results, self.queue):
@@ -3158,9 +3387,18 @@ def FormatParameterDict(buf, param_dict, actual, level=1):
 
   """
   indent = "  " * level
+
   for key in sorted(actual):
-    val = param_dict.get(key, "default (%s)" % actual[key])
-    buf.write("%s- %s: %s\n" % (indent, key, val))
+    data = actual[key]
+    buf.write("%s- %s:" % (indent, key))
+
+    if isinstance(data, dict) and data:
+      buf.write("\n")
+      FormatParameterDict(buf, param_dict.get(key, {}), data,
+                          level=level + 1)
+    else:
+      val = param_dict.get(key, "default (%s)" % data)
+      buf.write(" %s\n" % val)
 
 
 def ConfirmOperation(names, list_type, text, extra=""):
@@ -3200,3 +3438,92 @@ def ConfirmOperation(names, list_type, text, extra=""):
     choices.pop(1)
     choice = AskUser(msg + affected, choices)
   return choice
+
+
+def _MaybeParseUnit(elements):
+  """Parses and returns an array of potential values with units.
+
+  """
+  parsed = {}
+  for k, v in elements.items():
+    if v == constants.VALUE_DEFAULT:
+      parsed[k] = v
+    else:
+      parsed[k] = utils.ParseUnit(v)
+  return parsed
+
+
+def CreateIPolicyFromOpts(ispecs_mem_size=None,
+                          ispecs_cpu_count=None,
+                          ispecs_disk_count=None,
+                          ispecs_disk_size=None,
+                          ispecs_nic_count=None,
+                          ipolicy_disk_templates=None,
+                          ipolicy_vcpu_ratio=None,
+                          ipolicy_spindle_ratio=None,
+                          group_ipolicy=False,
+                          allowed_values=None,
+                          fill_all=False):
+  """Creation of instance policy based on command line options.
+
+  @param fill_all: whether for cluster policies we should ensure that
+    all values are filled
+
+
+  """
+  try:
+    if ispecs_mem_size:
+      ispecs_mem_size = _MaybeParseUnit(ispecs_mem_size)
+    if ispecs_disk_size:
+      ispecs_disk_size = _MaybeParseUnit(ispecs_disk_size)
+  except (TypeError, ValueError, errors.UnitParseError), err:
+    raise errors.OpPrereqError("Invalid disk (%s) or memory (%s) size"
+                               " in policy: %s" %
+                               (ispecs_disk_size, ispecs_mem_size, err),
+                               errors.ECODE_INVAL)
+
+  # prepare ipolicy dict
+  ipolicy_transposed = {
+    constants.ISPEC_MEM_SIZE: ispecs_mem_size,
+    constants.ISPEC_CPU_COUNT: ispecs_cpu_count,
+    constants.ISPEC_DISK_COUNT: ispecs_disk_count,
+    constants.ISPEC_DISK_SIZE: ispecs_disk_size,
+    constants.ISPEC_NIC_COUNT: ispecs_nic_count,
+    }
+
+  # first, check that the values given are correct
+  if group_ipolicy:
+    forced_type = TISPECS_GROUP_TYPES
+  else:
+    forced_type = TISPECS_CLUSTER_TYPES
+
+  for specs in ipolicy_transposed.values():
+    utils.ForceDictType(specs, forced_type, allowed_values=allowed_values)
+
+  # then transpose
+  ipolicy_out = objects.MakeEmptyIPolicy()
+  for name, specs in ipolicy_transposed.iteritems():
+    assert name in constants.ISPECS_PARAMETERS
+    for key, val in specs.items(): # {min: .. ,max: .., std: ..}
+      ipolicy_out[key][name] = val
+
+  # no filldict for non-dicts
+  if not group_ipolicy and fill_all:
+    if ipolicy_disk_templates is None:
+      ipolicy_disk_templates = constants.DISK_TEMPLATES
+    if ipolicy_vcpu_ratio is None:
+      ipolicy_vcpu_ratio = \
+        constants.IPOLICY_DEFAULTS[constants.IPOLICY_VCPU_RATIO]
+    if ipolicy_spindle_ratio is None:
+      ipolicy_spindle_ratio = \
+        constants.IPOLICY_DEFAULTS[constants.IPOLICY_SPINDLE_RATIO]
+  if ipolicy_disk_templates is not None:
+    ipolicy_out[constants.IPOLICY_DTS] = list(ipolicy_disk_templates)
+  if ipolicy_vcpu_ratio is not None:
+    ipolicy_out[constants.IPOLICY_VCPU_RATIO] = ipolicy_vcpu_ratio
+  if ipolicy_spindle_ratio is not None:
+    ipolicy_out[constants.IPOLICY_SPINDLE_RATIO] = ipolicy_spindle_ratio
+
+  assert not (frozenset(ipolicy_out.keys()) - constants.IPOLICY_ALL_KEYS)
+
+  return ipolicy_out

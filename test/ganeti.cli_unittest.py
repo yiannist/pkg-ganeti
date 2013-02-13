@@ -22,6 +22,7 @@
 """Script for unittesting the cli module"""
 
 import unittest
+import time
 from cStringIO import StringIO
 
 import ganeti
@@ -85,6 +86,7 @@ class TestSplitKeyVal(unittest.TestCase):
     """Test how we handle splitting an empty string"""
     self.failUnlessEqual(cli._SplitKeyVal("option", ""), {})
 
+
 class TestIdentKeyVal(unittest.TestCase):
   """Testing case for cli.check_ident_key_val"""
 
@@ -101,6 +103,17 @@ class TestIdentKeyVal(unittest.TestCase):
     self.assertRaises(ParameterError, cikv, "no_bar:foo=baz")
     self.assertEqual(cikv("-foo"), ("foo", None))
     self.assertRaises(ParameterError, cikv, "-foo:a=c")
+
+    # Check negative numbers
+    self.assertEqual(cikv("-1:remove"), ("-1", {
+      "remove": True,
+      }))
+    self.assertEqual(cikv("-29447:add,size=4G"), ("-29447", {
+      "add": True,
+      "size": "4G",
+      }))
+    for i in ["-:", "-"]:
+      self.assertEqual(cikv(i), ("", None))
 
 
 class TestToStream(unittest.TestCase):
@@ -765,7 +778,7 @@ class TestGetOnlineNodes(unittest.TestCase):
     def CountPending(self):
       return len(self._query)
 
-    def Query(self, res, fields, filter_):
+    def Query(self, res, fields, qfilter):
       if res != constants.QR_NODE:
         raise Exception("Querying wrong resource")
 
@@ -774,7 +787,7 @@ class TestGetOnlineNodes(unittest.TestCase):
       if exp_fields != fields:
         raise Exception("Expected fields %s, got %s" % (exp_fields, fields))
 
-      if not (filter_ is None or check_filter(filter_)):
+      if not (qfilter is None or check_filter(qfilter)):
         raise Exception("Filter doesn't match expectations")
 
       return objects.QueryResponse(fields=None, data=result)
@@ -804,8 +817,8 @@ class TestGetOnlineNodes(unittest.TestCase):
   def testNoMaster(self):
     cl = self._FakeClient()
 
-    def _CheckFilter(filter_):
-      self.assertEqual(filter_, [qlang.OP_NOT, [qlang.OP_TRUE, "master"]])
+    def _CheckFilter(qfilter):
+      self.assertEqual(qfilter, [qlang.OP_NOT, [qlang.OP_TRUE, "master"]])
       return True
 
     cl.AddQueryResult(["name", "offline", "sip"], _CheckFilter, [
@@ -835,8 +848,8 @@ class TestGetOnlineNodes(unittest.TestCase):
   def testNoMasterFilterNodeName(self):
     cl = self._FakeClient()
 
-    def _CheckFilter(filter_):
-      self.assertEqual(filter_,
+    def _CheckFilter(qfilter):
+      self.assertEqual(qfilter,
         [qlang.OP_AND,
          [qlang.OP_OR] + [[qlang.OP_EQUAL, "name", name]
                           for name in ["node2", "node3"]],
@@ -877,8 +890,8 @@ class TestGetOnlineNodes(unittest.TestCase):
   def testNodeGroup(self):
     cl = self._FakeClient()
 
-    def _CheckFilter(filter_):
-      self.assertEqual(filter_,
+    def _CheckFilter(qfilter):
+      self.assertEqual(qfilter,
         [qlang.OP_OR, [qlang.OP_EQUAL, "group", "foobar"],
                       [qlang.OP_EQUAL, "group.uuid", "foobar"]])
       return True
@@ -894,6 +907,19 @@ class TestGetOnlineNodes(unittest.TestCase):
     self.assertEqual(cli.GetOnlineNodes(None, cl=cl, nodegroup="foobar"),
                      ["master.example.com", "node3.example.com"])
     self.assertEqual(cl.CountPending(), 0)
+
+
+class TestFormatTimestamp(unittest.TestCase):
+  def testGood(self):
+    self.assertEqual(cli.FormatTimestamp((0, 1)),
+                     time.strftime("%F %T", time.localtime(0)) + ".000001")
+    self.assertEqual(cli.FormatTimestamp((1332944009, 17376)),
+                     (time.strftime("%F %T", time.localtime(1332944009)) +
+                      ".017376"))
+
+  def testWrong(self):
+    for i in [0, [], {}, "", [1]]:
+      self.assertEqual(cli.FormatTimestamp(i), "?")
 
 
 if __name__ == '__main__':

@@ -118,7 +118,9 @@
   ><h2
     >Node Parameters</h2
     ><p
-    >These parameters are node specific and can be preseeded on node-group and cluster level.</p
+    >The <code
+      >ndparams</code
+      > refer to node parameters. These can be set as defaults on cluster and node group levels, but they take effect for nodes only.</p
     ><p
     >Currently we support the following node parameters:</p
     ><dl
@@ -130,7 +132,107 @@
 	  >Ganeti Node OOB Management Framework</a
 	  > design document.</p
 	></dd
+      ><dt
+      >spindle_count</dt
+      ><dd
+      ><p
+	>This should reflect the I/O performance of local attached storage (e.g. for &quot;file&quot;, &quot;plain&quot; and &quot;drbd&quot; disk templates). It doesn't have to match the actual spindle count of (any eventual) mechanical hard-drives, its meaning is site-local and just the relative values matter.</p
+	></dd
       ></dl
+    ></div
+  ><div id="hypervisor-state-parameters"
+  ><h2
+    >Hypervisor State Parameters</h2
+    ><p
+    >Using <code
+      >--hypervisor-state</code
+      > you can set hypervisor specific states as pointed out in <code
+      >Ganeti Resource Model &lt;design-resource-model.rst&gt;</code
+      >.</p
+    ><p
+    >The format is: <code
+      >hypervisor:option=value</code
+      >.</p
+    ><p
+    >Currently we support the following hypervisor state values:</p
+    ><dl
+    ><dt
+      >mem_total</dt
+      ><dd
+      ><p
+	>Total node memory, as discovered by this hypervisor</p
+	></dd
+      ><dt
+      >mem_node</dt
+      ><dd
+      ><p
+	>Memory used by, or reserved for, the node itself; note that some hypervisors can report this in an authoritative way, other not</p
+	></dd
+      ><dt
+      >mem_hv</dt
+      ><dd
+      ><p
+	>Memory used either by the hypervisor itself or lost due to instance allocation rounding; usually this cannot be precisely computed, but only roughly estimated</p
+	></dd
+      ><dt
+      >cpu_total</dt
+      ><dd
+      ><p
+	>Total node cpu (core) count; usually this can be discovered automatically</p
+	></dd
+      ><dt
+      >cpu_node</dt
+      ><dd
+      ><p
+	>Number of cores reserved for the node itself; this can either be discovered or set manually. Only used for estimating how many VCPUs are left for instances</p
+	></dd
+      ></dl
+    ><p
+    >Note that currently this option is unused by Ganeti; values will be recorded but will not influence the Ganeti operation.</p
+    ></div
+  ><div id="disk-state-parameters"
+  ><h2
+    >Disk State Parameters</h2
+    ><p
+    >Using <code
+      >--disk-state</code
+      > you can set disk specific states as pointed out in <code
+      >Ganeti Resource Model &lt;design-resource-model.rst&gt;</code
+      >.</p
+    ><p
+    >The format is: <code
+      >storage_type/identifier:option=value</code
+      >. Where we currently just support <code
+      >lvm</code
+      > as storage type. The identifier in this case is the LVM volume group. By default this is <code
+      >xenvg</code
+      >.</p
+    ><p
+    >Currently we support the following hypervisor state values:</p
+    ><dl
+    ><dt
+      >disk_total</dt
+      ><dd
+      ><p
+	>Total disk size (usually discovered automatically)</p
+	></dd
+      ><dt
+      >disk_reserved</dt
+      ><dd
+      ><p
+	>Reserved disk size; this is a lower limit on the free space, if such a limit is desired</p
+	></dd
+      ><dt
+      >disk_overhead</dt
+      ><dd
+      ><p
+	>Disk that is expected to be used by other volumes (set via <code
+	  >reserved_lvs</code
+	  >); usually should be zero</p
+	></dd
+      ></dl
+    ><p
+    >Note that currently this option is unused by Ganeti; values will be recorded but will not influence the Ganeti operation.</p
     ></div
   ><div id="cluster-configuration"
   ><h2
@@ -218,7 +320,8 @@
       >gnt-...</strong
       > <em
       >command</em
-      > [--dry-run] [--priority {low | normal | high}]</p
+      > [--dry-run] [--priority {low | normal | high}]<br
+       />[--submit]</p
     ><p
     >The <code
       >--dry-run</code
@@ -227,6 +330,42 @@
     >The option <code
       >--priority</code
       > sets the priority for opcodes submitted by the command.</p
+    ><p
+    >The <code
+      >--submit</code
+      > option is used to send the job to the master daemon but not wait for its completion. The job ID will be shown so that it can be examined using <strong
+      >gnt-job info</strong
+      >.</p
+    ></div
+  ><div id="defaults"
+  ><h2
+    >Defaults</h2
+    ><p
+    >For certain commands you can use environment variables to provide default command line arguments. Just assign the arguments as a string to the corresponding environment variable. The format of that variable name is <strong
+      >binary</strong
+      >_<em
+      >command</em
+      >. <strong
+      >binary</strong
+      > is the name of the <code
+      >gnt-*</code
+      > script all upper case and dashes replaced by underscores, and <em
+      >command</em
+      > is the command invoked on that script.</p
+    ><p
+    >Currently supported commands are <code
+      >gnt-node list</code
+      >, <code
+      >gnt-group list</code
+      > and <code
+      >gnt-instance list</code
+      >. So you can configure default command line flags by setting <code
+      >GNT_NODE_LIST</code
+      >, <code
+      >GNT_GROUP_LIST</code
+      > and <code
+      >GNT_INSTANCE_LIST</code
+      >.</p
     ></div
   ></div
 ><div id="field-formatting"
@@ -290,6 +429,56 @@
     ><p
     >Most commands listing resources (e.g. instances or nodes) support filtering. The filter language is similar to Python expressions with some elements from Perl. The language is not generic. Each condition must consist of a field name and a value (except for boolean checks), a field can not be compared to another field. Keywords are case-sensitive.</p
     ><p
+    >Examples (see below for syntax details):</p
+    ><ul
+    ><li
+      ><p
+	>List webservers:</p
+	><pre
+	><code
+	  >gnt-instance list --filter 'name =* &quot;web*.example.com&quot;'
+</code
+	  ></pre
+	></li
+      ><li
+      ><p
+	>List instances with three or six virtual CPUs and whose primary nodes reside in groups starting with the string &quot;rack&quot;:</p
+	><pre
+	><code
+	  >gnt-instance list --filter
+  '(be/vcpus == 3 or be/vcpus == 6) and pnode.group =~ m/^rack/'
+</code
+	  ></pre
+	></li
+      ><li
+      ><p
+	>Nodes hosting primary instances:</p
+	><pre
+	><code
+	  >gnt-node list --filter 'pinst_cnt != 0'
+</code
+	  ></pre
+	></li
+      ><li
+      ><p
+	>Nodes which aren't master candidates:</p
+	><pre
+	><code
+	  >gnt-node list --filter 'not master_candidate'
+</code
+	  ></pre
+	></li
+      ><li
+      ><p
+	>Short version for globbing patterns:</p
+	><pre
+	><code
+	  >gnt-instance list '*.site1' '*.site2'
+</code
+	  ></pre
+	></li
+      ></ul
+    ><p
     >Syntax in pseudo-BNF:</p
     ><pre
     ><code
@@ -313,7 +502,7 @@
 
 &lt;condition&gt; ::=
   { /* Value comparison */
-    &lt;field&gt; { == | != } &lt;value&gt;
+    &lt;field&gt; { == | != | &lt; | &lt;= | &gt;= | &gt; } &lt;value&gt;
 
     /* Collection membership */
     | &lt;value&gt; [ not ] in &lt;field&gt;
@@ -353,6 +542,38 @@
       ><dd
       ><p
 	>Inequality</p
+	></dd
+      ><dt
+      ><em
+	>&lt;</em
+	></dt
+      ><dd
+      ><p
+	>Less than</p
+	></dd
+      ><dt
+      ><em
+	>&lt;=</em
+	></dt
+      ><dd
+      ><p
+	>Less than or equal</p
+	></dd
+      ><dt
+      ><em
+	>&gt;</em
+	></dt
+      ><dd
+      ><p
+	>Greater than</p
+	></dd
+      ><dt
+      ><em
+	>&gt;=</em
+	></dt
+      ><dd
+      ><p
+	>Greater than or equal</p
 	></dd
       ><dt
       ><em
@@ -403,10 +624,6 @@
 	>Collection membership and negation</p
 	></dd
       ></dl
-    ><p
-    >As a shortcut globbing patterns can be specified as names, e.g. <code
-      >gnt-instance list '*.site1' '*.site2'</code
-      >.</p
     ></div
   ></div
 ><div id="common-daemon-functionality"
@@ -478,13 +695,15 @@
     >hail</strong
     >(1) (IAllocator plugin), <strong
     >hscan</strong
-    >(1) (data gatherer from remote clusters).</p
+    >(1) (data gatherer from remote clusters), <strong
+    >hinfo</strong
+    >(1) (cluster information printer).</p
   ></div
 ><div id="copyright"
 ><h1
   >COPYRIGHT</h1
   ><p
-  >Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Google Inc. Permission is granted to copy, distribute and/or modify under the terms of the GNU General Public License as published by the Free Software Foundation; either version 2 of the License, or (at your option) any later version.</p
+  >Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012 Google Inc. Permission is granted to copy, distribute and/or modify under the terms of the GNU General Public License as published by the Free Software Foundation; either version 2 of the License, or (at your option) any later version.</p
   ><p
   >On Debian systems, the complete text of the GNU General Public License can be found in /usr/share/common-licenses/GPL.</p
   ></div

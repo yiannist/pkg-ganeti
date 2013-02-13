@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2011 Google Inc.
+# Copyright (C) 2006, 2007, 2011, 2012 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -34,7 +34,6 @@ import collections
 import time
 import errno
 import logging
-import warnings
 
 from ganeti import serializer
 from ganeti import constants
@@ -54,7 +53,7 @@ REQ_SUBMIT_MANY_JOBS = "SubmitManyJobs"
 REQ_WAIT_FOR_JOB_CHANGE = "WaitForJobChange"
 REQ_CANCEL_JOB = "CancelJob"
 REQ_ARCHIVE_JOB = "ArchiveJob"
-REQ_AUTOARCHIVE_JOBS = "AutoArchiveJobs"
+REQ_AUTO_ARCHIVE_JOBS = "AutoArchiveJobs"
 REQ_QUERY = "Query"
 REQ_QUERY_FIELDS = "QueryFields"
 REQ_QUERY_JOBS = "QueryJobs"
@@ -65,9 +64,30 @@ REQ_QUERY_EXPORTS = "QueryExports"
 REQ_QUERY_CONFIG_VALUES = "QueryConfigValues"
 REQ_QUERY_CLUSTER_INFO = "QueryClusterInfo"
 REQ_QUERY_TAGS = "QueryTags"
-REQ_QUERY_LOCKS = "QueryLocks"
-REQ_QUEUE_SET_DRAIN_FLAG = "SetDrainFlag"
+REQ_SET_DRAIN_FLAG = "SetDrainFlag"
 REQ_SET_WATCHER_PAUSE = "SetWatcherPause"
+
+#: List of all LUXI requests
+REQ_ALL = frozenset([
+  REQ_ARCHIVE_JOB,
+  REQ_AUTO_ARCHIVE_JOBS,
+  REQ_CANCEL_JOB,
+  REQ_QUERY,
+  REQ_QUERY_CLUSTER_INFO,
+  REQ_QUERY_CONFIG_VALUES,
+  REQ_QUERY_EXPORTS,
+  REQ_QUERY_FIELDS,
+  REQ_QUERY_GROUPS,
+  REQ_QUERY_INSTANCES,
+  REQ_QUERY_JOBS,
+  REQ_QUERY_NODES,
+  REQ_QUERY_TAGS,
+  REQ_SET_DRAIN_FLAG,
+  REQ_SET_WATCHER_PAUSE,
+  REQ_SUBMIT_JOB,
+  REQ_SUBMIT_MANY_JOBS,
+  REQ_WAIT_FOR_JOB_CHANGE,
+  ])
 
 DEF_CTMO = 10
 DEF_RWTO = 60
@@ -343,7 +363,7 @@ def FormatRequest(method, args, version=None):
     request[KEY_VERSION] = version
 
   # Serialize the request
-  return serializer.DumpJson(request, indent=False)
+  return serializer.DumpJson(request)
 
 
 def CallLuxiMethod(transport_cb, method, args, version=None):
@@ -439,34 +459,37 @@ class Client(object):
     """Send a generic request and return the response.
 
     """
+    if not isinstance(args, (list, tuple)):
+      raise errors.ProgrammerError("Invalid parameter passed to CallMethod:"
+                                   " expected list, got %s" % type(args))
     return CallLuxiMethod(self._SendMethodCall, method, args,
                           version=constants.LUXI_VERSION)
 
   def SetQueueDrainFlag(self, drain_flag):
-    return self.CallMethod(REQ_QUEUE_SET_DRAIN_FLAG, drain_flag)
+    return self.CallMethod(REQ_SET_DRAIN_FLAG, (drain_flag, ))
 
   def SetWatcherPause(self, until):
-    return self.CallMethod(REQ_SET_WATCHER_PAUSE, [until])
+    return self.CallMethod(REQ_SET_WATCHER_PAUSE, (until, ))
 
   def SubmitJob(self, ops):
     ops_state = map(lambda op: op.__getstate__(), ops)
-    return self.CallMethod(REQ_SUBMIT_JOB, ops_state)
+    return self.CallMethod(REQ_SUBMIT_JOB, (ops_state, ))
 
   def SubmitManyJobs(self, jobs):
     jobs_state = []
     for ops in jobs:
       jobs_state.append([op.__getstate__() for op in ops])
-    return self.CallMethod(REQ_SUBMIT_MANY_JOBS, jobs_state)
+    return self.CallMethod(REQ_SUBMIT_MANY_JOBS, (jobs_state, ))
 
   def CancelJob(self, job_id):
-    return self.CallMethod(REQ_CANCEL_JOB, job_id)
+    return self.CallMethod(REQ_CANCEL_JOB, (job_id, ))
 
   def ArchiveJob(self, job_id):
-    return self.CallMethod(REQ_ARCHIVE_JOB, job_id)
+    return self.CallMethod(REQ_ARCHIVE_JOB, (job_id, ))
 
   def AutoArchiveJobs(self, age):
     timeout = (DEF_RWTO - 1) / 2
-    return self.CallMethod(REQ_AUTOARCHIVE_JOBS, (age, timeout))
+    return self.CallMethod(REQ_AUTO_ARCHIVE_JOBS, (age, timeout))
 
   def WaitForJobChangeOnce(self, job_id, fields,
                            prev_job_info, prev_log_serial,
@@ -499,19 +522,18 @@ class Client(object):
         break
     return result
 
-  def Query(self, what, fields, filter_):
+  def Query(self, what, fields, qfilter):
     """Query for resources/items.
 
     @param what: One of L{constants.QR_VIA_LUXI}
     @type fields: List of strings
     @param fields: List of requested fields
-    @type filter_: None or list
-    @param filter_: Query filter
+    @type qfilter: None or list
+    @param qfilter: Query filter
     @rtype: L{objects.QueryResponse}
 
     """
-    req = objects.QueryRequest(what=what, fields=fields, filter=filter_)
-    result = self.CallMethod(REQ_QUERY, req.ToDict())
+    result = self.CallMethod(REQ_QUERY, (what, fields, qfilter))
     return objects.QueryResponse.FromDict(result)
 
   def QueryFields(self, what, fields):
@@ -523,8 +545,7 @@ class Client(object):
     @rtype: L{objects.QueryFieldsResponse}
 
     """
-    req = objects.QueryFieldsRequest(what=what, fields=fields)
-    result = self.CallMethod(REQ_QUERY_FIELDS, req.ToDict())
+    result = self.CallMethod(REQ_QUERY_FIELDS, (what, fields))
     return objects.QueryFieldsResponse.FromDict(result)
 
   def QueryJobs(self, job_ids, fields):
@@ -546,12 +567,7 @@ class Client(object):
     return self.CallMethod(REQ_QUERY_CLUSTER_INFO, ())
 
   def QueryConfigValues(self, fields):
-    return self.CallMethod(REQ_QUERY_CONFIG_VALUES, fields)
+    return self.CallMethod(REQ_QUERY_CONFIG_VALUES, (fields, ))
 
   def QueryTags(self, kind, name):
     return self.CallMethod(REQ_QUERY_TAGS, (kind, name))
-
-  def QueryLocks(self, fields, sync):
-    warnings.warn("This LUXI call is deprecated and will be removed, use"
-                  " Query(\"%s\", ...) instead" % constants.QR_LOCK)
-    return self.CallMethod(REQ_QUERY_LOCKS, (fields, sync))

@@ -166,6 +166,69 @@ likely to succeed or at least start executing.
 Force operation to continue even if it will cause the cluster to become
 inconsistent (e.g. because there are not enough master candidates).
 
+Parameter details
+-----------------
+
+Some parameters are not straight forward, so we describe them in details
+here.
+
+.. _rapi-ipolicy:
+
+``ipolicy``
++++++++++++
+
+The instance policy specification is a dict with the following fields:
+
+.. pyassert::
+
+  constants.IPOLICY_ALL_KEYS == set([constants.ISPECS_MIN,
+                                     constants.ISPECS_MAX,
+                                     constants.ISPECS_STD,
+                                     constants.IPOLICY_DTS,
+                                     constants.IPOLICY_VCPU_RATIO,
+                                     constants.IPOLICY_SPINDLE_RATIO])
+
+
+.. pyassert::
+
+  (set(constants.ISPECS_PARAMETER_TYPES.keys()) ==
+   set([constants.ISPEC_MEM_SIZE,
+        constants.ISPEC_DISK_SIZE,
+        constants.ISPEC_DISK_COUNT,
+        constants.ISPEC_CPU_COUNT,
+        constants.ISPEC_NIC_COUNT,
+        constants.ISPEC_SPINDLE_USE]))
+
+.. |ispec-min| replace:: :pyeval:`constants.ISPECS_MIN`
+.. |ispec-max| replace:: :pyeval:`constants.ISPECS_MAX`
+.. |ispec-std| replace:: :pyeval:`constants.ISPECS_STD`
+
+
+|ispec-min|, |ispec-max|, |ispec-std|
+  A sub- `dict` with the following fields, which sets the limit and standard
+  values of the instances:
+
+  :pyeval:`constants.ISPEC_MEM_SIZE`
+    The size in MiB of the memory used
+  :pyeval:`constants.ISPEC_DISK_SIZE`
+    The size in MiB of the disk used
+  :pyeval:`constants.ISPEC_DISK_COUNT`
+    The numbers of disks used
+  :pyeval:`constants.ISPEC_CPU_COUNT`
+    The numbers of cpus used
+  :pyeval:`constants.ISPEC_NIC_COUNT`
+    The numbers of nics used
+  :pyeval:`constants.ISPEC_SPINDLE_USE`
+    The numbers of virtual disk spindles used by this instance. They are
+    not real in the sense of actual HDD spindles, but useful for
+    accounting the spindle usage on the residing node
+:pyeval:`constants.IPOLICY_DTS`
+  A `list` of disk templates allowed for instances using this policy
+:pyeval:`constants.IPOLICY_VCPU_RATIO`
+  Maximum ratio of virtual to physical CPUs (`float`)
+:pyeval:`constants.IPOLICY_SPINDLE_RATIO`
+  Maximum ratio of instances to their node's ``spindle_count`` (`float`)
+
 Usage examples
 --------------
 
@@ -239,30 +302,13 @@ Resources
 ``/``
 +++++
 
-The root resource.
-
-It supports the following commands: ``GET``.
-
-``GET``
-~~~~~~~
-
-Shows the list of mapped resources.
-
-Returns: a dictionary with 'name' and 'uri' keys for each of them.
+The root resource. Has no function, but for legacy reasons the ``GET``
+method is supported.
 
 ``/2``
 ++++++
 
-The ``/2`` resource, the root of the version 2 API.
-
-It supports the following commands: ``GET``.
-
-``GET``
-~~~~~~~
-
-Show the list of mapped resources.
-
-Returns: a dictionary with ``name`` and ``uri`` keys for each of them.
+Has no function, but for legacy reasons the ``GET`` method is supported.
 
 ``/2/info``
 +++++++++++
@@ -320,6 +366,10 @@ It supports the following commands: ``PUT``.
 
 Redistribute configuration to all nodes. The result will be a job id.
 
+Job result:
+
+.. opcode_result:: OP_CLUSTER_REDIST_CONF
+
 
 ``/2/features``
 +++++++++++++++
@@ -338,12 +388,12 @@ features:
                              rlib2._NODE_EVAC_RES1])
 
 :pyeval:`rlib2._INST_CREATE_REQV1`
-  Instance creation request data version 1 supported.
+  Instance creation request data version 1 supported
 :pyeval:`rlib2._INST_REINSTALL_REQV1`
-  Instance reinstall supports body parameters.
+  Instance reinstall supports body parameters
 :pyeval:`rlib2._NODE_MIGRATE_REQV1`
   Whether migrating a node (``/2/nodes/[node_name]/migrate``) supports
-  request body parameters.
+  request body parameters
 :pyeval:`rlib2._NODE_EVAC_RES1`
   Whether evacuating a node (``/2/nodes/[node_name]/evacuate``) returns
   a new-style result (see resource description)
@@ -364,6 +414,10 @@ Returns a job ID.
 Body parameters:
 
 .. opcode_params:: OP_CLUSTER_SET_PARAMS
+
+Job result:
+
+.. opcode_result:: OP_CLUSTER_SET_PARAMS
 
 
 ``/2/groups``
@@ -395,7 +449,7 @@ If the optional bool *bulk* argument is provided and set to a true value
 (i.e ``?bulk=1``), the output contains detailed information about node
 groups as a list.
 
-Returned fields: :pyeval:`utils.CommaJoin(sorted(rlib2.G_FIELDS))`
+Returned fields: :pyeval:`utils.CommaJoin(sorted(rlib2.G_FIELDS))`.
 
 Example::
 
@@ -436,6 +490,10 @@ Body parameters:
 Earlier versions used a parameter named ``name`` which, while still
 supported, has been renamed to ``group_name``.
 
+Job result:
+
+.. opcode_result:: OP_GROUP_ADD
+
 
 ``/2/groups/[group_name]``
 ++++++++++++++++++++++++++
@@ -450,7 +508,7 @@ It supports the following commands: ``GET``, ``DELETE``.
 Returns information about a node group, similar to the bulk output from
 the node group list.
 
-Returned fields: :pyeval:`utils.CommaJoin(sorted(rlib2.G_FIELDS))`
+Returned fields: :pyeval:`utils.CommaJoin(sorted(rlib2.G_FIELDS))`.
 
 ``DELETE``
 ~~~~~~~~~~
@@ -458,6 +516,10 @@ Returned fields: :pyeval:`utils.CommaJoin(sorted(rlib2.G_FIELDS))`
 Deletes a node group.
 
 It supports the ``dry-run`` argument.
+
+Job result:
+
+.. opcode_result:: OP_GROUP_REMOVE
 
 
 ``/2/groups/[group_name]/modify``
@@ -520,6 +582,10 @@ Body parameters:
 
 .. opcode_params:: OP_GROUP_ASSIGN_NODES
    :exclude: group_name, force, dry_run
+
+Job result:
+
+.. opcode_result:: OP_GROUP_ASSIGN_NODES
 
 
 ``/2/groups/[group_name]/tags``
@@ -591,7 +657,7 @@ If the optional bool *bulk* argument is provided and set to a true value
 (i.e ``?bulk=1``), the output contains detailed information about
 instances as a list.
 
-Returned fields: :pyeval:`utils.CommaJoin(sorted(rlib2.I_FIELDS))`
+Returned fields: :pyeval:`utils.CommaJoin(sorted(rlib2.I_FIELDS))`.
 
 Example::
 
@@ -666,7 +732,7 @@ It supports the following commands: ``GET``, ``DELETE``.
 Returns information about an instance, similar to the bulk output from
 the instance list.
 
-Returned fields: :pyeval:`utils.CommaJoin(sorted(rlib2.I_FIELDS))`
+Returned fields: :pyeval:`utils.CommaJoin(sorted(rlib2.I_FIELDS))`.
 
 ``DELETE``
 ~~~~~~~~~~
@@ -674,6 +740,10 @@ Returned fields: :pyeval:`utils.CommaJoin(sorted(rlib2.I_FIELDS))`
 Deletes an instance.
 
 It supports the ``dry-run`` argument.
+
+Job result:
+
+.. opcode_result:: OP_INSTANCE_REMOVE
 
 
 ``/2/instances/[instance_name]/info``
@@ -688,6 +758,10 @@ Requests detailed information about the instance. An optional parameter,
 ``static`` (bool), can be set to return only static information from the
 configuration without querying the instance's nodes. The result will be
 a job id.
+
+Job result:
+
+.. opcode_result:: OP_INSTANCE_QUERY_DATA
 
 
 ``/2/instances/[instance_name]/reboot``
@@ -717,6 +791,10 @@ instance even if secondary disks are failing.
 
 It supports the ``dry-run`` argument.
 
+Job result:
+
+.. opcode_result:: OP_INSTANCE_REBOOT
+
 
 ``/2/instances/[instance_name]/shutdown``
 +++++++++++++++++++++++++++++++++++++++++
@@ -735,6 +813,10 @@ It supports the ``dry-run`` argument.
 .. opcode_params:: OP_INSTANCE_SHUTDOWN
    :exclude: instance_name, dry_run
 
+Job result:
+
+.. opcode_result:: OP_INSTANCE_SHUTDOWN
+
 
 ``/2/instances/[instance_name]/startup``
 ++++++++++++++++++++++++++++++++++++++++
@@ -752,6 +834,11 @@ The URI takes an optional ``force=1|0`` parameter to start the
 instance even if secondary disks are failing.
 
 It supports the ``dry-run`` argument.
+
+Job result:
+
+.. opcode_result:: OP_INSTANCE_STARTUP
+
 
 ``/2/instances/[instance_name]/reinstall``
 ++++++++++++++++++++++++++++++++++++++++++++++
@@ -799,6 +886,10 @@ Body parameters:
 Ganeti 2.4 and below used query parameters. Those are deprecated and
 should no longer be used.
 
+Job result:
+
+.. opcode_result:: OP_INSTANCE_REPLACE_DISKS
+
 
 ``/2/instances/[instance_name]/activate-disks``
 +++++++++++++++++++++++++++++++++++++++++++++++
@@ -813,6 +904,10 @@ It supports the following commands: ``PUT``.
 Takes the bool parameter ``ignore_size``. When set ignore the recorded
 size (useful for forcing activation when recorded size is wrong).
 
+Job result:
+
+.. opcode_result:: OP_INSTANCE_ACTIVATE_DISKS
+
 
 ``/2/instances/[instance_name]/deactivate-disks``
 +++++++++++++++++++++++++++++++++++++++++++++++++
@@ -825,6 +920,31 @@ It supports the following commands: ``PUT``.
 ~~~~~~~
 
 Takes no parameters.
+
+Job result:
+
+.. opcode_result:: OP_INSTANCE_DEACTIVATE_DISKS
+
+
+``/2/instances/[instance_name]/recreate-disks``
++++++++++++++++++++++++++++++++++++++++++++++++++
+
+Recreate disks of an instance. Supports the following commands:
+``POST``.
+
+``POST``
+~~~~~~~~
+
+Returns a job ID.
+
+Body parameters:
+
+.. opcode_params:: OP_INSTANCE_RECREATE_DISKS
+   :exclude: instance_name
+
+Job result:
+
+.. opcode_result:: OP_INSTANCE_RECREATE_DISKS
 
 
 ``/2/instances/[instance_name]/disk/[disk_index]/grow``
@@ -844,6 +964,10 @@ Body parameters:
 .. opcode_params:: OP_INSTANCE_GROW_DISK
    :exclude: instance_name, disk
 
+Job result:
+
+.. opcode_result:: OP_INSTANCE_GROW_DISK
+
 
 ``/2/instances/[instance_name]/prepare-export``
 +++++++++++++++++++++++++++++++++++++++++++++++++
@@ -856,6 +980,10 @@ It supports the following commands: ``PUT``.
 ~~~~~~~
 
 Takes one parameter, ``mode``, for the export mode. Returns a job ID.
+
+Job result:
+
+.. opcode_result:: OP_BACKUP_PREPARE
 
 
 ``/2/instances/[instance_name]/export``
@@ -876,6 +1004,10 @@ Body parameters:
    :exclude: instance_name
    :alias: target_node=destination
 
+Job result:
+
+.. opcode_result:: OP_BACKUP_EXPORT
+
 
 ``/2/instances/[instance_name]/migrate``
 ++++++++++++++++++++++++++++++++++++++++
@@ -894,6 +1026,10 @@ Body parameters:
 .. opcode_params:: OP_INSTANCE_MIGRATE
    :exclude: instance_name, live
 
+Job result:
+
+.. opcode_result:: OP_INSTANCE_MIGRATE
+
 
 ``/2/instances/[instance_name]/failover``
 +++++++++++++++++++++++++++++++++++++++++
@@ -911,6 +1047,10 @@ Body parameters:
 
 .. opcode_params:: OP_INSTANCE_FAILOVER
    :exclude: instance_name
+
+Job result:
+
+.. opcode_result:: OP_INSTANCE_FAILOVER
 
 
 ``/2/instances/[instance_name]/rename``
@@ -976,26 +1116,29 @@ console. Contained keys:
      constants.CONS_MESSAGE,
      constants.CONS_SSH,
      constants.CONS_VNC,
+     constants.CONS_SPICE,
      ])
 
 ``instance``
-  Instance name.
+  Instance name
 ``kind``
   Console type, one of :pyeval:`constants.CONS_SSH`,
-  :pyeval:`constants.CONS_VNC` or :pyeval:`constants.CONS_MESSAGE`.
+  :pyeval:`constants.CONS_VNC`, :pyeval:`constants.CONS_SPICE`
+  or :pyeval:`constants.CONS_MESSAGE`
 ``message``
-  Message to display (:pyeval:`constants.CONS_MESSAGE` type only).
+  Message to display (:pyeval:`constants.CONS_MESSAGE` type only)
 ``host``
-  Host to connect to (:pyeval:`constants.CONS_SSH` and
-  :pyeval:`constants.CONS_VNC` only).
+  Host to connect to (:pyeval:`constants.CONS_SSH`,
+  :pyeval:`constants.CONS_VNC` or :pyeval:`constants.CONS_SPICE` only)
 ``port``
-  TCP port to connect to (:pyeval:`constants.CONS_VNC` only).
+  TCP port to connect to (:pyeval:`constants.CONS_VNC` or
+  :pyeval:`constants.CONS_SPICE` only)
 ``user``
-  Username to use (:pyeval:`constants.CONS_SSH` only).
+  Username to use (:pyeval:`constants.CONS_SSH` only)
 ``command``
   Command to execute on machine (:pyeval:`constants.CONS_SSH` only)
 ``display``
-  VNC display number (:pyeval:`constants.CONS_VNC` only).
+  VNC display number (:pyeval:`constants.CONS_VNC` only)
 
 
 ``/2/instances/[instance_name]/tags``
@@ -1058,7 +1201,7 @@ as a list.
 
 Returned fields for bulk requests (unlike other bulk requests, these
 fields are not the same as for per-job requests):
-:pyeval:`utils.CommaJoin(sorted(rlib2.J_FIELDS_BULK))`
+:pyeval:`utils.CommaJoin(sorted(rlib2.J_FIELDS_BULK))`.
 
 ``/2/jobs/[job_id]``
 ++++++++++++++++++++
@@ -1166,14 +1309,14 @@ Waits for changes on a job. Takes the following body parameters in a
 dict:
 
 ``fields``
-  The job fields on which to watch for changes.
+  The job fields on which to watch for changes
 
 ``previous_job_info``
-  Previously received field values or None if not yet available.
+  Previously received field values or None if not yet available
 
 ``previous_log_serial``
   Highest log serial number received so far or None if not yet
-  available.
+  available
 
 Returns None if no changes have been detected and a dict with two keys,
 ``job_info`` and ``log_entries`` otherwise.
@@ -1208,7 +1351,7 @@ If the optional bool *bulk* argument is provided and set to a true value
 (i.e ``?bulk=1``), the output contains detailed information about nodes
 as a list.
 
-Returned fields: :pyeval:`utils.CommaJoin(sorted(rlib2.N_FIELDS))`
+Returned fields: :pyeval:`utils.CommaJoin(sorted(rlib2.N_FIELDS))`.
 
 Example::
 
@@ -1235,7 +1378,22 @@ Returns information about a node.
 
 It supports the following commands: ``GET``.
 
-Returned fields: :pyeval:`utils.CommaJoin(sorted(rlib2.N_FIELDS))`
+Returned fields: :pyeval:`utils.CommaJoin(sorted(rlib2.N_FIELDS))`.
+
+``/2/nodes/[node_name]/powercycle``
++++++++++++++++++++++++++++++++++++
+
+Powercycles a node. Supports the following commands: ``POST``.
+
+``POST``
+~~~~~~~~
+
+Returns a job ID.
+
+Job result:
+
+.. opcode_result:: OP_NODE_POWERCYCLE
+
 
 ``/2/nodes/[node_name]/evacuate``
 +++++++++++++++++++++++++++++++++
@@ -1326,6 +1484,32 @@ be a job id.
 
 It supports the bool ``force`` argument.
 
+Job result:
+
+.. opcode_result:: OP_NODE_SET_PARAMS
+
+
+``/2/nodes/[node_name]/modify``
++++++++++++++++++++++++++++++++
+
+Modifies the parameters of a node. Supports the following commands:
+``POST``.
+
+``POST``
+~~~~~~~~
+
+Returns a job ID.
+
+Body parameters:
+
+.. opcode_params:: OP_NODE_SET_PARAMS
+   :exclude: node_name
+
+Job result:
+
+.. opcode_result:: OP_NODE_SET_PARAMS
+
+
 ``/2/nodes/[node_name]/storage``
 ++++++++++++++++++++++++++++++++
 
@@ -1361,6 +1545,11 @@ and ``name`` (name of the storage unit).  Parameters can be passed
 additionally. Currently only :pyeval:`constants.SF_ALLOCATABLE` (bool)
 is supported. The result will be a job id.
 
+Job result:
+
+.. opcode_result:: OP_NODE_MODIFY_STORAGE
+
+
 ``/2/nodes/[node_name]/storage/repair``
 +++++++++++++++++++++++++++++++++++++++
 
@@ -1379,6 +1568,11 @@ Repairs a storage unit on the node. Requires the parameters
 ``storage_type`` (currently only :pyeval:`constants.ST_LVM_VG` can be
 repaired) and ``name`` (name of the storage unit). The result will be a
 job id.
+
+Job result:
+
+.. opcode_result:: OP_REPAIR_NODE_STORAGE
+
 
 ``/2/nodes/[node_name]/tags``
 +++++++++++++++++++++++++++++

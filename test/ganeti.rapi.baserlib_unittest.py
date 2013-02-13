@@ -22,11 +22,13 @@
 """Script for testing ganeti.rapi.baserlib"""
 
 import unittest
+import itertools
 
 from ganeti import errors
 from ganeti import opcodes
 from ganeti import ht
 from ganeti import http
+from ganeti import compat
 from ganeti.rapi import baserlib
 
 import testutils
@@ -95,6 +97,64 @@ class TestFillOpcode(unittest.TestCase):
     self.assertRaises(http.HttpBadRequest, baserlib.FillOpcode,
                       self.OpTest, { "data": 0, }, { "test": None, },
                       rename={ "data": "test", })
+
+
+class TestOpcodeResource(unittest.TestCase):
+  @staticmethod
+  def _MakeClass(method, attrs):
+    return type("Test%s" % method, (baserlib.OpcodeResource, ), attrs)
+
+  @staticmethod
+  def _GetMethodAttributes(method):
+    attrs = ["%s_OPCODE" % method, "%s_RENAME" % method,
+             "Get%sOpInput" % method.capitalize()]
+    assert attrs == dict((opattrs[0], list(opattrs[1:]))
+                         for opattrs in baserlib._OPCODE_ATTRS)[method]
+    return attrs
+
+  def test(self):
+    for method in baserlib._SUPPORTED_METHODS:
+      # Empty handler
+      obj = self._MakeClass(method, {})(None, None, None)
+      for attr in itertools.chain(*baserlib._OPCODE_ATTRS):
+        self.assertFalse(hasattr(obj, attr))
+
+      # Direct handler function
+      obj = self._MakeClass(method, {
+        method: lambda _: None,
+        })(None, None, None)
+      self.assertFalse(compat.all(hasattr(obj, attr)
+                                  for i in baserlib._SUPPORTED_METHODS
+                                  for attr in self._GetMethodAttributes(i)))
+
+      # Let metaclass define handler function
+      for opcls in [None, object()]:
+        obj = self._MakeClass(method, {
+          "%s_OPCODE" % method: opcls,
+          })(None, None, None)
+        self.assertTrue(callable(getattr(obj, method)))
+        self.assertEqual(getattr(obj, "%s_OPCODE" % method), opcls)
+        self.assertFalse(hasattr(obj, "%s_RENAME" % method))
+        self.assertFalse(compat.any(hasattr(obj, attr)
+                                    for i in baserlib._SUPPORTED_METHODS
+                                      if i != method
+                                    for attr in self._GetMethodAttributes(i)))
+
+  def testIllegalRename(self):
+    class _TClass(baserlib.OpcodeResource):
+      PUT_RENAME = None
+      def PUT(self): pass
+
+    self.assertRaises(AssertionError, _TClass, None, None, None)
+
+  def testEmpty(self):
+    class _Empty(baserlib.OpcodeResource):
+      pass
+
+    obj = _Empty(None, None, None)
+
+    for attr in itertools.chain(*baserlib._OPCODE_ATTRS):
+      self.assertFalse(hasattr(obj, attr))
 
 
 if __name__ == "__main__":

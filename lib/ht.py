@@ -322,9 +322,15 @@ TMaybeDict = TOr(TDict, TNone)
 TPositiveInt = \
   TAnd(TInt, WithDesc("EqualGreaterZero")(lambda v: v >= 0))
 
+#: a maybe positive integer (positive integer or None)
+TMaybePositiveInt = TOr(TPositiveInt, TNone)
+
 #: a strictly positive integer
 TStrictPositiveInt = \
   TAnd(TInt, WithDesc("GreaterThanZero")(lambda v: v > 0))
+
+#: a maybe strictly positive integer (strictly positive integer or None)
+TMaybeStrictPositiveInt = TOr(TStrictPositiveInt, TNone)
 
 #: a strictly negative integer (0 > value)
 TStrictNegativeInt = \
@@ -352,6 +358,9 @@ def TListOf(my_type):
   """
   desc = WithDesc("List of %s" % (Parens(my_type), ))
   return desc(TAnd(TList, lambda lst: compat.all(my_type(v) for v in lst)))
+
+
+TMaybeListOf = lambda item_type: TOr(TNone, TListOf(item_type))
 
 
 def TDictOf(key_type, val_type):

@@ -24,8 +24,9 @@ COMMANDS
 EXPORT
 ~~~~~~
 
-**export** {-n *node*} [--shutdown-timeout=*N*] [--noshutdown]
-[--remove-instance] [--ignore-remove-failures] {*instance*}
+| **export** {-n *node*} [\--shutdown-timeout=*N*] [\--noshutdown]
+| [\--remove-instance] [\--ignore-remove-failures] [\--submit]
+| {*instance*}
 
 Exports an instance to the target node. All the instance data and
 its configuration will be exported under the
@@ -53,6 +54,9 @@ execution (and will be stored in the job log). It is recommended
 that for any non-zero exit code, the backup is considered invalid,
 and retried.
 
+See **ganeti(7)** for a description of ``--submit`` and other common
+options.
+
 Example::
 
     # gnt-backup export -n node1.example.com instance3.example.com
@@ -62,14 +66,16 @@ IMPORT
 ~~~~~~
 
 | **import**
-| {-n *node[:secondary-node]* | --iallocator *name*}
-| [--disk *N*:size=*VAL* [,vg=*VG*], [,mode=*ro|rw*]...]
-| [--net *N* [:options...] | --no-nics]
+| {-n *node[:secondary-node]* | \--iallocator *name*}
+| [\--disk *N*:size=*VAL* [,vg=*VG*], [,mode=*ro|rw*]...]
+| [\--net *N* [:options...] | \--no-nics]
 | [-B *BEPARAMS*]
 | [-H *HYPERVISOR* [: option=*value*... ]]
-| [--src-node=*source-node*] [--src-dir=*source-dir*]
+| [\--src-node=*source-node*] [\--src-dir=*source-dir*]
 | [-t [diskless | plain | drbd | file]]
-| [--identify-defaults]
+| [\--identify-defaults]
+| [\--ignore-ipolicy]
+| [\--submit]
 | {*instance*}
 
 Imports a new instance from an export residing on *source-node* in
@@ -129,16 +135,20 @@ Of these ``mode`` and ``link`` are nic parameters, and inherit their
 default at cluster level.
 
 If no network is desired for the instance, you should create a single
-empty NIC and delete it afterwards via **gnt-instance modify --net
+empty NIC and delete it afterwards via **gnt-instance modify \--net
 delete**.
 
 The ``-B`` option specifies the backend parameters for the
 instance. If no such parameters are specified, the values are
 inherited from the export. Possible parameters are:
 
-memory
-    the memory size of the instance; as usual, suffixes can be used to
-    denote the unit, otherwise the value is taken in mebibites
+maxmem
+    the maximum memory size of the instance; as usual, suffixes can be
+    used to denote the unit, otherwise the value is taken in mebibytes
+
+minmem
+    the minimum memory size of the instance; as usual, suffixes can be
+    used to denote the unit, otherwise the value is taken in mebibytes
 
 vcpus
     the number of VCPUs to assign to the instance (if this value makes
@@ -147,6 +157,11 @@ vcpus
 auto_balance
     whether the instance is considered in the N+1 cluster checks
     (enough redundancy in the cluster to survive a node failure)
+
+always\_failover
+    ``True`` or ``False``, whether the instance must be failed over
+    (shut down and rebooted) always or it may be migrated (briefly
+    suspended)
 
 
 The ``-t`` options specifies the disk layout type for the instance.
@@ -182,6 +197,9 @@ template and specifies the remote node.
 The ``--src-dir`` option allows importing instances from a directory
 below ``@CUSTOM_EXPORT_DIR@``.
 
+If ``--ignore-ipolicy`` is given any instance policy violations occuring
+during this operation are ignored.
+
 Since many of the parameters are by default read from the exported
 instance information and used as such, the new instance will have
 all parameters explicitly specified, the opposite of a newly added
@@ -191,6 +209,9 @@ value matches the current cluster default and mark it as such
 (default value), pass the ``--identify-defaults`` option. This will
 affect the hypervisor, backend and NIC parameters, both read from
 the export file and passed in via the command line.
+
+See **ganeti(7)** for a description of ``--submit`` and other common
+options.
 
 Example for identical instance import::
 
@@ -207,16 +228,43 @@ Explicit configuration example::
 LIST
 ~~~~
 
-**list** [--node=*NODE*]
+| **list** [\--node=*NODE*] [\--no-headers] [\--separator=*SEPARATOR*]
+| [-o *[+]FIELD,...*]
 
 Lists the exports currently available in the default directory in
 all the nodes of the current cluster, or optionally only a subset
 of them specified using the ``--node`` option (which can be used
 multiple times)
 
+The ``--no-headers`` option will skip the initial header line. The
+``--separator`` option takes an argument which denotes what will be
+used between the output fields. Both these options are to help
+scripting.
+
+The ``-o`` option takes a comma-separated list of output fields.
+The available fields and their meaning are:
+
+``export``
+  Export name
+``node``
+  Node name
+
+If the value of the option starts with the character ``+``, the new
+fields will be added to the default list. This allows one to quickly
+see the default list plus a few other fields, instead of retyping
+the entire list of fields.
+
 Example::
 
-    # gnt-backup list --nodes node1 --nodes node2
+    # gnt-backup list --node node1 --node node2
+
+
+LIST-FIELDS
+~~~~~~~~~~~
+
+**list-fields** [field...]
+
+Lists available fields for exports.
 
 
 REMOVE

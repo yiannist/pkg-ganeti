@@ -4,7 +4,7 @@
 
 {-
 
-Copyright (C) 2009, 2010, 2011 Google Inc.
+Copyright (C) 2009, 2010, 2011, 2012 Google Inc.
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -23,14 +23,13 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
 
 -}
 
-module Ganeti.HTools.Program.Hscan (main) where
+module Ganeti.HTools.Program.Hscan (main, options) where
 
 import Control.Monad
 import Data.Maybe (isJust, fromJust, fromMaybe)
-import System (exitWith, ExitCode(..))
+import System.Exit
 import System.IO
 import System.FilePath
-import qualified System
 
 import Text.Printf (printf)
 
@@ -49,45 +48,40 @@ import Ganeti.HTools.Types
 -- | Options list and functions.
 options :: [OptType]
 options =
-    [ oPrintNodes
-    , oOutputDir
-    , oLuxiSocket
-    , oVerbose
-    , oNoHeaders
-    , oShowVer
-    , oShowHelp
-    ]
+  [ oPrintNodes
+  , oOutputDir
+  , oLuxiSocket
+  , oVerbose
+  , oNoHeaders
+  , oShowVer
+  , oShowHelp
+  ]
 
 -- | Return a one-line summary of cluster state.
 printCluster :: Node.List -> Instance.List
              -> String
 printCluster nl il =
-    let (bad_nodes, bad_instances) = Cluster.computeBadItems nl il
-        ccv = Cluster.compCV nl
-        nodes = Container.elems nl
-        insts = Container.elems il
-        t_ram = sum . map Node.tMem $ nodes
-        t_dsk = sum . map Node.tDsk $ nodes
-        f_ram = sum . map Node.fMem $ nodes
-        f_dsk = sum . map Node.fDsk $ nodes
-    in
-      printf "%5d %5d %5d %5d %6.0f %6d %6.0f %6d %.8f"
-                 (length nodes) (length insts)
-                 (length bad_nodes) (length bad_instances)
-                 t_ram f_ram
-                 (t_dsk / 1024) (f_dsk `div` 1024)
-                 ccv
-
+  let (bad_nodes, bad_instances) = Cluster.computeBadItems nl il
+      ccv = Cluster.compCV nl
+      nodes = Container.elems nl
+      insts = Container.elems il
+      t_ram = sum . map Node.tMem $ nodes
+      t_dsk = sum . map Node.tDsk $ nodes
+      f_ram = sum . map Node.fMem $ nodes
+      f_dsk = sum . map Node.fDsk $ nodes
+  in printf "%5d %5d %5d %5d %6.0f %6d %6.0f %6d %.8f"
+       (length nodes) (length insts)
+       (length bad_nodes) (length bad_instances)
+       t_ram f_ram (t_dsk / 1024) (f_dsk `div` 1024) ccv
 
 -- | Replace slashes with underscore for saving to filesystem.
 fixSlash :: String -> String
 fixSlash = map (\x -> if x == '/' then '_' else x)
 
-
 -- | Generates serialized data from loader input.
 processData :: ClusterData -> Result ClusterData
 processData input_data = do
-  cdata@(ClusterData _ nl il _) <- mergeData [] [] [] [] input_data
+  cdata@(ClusterData _ nl il _ _) <- mergeData [] [] [] [] input_data
   let (_, fix_nl) = checkData nl il
   return cdata { cdNodes = fix_nl }
 
@@ -116,7 +110,7 @@ writeDataInner :: Int
                -> ClusterData
                -> IO Bool
 writeDataInner nlen name opts cdata fixdata = do
-  let (ClusterData _ nl il _) = fixdata
+  let (ClusterData _ nl il _ _) = fixdata
   printf "%-*s " nlen name :: IO ()
   hFlush stdout
   let shownodes = optShowNodes opts
@@ -130,10 +124,8 @@ writeDataInner nlen name opts cdata fixdata = do
   return True
 
 -- | Main function.
-main :: IO ()
-main = do
-  cmd_args <- System.getArgs
-  (opts, clusters) <- parseOpts cmd_args "hscan" options
+main :: Options -> [String] -> IO ()
+main opts clusters = do
   let local = "LOCAL"
 
   let nlen = if null clusters

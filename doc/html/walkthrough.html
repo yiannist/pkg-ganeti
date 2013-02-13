@@ -5,13 +5,13 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Ganeti walk-through &mdash; Ganeti v2.5.2 documentation</title>
+    <title>Ganeti walk-through &mdash; Ganeti v2.6.0 documentation</title>
     <link rel="stylesheet" href="_static/default.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.5.2',
+        VERSION:     '2.6.0',
         COLLAPSE_MODINDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -19,7 +19,7 @@
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.5.2 documentation" href="index.html" />
+    <link rel="top" title="Ganeti v2.6.0 documentation" href="index.html" />
     <link rel="next" title="Security in Ganeti" href="security.html" />
     <link rel="prev" title="Ganeti administrator’s guide" href="admin.html" /> 
   </head>
@@ -33,7 +33,7 @@
         <li class="right" >
           <a href="admin.html" title="Ganeti administrator’s guide"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.5.2 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.6.0 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -44,14 +44,14 @@
             
   <div class="section" id="ganeti-walk-through">
 <h1><a class="toc-backref" href="#id1">Ganeti walk-through</a><a class="headerlink" href="#ganeti-walk-through" title="Permalink to this headline">¶</a></h1>
-<p>Documents Ganeti version 2.5</p>
+<p>Documents Ganeti version 2.6</p>
 <div class="contents topic" id="contents">
 <p class="topic-title first">Contents</p>
 <ul class="simple">
 <li><a class="reference internal" href="#ganeti-walk-through" id="id1">Ganeti walk-through</a><ul>
 <li><a class="reference internal" href="#introduction" id="id2">Introduction</a></li>
 <li><a class="reference internal" href="#cluster-creation" id="id3">Cluster creation</a></li>
-<li><a class="reference internal" href="#running-a-burnin" id="id4">Running a burnin</a></li>
+<li><a class="reference internal" href="#running-a-burn-in" id="id4">Running a burn-in</a></li>
 <li><a class="reference internal" href="#instance-operations" id="id5">Instance operations</a><ul>
 <li><a class="reference internal" href="#creation" id="id6">Creation</a></li>
 <li><a class="reference internal" href="#accessing-instances" id="id7">Accessing instances</a></li>
@@ -100,16 +100,16 @@ configuration, two disks of 750GB, 32GB of memory and 4 CPUs.</p>
 <h2><a class="toc-backref" href="#id3">Cluster creation</a><a class="headerlink" href="#cluster-creation" title="Permalink to this headline">¶</a></h2>
 <p>Follow the <a class="reference external" href="install.html"><em>Ganeti installation tutorial</em></a> document and prepare the nodes. Then it&#8217;s time
 to initialise the cluster:</p>
-<div class="highlight-text"><div class="highlight"><pre>node1# gnt-cluster init -s 192.0.2.1 --enabled-hypervisors=xen-pvm example-cluster
-node1#
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-cluster</span> <span class="gs">init</span> <span class="gs">-s</span> <span class="nv">192.0.2.1</span> <span class="gs">--enabled-hypervisors=xen-pvm</span> <span class="nv">example-cluster</span>
+$
 </pre></div>
 </div>
 <p>The creation was fine. Let&#8217;s check that one node we have is functioning
 correctly:</p>
-<div class="highlight-text"><div class="highlight"><pre>node1# gnt-node list
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-node</span> <span class="gs">list</span>
 Node  DTotal DFree MTotal MNode MFree Pinst Sinst
 node1   1.3T  1.3T  32.0G  1.0G 30.5G     0     0
-node1# gnt-cluster verify
+$ <span class="gs">gnt-cluster</span> <span class="gs">verify</span>
 Mon Oct 26 02:08:51 2009 * Verifying global settings
 Mon Oct 26 02:08:51 2009 * Gathering data (1 nodes)
 Mon Oct 26 02:08:52 2009 * Verifying node status
@@ -119,41 +119,39 @@ Mon Oct 26 02:08:52 2009 * Verifying remaining instances
 Mon Oct 26 02:08:52 2009 * Verifying N+1 Memory redundancy
 Mon Oct 26 02:08:52 2009 * Other Notes
 Mon Oct 26 02:08:52 2009 * Hooks Results
-node1#
+$
 </pre></div>
 </div>
 <p>Since this proceeded correctly, let&#8217;s add the other two nodes:</p>
-<div class="highlight-text"><div class="highlight"><pre>node1# gnt-node add -s 192.0.2.2 node2
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-node</span> <span class="gs">add</span> <span class="gs">-s</span> <span class="nv">192.0.2.2</span> <span class="nv">node2</span>
 -- WARNING --
 Performing this operation is going to replace the ssh daemon keypair
 on the target machine (node2) with the ones of the current one
 and grant full intra-cluster ssh root access to/from it
 
-The authenticity of host &#39;node2 (192.0.2.2)&#39; can&#39;t be established.
-RSA key fingerprint is 9f:…
-Are you sure you want to continue connecting (yes/no)? yes
-root@node2&#39;s password:
+Unable to verify hostkey of host xen-devi-5.fra.corp.google.com:
+f7:…. Do you want to accept it?
+y/[n]/?: <span class="nv">y</span>
+Mon Oct 26 02:11:53 2009  Authentication to node2 via public key failed, trying password
+root password:
 Mon Oct 26 02:11:54 2009  - INFO: Node will be a master candidate
-node1# gnt-node add -s 192.0.2.3 node3
+$ <span class="gs">gnt-node</span> <span class="gs">add</span> <span class="gs">-s</span> <span class="nv">192.0.2.3</span> <span class="nv">node3</span>
 -- WARNING --
 Performing this operation is going to replace the ssh daemon keypair
-on the target machine (node2) with the ones of the current one
+on the target machine (node3) with the ones of the current one
 and grant full intra-cluster ssh root access to/from it
 
-The authenticity of host &#39;node3 (192.0.2.3)&#39; can&#39;t be established.
-RSA key fingerprint is 9f:…
-Are you sure you want to continue connecting (yes/no)? yes
-root@node2&#39;s password:
-Mon Oct 26 02:11:54 2009  - INFO: Node will be a master candidate
+…
+Mon Oct 26 02:12:43 2009  - INFO: Node will be a master candidate
 </pre></div>
 </div>
 <p>Checking the cluster status again:</p>
-<div class="highlight-text"><div class="highlight"><pre>node1# gnt-node list
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-node</span> <span class="gs">list</span>
 Node  DTotal DFree MTotal MNode MFree Pinst Sinst
 node1   1.3T  1.3T  32.0G  1.0G 30.5G     0     0
 node2   1.3T  1.3T  32.0G  1.0G 30.5G     0     0
 node3   1.3T  1.3T  32.0G  1.0G 30.5G     0     0
-node1# gnt-cluster verify
+$ <span class="gs">gnt-cluster</span> <span class="gs">verify</span>
 Mon Oct 26 02:15:14 2009 * Verifying global settings
 Mon Oct 26 02:15:14 2009 * Gathering data (3 nodes)
 Mon Oct 26 02:15:16 2009 * Verifying node status
@@ -163,24 +161,24 @@ Mon Oct 26 02:15:16 2009 * Verifying remaining instances
 Mon Oct 26 02:15:16 2009 * Verifying N+1 Memory redundancy
 Mon Oct 26 02:15:16 2009 * Other Notes
 Mon Oct 26 02:15:16 2009 * Hooks Results
-node1#
+$
 </pre></div>
 </div>
 <p>And let&#8217;s check that we have a valid OS:</p>
-<div class="highlight-text"><div class="highlight"><pre>node1# gnt-os list
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-os</span> <span class="gs">list</span>
 Name
 debootstrap
-node1#
+node1<span class="c1">#</span>
 </pre></div>
 </div>
 </div>
-<div class="section" id="running-a-burnin">
-<h2><a class="toc-backref" href="#id4">Running a burnin</a><a class="headerlink" href="#running-a-burnin" title="Permalink to this headline">¶</a></h2>
+<div class="section" id="running-a-burn-in">
+<h2><a class="toc-backref" href="#id4">Running a burn-in</a><a class="headerlink" href="#running-a-burn-in" title="Permalink to this headline">¶</a></h2>
 <p>Now that the cluster is created, it is time to check that the hardware
 works correctly, that the hypervisor can actually create instances,
 etc. This is done via the debootstrap tool as described in the admin
 guide. Similar output lines are replaced with <tt class="docutils literal"><span class="pre">…</span></tt> in the below log:</p>
-<div class="highlight-text"><div class="highlight"><pre>node1# /usr/lib/ganeti/tools/burnin -o debootstrap -p instance{1..5}
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">/usr/lib/ganeti/tools/burnin</span> <span class="gs">-o</span> <span class="gs">debootstrap</span> <span class="gs">-p</span> <span class="gs">instance{1..5}</span>
 - Testing global parameters
 - Creating instances
   * instance instance1
@@ -329,11 +327,11 @@ guide. Similar output lines are replaced with <tt class="docutils literal"><span
   * Submitted job ID(s) 235, 236, 237, 238, 239
     waiting for job 235 for instance1
     …
-node1#
+$
 </pre></div>
 </div>
-<p>You can see in the above what operations the burnin does. Ideally, the
-burnin log would proceed successfully through all the steps and end
+<p>You can see in the above what operations the burn-in does. Ideally, the
+burn-in log would proceed successfully through all the steps and end
 cleanly, without throwing errors.</p>
 </div>
 <div class="section" id="instance-operations">
@@ -342,7 +340,7 @@ cleanly, without throwing errors.</p>
 <h3><a class="toc-backref" href="#id6">Creation</a><a class="headerlink" href="#creation" title="Permalink to this headline">¶</a></h3>
 <p>At this point, Ganeti and the hardware seems to be functioning
 correctly, so we&#8217;ll follow up with creating the instances manually:</p>
-<div class="highlight-text"><div class="highlight"><pre>node1# gnt-instance add -t drbd -o debootstrap -s 256m -n node1:node2 instance3
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-instance</span> <span class="gs">add</span> <span class="gs">-t</span> <span class="gs">drbd</span> <span class="gs">-o</span> <span class="gs">debootstrap</span> <span class="gs">-s</span> <span class="nv">256m</span> <span class="gs">-n</span> <span class="nv">node1</span><span class="gs">:</span><span class="nv">node2</span> <span class="nv">instance3</span>
 Mon Oct 26 04:06:52 2009  - INFO: Selected nodes for instance instance1 via iallocator hail: node2, node3
 Mon Oct 26 04:06:53 2009 * creating instance disks...
 Mon Oct 26 04:06:57 2009 adding instance instance1 to cluster config
@@ -352,7 +350,7 @@ Mon Oct 26 04:07:01 2009  - INFO: Instance instance1&#39;s disks are in sync.
 Mon Oct 26 04:07:01 2009 creating os for instance instance1 on node node2
 Mon Oct 26 04:07:01 2009 * running the instance OS create scripts...
 Mon Oct 26 04:07:14 2009 * starting instance...
-node1# gnt-instance add -t drbd -o debootstrap -s 256m -n node1:node2 instanc&lt;drbd -o debootstrap -s 256m -n node1:node2 instance2
+$ <span class="gs">gnt-instance</span> <span class="gs">add</span> <span class="gs">-t</span> <span class="gs">drbd</span> <span class="gs">-o</span> <span class="gs">debootstrap</span> <span class="gs">-s</span> <span class="nv">256m</span> <span class="gs">-n</span> <span class="nv">node1</span><span class="gs">:</span><span class="nv">node2</span> <span class="nv">instance2</span>
 Mon Oct 26 04:11:37 2009 * creating instance disks...
 Mon Oct 26 04:11:40 2009 adding instance instance2 to cluster config
 Mon Oct 26 04:11:41 2009  - INFO: Waiting for instance instance2 to sync disks.
@@ -365,13 +363,13 @@ Mon Oct 26 04:11:44 2009  - INFO: Instance instance2&#39;s disks are in sync.
 Mon Oct 26 04:11:44 2009 creating os for instance instance2 on node node1
 Mon Oct 26 04:11:44 2009 * running the instance OS create scripts...
 Mon Oct 26 04:11:57 2009 * starting instance...
-node1#
+$
 </pre></div>
 </div>
 <p>The above shows one instance created via an iallocator script, and one
 being created with manual node assignment. The other three instances
 were also created and now it&#8217;s time to check them:</p>
-<div class="highlight-text"><div class="highlight"><pre>node1# gnt-instance list
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-instance</span> <span class="gs">list</span>
 Instance  Hypervisor OS          Primary_node Status  Memory
 instance1 xen-pvm    debootstrap node2        running   128M
 instance2 xen-pvm    debootstrap node1        running   128M
@@ -384,14 +382,14 @@ instance5 xen-pvm    debootstrap node2        running   128M
 <div class="section" id="accessing-instances">
 <h3><a class="toc-backref" href="#id7">Accessing instances</a><a class="headerlink" href="#accessing-instances" title="Permalink to this headline">¶</a></h3>
 <p>Accessing an instance&#8217;s console is easy:</p>
-<div class="highlight-text"><div class="highlight"><pre>node1# gnt-instance console instance2
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-instance</span> <span class="gs">console</span> <span class="nv">instance2</span>
 [    0.000000] Bootdata ok (command line is root=/dev/sda1 ro)
 [    0.000000] Linux version 2.6…
 [    0.000000] BIOS-provided physical RAM map:
 [    0.000000]  Xen: 0000000000000000 - 0000000008800000 (usable)
 [13138176.018071] Built 1 zonelists.  Total pages: 34816
 [13138176.018074] Kernel command line: root=/dev/sda1 ro
-[13138176.018694] Initializing CPU#0
+[13138176.018694] Initializing CPU<span class="c1">#0</span>
 …
 Checking file systems...fsck 1.41.3 (12-Oct-2008)
 done.
@@ -413,24 +411,24 @@ instance2 login:
 <p>At this moment you can login to the instance and, after configuring the
 network (and doing this on all instances), we can check their
 connectivity:</p>
-<div class="highlight-text"><div class="highlight"><pre>node1# fping instance{1..5}
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">fping</span> <span class="nv">instance{1..5}</span>
 instance1 is alive
 instance2 is alive
 instance3 is alive
 instance4 is alive
 instance5 is alive
-node1#
+$
 </pre></div>
 </div>
 </div>
 <div class="section" id="removal">
 <h3><a class="toc-backref" href="#id8">Removal</a><a class="headerlink" href="#removal" title="Permalink to this headline">¶</a></h3>
 <p>Removing unwanted instances is also easy:</p>
-<div class="highlight-text"><div class="highlight"><pre>node1# gnt-instance remove instance5
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-instance</span> <span class="gs">remove</span> <span class="nv">instance5</span>
 This will remove the volumes of the instance instance5 (including
 mirrors), thus removing all the data of the instance. Continue?
-y/[n]/?: y
-node1#
+y/[n]/?: <span class="nv">y</span>
+$
 </pre></div>
 </div>
 </div>
@@ -441,7 +439,7 @@ node1#
 <h3><a class="toc-backref" href="#id10">Recovering from node failure</a><a class="headerlink" href="#recovering-from-node-failure" title="Permalink to this headline">¶</a></h3>
 <p>We are now left with four instances. Assume that at this point, node3,
 which has one primary and one secondary instance, crashes:</p>
-<div class="highlight-text"><div class="highlight"><pre>node1# gnt-node info node3
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-node</span> <span class="gs">info</span> <span class="nv">node3</span>
 Node name: node3
   primary ip: 198.51.100.1
   secondary ip: 192.0.2.3
@@ -452,47 +450,47 @@ Node name: node3
     - instance4
   secondary for instances:
     - instance1
-node1# fping node3
+$ <span class="gs">fping</span> <span class="nv">node3</span>
 node3 is unreachable
 </pre></div>
 </div>
 <p>At this point, the primary instance of that node (instance4) is down,
 but the secondary instance (instance1) is not affected except it has
 lost disk redundancy:</p>
-<div class="highlight-text"><div class="highlight"><pre>node1# fping instance{1,4}
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">fping</span> <span class="nv">instance{1,4}</span>
 instance1 is alive
 instance4 is unreachable
-node1#
+$
 </pre></div>
 </div>
 <p>If we try to check the status of instance4 via the instance info
 command, it fails because it tries to contact node3 which is down:</p>
-<div class="highlight-text"><div class="highlight"><pre>node1# gnt-instance info instance4
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-instance</span> <span class="gs">info</span> <span class="nv">instance4</span>
 Failure: command execution error:
 Error checking node node3: Connection failed (113: No route to host)
-node1#
+$
 </pre></div>
 </div>
 <p>So we need to mark node3 as being <em>offline</em>, and thus Ganeti won&#8217;t talk
 to it anymore:</p>
-<div class="highlight-text"><div class="highlight"><pre>node1# gnt-node modify -O yes -f node3
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-node</span> <span class="gs">modify</span> <span class="gs">-O</span> <span class="gs">yes</span> <span class="gs">-f</span> <span class="nv">node3</span>
 Mon Oct 26 04:34:12 2009  - WARNING: Not enough master candidates (desired 10, new value will be 2)
 Mon Oct 26 04:34:15 2009  - WARNING: Communication failure to node node3: Connection failed (113: No route to host)
 Modified node node3
  - offline -&gt; True
  - master_candidate -&gt; auto-demotion due to offline
-node1#
+$
 </pre></div>
 </div>
 <p>And now we can failover the instance:</p>
-<div class="highlight-text"><div class="highlight"><pre>node1# gnt-instance failover --ignore-consistency instance4
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-instance</span> <span class="gs">failover</span> <span class="gs">--ignore-consistency</span> <span class="nv">instance4</span>
 Failover will happen to image instance4. This requires a shutdown of
 the instance. Continue?
-y/[n]/?: y
+y/[n]/?: <span class="nv">y</span>
 Mon Oct 26 04:35:34 2009 * checking disk consistency between source and target
 Failure: command execution error:
 Disk disk/0 is degraded on target node, aborting failover.
-node1# gnt-instance failover --ignore-consistency instance4
+$ <span class="gs">gnt-instance</span> <span class="gs">failover</span> <span class="gs">--ignore-consistency</span> <span class="nv">instance4</span>
 Failover will happen to image instance4. This requires a shutdown of
 the instance. Continue?
 y/[n]/?: y
@@ -504,24 +502,24 @@ Mon Oct 26 04:35:47 2009  - WARNING: Could not shutdown block device disk/0 on n
 Mon Oct 26 04:35:47 2009 * activating the instance&#39;s disks on target node
 Mon Oct 26 04:35:47 2009  - WARNING: Could not prepare block device disk/0 on node node3 (is_primary=False, pass=1): Node is marked offline
 Mon Oct 26 04:35:48 2009 * starting the instance on the target node
-node1#
+$
 </pre></div>
 </div>
 <p>Note in our first attempt, Ganeti refused to do the failover since it
 wasn&#8217;t sure what is the status of the instance&#8217;s disks. We pass the
 <tt class="docutils literal"><span class="pre">--ignore-consistency</span></tt> flag and then we can failover:</p>
-<div class="highlight-text"><div class="highlight"><pre>node1# gnt-instance list
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-instance</span> <span class="gs">list</span>
 Instance  Hypervisor OS          Primary_node Status  Memory
 instance1 xen-pvm    debootstrap node2        running   128M
 instance2 xen-pvm    debootstrap node1        running   128M
 instance3 xen-pvm    debootstrap node1        running   128M
 instance4 xen-pvm    debootstrap node1        running   128M
-node1#
+$
 </pre></div>
 </div>
 <p>But at this point, both instance1 and instance4 are without disk
 redundancy:</p>
-<div class="highlight-text"><div class="highlight"><pre>node1# gnt-instance info instance1
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-instance</span> <span class="gs">info</span> <span class="nv">instance1</span>
 Instance name: instance1
 UUID: 45173e82-d1fa-417c-8758-7d582ab7eef4
 Serial number: 2
@@ -543,7 +541,8 @@ State: configured to be up, actual state is up
     - initrd_path: default ()
   Hardware:
     - VCPUs: 1
-    - memory: 128MiB
+    - maxmem: 256MiB
+    - minmem: 512MiB
     - NICs:
       - nic/0: MAC: aa:00:00:78:da:63, IP: None, mode: bridged, link: xen-br0
   Disks:
@@ -567,10 +566,10 @@ State: configured to be up, actual state is up
 to run the node evacuate command which will change from the current
 secondary node to a new one (in this case, we only have two working
 nodes, so all instances will be end on nodes one and two):</p>
-<div class="highlight-text"><div class="highlight"><pre>node1# gnt-node evacuate -I hail node3
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-node</span> <span class="gs">evacuate</span> <span class="gs">-I</span> <span class="gs">hail</span> <span class="nv">node3</span>
 Relocate instance(s) &#39;instance1&#39;,&#39;instance4&#39; from node
  node3 using iallocator hail?
-y/[n]/?: y
+y/[n]/?: <span class="nv">y</span>
 Mon Oct 26 05:05:39 2009  - INFO: Selected new secondary for instance &#39;instance1&#39;: node1
 Mon Oct 26 05:05:40 2009  - INFO: Selected new secondary for instance &#39;instance4&#39;: node2
 Mon Oct 26 05:05:40 2009 Replacing disk(s) 0 for instance1
@@ -625,11 +624,11 @@ Mon Oct 26 05:06:04 2009  - WARNING: Can&#39;t remove old LV: Node is marked off
 Mon Oct 26 05:06:04 2009       Hint: remove unused LVs manually
 Mon Oct 26 05:06:04 2009  - WARNING: Can&#39;t remove old LV: Node is marked offline
 Mon Oct 26 05:06:04 2009       Hint: remove unused LVs manually
-node1#
+$
 </pre></div>
 </div>
 <p>And now node3 is completely free of instances and can be repaired:</p>
-<div class="highlight-text"><div class="highlight"><pre>node1# gnt-node list
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-node</span> <span class="gs">list</span>
 Node  DTotal DFree MTotal MNode MFree Pinst Sinst
 node1   1.3T  1.3T  32.0G  1.0G 30.2G     3     1
 node2   1.3T  1.3T  32.0G  1.0G 30.4G     1     3
@@ -640,7 +639,7 @@ node3      ?     ?      ?     ?     ?     0     0
 <h4><a class="toc-backref" href="#id11">Re-adding a node to the cluster</a><a class="headerlink" href="#re-adding-a-node-to-the-cluster" title="Permalink to this headline">¶</a></h4>
 <p>Let&#8217;s say node3 has been repaired and is now ready to be
 reused. Re-adding it is simple:</p>
-<div class="highlight-text"><div class="highlight"><pre>node1# gnt-node add --readd node3
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-node</span> <span class="gs">add</span> <span class="gs">--readd</span> <span class="nv">node3</span>
 The authenticity of host &#39;node3 (198.51.100.1)&#39; can&#39;t be established.
 RSA key fingerprint is 9f:2e:5a:2e:e0:bd:00:09:e4:5c:32:f2:27:57:7a:f4.
 Are you sure you want to continue connecting (yes/no)? yes
@@ -648,8 +647,8 @@ Mon Oct 26 05:27:39 2009  - INFO: Readding a node, the offline/drained flags wer
 Mon Oct 26 05:27:39 2009  - INFO: Node will be a master candidate
 </pre></div>
 </div>
-<p>And is now working again:</p>
-<div class="highlight-text"><div class="highlight"><pre>node1# gnt-node list
+<p>And it is now working again:</p>
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-node</span> <span class="gs">list</span>
 Node  DTotal DFree MTotal MNode MFree Pinst Sinst
 node1   1.3T  1.3T  32.0G  1.0G 30.2G     3     1
 node2   1.3T  1.3T  32.0G  1.0G 30.4G     1     3
@@ -658,7 +657,7 @@ node3   1.3T  1.3T  32.0G  1.0G 30.4G     0     0
 </div>
 <div class="admonition note">
 <p class="first admonition-title">Note</p>
-<p class="last">If you have the Ganeti has been built with the htools
+<p class="last">If Ganeti has been built with the htools
 component enabled, you can shuffle the instances around to have a
 better use of the nodes.</p>
 </div>
@@ -672,7 +671,7 @@ performance of some instances might be reduced due to more network
 traffic.</p>
 <p>Let take the cluster status in the above listing, and check what volumes
 are in use:</p>
-<div class="highlight-text"><div class="highlight"><pre>node1# gnt-node volumes -o phys,instance node2
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-node</span> <span class="gs">volumes</span> <span class="gs">-o</span> <span class="gs">phys,instance</span> <span class="nv">node2</span>
 PhysDev   Instance
 /dev/sdb1 instance4
 /dev/sdb1 instance4
@@ -682,14 +681,15 @@ PhysDev   Instance
 /dev/sdb1 instance3
 /dev/sdb1 instance2
 /dev/sdb1 instance2
-node1#
+$
 </pre></div>
 </div>
 <p>You can see that all instances on node2 have logical volumes on
 <tt class="docutils literal"><span class="pre">/dev/sdb1</span></tt>. Let&#8217;s simulate a disk failure on that disk:</p>
-<div class="highlight-text"><div class="highlight"><pre>node1# ssh node2
-node2# echo offline &gt; /sys/block/sdb/device/state
-node2# vgs
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">ssh</span> <span class="gs">node2</span>
+<span class="c1"># on node2</span>
+$ <span class="gs">echo</span> <span class="gs">offline</span> <span class="gs">&gt;</span> <span class="gs">/sys/block/sdb/device/state</span>
+$ <span class="gs">vgs</span>
   /dev/sdb1: read failed after 0 of 4096 at 0: Input/output error
   /dev/sdb1: read failed after 0 of 4096 at 750153695232: Input/output error
   /dev/sdb1: read failed after 0 of 4096 at 0: Input/output error
@@ -700,12 +700,12 @@ node2# vgs
   Couldn&#39;t find device with uuid &#39;954bJA-mNL0-7ydj-sdpW-nc2C-ZrCi-zFp91c&#39;.
   Couldn&#39;t find all physical volumes for volume group xenvg.
   Volume group xenvg not found
-node2#
+$
 </pre></div>
 </div>
 <p>At this point, the node is broken and if we are to examine
 instance2 we get (simplified output shown):</p>
-<div class="highlight-text"><div class="highlight"><pre>node1# gnt-instance info instance2
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-instance</span> <span class="gs">info</span> <span class="nv">instance2</span>
 Instance name: instance2
 State: configured to be up, actual state is up
   Nodes:
@@ -719,7 +719,7 @@ State: configured to be up, actual state is up
 </div>
 <p>This instance has a secondary only on node2. Let&#8217;s verify a primary
 instance of node2:</p>
-<div class="highlight-text"><div class="highlight"><pre>node1# gnt-instance info instance1
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-instance</span> <span class="gs">info</span> <span class="nv">instance1</span>
 Instance name: instance1
 State: configured to be up, actual state is up
   Nodes:
@@ -729,17 +729,17 @@ State: configured to be up, actual state is up
     - disk/0: drbd8, size 256M
       on primary:   /dev/drbd0 (147:0) in sync, status *DEGRADED* *MISSING DISK*
       on secondary: /dev/drbd3 (147:3) in sync, status ok
-node1# gnt-instance console instance1
+$ <span class="gs">gnt-instance</span> <span class="gs">console</span> <span class="nv">instance1</span>
 
 Debian GNU/Linux 5.0 instance1 tty1
 
 instance1 login: root
 Last login: Tue Oct 27 01:24:09 UTC 2009 on tty1
-instance1:~# date &gt; test
-instance1:~# sync
-instance1:~# cat test
+instance1:~<span class="c1"># date &gt; test</span>
+instance1:~<span class="c1"># sync</span>
+instance1:~<span class="c1"># cat test</span>
 Tue Oct 27 01:25:20 UTC 2009
-instance1:~# dmesg|tail
+instance1:~<span class="c1"># dmesg|tail</span>
 [5439785.235448] NET: Registered protocol family 15
 [5439785.235489] 802.1Q VLAN Support v1.8 Ben Greear &lt;greearb@candelatech.com&gt;
 [5439785.235495] All bugs added by David S. Miller &lt;davem@redhat.com&gt;
@@ -750,7 +750,7 @@ instance1:~# dmesg|tail
 [5439785.236663] Freeing unused kernel memory: 172k freed
 [5439787.533779] EXT3 FS on sda1, internal journal
 [5440655.065431] eth0: no IPv6 routers present
-instance1:~#
+instance1:~<span class="c1">#</span>
 </pre></div>
 </div>
 <p>As you can see, the instance is running fine and doesn&#8217;t see any disk
@@ -761,18 +761,18 @@ involved instances.</p>
 <p class="last">For Ganeti 2.0 we need to fix manually the volume group on
 node2 by running <tt class="docutils literal"><span class="pre">vgreduce</span> <span class="pre">--removemissing</span> <span class="pre">xenvg</span></tt></p>
 </div>
-<div class="highlight-text"><div class="highlight"><pre>node1# gnt-node repair-storage node2 lvm-vg xenvg
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-node</span> <span class="gs">repair-storage</span> <span class="nv">node2</span> <span class="gs">lvm-vg</span> <span class="nv">xenvg</span>
 Mon Oct 26 18:14:03 2009 Repairing storage unit &#39;xenvg&#39; on node2 ...
-node1# ssh node2 vgs
-  VG    #PV #LV #SN Attr   VSize   VFree
-  xenvg   1   8   0 wz--n- 673.84G 673.84G
-node1#
+$ <span class="gs">ssh</span> <span class="nv">node2</span> <span class="gs">vgs</span>
+VG    <span class="c1">#PV #LV #SN Attr   VSize   VFree</span>
+xenvg   1   8   0 wz--n- 673.84G 673.84G
+$
 </pre></div>
 </div>
 <p>This has removed the &#8216;bad&#8217; disk from the volume group, which is now left
 with only one PV. We can now replace the disks for the involved
 instances:</p>
-<div class="highlight-text"><div class="highlight"><pre>node1# for i in instance{1..4}; do gnt-instance replace-disks -a $i; done
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">for</span> <span class="gs">i</span> <span class="gs">in</span> <span class="nv">instance{1..4}</span><span class="gs">;</span> <span class="gs">do</span> <span class="gs">gnt-instance</span> <span class="gs">replace-disks</span> <span class="gs">-a</span> <span class="gs">$i;</span> <span class="gs">done</span>
 Mon Oct 26 18:15:38 2009 Replacing disk(s) 0 for instance1
 Mon Oct 26 18:15:38 2009 STEP 1/6 Check device existence
 Mon Oct 26 18:15:38 2009  - INFO: Checking disk/0 on node1
@@ -808,7 +808,7 @@ Mon Oct 26 18:16:10 2009 STEP 1/6 Check device existence
 …
 Mon Oct 26 18:16:18 2009 STEP 6/6 Removing old storage
 Mon Oct 26 18:16:18 2009  - INFO: Remove logical volumes for disk/0
-node1#
+$
 </pre></div>
 </div>
 <p>As this point, all instances should be healthy again.</p>
@@ -818,9 +818,9 @@ node1#
 for it you have to run the loop twice, once over primary instances
 with argument <tt class="docutils literal"><span class="pre">-p</span></tt> and once secondary instances with argument
 <tt class="docutils literal"><span class="pre">-s</span></tt>, but otherwise the operations are similar:</p>
-<div class="last highlight-text"><div class="highlight"><pre>node1# gnt-instance replace-disks -p instance1
+<div class="last highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-instance</span> <span class="gs">replace-disks</span> <span class="gs">-p</span> <span class="gs">instance1</span>
 …
-node1# for i in instance{2..4}; do gnt-instance replace-disks -s $i; done
+$ <span class="gs">for</span> <span class="gs">i</span> <span class="gs">in</span> <span class="nv">instance{2..4}</span><span class="gs">;</span> <span class="gs">do</span> <span class="gs">gnt-instance</span> <span class="gs">replace-disks</span> <span class="gs">-s</span> <span class="gs">$i;</span> <span class="gs">done</span>
 </pre></div>
 </div>
 </div>
@@ -833,7 +833,7 @@ can be solved easily as long as the issue is properly identified. For
 this exercise we will consider the case of node3, which was broken
 previously and re-added to the cluster without reinstallation. Running
 cluster verify on the cluster reports:</p>
-<div class="highlight-text"><div class="highlight"><pre>node1# gnt-cluster verify
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-cluster</span> <span class="gs">verify</span>
 Mon Oct 26 18:30:08 2009 * Verifying global settings
 Mon Oct 26 18:30:08 2009 * Gathering data (3 nodes)
 Mon Oct 26 18:30:10 2009 * Verifying node status
@@ -850,7 +850,7 @@ Mon Oct 26 18:30:10 2009 * Verifying remaining instances
 Mon Oct 26 18:30:10 2009 * Verifying N+1 Memory redundancy
 Mon Oct 26 18:30:10 2009 * Other Notes
 Mon Oct 26 18:30:10 2009 * Hooks Results
-node1#
+$
 </pre></div>
 </div>
 <div class="section" id="instance-status">
@@ -861,7 +861,7 @@ instance will have the same IP and MAC address, wreaking havoc on the
 network environment and anyone who tries to use it.</p>
 <p>Ganeti doesn&#8217;t directly handle this case. It is recommended to logon to
 node3 and run:</p>
-<div class="highlight-text"><div class="highlight"><pre>node3# xm destroy instance4
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">xm</span> <span class="gs">destroy</span> <span class="nv">instance4</span>
 </pre></div>
 </div>
 </div>
@@ -869,9 +869,11 @@ node3 and run:</p>
 <h3><a class="toc-backref" href="#id15">Unallocated DRBD minors</a><a class="headerlink" href="#unallocated-drbd-minors" title="Permalink to this headline">¶</a></h3>
 <p>There are still unallocated DRBD minors on node3. Again, these are not
 handled by Ganeti directly and need to be cleaned up via DRBD commands:</p>
-<div class="highlight-text"><div class="highlight"><pre>node3# drbdsetup /dev/drbd0 down
-node3# drbdsetup /dev/drbd1 down
-node3#
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">ssh</span> <span class="nv">node3</span>
+<span class="c1"># on node 3</span>
+$ <span class="gs">drbdsetup</span> <span class="gs">/dev/drbd</span><span class="nv">0</span> <span class="gs">down</span>
+$ <span class="gs">drbdsetup</span> <span class="gs">/dev/drbd</span><span class="nv">1</span> <span class="gs">down</span>
+$
 </pre></div>
 </div>
 </div>
@@ -881,20 +883,22 @@ node3#
 <em>orphan</em> volumes. This can happen also in the case of an aborted
 disk-replace, or similar situation where Ganeti was not able to recover
 automatically. Here you need to remove them manually via LVM commands:</p>
-<div class="highlight-text"><div class="highlight"><pre>node3# lvremove xenvg
-Do you really want to remove active logical volume &quot;22459cf8-117d-4bea-a1aa-791667d07800.disk0_data&quot;? [y/n]: y
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">ssh</span> <span class="nv">node3</span>
+<span class="c1"># on node3</span>
+$ <span class="gs">lvremove</span> <span class="nv">xenvg</span>
+Do you really want to remove active logical volume &quot;22459cf8-117d-4bea-a1aa-791667d07800.disk0_data&quot;? [y/n]: <span class="nv">y</span>
   Logical volume &quot;22459cf8-117d-4bea-a1aa-791667d07800.disk0_data&quot; successfully removed
-Do you really want to remove active logical volume &quot;22459cf8-117d-4bea-a1aa-791667d07800.disk0_meta&quot;? [y/n]: y
+Do you really want to remove active logical volume &quot;22459cf8-117d-4bea-a1aa-791667d07800.disk0_meta&quot;? [y/n]: <span class="nv">y</span>
   Logical volume &quot;22459cf8-117d-4bea-a1aa-791667d07800.disk0_meta&quot; successfully removed
-Do you really want to remove active logical volume &quot;1aaf4716-e57f-4101-a8d6-03af5da9dc50.disk0_data&quot;? [y/n]: y
+Do you really want to remove active logical volume &quot;1aaf4716-e57f-4101-a8d6-03af5da9dc50.disk0_data&quot;? [y/n]: <span class="nv">y</span>
   Logical volume &quot;1aaf4716-e57f-4101-a8d6-03af5da9dc50.disk0_data&quot; successfully removed
-Do you really want to remove active logical volume &quot;1aaf4716-e57f-4101-a8d6-03af5da9dc50.disk0_meta&quot;? [y/n]: y
+Do you really want to remove active logical volume &quot;1aaf4716-e57f-4101-a8d6-03af5da9dc50.disk0_meta&quot;? [y/n]: <span class="nv">y</span>
   Logical volume &quot;1aaf4716-e57f-4101-a8d6-03af5da9dc50.disk0_meta&quot; successfully removed
-node3#
+node3<span class="c1">#</span>
 </pre></div>
 </div>
 <p>At this point cluster verify shouldn&#8217;t complain anymore:</p>
-<div class="highlight-text"><div class="highlight"><pre>node1# gnt-cluster verify
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-cluster</span> <span class="gs">verify</span>
 Mon Oct 26 18:37:51 2009 * Verifying global settings
 Mon Oct 26 18:37:51 2009 * Gathering data (3 nodes)
 Mon Oct 26 18:37:53 2009 * Verifying node status
@@ -904,7 +908,7 @@ Mon Oct 26 18:37:53 2009 * Verifying remaining instances
 Mon Oct 26 18:37:53 2009 * Verifying N+1 Memory redundancy
 Mon Oct 26 18:37:53 2009 * Other Notes
 Mon Oct 26 18:37:53 2009 * Hooks Results
-node1#
+$
 </pre></div>
 </div>
 </div>
@@ -921,18 +925,19 @@ without any other operations (for reducing the downtime window). Let&#8217;s
 increase the memory of the current instances to 4G, and add three new
 instances, two on node2:node3 with 8GB of RAM and one on node1:node2,
 with 12GB of RAM (numbers chosen so that we run out of memory):</p>
-<div class="highlight-text"><div class="highlight"><pre>node1# gnt-instance modify -B memory=4G instance1
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-instance</span> <span class="gs">modify</span> <span class="gs">-B</span> <span class="gs">memory=</span><span class="nv">4G</span> <span class="nv">instance1</span>
 Modified instance instance1
- - be/memory -&gt; 4096
+ - be/maxmem -&gt; 4096
+ - be/minmem -&gt; 4096
 Please don&#39;t forget that these parameters take effect only at the next start of the instance.
-node1# gnt-instance modify …
+$ <span class="gs">gnt-instance</span> <span class="gs">modify</span> <span class="gs">…</span>
 
-node1# gnt-instance add -t drbd -n node2:node3 -s 512m -B memory=8G -o debootstrap instance5
+$ <span class="gs">gnt-instance</span> <span class="gs">add</span> <span class="gs">-t</span> <span class="gs">drbd</span> <span class="gs">-n</span> <span class="nv">node2</span><span class="gs">:</span><span class="nv">node3</span> <span class="gs">-s</span> <span class="nv">512m</span> <span class="gs">-B</span> <span class="gs">memory=</span><span class="nv">8G</span> <span class="gs">-o</span> <span class="nv">debootstrap</span> <span class="nv">instance5</span>
 …
-node1# gnt-instance add -t drbd -n node2:node3 -s 512m -B memory=8G -o debootstrap instance6
+$ <span class="gs">gnt-instance</span> <span class="gs">add</span> <span class="gs">-t</span> <span class="gs">drbd</span> <span class="gs">-n</span> <span class="nv">node2</span><span class="gs">:</span><span class="nv">node3</span> <span class="gs">-s</span> <span class="nv">512m</span> <span class="gs">-B</span> <span class="gs">memory=</span><span class="nv">8G</span> <span class="gs">-o</span> <span class="nv">debootstrap</span> <span class="nv">instance6</span>
 …
-node1# gnt-instance add -t drbd -n node1:node2 -s 512m -B memory=8G -o debootstrap instance7
-node1# gnt-instance reboot --all
+$ <span class="gs">gnt-instance</span> <span class="gs">add</span> <span class="gs">-t</span> <span class="gs">drbd</span> <span class="gs">-n</span> <span class="nv">node1</span><span class="gs">:</span><span class="nv">node2</span> <span class="gs">-s</span> <span class="nv">512m</span> <span class="gs">-B</span> <span class="gs">memory=</span><span class="nv">8G</span> <span class="gs">-o</span> <span class="nv">debootstrap</span> <span class="nv">instance7</span>
+$ <span class="gs">gnt-instance</span> <span class="gs">reboot</span> <span class="gs">--all</span>
 The reboot will operate on 7 instances.
 Do you want to continue?
 Affected instances:
@@ -943,7 +948,7 @@ Affected instances:
   instance5
   instance6
   instance7
-y/[n]/?: y
+y/[n]/?: <span class="nv">y</span>
 Submitted jobs 677, 678, 679, 680, 681, 682, 683
 Waiting for job 677 for instance1...
 Waiting for job 678 for instance2...
@@ -952,17 +957,17 @@ Waiting for job 680 for instance4...
 Waiting for job 681 for instance5...
 Waiting for job 682 for instance6...
 Waiting for job 683 for instance7...
-node1#
+$
 </pre></div>
 </div>
-<p>We rebooted instances for the memory changes to have effect. Now the
+<p>We rebooted the instances for the memory changes to have effect. Now the
 cluster looks like:</p>
-<div class="highlight-text"><div class="highlight"><pre>node1# gnt-node list
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-node</span> <span class="gs">list</span>
 Node  DTotal DFree MTotal MNode MFree Pinst Sinst
 node1   1.3T  1.3T  32.0G  1.0G  6.5G     4     1
 node2   1.3T  1.3T  32.0G  1.0G 10.5G     3     4
 node3   1.3T  1.3T  32.0G  1.0G 30.5G     0     2
-node1# gnt-cluster verify
+$ <span class="gs">gnt-cluster</span> <span class="gs">verify</span>
 Mon Oct 26 18:59:36 2009 * Verifying global settings
 Mon Oct 26 18:59:36 2009 * Gathering data (3 nodes)
 Mon Oct 26 18:59:37 2009 * Verifying node status
@@ -973,7 +978,7 @@ Mon Oct 26 18:59:37 2009 * Verifying N+1 Memory redundancy
 Mon Oct 26 18:59:37 2009   - ERROR: node node2: not enough memory to accommodate instance failovers should node node1 fail
 Mon Oct 26 18:59:37 2009 * Other Notes
 Mon Oct 26 18:59:37 2009 * Hooks Results
-node1#
+$
 </pre></div>
 </div>
 <p>The cluster verify error above shows that if node1 fails, node2 will not
@@ -982,8 +987,15 @@ solve this, you have a number of options:</p>
 <ul class="simple">
 <li>try to manually move instances around (but this can become complicated
 for any non-trivial cluster)</li>
-<li>try to reduce memory of some instances to accommodate the available
-node memory</li>
+<li>try to reduce the minimum memory of some instances on the source node
+of the N+1 failure (in the example above <tt class="docutils literal"><span class="pre">node1</span></tt>): this will allow
+it to start and be failed over/migrated with less than its maximum
+memory</li>
+<li>try to reduce the runtime/maximum memory of some instances on the
+destination node of the N+1 failure (in the example above <tt class="docutils literal"><span class="pre">node2</span></tt>)
+to create additional available node memory (check the <a class="reference external" href="admin.html"><em>Ganeti administrator&#8217;s guide</em></a>
+guide for what Ganeti will and won&#8217;t automatically do in regards to
+instance runtime memory modification)</li>
 <li>if Ganeti has been built with the htools package enabled, you can run
 the <tt class="docutils literal"><span class="pre">hbal</span></tt> tool which will try to compute an automated cluster
 solution that complies with the N+1 rule</li>
@@ -994,7 +1006,7 @@ solution that complies with the N+1 rule</li>
 <p>In case a node has problems with the network (usually the secondary
 network, as problems with the primary network will render the node
 unusable for ganeti commands), it will show up in cluster verify as:</p>
-<div class="highlight-text"><div class="highlight"><pre>node1# gnt-cluster verify
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-cluster</span> <span class="gs">verify</span>
 Mon Oct 26 19:07:19 2009 * Verifying global settings
 Mon Oct 26 19:07:19 2009 * Gathering data (3 nodes)
 Mon Oct 26 19:07:23 2009 * Verifying node status
@@ -1009,7 +1021,7 @@ Mon Oct 26 19:07:23 2009 * Verifying remaining instances
 Mon Oct 26 19:07:23 2009 * Verifying N+1 Memory redundancy
 Mon Oct 26 19:07:23 2009 * Other Notes
 Mon Oct 26 19:07:23 2009 * Hooks Results
-node1#
+$
 </pre></div>
 </div>
 <p>This shows that both node1 and node2 have problems contacting node3 over
@@ -1031,12 +1043,12 @@ command failed before or after the actual migration?)</li>
 <p>It is always safe to run this command as long as the instance has good
 data on its primary node (i.e. not showing as degraded). If so, you can
 simply run:</p>
-<div class="highlight-text"><div class="highlight"><pre>node1# gnt-instance migrate --cleanup instance1
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-instance</span> <span class="gs">migrate</span> <span class="gs">--cleanup</span> <span class="nv">instance1</span>
 Instance instance1 will be recovered from a failed migration. Note
 that the migration procedure (including cleanup) is **experimental**
 in this version. This might impact the instance if anything goes
 wrong. Continue?
-y/[n]/?: y
+y/[n]/?: <span class="nv">y</span>
 Mon Oct 26 19:13:49 2009 Migrating instance instance1
 Mon Oct 26 19:13:49 2009 * checking where the instance actually runs (if this hangs, the hypervisor might be in a bad state)
 Mon Oct 26 19:13:49 2009 * instance confirmed to be running on its primary node (node2)
@@ -1046,7 +1058,7 @@ Mon Oct 26 19:13:50 2009 * changing into standalone mode
 Mon Oct 26 19:13:50 2009 * changing disks into single-master mode
 Mon Oct 26 19:13:50 2009 * wait until resync is done
 Mon Oct 26 19:13:51 2009 * done
-node1#
+$
 </pre></div>
 </div>
 </div>
@@ -1054,7 +1066,7 @@ node1#
 <h3><a class="toc-backref" href="#id20">In use disks at instance shutdown</a><a class="headerlink" href="#in-use-disks-at-instance-shutdown" title="Permalink to this headline">¶</a></h3>
 <p>If you see something like the following when trying to shutdown or
 deactivate disks for an instance:</p>
-<div class="highlight-text"><div class="highlight"><pre>node1# gnt-instance shutdown instance1
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-instance</span> <span class="gs">shutdown</span> <span class="nv">instance1</span>
 Mon Oct 26 19:16:23 2009  - WARNING: Could not shutdown block device disk/0 on node node2: drbd0: can&#39;t shutdown drbd device: /dev/drbd0: State change failed: (-12) Device is held open by someone\n
 </pre></div>
 </div>
@@ -1073,28 +1085,28 @@ mounted somewhere (<tt class="docutils literal"><span class="pre">cat</span> <sp
 remove them with either <tt class="docutils literal"><span class="pre">kpartx</span> <span class="pre">-d</span></tt> or <tt class="docutils literal"><span class="pre">dmsetup</span> <span class="pre">remove</span></tt></li>
 </ul>
 <p>For Xen, check if it&#8217;s not using the disks itself:</p>
-<div class="highlight-text"><div class="highlight"><pre>node1# xenstore-ls /local/domain/0/backend/vbd|grep -e &quot;domain =&quot; -e physical-device
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">xenstore-ls</span> <span class="gs">/local/domain/</span><span class="nv">0</span><span class="gs">/backend/vbd|grep</span> <span class="gs">-e</span> <span class="gs">&quot;domain</span> <span class="gs">=&quot;</span> <span class="gs">-e</span> <span class="gs">physical-device</span>
 domain = &quot;instance2&quot;
 physical-device = &quot;93:0&quot;
 domain = &quot;instance3&quot;
 physical-device = &quot;93:1&quot;
 domain = &quot;instance4&quot;
 physical-device = &quot;93:2&quot;
-node1#
+$
 </pre></div>
 </div>
 <p>You can see in the above output that the node exports three disks, to
 three instances. The <tt class="docutils literal"><span class="pre">physical-device</span></tt> key is in major:minor format in
-hexadecimal, and 0x93 represents DRBD&#8217;s major number. Thus we can see
-from the above that instance2 has /dev/drbd0, instance3 /dev/drbd1, and
-instance4 /dev/drbd2.</p>
+hexadecimal, and <tt class="docutils literal"><span class="pre">0x93</span></tt> represents DRBD&#8217;s major number. Thus we can
+see from the above that instance2 has /dev/drbd0, instance3 /dev/drbd1,
+and instance4 /dev/drbd2.</p>
 </div>
 <div class="section" id="luxi-version-mismatch">
 <h3><a class="toc-backref" href="#id21">LUXI version mismatch</a><a class="headerlink" href="#luxi-version-mismatch" title="Permalink to this headline">¶</a></h3>
 <p>LUXI is the protocol used for communication between clients and the
 master daemon. Starting in Ganeti 2.3, the peers exchange their version
 in each message. When they don&#8217;t match, an error is raised:</p>
-<div class="highlight-text"><div class="highlight"><pre>$ gnt-node modify -O yes node3
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-node</span> <span class="gs">modify</span> <span class="gs">-O</span> <span class="gs">yes</span> <span class="nv">node3</span>
 Unhandled Ganeti error: LUXI version mismatch, server 2020000, request 2030000
 </pre></div>
 </div>
@@ -1104,7 +1116,7 @@ versions or import their libraries from different, consistent paths
 import path for Ganeti&#8217;s modules using the following command (note that
 depending on your setup you might have to use an explicit version in the
 Python command, e.g. <tt class="docutils literal"><span class="pre">python2.6</span></tt>):</p>
-<div class="highlight-text"><div class="highlight"><pre>python -c &#39;import ganeti; print ganeti.__file__&#39;
+<div class="highlight-shell-example"><div class="highlight"><pre>python -c &#39;import ganeti; print ganeti.__file__&#39;
 </pre></div>
 </div>
 </div>
@@ -1122,7 +1134,7 @@ Python command, e.g. <tt class="docutils literal"><span class="pre">python2.6</s
 <li><a class="reference external" href="#">Ganeti walk-through</a><ul>
 <li><a class="reference external" href="#introduction">Introduction</a></li>
 <li><a class="reference external" href="#cluster-creation">Cluster creation</a></li>
-<li><a class="reference external" href="#running-a-burnin">Running a burnin</a></li>
+<li><a class="reference external" href="#running-a-burn-in">Running a burn-in</a></li>
 <li><a class="reference external" href="#instance-operations">Instance operations</a><ul>
 <li><a class="reference external" href="#creation">Creation</a></li>
 <li><a class="reference external" href="#accessing-instances">Accessing instances</a></li>
@@ -1189,11 +1201,11 @@ Python command, e.g. <tt class="docutils literal"><span class="pre">python2.6</s
         <li class="right" >
           <a href="admin.html" title="Ganeti administrator’s guide"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.5.2 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.6.0 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">
-      &copy; Copyright 2006, 2007, 2008, 2009, 2010, Google Inc..
+      &copy; Copyright 2006, 2007, 2008, 2009, 2010, 2011, 2012, Google Inc..
       Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 0.6.7.
     </div>
   </body>

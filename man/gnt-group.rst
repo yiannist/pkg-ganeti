@@ -23,9 +23,18 @@ COMMANDS
 ADD
 ~~~
 
-| **add**
-| [--node-parameters=*NDPARAMS*]
-| [--alloc-policy=*POLICY*]
+| **add** [\--submit]
+| [\--node-parameters=*NDPARAMS*]
+| [\--alloc-policy=*POLICY*]
+| [{-D|\--disk-parameters} *disk-template*:*disk-param*=*value*[,*disk-param*=*value*...]]
+| [\--specs-cpu-count *spec-param*=*value* [,*spec-param*=*value*...]]
+| [\--specs-disk-count *spec-param*=*value* [,*spec-param*=*value*...]]
+| [\--specs-disk-size *spec-param*=*value* [,*spec-param*=*value*...]]
+| [\--specs-mem-size *spec-param*=*value* [,*spec-param*=*value*...]]
+| [\--specs-nic-count *spec-param*=*value* [,*spec-param*=*value*...]]
+| [\--ipol-disk-templates *template* [,*template*...]]
+| [\--disk-state *diskstate*]
+| [\--hypervisor-state *hvstate*]
 | {*group*}
 
 Creates a new group with the given name. The node group will be
@@ -33,7 +42,8 @@ initially empty; to add nodes to it, use ``gnt-group assign-nodes``.
 
 The ``--node-parameters`` option allows you to set default node
 parameters for nodes in the group. Please see **ganeti**(7) for more
-information about supported key=value pairs.
+information about supported key=value pairs and their corresponding
+options.
 
 The ``--alloc-policy`` option allows you to set an allocation policy for
 the group at creation time. Possible values are:
@@ -52,11 +62,23 @@ preferred
     (this is the default). Note that prioritization among groups in this
     state will be deferred to the iallocator plugin that's being used.
 
+The ``-D (--disk-parameters)`` option allows you to set the disk
+parameters for the node group; please see the section about
+**gnt-cluster add** in **gnt-cluster**(8) for more information about
+disk parameters
+
+The ``--specs-...`` and ``--ipol-disk-templates`` options specify
+instance policies on the node group, and are documented in the
+**gnt-cluster**(8) man page.
+
+See **ganeti(7)** for a description of ``--submit`` and other common
+options.
+
 ASSIGN-NODES
 ~~~~~~~~~~~~
 
 | **assign-nodes**
-| [--force]
+| [\--force] [\--submit]
 | {*group*} {*node*...}
 
 Assigns one or more nodes to the specified group, moving them from their
@@ -68,32 +90,59 @@ instance is an instance with a mirrored disk template, e.g. DRBD, that
 has the primary and secondary nodes in different node groups). You can
 force the operation with ``--force``.
 
+See **ganeti(7)** for a description of ``--submit`` and other common
+options.
+
 MODIFY
 ~~~~~~
 
-| **modify**
-| [--node-parameters=*NDPARAMS*]
-| [--alloc-policy=*POLICY*]
+| **modify** [\--submit]
+| [\--node-parameters=*NDPARAMS*]
+| [\--alloc-policy=*POLICY*]
+| [\--hypervisor-state *hvstate*]
+| [{-D|\--disk-parameters} *disk-template*:*disk-param*=*value*[,*disk-param*=*value*...]]
+| [\--disk-state *diskstate*]
+| [\--specs-cpu-count *spec-param*=*value* [,*spec-param*=*value*...]]
+| [\--specs-disk-count *spec-param*=*value* [,*spec-param*=*value*...]]
+| [\--specs-disk-size *spec-param*=*value* [,*spec-param*=*value*...]]
+| [\--specs-mem-size *spec-param*=*value* [,*spec-param*=*value*...]]
+| [\--specs-nic-count *spec-param*=*value* [,*spec-param*=*value*...]]
+| [\--ipol-disk-templates *template* [,*template*...]]
 | {*group*}
 
 Modifies some parameters from the node group.
 
-The ``--node-parameters`` and ``--alloc-policy`` optiosn are documented
-in the **add** command above.
+The ``--node-parameters`` and ``--alloc-policy`` options are documented
+in the **add** command above. ``--hypervisor-state`` as well as
+``--disk-state`` are documented in detail in **ganeti**(7).
+
+The ``--node-parameters``, ``--alloc-policy``, ``-D
+(--disk-parameters)`` options are documented in the **add** command
+above.
+
+The ``--specs-...`` and ``--ipol-disk-templates`` options specify
+instance policies on the node group, and are documented in the
+**gnt-cluster**(8) man page.
+
+See **ganeti(7)** for a description of ``--submit`` and other common
+options.
 
 REMOVE
 ~~~~~~
 
-| **remove** {*group*}
+| **remove** [\--submit] {*group*}
 
 Deletes the indicated node group, which must be empty. There must always be at
 least one group, so the last group cannot be removed.
 
+See **ganeti(7)** for a description of ``--submit`` and other common
+options.
+
 LIST
 ~~~~
 
-| **list** [--no-headers] [--separator=*SEPARATOR*] [-v]
-| [-o *[+]FIELD,...*] [--filter] [group...]
+| **list** [\--no-headers] [\--separator=*SEPARATOR*] [-v]
+| [-o *[+]FIELD,...*] [\--filter] [group...]
 
 Lists all existing node groups in the cluster.
 
@@ -133,15 +182,18 @@ List available fields for node groups.
 RENAME
 ~~~~~~
 
-| **rename** {*oldname*} {*newname*}
+| **rename** [\--submit] {*oldname*} {*newname*}
 
 Renames a given group from *oldname* to *newname*.
+
+See **ganeti(7)** for a description of ``--submit`` and other common
+options.
 
 
 EVACUATE
 ~~~~~~~~
 
-**evacuate** [--iallocator *NAME*] [--to *GROUP*...] {*group*}
+**evacuate** [\--submit] [\--iallocator *NAME*] [\--to *GROUP*...] {*group*}
 
 This command will move all instances out of the given node group.
 Instances are placed in a new group by an iallocator, either given on
@@ -149,6 +201,9 @@ the command line or as a cluster default.
 
 If no specific destination groups are specified using ``--to``, all
 groups except the evacuated group are considered.
+
+See **ganeti(7)** for a description of ``--submit`` and other common
+options.
 
 Example::
 
@@ -161,7 +216,7 @@ TAGS
 ADD-TAGS
 ^^^^^^^^
 
-**add-tags** [--from *file*] {*groupname*} {*tag*...}
+**add-tags** [\--from *file*] {*groupname*} {*tag*...}
 
 Add tags to the given node group. If any of the tags contains invalid
 characters, the entire operation will abort.
@@ -182,7 +237,7 @@ List the tags of the given node group.
 REMOVE-TAGS
 ^^^^^^^^^^^
 
-**remove-tags** [--from *file*] {*groupname*} {*tag*...}
+**remove-tags** [\--from *file*] {*groupname*} {*tag*...}
 
 Remove tags from the given node group. If any of the tags are not
 existing on the node, the entire operation will abort.
@@ -192,6 +247,14 @@ be extended with the contents of that file (each line becomes a tag). In
 this case, there is not need to pass tags on the command line (if you
 do, tags from both sources will be removed). A file name of ``-`` will
 be interpreted as stdin.
+
+INFO
+~~~~
+
+**info** [group...]
+
+Shows config information for all (or given) groups.
+
 
 .. vim: set textwidth=72 :
 .. Local Variables:

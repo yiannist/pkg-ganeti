@@ -42,6 +42,10 @@
     >-t</strong
     > <em
     >data-file</em
+    > | <strong
+    >-I</strong
+    > <em
+    >path</em
     > }</p
   ><p
   >Algorithm options:</p
@@ -118,7 +122,7 @@
   ><p
   >hbal is a cluster balancer that looks at the current state of the cluster (nodes with their total and free disk, memory, etc.) and instance placement and computes a series of steps designed to bring the cluster into a better state.</p
   ><p
-  >The algorithm used is designed to be stable (i.e. it will give you the same results when restarting it from the middle of the solution) and reasonably fast. It is not, however, designed to be a perfect algorithm--it is possible to make it go into a corner from which it can find no improvement, because it looks only one &quot;step&quot; ahead.</p
+  >The algorithm used is designed to be stable (i.e. it will give you the same results when restarting it from the middle of the solution) and reasonably fast. It is not, however, designed to be a perfect algorithm: it is possible to make it go into a corner from which it can find no improvement, because it looks only one &quot;step&quot; ahead.</p
   ><p
   >By default, the program will show the solution incrementally as it is computed, in a somewhat cryptic format; for getting the actual Ganeti command list, use the <strong
     >-C</strong
@@ -291,24 +295,6 @@
       >Prints the before and after instance map. This is less useful as the node status, but it can help in understanding instance moves.</p
       ></dd
     ><dt
-    >-o, --oneline</dt
-    ><dd
-    ><p
-      >Only shows a one-line output from the program, designed for the case when one wants to look at multiple clusters at once and check their status.</p
-      ><p
-      >The line will contain four fields:</p
-      ><ul
-      ><li
-	>initial cluster score</li
-	><li
-	>number of steps in the solution</li
-	><li
-	>final cluster score</li
-	><li
-	>improvement in the cluster score</li
-	></ul
-      ></dd
-    ><dt
     >-O <em
       >name</em
       ></dt
@@ -415,16 +401,6 @@
       >If not given, the default values are one for all metrics and thus dynamic utilisation has only one effect on the algorithm: the equalisation of the secondary instances across nodes (this is the only metric that is not tracked by another, dedicated value, and thus the disk load of instances will cause secondary instance equalisation). Note that value of one will also influence slightly the primary instance count, but that is already tracked via other metrics and thus the influence of the dynamic utilisation will be practically insignificant.</p
       ></dd
     ><dt
-    >-t <em
-      >datafile</em
-      >, --text-data=<em
-      >datafile</em
-      ></dt
-    ><dd
-    ><p
-      >The name of the file holding node and instance information (if not collecting via RAPI or LUXI). This or one of the other backends must be selected.</p
-      ></dd
-    ><dt
     >-S <em
       >filename</em
       >, --save-cluster=<em
@@ -436,7 +412,21 @@
 	>filename</em
 	>.original), and the state at the end of the balancing is saved to the given file plus the extension &quot;balanced&quot; (i.e. <em
 	>filename</em
-	>.balanced). This allows re-feeding the cluster state to either hbal itself or for example hspace.</p
+	>.balanced). This allows re-feeding the cluster state to either hbal itself or for example hspace via the <code
+	>-t</code
+	> option.</p
+      ></dd
+    ><dt
+    >-t <em
+      >datafile</em
+      >, --text-data=<em
+      >datafile</em
+      ></dt
+    ><dd
+    ><p
+      >Backend specification: the name of the file holding node and instance information (if not collecting via RAPI or LUXI). This or one of the other backends must be selected. The option is described in the man page <strong
+	>htools</strong
+	>(1).</p
       ></dd
     ><dt
     >-m <em
@@ -444,11 +434,11 @@
       ></dt
     ><dd
     ><p
-      >Collect data directly from the <em
+      >Backend specification: collect data directly from the <em
 	>cluster</em
-	> given as an argument via RAPI. If the argument doesn't contain a colon (:), then it is converted into a fully-built URL via prepending <code
-	>https://</code
-	> and appending the default RAPI port, otherwise it's considered a fully-specified URL and is used as-is.</p
+	> given as an argument via RAPI. The option is described in the man page <strong
+	>htools</strong
+	>(1).</p
       ></dd
     ><dt
     >-L [<em
@@ -456,11 +446,9 @@
       >]</dt
     ><dd
     ><p
-      >Collect data directly from the master daemon, which is to be contacted via the luxi (an internal Ganeti protocol). An optional <em
-	>path</em
-	> argument is interpreted as the path to the unix socket on which the master daemon listens; otherwise, the default path used by ganeti when installed with <em
-	>--localstatedir=/var</em
-	> is used.</p
+      >Backend specification: collect data directly from the master daemon, which is to be contacted via LUXI (an internal Ganeti protocol). The option is described in the man page <strong
+	>htools</strong
+	>(1).</p
       ></dd
     ><dt
     >-X</dt
@@ -814,13 +802,15 @@ N1 Name   t_mem f_mem r_mem t_dsk f_dsk pri sec  p_fmem  p_fdsk
     >hail</strong
     >(1) (IAllocator plugin), <strong
     >hscan</strong
-    >(1) (data gatherer from remote clusters).</p
+    >(1) (data gatherer from remote clusters), <strong
+    >hinfo</strong
+    >(1) (cluster information printer).</p
   ></div
 ><div id="copyright"
 ><h1
   >COPYRIGHT</h1
   ><p
-  >Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Google Inc. Permission is granted to copy, distribute and/or modify under the terms of the GNU General Public License as published by the Free Software Foundation; either version 2 of the License, or (at your option) any later version.</p
+  >Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012 Google Inc. Permission is granted to copy, distribute and/or modify under the terms of the GNU General Public License as published by the Free Software Foundation; either version 2 of the License, or (at your option) any later version.</p
   ><p
   >On Debian systems, the complete text of the GNU General Public License can be found in /usr/share/common-licenses/GPL.</p
   ></div

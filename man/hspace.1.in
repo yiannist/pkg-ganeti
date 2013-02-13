@@ -13,7 +13,7 @@ Backend options:
 .PP
 { \f[B]-m\f[] \f[I]cluster\f[] | \f[B]-L[\f[] \f[I]path\f[]
 \f[B]] [-X]\f[] | \f[B]-t\f[] \f[I]data-file\f[] |
-\f[B]--simulate\f[] \f[I]spec\f[] }
+\f[B]--simulate\f[] \f[I]spec\f[] | \f[B]-I\f[] \f[I]path\f[] }
 .PP
 Algorithm options:
 .PP
@@ -23,10 +23,11 @@ Algorithm options:
 .PP
 Request options:
 .PP
-\f[B][--memory\f[] \f[I]mem\f[] \f[B]]\f[] \f[B][--disk\f[]
-\f[I]disk\f[] \f[B]]\f[] \f[B][--disk-template\f[]
-\f[I]template\f[] \f[B]]\f[] \f[B][--vcpus\f[] \f[I]vcpus\f[]
-\f[B]]\f[] \f[B][--tiered-alloc\f[] \f[I]spec\f[] \f[B]]\f[]
+\f[B][--disk-template\f[] \f[I]template\f[] \f[B]]\f[]
+.PP
+\f[B][--standard-alloc\f[] \f[I]disk,ram,cpu\f[] \f[B]]\f[]
+.PP
+\f[B][--tiered-alloc\f[] \f[I]disk,ram,cpu\f[] \f[B]]\f[]
 .PP
 Output options:
 .PP
@@ -49,6 +50,10 @@ latter case, it is intended to interpreted as a shell fragment (or
 parsed as a \f[I]key=value\f[] file). Options which extend the
 output (e.g. -p, -v) will output the additional information on
 stderr (such that the stdout is still parseable).
+.PP
+By default, the instance specifications will be read from the
+cluster; the options \f[B]--standard-alloc\f[] and
+\f[B]--tiered-alloc\f[] can be used to override them.
 .PP
 The following keys are available in the machine-readable output of
 the script (all prefixed with \f[I]HTS_\f[]):
@@ -110,8 +115,9 @@ used RAM).
 .RE
 .TP
 .B INI_MEM_OVERHEAD, FIN_MEM_OVERHEAD
-The initial and final memory overhead--memory used for the node
-itself and unacounted memory (e.g. due to hypervisor overhead).
+The initial and final memory overhead, i.e. memory used for the
+node itself and unacounted memory (e.g. due to hypervisor
+overhead).
 .RS
 .RE
 .TP
@@ -156,14 +162,14 @@ Like the above but for disk.
 .RE
 .TP
 .B TSPEC
-If the tiered allocation mode has been enabled, this parameter
-holds the pairs of specifications and counts of instances that can
-be created in this mode. The value of the key is a space-separated
-list of values; each value is of the form
-\f[I]memory,disk,vcpu=count\f[] where the memory, disk and vcpu are
-the values for the current spec, and count is how many instances of
-this spec can be created. A complete value for this variable could
-be: \f[B]4096,102400,2=225 2560,102400,2=20 512,102400,2=21\f[].
+This parameter holds the pairs of specifications and counts of
+instances that can be created in the \f[I]tiered allocation\f[]
+mode. The value of the key is a space-separated list of values;
+each value is of the form \f[I]memory,disk,vcpu=count\f[] where the
+memory, disk and vcpu are the values for the current spec, and
+count is how many instances of this spec can be created. A complete
+value for this variable could be:
+\f[B]4096,102400,2=225 2560,102400,2=20 512,102400,2=21\f[].
 .RS
 .RE
 .TP
@@ -231,9 +237,9 @@ relied upon.
 .RS
 .RE
 .PP
-If the tiered allocation mode is enabled, then many of the
-INI_/FIN_ metrics will be also displayed with a TRL_ prefix, and
-denote the cluster status at the end of the tiered allocation run.
+Many of the INI_/FIN_ metrics will be also displayed with a TRL_
+prefix, and denote the cluster status at the end of the tiered
+allocation run.
 .PP
 The human output format should be self-explanatory, so it is not
 described further.
@@ -241,26 +247,17 @@ described further.
 .PP
 The options that can be passed to the program are as follows:
 .TP
-.B --memory \f[I]mem\f[]
-The memory size of the instances to be placed (defaults to 4GiB).
-Units can be used (see below for more details).
-.RS
-.RE
-.TP
-.B --disk \f[I]disk\f[]
-The disk size of the instances to be placed (defaults to 100GiB).
-Units can be used.
-.RS
-.RE
-.TP
 .B --disk-template \f[I]template\f[]
-The disk template for the instance; one of the Ganeti disk
-templates (e.g. plain, drbd, so on) should be passed in.
+Overrides the disk template for the instance read from the cluster;
+one of the Ganeti disk templates (e.g. plain, drbd, so on) should
+be passed in.
 .RS
 .RE
 .TP
-.B --vcpus \f[I]vcpus\f[]
-The number of VCPUs of the instances to be placed (defaults to 1).
+.B --spindle-use \f[I]spindles\f[]
+Override the spindle use for the instance read from the cluster.
+The value can be 0 (for example for instances that use very low
+I/O), but not negative. For shared storage the value is ignored.
 .RS
 .RE
 .TP
@@ -282,6 +279,13 @@ The minimum amount of free disk space remaining, as a floating
 point number. For example, specifying \f[I]disk-ratio\f[] as
 \f[B]0.25\f[] means that at least one quarter of disk space should
 be left free on nodes.
+.RS
+.RE
+.TP
+.B -l \f[I]rounds\f[], --max-length=\f[I]rounds\f[]
+Restrict the number of instance allocations to this length. This is
+not very useful in practice, but can be used for testing hspace
+itself, or to limit the runtime for very big clusters.
 .RS
 .RE
 .TP
@@ -313,79 +317,56 @@ are reported by RAPI as such, or that have "?" in file-based input
 in any numeric fields.
 .RE
 .TP
-.B -t \f[I]datafile\f[], --text-data=\f[I]datafile\f[]
-The name of the file holding node and instance information (if not
-collecting via RAPI or LUXI). This or one of the other backends
-must be selected.
-.RS
-.RE
-.TP
 .B -S \f[I]filename\f[], --save-cluster=\f[I]filename\f[]
 If given, the state of the cluster at the end of the allocation is
 saved to a file named \f[I]filename.alloc\f[], and if tiered
 allocation is enabled, the state after tiered allocation will be
 saved to \f[I]filename.tiered\f[].
 This allows re-feeding the cluster state to either hspace itself
-(with different parameters) or for example hbal.
+(with different parameters) or for example hbal, via the
+\f[B]-t\f[] option.
+.RS
+.RE
+.TP
+.B -t \f[I]datafile\f[], --text-data=\f[I]datafile\f[]
+Backend specification: the name of the file holding node and
+instance information (if not collecting via RAPI or LUXI). This or
+one of the other backends must be selected. The option is described
+in the man page \f[B]htools\f[](1).
 .RS
 .RE
 .TP
 .B -m \f[I]cluster\f[]
-Collect data directly from the \f[I]cluster\f[] given as an
-argument via RAPI. If the argument doesn\[aq]t contain a colon (:),
-then it is converted into a fully-built URL via prepending
-\f[B]https://\f[] and appending the default RAPI port, otherwise
-it\[aq]s considered a fully-specified URL and is used as-is.
+Backend specification: collect data directly from the
+\f[I]cluster\f[] given as an argument via RAPI. The option is
+described in the man page \f[B]htools\f[](1).
 .RS
 .RE
 .TP
 .B -L [\f[I]path\f[]]
-Collect data directly from the master daemon, which is to be
-contacted via the luxi (an internal Ganeti protocol). An optional
-\f[I]path\f[] argument is interpreted as the path to the unix
-socket on which the master daemon listens; otherwise, the default
-path used by ganeti when installed with
-\f[I]--localstatedir=/var\f[] is used.
+Backend specification: collect data directly from the master
+daemon, which is to be contacted via LUXI (an internal Ganeti
+protocol). The option is described in the man page
+\f[B]htools\f[](1).
 .RS
 .RE
 .TP
 .B --simulate \f[I]description\f[]
-Instead of using actual data, build an empty cluster given a node
-description. The \f[I]description\f[] parameter must be a
-comma-separated list of five elements, describing in order:
+Backend specification: similar to the \f[B]-t\f[] option, this
+allows overriding the cluster data with a simulated cluster. For
+details about the description, see the man page \f[B]htools\f[](1).
 .RS
-.IP \[bu] 2
-the allocation policy for this node group
-.IP \[bu] 2
-the number of nodes in the cluster
-.IP \[bu] 2
-the disk size of the nodes (default in mebibytes, units can be
-used)
-.IP \[bu] 2
-the memory size of the nodes (default in mebibytes, units can be
-used)
-.IP \[bu] 2
-the cpu core count for the nodes
-.PP
-An example description would be \f[B]preferred,B20,100G,16g,4\f[]
-describing a 20-node cluster where each node has 100GB of disk
-space, 16GiB of memory and 4 CPU cores. Note that all nodes must
-have the same specs currently.
-.PP
-This option can be given multiple times, and each new use defines a
-new node group. Hence different node groups can have different
-allocation policies and node count/specifications.
 .RE
 .TP
-.B --tiered-alloc \f[I]spec\f[]
-Besides the standard, fixed-size allocation, also do a tiered
-allocation scheme where the algorithm starts from the given
-specification and allocates until there is no more space; then it
-decreases the specification and tries the allocation again. The
-decrease is done on the matric that last failed during allocation.
+.B --standard-alloc \f[I]disk,ram,cpu\f[]
+This option overrides the instance size read from the cluster for
+the \f[I]standard\f[] allocation mode, where we simply allocate
+instances of the same, fixed size until the cluster runs out of
+space.
+.RS
+.PP
 The specification given is similar to the \f[I]--simulate\f[]
 option and it holds:
-.RS
 .IP \[bu] 2
 the disk size of the instance (units can be used)
 .IP \[bu] 2
@@ -394,8 +375,19 @@ the memory size of the instance (units can be used)
 the vcpu count for the insance
 .PP
 An example description would be \f[I]100G,4g,2\f[] describing an
-initial starting specification of 100GB of disk space, 4GiB of
-memory and 2 VCPUs.
+instance specification of 100GB of disk space, 4GiB of memory and 2
+VCPUs.
+.RE
+.TP
+.B --tiered-alloc \f[I]disk,ram,cpu\f[]
+This option overrides the instance size for the \f[I]tiered\f[]
+allocation mode. In this mode, the algorithm starts from the given
+specification and allocates until there is no more space; then it
+decreases the specification and tries the allocation again. The
+decrease is done on the metric that last failed during allocation.
+The argument should have the same format as for
+\f[B]--standard-alloc\f[].
+.RS
 .PP
 Also note that the normal allocation and the tiered allocation are
 independent, and both start from the initial cluster state; as
@@ -403,7 +395,7 @@ such, the instance count for these two modes are not related one to
 another.
 .RE
 .TP
-.B --machines-readable[=\f[I]choice\f[]]
+.B --machine-readable[=\f[I]choice\f[]]
 By default, the output of the program is in "human-readable"
 format, i.e. text descriptions. By passing this flag you can either
 enable (\f[B]--machine-readable\f[] or
@@ -485,10 +477,11 @@ restarter), \f[B]ganeti-cleaner\f[](8) (job queue cleaner),
 Ganeti htools: \f[B]htools\f[](1) (generic binary),
 \f[B]hbal\f[](1) (cluster balancer), \f[B]hspace\f[](1) (capacity
 calculation), \f[B]hail\f[](1) (IAllocator plugin),
-\f[B]hscan\f[](1) (data gatherer from remote clusters).
+\f[B]hscan\f[](1) (data gatherer from remote clusters),
+\f[B]hinfo\f[](1) (cluster information printer).
 .SH COPYRIGHT
 .PP
-Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Google Inc.
+Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012 Google Inc.
 Permission is granted to copy, distribute and/or modify under the
 terms of the GNU General Public License as published by the Free
 Software Foundation; either version 2 of the License, or (at your

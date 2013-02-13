@@ -1,7 +1,7 @@
 #!/usr/bin/python
 #
 
-# Copyright (C) 2010 Google Inc.
+# Copyright (C) 2010, 2011 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -22,7 +22,6 @@
 """Script for unittesting the RAPI client module"""
 
 
-import re
 import unittest
 import warnings
 import pycurl
@@ -33,7 +32,9 @@ from ganeti import serializer
 from ganeti import utils
 from ganeti import query
 from ganeti import objects
+from ganeti import rapi
 
+import ganeti.rapi.testutils
 from ganeti.rapi import connector
 from ganeti.rapi import rlib2
 from ganeti.rapi import client
@@ -41,59 +42,14 @@ from ganeti.rapi import client
 import testutils
 
 
-_URI_RE = re.compile(r"https://(?P<host>.*):(?P<port>\d+)(?P<path>/.*)")
-
 # List of resource handlers which aren't used by the RAPI client
 _KNOWN_UNUSED = set([
-  connector.R_root,
-  connector.R_2,
+  rlib2.R_root,
+  rlib2.R_2,
   ])
 
 # Global variable for collecting used handlers
 _used_handlers = None
-
-
-def _GetPathFromUri(uri):
-  """Gets the path and query from a URI.
-
-  """
-  match = _URI_RE.match(uri)
-  if match:
-    return match.groupdict()["path"]
-  else:
-    return None
-
-
-class FakeCurl:
-  def __init__(self, rapi):
-    self._rapi = rapi
-    self._opts = {}
-    self._info = {}
-
-  def setopt(self, opt, value):
-    self._opts[opt] = value
-
-  def getopt(self, opt):
-    return self._opts.get(opt)
-
-  def unsetopt(self, opt):
-    self._opts.pop(opt, None)
-
-  def getinfo(self, info):
-    return self._info[info]
-
-  def perform(self):
-    method = self._opts[pycurl.CUSTOMREQUEST]
-    url = self._opts[pycurl.URL]
-    request_body = self._opts[pycurl.POSTFIELDS]
-    writefn = self._opts[pycurl.WRITEFUNCTION]
-
-    path = _GetPathFromUri(url)
-    (code, resp_body) = self._rapi.FetchResponse(path, method, request_body)
-
-    self._info[pycurl.RESPONSE_CODE] = code
-    if resp_body is not None:
-      writefn(resp_body)
 
 
 class RapiMock(object):
@@ -118,7 +74,7 @@ class RapiMock(object):
   def GetLastRequestData(self):
     return self._last_req_data
 
-  def FetchResponse(self, path, method, request_body):
+  def FetchResponse(self, path, method, headers, request_body):
     self._last_req_data = request_body
 
     try:
@@ -149,11 +105,6 @@ class TestConstants(unittest.TestCase):
     self.assertEqual(client.GANETI_RAPI_VERSION, constants.RAPI_VERSION)
     self.assertEqual(client.HTTP_APP_JSON, http.HTTP_APP_JSON)
     self.assertEqual(client._REQ_DATA_VERSION_FIELD, rlib2._REQ_DATA_VERSION)
-    self.assertEqual(client._INST_CREATE_REQV1, rlib2._INST_CREATE_REQV1)
-    self.assertEqual(client._INST_REINSTALL_REQV1, rlib2._INST_REINSTALL_REQV1)
-    self.assertEqual(client._NODE_MIGRATE_REQV1, rlib2._NODE_MIGRATE_REQV1)
-    self.assertEqual(client._NODE_EVAC_RES1, rlib2._NODE_EVAC_RES1)
-    self.assertEqual(client._INST_NIC_PARAMS, constants.INIC_PARAMS)
     self.assertEqual(client.JOB_STATUS_QUEUED, constants.JOB_STATUS_QUEUED)
     self.assertEqual(client.JOB_STATUS_WAITING, constants.JOB_STATUS_WAITING)
     self.assertEqual(client.JOB_STATUS_CANCELING,
@@ -166,23 +117,33 @@ class TestConstants(unittest.TestCase):
     self.assertEqual(client.JOB_STATUS_ALL, constants.JOB_STATUS_ALL)
 
     # Node evacuation
-    self.assertEqual(client.NODE_EVAC_PRI, constants.IALLOCATOR_NEVAC_PRI)
-    self.assertEqual(client.NODE_EVAC_SEC, constants.IALLOCATOR_NEVAC_SEC)
-    self.assertEqual(client.NODE_EVAC_ALL, constants.IALLOCATOR_NEVAC_ALL)
+    self.assertEqual(client.NODE_EVAC_PRI, constants.NODE_EVAC_PRI)
+    self.assertEqual(client.NODE_EVAC_SEC, constants.NODE_EVAC_SEC)
+    self.assertEqual(client.NODE_EVAC_ALL, constants.NODE_EVAC_ALL)
 
     # Legacy name
     self.assertEqual(client.JOB_STATUS_WAITLOCK, constants.JOB_STATUS_WAITING)
+
+    # RAPI feature strings
+    self.assertEqual(client._INST_CREATE_REQV1, rlib2._INST_CREATE_REQV1)
+    self.assertEqual(client.INST_CREATE_REQV1, rlib2._INST_CREATE_REQV1)
+    self.assertEqual(client._INST_REINSTALL_REQV1, rlib2._INST_REINSTALL_REQV1)
+    self.assertEqual(client.INST_REINSTALL_REQV1, rlib2._INST_REINSTALL_REQV1)
+    self.assertEqual(client._NODE_MIGRATE_REQV1, rlib2._NODE_MIGRATE_REQV1)
+    self.assertEqual(client.NODE_MIGRATE_REQV1, rlib2._NODE_MIGRATE_REQV1)
+    self.assertEqual(client._NODE_EVAC_RES1, rlib2._NODE_EVAC_RES1)
+    self.assertEqual(client.NODE_EVAC_RES1, rlib2._NODE_EVAC_RES1)
 
 
 class RapiMockTest(unittest.TestCase):
   def test(self):
     rapi = RapiMock()
     path = "/version"
-    self.assertEqual((404, None), rapi.FetchResponse("/foo", "GET", None))
+    self.assertEqual((404, None), rapi.FetchResponse("/foo", "GET", None, None))
     self.assertEqual((501, "Method not implemented"),
-                     rapi.FetchResponse("/version", "POST", None))
+                     rapi.FetchResponse("/version", "POST", None, None))
     rapi.AddResponse("2")
-    code, response = rapi.FetchResponse("/version", "GET", None)
+    code, response = rapi.FetchResponse("/version", "GET", None, None)
     self.assertEqual(200, code)
     self.assertEqual("2", response)
     self.failUnless(isinstance(rapi.GetLastHandler(), rlib2.R_version))
@@ -211,8 +172,8 @@ def _FakeGnuTlsPycurlVersion():
 class TestExtendedConfig(unittest.TestCase):
   def testAuth(self):
     cl = client.GanetiRapiClient("master.example.com",
-                                 username="user", password="pw",
-                                 curl_factory=lambda: FakeCurl(RapiMock()))
+      username="user", password="pw",
+      curl_factory=lambda: rapi.testutils.FakeCurl(RapiMock()))
 
     curl = cl._CreateCurl()
     self.assertEqual(curl.getopt(pycurl.HTTPAUTH), pycurl.HTTPAUTH_BASIC)
@@ -249,7 +210,7 @@ class TestExtendedConfig(unittest.TestCase):
                                              verify_hostname=verify_hostname,
                                              _pycurl_version_fn=pcverfn)
 
-            curl_factory = lambda: FakeCurl(RapiMock())
+            curl_factory = lambda: rapi.testutils.FakeCurl(RapiMock())
             cl = client.GanetiRapiClient("master.example.com",
                                          curl_config_fn=cfgfn,
                                          curl_factory=curl_factory)
@@ -266,7 +227,7 @@ class TestExtendedConfig(unittest.TestCase):
   def testNoCertVerify(self):
     cfgfn = client.GenericCurlConfig()
 
-    curl_factory = lambda: FakeCurl(RapiMock())
+    curl_factory = lambda: rapi.testutils.FakeCurl(RapiMock())
     cl = client.GanetiRapiClient("master.example.com", curl_config_fn=cfgfn,
                                  curl_factory=curl_factory)
 
@@ -278,7 +239,7 @@ class TestExtendedConfig(unittest.TestCase):
   def testCertVerifyCurlBundle(self):
     cfgfn = client.GenericCurlConfig(use_curl_cabundle=True)
 
-    curl_factory = lambda: FakeCurl(RapiMock())
+    curl_factory = lambda: rapi.testutils.FakeCurl(RapiMock())
     cl = client.GanetiRapiClient("master.example.com", curl_config_fn=cfgfn,
                                  curl_factory=curl_factory)
 
@@ -291,7 +252,7 @@ class TestExtendedConfig(unittest.TestCase):
     mycert = "/tmp/some/UNUSED/cert/file.pem"
     cfgfn = client.GenericCurlConfig(cafile=mycert)
 
-    curl_factory = lambda: FakeCurl(RapiMock())
+    curl_factory = lambda: rapi.testutils.FakeCurl(RapiMock())
     cl = client.GanetiRapiClient("master.example.com", curl_config_fn=cfgfn,
                                  curl_factory=curl_factory)
 
@@ -306,7 +267,7 @@ class TestExtendedConfig(unittest.TestCase):
     cfgfn = client.GenericCurlConfig(capath=certdir,
                                      _pycurl_version_fn=pcverfn)
 
-    curl_factory = lambda: FakeCurl(RapiMock())
+    curl_factory = lambda: rapi.testutils.FakeCurl(RapiMock())
     cl = client.GanetiRapiClient("master.example.com", curl_config_fn=cfgfn,
                                  curl_factory=curl_factory)
 
@@ -321,7 +282,7 @@ class TestExtendedConfig(unittest.TestCase):
     cfgfn = client.GenericCurlConfig(capath=certdir,
                                      _pycurl_version_fn=pcverfn)
 
-    curl_factory = lambda: FakeCurl(RapiMock())
+    curl_factory = lambda: rapi.testutils.FakeCurl(RapiMock())
     cl = client.GanetiRapiClient("master.example.com", curl_config_fn=cfgfn,
                                  curl_factory=curl_factory)
 
@@ -333,7 +294,7 @@ class TestExtendedConfig(unittest.TestCase):
     cfgfn = client.GenericCurlConfig(capath=certdir,
                                      _pycurl_version_fn=pcverfn)
 
-    curl_factory = lambda: FakeCurl(RapiMock())
+    curl_factory = lambda: rapi.testutils.FakeCurl(RapiMock())
     cl = client.GanetiRapiClient("master.example.com", curl_config_fn=cfgfn,
                                  curl_factory=curl_factory)
 
@@ -345,7 +306,7 @@ class TestExtendedConfig(unittest.TestCase):
     cfgfn = client.GenericCurlConfig(capath=certdir,
                                      _pycurl_version_fn=pcverfn)
 
-    curl_factory = lambda: FakeCurl(RapiMock())
+    curl_factory = lambda: rapi.testutils.FakeCurl(RapiMock())
     cl = client.GanetiRapiClient("master.example.com", curl_config_fn=cfgfn,
                                  curl_factory=curl_factory)
 
@@ -357,7 +318,7 @@ class TestExtendedConfig(unittest.TestCase):
         cfgfn = client.GenericCurlConfig(connect_timeout=connect_timeout,
                                          timeout=timeout)
 
-        curl_factory = lambda: FakeCurl(RapiMock())
+        curl_factory = lambda: rapi.testutils.FakeCurl(RapiMock())
         cl = client.GanetiRapiClient("master.example.com", curl_config_fn=cfgfn,
                                      curl_factory=curl_factory)
 
@@ -371,7 +332,7 @@ class GanetiRapiClientTests(testutils.GanetiTestCase):
     testutils.GanetiTestCase.setUp(self)
 
     self.rapi = RapiMock()
-    self.curl = FakeCurl(self.rapi)
+    self.curl = rapi.testutils.FakeCurl(self.rapi)
     self.client = client.GanetiRapiClient("master.example.com",
                                           curl_factory=lambda: self.curl)
 
@@ -866,7 +827,7 @@ class GanetiRapiClientTests(testutils.GanetiTestCase):
     self.rapi.AddResponse(serializer.DumpJson([rlib2._NODE_EVAC_RES1]))
     self.rapi.AddResponse("8888")
     job_id = self.client.EvacuateNode("node-3", iallocator="hail", dry_run=True,
-                                      mode=constants.IALLOCATOR_NEVAC_ALL,
+                                      mode=constants.NODE_EVAC_ALL,
                                       early_release=True)
     self.assertEqual(8888, job_id)
     self.assertItems(["node-3"])
@@ -971,6 +932,24 @@ class GanetiRapiClientTests(testutils.GanetiTestCase):
     self.assertItems(["node-foo"])
     self.assertQuery("force", ["1"])
     self.assertEqual("\"master-candidate\"", self.rapi.GetLastRequestData())
+
+  def testPowercycleNode(self):
+    self.rapi.AddResponse("23051")
+    self.assertEqual(23051,
+        self.client.PowercycleNode("node5468", force=True))
+    self.assertHandler(rlib2.R_2_nodes_name_powercycle)
+    self.assertItems(["node5468"])
+    self.assertQuery("force", ["1"])
+    self.assertFalse(self.rapi.GetLastRequestData())
+    self.assertEqual(self.rapi.CountPending(), 0)
+
+  def testModifyNode(self):
+    self.rapi.AddResponse("3783")
+    job_id = self.client.ModifyNode("node16979.example.com", drained=True)
+    self.assertEqual(job_id, 3783)
+    self.assertHandler(rlib2.R_2_nodes_name_modify)
+    self.assertItems(["node16979.example.com"])
+    self.assertEqual(self.rapi.CountPending(), 0)
 
   def testGetNodeStorageUnits(self):
     self.rapi.AddResponse("42")
@@ -1165,6 +1144,14 @@ class GanetiRapiClientTests(testutils.GanetiTestCase):
     self.assertHandler(rlib2.R_2_instances_name_deactivate_disks)
     self.assertFalse(self.rapi.GetLastHandler().queryargs)
 
+  def testRecreateInstanceDisks(self):
+    self.rapi.AddResponse("13553")
+    job_id = self.client.RecreateInstanceDisks("inst23153")
+    self.assertEqual(job_id, 13553)
+    self.assertItems(["inst23153"])
+    self.assertHandler(rlib2.R_2_instances_name_recreate_disks)
+    self.assertFalse(self.rapi.GetLastHandler().queryargs)
+
   def testGetInstanceConsole(self):
     self.rapi.AddResponse("26876")
     job_id = self.client.GetInstanceConsole("inst21491")
@@ -1220,22 +1207,22 @@ class GanetiRapiClientTests(testutils.GanetiTestCase):
 
   def testQuery(self):
     for idx, what in enumerate(constants.QR_VIA_RAPI):
-      for idx2, filter_ in enumerate([None, ["?", "name"]]):
+      for idx2, qfilter in enumerate([None, ["?", "name"]]):
         job_id = 11010 + (idx << 4) + (idx2 << 16)
         fields = sorted(query.ALL_FIELDS[what].keys())[:10]
 
         self.rapi.AddResponse(str(job_id))
-        self.assertEqual(self.client.Query(what, fields, filter_=filter_),
+        self.assertEqual(self.client.Query(what, fields, qfilter=qfilter),
                          job_id)
         self.assertItems([what])
         self.assertHandler(rlib2.R_2_query)
         self.assertFalse(self.rapi.GetLastHandler().queryargs)
         data = serializer.LoadJson(self.rapi.GetLastRequestData())
         self.assertEqual(data["fields"], fields)
-        if filter_ is None:
-          self.assertTrue("filter" not in data)
+        if qfilter is None:
+          self.assertTrue("qfilter" not in data)
         else:
-          self.assertEqual(data["filter"], filter_)
+          self.assertEqual(data["qfilter"], qfilter)
         self.assertEqual(self.rapi.CountPending(), 0)
 
   def testQueryFields(self):

@@ -1,7 +1,7 @@
 #!/usr/bin/python -u
 #
 
-# Copyright (C) 2007, 2008, 2009, 2010, 2011 Google Inc.
+# Copyright (C) 2007, 2008, 2009, 2010, 2011, 2012 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -38,6 +38,7 @@ import qa_group
 import qa_instance
 import qa_node
 import qa_os
+import qa_job
 import qa_rapi
 import qa_tags
 import qa_utils
@@ -71,7 +72,7 @@ def _DescriptionOf(fn):
   return desc.rstrip(".")
 
 
-def RunTest(fn, *args):
+def RunTest(fn, *args, **kwargs):
   """Runs a test after printing a header.
 
   """
@@ -84,7 +85,7 @@ def RunTest(fn, *args):
   print _FormatHeader("%s start %s" % (tstart, desc))
 
   try:
-    retval = fn(*args)
+    retval = fn(*args, **kwargs)
     return retval
   finally:
     tstop = datetime.datetime.now()
@@ -92,7 +93,7 @@ def RunTest(fn, *args):
     print _FormatHeader("%s time=%s %s" % (tstop, tdelta, desc))
 
 
-def RunTestIf(testnames, fn, *args):
+def RunTestIf(testnames, fn, *args, **kwargs):
   """Runs a test conditionally.
 
   @param testnames: either a single test name in the configuration
@@ -100,7 +101,7 @@ def RunTestIf(testnames, fn, *args):
 
   """
   if qa_config.TestEnabled(testnames):
-    RunTest(fn, *args)
+    RunTest(fn, *args, **kwargs)
   else:
     tstart = datetime.datetime.now()
     desc = _DescriptionOf(fn)
@@ -130,6 +131,7 @@ def SetupCluster(rapi_user, rapi_secret):
   # Test on empty cluster
   RunTestIf("node-list", qa_node.TestNodeList)
   RunTestIf("instance-list", qa_instance.TestInstanceList)
+  RunTestIf("job-list", qa_job.TestJobList)
 
   RunTestIf("create-cluster", qa_node.TestNodeAddAll)
   if not qa_config.TestEnabled("create-cluster"):
@@ -146,6 +148,8 @@ def SetupCluster(rapi_user, rapi_secret):
   # Test listing fields
   RunTestIf("node-list", qa_node.TestNodeListFields)
   RunTestIf("instance-list", qa_instance.TestInstanceListFields)
+  RunTestIf("job-list", qa_job.TestJobListFields)
+  RunTestIf("instance-export", qa_instance.TestBackupListFields)
 
   RunTestIf("node-info", qa_node.TestNodeInfo)
 
@@ -155,11 +159,14 @@ def RunClusterTests():
 
   """
   for test, fn in [
+    ("create-cluster", qa_cluster.TestClusterInitDisk),
     ("cluster-renew-crypto", qa_cluster.TestClusterRenewCrypto),
     ("cluster-verify", qa_cluster.TestClusterVerify),
     ("cluster-reserved-lvs", qa_cluster.TestClusterReservedLvs),
     # TODO: add more cluster modify tests
+    ("cluster-modify", qa_cluster.TestClusterModifyEmpty),
     ("cluster-modify", qa_cluster.TestClusterModifyBe),
+    ("cluster-modify", qa_cluster.TestClusterModifyDisk),
     ("cluster-rename", qa_cluster.TestClusterRename),
     ("cluster-info", qa_cluster.TestClusterVersion),
     ("cluster-info", qa_cluster.TestClusterInfo),
@@ -223,6 +230,8 @@ def RunCommonInstanceTests(instance):
   RunTestIf("instance-shutdown", qa_instance.TestInstanceShutdown, instance)
   RunTestIf(["instance-shutdown", "instance-console", "rapi"],
             qa_rapi.TestRapiStoppedInstanceConsole, instance)
+  RunTestIf(["instance-shutdown", "instance-modify"],
+            qa_instance.TestInstanceStoppedModify, instance)
   RunTestIf("instance-shutdown", qa_instance.TestInstanceStartup, instance)
 
   # Test shutdown/start via RAPI
@@ -243,31 +252,41 @@ def RunCommonInstanceTests(instance):
   RunTestIf(["instance-console", "rapi"],
             qa_rapi.TestRapiInstanceConsole, instance)
 
-  RunTestIf("instance-reinstall", qa_instance.TestInstanceShutdown, instance)
+  DOWN_TESTS = qa_config.Either([
+    "instance-reinstall",
+    "instance-rename",
+    "instance-grow-disk",
+    ])
+
+  # shutdown instance for any 'down' tests
+  RunTestIf(DOWN_TESTS, qa_instance.TestInstanceShutdown, instance)
+
+  # now run the 'down' state tests
   RunTestIf("instance-reinstall", qa_instance.TestInstanceReinstall, instance)
   RunTestIf(["instance-reinstall", "rapi"],
             qa_rapi.TestRapiInstanceReinstall, instance)
-  RunTestIf("instance-reinstall", qa_instance.TestInstanceStartup, instance)
-
-  RunTestIf("instance-reboot", qa_instance.TestInstanceReboot, instance)
 
   if qa_config.TestEnabled("instance-rename"):
     rename_source = instance["name"]
     rename_target = qa_config.get("rename", None)
-    RunTest(qa_instance.TestInstanceShutdown, instance)
     # perform instance rename to the same name
-    RunTest(qa_instance.TestInstanceRename, rename_source, rename_source)
-    RunTestIf("rapi", qa_rapi.TestRapiInstanceRename,
+    RunTest(qa_instance.TestInstanceRenameAndBack,
+            rename_source, rename_source)
+    RunTestIf("rapi", qa_rapi.TestRapiInstanceRenameAndBack,
               rename_source, rename_source)
     if rename_target is not None:
       # perform instance rename to a different name, if we have one configured
-      RunTest(qa_instance.TestInstanceRename, rename_source, rename_target)
-      RunTest(qa_instance.TestInstanceRename, rename_target, rename_source)
-      RunTestIf("rapi", qa_rapi.TestRapiInstanceRename,
+      RunTest(qa_instance.TestInstanceRenameAndBack,
+              rename_source, rename_target)
+      RunTestIf("rapi", qa_rapi.TestRapiInstanceRenameAndBack,
                 rename_source, rename_target)
-      RunTestIf("rapi", qa_rapi.TestRapiInstanceRename,
-                rename_target, rename_source)
-    RunTest(qa_instance.TestInstanceStartup, instance)
+
+  RunTestIf(["instance-grow-disk"], qa_instance.TestInstanceGrowDisk, instance)
+
+  # and now start the instance again
+  RunTestIf(DOWN_TESTS, qa_instance.TestInstanceStartup, instance)
+
+  RunTestIf("instance-reboot", qa_instance.TestInstanceReboot, instance)
 
   RunTestIf("tags", qa_tags.TestInstanceTags, instance)
 
@@ -277,6 +296,9 @@ def RunCommonInstanceTests(instance):
 
   # Lists instances, too
   RunTestIf("node-list", qa_node.TestNodeList)
+
+  # Some jobs have been run, let's test listing them
+  RunTestIf("job-list", qa_job.TestJobList)
 
 
 def RunCommonNodeTests():
@@ -328,8 +350,10 @@ def RunExportImportTests(instance, pnode, snode):
       if qa_config.TestEnabled("instance-import"):
         newinst = qa_config.AcquireInstance()
         try:
-          RunTest(qa_instance.TestInstanceImport, pnode, newinst,
+          RunTest(qa_instance.TestInstanceImport, newinst, pnode,
                   expnode, name)
+          # Check if starting the instance works
+          RunTest(qa_instance.TestInstanceStartup, newinst)
           RunTest(qa_instance.TestInstanceRemove, newinst)
         finally:
           qa_config.ReleaseInstance(newinst)
@@ -425,6 +449,7 @@ def RunQa():
   try:
     RunTestIf("node-readd", qa_node.TestNodeReadd, pnode)
     RunTestIf("node-modify", qa_node.TestNodeModify, pnode)
+    RunTestIf("delay", qa_cluster.TestDelay, pnode)
   finally:
     qa_config.ReleaseNode(pnode)
 
@@ -439,7 +464,8 @@ def RunQa():
         for use_client in [True, False]:
           rapi_instance = RunTest(qa_rapi.TestRapiInstanceAdd, pnode,
                                   use_client)
-          RunCommonInstanceTests(rapi_instance)
+          if qa_config.TestEnabled("instance-plain-rapi-common-tests"):
+            RunCommonInstanceTests(rapi_instance)
           RunTest(qa_rapi.TestRapiInstanceRemove, rapi_instance, use_client)
           del rapi_instance
 
@@ -464,6 +490,8 @@ def RunQa():
         snode = qa_config.AcquireNode(exclude=pnode)
         try:
           instance = RunTest(func, pnode, snode)
+          RunTestIf("haskell-confd", qa_node.TestNodeListDrbd, pnode)
+          RunTestIf("haskell-confd", qa_node.TestNodeListDrbd, snode)
           RunCommonInstanceTests(instance)
           RunGroupListTests()
           RunTest(qa_group.TestAssignNodesIncludingSplit,
@@ -480,6 +508,18 @@ def RunQa():
           del instance
         finally:
           qa_config.ReleaseNode(snode)
+
+    # Test removing instance with offline drbd secondary
+    if qa_config.TestEnabled("instance-remove-drbd-offline"):
+      snode = qa_config.AcquireNode(exclude=pnode)
+      instance = \
+        qa_instance.TestInstanceAddWithDrbdDisk(pnode, snode)
+      try:
+        qa_node.MakeNodeOffline(snode, "yes")
+        RunTest(qa_instance.TestInstanceRemove, instance)
+      finally:
+        qa_node.MakeNodeOffline(snode, "no")
+        qa_config.ReleaseNode(snode)
 
     if qa_config.TestEnabled(["instance-add-plain-disk", "instance-export"]):
       for shutdown in [False, True]:
@@ -528,7 +568,12 @@ def main():
 
   qa_config.Load(config_file)
 
-  qa_utils.StartMultiplexer(qa_config.GetMasterNode()["primary"])
+  primary = qa_config.GetMasterNode()["primary"]
+  qa_utils.StartMultiplexer(primary)
+  print ("SSH command for primary node: %s" %
+         utils.ShellQuoteArgs(qa_utils.GetSSHCommand(primary, "")))
+  print ("SSH command for other nodes: %s" %
+         utils.ShellQuoteArgs(qa_utils.GetSSHCommand("NODE", "")))
   try:
     RunQa()
   finally:

@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2008, 2010, 2011 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2010, 2011, 2012 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -88,10 +88,14 @@ def GenerateHmacKey(file_name):
                   backup=True)
 
 
-def GenerateClusterCrypto(new_cluster_cert, new_rapi_cert, new_confd_hmac_key,
-                          new_cds, rapi_cert_pem=None, cds=None,
+def GenerateClusterCrypto(new_cluster_cert, new_rapi_cert, new_spice_cert,
+                          new_confd_hmac_key, new_cds,
+                          rapi_cert_pem=None, spice_cert_pem=None,
+                          spice_cacert_pem=None, cds=None,
                           nodecert_file=constants.NODED_CERT_FILE,
                           rapicert_file=constants.RAPI_CERT_FILE,
+                          spicecert_file=constants.SPICE_CERT_FILE,
+                          spicecacert_file=constants.SPICE_CACERT_FILE,
                           hmackey_file=constants.CONFD_HMAC_KEY,
                           cds_file=constants.CLUSTER_DOMAIN_SECRET_FILE):
   """Updates the cluster certificates, keys and secrets.
@@ -100,18 +104,29 @@ def GenerateClusterCrypto(new_cluster_cert, new_rapi_cert, new_confd_hmac_key,
   @param new_cluster_cert: Whether to generate a new cluster certificate
   @type new_rapi_cert: bool
   @param new_rapi_cert: Whether to generate a new RAPI certificate
+  @type new_spice_cert: bool
+  @param new_spice_cert: Whether to generate a new SPICE certificate
   @type new_confd_hmac_key: bool
   @param new_confd_hmac_key: Whether to generate a new HMAC key
   @type new_cds: bool
   @param new_cds: Whether to generate a new cluster domain secret
   @type rapi_cert_pem: string
   @param rapi_cert_pem: New RAPI certificate in PEM format
+  @type spice_cert_pem: string
+  @param spice_cert_pem: New SPICE certificate in PEM format
+  @type spice_cacert_pem: string
+  @param spice_cacert_pem: Certificate of the CA that signed the SPICE
+                           certificate, in PEM format
   @type cds: string
   @param cds: New cluster domain secret
   @type nodecert_file: string
   @param nodecert_file: optional override of the node cert file path
   @type rapicert_file: string
   @param rapicert_file: optional override of the rapi cert file path
+  @type spicecert_file: string
+  @param spicecert_file: optional override of the spice cert file path
+  @type spicecacert_file: string
+  @param spicecacert_file: optional override of the spice CA cert file path
   @type hmackey_file: string
   @param hmackey_file: optional override of the hmac key file path
 
@@ -145,6 +160,31 @@ def GenerateClusterCrypto(new_cluster_cert, new_rapi_cert, new_confd_hmac_key,
     logging.debug("Generating new RAPI certificate at %s", rapicert_file)
     utils.GenerateSelfSignedSslCert(rapicert_file)
 
+  # SPICE
+  spice_cert_exists = os.path.exists(spicecert_file)
+  spice_cacert_exists = os.path.exists(spicecacert_file)
+  if spice_cert_pem:
+    # spice_cert_pem implies also spice_cacert_pem
+    logging.debug("Writing SPICE certificate at %s", spicecert_file)
+    utils.WriteFile(spicecert_file, data=spice_cert_pem, backup=True)
+    logging.debug("Writing SPICE CA certificate at %s", spicecacert_file)
+    utils.WriteFile(spicecacert_file, data=spice_cacert_pem, backup=True)
+  elif new_spice_cert or not spice_cert_exists:
+    if spice_cert_exists:
+      utils.CreateBackup(spicecert_file)
+    if spice_cacert_exists:
+      utils.CreateBackup(spicecacert_file)
+
+    logging.debug("Generating new self-signed SPICE certificate at %s",
+                  spicecert_file)
+    (_, cert_pem) = utils.GenerateSelfSignedSslCert(spicecert_file)
+
+    # Self-signed certificate -> the public certificate is also the CA public
+    # certificate
+    logging.debug("Writing the public certificate to %s",
+                  spicecert_file)
+    utils.io.WriteFile(spicecacert_file, mode=0400, data=cert_pem)
+
   # Cluster domain secret
   if cds:
     logging.debug("Writing cluster domain secret to %s", cds_file)
@@ -166,7 +206,7 @@ def _InitGanetiServerSetup(master_name):
 
   """
   # Generate cluster secrets
-  GenerateClusterCrypto(True, False, False, False)
+  GenerateClusterCrypto(True, False, False, False, False)
 
   result = utils.RunCmd([constants.DAEMON_UTIL, "start", constants.NODED])
   if result.failed:
@@ -182,7 +222,9 @@ def _WaitForNodeDaemon(node_name):
 
   """
   def _CheckNodeDaemon():
-    result = rpc.RpcRunner.call_version([node_name])[node_name]
+    # Pylint bug <http://www.logilab.org/ticket/35642>
+    # pylint: disable=E1101
+    result = rpc.BootstrapRunner().call_version([node_name])[node_name]
     if result.fail_msg:
       raise utils.RetryAgain()
 
@@ -242,14 +284,16 @@ def _InitFileStorage(file_storage_dir):
   return file_storage_dir
 
 
-def InitCluster(cluster_name, mac_prefix, # pylint: disable=R0913
-                master_netdev, file_storage_dir, shared_file_storage_dir,
-                candidate_pool_size, secondary_ip=None, vg_name=None,
-                beparams=None, nicparams=None, ndparams=None, hvparams=None,
-                enabled_hypervisors=None, modify_etc_hosts=True,
-                modify_ssh_setup=True, maintain_node_health=False,
-                drbd_helper=None, uid_pool=None, default_iallocator=None,
-                primary_ip_version=None, prealloc_wipe_disks=False):
+def InitCluster(cluster_name, mac_prefix, # pylint: disable=R0913, R0914
+                master_netmask, master_netdev, file_storage_dir,
+                shared_file_storage_dir, candidate_pool_size, secondary_ip=None,
+                vg_name=None, beparams=None, nicparams=None, ndparams=None,
+                hvparams=None, diskparams=None, enabled_hypervisors=None,
+                modify_etc_hosts=True, modify_ssh_setup=True,
+                maintain_node_health=False, drbd_helper=None, uid_pool=None,
+                default_iallocator=None, primary_ip_version=None, ipolicy=None,
+                prealloc_wipe_disks=False, use_external_mip_script=False,
+                hv_state=None, disk_state=None):
   """Initialise the cluster.
 
   @type candidate_pool_size: int
@@ -270,12 +314,9 @@ def InitCluster(cluster_name, mac_prefix, # pylint: disable=R0913
                                " entries: %s" % invalid_hvs,
                                errors.ECODE_INVAL)
 
-  ipcls = None
-  if primary_ip_version == constants.IP4_VERSION:
-    ipcls = netutils.IP4Address
-  elif primary_ip_version == constants.IP6_VERSION:
-    ipcls = netutils.IP6Address
-  else:
+  try:
+    ipcls = netutils.IPAddress.GetClassFromIpVersion(primary_ip_version)
+  except errors.ProgrammerError:
     raise errors.OpPrereqError("Invalid primary ip version: %d." %
                                primary_ip_version)
 
@@ -318,6 +359,13 @@ def InitCluster(cluster_name, mac_prefix, # pylint: disable=R0913
     raise errors.OpPrereqError("You gave %s as secondary IP,"
                                " but it does not belong to this host." %
                                secondary_ip, errors.ECODE_ENVIRON)
+
+  if master_netmask is not None:
+    if not ipcls.ValidateNetmask(master_netmask):
+      raise errors.OpPrereqError("CIDR netmask (%s) not valid for IPv%s " %
+                                  (master_netmask, primary_ip_version))
+  else:
+    master_netmask = ipcls.iplen
 
   if vg_name is not None:
     # Check if volume group is valid
@@ -365,20 +413,61 @@ def InitCluster(cluster_name, mac_prefix, # pylint: disable=R0913
   dirs = [(constants.RUN_GANETI_DIR, constants.RUN_DIRS_MODE)]
   utils.EnsureDirs(dirs)
 
+  objects.UpgradeBeParams(beparams)
   utils.ForceDictType(beparams, constants.BES_PARAMETER_TYPES)
   utils.ForceDictType(nicparams, constants.NICS_PARAMETER_TYPES)
+
   objects.NIC.CheckParameterSyntax(nicparams)
+
+  full_ipolicy = objects.FillIPolicy(constants.IPOLICY_DEFAULTS, ipolicy)
 
   if ndparams is not None:
     utils.ForceDictType(ndparams, constants.NDS_PARAMETER_TYPES)
   else:
     ndparams = dict(constants.NDC_DEFAULTS)
 
+  # This is ugly, as we modify the dict itself
+  # FIXME: Make utils.ForceDictType pure functional or write a wrapper
+  # around it
+  if hv_state:
+    for hvname, hvs_data in hv_state.items():
+      utils.ForceDictType(hvs_data, constants.HVSTS_PARAMETER_TYPES)
+      hv_state[hvname] = objects.Cluster.SimpleFillHvState(hvs_data)
+  else:
+    hv_state = dict((hvname, constants.HVST_DEFAULTS)
+                    for hvname in enabled_hypervisors)
+
+  # FIXME: disk_state has no default values yet
+  if disk_state:
+    for storage, ds_data in disk_state.items():
+      if storage not in constants.DS_VALID_TYPES:
+        raise errors.OpPrereqError("Invalid storage type in disk state: %s" %
+                                   storage, errors.ECODE_INVAL)
+      for ds_name, state in ds_data.items():
+        utils.ForceDictType(state, constants.DSS_PARAMETER_TYPES)
+        ds_data[ds_name] = objects.Cluster.SimpleFillDiskState(state)
+
   # hvparams is a mapping of hypervisor->hvparams dict
   for hv_name, hv_params in hvparams.iteritems():
     utils.ForceDictType(hv_params, constants.HVS_PARAMETER_TYPES)
     hv_class = hypervisor.GetHypervisor(hv_name)
     hv_class.CheckParameterSyntax(hv_params)
+
+  # diskparams is a mapping of disk-template->diskparams dict
+  for template, dt_params in diskparams.items():
+    param_keys = set(dt_params.keys())
+    default_param_keys = set(constants.DISK_DT_DEFAULTS[template].keys())
+    if not (param_keys <= default_param_keys):
+      unknown_params = param_keys - default_param_keys
+      raise errors.OpPrereqError("Invalid parameters for disk template %s:"
+                                 " %s" % (template,
+                                          utils.CommaJoin(unknown_params)))
+    utils.ForceDictType(dt_params, constants.DISK_DT_TYPES)
+  try:
+    utils.VerifyDictOptions(diskparams, constants.DISK_DT_DEFAULTS)
+  except errors.OpPrereqError, err:
+    raise errors.OpPrereqError("While verify diskparam options: %s" % err,
+                               errors.ECODE_INVAL)
 
   # set up ssh config and /etc/hosts
   sshline = utils.ReadFile(constants.SSH_HOST_RSA_PUB)
@@ -417,6 +506,7 @@ def InitCluster(cluster_name, mac_prefix, # pylint: disable=R0913
     tcpudp_port_pool=set(),
     master_node=hostname.name,
     master_ip=clustername.ip,
+    master_netmask=master_netmask,
     master_netdev=master_netdev,
     cluster_name=clustername.name,
     file_storage_dir=file_storage_dir,
@@ -426,6 +516,7 @@ def InitCluster(cluster_name, mac_prefix, # pylint: disable=R0913
     nicparams={constants.PP_DEFAULT: nicparams},
     ndparams=ndparams,
     hvparams=hvparams,
+    diskparams=diskparams,
     candidate_pool_size=candidate_pool_size,
     modify_etc_hosts=modify_etc_hosts,
     modify_ssh_setup=modify_ssh_setup,
@@ -437,6 +528,10 @@ def InitCluster(cluster_name, mac_prefix, # pylint: disable=R0913
     default_iallocator=default_iallocator,
     primary_ip_family=ipcls.family,
     prealloc_wipe_disks=prealloc_wipe_disks,
+    use_external_mip_script=use_external_mip_script,
+    ipolicy=full_ipolicy,
+    hv_state_static=hv_state,
+    disk_state_static=disk_state,
     )
   master_node_config = objects.Node(name=hostname.name,
                                     primary_ip=hostname.ip,
@@ -494,6 +589,7 @@ def InitConfig(version, cluster_config, master_node_config,
     uuid=uuid_generator.Generate([], utils.NewUUID, _INITCONF_ECID),
     name=constants.INITIAL_NODE_GROUP_NAME,
     members=[master_node_config.name],
+    diskparams={},
     )
   nodegroups = {
     default_nodegroup.uuid: default_nodegroup,
@@ -520,11 +616,24 @@ def FinalizeClusterDestroy(master):
   """
   cfg = config.ConfigWriter()
   modify_ssh_setup = cfg.GetClusterInfo().modify_ssh_setup
-  result = rpc.RpcRunner.call_node_stop_master(master, True)
+  runner = rpc.BootstrapRunner()
+
+  master_params = cfg.GetMasterNetworkParameters()
+  master_params.name = master
+  ems = cfg.GetUseExternalMipScript()
+  result = runner.call_node_deactivate_master_ip(master_params.name,
+                                                 master_params, ems)
+
+  msg = result.fail_msg
+  if msg:
+    logging.warning("Could not disable the master IP: %s", msg)
+
+  result = runner.call_node_stop_master(master)
   msg = result.fail_msg
   if msg:
     logging.warning("Could not disable the master role: %s", msg)
-  result = rpc.RpcRunner.call_node_leave_cluster(master, modify_ssh_setup)
+
+  result = runner.call_node_leave_cluster(master, modify_ssh_setup)
   msg = result.fail_msg
   if msg:
     logging.warning("Could not shutdown the node daemon and cleanup"
@@ -557,12 +666,14 @@ def SetupNodeDaemon(cluster_name, node, ssh_key_check):
   # either by being constants or by the checks above
   sshrunner.CopyFileToNode(node, constants.NODED_CERT_FILE)
   sshrunner.CopyFileToNode(node, constants.RAPI_CERT_FILE)
+  sshrunner.CopyFileToNode(node, constants.SPICE_CERT_FILE)
+  sshrunner.CopyFileToNode(node, constants.SPICE_CACERT_FILE)
   sshrunner.CopyFileToNode(node, constants.CONFD_HMAC_KEY)
   mycommand = ("%s stop-all; %s start %s -b %s" %
                (constants.DAEMON_UTIL, constants.DAEMON_UTIL, constants.NODED,
                 utils.ShellQuote(bind_address)))
 
-  result = sshrunner.Run(node, 'root', mycommand, batch=False,
+  result = sshrunner.Run(node, "root", mycommand, batch=False,
                          ask_key=ssh_key_check,
                          use_cluster_key=True,
                          strict_host_check=ssh_key_check)
@@ -604,7 +715,7 @@ def MasterFailover(no_voting=False):
                                " as master candidates. Only these nodes"
                                " can become masters. Current list of"
                                " master candidates is:\n"
-                               "%s" % ('\n'.join(mc_no_master)),
+                               "%s" % ("\n".join(mc_no_master)),
                                errors.ECODE_STATE)
 
   if not no_voting:
@@ -650,7 +761,18 @@ def MasterFailover(no_voting=False):
 
   logging.info("Stopping the master daemon on node %s", old_master)
 
-  result = rpc.RpcRunner.call_node_stop_master(old_master, True)
+  runner = rpc.BootstrapRunner()
+  master_params = cfg.GetMasterNetworkParameters()
+  master_params.name = old_master
+  ems = cfg.GetUseExternalMipScript()
+  result = runner.call_node_deactivate_master_ip(master_params.name,
+                                                 master_params, ems)
+
+  msg = result.fail_msg
+  if msg:
+    logging.warning("Could not disable the master IP: %s", msg)
+
+  result = runner.call_node_stop_master(old_master)
   msg = result.fail_msg
   if msg:
     logging.error("Could not disable the master role on the old master"
@@ -679,7 +801,8 @@ def MasterFailover(no_voting=False):
 
   logging.info("Starting the master daemons on the new master")
 
-  result = rpc.RpcRunner.call_node_start_master(new_master, True, no_voting)
+  result = rpc.BootstrapRunner().call_node_start_master_daemons(new_master,
+                                                                no_voting)
   msg = result.fail_msg
   if msg:
     logging.error("Could not start the master role on the new master"
@@ -735,7 +858,7 @@ def GatherMasterVotes(node_list):
   if not node_list:
     # no nodes left (eventually after removing myself)
     return []
-  results = rpc.RpcRunner.call_master_info(node_list)
+  results = rpc.BootstrapRunner().call_master_info(node_list)
   if not isinstance(results, dict):
     # this should not happen (unless internal error in rpc)
     logging.critical("Can't complete rpc call, aborting master startup")
@@ -749,7 +872,8 @@ def GatherMasterVotes(node_list):
     if msg:
       logging.warning("Error contacting node %s: %s", node, msg)
       fail = True
-    # for now we accept both length 3 and 4 (data[3] is primary ip version)
+    # for now we accept both length 3, 4 and 5 (data[3] is primary ip version
+    # and data[4] is the master netmask)
     elif not isinstance(data, (tuple, list)) or len(data) < 3:
       logging.warning("Invalid data received from node %s: %s", node, data)
       fail = True

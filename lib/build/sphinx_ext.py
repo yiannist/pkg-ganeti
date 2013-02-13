@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2011 Google Inc.
+# Copyright (C) 2011, 2012 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -41,15 +41,37 @@ from ganeti import utils
 from ganeti import opcodes
 from ganeti import ht
 from ganeti import rapi
+from ganeti import luxi
 
 import ganeti.rapi.rlib2 # pylint: disable=W0611
 
 
-COMMON_PARAM_NAMES = map(compat.fst, opcodes.OpCode.OP_PARAMS)
+def _GetCommonParamNames():
+  """Builds a list of parameters common to all opcodes.
+
+  """
+  names = set(map(compat.fst, opcodes.OpCode.OP_PARAMS))
+
+  # The "depends" attribute should be listed
+  names.remove(opcodes.DEPEND_ATTR)
+
+  return names
+
+
+COMMON_PARAM_NAMES = _GetCommonParamNames()
 
 #: Namespace for evaluating expressions
 EVAL_NS = dict(compat=compat, constants=constants, utils=utils, errors=errors,
-               rlib2=rapi.rlib2)
+               rlib2=rapi.rlib2, luxi=luxi)
+
+# Constants documentation for man pages
+CV_ECODES_DOC = "ecodes"
+# We don't care about the leak of variables _, name and doc here.
+# pylint: disable=W0621
+CV_ECODES_DOC_LIST = [(name, doc) for (_, name, doc) in constants.CV_ALL_ECODES]
+DOCUMENTED_CONSTANTS = {
+  CV_ECODES_DOC: CV_ECODES_DOC_LIST,
+  }
 
 
 class OpcodeError(sphinx.errors.SphinxError):
@@ -102,7 +124,7 @@ def _BuildOpcodeParams(op_id, include, exclude, alias):
                    key=compat.fst)
 
   for (rapi_name, name, default, test, doc) in params_with_alias:
-    # Hide common parameters if not explicitely included
+    # Hide common parameters if not explicitly included
     if (name in COMMON_PARAM_NAMES and
         (not include or name not in include)):
       continue
@@ -270,11 +292,22 @@ def BuildQueryFields(fields):
   @type fields: dict (field name as key, field details as value)
 
   """
-  for (_, (fdef, _, _, _)) in utils.NiceSort(fields.items(),
-                                             key=compat.fst):
-    assert len(fdef.doc.splitlines()) == 1
-    yield "``%s``" % fdef.name
-    yield "  %s" % fdef.doc
+  defs = [(fdef.name, fdef.doc)
+           for (_, (fdef, _, _, _)) in utils.NiceSort(fields.items(),
+                                                      key=compat.fst)]
+  return BuildValuesDoc(defs)
+
+
+def BuildValuesDoc(values):
+  """Builds documentation for a list of values
+
+  @type values: list of tuples in the form (value, documentation)
+
+  """
+  for name, doc in values:
+    assert len(doc.splitlines()) == 1
+    yield "``%s``" % name
+    yield "  %s" % doc
 
 
 # TODO: Implement Sphinx directive for query fields

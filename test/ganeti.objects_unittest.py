@@ -1,7 +1,7 @@
 #!/usr/bin/python
 #
 
-# Copyright (C) 2006, 2007, 2008, 2010 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2010, 2012 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -16,7 +16,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
-# 0.0510-1301, USA.
+# 02110-1301, USA.
 
 
 """Script for unittesting the objects module"""
@@ -78,7 +78,8 @@ class TestClusterObject(unittest.TestCase):
         },
       }
     ndparams = {
-        constants.ND_OOB_PROGRAM: "/bin/cluster-oob"
+        constants.ND_OOB_PROGRAM: "/bin/cluster-oob",
+        constants.ND_SPINDLE_COUNT: 1
         }
 
     self.fake_cl = objects.Cluster(hvparams=hvparams, os_hvp=os_hvp,
@@ -161,7 +162,8 @@ class TestClusterObject(unittest.TestCase):
                              ndparams={},
                              group="testgroup")
     group_ndparams = {
-        constants.ND_OOB_PROGRAM: "/bin/group-oob"
+        constants.ND_OOB_PROGRAM: "/bin/group-oob",
+        constants.ND_SPINDLE_COUNT: 10,
         }
     fake_group = objects.NodeGroup(name="testgroup",
                                    ndparams=group_ndparams)
@@ -170,7 +172,8 @@ class TestClusterObject(unittest.TestCase):
 
   def testFillNdParamsNode(self):
     node_ndparams = {
-        constants.ND_OOB_PROGRAM: "/bin/node-oob"
+        constants.ND_OOB_PROGRAM: "/bin/node-oob",
+        constants.ND_SPINDLE_COUNT: 2,
         }
     fake_node = objects.Node(name="test",
                              ndparams=node_ndparams,
@@ -182,18 +185,31 @@ class TestClusterObject(unittest.TestCase):
 
   def testFillNdParamsAll(self):
     node_ndparams = {
-        constants.ND_OOB_PROGRAM: "/bin/node-oob"
+        constants.ND_OOB_PROGRAM: "/bin/node-oob",
+        constants.ND_SPINDLE_COUNT: 5,
         }
     fake_node = objects.Node(name="test",
                              ndparams=node_ndparams,
                              group="testgroup")
     group_ndparams = {
-        constants.ND_OOB_PROGRAM: "/bin/group-oob"
+        constants.ND_OOB_PROGRAM: "/bin/group-oob",
+        constants.ND_SPINDLE_COUNT: 4,
         }
     fake_group = objects.NodeGroup(name="testgroup",
                                    ndparams=group_ndparams)
     self.assertEqual(node_ndparams,
                      self.fake_cl.FillND(fake_node, fake_group))
+
+  def testPrimaryHypervisor(self):
+    assert self.fake_cl.enabled_hypervisors is None
+    self.fake_cl.enabled_hypervisors = [constants.HT_XEN_HVM]
+    self.assertEqual(self.fake_cl.primary_hypervisor, constants.HT_XEN_HVM)
+
+    self.fake_cl.enabled_hypervisors = [constants.HT_XEN_PVM, constants.HT_KVM]
+    self.assertEqual(self.fake_cl.primary_hypervisor, constants.HT_XEN_PVM)
+
+    self.fake_cl.enabled_hypervisors = sorted(constants.HYPER_TYPES)
+    self.assertEqual(self.fake_cl.primary_hypervisor, constants.HT_CHROOT)
 
 
 class TestOS(unittest.TestCase):
@@ -281,6 +297,55 @@ class TestInstance(unittest.TestCase):
     self.assertRaises(errors.OpPrereqError, inst.FindDisk, "hello")
     self.assertRaises(errors.OpPrereqError, inst.FindDisk, 100)
     self.assertRaises(errors.OpPrereqError, inst.FindDisk, 1)
+
+
+class TestNode(unittest.TestCase):
+  def testEmpty(self):
+    self.assertEqual(objects.Node().ToDict(), {})
+    self.assertTrue(isinstance(objects.Node.FromDict({}), objects.Node))
+
+  def testHvState(self):
+    node = objects.Node(name="node18157.example.com", hv_state={
+      constants.HT_XEN_HVM: objects.NodeHvState(cpu_total=64),
+      constants.HT_KVM: objects.NodeHvState(cpu_node=1),
+      })
+
+    node2 = objects.Node.FromDict(node.ToDict())
+
+    # Make sure nothing can reference it anymore
+    del node
+
+    self.assertEqual(node2.name, "node18157.example.com")
+    self.assertEqual(frozenset(node2.hv_state), frozenset([
+      constants.HT_XEN_HVM,
+      constants.HT_KVM,
+      ]))
+    self.assertEqual(node2.hv_state[constants.HT_KVM].cpu_node, 1)
+    self.assertEqual(node2.hv_state[constants.HT_XEN_HVM].cpu_total, 64)
+
+  def testDiskState(self):
+    node = objects.Node(name="node32087.example.com", disk_state={
+      constants.LD_LV: {
+        "lv32352": objects.NodeDiskState(total=128),
+        "lv2082": objects.NodeDiskState(total=512),
+        },
+      })
+
+    node2 = objects.Node.FromDict(node.ToDict())
+
+    # Make sure nothing can reference it anymore
+    del node
+
+    self.assertEqual(node2.name, "node32087.example.com")
+    self.assertEqual(frozenset(node2.disk_state), frozenset([
+      constants.LD_LV,
+      ]))
+    self.assertEqual(frozenset(node2.disk_state[constants.LD_LV]), frozenset([
+      "lv32352",
+      "lv2082",
+      ]))
+    self.assertEqual(node2.disk_state[constants.LD_LV]["lv2082"].total, 512)
+    self.assertEqual(node2.disk_state[constants.LD_LV]["lv32352"].total, 128)
 
 
 if __name__ == '__main__':

@@ -12,38 +12,37 @@ SYNOPSIS
 **hspace** {backend options...} [algorithm options...] [request options...]
 [output options...] [-v... | -q]
 
-**hspace** --version
+**hspace** \--version
 
 Backend options:
 
 { **-m** *cluster* | **-L[** *path* **] [-X]** | **-t** *data-file* |
-**--simulate** *spec* }
+**\--simulate** *spec* | **-I** *path* }
 
 
 Algorithm options:
 
-**[ --max-cpu *cpu-ratio* ]**
-**[ --min-disk *disk-ratio* ]**
+**[ \--max-cpu *cpu-ratio* ]**
+**[ \--min-disk *disk-ratio* ]**
 **[ -O *name...* ]**
 
 
 Request options:
 
-**[--memory** *mem* **]**
-**[--disk** *disk* **]**
-**[--disk-template** *template* **]**
-**[--vcpus** *vcpus* **]**
-**[--tiered-alloc** *spec* **]**
+**[\--disk-template** *template* **]**
+
+**[\--standard-alloc** *disk,ram,cpu*  **]**
+
+**[\--tiered-alloc** *disk,ram,cpu* **]**
 
 Output options:
 
-**[--machine-readable**[=*CHOICE*] **]**
+**[\--machine-readable**[=*CHOICE*] **]**
 **[-p**[*fields*]**]**
 
 
 DESCRIPTION
 -----------
-
 
 hspace computes how many additional instances can be fit on a cluster,
 while maintaining N+1 status.
@@ -60,6 +59,10 @@ it is intended to interpreted as a shell fragment (or parsed as a
 *key=value* file). Options which extend the output (e.g. -p, -v) will
 output the additional information on stderr (such that the stdout is
 still parseable).
+
+By default, the instance specifications will be read from the cluster;
+the options ``--standard-alloc`` and ``--tiered-alloc`` can be used to
+override them.
 
 The following keys are available in the machine-readable output of the
 script (all prefixed with *HTS_*):
@@ -102,7 +105,7 @@ INI_MEM_INST, FIN_MEM_INST
   RAM).
 
 INI_MEM_OVERHEAD, FIN_MEM_OVERHEAD
-  The initial and final memory overhead--memory used for the node
+  The initial and final memory overhead, i.e. memory used for the node
   itself and unacounted memory (e.g. due to hypervisor overhead).
 
 INI_MEM_EFF, HTS_INI_MEM_EFF
@@ -132,14 +135,13 @@ INI_MNODE_DSK_AVAIL, FIN_MNODE_DSK_AVAIL
   Like the above but for disk.
 
 TSPEC
-  If the tiered allocation mode has been enabled, this parameter holds
-  the pairs of specifications and counts of instances that can be
-  created in this mode. The value of the key is a space-separated list
-  of values; each value is of the form *memory,disk,vcpu=count* where
-  the memory, disk and vcpu are the values for the current spec, and
-  count is how many instances of this spec can be created. A complete
-  value for this variable could be: **4096,102400,2=225
-  2560,102400,2=20 512,102400,2=21**.
+  This parameter holds the pairs of specifications and counts of
+  instances that can be created in the *tiered allocation* mode. The
+  value of the key is a space-separated list of values; each value is of
+  the form *memory,disk,vcpu=count* where the memory, disk and vcpu are
+  the values for the current spec, and count is how many instances of
+  this spec can be created. A complete value for this variable could be:
+  **4096,102400,2=225 2560,102400,2=20 512,102400,2=21**.
 
 KM_USED_CPU, KM_USED_NPU, KM_USED_MEM, KM_USED_DSK
   These represents the metrics of used resources at the start of the
@@ -160,7 +162,7 @@ KM_UNAV_CPU, KM_POOL_NPU, KM_UNAV_MEM, KM_UNAV_DSK
   example, the cluster might still have 100GiB disk free, but with no
   memory left for instances, we cannot allocate another instance, so
   in effect the disk space is unallocable. Note that the CPUs here
-  represent instance virtual CPUs, and in case the *--max-cpu* option
+  represent instance virtual CPUs, and in case the *\--max-cpu* option
   hasn't been specified this will be -1.
 
 ALLOC_USAGE
@@ -189,9 +191,8 @@ OK
   that the computation failed and any values present should not be
   relied upon.
 
-If the tiered allocation mode is enabled, then many of the INI_/FIN_
-metrics will be also displayed with a TRL_ prefix, and denote the
-cluster status at the end of the tiered allocation run.
+Many of the INI_/FIN_ metrics will be also displayed with a TRL_ prefix,
+and denote the cluster status at the end of the tiered allocation run.
 
 The human output format should be self-explanatory, so it is not
 described further.
@@ -201,22 +202,17 @@ OPTIONS
 
 The options that can be passed to the program are as follows:
 
---memory *mem*
-  The memory size of the instances to be placed (defaults to
-  4GiB). Units can be used (see below for more details).
+\--disk-template *template*
+  Overrides the disk template for the instance read from the cluster;
+  one of the Ganeti disk templates (e.g. plain, drbd, so on) should be
+  passed in.
 
---disk *disk*
-  The disk size of the instances to be placed (defaults to
-  100GiB). Units can be used.
+\--spindle-use *spindles*
+  Override the spindle use for the instance read from the cluster. The
+  value can be 0 (for example for instances that use very low I/O), but not
+  negative. For shared storage the value is ignored.
 
---disk-template *template*
-  The disk template for the instance; one of the Ganeti disk templates
-  (e.g. plain, drbd, so on) should be passed in.
-
---vcpus *vcpus*
-  The number of VCPUs of the instances to be placed (defaults to 1).
-
---max-cpu=*cpu-ratio*
+\--max-cpu=*cpu-ratio*
   The maximum virtual to physical cpu ratio, as a floating point number
   greater than or equal to one. For example, specifying *cpu-ratio* as
   **2.5** means that, for a 4-cpu machine, a maximum of 10 virtual cpus
@@ -226,12 +222,17 @@ The options that can be passed to the program are as follows:
   make sense, as that means other resources (e.g. disk) won't be fully
   utilised due to CPU restrictions.
 
---min-disk=*disk-ratio*
+\--min-disk=*disk-ratio*
   The minimum amount of free disk space remaining, as a floating point
   number. For example, specifying *disk-ratio* as **0.25** means that
   at least one quarter of disk space should be left free on nodes.
 
--p, --print-nodes
+-l *rounds*, \--max-length=*rounds*
+  Restrict the number of instance allocations to this length. This is
+  not very useful in practice, but can be used for testing hspace
+  itself, or to limit the runtime for very big clusters.
+
+-p, \--print-nodes
   Prints the before and after node status, in a format designed to allow
   the user to understand the node's most important parameters. See the
   man page **htools**(1) for more details about this option.
@@ -250,93 +251,81 @@ The options that can be passed to the program are as follows:
   are reported by RAPI as such, or that have "?" in file-based input
   in any numeric fields.
 
--t *datafile*, --text-data=*datafile*
-  The name of the file holding node and instance information (if not
-  collecting via RAPI or LUXI). This or one of the other backends must
-  be selected.
-
--S *filename*, --save-cluster=*filename*
+-S *filename*, \--save-cluster=*filename*
   If given, the state of the cluster at the end of the allocation is
   saved to a file named *filename.alloc*, and if tiered allocation is
   enabled, the state after tiered allocation will be saved to
   *filename.tiered*. This allows re-feeding the cluster state to
   either hspace itself (with different parameters) or for example
-  hbal.
+  hbal, via the ``-t`` option.
+
+-t *datafile*, \--text-data=*datafile*
+  Backend specification: the name of the file holding node and instance
+  information (if not collecting via RAPI or LUXI). This or one of the
+  other backends must be selected. The option is described in the man
+  page **htools**(1).
 
 -m *cluster*
- Collect data directly from the *cluster* given as an argument via
- RAPI. If the argument doesn't contain a colon (:), then it is
- converted into a fully-built URL via prepending ``https://`` and
- appending the default RAPI port, otherwise it's considered a
- fully-specified URL and is used as-is.
+  Backend specification: collect data directly from the *cluster* given
+  as an argument via RAPI. The option is described in the man page
+  **htools**(1).
 
 -L [*path*]
-  Collect data directly from the master daemon, which is to be
-  contacted via the luxi (an internal Ganeti protocol). An optional
-  *path* argument is interpreted as the path to the unix socket on
-  which the master daemon listens; otherwise, the default path used by
-  ganeti when installed with *--localstatedir=/var* is used.
+  Backend specification: collect data directly from the master daemon,
+  which is to be contacted via LUXI (an internal Ganeti protocol). The
+  option is described in the man page **htools**(1).
 
---simulate *description*
-  Instead of using actual data, build an empty cluster given a node
-  description. The *description* parameter must be a comma-separated
-  list of five elements, describing in order:
+\--simulate *description*
+  Backend specification: similar to the **-t** option, this allows
+  overriding the cluster data with a simulated cluster. For details
+  about the description, see the man page **htools**(1).
 
-  - the allocation policy for this node group
-  - the number of nodes in the cluster
-  - the disk size of the nodes (default in mebibytes, units can be used)
-  - the memory size of the nodes (default in mebibytes, units can be used)
-  - the cpu core count for the nodes
+\--standard-alloc *disk,ram,cpu*
+  This option overrides the instance size read from the cluster for the
+  *standard* allocation mode, where we simply allocate instances of the
+  same, fixed size until the cluster runs out of space.
 
-  An example description would be **preferred,B20,100G,16g,4**
-  describing a 20-node cluster where each node has 100GB of disk
-  space, 16GiB of memory and 4 CPU cores. Note that all nodes must
-  have the same specs currently.
-
-  This option can be given multiple times, and each new use defines a
-  new node group. Hence different node groups can have different
-  allocation policies and node count/specifications.
-
---tiered-alloc *spec*
-  Besides the standard, fixed-size allocation, also do a tiered
-  allocation scheme where the algorithm starts from the given
-  specification and allocates until there is no more space; then it
-  decreases the specification and tries the allocation again. The
-  decrease is done on the matric that last failed during
-  allocation. The specification given is similar to the *--simulate*
-  option and it holds:
+  The specification given is similar to the *\--simulate* option and it
+  holds:
 
   - the disk size of the instance (units can be used)
   - the memory size of the instance (units can be used)
   - the vcpu count for the insance
 
-  An example description would be *100G,4g,2* describing an initial
-  starting specification of 100GB of disk space, 4GiB of memory and 2
-  VCPUs.
+  An example description would be *100G,4g,2* describing an instance
+  specification of 100GB of disk space, 4GiB of memory and 2 VCPUs.
+
+\--tiered-alloc *disk,ram,cpu*
+  This option overrides the instance size for the *tiered* allocation
+  mode. In this mode, the algorithm starts from the given specification
+  and allocates until there is no more space; then it decreases the
+  specification and tries the allocation again. The decrease is done on
+  the metric that last failed during allocation. The argument should
+  have the same format as for ``--standard-alloc``.
 
   Also note that the normal allocation and the tiered allocation are
   independent, and both start from the initial cluster state; as such,
   the instance count for these two modes are not related one to
   another.
 
---machines-readable[=*choice*]
+\--machine-readable[=*choice*]
   By default, the output of the program is in "human-readable" format,
   i.e. text descriptions. By passing this flag you can either enable
   (``--machine-readable`` or ``--machine-readable=yes``) or explicitly
   disable (``--machine-readable=no``) the machine readable format
   described above.
 
--v, --verbose
+-v, \--verbose
   Increase the output verbosity. Each usage of this option will
   increase the verbosity (currently more than 2 doesn't make sense)
   from the default of one.
 
--q, --quiet
+-q, \--quiet
   Decrease the output verbosity. Each usage of this option will
   decrease the verbosity (less than zero doesn't make sense) from the
   default of one.
 
--V, --version
+-V, \--version
   Just show the program version and exit.
 
 UNITS

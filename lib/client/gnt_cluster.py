@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2010, 2011 Google Inc.
+# Copyright (C) 2006, 2007, 2010, 2011, 2012 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -52,6 +52,10 @@ GROUPS_OPT = cli_option("--groups", default=False,
                     action="store_true", dest="groups",
                     help="Arguments are node groups instead of nodes")
 
+SHOW_MACHINE_OPT = cli_option("-M", "--show-machine-names", default=False,
+                              action="store_true",
+                              help="Show machine name for every line in output")
+
 _EPO_PING_INTERVAL = 30 # 30 seconds between pings
 _EPO_PING_TIMEOUT = 1 # 1 second
 _EPO_REACHABLE_TIMEOUT = 15 * 60 # 15 minutes
@@ -98,9 +102,19 @@ def InitCluster(opts, args):
   beparams = opts.beparams
   nicparams = opts.nicparams
 
+  diskparams = dict(opts.diskparams)
+
+  # check the disk template types here, as we cannot rely on the type check done
+  # by the opcode parameter types
+  diskparams_keys = set(diskparams.keys())
+  if not (diskparams_keys <= constants.DISK_TEMPLATES):
+    unknown = utils.NiceSort(diskparams_keys - constants.DISK_TEMPLATES)
+    ToStderr("Disk templates unknown: %s" % utils.CommaJoin(unknown))
+    return 1
+
   # prepare beparams dict
   beparams = objects.FillDict(constants.BEC_DEFAULTS, beparams)
-  utils.ForceDictType(beparams, constants.BES_PARAMETER_TYPES)
+  utils.ForceDictType(beparams, constants.BES_PARAMETER_COMPAT)
 
   # prepare nicparams dict
   nicparams = objects.FillDict(constants.NICC_DEFAULTS, nicparams)
@@ -120,6 +134,27 @@ def InitCluster(opts, args):
     hvparams[hv] = objects.FillDict(constants.HVC_DEFAULTS[hv], hvparams[hv])
     utils.ForceDictType(hvparams[hv], constants.HVS_PARAMETER_TYPES)
 
+  # prepare diskparams dict
+  for templ in constants.DISK_TEMPLATES:
+    if templ not in diskparams:
+      diskparams[templ] = {}
+    diskparams[templ] = objects.FillDict(constants.DISK_DT_DEFAULTS[templ],
+                                         diskparams[templ])
+    utils.ForceDictType(diskparams[templ], constants.DISK_DT_TYPES)
+
+  # prepare ipolicy dict
+  ipolicy_raw = CreateIPolicyFromOpts(
+    ispecs_mem_size=opts.ispecs_mem_size,
+    ispecs_cpu_count=opts.ispecs_cpu_count,
+    ispecs_disk_count=opts.ispecs_disk_count,
+    ispecs_disk_size=opts.ispecs_disk_size,
+    ispecs_nic_count=opts.ispecs_nic_count,
+    ipolicy_disk_templates=opts.ipolicy_disk_templates,
+    ipolicy_vcpu_ratio=opts.ipolicy_vcpu_ratio,
+    ipolicy_spindle_ratio=opts.ipolicy_spindle_ratio,
+    fill_all=True)
+  ipolicy = objects.FillIPolicy(constants.IPOLICY_DEFAULTS, ipolicy_raw)
+
   if opts.candidate_pool_size is None:
     opts.candidate_pool_size = constants.MASTER_POOL_SIZE_DEFAULT
 
@@ -133,16 +168,36 @@ def InitCluster(opts, args):
   if opts.prealloc_wipe_disks is None:
     opts.prealloc_wipe_disks = False
 
+  external_ip_setup_script = opts.use_external_mip_script
+  if external_ip_setup_script is None:
+    external_ip_setup_script = False
+
   try:
     primary_ip_version = int(opts.primary_ip_version)
   except (ValueError, TypeError), err:
     ToStderr("Invalid primary ip version value: %s" % str(err))
     return 1
 
+  master_netmask = opts.master_netmask
+  try:
+    if master_netmask is not None:
+      master_netmask = int(master_netmask)
+  except (ValueError, TypeError), err:
+    ToStderr("Invalid master netmask value: %s" % str(err))
+    return 1
+
+  if opts.disk_state:
+    disk_state = utils.FlatToDict(opts.disk_state)
+  else:
+    disk_state = {}
+
+  hv_state = dict(opts.hv_state)
+
   bootstrap.InitCluster(cluster_name=args[0],
                         secondary_ip=opts.secondary_ip,
                         vg_name=vg_name,
                         mac_prefix=opts.mac_prefix,
+                        master_netmask=master_netmask,
                         master_netdev=master_netdev,
                         file_storage_dir=opts.file_storage_dir,
                         shared_file_storage_dir=opts.shared_file_storage_dir,
@@ -151,6 +206,8 @@ def InitCluster(opts, args):
                         beparams=beparams,
                         nicparams=nicparams,
                         ndparams=ndparams,
+                        diskparams=diskparams,
+                        ipolicy=ipolicy,
                         candidate_pool_size=opts.candidate_pool_size,
                         modify_etc_hosts=opts.modify_etc_hosts,
                         modify_ssh_setup=opts.modify_ssh_setup,
@@ -160,6 +217,9 @@ def InitCluster(opts, args):
                         default_iallocator=opts.default_iallocator,
                         primary_ip_version=primary_ip_version,
                         prealloc_wipe_disks=opts.prealloc_wipe_disks,
+                        use_external_mip_script=external_ip_setup_script,
+                        hv_state=hv_state,
+                        disk_state=disk_state,
                         )
   op = opcodes.OpClusterPostInit()
   SubmitOpCode(op, opts=opts)
@@ -220,6 +280,32 @@ def RenameCluster(opts, args):
   if result:
     ToStdout("Cluster renamed from '%s' to '%s'", cluster_name, result)
 
+  return 0
+
+
+def ActivateMasterIp(opts, args):
+  """Activates the master IP.
+
+  """
+  op = opcodes.OpClusterActivateMasterIp()
+  SubmitOpCode(op)
+  return 0
+
+
+def DeactivateMasterIp(opts, args):
+  """Deactivates the master IP.
+
+  """
+  if not opts.confirm:
+    usertext = ("This will disable the master IP. All the open connections to"
+                " the master IP will be closed. To reach the master you will"
+                " need to use its node IP."
+                " Continue?")
+    if not AskUser(usertext):
+      return 1
+
+  op = opcodes.OpClusterDeactivateMasterIp()
+  SubmitOpCode(op)
   return 0
 
 
@@ -345,6 +431,9 @@ def ShowClusterConfig(opts, args):
             compat.TryToRoman(result["candidate_pool_size"],
                               convert=opts.roman_integers))
   ToStdout("  - master netdev: %s", result["master_netdev"])
+  ToStdout("  - master netmask: %s", result["master_netmask"])
+  ToStdout("  - use external master IP address setup script: %s",
+           result["use_external_mip_script"])
   ToStdout("  - lvm volume group: %s", result["volume_group_name"])
   if result["reserved_lvs"]:
     reserved_lvs = utils.CommaJoin(result["reserved_lvs"])
@@ -373,6 +462,18 @@ def ShowClusterConfig(opts, args):
 
   ToStdout("Default nic parameters:")
   _PrintGroupedParams(result["nicparams"], roman=opts.roman_integers)
+
+  ToStdout("Default disk parameters:")
+  _PrintGroupedParams(result["diskparams"], roman=opts.roman_integers)
+
+  ToStdout("Instance policy - limits for instances:")
+  for key in constants.IPOLICY_ISPECS:
+    ToStdout("  - %s", key)
+    _PrintGroupedParams(result["ipolicy"][key], roman=opts.roman_integers)
+  ToStdout("  - enabled disk templates: %s",
+           utils.CommaJoin(result["ipolicy"][constants.IPOLICY_DTS]))
+  for key in constants.IPOLICY_PARAMETERS:
+    ToStdout("  - %s: %s", key, result["ipolicy"][key])
 
   return 0
 
@@ -438,8 +539,12 @@ def RunClusterCommand(opts, args):
   for name in nodes:
     result = srun.Run(name, "root", command)
     ToStdout("------------------------------------------------")
-    ToStdout("node: %s", name)
-    ToStdout("%s", result.output)
+    if opts.show_machine_names:
+      for line in result.output.splitlines():
+        ToStdout("%s: %s", name, line)
+    else:
+      ToStdout("node: %s", name)
+      ToStdout("%s", result.output)
     ToStdout("return code = %s", result.exit_code)
 
   return 0
@@ -466,6 +571,7 @@ def VerifyCluster(opts, args):
                                error_codes=opts.error_codes,
                                debug_simulate_errors=opts.simulate_errors,
                                skip_checks=skip_checks,
+                               ignore_errors=opts.ignore_errors,
                                group_name=opts.nodegroup)
   result = SubmitOpCode(op, cl=cl, opts=opts)
 
@@ -646,9 +752,45 @@ def SearchTags(opts, args):
     ToStdout("%s %s", path, tag)
 
 
-def _RenewCrypto(new_cluster_cert, new_rapi_cert, rapi_cert_filename,
-                 new_confd_hmac_key, new_cds, cds_filename,
-                 force):
+def _ReadAndVerifyCert(cert_filename, verify_private_key=False):
+  """Reads and verifies an X509 certificate.
+
+  @type cert_filename: string
+  @param cert_filename: the path of the file containing the certificate to
+                        verify encoded in PEM format
+  @type verify_private_key: bool
+  @param verify_private_key: whether to verify the private key in addition to
+                             the public certificate
+  @rtype: string
+  @return: a string containing the PEM-encoded certificate.
+
+  """
+  try:
+    pem = utils.ReadFile(cert_filename)
+  except IOError, err:
+    raise errors.X509CertError(cert_filename,
+                               "Unable to read certificate: %s" % str(err))
+
+  try:
+    OpenSSL.crypto.load_certificate(OpenSSL.crypto.FILETYPE_PEM, pem)
+  except Exception, err:
+    raise errors.X509CertError(cert_filename,
+                               "Unable to load certificate: %s" % str(err))
+
+  if verify_private_key:
+    try:
+      OpenSSL.crypto.load_privatekey(OpenSSL.crypto.FILETYPE_PEM, pem)
+    except Exception, err:
+      raise errors.X509CertError(cert_filename,
+                                 "Unable to load private key: %s" % str(err))
+
+  return pem
+
+
+def _RenewCrypto(new_cluster_cert, new_rapi_cert, #pylint: disable=R0911
+                 rapi_cert_filename, new_spice_cert, spice_cert_filename,
+                 spice_cacert_filename, new_confd_hmac_key, new_cds,
+                 cds_filename, force):
   """Renews cluster certificates, keys and secrets.
 
   @type new_cluster_cert: bool
@@ -657,6 +799,13 @@ def _RenewCrypto(new_cluster_cert, new_rapi_cert, rapi_cert_filename,
   @param new_rapi_cert: Whether to generate a new RAPI certificate
   @type rapi_cert_filename: string
   @param rapi_cert_filename: Path to file containing new RAPI certificate
+  @type new_spice_cert: bool
+  @param new_spice_cert: Whether to generate a new SPICE certificate
+  @type spice_cert_filename: string
+  @param spice_cert_filename: Path to file containing new SPICE certificate
+  @type spice_cacert_filename: string
+  @param spice_cacert_filename: Path to file containing the certificate of the
+                                CA that signed the SPICE certificate
   @type new_confd_hmac_key: bool
   @param new_confd_hmac_key: Whether to generate a new HMAC key
   @type new_cds: bool
@@ -668,7 +817,7 @@ def _RenewCrypto(new_cluster_cert, new_rapi_cert, rapi_cert_filename,
 
   """
   if new_rapi_cert and rapi_cert_filename:
-    ToStderr("Only one of the --new-rapi-certficate and --rapi-certificate"
+    ToStderr("Only one of the --new-rapi-certificate and --rapi-certificate"
              " options can be specified at the same time.")
     return 1
 
@@ -678,27 +827,26 @@ def _RenewCrypto(new_cluster_cert, new_rapi_cert, rapi_cert_filename,
              " the same time.")
     return 1
 
-  if rapi_cert_filename:
-    # Read and verify new certificate
-    try:
-      rapi_cert_pem = utils.ReadFile(rapi_cert_filename)
+  if new_spice_cert and (spice_cert_filename or spice_cacert_filename):
+    ToStderr("When using --new-spice-certificate, the --spice-certificate"
+             " and --spice-ca-certificate must not be used.")
+    return 1
 
-      OpenSSL.crypto.load_certificate(OpenSSL.crypto.FILETYPE_PEM,
-                                      rapi_cert_pem)
-    except Exception, err: # pylint: disable=W0703
-      ToStderr("Can't load new RAPI certificate from %s: %s" %
-               (rapi_cert_filename, str(err)))
-      return 1
+  if bool(spice_cacert_filename) ^ bool(spice_cert_filename):
+    ToStderr("Both --spice-certificate and --spice-ca-certificate must be"
+             " specified.")
+    return 1
 
-    try:
-      OpenSSL.crypto.load_privatekey(OpenSSL.crypto.FILETYPE_PEM, rapi_cert_pem)
-    except Exception, err: # pylint: disable=W0703
-      ToStderr("Can't load new RAPI private key from %s: %s" %
-               (rapi_cert_filename, str(err)))
-      return 1
-
-  else:
-    rapi_cert_pem = None
+  rapi_cert_pem, spice_cert_pem, spice_cacert_pem = (None, None, None)
+  try:
+    if rapi_cert_filename:
+      rapi_cert_pem = _ReadAndVerifyCert(rapi_cert_filename, True)
+    if spice_cert_filename:
+      spice_cert_pem = _ReadAndVerifyCert(spice_cert_filename, True)
+      spice_cacert_pem = _ReadAndVerifyCert(spice_cacert_filename)
+  except errors.X509CertError, err:
+    ToStderr("Unable to load X509 certificate from %s: %s", err[0], err[1])
+    return 1
 
   if cds_filename:
     try:
@@ -718,10 +866,14 @@ def _RenewCrypto(new_cluster_cert, new_rapi_cert, rapi_cert_filename,
 
   def _RenewCryptoInner(ctx):
     ctx.feedback_fn("Updating certificates and keys")
-    bootstrap.GenerateClusterCrypto(new_cluster_cert, new_rapi_cert,
+    bootstrap.GenerateClusterCrypto(new_cluster_cert,
+                                    new_rapi_cert,
+                                    new_spice_cert,
                                     new_confd_hmac_key,
                                     new_cds,
                                     rapi_cert_pem=rapi_cert_pem,
+                                    spice_cert_pem=spice_cert_pem,
+                                    spice_cacert_pem=spice_cacert_pem,
                                     cds=cds)
 
     files_to_copy = []
@@ -731,6 +883,10 @@ def _RenewCrypto(new_cluster_cert, new_rapi_cert, rapi_cert_filename,
 
     if new_rapi_cert or rapi_cert_pem:
       files_to_copy.append(constants.RAPI_CERT_FILE)
+
+    if new_spice_cert or spice_cert_pem:
+      files_to_copy.append(constants.SPICE_CERT_FILE)
+      files_to_copy.append(constants.SPICE_CACERT_FILE)
 
     if new_confd_hmac_key:
       files_to_copy.append(constants.CONFD_HMAC_KEY)
@@ -760,6 +916,9 @@ def RenewCrypto(opts, args):
   return _RenewCrypto(opts.new_cluster_cert,
                       opts.new_rapi_cert,
                       opts.rapi_cert,
+                      opts.new_spice_cert,
+                      opts.spice_cert,
+                      opts.spice_cacert,
                       opts.new_confd_hmac_key,
                       opts.new_cluster_domain_secret,
                       opts.cluster_domain_secret,
@@ -779,7 +938,8 @@ def SetClusterParams(opts, args):
   if not (not opts.lvm_storage or opts.vg_name or
           not opts.drbd_storage or opts.drbd_helper or
           opts.enabled_hypervisors or opts.hvparams or
-          opts.beparams or opts.nicparams or opts.ndparams or
+          opts.beparams or opts.nicparams or
+          opts.ndparams or opts.diskparams or
           opts.candidate_pool_size is not None or
           opts.uid_pool is not None or
           opts.maintain_node_health is not None or
@@ -788,7 +948,19 @@ def SetClusterParams(opts, args):
           opts.default_iallocator is not None or
           opts.reserved_lvs is not None or
           opts.master_netdev is not None or
-          opts.prealloc_wipe_disks is not None):
+          opts.master_netmask is not None or
+          opts.use_external_mip_script is not None or
+          opts.prealloc_wipe_disks is not None or
+          opts.hv_state or
+          opts.disk_state or
+          opts.ispecs_mem_size or
+          opts.ispecs_cpu_count or
+          opts.ispecs_disk_count or
+          opts.ispecs_disk_size or
+          opts.ispecs_nic_count or
+          opts.ipolicy_disk_templates is not None or
+          opts.ipolicy_vcpu_ratio is not None or
+          opts.ipolicy_spindle_ratio is not None):
     ToStderr("Please give at least one of the parameters.")
     return 1
 
@@ -817,8 +989,13 @@ def SetClusterParams(opts, args):
   for hv_params in hvparams.values():
     utils.ForceDictType(hv_params, constants.HVS_PARAMETER_TYPES)
 
+  diskparams = dict(opts.diskparams)
+
+  for dt_params in diskparams.values():
+    utils.ForceDictType(dt_params, constants.DISK_DT_TYPES)
+
   beparams = opts.beparams
-  utils.ForceDictType(beparams, constants.BES_PARAMETER_TYPES)
+  utils.ForceDictType(beparams, constants.BES_PARAMETER_COMPAT)
 
   nicparams = opts.nicparams
   utils.ForceDictType(nicparams, constants.NICS_PARAMETER_TYPES)
@@ -826,6 +1003,17 @@ def SetClusterParams(opts, args):
   ndparams = opts.ndparams
   if ndparams is not None:
     utils.ForceDictType(ndparams, constants.NDS_PARAMETER_TYPES)
+
+  ipolicy = CreateIPolicyFromOpts(
+    ispecs_mem_size=opts.ispecs_mem_size,
+    ispecs_cpu_count=opts.ispecs_cpu_count,
+    ispecs_disk_count=opts.ispecs_disk_count,
+    ispecs_disk_size=opts.ispecs_disk_size,
+    ispecs_nic_count=opts.ispecs_nic_count,
+    ipolicy_disk_templates=opts.ipolicy_disk_templates,
+    ipolicy_vcpu_ratio=opts.ipolicy_vcpu_ratio,
+    ipolicy_spindle_ratio=opts.ipolicy_spindle_ratio,
+    )
 
   mnh = opts.maintain_node_health
 
@@ -847,6 +1035,22 @@ def SetClusterParams(opts, args):
     else:
       opts.reserved_lvs = utils.UnescapeAndSplit(opts.reserved_lvs, sep=",")
 
+  if opts.master_netmask is not None:
+    try:
+      opts.master_netmask = int(opts.master_netmask)
+    except ValueError:
+      ToStderr("The --master-netmask option expects an int parameter.")
+      return 1
+
+  ext_ip_script = opts.use_external_mip_script
+
+  if opts.disk_state:
+    disk_state = utils.FlatToDict(opts.disk_state)
+  else:
+    disk_state = {}
+
+  hv_state = dict(opts.hv_state)
+
   op = opcodes.OpClusterSetParams(vg_name=vg_name,
                                   drbd_helper=drbd_helper,
                                   enabled_hypervisors=hvlist,
@@ -855,6 +1059,8 @@ def SetClusterParams(opts, args):
                                   beparams=beparams,
                                   nicparams=nicparams,
                                   ndparams=ndparams,
+                                  diskparams=diskparams,
+                                  ipolicy=ipolicy,
                                   candidate_pool_size=opts.candidate_pool_size,
                                   maintain_node_health=mnh,
                                   uid_pool=uid_pool,
@@ -863,8 +1069,13 @@ def SetClusterParams(opts, args):
                                   default_iallocator=opts.default_iallocator,
                                   prealloc_wipe_disks=opts.prealloc_wipe_disks,
                                   master_netdev=opts.master_netdev,
-                                  reserved_lvs=opts.reserved_lvs)
-  SubmitOpCode(op, opts=opts)
+                                  master_netmask=opts.master_netmask,
+                                  reserved_lvs=opts.reserved_lvs,
+                                  use_external_mip_script=ext_ip_script,
+                                  hv_state=hv_state,
+                                  disk_state=disk_state,
+                                  )
+  SubmitOrSend(op, opts)
   return 0
 
 
@@ -976,12 +1187,13 @@ def _OobPower(opts, node_list, power):
   return True
 
 
-def _InstanceStart(opts, inst_list, start):
+def _InstanceStart(opts, inst_list, start, no_remember=False):
   """Puts the instances in the list to desired state.
 
   @param opts: The command line options selected by the user
   @param inst_list: The list of instances to operate on
   @param start: True if they should be started, False for shutdown
+  @param no_remember: If the instance state should be remembered
   @return: The success of the operation (none failed)
 
   """
@@ -990,7 +1202,8 @@ def _InstanceStart(opts, inst_list, start):
     text_submit, text_success, text_failed = ("startup", "started", "starting")
   else:
     opcls = compat.partial(opcodes.OpInstanceShutdown,
-                           timeout=opts.shutdown_timeout)
+                           timeout=opts.shutdown_timeout,
+                           no_remember=no_remember)
     text_submit, text_success, text_failed = ("shutdown", "stopped", "stopping")
 
   jex = JobExecutor(opts=opts)
@@ -1170,7 +1383,7 @@ def _EpoOff(opts, node_list, inst_map):
   @return: The desired exit status
 
   """
-  if not _InstanceStart(opts, inst_map.keys(), False):
+  if not _InstanceStart(opts, inst_map.keys(), False, no_remember=True):
     ToStderr("Please investigate and stop instances manually before continuing")
     return constants.EXIT_FAILURE
 
@@ -1255,17 +1468,17 @@ def Epo(opts, args):
   else:
     return _EpoOff(opts, node_list, inst_map)
 
-
 commands = {
   "init": (
     InitCluster, [ArgHost(min=1, max=1)],
     [BACKEND_OPT, CP_SIZE_OPT, ENABLED_HV_OPT, GLOBAL_FILEDIR_OPT,
-     HVLIST_OPT, MAC_PREFIX_OPT, MASTER_NETDEV_OPT, NIC_PARAMS_OPT,
-     NOLVM_STORAGE_OPT, NOMODIFY_ETCHOSTS_OPT, NOMODIFY_SSH_SETUP_OPT,
-     SECONDARY_IP_OPT, VG_NAME_OPT, MAINTAIN_NODE_HEALTH_OPT,
-     UIDPOOL_OPT, DRBD_HELPER_OPT, NODRBD_STORAGE_OPT,
+     HVLIST_OPT, MAC_PREFIX_OPT, MASTER_NETDEV_OPT, MASTER_NETMASK_OPT,
+     NIC_PARAMS_OPT, NOLVM_STORAGE_OPT, NOMODIFY_ETCHOSTS_OPT,
+     NOMODIFY_SSH_SETUP_OPT, SECONDARY_IP_OPT, VG_NAME_OPT,
+     MAINTAIN_NODE_HEALTH_OPT, UIDPOOL_OPT, DRBD_HELPER_OPT, NODRBD_STORAGE_OPT,
      DEFAULT_IALLOCATOR_OPT, PRIMARY_IP_VERSION_OPT, PREALLOC_WIPE_DISKS_OPT,
-     NODE_PARAMS_OPT, GLOBAL_SHARED_FILEDIR_OPT],
+     NODE_PARAMS_OPT, GLOBAL_SHARED_FILEDIR_OPT, USE_EXTERNAL_MIP_SCRIPT,
+     DISK_PARAMS_OPT, HV_STATE_OPT, DISK_STATE_OPT] + INSTANCE_POLICY_OPTS,
     "[opts...] <cluster_name>", "Initialises a new cluster configuration"),
   "destroy": (
     DestroyCluster, ARGS_NONE, [YES_DOIT_OPT],
@@ -1282,7 +1495,7 @@ commands = {
   "verify": (
     VerifyCluster, ARGS_NONE,
     [VERBOSE_OPT, DEBUG_SIMERR_OPT, ERROR_CODES_OPT, NONPLUS1_OPT,
-     DRY_RUN_OPT, PRIORITY_OPT, NODEGROUP_OPT],
+     DRY_RUN_OPT, PRIORITY_OPT, NODEGROUP_OPT, IGNORE_ERRORS_OPT],
     "", "Does a check on the cluster configuration"),
   "verify-disks": (
     VerifyDisks, ARGS_NONE, [PRIORITY_OPT],
@@ -1308,7 +1521,7 @@ commands = {
     "[-n node...] <filename>", "Copies a file to all (or only some) nodes"),
   "command": (
     RunClusterCommand, [ArgCommand(min=1)],
-    [NODE_LIST_OPT, NODEGROUP_OPT],
+    [NODE_LIST_OPT, NODEGROUP_OPT, SHOW_MACHINE_OPT],
     "[-n node...] <command>", "Runs a command on all (or only some) nodes"),
   "info": (
     ShowClusterConfig, ARGS_NONE, [ROMAN_OPT],
@@ -1316,10 +1529,10 @@ commands = {
   "list-tags": (
     ListTags, ARGS_NONE, [], "", "List the tags of the cluster"),
   "add-tags": (
-    AddTags, [ArgUnknown()], [TAG_SRC_OPT, PRIORITY_OPT],
+    AddTags, [ArgUnknown()], [TAG_SRC_OPT, PRIORITY_OPT, SUBMIT_OPT],
     "tag...", "Add tags to the cluster"),
   "remove-tags": (
-    RemoveTags, [ArgUnknown()], [TAG_SRC_OPT, PRIORITY_OPT],
+    RemoveTags, [ArgUnknown()], [TAG_SRC_OPT, PRIORITY_OPT, SUBMIT_OPT],
     "tag...", "Remove tags from the cluster"),
   "search-tags": (
     SearchTags, [ArgUnknown(min=1, max=1)], [PRIORITY_OPT], "",
@@ -1338,17 +1551,21 @@ commands = {
   "modify": (
     SetClusterParams, ARGS_NONE,
     [BACKEND_OPT, CP_SIZE_OPT, ENABLED_HV_OPT, HVLIST_OPT, MASTER_NETDEV_OPT,
-     NIC_PARAMS_OPT, NOLVM_STORAGE_OPT, VG_NAME_OPT, MAINTAIN_NODE_HEALTH_OPT,
-     UIDPOOL_OPT, ADD_UIDS_OPT, REMOVE_UIDS_OPT, DRBD_HELPER_OPT,
-     NODRBD_STORAGE_OPT, DEFAULT_IALLOCATOR_OPT, RESERVED_LVS_OPT,
-     DRY_RUN_OPT, PRIORITY_OPT, PREALLOC_WIPE_DISKS_OPT, NODE_PARAMS_OPT],
+     MASTER_NETMASK_OPT, NIC_PARAMS_OPT, NOLVM_STORAGE_OPT, VG_NAME_OPT,
+     MAINTAIN_NODE_HEALTH_OPT, UIDPOOL_OPT, ADD_UIDS_OPT, REMOVE_UIDS_OPT,
+     DRBD_HELPER_OPT, NODRBD_STORAGE_OPT, DEFAULT_IALLOCATOR_OPT,
+     RESERVED_LVS_OPT, DRY_RUN_OPT, PRIORITY_OPT, PREALLOC_WIPE_DISKS_OPT,
+     NODE_PARAMS_OPT, USE_EXTERNAL_MIP_SCRIPT, DISK_PARAMS_OPT, HV_STATE_OPT,
+     DISK_STATE_OPT, SUBMIT_OPT] +
+    INSTANCE_POLICY_OPTS,
     "[opts...]",
     "Alters the parameters of the cluster"),
   "renew-crypto": (
     RenewCrypto, ARGS_NONE,
     [NEW_CLUSTER_CERT_OPT, NEW_RAPI_CERT_OPT, RAPI_CERT_OPT,
      NEW_CONFD_HMAC_KEY_OPT, FORCE_OPT,
-     NEW_CLUSTER_DOMAIN_SECRET_OPT, CLUSTER_DOMAIN_SECRET_OPT],
+     NEW_CLUSTER_DOMAIN_SECRET_OPT, CLUSTER_DOMAIN_SECRET_OPT,
+     NEW_SPICE_CERT_OPT, SPICE_CERT_OPT, SPICE_CACERT_OPT],
     "[opts...]",
     "Renews cluster certificates, keys and secrets"),
   "epo": (
@@ -1357,12 +1574,18 @@ commands = {
      SHUTDOWN_TIMEOUT_OPT, POWER_DELAY_OPT],
     "[opts...] [args]",
     "Performs an emergency power-off on given args"),
+  "activate-master-ip": (
+    ActivateMasterIp, ARGS_NONE, [], "", "Activates the master IP"),
+  "deactivate-master-ip": (
+    DeactivateMasterIp, ARGS_NONE, [CONFIRM_OPT], "",
+    "Deactivates the master IP"),
   }
 
 
 #: dictionary with aliases for commands
 aliases = {
   "masterfailover": "master-failover",
+  "show": "info",
 }
 
 

@@ -24,11 +24,14 @@
 
 import re
 import time
+import itertools
+
+from ganeti import compat
+from ganeti.utils import text
 
 
 _SORTER_GROUPS = 8
 _SORTER_RE = re.compile("^%s(.*)$" % (_SORTER_GROUPS * "(\D+|\d+)?"))
-_SORTER_DIGIT = re.compile("^\d+$")
 
 
 def UniqueSequence(seq):
@@ -44,6 +47,29 @@ def UniqueSequence(seq):
   """
   seen = set()
   return [i for i in seq if i not in seen and not seen.add(i)]
+
+
+def JoinDisjointDicts(dict_a, dict_b):
+  """Joins dictionaries with no conflicting keys.
+
+  Enforces the constraint that the two key sets must be disjoint, and then
+  merges the two dictionaries in a new dictionary that is returned to the
+  caller.
+
+  @type dict_a: dict
+  @param dict_a: the first dictionary
+  @type dict_b: dict
+  @param dict_b: the second dictionary
+  @rtype: dict
+  @return: a new dictionary containing all the key/value pairs contained in the
+  two dictionaries.
+
+  """
+  assert not (set(dict_a) & set(dict_b)), ("Duplicate keys found while joining"
+                                           " %s and %s" % (dict_a, dict_b))
+  result = dict_a.copy()
+  result.update(dict_b)
+  return result
 
 
 def FindDuplicates(seq):
@@ -73,7 +99,7 @@ def _NiceSortTryInt(val):
   """Attempts to convert a string to an integer.
 
   """
-  if val and _SORTER_DIGIT.match(val):
+  if val and val.isdigit():
     return int(val)
   else:
     return val
@@ -123,6 +149,99 @@ def InvertDict(dict_in):
 
   """
   return dict(zip(dict_in.values(), dict_in.keys()))
+
+
+def InsertAtPos(src, pos, other):
+  """Inserts C{other} at given C{pos} into C{src}.
+
+  @note: This function does not modify C{src} in place but returns a new copy
+
+  @type src: list
+  @param src: The source list in which we want insert elements
+  @type pos: int
+  @param pos: The position where we want to start insert C{other}
+  @type other: list
+  @param other: The other list to insert into C{src}
+  @return: A copy of C{src} with C{other} inserted at C{pos}
+
+  """
+  new = src[:pos]
+  new.extend(other)
+  new.extend(src[pos:])
+
+  return new
+
+
+def SequenceToDict(seq, key=compat.fst):
+  """Converts a sequence to a dictionary with duplicate detection.
+
+  @type seq: sequen
+  @param seq: Input sequence
+  @type key: callable
+  @param key: Function for retrieving dictionary key from sequence element
+  @rtype: dict
+
+  """
+  keys = map(key, seq)
+
+  duplicates = FindDuplicates(keys)
+  if duplicates:
+    raise ValueError("Duplicate keys found: %s" % text.CommaJoin(duplicates))
+
+  assert len(keys) == len(seq)
+
+  return dict(zip(keys, seq))
+
+
+def _MakeFlatToDict(data):
+  """Helper function for C{FlatToDict}.
+
+  This function is recursively called
+
+  @param data: The input data as described in C{FlatToDict}, already splitted
+  @returns: The so far converted dict
+
+  """
+  if not compat.fst(compat.fst(data)):
+    assert len(data) == 1, \
+      "not bottom most element, found %d elements, expected 1" % len(data)
+    return compat.snd(compat.fst(data))
+
+  keyfn = lambda e: compat.fst(e).pop(0)
+  return dict([(k, _MakeFlatToDict(list(g)))
+               for (k, g) in itertools.groupby(sorted(data), keyfn)])
+
+
+def FlatToDict(data, field_sep="/"):
+  """Converts a flat structure to a fully fledged dict.
+
+  It accept a list of tuples in the form::
+
+    [
+      ("foo/bar", {"key1": "data1", "key2": "data2"}),
+      ("foo/baz", {"key3" :"data3" }),
+    ]
+
+  where the first element is the key separated by C{field_sep}.
+
+  This would then return::
+
+    {
+      "foo": {
+        "bar": {"key1": "data1", "key2": "data2"},
+        "baz": {"key3" :"data3" },
+        },
+    }
+
+  @type data: list of tuple
+  @param data: Input list to convert
+  @type field_sep: str
+  @param field_sep: The separator for the first field of the tuple
+  @returns: A dict based on the input list
+
+  """
+  return _MakeFlatToDict([(keys.split(field_sep), value)
+                          for (keys, value) in data])
 
 
 class RunningTimeout(object):

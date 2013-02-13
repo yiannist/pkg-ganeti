@@ -38,6 +38,7 @@ from ganeti import opcodes
 from ganeti import compat
 from ganeti import mcpu
 from ganeti import query
+from ganeti import workerpool
 
 import testutils
 
@@ -304,7 +305,7 @@ class TestQueuedJob(unittest.TestCase):
       self.assertEqual(len(job.ops), len(ops))
       self.assert_(compat.all(inp.__getstate__() == op.input.__getstate__()
                               for (inp, op) in zip(ops, job.ops)))
-      self.assertRaises(errors.OpExecError, job.GetInfo,
+      self.assertRaises(errors.OpPrereqError, job.GetInfo,
                         ["unknown-field"])
       self.assertEqual(job.GetInfo(["summary"]),
                        [[op.input.Summary() for op in job.ops]])
@@ -673,7 +674,7 @@ class TestJobProcessor(unittest.TestCase, _JobProcessorTestUtils):
              for i in range(opcount)]
 
       # Create job
-      job = self._CreateJob(queue, job_id, ops)
+      job = self._CreateJob(queue, str(job_id), ops)
 
       opexec = _FakeExecOpCodeForProc(queue, None, None)
 
@@ -701,7 +702,7 @@ class TestJobProcessor(unittest.TestCase, _JobProcessorTestUtils):
 
       # Check job status
       self.assertEqual(job.CalcStatus(), constants.JOB_STATUS_ERROR)
-      self.assertEqual(job.GetInfo(["id"]), [job_id])
+      self.assertEqual(job.GetInfo(["id"]), [str(job_id)])
       self.assertEqual(job.GetInfo(["status"]), [constants.JOB_STATUS_ERROR])
 
       # Check opcode status
@@ -925,7 +926,7 @@ class TestJobProcessor(unittest.TestCase, _JobProcessorTestUtils):
            for i in range(3)]
 
     # Create job
-    job_id = 28492
+    job_id = str(28492)
     job = self._CreateJob(queue, job_id, ops)
 
     self.assertEqual(job.CalcStatus(), constants.JOB_STATUS_QUEUED)
@@ -1625,6 +1626,43 @@ class TestJobProcessor(unittest.TestCase, _JobProcessorTestUtils):
     self.assertRaises(IndexError, queue.GetNextUpdate)
 
 
+class TestEvaluateJobProcessorResult(unittest.TestCase):
+  def testFinished(self):
+    depmgr = _FakeDependencyManager()
+    job = _IdOnlyFakeJob(30953)
+    jqueue._EvaluateJobProcessorResult(depmgr, job,
+                                       jqueue._JobProcessor.FINISHED)
+    self.assertEqual(depmgr.GetNextNotification(), job.id)
+    self.assertRaises(IndexError, depmgr.GetNextNotification)
+
+  def testDefer(self):
+    depmgr = _FakeDependencyManager()
+    job = _IdOnlyFakeJob(11326, priority=5463)
+    try:
+      jqueue._EvaluateJobProcessorResult(depmgr, job,
+                                         jqueue._JobProcessor.DEFER)
+    except workerpool.DeferTask, err:
+      self.assertEqual(err.priority, 5463)
+    else:
+      self.fail("Didn't raise exception")
+    self.assertRaises(IndexError, depmgr.GetNextNotification)
+
+  def testWaitdep(self):
+    depmgr = _FakeDependencyManager()
+    job = _IdOnlyFakeJob(21317)
+    jqueue._EvaluateJobProcessorResult(depmgr, job,
+                                       jqueue._JobProcessor.WAITDEP)
+    self.assertRaises(IndexError, depmgr.GetNextNotification)
+
+  def testOther(self):
+    depmgr = _FakeDependencyManager()
+    job = _IdOnlyFakeJob(5813)
+    self.assertRaises(errors.ProgrammerError,
+                      jqueue._EvaluateJobProcessorResult,
+                      depmgr, job, "Other result")
+    self.assertRaises(IndexError, depmgr.GetNextNotification)
+
+
 class _FakeTimeoutStrategy:
   def __init__(self, timeouts):
     self.timeouts = timeouts
@@ -1858,11 +1896,16 @@ class TestJobProcessorTimeouts(unittest.TestCase, _JobProcessorTestUtils):
     self.assertRaises(IndexError, self.queue.GetNextUpdate)
 
 
-class TestJobDependencyManager(unittest.TestCase):
-  class _FakeJob:
-    def __init__(self, job_id):
-      self.id = str(job_id)
+class _IdOnlyFakeJob:
+  def __init__(self, job_id, priority=NotImplemented):
+    self.id = str(job_id)
+    self._priority = priority
 
+  def CalcPriority(self):
+    return self._priority
+
+
+class TestJobDependencyManager(unittest.TestCase):
   def setUp(self):
     self._status = []
     self._queue = []
@@ -1880,7 +1923,7 @@ class TestJobDependencyManager(unittest.TestCase):
     self._queue.append(jobs)
 
   def testNotFinalizedThenCancel(self):
-    job = self._FakeJob(17697)
+    job = _IdOnlyFakeJob(17697)
     job_id = str(28625)
 
     self._status.append((job_id, constants.JOB_STATUS_RUNNING))
@@ -1905,7 +1948,7 @@ class TestJobDependencyManager(unittest.TestCase):
     self.assertFalse(self.jdm.GetLockInfo([query.LQ_PENDING]))
 
   def testRequireCancel(self):
-    job = self._FakeJob(5278)
+    job = _IdOnlyFakeJob(5278)
     job_id = str(9610)
     dep_status = [constants.JOB_STATUS_CANCELED]
 
@@ -1931,7 +1974,7 @@ class TestJobDependencyManager(unittest.TestCase):
     self.assertFalse(self.jdm.GetLockInfo([query.LQ_PENDING]))
 
   def testRequireError(self):
-    job = self._FakeJob(21459)
+    job = _IdOnlyFakeJob(21459)
     job_id = str(25519)
     dep_status = [constants.JOB_STATUS_ERROR]
 
@@ -1957,7 +2000,7 @@ class TestJobDependencyManager(unittest.TestCase):
     dep_status = list(constants.JOBS_FINALIZED)
 
     for end_status in dep_status:
-      job = self._FakeJob(21343)
+      job = _IdOnlyFakeJob(21343)
       job_id = str(14609)
 
       self._status.append((job_id, constants.JOB_STATUS_WAITING))
@@ -1982,7 +2025,7 @@ class TestJobDependencyManager(unittest.TestCase):
       self.assertFalse(self.jdm.GetLockInfo([query.LQ_PENDING]))
 
   def testNotify(self):
-    job = self._FakeJob(8227)
+    job = _IdOnlyFakeJob(8227)
     job_id = str(4113)
 
     self._status.append((job_id, constants.JOB_STATUS_RUNNING))
@@ -2002,7 +2045,7 @@ class TestJobDependencyManager(unittest.TestCase):
     self.assertEqual(self._queue, [set([job])])
 
   def testWrongStatus(self):
-    job = self._FakeJob(10102)
+    job = _IdOnlyFakeJob(10102)
     job_id = str(1271)
 
     self._status.append((job_id, constants.JOB_STATUS_QUEUED))
@@ -2025,7 +2068,7 @@ class TestJobDependencyManager(unittest.TestCase):
     self.assertFalse(self.jdm.JobWaiting(job))
 
   def testCorrectStatus(self):
-    job = self._FakeJob(24273)
+    job = _IdOnlyFakeJob(24273)
     job_id = str(23885)
 
     self._status.append((job_id, constants.JOB_STATUS_QUEUED))
@@ -2048,7 +2091,7 @@ class TestJobDependencyManager(unittest.TestCase):
     self.assertFalse(self.jdm.JobWaiting(job))
 
   def testFinalizedRightAway(self):
-    job = self._FakeJob(224)
+    job = _IdOnlyFakeJob(224)
     job_id = str(3081)
 
     self._status.append((job_id, constants.JOB_STATUS_SUCCESS))
@@ -2075,7 +2118,7 @@ class TestJobDependencyManager(unittest.TestCase):
     job_ids = map(str, rnd.sample(range(1, 10000), 150))
 
     waiters = dict((job_ids.pop(),
-                    set(map(self._FakeJob,
+                    set(map(_IdOnlyFakeJob,
                             [job_ids.pop()
                              for _ in range(rnd.randint(1, 20))])))
                    for _ in range(10))
@@ -2135,14 +2178,14 @@ class TestJobDependencyManager(unittest.TestCase):
     assert not waiters
 
   def testSelfDependency(self):
-    job = self._FakeJob(18937)
+    job = _IdOnlyFakeJob(18937)
 
     self._status.append((job.id, constants.JOB_STATUS_SUCCESS))
     (result, _) = self.jdm.CheckAndRegister(job, job.id, [])
     self.assertEqual(result, self.jdm.ERROR)
 
   def testJobDisappears(self):
-    job = self._FakeJob(30540)
+    job = _IdOnlyFakeJob(30540)
     job_id = str(23769)
 
     def _FakeStatus(_):

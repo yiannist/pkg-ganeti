@@ -12,7 +12,8 @@ hbal - Cluster balancer for Ganeti
 Backend options:
 .PP
 { \f[B]-m\f[] \f[I]cluster\f[] | \f[B]-L[\f[] \f[I]path\f[]
-\f[B]] [-X]\f[] | \f[B]-t\f[] \f[I]data-file\f[] }
+\f[B]] [-X]\f[] | \f[B]-t\f[] \f[I]data-file\f[] | \f[B]-I\f[]
+\f[I]path\f[] }
 .PP
 Algorithm options:
 .PP
@@ -42,7 +43,7 @@ the cluster into a better state.
 The algorithm used is designed to be stable (i.e. it will give you
 the same results when restarting it from the middle of the
 solution) and reasonably fast. It is not, however, designed to be a
-perfect algorithm--it is possible to make it go into a corner from
+perfect algorithm: it is possible to make it go into a corner from
 which it can find no improvement, because it looks only one "step"
 ahead.
 .PP
@@ -238,23 +239,6 @@ the node status, but it can help in understanding instance moves.
 .RS
 .RE
 .TP
-.B -o, --oneline
-Only shows a one-line output from the program, designed for the
-case when one wants to look at multiple clusters at once and check
-their status.
-.RS
-.PP
-The line will contain four fields:
-.IP \[bu] 2
-initial cluster score
-.IP \[bu] 2
-number of steps in the solution
-.IP \[bu] 2
-final cluster score
-.IP \[bu] 2
-improvement in the cluster score
-.RE
-.TP
 .B -O \f[I]name\f[]
 This option (which can be given multiple times) will mark nodes as
 being \f[I]offline\f[].
@@ -369,39 +353,37 @@ metrics and thus the influence of the dynamic utilisation will be
 practically insignificant.
 .RE
 .TP
-.B -t \f[I]datafile\f[], --text-data=\f[I]datafile\f[]
-The name of the file holding node and instance information (if not
-collecting via RAPI or LUXI). This or one of the other backends
-must be selected.
-.RS
-.RE
-.TP
 .B -S \f[I]filename\f[], --save-cluster=\f[I]filename\f[]
 If given, the state of the cluster before the balancing is saved to
 the given file plus the extension "original" (i.e.
 \f[I]filename\f[].original), and the state at the end of the
 balancing is saved to the given file plus the extension "balanced"
 (i.e. \f[I]filename\f[].balanced). This allows re-feeding the
-cluster state to either hbal itself or for example hspace.
+cluster state to either hbal itself or for example hspace via the
+\f[B]-t\f[] option.
+.RS
+.RE
+.TP
+.B -t \f[I]datafile\f[], --text-data=\f[I]datafile\f[]
+Backend specification: the name of the file holding node and
+instance information (if not collecting via RAPI or LUXI). This or
+one of the other backends must be selected. The option is described
+in the man page \f[B]htools\f[](1).
 .RS
 .RE
 .TP
 .B -m \f[I]cluster\f[]
-Collect data directly from the \f[I]cluster\f[] given as an
-argument via RAPI. If the argument doesn\[aq]t contain a colon (:),
-then it is converted into a fully-built URL via prepending
-\f[B]https://\f[] and appending the default RAPI port, otherwise
-it\[aq]s considered a fully-specified URL and is used as-is.
+Backend specification: collect data directly from the
+\f[I]cluster\f[] given as an argument via RAPI. The option is
+described in the man page \f[B]htools\f[](1).
 .RS
 .RE
 .TP
 .B -L [\f[I]path\f[]]
-Collect data directly from the master daemon, which is to be
-contacted via the luxi (an internal Ganeti protocol). An optional
-\f[I]path\f[] argument is interpreted as the path to the unix
-socket on which the master daemon listens; otherwise, the default
-path used by ganeti when installed with
-\f[I]--localstatedir=/var\f[] is used.
+Backend specification: collect data directly from the master
+daemon, which is to be contacted via LUXI (an internal Ganeti
+protocol). The option is described in the man page
+\f[B]htools\f[](1).
 .RS
 .RE
 .TP
@@ -711,10 +693,11 @@ restarter), \f[B]ganeti-cleaner\f[](8) (job queue cleaner),
 Ganeti htools: \f[B]htools\f[](1) (generic binary),
 \f[B]hbal\f[](1) (cluster balancer), \f[B]hspace\f[](1) (capacity
 calculation), \f[B]hail\f[](1) (IAllocator plugin),
-\f[B]hscan\f[](1) (data gatherer from remote clusters).
+\f[B]hscan\f[](1) (data gatherer from remote clusters),
+\f[B]hinfo\f[](1) (cluster information printer).
 .SH COPYRIGHT
 .PP
-Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Google Inc.
+Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012 Google Inc.
 Permission is granted to copy, distribute and/or modify under the
 terms of the GNU General Public License as published by the Free
 Software Foundation; either version 2 of the License, or (at your

@@ -23,10 +23,12 @@ COMMANDS
 ADD
 ~~~
 
-| **add** [--readd] [{-s|--secondary-ip} *secondary\_ip*]
-| [{-g|--node-group} *nodegroup*]
-| [--master-capable=``yes|no``] [--vm-capable=``yes|no``]
-| [--node-parameters *ndparams*]
+| **add** [\--readd] [{-s|\--secondary-ip} *secondary\_ip*]
+| [{-g|\--node-group} *nodegroup*]
+| [\--master-capable=``yes|no``] [\--vm-capable=``yes|no``]
+| [\--node-parameters *ndparams*]
+| [\--disk-state *diskstate*]
+| [\--hypervisor-state *hvstate*]
 | {*nodename*}
 
 Adds the given node to the cluster.
@@ -58,9 +60,16 @@ The ``-g (--node-group)`` option is used to add the new node into a
 specific node group, specified by UUID or name. If only one node group
 exists you can skip this option, otherwise it's mandatory.
 
-The ``vm_capable``, ``master_capable`` and ``ndparams`` options are
-described in **ganeti**(7), and are used to set the properties of the
-new node.
+The ``vm_capable``, ``master_capable``, ``ndparams``, ``diskstate`` and
+``hvstate`` options are described in **ganeti**(7), and are used to set
+the properties of the new node.
+
+The command performs some operations that change the state of the master
+and the new node, like copying certificates and starting the node daemon
+on the new node, or updating ``/etc/hosts`` on the master node.  If the
+command fails at a later stage, it doesn't undo such changes.  This
+should not be a problem, as a successful run of ``gnt-node add`` will
+bring everything back in sync.
 
 Example::
 
@@ -72,7 +81,7 @@ Example::
 ADD-TAGS
 ~~~~~~~~
 
-**add-tags** [--from *file*] {*nodename*} {*tag*...}
+**add-tags** [\--from *file*] {*nodename*} {*tag*...}
 
 Add tags to the given node. If any of the tags contains invalid
 characters, the entire operation will abort.
@@ -86,9 +95,10 @@ interpreted as stdin.
 EVACUATE
 ~~~~~~~~
 
-**evacuate** [-f] [--early-release] [--iallocator *NAME* \|
---new-secondary *destination\_node*]
-[--primary-only \| --secondary-only] [--early-release] {*node*}
+| **evacuate** [-f] [\--early-release] [\--submit]
+| [{-I|\--iallocator} *NAME* \| {-n|\--new-secondary} *destination\_node*]
+| [{-p|\--primary-only} \| {-s|\--secondary-only} ]
+|  {*node*}
 
 This command will move instances away from the given node. If
 ``--primary-only`` is given, only primary instances are evacuated, with
@@ -128,6 +138,9 @@ each affected instance individually:
   in the secondary node change mode (only valid for DRBD instances)
 - when neither of the above is done a combination of the two cases is run
 
+See **ganeti(7)** for a description of ``--submit`` and other common
+options.
+
 Example::
 
     # gnt-node evacuate -I hail node3.example.com
@@ -136,7 +149,7 @@ Example::
 FAILOVER
 ~~~~~~~~
 
-**failover** [-f] [--ignore-consistency] {*node*}
+**failover** [-f] [\--ignore-consistency] {*node*}
 
 This command will fail over all instances having the given node as
 primary to their secondary nodes. This works only for instances having
@@ -165,9 +178,9 @@ LIST
 ~~~~
 
 | **list**
-| [--no-headers] [--separator=*SEPARATOR*]
-| [--units=*UNITS*] [-v] [{-o|--output} *[+]FIELD,...*]
-| [--filter]
+| [\--no-headers] [\--separator=*SEPARATOR*]
+| [\--units=*UNITS*] [-v] [{-o|\--output} *[+]FIELD,...*]
+| [\--filter]
 | [node...]
 
 Lists the nodes in the cluster.
@@ -222,6 +235,37 @@ If no node names are given, then all nodes are queried. Otherwise,
 only the given nodes will be listed.
 
 
+LIST-DRBD
+~~~~~~~~~
+
+**list-drbd** [\--no-headers] [\--separator=*SEPARATOR*] node
+
+Lists the mapping of DRBD minors for a given node. This outputs a static
+list of fields (it doesn't accept the ``--output`` option), as follows:
+
+``Node``
+  The (full) name of the node we are querying
+``Minor``
+  The DRBD minor
+``Instance``
+  The instance the DRBD minor belongs to
+``Disk``
+  The disk index that the DRBD minor belongs to
+``Role``
+  Either ``primary`` or ``secondary``, denoting the role of the node for
+  the instance (note: this is not the live status of the DRBD device,
+  but the configuration value)
+``PeerNode``
+  The node that the minor is connected to on the other end
+
+This command can be used as a reverse lookup (from node and minor) to a
+given instance, which can be useful when debugging DRBD issues.
+
+Note that this command queries Ganeti via :manpage:`ganeti-confd(8)`, so
+it won't be available if support for ``confd`` has not been enabled at
+build time; furthermore, in Ganeti 2.6 this is only available via the
+Haskell version of confd (again selected at build time).
+
 LIST-FIELDS
 ~~~~~~~~~~~
 
@@ -240,16 +284,22 @@ List the tags of the given node.
 MIGRATE
 ~~~~~~~
 
-**migrate** [-f] [--non-live] [--migration-mode=live\|non-live]
-{*node*}
+| **migrate** [-f] [\--non-live] [\--migration-mode=live\|non-live]
+| [\--ignore-ipolicy] [\--submit] {*node*}
 
 This command will migrate all instances having the given node as
 primary to their secondary nodes. This works only for instances
 having a drbd disk template.
 
 As for the **gnt-instance migrate** command, the options
-``--no-live`` and ``--migration-mode`` can be given to influence
-the migration type.
+``--no-live``, ``--migration-mode`` and ``--no-runtime-changes``
+can be given to influence the migration type.
+
+If ``--ignore-ipolicy`` is given any instance policy violations occuring
+during this operation are ignored.
+
+See **ganeti(7)** for a description of ``--submit`` and other common
+options.
 
 Example::
 
@@ -259,19 +309,21 @@ Example::
 MODIFY
 ~~~~~~
 
-| **modify** [-f] [--submit]
-| [{-C|--master-candidate} ``yes|no``]
-| [{-D|--drained} ``yes|no``] [{-O|--offline} ``yes|no``]
-| [--master-capable=``yes|no``] [--vm-capable=``yes|no``] [--auto-promote]
-| [{-s|--secondary-ip} *secondary_ip*]
-| [--node-parameters *ndparams*]
-| [--node-powered=``yes|no``]
+| **modify** [-f] [\--submit]
+| [{-C|\--master-candidate} ``yes|no``]
+| [{-D|\--drained} ``yes|no``] [{-O|\--offline} ``yes|no``]
+| [\--master-capable=``yes|no``] [\--vm-capable=``yes|no``] [\--auto-promote]
+| [{-s|\--secondary-ip} *secondary_ip*]
+| [\--node-parameters *ndparams*]
+| [\--node-powered=``yes|no``]
+| [\--hypervisor-state *hvstate*]
+| [\--disk-state *diskstate*]
 | {*node*}
 
 This command changes the role of the node. Each options takes
 either a literal yes or no, and only one option should be given as
 yes. The meaning of the roles and flags are described in the
-manpage **ganeti**(7).
+manpage **ganeti(7)**.
 
 The option ``--node-powered`` can be used to modify state-of-record if
 it doesn't reflect the reality anymore.
@@ -294,6 +346,9 @@ The ``-s (--secondary-ip)`` option can be used to change the node's
 secondary ip. No drbd instances can be running on the node, while this
 operation is taking place.
 
+See **ganeti(7)** for a description of ``--submit`` and other common
+options.
+
 Example (setting the node back to online and master candidate)::
 
     # gnt-node modify --offline=no --master-candidate=yes node1.example.com
@@ -315,7 +370,7 @@ Example::
 REMOVE-TAGS
 ~~~~~~~~~~~
 
-**remove-tags** [--from *file*] {*nodename*} {*tag*...}
+**remove-tags** [\--from *file*] {*nodename*} {*tag*...}
 
 Remove tags from the given node. If any of the tags are not
 existing on the node, the entire operation will abort.
@@ -329,8 +384,8 @@ be interpreted as stdin.
 VOLUMES
 ~~~~~~~
 
-| **volumes** [--no-headers] [--human-readable]
-| [--separator=*SEPARATOR*] [{-o|--output} *FIELDS*]
+| **volumes** [\--no-headers] [\--human-readable]
+| [\--separator=*SEPARATOR*] [{-o|\--output} *FIELDS*]
 | [*node*...]
 
 Lists all logical volumes and their physical disks from the node(s)
@@ -382,9 +437,9 @@ Example::
 LIST-STORAGE
 ~~~~~~~~~~~~
 
-| **list-storage** [--no-headers] [--human-readable]
-| [--separator=*SEPARATOR*] [--storage-type=*STORAGE\_TYPE*]
-| [{-o|--output} *FIELDS*]
+| **list-storage** [\--no-headers] [\--human-readable]
+| [\--separator=*SEPARATOR*] [\--storage-type=*STORAGE\_TYPE*]
+| [{-o|\--output} *FIELDS*]
 | [*node*...]
 
 Lists the available storage units and their details for the given
@@ -453,8 +508,8 @@ Example::
 MODIFY-STORAGE
 ~~~~~~~~~~~~~~
 
-**modify-storage** [``--allocatable=yes|no``]
-{*node*} {*storage-type*} {*volume-name*}
+| **modify-storage** [\--allocatable={yes|no}] [\--submit]
+| {*node*} {*storage-type*} {*volume-name*}
 
 Modifies storage volumes on a node. Only LVM physical volumes can
 be modified at the moment. They have a storage type of "lvm-pv".
@@ -467,14 +522,14 @@ Example::
 REPAIR-STORAGE
 ~~~~~~~~~~~~~~
 
-**repair-storage** [--ignore-consistency] {*node*} {*storage-type*}
-{*volume-name*}
+| **repair-storage** [\--ignore-consistency] ]\--submit]
+| {*node*} {*storage-type*} {*volume-name*}
 
 Repairs a storage volume on a node. Only LVM volume groups can be
 repaired at this time. They have the storage type "lvm-vg".
 
-On LVM volume groups, **repair-storage** runs "vgreduce
---removemissing".
+On LVM volume groups, **repair-storage** runs ``vgreduce
+--removemissing``.
 
 
 
@@ -493,21 +548,24 @@ Example::
 POWERCYCLE
 ~~~~~~~~~~
 
-**powercycle** [``--yes``] [``--force``] {*node*}
+**powercycle** [\--yes] [\--force] [\--submit] {*node*}
 
 This command (tries to) forcefully reboot a node. It is a command
-that can be used if the node environemnt is broken, such that the
-admin can no longer login over ssh, but the Ganeti node daemon is
+that can be used if the node environment is broken, such that the
+admin can no longer login over SSH, but the Ganeti node daemon is
 still working.
 
 Note that this command is not guaranteed to work; it depends on the
 hypervisor how effective is the reboot attempt. For Linux, this
-command require that the kernel option CONFIG\_MAGIC\_SYSRQ is
+command requires the kernel option ``CONFIG_MAGIC_SYSRQ`` to be
 enabled.
 
 The ``--yes`` option can be used to skip confirmation, while the
 ``--force`` option is needed if the target node is the master
 node.
+
+See **ganeti(7)** for a description of ``--submit`` and other common
+options.
 
 POWER
 ~~~~~

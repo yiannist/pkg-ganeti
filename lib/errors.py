@@ -82,6 +82,12 @@ class LockError(GenericError):
   pass
 
 
+class PidFileLockError(LockError):
+  """PID file is already locked by another process.
+
+  """
+
+
 class HypervisorError(GenericError):
   """Hypervisor-related exception.
 
@@ -277,6 +283,14 @@ class SshKeyError(GenericError):
   """
 
 
+class X509CertError(GenericError):
+  """Invalid X509 certificate.
+
+  This error has two arguments: the certificate filename and the error cause.
+
+  """
+
+
 class TagError(GenericError):
   """Generic tag error.
 
@@ -413,6 +427,12 @@ class QueryFilterParseError(ParseError):
     return [str(inner.line),
             (" " * (inner.column - 1)) + "^",
             str(inner)]
+
+
+class RapiTestResult(GenericError):
+  """Exception containing results from RAPI test utilities.
+
+  """
 
 
 # errors should be added above

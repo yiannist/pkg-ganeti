@@ -89,10 +89,11 @@ restarter), \f[B]ganeti-cleaner\f[](8) (job queue cleaner),
 Ganeti htools: \f[B]htools\f[](1) (generic binary),
 \f[B]hbal\f[](1) (cluster balancer), \f[B]hspace\f[](1) (capacity
 calculation), \f[B]hail\f[](1) (IAllocator plugin),
-\f[B]hscan\f[](1) (data gatherer from remote clusters).
+\f[B]hscan\f[](1) (data gatherer from remote clusters),
+\f[B]hinfo\f[](1) (cluster information printer).
 .SH COPYRIGHT
 .PP
-Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Google Inc.
+Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012 Google Inc.
 Permission is granted to copy, distribute and/or modify under the
 terms of the GNU General Public License as published by the Free
 Software Foundation; either version 2 of the License, or (at your

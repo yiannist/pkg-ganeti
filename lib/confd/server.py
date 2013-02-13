@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2009 Google Inc.
+# Copyright (C) 2009, 2012 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -55,6 +55,7 @@ class ConfdProcessor(object):
     constants.CONFD_REQ_NODE_PIP_LIST: querylib.NodesPipsQuery,
     constants.CONFD_REQ_MC_PIP_LIST: querylib.MasterCandidatesPipsQuery,
     constants.CONFD_REQ_INSTANCES_IPS_LIST: querylib.InstancesIpsQuery,
+    constants.CONFD_REQ_NODE_DRBD: querylib.NodeDrbdQuery,
     }
 
   def __init__(self):
@@ -92,7 +93,7 @@ class ConfdProcessor(object):
 
     """
     if self.disabled:
-      logging.debug('Confd is disabled. Ignoring query.')
+      logging.debug("Confd is disabled. Ignoring query.")
       return
     try:
       request = self.ExtractRequest(payload_in)
@@ -100,7 +101,7 @@ class ConfdProcessor(object):
       payload_out = self.PackReply(reply, rsalt)
       return payload_out
     except errors.ConfdRequestError, err:
-      logging.info('Ignoring broken query from %s:%d: %s', ip, port, err)
+      logging.info("Ignoring broken query from %s:%d: %s", ip, port, err)
       return None
 
   def ExtractRequest(self, payload):
@@ -130,7 +131,7 @@ class ConfdProcessor(object):
     try:
       request = objects.ConfdRequest.FromDict(message)
     except AttributeError, err:
-      raise errors.ConfdRequestError('%s' % err)
+      raise errors.ConfdRequestError(str(err))
 
     return request
 

@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -25,6 +25,7 @@
 # W0614: Unused import %s from wildcard import (since we need cli)
 # C0103: Invalid name gnt-instance
 
+import copy
 import itertools
 import simplejson
 import logging
@@ -39,6 +40,7 @@ from ganeti import errors
 from ganeti import netutils
 from ganeti import ssh
 from ganeti import objects
+from ganeti import ht
 
 
 _EXPAND_CLUSTER = "cluster"
@@ -62,6 +64,10 @@ _EXPAND_NODES_TAGS_MODES = frozenset([
 _LIST_DEF_FIELDS = [
   "name", "hypervisor", "os", "pnode", "status", "oper_ram",
   ]
+
+
+_MISSING = object()
+_ENV_OVERRIDE = frozenset(["list"])
 
 
 def _ExpandMultiNames(mode, names, client=None):
@@ -354,7 +360,7 @@ def BatchCreate(opts, args):
                                    (elem, name, err), errors.ECODE_INVAL)
       disks.append({"size": size})
 
-    utils.ForceDictType(specs["backend"], constants.BES_PARAMETER_TYPES)
+    utils.ForceDictType(specs["backend"], constants.BES_PARAMETER_COMPAT)
     utils.ForceDictType(hvparams, constants.HVS_PARAMETER_TYPES)
 
     tmp_nics = []
@@ -598,14 +604,29 @@ def RecreateDisks(opts, args):
 
   """
   instance_name = args[0]
+
+  disks = []
+
   if opts.disks:
-    try:
-      opts.disks = [int(v) for v in opts.disks.split(",")]
-    except (ValueError, TypeError), err:
-      ToStderr("Invalid disks value: %s" % str(err))
-      return 1
-  else:
-    opts.disks = []
+    for didx, ddict in opts.disks:
+      didx = int(didx)
+
+      if not ht.TDict(ddict):
+        msg = "Invalid disk/%d value: expected dict, got %s" % (didx, ddict)
+        raise errors.OpPrereqError(msg)
+
+      if constants.IDISK_SIZE in ddict:
+        try:
+          ddict[constants.IDISK_SIZE] = \
+            utils.ParseUnit(ddict[constants.IDISK_SIZE])
+        except ValueError, err:
+          raise errors.OpPrereqError("Invalid disk size for disk %d: %s" %
+                                     (didx, err))
+
+      disks.append((didx, ddict))
+
+    # TODO: Verify modifyable parameters (already done in
+    # LUInstanceRecreateDisks, but it'd be nice to have in the client)
 
   if opts.node:
     pnode, snode = SplitNodeOption(opts.node)
@@ -616,9 +637,9 @@ def RecreateDisks(opts, args):
     nodes = []
 
   op = opcodes.OpInstanceRecreateDisks(instance_name=instance_name,
-                                       disks=opts.disks,
-                                       nodes=nodes)
+                                       disks=disks, nodes=nodes)
   SubmitOrSend(op, opts)
+
   return 0
 
 
@@ -627,8 +648,8 @@ def GrowDisk(opts, args):
 
   @param opts: the command line options selected by the user
   @type args: list
-  @param args: should contain two elements, the instance name
-      whose disks we grow and the disk name, e.g. I{sda}
+  @param args: should contain three elements, the target instance name,
+      the target disk id, and the target growth
   @rtype: int
   @return: the desired exit code
 
@@ -647,7 +668,8 @@ def GrowDisk(opts, args):
                                errors.ECODE_INVAL)
   op = opcodes.OpInstanceGrowDisk(instance_name=instance,
                                   disk=disk, amount=amount,
-                                  wait_for_sync=opts.wait_for_sync)
+                                  wait_for_sync=opts.wait_for_sync,
+                                  absolute=opts.absolute)
   SubmitOrSend(op, opts)
   return 0
 
@@ -751,7 +773,8 @@ def ReplaceDisks(opts, args):
   op = opcodes.OpInstanceReplaceDisks(instance_name=args[0], disks=disks,
                                       remote_node=new_2ndary, mode=mode,
                                       iallocator=iallocator,
-                                      early_release=opts.early_release)
+                                      early_release=opts.early_release,
+                                      ignore_ipolicy=opts.ignore_ipolicy)
   SubmitOrSend(op, opts)
   return 0
 
@@ -792,7 +815,8 @@ def FailoverInstance(opts, args):
                                   ignore_consistency=opts.ignore_consistency,
                                   shutdown_timeout=opts.shutdown_timeout,
                                   iallocator=iallocator,
-                                  target_node=target_node)
+                                  target_node=target_node,
+                                  ignore_ipolicy=opts.ignore_ipolicy)
   SubmitOrSend(op, opts, cl=cl)
   return 0
 
@@ -847,8 +871,10 @@ def MigrateInstance(opts, args):
   op = opcodes.OpInstanceMigrate(instance_name=instance_name, mode=mode,
                                  cleanup=opts.cleanup, iallocator=iallocator,
                                  target_node=target_node,
-                                 allow_failover=opts.allow_failover)
-  SubmitOpCode(op, cl=cl, opts=opts)
+                                 allow_failover=opts.allow_failover,
+                                 allow_runtime_changes=opts.allow_runtime_chgs,
+                                 ignore_ipolicy=opts.ignore_ipolicy)
+  SubmitOrSend(op, cl=cl, opts=opts)
   return 0
 
 
@@ -876,7 +902,8 @@ def MoveInstance(opts, args):
   op = opcodes.OpInstanceMove(instance_name=instance_name,
                               target_node=opts.node,
                               shutdown_timeout=opts.shutdown_timeout,
-                              ignore_consistency=opts.ignore_consistency)
+                              ignore_consistency=opts.ignore_consistency,
+                              ignore_ipolicy=opts.ignore_ipolicy)
   SubmitOrSend(op, opts, cl=cl)
   return 0
 
@@ -938,6 +965,9 @@ def _DoConsole(console, show_command, cluster_name, feedback_fn=ToStdout,
                 " URL <vnc://%s:%s/>",
                 console.instance, console.host, console.port,
                 console.display, console.host, console.port)
+  elif console.kind == constants.CONS_SPICE:
+    feedback_fn("Instance %s has SPICE listening on %s:%s", console.instance,
+                console.host, console.port)
   elif console.kind == constants.CONS_SSH:
     # Convert to string if not already one
     if isinstance(console.command, basestring):
@@ -1179,7 +1209,15 @@ def ShowInstanceConfig(opts, args):
     ##          instance["auto_balance"])
     buf.write("  Nodes:\n")
     buf.write("    - primary: %s\n" % instance["pnode"])
-    buf.write("    - secondaries: %s\n" % utils.CommaJoin(instance["snodes"]))
+    buf.write("      group: %s (UUID %s)\n" %
+              (instance["pnode_group_name"], instance["pnode_group_uuid"]))
+    buf.write("    - secondaries: %s\n" %
+              utils.CommaJoin("%s (group %s, group UUID %s)" %
+                                (name, group_name, group_uuid)
+                              for (name, group_name, group_uuid) in
+                                zip(instance["snodes"],
+                                    instance["snodes_group_names"],
+                                    instance["snodes_group_uuids"])))
     buf.write("  Operating system: %s\n" % instance["os"])
     FormatParameterDict(buf, instance["os_instance"], instance["os_actual"],
                         level=2)
@@ -1212,12 +1250,12 @@ def ShowInstanceConfig(opts, args):
     FormatParameterDict(buf, instance["hv_instance"], instance["hv_actual"],
                         level=2)
     buf.write("  Hardware:\n")
-    buf.write("    - VCPUs: %s\n" %
-              compat.TryToRoman(instance["be_actual"][constants.BE_VCPUS],
-                                convert=opts.roman_integers))
-    buf.write("    - memory: %sMiB\n" %
-              compat.TryToRoman(instance["be_actual"][constants.BE_MEMORY],
-                                convert=opts.roman_integers))
+    # deprecated "memory" value, kept for one version for compatibility
+    # TODO(ganeti 2.7) remove.
+    be_actual = copy.deepcopy(instance["be_actual"])
+    be_actual["memory"] = be_actual[constants.BE_MAXMEM]
+    FormatParameterDict(buf, instance["be_instance"], be_actual, level=2)
+    # TODO(ganeti 2.7) rework the NICs as well
     buf.write("    - NICs:\n")
     for idx, (ip, mac, mode, link) in enumerate(instance["nics"]):
       buf.write("      - nic/%d: MAC: %s, IP: %s, mode: %s, link: %s\n" %
@@ -1233,6 +1271,87 @@ def ShowInstanceConfig(opts, args):
   return retcode
 
 
+def _ConvertNicDiskModifications(mods):
+  """Converts NIC/disk modifications from CLI to opcode.
+
+  When L{opcodes.OpInstanceSetParams} was changed to support adding/removing
+  disks at arbitrary indices, its parameter format changed. This function
+  converts legacy requests (e.g. "--net add" or "--disk add:size=4G") to the
+  newer format and adds support for new-style requests (e.g. "--new 4:add").
+
+  @type mods: list of tuples
+  @param mods: Modifications as given by command line parser
+  @rtype: list of tuples
+  @return: Modifications as understood by L{opcodes.OpInstanceSetParams}
+
+  """
+  result = []
+
+  for (idx, params) in mods:
+    if idx == constants.DDM_ADD:
+      # Add item as last item (legacy interface)
+      action = constants.DDM_ADD
+      idxno = -1
+    elif idx == constants.DDM_REMOVE:
+      # Remove last item (legacy interface)
+      action = constants.DDM_REMOVE
+      idxno = -1
+    else:
+      # Modifications and adding/removing at arbitrary indices
+      try:
+        idxno = int(idx)
+      except (TypeError, ValueError):
+        raise errors.OpPrereqError("Non-numeric index '%s'" % idx,
+                                   errors.ECODE_INVAL)
+
+      add = params.pop(constants.DDM_ADD, _MISSING)
+      remove = params.pop(constants.DDM_REMOVE, _MISSING)
+      modify = params.pop(constants.DDM_MODIFY, _MISSING)
+
+      if modify is _MISSING:
+        if not (add is _MISSING or remove is _MISSING):
+          raise errors.OpPrereqError("Cannot add and remove at the same time",
+                                     errors.ECODE_INVAL)
+        elif add is not _MISSING:
+          action = constants.DDM_ADD
+        elif remove is not _MISSING:
+          action = constants.DDM_REMOVE
+        else:
+          action = constants.DDM_MODIFY
+
+      else:
+        if add is _MISSING and remove is _MISSING:
+          action = constants.DDM_MODIFY
+        else:
+          raise errors.OpPrereqError("Cannot modify and add/remove at the"
+                                     " same time", errors.ECODE_INVAL)
+
+      assert not (constants.DDMS_VALUES_WITH_MODIFY & set(params.keys()))
+
+    if action == constants.DDM_REMOVE and params:
+      raise errors.OpPrereqError("Not accepting parameters on removal",
+                                 errors.ECODE_INVAL)
+
+    result.append((action, idxno, params))
+
+  return result
+
+
+def _ParseDiskSizes(mods):
+  """Parses disk sizes in parameters.
+
+  """
+  for (action, _, params) in mods:
+    if params and constants.IDISK_SIZE in params:
+      params[constants.IDISK_SIZE] = \
+        utils.ParseUnit(params[constants.IDISK_SIZE])
+    elif action == constants.DDM_ADD:
+      raise errors.OpPrereqError("Missing required parameter 'size'",
+                                 errors.ECODE_INVAL)
+
+  return mods
+
+
 def SetInstanceParams(opts, args):
   """Modifies an instance.
 
@@ -1246,7 +1365,8 @@ def SetInstanceParams(opts, args):
 
   """
   if not (opts.nics or opts.disks or opts.disk_template or
-          opts.hvparams or opts.beparams or opts.os or opts.osparams):
+          opts.hvparams or opts.beparams or opts.os or opts.osparams or
+          opts.offline_inst or opts.online_inst or opts.runtime_mem):
     ToStderr("Please give at least one of the parameters.")
     return 1
 
@@ -1255,7 +1375,7 @@ def SetInstanceParams(opts, args):
       if opts.beparams[param].lower() == "default":
         opts.beparams[param] = constants.VALUE_DEFAULT
 
-  utils.ForceDictType(opts.beparams, constants.BES_PARAMETER_TYPES,
+  utils.ForceDictType(opts.beparams, constants.BES_PARAMETER_COMPAT,
                       allowed_values=[constants.VALUE_DEFAULT])
 
   for param in opts.hvparams:
@@ -1266,24 +1386,8 @@ def SetInstanceParams(opts, args):
   utils.ForceDictType(opts.hvparams, constants.HVS_PARAMETER_TYPES,
                       allowed_values=[constants.VALUE_DEFAULT])
 
-  for idx, (nic_op, nic_dict) in enumerate(opts.nics):
-    try:
-      nic_op = int(nic_op)
-      opts.nics[idx] = (nic_op, nic_dict)
-    except (TypeError, ValueError):
-      pass
-
-  for idx, (disk_op, disk_dict) in enumerate(opts.disks):
-    try:
-      disk_op = int(disk_op)
-      opts.disks[idx] = (disk_op, disk_dict)
-    except (TypeError, ValueError):
-      pass
-    if disk_op == constants.DDM_ADD:
-      if "size" not in disk_dict:
-        raise errors.OpPrereqError("Missing required parameter 'size'",
-                                   errors.ECODE_INVAL)
-      disk_dict["size"] = utils.ParseUnit(disk_dict["size"])
+  nics = _ConvertNicDiskModifications(opts.nics)
+  disks = _ParseDiskSizes(_ConvertNicDiskModifications(opts.disks))
 
   if (opts.disk_template and
       opts.disk_template in constants.DTS_INT_MIRROR and
@@ -1292,18 +1396,28 @@ def SetInstanceParams(opts, args):
              " specifying a secondary node")
     return 1
 
+  if opts.offline_inst:
+    offline = True
+  elif opts.online_inst:
+    offline = False
+  else:
+    offline = None
+
   op = opcodes.OpInstanceSetParams(instance_name=args[0],
-                                   nics=opts.nics,
-                                   disks=opts.disks,
+                                   nics=nics,
+                                   disks=disks,
                                    disk_template=opts.disk_template,
                                    remote_node=opts.node,
                                    hvparams=opts.hvparams,
                                    beparams=opts.beparams,
+                                   runtime_mem=opts.runtime_mem,
                                    os_name=opts.os,
                                    osparams=opts.osparams,
                                    force_variant=opts.force_variant,
                                    force=opts.force,
-                                   wait_for_sync=opts.wait_for_sync)
+                                   wait_for_sync=opts.wait_for_sync,
+                                   offline=offline,
+                                   ignore_ipolicy=opts.ignore_ipolicy)
 
   # even if here we process the result, we allow submit only
   result = SubmitOrSend(op, opts)
@@ -1329,7 +1443,7 @@ def ChangeGroup(opts, args):
                                      iallocator=opts.iallocator,
                                      target_groups=opts.to,
                                      early_release=opts.early_release)
-  result = SubmitOpCode(op, cl=cl, opts=opts)
+  result = SubmitOrSend(op, opts, cl=cl)
 
   # Keep track of submitted jobs
   jex = JobExecutor(cl=cl, opts=opts)
@@ -1402,6 +1516,7 @@ add_opts = [
   OS_OPT,
   FORCE_VARIANT_OPT,
   NO_INSTALL_OPT,
+  IGNORE_IPOLICY_OPT,
   ]
 
 commands = {
@@ -1420,7 +1535,8 @@ commands = {
   "failover": (
     FailoverInstance, ARGS_ONE_INSTANCE,
     [FORCE_OPT, IGNORE_CONSIST_OPT, SUBMIT_OPT, SHUTDOWN_TIMEOUT_OPT,
-     DRY_RUN_OPT, PRIORITY_OPT, DST_NODE_OPT, IALLOCATOR_OPT],
+     DRY_RUN_OPT, PRIORITY_OPT, DST_NODE_OPT, IALLOCATOR_OPT,
+     IGNORE_IPOLICY_OPT],
     "[-f] <instance>", "Stops the instance, changes its primary node and"
     " (if it was originally running) starts it on the new node"
     " (the secondary for mirrored instances or any node"
@@ -1428,13 +1544,14 @@ commands = {
   "migrate": (
     MigrateInstance, ARGS_ONE_INSTANCE,
     [FORCE_OPT, NONLIVE_OPT, MIGRATION_MODE_OPT, CLEANUP_OPT, DRY_RUN_OPT,
-     PRIORITY_OPT, DST_NODE_OPT, IALLOCATOR_OPT, ALLOW_FAILOVER_OPT],
+     PRIORITY_OPT, DST_NODE_OPT, IALLOCATOR_OPT, ALLOW_FAILOVER_OPT,
+     IGNORE_IPOLICY_OPT, NORUNTIME_CHGS_OPT, SUBMIT_OPT],
     "[-f] <instance>", "Migrate instance to its secondary node"
     " (only for mirrored instances)"),
   "move": (
     MoveInstance, ARGS_ONE_INSTANCE,
     [FORCE_OPT, SUBMIT_OPT, SINGLE_NODE_OPT, SHUTDOWN_TIMEOUT_OPT,
-     DRY_RUN_OPT, PRIORITY_OPT, IGNORE_CONSIST_OPT],
+     DRY_RUN_OPT, PRIORITY_OPT, IGNORE_CONSIST_OPT, IGNORE_IPOLICY_OPT],
     "[-f] <instance>", "Move instance to an arbitrary node"
     " (only for instances of type file and lv)"),
   "info": (
@@ -1478,14 +1595,15 @@ commands = {
     ReplaceDisks, ARGS_ONE_INSTANCE,
     [AUTO_REPLACE_OPT, DISKIDX_OPT, IALLOCATOR_OPT, EARLY_RELEASE_OPT,
      NEW_SECONDARY_OPT, ON_PRIMARY_OPT, ON_SECONDARY_OPT, SUBMIT_OPT,
-     DRY_RUN_OPT, PRIORITY_OPT],
+     DRY_RUN_OPT, PRIORITY_OPT, IGNORE_IPOLICY_OPT],
     "[-s|-p|-n NODE|-I NAME] <instance>",
     "Replaces all disks for the instance"),
   "modify": (
     SetInstanceParams, ARGS_ONE_INSTANCE,
     [BACKEND_OPT, DISK_OPT, FORCE_OPT, HVOPTS_OPT, NET_OPT, SUBMIT_OPT,
      DISK_TEMPLATE_OPT, SINGLE_NODE_OPT, OS_OPT, FORCE_VARIANT_OPT,
-     OSPARAMS_OPT, DRY_RUN_OPT, PRIORITY_OPT, NWSYNC_OPT],
+     OSPARAMS_OPT, DRY_RUN_OPT, PRIORITY_OPT, NWSYNC_OPT, OFFLINE_INST_OPT,
+     ONLINE_INST_OPT, IGNORE_IPOLICY_OPT, RUNTIME_MEM_OPT],
     "<instance>", "Alters the parameters of an instance"),
   "shutdown": (
     GenericManyOps("shutdown", _ShutdownInstance), [ArgInstance()],
@@ -1519,28 +1637,28 @@ commands = {
     "[-f] <instance>", "Deactivate an instance's disks"),
   "recreate-disks": (
     RecreateDisks, ARGS_ONE_INSTANCE,
-    [SUBMIT_OPT, DISKIDX_OPT, NODE_PLACEMENT_OPT, DRY_RUN_OPT, PRIORITY_OPT],
+    [SUBMIT_OPT, DISK_OPT, NODE_PLACEMENT_OPT, DRY_RUN_OPT, PRIORITY_OPT],
     "<instance>", "Recreate an instance's disks"),
   "grow-disk": (
     GrowDisk,
     [ArgInstance(min=1, max=1), ArgUnknown(min=1, max=1),
      ArgUnknown(min=1, max=1)],
-    [SUBMIT_OPT, NWSYNC_OPT, DRY_RUN_OPT, PRIORITY_OPT],
+    [SUBMIT_OPT, NWSYNC_OPT, DRY_RUN_OPT, PRIORITY_OPT, ABSOLUTE_OPT],
     "<instance> <disk> <size>", "Grow an instance's disk"),
   "change-group": (
     ChangeGroup, ARGS_ONE_INSTANCE,
-    [TO_GROUP_OPT, IALLOCATOR_OPT, EARLY_RELEASE_OPT],
+    [TO_GROUP_OPT, IALLOCATOR_OPT, EARLY_RELEASE_OPT, PRIORITY_OPT, SUBMIT_OPT],
     "[-I <iallocator>] [--to <group>]", "Change group of instance"),
   "list-tags": (
-    ListTags, ARGS_ONE_INSTANCE, [PRIORITY_OPT],
+    ListTags, ARGS_ONE_INSTANCE, [],
     "<instance_name>", "List the tags of the given instance"),
   "add-tags": (
     AddTags, [ArgInstance(min=1, max=1), ArgUnknown()],
-    [TAG_SRC_OPT, PRIORITY_OPT],
+    [TAG_SRC_OPT, PRIORITY_OPT, SUBMIT_OPT],
     "<instance_name> tag...", "Add tags to the given instance"),
   "remove-tags": (
     RemoveTags, [ArgInstance(min=1, max=1), ArgUnknown()],
-    [TAG_SRC_OPT, PRIORITY_OPT],
+    [TAG_SRC_OPT, PRIORITY_OPT, SUBMIT_OPT],
     "<instance_name> tag...", "Remove tags from given instance"),
   }
 
@@ -1548,9 +1666,11 @@ commands = {
 aliases = {
   "start": "startup",
   "stop": "shutdown",
+  "show": "info",
   }
 
 
 def Main():
   return GenericMain(commands, aliases=aliases,
-                     override={"tag_type": constants.TAG_INSTANCE})
+                     override={"tag_type": constants.TAG_INSTANCE},
+                     env_override=_ENV_OVERRIDE)

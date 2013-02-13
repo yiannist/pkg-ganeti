@@ -13,11 +13,22 @@
   "primary_ip_version": 4,
 
   "os": "debian-etch",
-  "mem": "512M",
+  "maxmem": "1024M",
+  "minmem": "512M",
+
+  "# Instance policy specs": null,
+  "ispec_mem_size_max": 1024,
+  "ispec_disk_size_min": 512,
 
   "# Lists of disk sizes": null,
   "disk": ["1G", "512M"],
   "disk-growth": ["2G", "768M"],
+
+  "# Script to check instance status": null,
+  "instance-check": null,
+
+  "# Regular expression to ignore existing tags": null,
+  "ignore-tags-re": null,
 
   "nodes": [
     {
@@ -34,10 +45,16 @@
 
   "instances": [
     {
-      "name": "xen-test-inst1"
+      "name": "xen-test-inst1",
+
+      "# Static MAC address": null,
+      "#nic.mac/0": "AA:00:00:11:11:11"
     },
     {
-      "name": "xen-test-inst2"
+      "name": "xen-test-inst2",
+
+      "# Static MAC address": null,
+      "#nic.mac/0": "AA:00:00:22:22:22"
     }
   ],
 
@@ -59,6 +76,7 @@
     "tags": true,
     "rapi": true,
     "test-jobqueue": true,
+    "delay": true,
 
     "create-cluster": true,
     "cluster-verify": true,
@@ -76,6 +94,9 @@
     "cluster-epo": true,
     "cluster-redist-conf": true,
     "cluster-repair-disk-sizes": true,
+
+    "haskell-confd": true,
+    "htools": true,
 
     "group-list": true,
     "group-rwops": true,
@@ -97,9 +118,12 @@
     "instance-add-plain-disk": true,
     "instance-add-drbd-disk": true,
     "instance-convert-disk": true,
+    "instance-plain-rapi-common-tests": true,
+    "instance-remove-drbd-offline": true,
 
     "instance-export": true,
     "instance-failover": true,
+    "instance-grow-disk": true,
     "instance-import": true,
     "instance-info": true,
     "instance-list": true,
@@ -109,6 +133,8 @@
     "instance-reinstall": true,
     "instance-rename": true,
     "instance-shutdown": true,
+
+    "job-list": true,
 
     "# cron/ganeti-watcher should be disabled for these tests": null,
     "instance-automatic-restart": false,

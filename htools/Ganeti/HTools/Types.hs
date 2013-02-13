@@ -1,10 +1,12 @@
+{-# LANGUAGE TemplateHaskell #-}
+
 {-| Some common types.
 
 -}
 
 {-
 
-Copyright (C) 2009, 2010, 2011 Google Inc.
+Copyright (C) 2009, 2010, 2011, 2012 Google Inc.
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -24,53 +26,68 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
 -}
 
 module Ganeti.HTools.Types
-    ( Idx
-    , Ndx
-    , Gdx
-    , NameAssoc
-    , Score
-    , Weight
-    , GroupID
-    , AllocPolicy(..)
-    , apolFromString
-    , apolToString
-    , RSpec(..)
-    , DynUtil(..)
-    , zeroUtil
-    , baseUtil
-    , addUtil
-    , subUtil
-    , defVcpuRatio
-    , defReservedDiskRatio
-    , unitMem
-    , unitCpu
-    , unitDsk
-    , unknownField
-    , Placement
-    , IMove(..)
-    , DiskTemplate(..)
-    , dtToString
-    , dtFromString
-    , MoveJob
-    , JobSet
-    , Result(..)
-    , isOk
-    , isBad
-    , eitherToResult
-    , Element(..)
-    , FailMode(..)
-    , FailStats
-    , OpResult(..)
-    , opToResult
-    , connTimeout
-    , queryTimeout
-    , EvacMode(..)
-    ) where
+  ( Idx
+  , Ndx
+  , Gdx
+  , NameAssoc
+  , Score
+  , Weight
+  , GroupID
+  , defaultGroupID
+  , AllocPolicy(..)
+  , allocPolicyFromRaw
+  , allocPolicyToRaw
+  , InstanceStatus(..)
+  , instanceStatusFromRaw
+  , instanceStatusToRaw
+  , RSpec(..)
+  , AllocInfo(..)
+  , AllocStats
+  , DynUtil(..)
+  , zeroUtil
+  , baseUtil
+  , addUtil
+  , subUtil
+  , defReservedDiskRatio
+  , unitMem
+  , unitCpu
+  , unitDsk
+  , unknownField
+  , Placement
+  , IMove(..)
+  , DiskTemplate(..)
+  , diskTemplateToRaw
+  , diskTemplateFromRaw
+  , MirrorType(..)
+  , templateMirrorType
+  , MoveJob
+  , JobSet
+  , Result(..)
+  , isOk
+  , isBad
+  , eitherToResult
+  , annotateResult
+  , Element(..)
+  , FailMode(..)
+  , FailStats
+  , OpResult(..)
+  , opToResult
+  , connTimeout
+  , queryTimeout
+  , EvacMode(..)
+  , ISpec(..)
+  , IPolicy(..)
+  , defIPolicy
+  , rspecFromISpec
+  ) where
 
 import qualified Data.Map as M
-import qualified Text.JSON as JSON
+import Text.JSON (makeObj, readJSON, showJSON)
 
 import qualified Ganeti.Constants as C
+import qualified Ganeti.THH as THH
+import Ganeti.BasicTypes
+import Ganeti.HTools.JSON
 
 -- | The instance index type.
 type Idx = Int
@@ -93,58 +110,167 @@ type Weight = Double
 -- | The Group UUID type.
 type GroupID = String
 
+-- | Default group UUID (just a string, not a real UUID).
+defaultGroupID :: GroupID
+defaultGroupID = "00000000-0000-0000-0000-000000000000"
+
+-- | Instance disk template type.
+$(THH.declareSADT "DiskTemplate"
+       [ ("DTDiskless",   'C.dtDiskless)
+       , ("DTFile",       'C.dtFile)
+       , ("DTSharedFile", 'C.dtSharedFile)
+       , ("DTPlain",      'C.dtPlain)
+       , ("DTBlock",      'C.dtBlock)
+       , ("DTDrbd8",      'C.dtDrbd8)
+       , ("DTRbd",        'C.dtRbd)
+       ])
+$(THH.makeJSONInstance ''DiskTemplate)
+
+-- | Mirroring type.
+data MirrorType = MirrorNone     -- ^ No mirroring/movability
+                | MirrorInternal -- ^ DRBD-type mirroring
+                | MirrorExternal -- ^ Shared-storage type mirroring
+                  deriving (Eq, Show, Read)
+
+-- | Correspondence between disk template and mirror type.
+templateMirrorType :: DiskTemplate -> MirrorType
+templateMirrorType DTDiskless   = MirrorExternal
+templateMirrorType DTFile       = MirrorNone
+templateMirrorType DTSharedFile = MirrorExternal
+templateMirrorType DTPlain      = MirrorNone
+templateMirrorType DTBlock      = MirrorExternal
+templateMirrorType DTDrbd8      = MirrorInternal
+templateMirrorType DTRbd        = MirrorExternal
+
 -- | The Group allocation policy type.
 --
 -- Note that the order of constructors is important as the automatic
 -- Ord instance will order them in the order they are defined, so when
 -- changing this data type be careful about the interaction with the
 -- desired sorting order.
-data AllocPolicy
-    = AllocPreferred   -- ^ This is the normal status, the group
-                       -- should be used normally during allocations
-    | AllocLastResort  -- ^ This group should be used only as
-                       -- last-resort, after the preferred groups
-    | AllocUnallocable -- ^ This group must not be used for new
-                       -- allocations
-      deriving (Show, Read, Eq, Ord, Enum, Bounded)
+$(THH.declareSADT "AllocPolicy"
+       [ ("AllocPreferred",   'C.allocPolicyPreferred)
+       , ("AllocLastResort",  'C.allocPolicyLastResort)
+       , ("AllocUnallocable", 'C.allocPolicyUnallocable)
+       ])
+$(THH.makeJSONInstance ''AllocPolicy)
 
--- | Convert a string to an alloc policy.
-apolFromString :: (Monad m) => String -> m AllocPolicy
-apolFromString s =
-    case () of
-      _ | s == C.allocPolicyPreferred -> return AllocPreferred
-        | s == C.allocPolicyLastResort -> return AllocLastResort
-        | s == C.allocPolicyUnallocable -> return AllocUnallocable
-        | otherwise -> fail $ "Invalid alloc policy mode: " ++ s
-
--- | Convert an alloc policy to the Ganeti string equivalent.
-apolToString :: AllocPolicy -> String
-apolToString AllocPreferred   = C.allocPolicyPreferred
-apolToString AllocLastResort  = C.allocPolicyLastResort
-apolToString AllocUnallocable = C.allocPolicyUnallocable
-
-instance JSON.JSON AllocPolicy where
-    showJSON = JSON.showJSON . apolToString
-    readJSON s = case JSON.readJSON s of
-                   JSON.Ok s' -> apolFromString s'
-                   JSON.Error e -> JSON.Error $
-                                   "Can't parse alloc_policy: " ++ e
+-- | The Instance real state type.
+$(THH.declareSADT "InstanceStatus"
+       [ ("AdminDown", 'C.inststAdmindown)
+       , ("AdminOffline", 'C.inststAdminoffline)
+       , ("ErrorDown", 'C.inststErrordown)
+       , ("ErrorUp", 'C.inststErrorup)
+       , ("NodeDown", 'C.inststNodedown)
+       , ("NodeOffline", 'C.inststNodeoffline)
+       , ("Running", 'C.inststRunning)
+       , ("WrongNode", 'C.inststWrongnode)
+       ])
+$(THH.makeJSONInstance ''InstanceStatus)
 
 -- | The resource spec type.
 data RSpec = RSpec
-    { rspecCpu  :: Int  -- ^ Requested VCPUs
-    , rspecMem  :: Int  -- ^ Requested memory
-    , rspecDsk  :: Int  -- ^ Requested disk
-    } deriving (Show, Read, Eq)
+  { rspecCpu  :: Int  -- ^ Requested VCPUs
+  , rspecMem  :: Int  -- ^ Requested memory
+  , rspecDsk  :: Int  -- ^ Requested disk
+  } deriving (Show, Read, Eq)
+
+-- | Allocation stats type. This is used instead of 'RSpec' (which was
+-- used at first), because we need to track more stats. The actual
+-- data can refer either to allocated, or available, etc. values
+-- depending on the context. See also
+-- 'Cluster.computeAllocationDelta'.
+data AllocInfo = AllocInfo
+  { allocInfoVCpus :: Int    -- ^ VCPUs
+  , allocInfoNCpus :: Double -- ^ Normalised CPUs
+  , allocInfoMem   :: Int    -- ^ Memory
+  , allocInfoDisk  :: Int    -- ^ Disk
+  } deriving (Show, Read, Eq)
+
+-- | Currently used, possibly to allocate, unallocable.
+type AllocStats = (AllocInfo, AllocInfo, AllocInfo)
+
+-- | Instance specification type.
+$(THH.buildObject "ISpec" "iSpec"
+  [ THH.renameField "MemorySize"   $ THH.simpleField C.ispecMemSize      [t| Int |]
+  , THH.renameField "CpuCount"     $ THH.simpleField C.ispecCpuCount     [t| Int |]
+  , THH.renameField "DiskSize"     $ THH.simpleField C.ispecDiskSize     [t| Int |]
+  , THH.renameField "DiskCount"    $ THH.simpleField C.ispecDiskCount    [t| Int |]
+  , THH.renameField "NicCount"     $ THH.simpleField C.ispecNicCount     [t| Int |]
+  , THH.renameField "SpindleUse"   $ THH.simpleField C.ispecSpindleUse   [t| Int |]
+  ])
+
+-- | The default minimum ispec.
+defMinISpec :: ISpec
+defMinISpec = ISpec { iSpecMemorySize = C.ipolicyDefaultsMinMemorySize
+                    , iSpecCpuCount   = C.ipolicyDefaultsMinCpuCount
+                    , iSpecDiskSize   = C.ipolicyDefaultsMinDiskSize
+                    , iSpecDiskCount  = C.ipolicyDefaultsMinDiskCount
+                    , iSpecNicCount   = C.ipolicyDefaultsMinNicCount
+                    , iSpecSpindleUse = C.ipolicyDefaultsMinSpindleUse
+                    }
+
+-- | The default standard ispec.
+defStdISpec :: ISpec
+defStdISpec = ISpec { iSpecMemorySize = C.ipolicyDefaultsStdMemorySize
+                    , iSpecCpuCount   = C.ipolicyDefaultsStdCpuCount
+                    , iSpecDiskSize   = C.ipolicyDefaultsStdDiskSize
+                    , iSpecDiskCount  = C.ipolicyDefaultsStdDiskCount
+                    , iSpecNicCount   = C.ipolicyDefaultsStdNicCount
+                    , iSpecSpindleUse = C.ipolicyDefaultsStdSpindleUse
+                    }
+
+-- | The default max ispec.
+defMaxISpec :: ISpec
+defMaxISpec = ISpec { iSpecMemorySize = C.ipolicyDefaultsMaxMemorySize
+                    , iSpecCpuCount   = C.ipolicyDefaultsMaxCpuCount
+                    , iSpecDiskSize   = C.ipolicyDefaultsMaxDiskSize
+                    , iSpecDiskCount  = C.ipolicyDefaultsMaxDiskCount
+                    , iSpecNicCount   = C.ipolicyDefaultsMaxNicCount
+                    , iSpecSpindleUse = C.ipolicyDefaultsMaxSpindleUse
+                    }
+
+-- | Instance policy type.
+$(THH.buildObject "IPolicy" "iPolicy"
+  [ THH.renameField "StdSpec" $ THH.simpleField C.ispecsStd [t| ISpec |]
+  , THH.renameField "MinSpec" $ THH.simpleField C.ispecsMin [t| ISpec |]
+  , THH.renameField "MaxSpec" $ THH.simpleField C.ispecsMax [t| ISpec |]
+  , THH.renameField "DiskTemplates" $
+      THH.simpleField C.ipolicyDts [t| [DiskTemplate] |]
+  , THH.renameField "VcpuRatio" $
+      THH.simpleField C.ipolicyVcpuRatio [t| Double |]
+  , THH.renameField "SpindleRatio" $
+      THH.simpleField C.ipolicySpindleRatio [t| Double |]
+  ])
+
+-- | Converts an ISpec type to a RSpec one.
+rspecFromISpec :: ISpec -> RSpec
+rspecFromISpec ispec = RSpec { rspecCpu = iSpecCpuCount ispec
+                             , rspecMem = iSpecMemorySize ispec
+                             , rspecDsk = iSpecDiskSize ispec
+                             }
+
+-- | The default instance policy.
+defIPolicy :: IPolicy
+defIPolicy = IPolicy { iPolicyStdSpec = defStdISpec
+                     , iPolicyMinSpec = defMinISpec
+                     , iPolicyMaxSpec = defMaxISpec
+                     -- hardcoding here since Constants.hs exports the
+                     -- string values, not the actual type; and in
+                     -- htools, we are mostly looking at DRBD
+                     , iPolicyDiskTemplates = [minBound..maxBound]
+                     , iPolicyVcpuRatio = C.ipolicyDefaultsVcpuRatio
+                     , iPolicySpindleRatio = C.ipolicyDefaultsSpindleRatio
+                     }
 
 -- | The dynamic resource specs of a machine (i.e. load or load
 -- capacity, as opposed to size).
 data DynUtil = DynUtil
-    { cpuWeight :: Weight -- ^ Standardised CPU usage
-    , memWeight :: Weight -- ^ Standardised memory load
-    , dskWeight :: Weight -- ^ Standardised disk I\/O usage
-    , netWeight :: Weight -- ^ Standardised network usage
-    } deriving (Show, Read, Eq)
+  { cpuWeight :: Weight -- ^ Standardised CPU usage
+  , memWeight :: Weight -- ^ Standardised memory load
+  , dskWeight :: Weight -- ^ Standardised disk I\/O usage
+  , netWeight :: Weight -- ^ Standardised network usage
+  } deriving (Show, Read, Eq)
 
 -- | Initial empty utilisation.
 zeroUtil :: DynUtil
@@ -160,12 +286,12 @@ baseUtil = DynUtil { cpuWeight = 1, memWeight = 1
 -- | Sum two utilisation records.
 addUtil :: DynUtil -> DynUtil -> DynUtil
 addUtil (DynUtil a1 a2 a3 a4) (DynUtil b1 b2 b3 b4) =
-    DynUtil (a1+b1) (a2+b2) (a3+b3) (a4+b4)
+  DynUtil (a1+b1) (a2+b2) (a3+b3) (a4+b4)
 
 -- | Substracts one utilisation record from another.
 subUtil :: DynUtil -> DynUtil -> DynUtil
 subUtil (DynUtil a1 a2 a3 a4) (DynUtil b1 b2 b3 b4) =
-    DynUtil (a1-b1) (a2-b2) (a3-b3) (a4-b4)
+  DynUtil (a1-b1) (a2-b2) (a3-b3) (a4-b4)
 
 -- | The description of an instance placement. It contains the
 -- instance index, the new primary and secondary node, the move being
@@ -174,48 +300,13 @@ type Placement = (Idx, Ndx, Ndx, IMove, Score)
 
 -- | An instance move definition.
 data IMove = Failover                -- ^ Failover the instance (f)
+           | FailoverToAny Ndx       -- ^ Failover to a random node
+                                     -- (fa:np), for shared storage
            | ReplacePrimary Ndx      -- ^ Replace primary (f, r:np, f)
            | ReplaceSecondary Ndx    -- ^ Replace secondary (r:ns)
            | ReplaceAndFailover Ndx  -- ^ Replace secondary, failover (r:np, f)
            | FailoverAndReplace Ndx  -- ^ Failover, replace secondary (f, r:ns)
              deriving (Show, Read)
-
--- | Instance disk template type.
-data DiskTemplate = DTDiskless
-                  | DTFile
-                  | DTSharedFile
-                  | DTPlain
-                  | DTBlock
-                  | DTDrbd8
-                    deriving (Show, Read, Eq, Enum, Bounded)
-
--- | Converts a DiskTemplate to String.
-dtToString :: DiskTemplate -> String
-dtToString DTDiskless   = C.dtDiskless
-dtToString DTFile       = C.dtFile
-dtToString DTSharedFile = C.dtSharedFile
-dtToString DTPlain      = C.dtPlain
-dtToString DTBlock      = C.dtBlock
-dtToString DTDrbd8      = C.dtDrbd8
-
--- | Converts a DiskTemplate from String.
-dtFromString :: (Monad m) => String -> m DiskTemplate
-dtFromString s =
-    case () of
-      _ | s == C.dtDiskless   -> return DTDiskless
-        | s == C.dtFile       -> return DTFile
-        | s == C.dtSharedFile -> return DTSharedFile
-        | s == C.dtPlain      -> return DTPlain
-        | s == C.dtBlock      -> return DTBlock
-        | s == C.dtDrbd8      -> return DTDrbd8
-        | otherwise           -> fail $ "Invalid disk template: " ++ s
-
-instance JSON.JSON DiskTemplate where
-    showJSON = JSON.showJSON . dtToString
-    readJSON s = case JSON.readJSON s of
-                   JSON.Ok s' -> dtFromString s'
-                   JSON.Error e -> JSON.Error $
-                                   "Can't parse disk_template as string: " ++ e
 
 -- | Formatted solution output for one move (involved nodes and
 -- commands.
@@ -236,10 +327,6 @@ connTimeout = 15
 queryTimeout :: Int
 queryTimeout = 60
 
--- | Default vcpu-to-pcpu ratio (randomly chosen value).
-defVcpuRatio :: Double
-defVcpuRatio = 64
-
 -- | Default max disk usage ratio.
 defReservedDiskRatio :: Double
 defReservedDiskRatio = 0
@@ -255,36 +342,6 @@ unitDsk = 256
 -- | Base vcpus unit.
 unitCpu :: Int
 unitCpu = 1
-
--- | This is similar to the JSON library Result type - /very/ similar,
--- but we want to use it in multiple places, so we abstract it into a
--- mini-library here.
---
--- The failure value for this monad is simply a string.
-data Result a
-    = Bad String
-    | Ok a
-    deriving (Show, Read, Eq)
-
-instance Monad Result where
-    (>>=) (Bad x) _ = Bad x
-    (>>=) (Ok x) fn = fn x
-    return = Ok
-    fail = Bad
-
--- | Simple checker for whether a 'Result' is OK.
-isOk :: Result a -> Bool
-isOk (Ok _) = True
-isOk _ = False
-
--- | Simple checker for whether a 'Result' is a failure.
-isBad :: Result a  -> Bool
-isBad = not . isOk
-
--- | Converter from Either String to 'Result'.
-eitherToResult :: Either String a -> Result a
-eitherToResult (Left s) = Bad s
-eitherToResult (Right v) = Ok v
 
 -- | Reason for an operation's falure.
 data FailMode = FailMem  -- ^ Failed due to not enough RAM
@@ -309,9 +366,9 @@ data OpResult a = OpFail FailMode -- ^ Failed operation
                   deriving (Show, Read)
 
 instance Monad OpResult where
-    (OpGood x) >>= fn = fn x
-    (OpFail y) >>= _ = OpFail y
-    return = OpGood
+  (OpGood x) >>= fn = fn x
+  (OpFail y) >>= _ = OpFail y
+  return = OpGood
 
 -- | Conversion from 'OpResult' to 'Result'.
 opToResult :: OpResult a -> Result a
@@ -320,39 +377,27 @@ opToResult (OpGood v) = Ok v
 
 -- | A generic class for items that have updateable names and indices.
 class Element a where
-    -- | Returns the name of the element
-    nameOf  :: a -> String
-    -- | Returns all the known names of the element
-    allNames :: a -> [String]
-    -- | Returns the index of the element
-    idxOf   :: a -> Int
-    -- | Updates the alias of the element
-    setAlias :: a -> String -> a
-    -- | Compute the alias by stripping a given suffix (domain) from
-    -- the name
-    computeAlias :: String -> a -> a
-    computeAlias dom e = setAlias e alias
-        where alias = take (length name - length dom) name
-              name = nameOf e
-    -- | Updates the index of the element
-    setIdx  :: a -> Int -> a
+  -- | Returns the name of the element
+  nameOf  :: a -> String
+  -- | Returns all the known names of the element
+  allNames :: a -> [String]
+  -- | Returns the index of the element
+  idxOf   :: a -> Int
+  -- | Updates the alias of the element
+  setAlias :: a -> String -> a
+  -- | Compute the alias by stripping a given suffix (domain) from
+  -- the name
+  computeAlias :: String -> a -> a
+  computeAlias dom e = setAlias e alias
+    where alias = take (length name - length dom) name
+          name = nameOf e
+  -- | Updates the index of the element
+  setIdx  :: a -> Int -> a
 
 -- | The iallocator node-evacuate evac_mode type.
-data EvacMode = ChangePrimary
-              | ChangeSecondary
-              | ChangeAll
-                deriving (Show, Read)
-
-instance JSON.JSON EvacMode where
-    showJSON mode = case mode of
-                      ChangeAll       -> JSON.showJSON C.iallocatorNevacAll
-                      ChangePrimary   -> JSON.showJSON C.iallocatorNevacPri
-                      ChangeSecondary -> JSON.showJSON C.iallocatorNevacSec
-    readJSON v =
-        case JSON.readJSON v of
-          JSON.Ok s | s == C.iallocatorNevacAll -> return ChangeAll
-                    | s == C.iallocatorNevacPri -> return ChangePrimary
-                    | s == C.iallocatorNevacSec -> return ChangeSecondary
-                    | otherwise -> fail $ "Invalid evacuate mode " ++ s
-          JSON.Error e -> JSON.Error $
-                          "Can't parse evacuate mode as string: " ++ e
+$(THH.declareSADT "EvacMode"
+       [ ("ChangePrimary",   'C.iallocatorNevacPri)
+       , ("ChangeSecondary", 'C.iallocatorNevacSec)
+       , ("ChangeAll",       'C.iallocatorNevacAll)
+       ])
+$(THH.makeJSONInstance ''EvacMode)

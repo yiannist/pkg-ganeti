@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 
-# Copyright (C) 2010 Google Inc.
+# Copyright (C) 2010, 2011 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -19,6 +19,7 @@
 # 02110-1301, USA.
 
 set -e
+set -u
 
 : ${COVERAGE:=coverage}
 : ${PYTHON:=python}
@@ -26,21 +27,30 @@ set -e
 : ${TEXT_COVERAGE:?}
 : ${GANETI_TEMP_DIR:?}
 
-omit=$($PYTHON -c 'import sys; import os;
-print ",".join("%s/" % i for i in set([sys.prefix, sys.exec_prefix,
-   os.environ["GANETI_TEMP_DIR"] + "/test"]))')
-omit="--omit=$omit"
+reportargs=(
+  '--include=*'
+  '--omit=test/*'
+  )
 
 $COVERAGE erase
 
 for script; do
-  $COVERAGE run --branch --append $script
+  if [[ "$script" == *-runasroot.py ]]; then
+    if [[ -z "$FAKEROOT" ]]; then
+      echo "FAKEROOT variable not set and needed for $script" >&2
+      exit 1
+    fi
+    cmdprefix="$FAKEROOT"
+  else
+    cmdprefix=
+  fi
+  $cmdprefix $COVERAGE run --branch --append "${reportargs[@]}" $script
 done
 
 echo "Writing text report to $TEXT_COVERAGE ..." >&2
-$COVERAGE report $omit | tee "$TEXT_COVERAGE"
+$COVERAGE report "${reportargs[@]}" | tee "$TEXT_COVERAGE"
 
 if [[ -n "$HTML_COVERAGE" ]]; then
   echo "Generating HTML report in $HTML_COVERAGE ..." >&2
-  $COVERAGE html $omit -d "$HTML_COVERAGE"
+  $COVERAGE html "${reportargs[@]}" -d "$HTML_COVERAGE"
 fi

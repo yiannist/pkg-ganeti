@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -22,6 +22,7 @@
 """Module holding different constants."""
 
 import re
+import socket
 
 from ganeti import _autoconf
 from ganeti import _vcsversion
@@ -99,6 +100,28 @@ CONFD_GROUP = _autoconf.CONFD_GROUP
 NODED_USER = _autoconf.NODED_USER
 NODED_GROUP = _autoconf.NODED_GROUP
 
+# cpu pinning separators and constants
+CPU_PINNING_SEP = ":"
+CPU_PINNING_ALL = "all"
+# internal representation of "all"
+CPU_PINNING_ALL_VAL = -1
+# one "all" entry in a CPU list means CPU pinning is off
+CPU_PINNING_OFF = [CPU_PINNING_ALL_VAL]
+
+# A Xen-specific implementation detail - there is no way to actually say
+# "use any cpu for pinning" in a Xen configuration file, as opposed to the
+# command line, where you can say "xm vcpu-pin <domain> <vcpu> all".
+# The workaround used in Xen is "0-63" (see source code function
+# xm_vcpu_pin in <xen-source>/tools/python/xen/xm/main.py).
+# To support future changes, the following constant is treated as a
+# blackbox string that simply means use-any-cpu-for-pinning-under-xen.
+CPU_PINNING_ALL_XEN = "0-63"
+
+# A KVM-specific implementation detail - the following value is used
+# to set CPU affinity to all processors (#0 through #31), per taskset
+# man page.
+# FIXME: This only works for machines with up to 32 CPU cores
+CPU_PINNING_ALL_KVM = 0xFFFFFFFF
 
 # Wipe
 DD_CMD = "dd"
@@ -117,19 +140,9 @@ RUN_DIRS_MODE = 0775
 SOCKET_DIR = RUN_GANETI_DIR + "/socket"
 SECURE_DIR_MODE = 0700
 SECURE_FILE_MODE = 0600
-SOCKET_DIR_MODE = 0750
 CRYPTO_KEYS_DIR = RUN_GANETI_DIR + "/crypto"
-CRYPTO_KEYS_DIR_MODE = SECURE_DIR_MODE
 IMPORT_EXPORT_DIR = RUN_GANETI_DIR + "/import-export"
-IMPORT_EXPORT_DIR_MODE = 0755
 ADOPTABLE_BLOCKDEV_ROOT = "/dev/disk/"
-# keep RUN_GANETI_DIR first here, to make sure all get created when the node
-# daemon is started (this takes care of RUN_DIR being tmpfs)
-SUB_RUN_DIRS = [
-  RUN_GANETI_DIR,
-  BDEV_CACHE_DIR,
-  DISK_LINKS_DIR,
-  ]
 LOCK_DIR = _autoconf.LOCALSTATEDIR + "/lock"
 SSCONF_LOCK_FILE = LOCK_DIR + "/ganeti-ssconf.lock"
 # User-id pool lock directory
@@ -139,6 +152,8 @@ CLUSTER_CONF_FILE = DATA_DIR + "/config.data"
 NODED_CERT_FILE = DATA_DIR + "/server.pem"
 RAPI_CERT_FILE = DATA_DIR + "/rapi.pem"
 CONFD_HMAC_KEY = DATA_DIR + "/hmac.key"
+SPICE_CERT_FILE = DATA_DIR + "/spice.pem"
+SPICE_CACERT_FILE = DATA_DIR + "/spice-ca.pem"
 CLUSTER_DOMAIN_SECRET_FILE = DATA_DIR + "/cluster-domain-secret"
 INSTANCE_STATUS_FILE = RUN_GANETI_DIR + "/instance-status"
 SSH_KNOWN_HOSTS_FILE = DATA_DIR + "/known_hosts"
@@ -157,6 +172,9 @@ ENABLE_SHARED_FILE_STORAGE = _autoconf.ENABLE_SHARED_FILE_STORAGE
 SYSCONFDIR = _autoconf.SYSCONFDIR
 TOOLSDIR = _autoconf.TOOLSDIR
 CONF_DIR = SYSCONFDIR + "/ganeti"
+USER_SCRIPTS_DIR = CONF_DIR + "/scripts"
+ENABLE_CONFD = _autoconf.ENABLE_CONFD
+HS_CONFD = _autoconf.HS_CONFD
 
 #: Lock file for watcher, locked in shared mode by watcher; lock in exclusive
 # mode to block watcher (see L{cli._RunWhileClusterStoppedHelper.Call}
@@ -172,7 +190,16 @@ WATCHER_GROUP_INSTANCE_STATUS_FILE = DATA_DIR + "/watcher.%s.instance-status"
 #: File containing Unix timestamp until which watcher should be paused
 WATCHER_PAUSEFILE = DATA_DIR + "/watcher.pause"
 
-ALL_CERT_FILES = frozenset([NODED_CERT_FILE, RAPI_CERT_FILE])
+# Master IP address setup scripts paths (default and user-provided)
+DEFAULT_MASTER_SETUP_SCRIPT = TOOLSDIR + "/master-ip-setup"
+EXTERNAL_MASTER_SETUP_SCRIPT = USER_SCRIPTS_DIR + "/master-ip-setup"
+
+ALL_CERT_FILES = frozenset([
+  NODED_CERT_FILE,
+  RAPI_CERT_FILE,
+  SPICE_CERT_FILE,
+  SPICE_CACERT_FILE,
+  ])
 
 MASTER_SOCKET = SOCKET_DIR + "/ganeti-master"
 
@@ -200,7 +227,6 @@ DEFAULT_NLD_PORT = DAEMONS_PORTS[NLD][1]
 
 FIRST_DRBD_PORT = 11000
 LAST_DRBD_PORT = 14999
-MASTER_SCRIPT = "ganeti-master"
 
 LOG_DIR = _autoconf.LOCALSTATEDIR + "/log/ganeti/"
 DAEMONS_LOGFILES = {
@@ -242,8 +268,13 @@ EXPORT_CONF_FILE = "config.ini"
 XEN_BOOTLOADER = _autoconf.XEN_BOOTLOADER
 XEN_KERNEL = _autoconf.XEN_KERNEL
 XEN_INITRD = _autoconf.XEN_INITRD
+XEN_CMD_XM = "xm"
+XEN_CMD_XL = "xl"
+# FIXME: This will be made configurable using hvparams in Ganeti 2.7
+XEN_CMD = _autoconf.XEN_CMD
 
 KVM_PATH = _autoconf.KVM_PATH
+KVM_KERNEL = _autoconf.KVM_KERNEL
 SOCAT_PATH = _autoconf.SOCAT_PATH
 SOCAT_USE_ESCAPE = _autoconf.SOCAT_USE_ESCAPE
 SOCAT_USE_COMPRESS = _autoconf.SOCAT_USE_COMPRESS
@@ -255,11 +286,14 @@ CONS_SSH = "ssh"
 #: Console as VNC server
 CONS_VNC = "vnc"
 
+#: Console as SPICE server
+CONS_SPICE = "spice"
+
 #: Display a message for console access
 CONS_MESSAGE = "msg"
 
 #: All console types
-CONS_ALL = frozenset([CONS_SSH, CONS_VNC, CONS_MESSAGE])
+CONS_ALL = frozenset([CONS_SSH, CONS_VNC, CONS_SPICE, CONS_MESSAGE])
 
 # For RSA keys more bits are better, but they also make operations more
 # expensive. NIST SP 800-131 recommends a minimum of 2048 bits from the year
@@ -392,18 +426,20 @@ DT_DRBD8 = "drbd"
 DT_FILE = "file"
 DT_SHARED_FILE = "sharedfile"
 DT_BLOCK = "blockdev"
+DT_RBD = "rbd"
 
 # the set of network-mirrored disk templates
 DTS_INT_MIRROR = frozenset([DT_DRBD8])
 
 # the set of externally-mirrored disk templates (e.g. SAN, NAS)
-DTS_EXT_MIRROR = frozenset([DT_SHARED_FILE, DT_BLOCK])
+DTS_EXT_MIRROR = frozenset([DT_SHARED_FILE, DT_BLOCK, DT_RBD])
 
 # the set of non-lvm-based disk templates
-DTS_NOT_LVM = frozenset([DT_DISKLESS, DT_FILE, DT_SHARED_FILE, DT_BLOCK])
+DTS_NOT_LVM = frozenset([DT_DISKLESS, DT_FILE, DT_SHARED_FILE,
+                         DT_BLOCK, DT_RBD])
 
 # the set of disk templates which can be grown
-DTS_GROWABLE = frozenset([DT_PLAIN, DT_DRBD8, DT_FILE, DT_SHARED_FILE])
+DTS_GROWABLE = frozenset([DT_PLAIN, DT_DRBD8, DT_FILE, DT_SHARED_FILE, DT_RBD])
 
 # the set of disk templates that allow adoption
 DTS_MAY_ADOPT = frozenset([DT_PLAIN, DT_BLOCK])
@@ -422,12 +458,42 @@ LD_LV = "lvm"
 LD_DRBD8 = "drbd8"
 LD_FILE = "file"
 LD_BLOCKDEV = "blockdev"
-LDS_BLOCK = frozenset([LD_LV, LD_DRBD8, LD_BLOCKDEV])
+LD_RBD = "rbd"
+LOGICAL_DISK_TYPES = frozenset([
+  LD_LV,
+  LD_DRBD8,
+  LD_FILE,
+  LD_BLOCKDEV,
+  LD_RBD,
+  ])
+
+LDS_BLOCK = frozenset([LD_LV, LD_DRBD8, LD_BLOCKDEV, LD_RBD])
 
 # drbd constants
 DRBD_HMAC_ALG = "md5"
 DRBD_NET_PROTOCOL = "C"
-DRBD_BARRIERS = _autoconf.DRBD_BARRIERS
+
+# drbd barrier types
+DRBD_B_NONE = "n"
+DRBD_B_DISK_BARRIERS = "b"
+DRBD_B_DISK_DRAIN = "d"
+DRBD_B_DISK_FLUSH = "f"
+
+# Valid barrier combinations: "n" or any non-null subset of "bfd"
+DRBD_VALID_BARRIER_OPT = frozenset([
+  frozenset([DRBD_B_NONE]),
+  frozenset([DRBD_B_DISK_BARRIERS]),
+  frozenset([DRBD_B_DISK_DRAIN]),
+  frozenset([DRBD_B_DISK_FLUSH]),
+  frozenset([DRBD_B_DISK_DRAIN, DRBD_B_DISK_FLUSH]),
+  frozenset([DRBD_B_DISK_DRAIN, DRBD_B_DISK_FLUSH]),
+  frozenset([DRBD_B_DISK_BARRIERS, DRBD_B_DISK_DRAIN]),
+  frozenset([DRBD_B_DISK_BARRIERS, DRBD_B_DISK_FLUSH]),
+  frozenset([DRBD_B_DISK_BARRIERS, DRBD_B_DISK_FLUSH, DRBD_B_DISK_DRAIN]),
+  ])
+
+# rbd tool command
+RBD_CMD = "rbd"
 
 # file backend driver
 FD_LOOP = "loop"
@@ -460,18 +526,6 @@ EXPORT_MODES = frozenset([
   EXPORT_MODE_LOCAL,
   EXPORT_MODE_REMOTE,
   ])
-
-# Lock recalculate mode
-LOCKS_REPLACE = "replace"
-LOCKS_APPEND = "append"
-
-# Lock timeout (sum) before we should go into blocking acquire (still
-# can be reset by priority change); computed as max time (10 hours)
-# before we should actually go into blocking acquire given that we
-# start from default priority level; in seconds
-LOCK_ATTEMPTS_TIMEOUT = 10 * 3600 / 20.0
-LOCK_ATTEMPTS_MAXWAIT = 15.0
-LOCK_ATTEMPTS_MINWAIT = 1.0
 
 # instance creation modes
 INSTANCE_CREATE = "create"
@@ -508,7 +562,8 @@ DISK_TEMPLATES = frozenset([
   DT_DRBD8,
   DT_FILE,
   DT_SHARED_FILE,
-  DT_BLOCK
+  DT_BLOCK,
+  DT_RBD
   ])
 
 FILE_DRIVER = frozenset([FD_LOOP, FD_BLKTAP])
@@ -522,8 +577,13 @@ INISECT_OSP = "os"
 
 # dynamic device modification
 DDM_ADD = "add"
+DDM_MODIFY = "modify"
 DDM_REMOVE = "remove"
 DDMS_VALUES = frozenset([DDM_ADD, DDM_REMOVE])
+DDMS_VALUES_WITH_MODIFY = (DDMS_VALUES | frozenset([
+  DDM_MODIFY,
+  ]))
+# TODO: DDM_SWAP, DDM_MOVE?
 
 # common exit codes
 EXIT_SUCCESS = 0
@@ -552,7 +612,7 @@ MAX_TAGS_PER_OBJ = 4096
 
 # others
 DEFAULT_BRIDGE = "xen-br0"
-SYNC_SPEED = 60 * 1024
+CLASSIC_DRBD_SYNC_SPEED = 60 * 1024  # 60 MiB, expressed in KiB
 IP4_ADDRESS_LOCALHOST = "127.0.0.1"
 IP4_ADDRESS_ANY = "0.0.0.0"
 IP6_ADDRESS_LOCALHOST = "::1"
@@ -560,13 +620,16 @@ IP6_ADDRESS_ANY = "::"
 IP4_VERSION = 4
 IP6_VERSION = 6
 VALID_IP_VERSIONS = frozenset([IP4_VERSION, IP6_VERSION])
+# for export to htools
+IP4_FAMILY = socket.AF_INET
+IP6_FAMILY = socket.AF_INET6
+
 TCP_PING_TIMEOUT = 10
 GANETI_RUNAS = "root"
 DEFAULT_VG = "xenvg"
 DEFAULT_DRBD_HELPER = "/bin/true"
 MIN_VG_SIZE = 20480
 DEFAULT_MAC_PREFIX = "aa:00:00"
-LVM_STRIPECOUNT = _autoconf.LVM_STRIPECOUNT
 # default maximum instance wait time, in seconds.
 DEFAULT_SHUTDOWN_TIMEOUT = 120
 NODE_MAX_CLOCK_SKEW = 150
@@ -671,6 +734,15 @@ HV_VNC_X509 = "vnc_x509_path"
 HV_VNC_X509_VERIFY = "vnc_x509_verify"
 HV_KVM_SPICE_BIND = "spice_bind"
 HV_KVM_SPICE_IP_VERSION = "spice_ip_version"
+HV_KVM_SPICE_PASSWORD_FILE = "spice_password_file"
+HV_KVM_SPICE_LOSSLESS_IMG_COMPR = "spice_image_compression"
+HV_KVM_SPICE_JPEG_IMG_COMPR = "spice_jpeg_wan_compression"
+HV_KVM_SPICE_ZLIB_GLZ_IMG_COMPR = "spice_zlib_glz_wan_compression"
+HV_KVM_SPICE_STREAMING_VIDEO_DETECTION = "spice_streaming_video"
+HV_KVM_SPICE_AUDIO_COMPR = "spice_playback_compression"
+HV_KVM_SPICE_USE_TLS = "spice_use_tls"
+HV_KVM_SPICE_TLS_CIPHERS = "spice_tls_ciphers"
+HV_KVM_SPICE_USE_VDAGENT = "spice_use_vdagent"
 HV_ACPI = "acpi"
 HV_PAE = "pae"
 HV_USE_BOOTLOADER = "use_bootloader"
@@ -716,6 +788,15 @@ HVS_PARAMETER_TYPES = {
   HV_VNC_X509_VERIFY: VTYPE_BOOL,
   HV_KVM_SPICE_BIND: VTYPE_STRING,
   HV_KVM_SPICE_IP_VERSION: VTYPE_INT,
+  HV_KVM_SPICE_PASSWORD_FILE: VTYPE_STRING,
+  HV_KVM_SPICE_LOSSLESS_IMG_COMPR: VTYPE_STRING,
+  HV_KVM_SPICE_JPEG_IMG_COMPR: VTYPE_STRING,
+  HV_KVM_SPICE_ZLIB_GLZ_IMG_COMPR: VTYPE_STRING,
+  HV_KVM_SPICE_STREAMING_VIDEO_DETECTION: VTYPE_STRING,
+  HV_KVM_SPICE_AUDIO_COMPR: VTYPE_BOOL,
+  HV_KVM_SPICE_USE_TLS: VTYPE_BOOL,
+  HV_KVM_SPICE_TLS_CIPHERS: VTYPE_STRING,
+  HV_KVM_SPICE_USE_VDAGENT: VTYPE_BOOL,
   HV_ACPI: VTYPE_BOOL,
   HV_PAE: VTYPE_BOOL,
   HV_USE_BOOTLOADER: VTYPE_BOOL,
@@ -749,27 +830,223 @@ HVS_PARAMETER_TYPES = {
 
 HVS_PARAMETERS = frozenset(HVS_PARAMETER_TYPES.keys())
 
+# Migration statuses
+HV_MIGRATION_COMPLETED = "completed"
+HV_MIGRATION_ACTIVE = "active"
+HV_MIGRATION_FAILED = "failed"
+HV_MIGRATION_CANCELLED = "cancelled"
+
+HV_MIGRATION_VALID_STATUSES = frozenset([
+  HV_MIGRATION_COMPLETED,
+  HV_MIGRATION_ACTIVE,
+  HV_MIGRATION_FAILED,
+  HV_MIGRATION_CANCELLED,
+  ])
+
+HV_MIGRATION_FAILED_STATUSES = frozenset([
+  HV_MIGRATION_FAILED,
+  HV_MIGRATION_CANCELLED,
+  ])
+
+# KVM-specific statuses
+HV_KVM_MIGRATION_VALID_STATUSES = HV_MIGRATION_VALID_STATUSES
+
+# Node info keys
+HV_NODEINFO_KEY_VERSION = "hv_version"
+
+# Hypervisor state
+HVST_MEMORY_TOTAL = "mem_total"
+HVST_MEMORY_NODE = "mem_node"
+HVST_MEMORY_HV = "mem_hv"
+HVST_CPU_TOTAL = "cpu_total"
+HVST_CPU_NODE = "cpu_node"
+
+HVST_DEFAULTS = {
+  HVST_MEMORY_TOTAL: 0,
+  HVST_MEMORY_NODE: 0,
+  HVST_MEMORY_HV: 0,
+  HVST_CPU_TOTAL: 1,
+  HVST_CPU_NODE: 1,
+  }
+
+HVSTS_PARAMETER_TYPES = {
+  HVST_MEMORY_TOTAL: VTYPE_INT,
+  HVST_MEMORY_NODE: VTYPE_INT,
+  HVST_MEMORY_HV: VTYPE_INT,
+  HVST_CPU_TOTAL: VTYPE_INT,
+  HVST_CPU_NODE: VTYPE_INT,
+  }
+
+HVSTS_PARAMETERS = frozenset(HVSTS_PARAMETER_TYPES.keys())
+
+# Disk state
+DS_DISK_TOTAL = "disk_total"
+DS_DISK_RESERVED = "disk_reserved"
+DS_DISK_OVERHEAD = "disk_overhead"
+
+DS_DEFAULTS = {
+  DS_DISK_TOTAL: 0,
+  DS_DISK_RESERVED: 0,
+  DS_DISK_OVERHEAD: 0,
+  }
+
+DSS_PARAMETER_TYPES = {
+  DS_DISK_TOTAL: VTYPE_INT,
+  DS_DISK_RESERVED: VTYPE_INT,
+  DS_DISK_OVERHEAD: VTYPE_INT,
+  }
+
+DSS_PARAMETERS = frozenset(DSS_PARAMETER_TYPES.keys())
+DS_VALID_TYPES = frozenset([LD_LV])
+
 # Backend parameter names
-BE_MEMORY = "memory"
+BE_MEMORY = "memory" # deprecated and replaced by max and min mem
+BE_MAXMEM = "maxmem"
+BE_MINMEM = "minmem"
 BE_VCPUS = "vcpus"
 BE_AUTO_BALANCE = "auto_balance"
+BE_ALWAYS_FAILOVER = "always_failover"
+BE_SPINDLE_USE = "spindle_use"
 
 BES_PARAMETER_TYPES = {
-    BE_MEMORY: VTYPE_SIZE,
-    BE_VCPUS: VTYPE_INT,
-    BE_AUTO_BALANCE: VTYPE_BOOL,
-    }
+  BE_MAXMEM: VTYPE_SIZE,
+  BE_MINMEM: VTYPE_SIZE,
+  BE_VCPUS: VTYPE_INT,
+  BE_AUTO_BALANCE: VTYPE_BOOL,
+  BE_ALWAYS_FAILOVER: VTYPE_BOOL,
+  BE_SPINDLE_USE: VTYPE_INT,
+  }
+
+BES_PARAMETER_COMPAT = {
+  BE_MEMORY: VTYPE_SIZE,
+  }
+BES_PARAMETER_COMPAT.update(BES_PARAMETER_TYPES)
 
 BES_PARAMETERS = frozenset(BES_PARAMETER_TYPES.keys())
 
+# instance specs
+ISPEC_MEM_SIZE = "memory-size"
+ISPEC_CPU_COUNT = "cpu-count"
+ISPEC_DISK_COUNT = "disk-count"
+ISPEC_DISK_SIZE = "disk-size"
+ISPEC_NIC_COUNT = "nic-count"
+ISPEC_SPINDLE_USE = "spindle-use"
+
+ISPECS_PARAMETER_TYPES = {
+  ISPEC_MEM_SIZE: VTYPE_INT,
+  ISPEC_CPU_COUNT: VTYPE_INT,
+  ISPEC_DISK_COUNT: VTYPE_INT,
+  ISPEC_DISK_SIZE: VTYPE_INT,
+  ISPEC_NIC_COUNT: VTYPE_INT,
+  ISPEC_SPINDLE_USE: VTYPE_INT,
+  }
+
+ISPECS_PARAMETERS = frozenset(ISPECS_PARAMETER_TYPES.keys())
+
+ISPECS_MIN = "min"
+ISPECS_MAX = "max"
+ISPECS_STD = "std"
+IPOLICY_DTS = "disk-templates"
+IPOLICY_VCPU_RATIO = "vcpu-ratio"
+IPOLICY_SPINDLE_RATIO = "spindle-ratio"
+
+IPOLICY_ISPECS = frozenset([
+  ISPECS_MIN,
+  ISPECS_MAX,
+  ISPECS_STD,
+  ])
+
+IPOLICY_PARAMETERS = frozenset([
+  IPOLICY_VCPU_RATIO,
+  IPOLICY_SPINDLE_RATIO,
+  ])
+
+IPOLICY_ALL_KEYS = (IPOLICY_ISPECS |
+                    IPOLICY_PARAMETERS |
+                    frozenset([IPOLICY_DTS]))
+
 # Node parameter names
 ND_OOB_PROGRAM = "oob_program"
+ND_SPINDLE_COUNT = "spindle_count"
 
 NDS_PARAMETER_TYPES = {
-    ND_OOB_PROGRAM: VTYPE_MAYBE_STRING,
-    }
+  ND_OOB_PROGRAM: VTYPE_MAYBE_STRING,
+  ND_SPINDLE_COUNT: VTYPE_INT,
+  }
 
 NDS_PARAMETERS = frozenset(NDS_PARAMETER_TYPES.keys())
+
+# Logical Disks parameters
+LDP_RESYNC_RATE = "resync-rate"
+LDP_STRIPES = "stripes"
+LDP_BARRIERS = "disabled-barriers"
+LDP_NO_META_FLUSH = "disable-meta-flush"
+LDP_DEFAULT_METAVG = "default-metavg"
+LDP_DISK_CUSTOM = "disk-custom"
+LDP_NET_CUSTOM = "net-custom"
+LDP_DYNAMIC_RESYNC = "dynamic-resync"
+LDP_PLAN_AHEAD = "c-plan-ahead"
+LDP_FILL_TARGET = "c-fill-target"
+LDP_DELAY_TARGET = "c-delay-target"
+LDP_MAX_RATE = "c-max-rate"
+LDP_MIN_RATE = "c-min-rate"
+LDP_POOL = "pool"
+DISK_LD_TYPES = {
+  LDP_RESYNC_RATE: VTYPE_INT,
+  LDP_STRIPES: VTYPE_INT,
+  LDP_BARRIERS: VTYPE_STRING,
+  LDP_NO_META_FLUSH: VTYPE_BOOL,
+  LDP_DEFAULT_METAVG: VTYPE_STRING,
+  LDP_DISK_CUSTOM: VTYPE_STRING,
+  LDP_NET_CUSTOM: VTYPE_STRING,
+  LDP_DYNAMIC_RESYNC: VTYPE_BOOL,
+  LDP_PLAN_AHEAD: VTYPE_INT,
+  LDP_FILL_TARGET: VTYPE_INT,
+  LDP_DELAY_TARGET: VTYPE_INT,
+  LDP_MAX_RATE: VTYPE_INT,
+  LDP_MIN_RATE: VTYPE_INT,
+  LDP_POOL: VTYPE_STRING,
+  }
+DISK_LD_PARAMETERS = frozenset(DISK_LD_TYPES.keys())
+
+# Disk template parameters (can be set/changed by the user via gnt-cluster and
+# gnt-group)
+DRBD_RESYNC_RATE = "resync-rate"
+DRBD_DATA_STRIPES = "data-stripes"
+DRBD_META_STRIPES = "meta-stripes"
+DRBD_DISK_BARRIERS = "disk-barriers"
+DRBD_META_BARRIERS = "meta-barriers"
+DRBD_DEFAULT_METAVG = "metavg"
+DRBD_DISK_CUSTOM = "disk-custom"
+DRBD_NET_CUSTOM = "net-custom"
+DRBD_DYNAMIC_RESYNC = "dynamic-resync"
+DRBD_PLAN_AHEAD = "c-plan-ahead"
+DRBD_FILL_TARGET = "c-fill-target"
+DRBD_DELAY_TARGET = "c-delay-target"
+DRBD_MAX_RATE = "c-max-rate"
+DRBD_MIN_RATE = "c-min-rate"
+LV_STRIPES = "stripes"
+RBD_POOL = "pool"
+DISK_DT_TYPES = {
+  DRBD_RESYNC_RATE: VTYPE_INT,
+  DRBD_DATA_STRIPES: VTYPE_INT,
+  DRBD_META_STRIPES: VTYPE_INT,
+  DRBD_DISK_BARRIERS: VTYPE_STRING,
+  DRBD_META_BARRIERS: VTYPE_BOOL,
+  DRBD_DEFAULT_METAVG: VTYPE_STRING,
+  DRBD_DISK_CUSTOM: VTYPE_STRING,
+  DRBD_NET_CUSTOM: VTYPE_STRING,
+  DRBD_DYNAMIC_RESYNC: VTYPE_BOOL,
+  DRBD_PLAN_AHEAD: VTYPE_INT,
+  DRBD_FILL_TARGET: VTYPE_INT,
+  DRBD_DELAY_TARGET: VTYPE_INT,
+  DRBD_MAX_RATE: VTYPE_INT,
+  DRBD_MIN_RATE: VTYPE_INT,
+  LV_STRIPES: VTYPE_INT,
+  RBD_POOL: VTYPE_STRING,
+  }
+
+DISK_DT_PARAMETERS = frozenset(DISK_DT_TYPES.keys())
 
 # OOB supported commands
 OOB_POWER_ON = "power-on"
@@ -816,9 +1093,9 @@ NIC_MODE_ROUTED = "routed"
 NIC_VALID_MODES = frozenset([NIC_MODE_BRIDGED, NIC_MODE_ROUTED])
 
 NICS_PARAMETER_TYPES = {
-    NIC_MODE: VTYPE_STRING,
-    NIC_LINK: VTYPE_STRING,
-    }
+  NIC_MODE: VTYPE_STRING,
+  NIC_LINK: VTYPE_STRING,
+  }
 
 NICS_PARAMETERS = frozenset(NICS_PARAMETER_TYPES.keys())
 
@@ -949,6 +1226,45 @@ HT_KVM_VALID_BO_TYPES = frozenset([
   HT_BO_NETWORK
   ])
 
+# SPICE lossless image compression options
+HT_KVM_SPICE_LOSSLESS_IMG_COMPR_AUTO_GLZ = "auto_glz"
+HT_KVM_SPICE_LOSSLESS_IMG_COMPR_AUTO_LZ = "auto_lz"
+HT_KVM_SPICE_LOSSLESS_IMG_COMPR_QUIC = "quic"
+HT_KVM_SPICE_LOSSLESS_IMG_COMPR_GLZ = "glz"
+HT_KVM_SPICE_LOSSLESS_IMG_COMPR_LZ = "lz"
+HT_KVM_SPICE_LOSSLESS_IMG_COMPR_OFF = "off"
+
+HT_KVM_SPICE_VALID_LOSSLESS_IMG_COMPR_OPTIONS = frozenset([
+  HT_KVM_SPICE_LOSSLESS_IMG_COMPR_AUTO_GLZ,
+  HT_KVM_SPICE_LOSSLESS_IMG_COMPR_AUTO_LZ,
+  HT_KVM_SPICE_LOSSLESS_IMG_COMPR_QUIC,
+  HT_KVM_SPICE_LOSSLESS_IMG_COMPR_GLZ,
+  HT_KVM_SPICE_LOSSLESS_IMG_COMPR_LZ,
+  HT_KVM_SPICE_LOSSLESS_IMG_COMPR_OFF,
+  ])
+
+# SPICE lossy image compression options (valid for both jpeg and zlib-glz)
+HT_KVM_SPICE_LOSSY_IMG_COMPR_AUTO = "auto"
+HT_KVM_SPICE_LOSSY_IMG_COMPR_NEVER = "never"
+HT_KVM_SPICE_LOSSY_IMG_COMPR_ALWAYS = "always"
+
+HT_KVM_SPICE_VALID_LOSSY_IMG_COMPR_OPTIONS = frozenset([
+  HT_KVM_SPICE_LOSSY_IMG_COMPR_AUTO,
+  HT_KVM_SPICE_LOSSY_IMG_COMPR_NEVER,
+  HT_KVM_SPICE_LOSSY_IMG_COMPR_ALWAYS,
+  ])
+
+# SPICE video stream detection
+HT_KVM_SPICE_VIDEO_STREAM_DETECTION_OFF = "off"
+HT_KVM_SPICE_VIDEO_STREAM_DETECTION_ALL = "all"
+HT_KVM_SPICE_VIDEO_STREAM_DETECTION_FILTER = "filter"
+
+HT_KVM_SPICE_VALID_VIDEO_STREAM_DETECTION_OPTIONS = frozenset([
+  HT_KVM_SPICE_VIDEO_STREAM_DETECTION_OFF,
+  HT_KVM_SPICE_VIDEO_STREAM_DETECTION_ALL,
+  HT_KVM_SPICE_VIDEO_STREAM_DETECTION_FILTER,
+  ])
+
 # Security models
 HT_SM_NONE = "none"
 HT_SM_USER = "user"
@@ -971,6 +1287,122 @@ HT_MIGRATION_MODES = frozenset([HT_MIGRATION_LIVE, HT_MIGRATION_NONLIVE])
 VERIFY_NPLUSONE_MEM = "nplusone_mem"
 VERIFY_OPTIONAL_CHECKS = frozenset([VERIFY_NPLUSONE_MEM])
 
+# Cluster Verify error classes
+CV_TCLUSTER = "cluster"
+CV_TNODE = "node"
+CV_TINSTANCE = "instance"
+
+# Cluster Verify error codes and documentation
+CV_ECLUSTERCFG = \
+  (CV_TCLUSTER, "ECLUSTERCFG", "Cluster configuration verification failure")
+CV_ECLUSTERCERT = \
+  (CV_TCLUSTER, "ECLUSTERCERT",
+   "Cluster certificate files verification failure")
+CV_ECLUSTERFILECHECK = \
+  (CV_TCLUSTER, "ECLUSTERFILECHECK",
+   "Cluster configuration verification failure")
+CV_ECLUSTERDANGLINGNODES = \
+  (CV_TNODE, "ECLUSTERDANGLINGNODES",
+   "Some nodes belong to non-existing groups")
+CV_ECLUSTERDANGLINGINST = \
+  (CV_TNODE, "ECLUSTERDANGLINGINST",
+   "Some instances have a non-existing primary node")
+CV_EINSTANCEBADNODE = \
+  (CV_TINSTANCE, "EINSTANCEBADNODE",
+   "Instance marked as running lives on an offline node")
+CV_EINSTANCEDOWN = \
+  (CV_TINSTANCE, "EINSTANCEDOWN", "Instance not running on its primary node")
+CV_EINSTANCELAYOUT = \
+  (CV_TINSTANCE, "EINSTANCELAYOUT", "Instance has multiple secondary nodes")
+CV_EINSTANCEMISSINGDISK = \
+  (CV_TINSTANCE, "EINSTANCEMISSINGDISK", "Missing volume on an instance")
+CV_EINSTANCEFAULTYDISK = \
+  (CV_TINSTANCE, "EINSTANCEFAULTYDISK",
+   "Impossible to retrieve status for a disk")
+CV_EINSTANCEWRONGNODE = \
+  (CV_TINSTANCE, "EINSTANCEWRONGNODE", "Instance running on the wrong node")
+CV_EINSTANCESPLITGROUPS = \
+  (CV_TINSTANCE, "EINSTANCESPLITGROUPS",
+   "Instance with primary and secondary nodes in different groups")
+CV_EINSTANCEPOLICY = \
+  (CV_TINSTANCE, "EINSTANCEPOLICY",
+   "Instance does not meet policy")
+CV_ENODEDRBD = \
+  (CV_TNODE, "ENODEDRBD", "Error parsing the DRBD status file")
+CV_ENODEDRBDHELPER = \
+  (CV_TNODE, "ENODEDRBDHELPER", "Error caused by the DRBD helper")
+CV_ENODEFILECHECK = \
+  (CV_TNODE, "ENODEFILECHECK",
+   "Error retrieving the checksum of the node files")
+CV_ENODEHOOKS = \
+  (CV_TNODE, "ENODEHOOKS", "Communication failure in hooks execution")
+CV_ENODEHV = \
+  (CV_TNODE, "ENODEHV", "Hypervisor parameters verification failure")
+CV_ENODELVM = \
+  (CV_TNODE, "ENODELVM", "LVM-related node error")
+CV_ENODEN1 = \
+  (CV_TNODE, "ENODEN1", "Not enough memory to accommodate instance failovers")
+CV_ENODENET = \
+  (CV_TNODE, "ENODENET", "Network-related node error")
+CV_ENODEOS = \
+  (CV_TNODE, "ENODEOS", "OS-related node error")
+CV_ENODEORPHANINSTANCE = \
+  (CV_TNODE, "ENODEORPHANINSTANCE", "Unknown intance running on a node")
+CV_ENODEORPHANLV = \
+  (CV_TNODE, "ENODEORPHANLV", "Unknown LVM logical volume")
+CV_ENODERPC = \
+  (CV_TNODE, "ENODERPC",
+   "Error during connection to the primary node of an instance")
+CV_ENODESSH = \
+  (CV_TNODE, "ENODESSH", "SSH-related node error")
+CV_ENODEVERSION = \
+  (CV_TNODE, "ENODEVERSION",
+   "Protocol version mismatch or Ganeti version mismatch")
+CV_ENODESETUP = \
+  (CV_TNODE, "ENODESETUP", "Node setup error")
+CV_ENODETIME = \
+  (CV_TNODE, "ENODETIME", "Node returned invalid time")
+CV_ENODEOOBPATH = \
+  (CV_TNODE, "ENODEOOBPATH", "Invalid Out Of Band path")
+CV_ENODEUSERSCRIPTS = \
+  (CV_TNODE, "ENODEUSERSCRIPTS", "User scripts not present or not executable")
+
+CV_ALL_ECODES = frozenset([
+  CV_ECLUSTERCFG,
+  CV_ECLUSTERCERT,
+  CV_ECLUSTERFILECHECK,
+  CV_ECLUSTERDANGLINGNODES,
+  CV_ECLUSTERDANGLINGINST,
+  CV_EINSTANCEBADNODE,
+  CV_EINSTANCEDOWN,
+  CV_EINSTANCELAYOUT,
+  CV_EINSTANCEMISSINGDISK,
+  CV_EINSTANCEFAULTYDISK,
+  CV_EINSTANCEWRONGNODE,
+  CV_EINSTANCESPLITGROUPS,
+  CV_EINSTANCEPOLICY,
+  CV_ENODEDRBD,
+  CV_ENODEDRBDHELPER,
+  CV_ENODEFILECHECK,
+  CV_ENODEHOOKS,
+  CV_ENODEHV,
+  CV_ENODELVM,
+  CV_ENODEN1,
+  CV_ENODENET,
+  CV_ENODEOS,
+  CV_ENODEORPHANINSTANCE,
+  CV_ENODEORPHANLV,
+  CV_ENODERPC,
+  CV_ENODESSH,
+  CV_ENODEVERSION,
+  CV_ENODESETUP,
+  CV_ENODETIME,
+  CV_ENODEOOBPATH,
+  CV_ENODEUSERSCRIPTS,
+  ])
+
+CV_ALL_ECODES_STRINGS = frozenset(estr for (_, estr, _) in CV_ALL_ECODES)
+
 # Node verify constants
 NV_DRBDHELPER = "drbd-helper"
 NV_DRBDLIST = "drbd-list"
@@ -992,10 +1424,12 @@ NV_VGLIST = "vglist"
 NV_VMNODES = "vmnodes"
 NV_OOB_PATHS = "oob-paths"
 NV_BRIDGES = "bridges"
+NV_USERSCRIPTS = "user-scripts"
 
 # Instance status
 INSTST_RUNNING = "running"
 INSTST_ADMINDOWN = "ADMIN_down"
+INSTST_ADMINOFFLINE = "ADMIN_offline"
 INSTST_NODEOFFLINE = "ERROR_nodeoffline"
 INSTST_NODEDOWN = "ERROR_nodedown"
 INSTST_WRONGNODE = "ERROR_wrongnode"
@@ -1004,11 +1438,22 @@ INSTST_ERRORDOWN = "ERROR_down"
 INSTST_ALL = frozenset([
   INSTST_RUNNING,
   INSTST_ADMINDOWN,
+  INSTST_ADMINOFFLINE,
   INSTST_NODEOFFLINE,
   INSTST_NODEDOWN,
   INSTST_WRONGNODE,
   INSTST_ERRORUP,
   INSTST_ERRORDOWN,
+  ])
+
+# Admin states
+ADMINST_UP = "up"
+ADMINST_DOWN = "down"
+ADMINST_OFFLINE = "offline"
+ADMINST_ALL = frozenset([
+  ADMINST_UP,
+  ADMINST_DOWN,
+  ADMINST_OFFLINE,
   ])
 
 # Node roles
@@ -1058,6 +1503,16 @@ IALLOCATOR_NEVAC_MODES = frozenset([
   IALLOCATOR_NEVAC_ALL,
   ])
 
+# Node evacuation
+NODE_EVAC_PRI = "primary-only"
+NODE_EVAC_SEC = "secondary-only"
+NODE_EVAC_ALL = "all"
+NODE_EVAC_MODES = frozenset([
+  NODE_EVAC_PRI,
+  NODE_EVAC_SEC,
+  NODE_EVAC_ALL,
+  ])
+
 # Job queue
 JOB_QUEUE_VERSION = 1
 JOB_QUEUE_LOCK_FILE = QUEUE_DIR + "/lock"
@@ -1066,8 +1521,6 @@ JOB_QUEUE_SERIAL_FILE = QUEUE_DIR + "/serial"
 JOB_QUEUE_ARCHIVE_DIR = QUEUE_DIR + "/archive"
 JOB_QUEUE_DRAIN_FILE = QUEUE_DIR + "/drain"
 JOB_QUEUE_SIZE_HARD_LIMIT = 5000
-JOB_QUEUE_DIRS = [QUEUE_DIR, JOB_QUEUE_ARCHIVE_DIR]
-JOB_QUEUE_DIRS_MODE = SECURE_DIR_MODE
 
 JOB_ID_TEMPLATE = r"\d+"
 JOB_FILE_RE = re.compile(r"^job-(%s)$" % JOB_ID_TEMPLATE)
@@ -1127,9 +1580,21 @@ OP_PRIO_SUBMIT_VALID = frozenset([
 
 OP_PRIO_DEFAULT = OP_PRIO_NORMAL
 
+# Lock recalculate mode
+LOCKS_REPLACE = "replace"
+LOCKS_APPEND = "append"
+
+# Lock timeout (sum) before we should go into blocking acquire (still
+# can be reset by priority change); computed as max time (10 hours)
+# before we should actually go into blocking acquire given that we
+# start from default priority level; in seconds
+# TODO
+LOCK_ATTEMPTS_TIMEOUT = 10 * 3600 / (OP_PRIO_DEFAULT - OP_PRIO_HIGHEST)
+LOCK_ATTEMPTS_MAXWAIT = 15.0
+LOCK_ATTEMPTS_MINWAIT = 1.0
+
 # Execution log types
 ELOG_MESSAGE = "message"
-ELOG_PROGRESS = "progress"
 ELOG_REMOTE_IMPORT = "remote-import"
 ELOG_JQUEUE_TEST = "jqueue-test"
 
@@ -1151,18 +1616,29 @@ JQT_ALL = frozenset([
   ])
 
 # Query resources
+QR_CLUSTER = "cluster"
 QR_INSTANCE = "instance"
 QR_NODE = "node"
 QR_LOCK = "lock"
 QR_GROUP = "group"
 QR_OS = "os"
+QR_JOB = "job"
+QR_EXPORT = "export"
 
 #: List of resources which can be queried using L{opcodes.OpQuery}
-QR_VIA_OP = frozenset([QR_INSTANCE, QR_NODE, QR_GROUP, QR_OS])
+QR_VIA_OP = frozenset([
+  QR_CLUSTER,
+  QR_INSTANCE,
+  QR_NODE,
+  QR_GROUP,
+  QR_OS,
+  QR_EXPORT,
+  ])
 
 #: List of resources which can be queried using Local UniX Interface
 QR_VIA_LUXI = QR_VIA_OP.union([
   QR_LOCK,
+  QR_JOB,
   ])
 
 #: List of resources which can be queried using RAPI
@@ -1223,6 +1699,8 @@ RSS_DESCRIPTION = {
 MAX_NICS = 8
 MAX_DISKS = 16
 
+# SSCONF file prefix
+SSCONF_FILEPREFIX = "ssconf_"
 # SSCONF keys
 SS_CLUSTER_NAME = "cluster_name"
 SS_CLUSTER_TAGS = "cluster_tags"
@@ -1232,6 +1710,7 @@ SS_MASTER_CANDIDATES = "master_candidates"
 SS_MASTER_CANDIDATES_IPS = "master_candidates_ips"
 SS_MASTER_IP = "master_ip"
 SS_MASTER_NETDEV = "master_netdev"
+SS_MASTER_NETMASK = "master_netmask"
 SS_MASTER_NODE = "master_node"
 SS_NODE_LIST = "node_list"
 SS_NODE_PRIMARY_IPS = "node_primary_ips"
@@ -1264,6 +1743,7 @@ HVC_DEFAULTS = {
     HV_MIGRATION_MODE: HT_MIGRATION_LIVE,
     HV_BLOCKDEV_PREFIX: "sd",
     HV_REBOOT_BEHAVIOR: INSTANCE_REBOOT_ALLOWED,
+    HV_CPU_MASK: CPU_PINNING_ALL,
     },
   HT_XEN_HVM: {
     HV_BOOT_ORDER: "cd",
@@ -1281,9 +1761,10 @@ HVC_DEFAULTS = {
     HV_USE_LOCALTIME: False,
     HV_BLOCKDEV_PREFIX: "hd",
     HV_REBOOT_BEHAVIOR: INSTANCE_REBOOT_ALLOWED,
+    HV_CPU_MASK: CPU_PINNING_ALL,
     },
   HT_KVM: {
-    HV_KERNEL_PATH: "/boot/vmlinuz-2.6-kvmU",
+    HV_KERNEL_PATH: KVM_KERNEL,
     HV_INITRD_PATH: "",
     HV_KERNEL_ARGS: "ro",
     HV_ROOT_PATH: "/dev/vda1",
@@ -1296,6 +1777,15 @@ HVC_DEFAULTS = {
     HV_VNC_PASSWORD_FILE: "",
     HV_KVM_SPICE_BIND: "",
     HV_KVM_SPICE_IP_VERSION: IFACE_NO_IP_VERSION_SPECIFIED,
+    HV_KVM_SPICE_PASSWORD_FILE: "",
+    HV_KVM_SPICE_LOSSLESS_IMG_COMPR: "",
+    HV_KVM_SPICE_JPEG_IMG_COMPR: "",
+    HV_KVM_SPICE_ZLIB_GLZ_IMG_COMPR: "",
+    HV_KVM_SPICE_STREAMING_VIDEO_DETECTION: "",
+    HV_KVM_SPICE_AUDIO_COMPR: True,
+    HV_KVM_SPICE_USE_TLS: False,
+    HV_KVM_SPICE_TLS_CIPHERS: OPENSSL_CIPHERS,
+    HV_KVM_SPICE_USE_VDAGENT: True,
     HV_KVM_FLOPPY_IMAGE_PATH: "",
     HV_CDROM_IMAGE_PATH: "",
     HV_KVM_CDROM2_IMAGE_PATH: "",
@@ -1318,6 +1808,7 @@ HVC_DEFAULTS = {
     HV_KVM_USE_CHROOT: False,
     HV_MEM_PATH: "",
     HV_REBOOT_BEHAVIOR: INSTANCE_REBOOT_ALLOWED,
+    HV_CPU_MASK: CPU_PINNING_ALL,
     },
   HT_FAKE: {
     },
@@ -1336,18 +1827,127 @@ HVC_GLOBALS = frozenset([
   ])
 
 BEC_DEFAULTS = {
-  BE_MEMORY: 128,
+  BE_MINMEM: 128,
+  BE_MAXMEM: 128,
   BE_VCPUS: 1,
   BE_AUTO_BALANCE: True,
+  BE_ALWAYS_FAILOVER: False,
+  BE_SPINDLE_USE: 1,
   }
 
 NDC_DEFAULTS = {
   ND_OOB_PROGRAM: None,
+  ND_SPINDLE_COUNT: 1,
   }
+
+DISK_LD_DEFAULTS = {
+  LD_DRBD8: {
+    LDP_RESYNC_RATE: CLASSIC_DRBD_SYNC_SPEED,
+    LDP_BARRIERS: _autoconf.DRBD_BARRIERS,
+    LDP_NO_META_FLUSH: _autoconf.DRBD_NO_META_FLUSH,
+    LDP_DEFAULT_METAVG: DEFAULT_VG,
+    LDP_DISK_CUSTOM: "",
+    LDP_NET_CUSTOM: "",
+    LDP_DYNAMIC_RESYNC: False,
+
+    # The default values for the DRBD dynamic resync speed algorithm are taken
+    # from the drbsetup 8.3.11 man page, except for c-plan-ahead (that we
+    # don't need to set to 0, because we have a separate option to enable it)
+    # and for c-max-rate, that we cap to the default value for the static resync
+    # rate.
+    LDP_PLAN_AHEAD: 20, # ds
+    LDP_FILL_TARGET: 0, # sectors
+    LDP_DELAY_TARGET: 1, # ds
+    LDP_MAX_RATE: CLASSIC_DRBD_SYNC_SPEED, # KiB/s
+    LDP_MIN_RATE: 4 * 1024, # KiB/s
+    },
+  LD_LV: {
+    LDP_STRIPES: _autoconf.LVM_STRIPECOUNT
+    },
+  LD_FILE: {
+    },
+  LD_BLOCKDEV: {
+    },
+  LD_RBD: {
+    LDP_POOL: "rbd"
+    },
+  }
+
+# readability shortcuts
+_LV_DEFAULTS = DISK_LD_DEFAULTS[LD_LV]
+_DRBD_DEFAULTS = DISK_LD_DEFAULTS[LD_DRBD8]
+
+DISK_DT_DEFAULTS = {
+  DT_PLAIN: {
+    LV_STRIPES: DISK_LD_DEFAULTS[LD_LV][LDP_STRIPES],
+    },
+  DT_DRBD8: {
+    DRBD_RESYNC_RATE: _DRBD_DEFAULTS[LDP_RESYNC_RATE],
+    DRBD_DATA_STRIPES: _LV_DEFAULTS[LDP_STRIPES],
+    DRBD_META_STRIPES: _LV_DEFAULTS[LDP_STRIPES],
+    DRBD_DISK_BARRIERS: _DRBD_DEFAULTS[LDP_BARRIERS],
+    DRBD_META_BARRIERS: _DRBD_DEFAULTS[LDP_NO_META_FLUSH],
+    DRBD_DEFAULT_METAVG: _DRBD_DEFAULTS[LDP_DEFAULT_METAVG],
+    DRBD_DISK_CUSTOM: _DRBD_DEFAULTS[LDP_DISK_CUSTOM],
+    DRBD_NET_CUSTOM: _DRBD_DEFAULTS[LDP_NET_CUSTOM],
+    DRBD_DYNAMIC_RESYNC: _DRBD_DEFAULTS[LDP_DYNAMIC_RESYNC],
+    DRBD_PLAN_AHEAD: _DRBD_DEFAULTS[LDP_PLAN_AHEAD],
+    DRBD_FILL_TARGET: _DRBD_DEFAULTS[LDP_FILL_TARGET],
+    DRBD_DELAY_TARGET: _DRBD_DEFAULTS[LDP_DELAY_TARGET],
+    DRBD_MAX_RATE: _DRBD_DEFAULTS[LDP_MAX_RATE],
+    DRBD_MIN_RATE: _DRBD_DEFAULTS[LDP_MIN_RATE],
+    },
+  DT_DISKLESS: {
+    },
+  DT_FILE: {
+    },
+  DT_SHARED_FILE: {
+    },
+  DT_BLOCK: {
+    },
+  DT_RBD: {
+    RBD_POOL: DISK_LD_DEFAULTS[LD_RBD][LDP_POOL]
+    },
+  }
+
+# we don't want to export the shortcuts
+del _LV_DEFAULTS, _DRBD_DEFAULTS
 
 NICC_DEFAULTS = {
   NIC_MODE: NIC_MODE_BRIDGED,
   NIC_LINK: DEFAULT_BRIDGE,
+  }
+
+# All of the following values are quite arbitrarily - there are no
+# "good" defaults, these must be customised per-site
+IPOLICY_DEFAULTS = {
+  ISPECS_MIN: {
+    ISPEC_MEM_SIZE: 128,
+    ISPEC_CPU_COUNT: 1,
+    ISPEC_DISK_COUNT: 1,
+    ISPEC_DISK_SIZE: 1024,
+    ISPEC_NIC_COUNT: 1,
+    ISPEC_SPINDLE_USE: 1,
+    },
+  ISPECS_MAX: {
+    ISPEC_MEM_SIZE: 32768,
+    ISPEC_CPU_COUNT: 8,
+    ISPEC_DISK_COUNT: MAX_DISKS,
+    ISPEC_DISK_SIZE: 1024 * 1024,
+    ISPEC_NIC_COUNT: MAX_NICS,
+    ISPEC_SPINDLE_USE: 12,
+    },
+  ISPECS_STD: {
+    ISPEC_MEM_SIZE: 128,
+    ISPEC_CPU_COUNT: 1,
+    ISPEC_DISK_COUNT: 1,
+    ISPEC_DISK_SIZE: 1024,
+    ISPEC_NIC_COUNT: 1,
+    ISPEC_SPINDLE_USE: 1,
+    },
+  IPOLICY_DTS: DISK_TEMPLATES,
+  IPOLICY_VCPU_RATIO: 4.0,
+  IPOLICY_SPINDLE_RATIO: 32.0,
   }
 
 MASTER_POOL_SIZE_DEFAULT = 10
@@ -1361,6 +1961,7 @@ CONFD_REQ_CLUSTER_MASTER = 3
 CONFD_REQ_NODE_PIP_LIST = 4
 CONFD_REQ_MC_PIP_LIST = 5
 CONFD_REQ_INSTANCES_IPS_LIST = 6
+CONFD_REQ_NODE_DRBD = 7
 
 # Confd request query fields. These are used to narrow down queries.
 # These must be strings rather than integers, because json-encoding
@@ -1382,6 +1983,7 @@ CONFD_REQS = frozenset([
   CONFD_REQ_NODE_PIP_LIST,
   CONFD_REQ_MC_PIP_LIST,
   CONFD_REQ_INSTANCES_IPS_LIST,
+  CONFD_REQ_NODE_DRBD,
   ])
 
 CONFD_REPL_STATUS_OK = 0
@@ -1466,7 +2068,18 @@ VALID_ALLOC_POLICIES = [
 # Temporary external/shared storage parameters
 BLOCKDEV_DRIVER_MANUAL = "manual"
 
+# qemu-img path, required for ovfconverter
+QEMUIMG_PATH = _autoconf.QEMUIMG_PATH
+
 # Whether htools was enabled at compilation time
 HTOOLS = _autoconf.HTOOLS
 # The hail iallocator
 IALLOC_HAIL = "hail"
+
+# Fake opcodes for functions that have hooks attached to them via
+# backend.RunLocalHooks
+FAKE_OP_MASTER_TURNUP = "OP_CLUSTER_IP_TURNUP"
+FAKE_OP_MASTER_TURNDOWN = "OP_CLUSTER_IP_TURNDOWN"
+
+# Do not re-export imported modules
+del re, _vcsversion, _autoconf, socket

@@ -24,6 +24,7 @@
 import re
 import time
 import errno
+import shlex
 import stat
 import pyparsing as pyp
 import os
@@ -130,7 +131,7 @@ class BlockDev(object):
   after assembly we'll have our correct major/minor.
 
   """
-  def __init__(self, unique_id, children, size):
+  def __init__(self, unique_id, children, size, params):
     self._children = children
     self.dev_path = None
     self.unique_id = unique_id
@@ -138,6 +139,7 @@ class BlockDev(object):
     self.minor = None
     self.attached = False
     self.size = size
+    self.params = params
 
   def Assemble(self):
     """Assemble the device from its components.
@@ -166,7 +168,7 @@ class BlockDev(object):
     raise NotImplementedError
 
   @classmethod
-  def Create(cls, unique_id, children, size):
+  def Create(cls, unique_id, children, size, params):
     """Create the device.
 
     If the device cannot be created, it will return None
@@ -219,16 +221,22 @@ class BlockDev(object):
     """
     raise NotImplementedError
 
-  def SetSyncSpeed(self, speed):
-    """Adjust the sync speed of the mirror.
+  def SetSyncParams(self, params):
+    """Adjust the synchronization parameters of the mirror.
 
     In case this is not a mirroring device, this is no-op.
 
+    @param params: dictionary of LD level disk parameters related to the
+    synchronization.
+    @rtype: list
+    @return: a list of error messages, emitted both by the current node and by
+    children. An empty list means no errors.
+
     """
-    result = True
+    result = []
     if self._children:
       for child in self._children:
-        result = result and child.SetSyncSpeed(speed)
+        result.extend(child.SetSyncParams(params))
     return result
 
   def PauseResumeSync(self, pause):
@@ -236,7 +244,7 @@ class BlockDev(object):
 
     In case this is not a mirroring device, this is no-op.
 
-    @param pause: Wheater to pause or resume
+    @param pause: Whether to pause or resume
 
     """
     result = True
@@ -373,13 +381,13 @@ class LogicalVolume(BlockDev):
   _INVALID_NAMES = frozenset([".", "..", "snapshot", "pvmove"])
   _INVALID_SUBSTRINGS = frozenset(["_mlog", "_mimage"])
 
-  def __init__(self, unique_id, children, size):
+  def __init__(self, unique_id, children, size, params):
     """Attaches to a LV device.
 
     The unique_id is a tuple (vg_name, lv_name)
 
     """
-    super(LogicalVolume, self).__init__(unique_id, children, size)
+    super(LogicalVolume, self).__init__(unique_id, children, size, params)
     if not isinstance(unique_id, (tuple, list)) or len(unique_id) != 2:
       raise ValueError("Invalid configuration data %s" % str(unique_id))
     self._vg_name, self._lv_name = unique_id
@@ -391,7 +399,7 @@ class LogicalVolume(BlockDev):
     self.Attach()
 
   @classmethod
-  def Create(cls, unique_id, children, size):
+  def Create(cls, unique_id, children, size, params):
     """Create a new logical volume.
 
     """
@@ -414,7 +422,11 @@ class LogicalVolume(BlockDev):
                   " in lvm.conf using either 'filter' or 'preferred_names'")
     free_size = sum([pv[0] for pv in pvs_info])
     current_pvs = len(pvlist)
-    stripes = min(current_pvs, constants.LVM_STRIPECOUNT)
+    desired_stripes = params[constants.LDP_STRIPES]
+    stripes = min(current_pvs, desired_stripes)
+    if stripes < desired_stripes:
+      logging.warning("Could not use %d stripes for VG %s, as only %d PVs are"
+                      " available.", desired_stripes, vg_name, current_pvs)
 
     # The size constraint should have been checked from the master before
     # calling the create function.
@@ -433,7 +445,7 @@ class LogicalVolume(BlockDev):
     if result.failed:
       _ThrowError("LV create failed (%s): %s",
                   result.fail_reason, result.output)
-    return LogicalVolume(unique_id, children, size)
+    return LogicalVolume(unique_id, children, size, params)
 
   @staticmethod
   def _GetVolumeInfo(lvm_cmd, fields):
@@ -718,7 +730,7 @@ class LogicalVolume(BlockDev):
     snap_name = self._lv_name + ".snap"
 
     # remove existing snapshot if found
-    snap = LogicalVolume((self._vg_name, snap_name), None, size)
+    snap = LogicalVolume((self._vg_name, snap_name), None, size, self.params)
     _IgnoreError(snap.Remove)
 
     vg_info = self.GetVGInfo([self._vg_name])
@@ -1046,7 +1058,7 @@ class BaseDRBD(BlockDev): # pylint: disable=W0223
   def _CheckMetaSize(meta_device):
     """Check if the given meta device looks like a valid one.
 
-    This currently only check the size, which must be around
+    This currently only checks the size, which must be around
     128MiB.
 
     """
@@ -1086,10 +1098,10 @@ class DRBD8(BaseDRBD):
   doesn't do anything to the supposed peer. If you need a fully
   connected DRBD pair, you need to use this class on both hosts.
 
-  The unique_id for the drbd device is the (local_ip, local_port,
-  remote_ip, remote_port) tuple, and it must have two children: the
-  data device and the meta_device. The meta device is checked for
-  valid size and is zeroed on create.
+  The unique_id for the drbd device is a (local_ip, local_port,
+  remote_ip, remote_port, local_minor, secret) tuple, and it must have
+  two children: the data device and the meta_device. The meta device
+  is checked for valid size and is zeroed on create.
 
   """
   _MAX_MINORS = 255
@@ -1098,7 +1110,13 @@ class DRBD8(BaseDRBD):
   # timeout constants
   _NET_RECONFIG_TIMEOUT = 60
 
-  def __init__(self, unique_id, children, size):
+  # command line options for barriers
+  _DISABLE_DISK_OPTION = "--no-disk-barrier"  # -a
+  _DISABLE_DRAIN_OPTION = "--no-disk-drain"   # -D
+  _DISABLE_FLUSH_OPTION = "--no-disk-flushes" # -i
+  _DISABLE_META_FLUSH_OPTION = "--no-md-flushes"  # -m
+
+  def __init__(self, unique_id, children, size, params):
     if children and children.count(None) > 0:
       children = []
     if len(children) not in (0, 2):
@@ -1112,7 +1130,7 @@ class DRBD8(BaseDRBD):
       if not _CanReadDevice(children[1].dev_path):
         logging.info("drbd%s: Ignoring unreadable meta device", self._aminor)
         children = []
-    super(DRBD8, self).__init__(unique_id, children, size)
+    super(DRBD8, self).__init__(unique_id, children, size, params)
     self.major = self._DRBD_MAJOR
     version = self._GetVersion(self._GetProcData())
     if version["k_major"] != 8:
@@ -1179,7 +1197,7 @@ class DRBD8(BaseDRBD):
   def _GetShowParser(cls):
     """Return a parser for `drbd show` output.
 
-    This will either create or return an already-create parser for the
+    This will either create or return an already-created parser for the
     output of the command `drbd show`.
 
     """
@@ -1200,10 +1218,10 @@ class DRBD8(BaseDRBD):
     defa = pyp.Literal("_is_default").suppress()
     dbl_quote = pyp.Literal('"').suppress()
 
-    keyword = pyp.Word(pyp.alphanums + '-')
+    keyword = pyp.Word(pyp.alphanums + "-")
 
     # value types
-    value = pyp.Word(pyp.alphanums + '_-/.:')
+    value = pyp.Word(pyp.alphanums + "_-/.:")
     quoted = dbl_quote + pyp.CharsNotIn('"') + dbl_quote
     ipv4_addr = (pyp.Optional(pyp.Literal("ipv4")).suppress() +
                  pyp.Word(pyp.nums + ".") + colon + number)
@@ -1339,41 +1357,110 @@ class DRBD8(BaseDRBD):
               info["remote_addr"] == (self._rhost, self._rport))
     return retval
 
-  @classmethod
-  def _AssembleLocal(cls, minor, backend, meta, size):
+  def _AssembleLocal(self, minor, backend, meta, size):
     """Configure the local part of a DRBD device.
 
     """
-    args = ["drbdsetup", cls._DevPath(minor), "disk",
+    args = ["drbdsetup", self._DevPath(minor), "disk",
             backend, meta, "0",
             "-e", "detach",
             "--create-device"]
     if size:
       args.extend(["-d", "%sm" % size])
-    if not constants.DRBD_BARRIERS: # disable barriers, if configured so
-      version = cls._GetVersion(cls._GetProcData())
-      # various DRBD versions support different disk barrier options;
-      # what we aim here is to revert back to the 'drain' method of
-      # disk flushes and to disable metadata barriers, in effect going
-      # back to pre-8.0.7 behaviour
-      vmaj = version["k_major"]
-      vmin = version["k_minor"]
-      vrel = version["k_point"]
-      assert vmaj == 8
-      if vmin == 0: # 8.0.x
-        if vrel >= 12:
-          args.extend(["-i", "-m"])
-      elif vmin == 2: # 8.2.x
-        if vrel >= 7:
-          args.extend(["-i", "-m"])
-      elif vmaj >= 3: # 8.3.x or newer
-        args.extend(["-i", "-a", "m"])
+
+    version = self._GetVersion(self._GetProcData())
+    vmaj = version["k_major"]
+    vmin = version["k_minor"]
+    vrel = version["k_point"]
+
+    barrier_args = \
+      self._ComputeDiskBarrierArgs(vmaj, vmin, vrel,
+                                   self.params[constants.LDP_BARRIERS],
+                                   self.params[constants.LDP_NO_META_FLUSH])
+    args.extend(barrier_args)
+
+    if self.params[constants.LDP_DISK_CUSTOM]:
+      args.extend(shlex.split(self.params[constants.LDP_DISK_CUSTOM]))
+
     result = utils.RunCmd(args)
     if result.failed:
       _ThrowError("drbd%d: can't attach local disk: %s", minor, result.output)
 
   @classmethod
-  def _AssembleNet(cls, minor, net_info, protocol,
+  def _ComputeDiskBarrierArgs(cls, vmaj, vmin, vrel, disabled_barriers,
+      disable_meta_flush):
+    """Compute the DRBD command line parameters for disk barriers
+
+    Returns a list of the disk barrier parameters as requested via the
+    disabled_barriers and disable_meta_flush arguments, and according to the
+    supported ones in the DRBD version vmaj.vmin.vrel
+
+    If the desired option is unsupported, raises errors.BlockDeviceError.
+
+    """
+    disabled_barriers_set = frozenset(disabled_barriers)
+    if not disabled_barriers_set in constants.DRBD_VALID_BARRIER_OPT:
+      raise errors.BlockDeviceError("%s is not a valid option set for DRBD"
+                                    " barriers" % disabled_barriers)
+
+    args = []
+
+    # The following code assumes DRBD 8.x, with x < 4 and x != 1 (DRBD 8.1.x
+    # does not exist)
+    if not vmaj == 8 and vmin in (0, 2, 3):
+      raise errors.BlockDeviceError("Unsupported DRBD version: %d.%d.%d" %
+                                    (vmaj, vmin, vrel))
+
+    def _AppendOrRaise(option, min_version):
+      """Helper for DRBD options"""
+      if min_version is not None and vrel >= min_version:
+        args.append(option)
+      else:
+        raise errors.BlockDeviceError("Could not use the option %s as the"
+                                      " DRBD version %d.%d.%d does not support"
+                                      " it." % (option, vmaj, vmin, vrel))
+
+    # the minimum version for each feature is encoded via pairs of (minor
+    # version -> x) where x is version in which support for the option was
+    # introduced.
+    meta_flush_supported = disk_flush_supported = {
+      0: 12,
+      2: 7,
+      3: 0,
+      }
+
+    disk_drain_supported = {
+      2: 7,
+      3: 0,
+      }
+
+    disk_barriers_supported = {
+      3: 0,
+      }
+
+    # meta flushes
+    if disable_meta_flush:
+      _AppendOrRaise(cls._DISABLE_META_FLUSH_OPTION,
+                     meta_flush_supported.get(vmin, None))
+
+    # disk flushes
+    if constants.DRBD_B_DISK_FLUSH in disabled_barriers_set:
+      _AppendOrRaise(cls._DISABLE_FLUSH_OPTION,
+                     disk_flush_supported.get(vmin, None))
+
+    # disk drain
+    if constants.DRBD_B_DISK_DRAIN in disabled_barriers_set:
+      _AppendOrRaise(cls._DISABLE_DRAIN_OPTION,
+                     disk_drain_supported.get(vmin, None))
+
+    # disk barriers
+    if constants.DRBD_B_DISK_BARRIERS in disabled_barriers_set:
+      _AppendOrRaise(cls._DISABLE_DISK_OPTION,
+                     disk_barriers_supported.get(vmin, None))
+
+    return args
+
+  def _AssembleNet(self, minor, net_info, protocol,
                    dual_pri=False, hmac=None, secret=None):
     """Configure the network part of the device.
 
@@ -1382,7 +1469,7 @@ class DRBD8(BaseDRBD):
     if None in net_info:
       # we don't want network connection and actually want to make
       # sure its shutdown
-      cls._ShutdownNet(minor)
+      self._ShutdownNet(minor)
       return
 
     # Workaround for a race condition. When DRBD is doing its dance to
@@ -1391,7 +1478,10 @@ class DRBD8(BaseDRBD):
     # sync speed only after setting up both sides can race with DRBD
     # connecting, hence we set it here before telling DRBD anything
     # about its peer.
-    cls._SetMinorSyncSpeed(minor, constants.SYNC_SPEED)
+    sync_errors = self._SetMinorSyncParams(minor, self.params)
+    if sync_errors:
+      _ThrowError("drbd%d: can't set the synchronization parameters: %s" %
+                  (minor, utils.CommaJoin(sync_errors)))
 
     if netutils.IP6Address.IsValid(lhost):
       if not netutils.IP6Address.IsValid(rhost):
@@ -1406,7 +1496,7 @@ class DRBD8(BaseDRBD):
     else:
       _ThrowError("drbd%d: Invalid ip %s" % (minor, lhost))
 
-    args = ["drbdsetup", cls._DevPath(minor), "net",
+    args = ["drbdsetup", self._DevPath(minor), "net",
             "%s:%s:%s" % (family, lhost, lport),
             "%s:%s:%s" % (family, rhost, rport), protocol,
             "-A", "discard-zero-changes",
@@ -1417,13 +1507,17 @@ class DRBD8(BaseDRBD):
       args.append("-m")
     if hmac and secret:
       args.extend(["-a", hmac, "-x", secret])
+
+    if self.params[constants.LDP_NET_CUSTOM]:
+      args.extend(shlex.split(self.params[constants.LDP_NET_CUSTOM]))
+
     result = utils.RunCmd(args)
     if result.failed:
       _ThrowError("drbd%d: can't setup network: %s - %s",
                   minor, result.fail_reason, result.output)
 
     def _CheckNetworkConfig():
-      info = cls._GetDevInfo(cls._GetShowData(minor))
+      info = self._GetDevInfo(self._GetShowData(minor))
       if not "local_addr" in info or not "remote_addr" in info:
         raise utils.RetryAgain()
 
@@ -1487,40 +1581,80 @@ class DRBD8(BaseDRBD):
     self._children = []
 
   @classmethod
-  def _SetMinorSyncSpeed(cls, minor, kbytes):
-    """Set the speed of the DRBD syncer.
+  def _SetMinorSyncParams(cls, minor, params):
+    """Set the parameters of the DRBD syncer.
 
     This is the low-level implementation.
 
     @type minor: int
     @param minor: the drbd minor whose settings we change
-    @type kbytes: int
-    @param kbytes: the speed in kbytes/second
-    @rtype: boolean
-    @return: the success of the operation
+    @type params: dict
+    @param params: LD level disk parameters related to the synchronization
+    @rtype: list
+    @return: a list of error messages
 
     """
-    result = utils.RunCmd(["drbdsetup", cls._DevPath(minor), "syncer",
-                           "-r", "%d" % kbytes, "--create-device"])
+
+    args = ["drbdsetup", cls._DevPath(minor), "syncer"]
+    if params[constants.LDP_DYNAMIC_RESYNC]:
+      version = cls._GetVersion(cls._GetProcData())
+      vmin = version["k_minor"]
+      vrel = version["k_point"]
+
+      # By definition we are using 8.x, so just check the rest of the version
+      # number
+      if vmin != 3 or vrel < 9:
+        msg = ("The current DRBD version (8.%d.%d) does not support the "
+               "dynamic resync speed controller" % (vmin, vrel))
+        logging.error(msg)
+        return [msg]
+
+      if params[constants.LDP_PLAN_AHEAD] == 0:
+        msg = ("A value of 0 for c-plan-ahead disables the dynamic sync speed"
+               " controller at DRBD level. If you want to disable it, please"
+               " set the dynamic-resync disk parameter to False.")
+        logging.error(msg)
+        return [msg]
+
+      # add the c-* parameters to args
+      args.extend(["--c-plan-ahead", params[constants.LDP_PLAN_AHEAD],
+                   "--c-fill-target", params[constants.LDP_FILL_TARGET],
+                   "--c-delay-target", params[constants.LDP_DELAY_TARGET],
+                   "--c-max-rate", params[constants.LDP_MAX_RATE],
+                   "--c-min-rate", params[constants.LDP_MIN_RATE],
+                  ])
+
+    else:
+      args.extend(["-r", "%d" % params[constants.LDP_RESYNC_RATE]])
+
+    args.append("--create-device")
+    result = utils.RunCmd(args)
     if result.failed:
-      logging.error("Can't change syncer rate: %s - %s",
-                    result.fail_reason, result.output)
-    return not result.failed
+      msg = ("Can't change syncer rate: %s - %s" %
+             (result.fail_reason, result.output))
+      logging.error(msg)
+      return [msg]
 
-  def SetSyncSpeed(self, kbytes):
-    """Set the speed of the DRBD syncer.
+    return []
 
-    @type kbytes: int
-    @param kbytes: the speed in kbytes/second
-    @rtype: boolean
-    @return: the success of the operation
+  def SetSyncParams(self, params):
+    """Set the synchronization parameters of the DRBD syncer.
+
+    @type params: dict
+    @param params: LD level disk parameters related to the synchronization
+    @rtype: list
+    @return: a list of error messages, emitted both by the current node and by
+    children. An empty list means no errors
 
     """
     if self.minor is None:
-      logging.info("Not attached during SetSyncSpeed")
-      return False
-    children_result = super(DRBD8, self).SetSyncSpeed(kbytes)
-    return self._SetMinorSyncSpeed(self.minor, kbytes) and children_result
+      err = "Not attached during SetSyncParams"
+      logging.info(err)
+      return [err]
+
+    children_result = super(DRBD8, self).SetSyncParams(params)
+    children_result.extend(self._SetMinorSyncParams(self.minor, params))
+    return children_result
 
   def PauseResumeSync(self, pause):
     """Pauses or resumes the sync of a DRBD device.
@@ -1743,6 +1877,7 @@ class DRBD8(BaseDRBD):
       - if we have a configured device, we try to ensure that it matches
         our config
       - if not, we create it from zero
+      - anyway, set the device parameters
 
     """
     super(DRBD8, self).Assemble()
@@ -1755,6 +1890,11 @@ class DRBD8(BaseDRBD):
       # we have to recheck the local and network status and try to fix
       # the device
       self._SlowAssemble()
+
+    sync_errors = self.SetSyncParams(self.params)
+    if sync_errors:
+      _ThrowError("drbd%d: can't set the synchronization parameters: %s" %
+                  (self.minor, utils.CommaJoin(sync_errors)))
 
   def _SlowAssemble(self):
     """Assembles the DRBD device from a (partially) configured device.
@@ -1902,7 +2042,7 @@ class DRBD8(BaseDRBD):
     self.Shutdown()
 
   @classmethod
-  def Create(cls, unique_id, children, size):
+  def Create(cls, unique_id, children, size, params):
     """Create a new DRBD8 device.
 
     Since DRBD devices are not created per se, just assembled, this
@@ -1928,7 +2068,7 @@ class DRBD8(BaseDRBD):
                   aminor, meta)
     cls._CheckMetaSize(meta.dev_path)
     cls._InitMeta(aminor, meta.dev_path)
-    return cls(unique_id, children, size)
+    return cls(unique_id, children, size, params)
 
   def Grow(self, amount, dryrun):
     """Resize the DRBD device and its backing storage.
@@ -1956,13 +2096,13 @@ class FileStorage(BlockDev):
   The unique_id for the file device is a (file_driver, file_path) tuple.
 
   """
-  def __init__(self, unique_id, children, size):
+  def __init__(self, unique_id, children, size, params):
     """Initalizes a file device backend.
 
     """
     if children:
       raise errors.BlockDeviceError("Invalid setup for file device")
-    super(FileStorage, self).__init__(unique_id, children, size)
+    super(FileStorage, self).__init__(unique_id, children, size, params)
     if not isinstance(unique_id, (tuple, list)) or len(unique_id) != 2:
       raise ValueError("Invalid configuration data %s" % str(unique_id))
     self.driver = unique_id[0]
@@ -2070,7 +2210,7 @@ class FileStorage(BlockDev):
       _ThrowError("Can't stat %s: %s", self.dev_path, err)
 
   @classmethod
-  def Create(cls, unique_id, children, size):
+  def Create(cls, unique_id, children, size, params):
     """Create a new file.
 
     @param size: the size of file in MiB
@@ -2092,7 +2232,7 @@ class FileStorage(BlockDev):
         _ThrowError("File already existing: %s", dev_path)
       _ThrowError("Error in file creation: %", str(err))
 
-    return FileStorage(unique_id, children, size)
+    return FileStorage(unique_id, children, size, params)
 
 
 class PersistentBlockDevice(BlockDev):
@@ -2105,13 +2245,14 @@ class PersistentBlockDevice(BlockDev):
   For the time being, pathnames are required to lie under /dev.
 
   """
-  def __init__(self, unique_id, children, size):
+  def __init__(self, unique_id, children, size, params):
     """Attaches to a static block device.
 
     The unique_id is a path under /dev.
 
     """
-    super(PersistentBlockDevice, self).__init__(unique_id, children, size)
+    super(PersistentBlockDevice, self).__init__(unique_id, children, size,
+                                                params)
     if not isinstance(unique_id, (tuple, list)) or len(unique_id) != 2:
       raise ValueError("Invalid configuration data %s" % str(unique_id))
     self.dev_path = unique_id[1]
@@ -2130,13 +2271,13 @@ class PersistentBlockDevice(BlockDev):
     self.Attach()
 
   @classmethod
-  def Create(cls, unique_id, children, size):
+  def Create(cls, unique_id, children, size, params):
     """Create a new device
 
     This is a noop, we only return a PersistentBlockDevice instance
 
     """
-    return PersistentBlockDevice(unique_id, children, 0)
+    return PersistentBlockDevice(unique_id, children, 0, params)
 
   def Remove(self):
     """Remove a device
@@ -2205,50 +2346,377 @@ class PersistentBlockDevice(BlockDev):
     _ThrowError("Grow is not supported for PersistentBlockDev storage")
 
 
+class RADOSBlockDevice(BlockDev):
+  """A RADOS Block Device (rbd).
+
+  This class implements the RADOS Block Device for the backend. You need
+  the rbd kernel driver, the RADOS Tools and a working RADOS cluster for
+  this to be functional.
+
+  """
+  def __init__(self, unique_id, children, size, params):
+    """Attaches to an rbd device.
+
+    """
+    super(RADOSBlockDevice, self).__init__(unique_id, children, size, params)
+    if not isinstance(unique_id, (tuple, list)) or len(unique_id) != 2:
+      raise ValueError("Invalid configuration data %s" % str(unique_id))
+
+    self.driver, self.rbd_name = unique_id
+
+    self.major = self.minor = None
+    self.Attach()
+
+  @classmethod
+  def Create(cls, unique_id, children, size, params):
+    """Create a new rbd device.
+
+    Provision a new rbd volume inside a RADOS pool.
+
+    """
+    if not isinstance(unique_id, (tuple, list)) or len(unique_id) != 2:
+      raise errors.ProgrammerError("Invalid configuration data %s" %
+                                   str(unique_id))
+    rbd_pool = params[constants.LDP_POOL]
+    rbd_name = unique_id[1]
+
+    # Provision a new rbd volume (Image) inside the RADOS cluster.
+    cmd = [constants.RBD_CMD, "create", "-p", rbd_pool,
+           rbd_name, "--size", "%s" % size]
+    result = utils.RunCmd(cmd)
+    if result.failed:
+      _ThrowError("rbd creation failed (%s): %s",
+                  result.fail_reason, result.output)
+
+    return RADOSBlockDevice(unique_id, children, size, params)
+
+  def Remove(self):
+    """Remove the rbd device.
+
+    """
+    rbd_pool = self.params[constants.LDP_POOL]
+    rbd_name = self.unique_id[1]
+
+    if not self.minor and not self.Attach():
+      # The rbd device doesn't exist.
+      return
+
+    # First shutdown the device (remove mappings).
+    self.Shutdown()
+
+    # Remove the actual Volume (Image) from the RADOS cluster.
+    cmd = [constants.RBD_CMD, "rm", "-p", rbd_pool, rbd_name]
+    result = utils.RunCmd(cmd)
+    if result.failed:
+      _ThrowError("Can't remove Volume from cluster with rbd rm: %s - %s",
+                  result.fail_reason, result.output)
+
+  def Rename(self, new_id):
+    """Rename this device.
+
+    """
+    pass
+
+  def Attach(self):
+    """Attach to an existing rbd device.
+
+    This method maps the rbd volume that matches our name with
+    an rbd device and then attaches to this device.
+
+    """
+    self.attached = False
+
+    # Map the rbd volume to a block device under /dev
+    self.dev_path = self._MapVolumeToBlockdev(self.unique_id)
+
+    try:
+      st = os.stat(self.dev_path)
+    except OSError, err:
+      logging.error("Error stat()'ing %s: %s", self.dev_path, str(err))
+      return False
+
+    if not stat.S_ISBLK(st.st_mode):
+      logging.error("%s is not a block device", self.dev_path)
+      return False
+
+    self.major = os.major(st.st_rdev)
+    self.minor = os.minor(st.st_rdev)
+    self.attached = True
+
+    return True
+
+  def _MapVolumeToBlockdev(self, unique_id):
+    """Maps existing rbd volumes to block devices.
+
+    This method should be idempotent if the mapping already exists.
+
+    @rtype: string
+    @return: the block device path that corresponds to the volume
+
+    """
+    pool = self.params[constants.LDP_POOL]
+    name = unique_id[1]
+
+    # Check if the mapping already exists.
+    showmap_cmd = [constants.RBD_CMD, "showmapped", "-p", pool]
+    result = utils.RunCmd(showmap_cmd)
+    if result.failed:
+      _ThrowError("rbd showmapped failed (%s): %s",
+                  result.fail_reason, result.output)
+
+    rbd_dev = self._ParseRbdShowmappedOutput(result.output, name)
+
+    if rbd_dev:
+      # The mapping exists. Return it.
+      return rbd_dev
+
+    # The mapping doesn't exist. Create it.
+    map_cmd = [constants.RBD_CMD, "map", "-p", pool, name]
+    result = utils.RunCmd(map_cmd)
+    if result.failed:
+      _ThrowError("rbd map failed (%s): %s",
+                  result.fail_reason, result.output)
+
+    # Find the corresponding rbd device.
+    showmap_cmd = [constants.RBD_CMD, "showmapped", "-p", pool]
+    result = utils.RunCmd(showmap_cmd)
+    if result.failed:
+      _ThrowError("rbd map succeeded, but showmapped failed (%s): %s",
+                  result.fail_reason, result.output)
+
+    rbd_dev = self._ParseRbdShowmappedOutput(result.output, name)
+
+    if not rbd_dev:
+      _ThrowError("rbd map succeeded, but could not find the rbd block"
+                  " device in output of showmapped, for volume: %s", name)
+
+    # The device was successfully mapped. Return it.
+    return rbd_dev
+
+  @staticmethod
+  def _ParseRbdShowmappedOutput(output, volume_name):
+    """Parse the output of `rbd showmapped'.
+
+    This method parses the output of `rbd showmapped' and returns
+    the rbd block device path (e.g. /dev/rbd0) that matches the
+    given rbd volume.
+
+    @type output: string
+    @param output: the whole output of `rbd showmapped'
+    @type volume_name: string
+    @param volume_name: the name of the volume whose device we search for
+    @rtype: string or None
+    @return: block device path if the volume is mapped, else None
+
+    """
+    allfields = 5
+    volumefield = 2
+    devicefield = 4
+
+    field_sep = "\t"
+
+    lines = output.splitlines()
+    splitted_lines = map(lambda l: l.split(field_sep), lines)
+
+    # Check empty output.
+    if not splitted_lines:
+      _ThrowError("rbd showmapped returned empty output")
+
+    # Check showmapped header line, to determine number of fields.
+    field_cnt = len(splitted_lines[0])
+    if field_cnt != allfields:
+      _ThrowError("Cannot parse rbd showmapped output because its format"
+                  " seems to have changed; expected %s fields, found %s",
+                  allfields, field_cnt)
+
+    matched_lines = \
+      filter(lambda l: len(l) == allfields and l[volumefield] == volume_name,
+             splitted_lines)
+
+    if len(matched_lines) > 1:
+      _ThrowError("The rbd volume %s is mapped more than once."
+                  " This shouldn't happen, try to unmap the extra"
+                  " devices manually.", volume_name)
+
+    if matched_lines:
+      # rbd block device found. Return it.
+      rbd_dev = matched_lines[0][devicefield]
+      return rbd_dev
+
+    # The given volume is not mapped.
+    return None
+
+  def Assemble(self):
+    """Assemble the device.
+
+    """
+    pass
+
+  def Shutdown(self):
+    """Shutdown the device.
+
+    """
+    if not self.minor and not self.Attach():
+      # The rbd device doesn't exist.
+      return
+
+    # Unmap the block device from the Volume.
+    self._UnmapVolumeFromBlockdev(self.unique_id)
+
+    self.minor = None
+    self.dev_path = None
+
+  def _UnmapVolumeFromBlockdev(self, unique_id):
+    """Unmaps the rbd device from the Volume it is mapped.
+
+    Unmaps the rbd device from the Volume it was previously mapped to.
+    This method should be idempotent if the Volume isn't mapped.
+
+    """
+    pool = self.params[constants.LDP_POOL]
+    name = unique_id[1]
+
+    # Check if the mapping already exists.
+    showmap_cmd = [constants.RBD_CMD, "showmapped", "-p", pool]
+    result = utils.RunCmd(showmap_cmd)
+    if result.failed:
+      _ThrowError("rbd showmapped failed [during unmap](%s): %s",
+                  result.fail_reason, result.output)
+
+    rbd_dev = self._ParseRbdShowmappedOutput(result.output, name)
+
+    if rbd_dev:
+      # The mapping exists. Unmap the rbd device.
+      unmap_cmd = [constants.RBD_CMD, "unmap", "%s" % rbd_dev]
+      result = utils.RunCmd(unmap_cmd)
+      if result.failed:
+        _ThrowError("rbd unmap failed (%s): %s",
+                    result.fail_reason, result.output)
+
+  def Open(self, force=False):
+    """Make the device ready for I/O.
+
+    """
+    pass
+
+  def Close(self):
+    """Notifies that the device will no longer be used for I/O.
+
+    """
+    pass
+
+  def Grow(self, amount, dryrun):
+    """Grow the Volume.
+
+    @type amount: integer
+    @param amount: the amount (in mebibytes) to grow with
+    @type dryrun: boolean
+    @param dryrun: whether to execute the operation in simulation mode
+        only, without actually increasing the size
+
+    """
+    if not self.Attach():
+      _ThrowError("Can't attach to rbd device during Grow()")
+
+    if dryrun:
+      # the rbd tool does not support dry runs of resize operations.
+      # Since rbd volumes are thinly provisioned, we assume
+      # there is always enough free space for the operation.
+      return
+
+    rbd_pool = self.params[constants.LDP_POOL]
+    rbd_name = self.unique_id[1]
+    new_size = self.size + amount
+
+    # Resize the rbd volume (Image) inside the RADOS cluster.
+    cmd = [constants.RBD_CMD, "resize", "-p", rbd_pool,
+           rbd_name, "--size", "%s" % new_size]
+    result = utils.RunCmd(cmd)
+    if result.failed:
+      _ThrowError("rbd resize failed (%s): %s",
+                  result.fail_reason, result.output)
+
+
 DEV_MAP = {
   constants.LD_LV: LogicalVolume,
   constants.LD_DRBD8: DRBD8,
   constants.LD_BLOCKDEV: PersistentBlockDevice,
+  constants.LD_RBD: RADOSBlockDevice,
   }
 
 if constants.ENABLE_FILE_STORAGE or constants.ENABLE_SHARED_FILE_STORAGE:
   DEV_MAP[constants.LD_FILE] = FileStorage
 
 
-def FindDevice(dev_type, unique_id, children, size):
+def _VerifyDiskType(dev_type):
+  if dev_type not in DEV_MAP:
+    raise errors.ProgrammerError("Invalid block device type '%s'" % dev_type)
+
+
+def _VerifyDiskParams(disk):
+  """Verifies if all disk parameters are set.
+
+  """
+  missing = set(constants.DISK_LD_DEFAULTS[disk.dev_type]) - set(disk.params)
+  if missing:
+    raise errors.ProgrammerError("Block device is missing disk parameters: %s" %
+                                 missing)
+
+
+def FindDevice(disk, children):
   """Search for an existing, assembled device.
 
   This will succeed only if the device exists and is assembled, but it
   does not do any actions in order to activate the device.
 
+  @type disk: L{objects.Disk}
+  @param disk: the disk object to find
+  @type children: list of L{bdev.BlockDev}
+  @param children: the list of block devices that are children of the device
+                  represented by the disk parameter
+
   """
-  if dev_type not in DEV_MAP:
-    raise errors.ProgrammerError("Invalid block device type '%s'" % dev_type)
-  device = DEV_MAP[dev_type](unique_id, children, size)
+  _VerifyDiskType(disk.dev_type)
+  device = DEV_MAP[disk.dev_type](disk.physical_id, children, disk.size,
+                                  disk.params)
   if not device.attached:
     return None
   return device
 
 
-def Assemble(dev_type, unique_id, children, size):
+def Assemble(disk, children):
   """Try to attach or assemble an existing device.
 
   This will attach to assemble the device, as needed, to bring it
   fully up. It must be safe to run on already-assembled devices.
 
+  @type disk: L{objects.Disk}
+  @param disk: the disk object to assemble
+  @type children: list of L{bdev.BlockDev}
+  @param children: the list of block devices that are children of the device
+                  represented by the disk parameter
+
   """
-  if dev_type not in DEV_MAP:
-    raise errors.ProgrammerError("Invalid block device type '%s'" % dev_type)
-  device = DEV_MAP[dev_type](unique_id, children, size)
+  _VerifyDiskType(disk.dev_type)
+  _VerifyDiskParams(disk)
+  device = DEV_MAP[disk.dev_type](disk.physical_id, children, disk.size,
+                                  disk.params)
   device.Assemble()
   return device
 
 
-def Create(dev_type, unique_id, children, size):
+def Create(disk, children):
   """Create a device.
 
+  @type disk: L{objects.Disk}
+  @param disk: the disk object to create
+  @type children: list of L{bdev.BlockDev}
+  @param children: the list of block devices that are children of the device
+                  represented by the disk parameter
+
   """
-  if dev_type not in DEV_MAP:
-    raise errors.ProgrammerError("Invalid block device type '%s'" % dev_type)
-  device = DEV_MAP[dev_type].Create(unique_id, children, size)
+  _VerifyDiskType(disk.dev_type)
+  _VerifyDiskParams(disk)
+  device = DEV_MAP[disk.dev_type].Create(disk.physical_id, children, disk.size,
+                                         disk.params)
   return device

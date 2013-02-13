@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2010, 2011 Google Inc.
+# Copyright (C) 2010, 2011, 2012 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -28,10 +28,14 @@ from ganeti.cli import *
 from ganeti import constants
 from ganeti import opcodes
 from ganeti import utils
+from cStringIO import StringIO
 
 
 #: default list of fields for L{ListGroups}
 _LIST_DEF_FIELDS = ["name", "node_cnt", "pinst_cnt", "alloc_policy", "ndparams"]
+
+
+_ENV_OVERRIDE = frozenset(["list"])
 
 
 def AddGroup(opts, args):
@@ -44,10 +48,31 @@ def AddGroup(opts, args):
   @return: the desired exit code
 
   """
+  ipolicy = CreateIPolicyFromOpts(
+    ispecs_mem_size=opts.ispecs_mem_size,
+    ispecs_cpu_count=opts.ispecs_cpu_count,
+    ispecs_disk_count=opts.ispecs_disk_count,
+    ispecs_disk_size=opts.ispecs_disk_size,
+    ispecs_nic_count=opts.ispecs_nic_count,
+    ipolicy_vcpu_ratio=opts.ipolicy_vcpu_ratio,
+    ipolicy_spindle_ratio=opts.ipolicy_spindle_ratio,
+    group_ipolicy=True)
+
   (group_name,) = args
+  diskparams = dict(opts.diskparams)
+
+  if opts.disk_state:
+    disk_state = utils.FlatToDict(opts.disk_state)
+  else:
+    disk_state = {}
+  hv_state = dict(opts.hv_state)
+
   op = opcodes.OpGroupAdd(group_name=group_name, ndparams=opts.ndparams,
-                          alloc_policy=opts.alloc_policy)
-  SubmitOpCode(op, opts=opts)
+                          alloc_policy=opts.alloc_policy,
+                          diskparams=diskparams, ipolicy=ipolicy,
+                          hv_state=hv_state,
+                          disk_state=disk_state)
+  SubmitOrSend(op, opts)
 
 
 def AssignNodes(opts, args):
@@ -65,7 +90,7 @@ def AssignNodes(opts, args):
 
   op = opcodes.OpGroupAssignNodes(group_name=group_name, nodes=node_names,
                                   force=opts.force)
-  SubmitOpCode(op, opts=opts)
+  SubmitOrSend(op, opts)
 
 
 def _FmtDict(data):
@@ -130,13 +155,58 @@ def SetGroupParams(opts, args):
   @return: the desired exit code
 
   """
-  if opts.ndparams is None and opts.alloc_policy is None:
+  allmods = [opts.ndparams, opts.alloc_policy, opts.diskparams, opts.hv_state,
+             opts.disk_state, opts.ispecs_mem_size, opts.ispecs_cpu_count,
+             opts.ispecs_disk_count, opts.ispecs_disk_size,
+             opts.ispecs_nic_count, opts.ipolicy_vcpu_ratio,
+             opts.ipolicy_spindle_ratio, opts.diskparams]
+  if allmods.count(None) == len(allmods):
     ToStderr("Please give at least one of the parameters.")
     return 1
 
+  if opts.disk_state:
+    disk_state = utils.FlatToDict(opts.disk_state)
+  else:
+    disk_state = {}
+
+  hv_state = dict(opts.hv_state)
+
+  diskparams = dict(opts.diskparams)
+
+  # set the default values
+  to_ipolicy = [
+    opts.ispecs_mem_size,
+    opts.ispecs_cpu_count,
+    opts.ispecs_disk_count,
+    opts.ispecs_disk_size,
+    opts.ispecs_nic_count,
+    ]
+  for ispec in to_ipolicy:
+    for param in ispec:
+      if isinstance(ispec[param], basestring):
+        if ispec[param].lower() == "default":
+          ispec[param] = constants.VALUE_DEFAULT
+  # create ipolicy object
+  ipolicy = CreateIPolicyFromOpts(
+    ispecs_mem_size=opts.ispecs_mem_size,
+    ispecs_cpu_count=opts.ispecs_cpu_count,
+    ispecs_disk_count=opts.ispecs_disk_count,
+    ispecs_disk_size=opts.ispecs_disk_size,
+    ispecs_nic_count=opts.ispecs_nic_count,
+    ipolicy_disk_templates=opts.ipolicy_disk_templates,
+    ipolicy_vcpu_ratio=opts.ipolicy_vcpu_ratio,
+    ipolicy_spindle_ratio=opts.ipolicy_spindle_ratio,
+    group_ipolicy=True,
+    allowed_values=[constants.VALUE_DEFAULT])
+
   op = opcodes.OpGroupSetParams(group_name=args[0],
                                 ndparams=opts.ndparams,
-                                alloc_policy=opts.alloc_policy)
+                                alloc_policy=opts.alloc_policy,
+                                hv_state=hv_state,
+                                disk_state=disk_state,
+                                diskparams=diskparams,
+                                ipolicy=ipolicy)
+
   result = SubmitOrSend(op, opts)
 
   if result:
@@ -159,7 +229,7 @@ def RemoveGroup(opts, args):
   """
   (group_name,) = args
   op = opcodes.OpGroupRemove(group_name=group_name)
-  SubmitOpCode(op, opts=opts)
+  SubmitOrSend(op, opts)
 
 
 def RenameGroup(opts, args):
@@ -174,7 +244,7 @@ def RenameGroup(opts, args):
   """
   group_name, new_name = args
   op = opcodes.OpGroupRename(group_name=group_name, new_name=new_name)
-  SubmitOpCode(op, opts=opts)
+  SubmitOrSend(op, opts)
 
 
 def EvacuateGroup(opts, args):
@@ -189,7 +259,7 @@ def EvacuateGroup(opts, args):
                                iallocator=opts.iallocator,
                                target_groups=opts.to,
                                early_release=opts.early_release)
-  result = SubmitOpCode(op, cl=cl, opts=opts)
+  result = SubmitOrSend(op, opts, cl=cl)
 
   # Keep track of submitted jobs
   jex = JobExecutor(cl=cl, opts=opts)
@@ -209,12 +279,53 @@ def EvacuateGroup(opts, args):
   return rcode
 
 
+def _FormatDict(custom, actual, level=2):
+  """Helper function to L{cli.FormatParameterDict}.
+
+  @param custom: The customized dict
+  @param actual: The fully filled dict
+
+  """
+  buf = StringIO()
+  FormatParameterDict(buf, custom, actual, level=level)
+  return buf.getvalue().rstrip("\n")
+
+
+def GroupInfo(_, args):
+  """Shows info about node group.
+
+  """
+  cl = GetClient()
+  selected_fields = ["name",
+                     "ndparams", "custom_ndparams",
+                     "diskparams", "custom_diskparams",
+                     "ipolicy", "custom_ipolicy"]
+  result = cl.QueryGroups(names=args, fields=selected_fields,
+                          use_locking=False)
+
+  for (name,
+       ndparams, custom_ndparams,
+       diskparams, custom_diskparams,
+       ipolicy, custom_ipolicy) in result:
+    ToStdout("Node group: %s" % name)
+    ToStdout("  Node parameters:")
+    ToStdout(_FormatDict(custom_ndparams, ndparams))
+    ToStdout("  Disk parameters:")
+    ToStdout(_FormatDict(custom_diskparams, diskparams))
+    ToStdout("  Instance policy:")
+    ToStdout(_FormatDict(custom_ipolicy, ipolicy))
+
+
 commands = {
   "add": (
-    AddGroup, ARGS_ONE_GROUP, [DRY_RUN_OPT, ALLOC_POLICY_OPT, NODE_PARAMS_OPT],
+    AddGroup, ARGS_ONE_GROUP,
+    [DRY_RUN_OPT, ALLOC_POLICY_OPT, NODE_PARAMS_OPT, DISK_PARAMS_OPT,
+     HV_STATE_OPT, DISK_STATE_OPT, PRIORITY_OPT,
+     SUBMIT_OPT] + INSTANCE_POLICY_OPTS,
     "<group_name>", "Add a new node group to the cluster"),
   "assign-nodes": (
-    AssignNodes, ARGS_ONE_GROUP + ARGS_MANY_NODES, [DRY_RUN_OPT, FORCE_OPT],
+    AssignNodes, ARGS_ONE_GROUP + ARGS_MANY_NODES,
+    [DRY_RUN_OPT, FORCE_OPT, PRIORITY_OPT, SUBMIT_OPT],
     "<group_name> <node>...", "Assign nodes to a group"),
   "list": (
     ListGroups, ARGS_MANY_GROUPS,
@@ -228,34 +339,39 @@ commands = {
     "Lists all available fields for node groups"),
   "modify": (
     SetGroupParams, ARGS_ONE_GROUP,
-    [DRY_RUN_OPT, SUBMIT_OPT, ALLOC_POLICY_OPT, NODE_PARAMS_OPT],
+    [DRY_RUN_OPT, SUBMIT_OPT, ALLOC_POLICY_OPT, NODE_PARAMS_OPT, HV_STATE_OPT,
+     DISK_STATE_OPT, DISK_PARAMS_OPT, PRIORITY_OPT] + INSTANCE_POLICY_OPTS,
     "<group_name>", "Alters the parameters of a node group"),
   "remove": (
-    RemoveGroup, ARGS_ONE_GROUP, [DRY_RUN_OPT],
+    RemoveGroup, ARGS_ONE_GROUP, [DRY_RUN_OPT, PRIORITY_OPT, SUBMIT_OPT],
     "[--dry-run] <group-name>",
     "Remove an (empty) node group from the cluster"),
   "rename": (
-    RenameGroup, [ArgGroup(min=2, max=2)], [DRY_RUN_OPT],
+    RenameGroup, [ArgGroup(min=2, max=2)],
+    [DRY_RUN_OPT, SUBMIT_OPT, PRIORITY_OPT],
     "[--dry-run] <group-name> <new-name>", "Rename a node group"),
   "evacuate": (
     EvacuateGroup, [ArgGroup(min=1, max=1)],
-    [TO_GROUP_OPT, IALLOCATOR_OPT, EARLY_RELEASE_OPT],
+    [TO_GROUP_OPT, IALLOCATOR_OPT, EARLY_RELEASE_OPT, SUBMIT_OPT, PRIORITY_OPT],
     "[-I <iallocator>] [--to <group>]",
     "Evacuate all instances within a group"),
   "list-tags": (
-    ListTags, ARGS_ONE_GROUP, [PRIORITY_OPT],
+    ListTags, ARGS_ONE_GROUP, [],
     "<group_name>", "List the tags of the given group"),
   "add-tags": (
     AddTags, [ArgGroup(min=1, max=1), ArgUnknown()],
-    [TAG_SRC_OPT, PRIORITY_OPT],
+    [TAG_SRC_OPT, PRIORITY_OPT, SUBMIT_OPT],
     "<group_name> tag...", "Add tags to the given group"),
   "remove-tags": (
     RemoveTags, [ArgGroup(min=1, max=1), ArgUnknown()],
-    [TAG_SRC_OPT, PRIORITY_OPT],
+    [TAG_SRC_OPT, PRIORITY_OPT, SUBMIT_OPT],
     "<group_name> tag...", "Remove tags from the given group"),
+  "info": (
+    GroupInfo, ARGS_MANY_GROUPS, [], "<group_name>", "Show group information"),
   }
 
 
 def Main():
   return GenericMain(commands,
-                     override={"tag_type": constants.TAG_NODEGROUP})
+                     override={"tag_type": constants.TAG_NODEGROUP},
+                     env_override=_ENV_OVERRIDE)

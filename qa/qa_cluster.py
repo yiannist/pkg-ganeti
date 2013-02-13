@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2007, 2010, 2011 Google Inc.
+# Copyright (C) 2007, 2010, 2011, 2012 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -58,6 +58,20 @@ def _CheckFileOnAllNodes(filename, content):
     AssertEqual(qa_utils.GetCommandOutput(node["primary"], cmd), content)
 
 
+# data for testing failures due to bad keys/values for disk parameters
+_FAIL_PARAMS = ["nonexistent:resync-rate=1",
+                "drbd:nonexistent=1",
+                "drbd:resync-rate=invalid",
+                ]
+
+
+def TestClusterInitDisk():
+  """gnt-cluster init -D"""
+  name = qa_config.get("name")
+  for param in _FAIL_PARAMS:
+    AssertCommand(["gnt-cluster", "init", "-D", param, name], fail=True)
+
+
 def TestClusterInit(rapi_user, rapi_secret):
   """gnt-cluster init"""
   master = qa_config.GetMasterNode()
@@ -80,10 +94,19 @@ def TestClusterInit(rapi_user, rapi_secret):
     fh.close()
 
   # Initialize cluster
-  cmd = ["gnt-cluster", "init"]
+  cmd = [
+    "gnt-cluster", "init",
+    "--primary-ip-version=%d" % qa_config.get("primary_ip_version", 4),
+    "--enabled-hypervisors=%s" % ",".join(qa_config.GetEnabledHypervisors()),
+    ]
 
-  cmd.append("--primary-ip-version=%d" %
-             qa_config.get("primary_ip_version", 4))
+  for spec_type in ("mem-size", "disk-size", "disk-count", "cpu-count",
+                    "nic-count"):
+    for spec_val in ("min", "max", "std"):
+      spec = qa_config.get("ispec_%s_%s" %
+                           (spec_type.replace('-', '_'), spec_val), None)
+      if spec:
+        cmd.append("--specs-%s=%s=%d" % (spec_type, spec_val, spec))
 
   if master.get("secondary", None):
     cmd.append("--secondary-ip=%s" % master["secondary"])
@@ -93,15 +116,11 @@ def TestClusterInit(rapi_user, rapi_secret):
     cmd.append("--bridge=%s" % bridge)
     cmd.append("--master-netdev=%s" % bridge)
 
-  htype = qa_config.get("enabled-hypervisors", None)
-  if htype:
-    cmd.append("--enabled-hypervisors=%s" % htype)
-
   cmd.append(qa_config.get("name"))
-
   AssertCommand(cmd)
 
   cmd = ["gnt-cluster", "modify"]
+
   # hypervisor parameter modifications
   hvp = qa_config.get("hypervisor-parameters", {})
   for k, v in hvp.items():
@@ -183,7 +202,7 @@ def TestClusterEpo():
 
   # Assert that OOB is unavailable for all nodes
   result_output = GetCommandOutput(master["primary"],
-                                   "gnt-node list --verbose --no-header -o"
+                                   "gnt-node list --verbose --no-headers -o"
                                    " powered")
   AssertEqual(compat.all(powered == "(unavail)"
                          for powered in result_output.splitlines()), True)
@@ -201,8 +220,9 @@ def TestClusterEpo():
 
   # All instances should have been stopped now
   result_output = GetCommandOutput(master["primary"],
-                                   "gnt-instance list --no-header -o status")
-  AssertEqual(compat.all(status == "ADMIN_down"
+                                   "gnt-instance list --no-headers -o status")
+  # ERROR_down because the instance is stopped but not recorded as such
+  AssertEqual(compat.all(status == "ERROR_down"
                          for status in result_output.splitlines()), True)
 
   # Now start everything again
@@ -210,7 +230,7 @@ def TestClusterEpo():
 
   # All instances should have been started now
   result_output = GetCommandOutput(master["primary"],
-                                   "gnt-instance list --no-header -o status")
+                                   "gnt-instance list --no-headers -o status")
   AssertEqual(compat.all(status == "running"
                          for status in result_output.splitlines()), True)
 
@@ -224,6 +244,14 @@ def TestClusterVerify():
 def TestJobqueue():
   """gnt-debug test-jobqueue"""
   AssertCommand(["gnt-debug", "test-jobqueue"])
+
+
+def TestDelay(node):
+  """gnt-debug delay"""
+  AssertCommand(["gnt-debug", "delay", "1"])
+  AssertCommand(["gnt-debug", "delay", "--no-master", "1"])
+  AssertCommand(["gnt-debug", "delay", "--no-master",
+                 "-n", node["primary"], "1"])
 
 
 def TestClusterReservedLvs():
@@ -246,15 +274,32 @@ def TestClusterReservedLvs():
     AssertCommand(cmd, fail=fail)
 
 
+def TestClusterModifyEmpty():
+  """gnt-cluster modify"""
+  AssertCommand(["gnt-cluster", "modify"], fail=True)
+
+
+def TestClusterModifyDisk():
+  """gnt-cluster modify -D"""
+  for param in _FAIL_PARAMS:
+    AssertCommand(["gnt-cluster", "modify", "-D", param], fail=True)
+
+
 def TestClusterModifyBe():
   """gnt-cluster modify -B"""
   for fail, cmd in [
-    # mem
-    (False, ["gnt-cluster", "modify", "-B", "memory=256"]),
-    (False, ["sh", "-c", "gnt-cluster info|grep '^ *memory: 256$'"]),
-    (True, ["gnt-cluster", "modify", "-B", "memory=a"]),
-    (False, ["gnt-cluster", "modify", "-B", "memory=128"]),
-    (False, ["sh", "-c", "gnt-cluster info|grep '^ *memory: 128$'"]),
+    # max/min mem
+    (False, ["gnt-cluster", "modify", "-B", "maxmem=256"]),
+    (False, ["sh", "-c", "gnt-cluster info|grep '^ *maxmem: 256$'"]),
+    (False, ["gnt-cluster", "modify", "-B", "minmem=256"]),
+    (False, ["sh", "-c", "gnt-cluster info|grep '^ *minmem: 256$'"]),
+    (True, ["gnt-cluster", "modify", "-B", "maxmem=a"]),
+    (False, ["sh", "-c", "gnt-cluster info|grep '^ *maxmem: 256$'"]),
+    (True, ["gnt-cluster", "modify", "-B", "minmem=a"]),
+    (False, ["sh", "-c", "gnt-cluster info|grep '^ *minmem: 256$'"]),
+    (False, ["gnt-cluster", "modify", "-B", "maxmem=128,minmem=128"]),
+    (False, ["sh", "-c", "gnt-cluster info|grep '^ *maxmem: 128$'"]),
+    (False, ["sh", "-c", "gnt-cluster info|grep '^ *minmem: 128$'"]),
     # vcpus
     (False, ["gnt-cluster", "modify", "-B", "vcpus=4"]),
     (False, ["sh", "-c", "gnt-cluster info|grep '^ *vcpus: 4$'"]),
@@ -388,6 +433,8 @@ def TestClusterBurnin():
       # Run burnin
       cmd = [script,
              "--os=%s" % qa_config.get("os"),
+             "--minmem-size=%s" % qa_config.get(constants.BE_MINMEM),
+             "--maxmem-size=%s" % qa_config.get(constants.BE_MAXMEM),
              "--disk-size=%s" % ",".join(qa_config.get("disk")),
              "--disk-growth=%s" % ",".join(qa_config.get("disk-growth")),
              "--disk-template=%s" % disk_template]

@@ -5,13 +5,13 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Welcome to Ganeti’s documentation! &mdash; Ganeti v2.5.2 documentation</title>
+    <title>Welcome to Ganeti’s documentation! &mdash; Ganeti v2.6.0 documentation</title>
     <link rel="stylesheet" href="_static/default.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.5.2',
+        VERSION:     '2.6.0',
         COLLAPSE_MODINDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -19,7 +19,7 @@
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.5.2 documentation" href="#" />
+    <link rel="top" title="Ganeti v2.6.0 documentation" href="#" />
     <link rel="next" title="Ganeti quick installation guide" href="install-quick.html" /> 
   </head>
   <body>
@@ -29,7 +29,7 @@
         <li class="right" style="margin-right: 10px">
           <a href="install-quick.html" title="Ganeti quick installation guide"
              accesskey="N">next</a></li>
-        <li><a href="#">Ganeti v2.5.2 documentation</a> &raquo;</li> 
+        <li><a href="#">Ganeti v2.6.0 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -78,7 +78,7 @@
 <li class="toctree-l1"><a class="reference external" href="walkthrough.html">Ganeti walk-through</a><ul>
 <li class="toctree-l2"><a class="reference external" href="walkthrough.html#introduction">Introduction</a></li>
 <li class="toctree-l2"><a class="reference external" href="walkthrough.html#cluster-creation">Cluster creation</a></li>
-<li class="toctree-l2"><a class="reference external" href="walkthrough.html#running-a-burnin">Running a burnin</a></li>
+<li class="toctree-l2"><a class="reference external" href="walkthrough.html#running-a-burn-in">Running a burn-in</a></li>
 <li class="toctree-l2"><a class="reference external" href="walkthrough.html#instance-operations">Instance operations</a></li>
 <li class="toctree-l2"><a class="reference external" href="walkthrough.html#recovering-from-hardware-failures">Recovering from hardware failures</a></li>
 <li class="toctree-l2"><a class="reference external" href="walkthrough.html#common-cluster-problems">Common cluster problems</a></li>
@@ -131,6 +131,10 @@
 <li class="toctree-l2"><a class="reference external" href="design-cpu-pinning.html">Ganeti CPU Pinning</a></li>
 <li class="toctree-l2"><a class="reference external" href="design-ovf-support.html">Ganeti Instance Import/Export using Open Virtualization Format</a></li>
 <li class="toctree-l2"><a class="reference external" href="design-network.html">Network management</a></li>
+<li class="toctree-l2"><a class="reference external" href="design-node-state-cache.html">Node State Cache</a></li>
+<li class="toctree-l2"><a class="reference external" href="design-resource-model.html">Resource model changes</a></li>
+<li class="toctree-l2"><a class="reference external" href="design-virtual-clusters.html">Virtual clusters support</a></li>
+<li class="toctree-l2"><a class="reference external" href="design-query-splitting.html">Splitting the query and job execution paths</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference external" href="cluster-merge.html">Merging clusters</a><ul>
@@ -166,6 +170,7 @@
 <li class="toctree-l2"><a class="reference external" href="rapi.html#put-or-post">PUT or POST?</a></li>
 <li class="toctree-l2"><a class="reference external" href="rapi.html#generic-parameter-types">Generic parameter types</a></li>
 <li class="toctree-l2"><a class="reference external" href="rapi.html#generic-parameters">Generic parameters</a></li>
+<li class="toctree-l2"><a class="reference external" href="rapi.html#parameter-details">Parameter details</a></li>
 <li class="toctree-l2"><a class="reference external" href="rapi.html#usage-examples">Usage examples</a></li>
 <li class="toctree-l2"><a class="reference external" href="rapi.html#resources">Resources</a></li>
 </ul>
@@ -175,9 +180,18 @@
 <li class="toctree-l2"><a class="reference external" href="move-instance.html#moving-instances">Moving instances</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference external" href="ovfconverter.html">OVF converter</a><ul>
+<li class="toctree-l2"><a class="reference external" href="ovfconverter.html#limitations-on-import">Limitations on import</a></li>
+<li class="toctree-l2"><a class="reference external" href="ovfconverter.html#limitations-on-export">Limitations on export</a></li>
+<li class="toctree-l2"><a class="reference external" href="ovfconverter.html#import-examples">Import examples</a></li>
+<li class="toctree-l2"><a class="reference external" href="ovfconverter.html#export-example">Export example</a></li>
+<li class="toctree-l2"><a class="reference external" href="ovfconverter.html#known-issues">Known issues</a></li>
+</ul>
+</li>
 <li class="toctree-l1"><a class="reference external" href="devnotes.html">Developer notes</a><ul>
 <li class="toctree-l2"><a class="reference external" href="devnotes.html#build-dependencies">Build dependencies</a></li>
 <li class="toctree-l2"><a class="reference external" href="devnotes.html#configuring-for-development">Configuring for development</a></li>
+<li class="toctree-l2"><a class="reference external" href="devnotes.html#haskell-development-notes">Haskell development notes</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference external" href="devnotes.html#packaging-notes">Packaging notes</a><ul>
@@ -185,6 +199,13 @@
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference external" href="news.html">News</a><ul>
+<li class="toctree-l2"><a class="reference external" href="news.html#version-2-6-0">Version 2.6.0</a></li>
+<li class="toctree-l2"><a class="reference external" href="news.html#version-2-6-0-rc4">Version 2.6.0 rc4</a></li>
+<li class="toctree-l2"><a class="reference external" href="news.html#version-2-6-0-rc3">Version 2.6.0 rc3</a></li>
+<li class="toctree-l2"><a class="reference external" href="news.html#version-2-6-0-rc2">Version 2.6.0 rc2</a></li>
+<li class="toctree-l2"><a class="reference external" href="news.html#version-2-6-0-rc1">Version 2.6.0 rc1</a></li>
+<li class="toctree-l2"><a class="reference external" href="news.html#version-2-6-0-beta2">Version 2.6.0 beta2</a></li>
+<li class="toctree-l2"><a class="reference external" href="news.html#version-2-6-0-beta1">Version 2.6.0 beta1</a></li>
 <li class="toctree-l2"><a class="reference external" href="news.html#version-2-5-2">Version 2.5.2</a></li>
 <li class="toctree-l2"><a class="reference external" href="news.html#version-2-5-1">Version 2.5.1</a></li>
 <li class="toctree-l2"><a class="reference external" href="news.html#version-2-5-0">Version 2.5.0</a></li>
@@ -221,7 +242,7 @@
 <li class="toctree-l2"><a class="reference external" href="news.html#version-2-2-0-rc2">Version 2.2.0 rc2</a></li>
 <li class="toctree-l2"><a class="reference external" href="news.html#version-2-2-0-rc1">Version 2.2.0 rc1</a></li>
 <li class="toctree-l2"><a class="reference external" href="news.html#version-2-2-0-rc0">Version 2.2.0 rc0</a></li>
-<li class="toctree-l2"><a class="reference external" href="news.html#version-2-2-0-beta-0">Version 2.2.0 beta 0</a></li>
+<li class="toctree-l2"><a class="reference external" href="news.html#version-2-2-0-beta0">Version 2.2.0 beta0</a></li>
 <li class="toctree-l2"><a class="reference external" href="news.html#version-2-1-8">Version 2.1.8</a></li>
 <li class="toctree-l2"><a class="reference external" href="news.html#version-2-1-7">Version 2.1.7</a></li>
 <li class="toctree-l2"><a class="reference external" href="news.html#version-2-1-6">Version 2.1.6</a></li>
@@ -238,14 +259,14 @@
 <li class="toctree-l2"><a class="reference external" href="news.html#version-2-0-3">Version 2.0.3</a></li>
 <li class="toctree-l2"><a class="reference external" href="news.html#version-2-0-2">Version 2.0.2</a></li>
 <li class="toctree-l2"><a class="reference external" href="news.html#version-2-0-1">Version 2.0.1</a></li>
-<li class="toctree-l2"><a class="reference external" href="news.html#version-2-0-0-final">Version 2.0.0 final</a></li>
-<li class="toctree-l2"><a class="reference external" href="news.html#version-2-0-release-candidate-5">Version 2.0 release candidate 5</a></li>
-<li class="toctree-l2"><a class="reference external" href="news.html#version-2-0-release-candidate-4">Version 2.0 release candidate 4</a></li>
-<li class="toctree-l2"><a class="reference external" href="news.html#version-2-0-release-candidate-3">Version 2.0 release candidate 3</a></li>
-<li class="toctree-l2"><a class="reference external" href="news.html#version-2-0-release-candidate-2">Version 2.0 release candidate 2</a></li>
-<li class="toctree-l2"><a class="reference external" href="news.html#version-2-0-release-candidate-1">Version 2.0 release candidate 1</a></li>
-<li class="toctree-l2"><a class="reference external" href="news.html#version-2-0-beta-2">Version 2.0 beta 2</a></li>
-<li class="toctree-l2"><a class="reference external" href="news.html#version-2-0-beta-1">Version 2.0 beta 1</a></li>
+<li class="toctree-l2"><a class="reference external" href="news.html#version-2-0-0">Version 2.0.0</a></li>
+<li class="toctree-l2"><a class="reference external" href="news.html#version-2-0-rc5">Version 2.0 rc5</a></li>
+<li class="toctree-l2"><a class="reference external" href="news.html#version-2-0-rc4">Version 2.0 rc4</a></li>
+<li class="toctree-l2"><a class="reference external" href="news.html#version-2-0-rc3">Version 2.0 rc3</a></li>
+<li class="toctree-l2"><a class="reference external" href="news.html#version-2-0-rc2">Version 2.0 rc2</a></li>
+<li class="toctree-l2"><a class="reference external" href="news.html#version-2-0-rc1">Version 2.0 rc1</a></li>
+<li class="toctree-l2"><a class="reference external" href="news.html#version-2-0-beta2">Version 2.0 beta2</a></li>
+<li class="toctree-l2"><a class="reference external" href="news.html#version-2-0-beta1">Version 2.0 beta1</a></li>
 <li class="toctree-l2"><a class="reference external" href="news.html#version-1-2-7">Version 1.2.7</a></li>
 <li class="toctree-l2"><a class="reference external" href="news.html#version-1-2-6">Version 1.2.6</a></li>
 <li class="toctree-l2"><a class="reference external" href="news.html#version-1-2-5">Version 1.2.5</a></li>
@@ -254,8 +275,8 @@
 <li class="toctree-l2"><a class="reference external" href="news.html#version-1-2-2">Version 1.2.2</a></li>
 <li class="toctree-l2"><a class="reference external" href="news.html#version-1-2-1">Version 1.2.1</a></li>
 <li class="toctree-l2"><a class="reference external" href="news.html#version-1-2-0">Version 1.2.0</a></li>
-<li class="toctree-l2"><a class="reference external" href="news.html#version-1-2b3">Version 1.2b3</a></li>
-<li class="toctree-l2"><a class="reference external" href="news.html#version-1-2b2">Version 1.2b2</a></li>
+<li class="toctree-l2"><a class="reference external" href="news.html#version-1-2-beta3">Version 1.2 beta3</a></li>
+<li class="toctree-l2"><a class="reference external" href="news.html#version-1-2-beta2">Version 1.2 beta2</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference external" href="glossary.html">Glossary</a></li>
@@ -300,11 +321,11 @@
         <li class="right" style="margin-right: 10px">
           <a href="install-quick.html" title="Ganeti quick installation guide"
              >next</a></li>
-        <li><a href="#">Ganeti v2.5.2 documentation</a> &raquo;</li> 
+        <li><a href="#">Ganeti v2.6.0 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">
-      &copy; Copyright 2006, 2007, 2008, 2009, 2010, Google Inc..
+      &copy; Copyright 2006, 2007, 2008, 2009, 2010, 2011, 2012, Google Inc..
       Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 0.6.7.
     </div>
   </body>

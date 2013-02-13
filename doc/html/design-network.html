@@ -5,13 +5,13 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Network management &mdash; Ganeti v2.5.2 documentation</title>
+    <title>Network management &mdash; Ganeti v2.6.0 documentation</title>
     <link rel="stylesheet" href="_static/default.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.5.2',
+        VERSION:     '2.6.0',
         COLLAPSE_MODINDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -19,9 +19,9 @@
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.5.2 documentation" href="index.html" />
+    <link rel="top" title="Ganeti v2.6.0 documentation" href="index.html" />
     <link rel="up" title="Design document drafts" href="design-draft.html" />
-    <link rel="next" title="Merging clusters" href="cluster-merge.html" />
+    <link rel="next" title="Node State Cache" href="design-node-state-cache.html" />
     <link rel="prev" title="Ganeti Instance Import/Export using Open Virtualization Format" href="design-ovf-support.html" /> 
   </head>
   <body>
@@ -29,12 +29,12 @@
       <h3>Navigation</h3>
       <ul>
         <li class="right" style="margin-right: 10px">
-          <a href="cluster-merge.html" title="Merging clusters"
+          <a href="design-node-state-cache.html" title="Node State Cache"
              accesskey="N">next</a></li>
         <li class="right" >
           <a href="design-ovf-support.html" title="Ganeti Instance Import/Export using Open Virtualization Format"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.5.2 documentation</a> &raquo;</li>
+        <li><a href="index.html">Ganeti v2.6.0 documentation</a> &raquo;</li>
           <li><a href="design-draft.html" accesskey="U">Design document drafts</a> &raquo;</li> 
       </ul>
     </div>  
@@ -54,11 +54,12 @@
 <li><a class="reference internal" href="#proposed-changes" id="id3">Proposed changes</a><ul>
 <li><a class="reference internal" href="#configuration-changes" id="id4">Configuration changes</a></li>
 <li><a class="reference internal" href="#ip-pool-management" id="id5">IP pool management</a></li>
-<li><a class="reference internal" href="#managed-nic-mode" id="id6">Managed NIC mode</a></li>
+<li><a class="reference internal" href="#new-nic-parameter-network" id="id6">New NIC parameter: network</a></li>
 <li><a class="reference internal" href="#hooks" id="id7">Hooks</a></li>
 <li><a class="reference internal" href="#backend-changes" id="id8">Backend changes</a></li>
-<li><a class="reference internal" href="#userland-interface" id="id9">Userland interface</a></li>
-<li><a class="reference internal" href="#iallocator-changes" id="id10">IAllocator changes</a></li>
+<li><a class="reference internal" href="#conflicting-ips" id="id9">Conflicting IPs</a></li>
+<li><a class="reference internal" href="#userland-interface" id="id10">Userland interface</a></li>
+<li><a class="reference internal" href="#iallocator-changes" id="id11">IAllocator changes</a></li>
 </ul>
 </li>
 </ul>
@@ -107,9 +108,9 @@ node groups.</p>
 <h3><a class="toc-backref" href="#id3">Proposed changes</a><a class="headerlink" href="#proposed-changes" title="Permalink to this headline">¶</a></h3>
 <p>In order to deal with the above shortcomings, we propose to extend
 Ganeti with high-level network management logic, which consists of a new
-NIC mode called <tt class="docutils literal"><span class="pre">managed</span></tt>, a new &#8220;Network&#8221; configuration object and
-logic to perform IP address pool management, i.e. maintain a set of
-available and occupied IP addresses.</p>
+NIC slot called <tt class="docutils literal"><span class="pre">network</span></tt>, a new <tt class="docutils literal"><span class="pre">Network</span></tt> configuration object
+(cluster level) and logic to perform IP address pool management, i.e.
+maintain a set of available and occupied IP addresses.</p>
 <div class="section" id="configuration-changes">
 <h4><a class="toc-backref" href="#id4">Configuration changes</a><a class="headerlink" href="#configuration-changes" title="Permalink to this headline">¶</a></h4>
 <p>We propose the introduction of a new high-level Network object,
@@ -126,10 +127,14 @@ functional equivalent of the current NIC <tt class="docutils literal"><span clas
 of the current NIC <tt class="docutils literal"><span class="pre">link</span></tt>.</li>
 <li>Tags</li>
 </ul>
-<p>Each network will be connected to any number of node groups, possibly
-overriding connectivity mode and host interface for each node group.
-This is achieved by adding a <tt class="docutils literal"><span class="pre">networks</span></tt> slot to the NodeGroup object
-and using the networks&#8217; UUIDs as keys.</p>
+<p>Each network will be connected to any number of node groups. During the
+connection of a network to a nodegroup, we define the corresponding
+connectivity mode (bridged or routed) and the host interface (br100 or
+routing_table_200). This is achieved by adding a <tt class="docutils literal"><span class="pre">networks</span></tt> slot to
+the NodeGroup object and using the networks&#8217; UUIDs as keys. The value
+for each key is a dictionary containing the network&#8217;s <tt class="docutils literal"><span class="pre">mode</span></tt> and
+<tt class="docutils literal"><span class="pre">link</span></tt> (netparams). Every NIC assigned to the network will eventually
+inherit the network&#8217;s netparams, as its nicparams.</p>
 </div>
 <div class="section" id="ip-pool-management">
 <h4><a class="toc-backref" href="#id5">IP pool management</a><a class="headerlink" href="#ip-pool-management" title="Permalink to this headline">¶</a></h4>
@@ -158,25 +163,29 @@ networks, as they are expected to be densely populated. IPv6 networks
 can use different approaches, e.g. sequential address asignment or
 EUI-64 addresses.</p>
 </div>
-<div class="section" id="managed-nic-mode">
-<h4><a class="toc-backref" href="#id6">Managed NIC mode</a><a class="headerlink" href="#managed-nic-mode" title="Permalink to this headline">¶</a></h4>
+<div class="section" id="new-nic-parameter-network">
+<h4><a class="toc-backref" href="#id6">New NIC parameter: network</a><a class="headerlink" href="#new-nic-parameter-network" title="Permalink to this headline">¶</a></h4>
 <p>In order to be able to use the new network facility while maintaining
-compatibility with the current networking model, a new network mode is
-introduced, called <tt class="docutils literal"><span class="pre">managed</span></tt> to reflect the fact that the given NICs
-network configuration is managed by Ganeti itself. A managed mode NIC
-accepts the network it is connected to in its <tt class="docutils literal"><span class="pre">link</span></tt> argument.
-Userspace tools can refer to networks using their symbolic names,
-however internally, the link argument stores the network&#8217;s UUID.</p>
+compatibility with the current networking model, a new NIC parameter is
+introduced, called <tt class="docutils literal"><span class="pre">network</span></tt> to reflect the fact that the given NIC
+belongs to the given network and its configuration is managed by Ganeti
+itself. To keep backwards compatibility, existing code is executed if
+the <tt class="docutils literal"><span class="pre">network</span></tt> value is &#8216;none&#8217; or omitted during NIC creation. If we
+want our NIC to be assigned to a network, then only the ip (optional)
+and the network parameters should be passed. Mode and link are inherited
+from the network-nodegroup mapping configuration (netparams). This
+provides the desired abstraction between the VM&#8217;s network and the
+node-specific underlying infrastructure.</p>
 <p>We also introduce a new <tt class="docutils literal"><span class="pre">ip</span></tt> address value, <tt class="docutils literal"><span class="pre">constants.NIC_IP_POOL</span></tt>,
 that specifies that a given NIC&#8217;s IP address should be obtained using
 the IP address pool of the specified network. This value is only valid
-for managed-mode NICs, where it is also used as a default instead of
-<tt class="docutils literal"><span class="pre">constants.VALUE_AUTO</span></tt>. A managed-mode NIC&#8217;s IP address can also be
-specified manually, as long as it is compatible with the network the NIC
+for NICs belonging to a network. A NIC&#8217;s IP address can also be
+specified manually, as long as it is contained in the network the NIC
 is connected to.</p>
 </div>
 <div class="section" id="hooks">
 <h4><a class="toc-backref" href="#id7">Hooks</a><a class="headerlink" href="#hooks" title="Permalink to this headline">¶</a></h4>
+<p>Introduce new hooks concerning network operations:</p>
 <dl class="docutils">
 <dt><tt class="docutils literal"><span class="pre">OP_NETWORK_ADD</span></tt></dt>
 <dd><p class="first">Add a network to Ganeti</p>
@@ -193,49 +202,50 @@ is connected to.</p>
 </tbody>
 </table>
 </dd>
-<dt><tt class="docutils literal"><span class="pre">OP_NETWORK_CONNECT</span></tt></dt>
-<dd><p class="first">Connect a network to a node group. This hook can be used to e.g.
-configure network interfaces on the group&#8217;s nodes.</p>
-<table class="last docutils field-list" frame="void" rules="none">
-<col class="field-name" />
-<col class="field-body" />
-<tbody valign="top">
-<tr class="field"><th class="field-name">directory:</th><td class="field-body">network-connect</td>
-</tr>
-<tr class="field"><th class="field-name">pre-execution:</th><td class="field-body">master node, all nodes in the connected group</td>
-</tr>
-<tr class="field"><th class="field-name">post-execution:</th><td class="field-body">master node, all nodes in the connected group</td>
-</tr>
-</tbody>
-</table>
-</dd>
-<dt><tt class="docutils literal"><span class="pre">OP_NETWORK_DISCONNECT</span></tt></dt>
-<dd><p class="first">Disconnect a network to a node group. This hook can be used to e.g.
-deconfigure network interfaces on the group&#8217;s nodes.</p>
-<table class="last docutils field-list" frame="void" rules="none">
-<col class="field-name" />
-<col class="field-body" />
-<tbody valign="top">
-<tr class="field"><th class="field-name">directory:</th><td class="field-body">network-disconnect</td>
-</tr>
-<tr class="field"><th class="field-name">pre-execution:</th><td class="field-body">master node, all nodes in the connected group</td>
-</tr>
-<tr class="field"><th class="field-name">post-execution:</th><td class="field-body">master node, all nodes in the connected group</td>
-</tr>
-</tbody>
-</table>
-</dd>
 <dt><tt class="docutils literal"><span class="pre">OP_NETWORK_REMOVE</span></tt></dt>
 <dd><p class="first">Remove a network from Ganeti</p>
 <table class="last docutils field-list" frame="void" rules="none">
 <col class="field-name" />
 <col class="field-body" />
 <tbody valign="top">
-<tr class="field"><th class="field-name">directory:</th><td class="field-body">network-add</td>
+<tr class="field"><th class="field-name">directory:</th><td class="field-body">network-remove</td>
 </tr>
-<tr class="field"><th class="field-name">pre-execution:</th><td class="field-body">master node, all nodes</td>
+<tr class="field"><th class="field-name">pre-execution:</th><td class="field-body">master node</td>
 </tr>
-<tr class="field"><th class="field-name">post-execution:</th><td class="field-body">master node, all nodes</td>
+<tr class="field"><th class="field-name">post-execution:</th><td class="field-body">master node</td>
+</tr>
+</tbody>
+</table>
+</dd>
+<dt><tt class="docutils literal"><span class="pre">OP_NETWORK_SET_PARAMS</span></tt></dt>
+<dd><p class="first">Modify a network</p>
+<table class="last docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field"><th class="field-name">directory:</th><td class="field-body">network-modify</td>
+</tr>
+<tr class="field"><th class="field-name">pre-execution:</th><td class="field-body">master node</td>
+</tr>
+<tr class="field"><th class="field-name">post-execution:</th><td class="field-body">master node</td>
+</tr>
+</tbody>
+</table>
+</dd>
+</dl>
+<p>For connect/disconnect operations use existing:</p>
+<dl class="docutils">
+<dt><tt class="docutils literal"><span class="pre">OP_GROUP_SET_PARAMS</span></tt></dt>
+<dd><p class="first">Modify a nodegroup</p>
+<table class="last docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field"><th class="field-name">directory:</th><td class="field-body">group-modify</td>
+</tr>
+<tr class="field"><th class="field-name">pre-execution:</th><td class="field-body">master node</td>
+</tr>
+<tr class="field"><th class="field-name">post-execution:</th><td class="field-body">master node</td>
 </tr>
 </tbody>
 </table>
@@ -243,123 +253,127 @@ deconfigure network interfaces on the group&#8217;s nodes.</p>
 </dl>
 <div class="section" id="hook-variables">
 <h5>Hook variables<a class="headerlink" href="#hook-variables" title="Permalink to this headline">¶</a></h5>
+<p>During instance related operations:</p>
 <dl class="docutils">
-<dt><tt class="docutils literal"><span class="pre">INSTANCE_NICn_MANAGED</span></tt></dt>
-<dd>Non-zero if NIC n is a managed-mode NIC</dd>
 <dt><tt class="docutils literal"><span class="pre">INSTANCE_NICn_NETWORK</span></tt></dt>
 <dd>The friendly name of the network</dd>
-<dt><tt class="docutils literal"><span class="pre">INSTANCE_NICn_NETWORK_UUID</span></tt></dt>
-<dd>The network&#8217;s UUID</dd>
-<dt><tt class="docutils literal"><span class="pre">INSTANCE_NICn_NETWORK_TAGS</span></tt></dt>
-<dd>The network&#8217;s tags</dd>
-<dt><tt class="docutils literal"><span class="pre">INSTANCE_NICn_NETWORK_IPV4_CIDR</span></tt>, <tt class="docutils literal"><span class="pre">INSTANCE_NICn_NETWORK_IPV6_CIDR</span></tt></dt>
-<dd>The subnet in CIDR notation</dd>
-<dt><tt class="docutils literal"><span class="pre">INSTANCE_NICn_NETWORK_IPV4_GATEWAY</span></tt>, <tt class="docutils literal"><span class="pre">INSTANCE_NICn_NETWORK_IPV6_GATEWAY</span></tt></dt>
-<dd>The subnet&#8217;s default gateway</dd>
+</dl>
+<p>During network related operations:</p>
+<dl class="docutils">
+<dt><tt class="docutils literal"><span class="pre">NETWORK_NAME</span></tt></dt>
+<dd>The friendly name of the network</dd>
+<dt><tt class="docutils literal"><span class="pre">NETWORK_SUBNET</span></tt></dt>
+<dd>The ip range of the network</dd>
+<dt><tt class="docutils literal"><span class="pre">NETWORK_GATEWAY</span></tt></dt>
+<dd>The gateway of the network</dd>
+</dl>
+<p>During nodegroup related operations:</p>
+<dl class="docutils">
+<dt><tt class="docutils literal"><span class="pre">GROUP_NETWORK</span></tt></dt>
+<dd>The friendly name of the network</dd>
+<dt><tt class="docutils literal"><span class="pre">GROUP_NETWORK_MODE</span></tt></dt>
+<dd>The mode (bridged or routed) of the netparams</dd>
+<dt><tt class="docutils literal"><span class="pre">GROUP_NETWORK_LINK</span></tt></dt>
+<dd>The link of the netparams</dd>
 </dl>
 </div>
 </div>
 <div class="section" id="backend-changes">
 <h4><a class="toc-backref" href="#id8">Backend changes</a><a class="headerlink" href="#backend-changes" title="Permalink to this headline">¶</a></h4>
-<p>In order to keep the hypervisor-visible changes to a minimum, and
-maintain compatibility with the existing network configuration scripts,
-the instance&#8217;s hypervisor configuration will have host-level link and
-mode replaced by the <em>connectivity mode</em> and <em>host interface</em> of the
-given network on the current node group.</p>
-<p>The managed mode can be detected by the presence of new environment
-variables in network configuration scripts:</p>
+<p>To keep the hypervisor-visible changes to a minimum, and maintain
+compatibility with the existing network configuration scripts, the
+instance&#8217;s hypervisor configuration will have host-level mode and link
+replaced by the <em>connectivity mode</em> and <em>host interface</em> (netparams) of
+the given network on the current node group.</p>
+<p>Network configuration scripts detect if a NIC is assigned to a Network
+by the presence of the new environment variable:</p>
 <div class="section" id="network-configuration-script-variables">
 <h5>Network configuration script variables<a class="headerlink" href="#network-configuration-script-variables" title="Permalink to this headline">¶</a></h5>
 <dl class="docutils">
-<dt><tt class="docutils literal"><span class="pre">MANAGED</span></tt></dt>
-<dd>Non-zero if NIC is a managed-mode NIC</dd>
 <dt><tt class="docutils literal"><span class="pre">NETWORK</span></tt></dt>
 <dd>The friendly name of the network</dd>
-<dt><tt class="docutils literal"><span class="pre">NETWORK_UUID</span></tt></dt>
-<dd>The network&#8217;s UUID</dd>
-<dt><tt class="docutils literal"><span class="pre">NETWORK_TAGS</span></tt></dt>
-<dd>The network&#8217;s tags</dd>
-<dt><tt class="docutils literal"><span class="pre">NETWORK_IPv4_CIDR</span></tt>, <tt class="docutils literal"><span class="pre">NETWORK_IPv6_CIDR</span></tt></dt>
-<dd>The subnet in CIDR notation</dd>
-<dt><tt class="docutils literal"><span class="pre">NETWORK_IPV4_GATEWAY</span></tt>, <tt class="docutils literal"><span class="pre">NETWORK_IPV6_GATEWAY</span></tt></dt>
-<dd>The subnet&#8217;s default gateway</dd>
 </dl>
 </div>
 </div>
+<div class="section" id="conflicting-ips">
+<h4><a class="toc-backref" href="#id9">Conflicting IPs</a><a class="headerlink" href="#conflicting-ips" title="Permalink to this headline">¶</a></h4>
+<p>To ensure IP uniqueness inside a nodegroup, we introduce the term
+<tt class="docutils literal"><span class="pre">conflicting</span> <span class="pre">ips</span></tt>. Conflicting IPs occur: (a) when creating a
+networkless NIC with IP contained in a network already connected to the
+instance&#8217;s nodegroup  (b) when connecting/disconnecting a network
+to/from a nodegroup and at the same time instances with IPs inside the
+network&#8217;s range still exist. Conflicting IPs produce prereq errors.</p>
+<p>Handling of conflicting IP with &#8211;force option:</p>
+<p>For case (a) reserve the IP and assign the NIC to the Network.
+For case (b) during connect same as (a), during disconnect release IP and
+reset NIC&#8217;s network parameter to None</p>
+</div>
 <div class="section" id="userland-interface">
-<h4><a class="toc-backref" href="#id9">Userland interface</a><a class="headerlink" href="#userland-interface" title="Permalink to this headline">¶</a></h4>
+<h4><a class="toc-backref" href="#id10">Userland interface</a><a class="headerlink" href="#userland-interface" title="Permalink to this headline">¶</a></h4>
 <p>A new client script is introduced, <tt class="docutils literal"><span class="pre">gnt-network</span></tt>, which handles
 network-related configuration in Ganeti.</p>
 <div class="section" id="network-addition-deletion">
 <h5>Network addition/deletion<a class="headerlink" href="#network-addition-deletion" title="Permalink to this headline">¶</a></h5>
-<div class="highlight-python"><pre>gnt-network add --cidr=192.0.2.0/24 --gateway=192.0.2.1 \
-               --cidr6=2001:db8:2ffc::/64 --gateway6=2001:db8:2ffc::1 \
-               --nic_connectivity=bridged --host_interface=br0 public
-gnt-network remove public (only allowed if no instances are using the network)</pre>
-</div>
-</div>
-<div class="section" id="manual-ip-address-reservation">
-<h5>Manual IP address reservation<a class="headerlink" href="#manual-ip-address-reservation" title="Permalink to this headline">¶</a></h5>
-<div class="highlight-python"><pre>gnt-network reserve-ips public 192.0.2.2 192.0.2.10-192.0.2.20
-gnt-network release-ips public 192.0.2.3</pre>
+<div class="highlight-python"><pre>gnt-network add --network=192.168.100.0/28 --gateway=192.168.100.1 \
+                --network6=2001:db8:2ffc::/64 --gateway6=2001:db8:2ffc::1 \
+                --reserved-ips=192.168.100.10,192.168.100.11 net100
+ (Checks for already exising name and valid IP values)
+gnt-network remove network_name
+ (Checks if not connected to any nodegroup)</pre>
 </div>
 </div>
 <div class="section" id="network-modification">
 <h5>Network modification<a class="headerlink" href="#network-modification" title="Permalink to this headline">¶</a></h5>
-<div class="highlight-python"><pre>gnt-network modify --cidr=192.0.2.0/25 public (only allowed if all current reservations fit in the new network)
-gnt-network modify --gateway=192.0.2.126 public
-gnt-network modify --host_interface=test --nic_connectivity=routed public (issues warning about instances that need to be rebooted)
-gnt-network rename public public2</pre>
+<div class="highlight-python"><pre>gnt-network modify --gateway=192.168.100.5 net100
+ (Changes the gateway only if ip is available)
+gnt-network modify --reserved-ips=192.168.100.11 net100
+ (Toggles externally reserved ip)</pre>
 </div>
 </div>
 <div class="section" id="assignment-to-node-groups">
 <h5>Assignment to node groups<a class="headerlink" href="#assignment-to-node-groups" title="Permalink to this headline">¶</a></h5>
-<div class="highlight-python"><pre>gnt-network connect public nodegroup1
-gnt-network connect --host_interface=br1 public nodegroup2
-gnt-network disconnect public nodegroup1 (only permitted if no instances are currently using this network in the group)</pre>
-</div>
-</div>
-<div class="section" id="tagging">
-<h5>Tagging<a class="headerlink" href="#tagging" title="Permalink to this headline">¶</a></h5>
-<div class="highlight-python"><pre>gnt-network add-tags public foo bar:baz</pre>
+<div class="highlight-python"><pre>gnt-network connect net100 nodegroup1 bridged br100
+ (Checks for existing bridge among nodegroup)
+gnt-network connect net100 nodegroup2 routed rt_table
+ (Checks for conflicting IPs)
+gnt-network disconnect net101 nodegroup1
+ (Checks for conflicting IPs)</pre>
 </div>
 </div>
 <div class="section" id="network-listing">
 <h5>Network listing<a class="headerlink" href="#network-listing" title="Permalink to this headline">¶</a></h5>
 <div class="highlight-python"><pre>gnt-network list
- Name          IPv4 Network    IPv4 Gateway          IPv6 Network             IPv6 Gateway             Connected to
- public         192.0.2.0/24   192.0.2.1       2001:db8:dead:beef::/64    2001:db8:dead:beef::1       nodegroup1:br0
- private        10.0.1.0/24       -                     -                              -</pre>
+
+Network      Subnet           Gateway       NodeGroups GroupList
+net100       192.168.100.0/28 192.168.100.1          1 default(bridged, br100)
+net101       192.168.101.0/28 192.168.101.1          1 default(routed, rt_tab)</pre>
 </div>
 </div>
 <div class="section" id="network-information">
 <h5>Network information<a class="headerlink" href="#network-information" title="Permalink to this headline">¶</a></h5>
-<div class="highlight-python"><pre>gnt-network info public
- Name: public
- IPv4 Network: 192.0.2.0/24
- IPv4 Gateway: 192.0.2.1
- IPv6 Network: 2001:db8:dead:beef::/64
- IPv6 Gateway: 2001:db8:dead:beef::1
- Total IPv4 count: 256
- Free address count: 201 (80% free)
- IPv4 pool status: XXX.........XXXXXXXXXXXXXX...XX.............
-                   XXX..........XXX...........................X
-                   ....XXX..........XXX.....................XXX
-                                           X: occupied  .: free
- Externally reserved IPv4 addresses:
-   192.0.2.3, 192.0.2.22
- Connected to node groups:
-  default (link br0), other_group(link br1)
- Used by 22 instances:
-  inst1
-  inst2
-  inst32
-  ..</pre>
+<div class="highlight-python"><pre>gnt-network info testnet1
+
+Network name: testnet1
+ subnet: 192.168.100.0/28
+ gateway: 192.168.100.1
+ size: 16
+ free: 10 (62.50%)
+ usage map:
+       0 XXXXX..........X                                                 63
+         (X) used    (.) free
+ externally reserved IPs:
+   192.168.100.0, 192.168.100.1, 192.168.100.15
+ connected to node groups:
+   default(bridged, br100)
+ used by 3 instances:
+   test1 : 0:192.168.100.4
+   test2 : 0:192.168.100.2
+   test3 : 0:192.168.100.3</pre>
 </div>
 </div>
 </div>
 <div class="section" id="iallocator-changes">
-<h4><a class="toc-backref" href="#id10">IAllocator changes</a><a class="headerlink" href="#iallocator-changes" title="Permalink to this headline">¶</a></h4>
+<h4><a class="toc-backref" href="#id11">IAllocator changes</a><a class="headerlink" href="#iallocator-changes" title="Permalink to this headline">¶</a></h4>
 <p>The IAllocator protocol can be made network-aware, i.e. also consider
 network availability for node group selection. Networks, as well as
 future shared storage pools, can be seen as constraints used to rule out
@@ -382,7 +396,7 @@ the placement on certain node groups.</p>
 <li><a class="reference external" href="#proposed-changes">Proposed changes</a><ul>
 <li><a class="reference external" href="#configuration-changes">Configuration changes</a></li>
 <li><a class="reference external" href="#ip-pool-management">IP pool management</a></li>
-<li><a class="reference external" href="#managed-nic-mode">Managed NIC mode</a></li>
+<li><a class="reference external" href="#new-nic-parameter-network">New NIC parameter: network</a></li>
 <li><a class="reference external" href="#hooks">Hooks</a><ul>
 <li><a class="reference external" href="#hook-variables">Hook variables</a></li>
 </ul>
@@ -391,12 +405,11 @@ the placement on certain node groups.</p>
 <li><a class="reference external" href="#network-configuration-script-variables">Network configuration script variables</a></li>
 </ul>
 </li>
+<li><a class="reference external" href="#conflicting-ips">Conflicting IPs</a></li>
 <li><a class="reference external" href="#userland-interface">Userland interface</a><ul>
 <li><a class="reference external" href="#network-addition-deletion">Network addition/deletion</a></li>
-<li><a class="reference external" href="#manual-ip-address-reservation">Manual IP address reservation</a></li>
 <li><a class="reference external" href="#network-modification">Network modification</a></li>
 <li><a class="reference external" href="#assignment-to-node-groups">Assignment to node groups</a></li>
-<li><a class="reference external" href="#tagging">Tagging</a></li>
 <li><a class="reference external" href="#network-listing">Network listing</a></li>
 <li><a class="reference external" href="#network-information">Network information</a></li>
 </ul>
@@ -414,8 +427,8 @@ the placement on certain node groups.</p>
             <p class="topless"><a href="design-ovf-support.html"
                                   title="previous chapter">Ganeti Instance Import/Export using Open Virtualization Format</a></p>
             <h4>Next topic</h4>
-            <p class="topless"><a href="cluster-merge.html"
-                                  title="next chapter">Merging clusters</a></p>
+            <p class="topless"><a href="design-node-state-cache.html"
+                                  title="next chapter">Node State Cache</a></p>
             <h3>This Page</h3>
             <ul class="this-page-menu">
               <li><a href="_sources/design-network.txt"
@@ -442,17 +455,17 @@ the placement on certain node groups.</p>
       <h3>Navigation</h3>
       <ul>
         <li class="right" style="margin-right: 10px">
-          <a href="cluster-merge.html" title="Merging clusters"
+          <a href="design-node-state-cache.html" title="Node State Cache"
              >next</a></li>
         <li class="right" >
           <a href="design-ovf-support.html" title="Ganeti Instance Import/Export using Open Virtualization Format"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.5.2 documentation</a> &raquo;</li>
+        <li><a href="index.html">Ganeti v2.6.0 documentation</a> &raquo;</li>
           <li><a href="design-draft.html" >Design document drafts</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">
-      &copy; Copyright 2006, 2007, 2008, 2009, 2010, Google Inc..
+      &copy; Copyright 2006, 2007, 2008, 2009, 2010, 2011, 2012, Google Inc..
       Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 0.6.7.
     </div>
   </body>

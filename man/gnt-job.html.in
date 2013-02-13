@@ -120,100 +120,140 @@
       > option takes a comma-separated list of output fields. The available fields and their meaning are:</p
     ><dl
     ><dt
-      >id</dt
+      ><code
+	>end_ts</code
+	></dt
       ><dd
       ><p
-	>the job id</p
+	>Timestamp of job end</p
 	></dd
       ><dt
-      >status</dt
+      ><code
+	>id</code
+	></dt
       ><dd
       ><p
-	>the status of the job</p
+	>Job ID</p
 	></dd
       ><dt
-      >priority</dt
+      ><code
+	>opend</code
+	></dt
       ><dd
       ><p
-	>current priority of the job</p
+	>List of opcode execution end timestamps</p
 	></dd
       ><dt
-      >received_ts</dt
+      ><code
+	>opexec</code
+	></dt
       ><dd
       ><p
-	>the timestamp the job was received</p
+	>List of opcode execution start timestamps (after acquiring locks)</p
 	></dd
       ><dt
-      >start_ts</dt
+      ><code
+	>oplog</code
+	></dt
       ><dd
       ><p
-	>the timestamp when the job was started</p
+	>List of opcode output logs</p
 	></dd
       ><dt
-      >end_ts</dt
+      ><code
+	>oppriority</code
+	></dt
       ><dd
       ><p
-	>the timestamp when the job was ended</p
+	>List of opcode priorities</p
 	></dd
       ><dt
-      >summary</dt
+      ><code
+	>opresult</code
+	></dt
       ><dd
       ><p
-	>a summary of the opcodes that define the job</p
+	>List of opcodes results</p
 	></dd
       ><dt
-      >ops</dt
+      ><code
+	>ops</code
+	></dt
       ><dd
       ><p
-	>the list of opcodes defining the job</p
+	>List of all opcodes</p
 	></dd
       ><dt
-      >opresult</dt
+      ><code
+	>opstart</code
+	></dt
       ><dd
       ><p
-	>the list of opcode results</p
+	>List of opcode start timestamps (before acquiring locks)</p
 	></dd
       ><dt
-      >opstatus</dt
+      ><code
+	>opstatus</code
+	></dt
       ><dd
       ><p
-	>the list of opcode statuses</p
+	>List of opcodes status</p
 	></dd
       ><dt
-      >oplog</dt
+      ><code
+	>priority</code
+	></dt
       ><dd
       ><p
-	>the list of opcode logs</p
+	>Current job priority (19 to -20)</p
 	></dd
       ><dt
-      >opstart</dt
+      ><code
+	>received_ts</code
+	></dt
       ><dd
       ><p
-	>the list of opcode start times (before acquiring locks)</p
+	>Timestamp of when job was received</p
 	></dd
       ><dt
-      >opexec</dt
+      ><code
+	>start_ts</code
+	></dt
       ><dd
       ><p
-	>the list of opcode execution start times (after acquiring any necessary locks)</p
+	>Timestamp of job start</p
 	></dd
       ><dt
-      >opend</dt
+      ><code
+	>status</code
+	></dt
       ><dd
       ><p
-	>the list of opcode end times</p
+	>Job status</p
 	></dd
       ><dt
-      >oppriority</dt
+      ><code
+	>summary</code
+	></dt
       ><dd
       ><p
-	>the priority of each opcode</p
+	>List of per-opcode summaries</p
 	></dd
       ></dl
     ><p
     >If the value of the option starts with the character <code
       >+</code
       >, the new fields will be added to the default list. This allows one to quickly see the default list plus a few other fields, instead of retyping the entire list of fields.</p
+    ></div
+  ><div id="list-fields"
+  ><h2
+    >LIST-FIELDS</h2
+    ><p
+    ><strong
+      >list-fields</strong
+      > [field...]</p
+    ><p
+    >Lists available fields for jobs.</p
     ></div
   ><div id="watch"
   ><h2
@@ -289,13 +329,15 @@
     >hail</strong
     >(1) (IAllocator plugin), <strong
     >hscan</strong
-    >(1) (data gatherer from remote clusters).</p
+    >(1) (data gatherer from remote clusters), <strong
+    >hinfo</strong
+    >(1) (cluster information printer).</p
   ></div
 ><div id="copyright"
 ><h1
   >COPYRIGHT</h1
   ><p
-  >Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Google Inc. Permission is granted to copy, distribute and/or modify under the terms of the GNU General Public License as published by the Free Software Foundation; either version 2 of the License, or (at your option) any later version.</p
+  >Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012 Google Inc. Permission is granted to copy, distribute and/or modify under the terms of the GNU General Public License as published by the Free Software Foundation; either version 2 of the License, or (at your option) any later version.</p
   ><p
   >On Debian systems, the complete text of the GNU General Public License can be found in /usr/share/common-licenses/GPL.</p
   ></div

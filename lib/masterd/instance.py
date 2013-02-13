@@ -130,13 +130,6 @@ class ImportExportCbBase(object):
     """
 
 
-def _TimeoutExpired(epoch, timeout, _time_fn=time.time):
-  """Checks whether a timeout has expired.
-
-  """
-  return _time_fn() > (epoch + timeout)
-
-
 class _DiskImportExportBase(object):
   MODE_TEXT = None
 
@@ -319,7 +312,7 @@ class _DiskImportExportBase(object):
     assert self._ts_begin is not None
 
     if not data:
-      if _TimeoutExpired(self._ts_begin, self._timeouts.ready):
+      if utils.TimeoutExpired(self._ts_begin, self._timeouts.ready):
         raise _ImportExportError("Didn't become ready after %s seconds" %
                                  self._timeouts.ready)
 
@@ -342,7 +335,7 @@ class _DiskImportExportBase(object):
       if self._ts_last_error is None:
         self._ts_last_error = time.time()
 
-      elif _TimeoutExpired(self._ts_last_error, self._timeouts.error):
+      elif utils.TimeoutExpired(self._ts_last_error, self._timeouts.error):
         raise _ImportExportError("Too many errors while updating data")
 
       return False
@@ -386,7 +379,8 @@ class _DiskImportExportBase(object):
 
       return True
 
-    if _TimeoutExpired(self._GetConnectedCheckEpoch(), self._timeouts.connect):
+    if utils.TimeoutExpired(self._GetConnectedCheckEpoch(),
+                            self._timeouts.connect):
       raise _ImportExportError("Not connected after %s seconds" %
                                self._timeouts.connect)
 
@@ -397,7 +391,8 @@ class _DiskImportExportBase(object):
 
     """
     if ((self._ts_last_progress is None or
-         _TimeoutExpired(self._ts_last_progress, self._timeouts.progress)) and
+        utils.TimeoutExpired(self._ts_last_progress,
+                             self._timeouts.progress)) and
         self._daemon and
         self._daemon.progress_mbytes is not None and
         self._daemon.progress_throughput is not None):
@@ -535,7 +530,7 @@ class DiskImport(_DiskImportExportBase):
     """
     return self._lu.rpc.call_import_start(self.node_name, self._opts,
                                           self._instance, self._component,
-                                          self._dest, self._dest_args)
+                                          (self._dest, self._dest_args))
 
   def CheckListening(self):
     """Checks whether the daemon is listening.
@@ -560,7 +555,7 @@ class DiskImport(_DiskImportExportBase):
 
       return True
 
-    if _TimeoutExpired(self._ts_begin, self._timeouts.listen):
+    if utils.TimeoutExpired(self._ts_begin, self._timeouts.listen):
       raise _ImportExportError("Not listening after %s seconds" %
                                self._timeouts.listen)
 
@@ -621,7 +616,7 @@ class DiskExport(_DiskImportExportBase):
     return self._lu.rpc.call_export_start(self.node_name, self._opts,
                                           self._dest_host, self._dest_port,
                                           self._instance, self._component,
-                                          self._source, self._source_args)
+                                          (self._source, self._source_args))
 
   def CheckListening(self):
     """Checks whether the daemon is listening.
@@ -1169,7 +1164,7 @@ class ExportInstanceHelper:
 
       # result.payload will be a snapshot of an lvm leaf of the one we
       # passed
-      result = self._lu.rpc.call_blockdev_snapshot(src_node, disk)
+      result = self._lu.rpc.call_blockdev_snapshot(src_node, (disk, instance))
       new_dev = False
       msg = result.fail_msg
       if msg:
@@ -1181,9 +1176,11 @@ class ExportInstanceHelper:
                             " result '%s'", idx, src_node, result.payload)
       else:
         disk_id = tuple(result.payload)
+        disk_params = constants.DISK_LD_DEFAULTS[constants.LD_LV].copy()
         new_dev = objects.Disk(dev_type=constants.LD_LV, size=disk.size,
                                logical_id=disk_id, physical_id=disk_id,
-                               iv_name=disk.iv_name)
+                               iv_name=disk.iv_name,
+                               params=disk_params)
 
       self._snap_disks.append(new_dev)
 

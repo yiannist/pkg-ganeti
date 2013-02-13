@@ -23,6 +23,8 @@
 
 import unittest
 import re
+import itertools
+import operator
 
 from ganeti import _autoconf
 from ganeti import utils
@@ -30,6 +32,10 @@ from ganeti import cmdlib
 from ganeti import build
 from ganeti import compat
 from ganeti import mcpu
+from ganeti import opcodes
+from ganeti import constants
+from ganeti.rapi import baserlib
+from ganeti.rapi import rlib2
 from ganeti.rapi import connector
 
 import testutils
@@ -37,20 +43,59 @@ import testutils
 
 VALID_URI_RE = re.compile(r"^[-/a-z0-9]*$")
 
+RAPI_OPCODE_EXCLUDE = frozenset([
+  # Not yet implemented
+  opcodes.OpBackupQuery,
+  opcodes.OpBackupRemove,
+  opcodes.OpClusterConfigQuery,
+  opcodes.OpClusterRepairDiskSizes,
+  opcodes.OpClusterVerify,
+  opcodes.OpClusterVerifyDisks,
+  opcodes.OpInstanceChangeGroup,
+  opcodes.OpInstanceMove,
+  opcodes.OpNodeQueryvols,
+  opcodes.OpOobCommand,
+  opcodes.OpTagsSearch,
+  opcodes.OpClusterActivateMasterIp,
+  opcodes.OpClusterDeactivateMasterIp,
 
-class TestDocs(unittest.TestCase):
-  """Documentation tests"""
+  # Difficult if not impossible
+  opcodes.OpClusterDestroy,
+  opcodes.OpClusterPostInit,
+  opcodes.OpClusterRename,
+  opcodes.OpNodeAdd,
+  opcodes.OpNodeRemove,
 
-  @staticmethod
-  def _ReadDocFile(filename):
-    return utils.ReadFile("%s/doc/%s" %
-                          (testutils.GetSourceDir(), filename))
+  # Helper opcodes (e.g. submitted by LUs)
+  opcodes.OpClusterVerifyConfig,
+  opcodes.OpClusterVerifyGroup,
+  opcodes.OpGroupEvacuate,
+  opcodes.OpGroupVerifyDisks,
 
-  def testHookDocs(self):
+  # Test opcodes
+  opcodes.OpTestAllocator,
+  opcodes.OpTestDelay,
+  opcodes.OpTestDummy,
+  opcodes.OpTestJqueue,
+  ])
+
+
+def _ReadDocFile(filename):
+  return utils.ReadFile("%s/doc/%s" %
+                        (testutils.GetSourceDir(), filename))
+
+
+class TestHooksDocs(unittest.TestCase):
+  HOOK_PATH_OK = frozenset([
+    "master-ip-turnup",
+    "master-ip-turndown",
+    ])
+
+  def test(self):
     """Check whether all hooks are documented.
 
     """
-    hooksdoc = self._ReadDocFile("hooks.rst")
+    hooksdoc = _ReadDocFile("hooks.rst")
 
     # Reverse mapping from LU to opcode
     lu2opcode = dict((lu, op)
@@ -58,35 +103,65 @@ class TestDocs(unittest.TestCase):
     assert len(lu2opcode) == len(mcpu.Processor.DISPATCH_TABLE), \
       "Found duplicate entries"
 
+    hooks_paths = frozenset(re.findall("^:directory:\s*(.+)\s*$", hooksdoc,
+                                       re.M))
+    self.assertTrue(self.HOOK_PATH_OK.issubset(hooks_paths),
+                    msg="Whitelisted path not found in documentation")
+
+    raw_hooks_ops = re.findall("^OP_(?!CODE$).+$", hooksdoc, re.M)
+    hooks_ops = set()
+    duplicate_ops = set()
+    for op in raw_hooks_ops:
+      if op in hooks_ops:
+        duplicate_ops.add(op)
+      else:
+        hooks_ops.add(op)
+
+    self.assertFalse(duplicate_ops,
+                     msg="Found duplicate opcode documentation: %s" %
+                         utils.CommaJoin(duplicate_ops))
+
+    seen_paths = set()
+    seen_ops = set()
+
+    self.assertFalse(duplicate_ops,
+                     msg="Found duplicated hook documentation: %s" %
+                         utils.CommaJoin(duplicate_ops))
+
     for name in dir(cmdlib):
-      obj = getattr(cmdlib, name)
+      lucls = getattr(cmdlib, name)
 
-      if (isinstance(obj, type) and
-          issubclass(obj, cmdlib.LogicalUnit) and
-          hasattr(obj, "HPATH")):
-        self._CheckHook(name, obj, hooksdoc, lu2opcode)
+      if (isinstance(lucls, type) and
+          issubclass(lucls, cmdlib.LogicalUnit) and
+          hasattr(lucls, "HPATH")):
+        if lucls.HTYPE is None:
+          continue
 
-  def _CheckHook(self, name, lucls, hooksdoc, lu2opcode):
-    opcls = lu2opcode.get(lucls, None)
+        opcls = lu2opcode.get(lucls, None)
 
-    if lucls.HTYPE is None:
-      return
+        if opcls:
+          seen_ops.add(opcls.OP_ID)
+          self.assertTrue(opcls.OP_ID in hooks_ops,
+                          msg="Missing hook documentation for %s" %
+                              opcls.OP_ID)
+        self.assertTrue(lucls.HPATH in hooks_paths,
+                        msg="Missing documentation for hook %s/%s" %
+                            (lucls.HTYPE, lucls.HPATH))
+        seen_paths.add(lucls.HPATH)
 
-    # TODO: Improve this test (e.g. find hooks documented but no longer
-    # existing)
+    missed_ops = hooks_ops - seen_ops
+    missed_paths = hooks_paths - seen_paths - self.HOOK_PATH_OK
 
-    if opcls:
-      self.assertTrue(re.findall("^%s$" % re.escape(opcls.OP_ID),
-                                 hooksdoc, re.M),
-                      msg=("Missing hook documentation for %s" %
-                           (opcls.OP_ID)))
+    self.assertFalse(missed_ops,
+                     msg="Op documents hook not existing anymore: %s" %
+                         utils.CommaJoin(missed_ops))
 
-    pattern = r"^:directory:\s*%s\s*$" % re.escape(lucls.HPATH)
+    self.assertFalse(missed_paths,
+                     msg="Hook path does not exist in opcode: %s" %
+                         utils.CommaJoin(missed_paths))
 
-    self.assert_(re.findall(pattern, hooksdoc, re.M),
-                 msg=("Missing documentation for hook %s/%s" %
-                      (lucls.HTYPE, lucls.HPATH)))
 
+class TestRapiDocs(unittest.TestCase):
   def _CheckRapiResource(self, uri, fixup, handler):
     docline = "%s resource." % uri
     self.assertEqual(handler.__doc__.splitlines()[0].strip(), docline,
@@ -99,11 +174,11 @@ class TestDocs(unittest.TestCase):
 
     self.assertTrue(VALID_URI_RE.match(uri), msg="Invalid URI %r" % uri)
 
-  def testRapiDocs(self):
+  def test(self):
     """Check whether all RAPI resources are documented.
 
     """
-    rapidoc = self._ReadDocFile("rapi.rst")
+    rapidoc = _ReadDocFile("rapi.rst")
 
     node_name = re.escape("[node_name]")
     instance_name = re.escape("[instance_name]")
@@ -186,6 +261,37 @@ class TestDocs(unittest.TestCase):
     self.failIf(uri_dups,
                 msg=("URIs matched by more than one resource: %s" %
                      utils.CommaJoin(uri_dups)))
+
+    self._FindRapiMissing(resources.values())
+    self._CheckTagHandlers(resources.values())
+
+  def _FindRapiMissing(self, handlers):
+    used = frozenset(itertools.chain(*map(baserlib.GetResourceOpcodes,
+                                          handlers)))
+
+    unexpected = used & RAPI_OPCODE_EXCLUDE
+    self.assertFalse(unexpected,
+      msg=("Found RAPI resources for excluded opcodes: %s" %
+           utils.CommaJoin(_GetOpIds(unexpected))))
+
+    missing = (frozenset(opcodes.OP_MAPPING.values()) - used -
+               RAPI_OPCODE_EXCLUDE)
+    self.assertFalse(missing,
+      msg=("Missing RAPI resources for opcodes: %s" %
+           utils.CommaJoin(_GetOpIds(missing))))
+
+  def _CheckTagHandlers(self, handlers):
+    tag_handlers = filter(lambda x: issubclass(x, rlib2._R_Tags), handlers)
+    self.assertEqual(frozenset(map(operator.attrgetter("TAG_LEVEL"),
+                                   tag_handlers)),
+                     constants.VALID_TAG_TYPES)
+
+
+def _GetOpIds(ops):
+  """Returns C{OP_ID} for all opcodes in passed sequence.
+
+  """
+  return sorted(opcls.OP_ID for opcls in ops)
 
 
 class TestManpages(unittest.TestCase):

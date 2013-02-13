@@ -48,11 +48,32 @@ from ganeti import constants
 
 
 def _IsCpuMaskWellFormed(cpu_mask):
+  """Verifies if the given single CPU mask is valid
+
+  The single CPU mask should be in the form "a,b,c,d", where each
+  letter is a positive number or range.
+
+  """
   try:
     cpu_list = utils.ParseCpuMask(cpu_mask)
   except errors.ParseError, _:
     return False
   return isinstance(cpu_list, list) and len(cpu_list) > 0
+
+
+def _IsMultiCpuMaskWellFormed(cpu_mask):
+  """Verifies if the given multiple CPU mask is valid
+
+  A valid multiple CPU mask is in the form "a:b:c:d", where each
+  letter is a single CPU mask.
+
+  """
+  try:
+    utils.ParseMultiCpuMask(cpu_mask)
+  except errors.ParseError, _:
+    return False
+
+  return True
 
 
 # Read the BaseHypervisor.PARAMETERS docstring for the syntax of the
@@ -72,6 +93,11 @@ _CPU_MASK_CHECK = (_IsCpuMaskWellFormed,
                    "CPU mask definition is not well-formed",
                    None, None)
 
+# Multiple CPU mask must be well-formed
+_MULTI_CPU_MASK_CHECK = (_IsMultiCpuMaskWellFormed,
+                         "Multiple CPU mask definition is not well-formed",
+                         None, None)
+
 # Check for validity of port number
 _NET_PORT_CHECK = (lambda x: 0 < x < 65535, "invalid port number",
                    None, None)
@@ -85,6 +111,8 @@ REQ_NET_PORT_CHECK = (True, ) + _NET_PORT_CHECK
 OPT_NET_PORT_CHECK = (False, ) + _NET_PORT_CHECK
 REQ_CPU_MASK_CHECK = (True, ) + _CPU_MASK_CHECK
 OPT_CPU_MASK_CHECK = (False, ) + _CPU_MASK_CHECK
+REQ_MULTI_CPU_MASK_CHECK = (True, ) + _MULTI_CPU_MASK_CHECK
+OPT_MULTI_CPU_MASK_CHECK = (False, ) + _MULTI_CPU_MASK_CHECK
 
 # no checks at all
 NO_CHECK = (False, None, None, None, None)
@@ -133,6 +161,7 @@ class BaseHypervisor(object):
   """
   PARAMETERS = {}
   ANCILLARY_FILES = []
+  ANCILLARY_FILES_OPT = []
   CAN_MIGRATE = False
 
   def __init__(self):
@@ -221,13 +250,16 @@ class BaseHypervisor(object):
     """Return a list of ancillary files to be copied to all nodes as ancillary
     configuration files.
 
-    @rtype: list of strings
-    @return: list of absolute paths of files to ship cluster-wide
+    @rtype: (list of absolute paths, list of absolute paths)
+    @return: (all files, optional files)
 
     """
     # By default we return a member variable, so that if an hypervisor has just
     # a static list of files it doesn't have to override this function.
-    return cls.ANCILLARY_FILES
+    assert set(cls.ANCILLARY_FILES).issuperset(cls.ANCILLARY_FILES_OPT), \
+      "Optional ancillary files must be a subset of ancillary files"
+
+    return (cls.ANCILLARY_FILES, cls.ANCILLARY_FILES_OPT)
 
   def Verify(self):
     """Verify the hypervisor.
@@ -263,8 +295,19 @@ class BaseHypervisor(object):
     """
     pass
 
-  def FinalizeMigration(self, instance, info, success):
-    """Finalized an instance migration.
+  def BalloonInstanceMemory(self, instance, mem):
+    """Balloon an instance memory to a certain value.
+
+    @type instance: L{objects.Instance}
+    @param instance: instance to be accepted
+    @type mem: int
+    @param mem: actual memory size to use for instance runtime
+
+    """
+    raise NotImplementedError
+
+  def FinalizeMigrationDst(self, instance, info, success):
+    """Finalize the instance migration on the target node.
 
     Should finalize or revert any preparation done to accept the instance.
     Since by default we do no preparation, we also don't have anything to do
@@ -291,6 +334,50 @@ class BaseHypervisor(object):
 
     """
     raise NotImplementedError
+
+  def FinalizeMigrationSource(self, instance, success, live):
+    """Finalize the instance migration on the source node.
+
+    @type instance: L{objects.Instance}
+    @param instance: the instance that was migrated
+    @type success: bool
+    @param success: whether the migration succeeded or not
+    @type live: bool
+    @param live: whether the user requested a live migration or not
+
+    """
+    pass
+
+  def GetMigrationStatus(self, instance):
+    """Get the migration status
+
+    @type instance: L{objects.Instance}
+    @param instance: the instance that is being migrated
+    @rtype: L{objects.MigrationStatus}
+    @return: the status of the current migration (one of
+             L{constants.HV_MIGRATION_VALID_STATUSES}), plus any additional
+             progress info that can be retrieved from the hypervisor
+
+    """
+    raise NotImplementedError
+
+  def _InstanceStartupMemory(self, instance):
+    """Get the correct startup memory for an instance
+
+    This function calculates how much memory an instance should be started
+    with, making sure it's a value between the minimum and the maximum memory,
+    but also trying to use no more than the current free memory on the node.
+
+    @type instance: L{objects.Instance}
+    @param instance: the instance that is being started
+    @rtype: integer
+    @return: memory the instance should be started with
+
+    """
+    free_memory = self.GetNodeInfo()["memory_free"]
+    max_start_mem = min(instance.beparams[constants.BE_MAXMEM], free_memory)
+    start_mem = max(instance.beparams[constants.BE_MINMEM], max_start_mem)
+    return start_mem
 
   @classmethod
   def CheckParameterSyntax(cls, hvparams):

@@ -16,7 +16,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
-# 0.0510-1301, USA.
+# 02110-1301, USA.
 
 
 """Script for unittesting the locking module"""
@@ -269,25 +269,25 @@ class TestSharedLock(_ThreadedTestCase):
     self.sl = locking.SharedLock("TestSharedLock")
 
   def testSequenceAndOwnership(self):
-    self.assertFalse(self.sl._is_owned())
+    self.assertFalse(self.sl.is_owned())
     self.sl.acquire(shared=1)
-    self.assert_(self.sl._is_owned())
-    self.assert_(self.sl._is_owned(shared=1))
-    self.assertFalse(self.sl._is_owned(shared=0))
+    self.assert_(self.sl.is_owned())
+    self.assert_(self.sl.is_owned(shared=1))
+    self.assertFalse(self.sl.is_owned(shared=0))
     self.sl.release()
-    self.assertFalse(self.sl._is_owned())
+    self.assertFalse(self.sl.is_owned())
     self.sl.acquire()
-    self.assert_(self.sl._is_owned())
-    self.assertFalse(self.sl._is_owned(shared=1))
-    self.assert_(self.sl._is_owned(shared=0))
+    self.assert_(self.sl.is_owned())
+    self.assertFalse(self.sl.is_owned(shared=1))
+    self.assert_(self.sl.is_owned(shared=0))
     self.sl.release()
-    self.assertFalse(self.sl._is_owned())
+    self.assertFalse(self.sl.is_owned())
     self.sl.acquire(shared=1)
-    self.assert_(self.sl._is_owned())
-    self.assert_(self.sl._is_owned(shared=1))
-    self.assertFalse(self.sl._is_owned(shared=0))
+    self.assert_(self.sl.is_owned())
+    self.assert_(self.sl.is_owned(shared=1))
+    self.assertFalse(self.sl.is_owned(shared=0))
     self.sl.release()
-    self.assertFalse(self.sl._is_owned())
+    self.assertFalse(self.sl.is_owned())
 
   def testBooleanValue(self):
     # semaphores are supposed to return a true value on a successful acquire
@@ -433,7 +433,31 @@ class TestSharedLock(_ThreadedTestCase):
     self.assertRaises(errors.LockError, self.sl.delete)
 
   def testDeleteTimeout(self):
-    self.sl.delete(timeout=60)
+    self.assertTrue(self.sl.delete(timeout=60))
+
+  def testDeleteTimeoutFail(self):
+    ready = threading.Event()
+    finish = threading.Event()
+
+    def fn():
+      self.sl.acquire(shared=0)
+      ready.set()
+
+      finish.wait()
+      self.sl.release()
+
+    self._addThread(target=fn)
+    ready.wait()
+
+    # Test if deleting a lock owned in exclusive mode by another thread fails
+    # to delete when a timeout is used
+    self.assertFalse(self.sl.delete(timeout=0.02))
+
+    finish.set()
+    self._waitThreads()
+
+    self.assertTrue(self.sl.delete())
+    self.assertRaises(errors.LockError, self.sl.acquire)
 
   def testNoDeleteIfSharer(self):
     self.sl.acquire(shared=1)
@@ -618,45 +642,45 @@ class TestSharedLock(_ThreadedTestCase):
 
     # Acquire in shared mode, downgrade should be no-op
     self.assertTrue(self.sl.acquire(shared=1))
-    self.assertTrue(self.sl._is_owned(shared=1))
+    self.assertTrue(self.sl.is_owned(shared=1))
     self.assertTrue(self.sl.downgrade())
-    self.assertTrue(self.sl._is_owned(shared=1))
+    self.assertTrue(self.sl.is_owned(shared=1))
     self.sl.release()
 
   def testDowngrade(self):
     self.assertTrue(self.sl.acquire())
-    self.assertTrue(self.sl._is_owned(shared=0))
+    self.assertTrue(self.sl.is_owned(shared=0))
     self.assertTrue(self.sl.downgrade())
-    self.assertTrue(self.sl._is_owned(shared=1))
+    self.assertTrue(self.sl.is_owned(shared=1))
     self.sl.release()
 
   @_Repeat
   def testDowngradeJumpsAheadOfExclusive(self):
     def _KeepExclusive(ev_got, ev_downgrade, ev_release):
       self.assertTrue(self.sl.acquire())
-      self.assertTrue(self.sl._is_owned(shared=0))
+      self.assertTrue(self.sl.is_owned(shared=0))
       ev_got.set()
       ev_downgrade.wait()
-      self.assertTrue(self.sl._is_owned(shared=0))
+      self.assertTrue(self.sl.is_owned(shared=0))
       self.assertTrue(self.sl.downgrade())
-      self.assertTrue(self.sl._is_owned(shared=1))
+      self.assertTrue(self.sl.is_owned(shared=1))
       ev_release.wait()
-      self.assertTrue(self.sl._is_owned(shared=1))
+      self.assertTrue(self.sl.is_owned(shared=1))
       self.sl.release()
 
     def _KeepExclusive2(ev_started, ev_release):
       self.assertTrue(self.sl.acquire(test_notify=ev_started.set))
-      self.assertTrue(self.sl._is_owned(shared=0))
+      self.assertTrue(self.sl.is_owned(shared=0))
       ev_release.wait()
-      self.assertTrue(self.sl._is_owned(shared=0))
+      self.assertTrue(self.sl.is_owned(shared=0))
       self.sl.release()
 
     def _KeepShared(ev_started, ev_got, ev_release):
       self.assertTrue(self.sl.acquire(shared=1, test_notify=ev_started.set))
-      self.assertTrue(self.sl._is_owned(shared=1))
+      self.assertTrue(self.sl.is_owned(shared=1))
       ev_got.set()
       ev_release.wait()
-      self.assertTrue(self.sl._is_owned(shared=1))
+      self.assertTrue(self.sl.is_owned(shared=1))
       self.sl.release()
 
     # Acquire lock in exclusive mode
@@ -929,6 +953,84 @@ class TestSharedLock(_ThreadedTestCase):
                                        for i in sorted(perprio.keys())]
                       for (shared, _, threads) in acquires])
 
+  class _FakeTimeForSpuriousNotifications:
+    def __init__(self, now, check_end):
+      self.now = now
+      self.check_end = check_end
+
+      # Deterministic random number generator
+      self.rnd = random.Random(15086)
+
+    def time(self):
+      # Advance time if the random number generator thinks so (this is to test
+      # multiple notifications without advancing the time)
+      if self.rnd.random() < 0.3:
+        self.now += self.rnd.random()
+
+      self.check_end(self.now)
+
+      return self.now
+
+  @_Repeat
+  def testAcquireTimeoutWithSpuriousNotifications(self):
+    ready = threading.Event()
+    locked = threading.Event()
+    req = Queue.Queue(0)
+
+    epoch = 4000.0
+    timeout = 60.0
+
+    def check_end(now):
+      self.assertFalse(locked.isSet())
+
+      # If we waited long enough (in virtual time), tell main thread to release
+      # lock, otherwise tell it to notify once more
+      req.put(now < (epoch + (timeout * 0.8)))
+
+    time_fn = self._FakeTimeForSpuriousNotifications(epoch, check_end).time
+
+    sl = locking.SharedLock("test", _time_fn=time_fn)
+
+    # Acquire in exclusive mode
+    sl.acquire(shared=0)
+
+    def fn():
+      self.assertTrue(sl.acquire(shared=0, timeout=timeout,
+                                 test_notify=ready.set))
+      locked.set()
+      sl.release()
+      self.done.put("success")
+
+    # Start acquire with timeout and wait for it to be ready
+    self._addThread(target=fn)
+    ready.wait()
+
+    # The separate thread is now waiting to acquire the lock, so start sending
+    # spurious notifications.
+
+    # Wait for separate thread to ask for another notification
+    count = 0
+    while req.get():
+      # After sending the notification, the lock will take a short amount of
+      # time to notice and to retrieve the current time
+      sl._notify_topmost()
+      count += 1
+
+    self.assertTrue(count > 100, "Not enough notifications were sent")
+
+    self.assertFalse(locked.isSet())
+
+    # Some notifications have been sent, now actually release the lock
+    sl.release()
+
+    # Wait for lock to be acquired
+    locked.wait()
+
+    self._waitThreads()
+
+    self.assertEqual(self.done.get_nowait(), "success")
+    self.assertRaises(Queue.Empty, self.done.get_nowait)
+
 
 class TestSharedLockInCondition(_ThreadedTestCase):
   """SharedLock as a condition lock tests"""
@@ -943,14 +1045,14 @@ class TestSharedLockInCondition(_ThreadedTestCase):
 
   def testKeepMode(self):
     self.cond.acquire(shared=1)
-    self.assert_(self.sl._is_owned(shared=1))
+    self.assert_(self.sl.is_owned(shared=1))
     self.cond.wait(0)
-    self.assert_(self.sl._is_owned(shared=1))
+    self.assert_(self.sl.is_owned(shared=1))
     self.cond.release()
     self.cond.acquire(shared=0)
-    self.assert_(self.sl._is_owned(shared=0))
+    self.assert_(self.sl.is_owned(shared=0))
     self.cond.wait(0)
-    self.assert_(self.sl._is_owned(shared=0))
+    self.assert_(self.sl.is_owned(shared=0))
     self.cond.release()
 
 
@@ -969,19 +1071,19 @@ class TestSSynchronizedDecorator(_ThreadedTestCase):
 
   @locking.ssynchronized(_decoratorlock)
   def _doItExclusive(self):
-    self.assert_(_decoratorlock._is_owned())
+    self.assert_(_decoratorlock.is_owned())
     self.done.put('EXC')
 
   @locking.ssynchronized(_decoratorlock, shared=1)
   def _doItSharer(self):
-    self.assert_(_decoratorlock._is_owned(shared=1))
+    self.assert_(_decoratorlock.is_owned(shared=1))
     self.done.put('SHR')
 
   def testDecoratedFunctions(self):
     self._doItExclusive()
-    self.assertFalse(_decoratorlock._is_owned())
+    self.assertFalse(_decoratorlock.is_owned())
     self._doItSharer()
-    self.assertFalse(_decoratorlock._is_owned())
+    self.assertFalse(_decoratorlock.is_owned())
 
   def testSharersCanCoexist(self):
     _decoratorlock.acquire(shared=1)
@@ -1035,27 +1137,61 @@ class TestLockSet(_ThreadedTestCase):
     newls = locking.LockSet([], "TestLockSet.testResources")
     self.assertEquals(newls._names(), set())
 
+  def testCheckOwnedUnknown(self):
+    self.assertFalse(self.ls.check_owned("certainly-not-owning-this-one"))
+    for shared in [-1, 0, 1, 6378, 24255]:
+      self.assertFalse(self.ls.check_owned("certainly-not-owning-this-one",
+                                           shared=shared))
+
+  def testCheckOwnedUnknownWhileHolding(self):
+    self.assertFalse(self.ls.check_owned([]))
+    self.ls.acquire("one", shared=1)
+    self.assertRaises(errors.LockError, self.ls.check_owned, "nonexist")
+    self.assertTrue(self.ls.check_owned("one", shared=1))
+    self.assertFalse(self.ls.check_owned("one", shared=0))
+    self.assertFalse(self.ls.check_owned(["one", "two"]))
+    self.assertRaises(errors.LockError, self.ls.check_owned,
+                      ["one", "nonexist"])
+    self.assertRaises(errors.LockError, self.ls.check_owned, "")
+    self.ls.release()
+    self.assertFalse(self.ls.check_owned([]))
+    self.assertFalse(self.ls.check_owned("one"))
+
   def testAcquireRelease(self):
+    self.assertFalse(self.ls.check_owned(self.ls._names()))
     self.assert_(self.ls.acquire('one'))
-    self.assertEquals(self.ls._list_owned(), set(['one']))
+    self.assertEquals(self.ls.list_owned(), set(['one']))
+    self.assertTrue(self.ls.check_owned("one"))
+    self.assertTrue(self.ls.check_owned("one", shared=0))
+    self.assertFalse(self.ls.check_owned("one", shared=1))
     self.ls.release()
-    self.assertEquals(self.ls._list_owned(), set())
+    self.assertEquals(self.ls.list_owned(), set())
+    self.assertFalse(self.ls.check_owned(self.ls._names()))
     self.assertEquals(self.ls.acquire(['one']), set(['one']))
-    self.assertEquals(self.ls._list_owned(), set(['one']))
+    self.assertEquals(self.ls.list_owned(), set(['one']))
     self.ls.release()
-    self.assertEquals(self.ls._list_owned(), set())
+    self.assertEquals(self.ls.list_owned(), set())
     self.ls.acquire(['one', 'two', 'three'])
-    self.assertEquals(self.ls._list_owned(), set(['one', 'two', 'three']))
+    self.assertEquals(self.ls.list_owned(), set(['one', 'two', 'three']))
+    self.assertTrue(self.ls.check_owned(self.ls._names()))
+    self.assertTrue(self.ls.check_owned(self.ls._names(), shared=0))
+    self.assertFalse(self.ls.check_owned(self.ls._names(), shared=1))
     self.ls.release('one')
-    self.assertEquals(self.ls._list_owned(), set(['two', 'three']))
+    self.assertFalse(self.ls.check_owned(["one"]))
+    self.assertTrue(self.ls.check_owned(["two", "three"]))
+    self.assertTrue(self.ls.check_owned(["two", "three"], shared=0))
+    self.assertFalse(self.ls.check_owned(["two", "three"], shared=1))
+    self.assertEquals(self.ls.list_owned(), set(['two', 'three']))
     self.ls.release(['three'])
-    self.assertEquals(self.ls._list_owned(), set(['two']))
+    self.assertEquals(self.ls.list_owned(), set(['two']))
     self.ls.release()
-    self.assertEquals(self.ls._list_owned(), set())
+    self.assertEquals(self.ls.list_owned(), set())
     self.assertEquals(self.ls.acquire(['one', 'three']), set(['one', 'three']))
-    self.assertEquals(self.ls._list_owned(), set(['one', 'three']))
+    self.assertEquals(self.ls.list_owned(), set(['one', 'three']))
     self.ls.release()
-    self.assertEquals(self.ls._list_owned(), set())
+    self.assertEquals(self.ls.list_owned(), set())
+    for name in self.ls._names():
+      self.assertFalse(self.ls.check_owned(name))
 
   def testNoDoubleAcquire(self):
     self.ls.acquire('one')
@@ -1075,31 +1211,31 @@ class TestLockSet(_ThreadedTestCase):
 
   def testAddRemove(self):
     self.ls.add('four')
-    self.assertEquals(self.ls._list_owned(), set())
+    self.assertEquals(self.ls.list_owned(), set())
     self.assert_('four' in self.ls._names())
     self.ls.add(['five', 'six', 'seven'], acquired=1)
     self.assert_('five' in self.ls._names())
     self.assert_('six' in self.ls._names())
     self.assert_('seven' in self.ls._names())
-    self.assertEquals(self.ls._list_owned(), set(['five', 'six', 'seven']))
+    self.assertEquals(self.ls.list_owned(), set(['five', 'six', 'seven']))
     self.assertEquals(self.ls.remove(['five', 'six']), ['five', 'six'])
     self.assert_('five' not in self.ls._names())
     self.assert_('six' not in self.ls._names())
-    self.assertEquals(self.ls._list_owned(), set(['seven']))
+    self.assertEquals(self.ls.list_owned(), set(['seven']))
     self.assertRaises(AssertionError, self.ls.add, 'eight', acquired=1)
     self.ls.remove('seven')
     self.assert_('seven' not in self.ls._names())
-    self.assertEquals(self.ls._list_owned(), set([]))
+    self.assertEquals(self.ls.list_owned(), set([]))
     self.ls.acquire(None, shared=1)
     self.assertRaises(AssertionError, self.ls.add, 'eight')
     self.ls.release()
     self.ls.acquire(None)
     self.ls.add('eight', acquired=1)
     self.assert_('eight' in self.ls._names())
-    self.assert_('eight' in self.ls._list_owned())
+    self.assert_('eight' in self.ls.list_owned())
     self.ls.add('nine')
     self.assert_('nine' in self.ls._names())
-    self.assert_('nine' not in self.ls._list_owned())
+    self.assert_('nine' not in self.ls.list_owned())
     self.ls.release()
     self.ls.remove(['two'])
     self.assert_('two' not in self.ls._names())
@@ -1132,8 +1268,8 @@ class TestLockSet(_ThreadedTestCase):
   def testAcquireSetLock(self):
     # acquire the set-lock exclusively
     self.assertEquals(self.ls.acquire(None), set(['one', 'two', 'three']))
-    self.assertEquals(self.ls._list_owned(), set(['one', 'two', 'three']))
-    self.assertEquals(self.ls._is_owned(), True)
+    self.assertEquals(self.ls.list_owned(), set(['one', 'two', 'three']))
+    self.assertEquals(self.ls.is_owned(), True)
     self.assertEquals(self.ls._names(), set(['one', 'two', 'three']))
     # I can still add/remove elements...
     self.assertEquals(self.ls.remove(['two', 'three']), ['two', 'three'])
@@ -1149,17 +1285,17 @@ class TestLockSet(_ThreadedTestCase):
     self.assertEquals(self.ls.acquire(['two', 'two', 'three'], shared=1),
                       set(['two', 'two', 'three']))
     self.ls.release(['two', 'two'])
-    self.assertEquals(self.ls._list_owned(), set(['three']))
+    self.assertEquals(self.ls.list_owned(), set(['three']))
 
   def testEmptyAcquire(self):
     # Acquire an empty list of locks...
     self.assertEquals(self.ls.acquire([]), set())
-    self.assertEquals(self.ls._list_owned(), set())
+    self.assertEquals(self.ls.list_owned(), set())
     # New locks can still be addded
     self.assert_(self.ls.add('six'))
     # "re-acquiring" is not an issue, since we had really acquired nothing
     self.assertEquals(self.ls.acquire([], shared=1), set())
-    self.assertEquals(self.ls._list_owned(), set())
+    self.assertEquals(self.ls.list_owned(), set())
     # We haven't really acquired anything, so we cannot release
     self.assertRaises(AssertionError, self.ls.release)
 
@@ -1258,8 +1394,8 @@ class TestLockSet(_ThreadedTestCase):
           self.ls.release()
         else:
           self.assert_(acquired is None)
-          self.assertFalse(self.ls._list_owned())
-          self.assertFalse(self.ls._is_owned())
+          self.assertFalse(self.ls.list_owned())
+          self.assertFalse(self.ls.is_owned())
           self.done.put("not acquired")
 
       self._addThread(target=_AcquireOne)
@@ -1331,7 +1467,7 @@ class TestLockSet(_ThreadedTestCase):
 
         self.ls.release(names=name)
 
-      self.assertFalse(self.ls._list_owned())
+      self.assertFalse(self.ls.list_owned())
 
       self._waitThreads()
 
@@ -1446,9 +1582,9 @@ class TestLockSet(_ThreadedTestCase):
     self.ls.add('four')
     self.ls.add('five', acquired=1)
     self.ls.add('six', acquired=1, shared=1)
-    self.assertEquals(self.ls._list_owned(),
+    self.assertEquals(self.ls.list_owned(),
       set(['one', 'two', 'three', 'five', 'six']))
-    self.assertEquals(self.ls._is_owned(), True)
+    self.assertEquals(self.ls.is_owned(), True)
     self.assertEquals(self.ls._names(),
       set(['one', 'two', 'three', 'four', 'five', 'six']))
     self.ls.release()
@@ -1489,55 +1625,80 @@ class TestLockSet(_ThreadedTestCase):
 
   def testAcquireWithNamesDowngrade(self):
     self.assertEquals(self.ls.acquire("two", shared=0), set(["two"]))
-    self.assertTrue(self.ls._is_owned())
-    self.assertFalse(self.ls._get_lock()._is_owned())
+    self.assertTrue(self.ls.is_owned())
+    self.assertFalse(self.ls._get_lock().is_owned())
     self.ls.release()
-    self.assertFalse(self.ls._is_owned())
-    self.assertFalse(self.ls._get_lock()._is_owned())
+    self.assertFalse(self.ls.is_owned())
+    self.assertFalse(self.ls._get_lock().is_owned())
     # Can't downgrade after releasing
     self.assertRaises(AssertionError, self.ls.downgrade, "two")
 
   def testDowngrade(self):
     # Not owning anything, must raise an exception
-    self.assertFalse(self.ls._is_owned())
+    self.assertFalse(self.ls.is_owned())
     self.assertRaises(AssertionError, self.ls.downgrade)
 
-    self.assertFalse(compat.any(i._is_owned()
+    self.assertFalse(compat.any(i.is_owned()
                                 for i in self.ls._get_lockdict().values()))
+    self.assertFalse(self.ls.check_owned(self.ls._names()))
+    for name in self.ls._names():
+      self.assertFalse(self.ls.check_owned(name))
 
     self.assertEquals(self.ls.acquire(None, shared=0),
                       set(["one", "two", "three"]))
     self.assertRaises(AssertionError, self.ls.downgrade, "unknown lock")
 
-    self.assertTrue(self.ls._get_lock()._is_owned(shared=0))
-    self.assertTrue(compat.all(i._is_owned(shared=0)
+    self.assertTrue(self.ls.check_owned(self.ls._names(), shared=0))
+    for name in self.ls._names():
+      self.assertTrue(self.ls.check_owned(name))
+      self.assertTrue(self.ls.check_owned(name, shared=0))
+      self.assertFalse(self.ls.check_owned(name, shared=1))
+
+    self.assertTrue(self.ls._get_lock().is_owned(shared=0))
+    self.assertTrue(compat.all(i.is_owned(shared=0)
                                for i in self.ls._get_lockdict().values()))
 
     # Start downgrading locks
     self.assertTrue(self.ls.downgrade(names=["one"]))
-    self.assertTrue(self.ls._get_lock()._is_owned(shared=0))
-    self.assertTrue(compat.all(lock._is_owned(shared=[0, 1][int(name == "one")])
+    self.assertTrue(self.ls._get_lock().is_owned(shared=0))
+    self.assertTrue(compat.all(lock.is_owned(shared=[0, 1][int(name == "one")])
                                for name, lock in
                                  self.ls._get_lockdict().items()))
 
+    self.assertFalse(self.ls.check_owned("one", shared=0))
+    self.assertTrue(self.ls.check_owned("one", shared=1))
+    self.assertTrue(self.ls.check_owned("two", shared=0))
+    self.assertTrue(self.ls.check_owned("three", shared=0))
+
+    # Downgrade second lock
     self.assertTrue(self.ls.downgrade(names="two"))
-    self.assertTrue(self.ls._get_lock()._is_owned(shared=0))
+    self.assertTrue(self.ls._get_lock().is_owned(shared=0))
     should_share = lambda name: [0, 1][int(name in ("one", "two"))]
-    self.assertTrue(compat.all(lock._is_owned(shared=should_share(name))
+    self.assertTrue(compat.all(lock.is_owned(shared=should_share(name))
                                for name, lock in
                                  self.ls._get_lockdict().items()))
+
+    self.assertFalse(self.ls.check_owned("one", shared=0))
+    self.assertTrue(self.ls.check_owned("one", shared=1))
+    self.assertFalse(self.ls.check_owned("two", shared=0))
+    self.assertTrue(self.ls.check_owned("two", shared=1))
+    self.assertTrue(self.ls.check_owned("three", shared=0))
 
     # Downgrading the last exclusive lock to shared must downgrade the
     # lockset-internal lock too
     self.assertTrue(self.ls.downgrade(names="three"))
-    self.assertTrue(self.ls._get_lock()._is_owned(shared=1))
-    self.assertTrue(compat.all(i._is_owned(shared=1)
+    self.assertTrue(self.ls._get_lock().is_owned(shared=1))
+    self.assertTrue(compat.all(i.is_owned(shared=1)
                                for i in self.ls._get_lockdict().values()))
+
+    # Verify owned locks
+    for name in self.ls._names():
+      self.assertTrue(self.ls.check_owned(name, shared=1))
 
     # Downgrading a shared lock must be a no-op
     self.assertTrue(self.ls.downgrade(names=["one", "three"]))
-    self.assertTrue(self.ls._get_lock()._is_owned(shared=1))
-    self.assertTrue(compat.all(i._is_owned(shared=1)
+    self.assertTrue(self.ls._get_lock().is_owned(shared=1))
+    self.assertTrue(compat.all(i.is_owned(shared=1)
                                for i in self.ls._get_lockdict().values()))
 
     self.ls.release()
@@ -1653,38 +1814,41 @@ class TestGanetiLockManager(_ThreadedTestCase):
 
   def testAcquireRelease(self):
     self.GL.acquire(locking.LEVEL_CLUSTER, ['BGL'], shared=1)
-    self.assertEquals(self.GL._list_owned(locking.LEVEL_CLUSTER), set(['BGL']))
+    self.assertEquals(self.GL.list_owned(locking.LEVEL_CLUSTER), set(['BGL']))
     self.GL.acquire(locking.LEVEL_INSTANCE, ['i1'])
     self.GL.acquire(locking.LEVEL_NODEGROUP, ['g2'])
     self.GL.acquire(locking.LEVEL_NODE, ['n1', 'n2'], shared=1)
+    self.assertTrue(self.GL.check_owned(locking.LEVEL_NODE, ["n1", "n2"],
+                                        shared=1))
+    self.assertFalse(self.GL.check_owned(locking.LEVEL_INSTANCE, ["i1", "i3"]))
     self.GL.release(locking.LEVEL_NODE, ['n2'])
-    self.assertEquals(self.GL._list_owned(locking.LEVEL_NODE), set(['n1']))
-    self.assertEquals(self.GL._list_owned(locking.LEVEL_NODEGROUP), set(['g2']))
-    self.assertEquals(self.GL._list_owned(locking.LEVEL_INSTANCE), set(['i1']))
+    self.assertEquals(self.GL.list_owned(locking.LEVEL_NODE), set(['n1']))
+    self.assertEquals(self.GL.list_owned(locking.LEVEL_NODEGROUP), set(['g2']))
+    self.assertEquals(self.GL.list_owned(locking.LEVEL_INSTANCE), set(['i1']))
     self.GL.release(locking.LEVEL_NODE)
-    self.assertEquals(self.GL._list_owned(locking.LEVEL_NODE), set())
-    self.assertEquals(self.GL._list_owned(locking.LEVEL_NODEGROUP), set(['g2']))
-    self.assertEquals(self.GL._list_owned(locking.LEVEL_INSTANCE), set(['i1']))
+    self.assertEquals(self.GL.list_owned(locking.LEVEL_NODE), set())
+    self.assertEquals(self.GL.list_owned(locking.LEVEL_NODEGROUP), set(['g2']))
+    self.assertEquals(self.GL.list_owned(locking.LEVEL_INSTANCE), set(['i1']))
     self.GL.release(locking.LEVEL_NODEGROUP)
     self.GL.release(locking.LEVEL_INSTANCE)
     self.assertRaises(errors.LockError, self.GL.acquire,
                       locking.LEVEL_INSTANCE, ['i5'])
     self.GL.acquire(locking.LEVEL_INSTANCE, ['i3'], shared=1)
-    self.assertEquals(self.GL._list_owned(locking.LEVEL_INSTANCE), set(['i3']))
+    self.assertEquals(self.GL.list_owned(locking.LEVEL_INSTANCE), set(['i3']))
 
   def testAcquireWholeSets(self):
     self.GL.acquire(locking.LEVEL_CLUSTER, ['BGL'], shared=1)
     self.assertEquals(self.GL.acquire(locking.LEVEL_INSTANCE, None),
                       set(self.instances))
-    self.assertEquals(self.GL._list_owned(locking.LEVEL_INSTANCE),
+    self.assertEquals(self.GL.list_owned(locking.LEVEL_INSTANCE),
                       set(self.instances))
     self.assertEquals(self.GL.acquire(locking.LEVEL_NODEGROUP, None),
                       set(self.nodegroups))
-    self.assertEquals(self.GL._list_owned(locking.LEVEL_NODEGROUP),
+    self.assertEquals(self.GL.list_owned(locking.LEVEL_NODEGROUP),
                       set(self.nodegroups))
     self.assertEquals(self.GL.acquire(locking.LEVEL_NODE, None, shared=1),
                       set(self.nodes))
-    self.assertEquals(self.GL._list_owned(locking.LEVEL_NODE),
+    self.assertEquals(self.GL.list_owned(locking.LEVEL_NODE),
                       set(self.nodes))
     self.GL.release(locking.LEVEL_NODE)
     self.GL.release(locking.LEVEL_NODEGROUP)
@@ -1695,11 +1859,11 @@ class TestGanetiLockManager(_ThreadedTestCase):
     self.GL.acquire(locking.LEVEL_CLUSTER, ['BGL'], shared=1)
     self.assertEquals(self.GL.acquire(locking.LEVEL_INSTANCE, None),
                       set(self.instances))
-    self.assertEquals(self.GL._list_owned(locking.LEVEL_INSTANCE),
+    self.assertEquals(self.GL.list_owned(locking.LEVEL_INSTANCE),
                       set(self.instances))
     self.assertEquals(self.GL.acquire(locking.LEVEL_NODE, ['n2'], shared=1),
                       set(['n2']))
-    self.assertEquals(self.GL._list_owned(locking.LEVEL_NODE),
+    self.assertEquals(self.GL.list_owned(locking.LEVEL_NODE),
                       set(['n2']))
     self.GL.release(locking.LEVEL_NODE)
     self.GL.release(locking.LEVEL_INSTANCE)

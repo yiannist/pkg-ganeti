@@ -53,6 +53,12 @@
        />[--node-parameters <em
       >ndparams</em
       >]<br
+       />[--disk-state <em
+      >diskstate</em
+      >]<br
+       />[--hypervisor-state <em
+      >hvstate</em
+      >]<br
        />{<em
       >nodename</em
       >}</p
@@ -85,11 +91,21 @@
       >vm_capable</code
       >, <code
       >master_capable</code
-      > and <code
+      >, <code
       >ndparams</code
+      >, <code
+      >diskstate</code
+      > and <code
+      >hvstate</code
       > options are described in <strong
       >ganeti</strong
       >(7), and are used to set the properties of the new node.</p
+    ><p
+    >The command performs some operations that change the state of the master and the new node, like copying certificates and starting the node daemon on the new node, or updating <code
+      >/etc/hosts</code
+      > on the master node. If the command fails at a later stage, it doesn't undo such changes. This should not be a problem, as a successful run of <code
+      >gnt-node add</code
+      > will bring everything back in sync.</p
     ><p
     >Example:</p
     ><pre
@@ -126,11 +142,14 @@
     ><p
     ><strong
       >evacuate</strong
-      > [-f] [--early-release] [--iallocator <em
+      > [-f] [--early-release] [--submit]<br
+       />[{-I|--iallocator} <em
       >NAME</em
-      > | --new-secondary <em
+      > | {-n|--new-secondary} <em
       >destination_node</em
-      >] [--primary-only | --secondary-only] [--early-release] {<em
+      >]<br
+       />[{-p|--primary-only} | {-s|--secondary-only} ]<br
+       /> {<em
       >node</em
       >}</p
     ><p
@@ -177,6 +196,12 @@
       ><li
       >when neither of the above is done a combination of the two cases is run</li
       ></ul
+    ><p
+    >See <strong
+      >ganeti(7)</strong
+      > for a description of <code
+      >--submit</code
+      > and other common options.</p
     ><p
     >Example:</p
     ><pre
@@ -322,6 +347,14 @@
 	></dd
       ><dt
       ><code
+	>disk_state</code
+	></dt
+      ><dd
+      ><p
+	>Disk state</p
+	></dd
+      ><dt
+      ><code
 	>drained</code
 	></dt
       ><dd
@@ -351,6 +384,14 @@
       ><dd
       ><p
 	>UUID of node group</p
+	></dd
+      ><dt
+      ><code
+	>hv_state</code
+	></dt
+      ><dd
+      ><p
+	>Hypervisor state</p
 	></dd
       ><dt
       ><code
@@ -415,6 +456,22 @@
       ><dd
       ><p
 	>Node name</p
+	></dd
+      ><dt
+      ><code
+	>ndp/oob_program</code
+	></dt
+      ><dd
+      ><p
+	>The &quot;oob_program&quot; node parameter</p
+	></dd
+      ><dt
+      ><code
+	>ndp/spindle_count</code
+	></dt
+      ><dd
+      ><p
+	>The &quot;spindle_count&quot; node parameter</p
 	></dd
       ><dt
       ><code
@@ -566,6 +623,80 @@
     ><p
     >If no node names are given, then all nodes are queried. Otherwise, only the given nodes will be listed.</p
     ></div
+  ><div id="list-drbd"
+  ><h2
+    >LIST-DRBD</h2
+    ><p
+    ><strong
+      >list-drbd</strong
+      > [--no-headers] [--separator=<em
+      >SEPARATOR</em
+      >] node</p
+    ><p
+    >Lists the mapping of DRBD minors for a given node. This outputs a static list of fields (it doesn't accept the <code
+      >--output</code
+      > option), as follows:</p
+    ><dl
+    ><dt
+      ><code
+	>Node</code
+	></dt
+      ><dd
+      ><p
+	>The (full) name of the node we are querying</p
+	></dd
+      ><dt
+      ><code
+	>Minor</code
+	></dt
+      ><dd
+      ><p
+	>The DRBD minor</p
+	></dd
+      ><dt
+      ><code
+	>Instance</code
+	></dt
+      ><dd
+      ><p
+	>The instance the DRBD minor belongs to</p
+	></dd
+      ><dt
+      ><code
+	>Disk</code
+	></dt
+      ><dd
+      ><p
+	>The disk index that the DRBD minor belongs to</p
+	></dd
+      ><dt
+      ><code
+	>Role</code
+	></dt
+      ><dd
+      ><p
+	>Either <code
+	  >primary</code
+	  > or <code
+	  >secondary</code
+	  >, denoting the role of the node for the instance (note: this is not the live status of the DRBD device, but the configuration value)</p
+	></dd
+      ><dt
+      ><code
+	>PeerNode</code
+	></dt
+      ><dd
+      ><p
+	>The node that the minor is connected to on the other end</p
+	></dd
+      ></dl
+    ><p
+    >This command can be used as a reverse lookup (from node and minor) to a given instance, which can be useful when debugging DRBD issues.</p
+    ><p
+    >Note that this command queries Ganeti via :manpage:`ganeti-confd(8)`, so it won't be available if support for <code
+      >confd</code
+      > has not been enabled at build time; furthermore, in Ganeti 2.6 this is only available via the Haskell version of confd (again selected at build time).</p
+    ></div
   ><div id="list-fields"
   ><h2
     >LIST-FIELDS</h2
@@ -594,7 +725,8 @@
     ><p
     ><strong
       >migrate</strong
-      > [-f] [--non-live] [--migration-mode=live|non-live] {<em
+      > [-f] [--non-live] [--migration-mode=live|non-live]<br
+       />[--ignore-ipolicy] [--submit] {<em
       >node</em
       >}</p
     ><p
@@ -604,9 +736,21 @@
       >gnt-instance migrate</strong
       > command, the options <code
       >--no-live</code
-      > and <code
+      >, <code
       >--migration-mode</code
+      > and <code
+      >--no-runtime-changes</code
       > can be given to influence the migration type.</p
+    ><p
+    >If <code
+      >--ignore-ipolicy</code
+      > is given any instance policy violations occuring during this operation are ignored.</p
+    ><p
+    >See <strong
+      >ganeti(7)</strong
+      > for a description of <code
+      >--submit</code
+      > and other common options.</p
     ><p
     >Example:</p
     ><pre
@@ -644,13 +788,19 @@
        />[--node-powered=<code
       >yes|no</code
       >]<br
+       />[--hypervisor-state <em
+      >hvstate</em
+      >]<br
+       />[--disk-state <em
+      >diskstate</em
+      >]<br
        />{<em
       >node</em
       >}</p
     ><p
     >This command changes the role of the node. Each options takes either a literal yes or no, and only one option should be given as yes. The meaning of the roles and flags are described in the manpage <strong
-      >ganeti</strong
-      >(7).</p
+      >ganeti(7)</strong
+      >.</p
     ><p
     >The option <code
       >--node-powered</code
@@ -670,6 +820,12 @@
     >The <code
       >-s (--secondary-ip)</code
       > option can be used to change the node's secondary ip. No drbd instances can be running on the node, while this operation is taking place.</p
+    ><p
+    >See <strong
+      >ganeti(7)</strong
+      > for a description of <code
+      >--submit</code
+      > and other common options.</p
     ><p
     >Example (setting the node back to online and master candidate):</p
     ><pre
@@ -906,9 +1062,8 @@ node2 lvm-pv /dev/sdb1 698.6G   0M 698.6G Y
     ><p
     ><strong
       >modify-storage</strong
-      > [<code
-      >--allocatable=yes|no</code
-      >] {<em
+      > [--allocatable={yes|no}] [--submit]<br
+       />{<em
       >node</em
       >} {<em
       >storage-type</em
@@ -931,7 +1086,8 @@ node2 lvm-pv /dev/sdb1 698.6G   0M 698.6G Y
     ><p
     ><strong
       >repair-storage</strong
-      > [--ignore-consistency] {<em
+      > [--ignore-consistency] ]--submit]<br
+       />{<em
       >node</em
       >} {<em
       >storage-type</em
@@ -943,7 +1099,9 @@ node2 lvm-pv /dev/sdb1 698.6G   0M 698.6G Y
     ><p
     >On LVM volume groups, <strong
       >repair-storage</strong
-      > runs &quot;vgreduce --removemissing&quot;.</p
+      > runs <code
+      >vgreduce --removemissing</code
+      >.</p
     ><p
     ><strong
       >Caution:</strong
@@ -966,23 +1124,27 @@ node2 lvm-pv /dev/sdb1 698.6G   0M 698.6G Y
     ><p
     ><strong
       >powercycle</strong
-      > [<code
-      >--yes</code
-      >] [<code
-      >--force</code
-      >] {<em
+      > [--yes] [--force] [--submit] {<em
       >node</em
       >}</p
     ><p
-    >This command (tries to) forcefully reboot a node. It is a command that can be used if the node environemnt is broken, such that the admin can no longer login over ssh, but the Ganeti node daemon is still working.</p
+    >This command (tries to) forcefully reboot a node. It is a command that can be used if the node environment is broken, such that the admin can no longer login over SSH, but the Ganeti node daemon is still working.</p
     ><p
-    >Note that this command is not guaranteed to work; it depends on the hypervisor how effective is the reboot attempt. For Linux, this command require that the kernel option CONFIG_MAGIC_SYSRQ is enabled.</p
+    >Note that this command is not guaranteed to work; it depends on the hypervisor how effective is the reboot attempt. For Linux, this command requires the kernel option <code
+      >CONFIG_MAGIC_SYSRQ</code
+      > to be enabled.</p
     ><p
     >The <code
       >--yes</code
       > option can be used to skip confirmation, while the <code
       >--force</code
       > option is needed if the target node is the master node.</p
+    ><p
+    >See <strong
+      >ganeti(7)</strong
+      > for a description of <code
+      >--submit</code
+      > and other common options.</p
     ></div
   ><div id="power"
   ><h2
@@ -1130,13 +1292,15 @@ node2 lvm-pv /dev/sdb1 698.6G   0M 698.6G Y
     >hail</strong
     >(1) (IAllocator plugin), <strong
     >hscan</strong
-    >(1) (data gatherer from remote clusters).</p
+    >(1) (data gatherer from remote clusters), <strong
+    >hinfo</strong
+    >(1) (cluster information printer).</p
   ></div
 ><div id="copyright"
 ><h1
   >COPYRIGHT</h1
   ><p
-  >Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Google Inc. Permission is granted to copy, distribute and/or modify under the terms of the GNU General Public License as published by the Free Software Foundation; either version 2 of the License, or (at your option) any later version.</p
+  >Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012 Google Inc. Permission is granted to copy, distribute and/or modify under the terms of the GNU General Public License as published by the Free Software Foundation; either version 2 of the License, or (at your option) any later version.</p
   ><p
   >On Debian systems, the complete text of the GNU General Public License can be found in /usr/share/common-licenses/GPL.</p
   ></div

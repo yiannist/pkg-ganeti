@@ -2,7 +2,7 @@
 
 {-
 
-Copyright (C) 2009, 2010, 2011 Google Inc.
+Copyright (C) 2009, 2010, 2011, 2012 Google Inc.
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -22,43 +22,35 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
 -}
 
 module Ganeti.HTools.Utils
-    (
-      debug
-    , debugFn
-    , debugXy
-    , sepSplit
-    , stdDev
-    , if'
-    , select
-    , commaJoin
-    , readEitherString
-    , JSRecord
-    , loadJSArray
-    , fromObj
-    , fromObjWithDefault
-    , maybeFromObj
-    , tryFromObj
-    , fromJVal
-    , asJSObject
-    , asObjectList
-    , fromJResult
-    , tryRead
-    , formatTable
-    , annotateResult
-    , defaultGroupID
-    , parseUnit
-    ) where
+  ( debug
+  , debugFn
+  , debugXy
+  , sepSplit
+  , stdDev
+  , if'
+  , select
+  , applyIf
+  , commaJoin
+  , ensureQuoted
+  , tryRead
+  , formatTable
+  , printTable
+  , parseUnit
+  , plural
+  , exitIfBad
+  , exitErr
+  , exitWhen
+  , exitUnless
+  ) where
 
-import Control.Monad (liftM)
-import Data.Char (toUpper)
+import Data.Char (toUpper, isAlphaNum)
 import Data.List
-import Data.Maybe (fromMaybe)
-import qualified Text.JSON as J
-import Text.Printf (printf)
 
 import Debug.Trace
 
-import Ganeti.HTools.Types
+import Ganeti.BasicTypes
+import System.IO
+import System.Exit
 
 -- * Debug functions
 
@@ -73,9 +65,13 @@ debugFn fn x = debug (fn x) `seq` x
 
 -- | Show the first parameter before returning the second one.
 debugXy :: Show a => a -> b -> b
-debugXy a b = debug a `seq` b
+debugXy = seq . debug
 
 -- * Miscellaneous
+
+-- | Apply the function if condition holds, otherwise use default value.
+applyIf :: Bool -> (a -> a) -> a -> a
+applyIf b f x = if b then f x else x
 
 -- | Comma-join a string list.
 commaJoin :: [String] -> String
@@ -84,12 +80,23 @@ commaJoin = intercalate ","
 -- | Split a list on a separator and return an array.
 sepSplit :: Eq a => a -> [a] -> [[a]]
 sepSplit sep s
-    | null s    = []
-    | null xs   = [x]
-    | null ys   = [x,[]]
-    | otherwise = x:sepSplit sep ys
-    where (x, xs) = break (== sep) s
-          ys = drop 1 xs
+  | null s    = []
+  | null xs   = [x]
+  | null ys   = [x,[]]
+  | otherwise = x:sepSplit sep ys
+  where (x, xs) = break (== sep) s
+        ys = drop 1 xs
+
+-- | Simple pluralize helper
+plural :: Int -> String -> String -> String
+plural 1 s _ = s
+plural _ _ p = p
+
+-- | Ensure a value is quoted if needed.
+ensureQuoted :: String -> String
+ensureQuoted v = if not (all (\c -> isAlphaNum c || c == '.') v)
+                 then '\'':v ++ "'"
+                 else v
 
 -- * Mathematical functions
 
@@ -125,99 +132,6 @@ if' :: Bool -- ^ condition
 if' True x _ = x
 if' _    _ y = y
 
--- | Return the first result with a True condition, or the default otherwise.
-select :: a            -- ^ default result
-       -> [(Bool, a)]  -- ^ list of \"condition, result\"
-       -> a            -- ^ first result which has a True condition, or default
-select def = maybe def snd . find fst
-
--- * JSON-related functions
-
--- | A type alias for the list-based representation of J.JSObject.
-type JSRecord = [(String, J.JSValue)]
-
--- | Converts a JSON Result into a monadic value.
-fromJResult :: Monad m => String -> J.Result a -> m a
-fromJResult s (J.Error x) = fail (s ++ ": " ++ x)
-fromJResult _ (J.Ok x) = return x
-
--- | Tries to read a string from a JSON value.
---
--- In case the value was not a string, we fail the read (in the
--- context of the current monad.
-readEitherString :: (Monad m) => J.JSValue -> m String
-readEitherString v =
-    case v of
-      J.JSString s -> return $ J.fromJSString s
-      _ -> fail "Wrong JSON type"
-
--- | Converts a JSON message into an array of JSON objects.
-loadJSArray :: (Monad m)
-               => String -- ^ Operation description (for error reporting)
-               -> String -- ^ Input message
-               -> m [J.JSObject J.JSValue]
-loadJSArray s = fromJResult s . J.decodeStrict
-
--- | Reads the value of a key in a JSON object.
-fromObj :: (J.JSON a, Monad m) => JSRecord -> String -> m a
-fromObj o k =
-    case lookup k o of
-      Nothing -> fail $ printf "key '%s' not found, object contains only %s"
-                 k (show (map fst o))
-      Just val -> fromKeyValue k val
-
--- | Reads the value of an optional key in a JSON object.
-maybeFromObj :: (J.JSON a, Monad m) =>
-                JSRecord -> String -> m (Maybe a)
-maybeFromObj o k =
-    case lookup k o of
-      Nothing -> return Nothing
-      Just val -> liftM Just (fromKeyValue k val)
-
--- | Reads the value of a key in a JSON object with a default if missing.
-fromObjWithDefault :: (J.JSON a, Monad m) =>
-                      JSRecord -> String -> a -> m a
-fromObjWithDefault o k d = liftM (fromMaybe d) $ maybeFromObj o k
-
--- | Reads a JValue, that originated from an object key.
-fromKeyValue :: (J.JSON a, Monad m)
-              => String     -- ^ The key name
-              -> J.JSValue  -- ^ The value to read
-              -> m a
-fromKeyValue k val =
-  fromJResult (printf "key '%s', value '%s'" k (show val)) (J.readJSON val)
-
--- | Annotate a Result with an ownership information.
-annotateResult :: String -> Result a -> Result a
-annotateResult owner (Bad s) = Bad $ owner ++ ": " ++ s
-annotateResult _ v = v
-
--- | Try to extract a key from a object with better error reporting
--- than fromObj.
-tryFromObj :: (J.JSON a) =>
-              String     -- ^ Textual "owner" in error messages
-           -> JSRecord   -- ^ The object array
-           -> String     -- ^ The desired key from the object
-           -> Result a
-tryFromObj t o = annotateResult t . fromObj o
-
--- | Small wrapper over readJSON.
-fromJVal :: (Monad m, J.JSON a) => J.JSValue -> m a
-fromJVal v =
-    case J.readJSON v of
-      J.Error s -> fail ("Cannot convert value '" ++ show v ++
-                         "', error: " ++ s)
-      J.Ok x -> return x
-
--- | Converts a JSON value into a JSON object.
-asJSObject :: (Monad m) => J.JSValue -> m (J.JSObject J.JSValue)
-asJSObject (J.JSObject a) = return a
-asJSObject _ = fail "not an object"
-
--- | Coneverts a list of JSON values into a list of JSON objects.
-asObjectList :: (Monad m) => [J.JSValue] -> m [J.JSObject J.JSValue]
-asObjectList = mapM asJSObject
-
 -- * Parsing utility functions
 
 -- | Parse results from readsPrec.
@@ -251,9 +165,30 @@ formatTable vals numpos =
                     ) (zip3 vtrans numpos mlens)
    in transpose expnd
 
--- | Default group UUID (just a string, not a real UUID).
-defaultGroupID :: GroupID
-defaultGroupID = "00000000-0000-0000-0000-000000000000"
+-- | Constructs a printable table from given header and rows
+printTable :: String -> [String] -> [[String]] -> [Bool] -> String
+printTable lp header rows isnum =
+  unlines . map ((++) lp) . map ((:) ' ' . unwords) $
+  formatTable (header:rows) isnum
+
+-- | Converts a unit (e.g. m or GB) into a scaling factor.
+parseUnitValue :: (Monad m) => String -> m Rational
+parseUnitValue unit
+  -- binary conversions first
+  | null unit                     = return 1
+  | unit == "m" || upper == "MIB" = return 1
+  | unit == "g" || upper == "GIB" = return kbBinary
+  | unit == "t" || upper == "TIB" = return $ kbBinary * kbBinary
+  -- SI conversions
+  | unit == "M" || upper == "MB"  = return mbFactor
+  | unit == "G" || upper == "GB"  = return $ mbFactor * kbDecimal
+  | unit == "T" || upper == "TB"  = return $ mbFactor * kbDecimal * kbDecimal
+  | otherwise = fail $ "Unknown unit '" ++ unit ++ "'"
+  where upper = map toUpper unit
+        kbBinary = 1024 :: Rational
+        kbDecimal = 1000 :: Rational
+        decToBin = kbDecimal / kbBinary -- factor for 1K conversion
+        mbFactor = decToBin * decToBin -- twice the factor for just 1K
 
 -- | Tries to extract number and scale from the given string.
 --
@@ -262,22 +197,36 @@ defaultGroupID = "00000000-0000-0000-0000-000000000000"
 -- value in MiB.
 parseUnit :: (Monad m, Integral a, Read a) => String -> m a
 parseUnit str =
-    -- TODO: enhance this by splitting the unit parsing code out and
-    -- accepting floating-point numbers
-    case reads str of
-      [(v, suffix)] ->
-          let unit = dropWhile (== ' ') suffix
-              upper = map toUpper unit
-              siConvert x = x * 1000000 `div` 1048576
-          in case () of
-               _ | null unit -> return v
-                 | unit == "m" || upper == "MIB" -> return v
-                 | unit == "M" || upper == "MB"  -> return $ siConvert v
-                 | unit == "g" || upper == "GIB" -> return $ v * 1024
-                 | unit == "G" || upper == "GB"  -> return $ siConvert
-                                                    (v * 1000)
-                 | unit == "t" || upper == "TIB" -> return $ v * 1048576
-                 | unit == "T" || upper == "TB"  -> return $
-                                                    siConvert (v * 1000000)
-                 | otherwise -> fail $ "Unknown unit '" ++ unit ++ "'"
-      _ -> fail $ "Can't parse string '" ++ str ++ "'"
+  -- TODO: enhance this by splitting the unit parsing code out and
+  -- accepting floating-point numbers
+  case (reads str::[(Int, String)]) of
+    [(v, suffix)] ->
+      let unit = dropWhile (== ' ') suffix
+      in do
+        scaling <- parseUnitValue unit
+        return $ truncate (fromIntegral v * scaling)
+    _ -> fail $ "Can't parse string '" ++ str ++ "'"
+
+-- | Unwraps a 'Result', exiting the program if it is a 'Bad' value,
+-- otherwise returning the actual contained value.
+exitIfBad :: String -> Result a -> IO a
+exitIfBad msg (Bad s) = do
+  hPutStrLn stderr $ "Error: " ++ msg ++ ": " ++ s
+  exitWith (ExitFailure 1)
+exitIfBad _ (Ok v) = return v
+
+-- | Exits immediately with an error message.
+exitErr :: String -> IO a
+exitErr errmsg = do
+  hPutStrLn stderr $ "Error: " ++ errmsg ++ "."
+  exitWith (ExitFailure 1)
+
+-- | Exits with an error message if the given boolean condition if true.
+exitWhen :: Bool -> String -> IO ()
+exitWhen True msg = exitErr msg
+exitWhen False _  = return ()
+
+-- | Exits with an error message /unless/ the given boolean condition
+-- if true, the opposite of 'exitWhen'.
+exitUnless :: Bool -> String -> IO ()
+exitUnless cond = exitWhen (not cond)

@@ -13,6 +13,7 @@ administration in the Ganeti system.
 .SS ADD
 .PP
 \f[B]add\f[]
+[--submit]
 .PD 0
 .P
 .PD
@@ -21,6 +22,57 @@ administration in the Ganeti system.
 .P
 .PD
 [--alloc-policy=\f[I]POLICY\f[]]
+.PD 0
+.P
+.PD
+[{-D|--disk-parameters}
+\f[I]disk-template\f[]:\f[I]disk-param\f[]=\f[I]value\f[][,\f[I]disk-param\f[]=\f[I]value\f[]...]]
+.PD 0
+.P
+.PD
+[--specs-cpu-count
+\f[I]spec-param\f[]=\f[I]value\f[]
+[,\f[I]spec-param\f[]=\f[I]value\f[]...]]
+.PD 0
+.P
+.PD
+[--specs-disk-count
+\f[I]spec-param\f[]=\f[I]value\f[]
+[,\f[I]spec-param\f[]=\f[I]value\f[]...]]
+.PD 0
+.P
+.PD
+[--specs-disk-size
+\f[I]spec-param\f[]=\f[I]value\f[]
+[,\f[I]spec-param\f[]=\f[I]value\f[]...]]
+.PD 0
+.P
+.PD
+[--specs-mem-size
+\f[I]spec-param\f[]=\f[I]value\f[]
+[,\f[I]spec-param\f[]=\f[I]value\f[]...]]
+.PD 0
+.P
+.PD
+[--specs-nic-count
+\f[I]spec-param\f[]=\f[I]value\f[]
+[,\f[I]spec-param\f[]=\f[I]value\f[]...]]
+.PD 0
+.P
+.PD
+[--ipol-disk-templates
+\f[I]template\f[]
+[,\f[I]template\f[]...]]
+.PD 0
+.P
+.PD
+[--disk-state
+\f[I]diskstate\f[]]
+.PD 0
+.P
+.PD
+[--hypervisor-state
+\f[I]hvstate\f[]]
 .PD 0
 .P
 .PD
@@ -33,7 +85,7 @@ initially empty; to add nodes to it, use
 The \f[B]--node-parameters\f[] option allows you to set default
 node parameters for nodes in the group. Please see
 \f[B]ganeti\f[](7) for more information about supported key=value
-pairs.
+pairs and their corresponding options.
 .PP
 The \f[B]--alloc-policy\f[] option allows you to set an allocation
 policy for the group at creation time. Possible values are:
@@ -59,6 +111,18 @@ this state will be deferred to the iallocator plugin that\[aq]s
 being used.
 .RS
 .RE
+.PP
+The \f[B]-D\ (--disk-parameters)\f[] option allows you to set the
+disk parameters for the node group; please see the section about
+\f[B]gnt-cluster add\f[] in \f[B]gnt-cluster\f[](8) for more
+information about disk parameters
+.PP
+The \f[B]--specs-...\f[] and \f[B]--ipol-disk-templates\f[] options
+specify instance policies on the node group, and are documented in
+the \f[B]gnt-cluster\f[](8) man page.
+.PP
+See \f[B]ganeti(7)\f[] for a description of \f[B]--submit\f[] and
+other common options.
 .SS ASSIGN-NODES
 .PP
 \f[B]assign-nodes\f[]
@@ -66,11 +130,11 @@ being used.
 .P
 .PD
 [--force]
+[--submit]
 .PD 0
 .P
 .PD
-{\f[I]group\f[]}
-{\f[I]node\f[]...}
+{\f[I]group\f[]} {\f[I]node\f[]...}
 .PP
 Assigns one or more nodes to the specified group, moving them from
 their original group (or groups).
@@ -80,9 +144,13 @@ split between groups any instance that was not previously split (a
 split instance is an instance with a mirrored disk template, e.g.
 DRBD, that has the primary and secondary nodes in different node
 groups). You can force the operation with \f[B]--force\f[].
+.PP
+See \f[B]ganeti(7)\f[] for a description of \f[B]--submit\f[] and
+other common options.
 .SS MODIFY
 .PP
 \f[B]modify\f[]
+[--submit]
 .PD 0
 .P
 .PD
@@ -94,18 +162,85 @@ groups). You can force the operation with \f[B]--force\f[].
 .PD 0
 .P
 .PD
+[--hypervisor-state
+\f[I]hvstate\f[]]
+.PD 0
+.P
+.PD
+[{-D|--disk-parameters}
+\f[I]disk-template\f[]:\f[I]disk-param\f[]=\f[I]value\f[][,\f[I]disk-param\f[]=\f[I]value\f[]...]]
+.PD 0
+.P
+.PD
+[--disk-state
+\f[I]diskstate\f[]]
+.PD 0
+.P
+.PD
+[--specs-cpu-count
+\f[I]spec-param\f[]=\f[I]value\f[]
+[,\f[I]spec-param\f[]=\f[I]value\f[]...]]
+.PD 0
+.P
+.PD
+[--specs-disk-count
+\f[I]spec-param\f[]=\f[I]value\f[]
+[,\f[I]spec-param\f[]=\f[I]value\f[]...]]
+.PD 0
+.P
+.PD
+[--specs-disk-size
+\f[I]spec-param\f[]=\f[I]value\f[]
+[,\f[I]spec-param\f[]=\f[I]value\f[]...]]
+.PD 0
+.P
+.PD
+[--specs-mem-size
+\f[I]spec-param\f[]=\f[I]value\f[]
+[,\f[I]spec-param\f[]=\f[I]value\f[]...]]
+.PD 0
+.P
+.PD
+[--specs-nic-count
+\f[I]spec-param\f[]=\f[I]value\f[]
+[,\f[I]spec-param\f[]=\f[I]value\f[]...]]
+.PD 0
+.P
+.PD
+[--ipol-disk-templates
+\f[I]template\f[]
+[,\f[I]template\f[]...]]
+.PD 0
+.P
+.PD
 {\f[I]group\f[]}
 .PP
 Modifies some parameters from the node group.
 .PP
-The \f[B]--node-parameters\f[] and \f[B]--alloc-policy\f[] optiosn
+The \f[B]--node-parameters\f[] and \f[B]--alloc-policy\f[] options
 are documented in the \f[B]add\f[] command above.
+\f[B]--hypervisor-state\f[] as well as \f[B]--disk-state\f[] are
+documented in detail in \f[B]ganeti\f[](7).
+.PP
+The \f[B]--node-parameters\f[], \f[B]--alloc-policy\f[],
+\f[B]-D\ (--disk-parameters)\f[] options are documented in the
+\f[B]add\f[] command above.
+.PP
+The \f[B]--specs-...\f[] and \f[B]--ipol-disk-templates\f[] options
+specify instance policies on the node group, and are documented in
+the \f[B]gnt-cluster\f[](8) man page.
+.PP
+See \f[B]ganeti(7)\f[] for a description of \f[B]--submit\f[] and
+other common options.
 .SS REMOVE
 .PP
-\f[B]remove\f[] {\f[I]group\f[]}
+\f[B]remove\f[] [--submit] {\f[I]group\f[]}
 .PP
 Deletes the indicated node group, which must be empty. There must
 always be at least one group, so the last group cannot be removed.
+.PP
+See \f[B]ganeti(7)\f[] for a description of \f[B]--submit\f[] and
+other common options.
 .SS LIST
 .PP
 \f[B]list\f[] [--no-headers] [--separator=\f[I]SEPARATOR\f[]]
@@ -143,6 +278,31 @@ Creation timestamp
 .RS
 .RE
 .TP
+.B \f[B]custom_diskparams\f[]
+Custom disk parameters
+.RS
+.RE
+.TP
+.B \f[B]custom_ipolicy\f[]
+Custom instance policy limitations
+.RS
+.RE
+.TP
+.B \f[B]custom_ndparams\f[]
+Custom node parameters
+.RS
+.RE
+.TP
+.B \f[B]diskparams\f[]
+Disk parameters (merged)
+.RS
+.RE
+.TP
+.B \f[B]ipolicy\f[]
+Instance policy limitations (merged)
+.RS
+.RE
+.TP
 .B \f[B]mtime\f[]
 Modification timestamp
 .RS
@@ -150,6 +310,16 @@ Modification timestamp
 .TP
 .B \f[B]name\f[]
 Group name
+.RS
+.RE
+.TP
+.B \f[B]ndp/oob_program\f[]
+The "oob_program" node parameter
+.RS
+.RE
+.TP
+.B \f[B]ndp/spindle_count\f[]
+The "spindle_count" node parameter
 .RS
 .RE
 .TP
@@ -208,12 +378,15 @@ Otherwise, only the named groups will be listed.
 List available fields for node groups.
 .SS RENAME
 .PP
-\f[B]rename\f[] {\f[I]oldname\f[]} {\f[I]newname\f[]}
+\f[B]rename\f[] [--submit] {\f[I]oldname\f[]} {\f[I]newname\f[]}
 .PP
 Renames a given group from \f[I]oldname\f[] to \f[I]newname\f[].
+.PP
+See \f[B]ganeti(7)\f[] for a description of \f[B]--submit\f[] and
+other common options.
 .SS EVACUATE
 .PP
-\f[B]evacuate\f[] [--iallocator \f[I]NAME\f[]] [--to
+\f[B]evacuate\f[] [--submit] [--iallocator \f[I]NAME\f[]] [--to
 \f[I]GROUP\f[]...] {\f[I]group\f[]}
 .PP
 This command will move all instances out of the given node group.
@@ -223,6 +396,9 @@ on the command line or as a cluster default.
 If no specific destination groups are specified using
 \f[B]--to\f[], all groups except the evacuated group are
 considered.
+.PP
+See \f[B]ganeti(7)\f[] for a description of \f[B]--submit\f[] and
+other common options.
 .PP
 Example:
 .PP
@@ -261,6 +437,11 @@ removed will be extended with the contents of that file (each line
 becomes a tag). In this case, there is not need to pass tags on the
 command line (if you do, tags from both sources will be removed). A
 file name of \f[B]-\f[] will be interpreted as stdin.
+.SS INFO
+.PP
+\f[B]info\f[] [group...]
+.PP
+Shows config information for all (or given) groups.
 .SH REPORTING BUGS
 .PP
 Report bugs to project website (http://code.google.com/p/ganeti/)
@@ -287,10 +468,11 @@ restarter), \f[B]ganeti-cleaner\f[](8) (job queue cleaner),
 Ganeti htools: \f[B]htools\f[](1) (generic binary),
 \f[B]hbal\f[](1) (cluster balancer), \f[B]hspace\f[](1) (capacity
 calculation), \f[B]hail\f[](1) (IAllocator plugin),
-\f[B]hscan\f[](1) (data gatherer from remote clusters).
+\f[B]hscan\f[](1) (data gatherer from remote clusters),
+\f[B]hinfo\f[](1) (cluster information printer).
 .SH COPYRIGHT
 .PP
-Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Google Inc.
+Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012 Google Inc.
 Permission is granted to copy, distribute and/or modify under the
 terms of the GNU General Public License as published by the Free
 Software Foundation; either version 2 of the License, or (at your

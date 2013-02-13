@@ -1,6 +1,7 @@
 #
+#
 
-# Copyright (C) 2007, 2008, 2009, 2010, 2011 Google Inc.
+# Copyright (C) 2007, 2008, 2009, 2010, 2011, 2012 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -24,6 +25,8 @@
 
 import tempfile
 import random
+import re
+import itertools
 
 from ganeti import utils
 from ganeti import constants
@@ -43,6 +46,7 @@ import qa_utils
 import qa_error
 
 from qa_utils import (AssertEqual, AssertIn, AssertMatch, StartLocalCommand)
+from qa_utils import InstanceCheck, INST_DOWN, INST_UP, FIRST_ARG
 
 
 _rapi_ca = None
@@ -232,6 +236,13 @@ def TestRapiQuery():
   rnd = random.Random(7818)
 
   for what in constants.QR_VIA_RAPI:
+    if what == constants.QR_JOB:
+      namefield = "id"
+    elif what == constants.QR_EXPORT:
+      namefield = "export"
+    else:
+      namefield = "name"
+
     all_fields = query.ALL_FIELDS[what].keys()
     rnd.shuffle(all_fields)
 
@@ -241,7 +252,7 @@ def TestRapiQuery():
     AssertEqual(len(qresult.fields), len(all_fields))
 
     # One field
-    result = _rapi_client.QueryFields(what, fields=["name"])
+    result = _rapi_client.QueryFields(what, fields=[namefield])
     qresult = objects.QueryFieldsResponse.FromDict(result)
     AssertEqual(len(qresult.fields), 1)
 
@@ -286,24 +297,25 @@ def TestRapiQuery():
       ("/2/query/%s?fields=%s" % (what, ",".join(all_fields)),
        compat.partial(_Check, all_fields), "GET", None),
 
-      ("/2/query/%s?fields=name" % what,
-       compat.partial(_Check, ["name"]), "GET", None),
+      ("/2/query/%s?fields=%s" % (what, namefield),
+       compat.partial(_Check, [namefield]), "GET", None),
 
       # Note the spaces
-      ("/2/query/%s?fields=name,%%20name%%09,name%%20" % what,
-       compat.partial(_Check, ["name"] * 3), "GET", None),
+      ("/2/query/%s?fields=%s,%%20%s%%09,%s%%20" %
+       (what, namefield, namefield, namefield),
+       compat.partial(_Check, [namefield] * 3), "GET", None),
 
       # PUT with fields in query
-      ("/2/query/%s?fields=name" % what,
-       compat.partial(_Check, ["name"]), "PUT", {}),
+      ("/2/query/%s?fields=%s" % (what, namefield),
+       compat.partial(_Check, [namefield]), "PUT", {}),
 
       # Fields in body
       ("/2/query/%s" % what, compat.partial(_Check, all_fields), "PUT", {
          "fields": all_fields,
          }),
 
-      ("/2/query/%s" % what, compat.partial(_Check, ["name"] * 4), "PUT", {
-         "fields": ["name"] * 4,
+      ("/2/query/%s" % what, compat.partial(_Check, [namefield] * 4), "PUT", {
+         "fields": [namefield] * 4,
          }),
       ])
 
@@ -312,7 +324,7 @@ def TestRapiQuery():
         # With filter
         ("/2/query/%s" % what, compat.partial(_Check, all_fields), "PUT", {
            "fields": all_fields,
-           "filter": [qlang.OP_TRUE, "name"],
+           "filter": [qlang.OP_TRUE, namefield],
            }),
         ])
 
@@ -340,6 +352,7 @@ def TestRapiQuery():
         ])
 
 
+@InstanceCheck(INST_UP, INST_UP, FIRST_ARG)
 def TestInstance(instance):
   """Testing getting instance(s) info via remote API.
 
@@ -405,6 +418,18 @@ def TestNode(node):
     ])
 
 
+def _FilterTags(seq):
+  """Removes unwanted tags from a sequence.
+
+  """
+  ignore_re = qa_config.get("ignore-tags-re", None)
+
+  if ignore_re:
+    return itertools.ifilterfalse(re.compile(ignore_re).match, seq)
+  else:
+    return seq
+
+
 def TestTags(kind, name, tags):
   """Tests .../tags resources.
 
@@ -421,7 +446,7 @@ def TestTags(kind, name, tags):
     raise errors.ProgrammerError("Unknown tag kind")
 
   def _VerifyTags(data):
-    AssertEqual(sorted(tags), sorted(data))
+    AssertEqual(sorted(tags), sorted(_FilterTags(data)))
 
   queryargs = "&".join("tag=%s" % i for i in tags)
 
@@ -526,13 +551,17 @@ def TestRapiInstanceAdd(node, use_client):
   """Test adding a new instance via RAPI"""
   instance = qa_config.AcquireInstance()
   try:
-    memory = utils.ParseUnit(qa_config.get("mem"))
     disk_sizes = [utils.ParseUnit(size) for size in qa_config.get("disk")]
     disks = [{"size": size} for size in disk_sizes]
-    nics = [{}]
+    nic0_mac = qa_config.GetInstanceNicMac(instance,
+                                           default=constants.VALUE_GENERATE)
+    nics = [{
+      constants.INIC_MAC: nic0_mac,
+      }]
 
     beparams = {
-      constants.BE_MEMORY: memory,
+      constants.BE_MAXMEM: utils.ParseUnit(qa_config.get(constants.BE_MAXMEM)),
+      constants.BE_MINMEM: utils.ParseUnit(qa_config.get(constants.BE_MINMEM)),
       }
 
     if use_client:
@@ -568,6 +597,7 @@ def TestRapiInstanceAdd(node, use_client):
     raise
 
 
+@InstanceCheck(None, INST_DOWN, FIRST_ARG)
 def TestRapiInstanceRemove(instance, use_client):
   """Test removing instance via RAPI"""
   if use_client:
@@ -582,42 +612,66 @@ def TestRapiInstanceRemove(instance, use_client):
   qa_config.ReleaseInstance(instance)
 
 
+@InstanceCheck(INST_UP, INST_UP, FIRST_ARG)
 def TestRapiInstanceMigrate(instance):
   """Test migrating instance via RAPI"""
   # Move to secondary node
   _WaitForRapiJob(_rapi_client.MigrateInstance(instance["name"]))
+  qa_utils.RunInstanceCheck(instance, True)
   # And back to previous primary
   _WaitForRapiJob(_rapi_client.MigrateInstance(instance["name"]))
 
 
+@InstanceCheck(INST_UP, INST_UP, FIRST_ARG)
 def TestRapiInstanceFailover(instance):
   """Test failing over instance via RAPI"""
   # Move to secondary node
   _WaitForRapiJob(_rapi_client.FailoverInstance(instance["name"]))
+  qa_utils.RunInstanceCheck(instance, True)
   # And back to previous primary
   _WaitForRapiJob(_rapi_client.FailoverInstance(instance["name"]))
 
 
+@InstanceCheck(INST_UP, INST_DOWN, FIRST_ARG)
 def TestRapiInstanceShutdown(instance):
   """Test stopping an instance via RAPI"""
   _WaitForRapiJob(_rapi_client.ShutdownInstance(instance["name"]))
 
 
+@InstanceCheck(INST_DOWN, INST_UP, FIRST_ARG)
 def TestRapiInstanceStartup(instance):
   """Test starting an instance via RAPI"""
   _WaitForRapiJob(_rapi_client.StartupInstance(instance["name"]))
 
 
-def TestRapiInstanceRename(rename_source, rename_target):
-  """Test renaming instance via RAPI"""
+@InstanceCheck(INST_DOWN, INST_DOWN, FIRST_ARG)
+def TestRapiInstanceRenameAndBack(rename_source, rename_target):
+  """Test renaming instance via RAPI
+
+  This must leave the instance with the original name (in the
+  non-failure case).
+
+  """
   _WaitForRapiJob(_rapi_client.RenameInstance(rename_source, rename_target))
+  qa_utils.RunInstanceCheck(rename_source, False)
+  qa_utils.RunInstanceCheck(rename_target, False)
+  _WaitForRapiJob(_rapi_client.RenameInstance(rename_target, rename_source))
+  qa_utils.RunInstanceCheck(rename_target, False)
 
 
+@InstanceCheck(INST_DOWN, INST_DOWN, FIRST_ARG)
 def TestRapiInstanceReinstall(instance):
   """Test reinstalling an instance via RAPI"""
   _WaitForRapiJob(_rapi_client.ReinstallInstance(instance["name"]))
+  # By default, the instance is started again
+  qa_utils.RunInstanceCheck(instance, True)
+
+  # Reinstall again without starting
+  _WaitForRapiJob(_rapi_client.ReinstallInstance(instance["name"],
+                                                 no_startup=True))
 
 
+@InstanceCheck(INST_UP, INST_UP, FIRST_ARG)
 def TestRapiInstanceReplaceDisks(instance):
   """Test replacing instance disks via RAPI"""
   _WaitForRapiJob(_rapi_client.ReplaceInstanceDisks(instance["name"],
@@ -626,14 +680,13 @@ def TestRapiInstanceReplaceDisks(instance):
     mode=constants.REPLACE_DISK_SEC, disks="0"))
 
 
+@InstanceCheck(INST_UP, INST_UP, FIRST_ARG)
 def TestRapiInstanceModify(instance):
   """Test modifying instance via RAPI"""
+  default_hv = qa_config.GetDefaultHypervisor()
+
   def _ModifyInstance(**kwargs):
     _WaitForRapiJob(_rapi_client.ModifyInstance(instance["name"], **kwargs))
-
-  _ModifyInstance(hvparams={
-    constants.HV_KERNEL_ARGS: "single",
-    })
 
   _ModifyInstance(beparams={
     constants.BE_VCPUS: 3,
@@ -643,11 +696,23 @@ def TestRapiInstanceModify(instance):
     constants.BE_VCPUS: constants.VALUE_DEFAULT,
     })
 
-  _ModifyInstance(hvparams={
-    constants.HV_KERNEL_ARGS: constants.VALUE_DEFAULT,
-    })
+  if default_hv == constants.HT_XEN_PVM:
+    _ModifyInstance(hvparams={
+      constants.HV_KERNEL_ARGS: "single",
+      })
+    _ModifyInstance(hvparams={
+      constants.HV_KERNEL_ARGS: constants.VALUE_DEFAULT,
+      })
+  elif default_hv == constants.HT_XEN_HVM:
+    _ModifyInstance(hvparams={
+      constants.HV_BOOT_ORDER: "acn",
+      })
+    _ModifyInstance(hvparams={
+      constants.HV_BOOT_ORDER: constants.VALUE_DEFAULT,
+      })
 
 
+@InstanceCheck(INST_UP, INST_UP, FIRST_ARG)
 def TestRapiInstanceConsole(instance):
   """Test getting instance console information via RAPI"""
   result = _rapi_client.GetInstanceConsole(instance["name"])
@@ -656,6 +721,7 @@ def TestRapiInstanceConsole(instance):
   AssertEqual(console.instance, qa_utils.ResolveInstanceName(instance["name"]))
 
 
+@InstanceCheck(INST_DOWN, INST_DOWN, FIRST_ARG)
 def TestRapiStoppedInstanceConsole(instance):
   """Test getting stopped instance's console information via RAPI"""
   try:
@@ -712,4 +778,7 @@ def TestInterClusterInstanceMove(src_instance, dest_instance,
       si,
       ]
 
+    qa_utils.RunInstanceCheck(di, False)
     AssertEqual(StartLocalCommand(cmd).wait(), 0)
+    qa_utils.RunInstanceCheck(si, False)
+    qa_utils.RunInstanceCheck(di, True)

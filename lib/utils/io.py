@@ -28,6 +28,7 @@ import shutil
 import tempfile
 import errno
 import time
+import stat
 
 from ganeti import errors
 from ganeti import constants
@@ -36,6 +37,58 @@ from ganeti.utils import filelock
 
 #: Path generating random UUID
 _RANDOM_UUID_FILE = "/proc/sys/kernel/random/uuid"
+
+#: Directory used by fsck(8) to store recovered data, usually at a file
+#: system's root directory
+_LOST_AND_FOUND = "lost+found"
+
+# Possible values for keep_perms in WriteFile()
+KP_NEVER = 0
+KP_ALWAYS = 1
+KP_IF_EXISTS = 2
+
+KEEP_PERMS_VALUES = [
+  KP_NEVER,
+  KP_ALWAYS,
+  KP_IF_EXISTS,
+  ]
+
+
+def ErrnoOrStr(err):
+  """Format an EnvironmentError exception.
+
+  If the L{err} argument has an errno attribute, it will be looked up
+  and converted into a textual C{E...} description. Otherwise the
+  string representation of the error will be returned.
+
+  @type err: L{EnvironmentError}
+  @param err: the exception to format
+
+  """
+  if hasattr(err, "errno"):
+    detail = errno.errorcode[err.errno]
+  else:
+    detail = str(err)
+  return detail
+
+
+class FileStatHelper:
+  """Helper to store file handle's C{fstat}.
+
+  Useful in combination with L{ReadFile}'s C{preread} parameter.
+
+  """
+  def __init__(self):
+    """Initializes this class.
+
+    """
+    self.st = None
+
+  def __call__(self, fh):
+    """Calls C{fstat} on file handle.
+
+    """
+    self.st = os.fstat(fh.fileno())
 
 
 def ReadFile(file_name, size=-1, preread=None):
@@ -63,7 +116,7 @@ def WriteFile(file_name, fn=None, data=None,
               mode=None, uid=-1, gid=-1,
               atime=None, mtime=None, close=True,
               dry_run=False, backup=False,
-              prewrite=None, postwrite=None):
+              prewrite=None, postwrite=None, keep_perms=KP_NEVER):
   """(Over)write a file atomically.
 
   The file_name and either fn (a function taking one argument, the
@@ -100,6 +153,14 @@ def WriteFile(file_name, fn=None, data=None,
   @param prewrite: function to be called before writing content
   @type postwrite: callable
   @param postwrite: function to be called after writing content
+  @type keep_perms: members of L{KEEP_PERMS_VALUES}
+  @param keep_perms: if L{KP_NEVER} (default), owner, group, and mode are
+      taken from the other parameters; if L{KP_ALWAYS}, owner, group, and
+      mode are copied from the existing file; if L{KP_IF_EXISTS}, owner,
+      group, and mode are taken from the file, and if the file doesn't
+      exist, they are taken from the other parameters. It is an error to
+      pass L{KP_ALWAYS} when the file doesn't exist or when C{uid}, C{gid},
+      or C{mode} are set to non-default values.
 
   @rtype: None or int
   @return: None if the 'close' parameter evaluates to True,
@@ -119,8 +180,27 @@ def WriteFile(file_name, fn=None, data=None,
     raise errors.ProgrammerError("Both atime and mtime must be either"
                                  " set or None")
 
+  if not keep_perms in KEEP_PERMS_VALUES:
+    raise errors.ProgrammerError("Invalid value for keep_perms: %s" %
+                                 keep_perms)
+  if keep_perms == KP_ALWAYS and (uid != -1 or gid != -1 or mode is not None):
+    raise errors.ProgrammerError("When keep_perms==KP_ALWAYS, 'uid', 'gid',"
+                                 " and 'mode' cannot be set")
+
   if backup and not dry_run and os.path.isfile(file_name):
     CreateBackup(file_name)
+
+  if keep_perms == KP_ALWAYS or keep_perms == KP_IF_EXISTS:
+    # os.stat() raises an exception if the file doesn't exist
+    try:
+      file_stat = os.stat(file_name)
+      mode = stat.S_IMODE(file_stat.st_mode)
+      uid = file_stat.st_uid
+      gid = file_stat.st_gid
+    except OSError:
+      if keep_perms == KP_ALWAYS:
+        raise
+      # else: if keeep_perms == KP_IF_EXISTS it's ok if the file doesn't exist
 
   # Whether temporary file needs to be removed (e.g. if any error occurs)
   do_remove = True
@@ -299,6 +379,9 @@ def RenameFile(old, new, mkdir=False, mkdir_mode=0750, dir_uid=None,
                dir_gid=None):
   """Renames a file.
 
+  This just creates the very least directory if it does not exist and C{mkdir}
+  is set to true.
+
   @type old: string
   @param old: Original path
   @type new: string
@@ -322,13 +405,86 @@ def RenameFile(old, new, mkdir=False, mkdir_mode=0750, dir_uid=None,
     if mkdir and err.errno == errno.ENOENT:
       # Create directory and try again
       dir_path = os.path.dirname(new)
-      Makedirs(dir_path, mode=mkdir_mode)
-      if not (dir_uid is None or dir_gid is None):
-        os.chown(dir_path, dir_uid, dir_gid)
+      MakeDirWithPerm(dir_path, mkdir_mode, dir_uid, dir_gid)
 
       return os.rename(old, new)
 
     raise
+
+
+def EnforcePermission(path, mode, uid=None, gid=None, must_exist=True,
+                      _chmod_fn=os.chmod, _chown_fn=os.chown, _stat_fn=os.stat):
+  """Enforces that given path has given permissions.
+
+  @param path: The path to the file
+  @param mode: The mode of the file
+  @param uid: The uid of the owner of this file
+  @param gid: The gid of the owner of this file
+  @param must_exist: Specifies if non-existance of path will be an error
+  @param _chmod_fn: chmod function to use (unittest only)
+  @param _chown_fn: chown function to use (unittest only)
+
+  """
+  logging.debug("Checking %s", path)
+
+  # chown takes -1 if you want to keep one part of the ownership, however
+  # None is Python standard for that. So we remap them here.
+  if uid is None:
+    uid = -1
+  if gid is None:
+    gid = -1
+
+  try:
+    st = _stat_fn(path)
+
+    fmode = stat.S_IMODE(st[stat.ST_MODE])
+    if fmode != mode:
+      logging.debug("Changing mode of %s from %#o to %#o", path, fmode, mode)
+      _chmod_fn(path, mode)
+
+    if max(uid, gid) > -1:
+      fuid = st[stat.ST_UID]
+      fgid = st[stat.ST_GID]
+      if fuid != uid or fgid != gid:
+        logging.debug("Changing owner of %s from UID %s/GID %s to"
+                      " UID %s/GID %s", path, fuid, fgid, uid, gid)
+        _chown_fn(path, uid, gid)
+  except EnvironmentError, err:
+    if err.errno == errno.ENOENT:
+      if must_exist:
+        raise errors.GenericError("Path %s should exist, but does not" % path)
+    else:
+      raise errors.GenericError("Error while changing permissions on %s: %s" %
+                                (path, err))
+
+
+def MakeDirWithPerm(path, mode, uid, gid, _lstat_fn=os.lstat,
+                    _mkdir_fn=os.mkdir, _perm_fn=EnforcePermission):
+  """Enforces that given path is a dir and has given mode, uid and gid set.
+
+  @param path: The path to the file
+  @param mode: The mode of the file
+  @param uid: The uid of the owner of this file
+  @param gid: The gid of the owner of this file
+  @param _lstat_fn: Stat function to use (unittest only)
+  @param _mkdir_fn: mkdir function to use (unittest only)
+  @param _perm_fn: permission setter function to use (unittest only)
+
+  """
+  logging.debug("Checking directory %s", path)
+  try:
+    # We don't want to follow symlinks
+    st = _lstat_fn(path)
+  except EnvironmentError, err:
+    if err.errno != errno.ENOENT:
+      raise errors.GenericError("stat(2) on %s failed: %s" % (path, err))
+    _mkdir_fn(path)
+  else:
+    if not stat.S_ISDIR(st[stat.ST_MODE]):
+      raise errors.GenericError(("Path %s is expected to be a directory, but "
+                                 "isn't") % path)
+
+  _perm_fn(path, mode, uid=uid, gid=gid)
 
 
 def Makedirs(path, mode=0750):
@@ -390,7 +546,7 @@ def CreateBackup(file_name):
   return backup_name
 
 
-def ListVisibleFiles(path):
+def ListVisibleFiles(path, _is_mountpoint=os.path.ismount):
   """Returns a list of visible files in a directory.
 
   @type path: str
@@ -403,8 +559,22 @@ def ListVisibleFiles(path):
   if not IsNormAbsPath(path):
     raise errors.ProgrammerError("Path passed to ListVisibleFiles is not"
                                  " absolute/normalized: '%s'" % path)
-  files = [i for i in os.listdir(path) if not i.startswith(".")]
-  return files
+
+  mountpoint = _is_mountpoint(path)
+
+  def fn(name):
+    """File name filter.
+
+    Ignores files starting with a dot (".") as by Unix convention they're
+    considered hidden. The "lost+found" directory found at the root of some
+    filesystems is also hidden.
+
+    """
+    return not (name.startswith(".") or
+                (mountpoint and name == _LOST_AND_FOUND and
+                 os.path.isdir(os.path.join(path, name))))
+
+  return filter(fn, os.listdir(path))
 
 
 def EnsureDirs(dirs):
@@ -473,6 +643,20 @@ def IsNormAbsPath(path):
   return os.path.normpath(path) == path and os.path.isabs(path)
 
 
+def IsBelowDir(root, other_path):
+  """Check whether a path is below a root dir.
+
+  This works around the nasty byte-byte comparisation of commonprefix.
+
+  """
+  if not (os.path.isabs(root) and os.path.isabs(other_path)):
+    raise ValueError("Provided paths '%s' and '%s' are not absolute" %
+                     (root, other_path))
+  prepared_root = "%s%s" % (os.path.normpath(root), os.sep)
+  return os.path.commonprefix([prepared_root,
+                               os.path.normpath(other_path)]) == prepared_root
+
+
 def PathJoin(*args):
   """Safe-join a list of path components.
 
@@ -496,10 +680,9 @@ def PathJoin(*args):
   if not IsNormAbsPath(result):
     raise ValueError("Invalid parameters to PathJoin: '%s'" % str(args))
   # check that we're still under the original prefix
-  prefix = os.path.commonprefix([root, result])
-  if prefix != root:
+  if not IsBelowDir(root, result):
     raise ValueError("Error: path joining resulted in different prefix"
-                     " (%s != %s)" % (prefix, root))
+                     " (%s != %s)" % (result, root))
   return result
 
 
@@ -593,13 +776,24 @@ def ReadPidFile(pidfile):
       logging.exception("Can't read pid file")
     return 0
 
+  return _ParsePidFileContents(raw_data)
+
+
+def _ParsePidFileContents(data):
+  """Tries to extract a process ID from a PID file's content.
+
+  @type data: string
+  @rtype: int
+  @return: Zero if nothing could be read, PID otherwise
+
+  """
   try:
-    pid = int(raw_data)
-  except (TypeError, ValueError), err:
+    pid = int(data)
+  except (TypeError, ValueError):
     logging.info("Can't parse pid file contents", exc_info=True)
     return 0
-
-  return pid
+  else:
+    return pid
 
 
 def ReadLockedPidFile(path):
@@ -726,13 +920,21 @@ def WritePidFile(pidfile):
   """
   # We don't rename nor truncate the file to not drop locks under
   # existing processes
-  fd_pidfile = os.open(pidfile, os.O_WRONLY | os.O_CREAT, 0600)
+  fd_pidfile = os.open(pidfile, os.O_RDWR | os.O_CREAT, 0600)
 
   # Lock the PID file (and fail if not possible to do so). Any code
   # wanting to send a signal to the daemon should try to lock the PID
   # file before reading it. If acquiring the lock succeeds, the daemon is
   # no longer running and the signal should not be sent.
-  filelock.LockFile(fd_pidfile)
+  try:
+    filelock.LockFile(fd_pidfile)
+  except errors.LockError:
+    msg = ["PID file '%s' is already locked by another process" % pidfile]
+    # Try to read PID file
+    pid = _ParsePidFileContents(os.read(fd_pidfile, 100))
+    if pid > 0:
+      msg.append(", PID read from file is %s" % pid)
+    raise errors.PidFileLockError("".join(msg))
 
   os.write(fd_pidfile, "%d\n" % os.getpid())
 
@@ -791,3 +993,40 @@ def NewUUID():
 
   """
   return ReadFile(_RANDOM_UUID_FILE, size=128).rstrip("\n")
+
+
+class TemporaryFileManager(object):
+  """Stores the list of files to be deleted and removes them on demand.
+
+  """
+
+  def __init__(self):
+    self._files = []
+
+  def __del__(self):
+    self.Cleanup()
+
+  def Add(self, filename):
+    """Add file to list of files to be deleted.
+
+    @type filename: string
+    @param filename: path to filename to be added
+
+    """
+    self._files.append(filename)
+
+  def Remove(self, filename):
+    """Remove file from list of files to be deleted.
+
+    @type filename: string
+    @param filename: path to filename to be deleted
+
+    """
+    self._files.remove(filename)
+
+  def Cleanup(self):
+    """Delete all files marked for deletion
+
+    """
+    while self._files:
+      RemoveFile(self._files.pop())

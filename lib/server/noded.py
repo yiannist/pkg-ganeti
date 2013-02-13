@@ -111,8 +111,7 @@ def _DecodeImportExportIO(ieio, ieioargs):
 
 
 class MlockallRequestExecutor(http.server.HttpServerRequestExecutor):
-  """Custom Request Executor class that ensures NodeHttpServer children are
-  locked in ram.
+  """Subclass ensuring request handlers are locked in RAM.
 
   """
   def __init__(self, *args, **kwargs):
@@ -121,7 +120,7 @@ class MlockallRequestExecutor(http.server.HttpServerRequestExecutor):
     http.server.HttpServerRequestExecutor.__init__(self, *args, **kwargs)
 
 
-class NodeHttpServer(http.server.HttpServer):
+class NodeRequestHandler(http.server.HttpServerHandler):
   """The server implementation.
 
   This class holds all methods exposed over the RPC interface.
@@ -130,8 +129,8 @@ class NodeHttpServer(http.server.HttpServer):
   # too many public methods, and unused args - all methods get params
   # due to the API
   # pylint: disable=R0904,W0613
-  def __init__(self, *args, **kwargs):
-    http.server.HttpServer.__init__(self, *args, **kwargs)
+  def __init__(self):
+    http.server.HttpServerHandler.__init__(self)
     self.noded_pid = os.getpid()
 
   def HandleRequest(self, req):
@@ -170,7 +169,7 @@ class NodeHttpServer(http.server.HttpServer):
       logging.exception("Error in RPC call")
       result = (False, "Error while executing backend function: %s" % str(err))
 
-    return serializer.DumpJson(result, indent=False)
+    return serializer.DumpJson(result)
 
   # the new block devices  --------------------------
 
@@ -217,7 +216,7 @@ class NodeHttpServer(http.server.HttpServer):
     """Remove a block device.
 
     """
-    devlist = [(objects.Disk.FromDict(ds), uid) for ds, uid in params]
+    devlist = [(objects.Disk.FromDict(ds), uid) for ds, uid in params[0]]
     return backend.BlockdevRename(devlist)
 
   @staticmethod
@@ -278,7 +277,7 @@ class NodeHttpServer(http.server.HttpServer):
 
     """
     disks = [objects.Disk.FromDict(dsk_s)
-             for dsk_s in params]
+             for dsk_s in params[0]]
     return [status.ToDict()
             for status in backend.BlockdevGetmirrorstatus(disks)]
 
@@ -289,10 +288,7 @@ class NodeHttpServer(http.server.HttpServer):
     """
     (node_disks, ) = params
 
-    node_name = netutils.Hostname.GetSysName()
-
-    disks = [objects.Disk.FromDict(dsk_s)
-             for dsk_s in node_disks.get(node_name, [])]
+    disks = [objects.Disk.FromDict(dsk_s) for dsk_s in node_disks]
 
     result = []
 
@@ -580,13 +576,13 @@ class NodeHttpServer(http.server.HttpServer):
     return backend.AcceptInstance(instance, info, target)
 
   @staticmethod
-  def perspective_finalize_migration(params):
-    """Finalize the instance migration.
+  def perspective_instance_finalize_migration_dst(params):
+    """Finalize the instance migration on the destination node.
 
     """
     instance, info, success = params
     instance = objects.Instance.FromDict(instance)
-    return backend.FinalizeMigration(instance, info, success)
+    return backend.FinalizeMigrationDst(instance, info, success)
 
   @staticmethod
   def perspective_instance_migrate(params):
@@ -598,6 +594,23 @@ class NodeHttpServer(http.server.HttpServer):
     return backend.MigrateInstance(instance, target, live)
 
   @staticmethod
+  def perspective_instance_finalize_migration_src(params):
+    """Finalize the instance migration on the source node.
+
+    """
+    instance, success, live = params
+    instance = objects.Instance.FromDict(instance)
+    return backend.FinalizeMigrationSource(instance, success, live)
+
+  @staticmethod
+  def perspective_instance_get_migration_status(params):
+    """Reports migration status.
+
+    """
+    instance = objects.Instance.FromDict(params[0])
+    return backend.GetMigrationStatus(instance).ToDict()
+
+  @staticmethod
   def perspective_instance_reboot(params):
     """Reboot an instance.
 
@@ -606,6 +619,15 @@ class NodeHttpServer(http.server.HttpServer):
     reboot_type = params[1]
     shutdown_timeout = params[2]
     return backend.InstanceReboot(instance, reboot_type, shutdown_timeout)
+
+  @staticmethod
+  def perspective_instance_balloon_memory(params):
+    """Modify instance runtime memory.
+
+    """
+    instance_dict, memory = params
+    instance = objects.Instance.FromDict(instance_dict)
+    return backend.InstanceBalloonMemory(instance, memory)
 
   @staticmethod
   def perspective_instance_info(params):
@@ -639,14 +661,6 @@ class NodeHttpServer(http.server.HttpServer):
   # node --------------------------
 
   @staticmethod
-  def perspective_node_tcp_ping(params):
-    """Do a TcpPing on the remote node.
-
-    """
-    return netutils.TcpPing(params[1], params[2], timeout=params[3],
-                            live_port_needed=params[4], source=params[0])
-
-  @staticmethod
   def perspective_node_has_ip_address(params):
     """Checks if a node has the given ip address.
 
@@ -658,8 +672,8 @@ class NodeHttpServer(http.server.HttpServer):
     """Query node information.
 
     """
-    vgname, hypervisor_type = params
-    return backend.GetNodeInfo(vgname, hypervisor_type)
+    (vg_names, hv_names) = params
+    return backend.GetNodeInfo(vg_names, hv_names)
 
   @staticmethod
   def perspective_etc_hosts_modify(params):
@@ -678,18 +692,42 @@ class NodeHttpServer(http.server.HttpServer):
     return backend.VerifyNode(params[0], params[1])
 
   @staticmethod
-  def perspective_node_start_master(params):
-    """Promote this node to master status.
+  def perspective_node_start_master_daemons(params):
+    """Start the master daemons on this node.
 
     """
-    return backend.StartMaster(params[0], params[1])
+    return backend.StartMasterDaemons(params[0])
+
+  @staticmethod
+  def perspective_node_activate_master_ip(params):
+    """Activate the master IP on this node.
+
+    """
+    master_params = objects.MasterNetworkParameters.FromDict(params[0])
+    return backend.ActivateMasterIp(master_params, params[1])
+
+  @staticmethod
+  def perspective_node_deactivate_master_ip(params):
+    """Deactivate the master IP on this node.
+
+    """
+    master_params = objects.MasterNetworkParameters.FromDict(params[0])
+    return backend.DeactivateMasterIp(master_params, params[1])
 
   @staticmethod
   def perspective_node_stop_master(params):
-    """Demote this node from master status.
+    """Stops master daemons on this node.
 
     """
-    return backend.StopMaster(params[0])
+    return backend.StopMasterDaemons()
+
+  @staticmethod
+  def perspective_node_change_master_netmask(params):
+    """Change the master IP netmask.
+
+    """
+    return backend.ChangeMasterNetmask(params[0], params[1], params[2],
+                                       params[3])
 
   @staticmethod
   def perspective_node_leave_cluster(params):
@@ -737,7 +775,7 @@ class NodeHttpServer(http.server.HttpServer):
     files are accepted.
 
     """
-    return backend.UploadFile(*params)
+    return backend.UploadFile(*(params[0]))
 
   @staticmethod
   def perspective_master_info(params):
@@ -881,7 +919,7 @@ class NodeHttpServer(http.server.HttpServer):
 
     """
     # TODO: What if a file fails to rename?
-    return [backend.JobQueueRename(old, new) for old, new in params]
+    return [backend.JobQueueRename(old, new) for old, new in params[0]]
 
   # hypervisor ---------------
 
@@ -918,7 +956,7 @@ class NodeHttpServer(http.server.HttpServer):
     """Starts an import daemon.
 
     """
-    (opts_s, instance, component, dest, dest_args) = params
+    (opts_s, instance, component, (dest, dest_args)) = params
 
     opts = objects.ImportExportOptions.FromDict(opts_s)
 
@@ -934,7 +972,7 @@ class NodeHttpServer(http.server.HttpServer):
     """Starts an export daemon.
 
     """
-    (opts_s, host, port, instance, component, source, source_args) = params
+    (opts_s, host, port, instance, component, (source, source_args)) = params
 
     opts = objects.ImportExportOptions.FromDict(opts_s)
 
@@ -1012,11 +1050,15 @@ def PrepNoded(options, _):
     # startup of the whole node daemon because of this
     logging.critical("Can't init/verify the queue, proceeding anyway: %s", err)
 
+  handler = NodeRequestHandler()
+
   mainloop = daemon.Mainloop()
-  server = NodeHttpServer(mainloop, options.bind_address, options.port,
-                          ssl_params=ssl_params, ssl_verify_peer=True,
-                          request_executor_class=request_executor_class)
+  server = \
+    http.server.HttpServer(mainloop, options.bind_address, options.port,
+      handler, ssl_params=ssl_params, ssl_verify_peer=True,
+      request_executor_class=request_executor_class)
   server.Start()
+
   return (mainloop, server)
 
 
