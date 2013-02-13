@@ -5,13 +5,13 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>News &mdash; Ganeti v2.6.1 documentation</title>
+    <title>News &mdash; Ganeti v2.6.2 documentation</title>
     <link rel="stylesheet" href="_static/default.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.6.1',
+        VERSION:     '2.6.2',
         COLLAPSE_MODINDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -19,7 +19,7 @@
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.6.1 documentation" href="index.html" />
+    <link rel="top" title="Ganeti v2.6.2 documentation" href="index.html" />
     <link rel="next" title="Glossary" href="glossary.html" />
     <link rel="prev" title="Developer notes" href="devnotes.html" /> 
   </head>
@@ -33,7 +33,7 @@
         <li class="right" >
           <a href="devnotes.html" title="Developer notes"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.6.1 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.6.2 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -44,28 +44,88 @@
             
   <div class="section" id="news">
 <h1>News<a class="headerlink" href="#news" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="version-2-6-2">
+<h2>Version 2.6.2<a class="headerlink" href="#version-2-6-2" title="Permalink to this headline">¶</a></h2>
+<p><em>(Released Fri, 21 Dec 2012)</em></p>
+<p>Important behaviour change: hbal won&#8217;t rebalance anymore instances which
+have the <tt class="docutils literal"><span class="pre">auto_balance</span></tt> attribute set to false. This was the intention
+all along, but until now it only skipped those from the N+1 memory
+reservation (DRBD-specific).</p>
+<p>A significant number of bug fixes in this release:</p>
+<ul class="simple">
+<li>Fixed disk adoption interaction with ipolicy checks.</li>
+<li>Fixed networking issues when instances are started, stopped or
+migrated, by forcing the tap device&#8217;s MAC prefix to &#8220;fe&#8221; (issue 217).</li>
+<li>Fixed the warning in cluster verify for shared storage instances not
+being redundant.</li>
+<li>Fixed removal of storage directory on shared file storage (issue 262).</li>
+<li>Fixed validation of LVM volume group name in OpClusterSetParams
+(<tt class="docutils literal"><span class="pre">gnt-cluster</span> <span class="pre">modify</span></tt>) (issue 285).</li>
+<li>Fixed runtime memory increases (<tt class="docutils literal"><span class="pre">gnt-instance</span> <span class="pre">modify</span> <span class="pre">-m</span></tt>).</li>
+<li>Fixed live migration under Xen&#8217;s <tt class="docutils literal"><span class="pre">xl</span></tt> mode.</li>
+<li>Fixed <tt class="docutils literal"><span class="pre">gnt-instance</span> <span class="pre">console</span></tt> with <tt class="docutils literal"><span class="pre">xl</span></tt>.</li>
+<li>Fixed building with newer Haskell compiler/libraries.</li>
+<li>Fixed PID file writing in Haskell daemons (confd); this prevents
+restart issues if confd was launched manually (outside of
+<tt class="docutils literal"><span class="pre">daemon-util</span></tt>) while another copy of it was running</li>
+<li>Fixed a type error when doing live migrations with KVM (issue 297) and
+the error messages for failing migrations have been improved.</li>
+<li>Fixed opcode validation for the out-of-band commands (<tt class="docutils literal"><span class="pre">gnt-node</span>
+<span class="pre">power</span></tt>).</li>
+<li>Fixed a type error when unsetting OS hypervisor parameters (issue
+311); now it&#8217;s possible to unset all OS-specific hypervisor
+parameters.</li>
+<li>Fixed the <tt class="docutils literal"><span class="pre">dry-run</span></tt> mode for many operations: verification of
+results was over-zealous but didn&#8217;t take into account the <tt class="docutils literal"><span class="pre">dry-run</span></tt>
+operation, resulting in &#8220;wrong&#8221; failures.</li>
+<li>Fixed bash completion in <tt class="docutils literal"><span class="pre">gnt-job</span> <span class="pre">list</span></tt> when the job queue has
+hundreds of entries; especially with older <tt class="docutils literal"><span class="pre">bash</span></tt> versions, this
+results in significant CPU usage.</li>
+</ul>
+<p>And lastly, a few other improvements have been made:</p>
+<ul class="simple">
+<li>Added option to force master-failover without voting (issue 282).</li>
+<li>Clarified error message on lock conflict (issue 287).</li>
+<li>Logging of newly submitted jobs has been improved (issue 290).</li>
+<li>Hostname checks have been made uniform between instance rename and
+create (issue 291).</li>
+<li>The <tt class="docutils literal"><span class="pre">--submit</span></tt> option is now supported by <tt class="docutils literal"><span class="pre">gnt-debug</span> <span class="pre">delay</span></tt>.</li>
+<li>Shutting down the master daemon by sending SIGTERM now stops it from
+processing jobs waiting for locks; instead, those jobs will be started
+once again after the master daemon is started the next time (issue
+296).</li>
+<li>Support for Xen&#8217;s <tt class="docutils literal"><span class="pre">xl</span></tt> program has been improved (besides the fixes
+above).</li>
+<li>Reduced logging noise in the Haskell confd daemon (only show one log
+entry for each config reload, instead of two).</li>
+<li>Several man page updates and typo fixes.</li>
+</ul>
+</div>
 <div class="section" id="version-2-6-1">
 <h2>Version 2.6.1<a class="headerlink" href="#version-2-6-1" title="Permalink to this headline">¶</a></h2>
 <p><em>(Released Fri, 12 Oct 2012)</em></p>
-<p>A small bugfix release.</p>
-<p>Fix double use of PRIORITY_OPT in gnt-node migrate, that would make the
-command unusable.</p>
-<p>Commands that issue many jobs don&#8217;t fail anymore just because some jobs
-take so long that other jobs are archived.</p>
-<p>Failures during gnt-instance reinstall are reflected by the exit status.</p>
-<p>Issue 190 fixed. Check for DRBD in cluster verify is enabled only when
-DRBD is enabled.</p>
-<p>When always_failover is set, &#8211;allow-failover is not required in migrate
-commands anymore.</p>
-<p>bash_completion works even if extglob is disabled</p>
-<p>Fix bug with locks that made failover for RDB-based instances fail.</p>
-<p>Fix bug in non-mirrored instance allocation that would make Ganeti
-choose a random node instead of one based on the allocator metric.</p>
-<p>Support for newer versions of pylint and pep8.</p>
-<p>Hail doesn&#8217;t fail anymore when trying to add an instance of type
-&#8216;file&#8217;, &#8216;sharedfile&#8217; or &#8216;rbd&#8217;.</p>
-<p>Add new Makefile target to rebuild the whole dist, so that all files are
-included.</p>
+<p>A small bugfix release. Among the bugs fixed:</p>
+<ul class="simple">
+<li>Fixed double use of <tt class="docutils literal"><span class="pre">PRIORITY_OPT</span></tt> in <tt class="docutils literal"><span class="pre">gnt-node</span> <span class="pre">migrate</span></tt>, that
+made the command unusable.</li>
+<li>Commands that issue many jobs don&#8217;t fail anymore just because some jobs
+take so long that other jobs are archived.</li>
+<li>Failures during <tt class="docutils literal"><span class="pre">gnt-instance</span> <span class="pre">reinstall</span></tt> are reflected by the exit
+status.</li>
+<li>Issue 190 fixed. Check for DRBD in cluster verify is enabled only when
+DRBD is enabled.</li>
+<li>When <tt class="docutils literal"><span class="pre">always_failover</span></tt> is set, <tt class="docutils literal"><span class="pre">--allow-failover</span></tt> is not required
+in migrate commands anymore.</li>
+<li><tt class="docutils literal"><span class="pre">bash_completion</span></tt> works even if extglob is disabled.</li>
+<li>Fixed bug with locks that made failover for RDB-based instances fail.</li>
+<li>Fixed bug in non-mirrored instance allocation that made Ganeti choose
+a random node instead of one based on the allocator metric.</li>
+<li>Support for newer versions of pylint and pep8.</li>
+<li>Hail doesn&#8217;t fail anymore when trying to add an instance of type
+<tt class="docutils literal"><span class="pre">file</span></tt>, <tt class="docutils literal"><span class="pre">sharedfile</span></tt> or <tt class="docutils literal"><span class="pre">rbd</span></tt>.</li>
+<li>Added new Makefile target to rebuild the whole distribution, so that
+all files are included.</li>
+</ul>
 </div>
 <div class="section" id="version-2-6-0">
 <h2>Version 2.6.0<a class="headerlink" href="#version-2-6-0" title="Permalink to this headline">¶</a></h2>
@@ -2248,6 +2308,7 @@ post-configuration update hook)</li>
             <h3><a href="index.html">Table Of Contents</a></h3>
             <ul>
 <li><a class="reference external" href="#">News</a><ul>
+<li><a class="reference external" href="#version-2-6-2">Version 2.6.2</a></li>
 <li><a class="reference external" href="#version-2-6-1">Version 2.6.1</a></li>
 <li><a class="reference external" href="#version-2-6-0">Version 2.6.0</a><ul>
 <li><a class="reference external" href="#new-features">New features</a><ul>
@@ -2421,7 +2482,7 @@ post-configuration update hook)</li>
         <li class="right" >
           <a href="devnotes.html" title="Developer notes"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.6.1 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.6.2 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

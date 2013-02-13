@@ -64,7 +64,7 @@ default in the OS list, but is available for installation. The
 also not allowed for new instance creations (but can be used for
 reinstalling old instances).
 .PP
-Note: The given operating system doesn\[aq]t have to exists. This
+Note: The given operating system doesn\[aq]t have to exist. This
 allows preseeding the settings for operating systems not yet known
 to \f[B]gnt-os\f[].
 .PP

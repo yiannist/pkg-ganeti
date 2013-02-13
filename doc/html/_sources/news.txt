@@ -5,41 +5,92 @@ News
 ====
 
 
+Version 2.6.2
+-------------
+
+*(Released Fri, 21 Dec 2012)*
+
+Important behaviour change: hbal won't rebalance anymore instances which
+have the ``auto_balance`` attribute set to false. This was the intention
+all along, but until now it only skipped those from the N+1 memory
+reservation (DRBD-specific).
+
+A significant number of bug fixes in this release:
+
+- Fixed disk adoption interaction with ipolicy checks.
+- Fixed networking issues when instances are started, stopped or
+  migrated, by forcing the tap device's MAC prefix to "fe" (issue 217).
+- Fixed the warning in cluster verify for shared storage instances not
+  being redundant.
+- Fixed removal of storage directory on shared file storage (issue 262).
+- Fixed validation of LVM volume group name in OpClusterSetParams
+  (``gnt-cluster modify``) (issue 285).
+- Fixed runtime memory increases (``gnt-instance modify -m``).
+- Fixed live migration under Xen's ``xl`` mode.
+- Fixed ``gnt-instance console`` with ``xl``.
+- Fixed building with newer Haskell compiler/libraries.
+- Fixed PID file writing in Haskell daemons (confd); this prevents
+  restart issues if confd was launched manually (outside of
+  ``daemon-util``) while another copy of it was running
+- Fixed a type error when doing live migrations with KVM (issue 297) and
+  the error messages for failing migrations have been improved.
+- Fixed opcode validation for the out-of-band commands (``gnt-node
+  power``).
+- Fixed a type error when unsetting OS hypervisor parameters (issue
+  311); now it's possible to unset all OS-specific hypervisor
+  parameters.
+- Fixed the ``dry-run`` mode for many operations: verification of
+  results was over-zealous but didn't take into account the ``dry-run``
+  operation, resulting in "wrong" failures.
+- Fixed bash completion in ``gnt-job list`` when the job queue has
+  hundreds of entries; especially with older ``bash`` versions, this
+  results in significant CPU usage.
+
+And lastly, a few other improvements have been made:
+
+- Added option to force master-failover without voting (issue 282).
+- Clarified error message on lock conflict (issue 287).
+- Logging of newly submitted jobs has been improved (issue 290).
+- Hostname checks have been made uniform between instance rename and
+  create (issue 291).
+- The ``--submit`` option is now supported by ``gnt-debug delay``.
+- Shutting down the master daemon by sending SIGTERM now stops it from
+  processing jobs waiting for locks; instead, those jobs will be started
+  once again after the master daemon is started the next time (issue
+  296).
+- Support for Xen's ``xl`` program has been improved (besides the fixes
+  above).
+- Reduced logging noise in the Haskell confd daemon (only show one log
+  entry for each config reload, instead of two).
+- Several man page updates and typo fixes.
+
+
 Version 2.6.1
 -------------
 
 *(Released Fri, 12 Oct 2012)*
 
-A small bugfix release.
+A small bugfix release. Among the bugs fixed:
 
-Fix double use of PRIORITY_OPT in gnt-node migrate, that would make the
-command unusable.
-
-Commands that issue many jobs don't fail anymore just because some jobs
-take so long that other jobs are archived.
-
-Failures during gnt-instance reinstall are reflected by the exit status.
-
-Issue 190 fixed. Check for DRBD in cluster verify is enabled only when
-DRBD is enabled.
-
-When always_failover is set, --allow-failover is not required in migrate
-commands anymore.
-
-bash_completion works even if extglob is disabled
-
-Fix bug with locks that made failover for RDB-based instances fail.
-
-Fix bug in non-mirrored instance allocation that would make Ganeti
-choose a random node instead of one based on the allocator metric.
-
-Support for newer versions of pylint and pep8.
-
-Hail doesn't fail anymore when trying to add an instance of type
-'file', 'sharedfile' or 'rbd'.
-
-Add new Makefile target to rebuild the whole dist, so that all files are
-included.
+- Fixed double use of ``PRIORITY_OPT`` in ``gnt-node migrate``, that
+  made the command unusable.
+- Commands that issue many jobs don't fail anymore just because some jobs
+  take so long that other jobs are archived.
+- Failures during ``gnt-instance reinstall`` are reflected by the exit
+  status.
+- Issue 190 fixed. Check for DRBD in cluster verify is enabled only when
+  DRBD is enabled.
+- When ``always_failover`` is set, ``--allow-failover`` is not required
+  in migrate commands anymore.
+- ``bash_completion`` works even if extglob is disabled.
+- Fixed bug with locks that made failover for RDB-based instances fail.
+- Fixed bug in non-mirrored instance allocation that made Ganeti choose
+  a random node instead of one based on the allocator metric.
+- Support for newer versions of pylint and pep8.
+- Hail doesn't fail anymore when trying to add an instance of type
+  ``file``, ``sharedfile`` or ``rbd``.
+- Added new Makefile target to rebuild the whole distribution, so that
+  all files are included.
 
 
 Version 2.6.0

@@ -1323,12 +1323,11 @@ def _ConvertNicDiskModifications(mods):
         else:
           action = constants.DDM_MODIFY
 
+      elif add is _MISSING and remove is _MISSING:
+        action = constants.DDM_MODIFY
       else:
-        if add is _MISSING and remove is _MISSING:
-          action = constants.DDM_MODIFY
-        else:
-          raise errors.OpPrereqError("Cannot modify and add/remove at the"
-                                     " same time", errors.ECODE_INVAL)
+        raise errors.OpPrereqError("Cannot modify and add/remove at the"
+                                   " same time", errors.ECODE_INVAL)
 
       assert not (constants.DDMS_VALUES_WITH_MODIFY & set(params.keys()))
 
@@ -1431,7 +1430,9 @@ def SetInstanceParams(opts, args):
     for param, data in result:
       ToStdout(" - %-5s -> %s", param, data)
     ToStdout("Please don't forget that most parameters take effect"
-             " only at the next start of the instance.")
+             " only at the next (re)start of the instance initiated by"
+             " ganeti; restarting from within the instance will"
+             " not be enough.")
   return 0
 
 

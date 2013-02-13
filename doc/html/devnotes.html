@@ -5,13 +5,13 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Developer notes &mdash; Ganeti v2.6.1 documentation</title>
+    <title>Developer notes &mdash; Ganeti v2.6.2 documentation</title>
     <link rel="stylesheet" href="_static/default.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.6.1',
+        VERSION:     '2.6.2',
         COLLAPSE_MODINDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -19,7 +19,7 @@
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.6.1 documentation" href="index.html" />
+    <link rel="top" title="Ganeti v2.6.2 documentation" href="index.html" />
     <link rel="next" title="News" href="news.html" />
     <link rel="prev" title="OVF converter" href="ovfconverter.html" /> 
   </head>
@@ -33,7 +33,7 @@
         <li class="right" >
           <a href="ovfconverter.html" title="OVF converter"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.6.1 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.6.2 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -103,6 +103,12 @@ different python version):</p>
   <span class="gs">./configure</span> <span class="gs">--prefix=/usr/local</span> <span class="gs">--sysconfdir=/etc</span> <span class="gs">--localstatedir=/var</span>
 </pre></div>
 </div>
+<p>Note that doing development on a machine which already has Ganeti
+installed is problematic, as <tt class="docutils literal"><span class="pre">PYTHONPATH</span></tt> behaviour can be confusing
+(see Issue 170 for a bit of history/details; in general it works if
+the installed and developed versions are very similar, and/or if
+PYTHONPATH is customised correctly). As such, in general it&#8217;s
+recommended to use a &#8220;clean&#8221; machine for ganeti development.</p>
 </div>
 <div class="section" id="haskell-development-notes">
 <h2>Haskell development notes<a class="headerlink" href="#haskell-development-notes" title="Permalink to this headline">¶</a></h2>
@@ -215,7 +221,7 @@ for reloading the OpenSSH daemon&#8217;s host keys.</p>
         <li class="right" >
           <a href="ovfconverter.html" title="OVF converter"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.6.1 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.6.2 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

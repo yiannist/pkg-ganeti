@@ -1953,13 +1953,14 @@ cluster virtualization technologies.
 .P
 .PD
 [--net add\f[I][:options]\f[] | --net
-remove | --net \f[I]N:options\f[]]
+[\f[I]N\f[]:]remove | --net
+\f[I]N:options\f[]]
 .PD 0
 .P
 .PD
 [--disk
 add:size=\f[I]SIZE\f[][,vg=\f[I]VG\f[]][,metavg=\f[I]VG\f[]] |
---disk remove |
+--disk [\f[I]N\f[]:]remove |
 .PD 0
 .P
 .PD
@@ -2253,7 +2254,7 @@ affected.
 .PP
 The \f[B]--no-remember\f[] option will perform the startup but not
 change the state of the instance in the configuration file (if it
-was stopped before, Ganeti will still thinks it needs to be
+was stopped before, Ganeti will still think it needs to be
 stopped). This can be used for testing, or for a one shot-start
 where you don\[aq]t want the watcher to restart the instance if it
 crashes.
@@ -2585,7 +2586,7 @@ other common options.
 {\f[I]amount\f[]}
 .PP
 Grows an instance\[aq]s disk. This is only possible for instances
-having a plain, drbd or rbd disk template.
+having a plain, drbd, file, sharedfile or rbd disk template.
 .PP
 Note that this command only change the block device size; it will
 not grow the actual filesystems, partitions, etc. that live on that
@@ -2869,7 +2870,7 @@ given to each instance to stop.
 .PP
 The \f[B]--ignore-consistency\f[] option will make Ganeti ignore
 any errors in trying to shutdown the instance on its node; useful
-if the hypervisor is broken and you want to recuperate the data.
+if the hypervisor is broken and you want to recover the data.
 .PP
 If \f[B]--ignore-ipolicy\f[] is given any instance policy
 violations occuring during this operation are ignored.
