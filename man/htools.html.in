@@ -28,6 +28,14 @@
       ></dd
     ><dt
     ><strong
+      >hcheck</strong
+      ></dt
+    ><dd
+    ><p
+      >cluster checker</p
+      ></dd
+    ><dt
+    ><strong
       >hspace</strong
       ></dt
     ><dd
@@ -50,6 +58,14 @@
     ><p
       >saves cluster state for later reuse</p
       ></dd
+    ><dt
+    ><strong
+      >hinfo</strong
+      ></dt
+    ><dd
+    ><p
+      >cluster information printer</p
+      ></dd
     ></dl
   ></div
 ><div id="description"
@@ -67,6 +83,12 @@
     >, it computes and optionally executes a suite of instance moves in order to balance the cluster.</p
   ><p
   >Installed as <code
+    >hcheck</code
+    >, it preforms cluster checks and optionally simulates rebalancing with all the <code
+    >hbal</code
+    > options available.</p
+  ><p
+  >Installed as <code
     >hspace</code
     >, it computes how many additional instances can be fit on a cluster, while maintaining N+1 status. It can run on models of existing clusters or of simulated clusters.</p
   ><p
@@ -77,6 +99,10 @@
   >Installed as <code
     >hscan</code
     >, it scans the local or remote cluster state and saves it to files which can later be reused by the other roles.</p
+  ><p
+  >Installed as <code
+    >hinfo</code
+    >, it prints information about the current cluster state.</p
   ></div
 ><div id="common-options"
 ><h1
@@ -221,6 +247,192 @@
 	></dl
       ></dd
     ><dt
+    >-t <em
+      >datafile</em
+      >, --text-data=<em
+      >datafile</em
+      ></dt
+    ><dd
+    ><p
+      >Backend specification: the name of the file holding node and instance information (if not collecting via RAPI or LUXI). This or one of the other backends must be selected. The option is described in the man page <strong
+	>htools</strong
+	>(1).</p
+      ><p
+      >The file should contain text data, line-based, with two empty lines separating sections. The lines themselves are column-based, with the pipe symbol (<code
+	>|</code
+	>) acting as separator.</p
+      ><p
+      >The first section contains group data, with two columns:</p
+      ><ul
+      ><li
+	>group name</li
+	><li
+	>group uuid</li
+	></ul
+      ><p
+      >The second sections contains node data, with the following columns:</p
+      ><ul
+      ><li
+	>node name</li
+	><li
+	>node total memory</li
+	><li
+	>node free memory</li
+	><li
+	>node total disk</li
+	><li
+	>node free disk</li
+	><li
+	>node physical cores</li
+	><li
+	>offline field (as <code
+	  >Y</code
+	  > or <code
+	  >N</code
+	  >)</li
+	><li
+	>group UUID</li
+	><li
+	>node spindle count</li
+	></ul
+      ><p
+      >The third section contains instance data, with the fields:</p
+      ><ul
+      ><li
+	>instance name</li
+	><li
+	>instance memory</li
+	><li
+	>instance disk size</li
+	><li
+	>instance vcpus</li
+	><li
+	>instance status (in Ganeti's format, e.g. <code
+	  >running</code
+	  > or <code
+	  >ERROR_down</code
+	  >)</li
+	><li
+	>instance <code
+	  >auto_balance</code
+	  > flag (see man page <strong
+	  >gnt-instance</strong
+	  > (7))</li
+	><li
+	>instance primary node</li
+	><li
+	>instance secondary node(s), if any</li
+	><li
+	>instance disk type (e.g. <code
+	  >plain</code
+	  > or <code
+	  >drbd</code
+	  >)</li
+	><li
+	>instance tags</li
+	></ul
+      ><p
+      >The fourth section contains the cluster tags, with one tag per line (no columns/no column processing).</p
+      ><p
+      >The fifth section contains the ipolicies of the cluster and the node groups, in the following format (separated by <code
+	>|</code
+	>):</p
+      ><ul
+      ><li
+	>owner (empty if cluster, group name otherwise)</li
+	><li
+	>standard, min, max instance specs, containing the following values separated by commas:<ul
+	  ><li
+	    >memory size</li
+	    ><li
+	    >cpu count</li
+	    ><li
+	    >disk size</li
+	    ><li
+	    >disk count</li
+	    ></ul
+	  >- nic count</li
+	><li
+	>disk templates</li
+	><li
+	>vcpu ratio</li
+	><li
+	>spindle ratio</li
+	></ul
+      ></dd
+    ><dt
+    >-m <em
+      >cluster</em
+      ></dt
+    ><dd
+    ><p
+      >Backend specification: collect data directly from the <em
+	>cluster</em
+	> given as an argument via RAPI. If the argument doesn't contain a colon (:), then it is converted into a fully-built URL via prepending <code
+	>https://</code
+	> and appending the default RAPI port, otherwise it is considered a fully-specified URL and used as-is.</p
+      ></dd
+    ><dt
+    >-L [<em
+      >path</em
+      >]</dt
+    ><dd
+    ><p
+      >Backend specification: collect data directly from the master daemon, which is to be contacted via LUXI (an internal Ganeti protocol). An optional <em
+	>path</em
+	> argument is interpreted as the path to the unix socket on which the master daemon listens; otherwise, the default path used by Ganeti (configured at build time) is used.</p
+      ></dd
+    ><dt
+    >-I|--ialloc-src <em
+      >path</em
+      ></dt
+    ><dd
+    ><p
+      >Backend specification: load data directly from an iallocator request (as produced by Ganeti when doing an iallocator call). The iallocator request is read from specified path.</p
+      ></dd
+    ><dt
+    >--simulate <em
+      >description</em
+      ></dt
+    ><dd
+    ><p
+      >Backend specification: instead of using actual data, build an empty cluster given a node description. The <em
+	>description</em
+	> parameter must be a comma-separated list of five elements, describing in order:</p
+      ><ul
+      ><li
+	>the allocation policy for this node group (<em
+	  >preferred</em
+	  >, <em
+	  >allocable</em
+	  > or <em
+	  >unallocable</em
+	  >, or alternatively the short forms <em
+	  >p</em
+	  >, <em
+	  >a</em
+	  > or <em
+	  >u</em
+	  >)</li
+	><li
+	>the number of nodes in the cluster</li
+	><li
+	>the disk size of the nodes (default in mebibytes, units can be used)</li
+	><li
+	>the memory size of the nodes (default in mebibytes, units can be used)</li
+	><li
+	>the cpu core count for the nodes</li
+	><li
+	>the spindle count for the nodes</li
+	></ul
+      ><p
+      >An example description would be <strong
+	>preferred,20,100G,16g,4,2</strong
+	> describing a 20-node cluster where each node has 100GB of disk space, 16GiB of memory, 4 CPU cores and 2 disk spindles. Note that all nodes must have the same specs currently.</p
+      ><p
+      >This option can be given multiple times, and each new use defines a new node group. Hence different node groups can have different allocation policies and node count/specifications.</p
+      ></dd
+    ><dt
     >-v, --verbose</dt
     ><dd
     ><p
@@ -343,13 +555,15 @@
     >hail</strong
     >(1) (IAllocator plugin), <strong
     >hscan</strong
-    >(1) (data gatherer from remote clusters).</p
+    >(1) (data gatherer from remote clusters), <strong
+    >hinfo</strong
+    >(1) (cluster information printer).</p
   ></div
 ><div id="copyright"
 ><h1
   >COPYRIGHT</h1
   ><p
-  >Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Google Inc. Permission is granted to copy, distribute and/or modify under the terms of the GNU General Public License as published by the Free Software Foundation; either version 2 of the License, or (at your option) any later version.</p
+  >Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012 Google Inc. Permission is granted to copy, distribute and/or modify under the terms of the GNU General Public License as published by the Free Software Foundation; either version 2 of the License, or (at your option) any later version.</p
   ><p
   >On Debian systems, the complete text of the GNU General Public License can be found in /usr/share/common-licenses/GPL.</p
   ></div

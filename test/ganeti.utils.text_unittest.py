@@ -315,6 +315,27 @@ class TestShellWriter(unittest.TestCase):
     sw = None
     self.assertEqual(buf.getvalue(), "")
 
+  def testEmptyLines(self):
+    buf = StringIO()
+    sw = utils.ShellWriter(buf)
+
+    def _AddLevel(level):
+      if level == 6:
+        return
+      sw.IncIndent()
+      try:
+        # Add empty line, it should not be indented
+        sw.Write("")
+        sw.Write(str(level))
+        _AddLevel(level + 1)
+      finally:
+        sw.DecIndent()
+
+    _AddLevel(1)
+
+    self.assertEqual(buf.getvalue(),
+                     "".join("\n%s%s\n" % (i * "  ", i) for i in range(1, 6)))
+
 
 class TestNormalizeAndValidateMac(unittest.TestCase):
   def testInvalid(self):
@@ -408,21 +429,25 @@ class TestFormatTime(unittest.TestCase):
   """Testing case for FormatTime"""
 
   @staticmethod
-  def _TestInProcess(tz, timestamp, expected):
+  def _TestInProcess(tz, timestamp, usecs, expected):
     os.environ["TZ"] = tz
     time.tzset()
-    return utils.FormatTime(timestamp) == expected
+    return utils.FormatTime(timestamp, usecs=usecs) == expected
 
   def _Test(self, *args):
     # Need to use separate process as we want to change TZ
     self.assert_(utils.RunInSeparateProcess(self._TestInProcess, *args))
 
   def test(self):
-    self._Test("UTC", 0, "1970-01-01 00:00:00")
-    self._Test("America/Sao_Paulo", 1292606926, "2010-12-17 15:28:46")
-    self._Test("Europe/London", 1292606926, "2010-12-17 17:28:46")
-    self._Test("Europe/Zurich", 1292606926, "2010-12-17 18:28:46")
-    self._Test("Australia/Sydney", 1292606926, "2010-12-18 04:28:46")
+    self._Test("UTC", 0, None, "1970-01-01 00:00:00")
+    self._Test("America/Sao_Paulo", 1292606926, None, "2010-12-17 15:28:46")
+    self._Test("Europe/London", 1292606926, None, "2010-12-17 17:28:46")
+    self._Test("Europe/Zurich", 1292606926, None, "2010-12-17 18:28:46")
+    self._Test("Europe/Zurich", 1332944288, 8787, "2012-03-28 16:18:08.008787")
+    self._Test("Australia/Sydney", 1292606926, None, "2010-12-18 04:28:46")
+    self._Test("Australia/Sydney", 1292606926, None, "2010-12-18 04:28:46")
+    self._Test("Australia/Sydney", 1292606926, 999999,
+               "2010-12-18 04:28:46.999999")
 
   def testNone(self):
     self.failUnlessEqual(utils.FormatTime(None), "N/A")
@@ -522,6 +547,33 @@ class TestOrdinal(unittest.TestCase):
 
     for value, ordinal in checks.items():
       self.assertEqual(utils.FormatOrdinal(value), ordinal)
+
+
+class TestTruncate(unittest.TestCase):
+  def _Test(self, text, length):
+    result = utils.Truncate(text, length)
+    self.assertTrue(len(result) <= length)
+    return result
+
+  def test(self):
+    self.assertEqual(self._Test("", 80), "")
+    self.assertEqual(self._Test("abc", 4), "abc")
+    self.assertEqual(self._Test("Hello World", 80), "Hello World")
+    self.assertEqual(self._Test("Hello World", 4), "H...")
+    self.assertEqual(self._Test("Hello World", 5), "He...")
+
+    for i in [4, 10, 100]:
+      data = i * "FooBarBaz"
+      self.assertEqual(self._Test(data, len(data)), data)
+
+    for (length, exp) in [(8, u"T\u00e4st\u2026xyz"), (7, u"T\u00e4st...")]:
+      self.assertEqual(self._Test(u"T\u00e4st\u2026xyz", length), exp)
+
+    self.assertEqual(self._Test(range(100), 20), "[0, 1, 2, 3, 4, 5...")
+
+  def testError(self):
+    for i in range(4):
+      self.assertRaises(AssertionError, utils.Truncate, "", i)
 
 
 if __name__ == "__main__":

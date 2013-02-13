@@ -361,6 +361,18 @@ class LXCHypervisor(hv_base.BaseHypervisor):
     raise HypervisorError("The LXC hypervisor doesn't implement the"
                           " reboot functionality")
 
+  def BalloonInstanceMemory(self, instance, mem):
+    """Balloon an instance memory to a certain value.
+
+    @type instance: L{objects.Instance}
+    @param instance: instance to be accepted
+    @type mem: int
+    @param mem: actual memory size to use for instance runtime
+
+    """
+    # Currently lxc instances don't have memory limits
+    pass
+
   def GetNodeInfo(self):
     """Return information about the node.
 
@@ -410,6 +422,19 @@ class LXCHypervisor(hv_base.BaseHypervisor):
     @param target: hostname (usually ip) of the target node
     @type live: boolean
     @param live: whether to do a live or non-live migration
+
+    """
+    raise HypervisorError("Migration is not supported by the LXC hypervisor")
+
+  def GetMigrationStatus(self, instance):
+    """Get the migration status
+
+    @type instance: L{objects.Instance}
+    @param instance: the instance that is being migrated
+    @rtype: L{objects.MigrationStatus}
+    @return: the status of the current migration (one of
+             L{constants.HV_MIGRATION_VALID_STATUSES}), plus any additional
+             progress info that can be retrieved from the hypervisor
 
     """
     raise HypervisorError("Migration is not supported by the LXC hypervisor")

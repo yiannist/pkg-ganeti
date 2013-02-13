@@ -8,11 +8,18 @@ set -e
 tmpdir=$(mktemp -d -t gntbuild.XXXXXXXX)
 trap "rm -rf $tmpdir" EXIT
 
-cp -r autotools daemons scripts lib tools test $tmpdir
+mkdir $tmpdir/doc
+
+cp -r autotools daemons scripts lib tools test qa $tmpdir
+cp -r doc/examples $tmpdir/doc
+
 mv $tmpdir/lib $tmpdir/ganeti
+ln -T -s $tmpdir/ganeti $tmpdir/lib
 mkdir -p $tmpdir/htools
-if [ -e htools/test ]; then
-  cp -p htools/test $tmpdir/htools/
-fi
+for htest in htools hpc-htools test offline-test.sh cli-tests-defs.sh; do
+  if [ -e htools/$htest ]; then
+    cp -p htools/$htest $tmpdir/htools/
+  fi
+done
 
 cd $tmpdir && GANETI_TEMP_DIR="$tmpdir" "$@"

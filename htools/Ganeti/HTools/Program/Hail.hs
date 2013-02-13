@@ -4,7 +4,7 @@
 
 {-
 
-Copyright (C) 2009, 2010, 2011 Google Inc.
+Copyright (C) 2009, 2010, 2011, 2012 Google Inc.
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -23,42 +23,55 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
 
 -}
 
-module Ganeti.HTools.Program.Hail (main) where
+module Ganeti.HTools.Program.Hail (main, options) where
 
 import Control.Monad
+import Data.Maybe (fromMaybe, isJust)
 import System.IO
-import qualified System
+import System.Exit
 
 import qualified Ganeti.HTools.Cluster as Cluster
 
 import Ganeti.HTools.CLI
 import Ganeti.HTools.IAlloc
 import Ganeti.HTools.Loader (Request(..), ClusterData(..))
-import Ganeti.HTools.ExtLoader (maybeSaveData)
+import Ganeti.HTools.ExtLoader (maybeSaveData, loadExternalData)
 
 -- | Options list and functions.
 options :: [OptType]
 options =
-    [ oPrintNodes
-    , oSaveCluster
-    , oDataFile
-    , oNodeSim
-    , oVerbose
-    , oShowVer
-    , oShowHelp
-    ]
+  [ oPrintNodes
+  , oSaveCluster
+  , oDataFile
+  , oNodeSim
+  , oVerbose
+  , oShowVer
+  , oShowHelp
+  ]
+
+wrapReadRequest :: Options -> [String] -> IO Request
+wrapReadRequest opts args = do
+  when (null args) $ do
+    hPutStrLn stderr "Error: this program needs an input file."
+    exitWith $ ExitFailure 1
+
+  r1 <- readRequest (head args)
+  if isJust (optDataFile opts) ||  (not . null . optNodeSim) opts
+    then do
+      cdata <- loadExternalData opts
+      let Request rqt _ = r1
+      return $ Request rqt cdata
+    else return r1
+
 
 -- | Main function.
-main :: IO ()
-main = do
-  cmd_args <- System.getArgs
-  (opts, args) <- parseOpts cmd_args "hail" options
-
+main :: Options -> [String] -> IO ()
+main opts args = do
   let shownodes = optShowNodes opts
       verbose = optVerbose opts
       savecluster = optSaveCluster opts
 
-  request <- readRequest opts args
+  request <- wrapReadRequest opts args
 
   let Request rq cdata = request
 
@@ -74,7 +87,7 @@ main = do
   maybeSaveData savecluster "pre-ialloc" "before iallocator run" cdata
 
   let (maybe_ni, resp) = runIAllocator request
-      (fin_nl, fin_il) = maybe (cdNodes cdata, cdInstances cdata) id maybe_ni
+      (fin_nl, fin_il) = fromMaybe (cdNodes cdata, cdInstances cdata) maybe_ni
   putStrLn resp
 
   maybePrintNodes shownodes "Final cluster" (Cluster.printNodes fin_nl)

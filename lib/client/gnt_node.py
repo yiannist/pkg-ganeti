@@ -38,6 +38,8 @@ from ganeti import errors
 from ganeti import netutils
 from cStringIO import StringIO
 
+from ganeti import confd
+from ganeti.confd import client as confd_client
 
 #: default list of field for L{ListNodes}
 _LIST_DEF_FIELDS = [
@@ -106,6 +108,9 @@ _OOB_COMMAND_ASK = frozenset([constants.OOB_POWER_OFF,
                               constants.OOB_POWER_CYCLE])
 
 
+_ENV_OVERRIDE = frozenset(["list"])
+
+
 NONODE_SETUP_OPT = cli_option("--no-node-setup", default=True,
                               action="store_false", dest="node_setup",
                               help=("Do not make initial SSH setup on remote"
@@ -135,6 +140,9 @@ def _RunSetupSSH(options, nodes):
   @param nodes: The nodes to setup
 
   """
+
+  assert nodes, "Empty node list"
+
   cmd = [constants.SETUP_SSH]
 
   # Pass --debug|--verbose to the external script if set on our invocation
@@ -213,10 +221,19 @@ def AddNode(opts, args):
 
   bootstrap.SetupNodeDaemon(cluster_name, node, opts.ssh_key_check)
 
+  if opts.disk_state:
+    disk_state = utils.FlatToDict(opts.disk_state)
+  else:
+    disk_state = {}
+
+  hv_state = dict(opts.hv_state)
+
   op = opcodes.OpNodeAdd(node_name=args[0], secondary_ip=sip,
                          readd=opts.readd, group=opts.nodegroup,
                          vm_capable=opts.vm_capable, ndparams=opts.ndparams,
-                         master_capable=opts.master_capable)
+                         master_capable=opts.master_capable,
+                         disk_state=disk_state,
+                         hv_state=hv_state)
   SubmitOpCode(op, opts=opts)
 
 
@@ -276,11 +293,11 @@ def EvacuateNode(opts, args):
                                " --secondary-only options can be passed",
                                errors.ECODE_INVAL)
   elif opts.primary_only:
-    mode = constants.IALLOCATOR_NEVAC_PRI
+    mode = constants.NODE_EVAC_PRI
   elif opts.secondary_only:
-    mode = constants.IALLOCATOR_NEVAC_SEC
+    mode = constants.NODE_EVAC_SEC
   else:
-    mode = constants.IALLOCATOR_NEVAC_ALL
+    mode = constants.NODE_EVAC_ALL
 
   # Determine affected instances
   fields = []
@@ -312,7 +329,7 @@ def EvacuateNode(opts, args):
                               remote_node=opts.dst_node,
                               iallocator=opts.iallocator,
                               early_release=opts.early_release)
-  result = SubmitOpCode(op, cl=cl, opts=opts)
+  result = SubmitOrSend(op, opts, cl=cl)
 
   # Keep track of submitted jobs
   jex = JobExecutor(cl=cl, opts=opts)
@@ -414,9 +431,11 @@ def MigrateNode(opts, args):
 
   op = opcodes.OpNodeMigrate(node_name=args[0], mode=mode,
                              iallocator=opts.iallocator,
-                             target_node=opts.dst_node)
+                             target_node=opts.dst_node,
+                             allow_runtime_changes=opts.allow_runtime_chgs,
+                             ignore_ipolicy=opts.ignore_ipolicy)
 
-  result = SubmitOpCode(op, cl=cl, opts=opts)
+  result = SubmitOrSend(op, opts, cl=cl)
 
   # Keep track of submitted jobs
   jex = JobExecutor(cl=cl, opts=opts)
@@ -523,7 +542,7 @@ def PowercycleNode(opts, args):
     return 2
 
   op = opcodes.OpNodePowercycle(node_name=node, force=opts.force)
-  result = SubmitOpCode(op, opts=opts)
+  result = SubmitOrSend(op, opts)
   if result:
     ToStderr(result)
   return 0
@@ -785,7 +804,7 @@ def ModifyStorage(opts, args):
                                      storage_type=storage_type,
                                      name=volume_name,
                                      changes=changes)
-    SubmitOpCode(op, opts=opts)
+    SubmitOrSend(op, opts)
   else:
     ToStderr("No changes to perform, exiting.")
 
@@ -808,7 +827,7 @@ def RepairStorage(opts, args):
                                    storage_type=storage_type,
                                    name=volume_name,
                                    ignore_consistency=opts.ignore_consistency)
-  SubmitOpCode(op, opts=opts)
+  SubmitOrSend(op, opts)
 
 
 def SetNodeParams(opts, args):
@@ -824,9 +843,17 @@ def SetNodeParams(opts, args):
   all_changes = [opts.master_candidate, opts.drained, opts.offline,
                  opts.master_capable, opts.vm_capable, opts.secondary_ip,
                  opts.ndparams]
-  if all_changes.count(None) == len(all_changes):
+  if (all_changes.count(None) == len(all_changes) and
+      not (opts.hv_state or opts.disk_state)):
     ToStderr("Please give at least one of the parameters.")
     return 1
+
+  if opts.disk_state:
+    disk_state = utils.FlatToDict(opts.disk_state)
+  else:
+    disk_state = {}
+
+  hv_state = dict(opts.hv_state)
 
   op = opcodes.OpNodeSetParams(node_name=args[0],
                                master_candidate=opts.master_candidate,
@@ -838,7 +865,9 @@ def SetNodeParams(opts, args):
                                force=opts.force,
                                ndparams=opts.ndparams,
                                auto_promote=opts.auto_promote,
-                               powered=opts.node_powered)
+                               powered=opts.node_powered,
+                               hv_state=hv_state,
+                               disk_state=disk_state)
 
   # even if here we process the result, we allow submit only
   result = SubmitOrSend(op, opts)
@@ -850,12 +879,108 @@ def SetNodeParams(opts, args):
   return 0
 
 
+class ReplyStatus(object):
+  """Class holding a reply status for synchronous confd clients.
+
+  """
+  def __init__(self):
+    self.failure = True
+    self.answer = False
+
+
+def ListDrbd(opts, args):
+  """Modifies a node.
+
+  @param opts: the command line options selected by the user
+  @type args: list
+  @param args: should contain only one element, the node name
+  @rtype: int
+  @return: the desired exit code
+
+  """
+  if len(args) != 1:
+    ToStderr("Please give one (and only one) node.")
+    return constants.EXIT_FAILURE
+
+  if not constants.ENABLE_CONFD:
+    ToStderr("Error: this command requires confd support, but it has not"
+             " been enabled at build time.")
+    return constants.EXIT_FAILURE
+
+  if not constants.HS_CONFD:
+    ToStderr("Error: this command requires the Haskell version of confd,"
+             " but it has not been enabled at build time.")
+    return constants.EXIT_FAILURE
+
+  status = ReplyStatus()
+
+  def ListDrbdConfdCallback(reply):
+    """Callback for confd queries"""
+    if reply.type == confd_client.UPCALL_REPLY:
+      answer = reply.server_reply.answer
+      reqtype = reply.orig_request.type
+      if reqtype == constants.CONFD_REQ_NODE_DRBD:
+        if reply.server_reply.status != constants.CONFD_REPL_STATUS_OK:
+          ToStderr("Query gave non-ok status '%s': %s" %
+                   (reply.server_reply.status,
+                    reply.server_reply.answer))
+          status.failure = True
+          return
+        if not confd.HTNodeDrbd(answer):
+          ToStderr("Invalid response from server: expected %s, got %s",
+                   confd.HTNodeDrbd, answer)
+          status.failure = True
+        else:
+          status.failure = False
+          status.answer = answer
+      else:
+        ToStderr("Unexpected reply %s!?", reqtype)
+        status.failure = True
+
+  node = args[0]
+  hmac = utils.ReadFile(constants.CONFD_HMAC_KEY)
+  filter_callback = confd_client.ConfdFilterCallback(ListDrbdConfdCallback)
+  counting_callback = confd_client.ConfdCountingCallback(filter_callback)
+  cf_client = confd_client.ConfdClient(hmac, [constants.IP4_ADDRESS_LOCALHOST],
+                                       counting_callback)
+  req = confd_client.ConfdClientRequest(type=constants.CONFD_REQ_NODE_DRBD,
+                                        query=node)
+
+  def DoConfdRequestReply(req):
+    counting_callback.RegisterQuery(req.rsalt)
+    cf_client.SendRequest(req, async=False)
+    while not counting_callback.AllAnswered():
+      if not cf_client.ReceiveReply():
+        ToStderr("Did not receive all expected confd replies")
+        break
+
+  DoConfdRequestReply(req)
+
+  if status.failure:
+    return constants.EXIT_FAILURE
+
+  fields = ["node", "minor", "instance", "disk", "role", "peer"]
+  if opts.no_headers:
+    headers = None
+  else:
+    headers = {"node": "Node", "minor": "Minor", "instance": "Instance",
+               "disk": "Disk", "role": "Role", "peer": "PeerNode"}
+
+  data = GenerateTable(separator=opts.separator, headers=headers,
+                       fields=fields, data=sorted(status.answer),
+                       numfields=["minor"])
+  for line in data:
+    ToStdout(line)
+
+  return constants.EXIT_SUCCESS
+
 commands = {
   "add": (
     AddNode, [ArgHost(min=1, max=1)],
     [SECONDARY_IP_OPT, READD_OPT, NOSSH_KEYCHECK_OPT, NODE_FORCE_JOIN_OPT,
      NONODE_SETUP_OPT, VERBOSE_OPT, NODEGROUP_OPT, PRIORITY_OPT,
-     CAPAB_MASTER_OPT, CAPAB_VM_OPT, NODE_PARAMS_OPT],
+     CAPAB_MASTER_OPT, CAPAB_VM_OPT, NODE_PARAMS_OPT, HV_STATE_OPT,
+     DISK_STATE_OPT],
     "[-s ip] [--readd] [--no-ssh-key-check] [--force-join]"
     " [--no-node-setup] [--verbose]"
     " <node_name>",
@@ -863,8 +988,8 @@ commands = {
   "evacuate": (
     EvacuateNode, ARGS_ONE_NODE,
     [FORCE_OPT, IALLOCATOR_OPT, NEW_SECONDARY_OPT, EARLY_RELEASE_OPT,
-     PRIORITY_OPT, PRIMARY_ONLY_OPT, SECONDARY_ONLY_OPT],
-    "[-f] {-I <iallocator> | -n <dst>} <node>",
+     PRIORITY_OPT, PRIMARY_ONLY_OPT, SECONDARY_ONLY_OPT, SUBMIT_OPT],
+    "[-f] {-I <iallocator> | -n <dst>} [-p | -s] [options...] <node>",
     "Relocate the primary and/or secondary instances from a node"),
   "failover": (
     FailoverNode, ARGS_ONE_NODE, [FORCE_OPT, IGNORE_CONSIST_OPT,
@@ -875,7 +1000,8 @@ commands = {
   "migrate": (
     MigrateNode, ARGS_ONE_NODE,
     [FORCE_OPT, NONLIVE_OPT, MIGRATION_MODE_OPT, DST_NODE_OPT,
-     IALLOCATOR_OPT, PRIORITY_OPT],
+     IALLOCATOR_OPT, PRIORITY_OPT, IGNORE_IPOLICY_OPT,
+     NORUNTIME_CHGS_OPT, SUBMIT_OPT, PRIORITY_OPT],
     "[-f] <node>",
     "Migrate all the primary instance on a node away from it"
     " (only for instances of type drbd)"),
@@ -901,11 +1027,11 @@ commands = {
     [FORCE_OPT, SUBMIT_OPT, MC_OPT, DRAINED_OPT, OFFLINE_OPT,
      CAPAB_MASTER_OPT, CAPAB_VM_OPT, SECONDARY_IP_OPT,
      AUTO_PROMOTE_OPT, DRY_RUN_OPT, PRIORITY_OPT, NODE_PARAMS_OPT,
-     NODE_POWERED_OPT],
+     NODE_POWERED_OPT, HV_STATE_OPT, DISK_STATE_OPT],
     "<node_name>", "Alters the parameters of a node"),
   "powercycle": (
     PowercycleNode, ARGS_ONE_NODE,
-    [FORCE_OPT, CONFIRM_OPT, DRY_RUN_OPT, PRIORITY_OPT],
+    [FORCE_OPT, CONFIRM_OPT, DRY_RUN_OPT, PRIORITY_OPT, SUBMIT_OPT],
     "<node_name>", "Tries to forcefully powercycle a node"),
   "power": (
     PowerNode,
@@ -934,32 +1060,44 @@ commands = {
     [ArgNode(min=1, max=1),
      ArgChoice(min=1, max=1, choices=_MODIFIABLE_STORAGE_TYPES),
      ArgFile(min=1, max=1)],
-    [ALLOCATABLE_OPT, DRY_RUN_OPT, PRIORITY_OPT],
+    [ALLOCATABLE_OPT, DRY_RUN_OPT, PRIORITY_OPT, SUBMIT_OPT],
     "<node_name> <storage_type> <name>", "Modify storage volume on a node"),
   "repair-storage": (
     RepairStorage,
     [ArgNode(min=1, max=1),
      ArgChoice(min=1, max=1, choices=_REPAIRABLE_STORAGE_TYPES),
      ArgFile(min=1, max=1)],
-    [IGNORE_CONSIST_OPT, DRY_RUN_OPT, PRIORITY_OPT],
+    [IGNORE_CONSIST_OPT, DRY_RUN_OPT, PRIORITY_OPT, SUBMIT_OPT],
     "<node_name> <storage_type> <name>",
     "Repairs a storage volume on a node"),
   "list-tags": (
     ListTags, ARGS_ONE_NODE, [],
     "<node_name>", "List the tags of the given node"),
   "add-tags": (
-    AddTags, [ArgNode(min=1, max=1), ArgUnknown()], [TAG_SRC_OPT, PRIORITY_OPT],
+    AddTags, [ArgNode(min=1, max=1), ArgUnknown()],
+    [TAG_SRC_OPT, PRIORITY_OPT, SUBMIT_OPT],
     "<node_name> tag...", "Add tags to the given node"),
   "remove-tags": (
     RemoveTags, [ArgNode(min=1, max=1), ArgUnknown()],
-    [TAG_SRC_OPT, PRIORITY_OPT],
+    [TAG_SRC_OPT, PRIORITY_OPT, SUBMIT_OPT],
     "<node_name> tag...", "Remove tags from the given node"),
   "health": (
     Health, ARGS_MANY_NODES,
-    [NOHDR_OPT, SEP_OPT, SUBMIT_OPT, PRIORITY_OPT, OOB_TIMEOUT_OPT],
+    [NOHDR_OPT, SEP_OPT, PRIORITY_OPT, OOB_TIMEOUT_OPT],
     "[<node_name>...]", "List health of node(s) using out-of-band"),
+  "list-drbd": (
+    ListDrbd, ARGS_ONE_NODE,
+    [NOHDR_OPT, SEP_OPT],
+    "[<node_name>]", "Query the list of used DRBD minors on the given node"),
+  }
+
+#: dictionary with aliases for commands
+aliases = {
+  "show": "info",
   }
 
 
 def Main():
-  return GenericMain(commands, override={"tag_type": constants.TAG_NODE})
+  return GenericMain(commands, aliases=aliases,
+                     override={"tag_type": constants.TAG_NODE},
+                     env_override=_ENV_OVERRIDE)

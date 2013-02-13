@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -92,7 +92,8 @@ def StartNodeDaemons():
   # on master or not, try to start the node daemon
   utils.EnsureDaemon(constants.NODED)
   # start confd as well. On non candidates it will be in disabled mode.
-  utils.EnsureDaemon(constants.CONFD)
+  if constants.ENABLE_CONFD:
+    utils.EnsureDaemon(constants.CONFD)
 
 
 def RunWatcherHooks():
@@ -302,8 +303,8 @@ def _VerifyDisks(cl, uuid, nodes, instances):
       continue
 
     if inst.status in HELPLESS_STATES or _CheckForOfflineNodes(nodes, inst):
-      logging.info("Skipping instance '%s' because it is in a helpless state or"
-                   " has offline secondaries", name)
+      logging.info("Skipping instance '%s' because it is in a helpless state"
+                   " or has offline secondaries", name)
       continue
 
     job.append(opcodes.OpInstanceActivateDisks(instance_name=name))
@@ -366,7 +367,8 @@ def ParseOptions():
   parser.add_option("--wait-children", dest="wait_children",
                     action="store_true", help="Wait for child processes")
   parser.add_option("--no-wait-children", dest="wait_children",
-                    action="store_false", help="Don't wait for child processes")
+                    action="store_false",
+                    help="Don't wait for child processes")
   # See optparse documentation for why default values are not set by options
   parser.set_defaults(wait_children=True)
   options, args = parser.parse_args()
@@ -409,23 +411,6 @@ def _UpdateInstanceStatus(filename, instances):
                                   for inst in instances])
 
 
-class _StatCb:
-  """Helper to store file handle's C{fstat}.
-
-  """
-  def __init__(self):
-    """Initializes this class.
-
-    """
-    self.st = None
-
-  def __call__(self, fh):
-    """Calls C{fstat} on file handle.
-
-    """
-    self.st = os.fstat(fh.fileno())
-
-
 def _ReadInstanceStatus(filename):
   """Reads an instance status file.
 
@@ -439,7 +424,7 @@ def _ReadInstanceStatus(filename):
   """
   logging.debug("Reading per-group instance status from '%s'", filename)
 
-  statcb = _StatCb()
+  statcb = utils.FileStatHelper()
   try:
     content = utils.ReadFile(filename, preread=statcb)
   except EnvironmentError, err:
@@ -638,13 +623,13 @@ def _GetGroupData(cl, uuid):
     opcodes.OpQuery(what=constants.QR_INSTANCE,
                     fields=["name", "status", "admin_state", "snodes",
                             "pnode.group.uuid", "snodes.group.uuid"],
-                    filter=[qlang.OP_EQUAL, "pnode.group.uuid", uuid],
+                    qfilter=[qlang.OP_EQUAL, "pnode.group.uuid", uuid],
                     use_locking=True),
 
     # Get all nodes in group
     opcodes.OpQuery(what=constants.QR_NODE,
                     fields=["name", "bootid", "offline"],
-                    filter=[qlang.OP_EQUAL, "group.uuid", uuid],
+                    qfilter=[qlang.OP_EQUAL, "group.uuid", uuid],
                     use_locking=True),
     ]
 
@@ -722,7 +707,8 @@ def _GroupWatcher(opts):
     raise errors.GenericError("Node group '%s' is not known by ssconf" %
                               group_uuid)
 
-  # Group UUID has been verified and should not contain any dangerous characters
+  # Group UUID has been verified and should not contain any dangerous
+  # characters
   state_path = constants.WATCHER_GROUP_STATE_FILE % group_uuid
   inst_status_path = constants.WATCHER_GROUP_INSTANCE_STATUS_FILE % group_uuid
 

@@ -15,7 +15,16 @@ clusters.
 .SS EXPORT
 .PP
 \f[B]export\f[] {-n \f[I]node\f[]} [--shutdown-timeout=\f[I]N\f[]]
-[--noshutdown] [--remove-instance] [--ignore-remove-failures]
+[--noshutdown]
+.PD 0
+.P
+.PD
+[--remove-instance]
+[--ignore-remove-failures]
+[--submit]
+.PD 0
+.P
+.PD
 {\f[I]instance\f[]}
 .PP
 Exports an instance to the target node. All the instance data and
@@ -44,6 +53,9 @@ The exact details of the failures will be shown during the command
 execution (and will be stored in the job log). It is recommended
 that for any non-zero exit code, the backup is considered invalid,
 and retried.
+.PP
+See \f[B]ganeti(7)\f[] for a description of \f[B]--submit\f[] and
+other common options.
 .PP
 Example:
 .PP
@@ -95,6 +107,14 @@ file]]
 .P
 .PD
 [--identify-defaults]
+.PD 0
+.P
+.PD
+[--ignore-ipolicy]
+.PD 0
+.P
+.PD
+[--submit]
 .PD 0
 .P
 .PD
@@ -174,9 +194,15 @@ The \f[B]-B\f[] option specifies the backend parameters for the
 instance. If no such parameters are specified, the values are
 inherited from the export. Possible parameters are:
 .TP
-.B memory
-the memory size of the instance; as usual, suffixes can be used to
-denote the unit, otherwise the value is taken in mebibites
+.B maxmem
+the maximum memory size of the instance; as usual, suffixes can be
+used to denote the unit, otherwise the value is taken in mebibytes
+.RS
+.RE
+.TP
+.B minmem
+the minimum memory size of the instance; as usual, suffixes can be
+used to denote the unit, otherwise the value is taken in mebibytes
 .RS
 .RE
 .TP
@@ -189,6 +215,13 @@ sense for the hypervisor)
 .B auto_balance
 whether the instance is considered in the N+1 cluster checks
 (enough redundancy in the cluster to survive a node failure)
+.RS
+.RE
+.TP
+.B always_failover
+\f[B]True\f[] or \f[B]False\f[], whether the instance must be
+failed over (shut down and rebooted) always or it may be migrated
+(briefly suspended)
 .RS
 .RE
 .PP
@@ -233,6 +266,9 @@ drbd template and specifies the remote node.
 The \f[B]--src-dir\f[] option allows importing instances from a
 directory below \f[B]@CUSTOM_EXPORT_DIR@\f[].
 .PP
+If \f[B]--ignore-ipolicy\f[] is given any instance policy
+violations occuring during this operation are ignored.
+.PP
 Since many of the parameters are by default read from the exported
 instance information and used as such, the new instance will have
 all parameters explicitly specified, the opposite of a newly added
@@ -242,6 +278,9 @@ value matches the current cluster default and mark it as such
 (default value), pass the \f[B]--identify-defaults\f[] option. This
 will affect the hypervisor, backend and NIC parameters, both read
 from the export file and passed in via the command line.
+.PP
+See \f[B]ganeti(7)\f[] for a description of \f[B]--submit\f[] and
+other common options.
 .PP
 Example for identical instance import:
 .PP
@@ -258,18 +297,52 @@ Explicit configuration example:
 \f[]
 .SS LIST
 .PP
-\f[B]list\f[] [--node=\f[I]NODE\f[]]
+\f[B]list\f[] [--node=\f[I]NODE\f[]] [--no-headers]
+[--separator=\f[I]SEPARATOR\f[]]
+.PD 0
+.P
+.PD
+[-o
+\f[I][+]FIELD,...\f[]]
 .PP
 Lists the exports currently available in the default directory in
 all the nodes of the current cluster, or optionally only a subset
 of them specified using the \f[B]--node\f[] option (which can be
 used multiple times)
 .PP
+The \f[B]--no-headers\f[] option will skip the initial header line.
+The \f[B]--separator\f[] option takes an argument which denotes
+what will be used between the output fields. Both these options are
+to help scripting.
+.PP
+The \f[B]-o\f[] option takes a comma-separated list of output
+fields. The available fields and their meaning are:
+.TP
+.B \f[B]export\f[]
+Export name
+.RS
+.RE
+.TP
+.B \f[B]node\f[]
+Node name
+.RS
+.RE
+.PP
+If the value of the option starts with the character \f[B]+\f[],
+the new fields will be added to the default list. This allows one
+to quickly see the default list plus a few other fields, instead of
+retyping the entire list of fields.
+.PP
 Example:
 .PP
 \f[CR]
-      #\ gnt-backup\ list\ --nodes\ node1\ --nodes\ node2
+      #\ gnt-backup\ list\ --node\ node1\ --node\ node2
 \f[]
+.SS LIST-FIELDS
+.PP
+\f[B]list-fields\f[] [field...]
+.PP
+Lists available fields for exports.
 .SS REMOVE
 .PP
 \f[B]remove\f[] {instance_name}
@@ -303,10 +376,11 @@ restarter), \f[B]ganeti-cleaner\f[](8) (job queue cleaner),
 Ganeti htools: \f[B]htools\f[](1) (generic binary),
 \f[B]hbal\f[](1) (cluster balancer), \f[B]hspace\f[](1) (capacity
 calculation), \f[B]hail\f[](1) (IAllocator plugin),
-\f[B]hscan\f[](1) (data gatherer from remote clusters).
+\f[B]hscan\f[](1) (data gatherer from remote clusters),
+\f[B]hinfo\f[](1) (cluster information printer).
 .SH COPYRIGHT
 .PP
-Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Google Inc.
+Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012 Google Inc.
 Permission is granted to copy, distribute and/or modify under the
 terms of the GNU General Public License as published by the Free
 Software Foundation; either version 2 of the License, or (at your

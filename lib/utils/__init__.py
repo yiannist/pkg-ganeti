@@ -32,6 +32,7 @@ import os
 import re
 import errno
 import pwd
+import time
 import itertools
 import select
 import logging
@@ -154,6 +155,46 @@ def ValidateServiceName(name):
   return name
 
 
+def _ComputeMissingKeys(key_path, options, defaults):
+  """Helper functions to compute which keys a invalid.
+
+  @param key_path: The current key path (if any)
+  @param options: The user provided options
+  @param defaults: The default dictionary
+  @return: A list of invalid keys
+
+  """
+  defaults_keys = frozenset(defaults.keys())
+  invalid = []
+  for key, value in options.items():
+    if key_path:
+      new_path = "%s/%s" % (key_path, key)
+    else:
+      new_path = key
+
+    if key not in defaults_keys:
+      invalid.append(new_path)
+    elif isinstance(value, dict):
+      invalid.extend(_ComputeMissingKeys(new_path, value, defaults[key]))
+
+  return invalid
+
+
+def VerifyDictOptions(options, defaults):
+  """Verify a dict has only keys set which also are in the defaults dict.
+
+  @param options: The user provided options
+  @param defaults: The default dictionary
+  @raise error.OpPrereqError: If one of the keys is not supported
+
+  """
+  invalid = _ComputeMissingKeys("", options, defaults)
+
+  if invalid:
+    raise errors.OpPrereqError("Provided option keys not supported: %s" %
+                               CommaJoin(invalid), errors.ECODE_INVAL)
+
+
 def ListVolumeGroups():
   """List volume groups and their size
 
@@ -255,12 +296,38 @@ def ParseCpuMask(cpu_mask):
   return cpu_list
 
 
+def ParseMultiCpuMask(cpu_mask):
+  """Parse a multiple CPU mask definition and return the list of CPU IDs.
+
+  CPU mask format: colon-separated list of comma-separated list of CPU IDs
+  or dash-separated ID ranges, with optional "all" as CPU value
+  Example: "0-2,5:all:1,5,6:2" -> [ [ 0,1,2,5 ], [ -1 ], [ 1, 5, 6 ], [ 2 ] ]
+
+  @type cpu_mask: str
+  @param cpu_mask: multiple CPU mask definition
+  @rtype: list of lists of int
+  @return: list of lists of CPU IDs
+
+  """
+  if not cpu_mask:
+    return []
+  cpu_list = []
+  for range_def in cpu_mask.split(constants.CPU_PINNING_SEP):
+    if range_def == constants.CPU_PINNING_ALL:
+      cpu_list.append([constants.CPU_PINNING_ALL_VAL, ])
+    else:
+      # Uniquify and sort the list before adding
+      cpu_list.append(sorted(set(ParseCpuMask(range_def))))
+
+  return cpu_list
+
+
 def GetHomeDir(user, default=None):
   """Try to get the homedir of the given user.
 
   The user can be passed either as a string (denoting the name) or as
   an integer (denoting the user id). If the user is not found, the
-  'default' argument is returned, which defaults to None.
+  C{default} argument is returned, which defaults to C{None}.
 
   """
   try:
@@ -564,6 +631,13 @@ def SignalHandled(signums):
         sighandler.Reset()
     return sig_function
   return wrap
+
+
+def TimeoutExpired(epoch, timeout, _time_fn=time.time):
+  """Checks whether a timeout has expired.
+
+  """
+  return _time_fn() > (epoch + timeout)
 
 
 class SignalWakeupFd(object):

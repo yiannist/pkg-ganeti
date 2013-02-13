@@ -95,8 +95,9 @@ and operations.
 .RE
 .SS Node Parameters
 .PP
-These parameters are node specific and can be preseeded on
-node-group and cluster level.
+The \f[B]ndparams\f[] refer to node parameters. These can be set as
+defaults on cluster and node group levels, but they take effect for
+nodes only.
 .PP
 Currently we support the following node parameters:
 .TP
@@ -106,6 +107,90 @@ in the Ganeti Node OOB Management Framework (design-oob.rst) design
 document.
 .RS
 .RE
+.TP
+.B spindle_count
+This should reflect the I/O performance of local attached storage
+(e.g. for "file", "plain" and "drbd" disk templates). It
+doesn\[aq]t have to match the actual spindle count of (any
+eventual) mechanical hard-drives, its meaning is site-local and
+just the relative values matter.
+.RS
+.RE
+.SS Hypervisor State Parameters
+.PP
+Using \f[B]--hypervisor-state\f[] you can set hypervisor specific
+states as pointed out in
+\f[B]Ganeti\ Resource\ Model\ <design-resource-model.rst>\f[].
+.PP
+The format is: \f[B]hypervisor:option=value\f[].
+.PP
+Currently we support the following hypervisor state values:
+.TP
+.B mem_total
+Total node memory, as discovered by this hypervisor
+.RS
+.RE
+.TP
+.B mem_node
+Memory used by, or reserved for, the node itself; note that some
+hypervisors can report this in an authoritative way, other not
+.RS
+.RE
+.TP
+.B mem_hv
+Memory used either by the hypervisor itself or lost due to instance
+allocation rounding; usually this cannot be precisely computed, but
+only roughly estimated
+.RS
+.RE
+.TP
+.B cpu_total
+Total node cpu (core) count; usually this can be discovered
+automatically
+.RS
+.RE
+.TP
+.B cpu_node
+Number of cores reserved for the node itself; this can either be
+discovered or set manually. Only used for estimating how many VCPUs
+are left for instances
+.RS
+.RE
+.PP
+Note that currently this option is unused by Ganeti; values will be
+recorded but will not influence the Ganeti operation.
+.SS Disk State Parameters
+.PP
+Using \f[B]--disk-state\f[] you can set disk specific states as
+pointed out in
+\f[B]Ganeti\ Resource\ Model\ <design-resource-model.rst>\f[].
+.PP
+The format is: \f[B]storage_type/identifier:option=value\f[].
+Where we currently just support \f[B]lvm\f[] as storage type. The
+identifier in this case is the LVM volume group. By default this is
+\f[B]xenvg\f[].
+.PP
+Currently we support the following hypervisor state values:
+.TP
+.B disk_total
+Total disk size (usually discovered automatically)
+.RS
+.RE
+.TP
+.B disk_reserved
+Reserved disk size; this is a lower limit on the free space, if
+such a limit is desired
+.RS
+.RE
+.TP
+.B disk_overhead
+Disk that is expected to be used by other volumes (set via
+\f[B]reserved_lvs\f[]); usually should be zero
+.RS
+.RE
+.PP
+Note that currently this option is unused by Ganeti; values will be
+recorded but will not influence the Ganeti operation.
 .SS Cluster configuration
 .PP
 The master node keeps and is responsible for the cluster
@@ -173,12 +258,35 @@ command using the \f[B]--help\f[] option.
 .PP
 \f[B]gnt-...\f[] \f[I]command\f[] [--dry-run] [--priority {low |
 normal | high}]
+.PD 0
+.P
+.PD
+[--submit]
 .PP
 The \f[B]--dry-run\f[] option can be used to check whether an
 operation would succeed.
 .PP
 The option \f[B]--priority\f[] sets the priority for opcodes
 submitted by the command.
+.PP
+The \f[B]--submit\f[] option is used to send the job to the master
+daemon but not wait for its completion. The job ID will be shown so
+that it can be examined using \f[B]gnt-job info\f[].
+.SS Defaults
+.PP
+For certain commands you can use environment variables to provide
+default command line arguments. Just assign the arguments as a
+string to the corresponding environment variable. The format of
+that variable name is \f[B]binary\f[]_\f[I]command\f[].
+\f[B]binary\f[] is the name of the \f[B]gnt-*\f[] script all upper
+case and dashes replaced by underscores, and \f[I]command\f[] is
+the command invoked on that script.
+.PP
+Currently supported commands are \f[B]gnt-node\ list\f[],
+\f[B]gnt-group\ list\f[] and \f[B]gnt-instance\ list\f[].
+So you can configure default command line flags by setting
+\f[B]GNT_NODE_LIST\f[], \f[B]GNT_GROUP_LIST\f[] and
+\f[B]GNT_INSTANCE_LIST\f[].
 .SH Field formatting
 .PP
 Multiple ganeti commands use the same framework for tabular listing
@@ -244,6 +352,50 @@ condition must consist of a field name and a value (except for
 boolean checks), a field can not be compared to another field.
 Keywords are case-sensitive.
 .PP
+Examples (see below for syntax details):
+.IP \[bu] 2
+List webservers:
+.RS 2
+.PP
+\f[CR]
+      gnt-instance\ list\ --filter\ \[aq]name\ =*\ "web*.example.com"\[aq]
+\f[]
+.RE
+.IP \[bu] 2
+List instances with three or six virtual CPUs and whose primary
+nodes reside in groups starting with the string "rack":
+.RS 2
+.PP
+\f[CR]
+      gnt-instance\ list\ --filter
+      \ \ \[aq](be/vcpus\ ==\ 3\ or\ be/vcpus\ ==\ 6)\ and\ pnode.group\ =~\ m/^rack/\[aq]
+\f[]
+.RE
+.IP \[bu] 2
+Nodes hosting primary instances:
+.RS 2
+.PP
+\f[CR]
+      gnt-node\ list\ --filter\ \[aq]pinst_cnt\ !=\ 0\[aq]
+\f[]
+.RE
+.IP \[bu] 2
+Nodes which aren\[aq]t master candidates:
+.RS 2
+.PP
+\f[CR]
+      gnt-node\ list\ --filter\ \[aq]not\ master_candidate\[aq]
+\f[]
+.RE
+.IP \[bu] 2
+Short version for globbing patterns:
+.RS 2
+.PP
+\f[CR]
+      gnt-instance\ list\ \[aq]*.site1\[aq]\ \[aq]*.site2\[aq]
+\f[]
+.RE
+.PP
 Syntax in pseudo-BNF:
 .PP
 \f[CR]
@@ -267,7 +419,7 @@ Syntax in pseudo-BNF:
       
       <condition>\ ::=
       \ \ {\ /*\ Value\ comparison\ */
-      \ \ \ \ <field>\ {\ ==\ |\ !=\ }\ <value>
+      \ \ \ \ <field>\ {\ ==\ |\ !=\ |\ <\ |\ <=\ |\ >=\ |\ >\ }\ <value>
       
       \ \ \ \ /*\ Collection\ membership\ */
       \ \ \ \ |\ <value>\ [\ not\ ]\ in\ <field>
@@ -301,6 +453,26 @@ Inequality
 .RS
 .RE
 .TP
+.B \f[I]<\f[]
+Less than
+.RS
+.RE
+.TP
+.B \f[I]<=\f[]
+Less than or equal
+.RS
+.RE
+.TP
+.B \f[I]>\f[]
+Greater than
+.RS
+.RE
+.TP
+.B \f[I]>=\f[]
+Greater than or equal
+.RS
+.RE
+.TP
 .B \f[I]=~\f[]
 Pattern match using regular expression
 .RS
@@ -326,9 +498,6 @@ Logically negated from \f[I]=*\f[]
 Collection membership and negation
 .RS
 .RE
-.PP
-As a shortcut globbing patterns can be specified as names, e.g.
-\f[B]gnt-instance\ list\ \[aq]*.site1\[aq]\ \[aq]*.site2\[aq]\f[].
 .SH Common daemon functionality
 .PP
 All Ganeti daemons re-open the log file(s) when sent a SIGHUP
@@ -360,10 +529,11 @@ restarter), \f[B]ganeti-cleaner\f[](8) (job queue cleaner),
 Ganeti htools: \f[B]htools\f[](1) (generic binary),
 \f[B]hbal\f[](1) (cluster balancer), \f[B]hspace\f[](1) (capacity
 calculation), \f[B]hail\f[](1) (IAllocator plugin),
-\f[B]hscan\f[](1) (data gatherer from remote clusters).
+\f[B]hscan\f[](1) (data gatherer from remote clusters),
+\f[B]hinfo\f[](1) (cluster information printer).
 .SH COPYRIGHT
 .PP
-Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Google Inc.
+Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012 Google Inc.
 Permission is granted to copy, distribute and/or modify under the
 terms of the GNU General Public License as published by the Free
 Software Foundation; either version 2 of the License, or (at your

@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2007, 2011 Google Inc.
+# Copyright (C) 2007, 2011, 2012 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -56,6 +56,12 @@ def _NodeAdd(node, readd=False):
 def _NodeRemove(node):
   AssertCommand(["gnt-node", "remove", node["primary"]])
   node["_added"] = False
+
+
+def MakeNodeOffline(node, value):
+  """gnt-node modify --offline=value"""
+  # value in ["yes", "no"]
+  AssertCommand(["gnt-node", "modify", "--offline", value, node["primary"]])
 
 
 def TestNodeAddAll():
@@ -208,6 +214,10 @@ def TestNodeModify(node):
 
   AssertCommand(["gnt-node", "modify", "--master-candidate=yes",
                  "--auto-promote", node["primary"]])
+
+  # Test setting secondary IP address
+  AssertCommand(["gnt-node", "modify", "--secondary-ip=%s" % node["secondary"],
+                 node["primary"]])
 
 
 def _CreateOobScriptStructure():
@@ -407,3 +417,8 @@ def TestNodeList():
 def TestNodeListFields():
   """gnt-node list-fields"""
   qa_utils.GenericQueryFieldsTest("gnt-node", query.NODE_FIELDS.keys())
+
+
+def TestNodeListDrbd(node):
+  """gnt-node list-drbd"""
+  AssertCommand(["gnt-node", "list-drbd", node["primary"]])

@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2009 Google Inc.
+# Copyright (C) 2009, 2012 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -63,7 +63,7 @@ class ConfdQuery(object):
 
     """
     status = constants.CONFD_REPL_STATUS_NOTIMPLEMENTED
-    answer = 'not implemented'
+    answer = "not implemented"
     return status, answer
 
 
@@ -80,10 +80,10 @@ class PingQuery(ConfdQuery):
     """
     if query is None:
       status = constants.CONFD_REPL_STATUS_OK
-      answer = 'ok'
+      answer = "ok"
     else:
       status = constants.CONFD_REPL_STATUS_ERROR
-      answer = 'non-empty ping query'
+      answer = "non-empty ping query"
 
     return status, answer
 
@@ -292,3 +292,11 @@ class InstancesIpsQuery(ConfdQuery):
     answer = self.reader.GetInstancesIps(link)
 
     return status, answer
+
+
+class NodeDrbdQuery(ConfdQuery):
+  """A query for node drbd minors.
+
+  This is not implemented in the Python confd.
+
+  """

@@ -1,7 +1,7 @@
 #!/usr/bin/python
 #
 
-# Copyright (C) 2010 Google Inc.
+# Copyright (C) 2010, 2012 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -91,6 +91,7 @@ class TestCfgupgrade(unittest.TestCase):
     utils.WriteFile(self.config_path, data=serializer.DumpJson({
       "version": constants.CONFIG_VERSION,
       "cluster": {},
+      "instances": {},
       }))
 
     hostname = netutils.GetHostname().name
@@ -105,6 +106,7 @@ class TestCfgupgrade(unittest.TestCase):
     utils.WriteFile(self.config_path, data=serializer.DumpJson({
       "version": constants.CONFIG_VERSION,
       "cluster": {},
+      "instances": {},
       }))
 
     utils.WriteFile(self.ss_master_node_path,
@@ -120,6 +122,7 @@ class TestCfgupgrade(unittest.TestCase):
       "cluster": {
         "config_version": 0,
         },
+      "instances": {},
       }
     utils.WriteFile(self.config_path, data=serializer.DumpJson(cfg))
     self.assertRaises(Exception, _RunUpgrade, self.tmpdir, False, True)
@@ -134,6 +137,7 @@ class TestCfgupgrade(unittest.TestCase):
     cfg = {
       "version": from_version,
       "cluster": {},
+      "instances": {},
       }
     self._CreateValidConfigDir()
     utils.WriteFile(self.config_path, data=serializer.DumpJson(cfg))
@@ -285,6 +289,9 @@ class TestCfgupgrade(unittest.TestCase):
   def testUpgradeFrom_2_5(self):
     self._TestSimpleUpgrade(constants.BuildVersion(2, 5, 0), False)
 
+  def testUpgradeFrom_2_6(self):
+    self._TestSimpleUpgrade(constants.BuildVersion(2, 6, 0), False)
+
   def testUpgradeCurrent(self):
     self._TestSimpleUpgrade(constants.CONFIG_VERSION, False)
 
@@ -305,6 +312,9 @@ class TestCfgupgrade(unittest.TestCase):
 
   def testUpgradeDryRunFrom_2_5(self):
     self._TestSimpleUpgrade(constants.BuildVersion(2, 5, 0), True)
+
+  def testUpgradeDryRunFrom_2_6(self):
+    self._TestSimpleUpgrade(constants.BuildVersion(2, 6, 0), True)
 
   def testUpgradeCurrentDryRun(self):
     self._TestSimpleUpgrade(constants.CONFIG_VERSION, True)

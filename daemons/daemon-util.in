@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 
-# Copyright (C) 2009 Google Inc.
+# Copyright (C) 2009, 2011, 2012 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -29,8 +29,11 @@ DAEMONS=(
   ganeti-noded
   ganeti-masterd
   ganeti-rapi
-  ganeti-confd
   )
+
+if [[ "@CUSTOM_ENABLE_CONFD@" == True ]]; then
+  DAEMONS+=( ganeti-confd )
+fi
 
 NODED_ARGS=
 MASTERD_ARGS=
@@ -41,6 +44,12 @@ RAPI_ARGS=
 if [[ -s $defaults_file ]]; then
   . $defaults_file
 fi
+
+# Meant to facilitate use utilities in /etc/rc.d/init.d/functions in case
+# start-stop-daemon is not available.
+_ignore_error() {
+  eval "$@" || :
+}
 
 _daemon_pidfile() {
   echo "@LOCALSTATEDIR@/run/ganeti/$1.pid"
@@ -108,6 +117,30 @@ check_exitcode() {
   return 0
 }
 
+# Prints path to PID file for a daemon.
+daemon_pidfile() {
+  if [[ "$#" -lt 1 ]]; then
+    echo 'Missing daemon name.' >&2
+    return 1
+  fi
+
+  local name="$1"; shift
+
+  _daemon_pidfile $name
+}
+
+# Prints path to daemon executable.
+daemon_executable() {
+  if [[ "$#" -lt 1 ]]; then
+    echo 'Missing daemon name.' >&2
+    return 1
+  fi
+
+  local name="$1"; shift
+
+  _daemon_executable $name
+}
+
 # Prints a list of all daemons in the order in which they should be started
 list_start_daemons() {
   local name
@@ -149,9 +182,17 @@ check() {
   fi
 
   local name="$1"; shift
+  local pidfile=$(_daemon_pidfile $name)
+  local daemonexec=$(_daemon_executable $name)
 
-  start-stop-daemon --stop --signal 0 --quiet \
-    --pidfile $(_daemon_pidfile $name)
+  if type -p start-stop-daemon >/dev/null; then
+    start-stop-daemon --stop --signal 0 --quiet \
+      --pidfile $pidfile
+  else
+    _ignore_error status \
+      -p $pidfile \
+      $daemonexec
+  fi
 }
 
 # Starts a daemon
@@ -162,21 +203,38 @@ start() {
   fi
 
   local name="$1"; shift
-
   # Convert daemon name to uppercase after removing "ganeti-" prefix
   local plain_name=${name#ganeti-}
   local ucname=$(tr a-z A-Z <<<$plain_name)
+  local pidfile=$(_daemon_pidfile $name)
+  local usergroup=$(_daemon_usergroup $plain_name)
+  local daemonexec=$(_daemon_executable $name)
+
+  if [[ "$name" == ganeti-confd &&
+        "@CUSTOM_ENABLE_CONFD@" == False ]]; then
+    echo 'ganeti-confd disabled at build time' >&2
+    return 1
+  fi
 
   # Read $<daemon>_ARGS and $EXTRA_<daemon>_ARGS
   eval local args="\"\$${ucname}_ARGS \$EXTRA_${ucname}_ARGS\""
 
   @PKGLIBDIR@/ensure-dirs
 
-  start-stop-daemon --start --quiet --oknodo \
-    --pidfile $(_daemon_pidfile $name) \
-    --startas $(_daemon_executable $name) \
-    --chuid $(_daemon_usergroup $plain_name) \
-    -- $args "$@"
+  if type -p start-stop-daemon >/dev/null; then
+    start-stop-daemon --start --quiet --oknodo \
+      --pidfile $pidfile \
+      --startas $daemonexec \
+      --chuid $usergroup \
+      -- $args "$@"
+  else
+    # TODO: Find a way to start daemon with a group, until then the group must
+    # be removed
+    _ignore_error daemon \
+      --pidfile $pidfile \
+      --user ${usergroup%:*} \
+      $daemonexec $args "$@"
+  fi
 }
 
 # Stops a daemon
@@ -187,9 +245,14 @@ stop() {
   fi
 
   local name="$1"; shift
+  local pidfile=$(_daemon_pidfile $name)
 
-  start-stop-daemon --stop --quiet --oknodo --retry 30 \
-    --pidfile $(_daemon_pidfile $name)
+  if type -p start-stop-daemon >/dev/null; then
+    start-stop-daemon --stop --quiet --oknodo --retry 30 \
+      --pidfile $pidfile
+  else
+    _ignore_error killproc -p $pidfile $name
+  fi
 }
 
 # Starts a daemon if it's not yet running
@@ -241,6 +304,12 @@ stop_all() {
 reload_ssh_keys() {
   @RPL_SSH_INITD_SCRIPT@ restart
 }
+
+# Read @SYSCONFDIR@/rc.d/init.d/functions if start-stop-daemon not available
+if ! type -p start-stop-daemon >/dev/null && \
+   [[ -f @SYSCONFDIR@/rc.d/init.d/functions ]]; then
+  _ignore_error . @SYSCONFDIR@/rc.d/init.d/functions
+fi
 
 if [[ "$#" -lt 1 ]]; then
   echo "Usage: $0 <action>" >&2

@@ -18,12 +18,12 @@ administration in the Ganeti system.
 .P
 .PD
 {-t|--disk-template {diskless | file |
-plain | drbd}}
+plain | drbd | rbd}}
 .PD 0
 .P
 .PD
-{--disk=\f[I]N\f[]: {size=\f[I]VAL\f[]
-|
+{--disk=\f[I]N\f[]:
+{size=\f[I]VAL\f[] |
 adopt=\f[I]LV\f[]}[,vg=\f[I]VG\f[]][,metavg=\f[I]VG\f[]][,mode=\f[I]ro|rw\f[]]
 .PD 0
 .P
@@ -80,6 +80,10 @@ blktap}]
 .PD 0
 .P
 .PD
+[--ignore-ipolicy]
+.PD 0
+.P
+.PD
 {\f[I]instance\f[]}
 .PP
 Creates a new instance on the specified host. The \f[I]instance\f[]
@@ -103,9 +107,9 @@ will reuse those volumes (instead of creating new ones) as the
 instance\[aq]s disks. Ganeti will rename these volumes to the
 standard format, and (without installing the OS) will use them
 as-is for the instance. This allows migrating instances from
-non-managed mode (e.q. plain KVM with LVM) to being managed via
-Ganeti. Note that this works only for the `plain\[aq] disk template
-(see below for template details).
+non-managed mode (e.g. plain KVM with LVM) to being managed via
+Ganeti. Please note that this works only for the `plain\[aq] disk
+template (see below for template details).
 .PP
 Alternatively, a single-disk instance can be created via the
 \f[B]-s\f[] option which takes a single argument, the size of the
@@ -181,9 +185,15 @@ backend parameters for the instance. If no such parameters are
 specified, the values are inherited from the cluster. Possible
 parameters are:
 .TP
-.B memory
-the memory size of the instance; as usual, suffixes can be used to
-denote the unit, otherwise the value is taken in mebibites
+.B maxmem
+the maximum memory size of the instance; as usual, suffixes can be
+used to denote the unit, otherwise the value is taken in mebibytes
+.RS
+.RE
+.TP
+.B minmem
+the minimum memory size of the instance; as usual, suffixes can be
+used to denote the unit, otherwise the value is taken in mebibytes
 .RS
 .RE
 .TP
@@ -198,6 +208,20 @@ whether the instance is considered in the N+1 cluster checks
 (enough redundancy in the cluster to survive a node failure)
 .RS
 .RE
+.TP
+.B always_failover
+\f[B]True\f[] or \f[B]False\f[], whether the instance must be
+failed over (shut down and rebooted) always or it may be migrated
+(briefly suspended)
+.RS
+.RE
+.PP
+Note that before 2.6 Ganeti had a \f[B]memory\f[] parameter, which
+was the only value of memory an instance could have. With the
+\f[B]maxmem\f[]/\f[B]minmem\f[] change Ganeti guarantees that at
+least the minimum memory is always available for an instance, but
+allows more memory to be used (up to the maximum memory) should it
+be free.
 .PP
 The \f[B]-H\ (--hypervisor-parameters)\f[] option specified the
 hypervisor to use for the instance (must be one of the enabled
@@ -239,8 +263,8 @@ network boot (PXE)
 .RS
 .RE
 .PP
-The default is not to set an HVM boot order which is interpreted as
-\[aq]dc\[aq].
+The default is not to set an HVM boot order, which is interpreted
+as \[aq]dc\[aq].
 .PP
 For KVM the boot order is either "floppy", "cdrom", "disk" or
 "network". Please note that older versions of KVM couldn\[aq]t
@@ -414,6 +438,105 @@ addresses should be used if a network interface with both IPv4 and
 IPv6 addresses is specified via the \f[B]spice_bind\f[] parameter.
 In this case, if the \f[B]spice_ip_version\f[] parameter is not
 used, the default IP version of the cluster will be used.
+.RE
+.TP
+.B spice_password_file
+Valid for the KVM hypervisor.
+.RS
+.PP
+Specifies a file containing the password that must be used when
+connecting via the SPICE protocol. If the option is not specified,
+passwordless connections are allowed.
+.RE
+.TP
+.B spice_image_compression
+Valid for the KVM hypervisor.
+.RS
+.PP
+Configures the SPICE lossless image compression. Valid values are:
+.IP \[bu] 2
+auto_glz
+.IP \[bu] 2
+auto_lz
+.IP \[bu] 2
+quic
+.IP \[bu] 2
+glz
+.IP \[bu] 2
+lz
+.IP \[bu] 2
+off
+.RE
+.TP
+.B spice_jpeg_wan_compression
+Valid for the KVM hypervisor.
+.RS
+.PP
+Configures how SPICE should use the jpeg algorithm for lossy image
+compression on slow links. Valid values are:
+.IP \[bu] 2
+auto
+.IP \[bu] 2
+never
+.IP \[bu] 2
+always
+.RE
+.TP
+.B spice_zlib_glz_wan_compression
+Valid for the KVM hypervisor.
+.RS
+.PP
+Configures how SPICE should use the zlib-glz algorithm for lossy
+image compression on slow links. Valid values are:
+.IP \[bu] 2
+auto
+.IP \[bu] 2
+never
+.IP \[bu] 2
+always
+.RE
+.TP
+.B spice_streaming_video
+Valid for the KVM hypervisor.
+.RS
+.PP
+Configures how SPICE should detect video streams. Valid values are:
+.IP \[bu] 2
+off
+.IP \[bu] 2
+all
+.IP \[bu] 2
+filter
+.RE
+.TP
+.B spice_playback_compression
+Valid for the KVM hypervisor.
+.RS
+.PP
+Configures whether SPICE should compress audio streams or not.
+.RE
+.TP
+.B spice_use_tls
+Valid for the KVM hypervisor.
+.RS
+.PP
+Specifies that the SPICE server must use TLS to encrypt all the
+traffic with the client.
+.RE
+.TP
+.B spice_tls_ciphers
+Valid for the KVM hypervisor.
+.RS
+.PP
+Specifies a list of comma-separated ciphers that SPICE should use
+for TLS connections. For the format, see man cipher(1).
+.RE
+.TP
+.B spice_use_vdagent
+Valid for the KVM hypervisor.
+.RS
+.PP
+Enables or disables passing mouse events via SPICE vdagent.
 .RE
 .TP
 .B acpi
@@ -591,15 +714,52 @@ versions >= 0.11.0.
 .RE
 .TP
 .B cpu_mask
-Valid for the LXC hypervisor.
+Valid for the Xen, KVM and LXC hypervisors.
 .RS
 .PP
 The processes belonging to the given instance are only scheduled on
 the specified CPUs.
 .PP
-The parameter format is a comma-separated list of CPU IDs or CPU ID
-ranges. The ranges are defined by a lower and higher boundary,
-separated by a dash. The boundaries are inclusive.
+The format of the mask can be given in three forms. First, the word
+"all", which signifies the common case where all VCPUs can live on
+any CPU, based on the hypervisor\[aq]s decisions.
+.PP
+Second, a comma-separated list of CPU IDs or CPU ID ranges. The
+ranges are defined by a lower and higher boundary, separated by a
+dash, and the boundaries are inclusive. In this form, all VCPUs of
+the instance will be mapped on the selected list of CPUs. Example:
+\f[B]0-2,5\f[], mapping all VCPUs (no matter how many) onto
+physical CPUs 0, 1, 2 and 5.
+.PP
+The last form is used for explicit control of VCPU-CPU pinnings. In
+this form, the list of VCPU mappings is given as a colon (:)
+separated list, whose elements are the possible values for the
+second or first form above. In this form, the number of elements in
+the colon-separated list _must_ equal the number of VCPUs of the
+instance.
+.PP
+Example:
+.PP
+\f[CR]
+      #\ Map\ the\ entire\ instance\ to\ CPUs\ 0-2
+      gnt-instance\ modify\ -H\ cpu_mask=0-2\ my-inst
+      
+      #\ Map\ vCPU\ 0\ to\ physical\ CPU\ 1\ and\ vCPU\ 1\ to\ CPU\ 3\ (assuming\ 2\ vCPUs)
+      gnt-instance\ modify\ -H\ cpu_mask=1:3\ my-inst
+      
+      #\ Pin\ vCPU\ 0\ to\ CPUs\ 1\ or\ 2,\ and\ vCPU\ 1\ to\ any\ CPU
+      gnt-instance\ modify\ -H\ cpu_mask=1-2:all\ my-inst
+      
+      #\ Pin\ vCPU\ 0\ to\ any\ CPU,\ vCPU\ 1\ to\ CPUs\ 1,\ 3,\ 4\ or\ 5,\ and\ CPU\ 2\ to
+      #\ CPU\ 0\ (backslashes\ for\ escaping\ the\ comma)
+      gnt-instance\ modify\ -H\ cpu_mask=all:1\\\\,3-5:0\ my-inst
+      
+      #\ Pin\ entire\ VM\ to\ CPU\ 0
+      gnt-instance\ modify\ -H\ cpu_mask=0\ my-inst
+      
+      #\ Turn\ off\ CPU\ pinning\ (default\ setting)
+      gnt-instance\ modify\ -H\ cpu_mask=all\ my-inst
+\f[]
 .RE
 .TP
 .B usb_mouse
@@ -669,6 +829,11 @@ Disk devices will be logical volumes.
 Disk devices will be drbd (version 8.x) on top of lvm volumes.
 .RS
 .RE
+.TP
+.B rbd
+Disk devices will be rbd volumes residing inside a RADOS cluster.
+.RS
+.RE
 .PP
 The optional second value of the \f[B]-n\ (--node)\f[] is used for
 the drbd template type and specifies the remote node.
@@ -711,20 +876,22 @@ better performance. Especially if you use a network file system
 .RS
 .RE
 .PP
-The \f[B]--submit\f[] option is used to send the job to the master
-daemon but not wait for its completion. The job ID will be shown so
-that it can be examined via \f[B]gnt-job info\f[].
+If \f[B]--ignore-ipolicy\f[] is given any instance policy
+violations occuring during this operation are ignored.
+.PP
+See \f[B]ganeti(7)\f[] for a description of \f[B]--submit\f[] and
+other common options.
 .PP
 Example:
 .PP
 \f[CR]
-      #\ gnt-instance\ add\ -t\ file\ --disk\ 0:size=30g\ -B\ memory=512\ -o\ debian-etch\ \\
+      #\ gnt-instance\ add\ -t\ file\ --disk\ 0:size=30g\ -B\ maxmem=512\ -o\ debian-etch\ \\
       \ \ -n\ node1.example.com\ --file-storage-dir=mysubdir\ instance1.example.com
-      #\ gnt-instance\ add\ -t\ plain\ --disk\ 0:size=30g\ -B\ memory=512\ -o\ debian-etch\ \\
-      \ \ -n\ node1.example.com\ instance1.example.com
+      #\ gnt-instance\ add\ -t\ plain\ --disk\ 0:size=30g\ -B\ maxmem=1024,minmem=512\ \\
+      \ \ -o\ debian-etch\ -n\ node1.example.com\ instance1.example.com
       #\ gnt-instance\ add\ -t\ plain\ --disk\ 0:size=30g\ --disk\ 1:size=100g,vg=san\ \\
-      \ \ -B\ memory=512\ -o\ debian-etch\ -n\ node1.example.com\ instance1.example.com
-      #\ gnt-instance\ add\ -t\ drbd\ --disk\ 0:size=30g\ -B\ memory=512\ -o\ debian-etch\ \\
+      \ \ -B\ maxmem=512\ -o\ debian-etch\ -n\ node1.example.com\ instance1.example.com
+      #\ gnt-instance\ add\ -t\ drbd\ --disk\ 0:size=30g\ -B\ maxmem=512\ -o\ debian-etch\ \\
       \ \ -n\ node1.example.com:node2.example.com\ instance2.example.com
 \f[]
 .SS BATCH-CREATE
@@ -831,7 +998,7 @@ parameters taken from the cluster defaults):
       \ \ \ \ "iallocator":\ "dumb",
       \ \ \ \ "hypervisor":\ "xen-hvm",
       \ \ \ \ "hvparams":\ {"acpi":\ true},
-      \ \ \ \ "backend":\ {"memory":\ 512}
+      \ \ \ \ "backend":\ {"maxmem":\ 512,\ "minmem":\ 256}
       \ \ }
       }
 \f[]
@@ -865,12 +1032,11 @@ wait before forcing the shutdown (e.g. \f[B]xm\ destroy\f[] in Xen,
 killing the kvm process for KVM, etc.). By default two minutes are
 given to each instance to stop.
 .PP
-The \f[B]--submit\f[] option is used to send the job to the master
-daemon but not wait for its completion. The job ID will be shown so
-that it can be examined via \f[B]gnt-job info\f[].
-.PP
 The \f[B]--force\f[] option is used to skip the interactive
 confirmation.
+.PP
+See \f[B]ganeti(7)\f[] for a description of \f[B]--submit\f[] and
+other common options.
 .PP
 Example:
 .PP
@@ -914,7 +1080,17 @@ The \f[B]-o\ (--output)\f[] option takes a comma-separated list of
 output fields. The available fields and their meaning are:
 .TP
 .B \f[B]admin_state\f[]
-Desired state of instance (if set, the instance should be up)
+Desired state of instance
+.RS
+.RE
+.TP
+.B \f[B]admin_up\f[]
+Desired state of instance
+.RS
+.RE
+.TP
+.B \f[B]be/always_failover\f[]
+The "always_failover" backend parameter
 .RS
 .RE
 .TP
@@ -923,8 +1099,23 @@ The "auto_balance" backend parameter
 .RS
 .RE
 .TP
+.B \f[B]be/maxmem\f[]
+The "maxmem" backend parameter
+.RS
+.RE
+.TP
 .B \f[B]be/memory\f[]
-The "memory" backend parameter
+The "maxmem" backend parameter
+.RS
+.RE
+.TP
+.B \f[B]be/minmem\f[]
+The "minmem" backend parameter
+.RS
+.RE
+.TP
+.B \f[B]be/spindle_use\f[]
+The "spindle_use" backend parameter
 .RS
 .RE
 .TP
@@ -1219,8 +1410,53 @@ The "spice_bind" hypervisor parameter
 .RS
 .RE
 .TP
+.B \f[B]hv/spice_image_compression\f[]
+The "spice_image_compression" hypervisor parameter
+.RS
+.RE
+.TP
 .B \f[B]hv/spice_ip_version\f[]
 The "spice_ip_version" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[B]hv/spice_jpeg_wan_compression\f[]
+The "spice_jpeg_wan_compression" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[B]hv/spice_password_file\f[]
+The "spice_password_file" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[B]hv/spice_playback_compression\f[]
+The "spice_playback_compression" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[B]hv/spice_streaming_video\f[]
+The "spice_streaming_video" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[B]hv/spice_tls_ciphers\f[]
+The "spice_tls_ciphers" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[B]hv/spice_use_tls\f[]
+The "spice_use_tls" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[B]hv/spice_use_vdagent\f[]
+The "spice_use_vdagent" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[B]hv/spice_zlib_glz_wan_compression\f[]
+The "spice_zlib_glz_wan_compression" hypervisor parameter
 .RS
 .RE
 .TP
@@ -1627,7 +1863,8 @@ designated primary node, "ERROR_up" if instance should be stopped,
 but is actually running, "ERROR_down" if instance should run, but
 doesn\[aq]t, "ERROR_nodedown" if instance\[aq]s primary node is
 down, "ERROR_nodeoffline" if instance\[aq]s primary node is marked
-offline
+offline, "ADMIN_offline" if instance is offline and does not use
+dynamic resources
 .RS
 .RE
 .TP
@@ -1710,9 +1947,13 @@ cluster virtualization technologies.
 .PD 0
 .P
 .PD
-[--net
-add\f[I][:options]\f[] | --net remove | --net
-\f[I]N:options\f[]]
+[{-m|--runtime-memory}
+\f[I]SIZE\f[]]
+.PD 0
+.P
+.PD
+[--net add\f[I][:options]\f[] | --net
+remove | --net \f[I]N:options\f[]]
 .PD 0
 .P
 .PD
@@ -1739,12 +1980,20 @@ plain | {-t|--disk-template} drbd -n \f[I]new_secondary\f[]]
 .P
 .PD
 [{-O|--os-parameters}
-\f[I]param\f[]=\f[I]value\f[]...
-]
+\f[I]param\f[]=\f[I]value\f[]... ]
+.PD 0
+.P
+.PD
+[--offline |
+--online]
 .PD 0
 .P
 .PD
 [--submit]
+.PD 0
+.P
+.PD
+[--ignore-ipolicy]
 .PD 0
 .P
 .PD
@@ -1772,22 +2021,33 @@ specified via the \f[B]-n\f[] option. The option
 \f[B]drbd\f[] template in order to make the instance available for
 startup before DRBD has finished resyncing.
 .PP
+The \f[B]-m\ (--runtime-memory)\f[] option will change an
+instance\[aq]s runtime memory to the given size (in MB if a
+different suffix is not specified), by ballooning it up or down to
+the new value.
+.PP
 The \f[B]--disk\ add:size=\f[]\f[I]SIZE\f[] option adds a disk to
 the instance. The optional \f[B]vg=\f[]\f[I]VG\f[] option specifies
-LVM volume group other than default vg to create the disk on. For
-DRBD disks, the \f[B]metavg=\f[]\f[I]VG\f[] option specifies the
-volume group for the metadata device. The \f[B]--disk\ remove\f[]
-option will remove the last disk of the instance. The
+an LVM volume group other than the default volume group to create
+the disk on. For DRBD disks, the \f[B]metavg=\f[]\f[I]VG\f[] option
+specifies the volume group for the metadata device. \f[B]--disk\f[]
+\f[I]N\f[]\f[B]:add,size=\f[]\f[B]SIZE\f[] can be used to add a
+disk at a specific index. The \f[B]--disk\ remove\f[] option will
+remove the last disk of the instance. Use \f[B]--disk\f[]
+\f[I]N\f[]\f[B]:remove\f[] to remove a disk by its index. The
 \f[B]--disk\f[] \f[I]N\f[]\f[B]:mode=\f[]\f[I]MODE\f[] option will
 change the mode of the Nth disk of the instance between read-only
 (\f[B]ro\f[]) and read-write (\f[B]rw\f[]).
 .PP
-The \f[B]--net\ add:\f[]\f[I]options\f[] option will add a new NIC
-to the instance. The available options are the same as in the
-\f[B]add\f[] command (mac, ip, link, mode). The
-\f[B]--net\ remove\f[] will remove the last NIC of the instance,
-while the \f[B]--net\f[] \f[I]N\f[]:\f[I]options\f[] option will
-change the parameters of the Nth instance NIC.
+The \f[B]--net\ add:\f[]\f[I]options\f[] and \f[B]--net\f[]
+\f[I]N\f[]\f[B]:add,\f[]\f[I]options\f[] option will add a new
+network interface to the instance. The available options are the
+same as in the \f[B]add\f[] command (\f[B]mac\f[], \f[B]ip\f[],
+\f[B]link\f[], \f[B]mode\f[]). The \f[B]--net\ remove\f[] will
+remove the last network interface of the instance (\f[B]--net\f[]
+\f[I]N\f[]\f[B]:remove\f[] for a specific index), while the
+\f[B]--net\f[] \f[I]N\f[]\f[B]:\f[]\f[I]options\f[] option will
+change the parameters of the Nth instance network interface.
 .PP
 The option \f[B]-o\ (--os-type)\f[] will change the OS name for the
 instance (without reinstallation). In case an OS variant is
@@ -1795,12 +2055,22 @@ specified that is not found, then by default the modification is
 refused, unless \f[B]--force-variant\f[] is passed. An invalid OS
 will also be refused, unless the \f[B]--force\f[] option is given.
 .PP
-The \f[B]--submit\f[] option is used to send the job to the master
-daemon but not wait for its completion. The job ID will be shown so
-that it can be examined via \f[B]gnt-job info\f[].
+The \f[B]--online\f[] and \f[B]--offline\f[] options are used to
+transition an instance into and out of the \f[B]offline\f[] state.
+An instance can be turned offline only if it was previously down.
+The \f[B]--online\f[] option fails if the instance was not in the
+\f[B]offline\f[] state, otherwise it changes instance\[aq]s state
+to \f[B]down\f[].
+These modifications take effect immediately.
 .PP
-All the changes take effect at the next restart. If the instance is
-running, there is no effect on the instance.
+If \f[B]--ignore-ipolicy\f[] is given any instance policy
+violations occuring during this operation are ignored.
+.PP
+See \f[B]ganeti(7)\f[] for a description of \f[B]--submit\f[] and
+other common options.
+.PP
+Most of the changes take effect at the next restart. If the
+instance is running, there is no effect on the instance.
 .SS REINSTALL
 .PP
 \f[B]reinstall\f[] [{-o|--os-type} \f[I]os-type\f[]] [--select-os]
@@ -1841,9 +2111,8 @@ multiple arguments or by using the \f[B]--node\f[],
 options), the user must pass the \f[B]--force-multiple\f[] options
 to skip the interactive confirmation.
 .PP
-The \f[B]--submit\f[] option is used to send the job to the master
-daemon but not wait for its completion. The job ID will be shown so
-that it can be examined via \f[B]gnt-job info\f[].
+See \f[B]ganeti(7)\f[] for a description of \f[B]--submit\f[] and
+other common options.
 .SS RENAME
 .PP
 \f[B]rename\f[] [--no-ip-check] [--no-name-check]
@@ -1866,9 +2135,8 @@ setup) and that the resolved name matches the provided name. Since
 the name check is used to compute the IP address, if you pass this
 option you must also pass the \f[B]--no-ip-check\f[] option.
 .PP
-The \f[B]--submit\f[] option is used to send the job to the master
-daemon but not wait for its completion. The job ID will be shown so
-that it can be examined via \f[B]gnt-job info\f[].
+See \f[B]ganeti(7)\f[] for a description of \f[B]--submit\f[] and
+other common options.
 .SS Starting/stopping/connecting to console
 .SS STARTUP
 .PP
@@ -1998,7 +2266,7 @@ testing without having to modify an instance back and forth, e.g.:
 .PP
 \f[CR]
       #\ gnt-instance\ start\ -H\ kernel_args="single"\ instance1
-      #\ gnt-instance\ start\ -B\ memory=2048\ instance2
+      #\ gnt-instance\ start\ -B\ maxmem=2048\ instance2
 \f[]
 .PP
 The first form will start the instance instance1 in single-user
@@ -2006,15 +2274,15 @@ mode, and the instance instance2 with 2GB of RAM (this time only,
 unless that is the actual instance memory size already). Note that
 the values override the instance parameters (and not extend them):
 an instance with "kernel_args=ro" when started with -H
-kernel_args=single will result in "single", not "ro single". The
-\f[B]--submit\f[] option is used to send the job to the master
-daemon but not wait for its completion. The job ID will be shown so
-that it can be examined via \f[B]gnt-job info\f[].
+kernel_args=single will result in "single", not "ro single".
 .PP
 The \f[B]--paused\f[] option is only valid for Xen and kvm
 hypervisors. This pauses the instance at the start of bootup,
 awaiting \f[B]gnt-instance\ console\f[] to unpause it, allowing the
 entire boot process to be monitored for debugging.
+.PP
+See \f[B]ganeti(7)\f[] for a description of \f[B]--submit\f[] and
+other common options.
 .PP
 Example:
 .PP
@@ -2072,10 +2340,6 @@ The \f[B]--instance\f[], \f[B]--node\f[], \f[B]--primary\f[],
 \f[B]startup\f[] command and they influence the actual instances
 being shutdown.
 .PP
-The \f[B]--submit\f[] option is used to send the job to the master
-daemon but not wait for its completion. The job ID will be shown so
-that it can be examined via \f[B]gnt-job info\f[].
-.PP
 \f[B]--ignore-offline\f[] can be used to ignore offline primary
 nodes and force the instance to be marked as stopped. This option
 should be used with care as it can lead to an inconsistent cluster
@@ -2090,6 +2354,9 @@ want to change the running state: you just need to disable the
 watcher, shutdown all instances with \f[B]--no-remember\f[], and
 when the watcher is activated again it will restore the correct
 runtime state for all instances.
+.PP
+See \f[B]ganeti(7)\f[] for a description of \f[B]--submit\f[] and
+other common options.
 .PP
 Example:
 .PP
@@ -2165,6 +2432,9 @@ The \f[B]--force-multiple\f[] will skip the interactive
 confirmation in the case the more than one instance will be
 affected.
 .PP
+See \f[B]ganeti(7)\f[] for a description of \f[B]--submit\f[] and
+other common options.
+.PP
 Example:
 .PP
 \f[CR]
@@ -2196,17 +2466,18 @@ Example:
 .SS Disk management
 .SS REPLACE-DISKS
 .PP
-\f[B]replace-disks\f[] [--submit] [--early-release] {-p} [--disks
-\f[I]idx\f[]] {\f[I]instance\f[]}
+\f[B]replace-disks\f[] [--submit] [--early-release]
+[--ignore-ipolicy] {-p} [--disks \f[I]idx\f[]] {\f[I]instance\f[]}
 .PP
-\f[B]replace-disks\f[] [--submit] [--early-release] {-s} [--disks
-\f[I]idx\f[]] {\f[I]instance\f[]}
+\f[B]replace-disks\f[] [--submit] [--early-release]
+[--ignore-ipolicy] {-s} [--disks \f[I]idx\f[]] {\f[I]instance\f[]}
 .PP
-\f[B]replace-disks\f[] [--submit] [--early-release] {--iallocator
-\f[I]name\f[] | --new-secondary \f[I]NODE\f[]} {\f[I]instance\f[]}
+\f[B]replace-disks\f[] [--submit] [--early-release]
+[--ignore-ipolicy] {{-I|--iallocator} \f[I]name\f[] | --node
+\f[I]node\f[] } {\f[I]instance\f[]}
 .PP
-\f[B]replace-disks\f[] [--submit] [--early-release] {--auto}
-{\f[I]instance\f[]}
+\f[B]replace-disks\f[] [--submit] [--early-release]
+[--ignore-ipolicy] {--auto} {\f[I]instance\f[]}
 .PP
 This command is a generalized form for replacing disks. It is
 currently only valid for the mirrored (DRBD) disk template.
@@ -2227,15 +2498,14 @@ makes the new secondary be selected automatically by the specified
 allocator plugin, otherwise the new secondary node will be the one
 chosen manually via the \f[B]--new-secondary\f[] option.
 .PP
+Note that it is not possible to select an offline or drained node
+as a new secondary.
+.PP
 The fourth form (when using \f[B]--auto\f[]) will automatically
 determine which disks of an instance are faulty and replace them
 within the same node. The \f[B]--auto\f[] option works only when an
 instance has only faulty disks on either the primary or secondary
 node; it doesn\[aq]t work when both sides have faulty disks.
-.PP
-The \f[B]--submit\f[] option is used to send the job to the master
-daemon but not wait for its completion. The job ID will be shown so
-that it can be examined via \f[B]gnt-job info\f[].
 .PP
 The \f[B]--early-release\f[] changes the code so that the old
 storage on secondary node(s) is removed early (before the resync is
@@ -2247,8 +2517,12 @@ old storage is already broken) or when the storage on the primary
 node is known to be fine (thus we won\[aq]t need the old storage
 for potential recovery).
 .PP
-Note that it is not possible to select an offline or drained node
-as a new secondary.
+The \f[B]--ignore-ipolicy\f[] let the command ignore instance
+policy violations if replace-disks changes groups and the instance
+would violate the new groups instance policy.
+.PP
+See \f[B]ganeti(7)\f[] for a description of \f[B]--submit\f[] and
+other common options.
 .SS ACTIVATE-DISKS
 .PP
 \f[B]activate-disks\f[] [--submit] [--ignore-size]
@@ -2267,10 +2541,7 @@ on which the devices have been activated. The \f[I]disk/0\f[] and
 \f[I]disk/1\f[] are the Ganeti-names of the instance disks; how
 they are visible inside the instance is hypervisor-specific.
 \f[I]/dev/drbd0\f[] and \f[I]/dev/drbd1\f[] are the actual block
-devices as visible on the node. The \f[B]--submit\f[] option is
-used to send the job to the master daemon but not wait for its
-completion. The job ID will be shown so that it can be examined via
-\f[B]gnt-job info\f[].
+devices as visible on the node.
 .PP
 The \f[B]--ignore-size\f[] option can be used to activate disks
 ignoring the currently configured size in Ganeti. This can be used
@@ -2281,6 +2552,9 @@ cases, but only when activate-disks fails without it.
 .PP
 Note that it is safe to run this command while the instance is
 already running.
+.PP
+See \f[B]ganeti(7)\f[] for a description of \f[B]--submit\f[] and
+other common options.
 .SS DEACTIVATE-DISKS
 .PP
 \f[B]deactivate-disks\f[] [-f] [--submit] {\f[I]instance\f[]}
@@ -2298,16 +2572,20 @@ disks, but with this option passed it will skip this check and
 directly try to deactivate the disks. This can still fail due to
 the instance actually running or other issues.
 .PP
-The \f[B]--submit\f[] option is used to send the job to the master
-daemon but not wait for its completion. The job ID will be shown so
-that it can be examined via \f[B]gnt-job info\f[].
+See \f[B]ganeti(7)\f[] for a description of \f[B]--submit\f[] and
+other common options.
 .SS GROW-DISK
 .PP
 \f[B]grow-disk\f[] [--no-wait-for-sync] [--submit]
-{\f[I]instance\f[]} {\f[I]disk\f[]} {\f[I]amount\f[]}
+[--absolute]
+.PD 0
+.P
+.PD
+{\f[I]instance\f[]} {\f[I]disk\f[]}
+{\f[I]amount\f[]}
 .PP
 Grows an instance\[aq]s disk. This is only possible for instances
-having a plain or drbd disk template.
+having a plain, drbd or rbd disk template.
 .PP
 Note that this command only change the block device size; it will
 not grow the actual filesystems, partitions, etc. that live on that
@@ -2322,22 +2600,27 @@ resize the filesystem, or use fdisk(8) to change the partition
 table on the disk
 .PP
 The \f[I]disk\f[] argument is the index of the instance disk to
-grow. The \f[I]amount\f[] argument is given either as a number (and
-it represents the amount to increase the disk with in mebibytes) or
-can be given similar to the arguments in the create instance
-operation, with a suffix denoting the unit.
+grow. The \f[I]amount\f[] argument is given as a number which can
+have a suffix (like the disk size in instance create); if the
+suffix is missing, the value will be interpreted as mebibytes.
 .PP
-Note that the disk grow operation might complete on one node but
-fail on the other; this will leave the instance with
-different-sized LVs on the two nodes, but this will not create
-problems (except for unused space).
+By default, the \f[I]amount\f[] value represents the desired
+increase in the disk size (e.g. an amount of 1G will take a disk of
+size 3G to 4G). If the optional \f[B]--absolute\f[] parameter is
+passed, then the \f[I]amount\f[] argument doesn\[aq]t represent the
+delta, but instead the desired final disk size (e.g. an amount of
+8G will take a disk of size 4G to 8G).
+.PP
+For instances with a drbd template, note that the disk grow
+operation might complete on one node but fail on the other; this
+will leave the instance with different-sized LVs on the two nodes,
+but this will not create problems (except for unused space).
 .PP
 If you do not want gnt-instance to wait for the new disk region to
 be synced, use the \f[B]--no-wait-for-sync\f[] option.
 .PP
-The \f[B]--submit\f[] option is used to send the job to the master
-daemon but not wait for its completion. The job ID will be shown so
-that it can be examined via \f[B]gnt-job info\f[].
+See \f[B]ganeti(7)\f[] for a description of \f[B]--submit\f[] and
+other common options.
 .PP
 Example (increase the first disk for instance1 by 16GiB):
 .PP
@@ -2345,24 +2628,39 @@ Example (increase the first disk for instance1 by 16GiB):
       #\ gnt-instance\ grow-disk\ instance1.example.com\ 0\ 16g
 \f[]
 .PP
+Example for increasing the disk size to a certain size:
+.PP
+\f[CR]
+      #\ gnt-instance\ grow-disk\ --absolute\ instance1.example.com\ 0\ 32g
+\f[]
+.PP
 Also note that disk shrinking is not supported; use
 \f[B]gnt-backup export\f[] and then \f[B]gnt-backup import\f[] to
 reduce the disk size of an instance.
 .SS RECREATE-DISKS
-.TP
-.B \f[B]recreate-disks\f[] [--submit] [--disks=\f[B]indices\f[]] [-n node1:[node2]]
-{\f[I]instance\f[]}
-.RS
-.RE
 .PP
-Recreates the disks of the given instance, or only a subset of the
-disks (if the option \f[B]disks\f[] is passed, which must be a
-comma-separated list of disk indices, starting from zero).
+\f[B]recreate-disks\f[] [--submit] [-n
+node1:[node2]]
+.PD 0
+.P
+.PD
+[--disk=\f[I]N\f[][:[size=\f[I]VAL\f[]][,mode=\f[I]ro|rw\f[]]]]
+{\f[I]instance\f[]}
+.PP
+Recreates all or a subset of disks of the given instance.
 .PP
 Note that this functionality should only be used for missing disks;
 if any of the given disks already exists, the operation will fail.
 While this is suboptimal, recreate-disks should hopefully not be
 needed in normal operation and as such the impact of this is low.
+.PP
+If only a subset should be recreated, any number of \f[B]disk\f[]
+options can be specified. It expects a disk index and an optional
+list of disk parameters to change. Only \f[B]size\f[] and
+\f[B]mode\f[] can be changed while recreating disks. To recreate
+all disks while changing parameters on a subset only, a
+\f[B]--disk\f[] option must be given for every disk of the
+instance.
 .PP
 Optionally the instance\[aq]s disks can be recreated on different
 nodes. This can be useful if, for example, the original nodes of
@@ -2371,24 +2669,48 @@ can\[aq]t recreate on the same nodes. To do this, pass the new
 node(s) via \f[B]-n\f[] option, with a syntax similar to the
 \f[B]add\f[] command. The number of nodes passed must equal the
 number of nodes that the instance currently has. Note that changing
-nodes is only allowed for \[aq]all disk\[aq] replacement (when
-\f[B]--disks\f[] is not passed).
+nodes is only allowed when all disks are replaced, e.g. when no
+\f[B]--disk\f[] option is passed.
 .PP
-The \f[B]--submit\f[] option is used to send the job to the master
-daemon but not wait for its completion. The job ID will be shown so
-that it can be examined via \f[B]gnt-job info\f[].
+See \f[B]ganeti(7)\f[] for a description of \f[B]--submit\f[] and
+other common options.
 .SS Recovery
 .SS FAILOVER
 .PP
 \f[B]failover\f[] [-f] [--ignore-consistency]
-[--shutdown-timeout=\f[I]N\f[]] [--submit] {\f[I]instance\f[]}
+[--ignore-ipolicy]
+.PD 0
+.P
+.PD
+[--shutdown-timeout=\f[I]N\f[]]
+.PD 0
+.P
+.PD
+[{-n|--target-node}
+\f[I]node\f[] | {-I|--iallocator}
+\f[I]name\f[]]
+.PD 0
+.P
+.PD
+[--submit]
+.PD 0
+.P
+.PD
+{\f[I]instance\f[]}
 .PP
 Failover will stop the instance (if running), change its primary
 node, and if it was originally running it will start it again (on
 the new primary). This only works for instances with drbd template
 (in which case you can only fail to the secondary node) and for
-externally mirrored templates (shared storage) (which can change to
-any other node).
+externally mirrored templates (blockdev and rbd) (which can change
+to any other node).
+.PP
+If the instance\[aq]s disk template is of type blockdev or rbd,
+then you can explicitly specify the target node (which can be any
+node) using the \f[B]-n\f[] or \f[B]--target-node\f[] option, or
+specify an iallocator plugin using the \f[B]-I\f[] or
+\f[B]--iallocator\f[] option. If you omit both, the default
+iallocator will be used to specify the target node.
 .PP
 Normally the failover will check the consistency of the disks
 before failing over the instance. If you are trying to migrate
@@ -2403,9 +2725,11 @@ wait before forcing the shutdown (xm destroy in xen, killing the
 kvm process, for kvm). By default two minutes are given to each
 instance to stop.
 .PP
-The \f[B]--submit\f[] option is used to send the job to the master
-daemon but not wait for its completion. The job ID will be shown so
-that it can be examined via \f[B]gnt-job info\f[].
+If \f[B]--ignore-ipolicy\f[] is given any instance policy
+violations occuring during this operation are ignored.
+.PP
+See \f[B]ganeti(7)\f[] for a description of \f[B]--submit\f[] and
+other common options.
 .PP
 Example:
 .PP
@@ -2414,14 +2738,37 @@ Example:
 \f[]
 .SS MIGRATE
 .PP
-\f[B]migrate\f[] [-f] {--cleanup} {\f[I]instance\f[]}
+\f[B]migrate\f[] [-f] [--allow-failover]
+[--non-live]
+.PD 0
+.P
+.PD
+[--migration-mode=live|non-live]
+[--ignore-ipolicy]
+.PD 0
+.P
+.PD
+[--no-runtime-changes]
+[--submit]
+.PD 0
+.P
+.PD
+[{-n|--target-node} \f[I]node\f[] |
+{-I|--iallocator} \f[I]name\f[]] {\f[I]instance\f[]}
 .PP
-\f[B]migrate\f[] [-f] [--allow-failover] [--non-live]
-[--migration-mode=live|non-live] {\f[I]instance\f[]}
+\f[B]migrate\f[] [-f] --cleanup [--submit] {\f[I]instance\f[]}
 .PP
 Migrate will move the instance to its secondary node without
-shutdown. It only works for instances having the drbd8 disk
-template type.
+shutdown. As with failover, it only works for instances having the
+drbd disk template or an externally mirrored disk template type
+such as blockdev or rbd.
+.PP
+If the instance\[aq]s disk template is of type blockdev or rbd,
+then you can explicitly specify the target node (which can be any
+node) using the \f[B]-n\f[] or \f[B]--target-node\f[] option, or
+specify an iallocator plugin using the \f[B]-I\f[] or
+\f[B]--iallocator\f[] option. If you omit both, the default
+iallocator will be used to specify the target node.
 .PP
 The migration command needs a perfectly healthy instance, as we
 rely on the dual-master capability of drbd8 and the disks of the
@@ -2450,35 +2797,59 @@ instances\[aq]s disks are configured correctly. In this mode, the
 The option \f[B]-f\f[] will skip the prompting for confirmation.
 .PP
 If \f[B]--allow-failover\f[] is specified it tries to fallback to
-failover if it already can determine that a migration wont work
-(i.e. if the instance is shutdown). Please note that the fallback
-will not happen during execution. If a migration fails during
-execution it still fails.
+failover if it already can determine that a migration won\[aq]t
+work (e.g. if the instance is shut down). Please note that the
+fallback will not happen during execution. If a migration fails
+during execution it still fails.
+.PP
+If \f[B]--ignore-ipolicy\f[] is given any instance policy
+violations occuring during this operation are ignored.
+.PP
+The \f[B]--no-runtime-changes\f[] option forbids migrate to alter
+an instance\[aq]s runtime before migrating it (eg. ballooning an
+instance down because the target node doesn\[aq]t have enough
+available memory).
+.PP
+See \f[B]ganeti(7)\f[] for a description of \f[B]--submit\f[] and
+other common options.
 .PP
 Example (and expected output):
 .PP
 \f[CR]
       #\ gnt-instance\ migrate\ instance1
-      Migrate\ will\ happen\ to\ the\ instance\ instance1.\ Note\ that\ migration\ is
-      **experimental**\ in\ this\ version.\ This\ might\ impact\ the\ instance\ if
-      anything\ goes\ wrong.\ Continue?
+      Instance\ instance1\ will\ be\ migrated.\ Note\ that\ migration
+      might\ impact\ the\ instance\ if\ anything\ goes\ wrong\ (e.g.\ due\ to\ bugs\ in
+      the\ hypervisor).\ Continue?
       y/[n]/?:\ y
+      Migrating\ instance\ instance1.example.com
       *\ checking\ disk\ consistency\ between\ source\ and\ target
-      *\ ensuring\ the\ target\ is\ in\ secondary\ mode
+      *\ switching\ node\ node2.example.com\ to\ secondary\ mode
+      *\ changing\ into\ standalone\ mode
       *\ changing\ disks\ into\ dual-master\ mode
-      \ -\ INFO:\ Waiting\ for\ instance\ instance1\ to\ sync\ disks.
-      \ -\ INFO:\ Instance\ instance1\[aq]s\ disks\ are\ in\ sync.
+      *\ wait\ until\ resync\ is\ done
+      *\ preparing\ node2.example.com\ to\ accept\ the\ instance
       *\ migrating\ instance\ to\ node2.example.com
-      *\ changing\ the\ instance\[aq]s\ disks\ on\ source\ node\ to\ secondary
-      \ -\ INFO:\ Waiting\ for\ instance\ instance1\ to\ sync\ disks.
-      \ -\ INFO:\ Instance\ instance1\[aq]s\ disks\ are\ in\ sync.
-      *\ changing\ the\ instance\[aq]s\ disks\ to\ single-master
+      *\ switching\ node\ node1.example.com\ to\ secondary\ mode
+      *\ wait\ until\ resync\ is\ done
+      *\ changing\ into\ standalone\ mode
+      *\ changing\ disks\ into\ single-master\ mode
+      *\ wait\ until\ resync\ is\ done
+      *\ done
       #
 \f[]
 .SS MOVE
 .PP
-\f[B]move\f[] [-f] [--ignore-consistency] [-n \f[I]node\f[]]
-[--shutdown-timeout=\f[I]N\f[]] [--submit] {\f[I]instance\f[]}
+\f[B]move\f[] [-f] [--ignore-consistency]
+.PD 0
+.P
+.PD
+[-n
+\f[I]node\f[]] [--shutdown-timeout=\f[I]N\f[]] [--submit]
+[--ignore-ipolicy]
+.PD 0
+.P
+.PD
+{\f[I]instance\f[]}
 .PP
 Move will move the instance to an arbitrary node in the cluster.
 This works only for instances having a plain or file disk template.
@@ -2496,9 +2867,11 @@ The \f[B]--ignore-consistency\f[] option will make Ganeti ignore
 any errors in trying to shutdown the instance on its node; useful
 if the hypervisor is broken and you want to recuperate the data.
 .PP
-The \f[B]--submit\f[] option is used to send the job to the master
-daemon but not wait for its completion. The job ID will be shown so
-that it can be examined via \f[B]gnt-job info\f[].
+If \f[B]--ignore-ipolicy\f[] is given any instance policy
+violations occuring during this operation are ignored.
+.PP
+See \f[B]ganeti(7)\f[] for a description of \f[B]--submit\f[] and
+other common options.
 .PP
 Example:
 .PP
@@ -2507,8 +2880,12 @@ Example:
 \f[]
 .SS CHANGE-GROUP
 .PP
-\f[B]change-group\f[] [--iallocator \f[I]NAME\f[]] [--to
-\f[I]GROUP\f[]...] {\f[I]instance\f[]}
+\f[B]change-group\f[] [--submit]
+.PD 0
+.P
+.PD
+[--iallocator
+\f[I]NAME\f[]] [--to \f[I]GROUP\f[]...] {\f[I]instance\f[]}
 .PP
 This command moves an instance to another node group. The move is
 calculated by an iallocator, either given on the command line or as
@@ -2517,6 +2894,9 @@ a cluster default.
 If no specific destination groups are specified using
 \f[B]--to\f[], all groups except the one containing the instance
 are considered.
+.PP
+See \f[B]ganeti(7)\f[] for a description of \f[B]--submit\f[] and
+other common options.
 .PP
 Example:
 .PP
@@ -2581,10 +2961,11 @@ restarter), \f[B]ganeti-cleaner\f[](8) (job queue cleaner),
 Ganeti htools: \f[B]htools\f[](1) (generic binary),
 \f[B]hbal\f[](1) (cluster balancer), \f[B]hspace\f[](1) (capacity
 calculation), \f[B]hail\f[](1) (IAllocator plugin),
-\f[B]hscan\f[](1) (data gatherer from remote clusters).
+\f[B]hscan\f[](1) (data gatherer from remote clusters),
+\f[B]hinfo\f[](1) (cluster information printer).
 .SH COPYRIGHT
 .PP
-Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Google Inc.
+Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012 Google Inc.
 Permission is granted to copy, distribute and/or modify under the
 terms of the GNU General Public License as published by the Free
 Software Foundation; either version 2 of the License, or (at your

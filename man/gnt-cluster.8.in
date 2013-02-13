@@ -10,6 +10,11 @@ gnt-cluster - Ganeti administration, cluster-wide
 The \f[B]gnt-cluster\f[] is used for cluster-wide administration in
 the Ganeti system.
 .SH COMMANDS
+.SS ACTIVATE-MASTER-IP
+.PP
+\f[B]activate-master-ip\f[]
+.PP
+Activates the master IP on the master node.
 .SS ADD-TAGS
 .PP
 \f[B]add-tags\f[] [--from \f[I]file\f[]] {\f[I]tag\f[]...}
@@ -24,7 +29,7 @@ In this case, there is not need to pass tags on the command line
 interpreted as stdin.
 .SS COMMAND
 .PP
-\f[B]command\f[] [-n \f[I]node\f[]] [-g \f[I]group\f[]]
+\f[B]command\f[] [-n \f[I]node\f[]] [-g \f[I]group\f[]] [-M]
 {\f[I]command\f[]}
 .PP
 Executes a command on all nodes. If the option \f[B]-n\f[] is not
@@ -42,6 +47,9 @@ specific node group, e.g.:
 \f[CR]
       #\ gnt-cluster\ command\ -g\ default\ date
 \f[]
+.PP
+The \f[B]-M\f[] option can be used to prepend the node name to all
+output lines.
 .PP
 The command is executed serially on the selected nodes. If the
 master node is present in the list, the command will be executed
@@ -88,6 +96,16 @@ primary/secondary IPs are different). Example:
 .PP
 This will copy the file /tmp/test from the current node to the two
 named nodes.
+.SS DEACTIVATE-MASTER-IP
+.PP
+\f[B]deactivate-master-ip\f[] [--yes]
+.PP
+Deactivates the master IP on the master node.
+.PP
+This should be run only locally or on a connection to the node ip
+directly, as a connection to the master ip will be broken by this
+operation. Because of this risk it will require user confirmation
+unless the \f[B]--yes\f[] option is passed.
 .SS DESTROY
 .PP
 \f[B]destroy\f[] {--yes-do-it}
@@ -153,6 +171,16 @@ further diffusion of Ganeti among ancient cultures.
 .PD 0
 .P
 .PD
+[--master-netmask
+\f[I]netmask\f[]]
+.PD 0
+.P
+.PD
+[--use-external-mip-script {yes |
+no}]
+.PD 0
+.P
+.PD
 [{-m|--mac-prefix}
 \f[I]mac-prefix\f[]]
 .PD 0
@@ -186,14 +214,17 @@ further diffusion of Ganeti among ancient cultures.
 .P
 .PD
 [{-B|--backend-parameters}
-\f[I]be-param\f[]=\f[I]value\f[]
-[,\f[I]be-param\f[]=\f[I]value\f[]...]]
+\f[I]be-param\f[]=\f[I]value\f[][,\f[I]be-param\f[]=\f[I]value\f[]...]]
 .PD 0
 .P
 .PD
 [{-N|--nic-parameters}
-\f[I]nic-param\f[]=\f[I]value\f[]
-[,\f[I]nic-param\f[]=\f[I]value\f[]...]]
+\f[I]nic-param\f[]=\f[I]value\f[][,\f[I]nic-param\f[]=\f[I]value\f[]...]]
+.PD 0
+.P
+.PD
+[{-D|--disk-parameters}
+\f[I]disk-template\f[]:\f[I]disk-param\f[]=\f[I]value\f[][,\f[I]disk-param\f[]=\f[I]value\f[]...]]
 .PD 0
 .P
 .PD
@@ -229,6 +260,52 @@ no}]
 .PD
 [{-C|--candidate-pool-size}
 \f[I]candidate_pool_size\f[]]
+.PD 0
+.P
+.PD
+[--specs-cpu-count
+\f[I]spec-param\f[]=\f[I]value\f[]
+[,\f[I]spec-param\f[]=\f[I]value\f[]...]]
+.PD 0
+.P
+.PD
+[--specs-disk-count
+\f[I]spec-param\f[]=\f[I]value\f[]
+[,\f[I]spec-param\f[]=\f[I]value\f[]...]]
+.PD 0
+.P
+.PD
+[--specs-disk-size
+\f[I]spec-param\f[]=\f[I]value\f[]
+[,\f[I]spec-param\f[]=\f[I]value\f[]...]]
+.PD 0
+.P
+.PD
+[--specs-mem-size
+\f[I]spec-param\f[]=\f[I]value\f[]
+[,\f[I]spec-param\f[]=\f[I]value\f[]...]]
+.PD 0
+.P
+.PD
+[--specs-nic-count
+\f[I]spec-param\f[]=\f[I]value\f[]
+[,\f[I]spec-param\f[]=\f[I]value\f[]...]]
+.PD 0
+.P
+.PD
+[--ipol-disk-templates
+\f[I]template\f[]
+[,\f[I]template\f[]...]]
+.PD 0
+.P
+.PD
+[--disk-state
+\f[I]diskstate\f[]]
+.PD 0
+.P
+.PD
+[--hypervisor-state
+\f[I]hvstate\f[]]
 .PD 0
 .P
 .PD
@@ -272,6 +349,18 @@ The \f[B]--master-netdev\f[] option is useful for specifying a
 different interface on which the master will activate its IP
 address. It\[aq]s important that all nodes have this interface
 because you\[aq]ll need it for a master failover.
+.PP
+The \f[B]--master-netmask\f[] option allows to specify a netmask
+for the master IP. The netmask must be specified as an integer, and
+will be interpreted as a CIDR netmask. The default value is 32 for
+an IPv4 address and 128 for an IPv6 address.
+.PP
+The \f[B]--use-external-mip-script\f[] option allows to specify
+whether to use an user-supplied master IP address setup script,
+whose location is
+\f[B]@SYSCONFDIR@/ganeti/scripts/master-ip-setup\f[].
+If the option value is set to False, the default script (located at
+\f[B]@PKGLIBDIR@/tools/master-ip-setup\f[]) will be executed.
 .PP
 The \f[B]-m\ (--mac-prefix)\f[] option will let you specify a three
 byte prefix under which the virtual MAC addresses of your instances
@@ -375,17 +464,31 @@ integer, will be set to 1 if no specified.
 .RS
 .RE
 .TP
-.B memory
-Amount of memory to allocate for an instance by default, can be
-either an integer or an integer followed by a unit (M for mebibytes
-and G for gibibytes are supported), will be set to 128M if not
-specified.
+.B maxmem
+Maximum amount of memory to allocate for an instance by default,
+can be either an integer or an integer followed by a unit (M for
+mebibytes and G for gibibytes are supported), will be set to 128M
+if not specified.
+.RS
+.RE
+.TP
+.B minmem
+Minimum amount of memory to allocate for an instance by default,
+can be either an integer or an integer followed by a unit (M for
+mebibytes and G for gibibytes are supported), will be set to 128M
+if not specified.
 .RS
 .RE
 .TP
 .B auto_balance
 Value of the auto_balance flag for instances to use by default,
 will be set to true if not specified.
+.RS
+.RE
+.TP
+.B always_failover
+Default value for the \f[B]always\\_failover\f[] flag for
+instances; if not set, \f[B]False\f[] is used.
 .RS
 .RE
 .PP
@@ -407,11 +510,132 @@ network script it is interpreted as a routing table number or name.
 .RS
 .RE
 .PP
+The \f[B]-D\ (--disk-parameters)\f[] option allows you to set the
+default disk template parameters at cluster level. The format used
+for this option is similar to the one use by the \f[B]-H\f[]
+option: the disk template name must be specified first, followed by
+a colon and by a comma-separated list of key-value pairs. These
+parameters can only be specified at cluster and node group level;
+the cluster-level parameter are inherited by the node group at the
+moment of its creation, and can be further modified at node group
+level using the \f[B]gnt-group\f[](8) command.
+.PP
+The following is the list of disk parameters available for the
+\f[B]drbd\f[] template, with measurement units specified in square
+brackets at the end of the description (when applicable):
+.TP
+.B resync-rate
+Static re-synchronization rate. [KiB/s]
+.RS
+.RE
+.TP
+.B data-stripes
+Number of stripes to use for data LVs.
+.RS
+.RE
+.TP
+.B meta-stripes
+Number of stripes to use for meta LVs.
+.RS
+.RE
+.TP
+.B disk-barriers
+What kind of barriers to \f[B]disable\f[] for disks. It can either
+assume the value "n", meaning no barrier disabled, or a non-empty
+string containing a subset of the characters "bfd". "b" means
+disable disk barriers, "f" means disable disk flushes, "d" disables
+disk drains.
+.RS
+.RE
+.TP
+.B meta-barriers
+Boolean value indicating whether the meta barriers should be
+disabled (True) or not (False).
+.RS
+.RE
+.TP
+.B metavg
+String containing the name of the default LVM volume group for DRBD
+metadata. By default, it is set to \f[B]xenvg\f[].
+It can be overridden during the instance creation process by using
+the \f[B]metavg\f[] key of the \f[B]--disk\f[] parameter.
+.RS
+.RE
+.TP
+.B disk-custom
+String containing additional parameters to be appended to the
+arguments list of \f[B]drbdsetup\ disk\f[].
+.RS
+.RE
+.TP
+.B net-custom
+String containing additional parameters to be appended to the
+arguments list of \f[B]drbdsetup\ net\f[].
+.RS
+.RE
+.TP
+.B dynamic-resync
+Boolean indicating whether to use the dynamic resync speed
+controller or not. If enabled, c-plan-ahead must be non-zero and
+all the c-* parameters will be used by DRBD. Otherwise, the value
+of resync-rate will be used as a static resync speed.
+.RS
+.RE
+.TP
+.B c-plan-ahead
+Agility factor of the dynamic resync speed controller. (the higher,
+the slower the algorithm will adapt the resync speed). A value of 0
+(that is the default) disables the controller. [ds]
+.RS
+.RE
+.TP
+.B c-fill-target
+Maximum amount of in-flight resync data for the dynamic resync
+speed controller. [sectors]
+.RS
+.RE
+.TP
+.B c-delay-target
+Maximum estimated peer response latency for the dynamic resync
+speed controller. [ds]
+.RS
+.RE
+.TP
+.B c-min-rate
+Minimum resync speed for the dynamic resync speed controller.
+[KiB/s]
+.RS
+.RE
+.TP
+.B c-max-rate
+Upper bound on resync speed for the dynamic resync speed
+controller. [KiB/s]
+.RS
+.RE
+.PP
+List of parameters available for the \f[B]plain\f[] template:
+.TP
+.B stripes
+Number of stripes to use for new LVs.
+.RS
+.RE
+.PP
+List of parameters available for the \f[B]rbd\f[] template:
+.TP
+.B pool
+The RADOS cluster pool, inside which all rbd volumes will reside.
+When a new RADOS cluster is deployed, the default pool to put rbd
+volumes (Images in RADOS terminology) is \[aq]rbd\[aq].
+.RS
+.RE
+.PP
 The option \f[B]--maintain-node-health\f[] allows one to
 enable/disable automatic maintenance actions on nodes. Currently
 these include automatic shutdown of instances and deactivation of
 DRBD devices on offline nodes; in the future it might be extended
-to automatic removal of unknown LVM volumes, etc.
+to automatic removal of unknown LVM volumes, etc. Note that this
+option is only useful if the use of \f[B]ganeti-confd\f[] was
+enabled at compilation.
 .PP
 The \f[B]--uid-pool\f[] option initializes the user-id pool. The
 \f[I]user-id pool definition\f[] can contain a list of user-ids
@@ -449,6 +673,33 @@ The \f[B]-C\ (--candidate-pool-size)\f[] option specifies the
 of nodes that the master will try to keep as master_candidates. For
 more details about this role and other node roles, see the
 ganeti(7).
+.PP
+The \f[B]--specs-...\f[] and \f[B]--ipol-disk-templates\f[] options
+specify instance policy on the cluster. For the
+\f[B]--specs-...\f[] options, each option can have three values:
+\f[B]min\f[], \f[B]max\f[] and \f[B]std\f[], which can also be
+modified on group level (except for \f[B]std\f[], which is defined
+once for the entire cluster). Please note, that \f[B]std\f[] values
+are not the same as defaults set by \f[B]--beparams\f[], but they
+are used for the capacity calculations. The
+\f[B]--ipol-disk-templates\f[] option takes a comma-separated list
+of disk templates.
+.IP \[bu] 2
+\f[B]--specs-cpu-count\f[] limits the number of VCPUs that can be
+used by an instance.
+.IP \[bu] 2
+\f[B]--specs-disk-count\f[] limits the number of disks
+.IP \[bu] 2
+\f[B]--specs-disk-size\f[] limits the disk size for every disk used
+.IP \[bu] 2
+\f[B]--specs-mem-size\f[] limits the amount of memory available
+.IP \[bu] 2
+\f[B]--specs-nic-count\f[] sets limits on the number of NICs used
+.IP \[bu] 2
+\f[B]--ipol-disk-templates\f[] limits the allowed disk templates
+.PP
+For details about how to use \f[B]--hypervisor-state\f[] and
+\f[B]--disk-state\f[] have a look at \f[B]ganeti\f[](7).
 .SS LIST-TAGS
 .PP
 \f[B]list-tags\f[]
@@ -483,7 +734,7 @@ a crash or because this is not the master node), the exit code will
 be 1.
 .SS MODIFY
 .PP
-\f[B]modify\f[]
+\f[B]modify\f[] [--submit]
 .PD 0
 .P
 .PD
@@ -507,14 +758,17 @@ be 1.
 .P
 .PD
 [{-B|--backend-parameters}
-\f[I]be-param\f[]=\f[I]value\f[]
-[,\f[I]be-param\f[]=\f[I]value\f[]...]]
+\f[I]be-param\f[]=\f[I]value\f[][,\f[I]be-param\f[]=\f[I]value\f[]...]]
 .PD 0
 .P
 .PD
 [{-N|--nic-parameters}
-\f[I]nic-param\f[]=\f[I]value\f[]
-[,\f[I]nic-param\f[]=\f[I]value\f[]...]]
+\f[I]nic-param\f[]=\f[I]value\f[][,\f[I]nic-param\f[]=\f[I]value\f[]...]]
+.PD 0
+.P
+.PD
+[{-D|--disk-parameters}
+\f[I]disk-template\f[]:\f[I]disk-param\f[]=\f[I]value\f[][,\f[I]disk-param\f[]=\f[I]value\f[]...]]
 .PD 0
 .P
 .PD
@@ -564,18 +818,78 @@ no}]
 .PD
 [--master-netdev
 \f[I]interface-name\f[]]
+.PD 0
+.P
+.PD
+[--master-netmask
+\f[I]netmask\f[]]
+.PD 0
+.P
+.PD
+[--use-external-mip-script {yes |
+no}]
+.PD 0
+.P
+.PD
+[--hypervisor-state
+\f[I]hvstate\f[]]
+.PD 0
+.P
+.PD
+[--disk-state
+\f[I]diskstate\f[]]
+.PD 0
+.P
+.PD
+[--specs-cpu-count
+\f[I]spec-param\f[]=\f[I]value\f[]
+[,\f[I]spec-param\f[]=\f[I]value\f[]...]]
+.PD 0
+.P
+.PD
+[--specs-disk-count
+\f[I]spec-param\f[]=\f[I]value\f[]
+[,\f[I]spec-param\f[]=\f[I]value\f[]...]]
+.PD 0
+.P
+.PD
+[--specs-disk-size
+\f[I]spec-param\f[]=\f[I]value\f[]
+[,\f[I]spec-param\f[]=\f[I]value\f[]...]]
+.PD 0
+.P
+.PD
+[--specs-mem-size
+\f[I]spec-param\f[]=\f[I]value\f[]
+[,\f[I]spec-param\f[]=\f[I]value\f[]...]]
+.PD 0
+.P
+.PD
+[--specs-nic-count
+\f[I]spec-param\f[]=\f[I]value\f[]
+[,\f[I]spec-param\f[]=\f[I]value\f[]...]]
+.PD 0
+.P
+.PD
+[--ipol-disk-templates
+\f[I]template\f[] [,\f[I]template\f[]...]]
 .PP
 Modify the options for the cluster.
 .PP
 The \f[B]--vg-name\f[], \f[B]--no-lvm-storarge\f[],
 \f[B]--enabled-hypervisors\f[],
 \f[B]-H\ (--hypervisor-parameters)\f[],
-\f[B]-B\ (--backend-parameters)\f[], \f[B]--nic-parameters\f[],
+\f[B]-B\ (--backend-parameters)\f[],
+\f[B]-D\ (--disk-parameters)\f[], \f[B]--nic-parameters\f[],
 \f[B]-C\ (--candidate-pool-size)\f[],
 \f[B]--maintain-node-health\f[], \f[B]--prealloc-wipe-disks\f[],
 \f[B]--uid-pool\f[], \f[B]--node-parameters\f[],
-\f[B]--master-netdev\f[] options are described in the \f[B]init\f[]
-command.
+\f[B]--master-netdev\f[], \f[B]--master-netmask\f[] and
+\f[B]--use-external-mip-script\f[] options are described in the
+\f[B]init\f[] command.
+.PP
+The \f[B]--hypervisor-state\f[] and \f[B]--disk-state\f[] options
+are described in detail in \f[B]ganeti(7)\f[].
 .PP
 The \f[B]--add-uids\f[] and \f[B]--remove-uids\f[] options can be
 used to modify the user-id pool by adding/removing a list of
@@ -598,6 +912,12 @@ to the option, as in \f[B]--reserved-lvs=\f[] or
 The \f[B]-I\ (--default-iallocator)\f[] is described in the
 \f[B]init\f[] command. To clear the default iallocator, just pass
 an empty string (\[aq]\[aq]).
+.PP
+The \f[B]--specs-...\f[] and \f[B]--ipol-disk-templates\f[] options
+are described in the \f[B]init\f[] command.
+.PP
+See \f[B]ganeti(7)\f[] for a description of \f[B]--submit\f[] and
+other common options.
 .SS QUEUE
 .PP
 \f[B]queue\f[] {drain | undrain | info}
@@ -625,7 +945,7 @@ The \f[B]continue\f[] option will let the watcher continue.
 .PP
 The \f[B]info\f[] option shows whether the watcher is currently
 paused.
-.SS redist-conf
+.SS REDIST-CONF
 .PP
 \f[B]redist-conf\f[] [--submit]
 .PP
@@ -634,9 +954,8 @@ master node to the other nodes in the cluster. This is normally not
 needed, but can be run if the \f[B]verify\f[] complains about
 configuration mismatches.
 .PP
-The \f[B]--submit\f[] option is used to send the job to the master
-daemon but not wait for its completion. The job ID will be shown so
-that it can be examined via \f[B]gnt-job info\f[].
+See \f[B]ganeti(7)\f[] for a description of \f[B]--submit\f[] and
+other common options.
 .SS REMOVE-TAGS
 .PP
 \f[B]remove-tags\f[] [--from \f[I]file\f[]] {\f[I]tag\f[]...}
@@ -678,6 +997,17 @@ the \f[B]-f\f[] option.
 .PD 0
 .P
 .PD
+[--new-spice-certificate |
+--spice-certificate
+\f[I]spice-cert\f[]
+.PD 0
+.P
+.PD
+--spice-ca-certificate
+\f[I]spice-ca-cert\f[]]
+.PD 0
+.P
+.PD
 [--new-cluster-domain-secret]
 [--cluster-domain-secret \f[I]filename\f[]]
 .PP
@@ -693,6 +1023,12 @@ ganeti-rapi(8)) specify \f[B]--new-rapi-certificate\f[].
 If you want to use your own certificate, e.g. one signed by a
 certificate authority (CA), pass its filename to
 \f[B]--rapi-certificate\f[].
+.PP
+To generate a new self-signed SPICE certificate, used by SPICE
+connections to the KVM hypervisor, specify the
+\f[B]--new-spice-certificate\f[] option. If you want to provide a
+certificate, pass its filename to \f[B]--spice-certificate\f[] and
+pass the signing CA certificate to \f[B]--spice-ca-certificate\f[].
 .PP
 \f[B]--new-cluster-domain-secret\f[] generates a new, random
 cluster domain secret. \f[B]--cluster-domain-secret\f[] reads the
@@ -742,7 +1078,19 @@ Example:
 \f[]
 .SS VERIFY
 .PP
-\f[B]verify\f[] [--no-nplus1-mem] [--node-group \f[I]nodegroup\f[]]
+\f[B]verify\f[] [--no-nplus1-mem] [--node-group
+\f[I]nodegroup\f[]]
+.PD 0
+.P
+.PD
+[--error-codes]
+[{-I|--ignore-errors}
+\f[I]errorcode\f[]]
+.PD 0
+.P
+.PD
+[{-I|--ignore-errors}
+\f[I]errorcode\f[]...]
 .PP
 Verify correctness of cluster configuration. This is safe with
 respect to running instances, and incurs no downtime of the
@@ -756,6 +1104,205 @@ With \f[B]--node-group\f[], restrict the verification to those
 nodes and instances that live in the named group. This will not
 verify global settings, but will allow to perform verification of a
 group while other operations are ongoing in other groups.
+.PP
+The \f[B]--error-codes\f[] option outputs each error in the
+following parseable format:
+\f[I]ftype\f[]:\f[I]ecode\f[]:\f[I]edomain\f[]:\f[I]name\f[]:\f[I]msg\f[].
+These fields have the following meaning:
+.TP
+.B ftype
+Failure type. Can be \f[I]WARNING\f[] or \f[I]ERROR\f[].
+.RS
+.RE
+.TP
+.B ecode
+Error code of the failure. See below for a list of error codes.
+.RS
+.RE
+.TP
+.B edomain
+Can be \f[I]cluster\f[], \f[I]node\f[] or \f[I]instance\f[].
+.RS
+.RE
+.TP
+.B name
+Contains the name of the item that is affected from the failure.
+.RS
+.RE
+.TP
+.B msg
+Contains a descriptive error message about the error
+.RS
+.RE
+.PP
+\f[B]gnt-cluster\ verify\f[] will have a non-zero exit code if at
+least one of the failures that are found are of type
+\f[I]ERROR\f[].
+.PP
+The \f[B]--ignore-errors\f[] option can be used to change this
+behaviour, because it demotes the error represented by the error
+code received as a parameter to a warning. The option must be
+repeated for each error that should be ignored (e.g.:
+\f[B]-I\ ENODEVERSION\ -I\ ENODEORPHANLV\f[]). The
+\f[B]--error-codes\f[] option can be used to determine the error
+code of a given error.
+.PP
+List of error codes:
+.TP
+.B \f[B]EINSTANCEWRONGNODE\f[]
+Instance running on the wrong node
+.RS
+.RE
+.TP
+.B \f[B]ENODEOOBPATH\f[]
+Invalid Out Of Band path
+.RS
+.RE
+.TP
+.B \f[B]ENODEORPHANINSTANCE\f[]
+Unknown intance running on a node
+.RS
+.RE
+.TP
+.B \f[B]ENODENET\f[]
+Network-related node error
+.RS
+.RE
+.TP
+.B \f[B]ENODESSH\f[]
+SSH-related node error
+.RS
+.RE
+.TP
+.B \f[B]ECLUSTERFILECHECK\f[]
+Cluster configuration verification failure
+.RS
+.RE
+.TP
+.B \f[B]ENODEHOOKS\f[]
+Communication failure in hooks execution
+.RS
+.RE
+.TP
+.B \f[B]ENODEDRBD\f[]
+Error parsing the DRBD status file
+.RS
+.RE
+.TP
+.B \f[B]ENODEDRBDHELPER\f[]
+Error caused by the DRBD helper
+.RS
+.RE
+.TP
+.B \f[B]EINSTANCEMISSINGDISK\f[]
+Missing volume on an instance
+.RS
+.RE
+.TP
+.B \f[B]EINSTANCEPOLICY\f[]
+Instance does not meet policy
+.RS
+.RE
+.TP
+.B \f[B]ECLUSTERDANGLINGNODES\f[]
+Some nodes belong to non-existing groups
+.RS
+.RE
+.TP
+.B \f[B]EINSTANCEDOWN\f[]
+Instance not running on its primary node
+.RS
+.RE
+.TP
+.B \f[B]EINSTANCELAYOUT\f[]
+Instance has multiple secondary nodes
+.RS
+.RE
+.TP
+.B \f[B]EINSTANCEBADNODE\f[]
+Instance marked as running lives on an offline node
+.RS
+.RE
+.TP
+.B \f[B]ENODEUSERSCRIPTS\f[]
+User scripts not present or not executable
+.RS
+.RE
+.TP
+.B \f[B]ENODELVM\f[]
+LVM-related node error
+.RS
+.RE
+.TP
+.B \f[B]EINSTANCEFAULTYDISK\f[]
+Impossible to retrieve status for a disk
+.RS
+.RE
+.TP
+.B \f[B]ENODEVERSION\f[]
+Protocol version mismatch or Ganeti version mismatch
+.RS
+.RE
+.TP
+.B \f[B]ECLUSTERCERT\f[]
+Cluster certificate files verification failure
+.RS
+.RE
+.TP
+.B \f[B]ENODEHV\f[]
+Hypervisor parameters verification failure
+.RS
+.RE
+.TP
+.B \f[B]ENODETIME\f[]
+Node returned invalid time
+.RS
+.RE
+.TP
+.B \f[B]ENODEN1\f[]
+Not enough memory to accommodate instance failovers
+.RS
+.RE
+.TP
+.B \f[B]ENODEOS\f[]
+OS-related node error
+.RS
+.RE
+.TP
+.B \f[B]ENODERPC\f[]
+Error during connection to the primary node of an instance
+.RS
+.RE
+.TP
+.B \f[B]EINSTANCESPLITGROUPS\f[]
+Instance with primary and secondary nodes in different groups
+.RS
+.RE
+.TP
+.B \f[B]ENODESETUP\f[]
+Node setup error
+.RS
+.RE
+.TP
+.B \f[B]ECLUSTERCFG\f[]
+Cluster configuration verification failure
+.RS
+.RE
+.TP
+.B \f[B]ENODEORPHANLV\f[]
+Unknown LVM logical volume
+.RS
+.RE
+.TP
+.B \f[B]ENODEFILECHECK\f[]
+Error retrieving the checksum of the node files
+.RS
+.RE
+.TP
+.B \f[B]ECLUSTERDANGLINGINST\f[]
+Some instances have a non-existing primary node
+.RS
+.RE
 .SS VERIFY-DISKS
 .PP
 \f[B]verify-disks\f[]
@@ -798,10 +1345,11 @@ restarter), \f[B]ganeti-cleaner\f[](8) (job queue cleaner),
 Ganeti htools: \f[B]htools\f[](1) (generic binary),
 \f[B]hbal\f[](1) (cluster balancer), \f[B]hspace\f[](1) (capacity
 calculation), \f[B]hail\f[](1) (IAllocator plugin),
-\f[B]hscan\f[](1) (data gatherer from remote clusters).
+\f[B]hscan\f[](1) (data gatherer from remote clusters),
+\f[B]hinfo\f[](1) (cluster information printer).
 .SH COPYRIGHT
 .PP
-Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Google Inc.
+Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012 Google Inc.
 Permission is granted to copy, distribute and/or modify under the
 terms of the GNU General Public License as published by the Free
 Software Foundation; either version 2 of the License, or (at your

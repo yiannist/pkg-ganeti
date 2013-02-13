@@ -27,18 +27,19 @@ ADD
 ^^^
 
 | **add**
-| {-t|--disk-template {diskless | file \| plain \| drbd}}
-| {--disk=*N*: {size=*VAL* \| adopt=*LV*}[,vg=*VG*][,metavg=*VG*][,mode=*ro\|rw*]
-|  \| {-s|--os-size} *SIZE*}
-| [--no-ip-check] [--no-name-check] [--no-start] [--no-install]
-| [--net=*N* [:options...] \| --no-nics]
-| [{-B|--backend-parameters} *BEPARAMS*]
-| [{-H|--hypervisor-parameters} *HYPERVISOR* [: option=*value*... ]]
-| [{-O|--os-parameters} *param*=*value*... ]
-| [--file-storage-dir *dir\_path*] [--file-driver {loop \| blktap}]
-| {{-n|--node} *node[:secondary-node]* \| {-I|--iallocator} *name*}
-| {{-o|--os-type} *os-type*}
-| [--submit]
+| {-t|\--disk-template {diskless | file \| plain \| drbd \| rbd}}
+| {\--disk=*N*: {size=*VAL* \| adopt=*LV*}[,vg=*VG*][,metavg=*VG*][,mode=*ro\|rw*]
+|  \| {-s|\--os-size} *SIZE*}
+| [\--no-ip-check] [\--no-name-check] [\--no-start] [\--no-install]
+| [\--net=*N* [:options...] \| \--no-nics]
+| [{-B|\--backend-parameters} *BEPARAMS*]
+| [{-H|\--hypervisor-parameters} *HYPERVISOR* [: option=*value*... ]]
+| [{-O|\--os-parameters} *param*=*value*... ]
+| [\--file-storage-dir *dir\_path*] [\--file-driver {loop \| blktap}]
+| {{-n|\--node} *node[:secondary-node]* \| {-I|\--iallocator} *name*}
+| {{-o|\--os-type} *os-type*}
+| [\--submit]
+| [\--ignore-ipolicy]
 | {*instance*}
 
 Creates a new instance on the specified host. The *instance* argument
@@ -61,7 +62,7 @@ reuse those volumes (instead of creating new ones) as the
 instance's disks. Ganeti will rename these volumes to the standard
 format, and (without installing the OS) will use them as-is for the
 instance. This allows migrating instances from non-managed mode
-(e.q. plain KVM with LVM) to being managed via Ganeti. Note that
+(e.g. plain KVM with LVM) to being managed via Ganeti. Please note that
 this works only for the \`plain' disk template (see below for
 template details).
 
@@ -128,9 +129,13 @@ The ``-B (--backend-parameters)`` option specifies the backend
 parameters for the instance. If no such parameters are specified, the
 values are inherited from the cluster. Possible parameters are:
 
-memory
-    the memory size of the instance; as usual, suffixes can be used to
-    denote the unit, otherwise the value is taken in mebibites
+maxmem
+    the maximum memory size of the instance; as usual, suffixes can be
+    used to denote the unit, otherwise the value is taken in mebibytes
+
+minmem
+    the minimum memory size of the instance; as usual, suffixes can be
+    used to denote the unit, otherwise the value is taken in mebibytes
 
 vcpus
     the number of VCPUs to assign to the instance (if this value makes
@@ -140,6 +145,16 @@ auto\_balance
     whether the instance is considered in the N+1 cluster checks
     (enough redundancy in the cluster to survive a node failure)
 
+always\_failover
+    ``True`` or ``False``, whether the instance must be failed over
+    (shut down and rebooted) always or it may be migrated (briefly
+    suspended)
+
+Note that before 2.6 Ganeti had a ``memory`` parameter, which was the
+only value of memory an instance could have. With the
+``maxmem``/``minmem`` change Ganeti guarantees that at least the minimum
+memory is always available for an instance, but allows more memory to be
+used (up to the maximum memory) should it be free.
 
 The ``-H (--hypervisor-parameters)`` option specified the hypervisor
 to use for the instance (must be one of the enabled hypervisors on the
@@ -171,7 +186,7 @@ boot\_order
     n
         network boot (PXE)
 
-    The default is not to set an HVM boot order which is interpreted
+    The default is not to set an HVM boot order, which is interpreted
     as 'dc'.
 
     For KVM the boot order is either "floppy", "cdrom", "disk" or
@@ -301,6 +316,76 @@ spice\_ip\_version
     IPv6 addresses is specified via the ``spice_bind`` parameter. In
     this case, if the ``spice_ip_version`` parameter is not used, the
     default IP version of the cluster will be used.
+
+spice\_password\_file
+    Valid for the KVM hypervisor.
+
+    Specifies a file containing the password that must be used when
+    connecting via the SPICE protocol. If the option is not specified,
+    passwordless connections are allowed.
+
+spice\_image\_compression
+    Valid for the KVM hypervisor.
+
+    Configures the SPICE lossless image compression. Valid values are:
+
+    - auto_glz
+    - auto_lz
+    - quic
+    - glz
+    - lz
+    - off
+
+spice\_jpeg\_wan\_compression
+    Valid for the KVM hypervisor.
+
+    Configures how SPICE should use the jpeg algorithm for lossy image
+    compression on slow links. Valid values are:
+
+    - auto
+    - never
+    - always
+
+spice\_zlib\_glz\_wan\_compression
+    Valid for the KVM hypervisor.
+
+    Configures how SPICE should use the zlib-glz algorithm for lossy image
+    compression on slow links. Valid values are:
+
+    - auto
+    - never
+    - always
+
+spice\_streaming\_video
+    Valid for the KVM hypervisor.
+
+    Configures how SPICE should detect video streams. Valid values are:
+
+    - off
+    - all
+    - filter
+
+spice\_playback\_compression
+    Valid for the KVM hypervisor.
+
+    Configures whether SPICE should compress audio streams or not.
+
+spice\_use\_tls
+    Valid for the KVM hypervisor.
+
+    Specifies that the SPICE server must use TLS to encrypt all the
+    traffic with the client.
+
+spice\_tls\_ciphers
+    Valid for the KVM hypervisor.
+
+    Specifies a list of comma-separated ciphers that SPICE should use
+    for TLS connections. For the format, see man cipher(1).
+
+spice\_use\_vdagent
+    Valid for the KVM hypervisor.
+
+    Enables or disables passing mouse events via SPICE vdagent.
 
 acpi
     Valid for the Xen HVM and KVM hypervisors.
@@ -445,14 +530,49 @@ migration\_downtime
     versions >= 0.11.0.
 
 cpu\_mask
-    Valid for the LXC hypervisor.
+    Valid for the Xen, KVM and LXC hypervisors.
 
     The processes belonging to the given instance are only scheduled
     on the specified CPUs.
 
-    The parameter format is a comma-separated list of CPU IDs or CPU
-    ID ranges. The ranges are defined by a lower and higher boundary,
-    separated by a dash. The boundaries are inclusive.
+    The format of the mask can be given in three forms. First, the word
+    "all", which signifies the common case where all VCPUs can live on
+    any CPU, based on the hypervisor's decisions.
+
+    Second, a comma-separated list of CPU IDs or CPU ID ranges. The
+    ranges are defined by a lower and higher boundary, separated by a
+    dash, and the boundaries are inclusive. In this form, all VCPUs of
+    the instance will be mapped on the selected list of CPUs. Example:
+    ``0-2,5``, mapping all VCPUs (no matter how many) onto physical CPUs
+    0, 1, 2 and 5.
+
+    The last form is used for explicit control of VCPU-CPU pinnings. In
+    this form, the list of VCPU mappings is given as a colon (:)
+    separated list, whose elements are the possible values for the
+    second or first form above. In this form, the number of elements in
+    the colon-separated list _must_ equal the number of VCPUs of the
+    instance.
+
+    Example::
+
+      # Map the entire instance to CPUs 0-2
+      gnt-instance modify -H cpu_mask=0-2 my-inst
+
+      # Map vCPU 0 to physical CPU 1 and vCPU 1 to CPU 3 (assuming 2 vCPUs)
+      gnt-instance modify -H cpu_mask=1:3 my-inst
+
+      # Pin vCPU 0 to CPUs 1 or 2, and vCPU 1 to any CPU
+      gnt-instance modify -H cpu_mask=1-2:all my-inst
+
+      # Pin vCPU 0 to any CPU, vCPU 1 to CPUs 1, 3, 4 or 5, and CPU 2 to
+      # CPU 0 (backslashes for escaping the comma)
+      gnt-instance modify -H cpu_mask=all:1\\,3-5:0 my-inst
+
+      # Pin entire VM to CPU 0
+      gnt-instance modify -H cpu_mask=0 my-inst
+
+      # Turn off CPU pinning (default setting)
+      gnt-instance modify -H cpu_mask=all my-inst
 
 usb\_mouse
     Valid for the KVM hypervisor.
@@ -506,6 +626,9 @@ plain
 drbd
     Disk devices will be drbd (version 8.x) on top of lvm volumes.
 
+rbd
+    Disk devices will be rbd volumes residing inside a RADOS cluster.
+
 
 The optional second value of the ``-n (--node)`` is used for the drbd
 template type and specifies the remote node.
@@ -543,20 +666,21 @@ blktap
     better performance. Especially if you use a network file system
     (e.g. NFS) to store your instances this is the recommended choice.
 
+If ``--ignore-ipolicy`` is given any instance policy violations occuring
+during this operation are ignored.
 
-The ``--submit`` option is used to send the job to the master daemon
-but not wait for its completion. The job ID will be shown so that it
-can be examined via **gnt-job info**.
+See **ganeti(7)** for a description of ``--submit`` and other common
+options.
 
 Example::
 
-    # gnt-instance add -t file --disk 0:size=30g -B memory=512 -o debian-etch \
+    # gnt-instance add -t file --disk 0:size=30g -B maxmem=512 -o debian-etch \
       -n node1.example.com --file-storage-dir=mysubdir instance1.example.com
-    # gnt-instance add -t plain --disk 0:size=30g -B memory=512 -o debian-etch \
-      -n node1.example.com instance1.example.com
+    # gnt-instance add -t plain --disk 0:size=30g -B maxmem=1024,minmem=512 \
+      -o debian-etch -n node1.example.com instance1.example.com
     # gnt-instance add -t plain --disk 0:size=30g --disk 1:size=100g,vg=san \
-      -B memory=512 -o debian-etch -n node1.example.com instance1.example.com
-    # gnt-instance add -t drbd --disk 0:size=30g -B memory=512 -o debian-etch \
+      -B maxmem=512 -o debian-etch -n node1.example.com instance1.example.com
+    # gnt-instance add -t drbd --disk 0:size=30g -B maxmem=512 -o debian-etch \
       -n node1.example.com:node2.example.com instance2.example.com
 
 
@@ -641,7 +765,7 @@ parameters taken from the cluster defaults)::
         "iallocator": "dumb",
         "hypervisor": "xen-hvm",
         "hvparams": {"acpi": true},
-        "backend": {"memory": 512}
+        "backend": {"maxmem": 512, "minmem": 256}
       }
     }
 
@@ -655,8 +779,8 @@ follows::
 REMOVE
 ^^^^^^
 
-**remove** [--ignore-failures] [--shutdown-timeout=*N*] [--submit]
-[--force] {*instance*}
+**remove** [\--ignore-failures] [\--shutdown-timeout=*N*] [\--submit]
+[\--force] {*instance*}
 
 Remove an instance. This will remove all data from the instance and
 there is *no way back*. If you are not sure if you use an instance
@@ -673,11 +797,10 @@ before forcing the shutdown (e.g. ``xm destroy`` in Xen, killing the
 kvm process for KVM, etc.). By default two minutes are given to each
 instance to stop.
 
-The ``--submit`` option is used to send the job to the master daemon
-but not wait for its completion. The job ID will be shown so that it
-can be examined via **gnt-job info**.
-
 The ``--force`` option is used to skip the interactive confirmation.
+
+See **ganeti(7)** for a description of ``--submit`` and other common
+options.
 
 Example::
 
@@ -688,8 +811,8 @@ LIST
 ^^^^
 
 | **list**
-| [--no-headers] [--separator=*SEPARATOR*] [--units=*UNITS*] [-v]
-| [{-o|--output} *[+]FIELD,...*] [--filter] [instance...]
+| [\--no-headers] [\--separator=*SEPARATOR*] [\--units=*UNITS*] [-v]
+| [{-o|\--output} *[+]FIELD,...*] [\--filter] [instance...]
 
 Shows the currently configured instances with memory usage, disk
 usage, the node they are running on, and their run status.
@@ -713,11 +836,21 @@ The ``-o (--output)`` option takes a comma-separated list of output
 fields. The available fields and their meaning are:
 
 ``admin_state``
-  Desired state of instance (if set, the instance should be up)
+  Desired state of instance
+``admin_up``
+  Desired state of instance
+``be/always_failover``
+  The "always_failover" backend parameter
 ``be/auto_balance``
   The "auto_balance" backend parameter
+``be/maxmem``
+  The "maxmem" backend parameter
 ``be/memory``
-  The "memory" backend parameter
+  The "maxmem" backend parameter
+``be/minmem``
+  The "minmem" backend parameter
+``be/spindle_use``
+  The "spindle_use" backend parameter
 ``be/vcpus``
   The "vcpus" backend parameter
 ``beparams``
@@ -834,8 +967,26 @@ fields. The available fields and their meaning are:
   The "serial_console" hypervisor parameter
 ``hv/spice_bind``
   The "spice_bind" hypervisor parameter
+``hv/spice_image_compression``
+  The "spice_image_compression" hypervisor parameter
 ``hv/spice_ip_version``
   The "spice_ip_version" hypervisor parameter
+``hv/spice_jpeg_wan_compression``
+  The "spice_jpeg_wan_compression" hypervisor parameter
+``hv/spice_password_file``
+  The "spice_password_file" hypervisor parameter
+``hv/spice_playback_compression``
+  The "spice_playback_compression" hypervisor parameter
+``hv/spice_streaming_video``
+  The "spice_streaming_video" hypervisor parameter
+``hv/spice_tls_ciphers``
+  The "spice_tls_ciphers" hypervisor parameter
+``hv/spice_use_tls``
+  The "spice_use_tls" hypervisor parameter
+``hv/spice_use_vdagent``
+  The "spice_use_vdagent" hypervisor parameter
+``hv/spice_zlib_glz_wan_compression``
+  The "spice_zlib_glz_wan_compression" hypervisor parameter
 ``hv/usb_mouse``
   The "usb_mouse" hypervisor parameter
 ``hv/use_bootloader``
@@ -995,7 +1146,7 @@ fields. The available fields and their meaning are:
 ``snodes.group.uuid``
   Node group UUIDs of secondary nodes
 ``status``
-  Instance status; "running" if instance is set to be running and actually is, "ADMIN_down" if instance is stopped and is not running, "ERROR_wrongnode" if instance running, but not on its designated primary node, "ERROR_up" if instance should be stopped, but is actually running, "ERROR_down" if instance should run, but doesn't, "ERROR_nodedown" if instance's primary node is down, "ERROR_nodeoffline" if instance's primary node is marked offline
+  Instance status; "running" if instance is set to be running and actually is, "ADMIN_down" if instance is stopped and is not running, "ERROR_wrongnode" if instance running, but not on its designated primary node, "ERROR_up" if instance should be stopped, but is actually running, "ERROR_down" if instance should run, but doesn't, "ERROR_nodedown" if instance's primary node is down, "ERROR_nodeoffline" if instance's primary node is marked offline, "ADMIN_offline" if instance is offline and does not use dynamic resources
 ``tags``
   Tags
 ``uuid``
@@ -1038,7 +1189,7 @@ Lists available fields for instances.
 INFO
 ^^^^
 
-**info** [-s \| --static] [--roman] {--all \| *instance*}
+**info** [-s \| \--static] [\--roman] {\--all \| *instance*}
 
 Show detailed information about the given instance(s). This is
 different from **list** as it shows detailed data about the instance's
@@ -1059,15 +1210,18 @@ MODIFY
 ^^^^^^
 
 | **modify**
-| [{-H|--hypervisor-parameters} *HYPERVISOR\_PARAMETERS*]
-| [{-B|--backend-parameters} *BACKEND\_PARAMETERS*]
-| [--net add*[:options]* \| --net remove \| --net *N:options*]
-| [--disk add:size=*SIZE*[,vg=*VG*][,metavg=*VG*] \| --disk remove \|
-|  --disk *N*:mode=*MODE*]
-| [{-t|--disk-template} plain | {-t|--disk-template} drbd -n *new_secondary*] [--no-wait-for-sync]
-| [--os-type=*OS* [--force-variant]]
-| [{-O|--os-parameters} *param*=*value*... ]
-| [--submit]
+| [{-H|\--hypervisor-parameters} *HYPERVISOR\_PARAMETERS*]
+| [{-B|\--backend-parameters} *BACKEND\_PARAMETERS*]
+| [{-m|\--runtime-memory} *SIZE*]
+| [\--net add*[:options]* \| \--net remove \| \--net *N:options*]
+| [\--disk add:size=*SIZE*[,vg=*VG*][,metavg=*VG*] \| \--disk remove \|
+|  \--disk *N*:mode=*MODE*]
+| [{-t|\--disk-template} plain | {-t|\--disk-template} drbd -n *new_secondary*] [\--no-wait-for-sync]
+| [\--os-type=*OS* [\--force-variant]]
+| [{-O|\--os-parameters} *param*=*value*... ]
+| [\--offline \| \--online]
+| [\--submit]
+| [\--ignore-ipolicy]
 | {*instance*}
 
 Modifies the memory size, number of vcpus, ip address, MAC address
@@ -1089,20 +1243,28 @@ option. The option ``--no-wait-for-sync`` can be used when converting
 to the ``drbd`` template in order to make the instance available for
 startup before DRBD has finished resyncing.
 
+The ``-m (--runtime-memory)`` option will change an instance's runtime
+memory to the given size (in MB if a different suffix is not specified),
+by ballooning it up or down to the new value.
+
 The ``--disk add:size=``*SIZE* option adds a disk to the instance. The
-optional ``vg=``*VG* option specifies LVM volume group other than
-default vg to create the disk on. For DRBD disks, the ``metavg=``*VG*
-option specifies the volume group for the metadata device. The
-``--disk remove`` option will remove the last disk of the
-instance. The ``--disk`` *N*``:mode=``*MODE* option will change the
-mode of the Nth disk of the instance between read-only (``ro``) and
+optional ``vg=``*VG* option specifies an LVM volume group other than
+the default volume group to create the disk on. For DRBD disks, the
+``metavg=``*VG* option specifies the volume group for the metadata
+device. ``--disk`` *N*``:add,size=``**SIZE** can be used to add a
+disk at a specific index. The ``--disk remove`` option will remove the
+last disk of the instance. Use ``--disk `` *N*``:remove`` to remove a
+disk by its index. The ``--disk`` *N*``:mode=``*MODE* option will change
+the mode of the Nth disk of the instance between read-only (``ro``) and
 read-write (``rw``).
 
-The ``--net add:``*options* option will add a new NIC to the
-instance. The available options are the same as in the **add** command
-(mac, ip, link, mode). The ``--net remove`` will remove the last NIC
-of the instance, while the ``--net`` *N*:*options* option will change
-the parameters of the Nth instance NIC.
+The ``--net add:``*options* and ``--net`` *N*``:add,``*options* option
+will add a new network interface to the instance. The available options
+are the same as in the **add** command (``mac``, ``ip``, ``link``,
+``mode``). The ``--net remove`` will remove the last network interface
+of the instance (``--net`` *N*``:remove`` for a specific index), while
+the ``--net`` *N*``:``*options* option will change the parameters of the Nth
+instance network interface.
 
 The option ``-o (--os-type)`` will change the OS name for the instance
 (without reinstallation). In case an OS variant is specified that is
@@ -1110,20 +1272,29 @@ not found, then by default the modification is refused, unless
 ``--force-variant`` is passed. An invalid OS will also be refused,
 unless the ``--force`` option is given.
 
-The ``--submit`` option is used to send the job to the master daemon
-but not wait for its completion. The job ID will be shown so that it
-can be examined via **gnt-job info**.
+The ``--online`` and ``--offline`` options are used to transition an
+instance into and out of the ``offline`` state. An instance can be
+turned offline only if it was previously down. The ``--online`` option
+fails if the instance was not in the ``offline`` state, otherwise it
+changes instance's state to ``down``. These modifications take effect
+immediately.
 
-All the changes take effect at the next restart. If the instance is
+If ``--ignore-ipolicy`` is given any instance policy violations occuring
+during this operation are ignored.
+
+See **ganeti(7)** for a description of ``--submit`` and other common
+options.
+
+Most of the changes take effect at the next restart. If the instance is
 running, there is no effect on the instance.
 
 REINSTALL
 ^^^^^^^^^
 
-| **reinstall** [{-o|--os-type} *os-type*] [--select-os] [-f *force*]
-| [--force-multiple]
-| [--instance \| --node \| --primary \| --secondary \| --all]
-| [{-O|--os-parameters} *OS\_PARAMETERS*] [--submit] {*instance*...}
+| **reinstall** [{-o|\--os-type} *os-type*] [\--select-os] [-f *force*]
+| [\--force-multiple]
+| [\--instance \| \--node \| \--primary \| \--secondary \| \--all]
+| [{-O|\--os-parameters} *OS\_PARAMETERS*] [\--submit] {*instance*...}
 
 Reinstalls the operating system on the given instance(s). The
 instance(s) must be stopped when running this command. If the ``-o
@@ -1142,14 +1313,13 @@ arguments or by using the ``--node``, ``--primary``, ``--secondary``
 or ``--all`` options), the user must pass the ``--force-multiple``
 options to skip the interactive confirmation.
 
-The ``--submit`` option is used to send the job to the master daemon
-but not wait for its completion. The job ID will be shown so that it
-can be examined via **gnt-job info**.
+See **ganeti(7)** for a description of ``--submit`` and other common
+options.
 
 RENAME
 ^^^^^^
 
-| **rename** [--no-ip-check] [--no-name-check] [--submit]
+| **rename** [\--no-ip-check] [\--no-name-check] [\--submit]
 | {*instance*} {*new\_name*}
 
 Renames the given instance. The instance must be stopped when running
@@ -1165,9 +1335,8 @@ that the resolved name matches the provided name. Since the name check
 is used to compute the IP address, if you pass this option you must also
 pass the ``--no-ip-check`` option.
 
-The ``--submit`` option is used to send the job to the master daemon
-but not wait for its completion. The job ID will be shown so that it
-can be examined via **gnt-job info**.
+See **ganeti(7)** for a description of ``--submit`` and other common
+options.
 
 Starting/stopping/connecting to console
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1176,50 +1345,50 @@ STARTUP
 ^^^^^^^
 
 | **startup**
-| [--force] [--ignore-offline]
-| [--force-multiple] [--no-remember]
-| [--instance \| --node \| --primary \| --secondary \| --all \|
-| --tags \| --node-tags \| --pri-node-tags \| --sec-node-tags]
-| [{-H|--hypervisor-parameters} ``key=value...``]
-| [{-B|--backend-parameters} ``key=value...``]
-| [--submit] [--paused]
+| [\--force] [\--ignore-offline]
+| [\--force-multiple] [\--no-remember]
+| [\--instance \| \--node \| \--primary \| \--secondary \| \--all \|
+| \--tags \| \--node-tags \| \--pri-node-tags \| \--sec-node-tags]
+| [{-H|\--hypervisor-parameters} ``key=value...``]
+| [{-B|\--backend-parameters} ``key=value...``]
+| [\--submit] [\--paused]
 | {*name*...}
 
 Starts one or more instances, depending on the following options.  The
 four available modes are:
 
---instance
+\--instance
     will start the instances given as arguments (at least one argument
     required); this is the default selection
 
---node
+\--node
     will start the instances who have the given node as either primary
     or secondary
 
---primary
+\--primary
     will start all instances whose primary node is in the list of nodes
     passed as arguments (at least one node required)
 
---secondary
+\--secondary
     will start all instances whose secondary node is in the list of
     nodes passed as arguments (at least one node required)
 
---all
+\--all
     will start all instances in the cluster (no arguments accepted)
 
---tags
+\--tags
     will start all instances in the cluster with the tags given as
     arguments
 
---node-tags
+\--node-tags
     will start all instances in the cluster on nodes with the tags
     given as arguments
 
---pri-node-tags
+\--pri-node-tags
     will start all instances in the cluster on primary nodes with the
     tags given as arguments
 
---sec-node-tags
+\--sec-node-tags
     will start all instances in the cluster on secondary nodes with the
     tags given as arguments
 
@@ -1247,7 +1416,7 @@ useful for quick testing without having to modify an instance back and
 forth, e.g.::
 
     # gnt-instance start -H kernel_args="single" instance1
-    # gnt-instance start -B memory=2048 instance2
+    # gnt-instance start -B maxmem=2048 instance2
 
 
 The first form will start the instance instance1 in single-user mode,
@@ -1255,15 +1424,15 @@ and the instance instance2 with 2GB of RAM (this time only, unless
 that is the actual instance memory size already). Note that the values
 override the instance parameters (and not extend them): an instance
 with "kernel\_args=ro" when started with -H kernel\_args=single will
-result in "single", not "ro single".  The ``--submit`` option is used
-to send the job to the master daemon but not wait for its
-completion. The job ID will be shown so that it can be examined via
-**gnt-job info**.
+result in "single", not "ro single".
 
 The ``--paused`` option is only valid for Xen and kvm hypervisors.  This
 pauses the instance at the start of bootup, awaiting ``gnt-instance
 console`` to unpause it, allowing the entire boot process to be
 monitored for debugging.
+
+See **ganeti(7)** for a description of ``--submit`` and other common
+options.
 
 Example::
 
@@ -1276,11 +1445,11 @@ SHUTDOWN
 ^^^^^^^^
 
 | **shutdown**
-| [--timeout=*N*]
-| [--force-multiple] [--ignore-offline] [--no-remember]
-| [--instance \| --node \| --primary \| --secondary \| --all \|
-| --tags \| --node-tags \| --pri-node-tags \| --sec-node-tags]
-| [--submit]
+| [\--timeout=*N*]
+| [\--force-multiple] [\--ignore-offline] [\--no-remember]
+| [\--instance \| \--node \| \--primary \| \--secondary \| \--all \|
+| \--tags \| \--node-tags \| \--pri-node-tags \| \--sec-node-tags]
+| [\--submit]
 | {*name*...}
 
 Stops one or more instances. If the instance cannot be cleanly stopped
@@ -1298,10 +1467,6 @@ The ``--instance``, ``--node``, ``--primary``, ``--secondary``,
 ``--sec-node-tags`` options are similar as for the **startup** command
 and they influence the actual instances being shutdown.
 
-The ``--submit`` option is used to send the job to the master daemon
-but not wait for its completion. The job ID will be shown so that it
-can be examined via **gnt-job info**.
-
 ``--ignore-offline`` can be used to ignore offline primary nodes and
 force the instance to be marked as stopped. This option should be used
 with care as it can lead to an inconsistent cluster state.
@@ -1315,6 +1480,9 @@ you just need to disable the watcher, shutdown all instances with
 ``--no-remember``, and when the watcher is activated again it will
 restore the correct runtime state for all instances.
 
+See **ganeti(7)** for a description of ``--submit`` and other common
+options.
+
 Example::
 
     # gnt-instance shutdown instance1.example.com
@@ -1325,13 +1493,13 @@ REBOOT
 ^^^^^^
 
 | **reboot**
-| [{-t|--type} *REBOOT-TYPE*]
-| [--ignore-secondaries]
-| [--shutdown-timeout=*N*]
-| [--force-multiple]
-| [--instance \| --node \| --primary \| --secondary \| --all \|
-| --tags \| --node-tags \| --pri-node-tags \| --sec-node-tags]
-| [--submit]
+| [{-t|\--type} *REBOOT-TYPE*]
+| [\--ignore-secondaries]
+| [\--shutdown-timeout=*N*]
+| [\--force-multiple]
+| [\--instance \| \--node \| \--primary \| \--secondary \| \--all \|
+| \--tags \| \--node-tags \| \--pri-node-tags \| \--sec-node-tags]
+| [\--submit]
 | [*name*...]
 
 Reboots one or more instances. The type of reboot depends on the value
@@ -1357,6 +1525,9 @@ to stop.
 The ``--force-multiple`` will skip the interactive confirmation in the
 case the more than one instance will be affected.
 
+See **ganeti(7)** for a description of ``--submit`` and other common
+options.
+
 Example::
 
     # gnt-instance reboot instance1.example.com
@@ -1366,7 +1537,7 @@ Example::
 CONSOLE
 ^^^^^^^
 
-**console** [--show-cmd] {*instance*}
+**console** [\--show-cmd] {*instance*}
 
 Connects to the console of the given instance. If the instance is not
 up, an error is returned. Use the ``--show-cmd`` option to display the
@@ -1392,17 +1563,17 @@ Disk management
 REPLACE-DISKS
 ^^^^^^^^^^^^^
 
-**replace-disks** [--submit] [--early-release] {-p} [--disks *idx*]
-{*instance*}
+**replace-disks** [\--submit] [\--early-release] [\--ignore-ipolicy] {-p}
+[\--disks *idx*] {*instance*}
 
-**replace-disks** [--submit] [--early-release] {-s} [--disks *idx*]
-{*instance*}
+**replace-disks** [\--submit] [\--early-release] [\--ignore-ipolicy] {-s}
+[\--disks *idx*] {*instance*}
 
-**replace-disks** [--submit] [--early-release] {--iallocator *name*
-\| --new-secondary *NODE*} {*instance*}
+**replace-disks** [\--submit] [\--early-release] [\--ignore-ipolicy]
+{{-I\|\--iallocator} *name* \| \--node *node* } {*instance*}
 
-**replace-disks** [--submit] [--early-release] {--auto}
-{*instance*}
+**replace-disks** [\--submit] [\--early-release] [\--ignore-ipolicy]
+{\--auto} {*instance*}
 
 This command is a generalized form for replacing disks. It is
 currently only valid for the mirrored (DRBD) disk template.
@@ -1422,15 +1593,14 @@ selected automatically by the specified allocator plugin, otherwise
 the new secondary node will be the one chosen manually via the
 ``--new-secondary`` option.
 
+Note that it is not possible to select an offline or drained node as a
+new secondary.
+
 The fourth form (when using ``--auto``) will automatically determine
 which disks of an instance are faulty and replace them within the same
 node. The ``--auto`` option works only when an instance has only
 faulty disks on either the primary or secondary node; it doesn't work
 when both sides have faulty disks.
-
-The ``--submit`` option is used to send the job to the master daemon
-but not wait for its completion. The job ID will be shown so that it
-can be examined via **gnt-job info**.
 
 The ``--early-release`` changes the code so that the old storage on
 secondary node(s) is removed early (before the resync is completed)
@@ -1441,13 +1611,17 @@ disk failure on the current secondary (thus the old storage is already
 broken) or when the storage on the primary node is known to be fine
 (thus we won't need the old storage for potential recovery).
 
-Note that it is not possible to select an offline or drained node as a
-new secondary.
+The ``--ignore-ipolicy`` let the command ignore instance policy
+violations if replace-disks changes groups and the instance would
+violate the new groups instance policy.
+
+See **ganeti(7)** for a description of ``--submit`` and other common
+options.
 
 ACTIVATE-DISKS
 ^^^^^^^^^^^^^^
 
-**activate-disks** [--submit] [--ignore-size] {*instance*}
+**activate-disks** [\--submit] [\--ignore-size] {*instance*}
 
 Activates the block devices of the given instance. If successful, the
 command will show the location and name of the block devices::
@@ -1460,10 +1634,7 @@ In this example, *node1.example.com* is the name of the node on which
 the devices have been activated. The *disk/0* and *disk/1* are the
 Ganeti-names of the instance disks; how they are visible inside the
 instance is hypervisor-specific. */dev/drbd0* and */dev/drbd1* are the
-actual block devices as visible on the node.  The ``--submit`` option
-is used to send the job to the master daemon but not wait for its
-completion. The job ID will be shown so that it can be examined via
-**gnt-job info**.
+actual block devices as visible on the node.
 
 The ``--ignore-size`` option can be used to activate disks ignoring
 the currently configured size in Ganeti. This can be used in cases
@@ -1475,10 +1646,13 @@ when activate-disks fails without it.
 Note that it is safe to run this command while the instance is already
 running.
 
+See **ganeti(7)** for a description of ``--submit`` and other common
+options.
+
 DEACTIVATE-DISKS
 ^^^^^^^^^^^^^^^^
 
-**deactivate-disks** [-f] [--submit] {*instance*}
+**deactivate-disks** [-f] [\--submit] {*instance*}
 
 De-activates the block devices of the given instance. Note that if you
 run this command for an instance with a drbd disk template, while it
@@ -1493,18 +1667,17 @@ option passed it will skip this check and directly try to deactivate
 the disks. This can still fail due to the instance actually running or
 other issues.
 
-The ``--submit`` option is used to send the job to the master daemon
-but not wait for its completion. The job ID will be shown so that it
-can be examined via **gnt-job info**.
+See **ganeti(7)** for a description of ``--submit`` and other common
+options.
 
 GROW-DISK
 ^^^^^^^^^
 
-**grow-disk** [--no-wait-for-sync] [--submit] {*instance*} {*disk*}
-{*amount*}
+| **grow-disk** [\--no-wait-for-sync] [\--submit] [\--absolute]
+| {*instance*} {*disk*} {*amount*}
 
 Grows an instance's disk. This is only possible for instances having a
-plain or drbd disk template.
+plain, drbd or rbd disk template.
 
 Note that this command only change the block device size; it will not
 grow the actual filesystems, partitions, etc. that live on that
@@ -1519,27 +1692,34 @@ disk. Usually, you will need to:
    the partition table on the disk
 
 The *disk* argument is the index of the instance disk to grow. The
-*amount* argument is given either as a number (and it represents the
-amount to increase the disk with in mebibytes) or can be given similar
-to the arguments in the create instance operation, with a suffix
-denoting the unit.
+*amount* argument is given as a number which can have a suffix (like the
+disk size in instance create); if the suffix is missing, the value will
+be interpreted as mebibytes.
 
-Note that the disk grow operation might complete on one node but fail
-on the other; this will leave the instance with different-sized LVs on
-the two nodes, but this will not create problems (except for unused
-space).
+By default, the *amount* value represents the desired increase in the
+disk size (e.g. an amount of 1G will take a disk of size 3G to 4G). If
+the optional ``--absolute`` parameter is passed, then the *amount*
+argument doesn't represent the delta, but instead the desired final disk
+size (e.g. an amount of 8G will take a disk of size 4G to 8G).
+
+For instances with a drbd template, note that the disk grow operation
+might complete on one node but fail on the other; this will leave the
+instance with different-sized LVs on the two nodes, but this will not
+create problems (except for unused space).
 
 If you do not want gnt-instance to wait for the new disk region to be
 synced, use the ``--no-wait-for-sync`` option.
 
-The ``--submit`` option is used to send the job to the master daemon
-but not wait for its completion. The job ID will be shown so that it
-can be examined via **gnt-job info**.
+See **ganeti(7)** for a description of ``--submit`` and other common
+options.
 
 Example (increase the first disk for instance1 by 16GiB)::
 
     # gnt-instance grow-disk instance1.example.com 0 16g
 
+Example for increasing the disk size to a certain size::
+
+   # gnt-instance grow-disk --absolute instance1.example.com 0 32g
 
 Also note that disk shrinking is not supported; use **gnt-backup
 export** and then **gnt-backup import** to reduce the disk size of an
@@ -1548,17 +1728,22 @@ instance.
 RECREATE-DISKS
 ^^^^^^^^^^^^^^
 
-**recreate-disks** [--submit] [--disks=``indices``] [-n node1:[node2]]
-  {*instance*}
+| **recreate-disks** [\--submit] [-n node1:[node2]]
+| [\--disk=*N*[:[size=*VAL*][,mode=*ro\|rw*]]] {*instance*}
 
-Recreates the disks of the given instance, or only a subset of the
-disks (if the option ``disks`` is passed, which must be a
-comma-separated list of disk indices, starting from zero).
+Recreates all or a subset of disks of the given instance.
 
 Note that this functionality should only be used for missing disks; if
 any of the given disks already exists, the operation will fail.  While
 this is suboptimal, recreate-disks should hopefully not be needed in
 normal operation and as such the impact of this is low.
+
+If only a subset should be recreated, any number of ``disk`` options can
+be specified. It expects a disk index and an optional list of disk
+parameters to change. Only ``size`` and ``mode`` can be changed while
+recreating disks. To recreate all disks while changing parameters on
+a subset only, a ``--disk`` option must be given for every disk of the
+instance.
 
 Optionally the instance's disks can be recreated on different
 nodes. This can be useful if, for example, the original nodes of the
@@ -1566,12 +1751,11 @@ instance have gone down (and are marked offline), so we can't recreate
 on the same nodes. To do this, pass the new node(s) via ``-n`` option,
 with a syntax similar to the **add** command. The number of nodes
 passed must equal the number of nodes that the instance currently
-has. Note that changing nodes is only allowed for 'all disk'
-replacement (when ``--disks`` is not passed).
+has. Note that changing nodes is only allowed when all disks are
+replaced, e.g. when no ``--disk`` option is passed.
 
-The ``--submit`` option is used to send the job to the master daemon
-but not wait for its completion. The job ID will be shown so that it
-can be examined via **gnt-job info**.
+See **ganeti(7)** for a description of ``--submit`` and other common
+options.
 
 Recovery
 ~~~~~~~~
@@ -1579,15 +1763,24 @@ Recovery
 FAILOVER
 ^^^^^^^^
 
-**failover** [-f] [--ignore-consistency] [--shutdown-timeout=*N*]
-[--submit] {*instance*}
+| **failover** [-f] [\--ignore-consistency] [\--ignore-ipolicy]
+| [\--shutdown-timeout=*N*]
+| [{-n|\--target-node} *node* \| {-I|\--iallocator} *name*]
+| [\--submit]
+| {*instance*}
 
 Failover will stop the instance (if running), change its primary node,
 and if it was originally running it will start it again (on the new
 primary). This only works for instances with drbd template (in which
 case you can only fail to the secondary node) and for externally
-mirrored templates (shared storage) (which can change to any other
+mirrored templates (blockdev and rbd) (which can change to any other
 node).
+
+If the instance's disk template is of type blockdev or rbd, then you
+can explicitly specify the target node (which can be any node) using
+the ``-n`` or ``--target-node`` option, or specify an iallocator plugin
+using the ``-I`` or ``--iallocator`` option. If you omit both, the default
+iallocator will be used to specify the target node.
 
 Normally the failover will check the consistency of the disks before
 failing over the instance. If you are trying to migrate instances off
@@ -1602,9 +1795,11 @@ before forcing the shutdown (xm destroy in xen, killing the kvm
 process, for kvm). By default two minutes are given to each instance
 to stop.
 
-The ``--submit`` option is used to send the job to the master daemon
-but not wait for its completion. The job ID will be shown so that it
-can be examined via **gnt-job info**.
+If ``--ignore-ipolicy`` is given any instance policy violations occuring
+during this operation are ignored.
+
+See **ganeti(7)** for a description of ``--submit`` and other common
+options.
 
 Example::
 
@@ -1614,14 +1809,23 @@ Example::
 MIGRATE
 ^^^^^^^
 
-**migrate** [-f] {--cleanup} {*instance*}
+| **migrate** [-f] [\--allow-failover] [\--non-live]
+| [\--migration-mode=live\|non-live] [\--ignore-ipolicy]
+| [\--no-runtime-changes] [\--submit]
+| [{-n|\--target-node} *node* \| {-I|\--iallocator} *name*] {*instance*}
 
-**migrate** [-f] [--allow-failover] [--non-live]
-[--migration-mode=live\|non-live] {*instance*}
+| **migrate** [-f] \--cleanup [\--submit] {*instance*}
 
-Migrate will move the instance to its secondary node without
-shutdown. It only works for instances having the drbd8 disk template
-type.
+Migrate will move the instance to its secondary node without shutdown.
+As with failover, it only works for instances having the drbd disk
+template or an externally mirrored disk template type such as blockdev
+or rbd.
+
+If the instance's disk template is of type blockdev or rbd, then you can
+explicitly specify the target node (which can be any node) using the
+``-n`` or ``--target-node`` option, or specify an iallocator plugin
+using the ``-I`` or ``--iallocator`` option. If you omit both, the
+default iallocator will be used to specify the target node.
 
 The migration command needs a perfectly healthy instance, as we rely
 on the dual-master capability of drbd8 and the disks of the instance
@@ -1649,36 +1853,50 @@ ignored.
 The option ``-f`` will skip the prompting for confirmation.
 
 If ``--allow-failover`` is specified it tries to fallback to failover if
-it already can determine that a migration wont work (i.e. if the
-instance is shutdown). Please note that the fallback will not happen
+it already can determine that a migration won't work (e.g. if the
+instance is shut down). Please note that the fallback will not happen
 during execution. If a migration fails during execution it still fails.
+
+If ``--ignore-ipolicy`` is given any instance policy violations occuring
+during this operation are ignored.
+
+The ``--no-runtime-changes`` option forbids migrate to alter an
+instance's runtime before migrating it (eg. ballooning an instance
+down because the target node doesn't have enough available memory).
+
+See **ganeti(7)** for a description of ``--submit`` and other common
+options.
 
 Example (and expected output)::
 
     # gnt-instance migrate instance1
-    Migrate will happen to the instance instance1. Note that migration is
-    **experimental** in this version. This might impact the instance if
-    anything goes wrong. Continue?
+    Instance instance1 will be migrated. Note that migration
+    might impact the instance if anything goes wrong (e.g. due to bugs in
+    the hypervisor). Continue?
     y/[n]/?: y
+    Migrating instance instance1.example.com
     * checking disk consistency between source and target
-    * ensuring the target is in secondary mode
+    * switching node node2.example.com to secondary mode
+    * changing into standalone mode
     * changing disks into dual-master mode
-     - INFO: Waiting for instance instance1 to sync disks.
-     - INFO: Instance instance1's disks are in sync.
+    * wait until resync is done
+    * preparing node2.example.com to accept the instance
     * migrating instance to node2.example.com
-    * changing the instance's disks on source node to secondary
-     - INFO: Waiting for instance instance1 to sync disks.
-     - INFO: Instance instance1's disks are in sync.
-    * changing the instance's disks to single-master
+    * switching node node1.example.com to secondary mode
+    * wait until resync is done
+    * changing into standalone mode
+    * changing disks into single-master mode
+    * wait until resync is done
+    * done
     #
 
 
 MOVE
 ^^^^
 
-**move** [-f] [--ignore-consistency]
-[-n *node*] [--shutdown-timeout=*N*] [--submit]
-{*instance*}
+| **move** [-f] [\--ignore-consistency]
+| [-n *node*] [\--shutdown-timeout=*N*] [\--submit] [\--ignore-ipolicy]
+| {*instance*}
 
 Move will move the instance to an arbitrary node in the cluster.  This
 works only for instances having a plain or file disk template.
@@ -1696,9 +1914,11 @@ The ``--ignore-consistency`` option will make Ganeti ignore any errors
 in trying to shutdown the instance on its node; useful if the
 hypervisor is broken and you want to recuperate the data.
 
-The ``--submit`` option is used to send the job to the master daemon
-but not wait for its completion. The job ID will be shown so that it
-can be examined via **gnt-job info**.
+If ``--ignore-ipolicy`` is given any instance policy violations occuring
+during this operation are ignored.
+
+See **ganeti(7)** for a description of ``--submit`` and other common
+options.
 
 Example::
 
@@ -1708,7 +1928,8 @@ Example::
 CHANGE-GROUP
 ~~~~~~~~~~~~
 
-**change-group** [--iallocator *NAME*] [--to *GROUP*...] {*instance*}
+| **change-group** [\--submit]
+| [\--iallocator *NAME*] [\--to *GROUP*...] {*instance*}
 
 This command moves an instance to another node group. The move is
 calculated by an iallocator, either given on the command line or as a
@@ -1716,6 +1937,9 @@ cluster default.
 
 If no specific destination groups are specified using ``--to``, all
 groups except the one containing the instance are considered.
+
+See **ganeti(7)** for a description of ``--submit`` and other common
+options.
 
 Example::
 
@@ -1728,7 +1952,7 @@ TAGS
 ADD-TAGS
 ^^^^^^^^
 
-**add-tags** [--from *file*] {*instancename*} {*tag*...}
+**add-tags** [\--from *file*] {*instancename*} {*tag*...}
 
 Add tags to the given instance. If any of the tags contains invalid
 characters, the entire operation will abort.
@@ -1749,7 +1973,7 @@ List the tags of the given instance.
 REMOVE-TAGS
 ^^^^^^^^^^^
 
-**remove-tags** [--from *file*] {*instancename*} {*tag*...}
+**remove-tags** [\--from *file*] {*instancename*} {*tag*...}
 
 Remove tags from the given instance. If any of the tags are not
 existing on the node, the entire operation will abort.

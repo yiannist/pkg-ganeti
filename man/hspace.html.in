@@ -46,6 +46,10 @@
     >--simulate</strong
     > <em
     >spec</em
+    > | <strong
+    >-I</strong
+    > <em
+    >path</em
     > }</p
   ><p
   >Algorithm options:</p
@@ -67,33 +71,25 @@
   >Request options:</p
   ><p
   ><strong
-    >[--memory</strong
-    > <em
-    >mem</em
-    > <strong
-    >]</strong
-    > <strong
-    >[--disk</strong
-    > <em
-    >disk</em
-    > <strong
-    >]</strong
-    > <strong
     >[--disk-template</strong
     > <em
     >template</em
     > <strong
     >]</strong
-    > <strong
-    >[--vcpus</strong
+    ></p
+  ><p
+  ><strong
+    >[--standard-alloc</strong
     > <em
-    >vcpus</em
+    >disk,ram,cpu</em
     > <strong
     >]</strong
-    > <strong
+    ></p
+  ><p
+  ><strong
     >[--tiered-alloc</strong
     > <em
-    >spec</em
+    >disk,ram,cpu</em
     > <strong
     >]</strong
     ></p
@@ -129,6 +125,12 @@
     > option (described further below), for machine consumption. In the latter case, it is intended to interpreted as a shell fragment (or parsed as a <em
     >key=value</em
     > file). Options which extend the output (e.g. -p, -v) will output the additional information on stderr (such that the stdout is still parseable).</p
+  ><p
+  >By default, the instance specifications will be read from the cluster; the options <code
+    >--standard-alloc</code
+    > and <code
+    >--tiered-alloc</code
+    > can be used to override them.</p
   ><p
   >The following keys are available in the machine-readable output of the script (all prefixed with <em
     >HTS_</em
@@ -192,7 +194,7 @@
     >INI_MEM_OVERHEAD, FIN_MEM_OVERHEAD</dt
     ><dd
     ><p
-      >The initial and final memory overhead--memory used for the node itself and unacounted memory (e.g. due to hypervisor overhead).</p
+      >The initial and final memory overhead, i.e. memory used for the node itself and unacounted memory (e.g. due to hypervisor overhead).</p
       ></dd
     ><dt
     >INI_MEM_EFF, HTS_INI_MEM_EFF</dt
@@ -240,7 +242,9 @@
     >TSPEC</dt
     ><dd
     ><p
-      >If the tiered allocation mode has been enabled, this parameter holds the pairs of specifications and counts of instances that can be created in this mode. The value of the key is a space-separated list of values; each value is of the form <em
+      >This parameter holds the pairs of specifications and counts of instances that can be created in the <em
+	>tiered allocation</em
+	> mode. The value of the key is a space-separated list of values; each value is of the form <em
 	>memory,disk,vcpu=count</em
 	> where the memory, disk and vcpu are the values for the current spec, and count is how many instances of this spec can be created. A complete value for this variable could be: <strong
 	>4096,102400,2=225 2560,102400,2=20 512,102400,2=21</strong
@@ -298,7 +302,7 @@
       ></dd
     ></dl
   ><p
-  >If the tiered allocation mode is enabled, then many of the INI_/FIN_ metrics will be also displayed with a TRL_ prefix, and denote the cluster status at the end of the tiered allocation run.</p
+  >Many of the INI_/FIN_ metrics will be also displayed with a TRL_ prefix, and denote the cluster status at the end of the tiered allocation run.</p
   ><p
   >The human output format should be self-explanatory, so it is not described further.</p
   ></div
@@ -309,36 +313,20 @@
   >The options that can be passed to the program are as follows:</p
   ><dl
   ><dt
-    >--memory <em
-      >mem</em
-      ></dt
-    ><dd
-    ><p
-      >The memory size of the instances to be placed (defaults to 4GiB). Units can be used (see below for more details).</p
-      ></dd
-    ><dt
-    >--disk <em
-      >disk</em
-      ></dt
-    ><dd
-    ><p
-      >The disk size of the instances to be placed (defaults to 100GiB). Units can be used.</p
-      ></dd
-    ><dt
     >--disk-template <em
       >template</em
       ></dt
     ><dd
     ><p
-      >The disk template for the instance; one of the Ganeti disk templates (e.g. plain, drbd, so on) should be passed in.</p
+      >Overrides the disk template for the instance read from the cluster; one of the Ganeti disk templates (e.g. plain, drbd, so on) should be passed in.</p
       ></dd
     ><dt
-    >--vcpus <em
-      >vcpus</em
+    >--spindle-use <em
+      >spindles</em
       ></dt
     ><dd
     ><p
-      >The number of VCPUs of the instances to be placed (defaults to 1).</p
+      >Override the spindle use for the instance read from the cluster. The value can be 0 (for example for instances that use very low I/O), but not negative. For shared storage the value is ignored.</p
       ></dd
     ><dt
     >--max-cpu=<em
@@ -363,6 +351,16 @@
 	> as <strong
 	>0.25</strong
 	> means that at least one quarter of disk space should be left free on nodes.</p
+      ></dd
+    ><dt
+    >-l <em
+      >rounds</em
+      >, --max-length=<em
+      >rounds</em
+      ></dt
+    ><dd
+    ><p
+      >Restrict the number of instance allocations to this length. This is not very useful in practice, but can be used for testing hspace itself, or to limit the runtime for very big clusters.</p
       ></dd
     ><dt
     >-p, --print-nodes</dt
@@ -393,16 +391,6 @@
       >Note that the algorithm will also mark as offline any nodes which are reported by RAPI as such, or that have &quot;?&quot; in file-based input in any numeric fields.</p
       ></dd
     ><dt
-    >-t <em
-      >datafile</em
-      >, --text-data=<em
-      >datafile</em
-      ></dt
-    ><dd
-    ><p
-      >The name of the file holding node and instance information (if not collecting via RAPI or LUXI). This or one of the other backends must be selected.</p
-      ></dd
-    ><dt
     >-S <em
       >filename</em
       >, --save-cluster=<em
@@ -414,7 +402,21 @@
 	>filename.alloc</em
 	>, and if tiered allocation is enabled, the state after tiered allocation will be saved to <em
 	>filename.tiered</em
-	>. This allows re-feeding the cluster state to either hspace itself (with different parameters) or for example hbal.</p
+	>. This allows re-feeding the cluster state to either hspace itself (with different parameters) or for example hbal, via the <code
+	>-t</code
+	> option.</p
+      ></dd
+    ><dt
+    >-t <em
+      >datafile</em
+      >, --text-data=<em
+      >datafile</em
+      ></dt
+    ><dd
+    ><p
+      >Backend specification: the name of the file holding node and instance information (if not collecting via RAPI or LUXI). This or one of the other backends must be selected. The option is described in the man page <strong
+	>htools</strong
+	>(1).</p
       ></dd
     ><dt
     >-m <em
@@ -422,11 +424,11 @@
       ></dt
     ><dd
     ><p
-      >Collect data directly from the <em
+      >Backend specification: collect data directly from the <em
 	>cluster</em
-	> given as an argument via RAPI. If the argument doesn't contain a colon (:), then it is converted into a fully-built URL via prepending <code
-	>https://</code
-	> and appending the default RAPI port, otherwise it's considered a fully-specified URL and is used as-is.</p
+	> given as an argument via RAPI. The option is described in the man page <strong
+	>htools</strong
+	>(1).</p
       ></dd
     ><dt
     >-L [<em
@@ -434,11 +436,9 @@
       >]</dt
     ><dd
     ><p
-      >Collect data directly from the master daemon, which is to be contacted via the luxi (an internal Ganeti protocol). An optional <em
-	>path</em
-	> argument is interpreted as the path to the unix socket on which the master daemon listens; otherwise, the default path used by ganeti when installed with <em
-	>--localstatedir=/var</em
-	> is used.</p
+      >Backend specification: collect data directly from the master daemon, which is to be contacted via LUXI (an internal Ganeti protocol). The option is described in the man page <strong
+	>htools</strong
+	>(1).</p
       ></dd
     ><dt
     >--simulate <em
@@ -446,35 +446,23 @@
       ></dt
     ><dd
     ><p
-      >Instead of using actual data, build an empty cluster given a node description. The <em
-	>description</em
-	> parameter must be a comma-separated list of five elements, describing in order:</p
-      ><ul
-      ><li
-	>the allocation policy for this node group</li
-	><li
-	>the number of nodes in the cluster</li
-	><li
-	>the disk size of the nodes (default in mebibytes, units can be used)</li
-	><li
-	>the memory size of the nodes (default in mebibytes, units can be used)</li
-	><li
-	>the cpu core count for the nodes</li
-	></ul
-      ><p
-      >An example description would be <strong
-	>preferred,B20,100G,16g,4</strong
-	> describing a 20-node cluster where each node has 100GB of disk space, 16GiB of memory and 4 CPU cores. Note that all nodes must have the same specs currently.</p
-      ><p
-      >This option can be given multiple times, and each new use defines a new node group. Hence different node groups can have different allocation policies and node count/specifications.</p
+      >Backend specification: similar to the <strong
+	>-t</strong
+	> option, this allows overriding the cluster data with a simulated cluster. For details about the description, see the man page <strong
+	>htools</strong
+	>(1).</p
       ></dd
     ><dt
-    >--tiered-alloc <em
-      >spec</em
+    >--standard-alloc <em
+      >disk,ram,cpu</em
       ></dt
     ><dd
     ><p
-      >Besides the standard, fixed-size allocation, also do a tiered allocation scheme where the algorithm starts from the given specification and allocates until there is no more space; then it decreases the specification and tries the allocation again. The decrease is done on the matric that last failed during allocation. The specification given is similar to the <em
+      >This option overrides the instance size read from the cluster for the <em
+	>standard</em
+	> allocation mode, where we simply allocate instances of the same, fixed size until the cluster runs out of space.</p
+      ><p
+      >The specification given is similar to the <em
 	>--simulate</em
 	> option and it holds:</p
       ><ul
@@ -488,12 +476,24 @@
       ><p
       >An example description would be <em
 	>100G,4g,2</em
-	> describing an initial starting specification of 100GB of disk space, 4GiB of memory and 2 VCPUs.</p
+	> describing an instance specification of 100GB of disk space, 4GiB of memory and 2 VCPUs.</p
+      ></dd
+    ><dt
+    >--tiered-alloc <em
+      >disk,ram,cpu</em
+      ></dt
+    ><dd
+    ><p
+      >This option overrides the instance size for the <em
+	>tiered</em
+	> allocation mode. In this mode, the algorithm starts from the given specification and allocates until there is no more space; then it decreases the specification and tries the allocation again. The decrease is done on the metric that last failed during allocation. The argument should have the same format as for <code
+	>--standard-alloc</code
+	>.</p
       ><p
       >Also note that the normal allocation and the tiered allocation are independent, and both start from the initial cluster state; as such, the instance count for these two modes are not related one to another.</p
       ></dd
     ><dt
-    >--machines-readable[=<em
+    >--machine-readable[=<em
       >choice</em
       >]</dt
     ><dd
@@ -635,13 +635,15 @@
     >hail</strong
     >(1) (IAllocator plugin), <strong
     >hscan</strong
-    >(1) (data gatherer from remote clusters).</p
+    >(1) (data gatherer from remote clusters), <strong
+    >hinfo</strong
+    >(1) (cluster information printer).</p
   ></div
 ><div id="copyright"
 ><h1
   >COPYRIGHT</h1
   ><p
-  >Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Google Inc. Permission is granted to copy, distribute and/or modify under the terms of the GNU General Public License as published by the Free Software Foundation; either version 2 of the License, or (at your option) any later version.</p
+  >Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012 Google Inc. Permission is granted to copy, distribute and/or modify under the terms of the GNU General Public License as published by the Free Software Foundation; either version 2 of the License, or (at your option) any later version.</p
   ><p
   >On Debian systems, the complete text of the GNU General Public License can be found in /usr/share/common-licenses/GPL.</p
   ></div

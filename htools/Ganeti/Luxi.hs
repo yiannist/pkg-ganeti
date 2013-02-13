@@ -1,10 +1,12 @@
+{-# LANGUAGE TemplateHaskell #-}
+
 {-| Implementation of the Ganeti LUXI interface.
 
 -}
 
 {-
 
-Copyright (C) 2009, 2010, 2011 Google Inc.
+Copyright (C) 2009, 2010, 2011, 2012 Google Inc.
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -24,14 +26,21 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
 -}
 
 module Ganeti.Luxi
-    ( LuxiOp(..)
-    , Client
-    , getClient
-    , closeClient
-    , callMethod
-    , submitManyJobs
-    , queryJobsStatus
-    ) where
+  ( LuxiOp(..)
+  , QrViaLuxi(..)
+  , ResultStatus(..)
+  , LuxiReq(..)
+  , Client
+  , checkRS
+  , getClient
+  , closeClient
+  , callMethod
+  , submitManyJobs
+  , queryJobsStatus
+  , buildCall
+  , validateCall
+  , decodeCall
+  ) where
 
 import Data.IORef
 import Control.Monad
@@ -41,61 +50,130 @@ import Text.JSON.Types
 import System.Timeout
 import qualified Network.Socket as S
 
-import Ganeti.HTools.Utils
+import Ganeti.HTools.JSON
 import Ganeti.HTools.Types
+import Ganeti.HTools.Utils
 
+import Ganeti.Constants
 import Ganeti.Jobs (JobStatus)
 import Ganeti.OpCodes (OpCode)
+import Ganeti.THH
 
 -- * Utility functions
 
 -- | Wrapper over System.Timeout.timeout that fails in the IO monad.
 withTimeout :: Int -> String -> IO a -> IO a
 withTimeout secs descr action = do
-    result <- timeout (secs * 1000000) action
-    (case result of
-       Nothing -> fail $ "Timeout in " ++ descr
-       Just v -> return v)
+  result <- timeout (secs * 1000000) action
+  case result of
+    Nothing -> fail $ "Timeout in " ++ descr
+    Just v -> return v
 
 -- * Generic protocol functionality
 
--- | Currently supported Luxi operations.
-data LuxiOp = QueryInstances [String] [String] Bool
-            | QueryNodes [String] [String] Bool
-            | QueryGroups [String] [String] Bool
-            | QueryJobs [Int] [String]
-            | QueryExports [String] Bool
-            | QueryConfigValues [String]
-            | QueryClusterInfo
-            | QueryTags String String
-            | SubmitJob [OpCode]
-            | SubmitManyJobs [[OpCode]]
-            | WaitForJobChange Int [String] JSValue JSValue Int
-            | ArchiveJob Int
-            | AutoArchiveJobs Int Int
-            | CancelJob Int
-            | SetDrainFlag Bool
-            | SetWatcherPause Double
-              deriving (Show, Read)
+$(declareSADT "QrViaLuxi"
+  [ ("QRLock", 'qrLock)
+  , ("QRInstance", 'qrInstance)
+  , ("QRNode", 'qrNode)
+  , ("QRGroup", 'qrGroup)
+  , ("QROs", 'qrOs)
+  ])
+$(makeJSONInstance ''QrViaLuxi)
+
+-- | Currently supported Luxi operations and JSON serialization.
+$(genLuxiOp "LuxiOp"
+  [(luxiReqQuery,
+    [ ("what",    [t| QrViaLuxi |], [| id |])
+    , ("fields",  [t| [String]  |], [| id |])
+    , ("qfilter", [t| ()        |], [| const JSNull |])
+    ])
+  , (luxiReqQueryNodes,
+     [ ("names",  [t| [String] |], [| id |])
+     , ("fields", [t| [String] |], [| id |])
+     , ("lock",   [t| Bool     |], [| id |])
+     ])
+  , (luxiReqQueryGroups,
+     [ ("names",  [t| [String] |], [| id |])
+     , ("fields", [t| [String] |], [| id |])
+     , ("lock",   [t| Bool     |], [| id |])
+     ])
+  , (luxiReqQueryInstances,
+     [ ("names",  [t| [String] |], [| id |])
+     , ("fields", [t| [String] |], [| id |])
+     , ("lock",   [t| Bool     |], [| id |])
+     ])
+  , (luxiReqQueryJobs,
+     [ ("ids",    [t| [Int]    |], [| map show |])
+     , ("fields", [t| [String] |], [| id |])
+     ])
+  , (luxiReqQueryExports,
+     [ ("nodes", [t| [String] |], [| id |])
+     , ("lock",  [t| Bool     |], [| id |])
+     ])
+  , (luxiReqQueryConfigValues,
+     [ ("fields", [t| [String] |], [| id |]) ]
+    )
+  , (luxiReqQueryClusterInfo, [])
+  , (luxiReqQueryTags,
+     [ ("kind", [t| String |], [| id |])
+     , ("name", [t| String |], [| id |])
+     ])
+  , (luxiReqSubmitJob,
+     [ ("job", [t| [OpCode] |], [| id |]) ]
+    )
+  , (luxiReqSubmitManyJobs,
+     [ ("ops", [t| [[OpCode]] |], [| id |]) ]
+    )
+  , (luxiReqWaitForJobChange,
+     [ ("job",      [t| Int     |], [| show |])
+     , ("fields",   [t| [String]|], [| id |])
+     , ("prev_job", [t| JSValue |], [| id |])
+     , ("prev_log", [t| JSValue |], [| id |])
+     , ("tmout",    [t| Int     |], [| id |])
+     ])
+  , (luxiReqArchiveJob,
+     [ ("job", [t| Int |], [| show |]) ]
+    )
+  , (luxiReqAutoArchiveJobs,
+     [ ("age",   [t| Int |], [| id |])
+     , ("tmout", [t| Int |], [| id |])
+     ])
+  , (luxiReqCancelJob,
+     [ ("job", [t| Int |], [| show |]) ]
+    )
+  , (luxiReqSetDrainFlag,
+     [ ("flag", [t| Bool |], [| id |]) ]
+    )
+  , (luxiReqSetWatcherPause,
+     [ ("duration", [t| Double |], [| id |]) ]
+    )
+  ])
+
+$(makeJSONInstance ''LuxiReq)
 
 -- | The serialisation of LuxiOps into strings in messages.
-strOfOp :: LuxiOp -> String
-strOfOp QueryNodes {}        = "QueryNodes"
-strOfOp QueryGroups {}       = "QueryGroups"
-strOfOp QueryInstances {}    = "QueryInstances"
-strOfOp QueryJobs {}         = "QueryJobs"
-strOfOp QueryExports {}      = "QueryExports"
-strOfOp QueryConfigValues {} = "QueryConfigValues"
-strOfOp QueryClusterInfo {}  = "QueryClusterInfo"
-strOfOp QueryTags {}         = "QueryTags"
-strOfOp SubmitManyJobs {}    = "SubmitManyJobs"
-strOfOp WaitForJobChange {}  = "WaitForJobChange"
-strOfOp SubmitJob {}         = "SubmitJob"
-strOfOp ArchiveJob {}        = "ArchiveJob"
-strOfOp AutoArchiveJobs {}   = "AutoArchiveJobs"
-strOfOp CancelJob {}         = "CancelJob"
-strOfOp SetDrainFlag {}      = "SetDrainFlag"
-strOfOp SetWatcherPause {}   = "SetWatcherPause"
+$(genStrOfOp ''LuxiOp "strOfOp")
+
+$(declareIADT "ResultStatus"
+  [ ("RSNormal", 'rsNormal)
+  , ("RSUnknown", 'rsUnknown)
+  , ("RSNoData", 'rsNodata)
+  , ("RSUnavailable", 'rsUnavail)
+  , ("RSOffline", 'rsOffline)
+  ])
+
+$(makeJSONInstance ''ResultStatus)
+
+-- | Type holding the initial (unparsed) Luxi call.
+data LuxiCall = LuxiCall LuxiReq JSValue
+
+-- | Check that ResultStatus is success or fail with descriptive message.
+checkRS :: (Monad m) => ResultStatus -> a -> m a
+checkRS RSNormal val    = return val
+checkRS RSUnknown _     = fail "Unknown field"
+checkRS RSNoData _      = fail "No data for a field"
+checkRS RSUnavailable _ = fail "Ganeti reports unavailable data"
+checkRS RSOffline _     = fail "Ganeti reports resource as offline"
 
 -- | The end-of-message separator.
 eOM :: Char
@@ -108,11 +186,7 @@ data MsgKeys = Method
              | Result
 
 -- | The serialisation of MsgKeys into strings in messages.
-strOfKey :: MsgKeys -> String
-strOfKey Method = "method"
-strOfKey Args = "args"
-strOfKey Success = "success"
-strOfKey Result = "result"
+$(genStrOfKey ''MsgKeys "strOfKey")
 
 -- | Luxi client encapsulation.
 data Client = Client { socket :: S.Socket   -- ^ The socket of the client
@@ -122,11 +196,11 @@ data Client = Client { socket :: S.Socket   -- ^ The socket of the client
 -- | Connects to the master daemon and returns a luxi Client.
 getClient :: String -> IO Client
 getClient path = do
-    s <- S.socket S.AF_UNIX S.Stream S.defaultProtocol
-    withTimeout connTimeout "creating luxi connection" $
-                S.connect s (S.SockAddrUnix path)
-    rf <- newIORef ""
-    return Client { socket=s, rbuf=rf}
+  s <- S.socket S.AF_UNIX S.Stream S.defaultProtocol
+  withTimeout connTimeout "creating luxi connection" $
+              S.connect s (S.SockAddrUnix path)
+  rf <- newIORef ""
+  return Client { socket=s, rbuf=rf}
 
 -- | Closes the client socket.
 closeClient :: Client -> IO ()
@@ -135,12 +209,12 @@ closeClient = S.sClose . socket
 -- | Sends a message over a luxi transport.
 sendMsg :: Client -> String -> IO ()
 sendMsg s buf =
-    let _send obuf = do
-          sbytes <- withTimeout queryTimeout
-                    "sending luxi message" $
-                    S.send (socket s) obuf
-          unless (sbytes == length obuf) $ _send (drop sbytes obuf)
-    in _send (buf ++ [eOM])
+  let _send obuf = do
+        sbytes <- withTimeout queryTimeout
+                  "sending luxi message" $
+                  S.send (socket s) obuf
+        unless (sbytes == length obuf) $ _send (drop sbytes obuf)
+  in _send (buf ++ [eOM])
 
 -- | Waits for a message over a luxi transport.
 recvMsg :: Client -> IO String
@@ -149,50 +223,114 @@ recvMsg s = do
               nbuf <- withTimeout queryTimeout "reading luxi response" $
                       S.recv (socket s) 4096
               let (msg, remaining) = break (eOM ==) nbuf
-              (if null remaining
-               then _recv (obuf ++ msg)
-               else return (obuf ++ msg, tail remaining))
+              if null remaining
+                then _recv (obuf ++ msg)
+                else return (obuf ++ msg, tail remaining)
   cbuf <- readIORef $ rbuf s
   let (imsg, ibuf) = break (eOM ==) cbuf
   (msg, nbuf) <-
-      (if null ibuf      -- if old buffer didn't contain a full message
-       then _recv cbuf   -- then we read from network
-       else return (imsg, tail ibuf)) -- else we return data from our buffer
+    if null ibuf      -- if old buffer didn't contain a full message
+      then _recv cbuf   -- then we read from network
+      else return (imsg, tail ibuf) -- else we return data from our buffer
   writeIORef (rbuf s) nbuf
   return msg
-
--- | Compute the serialized form of a Luxi operation.
-opToArgs :: LuxiOp -> JSValue
-opToArgs (QueryNodes names fields lock) = J.showJSON (names, fields, lock)
-opToArgs (QueryGroups names fields lock) = J.showJSON (names, fields, lock)
-opToArgs (QueryInstances names fields lock) = J.showJSON (names, fields, lock)
-opToArgs (QueryJobs ids fields) = J.showJSON (map show ids, fields)
-opToArgs (QueryExports nodes lock) = J.showJSON (nodes, lock)
-opToArgs (QueryConfigValues fields) = J.showJSON fields
-opToArgs (QueryClusterInfo) = J.showJSON ()
-opToArgs (QueryTags kind name) =  J.showJSON (kind, name)
-opToArgs (SubmitJob j) = J.showJSON j
-opToArgs (SubmitManyJobs ops) = J.showJSON ops
--- This is special, since the JSON library doesn't export an instance
--- of a 5-tuple
-opToArgs (WaitForJobChange a b c d e) =
-    JSArray [ J.showJSON a, J.showJSON b, J.showJSON c
-            , J.showJSON d, J.showJSON e]
-opToArgs (ArchiveJob a) = J.showJSON (show a)
-opToArgs (AutoArchiveJobs a b) = J.showJSON (a, b)
-opToArgs (CancelJob a) = J.showJSON (show a)
-opToArgs (SetDrainFlag flag) = J.showJSON flag
-opToArgs (SetWatcherPause duration) = J.showJSON [duration]
 
 -- | Serialize a request to String.
 buildCall :: LuxiOp  -- ^ The method
           -> String  -- ^ The serialized form
 buildCall lo =
-    let ja = [ (strOfKey Method, JSString $ toJSString $ strOfOp lo::JSValue)
-             , (strOfKey Args, opToArgs lo::JSValue)
-             ]
-        jo = toJSObject ja
-    in encodeStrict jo
+  let ja = [ (strOfKey Method, JSString $ toJSString $ strOfOp lo::JSValue)
+           , (strOfKey Args, opToArgs lo::JSValue)
+           ]
+      jo = toJSObject ja
+  in encodeStrict jo
+
+-- | Check that luxi request contains the required keys and parse it.
+validateCall :: String -> Result LuxiCall
+validateCall s = do
+  arr <- fromJResult "luxi call" $ decodeStrict s::Result (JSObject JSValue)
+  let aobj = fromJSObject arr
+  call <- fromObj aobj (strOfKey Method)::Result LuxiReq
+  args <- fromObj aobj (strOfKey Args)
+  return (LuxiCall call args)
+
+-- | Converts Luxi call arguments into a 'LuxiOp' data structure.
+--
+-- This is currently hand-coded until we make it more uniform so that
+-- it can be generated using TH.
+decodeCall :: LuxiCall -> Result LuxiOp
+decodeCall (LuxiCall call args) =
+  case call of
+    ReqQueryJobs -> do
+              (jid, jargs) <- fromJVal args
+              rid <- mapM (tryRead "parsing job ID" . fromJSString) jid
+              let rargs = map fromJSString jargs
+              return $ QueryJobs rid rargs
+    ReqQueryInstances -> do
+              (names, fields, locking) <- fromJVal args
+              return $ QueryInstances names fields locking
+    ReqQueryNodes -> do
+              (names, fields, locking) <- fromJVal args
+              return $ QueryNodes names fields locking
+    ReqQueryGroups -> do
+              (names, fields, locking) <- fromJVal args
+              return $ QueryGroups names fields locking
+    ReqQueryClusterInfo -> do
+              return QueryClusterInfo
+    ReqQuery -> do
+              (what, fields, _) <-
+                fromJVal args::Result (QrViaLuxi, [String], JSValue)
+              return $ Query what fields ()
+    ReqSubmitJob -> do
+              [ops1] <- fromJVal args
+              ops2 <- mapM (fromJResult (luxiReqToRaw call) . J.readJSON) ops1
+              return $ SubmitJob ops2
+    ReqSubmitManyJobs -> do
+              [ops1] <- fromJVal args
+              ops2 <- mapM (fromJResult (luxiReqToRaw call) . J.readJSON) ops1
+              return $ SubmitManyJobs ops2
+    ReqWaitForJobChange -> do
+              (jid, fields, pinfo, pidx, wtmout) <-
+                -- No instance for 5-tuple, code copied from the
+                -- json sources and adapted
+                fromJResult "Parsing WaitForJobChange message" $
+                case args of
+                  JSArray [a, b, c, d, e] ->
+                    (,,,,) `fmap`
+                    J.readJSON a `ap`
+                    J.readJSON b `ap`
+                    J.readJSON c `ap`
+                    J.readJSON d `ap`
+                    J.readJSON e
+                  _ -> J.Error "Not enough values"
+              rid <- tryRead "parsing job ID" jid
+              return $ WaitForJobChange rid fields pinfo pidx wtmout
+    ReqArchiveJob -> do
+              [jid] <- fromJVal args
+              rid <- tryRead "parsing job ID" jid
+              return $ ArchiveJob rid
+    ReqAutoArchiveJobs -> do
+              (age, tmout) <- fromJVal args
+              return $ AutoArchiveJobs age tmout
+    ReqQueryExports -> do
+              (nodes, lock) <- fromJVal args
+              return $ QueryExports nodes lock
+    ReqQueryConfigValues -> do
+              [fields] <- fromJVal args
+              return $ QueryConfigValues fields
+    ReqQueryTags -> do
+              (kind, name) <- fromJVal args
+              return $ QueryTags kind name
+    ReqCancelJob -> do
+              [job] <- fromJVal args
+              rid <- tryRead "parsing job ID" job
+              return $ CancelJob rid
+    ReqSetDrainFlag -> do
+              [flag] <- fromJVal args
+              return $ SetDrainFlag flag
+    ReqSetWatcherPause -> do
+              [duration] <- fromJVal args
+              return $ SetWatcherPause duration
 
 -- | Check that luxi responses contain the required keys and that the
 -- call was successful.
@@ -203,9 +341,9 @@ validateResult s = do
   let arr = J.fromJSObject oarr
   status <- fromObj arr (strOfKey Success)::Result Bool
   let rkey = strOfKey Result
-  (if status
-   then fromObj arr rkey
-   else fromObj arr rkey >>= fail)
+  if status
+    then fromObj arr rkey
+    else fromObj arr rkey >>= fail
 
 -- | Generic luxi method call.
 callMethod :: LuxiOp -> Client -> IO (Result JSValue)

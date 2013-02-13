@@ -1,7 +1,7 @@
 #!/usr/bin/python
 #
 
-# Copyright (C) 2009 Google Inc.
+# Copyright (C) 2009, 2010, 2011, 2012 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -28,6 +28,7 @@
 
 import os
 import re
+import itertools
 from cStringIO import StringIO
 
 from ganeti import constants
@@ -39,6 +40,10 @@ from ganeti import build
 # making an exception here because this script is only used at build time.
 from ganeti import _autoconf
 
+#: Regular expression describing desired format of option names. Long names can
+#: contain lowercase characters, numbers and dashes only.
+_OPT_NAME_RE = re.compile(r"^-[a-zA-Z0-9]|--[a-z][-a-z0-9]+$")
+
 
 def WritePreamble(sw):
   """Writes the script preamble.
@@ -49,7 +54,7 @@ def WritePreamble(sw):
   sw.Write("# This script is automatically generated at build time.")
   sw.Write("# Do not modify manually.")
 
-  sw.Write("_ganeti_dbglog() {")
+  sw.Write("_gnt_log() {")
   sw.IncIndent()
   try:
     sw.Write("if [[ -n \"$GANETI_COMPL_LOG\" ]]; then")
@@ -187,7 +192,7 @@ def WritePreamble(sw):
 
   # Params: <long options with equal sign> <all options>
   # Result variable: $optcur
-  sw.Write("_ganeti_checkopt() {")
+  sw.Write("_gnt_checkopt() {")
   sw.IncIndent()
   try:
     sw.Write("""if [[ -n "$1" && "$cur" == @($1) ]]; then""")
@@ -206,7 +211,7 @@ def WritePreamble(sw):
       sw.DecIndent()
     sw.Write("fi")
 
-    sw.Write("_ganeti_dbglog optcur=\"'$optcur'\"")
+    sw.Write("_gnt_log optcur=\"'$optcur'\"")
 
     sw.Write("return 1")
   finally:
@@ -215,18 +220,18 @@ def WritePreamble(sw):
 
   # Params: <compgen options>
   # Result variable: $COMPREPLY
-  sw.Write("_ganeti_compgen() {")
+  sw.Write("_gnt_compgen() {")
   sw.IncIndent()
   try:
     sw.Write("""COMPREPLY=( $(compgen "$@") )""")
-    sw.Write("_ganeti_dbglog COMPREPLY=\"${COMPREPLY[@]}\"")
+    sw.Write("_gnt_log COMPREPLY=\"${COMPREPLY[@]}\"")
   finally:
     sw.DecIndent()
   sw.Write("}")
 
 
 def WriteCompReply(sw, args, cur="\"$cur\""):
-  sw.Write("_ganeti_compgen %s -- %s", args, cur)
+  sw.Write("_gnt_compgen %s -- %s", args, cur)
   sw.Write("return")
 
 
@@ -243,6 +248,11 @@ class CompletionWriter:
       # While documented, these variables aren't seen as public attributes by
       # pylint. pylint: disable=W0212
       opt.all_names = sorted(opt._short_opts + opt._long_opts)
+
+      invalid = list(itertools.ifilterfalse(_OPT_NAME_RE.match, opt.all_names))
+      if invalid:
+        raise Exception("Option names don't match regular expression '%s': %s" %
+                        (_OPT_NAME_RE.pattern, utils.CommaJoin(invalid)))
 
   def _FindFirstArgument(self, sw):
     ignore = []
@@ -309,7 +319,7 @@ class CompletionWriter:
 
     wrote_opt = False
 
-    for (suggest, allnames) in values.iteritems():
+    for (suggest, allnames) in values.items():
       longnames = [i for i in allnames if i.startswith("--")]
 
       if wrote_opt:
@@ -317,7 +327,7 @@ class CompletionWriter:
       else:
         condcmd = "if"
 
-      sw.Write("%s _ganeti_checkopt %s %s; then", condcmd,
+      sw.Write("%s _gnt_checkopt %s %s; then", condcmd,
                utils.ShellQuote("|".join(["%s=*" % i for i in longnames])),
                utils.ShellQuote("|".join(allnames)))
       sw.IncIndent()
@@ -354,7 +364,7 @@ class CompletionWriter:
             sw.DecIndent()
           sw.Write("fi")
 
-          sw.Write("_ganeti_dbglog pfx=\"'$pfx'\" curvalue=\"'$curvalue'\""
+          sw.Write("_gnt_log pfx=\"'$pfx'\" curvalue=\"'$curvalue'\""
                    " node1=\"'$node1'\"")
 
           sw.Write("for i in $(_ganeti_nodes); do")
@@ -408,10 +418,6 @@ class CompletionWriter:
       last_arg_end = 0
       varlen_arg_idx = None
       wrote_arg = False
-
-      # Write some debug comments
-      for idx, arg in enumerate(self.args):
-        sw.Write("# %s: %r", idx, arg)
 
       sw.Write("compgenargs=")
 
@@ -521,9 +527,9 @@ def WriteCompletion(sw, scriptname, funcname,
              ' prev="${COMP_WORDS[COMP_CWORD-1]}"'
              ' i first_arg_idx choices compgenargs arg_idx optcur')
 
-    sw.Write("_ganeti_dbglog cur=\"$cur\" prev=\"$prev\"")
+    sw.Write("_gnt_log cur=\"$cur\" prev=\"$prev\"")
     sw.Write("[[ -n \"$GANETI_COMPL_LOG\" ]] &&"
-             " _ganeti_dbglog \"$(set | grep ^COMP_)\"")
+             " _gnt_log \"$(set | grep ^COMP_)\"")
 
     sw.Write("COMPREPLY=()")
 
@@ -543,20 +549,25 @@ def WriteCompletion(sw, scriptname, funcname,
         sw.DecIndent()
       sw.Write("fi")
 
-      # We're doing options and arguments to commands
-      sw.Write("""case "${COMP_WORDS[1]}" in""")
-      for cmd, (_, argdef, optdef, _, _) in commands.iteritems():
+      # Group commands by arguments and options
+      grouped_cmds = {}
+      for cmd, (_, argdef, optdef, _, _) in commands.items():
         if not (argdef or optdef):
           continue
+        grouped_cmds.setdefault((tuple(argdef), tuple(optdef)), set()).add(cmd)
 
-        # TODO: Group by arguments and options
-        sw.Write("%s)", utils.ShellQuote(cmd))
+      # We're doing options and arguments to commands
+      sw.Write("""case "${COMP_WORDS[1]}" in""")
+      sort_grouped = sorted(grouped_cmds.items(),
+                            key=lambda (_, y): sorted(y)[0])
+      for ((argdef, optdef), cmds) in sort_grouped:
+        assert argdef or optdef
+        sw.Write("%s)", "|".join(map(utils.ShellQuote, sorted(cmds))))
         sw.IncIndent()
         try:
           CompletionWriter(1, optdef, argdef).WriteTo(sw)
         finally:
           sw.DecIndent()
-
         sw.Write(";;")
       sw.Write("esac")
   finally:
@@ -601,7 +612,7 @@ def GetCommands(filename, module):
   aliases = getattr(module, "aliases", {})
   if aliases:
     commands = commands.copy()
-    for name, target in aliases.iteritems():
+    for name, target in aliases.items():
       commands[name] = commands[target]
 
   return commands

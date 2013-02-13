@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -26,12 +26,14 @@ pass to and from external parties.
 
 """
 
-# pylint: disable=E0203,W0201
+# pylint: disable=E0203,W0201,R0902
 
 # E0203: Access to member %r before its definition, since we use
-# objects.py which doesn't explicitely initialise its members
+# objects.py which doesn't explicitly initialise its members
 
 # W0201: Attribute '%s' defined outside __init__
+
+# R0902: Allow instances of these objects to have more than 20 attributes
 
 import ConfigParser
 import re
@@ -41,6 +43,8 @@ from cStringIO import StringIO
 
 from ganeti import errors
 from ganeti import constants
+from ganeti import netutils
+from ganeti import utils
 
 from socket import AF_INET
 
@@ -76,6 +80,39 @@ def FillDict(defaults_dict, custom_dict, skip_keys=None):
   return ret_dict
 
 
+def FillIPolicy(default_ipolicy, custom_ipolicy, skip_keys=None):
+  """Fills an instance policy with defaults.
+
+  """
+  assert frozenset(default_ipolicy.keys()) == constants.IPOLICY_ALL_KEYS
+  ret_dict = {}
+  for key in constants.IPOLICY_ISPECS:
+    ret_dict[key] = FillDict(default_ipolicy[key],
+                             custom_ipolicy.get(key, {}),
+                             skip_keys=skip_keys)
+  # list items
+  for key in [constants.IPOLICY_DTS]:
+    ret_dict[key] = list(custom_ipolicy.get(key, default_ipolicy[key]))
+  # other items which we know we can directly copy (immutables)
+  for key in constants.IPOLICY_PARAMETERS:
+    ret_dict[key] = custom_ipolicy.get(key, default_ipolicy[key])
+
+  return ret_dict
+
+
+def FillDiskParams(default_dparams, custom_dparams, skip_keys=None):
+  """Fills the disk parameter defaults.
+
+  @see: L{FillDict} for parameters and return value
+
+  """
+  assert frozenset(default_dparams.keys()) == constants.DISK_TEMPLATES
+
+  return dict((dt, FillDict(default_dparams[dt], custom_dparams.get(dt, {}),
+                             skip_keys=skip_keys))
+              for dt in constants.DISK_TEMPLATES)
+
+
 def UpgradeGroupedParams(target, defaults):
   """Update all groups for the target parameter.
 
@@ -91,6 +128,63 @@ def UpgradeGroupedParams(target, defaults):
     for group in target:
       target[group] = FillDict(defaults, target[group])
   return target
+
+
+def UpgradeBeParams(target):
+  """Update the be parameters dict to the new format.
+
+  @type target: dict
+  @param target: "be" parameters dict
+
+  """
+  if constants.BE_MEMORY in target:
+    memory = target[constants.BE_MEMORY]
+    target[constants.BE_MAXMEM] = memory
+    target[constants.BE_MINMEM] = memory
+    del target[constants.BE_MEMORY]
+
+
+def UpgradeDiskParams(diskparams):
+  """Upgrade the disk parameters.
+
+  @type diskparams: dict
+  @param diskparams: disk parameters to upgrade
+  @rtype: dict
+  @return: the upgraded disk parameters dict
+
+  """
+  if not diskparams:
+    result = {}
+  else:
+    result = FillDiskParams(constants.DISK_DT_DEFAULTS, diskparams)
+
+  return result
+
+
+def UpgradeNDParams(ndparams):
+  """Upgrade ndparams structure.
+
+  @type ndparams: dict
+  @param ndparams: disk parameters to upgrade
+  @rtype: dict
+  @return: the upgraded node parameters dict
+
+  """
+  if ndparams is None:
+    ndparams = {}
+
+  return FillDict(constants.NDC_DEFAULTS, ndparams)
+
+
+def MakeEmptyIPolicy():
+  """Create empty IPolicy dictionary.
+
+  """
+  return dict([
+    (constants.ISPECS_MIN, {}),
+    (constants.ISPECS_MAX, {}),
+    (constants.ISPECS_STD, {}),
+    ])
 
 
 class ConfigObject(object):
@@ -133,6 +227,9 @@ class ConfigObject(object):
     for parent in cls.__mro__:
       slots.extend(getattr(parent, "__slots__", []))
     return slots
+
+  #: Public getter for the defined slots
+  GetAllSlots = _all_slots
 
   def ToDict(self):
     """Convert to a dict holding only standard python types.
@@ -315,6 +412,25 @@ class TaggableObject(ConfigObject):
     return obj
 
 
+class MasterNetworkParameters(ConfigObject):
+  """Network configuration parameters for the master
+
+  @ivar name: master name
+  @ivar ip: master IP
+  @ivar netmask: master netmask
+  @ivar netdev: master network device
+  @ivar ip_family: master IP family
+
+  """
+  __slots__ = [
+    "name",
+    "ip",
+    "netmask",
+    "netdev",
+    "ip_family"
+    ]
+
+
 class ConfigData(ConfigObject):
   """Top-level config object."""
   __slots__ = [
@@ -401,7 +517,8 @@ class NIC(ConfigObject):
     @raise errors.ConfigurationError: when a parameter is not valid
 
     """
-    if nicparams[constants.NIC_MODE] not in constants.NIC_VALID_MODES:
+    if (nicparams[constants.NIC_MODE] not in constants.NIC_VALID_MODES and
+        nicparams[constants.NIC_MODE] != constants.VALUE_AUTO):
       err = "Invalid nic mode: %s" % nicparams[constants.NIC_MODE]
       raise errors.ConfigurationError(err)
 
@@ -414,7 +531,7 @@ class NIC(ConfigObject):
 class Disk(ConfigObject):
   """Config object representing a block device."""
   __slots__ = ["dev_type", "logical_id", "physical_id",
-               "children", "iv_name", "size", "mode"]
+               "children", "iv_name", "size", "mode", "params"]
 
   def CreateOnSecondary(self):
     """Test if this device needs to be created on a secondary node."""
@@ -443,6 +560,8 @@ class Disk(ConfigObject):
       return "/dev/%s/%s" % (self.logical_id[0], self.logical_id[1])
     elif self.dev_type == constants.LD_BLOCKDEV:
       return self.logical_id[1]
+    elif self.dev_type == constants.LD_RBD:
+      return "/dev/%s/%s" % (self.logical_id[0], self.logical_id[1])
     return None
 
   def ChildrenNeeded(self):
@@ -486,7 +605,7 @@ class Disk(ConfigObject):
 
     """
     if self.dev_type in [constants.LD_LV, constants.LD_FILE,
-                         constants.LD_BLOCKDEV]:
+                         constants.LD_BLOCKDEV, constants.LD_RBD]:
       result = [node]
     elif self.dev_type in constants.LDS_DRBD:
       result = [self.logical_id[0], self.logical_id[1]]
@@ -561,7 +680,8 @@ class Disk(ConfigObject):
     actual algorithms from bdev.
 
     """
-    if self.dev_type in (constants.LD_LV, constants.LD_FILE):
+    if self.dev_type in (constants.LD_LV, constants.LD_FILE,
+                         constants.LD_RBD):
       self.size += amount
     elif self.dev_type == constants.LD_DRBD8:
       if self.children:
@@ -570,6 +690,21 @@ class Disk(ConfigObject):
     else:
       raise errors.ProgrammerError("Disk.RecordGrow called for unsupported"
                                    " disk type %s" % self.dev_type)
+
+  def Update(self, size=None, mode=None):
+    """Apply changes to size and mode.
+
+    """
+    if self.dev_type == constants.LD_DRBD8:
+      if self.children:
+        self.children[0].Update(size=size, mode=mode)
+    else:
+      assert not self.children
+
+    if size is not None:
+      self.size = size
+    if mode is not None:
+      self.mode = mode
 
   def UnsetSize(self):
     """Sets recursively the size to zero for the disk and its children.
@@ -708,7 +843,181 @@ class Disk(ConfigObject):
     if self.children:
       for child in self.children:
         child.UpgradeConfig()
+
+    # FIXME: Make this configurable in Ganeti 2.7
+    self.params = {}
     # add here config upgrade for this disk
+
+  @staticmethod
+  def ComputeLDParams(disk_template, disk_params):
+    """Computes Logical Disk parameters from Disk Template parameters.
+
+    @type disk_template: string
+    @param disk_template: disk template, one of L{constants.DISK_TEMPLATES}
+    @type disk_params: dict
+    @param disk_params: disk template parameters;
+                        dict(template_name -> parameters
+    @rtype: list(dict)
+    @return: a list of dicts, one for each node of the disk hierarchy. Each dict
+      contains the LD parameters of the node. The tree is flattened in-order.
+
+    """
+    if disk_template not in constants.DISK_TEMPLATES:
+      raise errors.ProgrammerError("Unknown disk template %s" % disk_template)
+
+    assert disk_template in disk_params
+
+    result = list()
+    dt_params = disk_params[disk_template]
+    if disk_template == constants.DT_DRBD8:
+      drbd_params = {
+        constants.LDP_RESYNC_RATE: dt_params[constants.DRBD_RESYNC_RATE],
+        constants.LDP_BARRIERS: dt_params[constants.DRBD_DISK_BARRIERS],
+        constants.LDP_NO_META_FLUSH: dt_params[constants.DRBD_META_BARRIERS],
+        constants.LDP_DEFAULT_METAVG: dt_params[constants.DRBD_DEFAULT_METAVG],
+        constants.LDP_DISK_CUSTOM: dt_params[constants.DRBD_DISK_CUSTOM],
+        constants.LDP_NET_CUSTOM: dt_params[constants.DRBD_NET_CUSTOM],
+        constants.LDP_DYNAMIC_RESYNC: dt_params[constants.DRBD_DYNAMIC_RESYNC],
+        constants.LDP_PLAN_AHEAD: dt_params[constants.DRBD_PLAN_AHEAD],
+        constants.LDP_FILL_TARGET: dt_params[constants.DRBD_FILL_TARGET],
+        constants.LDP_DELAY_TARGET: dt_params[constants.DRBD_DELAY_TARGET],
+        constants.LDP_MAX_RATE: dt_params[constants.DRBD_MAX_RATE],
+        constants.LDP_MIN_RATE: dt_params[constants.DRBD_MIN_RATE],
+        }
+
+      drbd_params = \
+        FillDict(constants.DISK_LD_DEFAULTS[constants.LD_DRBD8],
+                 drbd_params)
+
+      result.append(drbd_params)
+
+      # data LV
+      data_params = {
+        constants.LDP_STRIPES: dt_params[constants.DRBD_DATA_STRIPES],
+        }
+      data_params = \
+        FillDict(constants.DISK_LD_DEFAULTS[constants.LD_LV],
+                 data_params)
+      result.append(data_params)
+
+      # metadata LV
+      meta_params = {
+        constants.LDP_STRIPES: dt_params[constants.DRBD_META_STRIPES],
+        }
+      meta_params = \
+        FillDict(constants.DISK_LD_DEFAULTS[constants.LD_LV],
+                 meta_params)
+      result.append(meta_params)
+
+    elif (disk_template == constants.DT_FILE or
+          disk_template == constants.DT_SHARED_FILE):
+      result.append(constants.DISK_LD_DEFAULTS[constants.LD_FILE])
+
+    elif disk_template == constants.DT_PLAIN:
+      params = {
+        constants.LDP_STRIPES: dt_params[constants.LV_STRIPES],
+        }
+      params = \
+        FillDict(constants.DISK_LD_DEFAULTS[constants.LD_LV],
+                 params)
+      result.append(params)
+
+    elif disk_template == constants.DT_BLOCK:
+      result.append(constants.DISK_LD_DEFAULTS[constants.LD_BLOCKDEV])
+
+    elif disk_template == constants.DT_RBD:
+      params = {
+        constants.LDP_POOL: dt_params[constants.RBD_POOL]
+        }
+      params = \
+        FillDict(constants.DISK_LD_DEFAULTS[constants.LD_RBD],
+                 params)
+      result.append(params)
+
+    return result
+
+
+class InstancePolicy(ConfigObject):
+  """Config object representing instance policy limits dictionary.
+
+
+  Note that this object is not actually used in the config, it's just
+  used as a placeholder for a few functions.
+
+  """
+  @classmethod
+  def CheckParameterSyntax(cls, ipolicy, check_std):
+    """ Check the instance policy for validity.
+
+    """
+    for param in constants.ISPECS_PARAMETERS:
+      InstancePolicy.CheckISpecSyntax(ipolicy, param, check_std)
+    if constants.IPOLICY_DTS in ipolicy:
+      InstancePolicy.CheckDiskTemplates(ipolicy[constants.IPOLICY_DTS])
+    for key in constants.IPOLICY_PARAMETERS:
+      if key in ipolicy:
+        InstancePolicy.CheckParameter(key, ipolicy[key])
+    wrong_keys = frozenset(ipolicy.keys()) - constants.IPOLICY_ALL_KEYS
+    if wrong_keys:
+      raise errors.ConfigurationError("Invalid keys in ipolicy: %s" %
+                                      utils.CommaJoin(wrong_keys))
+
+  @classmethod
+  def CheckISpecSyntax(cls, ipolicy, name, check_std):
+    """Check the instance policy for validity on a given key.
+
+    We check if the instance policy makes sense for a given key, that is
+    if ipolicy[min][name] <= ipolicy[std][name] <= ipolicy[max][name].
+
+    @type ipolicy: dict
+    @param ipolicy: dictionary with min, max, std specs
+    @type name: string
+    @param name: what are the limits for
+    @type check_std: bool
+    @param check_std: Whether to check std value or just assume compliance
+    @raise errors.ConfigureError: when specs for given name are not valid
+
+    """
+    min_v = ipolicy[constants.ISPECS_MIN].get(name, 0)
+
+    if check_std:
+      std_v = ipolicy[constants.ISPECS_STD].get(name, min_v)
+      std_msg = std_v
+    else:
+      std_v = min_v
+      std_msg = "-"
+
+    max_v = ipolicy[constants.ISPECS_MAX].get(name, std_v)
+    err = ("Invalid specification of min/max/std values for %s: %s/%s/%s" %
+           (name,
+            ipolicy[constants.ISPECS_MIN].get(name, "-"),
+            ipolicy[constants.ISPECS_MAX].get(name, "-"),
+            std_msg))
+    if min_v > std_v or std_v > max_v:
+      raise errors.ConfigurationError(err)
+
+  @classmethod
+  def CheckDiskTemplates(cls, disk_templates):
+    """Checks the disk templates for validity.
+
+    """
+    wrong = frozenset(disk_templates).difference(constants.DISK_TEMPLATES)
+    if wrong:
+      raise errors.ConfigurationError("Invalid disk template(s) %s" %
+                                      utils.CommaJoin(wrong))
+
+  @classmethod
+  def CheckParameter(cls, key, value):
+    """Checks a parameter.
+
+    Currently we expect all parameters to be float values.
+
+    """
+    try:
+      float(value)
+    except (TypeError, ValueError), err:
+      raise errors.ConfigurationError("Invalid value for key" " '%s':"
+                                      " '%s', error: %s" % (key, value, err))
 
 
 class Instance(TaggableObject):
@@ -721,7 +1030,7 @@ class Instance(TaggableObject):
     "hvparams",
     "beparams",
     "osparams",
-    "admin_up",
+    "admin_state",
     "nics",
     "disks",
     "disk_template",
@@ -861,6 +1170,13 @@ class Instance(TaggableObject):
     """Custom function for instances.
 
     """
+    if "admin_state" not in val:
+      if val.get("admin_up", False):
+        val["admin_state"] = constants.ADMINST_UP
+      else:
+        val["admin_state"] = constants.ADMINST_DOWN
+    if "admin_up" in val:
+      del val["admin_up"]
     obj = super(Instance, cls).FromDict(val)
     obj.nics = cls._ContainerFromDicts(obj.nics, list, NIC)
     obj.disks = cls._ContainerFromDicts(obj.disks, list, Disk)
@@ -882,6 +1198,7 @@ class Instance(TaggableObject):
           pass
     if self.osparams is None:
       self.osparams = {}
+    UpgradeBeParams(self.beparams)
 
 
 class OS(ConfigObject):
@@ -944,8 +1261,49 @@ class OS(ConfigObject):
     return cls.SplitNameVariant(name)[1]
 
 
+class NodeHvState(ConfigObject):
+  """Hypvervisor state on a node.
+
+  @ivar mem_total: Total amount of memory
+  @ivar mem_node: Memory used by, or reserved for, the node itself (not always
+    available)
+  @ivar mem_hv: Memory used by hypervisor or lost due to instance allocation
+    rounding
+  @ivar mem_inst: Memory used by instances living on node
+  @ivar cpu_total: Total node CPU core count
+  @ivar cpu_node: Number of CPU cores reserved for the node itself
+
+  """
+  __slots__ = [
+    "mem_total",
+    "mem_node",
+    "mem_hv",
+    "mem_inst",
+    "cpu_total",
+    "cpu_node",
+    ] + _TIMESTAMPS
+
+
+class NodeDiskState(ConfigObject):
+  """Disk state on a node.
+
+  """
+  __slots__ = [
+    "total",
+    "reserved",
+    "overhead",
+    ] + _TIMESTAMPS
+
+
 class Node(TaggableObject):
-  """Config object representing a node."""
+  """Config object representing a node.
+
+  @ivar hv_state: Hypervisor state (e.g. number of CPUs)
+  @ivar hv_state_static: Hypervisor state overriden by user
+  @ivar disk_state: Disk state (e.g. free space)
+  @ivar disk_state_static: Disk state overriden by user
+
+  """
   __slots__ = [
     "name",
     "primary_ip",
@@ -959,6 +1317,10 @@ class Node(TaggableObject):
     "vm_capable",
     "ndparams",
     "powered",
+    "hv_state",
+    "hv_state_static",
+    "disk_state",
+    "disk_state_static",
     ] + _TIMESTAMPS + _UUID
 
   def UpgradeConfig(self):
@@ -979,6 +1341,41 @@ class Node(TaggableObject):
     if self.powered is None:
       self.powered = True
 
+  def ToDict(self):
+    """Custom function for serializing.
+
+    """
+    data = super(Node, self).ToDict()
+
+    hv_state = data.get("hv_state", None)
+    if hv_state is not None:
+      data["hv_state"] = self._ContainerToDicts(hv_state)
+
+    disk_state = data.get("disk_state", None)
+    if disk_state is not None:
+      data["disk_state"] = \
+        dict((key, self._ContainerToDicts(value))
+             for (key, value) in disk_state.items())
+
+    return data
+
+  @classmethod
+  def FromDict(cls, val):
+    """Custom function for deserializing.
+
+    """
+    obj = super(Node, cls).FromDict(val)
+
+    if obj.hv_state is not None:
+      obj.hv_state = cls._ContainerFromDicts(obj.hv_state, dict, NodeHvState)
+
+    if obj.disk_state is not None:
+      obj.disk_state = \
+        dict((key, cls._ContainerFromDicts(value, dict, NodeDiskState))
+             for (key, value) in obj.disk_state.items())
+
+    return obj
+
 
 class NodeGroup(TaggableObject):
   """Config object representing a node group."""
@@ -986,7 +1383,11 @@ class NodeGroup(TaggableObject):
     "name",
     "members",
     "ndparams",
+    "diskparams",
+    "ipolicy",
     "serial_no",
+    "hv_state_static",
+    "disk_state_static",
     "alloc_policy",
     ] + _TIMESTAMPS + _UUID
 
@@ -1025,10 +1426,15 @@ class NodeGroup(TaggableObject):
     if self.alloc_policy is None:
       self.alloc_policy = constants.ALLOC_POLICY_PREFERRED
 
-    # We only update mtime, and not ctime, since we would not be able to provide
-    # a correct value for creation time.
+    # We only update mtime, and not ctime, since we would not be able
+    # to provide a correct value for creation time.
     if self.mtime is None:
       self.mtime = time.time()
+
+    if self.diskparams is None:
+      self.diskparams = {}
+    if self.ipolicy is None:
+      self.ipolicy = MakeEmptyIPolicy()
 
   def FillND(self, node):
     """Return filled out ndparams for L{objects.Node}
@@ -1069,16 +1475,20 @@ class Cluster(TaggableObject):
     "master_node",
     "master_ip",
     "master_netdev",
+    "master_netmask",
+    "use_external_mip_script",
     "cluster_name",
     "file_storage_dir",
     "shared_file_storage_dir",
     "enabled_hypervisors",
     "hvparams",
+    "ipolicy",
     "os_hvp",
     "beparams",
     "osparams",
     "nicparams",
     "ndparams",
+    "diskparams",
     "candidate_pool_size",
     "modify_etc_hosts",
     "modify_ssh_setup",
@@ -1089,6 +1499,8 @@ class Cluster(TaggableObject):
     "blacklisted_os",
     "primary_ip_family",
     "prealloc_wipe_disks",
+    "hv_state_static",
+    "disk_state_static",
     ] + _TIMESTAMPS + _UUID
 
   def UpgradeConfig(self):
@@ -1111,11 +1523,13 @@ class Cluster(TaggableObject):
     if self.osparams is None:
       self.osparams = {}
 
-    if self.ndparams is None:
-      self.ndparams = constants.NDC_DEFAULTS
+    self.ndparams = UpgradeNDParams(self.ndparams)
 
     self.beparams = UpgradeGroupedParams(self.beparams,
                                          constants.BEC_DEFAULTS)
+    for beparams_group in self.beparams:
+      UpgradeBeParams(self.beparams[beparams_group])
+
     migrate_default_bridge = not self.nicparams
     self.nicparams = UpgradeGroupedParams(self.nicparams,
                                           constants.NICC_DEFAULTS)
@@ -1168,12 +1582,42 @@ class Cluster(TaggableObject):
     if self.primary_ip_family is None:
       self.primary_ip_family = AF_INET
 
+    if self.master_netmask is None:
+      ipcls = netutils.IPAddress.GetClassFromIpFamily(self.primary_ip_family)
+      self.master_netmask = ipcls.iplen
+
     if self.prealloc_wipe_disks is None:
       self.prealloc_wipe_disks = False
 
     # shared_file_storage_dir added before 2.5
     if self.shared_file_storage_dir is None:
       self.shared_file_storage_dir = ""
+
+    if self.use_external_mip_script is None:
+      self.use_external_mip_script = False
+
+    if self.diskparams:
+      self.diskparams = UpgradeDiskParams(self.diskparams)
+    else:
+      self.diskparams = constants.DISK_DT_DEFAULTS.copy()
+
+    # instance policy added before 2.6
+    if self.ipolicy is None:
+      self.ipolicy = FillIPolicy(constants.IPOLICY_DEFAULTS, {})
+    else:
+      # we can either make sure to upgrade the ipolicy always, or only
+      # do it in some corner cases (e.g. missing keys); note that this
+      # will break any removal of keys from the ipolicy dict
+      self.ipolicy = FillIPolicy(constants.IPOLICY_DEFAULTS, self.ipolicy)
+
+  @property
+  def primary_hypervisor(self):
+    """The first hypervisor is the primary.
+
+    Useful, for example, for L{Node}'s hv/disk state.
+
+    """
+    return self.enabled_hypervisors[0]
 
   def ToDict(self):
     """Custom function for cluster.
@@ -1192,6 +1636,15 @@ class Cluster(TaggableObject):
     if not isinstance(obj.tcpudp_port_pool, set):
       obj.tcpudp_port_pool = set(obj.tcpudp_port_pool)
     return obj
+
+  def SimpleFillDP(self, diskparams):
+    """Fill a given diskparams dict with cluster defaults.
+
+    @param diskparams: The diskparams
+    @return: The defaults dict
+
+    """
+    return FillDiskParams(self.diskparams, diskparams)
 
   def GetHVDefaults(self, hypervisor, os_name=None, skip_keys=None):
     """Get the default hypervisor parameters for the cluster.
@@ -1311,6 +1764,20 @@ class Cluster(TaggableObject):
     # specified params
     return FillDict(result, os_params)
 
+  @staticmethod
+  def SimpleFillHvState(hv_state):
+    """Fill an hv_state sub dict with cluster defaults.
+
+    """
+    return FillDict(constants.HVST_DEFAULTS, hv_state)
+
+  @staticmethod
+  def SimpleFillDiskState(disk_state):
+    """Fill an disk_state sub dict with cluster defaults.
+
+    """
+    return FillDict(constants.DS_DEFAULTS, disk_state)
+
   def FillND(self, node, nodegroup):
     """Return filled out ndparams for L{objects.NodeGroup} and L{objects.Node}
 
@@ -1334,6 +1801,18 @@ class Cluster(TaggableObject):
 
     """
     return FillDict(self.ndparams, ndparams)
+
+  def SimpleFillIPolicy(self, ipolicy):
+    """ Fill instance policy dict with defaults.
+
+    @type ipolicy: dict
+    @param ipolicy: the dict to fill
+    @rtype: dict
+    @return: a copy of passed ipolicy with missing keys filled from
+      the cluster defaults
+
+    """
+    return FillIPolicy(self.ipolicy, ipolicy)
 
 
 class BlockDevStatus(ConfigObject):
@@ -1459,17 +1938,6 @@ class _QueryResponseBase(ConfigObject):
     return obj
 
 
-class QueryRequest(ConfigObject):
-  """Object holding a query request.
-
-  """
-  __slots__ = [
-    "what",
-    "fields",
-    "filter",
-    ]
-
-
 class QueryResponse(_QueryResponseBase):
   """Object holding the response to a query.
 
@@ -1502,6 +1970,17 @@ class QueryFieldsResponse(_QueryResponseBase):
     ]
 
 
+class MigrationStatus(ConfigObject):
+  """Object holding the status of a migration.
+
+  """
+  __slots__ = [
+    "status",
+    "transferred_ram",
+    "total_ram",
+    ]
+
+
 class InstanceConsole(ConfigObject):
   """Object describing how to access the console of an instance.
 
@@ -1523,15 +2002,20 @@ class InstanceConsole(ConfigObject):
     """
     assert self.kind in constants.CONS_ALL, "Unknown console type"
     assert self.instance, "Missing instance name"
-    assert self.message or self.kind in [constants.CONS_SSH, constants.CONS_VNC]
+    assert self.message or self.kind in [constants.CONS_SSH,
+                                         constants.CONS_SPICE,
+                                         constants.CONS_VNC]
     assert self.host or self.kind == constants.CONS_MESSAGE
     assert self.port or self.kind in [constants.CONS_MESSAGE,
                                       constants.CONS_SSH]
     assert self.user or self.kind in [constants.CONS_MESSAGE,
+                                      constants.CONS_SPICE,
                                       constants.CONS_VNC]
     assert self.command or self.kind in [constants.CONS_MESSAGE,
+                                         constants.CONS_SPICE,
                                          constants.CONS_VNC]
     assert self.display or self.kind in [constants.CONS_MESSAGE,
+                                         constants.CONS_SPICE,
                                          constants.CONS_SSH]
     return True
 

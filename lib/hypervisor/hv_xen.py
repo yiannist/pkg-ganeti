@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -34,6 +34,12 @@ from ganeti import netutils
 from ganeti import objects
 
 
+XEND_CONFIG_FILE = "/etc/xen/xend-config.sxp"
+XL_CONFIG_FILE = "/etc/xen/xl.conf"
+VIF_BRIDGE_SCRIPT = "/etc/xen/scripts/vif-bridge"
+_DOM0_NAME = "Domain-0"
+
+
 class XenHypervisor(hv_base.BaseHypervisor):
   """Xen generic hypervisor interface
 
@@ -46,12 +52,28 @@ class XenHypervisor(hv_base.BaseHypervisor):
   REBOOT_RETRY_INTERVAL = 10
 
   ANCILLARY_FILES = [
-    "/etc/xen/xend-config.sxp",
-    "/etc/xen/scripts/vif-bridge",
+    XEND_CONFIG_FILE,
+    XL_CONFIG_FILE,
+    VIF_BRIDGE_SCRIPT,
+    ]
+  ANCILLARY_FILES_OPT = [
+    XL_CONFIG_FILE,
     ]
 
+  @staticmethod
+  def _ConfigFileName(instance_name):
+    """Get the config file name for an instance.
+
+    @param instance_name: instance name
+    @type instance_name: str
+    @return: fully qualified path to instance config file
+    @rtype: str
+
+    """
+    return "/etc/xen/%s" % instance_name
+
   @classmethod
-  def _WriteConfigFile(cls, instance, block_devices):
+  def _WriteConfigFile(cls, instance, startup_memory, block_devices):
     """Write the Xen config file for the instance.
 
     """
@@ -64,7 +86,14 @@ class XenHypervisor(hv_base.BaseHypervisor):
     This version of the function just writes the config file from static data.
 
     """
-    utils.WriteFile("/etc/xen/%s" % instance_name, data=data)
+    # just in case it exists
+    utils.RemoveFile("/etc/xen/auto/%s" % instance_name)
+    cfg_file = XenHypervisor._ConfigFileName(instance_name)
+    try:
+      utils.WriteFile(cfg_file, data=data)
+    except EnvironmentError, err:
+      raise errors.HypervisorError("Cannot write Xen instance configuration"
+                                   " file %s: %s" % (cfg_file, err))
 
   @staticmethod
   def _ReadConfigFile(instance_name):
@@ -72,7 +101,8 @@ class XenHypervisor(hv_base.BaseHypervisor):
 
     """
     try:
-      file_content = utils.ReadFile("/etc/xen/%s" % instance_name)
+      file_content = utils.ReadFile(
+                       XenHypervisor._ConfigFileName(instance_name))
     except EnvironmentError, err:
       raise errors.HypervisorError("Failed to load Xen config file: %s" % err)
     return file_content
@@ -82,14 +112,46 @@ class XenHypervisor(hv_base.BaseHypervisor):
     """Remove the xen configuration file.
 
     """
-    utils.RemoveFile("/etc/xen/%s" % instance_name)
+    utils.RemoveFile(XenHypervisor._ConfigFileName(instance_name))
+
+  @classmethod
+  def _CreateConfigCpus(cls, cpu_mask):
+    """Create a CPU config string that's compatible with Xen's
+    configuration file.
+
+    """
+    # Convert the string CPU mask to a list of list of int's
+    cpu_list = utils.ParseMultiCpuMask(cpu_mask)
+
+    if len(cpu_list) == 1:
+      all_cpu_mapping = cpu_list[0]
+      if all_cpu_mapping == constants.CPU_PINNING_OFF:
+        # If CPU pinning has 1 entry that's "all", then remove the
+        # parameter from the config file
+        return None
+      else:
+        # If CPU pinning has one non-all entry, mapping all vCPUS (the entire
+        # VM) to one physical CPU, using format 'cpu = "C"'
+        return "cpu = \"%s\"" % ",".join(map(str, all_cpu_mapping))
+    else:
+      def _GetCPUMap(vcpu):
+        if vcpu[0] == constants.CPU_PINNING_ALL_VAL:
+          cpu_map = constants.CPU_PINNING_ALL_XEN
+        else:
+          cpu_map = ",".join(map(str, vcpu))
+        return "\"%s\"" % cpu_map
+
+      # build the result string in format 'cpus = [ "c", "c", "c" ]',
+      # where each c is a physical CPU number, a range, a list, or any
+      # combination
+      return "cpus = [ %s ]" % ", ".join(map(_GetCPUMap, cpu_list))
 
   @staticmethod
   def _RunXmList(xmlist_errors):
     """Helper function for L{_GetXMList} to run "xm list".
 
     """
-    result = utils.RunCmd(["xm", "list"])
+    result = utils.RunCmd([constants.XEN_CMD, "list"])
     if result.failed:
       logging.error("xm list failed (%s): %s", result.fail_reason,
                     result.output)
@@ -142,7 +204,7 @@ class XenHypervisor(hv_base.BaseHypervisor):
                                      " line: %s, error: %s" % (line, err))
 
       # skip the Domain-0 (optional)
-      if include_node or data[0] != "Domain-0":
+      if include_node or data[0] != _DOM0_NAME:
         result.append(data)
 
     return result
@@ -163,7 +225,7 @@ class XenHypervisor(hv_base.BaseHypervisor):
     @return: tuple (name, id, memory, vcpus, stat, times)
 
     """
-    xm_list = self._GetXMList(instance_name == "Domain-0")
+    xm_list = self._GetXMList(instance_name == _DOM0_NAME)
     result = None
     for data in xm_list:
       if data[0] == instance_name:
@@ -184,11 +246,12 @@ class XenHypervisor(hv_base.BaseHypervisor):
     """Start an instance.
 
     """
-    self._WriteConfigFile(instance, block_devices)
-    cmd = ["xm", "create"]
+    startup_memory = self._InstanceStartupMemory(instance)
+    self._WriteConfigFile(instance, startup_memory, block_devices)
+    cmd = [constants.XEN_CMD, "create"]
     if startup_paused:
-      cmd.extend(["--paused"])
-    cmd.extend([instance.name])
+      cmd.extend(["-p"])
+    cmd.extend([self._ConfigFileName(instance.name)])
     result = utils.RunCmd(cmd)
 
     if result.failed:
@@ -204,9 +267,9 @@ class XenHypervisor(hv_base.BaseHypervisor):
       name = instance.name
     self._RemoveConfigFile(name)
     if force:
-      command = ["xm", "destroy", name]
+      command = [constants.XEN_CMD, "destroy", name]
     else:
-      command = ["xm", "shutdown", name]
+      command = [constants.XEN_CMD, "shutdown", name]
     result = utils.RunCmd(command)
 
     if result.failed:
@@ -223,7 +286,7 @@ class XenHypervisor(hv_base.BaseHypervisor):
       raise errors.HypervisorError("Failed to reboot instance %s,"
                                    " not running" % instance.name)
 
-    result = utils.RunCmd(["xm", "reboot", instance.name])
+    result = utils.RunCmd([constants.XEN_CMD, "reboot", instance.name])
     if result.failed:
       raise errors.HypervisorError("Failed to reboot instance %s: %s, %s" %
                                    (instance.name, result.fail_reason,
@@ -247,6 +310,29 @@ class XenHypervisor(hv_base.BaseHypervisor):
                                    " did not reboot in the expected interval" %
                                    (instance.name, ))
 
+  def BalloonInstanceMemory(self, instance, mem):
+    """Balloon an instance memory to a certain value.
+
+    @type instance: L{objects.Instance}
+    @param instance: instance to be accepted
+    @type mem: int
+    @param mem: actual memory size to use for instance runtime
+
+    """
+    cmd = [constants.XEN_CMD, "mem-set", instance.name, mem]
+    result = utils.RunCmd(cmd)
+    if result.failed:
+      raise errors.HypervisorError("Failed to balloon instance %s: %s (%s)" %
+                                   (instance.name, result.fail_reason,
+                                    result.output))
+    cmd = ["sed", "-ie", "s/^memory.*$/memory = %s/" % mem]
+    cmd.append(XenHypervisor._ConfigFileName(instance.name))
+    result = utils.RunCmd(cmd)
+    if result.failed:
+      raise errors.HypervisorError("Failed to update memory for %s: %s (%s)" %
+                                   (instance.name, result.fail_reason,
+                                    result.output))
+
   def GetNodeInfo(self):
     """Return information about the node.
 
@@ -257,10 +343,10 @@ class XenHypervisor(hv_base.BaseHypervisor):
           - nr_cpus: total number of CPUs
           - nr_nodes: in a NUMA system, the number of domains
           - nr_sockets: the number of physical CPU sockets in the node
+          - hv_version: the hypervisor version in the form (major, minor)
 
     """
-    # note: in xen 3, memory has changed to total_memory
-    result = utils.RunCmd(["xm", "info"])
+    result = utils.RunCmd([constants.XEN_CMD, "info"])
     if result.failed:
       logging.error("Can't run 'xm info' (%s): %s", result.fail_reason,
                     result.output)
@@ -269,16 +355,22 @@ class XenHypervisor(hv_base.BaseHypervisor):
     xmoutput = result.stdout.splitlines()
     result = {}
     cores_per_socket = threads_per_core = nr_cpus = None
+    xen_major, xen_minor = None, None
+    memory_total = None
+    memory_free = None
+
     for line in xmoutput:
       splitfields = line.split(":", 1)
 
       if len(splitfields) > 1:
         key = splitfields[0].strip()
         val = splitfields[1].strip()
+
+        # note: in xen 3, memory has changed to total_memory
         if key == "memory" or key == "total_memory":
-          result["memory_total"] = int(val)
+          memory_total = int(val)
         elif key == "free_memory":
-          result["memory_free"] = int(val)
+          memory_free = int(val)
         elif key == "nr_cpus":
           nr_cpus = result["cpu_total"] = int(val)
         elif key == "nr_nodes":
@@ -287,14 +379,35 @@ class XenHypervisor(hv_base.BaseHypervisor):
           cores_per_socket = int(val)
         elif key == "threads_per_core":
           threads_per_core = int(val)
+        elif key == "xen_major":
+          xen_major = int(val)
+        elif key == "xen_minor":
+          xen_minor = int(val)
 
-    if (cores_per_socket is not None and
-        threads_per_core is not None and nr_cpus is not None):
+    if None not in [cores_per_socket, threads_per_core, nr_cpus]:
       result["cpu_sockets"] = nr_cpus / (cores_per_socket * threads_per_core)
 
-    dom0_info = self.GetInstanceInfo("Domain-0")
-    if dom0_info is not None:
-      result["memory_dom0"] = dom0_info[2]
+    total_instmem = 0
+    for (name, _, mem, vcpus, _, _) in self._GetXMList(True):
+      if name == _DOM0_NAME:
+        result["memory_dom0"] = mem
+        result["dom0_cpus"] = vcpus
+
+      # Include Dom0 in total memory usage
+      total_instmem += mem
+
+    if memory_free is not None:
+      result["memory_free"] = memory_free
+
+    if memory_total is not None:
+      result["memory_total"] = memory_total
+
+    # Calculate memory used by hypervisor
+    if None not in [memory_total, memory_free, total_instmem]:
+      result["memory_hv"] = memory_total - memory_free - total_instmem
+
+    if not (xen_major is None or xen_minor is None):
+      result[constants.HV_NODEINFO_KEY_VERSION] = (xen_major, xen_minor)
 
     return result
 
@@ -316,7 +429,7 @@ class XenHypervisor(hv_base.BaseHypervisor):
     For Xen, this verifies that the xend process is running.
 
     """
-    result = utils.RunCmd(["xm", "info"])
+    result = utils.RunCmd([constants.XEN_CMD, "info"])
     if result.failed:
       return "'xm info' failed: %s, %s" % (result.fail_reason, result.output)
 
@@ -383,7 +496,7 @@ class XenHypervisor(hv_base.BaseHypervisor):
     """
     pass
 
-  def FinalizeMigration(self, instance, info, success):
+  def FinalizeMigrationDst(self, instance, info, success):
     """Finalize an instance migration.
 
     After a successful migration we write the xen config file.
@@ -423,19 +536,61 @@ class XenHypervisor(hv_base.BaseHypervisor):
       raise errors.HypervisorError("Remote host %s not listening on port"
                                    " %s, cannot migrate" % (target, port))
 
-    args = ["xm", "migrate", "-p", "%d" % port]
-    if live:
-      args.append("-l")
+    # FIXME: migrate must be upgraded for transitioning to "xl" (xen 4.1).
+    #        This should be reworked in Ganeti 2.7
+    #  ssh must recognize the key of the target host for the migration
+    args = [constants.XEN_CMD, "migrate"]
+    if constants.XEN_CMD == constants.XEN_CMD_XM:
+      args.extend(["-p", "%d" % port])
+      if live:
+        args.append("-l")
+    elif constants.XEN_CMD == constants.XEN_CMD_XL:
+      args.extend(["-C", self._ConfigFileName(instance.name)])
+    else:
+      raise errors.HypervisorError("Unsupported xen command: %s" %
+                                   constants.XEN_CMD)
+
     args.extend([instance.name, target])
     result = utils.RunCmd(args)
     if result.failed:
       raise errors.HypervisorError("Failed to migrate instance %s: %s" %
                                    (instance.name, result.output))
-    # remove old xen file after migration succeeded
-    try:
-      self._RemoveConfigFile(instance.name)
-    except EnvironmentError:
-      logging.exception("Failure while removing instance config file")
+
+  def FinalizeMigrationSource(self, instance, success, live):
+    """Finalize the instance migration on the source node.
+
+    @type instance: L{objects.Instance}
+    @param instance: the instance that was migrated
+    @type success: bool
+    @param success: whether the migration succeeded or not
+    @type live: bool
+    @param live: whether the user requested a live migration or not
+
+    """
+    # pylint: disable=W0613
+    if success:
+      # remove old xen file after migration succeeded
+      try:
+        self._RemoveConfigFile(instance.name)
+      except EnvironmentError:
+        logging.exception("Failure while removing instance config file")
+
+  def GetMigrationStatus(self, instance):
+    """Get the migration status
+
+    As MigrateInstance for Xen is still blocking, if this method is called it
+    means that MigrateInstance has completed successfully. So we can safely
+    assume that the migration was successful and notify this fact to the client.
+
+    @type instance: L{objects.Instance}
+    @param instance: the instance that is being migrated
+    @rtype: L{objects.MigrationStatus}
+    @return: the status of the current migration (one of
+             L{constants.HV_MIGRATION_VALID_STATUSES}), plus any additional
+             progress info that can be retrieved from the hypervisor
+
+    """
+    return objects.MigrationStatus(status=constants.HV_MIGRATION_COMPLETED)
 
   @classmethod
   def PowercycleNode(cls):
@@ -452,7 +607,7 @@ class XenHypervisor(hv_base.BaseHypervisor):
     try:
       cls.LinuxPowercycle()
     finally:
-      utils.RunCmd(["xm", "debug", "R"])
+      utils.RunCmd([constants.XEN_CMD, "debug", "R"])
 
 
 class XenPvmHypervisor(XenHypervisor):
@@ -471,11 +626,12 @@ class XenPvmHypervisor(XenHypervisor):
     # TODO: Add a check for the blockdev prefix (matching [a-z:] or similar).
     constants.HV_BLOCKDEV_PREFIX: hv_base.NO_CHECK,
     constants.HV_REBOOT_BEHAVIOR:
-      hv_base.ParamInSet(True, constants.REBOOT_BEHAVIORS)
+      hv_base.ParamInSet(True, constants.REBOOT_BEHAVIORS),
+    constants.HV_CPU_MASK: hv_base.OPT_MULTI_CPU_MASK_CHECK,
     }
 
   @classmethod
-  def _WriteConfigFile(cls, instance, block_devices):
+  def _WriteConfigFile(cls, instance, startup_memory, block_devices):
     """Write the Xen config file for the instance.
 
     """
@@ -508,8 +664,13 @@ class XenPvmHypervisor(XenHypervisor):
         config.write("ramdisk = '%s'\n" % initrd_path)
 
     # rest of the settings
-    config.write("memory = %d\n" % instance.beparams[constants.BE_MEMORY])
+    config.write("memory = %d\n" % startup_memory)
+    config.write("maxmem = %d\n" % instance.beparams[constants.BE_MAXMEM])
     config.write("vcpus = %d\n" % instance.beparams[constants.BE_VCPUS])
+    cpu_pinning = cls._CreateConfigCpus(hvp[constants.HV_CPU_MASK])
+    if cpu_pinning:
+      config.write("%s\n" % cpu_pinning)
+
     config.write("name = '%s'\n" % instance.name)
 
     vif_data = []
@@ -537,14 +698,7 @@ class XenPvmHypervisor(XenHypervisor):
       config.write("on_reboot = 'destroy'\n")
     config.write("on_crash = 'restart'\n")
     config.write("extra = '%s'\n" % hvp[constants.HV_KERNEL_ARGS])
-    # just in case it exists
-    utils.RemoveFile("/etc/xen/auto/%s" % instance.name)
-    try:
-      utils.WriteFile("/etc/xen/%s" % instance.name, data=config.getvalue())
-    except EnvironmentError, err:
-      raise errors.HypervisorError("Cannot write Xen instance confile"
-                                   " file /etc/xen/%s: %s" %
-                                   (instance.name, err))
+    cls._WriteConfigFileStatic(instance.name, config.getvalue())
 
     return True
 
@@ -553,6 +707,9 @@ class XenHvmHypervisor(XenHypervisor):
   """Xen HVM hypervisor interface"""
 
   ANCILLARY_FILES = XenHypervisor.ANCILLARY_FILES + [
+    constants.VNC_PASSWORD_FILE,
+    ]
+  ANCILLARY_FILES_OPT = XenHypervisor.ANCILLARY_FILES_OPT + [
     constants.VNC_PASSWORD_FILE,
     ]
 
@@ -580,11 +737,12 @@ class XenHvmHypervisor(XenHypervisor):
     # TODO: Add a check for the blockdev prefix (matching [a-z:] or similar).
     constants.HV_BLOCKDEV_PREFIX: hv_base.NO_CHECK,
     constants.HV_REBOOT_BEHAVIOR:
-      hv_base.ParamInSet(True, constants.REBOOT_BEHAVIORS)
+      hv_base.ParamInSet(True, constants.REBOOT_BEHAVIORS),
+    constants.HV_CPU_MASK: hv_base.OPT_MULTI_CPU_MASK_CHECK,
     }
 
   @classmethod
-  def _WriteConfigFile(cls, instance, block_devices):
+  def _WriteConfigFile(cls, instance, startup_memory, block_devices):
     """Create a Xen 3.1 HVM config file.
 
     """
@@ -598,8 +756,13 @@ class XenHvmHypervisor(XenHypervisor):
     config.write("kernel = '%s'\n" % kpath)
 
     config.write("builder = 'hvm'\n")
-    config.write("memory = %d\n" % instance.beparams[constants.BE_MEMORY])
+    config.write("memory = %d\n" % startup_memory)
+    config.write("maxmem = %d\n" % instance.beparams[constants.BE_MAXMEM])
     config.write("vcpus = %d\n" % instance.beparams[constants.BE_VCPUS])
+    cpu_pinning = cls._CreateConfigCpus(hvp[constants.HV_CPU_MASK])
+    if cpu_pinning:
+      config.write("%s\n" % cpu_pinning)
+
     config.write("name = '%s'\n" % instance.name)
     if hvp[constants.HV_PAE]:
       config.write("pae = 1\n")
@@ -678,14 +841,6 @@ class XenHvmHypervisor(XenHypervisor):
     else:
       config.write("on_reboot = 'destroy'\n")
     config.write("on_crash = 'restart'\n")
-    # just in case it exists
-    utils.RemoveFile("/etc/xen/auto/%s" % instance.name)
-    try:
-      utils.WriteFile("/etc/xen/%s" % instance.name,
-                      data=config.getvalue())
-    except EnvironmentError, err:
-      raise errors.HypervisorError("Cannot write Xen instance confile"
-                                   " file /etc/xen/%s: %s" %
-                                   (instance.name, err))
+    cls._WriteConfigFileStatic(instance.name, config.getvalue())
 
     return True

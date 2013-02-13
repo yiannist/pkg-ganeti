@@ -43,7 +43,9 @@
       >node</em
       >} [--shutdown-timeout=<em
       >N</em
-      >] [--noshutdown] [--remove-instance] [--ignore-remove-failures] {<em
+      >] [--noshutdown]<br
+       />[--remove-instance] [--ignore-remove-failures] [--submit]<br
+       />{<em
       >instance</em
       >}</p
     ><p
@@ -66,6 +68,12 @@
       > option can be used to remove the instance after it was exported. This is useful to make one last backup before removing the instance.</p
     ><p
     >The exit code of the command is 0 if all disks were backed up successfully, 1 if no data was backed up or if the configuration export failed, and 2 if just some of the disks failed to backup. The exact details of the failures will be shown during the command execution (and will be stored in the job log). It is recommended that for any non-zero exit code, the backup is considered invalid, and retried.</p
+    ><p
+    >See <strong
+      >ganeti(7)</strong
+      > for a description of <code
+      >--submit</code
+      > and other common options.</p
     ><p
     >Example:</p
     ><pre
@@ -113,6 +121,8 @@
       >]<br
        />[-t [diskless | plain | drbd | file]]<br
        />[--identify-defaults]<br
+       />[--ignore-ipolicy]<br
+       />[--submit]<br
        />{<em
       >instance</em
       >}</p
@@ -202,10 +212,16 @@
       > option specifies the backend parameters for the instance. If no such parameters are specified, the values are inherited from the export. Possible parameters are:</p
     ><dl
     ><dt
-      >memory</dt
+      >maxmem</dt
       ><dd
       ><p
-	>the memory size of the instance; as usual, suffixes can be used to denote the unit, otherwise the value is taken in mebibites</p
+	>the maximum memory size of the instance; as usual, suffixes can be used to denote the unit, otherwise the value is taken in mebibytes</p
+	></dd
+      ><dt
+      >minmem</dt
+      ><dd
+      ><p
+	>the minimum memory size of the instance; as usual, suffixes can be used to denote the unit, otherwise the value is taken in mebibytes</p
 	></dd
       ><dt
       >vcpus</dt
@@ -218,6 +234,16 @@
       ><dd
       ><p
 	>whether the instance is considered in the N+1 cluster checks (enough redundancy in the cluster to survive a node failure)</p
+	></dd
+      ><dt
+      >always_failover</dt
+      ><dd
+      ><p
+	><code
+	  >True</code
+	  > or <code
+	  >False</code
+	  >, whether the instance must be failed over (shut down and rebooted) always or it may be migrated (briefly suspended)</p
 	></dd
       ></dl
     ><p
@@ -269,9 +295,19 @@
       >@CUSTOM_EXPORT_DIR@</code
       >.</p
     ><p
+    >If <code
+      >--ignore-ipolicy</code
+      > is given any instance policy violations occuring during this operation are ignored.</p
+    ><p
     >Since many of the parameters are by default read from the exported instance information and used as such, the new instance will have all parameters explicitly specified, the opposite of a newly added instance which has most parameters specified via cluster defaults. To change the import behaviour to recognize parameters whose saved value matches the current cluster default and mark it as such (default value), pass the <code
       >--identify-defaults</code
       > option. This will affect the hypervisor, backend and NIC parameters, both read from the export file and passed in via the command line.</p
+    ><p
+    >See <strong
+      >ganeti(7)</strong
+      > for a description of <code
+      >--submit</code
+      > and other common options.</p
     ><p
     >Example for identical instance import:</p
     ><pre
@@ -297,18 +333,65 @@
       >list</strong
       > [--node=<em
       >NODE</em
+      >] [--no-headers] [--separator=<em
+      >SEPARATOR</em
+      >]<br
+       />[-o <em
+      >[+]FIELD,...</em
       >]</p
     ><p
     >Lists the exports currently available in the default directory in all the nodes of the current cluster, or optionally only a subset of them specified using the <code
       >--node</code
       > option (which can be used multiple times)</p
     ><p
+    >The <code
+      >--no-headers</code
+      > option will skip the initial header line. The <code
+      >--separator</code
+      > option takes an argument which denotes what will be used between the output fields. Both these options are to help scripting.</p
+    ><p
+    >The <code
+      >-o</code
+      > option takes a comma-separated list of output fields. The available fields and their meaning are:</p
+    ><dl
+    ><dt
+      ><code
+	>export</code
+	></dt
+      ><dd
+      ><p
+	>Export name</p
+	></dd
+      ><dt
+      ><code
+	>node</code
+	></dt
+      ><dd
+      ><p
+	>Node name</p
+	></dd
+      ></dl
+    ><p
+    >If the value of the option starts with the character <code
+      >+</code
+      >, the new fields will be added to the default list. This allows one to quickly see the default list plus a few other fields, instead of retyping the entire list of fields.</p
+    ><p
     >Example:</p
     ><pre
     ><code
-      ># gnt-backup list --nodes node1 --nodes node2
+      ># gnt-backup list --node node1 --node node2
 </code
       ></pre
+    ></div
+  ><div id="list-fields"
+  ><h2
+    >LIST-FIELDS</h2
+    ><p
+    ><strong
+      >list-fields</strong
+      > [field...]</p
+    ><p
+    >Lists available fields for exports.</p
     ></div
   ><div id="remove"
   ><h2
@@ -382,13 +465,15 @@
     >hail</strong
     >(1) (IAllocator plugin), <strong
     >hscan</strong
-    >(1) (data gatherer from remote clusters).</p
+    >(1) (data gatherer from remote clusters), <strong
+    >hinfo</strong
+    >(1) (cluster information printer).</p
   ></div
 ><div id="copyright"
 ><h1
   >COPYRIGHT</h1
   ><p
-  >Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Google Inc. Permission is granted to copy, distribute and/or modify under the terms of the GNU General Public License as published by the Free Software Foundation; either version 2 of the License, or (at your option) any later version.</p
+  >Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012 Google Inc. Permission is granted to copy, distribute and/or modify under the terms of the GNU General Public License as published by the Free Software Foundation; either version 2 of the License, or (at your option) any later version.</p
   ><p
   >On Debian systems, the complete text of the GNU General Public License can be found in /usr/share/common-licenses/GPL.</p
   ></div

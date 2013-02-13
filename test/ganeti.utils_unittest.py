@@ -61,6 +61,22 @@ class TestParseCpuMask(unittest.TestCase):
       self.assertRaises(errors.ParseError, utils.ParseCpuMask, data)
 
 
+class TestParseMultiCpuMask(unittest.TestCase):
+  """Test case for the ParseMultiCpuMask function."""
+
+  def testWellFormed(self):
+    self.assertEqual(utils.ParseMultiCpuMask(""), [])
+    self.assertEqual(utils.ParseMultiCpuMask("1"), [[1]])
+    self.assertEqual(utils.ParseMultiCpuMask("0-2,4,5-5"), [[0, 1, 2, 4, 5]])
+    self.assertEqual(utils.ParseMultiCpuMask("all"), [[-1]])
+    self.assertEqual(utils.ParseMultiCpuMask("0-2:all:4,6-8"),
+      [[0, 1, 2], [-1], [4, 6, 7, 8]])
+
+  def testInvalidInput(self):
+    for data in ["garbage", "0,", "0-1-2", "2-1", "1-a", "all-all"]:
+      self.assertRaises(errors.ParseError, utils.ParseCpuMask, data)
+
+
 class TestGetMounts(unittest.TestCase):
   """Test case for GetMounts()."""
 
@@ -297,6 +313,60 @@ class TestTryConvert(unittest.TestCase):
       ("a", bool, True),
       ]:
       self.assertEqual(utils.TryConvert(fn, src), result)
+
+
+class TestVerifyDictOptions(unittest.TestCase):
+  def setUp(self):
+    self.defaults = {
+      "first_key": "foobar",
+      "foobar": {
+        "key1": "value2",
+        "key2": "value1",
+        },
+      "another_key": "another_value",
+      }
+
+  def test(self):
+    some_keys = {
+      "first_key": "blubb",
+      "foobar": {
+        "key2": "foo",
+        },
+      }
+    utils.VerifyDictOptions(some_keys, self.defaults)
+
+  def testInvalid(self):
+    some_keys = {
+      "invalid_key": "blubb",
+      "foobar": {
+        "key2": "foo",
+        },
+      }
+    self.assertRaises(errors.OpPrereqError, utils.VerifyDictOptions,
+                      some_keys, self.defaults)
+
+  def testNestedInvalid(self):
+    some_keys = {
+      "foobar": {
+        "key2": "foo",
+        "key3": "blibb"
+        },
+      }
+    self.assertRaises(errors.OpPrereqError, utils.VerifyDictOptions,
+                      some_keys, self.defaults)
+
+  def testMultiInvalid(self):
+    some_keys = {
+        "foobar": {
+          "key1": "value3",
+          "key6": "Right here",
+        },
+        "invalid_with_sub": {
+          "sub1": "value3",
+        },
+      }
+    self.assertRaises(errors.OpPrereqError, utils.VerifyDictOptions,
+                      some_keys, self.defaults)
 
 
 if __name__ == '__main__':

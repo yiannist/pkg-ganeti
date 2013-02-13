@@ -82,11 +82,22 @@
 ><h1
   >FILES</h1
   ><p
-  >The command has a state file located at <code
-    >@LOCALSTATEDIR@/lib/ganeti/watcher.data</code
+  >The command has a set of state files (one per group) located at <code
+    >@LOCALSTATEDIR@/lib/ganeti/watcher.GROUP-UUID.data</code
     > (only used on the master) and a log file at <code
     >@LOCALSTATEDIR@/log/ganeti/watcher.log</code
-    >. Removal of either file will not affect correct operation; the removal of the state file will just cause the restart counters for the instances to reset to zero.</p
+    >. Removal of either file(s) will not affect correct operation; the removal of the state file will just cause the restart counters for the instances to reset to zero, and mark nodes as freshly rebooted (so for example DRBD minors will be re-activated).</p
+  ><p
+  >In some cases, it's even desirable to reset the watcher state, for example after maintenance actions, or when you want to simulate the reboot of all nodes, so in this case, you can remove all state files:</p
+  ><pre
+  ><code
+    >rm -f @LOCALSTATEDIR@/lib/ganeti/watcher.*.data
+rm -f @LOCALSTATEDIR@/lib/ganeti/watcher.*.instance-status
+rm -f @LOCALSTATEDIR@/lib/ganeti/instance-status
+</code
+    ></pre
+  ><p
+  >And then re-run the watcher.</p
   ></div
 >
 <div id="reporting-bugs"
@@ -149,13 +160,15 @@
     >hail</strong
     >(1) (IAllocator plugin), <strong
     >hscan</strong
-    >(1) (data gatherer from remote clusters).</p
+    >(1) (data gatherer from remote clusters), <strong
+    >hinfo</strong
+    >(1) (cluster information printer).</p
   ></div
 ><div id="copyright"
 ><h1
   >COPYRIGHT</h1
   ><p
-  >Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Google Inc. Permission is granted to copy, distribute and/or modify under the terms of the GNU General Public License as published by the Free Software Foundation; either version 2 of the License, or (at your option) any later version.</p
+  >Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012 Google Inc. Permission is granted to copy, distribute and/or modify under the terms of the GNU General Public License as published by the Free Software Foundation; either version 2 of the License, or (at your option) any later version.</p
   ><p
   >On Debian systems, the complete text of the GNU General Public License can be found in /usr/share/common-licenses/GPL.</p
   ></div

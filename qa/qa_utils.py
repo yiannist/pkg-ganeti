@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2007, 2011 Google Inc.
+# Copyright (C) 2007, 2011, 2012 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -30,9 +30,15 @@ import subprocess
 import random
 import tempfile
 
+try:
+  import functools
+except ImportError, err:
+  raise ImportError("Python 2.5 or higher is required: %s" % err)
+
 from ganeti import utils
 from ganeti import compat
 from ganeti import constants
+from ganeti import ht
 
 import qa_config
 import qa_error
@@ -44,6 +50,16 @@ _ERROR_SEQ = None
 _RESET_SEQ = None
 
 _MULTIPLEXERS = {}
+
+#: Unique ID per QA run
+_RUN_UUID = utils.NewUUID()
+
+
+(INST_DOWN,
+ INST_UP) = range(500, 502)
+
+(FIRST_ARG,
+ RETURN_VALUE) = range(1000, 1002)
 
 
 def _SetupColours():
@@ -117,6 +133,28 @@ def AssertMatch(string, pattern):
     raise qa_error.Error("%r doesn't match /%r/" % (string, pattern))
 
 
+def _GetName(entity, key):
+  """Tries to get name of an entity.
+
+  @type entity: string or dict
+  @type key: string
+  @param key: Dictionary key containing name
+
+  """
+  if isinstance(entity, basestring):
+    result = entity
+  elif isinstance(entity, dict):
+    result = entity[key]
+  else:
+    raise qa_error.Error("Expected string or dictionary, got %s: %s" %
+                         (type(entity), entity))
+
+  if not ht.TNonEmptyString(result):
+    raise Exception("Invalid name '%s'" % result)
+
+  return result
+
+
 def AssertCommand(cmd, fail=False, node=None):
   """Checks that a remote command succeeds.
 
@@ -132,10 +170,7 @@ def AssertCommand(cmd, fail=False, node=None):
   if node is None:
     node = qa_config.GetMasterNode()
 
-  if isinstance(node, basestring):
-    nodename = node
-  else:
-    nodename = node["primary"]
+  nodename = _GetName(node, "primary")
 
   if isinstance(cmd, basestring):
     cmdstr = cmd
@@ -156,7 +191,7 @@ def AssertCommand(cmd, fail=False, node=None):
   return rcode
 
 
-def GetSSHCommand(node, cmd, strict=True, opts=None, tty=True):
+def GetSSHCommand(node, cmd, strict=True, opts=None, tty=None):
   """Builds SSH command to be executed.
 
   @type node: string
@@ -168,11 +203,14 @@ def GetSSHCommand(node, cmd, strict=True, opts=None, tty=True):
   @param strict: whether to enable strict host key checking
   @type opts: list
   @param opts: list of additional options
-  @type tty: Bool
-  @param tty: If we should use tty
+  @type tty: boolean or None
+  @param tty: if we should use tty; if None, will be auto-detected
 
   """
-  args = ["ssh", "-oEscapeChar=none", "-oBatchMode=yes", "-l", "root"]
+  args = ["ssh", "-oEscapeChar=none", "-oBatchMode=yes", "-lroot"]
+
+  if tty is None:
+    tty = sys.stdout.isatty()
 
   if tty:
     args.append("-t")
@@ -197,11 +235,15 @@ def GetSSHCommand(node, cmd, strict=True, opts=None, tty=True):
   return args
 
 
-def StartLocalCommand(cmd, **kwargs):
+def StartLocalCommand(cmd, _nolog_opts=False, **kwargs):
   """Starts a local command.
 
   """
-  print "Command: %s" % utils.ShellQuoteArgs(cmd)
+  if _nolog_opts:
+    pcmd = [i for i in cmd if not i.startswith("-")]
+  else:
+    pcmd = cmd
+  print "Command: %s" % utils.ShellQuoteArgs(pcmd)
   return subprocess.Popen(cmd, shell=False, **kwargs)
 
 
@@ -209,7 +251,8 @@ def StartSSH(node, cmd, strict=True):
   """Starts SSH.
 
   """
-  return StartLocalCommand(GetSSHCommand(node, cmd, strict=strict))
+  return StartLocalCommand(GetSSHCommand(node, cmd, strict=strict),
+                           _nolog_opts=True)
 
 
 def StartMultiplexer(node):
@@ -240,7 +283,7 @@ def CloseMultiplexers():
     utils.RemoveFile(sname)
 
 
-def GetCommandOutput(node, cmd, tty=True):
+def GetCommandOutput(node, cmd, tty=None):
   """Returns the output of a command executed on the given node.
 
   """
@@ -400,7 +443,7 @@ def _List(listcmd, fields, names):
   """
   master = qa_config.GetMasterNode()
 
-  cmd = [listcmd, "list", "--separator=|", "--no-header",
+  cmd = [listcmd, "list", "--separator=|", "--no-headers",
          "--output", ",".join(fields)]
 
   if names:
@@ -410,7 +453,7 @@ def _List(listcmd, fields, names):
                           utils.ShellQuoteArgs(cmd)).splitlines()
 
 
-def GenericQueryTest(cmd, fields):
+def GenericQueryTest(cmd, fields, namefield="name", test_unknown=True):
   """Runs a number of tests on query commands.
 
   @param cmd: Command name
@@ -426,22 +469,25 @@ def GenericQueryTest(cmd, fields):
   for testfields in _SelectQueryFields(rnd, fields):
     AssertCommand([cmd, "list", "--output", ",".join(testfields)])
 
-  namelist_fn = compat.partial(_List, cmd, ["name"])
+  if namefield is not None:
+    namelist_fn = compat.partial(_List, cmd, [namefield])
 
-  # When no names were requested, the list must be sorted
-  names = namelist_fn(None)
-  AssertEqual(names, utils.NiceSort(names))
+    # When no names were requested, the list must be sorted
+    names = namelist_fn(None)
+    AssertEqual(names, utils.NiceSort(names))
 
-  # When requesting specific names, the order must be kept
-  revnames = list(reversed(names))
-  AssertEqual(namelist_fn(revnames), revnames)
+    # When requesting specific names, the order must be kept
+    revnames = list(reversed(names))
+    AssertEqual(namelist_fn(revnames), revnames)
 
-  randnames = list(names)
-  rnd.shuffle(randnames)
-  AssertEqual(namelist_fn(randnames), randnames)
+    randnames = list(names)
+    rnd.shuffle(randnames)
+    AssertEqual(namelist_fn(randnames), randnames)
 
-  # Listing unknown items must fail
-  AssertCommand([cmd, "list", "this.name.certainly.does.not.exist"], fail=True)
+  if test_unknown:
+    # Listing unknown items must fail
+    AssertCommand([cmd, "list", "this.name.certainly.does.not.exist"],
+                  fail=True)
 
   # Check exit code for listing unknown field
   AssertEqual(AssertCommand([cmd, "list", "--output=field/does/not/exist"],
@@ -519,3 +565,84 @@ def RemoveFromEtcHosts(hostnames):
                                               quoted_tmp_hosts))
   except qa_error.Error:
     AssertCommand(["rm", tmp_hosts])
+
+
+def RunInstanceCheck(instance, running):
+  """Check if instance is running or not.
+
+  """
+  instance_name = _GetName(instance, "name")
+
+  script = qa_config.GetInstanceCheckScript()
+  if not script:
+    return
+
+  master_node = qa_config.GetMasterNode()
+
+  # Build command to connect to master node
+  master_ssh = GetSSHCommand(master_node["primary"], "--")
+
+  if running:
+    running_shellval = "1"
+    running_text = ""
+  else:
+    running_shellval = ""
+    running_text = "not "
+
+  print FormatInfo("Checking if instance '%s' is %srunning" %
+                   (instance_name, running_text))
+
+  args = [script, instance_name]
+  env = {
+    "PATH": constants.HOOKS_PATH,
+    "RUN_UUID": _RUN_UUID,
+    "MASTER_SSH": utils.ShellQuoteArgs(master_ssh),
+    "INSTANCE_NAME": instance_name,
+    "INSTANCE_RUNNING": running_shellval,
+    }
+
+  result = os.spawnve(os.P_WAIT, script, args, env)
+  if result != 0:
+    raise qa_error.Error("Instance check failed with result %s" % result)
+
+
+def _InstanceCheckInner(expected, instarg, args, result):
+  """Helper function used by L{InstanceCheck}.
+
+  """
+  if instarg == FIRST_ARG:
+    instance = args[0]
+  elif instarg == RETURN_VALUE:
+    instance = result
+  else:
+    raise Exception("Invalid value '%s' for instance argument" % instarg)
+
+  if expected in (INST_DOWN, INST_UP):
+    RunInstanceCheck(instance, (expected == INST_UP))
+  elif expected is not None:
+    raise Exception("Invalid value '%s'" % expected)
+
+
+def InstanceCheck(before, after, instarg):
+  """Decorator to check instance status before and after test.
+
+  @param before: L{INST_DOWN} if instance must be stopped before test,
+    L{INST_UP} if instance must be running before test, L{None} to not check.
+  @param after: L{INST_DOWN} if instance must be stopped after test,
+    L{INST_UP} if instance must be running after test, L{None} to not check.
+  @param instarg: L{FIRST_ARG} to use first argument to test as instance (a
+    dictionary), L{RETURN_VALUE} to use return value (disallows pre-checks)
+
+  """
+  def decorator(fn):
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+      _InstanceCheckInner(before, instarg, args, NotImplemented)
+
+      result = fn(*args, **kwargs)
+
+      _InstanceCheckInner(after, instarg, args, result)
+
+      return result
+    return wrapper
+  return decorator

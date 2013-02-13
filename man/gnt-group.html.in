@@ -39,12 +39,79 @@
     ><p
     ><strong
       >add</strong
-      ><br
+      > [--submit]<br
        />[--node-parameters=<em
       >NDPARAMS</em
       >]<br
        />[--alloc-policy=<em
       >POLICY</em
+      >]<br
+       />[{-D|--disk-parameters} <em
+      >disk-template</em
+      >:<em
+      >disk-param</em
+      >=<em
+      >value</em
+      >[,<em
+      >disk-param</em
+      >=<em
+      >value</em
+      >...]]<br
+       />[--specs-cpu-count <em
+      >spec-param</em
+      >=<em
+      >value</em
+      > [,<em
+      >spec-param</em
+      >=<em
+      >value</em
+      >...]]<br
+       />[--specs-disk-count <em
+      >spec-param</em
+      >=<em
+      >value</em
+      > [,<em
+      >spec-param</em
+      >=<em
+      >value</em
+      >...]]<br
+       />[--specs-disk-size <em
+      >spec-param</em
+      >=<em
+      >value</em
+      > [,<em
+      >spec-param</em
+      >=<em
+      >value</em
+      >...]]<br
+       />[--specs-mem-size <em
+      >spec-param</em
+      >=<em
+      >value</em
+      > [,<em
+      >spec-param</em
+      >=<em
+      >value</em
+      >...]]<br
+       />[--specs-nic-count <em
+      >spec-param</em
+      >=<em
+      >value</em
+      > [,<em
+      >spec-param</em
+      >=<em
+      >value</em
+      >...]]<br
+       />[--ipol-disk-templates <em
+      >template</em
+      > [,<em
+      >template</em
+      >...]]<br
+       />[--disk-state <em
+      >diskstate</em
+      >]<br
+       />[--hypervisor-state <em
+      >hvstate</em
       >]<br
        />{<em
       >group</em
@@ -58,7 +125,7 @@
       >--node-parameters</code
       > option allows you to set default node parameters for nodes in the group. Please see <strong
       >ganeti</strong
-      >(7) for more information about supported key=value pairs.</p
+      >(7) for more information about supported key=value pairs and their corresponding options.</p
     ><p
     >The <code
       >--alloc-policy</code
@@ -83,6 +150,28 @@
 	>nodes in the group can be used freely for allocation of instances (this is the default). Note that prioritization among groups in this state will be deferred to the iallocator plugin that's being used.</p
 	></dd
       ></dl
+    ><p
+    >The <code
+      >-D (--disk-parameters)</code
+      > option allows you to set the disk parameters for the node group; please see the section about <strong
+      >gnt-cluster add</strong
+      > in <strong
+      >gnt-cluster</strong
+      >(8) for more information about disk parameters</p
+    ><p
+    >The <code
+      >--specs-...</code
+      > and <code
+      >--ipol-disk-templates</code
+      > options specify instance policies on the node group, and are documented in the <strong
+      >gnt-cluster</strong
+      >(8) man page.</p
+    ><p
+    >See <strong
+      >ganeti(7)</strong
+      > for a description of <code
+      >--submit</code
+      > and other common options.</p
     ></div
   ><div id="assign-nodes"
   ><h2
@@ -91,7 +180,7 @@
     ><strong
       >assign-nodes</strong
       ><br
-       />[--force]<br
+       />[--force] [--submit]<br
        />{<em
       >group</em
       >} {<em
@@ -103,6 +192,12 @@
     >By default, this command will refuse to proceed if the move would split between groups any instance that was not previously split (a split instance is an instance with a mirrored disk template, e.g. DRBD, that has the primary and secondary nodes in different node groups). You can force the operation with <code
       >--force</code
       >.</p
+    ><p
+    >See <strong
+      >ganeti(7)</strong
+      > for a description of <code
+      >--submit</code
+      > and other common options.</p
     ></div
   ><div id="modify"
   ><h2
@@ -110,13 +205,80 @@
     ><p
     ><strong
       >modify</strong
-      ><br
+      > [--submit]<br
        />[--node-parameters=<em
       >NDPARAMS</em
       >]<br
        />[--alloc-policy=<em
       >POLICY</em
       >]<br
+       />[--hypervisor-state <em
+      >hvstate</em
+      >]<br
+       />[{-D|--disk-parameters} <em
+      >disk-template</em
+      >:<em
+      >disk-param</em
+      >=<em
+      >value</em
+      >[,<em
+      >disk-param</em
+      >=<em
+      >value</em
+      >...]]<br
+       />[--disk-state <em
+      >diskstate</em
+      >]<br
+       />[--specs-cpu-count <em
+      >spec-param</em
+      >=<em
+      >value</em
+      > [,<em
+      >spec-param</em
+      >=<em
+      >value</em
+      >...]]<br
+       />[--specs-disk-count <em
+      >spec-param</em
+      >=<em
+      >value</em
+      > [,<em
+      >spec-param</em
+      >=<em
+      >value</em
+      >...]]<br
+       />[--specs-disk-size <em
+      >spec-param</em
+      >=<em
+      >value</em
+      > [,<em
+      >spec-param</em
+      >=<em
+      >value</em
+      >...]]<br
+       />[--specs-mem-size <em
+      >spec-param</em
+      >=<em
+      >value</em
+      > [,<em
+      >spec-param</em
+      >=<em
+      >value</em
+      >...]]<br
+       />[--specs-nic-count <em
+      >spec-param</em
+      >=<em
+      >value</em
+      > [,<em
+      >spec-param</em
+      >=<em
+      >value</em
+      >...]]<br
+       />[--ipol-disk-templates <em
+      >template</em
+      > [,<em
+      >template</em
+      >...]]<br
        />{<em
       >group</em
       >}</p
@@ -127,9 +289,39 @@
       >--node-parameters</code
       > and <code
       >--alloc-policy</code
-      > optiosn are documented in the <strong
+      > options are documented in the <strong
+      >add</strong
+      > command above. <code
+      >--hypervisor-state</code
+      > as well as <code
+      >--disk-state</code
+      > are documented in detail in <strong
+      >ganeti</strong
+      >(7).</p
+    ><p
+    >The <code
+      >--node-parameters</code
+      >, <code
+      >--alloc-policy</code
+      >, <code
+      >-D (--disk-parameters)</code
+      > options are documented in the <strong
       >add</strong
       > command above.</p
+    ><p
+    >The <code
+      >--specs-...</code
+      > and <code
+      >--ipol-disk-templates</code
+      > options specify instance policies on the node group, and are documented in the <strong
+      >gnt-cluster</strong
+      >(8) man page.</p
+    ><p
+    >See <strong
+      >ganeti(7)</strong
+      > for a description of <code
+      >--submit</code
+      > and other common options.</p
     ></div
   ><div id="remove"
   ><h2
@@ -137,11 +329,17 @@
     ><p
     ><strong
       >remove</strong
-      > {<em
+      > [--submit] {<em
       >group</em
       >}</p
     ><p
     >Deletes the indicated node group, which must be empty. There must always be at least one group, so the last group cannot be removed.</p
+    ><p
+    >See <strong
+      >ganeti(7)</strong
+      > for a description of <code
+      >--submit</code
+      > and other common options.</p
     ></div
   ><div id="list"
   ><h2
@@ -196,6 +394,46 @@
 	></dd
       ><dt
       ><code
+	>custom_diskparams</code
+	></dt
+      ><dd
+      ><p
+	>Custom disk parameters</p
+	></dd
+      ><dt
+      ><code
+	>custom_ipolicy</code
+	></dt
+      ><dd
+      ><p
+	>Custom instance policy limitations</p
+	></dd
+      ><dt
+      ><code
+	>custom_ndparams</code
+	></dt
+      ><dd
+      ><p
+	>Custom node parameters</p
+	></dd
+      ><dt
+      ><code
+	>diskparams</code
+	></dt
+      ><dd
+      ><p
+	>Disk parameters (merged)</p
+	></dd
+      ><dt
+      ><code
+	>ipolicy</code
+	></dt
+      ><dd
+      ><p
+	>Instance policy limitations (merged)</p
+	></dd
+      ><dt
+      ><code
 	>mtime</code
 	></dt
       ><dd
@@ -209,6 +447,22 @@
       ><dd
       ><p
 	>Group name</p
+	></dd
+      ><dt
+      ><code
+	>ndp/oob_program</code
+	></dt
+      ><dd
+      ><p
+	>The &quot;oob_program&quot; node parameter</p
+	></dd
+      ><dt
+      ><code
+	>ndp/spindle_count</code
+	></dt
+      ><dd
+      ><p
+	>The &quot;spindle_count&quot; node parameter</p
 	></dd
       ><dt
       ><code
@@ -302,7 +556,7 @@
     ><p
     ><strong
       >rename</strong
-      > {<em
+      > [--submit] {<em
       >oldname</em
       >} {<em
       >newname</em
@@ -313,6 +567,12 @@
       > to <em
       >newname</em
       >.</p
+    ><p
+    >See <strong
+      >ganeti(7)</strong
+      > for a description of <code
+      >--submit</code
+      > and other common options.</p
     ></div
   ><div id="evacuate"
   ><h2
@@ -320,7 +580,7 @@
     ><p
     ><strong
       >evacuate</strong
-      > [--iallocator <em
+      > [--submit] [--iallocator <em
       >NAME</em
       >] [--to <em
       >GROUP</em
@@ -333,6 +593,12 @@
     >If no specific destination groups are specified using <code
       >--to</code
       >, all groups except the evacuated group are considered.</p
+    ><p
+    >See <strong
+      >ganeti(7)</strong
+      > for a description of <code
+      >--submit</code
+      > and other common options.</p
     ><p
     >Example:</p
     ><pre
@@ -401,6 +667,16 @@
 	> will be interpreted as stdin.</p
       ></div
     ></div
+  ><div id="info"
+  ><h2
+    >INFO</h2
+    ><p
+    ><strong
+      >info</strong
+      > [group...]</p
+    ><p
+    >Shows config information for all (or given) groups.</p
+    ></div
   ></div
 >
 <div id="reporting-bugs"
@@ -463,13 +739,15 @@
     >hail</strong
     >(1) (IAllocator plugin), <strong
     >hscan</strong
-    >(1) (data gatherer from remote clusters).</p
+    >(1) (data gatherer from remote clusters), <strong
+    >hinfo</strong
+    >(1) (cluster information printer).</p
   ></div
 ><div id="copyright"
 ><h1
   >COPYRIGHT</h1
   ><p
-  >Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Google Inc. Permission is granted to copy, distribute and/or modify under the terms of the GNU General Public License as published by the Free Software Foundation; either version 2 of the License, or (at your option) any later version.</p
+  >Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012 Google Inc. Permission is granted to copy, distribute and/or modify under the terms of the GNU General Public License as published by the Free Software Foundation; either version 2 of the License, or (at your option) any later version.</p
   ><p
   >On Debian systems, the complete text of the GNU General Public License can be found in /usr/share/common-licenses/GPL.</p
   ></div

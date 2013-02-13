@@ -1,7 +1,7 @@
 # Configure script for Ganeti
 m4_define([gnt_version_major], [2])
-m4_define([gnt_version_minor], [5])
-m4_define([gnt_version_revision], [2])
+m4_define([gnt_version_minor], [6])
+m4_define([gnt_version_revision], [0])
 m4_define([gnt_version_suffix], [])
 m4_define([gnt_version_full],
           m4_format([%d.%d.%d%s],
@@ -83,20 +83,42 @@ AC_SUBST(XEN_BOOTLOADER, $xen_bootloader)
 # --with-xen-kernel=...
 AC_ARG_WITH([xen-kernel],
   [AS_HELP_STRING([--with-xen-kernel=PATH],
-    [DomU kernel image for Xen hypervisor (default is /boot/vmlinuz-2.6-xenU)]
+    [DomU kernel image for Xen hypervisor (default is /boot/vmlinuz-3-xenU)]
   )],
   [xen_kernel="$withval"],
-  [xen_kernel="/boot/vmlinuz-2.6-xenU"])
+  [xen_kernel="/boot/vmlinuz-3-xenU"])
 AC_SUBST(XEN_KERNEL, $xen_kernel)
 
 # --with-xen-initrd=...
 AC_ARG_WITH([xen-initrd],
   [AS_HELP_STRING([--with-xen-initrd=PATH],
-    [DomU initrd image for Xen hypervisor (default is /boot/initrd-2.6-xenU)]
+    [DomU initrd image for Xen hypervisor (default is /boot/initrd-3-xenU)]
   )],
   [xen_initrd="$withval"],
-  [xen_initrd="/boot/initrd-2.6-xenU"])
+  [xen_initrd="/boot/initrd-3-xenU"])
 AC_SUBST(XEN_INITRD, $xen_initrd)
+
+# --with-xen-cmd=...
+AC_ARG_WITH([xen-cmd],
+  [AS_HELP_STRING([--with-xen-cmd=CMD],
+    [Sets the xen cli interface command (default is xm)]
+  )],
+  [xen_cmd="$withval"],
+  [xen_cmd="xm"])
+AC_SUBST(XEN_CMD, $xen_cmd)
+
+if ! test "$XEN_CMD" = xl -o "$XEN_CMD" = xm; then
+  AC_MSG_ERROR([Unsupported xen command specified])
+fi
+
+# --with-kvm-kernel=...
+AC_ARG_WITH([kvm-kernel],
+  [AS_HELP_STRING([--with-kvm-kernel=PATH],
+    [Guest kernel image for KVM hypervisor (default is /boot/vmlinuz-3-kvmU)]
+  )],
+  [kvm_kernel="$withval"],
+  [kvm_kernel="/boot/vmlinuz-3-kvmU"])
+AC_SUBST(KVM_KERNEL, $kvm_kernel)
 
 # --with-file-storage-dir=...
 AC_ARG_WITH([file-storage-dir],
@@ -147,7 +169,7 @@ AC_SUBST(KVM_PATH, $kvm_path)
 # --with-lvm-stripecount=...
 AC_ARG_WITH([lvm-stripecount],
   [AS_HELP_STRING([--with-lvm-stripecount=NUM],
-    [the number of stripes to use for LVM volumes]
+    [the default number of stripes to use for LVM volumes]
     [ (default is 1)]
   )],
   [lvm_stripecount="$withval"],
@@ -208,15 +230,20 @@ AC_MSG_NOTICE([Group for clients is $group_admin])
 # --enable-drbd-barriers
 AC_ARG_ENABLE([drbd-barriers],
   [AS_HELP_STRING([--enable-drbd-barriers],
-    [enable the DRBD barrier functionality (>= 8.0.12) (default: enabled)])],
+    [enable by default the DRBD barriers functionality (>= 8.0.12) (default: enabled)])],
   [[if test "$enableval" != no; then
-      DRBD_BARRIERS=True
+      DRBD_BARRIERS=n
+      DRBD_NO_META_FLUSH=False
     else
-      DRBD_BARRIERS=False
+      DRBD_BARRIERS=bf
+      DRBD_NO_META_FLUSH=True
     fi
   ]],
-  [DRBD_BARRIERS=True])
+  [DRBD_BARRIERS=n
+   DRBD_NO_META_FLUSH=False
+  ])
 AC_SUBST(DRBD_BARRIERS, $DRBD_BARRIERS)
+AC_SUBST(DRBD_NO_META_FLUSH, $DRBD_NO_META_FLUSH)
 
 # --enable-syslog[=no/yes/only]
 AC_ARG_ENABLE([syslog],
@@ -260,6 +287,42 @@ AC_ARG_ENABLE([htools-rapi],
         [enable use of RAPI in htools (needs curl, default: no)])],
         [],
         [enable_htools_rapi=no])
+
+# --enable-htools
+ENABLE_CONFD=
+AC_ARG_ENABLE([confd],
+  [AS_HELP_STRING([--enable-confd],
+  [enable the ganeti-confd daemon (default: python, options haskell/python/no)])],
+  [[case "$enableval" in
+      no)
+        enable_confd=False
+        py_confd=False
+        hs_confd=False
+        ;;
+      yes|python)
+        enable_confd=True
+        py_confd=True
+        hs_confd=False
+        ;;
+      haskell)
+        enable_confd=True
+        py_confd=False
+        hs_confd=True
+        ;;
+      *)
+        echo "Invalid value for enable-confd '$enableval'"
+        exit 1
+        ;;
+    esac
+  ]],
+  [enable_confd=True;py_confd=True;hs_confd=False])
+AC_SUBST(ENABLE_CONFD, $enable_confd)
+AC_SUBST(PY_CONFD, $py_confd)
+AC_SUBST(HS_CONFD, $hs_confd)
+
+AM_CONDITIONAL([WANT_CONFD], [test x$enable_confd = xTrue])
+AM_CONDITIONAL([PY_CONFD], [test x$py_confd = xTrue])
+AM_CONDITIONAL([HS_CONFD], [test x$hs_confd = xTrue])
 
 # --with-disk-separator=...
 AC_ARG_WITH([disk-separator],
@@ -324,6 +387,7 @@ if test -z "$PEP8"
 then
   AC_MSG_WARN([pep8 not found, checking code will not be complete])
 fi
+AM_CONDITIONAL([HAS_PEP8], [test "$PEP8"])
 
 # Check for socat
 AC_ARG_VAR(SOCAT, [socat path])
@@ -331,6 +395,14 @@ AC_PATH_PROG(SOCAT, [socat], [])
 if test -z "$SOCAT"
 then
   AC_MSG_ERROR([socat not found])
+fi
+
+# Check for qemu-img
+AC_ARG_VAR(QEMUIMG_PATH, [qemu-img path])
+AC_PATH_PROG(QEMUIMG_PATH, [qemu-img], [])
+if test -z "$QEMUIMG_PATH"
+then
+  AC_MSG_WARN([qemu-img not found, using ovfconverter will not be possible])
 fi
 
 if test "$enable_htools" != "no"; then
@@ -447,11 +519,34 @@ if test "$HADDOCK" && test "$HSCOLOUR"; then
 fi
 AC_SUBST(HTOOLS_APIDOC)
 
+# Check for hlint
+HLINT=no
+AC_ARG_VAR(HLINT, [hlint path])
+AC_PATH_PROG(HLINT, [hlint], [])
+if test -z "$HLINT"; then
+  AC_MSG_WARN([hlint not found, checking code will not be possible])
+fi
+
 fi # end if enable_htools, define automake conditions
+
+if test "$HTOOLS" != "yes" && test "$HS_CONFD" = "True"; then
+   AC_MSG_ERROR(m4_normalize([cannot enable Haskell version of ganeti-confd if
+                              htools support is not enabled]))
+fi
 
 AM_CONDITIONAL([WANT_HTOOLS], [test x$HTOOLS = xyes])
 AM_CONDITIONAL([WANT_HTOOLSTESTS], [test "x$GHC_PKG_QUICKCHECK" != x])
 AM_CONDITIONAL([WANT_HTOOLSAPIDOC], [test x$HTOOLS_APIDOC = xyes])
+AM_CONDITIONAL([HAS_HLINT], [test "$HLINT"])
+
+# Check for fakeroot
+AC_ARG_VAR(FAKEROOT_PATH, [fakeroot path])
+AC_PATH_PROG(FAKEROOT_PATH, [fakeroot], [])
+if test -z "$FAKEROOT_PATH"; then
+  AC_MSG_WARN(m4_normalize([fakeroot not found, tests that must run as root
+                            will not be executed]))
+fi
+AM_CONDITIONAL([HAS_FAKEROOT], [test "x$FAKEROOT_PATH" != x])
 
 SOCAT_USE_ESCAPE=
 AC_ARG_ENABLE([socat-escape],
@@ -518,6 +613,7 @@ AC_PYTHON_MODULE(simplejson, t)
 AC_PYTHON_MODULE(pyparsing, t)
 AC_PYTHON_MODULE(pyinotify, t)
 AC_PYTHON_MODULE(pycurl, t)
+AC_PYTHON_MODULE(affinity)
 
 # This is optional but then we've limited functionality
 AC_PYTHON_MODULE(paramiko)

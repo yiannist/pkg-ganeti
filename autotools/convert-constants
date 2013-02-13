@@ -1,7 +1,7 @@
 #!/usr/bin/python
 #
 
-# Copyright (C) 2011 Google Inc.
+# Copyright (C) 2011, 2012 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -23,16 +23,27 @@
 """
 
 import re
+import types
 
+from ganeti import compat
 from ganeti import constants
+from ganeti import luxi
 
-CONSTANT_RE = re.compile("^[A-Z][A-Z0-9_]+$")
+#: Constant name regex
+CONSTANT_RE = re.compile("^[A-Z][A-Z0-9_-]+$")
+
+#: Private name regex
+PRIVATE_RE = re.compile("^__.+__$")
+
+#: The type of regex objects
+RE_TYPE = type(CONSTANT_RE)
 
 
 def NameRules(name):
   """Converts the upper-cased Python name to Haskell camelCase.
 
   """
+  name = name.replace("-", "_")
   elems = name.split("_")
   return elems[0].lower() + "".join(e.capitalize() for e in elems[1:])
 
@@ -46,44 +57,176 @@ def StringValueRules(value):
   return value
 
 
-def Convert():
+def DictKeyName(dict_name, key_name):
+  """Converts a dict plus key name to a full name.
+
+  """
+  return"%s_%s" % (dict_name, str(key_name).upper())
+
+
+def HaskellTypeVal(value):
+  """Returns the Haskell type and value for a Python value.
+
+  Note that this only work for 'plain' Python types.
+
+  @returns: (string, string) or None, if we can't determine the type.
+
+  """
+  if isinstance(value, basestring):
+    return ("String", "\"%s\"" % StringValueRules(value))
+  elif isinstance(value, int):
+    return ("Int", "%d" % value)
+  elif isinstance(value, long):
+    return ("Integer", "%d" % value)
+  elif isinstance(value, float):
+    return ("Double", "%f" % value)
+  else:
+    return None
+
+
+def IdentifyOrigin(all_items, value):
+  """Tries to identify a constant name from a constant's value.
+
+  This uses a simple algorithm: is there a constant (and only one)
+  with the same value? If so, then it returns that constants' name.
+
+  @note: it is recommended to use this only for tuples/lists/sets, and
+      not for individual (top-level) values
+  @param all_items: a dictionary of name/values for the current module
+  @param value: the value for which we try to find an origin
+
+  """
+  found = [name for (name, v) in all_items.items() if v is value]
+  if len(found) == 1:
+    return found[0]
+  else:
+    return None
+
+
+def FormatListElems(all_items, pfx_name, ovals, tvals):
+  """Formats a list's elements.
+
+  This formats the elements as either values or, if we find all
+  origins, as names.
+
+  @param all_items: a dictionary of name/values for the current module
+  @param pfx_name: the prefix name currently used
+  @param ovals: the list of actual (Python) values
+  @param tvals: the list of values we want to format in the Haskell form
+
+  """
+  origins = [IdentifyOrigin(all_items, v) for v in ovals]
+  if compat.all(x is not None for x in origins):
+    values = [NameRules(pfx_name + origin) for origin in origins]
+  else:
+    values = tvals
+  return ", ".join(values)
+
+
+def ConvertVariable(prefix, name, value, all_items):
+  """Converts a given variable to Haskell code.
+
+  @param prefix: a prefix for the Haskell name (useful for module
+      identification)
+  @param name: the Python name
+  @param value: the value
+  @param all_items: a dictionary of name/value for the module being
+      processed
+  @return: a list of Haskell code lines
+
+  """
+  lines = []
+  if prefix:
+    pfx_name = prefix + "_"
+    fqn = prefix + "." + name
+  else:
+    pfx_name = ""
+    fqn = name
+  hs_name = NameRules(pfx_name + name)
+  hs_typeval = HaskellTypeVal(value)
+  if (isinstance(value, types.ModuleType) or callable(value) or
+      PRIVATE_RE.match(name)):
+    # no sense in marking these, as we don't _want_ to convert them; the
+    # message in the next if block is for datatypes we don't _know_
+    # (yet) how to convert
+    pass
+  elif not CONSTANT_RE.match(name):
+    lines.append("-- Skipped %s %s, not constant" % (fqn, type(value)))
+  elif hs_typeval is not None:
+    # this is a simple value
+    (hs_type, hs_val) = hs_typeval
+    lines.append("-- | Converted from Python constant %s" % fqn)
+    lines.append("%s :: %s" % (hs_name, hs_type))
+    lines.append("%s = %s" % (hs_name, hs_val))
+  elif isinstance(value, dict):
+    if value:
+      lines.append("-- Following lines come from dictionary %s" % fqn)
+      for k in sorted(value.keys()):
+        lines.extend(ConvertVariable(prefix, DictKeyName(name, k),
+                                     value[k], all_items))
+  elif isinstance(value, tuple):
+    tvs = [HaskellTypeVal(elem) for elem in value]
+    if compat.all(e is not None for e in tvs):
+      ttypes = ", ".join(e[0] for e in tvs)
+      tvals = FormatListElems(all_items, pfx_name, value, [e[1] for e in tvs])
+      lines.append("-- | Converted from Python tuple %s" % fqn)
+      lines.append("%s :: (%s)" % (hs_name, ttypes))
+      lines.append("%s = (%s)" % (hs_name, tvals))
+    else:
+      lines.append("-- Skipped tuple %s, cannot convert all elements" % fqn)
+  elif isinstance(value, (list, set, frozenset)):
+    # Lists and frozensets are handled the same in Haskell: as lists,
+    # since lists are immutable and we don't need for constants the
+    # high-speed of an actual Set type. However, we can only convert
+    # them if they have the same type for all elements (which is a
+    # normal expectation for constants, our code should be well
+    # behaved); note that this is different from the tuples case,
+    # where we always (for some values of always) can convert
+    tvs = [HaskellTypeVal(elem) for elem in value]
+    if compat.all(e is not None for e in tvs):
+      ttypes, tvals = zip(*tvs)
+      uniq_types = set(ttypes)
+      if len(uniq_types) == 1:
+        values = FormatListElems(all_items, pfx_name, value, tvals)
+        lines.append("-- | Converted from Python list or set %s" % fqn)
+        lines.append("%s :: [%s]" % (hs_name, uniq_types.pop()))
+        lines.append("%s = [%s]" % (hs_name, values))
+      else:
+        lines.append("-- | Skipped list/set %s, is not homogeneous" % fqn)
+    else:
+      lines.append("-- | Skipped list/set %s, cannot convert all elems" % fqn)
+  elif isinstance(value, RE_TYPE):
+    tvs = HaskellTypeVal(value.pattern)
+    assert tvs is not None
+    lines.append("-- | Converted from Python RE object %s" % fqn)
+    lines.append("%s :: %s" % (hs_name, tvs[0]))
+    lines.append("%s = %s" % (hs_name, tvs[1]))
+  else:
+    lines.append("-- Skipped %s, %s not handled" % (fqn, type(value)))
+  return lines
+
+
+def Convert(module, prefix):
   """Converts the constants to Haskell.
 
   """
   lines = [""]
 
-  all_names = dir(constants)
+  all_items = dict((name, getattr(module, name)) for name in dir(module))
 
-  for name in all_names:
-    value = getattr(constants, name)
-    hs_name = NameRules(name)
-    if not CONSTANT_RE.match(name):
-      lines.append("-- Skipped %s, not constant" % name)
-    elif isinstance(value, basestring):
-      lines.append("-- | Converted from Python constant %s" % name)
-      lines.append("%s :: String" % hs_name)
-      lines.append("%s = \"%s\"" % (hs_name, StringValueRules(value)))
-    elif isinstance(value, int):
-      lines.append("-- | Converted from Python constant %s" % name)
-      lines.append("%s :: Int" % hs_name)
-      lines.append("%s = %d" % (hs_name, value))
-    elif isinstance(value, long):
-      lines.append("-- | Converted from Python constant %s" % name)
-      lines.append("%s :: Integer" % hs_name)
-      lines.append("%s = %d" % (hs_name, value))
-    elif isinstance(value, float):
-      lines.append("-- | Converted from Python constant %s" % name)
-      lines.append("%s :: Double" % hs_name)
-      lines.append("%s = %f" % (hs_name, value))
-    else:
-      lines.append("-- Skipped %s, %s not handled" % (name, type(value)))
-    lines.append("")
+  for name in sorted(all_items.keys()):
+    value = all_items[name]
+    new_lines = ConvertVariable(prefix, name, value, all_items)
+    if new_lines:
+      lines.extend(new_lines)
+      lines.append("")
 
   return "\n".join(lines)
 
 
 def main():
-  print Convert()
+  print Convert(constants, "")
+  print Convert(luxi, "luxi")
 
 
 if __name__ == "__main__":

@@ -1,7 +1,7 @@
 Ganeti automatic instance allocation
 ====================================
 
-Documents Ganeti version 2.5
+Documents Ganeti version 2.6
 
 .. contents::
 
@@ -41,7 +41,7 @@ using the first one whose filename matches the one given by the user.
 Command line interface changes
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The node selection options in instanece add and instance replace disks
+The node selection options in instance add and instance replace disks
 can be replace by the new ``--iallocator=NAME`` option (shortened to
 ``-I``), which will cause the auto-assignement of nodes with the
 passed iallocator. The selected node(s) will be show as part of the
@@ -90,6 +90,10 @@ cluster_tags
 enabled_hypervisors
   the list of enabled hypervisors
 
+ipolicy
+  the cluster-wide instance policy (for information; the per-node group
+  values take precedence and should be used instead)
+
 request
   a dictionary containing the details of the request; the keys vary
   depending on the type of operation that's being requested, as
@@ -105,13 +109,15 @@ nodegroups
   alloc_policy
     the allocation policy of the node group (consult the semantics of
     this attribute in the :manpage:`gnt-group(8)` manpage)
+  ipolicy
+    the instance policy of the node group
 
 instances
   a dictionary with the data for the current existing instance on the
   cluster, indexed by instance name; the contents are similar to the
   instance definitions for the allocate mode, with the addition of:
 
-  admin_up
+  admin_state
     if this instance is set to run (but not the actual status of the
     instance)
 
@@ -279,9 +285,11 @@ Allocation needs, in addition:
 Relocation:
 
   relocate_from
-     a list of nodes to move the instance away from (note that with
-     Ganeti 2.0, this list will always contain a single node, the
-     current secondary of the instance); type *list of strings*
+     a list of nodes to move the instance away from; for DRBD-based
+     instances, this will contain a single node, the current secondary
+     of the instance, whereas for shared-storage instance, this will
+     contain also a single node, the current primary of the instance;
+     type *list of strings*
 
 As for ``node-evacuate``, it needs the following request arguments:
 

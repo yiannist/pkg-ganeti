@@ -99,8 +99,8 @@ vm_capable
 Node Parameters
 ~~~~~~~~~~~~~~~
 
-These parameters are node specific and can be preseeded on node-group
-and cluster level.
+The ``ndparams`` refer to node parameters. These can be set as defaults
+on cluster and node group levels, but they take effect for nodes only.
 
 Currently we support the following node parameters:
 
@@ -108,6 +108,69 @@ oob_program
     Path to an executable used as the out-of-band helper as described in
     the `Ganeti Node OOB Management Framework <design-oob.rst>`_ design
     document.
+
+spindle_count
+    This should reflect the I/O performance of local attached storage
+    (e.g. for "file", "plain" and "drbd" disk templates). It doesn't
+    have to match the actual spindle count of (any eventual) mechanical
+    hard-drives, its meaning is site-local and just the relative values
+    matter.
+
+
+Hypervisor State Parameters
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Using ``--hypervisor-state`` you can set hypervisor specific states as
+pointed out in ``Ganeti Resource Model <design-resource-model.rst>``.
+
+The format is: ``hypervisor:option=value``.
+
+Currently we support the following hypervisor state values:
+
+mem_total
+  Total node memory, as discovered by this hypervisor
+mem_node
+  Memory used by, or reserved for, the node itself; note that some
+  hypervisors can report this in an authoritative way, other not
+mem_hv
+  Memory used either by the hypervisor itself or lost due to instance
+  allocation rounding; usually this cannot be precisely computed, but
+  only roughly estimated
+cpu_total
+  Total node cpu (core) count; usually this can be discovered
+  automatically
+cpu_node
+  Number of cores reserved for the node itself; this can either be
+  discovered or set manually. Only used for estimating how many VCPUs
+  are left for instances
+
+Note that currently this option is unused by Ganeti; values will be
+recorded but will not influence the Ganeti operation.
+
+
+Disk State Parameters
+~~~~~~~~~~~~~~~~~~~~~
+
+Using ``--disk-state`` you can set disk specific states as pointed out
+in ``Ganeti Resource Model <design-resource-model.rst>``.
+
+The format is: ``storage_type/identifier:option=value``. Where we
+currently just support ``lvm`` as storage type. The identifier in this
+case is the LVM volume group. By default this is ``xenvg``.
+
+Currently we support the following hypervisor state values:
+
+disk_total
+  Total disk size (usually discovered automatically)
+disk_reserved
+  Reserved disk size; this is a lower limit on the free space, if such a
+  limit is desired
+disk_overhead
+  Disk that is expected to be used by other volumes (set via
+  ``reserved_lvs``); usually should be zero
+
+Note that currently this option is unused by Ganeti; values will be
+recorded but will not influence the Ganeti operation.
 
 
 Cluster configuration
@@ -168,13 +231,33 @@ Many Ganeti commands provide the following options. The
 availability for a certain command can be checked by calling the
 command using the ``--help`` option.
 
-**gnt-...** *command* [--dry-run] [--priority {low | normal | high}]
+| **gnt-...** *command* [\--dry-run] [\--priority {low | normal | high}]
+| [\--submit]
 
 The ``--dry-run`` option can be used to check whether an operation
 would succeed.
 
 The option ``--priority`` sets the priority for opcodes submitted
 by the command.
+
+The ``--submit`` option is used to send the job to the master daemon but
+not wait for its completion. The job ID will be shown so that it can be
+examined using **gnt-job info**.
+
+Defaults
+~~~~~~~~
+
+For certain commands you can use environment variables to provide
+default command line arguments. Just assign the arguments as a string to
+the corresponding environment variable. The format of that variable
+name is **binary**_*command*. **binary** is the name of the ``gnt-*``
+script all upper case and dashes replaced by underscores, and *command*
+is the command invoked on that script.
+
+Currently supported commands are ``gnt-node list``, ``gnt-group list``
+and ``gnt-instance list``. So you can configure default command line
+flags by setting ``GNT_NODE_LIST``, ``GNT_GROUP_LIST`` and
+``GNT_INSTANCE_LIST``.
 
 Field formatting
 ----------------
@@ -233,6 +316,30 @@ Perl. The language is not generic. Each condition must consist of a field name
 and a value (except for boolean checks), a field can not be compared to another
 field. Keywords are case-sensitive.
 
+Examples (see below for syntax details):
+
+- List webservers::
+
+    gnt-instance list --filter 'name =* "web*.example.com"'
+
+- List instances with three or six virtual CPUs and whose primary
+  nodes reside in groups starting with the string "rack"::
+
+    gnt-instance list --filter
+      '(be/vcpus == 3 or be/vcpus == 6) and pnode.group =~ m/^rack/'
+
+- Nodes hosting primary instances::
+
+    gnt-node list --filter 'pinst_cnt != 0'
+
+- Nodes which aren't master candidates::
+
+    gnt-node list --filter 'not master_candidate'
+
+- Short version for globbing patterns::
+
+    gnt-instance list '*.site1' '*.site2'
+
 Syntax in pseudo-BNF::
 
   <quoted-string> ::= /* String quoted with single or double quotes,
@@ -255,7 +362,7 @@ Syntax in pseudo-BNF::
 
   <condition> ::=
     { /* Value comparison */
-      <field> { == | != } <value>
+      <field> { == | != | < | <= | >= | > } <value>
 
       /* Collection membership */
       | <value> [ not ] in <field>
@@ -282,6 +389,14 @@ Operators:
   Equality
 *!=*
   Inequality
+*<*
+  Less than
+*<=*
+  Less than or equal
+*>*
+  Greater than
+*>=*
+  Greater than or equal
 *=~*
   Pattern match using regular expression
 *!~*
@@ -292,9 +407,6 @@ Operators:
   Logically negated from *=\**
 *in*, *not in*
   Collection membership and negation
-
-As a shortcut globbing patterns can be specified as names, e.g.
-``gnt-instance list '*.site1' '*.site2'``.
 
 
 Common daemon functionality

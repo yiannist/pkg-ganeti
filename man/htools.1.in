@@ -9,6 +9,11 @@ cluster balancer
 .RS
 .RE
 .TP
+.B \f[B]hcheck\f[]
+cluster checker
+.RS
+.RE
+.TP
 .B \f[B]hspace\f[]
 cluster capacity computation
 .RS
@@ -23,6 +28,11 @@ IAllocator plugin
 saves cluster state for later reuse
 .RS
 .RE
+.TP
+.B \f[B]hinfo\f[]
+cluster information printer
+.RS
+.RE
 .SH DESCRIPTION
 .PP
 \f[B]htools\f[] is a suite of tools designed to help with
@@ -35,6 +45,10 @@ can be used to set the desired role.
 Installed as \f[B]hbal\f[], it computes and optionally executes a
 suite of instance moves in order to balance the cluster.
 .PP
+Installed as \f[B]hcheck\f[], it preforms cluster checks and
+optionally simulates rebalancing with all the \f[B]hbal\f[] options
+available.
+.PP
 Installed as \f[B]hspace\f[], it computes how many additional
 instances can be fit on a cluster, while maintaining N+1 status. It
 can run on models of existing clusters or of simulated clusters.
@@ -46,6 +60,9 @@ instance moves.
 Installed as \f[B]hscan\f[], it scans the local or remote cluster
 state and saves it to files which can later be reused by the other
 roles.
+.PP
+Installed as \f[B]hinfo\f[], it prints information about the
+current cluster state.
 .SH COMMON OPTIONS
 .PP
 Options behave the same in all program modes, but not all program
@@ -176,6 +193,156 @@ the dynamic net load (if the information is available)
 .RE
 .RE
 .TP
+.B -t \f[I]datafile\f[], --text-data=\f[I]datafile\f[]
+Backend specification: the name of the file holding node and
+instance information (if not collecting via RAPI or LUXI). This or
+one of the other backends must be selected. The option is described
+in the man page \f[B]htools\f[](1).
+.RS
+.PP
+The file should contain text data, line-based, with two empty lines
+separating sections. The lines themselves are column-based, with
+the pipe symbol (\f[B]|\f[]) acting as separator.
+.PP
+The first section contains group data, with two columns:
+.IP \[bu] 2
+group name
+.IP \[bu] 2
+group uuid
+.PP
+The second sections contains node data, with the following columns:
+.IP \[bu] 2
+node name
+.IP \[bu] 2
+node total memory
+.IP \[bu] 2
+node free memory
+.IP \[bu] 2
+node total disk
+.IP \[bu] 2
+node free disk
+.IP \[bu] 2
+node physical cores
+.IP \[bu] 2
+offline field (as \f[B]Y\f[] or \f[B]N\f[])
+.IP \[bu] 2
+group UUID
+.IP \[bu] 2
+node spindle count
+.PP
+The third section contains instance data, with the fields:
+.IP \[bu] 2
+instance name
+.IP \[bu] 2
+instance memory
+.IP \[bu] 2
+instance disk size
+.IP \[bu] 2
+instance vcpus
+.IP \[bu] 2
+instance status (in Ganeti\[aq]s format, e.g. \f[B]running\f[] or
+\f[B]ERROR_down\f[])
+.IP \[bu] 2
+instance \f[B]auto_balance\f[] flag (see man page
+\f[B]gnt-instance\f[] (7))
+.IP \[bu] 2
+instance primary node
+.IP \[bu] 2
+instance secondary node(s), if any
+.IP \[bu] 2
+instance disk type (e.g. \f[B]plain\f[] or \f[B]drbd\f[])
+.IP \[bu] 2
+instance tags
+.PP
+The fourth section contains the cluster tags, with one tag per line
+(no columns/no column processing).
+.PP
+The fifth section contains the ipolicies of the cluster and the
+node groups, in the following format (separated by \f[B]|\f[]):
+.IP \[bu] 2
+owner (empty if cluster, group name otherwise)
+.IP \[bu] 2
+standard, min, max instance specs, containing the following values
+separated by commas:
+.RS 2
+.IP \[bu] 2
+memory size
+.IP \[bu] 2
+cpu count
+.IP \[bu] 2
+disk size
+.IP \[bu] 2
+disk count
+- nic count
+.RE
+.IP \[bu] 2
+disk templates
+.IP \[bu] 2
+vcpu ratio
+.IP \[bu] 2
+spindle ratio
+.RE
+.TP
+.B -m \f[I]cluster\f[]
+Backend specification: collect data directly from the
+\f[I]cluster\f[] given as an argument via RAPI. If the argument
+doesn\[aq]t contain a colon (:), then it is converted into a
+fully-built URL via prepending \f[B]https://\f[] and appending the
+default RAPI port, otherwise it is considered a fully-specified URL
+and used as-is.
+.RS
+.RE
+.TP
+.B -L [\f[I]path\f[]]
+Backend specification: collect data directly from the master
+daemon, which is to be contacted via LUXI (an internal Ganeti
+protocol). An optional \f[I]path\f[] argument is interpreted as the
+path to the unix socket on which the master daemon listens;
+otherwise, the default path used by Ganeti (configured at build
+time) is used.
+.RS
+.RE
+.TP
+.B -I|--ialloc-src \f[I]path\f[]
+Backend specification: load data directly from an iallocator
+request (as produced by Ganeti when doing an iallocator call). The
+iallocator request is read from specified path.
+.RS
+.RE
+.TP
+.B --simulate \f[I]description\f[]
+Backend specification: instead of using actual data, build an empty
+cluster given a node description. The \f[I]description\f[]
+parameter must be a comma-separated list of five elements,
+describing in order:
+.RS
+.IP \[bu] 2
+the allocation policy for this node group (\f[I]preferred\f[],
+\f[I]allocable\f[] or \f[I]unallocable\f[], or alternatively the
+short forms \f[I]p\f[], \f[I]a\f[] or \f[I]u\f[])
+.IP \[bu] 2
+the number of nodes in the cluster
+.IP \[bu] 2
+the disk size of the nodes (default in mebibytes, units can be
+used)
+.IP \[bu] 2
+the memory size of the nodes (default in mebibytes, units can be
+used)
+.IP \[bu] 2
+the cpu core count for the nodes
+.IP \[bu] 2
+the spindle count for the nodes
+.PP
+An example description would be \f[B]preferred,20,100G,16g,4,2\f[]
+describing a 20-node cluster where each node has 100GB of disk
+space, 16GiB of memory, 4 CPU cores and 2 disk spindles. Note that
+all nodes must have the same specs currently.
+.PP
+This option can be given multiple times, and each new use defines a
+new node group. Hence different node groups can have different
+allocation policies and node count/specifications.
+.RE
+.TP
 .B -v, --verbose
 Increase the output verbosity. Each usage of this option will
 increase the verbosity (currently more than 2 doesn\[aq]t make
@@ -240,10 +407,11 @@ restarter), \f[B]ganeti-cleaner\f[](8) (job queue cleaner),
 Ganeti htools: \f[B]htools\f[](1) (generic binary),
 \f[B]hbal\f[](1) (cluster balancer), \f[B]hspace\f[](1) (capacity
 calculation), \f[B]hail\f[](1) (IAllocator plugin),
-\f[B]hscan\f[](1) (data gatherer from remote clusters).
+\f[B]hscan\f[](1) (data gatherer from remote clusters),
+\f[B]hinfo\f[](1) (cluster information printer).
 .SH COPYRIGHT
 .PP
-Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Google Inc.
+Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012 Google Inc.
 Permission is granted to copy, distribute and/or modify under the
 terms of the GNU General Public License as published by the Free
 Software Foundation; either version 2 of the License, or (at your

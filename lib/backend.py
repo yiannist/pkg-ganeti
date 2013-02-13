@@ -60,6 +60,8 @@ from ganeti import ssconf
 from ganeti import serializer
 from ganeti import netutils
 from ganeti import runtime
+from ganeti import mcpu
+from ganeti import compat
 
 
 _BOOT_ID_PATH = "/proc/sys/kernel/random/boot_id"
@@ -78,6 +80,10 @@ _IES_CA_FILE = "ca"
 
 #: Valid LVS output line regex
 _LVSLINE_REGEX = re.compile("^ *([^|]+)\|([^|]+)\|([0-9.]+)\|([^|]{6,})\|?$")
+
+# Actions for the master setup script
+_MASTER_START = "start"
+_MASTER_STOP = "stop"
 
 
 class RPCFail(Exception):
@@ -196,6 +202,8 @@ def _BuildUploadFileList():
     constants.SSH_KNOWN_HOSTS_FILE,
     constants.VNC_PASSWORD_FILE,
     constants.RAPI_CERT_FILE,
+    constants.SPICE_CERT_FILE,
+    constants.SPICE_CACERT_FILE,
     constants.RAPI_USERS_FILE,
     constants.CONFD_HMAC_KEY,
     constants.CLUSTER_DOMAIN_SECRET_FILE,
@@ -203,7 +211,7 @@ def _BuildUploadFileList():
 
   for hv_name in constants.HYPER_TYPES:
     hv_class = hypervisor.GetHypervisorClass(hv_name)
-    allowed_files.update(hv_class.GetAncillaryFiles())
+    allowed_files.update(hv_class.GetAncillaryFiles()[0])
 
   return frozenset(allowed_files)
 
@@ -229,7 +237,8 @@ def GetMasterInfo():
   for consumption here or from the node daemon.
 
   @rtype: tuple
-  @return: master_netdev, master_ip, master_name, primary_ip_family
+  @return: master_netdev, master_ip, master_name, primary_ip_family,
+    master_netmask
   @raise RPCFail: in case of errors
 
   """
@@ -237,125 +246,212 @@ def GetMasterInfo():
     cfg = _GetConfig()
     master_netdev = cfg.GetMasterNetdev()
     master_ip = cfg.GetMasterIP()
+    master_netmask = cfg.GetMasterNetmask()
     master_node = cfg.GetMasterNode()
     primary_ip_family = cfg.GetPrimaryIPFamily()
   except errors.ConfigurationError, err:
     _Fail("Cluster configuration incomplete: %s", err, exc=True)
-  return (master_netdev, master_ip, master_node, primary_ip_family)
+  return (master_netdev, master_ip, master_node, primary_ip_family,
+      master_netmask)
 
 
-def StartMaster(start_daemons, no_voting):
+def RunLocalHooks(hook_opcode, hooks_path, env_builder_fn):
+  """Decorator that runs hooks before and after the decorated function.
+
+  @type hook_opcode: string
+  @param hook_opcode: opcode of the hook
+  @type hooks_path: string
+  @param hooks_path: path of the hooks
+  @type env_builder_fn: function
+  @param env_builder_fn: function that returns a dictionary containing the
+    environment variables for the hooks. Will get all the parameters of the
+    decorated function.
+  @raise RPCFail: in case of pre-hook failure
+
+  """
+  def decorator(fn):
+    def wrapper(*args, **kwargs):
+      _, myself = ssconf.GetMasterAndMyself()
+      nodes = ([myself], [myself])  # these hooks run locally
+
+      env_fn = compat.partial(env_builder_fn, *args, **kwargs)
+
+      cfg = _GetConfig()
+      hr = HooksRunner()
+      hm = mcpu.HooksMaster(hook_opcode, hooks_path, nodes, hr.RunLocalHooks,
+                            None, env_fn, logging.warning, cfg.GetClusterName(),
+                            cfg.GetMasterNode())
+
+      hm.RunPhase(constants.HOOKS_PHASE_PRE)
+      result = fn(*args, **kwargs)
+      hm.RunPhase(constants.HOOKS_PHASE_POST)
+
+      return result
+    return wrapper
+  return decorator
+
+
+def _BuildMasterIpEnv(master_params, use_external_mip_script=None):
+  """Builds environment variables for master IP hooks.
+
+  @type master_params: L{objects.MasterNetworkParameters}
+  @param master_params: network parameters of the master
+  @type use_external_mip_script: boolean
+  @param use_external_mip_script: whether to use an external master IP
+    address setup script (unused, but necessary per the implementation of the
+    _RunLocalHooks decorator)
+
+  """
+  # pylint: disable=W0613
+  ver = netutils.IPAddress.GetVersionFromAddressFamily(master_params.ip_family)
+  env = {
+    "MASTER_NETDEV": master_params.netdev,
+    "MASTER_IP": master_params.ip,
+    "MASTER_NETMASK": str(master_params.netmask),
+    "CLUSTER_IP_VERSION": str(ver),
+  }
+
+  return env
+
+
+def _RunMasterSetupScript(master_params, action, use_external_mip_script):
+  """Execute the master IP address setup script.
+
+  @type master_params: L{objects.MasterNetworkParameters}
+  @param master_params: network parameters of the master
+  @type action: string
+  @param action: action to pass to the script. Must be one of
+    L{backend._MASTER_START} or L{backend._MASTER_STOP}
+  @type use_external_mip_script: boolean
+  @param use_external_mip_script: whether to use an external master IP
+    address setup script
+  @raise backend.RPCFail: if there are errors during the execution of the
+    script
+
+  """
+  env = _BuildMasterIpEnv(master_params)
+
+  if use_external_mip_script:
+    setup_script = constants.EXTERNAL_MASTER_SETUP_SCRIPT
+  else:
+    setup_script = constants.DEFAULT_MASTER_SETUP_SCRIPT
+
+  result = utils.RunCmd([setup_script, action], env=env, reset_env=True)
+
+  if result.failed:
+    _Fail("Failed to %s the master IP. Script return value: %s" %
+          (action, result.exit_code), log=True)
+
+
+@RunLocalHooks(constants.FAKE_OP_MASTER_TURNUP, "master-ip-turnup",
+               _BuildMasterIpEnv)
+def ActivateMasterIp(master_params, use_external_mip_script):
+  """Activate the IP address of the master daemon.
+
+  @type master_params: L{objects.MasterNetworkParameters}
+  @param master_params: network parameters of the master
+  @type use_external_mip_script: boolean
+  @param use_external_mip_script: whether to use an external master IP
+    address setup script
+  @raise RPCFail: in case of errors during the IP startup
+
+  """
+  _RunMasterSetupScript(master_params, _MASTER_START,
+                        use_external_mip_script)
+
+
+def StartMasterDaemons(no_voting):
   """Activate local node as master node.
 
-  The function will either try activate the IP address of the master
-  (unless someone else has it) or also start the master daemons, based
-  on the start_daemons parameter.
+  The function will start the master daemons (ganeti-masterd and ganeti-rapi).
 
-  @type start_daemons: boolean
-  @param start_daemons: whether to start the master daemons
-      (ganeti-masterd and ganeti-rapi), or (if false) activate the
-      master ip
   @type no_voting: boolean
   @param no_voting: whether to start ganeti-masterd without a node vote
-      (if start_daemons is True), but still non-interactively
+      but still non-interactively
   @rtype: None
 
   """
-  # GetMasterInfo will raise an exception if not able to return data
-  master_netdev, master_ip, _, family = GetMasterInfo()
 
-  err_msgs = []
-  # either start the master and rapi daemons
-  if start_daemons:
-    if no_voting:
-      masterd_args = "--no-voting --yes-do-it"
-    else:
-      masterd_args = ""
-
-    env = {
-      "EXTRA_MASTERD_ARGS": masterd_args,
-      }
-
-    result = utils.RunCmd([constants.DAEMON_UTIL, "start-master"], env=env)
-    if result.failed:
-      msg = "Can't start Ganeti master: %s" % result.output
-      logging.error(msg)
-      err_msgs.append(msg)
-  # or activate the IP
+  if no_voting:
+    masterd_args = "--no-voting --yes-do-it"
   else:
-    if netutils.TcpPing(master_ip, constants.DEFAULT_NODED_PORT):
-      if netutils.IPAddress.Own(master_ip):
-        # we already have the ip:
-        logging.debug("Master IP already configured, doing nothing")
-      else:
-        msg = "Someone else has the master ip, not activating"
-        logging.error(msg)
-        err_msgs.append(msg)
-    else:
-      ipcls = netutils.IP4Address
-      if family == netutils.IP6Address.family:
-        ipcls = netutils.IP6Address
+    masterd_args = ""
 
-      result = utils.RunCmd([constants.IP_COMMAND_PATH, "address", "add",
-                             "%s/%d" % (master_ip, ipcls.iplen),
-                             "dev", master_netdev, "label",
-                             "%s:0" % master_netdev])
-      if result.failed:
-        msg = "Can't activate master IP: %s" % result.output
-        logging.error(msg)
-        err_msgs.append(msg)
+  env = {
+    "EXTRA_MASTERD_ARGS": masterd_args,
+    }
 
-      # we ignore the exit code of the following cmds
-      if ipcls == netutils.IP4Address:
-        utils.RunCmd(["arping", "-q", "-U", "-c 3", "-I", master_netdev, "-s",
-                      master_ip, master_ip])
-      elif ipcls == netutils.IP6Address:
-        try:
-          utils.RunCmd(["ndisc6", "-q", "-r 3", master_ip, master_netdev])
-        except errors.OpExecError:
-          # TODO: Better error reporting
-          logging.warning("Can't execute ndisc6, please install if missing")
-
-  if err_msgs:
-    _Fail("; ".join(err_msgs))
+  result = utils.RunCmd([constants.DAEMON_UTIL, "start-master"], env=env)
+  if result.failed:
+    msg = "Can't start Ganeti master: %s" % result.output
+    logging.error(msg)
+    _Fail(msg)
 
 
-def StopMaster(stop_daemons):
-  """Deactivate this node as master.
+@RunLocalHooks(constants.FAKE_OP_MASTER_TURNDOWN, "master-ip-turndown",
+               _BuildMasterIpEnv)
+def DeactivateMasterIp(master_params, use_external_mip_script):
+  """Deactivate the master IP on this node.
 
-  The function will always try to deactivate the IP address of the
-  master. It will also stop the master daemons depending on the
-  stop_daemons parameter.
+  @type master_params: L{objects.MasterNetworkParameters}
+  @param master_params: network parameters of the master
+  @type use_external_mip_script: boolean
+  @param use_external_mip_script: whether to use an external master IP
+    address setup script
+  @raise RPCFail: in case of errors during the IP turndown
 
-  @type stop_daemons: boolean
-  @param stop_daemons: whether to also stop the master daemons
-      (ganeti-masterd and ganeti-rapi)
+  """
+  _RunMasterSetupScript(master_params, _MASTER_STOP,
+                        use_external_mip_script)
+
+
+def StopMasterDaemons():
+  """Stop the master daemons on this node.
+
+  Stop the master daemons (ganeti-masterd and ganeti-rapi) on this node.
+
   @rtype: None
 
   """
   # TODO: log and report back to the caller the error failures; we
   # need to decide in which case we fail the RPC for this
 
-  # GetMasterInfo will raise an exception if not able to return data
-  master_netdev, master_ip, _, family = GetMasterInfo()
+  result = utils.RunCmd([constants.DAEMON_UTIL, "stop-master"])
+  if result.failed:
+    logging.error("Could not stop Ganeti master, command %s had exitcode %s"
+                  " and error %s",
+                  result.cmd, result.exit_code, result.output)
 
-  ipcls = netutils.IP4Address
-  if family == netutils.IP6Address.family:
-    ipcls = netutils.IP6Address
+
+def ChangeMasterNetmask(old_netmask, netmask, master_ip, master_netdev):
+  """Change the netmask of the master IP.
+
+  @param old_netmask: the old value of the netmask
+  @param netmask: the new value of the netmask
+  @param master_ip: the master IP
+  @param master_netdev: the master network device
+
+  """
+  if old_netmask == netmask:
+    return
+
+  if not netutils.IPAddress.Own(master_ip):
+    _Fail("The master IP address is not up, not attempting to change its"
+          " netmask")
+
+  result = utils.RunCmd([constants.IP_COMMAND_PATH, "address", "add",
+                         "%s/%s" % (master_ip, netmask),
+                         "dev", master_netdev, "label",
+                         "%s:0" % master_netdev])
+  if result.failed:
+    _Fail("Could not set the new netmask on the master IP address")
 
   result = utils.RunCmd([constants.IP_COMMAND_PATH, "address", "del",
-                         "%s/%d" % (master_ip, ipcls.iplen),
-                         "dev", master_netdev])
+                         "%s/%s" % (master_ip, old_netmask),
+                         "dev", master_netdev, "label",
+                         "%s:0" % master_netdev])
   if result.failed:
-    logging.error("Can't remove the master IP, error: %s", result.output)
-    # but otherwise ignore the failure
-
-  if stop_daemons:
-    result = utils.RunCmd([constants.DAEMON_UTIL, "stop-master"])
-    if result.failed:
-      logging.error("Could not stop Ganeti master, command %s had exitcode %s"
-                    " and error %s",
-                    result.cmd, result.exit_code, result.output)
+    _Fail("Could not bring down the master IP address with the old netmask")
 
 
 def EtcHostsModify(mode, host, ip):
@@ -411,6 +507,8 @@ def LeaveCluster(modify_ssh_setup):
   try:
     utils.RemoveFile(constants.CONFD_HMAC_KEY)
     utils.RemoveFile(constants.RAPI_CERT_FILE)
+    utils.RemoveFile(constants.SPICE_CERT_FILE)
+    utils.RemoveFile(constants.SPICE_CACERT_FILE)
     utils.RemoveFile(constants.NODED_CERT_FILE)
   except: # pylint: disable=W0702
     logging.exception("Error while removing cluster secrets")
@@ -424,43 +522,71 @@ def LeaveCluster(modify_ssh_setup):
   raise errors.QuitGanetiException(True, "Shutdown scheduled")
 
 
-def GetNodeInfo(vgname, hypervisor_type):
-  """Gives back a hash with different information about the node.
-
-  @type vgname: C{string}
-  @param vgname: the name of the volume group to ask for disk space information
-  @type hypervisor_type: C{str}
-  @param hypervisor_type: the name of the hypervisor to ask for
-      memory information
-  @rtype: C{dict}
-  @return: dictionary with the following keys:
-      - vg_size is the size of the configured volume group in MiB
-      - vg_free is the free size of the volume group in MiB
-      - memory_dom0 is the memory allocated for domain0 in MiB
-      - memory_free is the currently available (free) ram in MiB
-      - memory_total is the total number of ram in MiB
+def _GetVgInfo(name):
+  """Retrieves information about a LVM volume group.
 
   """
-  outputarray = {}
+  # TODO: GetVGInfo supports returning information for multiple VGs at once
+  vginfo = bdev.LogicalVolume.GetVGInfo([name])
+  if vginfo:
+    vg_free = int(round(vginfo[0][0], 0))
+    vg_size = int(round(vginfo[0][1], 0))
+  else:
+    vg_free = None
+    vg_size = None
 
-  if vgname is not None:
-    vginfo = bdev.LogicalVolume.GetVGInfo([vgname])
-    vg_free = vg_size = None
-    if vginfo:
-      vg_free = int(round(vginfo[0][0], 0))
-      vg_size = int(round(vginfo[0][1], 0))
-    outputarray["vg_size"] = vg_size
-    outputarray["vg_free"] = vg_free
+  return {
+    "name": name,
+    "vg_free": vg_free,
+    "vg_size": vg_size,
+    }
 
-  if hypervisor_type is not None:
-    hyper = hypervisor.GetHypervisor(hypervisor_type)
-    hyp_info = hyper.GetNodeInfo()
-    if hyp_info is not None:
-      outputarray.update(hyp_info)
 
-  outputarray["bootid"] = utils.ReadFile(_BOOT_ID_PATH, size=128).rstrip("\n")
+def _GetHvInfo(name):
+  """Retrieves node information from a hypervisor.
 
-  return outputarray
+  The information returned depends on the hypervisor. Common items:
+
+    - vg_size is the size of the configured volume group in MiB
+    - vg_free is the free size of the volume group in MiB
+    - memory_dom0 is the memory allocated for domain0 in MiB
+    - memory_free is the currently available (free) ram in MiB
+    - memory_total is the total number of ram in MiB
+    - hv_version: the hypervisor version, if available
+
+  """
+  return hypervisor.GetHypervisor(name).GetNodeInfo()
+
+
+def _GetNamedNodeInfo(names, fn):
+  """Calls C{fn} for all names in C{names} and returns a dictionary.
+
+  @rtype: None or dict
+
+  """
+  if names is None:
+    return None
+  else:
+    return map(fn, names)
+
+
+def GetNodeInfo(vg_names, hv_names):
+  """Gives back a hash with different information about the node.
+
+  @type vg_names: list of string
+  @param vg_names: Names of the volume groups to ask for disk space information
+  @type hv_names: list of string
+  @param hv_names: Names of the hypervisors to ask for node information
+  @rtype: tuple; (string, None/dict, None/dict)
+  @return: Tuple containing boot ID, volume group information and hypervisor
+    information
+
+  """
+  bootid = utils.ReadFile(_BOOT_ID_PATH, size=128).rstrip("\n")
+  vg_info = _GetNamedNodeInfo(vg_names, _GetVgInfo)
+  hv_info = _GetNamedNodeInfo(hv_names, _GetHvInfo)
+
+  return (bootid, vg_info, hv_info)
 
 
 def VerifyNode(what, cluster_name):
@@ -574,6 +700,11 @@ def VerifyNode(what, cluster_name):
     result[constants.NV_MASTERIP] = netutils.TcpPing(master_ip, port,
                                                   source=source)
 
+  if constants.NV_USERSCRIPTS in what:
+    result[constants.NV_USERSCRIPTS] = \
+      [script for script in what[constants.NV_USERSCRIPTS]
+       if not (os.path.exists(script) and os.access(script, os.X_OK))]
+
   if constants.NV_OOB_PATHS in what:
     result[constants.NV_OOB_PATHS] = tmp = []
     for path in what[constants.NV_OOB_PATHS]:
@@ -681,7 +812,7 @@ def GetBlockDevSizes(devices):
   blockdevs = {}
 
   for devpath in devices:
-    if os.path.commonprefix([DEV_PREFIX, devpath]) != DEV_PREFIX:
+    if not utils.IsBelowDir(DEV_PREFIX, devpath):
       continue
 
     try:
@@ -1245,6 +1376,27 @@ def InstanceReboot(instance, reboot_type, shutdown_timeout):
     _Fail("Invalid reboot_type received: %s", reboot_type)
 
 
+def InstanceBalloonMemory(instance, memory):
+  """Resize an instance's memory.
+
+  @type instance: L{objects.Instance}
+  @param instance: the instance object
+  @type memory: int
+  @param memory: new memory amount in MB
+  @rtype: None
+
+  """
+  hyper = hypervisor.GetHypervisor(instance.hypervisor)
+  running = hyper.ListInstances()
+  if instance.name not in running:
+    logging.info("Instance %s is not running, cannot balloon", instance.name)
+    return
+  try:
+    hyper.BalloonInstanceMemory(instance, memory)
+  except errors.HypervisorError, err:
+    _Fail("Failed to balloon instance memory: %s", err, exc=True)
+
+
 def MigrationInfo(instance):
   """Gather information about an instance to be migrated.
 
@@ -1289,7 +1441,7 @@ def AcceptInstance(instance, info, target):
     _Fail("Failed to accept instance: %s", err, exc=True)
 
 
-def FinalizeMigration(instance, info, success):
+def FinalizeMigrationDst(instance, info, success):
   """Finalize any preparation to accept an instance.
 
   @type instance: L{objects.Instance}
@@ -1302,9 +1454,9 @@ def FinalizeMigration(instance, info, success):
   """
   hyper = hypervisor.GetHypervisor(instance.hypervisor)
   try:
-    hyper.FinalizeMigration(instance, info, success)
+    hyper.FinalizeMigrationDst(instance, info, success)
   except errors.HypervisorError, err:
-    _Fail("Failed to finalize migration: %s", err, exc=True)
+    _Fail("Failed to finalize migration on the target node: %s", err, exc=True)
 
 
 def MigrateInstance(instance, target, live):
@@ -1317,10 +1469,7 @@ def MigrateInstance(instance, target, live):
   @type live: boolean
   @param live: whether the migration should be done live or not (the
       interpretation of this parameter is left to the hypervisor)
-  @rtype: tuple
-  @return: a tuple of (success, msg) where:
-      - succes is a boolean denoting the success/failure of the operation
-      - msg is a string with details in case of failure
+  @raise RPCFail: if migration fails for some reason
 
   """
   hyper = hypervisor.GetHypervisor(instance.hypervisor)
@@ -1329,6 +1478,46 @@ def MigrateInstance(instance, target, live):
     hyper.MigrateInstance(instance, target, live)
   except errors.HypervisorError, err:
     _Fail("Failed to migrate instance: %s", err, exc=True)
+
+
+def FinalizeMigrationSource(instance, success, live):
+  """Finalize the instance migration on the source node.
+
+  @type instance: L{objects.Instance}
+  @param instance: the instance definition of the migrated instance
+  @type success: bool
+  @param success: whether the migration succeeded or not
+  @type live: bool
+  @param live: whether the user requested a live migration or not
+  @raise RPCFail: If the execution fails for some reason
+
+  """
+  hyper = hypervisor.GetHypervisor(instance.hypervisor)
+
+  try:
+    hyper.FinalizeMigrationSource(instance, success, live)
+  except Exception, err:  # pylint: disable=W0703
+    _Fail("Failed to finalize the migration on the source node: %s", err,
+          exc=True)
+
+
+def GetMigrationStatus(instance):
+  """Get the migration status
+
+  @type instance: L{objects.Instance}
+  @param instance: the instance that is being migrated
+  @rtype: L{objects.MigrationStatus}
+  @return: the status of the current migration (one of
+           L{constants.HV_MIGRATION_VALID_STATUSES}), plus any additional
+           progress info that can be retrieved from the hypervisor
+  @raise RPCFail: If the migration status cannot be retrieved
+
+  """
+  hyper = hypervisor.GetHypervisor(instance.hypervisor)
+  try:
+    return hyper.GetMigrationStatus(instance)
+  except Exception, err:  # pylint: disable=W0703
+    _Fail("Failed to get migration status: %s", err, exc=True)
 
 
 def BlockdevCreate(disk, size, owner, on_primary, info):
@@ -1372,7 +1561,7 @@ def BlockdevCreate(disk, size, owner, on_primary, info):
       clist.append(crdev)
 
   try:
-    device = bdev.Create(disk.dev_type, disk.physical_id, clist, disk.size)
+    device = bdev.Create(disk, clist)
   except errors.BlockDeviceError, err:
     _Fail("Can't create block device: %s", err)
 
@@ -1381,7 +1570,6 @@ def BlockdevCreate(disk, size, owner, on_primary, info):
       device.Assemble()
     except errors.BlockDeviceError, err:
       _Fail("Can't assemble device after creation, unusual event: %s", err)
-    device.SetSyncSpeed(constants.SYNC_SPEED)
     if on_primary or disk.OpenOnSecondary():
       try:
         device.Open(force=True)
@@ -1555,8 +1743,7 @@ def _RecursiveAssembleBD(disk, owner, as_primary):
       children.append(cdev)
 
   if as_primary or disk.AssembleOnSecondary():
-    r_dev = bdev.Assemble(disk.dev_type, disk.physical_id, children, disk.size)
-    r_dev.SetSyncSpeed(constants.SYNC_SPEED)
+    r_dev = bdev.Assemble(disk, children)
     result = r_dev
     if as_primary or disk.OpenOnSecondary():
       r_dev.Open()
@@ -1749,7 +1936,7 @@ def _RecursiveFindBD(disk):
     for chdisk in disk.children:
       children.append(_RecursiveFindBD(chdisk))
 
-  return bdev.FindDevice(disk.dev_type, disk.physical_id, children, disk.size)
+  return bdev.FindDevice(disk, children)
 
 
 def _OpenRealBD(disk):
@@ -1935,24 +2122,6 @@ def WriteSsconfFiles(values):
   ssconf.SimpleStore().WriteFiles(values)
 
 
-def _ErrnoOrStr(err):
-  """Format an EnvironmentError exception.
-
-  If the L{err} argument has an errno attribute, it will be looked up
-  and converted into a textual C{E...} description. Otherwise the
-  string representation of the error will be returned.
-
-  @type err: L{EnvironmentError}
-  @param err: the exception to format
-
-  """
-  if hasattr(err, "errno"):
-    detail = errno.errorcode[err.errno]
-  else:
-    detail = str(err)
-  return detail
-
-
 def _OSOndiskAPIVersion(os_dir):
   """Compute and return the API version of a given OS.
 
@@ -1972,7 +2141,7 @@ def _OSOndiskAPIVersion(os_dir):
     st = os.stat(api_file)
   except EnvironmentError, err:
     return False, ("Required file '%s' not found under path %s: %s" %
-                   (constants.OS_API_FILE, os_dir, _ErrnoOrStr(err)))
+                   (constants.OS_API_FILE, os_dir, utils.ErrnoOrStr(err)))
 
   if not stat.S_ISREG(stat.S_IFMT(st.st_mode)):
     return False, ("File '%s' in %s is not a regular file" %
@@ -1982,7 +2151,7 @@ def _OSOndiskAPIVersion(os_dir):
     api_versions = utils.ReadFile(api_file).splitlines()
   except EnvironmentError, err:
     return False, ("Error while reading the API version file at %s: %s" %
-                   (api_file, _ErrnoOrStr(err)))
+                   (api_file, utils.ErrnoOrStr(err)))
 
   try:
     api_versions = [int(version.strip()) for version in api_versions]
@@ -2095,7 +2264,7 @@ def _TryOSFromDisk(name, base_dir=None):
         del os_files[filename]
         continue
       return False, ("File '%s' under path '%s' is missing (%s)" %
-                     (filename, os_dir, _ErrnoOrStr(err)))
+                     (filename, os_dir, utils.ErrnoOrStr(err)))
 
     if not stat.S_ISREG(stat.S_IFMT(st.st_mode)):
       return False, ("File '%s' under path '%s' is not a regular file" %
@@ -2115,7 +2284,7 @@ def _TryOSFromDisk(name, base_dir=None):
       # we accept missing files, but not other errors
       if err.errno != errno.ENOENT:
         return False, ("Error while reading the OS variants file at %s: %s" %
-                       (variants_file, _ErrnoOrStr(err)))
+                       (variants_file, utils.ErrnoOrStr(err)))
 
   parameters = []
   if constants.OS_PARAMETERS_FILE in os_files:
@@ -2124,7 +2293,7 @@ def _TryOSFromDisk(name, base_dir=None):
       parameters = utils.ReadFile(parameters_file).splitlines()
     except EnvironmentError, err:
       return False, ("Error while reading the OS parameters file at %s: %s" %
-                     (parameters_file, _ErrnoOrStr(err)))
+                     (parameters_file, utils.ErrnoOrStr(err)))
     parameters = [v.split(None, 1) for v in parameters]
 
   os_obj = objects.OS(name=name, path=os_dir,
@@ -2359,8 +2528,13 @@ def FinalizeExport(instance, snap_disks):
 
   config.add_section(constants.INISECT_INS)
   config.set(constants.INISECT_INS, "name", instance.name)
+  config.set(constants.INISECT_INS, "maxmem", "%d" %
+             instance.beparams[constants.BE_MAXMEM])
+  config.set(constants.INISECT_INS, "minmem", "%d" %
+             instance.beparams[constants.BE_MINMEM])
+  # "memory" is deprecated, but useful for exporting to old ganeti versions
   config.set(constants.INISECT_INS, "memory", "%d" %
-             instance.beparams[constants.BE_MEMORY])
+             instance.beparams[constants.BE_MAXMEM])
   config.set(constants.INISECT_INS, "vcpus", "%d" %
              instance.beparams[constants.BE_VCPUS])
   config.set(constants.INISECT_INS, "disk_template", instance.disk_template)
@@ -2525,8 +2699,8 @@ def _TransformFileStorageDir(fs_dir):
   fs_dir = os.path.normpath(fs_dir)
   base_fstore = cfg.GetFileStorageDir()
   base_shared = cfg.GetSharedFileStorageDir()
-  if ((os.path.commonprefix([fs_dir, base_fstore]) != base_fstore) and
-      (os.path.commonprefix([fs_dir, base_shared]) != base_shared)):
+  if not (utils.IsBelowDir(base_fstore, fs_dir) or
+          utils.IsBelowDir(base_shared, fs_dir)):
     _Fail("File storage directory '%s' is not under base file"
           " storage directory '%s' or shared storage directory '%s'",
           fs_dir, base_fstore, base_shared)
@@ -2896,12 +3070,12 @@ def _GetImportExportIoCommand(instance, mode, ieio, ieargs):
     if not utils.IsNormAbsPath(filename):
       _Fail("Path '%s' is not normalized or absolute", filename)
 
-    directory = os.path.normpath(os.path.dirname(filename))
+    real_filename = os.path.realpath(filename)
+    directory = os.path.dirname(real_filename)
 
-    if (os.path.commonprefix([constants.EXPORT_DIR, directory]) !=
-        constants.EXPORT_DIR):
-      _Fail("File '%s' is not under exports directory '%s'",
-            filename, constants.EXPORT_DIR)
+    if not utils.IsBelowDir(constants.EXPORT_DIR, real_filename):
+      _Fail("File '%s' is not under exports directory '%s': %s",
+            filename, constants.EXPORT_DIR, real_filename)
 
     # Create directory
     utils.Makedirs(directory, mode=0750)
@@ -3369,6 +3543,20 @@ class HooksRunner(object):
     # yeah, _BASE_DIR is not valid for attributes, we use it like a
     # constant
     self._BASE_DIR = hooks_base_dir # pylint: disable=C0103
+
+  def RunLocalHooks(self, node_list, hpath, phase, env):
+    """Check that the hooks will be run only locally and then run them.
+
+    """
+    assert len(node_list) == 1
+    node = node_list[0]
+    _, myself = ssconf.GetMasterAndMyself()
+    assert node == myself
+
+    results = self.RunHooks(hpath, phase, env)
+
+    # Return values in the form expected by HooksMaster
+    return {node: (None, False, results)}
 
   def RunHooks(self, hpath, phase, env):
     """Run the scripts in the hooks directory.

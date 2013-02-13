@@ -21,12 +21,16 @@ ACLOCAL_AMFLAGS = -I autotools
 BUILD_BASH_COMPLETION = $(top_srcdir)/autotools/build-bash-completion
 RUN_IN_TEMPDIR = $(top_srcdir)/autotools/run-in-tempdir
 CHECK_PYTHON_CODE = $(top_srcdir)/autotools/check-python-code
-CHECK_MAN = $(top_srcdir)/autotools/check-man
+CHECK_HEADER = $(top_srcdir)/autotools/check-header
+CHECK_MAN_DASHES = $(top_srcdir)/autotools/check-man-dashes
+CHECK_MAN_WARNINGS = $(top_srcdir)/autotools/check-man-warnings
 CHECK_VERSION = $(top_srcdir)/autotools/check-version
 CHECK_NEWS = $(top_srcdir)/autotools/check-news
+CHECK_IMPORTS = $(top_srcdir)/autotools/check-imports
 DOCPP = $(top_srcdir)/autotools/docpp
 REPLACE_VARS_SED = autotools/replace_vars.sed
 CONVERT_CONSTANTS = $(top_srcdir)/autotools/convert-constants
+BUILD_RPC = $(top_srcdir)/autotools/build-rpc
 
 # Note: these are automake-specific variables, and must be named after
 # the directory + 'dir' suffix
@@ -52,6 +56,7 @@ myexeclibdir = $(pkglibdir)
 HTOOLS_DIRS = \
 	htools \
 	htools/Ganeti \
+	htools/Ganeti/Confd \
 	htools/Ganeti/HTools \
 	htools/Ganeti/HTools/Program
 
@@ -81,6 +86,10 @@ DIRS = \
 	qa \
 	test \
 	test/data \
+	test/data/htools \
+	test/data/htools/rapi \
+	test/data/ovfdata \
+	test/data/ovfdata/other \
 	tools
 
 BUILDTIME_DIR_AUTOCREATE = \
@@ -88,7 +97,9 @@ BUILDTIME_DIR_AUTOCREATE = \
 	$(APIDOC_DIR) \
 	$(APIDOC_PY_DIR) \
 	$(APIDOC_HS_DIR) \
-	$(APIDOC_HS_DIR)/Ganeti $(APIDOC_HS_DIR)/Ganeti/HTools \
+	$(APIDOC_HS_DIR)/Ganeti \
+	$(APIDOC_HS_DIR)/Ganeti/Confd \
+	$(APIDOC_HS_DIR)/Ganeti/HTools \
 	$(APIDOC_HS_DIR)/Ganeti/HTools/Program \
 	$(COVERAGE_DIR) \
 	$(COVERAGE_PY_DIR) \
@@ -136,40 +147,58 @@ CLEANFILES = \
 	daemons/daemon-util \
 	daemons/ganeti-cleaner \
 	devel/upload \
+	$(BUILT_EXAMPLES) \
 	doc/examples/bash_completion \
-	doc/examples/ganeti.initd \
-	doc/examples/ganeti-kvm-poweroff.initd \
-	doc/examples/ganeti.cron \
-	doc/examples/gnt-config-backup \
-	doc/examples/hooks/ipsec \
+	lib/_generated_rpc.py \
 	$(man_MANS) \
 	$(manhtml) \
 	tools/kvm-ifup \
 	stamp-srclinks \
 	$(nodist_pkgpython_PYTHON) \
 	$(HS_ALL_PROGS) $(HS_BUILT_SRCS) \
+	$(HS_BUILT_TEST_HELPERS) \
 	.hpc/*.mix htools/*.tix \
 	doc/hs-lint.html
 
 # BUILT_SOURCES should only be used as a dependency on phony
 # targets. Otherwise it'll cause the target to rebuild every time.
 BUILT_SOURCES = \
+  $(built_base_sources) \
+	$(BUILT_PYTHON_SOURCES) \
+	$(PYTHON_BOOTSTRAP)
+
+built_base_sources = \
 	ganeti \
 	stamp-srclinks \
-	$(all_dirfiles) \
-	$(PYTHON_BOOTSTRAP) \
-	$(BUILT_PYTHON_SOURCES)
+	$(all_dirfiles)
 
-BUILT_PYTHON_SOURCES = \
+built_python_base_sources = \
 	lib/_autoconf.py \
 	lib/_vcsversion.py
+
+BUILT_PYTHON_SOURCES = \
+	$(built_python_base_sources) \
+	lib/_generated_rpc.py
+
+# Generating the RPC wrappers depends on many things, so make sure it's built at
+# the end of the built sources
+lib/_generated_rpc.py: | $(built_base_sources) $(built_python_base_sources)
+
+# these are all built from the underlying %.in sources
+BUILT_EXAMPLES = \
+	doc/examples/ganeti-kvm-poweroff.initd \
+	doc/examples/ganeti.cron \
+	doc/examples/ganeti.initd \
+	doc/examples/gnt-config-backup \
+	doc/examples/hooks/ipsec
 
 nodist_pkgpython_PYTHON = \
 	$(BUILT_PYTHON_SOURCES)
 
 noinst_PYTHON = \
 	lib/build/__init__.py \
-	lib/build/sphinx_ext.py
+	lib/build/sphinx_ext.py \
+	lib/build/shell_example_lexer.py
 
 pkgpython_PYTHON = \
 	lib/__init__.py \
@@ -193,9 +222,11 @@ pkgpython_PYTHON = \
 	lib/netutils.py \
 	lib/objects.py \
 	lib/opcodes.py \
+	lib/ovf.py \
 	lib/qlang.py \
 	lib/query.py \
 	lib/rpc.py \
+	lib/rpc_defs.py \
 	lib/runtime.py \
 	lib/serializer.py \
 	lib/ssconf.py \
@@ -230,7 +261,8 @@ rapi_PYTHON = \
 	lib/rapi/client.py \
 	lib/rapi/client_utils.py \
 	lib/rapi/connector.py \
-	lib/rapi/rlib2.py
+	lib/rapi/rlib2.py \
+	lib/rapi/testutils.py
 
 http_PYTHON = \
 	lib/http/__init__.py \
@@ -303,8 +335,11 @@ docrst = \
 	doc/design-network.rst \
 	doc/design-chained-jobs.rst \
 	doc/design-ovf-support.rst \
+	doc/design-resource-model.rst \
 	doc/cluster-merge.rst \
 	doc/design-shared-storage.rst \
+	doc/design-node-state-cache.rst \
+	doc/design-virtual-clusters.rst \
 	doc/devnotes.rst \
 	doc/glossary.rst \
 	doc/hooks.rst \
@@ -321,17 +356,23 @@ docrst = \
 	doc/walkthrough.rst
 
 HS_PROGS = htools/htools
-HS_BIN_ROLES = hbal hscan hspace
+HS_BIN_ROLES = hbal hscan hspace hinfo hcheck
 
-HS_ALL_PROGS = $(HS_PROGS) htools/test
+HS_ALL_PROGS = $(HS_PROGS) htools/test htools/hpc-htools htools/hconfd
 HS_PROG_SRCS = $(patsubst %,%.hs,$(HS_ALL_PROGS))
-# we don't add -Werror by default
-HFLAGS = -O -Wall -fwarn-monomorphism-restriction -fwarn-tabs -ihtools
-# extra flags that can be overriden on the command line
+HS_BUILT_TEST_HELPERS = $(HS_BIN_ROLES:%=test/%) test/hail
+
+HFLAGS = -O -Wall -Werror -fwarn-monomorphism-restriction -fwarn-tabs -ihtools
+# extra flags that can be overriden on the command line (e.g. -Wwarn, etc.)
 HEXTRA =
+# internal extra flags (used for htools/test mainly)
+HEXTRA_INT =
 # exclude options for coverage reports
-HPCEXCL = --exclude Main --exclude Ganeti.HTools.QC \
+HPCEXCL = --exclude Main \
 	--exclude Ganeti.Constants \
+	--exclude Ganeti.THH \
+	--exclude Ganeti.HTools.QC \
+	--exclude Ganeti.HTools.QCHelper \
 	--exclude Ganeti.HTools.Version
 
 HS_LIB_SRCS = \
@@ -343,23 +384,39 @@ HS_LIB_SRCS = \
 	htools/Ganeti/HTools/Group.hs \
 	htools/Ganeti/HTools/IAlloc.hs \
 	htools/Ganeti/HTools/Instance.hs \
+	htools/Ganeti/HTools/JSON.hs \
 	htools/Ganeti/HTools/Loader.hs \
 	htools/Ganeti/HTools/Luxi.hs \
 	htools/Ganeti/HTools/Node.hs \
 	htools/Ganeti/HTools/PeerMap.hs \
 	htools/Ganeti/HTools/QC.hs \
+	htools/Ganeti/HTools/QCHelper.hs \
 	htools/Ganeti/HTools/Rapi.hs \
 	htools/Ganeti/HTools/Simu.hs \
 	htools/Ganeti/HTools/Text.hs \
 	htools/Ganeti/HTools/Types.hs \
 	htools/Ganeti/HTools/Utils.hs \
+	htools/Ganeti/HTools/Program.hs \
 	htools/Ganeti/HTools/Program/Hail.hs \
 	htools/Ganeti/HTools/Program/Hbal.hs \
+	htools/Ganeti/HTools/Program/Hcheck.hs \
+	htools/Ganeti/HTools/Program/Hinfo.hs \
 	htools/Ganeti/HTools/Program/Hscan.hs \
 	htools/Ganeti/HTools/Program/Hspace.hs \
+	htools/Ganeti/BasicTypes.hs \
+	htools/Ganeti/Confd.hs \
+	htools/Ganeti/Confd/Server.hs \
+	htools/Ganeti/Config.hs \
+	htools/Ganeti/Daemon.hs \
+	htools/Ganeti/Hash.hs \
 	htools/Ganeti/Jobs.hs \
+	htools/Ganeti/Logging.hs \
 	htools/Ganeti/Luxi.hs \
-	htools/Ganeti/OpCodes.hs
+	htools/Ganeti/Objects.hs \
+	htools/Ganeti/OpCodes.hs \
+	htools/Ganeti/Runtime.hs \
+	htools/Ganeti/Ssconf.hs \
+	htools/Ganeti/THH.hs
 
 HS_BUILT_SRCS = htools/Ganeti/HTools/Version.hs htools/Ganeti/Constants.hs
 HS_BUILT_SRCS_IN = $(patsubst %,%.in,$(HS_BUILT_SRCS))
@@ -372,7 +429,8 @@ $(RUN_IN_TEMPDIR): | $(all_dirfiles)
 # successfully, but we certainly don't want the docs to be rebuilt if
 # it changes
 doc/html/index.html: $(docrst) $(docpng) doc/conf.py configure.ac \
-	$(RUN_IN_TEMPDIR) lib/build/sphinx_ext.py lib/opcodes.py lib/ht.py \
+	$(RUN_IN_TEMPDIR) lib/build/sphinx_ext.py \
+	lib/build/shell_example_lexer.py lib/opcodes.py lib/ht.py \
 	| $(BUILT_PYTHON_SOURCES)
 	@test -n "$(SPHINX)" || \
 	    { echo 'sphinx-build' not found during configure; exit 1; }
@@ -411,12 +469,8 @@ docpng = $(patsubst %.dot,%.png,$(docdot))
 noinst_DATA = \
 	devel/upload \
 	doc/html \
+	$(BUILT_EXAMPLES) \
 	doc/examples/bash_completion \
-	doc/examples/ganeti.cron \
-	doc/examples/ganeti.initd \
-	doc/examples/ganeti-kvm-poweroff.initd \
-	doc/examples/gnt-config-backup \
-	doc/examples/hooks/ipsec \
 	$(manhtml)
 
 gnt_scripts = \
@@ -430,25 +484,22 @@ gnt_scripts = \
 	scripts/gnt-os
 
 PYTHON_BOOTSTRAP_SBIN = \
-	daemons/ganeti-confd \
 	daemons/ganeti-masterd \
 	daemons/ganeti-noded \
 	daemons/ganeti-watcher \
 	daemons/ganeti-rapi \
-	scripts/gnt-backup \
-	scripts/gnt-cluster \
-	scripts/gnt-debug \
-	scripts/gnt-group \
-	scripts/gnt-instance \
-	scripts/gnt-job \
-	scripts/gnt-node \
-	scripts/gnt-os
+	$(gnt_scripts)
+
+if PY_CONFD
+PYTHON_BOOTSTRAP_SBIN += daemons/ganeti-confd
+endif
 
 PYTHON_BOOTSTRAP = \
 	$(PYTHON_BOOTSTRAP_SBIN) \
 	tools/ensure-dirs
 
 qa_scripts = \
+	qa/__init__.py \
 	qa/ganeti-qa.py \
 	qa/qa_cluster.py \
 	qa/qa_config.py \
@@ -457,6 +508,7 @@ qa_scripts = \
 	qa/qa_error.py \
 	qa/qa_group.py \
 	qa/qa_instance.py \
+	qa/qa_job.py \
 	qa/qa_node.py \
 	qa/qa_os.py \
 	qa/qa_rapi.py \
@@ -475,6 +527,9 @@ install-exec-hook:
 		$(LN_S) -f htools \
 			   $(DESTDIR)$(bindir)/$$role ; \
 	done
+if HS_CONFD
+	mv $(DESTDIR)$(sbindir)/hconfd $(DESTDIR)$(sbindir)/ganeti-confd
+endif
 endif
 
 $(HS_ALL_PROGS): %: %.hs $(HS_LIB_SRCS) $(HS_BUILT_SRCS) Makefile
@@ -487,15 +542,38 @@ $(HS_ALL_PROGS): %: %.hs $(HS_LIB_SRCS) $(HS_BUILT_SRCS) Makefile
 	  echo "Error: cannot run unittests without the QuickCheck library (see devnotes.rst)" 1>&2; \
 	  exit 1; \
 	fi
+	rm -f $(@:htools/%=%).tix
 	BINARY=$(@:htools/%=%); $(GHC) --make \
-	  $(HFLAGS) $(HEXTRA) \
+	  $(HFLAGS) \
 	  $(HTOOLS_NOCURL) $(HTOOLS_PARALLEL3) \
-	  -osuf $$BINARY.o -hisuf $$BINARY.hi $@
+	  -osuf $$BINARY.o -hisuf $$BINARY.hi \
+	  $(HEXTRA) $(HEXTRA_INT) $@
+	@touch "$@"
 
 # for the htools/test binary, we need to enable profiling/coverage
-htools/test: HEXTRA=-fhpc -Wwarn -fno-warn-missing-signatures \
+htools/test: HEXTRA_INT=-fhpc -Wwarn -fno-warn-missing-signatures \
 	-fno-warn-monomorphism-restriction -fno-warn-orphans \
 	-fno-warn-missing-methods -fno-warn-unused-imports
+
+# we compile the hpc-htools binary with the program coverage
+htools/hpc-htools: HEXTRA_INT=-fhpc
+
+# test dependency
+htools/offline-tests.sh: htools/hpc-htools
+
+# rules for building profiling-enabled versions of the haskell
+# programs: hs-prof does the full two-step build, whereas
+# hs-prof-quick does only the final rebuild (hs-prof must have been
+# run before)
+.PHONY: hs-prof hs-prof-quick
+hs-prof:
+	$(MAKE) clean
+	$(MAKE) $(HS_ALL_PROGS) HEXTRA="-osuf .o"
+	rm -f $(HS_ALL_PROGS)
+	$(MAKE) hs-prof-quick
+
+hs-prof-quick:
+	$(MAKE) $(HS_ALL_PROGS) HEXTRA="-osuf .prof_o -prof -auto-all"
 
 dist_sbin_SCRIPTS = \
 	tools/ganeti-listrunner
@@ -504,21 +582,29 @@ nodist_sbin_SCRIPTS = \
 	$(PYTHON_BOOTSTRAP_SBIN) \
 	daemons/ganeti-cleaner
 
+if HS_CONFD
+nodist_sbin_SCRIPTS += htools/hconfd
+endif
+
 python_scripts = \
 	tools/burnin \
 	tools/cfgshell \
 	tools/cfgupgrade \
 	tools/cfgupgrade12 \
 	tools/cluster-merge \
+	tools/confd-client \
+	tools/fmtjson \
 	tools/lvmstrap \
 	tools/move-instance \
+	tools/ovfconverter \
 	tools/setup-ssh \
 	tools/sanitize-config
 
 dist_tools_SCRIPTS = \
 	$(python_scripts) \
 	tools/kvm-console-wrapper \
-	tools/xm-console-wrapper
+	tools/xm-console-wrapper \
+	tools/master-ip-setup
 
 pkglib_python_scripts = \
 	daemons/import-export \
@@ -541,8 +627,12 @@ EXTRA_DIST = \
 	epydoc.conf.in \
 	pylintrc \
 	autotools/build-bash-completion \
+	autotools/build-rpc \
+	autotools/check-header \
 	autotools/check-python-code \
-	autotools/check-man \
+	autotools/check-imports \
+	autotools/check-man-dashes \
+	autotools/check-man-warnings \
 	autotools/check-news \
 	autotools/check-tar \
 	autotools/check-version \
@@ -550,6 +640,7 @@ EXTRA_DIST = \
 	autotools/docpp \
 	autotools/gen-coverage \
 	autotools/testrunner \
+	autotools/wrong-hardcoded-paths \
 	$(RUN_IN_TEMPDIR) \
 	daemons/daemon-util.in \
 	daemons/ganeti-cleaner.in \
@@ -561,17 +652,14 @@ EXTRA_DIST = \
 	$(docrst) \
 	doc/conf.py \
 	doc/html \
-	doc/examples/ganeti.initd.in \
-	doc/examples/ganeti-kvm-poweroff.initd.in \
-	doc/examples/ganeti.cron.in \
-	doc/examples/gnt-config-backup.in \
+	$(BUILT_EXAMPLES:%=%.in) \
 	doc/examples/ganeti.default \
 	doc/examples/ganeti.default-debug \
 	doc/examples/hooks/ethers \
-	doc/examples/hooks/ipsec.in \
 	doc/examples/gnt-debug/README \
 	doc/examples/gnt-debug/delay0.json \
 	doc/examples/gnt-debug/delay50.json \
+	test/lockperf.py \
 	test/testutils.py \
 	test/mocks.py \
 	$(dist_TESTS) \
@@ -582,7 +670,10 @@ EXTRA_DIST = \
 	qa/qa-sample.json \
 	$(qa_scripts) \
 	$(HS_LIB_SRCS) $(HS_BUILT_SRCS_IN) \
-	$(HS_PROG_SRCS)
+	$(HS_PROG_SRCS) \
+	htools/lint-hints.hs \
+	htools/cli-tests-defs.sh \
+	htools/offline-test.sh
 
 man_MANS = \
 	man/ganeti.7 \
@@ -604,6 +695,8 @@ man_MANS = \
 	man/gnt-os.8 \
 	man/hail.1 \
 	man/hbal.1 \
+	man/hcheck.1 \
+	man/hinfo.1 \
 	man/hscan.1 \
 	man/hspace.1 \
 	man/htools.1
@@ -640,14 +733,67 @@ TEST_FILES = \
 	test/data/kvm_0.12.5_help.txt \
 	test/data/kvm_0.9.1_help.txt \
 	test/data/sys_drbd_usermode_helper.txt \
+	test/data/htools/hail-alloc-drbd.json \
+	test/data/htools/hail-change-group.json \
+	test/data/htools/hail-invalid-reloc.json \
+	test/data/htools/hail-node-evac.json \
+	test/data/htools/hail-reloc-drbd.json \
+	test/data/htools/hbal-split-insts.data \
+	test/data/htools/common-suffix.data \
+	test/data/htools/invalid-node.data \
+	test/data/htools/missing-resources.data \
+	test/data/htools/rapi/groups.json \
+	test/data/htools/rapi/info.json \
+	test/data/htools/rapi/instances.json \
+	test/data/htools/rapi/nodes.json \
+	test/data/ovfdata/compr_disk.vmdk.gz \
+	test/data/ovfdata/config.ini \
+	test/data/ovfdata/corrupted_resources.ovf \
+	test/data/ovfdata/empty.ini \
+	test/data/ovfdata/empty.ovf \
+	test/data/ovfdata/ganeti.mf \
+	test/data/ovfdata/ganeti.ovf \
+	test/data/ovfdata/gzip_disk.ovf \
+	test/data/ovfdata/new_disk.vmdk \
+	test/data/ovfdata/no_disk.ini \
+	test/data/ovfdata/no_disk_in_ref.ovf \
+	test/data/ovfdata/no_os.ini \
+	test/data/ovfdata/no_ovf.ova \
+	test/data/ovfdata/ova.ova \
+	test/data/ovfdata/second_disk.vmdk \
+	test/data/ovfdata/rawdisk.raw \
+	test/data/ovfdata/unsafe_path.ini \
+	test/data/ovfdata/virtualbox.ovf \
+	test/data/ovfdata/wrong_extension.ovd \
+	test/data/ovfdata/wrong_config.ini \
+	test/data/ovfdata/wrong_manifest.mf \
+	test/data/ovfdata/wrong_manifest.ovf \
+	test/data/ovfdata/wrong_ova.ova \
+	test/data/ovfdata/wrong_xml.ovf \
+	test/data/ovfdata/other/rawdisk.raw \
 	test/data/vgreduce-removemissing-2.02.02.txt \
 	test/data/vgreduce-removemissing-2.02.66-fail.txt \
 	test/data/vgreduce-removemissing-2.02.66-ok.txt \
 	test/data/vgs-missing-pvs-2.02.02.txt \
 	test/data/vgs-missing-pvs-2.02.66.txt \
-	test/import-export_unittest-helper
+	test/import-export_unittest-helper \
+	test/gnt-cli.test \
+	test/ganeti-cli.test \
+	test/htools-balancing.test \
+	test/htools-basic.test \
+	test/htools-dynutil.test \
+	test/htools-excl.test \
+	test/htools-hail.test \
+	test/htools-hspace.test \
+	test/htools-invalid.test \
+	test/htools-multi-group.test \
+	test/htools-no-backend.test \
+	test/htools-rapi.test \
+	test/htools-single-group.test \
+	test/htools-text-backend.test
 
 python_tests = \
+	doc/examples/rapi_testutils.py \
 	test/ganeti.asyncnotifier_unittest.py \
 	test/ganeti.backend_unittest.py \
 	test/ganeti.bdev_unittest.py \
@@ -679,12 +825,14 @@ python_tests = \
 	test/ganeti.netutils_unittest.py \
 	test/ganeti.objects_unittest.py \
 	test/ganeti.opcodes_unittest.py \
+	test/ganeti.ovf_unittest.py \
 	test/ganeti.qlang_unittest.py \
 	test/ganeti.query_unittest.py \
 	test/ganeti.rapi.baserlib_unittest.py \
 	test/ganeti.rapi.client_unittest.py \
 	test/ganeti.rapi.resources_unittest.py \
 	test/ganeti.rapi.rlib2_unittest.py \
+	test/ganeti.rapi.testutils_unittest.py \
 	test/ganeti.rpc_unittest.py \
 	test/ganeti.runtime_unittest.py \
 	test/ganeti.serializer_unittest.py \
@@ -706,9 +854,14 @@ python_tests = \
 	test/ganeti.utils.x509_unittest.py \
 	test/ganeti.utils_unittest.py \
 	test/ganeti.workerpool_unittest.py \
+	test/qa.qa_config_unittest.py \
 	test/cfgupgrade_unittest.py \
 	test/docs_unittest.py \
+	test/pycurl_reset_unittest.py \
 	test/tempfile_fork_unittest.py
+if HAS_FAKEROOT
+python_tests += test/ganeti.utils.io_unittest-runasroot.py
+endif
 
 haskell_tests = htools/test
 
@@ -717,18 +870,26 @@ dist_TESTS = \
 	test/daemon-util_unittest.bash \
 	test/ganeti-cleaner_unittest.bash \
 	test/import-export_unittest.bash \
+	test/cli-test.bash \
 	$(python_tests)
 
 nodist_TESTS =
+check_SCRIPTS =
+
 if WANT_HTOOLSTESTS
 nodist_TESTS += $(haskell_tests)
+dist_TESTS += htools/offline-test.sh
+check_SCRIPTS += htools/hpc-htools $(HS_BUILT_TEST_HELPERS)
 endif
 
 TESTS = $(dist_TESTS) $(nodist_TESTS)
 
 # Environment for all tests
 PLAIN_TESTS_ENVIRONMENT = \
-	PYTHONPATH=. TOP_SRCDIR=$(abs_top_srcdir) PYTHON=$(PYTHON) $(RUN_IN_TEMPDIR)
+	PYTHONPATH=. \
+	TOP_SRCDIR=$(abs_top_srcdir) TOP_BUILDDIR=$(abs_top_builddir) \
+	PYTHON=$(PYTHON) FAKEROOT=$(FAKEROOT_PATH) \
+	$(RUN_IN_TEMPDIR)
 
 # Environment for tests run by automake
 TESTS_ENVIRONMENT = \
@@ -761,11 +922,16 @@ srclink_files = \
 	test/daemon-util_unittest.bash \
 	test/ganeti-cleaner_unittest.bash \
 	test/import-export_unittest.bash \
+	test/cli-test.bash \
+	htools/offline-test.sh \
+	htools/cli-tests-defs.sh \
 	$(all_python_code) \
 	$(HS_LIB_SRCS) $(HS_PROG_SRCS)
 
 check_python_code = \
 	$(BUILD_BASH_COMPLETION) \
+	$(CHECK_IMPORTS) \
+	$(CHECK_HEADER) \
 	$(DOCPP) \
 	$(all_python_code)
 
@@ -776,8 +942,14 @@ lint_python_code = \
 	$(python_scripts) \
 	$(pkglib_python_scripts) \
 	$(BUILD_BASH_COMPLETION) \
+	$(CHECK_IMPORTS) \
+	$(CHECK_HEADER) \
 	$(DOCPP) \
 	$(PYTHON_BOOTSTRAP)
+
+standalone_python_modules = \
+	lib/rapi/client.py \
+	tools/ganeti-listrunner
 
 pep8_python_code = \
 	ganeti \
@@ -786,6 +958,7 @@ pep8_python_code = \
 	$(python_scripts) \
 	$(pkglib_python_scripts) \
 	$(BUILD_BASH_COMPLETION) \
+	$(CHECK_HEADER) \
 	$(DOCPP) \
 	$(PYTHON_BOOTSTRAP) \
 	qa
@@ -831,7 +1004,13 @@ man/footer.html: man/footer.rst
 	$(PANDOC) -f rst -t html -o $@ $<
 
 man/%.gen: man/%.rst lib/query.py lib/build/sphinx_ext.py \
+	lib/build/shell_example_lexer.py \
 	| $(RUN_IN_TEMPDIR) $(BUILT_PYTHON_SOURCES)
+	@echo "Checking $< for hardcoded paths..."
+	@if grep -nEf autotools/wrong-hardcoded-paths $<; then \
+	  echo "Man page $< has harcoded paths (see above)!" 1>&2 ; \
+	  exit 1; \
+	fi
 	set -e ; \
 	trap 'echo auto-removing $@; rm $@' EXIT; \
 	PYTHONPATH=. $(RUN_IN_TEMPDIR) $(CURDIR)/$(DOCPP) < $< > $@ ;\
@@ -841,9 +1020,13 @@ man/%.7.in man/%.8.in man/%.1.in: man/%.gen man/footer.man
 	@test -n "$(PANDOC)" || \
 	  { echo 'pandoc' not found during configure; exit 1; }
 	set -o pipefail ; \
+	trap 'echo auto-removing $@; rm $@' EXIT; \
 	$(PANDOC) -s -f rst -t man -A man/footer.man $< | \
-	  sed -e 's/\\@/@/g' > $@
-	if test -n "$(MAN_HAS_WARNINGS)"; then $(CHECK_MAN) $@; fi
+	  sed -e 's/\\@/@/g' > $@; \
+	if test -n "$(MAN_HAS_WARNINGS)"; then $(CHECK_MAN_WARNINGS) $@; fi; \
+	$(CHECK_MAN_DASHES) $@; \
+	trap - EXIT
+
 
 man/%.html.in: man/%.gen man/footer.html
 	@test -n "$(PANDOC)" || \
@@ -874,12 +1057,16 @@ vcs-version:
 	  echo "Cannot auto-generate $@ file"; exit 1; \
 	fi
 
+.PHONY: clean-vcs-version
+clean-vcs-version:
+	rm -f vcs-version
+
 .PHONY: regen-vcs-version
 regen-vcs-version:
 	set -e; \
 	cd $(srcdir); \
 	if test -d .git; then \
-	  rm -f vcs-version; \
+	  $(MAKE) clean-vcs-version; \
 	  $(MAKE) vcs-version; \
 	fi
 
@@ -889,7 +1076,9 @@ htools/Ganeti/HTools/Version.hs: htools/Ganeti/HTools/Version.hs.in vcs-version
 	sed -e "s/%ver%/$$VCSVER/" < $< > $@
 
 htools/Ganeti/Constants.hs: htools/Ganeti/Constants.hs.in \
-	lib/constants.py lib/_autoconf.py $(CONVERT_CONSTANTS)
+	lib/constants.py lib/_autoconf.py lib/luxi.py \
+	$(CONVERT_CONSTANTS) \
+	| lib/_vcsversion.py
 	set -e; \
 	{ cat $< ; PYTHONPATH=. $(CONVERT_CONSTANTS); } > $@
 
@@ -906,7 +1095,7 @@ lib/_autoconf.py: Makefile | lib/.dir
 	  echo ''; \
 	  echo '"""'; \
 	  echo ''; \
-	  echo '# pylint: disable-msg=C0301,C0324'; \
+	  echo '# pylint: disable=C0301,C0324'; \
 	  echo '# because this is autogenerated, we do not want'; \
 	  echo '# style warnings' ; \
 	  echo ''; \
@@ -924,6 +1113,7 @@ lib/_autoconf.py: Makefile | lib/.dir
 	  echo "XEN_BOOTLOADER = '$(XEN_BOOTLOADER)'"; \
 	  echo "XEN_KERNEL = '$(XEN_KERNEL)'"; \
 	  echo "XEN_INITRD = '$(XEN_INITRD)'"; \
+	  echo "KVM_KERNEL = '$(KVM_KERNEL)'"; \
 	  echo "FILE_STORAGE_DIR = '$(FILE_STORAGE_DIR)'"; \
 	  echo "ENABLE_FILE_STORAGE = $(ENABLE_FILE_STORAGE)"; \
 	  echo "SHARED_FILE_STORAGE_DIR = '$(SHARED_FILE_STORAGE_DIR)'"; \
@@ -938,7 +1128,8 @@ lib/_autoconf.py: Makefile | lib/.dir
 	  echo "TOOLSDIR = '$(toolsdir)'"; \
 	  echo "GNT_SCRIPTS = [$(foreach i,$(notdir $(gnt_scripts)),'$(i)',)]"; \
 	  echo "PKGLIBDIR = '$(pkglibdir)'"; \
-	  echo "DRBD_BARRIERS = $(DRBD_BARRIERS)"; \
+	  echo "DRBD_BARRIERS = '$(DRBD_BARRIERS)'"; \
+	  echo "DRBD_NO_META_FLUSH = $(DRBD_NO_META_FLUSH)"; \
 	  echo "SYSLOG_USAGE = '$(SYSLOG_USAGE)'"; \
 	  echo "DAEMONS_GROUP = '$(DAEMONS_GROUP)'"; \
 	  echo "ADMIN_GROUP = '$(ADMIN_GROUP)'"; \
@@ -951,11 +1142,16 @@ lib/_autoconf.py: Makefile | lib/.dir
 	  echo "NODED_USER = '$(NODED_USER)'"; \
 	  echo "NODED_GROUP = '$(NODED_GROUP)'"; \
 	  echo "DISK_SEPARATOR = '$(DISK_SEPARATOR)'"; \
+	  echo "QEMUIMG_PATH = '$(QEMUIMG_PATH)'"; \
 	  if [ "$(HTOOLS)" ]; then \
 	    echo "HTOOLS = True"; \
 	  else \
 	    echo "HTOOLS = False"; \
 	  fi; \
+	  echo "ENABLE_CONFD = $(ENABLE_CONFD)"; \
+	  echo "PY_CONFD = $(PY_CONFD)"; \
+	  echo "HS_CONFD = $(HS_CONFD)"; \
+	  echo "XEN_CMD = '$(XEN_CMD)'"; \
 	} > $@
 
 lib/_vcsversion.py: Makefile vcs-version | lib/.dir
@@ -972,12 +1168,15 @@ lib/_vcsversion.py: Makefile vcs-version | lib/.dir
 	  echo ''; \
 	  echo '"""'; \
 	  echo ''; \
-	  echo '# pylint: disable-msg=C0301,C0324'; \
+	  echo '# pylint: disable=C0301,C0324'; \
 	  echo '# because this is autogenerated, we do not want'; \
 	  echo '# style warnings' ; \
 	  echo ''; \
 	  echo "VCS_VERSION = '$$VCSVER'"; \
 	} > $@
+
+lib/_generated_rpc.py: lib/rpc_defs.py $(BUILD_RPC)
+	PYTHONPATH=. $(RUN_IN_TEMPDIR) $(CURDIR)/$(BUILD_RPC) lib/rpc_defs.py > $@
 
 $(REPLACE_VARS_SED): Makefile
 	set -e; \
@@ -1004,6 +1203,7 @@ $(REPLACE_VARS_SED): Makefile
 	  echo 's#@GNTCONFDGROUP@#$(CONFD_GROUP)#g'; \
 	  echo 's#@GNTMASTERDGROUP@#$(MASTERD_GROUP)#g'; \
 	  echo 's#@GNTDAEMONSGROUP@#$(DAEMONS_GROUP)#g'; \
+	  echo 's#@CUSTOM_ENABLE_CONFD@#$(ENABLE_CONFD)#g'; \
 	} > $@
 
 # Using deferred evaluation
@@ -1011,6 +1211,7 @@ daemons/ganeti-%: MODULE = ganeti.server.$(patsubst ganeti-%,%,$(notdir $@))
 daemons/ganeti-watcher: MODULE = ganeti.watcher
 scripts/%: MODULE = ganeti.client.$(subst -,_,$(notdir $@))
 tools/ensure-dirs: MODULE = ganeti.tools.ensure_dirs
+$(HS_BUILT_TEST_HELPERS): TESTROLE = $(patsubst test/%,%,$@)
 
 $(PYTHON_BOOTSTRAP): Makefile | $(all_dirfiles)
 	test -n "$(MODULE)" || { echo Missing module; exit 1; }
@@ -1021,7 +1222,7 @@ $(PYTHON_BOOTSTRAP): Makefile | $(all_dirfiles)
 	  echo; \
 	  echo '"""Bootstrap script for L{$(MODULE)}"""'; \
 	  echo; \
-	  echo '# pylint: disable-msg=C0103'; \
+	  echo '# pylint: disable=C0103'; \
 	  echo '# C0103: Invalid name'; \
 	  echo; \
 	  echo 'import sys'; \
@@ -1030,12 +1231,23 @@ $(PYTHON_BOOTSTRAP): Makefile | $(all_dirfiles)
 	  echo '# Temporarily alias commands until bash completion'; \
 	  echo '# generator is changed'; \
 	  echo 'if hasattr(main, "commands"):'; \
-	  echo '  commands = main.commands # pylint: disable-msg=E1101'; \
+	  echo '  commands = main.commands # pylint: disable=E1101'; \
 	  echo 'if hasattr(main, "aliases"):'; \
-	  echo '  aliases = main.aliases # pylint: disable-msg=E1101'; \
+	  echo '  aliases = main.aliases # pylint: disable=E1101'; \
 	  echo; \
 	  echo 'if __name__ == "__main__":'; \
 	  echo '  sys.exit(main.Main())'; \
+	} > $@
+	chmod u+x $@
+
+$(HS_BUILT_TEST_HELPERS): Makefile
+	@test -n "$(TESTROLE)" || { echo Missing TESTROLE; exit 1; }
+	set -e; \
+	{ echo '#!/bin/sh'; \
+	  echo '# This file is automatically generated, do not edit!'; \
+	  echo "# Edit Makefile.am instead."; \
+	  echo; \
+	  echo "HTOOLS=$(TESTROLE) exec ./htools/hpc-htools \"\$$@\""; \
 	} > $@
 	chmod u+x $@
 
@@ -1077,10 +1289,13 @@ check-dirs: $(BUILT_SOURCES)
 		if test -n "$$error"; then exit 1; else exit 0; fi; \
 	}
 
-check-local: check-dirs
+.PHONY: check-local
+check-local: check-dirs $(BUILT_SOURCES)
 	$(CHECK_PYTHON_CODE) $(check_python_code)
+	PYTHONPATH=. $(CHECK_HEADER) $(check_python_code)
 	$(CHECK_VERSION) $(VERSION) $(top_srcdir)/NEWS
 	$(CHECK_NEWS) < $(top_srcdir)/NEWS
+	PYTHONPATH=. $(RUN_IN_TEMPDIR) $(CURDIR)/$(CHECK_IMPORTS) . $(standalone_python_modules)
 	expver=$(VERSION_MAJOR).$(VERSION_MINOR); \
 	if test "`head -n 1 $(top_srcdir)/README`" != "Ganeti $$expver"; then \
 		echo "Incorrect version in README, expected $$expver"; \
@@ -1095,9 +1310,10 @@ check-local: check-dirs
 	done
 
 .PHONY: hs-check
-hs-check: htools/test
+hs-check: htools/test htools/hpc-htools $(HS_BUILT_TEST_HELPERS)
 	@rm -f test.tix
 	./htools/test
+	HBINARY="./htools/hpc-htools" ./htools/offline-test.sh
 
 # E111: indentation is not a multiple of four
 # E261: at least two spaces before inline comment
@@ -1107,30 +1323,52 @@ PEP8_IGNORE = E111,E261,E501
 # For excluding pep8 expects filenames only, not whole paths
 PEP8_EXCLUDE = $(subst $(space),$(comma),$(strip $(notdir $(BUILT_PYTHON_SOURCES))))
 
+LINT_TARGETS = pylint pylint-qa
+if HAS_PEP8
+LINT_TARGETS += pep8
+endif
+if HAS_HLINT
+LINT_TARGETS += hlint
+endif
+
 .PHONY: lint
-lint: $(BUILT_SOURCES)
+lint: $(LINT_TARGETS)
+
+.PHONY: pylint
+pylint: $(BUILT_SOURCES)
 	@test -n "$(PYLINT)" || { echo 'pylint' not found during configure; exit 1; }
-	if test -z "$(PEP8)"; then \
-		echo '"pep8" not found during configure' >&2; \
-	else \
-		$(PEP8) --repeat --ignore='$(PEP8_IGNORE)' --exclude='$(PEP8_EXCLUDE)' \
-			$(pep8_python_code); \
-	fi
 	$(PYLINT) $(LINT_OPTS) $(lint_python_code)
+
+.PHONY: pylint-qa
+pylint-qa: $(BUILT_SOURCES)
+	@test -n "$(PYLINT)" || { echo 'pylint' not found during configure; exit 1; }
 	cd $(top_srcdir)/qa && \
 	  PYTHONPATH=$(abs_top_srcdir) $(PYLINT) $(LINT_OPTS) \
 	  --rcfile  ../pylintrc $(patsubst qa/%.py,%,$(qa_scripts))
 
+.PHONY: pep8
+pep8: $(BUILT_SOURCES)
+	@test -n "$(PEP8)" || { echo 'pep8' not found during configure; exit 1; }
+	$(PEP8) --ignore='$(PEP8_IGNORE)' --exclude='$(PEP8_EXCLUDE)' \
+		--repeat $(pep8_python_code)
+
 .PHONY: hlint
-hlint: $(HS_BUILT_SRCS)
+hlint: $(HS_BUILT_SRCS) htools/lint-hints.hs
+	@test -n "$(HLINT)" || { echo 'hlint' not found during configure; exit 1; }
 	if tty -s; then C="-c"; else C=""; fi; \
-	hlint --report=doc/hs-lint.html $$C htools
+	$(HLINT) --report=doc/hs-lint.html --cross $$C \
+	  --ignore "Use first" \
+	  --ignore "Use comparing" \
+	  --ignore "Use on" \
+	  --ignore "Reduce duplication" \
+	  --hint htools/lint-hints \
+	  $(filter-out htools/Ganeti/THH.hs,$(HS_LIB_SRCS))
 
 # a dist hook rule for updating the vcs-version file; this is
 # hardcoded due to where it needs to build the file...
 dist-hook:
-	$(MAKE) regen-vcs-version && \
-	rm -f $(top_distdir)/vcs-version && \
+	$(MAKE) regen-vcs-version
+	rm -f $(top_distdir)/vcs-version
 	cp -p $(srcdir)/vcs-version $(top_distdir)
 
 # a distcheck hook rule for catching revision control directories
@@ -1205,8 +1443,10 @@ hs-apidoc: $(HS_BUILT_SRCS)
 	    { echo 'haddock' not found during configure; exit 1; }
 	rm -rf $(APIDOC_HS_DIR)/*
 	@mkdir_p@ $(APIDOC_HS_DIR)/Ganeti/HTools/Program
+	@mkdir_p@ $(APIDOC_HS_DIR)/Ganeti/Confd
 	$(HSCOLOUR) -print-css > $(APIDOC_HS_DIR)/Ganeti/hscolour.css
 	$(LN_S) ../hscolour.css $(APIDOC_HS_DIR)/Ganeti/HTools/hscolour.css
+	$(LN_S) ../hscolour.css $(APIDOC_HS_DIR)/Ganeti/Confd/hscolour.css
 	set -e ; \
 	cd htools; \
 	if [ "$(HTOOLS_NOCURL)" ]; \
@@ -1253,11 +1493,13 @@ py-coverage: $(BUILT_SOURCES) $(python_tests)
 	$(python_tests)
 
 .PHONY: hs-coverage
-hs-coverage: $(haskell_tests)
-	cd htools && rm -f *.tix *.mix && ./test
+hs-coverage: $(haskell_tests) htools/hpc-htools
+	rm -f *.tix
+	$(MAKE) hs-check
 	@mkdir_p@ $(COVERAGE_HS_DIR)
-	hpc markup --destdir=$(COVERAGE_HS_DIR) htools/test $(HPCEXCL)
-	hpc report htools/test $(HPCEXCL)
+	hpc combine $(HPCEXCL) test.tix hpc-htools.tix > coverage-htools.tix
+	hpc markup --destdir=$(COVERAGE_HS_DIR) coverage-htools.tix
+	hpc report coverage-htools.tix
 	$(LN_S) -f hpc_index.html $(COVERAGE_HS_DIR)/index.html
 
 # Special "kind-of-QA" target for htools, needs special setup (all
@@ -1277,6 +1519,14 @@ live-test: all
 	hpc report --srcdir=.. live-test $(HPCEXCL)
 
 commit-check: distcheck lint apidoc
+
+.PHONY: gitignore-check
+gitignore-check:
+	@if [ -n "`git status --short`" ]; then \
+	  echo "Git status is not clean!" 1>&2 ; \
+	  git status --short; \
+	  exit 1; \
+	fi
 
 -include ./Makefile.local
 

@@ -31,6 +31,7 @@ from ganeti import constants
 from ganeti import errors
 from ganeti import utils
 from ganeti import cli
+from ganeti import qlang
 
 
 #: default list of fields for L{ListJobs}
@@ -49,6 +50,16 @@ _USER_JOB_STATUS = {
   }
 
 
+def _FormatStatus(value):
+  """Formats a job status.
+
+  """
+  try:
+    return _USER_JOB_STATUS[value]
+  except KeyError:
+    raise errors.ProgrammerError("Unknown job status code '%s'" % value)
+
+
 def ListJobs(opts, args):
   """List the jobs
 
@@ -61,60 +72,34 @@ def ListJobs(opts, args):
   """
   selected_fields = ParseFields(opts.output, _LIST_DEF_FIELDS)
 
-  output = GetClient().QueryJobs(args, selected_fields)
-  if not opts.no_headers:
-    # TODO: Implement more fields
-    headers = {
-      "id": "ID",
-      "status": "Status",
-      "priority": "Prio",
-      "ops": "OpCodes",
-      "opresult": "OpCode_result",
-      "opstatus": "OpCode_status",
-      "oplog": "OpCode_log",
-      "summary": "Summary",
-      "opstart": "OpCode_start",
-      "opexec": "OpCode_exec",
-      "opend": "OpCode_end",
-      "oppriority": "OpCode_prio",
-      "start_ts": "Start",
-      "end_ts": "End",
-      "received_ts": "Received",
-      }
-  else:
-    headers = None
+  fmtoverride = {
+    "status": (_FormatStatus, False),
+    "summary": (lambda value: ",".join(str(item) for item in value), False),
+    }
+  fmtoverride.update(dict.fromkeys(["opstart", "opexec", "opend"],
+    (lambda value: map(FormatTimestamp, value), None)))
 
-  numfields = ["priority"]
+  qfilter = qlang.MakeSimpleFilter("status", opts.status_filter)
 
-  # change raw values to nicer strings
-  for row_id, row in enumerate(output):
-    if row is None:
-      ToStderr("No such job: %s" % args[row_id])
-      continue
+  return GenericList(constants.QR_JOB, selected_fields, args, None,
+                     opts.separator, not opts.no_headers,
+                     format_override=fmtoverride, verbose=opts.verbose,
+                     force_filter=opts.force_filter, namefield="id",
+                     qfilter=qfilter)
 
-    for idx, field in enumerate(selected_fields):
-      val = row[idx]
-      if field == "status":
-        if val in _USER_JOB_STATUS:
-          val = _USER_JOB_STATUS[val]
-        else:
-          raise errors.ProgrammerError("Unknown job status code '%s'" % val)
-      elif field == "summary":
-        val = ",".join(val)
-      elif field in ("start_ts", "end_ts", "received_ts"):
-        val = FormatTimestamp(val)
-      elif field in ("opstart", "opexec", "opend"):
-        val = [FormatTimestamp(entry) for entry in val]
 
-      row[idx] = str(val)
+def ListJobFields(opts, args):
+  """List job fields.
 
-  data = GenerateTable(separator=opts.separator, headers=headers,
-                       fields=selected_fields, data=output,
-                       numfields=numfields)
-  for line in data:
-    ToStdout(line)
+  @param opts: the command line options selected by the user
+  @type args: list
+  @param args: fields to list, or empty for all
+  @rtype: int
+  @return: the desired exit code
 
-  return 0
+  """
+  return GenericListFields(constants.QR_JOB, args, opts.separator,
+                           not opts.no_headers)
 
 
 def ArchiveJobs(opts, args):
@@ -218,27 +203,26 @@ def ShowJobs(opts, args):
     "opstart", "opexec", "opend", "received_ts", "start_ts", "end_ts",
     ]
 
-  result = GetClient().QueryJobs(args, selected_fields)
+  result = GetClient().Query(constants.QR_JOB, selected_fields,
+                             qlang.MakeSimpleFilter("id", args)).data
 
   first = True
 
-  for idx, entry in enumerate(result):
+  for entry in result:
     if not first:
       format_msg(0, "")
     else:
       first = False
 
-    if entry is None:
-      if idx <= len(args):
-        format_msg(0, "Job ID %s not found" % args[idx])
-      else:
-        # this should not happen, when we don't pass args it will be a
-        # valid job returned
-        format_msg(0, "Job ID requested as argument %s not found" % (idx + 1))
+    ((_, job_id), (rs_status, status), (_, ops), (_, opresult), (_, opstatus),
+     (_, oplog), (_, opstart), (_, opexec), (_, opend), (_, recv_ts),
+     (_, start_ts), (_, end_ts)) = entry
+
+    # Detect non-normal results
+    if rs_status != constants.RS_NORMAL:
+      format_msg(0, "Job ID %s not found" % job_id)
       continue
 
-    (job_id, status, ops, opresult, opstatus, oplog,
-     opstart, opexec, opend, recv_ts, start_ts, end_ts) = entry
     format_msg(0, "Job ID: %s" % job_id)
     if status in _USER_JOB_STATUS:
       status = _USER_JOB_STATUS[status]
@@ -356,16 +340,53 @@ def WatchJob(opts, args):
   return retcode
 
 
+_PENDING_OPT = \
+  cli_option("--pending", default=None,
+             action="store_const", dest="status_filter",
+             const=frozenset([
+               constants.JOB_STATUS_QUEUED,
+               constants.JOB_STATUS_WAITING,
+               ]),
+             help="Show only jobs pending execution")
+
+_RUNNING_OPT = \
+  cli_option("--running", default=None,
+             action="store_const", dest="status_filter",
+             const=frozenset([
+               constants.JOB_STATUS_RUNNING,
+               ]),
+             help="Show jobs currently running only")
+
+_ERROR_OPT = \
+  cli_option("--error", default=None,
+             action="store_const", dest="status_filter",
+             const=frozenset([
+               constants.JOB_STATUS_ERROR,
+               ]),
+             help="Show failed jobs only")
+
+_FINISHED_OPT = \
+  cli_option("--finished", default=None,
+             action="store_const", dest="status_filter",
+             const=constants.JOBS_FINALIZED,
+             help="Show finished jobs only")
+
+
 commands = {
   "list": (
     ListJobs, [ArgJobId()],
-    [NOHDR_OPT, SEP_OPT, FIELDS_OPT],
+    [NOHDR_OPT, SEP_OPT, FIELDS_OPT, VERBOSE_OPT, FORCE_FILTER_OPT,
+     _PENDING_OPT, _RUNNING_OPT, _ERROR_OPT, _FINISHED_OPT],
     "[job_id ...]",
-    "List the jobs and their status. The available fields are"
-    " (see the man page for details): id, status, op_list,"
-    " op_status, op_result."
-    " The default field"
-    " list is (in order): %s." % utils.CommaJoin(_LIST_DEF_FIELDS)),
+    "Lists the jobs and their status. The available fields can be shown"
+    " using the \"list-fields\" command (see the man page for details)."
+    " The default field list is (in order): %s." %
+    utils.CommaJoin(_LIST_DEF_FIELDS)),
+  "list-fields": (
+    ListJobFields, [ArgUnknown()],
+    [NOHDR_OPT, SEP_OPT],
+    "[fields...]",
+    "Lists all available fields for jobs"),
   "archive": (
     ArchiveJobs, [ArgJobId(min=1)], [],
     "<job-id> [<job-id> ...]", "Archive specified jobs"),

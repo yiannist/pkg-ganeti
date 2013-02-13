@@ -1,7 +1,7 @@
 #!/usr/bin/python
 #
 
-# Copyright (C) 2010 Google Inc.
+# Copyright (C) 2010, 2012 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -29,10 +29,16 @@ This is needed before we can join the node into the cluster.
 
 import getpass
 import logging
-import paramiko
 import os.path
 import optparse
 import sys
+
+# workaround paramiko warnings
+# FIXME: use 'with warnings.catch_warnings' once we drop Python 2.4
+import warnings
+warnings.simplefilter("ignore")
+import paramiko
+warnings.resetwarnings()
 
 from ganeti import cli
 from ganeti import constants
@@ -246,6 +252,10 @@ def ParseOptions():
                                     help="Force the join of the host"))
 
   (options, args) = parser.parse_args()
+
+  if not args:
+    parser.print_help()
+    sys.exit(constants.EXIT_FAILURE)
 
   return (options, args)
 

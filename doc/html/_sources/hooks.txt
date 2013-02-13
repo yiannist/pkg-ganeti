@@ -1,17 +1,18 @@
 Ganeti customisation using hooks
 ================================
 
-Documents Ganeti version 2.5
+Documents Ganeti version 2.6
 
 .. contents::
 
 Introduction
 ------------
 
-
-In order to allow customisation of operations, ganeti runs scripts
-under ``/etc/ganeti/hooks`` based on certain rules.
-
+In order to allow customisation of operations, Ganeti runs scripts in
+sub-directories of ``@SYSCONFDIR@/ganeti/hooks``. These sub-directories
+are named ``$hook-$phase.d``, where ``$phase`` is either ``pre`` or
+``post`` and ``$hook`` matches the directory name given for a hook (e.g.
+``cluster-verify-post.d`` or ``node-add-pre.d``).
 
 This is similar to the ``/etc/network/`` structure present in Debian
 for network interface handling.
@@ -146,16 +147,6 @@ Changes a node's parameters.
 :env. vars: MASTER_CANDIDATE, OFFLINE, DRAINED, MASTER_CAPABLE, VM_CAPABLE
 :pre-execution: master node, the target node
 :post-execution: master node, the target node
-
-OP_NODE_EVACUATE
-++++++++++++++++
-
-Relocate secondary instances from a node.
-
-:directory: node-evacuate
-:env. vars: NEW_SECONDARY, NODE_NAME
-:pre-execution: master node, target node
-:post-execution: master node, target node
 
 OP_NODE_MIGRATE
 ++++++++++++++++
@@ -304,7 +295,7 @@ OP_INSTANCE_SET_PARAMS
 Modifies the instance parameters.
 
 :directory: instance-modify
-:env. vars: NEW_DISK_TEMPLATE
+:env. vars: NEW_DISK_TEMPLATE, RUNTIME_MEMORY
 :pre-execution: master node, primary and secondary nodes
 :post-execution: master node, primary and secondary nodes
 
@@ -341,16 +332,6 @@ Remove an instance.
 :directory: instance-remove
 :env. vars: SHUTDOWN_TIMEOUT
 :pre-execution: master node
-:post-execution: master node, primary and secondary nodes
-
-OP_INSTANCE_REPLACE_DISKS
-+++++++++++++++++++++++++
-
-Replace an instance's disks.
-
-:directory: mirror-replace
-:env. vars: MODE, NEW_SECONDARY, OLD_SECONDARY
-:pre-execution: master node, primary and secondary nodes
 :post-execution: master node, primary and secondary nodes
 
 OP_INSTANCE_GROW_DISK
@@ -472,6 +453,28 @@ Modifies the cluster parameters.
 :pre-execution: master node
 :post-execution: master node
 
+Virtual operation :pyeval:`constants.FAKE_OP_MASTER_TURNUP`
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+This doesn't correspond to an actual op-code, but it is called when the
+master IP is activated.
+
+:directory: master-ip-turnup
+:env. vars: MASTER_NETDEV, MASTER_IP, MASTER_NETMASK, CLUSTER_IP_VERSION
+:pre-execution: master node
+:post-execution: master node
+
+Virtual operation :pyeval:`constants.FAKE_OP_MASTER_TURNDOWN`
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+This doesn't correspond to an actual op-code, but it is called when the
+master IP is deactivated.
+
+:directory: master-ip-turndown
+:env. vars: MASTER_NETDEV, MASTER_IP, MASTER_NETMASK, CLUSTER_IP_VERSION
+:pre-execution: master node
+:post-execution: master node
+
 
 Obsolete operations
 ~~~~~~~~~~~~~~~~~~~
@@ -528,6 +531,9 @@ Specialised variables
 
 This is the list of variables which are specific to one or more
 operations.
+
+CLUSTER_IP_VERSION
+  IP version of the master IP (4 or 6)
 
 INSTANCE_NAME
   The name of the instance which is the target of the operation.
@@ -600,6 +606,15 @@ MASTER_CAPABLE
 
 VM_CAPABLE
   Whether the node can host instances.
+
+MASTER_NETDEV
+  Network device of the master IP
+
+MASTER_IP
+  The master IP
+
+MASTER_NETMASK
+  Netmask of the master IP
 
 INSTANCE_TAGS
   A space-delimited list of the instance's tags.

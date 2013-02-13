@@ -123,7 +123,7 @@ class FakeHypervisor(hv_base.BaseHypervisor):
     file_name = self._InstanceFile(instance_name)
     return os.path.exists(file_name)
 
-  def _MarkUp(self, instance):
+  def _MarkUp(self, instance, memory):
     """Mark the instance as running.
 
     This does no checks, which should be done by its callers.
@@ -133,7 +133,7 @@ class FakeHypervisor(hv_base.BaseHypervisor):
     fh = file(file_name, "w")
     try:
       fh.write("0\n%d\n%d\n" %
-               (instance.beparams[constants.BE_MEMORY],
+               (memory,
                 instance.beparams[constants.BE_VCPUS]))
     finally:
       fh.close()
@@ -159,7 +159,7 @@ class FakeHypervisor(hv_base.BaseHypervisor):
       raise errors.HypervisorError("Failed to start instance %s: %s" %
                                    (instance.name, "already running"))
     try:
-      self._MarkUp(instance)
+      self._MarkUp(instance, self._InstanceStartupMemory(instance))
     except IOError, err:
       raise errors.HypervisorError("Failed to start instance %s: %s" %
                                    (instance.name, err))
@@ -185,6 +185,24 @@ class FakeHypervisor(hv_base.BaseHypervisor):
 
     """
     return
+
+  def BalloonInstanceMemory(self, instance, mem):
+    """Balloon an instance memory to a certain value.
+
+    @type instance: L{objects.Instance}
+    @param instance: instance to be accepted
+    @type mem: int
+    @param mem: actual memory size to use for instance runtime
+
+    """
+    if not self._IsAlive(instance.name):
+      raise errors.HypervisorError("Failed to balloon memory for %s: %s" %
+                                   (instance.name, "not running"))
+    try:
+      self._MarkUp(instance, mem)
+    except EnvironmentError, err:
+      raise errors.HypervisorError("Failed to balloon memory for %s: %s" %
+                                   (instance.name, utils.ErrnoOrStr(err)))
 
   def GetNodeInfo(self):
     """Return information about the node.
@@ -259,19 +277,62 @@ class FakeHypervisor(hv_base.BaseHypervisor):
     logging.debug("Fake hypervisor migrating %s to %s (live=%s)",
                   instance, target, live)
 
-    self._MarkDown(instance.name)
-
-  def FinalizeMigration(self, instance, info, success):
-    """Finalize an instance migration.
+  def FinalizeMigrationDst(self, instance, info, success):
+    """Finalize the instance migration on the target node.
 
     For the fake hv, this just marks the instance up.
 
     @type instance: L{objects.Instance}
     @param instance: instance whose migration is being finalized
+    @type info: string/data (opaque)
+    @param info: migration information, from the source node
+    @type success: boolean
+    @param success: whether the migration was a success or a failure
 
     """
     if success:
-      self._MarkUp(instance)
+      self._MarkUp(instance, self._InstanceStartupMemory(instance))
     else:
       # ensure it's down
       self._MarkDown(instance.name)
+
+  def PostMigrationCleanup(self, instance):
+    """Clean-up after a migration.
+
+    To be executed on the source node.
+
+    @type instance: L{objects.Instance}
+    @param instance: the instance that was migrated
+
+    """
+    pass
+
+  def FinalizeMigrationSource(self, instance, success, live):
+    """Finalize the instance migration on the source node.
+
+    @type instance: L{objects.Instance}
+    @param instance: the instance that was migrated
+    @type success: bool
+    @param success: whether the migration succeeded or not
+    @type live: bool
+    @param live: whether the user requested a live migration or not
+
+    """
+    # pylint: disable=W0613
+    if success:
+      self._MarkDown(instance.name)
+
+  def GetMigrationStatus(self, instance):
+    """Get the migration status
+
+    The fake hypervisor migration always succeeds.
+
+    @type instance: L{objects.Instance}
+    @param instance: the instance that is being migrated
+    @rtype: L{objects.MigrationStatus}
+    @return: the status of the current migration (one of
+             L{constants.HV_MIGRATION_VALID_STATUSES}), plus any additional
+             progress info that can be retrieved from the hypervisor
+
+    """
+    return objects.MigrationStatus(status=constants.HV_MIGRATION_COMPLETED)

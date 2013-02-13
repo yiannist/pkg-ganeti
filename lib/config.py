@@ -133,6 +133,26 @@ def _MatchNameComponentIgnoreCase(short_name, names):
   return utils.MatchNameComponent(short_name, names, case_sensitive=False)
 
 
+def _CheckInstanceDiskIvNames(disks):
+  """Checks if instance's disks' C{iv_name} attributes are in order.
+
+  @type disks: list of L{objects.Disk}
+  @param disks: List of disks
+  @rtype: list of tuples; (int, string, string)
+  @return: List of wrongly named disks, each tuple contains disk index,
+    expected and actual name
+
+  """
+  result = []
+
+  for (idx, disk) in enumerate(disks):
+    exp_iv_name = "disk/%s" % idx
+    if disk.iv_name != exp_iv_name:
+      result.append((idx, exp_iv_name, disk.iv_name))
+
+  return result
+
+
 class ConfigWriter:
   """The interface to the cluster configuration.
 
@@ -165,7 +185,20 @@ class ConfigWriter:
     self._my_hostname = netutils.Hostname.GetSysName()
     self._last_cluster_serial = -1
     self._cfg_id = None
+    self._context = None
     self._OpenConfig(accept_foreign)
+
+  def _GetRpc(self, address_list):
+    """Returns RPC runner for configuration.
+
+    """
+    return rpc.ConfigRunner(self._context, address_list)
+
+  def SetContext(self, context):
+    """Sets Ganeti context.
+
+    """
+    self._context = context
 
   # this method needs to be static, so that we can call it on the class
   @staticmethod
@@ -197,6 +230,40 @@ class ConfigWriter:
     """
     nodegroup = self._UnlockedGetNodeGroup(node.group)
     return self._config_data.cluster.FillND(node, nodegroup)
+
+  @locking.ssynchronized(_config_lock, shared=1)
+  def GetInstanceDiskParams(self, instance):
+    """Get the disk params populated with inherit chain.
+
+    @type instance: L{objects.Instance}
+    @param instance: The instance we want to know the params for
+    @return: A dict with the filled in disk params
+
+    """
+    node = self._UnlockedGetNodeInfo(instance.primary_node)
+    nodegroup = self._UnlockedGetNodeGroup(node.group)
+    return self._UnlockedGetGroupDiskParams(nodegroup)
+
+  @locking.ssynchronized(_config_lock, shared=1)
+  def GetGroupDiskParams(self, group):
+    """Get the disk params populated with inherit chain.
+
+    @type group: L{objects.NodeGroup}
+    @param group: The group we want to know the params for
+    @return: A dict with the filled in disk params
+
+    """
+    return self._UnlockedGetGroupDiskParams(group)
+
+  def _UnlockedGetGroupDiskParams(self, group):
+    """Get the disk params populated with inherit chain down to node-group.
+
+    @type group: L{objects.NodeGroup}
+    @param group: The group we want to know the params for
+    @return: A dict with the filled in disk params
+
+    """
+    return self._config_data.cluster.SimpleFillDP(group.diskparams)
 
   @locking.ssynchronized(_config_lock, shared=1)
   def GenerateMAC(self, ec_id):
@@ -413,6 +480,28 @@ class ConfigWriter:
       except errors.ConfigurationError, err:
         result.append("%s has invalid nicparams: %s" % (owner, err))
 
+    def _helper_ipolicy(owner, params, check_std):
+      try:
+        objects.InstancePolicy.CheckParameterSyntax(params, check_std)
+      except errors.ConfigurationError, err:
+        result.append("%s has invalid instance policy: %s" % (owner, err))
+
+    def _helper_ispecs(owner, params):
+      for key, value in params.items():
+        if key in constants.IPOLICY_ISPECS:
+          fullkey = "ipolicy/" + key
+          _helper(owner, fullkey, value, constants.ISPECS_PARAMETER_TYPES)
+        else:
+          # FIXME: assuming list type
+          if key in constants.IPOLICY_PARAMETERS:
+            exp_type = float
+          else:
+            exp_type = list
+          if not isinstance(value, exp_type):
+            result.append("%s has invalid instance policy: for %s,"
+                          " expecting %s, got %s" %
+                          (owner, key, exp_type.__name__, type(value)))
+
     # check cluster parameters
     _helper("cluster", "beparams", cluster.SimpleFillBE({}),
             constants.BES_PARAMETER_TYPES)
@@ -421,6 +510,8 @@ class ConfigWriter:
     _helper_nic("cluster", cluster.SimpleFillNIC({}))
     _helper("cluster", "ndparams", cluster.SimpleFillND({}),
             constants.NDS_PARAMETER_TYPES)
+    _helper_ipolicy("cluster", cluster.SimpleFillIPolicy({}), True)
+    _helper_ispecs("cluster", cluster.SimpleFillIPolicy({}))
 
     # per-instance checks
     for instance_name in data.instances:
@@ -454,12 +545,12 @@ class ConfigWriter:
                 cluster.FillBE(instance), constants.BES_PARAMETER_TYPES)
 
       # gather the drbd ports for duplicate checks
-      for dsk in instance.disks:
+      for (idx, dsk) in enumerate(instance.disks):
         if dsk.dev_type in constants.LDS_DRBD:
           tcp_port = dsk.logical_id[2]
           if tcp_port not in ports:
             ports[tcp_port] = []
-          ports[tcp_port].append((instance.name, "drbd disk %s" % dsk.iv_name))
+          ports[tcp_port].append((instance.name, "drbd disk %s" % idx))
       # gather network port reservation
       net_port = getattr(instance, "network_port", None)
       if net_port is not None:
@@ -472,6 +563,15 @@ class ConfigWriter:
         result.extend(["instance '%s' disk %d error: %s" %
                        (instance.name, idx, msg) for msg in disk.Verify()])
         result.extend(self._CheckDiskIDs(disk, seen_lids, seen_pids))
+
+      wrong_names = _CheckInstanceDiskIvNames(instance.disks)
+      if wrong_names:
+        tmp = "; ".join(("name of disk %s should be '%s', but is '%s'" %
+                         (idx, exp_name, actual_name))
+                        for (idx, exp_name, actual_name) in wrong_names)
+
+        result.append("Instance '%s' has wrongly named disks: %s" %
+                      (instance.name, tmp))
 
     # cluster-wide pool of free ports
     for free_port in cluster.tcpudp_port_pool:
@@ -535,8 +635,12 @@ class ConfigWriter:
         result.append("duplicate node group name '%s'" % nodegroup.name)
       else:
         nodegroups_names.add(nodegroup.name)
+      group_name = "group %s" % nodegroup.name
+      _helper_ipolicy(group_name, cluster.SimpleFillIPolicy(nodegroup.ipolicy),
+                      False)
+      _helper_ispecs(group_name, cluster.SimpleFillIPolicy(nodegroup.ipolicy))
       if nodegroup.ndparams:
-        _helper("group %s" % nodegroup.name, "ndparams",
+        _helper(group_name, "ndparams",
                 cluster.SimpleFillND(nodegroup.ndparams),
                 constants.NDS_PARAMETER_TYPES)
 
@@ -881,6 +985,20 @@ class ConfigWriter:
     return self._config_data.cluster.master_netdev
 
   @locking.ssynchronized(_config_lock, shared=1)
+  def GetMasterNetmask(self):
+    """Get the netmask of the master node for this cluster.
+
+    """
+    return self._config_data.cluster.master_netmask
+
+  @locking.ssynchronized(_config_lock, shared=1)
+  def GetUseExternalMipScript(self):
+    """Get flag representing whether to use the external master IP setup script.
+
+    """
+    return self._config_data.cluster.use_external_mip_script
+
+  @locking.ssynchronized(_config_lock, shared=1)
   def GetFileStorageDir(self):
     """Get the file storage dir for this cluster.
 
@@ -926,6 +1044,23 @@ class ConfigWriter:
 
     """
     return self._config_data.cluster.primary_ip_family
+
+  @locking.ssynchronized(_config_lock, shared=1)
+  def GetMasterNetworkParameters(self):
+    """Get network parameters of the master node.
+
+    @rtype: L{object.MasterNetworkParameters}
+    @return: network parameters of the master node
+
+    """
+    cluster = self._config_data.cluster
+    result = objects.MasterNetworkParameters(name=cluster.master_node,
+      ip=cluster.master_ip,
+      netmask=cluster.master_netmask,
+      netdev=cluster.master_netdev,
+      ip_family=cluster.primary_ip_family)
+
+    return result
 
   @locking.ssynchronized(_config_lock)
   def AddNodeGroup(self, group, ec_id, check_uuid=True):
@@ -1009,7 +1144,7 @@ class ConfigWriter:
     if target is None:
       if len(self._config_data.nodegroups) != 1:
         raise errors.OpPrereqError("More than one node group exists. Target"
-                                   " group must be specified explicitely.")
+                                   " group must be specified explicitly.")
       else:
         return self._config_data.nodegroups.keys()[0]
     if target in self._config_data.nodegroups:
@@ -1085,6 +1220,17 @@ class ConfigWriter:
                      for member_name in
                        self._UnlockedGetNodeGroup(ngfn(node_name)).members)
 
+  @locking.ssynchronized(_config_lock, shared=1)
+  def GetMultiNodeGroupInfo(self, group_uuids):
+    """Get the configuration of multiple node groups.
+
+    @param group_uuids: List of node group UUIDs
+    @rtype: list
+    @return: List of tuples of (group_uuid, group_info)
+
+    """
+    return [(uuid, self._UnlockedGetNodeGroup(uuid)) for uuid in group_uuids]
+
   @locking.ssynchronized(_config_lock)
   def AddInstance(self, instance, ec_id):
     """Add an instance to the config.
@@ -1135,15 +1281,15 @@ class ConfigWriter:
     """Set the instance's status to a given value.
 
     """
-    assert isinstance(status, bool), \
+    assert status in constants.ADMINST_ALL, \
            "Invalid status '%s' passed to SetInstanceStatus" % (status,)
 
     if instance_name not in self._config_data.instances:
       raise errors.ConfigurationError("Unknown instance '%s'" %
                                       instance_name)
     instance = self._config_data.instances[instance_name]
-    if instance.admin_up != status:
-      instance.admin_up = status
+    if instance.admin_state != status:
+      instance.admin_state = status
       instance.serial_no += 1
       instance.mtime = time.time()
       self._WriteConfig()
@@ -1153,7 +1299,14 @@ class ConfigWriter:
     """Mark the instance status to up in the config.
 
     """
-    self._SetInstanceStatus(instance_name, True)
+    self._SetInstanceStatus(instance_name, constants.ADMINST_UP)
+
+  @locking.ssynchronized(_config_lock)
+  def MarkInstanceOffline(self, instance_name):
+    """Mark the instance status to down in the config.
+
+    """
+    self._SetInstanceStatus(instance_name, constants.ADMINST_OFFLINE)
 
   @locking.ssynchronized(_config_lock)
   def RemoveInstance(self, instance_name):
@@ -1185,24 +1338,27 @@ class ConfigWriter:
     """
     if old_name not in self._config_data.instances:
       raise errors.ConfigurationError("Unknown instance '%s'" % old_name)
-    inst = self._config_data.instances[old_name]
-    del self._config_data.instances[old_name]
+
+    # Operate on a copy to not loose instance object in case of a failure
+    inst = self._config_data.instances[old_name].Copy()
     inst.name = new_name
 
-    for disk in inst.disks:
+    for (idx, disk) in enumerate(inst.disks):
       if disk.dev_type == constants.LD_FILE:
         # rename the file paths in logical and physical id
         file_storage_dir = os.path.dirname(os.path.dirname(disk.logical_id[1]))
-        disk_fname = "disk%s" % disk.iv_name.split("/")[1]
-        disk.physical_id = disk.logical_id = (disk.logical_id[0],
-                                              utils.PathJoin(file_storage_dir,
-                                                             inst.name,
-                                                             disk_fname))
+        disk.logical_id = (disk.logical_id[0],
+                           utils.PathJoin(file_storage_dir, inst.name,
+                                          "disk%s" % idx))
+        disk.physical_id = disk.logical_id
+
+    # Actually replace instance object
+    del self._config_data.instances[old_name]
+    self._config_data.instances[inst.name] = inst
 
     # Force update of ssconf files
     self._config_data.cluster.serial_no += 1
 
-    self._config_data.instances[inst.name] = inst
     self._WriteConfig()
 
   @locking.ssynchronized(_config_lock)
@@ -1210,7 +1366,7 @@ class ConfigWriter:
     """Mark the status of an instance to down in the configuration.
 
     """
-    self._SetInstanceStatus(instance_name, False)
+    self._SetInstanceStatus(instance_name, constants.ADMINST_DOWN)
 
   def _UnlockedGetInstanceList(self):
     """Get the list of instances.
@@ -1308,6 +1464,22 @@ class ConfigWriter:
     my_dict = dict([(instance, self._UnlockedGetInstanceInfo(instance))
                     for instance in self._UnlockedGetInstanceList()])
     return my_dict
+
+  @locking.ssynchronized(_config_lock, shared=1)
+  def GetInstancesInfoByFilter(self, filter_fn):
+    """Get instance configuration with a filter.
+
+    @type filter_fn: callable
+    @param filter_fn: Filter function receiving instance object as parameter,
+      returning boolean. Important: this function is called while the
+      configuration locks is held. It must not do any complex work or call
+      functions potentially leading to a deadlock. Ideally it doesn't call any
+      other functions and just compares instance attributes.
+
+    """
+    return dict((name, inst)
+                for (name, inst) in self._config_data.instances.items()
+                if filter_fn(inst))
 
   @locking.ssynchronized(_config_lock)
   def AddNode(self, node, ec_id):
@@ -1493,9 +1665,16 @@ class ConfigWriter:
               would GetNodeInfo return for the node
 
     """
-    my_dict = dict([(node, self._UnlockedGetNodeInfo(node))
-                    for node in self._UnlockedGetNodeList()])
-    return my_dict
+    return self._UnlockedGetAllNodesInfo()
+
+  def _UnlockedGetAllNodesInfo(self):
+    """Gets configuration of all nodes.
+
+    @note: See L{GetAllNodesInfo}
+
+    """
+    return dict([(node, self._UnlockedGetNodeInfo(node))
+                 for node in self._UnlockedGetNodeList()])
 
   @locking.ssynchronized(_config_lock, shared=1)
   def GetNodeGroupsFromNodes(self, nodes):
@@ -1670,7 +1849,7 @@ class ConfigWriter:
 
     # Update timestamps and serials (only once per node/group object)
     now = time.time()
-    for obj in frozenset(itertools.chain(*resmod)): # pylint: disable-msg=W0142
+    for obj in frozenset(itertools.chain(*resmod)): # pylint: disable=W0142
       obj.serial_no += 1
       obj.mtime = now
 
@@ -1709,8 +1888,8 @@ class ConfigWriter:
     # Make sure the configuration has the right version
     _ValidateConfig(data)
 
-    if (not hasattr(data, 'cluster') or
-        not hasattr(data.cluster, 'rsahostkeypub')):
+    if (not hasattr(data, "cluster") or
+        not hasattr(data.cluster, "rsahostkeypub")):
       raise errors.ConfigurationError("Incomplete configuration"
                                       " (missing cluster.rsahostkeypub)")
 
@@ -1801,8 +1980,9 @@ class ConfigWriter:
       node_list.append(node_info.name)
       addr_list.append(node_info.primary_ip)
 
-    result = rpc.RpcRunner.call_upload_file(node_list, self._cfg_file,
-                                            address_list=addr_list)
+    # TODO: Use dedicated resolver talking to config writer for name resolution
+    result = \
+      self._GetRpc(addr_list).call_upload_file(node_list, self._cfg_file)
     for to_node, to_result in result.items():
       msg = to_result.fail_msg
       if msg:
@@ -1861,7 +2041,7 @@ class ConfigWriter:
     # Write ssconf files on all nodes (including locally)
     if self._last_cluster_serial < self._config_data.cluster.serial_no:
       if not self._offline:
-        result = rpc.RpcRunner.call_write_ssconf_files(
+        result = self._GetRpc(None).call_write_ssconf_files(
           self._UnlockedGetOnlineNodeList(),
           self._UnlockedGetSsconfValues())
 
@@ -1924,6 +2104,7 @@ class ConfigWriter:
       constants.SS_MASTER_CANDIDATES_IPS: mc_ips_data,
       constants.SS_MASTER_IP: cluster.master_ip,
       constants.SS_MASTER_NETDEV: cluster.master_netdev,
+      constants.SS_MASTER_NETMASK: str(cluster.master_netmask),
       constants.SS_MASTER_NODE: cluster.master_node,
       constants.SS_NODE_LIST: node_data,
       constants.SS_NODE_PRIMARY_IPS: node_pri_ips_data,

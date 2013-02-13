@@ -5,13 +5,13 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Developer notes &mdash; Ganeti v2.5.2 documentation</title>
+    <title>Developer notes &mdash; Ganeti v2.6.0 documentation</title>
     <link rel="stylesheet" href="_static/default.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.5.2',
+        VERSION:     '2.6.0',
         COLLAPSE_MODINDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -19,9 +19,9 @@
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.5.2 documentation" href="index.html" />
+    <link rel="top" title="Ganeti v2.6.0 documentation" href="index.html" />
     <link rel="next" title="News" href="news.html" />
-    <link rel="prev" title="Moving instances between clusters" href="move-instance.html" /> 
+    <link rel="prev" title="OVF converter" href="ovfconverter.html" /> 
   </head>
   <body>
     <div class="related">
@@ -31,9 +31,9 @@
           <a href="news.html" title="News"
              accesskey="N">next</a></li>
         <li class="right" >
-          <a href="move-instance.html" title="Moving instances between clusters"
+          <a href="ovfconverter.html" title="OVF converter"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.5.2 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.6.0 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -61,10 +61,11 @@ dependencies</li>
 <li><a class="reference external" href="https://github.com/jcrocholl/pep8/">pep8</a></li>
 </ul>
 <p>Note that for pylint, at the current moment the following versions
-need to be used:</p>
-<div class="highlight-python"><pre>$ pylint --version
+must be used:</p>
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">pylint</span> <span class="gs">--version</span>
 pylint 0.21.1,
-astng 0.20.1, common 0.50.3</pre>
+astng 0.20.1, common 0.50.3
+</pre></div>
 </div>
 <p>To generate unittest coverage reports (<tt class="docutils literal"><span class="pre">make</span> <span class="pre">coverage</span></tt>), <a class="reference external" href="http://pypi.python.org/pypi/coverage">coverage</a> needs to be installed.</p>
 <p>For Haskell development, again all things from the quick install
@@ -75,25 +76,62 @@ generator (equivalent to epydoc for Python)</li>
 <li><a class="reference external" href="http://hackage.haskell.org/package/hscolour">HsColour</a>, again
 used for documentation (it&#8217;s source-code pretty-printing)</li>
 <li><a class="reference external" href="http://community.haskell.org/~ndm/hlint/">hlint</a>, a source code
-linter (equivalent to pylint for Python)</li>
+linter (equivalent to pylint for Python), recommended version 1.8 or
+above (tested with 1.8.15)</li>
 <li>the <a class="reference external" href="http://hackage.haskell.org/package/QuickCheck">QuickCheck</a>
 library, version 2.x</li>
 <li><tt class="docutils literal"><span class="pre">hpc</span></tt>, which comes with the compiler, so you should already have
 it</li>
+<li><a class="reference external" href="http://joyful.com/shelltestrunner">shelltestrunner</a>, used for
+running unit-tests</li>
 </ul>
-<p>Under Debian, these can be installed (on top of the required ones from
-the quick install document) via:</p>
-<div class="highlight-python"><pre>apt-get install libghc-quickcheck2-dev hscolour hlint</pre>
+<p>Under Debian Wheezy or later, these can be installed (on top of the
+required ones from the quick install document) via:</p>
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">apt-get</span> <span class="gs">install</span> <span class="gs">libghc-quickcheck2-dev</span> <span class="gs">hscolour</span> <span class="gs">hlint</span>
+</pre></div>
+</div>
+<p>Or alternatively via <tt class="docutils literal"><span class="pre">cabal</span></tt>:</p>
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">cabal</span> <span class="gs">install</span> <span class="gs">quickcheck</span> <span class="gs">hscolour</span> <span class="gs">hlint</span> <span class="gs">shelltestrunner</span>
+</pre></div>
 </div>
 </div>
 <div class="section" id="configuring-for-development">
 <h2>Configuring for development<a class="headerlink" href="#configuring-for-development" title="Permalink to this headline">¶</a></h2>
 <p>Run the following command (only use <tt class="docutils literal"><span class="pre">PYTHON=...</span></tt> if you need to use a
 different python version):</p>
-<div class="highlight-sh"><div class="highlight"><pre>./autogen.sh <span class="o">&amp;&amp;</span> <span class="se">\</span>
-./configure --prefix<span class="o">=</span>/usr/local --sysconfdir<span class="o">=</span>/etc --localstatedir<span class="o">=</span>/var
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">./autogen.sh</span> <span class="gs">&amp;&amp;</span> <span class="gs">\</span>
+  <span class="gs">./configure</span> <span class="gs">--prefix=/usr/local</span> <span class="gs">--sysconfdir=/etc</span> <span class="gs">--localstatedir=/var</span>
 </pre></div>
 </div>
+</div>
+<div class="section" id="haskell-development-notes">
+<h2>Haskell development notes<a class="headerlink" href="#haskell-development-notes" title="Permalink to this headline">¶</a></h2>
+<p>There are a few things which can help writing or debugging the Haskell
+code.</p>
+<p>You can run the Haskell linter <strong>hlint</strong> via:</p>
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">make</span> <span class="gs">hlint</span>
+</pre></div>
+</div>
+<p>This is not enabled by default (as the htools component is
+optional). The above command will generate both output on the terminal
+and, if any warnings are found, also an HTML report at
+<tt class="docutils literal"><span class="pre">doc/hs-lint.html</span></tt>.</p>
+<p>When writing or debugging TemplateHaskell code, it&#8217;s useful to see
+what the splices are converted to. This can be done via:</p>
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">make</span> <span class="gs">HEXTRA=&quot;-ddump-splices&quot;</span>
+</pre></div>
+</div>
+<p>Due to the way TemplateHaskell works, it&#8217;s not straightforward to
+build profiling code. The recommended way is to run <tt class="docutils literal"><span class="pre">make</span> <span class="pre">hs-prof</span></tt>,
+or alternatively the manual sequence is:</p>
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">make</span> <span class="gs">clean</span>
+$ <span class="gs">make</span> <span class="gs">htools/htools</span> <span class="gs">HEXTRA=&quot;-osuf</span> <span class="gs">.o&quot;</span>
+$ <span class="gs">rm</span> <span class="gs">htools/htools</span>
+$ <span class="gs">make</span> <span class="gs">htools/htools</span> <span class="gs">HEXTRA=&quot;-osuf</span> <span class="gs">.prof_o</span> <span class="gs">-prof</span> <span class="gs">-auto-all&quot;</span>
+</pre></div>
+</div>
+<p>This will build the binary twice, per the TemplateHaskell
+documentation, the second one with profiling enabled.</p>
 </div>
 </div>
 <div class="section" id="packaging-notes">
@@ -131,6 +169,7 @@ for reloading the OpenSSH daemon&#8217;s host keys.</p>
 <li><a class="reference external" href="#">Developer notes</a><ul>
 <li><a class="reference external" href="#build-dependencies">Build dependencies</a></li>
 <li><a class="reference external" href="#configuring-for-development">Configuring for development</a></li>
+<li><a class="reference external" href="#haskell-development-notes">Haskell development notes</a></li>
 </ul>
 </li>
 <li><a class="reference external" href="#packaging-notes">Packaging notes</a><ul>
@@ -140,8 +179,8 @@ for reloading the OpenSSH daemon&#8217;s host keys.</p>
 </ul>
 
             <h4>Previous topic</h4>
-            <p class="topless"><a href="move-instance.html"
-                                  title="previous chapter">Moving instances between clusters</a></p>
+            <p class="topless"><a href="ovfconverter.html"
+                                  title="previous chapter">OVF converter</a></p>
             <h4>Next topic</h4>
             <p class="topless"><a href="news.html"
                                   title="next chapter">News</a></p>
@@ -174,13 +213,13 @@ for reloading the OpenSSH daemon&#8217;s host keys.</p>
           <a href="news.html" title="News"
              >next</a></li>
         <li class="right" >
-          <a href="move-instance.html" title="Moving instances between clusters"
+          <a href="ovfconverter.html" title="OVF converter"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.5.2 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.6.0 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">
-      &copy; Copyright 2006, 2007, 2008, 2009, 2010, Google Inc..
+      &copy; Copyright 2006, 2007, 2008, 2009, 2010, 2011, 2012, Google Inc..
       Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 0.6.7.
     </div>
   </body>

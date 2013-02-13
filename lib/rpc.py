@@ -30,7 +30,6 @@
 # if they need to start using instance attributes
 # R0904: Too many public methods
 
-import os
 import logging
 import zlib
 import base64
@@ -46,6 +45,11 @@ from ganeti import errors
 from ganeti import netutils
 from ganeti import ssconf
 from ganeti import runtime
+from ganeti import compat
+from ganeti import rpc_defs
+
+# Special module generated at build time
+from ganeti import _generated_rpc
 
 # pylint has a bug here, doesn't see this import
 import ganeti.http.client  # pylint: disable=W0611
@@ -67,15 +71,8 @@ _TMO_SLOW = 3600 # one hour
 _TMO_4HRS = 4 * 3600
 _TMO_1DAY = 86400
 
-# Timeout table that will be built later by decorators
-# Guidelines for choosing timeouts:
-# - call used during watcher: timeout -> 1min, _TMO_URGENT
-# - trivial (but be sure it is trivial) (e.g. reading a file): 5min, _TMO_FAST
-# - other calls: 15 min, _TMO_NORMAL
-# - special calls (instance add, etc.): either _TMO_SLOW (1h) or huge timeouts
-
-_TIMEOUTS = {
-}
+#: Special value to describe an offline host
+_OFFLINE = object()
 
 
 def Init():
@@ -120,49 +117,6 @@ def _ConfigRpcCurl(curl):
   curl.setopt(pycurl.CONNECTTIMEOUT, _RPC_CONNECT_TIMEOUT)
 
 
-# Aliasing this module avoids the following warning by epydoc: "Warning: No
-# information available for ganeti.rpc._RpcThreadLocal's base threading.local"
-_threading = threading
-
-
-class _RpcThreadLocal(_threading.local):
-  def GetHttpClientPool(self):
-    """Returns a per-thread HTTP client pool.
-
-    @rtype: L{http.client.HttpClientPool}
-
-    """
-    try:
-      pool = self.hcp
-    except AttributeError:
-      pool = http.client.HttpClientPool(_ConfigRpcCurl)
-      self.hcp = pool
-
-    return pool
-
-
-# Remove module alias (see above)
-del _threading
-
-
-_thread_local = _RpcThreadLocal()
-
-
-def _RpcTimeout(secs):
-  """Timeout decorator.
-
-  When applied to a rpc call_* function, it updates the global timeout
-  table with the given function/timeout.
-
-  """
-  def decorator(f):
-    name = f.__name__
-    assert name.startswith("call_")
-    _TIMEOUTS[name[len("call_"):]] = secs
-    return f
-  return decorator
-
-
 def RunWithRPC(fn):
   """RPC-wrapper decorator.
 
@@ -178,6 +132,26 @@ def RunWithRPC(fn):
     finally:
       Shutdown()
   return wrapper
+
+
+def _Compress(data):
+  """Compresses a string for transport over RPC.
+
+  Small amounts of data are not compressed.
+
+  @type data: str
+  @param data: Data
+  @rtype: tuple
+  @return: Encoded data to send
+
+  """
+  # Small amounts of data are not compressed
+  if len(data) < 512:
+    return (constants.RPC_ENCODING_NONE, data)
+
+  # Compress with zlib and encode in base64
+  return (constants.RPC_ENCODING_ZLIB_BASE64,
+          base64.b64encode(zlib.compress(data, 3)))
 
 
 class RpcResult(object):
@@ -265,167 +239,454 @@ class RpcResult(object):
     raise ec(*args) # pylint: disable=W0142
 
 
-def _AddressLookup(node_list,
-                   ssc=ssconf.SimpleStore,
-                   nslookup_fn=netutils.Hostname.GetIP):
+def _SsconfResolver(ssconf_ips, node_list, _,
+                    ssc=ssconf.SimpleStore,
+                    nslookup_fn=netutils.Hostname.GetIP):
   """Return addresses for given node names.
 
+  @type ssconf_ips: bool
+  @param ssconf_ips: Use the ssconf IPs
   @type node_list: list
   @param node_list: List of node names
   @type ssc: class
   @param ssc: SimpleStore class that is used to obtain node->ip mappings
   @type nslookup_fn: callable
   @param nslookup_fn: function use to do NS lookup
-  @rtype: list of addresses and/or None's
-  @returns: List of corresponding addresses, if found
+  @rtype: list of tuple; (string, string)
+  @return: List of tuples containing node name and IP address
 
   """
   ss = ssc()
-  iplist = ss.GetNodePrimaryIPList()
   family = ss.GetPrimaryIPFamily()
-  addresses = []
-  ipmap = dict(entry.split() for entry in iplist)
+
+  if ssconf_ips:
+    iplist = ss.GetNodePrimaryIPList()
+    ipmap = dict(entry.split() for entry in iplist)
+  else:
+    ipmap = {}
+
+  result = []
   for node in node_list:
-    address = ipmap.get(node)
-    if address is None:
-      address = nslookup_fn(node, family=family)
-    addresses.append(address)
+    ip = ipmap.get(node)
+    if ip is None:
+      ip = nslookup_fn(node, family=family)
+    result.append((node, ip))
 
-  return addresses
+  return result
 
 
-class Client:
-  """RPC Client class.
+class _StaticResolver:
+  def __init__(self, addresses):
+    """Initializes this class.
 
-  This class, given a (remote) method name, a list of parameters and a
-  list of nodes, will contact (in parallel) all nodes, and return a
-  dict of results (key: node name, value: result).
+    """
+    self._addresses = addresses
 
-  One current bug is that generic failure is still signaled by
-  'False' result, which is not good. This overloading of values can
-  cause bugs.
+  def __call__(self, hosts, _):
+    """Returns static addresses for hosts.
+
+    """
+    assert len(hosts) == len(self._addresses)
+    return zip(hosts, self._addresses)
+
+
+def _CheckConfigNode(name, node, accept_offline_node):
+  """Checks if a node is online.
+
+  @type name: string
+  @param name: Node name
+  @type node: L{objects.Node} or None
+  @param node: Node object
 
   """
-  def __init__(self, procedure, body, port, address_lookup_fn=_AddressLookup):
-    assert procedure in _TIMEOUTS, ("New RPC call not declared in the"
-                                    " timeouts table")
-    self.procedure = procedure
-    self.body = body
-    self.port = port
-    self._request = {}
-    self._address_lookup_fn = address_lookup_fn
+  if node is None:
+    # Depend on DNS for name resolution
+    ip = name
+  elif node.offline and not accept_offline_node:
+    ip = _OFFLINE
+  else:
+    ip = node.primary_ip
+  return (name, ip)
 
-  def ConnectList(self, node_list, address_list=None, read_timeout=None):
-    """Add a list of nodes to the target nodes.
 
-    @type node_list: list
-    @param node_list: the list of node names to connect
-    @type address_list: list or None
-    @keyword address_list: either None or a list with node addresses,
-        which must have the same length as the node list
-    @type read_timeout: int
-    @param read_timeout: overwrites default timeout for operation
+def _NodeConfigResolver(single_node_fn, all_nodes_fn, hosts, opts):
+  """Calculate node addresses using configuration.
 
-    """
-    if address_list is None:
-      # Always use IP address instead of node name
-      address_list = self._address_lookup_fn(node_list)
+  """
+  accept_offline_node = (opts is rpc_defs.ACCEPT_OFFLINE_NODE)
 
-    assert len(node_list) == len(address_list), \
-           "Name and address lists must have the same length"
+  assert accept_offline_node or opts is None, "Unknown option"
 
-    for node, address in zip(node_list, address_list):
-      self.ConnectNode(node, address, read_timeout=read_timeout)
+  # Special case for single-host lookups
+  if len(hosts) == 1:
+    (name, ) = hosts
+    return [_CheckConfigNode(name, single_node_fn(name), accept_offline_node)]
+  else:
+    all_nodes = all_nodes_fn()
+    return [_CheckConfigNode(name, all_nodes.get(name, None),
+                             accept_offline_node)
+            for name in hosts]
 
-  def ConnectNode(self, name, address=None, read_timeout=None):
-    """Add a node to the target list.
 
-    @type name: str
-    @param name: the node name
-    @type address: str
-    @param address: the node address, if known
-    @type read_timeout: int
-    @param read_timeout: overwrites default timeout for operation
+class _RpcProcessor:
+  def __init__(self, resolver, port, lock_monitor_cb=None):
+    """Initializes this class.
 
-    """
-    if address is None:
-      # Always use IP address instead of node name
-      address = self._address_lookup_fn([name])[0]
-
-    assert(address is not None)
-
-    if read_timeout is None:
-      read_timeout = _TIMEOUTS[self.procedure]
-
-    self._request[name] = \
-      http.client.HttpClientRequest(str(address), self.port,
-                                    http.HTTP_PUT, str("/%s" % self.procedure),
-                                    headers=_RPC_CLIENT_HEADERS,
-                                    post_data=str(self.body),
-                                    read_timeout=read_timeout)
-
-  def GetResults(self, http_pool=None):
-    """Call nodes and return results.
-
-    @rtype: list
-    @return: List of RPC results
+    @param resolver: callable accepting a list of hostnames, returning a list
+      of tuples containing name and IP address (IP address can be the name or
+      the special value L{_OFFLINE} to mark offline machines)
+    @type port: int
+    @param port: TCP port
+    @param lock_monitor_cb: Callable for registering with lock monitor
 
     """
-    if not http_pool:
-      http_pool = http.client.HttpClientPool(_ConfigRpcCurl)
+    self._resolver = resolver
+    self._port = port
+    self._lock_monitor_cb = lock_monitor_cb
 
-    http_pool.ProcessRequests(self._request.values())
+  @staticmethod
+  def _PrepareRequests(hosts, port, procedure, body, read_timeout):
+    """Prepares requests by sorting offline hosts into separate list.
 
+    @type body: dict
+    @param body: a dictionary with per-host body data
+
+    """
     results = {}
+    requests = {}
 
-    for name, req in self._request.iteritems():
-      if req.success and req.resp_status_code == http.HTTP_OK:
-        results[name] = RpcResult(data=serializer.LoadJson(req.resp_body),
-                                  node=name, call=self.procedure)
-        continue
+    assert isinstance(body, dict)
+    assert len(body) == len(hosts)
+    assert compat.all(isinstance(v, str) for v in body.values())
+    assert frozenset(map(compat.fst, hosts)) == frozenset(body.keys()), \
+        "%s != %s" % (hosts, body.keys())
 
-      # TODO: Better error reporting
-      if req.error:
-        msg = req.error
+    for (name, ip) in hosts:
+      if ip is _OFFLINE:
+        # Node is marked as offline
+        results[name] = RpcResult(node=name, offline=True, call=procedure)
       else:
-        msg = req.resp_body
+        requests[name] = \
+          http.client.HttpClientRequest(str(ip), port,
+                                        http.HTTP_POST, str("/%s" % procedure),
+                                        headers=_RPC_CLIENT_HEADERS,
+                                        post_data=body[name],
+                                        read_timeout=read_timeout,
+                                        nicename="%s/%s" % (name, procedure),
+                                        curl_config_fn=_ConfigRpcCurl)
 
-      logging.error("RPC error in %s from node %s: %s",
-                    self.procedure, name, msg)
-      results[name] = RpcResult(data=msg, failed=True, node=name,
-                                call=self.procedure)
+    return (results, requests)
+
+  @staticmethod
+  def _CombineResults(results, requests, procedure):
+    """Combines pre-computed results for offline hosts with actual call results.
+
+    """
+    for name, req in requests.items():
+      if req.success and req.resp_status_code == http.HTTP_OK:
+        host_result = RpcResult(data=serializer.LoadJson(req.resp_body),
+                                node=name, call=procedure)
+      else:
+        # TODO: Better error reporting
+        if req.error:
+          msg = req.error
+        else:
+          msg = req.resp_body
+
+        logging.error("RPC error in %s on node %s: %s", procedure, name, msg)
+        host_result = RpcResult(data=msg, failed=True, node=name,
+                                call=procedure)
+
+      results[name] = host_result
 
     return results
 
+  def __call__(self, hosts, procedure, body, read_timeout, resolver_opts,
+               _req_process_fn=None):
+    """Makes an RPC request to a number of nodes.
 
-def _EncodeImportExportIO(ieio, ieioargs):
+    @type hosts: sequence
+    @param hosts: Hostnames
+    @type procedure: string
+    @param procedure: Request path
+    @type body: dictionary
+    @param body: dictionary with request bodies per host
+    @type read_timeout: int or None
+    @param read_timeout: Read timeout for request
+
+    """
+    assert read_timeout is not None, \
+      "Missing RPC read timeout for procedure '%s'" % procedure
+
+    if _req_process_fn is None:
+      _req_process_fn = http.client.ProcessRequests
+
+    (results, requests) = \
+      self._PrepareRequests(self._resolver(hosts, resolver_opts), self._port,
+                            procedure, body, read_timeout)
+
+    _req_process_fn(requests.values(), lock_monitor_cb=self._lock_monitor_cb)
+
+    assert not frozenset(results).intersection(requests)
+
+    return self._CombineResults(results, requests, procedure)
+
+
+class _RpcClientBase:
+  def __init__(self, resolver, encoder_fn, lock_monitor_cb=None,
+               _req_process_fn=None):
+    """Initializes this class.
+
+    """
+    proc = _RpcProcessor(resolver,
+                         netutils.GetDaemonPort(constants.NODED),
+                         lock_monitor_cb=lock_monitor_cb)
+    self._proc = compat.partial(proc, _req_process_fn=_req_process_fn)
+    self._encoder = compat.partial(self._EncodeArg, encoder_fn)
+
+  @staticmethod
+  def _EncodeArg(encoder_fn, (argkind, value)):
+    """Encode argument.
+
+    """
+    if argkind is None:
+      return value
+    else:
+      return encoder_fn(argkind)(value)
+
+  def _Call(self, cdef, node_list, args):
+    """Entry point for automatically generated RPC wrappers.
+
+    """
+    (procedure, _, resolver_opts, timeout, argdefs,
+     prep_fn, postproc_fn, _) = cdef
+
+    if callable(timeout):
+      read_timeout = timeout(args)
+    else:
+      read_timeout = timeout
+
+    if callable(resolver_opts):
+      req_resolver_opts = resolver_opts(args)
+    else:
+      req_resolver_opts = resolver_opts
+
+    if len(args) != len(argdefs):
+      raise errors.ProgrammerError("Number of passed arguments doesn't match")
+
+    enc_args = map(self._encoder, zip(map(compat.snd, argdefs), args))
+    if prep_fn is None:
+      # for a no-op prep_fn, we serialise the body once, and then we
+      # reuse it in the dictionary values
+      body = serializer.DumpJson(enc_args)
+      pnbody = dict((n, body) for n in node_list)
+    else:
+      # for a custom prep_fn, we pass the encoded arguments and the
+      # node name to the prep_fn, and we serialise its return value
+      assert callable(prep_fn)
+      pnbody = dict((n, serializer.DumpJson(prep_fn(n, enc_args)))
+                    for n in node_list)
+
+    result = self._proc(node_list, procedure, pnbody, read_timeout,
+                        req_resolver_opts)
+
+    if postproc_fn:
+      return dict(map(lambda (key, value): (key, postproc_fn(value)),
+                      result.items()))
+    else:
+      return result
+
+
+def _ObjectToDict(value):
+  """Converts an object to a dictionary.
+
+  @note: See L{objects}.
+
+  """
+  return value.ToDict()
+
+
+def _ObjectListToDict(value):
+  """Converts a list of L{objects} to dictionaries.
+
+  """
+  return map(_ObjectToDict, value)
+
+
+def _EncodeNodeToDiskDict(value):
+  """Encodes a dictionary with node name as key and disk objects as values.
+
+  """
+  return dict((name, _ObjectListToDict(disks))
+              for name, disks in value.items())
+
+
+def _PrepareFileUpload(getents_fn, filename):
+  """Loads a file and prepares it for an upload to nodes.
+
+  """
+  statcb = utils.FileStatHelper()
+  data = _Compress(utils.ReadFile(filename, preread=statcb))
+  st = statcb.st
+
+  if getents_fn is None:
+    getents_fn = runtime.GetEnts
+
+  getents = getents_fn()
+
+  return [filename, data, st.st_mode, getents.LookupUid(st.st_uid),
+          getents.LookupGid(st.st_gid), st.st_atime, st.st_mtime]
+
+
+def _PrepareFinalizeExportDisks(snap_disks):
+  """Encodes disks for finalizing export.
+
+  """
+  flat_disks = []
+
+  for disk in snap_disks:
+    if isinstance(disk, bool):
+      flat_disks.append(disk)
+    else:
+      flat_disks.append(disk.ToDict())
+
+  return flat_disks
+
+
+def _EncodeImportExportIO((ieio, ieioargs)):
   """Encodes import/export I/O information.
 
   """
   if ieio == constants.IEIO_RAW_DISK:
     assert len(ieioargs) == 1
-    return (ieioargs[0].ToDict(), )
+    return (ieio, (ieioargs[0].ToDict(), ))
 
   if ieio == constants.IEIO_SCRIPT:
     assert len(ieioargs) == 2
-    return (ieioargs[0].ToDict(), ieioargs[1])
+    return (ieio, (ieioargs[0].ToDict(), ieioargs[1]))
 
-  return ieioargs
+  return (ieio, ieioargs)
 
 
-class RpcRunner(object):
-  """RPC runner class"""
+def _EncodeBlockdevRename(value):
+  """Encodes information for renaming block devices.
 
-  def __init__(self, cfg):
-    """Initialized the rpc runner.
+  """
+  return [(d.ToDict(), uid) for d, uid in value]
 
-    @type cfg:  C{config.ConfigWriter}
-    @param cfg: the configuration object that will be used to get data
-                about the cluster
+
+def _AnnotateDParamsDRBD(disk, (drbd_params, data_params, meta_params)):
+  """Annotates just DRBD disks layouts.
+
+  """
+  assert disk.dev_type == constants.LD_DRBD8
+
+  disk.params = objects.FillDict(drbd_params, disk.params)
+  (dev_data, dev_meta) = disk.children
+  dev_data.params = objects.FillDict(data_params, dev_data.params)
+  dev_meta.params = objects.FillDict(meta_params, dev_meta.params)
+
+  return disk
+
+
+def _AnnotateDParamsGeneric(disk, (params, )):
+  """Generic disk parameter annotation routine.
+
+  """
+  assert disk.dev_type != constants.LD_DRBD8
+
+  disk.params = objects.FillDict(params, disk.params)
+
+  return disk
+
+
+def AnnotateDiskParams(template, disks, disk_params):
+  """Annotates the disk objects with the disk parameters.
+
+  @param template: The disk template used
+  @param disks: The list of disks objects to annotate
+  @param disk_params: The disk paramaters for annotation
+  @returns: A list of disk objects annotated
+
+  """
+  ld_params = objects.Disk.ComputeLDParams(template, disk_params)
+
+  if template == constants.DT_DRBD8:
+    annotation_fn = _AnnotateDParamsDRBD
+  elif template == constants.DT_DISKLESS:
+    annotation_fn = lambda disk, _: disk
+  else:
+    annotation_fn = _AnnotateDParamsGeneric
+
+  new_disks = []
+  for disk in disks:
+    new_disks.append(annotation_fn(disk.Copy(), ld_params))
+
+  return new_disks
+
+
+#: Generic encoders
+_ENCODERS = {
+  rpc_defs.ED_OBJECT_DICT: _ObjectToDict,
+  rpc_defs.ED_OBJECT_DICT_LIST: _ObjectListToDict,
+  rpc_defs.ED_NODE_TO_DISK_DICT: _EncodeNodeToDiskDict,
+  rpc_defs.ED_COMPRESS: _Compress,
+  rpc_defs.ED_FINALIZE_EXPORT_DISKS: _PrepareFinalizeExportDisks,
+  rpc_defs.ED_IMPEXP_IO: _EncodeImportExportIO,
+  rpc_defs.ED_BLOCKDEV_RENAME: _EncodeBlockdevRename,
+  }
+
+
+class RpcRunner(_RpcClientBase,
+                _generated_rpc.RpcClientDefault,
+                _generated_rpc.RpcClientBootstrap,
+                _generated_rpc.RpcClientDnsOnly,
+                _generated_rpc.RpcClientConfig):
+  """RPC runner class.
+
+  """
+  def __init__(self, cfg, lock_monitor_cb, _req_process_fn=None, _getents=None):
+    """Initialized the RPC runner.
+
+    @type cfg: L{config.ConfigWriter}
+    @param cfg: Configuration
+    @type lock_monitor_cb: callable
+    @param lock_monitor_cb: Lock monitor callback
 
     """
     self._cfg = cfg
-    self.port = netutils.GetDaemonPort(constants.NODED)
+
+    encoders = _ENCODERS.copy()
+
+    encoders.update({
+      # Encoders requiring configuration object
+      rpc_defs.ED_INST_DICT: self._InstDict,
+      rpc_defs.ED_INST_DICT_HVP_BEP: self._InstDictHvpBep,
+      rpc_defs.ED_INST_DICT_OSP_DP: self._InstDictOspDp,
+
+      # Encoders annotating disk parameters
+      rpc_defs.ED_DISKS_DICT_DP: self._DisksDictDP,
+      rpc_defs.ED_SINGLE_DISK_DICT_DP: self._SingleDiskDictDP,
+
+      # Encoders with special requirements
+      rpc_defs.ED_FILE_DETAILS: compat.partial(_PrepareFileUpload, _getents),
+      })
+
+    # Resolver using configuration
+    resolver = compat.partial(_NodeConfigResolver, cfg.GetNodeInfo,
+                              cfg.GetAllNodesInfo)
+
+    # Pylint doesn't recognize multiple inheritance properly, see
+    # <http://www.logilab.org/ticket/36586> and
+    # <http://www.logilab.org/ticket/35642>
+    # pylint: disable=W0233
+    _RpcClientBase.__init__(self, resolver, encoders.get,
+                            lock_monitor_cb=lock_monitor_cb,
+                            _req_process_fn=_req_process_fn)
+    _generated_rpc.RpcClientConfig.__init__(self)
+    _generated_rpc.RpcClientBootstrap.__init__(self)
+    _generated_rpc.RpcClientDnsOnly.__init__(self)
+    _generated_rpc.RpcClientDefault.__init__(self)
 
   def _InstDict(self, instance, hvp=None, bep=None, osp=None):
     """Convert the given instance to a dict.
@@ -458,1140 +719,121 @@ class RpcRunner(object):
     if osp is not None:
       idict["osparams"].update(osp)
     for nic in idict["nics"]:
-      nic['nicparams'] = objects.FillDict(
+      nic["nicparams"] = objects.FillDict(
         cluster.nicparams[constants.PP_DEFAULT],
-        nic['nicparams'])
+        nic["nicparams"])
     return idict
 
-  def _ConnectList(self, client, node_list, call, read_timeout=None):
-    """Helper for computing node addresses.
-
-    @type client: L{ganeti.rpc.Client}
-    @param client: a C{Client} instance
-    @type node_list: list
-    @param node_list: the node list we should connect
-    @type call: string
-    @param call: the name of the remote procedure call, for filling in
-        correctly any eventual offline nodes' results
-    @type read_timeout: int
-    @param read_timeout: overwrites the default read timeout for the
-        given operation
+  def _InstDictHvpBep(self, (instance, hvp, bep)):
+    """Wrapper for L{_InstDict}.
 
     """
-    all_nodes = self._cfg.GetAllNodesInfo()
-    name_list = []
-    addr_list = []
-    skip_dict = {}
-    for node in node_list:
-      if node in all_nodes:
-        if all_nodes[node].offline:
-          skip_dict[node] = RpcResult(node=node, offline=True, call=call)
-          continue
-        val = all_nodes[node].primary_ip
-      else:
-        val = None
-      addr_list.append(val)
-      name_list.append(node)
-    if name_list:
-      client.ConnectList(name_list, address_list=addr_list,
-                         read_timeout=read_timeout)
-    return skip_dict
+    return self._InstDict(instance, hvp=hvp, bep=bep)
 
-  def _ConnectNode(self, client, node, call, read_timeout=None):
-    """Helper for computing one node's address.
-
-    @type client: L{ganeti.rpc.Client}
-    @param client: a C{Client} instance
-    @type node: str
-    @param node: the node we should connect
-    @type call: string
-    @param call: the name of the remote procedure call, for filling in
-        correctly any eventual offline nodes' results
-    @type read_timeout: int
-    @param read_timeout: overwrites the default read timeout for the
-        given operation
+  def _InstDictOspDp(self, (instance, osparams)):
+    """Wrapper for L{_InstDict}.
 
     """
-    node_info = self._cfg.GetNodeInfo(node)
-    if node_info is not None:
-      if node_info.offline:
-        return RpcResult(node=node, offline=True, call=call)
-      addr = node_info.primary_ip
+    updated_inst = self._InstDict(instance, osp=osparams)
+    updated_inst["disks"] = self._DisksDictDP((instance.disks, instance))
+    return updated_inst
+
+  def _DisksDictDP(self, (disks, instance)):
+    """Wrapper for L{AnnotateDiskParams}.
+
+    """
+    diskparams = self._cfg.GetInstanceDiskParams(instance)
+    return [disk.ToDict()
+            for disk in AnnotateDiskParams(instance.disk_template,
+                                           disks, diskparams)]
+
+  def _SingleDiskDictDP(self, (disk, instance)):
+    """Wrapper for L{AnnotateDiskParams}.
+
+    """
+    (anno_disk,) = self._DisksDictDP(([disk], instance))
+    return anno_disk
+
+
+class JobQueueRunner(_RpcClientBase, _generated_rpc.RpcClientJobQueue):
+  """RPC wrappers for job queue.
+
+  """
+  def __init__(self, context, address_list):
+    """Initializes this class.
+
+    """
+    if address_list is None:
+      resolver = compat.partial(_SsconfResolver, True)
     else:
-      addr = None
-    client.ConnectNode(node, address=addr, read_timeout=read_timeout)
+      # Caller provided an address list
+      resolver = _StaticResolver(address_list)
 
-  def _MultiNodeCall(self, node_list, procedure, args, read_timeout=None):
-    """Helper for making a multi-node call
+    _RpcClientBase.__init__(self, resolver, _ENCODERS.get,
+                            lock_monitor_cb=context.glm.AddToLockMonitor)
+    _generated_rpc.RpcClientJobQueue.__init__(self)
 
-    """
-    body = serializer.DumpJson(args, indent=False)
-    c = Client(procedure, body, self.port)
-    skip_dict = self._ConnectList(c, node_list, procedure,
-                                  read_timeout=read_timeout)
-    skip_dict.update(c.GetResults())
-    return skip_dict
-
-  @classmethod
-  def _StaticMultiNodeCall(cls, node_list, procedure, args,
-                           address_list=None, read_timeout=None):
-    """Helper for making a multi-node static call
-
-    """
-    body = serializer.DumpJson(args, indent=False)
-    c = Client(procedure, body, netutils.GetDaemonPort(constants.NODED))
-    c.ConnectList(node_list, address_list=address_list,
-                  read_timeout=read_timeout)
-    return c.GetResults()
-
-  def _SingleNodeCall(self, node, procedure, args, read_timeout=None):
-    """Helper for making a single-node call
-
-    """
-    body = serializer.DumpJson(args, indent=False)
-    c = Client(procedure, body, self.port)
-    result = self._ConnectNode(c, node, procedure, read_timeout=read_timeout)
-    if result is None:
-      # we did connect, node is not offline
-      result = c.GetResults()[node]
-    return result
-
-  @classmethod
-  def _StaticSingleNodeCall(cls, node, procedure, args, read_timeout=None):
-    """Helper for making a single-node static call
-
-    """
-    body = serializer.DumpJson(args, indent=False)
-    c = Client(procedure, body, netutils.GetDaemonPort(constants.NODED))
-    c.ConnectNode(node, read_timeout=read_timeout)
-    return c.GetResults()[node]
-
-  @staticmethod
-  def _Compress(data):
-    """Compresses a string for transport over RPC.
-
-    Small amounts of data are not compressed.
-
-    @type data: str
-    @param data: Data
-    @rtype: tuple
-    @return: Encoded data to send
-
-    """
-    # Small amounts of data are not compressed
-    if len(data) < 512:
-      return (constants.RPC_ENCODING_NONE, data)
-
-    # Compress with zlib and encode in base64
-    return (constants.RPC_ENCODING_ZLIB_BASE64,
-            base64.b64encode(zlib.compress(data, 3)))
-
-  #
-  # Begin RPC calls
-  #
-
-  @_RpcTimeout(_TMO_URGENT)
-  def call_bdev_sizes(self, node_list, devices):
-    """Gets the sizes of requested block devices present on a node
-
-    This is a multi-node call.
-
-    """
-    return self._MultiNodeCall(node_list, "bdev_sizes", [devices])
-
-  @_RpcTimeout(_TMO_URGENT)
-  def call_lv_list(self, node_list, vg_name):
-    """Gets the logical volumes present in a given volume group.
-
-    This is a multi-node call.
-
-    """
-    return self._MultiNodeCall(node_list, "lv_list", [vg_name])
-
-  @_RpcTimeout(_TMO_URGENT)
-  def call_vg_list(self, node_list):
-    """Gets the volume group list.
-
-    This is a multi-node call.
-
-    """
-    return self._MultiNodeCall(node_list, "vg_list", [])
-
-  @_RpcTimeout(_TMO_NORMAL)
-  def call_storage_list(self, node_list, su_name, su_args, name, fields):
-    """Get list of storage units.
-
-    This is a multi-node call.
-
-    """
-    return self._MultiNodeCall(node_list, "storage_list",
-                               [su_name, su_args, name, fields])
-
-  @_RpcTimeout(_TMO_NORMAL)
-  def call_storage_modify(self, node, su_name, su_args, name, changes):
-    """Modify a storage unit.
-
-    This is a single-node call.
-
-    """
-    return self._SingleNodeCall(node, "storage_modify",
-                                [su_name, su_args, name, changes])
-
-  @_RpcTimeout(_TMO_NORMAL)
-  def call_storage_execute(self, node, su_name, su_args, name, op):
-    """Executes an operation on a storage unit.
-
-    This is a single-node call.
-
-    """
-    return self._SingleNodeCall(node, "storage_execute",
-                                [su_name, su_args, name, op])
-
-  @_RpcTimeout(_TMO_URGENT)
-  def call_bridges_exist(self, node, bridges_list):
-    """Checks if a node has all the bridges given.
-
-    This method checks if all bridges given in the bridges_list are
-    present on the remote node, so that an instance that uses interfaces
-    on those bridges can be started.
-
-    This is a single-node call.
-
-    """
-    return self._SingleNodeCall(node, "bridges_exist", [bridges_list])
-
-  @_RpcTimeout(_TMO_NORMAL)
-  def call_instance_start(self, node, instance, hvp, bep, startup_paused):
-    """Starts an instance.
-
-    This is a single-node call.
-
-    """
-    idict = self._InstDict(instance, hvp=hvp, bep=bep)
-    return self._SingleNodeCall(node, "instance_start", [idict, startup_paused])
-
-  @_RpcTimeout(_TMO_NORMAL)
-  def call_instance_shutdown(self, node, instance, timeout):
-    """Stops an instance.
-
-    This is a single-node call.
-
-    """
-    return self._SingleNodeCall(node, "instance_shutdown",
-                                [self._InstDict(instance), timeout])
-
-  @_RpcTimeout(_TMO_NORMAL)
-  def call_migration_info(self, node, instance):
-    """Gather the information necessary to prepare an instance migration.
-
-    This is a single-node call.
-
-    @type node: string
-    @param node: the node on which the instance is currently running
-    @type instance: C{objects.Instance}
-    @param instance: the instance definition
-
-    """
-    return self._SingleNodeCall(node, "migration_info",
-                                [self._InstDict(instance)])
-
-  @_RpcTimeout(_TMO_NORMAL)
-  def call_accept_instance(self, node, instance, info, target):
-    """Prepare a node to accept an instance.
-
-    This is a single-node call.
-
-    @type node: string
-    @param node: the target node for the migration
-    @type instance: C{objects.Instance}
-    @param instance: the instance definition
-    @type info: opaque/hypervisor specific (string/data)
-    @param info: result for the call_migration_info call
-    @type target: string
-    @param target: target hostname (usually ip address) (on the node itself)
-
-    """
-    return self._SingleNodeCall(node, "accept_instance",
-                                [self._InstDict(instance), info, target])
-
-  @_RpcTimeout(_TMO_NORMAL)
-  def call_finalize_migration(self, node, instance, info, success):
-    """Finalize any target-node migration specific operation.
-
-    This is called both in case of a successful migration and in case of error
-    (in which case it should abort the migration).
-
-    This is a single-node call.
-
-    @type node: string
-    @param node: the target node for the migration
-    @type instance: C{objects.Instance}
-    @param instance: the instance definition
-    @type info: opaque/hypervisor specific (string/data)
-    @param info: result for the call_migration_info call
-    @type success: boolean
-    @param success: whether the migration was a success or a failure
-
-    """
-    return self._SingleNodeCall(node, "finalize_migration",
-                                [self._InstDict(instance), info, success])
-
-  @_RpcTimeout(_TMO_SLOW)
-  def call_instance_migrate(self, node, instance, target, live):
-    """Migrate an instance.
-
-    This is a single-node call.
-
-    @type node: string
-    @param node: the node on which the instance is currently running
-    @type instance: C{objects.Instance}
-    @param instance: the instance definition
-    @type target: string
-    @param target: the target node name
-    @type live: boolean
-    @param live: whether the migration should be done live or not (the
-        interpretation of this parameter is left to the hypervisor)
-
-    """
-    return self._SingleNodeCall(node, "instance_migrate",
-                                [self._InstDict(instance), target, live])
-
-  @_RpcTimeout(_TMO_NORMAL)
-  def call_instance_reboot(self, node, inst, reboot_type, shutdown_timeout):
-    """Reboots an instance.
-
-    This is a single-node call.
-
-    """
-    return self._SingleNodeCall(node, "instance_reboot",
-                                [self._InstDict(inst), reboot_type,
-                                 shutdown_timeout])
-
-  @_RpcTimeout(_TMO_1DAY)
-  def call_instance_os_add(self, node, inst, reinstall, debug, osparams=None):
-    """Installs an OS on the given instance.
-
-    This is a single-node call.
-
-    """
-    return self._SingleNodeCall(node, "instance_os_add",
-                                [self._InstDict(inst, osp=osparams),
-                                 reinstall, debug])
-
-  @_RpcTimeout(_TMO_SLOW)
-  def call_instance_run_rename(self, node, inst, old_name, debug):
-    """Run the OS rename script for an instance.
-
-    This is a single-node call.
-
-    """
-    return self._SingleNodeCall(node, "instance_run_rename",
-                                [self._InstDict(inst), old_name, debug])
-
-  @_RpcTimeout(_TMO_URGENT)
-  def call_instance_info(self, node, instance, hname):
-    """Returns information about a single instance.
-
-    This is a single-node call.
-
-    @type node: list
-    @param node: the list of nodes to query
-    @type instance: string
-    @param instance: the instance name
-    @type hname: string
-    @param hname: the hypervisor type of the instance
-
-    """
-    return self._SingleNodeCall(node, "instance_info", [instance, hname])
-
-  @_RpcTimeout(_TMO_NORMAL)
-  def call_instance_migratable(self, node, instance):
-    """Checks whether the given instance can be migrated.
-
-    This is a single-node call.
-
-    @param node: the node to query
-    @type instance: L{objects.Instance}
-    @param instance: the instance to check
-
-
-    """
-    return self._SingleNodeCall(node, "instance_migratable",
-                                [self._InstDict(instance)])
-
-  @_RpcTimeout(_TMO_URGENT)
-  def call_all_instances_info(self, node_list, hypervisor_list):
-    """Returns information about all instances on the given nodes.
-
-    This is a multi-node call.
-
-    @type node_list: list
-    @param node_list: the list of nodes to query
-    @type hypervisor_list: list
-    @param hypervisor_list: the hypervisors to query for instances
-
-    """
-    return self._MultiNodeCall(node_list, "all_instances_info",
-                               [hypervisor_list])
-
-  @_RpcTimeout(_TMO_URGENT)
-  def call_instance_list(self, node_list, hypervisor_list):
-    """Returns the list of running instances on a given node.
-
-    This is a multi-node call.
-
-    @type node_list: list
-    @param node_list: the list of nodes to query
-    @type hypervisor_list: list
-    @param hypervisor_list: the hypervisors to query for instances
-
-    """
-    return self._MultiNodeCall(node_list, "instance_list", [hypervisor_list])
-
-  @_RpcTimeout(_TMO_FAST)
-  def call_node_tcp_ping(self, node, source, target, port, timeout,
-                         live_port_needed):
-    """Do a TcpPing on the remote node
-
-    This is a single-node call.
-
-    """
-    return self._SingleNodeCall(node, "node_tcp_ping",
-                                [source, target, port, timeout,
-                                 live_port_needed])
-
-  @_RpcTimeout(_TMO_FAST)
-  def call_node_has_ip_address(self, node, address):
-    """Checks if a node has the given IP address.
-
-    This is a single-node call.
-
-    """
-    return self._SingleNodeCall(node, "node_has_ip_address", [address])
-
-  @_RpcTimeout(_TMO_URGENT)
-  def call_node_info(self, node_list, vg_name, hypervisor_type):
-    """Return node information.
-
-    This will return memory information and volume group size and free
-    space.
-
-    This is a multi-node call.
-
-    @type node_list: list
-    @param node_list: the list of nodes to query
-    @type vg_name: C{string}
-    @param vg_name: the name of the volume group to ask for disk space
-        information
-    @type hypervisor_type: C{str}
-    @param hypervisor_type: the name of the hypervisor to ask for
-        memory information
-
-    """
-    return self._MultiNodeCall(node_list, "node_info",
-                               [vg_name, hypervisor_type])
-
-  @_RpcTimeout(_TMO_NORMAL)
-  def call_etc_hosts_modify(self, node, mode, name, ip):
-    """Modify hosts file with name
-
-    @type node: string
-    @param node: The node to call
-    @type mode: string
-    @param mode: The mode to operate. Currently "add" or "remove"
-    @type name: string
-    @param name: The host name to be modified
-    @type ip: string
-    @param ip: The ip of the entry (just valid if mode is "add")
-
-    """
-    return self._SingleNodeCall(node, "etc_hosts_modify", [mode, name, ip])
-
-  @_RpcTimeout(_TMO_NORMAL)
-  def call_node_verify(self, node_list, checkdict, cluster_name):
-    """Request verification of given parameters.
-
-    This is a multi-node call.
-
-    """
-    return self._MultiNodeCall(node_list, "node_verify",
-                               [checkdict, cluster_name])
-
-  @classmethod
-  @_RpcTimeout(_TMO_FAST)
-  def call_node_start_master(cls, node, start_daemons, no_voting):
-    """Tells a node to activate itself as a master.
-
-    This is a single-node call.
-
-    """
-    return cls._StaticSingleNodeCall(node, "node_start_master",
-                                     [start_daemons, no_voting])
-
-  @classmethod
-  @_RpcTimeout(_TMO_FAST)
-  def call_node_stop_master(cls, node, stop_daemons):
-    """Tells a node to demote itself from master status.
-
-    This is a single-node call.
-
-    """
-    return cls._StaticSingleNodeCall(node, "node_stop_master", [stop_daemons])
-
-  @classmethod
-  @_RpcTimeout(_TMO_URGENT)
-  def call_master_info(cls, node_list):
-    """Query master info.
-
-    This is a multi-node call.
-
-    """
-    # TODO: should this method query down nodes?
-    return cls._StaticMultiNodeCall(node_list, "master_info", [])
-
-  @classmethod
-  @_RpcTimeout(_TMO_URGENT)
-  def call_version(cls, node_list):
-    """Query node version.
-
-    This is a multi-node call.
-
-    """
-    return cls._StaticMultiNodeCall(node_list, "version", [])
-
-  @_RpcTimeout(_TMO_NORMAL)
-  def call_blockdev_create(self, node, bdev, size, owner, on_primary, info):
-    """Request creation of a given block device.
-
-    This is a single-node call.
-
-    """
-    return self._SingleNodeCall(node, "blockdev_create",
-                                [bdev.ToDict(), size, owner, on_primary, info])
-
-  @_RpcTimeout(_TMO_SLOW)
-  def call_blockdev_wipe(self, node, bdev, offset, size):
-    """Request wipe at given offset with given size of a block device.
-
-    This is a single-node call.
-
-    """
-    return self._SingleNodeCall(node, "blockdev_wipe",
-                                [bdev.ToDict(), offset, size])
-
-  @_RpcTimeout(_TMO_NORMAL)
-  def call_blockdev_remove(self, node, bdev):
-    """Request removal of a given block device.
-
-    This is a single-node call.
-
-    """
-    return self._SingleNodeCall(node, "blockdev_remove", [bdev.ToDict()])
-
-  @_RpcTimeout(_TMO_NORMAL)
-  def call_blockdev_rename(self, node, devlist):
-    """Request rename of the given block devices.
-
-    This is a single-node call.
-
-    """
-    return self._SingleNodeCall(node, "blockdev_rename",
-                                [(d.ToDict(), uid) for d, uid in devlist])
-
-  @_RpcTimeout(_TMO_NORMAL)
-  def call_blockdev_pause_resume_sync(self, node, disks, pause):
-    """Request a pause/resume of given block device.
-
-    This is a single-node call.
-
-    """
-    return self._SingleNodeCall(node, "blockdev_pause_resume_sync",
-                                [[bdev.ToDict() for bdev in disks], pause])
-
-  @_RpcTimeout(_TMO_NORMAL)
-  def call_blockdev_assemble(self, node, disk, owner, on_primary, idx):
-    """Request assembling of a given block device.
-
-    This is a single-node call.
-
-    """
-    return self._SingleNodeCall(node, "blockdev_assemble",
-                                [disk.ToDict(), owner, on_primary, idx])
-
-  @_RpcTimeout(_TMO_NORMAL)
-  def call_blockdev_shutdown(self, node, disk):
-    """Request shutdown of a given block device.
-
-    This is a single-node call.
-
-    """
-    return self._SingleNodeCall(node, "blockdev_shutdown", [disk.ToDict()])
-
-  @_RpcTimeout(_TMO_NORMAL)
-  def call_blockdev_addchildren(self, node, bdev, ndevs):
-    """Request adding a list of children to a (mirroring) device.
-
-    This is a single-node call.
-
-    """
-    return self._SingleNodeCall(node, "blockdev_addchildren",
-                                [bdev.ToDict(),
-                                 [disk.ToDict() for disk in ndevs]])
 
-  @_RpcTimeout(_TMO_NORMAL)
-  def call_blockdev_removechildren(self, node, bdev, ndevs):
-    """Request removing a list of children from a (mirroring) device.
+class BootstrapRunner(_RpcClientBase,
+                      _generated_rpc.RpcClientBootstrap,
+                      _generated_rpc.RpcClientDnsOnly):
+  """RPC wrappers for bootstrapping.
 
-    This is a single-node call.
+  """
+  def __init__(self):
+    """Initializes this class.
 
     """
-    return self._SingleNodeCall(node, "blockdev_removechildren",
-                                [bdev.ToDict(),
-                                 [disk.ToDict() for disk in ndevs]])
+    # Pylint doesn't recognize multiple inheritance properly, see
+    # <http://www.logilab.org/ticket/36586> and
+    # <http://www.logilab.org/ticket/35642>
+    # pylint: disable=W0233
+    _RpcClientBase.__init__(self, compat.partial(_SsconfResolver, True),
+                            _ENCODERS.get)
+    _generated_rpc.RpcClientBootstrap.__init__(self)
+    _generated_rpc.RpcClientDnsOnly.__init__(self)
 
-  @_RpcTimeout(_TMO_NORMAL)
-  def call_blockdev_getmirrorstatus(self, node, disks):
-    """Request status of a (mirroring) device.
 
-    This is a single-node call.
+class DnsOnlyRunner(_RpcClientBase, _generated_rpc.RpcClientDnsOnly):
+  """RPC wrappers for calls using only DNS.
 
-    """
-    result = self._SingleNodeCall(node, "blockdev_getmirrorstatus",
-                                  [dsk.ToDict() for dsk in disks])
-    if not result.fail_msg:
-      result.payload = [objects.BlockDevStatus.FromDict(i)
-                        for i in result.payload]
-    return result
-
-  @_RpcTimeout(_TMO_NORMAL)
-  def call_blockdev_getmirrorstatus_multi(self, node_list, node_disks):
-    """Request status of (mirroring) devices from multiple nodes.
-
-    This is a multi-node call.
-
-    """
-    result = self._MultiNodeCall(node_list, "blockdev_getmirrorstatus_multi",
-                                 [dict((name, [dsk.ToDict() for dsk in disks])
-                                       for name, disks in node_disks.items())])
-    for nres in result.values():
-      if nres.fail_msg:
-        continue
-
-      for idx, (success, status) in enumerate(nres.payload):
-        if success:
-          nres.payload[idx] = (success, objects.BlockDevStatus.FromDict(status))
-
-    return result
-
-  @_RpcTimeout(_TMO_NORMAL)
-  def call_blockdev_find(self, node, disk):
-    """Request identification of a given block device.
-
-    This is a single-node call.
-
-    """
-    result = self._SingleNodeCall(node, "blockdev_find", [disk.ToDict()])
-    if not result.fail_msg and result.payload is not None:
-      result.payload = objects.BlockDevStatus.FromDict(result.payload)
-    return result
-
-  @_RpcTimeout(_TMO_NORMAL)
-  def call_blockdev_close(self, node, instance_name, disks):
-    """Closes the given block devices.
-
-    This is a single-node call.
-
-    """
-    params = [instance_name, [cf.ToDict() for cf in disks]]
-    return self._SingleNodeCall(node, "blockdev_close", params)
-
-  @_RpcTimeout(_TMO_NORMAL)
-  def call_blockdev_getsize(self, node, disks):
-    """Returns the size of the given disks.
-
-    This is a single-node call.
-
-    """
-    params = [[cf.ToDict() for cf in disks]]
-    return self._SingleNodeCall(node, "blockdev_getsize", params)
-
-  @_RpcTimeout(_TMO_NORMAL)
-  def call_drbd_disconnect_net(self, node_list, nodes_ip, disks):
-    """Disconnects the network of the given drbd devices.
-
-    This is a multi-node call.
-
-    """
-    return self._MultiNodeCall(node_list, "drbd_disconnect_net",
-                               [nodes_ip, [cf.ToDict() for cf in disks]])
-
-  @_RpcTimeout(_TMO_NORMAL)
-  def call_drbd_attach_net(self, node_list, nodes_ip,
-                           disks, instance_name, multimaster):
-    """Disconnects the given drbd devices.
-
-    This is a multi-node call.
-
-    """
-    return self._MultiNodeCall(node_list, "drbd_attach_net",
-                               [nodes_ip, [cf.ToDict() for cf in disks],
-                                instance_name, multimaster])
-
-  @_RpcTimeout(_TMO_SLOW)
-  def call_drbd_wait_sync(self, node_list, nodes_ip, disks):
-    """Waits for the synchronization of drbd devices is complete.
-
-    This is a multi-node call.
-
-    """
-    return self._MultiNodeCall(node_list, "drbd_wait_sync",
-                               [nodes_ip, [cf.ToDict() for cf in disks]])
-
-  @_RpcTimeout(_TMO_URGENT)
-  def call_drbd_helper(self, node_list):
-    """Gets drbd helper.
-
-    This is a multi-node call.
-
-    """
-    return self._MultiNodeCall(node_list, "drbd_helper", [])
-
-  @classmethod
-  @_RpcTimeout(_TMO_NORMAL)
-  def call_upload_file(cls, node_list, file_name, address_list=None):
-    """Upload a file.
-
-    The node will refuse the operation in case the file is not on the
-    approved file list.
-
-    This is a multi-node call.
-
-    @type node_list: list
-    @param node_list: the list of node names to upload to
-    @type file_name: str
-    @param file_name: the filename to upload
-    @type address_list: list or None
-    @keyword address_list: an optional list of node addresses, in order
-        to optimize the RPC speed
-
-    """
-    file_contents = utils.ReadFile(file_name)
-    data = cls._Compress(file_contents)
-    st = os.stat(file_name)
-    getents = runtime.GetEnts()
-    params = [file_name, data, st.st_mode, getents.LookupUid(st.st_uid),
-              getents.LookupGid(st.st_gid), st.st_atime, st.st_mtime]
-    return cls._StaticMultiNodeCall(node_list, "upload_file", params,
-                                    address_list=address_list)
-
-  @classmethod
-  @_RpcTimeout(_TMO_NORMAL)
-  def call_write_ssconf_files(cls, node_list, values):
-    """Write ssconf files.
-
-    This is a multi-node call.
-
-    """
-    return cls._StaticMultiNodeCall(node_list, "write_ssconf_files", [values])
-
-  @_RpcTimeout(_TMO_NORMAL)
-  def call_run_oob(self, node, oob_program, command, remote_node, timeout):
-    """Runs OOB.
-
-    This is a single-node call.
-
-    """
-    return self._SingleNodeCall(node, "run_oob", [oob_program, command,
-                                                  remote_node, timeout])
-
-  @_RpcTimeout(_TMO_FAST)
-  def call_os_diagnose(self, node_list):
-    """Request a diagnose of OS definitions.
-
-    This is a multi-node call.
-
-    """
-    return self._MultiNodeCall(node_list, "os_diagnose", [])
-
-  @_RpcTimeout(_TMO_FAST)
-  def call_os_get(self, node, name):
-    """Returns an OS definition.
-
-    This is a single-node call.
-
-    """
-    result = self._SingleNodeCall(node, "os_get", [name])
-    if not result.fail_msg and isinstance(result.payload, dict):
-      result.payload = objects.OS.FromDict(result.payload)
-    return result
-
-  @_RpcTimeout(_TMO_FAST)
-  def call_os_validate(self, required, nodes, name, checks, params):
-    """Run a validation routine for a given OS.
-
-    This is a multi-node call.
-
-    """
-    return self._MultiNodeCall(nodes, "os_validate",
-                               [required, name, checks, params])
-
-  @_RpcTimeout(_TMO_NORMAL)
-  def call_hooks_runner(self, node_list, hpath, phase, env):
-    """Call the hooks runner.
-
-    Args:
-      - op: the OpCode instance
-      - env: a dictionary with the environment
-
-    This is a multi-node call.
-
-    """
-    params = [hpath, phase, env]
-    return self._MultiNodeCall(node_list, "hooks_runner", params)
-
-  @_RpcTimeout(_TMO_NORMAL)
-  def call_iallocator_runner(self, node, name, idata):
-    """Call an iallocator on a remote node
-
-    Args:
-      - name: the iallocator name
-      - input: the json-encoded input string
-
-    This is a single-node call.
-
-    """
-    return self._SingleNodeCall(node, "iallocator_runner", [name, idata])
-
-  @_RpcTimeout(_TMO_NORMAL)
-  def call_blockdev_grow(self, node, cf_bdev, amount, dryrun):
-    """Request a snapshot of the given block device.
-
-    This is a single-node call.
-
-    """
-    return self._SingleNodeCall(node, "blockdev_grow",
-                                [cf_bdev.ToDict(), amount, dryrun])
-
-  @_RpcTimeout(_TMO_1DAY)
-  def call_blockdev_export(self, node, cf_bdev,
-                           dest_node, dest_path, cluster_name):
-    """Export a given disk to another node.
-
-    This is a single-node call.
-
-    """
-    return self._SingleNodeCall(node, "blockdev_export",
-                                [cf_bdev.ToDict(), dest_node, dest_path,
-                                 cluster_name])
-
-  @_RpcTimeout(_TMO_NORMAL)
-  def call_blockdev_snapshot(self, node, cf_bdev):
-    """Request a snapshot of the given block device.
-
-    This is a single-node call.
-
-    """
-    return self._SingleNodeCall(node, "blockdev_snapshot", [cf_bdev.ToDict()])
-
-  @_RpcTimeout(_TMO_NORMAL)
-  def call_finalize_export(self, node, instance, snap_disks):
-    """Request the completion of an export operation.
-
-    This writes the export config file, etc.
-
-    This is a single-node call.
-
-    """
-    flat_disks = []
-    for disk in snap_disks:
-      if isinstance(disk, bool):
-        flat_disks.append(disk)
-      else:
-        flat_disks.append(disk.ToDict())
-
-    return self._SingleNodeCall(node, "finalize_export",
-                                [self._InstDict(instance), flat_disks])
+  """
+  def __init__(self):
+    """Initialize this class.
 
-  @_RpcTimeout(_TMO_FAST)
-  def call_export_info(self, node, path):
-    """Queries the export information in a given path.
-
-    This is a single-node call.
-
-    """
-    return self._SingleNodeCall(node, "export_info", [path])
-
-  @_RpcTimeout(_TMO_FAST)
-  def call_export_list(self, node_list):
-    """Gets the stored exports list.
-
-    This is a multi-node call.
-
-    """
-    return self._MultiNodeCall(node_list, "export_list", [])
-
-  @_RpcTimeout(_TMO_FAST)
-  def call_export_remove(self, node, export):
-    """Requests removal of a given export.
-
-    This is a single-node call.
-
-    """
-    return self._SingleNodeCall(node, "export_remove", [export])
-
-  @classmethod
-  @_RpcTimeout(_TMO_NORMAL)
-  def call_node_leave_cluster(cls, node, modify_ssh_setup):
-    """Requests a node to clean the cluster information it has.
-
-    This will remove the configuration information from the ganeti data
-    dir.
-
-    This is a single-node call.
-
-    """
-    return cls._StaticSingleNodeCall(node, "node_leave_cluster",
-                                     [modify_ssh_setup])
-
-  @_RpcTimeout(_TMO_FAST)
-  def call_node_volumes(self, node_list):
-    """Gets all volumes on node(s).
-
-    This is a multi-node call.
-
-    """
-    return self._MultiNodeCall(node_list, "node_volumes", [])
-
-  @_RpcTimeout(_TMO_FAST)
-  def call_node_demote_from_mc(self, node):
-    """Demote a node from the master candidate role.
-
-    This is a single-node call.
-
-    """
-    return self._SingleNodeCall(node, "node_demote_from_mc", [])
-
-  @_RpcTimeout(_TMO_NORMAL)
-  def call_node_powercycle(self, node, hypervisor):
-    """Tries to powercycle a node.
-
-    This is a single-node call.
-
-    """
-    return self._SingleNodeCall(node, "node_powercycle", [hypervisor])
-
-  @_RpcTimeout(None)
-  def call_test_delay(self, node_list, duration):
-    """Sleep for a fixed time on given node(s).
-
-    This is a multi-node call.
-
-    """
-    return self._MultiNodeCall(node_list, "test_delay", [duration],
-                               read_timeout=int(duration + 5))
-
-  @_RpcTimeout(_TMO_FAST)
-  def call_file_storage_dir_create(self, node, file_storage_dir):
-    """Create the given file storage directory.
-
-    This is a single-node call.
-
-    """
-    return self._SingleNodeCall(node, "file_storage_dir_create",
-                                [file_storage_dir])
-
-  @_RpcTimeout(_TMO_FAST)
-  def call_file_storage_dir_remove(self, node, file_storage_dir):
-    """Remove the given file storage directory.
-
-    This is a single-node call.
-
-    """
-    return self._SingleNodeCall(node, "file_storage_dir_remove",
-                                [file_storage_dir])
-
-  @_RpcTimeout(_TMO_FAST)
-  def call_file_storage_dir_rename(self, node, old_file_storage_dir,
-                                   new_file_storage_dir):
-    """Rename file storage directory.
-
-    This is a single-node call.
-
-    """
-    return self._SingleNodeCall(node, "file_storage_dir_rename",
-                                [old_file_storage_dir, new_file_storage_dir])
-
-  @classmethod
-  @_RpcTimeout(_TMO_URGENT)
-  def call_jobqueue_update(cls, node_list, address_list, file_name, content):
-    """Update job queue.
-
-    This is a multi-node call.
-
-    """
-    return cls._StaticMultiNodeCall(node_list, "jobqueue_update",
-                                    [file_name, cls._Compress(content)],
-                                    address_list=address_list)
-
-  @classmethod
-  @_RpcTimeout(_TMO_NORMAL)
-  def call_jobqueue_purge(cls, node):
-    """Purge job queue.
-
-    This is a single-node call.
-
-    """
-    return cls._StaticSingleNodeCall(node, "jobqueue_purge", [])
-
-  @classmethod
-  @_RpcTimeout(_TMO_URGENT)
-  def call_jobqueue_rename(cls, node_list, address_list, rename):
-    """Rename a job queue file.
-
-    This is a multi-node call.
-
-    """
-    return cls._StaticMultiNodeCall(node_list, "jobqueue_rename", rename,
-                                    address_list=address_list)
-
-  @_RpcTimeout(_TMO_NORMAL)
-  def call_hypervisor_validate_params(self, node_list, hvname, hvparams):
-    """Validate the hypervisor params.
-
-    This is a multi-node call.
-
-    @type node_list: list
-    @param node_list: the list of nodes to query
-    @type hvname: string
-    @param hvname: the hypervisor name
-    @type hvparams: dict
-    @param hvparams: the hypervisor parameters to be validated
-
-    """
-    cluster = self._cfg.GetClusterInfo()
-    hv_full = objects.FillDict(cluster.hvparams.get(hvname, {}), hvparams)
-    return self._MultiNodeCall(node_list, "hypervisor_validate_params",
-                               [hvname, hv_full])
-
-  @_RpcTimeout(_TMO_NORMAL)
-  def call_x509_cert_create(self, node, validity):
-    """Creates a new X509 certificate for SSL/TLS.
-
-    This is a single-node call.
-
-    @type validity: int
-    @param validity: Validity in seconds
-
-    """
-    return self._SingleNodeCall(node, "x509_cert_create", [validity])
-
-  @_RpcTimeout(_TMO_NORMAL)
-  def call_x509_cert_remove(self, node, name):
-    """Removes a X509 certificate.
-
-    This is a single-node call.
-
-    @type name: string
-    @param name: Certificate name
-
-    """
-    return self._SingleNodeCall(node, "x509_cert_remove", [name])
-
-  @_RpcTimeout(_TMO_NORMAL)
-  def call_import_start(self, node, opts, instance, component,
-                        dest, dest_args):
-    """Starts a listener for an import.
-
-    This is a single-node call.
-
-    @type node: string
-    @param node: Node name
-    @type instance: C{objects.Instance}
-    @param instance: Instance object
-    @type component: string
-    @param component: which part of the instance is being imported
-
-    """
-    return self._SingleNodeCall(node, "import_start",
-                                [opts.ToDict(),
-                                 self._InstDict(instance), component, dest,
-                                 _EncodeImportExportIO(dest, dest_args)])
-
-  @_RpcTimeout(_TMO_NORMAL)
-  def call_export_start(self, node, opts, host, port,
-                        instance, component, source, source_args):
-    """Starts an export daemon.
-
-    This is a single-node call.
-
-    @type node: string
-    @param node: Node name
-    @type instance: C{objects.Instance}
-    @param instance: Instance object
-    @type component: string
-    @param component: which part of the instance is being imported
-
-    """
-    return self._SingleNodeCall(node, "export_start",
-                                [opts.ToDict(), host, port,
-                                 self._InstDict(instance),
-                                 component, source,
-                                 _EncodeImportExportIO(source, source_args)])
-
-  @_RpcTimeout(_TMO_FAST)
-  def call_impexp_status(self, node, names):
-    """Gets the status of an import or export.
-
-    This is a single-node call.
-
-    @type node: string
-    @param node: Node name
-    @type names: List of strings
-    @param names: Import/export names
-    @rtype: List of L{objects.ImportExportStatus} instances
-    @return: Returns a list of the state of each named import/export or None if
-             a status couldn't be retrieved
-
     """
-    result = self._SingleNodeCall(node, "impexp_status", [names])
-
-    if not result.fail_msg:
-      decoded = []
-
-      for i in result.payload:
-        if i is None:
-          decoded.append(None)
-          continue
-        decoded.append(objects.ImportExportStatus.FromDict(i))
+    _RpcClientBase.__init__(self, compat.partial(_SsconfResolver, False),
+                            _ENCODERS.get)
+    _generated_rpc.RpcClientDnsOnly.__init__(self)
 
-      result.payload = decoded
 
-    return result
+class ConfigRunner(_RpcClientBase, _generated_rpc.RpcClientConfig):
+  """RPC wrappers for L{config}.
 
-  @_RpcTimeout(_TMO_NORMAL)
-  def call_impexp_abort(self, node, name):
-    """Aborts an import or export.
+  """
+  def __init__(self, context, address_list, _req_process_fn=None,
+               _getents=None):
+    """Initializes this class.
 
-    This is a single-node call.
-
-    @type node: string
-    @param node: Node name
-    @type name: string
-    @param name: Import/export name
-
     """
-    return self._SingleNodeCall(node, "impexp_abort", [name])
+    if context:
+      lock_monitor_cb = context.glm.AddToLockMonitor
+    else:
+      lock_monitor_cb = None
 
-  @_RpcTimeout(_TMO_NORMAL)
-  def call_impexp_cleanup(self, node, name):
-    """Cleans up after an import or export.
+    if address_list is None:
+      resolver = compat.partial(_SsconfResolver, True)
+    else:
+      # Caller provided an address list
+      resolver = _StaticResolver(address_list)
 
-    This is a single-node call.
+    encoders = _ENCODERS.copy()
 
-    @type node: string
-    @param node: Node name
-    @type name: string
-    @param name: Import/export name
+    encoders.update({
+      rpc_defs.ED_FILE_DETAILS: compat.partial(_PrepareFileUpload, _getents),
+      })
 
-    """
-    return self._SingleNodeCall(node, "impexp_cleanup", [name])
+    _RpcClientBase.__init__(self, resolver, encoders.get,
+                            lock_monitor_cb=lock_monitor_cb,
+                            _req_process_fn=_req_process_fn)
+    _generated_rpc.RpcClientConfig.__init__(self)

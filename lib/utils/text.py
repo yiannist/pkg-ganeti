@@ -43,6 +43,9 @@ _MAC_CHECK_RE = re.compile("^([0-9a-f]{2}:){5}[0-9a-f]{2}$", re.I)
 #: Shell param checker regexp
 _SHELLPARAM_REGEX = re.compile(r"^[-a-zA-Z0-9._+/:%@]+$")
 
+#: ASCII equivalent of unicode character 'HORIZONTAL ELLIPSIS' (U+2026)
+_ASCII_ELLIPSIS = "..."
+
 
 def MatchNameComponent(key, name_list, case_sensitive=True):
   """Try to match a name against a list.
@@ -268,12 +271,16 @@ class ShellWriter:
     """
     assert self._indent >= 0
 
-    self._fh.write(self._indent * self.INDENT_STR)
-
     if args:
-      self._fh.write(txt % args)
+      line = txt % args
     else:
-      self._fh.write(txt)
+      line = txt
+
+    if line:
+      # Indent only if there's something on the line
+      self._fh.write(self._indent * self.INDENT_STR)
+
+    self._fh.write(line)
 
     self._fh.write("\n")
 
@@ -405,7 +412,7 @@ def CommaJoin(names):
   return ", ".join([str(val) for val in names])
 
 
-def FormatTime(val):
+def FormatTime(val, usecs=None):
   """Formats a time value.
 
   @type val: float or None
@@ -416,9 +423,15 @@ def FormatTime(val):
   """
   if val is None or not isinstance(val, (int, float)):
     return "N/A"
+
   # these two codes works on Linux, but they are not guaranteed on all
   # platforms
-  return time.strftime("%F %T", time.localtime(val))
+  result = time.strftime("%F %T", time.localtime(val))
+
+  if usecs is not None:
+    result += ".%06d" % usecs
+
+  return result
 
 
 def FormatSeconds(secs):
@@ -552,3 +565,26 @@ def FormatOrdinal(value):
     suffix = "th"
 
   return "%s%s" % (value, suffix)
+
+
+def Truncate(text, length):
+  """Truncate string and add ellipsis if needed.
+
+  @type text: string
+  @param text: Text
+  @type length: integer
+  @param length: Desired length
+  @rtype: string
+  @return: Truncated text
+
+  """
+  assert length > len(_ASCII_ELLIPSIS)
+
+  # Serialize if necessary
+  if not isinstance(text, basestring):
+    text = str(text)
+
+  if len(text) <= length:
+    return text
+  else:
+    return text[:length - len(_ASCII_ELLIPSIS)] + _ASCII_ELLIPSIS

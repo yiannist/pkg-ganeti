@@ -5,13 +5,13 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Design document drafts &mdash; Ganeti v2.5.2 documentation</title>
+    <title>Design document drafts &mdash; Ganeti v2.6.0 documentation</title>
     <link rel="stylesheet" href="_static/default.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.5.2',
+        VERSION:     '2.6.0',
         COLLAPSE_MODINDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -19,7 +19,7 @@
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.5.2 documentation" href="index.html" />
+    <link rel="top" title="Ganeti v2.6.0 documentation" href="index.html" />
     <link rel="next" title="Design for a X509 Certificate Authority" href="design-x509-ca.html" />
     <link rel="prev" title="Ganeti 2.5 design" href="design-2.5.html" /> 
   </head>
@@ -33,7 +33,7 @@
         <li class="right" >
           <a href="design-2.5.html" title="Ganeti 2.5 design"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.5.2 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.6.0 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -87,11 +87,37 @@
 <li class="toctree-l2"><a class="reference external" href="design-ovf-support.html#overview">Overview</a></li>
 <li class="toctree-l2"><a class="reference external" href="design-ovf-support.html#import-and-export-the-closer-look">Import and export - the closer look</a></li>
 <li class="toctree-l2"><a class="reference external" href="design-ovf-support.html#planned-limitations">Planned limitations</a></li>
+<li class="toctree-l2"><a class="reference external" href="design-ovf-support.html#id1">Command Line</a></li>
 <li class="toctree-l2"><a class="reference external" href="design-ovf-support.html#implementation-details">Implementation details</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference external" href="design-network.html">Network management</a><ul>
 <li class="toctree-l2"><a class="reference external" href="design-network.html#current-state-and-shortcomings">Current state and shortcomings</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference external" href="design-node-state-cache.html">Node State Cache</a><ul>
+<li class="toctree-l2"><a class="reference external" href="design-node-state-cache.html#current-state">Current State</a></li>
+<li class="toctree-l2"><a class="reference external" href="design-node-state-cache.html#proposed-changes">Proposed changes</a></li>
+<li class="toctree-l2"><a class="reference external" href="design-node-state-cache.html#possible-regressions">Possible regressions</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference external" href="design-resource-model.html">Resource model changes</a><ul>
+<li class="toctree-l2"><a class="reference external" href="design-resource-model.html#introduction">Introduction</a></li>
+<li class="toctree-l2"><a class="reference external" href="design-resource-model.html#current-situation">Current situation</a></li>
+<li class="toctree-l2"><a class="reference external" href="design-resource-model.html#proposed-architecture">Proposed architecture</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference external" href="design-virtual-clusters.html">Virtual clusters support</a><ul>
+<li class="toctree-l2"><a class="reference external" href="design-virtual-clusters.html#introduction">Introduction</a></li>
+<li class="toctree-l2"><a class="reference external" href="design-virtual-clusters.html#current-situation">Current situation</a></li>
+<li class="toctree-l2"><a class="reference external" href="design-virtual-clusters.html#proposed-changes">Proposed changes</a></li>
+<li class="toctree-l2"><a class="reference external" href="design-virtual-clusters.html#needed-tools">Needed tools</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference external" href="design-query-splitting.html">Splitting the query and job execution paths</a><ul>
+<li class="toctree-l2"><a class="reference external" href="design-query-splitting.html#introduction">Introduction</a></li>
+<li class="toctree-l2"><a class="reference external" href="design-query-splitting.html#proposed-design">Proposed design</a></li>
+<li class="toctree-l2"><a class="reference external" href="design-query-splitting.html#long-term-plans">Long-term plans</a></li>
 </ul>
 </li>
 </ul>
@@ -140,11 +166,11 @@
         <li class="right" >
           <a href="design-2.5.html" title="Ganeti 2.5 design"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.5.2 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.6.0 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">
-      &copy; Copyright 2006, 2007, 2008, 2009, 2010, Google Inc..
+      &copy; Copyright 2006, 2007, 2008, 2009, 2010, 2011, 2012, Google Inc..
       Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 0.6.7.
     </div>
   </body>

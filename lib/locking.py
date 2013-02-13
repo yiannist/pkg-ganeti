@@ -33,6 +33,7 @@ import weakref
 import logging
 import heapq
 import itertools
+import time
 
 from ganeti import errors
 from ganeti import utils
@@ -161,7 +162,7 @@ class _BaseCondition(object):
     except AttributeError:
       self._acquire_restore = self._base_acquire_restore
     try:
-      self._is_owned = lock._is_owned
+      self._is_owned = lock.is_owned
     except AttributeError:
       self._is_owned = self._base_is_owned
 
@@ -357,6 +358,11 @@ class PipeCondition(_BaseCondition):
 
     return bool(self._waiters)
 
+  def __repr__(self):
+    return ("<%s.%s waiters=%s at %#x>" %
+            (self.__class__.__module__, self.__class__.__name__,
+             self._waiters, id(self)))
+
 
 class _PipeConditionWithMode(PipeCondition):
   __slots__ = [
@@ -399,12 +405,13 @@ class SharedLock(object):
     "__pending_by_prio",
     "__pending_shared",
     "__shr",
+    "__time_fn",
     "name",
     ]
 
   __condition_class = _PipeConditionWithMode
 
-  def __init__(self, name, monitor=None):
+  def __init__(self, name, monitor=None, _time_fn=time.time):
     """Construct a new SharedLock.
 
     @param name: the name of the lock
@@ -415,6 +422,9 @@ class SharedLock(object):
     object.__init__(self)
 
     self.name = name
+
+    # Used for unittesting
+    self.__time_fn = _time_fn
 
     # Internal lock
     self.__lock = threading.Lock()
@@ -435,6 +445,11 @@ class SharedLock(object):
     if monitor:
       logging.debug("Adding lock %s to monitor", name)
       monitor.RegisterLock(self)
+
+  def __repr__(self):
+    return ("<%s.%s name=%s at %#x>" %
+            (self.__class__.__module__, self.__class__.__name__,
+             self.name, id(self)))
 
   def GetLockInfo(self, requested):
     """Retrieves information for querying locks.
@@ -526,7 +541,7 @@ class SharedLock(object):
     else:
       return self.__is_exclusive()
 
-  def _is_owned(self, shared=-1):
+  def is_owned(self, shared=-1):
     """Is the current thread somehow owning the lock at this time?
 
     @param shared:
@@ -541,7 +556,9 @@ class SharedLock(object):
     finally:
       self.__lock.release()
 
-  is_owned = _is_owned
+  #: Necessary to remain compatible with threading.Condition, which tries to
+  #: retrieve a locks' "_is_owned" attribute
+  _is_owned = is_owned
 
   def _count_pending(self):
     """Returns the number of pending acquires.
@@ -672,24 +689,27 @@ class SharedLock(object):
         assert priority not in self.__pending_shared
         self.__pending_shared[priority] = wait_condition
 
+    wait_start = self.__time_fn()
+    acquired = False
+
     try:
       # Wait until we become the topmost acquire in the queue or the timeout
       # expires.
-      # TODO: Decrease timeout with spurious notifications
-      while not (self.__is_on_top(wait_condition) and
-                 self.__can_acquire(shared)):
+      while True:
+        if self.__is_on_top(wait_condition) and self.__can_acquire(shared):
+          self.__do_acquire(shared)
+          acquired = True
+          break
+
+        # A lot of code assumes blocking acquires always succeed, therefore we
+        # can never return False for a blocking acquire
+        if (timeout is not None and
+            utils.TimeoutExpired(wait_start, timeout, _time_fn=self.__time_fn)):
+          break
+
         # Wait for notification
         wait_condition.wait(timeout)
         self.__check_deleted()
-
-        # A lot of code assumes blocking acquires always succeed. Loop
-        # internally for that case.
-        if timeout is not None:
-          break
-
-      if self.__is_on_top(wait_condition) and self.__can_acquire(shared):
-        self.__do_acquire(shared)
-        return True
     finally:
       # Remove condition from queue if there are no more waiters
       if not wait_condition.has_waiting():
@@ -699,7 +719,7 @@ class SharedLock(object):
           # (e.g. on lock deletion)
           self.__pending_shared.pop(priority, None)
 
-    return False
+    return acquired
 
   def acquire(self, shared=0, timeout=None, priority=None,
               test_notify=None):
@@ -786,19 +806,38 @@ class SharedLock(object):
       # Autodetect release type
       if self.__is_exclusive():
         self.__exc = None
+        notify = True
       else:
         self.__shr.remove(threading.currentThread())
+        notify = not self.__shr
 
-      # Notify topmost condition in queue
-      (priority, prioqueue) = self.__find_first_pending_queue()
-      if prioqueue:
-        cond = prioqueue[0]
-        cond.notifyAll()
-        if cond.shared:
-          # Prevent further shared acquires from sneaking in while waiters are
-          # notified
-          self.__pending_shared.pop(priority, None)
+      # Notify topmost condition in queue if there are no owners left (for
+      # shared locks)
+      if notify:
+        self.__notify_topmost()
+    finally:
+      self.__lock.release()
 
+  def __notify_topmost(self):
+    """Notifies topmost condition in queue of pending acquires.
+
+    """
+    (priority, prioqueue) = self.__find_first_pending_queue()
+    if prioqueue:
+      cond = prioqueue[0]
+      cond.notifyAll()
+      if cond.shared:
+        # Prevent further shared acquires from sneaking in while waiters are
+        # notified
+        self.__pending_shared.pop(priority, None)
+
+  def _notify_topmost(self):
+    """Exported version of L{__notify_topmost}.
+
+    """
+    self.__lock.acquire()
+    try:
+      return self.__notify_topmost()
     finally:
       self.__lock.release()
 
@@ -830,10 +869,10 @@ class SharedLock(object):
       if not acquired:
         acquired = self.__acquire_unlocked(0, timeout, priority)
 
+      if acquired:
         assert self.__is_exclusive() and not self.__is_sharer(), \
           "Lock wasn't acquired in exclusive mode"
 
-      if acquired:
         self.__deleted = True
         self.__exc = None
 
@@ -940,17 +979,53 @@ class LockSet:
     """
     return self.__lockdict
 
-  def _is_owned(self):
-    """Is the current thread a current level owner?"""
+  def is_owned(self):
+    """Is the current thread a current level owner?
+
+    @note: Use L{check_owned} to check if a specific lock is held
+
+    """
     return threading.currentThread() in self.__owners
+
+  def check_owned(self, names, shared=-1):
+    """Check if locks are owned in a specific mode.
+
+    @type names: sequence or string
+    @param names: Lock names (or a single lock name)
+    @param shared: See L{SharedLock.is_owned}
+    @rtype: bool
+    @note: Use L{is_owned} to check if the current thread holds I{any} lock and
+      L{list_owned} to get the names of all owned locks
+
+    """
+    if isinstance(names, basestring):
+      names = [names]
+
+    # Avoid check if no locks are owned anyway
+    if names and self.is_owned():
+      candidates = []
+
+      # Gather references to all locks (in case they're deleted in the meantime)
+      for lname in names:
+        try:
+          lock = self.__lockdict[lname]
+        except KeyError:
+          raise errors.LockError("Non-existing lock '%s' in set '%s' (it may"
+                                 " have been removed)" % (lname, self.name))
+        else:
+          candidates.append(lock)
+
+      return compat.all(lock.is_owned(shared=shared) for lock in candidates)
+    else:
+      return False
 
   def _add_owned(self, name=None):
     """Note the current thread owns the given lock"""
     if name is None:
-      if not self._is_owned():
+      if not self.is_owned():
         self.__owners[threading.currentThread()] = set()
     else:
-      if self._is_owned():
+      if self.is_owned():
         self.__owners[threading.currentThread()].add(name)
       else:
         self.__owners[threading.currentThread()] = set([name])
@@ -958,29 +1033,29 @@ class LockSet:
   def _del_owned(self, name=None):
     """Note the current thread owns the given lock"""
 
-    assert not (name is None and self.__lock._is_owned()), \
+    assert not (name is None and self.__lock.is_owned()), \
            "Cannot hold internal lock when deleting owner status"
 
     if name is not None:
       self.__owners[threading.currentThread()].remove(name)
 
     # Only remove the key if we don't hold the set-lock as well
-    if (not self.__lock._is_owned() and
+    if (not self.__lock.is_owned() and
         not self.__owners[threading.currentThread()]):
       del self.__owners[threading.currentThread()]
 
-  def _list_owned(self):
+  def list_owned(self):
     """Get the set of resource names owned by the current thread"""
-    if self._is_owned():
+    if self.is_owned():
       return self.__owners[threading.currentThread()].copy()
     else:
       return set()
 
   def _release_and_delete_owned(self):
     """Release and delete all resources owned by the current thread"""
-    for lname in self._list_owned():
+    for lname in self.list_owned():
       lock = self.__lockdict[lname]
-      if lock._is_owned():
+      if lock.is_owned():
         lock.release()
       self._del_owned(name=lname)
 
@@ -1002,7 +1077,7 @@ class LockSet:
     # If we don't already own the set-level lock acquired
     # we'll get it and note we need to release it later.
     release_lock = False
-    if not self.__lock._is_owned():
+    if not self.__lock.is_owned():
       release_lock = True
       self.__lock.acquire(shared=1)
     try:
@@ -1039,8 +1114,8 @@ class LockSet:
     assert timeout is None or timeout >= 0.0
 
     # Check we don't already own locks at this level
-    assert not self._is_owned(), ("Cannot acquire locks in the same set twice"
-                                  " (lockset %s)" % self.name)
+    assert not self.is_owned(), ("Cannot acquire locks in the same set twice"
+                                 " (lockset %s)" % self.name)
 
     if priority is None:
       priority = _DEFAULT_PRIORITY
@@ -1170,7 +1245,7 @@ class LockSet:
           # We shouldn't have problems adding the lock to the owners list, but
           # if we did we'll try to release this lock and re-raise exception.
           # Of course something is going to be really wrong after this.
-          if lock._is_owned():
+          if lock.is_owned():
             lock.release()
           raise
 
@@ -1187,14 +1262,14 @@ class LockSet:
     The locks must have been acquired in exclusive mode.
 
     """
-    assert self._is_owned(), ("downgrade on lockset %s while not owning any"
-                              " lock" % self.name)
+    assert self.is_owned(), ("downgrade on lockset %s while not owning any"
+                             " lock" % self.name)
 
     # Support passing in a single resource to downgrade rather than many
     if isinstance(names, basestring):
       names = [names]
 
-    owned = self._list_owned()
+    owned = self.list_owned()
 
     if names is None:
       names = owned
@@ -1208,12 +1283,12 @@ class LockSet:
       self.__lockdict[lockname].downgrade()
 
     # Do we own the lockset in exclusive mode?
-    if self.__lock._is_owned(shared=0):
+    if self.__lock.is_owned(shared=0):
       # Have all locks been downgraded?
-      if not compat.any(lock._is_owned(shared=0)
+      if not compat.any(lock.is_owned(shared=0)
                         for lock in self.__lockdict.values()):
         self.__lock.downgrade()
-        assert self.__lock._is_owned(shared=1)
+        assert self.__lock.is_owned(shared=1)
 
     return True
 
@@ -1228,24 +1303,24 @@ class LockSet:
         (defaults to all the locks acquired at that level).
 
     """
-    assert self._is_owned(), ("release() on lock set %s while not owner" %
-                              self.name)
+    assert self.is_owned(), ("release() on lock set %s while not owner" %
+                             self.name)
 
     # Support passing in a single resource to release rather than many
     if isinstance(names, basestring):
       names = [names]
 
     if names is None:
-      names = self._list_owned()
+      names = self.list_owned()
     else:
       names = set(names)
-      assert self._list_owned().issuperset(names), (
+      assert self.list_owned().issuperset(names), (
                "release() on unheld resources %s (set %s)" %
-               (names.difference(self._list_owned()), self.name))
+               (names.difference(self.list_owned()), self.name))
 
     # First of all let's release the "all elements" lock, if set.
     # After this 'add' can work again
-    if self.__lock._is_owned():
+    if self.__lock.is_owned():
       self.__lock.release()
       self._del_owned()
 
@@ -1267,7 +1342,7 @@ class LockSet:
 
     """
     # Check we don't already own locks at this level
-    assert not self._is_owned() or self.__lock._is_owned(shared=0), \
+    assert not self.is_owned() or self.__lock.is_owned(shared=0), \
       ("Cannot add locks if the set %s is only partially owned, or shared" %
        self.name)
 
@@ -1278,7 +1353,7 @@ class LockSet:
     # If we don't already own the set-level lock acquired in an exclusive way
     # we'll get it and note we need to release it later.
     release_lock = False
-    if not self.__lock._is_owned():
+    if not self.__lock.is_owned():
       release_lock = True
       self.__lock.acquire()
 
@@ -1341,7 +1416,7 @@ class LockSet:
     # If we own any subset of this lock it must be a superset of what we want
     # to delete. The ownership must also be exclusive, but that will be checked
     # by the lock itself.
-    assert not self._is_owned() or self._list_owned().issuperset(names), (
+    assert not self.is_owned() or self.list_owned().issuperset(names), (
       "remove() on acquired lockset %s while not owning all elements" %
       self.name)
 
@@ -1358,8 +1433,8 @@ class LockSet:
         removed.append(lname)
       except (KeyError, errors.LockError):
         # This cannot happen if we were already holding it, verify:
-        assert not self._is_owned(), ("remove failed while holding lockset %s"
-                                      % self.name)
+        assert not self.is_owned(), ("remove failed while holding lockset %s" %
+                                     self.name)
       else:
         # If no LockError was raised we are the ones who deleted the lock.
         # This means we can safely remove it from lockdict, as any further or
@@ -1370,7 +1445,7 @@ class LockSet:
         # it's the job of the one who actually deleted it.
         del self.__lockdict[lname]
         # And let's remove it from our private list if we owned it.
-        if self._is_owned():
+        if self.is_owned():
           self._del_owned(name=lname)
 
     return removed
@@ -1389,24 +1464,35 @@ LEVEL_CLUSTER = 0
 LEVEL_INSTANCE = 1
 LEVEL_NODEGROUP = 2
 LEVEL_NODE = 3
+LEVEL_NODE_RES = 4
 
-LEVELS = [LEVEL_CLUSTER,
-          LEVEL_INSTANCE,
-          LEVEL_NODEGROUP,
-          LEVEL_NODE]
+LEVELS = [
+  LEVEL_CLUSTER,
+  LEVEL_INSTANCE,
+  LEVEL_NODEGROUP,
+  LEVEL_NODE,
+  LEVEL_NODE_RES,
+  ]
 
 # Lock levels which are modifiable
-LEVELS_MOD = [LEVEL_NODE, LEVEL_NODEGROUP, LEVEL_INSTANCE]
+LEVELS_MOD = frozenset([
+  LEVEL_NODE_RES,
+  LEVEL_NODE,
+  LEVEL_NODEGROUP,
+  LEVEL_INSTANCE,
+  ])
 
+#: Lock level names (make sure to use singular form)
 LEVEL_NAMES = {
   LEVEL_CLUSTER: "cluster",
   LEVEL_INSTANCE: "instance",
   LEVEL_NODEGROUP: "nodegroup",
   LEVEL_NODE: "node",
+  LEVEL_NODE_RES: "node-res",
   }
 
 # Constant for the big ganeti lock
-BGL = 'BGL'
+BGL = "BGL"
 
 
 class GanetiLockManager:
@@ -1441,12 +1527,16 @@ class GanetiLockManager:
     # The keyring contains all the locks, at their level and in the correct
     # locking order.
     self.__keyring = {
-      LEVEL_CLUSTER: LockSet([BGL], "BGL", monitor=self._monitor),
-      LEVEL_NODE: LockSet(nodes, "nodes", monitor=self._monitor),
-      LEVEL_NODEGROUP: LockSet(nodegroups, "nodegroups", monitor=self._monitor),
-      LEVEL_INSTANCE: LockSet(instances, "instances",
+      LEVEL_CLUSTER: LockSet([BGL], "cluster", monitor=self._monitor),
+      LEVEL_NODE: LockSet(nodes, "node", monitor=self._monitor),
+      LEVEL_NODE_RES: LockSet(nodes, "node-res", monitor=self._monitor),
+      LEVEL_NODEGROUP: LockSet(nodegroups, "nodegroup", monitor=self._monitor),
+      LEVEL_INSTANCE: LockSet(instances, "instance",
                               monitor=self._monitor),
       }
+
+    assert compat.all(ls.name == LEVEL_NAMES[level]
+                      for (level, ls) in self.__keyring.items())
 
   def AddToLockMonitor(self, provider):
     """Registers a new lock with the monitor.
@@ -1464,14 +1554,6 @@ class GanetiLockManager:
     """
     return self._monitor.QueryLocks(fields)
 
-  def OldStyleQueryLocks(self, fields):
-    """Queries information from all locks, returning old-style data.
-
-    See L{LockMonitor.OldStyleQueryLocks}.
-
-    """
-    return self._monitor.OldStyleQueryLocks(fields)
-
   def _names(self, level):
     """List the lock names at the given level.
 
@@ -1483,21 +1565,25 @@ class GanetiLockManager:
     assert level in LEVELS, "Invalid locking level %s" % level
     return self.__keyring[level]._names()
 
-  def _is_owned(self, level):
+  def is_owned(self, level):
     """Check whether we are owning locks at the given level
 
     """
-    return self.__keyring[level]._is_owned()
+    return self.__keyring[level].is_owned()
 
-  is_owned = _is_owned
-
-  def _list_owned(self, level):
+  def list_owned(self, level):
     """Get the set of owned locks at the given level
 
     """
-    return self.__keyring[level]._list_owned()
+    return self.__keyring[level].list_owned()
 
-  list_owned = _list_owned
+  def check_owned(self, level, names, shared=-1):
+    """Check if locks at a certain level are owned in a specific mode.
+
+    @see: L{LockSet.check_owned}
+
+    """
+    return self.__keyring[level].check_owned(names, shared=shared)
 
   def _upper_owned(self, level):
     """Check that we don't own any lock at a level greater than the given one.
@@ -1505,7 +1591,7 @@ class GanetiLockManager:
     """
     # This way of checking only works if LEVELS[i] = i, which we check for in
     # the test cases.
-    return compat.any((self._is_owned(l) for l in LEVELS[level + 1:]))
+    return compat.any((self.is_owned(l) for l in LEVELS[level + 1:]))
 
   def _BGL_owned(self): # pylint: disable=C0103
     """Check if the current thread owns the BGL.
@@ -1513,7 +1599,7 @@ class GanetiLockManager:
     Both an exclusive or a shared acquisition work.
 
     """
-    return BGL in self.__keyring[LEVEL_CLUSTER]._list_owned()
+    return BGL in self.__keyring[LEVEL_CLUSTER].list_owned()
 
   @staticmethod
   def _contains_BGL(level, names): # pylint: disable=C0103
@@ -1595,7 +1681,7 @@ class GanetiLockManager:
             not self._upper_owned(LEVEL_CLUSTER)), (
             "Cannot release the Big Ganeti Lock while holding something"
             " at upper levels (%r)" %
-            (utils.CommaJoin(["%s=%r" % (LEVEL_NAMES[i], self._list_owned(i))
+            (utils.CommaJoin(["%s=%r" % (LEVEL_NAMES[i], self.list_owned(i))
                               for i in self.__keyring.keys()]), ))
 
     # Release will complain if we don't own the locks already
@@ -1640,7 +1726,7 @@ class GanetiLockManager:
     # Check we either own the level or don't own anything from here
     # up. LockSet.remove() will check the case in which we don't own
     # all the needed resources, or we have a shared ownership.
-    assert self._is_owned(level) or not self._upper_owned(level), (
+    assert self.is_owned(level) or not self._upper_owned(level), (
            "Cannot remove locks at a level while not owning it or"
            " owning some at a greater one")
     return self.__keyring[level].remove(names)
@@ -1741,14 +1827,3 @@ class LockMonitor(object):
 
     # Prepare query response
     return query.GetQueryResponse(qobj, ctx)
-
-  def OldStyleQueryLocks(self, fields):
-    """Queries information from all locks, returning old-style data.
-
-    @type fields: list of strings
-    @param fields: List of fields to return
-
-    """
-    (qobj, ctx) = self._Query(fields)
-
-    return qobj.OldStyleQuery(ctx)

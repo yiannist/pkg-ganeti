@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2008 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2012 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -32,14 +32,32 @@ import logging
 from ganeti import luxi
 from ganeti import rapi
 from ganeti import http
-from ganeti import ssconf
-from ganeti import constants
-from ganeti import opcodes
 from ganeti import errors
+from ganeti import compat
 
 
 # Dummy value to detect unchanged parameters
 _DEFAULT = object()
+
+#: Supported HTTP methods
+_SUPPORTED_METHODS = frozenset([
+  http.HTTP_DELETE,
+  http.HTTP_GET,
+  http.HTTP_POST,
+  http.HTTP_PUT,
+  ])
+
+
+def _BuildOpcodeAttributes():
+  """Builds list of attributes used for per-handler opcodes.
+
+  """
+  return [(method, "%s_OPCODE" % method, "%s_RENAME" % method,
+           "Get%sOpInput" % method.capitalize())
+          for method in _SUPPORTED_METHODS]
+
+
+_OPCODE_ATTRS = _BuildOpcodeAttributes()
 
 
 def BuildUriList(ids, uri_format, uri_fields=("name", "uri")):
@@ -89,49 +107,6 @@ def MapFields(names, data):
   if len(names) != len(data):
     raise AttributeError("Names and data must have the same length")
   return dict(zip(names, data))
-
-
-def _Tags_GET(kind, name):
-  """Helper function to retrieve tags.
-
-  """
-  if kind in (constants.TAG_INSTANCE,
-              constants.TAG_NODEGROUP,
-              constants.TAG_NODE):
-    if not name:
-      raise http.HttpBadRequest("Missing name on tag request")
-    cl = GetClient()
-    if kind == constants.TAG_INSTANCE:
-      fn = cl.QueryInstances
-    elif kind == constants.TAG_NODEGROUP:
-      fn = cl.QueryGroups
-    else:
-      fn = cl.QueryNodes
-    result = fn(names=[name], fields=["tags"], use_locking=False)
-    if not result or not result[0]:
-      raise http.HttpBadGateway("Invalid response from tag query")
-    tags = result[0][0]
-  elif kind == constants.TAG_CLUSTER:
-    ssc = ssconf.SimpleStore()
-    tags = ssc.GetClusterTags()
-
-  return list(tags)
-
-
-def _Tags_PUT(kind, tags, name, dry_run):
-  """Helper function to set tags.
-
-  """
-  return SubmitJob([opcodes.OpTagsSet(kind=kind, name=name,
-                                      tags=tags, dry_run=dry_run)])
-
-
-def _Tags_DELETE(kind, tags, name, dry_run):
-  """Helper function to delete tags.
-
-  """
-  return SubmitJob([opcodes.OpTagsDel(kind=kind, name=name,
-                                      tags=tags, dry_run=dry_run)])
 
 
 def MapBulkFields(itemslist, fields):
@@ -231,35 +206,6 @@ def FillOpcode(opcls, body, static, rename=None):
   return op
 
 
-def SubmitJob(op, cl=None):
-  """Generic wrapper for submit job, for better http compatibility.
-
-  @type op: list
-  @param op: the list of opcodes for the job
-  @type cl: None or luxi.Client
-  @param cl: optional luxi client to use
-  @rtype: string
-  @return: the job ID
-
-  """
-  try:
-    if cl is None:
-      cl = GetClient()
-    return cl.SubmitJob(op)
-  except errors.JobQueueFull:
-    raise http.HttpServiceUnavailable("Job queue is full, needs archiving")
-  except errors.JobQueueDrainError:
-    raise http.HttpServiceUnavailable("Job queue is drained, cannot submit")
-  except luxi.NoMasterError, err:
-    raise http.HttpBadGateway("Master seems to be unreachable: %s" % str(err))
-  except luxi.PermissionError:
-    raise http.HttpInternalServerError("Internal error: no permission to"
-                                       " connect to the master daemon")
-  except luxi.TimeoutError, err:
-    raise http.HttpGatewayTimeout("Timeout while talking to the master"
-                                  " daemon. Error: %s" % str(err))
-
-
 def HandleItemQueryErrors(fn, *args, **kwargs):
   """Converts errors when querying a single item.
 
@@ -271,19 +217,6 @@ def HandleItemQueryErrors(fn, *args, **kwargs):
       raise http.HttpNotFound()
 
     raise
-
-
-def GetClient():
-  """Geric wrapper for luxi.Client(), for better http compatiblity.
-
-  """
-  try:
-    return luxi.Client()
-  except luxi.NoMasterError, err:
-    raise http.HttpBadGateway("Master seems to unreachable: %s" % str(err))
-  except luxi.PermissionError:
-    raise http.HttpInternalServerError("Internal error: no permission to"
-                                       " connect to the master daemon")
 
 
 def FeedbackFn(msg):
@@ -346,7 +279,7 @@ def CheckParameter(data, name, default=_DEFAULT, exptype=_DEFAULT):
   return CheckType(value, exptype, "'%s' parameter" % name)
 
 
-class R_Generic(object):
+class ResourceBase(object):
   """Generic class for resources.
 
   """
@@ -356,16 +289,23 @@ class R_Generic(object):
   POST_ACCESS = [rapi.RAPI_ACCESS_WRITE]
   DELETE_ACCESS = [rapi.RAPI_ACCESS_WRITE]
 
-  def __init__(self, items, queryargs, req):
+  def __init__(self, items, queryargs, req, _client_cls=None):
     """Generic resource constructor.
 
     @param items: a list with variables encoded in the URL
     @param queryargs: a dictionary with additional options from URL
+    @param req: Request context
+    @param _client_cls: L{luxi} client class (unittests only)
 
     """
     self.items = items
     self.queryargs = queryargs
     self._req = req
+
+    if _client_cls is None:
+      _client_cls = luxi.Client
+
+    self._client_cls = _client_cls
 
   def _GetRequestBody(self):
     """Returns the body data.
@@ -441,3 +381,135 @@ class R_Generic(object):
 
     """
     return bool(self._checkIntVariable("dry-run"))
+
+  def GetClient(self):
+    """Wrapper for L{luxi.Client} with HTTP-specific error handling.
+
+    """
+    # Could be a function, pylint: disable=R0201
+    try:
+      return self._client_cls()
+    except luxi.NoMasterError, err:
+      raise http.HttpBadGateway("Can't connect to master daemon: %s" % err)
+    except luxi.PermissionError:
+      raise http.HttpInternalServerError("Internal error: no permission to"
+                                         " connect to the master daemon")
+
+  def SubmitJob(self, op, cl=None):
+    """Generic wrapper for submit job, for better http compatibility.
+
+    @type op: list
+    @param op: the list of opcodes for the job
+    @type cl: None or luxi.Client
+    @param cl: optional luxi client to use
+    @rtype: string
+    @return: the job ID
+
+    """
+    if cl is None:
+      cl = self.GetClient()
+    try:
+      return cl.SubmitJob(op)
+    except errors.JobQueueFull:
+      raise http.HttpServiceUnavailable("Job queue is full, needs archiving")
+    except errors.JobQueueDrainError:
+      raise http.HttpServiceUnavailable("Job queue is drained, cannot submit")
+    except luxi.NoMasterError, err:
+      raise http.HttpBadGateway("Master seems to be unreachable: %s" % err)
+    except luxi.PermissionError:
+      raise http.HttpInternalServerError("Internal error: no permission to"
+                                         " connect to the master daemon")
+    except luxi.TimeoutError, err:
+      raise http.HttpGatewayTimeout("Timeout while talking to the master"
+                                    " daemon: %s" % err)
+
+
+def GetResourceOpcodes(cls):
+  """Returns all opcodes used by a resource.
+
+  """
+  return frozenset(filter(None, (getattr(cls, op_attr, None)
+                                 for (_, op_attr, _, _) in _OPCODE_ATTRS)))
+
+
+class _MetaOpcodeResource(type):
+  """Meta class for RAPI resources.
+
+  """
+  def __call__(mcs, *args, **kwargs):
+    """Instantiates class and patches it for use by the RAPI daemon.
+
+    """
+    # Access to private attributes of a client class, pylint: disable=W0212
+    obj = type.__call__(mcs, *args, **kwargs)
+
+    for (method, op_attr, rename_attr, fn_attr) in _OPCODE_ATTRS:
+      if hasattr(obj, method):
+        # If the method handler is already defined, "*_RENAME" or "Get*OpInput"
+        # shouldn't be (they're only used by the automatically generated
+        # handler)
+        assert not hasattr(obj, rename_attr)
+        assert not hasattr(obj, fn_attr)
+      else:
+        # Try to generate handler method on handler instance
+        try:
+          opcode = getattr(obj, op_attr)
+        except AttributeError:
+          pass
+        else:
+          setattr(obj, method,
+                  compat.partial(obj._GenericHandler, opcode,
+                                 getattr(obj, rename_attr, None),
+                                 getattr(obj, fn_attr, obj._GetDefaultData)))
+
+    return obj
+
+
+class OpcodeResource(ResourceBase):
+  """Base class for opcode-based RAPI resources.
+
+  Instances of this class automatically gain handler functions through
+  L{_MetaOpcodeResource} for any method for which a C{$METHOD$_OPCODE} variable
+  is defined at class level. Subclasses can define a C{Get$Method$OpInput}
+  method to do their own opcode input processing (e.g. for static values). The
+  C{$METHOD$_RENAME} variable defines which values are renamed (see
+  L{baserlib.FillOpcode}).
+
+  @cvar GET_OPCODE: Set this to a class derived from L{opcodes.OpCode} to
+    automatically generate a GET handler submitting the opcode
+  @cvar GET_RENAME: Set this to rename parameters in the GET handler (see
+    L{baserlib.FillOpcode})
+  @ivar GetGetOpInput: Define this to override the default method for
+    getting opcode parameters (see L{baserlib.OpcodeResource._GetDefaultData})
+
+  @cvar PUT_OPCODE: Set this to a class derived from L{opcodes.OpCode} to
+    automatically generate a PUT handler submitting the opcode
+  @cvar PUT_RENAME: Set this to rename parameters in the PUT handler (see
+    L{baserlib.FillOpcode})
+  @ivar GetPutOpInput: Define this to override the default method for
+    getting opcode parameters (see L{baserlib.OpcodeResource._GetDefaultData})
+
+  @cvar POST_OPCODE: Set this to a class derived from L{opcodes.OpCode} to
+    automatically generate a POST handler submitting the opcode
+  @cvar POST_RENAME: Set this to rename parameters in the DELETE handler (see
+    L{baserlib.FillOpcode})
+  @ivar GetPostOpInput: Define this to override the default method for
+    getting opcode parameters (see L{baserlib.OpcodeResource._GetDefaultData})
+
+  @cvar DELETE_OPCODE: Set this to a class derived from L{opcodes.OpCode} to
+    automatically generate a GET handler submitting the opcode
+  @cvar DELETE_RENAME: Set this to rename parameters in the DELETE handler (see
+    L{baserlib.FillOpcode})
+  @ivar GetDeleteOpInput: Define this to override the default method for
+    getting opcode parameters (see L{baserlib.OpcodeResource._GetDefaultData})
+
+  """
+  __metaclass__ = _MetaOpcodeResource
+
+  def _GetDefaultData(self):
+    return (self.request_body, None)
+
+  def _GenericHandler(self, opcode, rename, fn):
+    (body, static) = fn()
+    op = FillOpcode(opcode, body, static, rename=rename)
+    return self.SubmitJob([op])

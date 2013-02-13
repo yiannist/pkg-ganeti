@@ -1,7 +1,7 @@
 #!/usr/bin/python
 #
 
-# Copyright (C) 2010 Google Inc.
+# Copyright (C) 2010, 2011 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -37,8 +37,8 @@ class TestMakeSimpleFilter(unittest.TestCase):
     if parse_exp is None:
       parse_exp = names
 
-    filter_ = qlang.MakeSimpleFilter(field, names)
-    self.assertEqual(filter_, expected)
+    qfilter = qlang.MakeSimpleFilter(field, names)
+    self.assertEqual(qfilter, expected)
 
   def test(self):
     self._Test("name", None, None, parse_exp=[])
@@ -53,9 +53,9 @@ class TestParseFilter(unittest.TestCase):
   def setUp(self):
     self.parser = qlang.BuildFilterParser()
 
-  def _Test(self, filter_, expected, expect_filter=True):
-    self.assertEqual(qlang.MakeFilter([filter_], not expect_filter), expected)
-    self.assertEqual(qlang.ParseFilter(filter_, parser=self.parser), expected)
+  def _Test(self, qfilter, expected, expect_filter=True):
+    self.assertEqual(qlang.MakeFilter([qfilter], not expect_filter), expected)
+    self.assertEqual(qlang.ParseFilter(qfilter, parser=self.parser), expected)
 
   def test(self):
     self._Test("name==\"foobar\"", [qlang.OP_EQUAL, "name", "foobar"])
@@ -147,6 +147,11 @@ class TestParseFilter(unittest.TestCase):
                [qlang.OP_NOT, [qlang.OP_REGEXP, "field",
                                utils.DnsNameGlobPattern("*.example.*")]])
 
+    self._Test("ctime < 1234", [qlang.OP_LT, "ctime", 1234])
+    self._Test("ctime > 1234", [qlang.OP_GT, "ctime", 1234])
+    self._Test("mtime <= 9999", [qlang.OP_LE, "mtime", 9999])
+    self._Test("mtime >= 9999", [qlang.OP_GE, "mtime", 9999])
+
   def testAllFields(self):
     for name in frozenset(i for d in query.ALL_FIELD_LISTS for i in d.keys()):
       self._Test("%s == \"value\"" % name, [qlang.OP_EQUAL, name, "value"])
@@ -167,13 +172,18 @@ class TestParseFilter(unittest.TestCase):
     # Non-matching regexp delimiters
     tests.append("name =~ /foobarbaz#")
 
-    for filter_ in tests:
+    # Invalid operators
+    tests.append("name <> value")
+    tests.append("name => value")
+    tests.append("name =< value")
+
+    for qfilter in tests:
       try:
-        qlang.ParseFilter(filter_, parser=self.parser)
+        qlang.ParseFilter(qfilter, parser=self.parser)
       except errors.QueryFilterParseError, err:
         self.assertEqual(len(err.GetDetails()), 3)
       else:
-        self.fail("Invalid filter '%s' did not raise exception" % filter_)
+        self.fail("Invalid filter '%s' did not raise exception" % qfilter)
 
 
 class TestMakeFilter(unittest.TestCase):
@@ -185,6 +195,12 @@ class TestMakeFilter(unittest.TestCase):
     self.assertEqual(qlang.MakeFilter(["web1", "web2"], False),
                      [qlang.OP_OR, [qlang.OP_EQUAL, "name", "web1"],
                                    [qlang.OP_EQUAL, "name", "web2"]])
+
+  def testPlainNamesOtherNamefield(self):
+    self.assertEqual(qlang.MakeFilter(["mailA", "mailB"], False,
+                                      namefield="id"),
+                     [qlang.OP_OR, [qlang.OP_EQUAL, "id", "mailA"],
+                                   [qlang.OP_EQUAL, "id", "mailB"]])
 
   def testForcedFilter(self):
     for i in [None, [], ["1", "2"], ["", "", ""], ["a", "b", "c", "d"]]:

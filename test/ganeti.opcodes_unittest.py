@@ -35,6 +35,16 @@ from ganeti import compat
 import testutils
 
 
+#: Unless an opcode is included in the following list it must have a result
+#: check of some sort
+MISSING_RESULT_CHECK = frozenset([
+  opcodes.OpTestAllocator,
+  opcodes.OpTestDelay,
+  opcodes.OpTestDummy,
+  opcodes.OpTestJqueue,
+  ])
+
+
 class TestOpcodes(unittest.TestCase):
   def test(self):
     self.assertRaises(ValueError, opcodes.OpCode.LoadOpCode, None)
@@ -49,7 +59,13 @@ class TestOpcodes(unittest.TestCase):
       self.assertEqual(cls.OP_ID, opcodes._NameToId(cls.__name__))
       self.assertFalse(compat.any(cls.OP_ID.startswith(prefix)
                                   for prefix in opcodes._SUMMARY_PREFIX.keys()))
-      self.assertTrue(cls.OP_RESULT is None or callable(cls.OP_RESULT))
+      if cls in MISSING_RESULT_CHECK:
+        self.assertTrue(cls.OP_RESULT is None,
+                        msg=("%s is listed to not have a result check" %
+                             cls.OP_ID))
+      else:
+        self.assertTrue(callable(cls.OP_RESULT),
+                        msg=("%s should have a result check" % cls.OP_ID))
 
       self.assertRaises(TypeError, cls, unsupported_parameter="some value")
 
@@ -336,6 +352,65 @@ class TestResultChecks(unittest.TestCase):
     self.assertFalse(opcodes.TJobIdListOnly({
       constants.JOB_IDS_KEY: [("one", "two", "three")],
       }))
+
+
+class TestClusterOsList(unittest.TestCase):
+  def test(self):
+    good = [
+      None,
+      [],
+      [(constants.DDM_ADD, "dos"),
+       (constants.DDM_REMOVE, "linux")],
+      ]
+
+    for i in good:
+      self.assertTrue(opcodes._TestClusterOsList(i))
+
+    wrong = ["", 0, "xy", ["Hello World"], object(),
+      [("foo", "bar")],
+      [("", "")],
+      [[constants.DDM_ADD]],
+      [(constants.DDM_ADD, "")],
+      [(constants.DDM_REMOVE, "")],
+      [(constants.DDM_ADD, None)],
+      [(constants.DDM_REMOVE, None)],
+      ]
+
+    for i in wrong:
+      self.assertFalse(opcodes._TestClusterOsList(i))
+
+
+class TestOpInstanceSetParams(unittest.TestCase):
+  def _GenericTests(self, fn):
+    self.assertTrue(fn([]))
+    self.assertTrue(fn([(constants.DDM_ADD, {})]))
+    self.assertTrue(fn([(constants.DDM_REMOVE, {})]))
+    for i in [0, 1, 2, 3, 9, 10, 1024]:
+      self.assertTrue(fn([(i, {})]))
+
+    self.assertFalse(fn(None))
+    self.assertFalse(fn({}))
+    self.assertFalse(fn(""))
+    self.assertFalse(fn(0))
+    self.assertFalse(fn([(-100, {})]))
+    self.assertFalse(fn([(constants.DDM_ADD, 2, 3)]))
+    self.assertFalse(fn([[constants.DDM_ADD]]))
+
+  def testNicModifications(self):
+    fn = opcodes.OpInstanceSetParams.TestNicModifications
+    self._GenericTests(fn)
+
+    for param in constants.INIC_PARAMS:
+      self.assertTrue(fn([[constants.DDM_ADD, {param: None}]]))
+      self.assertTrue(fn([[constants.DDM_ADD, {param: param}]]))
+
+  def testDiskModifications(self):
+    fn = opcodes.OpInstanceSetParams.TestDiskModifications
+    self._GenericTests(fn)
+
+    for param in constants.IDISK_PARAMS:
+      self.assertTrue(fn([[constants.DDM_ADD, {param: 0}]]))
+      self.assertTrue(fn([[constants.DDM_ADD, {param: param}]]))
 
 
 if __name__ == "__main__":

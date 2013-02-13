@@ -11,6 +11,10 @@ Design document drafts
    design-cpu-pinning.rst
    design-ovf-support.rst
    design-network.rst
+   design-node-state-cache.rst
+   design-resource-model.rst
+   design-virtual-clusters.rst
+   design-query-splitting.rst
 
 .. vim: set textwidth=72 :
 .. Local Variables:

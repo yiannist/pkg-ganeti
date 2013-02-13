@@ -4,7 +4,7 @@
 
 {-
 
-Copyright (C) 2009, 2010, 2011 Google Inc.
+Copyright (C) 2009, 2010, 2011, 2012 Google Inc.
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -24,17 +24,19 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
 -}
 
 module Ganeti.HTools.IAlloc
-    ( readRequest
-    , runIAllocator
-    ) where
+  ( readRequest
+  , runIAllocator
+  , processRelocate
+  , loadData
+  ) where
 
 import Data.Either ()
-import Data.Maybe (fromMaybe, isJust)
+import Data.Maybe (fromMaybe)
 import Data.List
 import Control.Monad
 import Text.JSON (JSObject, JSValue(JSArray),
                   makeObj, encodeStrict, decodeStrict, fromJSObject, showJSON)
-import System (exitWith, ExitCode(..))
+import System.Exit
 import System.IO
 
 import qualified Ganeti.HTools.Cluster as Cluster
@@ -45,9 +47,10 @@ import qualified Ganeti.HTools.Instance as Instance
 import qualified Ganeti.Constants as C
 import Ganeti.HTools.CLI
 import Ganeti.HTools.Loader
-import Ganeti.HTools.ExtLoader (loadExternalData)
-import Ganeti.HTools.Utils
+import Ganeti.HTools.JSON
 import Ganeti.HTools.Types
+
+{-# ANN module "HLint: ignore Eta reduce" #-}
 
 -- | Type alias for the result of an IAllocator call.
 type IAllocResult = (String, JSValue, Node.List, Instance.List)
@@ -67,8 +70,8 @@ parseBaseInstance n a = do
   vcpus <- extract "vcpus"
   tags  <- extract "tags"
   dt    <- extract "disk_template"
-  let running = "running"
-  return (n, Instance.create n mem disk vcpus running tags True 0 0 dt)
+  su    <- extract "spindle_use"
+  return (n, Instance.create n mem disk vcpus Running tags True 0 0 dt su)
 
 -- | Parses an instance as found in the cluster instance list.
 parseInstance :: NameAssoc -- ^ The node name-to-index association list
@@ -83,8 +86,9 @@ parseInstance ktn n a = do
            else readEitherString $ head nodes
   pidx <- lookupNode ktn n pnode
   let snodes = tail nodes
-  sidx <- (if null snodes then return Node.noSecondary
-           else readEitherString (head snodes) >>= lookupNode ktn n)
+  sidx <- if null snodes
+            then return Node.noSecondary
+            else readEitherString (head snodes) >>= lookupNode ktn n
   return (n, Instance.setBoth (snd base) pidx sidx)
 
 -- | Parses a node as found in the cluster node list.
@@ -101,17 +105,20 @@ parseNode ktg n a = do
   vm_capable  <- annotateResult desc $ maybeFromObj a "vm_capable"
   let vm_capable' = fromMaybe True vm_capable
   gidx <- lookupGroup ktg n guuid
-  node <- (if offline || drained || not vm_capable'
-           then return $ Node.create n 0 0 0 0 0 0 True gidx
-           else do
-             mtotal <- extract "total_memory"
-             mnode  <- extract "reserved_memory"
-             mfree  <- extract "free_memory"
-             dtotal <- extract "total_disk"
-             dfree  <- extract "free_disk"
-             ctotal <- extract "total_cpus"
-             return $ Node.create n mtotal mnode mfree
-                    dtotal dfree ctotal False gidx)
+  node <- if offline || drained || not vm_capable'
+            then return $ Node.create n 0 0 0 0 0 0 True 0 gidx
+            else do
+              mtotal <- extract "total_memory"
+              mnode  <- extract "reserved_memory"
+              mfree  <- extract "free_memory"
+              dtotal <- extract "total_disk"
+              dfree  <- extract "free_disk"
+              ctotal <- extract "total_cpus"
+              ndparams <- extract "ndparams" >>= asJSObject
+              spindles <- tryFromObj desc (fromJSObject ndparams)
+                          "spindle_count"
+              return $ Node.create n mtotal mnode mfree
+                     dtotal dfree ctotal False spindles gidx
   return (n, node)
 
 -- | Parses a group as found in the cluster group list.
@@ -122,7 +129,8 @@ parseGroup u a = do
   let extract x = tryFromObj ("invalid data for group '" ++ u ++ "'") a x
   name <- extract "name"
   apol <- extract "alloc_policy"
-  return (u, Group.create name u apol)
+  ipol <- extract "ipolicy"
+  return (u, Group.create name u apol ipol)
 
 -- | Top-level parser.
 --
@@ -155,7 +163,7 @@ parseData body = do
   let (kti, il) = assignIndices iobj
   -- cluster tags
   ctags <- extrObj "cluster_tags"
-  cdata1 <- mergeData [] [] [] [] (ClusterData gl nl il ctags)
+  cdata1 <- mergeData [] [] [] [] (ClusterData gl nl il ctags defIPolicy)
   let (msgs, fix_nl) = checkData (cdNodes cdata1) (cdInstances cdata1)
       cdata = cdata1 { cdNodes = fix_nl }
       map_n = cdNodes cdata
@@ -163,40 +171,40 @@ parseData body = do
       map_g = cdGroups cdata
   optype <- extrReq "type"
   rqtype <-
-      case () of
-        _ | optype == C.iallocatorModeAlloc ->
-              do
-                rname     <- extrReq "name"
-                req_nodes <- extrReq "required_nodes"
-                inew      <- parseBaseInstance rname request
-                let io = snd inew
-                return $ Allocate io req_nodes
-          | optype == C.iallocatorModeReloc ->
-              do
-                rname     <- extrReq "name"
-                ridx      <- lookupInstance kti rname
-                req_nodes <- extrReq "required_nodes"
-                ex_nodes  <- extrReq "relocate_from"
-                ex_idex   <- mapM (Container.findByName map_n) ex_nodes
-                return $ Relocate ridx req_nodes (map Node.idx ex_idex)
-          | optype == C.iallocatorModeChgGroup ->
-              do
-                rl_names <- extrReq "instances"
-                rl_insts <- mapM (liftM Instance.idx .
-                                  Container.findByName map_i) rl_names
-                gr_uuids <- extrReq "target_groups"
-                gr_idxes <- mapM (liftM Group.idx .
-                                  Container.findByName map_g) gr_uuids
-                return $ ChangeGroup rl_insts gr_idxes
-          | optype == C.iallocatorModeNodeEvac ->
-              do
-                rl_names <- extrReq "instances"
-                rl_insts <- mapM (Container.findByName map_i) rl_names
-                let rl_idx = map Instance.idx rl_insts
-                rl_mode <- extrReq "evac_mode"
-                return $ NodeEvacuate rl_idx rl_mode
+    case () of
+      _ | optype == C.iallocatorModeAlloc ->
+            do
+              rname     <- extrReq "name"
+              req_nodes <- extrReq "required_nodes"
+              inew      <- parseBaseInstance rname request
+              let io = snd inew
+              return $ Allocate io req_nodes
+        | optype == C.iallocatorModeReloc ->
+            do
+              rname     <- extrReq "name"
+              ridx      <- lookupInstance kti rname
+              req_nodes <- extrReq "required_nodes"
+              ex_nodes  <- extrReq "relocate_from"
+              ex_idex   <- mapM (Container.findByName map_n) ex_nodes
+              return $ Relocate ridx req_nodes (map Node.idx ex_idex)
+        | optype == C.iallocatorModeChgGroup ->
+            do
+              rl_names <- extrReq "instances"
+              rl_insts <- mapM (liftM Instance.idx .
+                                Container.findByName map_i) rl_names
+              gr_uuids <- extrReq "target_groups"
+              gr_idxes <- mapM (liftM Group.idx .
+                                Container.findByName map_g) gr_uuids
+              return $ ChangeGroup rl_insts gr_idxes
+        | optype == C.iallocatorModeNodeEvac ->
+            do
+              rl_names <- extrReq "instances"
+              rl_insts <- mapM (Container.findByName map_i) rl_names
+              let rl_idx = map Instance.idx rl_insts
+              rl_mode <- extrReq "evac_mode"
+              return $ NodeEvacuate rl_idx rl_mode
 
-          | otherwise -> fail ("Invalid request type '" ++ optype ++ "'")
+        | otherwise -> fail ("Invalid request type '" ++ optype ++ "'")
   return (msgs, Request rqtype cdata)
 
 -- | Formats the result into a valid IAllocator response message.
@@ -205,11 +213,10 @@ formatResponse :: Bool     -- ^ Whether the request was successful
                -> JSValue  -- ^ The JSON encoded result
                -> String   -- ^ The full JSON-formatted message
 formatResponse success info result =
-    let
-        e_success = ("success", showJSON success)
-        e_info = ("info", showJSON info)
-        e_result = ("result", result)
-    in encodeStrict $ makeObj [e_success, e_info, e_result]
+  let e_success = ("success", showJSON success)
+      e_info = ("info", showJSON info)
+      e_result = ("result", result)
+  in encodeStrict $ makeObj [e_success, e_info, e_result]
 
 -- | Flatten the log of a solution into a string.
 describeSolution :: Cluster.AllocSolution -> String
@@ -219,13 +226,12 @@ describeSolution = intercalate ", " . Cluster.asLog
 formatAllocate :: Instance.List -> Cluster.AllocSolution -> Result IAllocResult
 formatAllocate il as = do
   let info = describeSolution as
-  case Cluster.asSolutions as of
-    [] -> fail info
-    (nl, inst, nodes, _):[] ->
-        do
-          let il' = Container.add (Instance.idx inst) inst il
-          return (info, showJSON $ map Node.name nodes, nl, il')
-    _ -> fail "Internal error: multiple allocation solutions"
+  case Cluster.asSolution as of
+    Nothing -> fail info
+    Just (nl, inst, nodes, _) ->
+      do
+        let il' = Container.add (Instance.idx inst) inst il
+        return (info, showJSON $ map Node.name nodes, nl, il')
 
 -- | Convert a node-evacuation/change group result.
 formatNodeEvac :: Group.List
@@ -234,17 +240,17 @@ formatNodeEvac :: Group.List
                -> (Node.List, Instance.List, Cluster.EvacSolution)
                -> Result IAllocResult
 formatNodeEvac gl nl il (fin_nl, fin_il, es) =
-    let iname = Instance.name . flip Container.find il
-        nname = Node.name . flip Container.find nl
-        gname = Group.name . flip Container.find gl
-        fes = map (\(idx, msg) -> (iname idx, msg)) $ Cluster.esFailed es
-        mes = map (\(idx, gdx, ndxs) -> (iname idx, gname gdx, map nname ndxs))
-              $ Cluster.esMoved es
-        failed = length fes
-        moved  = length mes
-        info = show failed ++ " instances failed to move and " ++ show moved ++
-               " were moved successfully"
-    in Ok (info, showJSON (mes, fes, Cluster.esOpCodes es), fin_nl, fin_il)
+  let iname = Instance.name . flip Container.find il
+      nname = Node.name . flip Container.find nl
+      gname = Group.name . flip Container.find gl
+      fes = map (\(idx, msg) -> (iname idx, msg)) $ Cluster.esFailed es
+      mes = map (\(idx, gdx, ndxs) -> (iname idx, gname gdx, map nname ndxs))
+            $ Cluster.esMoved es
+      failed = length fes
+      moved  = length mes
+      info = show failed ++ " instances failed to move and " ++ show moved ++
+             " were moved successfully"
+  in Ok (info, showJSON (mes, fes, Cluster.esOpCodes es), fin_nl, fin_il)
 
 -- | Runs relocate for a single instance.
 --
@@ -263,13 +269,20 @@ processRelocate :: Group.List      -- ^ The group list
 processRelocate gl nl il idx 1 exndx = do
   let orig = Container.find idx il
       sorig = Instance.sNode orig
-  when (exndx /= [sorig]) $
+      porig = Instance.pNode orig
+      mir_type = Instance.mirrorType orig
+  (exp_node, node_type, reloc_type) <-
+    case mir_type of
+      MirrorNone -> fail "Can't relocate non-mirrored instances"
+      MirrorInternal -> return (sorig, "secondary", ChangeSecondary)
+      MirrorExternal -> return (porig, "primary", ChangePrimary)
+  when (exndx /= [exp_node]) $
        -- FIXME: we can't use the excluded nodes here; the logic is
        -- already _but only partially_ implemented in tryNodeEvac...
        fail $ "Unsupported request: excluded nodes not equal to\
-              \ instance's secondary node (" ++ show sorig ++ " versus " ++
-              show exndx ++ ")"
-  (nl', il', esol) <- Cluster.tryNodeEvac gl nl il ChangeSecondary [idx]
+              \ instance's " ++  node_type ++ "(" ++ show exp_node
+              ++ " versus " ++ show exndx ++ ")"
+  (nl', il', esol) <- Cluster.tryNodeEvac gl nl il reloc_type [idx]
   nodes <- case lookup idx (Cluster.esFailed esol) of
              Just msg -> fail msg
              Nothing ->
@@ -281,16 +294,28 @@ processRelocate gl nl il idx 1 exndx = do
   let inst = Container.find idx il'
       pnode = Instance.pNode inst
       snode = Instance.sNode inst
-  when (snode == sorig) $
-       fail "Internal error: instance didn't change secondary node?!"
-  when (snode == pnode) $
-       fail "Internal error: selected primary as new secondary?!"
-
-  nodes' <- if (nodes == [pnode, snode])
+  nodes' <-
+    case mir_type of
+      MirrorNone -> fail "Internal error: mirror type none after relocation?!"
+      MirrorInternal ->
+        do
+          when (snode == sorig) $
+               fail "Internal error: instance didn't change secondary node?!"
+          when (snode == pnode) $
+               fail "Internal error: selected primary as new secondary?!"
+          if nodes == [pnode, snode]
             then return [snode] -- only the new secondary is needed
             else fail $ "Internal error: inconsistent node list (" ++
                  show nodes ++ ") versus instance nodes (" ++ show pnode ++
                  "," ++ show snode ++ ")"
+      MirrorExternal ->
+        do
+          when (pnode == porig) $
+               fail "Internal error: instance didn't change primary node?!"
+          if nodes == [pnode]
+            then return nodes
+            else fail $ "Internal error: inconsistent node list (" ++
+                 show nodes ++ ") versus instance node (" ++ show pnode ++ ")"
   return (nl', il', nodes')
 
 processRelocate _ _ _ _ reqn _ =
@@ -299,53 +324,52 @@ processRelocate _ _ _ _ reqn _ =
 formatRelocate :: (Node.List, Instance.List, [Ndx])
                -> Result IAllocResult
 formatRelocate (nl, il, ndxs) =
-    let nodes = map (`Container.find` nl) ndxs
-        names = map Node.name nodes
-    in Ok ("success", showJSON names, nl, il)
+  let nodes = map (`Container.find` nl) ndxs
+      names = map Node.name nodes
+  in Ok ("success", showJSON names, nl, il)
 
 -- | Process a request and return new node lists.
 processRequest :: Request -> Result IAllocResult
 processRequest request =
-  let Request rqtype (ClusterData gl nl il _) = request
+  let Request rqtype (ClusterData gl nl il _ _) = request
   in case rqtype of
        Allocate xi reqn ->
-           Cluster.tryMGAlloc gl nl il xi reqn >>= formatAllocate il
+         Cluster.tryMGAlloc gl nl il xi reqn >>= formatAllocate il
        Relocate idx reqn exnodes ->
-           processRelocate gl nl il idx reqn exnodes >>= formatRelocate
+         processRelocate gl nl il idx reqn exnodes >>= formatRelocate
        ChangeGroup gdxs idxs ->
-           Cluster.tryChangeGroup gl nl il idxs gdxs >>=
-                  formatNodeEvac gl nl il
+         Cluster.tryChangeGroup gl nl il idxs gdxs >>=
+                formatNodeEvac gl nl il
        NodeEvacuate xi mode ->
-           Cluster.tryNodeEvac gl nl il mode xi >>=
-                  formatNodeEvac gl nl il
+         Cluster.tryNodeEvac gl nl il mode xi >>=
+                formatNodeEvac gl nl il
 
 -- | Reads the request from the data file(s).
-readRequest :: Options -> [String] -> IO Request
-readRequest opts args = do
-  when (null args) $ do
-         hPutStrLn stderr "Error: this program needs an input file."
-         exitWith $ ExitFailure 1
-
-  input_data <- readFile (head args)
-  r1 <- case parseData input_data of
-          Bad err -> do
-            hPutStrLn stderr $ "Error: " ++ err
-            exitWith $ ExitFailure 1
-          Ok (fix_msgs, rq) -> maybeShowWarnings fix_msgs >> return rq
-  (if isJust (optDataFile opts) ||  (not . null . optNodeSim) opts
-   then do
-     cdata <- loadExternalData opts
-     let Request rqt _ = r1
-     return $ Request rqt cdata
-   else return r1)
+readRequest :: FilePath -> IO Request
+readRequest fp = do
+  input_data <- case fp of
+                  "-" -> getContents
+                  _   -> readFile fp
+  case parseData input_data of
+    Bad err -> do
+      hPutStrLn stderr $ "Error: " ++ err
+      exitWith $ ExitFailure 1
+    Ok (fix_msgs, rq) -> maybeShowWarnings fix_msgs >> return rq
 
 -- | Main iallocator pipeline.
 runIAllocator :: Request -> (Maybe (Node.List, Instance.List), String)
 runIAllocator request =
   let (ok, info, result, cdata) =
-          case processRequest request of
-            Ok (msg, r, nl, il) -> (True, "Request successful: " ++ msg, r,
-                                    Just (nl, il))
-            Bad msg -> (False, "Request failed: " ++ msg, JSArray [], Nothing)
+        case processRequest request of
+          Ok (msg, r, nl, il) -> (True, "Request successful: " ++ msg, r,
+                                  Just (nl, il))
+          Bad msg -> (False, "Request failed: " ++ msg, JSArray [], Nothing)
       rstring = formatResponse ok info result
   in (cdata, rstring)
+
+-- | Load the data from an iallocation request file
+loadData :: FilePath -- ^ The path to the file
+         -> IO (Result ClusterData)
+loadData fp = do
+  Request _ cdata <- readRequest fp
+  return $ Ok cdata

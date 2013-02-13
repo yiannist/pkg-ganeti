@@ -19,6 +19,9 @@ state and the request details, and output (on stdout) a
 JSON-formatted response. In case of critical failures, the error
 message is printed on stderr and the exit code is changed to show
 failure.
+.PP
+If the input file name is \f[B]-\f[] (a single minus sign), then
+the request data will be read from \f[I]stdin\f[].
 .SS ALGORITHM
 .PP
 The program uses a simplified version of the hbal algorithm.
@@ -66,13 +69,15 @@ about this option.
 .B -t \f[I]datafile\f[], --text-data=\f[I]datafile\f[]
 The name of the file holding cluster information, to override the
 data in the JSON request itself. This is mostly used for debugging.
+The format of the file is described in the man page
+\f[B]htools\f[](1).
 .RS
 .RE
 .TP
 .B --simulate \f[I]description\f[]
-Similar to the \f[B]-t\f[] option, this allows overriding the
-cluster data with a simulated cluster. For details about the
-description, see the man page \f[B]hspace\f[](1).
+Backend specification: similar to the \f[B]-t\f[] option, this
+allows overriding the cluster data with a simulated cluster. For
+details about the description, see the man page \f[B]htools\f[](1).
 .RS
 .RE
 .TP
@@ -81,7 +86,7 @@ If given, the state of the cluster before and the iallocator run is
 saved to a file named \f[I]filename.pre-ialloc\f[], respectively
 \f[I]filename.post-ialloc\f[].
 This allows re-feeding the cluster state to any of the htools
-utilities.
+utilities via the \f[B]-t\f[] option.
 .RS
 .RE
 .TP
@@ -141,10 +146,11 @@ restarter), \f[B]ganeti-cleaner\f[](8) (job queue cleaner),
 Ganeti htools: \f[B]htools\f[](1) (generic binary),
 \f[B]hbal\f[](1) (cluster balancer), \f[B]hspace\f[](1) (capacity
 calculation), \f[B]hail\f[](1) (IAllocator plugin),
-\f[B]hscan\f[](1) (data gatherer from remote clusters).
+\f[B]hscan\f[](1) (data gatherer from remote clusters),
+\f[B]hinfo\f[](1) (cluster information printer).
 .SH COPYRIGHT
 .PP
-Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Google Inc.
+Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012 Google Inc.
 Permission is granted to copy, distribute and/or modify under the
 terms of the GNU General Public License as published by the Free
 Software Foundation; either version 2 of the License, or (at your

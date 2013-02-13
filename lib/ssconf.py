@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2008, 2010 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2010, 2011, 2012 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -152,6 +152,9 @@ class SimpleConfigReader(object):
   def GetMasterNetdev(self):
     return self._config_data["cluster"]["master_netdev"]
 
+  def GetMasterNetmask(self):
+    return self._config_data["cluster"]["master_netmask"]
+
   def GetFileStorageDir(self):
     return self._config_data["cluster"]["file_storage_dir"]
 
@@ -270,7 +273,6 @@ class SimpleStore(object):
     - keys are restricted to predefined values
 
   """
-  _SS_FILEPREFIX = "ssconf_"
   _VALID_KEYS = (
     constants.SS_CLUSTER_NAME,
     constants.SS_CLUSTER_TAGS,
@@ -280,6 +282,7 @@ class SimpleStore(object):
     constants.SS_MASTER_CANDIDATES_IPS,
     constants.SS_MASTER_IP,
     constants.SS_MASTER_NETDEV,
+    constants.SS_MASTER_NETMASK,
     constants.SS_MASTER_NODE,
     constants.SS_NODE_LIST,
     constants.SS_NODE_PRIMARY_IPS,
@@ -310,7 +313,7 @@ class SimpleStore(object):
       raise errors.ProgrammerError("Invalid key requested from SSConf: '%s'"
                                    % str(key))
 
-    filename = self._cfg_dir + "/" + self._SS_FILEPREFIX + key
+    filename = self._cfg_dir + "/" + constants.SSCONF_FILEPREFIX + key
     return filename
 
   def _ReadFile(self, key, default=None):
@@ -407,6 +410,17 @@ class SimpleStore(object):
 
     """
     return self._ReadFile(constants.SS_MASTER_NETDEV)
+
+  def GetMasterNetmask(self):
+    """Get the master netmask.
+
+    """
+    try:
+      return self._ReadFile(constants.SS_MASTER_NETMASK)
+    except errors.ConfigurationError:
+      family = self.GetPrimaryIPFamily()
+      ipcls = netutils.IPAddress.GetClassFromIpFamily(family)
+      return ipcls.iplen
 
   def GetMasterNode(self):
     """Get the hostname of the master node for this cluster.

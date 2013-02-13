@@ -1,7 +1,7 @@
 #!/usr/bin/python
 #
 
-# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -124,6 +124,14 @@ OPTIONS = [
   cli.cli_option("--disk-growth", dest="disk_growth", help="Disk growth",
                  default="128m", type="string", metavar="<size,size,...>"),
   cli.cli_option("--mem-size", dest="mem_size", help="Memory size",
+                 default=None, type="unit", metavar="<size>",
+                 completion_suggest=("128M 256M 512M 1G 4G 8G"
+                                     " 12G 16G").split()),
+  cli.cli_option("--maxmem-size", dest="maxmem_size", help="Max Memory size",
+                 default=256, type="unit", metavar="<size>",
+                 completion_suggest=("128M 256M 512M 1G 4G 8G"
+                                     " 12G 16G").split()),
+  cli.cli_option("--minmem-size", dest="minmem_size", help="Min Memory size",
                  default=128, type="unit", metavar="<size>",
                  completion_suggest=("128M 256M 512M 1G 4G 8G"
                                      " 12G 16G").split()),
@@ -178,7 +186,7 @@ OPTIONS = [
                  const=[], default=[{}]),
   cli.cli_option("--no-confd", dest="do_confd_tests",
                  help="Skip confd queries",
-                 action="store_false", default=True),
+                 action="store_false", default=constants.ENABLE_CONFD),
   cli.cli_option("--rename", dest="rename", default=None,
                  help=("Give one unused instance name which is taken"
                        " to start the renaming sequence"),
@@ -442,11 +450,19 @@ class Burner(object):
     if len(args) < 1 or options.os is None:
       Usage()
 
+    if options.mem_size:
+      options.maxmem_size = options.mem_size
+      options.minmem_size = options.mem_size
+    elif options.minmem_size > options.maxmem_size:
+      Err("Maximum memory lower than minimum memory")
+
     supported_disk_templates = (constants.DT_DISKLESS,
                                 constants.DT_FILE,
                                 constants.DT_SHARED_FILE,
                                 constants.DT_PLAIN,
-                                constants.DT_DRBD8)
+                                constants.DT_DRBD8,
+                                constants.DT_RBD,
+                                )
     if options.disk_template not in supported_disk_templates:
       Err("Unknown disk template '%s'" % options.disk_template)
 
@@ -476,7 +492,8 @@ class Burner(object):
     self.opts = options
     self.instances = args
     self.bep = {
-      constants.BE_MEMORY: options.mem_size,
+      constants.BE_MINMEM: options.minmem_size,
+      constants.BE_MAXMEM: options.maxmem_size,
       constants.BE_VCPUS: options.vcpu_count,
       }
 
@@ -587,6 +604,18 @@ class Burner(object):
                                     )
       remove_instance = lambda name: lambda: self.to_rem.append(name)
       self.ExecOrQueue(instance, [op], post_process=remove_instance(instance))
+
+  @_DoBatch(False)
+  def BurnModifyRuntimeMemory(self):
+    """Alter the runtime memory."""
+    Log("Setting instance runtime memory")
+    for instance in self.instances:
+      Log("instance %s", instance, indent=1)
+      tgt_mem = self.bep[constants.BE_MINMEM]
+      op = opcodes.OpInstanceSetParams(instance_name=instance,
+                                       runtime_mem=tgt_mem)
+      Log("Set memory to %s MB", tgt_mem, indent=2)
+      self.ExecOrQueue(instance, [op])
 
   @_DoBatch(False)
   def BurnGrowDisks(self):
@@ -876,17 +905,21 @@ class Burner(object):
 
   @_DoBatch(False)
   def BurnAddRemoveNICs(self):
-    """Add and remove an extra NIC for the instances."""
+    """Add, change and remove an extra NIC for the instances."""
     Log("Adding and removing NICs")
     for instance in self.instances:
       Log("instance %s", instance, indent=1)
       op_add = opcodes.OpInstanceSetParams(\
         instance_name=instance, nics=[(constants.DDM_ADD, {})])
+      op_chg = opcodes.OpInstanceSetParams(\
+        instance_name=instance, nics=[(constants.DDM_MODIFY,
+                                       -1, {"mac": constants.VALUE_GENERATE})])
       op_rem = opcodes.OpInstanceSetParams(\
         instance_name=instance, nics=[(constants.DDM_REMOVE, {})])
       Log("adding a NIC", indent=2)
+      Log("changing a NIC", indent=2)
       Log("removing last NIC", indent=2)
-      self.ExecOrQueue(instance, [op_add, op_rem])
+      self.ExecOrQueue(instance, [op_add, op_chg, op_rem])
 
   def ConfdCallback(self, reply):
     """Callback for confd queries"""
@@ -991,9 +1024,16 @@ class Burner(object):
       Err("When one node is available/selected the disk template must"
           " be 'diskless', 'file' or 'plain'")
 
+    if opts.do_confd_tests and not constants.ENABLE_CONFD:
+      Err("You selected confd tests but confd was disabled at configure time")
+
     has_err = True
     try:
       self.BurnCreateInstances()
+
+      if self.bep[constants.BE_MINMEM] < self.bep[constants.BE_MAXMEM]:
+        self.BurnModifyRuntimeMemory()
+
       if opts.do_replace1 and opts.disk_template in constants.DTS_INT_MIRROR:
         self.BurnReplaceDisks1D8()
       if (opts.do_replace2 and len(self.nodes) > 2 and

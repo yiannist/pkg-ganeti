@@ -60,7 +60,7 @@
   ><p
   ><strong
     >modify</strong
-    > [-H <em
+    > [--submit] [-H <em
     >HYPERVISOR</em
     >:option=<em
     >value</em
@@ -95,6 +95,12 @@
   >Note: The given operating system doesn't have to exists. This allows preseeding the settings for operating systems not yet known to <strong
     >gnt-os</strong
     >.</p
+  ><p
+  >See <strong
+    >ganeti(7)</strong
+    > for a description of <code
+    >--submit</code
+    > and other common options.</p
   ></div
 >
 <div id="reporting-bugs"
@@ -157,13 +163,15 @@
     >hail</strong
     >(1) (IAllocator plugin), <strong
     >hscan</strong
-    >(1) (data gatherer from remote clusters).</p
+    >(1) (data gatherer from remote clusters), <strong
+    >hinfo</strong
+    >(1) (cluster information printer).</p
   ></div
 ><div id="copyright"
 ><h1
   >COPYRIGHT</h1
   ><p
-  >Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Google Inc. Permission is granted to copy, distribute and/or modify under the terms of the GNU General Public License as published by the Free Software Foundation; either version 2 of the License, or (at your option) any later version.</p
+  >Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012 Google Inc. Permission is granted to copy, distribute and/or modify under the terms of the GNU General Public License as published by the Free Software Foundation; either version 2 of the License, or (at your option) any later version.</p
   ><p
   >On Debian systems, the complete text of the GNU General Public License can be found in /usr/share/common-licenses/GPL.</p
   ></div

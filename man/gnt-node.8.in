@@ -32,6 +32,16 @@ the Ganeti system.
 .PD 0
 .P
 .PD
+[--disk-state
+\f[I]diskstate\f[]]
+.PD 0
+.P
+.PD
+[--hypervisor-state
+\f[I]hvstate\f[]]
+.PD 0
+.P
+.PD
 {\f[I]nodename\f[]}
 .PP
 Adds the given node to the cluster.
@@ -64,9 +74,17 @@ into a specific node group, specified by UUID or name. If only one
 node group exists you can skip this option, otherwise it\[aq]s
 mandatory.
 .PP
-The \f[B]vm_capable\f[], \f[B]master_capable\f[] and
-\f[B]ndparams\f[] options are described in \f[B]ganeti\f[](7), and
-are used to set the properties of the new node.
+The \f[B]vm_capable\f[], \f[B]master_capable\f[],
+\f[B]ndparams\f[], \f[B]diskstate\f[] and \f[B]hvstate\f[] options
+are described in \f[B]ganeti\f[](7), and are used to set the
+properties of the new node.
+.PP
+The command performs some operations that change the state of the
+master and the new node, like copying certificates and starting the
+node daemon on the new node, or updating \f[B]/etc/hosts\f[] on the
+master node. If the command fails at a later stage, it doesn\[aq]t
+undo such changes. This should not be a problem, as a successful
+run of \f[B]gnt-node\ add\f[] will bring everything back in sync.
 .PP
 Example:
 .PP
@@ -90,10 +108,23 @@ In this case, there is not need to pass tags on the command line
 interpreted as stdin.
 .SS EVACUATE
 .PP
-\f[B]evacuate\f[] [-f] [--early-release] [--iallocator
-\f[I]NAME\f[] | --new-secondary \f[I]destination_node\f[]]
-[--primary-only | --secondary-only] [--early-release]
-{\f[I]node\f[]}
+\f[B]evacuate\f[] [-f] [--early-release]
+[--submit]
+.PD 0
+.P
+.PD
+[{-I|--iallocator} \f[I]NAME\f[] |
+{-n|--new-secondary}
+\f[I]destination_node\f[]]
+.PD 0
+.P
+.PD
+[{-p|--primary-only} |
+{-s|--secondary-only} ]
+.PD 0
+.P
+.PD
+ {\f[I]node\f[]}
 .PP
 This command will move instances away from the given node. If
 \f[B]--primary-only\f[] is given, only primary instances are
@@ -136,6 +167,9 @@ mode (only valid for DRBD instances)
 .IP \[bu] 2
 when neither of the above is done a combination of the two cases is
 run
+.PP
+See \f[B]ganeti(7)\f[] for a description of \f[B]--submit\f[] and
+other common options.
 .PP
 Example:
 .PP
@@ -249,6 +283,11 @@ Available disk space in volume group
 .RS
 .RE
 .TP
+.B \f[B]disk_state\f[]
+Disk state
+.RS
+.RE
+.TP
 .B \f[B]drained\f[]
 Whether node is drained
 .RS
@@ -266,6 +305,11 @@ Node group
 .TP
 .B \f[B]group.uuid\f[]
 UUID of node group
+.RS
+.RE
+.TP
+.B \f[B]hv_state\f[]
+Hypervisor state
 .RS
 .RE
 .TP
@@ -306,6 +350,16 @@ Total amount of memory of physical machine
 .TP
 .B \f[B]name\f[]
 Node name
+.RS
+.RE
+.TP
+.B \f[B]ndp/oob_program\f[]
+The "oob_program" node parameter
+.RS
+.RE
+.TP
+.B \f[B]ndp/spindle_count\f[]
+The "spindle_count" node parameter
 .RS
 .RE
 .TP
@@ -408,6 +462,56 @@ argument to be treated as a filter (e.g.
 .PP
 If no node names are given, then all nodes are queried. Otherwise,
 only the given nodes will be listed.
+.SS LIST-DRBD
+.PP
+\f[B]list-drbd\f[] [--no-headers] [--separator=\f[I]SEPARATOR\f[]]
+node
+.PP
+Lists the mapping of DRBD minors for a given node. This outputs a
+static list of fields (it doesn\[aq]t accept the \f[B]--output\f[]
+option), as follows:
+.TP
+.B \f[B]Node\f[]
+The (full) name of the node we are querying
+.RS
+.RE
+.TP
+.B \f[B]Minor\f[]
+The DRBD minor
+.RS
+.RE
+.TP
+.B \f[B]Instance\f[]
+The instance the DRBD minor belongs to
+.RS
+.RE
+.TP
+.B \f[B]Disk\f[]
+The disk index that the DRBD minor belongs to
+.RS
+.RE
+.TP
+.B \f[B]Role\f[]
+Either \f[B]primary\f[] or \f[B]secondary\f[], denoting the role of
+the node for the instance (note: this is not the live status of the
+DRBD device, but the configuration value)
+.RS
+.RE
+.TP
+.B \f[B]PeerNode\f[]
+The node that the minor is connected to on the other end
+.RS
+.RE
+.PP
+This command can be used as a reverse lookup (from node and minor)
+to a given instance, which can be useful when debugging DRBD
+issues.
+.PP
+Note that this command queries Ganeti via
+:manpage:`ganeti-confd(8)`, so it won\[aq]t be available if support
+for \f[B]confd\f[] has not been enabled at build time; furthermore,
+in Ganeti 2.6 this is only available via the Haskell version of
+confd (again selected at build time).
 .SS LIST-FIELDS
 .PP
 \f[B]list-fields\f[] [field...]
@@ -420,16 +524,28 @@ Lists available fields for nodes.
 List the tags of the given node.
 .SS MIGRATE
 .PP
-\f[B]migrate\f[] [-f] [--non-live] [--migration-mode=live|non-live]
-{\f[I]node\f[]}
+\f[B]migrate\f[] [-f] [--non-live]
+[--migration-mode=live|non-live]
+.PD 0
+.P
+.PD
+[--ignore-ipolicy]
+[--submit] {\f[I]node\f[]}
 .PP
 This command will migrate all instances having the given node as
 primary to their secondary nodes. This works only for instances
 having a drbd disk template.
 .PP
 As for the \f[B]gnt-instance migrate\f[] command, the options
-\f[B]--no-live\f[] and \f[B]--migration-mode\f[] can be given to
-influence the migration type.
+\f[B]--no-live\f[], \f[B]--migration-mode\f[] and
+\f[B]--no-runtime-changes\f[] can be given to influence the
+migration type.
+.PP
+If \f[B]--ignore-ipolicy\f[] is given any instance policy
+violations occuring during this operation are ignored.
+.PP
+See \f[B]ganeti(7)\f[] for a description of \f[B]--submit\f[] and
+other common options.
 .PP
 Example:
 .PP
@@ -474,12 +590,22 @@ Example:
 .PD 0
 .P
 .PD
+[--hypervisor-state
+\f[I]hvstate\f[]]
+.PD 0
+.P
+.PD
+[--disk-state
+\f[I]diskstate\f[]]
+.PD 0
+.P
+.PD
 {\f[I]node\f[]}
 .PP
 This command changes the role of the node. Each options takes
 either a literal yes or no, and only one option should be given as
 yes. The meaning of the roles and flags are described in the
-manpage \f[B]ganeti\f[](7).
+manpage \f[B]ganeti(7)\f[].
 .PP
 The option \f[B]--node-powered\f[] can be used to modify
 state-of-record if it doesn\[aq]t reflect the reality anymore.
@@ -503,6 +629,9 @@ candidate role if is in that role):
 The \f[B]-s\ (--secondary-ip)\f[] option can be used to change the
 node\[aq]s secondary ip. No drbd instances can be running on the
 node, while this operation is taking place.
+.PP
+See \f[B]ganeti(7)\f[] for a description of \f[B]--submit\f[] and
+other common options.
 .PP
 Example (setting the node back to online and master candidate):
 .PP
@@ -702,8 +831,13 @@ Example:
 \f[]
 .SS MODIFY-STORAGE
 .PP
-\f[B]modify-storage\f[] [\f[B]--allocatable=yes|no\f[]]
-{\f[I]node\f[]} {\f[I]storage-type\f[]} {\f[I]volume-name\f[]}
+\f[B]modify-storage\f[] [--allocatable={yes|no}]
+[--submit]
+.PD 0
+.P
+.PD
+{\f[I]node\f[]} {\f[I]storage-type\f[]}
+{\f[I]volume-name\f[]}
 .PP
 Modifies storage volumes on a node. Only LVM physical volumes can
 be modified at the moment. They have a storage type of "lvm-pv".
@@ -715,14 +849,19 @@ Example:
 \f[]
 .SS REPAIR-STORAGE
 .PP
-\f[B]repair-storage\f[] [--ignore-consistency] {\f[I]node\f[]}
-{\f[I]storage-type\f[]} {\f[I]volume-name\f[]}
+\f[B]repair-storage\f[] [--ignore-consistency]
+]--submit]
+.PD 0
+.P
+.PD
+{\f[I]node\f[]} {\f[I]storage-type\f[]}
+{\f[I]volume-name\f[]}
 .PP
 Repairs a storage volume on a node. Only LVM volume groups can be
 repaired at this time. They have the storage type "lvm-vg".
 .PP
-On LVM volume groups, \f[B]repair-storage\f[] runs "vgreduce
---removemissing".
+On LVM volume groups, \f[B]repair-storage\f[] runs
+\f[B]vgreduce\ --removemissing\f[].
 .PP
 \f[B]Caution:\f[] Running this command can lead to data loss. Use
 it with care.
@@ -738,22 +877,24 @@ Example:
 \f[]
 .SS POWERCYCLE
 .PP
-\f[B]powercycle\f[] [\f[B]--yes\f[]] [\f[B]--force\f[]]
-{\f[I]node\f[]}
+\f[B]powercycle\f[] [--yes] [--force] [--submit] {\f[I]node\f[]}
 .PP
 This command (tries to) forcefully reboot a node. It is a command
-that can be used if the node environemnt is broken, such that the
-admin can no longer login over ssh, but the Ganeti node daemon is
+that can be used if the node environment is broken, such that the
+admin can no longer login over SSH, but the Ganeti node daemon is
 still working.
 .PP
 Note that this command is not guaranteed to work; it depends on the
 hypervisor how effective is the reboot attempt. For Linux, this
-command require that the kernel option CONFIG_MAGIC_SYSRQ is
-enabled.
+command requires the kernel option \f[B]CONFIG_MAGIC_SYSRQ\f[] to
+be enabled.
 .PP
 The \f[B]--yes\f[] option can be used to skip confirmation, while
 the \f[B]--force\f[] option is needed if the target node is the
 master node.
+.PP
+See \f[B]ganeti(7)\f[] for a description of \f[B]--submit\f[] and
+other common options.
 .SS POWER
 .PP
 \f[B]power\f[] [\f[B]--force\f[]] [\f[B]--ignore-status\f[]]
@@ -825,10 +966,11 @@ restarter), \f[B]ganeti-cleaner\f[](8) (job queue cleaner),
 Ganeti htools: \f[B]htools\f[](1) (generic binary),
 \f[B]hbal\f[](1) (cluster balancer), \f[B]hspace\f[](1) (capacity
 calculation), \f[B]hail\f[](1) (IAllocator plugin),
-\f[B]hscan\f[](1) (data gatherer from remote clusters).
+\f[B]hscan\f[](1) (data gatherer from remote clusters),
+\f[B]hinfo\f[](1) (cluster information printer).
 .SH COPYRIGHT
 .PP
-Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Google Inc.
+Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012 Google Inc.
 Permission is granted to copy, distribute and/or modify under the
 terms of the GNU General Public License as published by the Free
 Software Foundation; either version 2 of the License, or (at your

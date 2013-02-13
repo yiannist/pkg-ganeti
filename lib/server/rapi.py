@@ -64,68 +64,40 @@ class RemoteApiRequestContext(object):
     self.body_data = None
 
 
-class JsonErrorRequestExecutor(http.server.HttpServerRequestExecutor):
-  """Custom Request Executor class that formats HTTP errors in JSON.
-
-  """
-  error_content_type = http.HTTP_APP_JSON
-
-  def _FormatErrorMessage(self, values):
-    """Formats the body of an error message.
-
-    @type values: dict
-    @param values: dictionary with keys code, message and explain.
-    @rtype: string
-    @return: the body of the message
-
-    """
-    return serializer.DumpJson(values, indent=True)
-
-
-class RemoteApiHttpServer(http.auth.HttpServerRequestAuthentication,
-                          http.server.HttpServer):
+class RemoteApiHandler(http.auth.HttpServerRequestAuthentication,
+                       http.server.HttpServerHandler):
   """REST Request Handler Class.
 
   """
   AUTH_REALM = "Ganeti Remote API"
 
-  def __init__(self, *args, **kwargs):
-    # pylint: disable=W0233
-    # it seems pylint doesn't see the second parent class there
-    http.server.HttpServer.__init__(self, *args, **kwargs)
-    http.auth.HttpServerRequestAuthentication.__init__(self)
-    self._resmap = connector.Mapper()
-    self._users = None
+  def __init__(self, user_fn, _client_cls=None):
+    """Initializes this class.
 
-  def LoadUsers(self, filename):
-    """Loads a file containing users and passwords.
-
-    @type filename: string
-    @param filename: Path to file
+    @type user_fn: callable
+    @param user_fn: Function receiving username as string and returning
+      L{http.auth.PasswordFileUser} or C{None} if user is not found
 
     """
-    logging.info("Reading users file at %s", filename)
-    try:
-      try:
-        contents = utils.ReadFile(filename)
-      except EnvironmentError, err:
-        self._users = None
-        if err.errno == errno.ENOENT:
-          logging.warning("No users file at %s", filename)
-        else:
-          logging.warning("Error while reading %s: %s", filename, err)
-        return False
+    # pylint: disable=W0233
+    # it seems pylint doesn't see the second parent class there
+    http.server.HttpServerHandler.__init__(self)
+    http.auth.HttpServerRequestAuthentication.__init__(self)
+    self._client_cls = _client_cls
+    self._resmap = connector.Mapper()
+    self._user_fn = user_fn
 
-      users = http.auth.ParsePasswordFile(contents)
+  @staticmethod
+  def FormatErrorMessage(values):
+    """Formats the body of an error message.
 
-    except Exception, err: # pylint: disable=W0703
-      # We don't care about the type of exception
-      logging.error("Error while parsing %s: %s", filename, err)
-      return False
+    @type values: dict
+    @param values: dictionary with keys C{code}, C{message} and C{explain}.
+    @rtype: tuple; (string, string)
+    @return: Content-type and response body
 
-    self._users = users
-
-    return True
+    """
+    return (http.HTTP_APP_JSON, serializer.DumpJson(values))
 
   def _GetRequestContext(self, req):
     """Returns the context for a request.
@@ -138,7 +110,7 @@ class RemoteApiHttpServer(http.auth.HttpServerRequestAuthentication,
                      self._resmap.getController(req.request_path)
 
       ctx = RemoteApiRequestContext()
-      ctx.handler = HandlerClass(items, args, req)
+      ctx.handler = HandlerClass(items, args, req, _client_cls=self._client_cls)
 
       method = req.request_method.upper()
       try:
@@ -177,15 +149,10 @@ class RemoteApiHttpServer(http.auth.HttpServerRequestAuthentication,
     """
     ctx = self._GetRequestContext(req)
 
-    # Check username and password
-    valid_user = False
-    if self._users:
-      user = self._users.get(username, None)
-      if user and self.VerifyBasicAuthPassword(req, username, password,
-                                               user.password):
-        valid_user = True
-
-    if not valid_user:
+    user = self._user_fn(username)
+    if not (user and
+            self.VerifyBasicAuthPassword(req, username, password,
+                                         user.password)):
       # Unknown user or password wrong
       return False
 
@@ -227,14 +194,57 @@ class RemoteApiHttpServer(http.auth.HttpServerRequestAuthentication,
       raise http.HttpGatewayTimeout()
     except luxi.ProtocolError, err:
       raise http.HttpBadGateway(str(err))
-    except:
-      method = req.request_method.upper()
-      logging.exception("Error while handling the %s request", method)
-      raise
 
     req.resp_headers[http.HTTP_CONTENT_TYPE] = http.HTTP_APP_JSON
 
     return serializer.DumpJson(result)
+
+
+class RapiUsers:
+  def __init__(self):
+    """Initializes this class.
+
+    """
+    self._users = None
+
+  def Get(self, username):
+    """Checks whether a user exists.
+
+    """
+    if self._users:
+      return self._users.get(username, None)
+    else:
+      return None
+
+  def Load(self, filename):
+    """Loads a file containing users and passwords.
+
+    @type filename: string
+    @param filename: Path to file
+
+    """
+    logging.info("Reading users file at %s", filename)
+    try:
+      try:
+        contents = utils.ReadFile(filename)
+      except EnvironmentError, err:
+        self._users = None
+        if err.errno == errno.ENOENT:
+          logging.warning("No users file at %s", filename)
+        else:
+          logging.warning("Error while reading %s: %s", filename, err)
+        return False
+
+      users = http.auth.ParsePasswordFile(contents)
+
+    except Exception, err: # pylint: disable=W0703
+      # We don't care about the type of exception
+      logging.error("Error while parsing %s: %s", filename, err)
+      return False
+
+    self._users = users
+
+    return True
 
 
 class FileEventHandler(asyncnotifier.FileEventHandlerBase):
@@ -308,21 +318,21 @@ def PrepRapi(options, _):
   """Prep remote API function, executed with the PID file held.
 
   """
-
   mainloop = daemon.Mainloop()
-  server = RemoteApiHttpServer(mainloop, options.bind_address, options.port,
-                               ssl_params=options.ssl_params,
-                               ssl_verify_peer=False,
-                               request_executor_class=JsonErrorRequestExecutor)
+
+  users = RapiUsers()
+
+  handler = RemoteApiHandler(users.Get)
 
   # Setup file watcher (it'll be driven by asyncore)
   SetupFileWatcher(constants.RAPI_USERS_FILE,
-                   compat.partial(server.LoadUsers, constants.RAPI_USERS_FILE))
+                   compat.partial(users.Load, constants.RAPI_USERS_FILE))
 
-  server.LoadUsers(constants.RAPI_USERS_FILE)
+  users.Load(constants.RAPI_USERS_FILE)
 
-  # pylint: disable=E1101
-  # it seems pylint doesn't see the second parent class there
+  server = \
+    http.server.HttpServer(mainloop, options.bind_address, options.port,
+      handler, ssl_params=options.ssl_params, ssl_verify_peer=False)
   server.Start()
 
   return (mainloop, server)
