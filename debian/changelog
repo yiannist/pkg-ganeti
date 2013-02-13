@@ -1,3 +1,11 @@
+ganeti (2.6.2-1) experimental; urgency=low
+
+  * New upstream version (skipped 2.6.0/2.6.1 due to Wheezy freeze)
+  * Uploading to experimental in order to avoid potential problems when
+    updating the Wheezy package (which is 2.5.2-based)
+
+ -- Iustin Pop <iustin@debian.org>  Wed, 13 Feb 2013 10:22:16 +0100
+
 ganeti (2.5.2-1) unstable; urgency=low
 
   * New upstream bug-fix version
