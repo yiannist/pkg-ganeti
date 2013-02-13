@@ -448,7 +448,7 @@ fields from this set are selected), whereas the other fields are
 .PP
 Depending on the virtualization type and implementation details,
 the \f[B]mtotal\f[], \f[B]mnode\f[] and \f[B]mfree\f[] fields may
-have slighly varying meanings. For example, some solutions share
+have slightly varying meanings. For example, some solutions share
 the node memory with the pool of memory used for instances (KVM),
 whereas others have separate memory for the node and for the
 instances (Xen).
@@ -542,7 +542,7 @@ As for the \f[B]gnt-instance migrate\f[] command, the options
 migration type.
 .PP
 If \f[B]--ignore-ipolicy\f[] is given any instance policy
-violations occuring during this operation are ignored.
+violations occurring during this operation are ignored.
 .PP
 See \f[B]ganeti(7)\f[] for a description of \f[B]--submit\f[] and
 other common options.
@@ -903,7 +903,7 @@ other common options.
 .PP
 This command calls out to out-of-band management to change the
 power state of given node. With \f[B]status\f[] you get the power
-status as reported by the out-of-band managment script.
+status as reported by the out-of-band management script.
 .PP
 Note that this command will only work if the out-of-band
 functionality is configured and enabled on the cluster. If this is

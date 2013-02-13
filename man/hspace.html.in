@@ -194,7 +194,7 @@
     >INI_MEM_OVERHEAD, FIN_MEM_OVERHEAD</dt
     ><dd
     ><p
-      >The initial and final memory overhead, i.e. memory used for the node itself and unacounted memory (e.g. due to hypervisor overhead).</p
+      >The initial and final memory overhead, i.e. memory used for the node itself and unaccounted memory (e.g. due to hypervisor overhead).</p
       ></dd
     ><dt
     >INI_MEM_EFF, HTS_INI_MEM_EFF</dt

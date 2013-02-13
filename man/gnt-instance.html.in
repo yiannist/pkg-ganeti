@@ -140,7 +140,7 @@
 	>--no-ip-check</code
 	> option.</p
       ><p
-      >If you don't wat the instance to automatically start after creation, this is possible via the <code
+      >If you don't want the instance to automatically start after creation, this is possible via the <code
 	>--no-start</code
 	> option. This will leave the instance down until a subsequent <strong
 	>gnt-instance start</strong
@@ -376,7 +376,7 @@
 	><p
 	  >Valid for the KVM hypervisor.</p
 	  ><p
-	  >This parameter determines the way the cdroms disks are presented to the instance. The default behavior is to get the same value of the eariler parameter (disk_type). The possible options are:</p
+	  >This parameter determines the way the cdroms disks are presented to the instance. The default behavior is to get the same value of the earlier parameter (disk_type). The possible options are:</p
 	  ><ul
 	  ><li
 	    >paravirtual</li
@@ -718,7 +718,7 @@
 	><p
 	  >Valid for the KVM hypervisor.</p
 	  ><p
-	  >This boolean option determines wether to run the KVM instance in a chroot directory.</p
+	  >This boolean option determines whether to run the KVM instance in a chroot directory.</p
 	  ><p
 	  >If it is set to <code
 	    >true</code
@@ -967,7 +967,7 @@ gnt-instance modify -H cpu_mask=all my-inst
 	>mac, ip, mode, link</dt
 	><dd
 	><p
-	  >Specifications for the one NIC that will be created for the instance. 'bridge' is also accepted as a backwards compatibile key.</p
+	  >Specifications for the one NIC that will be created for the instance. 'bridge' is also accepted as a backwards compatible key.</p
 	  ></dd
 	><dt
 	>nics</dt
@@ -3095,7 +3095,7 @@ instance5: 11225
 	>replace-disks</strong
 	> [--submit] [--early-release] [--ignore-ipolicy] {{-I|--iallocator} <em
 	>name</em
-	> | --node <em
+	> | {{-n|--new-secondary} <em
 	>node</em
 	> } {<em
 	>instance</em
@@ -3103,7 +3103,7 @@ instance5: 11225
       ><p
       ><strong
 	>replace-disks</strong
-	> [--submit] [--early-release] [--ignore-ipolicy] {--auto} {<em
+	> [--submit] [--early-release] [--ignore-ipolicy] {-a|--auto} {<em
 	>instance</em
 	>}</p
       ><p
@@ -3451,7 +3451,7 @@ node1.example.com:disk/1:/dev/drbd1
       ><p
       >If the <code
 	>--cleanup</code
-	> option is passed, the operation changes from migration to attempting recovery from a failed previous migration. In this mode, Ganeti checks if the instance runs on the correct node (and updates its configuration if not) and ensures the instances's disks are configured correctly. In this mode, the <code
+	> option is passed, the operation changes from migration to attempting recovery from a failed previous migration. In this mode, Ganeti checks if the instance runs on the correct node (and updates its configuration if not) and ensures the instances' disks are configured correctly. In this mode, the <code
 	>--non-live</code
 	> option is ignored.</p
       ><p
@@ -3470,6 +3470,10 @@ node1.example.com:disk/1:/dev/drbd1
       >The <code
 	>--no-runtime-changes</code
 	> option forbids migrate to alter an instance's runtime before migrating it (eg. ballooning an instance down because the target node doesn't have enough available memory).</p
+      ><p
+      >If an instance has the backend parameter <code
+	>always\_failover</code
+	> set to true, then the migration is automatically converted into a failover.</p
       ><p
       >See <strong
 	>ganeti(7)</strong
