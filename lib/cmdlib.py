@@ -1689,6 +1689,27 @@ def _GetDefaultIAllocator(cfg, iallocator):
   return iallocator
 
 
+def _CheckHostnameSane(lu, name):
+  """Ensures that a given hostname resolves to a 'sane' name.
+
+  The given name is required to be a prefix of the resolved hostname,
+  to prevent accidental mismatches.
+
+  @param lu: the logical unit on behalf of which we're checking
+  @param name: the name we should resolve and check
+  @return: the resolved hostname object
+
+  """
+  hostname = netutils.GetHostname(name=name)
+  if hostname.name != name:
+    lu.LogInfo("Resolved given name '%s' to '%s'", name, hostname.name)
+  if not utils.MatchNameComponent(name, [hostname.name]):
+    raise errors.OpPrereqError(("Resolved hostname '%s' does not look the"
+                                " same as given hostname '%s'") %
+                                (hostname.name, name), errors.ECODE_INVAL)
+  return hostname
+
+
 class LUClusterPostInit(LogicalUnit):
   """Logical unit for running hooks after cluster initialization.
 
@@ -1960,7 +1981,7 @@ class LUClusterVerifyConfig(NoHooksLU, _VerifyErrors):
       msg = ("hypervisor %s parameters syntax check (source %s): %%s" %
              (item, hv_name))
       try:
-        hv_class = hypervisor.GetHypervisor(hv_name)
+        hv_class = hypervisor.GetHypervisorClass(hv_name)
         utils.ForceDictType(hv_params, constants.HVS_PARAMETER_TYPES)
         hv_class.CheckParameterSyntax(hv_params)
       except errors.GenericError, err:
@@ -3339,11 +3360,8 @@ class LUClusterVerifyGroup(LogicalUnit, _VerifyErrors):
                inst_config.primary_node)
 
       # If the instance is non-redundant we cannot survive losing its primary
-      # node, so we are not N+1 compliant. On the other hand we have no disk
-      # templates with more than one secondary so that situation is not well
-      # supported either.
-      # FIXME: does not support file-backed instances
-      if not inst_config.secondary_nodes:
+      # node, so we are not N+1 compliant.
+      if inst_config.disk_template not in constants.DTS_MIRRORED:
         i_non_redundant.append(instance)
 
       _ErrorIf(len(inst_config.secondary_nodes) > 1,
@@ -4067,7 +4085,10 @@ class LUClusterSetParams(LogicalUnit):
           self.new_os_hvp[os_name] = hvs
         else:
           for hv_name, hv_dict in hvs.items():
-            if hv_name not in self.new_os_hvp[os_name]:
+            if hv_dict is None:
+              # Delete if it exists
+              self.new_os_hvp[os_name].pop(hv_name, None)
+            elif hv_name not in self.new_os_hvp[os_name]:
               self.new_os_hvp[os_name][hv_name] = hv_dict
             else:
               self.new_os_hvp[os_name][hv_name].update(hv_dict)
@@ -4113,7 +4134,7 @@ class LUClusterSetParams(LogicalUnit):
             (self.op.enabled_hypervisors and
              hv_name in self.op.enabled_hypervisors)):
           # either this is a new hypervisor, or its parameters have changed
-          hv_class = hypervisor.GetHypervisor(hv_name)
+          hv_class = hypervisor.GetHypervisorClass(hv_name)
           utils.ForceDictType(hv_params, constants.HVS_PARAMETER_TYPES)
           hv_class.CheckParameterSyntax(hv_params)
           _CheckHVParams(self, node_list, hv_name, hv_params)
@@ -4127,7 +4148,7 @@ class LUClusterSetParams(LogicalUnit):
           # we need to fill in the new os_hvp on top of the actual hv_p
           cluster_defaults = self.new_hvparams.get(hv_name, {})
           new_osp = objects.FillDict(cluster_defaults, hv_params)
-          hv_class = hypervisor.GetHypervisor(hv_name)
+          hv_class = hypervisor.GetHypervisorClass(hv_name)
           hv_class.CheckParameterSyntax(new_osp)
           _CheckHVParams(self, node_list, hv_name, new_osp)
 
@@ -4342,11 +4363,13 @@ def _ComputeAncillaryFiles(cluster, redist):
   # Files which should only be on VM-capable nodes
   files_vm = set(filename
     for hv_name in cluster.enabled_hypervisors
-    for filename in hypervisor.GetHypervisor(hv_name).GetAncillaryFiles()[0])
+    for filename in
+      hypervisor.GetHypervisorClass(hv_name).GetAncillaryFiles()[0])
 
   files_opt |= set(filename
     for hv_name in cluster.enabled_hypervisors
-    for filename in hypervisor.GetHypervisor(hv_name).GetAncillaryFiles()[1])
+    for filename in
+      hypervisor.GetHypervisorClass(hv_name).GetAncillaryFiles()[1])
 
   # Filenames in each category must be unique
   all_files_set = files_all | files_mc | files_vm
@@ -6735,7 +6758,7 @@ class LUInstanceStartup(LogicalUnit):
       utils.ForceDictType(self.op.hvparams, constants.HVS_PARAMETER_TYPES)
       filled_hvp = cluster.FillHV(instance)
       filled_hvp.update(self.op.hvparams)
-      hv_type = hypervisor.GetHypervisor(instance.hypervisor)
+      hv_type = hypervisor.GetHypervisorClass(instance.hypervisor)
       hv_type.CheckParameterSyntax(filled_hvp)
       _CheckHVParams(self, instance.all_nodes, instance.hypervisor, filled_hvp)
 
@@ -7292,15 +7315,7 @@ class LUInstanceRename(LogicalUnit):
 
     new_name = self.op.new_name
     if self.op.name_check:
-      hostname = netutils.GetHostname(name=new_name)
-      if hostname.name != new_name:
-        self.LogInfo("Resolved given name '%s' to '%s'", new_name,
-                     hostname.name)
-      if not utils.MatchNameComponent(self.op.new_name, [hostname.name]):
-        raise errors.OpPrereqError(("Resolved hostname '%s' does not look the"
-                                    " same as given hostname '%s'") %
-                                    (hostname.name, self.op.new_name),
-                                    errors.ECODE_INVAL)
+      hostname = _CheckHostnameSane(self, new_name)
       new_name = self.op.new_name = hostname.name
       if (self.op.ip_check and
           netutils.TcpPing(hostname.ip, constants.DEFAULT_NODED_PORT)):
@@ -8445,6 +8460,8 @@ class TLMigrateInstance(Tasklet):
         self.feedback_fn("Migration failed, aborting")
         self._AbortMigration()
         self._RevertDiskStatus()
+        if not msg:
+          msg = "hypervisor returned failure"
         raise errors.OpExecError("Could not migrate instance %s: %s" %
                                  (instance.name, msg))
 
@@ -9041,7 +9058,7 @@ def _RemoveDisks(lu, instance, target_node=None, ignore_failures=False):
     for port in ports_to_release:
       lu.cfg.AddTcpUdpPort(port)
 
-  if instance.disk_template == constants.DT_FILE:
+  if instance.disk_template in constants.DTS_FILEBASED:
     file_storage_dir = os.path.dirname(instance.disks[0].logical_id[1])
     if target_node:
       tgt = target_node
@@ -9251,7 +9268,7 @@ class LUInstanceCreate(LogicalUnit):
 
     # instance name verification
     if self.op.name_check:
-      self.hostname1 = netutils.GetHostname(name=self.op.instance_name)
+      self.hostname1 = _CheckHostnameSane(self, self.op.instance_name)
       self.op.instance_name = self.hostname1.name
       # used in CheckPrereq for ip ping check
       self.check_ip = self.hostname1.ip
@@ -9713,7 +9730,7 @@ class LUInstanceCreate(LogicalUnit):
     utils.ForceDictType(self.op.hvparams, constants.HVS_PARAMETER_TYPES)
     filled_hvp = cluster.SimpleFillHV(self.op.hypervisor, self.op.os_type,
                                       self.op.hvparams)
-    hv_type = hypervisor.GetHypervisor(self.op.hypervisor)
+    hv_type = hypervisor.GetHypervisorClass(self.op.hypervisor)
     hv_type.CheckParameterSyntax(filled_hvp)
     self.hv_full = filled_hvp
     # check that we don't specify global parameters on an instance
@@ -9917,26 +9934,6 @@ class LUInstanceCreate(LogicalUnit):
 
     nodenames = [pnode.name] + self.secondaries
 
-    # Verify instance specs
-    spindle_use = self.be_full.get(constants.BE_SPINDLE_USE, None)
-    ispec = {
-      constants.ISPEC_MEM_SIZE: self.be_full.get(constants.BE_MAXMEM, None),
-      constants.ISPEC_CPU_COUNT: self.be_full.get(constants.BE_VCPUS, None),
-      constants.ISPEC_DISK_COUNT: len(self.disks),
-      constants.ISPEC_DISK_SIZE: [disk["size"] for disk in self.disks],
-      constants.ISPEC_NIC_COUNT: len(self.nics),
-      constants.ISPEC_SPINDLE_USE: spindle_use,
-      }
-
-    group_info = self.cfg.GetNodeGroup(pnode.group)
-    ipolicy = _CalculateGroupIPolicy(cluster, group_info)
-    res = _ComputeIPolicyInstanceSpecViolation(ipolicy, ispec)
-    if not self.op.ignore_ipolicy and res:
-      raise errors.OpPrereqError(("Instance allocation to group %s violates"
-                                  " policy: %s") % (pnode.group,
-                                                    utils.CommaJoin(res)),
-                                  errors.ECODE_INVAL)
-
     if not self.adopt_disks:
       if self.op.disk_template == constants.DT_RBD:
         # _CheckRADOSFreeSpace() is just a placeholder.
@@ -10017,6 +10014,27 @@ class LUInstanceCreate(LogicalUnit):
       for dsk in self.disks:
         dsk[constants.IDISK_SIZE] = \
           int(float(node_disks[dsk[constants.IDISK_ADOPT]]))
+
+    # Verify instance specs
+    spindle_use = self.be_full.get(constants.BE_SPINDLE_USE, None)
+    ispec = {
+      constants.ISPEC_MEM_SIZE: self.be_full.get(constants.BE_MAXMEM, None),
+      constants.ISPEC_CPU_COUNT: self.be_full.get(constants.BE_VCPUS, None),
+      constants.ISPEC_DISK_COUNT: len(self.disks),
+      constants.ISPEC_DISK_SIZE: [disk[constants.IDISK_SIZE]
+                                  for disk in self.disks],
+      constants.ISPEC_NIC_COUNT: len(self.nics),
+      constants.ISPEC_SPINDLE_USE: spindle_use,
+      }
+
+    group_info = self.cfg.GetNodeGroup(pnode.group)
+    ipolicy = _CalculateGroupIPolicy(cluster, group_info)
+    res = _ComputeIPolicyInstanceSpecViolation(ipolicy, ispec)
+    if not self.op.ignore_ipolicy and res:
+      raise errors.OpPrereqError(("Instance allocation to group %s violates"
+                                  " policy: %s") % (pnode.group,
+                                                    utils.CommaJoin(res)),
+                                  errors.ECODE_INVAL)
 
     _CheckHVParams(self, nodenames, self.op.hypervisor, self.op.hvparams)
 
@@ -10344,7 +10362,7 @@ def _GetInstanceConsole(cluster, instance):
   @rtype: dict
 
   """
-  hyper = hypervisor.GetHypervisor(instance.hypervisor)
+  hyper = hypervisor.GetHypervisorClass(instance.hypervisor)
   # beparams and hvparams are passed separately, to avoid editing the
   # instance and then saving the defaults in the instance itself.
   hvparams = cluster.FillHV(instance)
@@ -12438,7 +12456,7 @@ class LUInstanceSetParams(LogicalUnit):
       hv_new = cluster.SimpleFillHV(hv_type, instance.os, i_hvdict)
 
       # local check
-      hypervisor.GetHypervisor(hv_type).CheckParameterSyntax(hv_new)
+      hypervisor.GetHypervisorClass(hv_type).CheckParameterSyntax(hv_new)
       _CheckHVParams(self, nodelist, instance.hypervisor, hv_new)
       self.hv_proposed = self.hv_new = hv_new # the new actual values
       self.hv_inst = i_hvdict # the new dict (without defaults)
@@ -12580,12 +12598,11 @@ class LUInstanceSetParams(LogicalUnit):
                                     self.be_proposed[constants.BE_MAXMEM]),
                                    errors.ECODE_INVAL)
 
-      if self.op.runtime_mem > current_memory:
+      delta = self.op.runtime_mem - current_memory
+      if delta > 0:
         _CheckNodeFreeMemory(self, instance.primary_node,
                              "ballooning memory for instance %s" %
-                             instance.name,
-                             self.op.memory - current_memory,
-                             instance.hypervisor)
+                             instance.name, delta, instance.hypervisor)
 
     if self.op.disks and instance.disk_template == constants.DT_DISKLESS:
       raise errors.OpPrereqError("Disk operations not supported for"

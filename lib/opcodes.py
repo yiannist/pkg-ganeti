@@ -823,7 +823,7 @@ class OpClusterSetParams(OpCode):
   OP_PARAMS = [
     _PHvState,
     _PDiskState,
-    ("vg_name", None, ht.TMaybeString, "Volume group name"),
+    ("vg_name", None, ht.TOr(ht.TString, ht.TNone), "Volume group name"),
     ("enabled_hypervisors", None,
      ht.TOr(ht.TAnd(ht.TListOf(ht.TElemOf(constants.HYPER_TYPES)), ht.TTrue),
             ht.TNone),
@@ -951,7 +951,7 @@ class OpOobCommand(OpCode):
   OP_PARAMS = [
     ("node_names", ht.EmptyList, ht.TListOf(ht.TNonEmptyString),
      "List of nodes to run the OOB command against"),
-    ("command", None, ht.TElemOf(constants.OOB_COMMANDS),
+    ("command", ht.NoDefault, ht.TElemOf(constants.OOB_COMMANDS),
      "OOB command to be run"),
     ("timeout", constants.OOB_TIMEOUT, ht.TInt,
      "Timeout before the OOB helper will be terminated"),

@@ -293,7 +293,7 @@ no}]
 .PD 0
 .P
 .PD
-[--ipol-disk-templates
+[--ipolicy-disk-templates
 \f[I]template\f[]
 [,\f[I]template\f[]...]]
 .PD 0
@@ -674,16 +674,16 @@ of nodes that the master will try to keep as master_candidates. For
 more details about this role and other node roles, see the
 ganeti(7).
 .PP
-The \f[B]--specs-...\f[] and \f[B]--ipol-disk-templates\f[] options
-specify instance policy on the cluster. For the
+The \f[B]--specs-...\f[] and \f[B]--ipolicy-disk-templates\f[]
+options specify instance policy on the cluster. For the
 \f[B]--specs-...\f[] options, each option can have three values:
 \f[B]min\f[], \f[B]max\f[] and \f[B]std\f[], which can also be
 modified on group level (except for \f[B]std\f[], which is defined
 once for the entire cluster). Please note, that \f[B]std\f[] values
 are not the same as defaults set by \f[B]--beparams\f[], but they
 are used for the capacity calculations. The
-\f[B]--ipol-disk-templates\f[] option takes a comma-separated list
-of disk templates.
+\f[B]--ipolicy-disk-templates\f[] option takes a comma-separated
+list of disk templates.
 .IP \[bu] 2
 \f[B]--specs-cpu-count\f[] limits the number of VCPUs that can be
 used by an instance.
@@ -696,7 +696,7 @@ used by an instance.
 .IP \[bu] 2
 \f[B]--specs-nic-count\f[] sets limits on the number of NICs used
 .IP \[bu] 2
-\f[B]--ipol-disk-templates\f[] limits the allowed disk templates
+\f[B]--ipolicy-disk-templates\f[] limits the allowed disk templates
 .PP
 For details about how to use \f[B]--hypervisor-state\f[] and
 \f[B]--disk-state\f[] have a look at \f[B]ganeti\f[](7).
@@ -707,7 +707,7 @@ For details about how to use \f[B]--hypervisor-state\f[] and
 List the tags of the cluster.
 .SS MASTER-FAILOVER
 .PP
-\f[B]master-failover\f[] [--no-voting]
+\f[B]master-failover\f[] [--no-voting] [--yes-do-it]
 .PP
 Failover the master role to the current node.
 .PP
@@ -721,6 +721,12 @@ needs a restart. You can pass \f[B]--no-voting\f[] to
 \f[B]ganeti-masterd\f[] on the new master to solve this problem,
 and run \f[B]gnt-cluster redist-conf\f[] to make sure the cluster
 is consistent again.
+.PP
+The option \f[B]--yes-do-it\f[] is used together with
+\f[B]--no-voting\f[], for skipping the interactive checks. This is
+even more dangerous, and should only be used in conjunction with
+other means (e.g. a HA suite) to confirm that the operation is
+indeed safe.
 .SS MASTER-PING
 .PP
 \f[B]master-ping\f[]
@@ -871,12 +877,12 @@ no}]
 .PD 0
 .P
 .PD
-[--ipol-disk-templates
+[--ipolicy-disk-templates
 \f[I]template\f[] [,\f[I]template\f[]...]]
 .PP
 Modify the options for the cluster.
 .PP
-The \f[B]--vg-name\f[], \f[B]--no-lvm-storarge\f[],
+The \f[B]--vg-name\f[], \f[B]--no-lvm-storage\f[],
 \f[B]--enabled-hypervisors\f[],
 \f[B]-H\ (--hypervisor-parameters)\f[],
 \f[B]-B\ (--backend-parameters)\f[],
@@ -913,8 +919,8 @@ The \f[B]-I\ (--default-iallocator)\f[] is described in the
 \f[B]init\f[] command. To clear the default iallocator, just pass
 an empty string (\[aq]\[aq]).
 .PP
-The \f[B]--specs-...\f[] and \f[B]--ipol-disk-templates\f[] options
-are described in the \f[B]init\f[] command.
+The \f[B]--specs-...\f[] and \f[B]--ipolicy-disk-templates\f[]
+options are described in the \f[B]init\f[] command.
 .PP
 See \f[B]ganeti(7)\f[] for a description of \f[B]--submit\f[] and
 other common options.

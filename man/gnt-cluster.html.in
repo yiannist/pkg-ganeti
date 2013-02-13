@@ -358,7 +358,7 @@
       >=<em
       >value</em
       >...]]<br
-       />[--ipol-disk-templates <em
+       />[--ipolicy-disk-templates <em
       >template</em
       > [,<em
       >template</em
@@ -742,7 +742,7 @@
     >The <code
       >--specs-...</code
       > and <code
-      >--ipol-disk-templates</code
+      >--ipolicy-disk-templates</code
       > options specify instance policy on the cluster. For the <code
       >--specs-...</code
       > options, each option can have three values: <code
@@ -758,7 +758,7 @@
       > values are not the same as defaults set by <code
       >--beparams</code
       >, but they are used for the capacity calculations. The <code
-      >--ipol-disk-templates</code
+      >--ipolicy-disk-templates</code
       > option takes a comma-separated list of disk templates.</p
     ><ul
     ><li
@@ -783,7 +783,7 @@
 	> sets limits on the number of NICs used</li
       ><li
       ><code
-	>--ipol-disk-templates</code
+	>--ipolicy-disk-templates</code
 	> limits the allowed disk templates</li
       ></ul
     ><p
@@ -811,7 +811,7 @@
     ><p
     ><strong
       >master-failover</strong
-      > [--no-voting]</p
+      > [--no-voting] [--yes-do-it]</p
     ><p
     >Failover the master role to the current node.</p
     ><p
@@ -824,6 +824,12 @@
       > on the new master to solve this problem, and run <strong
       >gnt-cluster redist-conf</strong
       > to make sure the cluster is consistent again.</p
+    ><p
+    >The option <code
+      >--yes-do-it</code
+      > is used together with <code
+      >--no-voting</code
+      >, for skipping the interactive checks. This is even more dangerous, and should only be used in conjunction with other means (e.g. a HA suite) to confirm that the operation is indeed safe.</p
     ></div
   ><div id="master-ping"
   ><h2
@@ -974,7 +980,7 @@
       >=<em
       >value</em
       >...]]<br
-       />[--ipol-disk-templates <em
+       />[--ipolicy-disk-templates <em
       >template</em
       > [,<em
       >template</em
@@ -985,7 +991,7 @@
     >The <code
       >--vg-name</code
       >, <code
-      >--no-lvm-storarge</code
+      >--no-lvm-storage</code
       >, <code
       >--enabled-hypervisors</code
       >, <code
@@ -1049,7 +1055,7 @@
     >The <code
       >--specs-...</code
       > and <code
-      >--ipol-disk-templates</code
+      >--ipolicy-disk-templates</code
       > options are described in the <strong
       >init</strong
       > command.</p

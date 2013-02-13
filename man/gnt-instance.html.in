@@ -2502,7 +2502,9 @@ instance5: 11225
 	>]<br
 	 />[--net add<em
 	>[:options]</em
-	> | --net remove | --net <em
+	> | --net [<em
+	>N</em
+	>:]remove | --net <em
 	>N:options</em
 	>]<br
 	 />[--disk add:size=<em
@@ -2511,7 +2513,9 @@ instance5: 11225
 	>VG</em
 	>][,metavg=<em
 	>VG</em
-	>] | --disk remove |<br
+	>] | --disk [<em
+	>N</em
+	>:]remove |<br
 	 /> --disk <em
 	>N</em
 	>:mode=<em
@@ -2855,7 +2859,7 @@ instance5: 11225
       ><p
       >The <code
 	>--no-remember</code
-	> option will perform the startup but not change the state of the instance in the configuration file (if it was stopped before, Ganeti will still thinks it needs to be stopped). This can be used for testing, or for a one shot-start where you don't want the watcher to restart the instance if it crashes.</p
+	> option will perform the startup but not change the state of the instance in the configuration file (if it was stopped before, Ganeti will still think it needs to be stopped). This can be used for testing, or for a one shot-start where you don't want the watcher to restart the instance if it crashes.</p
       ><p
       >The <code
 	>-H (--hypervisor-parameters)</code
@@ -3230,7 +3234,7 @@ node1.example.com:disk/1:/dev/drbd1
 	>amount</em
 	>}</p
       ><p
-      >Grows an instance's disk. This is only possible for instances having a plain, drbd or rbd disk template.</p
+      >Grows an instance's disk. This is only possible for instances having a plain, drbd, file, sharedfile or rbd disk template.</p
       ><p
       >Note that this command only change the block device size; it will not grow the actual filesystems, partitions, etc. that live on that disk. Usually, you will need to:</p
       ><ol
@@ -3535,7 +3539,7 @@ Migrating instance instance1.example.com
       ><p
       >The <code
 	>--ignore-consistency</code
-	> option will make Ganeti ignore any errors in trying to shutdown the instance on its node; useful if the hypervisor is broken and you want to recuperate the data.</p
+	> option will make Ganeti ignore any errors in trying to shutdown the instance on its node; useful if the hypervisor is broken and you want to recover the data.</p
       ><p
       >If <code
 	>--ignore-ipolicy</code
