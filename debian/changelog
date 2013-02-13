@@ -3,7 +3,7 @@ ganeti (2.6.2-1) experimental; urgency=low
   * New upstream version (skipped 2.6.0/2.6.1 due to Wheezy freeze)
   * Uploading to experimental in order to avoid potential problems when
     updating the Wheezy package (which is 2.5.2-based)
-  * Sync speed is not configurable in 2.6, see the disk parameters
+  * Sync speed is now configurable in 2.6, see the disk parameters
     documentation (Closes: #599445)
 
  -- Iustin Pop <iustin@debian.org>  Wed, 13 Feb 2013 10:59:49 +0100
