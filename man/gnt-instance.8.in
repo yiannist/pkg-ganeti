@@ -131,7 +131,7 @@ setup). Since the name check is used to compute the IP address, if
 you pass this option you must also pass the \f[B]--no-ip-check\f[]
 option.
 .PP
-If you don\[aq]t wat the instance to automatically start after
+If you don\[aq]t want the instance to automatically start after
 creation, this is possible via the \f[B]--no-start\f[] option. This
 will leave the instance down until a subsequent
 \f[B]gnt-instance start\f[] command.
@@ -362,7 +362,7 @@ Valid for the KVM hypervisor.
 .PP
 This parameter determines the way the cdroms disks are presented to
 the instance. The default behavior is to get the same value of the
-eariler parameter (disk_type). The possible options are:
+earlier parameter (disk_type). The possible options are:
 .IP \[bu] 2
 paravirtual
 .IP \[bu] 2
@@ -690,7 +690,7 @@ with the -mem-prealloc argument too.
 Valid for the KVM hypervisor.
 .RS
 .PP
-This boolean option determines wether to run the KVM instance in a
+This boolean option determines whether to run the KVM instance in a
 chroot directory.
 .PP
 If it is set to \f[B]true\f[], an empty directory is created before
@@ -933,7 +933,7 @@ hypervisor options will be inherited.
 .B mac, ip, mode, link
 Specifications for the one NIC that will be created for the
 instance. \[aq]bridge\[aq] is also accepted as a backwards
-compatibile key.
+compatible key.
 .RS
 .RE
 .TP
@@ -2473,11 +2473,11 @@ Example:
 [--ignore-ipolicy] {-s} [--disks \f[I]idx\f[]] {\f[I]instance\f[]}
 .PP
 \f[B]replace-disks\f[] [--submit] [--early-release]
-[--ignore-ipolicy] {{-I|--iallocator} \f[I]name\f[] | --node
-\f[I]node\f[] } {\f[I]instance\f[]}
+[--ignore-ipolicy] {{-I|--iallocator} \f[I]name\f[] |
+{{-n|--new-secondary} \f[I]node\f[] } {\f[I]instance\f[]}
 .PP
 \f[B]replace-disks\f[] [--submit] [--early-release]
-[--ignore-ipolicy] {--auto} {\f[I]instance\f[]}
+[--ignore-ipolicy] {-a|--auto} {\f[I]instance\f[]}
 .PP
 This command is a generalized form for replacing disks. It is
 currently only valid for the mirrored (DRBD) disk template.
@@ -2791,7 +2791,7 @@ If the \f[B]--cleanup\f[] option is passed, the operation changes
 from migration to attempting recovery from a failed previous
 migration. In this mode, Ganeti checks if the instance runs on the
 correct node (and updates its configuration if not) and ensures the
-instances\[aq]s disks are configured correctly. In this mode, the
+instances\[aq] disks are configured correctly. In this mode, the
 \f[B]--non-live\f[] option is ignored.
 .PP
 The option \f[B]-f\f[] will skip the prompting for confirmation.
@@ -2809,6 +2809,10 @@ The \f[B]--no-runtime-changes\f[] option forbids migrate to alter
 an instance\[aq]s runtime before migrating it (eg. ballooning an
 instance down because the target node doesn\[aq]t have enough
 available memory).
+.PP
+If an instance has the backend parameter \f[B]always\\_failover\f[]
+set to true, then the migration is automatically converted into a
+failover.
 .PP
 See \f[B]ganeti(7)\f[] for a description of \f[B]--submit\f[] and
 other common options.

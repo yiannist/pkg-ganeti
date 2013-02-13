@@ -5,13 +5,13 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>News &mdash; Ganeti v2.6.0 documentation</title>
+    <title>News &mdash; Ganeti v2.6.1 documentation</title>
     <link rel="stylesheet" href="_static/default.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.6.0',
+        VERSION:     '2.6.1',
         COLLAPSE_MODINDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -19,7 +19,7 @@
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.6.0 documentation" href="index.html" />
+    <link rel="top" title="Ganeti v2.6.1 documentation" href="index.html" />
     <link rel="next" title="Glossary" href="glossary.html" />
     <link rel="prev" title="Developer notes" href="devnotes.html" /> 
   </head>
@@ -33,7 +33,7 @@
         <li class="right" >
           <a href="devnotes.html" title="Developer notes"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.6.0 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.6.1 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -44,6 +44,29 @@
             
   <div class="section" id="news">
 <h1>News<a class="headerlink" href="#news" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="version-2-6-1">
+<h2>Version 2.6.1<a class="headerlink" href="#version-2-6-1" title="Permalink to this headline">¶</a></h2>
+<p><em>(Released Fri, 12 Oct 2012)</em></p>
+<p>A small bugfix release.</p>
+<p>Fix double use of PRIORITY_OPT in gnt-node migrate, that would make the
+command unusable.</p>
+<p>Commands that issue many jobs don&#8217;t fail anymore just because some jobs
+take so long that other jobs are archived.</p>
+<p>Failures during gnt-instance reinstall are reflected by the exit status.</p>
+<p>Issue 190 fixed. Check for DRBD in cluster verify is enabled only when
+DRBD is enabled.</p>
+<p>When always_failover is set, &#8211;allow-failover is not required in migrate
+commands anymore.</p>
+<p>bash_completion works even if extglob is disabled</p>
+<p>Fix bug with locks that made failover for RDB-based instances fail.</p>
+<p>Fix bug in non-mirrored instance allocation that would make Ganeti
+choose a random node instead of one based on the allocator metric.</p>
+<p>Support for newer versions of pylint and pep8.</p>
+<p>Hail doesn&#8217;t fail anymore when trying to add an instance of type
+&#8216;file&#8217;, &#8216;sharedfile&#8217; or &#8216;rbd&#8217;.</p>
+<p>Add new Makefile target to rebuild the whole dist, so that all files are
+included.</p>
+</div>
 <div class="section" id="version-2-6-0">
 <h2>Version 2.6.0<a class="headerlink" href="#version-2-6-0" title="Permalink to this headline">¶</a></h2>
 <p><em>(Released Fri, 27 Jul 2012)</em></p>
@@ -2225,6 +2248,7 @@ post-configuration update hook)</li>
             <h3><a href="index.html">Table Of Contents</a></h3>
             <ul>
 <li><a class="reference external" href="#">News</a><ul>
+<li><a class="reference external" href="#version-2-6-1">Version 2.6.1</a></li>
 <li><a class="reference external" href="#version-2-6-0">Version 2.6.0</a><ul>
 <li><a class="reference external" href="#new-features">New features</a><ul>
 <li><a class="reference external" href="#instance-run-status">Instance run status</a></li>
@@ -2397,7 +2421,7 @@ post-configuration update hook)</li>
         <li class="right" >
           <a href="devnotes.html" title="Developer notes"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.6.0 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti v2.6.1 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

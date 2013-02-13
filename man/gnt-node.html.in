@@ -609,7 +609,7 @@
       >mnode</code
       > and <code
       >mfree</code
-      > fields may have slighly varying meanings. For example, some solutions share the node memory with the pool of memory used for instances (KVM), whereas others have separate memory for the node and for the instances (Xen).</p
+      > fields may have slightly varying meanings. For example, some solutions share the node memory with the pool of memory used for instances (KVM), whereas others have separate memory for the node and for the instances (Xen).</p
     ><p
     >If exactly one argument is given and it appears to be a query filter (see <strong
       >ganeti(7)</strong
@@ -744,7 +744,7 @@
     ><p
     >If <code
       >--ignore-ipolicy</code
-      > is given any instance policy violations occuring during this operation are ignored.</p
+      > is given any instance policy violations occurring during this operation are ignored.</p
     ><p
     >See <strong
       >ganeti(7)</strong
@@ -1166,7 +1166,7 @@ node2 lvm-pv /dev/sdb1 698.6G   0M 698.6G Y
     ><p
     >This command calls out to out-of-band management to change the power state of given node. With <code
       >status</code
-      > you get the power status as reported by the out-of-band managment script.</p
+      > you get the power status as reported by the out-of-band management script.</p
     ><p
     >Note that this command will only work if the out-of-band functionality is configured and enabled on the cluster. If this is not the case, please use the <strong
       >powercycle</strong
