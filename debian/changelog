@@ -1,3 +1,10 @@
+ganeti (2.6.2-2) experimental; urgency=low
+
+  * Fix dependencies for Template Haskell: according to DHG, need to
+    depend on ghc-ghci
+
+ -- Iustin Pop <iustin@debian.org>  Thu, 14 Feb 2013 19:54:49 +0100
+
 ganeti (2.6.2-1) experimental; urgency=low
 
   * New upstream version (skipped 2.6.0/2.6.1 due to Wheezy freeze)
