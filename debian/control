@@ -23,10 +23,11 @@ Depends: ${shlibs:Depends}, ${misc:Depends}, ${python:Depends}, lvm2,
  openssh-client, openssh-server, bridge-utils, iproute, iputils-arping,
  openssl, python-simplejson, python-pyparsing, python-openssl,
  python-pyinotify, python-pycurl, python-paramiko,
- socat, libjs-jquery
+ socat, libjs-jquery, fping
 Recommends: drbd8-utils (>= 8.0.7), qemu-kvm |
- xen-linux-system-2.6.32-5-xen-amd64 | xen-linux-system-2.6.32-5-xen-686,
- ganeti-instance-debootstrap, ndisc6
+ xen-linux-system-amd64 | xen-linux-system-686 |
+ xen-linux-system-686-pae, ganeti-instance-debootstrap,
+ ndisc6
 Breaks: ganeti-htools (<< 0.3)
 Suggests: drbd8-module-source (>= 8.0.7)
 Provides: ${python:Provides}

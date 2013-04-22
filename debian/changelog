@@ -1,3 +1,11 @@
+ganeti (2.6.2-3) experimental; urgency=low
+
+  * Add dependency on fping: this is needed now by the master-ip-setup
+    script (Closes: #705005)
+  * Update Xen recommends to be version-independent (Closes: #696133)
+
+ -- Guido Trotter <ultrotter@debian.org>  Mon, 22 Apr 2013 14:22:04 +0200
+
 ganeti (2.6.2-2) experimental; urgency=low
 
   * Fix dependencies for Template Haskell: according to DHG, need to
