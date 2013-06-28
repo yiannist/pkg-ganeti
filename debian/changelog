@@ -6,6 +6,7 @@ ganeti (2.7.0~rc3-1) unstable; urgency=low
   * Add dependency on fping: this is needed now by the master-ip-setup
     script (Closes: #705005)
   * Update Xen recommends to be version-independent (Closes: #696133)
+  * Remove outdated fix-no-kvm.patch
 
  -- Guido Trotter <ultrotter@debian.org>  Fri, 28 Jun 2013 15:17:44 +0200
 
