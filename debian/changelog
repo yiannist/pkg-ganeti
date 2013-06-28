@@ -1,10 +1,13 @@
-ganeti (2.6.2-3) experimental; urgency=low
+ganeti (2.7.0~rc3-1) unstable; urgency=low
 
+  * New upstream version
+    - Fix compatibility with newer ghc (Closes: #713754)
+    - No longer require lvm vg on non-vm-capable nodes (Closes: #650664)
   * Add dependency on fping: this is needed now by the master-ip-setup
     script (Closes: #705005)
   * Update Xen recommends to be version-independent (Closes: #696133)
 
- -- Guido Trotter <ultrotter@debian.org>  Mon, 22 Apr 2013 14:22:04 +0200
+ -- Guido Trotter <ultrotter@debian.org>  Fri, 28 Jun 2013 15:17:44 +0200
 
 ganeti (2.6.2-2) experimental; urgency=low
 
