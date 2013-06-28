@@ -1,41 +1,45 @@
+
+
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
   "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
 
 <html xmlns="http://www.w3.org/1999/xhtml">
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Virtual clusters support &mdash; Ganeti v2.6.2 documentation</title>
-    <link rel="stylesheet" href="_static/default.css" type="text/css" />
+    <title>Design for virtual clusters support &mdash; Ganeti 2.7.0~rc3 documentation</title>
+    
+    <link rel="stylesheet" href="_static/style.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.6.2',
-        COLLAPSE_MODINDEX: false,
+        VERSION:     '2.7.0~rc3',
+        COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
       };
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.6.2 documentation" href="index.html" />
-    <link rel="up" title="Design document drafts" href="design-draft.html" />
-    <link rel="next" title="Splitting the query and job execution paths" href="design-query-splitting.html" />
-    <link rel="prev" title="Resource model changes" href="design-resource-model.html" /> 
+    <link rel="top" title="Ganeti 2.7.0~rc3 documentation" href="index.html" />
+    <link rel="next" title="Network management" href="design-network.html" />
+    <link rel="prev" title="Ganeti shared storage support" href="design-shared-storage.html" /> 
   </head>
   <body>
     <div class="related">
       <h3>Navigation</h3>
       <ul>
         <li class="right" style="margin-right: 10px">
-          <a href="design-query-splitting.html" title="Splitting the query and job execution paths"
+          <a href="design-network.html" title="Network management"
              accesskey="N">next</a></li>
         <li class="right" >
-          <a href="design-resource-model.html" title="Resource model changes"
+          <a href="design-shared-storage.html" title="Ganeti shared storage support"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.6.2 documentation</a> &raquo;</li>
-          <li><a href="design-draft.html" accesskey="U">Design document drafts</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.7.0~rc3 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -44,8 +48,8 @@
         <div class="bodywrapper">
           <div class="body">
             
-  <div class="section" id="virtual-clusters-support">
-<h1>Virtual clusters support<a class="headerlink" href="#virtual-clusters-support" title="Permalink to this headline">¶</a></h1>
+  <div class="section" id="design-for-virtual-clusters-support">
+<h1>Design for virtual clusters support<a class="headerlink" href="#design-for-virtual-clusters-support" title="Permalink to this headline">¶</a></h1>
 <div class="section" id="introduction">
 <h2>Introduction<a class="headerlink" href="#introduction" title="Permalink to this headline">¶</a></h2>
 <p>Currently there are two ways to test the Ganeti (including HTools) code
@@ -128,69 +132,76 @@ split in a few general categories:</p>
 <col width="49%" />
 </colgroup>
 <thead valign="bottom">
-<tr><th class="head">Category</th>
+<tr class="row-odd"><th class="head">Category</th>
 <th class="head">Description</th>
 <th class="head">Solution</th>
 </tr>
 </thead>
 <tbody valign="top">
-<tr><td>disk operations</td>
+<tr class="row-even"><td>disk operations</td>
 <td>Disk creation and
 removal</td>
 <td>Use only diskless or file-based
 instances</td>
 </tr>
-<tr><td>disk query</td>
+<tr class="row-odd"><td>disk query</td>
 <td>Node disk total/free,
 used in node listing
 and htools</td>
 <td>Not supported currently, could use
 file-based</td>
 </tr>
-<tr><td>hypervisor
+<tr class="row-even"><td>hypervisor
 operations</td>
 <td>Instance start, stop
 and query</td>
 <td>Use the <em>fake</em> hypervisor</td>
 </tr>
-<tr><td>instance
+<tr class="row-odd"><td>instance
 networking</td>
 <td>Bridge existence query</td>
 <td>Unprivileged operation, can be used
 with an existing bridge at system
 level or use NIC-less instances</td>
 </tr>
-<tr><td>instance OS
+<tr class="row-even"><td>instance OS
 operations</td>
 <td>OS add, OS rename,
 export and import</td>
-<td>Only used with non diskless
+<td>Only used with non-diskless
 instances; could work with custom OS
-scripts (that just <tt class="docutils literal"><span class="pre">dd</span></tt> without
+scripts that just <tt class="docutils literal"><span class="pre">dd</span></tt> without
 mounting filesystems</td>
 </tr>
-<tr><td>node networking</td>
+<tr class="row-odd"><td>node networking</td>
 <td>IP address management
 (master ip), IP query,
 etc.</td>
 <td>Not supported; Ganeti will need to
-work without a master IP. For the IP
-query operations, the test machine
+work without a master IP; for the IP
+query operations the test machine
 would need externally-configured IPs</td>
 </tr>
-<tr><td>node setup</td>
+<tr class="row-even"><td>node add</td>
+<td><ul class="first last simple">
+<li></li>
+</ul>
+</td>
+<td>SSH command must be adjusted</td>
+</tr>
+<tr class="row-odd"><td>node setup</td>
 <td>ssh, /etc/hosts, so on</td>
 <td>Can already be disabled from the
 cluster config</td>
 </tr>
-<tr><td>master failover</td>
+<tr class="row-even"><td>master failover</td>
 <td>start/stop the master
 daemon</td>
 <td>Doable (as long as we use a single
 user), might get tricky w.r.t. paths
 to executables</td>
 </tr>
-<tr><td>file upload</td>
+<tr class="row-odd"><td>file upload</td>
 <td>Uploading of system
 files, job queue files
 and ganeti config</td>
@@ -199,29 +210,29 @@ files, which are not owned by the
 current user; internal ganeti files
 should be working fine</td>
 </tr>
-<tr><td>node oob</td>
+<tr class="row-even"><td>node oob</td>
 <td>Out-of-band commands</td>
 <td>Since these are user-defined, we can
 mock them easily</td>
 </tr>
-<tr><td>node OS
+<tr class="row-odd"><td>node OS
 discovery</td>
 <td>List the existing OSes
 and their properties</td>
 <td>No special privileges needed, so
 works fine as-is</td>
 </tr>
-<tr><td>hooks</td>
+<tr class="row-even"><td>hooks</td>
 <td>Running hooks for given
 operations</td>
 <td>No special privileges needed</td>
 </tr>
-<tr><td>iallocator</td>
+<tr class="row-odd"><td>iallocator</td>
 <td>Calling an iallocator
 script</td>
 <td>No special privileges needed</td>
 </tr>
-<tr><td>export/import</td>
+<tr class="row-even"><td>export/import</td>
 <td>Exporting and importing
 instances</td>
 <td>When exporting/importing file-based
@@ -229,7 +240,7 @@ instances, this should work, as the
 listening ports are dynamically
 chosen</td>
 </tr>
-<tr><td>hypervisor
+<tr class="row-odd"><td>hypervisor
 validation</td>
 <td>The validation of
 hypervisor parameters</td>
@@ -237,7 +248,7 @@ hypervisor parameters</td>
 call to privileged commands, it
 should work</td>
 </tr>
-<tr><td>node powercycle</td>
+<tr class="row-even"><td>node powercycle</td>
 <td>The ability to power
 cycle a node remotely</td>
 <td>Privileged, so not supported, but
@@ -260,11 +271,16 @@ library. Unfortunately this has the downside of requiring root rights
 for setting up the extra IPs and hostnames.</p>
 <p>An alternative option is to implement per-node IP/port support in Ganeti
 (especially in the RPC layer), which would eliminate the root rights. We
-expect that this will get implemented as a second step of this design.</p>
+expect that this will get implemented as a second step of this design,
+but as the port is currently static will require changes in many places.</p>
 <p>The only remaining problem is with sharing the <tt class="docutils literal"><span class="pre">localstatedir</span></tt>
 structure (lib, run, log) amongst the daemons, for which we propose to
-add a command line parameter which can override this path (via injection
-into <tt class="docutils literal"><span class="pre">_autoconf.py</span></tt>). The rationale for this is two-fold:</p>
+introduce an environment variable (<tt class="docutils literal"><span class="pre">GANETI_ROOTDIR</span></tt>) acting as a
+prefix for essentially all paths. An environment variable is easier to
+transport through several levels of programs (shell scripts, Python,
+etc.) than a command line parameter. In Python code this prefix will be
+applied to all paths in <tt class="docutils literal"><span class="pre">constants.py</span></tt>. Every virtual node will get
+its own root directory. The rationale for this is two-fold:</p>
 <ul class="simple">
 <li>having two or more node daemons writing to the same directory might
 introduce artificial scenarios not existent in real life; currently
@@ -275,6 +291,9 @@ consistency of file upload operations; otherwise, as long as one node
 daemon wrote a file successfully, the results from all others are
 “lost”</li>
 </ul>
+<p>In case the use of an environment variable turns out to be too difficult
+a compile-time prefix path could be used. This would then require one
+Ganeti installation per virtual node, but it might be good enough.</p>
 </div>
 </div>
 <div class="section" id="rapi">
@@ -303,9 +322,10 @@ work fine.</p>
 <div class="section" id="cluster-initialisation">
 <h3>Cluster initialisation<a class="headerlink" href="#cluster-initialisation" title="Permalink to this headline">¶</a></h3>
 <p>It could be possible that the cluster initialisation procedure is a bit
-more involved (this was not tried yet). In any case, we can build a
-<tt class="docutils literal"><span class="pre">config.data</span></tt> file manually, without having to actually run
-<tt class="docutils literal"><span class="pre">gnt-cluster</span> <span class="pre">init</span></tt>.</p>
+more involved (this was not tried yet). A script will be used to set up
+all necessary IP addresses and hostnames, as well as creating the
+initial directory structure. Building <tt class="docutils literal"><span class="pre">config.data</span></tt> manually should
+not be necessary.</p>
 </div>
 </div>
 <div class="section" id="needed-tools">
@@ -314,10 +334,11 @@ more involved (this was not tried yet). In any case, we can build a
 are:</p>
 <ul class="simple">
 <li>a tool to setup per-virtual node tree structure of <tt class="docutils literal"><span class="pre">localstatedir</span></tt>
-and setup correctly the extra IP/hostnames</li>
+(with the help of <tt class="docutils literal"><span class="pre">ensure-dirs</span></tt>) and setup correctly the extra
+IP/hostnames</li>
 <li>changes to the startup daemon tools to launch correctly the daemons
 per virtual node</li>
-<li>changes to <tt class="docutils literal"><span class="pre">noded</span></tt> to override the <tt class="docutils literal"><span class="pre">localstatedir</span></tt> path</li>
+<li>changes to <tt class="docutils literal"><span class="pre">constants.py</span></tt> to override the <tt class="docutils literal"><span class="pre">localstatedir</span></tt> path</li>
 <li>documentation for running such a virtual cluster</li>
 <li>and eventual small fixes to the node daemon backend functionality, to
 better separate privileged and non-privileged code</li>
@@ -331,57 +352,57 @@ better separate privileged and non-privileged code</li>
       </div>
       <div class="sphinxsidebar">
         <div class="sphinxsidebarwrapper">
-            <h3><a href="index.html">Table Of Contents</a></h3>
-            <ul>
-<li><a class="reference external" href="#">Virtual clusters support</a><ul>
-<li><a class="reference external" href="#introduction">Introduction</a></li>
-<li><a class="reference external" href="#current-situation">Current situation</a><ul>
-<li><a class="reference external" href="#ganeti">Ganeti</a></li>
-<li><a class="reference external" href="#htools">HTools</a></li>
+  <h3><a href="index.html">Table Of Contents</a></h3>
+  <ul>
+<li><a class="reference internal" href="#">Design for virtual clusters support</a><ul>
+<li><a class="reference internal" href="#introduction">Introduction</a></li>
+<li><a class="reference internal" href="#current-situation">Current situation</a><ul>
+<li><a class="reference internal" href="#ganeti">Ganeti</a></li>
+<li><a class="reference internal" href="#htools">HTools</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#proposed-changes">Proposed changes</a><ul>
-<li><a class="reference external" href="#masterd"><tt class="docutils literal"><span class="pre">masterd</span></tt></a></li>
-<li><a class="reference external" href="#noded"><tt class="docutils literal"><span class="pre">noded</span></tt></a><ul>
-<li><a class="reference external" href="#multiple-noded-per-machine">Multiple <tt class="docutils literal"><span class="pre">noded</span></tt> per machine</a></li>
+<li><a class="reference internal" href="#proposed-changes">Proposed changes</a><ul>
+<li><a class="reference internal" href="#masterd"><tt class="docutils literal"><span class="pre">masterd</span></tt></a></li>
+<li><a class="reference internal" href="#noded"><tt class="docutils literal"><span class="pre">noded</span></tt></a><ul>
+<li><a class="reference internal" href="#multiple-noded-per-machine">Multiple <tt class="docutils literal"><span class="pre">noded</span></tt> per machine</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#rapi"><tt class="docutils literal"><span class="pre">rapi</span></tt></a></li>
-<li><a class="reference external" href="#confd"><tt class="docutils literal"><span class="pre">confd</span></tt></a></li>
-<li><a class="reference external" href="#ganeti-watcher"><tt class="docutils literal"><span class="pre">ganeti-watcher</span></tt></a></li>
-<li><a class="reference external" href="#cli-scripts">CLI scripts</a></li>
-<li><a class="reference external" href="#cluster-initialisation">Cluster initialisation</a></li>
+<li><a class="reference internal" href="#rapi"><tt class="docutils literal"><span class="pre">rapi</span></tt></a></li>
+<li><a class="reference internal" href="#confd"><tt class="docutils literal"><span class="pre">confd</span></tt></a></li>
+<li><a class="reference internal" href="#ganeti-watcher"><tt class="docutils literal"><span class="pre">ganeti-watcher</span></tt></a></li>
+<li><a class="reference internal" href="#cli-scripts">CLI scripts</a></li>
+<li><a class="reference internal" href="#cluster-initialisation">Cluster initialisation</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#needed-tools">Needed tools</a></li>
+<li><a class="reference internal" href="#needed-tools">Needed tools</a></li>
 </ul>
 </li>
 </ul>
 
-            <h4>Previous topic</h4>
-            <p class="topless"><a href="design-resource-model.html"
-                                  title="previous chapter">Resource model changes</a></p>
-            <h4>Next topic</h4>
-            <p class="topless"><a href="design-query-splitting.html"
-                                  title="next chapter">Splitting the query and job execution paths</a></p>
-            <h3>This Page</h3>
-            <ul class="this-page-menu">
-              <li><a href="_sources/design-virtual-clusters.txt"
-                     rel="nofollow">Show Source</a></li>
-            </ul>
-          <div id="searchbox" style="display: none">
-            <h3>Quick search</h3>
-              <form class="search" action="search.html" method="get">
-                <input type="text" name="q" size="18" />
-                <input type="submit" value="Go" />
-                <input type="hidden" name="check_keywords" value="yes" />
-                <input type="hidden" name="area" value="default" />
-              </form>
-              <p class="searchtip" style="font-size: 90%">
-              Enter search terms or a module, class or function name.
-              </p>
-          </div>
-          <script type="text/javascript">$('#searchbox').show(0);</script>
+  <h4>Previous topic</h4>
+  <p class="topless"><a href="design-shared-storage.html"
+                        title="previous chapter">Ganeti shared storage support</a></p>
+  <h4>Next topic</h4>
+  <p class="topless"><a href="design-network.html"
+                        title="next chapter">Network management</a></p>
+  <h3>This Page</h3>
+  <ul class="this-page-menu">
+    <li><a href="_sources/design-virtual-clusters.txt"
+           rel="nofollow">Show Source</a></li>
+  </ul>
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
         </div>
       </div>
       <div class="clearer"></div>
@@ -390,18 +411,17 @@ better separate privileged and non-privileged code</li>
       <h3>Navigation</h3>
       <ul>
         <li class="right" style="margin-right: 10px">
-          <a href="design-query-splitting.html" title="Splitting the query and job execution paths"
+          <a href="design-network.html" title="Network management"
              >next</a></li>
         <li class="right" >
-          <a href="design-resource-model.html" title="Resource model changes"
+          <a href="design-shared-storage.html" title="Ganeti shared storage support"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.6.2 documentation</a> &raquo;</li>
-          <li><a href="design-draft.html" >Design document drafts</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.7.0~rc3 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">
-      &copy; Copyright 2006, 2007, 2008, 2009, 2010, 2011, 2012, Google Inc..
-      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 0.6.7.
+        &copy; Copyright 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Google Inc..
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
     </div>
   </body>
 </html>

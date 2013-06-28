@@ -1,25 +1,31 @@
+
+
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
   "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
 
 <html xmlns="http://www.w3.org/1999/xhtml">
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Upgrade notes &mdash; Ganeti v2.6.2 documentation</title>
-    <link rel="stylesheet" href="_static/default.css" type="text/css" />
+    <title>Upgrade notes &mdash; Ganeti 2.7.0~rc3 documentation</title>
+    
+    <link rel="stylesheet" href="_static/style.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.6.2',
-        COLLAPSE_MODINDEX: false,
+        VERSION:     '2.7.0~rc3',
+        COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
       };
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.6.2 documentation" href="index.html" />
+    <link rel="top" title="Ganeti 2.7.0~rc3 documentation" href="index.html" />
     <link rel="next" title="Ganeti administrator’s guide" href="admin.html" />
     <link rel="prev" title="Ganeti installation tutorial" href="install.html" /> 
   </head>
@@ -33,7 +39,7 @@
         <li class="right" >
           <a href="install.html" title="Ganeti installation tutorial"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.6.2 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.7.0~rc3 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -49,7 +55,7 @@ of Ganeti.</p>
 <p>As a general rule the node daemons need to be restarted after each software
 upgrade; if using the provided example init.d script, this means running the
 following command on all nodes:</p>
-<div class="highlight-sh"><div class="highlight"><pre>/etc/init.d/ganeti restart
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">/etc/init.d/ganeti</span> <span class="gs">restart</span>
 </pre></div>
 </div>
 <div class="section" id="and-above">
@@ -63,47 +69,61 @@ minor releases.</p>
 <tt class="docutils literal"><span class="pre">dsh</span> <span class="pre">-M</span> <span class="pre">-F</span> <span class="pre">8</span> <span class="pre">-f</span> <span class="pre">/var/lib/ganeti/ssconf_online_nodes</span> <span class="pre">gnt-cluster</span> <span class="pre">--version</span></tt>.</p>
 <ol class="arabic">
 <li><p class="first">Ensure no jobs are running (master node only):</p>
-<div class="highlight-sh"><div class="highlight"><pre>gnt-job list
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-job</span> <span class="gs">list</span>
 </pre></div>
 </div>
 </li>
 <li><p class="first">Stop all daemons on all nodes:</p>
-<div class="highlight-sh"><div class="highlight"><pre>/etc/init.d/ganeti stop
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">/etc/init.d/ganeti</span> <span class="gs">stop</span>
 </pre></div>
 </div>
 </li>
 <li><p class="first">Backup old configuration (master node only):</p>
-<div class="highlight-sh"><div class="highlight"><pre>tar czf /var/lib/ganeti-<span class="k">$(</span>date +%FT%T<span class="k">)</span>.tar.gz -C /var/lib ganeti
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">tar</span> <span class="gs">czf</span> <span class="gs">/var/lib/ganeti-$(date</span> <span class="gs">+</span>%<span class="gs">FT</span>%<span class="gs">T).tar.gz</span> <span class="gs">-C</span> <span class="gs">/var/lib</span> <span class="gs">ganeti</span>
 </pre></div>
 </div>
 </li>
 <li><p class="first">Install new Ganeti version on all nodes</p>
 </li>
 <li><p class="first">Run cfgupgrade on the master node:</p>
-<div class="highlight-sh"><div class="highlight"><pre>/usr/lib/ganeti/tools/cfgupgrade --verbose --dry-run
-/usr/lib/ganeti/tools/cfgupgrade --verbose
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">/usr/lib/ganeti/tools/cfgupgrade</span> <span class="gs">--verbose</span> <span class="gs">--dry-run</span>
+$ <span class="gs">/usr/lib/ganeti/tools/cfgupgrade</span> <span class="gs">--verbose</span>
 </pre></div>
 </div>
 <p>(<tt class="docutils literal"><span class="pre">cfgupgrade</span></tt> supports a number of parameters, run it with
 <tt class="docutils literal"><span class="pre">--help</span></tt> for more information)</p>
 </li>
+<li><p class="first">Upgrade the directory permissions on all nodes:</p>
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">/usr/lib/ganeti/ensure-dirs</span> <span class="gs">--full-run</span>
+</pre></div>
+</div>
+</li>
 <li><p class="first">Restart daemons on all nodes:</p>
-<div class="highlight-sh"><div class="highlight"><pre>/etc/init.d/ganeti restart
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">/etc/init.d/ganeti</span> <span class="gs">restart</span>
 </pre></div>
 </div>
 </li>
 <li><p class="first">Re-distribute configuration (master node only):</p>
-<div class="highlight-sh"><div class="highlight"><pre>gnt-cluster redist-conf
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-cluster</span> <span class="gs">redist-conf</span>
+</pre></div>
+</div>
+</li>
+<li><p class="first">If you use file storage, check that the <tt class="docutils literal"><span class="pre">/etc/ganeti/file-storage-paths</span></tt></p>
+</li>
+<li><p class="first">is correct on all nodes. For security reasons it&#8217;s not copied</p>
+</li>
+<li><p class="first">automatically, but it can be copied manually via:</p>
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-cluster</span> <span class="gs">copyfile</span> <span class="gs">/etc/ganeti/file-storage-paths</span>
 </pre></div>
 </div>
 </li>
 <li><p class="first">Restart daemons again on all nodes:</p>
-<div class="highlight-sh"><div class="highlight"><pre>/etc/init.d/ganeti restart
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">/etc/init.d/ganeti</span> <span class="gs">restart</span>
 </pre></div>
 </div>
 </li>
 <li><p class="first">Verify cluster (master node only):</p>
-<div class="highlight-sh"><div class="highlight"><pre>gnt-cluster verify
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-cluster</span> <span class="gs">verify</span>
 </pre></div>
 </div>
 </li>
@@ -147,31 +167,31 @@ instances have the correct disk sizes</li>
 <li>Upgrade to Ganeti 2.0.0~rc2 or later (~rc1 and earlier don&#8217;t have the needed
 upgrade tool)</li>
 </ul>
-<p>In the below steps, replace <tt class="docutils literal"><span class="pre">/var/lib</span></tt> with <tt class="docutils literal"><span class="pre">$libdir</span></tt> if Ganeti was not
-installed with this prefix (e.g. <tt class="docutils literal"><span class="pre">/usr/local/var</span></tt>). Same for
-<tt class="docutils literal"><span class="pre">/usr/lib</span></tt>.</p>
+<p>In the below steps, replace <tt class="file docutils literal"><span class="pre">/var/lib</span></tt> with <tt class="docutils literal"><span class="pre">$libdir</span></tt> if Ganeti was not
+installed with this prefix (e.g. <tt class="file docutils literal"><span class="pre">/usr/local/var</span></tt>). Same for
+<tt class="file docutils literal"><span class="pre">/usr/lib</span></tt>.</p>
 <p>Execution (all steps are required in the order given):</p>
 <ol class="arabic">
 <li><p class="first">Make a backup of the current configuration, for safety:</p>
-<div class="highlight-sh"><div class="highlight"><pre>cp -a /var/lib/ganeti /var/lib/ganeti-1.2.backup
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">cp</span> <span class="gs">-a</span> <span class="gs">/var/lib/ganeti</span> <span class="gs">/var/lib/ganeti-1.2.backup</span>
 </pre></div>
 </div>
 </li>
 <li><p class="first">Stop all instances:</p>
-<div class="highlight-sh"><div class="highlight"><pre>gnt-instance stop --all
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-instance</span> <span class="gs">stop</span> <span class="gs">--all</span>
 </pre></div>
 </div>
 </li>
 <li><p class="first">Make sure no DRBD device are in use, the following command should show no
 active minors:</p>
-<div class="highlight-sh"><div class="highlight"><pre>gnt-cluster <span class="nb">command </span>grep cs: /proc/drbd <span class="se">\|</span> grep -v cs:Unconf
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-cluster</span> <span class="gs">command</span> <span class="gs">grep</span> <span class="gs">cs:</span> <span class="gs">/proc/drbd</span> <span class="gs">|</span> <span class="gs">grep</span> <span class="gs">-v</span> <span class="gs">cs:Unconf</span>
 </pre></div>
 </div>
 </li>
 <li><p class="first">Stop the node daemons and rapi daemon on all nodes (note: should be logged
 in not via the cluster name, but the master node name, as the command below
 will remove the cluster ip from the master node):</p>
-<div class="highlight-sh"><div class="highlight"><pre>gnt-cluster <span class="nb">command</span> /etc/init.d/ganeti stop
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-cluster</span> <span class="gs">command</span> <span class="gs">/etc/init.d/ganeti</span> <span class="gs">stop</span>
 </pre></div>
 </div>
 </li>
@@ -180,8 +200,8 @@ or from sources; the master daemon will not start but give error messages
 about wrong configuration file, which is normal</p>
 </li>
 <li><p class="first">Upgrade the configuration file:</p>
-<div class="highlight-sh"><div class="highlight"><pre>/usr/lib/ganeti/tools/cfgupgrade12 -v --dry-run
-/usr/lib/ganeti/tools/cfgupgrade12 -v
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">/usr/lib/ganeti/tools/cfgupgrade12</span> <span class="gs">-v</span> <span class="gs">--dry-run</span>
+$ <span class="gs">/usr/lib/ganeti/tools/cfgupgrade12</span> <span class="gs">-v</span>
 </pre></div>
 </div>
 </li>
@@ -189,63 +209,63 @@ about wrong configuration file, which is normal</p>
 not)</p>
 </li>
 <li><p class="first">Start the master daemon:</p>
-<div class="highlight-sh"><div class="highlight"><pre>ganeti-masterd
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">ganeti-masterd</span>
 </pre></div>
 </div>
 </li>
 <li><p class="first">Check that a simple node-list works:</p>
-<div class="highlight-sh"><div class="highlight"><pre>gnt-node list
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-node</span> <span class="gs">list</span>
 </pre></div>
 </div>
 </li>
 <li><p class="first">Redistribute updated configuration to all nodes:</p>
-<div class="highlight-sh"><div class="highlight"><pre>gnt-cluster redist-conf
-gnt-cluster copyfile /var/lib/ganeti/known_hosts
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-cluster</span> <span class="gs">redist-conf</span>
+$ <span class="gs">gnt-cluster</span> <span class="gs">copyfile</span> <span class="gs">/var/lib/ganeti/known_hosts</span>
 </pre></div>
 </div>
 </li>
 <li><p class="first">Optional: if needed, install RAPI-specific certificates under
-<tt class="docutils literal"><span class="pre">/var/lib/ganeti/rapi.pem</span></tt> and run:</p>
-<div class="highlight-sh"><div class="highlight"><pre>gnt-cluster copyfile /var/lib/ganeti/rapi.pem
+<tt class="file docutils literal"><span class="pre">/var/lib/ganeti/rapi.pem</span></tt> and run:</p>
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-cluster</span> <span class="gs">copyfile</span> <span class="gs">/var/lib/ganeti/rapi.pem</span>
 </pre></div>
 </div>
 </li>
 <li><p class="first">Run a cluster verify, this should show no problems:</p>
-<div class="highlight-sh"><div class="highlight"><pre>gnt-cluster verify
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-cluster</span> <span class="gs">verify</span>
 </pre></div>
 </div>
 </li>
 <li><p class="first">Remove some obsolete files:</p>
-<div class="highlight-sh"><div class="highlight"><pre>gnt-cluster <span class="nb">command </span>rm /var/lib/ganeti/ssconf_node_pass
-gnt-cluster <span class="nb">command </span>rm /var/lib/ganeti/ssconf_hypervisor
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-cluster</span> <span class="gs">command</span> <span class="gs">rm</span> <span class="gs">/var/lib/ganeti/ssconf_node_pass</span>
+$ <span class="gs">gnt-cluster</span> <span class="gs">command</span> <span class="gs">rm</span> <span class="gs">/var/lib/ganeti/ssconf_hypervisor</span>
 </pre></div>
 </div>
 </li>
 <li><p class="first">Update the xen pvm (if this was a pvm cluster) setting for 1.2
 compatibility:</p>
-<div class="highlight-sh"><div class="highlight"><pre>gnt-cluster modify -H xen-pvm:root_path<span class="o">=</span>/dev/sda
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-cluster</span> <span class="gs">modify</span> <span class="gs">-H</span> <span class="gs">xen-pvm:root_path=/dev/sda</span>
 </pre></div>
 </div>
 </li>
 <li><p class="first">Depending on your setup, you might also want to reset the initrd parameter:</p>
-<div class="highlight-sh"><div class="highlight"><pre>gnt-cluster modify -H xen-pvm:initrd_path<span class="o">=</span>/boot/initrd-2.6-xenU
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-cluster</span> <span class="gs">modify</span> <span class="gs">-H</span> <span class="gs">xen-pvm:initrd_path=/boot/initrd-2.6-xenU</span>
 </pre></div>
 </div>
 </li>
 <li><p class="first">Reset the instance autobalance setting to default:</p>
-<div class="highlight-sh"><div class="highlight"><pre><span class="k">for </span>i in <span class="k">$(</span>gnt-instance list -o name --no-headers<span class="k">)</span>; <span class="k">do</span> <span class="se">\</span>
-  gnt-instance modify -B <span class="nv">auto_balance</span><span class="o">=</span>default <span class="nv">$i</span>; <span class="se">\</span>
-<span class="k">done</span>
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">for</span> <span class="gs">i</span> <span class="gs">in</span> <span class="gs">$(gnt-instance</span> <span class="gs">list</span> <span class="gs">-o</span> <span class="gs">name</span> <span class="gs">--no-headers);</span> <span class="gs">do</span> <span class="gs">\</span>
+   <span class="gs">gnt-instance</span> <span class="gs">modify</span> <span class="gs">-B</span> <span class="gs">auto_balance=default</span> <span class="gs">$i;</span> <span class="gs">\</span>
+  <span class="gs">done</span>
 </pre></div>
 </div>
 </li>
 <li><p class="first">Optional: start the RAPI demon:</p>
-<div class="highlight-sh"><div class="highlight"><pre>ganeti-rapi
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">ganeti-rapi</span>
 </pre></div>
 </div>
 </li>
 <li><p class="first">Restart instances:</p>
-<div class="highlight-sh"><div class="highlight"><pre>gnt-instance start --force-multiple --all
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-instance</span> <span class="gs">start</span> <span class="gs">--force-multiple</span> <span class="gs">--all</span>
 </pre></div>
 </div>
 </li>
@@ -296,14 +316,14 @@ released, but upgrading it is not required.</p>
 <ol class="arabic">
 <li><p class="first">Stop the daemons (<tt class="docutils literal"><span class="pre">/etc/init.d/ganeti</span> <span class="pre">stop</span></tt>) on all nodes</p>
 </li>
-<li><p class="first">Disable the cron job (default is <tt class="docutils literal"><span class="pre">/etc/cron.d/ganeti</span></tt>)</p>
+<li><p class="first">Disable the cron job (default is <tt class="file docutils literal"><span class="pre">/etc/cron.d/ganeti</span></tt>)</p>
 </li>
 <li><p class="first">Install the new version</p>
 </li>
 <li><p class="first">Make a backup copy of the config file</p>
 </li>
 <li><p class="first">Upgrade the config file using the following command:</p>
-<div class="highlight-sh"><div class="highlight"><pre>/usr/share/ganeti/cfgupgrade --verbose /var/lib/ganeti/config.data
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">/usr/share/ganeti/cfgupgrade</span> <span class="gs">--verbose</span> <span class="gs">/var/lib/ganeti/config.data</span>
 </pre></div>
 </div>
 </li>
@@ -323,55 +343,55 @@ debian-etch-instance OS (0.2) that goes along with beta 2.</p>
       </div>
       <div class="sphinxsidebar">
         <div class="sphinxsidebarwrapper">
-            <h3><a href="index.html">Table Of Contents</a></h3>
-            <ul>
-<li><a class="reference external" href="#">Upgrade notes</a><ul>
-<li><a class="reference external" href="#and-above">2.1 and above</a></li>
-<li><a class="reference external" href="#releases">2.0 releases</a><ul>
-<li><a class="reference external" href="#to-2-0-4">2.0.3 to 2.0.4</a></li>
-<li><a class="reference external" href="#to-2-0-2-2-0-3">2.0.1 to 2.0.2/2.0.3</a></li>
+  <h3><a href="index.html">Table Of Contents</a></h3>
+  <ul>
+<li><a class="reference internal" href="#">Upgrade notes</a><ul>
+<li><a class="reference internal" href="#and-above">2.1 and above</a></li>
+<li><a class="reference internal" href="#releases">2.0 releases</a><ul>
+<li><a class="reference internal" href="#to-2-0-4">2.0.3 to 2.0.4</a></li>
+<li><a class="reference internal" href="#to-2-0-2-2-0-3">2.0.1 to 2.0.2/2.0.3</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#to-2-0">1.2 to 2.0</a></li>
-<li><a class="reference external" href="#id1">1.2 releases</a><ul>
-<li><a class="reference external" href="#to-any-other-higher-1-2-version">1.2.4 to any other higher 1.2 version</a></li>
-<li><a class="reference external" href="#to-1-2-4">1.2.3 to 1.2.4</a></li>
-<li><a class="reference external" href="#to-1-2-3">1.2.2 to 1.2.3</a></li>
-<li><a class="reference external" href="#to-1-2-2">1.2.1 to 1.2.2</a></li>
-<li><a class="reference external" href="#to-1-2-1">1.2.0 to 1.2.1</a></li>
-<li><a class="reference external" href="#beta-3-to-1-2-0">1.2.0 beta 3 to 1.2.0</a></li>
-<li><a class="reference external" href="#beta-2-to-beta-3">1.2.0 beta 2 to beta 3</a></li>
-<li><a class="reference external" href="#beta-1-to-beta-2">1.2.0 beta 1 to beta 2</a></li>
+<li><a class="reference internal" href="#to-2-0">1.2 to 2.0</a></li>
+<li><a class="reference internal" href="#id1">1.2 releases</a><ul>
+<li><a class="reference internal" href="#to-any-other-higher-1-2-version">1.2.4 to any other higher 1.2 version</a></li>
+<li><a class="reference internal" href="#to-1-2-4">1.2.3 to 1.2.4</a></li>
+<li><a class="reference internal" href="#to-1-2-3">1.2.2 to 1.2.3</a></li>
+<li><a class="reference internal" href="#to-1-2-2">1.2.1 to 1.2.2</a></li>
+<li><a class="reference internal" href="#to-1-2-1">1.2.0 to 1.2.1</a></li>
+<li><a class="reference internal" href="#beta-3-to-1-2-0">1.2.0 beta 3 to 1.2.0</a></li>
+<li><a class="reference internal" href="#beta-2-to-beta-3">1.2.0 beta 2 to beta 3</a></li>
+<li><a class="reference internal" href="#beta-1-to-beta-2">1.2.0 beta 1 to beta 2</a></li>
 </ul>
 </li>
 </ul>
 </li>
 </ul>
 
-            <h4>Previous topic</h4>
-            <p class="topless"><a href="install.html"
-                                  title="previous chapter">Ganeti installation tutorial</a></p>
-            <h4>Next topic</h4>
-            <p class="topless"><a href="admin.html"
-                                  title="next chapter">Ganeti administrator&#8217;s guide</a></p>
-            <h3>This Page</h3>
-            <ul class="this-page-menu">
-              <li><a href="_sources/upgrade.txt"
-                     rel="nofollow">Show Source</a></li>
-            </ul>
-          <div id="searchbox" style="display: none">
-            <h3>Quick search</h3>
-              <form class="search" action="search.html" method="get">
-                <input type="text" name="q" size="18" />
-                <input type="submit" value="Go" />
-                <input type="hidden" name="check_keywords" value="yes" />
-                <input type="hidden" name="area" value="default" />
-              </form>
-              <p class="searchtip" style="font-size: 90%">
-              Enter search terms or a module, class or function name.
-              </p>
-          </div>
-          <script type="text/javascript">$('#searchbox').show(0);</script>
+  <h4>Previous topic</h4>
+  <p class="topless"><a href="install.html"
+                        title="previous chapter">Ganeti installation tutorial</a></p>
+  <h4>Next topic</h4>
+  <p class="topless"><a href="admin.html"
+                        title="next chapter">Ganeti administrator&#8217;s guide</a></p>
+  <h3>This Page</h3>
+  <ul class="this-page-menu">
+    <li><a href="_sources/upgrade.txt"
+           rel="nofollow">Show Source</a></li>
+  </ul>
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
         </div>
       </div>
       <div class="clearer"></div>
@@ -385,12 +405,12 @@ debian-etch-instance OS (0.2) that goes along with beta 2.</p>
         <li class="right" >
           <a href="install.html" title="Ganeti installation tutorial"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.6.2 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.7.0~rc3 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">
-      &copy; Copyright 2006, 2007, 2008, 2009, 2010, 2011, 2012, Google Inc..
-      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 0.6.7.
+        &copy; Copyright 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Google Inc..
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
     </div>
   </body>
 </html>

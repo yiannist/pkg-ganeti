@@ -1,25 +1,31 @@
+
+
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
   "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
 
 <html xmlns="http://www.w3.org/1999/xhtml">
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Ganeti 2.1 design &mdash; Ganeti v2.6.2 documentation</title>
-    <link rel="stylesheet" href="_static/default.css" type="text/css" />
+    <title>Ganeti 2.1 design &mdash; Ganeti 2.7.0~rc3 documentation</title>
+    
+    <link rel="stylesheet" href="_static/style.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.6.2',
-        COLLAPSE_MODINDEX: false,
+        VERSION:     '2.7.0~rc3',
+        COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
       };
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.6.2 documentation" href="index.html" />
+    <link rel="top" title="Ganeti 2.7.0~rc3 documentation" href="index.html" />
     <link rel="next" title="Ganeti 2.2 design" href="design-2.2.html" />
     <link rel="prev" title="Ganeti 2.0 design" href="design-2.0.html" /> 
   </head>
@@ -33,7 +39,7 @@
         <li class="right" >
           <a href="design-2.0.html" title="Ganeti 2.0 design"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.6.2 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.7.0~rc3 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -274,7 +280,42 @@ the queue.</p>
 <p>Optimization: There&#8217;s no need to touch the queue if there are no pending
 acquires and no current holders. The caller can have the lock
 immediately.</p>
-<img alt="_images/design-2.1-lock-acquire.png" src="_images/design-2.1-lock-acquire.png" />
+<p class="graphviz">
+<img src="_images/graphviz-100d4f75b04661cbe5479c15ff30af0cefd3c272.png" alt="digraph &quot;design-2.1-lock-acquire&quot; {
+graph[fontsize=8, fontname=&quot;Helvetica&quot;]
+node[fontsize=8, fontname=&quot;Helvetica&quot;, width=&quot;0&quot;, height=&quot;0&quot;]
+edge[fontsize=8, fontname=&quot;Helvetica&quot;]
+
+/* Actions */
+abort[label=&quot;Abort\n(couldn't acquire)&quot;]
+acquire[label=&quot;Acquire lock&quot;]
+add_to_queue[label=&quot;Add condition to queue&quot;]
+wait[label=&quot;Wait for notification&quot;]
+remove_from_queue[label=&quot;Remove from queue&quot;]
+
+/* Conditions */
+alone[label=&quot;Empty queue\nand can acquire?&quot;, shape=diamond]
+have_timeout[label=&quot;Do I have\ntimeout?&quot;, shape=diamond]
+top_of_queue_and_can_acquire[
+  label=&quot;On top of queue and\ncan acquire lock?&quot;,
+  shape=diamond,
+  ]
+
+/* Lines */
+alone-&gt;acquire[label=&quot;Yes&quot;]
+alone-&gt;add_to_queue[label=&quot;No&quot;]
+
+have_timeout-&gt;abort[label=&quot;Yes&quot;]
+have_timeout-&gt;wait[label=&quot;No&quot;]
+
+top_of_queue_and_can_acquire-&gt;acquire[label=&quot;Yes&quot;]
+top_of_queue_and_can_acquire-&gt;have_timeout[label=&quot;No&quot;]
+
+add_to_queue-&gt;wait
+wait-&gt;top_of_queue_and_can_acquire
+acquire-&gt;remove_from_queue
+}" />
+</p>
 </div>
 <div class="section" id="release">
 <h7>Release<a class="headerlink" href="#release" title="Permalink to this headline">¶</a></h7>
@@ -285,7 +326,39 @@ notified.</p>
 inactive condition will be made active. This ensures fairness with
 exclusive locks by forcing consecutive shared acquires to wait in the
 queue.</p>
-<img alt="_images/design-2.1-lock-release.png" src="_images/design-2.1-lock-release.png" />
+<p class="graphviz">
+<img src="_images/graphviz-fc20e7d73e06c0e89736201164f78eca9e9846cf.png" alt="digraph &quot;design-2.1-lock-release&quot; {
+graph[fontsize=8, fontname=&quot;Helvetica&quot;]
+node[fontsize=8, fontname=&quot;Helvetica&quot;, width=&quot;0&quot;, height=&quot;0&quot;]
+edge[fontsize=8, fontname=&quot;Helvetica&quot;]
+
+/* Actions */
+remove_from_owners[label=&quot;Remove from owner list&quot;]
+notify[label=&quot;Notify topmost&quot;]
+swap_shared[label=&quot;Swap shared conditions&quot;]
+success[label=&quot;Success&quot;]
+
+/* Conditions */
+have_pending[label=&quot;Any pending\nacquires?&quot;, shape=diamond]
+was_active_queue[
+  label=&quot;Was active condition\nfor shared acquires?&quot;,
+  shape=diamond,
+  ]
+
+/* Lines */
+remove_from_owners-&gt;have_pending
+
+have_pending-&gt;notify[label=&quot;Yes&quot;]
+have_pending-&gt;success[label=&quot;No&quot;]
+
+notify-&gt;was_active_queue
+
+was_active_queue-&gt;swap_shared[label=&quot;Yes&quot;]
+was_active_queue-&gt;success[label=&quot;No&quot;]
+
+swap_shared-&gt;success
+}" />
+</p>
 </div>
 <div class="section" id="delete">
 <h7>Delete<a class="headerlink" href="#delete" title="Permalink to this headline">¶</a></h7>
@@ -1150,132 +1223,132 @@ specification</li>
       </div>
       <div class="sphinxsidebar">
         <div class="sphinxsidebarwrapper">
-            <h3><a href="index.html">Table Of Contents</a></h3>
-            <ul>
-<li><a class="reference external" href="#">Ganeti 2.1 design</a><ul>
-<li><a class="reference external" href="#objective">Objective</a></li>
-<li><a class="reference external" href="#detailed-design">Detailed design</a><ul>
-<li><a class="reference external" href="#core-changes">Core changes</a><ul>
-<li><a class="reference external" href="#storage-units-modelling">Storage units modelling</a></li>
-<li><a class="reference external" href="#locking-improvements">Locking improvements</a><ul>
-<li><a class="reference external" href="#current-state-and-shortcomings">Current State and shortcomings</a></li>
-<li><a class="reference external" href="#proposed-changes">Proposed changes</a><ul>
-<li><a class="reference external" href="#non-blocking-lock-acquiring">Non-blocking lock acquiring</a></li>
-<li><a class="reference external" href="#retry-acquiring-locks">Retry acquiring locks</a></li>
+  <h3><a href="index.html">Table Of Contents</a></h3>
+  <ul>
+<li><a class="reference internal" href="#">Ganeti 2.1 design</a><ul>
+<li><a class="reference internal" href="#objective">Objective</a></li>
+<li><a class="reference internal" href="#detailed-design">Detailed design</a><ul>
+<li><a class="reference internal" href="#core-changes">Core changes</a><ul>
+<li><a class="reference internal" href="#storage-units-modelling">Storage units modelling</a></li>
+<li><a class="reference internal" href="#locking-improvements">Locking improvements</a><ul>
+<li><a class="reference internal" href="#current-state-and-shortcomings">Current State and shortcomings</a></li>
+<li><a class="reference internal" href="#proposed-changes">Proposed changes</a><ul>
+<li><a class="reference internal" href="#non-blocking-lock-acquiring">Non-blocking lock acquiring</a></li>
+<li><a class="reference internal" href="#retry-acquiring-locks">Retry acquiring locks</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#other-solutions-discussed">Other solutions discussed</a></li>
-<li><a class="reference external" href="#implementation-details">Implementation details</a><ul>
-<li><a class="reference external" href="#sharedlock-redesign"><tt class="docutils literal"><span class="pre">SharedLock</span></tt> redesign</a><ul>
-<li><a class="reference external" href="#acquire">Acquire</a></li>
-<li><a class="reference external" href="#release">Release</a></li>
-<li><a class="reference external" href="#delete">Delete</a></li>
+<li><a class="reference internal" href="#other-solutions-discussed">Other solutions discussed</a></li>
+<li><a class="reference internal" href="#implementation-details">Implementation details</a><ul>
+<li><a class="reference internal" href="#sharedlock-redesign"><tt class="docutils literal"><span class="pre">SharedLock</span></tt> redesign</a><ul>
+<li><a class="reference internal" href="#acquire">Acquire</a></li>
+<li><a class="reference internal" href="#release">Release</a></li>
+<li><a class="reference internal" href="#delete">Delete</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#condition">Condition</a></li>
-</ul>
-</li>
-</ul>
-</li>
-<li><a class="reference external" href="#node-daemon-availability">Node daemon availability</a><ul>
-<li><a class="reference external" href="#id1">Current State and shortcomings</a></li>
-<li><a class="reference external" href="#id2">Proposed changes</a></li>
+<li><a class="reference internal" href="#condition">Condition</a></li>
 </ul>
 </li>
 </ul>
 </li>
-<li><a class="reference external" href="#new-features">New Features</a><ul>
-<li><a class="reference external" href="#automated-ganeti-cluster-merger">Automated Ganeti Cluster Merger</a><ul>
-<li><a class="reference external" href="#current-situation">Current situation</a></li>
-<li><a class="reference external" href="#initial-contact">Initial contact</a></li>
-<li><a class="reference external" href="#cluster-merge">Cluster merge</a></li>
-<li><a class="reference external" href="#rollback">Rollback</a></li>
-<li><a class="reference external" href="#verification">Verification</a></li>
-<li><a class="reference external" href="#appendix">Appendix</a><ul>
-<li><a class="reference external" href="#cluster-merge-py">cluster-merge.py</a></li>
+<li><a class="reference internal" href="#node-daemon-availability">Node daemon availability</a><ul>
+<li><a class="reference internal" href="#id1">Current State and shortcomings</a></li>
+<li><a class="reference internal" href="#id2">Proposed changes</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a class="reference internal" href="#new-features">New Features</a><ul>
+<li><a class="reference internal" href="#automated-ganeti-cluster-merger">Automated Ganeti Cluster Merger</a><ul>
+<li><a class="reference internal" href="#current-situation">Current situation</a></li>
+<li><a class="reference internal" href="#initial-contact">Initial contact</a></li>
+<li><a class="reference internal" href="#cluster-merge">Cluster merge</a></li>
+<li><a class="reference internal" href="#rollback">Rollback</a></li>
+<li><a class="reference internal" href="#verification">Verification</a></li>
+<li><a class="reference internal" href="#appendix">Appendix</a><ul>
+<li><a class="reference internal" href="#cluster-merge-py">cluster-merge.py</a></li>
 </ul>
 </li>
 </ul>
 </li>
 </ul>
 </li>
-<li><a class="reference external" href="#feature-changes">Feature changes</a><ul>
-<li><a class="reference external" href="#ganeti-confd">Ganeti Confd</a><ul>
-<li><a class="reference external" href="#id3">Current State and shortcomings</a></li>
-<li><a class="reference external" href="#id4">Proposed changes</a><ul>
-<li><a class="reference external" href="#wire-protocol">Wire protocol</a></li>
+<li><a class="reference internal" href="#feature-changes">Feature changes</a><ul>
+<li><a class="reference internal" href="#ganeti-confd">Ganeti Confd</a><ul>
+<li><a class="reference internal" href="#id3">Current State and shortcomings</a></li>
+<li><a class="reference internal" href="#id4">Proposed changes</a><ul>
+<li><a class="reference internal" href="#wire-protocol">Wire protocol</a></li>
 </ul>
 </li>
 </ul>
 </li>
-<li><a class="reference external" href="#redistribute-config">Redistribute Config</a><ul>
-<li><a class="reference external" href="#id5">Current State and shortcomings</a></li>
-<li><a class="reference external" href="#id6">Proposed changes</a></li>
+<li><a class="reference internal" href="#redistribute-config">Redistribute Config</a><ul>
+<li><a class="reference internal" href="#id5">Current State and shortcomings</a></li>
+<li><a class="reference internal" href="#id6">Proposed changes</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#vnc-console-password">VNC Console Password</a><ul>
-<li><a class="reference external" href="#id7">Current State and shortcomings</a></li>
-<li><a class="reference external" href="#id8">Proposed changes</a></li>
+<li><a class="reference internal" href="#vnc-console-password">VNC Console Password</a><ul>
+<li><a class="reference internal" href="#id7">Current State and shortcomings</a></li>
+<li><a class="reference internal" href="#id8">Proposed changes</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#disk-net-parameters">Disk/Net parameters</a><ul>
-<li><a class="reference external" href="#id9">Current State and shortcomings</a></li>
-<li><a class="reference external" href="#id10">Proposed changes</a></li>
+<li><a class="reference internal" href="#disk-net-parameters">Disk/Net parameters</a><ul>
+<li><a class="reference internal" href="#id9">Current State and shortcomings</a></li>
+<li><a class="reference internal" href="#id10">Proposed changes</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#global-hypervisor-parameters">Global hypervisor parameters</a><ul>
-<li><a class="reference external" href="#id11">Current State and shortcomings</a></li>
-<li><a class="reference external" href="#id12">Proposed changes</a></li>
+<li><a class="reference internal" href="#global-hypervisor-parameters">Global hypervisor parameters</a><ul>
+<li><a class="reference internal" href="#id11">Current State and shortcomings</a></li>
+<li><a class="reference internal" href="#id12">Proposed changes</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#non-bridged-instances-support">Non bridged instances support</a><ul>
-<li><a class="reference external" href="#id13">Current State and shortcomings</a></li>
-<li><a class="reference external" href="#id14">Proposed changes</a></li>
+<li><a class="reference internal" href="#non-bridged-instances-support">Non bridged instances support</a><ul>
+<li><a class="reference internal" href="#id13">Current State and shortcomings</a></li>
+<li><a class="reference internal" href="#id14">Proposed changes</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#introducing-persistent-uuids">Introducing persistent UUIDs</a><ul>
-<li><a class="reference external" href="#id15">Current state and shortcomings</a></li>
-<li><a class="reference external" href="#proposed-changes-part-1">Proposed changes part 1</a></li>
-<li><a class="reference external" href="#proposed-changes-part-2">Proposed changes part 2</a></li>
+<li><a class="reference internal" href="#introducing-persistent-uuids">Introducing persistent UUIDs</a><ul>
+<li><a class="reference internal" href="#id15">Current state and shortcomings</a></li>
+<li><a class="reference internal" href="#proposed-changes-part-1">Proposed changes part 1</a></li>
+<li><a class="reference internal" href="#proposed-changes-part-2">Proposed changes part 2</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#automated-disk-repairs-infrastructure">Automated disk repairs infrastructure</a><ul>
-<li><a class="reference external" href="#fix-node-volume-group">Fix node volume group</a></li>
-<li><a class="reference external" href="#stop-allocation-on-a-given-pv">Stop allocation on a given PV</a></li>
-<li><a class="reference external" href="#instance-disk-status">Instance disk status</a></li>
-<li><a class="reference external" href="#repair-instance">Repair instance</a></li>
-<li><a class="reference external" href="#migrate-node">Migrate node</a></li>
-<li><a class="reference external" href="#evacuate-node">Evacuate node</a></li>
+<li><a class="reference internal" href="#automated-disk-repairs-infrastructure">Automated disk repairs infrastructure</a><ul>
+<li><a class="reference internal" href="#fix-node-volume-group">Fix node volume group</a></li>
+<li><a class="reference internal" href="#stop-allocation-on-a-given-pv">Stop allocation on a given PV</a></li>
+<li><a class="reference internal" href="#instance-disk-status">Instance disk status</a></li>
+<li><a class="reference internal" href="#repair-instance">Repair instance</a></li>
+<li><a class="reference internal" href="#migrate-node">Migrate node</a></li>
+<li><a class="reference internal" href="#evacuate-node">Evacuate node</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#user-id-pool">User-id pool</a><ul>
-<li><a class="reference external" href="#implementation">Implementation</a><ul>
-<li><a class="reference external" href="#storage">Storage</a></li>
-<li><a class="reference external" href="#initial-value">Initial value</a></li>
-<li><a class="reference external" href="#manipulation">Manipulation</a></li>
-<li><a class="reference external" href="#inspection">Inspection</a></li>
-<li><a class="reference external" href="#locking">Locking</a></li>
+<li><a class="reference internal" href="#user-id-pool">User-id pool</a><ul>
+<li><a class="reference internal" href="#implementation">Implementation</a><ul>
+<li><a class="reference internal" href="#storage">Storage</a></li>
+<li><a class="reference internal" href="#initial-value">Initial value</a></li>
+<li><a class="reference internal" href="#manipulation">Manipulation</a></li>
+<li><a class="reference internal" href="#inspection">Inspection</a></li>
+<li><a class="reference internal" href="#locking">Locking</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#code-examples">Code examples</a></li>
+<li><a class="reference internal" href="#code-examples">Code examples</a></li>
 </ul>
 </li>
 </ul>
 </li>
-<li><a class="reference external" href="#external-interface-changes">External interface changes</a><ul>
-<li><a class="reference external" href="#os-api">OS API</a><ul>
-<li><a class="reference external" href="#api-version-compatibility-handling">API Version Compatibility Handling</a></li>
-<li><a class="reference external" href="#new-environment-variables">New Environment variables</a></li>
-<li><a class="reference external" href="#os-variants">OS Variants</a></li>
+<li><a class="reference internal" href="#external-interface-changes">External interface changes</a><ul>
+<li><a class="reference internal" href="#os-api">OS API</a><ul>
+<li><a class="reference internal" href="#api-version-compatibility-handling">API Version Compatibility Handling</a></li>
+<li><a class="reference internal" href="#new-environment-variables">New Environment variables</a></li>
+<li><a class="reference internal" href="#os-variants">OS Variants</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#iallocator-changes">IAllocator changes</a><ul>
-<li><a class="reference external" href="#id16">Current State and shortcomings</a></li>
-<li><a class="reference external" href="#id17">Proposed changes</a><ul>
-<li><a class="reference external" href="#default-iallocator-names">Default iallocator names</a></li>
-<li><a class="reference external" href="#dry-run-allocation">Dry-run allocation</a></li>
-<li><a class="reference external" href="#cluster-balancing">Cluster balancing</a></li>
-<li><a class="reference external" href="#cluster-capacity-calculation">Cluster capacity calculation</a></li>
+<li><a class="reference internal" href="#iallocator-changes">IAllocator changes</a><ul>
+<li><a class="reference internal" href="#id16">Current State and shortcomings</a></li>
+<li><a class="reference internal" href="#id17">Proposed changes</a><ul>
+<li><a class="reference internal" href="#default-iallocator-names">Default iallocator names</a></li>
+<li><a class="reference internal" href="#dry-run-allocation">Dry-run allocation</a></li>
+<li><a class="reference internal" href="#cluster-balancing">Cluster balancing</a></li>
+<li><a class="reference internal" href="#cluster-capacity-calculation">Cluster capacity calculation</a></li>
 </ul>
 </li>
 </ul>
@@ -1288,30 +1361,30 @@ specification</li>
 </li>
 </ul>
 
-            <h4>Previous topic</h4>
-            <p class="topless"><a href="design-2.0.html"
-                                  title="previous chapter">Ganeti 2.0 design</a></p>
-            <h4>Next topic</h4>
-            <p class="topless"><a href="design-2.2.html"
-                                  title="next chapter">Ganeti 2.2 design</a></p>
-            <h3>This Page</h3>
-            <ul class="this-page-menu">
-              <li><a href="_sources/design-2.1.txt"
-                     rel="nofollow">Show Source</a></li>
-            </ul>
-          <div id="searchbox" style="display: none">
-            <h3>Quick search</h3>
-              <form class="search" action="search.html" method="get">
-                <input type="text" name="q" size="18" />
-                <input type="submit" value="Go" />
-                <input type="hidden" name="check_keywords" value="yes" />
-                <input type="hidden" name="area" value="default" />
-              </form>
-              <p class="searchtip" style="font-size: 90%">
-              Enter search terms or a module, class or function name.
-              </p>
-          </div>
-          <script type="text/javascript">$('#searchbox').show(0);</script>
+  <h4>Previous topic</h4>
+  <p class="topless"><a href="design-2.0.html"
+                        title="previous chapter">Ganeti 2.0 design</a></p>
+  <h4>Next topic</h4>
+  <p class="topless"><a href="design-2.2.html"
+                        title="next chapter">Ganeti 2.2 design</a></p>
+  <h3>This Page</h3>
+  <ul class="this-page-menu">
+    <li><a href="_sources/design-2.1.txt"
+           rel="nofollow">Show Source</a></li>
+  </ul>
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
         </div>
       </div>
       <div class="clearer"></div>
@@ -1325,12 +1398,12 @@ specification</li>
         <li class="right" >
           <a href="design-2.0.html" title="Ganeti 2.0 design"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.6.2 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.7.0~rc3 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">
-      &copy; Copyright 2006, 2007, 2008, 2009, 2010, 2011, 2012, Google Inc..
-      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 0.6.7.
+        &copy; Copyright 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Google Inc..
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
     </div>
   </body>
 </html>

@@ -46,7 +46,7 @@ order to achieve high availability for instances.
 Node can be added and removed (if they host no instances) at will from
 the cluster. In a HA cluster and only with HA instances, the loss of any
 single node will not cause disk data loss for any instance; of course,
-a node crash will cause the crash of the its primary instances.
+a node crash will cause the crash of its primary instances.
 
 A node belonging to a cluster can be in one of the following roles at a
 given time:
@@ -68,7 +68,7 @@ given time:
 
 Depending on the role, each node will run a set of daemons:
 
-- the :command:`ganeti-noded` daemon, which control the manipulation of
+- the :command:`ganeti-noded` daemon, which controls the manipulation of
   this node's hardware resources; it runs on all nodes which are in a
   cluster
 - the :command:`ganeti-confd` daemon (Ganeti 2.1+) which runs on all
@@ -124,7 +124,18 @@ diskless
 file
   The instance will use plain files as backend for its disks. No
   redundancy is provided, and this is somewhat more difficult to
-  configure for high performance.
+  configure for high performance. Note that for security reasons the
+  file storage directory must be listed under
+  ``/etc/ganeti/file-storage-paths``, and that file is not copied
+  automatically to all nodes by Ganeti.
+
+sharedfile
+  The instance will use plain files as backend, but Ganeti assumes that
+  those files will be available and in sync automatically on all nodes.
+  This allows live migration and failover of instances using this
+  method. As for ``file`` the file storage directory must be listed under
+  ``/etc/ganeti/file-storage-paths`` or ganeti will refuse to create
+  instances under it.
 
 plain
   The instance will use LVM devices as backend for its disks. No
@@ -138,9 +149,18 @@ drbd
   to obtain a highly available instance that can be failed over to a
   remote node should the primary one fail.
 
+  .. note:: Ganeti does not support DRBD stacked devices:
+     DRBD stacked setup is not fully symmetric and as such it is
+     not working with live migration.
+
 rbd
   The instance will use Volumes inside a RADOS cluster as backend for its
   disks. It will access them using the RADOS block device (RBD).
+
+ext
+  The instance will use an external storage provider. See
+  :manpage:`ganeti-extstorage-interface(7)` for how to implement one.
+
 
 IAllocator
 ~~~~~~~~~~
@@ -259,7 +279,7 @@ can give include, among others:
   instance is created. The IP and/or bridge of the NIC can be changed
   via ``--nic 0:ip=IP,bridge=BRIDGE``
 
-See the manpage for gnt-instance for the detailed option list.
+See :manpage:`ganeti-instance(8)` for the detailed option list.
 
 For example if you want to create an highly available instance, with a
 single disk of 50GB and the default memory size, having primary node
@@ -296,7 +316,7 @@ manually start one which is currently stopped you can run::
 
 Ganeti will start an instance with up to its maximum instance memory. If
 not enough memory is available Ganeti will use all the available memory
-down to the instance minumum memory. If not even that amount of memory
+down to the instance minimum memory. If not even that amount of memory
 is free Ganeti will refuse to start the instance.
 
 Note, that this will not work when an instance is in a permanently
@@ -318,7 +338,7 @@ after shutting down an instance, execute the following::
 .. warning:: Do not use the Xen or KVM commands directly to stop
    instances. If you run for example ``xm shutdown`` or ``xm destroy``
    on an instance Ganeti will automatically restart it (via
-   the :command:`ganeti-watcher` command which is launched via cron).
+   the :command:`ganeti-watcher(8)` command which is launched via cron).
 
 Querying instances
 ~~~~~~~~~~~~~~~~~~
@@ -525,7 +545,7 @@ Live migrating an instance
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 If an instance is built in highly available mode, it currently runs and
-both its nodes are running fine, you can at migrate it over to its
+both its nodes are running fine, you can migrate it over to its
 secondary node, without downtime. On the master node you need to run::
 
   $ gnt-instance migrate %INSTANCE_NAME%
@@ -578,10 +598,10 @@ Preparing for disk operations
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 It is important to note that for Ganeti to be able to do any disk
-operation, the Linux machines on top of which Ganeti must be consistent;
-for LVM, this means that the LVM commands must not return failures; it
-is common that after a complete disk failure, any LVM command aborts
-with an error similar to::
+operation, the Linux machines on top of which Ganeti runs must be
+consistent; for LVM, this means that the LVM commands must not return
+failures; it is common that after a complete disk failure, any LVM
+command aborts with an error similar to::
 
   $ vgs
   /dev/sdb1: read failed after 0 of 4096 at 0: Input/output error
@@ -663,7 +683,9 @@ command::
 
   $ gnt-instance recreate-disks %INSTANCE%
 
-Note that this will fail if the disks already exists.
+Note that this will fail if the disks already exists. The instance can
+be assigned to new nodes automatically by specifying an iallocator
+through the ``--iallocator`` option.
 
 Conversion of an instance's disk type
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -911,6 +933,37 @@ it's easy to remove it from the cluster::
 
 This will deconfigure the node, stop the ganeti daemons on it and leave
 it hopefully like before it joined to the cluster.
+
+Replication network changes
++++++++++++++++++++++++++++
+
+The :command:`gnt-node modify -s` command can be used to change the
+secondary IP of a node. This operation can only be performed if:
+
+- No instance is active on the target node
+- The new target IP is reachable from the master's secondary IP
+
+Also this operation will not allow to change a node from single-homed
+(same primary and secondary ip) to multi-homed (separate replication
+network) or vice versa, unless:
+
+- The target node is the master node and `--force` is passed.
+- The target cluster is single-homed and the new primary ip is a change
+  to single homed for a particular node.
+- The target cluster is multi-homed and the new primary ip is a change
+  to multi homed for a particular node.
+
+For example to do a single-homed to multi-homed conversion::
+
+  $ gnt-node modify --force -s %SECONDARY_IP% %MASTER_NAME%
+  $ gnt-node modify -s %SECONDARY_IP% %NODE1_NAME%
+  $ gnt-node modify -s %SECONDARY_IP% %NODE2_NAME%
+  $ gnt-node modify -s %SECONDARY_IP% %NODE3_NAME%
+  ...
+
+The same commands can be used for multi-homed to single-homed except the
+secondary IPs should be the same as the primaries for each node, for
+that case.
 
 Storage handling
 ++++++++++++++++
@@ -1180,7 +1233,7 @@ upgrade the Ganeti software, or simply restart the software on any node:
 Watcher control
 +++++++++++++++
 
-The :manpage:`ganeti-watcher` is a program, usually scheduled via
+The :manpage:`ganeti-watcher(8)` is a program, usually scheduled via
 ``cron``, that takes care of cluster maintenance operations (restarting
 downed instances, activating down DRBD disks, etc.). However, during
 maintenance and troubleshooting, this can get in your way; disabling it
@@ -1606,6 +1659,22 @@ move-instance
 +++++++++++++
 
 See :doc:`separate documentation for move-instance <move-instance>`.
+
+users-setup
++++++++++++
+
+Ganeti can either be run entirely as root, or with every daemon running as
+its own specific user (if the parameters ``--with-user-prefix`` and/or
+``--with-group-prefix`` have been specified at ``./configure``-time).
+
+In case split users are activated, they are required to exist on the system,
+and they need to belong to the proper groups in order for the access
+permissions to files and programs to be correct.
+
+The ``users-setup`` tool, when run, takes care of setting up the proper
+users and groups.
+
+The tool does not accept any parameter, and requires root permissions to run.
 
 .. TODO: document cluster-merge tool
 

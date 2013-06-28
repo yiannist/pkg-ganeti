@@ -89,7 +89,8 @@ class Mapper:
 
 
 def GetHandlers(node_name_pattern, instance_name_pattern,
-                group_name_pattern, job_id_pattern, disk_pattern,
+                group_name_pattern, network_name_pattern,
+                job_id_pattern, disk_pattern,
                 query_res_pattern):
   """Returns all supported resources and their handlers.
 
@@ -167,6 +168,18 @@ def GetHandlers(node_name_pattern, instance_name_pattern,
     re.compile(r"^/2/instances/(%s)/console$" % instance_name_pattern):
       rlib2.R_2_instances_name_console,
 
+    "/2/networks": rlib2.R_2_networks,
+    re.compile(r"^/2/networks/(%s)$" % network_name_pattern):
+      rlib2.R_2_networks_name,
+    re.compile(r"^/2/networks/(%s)/connect$" % network_name_pattern):
+      rlib2.R_2_networks_name_connect,
+    re.compile(r"^/2/networks/(%s)/disconnect$" % network_name_pattern):
+      rlib2.R_2_networks_name_disconnect,
+    re.compile(r"^/2/networks/(%s)/modify$" % network_name_pattern):
+      rlib2.R_2_networks_name_modify,
+    re.compile(r"^/2/networks/(%s)/tags$" % network_name_pattern):
+      rlib2.R_2_networks_name_tags,
+
     "/2/groups": rlib2.R_2_groups,
     re.compile(r"^/2/groups/(%s)$" % group_name_pattern):
       rlib2.R_2_groups_name,
@@ -185,6 +198,7 @@ def GetHandlers(node_name_pattern, instance_name_pattern,
     re.compile(r"^/2/jobs/(%s)/wait$" % job_id_pattern):
       rlib2.R_2_jobs_id_wait,
 
+    "/2/instances-multi-alloc": rlib2.R_2_instances_multi_alloc,
     "/2/tags": rlib2.R_2_tags,
     "/2/info": rlib2.R_2_info,
     "/2/os": rlib2.R_2_os,
@@ -197,6 +211,7 @@ def GetHandlers(node_name_pattern, instance_name_pattern,
     }
 
 
-CONNECTOR.update(GetHandlers(_NAME_PATTERN, _NAME_PATTERN, _NAME_PATTERN,
+CONNECTOR.update(GetHandlers(_NAME_PATTERN, _NAME_PATTERN,
+                             _NAME_PATTERN, _NAME_PATTERN,
                              constants.JOB_ID_TEMPLATE, _DISK_PATTERN,
                              _NAME_PATTERN))

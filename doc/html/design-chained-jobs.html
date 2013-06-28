@@ -1,39 +1,45 @@
+
+
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
   "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
 
 <html xmlns="http://www.w3.org/1999/xhtml">
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Chained jobs &mdash; Ganeti v2.6.2 documentation</title>
-    <link rel="stylesheet" href="_static/default.css" type="text/css" />
+    <title>Chained jobs &mdash; Ganeti 2.7.0~rc3 documentation</title>
+    
+    <link rel="stylesheet" href="_static/style.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.6.2',
-        COLLAPSE_MODINDEX: false,
+        VERSION:     '2.7.0~rc3',
+        COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
       };
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.6.2 documentation" href="index.html" />
-    <link rel="next" title="Moving instances accross node groups" href="design-multi-reloc.html" />
-    <link rel="prev" title="Submitting jobs from logical units" href="design-lu-generated-jobs.html" /> 
+    <link rel="top" title="Ganeti 2.7.0~rc3 documentation" href="index.html" />
+    <link rel="next" title="Ganeti CPU Pinning" href="design-cpu-pinning.html" />
+    <link rel="prev" title="Ganeti Bulk Create" href="design-bulk-create.html" /> 
   </head>
   <body>
     <div class="related">
       <h3>Navigation</h3>
       <ul>
         <li class="right" style="margin-right: 10px">
-          <a href="design-multi-reloc.html" title="Moving instances accross node groups"
+          <a href="design-cpu-pinning.html" title="Ganeti CPU Pinning"
              accesskey="N">next</a></li>
         <li class="right" >
-          <a href="design-lu-generated-jobs.html" title="Submitting jobs from logical units"
+          <a href="design-bulk-create.html" title="Ganeti Bulk Create"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.6.2 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.7.0~rc3 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -69,9 +75,9 @@
 <p>This is a design document about the innards of Ganeti&#8217;s job processing.
 Readers are advised to study previous design documents on the topic:</p>
 <ul class="simple">
-<li><a class="reference external" href="design-2.0.html#jqueue-original-design"><em>Original job queue</em></a></li>
-<li><a class="reference external" href="design-2.3.html#jqueue-job-priority-design"><em>Job priorities</em></a></li>
-<li><a class="reference external" href="design-lu-generated-jobs.html"><em>LU-generated jobs</em></a></li>
+<li><a class="reference internal" href="design-2.0.html#jqueue-original-design"><em>Original job queue</em></a></li>
+<li><a class="reference internal" href="design-2.3.html#jqueue-job-priority-design"><em>Job priorities</em></a></li>
+<li><a class="reference internal" href="design-lu-generated-jobs.html"><em>LU-generated jobs</em></a></li>
 </ul>
 <div class="section" id="current-state-and-shortcomings">
 <h2><a class="toc-backref" href="#id2">Current state and shortcomings</a><a class="headerlink" href="#current-state-and-shortcomings" title="Permalink to this headline">¶</a></h2>
@@ -89,7 +95,7 @@ as part of the job queue in the master daemon.</p>
 </div>
 <div class="section" id="proposed-changes">
 <h2><a class="toc-backref" href="#id3">Proposed changes</a><a class="headerlink" href="#proposed-changes" title="Permalink to this headline">¶</a></h2>
-<p>With the implementation of <a class="reference external" href="design-2.3.html#jqueue-job-priority-design"><em>job priorities</em></a> the processing code was re-architectured
+<p>With the implementation of <a class="reference internal" href="design-2.3.html#jqueue-job-priority-design"><em>job priorities</em></a> the processing code was re-architectured
 and became a lot more versatile. It now returns jobs to the queue in
 case the locks for an opcode can&#8217;t be acquired, allowing other
 jobs/opcodes to be run in the meantime.</p>
@@ -215,7 +221,7 @@ status</p>
 access to its data structure. Other queue operations already do this,
 e.g. archiving, watching a job&#8217;s progress and querying jobs.</p>
 <p>Initially (Ganeti 2.0/2.1) the job queue shared the job objects
-in memory and protected them using locks. Ganeti 2.2 (see <a class="reference external" href="design-2.2.html"><em>design
+in memory and protected them using locks. Ganeti 2.2 (see <a class="reference internal" href="design-2.2.html"><em>design
 document</em></a>) changed the queue to read and deserialize jobs
 from disk. This significantly reduced locking and code complexity.
 Nowadays inotify is used to wait for changes on job files when watching
@@ -253,7 +259,7 @@ backwards compatibility.</p>
 <p>There&#8217;s at least one implementation of a batched job executor twisted
 into the <tt class="docutils literal"><span class="pre">burnin</span></tt> tool&#8217;s code. While certainly possible, a client-side
 solution should be avoided due to the different clients already in use.
-For one, the <a class="reference external" href="rapi.html"><em>remote API</em></a> client shouldn&#8217;t import
+For one, the <a class="reference internal" href="rapi.html"><em>remote API</em></a> client shouldn&#8217;t import
 non-standard modules. htools are written in Haskell and can&#8217;t use Python
 modules. A batched job executor contains quite some logic. Even if
 cleanly abstracted in a (Python) library, sharing code between different
@@ -268,51 +274,51 @@ clients is difficult if not impossible.</p>
       </div>
       <div class="sphinxsidebar">
         <div class="sphinxsidebarwrapper">
-            <h3><a href="index.html">Table Of Contents</a></h3>
-            <ul>
-<li><a class="reference external" href="#">Chained jobs</a><ul>
-<li><a class="reference external" href="#current-state-and-shortcomings">Current state and shortcomings</a></li>
-<li><a class="reference external" href="#proposed-changes">Proposed changes</a><ul>
-<li><a class="reference external" href="#implementation-details">Implementation details</a><ul>
-<li><a class="reference external" href="#status-while-waiting-for-dependencies">Status while waiting for dependencies</a></li>
-<li><a class="reference external" href="#cost-of-deserialization">Cost of deserialization</a></li>
+  <h3><a href="index.html">Table Of Contents</a></h3>
+  <ul>
+<li><a class="reference internal" href="#">Chained jobs</a><ul>
+<li><a class="reference internal" href="#current-state-and-shortcomings">Current state and shortcomings</a></li>
+<li><a class="reference internal" href="#proposed-changes">Proposed changes</a><ul>
+<li><a class="reference internal" href="#implementation-details">Implementation details</a><ul>
+<li><a class="reference internal" href="#status-while-waiting-for-dependencies">Status while waiting for dependencies</a></li>
+<li><a class="reference internal" href="#cost-of-deserialization">Cost of deserialization</a></li>
 </ul>
 </li>
 </ul>
 </li>
-<li><a class="reference external" href="#other-discussed-solutions">Other discussed solutions</a><ul>
-<li><a class="reference external" href="#job-level-attribute">Job-level attribute</a></li>
-<li><a class="reference external" href="#client-side-logic">Client-side logic</a></li>
+<li><a class="reference internal" href="#other-discussed-solutions">Other discussed solutions</a><ul>
+<li><a class="reference internal" href="#job-level-attribute">Job-level attribute</a></li>
+<li><a class="reference internal" href="#client-side-logic">Client-side logic</a></li>
 </ul>
 </li>
 </ul>
 </li>
 </ul>
 
-            <h4>Previous topic</h4>
-            <p class="topless"><a href="design-lu-generated-jobs.html"
-                                  title="previous chapter">Submitting jobs from logical units</a></p>
-            <h4>Next topic</h4>
-            <p class="topless"><a href="design-multi-reloc.html"
-                                  title="next chapter">Moving instances accross node groups</a></p>
-            <h3>This Page</h3>
-            <ul class="this-page-menu">
-              <li><a href="_sources/design-chained-jobs.txt"
-                     rel="nofollow">Show Source</a></li>
-            </ul>
-          <div id="searchbox" style="display: none">
-            <h3>Quick search</h3>
-              <form class="search" action="search.html" method="get">
-                <input type="text" name="q" size="18" />
-                <input type="submit" value="Go" />
-                <input type="hidden" name="check_keywords" value="yes" />
-                <input type="hidden" name="area" value="default" />
-              </form>
-              <p class="searchtip" style="font-size: 90%">
-              Enter search terms or a module, class or function name.
-              </p>
-          </div>
-          <script type="text/javascript">$('#searchbox').show(0);</script>
+  <h4>Previous topic</h4>
+  <p class="topless"><a href="design-bulk-create.html"
+                        title="previous chapter">Ganeti Bulk Create</a></p>
+  <h4>Next topic</h4>
+  <p class="topless"><a href="design-cpu-pinning.html"
+                        title="next chapter">Ganeti CPU Pinning</a></p>
+  <h3>This Page</h3>
+  <ul class="this-page-menu">
+    <li><a href="_sources/design-chained-jobs.txt"
+           rel="nofollow">Show Source</a></li>
+  </ul>
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
         </div>
       </div>
       <div class="clearer"></div>
@@ -321,17 +327,17 @@ clients is difficult if not impossible.</p>
       <h3>Navigation</h3>
       <ul>
         <li class="right" style="margin-right: 10px">
-          <a href="design-multi-reloc.html" title="Moving instances accross node groups"
+          <a href="design-cpu-pinning.html" title="Ganeti CPU Pinning"
              >next</a></li>
         <li class="right" >
-          <a href="design-lu-generated-jobs.html" title="Submitting jobs from logical units"
+          <a href="design-bulk-create.html" title="Ganeti Bulk Create"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.6.2 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.7.0~rc3 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">
-      &copy; Copyright 2006, 2007, 2008, 2009, 2010, 2011, 2012, Google Inc..
-      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 0.6.7.
+        &copy; Copyright 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Google Inc..
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
     </div>
   </body>
 </html>

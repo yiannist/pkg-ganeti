@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2010, 2011 Google Inc.
+# Copyright (C) 2006, 2007, 2010, 2011, 2012 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -32,11 +32,8 @@ import stat
 
 from ganeti import errors
 from ganeti import constants
+from ganeti import pathutils
 from ganeti.utils import filelock
-
-
-#: Path generating random UUID
-_RANDOM_UUID_FILE = "/proc/sys/kernel/random/uuid"
 
 #: Directory used by fsck(8) to store recovered data, usually at a file
 #: system's root directory
@@ -525,7 +522,7 @@ def CreateBackup(file_name):
   """
   if not os.path.isfile(file_name):
     raise errors.ProgrammerError("Can't make a backup of a non-file '%s'" %
-                                file_name)
+                                 file_name)
 
   prefix = ("%s.backup-%s." %
             (os.path.basename(file_name), TimestampForFilename()))
@@ -646,15 +643,28 @@ def IsNormAbsPath(path):
 def IsBelowDir(root, other_path):
   """Check whether a path is below a root dir.
 
-  This works around the nasty byte-byte comparisation of commonprefix.
+  This works around the nasty byte-byte comparison of commonprefix.
 
   """
   if not (os.path.isabs(root) and os.path.isabs(other_path)):
     raise ValueError("Provided paths '%s' and '%s' are not absolute" %
                      (root, other_path))
-  prepared_root = "%s%s" % (os.path.normpath(root), os.sep)
-  return os.path.commonprefix([prepared_root,
-                               os.path.normpath(other_path)]) == prepared_root
+
+  norm_other = os.path.normpath(other_path)
+
+  if norm_other == os.sep:
+    # The root directory can never be below another path
+    return False
+
+  norm_root = os.path.normpath(root)
+
+  if norm_root == os.sep:
+    # This is the root directory, no need to add another slash
+    prepared_root = norm_root
+  else:
+    prepared_root = "%s%s" % (norm_root, os.sep)
+
+  return os.path.commonprefix([prepared_root, norm_other]) == prepared_root
 
 
 def PathJoin(*args):
@@ -827,6 +837,29 @@ def ReadLockedPidFile(path):
   return None
 
 
+def _SplitSshKey(key):
+  """Splits a line for SSH's C{authorized_keys} file.
+
+  If the line has no options (e.g. no C{command="..."}), only the significant
+  parts, the key type and its hash, are used. Otherwise the whole line is used
+  (split at whitespace).
+
+  @type key: string
+  @param key: Key line
+  @rtype: tuple
+
+  """
+  parts = key.split()
+
+  if parts and parts[0] in constants.SSHAK_ALL:
+    # If the key has no options in front of it, we only want the significant
+    # fields
+    return (False, parts[:2])
+  else:
+    # Can't properly split the line, so use everything
+    return (True, parts)
+
+
 def AddAuthorizedKey(file_obj, key):
   """Adds an SSH public key to an authorized_keys file.
 
@@ -836,7 +869,7 @@ def AddAuthorizedKey(file_obj, key):
   @param key: string containing key
 
   """
-  key_fields = key.split()
+  key_fields = _SplitSshKey(key)
 
   if isinstance(file_obj, basestring):
     f = open(file_obj, "a+")
@@ -847,7 +880,7 @@ def AddAuthorizedKey(file_obj, key):
     nl = True
     for line in f:
       # Ignore whitespace changes
-      if line.split() == key_fields:
+      if _SplitSshKey(line) == key_fields:
         break
       nl = line.endswith("\n")
     else:
@@ -869,7 +902,7 @@ def RemoveAuthorizedKey(file_name, key):
   @param key: string containing key
 
   """
-  key_fields = key.split()
+  key_fields = _SplitSshKey(key)
 
   fd, tmpname = tempfile.mkstemp(dir=os.path.dirname(file_name))
   try:
@@ -879,7 +912,7 @@ def RemoveAuthorizedKey(file_name, key):
       try:
         for line in f:
           # Ignore whitespace changes while comparing lines
-          if line.split() != key_fields:
+          if _SplitSshKey(line) != key_fields:
             out.write(line)
 
         out.flush()
@@ -903,7 +936,7 @@ def DaemonPidFileName(name):
       daemon name
 
   """
-  return PathJoin(constants.RUN_GANETI_DIR, "%s.pid" % name)
+  return PathJoin(pathutils.RUN_DIR, "%s.pid" % name)
 
 
 def WritePidFile(pidfile):
@@ -992,7 +1025,7 @@ def NewUUID():
   @rtype: str
 
   """
-  return ReadFile(_RANDOM_UUID_FILE, size=128).rstrip("\n")
+  return ReadFile(constants.RANDOM_UUID_FILE, size=128).rstrip("\n")
 
 
 class TemporaryFileManager(object):

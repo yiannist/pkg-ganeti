@@ -4,142 +4,149 @@
 ganeti-listrunner - Run commands in parallel over multiple machines
 .SH SYNOPSIS
 .PP
-\f[B]ganeti-listrunner\f[] \f[B]-l\f[] \f[I]logdir\f[] {\f[B]-x\f[]
-\f[I]executable\f[] | \f[B]-c\f[] \f[I]shell-cmd\f[]} {\f[B]-f\f[]
-\f[I]hostfile\f[] | \f[B]-h\f[] \f[I]hostlist\f[]} [\f[B]-a\f[]
-\f[I]aux-file\f[]] [\f[B]-b\f[] \f[I]batch-size\f[]] [\f[B]-u\f[]
-\f[I]username\f[]] [\f[B]-A\f[]]
+\f[B]ganeti-listrunner\f[] \f[C]-l\f[] \f[I]logdir\f[] {\f[C]-x\f[]
+\f[I]executable\f[] | \f[C]-c\f[] \f[I]shell-cmd\f[]} {\f[C]-f\f[]
+\f[I]hostfile\f[] | \f[C]-h\f[] \f[I]hostlist\f[]} [\f[C]-a\f[]
+\f[I]aux-file\f[]] [\f[C]-b\f[] \f[I]batch-size\f[]] [\f[C]-u\f[]
+\f[I]username\f[]] [\f[C]-A\f[]]
 .SH DESCRIPTION
 .PP
-\f[B]ganeti-listrunner\f[] is a tool to run commands in parallel
-over multiple machines. It differs from \f[B]dsh\f[] or other tools
-in that it asks for the password once (if not using
-\f[B]ssh-agent\f[]) and then reuses the password to connect to all
-machines, thus being easily usable even when public key
-authentication or Kerberos authentication is not available.
+\f[B]ganeti-listrunner\f[] is a tool to run commands in parallel over
+multiple machines.
+It differs from \f[C]dsh\f[] or other tools in that it asks for the
+password once (if not using \f[C]ssh-agent\f[]) and then reuses the
+password to connect to all machines, thus being easily usable even when
+public key authentication or Kerberos authentication is not available.
 .PP
-It can run either a command or a script (which gets uploaded first
-and deleted after execution) on a list of hosts provided either via
-a file (one host per line) or as a comma-separated list on the
-commandline. The output (stdout and stderr are merged) of the
-remote execution is written to a logfile. One logfile per host is
-written.
+It can run either a command or a script (which gets uploaded first and
+deleted after execution) on a list of hosts provided either via a file
+(one host per line) or as a comma-separated list on the commandline.
+The output (stdout and stderr are merged) of the remote execution is
+written to a logfile.
+One logfile per host is written.
 .SH OPTIONS
 .PP
 The options that can be passed to the program are as follows:
 .TP
-.B \f[B]-l\f[] \f[I]logdir\f[]
+.B \f[C]-l\f[] \f[I]logdir\f[]
 The directory under which the logfiles files should be written.
 .RS
 .RE
 .TP
-.B \f[B]-x\f[] \f[I]executable\f[]
+.B \f[C]-x\f[] \f[I]executable\f[]
 The executable to copy and run on the target hosts.
 .RS
 .RE
 .TP
-.B \f[B]-c\f[] \f[I]shell-cmd\f[]
+.B \f[C]-c\f[] \f[I]shell-cmd\f[]
 The shell command to run on the remote hosts.
 .RS
 .RE
 .TP
-.B \f[B]-f\f[] \f[I]hostfile\f[]
+.B \f[C]-f\f[] \f[I]hostfile\f[]
 The file with the target hosts, one hostname per line.
 .RS
 .RE
 .TP
-.B \f[B]-h\f[] \f[I]hostlist\f[]
+.B \f[C]-h\f[] \f[I]hostlist\f[]
 Comma-separated list of target hosts.
 .RS
 .RE
 .TP
-.B \f[B]-a\f[] \f[I]aux-file\f[]
-A file to copy to the target hosts. Can be given multiple times, in
-which case all files will be copied to the temporary directory. The
-executable or the shell command will be run from the (temporary)
+.B \f[C]-a\f[] \f[I]aux-file\f[]
+A file to copy to the target hosts.
+Can be given multiple times, in which case all files will be copied to
+the temporary directory.
+The executable or the shell command will be run from the (temporary)
 directory where these files have been copied.
 .RS
 .RE
 .TP
-.B \f[B]-b\f[] \f[I]batch-size\f[]
-The host list will be split into batches of batch-size which will
-be processed in parallel. The default if 15, and should be
-increased if faster processing is needed.
+.B \f[C]-b\f[] \f[I]batch-size\f[]
+The host list will be split into batches of batch-size which will be
+processed in parallel.
+The default if 15, and should be increased if faster processing is
+needed.
 .RS
 .RE
 .TP
-.B \f[B]-u\f[] \f[I]username\f[]
+.B \f[C]-u\f[] \f[I]username\f[]
 Username to connect as instead of the default root username.
 .RS
 .RE
 .TP
-.B \f[B]-A\f[]
+.B \f[C]-A\f[]
 Use an existing ssh-agent instead of password authentication.
 .RS
 .RE
 .TP
-.B \f[B]--args\f[]
-Arguments to pass to executable (\f[B]-x\f[]).
+.B \f[C]--args\f[]
+Arguments to pass to executable (\f[C]-x\f[]).
 .RS
 .RE
 .SH EXIT STATUS
 .PP
-The exist status of the command will be zero, unless it was aborted
-in some way (e.g. ^C).
+The exist status of the command will be zero, unless it was aborted in
+some way (e.g.
+^C).
 .SH EXAMPLE
 .PP
 Run a command on a list of hosts:
-.PP
-\f[CR]
-      listrunner\ -l\ logdir\ -c\ "uname\ -a"\ -h\ host1,host2,host3
+.IP
+.nf
+\f[C]
+listrunner\ -l\ logdir\ -c\ "uname\ -a"\ -h\ host1,host2,host3
 \f[]
+.fi
 .PP
 Upload a script, some auxiliary files and run the script:
-.PP
-\f[CR]
-      listrunner\ -l\ logdir\ -x\ runme.sh\ \\
-      \ \ -a\ seed.dat\ -a\ golden.dat\ \\
-      \ \ -h\ host1,host2,host3
+.IP
+.nf
+\f[C]
+listrunner\ -l\ logdir\ -x\ runme.sh\ \\
+\ \ -a\ seed.dat\ -a\ golden.dat\ \\
+\ \ -h\ host1,host2,host3
 \f[]
+.fi
 .SH SEE ALSO
 .PP
-dsh(1), cssh(1)
+\f[B]dsh\f[](1), \f[B]cssh\f[](1)
 .SH REPORTING BUGS
 .PP
-Report bugs to project website (http://code.google.com/p/ganeti/)
-or contact the developers using the
-Ganeti mailing list (ganeti@googlegroups.com).
+Report bugs to project website (http://code.google.com/p/ganeti/) or
+contact the developers using the Ganeti mailing
+list (ganeti@googlegroups.com).
 .SH SEE ALSO
 .PP
 Ganeti overview and specifications: \f[B]ganeti\f[](7) (general
-overview), \f[B]ganeti-os-interface\f[](7) (guest OS definitions).
+overview), \f[B]ganeti-os-interface\f[](7) (guest OS definitions),
+\f[B]ganeti-extstorage-interface\f[](7) (external storage providers).
 .PP
 Ganeti commands: \f[B]gnt-cluster\f[](8) (cluster-wide commands),
 \f[B]gnt-job\f[](8) (job-related commands), \f[B]gnt-node\f[](8)
-(node-related commands), \f[B]gnt-instance\f[](8) (instance
-commands), \f[B]gnt-os\f[](8) (guest OS commands),
-\f[B]gnt-group\f[](8) (node group commands), \f[B]gnt-backup\f[](8)
-(instance import/export commands), \f[B]gnt-debug\f[](8) (debug
-commands).
+(node-related commands), \f[B]gnt-instance\f[](8) (instance commands),
+\f[B]gnt-os\f[](8) (guest OS commands), \f[B]gnt-storage\f[](8) (storage
+commands), \f[B]gnt-group\f[](8) (node group commands),
+\f[B]gnt-backup\f[](8) (instance import/export commands),
+\f[B]gnt-debug\f[](8) (debug commands).
 .PP
 Ganeti daemons: \f[B]ganeti-watcher\f[](8) (automatic instance
 restarter), \f[B]ganeti-cleaner\f[](8) (job queue cleaner),
 \f[B]ganeti-noded\f[](8) (node daemon), \f[B]ganeti-masterd\f[](8)
 (master daemon), \f[B]ganeti-rapi\f[](8) (remote API daemon).
 .PP
-Ganeti htools: \f[B]htools\f[](1) (generic binary),
-\f[B]hbal\f[](1) (cluster balancer), \f[B]hspace\f[](1) (capacity
-calculation), \f[B]hail\f[](1) (IAllocator plugin),
-\f[B]hscan\f[](1) (data gatherer from remote clusters),
-\f[B]hinfo\f[](1) (cluster information printer).
+Ganeti htools: \f[B]htools\f[](1) (generic binary), \f[B]hbal\f[](1)
+(cluster balancer), \f[B]hspace\f[](1) (capacity calculation),
+\f[B]hail\f[](1) (IAllocator plugin), \f[B]hscan\f[](1) (data gatherer
+from remote clusters), \f[B]hinfo\f[](1) (cluster information printer),
+\f[B]mon-collector\f[](7) (data collectors interface).
 .SH COPYRIGHT
 .PP
 Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012 Google Inc.
-Permission is granted to copy, distribute and/or modify under the
-terms of the GNU General Public License as published by the Free
-Software Foundation; either version 2 of the License, or (at your
-option) any later version.
+Permission is granted to copy, distribute and/or modify under the terms
+of the GNU General Public License as published by the Free Software
+Foundation; either version 2 of the License, or (at your option) any
+later version.
 .PP
-On Debian systems, the complete text of the GNU General Public
-License can be found in /usr/share/common-licenses/GPL.
-
+On Debian systems, the complete text of the GNU General Public License
+can be found in /usr/share/common-licenses/GPL.

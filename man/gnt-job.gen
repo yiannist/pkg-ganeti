@@ -41,11 +41,28 @@ if the string all is passed.
 CANCEL
 ~~~~~~
 
-**cancel** {*id*}
+| **cancel**
+| {[\--force] {\--pending | \--queued | \--waiting} |
+|  *job-id* ...}
 
-Cancel the job identified by the given *id*. Only jobs that have
+Cancel the job(s) identified by the given *job id*. Only jobs that have
 not yet started to run can be canceled; that is, jobs in either the
-*queued* or *waiting* state.
+*queued* or *waiting* state. To skip a confirmation, pass ``--force``.
+``--queued`` and ``waiting`` can be used to cancel all jobs in the
+respective state, ``--pending`` includes both.
+
+CHANGE-PRIORITY
+~~~~~~~~~~~~~~~
+
+| **change-priority** \--priority {low | normal | high}
+| {[\--force] {\--pending | \--queued | \--waiting} |
+|  *job-id* ...}
+
+Changes the priority of one or multiple pending jobs. Jobs currently
+running have only the priority of remaining opcodes changed.
+``--priority`` must be specified. ``--queued`` and ``waiting`` can be
+used to re-prioritize all jobs in the respective state, ``--pending``
+includes both. To skip a confirmation, pass ``--force``.
 
 INFO
 ~~~~
@@ -59,8 +76,8 @@ information).
 LIST
 ~~~~
 
-**list** [\--no-headers] [\--separator=*SEPARATOR*]
-[-o *[+]FIELD,...*]
+| **list** [\--no-headers] [\--separator=*SEPARATOR*]
+| [-o *[+]FIELD,...*] [\--filter] [job-id...]
 
 Lists the jobs and their status. By default, the job id, job
 status, and a small job description is listed, but additional
@@ -74,8 +91,10 @@ scripting.
 The ``-o`` option takes a comma-separated list of output fields.
 The available fields and their meaning are:
 
+``archived``
+  Whether job is archived
 ``end_ts``
-  Timestamp of job end
+  Timestamp of job end (tuple containing seconds and microseconds)
 ``id``
   Job ID
 ``opend``
@@ -97,9 +116,9 @@ The available fields and their meaning are:
 ``priority``
   Current job priority (19 to -20)
 ``received_ts``
-  Timestamp of when job was received
+  Timestamp of when job was received (tuple containing seconds and microseconds)
 ``start_ts``
-  Timestamp of job start
+  Timestamp of job start (tuple containing seconds and microseconds)
 ``status``
   Job status
 ``summary``
@@ -109,6 +128,25 @@ If the value of the option starts with the character ``+``, the new
 fields will be added to the default list. This allows one to quickly
 see the default list plus a few other fields, instead of retyping
 the entire list of fields.
+
+To include archived jobs in the list the ``--archived`` option can be
+used.
+
+The following options can be used to show only specific jobs:
+
+``--pending``
+  Show only jobs pending execution.
+``--running``
+  Show jobs currently running only.
+``--error``
+  Show failed jobs only.
+``--finished``
+  Show finished jobs only.
+
+If exactly one argument is given and it appears to be a query filter
+(see **ganeti**\(7)), the query result is filtered accordingly. For
+ambiguous cases (e.g. a single field name as a filter) the ``--filter``
+(``-F``) option forces the argument to be treated as a filter.
 
 
 LIST-FIELDS

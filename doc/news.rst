@@ -5,6 +5,246 @@ News
 ====
 
 
+Version 2.7.0 rc3
+-----------------
+
+*(Released Tue, 25 Jun 2013)*
+
+Incompatible/important changes
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- Instance policies for disk size were documented to be on a per-disk
+  basis, but hail applied them to the sum of all disks. This has been
+  fixed.
+- ``hbal`` will now exit with status 0 if, during job execution over
+  LUXI, early exit has been requested and all jobs are successful;
+  before, exit status 1 was used, which cannot be differentiated from
+  "job error" case
+- Compatibility with newer versions of rbd has been fixed
+- ``gnt-instance batch-create`` has been changed to use the bulk create
+  opcode from Ganeti. This lead to incompatible changes in the format of
+  the JSON file. It's now not a custom dict anymore but a dict
+  compatible with the ``OpInstanceCreate`` opcode.
+- Parent directories for file storage need to be listed in
+  ``$sysconfdir/ganeti/file-storage-paths`` now. ``cfgupgrade`` will
+  write the file automatically based on old configuration values, but it
+  can not distribute it across all nodes and the file contents should be
+  verified. Use ``gnt-cluster copyfile
+  $sysconfdir/ganeti/file-storage-paths`` once the cluster has been
+  upgraded. The reason for requiring this list of paths now is that
+  before it would have been possible to inject new paths via RPC,
+  allowing files to be created in arbitrary locations. The RPC protocol
+  is protected using SSL/X.509 certificates, but as a design principle
+  Ganeti does not permit arbitrary paths to be passed.
+- The parsing of the variants file for OSes (see
+  :manpage:`ganeti-os-interface(7)`) has been slightly changed: now empty
+  lines and comment lines (starting with ``#``) are ignored for better
+  readability.
+- The ``setup-ssh`` tool added in Ganeti 2.2 has been replaced and is no
+  longer available. ``gnt-node add`` now invokes a new tool on the
+  destination node, named ``prepare-node-join``, to configure the SSH
+  daemon. Paramiko is no longer necessary to configure nodes' SSH
+  daemons via ``gnt-node add``.
+- Draining (``gnt-cluster queue drain``) and un-draining the job queue
+  (``gnt-cluster queue undrain``) now affects all nodes in a cluster and
+  the flag is not reset after a master failover.
+- Python 2.4 has *not* been tested with this release. Using 2.6 or above
+  is recommended. 2.6 will be mandatory from the 2.8 series.
+
+
+New features
+~~~~~~~~~~~~
+
+- New network management functionality to support automatic allocation
+  of IP addresses and managing of network parameters. See
+  :manpage:`gnt-network(8)` for more details.
+- New external storage backend, to allow managing arbitrary storage
+  systems external to the cluster. See
+  :manpage:`ganeti-extstorage-interface(7)`.
+- New ``exclusive-storage`` node parameter added, restricted to
+  nodegroup level. When it's set to true, physical disks are assigned in
+  an exclusive fashion to instances, as documented in :doc:`Partitioned
+  Ganeti <design-partitioned>`.  Currently, only instances using the
+  ``plain`` disk template are supported.
+- The KVM hypervisor has been updated with many new hypervisor
+  parameters, including a generic one for passing arbitrary command line
+  values. See a complete list in :manpage:`gnt-instance(8)`. It is now
+  compatible up to qemu 1.4.
+- A new tool, called ``mon-collector``, is the stand-alone executor of
+  the data collectors for a monitoring system. As of this version, it
+  just includes the DRBD data collector, that can be executed by calling
+  ``mon-collector`` using the ``drbd`` parameter. See
+  :manpage:`mon-collector(7)`.
+- A new user option, :pyeval:`rapi.RAPI_ACCESS_READ`, has been added
+  for RAPI users. It allows granting permissions to query for
+  information to a specific user without giving
+  :pyeval:`rapi.RAPI_ACCESS_WRITE` permissions.
+- A new tool named ``node-cleanup`` has been added. It cleans remains of
+  a cluster from a machine by stopping all daemons, removing
+  certificates and ssconf files. Unless the ``--no-backup`` option is
+  given, copies of the certificates are made.
+- Instance creations now support the use of opportunistic locking,
+  potentially speeding up the (parallel) creation of multiple instances.
+  This feature is currently only available via the :doc:`RAPI
+  <rapi>` interface and when an instance allocator is used. If the
+  ``opportunistic_locking`` parameter is set the opcode will try to
+  acquire as many locks as possible, but will not wait for any locks
+  held by other opcodes. If not enough resources can be found to
+  allocate the instance, the temporary error code
+  :pyeval:`errors.ECODE_TEMP_NORES` is returned. The operation can be
+  retried thereafter, with or without opportunistic locking.
+- New experimental linux-ha resource scripts.
+- Restricted-commands support: ganeti can now be asked (via command line
+  or rapi) to perform commands on a node. These are passed via ganeti
+  RPC rather than ssh. This functionality is restricted to commands
+  specified on the ``$sysconfdir/ganeti/restricted-commands`` for security
+  reasons. The file is not copied automatically.
+
+
+Misc changes
+~~~~~~~~~~~~
+
+- Diskless instances are now externally mirrored (Issue 237). This for
+  now has only been tested in conjunction with explicit target nodes for
+  migration/failover.
+- Queries not needing locks or RPC access to the node can now be
+  performed by the confd daemon, making them independent from jobs, and
+  thus faster to execute. This is selectable at configure time.
+- The functionality for allocating multiple instances at once has been
+  overhauled and is now also available through :doc:`RAPI <rapi>`.
+
+Since rc2:
+
+- Fix permissions on the confd query socket (Issue 477)
+- Fix permissions on the job archive dir (Issue 498)
+- Fix handling of an internal exception in replace-disks (Issue 472)
+- Fix gnt-node info handling of shortened names (Issue 497)
+- Fix gnt-instance grow-disk when wiping is enabled
+- Documentation improvements, and support for newer pandoc
+- Fix hspace honoring ipolicy for disks (Issue 484)
+- Improve handling of the ``kvm_extra`` HV parameter
+
+
+Version 2.7.0 rc2
+-----------------
+
+*(Released Fri, 24 May 2013)*
+
+- ``devel/upload`` now works when ``/var/run`` on the target nodes is a
+  symlink.
+- Disks added through ``gnt-instance modify`` or created through
+  ``gnt-instance recreate-disks`` are wiped, if the
+  ``prealloc_wipe_disks`` flag is set.
+- If wiping newly created disks fails, the disks are removed. Also,
+  partial failures in creating disks through ``gnt-instance modify``
+  triggers a cleanup of the partially-created disks.
+- Removing the master IP address doesn't fail if the address has been
+  already removed.
+- Fix ownership of the OS log dir
+- Workaround missing SO_PEERCRED constant (Issue 191)
+
+
+Version 2.7.0 rc1
+-----------------
+
+*(Released Fri, 3 May 2013)*
+
+This was the first release candidate of the 2.7 series. Since beta3:
+
+- Fix kvm compatibility with qemu 1.4 (Issue 389)
+- Documentation updates (admin guide, upgrade notes, install
+  instructions) (Issue 372)
+- Fix gnt-group list nodes and instances count (Issue 436)
+- Fix compilation without non-mandatory libraries (Issue 441)
+- Fix xen-hvm hypervisor forcing nics to type 'ioemu' (Issue 247)
+- Make confd logging more verbose at INFO level (Issue 435)
+- Improve "networks" documentation in :manpage:`gnt-instance(8)`
+- Fix failure path for instance storage type conversion (Issue 229)
+- Update htools text backend documentation
+- Improve the renew-crypto section of :manpage:`gnt-cluster(8)`
+- Disable inter-cluster instance move for file-based instances, because
+  it is dependant on instance export, which is not supported for
+  file-based instances. (Issue 414)
+- Fix gnt-job crashes on non-ascii characters (Issue 427)
+- Fix volume group checks on non-vm-capable nodes (Issue 432)
+
+
+Version 2.7.0 beta3
+-------------------
+
+*(Released Mon, 22 Apr 2013)*
+
+This was the third beta release of the 2.7 series. Since beta2:
+
+- Fix hail to verify disk instance policies on a per-disk basis (Issue 418).
+- Fix data loss on wrong usage of ``gnt-instance move``
+- Properly export errors in confd-based job queries
+- Add ``users-setup`` tool
+- Fix iallocator protocol to report 0 as a disk size for diskless
+  instances. This avoids hail breaking when a diskless instance is
+  present.
+- Fix job queue directory permission problem that made confd job queries
+  fail. This requires running an ``ensure-dirs --full-run`` on upgrade
+  for access to archived jobs (Issue 406).
+- Limit the sizes of networks supported by ``gnt-network`` to something
+  between a ``/16`` and a ``/30`` to prevent memory bloat and crashes.
+- Fix bugs in instance disk template conversion
+- Fix GHC 7 compatibility
+- Fix ``burnin`` install path (Issue 426).
+- Allow very small disk grows (Issue 347).
+- Fix a ``ganeti-noded`` memory bloat introduced in 2.5, by making sure
+  that noded doesn't import masterd code (Issue 419).
+- Make sure the default metavg at cluster init is the same as the vg, if
+  unspecified (Issue 358).
+- Fix cleanup of partially created disks (part of Issue 416)
+
+
+Version 2.7.0 beta2
+-------------------
+
+*(Released Tue, 2 Apr 2013)*
+
+This was the second beta release of the 2.7 series. Since beta1:
+
+- Networks no longer have a "type" slot, since this information was
+  unused in Ganeti: instead of it tags should be used.
+- The rapi client now has a ``target_node`` option to MigrateInstance.
+- Fix early exit return code for hbal (Issue 386).
+- Fix ``gnt-instance migrate/failover -n`` (Issue 396).
+- Fix ``rbd showmapped`` output parsing (Issue 312).
+- Networks are now referenced indexed by UUID, rather than name. This
+  will require running cfgupgrade, from 2.7.0beta1, if networks are in
+  use.
+- The OS environment now includes network information.
+- Deleting of a network is now disallowed if any instance nic is using
+  it, to prevent dangling references.
+- External storage is now documented in man pages.
+- The exclusive_storage flag can now only be set at nodegroup level.
+- Hbal can now submit an explicit priority with its jobs.
+- Many network related locking fixes.
+- Bump up the required pylint version to 0.25.1.
+- Fix the ``no_remember`` option in RAPI client.
+- Many ipolicy related tests, qa, and fixes.
+- Many documentation improvements and fixes.
+- Fix building with ``--disable-file-storage``.
+- Fix ``-q`` option in htools, which was broken if passed more than
+  once.
+- Some haskell/python interaction improvements and fixes.
+- Fix iallocator in case of missing LVM storage.
+- Fix confd config load in case of ``--no-lvm-storage``.
+- The confd/query functionality is now mentioned in the security
+  documentation.
+
+
+Version 2.7.0 beta1
+-------------------
+
+*(Released Wed, 6 Feb 2013)*
+
+This was the first beta release of the 2.7 series. All important changes
+are listed in the latest 2.7 entry.
+
+
 Version 2.6.2
 -------------
 
@@ -654,7 +894,7 @@ New features
 - Instance migration can fall back to failover if instance is not
   running.
 - Filters can be used when listing nodes, instances, groups and locks;
-  see *ganeti(7)* manpage.
+  see :manpage:`ganeti(7)` manpage.
 - Added post-execution status as variables to :doc:`hooks <hooks>`
   environment.
 - Instance tags are exported/imported together with the instance.

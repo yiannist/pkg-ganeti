@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -38,19 +38,21 @@ pass to and from external parties.
 import ConfigParser
 import re
 import copy
+import logging
 import time
 from cStringIO import StringIO
 
 from ganeti import errors
 from ganeti import constants
 from ganeti import netutils
+from ganeti import outils
 from ganeti import utils
 
 from socket import AF_INET
 
 
 __all__ = ["ConfigObject", "ConfigData", "NIC", "Disk", "Instance",
-           "OS", "Node", "NodeGroup", "Cluster", "FillDict"]
+           "OS", "Node", "NodeGroup", "Cluster", "FillDict", "Network"]
 
 _TIMESTAMPS = ["ctime", "mtime"]
 _UUID = ["uuid"]
@@ -173,6 +175,10 @@ def UpgradeNDParams(ndparams):
   if ndparams is None:
     ndparams = {}
 
+  if (constants.ND_OOB_PROGRAM in ndparams and
+      ndparams[constants.ND_OOB_PROGRAM] is None):
+    # will be reset by the line below
+    del ndparams[constants.ND_OOB_PROGRAM]
   return FillDict(constants.NDC_DEFAULTS, ndparams)
 
 
@@ -187,7 +193,7 @@ def MakeEmptyIPolicy():
     ])
 
 
-class ConfigObject(object):
+class ConfigObject(outils.ValidatedSlots):
   """A generic config object.
 
   It has the following properties:
@@ -202,34 +208,22 @@ class ConfigObject(object):
   """
   __slots__ = []
 
-  def __init__(self, **kwargs):
-    for k, v in kwargs.iteritems():
-      setattr(self, k, v)
-
   def __getattr__(self, name):
-    if name not in self._all_slots():
+    if name not in self.GetAllSlots():
       raise AttributeError("Invalid object attribute %s.%s" %
                            (type(self).__name__, name))
     return None
 
   def __setstate__(self, state):
-    slots = self._all_slots()
+    slots = self.GetAllSlots()
     for name in state:
       if name in slots:
         setattr(self, name, state[name])
 
-  @classmethod
-  def _all_slots(cls):
-    """Compute the list of all declared slots for a class.
+  def Validate(self):
+    """Validates the slots.
 
     """
-    slots = []
-    for parent in cls.__mro__:
-      slots.extend(getattr(parent, "__slots__", []))
-    return slots
-
-  #: Public getter for the defined slots
-  GetAllSlots = _all_slots
 
   def ToDict(self):
     """Convert to a dict holding only standard python types.
@@ -242,7 +236,7 @@ class ConfigObject(object):
 
     """
     result = {}
-    for name in self._all_slots():
+    for name in self.GetAllSlots():
       value = getattr(self, name, None)
       if value is not None:
         result[name] = value
@@ -427,7 +421,7 @@ class MasterNetworkParameters(ConfigObject):
     "ip",
     "netmask",
     "netdev",
-    "ip_family"
+    "ip_family",
     ]
 
 
@@ -439,6 +433,7 @@ class ConfigData(ConfigObject):
     "nodes",
     "nodegroups",
     "instances",
+    "networks",
     "serial_no",
     ] + _TIMESTAMPS
 
@@ -451,7 +446,7 @@ class ConfigData(ConfigObject):
     """
     mydict = super(ConfigData, self).ToDict()
     mydict["cluster"] = mydict["cluster"].ToDict()
-    for key in "nodes", "instances", "nodegroups":
+    for key in "nodes", "instances", "nodegroups", "networks":
       mydict[key] = self._ContainerToDicts(mydict[key])
 
     return mydict
@@ -466,6 +461,7 @@ class ConfigData(ConfigObject):
     obj.nodes = cls._ContainerFromDicts(obj.nodes, dict, Node)
     obj.instances = cls._ContainerFromDicts(obj.instances, dict, Instance)
     obj.nodegroups = cls._ContainerFromDicts(obj.nodegroups, dict, NodeGroup)
+    obj.networks = cls._ContainerFromDicts(obj.networks, dict, Network)
     return obj
 
   def HasAnyDiskOfType(self, dev_type):
@@ -502,11 +498,15 @@ class ConfigData(ConfigObject):
       # gives a good approximation.
       if self.HasAnyDiskOfType(constants.LD_DRBD8):
         self.cluster.drbd_usermode_helper = constants.DEFAULT_DRBD_HELPER
+    if self.networks is None:
+      self.networks = {}
+    for network in self.networks.values():
+      network.UpgradeConfig()
 
 
 class NIC(ConfigObject):
   """Config object representing a network card."""
-  __slots__ = ["mac", "ip", "nicparams"]
+  __slots__ = ["mac", "ip", "network", "nicparams", "netinfo"]
 
   @classmethod
   def CheckParameterSyntax(cls, nicparams):
@@ -517,15 +517,14 @@ class NIC(ConfigObject):
     @raise errors.ConfigurationError: when a parameter is not valid
 
     """
-    if (nicparams[constants.NIC_MODE] not in constants.NIC_VALID_MODES and
-        nicparams[constants.NIC_MODE] != constants.VALUE_AUTO):
-      err = "Invalid nic mode: %s" % nicparams[constants.NIC_MODE]
-      raise errors.ConfigurationError(err)
+    mode = nicparams[constants.NIC_MODE]
+    if (mode not in constants.NIC_VALID_MODES and
+        mode != constants.VALUE_AUTO):
+      raise errors.ConfigurationError("Invalid NIC mode '%s'" % mode)
 
-    if (nicparams[constants.NIC_MODE] == constants.NIC_MODE_BRIDGED and
+    if (mode == constants.NIC_MODE_BRIDGED and
         not nicparams[constants.NIC_LINK]):
-      err = "Missing bridged nic link"
-      raise errors.ConfigurationError(err)
+      raise errors.ConfigurationError("Missing bridged NIC link")
 
 
 class Disk(ConfigObject):
@@ -605,7 +604,8 @@ class Disk(ConfigObject):
 
     """
     if self.dev_type in [constants.LD_LV, constants.LD_FILE,
-                         constants.LD_BLOCKDEV, constants.LD_RBD]:
+                         constants.LD_BLOCKDEV, constants.LD_RBD,
+                         constants.LD_EXT]:
       result = [node]
     elif self.dev_type in constants.LDS_DRBD:
       result = [self.logical_id[0], self.logical_id[1]]
@@ -681,7 +681,7 @@ class Disk(ConfigObject):
 
     """
     if self.dev_type in (constants.LD_LV, constants.LD_FILE,
-                         constants.LD_RBD):
+                         constants.LD_RBD, constants.LD_EXT):
       self.size += amount
     elif self.dev_type == constants.LD_DRBD8:
       if self.children:
@@ -870,7 +870,7 @@ class Disk(ConfigObject):
     result = list()
     dt_params = disk_params[disk_template]
     if disk_template == constants.DT_DRBD8:
-      drbd_params = {
+      result.append(FillDict(constants.DISK_LD_DEFAULTS[constants.LD_DRBD8], {
         constants.LDP_RESYNC_RATE: dt_params[constants.DRBD_RESYNC_RATE],
         constants.LDP_BARRIERS: dt_params[constants.DRBD_DISK_BARRIERS],
         constants.LDP_NO_META_FLUSH: dt_params[constants.DRBD_META_BARRIERS],
@@ -883,56 +883,36 @@ class Disk(ConfigObject):
         constants.LDP_DELAY_TARGET: dt_params[constants.DRBD_DELAY_TARGET],
         constants.LDP_MAX_RATE: dt_params[constants.DRBD_MAX_RATE],
         constants.LDP_MIN_RATE: dt_params[constants.DRBD_MIN_RATE],
-        }
-
-      drbd_params = \
-        FillDict(constants.DISK_LD_DEFAULTS[constants.LD_DRBD8],
-                 drbd_params)
-
-      result.append(drbd_params)
+        }))
 
       # data LV
-      data_params = {
+      result.append(FillDict(constants.DISK_LD_DEFAULTS[constants.LD_LV], {
         constants.LDP_STRIPES: dt_params[constants.DRBD_DATA_STRIPES],
-        }
-      data_params = \
-        FillDict(constants.DISK_LD_DEFAULTS[constants.LD_LV],
-                 data_params)
-      result.append(data_params)
+        }))
 
       # metadata LV
-      meta_params = {
+      result.append(FillDict(constants.DISK_LD_DEFAULTS[constants.LD_LV], {
         constants.LDP_STRIPES: dt_params[constants.DRBD_META_STRIPES],
-        }
-      meta_params = \
-        FillDict(constants.DISK_LD_DEFAULTS[constants.LD_LV],
-                 meta_params)
-      result.append(meta_params)
+        }))
 
-    elif (disk_template == constants.DT_FILE or
-          disk_template == constants.DT_SHARED_FILE):
+    elif disk_template in (constants.DT_FILE, constants.DT_SHARED_FILE):
       result.append(constants.DISK_LD_DEFAULTS[constants.LD_FILE])
 
     elif disk_template == constants.DT_PLAIN:
-      params = {
+      result.append(FillDict(constants.DISK_LD_DEFAULTS[constants.LD_LV], {
         constants.LDP_STRIPES: dt_params[constants.LV_STRIPES],
-        }
-      params = \
-        FillDict(constants.DISK_LD_DEFAULTS[constants.LD_LV],
-                 params)
-      result.append(params)
+        }))
 
     elif disk_template == constants.DT_BLOCK:
       result.append(constants.DISK_LD_DEFAULTS[constants.LD_BLOCKDEV])
 
     elif disk_template == constants.DT_RBD:
-      params = {
-        constants.LDP_POOL: dt_params[constants.RBD_POOL]
-        }
-      params = \
-        FillDict(constants.DISK_LD_DEFAULTS[constants.LD_RBD],
-                 params)
-      result.append(params)
+      result.append(FillDict(constants.DISK_LD_DEFAULTS[constants.LD_RBD], {
+        constants.LDP_POOL: dt_params[constants.RBD_POOL],
+        }))
+
+    elif disk_template == constants.DT_EXT:
+      result.append(constants.DISK_LD_DEFAULTS[constants.LD_EXT])
 
     return result
 
@@ -1001,6 +981,9 @@ class InstancePolicy(ConfigObject):
     """Checks the disk templates for validity.
 
     """
+    if not disk_templates:
+      raise errors.ConfigurationError("Instance policy must contain" +
+                                      " at least one disk template")
     wrong = frozenset(disk_templates).difference(constants.DISK_TEMPLATES)
     if wrong:
       raise errors.ConfigurationError("Invalid disk template(s) %s" %
@@ -1049,7 +1032,7 @@ class Instance(TaggableObject):
     return tuple(all_nodes)
 
   secondary_nodes = property(_ComputeSecondaryNodes, None, None,
-                             "List of secondary nodes")
+                             "List of names of secondary nodes")
 
   def _ComputeAllNodes(self):
     """Compute the list of all nodes.
@@ -1077,7 +1060,7 @@ class Instance(TaggableObject):
     return tuple(all_nodes)
 
   all_nodes = property(_ComputeAllNodes, None, None,
-                       "List of all nodes of the instance")
+                       "List of names of all the nodes of the instance")
 
   def MapLVsByNode(self, lvmap=None, devs=None, node=None):
     """Provide a mapping of nodes to LVs this instance owns.
@@ -1094,7 +1077,7 @@ class Instance(TaggableObject):
         GetVolumeList()
 
     """
-    if node == None:
+    if node is None:
       node = self.primary_node
 
     if lvmap is None:
@@ -1261,6 +1244,24 @@ class OS(ConfigObject):
     return cls.SplitNameVariant(name)[1]
 
 
+class ExtStorage(ConfigObject):
+  """Config object representing an External Storage Provider.
+
+  """
+  __slots__ = [
+    "name",
+    "path",
+    "create_script",
+    "remove_script",
+    "grow_script",
+    "attach_script",
+    "detach_script",
+    "setinfo_script",
+    "verify_script",
+    "supported_parameters",
+    ]
+
+
 class NodeHvState(ConfigObject):
   """Hypvervisor state on a node.
 
@@ -1337,6 +1338,12 @@ class Node(TaggableObject):
 
     if self.ndparams is None:
       self.ndparams = {}
+    # And remove any global parameter
+    for key in constants.NDC_GLOBALS:
+      if key in self.ndparams:
+        logging.warning("Ignoring %s node parameter for node %s",
+                        key, self.name)
+        del self.ndparams[key]
 
     if self.powered is None:
       self.powered = True
@@ -1389,6 +1396,7 @@ class NodeGroup(TaggableObject):
     "hv_state_static",
     "disk_state_static",
     "alloc_policy",
+    "networks",
     ] + _TIMESTAMPS + _UUID
 
   def ToDict(self):
@@ -1435,6 +1443,9 @@ class NodeGroup(TaggableObject):
       self.diskparams = {}
     if self.ipolicy is None:
       self.ipolicy = MakeEmptyIPolicy()
+
+    if self.networks is None:
+      self.networks = {}
 
   def FillND(self, node):
     """Return filled out ndparams for L{objects.Node}
@@ -1553,8 +1564,8 @@ class Cluster(TaggableObject):
     # code can be removed once upgrading straight from 2.0 is deprecated.
     if self.default_hypervisor is not None:
       self.enabled_hypervisors = ([self.default_hypervisor] +
-        [hvname for hvname in self.enabled_hypervisors
-         if hvname != self.default_hypervisor])
+                                  [hvname for hvname in self.enabled_hypervisors
+                                   if hvname != self.default_hypervisor])
       self.default_hypervisor = None
 
     # maintain_node_health added after 2.1.1
@@ -1608,6 +1619,12 @@ class Cluster(TaggableObject):
       # we can either make sure to upgrade the ipolicy always, or only
       # do it in some corner cases (e.g. missing keys); note that this
       # will break any removal of keys from the ipolicy dict
+      wrongkeys = frozenset(self.ipolicy.keys()) - constants.IPOLICY_ALL_KEYS
+      if wrongkeys:
+        # These keys would be silently removed by FillIPolicy()
+        msg = ("Cluster instance policy contains spurious keys: %s" %
+               utils.CommaJoin(wrongkeys))
+        raise errors.ConfigurationError(msg)
       self.ipolicy = FillIPolicy(constants.IPOLICY_DEFAULTS, self.ipolicy)
 
   @property
@@ -1966,8 +1983,7 @@ class QueryFieldsResponse(_QueryResponseBase):
   @ivar fields: List of L{QueryFieldDefinition} objects
 
   """
-  __slots__ = [
-    ]
+  __slots__ = []
 
 
 class MigrationStatus(ConfigObject):
@@ -2020,6 +2036,62 @@ class InstanceConsole(ConfigObject):
     return True
 
 
+class Network(TaggableObject):
+  """Object representing a network definition for ganeti.
+
+  """
+  __slots__ = [
+    "name",
+    "serial_no",
+    "mac_prefix",
+    "network",
+    "network6",
+    "gateway",
+    "gateway6",
+    "reservations",
+    "ext_reservations",
+    ] + _TIMESTAMPS + _UUID
+
+  def HooksDict(self, prefix=""):
+    """Export a dictionary used by hooks with a network's information.
+
+    @type prefix: String
+    @param prefix: Prefix to prepend to the dict entries
+
+    """
+    result = {
+      "%sNETWORK_NAME" % prefix: self.name,
+      "%sNETWORK_UUID" % prefix: self.uuid,
+      "%sNETWORK_TAGS" % prefix: " ".join(self.GetTags()),
+    }
+    if self.network:
+      result["%sNETWORK_SUBNET" % prefix] = self.network
+    if self.gateway:
+      result["%sNETWORK_GATEWAY" % prefix] = self.gateway
+    if self.network6:
+      result["%sNETWORK_SUBNET6" % prefix] = self.network6
+    if self.gateway6:
+      result["%sNETWORK_GATEWAY6" % prefix] = self.gateway6
+    if self.mac_prefix:
+      result["%sNETWORK_MAC_PREFIX" % prefix] = self.mac_prefix
+
+    return result
+
+  @classmethod
+  def FromDict(cls, val):
+    """Custom function for networks.
+
+    Remove deprecated network_type and family.
+
+    """
+    if "network_type" in val:
+      del val["network_type"]
+    if "family" in val:
+      del val["family"]
+    obj = super(Network, cls).FromDict(val)
+    return obj
+
+
 class SerializableConfigParser(ConfigParser.SafeConfigParser):
   """Simple wrapper over ConfigParse that allows serialization.
 
@@ -2041,3 +2113,41 @@ class SerializableConfigParser(ConfigParser.SafeConfigParser):
     cfp = cls()
     cfp.readfp(buf)
     return cfp
+
+
+class LvmPvInfo(ConfigObject):
+  """Information about an LVM physical volume (PV).
+
+  @type name: string
+  @ivar name: name of the PV
+  @type vg_name: string
+  @ivar vg_name: name of the volume group containing the PV
+  @type size: float
+  @ivar size: size of the PV in MiB
+  @type free: float
+  @ivar free: free space in the PV, in MiB
+  @type attributes: string
+  @ivar attributes: PV attributes
+  @type lv_list: list of strings
+  @ivar lv_list: names of the LVs hosted on the PV
+  """
+  __slots__ = [
+    "name",
+    "vg_name",
+    "size",
+    "free",
+    "attributes",
+    "lv_list"
+    ]
+
+  def IsEmpty(self):
+    """Is this PV empty?
+
+    """
+    return self.size <= (self.free + 1)
+
+  def IsAllocatable(self):
+    """Is this PV allocatable?
+
+    """
+    return ("a" in self.attributes)

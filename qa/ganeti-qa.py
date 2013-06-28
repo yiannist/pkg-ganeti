@@ -1,7 +1,7 @@
 #!/usr/bin/python -u
 #
 
-# Copyright (C) 2007, 2008, 2009, 2010, 2011, 2012 Google Inc.
+# Copyright (C) 2007, 2008, 2009, 2010, 2011, 2012, 2013 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -34,6 +34,7 @@ import qa_cluster
 import qa_config
 import qa_daemon
 import qa_env
+import qa_error
 import qa_group
 import qa_instance
 import qa_node
@@ -128,6 +129,10 @@ def SetupCluster(rapi_user, rapi_secret):
   """
   RunTestIf("create-cluster", qa_cluster.TestClusterInit,
             rapi_user, rapi_secret)
+  if not qa_config.TestEnabled("create-cluster"):
+    # If the cluster is already in place, we assume that exclusive-storage is
+    # already set according to the configuration
+    qa_config.SetExclusiveStorage(qa_config.get("exclusive-storage", False))
 
   # Test on empty cluster
   RunTestIf("node-list", qa_node.TestNodeList)
@@ -166,6 +171,8 @@ def RunClusterTests():
     ("cluster-reserved-lvs", qa_cluster.TestClusterReservedLvs),
     # TODO: add more cluster modify tests
     ("cluster-modify", qa_cluster.TestClusterModifyEmpty),
+    ("cluster-modify", qa_cluster.TestClusterModifyIPolicy),
+    ("cluster-modify", qa_cluster.TestClusterModifyISpecs),
     ("cluster-modify", qa_cluster.TestClusterModifyBe),
     ("cluster-modify", qa_cluster.TestClusterModifyDisk),
     ("cluster-rename", qa_cluster.TestClusterRename),
@@ -268,19 +275,23 @@ def RunCommonInstanceTests(instance):
             qa_rapi.TestRapiInstanceReinstall, instance)
 
   if qa_config.TestEnabled("instance-rename"):
-    rename_source = instance["name"]
-    rename_target = qa_config.get("rename", None)
-    # perform instance rename to the same name
-    RunTest(qa_instance.TestInstanceRenameAndBack,
-            rename_source, rename_source)
-    RunTestIf("rapi", qa_rapi.TestRapiInstanceRenameAndBack,
-              rename_source, rename_source)
-    if rename_target is not None:
-      # perform instance rename to a different name, if we have one configured
+    tgt_instance = qa_config.AcquireInstance()
+    try:
+      rename_source = instance["name"]
+      rename_target = tgt_instance["name"]
+      # perform instance rename to the same name
       RunTest(qa_instance.TestInstanceRenameAndBack,
-              rename_source, rename_target)
+              rename_source, rename_source)
       RunTestIf("rapi", qa_rapi.TestRapiInstanceRenameAndBack,
+                rename_source, rename_source)
+      if rename_target is not None:
+        # perform instance rename to a different name, if we have one configured
+        RunTest(qa_instance.TestInstanceRenameAndBack,
                 rename_source, rename_target)
+        RunTestIf("rapi", qa_rapi.TestRapiInstanceRenameAndBack,
+                  rename_source, rename_target)
+    finally:
+      qa_config.ReleaseInstance(tgt_instance)
 
   RunTestIf(["instance-grow-disk"], qa_instance.TestInstanceGrowDisk, instance)
 
@@ -331,17 +342,17 @@ def RunGroupRwTests():
             qa_group.GetDefaultGroup())
 
 
-def RunExportImportTests(instance, pnode, snode):
+def RunExportImportTests(instance, inodes):
   """Tries to export and import the instance.
 
-  @param pnode: current primary node of the instance
-  @param snode: current secondary node of the instance, if any,
-      otherwise None
+  @type inodes: list of nodes
+  @param inodes: current nodes of the instance
 
   """
   if qa_config.TestEnabled("instance-export"):
     RunTest(qa_instance.TestInstanceExportNoTarget, instance)
 
+    pnode = inodes[0]
     expnode = qa_config.AcquireNode(exclude=pnode)
     try:
       name = RunTest(qa_instance.TestInstanceExport, instance, expnode)
@@ -364,14 +375,10 @@ def RunExportImportTests(instance, pnode, snode):
   if qa_config.TestEnabled(["rapi", "inter-cluster-instance-move"]):
     newinst = qa_config.AcquireInstance()
     try:
-      if snode is None:
-        excl = [pnode]
-      else:
-        excl = [pnode, snode]
-      tnode = qa_config.AcquireNode(exclude=excl)
+      tnode = qa_config.AcquireNode(exclude=inodes)
       try:
         RunTest(qa_rapi.TestInterClusterInstanceMove, instance, newinst,
-                pnode, snode, tnode)
+                inodes, tnode)
       finally:
         qa_config.ReleaseNode(tnode)
     finally:
@@ -392,7 +399,7 @@ def RunDaemonTests(instance):
   RunTest(qa_daemon.TestResumeWatcher)
 
 
-def RunHardwareFailureTests(instance, pnode, snode):
+def RunHardwareFailureTests(instance, inodes):
   """Test cluster internal hardware failure recovery.
 
   """
@@ -405,23 +412,173 @@ def RunHardwareFailureTests(instance, pnode, snode):
             qa_rapi.TestRapiInstanceMigrate, instance)
 
   if qa_config.TestEnabled("instance-replace-disks"):
-    othernode = qa_config.AcquireNode(exclude=[pnode, snode])
+    # We just need alternative secondary nodes, hence "- 1"
+    othernodes = qa_config.AcquireManyNodes(len(inodes) - 1, exclude=inodes)
     try:
       RunTestIf("rapi", qa_rapi.TestRapiInstanceReplaceDisks, instance)
       RunTest(qa_instance.TestReplaceDisks,
-              instance, pnode, snode, othernode)
+              instance, inodes, othernodes)
     finally:
-      qa_config.ReleaseNode(othernode)
+      qa_config.ReleaseManyNodes(othernodes)
+    del othernodes
 
-  RunTestIf("node-evacuate", qa_node.TestNodeEvacuate, pnode, snode)
+  if qa_config.TestEnabled("instance-recreate-disks"):
+    try:
+      acquirednodes = qa_config.AcquireManyNodes(len(inodes), exclude=inodes)
+      othernodes = acquirednodes
+    except qa_error.OutOfNodesError:
+      if len(inodes) > 1:
+        # If the cluster is not big enough, let's reuse some of the nodes, but
+        # with different roles. In this way, we can test a DRBD instance even on
+        # a 3-node cluster.
+        acquirednodes = [qa_config.AcquireNode(exclude=inodes)]
+        othernodes = acquirednodes + inodes[:-1]
+      else:
+        raise
+    try:
+      RunTest(qa_instance.TestRecreateDisks,
+              instance, inodes, othernodes)
+    finally:
+      qa_config.ReleaseManyNodes(acquirednodes)
 
-  RunTestIf("node-failover", qa_node.TestNodeFailover, pnode, snode)
+  if len(inodes) >= 2:
+    RunTestIf("node-evacuate", qa_node.TestNodeEvacuate, inodes[0], inodes[1])
+    RunTestIf("node-failover", qa_node.TestNodeFailover, inodes[0], inodes[1])
 
-  RunTestIf("instance-disk-failure", qa_instance.TestInstanceMasterDiskFailure,
-            instance, pnode, snode)
-  RunTestIf("instance-disk-failure",
-            qa_instance.TestInstanceSecondaryDiskFailure, instance,
-            pnode, snode)
+
+def RunExclusiveStorageTests():
+  """Test exclusive storage."""
+  if not qa_config.TestEnabled("cluster-exclusive-storage"):
+    return
+
+  node = qa_config.AcquireNode()
+  try:
+    old_es = qa_cluster.TestSetExclStorCluster(False)
+    qa_node.TestExclStorSingleNode(node)
+
+    qa_cluster.TestSetExclStorCluster(True)
+    qa_cluster.TestExclStorSharedPv(node)
+
+    if qa_config.TestEnabled("instance-add-plain-disk"):
+      # Make sure that the cluster doesn't have any pre-existing problem
+      qa_cluster.AssertClusterVerify()
+      instance1 = qa_instance.TestInstanceAddWithPlainDisk([node])
+      instance2 = qa_instance.TestInstanceAddWithPlainDisk([node])
+      # cluster-verify checks that disks are allocated correctly
+      qa_cluster.AssertClusterVerify()
+      qa_instance.TestInstanceRemove(instance1)
+      qa_instance.TestInstanceRemove(instance2)
+    if qa_config.TestEnabled("instance-add-drbd-disk"):
+      snode = qa_config.AcquireNode()
+      try:
+        qa_cluster.TestSetExclStorCluster(False)
+        instance = qa_instance.TestInstanceAddWithDrbdDisk([node, snode])
+        qa_cluster.TestSetExclStorCluster(True)
+        exp_err = [constants.CV_EINSTANCEUNSUITABLENODE]
+        qa_cluster.AssertClusterVerify(fail=True, errors=exp_err)
+        qa_instance.TestInstanceRemove(instance)
+      finally:
+        qa_config.ReleaseNode(snode)
+    qa_cluster.TestSetExclStorCluster(old_es)
+  finally:
+    qa_config.ReleaseNode(node)
+
+
+def _BuildSpecDict(par, mn, st, mx):
+  return {par: {"min": mn, "std": st, "max": mx}}
+
+
+def TestIPolicyPlainInstance():
+  """Test instance policy interaction with instances"""
+  params = ["mem-size", "cpu-count", "disk-count", "disk-size", "nic-count"]
+  if not qa_config.IsTemplateSupported(constants.DT_PLAIN):
+    print "Template %s not supported" % constants.DT_PLAIN
+    return
+
+  # This test assumes that the group policy is empty
+  (_, old_specs) = qa_cluster.TestClusterSetISpecs({})
+  node = qa_config.AcquireNode()
+  try:
+    # Log of policy changes, list of tuples: (change, policy_violated)
+    history = []
+    instance = qa_instance.TestInstanceAddWithPlainDisk([node])
+    try:
+      policyerror = [constants.CV_EINSTANCEPOLICY]
+      for par in params:
+        qa_cluster.AssertClusterVerify()
+        (iminval, imaxval) = qa_instance.GetInstanceSpec(instance["name"], par)
+        # Some specs must be multiple of 4
+        new_spec = _BuildSpecDict(par, imaxval + 4, imaxval + 4, imaxval + 4)
+        history.append((new_spec, True))
+        qa_cluster.TestClusterSetISpecs(new_spec)
+        qa_cluster.AssertClusterVerify(warnings=policyerror)
+        if iminval > 0:
+          # Some specs must be multiple of 4
+          if iminval >= 4:
+            upper = iminval - 4
+          else:
+            upper = iminval - 1
+          new_spec = _BuildSpecDict(par, 0, upper, upper)
+          history.append((new_spec, True))
+          qa_cluster.TestClusterSetISpecs(new_spec)
+          qa_cluster.AssertClusterVerify(warnings=policyerror)
+        qa_cluster.TestClusterSetISpecs(old_specs)
+        history.append((old_specs, False))
+      qa_instance.TestInstanceRemove(instance)
+    finally:
+      qa_config.ReleaseInstance(instance)
+
+    # Now we replay the same policy changes, and we expect that the instance
+    # cannot be created for the cases where we had a policy violation above
+    for (change, failed) in history:
+      qa_cluster.TestClusterSetISpecs(change)
+      if failed:
+        qa_instance.TestInstanceAddWithPlainDisk([node], fail=True)
+      # Instance creation with no policy violation has been tested already
+  finally:
+    qa_config.ReleaseNode(node)
+
+
+def RunInstanceTests():
+  """Create and exercise instances."""
+  instance_tests = [
+    ("instance-add-plain-disk", constants.DT_PLAIN,
+     qa_instance.TestInstanceAddWithPlainDisk, 1),
+    ("instance-add-drbd-disk", constants.DT_DRBD8,
+     qa_instance.TestInstanceAddWithDrbdDisk, 2),
+  ]
+
+  for (test_name, templ, create_fun, num_nodes) in instance_tests:
+    if (qa_config.TestEnabled(test_name) and
+        qa_config.IsTemplateSupported(templ)):
+      inodes = qa_config.AcquireManyNodes(num_nodes)
+      try:
+        instance = RunTest(create_fun, inodes)
+
+        RunTestIf("cluster-epo", qa_cluster.TestClusterEpo)
+        RunDaemonTests(instance)
+        for node in inodes:
+          RunTestIf("haskell-confd", qa_node.TestNodeListDrbd, node)
+        if len(inodes) > 1:
+          RunTestIf("group-rwops", qa_group.TestAssignNodesIncludingSplit,
+                    constants.INITIAL_NODE_GROUP_NAME,
+                    inodes[0]["primary"], inodes[1]["primary"])
+        if qa_config.TestEnabled("instance-convert-disk"):
+          RunTest(qa_instance.TestInstanceShutdown, instance)
+          RunTest(qa_instance.TestInstanceConvertDiskToPlain, instance, inodes)
+          RunTest(qa_instance.TestInstanceStartup, instance)
+        RunTestIf("instance-modify-disks", qa_instance.TestInstanceModifyDisks,
+                  instance)
+        RunCommonInstanceTests(instance)
+        RunGroupListTests()
+        RunExportImportTests(instance, inodes)
+        RunHardwareFailureTests(instance, inodes)
+        RunRepairDiskSizes()
+        RunTest(qa_instance.TestInstanceRemove, instance)
+        del instance
+      finally:
+        qa_config.ReleaseManyNodes(inodes)
+      qa_cluster.AssertClusterVerify()
 
 
 def RunQa():
@@ -446,6 +603,8 @@ def RunQa():
   RunGroupListTests()
   RunGroupRwTests()
 
+  # The master shouldn't be readded or put offline; "delay" needs a non-master
+  # node to test
   pnode = qa_config.AcquireNode(exclude=qa_config.GetMasterNode())
   try:
     RunTestIf("node-readd", qa_node.TestNodeReadd, pnode)
@@ -453,6 +612,9 @@ def RunQa():
     RunTestIf("delay", qa_cluster.TestDelay, pnode)
   finally:
     qa_config.ReleaseNode(pnode)
+
+  # Make sure the cluster is clean before running instance tests
+  qa_cluster.AssertClusterVerify()
 
   pnode = qa_config.AcquireNode()
   try:
@@ -470,61 +632,26 @@ def RunQa():
           RunTest(qa_rapi.TestRapiInstanceRemove, rapi_instance, use_client)
           del rapi_instance
 
-    if qa_config.TestEnabled("instance-add-plain-disk"):
-      instance = RunTest(qa_instance.TestInstanceAddWithPlainDisk, pnode)
-      RunCommonInstanceTests(instance)
-      RunGroupListTests()
-      RunTestIf("cluster-epo", qa_cluster.TestClusterEpo)
-      RunExportImportTests(instance, pnode, None)
-      RunDaemonTests(instance)
-      RunRepairDiskSizes()
-      RunTest(qa_instance.TestInstanceRemove, instance)
-      del instance
+  finally:
+    qa_config.ReleaseNode(pnode)
 
-    multinode_tests = [
-      ("instance-add-drbd-disk",
-       qa_instance.TestInstanceAddWithDrbdDisk),
-    ]
+  config_list = [
+    ("default-instance-tests", lambda: None, lambda _: None),
+    ("exclusive-storage-instance-tests",
+     lambda: qa_cluster.TestSetExclStorCluster(True),
+     qa_cluster.TestSetExclStorCluster),
+  ]
+  for (conf_name, setup_conf_f, restore_conf_f) in config_list:
+    if qa_config.TestEnabled(conf_name):
+      oldconf = setup_conf_f()
+      RunInstanceTests()
+      restore_conf_f(oldconf)
 
-    for name, func in multinode_tests:
-      if qa_config.TestEnabled(name):
-        snode = qa_config.AcquireNode(exclude=pnode)
-        try:
-          instance = RunTest(func, pnode, snode)
-          RunTestIf("haskell-confd", qa_node.TestNodeListDrbd, pnode)
-          RunTestIf("haskell-confd", qa_node.TestNodeListDrbd, snode)
-          RunCommonInstanceTests(instance)
-          RunGroupListTests()
-          RunTest(qa_group.TestAssignNodesIncludingSplit,
-                  constants.INITIAL_NODE_GROUP_NAME,
-                  pnode["primary"], snode["primary"])
-          if qa_config.TestEnabled("instance-convert-disk"):
-            RunTest(qa_instance.TestInstanceShutdown, instance)
-            RunTest(qa_instance.TestInstanceConvertDisk, instance, snode)
-            RunTest(qa_instance.TestInstanceStartup, instance)
-          RunExportImportTests(instance, pnode, snode)
-          RunHardwareFailureTests(instance, pnode, snode)
-          RunRepairDiskSizes()
-          RunTest(qa_instance.TestInstanceRemove, instance)
-          del instance
-        finally:
-          qa_config.ReleaseNode(snode)
-
-    # Test removing instance with offline drbd secondary
-    if qa_config.TestEnabled("instance-remove-drbd-offline"):
-      snode = qa_config.AcquireNode(exclude=pnode)
-      instance = \
-        qa_instance.TestInstanceAddWithDrbdDisk(pnode, snode)
-      try:
-        qa_node.MakeNodeOffline(snode, "yes")
-        RunTest(qa_instance.TestInstanceRemove, instance)
-      finally:
-        qa_node.MakeNodeOffline(snode, "no")
-        qa_config.ReleaseNode(snode)
-
+  pnode = qa_config.AcquireNode()
+  try:
     if qa_config.TestEnabled(["instance-add-plain-disk", "instance-export"]):
       for shutdown in [False, True]:
-        instance = RunTest(qa_instance.TestInstanceAddWithPlainDisk, pnode)
+        instance = RunTest(qa_instance.TestInstanceAddWithPlainDisk, [pnode])
         expnode = qa_config.AcquireNode(exclude=pnode)
         try:
           if shutdown:
@@ -536,9 +663,32 @@ def RunQa():
           qa_config.ReleaseNode(expnode)
         del expnode
         del instance
+      qa_cluster.AssertClusterVerify()
 
   finally:
     qa_config.ReleaseNode(pnode)
+
+  RunExclusiveStorageTests()
+  RunTestIf(["cluster-instance-policy", "instance-add-plain-disk"],
+            TestIPolicyPlainInstance)
+
+  # Test removing instance with offline drbd secondary
+  if qa_config.TestEnabled("instance-remove-drbd-offline"):
+    # Make sure the master is not put offline
+    snode = qa_config.AcquireNode(exclude=qa_config.GetMasterNode())
+    try:
+      pnode = qa_config.AcquireNode(exclude=snode)
+      try:
+        instance = qa_instance.TestInstanceAddWithDrbdDisk([pnode, snode])
+        set_offline = lambda node: qa_node.MakeNodeOffline(node, "yes")
+        set_online = lambda node: qa_node.MakeNodeOffline(node, "no")
+        RunTest(qa_instance.TestRemoveInstanceOfflineNode, instance, snode,
+                set_offline, set_online)
+      finally:
+        qa_config.ReleaseNode(pnode)
+    finally:
+      qa_config.ReleaseNode(snode)
+    qa_cluster.AssertClusterVerify()
 
   RunTestIf("create-cluster", qa_node.TestNodeRemoveAll)
 
@@ -552,8 +702,8 @@ def main():
   """
   parser = optparse.OptionParser(usage="%prog [options] <config-file>")
   parser.add_option("--yes-do-it", dest="yes_do_it",
-      action="store_true",
-      help="Really execute the tests")
+                    action="store_true",
+                    help="Really execute the tests")
   (qa_config.options, args) = parser.parse_args()
 
   if len(args) == 1:

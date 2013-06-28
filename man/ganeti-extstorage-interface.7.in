@@ -1,0 +1,317 @@
+.TH ganeti-extstorage-interface 7 "" "Ganeti" "Version @GANETI_VERSION@"
+.SH Name
+.PP
+ganeti-extstorage-interface - Specifications for ExtStorage providers
+.SH DESCRIPTION
+.PP
+The method for supporting external shared storage in Ganeti is to have
+an ExtStorage provider for each external shared storage hardware type.
+The ExtStorage provider is a set of files (executable scripts and text
+files), contained inside a directory which is named after the provider.
+This directory must be present across all nodes of a nodegroup (Ganeti
+doesn\[aq]t replicate it), in order for the provider to be usable by
+Ganeti for this nodegroup (valid).
+The external shared storage hardware should also be accessible by all
+nodes of this nodegroup too.
+.SH REFERENCE
+.PP
+There are eight required files: \f[I]create\f[], \f[I]attach\f[],
+\f[I]detach\f[], \f[I]remove\f[], \f[I]grow\f[], \f[I]setinfo\f[],
+\f[I]verify\f[] (executables) and \f[I]parameters.list\f[] (text file).
+.SS Common environment
+.PP
+All commands will get their input via environment variables.
+A common set of variables will be exported for all commands, and some of
+them might have extra ones.
+Note that all counts are zero-based.
+.PP
+Since Ganeti version 2.5, the environment will be cleaned up before
+being passed to scripts, therefore they will not inherit the environment
+in with which the ganeti node daemon was started.
+If you depend on any environment variables (non-Ganeti), then you will
+need to define or source them appropriately.
+.TP
+.B VOL_NAME
+The name of the volume.
+This is unique for Ganeti and it uses it to refer to a specific volume
+inside the external storage.
+Its format is \f[C]UUID.ext.diskX\f[] where \f[C]UUID\f[] is produced by
+Ganeti and is unique inside the Ganeti context.
+\f[C]X\f[] is the number of the disk count.
+.RS
+.RE
+.TP
+.B VOL_SIZE
+The volume\[aq]s size in mebibytes.
+.RS
+.RE
+.TP
+.B VOL_NEW_SIZE
+Available only to the \f[B]grow\f[] script.
+It declares the new size of the volume after grow (in mebibytes).
+To find the amount of grow, the scipt should calculate the number
+VOL_NEW_SIZE - VOL_SIZE.
+.RS
+.RE
+.TP
+.B EXTP_\f[I]name\f[]
+Each ExtStorage parameter (see below) will be exported in its own
+variable, prefixed with \f[C]EXTP_\f[], and upper-cased.
+For example, a \f[C]fromsnap\f[] parameter will be exported as
+\f[C]EXTP_FROMSNAP\f[].
+.RS
+.RE
+.TP
+.B VOL_METADATA
+Available only to the \f[B]setinfo\f[] script.
+A string containing metadata to be associated with the volume.
+Currently, Ganeti sets this value to \f[C]originstname+X\f[] where
+\f[C]X\f[] is the instance\[aq]s name.
+.RS
+.RE
+.SH EXECUTABLE SCRIPTS
+.SS create
+.PP
+The \f[B]create\f[] command is used for creating a new volume inside the
+external storage.
+The \f[C]VOL_NAME\f[] denotes the volume\[aq]s name, which should be
+unique.
+After creation, Ganeti will refer to this volume by this name for all
+other actions.
+.PP
+Ganeti produces this name dynamically and ensures its uniqueness inside
+the Ganeti context.
+Therefore, you should make sure not to provision manually additional
+volumes inside the external storage with this type of name, because this
+will lead to conflicts and possible loss of data.
+.PP
+The \f[C]VOL_SIZE\f[] variable denotes the size of the new volume to be
+created in mebibytes.
+.PP
+If the script ends successfully, a new volume of size \f[C]VOL_SIZE\f[]
+should exist inside the external storage.
+e.g:: a lun inside a NAS appliance.
+.PP
+The script returns \f[C]0\f[] on success.
+.SS attach
+.PP
+This command is used in order to make an already created volume visible
+to the physical node which will host the instance.
+This is done by mapping the already provisioned volume to a block device
+inside the host node.
+.PP
+The \f[C]VOL_NAME\f[] variable denotes the volume to be mapped.
+.PP
+After successful attachment the script returns to its stdout a string,
+which is the full path of the block device to which the volume is
+mapped.
+e.g:: /dev/dummy1
+.PP
+When attach returns, this path should be a valid block device on the
+host node.
+.PP
+The attach script should be idempotent if the volume is already mapped.
+If the requested volume is already mapped, then the script should just
+return to its stdout the path which is already mapped to.
+.SS detach
+.PP
+This command is used in order to unmap an already mapped volume from the
+host node.
+Detach undoes everything attach did.
+This is done by unmapping the requested volume from the block device it
+is mapped to.
+.PP
+The \f[C]VOL_NAME\f[] variable denotes the volume to be unmapped.
+.PP
+\f[C]detach\f[] doesn\[aq]t affect the volume itself.
+It just unmaps it from the host node.
+The volume continues to exist inside the external storage.
+It\[aq]s just not accessible by the node anymore.
+This script doesn\[aq]t return anything to its stdout.
+.PP
+The detach script should be idempotent if the volume is already
+unmapped.
+If the volume is not mapped, the script doesn\[aq]t perform any action
+at all.
+.PP
+The script returns \f[C]0\f[] on success.
+.SS remove
+.PP
+This command is used to remove an existing volume from the external
+storage.
+The volume is permanently removed from inside the external storage along
+with all its data.
+.PP
+The \f[C]VOL_NAME\f[] variable denotes the volume to be removed.
+.PP
+The script returns \f[C]0\f[] on success.
+.SS grow
+.PP
+This command is used to grow an existing volume of the external storage.
+.PP
+The \f[C]VOL_NAME\f[] variable denotes the volume to grow.
+.PP
+The \f[C]VOL_SIZE\f[] variable denotes the current volume\[aq]s size (in
+mebibytes).
+The \f[C]VOL_NEW_SIZE\f[] variable denotes the final size after the
+volume has been grown (in mebibytes).
+.PP
+The amount of grow can be easily calculated by the scipt and is:
+.PP
+grow_amount = VOL_NEW_SIZE - VOL_SIZE (in mebibytes)
+.PP
+Ganeti ensures that: \f[C]VOL_NEW_SIZE\f[] > \f[C]VOL_SIZE\f[]
+.PP
+If the script returns successfully, then the volume inside the external
+storage will have a new size of \f[C]VOL_NEW_SIZE\f[].
+This isn\[aq]t immediately reflected to the instance\[aq]s disk.
+See \f[C]gnt-instance\ grow\f[] for more details on when the running
+instance becomes aware of its grown disk.
+.PP
+The script returns \f[C]0\f[] on success.
+.SS setinfo
+.PP
+This script is used to add metadata to an existing volume.
+It is helpful when we need to keep an external, Ganeti-independent
+mapping between instances and volumes; primarily for recovery reasons.
+This is provider specific and the author of the provider chooses
+whether/how to implement this.
+You can just exit with \f[C]0\f[], if you do not want to implement this
+feature, without harming the overall functionality of the provider.
+.PP
+The \f[C]VOL_METADATA\f[] variable contains the metadata of the volume.
+.PP
+Currently, Ganeti sets this value to \f[C]originstname+X\f[] where
+\f[C]X\f[] is the instance\[aq]s name.
+.PP
+The script returns \f[C]0\f[] on success.
+.SS verify
+.PP
+The \f[I]verify\f[] script is used to verify consistency of the external
+parameters (ext-params) (see below).
+The command should take one or more arguments denoting what checks
+should be performed, and return a proper exit code depending on whether
+the validation failed or succeeded.
+.PP
+Currently, the script is not invoked by Ganeti, but should be present
+for future use and consistency with gnt-os-interface\[aq]s verify
+script.
+.PP
+The script should return \f[C]0\f[] on success.
+.SH TEXT FILES
+.SS parameters.list
+.PP
+This file declares the parameters supported by the ExtStorage provider,
+one parameter per line, with name and description (space and/or tab
+separated).
+For example:
+.IP
+.nf
+\f[C]
+fromsnap\ Snapshot\ name\ to\ create\ the\ volume\ from
+nas_ip\ The\ IP\ of\ the\ NAS\ appliance
+\f[]
+.fi
+.PP
+The parameters can then be used during instance add as follows:
+.IP
+.nf
+\f[C]
+#\ gnt-instance\ add\ --disk=0:fromsnap="file_name",nas_ip="1.2.3.4"\ ...
+\f[]
+.fi
+.SH EXAMPLES
+.PP
+In the following examples we assume that you have already installed
+successfully two ExtStorage providers: \f[C]pvdr1\f[] and \f[C]pvdr2\f[]
+.PP
+Add a new instance with a 10G first disk provided by \f[C]pvdr1\f[] and
+a 20G second disk provided by \f[C]pvdr2\f[]:
+.IP
+.nf
+\f[C]
+#\ gnt-instance\ add\ -t\ ext\ --disk=0:size=10G,provider=pvdr1
+\ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ --disk=1:size=20G,provider=pvdr2
+\f[]
+.fi
+.PP
+Add a new instance with a 5G first disk provided by provider
+\f[C]pvdr1\f[] and also pass the \f[C]prm1\f[], \f[C]prm2\f[] parameters
+to the provider, with the corresponding values \f[C]val1\f[],
+\f[C]val2\f[]:
+.IP
+.nf
+\f[C]
+#\ gnt-instance\ add\ -t\ ext
+\ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ --disk=0:size=5G,provider=pvdr1,prm1=val1,prm2=val2
+\f[]
+.fi
+.PP
+Modify an existing instance of disk type \f[C]ext\f[] by adding a new
+30G disk provided by provider \f[C]pvdr2\f[]:
+.IP
+.nf
+\f[C]
+#\ gnt-instance\ modify\ --disk\ 1:add,size=30G,provider=pvdr2\ <instance>
+\f[]
+.fi
+.PP
+Modify an existing instance of disk type \f[C]ext\f[] by adding 2 new
+disks, of different providers, passing one parameter for the first one:
+.IP
+.nf
+\f[C]
+#\ gnt-instance\ modify\ --disk\ 2:add,size=3G,provider=pvdr1,prm1=val1
+\ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ --disk\ 3:add,size=5G,provider=pvdr2
+\ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ <instance>
+\f[]
+.fi
+.SH NOTES
+.SS Backwards compatibility
+.PP
+The ExtStorage Interface was introduced in Ganeti 2.7.
+Ganeti 2.7 and up is compatible with the ExtStorage Interface.
+.SS Common behaviour
+.PP
+All the scripts should display an usage message when called with a wrong
+number of arguments or when the first argument is \f[C]-h\f[] or
+\f[C]--help\f[].
+.SH REPORTING BUGS
+.PP
+Report bugs to project website (http://code.google.com/p/ganeti/) or
+contact the developers using the Ganeti mailing
+list (ganeti@googlegroups.com).
+.SH SEE ALSO
+.PP
+Ganeti overview and specifications: \f[B]ganeti\f[](7) (general
+overview), \f[B]ganeti-os-interface\f[](7) (guest OS definitions),
+\f[B]ganeti-extstorage-interface\f[](7) (external storage providers).
+.PP
+Ganeti commands: \f[B]gnt-cluster\f[](8) (cluster-wide commands),
+\f[B]gnt-job\f[](8) (job-related commands), \f[B]gnt-node\f[](8)
+(node-related commands), \f[B]gnt-instance\f[](8) (instance commands),
+\f[B]gnt-os\f[](8) (guest OS commands), \f[B]gnt-storage\f[](8) (storage
+commands), \f[B]gnt-group\f[](8) (node group commands),
+\f[B]gnt-backup\f[](8) (instance import/export commands),
+\f[B]gnt-debug\f[](8) (debug commands).
+.PP
+Ganeti daemons: \f[B]ganeti-watcher\f[](8) (automatic instance
+restarter), \f[B]ganeti-cleaner\f[](8) (job queue cleaner),
+\f[B]ganeti-noded\f[](8) (node daemon), \f[B]ganeti-masterd\f[](8)
+(master daemon), \f[B]ganeti-rapi\f[](8) (remote API daemon).
+.PP
+Ganeti htools: \f[B]htools\f[](1) (generic binary), \f[B]hbal\f[](1)
+(cluster balancer), \f[B]hspace\f[](1) (capacity calculation),
+\f[B]hail\f[](1) (IAllocator plugin), \f[B]hscan\f[](1) (data gatherer
+from remote clusters), \f[B]hinfo\f[](1) (cluster information printer),
+\f[B]mon-collector\f[](7) (data collectors interface).
+.SH COPYRIGHT
+.PP
+Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012 Google Inc.
+Permission is granted to copy, distribute and/or modify under the terms
+of the GNU General Public License as published by the Free Software
+Foundation; either version 2 of the License, or (at your option) any
+later version.
+.PP
+On Debian systems, the complete text of the GNU General Public License
+can be found in /usr/share/common-licenses/GPL.

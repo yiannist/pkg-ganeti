@@ -5,8 +5,9 @@ Ganeti quick installation guide
 ===============================
 
 Please note that a more detailed installation procedure is described in
-the :doc:`install`. A glossary of terms can be found in the
-:doc:`glossary`.
+the :doc:`install`. Refer to it if you are setting up Ganeti the first time.
+This quick installation guide is mainly meant as reference for experienced
+users. A glossary of terms can be found in the :doc:`glossary`.
 
 
 Software Requirements
@@ -37,21 +38,19 @@ Before installing, please verify that you have the following programs:
 - `simplejson Python module <http://code.google.com/p/simplejson/>`_
 - `pyparsing Python module <http://pyparsing.wikispaces.com/>`_, version
   1.4.6 or above
-- `pyinotify Python module <http://trac.dbzteam.org/pyinotify/>`_
+- `pyinotify Python module <https://github.com/seb-m/pyinotify>`_
 - `PycURL Python module <http://pycurl.sourceforge.net/>`_
-- `ctypes Python module
-  <http://starship.python.net/crew/theller/ctypes/>`_, if running on
-  python 2.4 (optional, used for node daemon memory locking)
 - `socat <http://www.dest-unreach.org/socat/>`_, see :ref:`note
   <socat-note>` below
-- `Paramiko <http://www.lag.net/paramiko/>`_, if you want automated SSH
-  setup; optional otherwise but manual setup of the nodes required
+- `Paramiko <http://www.lag.net/paramiko/>`_, if you want to use
+  ``ganeti-listrunner``
 - `affinity Python module <http://pypi.python.org/pypi/affinity/0.1.0>`_,
   optional python package for supporting CPU pinning under KVM
-- `ElementTree Python module <http://effbot.org/zone/element-index.htm>`_,
-  if running python 2.4 (optional, used by the ``ovfconverter`` tool)
 - `qemu-img <http://qemu.org/>`_, if you want to use ``ovfconverter``
 - `fping <http://fping.sourceforge.net/>`_
+- `Python IP address manipulation library
+  <http://code.google.com/p/ipaddr-py/>`_
+- `Bitarray Python library <http://pypi.python.org/pypi/bitarray/>`_
 
 These programs are supplied as part of most Linux distributions, so
 usually they can be installed via the standard package manager. Also
@@ -61,16 +60,42 @@ packages, except for RBD, DRBD and Xen::
 
   $ apt-get install lvm2 ssh bridge-utils iproute iputils-arping \
                     ndisc6 python python-pyopenssl openssl \
-                    python-pyparsing python-simplejson \
-                    python-pyinotify python-pycurl socat \
-                    python-elementtree qemu
+                    python-pyparsing python-simplejson python-bitarray \
+                    python-pyinotify python-pycurl python-ipaddr socat fping
+
+If bitarray is missing it can be installed from easy-install::
+
+  $ easy_install bitarray
+
+Or on newer distributions (eg. Debian Wheezy) the above becomes::
+
+  $ apt-get install lvm2 ssh bridge-utils iproute iputils-arping \
+                    ndisc6 python python-openssl openssl \
+                    python-pyparsing python-simplejson python-bitarray \
+                    python-pyinotify python-pycurl python-ipaddr socat fping
+
+Note that this does not install optional packages::
+
+  $ apt-get install python-paramiko python-affinity qemu-img
+
+If some of the python packages are not available in your system,
+you can try installing them using ``easy_install`` command.
+For example::
+
+  $ apt-get install python-setuptools
+  $ cd / && sudo easy_install \
+            affinity
+
 
 On Fedora to install all required packages except RBD, DRBD and Xen::
 
   $ yum install openssh openssh-clients bridge-utils iproute ndisc6 \
                 pyOpenSSL pyparsing python-simplejson python-inotify \
-                python-lxml python-paramiko socat qemu-img
+                python-lxm socat fping
 
+For optional packages use the command::
+
+  $ yum install python-paramiko python-affinity qemu-img
 
 If you want to build from source, please see doc/devnotes.rst for more
 dependencies.
@@ -101,11 +126,9 @@ dependencies.
 Haskell requirements
 ~~~~~~~~~~~~~~~~~~~~
 
-If you want to enable the `htools` component, which is recommended on
-bigger deployments (this give you automatic instance placement, cluster
-balancing, etc.), then you need to have a Haskell compiler installed on
-your build machine (but this is not required on the machines which are
-just going to run Ganeti). More specifically:
+Starting with Ganeti 2.7, the Haskell GHC compiler and a few base
+libraries are required in order to build Ganeti (but not to run and
+deploy Ganeti on production machines). More specifically:
 
 - `GHC <http://www.haskell.org/ghc/>`_ version 6.12 or higher
 - or even better, `The Haskell Platform
@@ -116,65 +139,95 @@ just going to run Ganeti). More specifically:
   network library
 - `parallel <http://hackage.haskell.org/package/parallel>`_, a parallel
   programming library (note: tested with up to version 3.x)
-- `curl <http://hackage.haskell.org/package/curl>`_, bindings for the
-  curl library, only needed if you want these tools to connect to remote
-  clusters (as opposed to the local one)
+- `bytestring <http://hackage.haskell.org/package/bytestring>`_ and
+  `utf8-string <http://hackage.haskell.org/package/utf8-string>`_
+  libraries; these usually come with the GHC compiler
+- `deepseq <http://hackage.haskell.org/package/deepseq>`_
 
-All of these are also available as package in Debian/Ubuntu::
+Some of these are also available as package in Debian/Ubuntu::
 
   $ apt-get install ghc6 libghc6-json-dev libghc6-network-dev \
-                    libghc6-parallel-dev libghc6-curl-dev
+                    libghc6-parallel-dev libghc6-deepseq-dev
 
-Or in Fedora running::
-
-  $ yum install ghc ghc-json-devel ghc-network-devel ghc-parallel-devel
-
-The most recent Fedora doesn't provide ``ghc-curl``. So this needs to be
-installed using ``cabal`` or alternatively htools can be build without
-curl support.
-
-Note that more recent version have switched to GHC 7.x and the packages
-were renamed::
+Or in newer versions of these distributions (using GHC 7.x)::
 
   $ apt-get install ghc libghc-json-dev libghc-network-dev \
-                    libghc-parallel-dev libghc-curl-dev
+                    libghc-parallel-dev libghc-deepseq-dev \
+                    libghc-utf8-string-dev
 
-If using a distribution which does not provide them, the first install
-the Haskell platform and then install the additional libraries via
+In Fedora, they are available via packages as well::
+
+  $ yum install ghc ghc-json-devel ghc-network-devel \
+                    ghc-parallel-devel ghc-deepseq-devel
+
+If using a distribution which does not provide them, first install
+the Haskell platform. You can also install ``cabal`` manually::
+
+  $ apt-get install cabal-install
+
+Then install the additional libraries via
 ``cabal``::
 
-  $ cabal install json network parallel curl
+  $ cabal install json network parallel utf8-string
 
 The compilation of the htools components is automatically enabled when
 the compiler and the requisite libraries are found. You can use the
 ``--enable-htools`` configure flag to force the selection (at which
 point ``./configure`` will fail if it doesn't find the prerequisites).
 
-In Ganeti version 2.6, one of the daemons (``ganeti-confd``) is shipped
-in two versions: the Python default version (which has no extra
-dependencies), and an experimental Haskell version. This latter version
-can be enabled via the ``./configure`` flag ``--enable-confd=haskell``
-and a few has extra dependencies:
 
+Haskell optional features
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Optionally, more functionality can be enabled if your build machine has
+a few more Haskell libraries enabled: RAPI access to remote cluster from
+htools (``--enable-htools-rapi``), the ``ganeti-confd``
+daemon (``--enable-confd``) and the monitoring agent
+(``--enable-monitoring``). The list of extra dependencies for these is:
+
+- `curl <http://hackage.haskell.org/package/curl>`_, tested with
+  versions 1.3.4 and above
 - `hslogger <http://software.complete.org/hslogger>`_, version 1.1 and
   above (note that Debian Squeeze only has version 1.0.9)
 - `Crypto <http://hackage.haskell.org/package/Crypto>`_, tested with
   version 4.2.4
 - `text <http://hackage.haskell.org/package/text>`_
-- ``bytestring``, which usually comes with the compiler
-- `hinotify <http://hackage.haskell.org/package/hinotify>`_
+- `hinotify <http://hackage.haskell.org/package/hinotify>`_, tested with
+  version 0.3.2
+- `regex-pcre <http://hackage.haskell.org/package/regex-pcre>`_,
+  bindings for the ``pcre`` library
+- `attoparsec <http://hackage.haskell.org/package/attoparsec>`_
+- `vector <http://hackage.haskell.org/package/vector>`_
 
-These libraries are available in Debian Wheezy (but not in Squeeze), so
-you can use either apt::
+These libraries are available in Debian Wheezy (but not in Squeeze, with
+the exception of curl), so you can use either apt::
 
   $ apt-get install libghc-hslogger-dev libghc-crypto-dev libghc-text-dev \
-                    libghc-hinotify-dev
+                    libghc-hinotify-dev libghc-regex-pcre-dev libghc-curl-dev \
+                    libghc-attoparsec-dev libghc-vector-dev libpcre3-dev
 
 or ``cabal``::
 
-  $ cabal install hslogger Crypto text hinotify
+  $ apt-get install libprcre3-dev libcurl4-openssl-dev
+  $ cabal install hslogger Crypto text hinotify==0.3.2 regex-pcre curl \
+                  attoparsec vector
 
 to install them.
+
+The most recent Fedora doesn't provide ``curl``, ``crypto``,
+``inotify``. So these need to be installed using ``cabal``, if
+desired. The other packages can be installed via ``yum``::
+
+  $ yum install ghc-hslogger-devel ghc-text-devel \
+                ghc-regex-pcre-devel
+
+.. _cabal-note:
+.. note::
+  If one of the cabal packages fails to install due to unfulfilled
+  dependencies, you can try enabling symlinks in ``~/.cabal/config``.
+
+  Make sure that your ``~/.cabal/bin`` directory (or whatever else
+  is defined as ``bindir``) is in your ``PATH``.
 
 Installation of the software
 ----------------------------

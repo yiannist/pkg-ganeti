@@ -19,7 +19,7 @@ node functions in the Ganeti system.
 
 By default, in order to be able to support features such as node
 powercycling even on systems with a very damaged root disk,
-**ganeti-noded** locks itself in RAM using **mlockall**(2). You can
+**ganeti-noded** locks itself in RAM using **mlockall**\(2). You can
 disable this feature by passing in the ``--no-mlock`` to the daemon.
 
 For testing purposes, you can give the ``-f`` option and the
@@ -31,7 +31,7 @@ Logging to syslog, rather than its own log file, can be enabled by
 passing in the ``--syslog`` option.
 
 The **ganeti-noded** daemon listens to port 1811 TCP, on all
-interfaces, by default. The port can be overridden by an entry the
+interfaces, by default. The port can be overridden by an entry in the
 services database (usually ``/etc/services``) or by passing the ``-p``
 option.  The ``-b`` option can be used to specify the address to bind
 to (defaults to ``0.0.0.0``).

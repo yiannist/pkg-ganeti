@@ -30,7 +30,7 @@ EXPORT
 
 Exports an instance to the target node. All the instance data and
 its configuration will be exported under the
-``@CUSTOM_EXPORT_DIR@/``*instance* directory on the target node.
+``@CUSTOM_EXPORT_DIR@/$instance`` directory on the target node.
 
 The ``--shutdown-timeout`` is used to specify how much time to wait
 before forcing the shutdown (xm destroy in xen, killing the kvm
@@ -54,7 +54,7 @@ execution (and will be stored in the job log). It is recommended
 that for any non-zero exit code, the backup is considered invalid,
 and retried.
 
-See **ganeti(7)** for a description of ``--submit`` and other common
+See **ganeti**\(7) for a description of ``--submit`` and other common
 options.
 
 Example::
@@ -121,17 +121,17 @@ ip
     the node expects the instance to use)
 
 mode
-    specifies the connection mode for this nic: ``routed`` or
-    ``bridged``.
+    specifies the connection mode for this NIC: ``routed``,
+    ``bridged`` or ``openvswitch``
 
 link
-    in bridged mode specifies the bridge to attach this NIC to, in
-    routed mode it's intended to differentiate between different
-    routing tables/instance groups (but the meaning is dependent on
-    the network script in use, see **gnt-cluster**(8) for more
-    details)
+    in bridged and openvswitch mode specifies the interface to attach
+    this NIC to, in routed mode it's intended to differentiate between
+    different routing tables/instance groups (but the meaning is
+    dependent on the network script in use, see **gnt-cluster**\(8) for
+    more details)
 
-Of these ``mode`` and ``link`` are nic parameters, and inherit their
+Of these ``mode`` and ``link`` are NIC parameters, and inherit their
 default at cluster level.
 
 If no network is desired for the instance, you should create a single
@@ -210,7 +210,7 @@ value matches the current cluster default and mark it as such
 affect the hypervisor, backend and NIC parameters, both read from
 the export file and passed in via the command line.
 
-See **ganeti(7)** for a description of ``--submit`` and other common
+See **ganeti**\(7) for a description of ``--submit`` and other common
 options.
 
 Example for identical instance import::

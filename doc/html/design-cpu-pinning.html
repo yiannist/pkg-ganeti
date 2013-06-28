@@ -1,39 +1,45 @@
+
+
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
   "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
 
 <html xmlns="http://www.w3.org/1999/xhtml">
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Ganeti CPU Pinning &mdash; Ganeti v2.6.2 documentation</title>
-    <link rel="stylesheet" href="_static/default.css" type="text/css" />
+    <title>Ganeti CPU Pinning &mdash; Ganeti 2.7.0~rc3 documentation</title>
+    
+    <link rel="stylesheet" href="_static/style.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.6.2',
-        COLLAPSE_MODINDEX: false,
+        VERSION:     '2.7.0~rc3',
+        COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
       };
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.6.2 documentation" href="index.html" />
-    <link rel="next" title="Ganeti Instance Import/Export using Open Virtualization Format" href="design-ovf-support.html" />
-    <link rel="prev" title="Ganeti shared storage support for 2.3+" href="design-shared-storage.html" /> 
+    <link rel="top" title="Ganeti 2.7.0~rc3 documentation" href="index.html" />
+    <link rel="next" title="Submitting jobs from logical units" href="design-lu-generated-jobs.html" />
+    <link rel="prev" title="Chained jobs" href="design-chained-jobs.html" /> 
   </head>
   <body>
     <div class="related">
       <h3>Navigation</h3>
       <ul>
         <li class="right" style="margin-right: 10px">
-          <a href="design-ovf-support.html" title="Ganeti Instance Import/Export using Open Virtualization Format"
+          <a href="design-lu-generated-jobs.html" title="Submitting jobs from logical units"
              accesskey="N">next</a></li>
         <li class="right" >
-          <a href="design-shared-storage.html" title="Ganeti shared storage support for 2.3+"
+          <a href="design-chained-jobs.html" title="Chained jobs"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.6.2 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.7.0~rc3 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -214,7 +220,7 @@ may be:</p>
 <li>send <tt class="docutils literal"><span class="pre">cont</span></tt> to KVM&#8217;s monitor</li>
 </ul>
 <p>A CPU mask is a hexadecimal bit mask where each bit represents one
-physical CPU. See man page for <em>sched_setaffinity(2)</em> for more
+physical CPU. See man page for <em class="manpage">sched_setaffinity(2)</em> for more
 details.</p>
 <p>For example, to run a specific thread-id on CPUs 1 or 3 the mask is
 0x0000000A.</p>
@@ -242,47 +248,47 @@ frequent, there&#8217;s no real advantage.</li>
       </div>
       <div class="sphinxsidebar">
         <div class="sphinxsidebarwrapper">
-            <h3><a href="index.html">Table Of Contents</a></h3>
-            <ul>
-<li><a class="reference external" href="#">Ganeti CPU Pinning</a><ul>
-<li><a class="reference external" href="#objective">Objective</a></li>
-<li><a class="reference external" href="#command-line">Command Line</a></li>
-<li><a class="reference external" href="#validation">Validation</a></li>
-<li><a class="reference external" href="#failover">Failover</a></li>
-<li><a class="reference external" href="#migration">Migration</a></li>
-<li><a class="reference external" href="#data">Data</a></li>
-<li><a class="reference external" href="#configuration-file">Configuration file</a></li>
-<li><a class="reference external" href="#xen">Xen</a></li>
-<li><a class="reference external" href="#kvm">KVM</a></li>
-<li><a class="reference external" href="#alternative-design-options">Alternative Design Options</a></li>
+  <h3><a href="index.html">Table Of Contents</a></h3>
+  <ul>
+<li><a class="reference internal" href="#">Ganeti CPU Pinning</a><ul>
+<li><a class="reference internal" href="#objective">Objective</a></li>
+<li><a class="reference internal" href="#command-line">Command Line</a></li>
+<li><a class="reference internal" href="#validation">Validation</a></li>
+<li><a class="reference internal" href="#failover">Failover</a></li>
+<li><a class="reference internal" href="#migration">Migration</a></li>
+<li><a class="reference internal" href="#data">Data</a></li>
+<li><a class="reference internal" href="#configuration-file">Configuration file</a></li>
+<li><a class="reference internal" href="#xen">Xen</a></li>
+<li><a class="reference internal" href="#kvm">KVM</a></li>
+<li><a class="reference internal" href="#alternative-design-options">Alternative Design Options</a></li>
 </ul>
 </li>
 </ul>
 
-            <h4>Previous topic</h4>
-            <p class="topless"><a href="design-shared-storage.html"
-                                  title="previous chapter">Ganeti shared storage support for 2.3+</a></p>
-            <h4>Next topic</h4>
-            <p class="topless"><a href="design-ovf-support.html"
-                                  title="next chapter">Ganeti Instance Import/Export using Open Virtualization Format</a></p>
-            <h3>This Page</h3>
-            <ul class="this-page-menu">
-              <li><a href="_sources/design-cpu-pinning.txt"
-                     rel="nofollow">Show Source</a></li>
-            </ul>
-          <div id="searchbox" style="display: none">
-            <h3>Quick search</h3>
-              <form class="search" action="search.html" method="get">
-                <input type="text" name="q" size="18" />
-                <input type="submit" value="Go" />
-                <input type="hidden" name="check_keywords" value="yes" />
-                <input type="hidden" name="area" value="default" />
-              </form>
-              <p class="searchtip" style="font-size: 90%">
-              Enter search terms or a module, class or function name.
-              </p>
-          </div>
-          <script type="text/javascript">$('#searchbox').show(0);</script>
+  <h4>Previous topic</h4>
+  <p class="topless"><a href="design-chained-jobs.html"
+                        title="previous chapter">Chained jobs</a></p>
+  <h4>Next topic</h4>
+  <p class="topless"><a href="design-lu-generated-jobs.html"
+                        title="next chapter">Submitting jobs from logical units</a></p>
+  <h3>This Page</h3>
+  <ul class="this-page-menu">
+    <li><a href="_sources/design-cpu-pinning.txt"
+           rel="nofollow">Show Source</a></li>
+  </ul>
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
         </div>
       </div>
       <div class="clearer"></div>
@@ -291,17 +297,17 @@ frequent, there&#8217;s no real advantage.</li>
       <h3>Navigation</h3>
       <ul>
         <li class="right" style="margin-right: 10px">
-          <a href="design-ovf-support.html" title="Ganeti Instance Import/Export using Open Virtualization Format"
+          <a href="design-lu-generated-jobs.html" title="Submitting jobs from logical units"
              >next</a></li>
         <li class="right" >
-          <a href="design-shared-storage.html" title="Ganeti shared storage support for 2.3+"
+          <a href="design-chained-jobs.html" title="Chained jobs"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.6.2 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.7.0~rc3 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">
-      &copy; Copyright 2006, 2007, 2008, 2009, 2010, 2011, 2012, Google Inc..
-      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 0.6.7.
+        &copy; Copyright 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Google Inc..
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
     </div>
   </body>
 </html>

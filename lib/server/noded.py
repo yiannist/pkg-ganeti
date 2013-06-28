@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2010, 2011 Google Inc.
+# Copyright (C) 2006, 2007, 2010, 2011, 2012 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -48,6 +48,8 @@ from ganeti import utils
 from ganeti import storage
 from ganeti import serializer
 from ganeti import netutils
+from ganeti import pathutils
+from ganeti import ssconf
 
 import ganeti.http.server # pylint: disable=W0611
 
@@ -137,9 +139,8 @@ class NodeRequestHandler(http.server.HttpServerHandler):
     """Handle a request.
 
     """
-    # FIXME: Remove HTTP_PUT in Ganeti 2.7
-    if req.request_method.upper() not in (http.HTTP_PUT, http.HTTP_POST):
-      raise http.HttpBadRequest("Only PUT and POST methods are supported")
+    if req.request_method.upper() != http.HTTP_POST:
+      raise http.HttpBadRequest("Only the POST method is supported")
 
     path = req.request_path
     if path.startswith("/"):
@@ -178,11 +179,12 @@ class NodeRequestHandler(http.server.HttpServerHandler):
     """Create a block device.
 
     """
-    bdev_s, size, owner, on_primary, info = params
+    (bdev_s, size, owner, on_primary, info, excl_stor) = params
     bdev = objects.Disk.FromDict(bdev_s)
     if bdev is None:
       raise ValueError("can't unserialize data!")
-    return backend.BlockdevCreate(bdev, size, owner, on_primary, info)
+    return backend.BlockdevCreate(bdev, size, owner, on_primary, info,
+                                  excl_stor)
 
   @staticmethod
   def perspective_blockdev_pause_resume_sync(params):
@@ -332,10 +334,14 @@ class NodeRequestHandler(http.server.HttpServerHandler):
     """Grow a stack of devices.
 
     """
+    if len(params) < 4:
+      raise ValueError("Received only 3 parameters in blockdev_grow,"
+                       " old master?")
     cfbd = objects.Disk.FromDict(params[0])
     amount = params[1]
     dryrun = params[2]
-    return backend.BlockdevGrow(cfbd, amount, dryrun)
+    backingstore = params[3]
+    return backend.BlockdevGrow(cfbd, amount, dryrun, backingstore)
 
   @staticmethod
   def perspective_blockdev_close(params):
@@ -361,6 +367,15 @@ class NodeRequestHandler(http.server.HttpServerHandler):
     disk = objects.Disk.FromDict(params[0])
     dest_node, dest_path, cluster_name = params[1:]
     return backend.BlockdevExport(disk, dest_node, dest_path, cluster_name)
+
+  @staticmethod
+  def perspective_blockdev_setinfo(params):
+    """Sets metadata information on the given block device.
+
+    """
+    (disk, info) = params
+    disk = objects.Disk.FromDict(disk)
+    return backend.BlockdevSetInfo(disk, info)
 
   # blockdev/drbd specific methods ----------
 
@@ -443,7 +458,7 @@ class NodeRequestHandler(http.server.HttpServerHandler):
 
     Note that as opposed to export_info, which may query data about an
     export in any path, this only queries the standard Ganeti path
-    (constants.EXPORT_DIR).
+    (pathutils.EXPORT_DIR).
 
     """
     return backend.ListExports()
@@ -672,8 +687,8 @@ class NodeRequestHandler(http.server.HttpServerHandler):
     """Query node information.
 
     """
-    (vg_names, hv_names) = params
-    return backend.GetNodeInfo(vg_names, hv_names)
+    (vg_names, hv_names, excl_stor) = params
+    return backend.GetNodeInfo(vg_names, hv_names, excl_stor)
 
   @staticmethod
   def perspective_etc_hosts_modify(params):
@@ -690,6 +705,14 @@ class NodeRequestHandler(http.server.HttpServerHandler):
 
     """
     return backend.VerifyNode(params[0], params[1])
+
+  @classmethod
+  def perspective_node_verify_light(cls, params):
+    """Run a light verify sequence on this node.
+
+    """
+    # So far it's the same as the normal node_verify
+    return cls.perspective_node_verify(params)
 
   @staticmethod
   def perspective_node_start_master_daemons(params):
@@ -797,12 +820,36 @@ class NodeRequestHandler(http.server.HttpServerHandler):
     return result
 
   @staticmethod
+  def perspective_restricted_command(params):
+    """Runs a restricted command.
+
+    """
+    (cmd, ) = params
+
+    return backend.RunRestrictedCmd(cmd)
+
+  @staticmethod
   def perspective_write_ssconf_files(params):
     """Write ssconf files.
 
     """
     (values,) = params
-    return backend.WriteSsconfFiles(values)
+    return ssconf.WriteSsconfFiles(values)
+
+  @staticmethod
+  def perspective_get_watcher_pause(params):
+    """Get watcher pause end.
+
+    """
+    return utils.ReadWatcherPauseFile(pathutils.WATCHER_PAUSEFILE)
+
+  @staticmethod
+  def perspective_set_watcher_pause(params):
+    """Set watcher pause.
+
+    """
+    (until, ) = params
+    return backend.SetWatcherPause(until)
 
   # os -----------------------
 
@@ -829,6 +876,15 @@ class NodeRequestHandler(http.server.HttpServerHandler):
     """
     required, name, checks, params = params
     return backend.ValidateOS(required, name, checks, params)
+
+  # extstorage -----------------------
+
+  @staticmethod
+  def perspective_extstorage_diagnose(params):
+    """Query detailed information about existing extstorage providers.
+
+    """
+    return backend.DiagnoseExtStorage()
 
   # hooks -----------------------
 
@@ -920,6 +976,16 @@ class NodeRequestHandler(http.server.HttpServerHandler):
     """
     # TODO: What if a file fails to rename?
     return [backend.JobQueueRename(old, new) for old, new in params[0]]
+
+  @staticmethod
+  @_RequireJobQueueLock
+  def perspective_jobqueue_set_drain_flag(params):
+    """Set job queue's drain flag.
+
+    """
+    (flag, ) = params
+
+    return jstore.SetDrainFlag(flag)
 
   # hypervisor ---------------
 
@@ -1055,8 +1121,8 @@ def PrepNoded(options, _):
   mainloop = daemon.Mainloop()
   server = \
     http.server.HttpServer(mainloop, options.bind_address, options.port,
-      handler, ssl_params=ssl_params, ssl_verify_peer=True,
-      request_executor_class=request_executor_class)
+                           handler, ssl_params=ssl_params, ssl_verify_peer=True,
+                           request_executor_class=request_executor_class)
   server.Start()
 
   return (mainloop, server)
@@ -1086,6 +1152,6 @@ def Main():
                     default=True, action="store_false")
 
   daemon.GenericMain(constants.NODED, parser, CheckNoded, PrepNoded, ExecNoded,
-                     default_ssl_cert=constants.NODED_CERT_FILE,
-                     default_ssl_key=constants.NODED_CERT_FILE,
+                     default_ssl_cert=pathutils.NODED_CERT_FILE,
+                     default_ssl_key=pathutils.NODED_CERT_FILE,
                      console_logging=True)

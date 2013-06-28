@@ -38,6 +38,7 @@ import logging
 from ganeti import constants
 from ganeti import errors
 from ganeti import utils
+from ganeti import vcluster
 
 # Structure definition for getsockopt(SOL_SOCKET, SO_PEERCRED, ...):
 # struct ucred { pid_t pid; uid_t uid; gid_t gid; };
@@ -50,6 +51,12 @@ from ganeti import utils
 # "blksize_t, pid_t, and ssize_t shall be signed integer types"
 _STRUCT_UCRED = "iII"
 _STRUCT_UCRED_SIZE = struct.calcsize(_STRUCT_UCRED)
+
+# Workaround a bug in some linux distributions that don't define SO_PEERCRED
+try:
+  _SO_PEERCRED = IN.SO_PEERCRED
+except AttributeError:
+  _SO_PEERCRED = 17
 
 # Regexes used to find IP addresses in the output of ip.
 _IP_RE_TEXT = r"[.:a-z0-9]+"      # separate for testing purposes
@@ -92,7 +99,7 @@ def GetSocketCredentials(sock):
   @return: The PID, UID and GID of the connected foreign process.
 
   """
-  peercred = sock.getsockopt(socket.SOL_SOCKET, IN.SO_PEERCRED,
+  peercred = sock.getsockopt(socket.SOL_SOCKET, _SO_PEERCRED,
                              _STRUCT_UCRED_SIZE)
   return struct.unpack(_STRUCT_UCRED, peercred)
 
@@ -166,7 +173,7 @@ class Hostname:
     @param name: hostname or None
 
     """
-    self.name = self.GetNormalizedName(self.GetFqdn(name))
+    self.name = self.GetFqdn(name)
     self.ip = self.GetIP(self.name, family=family)
 
   @classmethod
@@ -176,8 +183,8 @@ class Hostname:
     """
     return cls.GetFqdn()
 
-  @staticmethod
-  def GetFqdn(hostname=None):
+  @classmethod
+  def GetFqdn(cls, hostname=None):
     """Return fqdn.
 
     If hostname is None the system's fqdn is returned.
@@ -189,9 +196,15 @@ class Hostname:
 
     """
     if hostname is None:
-      return socket.getfqdn()
+      virtfqdn = vcluster.GetVirtualHostname()
+      if virtfqdn:
+        result = virtfqdn
+      else:
+        result = socket.getfqdn()
     else:
-      return socket.getfqdn(hostname)
+      result = socket.getfqdn(hostname)
+
+    return cls.GetNormalizedName(result)
 
   @staticmethod
   def GetIP(hostname, family=None):
@@ -224,7 +237,12 @@ class Hostname:
     try:
       return result[0][4][0]
     except IndexError, err:
-      raise errors.ResolverError("Unknown error in getaddrinfo(): %s" % err)
+      # we don't have here an actual error code, it's just that the
+      # data type returned by getaddrinfo is not what we expected;
+      # let's keep the same format in the exception arguments with a
+      # dummy error code
+      raise errors.ResolverError(hostname, 0,
+                                 "Unknown error in getaddrinfo(): %s" % err)
 
   @classmethod
   def GetNormalizedName(cls, hostname):

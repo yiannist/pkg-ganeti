@@ -28,14 +28,14 @@ from ganeti.cli import *
 from ganeti import constants
 from ganeti import opcodes
 from ganeti import utils
+from ganeti import compat
 from cStringIO import StringIO
 
 
 #: default list of fields for L{ListGroups}
 _LIST_DEF_FIELDS = ["name", "node_cnt", "pinst_cnt", "alloc_policy", "ndparams"]
 
-
-_ENV_OVERRIDE = frozenset(["list"])
+_ENV_OVERRIDE = compat.UniqueFrozenset(["list"])
 
 
 def AddGroup(opts, args):
@@ -124,10 +124,12 @@ def ListGroups(opts, args):
     "ndparams": (_FmtDict, False),
     }
 
+  cl = GetClient(query=True)
+
   return GenericList(constants.QR_GROUP, desired_fields, args, None,
                      opts.separator, not opts.no_headers,
                      format_override=fmtoverride, verbose=opts.verbose,
-                     force_filter=opts.force_filter)
+                     force_filter=opts.force_filter, cl=cl)
 
 
 def ListGroupFields(opts, args):
@@ -140,8 +142,10 @@ def ListGroupFields(opts, args):
   @return: the desired exit code
 
   """
+  cl = GetClient(query=True)
+
   return GenericListFields(constants.QR_GROUP, args, opts.separator,
-                           not opts.no_headers)
+                           not opts.no_headers, cl=cl)
 
 
 def SetGroupParams(opts, args):
@@ -295,7 +299,7 @@ def GroupInfo(_, args):
   """Shows info about node group.
 
   """
-  cl = GetClient()
+  cl = GetClient(query=True)
   selected_fields = ["name",
                      "ndparams", "custom_ndparams",
                      "diskparams", "custom_diskparams",

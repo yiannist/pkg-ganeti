@@ -34,13 +34,15 @@ from ganeti import rapi
 from ganeti import http
 from ganeti import errors
 from ganeti import compat
+from ganeti import constants
+from ganeti import pathutils
 
 
 # Dummy value to detect unchanged parameters
 _DEFAULT = object()
 
 #: Supported HTTP methods
-_SUPPORTED_METHODS = frozenset([
+_SUPPORTED_METHODS = compat.UniqueFrozenset([
   http.HTTP_DELETE,
   http.HTTP_GET,
   http.HTTP_POST,
@@ -83,16 +85,6 @@ def BuildUriList(ids, uri_format, uri_fields=("name", "uri")):
   return map(_MapId, ids)
 
 
-def ExtractField(sequence, index):
-  """Creates a list containing one column out of a list of lists.
-
-  @param sequence: sequence of lists
-  @param index: index of field
-
-  """
-  return map(lambda item: item[index], sequence)
-
-
 def MapFields(names, data):
   """Maps two lists into one dictionary.
 
@@ -123,33 +115,6 @@ def MapBulkFields(itemslist, fields):
     mapped = MapFields(fields, item)
     items_details.append(mapped)
   return items_details
-
-
-def MakeParamsDict(opts, params):
-  """Makes params dictionary out of a option set.
-
-  This function returns a dictionary needed for hv or be parameters. But only
-  those fields which provided in the option set. Takes parameters frozensets
-  from constants.
-
-  @type opts: dict
-  @param opts: selected options
-  @type params: frozenset
-  @param params: subset of options
-  @rtype: dict
-  @return: dictionary of options, filtered by given subset.
-
-  """
-  result = {}
-
-  for p in params:
-    try:
-      value = opts[p]
-    except KeyError:
-      continue
-    result[p] = value
-
-  return result
 
 
 def FillOpcode(opcls, body, static, rename=None):
@@ -333,7 +298,7 @@ class ResourceBase(object):
     return val
 
   def _checkStringVariable(self, name, default=None):
-    """Return the parsed value of an int argument.
+    """Return the parsed value of a string argument.
 
     """
     val = self.queryargs.get(name, default)
@@ -382,13 +347,22 @@ class ResourceBase(object):
     """
     return bool(self._checkIntVariable("dry-run"))
 
-  def GetClient(self):
+  def GetClient(self, query=False):
     """Wrapper for L{luxi.Client} with HTTP-specific error handling.
 
+    @param query: this signifies that the client will only be used for
+        queries; if the build-time parameter enable-split-queries is
+        enabled, then the client will be connected to the query socket
+        instead of the masterd socket
+
     """
+    if query and constants.ENABLE_SPLIT_QUERY:
+      address = pathutils.QUERY_SOCKET
+    else:
+      address = None
     # Could be a function, pylint: disable=R0201
     try:
-      return self._client_cls()
+      return self._client_cls(address=address)
     except luxi.NoMasterError, err:
       raise http.HttpBadGateway("Can't connect to master daemon: %s" % err)
     except luxi.PermissionError:
@@ -491,13 +465,13 @@ class OpcodeResource(ResourceBase):
 
   @cvar POST_OPCODE: Set this to a class derived from L{opcodes.OpCode} to
     automatically generate a POST handler submitting the opcode
-  @cvar POST_RENAME: Set this to rename parameters in the DELETE handler (see
+  @cvar POST_RENAME: Set this to rename parameters in the POST handler (see
     L{baserlib.FillOpcode})
   @ivar GetPostOpInput: Define this to override the default method for
     getting opcode parameters (see L{baserlib.OpcodeResource._GetDefaultData})
 
   @cvar DELETE_OPCODE: Set this to a class derived from L{opcodes.OpCode} to
-    automatically generate a GET handler submitting the opcode
+    automatically generate a DELETE handler submitting the opcode
   @cvar DELETE_RENAME: Set this to rename parameters in the DELETE handler (see
     L{baserlib.FillOpcode})
   @ivar GetDeleteOpInput: Define this to override the default method for

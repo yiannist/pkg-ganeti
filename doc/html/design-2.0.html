@@ -1,25 +1,31 @@
+
+
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
   "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
 
 <html xmlns="http://www.w3.org/1999/xhtml">
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Ganeti 2.0 design &mdash; Ganeti v2.6.2 documentation</title>
-    <link rel="stylesheet" href="_static/default.css" type="text/css" />
+    <title>Ganeti 2.0 design &mdash; Ganeti 2.7.0~rc3 documentation</title>
+    
+    <link rel="stylesheet" href="_static/style.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.6.2',
-        COLLAPSE_MODINDEX: false,
+        VERSION:     '2.7.0~rc3',
+        COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
       };
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.6.2 documentation" href="index.html" />
+    <link rel="top" title="Ganeti 2.7.0~rc3 documentation" href="index.html" />
     <link rel="next" title="Ganeti 2.1 design" href="design-2.1.html" />
     <link rel="prev" title="Security in Ganeti" href="security.html" /> 
   </head>
@@ -33,7 +39,7 @@
         <li class="right" >
           <a href="security.html" title="Security in Ganeti"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.6.2 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.7.0~rc3 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -154,7 +160,46 @@ design of Ganeti is required. While the cluster operations themselves
 won&#8217;t change (e.g. start instance will do the same things, the way
 these operations are scheduled internally will change radically.</p>
 <p>The new design will change the cluster architecture to:</p>
-<img alt="_images/arch-2.0.png" src="_images/arch-2.0.png" />
+<p class="graphviz">
+<img src="_images/graphviz-246e5775f608681df9f62dbbe0a5d4120dc75f1c.png" alt="digraph &quot;ganeti-2.0-architecture&quot; {
+compound=false
+concentrate=true
+mclimit=100.0
+nslimit=100.0
+edge[fontsize=&quot;8&quot; fontname=&quot;Helvetica-Oblique&quot;]
+node[width=&quot;0&quot; height=&quot;0&quot; fontsize=&quot;12&quot; fontcolor=&quot;black&quot; shape=rect]
+
+subgraph outside {
+  rclient[label=&quot;external clients&quot;]
+  label=&quot;Outside the cluster&quot;
+}
+
+subgraph cluster_inside {
+  label=&quot;ganeti cluster&quot;
+  labeljust=l
+  subgraph cluster_master_node {
+    label=&quot;master node&quot;
+    rapi[label=&quot;RAPI daemon&quot;]
+    cli[label=&quot;CLI&quot;]
+    watcher[label=&quot;Watcher&quot;]
+    burnin[label=&quot;Burnin&quot;]
+    masterd[shape=record style=filled label=&quot;{ &lt;luxi&gt; luxi endpoint | master I/O thread | job queue | {&lt;w1&gt; worker| &lt;w2&gt; worker | &lt;w3&gt; worker }}&quot;]
+    {rapi;cli;watcher;burnin} -&gt; masterd:luxi [label=&quot;LUXI&quot; labelpos=100]
+  }
+
+  subgraph cluster_nodes {
+      label=&quot;nodes&quot;
+      noded1 [shape=record label=&quot;{ RPC listener | Disk management | Network management | Hypervisor } &quot;]
+      noded2 [shape=record label=&quot;{ RPC listener | Disk management | Network management | Hypervisor } &quot;]
+      noded3 [shape=record label=&quot;{ RPC listener | Disk management | Network management | Hypervisor } &quot;]
+  }
+  masterd:w2 -&gt; {noded1;noded2;noded3} [label=&quot;node RPC&quot;]
+  cli -&gt; {noded1;noded2;noded3} [label=&quot;SSH&quot;]
+}
+
+rclient -&gt; rapi [label=&quot;RAPI protocol&quot;]
+}" />
+</p>
 <p>This differs from the 1.2 architecture by the addition of the master
 daemon, which will be the only entity to talk to the node daemons.</p>
 </div>
@@ -262,9 +307,9 @@ fields:</p>
 <col class="field-name" />
 <col class="field-body" />
 <tbody valign="top">
-<tr class="field"><th class="field-name">method:</th><td class="field-body">the name of the method called</td>
+<tr class="field-odd field"><th class="field-name">method:</th><td class="field-body">the name of the method called</td>
 </tr>
-<tr class="field"><th class="field-name">args:</th><td class="field-body">the arguments to the method, as a list (no keyword arguments allowed)</td>
+<tr class="field-even field"><th class="field-name">args:</th><td class="field-body">the arguments to the method, as a list (no keyword arguments allowed)</td>
 </tr>
 </tbody>
 </table>
@@ -273,9 +318,9 @@ fields:</p>
 <col class="field-name" />
 <col class="field-body" />
 <tbody valign="top">
-<tr class="field"><th class="field-name">success:</th><td class="field-body">a boolean denoting the success of the operation</td>
+<tr class="field-odd field"><th class="field-name">success:</th><td class="field-body">a boolean denoting the success of the operation</td>
 </tr>
-<tr class="field"><th class="field-name">result:</th><td class="field-body">the actual result, or error message in case of failure</td>
+<tr class="field-even field"><th class="field-name">result:</th><td class="field-body">the actual result, or error message in case of failure</td>
 </tr>
 </tbody>
 </table>
@@ -328,7 +373,7 @@ contained within</p>
 <li><p class="first">query all the nodes and make sure we obtain an agreement via
 a quorum of at least half plus one nodes for the following:</p>
 <blockquote>
-<ul class="simple">
+<div><ul class="simple">
 <li>we have the latest configuration and job list (as
 determined by the serial number on the configuration and
 highest job ID on the job queue)</li>
@@ -337,7 +382,7 @@ quorum agrees that we are the designated master</li>
 <li>if any of the above is false, we prevent the current operation
 (i.e. we don&#8217;t become the master)</li>
 </ul>
-</blockquote>
+</div></blockquote>
 </li>
 <li><p class="first">at this point, the node transitions to the master role</p>
 </li>
@@ -368,7 +413,7 @@ and instead have always one logfile per daemon model:</p>
 <li>rapi-access.log, an additional log file for the RAPI that will be
 in the standard HTTP log format for possible parsing by other tools</li>
 </ul>
-<p>Since the <a class="reference external" href="glossary.html#term-watcher"><em class="xref">watcher</em></a> will only submit jobs to the master for
+<p>Since the <a class="reference internal" href="glossary.html#term-watcher"><em class="xref std std-term">watcher</em></a> will only submit jobs to the master for
 startup of the instances, its log file will contain less information
 than before, mainly that it will start the instance, but not the
 results.</p>
@@ -795,15 +840,15 @@ or PAE mode)</li>
 <col class="field-name" />
 <col class="field-body" />
 <tbody valign="top">
-<tr class="field"><th class="field-name" colspan="2">hypervisor parameter:</th></tr>
-<tr><td>&nbsp;</td><td class="field-body"><p class="first">a hypervisor parameter (or hypervisor specific parameter) is defined
+<tr class="field-odd field"><th class="field-name" colspan="2">hypervisor parameter:</th></tr>
+<tr class="field-odd field"><td>&nbsp;</td><td class="field-body"><p class="first">a hypervisor parameter (or hypervisor specific parameter) is defined
 as a parameter that is interpreted by the hypervisor support code in
 Ganeti and usually is specific to a particular hypervisor (like the
-kernel path for <a class="reference external" href="glossary.html#term-pvm"><em class="xref">PVM</em></a> which makes no sense for <a class="reference external" href="glossary.html#term-hvm"><em class="xref">HVM</em></a>).</p>
+kernel path for <a class="reference internal" href="glossary.html#term-pvm"><em class="xref std std-term">PVM</em></a> which makes no sense for <a class="reference internal" href="glossary.html#term-hvm"><em class="xref std std-term">HVM</em></a>).</p>
 </td>
 </tr>
-<tr class="field"><th class="field-name" colspan="2">backend parameter:</th></tr>
-<tr><td>&nbsp;</td><td class="field-body"><p class="first">a backend parameter is defined as an instance parameter that can be
+<tr class="field-even field"><th class="field-name" colspan="2">backend parameter:</th></tr>
+<tr class="field-even field"><td>&nbsp;</td><td class="field-body"><p class="first">a backend parameter is defined as an instance parameter that can be
 shared among a list of instances, and is either generic enough not
 to be tied to a given hypervisor or cannot influence at all the
 hypervisor behaviour.</p>
@@ -813,8 +858,8 @@ hypervisor behaviour.</p>
 &#8220;BES_PARAMETERS&#8221;</p>
 </td>
 </tr>
-<tr class="field"><th class="field-name" colspan="2">proper parameter:</th></tr>
-<tr><td>&nbsp;</td><td class="field-body"><p class="first last">a parameter whose value is unique to the instance (e.g. the name of a
+<tr class="field-odd field"><th class="field-name" colspan="2">proper parameter:</th></tr>
+<tr class="field-odd field"><td>&nbsp;</td><td class="field-body"><p class="first last">a parameter whose value is unique to the instance (e.g. the name of a
 LV, or the MAC of a NIC)</p>
 </td>
 </tr>
@@ -903,18 +948,18 @@ following features:</p>
 <col class="field-name" />
 <col class="field-body" />
 <tbody valign="top">
-<tr class="field"><th class="field-name">PARAMETERS:</th><td class="field-body">class-level attribute holding the list of valid parameters
+<tr class="field-odd field"><th class="field-name">PARAMETERS:</th><td class="field-body">class-level attribute holding the list of valid parameters
 for this hypervisor</td>
 </tr>
-<tr class="field"><th class="field-name" colspan="2">CheckParamSyntax(hvparams):</th></tr>
-<tr><td>&nbsp;</td><td class="field-body">checks that the given parameters are
+<tr class="field-even field"><th class="field-name" colspan="2">CheckParamSyntax(hvparams):</th></tr>
+<tr class="field-even field"><td>&nbsp;</td><td class="field-body">checks that the given parameters are
 valid (as in the names are valid) for this hypervisor; usually just
 comparing <tt class="docutils literal"><span class="pre">hvparams.keys()</span></tt> and <tt class="docutils literal"><span class="pre">cls.PARAMETERS</span></tt>; this is a class
 method that can be called from within master code (i.e. cmdlib) and
 should be safe to do so</td>
 </tr>
-<tr class="field"><th class="field-name" colspan="2">ValidateParameters(hvparams):</th></tr>
-<tr><td>&nbsp;</td><td class="field-body">verifies the values of the provided
+<tr class="field-odd field"><th class="field-name" colspan="2">ValidateParameters(hvparams):</th></tr>
+<tr class="field-odd field"><td>&nbsp;</td><td class="field-body">verifies the values of the provided
 parameters against this hypervisor; this is a method that will be
 called on the target node, from backend.py code, and as such can
 make node-specific checks (e.g. kernel_path checking)</td>
@@ -1509,7 +1554,7 @@ the only valid values are 0 and 1.</dd>
 </dl>
 <p>These are only the basic variables we are thinking of now, but more
 may come during the implementation and they will be documented in the
-<em>ganeti-os-api</em> man page. All these variables will be
+<em class="manpage">ganeti-os-interface(7)</em> man page. All these variables will be
 available to all scripts.</p>
 <p>Some scripts will need a few more information to work. These will have
 per-script variables, such as for example:</p>
@@ -1611,13 +1656,13 @@ of them should have limited amount of state and support standard HTTP
 methods: GET, POST, DELETE, PUT.</p>
 <p>For example in Ganeti&#8217;s case we can have a set of URI:</p>
 <blockquote>
-<ul class="simple">
+<div><ul class="simple">
 <li><tt class="docutils literal"><span class="pre">/{clustername}/instances</span></tt></li>
 <li><tt class="docutils literal"><span class="pre">/{clustername}/instances/{instancename}</span></tt></li>
 <li><tt class="docutils literal"><span class="pre">/{clustername}/instances/{instancename}/tag</span></tt></li>
 <li><tt class="docutils literal"><span class="pre">/{clustername}/tag</span></tt></li>
 </ul>
-</blockquote>
+</div></blockquote>
 <p>A GET request to <tt class="docutils literal"><span class="pre">/{clustername}/instances</span></tt> will return the list of
 instances, a POST to <tt class="docutils literal"><span class="pre">/{clustername}/instances</span></tt> should create a new
 instance, a DELETE <tt class="docutils literal"><span class="pre">/{clustername}/instances/{instancename}</span></tt> should
@@ -1740,16 +1785,16 @@ devices.</li>
 <h5>Network Device Options<a class="headerlink" href="#network-device-options" title="Permalink to this headline">¶</a></h5>
 <p>The generic format of the network device option is:</p>
 <blockquote>
-&#8211;net $DEVNUM[:$OPTION=$VALUE][,$OPTION=VALUE]</blockquote>
+<div>&#8211;net $DEVNUM[:$OPTION=$VALUE][,$OPTION=VALUE]</div></blockquote>
 <table class="docutils field-list" frame="void" rules="none">
 <col class="field-name" />
 <col class="field-body" />
 <tbody valign="top">
-<tr class="field"><th class="field-name">$DEVNUM:</th><td class="field-body">device number, unsigned integer, starting at 0,</td>
+<tr class="field-odd field"><th class="field-name">$DEVNUM:</th><td class="field-body">device number, unsigned integer, starting at 0,</td>
 </tr>
-<tr class="field"><th class="field-name">$OPTION:</th><td class="field-body">device option, string,</td>
+<tr class="field-even field"><th class="field-name">$OPTION:</th><td class="field-body">device option, string,</td>
 </tr>
-<tr class="field"><th class="field-name">$VALUE:</th><td class="field-body">device option value, string.</td>
+<tr class="field-odd field"><th class="field-name">$VALUE:</th><td class="field-body">device option value, string.</td>
 </tr>
 </tbody>
 </table>
@@ -1759,12 +1804,12 @@ further changes):</p>
 <col class="field-name" />
 <col class="field-body" />
 <tbody valign="top">
-<tr class="field"><th class="field-name">mac:</th><td class="field-body">MAC address of the network interface, accepts either a valid
+<tr class="field-odd field"><th class="field-name">mac:</th><td class="field-body">MAC address of the network interface, accepts either a valid
 MAC address or the string &#8216;auto&#8217;. If &#8216;auto&#8217; is specified, a new MAC
 address will be generated randomly. If the mac device option is not
 specified, the default value &#8216;auto&#8217; is assumed.</td>
 </tr>
-<tr class="field"><th class="field-name">bridge:</th><td class="field-body">network bridge the network interface is connected
+<tr class="field-even field"><th class="field-name">bridge:</th><td class="field-body">network bridge the network interface is connected
 to. Accepts either a valid bridge name (the specified bridge must
 exist on the node(s)) as string or the string &#8216;auto&#8217;. If &#8216;auto&#8217; is
 specified, the default brigde is used. If the bridge option is not
@@ -1777,16 +1822,16 @@ specified, the default value &#8216;auto&#8217; is assumed.</td>
 <h5>Disk Device Options<a class="headerlink" href="#disk-device-options" title="Permalink to this headline">¶</a></h5>
 <p>The generic format of the disk device option is:</p>
 <blockquote>
-&#8211;disk $DEVNUM[:$OPTION=$VALUE][,$OPTION=VALUE]</blockquote>
+<div>&#8211;disk $DEVNUM[:$OPTION=$VALUE][,$OPTION=VALUE]</div></blockquote>
 <table class="docutils field-list" frame="void" rules="none">
 <col class="field-name" />
 <col class="field-body" />
 <tbody valign="top">
-<tr class="field"><th class="field-name">$DEVNUM:</th><td class="field-body">device number, unsigned integer, starting at 0,</td>
+<tr class="field-odd field"><th class="field-name">$DEVNUM:</th><td class="field-body">device number, unsigned integer, starting at 0,</td>
 </tr>
-<tr class="field"><th class="field-name">$OPTION:</th><td class="field-body">device option, string,</td>
+<tr class="field-even field"><th class="field-name">$OPTION:</th><td class="field-body">device option, string,</td>
 </tr>
-<tr class="field"><th class="field-name">$VALUE:</th><td class="field-body">device option value, string.</td>
+<tr class="field-odd field"><th class="field-name">$VALUE:</th><td class="field-body">device option value, string.</td>
 </tr>
 </tbody>
 </table>
@@ -1796,7 +1841,7 @@ further changes):</p>
 <col class="field-name" />
 <col class="field-body" />
 <tbody valign="top">
-<tr class="field"><th class="field-name">size:</th><td class="field-body"><p class="first">size of the disk device, either a positive number, specifying
+<tr class="field-odd field"><th class="field-name">size:</th><td class="field-body"><p class="first">size of the disk device, either a positive number, specifying
 the disk size in mebibytes, or a number followed by a magnitude suffix
 (M for mebibytes, G for gibibytes). Also accepts the string &#8216;auto&#8217; in
 which case the default disk size will be used. If the size option is
@@ -1804,7 +1849,7 @@ not specified, &#8216;auto&#8217; is assumed. This option is not valid for all
 disk layout types.</p>
 </td>
 </tr>
-<tr class="field"><th class="field-name">access:</th><td class="field-body"><p class="first">access mode of the disk device, a single letter, valid values
+<tr class="field-even field"><th class="field-name">access:</th><td class="field-body"><p class="first">access mode of the disk device, a single letter, valid values
 are:</p>
 <ul class="simple">
 <li><em>w</em>: read/write access to the disk device or</li>
@@ -1814,7 +1859,7 @@ are:</p>
 access will be configured.</p>
 </td>
 </tr>
-<tr class="field"><th class="field-name">path:</th><td class="field-body"><p class="first last">path to the image file for the disk device, string. No default
+<tr class="field-odd field"><th class="field-name">path:</th><td class="field-body"><p class="first last">path to the image file for the disk device, string. No default
 exists. This option is not valid for all disk layout types.</p>
 </td>
 </tr>
@@ -1830,9 +1875,9 @@ device type specific options supported:</p>
 <col class="field-name" />
 <col class="field-body" />
 <tbody valign="top">
-<tr class="field"><th class="field-name">&#8211;net:</th><td class="field-body">for network interface cards</td>
+<tr class="field-odd field"><th class="field-name">&#8211;net:</th><td class="field-body">for network interface cards</td>
 </tr>
-<tr class="field"><th class="field-name">&#8211;disk:</th><td class="field-body">for disk devices</td>
+<tr class="field-even field"><th class="field-name">&#8211;disk:</th><td class="field-body">for disk devices</td>
 </tr>
 </tbody>
 </table>
@@ -1864,9 +1909,9 @@ options supported:</p>
 <col class="field-name" />
 <col class="field-body" />
 <tbody valign="top">
-<tr class="field"><th class="field-name">&#8211;net:</th><td class="field-body">for network interface cards</td>
+<tr class="field-odd field"><th class="field-name">&#8211;net:</th><td class="field-body">for network interface cards</td>
 </tr>
-<tr class="field"><th class="field-name">&#8211;disk:</th><td class="field-body">for disk devices</td>
+<tr class="field-even field"><th class="field-name">&#8211;disk:</th><td class="field-body">for disk devices</td>
 </tr>
 </tbody>
 </table>
@@ -1890,12 +1935,12 @@ option is as follows:</p>
 <col class="field-name" />
 <col class="field-body" />
 <tbody valign="top">
-<tr class="field"><th class="field-name">$HYPERVISOR:</th><td class="field-body">symbolic name of the hypervisor to use, string,
+<tr class="field-odd field"><th class="field-name">$HYPERVISOR:</th><td class="field-body">symbolic name of the hypervisor to use, string,
 has to match the supported hypervisors. Example: xen-pvm</td>
 </tr>
-<tr class="field"><th class="field-name">$OPTION:</th><td class="field-body">hypervisor option name, string</td>
+<tr class="field-even field"><th class="field-name">$OPTION:</th><td class="field-body">hypervisor option name, string</td>
 </tr>
-<tr class="field"><th class="field-name">$VALUE:</th><td class="field-body">hypervisor option value, string</td>
+<tr class="field-odd field"><th class="field-name">$VALUE:</th><td class="field-body">hypervisor option value, string</td>
 </tr>
 </tbody>
 </table>
@@ -1931,14 +1976,14 @@ cluster defaults.</li>
 <p>Cluster defaults</p>
 <p>The generic format of the cluster default setting option is:</p>
 <blockquote>
-&#8211;defaults $OPTION=$VALUE[,$OPTION=$VALUE]</blockquote>
+<div>&#8211;defaults $OPTION=$VALUE[,$OPTION=$VALUE]</div></blockquote>
 <table class="docutils field-list" frame="void" rules="none">
 <col class="field-name" />
 <col class="field-body" />
 <tbody valign="top">
-<tr class="field"><th class="field-name">$OPTION:</th><td class="field-body">cluster default option, string,</td>
+<tr class="field-odd field"><th class="field-name">$OPTION:</th><td class="field-body">cluster default option, string,</td>
 </tr>
-<tr class="field"><th class="field-name">$VALUE:</th><td class="field-body">cluster default option value, string.</td>
+<tr class="field-even field"><th class="field-name">$VALUE:</th><td class="field-body">cluster default option value, string.</td>
 </tr>
 </tbody>
 </table>
@@ -1948,16 +1993,16 @@ further changes):</p>
 <col class="field-name" />
 <col class="field-body" />
 <tbody valign="top">
-<tr class="field"><th class="field-name">hypervisor:</th><td class="field-body">the default hypervisor to use for new instances,
+<tr class="field-odd field"><th class="field-name">hypervisor:</th><td class="field-body">the default hypervisor to use for new instances,
 string. Must be a valid hypervisor known to and supported by the
 cluster.</td>
 </tr>
-<tr class="field"><th class="field-name">disksize:</th><td class="field-body">the disksize for newly created instance disks, where
+<tr class="field-even field"><th class="field-name">disksize:</th><td class="field-body">the disksize for newly created instance disks, where
 applicable. Must be either a positive number, in which case the unit
 of megabyte is assumed, or a positive number followed by a supported
 magnitude symbol (M for megabyte or G for gigabyte).</td>
 </tr>
-<tr class="field"><th class="field-name">bridge:</th><td class="field-body">the default network bridge to use for newly created instance
+<tr class="field-odd field"><th class="field-name">bridge:</th><td class="field-body">the default network bridge to use for newly created instance
 network interfaces, string. Must be a valid bridge name of a bridge
 existing on the node(s).</td>
 </tr>
@@ -1974,12 +2019,12 @@ option is:</p>
 <col class="field-name" />
 <col class="field-body" />
 <tbody valign="top">
-<tr class="field"><th class="field-name">$HYPERVISOR:</th><td class="field-body">symbolic name of the hypervisor whose defaults you want
+<tr class="field-odd field"><th class="field-name">$HYPERVISOR:</th><td class="field-body">symbolic name of the hypervisor whose defaults you want
 to set, string</td>
 </tr>
-<tr class="field"><th class="field-name">$OPTION:</th><td class="field-body">cluster default option, string,</td>
+<tr class="field-even field"><th class="field-name">$OPTION:</th><td class="field-body">cluster default option, string,</td>
 </tr>
-<tr class="field"><th class="field-name">$VALUE:</th><td class="field-body">cluster default option value, string.</td>
+<tr class="field-odd field"><th class="field-name">$VALUE:</th><td class="field-body">cluster default option value, string.</td>
 </tr>
 </tbody>
 </table>
@@ -1995,121 +2040,121 @@ to set, string</td>
       </div>
       <div class="sphinxsidebar">
         <div class="sphinxsidebarwrapper">
-            <h3><a href="index.html">Table Of Contents</a></h3>
-            <ul>
-<li><a class="reference external" href="#">Ganeti 2.0 design</a><ul>
-<li><a class="reference external" href="#objective">Objective</a></li>
-<li><a class="reference external" href="#background">Background</a><ul>
-<li><a class="reference external" href="#scalability-problems">Scalability problems</a></li>
-<li><a class="reference external" href="#artificial-restrictions">Artificial restrictions</a></li>
-<li><a class="reference external" href="#architecture-issues">Architecture issues</a></li>
+  <h3><a href="index.html">Table Of Contents</a></h3>
+  <ul>
+<li><a class="reference internal" href="#">Ganeti 2.0 design</a><ul>
+<li><a class="reference internal" href="#objective">Objective</a></li>
+<li><a class="reference internal" href="#background">Background</a><ul>
+<li><a class="reference internal" href="#scalability-problems">Scalability problems</a></li>
+<li><a class="reference internal" href="#artificial-restrictions">Artificial restrictions</a></li>
+<li><a class="reference internal" href="#architecture-issues">Architecture issues</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#overview">Overview</a></li>
-<li><a class="reference external" href="#detailed-design">Detailed design</a><ul>
-<li><a class="reference external" href="#core-changes">Core changes</a><ul>
-<li><a class="reference external" href="#master-daemon">Master daemon</a><ul>
-<li><a class="reference external" href="#the-luxi-protocol">The LUXI protocol</a></li>
-<li><a class="reference external" href="#master-daemon-implementation">Master daemon implementation</a></li>
-<li><a class="reference external" href="#master-startup-failover">Master startup/failover</a></li>
-<li><a class="reference external" href="#logging">Logging</a></li>
-<li><a class="reference external" href="#node-daemon-changes">Node daemon changes</a></li>
-<li><a class="reference external" href="#caveats">Caveats</a></li>
+<li><a class="reference internal" href="#overview">Overview</a></li>
+<li><a class="reference internal" href="#detailed-design">Detailed design</a><ul>
+<li><a class="reference internal" href="#core-changes">Core changes</a><ul>
+<li><a class="reference internal" href="#master-daemon">Master daemon</a><ul>
+<li><a class="reference internal" href="#the-luxi-protocol">The LUXI protocol</a></li>
+<li><a class="reference internal" href="#master-daemon-implementation">Master daemon implementation</a></li>
+<li><a class="reference internal" href="#master-startup-failover">Master startup/failover</a></li>
+<li><a class="reference internal" href="#logging">Logging</a></li>
+<li><a class="reference internal" href="#node-daemon-changes">Node daemon changes</a></li>
+<li><a class="reference internal" href="#caveats">Caveats</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#granular-locking">Granular locking</a><ul>
-<li><a class="reference external" href="#library-details">Library details</a></li>
-<li><a class="reference external" href="#the-locks">The Locks</a></li>
-<li><a class="reference external" href="#handling-conversion-to-more-granularity">Handling conversion to more granularity</a></li>
-<li><a class="reference external" href="#adding-removing-locks">Adding/Removing locks</a></li>
-<li><a class="reference external" href="#asynchronous-operations">Asynchronous operations</a></li>
-<li><a class="reference external" href="#locking-granularity">Locking granularity</a></li>
-<li><a class="reference external" href="#code-examples">Code examples</a></li>
-<li><a class="reference external" href="#id3">Caveats</a></li>
+<li><a class="reference internal" href="#granular-locking">Granular locking</a><ul>
+<li><a class="reference internal" href="#library-details">Library details</a></li>
+<li><a class="reference internal" href="#the-locks">The Locks</a></li>
+<li><a class="reference internal" href="#handling-conversion-to-more-granularity">Handling conversion to more granularity</a></li>
+<li><a class="reference internal" href="#adding-removing-locks">Adding/Removing locks</a></li>
+<li><a class="reference internal" href="#asynchronous-operations">Asynchronous operations</a></li>
+<li><a class="reference internal" href="#locking-granularity">Locking granularity</a></li>
+<li><a class="reference internal" href="#code-examples">Code examples</a></li>
+<li><a class="reference internal" href="#id3">Caveats</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#job-queue">Job Queue</a><ul>
-<li><a class="reference external" href="#job-executionlife-of-a-ganeti-job">Job execution—“Life of a Ganeti job”</a></li>
-<li><a class="reference external" href="#job-storage">Job storage</a></li>
-<li><a class="reference external" href="#queue-structure">Queue structure</a></li>
-<li><a class="reference external" href="#locking">Locking</a></li>
-<li><a class="reference external" href="#internal-rpc">Internal RPC</a></li>
-<li><a class="reference external" href="#client-rpc">Client RPC</a></li>
-<li><a class="reference external" href="#job-and-opcode-status">Job and opcode status</a></li>
-<li><a class="reference external" href="#history">History</a></li>
-<li><a class="reference external" href="#ganeti-updates">Ganeti updates</a></li>
+<li><a class="reference internal" href="#job-queue">Job Queue</a><ul>
+<li><a class="reference internal" href="#job-executionlife-of-a-ganeti-job">Job execution—“Life of a Ganeti job”</a></li>
+<li><a class="reference internal" href="#job-storage">Job storage</a></li>
+<li><a class="reference internal" href="#queue-structure">Queue structure</a></li>
+<li><a class="reference internal" href="#locking">Locking</a></li>
+<li><a class="reference internal" href="#internal-rpc">Internal RPC</a></li>
+<li><a class="reference internal" href="#client-rpc">Client RPC</a></li>
+<li><a class="reference internal" href="#job-and-opcode-status">Job and opcode status</a></li>
+<li><a class="reference internal" href="#history">History</a></li>
+<li><a class="reference internal" href="#ganeti-updates">Ganeti updates</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#object-parameters">Object parameters</a><ul>
-<li><a class="reference external" href="#cluster-parameters">Cluster parameters</a></li>
-<li><a class="reference external" href="#node-parameters">Node parameters</a></li>
-<li><a class="reference external" href="#instance-parameters">Instance parameters</a></li>
-<li><a class="reference external" href="#parameter-validation">Parameter validation</a></li>
-<li><a class="reference external" href="#default-value-application">Default value application</a></li>
-<li><a class="reference external" href="#opcode-changes">Opcode changes</a></li>
-<li><a class="reference external" href="#id5">Caveats</a></li>
-<li><a class="reference external" href="#security">Security</a></li>
+<li><a class="reference internal" href="#object-parameters">Object parameters</a><ul>
+<li><a class="reference internal" href="#cluster-parameters">Cluster parameters</a></li>
+<li><a class="reference internal" href="#node-parameters">Node parameters</a></li>
+<li><a class="reference internal" href="#instance-parameters">Instance parameters</a></li>
+<li><a class="reference internal" href="#parameter-validation">Parameter validation</a></li>
+<li><a class="reference internal" href="#default-value-application">Default value application</a></li>
+<li><a class="reference internal" href="#opcode-changes">Opcode changes</a></li>
+<li><a class="reference internal" href="#id5">Caveats</a></li>
+<li><a class="reference internal" href="#security">Security</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#node-flags">Node flags</a><ul>
-<li><a class="reference external" href="#master-candidate-flag"><em>master candidate</em> flag</a></li>
-<li><a class="reference external" href="#offline-flag"><em>offline</em> flag</a></li>
-<li><a class="reference external" href="#drained-flag"><em>drained</em> flag</a></li>
-<li><a class="reference external" href="#interaction-between-flags">Interaction between flags</a></li>
-</ul>
-</li>
-</ul>
-</li>
-<li><a class="reference external" href="#feature-changes">Feature changes</a><ul>
-<li><a class="reference external" href="#disk-handling-changes">Disk handling changes</a><ul>
-<li><a class="reference external" href="#drbd-minor-allocation">DRBD minor allocation</a></li>
-<li><a class="reference external" href="#removal-of-obsolete-device-types-md-drbd7">Removal of obsolete device types (MD, DRBD7)</a></li>
-<li><a class="reference external" href="#file-based-storage-support">File-based storage support</a></li>
-<li><a class="reference external" href="#better-lvm-allocation">Better LVM allocation</a></li>
-<li><a class="reference external" href="#drbd8-peer-authentication-at-handshake">DRBD8 peer authentication at handshake</a></li>
-<li><a class="reference external" href="#lvm-self-repair-optional">LVM self-repair (optional)</a></li>
-<li><a class="reference external" href="#failover-to-any-node">Failover to any node</a></li>
-<li><a class="reference external" href="#id6">Caveats</a></li>
-</ul>
-</li>
-<li><a class="reference external" href="#variable-number-of-disk-nics-per-instance">Variable number of disk/NICs per instance</a><ul>
-<li><a class="reference external" href="#variable-number-of-disks">Variable number of disks</a></li>
-<li><a class="reference external" href="#variable-number-of-nics">Variable number of NICs</a></li>
+<li><a class="reference internal" href="#node-flags">Node flags</a><ul>
+<li><a class="reference internal" href="#master-candidate-flag"><em>master candidate</em> flag</a></li>
+<li><a class="reference internal" href="#offline-flag"><em>offline</em> flag</a></li>
+<li><a class="reference internal" href="#drained-flag"><em>drained</em> flag</a></li>
+<li><a class="reference internal" href="#interaction-between-flags">Interaction between flags</a></li>
 </ul>
 </li>
 </ul>
 </li>
-<li><a class="reference external" href="#interface-changes">Interface changes</a><ul>
-<li><a class="reference external" href="#os-interface">OS interface</a><ul>
-<li><a class="reference external" href="#the-scripts">The Scripts</a><ul>
-<li><a class="reference external" href="#incompatibilities-with-1-2">Incompatibilities with 1.2</a></li>
-<li><a class="reference external" href="#input">Input</a></li>
-<li><a class="reference external" href="#output-behaviour">Output/Behaviour</a></li>
+<li><a class="reference internal" href="#feature-changes">Feature changes</a><ul>
+<li><a class="reference internal" href="#disk-handling-changes">Disk handling changes</a><ul>
+<li><a class="reference internal" href="#drbd-minor-allocation">DRBD minor allocation</a></li>
+<li><a class="reference internal" href="#removal-of-obsolete-device-types-md-drbd7">Removal of obsolete device types (MD, DRBD7)</a></li>
+<li><a class="reference internal" href="#file-based-storage-support">File-based storage support</a></li>
+<li><a class="reference internal" href="#better-lvm-allocation">Better LVM allocation</a></li>
+<li><a class="reference internal" href="#drbd8-peer-authentication-at-handshake">DRBD8 peer authentication at handshake</a></li>
+<li><a class="reference internal" href="#lvm-self-repair-optional">LVM self-repair (optional)</a></li>
+<li><a class="reference internal" href="#failover-to-any-node">Failover to any node</a></li>
+<li><a class="reference internal" href="#id6">Caveats</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#other-declarative-style-features">Other declarative style features</a></li>
-<li><a class="reference external" href="#caveats-notes">Caveats/Notes</a></li>
+<li><a class="reference internal" href="#variable-number-of-disk-nics-per-instance">Variable number of disk/NICs per instance</a><ul>
+<li><a class="reference internal" href="#variable-number-of-disks">Variable number of disks</a></li>
+<li><a class="reference internal" href="#variable-number-of-nics">Variable number of NICs</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#remote-api-changes">Remote API changes</a><ul>
-<li><a class="reference external" href="#design">Design</a></li>
-<li><a class="reference external" href="#resource-representation">Resource representation</a></li>
-<li><a class="reference external" href="#id7">Security</a></li>
-<li><a class="reference external" href="#id8">Caveats</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#command-line-changes">Command line changes</a><ul>
-<li><a class="reference external" href="#notes-about-device-removal-addition">Notes about device removal/addition</a></li>
-<li><a class="reference external" href="#gnt-instance-commands">gnt-instance commands</a></li>
-<li><a class="reference external" href="#network-device-options">Network Device Options</a></li>
-<li><a class="reference external" href="#disk-device-options">Disk Device Options</a></li>
-<li><a class="reference external" href="#adding-devices">Adding devices</a></li>
-<li><a class="reference external" href="#removing-devices">Removing devices</a></li>
-<li><a class="reference external" href="#modifying-devices">Modifying devices</a></li>
-<li><a class="reference external" href="#hypervisor-options">Hypervisor Options</a></li>
-<li><a class="reference external" href="#modifying-hypervisor-parameters">Modifying hypervisor parameters</a></li>
-<li><a class="reference external" href="#gnt-cluster-commands">gnt-cluster commands</a></li>
-<li><a class="reference external" href="#hypervisor-cluster-defaults">Hypervisor cluster defaults</a></li>
+<li><a class="reference internal" href="#interface-changes">Interface changes</a><ul>
+<li><a class="reference internal" href="#os-interface">OS interface</a><ul>
+<li><a class="reference internal" href="#the-scripts">The Scripts</a><ul>
+<li><a class="reference internal" href="#incompatibilities-with-1-2">Incompatibilities with 1.2</a></li>
+<li><a class="reference internal" href="#input">Input</a></li>
+<li><a class="reference internal" href="#output-behaviour">Output/Behaviour</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#other-declarative-style-features">Other declarative style features</a></li>
+<li><a class="reference internal" href="#caveats-notes">Caveats/Notes</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#remote-api-changes">Remote API changes</a><ul>
+<li><a class="reference internal" href="#design">Design</a></li>
+<li><a class="reference internal" href="#resource-representation">Resource representation</a></li>
+<li><a class="reference internal" href="#id7">Security</a></li>
+<li><a class="reference internal" href="#id8">Caveats</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#command-line-changes">Command line changes</a><ul>
+<li><a class="reference internal" href="#notes-about-device-removal-addition">Notes about device removal/addition</a></li>
+<li><a class="reference internal" href="#gnt-instance-commands">gnt-instance commands</a></li>
+<li><a class="reference internal" href="#network-device-options">Network Device Options</a></li>
+<li><a class="reference internal" href="#disk-device-options">Disk Device Options</a></li>
+<li><a class="reference internal" href="#adding-devices">Adding devices</a></li>
+<li><a class="reference internal" href="#removing-devices">Removing devices</a></li>
+<li><a class="reference internal" href="#modifying-devices">Modifying devices</a></li>
+<li><a class="reference internal" href="#hypervisor-options">Hypervisor Options</a></li>
+<li><a class="reference internal" href="#modifying-hypervisor-parameters">Modifying hypervisor parameters</a></li>
+<li><a class="reference internal" href="#gnt-cluster-commands">gnt-cluster commands</a></li>
+<li><a class="reference internal" href="#hypervisor-cluster-defaults">Hypervisor cluster defaults</a></li>
 </ul>
 </li>
 </ul>
@@ -2120,30 +2165,30 @@ to set, string</td>
 </li>
 </ul>
 
-            <h4>Previous topic</h4>
-            <p class="topless"><a href="security.html"
-                                  title="previous chapter">Security in Ganeti</a></p>
-            <h4>Next topic</h4>
-            <p class="topless"><a href="design-2.1.html"
-                                  title="next chapter">Ganeti 2.1 design</a></p>
-            <h3>This Page</h3>
-            <ul class="this-page-menu">
-              <li><a href="_sources/design-2.0.txt"
-                     rel="nofollow">Show Source</a></li>
-            </ul>
-          <div id="searchbox" style="display: none">
-            <h3>Quick search</h3>
-              <form class="search" action="search.html" method="get">
-                <input type="text" name="q" size="18" />
-                <input type="submit" value="Go" />
-                <input type="hidden" name="check_keywords" value="yes" />
-                <input type="hidden" name="area" value="default" />
-              </form>
-              <p class="searchtip" style="font-size: 90%">
-              Enter search terms or a module, class or function name.
-              </p>
-          </div>
-          <script type="text/javascript">$('#searchbox').show(0);</script>
+  <h4>Previous topic</h4>
+  <p class="topless"><a href="security.html"
+                        title="previous chapter">Security in Ganeti</a></p>
+  <h4>Next topic</h4>
+  <p class="topless"><a href="design-2.1.html"
+                        title="next chapter">Ganeti 2.1 design</a></p>
+  <h3>This Page</h3>
+  <ul class="this-page-menu">
+    <li><a href="_sources/design-2.0.txt"
+           rel="nofollow">Show Source</a></li>
+  </ul>
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
         </div>
       </div>
       <div class="clearer"></div>
@@ -2157,12 +2202,12 @@ to set, string</td>
         <li class="right" >
           <a href="security.html" title="Security in Ganeti"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.6.2 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.7.0~rc3 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">
-      &copy; Copyright 2006, 2007, 2008, 2009, 2010, 2011, 2012, Google Inc..
-      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 0.6.7.
+        &copy; Copyright 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Google Inc..
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
     </div>
   </body>
 </html>

@@ -14,126 +14,197 @@ queue.
 .PP
 \f[B]archive\f[] {id...}
 .PP
-This command can be used to archive job by their IDs. Only jobs
-that have finished execution (i.e either \f[I]success\f[],
+This command can be used to archive job by their IDs.
+Only jobs that have finished execution (i.e either \f[I]success\f[],
 \f[I]error\f[] or \f[I]canceled\f[] jobs).
 .SS AUTOARCHIVE
 .PP
-\f[B]autoarchive\f[] {\f[I]age\f[] | \f[B]all\f[]}
+\f[B]autoarchive\f[] {\f[I]age\f[] | \f[C]all\f[]}
 .PP
-Archive jobs by their age. This command can archive jobs older than
-\f[I]age\f[] seconds, or alternatively all finished jobs can be
-archived if the string all is passed.
+Archive jobs by their age.
+This command can archive jobs older than \f[I]age\f[] seconds, or
+alternatively all finished jobs can be archived if the string all is
+passed.
 .SS CANCEL
 .PP
-\f[B]cancel\f[] {\f[I]id\f[]}
+\f[B]cancel\f[]
+.PD 0
+.P
+.PD
+{[--force] {--pending | --queued | --waiting} |
+.PD 0
+.P
+.PD
+ \f[I]job-id\f[] ...}
 .PP
-Cancel the job identified by the given \f[I]id\f[].
-Only jobs that have not yet started to run can be canceled; that
-is, jobs in either the \f[I]queued\f[] or \f[I]waiting\f[] state.
+Cancel the job(s) identified by the given \f[I]job id\f[].
+Only jobs that have not yet started to run can be canceled; that is,
+jobs in either the \f[I]queued\f[] or \f[I]waiting\f[] state.
+To skip a confirmation, pass \f[C]--force\f[].
+\f[C]--queued\f[] and \f[C]waiting\f[] can be used to cancel all jobs in
+the respective state, \f[C]--pending\f[] includes both.
+.SS CHANGE-PRIORITY
+.PP
+\f[B]change-priority\f[] --priority {low | normal | high}
+.PD 0
+.P
+.PD
+{[--force] {--pending | --queued | --waiting} |
+.PD 0
+.P
+.PD
+ \f[I]job-id\f[] ...}
+.PP
+Changes the priority of one or multiple pending jobs.
+Jobs currently running have only the priority of remaining opcodes
+changed.
+\f[C]--priority\f[] must be specified.
+\f[C]--queued\f[] and \f[C]waiting\f[] can be used to re-prioritize all
+jobs in the respective state, \f[C]--pending\f[] includes both.
+To skip a confirmation, pass \f[C]--force\f[].
 .SS INFO
 .PP
 \f[B]info\f[] {\f[I]id\f[]...}
 .PP
-Show detailed information about the given job id(s). If no job id
-is given, all jobs are examined (warning, this is a lot of
+Show detailed information about the given job id(s).
+If no job id is given, all jobs are examined (warning, this is a lot of
 information).
 .SS LIST
 .PP
-\f[B]list\f[] [--no-headers] [--separator=\f[I]SEPARATOR\f[]] [-o
-\f[I][+]FIELD,...\f[]]
+\f[B]list\f[] [--no-headers] [--separator=\f[I]SEPARATOR\f[]]
+.PD 0
+.P
+.PD
+[-o \f[I][+]FIELD,...\f[]] [--filter] [job-id...]
 .PP
-Lists the jobs and their status. By default, the job id, job
-status, and a small job description is listed, but additional
-parameters can be selected.
+Lists the jobs and their status.
+By default, the job id, job status, and a small job description is
+listed, but additional parameters can be selected.
 .PP
-The \f[B]--no-headers\f[] option will skip the initial header line.
-The \f[B]--separator\f[] option takes an argument which denotes
-what will be used between the output fields. Both these options are
-to help scripting.
+The \f[C]--no-headers\f[] option will skip the initial header line.
+The \f[C]--separator\f[] option takes an argument which denotes what
+will be used between the output fields.
+Both these options are to help scripting.
 .PP
-The \f[B]-o\f[] option takes a comma-separated list of output
-fields. The available fields and their meaning are:
+The \f[C]-o\f[] option takes a comma-separated list of output fields.
+The available fields and their meaning are:
 .TP
-.B \f[B]end_ts\f[]
-Timestamp of job end
+.B \f[C]archived\f[]
+Whether job is archived
 .RS
 .RE
 .TP
-.B \f[B]id\f[]
+.B \f[C]end_ts\f[]
+Timestamp of job end (tuple containing seconds and microseconds)
+.RS
+.RE
+.TP
+.B \f[C]id\f[]
 Job ID
 .RS
 .RE
 .TP
-.B \f[B]opend\f[]
+.B \f[C]opend\f[]
 List of opcode execution end timestamps
 .RS
 .RE
 .TP
-.B \f[B]opexec\f[]
+.B \f[C]opexec\f[]
 List of opcode execution start timestamps (after acquiring locks)
 .RS
 .RE
 .TP
-.B \f[B]oplog\f[]
+.B \f[C]oplog\f[]
 List of opcode output logs
 .RS
 .RE
 .TP
-.B \f[B]oppriority\f[]
+.B \f[C]oppriority\f[]
 List of opcode priorities
 .RS
 .RE
 .TP
-.B \f[B]opresult\f[]
+.B \f[C]opresult\f[]
 List of opcodes results
 .RS
 .RE
 .TP
-.B \f[B]ops\f[]
+.B \f[C]ops\f[]
 List of all opcodes
 .RS
 .RE
 .TP
-.B \f[B]opstart\f[]
+.B \f[C]opstart\f[]
 List of opcode start timestamps (before acquiring locks)
 .RS
 .RE
 .TP
-.B \f[B]opstatus\f[]
+.B \f[C]opstatus\f[]
 List of opcodes status
 .RS
 .RE
 .TP
-.B \f[B]priority\f[]
+.B \f[C]priority\f[]
 Current job priority (19 to -20)
 .RS
 .RE
 .TP
-.B \f[B]received_ts\f[]
-Timestamp of when job was received
+.B \f[C]received_ts\f[]
+Timestamp of when job was received (tuple containing seconds and
+microseconds)
 .RS
 .RE
 .TP
-.B \f[B]start_ts\f[]
-Timestamp of job start
+.B \f[C]start_ts\f[]
+Timestamp of job start (tuple containing seconds and microseconds)
 .RS
 .RE
 .TP
-.B \f[B]status\f[]
+.B \f[C]status\f[]
 Job status
 .RS
 .RE
 .TP
-.B \f[B]summary\f[]
+.B \f[C]summary\f[]
 List of per-opcode summaries
 .RS
 .RE
 .PP
-If the value of the option starts with the character \f[B]+\f[],
-the new fields will be added to the default list. This allows one
-to quickly see the default list plus a few other fields, instead of
-retyping the entire list of fields.
+If the value of the option starts with the character \f[C]+\f[], the new
+fields will be added to the default list.
+This allows one to quickly see the default list plus a few other fields,
+instead of retyping the entire list of fields.
+.PP
+To include archived jobs in the list the \f[C]--archived\f[] option can
+be used.
+.PP
+The following options can be used to show only specific jobs:
+.TP
+.B \f[C]--pending\f[]
+Show only jobs pending execution.
+.RS
+.RE
+.TP
+.B \f[C]--running\f[]
+Show jobs currently running only.
+.RS
+.RE
+.TP
+.B \f[C]--error\f[]
+Show failed jobs only.
+.RS
+.RE
+.TP
+.B \f[C]--finished\f[]
+Show finished jobs only.
+.RS
+.RE
+.PP
+If exactly one argument is given and it appears to be a query filter
+(see \f[B]ganeti\f[](7)), the query result is filtered accordingly.
+For ambiguous cases (e.g.
+a single field name as a filter) the \f[C]--filter\f[] (\f[C]-F\f[])
+option forces the argument to be treated as a filter.
 .SS LIST-FIELDS
 .PP
 \f[B]list-fields\f[] [field...]
@@ -143,44 +214,44 @@ Lists available fields for jobs.
 .PP
 \f[B]watch\f[] {id}
 .PP
-This command follows the output of the job by the given \f[I]id\f[]
-and prints it.
+This command follows the output of the job by the given \f[I]id\f[] and
+prints it.
 .SH REPORTING BUGS
 .PP
-Report bugs to project website (http://code.google.com/p/ganeti/)
-or contact the developers using the
-Ganeti mailing list (ganeti@googlegroups.com).
+Report bugs to project website (http://code.google.com/p/ganeti/) or
+contact the developers using the Ganeti mailing
+list (ganeti@googlegroups.com).
 .SH SEE ALSO
 .PP
 Ganeti overview and specifications: \f[B]ganeti\f[](7) (general
-overview), \f[B]ganeti-os-interface\f[](7) (guest OS definitions).
+overview), \f[B]ganeti-os-interface\f[](7) (guest OS definitions),
+\f[B]ganeti-extstorage-interface\f[](7) (external storage providers).
 .PP
 Ganeti commands: \f[B]gnt-cluster\f[](8) (cluster-wide commands),
 \f[B]gnt-job\f[](8) (job-related commands), \f[B]gnt-node\f[](8)
-(node-related commands), \f[B]gnt-instance\f[](8) (instance
-commands), \f[B]gnt-os\f[](8) (guest OS commands),
-\f[B]gnt-group\f[](8) (node group commands), \f[B]gnt-backup\f[](8)
-(instance import/export commands), \f[B]gnt-debug\f[](8) (debug
-commands).
+(node-related commands), \f[B]gnt-instance\f[](8) (instance commands),
+\f[B]gnt-os\f[](8) (guest OS commands), \f[B]gnt-storage\f[](8) (storage
+commands), \f[B]gnt-group\f[](8) (node group commands),
+\f[B]gnt-backup\f[](8) (instance import/export commands),
+\f[B]gnt-debug\f[](8) (debug commands).
 .PP
 Ganeti daemons: \f[B]ganeti-watcher\f[](8) (automatic instance
 restarter), \f[B]ganeti-cleaner\f[](8) (job queue cleaner),
 \f[B]ganeti-noded\f[](8) (node daemon), \f[B]ganeti-masterd\f[](8)
 (master daemon), \f[B]ganeti-rapi\f[](8) (remote API daemon).
 .PP
-Ganeti htools: \f[B]htools\f[](1) (generic binary),
-\f[B]hbal\f[](1) (cluster balancer), \f[B]hspace\f[](1) (capacity
-calculation), \f[B]hail\f[](1) (IAllocator plugin),
-\f[B]hscan\f[](1) (data gatherer from remote clusters),
-\f[B]hinfo\f[](1) (cluster information printer).
+Ganeti htools: \f[B]htools\f[](1) (generic binary), \f[B]hbal\f[](1)
+(cluster balancer), \f[B]hspace\f[](1) (capacity calculation),
+\f[B]hail\f[](1) (IAllocator plugin), \f[B]hscan\f[](1) (data gatherer
+from remote clusters), \f[B]hinfo\f[](1) (cluster information printer),
+\f[B]mon-collector\f[](7) (data collectors interface).
 .SH COPYRIGHT
 .PP
 Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012 Google Inc.
-Permission is granted to copy, distribute and/or modify under the
-terms of the GNU General Public License as published by the Free
-Software Foundation; either version 2 of the License, or (at your
-option) any later version.
+Permission is granted to copy, distribute and/or modify under the terms
+of the GNU General Public License as published by the Free Software
+Foundation; either version 2 of the License, or (at your option) any
+later version.
 .PP
-On Debian systems, the complete text of the GNU General Public
-License can be found in /usr/share/common-licenses/GPL.
-
+On Debian systems, the complete text of the GNU General Public License
+can be found in /usr/share/common-licenses/GPL.

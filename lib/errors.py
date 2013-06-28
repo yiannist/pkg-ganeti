@@ -19,34 +19,50 @@
 # 02110-1301, USA.
 
 
-"""Ganeti exception handling"""
+"""Ganeti exception handling.
+
+"""
+
+from ganeti import compat
 
 
 # OpPrereqError failure types
 
-# resolver errors
+#: Resolver errors
 ECODE_RESOLVER = "resolver_error"
-# not enough resources (iallocator failure, disk space, memory, etc.)
+
+#: Not enough resources (iallocator failure, disk space, memory, etc.)
 ECODE_NORES = "insufficient_resources"
-# wrong arguments (at syntax level)
+
+#: Temporarily out of resources; operation can be tried again
+ECODE_TEMP_NORES = "temp_insufficient_resources"
+
+#: Wrong arguments (at syntax level)
 ECODE_INVAL = "wrong_input"
-# wrong entity state
+
+#: Wrong entity state
 ECODE_STATE = "wrong_state"
-# entity not found
+
+#: Entity not found
 ECODE_NOENT = "unknown_entity"
-# entity already exists
+
+#: Entity already exists
 ECODE_EXISTS = "already_exists"
-# resource not unique (e.g. MAC or IP duplication)
+
+#: Resource not unique (e.g. MAC or IP duplication)
 ECODE_NOTUNIQUE = "resource_not_unique"
-# internal cluster error
+
+#: Internal cluster error
 ECODE_FAULT = "internal_error"
-# environment error (e.g. node disk error)
+
+#: Environment error (e.g. node disk error)
 ECODE_ENVIRON = "environment_error"
 
 #: List of all failure types
-ECODE_ALL = frozenset([
+ECODE_ALL = compat.UniqueFrozenset([
   ECODE_RESOLVER,
   ECODE_NORES,
+  ECODE_TEMP_NORES,
   ECODE_INVAL,
   ECODE_STATE,
   ECODE_NOENT,
@@ -61,16 +77,6 @@ class GenericError(Exception):
   """Base exception for Ganeti.
 
   """
-  pass
-
-
-class LVMError(GenericError):
-  """LVM-related exception.
-
-  This exception codifies problems with LVM setup.
-
-  """
-  pass
 
 
 class LockError(GenericError):
@@ -79,7 +85,6 @@ class LockError(GenericError):
   This signifies problems in the locking subsystem.
 
   """
-  pass
 
 
 class PidFileLockError(LockError):
@@ -95,7 +100,6 @@ class HypervisorError(GenericError):
   properly.
 
   """
-  pass
 
 
 class ProgrammerError(GenericError):
@@ -106,7 +110,6 @@ class ProgrammerError(GenericError):
   parts of our code. It signifies a real programming bug.
 
   """
-  pass
 
 
 class BlockDeviceError(GenericError):
@@ -116,7 +119,6 @@ class BlockDeviceError(GenericError):
   properly.
 
   """
-  pass
 
 
 class ConfigurationError(GenericError):
@@ -126,7 +128,6 @@ class ConfigurationError(GenericError):
   exist in the config or such raise this exception.
 
   """
-  pass
 
 
 class ConfigVersionMismatch(ConfigurationError):
@@ -136,7 +137,12 @@ class ConfigVersionMismatch(ConfigurationError):
   version.
 
   """
-  pass
+
+
+class AddressPoolError(GenericError):
+  """Errors related to IP address pools.
+
+  """
 
 
 class ReservationError(GenericError):
@@ -152,7 +158,6 @@ class RemoteError(GenericError):
   remote node.  It usually signifies a real programming bug.
 
   """
-  pass
 
 
 class SignatureError(GenericError):
@@ -163,7 +168,6 @@ class SignatureError(GenericError):
   because of spurious traffic.
 
   """
-  pass
 
 
 class ParameterError(GenericError):
@@ -176,14 +180,18 @@ class ParameterError(GenericError):
   The argument to this exception should be the parameter name.
 
   """
-  pass
+
+
+class ResultValidationError(GenericError):
+  """The iallocation results fails validation.
+
+  """
 
 
 class OpPrereqError(GenericError):
   """Prerequisites for the OpCode are not fulfilled.
 
-  This exception will have either one or two arguments. For the
-  two-argument construction, the second argument should be one of the
+  This exception has two arguments: an error message, and one of the
   ECODE_* codes.
 
   """
@@ -199,6 +207,22 @@ class OpResultError(GenericError):
   """Issue with OpCode result.
 
   """
+
+
+class DeviceCreationError(GenericError):
+  """Error during the creation of a device.
+
+  This exception should contain the list of the devices actually created
+  up to now, in the form of pairs (node, device)
+
+  """
+  def __init__(self, message, created_devices):
+    GenericError.__init__(self)
+    self.message = message
+    self.created_devices = created_devices
+
+  def __str__(self):
+    return self.message
 
 
 class OpCodeUnknown(GenericError):
@@ -277,12 +301,6 @@ class TypeEnforcementError(GenericError):
   """
 
 
-class SshKeyError(GenericError):
-  """Invalid SSH key.
-
-  """
-
-
 class X509CertError(GenericError):
   """Invalid X509 certificate.
 
@@ -322,7 +340,7 @@ class QuitGanetiException(Exception):
 
   This is not necessarily an error (and thus not a subclass of
   GenericError), but it's an exceptional circumstance and it is thus
-  treated. This instance should be instantiated with two values. The
+  treated. This exception should be instantiated with two values. The
   first one will specify the return code to the caller, and the second
   one will be the returned result (either as an error or as a normal
   result). Usually only the leave cluster rpc call should return
@@ -358,15 +376,6 @@ class JobQueueFull(JobQueueError):
   """Job queue full error.
 
   Raised when job queue size reached its hard limit.
-
-  """
-
-
-class ConfdRequestError(GenericError):
-  """A request error in Ganeti confd.
-
-  Events that should make confd abort the current request and proceed serving
-  different ones.
 
   """
 
@@ -414,6 +423,11 @@ class LuxiError(GenericError):
 class QueryFilterParseError(ParseError):
   """Error while parsing query filter.
 
+  This exception must be instantiated with two values. The first one is a
+  string with an error description, the second one is an instance of a subclass
+  of C{pyparsing.ParseBaseException} (used to display the exact error
+  location).
+
   """
   def GetDetails(self):
     """Returns a list of strings with details about the error.
@@ -431,6 +445,12 @@ class QueryFilterParseError(ParseError):
 
 class RapiTestResult(GenericError):
   """Exception containing results from RAPI test utilities.
+
+  """
+
+
+class FileStoragePathError(GenericError):
+  """Error from file storage path validation.
 
   """
 

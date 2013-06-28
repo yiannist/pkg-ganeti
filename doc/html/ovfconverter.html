@@ -1,27 +1,33 @@
+
+
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
   "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
 
 <html xmlns="http://www.w3.org/1999/xhtml">
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>OVF converter &mdash; Ganeti v2.6.2 documentation</title>
-    <link rel="stylesheet" href="_static/default.css" type="text/css" />
+    <title>OVF converter &mdash; Ganeti 2.7.0~rc3 documentation</title>
+    
+    <link rel="stylesheet" href="_static/style.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.6.2',
-        COLLAPSE_MODINDEX: false,
+        VERSION:     '2.7.0~rc3',
+        COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
       };
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.6.2 documentation" href="index.html" />
+    <link rel="top" title="Ganeti 2.7.0~rc3 documentation" href="index.html" />
     <link rel="next" title="Developer notes" href="devnotes.html" />
-    <link rel="prev" title="Moving instances between clusters" href="move-instance.html" /> 
+    <link rel="prev" title="Virtual cluster support" href="virtual-cluster.html" /> 
   </head>
   <body>
     <div class="related">
@@ -31,9 +37,9 @@
           <a href="devnotes.html" title="Developer notes"
              accesskey="N">next</a></li>
         <li class="right" >
-          <a href="move-instance.html" title="Moving instances between clusters"
+          <a href="virtual-cluster.html" title="Virtual cluster support"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.6.2 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.7.0~rc3 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -51,7 +57,7 @@ also possible to use instance exported from such a tool and convert it
 to Ganeti config file, used by <tt class="docutils literal"><span class="pre">gnt-backup</span> <span class="pre">import</span></tt> command.</p>
 <p>For the internal design of the converter and more detailed description,
 including listing of available command line options, please refer to
-<a class="reference external" href="design-ovf-support.html"><em>Ganeti Instance Import/Export using Open Virtualization Format</em></a></p>
+<a class="reference internal" href="design-ovf-support.html"><em>Ganeti Instance Import/Export using Open Virtualization Format</em></a></p>
 <p>As the amount of Ganeti-specific details, that need to be provided in
 order to import an external instance, is rather large, we will present
 here some examples of importing instances from different sources.
@@ -233,67 +239,67 @@ disks. This will most likely be changed in future versions.</p>
       </div>
       <div class="sphinxsidebar">
         <div class="sphinxsidebarwrapper">
-            <h3><a href="index.html">Table Of Contents</a></h3>
-            <ul>
-<li><a class="reference external" href="#">OVF converter</a><ul>
-<li><a class="reference external" href="#limitations-on-import">Limitations on import</a><ul>
-<li><a class="reference external" href="#network">Network</a></li>
-<li><a class="reference external" href="#backend">Backend</a></li>
-<li><a class="reference external" href="#operating-system">Operating System</a></li>
-<li><a class="reference external" href="#references">References</a></li>
+  <h3><a href="index.html">Table Of Contents</a></h3>
+  <ul>
+<li><a class="reference internal" href="#">OVF converter</a><ul>
+<li><a class="reference internal" href="#limitations-on-import">Limitations on import</a><ul>
+<li><a class="reference internal" href="#network">Network</a></li>
+<li><a class="reference internal" href="#backend">Backend</a></li>
+<li><a class="reference internal" href="#operating-system">Operating System</a></li>
+<li><a class="reference internal" href="#references">References</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#limitations-on-export">Limitations on export</a><ul>
-<li><a class="reference external" href="#disk-content">Disk content</a></li>
-<li><a class="reference external" href="#import-to-virtualbox">Import to VirtualBox</a></li>
-<li><a class="reference external" href="#import-to-vmware">Import to VMWare</a></li>
+<li><a class="reference internal" href="#limitations-on-export">Limitations on export</a><ul>
+<li><a class="reference internal" href="#disk-content">Disk content</a></li>
+<li><a class="reference internal" href="#import-to-virtualbox">Import to VirtualBox</a></li>
+<li><a class="reference internal" href="#import-to-vmware">Import to VMWare</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#import-examples">Import examples</a><ul>
-<li><a class="reference external" href="#ganeti-s-ovf">Ganeti&#8217;s OVF</a></li>
-<li><a class="reference external" href="#virtualbox-vmware-and-other-external-sources">Virtualbox, VMWare and other external sources</a></li>
+<li><a class="reference internal" href="#import-examples">Import examples</a><ul>
+<li><a class="reference internal" href="#ganeti-s-ovf">Ganeti&#8217;s OVF</a></li>
+<li><a class="reference internal" href="#virtualbox-vmware-and-other-external-sources">Virtualbox, VMWare and other external sources</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#export-example">Export example</a><ul>
-<li><a class="reference external" href="#export-to-another-ganeti-instance">Export to another Ganeti instance</a></li>
-<li><a class="reference external" href="#export-to-virtualbox-vmware-other-external-tool">Export to Virtualbox/VMWare/other external tool</a></li>
+<li><a class="reference internal" href="#export-example">Export example</a><ul>
+<li><a class="reference internal" href="#export-to-another-ganeti-instance">Export to another Ganeti instance</a></li>
+<li><a class="reference internal" href="#export-to-virtualbox-vmware-other-external-tool">Export to Virtualbox/VMWare/other external tool</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#known-issues">Known issues</a><ul>
-<li><a class="reference external" href="#conversion-errors">Conversion errors</a></li>
-<li><a class="reference external" href="#ova-and-compression">OVA and compression</a></li>
-<li><a class="reference external" href="#problems-on-newest-virtualbox">Problems on newest VirtualBox</a></li>
-<li><a class="reference external" href="#disk-space">Disk space</a></li>
+<li><a class="reference internal" href="#known-issues">Known issues</a><ul>
+<li><a class="reference internal" href="#conversion-errors">Conversion errors</a></li>
+<li><a class="reference internal" href="#ova-and-compression">OVA and compression</a></li>
+<li><a class="reference internal" href="#problems-on-newest-virtualbox">Problems on newest VirtualBox</a></li>
+<li><a class="reference internal" href="#disk-space">Disk space</a></li>
 </ul>
 </li>
 </ul>
 </li>
 </ul>
 
-            <h4>Previous topic</h4>
-            <p class="topless"><a href="move-instance.html"
-                                  title="previous chapter">Moving instances between clusters</a></p>
-            <h4>Next topic</h4>
-            <p class="topless"><a href="devnotes.html"
-                                  title="next chapter">Developer notes</a></p>
-            <h3>This Page</h3>
-            <ul class="this-page-menu">
-              <li><a href="_sources/ovfconverter.txt"
-                     rel="nofollow">Show Source</a></li>
-            </ul>
-          <div id="searchbox" style="display: none">
-            <h3>Quick search</h3>
-              <form class="search" action="search.html" method="get">
-                <input type="text" name="q" size="18" />
-                <input type="submit" value="Go" />
-                <input type="hidden" name="check_keywords" value="yes" />
-                <input type="hidden" name="area" value="default" />
-              </form>
-              <p class="searchtip" style="font-size: 90%">
-              Enter search terms or a module, class or function name.
-              </p>
-          </div>
-          <script type="text/javascript">$('#searchbox').show(0);</script>
+  <h4>Previous topic</h4>
+  <p class="topless"><a href="virtual-cluster.html"
+                        title="previous chapter">Virtual cluster support</a></p>
+  <h4>Next topic</h4>
+  <p class="topless"><a href="devnotes.html"
+                        title="next chapter">Developer notes</a></p>
+  <h3>This Page</h3>
+  <ul class="this-page-menu">
+    <li><a href="_sources/ovfconverter.txt"
+           rel="nofollow">Show Source</a></li>
+  </ul>
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
         </div>
       </div>
       <div class="clearer"></div>
@@ -305,14 +311,14 @@ disks. This will most likely be changed in future versions.</p>
           <a href="devnotes.html" title="Developer notes"
              >next</a></li>
         <li class="right" >
-          <a href="move-instance.html" title="Moving instances between clusters"
+          <a href="virtual-cluster.html" title="Virtual cluster support"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.6.2 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.7.0~rc3 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">
-      &copy; Copyright 2006, 2007, 2008, 2009, 2010, 2011, 2012, Google Inc..
-      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 0.6.7.
+        &copy; Copyright 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Google Inc..
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
     </div>
   </body>
 </html>

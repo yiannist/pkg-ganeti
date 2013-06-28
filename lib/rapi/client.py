@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2010, 2011 Google Inc.
+# Copyright (C) 2010, 2011, 2012 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -80,17 +80,19 @@ JOB_STATUS_RUNNING = "running"
 JOB_STATUS_CANCELED = "canceled"
 JOB_STATUS_SUCCESS = "success"
 JOB_STATUS_ERROR = "error"
+JOB_STATUS_PENDING = frozenset([
+  JOB_STATUS_QUEUED,
+  JOB_STATUS_WAITING,
+  JOB_STATUS_CANCELING,
+  ])
 JOB_STATUS_FINALIZED = frozenset([
   JOB_STATUS_CANCELED,
   JOB_STATUS_SUCCESS,
   JOB_STATUS_ERROR,
   ])
 JOB_STATUS_ALL = frozenset([
-  JOB_STATUS_QUEUED,
-  JOB_STATUS_WAITING,
-  JOB_STATUS_CANCELING,
   JOB_STATUS_RUNNING,
-  ]) | JOB_STATUS_FINALIZED
+  ]) | JOB_STATUS_PENDING | JOB_STATUS_FINALIZED
 
 # Legacy name
 JOB_STATUS_WAITLOCK = JOB_STATUS_WAITING
@@ -111,6 +113,50 @@ _INST_CREATE_REQV1 = INST_CREATE_REQV1
 _INST_REINSTALL_REQV1 = INST_REINSTALL_REQV1
 _NODE_MIGRATE_REQV1 = NODE_MIGRATE_REQV1
 _NODE_EVAC_RES1 = NODE_EVAC_RES1
+
+#: Resolver errors
+ECODE_RESOLVER = "resolver_error"
+
+#: Not enough resources (iallocator failure, disk space, memory, etc.)
+ECODE_NORES = "insufficient_resources"
+
+#: Temporarily out of resources; operation can be tried again
+ECODE_TEMP_NORES = "temp_insufficient_resources"
+
+#: Wrong arguments (at syntax level)
+ECODE_INVAL = "wrong_input"
+
+#: Wrong entity state
+ECODE_STATE = "wrong_state"
+
+#: Entity not found
+ECODE_NOENT = "unknown_entity"
+
+#: Entity already exists
+ECODE_EXISTS = "already_exists"
+
+#: Resource not unique (e.g. MAC or IP duplication)
+ECODE_NOTUNIQUE = "resource_not_unique"
+
+#: Internal cluster error
+ECODE_FAULT = "internal_error"
+
+#: Environment error (e.g. node disk error)
+ECODE_ENVIRON = "environment_error"
+
+#: List of all failure types
+ECODE_ALL = frozenset([
+  ECODE_RESOLVER,
+  ECODE_NORES,
+  ECODE_TEMP_NORES,
+  ECODE_INVAL,
+  ECODE_STATE,
+  ECODE_NOENT,
+  ECODE_EXISTS,
+  ECODE_NOTUNIQUE,
+  ECODE_FAULT,
+  ECODE_ENVIRON,
+  ])
 
 # Older pycURL versions don't have all error constants
 try:
@@ -674,6 +720,78 @@ class GanetiRapiClient(object): # pylint: disable=R0904
                              ("/%s/instances/%s/info" %
                               (GANETI_RAPI_VERSION, instance)), query, None)
 
+  @staticmethod
+  def _UpdateWithKwargs(base, **kwargs):
+    """Updates the base with params from kwargs.
+
+    @param base: The base dict, filled with required fields
+
+    @note: This is an inplace update of base
+
+    """
+    conflicts = set(kwargs.iterkeys()) & set(base.iterkeys())
+    if conflicts:
+      raise GanetiApiError("Required fields can not be specified as"
+                           " keywords: %s" % ", ".join(conflicts))
+
+    base.update((key, value) for key, value in kwargs.iteritems()
+                if key != "dry_run")
+
+  def InstanceAllocation(self, mode, name, disk_template, disks, nics,
+                         **kwargs):
+    """Generates an instance allocation as used by multiallocate.
+
+    More details for parameters can be found in the RAPI documentation.
+    It is the same as used by CreateInstance.
+
+    @type mode: string
+    @param mode: Instance creation mode
+    @type name: string
+    @param name: Hostname of the instance to create
+    @type disk_template: string
+    @param disk_template: Disk template for instance (e.g. plain, diskless,
+                          file, or drbd)
+    @type disks: list of dicts
+    @param disks: List of disk definitions
+    @type nics: list of dicts
+    @param nics: List of NIC definitions
+
+    @return: A dict with the generated entry
+
+    """
+    # All required fields for request data version 1
+    alloc = {
+      "mode": mode,
+      "name": name,
+      "disk_template": disk_template,
+      "disks": disks,
+      "nics": nics,
+      }
+
+    self._UpdateWithKwargs(alloc, **kwargs)
+
+    return alloc
+
+  def InstancesMultiAlloc(self, instances, **kwargs):
+    """Tries to allocate multiple instances.
+
+    More details for parameters can be found in the RAPI documentation.
+
+    @param instances: A list of L{InstanceAllocation} results
+
+    """
+    query = []
+    body = {
+      "instances": instances,
+      }
+    self._UpdateWithKwargs(body, **kwargs)
+
+    _AppendDryRunIf(query, kwargs.get("dry_run"))
+
+    return self._SendRequest(HTTP_POST,
+                             "/%s/instances-multi-alloc" % GANETI_RAPI_VERSION,
+                             query, body)
+
   def CreateInstance(self, mode, name, disk_template, disks, nics,
                      **kwargs):
     """Creates a new instance.
@@ -703,23 +821,9 @@ class GanetiRapiClient(object): # pylint: disable=R0904
     _AppendDryRunIf(query, kwargs.get("dry_run"))
 
     if _INST_CREATE_REQV1 in self.GetFeatures():
-      # All required fields for request data version 1
-      body = {
-        _REQ_DATA_VERSION_FIELD: 1,
-        "mode": mode,
-        "name": name,
-        "disk_template": disk_template,
-        "disks": disks,
-        "nics": nics,
-        }
-
-      conflicts = set(kwargs.iterkeys()) & set(body.iterkeys())
-      if conflicts:
-        raise GanetiApiError("Required fields can not be specified as"
-                             " keywords: %s" % ", ".join(conflicts))
-
-      body.update((key, value) for key, value in kwargs.iteritems()
-                  if key != "dry_run")
+      body = self.InstanceAllocation(mode, name, disk_template, disks, nics,
+                                     **kwargs)
+      body[_REQ_DATA_VERSION_FIELD] = 1
     else:
       raise GanetiApiError("Server does not support new-style (version 1)"
                            " instance creation requests")
@@ -923,7 +1027,8 @@ class GanetiRapiClient(object): # pylint: disable=R0904
                              ("/%s/instances/%s/reboot" %
                               (GANETI_RAPI_VERSION, instance)), query, None)
 
-  def ShutdownInstance(self, instance, dry_run=False, no_remember=False):
+  def ShutdownInstance(self, instance, dry_run=False, no_remember=False,
+                       **kwargs):
     """Shuts down an instance.
 
     @type instance: str
@@ -937,12 +1042,14 @@ class GanetiRapiClient(object): # pylint: disable=R0904
 
     """
     query = []
+    body = kwargs
+
     _AppendDryRunIf(query, dry_run)
-    _AppendIf(query, no_remember, ("no-remember", 1))
+    _AppendIf(query, no_remember, ("no_remember", 1))
 
     return self._SendRequest(HTTP_PUT,
                              ("/%s/instances/%s/shutdown" %
-                              (GANETI_RAPI_VERSION, instance)), query, None)
+                              (GANETI_RAPI_VERSION, instance)), query, body)
 
   def StartupInstance(self, instance, dry_run=False, no_remember=False):
     """Starts up an instance.
@@ -959,7 +1066,7 @@ class GanetiRapiClient(object): # pylint: disable=R0904
     """
     query = []
     _AppendDryRunIf(query, dry_run)
-    _AppendIf(query, no_remember, ("no-remember", 1))
+    _AppendIf(query, no_remember, ("no_remember", 1))
 
     return self._SendRequest(HTTP_PUT,
                              ("/%s/instances/%s/startup" %
@@ -1086,7 +1193,8 @@ class GanetiRapiClient(object): # pylint: disable=R0904
                              ("/%s/instances/%s/export" %
                               (GANETI_RAPI_VERSION, instance)), None, body)
 
-  def MigrateInstance(self, instance, mode=None, cleanup=None):
+  def MigrateInstance(self, instance, mode=None, cleanup=None,
+                      target_node=None):
     """Migrates an instance.
 
     @type instance: string
@@ -1095,6 +1203,8 @@ class GanetiRapiClient(object): # pylint: disable=R0904
     @param mode: Migration mode
     @type cleanup: bool
     @param cleanup: Whether to clean up a previously failed migration
+    @type target_node: string
+    @param target_node: Target Node for externally mirrored instances
     @rtype: string
     @return: job id
 
@@ -1102,6 +1212,7 @@ class GanetiRapiClient(object): # pylint: disable=R0904
     body = {}
     _SetItemIf(body, mode is not None, "mode", mode)
     _SetItemIf(body, cleanup is not None, "cleanup", cleanup)
+    _SetItemIf(body, target_node is not None, "target_node", target_node)
 
     return self._SendRequest(HTTP_PUT,
                              ("/%s/instances/%s/migrate" %
@@ -1625,6 +1736,199 @@ class GanetiRapiClient(object): # pylint: disable=R0904
                              ("/%s/nodes/%s/tags" %
                               (GANETI_RAPI_VERSION, node)), query, None)
 
+  def GetNetworks(self, bulk=False):
+    """Gets all networks in the cluster.
+
+    @type bulk: bool
+    @param bulk: whether to return all information about the networks
+
+    @rtype: list of dict or str
+    @return: if bulk is true, a list of dictionaries with info about all
+        networks in the cluster, else a list of names of those networks
+
+    """
+    query = []
+    _AppendIf(query, bulk, ("bulk", 1))
+
+    networks = self._SendRequest(HTTP_GET, "/%s/networks" % GANETI_RAPI_VERSION,
+                                 query, None)
+    if bulk:
+      return networks
+    else:
+      return [n["name"] for n in networks]
+
+  def GetNetwork(self, network):
+    """Gets information about a network.
+
+    @type network: str
+    @param network: name of the network whose info to return
+
+    @rtype: dict
+    @return: info about the network
+
+    """
+    return self._SendRequest(HTTP_GET,
+                             "/%s/networks/%s" % (GANETI_RAPI_VERSION, network),
+                             None, None)
+
+  def CreateNetwork(self, network_name, network, gateway=None, network6=None,
+                    gateway6=None, mac_prefix=None,
+                    add_reserved_ips=None, tags=None, dry_run=False):
+    """Creates a new network.
+
+    @type network_name: str
+    @param network_name: the name of network to create
+    @type dry_run: bool
+    @param dry_run: whether to peform a dry run
+
+    @rtype: string
+    @return: job id
+
+    """
+    query = []
+    _AppendDryRunIf(query, dry_run)
+
+    if add_reserved_ips:
+      add_reserved_ips = add_reserved_ips.split(",")
+
+    if tags:
+      tags = tags.split(",")
+
+    body = {
+      "network_name": network_name,
+      "gateway": gateway,
+      "network": network,
+      "gateway6": gateway6,
+      "network6": network6,
+      "mac_prefix": mac_prefix,
+      "add_reserved_ips": add_reserved_ips,
+      "tags": tags,
+      }
+
+    return self._SendRequest(HTTP_POST, "/%s/networks" % GANETI_RAPI_VERSION,
+                             query, body)
+
+  def ConnectNetwork(self, network_name, group_name, mode, link, dry_run=False):
+    """Connects a Network to a NodeGroup with the given netparams
+
+    """
+    body = {
+      "group_name": group_name,
+      "network_mode": mode,
+      "network_link": link,
+      }
+
+    query = []
+    _AppendDryRunIf(query, dry_run)
+
+    return self._SendRequest(HTTP_PUT,
+                             ("/%s/networks/%s/connect" %
+                             (GANETI_RAPI_VERSION, network_name)), query, body)
+
+  def DisconnectNetwork(self, network_name, group_name, dry_run=False):
+    """Connects a Network to a NodeGroup with the given netparams
+
+    """
+    body = {
+      "group_name": group_name,
+      }
+
+    query = []
+    _AppendDryRunIf(query, dry_run)
+
+    return self._SendRequest(HTTP_PUT,
+                             ("/%s/networks/%s/disconnect" %
+                             (GANETI_RAPI_VERSION, network_name)), query, body)
+
+  def ModifyNetwork(self, network, **kwargs):
+    """Modifies a network.
+
+    More details for parameters can be found in the RAPI documentation.
+
+    @type network: string
+    @param network: Network name
+    @rtype: string
+    @return: job id
+
+    """
+    return self._SendRequest(HTTP_PUT,
+                             ("/%s/networks/%s/modify" %
+                              (GANETI_RAPI_VERSION, network)), None, kwargs)
+
+  def DeleteNetwork(self, network, dry_run=False):
+    """Deletes a network.
+
+    @type network: str
+    @param network: the network to delete
+    @type dry_run: bool
+    @param dry_run: whether to peform a dry run
+
+    @rtype: string
+    @return: job id
+
+    """
+    query = []
+    _AppendDryRunIf(query, dry_run)
+
+    return self._SendRequest(HTTP_DELETE,
+                             ("/%s/networks/%s" %
+                              (GANETI_RAPI_VERSION, network)), query, None)
+
+  def GetNetworkTags(self, network):
+    """Gets tags for a network.
+
+    @type network: string
+    @param network: Node group whose tags to return
+
+    @rtype: list of strings
+    @return: tags for the network
+
+    """
+    return self._SendRequest(HTTP_GET,
+                             ("/%s/networks/%s/tags" %
+                              (GANETI_RAPI_VERSION, network)), None, None)
+
+  def AddNetworkTags(self, network, tags, dry_run=False):
+    """Adds tags to a network.
+
+    @type network: str
+    @param network: network to add tags to
+    @type tags: list of string
+    @param tags: tags to add to the network
+    @type dry_run: bool
+    @param dry_run: whether to perform a dry run
+
+    @rtype: string
+    @return: job id
+
+    """
+    query = [("tag", t) for t in tags]
+    _AppendDryRunIf(query, dry_run)
+
+    return self._SendRequest(HTTP_PUT,
+                             ("/%s/networks/%s/tags" %
+                              (GANETI_RAPI_VERSION, network)), query, None)
+
+  def DeleteNetworkTags(self, network, tags, dry_run=False):
+    """Deletes tags from a network.
+
+    @type network: str
+    @param network: network to delete tags from
+    @type tags: list of string
+    @param tags: tags to delete
+    @type dry_run: bool
+    @param dry_run: whether to perform a dry run
+    @rtype: string
+    @return: job id
+
+    """
+    query = [("tag", t) for t in tags]
+    _AppendDryRunIf(query, dry_run)
+
+    return self._SendRequest(HTTP_DELETE,
+                             ("/%s/networks/%s/tags" %
+                              (GANETI_RAPI_VERSION, network)), query, None)
+
   def GetGroups(self, bulk=False):
     """Gets all node groups in the cluster.
 
@@ -1679,7 +1983,7 @@ class GanetiRapiClient(object): # pylint: disable=R0904
 
     body = {
       "name": name,
-      "alloc_policy": alloc_policy
+      "alloc_policy": alloc_policy,
       }
 
     return self._SendRequest(HTTP_POST, "/%s/groups" % GANETI_RAPI_VERSION,
@@ -1743,7 +2047,7 @@ class GanetiRapiClient(object): # pylint: disable=R0904
     """Assigns nodes to a group.
 
     @type group: string
-    @param group: Node gropu name
+    @param group: Node group name
     @type nodes: list of strings
     @param nodes: List of nodes to assign to the group
 

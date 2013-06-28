@@ -41,12 +41,14 @@ import signal
 from ganeti import errors
 from ganeti import constants
 from ganeti import compat
+from ganeti import pathutils
 
 from ganeti.utils.algo import *
 from ganeti.utils.filelock import *
 from ganeti.utils.hash import *
 from ganeti.utils.io import *
 from ganeti.utils.log import *
+from ganeti.utils.lvm import *
 from ganeti.utils.mlock import *
 from ganeti.utils.nodesetup import *
 from ganeti.utils.process import *
@@ -58,8 +60,7 @@ from ganeti.utils.x509 import *
 
 _VALID_SERVICE_NAME_RE = re.compile("^[-_.a-zA-Z0-9]{1,128}$")
 
-UUID_RE = re.compile("^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-"
-                     "[a-f0-9]{4}-[a-f0-9]{12}$")
+UUID_RE = re.compile(constants.UUID_REGEX)
 
 
 def ForceDictType(target, key_types, allowed_values=None):
@@ -466,7 +467,7 @@ def EnsureDaemon(name):
   """Check for and start daemon if not alive.
 
   """
-  result = RunCmd([constants.DAEMON_UTIL, "check-and-start", name])
+  result = RunCmd([pathutils.DAEMON_UTIL, "check-and-start", name])
   if result.failed:
     logging.error("Can't start daemon '%s', failure %s, output: %s",
                   name, result.fail_reason, result.output)
@@ -479,38 +480,13 @@ def StopDaemon(name):
   """Stop daemon
 
   """
-  result = RunCmd([constants.DAEMON_UTIL, "stop", name])
+  result = RunCmd([pathutils.DAEMON_UTIL, "stop", name])
   if result.failed:
     logging.error("Can't stop daemon '%s', failure %s, output: %s",
                   name, result.fail_reason, result.output)
     return False
 
   return True
-
-
-def CheckVolumeGroupSize(vglist, vgname, minsize):
-  """Checks if the volume group list is valid.
-
-  The function will check if a given volume group is in the list of
-  volume groups and has a minimum size.
-
-  @type vglist: dict
-  @param vglist: dictionary of volume group names and their size
-  @type vgname: str
-  @param vgname: the volume group we should check
-  @type minsize: int
-  @param minsize: the minimum size we accept
-  @rtype: None or str
-  @return: None for success, otherwise the error message
-
-  """
-  vgsize = vglist.get(vgname, None)
-  if vgsize is None:
-    return "volume group '%s' missing" % vgname
-  elif vgsize < minsize:
-    return ("volume group '%s' too small (%s MiB required, %d MiB found)" %
-            (vgname, minsize, vgsize))
-  return None
 
 
 def SplitTime(value):
@@ -647,9 +623,11 @@ class SignalWakeupFd(object):
     _set_wakeup_fd_fn = signal.set_wakeup_fd
   except AttributeError:
     # Not supported
+
     def _SetWakeupFd(self, _): # pylint: disable=R0201
       return -1
   else:
+
     def _SetWakeupFd(self, fd):
       return self._set_wakeup_fd_fn(fd)
 

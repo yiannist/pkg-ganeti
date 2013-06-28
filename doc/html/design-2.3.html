@@ -1,25 +1,31 @@
+
+
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
   "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
 
 <html xmlns="http://www.w3.org/1999/xhtml">
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Ganeti 2.3 design &mdash; Ganeti v2.6.2 documentation</title>
-    <link rel="stylesheet" href="_static/default.css" type="text/css" />
+    <title>Ganeti 2.3 design &mdash; Ganeti 2.7.0~rc3 documentation</title>
+    
+    <link rel="stylesheet" href="_static/style.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.6.2',
-        COLLAPSE_MODINDEX: false,
+        VERSION:     '2.7.0~rc3',
+        COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
       };
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.6.2 documentation" href="index.html" />
+    <link rel="top" title="Ganeti 2.7.0~rc3 documentation" href="index.html" />
     <link rel="next" title="Synchronising htools to Ganeti 2.3" href="design-htools-2.3.html" />
     <link rel="prev" title="Ganeti 2.2 design" href="design-2.2.html" /> 
   </head>
@@ -33,7 +39,7 @@
         <li class="right" >
           <a href="design-2.2.html" title="Ganeti 2.2 design"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.6.2 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.7.0~rc3 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -182,7 +188,7 @@ instances, which will not be allowed to have their primary and secondary
 nodes in different node groups. To support this, we envision the
 following changes:</p>
 <blockquote>
-<ul class="simple">
+<div><ul class="simple">
 <li>The iallocator interface will be augmented, and node groups exposed,
 so that plugins will be able to make a decision regarding the group
 in which to place a new instance. By default, all node groups will
@@ -212,13 +218,13 @@ otherwise, though in the future we may be able to allow some
 parameter to be changed together with the move (in the meantime, an
 import/export will be required in this scenario).</li>
 </ul>
-</blockquote>
+</div></blockquote>
 </div>
 <div class="section" id="internal-changes">
 <h5>Internal changes<a class="headerlink" href="#internal-changes" title="Permalink to this headline">¶</a></h5>
 <p>We expect the following changes for cluster management:</p>
 <blockquote>
-<ul class="simple">
+<div><ul class="simple">
 <li>Frequent multinode operations, such as os-diagnose or cluster-verify,
 will act on one group at a time, which will have to be specified in
 all cases, except for clusters with just one group. Command line
@@ -237,7 +243,7 @@ For the first version we won&#8217;t add any restriction over how this is
 done, although in the future we may have a minimum number of master
 candidates which Ganeti will try to keep in each group, for example.</li>
 </ul>
-</blockquote>
+</div></blockquote>
 </div>
 <div class="section" id="other-work-and-future-changes">
 <h5>Other work and future changes<a class="headerlink" href="#other-work-and-future-changes" title="Permalink to this headline">¶</a></h5>
@@ -309,7 +315,7 @@ free memory and free disk will change significantly for some jobs, but
 on a short timescale; in general, these values will be mostly “constant”
 during the lifetime of a job</li>
 <li>we already have a periodic set of jobs that query the node and
-instance state, driven the by <strong>ganeti-watcher</strong> command, and
+instance state, driven the by <strong class="command">ganeti-watcher</strong> command, and
 we&#8217;re just discarding the results after acting on them</li>
 </ul>
 <p>Given the above, it makes sense to cache the results of node and instance
@@ -487,10 +493,10 @@ will get a new method called <tt class="docutils literal"><span class="pre">capa
 group, or alternative just a subset) to the iallocator plugin (either
 the specified one, or the default if none is specified), and return the
 new capacity in the format currently exported by the htools suite and
-known as the “tiered specs” (see <em>hspace(1)</em>).</p>
+known as the “tiered specs” (see <em class="manpage">hspace(1)</em>).</p>
 <div class="section" id="tspec-cluster-parameters">
 <h5>tspec cluster parameters<a class="headerlink" href="#tspec-cluster-parameters" title="Permalink to this headline">¶</a></h5>
-<p>Currently, the “tspec” calculations done in <strong>hspace</strong> require
+<p>Currently, the “tspec” calculations done in <strong class="command">hspace</strong> require
 some additional parameters:</p>
 <ul class="simple">
 <li>maximum instance size</li>
@@ -620,12 +626,12 @@ priorities are reserved for internal use. The absolute range is
 -20..+19. Opcodes submitted without a priority (e.g. by older clients)
 are assigned the default priority.</p>
 <blockquote>
-<ul class="simple">
+<div><ul class="simple">
 <li>High (-10)</li>
 <li>Normal (0, default)</li>
 <li>Low (+10)</li>
 </ul>
-</blockquote>
+</div></blockquote>
 <p>As a change from the current model where executing a job blocks one
 thread for the whole duration, the new job processor must return the job
 to the queue after each opcode and also if it can&#8217;t get all locks in a
@@ -683,7 +689,7 @@ priorities.</p>
 <tt class="docutils literal"><span class="pre">locking.SharedLock</span></tt> and <tt class="docutils literal"><span class="pre">locking.LockSet</span></tt>, the internal structure
 of the former class needs to be changed. The last major change in this
 area was done for Ganeti 2.1 and can be found in the respective
-<a class="reference external" href="design-2.1.html"><em>design document</em></a>.</p>
+<a class="reference internal" href="design-2.1.html"><em>design document</em></a>.</p>
 <p>The plain list (<tt class="docutils literal"><span class="pre">[]</span></tt>) used as a queue is replaced by a heap queue,
 similar to the <a class="reference internal" href="#worker-pool">worker pool</a>. The heap or priority queue does automatic
 sorting, thereby automatically taking care of priorities. For each
@@ -797,21 +803,21 @@ will be done by using the recommended getaddrinfo().</p>
 <col width="30%" />
 </colgroup>
 <thead valign="bottom">
-<tr><th class="head">Component</th>
+<tr class="row-odd"><th class="head">Component</th>
 <th class="head">IPv6 Status</th>
 <th class="head">Planned Version</th>
 </tr>
 </thead>
 <tbody valign="top">
-<tr><td>Xen instance migration</td>
+<tr class="row-even"><td>Xen instance migration</td>
 <td>Not supported</td>
 <td>Xen 4.1: libxenlight</td>
 </tr>
-<tr><td>KVM instance migration</td>
+<tr class="row-odd"><td>KVM instance migration</td>
 <td>Not supported</td>
 <td>Unknown</td>
 </tr>
-<tr><td>KVM VNC access</td>
+<tr class="row-even"><td>KVM VNC access</td>
 <td>Not supported</td>
 <td>Unknown</td>
 </tr>
@@ -863,32 +869,32 @@ and their users:</p>
 <col width="38%" />
 </colgroup>
 <thead valign="bottom">
-<tr><th class="head">Set</th>
+<tr class="row-odd"><th class="head">Set</th>
 <th class="head">Group</th>
 <th class="head">Users</th>
 <th class="head">Description</th>
 </tr>
 </thead>
 <tbody valign="top">
-<tr><td>A</td>
+<tr class="row-even"><td>A</td>
 <td>gntrapi</td>
 <td>gntrapi, gntmasterd</td>
 <td>Share data between
 gntrapi and gntmasterd</td>
 </tr>
-<tr><td>B</td>
+<tr class="row-odd"><td>B</td>
 <td>gntadmins</td>
 <td>gntrapi, gntmasterd, <em>users</em></td>
 <td>Shared between users who
 needs to call gntmasterd</td>
 </tr>
-<tr><td>C</td>
+<tr class="row-even"><td>C</td>
 <td>gntconfd</td>
 <td>gntconfd, gntmasterd</td>
 <td>Share data between
 gntconfd and gntmasterd</td>
 </tr>
-<tr><td>D</td>
+<tr class="row-odd"><td>D</td>
 <td>gntmasterd</td>
 <td>gntmasterd</td>
 <td>masterd only; Currently
@@ -897,7 +903,7 @@ configuration, has access
 to all files under
 <tt class="docutils literal"><span class="pre">lib/ganeti</span></tt></td>
 </tr>
-<tr><td>E</td>
+<tr class="row-even"><td>E</td>
 <td>gntdaemons</td>
 <td>gntmasterd, gntrapi, gntconfd</td>
 <td>Shared between the various
@@ -909,7 +915,8 @@ data</td>
 </div>
 <div class="section" id="restricted-commands">
 <h4><a class="toc-backref" href="#id33">Restricted commands</a><a class="headerlink" href="#restricted-commands" title="Permalink to this headline">¶</a></h4>
-<p>The following commands needs still root to fulfill their functions:</p>
+<p>The following commands still require root permissions to fulfill their
+functions:</p>
 <div class="highlight-python"><pre>gnt-cluster {init|destroy|command|copyfile|rename|masterfailover|renew-crypto}
 gnt-node {add|remove}
 gnt-instance {console}</pre>
@@ -962,109 +969,109 @@ ${localstatedir}/log/ganeti/ (0770; gntmasterd:gntdaemons)
       </div>
       <div class="sphinxsidebar">
         <div class="sphinxsidebarwrapper">
-            <h3><a href="index.html">Table Of Contents</a></h3>
-            <ul>
-<li><a class="reference external" href="#">Ganeti 2.3 design</a><ul>
-<li><a class="reference external" href="#core-changes">Core changes</a><ul>
-<li><a class="reference external" href="#node-groups">Node Groups</a><ul>
-<li><a class="reference external" href="#current-state-and-shortcomings">Current state and shortcomings</a></li>
-<li><a class="reference external" href="#proposed-changes">Proposed changes</a><ul>
-<li><a class="reference external" href="#node-group-management">Node group management</a></li>
-<li><a class="reference external" href="#node-group-attributes">Node group attributes</a></li>
-<li><a class="reference external" href="#node-group-operations">Node group operations</a></li>
-<li><a class="reference external" href="#instance-level-changes">Instance level changes</a></li>
-<li><a class="reference external" href="#internal-changes">Internal changes</a></li>
-<li><a class="reference external" href="#other-work-and-future-changes">Other work and future changes</a></li>
+  <h3><a href="index.html">Table Of Contents</a></h3>
+  <ul>
+<li><a class="reference internal" href="#">Ganeti 2.3 design</a><ul>
+<li><a class="reference internal" href="#core-changes">Core changes</a><ul>
+<li><a class="reference internal" href="#node-groups">Node Groups</a><ul>
+<li><a class="reference internal" href="#current-state-and-shortcomings">Current state and shortcomings</a></li>
+<li><a class="reference internal" href="#proposed-changes">Proposed changes</a><ul>
+<li><a class="reference internal" href="#node-group-management">Node group management</a></li>
+<li><a class="reference internal" href="#node-group-attributes">Node group attributes</a></li>
+<li><a class="reference internal" href="#node-group-operations">Node group operations</a></li>
+<li><a class="reference internal" href="#instance-level-changes">Instance level changes</a></li>
+<li><a class="reference internal" href="#internal-changes">Internal changes</a></li>
+<li><a class="reference internal" href="#other-work-and-future-changes">Other work and future changes</a></li>
 </ul>
 </li>
 </ul>
 </li>
-<li><a class="reference external" href="#scalability-issues-with-big-clusters">Scalability issues with big clusters</a><ul>
-<li><a class="reference external" href="#current-and-future-issues">Current and future issues</a></li>
-<li><a class="reference external" href="#cluster-state-cache">Cluster state cache</a><ul>
-<li><a class="reference external" href="#cache-structure">Cache structure</a></li>
-<li><a class="reference external" href="#cache-updates">Cache updates</a></li>
-<li><a class="reference external" href="#cache-invalidation">Cache invalidation</a></li>
-<li><a class="reference external" href="#cache-lifetime">Cache lifetime</a></li>
-<li><a class="reference external" href="#cache-usage">Cache usage</a></li>
+<li><a class="reference internal" href="#scalability-issues-with-big-clusters">Scalability issues with big clusters</a><ul>
+<li><a class="reference internal" href="#current-and-future-issues">Current and future issues</a></li>
+<li><a class="reference internal" href="#cluster-state-cache">Cluster state cache</a><ul>
+<li><a class="reference internal" href="#cache-structure">Cache structure</a></li>
+<li><a class="reference internal" href="#cache-updates">Cache updates</a></li>
+<li><a class="reference internal" href="#cache-invalidation">Cache invalidation</a></li>
+<li><a class="reference internal" href="#cache-lifetime">Cache lifetime</a></li>
+<li><a class="reference internal" href="#cache-usage">Cache usage</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#watcher-operation">Watcher operation</a><ul>
-<li><a class="reference external" href="#cost-of-periodic-cache-updating">Cost of periodic cache updating</a></li>
-<li><a class="reference external" href="#intra-node-group-scalability">Intra-node group scalability</a></li>
-<li><a class="reference external" href="#state-file-maintenance">State file maintenance</a></li>
+<li><a class="reference internal" href="#watcher-operation">Watcher operation</a><ul>
+<li><a class="reference internal" href="#cost-of-periodic-cache-updating">Cost of periodic cache updating</a></li>
+<li><a class="reference internal" href="#intra-node-group-scalability">Intra-node group scalability</a></li>
+<li><a class="reference internal" href="#state-file-maintenance">State file maintenance</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#capacity-calculations">Capacity calculations</a><ul>
-<li><a class="reference external" href="#tspec-cluster-parameters">tspec cluster parameters</a></li>
-<li><a class="reference external" href="#opcode-details">OpCode details</a></li>
-</ul>
-</li>
-</ul>
-</li>
-<li><a class="reference external" href="#node-flags">Node flags</a><ul>
-<li><a class="reference external" href="#id1">Current state and shortcomings</a></li>
-<li><a class="reference external" href="#id2">Proposed changes</a></li>
-</ul>
-</li>
-<li><a class="reference external" href="#job-priorities">Job priorities</a><ul>
-<li><a class="reference external" href="#id3">Current state and shortcomings</a></li>
-<li><a class="reference external" href="#id4">Proposed changes</a><ul>
-<li><a class="reference external" href="#worker-pool">Worker pool</a></li>
-<li><a class="reference external" href="#locking">Locking</a></li>
+<li><a class="reference internal" href="#capacity-calculations">Capacity calculations</a><ul>
+<li><a class="reference internal" href="#tspec-cluster-parameters">tspec cluster parameters</a></li>
+<li><a class="reference internal" href="#opcode-details">OpCode details</a></li>
 </ul>
 </li>
 </ul>
 </li>
-<li><a class="reference external" href="#ipv6-support">IPv6 support</a><ul>
-<li><a class="reference external" href="#supported-ipv6-setup">Supported IPv6 setup</a></li>
-<li><a class="reference external" href="#netutils-utilities-for-handling-common-network-tasks">netutils: Utilities for handling common network tasks</a></li>
-<li><a class="reference external" href="#cluster-initialization">Cluster initialization</a></li>
-<li><a class="reference external" href="#node-addition">Node addition</a></li>
-<li><a class="reference external" href="#name-resolution">Name resolution</a></li>
-<li><a class="reference external" href="#ipv4-only-components">IPv4-only components</a></li>
+<li><a class="reference internal" href="#node-flags">Node flags</a><ul>
+<li><a class="reference internal" href="#id1">Current state and shortcomings</a></li>
+<li><a class="reference internal" href="#id2">Proposed changes</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#privilege-separation">Privilege Separation</a><ul>
-<li><a class="reference external" href="#id5">Current state and shortcomings</a></li>
-<li><a class="reference external" href="#implementation">Implementation</a></li>
-<li><a class="reference external" href="#security-domains">Security Domains</a></li>
-<li><a class="reference external" href="#restricted-commands">Restricted commands</a></li>
-<li><a class="reference external" href="#directory-structure-and-permissions">Directory structure and permissions</a></li>
+<li><a class="reference internal" href="#job-priorities">Job priorities</a><ul>
+<li><a class="reference internal" href="#id3">Current state and shortcomings</a></li>
+<li><a class="reference internal" href="#id4">Proposed changes</a><ul>
+<li><a class="reference internal" href="#worker-pool">Worker pool</a></li>
+<li><a class="reference internal" href="#locking">Locking</a></li>
 </ul>
 </li>
 </ul>
 </li>
-<li><a class="reference external" href="#feature-changes">Feature changes</a></li>
-<li><a class="reference external" href="#external-interface-changes">External interface changes</a></li>
+<li><a class="reference internal" href="#ipv6-support">IPv6 support</a><ul>
+<li><a class="reference internal" href="#supported-ipv6-setup">Supported IPv6 setup</a></li>
+<li><a class="reference internal" href="#netutils-utilities-for-handling-common-network-tasks">netutils: Utilities for handling common network tasks</a></li>
+<li><a class="reference internal" href="#cluster-initialization">Cluster initialization</a></li>
+<li><a class="reference internal" href="#node-addition">Node addition</a></li>
+<li><a class="reference internal" href="#name-resolution">Name resolution</a></li>
+<li><a class="reference internal" href="#ipv4-only-components">IPv4-only components</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#privilege-separation">Privilege Separation</a><ul>
+<li><a class="reference internal" href="#id5">Current state and shortcomings</a></li>
+<li><a class="reference internal" href="#implementation">Implementation</a></li>
+<li><a class="reference internal" href="#security-domains">Security Domains</a></li>
+<li><a class="reference internal" href="#restricted-commands">Restricted commands</a></li>
+<li><a class="reference internal" href="#directory-structure-and-permissions">Directory structure and permissions</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a class="reference internal" href="#feature-changes">Feature changes</a></li>
+<li><a class="reference internal" href="#external-interface-changes">External interface changes</a></li>
 </ul>
 </li>
 </ul>
 
-            <h4>Previous topic</h4>
-            <p class="topless"><a href="design-2.2.html"
-                                  title="previous chapter">Ganeti 2.2 design</a></p>
-            <h4>Next topic</h4>
-            <p class="topless"><a href="design-htools-2.3.html"
-                                  title="next chapter">Synchronising htools to Ganeti 2.3</a></p>
-            <h3>This Page</h3>
-            <ul class="this-page-menu">
-              <li><a href="_sources/design-2.3.txt"
-                     rel="nofollow">Show Source</a></li>
-            </ul>
-          <div id="searchbox" style="display: none">
-            <h3>Quick search</h3>
-              <form class="search" action="search.html" method="get">
-                <input type="text" name="q" size="18" />
-                <input type="submit" value="Go" />
-                <input type="hidden" name="check_keywords" value="yes" />
-                <input type="hidden" name="area" value="default" />
-              </form>
-              <p class="searchtip" style="font-size: 90%">
-              Enter search terms or a module, class or function name.
-              </p>
-          </div>
-          <script type="text/javascript">$('#searchbox').show(0);</script>
+  <h4>Previous topic</h4>
+  <p class="topless"><a href="design-2.2.html"
+                        title="previous chapter">Ganeti 2.2 design</a></p>
+  <h4>Next topic</h4>
+  <p class="topless"><a href="design-htools-2.3.html"
+                        title="next chapter">Synchronising htools to Ganeti 2.3</a></p>
+  <h3>This Page</h3>
+  <ul class="this-page-menu">
+    <li><a href="_sources/design-2.3.txt"
+           rel="nofollow">Show Source</a></li>
+  </ul>
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
         </div>
       </div>
       <div class="clearer"></div>
@@ -1078,12 +1085,12 @@ ${localstatedir}/log/ganeti/ (0770; gntmasterd:gntdaemons)
         <li class="right" >
           <a href="design-2.2.html" title="Ganeti 2.2 design"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.6.2 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.7.0~rc3 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">
-      &copy; Copyright 2006, 2007, 2008, 2009, 2010, 2011, 2012, Google Inc..
-      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 0.6.7.
+        &copy; Copyright 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Google Inc..
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
     </div>
   </body>
 </html>

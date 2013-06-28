@@ -101,22 +101,52 @@ NIC_%N_IP
     instance.
 
 NIC_%N_MODE
-    The NIC mode, either routed or bridged
+    The NIC mode, routed, bridged or openvswitch
 
 NIC_%N_BRIDGE
     The bridge to which this NIC will be attached. This variable is
     defined only when the NIC is in bridged mode.
 
 NIC_%N_LINK
-    If the NIC is in bridged mode, this is the same as
-    ``NIC_%N_BRIDGE``.  If it is in routed mode, the routing table
-    which will be used by the hypervisor to insert the appropriate
-    routes.
+    In bridged or openvswitch mode, this is the interface to which the
+    NIC will be attached (same as ``NIC_%N_BRIDGE`` for bridged). In
+    routed mode it is the routing table which will be used by the
+    hypervisor to insert the appropriate routes.
 
 NIC_%N_FRONTEND_TYPE
     (Optional) If applicable, the type of the exported NIC to the
     instance, this can be one of: ``rtl8139``, ``ne2k_pci``,
     ``ne2k_isa``, ``paravirtual``.
+
+NIC_%d_NETWORK_NAME
+    (Optional) If a NIC network is specified, the network's name.
+
+NIC_%d_NETWORK_UUID
+    (Optional) If a NIC network is specified, the network's uuid.
+
+NIC_%d_NETWORK_FAMILY
+    (Optional) If a NIC network is specified, the network's family.
+
+NIC_%d_NETWORK_SUBNET
+    (Optional) If a NIC network is specified, the network's IPv4 subnet.
+
+NIC_%d_NETWORK_GATEWAY
+    (Optional) If a NIC network is specified, the network's IPv4
+    gateway.
+
+NIC_%d_NETWORK_SUBNET6
+    (Optional) If a NIC network is specified, the network's IPv6 subnet.
+
+NIC_%d_NETWORK_GATEWAY6
+    (Optional) If a NIC network is specified, the network's IPv6
+    gateway.
+
+NIC_%d_NETWORK_MAC_PREFIX
+    (Optional) If a NIC network is specified, the network's mac prefix.
+
+NIC_%d_NETWORK_TAGS
+    (Optional) If a NIC network is specified, the network's tags, space
+    separated.
 
 OSP_*name*
     Each OS parameter (see below) will be exported in its own
@@ -223,10 +253,10 @@ Currently (API version 20), only one parameter is supported:
 environment, and output diagnostic messages in case the validation
 fails.
 
-.. highlight:: sh
-
 For the ``dhcp`` parameter given as example above, a verification
-script could be::
+script could be:
+
+.. code-block:: bash
 
     #!/bin/sh
 
@@ -264,6 +294,8 @@ variants.list
 variants.list is a plain text file containing all the declared supported
 variants for this OS, one per line. If this file is missing or empty,
 then the OS won't be considered to support variants.
+
+Empty lines and lines starting with a hash (``#``) are ignored.
 
 parameters.list
 ~~~~~~~~~~~~~~~
@@ -338,7 +370,9 @@ Version 4 to 5
 
 The rename script has been added. If you don't want to do any
 changes on the instances after a rename, you can migrate the OS
-definition to version 5 by creating the rename script simply as::
+definition to version 5 by creating the rename script simply as:
+
+.. code-block:: bash
 
     #!/bin/sh
 

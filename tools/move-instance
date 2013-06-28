@@ -496,7 +496,8 @@ class MoveDestExecutor(object):
       constants.INIC_MAC: mac,
       constants.INIC_MODE: mode,
       constants.INIC_LINK: link,
-      } for ip, mac, mode, link in instance["nics"]]
+      constants.INIC_NETWORK: network
+      } for ip, mac, mode, link, network, _ in instance["nics"]]
 
     if len(override_nics) > len(nics):
       raise Error("Can not create new NICs")
@@ -560,6 +561,9 @@ class MoveSourceExecutor(object):
     logging.info("Retrieving instance information from source cluster")
     instinfo = self._GetInstanceInfo(src_client, mrt.PollJob,
                                      mrt.move.src_instance_name)
+    if instinfo["disk_template"] == constants.DT_FILE:
+      raise Error("Inter-cluster move of file-based instances is not"
+                  " supported.")
 
     logging.info("Preparing export on source cluster")
     expinfo = self._PrepareExport(src_client, mrt.PollJob,
@@ -718,33 +722,6 @@ def CheckRapiSetup(rapi_factory):
   logging.info("Destination cluster RAPI version: %s", dest_client.GetVersion())
 
 
-def SetupLogging(options):
-  """Setting up logging infrastructure.
-
-  @param options: Parsed command line options
-
-  """
-  fmt = "%(asctime)s: %(threadName)s "
-  if options.debug or options.verbose:
-    fmt += "%(levelname)s "
-  fmt += "%(message)s"
-
-  formatter = logging.Formatter(fmt)
-
-  stderr_handler = logging.StreamHandler()
-  stderr_handler.setFormatter(formatter)
-  if options.debug:
-    stderr_handler.setLevel(logging.NOTSET)
-  elif options.verbose:
-    stderr_handler.setLevel(logging.INFO)
-  else:
-    stderr_handler.setLevel(logging.ERROR)
-
-  root_logger = logging.getLogger("")
-  root_logger.setLevel(logging.NOTSET)
-  root_logger.addHandler(stderr_handler)
-
-
 def ParseOptions():
   """Parses options passed to program.
 
@@ -844,7 +821,7 @@ def main():
   """
   (parser, options, args) = ParseOptions()
 
-  SetupLogging(options)
+  utils.SetupToolLogging(options.debug, options.verbose, threadname=True)
 
   (src_cluster_name, dest_cluster_name, instance_names) = \
     CheckOptions(parser, options, args)

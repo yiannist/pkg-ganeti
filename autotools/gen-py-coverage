@@ -1,0 +1,67 @@
+#!/bin/bash
+#
+
+# Copyright (C) 2010, 2011, 2012 Google Inc.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+# General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
+# 02110-1301, USA.
+
+set -e
+set -u
+
+: ${PYTHON:=python}
+: ${COVERAGE:?}
+: ${COVERAGE_FILE:?}
+: ${TEXT_COVERAGE:?}
+: ${HTML_COVERAGE:=}
+: ${GANETI_TEMP_DIR:?}
+
+reportargs=(
+  '--include=*'
+  '--omit=test/py/*'
+  )
+
+$COVERAGE erase
+
+if [[ -n "$HTML_COVERAGE" ]]; then
+  if [[ ! -d "$HTML_COVERAGE" ]]; then
+    echo "Not a directory: $HTML_COVERAGE" >&2
+    exit 1
+  fi
+
+  # At least coverage 3.4 fails to overwrite files
+  find "$HTML_COVERAGE" \( -type f -o -type l \) -delete
+fi
+
+for script; do
+  if [[ "$script" == *-runasroot.py ]]; then
+    if [[ -z "$FAKEROOT" ]]; then
+      echo "WARNING: FAKEROOT variable not set: skipping $script" >&2
+      continue
+    fi
+    cmdprefix="$FAKEROOT"
+  else
+    cmdprefix=
+  fi
+  $cmdprefix $COVERAGE run --branch --append "${reportargs[@]}" $script
+done
+
+echo "Writing text report to $TEXT_COVERAGE ..." >&2
+$COVERAGE report "${reportargs[@]}" | tee "$TEXT_COVERAGE"
+
+if [[ -n "$HTML_COVERAGE" ]]; then
+  echo "Generating HTML report in $HTML_COVERAGE ..." >&2
+  $COVERAGE html "${reportargs[@]}" -d "$HTML_COVERAGE"
+fi

@@ -1,8 +1,8 @@
 # Configure script for Ganeti
 m4_define([gnt_version_major], [2])
-m4_define([gnt_version_minor], [6])
-m4_define([gnt_version_revision], [2])
-m4_define([gnt_version_suffix], [])
+m4_define([gnt_version_minor], [7])
+m4_define([gnt_version_revision], [0])
+m4_define([gnt_version_suffix], [~rc3])
 m4_define([gnt_version_full],
           m4_format([%d.%d.%d%s],
                     gnt_version_major, gnt_version_minor,
@@ -49,6 +49,15 @@ AC_ARG_WITH([ssh-config-dir],
   [ssh_config_dir="/etc/ssh"])
 AC_SUBST(SSH_CONFIG_DIR, $ssh_config_dir)
 
+# --with-xen-config-dir=...
+AC_ARG_WITH([xen-config-dir],
+  [AS_HELP_STRING([--with-xen-config-dir=DIR],
+                  m4_normalize([Xen configuration directory
+                                (default: /etc/xen)]))],
+  [xen_config_dir="$withval"],
+  [xen_config_dir=/etc/xen])
+AC_SUBST(XEN_CONFIG_DIR, $xen_config_dir)
+
 # --with-os-search-path=...
 # do a bit of black sed magic to for quoting of the strings in the list
 AC_ARG_WITH([os-search-path],
@@ -59,6 +68,18 @@ AC_ARG_WITH([os-search-path],
   [os_search_path=`echo -n "$withval" | sed -e "s/\([[^,]]*\)/'\1'/g"`],
   [os_search_path="'/srv/ganeti/os'"])
 AC_SUBST(OS_SEARCH_PATH, $os_search_path)
+
+# --with-extstorage-search-path=...
+# same black sed magic for quoting of the strings in the list
+AC_ARG_WITH([extstorage-search-path],
+  [AS_HELP_STRING([--with-extstorage-search-path=LIST],
+    [comma separated list of directories to]
+    [ search for External Storage Providers]
+    [ (default is /srv/ganeti/extstorage)]
+  )],
+  [es_search_path=`echo -n "$withval" | sed -e "s/\([[^,]]*\)/'\1'/g"`],
+  [es_search_path="'/srv/ganeti/extstorage'"])
+AC_SUBST(ES_SEARCH_PATH, $es_search_path)
 
 # --with-iallocator-search-path=...
 # do a bit of black sed magic to for quoting of the strings in the list
@@ -104,7 +125,7 @@ AC_ARG_WITH([xen-cmd],
     [Sets the xen cli interface command (default is xm)]
   )],
   [xen_cmd="$withval"],
-  [xen_cmd="xm"])
+  [xen_cmd=xm])
 AC_SUBST(XEN_CMD, $xen_cmd)
 
 if ! test "$XEN_CMD" = xl -o "$XEN_CMD" = xm; then
@@ -134,7 +155,7 @@ AC_ARG_WITH([file-storage-dir],
     fi
   ]],
   [[file_storage_dir="/srv/ganeti/file-storage";
-    enable_file_storage="True"]])
+    enable_file_storage=True]])
 AC_SUBST(FILE_STORAGE_DIR, $file_storage_dir)
 AC_SUBST(ENABLE_FILE_STORAGE, $enable_file_storage)
 
@@ -152,7 +173,7 @@ AC_ARG_WITH([shared-file-storage-dir],
     fi
   ]],
   [[shared_file_storage_dir="/srv/ganeti/shared-file-storage";
-    enable_shared_file_storage="True"]])
+    enable_shared_file_storage=True]])
 AC_SUBST(SHARED_FILE_STORAGE_DIR, $shared_file_storage_dir)
 AC_SUBST(ENABLE_SHARED_FILE_STORAGE, $enable_shared_file_storage)
 
@@ -173,23 +194,60 @@ AC_ARG_WITH([lvm-stripecount],
     [ (default is 1)]
   )],
   [lvm_stripecount="$withval"],
-  [lvm_stripecount="1"])
+  [lvm_stripecount=1])
 AC_SUBST(LVM_STRIPECOUNT, $lvm_stripecount)
+
+# --with-ssh-login-user=...
+AC_ARG_WITH([ssh-login-user],
+  [AS_HELP_STRING([--with-ssh-login-user=USERNAME],
+    [user to use for SSH logins within the cluster (default is root)]
+  )],
+  [ssh_login_user="$withval"],
+  [ssh_login_user=root])
+AC_SUBST(SSH_LOGIN_USER, $ssh_login_user)
+
+# --with-ssh-console-user=...
+AC_ARG_WITH([ssh-console-user],
+  [AS_HELP_STRING([--with-ssh-console-user=USERNAME],
+    [user to use for SSH logins to access instance consoles (default is root)]
+  )],
+  [ssh_console_user="$withval"],
+  [ssh_console_user=root])
+AC_SUBST(SSH_CONSOLE_USER, $ssh_console_user)
+
+# --with-default-user=...
+AC_ARG_WITH([default-user],
+  [AS_HELP_STRING([--with-default-user=USERNAME],
+    [default user for daemons]
+    [ (default is to run all daemons as root)]
+  )],
+  [user_default="$withval"],
+  [user_default=root])
+
+# --with-default-group=...
+AC_ARG_WITH([default-group],
+  [AS_HELP_STRING([--with-default-group=GROUPNAME],
+    [default group for daemons]
+    [ (default is to run all daemons under group root)]
+  )],
+  [group_default="$withval"],
+  [group_default=root])
 
 # --with-user-prefix=...
 AC_ARG_WITH([user-prefix],
   [AS_HELP_STRING([--with-user-prefix=PREFIX],
     [prefix for daemon users]
-    [ (default is to run all daemons as root)]
+    [ (default is to run all daemons as root; use --with-default-user]
+    [ to change the default)]
   )],
   [user_masterd="${withval}masterd";
    user_rapi="${withval}rapi";
    user_confd="${withval}confd";
-   user_noded="root"],
-  [user_masterd="root";
-   user_rapi="root";
-   user_confd="root";
-   user_noded="root"])
+   user_noded="$user_default"],
+  [user_masterd="$user_default";
+   user_rapi="$user_default";
+   user_confd="$user_default";
+   user_noded="$user_default"])
 AC_SUBST(MASTERD_USER, $user_masterd)
 AC_SUBST(RAPI_USER, $user_rapi)
 AC_SUBST(CONFD_USER, $user_confd)
@@ -199,20 +257,21 @@ AC_SUBST(NODED_USER, $user_noded)
 AC_ARG_WITH([group-prefix],
   [AS_HELP_STRING([--with-group-prefix=PREFIX],
     [prefix for daemon POSIX groups]
-    [ (default is to run all daemons under group root)]
+    [ (default is to run all daemons under group root; use]
+    [ --with-default-group to change the default)]
   )],
   [group_rapi="${withval}rapi";
    group_admin="${withval}admin";
    group_confd="${withval}confd";
    group_masterd="${withval}masterd";
-   group_noded="root";
+   group_noded="$group_default";
    group_daemons="${withval}daemons";],
-  [group_rapi="root";
-   group_admin="root";
-   group_confd="root";
-   group_masterd="root";
-   group_noded="root";
-   group_daemons="root"])
+  [group_rapi="$group_default";
+   group_admin="$group_default";
+   group_confd="$group_default";
+   group_masterd="$group_default";
+   group_noded="$group_default";
+   group_daemons="$group_default"])
 AC_SUBST(RAPI_GROUP, $group_rapi)
 AC_SUBST(ADMIN_GROUP, $group_admin)
 AC_SUBST(CONFD_GROUP, $group_confd)
@@ -230,7 +289,8 @@ AC_MSG_NOTICE([Group for clients is $group_admin])
 # --enable-drbd-barriers
 AC_ARG_ENABLE([drbd-barriers],
   [AS_HELP_STRING([--enable-drbd-barriers],
-    [enable by default the DRBD barriers functionality (>= 8.0.12) (default: enabled)])],
+                  m4_normalize([enable the DRBD barriers functionality by
+                                default (>= 8.0.12) (default: enabled)]))],
   [[if test "$enableval" != no; then
       DRBD_BARRIERS=n
       DRBD_NO_META_FLUSH=False
@@ -272,57 +332,18 @@ then
 fi
 AC_SUBST(SYSLOG_USAGE, $SYSLOG)
 
-# --enable-htools
-HTOOLS=
-AC_ARG_ENABLE([htools],
-        [AS_HELP_STRING([--enable-htools],
-        [enable use of htools (needs GHC and libraries, default: check)])],
-        [],
-        [enable_htools=check])
-
-# --enable-htools-rapi
-HTOOLS_RAPI=
-AC_ARG_ENABLE([htools-rapi],
-        [AS_HELP_STRING([--enable-htools-rapi],
-        [enable use of RAPI in htools (needs curl, default: no)])],
-        [],
-        [enable_htools_rapi=no])
-
-# --enable-htools
-ENABLE_CONFD=
-AC_ARG_ENABLE([confd],
-  [AS_HELP_STRING([--enable-confd],
-  [enable the ganeti-confd daemon (default: python, options haskell/python/no)])],
-  [[case "$enableval" in
-      no)
-        enable_confd=False
-        py_confd=False
-        hs_confd=False
-        ;;
-      yes|python)
-        enable_confd=True
-        py_confd=True
-        hs_confd=False
-        ;;
-      haskell)
-        enable_confd=True
-        py_confd=False
-        hs_confd=True
-        ;;
-      *)
-        echo "Invalid value for enable-confd '$enableval'"
-        exit 1
-        ;;
-    esac
+AC_ARG_ENABLE([restricted-commands],
+  [AS_HELP_STRING([--enable-restricted-commands],
+                  m4_normalize([enable restricted commands in the node daemon
+                                (default: disabled)]))],
+  [[if test "$enableval" = no; then
+      enable_restricted_commands=False
+    else
+      enable_restricted_commands=True
+    fi
   ]],
-  [enable_confd=True;py_confd=True;hs_confd=False])
-AC_SUBST(ENABLE_CONFD, $enable_confd)
-AC_SUBST(PY_CONFD, $py_confd)
-AC_SUBST(HS_CONFD, $hs_confd)
-
-AM_CONDITIONAL([WANT_CONFD], [test x$enable_confd = xTrue])
-AM_CONDITIONAL([PY_CONFD], [test x$py_confd = xTrue])
-AM_CONDITIONAL([HS_CONFD], [test x$hs_confd = xTrue])
+  [enable_restricted_commands=False])
+AC_SUBST(ENABLE_RESTRICTED_COMMANDS, $enable_restricted_commands)
 
 # --with-disk-separator=...
 AC_ARG_WITH([disk-separator],
@@ -361,6 +382,38 @@ if test -z "$SPHINX"
 then
   AC_MSG_WARN(m4_normalize([sphinx-build not found, documentation rebuild will
                             not be possible]))
+else
+  # Sphinx exits with code 1 when it prints its usage
+  sphinxver=`{ $SPHINX --version 2>&1 || :; } | head -n 3`
+
+  if ! echo "$sphinxver" | grep -q -w -e '^Sphinx' -e '^Usage:'; then
+    AC_MSG_ERROR([Unable to determine Sphinx version])
+
+  # Note: Character classes ([...]) need to be double quoted due to autoconf
+  # using m4
+  elif ! echo "$sphinxver" | grep -q -E '^Sphinx[[[:space:]]]+v[[1-9]]\>'; then
+    AC_MSG_ERROR([Sphinx 1.0 or higher is required])
+  fi
+fi
+
+AC_ARG_ENABLE([manpages-in-doc],
+  [AS_HELP_STRING([--enable-manpages-in-doc],
+                  m4_normalize([include man pages in HTML documentation
+                                (requires sphinx; default disabled)]))],
+  [case "$enableval" in
+      yes) manpages_in_doc=yes ;;
+      no) manpages_in_doc= ;;
+      *)
+        AC_MSG_ERROR([Bad value $enableval for --enable-manpages-in-doc])
+        ;;
+    esac
+  ],
+  [manpages_in_doc=])
+AM_CONDITIONAL([MANPAGES_IN_DOC], [test -n "$manpages_in_doc"])
+AC_SUBST(MANPAGES_IN_DOC, $manpages_in_doc)
+
+if test -z "$SPHINX" -a -n "$manpages_in_doc"; then
+  AC_MSG_ERROR([Including man pages in HTML documentation requires sphinx])
 fi
 
 # Check for graphviz (dot)
@@ -387,7 +440,16 @@ if test -z "$PEP8"
 then
   AC_MSG_WARN([pep8 not found, checking code will not be complete])
 fi
-AM_CONDITIONAL([HAS_PEP8], [test "$PEP8"])
+AM_CONDITIONAL([HAS_PEP8], [test -n "$PEP8"])
+
+# Check for python-coverage
+AC_ARG_VAR(PYCOVERAGE, [python-coverage path])
+AC_PATH_PROGS(PYCOVERAGE, [python-coverage coverage], [])
+if test -z "$PYCOVERAGE"
+then
+  AC_MSG_WARN(m4_normalize([python-coverage or coverage not found, evaluating
+                            Python test coverage will not be possible]))
+fi
 
 # Check for socat
 AC_ARG_VAR(SOCAT, [socat path])
@@ -405,101 +467,223 @@ then
   AC_MSG_WARN([qemu-img not found, using ovfconverter will not be possible])
 fi
 
-if test "$enable_htools" != "no"; then
+# --enable-htools-rapi
+HTOOLS_RAPI=
+AC_ARG_ENABLE([htools-rapi],
+        [AS_HELP_STRING([--enable-htools-rapi],
+        [enable use of curl in the Haskell code (default: check)])],
+        [],
+        [enable_htools_rapi=check])
+
+# --enable-confd
+ENABLE_CONFD=
+AC_ARG_ENABLE([confd],
+  [AS_HELP_STRING([--enable-confd],
+  [enable the ganeti-confd daemon (default: check)])],
+  [],
+  [enable_confd=check])
+
+ENABLE_MONITORING=
+AC_ARG_ENABLE([monitoring],
+  [AS_HELP_STRING([--enable-monitoring],
+  [enable the ganeti monitoring agent (default: check)])],
+  [],
+  [enable_monitoring=check])
 
 # Check for ghc
 AC_ARG_VAR(GHC, [ghc path])
 AC_PATH_PROG(GHC, [ghc], [])
 if test -z "$GHC"; then
-  if test "$enable_htools" != "check"; then
-    AC_MSG_FAILURE([ghc not found, htools compilation will not possible])
-  fi
+  AC_MSG_FAILURE([ghc not found, compilation will not possible])
 fi
 
+AC_MSG_CHECKING([checking for extra GHC flags])
+GHC_BYVERSION_FLAGS=
+# check for GHC supported flags that vary accross versions
+for flag in -fwarn-incomplete-uni-patterns; do
+  if $GHC -e '0' $flag >/dev/null 2>/dev/null; then
+   GHC_BYVERSION_FLAGS="$GHC_BYVERSION_FLAGS $flag"
+  fi
+done
+AC_MSG_RESULT($GHC_BYVERSION_FLAGS)
+AC_SUBST(GHC_BYVERSION_FLAGS)
+
 # Check for ghc-pkg
-HTOOLS_MODULES=
 AC_ARG_VAR(GHC_PKG, [ghc-pkg path])
 AC_PATH_PROG(GHC_PKG, [ghc-pkg], [])
 if test -z "$GHC_PKG"; then
-  if test "$enable_htools" != "check"; then
-    AC_MSG_FAILURE([ghc-pkg not found, htools compilation will not be possible])
-  fi
-else
-  # check for modules
-  AC_MSG_NOTICE([checking for required haskell modules])
-  HTOOLS_NOCURL=-DNO_CURL
-  if test "$enable_htools_rapi" != "no"; then
-    AC_MSG_CHECKING([curl])
-    GHC_PKG_CURL=$($GHC_PKG latest curl)
-    if test -z "$GHC_PKG_CURL"; then
-      if test "$enable_htools_rapi" = "check"; then
-        AC_MSG_WARN(m4_normalize([The curl library not found, htools will be
-                                  compiled without RAPI support]))
-      else
-        AC_MSG_FAILURE(m4_normalize([The curl library was not found, but it has
-                                     been requested]))
-      fi
-    else
-      HTOOLS_NOCURL=
-    fi
-    AC_MSG_RESULT($GHC_PKG_CURL)
-  fi
-  AC_SUBST(GHC_PKG_CURL)
-  AC_SUBST(HTOOLS_NOCURL)
-  AC_MSG_CHECKING([parallel])
-  GHC_PKG_PARALLEL=$($GHC_PKG --simple-output list 'parallel-3.*')
-  if test -n "$GHC_PKG_PARALLEL"
-  then
-    HTOOLS_PARALLEL3=-DPARALLEL3
-  else
-    GHC_PKG_PARALLEL=$($GHC_PKG --simple-output list 'parallel-2.*')
-  fi
-  if test -z "$GHC_PKG_PARALLEL"
-  then
-    GHC_PKG_PARALLEL=$($GHC_PKG --simple-output list 'parallel-1.*')
-  fi
-  AC_SUBST(GHC_PKG_PARALLEL)
-  AC_SUBST(HTOOLS_PARALLEL3)
-  AC_MSG_RESULT($GHC_PKG_PARALLEL)
-  AC_MSG_CHECKING([json])
-  GHC_PKG_JSON=$($GHC_PKG latest json)
-  AC_MSG_RESULT($GHC_PKG_JSON)
-  AC_MSG_CHECKING([network])
-  GHC_PKG_NETWORK=$($GHC_PKG latest network)
-  AC_MSG_RESULT($GHC_PKG_NETWORK)
-  AC_MSG_CHECKING([QuickCheck 2.x])
-  GHC_PKG_QUICKCHECK=$($GHC_PKG --simple-output list 'QuickCheck-2.*')
-  AC_MSG_RESULT($GHC_PKG_QUICKCHECK)
-  if test -z "$GHC_PKG_PARALLEL" || test -z "$GHC_PKG_JSON" || \
-     test -z "$GHC_PKG_NETWORK"; then
-    if test "$enable_htools" != "check"; then
-      AC_MSG_FAILURE(m4_normalize([Required Haskell modules not found, htools
-                                   compilation disabled]))
-    fi
-  else
-    # we leave the other modules to be auto-selected
-    HTOOLS_MODULES="-package $GHC_PKG_PARALLEL"
-  fi
-  if test -z "$GHC_PKG_QUICKCHECK"; then
-     AC_MSG_WARN(m4_normalize([The QuickCheck 2.x module was not found,
-                               you won't be able to run Haskell unittests]))
-  fi
+  AC_MSG_FAILURE([ghc-pkg not found, compilation will not be possible])
 fi
-AC_SUBST(HTOOLS_MODULES)
-AC_SUBST(GHC_PKG_QUICKCHECK)
 
-if test "$enable_htools" != "no"; then
-  if test -z "$GHC" || test -z "$HTOOLS_MODULES"; then
-    AC_MSG_WARN(m4_normalize([Haskell compiler/required libraries not found,
-                              htools compilation disabled]))
+# check for modules, first custom/special checks
+AC_MSG_NOTICE([checking for required haskell modules])
+HS_NOCURL=-DNO_CURL
+if test "$enable_htools_rapi" != no; then
+  AC_GHC_PKG_CHECK([curl], [HS_NOCURL=], [])
+  if test -n "$HS_NOCURL"; then
+    if test "$enable_htools_rapi" = check; then
+      AC_MSG_WARN(m4_normalize([The curl library was not found, Haskell
+                                code will be compiled without RAPI support]))
+    else
+      AC_MSG_FAILURE(m4_normalize([The curl library was not found, but it has
+                                   been requested]))
+    fi
   else
-    HTOOLS=yes
+    AC_MSG_NOTICE([Enabling curl/RAPI/RPC usage in Haskell code])
   fi
 fi
+AC_SUBST(HS_NOCURL)
+
+HS_PARALLEL3=
+AC_GHC_PKG_CHECK([parallel-3.*], [HS_PARALLEL3=-DPARALLEL3],
+                 [AC_GHC_PKG_REQUIRE(parallel)], t)
+AC_SUBST(HS_PARALLEL3)
+
+# and now standard modules
+AC_GHC_PKG_REQUIRE(json)
+AC_GHC_PKG_REQUIRE(network)
+AC_GHC_PKG_REQUIRE(mtl)
+AC_GHC_PKG_REQUIRE(bytestring)
+AC_GHC_PKG_REQUIRE(utf8-string)
+
+# extra modules for confd functionality
+HS_REGEX_PCRE=-DNO_REGEX_PCRE
+has_confd=False
+if test "$enable_confd" != no; then
+  CONFD_PKG=
+  AC_GHC_PKG_CHECK([regex-pcre], [HS_REGEX_PCRE=],
+                   [CONFD_PKG="$CONFD_PKG regex-pcre"])
+  AC_GHC_PKG_CHECK([hslogger], [], [CONFD_PKG="$CONFD_PKG hslogger"])
+  AC_GHC_PKG_CHECK([Crypto], [], [CONFD_PKG="$CONFD_PKG Crypto"])
+  AC_GHC_PKG_CHECK([text], [], [CONFD_PKG="$CONFD_PKG text"])
+  AC_GHC_PKG_CHECK([hinotify], [], [CONFD_PKG="$CONFD_PKG hinotify"])
+  AC_GHC_PKG_CHECK([vector], [], [CONFD_PKG="$CONFD_PKG vector"])
+  if test -z "$CONFD_PKG"; then
+    has_confd=True
+  elif test "$enable_confd" = check; then
+    AC_MSG_WARN(m4_normalize([The required extra libraries for confd were
+                              not found ($CONFD_PKG), confd disabled]))
+  else
+    AC_MSG_FAILURE(m4_normalize([The confd functionality was requested, but
+                                 required libraries were not found:
+                                 $CONFD_PKG]))
+  fi
+fi
+AC_SUBST(HS_REGEX_PCRE)
+if test "$has_confd" = True; then
+  AC_MSG_NOTICE([Enabling confd usage])
+fi
+AC_SUBST(ENABLE_CONFD, $has_confd)
+AM_CONDITIONAL([ENABLE_CONFD], [test x$has_confd = xTrue])
+
+#extra modules for monitoring agent functionality
+has_monitoring=False
+if test "$enable_monitoring" != no; then
+  MONITORING_PKG=
+  AC_GHC_PKG_CHECK([attoparsec], [],
+                   [MONITORING_PKG="$MONITORING_PKG attoparsec"])
+  MONITORING_DEP=
+  if test "$has_confd" = False; then
+    MONITORING_DEP="$MONITORING_DEP confd"
+  fi
+  has_monitoring_pkg=False
+  if test -z "$MONITORING_PKG"; then
+    has_monitoring_pkg=True
+  elif test "$enable_monitoring" = check; then
+    AC_MSG_WARN(m4_normalize([The required extra libraries for the monitoring
+                              agent were not found ($MONITORING_PKG),
+                              monitoring disabled]))
+  else
+    AC_MSG_FAILURE(m4_normalize([The monitoring functionality was requested, but
+                                 required libraries were not found:
+                                 $MONITORING_PKG]))
+  fi
+  has_monitoring_dep=False
+  if test -z "$MONITORING_DEP"; then
+    has_monitoring_dep=True
+  elif test "$enable_monitoring" = check; then
+    AC_MSG_WARN(m4_normalize([The optional Ganeti components required for the
+                              monitoring agent were not enabled
+                              ($MONITORING_DEP), monitoring disabled]))
+  else
+    AC_MSG_FAILURE(m4_normalize([The monitoring functionality was requested, but
+                                 required optional Ganeti components were not
+                                 found: $MONITORING_DEP]))
+  fi
+
+fi
+if test "$has_monitoring_pkg" = True -a "$has_monitoring_dep" = True; then
+  has_monitoring=True
+  AC_MSG_NOTICE([Enabling the monitoring agent usage])
+fi
+AC_SUBST(ENABLE_MONITORING, $has_monitoring)
+AM_CONDITIONAL([ENABLE_MONITORING], [test "$has_monitoring" = True])
+
+# development modules
+HS_NODEV=
+AC_GHC_PKG_CHECK([QuickCheck-2.*], [], [HS_NODEV=1], t)
+AC_GHC_PKG_CHECK([test-framework-0.6*], [], [HS_NODEV=1], t)
+AC_GHC_PKG_CHECK([test-framework-hunit], [], [HS_NODEV=1])
+AC_GHC_PKG_CHECK([test-framework-quickcheck2], [], [HS_NODEV=1])
+AC_GHC_PKG_CHECK([temporary], [], [HS_NODEV=1])
+# FIXME: unify checks for non-test libraries (attoparsec, hinotify, ...)
+#        that are needed to execute the tests, avoiding the duplication
+#        of the checks.
+AC_GHC_PKG_CHECK([attoparsec], [], [HS_NODEV=1])
+AC_GHC_PKG_CHECK([vector], [], [HS_NODEV=1])
+if test -n "$HS_NODEV"; then
+   AC_MSG_WARN(m4_normalize([Required development modules were not found,
+                             you won't be able to run Haskell unittests]))
+else
+   AC_MSG_NOTICE([Haskell development modules found, unittests enabled])
+fi
+AC_SUBST(HS_NODEV)
+
+HTOOLS=yes
 AC_SUBST(HTOOLS)
 
+# --enable-split-query
+ENABLE_SPLIT_QUERY=
+AC_ARG_ENABLE([split-query],
+  [AS_HELP_STRING([--enable-split-query],
+  [enable use of custom query daemon via confd])],
+  [[case "$enableval" in
+      no)
+        enable_split_query=False
+        ;;
+      yes)
+        enable_split_query=True
+        ;;
+      *)
+        echo "Invalid value for enable-confd '$enableval'"
+        exit 1
+        ;;
+    esac
+  ]],
+  [[case "x${has_confd}x${HS_NOCURL}x" in
+     xTruexx)
+       enable_split_query=True
+       ;;
+     *)
+       enable_split_query=False
+       ;;
+   esac]])
+AC_SUBST(ENABLE_SPLIT_QUERY, $enable_split_query)
+
+if test x$enable_split_query = xTrue -a x$has_confd != xTrue; then
+  AC_MSG_ERROR([Split queries require the confd daemon])
+fi
+
+if test x$enable_split_query = xTrue -a x$HS_NOCURL != x; then
+  AC_MSG_ERROR([Split queries require the htools-rapi feature (curl library)])
+fi
+
+if test x$enable_split_query = xTrue; then
+  AC_MSG_NOTICE([Split query functionality enabled])
+fi
+
 # Check for HsColour
-HTOOLS_APIDOC=no
+HS_APIDOC=no
 AC_ARG_VAR(HSCOLOUR, [HsColour path])
 AC_PATH_PROG(HSCOLOUR, [HsColour], [])
 if test -z "$HSCOLOUR"; then
@@ -514,29 +698,26 @@ if test -z "$HADDOCK"; then
   AC_MSG_WARN(m4_normalize([haddock not found, htools API documentation will
                             not be generated]))
 fi
-if test "$HADDOCK" && test "$HSCOLOUR"; then
-  HTOOLS_APIDOC=yes
+if test -n "$HADDOCK" && test -n "$HSCOLOUR"; then
+  HS_APIDOC=yes
 fi
-AC_SUBST(HTOOLS_APIDOC)
+AC_SUBST(HS_APIDOC)
 
 # Check for hlint
-HLINT=no
 AC_ARG_VAR(HLINT, [hlint path])
 AC_PATH_PROG(HLINT, [hlint], [])
 if test -z "$HLINT"; then
   AC_MSG_WARN([hlint not found, checking code will not be possible])
 fi
 
-fi # end if enable_htools, define automake conditions
-
-if test "$HTOOLS" != "yes" && test "$HS_CONFD" = "True"; then
-   AC_MSG_ERROR(m4_normalize([cannot enable Haskell version of ganeti-confd if
-                              htools support is not enabled]))
+if test "$HTOOLS" != yes && test "$ENABLE_CONFD" = True; then
+  AC_MSG_ERROR(m4_normalize([cannot enable ganeti-confd if
+                             htools support is not enabled]))
 fi
 
-AM_CONDITIONAL([WANT_HTOOLS], [test x$HTOOLS = xyes])
-AM_CONDITIONAL([WANT_HTOOLSTESTS], [test "x$GHC_PKG_QUICKCHECK" != x])
-AM_CONDITIONAL([WANT_HTOOLSAPIDOC], [test x$HTOOLS_APIDOC = xyes])
+AM_CONDITIONAL([WANT_HTOOLS], [test "$HTOOLS" = yes])
+AM_CONDITIONAL([WANT_HSTESTS], [test "x$HS_NODEV" = x])
+AM_CONDITIONAL([WANT_HSAPIDOC], [test "$HS_APIDOC" = yes])
 AM_CONDITIONAL([HAS_HLINT], [test "$HLINT"])
 
 # Check for fakeroot
@@ -613,15 +794,10 @@ AC_PYTHON_MODULE(simplejson, t)
 AC_PYTHON_MODULE(pyparsing, t)
 AC_PYTHON_MODULE(pyinotify, t)
 AC_PYTHON_MODULE(pycurl, t)
+AC_PYTHON_MODULE(bitarray, t)
+AC_PYTHON_MODULE(ipaddr, t)
 AC_PYTHON_MODULE(affinity)
-
-# This is optional but then we've limited functionality
 AC_PYTHON_MODULE(paramiko)
-if test "$HAVE_PYMOD_PARAMIKO" = "no"; then
-  AC_MSG_WARN(m4_normalize([You do not have Paramiko installed. While this is
-                            optional you have to configure SSH and the node
-                            daemon on the joining nodes yourself.]))
-fi
 
 AC_CONFIG_FILES([ Makefile ])
 

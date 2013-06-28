@@ -1,41 +1,45 @@
+
+
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
   "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
 
 <html xmlns="http://www.w3.org/1999/xhtml">
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Network management &mdash; Ganeti v2.6.2 documentation</title>
-    <link rel="stylesheet" href="_static/default.css" type="text/css" />
+    <title>Network management &mdash; Ganeti 2.7.0~rc3 documentation</title>
+    
+    <link rel="stylesheet" href="_static/style.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.6.2',
-        COLLAPSE_MODINDEX: false,
+        VERSION:     '2.7.0~rc3',
+        COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
       };
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.6.2 documentation" href="index.html" />
-    <link rel="up" title="Design document drafts" href="design-draft.html" />
-    <link rel="next" title="Node State Cache" href="design-node-state-cache.html" />
-    <link rel="prev" title="Design for import/export version 2" href="design-impexp2.html" /> 
+    <link rel="top" title="Ganeti 2.7.0~rc3 documentation" href="index.html" />
+    <link rel="next" title="Linux HA integration" href="design-linuxha.html" />
+    <link rel="prev" title="Design for virtual clusters support" href="design-virtual-clusters.html" /> 
   </head>
   <body>
     <div class="related">
       <h3>Navigation</h3>
       <ul>
         <li class="right" style="margin-right: 10px">
-          <a href="design-node-state-cache.html" title="Node State Cache"
+          <a href="design-linuxha.html" title="Linux HA integration"
              accesskey="N">next</a></li>
         <li class="right" >
-          <a href="design-impexp2.html" title="Design for import/export version 2"
+          <a href="design-virtual-clusters.html" title="Design for virtual clusters support"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.6.2 documentation</a> &raquo;</li>
-          <li><a href="design-draft.html" accesskey="U">Design document drafts</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.7.0~rc3 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -193,11 +197,11 @@ is connected to.</p>
 <col class="field-name" />
 <col class="field-body" />
 <tbody valign="top">
-<tr class="field"><th class="field-name">directory:</th><td class="field-body">network-add</td>
+<tr class="field-odd field"><th class="field-name">directory:</th><td class="field-body">network-add</td>
 </tr>
-<tr class="field"><th class="field-name">pre-execution:</th><td class="field-body">master node</td>
+<tr class="field-even field"><th class="field-name">pre-execution:</th><td class="field-body">master node</td>
 </tr>
-<tr class="field"><th class="field-name">post-execution:</th><td class="field-body">master node</td>
+<tr class="field-odd field"><th class="field-name">post-execution:</th><td class="field-body">master node</td>
 </tr>
 </tbody>
 </table>
@@ -208,11 +212,11 @@ is connected to.</p>
 <col class="field-name" />
 <col class="field-body" />
 <tbody valign="top">
-<tr class="field"><th class="field-name">directory:</th><td class="field-body">network-remove</td>
+<tr class="field-odd field"><th class="field-name">directory:</th><td class="field-body">network-remove</td>
 </tr>
-<tr class="field"><th class="field-name">pre-execution:</th><td class="field-body">master node</td>
+<tr class="field-even field"><th class="field-name">pre-execution:</th><td class="field-body">master node</td>
 </tr>
-<tr class="field"><th class="field-name">post-execution:</th><td class="field-body">master node</td>
+<tr class="field-odd field"><th class="field-name">post-execution:</th><td class="field-body">master node</td>
 </tr>
 </tbody>
 </table>
@@ -223,11 +227,11 @@ is connected to.</p>
 <col class="field-name" />
 <col class="field-body" />
 <tbody valign="top">
-<tr class="field"><th class="field-name">directory:</th><td class="field-body">network-modify</td>
+<tr class="field-odd field"><th class="field-name">directory:</th><td class="field-body">network-modify</td>
 </tr>
-<tr class="field"><th class="field-name">pre-execution:</th><td class="field-body">master node</td>
+<tr class="field-even field"><th class="field-name">pre-execution:</th><td class="field-body">master node</td>
 </tr>
-<tr class="field"><th class="field-name">post-execution:</th><td class="field-body">master node</td>
+<tr class="field-odd field"><th class="field-name">post-execution:</th><td class="field-body">master node</td>
 </tr>
 </tbody>
 </table>
@@ -241,11 +245,11 @@ is connected to.</p>
 <col class="field-name" />
 <col class="field-body" />
 <tbody valign="top">
-<tr class="field"><th class="field-name">directory:</th><td class="field-body">group-modify</td>
+<tr class="field-odd field"><th class="field-name">directory:</th><td class="field-body">group-modify</td>
 </tr>
-<tr class="field"><th class="field-name">pre-execution:</th><td class="field-body">master node</td>
+<tr class="field-even field"><th class="field-name">pre-execution:</th><td class="field-body">master node</td>
 </tr>
-<tr class="field"><th class="field-name">post-execution:</th><td class="field-body">master node</td>
+<tr class="field-odd field"><th class="field-name">post-execution:</th><td class="field-body">master node</td>
 </tr>
 </tbody>
 </table>
@@ -316,7 +320,7 @@ network-related configuration in Ganeti.</p>
 <h5>Network addition/deletion<a class="headerlink" href="#network-addition-deletion" title="Permalink to this headline">¶</a></h5>
 <div class="highlight-python"><pre>gnt-network add --network=192.168.100.0/28 --gateway=192.168.100.1 \
                 --network6=2001:db8:2ffc::/64 --gateway6=2001:db8:2ffc::1 \
-                --reserved-ips=192.168.100.10,192.168.100.11 net100
+                --add-reserved-ips=192.168.100.10,192.168.100.11 net100
  (Checks for already exising name and valid IP values)
 gnt-network remove network_name
  (Checks if not connected to any nodegroup)</pre>
@@ -326,8 +330,10 @@ gnt-network remove network_name
 <h5>Network modification<a class="headerlink" href="#network-modification" title="Permalink to this headline">¶</a></h5>
 <div class="highlight-python"><pre>gnt-network modify --gateway=192.168.100.5 net100
  (Changes the gateway only if ip is available)
-gnt-network modify --reserved-ips=192.168.100.11 net100
- (Toggles externally reserved ip)</pre>
+gnt-network modify --add-reserved-ips=192.168.100.11 net100
+ (Adds externally reserved ip)
+gnt-network modify --remove-reserved-ips=192.168.100.11 net100
+ (Removes externally reserved ip)</pre>
 </div>
 </div>
 <div class="section" id="assignment-to-node-groups">
@@ -389,32 +395,32 @@ the placement on certain node groups.</p>
       </div>
       <div class="sphinxsidebar">
         <div class="sphinxsidebarwrapper">
-            <h3><a href="index.html">Table Of Contents</a></h3>
-            <ul>
-<li><a class="reference external" href="#">Network management</a><ul>
-<li><a class="reference external" href="#current-state-and-shortcomings">Current state and shortcomings</a><ul>
-<li><a class="reference external" href="#proposed-changes">Proposed changes</a><ul>
-<li><a class="reference external" href="#configuration-changes">Configuration changes</a></li>
-<li><a class="reference external" href="#ip-pool-management">IP pool management</a></li>
-<li><a class="reference external" href="#new-nic-parameter-network">New NIC parameter: network</a></li>
-<li><a class="reference external" href="#hooks">Hooks</a><ul>
-<li><a class="reference external" href="#hook-variables">Hook variables</a></li>
+  <h3><a href="index.html">Table Of Contents</a></h3>
+  <ul>
+<li><a class="reference internal" href="#">Network management</a><ul>
+<li><a class="reference internal" href="#current-state-and-shortcomings">Current state and shortcomings</a><ul>
+<li><a class="reference internal" href="#proposed-changes">Proposed changes</a><ul>
+<li><a class="reference internal" href="#configuration-changes">Configuration changes</a></li>
+<li><a class="reference internal" href="#ip-pool-management">IP pool management</a></li>
+<li><a class="reference internal" href="#new-nic-parameter-network">New NIC parameter: network</a></li>
+<li><a class="reference internal" href="#hooks">Hooks</a><ul>
+<li><a class="reference internal" href="#hook-variables">Hook variables</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#backend-changes">Backend changes</a><ul>
-<li><a class="reference external" href="#network-configuration-script-variables">Network configuration script variables</a></li>
+<li><a class="reference internal" href="#backend-changes">Backend changes</a><ul>
+<li><a class="reference internal" href="#network-configuration-script-variables">Network configuration script variables</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#conflicting-ips">Conflicting IPs</a></li>
-<li><a class="reference external" href="#userland-interface">Userland interface</a><ul>
-<li><a class="reference external" href="#network-addition-deletion">Network addition/deletion</a></li>
-<li><a class="reference external" href="#network-modification">Network modification</a></li>
-<li><a class="reference external" href="#assignment-to-node-groups">Assignment to node groups</a></li>
-<li><a class="reference external" href="#network-listing">Network listing</a></li>
-<li><a class="reference external" href="#network-information">Network information</a></li>
+<li><a class="reference internal" href="#conflicting-ips">Conflicting IPs</a></li>
+<li><a class="reference internal" href="#userland-interface">Userland interface</a><ul>
+<li><a class="reference internal" href="#network-addition-deletion">Network addition/deletion</a></li>
+<li><a class="reference internal" href="#network-modification">Network modification</a></li>
+<li><a class="reference internal" href="#assignment-to-node-groups">Assignment to node groups</a></li>
+<li><a class="reference internal" href="#network-listing">Network listing</a></li>
+<li><a class="reference internal" href="#network-information">Network information</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#iallocator-changes">IAllocator changes</a></li>
+<li><a class="reference internal" href="#iallocator-changes">IAllocator changes</a></li>
 </ul>
 </li>
 </ul>
@@ -423,30 +429,30 @@ the placement on certain node groups.</p>
 </li>
 </ul>
 
-            <h4>Previous topic</h4>
-            <p class="topless"><a href="design-impexp2.html"
-                                  title="previous chapter">Design for import/export version 2</a></p>
-            <h4>Next topic</h4>
-            <p class="topless"><a href="design-node-state-cache.html"
-                                  title="next chapter">Node State Cache</a></p>
-            <h3>This Page</h3>
-            <ul class="this-page-menu">
-              <li><a href="_sources/design-network.txt"
-                     rel="nofollow">Show Source</a></li>
-            </ul>
-          <div id="searchbox" style="display: none">
-            <h3>Quick search</h3>
-              <form class="search" action="search.html" method="get">
-                <input type="text" name="q" size="18" />
-                <input type="submit" value="Go" />
-                <input type="hidden" name="check_keywords" value="yes" />
-                <input type="hidden" name="area" value="default" />
-              </form>
-              <p class="searchtip" style="font-size: 90%">
-              Enter search terms or a module, class or function name.
-              </p>
-          </div>
-          <script type="text/javascript">$('#searchbox').show(0);</script>
+  <h4>Previous topic</h4>
+  <p class="topless"><a href="design-virtual-clusters.html"
+                        title="previous chapter">Design for virtual clusters support</a></p>
+  <h4>Next topic</h4>
+  <p class="topless"><a href="design-linuxha.html"
+                        title="next chapter">Linux HA integration</a></p>
+  <h3>This Page</h3>
+  <ul class="this-page-menu">
+    <li><a href="_sources/design-network.txt"
+           rel="nofollow">Show Source</a></li>
+  </ul>
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
         </div>
       </div>
       <div class="clearer"></div>
@@ -455,18 +461,17 @@ the placement on certain node groups.</p>
       <h3>Navigation</h3>
       <ul>
         <li class="right" style="margin-right: 10px">
-          <a href="design-node-state-cache.html" title="Node State Cache"
+          <a href="design-linuxha.html" title="Linux HA integration"
              >next</a></li>
         <li class="right" >
-          <a href="design-impexp2.html" title="Design for import/export version 2"
+          <a href="design-virtual-clusters.html" title="Design for virtual clusters support"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.6.2 documentation</a> &raquo;</li>
-          <li><a href="design-draft.html" >Design document drafts</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.7.0~rc3 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">
-      &copy; Copyright 2006, 2007, 2008, 2009, 2010, 2011, 2012, Google Inc..
-      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 0.6.7.
+        &copy; Copyright 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Google Inc..
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
     </div>
   </body>
 </html>

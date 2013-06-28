@@ -27,239 +27,70 @@ configuration data, which is mostly static and available to all nodes.
 """
 
 import sys
-import re
-import os
 import errno
+import logging
 
+from ganeti import compat
 from ganeti import errors
 from ganeti import constants
 from ganeti import utils
-from ganeti import serializer
-from ganeti import objects
 from ganeti import netutils
+from ganeti import pathutils
 
 
 SSCONF_LOCK_TIMEOUT = 10
 
-RE_VALID_SSCONF_NAME = re.compile(r"^[-_a-z0-9]+$")
+#: Valid ssconf keys
+_VALID_KEYS = compat.UniqueFrozenset([
+  constants.SS_CLUSTER_NAME,
+  constants.SS_CLUSTER_TAGS,
+  constants.SS_FILE_STORAGE_DIR,
+  constants.SS_SHARED_FILE_STORAGE_DIR,
+  constants.SS_MASTER_CANDIDATES,
+  constants.SS_MASTER_CANDIDATES_IPS,
+  constants.SS_MASTER_IP,
+  constants.SS_MASTER_NETDEV,
+  constants.SS_MASTER_NETMASK,
+  constants.SS_MASTER_NODE,
+  constants.SS_NODE_LIST,
+  constants.SS_NODE_PRIMARY_IPS,
+  constants.SS_NODE_SECONDARY_IPS,
+  constants.SS_OFFLINE_NODES,
+  constants.SS_ONLINE_NODES,
+  constants.SS_PRIMARY_IP_FAMILY,
+  constants.SS_INSTANCE_LIST,
+  constants.SS_RELEASE_VERSION,
+  constants.SS_HYPERVISOR_LIST,
+  constants.SS_MAINTAIN_NODE_HEALTH,
+  constants.SS_UID_POOL,
+  constants.SS_NODEGROUPS,
+  constants.SS_NETWORKS,
+  ])
+
+#: Maximum size for ssconf files
+_MAX_SIZE = 128 * 1024
 
 
-class SimpleConfigReader(object):
-  """Simple class to read configuration file.
+def ReadSsconfFile(filename):
+  """Reads an ssconf file and verifies its size.
+
+  @type filename: string
+  @param filename: Path to file
+  @rtype: string
+  @return: File contents without newlines at the end
+  @raise RuntimeError: When the file size exceeds L{_MAX_SIZE}
 
   """
-  def __init__(self, file_name=constants.CLUSTER_CONF_FILE):
-    """Initializes this class.
+  statcb = utils.FileStatHelper()
 
-    @type file_name: string
-    @param file_name: Configuration file path
+  data = utils.ReadFile(filename, size=_MAX_SIZE, preread=statcb)
 
-    """
-    self._file_name = file_name
-    self._last_inode = None
-    self._last_mtime = None
-    self._last_size = None
+  if statcb.st.st_size > _MAX_SIZE:
+    msg = ("File '%s' has a size of %s bytes (up to %s allowed)" %
+           (filename, statcb.st.st_size, _MAX_SIZE))
+    raise RuntimeError(msg)
 
-    self._config_data = None
-    self._inst_ips_by_link = None
-    self._ip_to_inst_by_link = None
-    self._instances_ips = None
-    self._mc_primary_ips = None
-    self._nodes_primary_ips = None
-
-    # we need a forced reload at class init time, to initialize _last_*
-    self._Load(force=True)
-
-  def _Load(self, force=False):
-    """Loads (or reloads) the config file.
-
-    @type force: boolean
-    @param force: whether to force the reload without checking the mtime
-    @rtype: boolean
-    @return: boolean value that says whether we reloaded the configuration or
-             not (because we decided it was already up-to-date)
-
-    """
-    try:
-      cfg_stat = os.stat(self._file_name)
-    except EnvironmentError, err:
-      raise errors.ConfigurationError("Cannot stat config file %s: %s" %
-                                      (self._file_name, err))
-    inode = cfg_stat.st_ino
-    mtime = cfg_stat.st_mtime
-    size = cfg_stat.st_size
-
-    if (force or inode != self._last_inode or
-        mtime > self._last_mtime or
-        size != self._last_size):
-      self._last_inode = inode
-      self._last_mtime = mtime
-      self._last_size = size
-    else:
-      # Don't reload
-      return False
-
-    try:
-      self._config_data = serializer.Load(utils.ReadFile(self._file_name))
-    except EnvironmentError, err:
-      raise errors.ConfigurationError("Cannot read config file %s: %s" %
-                                      (self._file_name, err))
-    except ValueError, err:
-      raise errors.ConfigurationError("Cannot load config file %s: %s" %
-                                      (self._file_name, err))
-
-    self._ip_to_inst_by_link = {}
-    self._instances_ips = []
-    self._inst_ips_by_link = {}
-    c_nparams = self._config_data["cluster"]["nicparams"][constants.PP_DEFAULT]
-    for iname in self._config_data["instances"]:
-      instance = self._config_data["instances"][iname]
-      for nic in instance["nics"]:
-        if "ip" in nic and nic["ip"]:
-          params = objects.FillDict(c_nparams, nic["nicparams"])
-          if not params["link"] in self._inst_ips_by_link:
-            self._inst_ips_by_link[params["link"]] = []
-            self._ip_to_inst_by_link[params["link"]] = {}
-          self._ip_to_inst_by_link[params["link"]][nic["ip"]] = iname
-          self._inst_ips_by_link[params["link"]].append(nic["ip"])
-
-    self._nodes_primary_ips = []
-    self._mc_primary_ips = []
-    for node_name in self._config_data["nodes"]:
-      node = self._config_data["nodes"][node_name]
-      self._nodes_primary_ips.append(node["primary_ip"])
-      if node["master_candidate"]:
-        self._mc_primary_ips.append(node["primary_ip"])
-
-    return True
-
-  # Clients can request a reload of the config file, so we export our internal
-  # _Load function as Reload.
-  Reload = _Load
-
-  def GetClusterName(self):
-    return self._config_data["cluster"]["cluster_name"]
-
-  def GetHostKey(self):
-    return self._config_data["cluster"]["rsahostkeypub"]
-
-  def GetMasterNode(self):
-    return self._config_data["cluster"]["master_node"]
-
-  def GetMasterIP(self):
-    return self._config_data["cluster"]["master_ip"]
-
-  def GetMasterNetdev(self):
-    return self._config_data["cluster"]["master_netdev"]
-
-  def GetMasterNetmask(self):
-    return self._config_data["cluster"]["master_netmask"]
-
-  def GetFileStorageDir(self):
-    return self._config_data["cluster"]["file_storage_dir"]
-
-  def GetSharedFileStorageDir(self):
-    return self._config_data["cluster"]["shared_file_storage_dir"]
-
-  def GetNodeList(self):
-    return self._config_data["nodes"].keys()
-
-  def GetConfigSerialNo(self):
-    return self._config_data["serial_no"]
-
-  def GetClusterSerialNo(self):
-    return self._config_data["cluster"]["serial_no"]
-
-  def GetDefaultNicParams(self):
-    return self._config_data["cluster"]["nicparams"][constants.PP_DEFAULT]
-
-  def GetDefaultNicLink(self):
-    return self.GetDefaultNicParams()[constants.NIC_LINK]
-
-  def GetNodeStatusFlags(self, node):
-    """Get a node's status flags
-
-    @type node: string
-    @param node: node name
-    @rtype: (bool, bool, bool)
-    @return: (master_candidate, drained, offline) (or None if no such node)
-
-    """
-    if node not in self._config_data["nodes"]:
-      return None
-
-    master_candidate = self._config_data["nodes"][node]["master_candidate"]
-    drained = self._config_data["nodes"][node]["drained"]
-    offline = self._config_data["nodes"][node]["offline"]
-    return master_candidate, drained, offline
-
-  def GetInstanceByLinkIp(self, ip, link):
-    """Get instance name from its link and ip address.
-
-    @type ip: string
-    @param ip: ip address
-    @type link: string
-    @param link: nic link
-    @rtype: string
-    @return: instance name
-
-    """
-    if not link:
-      link = self.GetDefaultNicLink()
-    if not link in self._ip_to_inst_by_link:
-      return None
-    if not ip in self._ip_to_inst_by_link[link]:
-      return None
-    return self._ip_to_inst_by_link[link][ip]
-
-  def GetNodePrimaryIp(self, node):
-    """Get a node's primary ip
-
-    @type node: string
-    @param node: node name
-    @rtype: string, or None
-    @return: node's primary ip, or None if no such node
-
-    """
-    if node not in self._config_data["nodes"]:
-      return None
-    return self._config_data["nodes"][node]["primary_ip"]
-
-  def GetInstancePrimaryNode(self, instance):
-    """Get an instance's primary node
-
-    @type instance: string
-    @param instance: instance name
-    @rtype: string, or None
-    @return: primary node, or None if no such instance
-
-    """
-    if instance not in self._config_data["instances"]:
-      return None
-    return self._config_data["instances"][instance]["primary_node"]
-
-  def GetNodesPrimaryIps(self):
-    return self._nodes_primary_ips
-
-  def GetMasterCandidatesPrimaryIps(self):
-    return self._mc_primary_ips
-
-  def GetInstancesIps(self, link):
-    """Get list of nic ips connected to a certain link.
-
-    @type link: string
-    @param link: nic link
-    @rtype: list
-    @return: list of ips connected to that link
-
-    """
-    if not link:
-      link = self.GetDefaultNicLink()
-
-    if link in self._inst_ips_by_link:
-      return self._inst_ips_by_link[link]
-    else:
-      return []
+  return data.rstrip("\n")
 
 
 class SimpleStore(object):
@@ -273,43 +104,19 @@ class SimpleStore(object):
     - keys are restricted to predefined values
 
   """
-  _VALID_KEYS = (
-    constants.SS_CLUSTER_NAME,
-    constants.SS_CLUSTER_TAGS,
-    constants.SS_FILE_STORAGE_DIR,
-    constants.SS_SHARED_FILE_STORAGE_DIR,
-    constants.SS_MASTER_CANDIDATES,
-    constants.SS_MASTER_CANDIDATES_IPS,
-    constants.SS_MASTER_IP,
-    constants.SS_MASTER_NETDEV,
-    constants.SS_MASTER_NETMASK,
-    constants.SS_MASTER_NODE,
-    constants.SS_NODE_LIST,
-    constants.SS_NODE_PRIMARY_IPS,
-    constants.SS_NODE_SECONDARY_IPS,
-    constants.SS_OFFLINE_NODES,
-    constants.SS_ONLINE_NODES,
-    constants.SS_PRIMARY_IP_FAMILY,
-    constants.SS_INSTANCE_LIST,
-    constants.SS_RELEASE_VERSION,
-    constants.SS_HYPERVISOR_LIST,
-    constants.SS_MAINTAIN_NODE_HEALTH,
-    constants.SS_UID_POOL,
-    constants.SS_NODEGROUPS,
-    )
-  _MAX_SIZE = 131072
-
-  def __init__(self, cfg_location=None):
+  def __init__(self, cfg_location=None, _lockfile=pathutils.SSCONF_LOCK_FILE):
     if cfg_location is None:
-      self._cfg_dir = constants.DATA_DIR
+      self._cfg_dir = pathutils.DATA_DIR
     else:
       self._cfg_dir = cfg_location
+
+    self._lockfile = _lockfile
 
   def KeyToFilename(self, key):
     """Convert a given key into filename.
 
     """
-    if key not in self._VALID_KEYS:
+    if key not in _VALID_KEYS:
       raise errors.ProgrammerError("Invalid key requested from SSConf: '%s'"
                                    % str(key))
 
@@ -325,23 +132,43 @@ class SimpleStore(object):
     """
     filename = self.KeyToFilename(key)
     try:
-      data = utils.ReadFile(filename, size=self._MAX_SIZE)
+      return ReadSsconfFile(filename)
     except EnvironmentError, err:
       if err.errno == errno.ENOENT and default is not None:
         return default
-      raise errors.ConfigurationError("Can't read from the ssconf file:"
-                                      " '%s'" % str(err))
-    data = data.rstrip("\n")
-    return data
+      raise errors.ConfigurationError("Can't read ssconf file %s: %s" %
+                                      (filename, str(err)))
 
-  def WriteFiles(self, values):
+  def ReadAll(self):
+    """Reads all keys and returns their values.
+
+    @rtype: dict
+    @return: Dictionary, ssconf key as key, value as value
+
+    """
+    result = []
+
+    for key in _VALID_KEYS:
+      try:
+        value = self._ReadFile(key)
+      except errors.ConfigurationError:
+        # Ignore non-existing files
+        pass
+      else:
+        result.append((key, value))
+
+    return dict(result)
+
+  def WriteFiles(self, values, dry_run=False):
     """Writes ssconf files used by external scripts.
 
     @type values: dict
     @param values: Dictionary of (name, value)
+    @type dry_run boolean
+    @param dry_run: Whether to perform a dry run
 
     """
-    ssconf_lock = utils.FileLock.Open(constants.SSCONF_LOCK_FILE)
+    ssconf_lock = utils.FileLock.Open(self._lockfile)
 
     # Get lock while writing files
     ssconf_lock.Exclusive(blocking=True, timeout=SSCONF_LOCK_TIMEOUT)
@@ -349,11 +176,15 @@ class SimpleStore(object):
       for name, value in values.iteritems():
         if value and not value.endswith("\n"):
           value += "\n"
-        if len(value) > self._MAX_SIZE:
-          raise errors.ConfigurationError("ssconf file %s above maximum size" %
-                                          name)
+
+        if len(value) > _MAX_SIZE:
+          msg = ("Value '%s' has a length of %s bytes, but only up to %s are"
+                 " allowed" % (name, len(value), _MAX_SIZE))
+          raise errors.ConfigurationError(msg)
+
         utils.WriteFile(self.KeyToFilename(name), data=value,
-                        mode=constants.SS_FILE_PERMS)
+                        mode=constants.SS_FILE_PERMS,
+                        dry_run=dry_run)
     finally:
       ssconf_lock.Unlock()
 
@@ -363,7 +194,7 @@ class SimpleStore(object):
     This is used for computing node replication data.
 
     """
-    return [self.KeyToFilename(key) for key in self._VALID_KEYS]
+    return [self.KeyToFilename(key) for key in _VALID_KEYS]
 
   def GetClusterName(self):
     """Get the cluster name.
@@ -460,6 +291,14 @@ class SimpleStore(object):
     nl = data.splitlines(False)
     return nl
 
+  def GetNetworkList(self):
+    """Return the list of networks.
+
+    """
+    data = self._ReadFile(constants.SS_NETWORKS)
+    nl = data.splitlines(False)
+    return nl
+
   def GetClusterTags(self):
     """Return the cluster tags.
 
@@ -506,8 +345,17 @@ class SimpleStore(object):
       return int(self._ReadFile(constants.SS_PRIMARY_IP_FAMILY,
                                 default=netutils.IP4Address.family))
     except (ValueError, TypeError), err:
-      raise errors.ConfigurationError("Error while trying to parse primary ip"
+      raise errors.ConfigurationError("Error while trying to parse primary IP"
                                       " family: %s" % err)
+
+
+def WriteSsconfFiles(values, dry_run=False):
+  """Update all ssconf files.
+
+  Wrapper around L{SimpleStore.WriteFiles}.
+
+  """
+  SimpleStore().WriteFiles(values, dry_run=dry_run)
 
 
 def GetMasterAndMyself(ss=None):
@@ -550,3 +398,35 @@ def CheckMaster(debug, ss=None):
     if debug:
       sys.stderr.write("Not master, exiting.\n")
     sys.exit(constants.EXIT_NOTMASTER)
+
+
+def VerifyClusterName(name, _cfg_location=None):
+  """Verifies cluster name against a local cluster name.
+
+  @type name: string
+  @param name: Cluster name
+
+  """
+  sstore = SimpleStore(cfg_location=_cfg_location)
+
+  try:
+    local_name = sstore.GetClusterName()
+  except errors.ConfigurationError, err:
+    logging.debug("Can't get local cluster name: %s", err)
+  else:
+    if name != local_name:
+      raise errors.GenericError("Current cluster name is '%s'" % local_name)
+
+
+def VerifyKeys(keys):
+  """Raises an exception if unknown ssconf keys are given.
+
+  @type keys: sequence
+  @param keys: Key names to verify
+  @raise errors.GenericError: When invalid keys were found
+
+  """
+  invalid = frozenset(keys) - _VALID_KEYS
+  if invalid:
+    raise errors.GenericError("Invalid ssconf keys: %s" %
+                              utils.CommaJoin(sorted(invalid)))

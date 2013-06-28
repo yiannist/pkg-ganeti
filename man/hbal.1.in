@@ -4,61 +4,60 @@
 hbal - Cluster balancer for Ganeti
 .SH SYNOPSIS
 .PP
-\f[B]hbal\f[] {backend options...} [algorithm options...]
-[reporting options...]
+\f[B]hbal\f[] {backend options...} [algorithm options...] [reporting
+options...]
 .PP
 \f[B]hbal\f[] --version
 .PP
 Backend options:
 .PP
-{ \f[B]-m\f[] \f[I]cluster\f[] | \f[B]-L[\f[] \f[I]path\f[]
-\f[B]] [-X]\f[] | \f[B]-t\f[] \f[I]data-file\f[] | \f[B]-I\f[]
-\f[I]path\f[] }
+{ \f[B]-m\f[] \f[I]cluster\f[] | \f[B]-L[\f[] \f[I]path\f[] \f[B]]
+[-X]\f[] | \f[B]-t\f[] \f[I]data-file\f[] | \f[B]-I\f[] \f[I]path\f[] }
 .PP
 Algorithm options:
 .PP
-\f[B][ --max-cpu \f[I]cpu-ratio\f[] ]\f[]
-\f[B][ --min-disk \f[I]disk-ratio\f[] ]\f[]
-\f[B][ -l \f[I]limit\f[] ]\f[] \f[B][ -e \f[I]score\f[] ]\f[]
-\f[B][ -g \f[I]delta\f[] ]\f[]
-\f[B][ --min-gain-limit \f[I]threshold\f[] ]\f[]
-\f[B][ -O \f[I]name...\f[] ]\f[] \f[B][ --no-disk-moves ]\f[]
-\f[B][ --no-instance-moves ]\f[] \f[B][ -U \f[I]util-file\f[] ]\f[]
-\f[B][ --evac-mode ]\f[]
-\f[B][ --select-instances \f[I]inst...\f[] ]\f[]
-\f[B][ --exclude-instances \f[I]inst...\f[] ]\f[]
+\f[B][ --max-cpu \f[I]cpu-ratio\f[] ]\f[] \f[B][ --min-disk
+\f[I]disk-ratio\f[] ]\f[] \f[B][ -l \f[I]limit\f[] ]\f[] \f[B][ -e
+\f[I]score\f[] ]\f[] \f[B][ -g \f[I]delta\f[] ]\f[] \f[B][
+--min-gain-limit \f[I]threshold\f[] ]\f[] \f[B][ -O \f[I]name...\f[]
+]\f[] \f[B][ --no-disk-moves ]\f[] \f[B][ --no-instance-moves ]\f[]
+\f[B][ -U \f[I]util-file\f[] ]\f[] \f[B][ --evac-mode ]\f[] \f[B][
+--select-instances \f[I]inst...\f[] ]\f[] \f[B][ --exclude-instances
+\f[I]inst...\f[] ]\f[]
 .PP
 Reporting options:
 .PP
 \f[B][ -C[ \f[I]file\f[] ] ]\f[] \f[B][ -p[ \f[I]fields\f[] ] ]\f[]
-\f[B][ --print-instances ]\f[] \f[B][ -o ]\f[]
-\f[B][ -v... | -q ]\f[]
+\f[B][ --print-instances ]\f[] \f[B][ -S \f[I]file\f[] ]\f[] \f[B][
+-v... | -q ]\f[]
 .SH DESCRIPTION
 .PP
 hbal is a cluster balancer that looks at the current state of the
-cluster (nodes with their total and free disk, memory, etc.) and
-instance placement and computes a series of steps designed to bring
+cluster (nodes with their total and free disk, memory, etc.)
+ and instance placement and computes a series of steps designed to bring
 the cluster into a better state.
 .PP
-The algorithm used is designed to be stable (i.e. it will give you
-the same results when restarting it from the middle of the
-solution) and reasonably fast. It is not, however, designed to be a
-perfect algorithm: it is possible to make it go into a corner from
-which it can find no improvement, because it looks only one "step"
-ahead.
+The algorithm used is designed to be stable (i.e.
+it will give you the same results when restarting it from the middle of
+the solution) and reasonably fast.
+It is not, however, designed to be a perfect algorithm: it is possible
+to make it go into a corner from which it can find no improvement,
+because it looks only one "step" ahead.
 .PP
-By default, the program will show the solution incrementally as it
-is computed, in a somewhat cryptic format; for getting the actual
-Ganeti command list, use the \f[B]-C\f[] option.
+By default, the program will show the solution incrementally as it is
+computed, in a somewhat cryptic format; for getting the actual Ganeti
+command list, use the \f[B]-C\f[] option.
 .SS ALGORITHM
 .PP
-The program works in independent steps; at each step, we compute
-the best instance move that lowers the cluster score.
+The program works in independent steps; at each step, we compute the
+best instance move that lowers the cluster score.
 .PP
 The possible move type for an instance are combinations of
 failover/migrate and replace-disks such that we change one of the
-instance nodes, and the other one remains (but possibly with
-changed role, e.g. from primary it becomes secondary). The list is:
+instance nodes, and the other one remains (but possibly with changed
+role, e.g.
+from primary it becomes secondary).
+The list is:
 .IP \[bu] 2
 failover (f)
 .IP \[bu] 2
@@ -70,34 +69,33 @@ failover and replace secondary, also composite (f, r)
 .IP \[bu] 2
 replace secondary and failover, also composite (r, f)
 .PP
-We don\[aq]t do the only remaining possibility of replacing both
-nodes (r,f,r,f or the equivalent f,r,f,r) since these move needs an
-exhaustive search over both candidate primary and secondary nodes,
-and is O(n*n) in the number of nodes. Furthermore, it doesn\[aq]t
-seems to give better scores but will result in more disk
-replacements.
+We don\[aq]t do the only remaining possibility of replacing both nodes
+(r,f,r,f or the equivalent f,r,f,r) since these move needs an exhaustive
+search over both candidate primary and secondary nodes, and is O(n*n) in
+the number of nodes.
+Furthermore, it doesn\[aq]t seems to give better scores but will result
+in more disk replacements.
 .SS PLACEMENT RESTRICTIONS
 .PP
 At each step, we prevent an instance move if it would cause:
 .IP \[bu] 2
 a node to go into N+1 failure state
 .IP \[bu] 2
-an instance to move onto an offline node (offline nodes are either
-read from the cluster or declared with \f[I]-O\f[])
+an instance to move onto an offline node (offline nodes are either read
+from the cluster or declared with \f[I]-O\f[])
 .IP \[bu] 2
 an exclusion-tag based conflict (exclusion tags are read from the
 cluster and/or defined via the \f[I]--exclusion-tags\f[] option)
 .IP \[bu] 2
-a max vcpu/pcpu ratio to be exceeded (configured via
-\f[I]--max-cpu\f[])
+a max vcpu/pcpu ratio to be exceeded (configured via \f[I]--max-cpu\f[])
 .IP \[bu] 2
-min disk free percentage to go below the configured limit
-(configured via \f[I]--min-disk\f[])
+min disk free percentage to go below the configured limit (configured
+via \f[I]--min-disk\f[])
 .SS CLUSTER SCORING
 .PP
-As said before, the algorithm tries to minimise the cluster score
-at each step. Currently this score is computed as a sum of the
-following components:
+As said before, the algorithm tries to minimise the cluster score at
+each step.
+Currently this score is computed as a sum of the following components:
 .IP \[bu] 2
 standard deviation of the percent of free memory
 .IP \[bu] 2
@@ -107,346 +105,344 @@ standard deviation of the percent of free disk
 .IP \[bu] 2
 count of nodes failing N+1 check
 .IP \[bu] 2
-count of instances living (either as primary or secondary) on
-offline nodes
+count of instances living (either as primary or secondary) on offline
+nodes
 .IP \[bu] 2
-count of instances living (as primary) on offline nodes; this
-differs from the above metric by helping failover of such instances
-in 2-node clusters
+count of instances living (as primary) on offline nodes; this differs
+from the above metric by helping failover of such instances in 2-node
+clusters
 .IP \[bu] 2
-standard deviation of the ratio of virtual-to-physical cpus (for
-primary instances of the node)
+standard deviation of the ratio of virtual-to-physical cpus (for primary
+instances of the node)
 .IP \[bu] 2
-standard deviation of the dynamic load on the nodes, for cpus,
-memory, disk and network
+standard deviation of the dynamic load on the nodes, for cpus, memory,
+disk and network
 .PP
 The free memory and free disk values help ensure that all nodes are
-somewhat balanced in their resource usage. The reserved memory
-helps to ensure that nodes are somewhat balanced in holding
-secondary instances, and that no node keeps too much memory
-reserved for N+1. And finally, the N+1 percentage helps guide the
-algorithm towards eliminating N+1 failures, if possible.
+somewhat balanced in their resource usage.
+The reserved memory helps to ensure that nodes are somewhat balanced in
+holding secondary instances, and that no node keeps too much memory
+reserved for N+1.
+And finally, the N+1 percentage helps guide the algorithm towards
+eliminating N+1 failures, if possible.
 .PP
-Except for the N+1 failures and offline instances counts, we use
-the standard deviation since when used with values within a fixed
-range (we use percents expressed as values between zero and one) it
-gives consistent results across all metrics (there are some small
-issues related to different means, but it works generally well).
-The \[aq]count\[aq] type values will have higher score and thus
-will matter more for balancing; thus these are better for hard
-constraints (like evacuating nodes and fixing N+1 failures). For
-example, the offline instances count (i.e. the number of instances
-living on offline nodes) will cause the algorithm to actively move
-instances away from offline nodes. This, coupled with the
-restriction on placement given by offline nodes, will cause
-evacuation of such nodes.
+Except for the N+1 failures and offline instances counts, we use the
+standard deviation since when used with values within a fixed range (we
+use percents expressed as values between zero and one) it gives
+consistent results across all metrics (there are some small issues
+related to different means, but it works generally well).
+The \[aq]count\[aq] type values will have higher score and thus will
+matter more for balancing; thus these are better for hard constraints
+(like evacuating nodes and fixing N+1 failures).
+For example, the offline instances count (i.e.
+the number of instances living on offline nodes) will cause the
+algorithm to actively move instances away from offline nodes.
+This, coupled with the restriction on placement given by offline nodes,
+will cause evacuation of such nodes.
 .PP
-The dynamic load values need to be read from an external file
-(Ganeti doesn\[aq]t supply them), and are computed for each node
-as: sum of primary instance cpu load, sum of primary instance
-memory load, sum of primary and secondary instance disk load (as
-DRBD generates write load on secondary nodes too in normal case and
-in degraded scenarios also read load), and sum of primary instance
-network load. An example of how to generate these values for input
-to hbal would be to track \f[B]xm\ list\f[] for instances over a
-day and by computing the delta of the cpu values, and feed that via
-the \f[I]-U\f[] option for all instances (and keep the other
-metrics as one). For the algorithm to work, all that is needed is
-that the values are consistent for a metric across all instances
-(e.g. all instances use cpu% to report cpu usage, and not something
-related to number of CPU seconds used if the CPUs are different),
-and that they are normalised to between zero and one. Note that
-it\[aq]s recommended to not have zero as the load value for any
-instance metric since then secondary instances are not well
+The dynamic load values need to be read from an external file (Ganeti
+doesn\[aq]t supply them), and are computed for each node as: sum of
+primary instance cpu load, sum of primary instance memory load, sum of
+primary and secondary instance disk load (as DRBD generates write load
+on secondary nodes too in normal case and in degraded scenarios also
+read load), and sum of primary instance network load.
+An example of how to generate these values for input to hbal would be to
+track \f[C]xm\ list\f[] for instances over a day and by computing the
+delta of the cpu values, and feed that via the \f[I]-U\f[] option for
+all instances (and keep the other metrics as one).
+For the algorithm to work, all that is needed is that the values are
+consistent for a metric across all instances (e.g.
+all instances use cpu% to report cpu usage, and not something related to
+number of CPU seconds used if the CPUs are different), and that they are
+normalised to between zero and one.
+Note that it\[aq]s recommended to not have zero as the load value for
+any instance metric since then secondary instances are not well
 balanced.
 .PP
-On a perfectly balanced cluster (all nodes the same size, all
-instances the same size and spread across the nodes equally), the
-values for all metrics would be zero. This doesn\[aq]t happen too
-often in practice :)
+On a perfectly balanced cluster (all nodes the same size, all instances
+the same size and spread across the nodes equally), the values for all
+metrics would be zero.
+This doesn\[aq]t happen too often in practice :)
 .SS OFFLINE INSTANCES
 .PP
-Since current Ganeti versions do not report the memory used by
-offline (down) instances, ignoring the run status of instances will
-cause wrong calculations. For this reason, the algorithm subtracts
-the memory size of down instances from the free node memory of
-their primary node, in effect simulating the startup of such
-instances.
+Since current Ganeti versions do not report the memory used by offline
+(down) instances, ignoring the run status of instances will cause wrong
+calculations.
+For this reason, the algorithm subtracts the memory size of down
+instances from the free node memory of their primary node, in effect
+simulating the startup of such instances.
 .SS EXCLUSION TAGS
 .PP
-The exclusion tags mechanism is designed to prevent instances which
-run the same workload (e.g. two DNS servers) to land on the same
-node, which would make the respective node a SPOF for the given
-service.
+The exclusion tags mechanism is designed to prevent instances which run
+the same workload (e.g.
+two DNS servers) to land on the same node, which would make the
+respective node a SPOF for the given service.
 .PP
 It works by tagging instances with certain tags and then building
-exclusion maps based on these. Which tags are actually used is
-configured either via the command line (option
-\f[I]--exclusion-tags\f[]) or via adding them to the cluster tags:
+exclusion maps based on these.
+Which tags are actually used is configured either via the command line
+(option \f[I]--exclusion-tags\f[]) or via adding them to the cluster
+tags:
 .TP
 .B --exclusion-tags=a,b
-This will make all instance tags of the form \f[I]a:*\f[],
-\f[I]b:*\f[] be considered for the exclusion map
+This will make all instance tags of the form \f[I]a:*\f[], \f[I]b:*\f[]
+be considered for the exclusion map
 .RS
 .RE
 .TP
 .B cluster tags \f[I]htools:iextags:a\f[], \f[I]htools:iextags:b\f[]
-This will make instance tags \f[I]a:*\f[], \f[I]b:*\f[] be
-considered for the exclusion map. More precisely, the suffix of
-cluster tags starting with \f[I]htools:iextags:\f[] will become the
-prefix of the exclusion tags.
+This will make instance tags \f[I]a:*\f[], \f[I]b:*\f[] be considered
+for the exclusion map.
+More precisely, the suffix of cluster tags starting with
+\f[I]htools:iextags:\f[] will become the prefix of the exclusion tags.
 .RS
 .RE
 .PP
-Both the above forms mean that two instances both having (e.g.) the
-tag \f[I]a:foo\f[] or \f[I]b:bar\f[] won\[aq]t end on the same
+Both the above forms mean that two instances both having (e.g.)
+ the tag \f[I]a:foo\f[] or \f[I]b:bar\f[] won\[aq]t end on the same
 node.
 .SH OPTIONS
 .PP
 The options that can be passed to the program are as follows:
 .TP
 .B -C, --print-commands
-Print the command list at the end of the run. Without this, the
-program will only show a shorter, but cryptic output.
+Print the command list at the end of the run.
+Without this, the program will only show a shorter, but cryptic output.
 .RS
 .PP
-Note that the moves list will be split into independent steps,
-called "jobsets", but only for visual inspection, not for actually
-parallelisation. It is not possible to parallelise these directly
-when executed via "gnt-instance" commands, since a compound command
-(e.g. failover and replace-disks) must be executed serially.
-Parallel execution is only possible when using the Luxi backend and
-the \f[I]-L\f[] option.
+Note that the moves list will be split into independent steps, called
+"jobsets", but only for visual inspection, not for actually
+parallelisation.
+It is not possible to parallelise these directly when executed via
+"gnt-instance" commands, since a compound command (e.g.
+failover and replace-disks) must be executed serially.
+Parallel execution is only possible when using the Luxi backend and the
+\f[I]-L\f[] option.
 .PP
-The algorithm for splitting the moves into jobsets is by
-accumulating moves until the next move is touching nodes already
-touched by the current moves; this means we can\[aq]t execute in
-parallel (due to resource allocation in Ganeti) and thus we start a
-new jobset.
+The algorithm for splitting the moves into jobsets is by accumulating
+moves until the next move is touching nodes already touched by the
+current moves; this means we can\[aq]t execute in parallel (due to
+resource allocation in Ganeti) and thus we start a new jobset.
 .RE
 .TP
 .B -p, --print-nodes
-Prints the before and after node status, in a format designed to
-allow the user to understand the node\[aq]s most important
-parameters. See the man page \f[B]htools\f[](1) for more details
-about this option.
+Prints the before and after node status, in a format designed to allow
+the user to understand the node\[aq]s most important parameters.
+See the man page \f[B]htools\f[](1) for more details about this option.
 .RS
 .RE
 .TP
 .B --print-instances
-Prints the before and after instance map. This is less useful as
-the node status, but it can help in understanding instance moves.
+Prints the before and after instance map.
+This is less useful as the node status, but it can help in understanding
+instance moves.
 .RS
 .RE
 .TP
 .B -O \f[I]name\f[]
-This option (which can be given multiple times) will mark nodes as
-being \f[I]offline\f[].
+This option (which can be given multiple times) will mark nodes as being
+\f[I]offline\f[].
 This means a couple of things:
 .RS
 .IP \[bu] 2
-instances won\[aq]t be placed on these nodes, not even temporarily;
-.RS 2
-e.g. the \f[I]replace primary\f[] move is not available if the
-secondary node is offline, since this move requires a failover.
-.RE
+instances won\[aq]t be placed on these nodes, not even temporarily; e.g.
+the \f[I]replace primary\f[] move is not available if the secondary node
+is offline, since this move requires a failover.
 .IP \[bu] 2
-these nodes will not be included in the score calculation (except
-for the percentage of instances on offline nodes)
+these nodes will not be included in the score calculation (except for
+the percentage of instances on offline nodes)
 .PP
 Note that algorithm will also mark as offline any nodes which are
-reported by RAPI as such, or that have "?" in file-based input in
-any numeric fields.
+reported by RAPI as such, or that have "?" in file-based input in any
+numeric fields.
 .RE
 .TP
 .B -e \f[I]score\f[], --min-score=\f[I]score\f[]
-This parameter denotes the minimum score we are happy with and
-alters the computation in two ways:
+This parameter denotes the minimum score we are happy with and alters
+the computation in two ways:
 .RS
 .IP \[bu] 2
 if the cluster has the initial score lower than this value, then we
 don\[aq]t enter the algorithm at all, and exit with success
 .IP \[bu] 2
-during the iterative process, if we reach a score lower than this
-value, we exit the algorithm
+during the iterative process, if we reach a score lower than this value,
+we exit the algorithm
 .PP
-The default value of the parameter is currently \f[B]1e-9\f[]
-(chosen empirically).
+The default value of the parameter is currently \f[C]1e-9\f[] (chosen
+empirically).
 .RE
 .TP
 .B -g \f[I]delta\f[], --min-gain=\f[I]delta\f[]
-Since the balancing algorithm can sometimes result in just very
-tiny improvements, that bring less gain that they cost in
-relocation time, this parameter (defaulting to 0.01) represents the
-minimum gain we require during a step, to continue balancing.
+Since the balancing algorithm can sometimes result in just very tiny
+improvements, that bring less gain that they cost in relocation time,
+this parameter (defaulting to 0.01) represents the minimum gain we
+require during a step, to continue balancing.
 .RS
 .RE
 .TP
 .B --min-gain-limit=\f[I]threshold\f[]
-The above min-gain option will only take effect if the cluster
-score is already below \f[I]threshold\f[] (defaults to 0.1). The
-rationale behind this setting is that at high cluster scores (badly
+The above min-gain option will only take effect if the cluster score is
+already below \f[I]threshold\f[] (defaults to 0.1).
+The rationale behind this setting is that at high cluster scores (badly
 balanced clusters), we don\[aq]t want to abort the rebalance too
-quickly, as later gains might still be significant. However, under
-the threshold, the total gain is only the threshold value, so we
-can exit early.
+quickly, as later gains might still be significant.
+However, under the threshold, the total gain is only the threshold
+value, so we can exit early.
 .RS
 .RE
 .TP
 .B --no-disk-moves
 This parameter prevents hbal from using disk move (i.e.
-"gnt-instance replace-disks") operations. This will result in a
-much quicker balancing, but of course the improvements are limited.
+"gnt-instance replace-disks") operations.
+This will result in a much quicker balancing, but of course the
+improvements are limited.
 It is up to the user to decide when to use one or another.
 .RS
 .RE
 .TP
 .B --no-instance-moves
 This parameter prevents hbal from using instance moves (i.e.
-"gnt-instance migrate/failover") operations. This will only use the
-slow disk-replacement operations, and will also provide a worse
-balance, but can be useful if moving instances around is deemed
-unsafe or not preferred.
+"gnt-instance migrate/failover") operations.
+This will only use the slow disk-replacement operations, and will also
+provide a worse balance, but can be useful if moving instances around is
+deemed unsafe or not preferred.
 .RS
 .RE
 .TP
 .B --evac-mode
-This parameter restricts the list of instances considered for
-moving to the ones living on offline/drained nodes. It can be used
-as a (bulk) replacement for Ganeti\[aq]s own
-\f[I]gnt-node evacuate\f[], with the note that it doesn\[aq]t
-guarantee full evacuation.
+This parameter restricts the list of instances considered for moving to
+the ones living on offline/drained nodes.
+It can be used as a (bulk) replacement for Ganeti\[aq]s own
+\f[I]gnt-node evacuate\f[], with the note that it doesn\[aq]t guarantee
+full evacuation.
 .RS
 .RE
 .TP
 .B --select-instances=\f[I]instances\f[]
-This parameter marks the given instances (as a comma-separated
-list) as the only ones being moved during the rebalance.
+This parameter marks the given instances (as a comma-separated list) as
+the only ones being moved during the rebalance.
 .RS
 .RE
 .TP
 .B --exclude-instances=\f[I]instances\f[]
-This parameter marks the given instances (as a comma-separated
-list) from being moved during the rebalance.
+This parameter marks the given instances (as a comma-separated list)
+from being moved during the rebalance.
 .RS
 .RE
 .TP
 .B -U \f[I]util-file\f[]
-This parameter specifies a file holding instance dynamic
-utilisation information that will be used to tweak the balancing
-algorithm to equalise load on the nodes (as opposed to static
-resource usage). The file is in the format "instance_name cpu_util
-mem_util disk_util net_util" where the "_util" parameters are
-interpreted as numbers and the instance name must match exactly the
-instance as read from Ganeti. In case of unknown instance names,
-the program will abort.
+This parameter specifies a file holding instance dynamic utilisation
+information that will be used to tweak the balancing algorithm to
+equalise load on the nodes (as opposed to static resource usage).
+The file is in the format "instance_name cpu_util mem_util disk_util
+net_util" where the "_util" parameters are interpreted as numbers and
+the instance name must match exactly the instance as read from Ganeti.
+In case of unknown instance names, the program will abort.
 .RS
 .PP
 If not given, the default values are one for all metrics and thus
 dynamic utilisation has only one effect on the algorithm: the
-equalisation of the secondary instances across nodes (this is the
-only metric that is not tracked by another, dedicated value, and
-thus the disk load of instances will cause secondary instance
-equalisation). Note that value of one will also influence slightly
-the primary instance count, but that is already tracked via other
-metrics and thus the influence of the dynamic utilisation will be
-practically insignificant.
+equalisation of the secondary instances across nodes (this is the only
+metric that is not tracked by another, dedicated value, and thus the
+disk load of instances will cause secondary instance equalisation).
+Note that value of one will also influence slightly the primary instance
+count, but that is already tracked via other metrics and thus the
+influence of the dynamic utilisation will be practically insignificant.
 .RE
 .TP
 .B -S \f[I]filename\f[], --save-cluster=\f[I]filename\f[]
-If given, the state of the cluster before the balancing is saved to
-the given file plus the extension "original" (i.e.
-\f[I]filename\f[].original), and the state at the end of the
-balancing is saved to the given file plus the extension "balanced"
-(i.e. \f[I]filename\f[].balanced). This allows re-feeding the
-cluster state to either hbal itself or for example hspace via the
-\f[B]-t\f[] option.
+If given, the state of the cluster before the balancing is saved to the
+given file plus the extension "original" (i.e.
+\f[I]filename\f[].original), and the state at the end of the balancing
+is saved to the given file plus the extension "balanced" (i.e.
+\f[I]filename\f[].balanced).
+This allows re-feeding the cluster state to either hbal itself or for
+example hspace via the \f[C]-t\f[] option.
 .RS
 .RE
 .TP
 .B -t \f[I]datafile\f[], --text-data=\f[I]datafile\f[]
-Backend specification: the name of the file holding node and
-instance information (if not collecting via RAPI or LUXI). This or
-one of the other backends must be selected. The option is described
-in the man page \f[B]htools\f[](1).
+Backend specification: the name of the file holding node and instance
+information (if not collecting via RAPI or LUXI).
+This or one of the other backends must be selected.
+The option is described in the man page \f[B]htools\f[](1).
 .RS
 .RE
 .TP
 .B -m \f[I]cluster\f[]
-Backend specification: collect data directly from the
-\f[I]cluster\f[] given as an argument via RAPI. The option is
-described in the man page \f[B]htools\f[](1).
+Backend specification: collect data directly from the \f[I]cluster\f[]
+given as an argument via RAPI.
+The option is described in the man page \f[B]htools\f[](1).
 .RS
 .RE
 .TP
 .B -L [\f[I]path\f[]]
-Backend specification: collect data directly from the master
-daemon, which is to be contacted via LUXI (an internal Ganeti
-protocol). The option is described in the man page
-\f[B]htools\f[](1).
+Backend specification: collect data directly from the master daemon,
+which is to be contacted via LUXI (an internal Ganeti protocol).
+The option is described in the man page \f[B]htools\f[](1).
 .RS
 .RE
 .TP
 .B -X
-When using the Luxi backend, hbal can also execute the given
-commands. The execution method is to execute the individual jobsets
-(see the \f[I]-C\f[] option for details) in separate stages,
-aborting if at any time a jobset doesn\[aq]t have all jobs
-successful. Each step in the balancing solution will be translated
-into exactly one Ganeti job (having between one and three OpCodes),
-and all the steps in a jobset will be executed in parallel. The
-jobsets themselves are executed serially.
+When using the Luxi backend, hbal can also execute the given commands.
+The execution method is to execute the individual jobsets (see the
+\f[I]-C\f[] option for details) in separate stages, aborting if at any
+time a jobset doesn\[aq]t have all jobs successful.
+Each step in the balancing solution will be translated into exactly one
+Ganeti job (having between one and three OpCodes), and all the steps in
+a jobset will be executed in parallel.
+The jobsets themselves are executed serially.
 .RS
 .PP
-The execution of the job series can be interrupted, see below for
-signal handling.
+The execution of the job series can be interrupted, see below for signal
+handling.
 .RE
 .TP
 .B -l \f[I]N\f[], --max-length=\f[I]N\f[]
-Restrict the solution to this length. This can be used for example
-to automate the execution of the balancing.
+Restrict the solution to this length.
+This can be used for example to automate the execution of the balancing.
 .RS
 .RE
 .TP
 .B --max-cpu=\f[I]cpu-ratio\f[]
-The maximum virtual to physical cpu ratio, as a floating point
-number greater than or equal to one. For example, specifying
-\f[I]cpu-ratio\f[] as \f[B]2.5\f[] means that, for a 4-cpu machine,
-a maximum of 10 virtual cpus should be allowed to be in use for
-primary instances. A value of exactly one means there will be no
-over-subscription of CPU (except for the CPU time used by the node
-itself), and values below one do not make sense, as that means
-other resources (e.g. disk) won\[aq]t be fully utilised due to CPU
-restrictions.
+The maximum virtual to physical cpu ratio, as a floating point number
+greater than or equal to one.
+For example, specifying \f[I]cpu-ratio\f[] as \f[B]2.5\f[] means that,
+for a 4-cpu machine, a maximum of 10 virtual cpus should be allowed to
+be in use for primary instances.
+A value of exactly one means there will be no over-subscription of CPU
+(except for the CPU time used by the node itself), and values below one
+do not make sense, as that means other resources (e.g.
+disk) won\[aq]t be fully utilised due to CPU restrictions.
 .RS
 .RE
 .TP
 .B --min-disk=\f[I]disk-ratio\f[]
-The minimum amount of free disk space remaining, as a floating
-point number. For example, specifying \f[I]disk-ratio\f[] as
-\f[B]0.25\f[] means that at least one quarter of disk space should
-be left free on nodes.
+The minimum amount of free disk space remaining, as a floating point
+number.
+For example, specifying \f[I]disk-ratio\f[] as \f[B]0.25\f[] means that
+at least one quarter of disk space should be left free on nodes.
 .RS
 .RE
 .TP
 .B -G \f[I]uuid\f[], --group=\f[I]uuid\f[]
 On an multi-group cluster, select this group for processing.
-Otherwise hbal will abort, since it cannot balance multiple groups
-at the same time.
+Otherwise hbal will abort, since it cannot balance multiple groups at
+the same time.
 .RS
 .RE
 .TP
 .B -v, --verbose
-Increase the output verbosity. Each usage of this option will
-increase the verbosity (currently more than 2 doesn\[aq]t make
-sense) from the default of one.
+Increase the output verbosity.
+Each usage of this option will increase the verbosity (currently more
+than 2 doesn\[aq]t make sense) from the default of one.
 .RS
 .RE
 .TP
 .B -q, --quiet
-Decrease the output verbosity. Each usage of this option will
-decrease the verbosity (less than zero doesn\[aq]t make sense) from
-the default of one.
+Decrease the output verbosity.
+Each usage of this option will decrease the verbosity (less than zero
+doesn\[aq]t make sense) from the default of one.
 .RS
 .RE
 .TP
@@ -456,36 +452,41 @@ Just show the program version and exit.
 .RE
 .SH SIGNAL HANDLING
 .PP
-When executing jobs via LUXI (using the \f[B]-X\f[] option),
-normally hbal will execute all jobs until either one errors out or
-all the jobs finish successfully.
+When executing jobs via LUXI (using the \f[C]-X\f[] option), normally
+hbal will execute all jobs until either one errors out or all the jobs
+finish successfully.
 .PP
-Since balancing can take a long time, it is possible to stop hbal
-early in two ways:
+Since balancing can take a long time, it is possible to stop hbal early
+in two ways:
 .IP \[bu] 2
-by sending a \f[B]SIGINT\f[] (\f[B]^C\f[]), hbal will register the
-termination request, and will wait until the currently submitted
-jobs finish, at which point it will exit (with exit code 1)
+by sending a \f[C]SIGINT\f[] (\f[C]^C\f[]), hbal will register the
+termination request, and will wait until the currently submitted jobs
+finish, at which point it will exit (with exit code 0 if all jobs
+finished correctly, otherwise with exit code 1 as usual)
 .IP \[bu] 2
-by sending a \f[B]SIGTERM\f[], hbal will immediately exit (with
-exit code
-.RS 2
-2); it is the responsibility of the user to follow up with Ganeti
-the result of the currently-executing jobs
-.RE
+by sending a \f[C]SIGTERM\f[], hbal will immediately exit (with exit
+code 2); it is the responsibility of the user to follow up with Ganeti
+and check the result of the currently-executing jobs
 .PP
-Note that in any situation, it\[aq]s perfectly safe to kill hbal,
-either via the above signals or via any other signal (e.g.
-\f[B]SIGQUIT\f[], \f[B]SIGKILL\f[]), since the jobs themselves are
-processed by Ganeti whereas hbal (after submission) only watches
-their progression. In this case, the use will again have to query
-Ganeti for job results.
+Note that in any situation, it\[aq]s perfectly safe to kill hbal, either
+via the above signals or via any other signal (e.g.
+\f[C]SIGQUIT\f[], \f[C]SIGKILL\f[]), since the jobs themselves are
+processed by Ganeti whereas hbal (after submission) only watches their
+progression.
+In this case, the user will have to query Ganeti for job results.
 .SH EXIT STATUS
 .PP
-The exit status of the command will be zero, unless for some reason
-the algorithm fatally failed (e.g. wrong node or instance data), or
-(in case of job execution) either one of the jobs has failed or the
-balancing was interrupted early.
+The exit status of the command will be zero, unless for some reason the
+algorithm failed (e.g.
+wrong node or instance data), invalid command line options, or (in case
+of job execution) one of the jobs has failed.
+.PP
+Once job execution via Luxi has started (\f[C]-X\f[]), if the balancing
+was interrupted early (via \f[I]SIGINT\f[], or via
+\f[C]--max-length\f[]) but all jobs executed successfully, then the exit
+status is zero; a non-zero exit code means that the cluster state should
+be investigated, since a job failed or we couldn\[aq]t compute its
+status and this can also point to a problem on the Ganeti side.
 .SH BUGS
 .PP
 The program does not check all its input data for consistency, and
@@ -494,215 +495,220 @@ sometime aborts with cryptic errors messages with invalid data.
 The algorithm is not perfect.
 .SH EXAMPLE
 .PP
-Note that these examples are not for the latest version (they
-don\[aq]t have full node data).
+Note that these examples are not for the latest version (they don\[aq]t
+have full node data).
 .SS Default output
 .PP
-With the default options, the program shows each individual step
-and the improvements it brings in cluster score:
-.PP
-\f[CR]
-      $\ hbal
-      Loaded\ 20\ nodes,\ 80\ instances
-      Cluster\ is\ not\ N+1\ happy,\ continuing\ but\ no\ guarantee\ that\ the\ cluster\ will\ end\ N+1\ happy.
-      Initial\ score:\ 0.52329131
-      Trying\ to\ minimize\ the\ CV...
-      \ \ \ \ 1.\ instance14\ \ node1:node10\ \ =>\ node16:node10\ 0.42109120\ a=f\ r:node16\ f
-      \ \ \ \ 2.\ instance54\ \ node4:node15\ \ =>\ node16:node15\ 0.31904594\ a=f\ r:node16\ f
-      \ \ \ \ 3.\ instance4\ \ \ node5:node2\ \ \ =>\ node2:node16\ \ 0.26611015\ a=f\ r:node16
-      \ \ \ \ 4.\ instance48\ \ node18:node20\ =>\ node2:node18\ \ 0.21361717\ a=r:node2\ f
-      \ \ \ \ 5.\ instance93\ \ node19:node18\ =>\ node16:node19\ 0.16166425\ a=r:node16\ f
-      \ \ \ \ 6.\ instance89\ \ node3:node20\ \ =>\ node2:node3\ \ \ 0.11005629\ a=r:node2\ f
-      \ \ \ \ 7.\ instance5\ \ \ node6:node2\ \ \ =>\ node16:node6\ \ 0.05841589\ a=r:node16\ f
-      \ \ \ \ 8.\ instance94\ \ node7:node20\ \ =>\ node20:node16\ 0.00658759\ a=f\ r:node16
-      \ \ \ \ 9.\ instance44\ \ node20:node2\ \ =>\ node2:node15\ \ 0.00438740\ a=f\ r:node15
-      \ \ \ 10.\ instance62\ \ node14:node18\ =>\ node14:node16\ 0.00390087\ a=r:node16
-      \ \ \ 11.\ instance13\ \ node11:node14\ =>\ node11:node16\ 0.00361787\ a=r:node16
-      \ \ \ 12.\ instance19\ \ node10:node11\ =>\ node10:node7\ \ 0.00336636\ a=r:node7
-      \ \ \ 13.\ instance43\ \ node12:node13\ =>\ node12:node1\ \ 0.00305681\ a=r:node1
-      \ \ \ 14.\ instance1\ \ \ node1:node2\ \ \ =>\ node1:node4\ \ \ 0.00263124\ a=r:node4
-      \ \ \ 15.\ instance58\ \ node19:node20\ =>\ node19:node17\ 0.00252594\ a=r:node17
-      Cluster\ score\ improved\ from\ 0.52329131\ to\ 0.00252594
+With the default options, the program shows each individual step and the
+improvements it brings in cluster score:
+.IP
+.nf
+\f[C]
+$\ hbal
+Loaded\ 20\ nodes,\ 80\ instances
+Cluster\ is\ not\ N+1\ happy,\ continuing\ but\ no\ guarantee\ that\ the\ cluster\ will\ end\ N+1\ happy.
+Initial\ score:\ 0.52329131
+Trying\ to\ minimize\ the\ CV...
+\ \ \ \ 1.\ instance14\ \ node1:node10\ \ =>\ node16:node10\ 0.42109120\ a=f\ r:node16\ f
+\ \ \ \ 2.\ instance54\ \ node4:node15\ \ =>\ node16:node15\ 0.31904594\ a=f\ r:node16\ f
+\ \ \ \ 3.\ instance4\ \ \ node5:node2\ \ \ =>\ node2:node16\ \ 0.26611015\ a=f\ r:node16
+\ \ \ \ 4.\ instance48\ \ node18:node20\ =>\ node2:node18\ \ 0.21361717\ a=r:node2\ f
+\ \ \ \ 5.\ instance93\ \ node19:node18\ =>\ node16:node19\ 0.16166425\ a=r:node16\ f
+\ \ \ \ 6.\ instance89\ \ node3:node20\ \ =>\ node2:node3\ \ \ 0.11005629\ a=r:node2\ f
+\ \ \ \ 7.\ instance5\ \ \ node6:node2\ \ \ =>\ node16:node6\ \ 0.05841589\ a=r:node16\ f
+\ \ \ \ 8.\ instance94\ \ node7:node20\ \ =>\ node20:node16\ 0.00658759\ a=f\ r:node16
+\ \ \ \ 9.\ instance44\ \ node20:node2\ \ =>\ node2:node15\ \ 0.00438740\ a=f\ r:node15
+\ \ \ 10.\ instance62\ \ node14:node18\ =>\ node14:node16\ 0.00390087\ a=r:node16
+\ \ \ 11.\ instance13\ \ node11:node14\ =>\ node11:node16\ 0.00361787\ a=r:node16
+\ \ \ 12.\ instance19\ \ node10:node11\ =>\ node10:node7\ \ 0.00336636\ a=r:node7
+\ \ \ 13.\ instance43\ \ node12:node13\ =>\ node12:node1\ \ 0.00305681\ a=r:node1
+\ \ \ 14.\ instance1\ \ \ node1:node2\ \ \ =>\ node1:node4\ \ \ 0.00263124\ a=r:node4
+\ \ \ 15.\ instance58\ \ node19:node20\ =>\ node19:node17\ 0.00252594\ a=r:node17
+Cluster\ score\ improved\ from\ 0.52329131\ to\ 0.00252594
 \f[]
+.fi
 .PP
 In the above output, we can see:
 .IP \[bu] 2
-the input data (here from files) shows a cluster with 20 nodes and
-80 instances
+the input data (here from files) shows a cluster with 20 nodes and 80
+instances
 .IP \[bu] 2
 the cluster is not initially N+1 compliant
 .IP \[bu] 2
 the initial score is 0.52329131
 .PP
 The step list follows, showing the instance, its initial
-primary/secondary nodes, the new primary secondary, the cluster
-list, and the actions taken in this step (with \[aq]f\[aq] denoting
+primary/secondary nodes, the new primary secondary, the cluster list,
+and the actions taken in this step (with \[aq]f\[aq] denoting
 failover/migrate and \[aq]r\[aq] denoting replace secondary).
 .PP
 Finally, the program shows the improvement in cluster score.
 .PP
-A more detailed output is obtained via the \f[I]-C\f[] and
-\f[I]-p\f[] options:
-.PP
-\f[CR]
-      $\ hbal
-      Loaded\ 20\ nodes,\ 80\ instances
-      Cluster\ is\ not\ N+1\ happy,\ continuing\ but\ no\ guarantee\ that\ the\ cluster\ will\ end\ N+1\ happy.
-      Initial\ cluster\ status:
-      N1\ Name\ \ \ t_mem\ f_mem\ r_mem\ t_dsk\ f_dsk\ pri\ sec\ \ p_fmem\ \ p_fdsk
-      \ *\ node1\ \ 32762\ \ 1280\ \ 6000\ \ 1861\ \ 1026\ \ \ 5\ \ \ 3\ 0.03907\ 0.55179
-      \ \ \ node2\ \ 32762\ 31280\ 12000\ \ 1861\ \ 1026\ \ \ 0\ \ \ 8\ 0.95476\ 0.55179
-      \ *\ node3\ \ 32762\ \ 1280\ \ 6000\ \ 1861\ \ 1026\ \ \ 5\ \ \ 3\ 0.03907\ 0.55179
-      \ *\ node4\ \ 32762\ \ 1280\ \ 6000\ \ 1861\ \ 1026\ \ \ 5\ \ \ 3\ 0.03907\ 0.55179
-      \ *\ node5\ \ 32762\ \ 1280\ \ 6000\ \ 1861\ \ \ 978\ \ \ 5\ \ \ 5\ 0.03907\ 0.52573
-      \ *\ node6\ \ 32762\ \ 1280\ \ 6000\ \ 1861\ \ 1026\ \ \ 5\ \ \ 3\ 0.03907\ 0.55179
-      \ *\ node7\ \ 32762\ \ 1280\ \ 6000\ \ 1861\ \ 1026\ \ \ 5\ \ \ 3\ 0.03907\ 0.55179
-      \ \ \ node8\ \ 32762\ \ 7280\ \ 6000\ \ 1861\ \ 1026\ \ \ 4\ \ \ 4\ 0.22221\ 0.55179
-      \ \ \ node9\ \ 32762\ \ 7280\ \ 6000\ \ 1861\ \ 1026\ \ \ 4\ \ \ 4\ 0.22221\ 0.55179
-      \ *\ node10\ 32762\ \ 7280\ 12000\ \ 1861\ \ 1026\ \ \ 4\ \ \ 4\ 0.22221\ 0.55179
-      \ \ \ node11\ 32762\ \ 7280\ \ 6000\ \ 1861\ \ \ 922\ \ \ 4\ \ \ 5\ 0.22221\ 0.49577
-      \ \ \ node12\ 32762\ \ 7280\ \ 6000\ \ 1861\ \ 1026\ \ \ 4\ \ \ 4\ 0.22221\ 0.55179
-      \ \ \ node13\ 32762\ \ 7280\ \ 6000\ \ 1861\ \ \ 922\ \ \ 4\ \ \ 5\ 0.22221\ 0.49577
-      \ \ \ node14\ 32762\ \ 7280\ \ 6000\ \ 1861\ \ \ 922\ \ \ 4\ \ \ 5\ 0.22221\ 0.49577
-      \ *\ node15\ 32762\ \ 7280\ 12000\ \ 1861\ \ 1131\ \ \ 4\ \ \ 3\ 0.22221\ 0.60782
-      \ \ \ node16\ 32762\ 31280\ \ \ \ \ 0\ \ 1861\ \ 1860\ \ \ 0\ \ \ 0\ 0.95476\ 1.00000
-      \ \ \ node17\ 32762\ \ 7280\ \ 6000\ \ 1861\ \ 1106\ \ \ 5\ \ \ 3\ 0.22221\ 0.59479
-      \ *\ node18\ 32762\ \ 1280\ \ 6000\ \ 1396\ \ \ 561\ \ \ 5\ \ \ 3\ 0.03907\ 0.40239
-      \ *\ node19\ 32762\ \ 1280\ \ 6000\ \ 1861\ \ 1026\ \ \ 5\ \ \ 3\ 0.03907\ 0.55179
-      \ \ \ node20\ 32762\ 13280\ 12000\ \ 1861\ \ \ 689\ \ \ 3\ \ \ 9\ 0.40535\ 0.37068
-      
-      Initial\ score:\ 0.52329131
-      Trying\ to\ minimize\ the\ CV...
-      \ \ \ \ 1.\ instance14\ \ node1:node10\ \ =>\ node16:node10\ 0.42109120\ a=f\ r:node16\ f
-      \ \ \ \ 2.\ instance54\ \ node4:node15\ \ =>\ node16:node15\ 0.31904594\ a=f\ r:node16\ f
-      \ \ \ \ 3.\ instance4\ \ \ node5:node2\ \ \ =>\ node2:node16\ \ 0.26611015\ a=f\ r:node16
-      \ \ \ \ 4.\ instance48\ \ node18:node20\ =>\ node2:node18\ \ 0.21361717\ a=r:node2\ f
-      \ \ \ \ 5.\ instance93\ \ node19:node18\ =>\ node16:node19\ 0.16166425\ a=r:node16\ f
-      \ \ \ \ 6.\ instance89\ \ node3:node20\ \ =>\ node2:node3\ \ \ 0.11005629\ a=r:node2\ f
-      \ \ \ \ 7.\ instance5\ \ \ node6:node2\ \ \ =>\ node16:node6\ \ 0.05841589\ a=r:node16\ f
-      \ \ \ \ 8.\ instance94\ \ node7:node20\ \ =>\ node20:node16\ 0.00658759\ a=f\ r:node16
-      \ \ \ \ 9.\ instance44\ \ node20:node2\ \ =>\ node2:node15\ \ 0.00438740\ a=f\ r:node15
-      \ \ \ 10.\ instance62\ \ node14:node18\ =>\ node14:node16\ 0.00390087\ a=r:node16
-      \ \ \ 11.\ instance13\ \ node11:node14\ =>\ node11:node16\ 0.00361787\ a=r:node16
-      \ \ \ 12.\ instance19\ \ node10:node11\ =>\ node10:node7\ \ 0.00336636\ a=r:node7
-      \ \ \ 13.\ instance43\ \ node12:node13\ =>\ node12:node1\ \ 0.00305681\ a=r:node1
-      \ \ \ 14.\ instance1\ \ \ node1:node2\ \ \ =>\ node1:node4\ \ \ 0.00263124\ a=r:node4
-      \ \ \ 15.\ instance58\ \ node19:node20\ =>\ node19:node17\ 0.00252594\ a=r:node17
-      Cluster\ score\ improved\ from\ 0.52329131\ to\ 0.00252594
-      
-      Commands\ to\ run\ to\ reach\ the\ above\ solution:
-      \ \ echo\ step\ 1
-      \ \ echo\ gnt-instance\ migrate\ instance14
-      \ \ echo\ gnt-instance\ replace-disks\ -n\ node16\ instance14
-      \ \ echo\ gnt-instance\ migrate\ instance14
-      \ \ echo\ step\ 2
-      \ \ echo\ gnt-instance\ migrate\ instance54
-      \ \ echo\ gnt-instance\ replace-disks\ -n\ node16\ instance54
-      \ \ echo\ gnt-instance\ migrate\ instance54
-      \ \ echo\ step\ 3
-      \ \ echo\ gnt-instance\ migrate\ instance4
-      \ \ echo\ gnt-instance\ replace-disks\ -n\ node16\ instance4
-      \ \ echo\ step\ 4
-      \ \ echo\ gnt-instance\ replace-disks\ -n\ node2\ instance48
-      \ \ echo\ gnt-instance\ migrate\ instance48
-      \ \ echo\ step\ 5
-      \ \ echo\ gnt-instance\ replace-disks\ -n\ node16\ instance93
-      \ \ echo\ gnt-instance\ migrate\ instance93
-      \ \ echo\ step\ 6
-      \ \ echo\ gnt-instance\ replace-disks\ -n\ node2\ instance89
-      \ \ echo\ gnt-instance\ migrate\ instance89
-      \ \ echo\ step\ 7
-      \ \ echo\ gnt-instance\ replace-disks\ -n\ node16\ instance5
-      \ \ echo\ gnt-instance\ migrate\ instance5
-      \ \ echo\ step\ 8
-      \ \ echo\ gnt-instance\ migrate\ instance94
-      \ \ echo\ gnt-instance\ replace-disks\ -n\ node16\ instance94
-      \ \ echo\ step\ 9
-      \ \ echo\ gnt-instance\ migrate\ instance44
-      \ \ echo\ gnt-instance\ replace-disks\ -n\ node15\ instance44
-      \ \ echo\ step\ 10
-      \ \ echo\ gnt-instance\ replace-disks\ -n\ node16\ instance62
-      \ \ echo\ step\ 11
-      \ \ echo\ gnt-instance\ replace-disks\ -n\ node16\ instance13
-      \ \ echo\ step\ 12
-      \ \ echo\ gnt-instance\ replace-disks\ -n\ node7\ instance19
-      \ \ echo\ step\ 13
-      \ \ echo\ gnt-instance\ replace-disks\ -n\ node1\ instance43
-      \ \ echo\ step\ 14
-      \ \ echo\ gnt-instance\ replace-disks\ -n\ node4\ instance1
-      \ \ echo\ step\ 15
-      \ \ echo\ gnt-instance\ replace-disks\ -n\ node17\ instance58
-      
-      Final\ cluster\ status:
-      N1\ Name\ \ \ t_mem\ f_mem\ r_mem\ t_dsk\ f_dsk\ pri\ sec\ \ p_fmem\ \ p_fdsk
-      \ \ \ node1\ \ 32762\ \ 7280\ \ 6000\ \ 1861\ \ 1026\ \ \ 4\ \ \ 4\ 0.22221\ 0.55179
-      \ \ \ node2\ \ 32762\ \ 7280\ \ 6000\ \ 1861\ \ 1026\ \ \ 4\ \ \ 4\ 0.22221\ 0.55179
-      \ \ \ node3\ \ 32762\ \ 7280\ \ 6000\ \ 1861\ \ 1026\ \ \ 4\ \ \ 4\ 0.22221\ 0.55179
-      \ \ \ node4\ \ 32762\ \ 7280\ \ 6000\ \ 1861\ \ 1026\ \ \ 4\ \ \ 4\ 0.22221\ 0.55179
-      \ \ \ node5\ \ 32762\ \ 7280\ \ 6000\ \ 1861\ \ 1078\ \ \ 4\ \ \ 5\ 0.22221\ 0.57947
-      \ \ \ node6\ \ 32762\ \ 7280\ \ 6000\ \ 1861\ \ 1026\ \ \ 4\ \ \ 4\ 0.22221\ 0.55179
-      \ \ \ node7\ \ 32762\ \ 7280\ \ 6000\ \ 1861\ \ 1026\ \ \ 4\ \ \ 4\ 0.22221\ 0.55179
-      \ \ \ node8\ \ 32762\ \ 7280\ \ 6000\ \ 1861\ \ 1026\ \ \ 4\ \ \ 4\ 0.22221\ 0.55179
-      \ \ \ node9\ \ 32762\ \ 7280\ \ 6000\ \ 1861\ \ 1026\ \ \ 4\ \ \ 4\ 0.22221\ 0.55179
-      \ \ \ node10\ 32762\ \ 7280\ \ 6000\ \ 1861\ \ 1026\ \ \ 4\ \ \ 4\ 0.22221\ 0.55179
-      \ \ \ node11\ 32762\ \ 7280\ \ 6000\ \ 1861\ \ 1022\ \ \ 4\ \ \ 4\ 0.22221\ 0.54951
-      \ \ \ node12\ 32762\ \ 7280\ \ 6000\ \ 1861\ \ 1026\ \ \ 4\ \ \ 4\ 0.22221\ 0.55179
-      \ \ \ node13\ 32762\ \ 7280\ \ 6000\ \ 1861\ \ 1022\ \ \ 4\ \ \ 4\ 0.22221\ 0.54951
-      \ \ \ node14\ 32762\ \ 7280\ \ 6000\ \ 1861\ \ 1022\ \ \ 4\ \ \ 4\ 0.22221\ 0.54951
-      \ \ \ node15\ 32762\ \ 7280\ \ 6000\ \ 1861\ \ 1031\ \ \ 4\ \ \ 4\ 0.22221\ 0.55408
-      \ \ \ node16\ 32762\ \ 7280\ \ 6000\ \ 1861\ \ 1060\ \ \ 4\ \ \ 4\ 0.22221\ 0.57007
-      \ \ \ node17\ 32762\ \ 7280\ \ 6000\ \ 1861\ \ 1006\ \ \ 5\ \ \ 4\ 0.22221\ 0.54105
-      \ \ \ node18\ 32762\ \ 7280\ \ 6000\ \ 1396\ \ \ 761\ \ \ 4\ \ \ 2\ 0.22221\ 0.54570
-      \ \ \ node19\ 32762\ \ 7280\ \ 6000\ \ 1861\ \ 1026\ \ \ 4\ \ \ 4\ 0.22221\ 0.55179
-      \ \ \ node20\ 32762\ 13280\ \ 6000\ \ 1861\ \ 1089\ \ \ 3\ \ \ 5\ 0.40535\ 0.58565
+A more detailed output is obtained via the \f[I]-C\f[] and \f[I]-p\f[]
+options:
+.IP
+.nf
+\f[C]
+$\ hbal
+Loaded\ 20\ nodes,\ 80\ instances
+Cluster\ is\ not\ N+1\ happy,\ continuing\ but\ no\ guarantee\ that\ the\ cluster\ will\ end\ N+1\ happy.
+Initial\ cluster\ status:
+N1\ Name\ \ \ t_mem\ f_mem\ r_mem\ t_dsk\ f_dsk\ pri\ sec\ \ p_fmem\ \ p_fdsk
+\ *\ node1\ \ 32762\ \ 1280\ \ 6000\ \ 1861\ \ 1026\ \ \ 5\ \ \ 3\ 0.03907\ 0.55179
+\ \ \ node2\ \ 32762\ 31280\ 12000\ \ 1861\ \ 1026\ \ \ 0\ \ \ 8\ 0.95476\ 0.55179
+\ *\ node3\ \ 32762\ \ 1280\ \ 6000\ \ 1861\ \ 1026\ \ \ 5\ \ \ 3\ 0.03907\ 0.55179
+\ *\ node4\ \ 32762\ \ 1280\ \ 6000\ \ 1861\ \ 1026\ \ \ 5\ \ \ 3\ 0.03907\ 0.55179
+\ *\ node5\ \ 32762\ \ 1280\ \ 6000\ \ 1861\ \ \ 978\ \ \ 5\ \ \ 5\ 0.03907\ 0.52573
+\ *\ node6\ \ 32762\ \ 1280\ \ 6000\ \ 1861\ \ 1026\ \ \ 5\ \ \ 3\ 0.03907\ 0.55179
+\ *\ node7\ \ 32762\ \ 1280\ \ 6000\ \ 1861\ \ 1026\ \ \ 5\ \ \ 3\ 0.03907\ 0.55179
+\ \ \ node8\ \ 32762\ \ 7280\ \ 6000\ \ 1861\ \ 1026\ \ \ 4\ \ \ 4\ 0.22221\ 0.55179
+\ \ \ node9\ \ 32762\ \ 7280\ \ 6000\ \ 1861\ \ 1026\ \ \ 4\ \ \ 4\ 0.22221\ 0.55179
+\ *\ node10\ 32762\ \ 7280\ 12000\ \ 1861\ \ 1026\ \ \ 4\ \ \ 4\ 0.22221\ 0.55179
+\ \ \ node11\ 32762\ \ 7280\ \ 6000\ \ 1861\ \ \ 922\ \ \ 4\ \ \ 5\ 0.22221\ 0.49577
+\ \ \ node12\ 32762\ \ 7280\ \ 6000\ \ 1861\ \ 1026\ \ \ 4\ \ \ 4\ 0.22221\ 0.55179
+\ \ \ node13\ 32762\ \ 7280\ \ 6000\ \ 1861\ \ \ 922\ \ \ 4\ \ \ 5\ 0.22221\ 0.49577
+\ \ \ node14\ 32762\ \ 7280\ \ 6000\ \ 1861\ \ \ 922\ \ \ 4\ \ \ 5\ 0.22221\ 0.49577
+\ *\ node15\ 32762\ \ 7280\ 12000\ \ 1861\ \ 1131\ \ \ 4\ \ \ 3\ 0.22221\ 0.60782
+\ \ \ node16\ 32762\ 31280\ \ \ \ \ 0\ \ 1861\ \ 1860\ \ \ 0\ \ \ 0\ 0.95476\ 1.00000
+\ \ \ node17\ 32762\ \ 7280\ \ 6000\ \ 1861\ \ 1106\ \ \ 5\ \ \ 3\ 0.22221\ 0.59479
+\ *\ node18\ 32762\ \ 1280\ \ 6000\ \ 1396\ \ \ 561\ \ \ 5\ \ \ 3\ 0.03907\ 0.40239
+\ *\ node19\ 32762\ \ 1280\ \ 6000\ \ 1861\ \ 1026\ \ \ 5\ \ \ 3\ 0.03907\ 0.55179
+\ \ \ node20\ 32762\ 13280\ 12000\ \ 1861\ \ \ 689\ \ \ 3\ \ \ 9\ 0.40535\ 0.37068
+
+Initial\ score:\ 0.52329131
+Trying\ to\ minimize\ the\ CV...
+\ \ \ \ 1.\ instance14\ \ node1:node10\ \ =>\ node16:node10\ 0.42109120\ a=f\ r:node16\ f
+\ \ \ \ 2.\ instance54\ \ node4:node15\ \ =>\ node16:node15\ 0.31904594\ a=f\ r:node16\ f
+\ \ \ \ 3.\ instance4\ \ \ node5:node2\ \ \ =>\ node2:node16\ \ 0.26611015\ a=f\ r:node16
+\ \ \ \ 4.\ instance48\ \ node18:node20\ =>\ node2:node18\ \ 0.21361717\ a=r:node2\ f
+\ \ \ \ 5.\ instance93\ \ node19:node18\ =>\ node16:node19\ 0.16166425\ a=r:node16\ f
+\ \ \ \ 6.\ instance89\ \ node3:node20\ \ =>\ node2:node3\ \ \ 0.11005629\ a=r:node2\ f
+\ \ \ \ 7.\ instance5\ \ \ node6:node2\ \ \ =>\ node16:node6\ \ 0.05841589\ a=r:node16\ f
+\ \ \ \ 8.\ instance94\ \ node7:node20\ \ =>\ node20:node16\ 0.00658759\ a=f\ r:node16
+\ \ \ \ 9.\ instance44\ \ node20:node2\ \ =>\ node2:node15\ \ 0.00438740\ a=f\ r:node15
+\ \ \ 10.\ instance62\ \ node14:node18\ =>\ node14:node16\ 0.00390087\ a=r:node16
+\ \ \ 11.\ instance13\ \ node11:node14\ =>\ node11:node16\ 0.00361787\ a=r:node16
+\ \ \ 12.\ instance19\ \ node10:node11\ =>\ node10:node7\ \ 0.00336636\ a=r:node7
+\ \ \ 13.\ instance43\ \ node12:node13\ =>\ node12:node1\ \ 0.00305681\ a=r:node1
+\ \ \ 14.\ instance1\ \ \ node1:node2\ \ \ =>\ node1:node4\ \ \ 0.00263124\ a=r:node4
+\ \ \ 15.\ instance58\ \ node19:node20\ =>\ node19:node17\ 0.00252594\ a=r:node17
+Cluster\ score\ improved\ from\ 0.52329131\ to\ 0.00252594
+
+Commands\ to\ run\ to\ reach\ the\ above\ solution:
+\ \ echo\ step\ 1
+\ \ echo\ gnt-instance\ migrate\ instance14
+\ \ echo\ gnt-instance\ replace-disks\ -n\ node16\ instance14
+\ \ echo\ gnt-instance\ migrate\ instance14
+\ \ echo\ step\ 2
+\ \ echo\ gnt-instance\ migrate\ instance54
+\ \ echo\ gnt-instance\ replace-disks\ -n\ node16\ instance54
+\ \ echo\ gnt-instance\ migrate\ instance54
+\ \ echo\ step\ 3
+\ \ echo\ gnt-instance\ migrate\ instance4
+\ \ echo\ gnt-instance\ replace-disks\ -n\ node16\ instance4
+\ \ echo\ step\ 4
+\ \ echo\ gnt-instance\ replace-disks\ -n\ node2\ instance48
+\ \ echo\ gnt-instance\ migrate\ instance48
+\ \ echo\ step\ 5
+\ \ echo\ gnt-instance\ replace-disks\ -n\ node16\ instance93
+\ \ echo\ gnt-instance\ migrate\ instance93
+\ \ echo\ step\ 6
+\ \ echo\ gnt-instance\ replace-disks\ -n\ node2\ instance89
+\ \ echo\ gnt-instance\ migrate\ instance89
+\ \ echo\ step\ 7
+\ \ echo\ gnt-instance\ replace-disks\ -n\ node16\ instance5
+\ \ echo\ gnt-instance\ migrate\ instance5
+\ \ echo\ step\ 8
+\ \ echo\ gnt-instance\ migrate\ instance94
+\ \ echo\ gnt-instance\ replace-disks\ -n\ node16\ instance94
+\ \ echo\ step\ 9
+\ \ echo\ gnt-instance\ migrate\ instance44
+\ \ echo\ gnt-instance\ replace-disks\ -n\ node15\ instance44
+\ \ echo\ step\ 10
+\ \ echo\ gnt-instance\ replace-disks\ -n\ node16\ instance62
+\ \ echo\ step\ 11
+\ \ echo\ gnt-instance\ replace-disks\ -n\ node16\ instance13
+\ \ echo\ step\ 12
+\ \ echo\ gnt-instance\ replace-disks\ -n\ node7\ instance19
+\ \ echo\ step\ 13
+\ \ echo\ gnt-instance\ replace-disks\ -n\ node1\ instance43
+\ \ echo\ step\ 14
+\ \ echo\ gnt-instance\ replace-disks\ -n\ node4\ instance1
+\ \ echo\ step\ 15
+\ \ echo\ gnt-instance\ replace-disks\ -n\ node17\ instance58
+
+Final\ cluster\ status:
+N1\ Name\ \ \ t_mem\ f_mem\ r_mem\ t_dsk\ f_dsk\ pri\ sec\ \ p_fmem\ \ p_fdsk
+\ \ \ node1\ \ 32762\ \ 7280\ \ 6000\ \ 1861\ \ 1026\ \ \ 4\ \ \ 4\ 0.22221\ 0.55179
+\ \ \ node2\ \ 32762\ \ 7280\ \ 6000\ \ 1861\ \ 1026\ \ \ 4\ \ \ 4\ 0.22221\ 0.55179
+\ \ \ node3\ \ 32762\ \ 7280\ \ 6000\ \ 1861\ \ 1026\ \ \ 4\ \ \ 4\ 0.22221\ 0.55179
+\ \ \ node4\ \ 32762\ \ 7280\ \ 6000\ \ 1861\ \ 1026\ \ \ 4\ \ \ 4\ 0.22221\ 0.55179
+\ \ \ node5\ \ 32762\ \ 7280\ \ 6000\ \ 1861\ \ 1078\ \ \ 4\ \ \ 5\ 0.22221\ 0.57947
+\ \ \ node6\ \ 32762\ \ 7280\ \ 6000\ \ 1861\ \ 1026\ \ \ 4\ \ \ 4\ 0.22221\ 0.55179
+\ \ \ node7\ \ 32762\ \ 7280\ \ 6000\ \ 1861\ \ 1026\ \ \ 4\ \ \ 4\ 0.22221\ 0.55179
+\ \ \ node8\ \ 32762\ \ 7280\ \ 6000\ \ 1861\ \ 1026\ \ \ 4\ \ \ 4\ 0.22221\ 0.55179
+\ \ \ node9\ \ 32762\ \ 7280\ \ 6000\ \ 1861\ \ 1026\ \ \ 4\ \ \ 4\ 0.22221\ 0.55179
+\ \ \ node10\ 32762\ \ 7280\ \ 6000\ \ 1861\ \ 1026\ \ \ 4\ \ \ 4\ 0.22221\ 0.55179
+\ \ \ node11\ 32762\ \ 7280\ \ 6000\ \ 1861\ \ 1022\ \ \ 4\ \ \ 4\ 0.22221\ 0.54951
+\ \ \ node12\ 32762\ \ 7280\ \ 6000\ \ 1861\ \ 1026\ \ \ 4\ \ \ 4\ 0.22221\ 0.55179
+\ \ \ node13\ 32762\ \ 7280\ \ 6000\ \ 1861\ \ 1022\ \ \ 4\ \ \ 4\ 0.22221\ 0.54951
+\ \ \ node14\ 32762\ \ 7280\ \ 6000\ \ 1861\ \ 1022\ \ \ 4\ \ \ 4\ 0.22221\ 0.54951
+\ \ \ node15\ 32762\ \ 7280\ \ 6000\ \ 1861\ \ 1031\ \ \ 4\ \ \ 4\ 0.22221\ 0.55408
+\ \ \ node16\ 32762\ \ 7280\ \ 6000\ \ 1861\ \ 1060\ \ \ 4\ \ \ 4\ 0.22221\ 0.57007
+\ \ \ node17\ 32762\ \ 7280\ \ 6000\ \ 1861\ \ 1006\ \ \ 5\ \ \ 4\ 0.22221\ 0.54105
+\ \ \ node18\ 32762\ \ 7280\ \ 6000\ \ 1396\ \ \ 761\ \ \ 4\ \ \ 2\ 0.22221\ 0.54570
+\ \ \ node19\ 32762\ \ 7280\ \ 6000\ \ 1861\ \ 1026\ \ \ 4\ \ \ 4\ 0.22221\ 0.55179
+\ \ \ node20\ 32762\ 13280\ \ 6000\ \ 1861\ \ 1089\ \ \ 3\ \ \ 5\ 0.40535\ 0.58565
 \f[]
+.fi
 .PP
-Here we see, beside the step list, the initial and final cluster
-status, with the final one showing all nodes being N+1 compliant,
-and the command list to reach the final solution. In the initial
-listing, we see which nodes are not N+1 compliant.
+Here we see, beside the step list, the initial and final cluster status,
+with the final one showing all nodes being N+1 compliant, and the
+command list to reach the final solution.
+In the initial listing, we see which nodes are not N+1 compliant.
 .PP
-The algorithm is stable as long as each step above is fully
-completed, e.g. in step 8, both the migrate and the replace-disks
-are done. Otherwise, if only the migrate is done, the input data is
-changed in a way that the program will output a different solution
-list (but hopefully will end in the same state).
+The algorithm is stable as long as each step above is fully completed,
+e.g.
+in step 8, both the migrate and the replace-disks are done.
+Otherwise, if only the migrate is done, the input data is changed in a
+way that the program will output a different solution list (but
+hopefully will end in the same state).
 .SH REPORTING BUGS
 .PP
-Report bugs to project website (http://code.google.com/p/ganeti/)
-or contact the developers using the
-Ganeti mailing list (ganeti@googlegroups.com).
+Report bugs to project website (http://code.google.com/p/ganeti/) or
+contact the developers using the Ganeti mailing
+list (ganeti@googlegroups.com).
 .SH SEE ALSO
 .PP
 Ganeti overview and specifications: \f[B]ganeti\f[](7) (general
-overview), \f[B]ganeti-os-interface\f[](7) (guest OS definitions).
+overview), \f[B]ganeti-os-interface\f[](7) (guest OS definitions),
+\f[B]ganeti-extstorage-interface\f[](7) (external storage providers).
 .PP
 Ganeti commands: \f[B]gnt-cluster\f[](8) (cluster-wide commands),
 \f[B]gnt-job\f[](8) (job-related commands), \f[B]gnt-node\f[](8)
-(node-related commands), \f[B]gnt-instance\f[](8) (instance
-commands), \f[B]gnt-os\f[](8) (guest OS commands),
-\f[B]gnt-group\f[](8) (node group commands), \f[B]gnt-backup\f[](8)
-(instance import/export commands), \f[B]gnt-debug\f[](8) (debug
-commands).
+(node-related commands), \f[B]gnt-instance\f[](8) (instance commands),
+\f[B]gnt-os\f[](8) (guest OS commands), \f[B]gnt-storage\f[](8) (storage
+commands), \f[B]gnt-group\f[](8) (node group commands),
+\f[B]gnt-backup\f[](8) (instance import/export commands),
+\f[B]gnt-debug\f[](8) (debug commands).
 .PP
 Ganeti daemons: \f[B]ganeti-watcher\f[](8) (automatic instance
 restarter), \f[B]ganeti-cleaner\f[](8) (job queue cleaner),
 \f[B]ganeti-noded\f[](8) (node daemon), \f[B]ganeti-masterd\f[](8)
 (master daemon), \f[B]ganeti-rapi\f[](8) (remote API daemon).
 .PP
-Ganeti htools: \f[B]htools\f[](1) (generic binary),
-\f[B]hbal\f[](1) (cluster balancer), \f[B]hspace\f[](1) (capacity
-calculation), \f[B]hail\f[](1) (IAllocator plugin),
-\f[B]hscan\f[](1) (data gatherer from remote clusters),
-\f[B]hinfo\f[](1) (cluster information printer).
+Ganeti htools: \f[B]htools\f[](1) (generic binary), \f[B]hbal\f[](1)
+(cluster balancer), \f[B]hspace\f[](1) (capacity calculation),
+\f[B]hail\f[](1) (IAllocator plugin), \f[B]hscan\f[](1) (data gatherer
+from remote clusters), \f[B]hinfo\f[](1) (cluster information printer),
+\f[B]mon-collector\f[](7) (data collectors interface).
 .SH COPYRIGHT
 .PP
 Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012 Google Inc.
-Permission is granted to copy, distribute and/or modify under the
-terms of the GNU General Public License as published by the Free
-Software Foundation; either version 2 of the License, or (at your
-option) any later version.
+Permission is granted to copy, distribute and/or modify under the terms
+of the GNU General Public License as published by the Free Software
+Foundation; either version 2 of the License, or (at your option) any
+later version.
 .PP
-On Debian systems, the complete text of the GNU General Public
-License can be found in /usr/share/common-licenses/GPL.
-
+On Debian systems, the complete text of the GNU General Public License
+can be found in /usr/share/common-licenses/GPL.

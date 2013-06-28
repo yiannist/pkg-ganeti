@@ -1,7 +1,7 @@
 #!/usr/bin/python
 #
 
-# Copyright (C) 2007, 2008, 2009, 2010, 2011, 2012 Google Inc.
+# Copyright (C) 2007, 2008, 2009, 2010, 2011, 2012, 2013 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -32,6 +32,8 @@ import os.path
 import sys
 import optparse
 import logging
+import time
+from cStringIO import StringIO
 
 from ganeti import constants
 from ganeti import serializer
@@ -40,6 +42,7 @@ from ganeti import cli
 from ganeti import bootstrap
 from ganeti import config
 from ganeti import netutils
+from ganeti import pathutils
 
 
 options = None
@@ -49,7 +52,7 @@ args = None
 #: Target major version we will upgrade to
 TARGET_MAJOR = 2
 #: Target minor version we will upgrade to
-TARGET_MINOR = 6
+TARGET_MINOR = 7
 
 
 class Error(Exception):
@@ -95,6 +98,33 @@ def CheckHostname(path):
   return False
 
 
+def UpgradeNetworks(config_data):
+  networks = config_data.get("networks", None)
+  if not networks:
+    config_data["networks"] = {}
+
+
+def UpgradeGroups(config_data):
+  for group in config_data["nodegroups"].values():
+    networks = group.get("networks", None)
+    if not networks:
+      group["networks"] = {}
+
+
+def UpgradeInstances(config_data):
+  network2uuid = dict((n["name"], n["uuid"])
+                      for n in config_data["networks"].values())
+  for inst in config_data["instances"].values():
+    for nic in inst["nics"]:
+      name = nic.get("network", None)
+      if name:
+        uuid = network2uuid.get(name, None)
+        if uuid:
+          print("NIC with network name %s found."
+                " Substituting with uuid %s." % (name, uuid))
+          nic["network"] = uuid
+
+
 def main():
   """Main program.
 
@@ -114,8 +144,12 @@ def main():
                     action="store_true", default=False,
                     help="Don't abort if hostname doesn't match")
   parser.add_option("--path", help="Convert configuration in this"
-                    " directory instead of '%s'" % constants.DATA_DIR,
-                    default=constants.DATA_DIR, dest="data_dir")
+                    " directory instead of '%s'" % pathutils.DATA_DIR,
+                    default=pathutils.DATA_DIR, dest="data_dir")
+  parser.add_option("--confdir",
+                    help=("Use this directory instead of '%s'" %
+                          pathutils.CONF_DIR),
+                    default=pathutils.CONF_DIR, dest="conf_dir")
   parser.add_option("--no-verify",
                     help="Do not verify configuration after upgrade",
                     action="store_true", dest="no_verify", default=False)
@@ -136,6 +170,7 @@ def main():
   options.CDS_FILE = options.data_dir + "/cluster-domain-secret"
   options.SSCONF_MASTER_NODE = options.data_dir + "/ssconf_master_node"
   options.WATCHER_STATEFILE = options.data_dir + "/watcher.data"
+  options.FILE_STORAGE_PATHS_FILE = options.conf_dir + "/file-storage-paths"
 
   SetupLogging()
 
@@ -163,6 +198,9 @@ def main():
     raise Error(("%s does not seem to be a Ganeti configuration"
                  " directory") % options.data_dir)
 
+  if not os.path.isdir(options.conf_dir):
+    raise Error("Not a directory: %s" % options.conf_dir)
+
   config_data = serializer.LoadJson(utils.ReadFile(options.CONFIG_DATA_PATH))
 
   try:
@@ -180,8 +218,8 @@ def main():
     raise Error("Inconsistent configuration: found config_version in"
                 " configuration file")
 
-  # Upgrade from 2.0/2.1/2.2/2.3 to 2.4
-  if config_major == 2 and config_minor in (0, 1, 2, 3, 4, 5):
+  # Upgrade from 2.{0..6} to 2.7
+  if config_major == 2 and config_minor in (0, 1, 2, 3, 4, 5, 6):
     if config_revision != 0:
       logging.warning("Config revision is %s, not 0", config_revision)
 
@@ -237,6 +275,41 @@ def main():
     if not options.dry_run:
       utils.RemoveFile(options.WATCHER_STATEFILE)
 
+  # Write file storage paths
+  if not os.path.exists(options.FILE_STORAGE_PATHS_FILE):
+    cluster = config_data["cluster"]
+    file_storage_dir = cluster.get("file_storage_dir")
+    shared_file_storage_dir = cluster.get("shared_file_storage_dir")
+    del cluster
+
+    logging.info("Ganeti 2.7 and later only allow whitelisted directories"
+                 " for file storage; writing existing configuration values"
+                 " into '%s'",
+                 options.FILE_STORAGE_PATHS_FILE)
+
+    if file_storage_dir:
+      logging.info("File storage directory: %s", file_storage_dir)
+    if shared_file_storage_dir:
+      logging.info("Shared file storage directory: %s",
+                   shared_file_storage_dir)
+
+    buf = StringIO()
+    buf.write("# List automatically generated from configuration by\n")
+    buf.write("# cfgupgrade at %s\n" % time.asctime())
+    if file_storage_dir:
+      buf.write("%s\n" % file_storage_dir)
+    if shared_file_storage_dir:
+      buf.write("%s\n" % shared_file_storage_dir)
+    utils.WriteFile(file_name=options.FILE_STORAGE_PATHS_FILE,
+                    data=buf.getvalue(),
+                    mode=0600,
+                    dry_run=options.dry_run,
+                    backup=True)
+
+  UpgradeNetworks(config_data)
+  UpgradeGroups(config_data)
+  UpgradeInstances(config_data)
+
   try:
     logging.info("Writing configuration file to %s", options.CONFIG_DATA_PATH)
     utils.WriteFile(file_name=options.CONFIG_DATA_PATH,
@@ -246,13 +319,14 @@ def main():
                     backup=True)
 
     if not options.dry_run:
-      bootstrap.GenerateClusterCrypto(False, False, False, False, False,
-                                     nodecert_file=options.SERVER_PEM_PATH,
-                                     rapicert_file=options.RAPI_CERT_FILE,
-                                     spicecert_file=options.SPICE_CERT_FILE,
-                                     spicecacert_file=options.SPICE_CACERT_FILE,
-                                     hmackey_file=options.CONFD_HMAC_KEY,
-                                     cds_file=options.CDS_FILE)
+      bootstrap.GenerateClusterCrypto(
+        False, False, False, False, False,
+        nodecert_file=options.SERVER_PEM_PATH,
+        rapicert_file=options.RAPI_CERT_FILE,
+        spicecert_file=options.SPICE_CERT_FILE,
+        spicecacert_file=options.SPICE_CACERT_FILE,
+        hmackey_file=options.CONFD_HMAC_KEY,
+        cds_file=options.CDS_FILE)
 
   except Exception:
     logging.critical("Writing configuration failed. It is probably in an"
@@ -260,6 +334,7 @@ def main():
     raise
 
   # test loading the config file
+  all_ok = True
   if not (options.dry_run or options.no_verify):
     logging.info("Testing the new config file...")
     cfg = config.ConfigWriter(cfg_file=options.CONFIG_DATA_PATH,
@@ -271,11 +346,17 @@ def main():
       logging.error("Errors after conversion:")
       for item in vrfy:
         logging.error(" - %s", item)
+      all_ok = False
+    else:
+      logging.info("File loaded successfully after upgrading")
     del cfg
-    logging.info("File loaded successfully")
 
-  cli.ToStderr("Configuration successfully upgraded for version %s.",
-               constants.RELEASE_VERSION)
+  if all_ok:
+    cli.ToStderr("Configuration successfully upgraded to version %s.",
+                 constants.RELEASE_VERSION)
+  else:
+    cli.ToStderr("Configuration upgraded to version %s, but there are errors."
+                 "\nPlease review the file.", constants.RELEASE_VERSION)
 
 
 if __name__ == "__main__":

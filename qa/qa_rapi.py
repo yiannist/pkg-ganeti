@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2007, 2008, 2009, 2010, 2011, 2012 Google Inc.
+# Copyright (C) 2007, 2008, 2009, 2010, 2011, 2012, 2013 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -37,6 +37,7 @@ from ganeti import objects
 from ganeti import query
 from ganeti import compat
 from ganeti import qlang
+from ganeti import pathutils
 
 import ganeti.rapi.client        # pylint: disable=W0611
 import ganeti.rapi.client_utils
@@ -45,6 +46,9 @@ import qa_config
 import qa_utils
 import qa_error
 
+from qa_instance import IsFailoverSupported
+from qa_instance import IsMigrationSupported
+from qa_instance import IsDiskReplacingSupported
 from qa_utils import (AssertEqual, AssertIn, AssertMatch, StartLocalCommand)
 from qa_utils import InstanceCheck, INST_DOWN, INST_UP, FIRST_ARG
 
@@ -72,7 +76,7 @@ def Setup(username, password):
   master = qa_config.GetMasterNode()
 
   # Load RAPI certificate from master node
-  cmd = ["cat", constants.RAPI_CERT_FILE]
+  cmd = ["cat", pathutils.RAPI_CERT_FILE]
 
   # Write to temporary file
   _rapi_ca = tempfile.NamedTemporaryFile()
@@ -103,13 +107,13 @@ NODE_FIELDS = ("name", "dtotal", "dfree",
                "mtotal", "mnode", "mfree",
                "pinst_cnt", "sinst_cnt", "tags")
 
-GROUP_FIELDS = frozenset([
+GROUP_FIELDS = compat.UniqueFrozenset([
   "name", "uuid",
   "alloc_policy",
   "node_cnt", "node_list",
   ])
 
-JOB_FIELDS = frozenset([
+JOB_FIELDS = compat.UniqueFrozenset([
   "id", "ops", "status", "summary",
   "opstatus", "opresult", "oplog",
   "received_ts", "start_ts", "end_ts",
@@ -148,7 +152,8 @@ def _DoTests(uris):
 
 
 def _VerifyReturnsJob(data):
-  AssertMatch(data, r"^\d+$")
+  if not isinstance(data, int):
+    AssertMatch(data, r"^\d+$")
 
 
 def TestVersion():
@@ -341,11 +346,12 @@ def TestRapiQuery():
 
     if what == constants.QR_NODE:
       # Test with filter
-      (nodes, ) = _DoTests([("/2/query/%s" % what,
-        compat.partial(_Check, ["name", "master"]), "PUT", {
-        "fields": ["name", "master"],
-        "filter": [qlang.OP_TRUE, "master"],
-        })])
+      (nodes, ) = _DoTests(
+        [("/2/query/%s" % what,
+          compat.partial(_Check, ["name", "master"]), "PUT",
+          {"fields": ["name", "master"],
+           "filter": [qlang.OP_TRUE, "master"],
+           })])
       qresult = objects.QueryResponse.FromDict(nodes)
       AssertEqual(qresult.data, [
         [[constants.RS_NORMAL, master_name], [constants.RS_NORMAL, True]],
@@ -489,9 +495,7 @@ def TestRapiNodeGroups():
   """Test several node group operations using RAPI.
 
   """
-  groups = qa_config.get("groups", {})
-  group1, group2, group3 = groups.get("inexistent-groups",
-                                      ["group1", "group2", "group3"])[:3]
+  (group1, group2, group3) = qa_utils.GetNonexistentGroups(3)
 
   # Create a group with no attributes
   body = {
@@ -550,6 +554,7 @@ def TestRapiNodeGroups():
 def TestRapiInstanceAdd(node, use_client):
   """Test adding a new instance via RAPI"""
   instance = qa_config.AcquireInstance()
+  qa_config.SetInstanceTemplate(instance, constants.DT_PLAIN)
   try:
     disk_sizes = [utils.ParseUnit(size) for size in qa_config.get("disk")]
     disks = [{"size": size} for size in disk_sizes]
@@ -615,6 +620,10 @@ def TestRapiInstanceRemove(instance, use_client):
 @InstanceCheck(INST_UP, INST_UP, FIRST_ARG)
 def TestRapiInstanceMigrate(instance):
   """Test migrating instance via RAPI"""
+  if not IsMigrationSupported(instance):
+    print qa_utils.FormatInfo("Instance doesn't support migration, skipping"
+                              " test")
+    return
   # Move to secondary node
   _WaitForRapiJob(_rapi_client.MigrateInstance(instance["name"]))
   qa_utils.RunInstanceCheck(instance, True)
@@ -625,6 +634,10 @@ def TestRapiInstanceMigrate(instance):
 @InstanceCheck(INST_UP, INST_UP, FIRST_ARG)
 def TestRapiInstanceFailover(instance):
   """Test failing over instance via RAPI"""
+  if not IsFailoverSupported(instance):
+    print qa_utils.FormatInfo("Instance doesn't support failover, skipping"
+                              " test")
+    return
   # Move to secondary node
   _WaitForRapiJob(_rapi_client.FailoverInstance(instance["name"]))
   qa_utils.RunInstanceCheck(instance, True)
@@ -674,10 +687,15 @@ def TestRapiInstanceReinstall(instance):
 @InstanceCheck(INST_UP, INST_UP, FIRST_ARG)
 def TestRapiInstanceReplaceDisks(instance):
   """Test replacing instance disks via RAPI"""
-  _WaitForRapiJob(_rapi_client.ReplaceInstanceDisks(instance["name"],
-    mode=constants.REPLACE_DISK_AUTO, disks=[]))
-  _WaitForRapiJob(_rapi_client.ReplaceInstanceDisks(instance["name"],
-    mode=constants.REPLACE_DISK_SEC, disks="0"))
+  if not IsDiskReplacingSupported(instance):
+    print qa_utils.FormatInfo("Instance doesn't support disk replacing,"
+                              " skipping test")
+    return
+  fn = _rapi_client.ReplaceInstanceDisks
+  _WaitForRapiJob(fn(instance["name"],
+                     mode=constants.REPLACE_DISK_AUTO, disks=[]))
+  _WaitForRapiJob(fn(instance["name"],
+                     mode=constants.REPLACE_DISK_SEC, disks="0"))
 
 
 @InstanceCheck(INST_UP, INST_UP, FIRST_ARG)
@@ -741,7 +759,7 @@ def GetOperatingSystems():
 
 
 def TestInterClusterInstanceMove(src_instance, dest_instance,
-                                 pnode, snode, tnode):
+                                 inodes, tnode):
   """Test tools/move-instance"""
   master = qa_config.GetMasterNode()
 
@@ -749,20 +767,27 @@ def TestInterClusterInstanceMove(src_instance, dest_instance,
   rapi_pw_file.write(_rapi_password)
   rapi_pw_file.flush()
 
+  qa_config.SetInstanceTemplate(dest_instance,
+                                qa_config.GetInstanceTemplate(src_instance))
+
   # TODO: Run some instance tests before moving back
 
-  if snode is None:
+  if len(inodes) > 1:
+    # No disk template currently requires more than 1 secondary node. If this
+    # changes, either this test must be skipped or the script must be updated.
+    assert len(inodes) == 2
+    snode = inodes[1]
+  else:
     # instance is not redundant, but we still need to pass a node
     # (which will be ignored)
-    fsec = tnode
-  else:
-    fsec = snode
+    snode = tnode
+  pnode = inodes[0]
   # note: pnode:snode are the *current* nodes, so we move it first to
   # tnode:pnode, then back to pnode:snode
   for si, di, pn, sn in [(src_instance["name"], dest_instance["name"],
                           tnode["primary"], pnode["primary"]),
                          (dest_instance["name"], src_instance["name"],
-                          pnode["primary"], fsec["primary"])]:
+                          pnode["primary"], snode["primary"])]:
     cmd = [
       "../tools/move-instance",
       "--verbose",

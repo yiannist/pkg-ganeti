@@ -11,73 +11,69 @@ hail - Ganeti IAllocator plugin
 .SH DESCRIPTION
 .PP
 hail is a Ganeti IAllocator plugin that implements the instance
-placement and movement using the same algorithm as
-\f[B]hbal\f[](1).
+placement and movement using the same algorithm as \f[B]hbal\f[](1).
 .PP
-The program takes input via a JSON-file containing current cluster
-state and the request details, and output (on stdout) a
-JSON-formatted response. In case of critical failures, the error
-message is printed on stderr and the exit code is changed to show
-failure.
+The program takes input via a JSON-file containing current cluster state
+and the request details, and output (on stdout) a JSON-formatted
+response.
+In case of critical failures, the error message is printed on stderr and
+the exit code is changed to show failure.
 .PP
-If the input file name is \f[B]-\f[] (a single minus sign), then
-the request data will be read from \f[I]stdin\f[].
+If the input file name is \f[C]-\f[] (a single minus sign), then the
+request data will be read from \f[I]stdin\f[].
 .SS ALGORITHM
 .PP
 The program uses a simplified version of the hbal algorithm.
 .PP
-For single-node allocations (non-mirrored instances), again we
-select the node which, when chosen as the primary node, gives the
-best score.
+For single-node allocations (non-mirrored instances), again we select
+the node which, when chosen as the primary node, gives the best score.
 .PP
-For dual-node allocations (mirrored instances), we chose the best
-pair; this is the only choice where the algorithm is non-trivial
-with regard to cluster size.
+For dual-node allocations (mirrored instances), we chose the best pair;
+this is the only choice where the algorithm is non-trivial with regard
+to cluster size.
 .PP
-For relocations, we try to change the secondary node of the
-instance to all the valid other nodes; the node which results in
-the best cluster score is chosen.
+For relocations, we try to change the secondary node of the instance to
+all the valid other nodes; the node which results in the best cluster
+score is chosen.
 .PP
-For node changes (\f[I]change-node\f[] mode), we currently support
-DRBD instances only, and all three modes (primary changes,
-secondary changes and all node changes).
+For node changes (\f[I]change-node\f[] mode), we currently support DRBD
+instances only, and all three modes (primary changes, secondary changes
+and all node changes).
 .PP
 For group moves (\f[I]change-group\f[] mode), again only DRBD is
-supported, and we compute the correct sequence that will result in
-a group change; job failure mid-way will result in a split
-instance. The choice of node(s) on the target group is based on the
-group score, and the choice of group is based on the same algorithm
-as allocations (group with lowest score after placement).
+supported, and we compute the correct sequence that will result in a
+group change; job failure mid-way will result in a split instance.
+The choice of node(s) on the target group is based on the group score,
+and the choice of group is based on the same algorithm as allocations
+(group with lowest score after placement).
 .PP
-The deprecated \f[I]multi-evacuate\f[] modes is no longer
-supported.
+The deprecated \f[I]multi-evacuate\f[] modes is no longer supported.
 .PP
-In all cases, the cluster (or group) scoring is identical to the
-hbal algorithm.
+In all cases, the cluster (or group) scoring is identical to the hbal
+algorithm.
 .SH OPTIONS
 .PP
 The options that can be passed to the program are as follows:
 .TP
 .B -p, --print-nodes
-Prints the before and after node status, in a format designed to
-allow the user to understand the node\[aq]s most important
-parameters. See the man page \f[B]htools\f[](1) for more details
-about this option.
+Prints the before and after node status, in a format designed to allow
+the user to understand the node\[aq]s most important parameters.
+See the man page \f[B]htools\f[](1) for more details about this option.
 .RS
 .RE
 .TP
 .B -t \f[I]datafile\f[], --text-data=\f[I]datafile\f[]
-The name of the file holding cluster information, to override the
-data in the JSON request itself. This is mostly used for debugging.
-The format of the file is described in the man page
-\f[B]htools\f[](1).
+The name of the file holding cluster information, to override the data
+in the JSON request itself.
+This is mostly used for debugging.
+The format of the file is described in the man page \f[B]htools\f[](1).
 .RS
 .RE
 .TP
 .B --simulate \f[I]description\f[]
-Backend specification: similar to the \f[B]-t\f[] option, this
-allows overriding the cluster data with a simulated cluster. For
-details about the description, see the man page \f[B]htools\f[](1).
+Backend specification: similar to the \f[B]-t\f[] option, this allows
+overriding the cluster data with a simulated cluster.
+For details about the description, see the man page \f[B]htools\f[](1).
 .RS
 .RE
 .TP
@@ -85,77 +81,83 @@ details about the description, see the man page \f[B]htools\f[](1).
 If given, the state of the cluster before and the iallocator run is
 saved to a file named \f[I]filename.pre-ialloc\f[], respectively
 \f[I]filename.post-ialloc\f[].
-This allows re-feeding the cluster state to any of the htools
-utilities via the \f[B]-t\f[] option.
+This allows re-feeding the cluster state to any of the htools utilities
+via the \f[C]-t\f[] option.
 .RS
 .RE
 .TP
 .B -v
-This option increases verbosity and can be used for debugging in
-order to understand how the IAllocator request is parsed; it can be
-passed multiple times for successively more information.
+This option increases verbosity and can be used for debugging in order
+to understand how the IAllocator request is parsed; it can be passed
+multiple times for successively more information.
 .RS
 .RE
 .SH CONFIGURATION
 .PP
-For the tag-exclusion configuration (see the manpage of hbal for
-more details), the list of which instance tags to consider as
-exclusion tags will be read from the cluster tags, configured as
-follows:
+For the tag-exclusion configuration (see the manpage of hbal for more
+details), the list of which instance tags to consider as exclusion tags
+will be read from the cluster tags, configured as follows:
 .IP \[bu] 2
 get all cluster tags starting with \f[B]htools:iextags:\f[]
 .IP \[bu] 2
 use their suffix as the prefix for exclusion tags
 .PP
-For example, given a cluster tag like
-\f[B]htools:iextags:service\f[], all instance tags of the form
-\f[B]service:X\f[] will be considered as exclusion tags, meaning
-that (e.g.) two instances which both have a tag
-\f[B]service:foo\f[] will not be placed on the same primary node.
+For example, given a cluster tag like \f[B]htools:iextags:service\f[],
+all instance tags of the form \f[B]service:X\f[] will be considered as
+exclusion tags, meaning that (e.g.)
+ two instances which both have a tag \f[B]service:foo\f[] will not be
+placed on the same primary node.
 .SH OPTIONS
 .PP
 The options that can be passed to the program are as follows:
 .SH EXIT STATUS
 .PP
-The exist status of the command will be zero, unless for some
-reason the algorithm fatally failed (e.g. wrong node or instance
-data).
+The exist status of the command will be zero, unless for some reason the
+algorithm fatally failed (e.g.
+wrong node or instance data).
+.SH BUGS
+.PP
+Networks (as configured by \f[B]gnt-network\f[](8)) are not taken into
+account in Ganeti 2.7.
+The only way to guarantee that they work correctly is having your
+networks connected to all nodegroups.
+This will be fixed in a future version.
 .SH REPORTING BUGS
 .PP
-Report bugs to project website (http://code.google.com/p/ganeti/)
-or contact the developers using the
-Ganeti mailing list (ganeti@googlegroups.com).
+Report bugs to project website (http://code.google.com/p/ganeti/) or
+contact the developers using the Ganeti mailing
+list (ganeti@googlegroups.com).
 .SH SEE ALSO
 .PP
 Ganeti overview and specifications: \f[B]ganeti\f[](7) (general
-overview), \f[B]ganeti-os-interface\f[](7) (guest OS definitions).
+overview), \f[B]ganeti-os-interface\f[](7) (guest OS definitions),
+\f[B]ganeti-extstorage-interface\f[](7) (external storage providers).
 .PP
 Ganeti commands: \f[B]gnt-cluster\f[](8) (cluster-wide commands),
 \f[B]gnt-job\f[](8) (job-related commands), \f[B]gnt-node\f[](8)
-(node-related commands), \f[B]gnt-instance\f[](8) (instance
-commands), \f[B]gnt-os\f[](8) (guest OS commands),
-\f[B]gnt-group\f[](8) (node group commands), \f[B]gnt-backup\f[](8)
-(instance import/export commands), \f[B]gnt-debug\f[](8) (debug
-commands).
+(node-related commands), \f[B]gnt-instance\f[](8) (instance commands),
+\f[B]gnt-os\f[](8) (guest OS commands), \f[B]gnt-storage\f[](8) (storage
+commands), \f[B]gnt-group\f[](8) (node group commands),
+\f[B]gnt-backup\f[](8) (instance import/export commands),
+\f[B]gnt-debug\f[](8) (debug commands).
 .PP
 Ganeti daemons: \f[B]ganeti-watcher\f[](8) (automatic instance
 restarter), \f[B]ganeti-cleaner\f[](8) (job queue cleaner),
 \f[B]ganeti-noded\f[](8) (node daemon), \f[B]ganeti-masterd\f[](8)
 (master daemon), \f[B]ganeti-rapi\f[](8) (remote API daemon).
 .PP
-Ganeti htools: \f[B]htools\f[](1) (generic binary),
-\f[B]hbal\f[](1) (cluster balancer), \f[B]hspace\f[](1) (capacity
-calculation), \f[B]hail\f[](1) (IAllocator plugin),
-\f[B]hscan\f[](1) (data gatherer from remote clusters),
-\f[B]hinfo\f[](1) (cluster information printer).
+Ganeti htools: \f[B]htools\f[](1) (generic binary), \f[B]hbal\f[](1)
+(cluster balancer), \f[B]hspace\f[](1) (capacity calculation),
+\f[B]hail\f[](1) (IAllocator plugin), \f[B]hscan\f[](1) (data gatherer
+from remote clusters), \f[B]hinfo\f[](1) (cluster information printer),
+\f[B]mon-collector\f[](7) (data collectors interface).
 .SH COPYRIGHT
 .PP
 Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012 Google Inc.
-Permission is granted to copy, distribute and/or modify under the
-terms of the GNU General Public License as published by the Free
-Software Foundation; either version 2 of the License, or (at your
-option) any later version.
+Permission is granted to copy, distribute and/or modify under the terms
+of the GNU General Public License as published by the Free Software
+Foundation; either version 2 of the License, or (at your option) any
+later version.
 .PP
-On Debian systems, the complete text of the GNU General Public
-License can be found in /usr/share/common-licenses/GPL.
-
+On Debian systems, the complete text of the GNU General Public License
+can be found in /usr/share/common-licenses/GPL.

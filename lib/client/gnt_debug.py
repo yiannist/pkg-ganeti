@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2010, 2011 Google Inc.
+# Copyright (C) 2006, 2007, 2010, 2011, 2012 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -172,10 +172,11 @@ def TestAllocator(opts, args):
                                vcpus=opts.vcpus,
                                tags=opts.tags,
                                direction=opts.direction,
-                               allocator=opts.iallocator,
+                               iallocator=opts.iallocator,
                                evac_mode=opts.evac_mode,
                                target_groups=target_groups,
-                               spindle_use=opts.spindle_use)
+                               spindle_use=opts.spindle_use,
+                               count=opts.count)
   result = SubmitOpCode(op, opts=opts)
   ToStdout("%s" % result)
   return 0
@@ -193,7 +194,7 @@ def _TestJobDependency(opts):
     SubmitOpCode(opcodes.OpTestDelay(duration=0, depends=[(-1, None)]), cl=cl)
   except errors.GenericError, err:
     if opts.debug:
-      ToStdout("Ignoring error: %s", err)
+      ToStdout("Ignoring error for 'wrong dependencies' test: %s", err)
   else:
     raise errors.OpExecError("Submitting plain opcode with relative job ID"
                              " did not fail as expected")
@@ -298,7 +299,7 @@ def _TestJobSubmission(opts):
       cl.SubmitJob(ops)
     except errors.GenericError, err:
       if opts.debug:
-        ToStdout("Ignoring error: %s", err)
+        ToStdout("Ignoring error for 'wrong priority' test: %s", err)
     else:
       raise errors.OpExecError("Submitting opcode with priority %s did not"
                                " fail when it should (allowed are %s)" %
@@ -313,7 +314,8 @@ def _TestJobSubmission(opts):
     result = cl.SubmitManyJobs(jobs)
     if not (len(result) == 2 and
             compat.all(len(i) == 2 for i in result) and
-            compat.all(isinstance(i[1], basestring) for i in result) and
+            isinstance(result[0][1], int) and
+            isinstance(result[1][1], basestring) and
             result[0][0] and not result[1][0]):
       raise errors.OpExecError("Submitting multiple jobs did not work as"
                                " expected, result %s" % result)
@@ -430,7 +432,12 @@ def TestJobqueue(opts, _):
    TM_MULTISUCCESS,
    TM_FAIL,
    TM_PARTFAIL) = range(4)
-  TM_ALL = frozenset([TM_SUCCESS, TM_MULTISUCCESS, TM_FAIL, TM_PARTFAIL])
+  TM_ALL = compat.UniqueFrozenset([
+    TM_SUCCESS,
+    TM_MULTISUCCESS,
+    TM_FAIL,
+    TM_PARTFAIL,
+    ])
 
   for mode in TM_ALL:
     test_messages = [
@@ -493,7 +500,7 @@ def TestJobqueue(opts, _):
         opcodes.OpTestJqueue(notify_waitlock=True,
                              notify_exec=True,
                              log_messages=test_messages,
-                             fail=fail)
+                             fail=fail),
         ]
       expect_messages = [test_messages]
       expect_resultlen = 1
@@ -512,7 +519,7 @@ def TestJobqueue(opts, _):
     except errors.OpExecError, err:
       if not fail:
         raise
-      ToStdout("Ignoring error: %s", err)
+      ToStdout("Ignoring error for 'job fail' test: %s", err)
     else:
       if fail:
         raise errors.OpExecError("Job didn't fail when it should")
@@ -675,6 +682,8 @@ commands = {
                 default=[], action="append"),
      cli_option("--spindle-use", help="How many spindles to use",
                 default=1, type="int"),
+     cli_option("--count", help="How many instances to allocate",
+                default=2, type="int"),
      DRY_RUN_OPT, PRIORITY_OPT,
      ],
     "{opts...} <instance>", "Executes a TestAllocator OpCode"),

@@ -7,98 +7,109 @@ ganeti-masterd - Ganeti master daemon
 \f[B]ganeti-masterd\f[] [-f] [-d] [--no-voting]
 .SH DESCRIPTION
 .PP
-The \f[B]ganeti-masterd\f[] is the daemon which is responsible for
-the overall cluster coordination. Without it, no change can be
-performed on the cluster.
+The \f[B]ganeti-masterd\f[] is the daemon which is responsible for the
+overall cluster coordination.
+Without it, no change can be performed on the cluster.
 .PP
-For testing purposes, you can give the \f[B]-f\f[] option and the
+For testing purposes, you can give the \f[C]-f\f[] option and the
 program won\[aq]t detach from the running terminal.
 .PP
-Debug-level message can be activated by giving the \f[B]-d\f[]
-option.
+Debug-level message can be activated by giving the \f[C]-d\f[] option.
 .SS ROLE
 .PP
 The role of the master daemon is to coordinate all the actions that
-change the state of the cluster. Things like accepting new jobs,
-coordinating the changes on nodes (via RPC calls to the respective
-node daemons), maintaining the configuration and so on are done via
-this daemon.
+change the state of the cluster.
+Things like accepting new jobs, coordinating the changes on nodes (via
+RPC calls to the respective node daemons), maintaining the configuration
+and so on are done via this daemon.
 .PP
 The only action that can be done without the master daemon is the
 failover of the master role to another node in the cluster, via the
 \f[B]gnt-cluster master-failover\f[] command.
 .PP
-If the master daemon is stopped, the instances are not affected,
-but they won\[aq]t be restarted automatically in case of failure.
+If the master daemon is stopped, the instances are not affected, but
+they won\[aq]t be restarted automatically in case of failure.
 .SS STARTUP
 .PP
-At startup, the master daemon will confirm with the node daemons
-that the node it is running is indeed the master node of the
-cluster. It will abort if it doesn\[aq]t get half plus one positive
-answers (offline nodes are queried too, just in case our
-configuration is stale).
+At startup, the master daemon will confirm with the node daemons that
+the node it is running is indeed the master node of the cluster.
+It will abort if it doesn\[aq]t get half plus one positive answers
+(offline nodes are queried too, just in case our configuration is
+stale).
 .PP
 For small clusters with a number of nodes down, and especially for
-two-node clusters where the other has gone done, this creates a
-problem. In this case the \f[B]--no-voting\f[] option can be used
-to skip this process. The option requires interactive confirmation,
-as having two masters on the same cluster is a very dangerous
-situation and will most likely lead to data loss.
+two-node clusters where the other has gone done, this creates a problem.
+In this case the \f[C]--no-voting\f[] option can be used to skip this
+process.
+The option requires interactive confirmation, as having two masters on
+the same cluster is a very dangerous situation and will most likely lead
+to data loss.
+.SS SHUTDOWN
+.PP
+When the master daemon receives a \f[C]SIGINT\f[] (Ctrl-C) or
+\f[C]SIGTERM\f[] signal, it stops accepting new jobs and prepares to
+shut down shortly after jobs running at the time finish.
+Meanwhile it still responds to LUXI requests.
+Pending jobs are re-queued after the daemon is started again.
+When a second signal is received, the master daemon terminates without
+waiting (it might still need to wait for some threads to finish).
+Note that the latter, as well as sending \f[C]SIGKILL\f[], may leave the
+cluster in an inconsistent state.
 .SS JOB QUEUE
 .PP
-The master daemon maintains a job queue (located under the
-directory \f[B]@LOCALSTATEDIR@/lib/ganeti/queue\f[]) in which all
-current jobs are stored, one job per file serialized in JSON
-format; in this directory a subdirectory called \f[B]archive\f[]
-holds archived job files.
+The master daemon maintains a job queue (located under the directory
+\f[C]@LOCALSTATEDIR@/lib/ganeti/queue\f[]) in which all current jobs
+are stored, one job per file serialized in JSON format; in this
+directory a subdirectory called \f[C]archive\f[] holds archived job
+files.
 .PP
-The moving of jobs from the current to the queue directory is done
-via a request to the master; this can be accomplished from the
-command line with the \f[B]gnt-job archive\f[] or
-\f[B]gnt-job autoarchive\f[] commands. In case of problems with the
-master, a job file can simply be moved away or deleted (but this
-might leave the cluster inconsistent).
+The moving of jobs from the current to the queue directory is done via a
+request to the master; this can be accomplished from the command line
+with the \f[B]gnt-job archive\f[] or \f[B]gnt-job autoarchive\f[]
+commands.
+In case of problems with the master, a job file can simply be moved away
+or deleted (but this might leave the cluster inconsistent).
 .SS COMMUNICATION PROTOCOL
 .PP
-The master accepts commands over a Unix socket, using JSON
-serialized messages separated by a specific byte sequence. For more
-details, see the design documentation supplied with Ganeti.
+The master accepts commands over a Unix socket, using JSON serialized
+messages separated by a specific byte sequence.
+For more details, see the design documentation supplied with Ganeti.
 .SH REPORTING BUGS
 .PP
-Report bugs to project website (http://code.google.com/p/ganeti/)
-or contact the developers using the
-Ganeti mailing list (ganeti@googlegroups.com).
+Report bugs to project website (http://code.google.com/p/ganeti/) or
+contact the developers using the Ganeti mailing
+list (ganeti@googlegroups.com).
 .SH SEE ALSO
 .PP
 Ganeti overview and specifications: \f[B]ganeti\f[](7) (general
-overview), \f[B]ganeti-os-interface\f[](7) (guest OS definitions).
+overview), \f[B]ganeti-os-interface\f[](7) (guest OS definitions),
+\f[B]ganeti-extstorage-interface\f[](7) (external storage providers).
 .PP
 Ganeti commands: \f[B]gnt-cluster\f[](8) (cluster-wide commands),
 \f[B]gnt-job\f[](8) (job-related commands), \f[B]gnt-node\f[](8)
-(node-related commands), \f[B]gnt-instance\f[](8) (instance
-commands), \f[B]gnt-os\f[](8) (guest OS commands),
-\f[B]gnt-group\f[](8) (node group commands), \f[B]gnt-backup\f[](8)
-(instance import/export commands), \f[B]gnt-debug\f[](8) (debug
-commands).
+(node-related commands), \f[B]gnt-instance\f[](8) (instance commands),
+\f[B]gnt-os\f[](8) (guest OS commands), \f[B]gnt-storage\f[](8) (storage
+commands), \f[B]gnt-group\f[](8) (node group commands),
+\f[B]gnt-backup\f[](8) (instance import/export commands),
+\f[B]gnt-debug\f[](8) (debug commands).
 .PP
 Ganeti daemons: \f[B]ganeti-watcher\f[](8) (automatic instance
 restarter), \f[B]ganeti-cleaner\f[](8) (job queue cleaner),
 \f[B]ganeti-noded\f[](8) (node daemon), \f[B]ganeti-masterd\f[](8)
 (master daemon), \f[B]ganeti-rapi\f[](8) (remote API daemon).
 .PP
-Ganeti htools: \f[B]htools\f[](1) (generic binary),
-\f[B]hbal\f[](1) (cluster balancer), \f[B]hspace\f[](1) (capacity
-calculation), \f[B]hail\f[](1) (IAllocator plugin),
-\f[B]hscan\f[](1) (data gatherer from remote clusters),
-\f[B]hinfo\f[](1) (cluster information printer).
+Ganeti htools: \f[B]htools\f[](1) (generic binary), \f[B]hbal\f[](1)
+(cluster balancer), \f[B]hspace\f[](1) (capacity calculation),
+\f[B]hail\f[](1) (IAllocator plugin), \f[B]hscan\f[](1) (data gatherer
+from remote clusters), \f[B]hinfo\f[](1) (cluster information printer),
+\f[B]mon-collector\f[](7) (data collectors interface).
 .SH COPYRIGHT
 .PP
 Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012 Google Inc.
-Permission is granted to copy, distribute and/or modify under the
-terms of the GNU General Public License as published by the Free
-Software Foundation; either version 2 of the License, or (at your
-option) any later version.
+Permission is granted to copy, distribute and/or modify under the terms
+of the GNU General Public License as published by the Free Software
+Foundation; either version 2 of the License, or (at your option) any
+later version.
 .PP
-On Debian systems, the complete text of the GNU General Public
-License can be found in /usr/share/common-licenses/GPL.
-
+On Debian systems, the complete text of the GNU General Public License
+can be found in /usr/share/common-licenses/GPL.

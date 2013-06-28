@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2007, 2011, 2012 Google Inc.
+# Copyright (C) 2007, 2011, 2012, 2013 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -39,6 +39,7 @@ from ganeti import utils
 from ganeti import compat
 from ganeti import constants
 from ganeti import ht
+from ganeti import pathutils
 
 import qa_config
 import qa_error
@@ -53,6 +54,9 @@ _MULTIPLEXERS = {}
 
 #: Unique ID per QA run
 _RUN_UUID = utils.NewUUID()
+
+#: Path to the QA query output log file
+_QA_OUTPUT = pathutils.GetLogFilename("qa-output")
 
 
 (INST_DOWN,
@@ -117,14 +121,6 @@ def AssertEqual(first, second):
     raise qa_error.Error("%r == %r" % (first, second))
 
 
-def AssertNotEqual(first, second):
-  """Raises an error when values are equal.
-
-  """
-  if not first != second:
-    raise qa_error.Error("%r != %r" % (first, second))
-
-
 def AssertMatch(string, pattern):
   """Raises an error when string doesn't match regexp pattern.
 
@@ -155,7 +151,19 @@ def _GetName(entity, key):
   return result
 
 
-def AssertCommand(cmd, fail=False, node=None):
+def _AssertRetCode(rcode, fail, cmdstr, nodename):
+  """Check the return value from a command and possibly raise an exception.
+
+  """
+  if fail and rcode == 0:
+    raise qa_error.Error("Command '%s' on node %s was expected to fail but"
+                         " didn't" % (cmdstr, nodename))
+  elif not fail and rcode != 0:
+    raise qa_error.Error("Command '%s' on node %s failed, exit code %s" %
+                         (cmdstr, nodename, rcode))
+
+
+def AssertCommand(cmd, fail=False, node=None, log_cmd=True):
   """Checks that a remote command succeeds.
 
   @param cmd: either a string (the command to execute) or a list (to
@@ -165,6 +173,10 @@ def AssertCommand(cmd, fail=False, node=None):
   @param node: if passed, it should be the node on which the command
       should be executed, instead of the master node (can be either a
       dict or a string)
+  @param log_cmd: if False, the command won't be logged (simply passed to
+      StartSSH)
+  @return: the return code of the command
+  @raise qa_error.Error: if the command fails when it shouldn't or vice versa
 
   """
   if node is None:
@@ -177,18 +189,31 @@ def AssertCommand(cmd, fail=False, node=None):
   else:
     cmdstr = utils.ShellQuoteArgs(cmd)
 
-  rcode = StartSSH(nodename, cmdstr).wait()
-
-  if fail:
-    if rcode == 0:
-      raise qa_error.Error("Command '%s' on node %s was expected to fail but"
-                           " didn't" % (cmdstr, nodename))
-  else:
-    if rcode != 0:
-      raise qa_error.Error("Command '%s' on node %s failed, exit code %s" %
-                           (cmdstr, nodename, rcode))
+  rcode = StartSSH(nodename, cmdstr, log_cmd=log_cmd).wait()
+  _AssertRetCode(rcode, fail, cmdstr, nodename)
 
   return rcode
+
+
+def AssertRedirectedCommand(cmd, fail=False, node=None, log_cmd=True):
+  """Executes a command with redirected output.
+
+  The log will go to the qa-output log file in the ganeti log
+  directory on the node where the command is executed. The fail and
+  node parameters are passed unchanged to AssertCommand.
+
+  @param cmd: the command to be executed, as a list; a string is not
+      supported
+
+  """
+  if not isinstance(cmd, list):
+    raise qa_error.Error("Non-list passed to AssertRedirectedCommand")
+  ofile = utils.ShellQuote(_QA_OUTPUT)
+  cmdstr = utils.ShellQuoteArgs(cmd)
+  AssertCommand("echo ---- $(date) %s ---- >> %s" % (cmdstr, ofile),
+                fail=False, node=node, log_cmd=False)
+  return AssertCommand(cmdstr + " >> %s" % ofile,
+                       fail=fail, node=node, log_cmd=log_cmd)
 
 
 def GetSSHCommand(node, cmd, strict=True, opts=None, tty=None):
@@ -235,24 +260,25 @@ def GetSSHCommand(node, cmd, strict=True, opts=None, tty=None):
   return args
 
 
-def StartLocalCommand(cmd, _nolog_opts=False, **kwargs):
+def StartLocalCommand(cmd, _nolog_opts=False, log_cmd=True, **kwargs):
   """Starts a local command.
 
   """
-  if _nolog_opts:
-    pcmd = [i for i in cmd if not i.startswith("-")]
-  else:
-    pcmd = cmd
-  print "Command: %s" % utils.ShellQuoteArgs(pcmd)
+  if log_cmd:
+    if _nolog_opts:
+      pcmd = [i for i in cmd if not i.startswith("-")]
+    else:
+      pcmd = cmd
+    print "Command: %s" % utils.ShellQuoteArgs(pcmd)
   return subprocess.Popen(cmd, shell=False, **kwargs)
 
 
-def StartSSH(node, cmd, strict=True):
+def StartSSH(node, cmd, strict=True, log_cmd=True):
   """Starts SSH.
 
   """
   return StartLocalCommand(GetSSHCommand(node, cmd, strict=strict),
-                           _nolog_opts=True)
+                           _nolog_opts=True, log_cmd=log_cmd)
 
 
 def StartMultiplexer(node):
@@ -283,13 +309,23 @@ def CloseMultiplexers():
     utils.RemoveFile(sname)
 
 
-def GetCommandOutput(node, cmd, tty=None):
+def GetCommandOutput(node, cmd, tty=None, fail=False):
   """Returns the output of a command executed on the given node.
 
+  @type node: string
+  @param node: node the command should run on
+  @type cmd: string
+  @param cmd: command to be executed in the node (cannot be empty or None)
+  @type tty: bool or None
+  @param tty: if we should use tty; if None, it will be auto-detected
+  @type fail: bool
+  @param fail: whether the command is expected to fail
   """
+  assert cmd
   p = StartLocalCommand(GetSSHCommand(node, cmd, tty=tty),
                         stdout=subprocess.PIPE)
-  AssertEqual(p.wait(), 0)
+  rcode = p.wait()
+  _AssertRetCode(rcode, fail, cmd, node)
   return p.stdout.read()
 
 
@@ -467,7 +503,7 @@ def GenericQueryTest(cmd, fields, namefield="name", test_unknown=True):
 
   # Test a number of field combinations
   for testfields in _SelectQueryFields(rnd, fields):
-    AssertCommand([cmd, "list", "--output", ",".join(testfields)])
+    AssertRedirectedCommand([cmd, "list", "--output", ",".join(testfields)])
 
   if namefield is not None:
     namelist_fn = compat.partial(_List, cmd, [namefield])
@@ -490,8 +526,9 @@ def GenericQueryTest(cmd, fields, namefield="name", test_unknown=True):
                   fail=True)
 
   # Check exit code for listing unknown field
-  AssertEqual(AssertCommand([cmd, "list", "--output=field/does/not/exist"],
-                            fail=True),
+  AssertEqual(AssertRedirectedCommand([cmd, "list",
+                                       "--output=field/does/not/exist"],
+                                      fail=True),
               constants.EXIT_UNKNOWN_FIELD)
 
 
@@ -499,8 +536,8 @@ def GenericQueryFieldsTest(cmd, fields):
   master = qa_config.GetMasterNode()
 
   # Listing fields
-  AssertCommand([cmd, "list-fields"])
-  AssertCommand([cmd, "list-fields"] + fields)
+  AssertRedirectedCommand([cmd, "list-fields"])
+  AssertRedirectedCommand([cmd, "list-fields"] + fields)
 
   # Check listed fields (all, must be sorted)
   realcmd = [cmd, "list-fields", "--separator=|", "--no-headers"]
@@ -535,17 +572,20 @@ def AddToEtcHosts(hostnames):
   master = qa_config.GetMasterNode()
   tmp_hosts = UploadData(master["primary"], "", mode=0644)
 
-  quoted_tmp_hosts = utils.ShellQuote(tmp_hosts)
   data = []
   for localhost in ("::1", "127.0.0.1"):
     data.append("%s %s" % (localhost, " ".join(hostnames)))
 
   try:
-    AssertCommand(("cat /etc/hosts > %s && echo -e '%s' >> %s && mv %s"
-                   " /etc/hosts") % (quoted_tmp_hosts, "\\n".join(data),
-                                     quoted_tmp_hosts, quoted_tmp_hosts))
-  except qa_error.Error:
-    AssertCommand(["rm", tmp_hosts])
+    AssertCommand("{ cat %s && echo -e '%s'; } > %s && mv %s %s" %
+                  (utils.ShellQuote(pathutils.ETC_HOSTS),
+                   "\\n".join(data),
+                   utils.ShellQuote(tmp_hosts),
+                   utils.ShellQuote(tmp_hosts),
+                   utils.ShellQuote(pathutils.ETC_HOSTS)))
+  except Exception:
+    AssertCommand(["rm", "-f", tmp_hosts])
+    raise
 
 
 def RemoveFromEtcHosts(hostnames):
@@ -560,11 +600,14 @@ def RemoveFromEtcHosts(hostnames):
 
   sed_data = " ".join(hostnames)
   try:
-    AssertCommand(("sed -e '/^\(::1\|127\.0\.0\.1\)\s\+%s/d' /etc/hosts > %s"
-                   " && mv %s /etc/hosts") % (sed_data, quoted_tmp_hosts,
-                                              quoted_tmp_hosts))
-  except qa_error.Error:
-    AssertCommand(["rm", tmp_hosts])
+    AssertCommand(("sed -e '/^\(::1\|127\.0\.0\.1\)\s\+%s/d' %s > %s"
+                   " && mv %s %s") %
+                   (sed_data, utils.ShellQuote(pathutils.ETC_HOSTS),
+                    quoted_tmp_hosts, quoted_tmp_hosts,
+                    utils.ShellQuote(pathutils.ETC_HOSTS)))
+  except Exception:
+    AssertCommand(["rm", "-f", tmp_hosts])
+    raise
 
 
 def RunInstanceCheck(instance, running):
@@ -646,3 +689,23 @@ def InstanceCheck(before, after, instarg):
       return result
     return wrapper
   return decorator
+
+
+def GetNonexistentGroups(count):
+  """Gets group names which shouldn't exist on the cluster.
+
+  @param count: Number of groups to get
+  @rtype: list
+
+  """
+  groups = qa_config.get("groups", {})
+
+  default = ["group1", "group2", "group3"]
+  assert count <= len(default)
+
+  candidates = groups.get("inexistent-groups", default)[:count]
+
+  if len(candidates) < count:
+    raise Exception("At least %s non-existent groups are needed" % count)
+
+  return candidates

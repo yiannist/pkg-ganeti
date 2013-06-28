@@ -20,7 +20,9 @@
 
 set -e
 
-defaults_file=@SYSCONFDIR@/default/ganeti
+@SHELL_ENV_INIT@
+
+readonly defaults_file="$SYSCONFDIR/default/ganeti"
 
 # This is a list of all daemons and the order in which they're started. The
 # order is important as there are dependencies between them. On shutdown,
@@ -31,7 +33,11 @@ DAEMONS=(
   ganeti-rapi
   )
 
-if [[ "@CUSTOM_ENABLE_CONFD@" == True ]]; then
+_confd_enabled() {
+  [[ "@CUSTOM_ENABLE_CONFD@" == True ]]
+}
+
+if _confd_enabled; then
   DAEMONS+=( ganeti-confd )
 fi
 
@@ -52,7 +58,7 @@ _ignore_error() {
 }
 
 _daemon_pidfile() {
-  echo "@LOCALSTATEDIR@/run/ganeti/$1.pid"
+  echo "$RUN_DIR/$1.pid"
 }
 
 _daemon_executable() {
@@ -81,7 +87,7 @@ _daemon_usergroup() {
 
 # Checks whether the local machine is part of a cluster
 check_config() {
-  local server_pem=@LOCALSTATEDIR@/lib/ganeti/server.pem
+  local server_pem=$DATA_DIR/server.pem
   local fname
 
   for fname in $server_pem; do
@@ -210,8 +216,7 @@ start() {
   local usergroup=$(_daemon_usergroup $plain_name)
   local daemonexec=$(_daemon_executable $name)
 
-  if [[ "$name" == ganeti-confd &&
-        "@CUSTOM_ENABLE_CONFD@" == False ]]; then
+  if [[ "$name" == ganeti-confd ]] && ! _confd_enabled; then
     echo 'ganeti-confd disabled at build time' >&2
     return 1
   fi
@@ -234,6 +239,12 @@ start() {
       --pidfile $pidfile \
       --user ${usergroup%:*} \
       $daemonexec $args "$@"
+  fi
+
+  # FIXME: This is a workaround for issue 477. Remove this once confd does not
+  # mess up the permissions anymore.
+  if [[ "$name" == ganeti-confd ]]; then
+    @PKGLIBDIR@/ensure-dirs;
   fi
 }
 

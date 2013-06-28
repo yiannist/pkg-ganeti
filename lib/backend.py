@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -60,16 +60,19 @@ from ganeti import ssconf
 from ganeti import serializer
 from ganeti import netutils
 from ganeti import runtime
-from ganeti import mcpu
 from ganeti import compat
+from ganeti import pathutils
+from ganeti import vcluster
+from ganeti import ht
+from ganeti import hooksmaster
 
 
 _BOOT_ID_PATH = "/proc/sys/kernel/random/boot_id"
-_ALLOWED_CLEAN_DIRS = frozenset([
-  constants.DATA_DIR,
-  constants.JOB_QUEUE_ARCHIVE_DIR,
-  constants.QUEUE_DIR,
-  constants.CRYPTO_KEYS_DIR,
+_ALLOWED_CLEAN_DIRS = compat.UniqueFrozenset([
+  pathutils.DATA_DIR,
+  pathutils.JOB_QUEUE_ARCHIVE_DIR,
+  pathutils.QUEUE_DIR,
+  pathutils.CRYPTO_KEYS_DIR,
   ])
 _MAX_SSL_CERT_VALIDITY = 7 * 24 * 60 * 60
 _X509_KEY_FILE = "key"
@@ -84,6 +87,19 @@ _LVSLINE_REGEX = re.compile("^ *([^|]+)\|([^|]+)\|([0-9.]+)\|([^|]{6,})\|?$")
 # Actions for the master setup script
 _MASTER_START = "start"
 _MASTER_STOP = "stop"
+
+#: Maximum file permissions for restricted command directory and executables
+_RCMD_MAX_MODE = (stat.S_IRWXU |
+                  stat.S_IRGRP | stat.S_IXGRP |
+                  stat.S_IROTH | stat.S_IXOTH)
+
+#: Delay before returning an error for restricted commands
+_RCMD_INVALID_DELAY = 10
+
+#: How long to wait to acquire lock for restricted commands (shorter than
+#: L{_RCMD_INVALID_DELAY}) to reduce blockage of noded forks when many
+#: command requests arrive
+_RCMD_LOCK_TIMEOUT = _RCMD_INVALID_DELAY * 0.8
 
 
 class RPCFail(Exception):
@@ -197,21 +213,24 @@ def _BuildUploadFileList():
 
   """
   allowed_files = set([
-    constants.CLUSTER_CONF_FILE,
-    constants.ETC_HOSTS,
-    constants.SSH_KNOWN_HOSTS_FILE,
-    constants.VNC_PASSWORD_FILE,
-    constants.RAPI_CERT_FILE,
-    constants.SPICE_CERT_FILE,
-    constants.SPICE_CACERT_FILE,
-    constants.RAPI_USERS_FILE,
-    constants.CONFD_HMAC_KEY,
-    constants.CLUSTER_DOMAIN_SECRET_FILE,
+    pathutils.CLUSTER_CONF_FILE,
+    pathutils.ETC_HOSTS,
+    pathutils.SSH_KNOWN_HOSTS_FILE,
+    pathutils.VNC_PASSWORD_FILE,
+    pathutils.RAPI_CERT_FILE,
+    pathutils.SPICE_CERT_FILE,
+    pathutils.SPICE_CACERT_FILE,
+    pathutils.RAPI_USERS_FILE,
+    pathutils.CONFD_HMAC_KEY,
+    pathutils.CLUSTER_DOMAIN_SECRET_FILE,
     ])
 
   for hv_name in constants.HYPER_TYPES:
     hv_class = hypervisor.GetHypervisorClass(hv_name)
     allowed_files.update(hv_class.GetAncillaryFiles()[0])
+
+  assert pathutils.FILE_STORAGE_PATHS_FILE not in allowed_files, \
+    "Allowed file storage paths should never be uploaded via RPC"
 
   return frozenset(allowed_files)
 
@@ -226,8 +245,8 @@ def JobQueuePurge():
   @return: True, None
 
   """
-  _CleanDirectory(constants.QUEUE_DIR, exclude=[constants.JOB_QUEUE_LOCK_FILE])
-  _CleanDirectory(constants.JOB_QUEUE_ARCHIVE_DIR)
+  _CleanDirectory(pathutils.QUEUE_DIR, exclude=[pathutils.JOB_QUEUE_LOCK_FILE])
+  _CleanDirectory(pathutils.JOB_QUEUE_ARCHIVE_DIR)
 
 
 def GetMasterInfo():
@@ -252,7 +271,7 @@ def GetMasterInfo():
   except errors.ConfigurationError, err:
     _Fail("Cluster configuration incomplete: %s", err, exc=True)
   return (master_netdev, master_ip, master_node, primary_ip_family,
-      master_netmask)
+          master_netmask)
 
 
 def RunLocalHooks(hook_opcode, hooks_path, env_builder_fn):
@@ -278,10 +297,10 @@ def RunLocalHooks(hook_opcode, hooks_path, env_builder_fn):
 
       cfg = _GetConfig()
       hr = HooksRunner()
-      hm = mcpu.HooksMaster(hook_opcode, hooks_path, nodes, hr.RunLocalHooks,
-                            None, env_fn, logging.warning, cfg.GetClusterName(),
-                            cfg.GetMasterNode())
-
+      hm = hooksmaster.HooksMaster(hook_opcode, hooks_path, nodes,
+                                   hr.RunLocalHooks, None, env_fn,
+                                   logging.warning, cfg.GetClusterName(),
+                                   cfg.GetMasterNode())
       hm.RunPhase(constants.HOOKS_PHASE_PRE)
       result = fn(*args, **kwargs)
       hm.RunPhase(constants.HOOKS_PHASE_POST)
@@ -332,15 +351,15 @@ def _RunMasterSetupScript(master_params, action, use_external_mip_script):
   env = _BuildMasterIpEnv(master_params)
 
   if use_external_mip_script:
-    setup_script = constants.EXTERNAL_MASTER_SETUP_SCRIPT
+    setup_script = pathutils.EXTERNAL_MASTER_SETUP_SCRIPT
   else:
-    setup_script = constants.DEFAULT_MASTER_SETUP_SCRIPT
+    setup_script = pathutils.DEFAULT_MASTER_SETUP_SCRIPT
 
   result = utils.RunCmd([setup_script, action], env=env, reset_env=True)
 
   if result.failed:
-    _Fail("Failed to %s the master IP. Script return value: %s" %
-          (action, result.exit_code), log=True)
+    _Fail("Failed to %s the master IP. Script return value: %s, output: '%s'" %
+          (action, result.exit_code, result.output), log=True)
 
 
 @RunLocalHooks(constants.FAKE_OP_MASTER_TURNUP, "master-ip-turnup",
@@ -381,7 +400,7 @@ def StartMasterDaemons(no_voting):
     "EXTRA_MASTERD_ARGS": masterd_args,
     }
 
-  result = utils.RunCmd([constants.DAEMON_UTIL, "start-master"], env=env)
+  result = utils.RunCmd([pathutils.DAEMON_UTIL, "start-master"], env=env)
   if result.failed:
     msg = "Can't start Ganeti master: %s" % result.output
     logging.error(msg)
@@ -416,7 +435,7 @@ def StopMasterDaemons():
   # TODO: log and report back to the caller the error failures; we
   # need to decide in which case we fail the RPC for this
 
-  result = utils.RunCmd([constants.DAEMON_UTIL, "stop-master"])
+  result = utils.RunCmd([pathutils.DAEMON_UTIL, "stop-master"])
   if result.failed:
     logging.error("Could not stop Ganeti master, command %s had exitcode %s"
                   " and error %s",
@@ -489,13 +508,13 @@ def LeaveCluster(modify_ssh_setup):
   @param modify_ssh_setup: boolean
 
   """
-  _CleanDirectory(constants.DATA_DIR)
-  _CleanDirectory(constants.CRYPTO_KEYS_DIR)
+  _CleanDirectory(pathutils.DATA_DIR)
+  _CleanDirectory(pathutils.CRYPTO_KEYS_DIR)
   JobQueuePurge()
 
   if modify_ssh_setup:
     try:
-      priv_key, pub_key, auth_keys = ssh.GetUserFiles(constants.GANETI_RUNAS)
+      priv_key, pub_key, auth_keys = ssh.GetUserFiles(constants.SSH_LOGIN_USER)
 
       utils.RemoveAuthorizedKey(auth_keys, utils.ReadFile(pub_key))
 
@@ -505,15 +524,15 @@ def LeaveCluster(modify_ssh_setup):
       logging.exception("Error while processing ssh files")
 
   try:
-    utils.RemoveFile(constants.CONFD_HMAC_KEY)
-    utils.RemoveFile(constants.RAPI_CERT_FILE)
-    utils.RemoveFile(constants.SPICE_CERT_FILE)
-    utils.RemoveFile(constants.SPICE_CACERT_FILE)
-    utils.RemoveFile(constants.NODED_CERT_FILE)
+    utils.RemoveFile(pathutils.CONFD_HMAC_KEY)
+    utils.RemoveFile(pathutils.RAPI_CERT_FILE)
+    utils.RemoveFile(pathutils.SPICE_CERT_FILE)
+    utils.RemoveFile(pathutils.SPICE_CACERT_FILE)
+    utils.RemoveFile(pathutils.NODED_CERT_FILE)
   except: # pylint: disable=W0702
     logging.exception("Error while removing cluster secrets")
 
-  result = utils.RunCmd([constants.DAEMON_UTIL, "stop", constants.CONFD])
+  result = utils.RunCmd([pathutils.DAEMON_UTIL, "stop", constants.CONFD])
   if result.failed:
     logging.error("Command %s failed with exitcode %s and error %s",
                   result.cmd, result.exit_code, result.output)
@@ -522,12 +541,12 @@ def LeaveCluster(modify_ssh_setup):
   raise errors.QuitGanetiException(True, "Shutdown scheduled")
 
 
-def _GetVgInfo(name):
+def _GetVgInfo(name, excl_stor):
   """Retrieves information about a LVM volume group.
 
   """
   # TODO: GetVGInfo supports returning information for multiple VGs at once
-  vginfo = bdev.LogicalVolume.GetVGInfo([name])
+  vginfo = bdev.LogicalVolume.GetVGInfo([name], excl_stor)
   if vginfo:
     vg_free = int(round(vginfo[0][0], 0))
     vg_size = int(round(vginfo[0][1], 0))
@@ -570,23 +589,42 @@ def _GetNamedNodeInfo(names, fn):
     return map(fn, names)
 
 
-def GetNodeInfo(vg_names, hv_names):
+def GetNodeInfo(vg_names, hv_names, excl_stor):
   """Gives back a hash with different information about the node.
 
   @type vg_names: list of string
   @param vg_names: Names of the volume groups to ask for disk space information
   @type hv_names: list of string
   @param hv_names: Names of the hypervisors to ask for node information
+  @type excl_stor: boolean
+  @param excl_stor: Whether exclusive_storage is active
   @rtype: tuple; (string, None/dict, None/dict)
   @return: Tuple containing boot ID, volume group information and hypervisor
     information
 
   """
   bootid = utils.ReadFile(_BOOT_ID_PATH, size=128).rstrip("\n")
-  vg_info = _GetNamedNodeInfo(vg_names, _GetVgInfo)
+  vg_info = _GetNamedNodeInfo(vg_names, (lambda vg: _GetVgInfo(vg, excl_stor)))
   hv_info = _GetNamedNodeInfo(hv_names, _GetHvInfo)
 
   return (bootid, vg_info, hv_info)
+
+
+def _CheckExclusivePvs(pvi_list):
+  """Check that PVs are not shared among LVs
+
+  @type pvi_list: list of L{objects.LvmPvInfo} objects
+  @param pvi_list: information about the PVs
+
+  @rtype: list of tuples (string, list of strings)
+  @return: offending volumes, as tuples: (pv_name, [lv1_name, lv2_name...])
+
+  """
+  res = []
+  for pvi in pvi_list:
+    if len(pvi.lv_list) > 1:
+      res.append((pvi.name, pvi.lv_list))
+  return res
 
 
 def VerifyNode(what, cluster_name):
@@ -642,8 +680,11 @@ def VerifyNode(what, cluster_name):
         tmp.append((source, hv_name, str(err)))
 
   if constants.NV_FILELIST in what:
-    result[constants.NV_FILELIST] = utils.FingerprintFiles(
-      what[constants.NV_FILELIST])
+    fingerprints = utils.FingerprintFiles(map(vcluster.LocalizeVirtualPath,
+                                              what[constants.NV_FILELIST]))
+    result[constants.NV_FILELIST] = \
+      dict((vcluster.MakeVirtualPath(key), value)
+           for (key, value) in fingerprints.items())
 
   if constants.NV_NODELIST in what:
     (nodes, bynode) = what[constants.NV_NODELIST]
@@ -698,12 +739,12 @@ def VerifyNode(what, cluster_name):
     else:
       source = None
     result[constants.NV_MASTERIP] = netutils.TcpPing(master_ip, port,
-                                                  source=source)
+                                                     source=source)
 
   if constants.NV_USERSCRIPTS in what:
     result[constants.NV_USERSCRIPTS] = \
       [script for script in what[constants.NV_USERSCRIPTS]
-       if not (os.path.exists(script) and os.access(script, os.X_OK))]
+       if not utils.IsExecutable(script)]
 
   if constants.NV_OOB_PATHS in what:
     result[constants.NV_OOB_PATHS] = tmp = []
@@ -740,9 +781,16 @@ def VerifyNode(what, cluster_name):
     result[constants.NV_VGLIST] = utils.ListVolumeGroups()
 
   if constants.NV_PVLIST in what and vm_capable:
-    result[constants.NV_PVLIST] = \
-      bdev.LogicalVolume.GetPVInfo(what[constants.NV_PVLIST],
-                                   filter_allocatable=False)
+    check_exclusive_pvs = constants.NV_EXCLUSIVEPVS in what
+    val = bdev.LogicalVolume.GetPVInfo(what[constants.NV_PVLIST],
+                                       filter_allocatable=False,
+                                       include_lvs=check_exclusive_pvs)
+    if check_exclusive_pvs:
+      result[constants.NV_EXCLUSIVEPVS] = _CheckExclusivePvs(val)
+      for pvi in val:
+        # Avoid sending useless data on the wire
+        pvi.lv_list = []
+    result[constants.NV_PVLIST] = map(objects.LvmPvInfo.ToDict, val)
 
   if constants.NV_VERSION in what:
     result[constants.NV_VERSION] = (constants.PROTOCOL_VERSION,
@@ -792,6 +840,11 @@ def VerifyNode(what, cluster_name):
     result[constants.NV_BRIDGES] = [bridge
                                     for bridge in what[constants.NV_BRIDGES]
                                     if not utils.BridgeExists(bridge)]
+
+  if what.get(constants.NV_FILE_STORAGE_PATHS) == my_name:
+    result[constants.NV_FILE_STORAGE_PATHS] = \
+      bdev.ComputeWrongFileStoragePaths()
+
   return result
 
 
@@ -989,6 +1042,7 @@ def GetInstanceInfo(instance, hname):
       - memory: memory size of instance (int)
       - state: xen state of instance (string)
       - time: cpu time of instance (float)
+      - vcpus: the number of vcpus (int)
 
   """
   output = {}
@@ -996,6 +1050,7 @@ def GetInstanceInfo(instance, hname):
   iinfo = hypervisor.GetHypervisor(hname).GetInstanceInfo(instance)
   if iinfo is not None:
     output["memory"] = iinfo[2]
+    output["vcpus"] = iinfo[3]
     output["state"] = iinfo[4]
     output["time"] = iinfo[5]
 
@@ -1094,7 +1149,7 @@ def _InstanceLogName(kind, os_name, instance, component):
     c_msg = ""
   base = ("%s-%s-%s%s-%s.log" %
           (kind, os_name, instance, c_msg, utils.TimestampForFilename()))
-  return utils.PathJoin(constants.LOG_OS_DIR, base)
+  return utils.PathJoin(pathutils.LOG_OS_DIR, base)
 
 
 def InstanceOsAdd(instance, reinstall, debug):
@@ -1162,9 +1217,16 @@ def RunRenameInstance(instance, old_name, debug):
           " log file:\n%s", result.fail_reason, "\n".join(lines), log=False)
 
 
-def _GetBlockDevSymlinkPath(instance_name, idx):
-  return utils.PathJoin(constants.DISK_LINKS_DIR, "%s%s%d" %
-                        (instance_name, constants.DISK_SEPARATOR, idx))
+def _GetBlockDevSymlinkPath(instance_name, idx, _dir=None):
+  """Returns symlink path for block device.
+
+  """
+  if _dir is None:
+    _dir = pathutils.DISK_LINKS_DIR
+
+  return utils.PathJoin(_dir,
+                        ("%s%s%s" %
+                         (instance_name, constants.DISK_SEPARATOR, idx)))
 
 
 def _SymlinkBlockDev(instance_name, device_path, idx):
@@ -1520,7 +1582,7 @@ def GetMigrationStatus(instance):
     _Fail("Failed to get migration status: %s", err, exc=True)
 
 
-def BlockdevCreate(disk, size, owner, on_primary, info):
+def BlockdevCreate(disk, size, owner, on_primary, info, excl_stor):
   """Creates a block device for an instance.
 
   @type disk: L{objects.Disk}
@@ -1535,6 +1597,8 @@ def BlockdevCreate(disk, size, owner, on_primary, info):
   @type info: string
   @param info: string that will be sent to the physical device
       creation, used for example to set (LVM) tags on LVs
+  @type excl_stor: boolean
+  @param excl_stor: Whether exclusive_storage is active
 
   @return: the new unique_id of the device (this can sometime be
       computed only after creation), or None. On secondary nodes,
@@ -1561,7 +1625,7 @@ def BlockdevCreate(disk, size, owner, on_primary, info):
       clist.append(crdev)
 
   try:
-    device = bdev.Create(disk, clist)
+    device = bdev.Create(disk, clist, excl_stor)
   except errors.BlockDeviceError, err:
     _Fail("Can't create block device: %s", err)
 
@@ -1591,8 +1655,13 @@ def _WipeDevice(path, offset, size):
   @param size: The size in MiB to write
 
   """
+  # Internal sizes are always in Mebibytes; if the following "dd" command
+  # should use a different block size the offset and size given to this
+  # function must be adjusted accordingly before being passed to "dd".
+  block_size = 1024 * 1024
+
   cmd = [constants.DD_CMD, "if=/dev/zero", "seek=%d" % offset,
-         "bs=%d" % constants.WIPE_BLOCK_SIZE, "oflag=direct", "of=%s" % path,
+         "bs=%s" % block_size, "oflag=direct", "of=%s" % path,
          "count=%d" % size]
   result = utils.RunCmd(cmd)
 
@@ -1621,6 +1690,10 @@ def BlockdevWipe(disk, offset, size):
     _Fail("Cannot execute wipe for device %s: device not found", disk.iv_name)
 
   # Do cross verify some of the parameters
+  if offset < 0:
+    _Fail("Negative offset")
+  if size < 0:
+    _Fail("Negative size")
   if offset > rdev.size:
     _Fail("Offset is bigger than device size")
   if (offset + size) > rdev.size:
@@ -2035,7 +2108,7 @@ def BlockdevExport(disk, dest_node, dest_path, cluster_name):
                                 " oflag=dsync", dest_path)
 
   remotecmd = _GetSshRunner(cluster_name).BuildCmd(dest_node,
-                                                   constants.GANETI_RUNAS,
+                                                   constants.SSH_LOGIN_USER,
                                                    destcmd)
 
   # all commands have been checked, so we're safe to combine them
@@ -2071,6 +2144,8 @@ def UploadFile(file_name, data, mode, uid, gid, atime, mtime):
   @rtype: None
 
   """
+  file_name = vcluster.LocalizeVirtualPath(file_name)
+
   if not os.path.isabs(file_name):
     _Fail("Filename passed to UploadFile is not absolute: '%s'", file_name)
 
@@ -2111,15 +2186,6 @@ def RunOob(oob_program, command, node, timeout):
           result.fail_reason, result.output)
 
   return result.stdout
-
-
-def WriteSsconfFiles(values):
-  """Update all ssconf files.
-
-  Wrapper around the SimpleStore.WriteFiles.
-
-  """
-  ssconf.SimpleStore().WriteFiles(values)
 
 
 def _OSOndiskAPIVersion(os_dir):
@@ -2168,7 +2234,7 @@ def DiagnoseOS(top_dirs=None):
   @type top_dirs: list
   @param top_dirs: the list of directories in which to
       search (if not given defaults to
-      L{constants.OS_SEARCH_PATH})
+      L{pathutils.OS_SEARCH_PATH})
   @rtype: list of L{objects.OS}
   @return: a list of tuples (name, path, status, diagnose, variants,
       parameters, api_version) for all (potential) OSes under all
@@ -2183,7 +2249,7 @@ def DiagnoseOS(top_dirs=None):
 
   """
   if top_dirs is None:
-    top_dirs = constants.OS_SEARCH_PATH
+    top_dirs = pathutils.OS_SEARCH_PATH
 
   result = []
   for dir_name in top_dirs:
@@ -2225,7 +2291,7 @@ def _TryOSFromDisk(name, base_dir=None):
 
   """
   if base_dir is None:
-    os_dir = utils.FindFile(name, constants.OS_SEARCH_PATH, os.path.isdir)
+    os_dir = utils.FindFile(name, pathutils.OS_SEARCH_PATH, os.path.isdir)
   else:
     os_dir = utils.FindFile(name, [base_dir], os.path.isdir)
 
@@ -2279,7 +2345,8 @@ def _TryOSFromDisk(name, base_dir=None):
   if constants.OS_VARIANTS_FILE in os_files:
     variants_file = os_files[constants.OS_VARIANTS_FILE]
     try:
-      variants = utils.ReadFile(variants_file).splitlines()
+      variants = \
+        utils.FilterEmptyLinesAndComments(utils.ReadFile(variants_file))
     except EnvironmentError, err:
       # we accept missing files, but not other errors
       if err.errno != errno.ENOENT:
@@ -2431,6 +2498,9 @@ def OSEnvironment(instance, inst_os, debug=0):
       result["NIC_%d_BRIDGE" % idx] = nic.nicparams[constants.NIC_LINK]
     if nic.nicparams[constants.NIC_LINK]:
       result["NIC_%d_LINK" % idx] = nic.nicparams[constants.NIC_LINK]
+    if nic.netinfo:
+      nobj = objects.Network.FromDict(nic.netinfo)
+      result.update(nobj.HooksDict("NIC_%d_" % idx))
     if constants.HV_NIC_TYPE in instance.hvparams:
       result["NIC_%d_FRONTEND_TYPE" % idx] = \
         instance.hvparams[constants.HV_NIC_TYPE]
@@ -2443,7 +2513,52 @@ def OSEnvironment(instance, inst_os, debug=0):
   return result
 
 
-def BlockdevGrow(disk, amount, dryrun):
+def DiagnoseExtStorage(top_dirs=None):
+  """Compute the validity for all ExtStorage Providers.
+
+  @type top_dirs: list
+  @param top_dirs: the list of directories in which to
+      search (if not given defaults to
+      L{pathutils.ES_SEARCH_PATH})
+  @rtype: list of L{objects.ExtStorage}
+  @return: a list of tuples (name, path, status, diagnose, parameters)
+      for all (potential) ExtStorage Providers under all
+      search paths, where:
+          - name is the (potential) ExtStorage Provider
+          - path is the full path to the ExtStorage Provider
+          - status True/False is the validity of the ExtStorage Provider
+          - diagnose is the error message for an invalid ExtStorage Provider,
+            otherwise empty
+          - parameters is a list of (name, help) parameters, if any
+
+  """
+  if top_dirs is None:
+    top_dirs = pathutils.ES_SEARCH_PATH
+
+  result = []
+  for dir_name in top_dirs:
+    if os.path.isdir(dir_name):
+      try:
+        f_names = utils.ListVisibleFiles(dir_name)
+      except EnvironmentError, err:
+        logging.exception("Can't list the ExtStorage directory %s: %s",
+                          dir_name, err)
+        break
+      for name in f_names:
+        es_path = utils.PathJoin(dir_name, name)
+        status, es_inst = bdev.ExtStorageFromDisk(name, base_dir=dir_name)
+        if status:
+          diagnose = ""
+          parameters = es_inst.supported_parameters
+        else:
+          diagnose = es_inst
+          parameters = []
+        result.append((name, es_path, status, diagnose, parameters))
+
+  return result
+
+
+def BlockdevGrow(disk, amount, dryrun, backingstore):
   """Grow a stack of block devices.
 
   This function is called recursively, with the childrens being the
@@ -2456,6 +2571,9 @@ def BlockdevGrow(disk, amount, dryrun):
   @type dryrun: boolean
   @param dryrun: whether to execute the operation in simulation mode
       only, without actually increasing the size
+  @param backingstore: whether to execute the operation on backing storage
+      only, or on "logical" storage only; e.g. DRBD is logical storage,
+      whereas LVM, file, RBD are backing storage
   @rtype: (status, result)
   @return: a tuple with the status of the operation (True/False), and
       the errors message if status is False
@@ -2466,7 +2584,7 @@ def BlockdevGrow(disk, amount, dryrun):
     _Fail("Cannot find block device %s", disk)
 
   try:
-    r_dev.Grow(amount, dryrun)
+    r_dev.Grow(amount, dryrun, backingstore)
   except errors.BlockDeviceError, err:
     _Fail("Failed to grow block device: %s", err, exc=True)
 
@@ -2501,6 +2619,32 @@ def BlockdevSnapshot(disk):
           disk.unique_id, disk.dev_type)
 
 
+def BlockdevSetInfo(disk, info):
+  """Sets 'metadata' information on block devices.
+
+  This function sets 'info' metadata on block devices. Initial
+  information is set at device creation; this function should be used
+  for example after renames.
+
+  @type disk: L{objects.Disk}
+  @param disk: the disk to be grown
+  @type info: string
+  @param info: new 'info' metadata
+  @rtype: (status, result)
+  @return: a tuple with the status of the operation (True/False), and
+      the errors message if status is False
+
+  """
+  r_dev = _RecursiveFindBD(disk)
+  if r_dev is None:
+    _Fail("Cannot find block device %s", disk)
+
+  try:
+    r_dev.SetInfo(info)
+  except errors.BlockDeviceError, err:
+    _Fail("Failed to set information on block device: %s", err, exc=True)
+
+
 def FinalizeExport(instance, snap_disks):
   """Write out the export configuration information.
 
@@ -2514,8 +2658,8 @@ def FinalizeExport(instance, snap_disks):
   @rtype: None
 
   """
-  destdir = utils.PathJoin(constants.EXPORT_DIR, instance.name + ".new")
-  finaldestdir = utils.PathJoin(constants.EXPORT_DIR, instance.name)
+  destdir = utils.PathJoin(pathutils.EXPORT_DIR, instance.name + ".new")
+  finaldestdir = utils.PathJoin(pathutils.EXPORT_DIR, instance.name)
 
   config = objects.SerializableConfigParser()
 
@@ -2547,6 +2691,8 @@ def FinalizeExport(instance, snap_disks):
     config.set(constants.INISECT_INS, "nic%d_mac" %
                nic_count, "%s" % nic.mac)
     config.set(constants.INISECT_INS, "nic%d_ip" % nic_count, "%s" % nic.ip)
+    config.set(constants.INISECT_INS, "nic%d_network" % nic_count,
+               "%s" % nic.network)
     for param in constants.NICS_PARAMETER_TYPES:
       config.set(constants.INISECT_INS, "nic%d_%s" % (nic_count, param),
                  "%s" % nic.nicparams.get(param, None))
@@ -2617,8 +2763,8 @@ def ListExports():
   @return: list of the exports
 
   """
-  if os.path.isdir(constants.EXPORT_DIR):
-    return sorted(utils.ListVisibleFiles(constants.EXPORT_DIR))
+  if os.path.isdir(pathutils.EXPORT_DIR):
+    return sorted(utils.ListVisibleFiles(pathutils.EXPORT_DIR))
   else:
     _Fail("No exports directory")
 
@@ -2631,7 +2777,7 @@ def RemoveExport(export):
   @rtype: None
 
   """
-  target = utils.PathJoin(constants.EXPORT_DIR, export)
+  target = utils.PathJoin(pathutils.EXPORT_DIR, export)
 
   try:
     shutil.rmtree(target)
@@ -2693,18 +2839,13 @@ def _TransformFileStorageDir(fs_dir):
   @return: the normalized path if valid, None otherwise
 
   """
-  if not constants.ENABLE_FILE_STORAGE:
+  if not (constants.ENABLE_FILE_STORAGE or
+          constants.ENABLE_SHARED_FILE_STORAGE):
     _Fail("File storage disabled at configure time")
-  cfg = _GetConfig()
-  fs_dir = os.path.normpath(fs_dir)
-  base_fstore = cfg.GetFileStorageDir()
-  base_shared = cfg.GetSharedFileStorageDir()
-  if not (utils.IsBelowDir(base_fstore, fs_dir) or
-          utils.IsBelowDir(base_shared, fs_dir)):
-    _Fail("File storage directory '%s' is not under base file"
-          " storage directory '%s' or shared storage directory '%s'",
-          fs_dir, base_fstore, base_shared)
-  return fs_dir
+
+  bdev.CheckFileStoragePath(fs_dir)
+
+  return os.path.normpath(fs_dir)
 
 
 def CreateFileStorageDir(file_storage_dir):
@@ -2795,12 +2936,9 @@ def _EnsureJobQueueFile(file_name):
   @raises RPCFail: if the file is not valid
 
   """
-  queue_dir = os.path.normpath(constants.QUEUE_DIR)
-  result = (os.path.commonprefix([queue_dir, file_name]) == queue_dir)
-
-  if not result:
+  if not utils.IsBelowDir(pathutils.QUEUE_DIR, file_name):
     _Fail("Passed job queue file '%s' does not belong to"
-          " the queue directory '%s'", file_name, queue_dir)
+          " the queue directory '%s'", file_name, pathutils.QUEUE_DIR)
 
 
 def JobQueueUpdate(file_name, content):
@@ -2817,12 +2955,14 @@ def JobQueueUpdate(file_name, content):
   @return: the success of the operation
 
   """
+  file_name = vcluster.LocalizeVirtualPath(file_name)
+
   _EnsureJobQueueFile(file_name)
   getents = runtime.GetEnts()
 
   # Write and replace the file atomically
   utils.WriteFile(file_name, data=_Decompress(content), uid=getents.masterd_uid,
-                  gid=getents.masterd_gid)
+                  gid=getents.daemons_gid, mode=constants.JOB_QUEUE_FILES_PERMS)
 
 
 def JobQueueRename(old, new):
@@ -2838,13 +2978,16 @@ def JobQueueRename(old, new):
   @return: the success of the operation and payload
 
   """
+  old = vcluster.LocalizeVirtualPath(old)
+  new = vcluster.LocalizeVirtualPath(new)
+
   _EnsureJobQueueFile(old)
   _EnsureJobQueueFile(new)
 
   getents = runtime.GetEnts()
 
-  utils.RenameFile(old, new, mkdir=True, mkdir_mode=0700,
-                   dir_uid=getents.masterd_uid, dir_gid=getents.masterd_gid)
+  utils.RenameFile(old, new, mkdir=True, mkdir_mode=0750,
+                   dir_uid=getents.masterd_uid, dir_gid=getents.daemons_gid)
 
 
 def BlockdevClose(instance_name, disks):
@@ -2974,18 +3117,18 @@ def DemoteFromMC():
   if master == myself:
     _Fail("ssconf status shows I'm the master node, will not demote")
 
-  result = utils.RunCmd([constants.DAEMON_UTIL, "check", constants.MASTERD])
+  result = utils.RunCmd([pathutils.DAEMON_UTIL, "check", constants.MASTERD])
   if not result.failed:
     _Fail("The master daemon is running, will not demote")
 
   try:
-    if os.path.isfile(constants.CLUSTER_CONF_FILE):
-      utils.CreateBackup(constants.CLUSTER_CONF_FILE)
+    if os.path.isfile(pathutils.CLUSTER_CONF_FILE):
+      utils.CreateBackup(pathutils.CLUSTER_CONF_FILE)
   except EnvironmentError, err:
     if err.errno != errno.ENOENT:
       _Fail("Error while backing up cluster file: %s", err, exc=True)
 
-  utils.RemoveFile(constants.CLUSTER_CONF_FILE)
+  utils.RemoveFile(pathutils.CLUSTER_CONF_FILE)
 
 
 def _GetX509Filenames(cryptodir, name):
@@ -2997,7 +3140,7 @@ def _GetX509Filenames(cryptodir, name):
           utils.PathJoin(cryptodir, name, _X509_CERT_FILE))
 
 
-def CreateX509Certificate(validity, cryptodir=constants.CRYPTO_KEYS_DIR):
+def CreateX509Certificate(validity, cryptodir=pathutils.CRYPTO_KEYS_DIR):
   """Creates a new X509 certificate for SSL/TLS.
 
   @type validity: int
@@ -3028,7 +3171,7 @@ def CreateX509Certificate(validity, cryptodir=constants.CRYPTO_KEYS_DIR):
     raise
 
 
-def RemoveX509Certificate(name, cryptodir=constants.CRYPTO_KEYS_DIR):
+def RemoveX509Certificate(name, cryptodir=pathutils.CRYPTO_KEYS_DIR):
   """Removes a X509 certificate.
 
   @type name: string
@@ -3073,9 +3216,9 @@ def _GetImportExportIoCommand(instance, mode, ieio, ieargs):
     real_filename = os.path.realpath(filename)
     directory = os.path.dirname(real_filename)
 
-    if not utils.IsBelowDir(constants.EXPORT_DIR, real_filename):
+    if not utils.IsBelowDir(pathutils.EXPORT_DIR, real_filename):
       _Fail("File '%s' is not under exports directory '%s': %s",
-            filename, constants.EXPORT_DIR, real_filename)
+            filename, pathutils.EXPORT_DIR, real_filename)
 
     # Create directory
     utils.Makedirs(directory, mode=0750)
@@ -3162,7 +3305,7 @@ def _CreateImportExportStatusDir(prefix):
   """Creates status directory for import/export.
 
   """
-  return tempfile.mkdtemp(dir=constants.IMPORT_EXPORT_DIR,
+  return tempfile.mkdtemp(dir=pathutils.IMPORT_EXPORT_DIR,
                           prefix=("%s-%s-" %
                                   (prefix, utils.TimestampForFilename())))
 
@@ -3210,11 +3353,11 @@ def StartImportExportDaemon(mode, opts, host, port, instance, component,
 
   if opts.key_name is None:
     # Use server.pem
-    key_path = constants.NODED_CERT_FILE
-    cert_path = constants.NODED_CERT_FILE
+    key_path = pathutils.NODED_CERT_FILE
+    cert_path = pathutils.NODED_CERT_FILE
     assert opts.ca_pem is None
   else:
-    (_, key_path, cert_path) = _GetX509Filenames(constants.CRYPTO_KEYS_DIR,
+    (_, key_path, cert_path) = _GetX509Filenames(pathutils.CRYPTO_KEYS_DIR,
                                                  opts.key_name)
     assert opts.ca_pem is not None
 
@@ -3230,7 +3373,7 @@ def StartImportExportDaemon(mode, opts, host, port, instance, component,
 
     if opts.ca_pem is None:
       # Use server.pem
-      ca = utils.ReadFile(constants.NODED_CERT_FILE)
+      ca = utils.ReadFile(pathutils.NODED_CERT_FILE)
     else:
       ca = opts.ca_pem
 
@@ -3238,7 +3381,7 @@ def StartImportExportDaemon(mode, opts, host, port, instance, component,
     utils.WriteFile(ca_file, data=ca, mode=0400)
 
     cmd = [
-      constants.IMPORT_EXPORT_DAEMON,
+      pathutils.IMPORT_EXPORT_DAEMON,
       status_file, mode,
       "--key=%s" % key_path,
       "--cert=%s" % cert_path,
@@ -3308,7 +3451,7 @@ def GetImportExportStatus(names):
   result = []
 
   for name in names:
-    status_file = utils.PathJoin(constants.IMPORT_EXPORT_DIR, name,
+    status_file = utils.PathJoin(pathutils.IMPORT_EXPORT_DIR, name,
                                  _IES_STATUS_FILE)
 
     try:
@@ -3333,7 +3476,7 @@ def AbortImportExport(name):
   """
   logging.info("Abort import/export %s", name)
 
-  status_dir = utils.PathJoin(constants.IMPORT_EXPORT_DIR, name)
+  status_dir = utils.PathJoin(pathutils.IMPORT_EXPORT_DIR, name)
   pid = utils.ReadLockedPidFile(utils.PathJoin(status_dir, _IES_PID_FILE))
 
   if pid:
@@ -3351,7 +3494,7 @@ def CleanupImportExport(name):
   """
   logging.info("Finalizing import/export %s", name)
 
-  status_dir = utils.PathJoin(constants.IMPORT_EXPORT_DIR, name)
+  status_dir = utils.PathJoin(pathutils.IMPORT_EXPORT_DIR, name)
 
   pid = utils.ReadLockedPidFile(utils.PathJoin(status_dir, _IES_PID_FILE))
 
@@ -3523,6 +3666,209 @@ def PowercycleNode(hypervisor_type):
   hyper.PowercycleNode()
 
 
+def _VerifyRestrictedCmdName(cmd):
+  """Verifies a restricted command name.
+
+  @type cmd: string
+  @param cmd: Command name
+  @rtype: tuple; (boolean, string or None)
+  @return: The tuple's first element is the status; if C{False}, the second
+    element is an error message string, otherwise it's C{None}
+
+  """
+  if not cmd.strip():
+    return (False, "Missing command name")
+
+  if os.path.basename(cmd) != cmd:
+    return (False, "Invalid command name")
+
+  if not constants.EXT_PLUGIN_MASK.match(cmd):
+    return (False, "Command name contains forbidden characters")
+
+  return (True, None)
+
+
+def _CommonRestrictedCmdCheck(path, owner):
+  """Common checks for restricted command file system directories and files.
+
+  @type path: string
+  @param path: Path to check
+  @param owner: C{None} or tuple containing UID and GID
+  @rtype: tuple; (boolean, string or C{os.stat} result)
+  @return: The tuple's first element is the status; if C{False}, the second
+    element is an error message string, otherwise it's the result of C{os.stat}
+
+  """
+  if owner is None:
+    # Default to root as owner
+    owner = (0, 0)
+
+  try:
+    st = os.stat(path)
+  except EnvironmentError, err:
+    return (False, "Can't stat(2) '%s': %s" % (path, err))
+
+  if stat.S_IMODE(st.st_mode) & (~_RCMD_MAX_MODE):
+    return (False, "Permissions on '%s' are too permissive" % path)
+
+  if (st.st_uid, st.st_gid) != owner:
+    (owner_uid, owner_gid) = owner
+    return (False, "'%s' is not owned by %s:%s" % (path, owner_uid, owner_gid))
+
+  return (True, st)
+
+
+def _VerifyRestrictedCmdDirectory(path, _owner=None):
+  """Verifies restricted command directory.
+
+  @type path: string
+  @param path: Path to check
+  @rtype: tuple; (boolean, string or None)
+  @return: The tuple's first element is the status; if C{False}, the second
+    element is an error message string, otherwise it's C{None}
+
+  """
+  (status, value) = _CommonRestrictedCmdCheck(path, _owner)
+
+  if not status:
+    return (False, value)
+
+  if not stat.S_ISDIR(value.st_mode):
+    return (False, "Path '%s' is not a directory" % path)
+
+  return (True, None)
+
+
+def _VerifyRestrictedCmd(path, cmd, _owner=None):
+  """Verifies a whole restricted command and returns its executable filename.
+
+  @type path: string
+  @param path: Directory containing restricted commands
+  @type cmd: string
+  @param cmd: Command name
+  @rtype: tuple; (boolean, string)
+  @return: The tuple's first element is the status; if C{False}, the second
+    element is an error message string, otherwise the second element is the
+    absolute path to the executable
+
+  """
+  executable = utils.PathJoin(path, cmd)
+
+  (status, msg) = _CommonRestrictedCmdCheck(executable, _owner)
+
+  if not status:
+    return (False, msg)
+
+  if not utils.IsExecutable(executable):
+    return (False, "access(2) thinks '%s' can't be executed" % executable)
+
+  return (True, executable)
+
+
+def _PrepareRestrictedCmd(path, cmd,
+                          _verify_dir=_VerifyRestrictedCmdDirectory,
+                          _verify_name=_VerifyRestrictedCmdName,
+                          _verify_cmd=_VerifyRestrictedCmd):
+  """Performs a number of tests on a restricted command.
+
+  @type path: string
+  @param path: Directory containing restricted commands
+  @type cmd: string
+  @param cmd: Command name
+  @return: Same as L{_VerifyRestrictedCmd}
+
+  """
+  # Verify the directory first
+  (status, msg) = _verify_dir(path)
+  if status:
+    # Check command if everything was alright
+    (status, msg) = _verify_name(cmd)
+
+  if not status:
+    return (False, msg)
+
+  # Check actual executable
+  return _verify_cmd(path, cmd)
+
+
+def RunRestrictedCmd(cmd,
+                     _lock_timeout=_RCMD_LOCK_TIMEOUT,
+                     _lock_file=pathutils.RESTRICTED_COMMANDS_LOCK_FILE,
+                     _path=pathutils.RESTRICTED_COMMANDS_DIR,
+                     _sleep_fn=time.sleep,
+                     _prepare_fn=_PrepareRestrictedCmd,
+                     _runcmd_fn=utils.RunCmd,
+                     _enabled=constants.ENABLE_RESTRICTED_COMMANDS):
+  """Executes a restricted command after performing strict tests.
+
+  @type cmd: string
+  @param cmd: Command name
+  @rtype: string
+  @return: Command output
+  @raise RPCFail: In case of an error
+
+  """
+  logging.info("Preparing to run restricted command '%s'", cmd)
+
+  if not _enabled:
+    _Fail("Restricted commands disabled at configure time")
+
+  lock = None
+  try:
+    cmdresult = None
+    try:
+      lock = utils.FileLock.Open(_lock_file)
+      lock.Exclusive(blocking=True, timeout=_lock_timeout)
+
+      (status, value) = _prepare_fn(_path, cmd)
+
+      if status:
+        cmdresult = _runcmd_fn([value], env={}, reset_env=True,
+                               postfork_fn=lambda _: lock.Unlock())
+      else:
+        logging.error(value)
+    except Exception: # pylint: disable=W0703
+      # Keep original error in log
+      logging.exception("Caught exception")
+
+    if cmdresult is None:
+      logging.info("Sleeping for %0.1f seconds before returning",
+                   _RCMD_INVALID_DELAY)
+      _sleep_fn(_RCMD_INVALID_DELAY)
+
+      # Do not include original error message in returned error
+      _Fail("Executing command '%s' failed" % cmd)
+    elif cmdresult.failed or cmdresult.fail_reason:
+      _Fail("Restricted command '%s' failed: %s; output: %s",
+            cmd, cmdresult.fail_reason, cmdresult.output)
+    else:
+      return cmdresult.output
+  finally:
+    if lock is not None:
+      # Release lock at last
+      lock.Close()
+      lock = None
+
+
+def SetWatcherPause(until, _filename=pathutils.WATCHER_PAUSEFILE):
+  """Creates or removes the watcher pause file.
+
+  @type until: None or number
+  @param until: Unix timestamp saying until when the watcher shouldn't run
+
+  """
+  if until is None:
+    logging.info("Received request to no longer pause watcher")
+    utils.RemoveFile(_filename)
+  else:
+    logging.info("Received request to pause watcher until %s", until)
+
+    if not ht.TNumber(until):
+      _Fail("Duration must be numeric")
+
+    utils.WriteFile(_filename, data="%d\n" % (until, ), mode=0644)
+
+
 class HooksRunner(object):
   """Hook runner.
 
@@ -3535,11 +3881,11 @@ class HooksRunner(object):
 
     @type hooks_base_dir: str or None
     @param hooks_base_dir: if not None, this overrides the
-        L{constants.HOOKS_BASE_DIR} (useful for unittests)
+        L{pathutils.HOOKS_BASE_DIR} (useful for unittests)
 
     """
     if hooks_base_dir is None:
-      hooks_base_dir = constants.HOOKS_BASE_DIR
+      hooks_base_dir = pathutils.HOOKS_BASE_DIR
     # yeah, _BASE_DIR is not valid for attributes, we use it like a
     # constant
     self._BASE_DIR = hooks_base_dir # pylint: disable=C0103
@@ -3599,7 +3945,7 @@ class HooksRunner(object):
 
     runparts_results = utils.RunParts(dir_name, env=env, reset_env=True)
 
-    for (relname, relstatus, runresult)  in runparts_results:
+    for (relname, relstatus, runresult) in runparts_results:
       if relstatus == constants.RUNPARTS_SKIP:
         rrval = constants.HKR_SKIP
         output = ""
@@ -3663,7 +4009,7 @@ class DevCacheManager(object):
 
   """
   _DEV_PREFIX = "/dev/"
-  _ROOT_DIR = constants.BDEV_CACHE_DIR
+  _ROOT_DIR = pathutils.BDEV_CACHE_DIR
 
   @classmethod
   def _ConvertPath(cls, dev_path):

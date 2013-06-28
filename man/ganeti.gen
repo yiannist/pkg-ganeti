@@ -40,7 +40,7 @@ Cluster architecture
 
 In Ganeti 2.0, the architecture of the cluster is a little more
 complicated than in 1.2. The cluster is coordinated by a master daemon
-(**ganeti-masterd**(8)), running on the master node. Each node runs
+(**ganeti-masterd**\(8)), running on the master node. Each node runs
 (as before) a node daemon, and the master has the RAPI daemon running
 too.
 
@@ -115,6 +115,14 @@ spindle_count
     have to match the actual spindle count of (any eventual) mechanical
     hard-drives, its meaning is site-local and just the relative values
     matter.
+
+exclusive_storage
+    When this Boolean flag is enabled, physical disks on the node are
+    assigned to instance disks in an exclusive manner, so as to lower I/O
+    interference between instances. See the `Partitioned Ganeti
+    <design-partitioned.rst>`_ design document for more details. This
+    parameter cannot be set on individual nodes, as its value must be
+    the same within each node group.
 
 
 Hypervisor State Parameters
@@ -402,7 +410,7 @@ Operators:
 *!~*
   Logically negated from *=~*
 *=\**
-  Globbing, see **glob**(7), though only * and ? are supported
+  Globbing, see **glob**\(7), though only * and ? are supported
 *!\**
   Logically negated from *=\**
 *in*, *not in*
@@ -413,7 +421,7 @@ Common daemon functionality
 ---------------------------
 
 All Ganeti daemons re-open the log file(s) when sent a SIGHUP signal.
-**logrotate**(8) can be used to rotate Ganeti's log files.
+**logrotate**\(8) can be used to rotate Ganeti's log files.
 
 .. vim: set textwidth=72 :
 .. Local Variables:
