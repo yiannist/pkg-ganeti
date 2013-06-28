@@ -42,6 +42,7 @@ from ganeti import objects
 from ganeti import uidpool
 from ganeti import compat
 from ganeti import netutils
+from ganeti import pathutils
 
 
 ON_OPT = cli_option("--on", default=False,
@@ -49,12 +50,8 @@ ON_OPT = cli_option("--on", default=False,
                     help="Recover from an EPO")
 
 GROUPS_OPT = cli_option("--groups", default=False,
-                    action="store_true", dest="groups",
-                    help="Arguments are node groups instead of nodes")
-
-SHOW_MACHINE_OPT = cli_option("-M", "--show-machine-names", default=False,
-                              action="store_true",
-                              help="Show machine name for every line in output")
+                        action="store_true", dest="groups",
+                        help="Arguments are node groups instead of nodes")
 
 FORCE_FAILOVER = cli_option("--yes-do-it", dest="yes_do_it",
                             help="Override interactive check for --no-voting",
@@ -338,7 +335,7 @@ def ShowClusterVersion(opts, args):
   @return: the desired exit code
 
   """
-  cl = GetClient()
+  cl = GetClient(query=True)
   result = cl.QueryClusterInfo()
   ToStdout("Software version: %s", result["software_version"])
   ToStdout("Internode protocol: %s", result["protocol_version"])
@@ -393,7 +390,7 @@ def ShowClusterConfig(opts, args):
   @return: the desired exit code
 
   """
-  cl = GetClient()
+  cl = GetClient(query=True)
   result = cl.QueryClusterInfo()
 
   ToStdout("Cluster name: %s", result["name"])
@@ -450,13 +447,13 @@ def ShowClusterConfig(opts, args):
            result["shared_file_storage_dir"])
   ToStdout("  - maintenance of node health: %s",
            result["maintain_node_health"])
-  ToStdout("  - uid pool: %s",
-            uidpool.FormatUidPool(result["uid_pool"],
-                                  roman=opts.roman_integers))
+  ToStdout("  - uid pool: %s", uidpool.FormatUidPool(result["uid_pool"]))
   ToStdout("  - default instance allocator: %s", result["default_iallocator"])
   ToStdout("  - primary ip version: %d", result["primary_ip_version"])
   ToStdout("  - preallocation wipe disks: %s", result["prealloc_wipe_disks"])
-  ToStdout("  - OS search path: %s", utils.CommaJoin(constants.OS_SEARCH_PATH))
+  ToStdout("  - OS search path: %s", utils.CommaJoin(pathutils.OS_SEARCH_PATH))
+  ToStdout("  - ExtStorage Providers search path: %s",
+           utils.CommaJoin(pathutils.ES_SEARCH_PATH))
 
   ToStdout("Default node parameters:")
   _PrintGroupedParams(result["ndparams"], roman=opts.roman_integers)
@@ -506,7 +503,7 @@ def ClusterCopyFile(opts, args):
                            secondary_ips=opts.use_replication_network,
                            nodegroup=opts.nodegroup)
 
-  srun = ssh.SshRunner(cluster_name=cluster_name)
+  srun = ssh.SshRunner(cluster_name)
   for node in results:
     if not srun.CopyFileToNode(node, filename):
       ToStderr("Copy of file %s to node %s failed", filename, node)
@@ -541,7 +538,12 @@ def RunClusterCommand(opts, args):
     nodes.append(master_node)
 
   for name in nodes:
-    result = srun.Run(name, "root", command)
+    result = srun.Run(name, constants.SSH_LOGIN_USER, command)
+
+    if opts.failure_only and result.exit_code == constants.EXIT_SUCCESS:
+      # Do not output anything for successful commands
+      continue
+
     ToStdout("------------------------------------------------")
     if opts.show_machine_names:
       for line in result.output.splitlines():
@@ -793,7 +795,7 @@ def _ReadAndVerifyCert(cert_filename, verify_private_key=False):
   return pem
 
 
-def _RenewCrypto(new_cluster_cert, new_rapi_cert, #pylint: disable=R0911
+def _RenewCrypto(new_cluster_cert, new_rapi_cert, # pylint: disable=R0911
                  rapi_cert_filename, new_spice_cert, spice_cert_filename,
                  spice_cacert_filename, new_confd_hmac_key, new_cds,
                  cds_filename, force):
@@ -885,20 +887,20 @@ def _RenewCrypto(new_cluster_cert, new_rapi_cert, #pylint: disable=R0911
     files_to_copy = []
 
     if new_cluster_cert:
-      files_to_copy.append(constants.NODED_CERT_FILE)
+      files_to_copy.append(pathutils.NODED_CERT_FILE)
 
     if new_rapi_cert or rapi_cert_pem:
-      files_to_copy.append(constants.RAPI_CERT_FILE)
+      files_to_copy.append(pathutils.RAPI_CERT_FILE)
 
     if new_spice_cert or spice_cert_pem:
-      files_to_copy.append(constants.SPICE_CERT_FILE)
-      files_to_copy.append(constants.SPICE_CACERT_FILE)
+      files_to_copy.append(pathutils.SPICE_CERT_FILE)
+      files_to_copy.append(pathutils.SPICE_CACERT_FILE)
 
     if new_confd_hmac_key:
-      files_to_copy.append(constants.CONFD_HMAC_KEY)
+      files_to_copy.append(pathutils.CONFD_HMAC_KEY)
 
     if new_cds or cds:
-      files_to_copy.append(constants.CLUSTER_DOMAIN_SECRET_FILE)
+      files_to_copy.append(pathutils.CLUSTER_DOMAIN_SECRET_FILE)
 
     if files_to_copy:
       for node_name in ctx.nonmaster_nodes:
@@ -1402,7 +1404,9 @@ def _EpoOff(opts, node_list, inst_map):
     return constants.EXIT_FAILURE
 
 
-def Epo(opts, args):
+def Epo(opts, args, cl=None, _on_fn=_EpoOn, _off_fn=_EpoOff,
+        _confirm_fn=ConfirmOperation,
+        _stdout_fn=ToStdout, _stderr_fn=ToStderr):
   """EPO operations.
 
   @param opts: the command line options selected by the user
@@ -1413,32 +1417,29 @@ def Epo(opts, args):
 
   """
   if opts.groups and opts.show_all:
-    ToStderr("Only one of --groups or --all are allowed")
+    _stderr_fn("Only one of --groups or --all are allowed")
     return constants.EXIT_FAILURE
   elif args and opts.show_all:
-    ToStderr("Arguments in combination with --all are not allowed")
+    _stderr_fn("Arguments in combination with --all are not allowed")
     return constants.EXIT_FAILURE
 
-  client = GetClient()
+  if cl is None:
+    cl = GetClient()
 
   if opts.groups:
-    node_query_list = itertools.chain(*client.QueryGroups(names=args,
-                                                          fields=["node_list"],
-                                                          use_locking=False))
+    node_query_list = \
+      itertools.chain(*cl.QueryGroups(args, ["node_list"], False))
   else:
     node_query_list = args
 
-  result = client.QueryNodes(names=node_query_list,
-                             fields=["name", "master", "pinst_list",
-                                     "sinst_list", "powered", "offline"],
-                             use_locking=False)
+  result = cl.QueryNodes(node_query_list, ["name", "master", "pinst_list",
+                                           "sinst_list", "powered", "offline"],
+                         False)
+
+  all_nodes = map(compat.fst, result)
   node_list = []
   inst_map = {}
-  for (idx, (node, master, pinsts, sinsts, powered,
-             offline)) in enumerate(result):
-    # Normalize the node_query_list as well
-    if not opts.show_all:
-      node_query_list[idx] = node
+  for (node, master, pinsts, sinsts, powered, offline) in result:
     if not offline:
       for inst in (pinsts + sinsts):
         if inst in inst_map:
@@ -1454,25 +1455,26 @@ def Epo(opts, args):
       # already operating on the master at this point :)
       continue
     elif master and not opts.show_all:
-      ToStderr("%s is the master node, please do a master-failover to another"
-               " node not affected by the EPO or use --all if you intend to"
-               " shutdown the whole cluster", node)
+      _stderr_fn("%s is the master node, please do a master-failover to another"
+                 " node not affected by the EPO or use --all if you intend to"
+                 " shutdown the whole cluster", node)
       return constants.EXIT_FAILURE
     elif powered is None:
-      ToStdout("Node %s does not support out-of-band handling, it can not be"
-               " handled in a fully automated manner", node)
+      _stdout_fn("Node %s does not support out-of-band handling, it can not be"
+                 " handled in a fully automated manner", node)
     elif powered == opts.on:
-      ToStdout("Node %s is already in desired power state, skipping", node)
+      _stdout_fn("Node %s is already in desired power state, skipping", node)
     elif not offline or (offline and powered):
       node_list.append(node)
 
-  if not opts.force and not ConfirmOperation(node_query_list, "nodes", "epo"):
+  if not (opts.force or _confirm_fn(all_nodes, "nodes", "epo")):
     return constants.EXIT_FAILURE
 
   if opts.on:
-    return _EpoOn(opts, node_query_list, node_list, inst_map)
+    return _on_fn(opts, all_nodes, node_list, inst_map)
   else:
-    return _EpoOff(opts, node_list, inst_map)
+    return _off_fn(opts, node_list, inst_map)
+
 
 commands = {
   "init": (
@@ -1527,7 +1529,7 @@ commands = {
     "[-n node...] <filename>", "Copies a file to all (or only some) nodes"),
   "command": (
     RunClusterCommand, [ArgCommand(min=1)],
-    [NODE_LIST_OPT, NODEGROUP_OPT, SHOW_MACHINE_OPT],
+    [NODE_LIST_OPT, NODEGROUP_OPT, SHOW_MACHINE_OPT, FAILURE_ONLY_OPT],
     "[-n node...] <command>", "Runs a command on all (or only some) nodes"),
   "info": (
     ShowClusterConfig, ARGS_NONE, [ROMAN_OPT],

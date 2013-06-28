@@ -7,8 +7,8 @@ gnt-instance - Ganeti instance administration
 \f[B]gnt-instance\f[] {command} [arguments...]
 .SH DESCRIPTION
 .PP
-The \f[B]gnt-instance\f[] command is used for instance
-administration in the Ganeti system.
+The \f[B]gnt-instance\f[] command is used for instance administration in
+the Ganeti system.
 .SH COMMANDS
 .SS Creation/removal/querying
 .SS ADD
@@ -17,62 +17,62 @@ administration in the Ganeti system.
 .PD 0
 .P
 .PD
-{-t|--disk-template {diskless | file |
-plain | drbd | rbd}}
+{-t|--disk-template {diskless | file | plain | drbd | rbd}}
 .PD 0
 .P
 .PD
-{--disk=\f[I]N\f[]:
-{size=\f[I]VAL\f[] |
+{--disk=\f[I]N\f[]: {size=\f[I]VAL\f[] |
 adopt=\f[I]LV\f[]}[,vg=\f[I]VG\f[]][,metavg=\f[I]VG\f[]][,mode=\f[I]ro|rw\f[]]
 .PD 0
 .P
 .PD
  |
-{-s|--os-size} \f[I]SIZE\f[]}
+{size=\f[I]VAL\f[],provider=\f[I]PROVIDER\f[]}[,param=\f[I]value\f[]...
+][,mode=\f[I]ro|rw\f[]]
 .PD 0
 .P
 .PD
-[--no-ip-check]
-[--no-name-check] [--no-start]
-[--no-install]
+ | {-s|--os-size} \f[I]SIZE\f[]}
 .PD 0
 .P
 .PD
-[--net=\f[I]N\f[] [:options...] |
---no-nics]
+[--no-ip-check] [--no-name-check] [--no-conflicts-check]
 .PD 0
 .P
 .PD
-[{-B|--backend-parameters}
-\f[I]BEPARAMS\f[]]
+[--no-start] [--no-install]
 .PD 0
 .P
 .PD
-[{-H|--hypervisor-parameters}
-\f[I]HYPERVISOR\f[] [: option=\f[I]value\f[]...
+[--net=\f[I]N\f[] [:options...] | --no-nics]
+.PD 0
+.P
+.PD
+[{-B|--backend-parameters} \f[I]BEPARAMS\f[]]
+.PD 0
+.P
+.PD
+[{-H|--hypervisor-parameters} \f[I]HYPERVISOR\f[] [:
+option=\f[I]value\f[]...
 ]]
 .PD 0
 .P
 .PD
-[{-O|--os-parameters}
-\f[I]param\f[]=\f[I]value\f[]... ]
+[{-O|--os-parameters} \f[I]param\f[]=\f[I]value\f[]...
+]
 .PD 0
 .P
 .PD
-[--file-storage-dir
-\f[I]dir_path\f[]] [--file-driver {loop |
-blktap}]
+[--file-storage-dir \f[I]dir_path\f[]] [--file-driver {loop | blktap}]
 .PD 0
 .P
 .PD
-{{-n|--node} \f[I]node[:secondary-node]\f[] |
-{-I|--iallocator} \f[I]name\f[]}
+{{-n|--node} \f[I]node[:secondary-node]\f[] | {-I|--iallocator}
+\f[I]name\f[]}
 .PD 0
 .P
 .PD
-{{-o|--os-type}
-\f[I]os-type\f[]}
+{{-o|--os-type} \f[I]os-type\f[]}
 .PD 0
 .P
 .PD
@@ -86,60 +86,79 @@ blktap}]
 .PD
 {\f[I]instance\f[]}
 .PP
-Creates a new instance on the specified host. The \f[I]instance\f[]
-argument must be in DNS, but depending on the bridge/routing setup,
-need not be in the same network as the nodes in the cluster.
+Creates a new instance on the specified host.
+The \f[I]instance\f[] argument must be in DNS, but depending on the
+bridge/routing setup, need not be in the same network as the nodes in
+the cluster.
 .PP
-The \f[B]disk\f[] option specifies the parameters for the disks of
-the instance. The numbering of disks starts at zero, and at least
-one disk needs to be passed. For each disk, either the size or the
-adoption source needs to be given, and optionally the access mode
-(read-only or the default of read-write) and the LVM volume group
-can also be specified (via the \f[B]vg\f[] key). For DRBD devices,
-a different VG can be specified for the metadata device using the
-\f[B]metavg\f[] key. The size is interpreted (when no unit is
-given) in mebibytes. You can also use one of the suffixes
-\f[I]m\f[], \f[I]g\f[] or \f[I]t\f[] to specify the exact the units
-used; these suffixes map to mebibytes, gibibytes and tebibytes.
+The \f[C]disk\f[] option specifies the parameters for the disks of the
+instance.
+The numbering of disks starts at zero, and at least one disk needs to be
+passed.
+For each disk, either the size or the adoption source needs to be given,
+and optionally the access mode (read-only or the default of read-write).
+The size is interpreted (when no unit is given) in mebibytes.
+You can also use one of the suffixes \f[I]m\f[], \f[I]g\f[] or
+\f[I]t\f[] to specify the exact the units used; these suffixes map to
+mebibytes, gibibytes and tebibytes.
+For LVM and DRBD devices, the LVM volume group can also be specified
+(via the \f[C]vg\f[] key).
+For DRBD devices, a different VG can be specified for the metadata
+device using the \f[C]metavg\f[] key.
+For ExtStorage devices, also the \f[C]provider\f[] option is mandatory,
+to specify which ExtStorage provider to use.
 .PP
-When using the \f[B]adopt\f[] key in the disk definition, Ganeti
-will reuse those volumes (instead of creating new ones) as the
-instance\[aq]s disks. Ganeti will rename these volumes to the
-standard format, and (without installing the OS) will use them
-as-is for the instance. This allows migrating instances from
-non-managed mode (e.g. plain KVM with LVM) to being managed via
-Ganeti. Please note that this works only for the `plain\[aq] disk
-template (see below for template details).
+When creating ExtStorage disks, also arbitrary parameters can be passed,
+to the ExtStorage provider.
+Those parameters are passed as additional comma separated options.
+Therefore, an ExtStorage disk provided by provider \f[C]pvdr1\f[] with
+parameters \f[C]param1\f[], \f[C]param2\f[] would be passed as
+\f[C]--disk\ 0:size=10G,provider=pvdr1,param1=val1,param2=val2\f[].
 .PP
-Alternatively, a single-disk instance can be created via the
-\f[B]-s\f[] option which takes a single argument, the size of the
-disk. This is similar to the Ganeti 1.2 version (but will only
-create one disk).
+When using the \f[C]adopt\f[] key in the disk definition, Ganeti will
+reuse those volumes (instead of creating new ones) as the instance\[aq]s
+disks.
+Ganeti will rename these volumes to the standard format, and (without
+installing the OS) will use them as-is for the instance.
+This allows migrating instances from non-managed mode (e.g.
+plain KVM with LVM) to being managed via Ganeti.
+Please note that this works only for the `plain\[aq] disk template (see
+below for template details).
 .PP
-The minimum disk specification is therefore
-\f[B]--disk\ 0:size=20G\f[] (or \f[B]-s\ 20G\f[] when using the
-\f[B]-s\f[] option), and a three-disk instance can be specified as
-\f[B]--disk\ 0:size=20G\ --disk\ 1:size=4G\ --disk\ 2:size=100G\f[].
+Alternatively, a single-disk instance can be created via the \f[C]-s\f[]
+option which takes a single argument, the size of the disk.
+This is similar to the Ganeti 1.2 version (but will only create one
+disk).
 .PP
-The \f[B]--no-ip-check\f[] skips the checks that are done to see if
-the instance\[aq]s IP is not already alive (i.e. reachable from the
-master node).
+The minimum disk specification is therefore \f[C]--disk\ 0:size=20G\f[]
+(or \f[C]-s\ 20G\f[] when using the \f[C]-s\f[] option), and a
+three-disk instance can be specified as
+\f[C]--disk\ 0:size=20G\ --disk\ 1:size=4G\ --disk\ 2:size=100G\f[].
 .PP
-The \f[B]--no-name-check\f[] skips the check for the instance name
-via the resolver (e.g. in DNS or /etc/hosts, depending on your
-setup). Since the name check is used to compute the IP address, if
-you pass this option you must also pass the \f[B]--no-ip-check\f[]
-option.
+The minimum information needed to specify an ExtStorage disk are the
+\f[C]size\f[] and the \f[C]provider\f[].
+For example: \f[C]--disk\ 0:size=20G,provider=pvdr1\f[].
+.PP
+The \f[C]--no-ip-check\f[] skips the checks that are done to see if the
+instance\[aq]s IP is not already alive (i.e.
+reachable from the master node).
+.PP
+The \f[C]--no-name-check\f[] skips the check for the instance name via
+the resolver (e.g.
+in DNS or /etc/hosts, depending on your setup).
+Since the name check is used to compute the IP address, if you pass this
+option you must also pass the \f[C]--no-ip-check\f[] option.
 .PP
 If you don\[aq]t want the instance to automatically start after
-creation, this is possible via the \f[B]--no-start\f[] option. This
-will leave the instance down until a subsequent
-\f[B]gnt-instance start\f[] command.
+creation, this is possible via the \f[C]--no-start\f[] option.
+This will leave the instance down until a subsequent \f[B]gnt-instance
+start\f[] command.
 .PP
-The NICs of the instances can be specified via the \f[B]--net\f[]
-option. By default, one NIC is created for the instance, with a
-random MAC, and set up according the the cluster level nic
-parameters. Each NIC can take these parameters (all optional):
+The NICs of the instances can be specified via the \f[C]--net\f[]
+option.
+By default, one NIC is created for the instance, with a random MAC, and
+set up according the the cluster level NIC parameters.
+Each NIC can take these parameters (all optional):
 .TP
 .B mac
 either a value or \[aq]generate\[aq] to generate a new unique MAC
@@ -147,89 +166,110 @@ either a value or \[aq]generate\[aq] to generate a new unique MAC
 .RE
 .TP
 .B ip
-specifies the IP address assigned to the instance from the Ganeti
-side (this is not necessarily what the instance will use, but what
-the node expects the instance to use)
+specifies the IP address assigned to the instance from the Ganeti side
+(this is not necessarily what the instance will use, but what the node
+expects the instance to use).
+Note that if an IP in the range of a network configured with
+\f[B]gnt-network\f[](8) is used, and the NIC is not already connected to
+it, this network has to be passed in the \f[B]network\f[] parameter if
+this NIC is meant to be connected to the said network.
+\f[C]--no-conflicts-check\f[] can be used to override this check.
+The special value \f[B]pool\f[] causes Ganeti to select an IP from the
+the network the NIC is or will be connected to.
 .RS
 .RE
 .TP
 .B mode
-specifies the connection mode for this nic: routed or bridged.
+specifies the connection mode for this NIC: routed, bridged or
+openvswitch.
 .RS
 .RE
 .TP
 .B link
-in bridged mode specifies the bridge to attach this NIC to, in
-routed mode it\[aq]s intended to differentiate between different
-routing tables/instance groups (but the meaning is dependent on the
-network script, see gnt-cluster(8) for more details)
+in bridged or openvswitch mode specifies the interface to attach this
+NIC to, in routed mode it\[aq]s intended to differentiate between
+different routing tables/instance groups (but the meaning is dependent
+on the network script, see \f[B]gnt-cluster\f[](8) for more details).
+Note that openvswitch support is also hypervisor dependent.
+.RS
+.RE
+.TP
+.B network
+derives the mode and the link from the settings of the network which is
+identified by its name.
+If the network option is chosen, link and mode must not be specified.
+Note that the mode and link depend on the network-to-nodegroup
+connection, thus allowing different nodegroups to be connected to the
+same network in different ways.
 .RS
 .RE
 .PP
-Of these "mode" and "link" are nic parameters, and inherit their
-default at cluster level. Alternatively, if no network is desired
-for the instance, you can prevent the default of one NIC with the
-\f[B]--no-nics\f[] option.
+Of these "mode" and "link" are NIC parameters, and inherit their default
+at cluster level.
+Alternatively, if no network is desired for the instance, you can
+prevent the default of one NIC with the \f[C]--no-nics\f[] option.
 .PP
-The \f[B]-o\ (--os-type)\f[] option specifies the operating system
-to be installed. The available operating systems can be listed with
-\f[B]gnt-os list\f[].
-Passing \f[B]--no-install\f[] will however skip the OS
-installation, allowing a manual import if so desired. Note that the
-no-installation mode will automatically disable the start-up of the
-instance (without an OS, it most likely won\[aq]t be able to
-start-up successfully).
+The \f[C]-o\ (--os-type)\f[] option specifies the operating system to be
+installed.
+The available operating systems can be listed with \f[B]gnt-os list\f[].
+Passing \f[C]--no-install\f[] will however skip the OS installation,
+allowing a manual import if so desired.
+Note that the no-installation mode will automatically disable the
+start-up of the instance (without an OS, it most likely won\[aq]t be
+able to start-up successfully).
 .PP
-The \f[B]-B\ (--backend-parameters)\f[] option specifies the
-backend parameters for the instance. If no such parameters are
-specified, the values are inherited from the cluster. Possible
-parameters are:
+The \f[C]-B\ (--backend-parameters)\f[] option specifies the backend
+parameters for the instance.
+If no such parameters are specified, the values are inherited from the
+cluster.
+Possible parameters are:
 .TP
 .B maxmem
-the maximum memory size of the instance; as usual, suffixes can be
-used to denote the unit, otherwise the value is taken in mebibytes
+the maximum memory size of the instance; as usual, suffixes can be used
+to denote the unit, otherwise the value is taken in mebibytes
 .RS
 .RE
 .TP
 .B minmem
-the minimum memory size of the instance; as usual, suffixes can be
-used to denote the unit, otherwise the value is taken in mebibytes
+the minimum memory size of the instance; as usual, suffixes can be used
+to denote the unit, otherwise the value is taken in mebibytes
 .RS
 .RE
 .TP
 .B vcpus
-the number of VCPUs to assign to the instance (if this value makes
-sense for the hypervisor)
+the number of VCPUs to assign to the instance (if this value makes sense
+for the hypervisor)
 .RS
 .RE
 .TP
 .B auto_balance
-whether the instance is considered in the N+1 cluster checks
-(enough redundancy in the cluster to survive a node failure)
+whether the instance is considered in the N+1 cluster checks (enough
+redundancy in the cluster to survive a node failure)
 .RS
 .RE
 .TP
 .B always_failover
-\f[B]True\f[] or \f[B]False\f[], whether the instance must be
-failed over (shut down and rebooted) always or it may be migrated
-(briefly suspended)
+\f[C]True\f[] or \f[C]False\f[], whether the instance must be failed
+over (shut down and rebooted) always or it may be migrated (briefly
+suspended)
 .RS
 .RE
 .PP
-Note that before 2.6 Ganeti had a \f[B]memory\f[] parameter, which
-was the only value of memory an instance could have. With the
-\f[B]maxmem\f[]/\f[B]minmem\f[] change Ganeti guarantees that at
-least the minimum memory is always available for an instance, but
-allows more memory to be used (up to the maximum memory) should it
-be free.
+Note that before 2.6 Ganeti had a \f[C]memory\f[] parameter, which was
+the only value of memory an instance could have.
+With the \f[C]maxmem\f[]/\f[C]minmem\f[] change Ganeti guarantees that
+at least the minimum memory is always available for an instance, but
+allows more memory to be used (up to the maximum memory) should it be
+free.
 .PP
-The \f[B]-H\ (--hypervisor-parameters)\f[] option specified the
+The \f[C]-H\ (--hypervisor-parameters)\f[] option specified the
 hypervisor to use for the instance (must be one of the enabled
-hypervisors on the cluster) and optionally custom parameters for
-this instance. If not other options are used (i.e. the invocation
-is just -H \f[I]NAME\f[]) the instance will inherit the cluster
-options. The defaults below show the cluster defaults at cluster
-creation time.
+hypervisors on the cluster) and optionally custom parameters for this
+instance.
+If not other options are used (i.e.
+the invocation is just -H \f[I]NAME\f[]) the instance will inherit the
+cluster options.
+The defaults below show the cluster defaults at cluster creation time.
 .PP
 The possible hypervisor options are as follows:
 .TP
@@ -237,8 +277,9 @@ The possible hypervisor options are as follows:
 Valid for the Xen HVM and KVM hypervisors.
 .RS
 .PP
-A string value denoting the boot order. This has different meaning
-for the Xen HVM hypervisor and for the KVM one.
+A string value denoting the boot order.
+This has different meaning for the Xen HVM hypervisor and for the KVM
+one.
 .PP
 For Xen HVM, The boot order is a string of letters listing the boot
 devices, with valid device letters being:
@@ -263,35 +304,36 @@ network boot (PXE)
 .RS
 .RE
 .PP
-The default is not to set an HVM boot order, which is interpreted
-as \[aq]dc\[aq].
+The default is not to set an HVM boot order, which is interpreted as
+\[aq]dc\[aq].
 .PP
-For KVM the boot order is either "floppy", "cdrom", "disk" or
-"network". Please note that older versions of KVM couldn\[aq]t
-netboot from virtio interfaces. This has been fixed in more recent
-versions and is confirmed to work at least with qemu-kvm 0.11.1.
-Also note that if you have set the \f[B]kernel_path\f[] option,
-that will be used for booting, and this setting will be silently
-ignored.
+For KVM the boot order is either "floppy", "cdrom", "disk" or "network".
+Please note that older versions of KVM couldn\[aq]t netboot from virtio
+interfaces.
+This has been fixed in more recent versions and is confirmed to work at
+least with qemu-kvm 0.11.1.
+Also note that if you have set the \f[C]kernel_path\f[] option, that
+will be used for booting, and this setting will be silently ignored.
 .RE
 .TP
 .B blockdev_prefix
 Valid for the Xen HVM and PVM hypervisors.
 .RS
 .PP
-Relevant to non-pvops guest kernels, in which the disk device names
-are given by the host. Allows one to specify \[aq]xvd\[aq], which
-helps run Red Hat based installers, driven by anaconda.
+Relevant to non-pvops guest kernels, in which the disk device names are
+given by the host.
+Allows one to specify \[aq]xvd\[aq], which helps run Red Hat based
+installers, driven by anaconda.
 .RE
 .TP
 .B floppy_image_path
 Valid for the KVM hypervisor.
 .RS
 .PP
-The path to a floppy disk image to attach to the instance. This is
-useful to install Windows operating systems on Virt/IO disks
-because you can specify here the floppy for the drivers at
-installation time.
+The path to a floppy disk image to attach to the instance.
+This is useful to install Windows operating systems on Virt/IO disks
+because you can specify here the floppy for the drivers at installation
+time.
 .RE
 .TP
 .B cdrom_image_path
@@ -306,16 +348,17 @@ Valid for the KVM hypervisor.
 .RS
 .PP
 The path to a second CDROM image to attach to the instance.
-\f[B]NOTE\f[]: This image can\[aq]t be used to boot the system. To
-do that you have to use the \[aq]cdrom_image_path\[aq] option.
+\f[B]NOTE\f[]: This image can\[aq]t be used to boot the system.
+To do that you have to use the \[aq]cdrom_image_path\[aq] option.
 .RE
 .TP
 .B nic_type
 Valid for the Xen HVM and KVM hypervisors.
 .RS
 .PP
-This parameter determines the way the network cards are presented
-to the instance. The possible options are:
+This parameter determines the way the network cards are presented to the
+instance.
+The possible options are:
 .IP \[bu] 2
 rtl8139 (default for Xen HVM) (HVM & KVM)
 .IP \[bu] 2
@@ -336,12 +379,30 @@ e1000 (KVM)
 paravirtual (default for KVM) (HVM & KVM)
 .RE
 .TP
+.B vif_type
+Valid for the Xen HVM hypervisor.
+.RS
+.PP
+This parameter specifies the vif type of the nic configuration of the
+instance.
+Unsetting the value leads to no type being specified in the
+configuration.
+Note that this parameter only takes effect when the \[aq]nic_type\[aq]
+is not set.
+The possible options are:
+.IP \[bu] 2
+ioemu
+.IP \[bu] 2
+vif
+.RE
+.TP
 .B disk_type
 Valid for the Xen HVM and KVM hypervisors.
 .RS
 .PP
 This parameter determines the way the disks are presented to the
-instance. The possible options are:
+instance.
+The possible options are:
 .IP \[bu] 2
 ioemu [default] (HVM & KVM)
 .IP \[bu] 2
@@ -360,9 +421,11 @@ pflash (KVM)
 Valid for the KVM hypervisor.
 .RS
 .PP
-This parameter determines the way the cdroms disks are presented to
-the instance. The default behavior is to get the same value of the
-earlier parameter (disk_type). The possible options are:
+This parameter determines the way the cdroms disks are presented to the
+instance.
+The default behavior is to get the same value of the earlier parameter
+(disk_type).
+The possible options are:
 .IP \[bu] 2
 paravirtual
 .IP \[bu] 2
@@ -381,10 +444,11 @@ pflash
 Valid for the Xen HVM and KVM hypervisors.
 .RS
 .PP
-Specifies the address that the VNC listener for this instance
-should bind to. Valid values are IPv4 addresses. Use the address
-0.0.0.0 to bind to all available interfaces (this is the default)
-or specify the address of one of the interfaces on the node to
+Specifies the address that the VNC listener for this instance should
+bind to.
+Valid values are IPv4 addresses.
+Use the address 0.0.0.0 to bind to all available interfaces (this is the
+default) or specify the address of one of the interfaces on the node to
 restrict listening to that interface.
 .RE
 .TP
@@ -392,16 +456,16 @@ restrict listening to that interface.
 Valid for the KVM hypervisor.
 .RS
 .PP
-A boolean option that controls whether the VNC connection is
-secured with TLS.
+A boolean option that controls whether the VNC connection is secured
+with TLS.
 .RE
 .TP
 .B vnc_x509_path
 Valid for the KVM hypervisor.
 .RS
 .PP
-If \f[B]vnc_tls\f[] is enabled, this options specifies the path to
-the x509 certificate to use.
+If \f[C]vnc_tls\f[] is enabled, this options specifies the path to the
+x509 certificate to use.
 .RE
 .TP
 .B vnc_x509_verify
@@ -414,7 +478,8 @@ Valid for the KVM hypervisor.
 .RS
 .PP
 Specifies the address or interface on which the SPICE server will
-listen. Valid values are:
+listen.
+Valid values are:
 .IP \[bu] 2
 IPv4 addresses, including 0.0.0.0 and 127.0.0.1
 .IP \[bu] 2
@@ -422,22 +487,22 @@ IPv6 addresses, including :: and ::1
 .IP \[bu] 2
 names of network interfaces
 .PP
-If a network interface is specified, the SPICE server will be bound
-to one of the addresses of that interface.
+If a network interface is specified, the SPICE server will be bound to
+one of the addresses of that interface.
 .RE
 .TP
 .B spice_ip_version
 Valid for the KVM hypervisor.
 .RS
 .PP
-Specifies which version of the IP protocol should be used by the
-SPICE server.
+Specifies which version of the IP protocol should be used by the SPICE
+server.
 .PP
 It is mainly intended to be used for specifying what kind of IP
-addresses should be used if a network interface with both IPv4 and
-IPv6 addresses is specified via the \f[B]spice_bind\f[] parameter.
-In this case, if the \f[B]spice_ip_version\f[] parameter is not
-used, the default IP version of the cluster will be used.
+addresses should be used if a network interface with both IPv4 and IPv6
+addresses is specified via the \f[C]spice_bind\f[] parameter.
+In this case, if the \f[C]spice_ip_version\f[] parameter is not used,
+the default IP version of the cluster will be used.
 .RE
 .TP
 .B spice_password_file
@@ -445,15 +510,16 @@ Valid for the KVM hypervisor.
 .RS
 .PP
 Specifies a file containing the password that must be used when
-connecting via the SPICE protocol. If the option is not specified,
-passwordless connections are allowed.
+connecting via the SPICE protocol.
+If the option is not specified, passwordless connections are allowed.
 .RE
 .TP
 .B spice_image_compression
 Valid for the KVM hypervisor.
 .RS
 .PP
-Configures the SPICE lossless image compression. Valid values are:
+Configures the SPICE lossless image compression.
+Valid values are:
 .IP \[bu] 2
 auto_glz
 .IP \[bu] 2
@@ -473,7 +539,8 @@ Valid for the KVM hypervisor.
 .RS
 .PP
 Configures how SPICE should use the jpeg algorithm for lossy image
-compression on slow links. Valid values are:
+compression on slow links.
+Valid values are:
 .IP \[bu] 2
 auto
 .IP \[bu] 2
@@ -486,8 +553,9 @@ always
 Valid for the KVM hypervisor.
 .RS
 .PP
-Configures how SPICE should use the zlib-glz algorithm for lossy
-image compression on slow links. Valid values are:
+Configures how SPICE should use the zlib-glz algorithm for lossy image
+compression on slow links.
+Valid values are:
 .IP \[bu] 2
 auto
 .IP \[bu] 2
@@ -500,7 +568,8 @@ always
 Valid for the KVM hypervisor.
 .RS
 .PP
-Configures how SPICE should detect video streams. Valid values are:
+Configures how SPICE should detect video streams.
+Valid values are:
 .IP \[bu] 2
 off
 .IP \[bu] 2
@@ -520,16 +589,17 @@ Configures whether SPICE should compress audio streams or not.
 Valid for the KVM hypervisor.
 .RS
 .PP
-Specifies that the SPICE server must use TLS to encrypt all the
-traffic with the client.
+Specifies that the SPICE server must use TLS to encrypt all the traffic
+with the client.
 .RE
 .TP
 .B spice_tls_ciphers
 Valid for the KVM hypervisor.
 .RS
 .PP
-Specifies a list of comma-separated ciphers that SPICE should use
-for TLS connections. For the format, see man cipher(1).
+Specifies a list of comma-separated ciphers that SPICE should use for
+TLS connections.
+For the format, see man \f[B]cipher\f[](1).
 .RE
 .TP
 .B spice_use_vdagent
@@ -539,43 +609,59 @@ Valid for the KVM hypervisor.
 Enables or disables passing mouse events via SPICE vdagent.
 .RE
 .TP
+.B cpu_type
+Valid for the KVM hypervisor.
+.RS
+.PP
+This parameter determines the emulated cpu for the instance.
+If this parameter is empty (which is the default configuration), it will
+not be passed to KVM.
+.PP
+Be aware of setting this parameter to \f[C]"host"\f[] if you have nodes
+with different CPUs from each other.
+Live migration may stop working in this situation.
+.PP
+For more information please refer to the KVM manual.
+.RE
+.TP
 .B acpi
 Valid for the Xen HVM and KVM hypervisors.
 .RS
 .PP
-A boolean option that specifies if the hypervisor should enable
-ACPI support for this instance. By default, ACPI is disabled.
+A boolean option that specifies if the hypervisor should enable ACPI
+support for this instance.
+By default, ACPI is disabled.
 .RE
 .TP
 .B pae
 Valid for the Xen HVM and KVM hypervisors.
 .RS
 .PP
-A boolean option that specifies if the hypervisor should enabled
-PAE support for this instance. The default is false, disabling PAE
-support.
+A boolean option that specifies if the hypervisor should enabled PAE
+support for this instance.
+The default is false, disabling PAE support.
 .RE
 .TP
 .B use_localtime
 Valid for the Xen HVM and KVM hypervisors.
 .RS
 .PP
-A boolean option that specifies if the instance should be started
-with its clock set to the localtime of the machine (when true) or
-to the UTC (When false). The default is false, which is useful for
-Linux/Unix machines; for Windows OSes, it is recommended to enable
-this parameter.
+A boolean option that specifies if the instance should be started with
+its clock set to the localtime of the machine (when true) or to the UTC
+(When false).
+The default is false, which is useful for Linux/Unix machines; for
+Windows OSes, it is recommended to enable this parameter.
 .RE
 .TP
 .B kernel_path
 Valid for the Xen PVM and KVM hypervisors.
 .RS
 .PP
-This option specifies the path (on the node) to the kernel to boot
-the instance with. Xen PVM instances always require this, while for
-KVM if this option is empty, it will cause the machine to load the
-kernel from its disks (and the boot will be done accordingly to
-\f[B]boot_order\f[]).
+This option specifies the path (on the node) to the kernel to boot the
+instance with.
+Xen PVM instances always require this, while for KVM if this option is
+empty, it will cause the machine to load the kernel from its disks (and
+the boot will be done accordingly to \f[C]boot_order\f[]).
 .RE
 .TP
 .B kernel_args
@@ -583,12 +669,14 @@ Valid for the Xen PVM and KVM hypervisors.
 .RS
 .PP
 This options specifies extra arguments to the kernel that will be
-loaded. device. This is always used for Xen PVM, while for KVM it
-is only used if the \f[B]kernel_path\f[] option is also specified.
+loaded.
+device.
+This is always used for Xen PVM, while for KVM it is only used if the
+\f[C]kernel_path\f[] option is also specified.
 .PP
-The default setting for this value is simply \f[B]"ro"\f[], which
-mounts the root disk (initially) in read-only one. For example,
-setting this to single will cause the instance to start in
+The default setting for this value is simply \f[C]"ro"\f[], which mounts
+the root disk (initially) in read-only one.
+For example, setting this to single will cause the instance to start in
 single-user mode.
 .RE
 .TP
@@ -596,64 +684,80 @@ single-user mode.
 Valid for the Xen PVM and KVM hypervisors.
 .RS
 .PP
-This option specifies the path (on the node) to the initrd to boot
-the instance with. Xen PVM instances can use this always, while for
-KVM if this option is only used if the \f[B]kernel_path\f[] option
-is also specified. You can pass here either an absolute filename
-(the path to the initrd) if you want to use an initrd, or use the
-format no_initrd_path for no initrd.
+This option specifies the path (on the node) to the initrd to boot the
+instance with.
+Xen PVM instances can use this always, while for KVM if this option is
+only used if the \f[C]kernel_path\f[] option is also specified.
+You can pass here either an absolute filename (the path to the initrd)
+if you want to use an initrd, or use the format no_initrd_path for no
+initrd.
 .RE
 .TP
 .B root_path
 Valid for the Xen PVM and KVM hypervisors.
 .RS
 .PP
-This options specifies the name of the root device. This is always
-needed for Xen PVM, while for KVM it is only used if the
-\f[B]kernel_path\f[] option is also specified.
+This options specifies the name of the root device.
+This is always needed for Xen PVM, while for KVM it is only used if the
+\f[C]kernel_path\f[] option is also specified.
 .PP
-Please note, that if this setting is an empty string and the
-hypervisor is Xen it will not be written to the Xen configuration
-file
+Please note, that if this setting is an empty string and the hypervisor
+is Xen it will not be written to the Xen configuration file
 .RE
 .TP
 .B serial_console
 Valid for the KVM hypervisor.
 .RS
 .PP
-This boolean option specifies whether to emulate a serial console
-for the instance.
+This boolean option specifies whether to emulate a serial console for
+the instance.
+Note that some versions of KVM have a bug that will make an instance
+hang when configured to use the serial console unless a connection is
+made to it within about 2 seconds of the instance\[aq]s startup.
+For such case it\[aq]s recommended to disable this option, which is
+enabled by default.
+.RE
+.TP
+.B serial_speed
+Valid for the KVM hypervisor.
+.RS
+.PP
+This integer option specifies the speed of the serial console.
+Common values are 9600, 19200, 38400, 57600 and 115200: choose the one
+which works on your system.
+(The default is 38400 for historical reasons, but newer versions of
+kvm/qemu work with 115200)
 .RE
 .TP
 .B disk_cache
 Valid for the KVM hypervisor.
 .RS
 .PP
-The disk cache mode. It can be either default to not pass any cache
-option to KVM, or one of the KVM cache modes: none (for direct
-I/O), writethrough (to use the host cache but report completion to
-the guest only when the host has committed the changes to disk) or
-writeback (to use the host cache and report completion as soon as
-the data is in the host cache). Note that there are special
-considerations for the cache mode depending on version of KVM used
-and disk type (always raw file under Ganeti), please refer to the
-KVM documentation for more details.
+The disk cache mode.
+It can be either default to not pass any cache option to KVM, or one of
+the KVM cache modes: none (for direct I/O), writethrough (to use the
+host cache but report completion to the guest only when the host has
+committed the changes to disk) or writeback (to use the host cache and
+report completion as soon as the data is in the host cache).
+Note that there are special considerations for the cache mode depending
+on version of KVM used and disk type (always raw file under Ganeti),
+please refer to the KVM documentation for more details.
 .RE
 .TP
 .B security_model
 Valid for the KVM hypervisor.
 .RS
 .PP
-The security model for kvm. Currently one of \f[I]none\f[],
-\f[I]user\f[] or \f[I]pool\f[].
-Under \f[I]none\f[], the default, nothing is done and instances are
-run as the Ganeti daemon user (normally root).
+The security model for kvm.
+Currently one of \f[I]none\f[], \f[I]user\f[] or \f[I]pool\f[].
+Under \f[I]none\f[], the default, nothing is done and instances are run
+as the Ganeti daemon user (normally root).
 .PP
 Under \f[I]user\f[] kvm will drop privileges and become the user
 specified by the security_domain parameter.
 .PP
-Under \f[I]pool\f[] a global cluster pool of users will be used,
-making sure no two instances share the same user on the same node.
+Under \f[I]pool\f[] a global cluster pool of users will be used, making
+sure no two instances share the same user on the same node.
 (this mode is not implemented yet)
 .RE
 .TP
@@ -662,7 +766,8 @@ Valid for the KVM hypervisor.
 .RS
 .PP
 Under security model \f[I]user\f[] the username to run the instance
-under. It must be a valid username existing on the host.
+under.
+It must be a valid username existing on the host.
 .PP
 Cannot be set under security model \f[I]none\f[] or \f[I]pool\f[].
 .RE
@@ -671,19 +776,19 @@ Cannot be set under security model \f[I]none\f[] or \f[I]pool\f[].
 Valid for the KVM hypervisor.
 .RS
 .PP
-If \f[I]enabled\f[] the -enable-kvm flag is passed to kvm. If
-\f[I]disabled\f[] -disable-kvm is passed. If unset no flag is
-passed, and the default running mode for your kvm binary will be
-used.
+If \f[I]enabled\f[] the -enable-kvm flag is passed to kvm.
+If \f[I]disabled\f[] -disable-kvm is passed.
+If unset no flag is passed, and the default running mode for your kvm
+binary will be used.
 .RE
 .TP
 .B mem_path
 Valid for the KVM hypervisor.
 .RS
 .PP
-This option passes the -mem-path argument to kvm with the path (on
-the node) to the mount point of the hugetlbfs file system, along
-with the -mem-prealloc argument too.
+This option passes the -mem-path argument to kvm with the path (on the
+node) to the mount point of the hugetlbfs file system, along with the
+-mem-prealloc argument too.
 .RE
 .TP
 .B use_chroot
@@ -693,11 +798,12 @@ Valid for the KVM hypervisor.
 This boolean option determines whether to run the KVM instance in a
 chroot directory.
 .PP
-If it is set to \f[B]true\f[], an empty directory is created before
-starting the instance and its path is passed via the -chroot flag
-to kvm. The directory is removed when the instance is stopped.
+If it is set to \f[C]true\f[], an empty directory is created before
+starting the instance and its path is passed via the -chroot flag to
+kvm.
+The directory is removed when the instance is stopped.
 .PP
-It is set to \f[B]false\f[] by default.
+It is set to \f[C]false\f[] by default.
 .RE
 .TP
 .B migration_downtime
@@ -705,9 +811,9 @@ Valid for the KVM hypervisor.
 .RS
 .PP
 The maximum amount of time (in ms) a KVM instance is allowed to be
-frozen during a live migration, in order to copy dirty memory
-pages. Default value is 30ms, but you may need to increase this
-value for busy instances.
+frozen during a live migration, in order to copy dirty memory pages.
+Default value is 30ms, but you may need to increase this value for busy
+instances.
 .PP
 This option is only effective with kvm versions >= 87 and qemu-kvm
 versions >= 0.11.0.
@@ -717,106 +823,214 @@ versions >= 0.11.0.
 Valid for the Xen, KVM and LXC hypervisors.
 .RS
 .PP
-The processes belonging to the given instance are only scheduled on
-the specified CPUs.
+The processes belonging to the given instance are only scheduled on the
+specified CPUs.
 .PP
-The format of the mask can be given in three forms. First, the word
-"all", which signifies the common case where all VCPUs can live on
-any CPU, based on the hypervisor\[aq]s decisions.
+The format of the mask can be given in three forms.
+First, the word "all", which signifies the common case where all VCPUs
+can live on any CPU, based on the hypervisor\[aq]s decisions.
 .PP
-Second, a comma-separated list of CPU IDs or CPU ID ranges. The
-ranges are defined by a lower and higher boundary, separated by a
-dash, and the boundaries are inclusive. In this form, all VCPUs of
-the instance will be mapped on the selected list of CPUs. Example:
-\f[B]0-2,5\f[], mapping all VCPUs (no matter how many) onto
+Second, a comma-separated list of CPU IDs or CPU ID ranges.
+The ranges are defined by a lower and higher boundary, separated by a
+dash, and the boundaries are inclusive.
+In this form, all VCPUs of the instance will be mapped on the selected
+list of CPUs.
+Example: \f[C]0-2,5\f[], mapping all VCPUs (no matter how many) onto
 physical CPUs 0, 1, 2 and 5.
 .PP
-The last form is used for explicit control of VCPU-CPU pinnings. In
-this form, the list of VCPU mappings is given as a colon (:)
-separated list, whose elements are the possible values for the
-second or first form above. In this form, the number of elements in
-the colon-separated list _must_ equal the number of VCPUs of the
-instance.
+The last form is used for explicit control of VCPU-CPU pinnings.
+In this form, the list of VCPU mappings is given as a colon (:)
+separated list, whose elements are the possible values for the second or
+first form above.
+In this form, the number of elements in the colon-separated list _must_
+equal the number of VCPUs of the instance.
 .PP
 Example:
-.PP
-\f[CR]
-      #\ Map\ the\ entire\ instance\ to\ CPUs\ 0-2
-      gnt-instance\ modify\ -H\ cpu_mask=0-2\ my-inst
-      
-      #\ Map\ vCPU\ 0\ to\ physical\ CPU\ 1\ and\ vCPU\ 1\ to\ CPU\ 3\ (assuming\ 2\ vCPUs)
-      gnt-instance\ modify\ -H\ cpu_mask=1:3\ my-inst
-      
-      #\ Pin\ vCPU\ 0\ to\ CPUs\ 1\ or\ 2,\ and\ vCPU\ 1\ to\ any\ CPU
-      gnt-instance\ modify\ -H\ cpu_mask=1-2:all\ my-inst
-      
-      #\ Pin\ vCPU\ 0\ to\ any\ CPU,\ vCPU\ 1\ to\ CPUs\ 1,\ 3,\ 4\ or\ 5,\ and\ CPU\ 2\ to
-      #\ CPU\ 0\ (backslashes\ for\ escaping\ the\ comma)
-      gnt-instance\ modify\ -H\ cpu_mask=all:1\\\\,3-5:0\ my-inst
-      
-      #\ Pin\ entire\ VM\ to\ CPU\ 0
-      gnt-instance\ modify\ -H\ cpu_mask=0\ my-inst
-      
-      #\ Turn\ off\ CPU\ pinning\ (default\ setting)
-      gnt-instance\ modify\ -H\ cpu_mask=all\ my-inst
+.IP
+.nf
+\f[C]
+#\ Map\ the\ entire\ instance\ to\ CPUs\ 0-2
+gnt-instance\ modify\ -H\ cpu_mask=0-2\ my-inst
+
+#\ Map\ vCPU\ 0\ to\ physical\ CPU\ 1\ and\ vCPU\ 1\ to\ CPU\ 3\ (assuming\ 2\ vCPUs)
+gnt-instance\ modify\ -H\ cpu_mask=1:3\ my-inst
+
+#\ Pin\ vCPU\ 0\ to\ CPUs\ 1\ or\ 2,\ and\ vCPU\ 1\ to\ any\ CPU
+gnt-instance\ modify\ -H\ cpu_mask=1-2:all\ my-inst
+
+#\ Pin\ vCPU\ 0\ to\ any\ CPU,\ vCPU\ 1\ to\ CPUs\ 1,\ 3,\ 4\ or\ 5,\ and\ CPU\ 2\ to
+#\ CPU\ 0\ (backslashes\ for\ escaping\ the\ comma)
+gnt-instance\ modify\ -H\ cpu_mask=all:1\\\\,3-5:0\ my-inst
+
+#\ Pin\ entire\ VM\ to\ CPU\ 0
+gnt-instance\ modify\ -H\ cpu_mask=0\ my-inst
+
+#\ Turn\ off\ CPU\ pinning\ (default\ setting)
+gnt-instance\ modify\ -H\ cpu_mask=all\ my-inst
 \f[]
+.fi
+.RE
+.TP
+.B cpu_cap
+Valid for the Xen hypervisor.
+.RS
+.PP
+Set the maximum amount of cpu usage by the VM.
+The value is a percentage between 0 and (100 * number of VCPUs).
+Default cap is 0: unlimited.
+.RE
+.TP
+.B cpu_weight
+Valid for the Xen hypervisor.
+.RS
+.PP
+Set the cpu time ratio to be allocated to the VM.
+Valid values are between 1 and 65535.
+Default weight is 256.
 .RE
 .TP
 .B usb_mouse
 Valid for the KVM hypervisor.
 .RS
 .PP
-This option specifies the usb mouse type to be used. It can be
-"mouse" or "tablet". When using VNC it\[aq]s recommended to set it
-to "tablet".
+This option specifies the usb mouse type to be used.
+It can be "mouse" or "tablet".
+When using VNC it\[aq]s recommended to set it to "tablet".
 .RE
 .TP
 .B keymap
 Valid for the KVM hypervisor.
 .RS
 .PP
-This option specifies the keyboard mapping to be used. It is only
-needed when using the VNC console. For example: "fr" or "en-gb".
+This option specifies the keyboard mapping to be used.
+It is only needed when using the VNC console.
+For example: "fr" or "en-gb".
 .RE
 .TP
 .B reboot_behavior
 Valid for Xen PVM, Xen HVM and KVM hypervisors.
 .RS
 .PP
-Normally if an instance reboots, the hypervisor will restart it. If
-this option is set to \f[B]exit\f[], the hypervisor will treat a
+Normally if an instance reboots, the hypervisor will restart it.
+If this option is set to \f[C]exit\f[], the hypervisor will treat a
 reboot as a shutdown instead.
 .PP
-It is set to \f[B]reboot\f[] by default.
+It is set to \f[C]reboot\f[] by default.
+.RE
+.TP
+.B cpu_cores
+Valid for the KVM hypervisor.
+.RS
+.PP
+Number of emulated CPU cores.
+.RE
+.TP
+.B cpu_threads
+Valid for the KVM hypervisor.
+.RS
+.PP
+Number of emulated CPU threads.
+.RE
+.TP
+.B cpu_sockets
+Valid for the KVM hypervisor.
+.RS
+.PP
+Number of emulated CPU sockets.
+.RE
+.TP
+.B soundhw
+Valid for the KVM hypervisor.
+.RS
+.PP
+Comma separated list of emulated sounds cards, or "all" to enable all
+the available ones.
+.RE
+.TP
+.B usb_devices
+Valid for the KVM hypervisor.
+.RS
+.PP
+Comma separated list of usb devices.
+These can be emulated devices or passthrough ones, and each one gets
+passed to kvm with its own \f[C]-usbdevice\f[] option.
+See the \f[B]qemu\f[](1) manpage for the syntax of the possible
+components.
+.RE
+.TP
+.B vga
+Valid for the KVM hypervisor.
+.RS
+.PP
+Emulated vga mode, passed the the kvm -vga option.
+.RE
+.TP
+.B kvm_extra
+Valid for the KVM hypervisor.
+.RS
+.PP
+Any other option to the KVM hypervisor, useful tweaking anything that
+Ganeti doesn\[aq]t support.
+Note that values set with this parameter are split on a space character
+and currently don\[aq]t support quoting.
+.RE
+.TP
+.B machine_version
+Valid for the KVM hypervisor.
+.RS
+.PP
+Use in case an instance must be booted with an exact type of machine
+version (due to e.g.
+outdated drivers).
+In case it\[aq]s not set the default version supported by your version
+of kvm is used.
+.RE
+.TP
+.B kvm_path
+Valid for the KVM hypervisor.
+.RS
+.PP
+Path to the userspace KVM (or qemu) program.
 .RE
 .PP
-The \f[B]-O\ (--os-parameters)\f[] option allows customisation of
-the OS parameters. The actual parameter names and values depends on
-the OS being used, but the syntax is the same key=value. For
-example, setting a hypothetical \f[B]dhcp\f[] parameter to yes can
+The \f[C]-O\ (--os-parameters)\f[] option allows customisation of the OS
+parameters.
+The actual parameter names and values depends on the OS being used, but
+the syntax is the same key=value.
+For example, setting a hypothetical \f[C]dhcp\f[] parameter to yes can
 be achieved by:
-.PP
-\f[CR]
-      gnt-instance\ add\ -O\ dhcp=yes\ ...
+.IP
+.nf
+\f[C]
+gnt-instance\ add\ -O\ dhcp=yes\ ...
 \f[]
+.fi
 .PP
-The \f[B]-I\ (--iallocator)\f[] option specifies the instance
-allocator plugin to use. If you pass in this option the allocator
-will select nodes for this instance automatically, so you don\[aq]t
-need to pass them with the \f[B]-n\f[] option. For more information
-please refer to the instance allocator documentation.
+The \f[C]-I\ (--iallocator)\f[] option specifies the instance allocator
+plugin to use (\f[C]\&.\f[] means the default allocator).
+If you pass in this option the allocator will select nodes for this
+instance automatically, so you don\[aq]t need to pass them with the
+\f[C]-n\f[] option.
+For more information please refer to the instance allocator
+documentation.
 .PP
-The \f[B]-t\ (--disk-template)\f[] options specifies the disk
-layout type for the instance. The available choices are:
+The \f[C]-t\ (--disk-template)\f[] options specifies the disk layout
+type for the instance.
+The available choices are:
 .TP
 .B diskless
-This creates an instance with no disks. Its useful for testing only
-(or other special cases).
+This creates an instance with no disks.
+Its useful for testing only (or other special cases).
 .RS
 .RE
 .TP
 .B file
 Disk devices will be regular files.
+.RS
+.RE
+.TP
+.B sharedfile
+Disk devices will be regulare files on a shared directory.
 .RS
 .RE
 .TP
@@ -834,78 +1048,106 @@ Disk devices will be drbd (version 8.x) on top of lvm volumes.
 Disk devices will be rbd volumes residing inside a RADOS cluster.
 .RS
 .RE
+.TP
+.B blockdev
+Disk devices will be adopted pre-existent block devices.
+.RS
+.RE
+.TP
+.B ext
+Disk devices will be provided by external shared storage, through the
+ExtStorage Interface using ExtStorage providers.
+.RS
+.RE
 .PP
-The optional second value of the \f[B]-n\ (--node)\f[] is used for
-the drbd template type and specifies the remote node.
+The optional second value of the \f[C]-n\ (--node)\f[] is used for the
+drbd template type and specifies the remote node.
 .PP
 If you do not want gnt-instance to wait for the disk mirror to be
-synced, use the \f[B]--no-wait-for-sync\f[] option.
+synced, use the \f[C]--no-wait-for-sync\f[] option.
 .PP
-The \f[B]--file-storage-dir\f[] specifies the relative path under
-the cluster-wide file storage directory to store file-based disks.
+The \f[C]--file-storage-dir\f[] specifies the relative path under the
+cluster-wide file storage directory to store file-based disks.
 It is useful for having different subdirectories for different
-instances. The full path of the directory where the disk files are
-stored will consist of cluster-wide file storage directory +
-optional subdirectory + instance name. Example:
-\f[B]@RPL_FILE_STORAGE_DIR@\f[]\f[I]/mysubdir/instance1.example.com\f[].
+instances.
+The full path of the directory where the disk files are stored will
+consist of cluster-wide file storage directory + optional subdirectory +
+instance name.
+Example:
+\f[C]@RPL_FILE_STORAGE_DIR@/mysubdir/instance1.example.com\f[].
 This option is only relevant for instances using the file storage
 backend.
 .PP
-The \f[B]--file-driver\f[] specifies the driver to use for
-file-based disks. Note that currently these drivers work with the
-xen hypervisor only. This option is only relevant for instances
-using the file storage backend. The available choices are:
+The \f[C]--file-driver\f[] specifies the driver to use for file-based
+disks.
+Note that currently these drivers work with the xen hypervisor only.
+This option is only relevant for instances using the file storage
+backend.
+The available choices are:
 .TP
 .B loop
-Kernel loopback driver. This driver uses loopback devices to access
-the filesystem within the file. However, running I/O intensive
-applications in your instance using the loop driver might result in
-slowdowns. Furthermore, if you use the loopback driver consider
-increasing the maximum amount of loopback devices (on most systems
-it\[aq]s 8) using the max_loop param.
+Kernel loopback driver.
+This driver uses loopback devices to access the filesystem within the
+file.
+However, running I/O intensive applications in your instance using the
+loop driver might result in slowdowns.
+Furthermore, if you use the loopback driver consider increasing the
+maximum amount of loopback devices (on most systems it\[aq]s 8) using
+the max_loop param.
 .RS
 .RE
 .TP
 .B blktap
-The blktap driver (for Xen hypervisors). In order to be able to use
-the blktap driver you should check if the \[aq]blktapctrl\[aq] user
-space disk agent is running (usually automatically started via
-xend). This user-level disk I/O interface has the advantage of
-better performance. Especially if you use a network file system
-(e.g. NFS) to store your instances this is the recommended choice.
+The blktap driver (for Xen hypervisors).
+In order to be able to use the blktap driver you should check if the
+\[aq]blktapctrl\[aq] user space disk agent is running (usually
+automatically started via xend).
+This user-level disk I/O interface has the advantage of better
+performance.
+Especially if you use a network file system (e.g.
+NFS) to store your instances this is the recommended choice.
 .RS
 .RE
 .PP
-If \f[B]--ignore-ipolicy\f[] is given any instance policy
-violations occuring during this operation are ignored.
+If \f[C]--ignore-ipolicy\f[] is given any instance policy violations
+occuring during this operation are ignored.
 .PP
-See \f[B]ganeti(7)\f[] for a description of \f[B]--submit\f[] and
-other common options.
+See \f[B]ganeti\f[](7) for a description of \f[C]--submit\f[] and other
+common options.
 .PP
 Example:
-.PP
-\f[CR]
-      #\ gnt-instance\ add\ -t\ file\ --disk\ 0:size=30g\ -B\ maxmem=512\ -o\ debian-etch\ \\
-      \ \ -n\ node1.example.com\ --file-storage-dir=mysubdir\ instance1.example.com
-      #\ gnt-instance\ add\ -t\ plain\ --disk\ 0:size=30g\ -B\ maxmem=1024,minmem=512\ \\
-      \ \ -o\ debian-etch\ -n\ node1.example.com\ instance1.example.com
-      #\ gnt-instance\ add\ -t\ plain\ --disk\ 0:size=30g\ --disk\ 1:size=100g,vg=san\ \\
-      \ \ -B\ maxmem=512\ -o\ debian-etch\ -n\ node1.example.com\ instance1.example.com
-      #\ gnt-instance\ add\ -t\ drbd\ --disk\ 0:size=30g\ -B\ maxmem=512\ -o\ debian-etch\ \\
-      \ \ -n\ node1.example.com:node2.example.com\ instance2.example.com
+.IP
+.nf
+\f[C]
+#\ gnt-instance\ add\ -t\ file\ --disk\ 0:size=30g\ -B\ maxmem=512\ -o\ debian-etch\ \\
+\ \ -n\ node1.example.com\ --file-storage-dir=mysubdir\ instance1.example.com
+#\ gnt-instance\ add\ -t\ plain\ --disk\ 0:size=30g\ -B\ maxmem=1024,minmem=512\ \\
+\ \ -o\ debian-etch\ -n\ node1.example.com\ instance1.example.com
+#\ gnt-instance\ add\ -t\ plain\ --disk\ 0:size=30g\ --disk\ 1:size=100g,vg=san\ \\
+\ \ -B\ maxmem=512\ -o\ debian-etch\ -n\ node1.example.com\ instance1.example.com
+#\ gnt-instance\ add\ -t\ drbd\ --disk\ 0:size=30g\ -B\ maxmem=512\ -o\ debian-etch\ \\
+\ \ -n\ node1.example.com:node2.example.com\ instance2.example.com
+#\ gnt-instance\ add\ -t\ rbd\ --disk\ 0:size=30g\ -B\ maxmem=512\ -o\ debian-etch\ \\
+\ \ -n\ node1.example.com\ instance1.example.com
+#\ gnt-instance\ add\ -t\ ext\ --disk\ 0:size=30g,provider=pvdr1\ -B\ maxmem=512\ \\
+\ \ -o\ debian-etch\ -n\ node1.example.com\ instance1.example.com
+#\ gnt-instance\ add\ -t\ ext\ --disk\ 0:size=30g,provider=pvdr1,param1=val1\ \\
+\ \ --disk\ 1:size=40g,provider=pvdr2,param2=val2,param3=val3\ -B\ maxmem=512\ \\
+\ \ -o\ debian-etch\ -n\ node1.example.com\ instance1.example.com
 \f[]
+.fi
 .SS BATCH-CREATE
 .PP
 \f[B]batch-create\f[] {instances_file.json}
 .PP
-This command (similar to the Ganeti 1.2 \f[B]batcher\f[] tool)
-submits multiple instance creation jobs based on a definition file.
-The instance configurations do not encompass all the possible
-options for the \f[B]add\f[] command, but only a subset.
+This command (similar to the Ganeti 1.2 \f[B]batcher\f[] tool) submits
+multiple instance creation jobs based on a definition file.
+The instance configurations do not encompass all the possible options
+for the \f[B]add\f[] command, but only a subset.
 .PP
 The instance file should be a valid-formed JSON file, containing a
-dictionary with instance name and instance parameters. The accepted
-parameters are:
+dictionary with instance name and instance parameters.
+The accepted parameters are:
 .TP
 .B disk_size
 The size of the disks of the instance.
@@ -924,36 +1166,37 @@ A dictionary of backend parameters.
 .RE
 .TP
 .B hypervisor
-A dictionary with a single key (the hypervisor name), and as value
-the hypervisor options. If not passed, the default hypervisor and
-hypervisor options will be inherited.
+A dictionary with a single key (the hypervisor name), and as value the
+hypervisor options.
+If not passed, the default hypervisor and hypervisor options will be
+inherited.
 .RS
 .RE
 .TP
 .B mac, ip, mode, link
-Specifications for the one NIC that will be created for the
-instance. \[aq]bridge\[aq] is also accepted as a backwards
-compatible key.
+Specifications for the one NIC that will be created for the instance.
+\[aq]bridge\[aq] is also accepted as a backwards compatible key.
 .RS
 .RE
 .TP
 .B nics
-List of nics that will be created for the instance. Each entry
-should be a dict, with mac, ip, mode and link as possible keys.
-Please don\[aq]t provide the "mac, ip, mode, link" parent keys if
-you use this method for specifying nics.
+List of NICs that will be created for the instance.
+Each entry should be a dict, with mac, ip, mode and link as possible
+keys.
+Please don\[aq]t provide the "mac, ip, mode, link" parent keys if you
+use this method for specifying NICs.
 .RS
 .RE
 .TP
 .B primary_node, secondary_node
-The primary and optionally the secondary node to use for the
-instance (in case an iallocator script is not used).
+The primary and optionally the secondary node to use for the instance
+(in case an iallocator script is not used).
 .RS
 .RE
 .TP
 .B iallocator
-Instead of specifying the nodes, an iallocator script can be used
-to automatically compute them.
+Instead of specifying the nodes, an iallocator script can be used to
+automatically compute them.
 .RS
 .RE
 .TP
@@ -963,8 +1206,8 @@ whether to start the instance
 .RE
 .TP
 .B ip_check
-Skip the check for already-in-use instance; see the description in
-the \f[B]add\f[] command for details.
+Skip the check for already-in-use instance; see the description in the
+\f[B]add\f[] command for details.
 .RS
 .RE
 .TP
@@ -975,938 +1218,1115 @@ Skip the name check for instances; see the description in the
 .RE
 .TP
 .B file_storage_dir, file_driver
-Configuration for the file disk type, see the \f[B]add\f[] command
-for details.
+Configuration for the file disk type, see the \f[B]add\f[] command for
+details.
 .RS
 .RE
 .PP
-A simple definition for one instance can be (with most of the
-parameters taken from the cluster defaults):
-.PP
-\f[CR]
-      {
-      \ \ "instance3":\ {
-      \ \ \ \ "template":\ "drbd",
-      \ \ \ \ "os":\ "debootstrap",
-      \ \ \ \ "disk_size":\ ["25G"],
-      \ \ \ \ "iallocator":\ "dumb"
-      \ \ },
-      \ \ "instance5":\ {
-      \ \ \ \ "template":\ "drbd",
-      \ \ \ \ "os":\ "debootstrap",
-      \ \ \ \ "disk_size":\ ["25G"],
-      \ \ \ \ "iallocator":\ "dumb",
-      \ \ \ \ "hypervisor":\ "xen-hvm",
-      \ \ \ \ "hvparams":\ {"acpi":\ true},
-      \ \ \ \ "backend":\ {"maxmem":\ 512,\ "minmem":\ 256}
-      \ \ }
-      }
+A simple definition for one instance can be (with most of the parameters
+taken from the cluster defaults):
+.IP
+.nf
+\f[C]
+{
+\ \ "instance3":\ {
+\ \ \ \ "template":\ "drbd",
+\ \ \ \ "os":\ "debootstrap",
+\ \ \ \ "disk_size":\ ["25G"],
+\ \ \ \ "iallocator":\ "dumb"
+\ \ },
+\ \ "instance5":\ {
+\ \ \ \ "template":\ "drbd",
+\ \ \ \ "os":\ "debootstrap",
+\ \ \ \ "disk_size":\ ["25G"],
+\ \ \ \ "iallocator":\ "dumb",
+\ \ \ \ "hypervisor":\ "xen-hvm",
+\ \ \ \ "hvparams":\ {"acpi":\ true},
+\ \ \ \ "backend":\ {"maxmem":\ 512,\ "minmem":\ 256}
+\ \ }
+}
 \f[]
+.fi
 .PP
 The command will display the job id for each submitted instance, as
 follows:
-.PP
-\f[CR]
-      #\ gnt-instance\ batch-create\ instances.json
-      instance3:\ 11224
-      instance5:\ 11225
+.IP
+.nf
+\f[C]
+#\ gnt-instance\ batch-create\ instances.json
+instance3:\ 11224
+instance5:\ 11225
 \f[]
+.fi
 .SS REMOVE
 .PP
 \f[B]remove\f[] [--ignore-failures] [--shutdown-timeout=\f[I]N\f[]]
 [--submit] [--force] {\f[I]instance\f[]}
 .PP
-Remove an instance. This will remove all data from the instance and
-there is \f[I]no way back\f[].
-If you are not sure if you use an instance again, use
-\f[B]shutdown\f[] first and leave it in the shutdown state for a
-while.
+Remove an instance.
+This will remove all data from the instance and there is \f[I]no way
+back\f[].
+If you are not sure if you use an instance again, use \f[B]shutdown\f[]
+first and leave it in the shutdown state for a while.
 .PP
-The \f[B]--ignore-failures\f[] option will cause the removal to
-proceed even in the presence of errors during the removal of the
-instance (e.g. during the shutdown or the disk removal). If this
-option is not given, the command will stop at the first error.
+The \f[C]--ignore-failures\f[] option will cause the removal to proceed
+even in the presence of errors during the removal of the instance (e.g.
+during the shutdown or the disk removal).
+If this option is not given, the command will stop at the first error.
 .PP
-The \f[B]--shutdown-timeout\f[] is used to specify how much time to
-wait before forcing the shutdown (e.g. \f[B]xm\ destroy\f[] in Xen,
-killing the kvm process for KVM, etc.). By default two minutes are
-given to each instance to stop.
+The \f[C]--shutdown-timeout\f[] is used to specify how much time to wait
+before forcing the shutdown (e.g.
+\f[C]xm\ destroy\f[] in Xen, killing the kvm process for KVM, etc.)
+\&.
+By default two minutes are given to each instance to stop.
 .PP
-The \f[B]--force\f[] option is used to skip the interactive
+The \f[C]--force\f[] option is used to skip the interactive
 confirmation.
 .PP
-See \f[B]ganeti(7)\f[] for a description of \f[B]--submit\f[] and
-other common options.
+See \f[B]ganeti\f[](7) for a description of \f[C]--submit\f[] and other
+common options.
 .PP
 Example:
-.PP
-\f[CR]
-      #\ gnt-instance\ remove\ instance1.example.com
+.IP
+.nf
+\f[C]
+#\ gnt-instance\ remove\ instance1.example.com
 \f[]
+.fi
 .SS LIST
 .PP
 \f[B]list\f[]
 .PD 0
 .P
 .PD
-[--no-headers]
-[--separator=\f[I]SEPARATOR\f[]] [--units=\f[I]UNITS\f[]]
+[--no-headers] [--separator=\f[I]SEPARATOR\f[]] [--units=\f[I]UNITS\f[]]
 [-v]
 .PD 0
 .P
 .PD
-[{-o|--output} \f[I][+]FIELD,...\f[]] [--filter]
-[instance...]
+[{-o|--output} \f[I][+]FIELD,...\f[]] [--filter] [instance...]
 .PP
-Shows the currently configured instances with memory usage, disk
-usage, the node they are running on, and their run status.
+Shows the currently configured instances with memory usage, disk usage,
+the node they are running on, and their run status.
 .PP
-The \f[B]--no-headers\f[] option will skip the initial header line.
-The \f[B]--separator\f[] option takes an argument which denotes
-what will be used between the output fields. Both these options are
-to help scripting.
+The \f[C]--no-headers\f[] option will skip the initial header line.
+The \f[C]--separator\f[] option takes an argument which denotes what
+will be used between the output fields.
+Both these options are to help scripting.
 .PP
 The units used to display the numeric values in the output varies,
-depending on the options given. By default, the values will be
-formatted in the most appropriate unit. If the \f[B]--separator\f[]
-option is given, then the values are shown in mebibytes to allow
-parsing by scripts. In both cases, the \f[B]--units\f[] option can
-be used to enforce a given output unit.
+depending on the options given.
+By default, the values will be formatted in the most appropriate unit.
+If the \f[C]--separator\f[] option is given, then the values are shown
+in mebibytes to allow parsing by scripts.
+In both cases, the \f[C]--units\f[] option can be used to enforce a
+given output unit.
 .PP
-The \f[B]-v\f[] option activates verbose mode, which changes the
-display of special field states (see \f[B]ganeti(7)\f[]).
+The \f[C]-v\f[] option activates verbose mode, which changes the display
+of special field states (see \f[B]ganeti\f[](7)).
 .PP
-The \f[B]-o\ (--output)\f[] option takes a comma-separated list of
-output fields. The available fields and their meaning are:
+The \f[C]-o\ (--output)\f[] option takes a comma-separated list of
+output fields.
+The available fields and their meaning are:
 .TP
-.B \f[B]admin_state\f[]
+.B \f[C]admin_state\f[]
 Desired state of instance
 .RS
 .RE
 .TP
-.B \f[B]admin_up\f[]
+.B \f[C]admin_up\f[]
 Desired state of instance
 .RS
 .RE
 .TP
-.B \f[B]be/always_failover\f[]
+.B \f[C]be/always_failover\f[]
 The "always_failover" backend parameter
 .RS
 .RE
 .TP
-.B \f[B]be/auto_balance\f[]
+.B \f[C]be/auto_balance\f[]
 The "auto_balance" backend parameter
 .RS
 .RE
 .TP
-.B \f[B]be/maxmem\f[]
+.B \f[C]be/maxmem\f[]
 The "maxmem" backend parameter
 .RS
 .RE
 .TP
-.B \f[B]be/memory\f[]
+.B \f[C]be/memory\f[]
 The "maxmem" backend parameter
 .RS
 .RE
 .TP
-.B \f[B]be/minmem\f[]
+.B \f[C]be/minmem\f[]
 The "minmem" backend parameter
 .RS
 .RE
 .TP
-.B \f[B]be/spindle_use\f[]
+.B \f[C]be/spindle_use\f[]
 The "spindle_use" backend parameter
 .RS
 .RE
 .TP
-.B \f[B]be/vcpus\f[]
+.B \f[C]be/vcpus\f[]
 The "vcpus" backend parameter
 .RS
 .RE
 .TP
-.B \f[B]beparams\f[]
+.B \f[C]beparams\f[]
 Backend parameters (merged)
 .RS
 .RE
 .TP
-.B \f[B]bridge\f[]
+.B \f[C]bridge\f[]
 Bridge of 1st network interface
 .RS
 .RE
 .TP
-.B \f[B]console\f[]
+.B \f[C]console\f[]
 Instance console information
 .RS
 .RE
 .TP
-.B \f[B]ctime\f[]
+.B \f[C]ctime\f[]
 Creation timestamp
 .RS
 .RE
 .TP
-.B \f[B]custom_beparams\f[]
+.B \f[C]custom_beparams\f[]
 Custom backend parameters
 .RS
 .RE
 .TP
-.B \f[B]custom_hvparams\f[]
+.B \f[C]custom_hvparams\f[]
 Custom hypervisor parameters
 .RS
 .RE
 .TP
-.B \f[B]custom_nicparams\f[]
+.B \f[C]custom_nicparams\f[]
 Custom network interface parameters
 .RS
 .RE
 .TP
-.B \f[B]custom_osparams\f[]
+.B \f[C]custom_osparams\f[]
 Custom operating system parameters
 .RS
 .RE
 .TP
-.B \f[B]disk.count\f[]
+.B \f[C]disk.count\f[]
 Number of disks
 .RS
 .RE
 .TP
-.B \f[B]disk.size/0\f[]
+.B \f[C]disk.size/0\f[]
 Disk size of 1st disk
 .RS
 .RE
 .TP
-.B \f[B]disk.size/1\f[]
+.B \f[C]disk.size/1\f[]
 Disk size of 2nd disk
 .RS
 .RE
 .TP
-.B \f[B]disk.size/2\f[]
+.B \f[C]disk.size/2\f[]
 Disk size of 3rd disk
 .RS
 .RE
 .TP
-.B \f[B]disk.size/3\f[]
+.B \f[C]disk.size/3\f[]
 Disk size of 4th disk
 .RS
 .RE
 .TP
-.B \f[B]disk.size/4\f[]
+.B \f[C]disk.size/4\f[]
 Disk size of 5th disk
 .RS
 .RE
 .TP
-.B \f[B]disk.size/5\f[]
+.B \f[C]disk.size/5\f[]
 Disk size of 6th disk
 .RS
 .RE
 .TP
-.B \f[B]disk.size/6\f[]
+.B \f[C]disk.size/6\f[]
 Disk size of 7th disk
 .RS
 .RE
 .TP
-.B \f[B]disk.size/7\f[]
+.B \f[C]disk.size/7\f[]
 Disk size of 8th disk
 .RS
 .RE
 .TP
-.B \f[B]disk.size/8\f[]
+.B \f[C]disk.size/8\f[]
 Disk size of 9th disk
 .RS
 .RE
 .TP
-.B \f[B]disk.size/9\f[]
+.B \f[C]disk.size/9\f[]
 Disk size of 10th disk
 .RS
 .RE
 .TP
-.B \f[B]disk.size/10\f[]
+.B \f[C]disk.size/10\f[]
 Disk size of 11th disk
 .RS
 .RE
 .TP
-.B \f[B]disk.size/11\f[]
+.B \f[C]disk.size/11\f[]
 Disk size of 12th disk
 .RS
 .RE
 .TP
-.B \f[B]disk.size/12\f[]
+.B \f[C]disk.size/12\f[]
 Disk size of 13th disk
 .RS
 .RE
 .TP
-.B \f[B]disk.size/13\f[]
+.B \f[C]disk.size/13\f[]
 Disk size of 14th disk
 .RS
 .RE
 .TP
-.B \f[B]disk.size/14\f[]
+.B \f[C]disk.size/14\f[]
 Disk size of 15th disk
 .RS
 .RE
 .TP
-.B \f[B]disk.size/15\f[]
+.B \f[C]disk.size/15\f[]
 Disk size of 16th disk
 .RS
 .RE
 .TP
-.B \f[B]disk.sizes\f[]
+.B \f[C]disk.sizes\f[]
 List of disk sizes
 .RS
 .RE
 .TP
-.B \f[B]disk_template\f[]
+.B \f[C]disk_template\f[]
 Instance disk template
 .RS
 .RE
 .TP
-.B \f[B]disk_usage\f[]
-Total disk space used by instance on each of its nodes; this is not
-the disk size visible to the instance, but the usage on the node
+.B \f[C]disk_usage\f[]
+Total disk space used by instance on each of its nodes; this is not the
+disk size visible to the instance, but the usage on the node
 .RS
 .RE
 .TP
-.B \f[B]hv/acpi\f[]
+.B \f[C]hv/acpi\f[]
 The "acpi" hypervisor parameter
 .RS
 .RE
 .TP
-.B \f[B]hv/blockdev_prefix\f[]
+.B \f[C]hv/blockdev_prefix\f[]
 The "blockdev_prefix" hypervisor parameter
 .RS
 .RE
 .TP
-.B \f[B]hv/boot_order\f[]
+.B \f[C]hv/boot_order\f[]
 The "boot_order" hypervisor parameter
 .RS
 .RE
 .TP
-.B \f[B]hv/bootloader_args\f[]
+.B \f[C]hv/bootloader_args\f[]
 The "bootloader_args" hypervisor parameter
 .RS
 .RE
 .TP
-.B \f[B]hv/bootloader_path\f[]
+.B \f[C]hv/bootloader_path\f[]
 The "bootloader_path" hypervisor parameter
 .RS
 .RE
 .TP
-.B \f[B]hv/cdrom2_image_path\f[]
+.B \f[C]hv/cdrom2_image_path\f[]
 The "cdrom2_image_path" hypervisor parameter
 .RS
 .RE
 .TP
-.B \f[B]hv/cdrom_disk_type\f[]
+.B \f[C]hv/cdrom_disk_type\f[]
 The "cdrom_disk_type" hypervisor parameter
 .RS
 .RE
 .TP
-.B \f[B]hv/cdrom_image_path\f[]
+.B \f[C]hv/cdrom_image_path\f[]
 The "cdrom_image_path" hypervisor parameter
 .RS
 .RE
 .TP
-.B \f[B]hv/cpu_mask\f[]
+.B \f[C]hv/cpu_cap\f[]
+The "cpu_cap" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[C]hv/cpu_cores\f[]
+The "cpu_cores" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[C]hv/cpu_mask\f[]
 The "cpu_mask" hypervisor parameter
 .RS
 .RE
 .TP
-.B \f[B]hv/device_model\f[]
+.B \f[C]hv/cpu_sockets\f[]
+The "cpu_sockets" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[C]hv/cpu_threads\f[]
+The "cpu_threads" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[C]hv/cpu_type\f[]
+The "cpu_type" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[C]hv/cpu_weight\f[]
+The "cpu_weight" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[C]hv/device_model\f[]
 The "device_model" hypervisor parameter
 .RS
 .RE
 .TP
-.B \f[B]hv/disk_cache\f[]
+.B \f[C]hv/disk_cache\f[]
 The "disk_cache" hypervisor parameter
 .RS
 .RE
 .TP
-.B \f[B]hv/disk_type\f[]
+.B \f[C]hv/disk_type\f[]
 The "disk_type" hypervisor parameter
 .RS
 .RE
 .TP
-.B \f[B]hv/floppy_image_path\f[]
+.B \f[C]hv/floppy_image_path\f[]
 The "floppy_image_path" hypervisor parameter
 .RS
 .RE
 .TP
-.B \f[B]hv/init_script\f[]
+.B \f[C]hv/init_script\f[]
 The "init_script" hypervisor parameter
 .RS
 .RE
 .TP
-.B \f[B]hv/initrd_path\f[]
+.B \f[C]hv/initrd_path\f[]
 The "initrd_path" hypervisor parameter
 .RS
 .RE
 .TP
-.B \f[B]hv/kernel_args\f[]
+.B \f[C]hv/kernel_args\f[]
 The "kernel_args" hypervisor parameter
 .RS
 .RE
 .TP
-.B \f[B]hv/kernel_path\f[]
+.B \f[C]hv/kernel_path\f[]
 The "kernel_path" hypervisor parameter
 .RS
 .RE
 .TP
-.B \f[B]hv/keymap\f[]
+.B \f[C]hv/keymap\f[]
 The "keymap" hypervisor parameter
 .RS
 .RE
 .TP
-.B \f[B]hv/kvm_flag\f[]
+.B \f[C]hv/kvm_extra\f[]
+The "kvm_extra" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[C]hv/kvm_flag\f[]
 The "kvm_flag" hypervisor parameter
 .RS
 .RE
 .TP
-.B \f[B]hv/mem_path\f[]
+.B \f[C]hv/kvm_path\f[]
+The "kvm_path" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[C]hv/machine_version\f[]
+The "machine_version" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[C]hv/mem_path\f[]
 The "mem_path" hypervisor parameter
 .RS
 .RE
 .TP
-.B \f[B]hv/migration_downtime\f[]
+.B \f[C]hv/migration_downtime\f[]
 The "migration_downtime" hypervisor parameter
 .RS
 .RE
 .TP
-.B \f[B]hv/nic_type\f[]
+.B \f[C]hv/nic_type\f[]
 The "nic_type" hypervisor parameter
 .RS
 .RE
 .TP
-.B \f[B]hv/pae\f[]
+.B \f[C]hv/pae\f[]
 The "pae" hypervisor parameter
 .RS
 .RE
 .TP
-.B \f[B]hv/reboot_behavior\f[]
+.B \f[C]hv/pci_pass\f[]
+The "pci_pass" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[C]hv/reboot_behavior\f[]
 The "reboot_behavior" hypervisor parameter
 .RS
 .RE
 .TP
-.B \f[B]hv/root_path\f[]
+.B \f[C]hv/root_path\f[]
 The "root_path" hypervisor parameter
 .RS
 .RE
 .TP
-.B \f[B]hv/security_domain\f[]
+.B \f[C]hv/security_domain\f[]
 The "security_domain" hypervisor parameter
 .RS
 .RE
 .TP
-.B \f[B]hv/security_model\f[]
+.B \f[C]hv/security_model\f[]
 The "security_model" hypervisor parameter
 .RS
 .RE
 .TP
-.B \f[B]hv/serial_console\f[]
+.B \f[C]hv/serial_console\f[]
 The "serial_console" hypervisor parameter
 .RS
 .RE
 .TP
-.B \f[B]hv/spice_bind\f[]
+.B \f[C]hv/serial_speed\f[]
+The "serial_speed" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[C]hv/soundhw\f[]
+The "soundhw" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[C]hv/spice_bind\f[]
 The "spice_bind" hypervisor parameter
 .RS
 .RE
 .TP
-.B \f[B]hv/spice_image_compression\f[]
+.B \f[C]hv/spice_image_compression\f[]
 The "spice_image_compression" hypervisor parameter
 .RS
 .RE
 .TP
-.B \f[B]hv/spice_ip_version\f[]
+.B \f[C]hv/spice_ip_version\f[]
 The "spice_ip_version" hypervisor parameter
 .RS
 .RE
 .TP
-.B \f[B]hv/spice_jpeg_wan_compression\f[]
+.B \f[C]hv/spice_jpeg_wan_compression\f[]
 The "spice_jpeg_wan_compression" hypervisor parameter
 .RS
 .RE
 .TP
-.B \f[B]hv/spice_password_file\f[]
+.B \f[C]hv/spice_password_file\f[]
 The "spice_password_file" hypervisor parameter
 .RS
 .RE
 .TP
-.B \f[B]hv/spice_playback_compression\f[]
+.B \f[C]hv/spice_playback_compression\f[]
 The "spice_playback_compression" hypervisor parameter
 .RS
 .RE
 .TP
-.B \f[B]hv/spice_streaming_video\f[]
+.B \f[C]hv/spice_streaming_video\f[]
 The "spice_streaming_video" hypervisor parameter
 .RS
 .RE
 .TP
-.B \f[B]hv/spice_tls_ciphers\f[]
+.B \f[C]hv/spice_tls_ciphers\f[]
 The "spice_tls_ciphers" hypervisor parameter
 .RS
 .RE
 .TP
-.B \f[B]hv/spice_use_tls\f[]
+.B \f[C]hv/spice_use_tls\f[]
 The "spice_use_tls" hypervisor parameter
 .RS
 .RE
 .TP
-.B \f[B]hv/spice_use_vdagent\f[]
+.B \f[C]hv/spice_use_vdagent\f[]
 The "spice_use_vdagent" hypervisor parameter
 .RS
 .RE
 .TP
-.B \f[B]hv/spice_zlib_glz_wan_compression\f[]
+.B \f[C]hv/spice_zlib_glz_wan_compression\f[]
 The "spice_zlib_glz_wan_compression" hypervisor parameter
 .RS
 .RE
 .TP
-.B \f[B]hv/usb_mouse\f[]
+.B \f[C]hv/usb_devices\f[]
+The "usb_devices" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[C]hv/usb_mouse\f[]
 The "usb_mouse" hypervisor parameter
 .RS
 .RE
 .TP
-.B \f[B]hv/use_bootloader\f[]
+.B \f[C]hv/use_bootloader\f[]
 The "use_bootloader" hypervisor parameter
 .RS
 .RE
 .TP
-.B \f[B]hv/use_chroot\f[]
+.B \f[C]hv/use_chroot\f[]
 The "use_chroot" hypervisor parameter
 .RS
 .RE
 .TP
-.B \f[B]hv/use_localtime\f[]
+.B \f[C]hv/use_localtime\f[]
 The "use_localtime" hypervisor parameter
 .RS
 .RE
 .TP
-.B \f[B]hv/vhost_net\f[]
+.B \f[C]hv/vga\f[]
+The "vga" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[C]hv/vhost_net\f[]
 The "vhost_net" hypervisor parameter
 .RS
 .RE
 .TP
-.B \f[B]hv/vnc_bind_address\f[]
+.B \f[C]hv/vif_type\f[]
+The "vif_type" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[C]hv/vnc_bind_address\f[]
 The "vnc_bind_address" hypervisor parameter
 .RS
 .RE
 .TP
-.B \f[B]hv/vnc_password_file\f[]
+.B \f[C]hv/vnc_password_file\f[]
 The "vnc_password_file" hypervisor parameter
 .RS
 .RE
 .TP
-.B \f[B]hv/vnc_tls\f[]
+.B \f[C]hv/vnc_tls\f[]
 The "vnc_tls" hypervisor parameter
 .RS
 .RE
 .TP
-.B \f[B]hv/vnc_x509_path\f[]
+.B \f[C]hv/vnc_x509_path\f[]
 The "vnc_x509_path" hypervisor parameter
 .RS
 .RE
 .TP
-.B \f[B]hv/vnc_x509_verify\f[]
+.B \f[C]hv/vnc_x509_verify\f[]
 The "vnc_x509_verify" hypervisor parameter
 .RS
 .RE
 .TP
-.B \f[B]hvparams\f[]
+.B \f[C]hvparams\f[]
 Hypervisor parameters (merged)
 .RS
 .RE
 .TP
-.B \f[B]hypervisor\f[]
+.B \f[C]hypervisor\f[]
 Hypervisor name
 .RS
 .RE
 .TP
-.B \f[B]ip\f[]
+.B \f[C]ip\f[]
 IP address of 1st network interface
 .RS
 .RE
 .TP
-.B \f[B]mac\f[]
+.B \f[C]mac\f[]
 MAC address of 1st network interface
 .RS
 .RE
 .TP
-.B \f[B]mtime\f[]
+.B \f[C]mtime\f[]
 Modification timestamp
 .RS
 .RE
 .TP
-.B \f[B]name\f[]
+.B \f[C]name\f[]
 Instance name
 .RS
 .RE
 .TP
-.B \f[B]network_port\f[]
-Instance network port if available (e.g. for VNC console)
+.B \f[C]network_port\f[]
+Instance network port if available (e.g.
+for VNC console)
 .RS
 .RE
 .TP
-.B \f[B]nic.bridge/0\f[]
+.B \f[C]nic.bridge/0\f[]
 Bridge of 1st network interface
 .RS
 .RE
 .TP
-.B \f[B]nic.bridge/1\f[]
+.B \f[C]nic.bridge/1\f[]
 Bridge of 2nd network interface
 .RS
 .RE
 .TP
-.B \f[B]nic.bridge/2\f[]
+.B \f[C]nic.bridge/2\f[]
 Bridge of 3rd network interface
 .RS
 .RE
 .TP
-.B \f[B]nic.bridge/3\f[]
+.B \f[C]nic.bridge/3\f[]
 Bridge of 4th network interface
 .RS
 .RE
 .TP
-.B \f[B]nic.bridge/4\f[]
+.B \f[C]nic.bridge/4\f[]
 Bridge of 5th network interface
 .RS
 .RE
 .TP
-.B \f[B]nic.bridge/5\f[]
+.B \f[C]nic.bridge/5\f[]
 Bridge of 6th network interface
 .RS
 .RE
 .TP
-.B \f[B]nic.bridge/6\f[]
+.B \f[C]nic.bridge/6\f[]
 Bridge of 7th network interface
 .RS
 .RE
 .TP
-.B \f[B]nic.bridge/7\f[]
+.B \f[C]nic.bridge/7\f[]
 Bridge of 8th network interface
 .RS
 .RE
 .TP
-.B \f[B]nic.bridges\f[]
+.B \f[C]nic.bridges\f[]
 List containing each network interface\[aq]s bridge
 .RS
 .RE
 .TP
-.B \f[B]nic.count\f[]
+.B \f[C]nic.count\f[]
 Number of network interfaces
 .RS
 .RE
 .TP
-.B \f[B]nic.ip/0\f[]
+.B \f[C]nic.ip/0\f[]
 IP address of 1st network interface
 .RS
 .RE
 .TP
-.B \f[B]nic.ip/1\f[]
+.B \f[C]nic.ip/1\f[]
 IP address of 2nd network interface
 .RS
 .RE
 .TP
-.B \f[B]nic.ip/2\f[]
+.B \f[C]nic.ip/2\f[]
 IP address of 3rd network interface
 .RS
 .RE
 .TP
-.B \f[B]nic.ip/3\f[]
+.B \f[C]nic.ip/3\f[]
 IP address of 4th network interface
 .RS
 .RE
 .TP
-.B \f[B]nic.ip/4\f[]
+.B \f[C]nic.ip/4\f[]
 IP address of 5th network interface
 .RS
 .RE
 .TP
-.B \f[B]nic.ip/5\f[]
+.B \f[C]nic.ip/5\f[]
 IP address of 6th network interface
 .RS
 .RE
 .TP
-.B \f[B]nic.ip/6\f[]
+.B \f[C]nic.ip/6\f[]
 IP address of 7th network interface
 .RS
 .RE
 .TP
-.B \f[B]nic.ip/7\f[]
+.B \f[C]nic.ip/7\f[]
 IP address of 8th network interface
 .RS
 .RE
 .TP
-.B \f[B]nic.ips\f[]
+.B \f[C]nic.ips\f[]
 List containing each network interface\[aq]s IP address
 .RS
 .RE
 .TP
-.B \f[B]nic.link/0\f[]
+.B \f[C]nic.link/0\f[]
 Link of 1st network interface
 .RS
 .RE
 .TP
-.B \f[B]nic.link/1\f[]
+.B \f[C]nic.link/1\f[]
 Link of 2nd network interface
 .RS
 .RE
 .TP
-.B \f[B]nic.link/2\f[]
+.B \f[C]nic.link/2\f[]
 Link of 3rd network interface
 .RS
 .RE
 .TP
-.B \f[B]nic.link/3\f[]
+.B \f[C]nic.link/3\f[]
 Link of 4th network interface
 .RS
 .RE
 .TP
-.B \f[B]nic.link/4\f[]
+.B \f[C]nic.link/4\f[]
 Link of 5th network interface
 .RS
 .RE
 .TP
-.B \f[B]nic.link/5\f[]
+.B \f[C]nic.link/5\f[]
 Link of 6th network interface
 .RS
 .RE
 .TP
-.B \f[B]nic.link/6\f[]
+.B \f[C]nic.link/6\f[]
 Link of 7th network interface
 .RS
 .RE
 .TP
-.B \f[B]nic.link/7\f[]
+.B \f[C]nic.link/7\f[]
 Link of 8th network interface
 .RS
 .RE
 .TP
-.B \f[B]nic.links\f[]
+.B \f[C]nic.links\f[]
 List containing each network interface\[aq]s link
 .RS
 .RE
 .TP
-.B \f[B]nic.mac/0\f[]
+.B \f[C]nic.mac/0\f[]
 MAC address of 1st network interface
 .RS
 .RE
 .TP
-.B \f[B]nic.mac/1\f[]
+.B \f[C]nic.mac/1\f[]
 MAC address of 2nd network interface
 .RS
 .RE
 .TP
-.B \f[B]nic.mac/2\f[]
+.B \f[C]nic.mac/2\f[]
 MAC address of 3rd network interface
 .RS
 .RE
 .TP
-.B \f[B]nic.mac/3\f[]
+.B \f[C]nic.mac/3\f[]
 MAC address of 4th network interface
 .RS
 .RE
 .TP
-.B \f[B]nic.mac/4\f[]
+.B \f[C]nic.mac/4\f[]
 MAC address of 5th network interface
 .RS
 .RE
 .TP
-.B \f[B]nic.mac/5\f[]
+.B \f[C]nic.mac/5\f[]
 MAC address of 6th network interface
 .RS
 .RE
 .TP
-.B \f[B]nic.mac/6\f[]
+.B \f[C]nic.mac/6\f[]
 MAC address of 7th network interface
 .RS
 .RE
 .TP
-.B \f[B]nic.mac/7\f[]
+.B \f[C]nic.mac/7\f[]
 MAC address of 8th network interface
 .RS
 .RE
 .TP
-.B \f[B]nic.macs\f[]
+.B \f[C]nic.macs\f[]
 List containing each network interface\[aq]s MAC address
 .RS
 .RE
 .TP
-.B \f[B]nic.mode/0\f[]
+.B \f[C]nic.mode/0\f[]
 Mode of 1st network interface
 .RS
 .RE
 .TP
-.B \f[B]nic.mode/1\f[]
+.B \f[C]nic.mode/1\f[]
 Mode of 2nd network interface
 .RS
 .RE
 .TP
-.B \f[B]nic.mode/2\f[]
+.B \f[C]nic.mode/2\f[]
 Mode of 3rd network interface
 .RS
 .RE
 .TP
-.B \f[B]nic.mode/3\f[]
+.B \f[C]nic.mode/3\f[]
 Mode of 4th network interface
 .RS
 .RE
 .TP
-.B \f[B]nic.mode/4\f[]
+.B \f[C]nic.mode/4\f[]
 Mode of 5th network interface
 .RS
 .RE
 .TP
-.B \f[B]nic.mode/5\f[]
+.B \f[C]nic.mode/5\f[]
 Mode of 6th network interface
 .RS
 .RE
 .TP
-.B \f[B]nic.mode/6\f[]
+.B \f[C]nic.mode/6\f[]
 Mode of 7th network interface
 .RS
 .RE
 .TP
-.B \f[B]nic.mode/7\f[]
+.B \f[C]nic.mode/7\f[]
 Mode of 8th network interface
 .RS
 .RE
 .TP
-.B \f[B]nic.modes\f[]
+.B \f[C]nic.modes\f[]
 List containing each network interface\[aq]s mode
 .RS
 .RE
 .TP
-.B \f[B]nic_link\f[]
+.B \f[C]nic.network.name/0\f[]
+Network name of 1st network interface
+.RS
+.RE
+.TP
+.B \f[C]nic.network.name/1\f[]
+Network name of 2nd network interface
+.RS
+.RE
+.TP
+.B \f[C]nic.network.name/2\f[]
+Network name of 3rd network interface
+.RS
+.RE
+.TP
+.B \f[C]nic.network.name/3\f[]
+Network name of 4th network interface
+.RS
+.RE
+.TP
+.B \f[C]nic.network.name/4\f[]
+Network name of 5th network interface
+.RS
+.RE
+.TP
+.B \f[C]nic.network.name/5\f[]
+Network name of 6th network interface
+.RS
+.RE
+.TP
+.B \f[C]nic.network.name/6\f[]
+Network name of 7th network interface
+.RS
+.RE
+.TP
+.B \f[C]nic.network.name/7\f[]
+Network name of 8th network interface
+.RS
+.RE
+.TP
+.B \f[C]nic.network/0\f[]
+Network of 1st network interface
+.RS
+.RE
+.TP
+.B \f[C]nic.network/1\f[]
+Network of 2nd network interface
+.RS
+.RE
+.TP
+.B \f[C]nic.network/2\f[]
+Network of 3rd network interface
+.RS
+.RE
+.TP
+.B \f[C]nic.network/3\f[]
+Network of 4th network interface
+.RS
+.RE
+.TP
+.B \f[C]nic.network/4\f[]
+Network of 5th network interface
+.RS
+.RE
+.TP
+.B \f[C]nic.network/5\f[]
+Network of 6th network interface
+.RS
+.RE
+.TP
+.B \f[C]nic.network/6\f[]
+Network of 7th network interface
+.RS
+.RE
+.TP
+.B \f[C]nic.network/7\f[]
+Network of 8th network interface
+.RS
+.RE
+.TP
+.B \f[C]nic.networks\f[]
+List containing each interface\[aq]s network
+.RS
+.RE
+.TP
+.B \f[C]nic.networks.names\f[]
+List containing each interface\[aq]s network
+.RS
+.RE
+.TP
+.B \f[C]nic_link\f[]
 Link of 1st network interface
 .RS
 .RE
 .TP
-.B \f[B]nic_mode\f[]
+.B \f[C]nic_mode\f[]
 Mode of 1st network interface
 .RS
 .RE
 .TP
-.B \f[B]oper_ram\f[]
+.B \f[C]nic_network\f[]
+Network of 1st network interface
+.RS
+.RE
+.TP
+.B \f[C]oper_ram\f[]
 Actual memory usage as seen by hypervisor
 .RS
 .RE
 .TP
-.B \f[B]oper_state\f[]
+.B \f[C]oper_state\f[]
 Actual state of instance
 .RS
 .RE
 .TP
-.B \f[B]oper_vcpus\f[]
+.B \f[C]oper_vcpus\f[]
 Actual number of VCPUs as seen by hypervisor
 .RS
 .RE
 .TP
-.B \f[B]os\f[]
+.B \f[C]os\f[]
 Operating system
 .RS
 .RE
 .TP
-.B \f[B]osparams\f[]
+.B \f[C]osparams\f[]
 Operating system parameters (merged)
 .RS
 .RE
 .TP
-.B \f[B]pnode\f[]
+.B \f[C]pnode\f[]
 Primary node
 .RS
 .RE
 .TP
-.B \f[B]pnode.group\f[]
+.B \f[C]pnode.group\f[]
 Primary node\[aq]s group
 .RS
 .RE
 .TP
-.B \f[B]pnode.group.uuid\f[]
+.B \f[C]pnode.group.uuid\f[]
 Primary node\[aq]s group UUID
 .RS
 .RE
 .TP
-.B \f[B]sda_size\f[]
+.B \f[C]sda_size\f[]
 Disk size of 1st disk
 .RS
 .RE
 .TP
-.B \f[B]sdb_size\f[]
+.B \f[C]sdb_size\f[]
 Disk size of 2nd disk
 .RS
 .RE
 .TP
-.B \f[B]serial_no\f[]
+.B \f[C]serial_no\f[]
 Instance object serial number, incremented on each modification
 .RS
 .RE
 .TP
-.B \f[B]snodes\f[]
+.B \f[C]snodes\f[]
 Secondary nodes; usually this will just be one node
 .RS
 .RE
 .TP
-.B \f[B]snodes.group\f[]
+.B \f[C]snodes.group\f[]
 Node groups of secondary nodes
 .RS
 .RE
 .TP
-.B \f[B]snodes.group.uuid\f[]
+.B \f[C]snodes.group.uuid\f[]
 Node group UUIDs of secondary nodes
 .RS
 .RE
 .TP
-.B \f[B]status\f[]
-Instance status; "running" if instance is set to be running and
-actually is, "ADMIN_down" if instance is stopped and is not
-running, "ERROR_wrongnode" if instance running, but not on its
-designated primary node, "ERROR_up" if instance should be stopped,
-but is actually running, "ERROR_down" if instance should run, but
-doesn\[aq]t, "ERROR_nodedown" if instance\[aq]s primary node is
-down, "ERROR_nodeoffline" if instance\[aq]s primary node is marked
-offline, "ADMIN_offline" if instance is offline and does not use
-dynamic resources
+.B \f[C]status\f[]
+Instance status; "running" if instance is set to be running and actually
+is, "ADMIN_down" if instance is stopped and is not running,
+"ERROR_wrongnode" if instance running, but not on its designated primary
+node, "ERROR_up" if instance should be stopped, but is actually running,
+"ERROR_down" if instance should run, but doesn\[aq]t, "ERROR_nodedown"
+if instance\[aq]s primary node is down, "ERROR_nodeoffline" if
+instance\[aq]s primary node is marked offline, "ADMIN_offline" if
+instance is offline and does not use dynamic resources
 .RS
 .RE
 .TP
-.B \f[B]tags\f[]
+.B \f[C]tags\f[]
 Tags
 .RS
 .RE
 .TP
-.B \f[B]uuid\f[]
+.B \f[C]uuid\f[]
 Instance UUID
 .RS
 .RE
 .TP
-.B \f[B]vcpus\f[]
+.B \f[C]vcpus\f[]
 The "vcpus" backend parameter
 .RS
 .RE
 .PP
-If the value of the option starts with the character \f[B]+\f[],
-the new field(s) will be added to the default list. This allows one
-to quickly see the default list plus a few other fields, instead of
-retyping the entire list of fields.
+If the value of the option starts with the character \f[C]+\f[], the new
+field(s) will be added to the default list.
+This allows one to quickly see the default list plus a few other fields,
+instead of retyping the entire list of fields.
 .PP
-There is a subtle grouping about the available output fields: all
-fields except for \f[B]oper_state\f[], \f[B]oper_ram\f[],
-\f[B]oper_vcpus\f[] and \f[B]status\f[] are configuration value and
-not run-time values. So if you don\[aq]t select any of the these
-fields, the query will be satisfied instantly from the cluster
-configuration, without having to ask the remote nodes for the data.
-This can be helpful for big clusters when you only want some data
-and it makes sense to specify a reduced set of output fields.
+There is a subtle grouping about the available output fields: all fields
+except for \f[C]oper_state\f[], \f[C]oper_ram\f[], \f[C]oper_vcpus\f[]
+and \f[C]status\f[] are configuration value and not run-time values.
+So if you don\[aq]t select any of the these fields, the query will be
+satisfied instantly from the cluster configuration, without having to
+ask the remote nodes for the data.
+This can be helpful for big clusters when you only want some data and it
+makes sense to specify a reduced set of output fields.
 .PP
-If exactly one argument is given and it appears to be a query
-filter (see \f[B]ganeti(7)\f[]), the query result is filtered
-accordingly. For ambiguous cases (e.g. a single field name as a
-filter) the \f[B]--filter\f[] (\f[B]-F\f[]) option forces the
-argument to be treated as a filter (e.g.
-\f[B]gnt-instance\ list\ -F\ admin_state\f[]).
+If exactly one argument is given and it appears to be a query filter
+(see \f[B]ganeti\f[](7)), the query result is filtered accordingly.
+For ambiguous cases (e.g.
+a single field name as a filter) the \f[C]--filter\f[] (\f[C]-F\f[])
+option forces the argument to be treated as a filter (e.g.
+\f[C]gnt-instance\ list\ -F\ admin_state\f[]).
 .PP
-The default output field list is: \f[B]name\f[], \f[B]os\f[],
-\f[B]pnode\f[], \f[B]admin_state\f[], \f[B]oper_state\f[],
-\f[B]oper_ram\f[].
+The default output field list is: \f[C]name\f[], \f[C]os\f[],
+\f[C]pnode\f[], \f[C]admin_state\f[], \f[C]oper_state\f[],
+\f[C]oper_ram\f[].
 .SS LIST-FIELDS
 .PP
 \f[B]list-fields\f[] [field...]
@@ -1916,77 +2336,76 @@ Lists available fields for instances.
 .PP
 \f[B]info\f[] [-s | --static] [--roman] {--all | \f[I]instance\f[]}
 .PP
-Show detailed information about the given instance(s). This is
-different from \f[B]list\f[] as it shows detailed data about the
-instance\[aq]s disks (especially useful for the drbd disk
-template).
+Show detailed information about the given instance(s).
+This is different from \f[B]list\f[] as it shows detailed data about the
+instance\[aq]s disks (especially useful for the drbd disk template).
 .PP
-If the option \f[B]-s\f[] is used, only information available in
-the configuration file is returned, without querying nodes, making
-the operation faster.
+If the option \f[C]-s\f[] is used, only information available in the
+configuration file is returned, without querying nodes, making the
+operation faster.
 .PP
-Use the \f[B]--all\f[] to get info about all instances, rather than
+Use the \f[C]--all\f[] to get info about all instances, rather than
 explicitly passing the ones you\[aq]re interested in.
 .PP
-The \f[B]--roman\f[] option can be used to cause envy among people
-who like ancient cultures, but are stuck with non-latin-friendly
-cluster virtualization technologies.
+The \f[C]--roman\f[] option can be used to cause envy among people who
+like ancient cultures, but are stuck with non-latin-friendly cluster
+virtualization technologies.
 .SS MODIFY
 .PP
 \f[B]modify\f[]
 .PD 0
 .P
 .PD
-[{-H|--hypervisor-parameters}
-\f[I]HYPERVISOR_PARAMETERS\f[]]
+[{-H|--hypervisor-parameters} \f[I]HYPERVISOR_PARAMETERS\f[]]
 .PD 0
 .P
 .PD
-[{-B|--backend-parameters}
-\f[I]BACKEND_PARAMETERS\f[]]
+[{-B|--backend-parameters} \f[I]BACKEND_PARAMETERS\f[]]
 .PD 0
 .P
 .PD
-[{-m|--runtime-memory}
-\f[I]SIZE\f[]]
+[{-m|--runtime-memory} \f[I]SIZE\f[]]
 .PD 0
 .P
 .PD
-[--net add\f[I][:options]\f[] | --net
-[\f[I]N\f[]:]remove | --net
+[--net add\f[I][:options]\f[] | --net [\f[I]N\f[]:]remove | --net
 \f[I]N:options\f[]]
 .PD 0
 .P
 .PD
-[--disk
-add:size=\f[I]SIZE\f[][,vg=\f[I]VG\f[]][,metavg=\f[I]VG\f[]] |
---disk [\f[I]N\f[]:]remove |
+[--disk add:size=\f[I]SIZE\f[][,vg=\f[I]VG\f[]][,metavg=\f[I]VG\f[]] |
 .PD 0
 .P
 .PD
  --disk
-\f[I]N\f[]:mode=\f[I]MODE\f[]]
+add:size=\f[I]SIZE\f[],provider=\f[I]PROVIDER\f[][,param=\f[I]value\f[]...
+] |
 .PD 0
 .P
 .PD
-[{-t|--disk-template}
-plain | {-t|--disk-template} drbd -n \f[I]new_secondary\f[]]
-[--no-wait-for-sync]
+ --disk [\f[I]N\f[]:]remove |
 .PD 0
 .P
 .PD
-[--os-type=\f[I]OS\f[]
-[--force-variant]]
+ --disk \f[I]N\f[]:mode=\f[I]MODE\f[]]
 .PD 0
 .P
 .PD
-[{-O|--os-parameters}
-\f[I]param\f[]=\f[I]value\f[]... ]
+[{-t|--disk-template} plain | {-t|--disk-template} drbd -n
+\f[I]new_secondary\f[]] [--no-wait-for-sync]
 .PD 0
 .P
 .PD
-[--offline |
---online]
+[--os-type=\f[I]OS\f[] [--force-variant]]
+.PD 0
+.P
+.PD
+[{-O|--os-parameters} \f[I]param\f[]=\f[I]value\f[]...
+]
+.PD 0
+.P
+.PD
+[--offline | --online]
 .PD 0
 .P
 .PD
@@ -2001,81 +2420,90 @@ plain | {-t|--disk-template} drbd -n \f[I]new_secondary\f[]]
 {\f[I]instance\f[]}
 .PP
 Modifies the memory size, number of vcpus, ip address, MAC address
-and/or nic parameters for an instance. It can also add and remove
-disks and NICs to/from the instance. Note that you need to give at
-least one of the arguments, otherwise the command complains.
+and/or NIC parameters for an instance.
+It can also add and remove disks and NICs to/from the instance.
+Note that you need to give at least one of the arguments, otherwise the
+command complains.
 .PP
-The \f[B]-H\ (--hypervisor-parameters)\f[],
-\f[B]-B\ (--backend-parameters)\f[] and
-\f[B]-O\ (--os-parameters)\f[] options specifies hypervisor,
-backend and OS parameter options in the form of name=value[,...].
+The \f[C]-H\ (--hypervisor-parameters)\f[],
+\f[C]-B\ (--backend-parameters)\f[] and \f[C]-O\ (--os-parameters)\f[]
+options specifies hypervisor, backend and OS parameter options in the
+form of name=value[,...].
 For details which options can be specified, see the \f[B]add\f[]
 command.
 .PP
-The \f[B]-t\ (--disk-template)\f[] option will change the disk
-template of the instance. Currently only conversions between the
-plain and drbd disk templates are supported, and the instance must
-be stopped before attempting the conversion. When changing from the
-plain to the drbd disk template, a new secondary node must be
-specified via the \f[B]-n\f[] option. The option
-\f[B]--no-wait-for-sync\f[] can be used when converting to the
-\f[B]drbd\f[] template in order to make the instance available for
+The \f[C]-t\ (--disk-template)\f[] option will change the disk template
+of the instance.
+Currently only conversions between the plain and drbd disk templates are
+supported, and the instance must be stopped before attempting the
+conversion.
+When changing from the plain to the drbd disk template, a new secondary
+node must be specified via the \f[C]-n\f[] option.
+The option \f[C]--no-wait-for-sync\f[] can be used when converting to
+the \f[C]drbd\f[] template in order to make the instance available for
 startup before DRBD has finished resyncing.
 .PP
-The \f[B]-m\ (--runtime-memory)\f[] option will change an
-instance\[aq]s runtime memory to the given size (in MB if a
-different suffix is not specified), by ballooning it up or down to
-the new value.
+The \f[C]-m\ (--runtime-memory)\f[] option will change an instance\[aq]s
+runtime memory to the given size (in MB if a different suffix is not
+specified), by ballooning it up or down to the new value.
 .PP
-The \f[B]--disk\ add:size=\f[]\f[I]SIZE\f[] option adds a disk to
-the instance. The optional \f[B]vg=\f[]\f[I]VG\f[] option specifies
-an LVM volume group other than the default volume group to create
-the disk on. For DRBD disks, the \f[B]metavg=\f[]\f[I]VG\f[] option
-specifies the volume group for the metadata device. \f[B]--disk\f[]
-\f[I]N\f[]\f[B]:add,size=\f[]\f[B]SIZE\f[] can be used to add a
-disk at a specific index. The \f[B]--disk\ remove\f[] option will
-remove the last disk of the instance. Use \f[B]--disk\f[]
-\f[I]N\f[]\f[B]:remove\f[] to remove a disk by its index. The
-\f[B]--disk\f[] \f[I]N\f[]\f[B]:mode=\f[]\f[I]MODE\f[] option will
+The \f[C]--disk\ add:size=\f[]\f[I]SIZE\f[] option adds a disk to the
+instance.
+The optional \f[C]vg=\f[]\f[I]VG\f[] option specifies an LVM volume
+group other than the default volume group to create the disk on.
+For DRBD disks, the \f[C]metavg=\f[]\f[I]VG\f[] option specifies the
+volume group for the metadata device.
+When adding an ExtStorage disk the \f[C]provider=\f[]\f[I]PROVIDER\f[]
+option is also mandatory and specifies the ExtStorage provider.
+Also, for ExtStorage disks arbitrary parameters can be passed as
+additional comma separated options, same as in the \f[B]add\f[] command.
+\f[C]--disk\f[] \f[I]N\f[]\f[C]:add,size=\f[]\f[B]SIZE\f[] can be used
+to add a disk at a specific index.
+The \f[C]--disk\ remove\f[] option will remove the last disk of the
+instance.
+Use \f[C]--disk\f[] \f[I]N\f[]\f[C]:remove\f[] to remove a disk by its
+index.
+The \f[C]--disk\f[] \f[I]N\f[]\f[C]:mode=\f[]\f[I]MODE\f[] option will
 change the mode of the Nth disk of the instance between read-only
-(\f[B]ro\f[]) and read-write (\f[B]rw\f[]).
+(\f[C]ro\f[]) and read-write (\f[C]rw\f[]).
 .PP
-The \f[B]--net\ add:\f[]\f[I]options\f[] and \f[B]--net\f[]
-\f[I]N\f[]\f[B]:add,\f[]\f[I]options\f[] option will add a new
-network interface to the instance. The available options are the
-same as in the \f[B]add\f[] command (\f[B]mac\f[], \f[B]ip\f[],
-\f[B]link\f[], \f[B]mode\f[]). The \f[B]--net\ remove\f[] will
-remove the last network interface of the instance (\f[B]--net\f[]
-\f[I]N\f[]\f[B]:remove\f[] for a specific index), while the
-\f[B]--net\f[] \f[I]N\f[]\f[B]:\f[]\f[I]options\f[] option will
-change the parameters of the Nth instance network interface.
+The \f[C]--net\ add:\f[]\f[I]options\f[] and \f[C]--net\f[]
+\f[I]N\f[]\f[C]:add,\f[]\f[I]options\f[] option will add a new network
+interface to the instance.
+The available options are the same as in the \f[B]add\f[] command
+(\f[C]mac\f[], \f[C]ip\f[], \f[C]link\f[], \f[C]mode\f[],
+\f[C]network\f[]).
+The \f[C]--net\ remove\f[] will remove the last network interface of the
+instance (\f[C]--net\f[] \f[I]N\f[]\f[C]:remove\f[] for a specific
+index), while the \f[C]--net\f[] \f[I]N\f[]\f[C]:\f[]\f[I]options\f[]
+option will change the parameters of the Nth instance network interface.
 .PP
-The option \f[B]-o\ (--os-type)\f[] will change the OS name for the
-instance (without reinstallation). In case an OS variant is
-specified that is not found, then by default the modification is
-refused, unless \f[B]--force-variant\f[] is passed. An invalid OS
-will also be refused, unless the \f[B]--force\f[] option is given.
+The option \f[C]-o\ (--os-type)\f[] will change the OS name for the
+instance (without reinstallation).
+In case an OS variant is specified that is not found, then by default
+the modification is refused, unless \f[C]--force-variant\f[] is passed.
+An invalid OS will also be refused, unless the \f[C]--force\f[] option
+is given.
 .PP
-The \f[B]--online\f[] and \f[B]--offline\f[] options are used to
-transition an instance into and out of the \f[B]offline\f[] state.
+The \f[C]--online\f[] and \f[C]--offline\f[] options are used to
+transition an instance into and out of the \f[C]offline\f[] state.
 An instance can be turned offline only if it was previously down.
-The \f[B]--online\f[] option fails if the instance was not in the
-\f[B]offline\f[] state, otherwise it changes instance\[aq]s state
-to \f[B]down\f[].
+The \f[C]--online\f[] option fails if the instance was not in the
+\f[C]offline\f[] state, otherwise it changes instance\[aq]s state to
+\f[C]down\f[].
 These modifications take effect immediately.
 .PP
-If \f[B]--ignore-ipolicy\f[] is given any instance policy
-violations occuring during this operation are ignored.
+If \f[C]--ignore-ipolicy\f[] is given any instance policy violations
+occuring during this operation are ignored.
 .PP
-See \f[B]ganeti(7)\f[] for a description of \f[B]--submit\f[] and
-other common options.
+See \f[B]ganeti\f[](7) for a description of \f[C]--submit\f[] and other
+common options.
 .PP
-Most of the changes take effect at the next restart. If the
-instance is running, there is no effect on the instance.
+Most of the changes take effect at the next restart.
+If the instance is running, there is no effect on the instance.
 .SS REINSTALL
 .PP
-\f[B]reinstall\f[] [{-o|--os-type} \f[I]os-type\f[]] [--select-os]
-[-f
+\f[B]reinstall\f[] [{-o|--os-type} \f[I]os-type\f[]] [--select-os] [-f
 \f[I]force\f[]]
 .PD 0
 .P
@@ -2084,60 +2512,62 @@ instance is running, there is no effect on the instance.
 .PD 0
 .P
 .PD
-[--instance
-| --node | --primary | --secondary |
---all]
+[--instance | --node | --primary | --secondary | --all]
 .PD 0
 .P
 .PD
-[{-O|--os-parameters} \f[I]OS_PARAMETERS\f[]]
-[--submit] {\f[I]instance\f[]...}
+[{-O|--os-parameters} \f[I]OS_PARAMETERS\f[]] [--submit]
+{\f[I]instance\f[]...}
 .PP
-Reinstalls the operating system on the given instance(s). The
-instance(s) must be stopped when running this command. If the
-\f[B]-o\ (--os-type)\f[] is specified, the operating system is
+Reinstalls the operating system on the given instance(s).
+The instance(s) must be stopped when running this command.
+If the \f[C]-o\ (--os-type)\f[] is specified, the operating system is
 changed.
 .PP
-The \f[B]--select-os\f[] option switches to an interactive OS
-reinstall. The user is prompted to select the OS template from the
-list of available OS templates. OS parameters can be overridden
-using \f[B]-O\ (--os-parameters)\f[] (more documentation for this
-option under the \f[B]add\f[] command).
+The \f[C]--select-os\f[] option switches to an interactive OS reinstall.
+The user is prompted to select the OS template from the list of
+available OS templates.
+OS parameters can be overridden using \f[C]-O\ (--os-parameters)\f[]
+(more documentation for this option under the \f[B]add\f[] command).
 .PP
-Since this is a potentially dangerous command, the user will be
-required to confirm this action, unless the \f[B]-f\f[] flag is
-passed. When multiple instances are selected (either by passing
-multiple arguments or by using the \f[B]--node\f[],
-\f[B]--primary\f[], \f[B]--secondary\f[] or \f[B]--all\f[]
-options), the user must pass the \f[B]--force-multiple\f[] options
-to skip the interactive confirmation.
+Since this is a potentially dangerous command, the user will be required
+to confirm this action, unless the \f[C]-f\f[] flag is passed.
+When multiple instances are selected (either by passing multiple
+arguments or by using the \f[C]--node\f[], \f[C]--primary\f[],
+\f[C]--secondary\f[] or \f[C]--all\f[] options), the user must pass the
+\f[C]--force-multiple\f[] options to skip the interactive confirmation.
 .PP
-See \f[B]ganeti(7)\f[] for a description of \f[B]--submit\f[] and
-other common options.
+See \f[B]ganeti\f[](7) for a description of \f[C]--submit\f[] and other
+common options.
 .SS RENAME
 .PP
-\f[B]rename\f[] [--no-ip-check] [--no-name-check]
-[--submit]
+\f[B]rename\f[] [--no-ip-check] [--no-name-check] [--submit]
 .PD 0
 .P
 .PD
 {\f[I]instance\f[]} {\f[I]new_name\f[]}
 .PP
-Renames the given instance. The instance must be stopped when
-running this command. The requirements for the new name are the
-same as for adding an instance: the new name must be resolvable and
-the IP it resolves to must not be reachable (in order to prevent
-duplicate IPs the next time the instance is started). The IP test
-can be skipped if the \f[B]--no-ip-check\f[] option is passed.
+Renames the given instance.
+The instance must be stopped when running this command.
+The requirements for the new name are the same as for adding an
+instance: the new name must be resolvable and the IP it resolves to must
+not be reachable (in order to prevent duplicate IPs the next time the
+instance is started).
+The IP test can be skipped if the \f[C]--no-ip-check\f[] option is
+passed.
 .PP
-The \f[B]--no-name-check\f[] skips the check for the new instance
-name via the resolver (e.g. in DNS or /etc/hosts, depending on your
-setup) and that the resolved name matches the provided name. Since
-the name check is used to compute the IP address, if you pass this
-option you must also pass the \f[B]--no-ip-check\f[] option.
+Note that you can rename an instance to its same name, to force
+re-executing the os-specific rename script for that instance, if needed.
 .PP
-See \f[B]ganeti(7)\f[] for a description of \f[B]--submit\f[] and
-other common options.
+The \f[C]--no-name-check\f[] skips the check for the new instance name
+via the resolver (e.g.
+in DNS or /etc/hosts, depending on your setup) and that the resolved
+name matches the provided name.
+Since the name check is used to compute the IP address, if you pass this
+option you must also pass the \f[C]--no-ip-check\f[] option.
+.PP
+See \f[B]ganeti\f[](7) for a description of \f[C]--submit\f[] and other
+common options.
 .SS Starting/stopping/connecting to console
 .SS STARTUP
 .PP
@@ -2145,39 +2575,31 @@ other common options.
 .PD 0
 .P
 .PD
-[--force]
-[--ignore-offline]
+[--force] [--ignore-offline]
 .PD 0
 .P
 .PD
-[--force-multiple]
-[--no-remember]
+[--force-multiple] [--no-remember]
 .PD 0
 .P
 .PD
-[--instance | --node | --primary |
---secondary | --all |
+[--instance | --node | --primary | --secondary | --all |
 .PD 0
 .P
 .PD
---tags | --node-tags |
---pri-node-tags |
---sec-node-tags]
+--tags | --node-tags | --pri-node-tags | --sec-node-tags]
 .PD 0
 .P
 .PD
-[{-H|--hypervisor-parameters}
-\f[B]key=value...\f[]]
+[{-H|--hypervisor-parameters} \f[C]key=value...\f[]]
 .PD 0
 .P
 .PD
-[{-B|--backend-parameters}
-\f[B]key=value...\f[]]
+[{-B|--backend-parameters} \f[C]key=value...\f[]]
 .PD 0
 .P
 .PD
-[--submit]
-[--paused]
+[--submit] [--paused]
 .PD 0
 .P
 .PD
@@ -2193,8 +2615,8 @@ required); this is the default selection
 .RE
 .TP
 .B --node
-will start the instances who have the given node as either primary
-or secondary
+will start the instances who have the given node as either primary or
+secondary
 .RS
 .RE
 .TP
@@ -2205,8 +2627,8 @@ passed as arguments (at least one node required)
 .RE
 .TP
 .B --secondary
-will start all instances whose secondary node is in the list of
-nodes passed as arguments (at least one node required)
+will start all instances whose secondary node is in the list of nodes
+passed as arguments (at least one node required)
 .RS
 .RE
 .TP
@@ -2216,82 +2638,83 @@ will start all instances in the cluster (no arguments accepted)
 .RE
 .TP
 .B --tags
-will start all instances in the cluster with the tags given as
-arguments
+will start all instances in the cluster with the tags given as arguments
 .RS
 .RE
 .TP
 .B --node-tags
-will start all instances in the cluster on nodes with the tags
-given as arguments
+will start all instances in the cluster on nodes with the tags given as
+arguments
 .RS
 .RE
 .TP
 .B --pri-node-tags
-will start all instances in the cluster on primary nodes with the
-tags given as arguments
+will start all instances in the cluster on primary nodes with the tags
+given as arguments
 .RS
 .RE
 .TP
 .B --sec-node-tags
-will start all instances in the cluster on secondary nodes with the
-tags given as arguments
+will start all instances in the cluster on secondary nodes with the tags
+given as arguments
 .RS
 .RE
 .PP
-Note that although you can pass more than one selection option, the
-last one wins, so in order to guarantee the desired result,
-don\[aq]t pass more than one such option.
+Note that although you can pass more than one selection option, the last
+one wins, so in order to guarantee the desired result, don\[aq]t pass
+more than one such option.
 .PP
-Use \f[B]--force\f[] to start even if secondary disks are failing.
-\f[B]--ignore-offline\f[] can be used to ignore offline primary
-nodes and mark the instance as started even if the primary is not
-available.
+Use \f[C]--force\f[] to start even if secondary disks are failing.
+\f[C]--ignore-offline\f[] can be used to ignore offline primary nodes
+and mark the instance as started even if the primary is not available.
 .PP
-The \f[B]--force-multiple\f[] will skip the interactive
-confirmation in the case the more than one instance will be
-affected.
+The \f[C]--force-multiple\f[] will skip the interactive confirmation in
+the case the more than one instance will be affected.
 .PP
-The \f[B]--no-remember\f[] option will perform the startup but not
-change the state of the instance in the configuration file (if it
-was stopped before, Ganeti will still think it needs to be
-stopped). This can be used for testing, or for a one shot-start
-where you don\[aq]t want the watcher to restart the instance if it
-crashes.
+The \f[C]--no-remember\f[] option will perform the startup but not
+change the state of the instance in the configuration file (if it was
+stopped before, Ganeti will still think it needs to be stopped).
+This can be used for testing, or for a one shot-start where you
+don\[aq]t want the watcher to restart the instance if it crashes.
 .PP
-The \f[B]-H\ (--hypervisor-parameters)\f[] and
-\f[B]-B\ (--backend-parameters)\f[] options specify temporary
-hypervisor and backend parameters that can be used to start an
-instance with modified parameters. They can be useful for quick
-testing without having to modify an instance back and forth, e.g.:
-.PP
-\f[CR]
-      #\ gnt-instance\ start\ -H\ kernel_args="single"\ instance1
-      #\ gnt-instance\ start\ -B\ maxmem=2048\ instance2
+The \f[C]-H\ (--hypervisor-parameters)\f[] and
+\f[C]-B\ (--backend-parameters)\f[] options specify temporary hypervisor
+and backend parameters that can be used to start an instance with
+modified parameters.
+They can be useful for quick testing without having to modify an
+instance back and forth, e.g.:
+.IP
+.nf
+\f[C]
+#\ gnt-instance\ start\ -H\ kernel_args="single"\ instance1
+#\ gnt-instance\ start\ -B\ maxmem=2048\ instance2
 \f[]
+.fi
 .PP
-The first form will start the instance instance1 in single-user
-mode, and the instance instance2 with 2GB of RAM (this time only,
-unless that is the actual instance memory size already). Note that
-the values override the instance parameters (and not extend them):
-an instance with "kernel_args=ro" when started with -H
+The first form will start the instance instance1 in single-user mode,
+and the instance instance2 with 2GB of RAM (this time only, unless that
+is the actual instance memory size already).
+Note that the values override the instance parameters (and not extend
+them): an instance with "kernel_args=ro" when started with -H
 kernel_args=single will result in "single", not "ro single".
 .PP
-The \f[B]--paused\f[] option is only valid for Xen and kvm
-hypervisors. This pauses the instance at the start of bootup,
-awaiting \f[B]gnt-instance\ console\f[] to unpause it, allowing the
-entire boot process to be monitored for debugging.
+The \f[C]--paused\f[] option is only valid for Xen and kvm hypervisors.
+This pauses the instance at the start of bootup, awaiting
+\f[C]gnt-instance\ console\f[] to unpause it, allowing the entire boot
+process to be monitored for debugging.
 .PP
-See \f[B]ganeti(7)\f[] for a description of \f[B]--submit\f[] and
-other common options.
+See \f[B]ganeti\f[](7) for a description of \f[C]--submit\f[] and other
+common options.
 .PP
 Example:
-.PP
-\f[CR]
-      #\ gnt-instance\ start\ instance1.example.com
-      #\ gnt-instance\ start\ --node\ node1.example.com\ node2.example.com
-      #\ gnt-instance\ start\ --all
+.IP
+.nf
+\f[C]
+#\ gnt-instance\ start\ instance1.example.com
+#\ gnt-instance\ start\ --node\ node1.example.com\ node2.example.com
+#\ gnt-instance\ start\ --all
 \f[]
+.fi
 .SS SHUTDOWN
 .PP
 \f[B]shutdown\f[]
@@ -2302,19 +2725,15 @@ Example:
 .PD 0
 .P
 .PD
-[--force-multiple]
-[--ignore-offline] [--no-remember]
+[--force] [--force-multiple] [--ignore-offline] [--no-remember]
 .PD 0
 .P
 .PD
-[--instance |
---node | --primary | --secondary | --all |
+[--instance | --node | --primary | --secondary | --all |
 .PD 0
 .P
 .PD
---tags |
---node-tags | --pri-node-tags |
---sec-node-tags]
+--tags | --node-tags | --pri-node-tags | --sec-node-tags]
 .PD 0
 .P
 .PD
@@ -2324,55 +2743,60 @@ Example:
 .PD
 {\f[I]name\f[]...}
 .PP
-Stops one or more instances. If the instance cannot be cleanly
-stopped during a hardcoded interval (currently 2 minutes), it will
-forcibly stop the instance (equivalent to switching off the power
-on a physical machine).
+Stops one or more instances.
+If the instance cannot be cleanly stopped during a hardcoded interval
+(currently 2 minutes), it will forcibly stop the instance (equivalent to
+switching off the power on a physical machine).
 .PP
-The \f[B]--timeout\f[] is used to specify how much time to wait
-before forcing the shutdown (e.g. \f[B]xm\ destroy\f[] in Xen,
-killing the kvm process for KVM, etc.). By default two minutes are
-given to each instance to stop.
+The \f[C]--timeout\f[] is used to specify how much time to wait before
+forcing the shutdown (e.g.
+\f[C]xm\ destroy\f[] in Xen, killing the kvm process for KVM, etc.)
+\&.
+By default two minutes are given to each instance to stop.
 .PP
-The \f[B]--instance\f[], \f[B]--node\f[], \f[B]--primary\f[],
-\f[B]--secondary\f[], \f[B]--all\f[], \f[B]--tags\f[],
-\f[B]--node-tags\f[], \f[B]--pri-node-tags\f[] and
-\f[B]--sec-node-tags\f[] options are similar as for the
-\f[B]startup\f[] command and they influence the actual instances
-being shutdown.
+The \f[C]--instance\f[], \f[C]--node\f[], \f[C]--primary\f[],
+\f[C]--secondary\f[], \f[C]--all\f[], \f[C]--tags\f[],
+\f[C]--node-tags\f[], \f[C]--pri-node-tags\f[] and
+\f[C]--sec-node-tags\f[] options are similar as for the \f[B]startup\f[]
+command and they influence the actual instances being shutdown.
 .PP
-\f[B]--ignore-offline\f[] can be used to ignore offline primary
-nodes and force the instance to be marked as stopped. This option
-should be used with care as it can lead to an inconsistent cluster
-state.
+\f[C]--ignore-offline\f[] can be used to ignore offline primary nodes
+and force the instance to be marked as stopped.
+This option should be used with care as it can lead to an inconsistent
+cluster state.
 .PP
-The \f[B]--no-remember\f[] option will perform the shutdown but not
-change the state of the instance in the configuration file (if it
-was running before, Ganeti will still thinks it needs to be
-running). This can be useful for a cluster-wide shutdown, where
-some instances are marked as up and some as down, and you don\[aq]t
-want to change the running state: you just need to disable the
-watcher, shutdown all instances with \f[B]--no-remember\f[], and
-when the watcher is activated again it will restore the correct
-runtime state for all instances.
+Use \f[C]--force\f[] to be able to shutdown an instance even when
+it\[aq]s marked as offline.
+This is useful is an offline instance ends up in the \f[C]ERROR_up\f[]
+state, for example.
 .PP
-See \f[B]ganeti(7)\f[] for a description of \f[B]--submit\f[] and
-other common options.
+The \f[C]--no-remember\f[] option will perform the shutdown but not
+change the state of the instance in the configuration file (if it was
+running before, Ganeti will still thinks it needs to be running).
+This can be useful for a cluster-wide shutdown, where some instances are
+marked as up and some as down, and you don\[aq]t want to change the
+running state: you just need to disable the watcher, shutdown all
+instances with \f[C]--no-remember\f[], and when the watcher is activated
+again it will restore the correct runtime state for all instances.
+.PP
+See \f[B]ganeti\f[](7) for a description of \f[C]--submit\f[] and other
+common options.
 .PP
 Example:
-.PP
-\f[CR]
-      #\ gnt-instance\ shutdown\ instance1.example.com
-      #\ gnt-instance\ shutdown\ --all
+.IP
+.nf
+\f[C]
+#\ gnt-instance\ shutdown\ instance1.example.com
+#\ gnt-instance\ shutdown\ --all
 \f[]
+.fi
 .SS REBOOT
 .PP
 \f[B]reboot\f[]
 .PD 0
 .P
 .PD
-[{-t|--type}
-\f[I]REBOOT-TYPE\f[]]
+[{-t|--type} \f[I]REBOOT-TYPE\f[]]
 .PD 0
 .P
 .PD
@@ -2388,14 +2812,11 @@ Example:
 .PD 0
 .P
 .PD
-[--instance
-| --node | --primary | --secondary | --all |
+[--instance | --node | --primary | --secondary | --all |
 .PD 0
 .P
 .PD
---tags |
---node-tags | --pri-node-tags |
---sec-node-tags]
+--tags | --node-tags | --pri-node-tags | --sec-node-tags]
 .PD 0
 .P
 .PD
@@ -2405,243 +2826,274 @@ Example:
 .PD
 [\f[I]name\f[]...]
 .PP
-Reboots one or more instances. The type of reboot depends on the
-value of \f[B]-t\ (--type)\f[].
-A soft reboot does a hypervisor reboot, a hard reboot does a
-instance stop, recreates the hypervisor config for the instance and
-starts the instance. A full reboot does the equivalent of
-\f[B]gnt-instance shutdown && gnt-instance startup\f[].
+Reboots one or more instances.
+The type of reboot depends on the value of \f[C]-t\ (--type)\f[].
+A soft reboot does a hypervisor reboot, a hard reboot does a instance
+stop, recreates the hypervisor config for the instance and starts the
+instance.
+A full reboot does the equivalent of \f[B]gnt-instance shutdown &&
+gnt-instance startup\f[].
 The default is hard reboot.
 .PP
-For the hard reboot the option \f[B]--ignore-secondaries\f[]
-ignores errors for the secondary node while re-assembling the
-instance disks.
+For the hard reboot the option \f[C]--ignore-secondaries\f[] ignores
+errors for the secondary node while re-assembling the instance disks.
 .PP
-The \f[B]--instance\f[], \f[B]--node\f[], \f[B]--primary\f[],
-\f[B]--secondary\f[], \f[B]--all\f[], \f[B]--tags\f[],
-\f[B]--node-tags\f[], \f[B]--pri-node-tags\f[] and
-\f[B]--sec-node-tags\f[] options are similar as for the
-\f[B]startup\f[] command and they influence the actual instances
-being rebooted.
+The \f[C]--instance\f[], \f[C]--node\f[], \f[C]--primary\f[],
+\f[C]--secondary\f[], \f[C]--all\f[], \f[C]--tags\f[],
+\f[C]--node-tags\f[], \f[C]--pri-node-tags\f[] and
+\f[C]--sec-node-tags\f[] options are similar as for the \f[B]startup\f[]
+command and they influence the actual instances being rebooted.
 .PP
-The \f[B]--shutdown-timeout\f[] is used to specify how much time to
-wait before forcing the shutdown (xm destroy in xen, killing the
-kvm process, for kvm). By default two minutes are given to each
-instance to stop.
+The \f[C]--shutdown-timeout\f[] is used to specify how much time to wait
+before forcing the shutdown (xm destroy in xen, killing the kvm process,
+for kvm).
+By default two minutes are given to each instance to stop.
 .PP
-The \f[B]--force-multiple\f[] will skip the interactive
-confirmation in the case the more than one instance will be
-affected.
+The \f[C]--force-multiple\f[] will skip the interactive confirmation in
+the case the more than one instance will be affected.
 .PP
-See \f[B]ganeti(7)\f[] for a description of \f[B]--submit\f[] and
-other common options.
+See \f[B]ganeti\f[](7) for a description of \f[C]--submit\f[] and other
+common options.
 .PP
 Example:
-.PP
-\f[CR]
-      #\ gnt-instance\ reboot\ instance1.example.com
-      #\ gnt-instance\ reboot\ --type=full\ instance1.example.com
+.IP
+.nf
+\f[C]
+#\ gnt-instance\ reboot\ instance1.example.com
+#\ gnt-instance\ reboot\ --type=full\ instance1.example.com
 \f[]
+.fi
 .SS CONSOLE
 .PP
 \f[B]console\f[] [--show-cmd] {\f[I]instance\f[]}
 .PP
-Connects to the console of the given instance. If the instance is
-not up, an error is returned. Use the \f[B]--show-cmd\f[] option to
-display the command instead of executing it.
+Connects to the console of the given instance.
+If the instance is not up, an error is returned.
+Use the \f[C]--show-cmd\f[] option to display the command instead of
+executing it.
 .PP
-For HVM instances, this will attempt to connect to the serial
-console of the instance. To connect to the virtualized "physical"
-console of a HVM instance, use a VNC client with the connection
-info from the \f[B]info\f[] command.
+For HVM instances, this will attempt to connect to the serial console of
+the instance.
+To connect to the virtualized "physical" console of a HVM instance, use
+a VNC client with the connection info from the \f[B]info\f[] command.
 .PP
 For Xen/kvm instances, if the instance is paused, this attempts to
-unpause the instance after waiting a few seconds for the connection
-to the console to be made.
+unpause the instance after waiting a few seconds for the connection to
+the console to be made.
 .PP
 Example:
-.PP
-\f[CR]
-      #\ gnt-instance\ console\ instance1.example.com
+.IP
+.nf
+\f[C]
+#\ gnt-instance\ console\ instance1.example.com
 \f[]
+.fi
 .SS Disk management
 .SS REPLACE-DISKS
 .PP
-\f[B]replace-disks\f[] [--submit] [--early-release]
-[--ignore-ipolicy] {-p} [--disks \f[I]idx\f[]] {\f[I]instance\f[]}
+\f[B]replace-disks\f[] [--submit] [--early-release] [--ignore-ipolicy]
+{-p} [--disks \f[I]idx\f[]] {\f[I]instance\f[]}
 .PP
-\f[B]replace-disks\f[] [--submit] [--early-release]
-[--ignore-ipolicy] {-s} [--disks \f[I]idx\f[]] {\f[I]instance\f[]}
+\f[B]replace-disks\f[] [--submit] [--early-release] [--ignore-ipolicy]
+{-s} [--disks \f[I]idx\f[]] {\f[I]instance\f[]}
 .PP
-\f[B]replace-disks\f[] [--submit] [--early-release]
-[--ignore-ipolicy] {{-I|--iallocator} \f[I]name\f[] |
-{{-n|--new-secondary} \f[I]node\f[] } {\f[I]instance\f[]}
-.PP
-\f[B]replace-disks\f[] [--submit] [--early-release]
-[--ignore-ipolicy] {-a|--auto} {\f[I]instance\f[]}
-.PP
-This command is a generalized form for replacing disks. It is
-currently only valid for the mirrored (DRBD) disk template.
-.PP
-The first form (when passing the \f[B]-p\f[] option) will replace
-the disks on the primary, while the second form (when passing the
-\f[B]-s\f[] option will replace the disks on the secondary node.
-For these two cases (as the node doesn\[aq]t change), it is
-possible to only run the replace for a subset of the disks, using
-the option \f[B]--disks\f[] which takes a list of comma-delimited
-disk indices (zero-based), e.g. 0,2 to replace only the first and
-third disks.
-.PP
-The third form (when passing either the \f[B]--iallocator\f[] or
-the \f[B]--new-secondary\f[] option) is designed to change
-secondary node of the instance. Specifying \f[B]--iallocator\f[]
-makes the new secondary be selected automatically by the specified
-allocator plugin, otherwise the new secondary node will be the one
-chosen manually via the \f[B]--new-secondary\f[] option.
-.PP
-Note that it is not possible to select an offline or drained node
-as a new secondary.
-.PP
-The fourth form (when using \f[B]--auto\f[]) will automatically
-determine which disks of an instance are faulty and replace them
-within the same node. The \f[B]--auto\f[] option works only when an
-instance has only faulty disks on either the primary or secondary
-node; it doesn\[aq]t work when both sides have faulty disks.
-.PP
-The \f[B]--early-release\f[] changes the code so that the old
-storage on secondary node(s) is removed early (before the resync is
-completed) and the internal Ganeti locks for the current (and new,
-if any) secondary node are also released, thus allowing more
-parallelism in the cluster operation. This should be used only when
-recovering from a disk failure on the current secondary (thus the
-old storage is already broken) or when the storage on the primary
-node is known to be fine (thus we won\[aq]t need the old storage
-for potential recovery).
-.PP
-The \f[B]--ignore-ipolicy\f[] let the command ignore instance
-policy violations if replace-disks changes groups and the instance
-would violate the new groups instance policy.
-.PP
-See \f[B]ganeti(7)\f[] for a description of \f[B]--submit\f[] and
-other common options.
-.SS ACTIVATE-DISKS
-.PP
-\f[B]activate-disks\f[] [--submit] [--ignore-size]
+\f[B]replace-disks\f[] [--submit] [--early-release] [--ignore-ipolicy]
+{{-I|--iallocator} \f[I]name\f[] | {{-n|--new-secondary} \f[I]node\f[] }
 {\f[I]instance\f[]}
 .PP
-Activates the block devices of the given instance. If successful,
-the command will show the location and name of the block devices:
+\f[B]replace-disks\f[] [--submit] [--early-release] [--ignore-ipolicy]
+{-a|--auto} {\f[I]instance\f[]}
 .PP
-\f[CR]
-      node1.example.com:disk/0:/dev/drbd0
-      node1.example.com:disk/1:/dev/drbd1
+This command is a generalized form for replacing disks.
+It is currently only valid for the mirrored (DRBD) disk template.
+.PP
+The first form (when passing the \f[C]-p\f[] option) will replace the
+disks on the primary, while the second form (when passing the
+\f[C]-s\f[] option will replace the disks on the secondary node.
+For these two cases (as the node doesn\[aq]t change), it is possible to
+only run the replace for a subset of the disks, using the option
+\f[C]--disks\f[] which takes a list of comma-delimited disk indices
+(zero-based), e.g.
+0,2 to replace only the first and third disks.
+.PP
+The third form (when passing either the \f[C]--iallocator\f[] or the
+\f[C]--new-secondary\f[] option) is designed to change secondary node of
+the instance.
+Specifying \f[C]--iallocator\f[] makes the new secondary be selected
+automatically by the specified allocator plugin (use \f[C]\&.\f[] to
+indicate the default allocator), otherwise the new secondary node will
+be the one chosen manually via the \f[C]--new-secondary\f[] option.
+.PP
+Note that it is not possible to select an offline or drained node as a
+new secondary.
+.PP
+The fourth form (when using \f[C]--auto\f[]) will automatically
+determine which disks of an instance are faulty and replace them within
+the same node.
+The \f[C]--auto\f[] option works only when an instance has only faulty
+disks on either the primary or secondary node; it doesn\[aq]t work when
+both sides have faulty disks.
+.PP
+The \f[C]--early-release\f[] changes the code so that the old storage on
+secondary node(s) is removed early (before the resync is completed) and
+the internal Ganeti locks for the current (and new, if any) secondary
+node are also released, thus allowing more parallelism in the cluster
+operation.
+This should be used only when recovering from a disk failure on the
+current secondary (thus the old storage is already broken) or when the
+storage on the primary node is known to be fine (thus we won\[aq]t need
+the old storage for potential recovery).
+.PP
+The \f[C]--ignore-ipolicy\f[] let the command ignore instance policy
+violations if replace-disks changes groups and the instance would
+violate the new groups instance policy.
+.PP
+See \f[B]ganeti\f[](7) for a description of \f[C]--submit\f[] and other
+common options.
+.SS ACTIVATE-DISKS
+.PP
+\f[B]activate-disks\f[] [--submit] [--ignore-size] [--wait-for-sync]
+{\f[I]instance\f[]}
+.PP
+Activates the block devices of the given instance.
+If successful, the command will show the location and name of the block
+devices:
+.IP
+.nf
+\f[C]
+node1.example.com:disk/0:/dev/drbd0
+node1.example.com:disk/1:/dev/drbd1
 \f[]
+.fi
 .PP
-In this example, \f[I]node1.example.com\f[] is the name of the node
-on which the devices have been activated. The \f[I]disk/0\f[] and
-\f[I]disk/1\f[] are the Ganeti-names of the instance disks; how
-they are visible inside the instance is hypervisor-specific.
-\f[I]/dev/drbd0\f[] and \f[I]/dev/drbd1\f[] are the actual block
-devices as visible on the node.
+In this example, \f[I]node1.example.com\f[] is the name of the node on
+which the devices have been activated.
+The \f[I]disk/0\f[] and \f[I]disk/1\f[] are the Ganeti-names of the
+instance disks; how they are visible inside the instance is
+hypervisor-specific.
+\f[I]/dev/drbd0\f[] and \f[I]/dev/drbd1\f[] are the actual block devices
+as visible on the node.
 .PP
-The \f[B]--ignore-size\f[] option can be used to activate disks
-ignoring the currently configured size in Ganeti. This can be used
-in cases where the configuration has gotten out of sync with the
-real-world (e.g. after a partially-failed grow-disk operation or
-due to rounding in LVM devices). This should not be used in normal
-cases, but only when activate-disks fails without it.
+The \f[C]--ignore-size\f[] option can be used to activate disks ignoring
+the currently configured size in Ganeti.
+This can be used in cases where the configuration has gotten out of sync
+with the real-world (e.g.
+after a partially-failed grow-disk operation or due to rounding in LVM
+devices).
+This should not be used in normal cases, but only when activate-disks
+fails without it.
 .PP
-Note that it is safe to run this command while the instance is
-already running.
+The \f[C]--wait-for-sync\f[] option will ensure that the command returns
+only after the instance\[aq]s disks are synchronised (mostly for DRBD);
+this can be useful to ensure consistency, as otherwise there are no
+commands that can wait until synchronisation is done.
+However when passing this option, the command will have additional
+output, making it harder to parse the disk information.
 .PP
-See \f[B]ganeti(7)\f[] for a description of \f[B]--submit\f[] and
-other common options.
+Note that it is safe to run this command while the instance is already
+running.
+.PP
+See \f[B]ganeti\f[](7) for a description of \f[C]--submit\f[] and other
+common options.
 .SS DEACTIVATE-DISKS
 .PP
 \f[B]deactivate-disks\f[] [-f] [--submit] {\f[I]instance\f[]}
 .PP
-De-activates the block devices of the given instance. Note that if
-you run this command for an instance with a drbd disk template,
-while it is running, it will not be able to shutdown the block
-devices on the primary node, but it will shutdown the block devices
-on the secondary nodes, thus breaking the replication.
+De-activates the block devices of the given instance.
+Note that if you run this command for an instance with a drbd disk
+template, while it is running, it will not be able to shutdown the block
+devices on the primary node, but it will shutdown the block devices on
+the secondary nodes, thus breaking the replication.
 .PP
-The \f[B]-f\f[]/\f[B]--force\f[] option will skip checks that the
-instance is down; in case the hypervisor is confused and we
-can\[aq]t talk to it, normally Ganeti will refuse to deactivate the
-disks, but with this option passed it will skip this check and
-directly try to deactivate the disks. This can still fail due to
-the instance actually running or other issues.
+The \f[C]-f\f[]/\f[C]--force\f[] option will skip checks that the
+instance is down; in case the hypervisor is confused and we can\[aq]t
+talk to it, normally Ganeti will refuse to deactivate the disks, but
+with this option passed it will skip this check and directly try to
+deactivate the disks.
+This can still fail due to the instance actually running or other
+issues.
 .PP
-See \f[B]ganeti(7)\f[] for a description of \f[B]--submit\f[] and
-other common options.
+See \f[B]ganeti\f[](7) for a description of \f[C]--submit\f[] and other
+common options.
 .SS GROW-DISK
 .PP
-\f[B]grow-disk\f[] [--no-wait-for-sync] [--submit]
-[--absolute]
+\f[B]grow-disk\f[] [--no-wait-for-sync] [--submit] [--absolute]
 .PD 0
 .P
 .PD
-{\f[I]instance\f[]} {\f[I]disk\f[]}
-{\f[I]amount\f[]}
+{\f[I]instance\f[]} {\f[I]disk\f[]} {\f[I]amount\f[]}
 .PP
-Grows an instance\[aq]s disk. This is only possible for instances
-having a plain, drbd, file, sharedfile or rbd disk template.
+Grows an instance\[aq]s disk.
+This is only possible for instances having a plain, drbd, file,
+sharedfile, rbd or ext disk template.
+For the ext template to work, the ExtStorage provider should also
+support growing.
+This means having a \f[C]grow\f[] script that actually grows the volume
+of the external shared storage.
 .PP
-Note that this command only change the block device size; it will
-not grow the actual filesystems, partitions, etc. that live on that
-disk. Usually, you will need to:
+Note that this command only change the block device size; it will not
+grow the actual filesystems, partitions, etc.
+that live on that disk.
+Usually, you will need to:
 .IP "1." 3
 use \f[B]gnt-instance grow-disk\f[]
 .IP "2." 3
 reboot the instance (later, at a convenient time)
 .IP "3." 3
-use a filesystem resizer, such as ext2online(8) or xfs_growfs(8) to
-resize the filesystem, or use fdisk(8) to change the partition
-table on the disk
+use a filesystem resizer, such as \f[B]ext2online\f[](8) or
+\f[B]xfs_growfs\f[](8) to resize the filesystem, or use
+\f[B]fdisk\f[](8) to change the partition table on the disk
 .PP
-The \f[I]disk\f[] argument is the index of the instance disk to
-grow. The \f[I]amount\f[] argument is given as a number which can
-have a suffix (like the disk size in instance create); if the
-suffix is missing, the value will be interpreted as mebibytes.
+The \f[I]disk\f[] argument is the index of the instance disk to grow.
+The \f[I]amount\f[] argument is given as a number which can have a
+suffix (like the disk size in instance create); if the suffix is
+missing, the value will be interpreted as mebibytes.
 .PP
-By default, the \f[I]amount\f[] value represents the desired
-increase in the disk size (e.g. an amount of 1G will take a disk of
-size 3G to 4G). If the optional \f[B]--absolute\f[] parameter is
-passed, then the \f[I]amount\f[] argument doesn\[aq]t represent the
-delta, but instead the desired final disk size (e.g. an amount of
-8G will take a disk of size 4G to 8G).
+By default, the \f[I]amount\f[] value represents the desired increase in
+the disk size (e.g.
+an amount of 1G will take a disk of size 3G to 4G).
+If the optional \f[C]--absolute\f[] parameter is passed, then the
+\f[I]amount\f[] argument doesn\[aq]t represent the delta, but instead
+the desired final disk size (e.g.
+an amount of 8G will take a disk of size 4G to 8G).
 .PP
-For instances with a drbd template, note that the disk grow
-operation might complete on one node but fail on the other; this
-will leave the instance with different-sized LVs on the two nodes,
-but this will not create problems (except for unused space).
+For instances with a drbd template, note that the disk grow operation
+might complete on one node but fail on the other; this will leave the
+instance with different-sized LVs on the two nodes, but this will not
+create problems (except for unused space).
 .PP
-If you do not want gnt-instance to wait for the new disk region to
-be synced, use the \f[B]--no-wait-for-sync\f[] option.
+If you do not want gnt-instance to wait for the new disk region to be
+synced, use the \f[C]--no-wait-for-sync\f[] option.
 .PP
-See \f[B]ganeti(7)\f[] for a description of \f[B]--submit\f[] and
-other common options.
+See \f[B]ganeti\f[](7) for a description of \f[C]--submit\f[] and other
+common options.
 .PP
 Example (increase the first disk for instance1 by 16GiB):
-.PP
-\f[CR]
-      #\ gnt-instance\ grow-disk\ instance1.example.com\ 0\ 16g
+.IP
+.nf
+\f[C]
+#\ gnt-instance\ grow-disk\ instance1.example.com\ 0\ 16g
 \f[]
+.fi
 .PP
 Example for increasing the disk size to a certain size:
-.PP
-\f[CR]
-      #\ gnt-instance\ grow-disk\ --absolute\ instance1.example.com\ 0\ 32g
+.IP
+.nf
+\f[C]
+#\ gnt-instance\ grow-disk\ --absolute\ instance1.example.com\ 0\ 32g
 \f[]
+.fi
 .PP
-Also note that disk shrinking is not supported; use
-\f[B]gnt-backup export\f[] and then \f[B]gnt-backup import\f[] to
-reduce the disk size of an instance.
+Also note that disk shrinking is not supported; use \f[B]gnt-backup
+export\f[] and then \f[B]gnt-backup import\f[] to reduce the disk size
+of an instance.
 .SS RECREATE-DISKS
 .PP
-\f[B]recreate-disks\f[] [--submit] [-n
-node1:[node2]]
+\f[B]recreate-disks\f[] [--submit]
+.PD 0
+.P
+.PD
+[{-n node1:[node2] | {-I|--iallocator \f[I]name\f[]}}]
 .PD 0
 .P
 .PD
@@ -2650,36 +3102,45 @@ node1:[node2]]
 .PP
 Recreates all or a subset of disks of the given instance.
 .PP
-Note that this functionality should only be used for missing disks;
-if any of the given disks already exists, the operation will fail.
-While this is suboptimal, recreate-disks should hopefully not be
-needed in normal operation and as such the impact of this is low.
+Note that this functionality should only be used for missing disks; if
+any of the given disks already exists, the operation will fail.
+While this is suboptimal, recreate-disks should hopefully not be needed
+in normal operation and as such the impact of this is low.
 .PP
-If only a subset should be recreated, any number of \f[B]disk\f[]
-options can be specified. It expects a disk index and an optional
-list of disk parameters to change. Only \f[B]size\f[] and
-\f[B]mode\f[] can be changed while recreating disks. To recreate
-all disks while changing parameters on a subset only, a
-\f[B]--disk\f[] option must be given for every disk of the
-instance.
+If only a subset should be recreated, any number of \f[C]disk\f[]
+options can be specified.
+It expects a disk index and an optional list of disk parameters to
+change.
+Only \f[C]size\f[] and \f[C]mode\f[] can be changed while recreating
+disks.
+To recreate all disks while changing parameters on a subset only, a
+\f[C]--disk\f[] option must be given for every disk of the instance.
 .PP
-Optionally the instance\[aq]s disks can be recreated on different
-nodes. This can be useful if, for example, the original nodes of
-the instance have gone down (and are marked offline), so we
-can\[aq]t recreate on the same nodes. To do this, pass the new
-node(s) via \f[B]-n\f[] option, with a syntax similar to the
-\f[B]add\f[] command. The number of nodes passed must equal the
-number of nodes that the instance currently has. Note that changing
-nodes is only allowed when all disks are replaced, e.g. when no
-\f[B]--disk\f[] option is passed.
+Optionally the instance\[aq]s disks can be recreated on different nodes.
+This can be useful if, for example, the original nodes of the instance
+have gone down (and are marked offline), so we can\[aq]t recreate on the
+same nodes.
+To do this, pass the new node(s) via \f[C]-n\f[] option, with a syntax
+similar to the \f[B]add\f[] command.
+The number of nodes passed must equal the number of nodes that the
+instance currently has.
+Note that changing nodes is only allowed when all disks are replaced,
+e.g.
+when no \f[C]--disk\f[] option is passed.
 .PP
-See \f[B]ganeti(7)\f[] for a description of \f[B]--submit\f[] and
-other common options.
-.SS Recovery
+Another method of choosing which nodes to place the instance on is by
+using the specified iallocator, passing the \f[C]--iallocator\f[]
+option.
+The primary and secondary nodes will be chosen by the specified
+iallocator plugin, or by the default allocator if \f[C]\&.\f[] is
+specified.
+.PP
+See \f[B]ganeti\f[](7) for a description of \f[C]--submit\f[] and other
+common options.
+.SS Recovery/moving
 .SS FAILOVER
 .PP
-\f[B]failover\f[] [-f] [--ignore-consistency]
-[--ignore-ipolicy]
+\f[B]failover\f[] [-f] [--ignore-consistency] [--ignore-ipolicy]
 .PD 0
 .P
 .PD
@@ -2687,9 +3148,7 @@ other common options.
 .PD 0
 .P
 .PD
-[{-n|--target-node}
-\f[I]node\f[] | {-I|--iallocator}
-\f[I]name\f[]]
+[{-n|--target-node} \f[I]node\f[] | {-I|--iallocator} \f[I]name\f[]]
 .PD 0
 .P
 .PD
@@ -2699,157 +3158,180 @@ other common options.
 .PD
 {\f[I]instance\f[]}
 .PP
-Failover will stop the instance (if running), change its primary
-node, and if it was originally running it will start it again (on
-the new primary). This only works for instances with drbd template
-(in which case you can only fail to the secondary node) and for
-externally mirrored templates (blockdev and rbd) (which can change
-to any other node).
+Failover will stop the instance (if running), change its primary node,
+and if it was originally running it will start it again (on the new
+primary).
+This works for instances with drbd template (in which case you can only
+fail to the secondary node) and for externally mirrored templates
+(sharedfile, blockdev, rbd and ext) (in which case you can fail to any
+other node).
 .PP
-If the instance\[aq]s disk template is of type blockdev or rbd,
-then you can explicitly specify the target node (which can be any
-node) using the \f[B]-n\f[] or \f[B]--target-node\f[] option, or
-specify an iallocator plugin using the \f[B]-I\f[] or
-\f[B]--iallocator\f[] option. If you omit both, the default
-iallocator will be used to specify the target node.
+If the instance\[aq]s disk template is of type sharedfile, blockdev, rbd
+or ext, then you can explicitly specify the target node (which can be
+any node) using the \f[C]-n\f[] or \f[C]--target-node\f[] option, or
+specify an iallocator plugin using the \f[C]-I\f[] or
+\f[C]--iallocator\f[] option.
+If you omit both, the default iallocator will be used to specify the
+target node.
 .PP
-Normally the failover will check the consistency of the disks
-before failing over the instance. If you are trying to migrate
-instances off a dead node, this will fail. Use the
-\f[B]--ignore-consistency\f[] option for this purpose. Note that
-this option can be dangerous as errors in shutting down the
+If the instance\[aq]s disk template is of type drbd, the target node is
+automatically selected as the drbd\[aq]s secondary node.
+Changing the secondary node is possible with a replace-disks operation.
+.PP
+Normally the failover will check the consistency of the disks before
+failing over the instance.
+If you are trying to migrate instances off a dead node, this will fail.
+Use the \f[C]--ignore-consistency\f[] option for this purpose.
+Note that this option can be dangerous as errors in shutting down the
 instance will be ignored, resulting in possibly having the instance
 running on two machines in parallel (on disconnected DRBD drives).
 .PP
-The \f[B]--shutdown-timeout\f[] is used to specify how much time to
-wait before forcing the shutdown (xm destroy in xen, killing the
-kvm process, for kvm). By default two minutes are given to each
-instance to stop.
+The \f[C]--shutdown-timeout\f[] is used to specify how much time to wait
+before forcing the shutdown (xm destroy in xen, killing the kvm process,
+for kvm).
+By default two minutes are given to each instance to stop.
 .PP
-If \f[B]--ignore-ipolicy\f[] is given any instance policy
-violations occuring during this operation are ignored.
+If \f[C]--ignore-ipolicy\f[] is given any instance policy violations
+occuring during this operation are ignored.
 .PP
-See \f[B]ganeti(7)\f[] for a description of \f[B]--submit\f[] and
-other common options.
+See \f[B]ganeti\f[](7) for a description of \f[C]--submit\f[] and other
+common options.
 .PP
 Example:
-.PP
-\f[CR]
-      #\ gnt-instance\ failover\ instance1.example.com
+.IP
+.nf
+\f[C]
+#\ gnt-instance\ failover\ instance1.example.com
 \f[]
+.fi
+.PP
+For externally mirrored templates also \f[C]-n\f[] is available:
+.IP
+.nf
+\f[C]
+#\ gnt-instance\ failover\ -n\ node3.example.com\ instance1.example.com
+\f[]
+.fi
 .SS MIGRATE
 .PP
-\f[B]migrate\f[] [-f] [--allow-failover]
-[--non-live]
+\f[B]migrate\f[] [-f] [--allow-failover] [--non-live]
 .PD 0
 .P
 .PD
-[--migration-mode=live|non-live]
-[--ignore-ipolicy]
+[--migration-mode=live|non-live] [--ignore-ipolicy]
 .PD 0
 .P
 .PD
-[--no-runtime-changes]
-[--submit]
+[--no-runtime-changes] [--submit]
 .PD 0
 .P
 .PD
-[{-n|--target-node} \f[I]node\f[] |
-{-I|--iallocator} \f[I]name\f[]] {\f[I]instance\f[]}
+[{-n|--target-node} \f[I]node\f[] | {-I|--iallocator} \f[I]name\f[]]
+{\f[I]instance\f[]}
 .PP
 \f[B]migrate\f[] [-f] --cleanup [--submit] {\f[I]instance\f[]}
 .PP
-Migrate will move the instance to its secondary node without
-shutdown. As with failover, it only works for instances having the
-drbd disk template or an externally mirrored disk template type
-such as blockdev or rbd.
+Migrate will move the instance to its secondary node without shutdown.
+As with failover, it works for instances having the drbd disk template
+or an externally mirrored disk template type such as sharedfile,
+blockdev, rbd or ext.
 .PP
-If the instance\[aq]s disk template is of type blockdev or rbd,
-then you can explicitly specify the target node (which can be any
-node) using the \f[B]-n\f[] or \f[B]--target-node\f[] option, or
-specify an iallocator plugin using the \f[B]-I\f[] or
-\f[B]--iallocator\f[] option. If you omit both, the default
-iallocator will be used to specify the target node.
+If the instance\[aq]s disk template is of type sharedfile, blockdev, rbd
+or ext, then you can explicitly specify the target node (which can be
+any node) using the \f[C]-n\f[] or \f[C]--target-node\f[] option, or
+specify an iallocator plugin using the \f[C]-I\f[] or
+\f[C]--iallocator\f[] option.
+If you omit both, the default iallocator will be used to specify the
+target node.
+Alternatively, the default iallocator can be requested by specifying
+\f[C]\&.\f[] as the name of the plugin.
 .PP
-The migration command needs a perfectly healthy instance, as we
-rely on the dual-master capability of drbd8 and the disks of the
-instance are not allowed to be degraded.
+If the instance\[aq]s disk template is of type drbd, the target node is
+automatically selected as the drbd\[aq]s secondary node.
+Changing the secondary node is possible with a replace-disks operation.
 .PP
-The \f[B]--non-live\f[] and \f[B]--migration-mode=non-live\f[]
-options will switch (for the hypervisors that support it) between a
-"fully live" (i.e. the interruption is as minimal as possible)
-migration and one in which the instance is frozen, its state saved
-and transported to the remote node, and then resumed there. This
-all depends on the hypervisor support for two different methods. In
-any case, it is not an error to pass this parameter (it will just
-be ignored if the hypervisor doesn\[aq]t support it). The option
-\f[B]--migration-mode=live\f[] option will request a fully-live
-migration. The default, when neither option is passed, depends on
-the hypervisor parameters (and can be viewed with the
-\f[B]gnt-cluster info\f[] command).
+The migration command needs a perfectly healthy instance for drbd
+instances, as we rely on the dual-master capability of drbd8 and the
+disks of the instance are not allowed to be degraded.
 .PP
-If the \f[B]--cleanup\f[] option is passed, the operation changes
-from migration to attempting recovery from a failed previous
-migration. In this mode, Ganeti checks if the instance runs on the
-correct node (and updates its configuration if not) and ensures the
-instances\[aq] disks are configured correctly. In this mode, the
-\f[B]--non-live\f[] option is ignored.
+The \f[C]--non-live\f[] and \f[C]--migration-mode=non-live\f[] options
+will switch (for the hypervisors that support it) between a "fully live"
+(i.e.
+the interruption is as minimal as possible) migration and one in which
+the instance is frozen, its state saved and transported to the remote
+node, and then resumed there.
+This all depends on the hypervisor support for two different methods.
+In any case, it is not an error to pass this parameter (it will just be
+ignored if the hypervisor doesn\[aq]t support it).
+The option \f[C]--migration-mode=live\f[] option will request a
+fully-live migration.
+The default, when neither option is passed, depends on the hypervisor
+parameters (and can be viewed with the \f[B]gnt-cluster info\f[]
+command).
 .PP
-The option \f[B]-f\f[] will skip the prompting for confirmation.
+If the \f[C]--cleanup\f[] option is passed, the operation changes from
+migration to attempting recovery from a failed previous migration.
+In this mode, Ganeti checks if the instance runs on the correct node
+(and updates its configuration if not) and ensures the instances\[aq]
+disks are configured correctly.
+In this mode, the \f[C]--non-live\f[] option is ignored.
 .PP
-If \f[B]--allow-failover\f[] is specified it tries to fallback to
-failover if it already can determine that a migration won\[aq]t
-work (e.g. if the instance is shut down). Please note that the
-fallback will not happen during execution. If a migration fails
-during execution it still fails.
+The option \f[C]-f\f[] will skip the prompting for confirmation.
 .PP
-If \f[B]--ignore-ipolicy\f[] is given any instance policy
-violations occuring during this operation are ignored.
+If \f[C]--allow-failover\f[] is specified it tries to fallback to
+failover if it already can determine that a migration won\[aq]t work
+(e.g.
+if the instance is shut down).
+Please note that the fallback will not happen during execution.
+If a migration fails during execution it still fails.
 .PP
-The \f[B]--no-runtime-changes\f[] option forbids migrate to alter
-an instance\[aq]s runtime before migrating it (eg. ballooning an
-instance down because the target node doesn\[aq]t have enough
-available memory).
+If \f[C]--ignore-ipolicy\f[] is given any instance policy violations
+occuring during this operation are ignored.
 .PP
-If an instance has the backend parameter \f[B]always\\_failover\f[]
-set to true, then the migration is automatically converted into a
-failover.
+The \f[C]--no-runtime-changes\f[] option forbids migrate to alter an
+instance\[aq]s runtime before migrating it (eg.
+ballooning an instance down because the target node doesn\[aq]t have
+enough available memory).
 .PP
-See \f[B]ganeti(7)\f[] for a description of \f[B]--submit\f[] and
-other common options.
+If an instance has the backend parameter \f[C]always_failover\f[] set to
+true, then the migration is automatically converted into a failover.
+.PP
+See \f[B]ganeti\f[](7) for a description of \f[C]--submit\f[] and other
+common options.
 .PP
 Example (and expected output):
-.PP
-\f[CR]
-      #\ gnt-instance\ migrate\ instance1
-      Instance\ instance1\ will\ be\ migrated.\ Note\ that\ migration
-      might\ impact\ the\ instance\ if\ anything\ goes\ wrong\ (e.g.\ due\ to\ bugs\ in
-      the\ hypervisor).\ Continue?
-      y/[n]/?:\ y
-      Migrating\ instance\ instance1.example.com
-      *\ checking\ disk\ consistency\ between\ source\ and\ target
-      *\ switching\ node\ node2.example.com\ to\ secondary\ mode
-      *\ changing\ into\ standalone\ mode
-      *\ changing\ disks\ into\ dual-master\ mode
-      *\ wait\ until\ resync\ is\ done
-      *\ preparing\ node2.example.com\ to\ accept\ the\ instance
-      *\ migrating\ instance\ to\ node2.example.com
-      *\ switching\ node\ node1.example.com\ to\ secondary\ mode
-      *\ wait\ until\ resync\ is\ done
-      *\ changing\ into\ standalone\ mode
-      *\ changing\ disks\ into\ single-master\ mode
-      *\ wait\ until\ resync\ is\ done
-      *\ done
-      #
+.IP
+.nf
+\f[C]
+#\ gnt-instance\ migrate\ instance1
+Instance\ instance1\ will\ be\ migrated.\ Note\ that\ migration
+might\ impact\ the\ instance\ if\ anything\ goes\ wrong\ (e.g.\ due\ to\ bugs\ in
+the\ hypervisor).\ Continue?
+y/[n]/?:\ y
+Migrating\ instance\ instance1.example.com
+*\ checking\ disk\ consistency\ between\ source\ and\ target
+*\ switching\ node\ node2.example.com\ to\ secondary\ mode
+*\ changing\ into\ standalone\ mode
+*\ changing\ disks\ into\ dual-master\ mode
+*\ wait\ until\ resync\ is\ done
+*\ preparing\ node2.example.com\ to\ accept\ the\ instance
+*\ migrating\ instance\ to\ node2.example.com
+*\ switching\ node\ node1.example.com\ to\ secondary\ mode
+*\ wait\ until\ resync\ is\ done
+*\ changing\ into\ standalone\ mode
+*\ changing\ disks\ into\ single-master\ mode
+*\ wait\ until\ resync\ is\ done
+*\ done
+#
 \f[]
+.fi
 .SS MOVE
 .PP
 \f[B]move\f[] [-f] [--ignore-consistency]
 .PD 0
 .P
 .PD
-[-n
-\f[I]node\f[]] [--shutdown-timeout=\f[I]N\f[]] [--submit]
+[-n \f[I]node\f[]] [--shutdown-timeout=\f[I]N\f[]] [--submit]
 [--ignore-ipolicy]
 .PD 0
 .P
@@ -2859,69 +3341,73 @@ Example (and expected output):
 Move will move the instance to an arbitrary node in the cluster.
 This works only for instances having a plain or file disk template.
 .PP
-Note that since this operation is done via data copy, it will take
-a long time for big disks (similar to replace-disks for a drbd
-instance).
+Note that since this operation is done via data copy, it will take a
+long time for big disks (similar to replace-disks for a drbd instance).
 .PP
-The \f[B]--shutdown-timeout\f[] is used to specify how much time to
-wait before forcing the shutdown (e.g. \f[B]xm\ destroy\f[] in XEN,
-killing the kvm process for KVM, etc.). By default two minutes are
-given to each instance to stop.
+The \f[C]--shutdown-timeout\f[] is used to specify how much time to wait
+before forcing the shutdown (e.g.
+\f[C]xm\ destroy\f[] in XEN, killing the kvm process for KVM, etc.)
+\&.
+By default two minutes are given to each instance to stop.
 .PP
-The \f[B]--ignore-consistency\f[] option will make Ganeti ignore
-any errors in trying to shutdown the instance on its node; useful
-if the hypervisor is broken and you want to recover the data.
+The \f[C]--ignore-consistency\f[] option will make Ganeti ignore any
+errors in trying to shutdown the instance on its node; useful if the
+hypervisor is broken and you want to recover the data.
 .PP
-If \f[B]--ignore-ipolicy\f[] is given any instance policy
-violations occuring during this operation are ignored.
+If \f[C]--ignore-ipolicy\f[] is given any instance policy violations
+occuring during this operation are ignored.
 .PP
-See \f[B]ganeti(7)\f[] for a description of \f[B]--submit\f[] and
-other common options.
+See \f[B]ganeti\f[](7) for a description of \f[C]--submit\f[] and other
+common options.
 .PP
 Example:
-.PP
-\f[CR]
-      #\ gnt-instance\ move\ -n\ node3.example.com\ instance1.example.com
+.IP
+.nf
+\f[C]
+#\ gnt-instance\ move\ -n\ node3.example.com\ instance1.example.com
 \f[]
+.fi
 .SS CHANGE-GROUP
 .PP
 \f[B]change-group\f[] [--submit]
 .PD 0
 .P
 .PD
-[--iallocator
-\f[I]NAME\f[]] [--to \f[I]GROUP\f[]...] {\f[I]instance\f[]}
+[--iallocator \f[I]NAME\f[]] [--to \f[I]GROUP\f[]...]
+{\f[I]instance\f[]}
 .PP
-This command moves an instance to another node group. The move is
-calculated by an iallocator, either given on the command line or as
-a cluster default.
+This command moves an instance to another node group.
+The move is calculated by an iallocator, either given on the command
+line or as a cluster default.
 .PP
-If no specific destination groups are specified using
-\f[B]--to\f[], all groups except the one containing the instance
-are considered.
+If no specific destination groups are specified using \f[C]--to\f[], all
+groups except the one containing the instance are considered.
 .PP
-See \f[B]ganeti(7)\f[] for a description of \f[B]--submit\f[] and
-other common options.
+See \f[B]ganeti\f[](7) for a description of \f[C]--submit\f[] and other
+common options.
 .PP
 Example:
-.PP
-\f[CR]
-      #\ gnt-instance\ change-group\ -I\ hail\ --to\ rack2\ inst1.example.com
+.IP
+.nf
+\f[C]
+#\ gnt-instance\ change-group\ -I\ hail\ --to\ rack2\ inst1.example.com
 \f[]
-.SS TAGS
+.fi
+.SS Tags
 .SS ADD-TAGS
 .PP
 \f[B]add-tags\f[] [--from \f[I]file\f[]] {\f[I]instancename\f[]}
 {\f[I]tag\f[]...}
 .PP
-Add tags to the given instance. If any of the tags contains invalid
-characters, the entire operation will abort.
+Add tags to the given instance.
+If any of the tags contains invalid characters, the entire operation
+will abort.
 .PP
-If the \f[B]--from\f[] option is given, the list of tags will be
+If the \f[C]--from\f[] option is given, the list of tags will be
 extended with the contents of that file (each line becomes a tag).
-In this case, there is not need to pass tags on the command line
-(if you do, both sources will be used). A file name of \f[B]-\f[]
-will be interpreted as stdin.
+In this case, there is not need to pass tags on the command line (if you
+do, both sources will be used).
+A file name of \f[C]-\f[] will be interpreted as stdin.
 .SS LIST-TAGS
 .PP
 \f[B]list-tags\f[] {\f[I]instancename\f[]}
@@ -2932,50 +3418,52 @@ List the tags of the given instance.
 \f[B]remove-tags\f[] [--from \f[I]file\f[]] {\f[I]instancename\f[]}
 {\f[I]tag\f[]...}
 .PP
-Remove tags from the given instance. If any of the tags are not
-existing on the node, the entire operation will abort.
+Remove tags from the given instance.
+If any of the tags are not existing on the node, the entire operation
+will abort.
 .PP
-If the \f[B]--from\f[] option is given, the list of tags to be
-removed will be extended with the contents of that file (each line
-becomes a tag). In this case, there is not need to pass tags on the
-command line (if you do, tags from both sources will be removed). A
-file name of \f[B]-\f[] will be interpreted as stdin.
+If the \f[C]--from\f[] option is given, the list of tags to be removed
+will be extended with the contents of that file (each line becomes a
+tag).
+In this case, there is not need to pass tags on the command line (if you
+do, tags from both sources will be removed).
+A file name of \f[C]-\f[] will be interpreted as stdin.
 .SH REPORTING BUGS
 .PP
-Report bugs to project website (http://code.google.com/p/ganeti/)
-or contact the developers using the
-Ganeti mailing list (ganeti@googlegroups.com).
+Report bugs to project website (http://code.google.com/p/ganeti/) or
+contact the developers using the Ganeti mailing
+list (ganeti@googlegroups.com).
 .SH SEE ALSO
 .PP
 Ganeti overview and specifications: \f[B]ganeti\f[](7) (general
-overview), \f[B]ganeti-os-interface\f[](7) (guest OS definitions).
+overview), \f[B]ganeti-os-interface\f[](7) (guest OS definitions),
+\f[B]ganeti-extstorage-interface\f[](7) (external storage providers).
 .PP
 Ganeti commands: \f[B]gnt-cluster\f[](8) (cluster-wide commands),
 \f[B]gnt-job\f[](8) (job-related commands), \f[B]gnt-node\f[](8)
-(node-related commands), \f[B]gnt-instance\f[](8) (instance
-commands), \f[B]gnt-os\f[](8) (guest OS commands),
-\f[B]gnt-group\f[](8) (node group commands), \f[B]gnt-backup\f[](8)
-(instance import/export commands), \f[B]gnt-debug\f[](8) (debug
-commands).
+(node-related commands), \f[B]gnt-instance\f[](8) (instance commands),
+\f[B]gnt-os\f[](8) (guest OS commands), \f[B]gnt-storage\f[](8) (storage
+commands), \f[B]gnt-group\f[](8) (node group commands),
+\f[B]gnt-backup\f[](8) (instance import/export commands),
+\f[B]gnt-debug\f[](8) (debug commands).
 .PP
 Ganeti daemons: \f[B]ganeti-watcher\f[](8) (automatic instance
 restarter), \f[B]ganeti-cleaner\f[](8) (job queue cleaner),
 \f[B]ganeti-noded\f[](8) (node daemon), \f[B]ganeti-masterd\f[](8)
 (master daemon), \f[B]ganeti-rapi\f[](8) (remote API daemon).
 .PP
-Ganeti htools: \f[B]htools\f[](1) (generic binary),
-\f[B]hbal\f[](1) (cluster balancer), \f[B]hspace\f[](1) (capacity
-calculation), \f[B]hail\f[](1) (IAllocator plugin),
-\f[B]hscan\f[](1) (data gatherer from remote clusters),
-\f[B]hinfo\f[](1) (cluster information printer).
+Ganeti htools: \f[B]htools\f[](1) (generic binary), \f[B]hbal\f[](1)
+(cluster balancer), \f[B]hspace\f[](1) (capacity calculation),
+\f[B]hail\f[](1) (IAllocator plugin), \f[B]hscan\f[](1) (data gatherer
+from remote clusters), \f[B]hinfo\f[](1) (cluster information printer),
+\f[B]mon-collector\f[](7) (data collectors interface).
 .SH COPYRIGHT
 .PP
 Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012 Google Inc.
-Permission is granted to copy, distribute and/or modify under the
-terms of the GNU General Public License as published by the Free
-Software Foundation; either version 2 of the License, or (at your
-option) any later version.
+Permission is granted to copy, distribute and/or modify under the terms
+of the GNU General Public License as published by the Free Software
+Foundation; either version 2 of the License, or (at your option) any
+later version.
 .PP
-On Debian systems, the complete text of the GNU General Public
-License can be found in /usr/share/common-licenses/GPL.
-
+On Debian systems, the complete text of the GNU General Public License
+can be found in /usr/share/common-licenses/GPL.

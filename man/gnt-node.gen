@@ -44,7 +44,7 @@ to its current status (it could be already in a cluster, etc.)
 
 The ``-s (--secondary-ip)`` is used in dual-home clusters and
 specifies the new node's IP in the secondary network. See the
-discussion in **gnt-cluster**(8) for more information.
+discussion in **gnt-cluster**\(8) for more information.
 
 In case you're readding a node after hardware failure, you can use
 the ``--readd`` parameter. In this case, you don't need to pass the
@@ -52,16 +52,12 @@ secondary IP again, it will reused from the cluster. Also, the
 drained and offline flags of the node will be cleared before
 re-adding it.
 
-The ``--force-join`` option is to proceed with adding a node even if it already
-appears to belong to another cluster. This is used during cluster merging, for
-example.
-
 The ``-g (--node-group)`` option is used to add the new node into a
 specific node group, specified by UUID or name. If only one node group
 exists you can skip this option, otherwise it's mandatory.
 
 The ``vm_capable``, ``master_capable``, ``ndparams``, ``diskstate`` and
-``hvstate`` options are described in **ganeti**(7), and are used to set
+``hvstate`` options are described in **ganeti**\(7), and are used to set
 the properties of the new node.
 
 The command performs some operations that change the state of the master
@@ -71,26 +67,16 @@ command fails at a later stage, it doesn't undo such changes.  This
 should not be a problem, as a successful run of ``gnt-node add`` will
 bring everything back in sync.
 
+If the node was previously part of another cluster and still has daemons
+running, the ``node-cleanup`` tool can be run on the machine to be added
+to clean remains of the previous cluster from the node.
+
 Example::
 
     # gnt-node add node5.example.com
     # gnt-node add -s 192.0.2.5 node5.example.com
     # gnt-node add -g group2 -s 192.0.2.9 node9.group2.example.com
 
-
-ADD-TAGS
-~~~~~~~~
-
-**add-tags** [\--from *file*] {*nodename*} {*tag*...}
-
-Add tags to the given node. If any of the tags contains invalid
-characters, the entire operation will abort.
-
-If the ``--from`` option is given, the list of tags will be
-extended with the contents of that file (each line becomes a tag).
-In this case, there is not need to pass tags on the command line
-(if you do, both sources will be used). A file name of - will be
-interpreted as stdin.
 
 EVACUATE
 ~~~~~~~~
@@ -112,8 +98,8 @@ The new location for the instances can be specified in two ways:
   option
 
 - or via the ``-I (--iallocator)`` option, giving a script name as
-  parameter, so each instance will be in turn placed on the (per the
-  script) optimal node
+  parameter (or ``.`` to use the default allocator), so each instance
+  will be in turn placed on the (per the script) optimal node
 
 The ``--early-release`` changes the code so that the old storage on
 node being evacuated is removed early (before the resync is
@@ -138,12 +124,21 @@ each affected instance individually:
   in the secondary node change mode (only valid for DRBD instances)
 - when neither of the above is done a combination of the two cases is run
 
-See **ganeti(7)** for a description of ``--submit`` and other common
+See **ganeti**\(7) for a description of ``--submit`` and other common
 options.
 
 Example::
 
     # gnt-node evacuate -I hail node3.example.com
+
+Note that, due to an issue with the iallocator interface, evacuation of
+all instances at once is not yet implemented. Full evacuation can
+currently be achieved by sequentially evacuating primaries and
+secondaries.
+::
+
+    # gnt-node evacuate -p node3.example.com
+    # gnt-node evacuate -s node3.example.com
 
 
 FAILOVER
@@ -201,7 +196,7 @@ Queries of nodes will be done in parallel with any running jobs. This might
 give inconsistent results for the free disk/memory.
 
 The ``-v`` option activates verbose mode, which changes the display of
-special field states (see **ganeti(7)**).
+special field states (see **ganeti**\(7)).
 
 The ``-o (--output)`` option takes a comma-separated list of output
 fields. The available fields and their meaning are:
@@ -248,6 +243,8 @@ fields. The available fields and their meaning are:
   Total amount of memory of physical machine
 ``name``
   Node name
+``ndp/exclusive_storage``
+  The "exclusive_storage" node parameter
 ``ndp/oob_program``
   The "oob_program" node parameter
 ``ndp/spindle_count``
@@ -265,7 +262,7 @@ fields. The available fields and their meaning are:
 ``powered``
   Whether node is thought to be powered on
 ``role``
-  Node role; "M" for master, "C" for master candidate, "R" for regular, "D" for a drained, "O" for offline
+  Node role; "M" for master, "C" for master candidate, "R" for regular, "D" for drained, "O" for offline
 ``serial_no``
   Node object serial number, incremented on each modification
 ``sinst_cnt``
@@ -299,7 +296,7 @@ pool of memory used for instances (KVM), whereas others have separate
 memory for the node and for the instances (Xen).
 
 If exactly one argument is given and it appears to be a query filter
-(see **ganeti(7)**), the query result is filtered accordingly. For
+(see **ganeti**\(7)), the query result is filtered accordingly. For
 ambiguous cases (e.g. a single field name as a filter) the ``--filter``
 (``-F``) option forces the argument to be treated as a filter (e.g.
 ``gnt-node list -F master_candidate``).
@@ -334,7 +331,7 @@ list of fields (it doesn't accept the ``--output`` option), as follows:
 This command can be used as a reverse lookup (from node and minor) to a
 given instance, which can be useful when debugging DRBD issues.
 
-Note that this command queries Ganeti via :manpage:`ganeti-confd(8)`, so
+Note that this command queries Ganeti via **ganeti-confd**\(8), so
 it won't be available if support for ``confd`` has not been enabled at
 build time; furthermore, in Ganeti 2.6 this is only available via the
 Haskell version of confd (again selected at build time).
@@ -346,13 +343,6 @@ LIST-FIELDS
 
 Lists available fields for nodes.
 
-
-LIST-TAGS
-~~~~~~~~~
-
-**list-tags** {*nodename*}
-
-List the tags of the given node.
 
 MIGRATE
 ~~~~~~~
@@ -371,7 +361,7 @@ can be given to influence the migration type.
 If ``--ignore-ipolicy`` is given any instance policy violations
 occurring during this operation are ignored.
 
-See **ganeti(7)** for a description of ``--submit`` and other common
+See **ganeti**\(7) for a description of ``--submit`` and other common
 options.
 
 Example::
@@ -396,7 +386,7 @@ MODIFY
 This command changes the role of the node. Each options takes
 either a literal yes or no, and only one option should be given as
 yes. The meaning of the roles and flags are described in the
-manpage **ganeti(7)**.
+manpage **ganeti**\(7).
 
 The option ``--node-powered`` can be used to modify state-of-record if
 it doesn't reflect the reality anymore.
@@ -417,9 +407,14 @@ candidate role if is in that role)::
 
 The ``-s (--secondary-ip)`` option can be used to change the node's
 secondary ip. No drbd instances can be running on the node, while this
-operation is taking place.
+operation is taking place. Remember that the secondary ip must be
+reachable from the master secondary ip, when being changed, so be sure
+that the node has the new IP already configured and active. In order to
+convert a cluster from single homed to multi-homed or vice versa
+``--force`` is needed as well, and the target node for the first change
+must be the master.
 
-See **ganeti(7)** for a description of ``--submit`` and other common
+See **ganeti**\(7) for a description of ``--submit`` and other common
 options.
 
 Example (setting the node back to online and master candidate)::
@@ -439,20 +434,6 @@ Example::
 
     # gnt-node remove node5.example.com
 
-
-REMOVE-TAGS
-~~~~~~~~~~~
-
-**remove-tags** [\--from *file*] {*nodename*} {*tag*...}
-
-Remove tags from the given node. If any of the tags are not
-existing on the node, the entire operation will abort.
-
-If the ``--from`` option is given, the list of tags to be removed will
-be extended with the contents of that file (each line becomes a tag).
-In this case, there is not need to pass tags on the command line (if
-you do, tags from both sources will be removed). A file name of - will
-be interpreted as stdin.
 
 VOLUMES
 ~~~~~~~
@@ -637,7 +618,7 @@ The ``--yes`` option can be used to skip confirmation, while the
 ``--force`` option is needed if the target node is the master
 node.
 
-See **ganeti(7)** for a description of ``--submit`` and other common
+See **ganeti**\(7) for a description of ``--submit`` and other common
 options.
 
 POWER
@@ -683,6 +664,73 @@ element with their status in a ``item=status`` manner. Where ``item`` is script
 specific and ``status`` can be one of ``OK``, ``WARNING``, ``CRITICAL`` or
 ``UNKNOWN``. Items with status ``WARNING`` or ``CRITICAL`` are logged and
 annotated in the command line output.
+
+
+RESTRICTED-COMMAND
+~~~~~~~~~~~~~~~~~~
+
+| **restricted-command** [-M] [\--sync]
+| { -g *group* *command* | *command* *nodes*... }
+
+Executes a restricted command on the specified nodes. Restricted commands are
+not arbitrary, but must reside in
+``@SYSCONFDIR@/ganeti/restricted-commands`` on a node, either as a regular
+file or as a symlink. The directory must be owned by root and not be
+world- or group-writable. If a command fails verification or otherwise
+fails to start, the node daemon log must be consulted for more detailed
+information.
+
+Example for running a command on two nodes::
+
+    # gnt-node restricted-command mycommand \
+      node1.example.com node2.example.com
+
+The ``-g`` option can be used to run a command only on a specific node
+group, e.g.::
+
+    # gnt-node restricted-command -g default mycommand
+
+The ``-M`` option can be used to prepend the node name to all command
+output lines. ``--sync`` forces the opcode to acquire the node lock(s)
+in exclusive mode.
+
+Tags
+~~~~
+
+ADD-TAGS
+^^^^^^^^
+
+**add-tags** [\--from *file*] {*nodename*} {*tag*...}
+
+Add tags to the given node. If any of the tags contains invalid
+characters, the entire operation will abort.
+
+If the ``--from`` option is given, the list of tags will be
+extended with the contents of that file (each line becomes a tag).
+In this case, there is not need to pass tags on the command line
+(if you do, both sources will be used). A file name of - will be
+interpreted as stdin.
+
+LIST-TAGS
+^^^^^^^^^
+
+**list-tags** {*nodename*}
+
+List the tags of the given node.
+
+REMOVE-TAGS
+^^^^^^^^^^^
+
+**remove-tags** [\--from *file*] {*nodename*} {*tag*...}
+
+Remove tags from the given node. If any of the tags are not
+existing on the node, the entire operation will abort.
+
+If the ``--from`` option is given, the list of tags to be removed will
+be extended with the contents of that file (each line becomes a tag).
+In this case, there is not need to pass tags on the command line (if
+you do, tags from both sources will be removed). A file name of - will
+be interpreted as stdin.
 
 .. vim: set textwidth=72 :
 .. Local Variables:

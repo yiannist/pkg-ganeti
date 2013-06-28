@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2009, 2010 Google Inc.
+# Copyright (C) 2009, 2010, 2012 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -63,6 +63,7 @@ from ganeti import confd
 from ganeti import ssconf
 from ganeti import compat
 from ganeti import netutils
+from ganeti import pathutils
 
 
 class ConfdAsyncUDPClient(daemon.AsyncUDPSocket):
@@ -283,7 +284,7 @@ class ConfdClient:
                                         server_port=port,
                                         extra_args=rq.args,
                                         client=self,
-                                       )
+                                        )
       self._callback(client_reply)
 
     finally:
@@ -405,7 +406,7 @@ UPCALL_REPLY = 1
 # UPCALL_EXPIRE: internal library request expire
 # has only salt, type, orig_request and extra_args
 UPCALL_EXPIRE = 2
-CONFD_UPCALL_TYPES = frozenset([
+CONFD_UPCALL_TYPES = compat.UniqueFrozenset([
   UPCALL_REPLY,
   UPCALL_EXPIRE,
   ])
@@ -689,5 +690,5 @@ def GetConfdClient(callback):
   ss = ssconf.SimpleStore()
   mc_file = ss.KeyToFilename(constants.SS_MASTER_CANDIDATES_IPS)
   mc_list = utils.ReadFile(mc_file).splitlines()
-  hmac_key = utils.ReadFile(constants.CONFD_HMAC_KEY)
+  hmac_key = utils.ReadFile(pathutils.CONFD_HMAC_KEY)
   return ConfdClient(hmac_key, mc_list, callback)

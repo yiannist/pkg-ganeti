@@ -1,7 +1,7 @@
 Ganeti automatic instance allocation
 ====================================
 
-Documents Ganeti version 2.6
+Documents Ganeti version 2.7
 
 .. contents::
 
@@ -111,6 +111,8 @@ nodegroups
     this attribute in the :manpage:`gnt-group(8)` manpage)
   ipolicy
     the instance policy of the node group
+  tags
+    the list of node group tags
 
 instances
   a dictionary with the data for the current existing instance on the
@@ -212,6 +214,11 @@ In all cases, it includes:
     off their node(s). These are described in a separate :ref:`design
     document <multi-reloc-detailed-design>`.
 
+    The ``multi-allocate`` request is used to allocate multiple
+    instances on the cluster. The request is beside of that very
+    similiar to the ``allocate`` one. For more details look at
+    :doc:`Ganeti bulk create <design-bulk-create>`.
+
 For both allocate and relocate mode, the following extra keys are needed
 in the ``request`` dictionary:
 
@@ -311,6 +318,11 @@ As for ``node-evacuate``, it needs the following request arguments:
     should be considered for relocating instances to; type
     *list of strings*
 
+``multi-allocate`` needs the following request arguments:
+
+  instances
+    a list of request dicts
+
 Response message
 ~~~~~~~~~~~~~~~~
 
@@ -338,6 +350,12 @@ result
   serialized opcodes; see the :ref:`design document
   <multi-reloc-result>` for a detailed description
 
+  for the ``multi-allocate`` mode this is a tuple of 2 lists, the first
+  being element of the tuple is a list of succeeded allocation, with the
+  instance name as first element of each entry and the node placement in
+  the second. The second element of the tuple is the instance list of
+  failed allocations.
+
 .. note:: Current Ganeti version accepts either ``result`` or ``nodes``
    as a backwards-compatibility measure (older versions only supported
    ``nodes``)
@@ -361,7 +379,41 @@ time, but not included in further examples below)::
     "nodegroups": {
       "f4e06e0d-528a-4963-a5ad-10f3e114232d": {
         "name": "default",
-        "alloc_policy": "preferred"
+        "alloc_policy": "preferred",
+        "ipolicy": {
+          "disk-templates": ["drbd", "plain"],
+          "minmax": [
+            {
+              "max": {
+                "cpu-count": 2,
+                "disk-count": 8,
+                "disk-size": 2048,
+                "memory-size": 12800,
+                "nic-count": 8,
+                "spindle-use": 8
+              },
+              "min": {
+                "cpu-count": 1,
+                "disk-count": 1,
+                "disk-size": 1024,
+                "memory-size": 128,
+                "nic-count": 1,
+                "spindle-use": 1
+              }
+            }
+          ],
+          "spindle-ratio": 32.0,
+          "std": {
+            "cpu-count": 1,
+            "disk-count": 1,
+            "disk-size": 1024,
+            "memory-size": 128,
+            "nic-count": 1,
+            "spindle-use": 1
+          },
+          "vcpu-ratio": 4.0
+        },
+        "tags": ["ng-tag-1", "ng-tag-2"]
       }
     },
     "instances": {

@@ -1,39 +1,45 @@
+
+
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
   "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
 
 <html xmlns="http://www.w3.org/1999/xhtml">
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Moving instances accross node groups &mdash; Ganeti v2.6.2 documentation</title>
-    <link rel="stylesheet" href="_static/default.css" type="text/css" />
+    <title>Moving instances accross node groups &mdash; Ganeti 2.7.0~rc3 documentation</title>
+    
+    <link rel="stylesheet" href="_static/style.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.6.2',
-        COLLAPSE_MODINDEX: false,
+        VERSION:     '2.7.0~rc3',
+        COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
       };
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.6.2 documentation" href="index.html" />
-    <link rel="next" title="Ganeti shared storage support for 2.3+" href="design-shared-storage.html" />
-    <link rel="prev" title="Chained jobs" href="design-chained-jobs.html" /> 
+    <link rel="top" title="Ganeti 2.7.0~rc3 documentation" href="index.html" />
+    <link rel="next" title="Design for adding a node to a cluster" href="design-node-add.html" />
+    <link rel="prev" title="Submitting jobs from logical units" href="design-lu-generated-jobs.html" /> 
   </head>
   <body>
     <div class="related">
       <h3>Navigation</h3>
       <ul>
         <li class="right" style="margin-right: 10px">
-          <a href="design-shared-storage.html" title="Ganeti shared storage support for 2.3+"
+          <a href="design-node-add.html" title="Design for adding a node to a cluster"
              accesskey="N">next</a></li>
         <li class="right" >
-          <a href="design-chained-jobs.html" title="Chained jobs"
+          <a href="design-lu-generated-jobs.html" title="Submitting jobs from logical units"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.6.2 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.7.0~rc3 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -48,8 +54,8 @@
 instance moves across node groups. Reader familiarity with the following
 existing documents is advised:</p>
 <ul class="simple">
-<li><a class="reference external" href="iallocator.html"><em>Current IAllocator specification</em></a></li>
-<li><a class="reference external" href="design-shared-storage.html"><em>Shared storage model in 2.3+</em></a></li>
+<li><a class="reference internal" href="iallocator.html"><em>Current IAllocator specification</em></a></li>
+<li><a class="reference internal" href="design-shared-storage.html"><em>Shared storage model in 2.3+</em></a></li>
 </ul>
 <div class="section" id="motivation-and-and-design-proposal">
 <h2>Motivation and and design proposal<a class="headerlink" href="#motivation-and-and-design-proposal" title="Permalink to this headline">¶</a></h2>
@@ -97,7 +103,7 @@ of <strong>replace secondary</strong>, <strong>migration</strong> and <strong>fa
 operations within the corresponding mobility domain).</p>
 <p>The result of the operations described above must contain two lists of
 instances and a list of jobs (each of which is a list of serialized
-opcodes) to actually execute the operation. <a class="reference external" href="design-chained-jobs.html"><em>Job dependencies</em></a> can be used to force jobs to run in a certain
+opcodes) to actually execute the operation. <a class="reference internal" href="design-chained-jobs.html"><em>Job dependencies</em></a> can be used to force jobs to run in a certain
 order while still making use of parallelism.</p>
 <p>The two lists of instances describe which instances could be
 moved/migrated and which couldn&#8217;t for some reason (&#8220;unsuccessful&#8221;). The
@@ -118,7 +124,7 @@ both operations).</p>
 </div>
 <p>where <tt class="docutils literal"><span class="pre">explanation</span></tt> is a string describing why the plugin was not able
 to relocate the instance.</p>
-<p>The client is given a list of job IDs (see the <a class="reference external" href="design-lu-generated-jobs.html"><em>design for
+<p>The client is given a list of job IDs (see the <a class="reference internal" href="design-lu-generated-jobs.html"><em>design for
 LU-generated jobs</em></a>) which it can watch.
 Failures should be reported to the user.</p>
 <p>Example job list:</p>
@@ -171,44 +177,44 @@ Failures should be reported to the user.</p>
       </div>
       <div class="sphinxsidebar">
         <div class="sphinxsidebarwrapper">
-            <h3><a href="index.html">Table Of Contents</a></h3>
-            <ul>
-<li><a class="reference external" href="#">Moving instances accross node groups</a><ul>
-<li><a class="reference external" href="#motivation-and-and-design-proposal">Motivation and and design proposal</a></li>
-<li><a class="reference external" href="#detailed-design">Detailed design</a><ul>
-<li><a class="reference external" href="#changing-instance-s-groups">Changing instance&#8217;s groups</a></li>
-<li><a class="reference external" href="#node-evacuation">Node evacuation</a></li>
-<li><a class="reference external" href="#result">Result</a></li>
+  <h3><a href="index.html">Table Of Contents</a></h3>
+  <ul>
+<li><a class="reference internal" href="#">Moving instances accross node groups</a><ul>
+<li><a class="reference internal" href="#motivation-and-and-design-proposal">Motivation and and design proposal</a></li>
+<li><a class="reference internal" href="#detailed-design">Detailed design</a><ul>
+<li><a class="reference internal" href="#changing-instance-s-groups">Changing instance&#8217;s groups</a></li>
+<li><a class="reference internal" href="#node-evacuation">Node evacuation</a></li>
+<li><a class="reference internal" href="#result">Result</a></li>
 </ul>
 </li>
 </ul>
 </li>
 </ul>
 
-            <h4>Previous topic</h4>
-            <p class="topless"><a href="design-chained-jobs.html"
-                                  title="previous chapter">Chained jobs</a></p>
-            <h4>Next topic</h4>
-            <p class="topless"><a href="design-shared-storage.html"
-                                  title="next chapter">Ganeti shared storage support for 2.3+</a></p>
-            <h3>This Page</h3>
-            <ul class="this-page-menu">
-              <li><a href="_sources/design-multi-reloc.txt"
-                     rel="nofollow">Show Source</a></li>
-            </ul>
-          <div id="searchbox" style="display: none">
-            <h3>Quick search</h3>
-              <form class="search" action="search.html" method="get">
-                <input type="text" name="q" size="18" />
-                <input type="submit" value="Go" />
-                <input type="hidden" name="check_keywords" value="yes" />
-                <input type="hidden" name="area" value="default" />
-              </form>
-              <p class="searchtip" style="font-size: 90%">
-              Enter search terms or a module, class or function name.
-              </p>
-          </div>
-          <script type="text/javascript">$('#searchbox').show(0);</script>
+  <h4>Previous topic</h4>
+  <p class="topless"><a href="design-lu-generated-jobs.html"
+                        title="previous chapter">Submitting jobs from logical units</a></p>
+  <h4>Next topic</h4>
+  <p class="topless"><a href="design-node-add.html"
+                        title="next chapter">Design for adding a node to a cluster</a></p>
+  <h3>This Page</h3>
+  <ul class="this-page-menu">
+    <li><a href="_sources/design-multi-reloc.txt"
+           rel="nofollow">Show Source</a></li>
+  </ul>
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
         </div>
       </div>
       <div class="clearer"></div>
@@ -217,17 +223,17 @@ Failures should be reported to the user.</p>
       <h3>Navigation</h3>
       <ul>
         <li class="right" style="margin-right: 10px">
-          <a href="design-shared-storage.html" title="Ganeti shared storage support for 2.3+"
+          <a href="design-node-add.html" title="Design for adding a node to a cluster"
              >next</a></li>
         <li class="right" >
-          <a href="design-chained-jobs.html" title="Chained jobs"
+          <a href="design-lu-generated-jobs.html" title="Submitting jobs from logical units"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.6.2 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.7.0~rc3 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">
-      &copy; Copyright 2006, 2007, 2008, 2009, 2010, 2011, 2012, Google Inc..
-      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 0.6.7.
+        &copy; Copyright 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Google Inc..
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
     </div>
   </body>
 </html>

@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2010, 2011 Google Inc.
+# Copyright (C) 2010, 2011, 2012 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -121,6 +121,12 @@ def CombinationDesc(op, args, fn):
   @param fn: Wrapped function
 
   """
+  # Some type descriptions are rather long. If "None" is listed at the
+  # end or somewhere in between it is easily missed. Therefore it should
+  # be at the beginning, e.g. "None or (long description)".
+  if __debug__ and TNone in args and args.index(TNone) > 0:
+    raise Exception("TNone must be listed first")
+
   if len(args) == 1:
     descr = str(args[0])
   else:
@@ -179,6 +185,14 @@ def TNone(val):
 
   """
   return val is None
+
+
+@WithDesc("ValueNone")
+def TValueNone(val):
+  """Checks if the given value is L{constants.VALUE_NONE}.
+
+  """
+  return val == constants.VALUE_NONE
 
 
 @WithDesc("Boolean")
@@ -245,6 +259,14 @@ def TList(val):
   return isinstance(val, list)
 
 
+@WithDesc("Tuple")
+def TTuple(val):
+  """Checks if the given value is a tuple.
+
+  """
+  return isinstance(val, tuple)
+
+
 @WithDesc("Dictionary")
 def TDict(val):
   """Checks if the given value is a dictionary.
@@ -304,44 +326,57 @@ def TRegex(pobj):
   return desc(TAnd(TString, pobj.match))
 
 
+def TMaybe(test):
+  """Wrap a test in a TOr(TNone, test).
+
+  This makes it easier to define TMaybe* types.
+
+  """
+  return TOr(TNone, test)
+
+
+def TMaybeValueNone(test):
+  """Used for unsetting values.
+
+  """
+  return TMaybe(TOr(TValueNone, test))
+
+
 # Type aliases
 
 #: a non-empty string
 TNonEmptyString = WithDesc("NonEmptyString")(TAnd(TString, TTrue))
 
 #: a maybe non-empty string
-TMaybeString = TOr(TNonEmptyString, TNone)
+TMaybeString = TMaybe(TNonEmptyString)
 
 #: a maybe boolean (bool or none)
-TMaybeBool = TOr(TBool, TNone)
+TMaybeBool = TMaybe(TBool)
 
 #: Maybe a dictionary (dict or None)
-TMaybeDict = TOr(TDict, TNone)
+TMaybeDict = TMaybe(TDict)
 
-#: a positive integer
+#: a non-negative integer (value >= 0)
+TNonNegativeInt = \
+  TAnd(TInt, WithDesc("EqualOrGreaterThanZero")(lambda v: v >= 0))
+
+#: a positive integer (value > 0)
 TPositiveInt = \
-  TAnd(TInt, WithDesc("EqualGreaterZero")(lambda v: v >= 0))
-
-#: a maybe positive integer (positive integer or None)
-TMaybePositiveInt = TOr(TPositiveInt, TNone)
-
-#: a strictly positive integer
-TStrictPositiveInt = \
   TAnd(TInt, WithDesc("GreaterThanZero")(lambda v: v > 0))
 
-#: a maybe strictly positive integer (strictly positive integer or None)
-TMaybeStrictPositiveInt = TOr(TStrictPositiveInt, TNone)
+#: a maybe positive integer (positive integer or None)
+TMaybePositiveInt = TMaybe(TPositiveInt)
 
-#: a strictly negative integer (0 > value)
-TStrictNegativeInt = \
+#: a negative integer (value < 0)
+TNegativeInt = \
   TAnd(TInt, WithDesc("LessThanZero")(compat.partial(operator.gt, 0)))
 
 #: a positive float
-TPositiveFloat = \
-  TAnd(TFloat, WithDesc("EqualGreaterZero")(lambda v: v >= 0.0))
+TNonNegativeFloat = \
+  TAnd(TFloat, WithDesc("EqualOrGreaterThanZero")(lambda v: v >= 0.0))
 
 #: Job ID
-TJobId = WithDesc("JobId")(TOr(TPositiveInt,
+TJobId = WithDesc("JobId")(TOr(TNonNegativeInt,
                                TRegex(re.compile("^%s$" %
                                                  constants.JOB_ID_TEMPLATE))))
 
@@ -349,7 +384,21 @@ TJobId = WithDesc("JobId")(TOr(TPositiveInt,
 TNumber = TOr(TInt, TFloat)
 
 #: Relative job ID
-TRelativeJobId = WithDesc("RelativeJobId")(TStrictNegativeInt)
+TRelativeJobId = WithDesc("RelativeJobId")(TNegativeInt)
+
+
+def TInstanceOf(cls):
+  """Checks if a given value is an instance of C{cls}.
+
+  @type cls: class
+  @param cls: Class object
+
+  """
+  name = "%s.%s" % (cls.__module__, cls.__name__)
+
+  desc = WithDesc("Instance of %s" % (Parens(name), ))
+
+  return desc(lambda val: isinstance(val, cls))
 
 
 def TListOf(my_type):
@@ -360,7 +409,7 @@ def TListOf(my_type):
   return desc(TAnd(TList, lambda lst: compat.all(my_type(v) for v in lst)))
 
 
-TMaybeListOf = lambda item_type: TOr(TNone, TListOf(item_type))
+TMaybeListOf = lambda item_type: TMaybe(TListOf(item_type))
 
 
 def TDictOf(key_type, val_type):

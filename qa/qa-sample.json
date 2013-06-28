@@ -1,6 +1,14 @@
 {
+  "# Note:": null,
+  "# This file is stored in the JSON format and does not support": null,
+  "# comments. As a work-around, comments are keys starting with a hash": null,
+  "# sign (#).": null,
+
   "name": "xen-test",
+
+  "# Name used for renaming cluster": null,
   "rename": "xen-test-rename",
+
   "enabled-hypervisors": "xen-pvm",
   "# Dict of hypervisor name and parameters (like on the cmd line)": null,
   "hypervisor-parameters": {},
@@ -11,6 +19,22 @@
   "# Dict of OS name and value dict of hypervisor  parameters": null,
   "os-hvp": {},
   "primary_ip_version": 4,
+  "# Name of the LVM group for the cluster": null,
+  "vg-name": "xenvg",
+  "# Cluster-level value of the exclusive-storage flag": null,
+  "exclusive-storage": null,
+
+  "# Additional arguments for initializing cluster": null,
+  "cluster-init-args": [],
+
+  "# Network interface for master role": null,
+  "#master-netdev": "xen-br0",
+
+  "# Default network interface parameters": null,
+  "#default-nicparams": {
+    "mode": "bridged",
+    "link": "xen-br0",
+  },
 
   "os": "debian-etch",
   "maxmem": "1024M",
@@ -94,6 +118,8 @@
     "cluster-epo": true,
     "cluster-redist-conf": true,
     "cluster-repair-disk-sizes": true,
+    "cluster-exclusive-storage": true,
+    "cluster-instance-policy": true,
 
     "haskell-confd": true,
     "htools": true,
@@ -129,6 +155,7 @@
     "instance-list": true,
     "instance-migrate": true,
     "instance-modify": true,
+    "instance-modify-disks": false,
     "instance-reboot": true,
     "instance-reinstall": true,
     "instance-rename": true,
@@ -144,16 +171,16 @@
     "# on whether they support the `gnt-instance console' command.": null,
     "instance-console": false,
 
-    "# Disabled by default because it takes rather long": null,
+    "# Disabled by default because they take rather long": null,
     "instance-replace-disks": false,
+    "instance-recreate-disks": false,
 
     "# Whether to test the tools/move-instance utility": null,
     "inter-cluster-instance-move": false,
 
-    "# Make sure not to include the disk(s) required for Dom0 to be up": null,
-    "# in the volume group used for instances. Otherwise the whole": null,
-    "# system may stop working until restarted.": null,
-    "instance-disk-failure": false
+    "# Run instance tests with different cluster configurations": null,
+    "default-instance-tests": true,
+    "exclusive-storage-instance-tests": false
   },
 
   "options": {
@@ -163,7 +190,8 @@
     "burnin-check-instances": false,
     "burnin-rename": "xen-test-rename",
     "burnin-reboot": true,
-    "reboot-types": ["soft", "hard", "full"]
+    "reboot-types": ["soft", "hard", "full"],
+    "use-iallocators": false
   },
 
   "# vim: set syntax=javascript :": null

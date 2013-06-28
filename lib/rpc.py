@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -35,6 +35,7 @@ import zlib
 import base64
 import pycurl
 import threading
+import copy
 
 from ganeti import utils
 from ganeti import objects
@@ -47,6 +48,8 @@ from ganeti import ssconf
 from ganeti import runtime
 from ganeti import compat
 from ganeti import rpc_defs
+from ganeti import pathutils
+from ganeti import vcluster
 
 # Special module generated at build time
 from ganeti import _generated_rpc
@@ -55,21 +58,10 @@ from ganeti import _generated_rpc
 import ganeti.http.client  # pylint: disable=W0611
 
 
-# Timeout for connecting to nodes (seconds)
-_RPC_CONNECT_TIMEOUT = 5
-
 _RPC_CLIENT_HEADERS = [
   "Content-type: %s" % http.HTTP_APP_JSON,
   "Expect:",
   ]
-
-# Various time constants for the timeout table
-_TMO_URGENT = 60 # one minute
-_TMO_FAST = 5 * 60 # five minutes
-_TMO_NORMAL = 15 * 60 # 15 minutes
-_TMO_SLOW = 3600 # one hour
-_TMO_4HRS = 4 * 3600
-_TMO_1DAY = 86400
 
 #: Special value to describe an offline host
 _OFFLINE = object()
@@ -104,7 +96,7 @@ def Shutdown():
 
 
 def _ConfigRpcCurl(curl):
-  noded_cert = str(constants.NODED_CERT_FILE)
+  noded_cert = str(pathutils.NODED_CERT_FILE)
 
   curl.setopt(pycurl.FOLLOWLOCATION, False)
   curl.setopt(pycurl.CAINFO, noded_cert)
@@ -114,7 +106,7 @@ def _ConfigRpcCurl(curl):
   curl.setopt(pycurl.SSLCERT, noded_cert)
   curl.setopt(pycurl.SSLKEYTYPE, "PEM")
   curl.setopt(pycurl.SSLKEY, noded_cert)
-  curl.setopt(pycurl.CONNECTTIMEOUT, _RPC_CONNECT_TIMEOUT)
+  curl.setopt(pycurl.CONNECTTIMEOUT, constants.RPC_CONNECT_TIMEOUT)
 
 
 def RunWithRPC(fn):
@@ -158,7 +150,7 @@ class RpcResult(object):
   """RPC Result class.
 
   This class holds an RPC result. It is needed since in multi-node
-  calls we can't raise an exception just because one one out of many
+  calls we can't raise an exception just because one out of many
   failed, and therefore we use this class to encapsulate the result.
 
   @ivar data: the data payload, for successful results, or None
@@ -413,6 +405,8 @@ class _RpcProcessor:
     @param body: dictionary with request bodies per host
     @type read_timeout: int or None
     @param read_timeout: Read timeout for request
+    @rtype: dictionary
+    @return: a dictionary mapping host names to rpc.RpcResult objects
 
     """
     assert read_timeout is not None, \
@@ -534,7 +528,9 @@ def _PrepareFileUpload(getents_fn, filename):
 
   getents = getents_fn()
 
-  return [filename, data, st.st_mode, getents.LookupUid(st.st_uid),
+  virt_filename = vcluster.MakeVirtualPath(filename)
+
+  return [virt_filename, data, st.st_mode, getents.LookupUid(st.st_uid),
           getents.LookupGid(st.st_gid), st.st_atime, st.st_mtime]
 
 
@@ -573,6 +569,27 @@ def _EncodeBlockdevRename(value):
 
   """
   return [(d.ToDict(), uid) for d, uid in value]
+
+
+def MakeLegacyNodeInfo(data, require_vg_info=True):
+  """Formats the data returned by L{rpc.RpcRunner.call_node_info}.
+
+  Converts the data into a single dictionary. This is fine for most use cases,
+  but some require information from more than one volume group or hypervisor.
+
+  @param require_vg_info: raise an error if the returnd vg_info
+      doesn't have any values
+
+  """
+  (bootid, vgs_info, (hv_info, )) = data
+
+  ret = utils.JoinDisjointDicts(hv_info, {"bootid": bootid})
+
+  if require_vg_info or vgs_info:
+    (vg0_info, ) = vgs_info
+    ret = utils.JoinDisjointDicts(vg0_info, ret)
+
+  return ret
 
 
 def _AnnotateDParamsDRBD(disk, (drbd_params, data_params, meta_params)):
@@ -618,11 +635,32 @@ def AnnotateDiskParams(template, disks, disk_params):
   else:
     annotation_fn = _AnnotateDParamsGeneric
 
-  new_disks = []
-  for disk in disks:
-    new_disks.append(annotation_fn(disk.Copy(), ld_params))
+  return [annotation_fn(disk.Copy(), ld_params) for disk in disks]
 
-  return new_disks
+
+def _GetESFlag(cfg, nodename):
+  ni = cfg.GetNodeInfo(nodename)
+  if ni is None:
+    raise errors.OpPrereqError("Invalid node name %s" % nodename,
+                               errors.ECODE_NOENT)
+  return cfg.GetNdParams(ni)[constants.ND_EXCLUSIVE_STORAGE]
+
+
+def GetExclusiveStorageForNodeNames(cfg, nodelist):
+  """Return the exclusive storage flag for all the given nodes.
+
+  @type cfg: L{config.ConfigWriter}
+  @param cfg: cluster configuration
+  @type nodelist: list or tuple
+  @param nodelist: node names for which to read the flag
+  @rtype: dict
+  @return: mapping from node names to exclusive storage flags
+  @raise errors.OpPrereqError: if any given node name has no corresponding node
+
+  """
+  getflag = lambda n: _GetESFlag(cfg, n)
+  flags = map(getflag, nodelist)
+  return dict(zip(nodelist, flags))
 
 
 #: Generic encoders
@@ -663,6 +701,7 @@ class RpcRunner(_RpcClientBase,
       rpc_defs.ED_INST_DICT: self._InstDict,
       rpc_defs.ED_INST_DICT_HVP_BEP_DP: self._InstDictHvpBepDp,
       rpc_defs.ED_INST_DICT_OSP_DP: self._InstDictOspDp,
+      rpc_defs.ED_NIC_DICT: self._NicDict,
 
       # Encoders annotating disk parameters
       rpc_defs.ED_DISKS_DICT_DP: self._DisksDictDP,
@@ -687,6 +726,18 @@ class RpcRunner(_RpcClientBase,
     _generated_rpc.RpcClientBootstrap.__init__(self)
     _generated_rpc.RpcClientDnsOnly.__init__(self)
     _generated_rpc.RpcClientDefault.__init__(self)
+
+  def _NicDict(self, nic):
+    """Convert the given nic to a dict and encapsulate netinfo
+
+    """
+    n = copy.deepcopy(nic)
+    if n.network:
+      net_uuid = self._cfg.LookupNetwork(n.network)
+      if net_uuid:
+        nobj = self._cfg.GetNetwork(net_uuid)
+        n.netinfo = objects.Network.ToDict(nobj)
+    return n.ToDict()
 
   def _InstDict(self, instance, hvp=None, bep=None, osp=None):
     """Convert the given instance to a dict.
@@ -718,11 +769,17 @@ class RpcRunner(_RpcClientBase,
     idict["osparams"] = cluster.SimpleFillOS(instance.os, instance.osparams)
     if osp is not None:
       idict["osparams"].update(osp)
+    idict["disks"] = self._DisksDictDP((instance.disks, instance))
     for nic in idict["nics"]:
       nic["nicparams"] = objects.FillDict(
         cluster.nicparams[constants.PP_DEFAULT],
         nic["nicparams"])
-    idict["disks"] = self._DisksDictDP((instance.disks, instance))
+      network = nic.get("network", None)
+      if network:
+        net_uuid = self._cfg.LookupNetwork(network)
+        if net_uuid:
+          nobj = self._cfg.GetNetwork(net_uuid)
+          nic["netinfo"] = objects.Network.ToDict(nobj)
     return idict
 
   def _InstDictHvpBepDp(self, (instance, hvp, bep)):

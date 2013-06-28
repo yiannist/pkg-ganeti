@@ -11,39 +11,40 @@ The \f[B]gnt-debug\f[] is used for debugging the Ganeti system.
 .SH COMMANDS
 .SS IALLOCATOR
 .PP
-\f[B]iallocator\f[] [--debug] [--dir \f[I]DIRECTION\f[]]
-{--algorithm \f[I]ALLOCATOR\f[] } [--mode \f[I]MODE\f[]] [--mem
-\f[I]MEMORY\f[]] [--disks \f[I]DISKS\f[]] [--disk-template
-\f[I]TEMPLATE\f[]] [--nics \f[I]NICS\f[]] [--os-type \f[I]OS\f[]]
-[--vcpus \f[I]VCPUS\f[]] [--tags \f[I]TAGS\f[]] {\f[I]instance\f[]}
+\f[B]iallocator\f[] [--debug] [--dir \f[I]DIRECTION\f[]] {--algorithm
+\f[I]ALLOCATOR\f[] } [--mode \f[I]MODE\f[]] [--mem \f[I]MEMORY\f[]]
+[--disks \f[I]DISKS\f[]] [--disk-template \f[I]TEMPLATE\f[]] [--nics
+\f[I]NICS\f[]] [--os-type \f[I]OS\f[]] [--vcpus \f[I]VCPUS\f[]] [--tags
+\f[I]TAGS\f[]] {\f[I]instance\f[]}
 .PP
 Executes a test run of the \f[I]iallocator\f[] framework.
 .PP
-The command will build input for a given iallocator script (named
-with the \f[B]--algorithm\f[] option), and either show this input
-data (if \f[I]DIRECTION\f[] is \f[B]in\f[]) or run the iallocator
-script and show its output (if \f[I]DIRECTION\f[] is \f[B]out\f[]).
+The command will build input for a given iallocator script (named with
+the \f[C]--algorithm\f[] option), and either show this input data (if
+\f[I]DIRECTION\f[] is \f[C]in\f[]) or run the iallocator script and show
+its output (if \f[I]DIRECTION\f[] is \f[C]out\f[]).
 .PP
-If the \f[I]MODE\f[] is \f[B]allocate\f[], then an instance
-definition is built from the other arguments and sent to the
-script, otherwise (\f[I]MODE\f[] is \f[B]relocate\f[]) an existing
-instance name must be passed as the first argument.
+If the \f[I]MODE\f[] is \f[C]allocate\f[], then an instance definition
+is built from the other arguments and sent to the script, otherwise
+(\f[I]MODE\f[] is \f[C]relocate\f[]) an existing instance name must be
+passed as the first argument.
 .PP
-This build of Ganeti will look for iallocator scripts in the
-following directories: @CUSTOM_IALLOCATOR_SEARCH_PATH@; for more
-details about this framework, see the HTML or PDF documentation.
+This build of Ganeti will look for iallocator scripts in the following
+directories: @CUSTOM_IALLOCATOR_SEARCH_PATH@; for more details about
+this framework, see the HTML or PDF documentation.
 .SS DELAY
 .PP
 \f[B]delay\f[] [--debug] [--no-master] [-n \f[I]NODE\f[]...]
 {\f[I]duration\f[]}
 .PP
-Run a test opcode (a sleep) on the master and on selected nodes
-(via an RPC call). This serves no other purpose but to execute a
-test operation.
+Run a test opcode (a sleep) on the master and on selected nodes (via an
+RPC call).
+This serves no other purpose but to execute a test operation.
 .PP
-The \f[B]-n\f[] option can be given multiple times to select the
-nodes for the RPC call. By default, the delay will also be executed
-on the master, unless the \f[B]--no-master\f[] option is passed.
+The \f[C]-n\f[] option can be given multiple times to select the nodes
+for the RPC call.
+By default, the delay will also be executed on the master, unless the
+\f[C]--no-master\f[] option is passed.
 .PP
 The \f[I]delay\f[] argument will be interpreted as a floating point
 number.
@@ -53,117 +54,115 @@ number.
 \f[I]N\f[]] [--op-repeat \f[I]N\f[]] [--each] {opcodes_file...}
 .PP
 This command builds a list of opcodes from files in JSON format and
-submits a job per file to the master daemon. It can be used to test
-options that are not available via command line.
+submits a job per file to the master daemon.
+It can be used to test options that are not available via command line.
 .PP
-The \f[B]verbose\f[] option will additionally display the
-corresponding job IDs and the progress in waiting for the jobs; the
-\f[B]timing-stats\f[] option will show some overall statistics
-inluding the number of total opcodes, jobs submitted and time spent
-in each stage (submit, exec, total).
+The \f[C]verbose\f[] option will additionally display the corresponding
+job IDs and the progress in waiting for the jobs; the
+\f[C]timing-stats\f[] option will show some overall statistics inluding
+the number of total opcodes, jobs submitted and time spent in each stage
+(submit, exec, total).
 .PP
-The \f[B]job-repeat\f[] and \f[B]op-repeat\f[] options allow to
-submit multiple copies of the passed arguments; job-repeat will
-cause N copies of each job (input file) to be submitted (equivalent
-to passing the arguments N times) while op-repeat will cause N
-copies of each of the opcodes in the file to be executed
-(equivalent to each file containing N copies of the opcodes).
+The \f[C]job-repeat\f[] and \f[C]op-repeat\f[] options allow to submit
+multiple copies of the passed arguments; job-repeat will cause N copies
+of each job (input file) to be submitted (equivalent to passing the
+arguments N times) while op-repeat will cause N copies of each of the
+opcodes in the file to be executed (equivalent to each file containing N
+copies of the opcodes).
 .PP
-The \f[B]each\f[] option allow to submit each job separately (using
-\f[B]N\f[] SubmitJob LUXI requests instead of one SubmitManyJobs
+The \f[C]each\f[] option allow to submit each job separately (using
+\f[C]N\f[] SubmitJob LUXI requests instead of one SubmitManyJobs
 request).
 .SS TEST-JOBQUEUE
 .PP
 \f[B]test-jobqueue\f[]
 .PP
-Executes a few tests on the job queue. This command might generate
-failed jobs deliberately.
+Executes a few tests on the job queue.
+This command might generate failed jobs deliberately.
 .SS LOCKS
 .PP
-\f[B]locks\f[] [--no-headers] [--separator=\f[I]SEPARATOR\f[]]
-[-v]
+\f[B]locks\f[] [--no-headers] [--separator=\f[I]SEPARATOR\f[]] [-v]
 .PD 0
 .P
 .PD
-[-o \f[I][+]FIELD,...\f[]]
-[--interval=\f[I]SECONDS\f[]]
+[-o \f[I][+]FIELD,...\f[]] [--interval=\f[I]SECONDS\f[]]
 .PP
 Shows a list of locks in the master daemon.
 .PP
-The \f[B]--no-headers\f[] option will skip the initial header line.
-The \f[B]--separator\f[] option takes an argument which denotes
-what will be used between the output fields. Both these options are
-to help scripting.
+The \f[C]--no-headers\f[] option will skip the initial header line.
+The \f[C]--separator\f[] option takes an argument which denotes what
+will be used between the output fields.
+Both these options are to help scripting.
 .PP
-The \f[B]-v\f[] option activates verbose mode, which changes the
-display of special field states (see \f[B]ganeti(7)\f[]).
+The \f[C]-v\f[] option activates verbose mode, which changes the display
+of special field states (see \f[B]ganeti\f[](7)).
 .PP
-The \f[B]-o\f[] option takes a comma-separated list of output
-fields. The available fields and their meaning are:
+The \f[C]-o\f[] option takes a comma-separated list of output fields.
+The available fields and their meaning are:
 .TP
-.B \f[B]mode\f[]
+.B \f[C]mode\f[]
 Mode in which the lock is currently acquired (exclusive or shared)
 .RS
 .RE
 .TP
-.B \f[B]name\f[]
+.B \f[C]name\f[]
 Lock name
 .RS
 .RE
 .TP
-.B \f[B]owner\f[]
+.B \f[C]owner\f[]
 Current lock owner(s)
 .RS
 .RE
 .TP
-.B \f[B]pending\f[]
+.B \f[C]pending\f[]
 Threads waiting for the lock
 .RS
 .RE
 .PP
-If the value of the option starts with the character \f[B]+\f[],
-the new fields will be added to the default list. This allows one
-to quickly see the default list plus a few other fields, instead of
-retyping the entire list of fields.
+If the value of the option starts with the character \f[C]+\f[], the new
+fields will be added to the default list.
+This allows one to quickly see the default list plus a few other fields,
+instead of retyping the entire list of fields.
 .PP
-Use \f[B]--interval\f[] to repeat the listing. A delay specified by
-the option value in seconds is inserted.
+Use \f[C]--interval\f[] to repeat the listing.
+A delay specified by the option value in seconds is inserted.
 .SH REPORTING BUGS
 .PP
-Report bugs to project website (http://code.google.com/p/ganeti/)
-or contact the developers using the
-Ganeti mailing list (ganeti@googlegroups.com).
+Report bugs to project website (http://code.google.com/p/ganeti/) or
+contact the developers using the Ganeti mailing
+list (ganeti@googlegroups.com).
 .SH SEE ALSO
 .PP
 Ganeti overview and specifications: \f[B]ganeti\f[](7) (general
-overview), \f[B]ganeti-os-interface\f[](7) (guest OS definitions).
+overview), \f[B]ganeti-os-interface\f[](7) (guest OS definitions),
+\f[B]ganeti-extstorage-interface\f[](7) (external storage providers).
 .PP
 Ganeti commands: \f[B]gnt-cluster\f[](8) (cluster-wide commands),
 \f[B]gnt-job\f[](8) (job-related commands), \f[B]gnt-node\f[](8)
-(node-related commands), \f[B]gnt-instance\f[](8) (instance
-commands), \f[B]gnt-os\f[](8) (guest OS commands),
-\f[B]gnt-group\f[](8) (node group commands), \f[B]gnt-backup\f[](8)
-(instance import/export commands), \f[B]gnt-debug\f[](8) (debug
-commands).
+(node-related commands), \f[B]gnt-instance\f[](8) (instance commands),
+\f[B]gnt-os\f[](8) (guest OS commands), \f[B]gnt-storage\f[](8) (storage
+commands), \f[B]gnt-group\f[](8) (node group commands),
+\f[B]gnt-backup\f[](8) (instance import/export commands),
+\f[B]gnt-debug\f[](8) (debug commands).
 .PP
 Ganeti daemons: \f[B]ganeti-watcher\f[](8) (automatic instance
 restarter), \f[B]ganeti-cleaner\f[](8) (job queue cleaner),
 \f[B]ganeti-noded\f[](8) (node daemon), \f[B]ganeti-masterd\f[](8)
 (master daemon), \f[B]ganeti-rapi\f[](8) (remote API daemon).
 .PP
-Ganeti htools: \f[B]htools\f[](1) (generic binary),
-\f[B]hbal\f[](1) (cluster balancer), \f[B]hspace\f[](1) (capacity
-calculation), \f[B]hail\f[](1) (IAllocator plugin),
-\f[B]hscan\f[](1) (data gatherer from remote clusters),
-\f[B]hinfo\f[](1) (cluster information printer).
+Ganeti htools: \f[B]htools\f[](1) (generic binary), \f[B]hbal\f[](1)
+(cluster balancer), \f[B]hspace\f[](1) (capacity calculation),
+\f[B]hail\f[](1) (IAllocator plugin), \f[B]hscan\f[](1) (data gatherer
+from remote clusters), \f[B]hinfo\f[](1) (cluster information printer),
+\f[B]mon-collector\f[](7) (data collectors interface).
 .SH COPYRIGHT
 .PP
 Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012 Google Inc.
-Permission is granted to copy, distribute and/or modify under the
-terms of the GNU General Public License as published by the Free
-Software Foundation; either version 2 of the License, or (at your
-option) any later version.
+Permission is granted to copy, distribute and/or modify under the terms
+of the GNU General Public License as published by the Free Software
+Foundation; either version 2 of the License, or (at your option) any
+later version.
 .PP
-On Debian systems, the complete text of the GNU General Public
-License can be found in /usr/share/common-licenses/GPL.
-
+On Debian systems, the complete text of the GNU General Public License
+can be found in /usr/share/common-licenses/GPL.

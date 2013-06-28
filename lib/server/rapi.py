@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2012 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -47,6 +47,7 @@ from ganeti import luxi
 from ganeti import serializer
 from ganeti import compat
 from ganeti import utils
+from ganeti import pathutils
 from ganeti.rapi import connector
 
 import ganeti.http.auth   # pylint: disable=W0611
@@ -325,14 +326,15 @@ def PrepRapi(options, _):
   handler = RemoteApiHandler(users.Get)
 
   # Setup file watcher (it'll be driven by asyncore)
-  SetupFileWatcher(constants.RAPI_USERS_FILE,
-                   compat.partial(users.Load, constants.RAPI_USERS_FILE))
+  SetupFileWatcher(pathutils.RAPI_USERS_FILE,
+                   compat.partial(users.Load, pathutils.RAPI_USERS_FILE))
 
-  users.Load(constants.RAPI_USERS_FILE)
+  users.Load(pathutils.RAPI_USERS_FILE)
 
   server = \
     http.server.HttpServer(mainloop, options.bind_address, options.port,
-      handler, ssl_params=options.ssl_params, ssl_verify_peer=False)
+                           handler,
+                           ssl_params=options.ssl_params, ssl_verify_peer=False)
   server.Start()
 
   return (mainloop, server)
@@ -354,9 +356,10 @@ def Main():
 
   """
   parser = optparse.OptionParser(description="Ganeti Remote API",
-                    usage="%prog [-f] [-d] [-p port] [-b ADDRESS]",
-                    version="%%prog (ganeti) %s" % constants.RELEASE_VERSION)
+                                 usage="%prog [-f] [-d] [-p port] [-b ADDRESS]",
+                                 version="%%prog (ganeti) %s" %
+                                 constants.RELEASE_VERSION)
 
   daemon.GenericMain(constants.RAPI, parser, CheckRapi, PrepRapi, ExecRapi,
-                     default_ssl_cert=constants.RAPI_CERT_FILE,
-                     default_ssl_key=constants.RAPI_CERT_FILE)
+                     default_ssl_cert=pathutils.RAPI_CERT_FILE,
+                     default_ssl_key=pathutils.RAPI_CERT_FILE)

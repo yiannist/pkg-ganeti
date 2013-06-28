@@ -53,21 +53,21 @@ _EXPAND_NODES_SEC_BY_TAGS = "nodes-sec-by-tags"
 _EXPAND_INSTANCES = "instances"
 _EXPAND_INSTANCES_BY_TAGS = "instances-by-tags"
 
-_EXPAND_NODES_TAGS_MODES = frozenset([
+_EXPAND_NODES_TAGS_MODES = compat.UniqueFrozenset([
   _EXPAND_NODES_BOTH_BY_TAGS,
   _EXPAND_NODES_PRI_BY_TAGS,
   _EXPAND_NODES_SEC_BY_TAGS,
   ])
-
 
 #: default list of options for L{ListInstances}
 _LIST_DEF_FIELDS = [
   "name", "hypervisor", "os", "pnode", "status", "oper_ram",
   ]
 
-
 _MISSING = object()
-_ENV_OVERRIDE = frozenset(["list"])
+_ENV_OVERRIDE = compat.UniqueFrozenset(["list"])
+
+_INST_DATA_VAL = ht.TListOf(ht.TDict)
 
 
 def _ExpandMultiNames(mode, names, client=None):
@@ -116,7 +116,7 @@ def _ExpandMultiNames(mode, names, client=None):
       if not names:
         raise errors.OpPrereqError("No node names passed", errors.ECODE_INVAL)
       ndata = client.QueryNodes(names, ["name", "pinst_list", "sinst_list"],
-                              False)
+                                False)
 
     ipri = [row[1] for row in ndata]
     pri_names = list(itertools.chain(*ipri))
@@ -218,6 +218,7 @@ def ListInstances(opts, args):
 
   fmtoverride = dict.fromkeys(["tags", "disk.sizes", "nic.macs", "nic.ips",
                                "nic.modes", "nic.links", "nic.bridges",
+                               "nic.networks",
                                "snodes", "snodes.group", "snodes.group.uuid"],
                               (lambda value: ",".join(str(item)
                                                       for item in value),
@@ -255,23 +256,8 @@ def AddInstance(opts, args):
 def BatchCreate(opts, args):
   """Create instances using a definition file.
 
-  This function reads a json file with instances defined
-  in the form::
-
-    {"instance-name":{
-      "disk_size": [20480],
-      "template": "drbd",
-      "backend": {
-        "memory": 512,
-        "vcpus": 1 },
-      "os": "debootstrap",
-      "primary_node": "firstnode",
-      "secondary_node": "secondnode",
-      "iallocator": "dumb"}
-    }
-
-  Note that I{primary_node} and I{secondary_node} have precedence over
-  I{iallocator}.
+  This function reads a json file with L{opcodes.OpInstanceCreate}
+  serialisations.
 
   @param opts: the command line options selected by the user
   @type args: list
@@ -280,130 +266,54 @@ def BatchCreate(opts, args):
   @return: the desired exit code
 
   """
-  _DEFAULT_SPECS = {"disk_size": [20 * 1024],
-                    "backend": {},
-                    "iallocator": None,
-                    "primary_node": None,
-                    "secondary_node": None,
-                    "nics": None,
-                    "start": True,
-                    "ip_check": True,
-                    "name_check": True,
-                    "hypervisor": None,
-                    "hvparams": {},
-                    "file_storage_dir": None,
-                    "force_variant": False,
-                    "file_driver": "loop"}
+  (json_filename,) = args
+  cl = GetClient()
 
-  def _PopulateWithDefaults(spec):
-    """Returns a new hash combined with default values."""
-    mydict = _DEFAULT_SPECS.copy()
-    mydict.update(spec)
-    return mydict
-
-  def _Validate(spec):
-    """Validate the instance specs."""
-    # Validate fields required under any circumstances
-    for required_field in ("os", "template"):
-      if required_field not in spec:
-        raise errors.OpPrereqError('Required field "%s" is missing.' %
-                                   required_field, errors.ECODE_INVAL)
-    # Validate special fields
-    if spec["primary_node"] is not None:
-      if (spec["template"] in constants.DTS_INT_MIRROR and
-          spec["secondary_node"] is None):
-        raise errors.OpPrereqError("Template requires secondary node, but"
-                                   " there was no secondary provided.",
-                                   errors.ECODE_INVAL)
-    elif spec["iallocator"] is None:
-      raise errors.OpPrereqError("You have to provide at least a primary_node"
-                                 " or an iallocator.",
-                                 errors.ECODE_INVAL)
-
-    if (spec["hvparams"] and
-        not isinstance(spec["hvparams"], dict)):
-      raise errors.OpPrereqError("Hypervisor parameters must be a dict.",
-                                 errors.ECODE_INVAL)
-
-  json_filename = args[0]
   try:
     instance_data = simplejson.loads(utils.ReadFile(json_filename))
   except Exception, err: # pylint: disable=W0703
     ToStderr("Can't parse the instance definition file: %s" % str(err))
     return 1
 
-  if not isinstance(instance_data, dict):
-    ToStderr("The instance definition file is not in dict format.")
+  if not _INST_DATA_VAL(instance_data):
+    ToStderr("The instance definition file is not %s" % _INST_DATA_VAL)
     return 1
 
-  jex = JobExecutor(opts=opts)
+  instances = []
+  possible_params = set(opcodes.OpInstanceCreate.GetAllSlots())
+  for (idx, inst) in enumerate(instance_data):
+    unknown = set(inst.keys()) - possible_params
 
-  # Iterate over the instances and do:
-  #  * Populate the specs with default value
-  #  * Validate the instance specs
-  i_names = utils.NiceSort(instance_data.keys()) # pylint: disable=E1103
-  for name in i_names:
-    specs = instance_data[name]
-    specs = _PopulateWithDefaults(specs)
-    _Validate(specs)
-
-    hypervisor = specs["hypervisor"]
-    hvparams = specs["hvparams"]
-
-    disks = []
-    for elem in specs["disk_size"]:
-      try:
-        size = utils.ParseUnit(elem)
-      except (TypeError, ValueError), err:
-        raise errors.OpPrereqError("Invalid disk size '%s' for"
-                                   " instance %s: %s" %
-                                   (elem, name, err), errors.ECODE_INVAL)
-      disks.append({"size": size})
-
-    utils.ForceDictType(specs["backend"], constants.BES_PARAMETER_COMPAT)
-    utils.ForceDictType(hvparams, constants.HVS_PARAMETER_TYPES)
-
-    tmp_nics = []
-    for field in constants.INIC_PARAMS:
-      if field in specs:
-        if not tmp_nics:
-          tmp_nics.append({})
-        tmp_nics[0][field] = specs[field]
-
-    if specs["nics"] is not None and tmp_nics:
-      raise errors.OpPrereqError("'nics' list incompatible with using"
-                                 " individual nic fields as well",
+    if unknown:
+      # TODO: Suggest closest match for more user friendly experience
+      raise errors.OpPrereqError("Unknown fields in definition %s: %s" %
+                                 (idx, utils.CommaJoin(unknown)),
                                  errors.ECODE_INVAL)
-    elif specs["nics"] is not None:
-      tmp_nics = specs["nics"]
-    elif not tmp_nics:
-      tmp_nics = [{}]
 
-    op = opcodes.OpInstanceCreate(instance_name=name,
-                                  disks=disks,
-                                  disk_template=specs["template"],
-                                  mode=constants.INSTANCE_CREATE,
-                                  os_type=specs["os"],
-                                  force_variant=specs["force_variant"],
-                                  pnode=specs["primary_node"],
-                                  snode=specs["secondary_node"],
-                                  nics=tmp_nics,
-                                  start=specs["start"],
-                                  ip_check=specs["ip_check"],
-                                  name_check=specs["name_check"],
-                                  wait_for_sync=True,
-                                  iallocator=specs["iallocator"],
-                                  hypervisor=hypervisor,
-                                  hvparams=hvparams,
-                                  beparams=specs["backend"],
-                                  file_storage_dir=specs["file_storage_dir"],
-                                  file_driver=specs["file_driver"])
+    op = opcodes.OpInstanceCreate(**inst) # pylint: disable=W0142
+    op.Validate(False)
+    instances.append(op)
 
-    jex.QueueJob(name, op)
-  # we never want to wait, just show the submitted job IDs
-  jex.WaitOrShow(False)
+  op = opcodes.OpInstanceMultiAlloc(iallocator=opts.iallocator,
+                                    instances=instances)
+  result = SubmitOrSend(op, opts, cl=cl)
 
-  return 0
+  # Keep track of submitted jobs
+  jex = JobExecutor(cl=cl, opts=opts)
+
+  for (status, job_id) in result[constants.JOB_IDS_KEY]:
+    jex.AddJobId(None, status, job_id)
+
+  results = jex.GetResults()
+  bad_cnt = len([row for row in results if not row[0]])
+  if bad_cnt == 0:
+    ToStdout("All instances created successfully.")
+    rcode = constants.EXIT_SUCCESS
+  else:
+    ToStdout("There were %s errors during the creation.", bad_cnt)
+    rcode = constants.EXIT_FAILURE
+
+  return rcode
 
 
 def ReinstallInstance(opts, args):
@@ -570,7 +480,8 @@ def ActivateDisks(opts, args):
   """
   instance_name = args[0]
   op = opcodes.OpInstanceActivateDisks(instance_name=instance_name,
-                                       ignore_size=opts.ignore_size)
+                                       ignore_size=opts.ignore_size,
+                                       wait_for_sync=opts.wait_for_sync)
   disks_info = SubmitOrSend(op, opts)
   for host, iname, nname in disks_info:
     ToStdout("%s:%s:%s", host, iname, nname)
@@ -617,7 +528,7 @@ def RecreateDisks(opts, args):
 
       if not ht.TDict(ddict):
         msg = "Invalid disk/%d value: expected dict, got %s" % (didx, ddict)
-        raise errors.OpPrereqError(msg)
+        raise errors.OpPrereqError(msg, errors.ECODE_INVAL)
 
       if constants.IDISK_SIZE in ddict:
         try:
@@ -625,7 +536,7 @@ def RecreateDisks(opts, args):
             utils.ParseUnit(ddict[constants.IDISK_SIZE])
         except ValueError, err:
           raise errors.OpPrereqError("Invalid disk size for disk %d: %s" %
-                                     (didx, err))
+                                     (didx, err), errors.ECODE_INVAL)
 
       disks.append((didx, ddict))
 
@@ -633,6 +544,9 @@ def RecreateDisks(opts, args):
     # LUInstanceRecreateDisks, but it'd be nice to have in the client)
 
   if opts.node:
+    if opts.iallocator:
+      msg = "At most one of either --nodes or --iallocator can be passed"
+      raise errors.OpPrereqError(msg, errors.ECODE_INVAL)
     pnode, snode = SplitNodeOption(opts.node)
     nodes = [pnode]
     if snode is not None:
@@ -641,7 +555,8 @@ def RecreateDisks(opts, args):
     nodes = []
 
   op = opcodes.OpInstanceRecreateDisks(instance_name=instance_name,
-                                       disks=disks, nodes=nodes)
+                                       disks=disks, nodes=nodes,
+                                       iallocator=opts.iallocator)
   SubmitOrSend(op, opts)
 
   return 0
@@ -731,6 +646,7 @@ def _ShutdownInstance(name, opts):
 
   """
   return opcodes.OpInstanceShutdown(instance_name=name,
+                                    force=opts.force,
                                     timeout=opts.timeout,
                                     ignore_offline_nodes=opts.ignore_offline,
                                     no_remember=opts.no_remember)
@@ -1261,9 +1177,13 @@ def ShowInstanceConfig(opts, args):
     FormatParameterDict(buf, instance["be_instance"], be_actual, level=2)
     # TODO(ganeti 2.7) rework the NICs as well
     buf.write("    - NICs:\n")
-    for idx, (ip, mac, mode, link) in enumerate(instance["nics"]):
-      buf.write("      - nic/%d: MAC: %s, IP: %s, mode: %s, link: %s\n" %
-                (idx, mac, ip, mode, link))
+    for idx, (ip, mac, mode, link, _, netinfo) in enumerate(instance["nics"]):
+      network_name = None
+      if netinfo:
+        network_name = netinfo["name"]
+      buf.write("      - nic/%d: MAC: %s, IP: %s,"
+                " mode: %s, link: %s, network: %s\n" %
+                (idx, mac, ip, mode, link, network_name))
     buf.write("  Disk template: %s\n" % instance["disk_template"])
     buf.write("  Disks:\n")
 
@@ -1420,6 +1340,7 @@ def SetInstanceParams(opts, args):
                                    force=opts.force,
                                    wait_for_sync=opts.wait_for_sync,
                                    offline=offline,
+                                   conflicts_check=opts.conflicts_check,
                                    ignore_ipolicy=opts.ignore_ipolicy)
 
   # even if here we process the result, we allow submit only
@@ -1530,7 +1451,8 @@ commands = {
     "[...] -t disk-type -n node[:secondary-node] -o os-type <name>",
     "Creates and adds a new instance to the cluster"),
   "batch-create": (
-    BatchCreate, [ArgFile(min=1, max=1)], [DRY_RUN_OPT, PRIORITY_OPT],
+    BatchCreate, [ArgFile(min=1, max=1)],
+    [DRY_RUN_OPT, PRIORITY_OPT, IALLOCATOR_OPT, SUBMIT_OPT],
     "<instances.json>",
     "Create a bunch of instances based on specs in the file."),
   "console": (
@@ -1608,11 +1530,12 @@ commands = {
     [BACKEND_OPT, DISK_OPT, FORCE_OPT, HVOPTS_OPT, NET_OPT, SUBMIT_OPT,
      DISK_TEMPLATE_OPT, SINGLE_NODE_OPT, OS_OPT, FORCE_VARIANT_OPT,
      OSPARAMS_OPT, DRY_RUN_OPT, PRIORITY_OPT, NWSYNC_OPT, OFFLINE_INST_OPT,
-     ONLINE_INST_OPT, IGNORE_IPOLICY_OPT, RUNTIME_MEM_OPT],
+     ONLINE_INST_OPT, IGNORE_IPOLICY_OPT, RUNTIME_MEM_OPT,
+     NOCONFLICTSCHECK_OPT],
     "<instance>", "Alters the parameters of an instance"),
   "shutdown": (
     GenericManyOps("shutdown", _ShutdownInstance), [ArgInstance()],
-    [m_node_opt, m_pri_node_opt, m_sec_node_opt, m_clust_opt,
+    [FORCE_OPT, m_node_opt, m_pri_node_opt, m_sec_node_opt, m_clust_opt,
      m_node_tags_opt, m_pri_node_tags_opt, m_sec_node_tags_opt,
      m_inst_tags_opt, m_inst_opt, m_force_multi, TIMEOUT_OPT, SUBMIT_OPT,
      DRY_RUN_OPT, PRIORITY_OPT, IGNORE_OFFLINE_OPT, NO_REMEMBER_OPT],
@@ -1634,7 +1557,7 @@ commands = {
     "<instance>", "Reboots an instance"),
   "activate-disks": (
     ActivateDisks, ARGS_ONE_INSTANCE,
-    [SUBMIT_OPT, IGNORE_SIZE_OPT, PRIORITY_OPT],
+    [SUBMIT_OPT, IGNORE_SIZE_OPT, PRIORITY_OPT, WFSYNC_OPT],
     "<instance>", "Activate an instance's disks"),
   "deactivate-disks": (
     DeactivateDisks, ARGS_ONE_INSTANCE,
@@ -1642,7 +1565,8 @@ commands = {
     "[-f] <instance>", "Deactivate an instance's disks"),
   "recreate-disks": (
     RecreateDisks, ARGS_ONE_INSTANCE,
-    [SUBMIT_OPT, DISK_OPT, NODE_PLACEMENT_OPT, DRY_RUN_OPT, PRIORITY_OPT],
+    [SUBMIT_OPT, DISK_OPT, NODE_PLACEMENT_OPT, DRY_RUN_OPT, PRIORITY_OPT,
+     IALLOCATOR_OPT],
     "<instance>", "Recreate an instance's disks"),
   "grow-disk": (
     GrowDisk,

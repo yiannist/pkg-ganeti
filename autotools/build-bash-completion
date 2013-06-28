@@ -27,14 +27,19 @@
 # [C0103] Invalid name build-bash-completion
 
 import os
+import os.path
 import re
 import itertools
+import optparse
 from cStringIO import StringIO
 
 from ganeti import constants
 from ganeti import cli
 from ganeti import utils
 from ganeti import build
+from ganeti import pathutils
+
+from ganeti.tools import burnin
 
 # _autoconf shouldn't be imported from anywhere except constants.py, but we're
 # making an exception here because this script is only used at build time.
@@ -45,7 +50,7 @@ from ganeti import _autoconf
 _OPT_NAME_RE = re.compile(r"^-[a-zA-Z0-9]|--[a-z][-a-z0-9]+$")
 
 
-def WritePreamble(sw):
+def WritePreamble(sw, support_debug):
   """Writes the script preamble.
 
   Helper functions should be written here.
@@ -54,32 +59,33 @@ def WritePreamble(sw):
   sw.Write("# This script is automatically generated at build time.")
   sw.Write("# Do not modify manually.")
 
-  sw.Write("_gnt_log() {")
-  sw.IncIndent()
-  try:
-    sw.Write("if [[ -n \"$GANETI_COMPL_LOG\" ]]; then")
+  if support_debug:
+    sw.Write("_gnt_log() {")
     sw.IncIndent()
     try:
-      sw.Write("{")
+      sw.Write("if [[ -n \"$GANETI_COMPL_LOG\" ]]; then")
       sw.IncIndent()
       try:
-        sw.Write("echo ---")
-        sw.Write("echo \"$@\"")
-        sw.Write("echo")
+        sw.Write("{")
+        sw.IncIndent()
+        try:
+          sw.Write("echo ---")
+          sw.Write("echo \"$@\"")
+          sw.Write("echo")
+        finally:
+          sw.DecIndent()
+        sw.Write("} >> $GANETI_COMPL_LOG")
       finally:
         sw.DecIndent()
-      sw.Write("} >> $GANETI_COMPL_LOG")
+      sw.Write("fi")
     finally:
       sw.DecIndent()
-    sw.Write("fi")
-  finally:
-    sw.DecIndent()
-  sw.Write("}")
+    sw.Write("}")
 
   sw.Write("_ganeti_nodes() {")
   sw.IncIndent()
   try:
-    node_list_path = os.path.join(constants.DATA_DIR, "ssconf_node_list")
+    node_list_path = os.path.join(pathutils.DATA_DIR, "ssconf_node_list")
     sw.Write("cat %s 2>/dev/null || :", utils.ShellQuote(node_list_path))
   finally:
     sw.DecIndent()
@@ -88,7 +94,7 @@ def WritePreamble(sw):
   sw.Write("_ganeti_instances() {")
   sw.IncIndent()
   try:
-    instance_list_path = os.path.join(constants.DATA_DIR,
+    instance_list_path = os.path.join(pathutils.DATA_DIR,
                                       "ssconf_instance_list")
     sw.Write("cat %s 2>/dev/null || :", utils.ShellQuote(instance_list_path))
   finally:
@@ -101,16 +107,16 @@ def WritePreamble(sw):
     # FIXME: this is really going into the internals of the job queue
     sw.Write(("local jlist=($( shopt -s nullglob &&"
               " cd %s 2>/dev/null && echo job-* || : ))"),
-             utils.ShellQuote(constants.QUEUE_DIR))
+             utils.ShellQuote(pathutils.QUEUE_DIR))
     sw.Write('echo "${jlist[@]/job-/}"')
   finally:
     sw.DecIndent()
   sw.Write("}")
 
   for (fnname, paths) in [
-      ("os", constants.OS_SEARCH_PATH),
-      ("iallocator", constants.IALLOCATOR_SEARCH_PATH),
-      ]:
+    ("os", pathutils.OS_SEARCH_PATH),
+    ("iallocator", constants.IALLOCATOR_SEARCH_PATH),
+    ]:
     sw.Write("_ganeti_%s() {", fnname)
     sw.IncIndent()
     try:
@@ -125,8 +131,17 @@ def WritePreamble(sw):
   sw.Write("_ganeti_nodegroup() {")
   sw.IncIndent()
   try:
-    nodegroups_path = os.path.join(constants.DATA_DIR, "ssconf_nodegroups")
+    nodegroups_path = os.path.join(pathutils.DATA_DIR, "ssconf_nodegroups")
     sw.Write("cat %s 2>/dev/null || :", utils.ShellQuote(nodegroups_path))
+  finally:
+    sw.DecIndent()
+  sw.Write("}")
+
+  sw.Write("_ganeti_network() {")
+  sw.IncIndent()
+  try:
+    networks_path = os.path.join(pathutils.DATA_DIR, "ssconf_networks")
+    sw.Write("cat %s 2>/dev/null || :", utils.ShellQuote(networks_path))
   finally:
     sw.DecIndent()
   sw.Write("}")
@@ -211,7 +226,8 @@ def WritePreamble(sw):
       sw.DecIndent()
     sw.Write("fi")
 
-    sw.Write("_gnt_log optcur=\"'$optcur'\"")
+    if support_debug:
+      sw.Write("_gnt_log optcur=\"'$optcur'\"")
 
     sw.Write("return 1")
   finally:
@@ -224,7 +240,8 @@ def WritePreamble(sw):
   sw.IncIndent()
   try:
     sw.Write("""COMPREPLY=( $(compgen "$@") )""")
-    sw.Write("_gnt_log COMPREPLY=\"${COMPREPLY[@]}\"")
+    if support_debug:
+      sw.Write("_gnt_log COMPREPLY=\"${COMPREPLY[@]}\"")
   finally:
     sw.DecIndent()
   sw.Write("}")
@@ -239,10 +256,11 @@ class CompletionWriter:
   """Command completion writer class.
 
   """
-  def __init__(self, arg_offset, opts, args):
+  def __init__(self, arg_offset, opts, args, support_debug):
     self.arg_offset = arg_offset
     self.opts = opts
     self.args = args
+    self.support_debug = support_debug
 
     for opt in opts:
       # While documented, these variables aren't seen as public attributes by
@@ -341,10 +359,14 @@ class CompletionWriter:
           WriteCompReply(sw, "-W \"$(_ganeti_instances)\"", cur=cur)
         elif suggest == cli.OPT_COMPL_ONE_OS:
           WriteCompReply(sw, "-W \"$(_ganeti_os)\"", cur=cur)
+        elif suggest == cli.OPT_COMPL_ONE_EXTSTORAGE:
+          WriteCompReply(sw, "-W \"$(_ganeti_extstorage)\"", cur=cur)
         elif suggest == cli.OPT_COMPL_ONE_IALLOCATOR:
           WriteCompReply(sw, "-W \"$(_ganeti_iallocator)\"", cur=cur)
         elif suggest == cli.OPT_COMPL_ONE_NODEGROUP:
           WriteCompReply(sw, "-W \"$(_ganeti_nodegroup)\"", cur=cur)
+        elif suggest == cli.OPT_COMPL_ONE_NETWORK:
+          WriteCompReply(sw, "-W \"$(_ganeti_network)\"", cur=cur)
         elif suggest == cli.OPT_COMPL_INST_ADD_NODES:
           sw.Write("local tmp= node1= pfx= curvalue=\"${optcur#*:}\"")
 
@@ -364,8 +386,9 @@ class CompletionWriter:
             sw.DecIndent()
           sw.Write("fi")
 
-          sw.Write("_gnt_log pfx=\"'$pfx'\" curvalue=\"'$curvalue'\""
-                   " node1=\"'$node1'\"")
+          if self.support_debug:
+            sw.Write("_gnt_log pfx=\"'$pfx'\" curvalue=\"'$curvalue'\""
+                     " node1=\"'$node1'\"")
 
           sw.Write("for i in $(_ganeti_nodes); do")
           sw.IncIndent()
@@ -442,10 +465,14 @@ class CompletionWriter:
           choices = "$(_ganeti_nodes)"
         elif isinstance(arg, cli.ArgGroup):
           choices = "$(_ganeti_nodegroup)"
+        elif isinstance(arg, cli.ArgNetwork):
+          choices = "$(_ganeti_network)"
         elif isinstance(arg, cli.ArgJobId):
           choices = "$(_ganeti_jobs)"
         elif isinstance(arg, cli.ArgOs):
           choices = "$(_ganeti_os)"
+        elif isinstance(arg, cli.ArgExtStorage):
+          choices = "$(_ganeti_extstorage)"
         elif isinstance(arg, cli.ArgFile):
           choices = ""
           compgenargs.append("-f")
@@ -504,7 +531,7 @@ class CompletionWriter:
     self._CompleteArguments(sw)
 
 
-def WriteCompletion(sw, scriptname, funcname,
+def WriteCompletion(sw, scriptname, funcname, support_debug,
                     commands=None,
                     opts=None, args=None):
   """Writes the completion code for one command.
@@ -527,15 +554,16 @@ def WriteCompletion(sw, scriptname, funcname,
              ' prev="${COMP_WORDS[COMP_CWORD-1]}"'
              ' i first_arg_idx choices compgenargs arg_idx optcur')
 
-    sw.Write("_gnt_log cur=\"$cur\" prev=\"$prev\"")
-    sw.Write("[[ -n \"$GANETI_COMPL_LOG\" ]] &&"
-             " _gnt_log \"$(set | grep ^COMP_)\"")
+    if support_debug:
+      sw.Write("_gnt_log cur=\"$cur\" prev=\"$prev\"")
+      sw.Write("[[ -n \"$GANETI_COMPL_LOG\" ]] &&"
+               " _gnt_log \"$(set | grep ^COMP_)\"")
 
     sw.Write("COMPREPLY=()")
 
     if opts is not None and args is not None:
       assert not commands
-      CompletionWriter(0, opts, args).WriteTo(sw)
+      CompletionWriter(0, opts, args, support_debug).WriteTo(sw)
 
     else:
       sw.Write("""if [[ "$COMP_CWORD" == 1 ]]; then""")
@@ -565,7 +593,7 @@ def WriteCompletion(sw, scriptname, funcname,
         sw.Write("%s)", "|".join(map(utils.ShellQuote, sorted(cmds))))
         sw.IncIndent()
         try:
-          CompletionWriter(1, optdef, argdef).WriteTo(sw)
+          CompletionWriter(1, optdef, argdef, support_debug).WriteTo(sw)
         finally:
           sw.DecIndent()
         sw.Write(";;")
@@ -618,30 +646,221 @@ def GetCommands(filename, module):
   return commands
 
 
+def HaskellOptToOptParse(opts, kind):
+  """Converts a Haskell options to Python cli_options.
+
+  @type opts: string
+  @param opts: comma-separated string with short and long options
+  @type kind: string
+  @param kind: type generated by Common.hs/complToText; needs to be
+      kept in sync
+
+  """
+  # pylint: disable=W0142
+  # since we pass *opts in a number of places
+  opts = opts.split(",")
+  if kind == "none":
+    return cli.cli_option(*opts, action="store_true")
+  elif kind in ["file", "string", "host", "dir", "inetaddr"]:
+    return cli.cli_option(*opts, type="string")
+  elif kind == "integer":
+    return cli.cli_option(*opts, type="int")
+  elif kind == "float":
+    return cli.cli_option(*opts, type="float")
+  elif kind == "onegroup":
+    return cli.cli_option(*opts, type="string",
+                           completion_suggest=cli.OPT_COMPL_ONE_NODEGROUP)
+  elif kind == "onenode":
+    return cli.cli_option(*opts, type="string",
+                          completion_suggest=cli.OPT_COMPL_ONE_NODE)
+  elif kind == "manyinstances":
+    # FIXME: no support for many instances
+    return cli.cli_option(*opts, type="string")
+  elif kind.startswith("choices="):
+    choices = kind[len("choices="):].split(",")
+    return cli.cli_option(*opts, type="choice", choices=choices)
+  else:
+    # FIXME: there are many other currently unused completion types,
+    # should be added on an as-needed basis
+    raise Exception("Unhandled option kind '%s'" % kind)
+
+
+#: serialised kind to arg type
+_ARG_MAP = {
+  "choices": cli.ArgChoice,
+  "command": cli.ArgCommand,
+  "file": cli.ArgFile,
+  "host": cli.ArgHost,
+  "jobid": cli.ArgJobId,
+  "onegroup": cli.ArgGroup,
+  "oneinstance": cli.ArgInstance,
+  "onenode": cli.ArgNode,
+  "oneos": cli.ArgOs,
+  "string": cli.ArgUnknown,
+  "suggests": cli.ArgSuggest,
+  }
+
+
+def HaskellArgToCliArg(kind, min_cnt, max_cnt):
+  """Converts a Haskell options to Python _Argument.
+
+  @type kind: string
+  @param kind: type generated by Common.hs/argComplToText; needs to be
+      kept in sync
+
+  """
+  min_cnt = int(min_cnt)
+  if max_cnt == "none":
+    max_cnt = None
+  else:
+    max_cnt = int(max_cnt)
+  # pylint: disable=W0142
+  # since we pass **kwargs
+  kwargs = {"min": min_cnt, "max": max_cnt}
+
+  if kind.startswith("choices=") or kind.startswith("suggest="):
+    (kind, choices) = kind.split("=", 1)
+    kwargs["choices"] = choices.split(",")
+
+  if kind not in _ARG_MAP:
+    raise Exception("Unhandled argument kind '%s'" % kind)
+  else:
+    return _ARG_MAP[kind](**kwargs)
+
+
+def ParseHaskellOptsArgs(script, output):
+  """Computes list of options/arguments from help-completion output.
+
+  """
+  cli_opts = []
+  cli_args = []
+  for line in output.splitlines():
+    v = line.split(None)
+    exc = lambda msg: Exception("Invalid %s output from %s: %s" %
+                                (msg, script, v))
+    if len(v) < 2:
+      raise exc("help completion")
+    if v[0].startswith("-"):
+      if len(v) != 2:
+        raise exc("option format")
+      (opts, kind) = v
+      cli_opts.append(HaskellOptToOptParse(opts, kind))
+    else:
+      if len(v) != 3:
+        raise exc("argument format")
+      (kind, min_cnt, max_cnt) = v
+      cli_args.append(HaskellArgToCliArg(kind, min_cnt, max_cnt))
+  return (cli_opts, cli_args)
+
+
+def WriteHaskellCompletion(sw, script, htools=True, debug=True):
+  """Generates completion information for a Haskell program.
+
+  This converts completion info from a Haskell program into 'fake'
+  cli_opts and then builds completion for them.
+
+  """
+  if htools:
+    cmd = "./src/htools"
+    env = {"HTOOLS": script}
+    script_name = script
+    func_name = "htools_%s" % script
+  else:
+    cmd = "./" + script
+    env = {}
+    script_name = os.path.basename(script)
+    func_name = script_name
+  func_name = GetFunctionName(func_name)
+  output = utils.RunCmd([cmd, "--help-completion"], env=env, cwd=".").output
+  (opts, args) = ParseHaskellOptsArgs(script_name, output)
+  WriteCompletion(sw, script_name, func_name, debug, opts=opts, args=args)
+
+
+def WriteHaskellCmdCompletion(sw, script, debug=True):
+  """Generates completion information for a Haskell multi-command program.
+
+  This gathers the list of commands from a Haskell program and
+  computes the list of commands available, then builds the sub-command
+  list of options/arguments for each command, using that for building
+  a unified help output.
+
+  """
+  cmd = "./" + script
+  script_name = os.path.basename(script)
+  func_name = script_name
+  func_name = GetFunctionName(func_name)
+  output = utils.RunCmd([cmd, "--help-completion"], cwd=".").output
+  commands = {}
+  lines = output.splitlines()
+  if len(lines) != 1:
+    raise Exception("Invalid lines in multi-command mode: %s" % str(lines))
+  v = lines[0].split(None)
+  exc = lambda msg: Exception("Invalid %s output from %s: %s" %
+                              (msg, script, v))
+  if len(v) != 3:
+    raise exc("help completion in multi-command mode")
+  if not v[0].startswith("choices="):
+    raise exc("invalid format in multi-command mode '%s'" % v[0])
+  for subcmd in v[0][len("choices="):].split(","):
+    output = utils.RunCmd([cmd, subcmd, "--help-completion"], cwd=".").output
+    (opts, args) = ParseHaskellOptsArgs(script, output)
+    commands[subcmd] = (None, args, opts, None, None)
+  WriteCompletion(sw, script_name, func_name, debug, commands=commands)
+
+
 def main():
+  parser = optparse.OptionParser(usage="%prog [--compact]")
+  parser.add_option("--compact", action="store_true",
+                    help=("Don't indent output and don't include debugging"
+                          " facilities"))
+
+  options, args = parser.parse_args()
+  if args:
+    parser.error("Wrong number of arguments")
+
+  # Whether to build debug version of completion script
+  debug = not options.compact
+
   buf = StringIO()
-  sw = utils.ShellWriter(buf)
+  sw = utils.ShellWriter(buf, indent=debug)
 
   # Remember original state of extglob and enable it (required for pattern
   # matching; must be enabled while parsing script)
   sw.Write("gnt_shopt_extglob=$(shopt -p extglob || :)")
   sw.Write("shopt -s extglob")
 
-  WritePreamble(sw)
+  WritePreamble(sw, debug)
 
   # gnt-* scripts
   for scriptname in _autoconf.GNT_SCRIPTS:
     filename = "scripts/%s" % scriptname
 
-    WriteCompletion(sw, scriptname,
-                    GetFunctionName(scriptname),
+    WriteCompletion(sw, scriptname, GetFunctionName(scriptname), debug,
                     commands=GetCommands(filename,
                                          build.LoadModule(filename)))
 
   # Burnin script
-  burnin = build.LoadModule("tools/burnin")
-  WriteCompletion(sw, "%s/burnin" % constants.TOOLSDIR, "_ganeti_burnin",
+  WriteCompletion(sw, "%s/burnin" % pathutils.TOOLSDIR, "_ganeti_burnin",
+                  debug,
                   opts=burnin.OPTIONS, args=burnin.ARGUMENTS)
+
+  # ganeti-cleaner
+  WriteHaskellCompletion(sw, "daemons/ganeti-cleaner", htools=False,
+                         debug=not options.compact)
+
+  # htools, if enabled
+  if _autoconf.HTOOLS:
+    for script in _autoconf.HTOOLS_PROGS:
+      WriteHaskellCompletion(sw, script, htools=True, debug=debug)
+
+  # ganeti-confd, if enabled
+  if _autoconf.ENABLE_CONFD:
+    WriteHaskellCompletion(sw, "src/ganeti-confd", htools=False,
+                           debug=debug)
+
+  # mon-collector, if monitoring is enabled
+  if _autoconf.ENABLE_MONITORING:
+    WriteHaskellCmdCompletion(sw, "src/mon-collector", debug=debug)
 
   # Reset extglob to original value
   sw.Write("[[ -n \"$gnt_shopt_extglob\" ]] && $gnt_shopt_extglob")

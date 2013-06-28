@@ -7,87 +7,88 @@ ganeti-noded - Ganeti node daemon
 \f[B]ganeti-noded\f[] [-f] [-d]
 .SH DESCRIPTION
 .PP
-The \f[B]ganeti-noded\f[] is the daemon which is responsible for
-the node functions in the Ganeti system.
+The \f[B]ganeti-noded\f[] is the daemon which is responsible for the
+node functions in the Ganeti system.
 .PP
 By default, in order to be able to support features such as node
 powercycling even on systems with a very damaged root disk,
-\f[B]ganeti-noded\f[] locks itself in RAM using
-\f[B]mlockall\f[](2). You can disable this feature by passing in
-the \f[B]--no-mlock\f[] to the daemon.
+\f[B]ganeti-noded\f[] locks itself in RAM using \f[B]mlockall\f[](2).
+You can disable this feature by passing in the \f[C]--no-mlock\f[] to
+the daemon.
 .PP
-For testing purposes, you can give the \f[B]-f\f[] option and the
+For testing purposes, you can give the \f[C]-f\f[] option and the
 program won\[aq]t detach from the running terminal.
 .PP
-Debug-level message can be activated by giving the \f[B]-d\f[]
-option.
+Debug-level message can be activated by giving the \f[C]-d\f[] option.
 .PP
 Logging to syslog, rather than its own log file, can be enabled by
-passing in the \f[B]--syslog\f[] option.
+passing in the \f[C]--syslog\f[] option.
 .PP
 The \f[B]ganeti-noded\f[] daemon listens to port 1811 TCP, on all
-interfaces, by default. The port can be overridden by an entry the
-services database (usually \f[B]/etc/services\f[]) or by passing
-the \f[B]-p\f[] option. The \f[B]-b\f[] option can be used to
-specify the address to bind to (defaults to \f[B]0.0.0.0\f[]).
+interfaces, by default.
+The port can be overridden by an entry in the services database (usually
+\f[C]/etc/services\f[]) or by passing the \f[C]-p\f[] option.
+The \f[C]-b\f[] option can be used to specify the address to bind to
+(defaults to \f[C]0.0.0.0\f[]).
 .PP
-Ganeti noded communication is protected via SSL, with a key
-generated at cluster init time. This can be disabled with the
-\f[B]--no-ssl\f[] option, or a different SSL key and certificate
-can be specified using the \f[B]-K\f[] and \f[B]-C\f[] options.
+Ganeti noded communication is protected via SSL, with a key generated at
+cluster init time.
+This can be disabled with the \f[C]--no-ssl\f[] option, or a different
+SSL key and certificate can be specified using the \f[C]-K\f[] and
+\f[C]-C\f[] options.
 .SS ROLE
 .PP
-The role of the node daemon is to do almost all the actions that
-change the state of the node. Things like creating disks for
-instances, activating disks, starting/stopping instance and so on
-are done via the node daemon.
+The role of the node daemon is to do almost all the actions that change
+the state of the node.
+Things like creating disks for instances, activating disks,
+starting/stopping instance and so on are done via the node daemon.
 .PP
-Also, in some cases the startup/shutdown of the master daemon are
-done via the node daemon, and the cluster IP address is also
-added/removed to the master node via it.
+Also, in some cases the startup/shutdown of the master daemon are done
+via the node daemon, and the cluster IP address is also added/removed to
+the master node via it.
 .PP
-If the node daemon is stopped, the instances are not affected, but
-the master won\[aq]t be able to talk to that node.
+If the node daemon is stopped, the instances are not affected, but the
+master won\[aq]t be able to talk to that node.
 .SS COMMUNICATION PROTOCOL
 .PP
-Currently the master-node RPC is done using a simple RPC protocol
-built using JSON over HTTP(S).
+Currently the master-node RPC is done using a simple RPC protocol built
+using JSON over HTTP(S).
 .SH REPORTING BUGS
 .PP
-Report bugs to project website (http://code.google.com/p/ganeti/)
-or contact the developers using the
-Ganeti mailing list (ganeti@googlegroups.com).
+Report bugs to project website (http://code.google.com/p/ganeti/) or
+contact the developers using the Ganeti mailing
+list (ganeti@googlegroups.com).
 .SH SEE ALSO
 .PP
 Ganeti overview and specifications: \f[B]ganeti\f[](7) (general
-overview), \f[B]ganeti-os-interface\f[](7) (guest OS definitions).
+overview), \f[B]ganeti-os-interface\f[](7) (guest OS definitions),
+\f[B]ganeti-extstorage-interface\f[](7) (external storage providers).
 .PP
 Ganeti commands: \f[B]gnt-cluster\f[](8) (cluster-wide commands),
 \f[B]gnt-job\f[](8) (job-related commands), \f[B]gnt-node\f[](8)
-(node-related commands), \f[B]gnt-instance\f[](8) (instance
-commands), \f[B]gnt-os\f[](8) (guest OS commands),
-\f[B]gnt-group\f[](8) (node group commands), \f[B]gnt-backup\f[](8)
-(instance import/export commands), \f[B]gnt-debug\f[](8) (debug
-commands).
+(node-related commands), \f[B]gnt-instance\f[](8) (instance commands),
+\f[B]gnt-os\f[](8) (guest OS commands), \f[B]gnt-storage\f[](8) (storage
+commands), \f[B]gnt-group\f[](8) (node group commands),
+\f[B]gnt-backup\f[](8) (instance import/export commands),
+\f[B]gnt-debug\f[](8) (debug commands).
 .PP
 Ganeti daemons: \f[B]ganeti-watcher\f[](8) (automatic instance
 restarter), \f[B]ganeti-cleaner\f[](8) (job queue cleaner),
 \f[B]ganeti-noded\f[](8) (node daemon), \f[B]ganeti-masterd\f[](8)
 (master daemon), \f[B]ganeti-rapi\f[](8) (remote API daemon).
 .PP
-Ganeti htools: \f[B]htools\f[](1) (generic binary),
-\f[B]hbal\f[](1) (cluster balancer), \f[B]hspace\f[](1) (capacity
-calculation), \f[B]hail\f[](1) (IAllocator plugin),
-\f[B]hscan\f[](1) (data gatherer from remote clusters),
-\f[B]hinfo\f[](1) (cluster information printer).
+Ganeti htools: \f[B]htools\f[](1) (generic binary), \f[B]hbal\f[](1)
+(cluster balancer), \f[B]hspace\f[](1) (capacity calculation),
+\f[B]hail\f[](1) (IAllocator plugin), \f[B]hscan\f[](1) (data gatherer
+from remote clusters), \f[B]hinfo\f[](1) (cluster information printer),
+\f[B]mon-collector\f[](7) (data collectors interface).
 .SH COPYRIGHT
 .PP
 Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012 Google Inc.
-Permission is granted to copy, distribute and/or modify under the
-terms of the GNU General Public License as published by the Free
-Software Foundation; either version 2 of the License, or (at your
-option) any later version.
+Permission is granted to copy, distribute and/or modify under the terms
+of the GNU General Public License as published by the Free Software
+Foundation; either version 2 of the License, or (at your option) any
+later version.
 .PP
-On Debian systems, the complete text of the GNU General Public
-License can be found in /usr/share/common-licenses/GPL.
-
+On Debian systems, the complete text of the GNU General Public License
+can be found in /usr/share/common-licenses/GPL.

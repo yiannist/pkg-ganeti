@@ -1,25 +1,31 @@
+
+
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
   "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
 
 <html xmlns="http://www.w3.org/1999/xhtml">
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Ganeti 2.2 design &mdash; Ganeti v2.6.2 documentation</title>
-    <link rel="stylesheet" href="_static/default.css" type="text/css" />
+    <title>Ganeti 2.2 design &mdash; Ganeti 2.7.0~rc3 documentation</title>
+    
+    <link rel="stylesheet" href="_static/style.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.6.2',
-        COLLAPSE_MODINDEX: false,
+        VERSION:     '2.7.0~rc3',
+        COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
       };
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.6.2 documentation" href="index.html" />
+    <link rel="top" title="Ganeti 2.7.0~rc3 documentation" href="index.html" />
     <link rel="next" title="Ganeti 2.3 design" href="design-2.3.html" />
     <link rel="prev" title="Ganeti 2.1 design" href="design-2.1.html" /> 
   </head>
@@ -33,7 +39,7 @@
         <li class="right" >
           <a href="design-2.1.html" title="Ganeti 2.1 design"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.6.2 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.7.0~rc3 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -156,7 +162,7 @@ submit more jobs.</p>
 <p>Currently the job queue lock is an exclusive non-fair lock insulating
 the following job queue methods (called by the client workers).</p>
 <blockquote>
-<ul class="simple">
+<div><ul class="simple">
 <li>AddNode</li>
 <li>RemoveNode</li>
 <li>SubmitJob</li>
@@ -168,11 +174,11 @@ the following job queue methods (called by the client workers).</p>
 <li>QueryJobs</li>
 <li>Shutdown</li>
 </ul>
-</blockquote>
+</div></blockquote>
 <p>Moreover the job queue lock is acquired outside of the job queue in two
 other classes:</p>
 <blockquote>
-<ul class="simple">
+<div><ul class="simple">
 <li>jqueue._JobQueueWorker (in RunTask) before executing the opcode, after
 finishing its executing and when handling an exception.</li>
 <li>jqueue._OpExecCallbacks (in NotifyStart and Feedback) when the
@@ -180,20 +186,20 @@ processor (mcpu.Processor) is about to start working on the opcode
 (after acquiring the necessary locks) and when any data is sent back
 via the feedback function.</li>
 </ul>
-</blockquote>
+</div></blockquote>
 <p>Of those the major critical points are:</p>
 <blockquote>
-<ul class="simple">
+<div><ul class="simple">
 <li>Submit[Many]Job, QueryJobs, WaitForJobChanges, which can easily slow
 down and block client threads up to making the respective clients
 time out.</li>
 <li>The code paths in NotifyStart, Feedback, and RunTask, which slow
 down job processing between clients and otherwise non-related jobs.</li>
 </ul>
-</blockquote>
+</div></blockquote>
 <p>To increase the pain:</p>
 <blockquote>
-<ul class="simple">
+<div><ul class="simple">
 <li>WaitForJobChanges is a bad offender because it&#8217;s implemented with a
 notified condition which awakes waiting threads, who then try to
 acquire the global lock again</li>
@@ -201,7 +207,7 @@ acquire the global lock again</li>
 change to remote nodes, and thus waiting, with the lock held, on
 remote rpcs to complete (starting, finishing, and submitting jobs)</li>
 </ul>
-</blockquote>
+</div></blockquote>
 </div>
 </div>
 <div class="section" id="proposed-changes">
@@ -241,7 +247,7 @@ main asyncore thread will only be involved in pushing of the actual
 data, and not in fetching/serializing it.</p>
 <p>Other features to look at, when implementing this code are:</p>
 <blockquote>
-<ul class="simple">
+<div><ul class="simple">
 <li>Possibility not to need the job lock to know which updates to push:
 if the thread producing the data pushed a copy of the update for the
 waiting clients, the thread sending it won&#8217;t need to acquire the
@@ -252,14 +258,14 @@ keepalive).</li>
 <li>Possibility to defer updates if they are too frequent, providing
 them at a maximum rate (lower priority).</li>
 </ul>
-</blockquote>
+</div></blockquote>
 </div>
 <div class="section" id="id2">
 <h5>Job Queue lock<a class="headerlink" href="#id2" title="Permalink to this headline">¶</a></h5>
 <p>In order to decrease the job queue lock contention, we will change the
 code paths in the following ways, initially:</p>
 <blockquote>
-<ul class="simple">
+<div><ul class="simple">
 <li>A per-job lock will be introduced. All operations affecting only one
 job (for example feedback, starting/finishing notifications,
 subscribing to or watching a job) will only require the job lock.
@@ -275,7 +281,7 @@ able to proceed in parallel.</li>
 <li>The wait for job changes improvements proposed above will be
 implemented.</li>
 </ul>
-</blockquote>
+</div></blockquote>
 <p>In the future other improvements may include splitting off some of the
 work (eg replication of a job to remote nodes) to a separate thread pool
 or asynchronous thread, not tied with the code path for answering client
@@ -342,7 +348,7 @@ between clusters before instances can be moved. If the third party does
 not know the secret, it can&#8217;t forge the certificates or redirect the
 data. Unless disabled by a new cluster parameter, verifying the HMAC
 signatures must be mandatory. The HMAC signature for X509 certificates
-will be prepended to the certificate similar to an <span class="target" id="index-0"></span><a class="reference external" href="http://tools.ietf.org/html/rfc822.html"><strong>RFC 822</strong></a> header and
+will be prepended to the certificate similar to an <span class="target" id="index-0"></span><a class="rfc reference external" href="http://tools.ietf.org/html/rfc822.html"><strong>RFC 822</strong></a> header and
 only covers the certificate (from <tt class="docutils literal"><span class="pre">-----BEGIN</span> <span class="pre">CERTIFICATE-----</span></tt> to
 <tt class="docutils literal"><span class="pre">-----END</span> <span class="pre">CERTIFICATE-----</span></tt>). The header name will be
 <tt class="docutils literal"><span class="pre">X-Ganeti-Signature</span></tt> and its value will have the format
@@ -946,80 +952,80 @@ scripts).</p>
       </div>
       <div class="sphinxsidebar">
         <div class="sphinxsidebarwrapper">
-            <h3><a href="index.html">Table Of Contents</a></h3>
-            <ul>
-<li><a class="reference external" href="#">Ganeti 2.2 design</a><ul>
-<li><a class="reference external" href="#core-changes">Core changes</a><ul>
-<li><a class="reference external" href="#master-daemon-scaling-improvements">Master Daemon Scaling improvements</a><ul>
-<li><a class="reference external" href="#current-state-and-shortcomings">Current state and shortcomings</a><ul>
-<li><a class="reference external" href="#core-daemon-connection-handling">Core daemon connection handling</a></li>
-<li><a class="reference external" href="#wait-for-job-change">Wait for job change</a></li>
-<li><a class="reference external" href="#job-queue-lock">Job Queue lock</a></li>
+  <h3><a href="index.html">Table Of Contents</a></h3>
+  <ul>
+<li><a class="reference internal" href="#">Ganeti 2.2 design</a><ul>
+<li><a class="reference internal" href="#core-changes">Core changes</a><ul>
+<li><a class="reference internal" href="#master-daemon-scaling-improvements">Master Daemon Scaling improvements</a><ul>
+<li><a class="reference internal" href="#current-state-and-shortcomings">Current state and shortcomings</a><ul>
+<li><a class="reference internal" href="#core-daemon-connection-handling">Core daemon connection handling</a></li>
+<li><a class="reference internal" href="#wait-for-job-change">Wait for job change</a></li>
+<li><a class="reference internal" href="#job-queue-lock">Job Queue lock</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#proposed-changes">Proposed changes</a><ul>
-<li><a class="reference external" href="#connection-handling">Connection handling</a></li>
-<li><a class="reference external" href="#id1">Wait for job change</a></li>
-<li><a class="reference external" href="#id2">Job Queue lock</a></li>
-</ul>
-</li>
-</ul>
-</li>
-<li><a class="reference external" href="#inter-cluster-instance-moves">Inter-cluster instance moves</a><ul>
-<li><a class="reference external" href="#id3">Current state and shortcomings</a></li>
-<li><a class="reference external" href="#id4">Proposed changes</a><ul>
-<li><a class="reference external" href="#authorization-authentication-and-security">Authorization, Authentication and Security</a></li>
-<li><a class="reference external" href="#copying-data">Copying data</a></li>
-<li><a class="reference external" href="#workflow">Workflow</a></li>
-<li><a class="reference external" href="#instance-move-in-pseudo-code">Instance move in pseudo code</a></li>
-<li><a class="reference external" href="#miscellaneous-notes">Miscellaneous notes</a></li>
+<li><a class="reference internal" href="#proposed-changes">Proposed changes</a><ul>
+<li><a class="reference internal" href="#connection-handling">Connection handling</a></li>
+<li><a class="reference internal" href="#id1">Wait for job change</a></li>
+<li><a class="reference internal" href="#id2">Job Queue lock</a></li>
 </ul>
 </li>
 </ul>
 </li>
-<li><a class="reference external" href="#privilege-separation">Privilege separation</a><ul>
-<li><a class="reference external" href="#id5">Current state and shortcomings</a></li>
-<li><a class="reference external" href="#implementation">Implementation</a></li>
+<li><a class="reference internal" href="#inter-cluster-instance-moves">Inter-cluster instance moves</a><ul>
+<li><a class="reference internal" href="#id3">Current state and shortcomings</a></li>
+<li><a class="reference internal" href="#id4">Proposed changes</a><ul>
+<li><a class="reference internal" href="#authorization-authentication-and-security">Authorization, Authentication and Security</a></li>
+<li><a class="reference internal" href="#copying-data">Copying data</a></li>
+<li><a class="reference internal" href="#workflow">Workflow</a></li>
+<li><a class="reference internal" href="#instance-move-in-pseudo-code">Instance move in pseudo code</a></li>
+<li><a class="reference internal" href="#miscellaneous-notes">Miscellaneous notes</a></li>
 </ul>
 </li>
 </ul>
 </li>
-<li><a class="reference external" href="#feature-changes">Feature changes</a><ul>
-<li><a class="reference external" href="#kvm-security">KVM Security</a><ul>
-<li><a class="reference external" href="#id6">Current state and shortcomings</a></li>
-<li><a class="reference external" href="#id7">Proposed changes</a><ul>
-<li><a class="reference external" href="#dropping-privileges-in-kvm-to-a-single-user-easy">Dropping privileges in kvm to a single user (easy)</a></li>
-<li><a class="reference external" href="#running-kvm-in-a-chroot-slightly-harder">Running kvm in a chroot (slightly harder)</a></li>
-<li><a class="reference external" href="#running-kvm-with-a-pool-of-users-slightly-harder">Running kvm with a pool of users (slightly harder)</a></li>
-<li><a class="reference external" href="#running-iptables-rules-to-limit-network-interaction-easy">Running iptables rules to limit network interaction (easy)</a></li>
-<li><a class="reference external" href="#running-kvm-inside-a-container-even-harder">Running kvm inside a container (even harder)</a></li>
-</ul>
-</li>
-<li><a class="reference external" href="#implementation-plan">Implementation plan</a></li>
-</ul>
-</li>
-<li><a class="reference external" href="#new-os-states">New OS states</a><ul>
-<li><a class="reference external" href="#id8">Current state and shortcomings</a></li>
-<li><a class="reference external" href="#id9">Proposed changes</a></li>
+<li><a class="reference internal" href="#privilege-separation">Privilege separation</a><ul>
+<li><a class="reference internal" href="#id5">Current state and shortcomings</a></li>
+<li><a class="reference internal" href="#implementation">Implementation</a></li>
 </ul>
 </li>
 </ul>
 </li>
-<li><a class="reference external" href="#external-interface-changes">External interface changes</a><ul>
-<li><a class="reference external" href="#os-api">OS API</a><ul>
-<li><a class="reference external" href="#os-version">OS version</a></li>
-<li><a class="reference external" href="#parameters">Parameters</a><ul>
-<li><a class="reference external" href="#names">Names</a></li>
-<li><a class="reference external" href="#values">Values</a><ul>
-<li><a class="reference external" href="#environment-variables">Environment variables</a></li>
+<li><a class="reference internal" href="#feature-changes">Feature changes</a><ul>
+<li><a class="reference internal" href="#kvm-security">KVM Security</a><ul>
+<li><a class="reference internal" href="#id6">Current state and shortcomings</a></li>
+<li><a class="reference internal" href="#id7">Proposed changes</a><ul>
+<li><a class="reference internal" href="#dropping-privileges-in-kvm-to-a-single-user-easy">Dropping privileges in kvm to a single user (easy)</a></li>
+<li><a class="reference internal" href="#running-kvm-in-a-chroot-slightly-harder">Running kvm in a chroot (slightly harder)</a></li>
+<li><a class="reference internal" href="#running-kvm-with-a-pool-of-users-slightly-harder">Running kvm with a pool of users (slightly harder)</a></li>
+<li><a class="reference internal" href="#running-iptables-rules-to-limit-network-interaction-easy">Running iptables rules to limit network interaction (easy)</a></li>
+<li><a class="reference internal" href="#running-kvm-inside-a-container-even-harder">Running kvm inside a container (even harder)</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#validation">Validation</a></li>
-<li><a class="reference external" href="#instance-operations">Instance operations</a></li>
-<li><a class="reference external" href="#declaration-and-modification">Declaration and modification</a></li>
-<li><a class="reference external" href="#cli-interface">CLI interface</a></li>
-<li><a class="reference external" href="#internal-storage">Internal storage</a></li>
-<li><a class="reference external" href="#overriding-rules">Overriding rules</a></li>
+<li><a class="reference internal" href="#implementation-plan">Implementation plan</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#new-os-states">New OS states</a><ul>
+<li><a class="reference internal" href="#id8">Current state and shortcomings</a></li>
+<li><a class="reference internal" href="#id9">Proposed changes</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a class="reference internal" href="#external-interface-changes">External interface changes</a><ul>
+<li><a class="reference internal" href="#os-api">OS API</a><ul>
+<li><a class="reference internal" href="#os-version">OS version</a></li>
+<li><a class="reference internal" href="#parameters">Parameters</a><ul>
+<li><a class="reference internal" href="#names">Names</a></li>
+<li><a class="reference internal" href="#values">Values</a><ul>
+<li><a class="reference internal" href="#environment-variables">Environment variables</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#validation">Validation</a></li>
+<li><a class="reference internal" href="#instance-operations">Instance operations</a></li>
+<li><a class="reference internal" href="#declaration-and-modification">Declaration and modification</a></li>
+<li><a class="reference internal" href="#cli-interface">CLI interface</a></li>
+<li><a class="reference internal" href="#internal-storage">Internal storage</a></li>
+<li><a class="reference internal" href="#overriding-rules">Overriding rules</a></li>
 </ul>
 </li>
 </ul>
@@ -1030,30 +1036,30 @@ scripts).</p>
 </li>
 </ul>
 
-            <h4>Previous topic</h4>
-            <p class="topless"><a href="design-2.1.html"
-                                  title="previous chapter">Ganeti 2.1 design</a></p>
-            <h4>Next topic</h4>
-            <p class="topless"><a href="design-2.3.html"
-                                  title="next chapter">Ganeti 2.3 design</a></p>
-            <h3>This Page</h3>
-            <ul class="this-page-menu">
-              <li><a href="_sources/design-2.2.txt"
-                     rel="nofollow">Show Source</a></li>
-            </ul>
-          <div id="searchbox" style="display: none">
-            <h3>Quick search</h3>
-              <form class="search" action="search.html" method="get">
-                <input type="text" name="q" size="18" />
-                <input type="submit" value="Go" />
-                <input type="hidden" name="check_keywords" value="yes" />
-                <input type="hidden" name="area" value="default" />
-              </form>
-              <p class="searchtip" style="font-size: 90%">
-              Enter search terms or a module, class or function name.
-              </p>
-          </div>
-          <script type="text/javascript">$('#searchbox').show(0);</script>
+  <h4>Previous topic</h4>
+  <p class="topless"><a href="design-2.1.html"
+                        title="previous chapter">Ganeti 2.1 design</a></p>
+  <h4>Next topic</h4>
+  <p class="topless"><a href="design-2.3.html"
+                        title="next chapter">Ganeti 2.3 design</a></p>
+  <h3>This Page</h3>
+  <ul class="this-page-menu">
+    <li><a href="_sources/design-2.2.txt"
+           rel="nofollow">Show Source</a></li>
+  </ul>
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
         </div>
       </div>
       <div class="clearer"></div>
@@ -1067,12 +1073,12 @@ scripts).</p>
         <li class="right" >
           <a href="design-2.1.html" title="Ganeti 2.1 design"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.6.2 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.7.0~rc3 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">
-      &copy; Copyright 2006, 2007, 2008, 2009, 2010, 2011, 2012, Google Inc..
-      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 0.6.7.
+        &copy; Copyright 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Google Inc..
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
     </div>
   </body>
 </html>

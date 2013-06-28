@@ -64,12 +64,17 @@ from ganeti import objects
 from ganeti import ht
 from ganeti import runtime
 from ganeti import qlang
+from ganeti import jstore
 
 from ganeti.constants import (QFT_UNKNOWN, QFT_TEXT, QFT_BOOL, QFT_NUMBER,
                               QFT_UNIT, QFT_TIMESTAMP, QFT_OTHER,
                               RS_NORMAL, RS_UNKNOWN, RS_NODATA,
                               RS_UNAVAIL, RS_OFFLINE)
 
+(NETQ_CONFIG,
+ NETQ_GROUP,
+ NETQ_STATS,
+ NETQ_INST) = range(300, 304)
 
 # Constants for requesting data from the caller/data provider. Each property
 # collected/computed separately by the data provider should have its own to
@@ -85,7 +90,8 @@ from ganeti.constants import (QFT_UNKNOWN, QFT_TEXT, QFT_BOOL, QFT_NUMBER,
  IQ_LIVE,
  IQ_DISKUSAGE,
  IQ_CONSOLE,
- IQ_NODES) = range(100, 105)
+ IQ_NODES,
+ IQ_NETWORKS) = range(100, 106)
 
 (LQ_MODE,
  LQ_OWNER,
@@ -100,11 +106,15 @@ from ganeti.constants import (QFT_UNKNOWN, QFT_TEXT, QFT_BOOL, QFT_NUMBER,
  CQ_QUEUE_DRAINED,
  CQ_WATCHER_PAUSE) = range(300, 303)
 
+(JQ_ARCHIVED, ) = range(400, 401)
+
 # Query field flags
 QFF_HOSTNAME = 0x01
 QFF_IP_ADDRESS = 0x02
-# Next values: 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x100, 0x200
-QFF_ALL = (QFF_HOSTNAME | QFF_IP_ADDRESS)
+QFF_JOB_ID = 0x04
+QFF_SPLIT_TIMESTAMP = 0x08
+# Next values: 0x10, 0x20, 0x40, 0x80, 0x100, 0x200
+QFF_ALL = (QFF_HOSTNAME | QFF_IP_ADDRESS | QFF_JOB_ID | QFF_SPLIT_TIMESTAMP)
 
 FIELD_NAME_RE = re.compile(r"^[a-z0-9/._]+$")
 TITLE_RE = re.compile(r"^[^\s]+$")
@@ -128,7 +138,12 @@ _FS_UNAVAIL = object()
 _FS_OFFLINE = object()
 
 #: List of all special status
-_FS_ALL = frozenset([_FS_UNKNOWN, _FS_NODATA, _FS_UNAVAIL, _FS_OFFLINE])
+_FS_ALL = compat.UniqueFrozenset([
+  _FS_UNKNOWN,
+  _FS_NODATA,
+  _FS_UNAVAIL,
+  _FS_OFFLINE,
+  ])
 
 #: VType to QFT mapping
 _VTToQFT = {
@@ -141,12 +156,6 @@ _VTToQFT = {
   }
 
 _SERIAL_NO_DOC = "%s object serial number, incremented on each modification"
-
-# TODO: Consider moving titles closer to constants
-NDP_TITLE = {
-  constants.ND_OOB_PROGRAM: "OutOfBandProgram",
-  constants.ND_SPINDLE_COUNT: "SpindleCount",
-  }
 
 
 def _GetUnknownField(ctx, item): # pylint: disable=W0613
@@ -272,13 +281,16 @@ class _FilterHints:
     if op != qlang.OP_OR:
       self._NeedAllNames()
 
-  def NoteUnaryOp(self, op): # pylint: disable=W0613
+  def NoteUnaryOp(self, op, datakind): # pylint: disable=W0613
     """Called when handling an unary operation.
 
     @type op: string
     @param op: Operator
 
     """
+    if datakind is not None:
+      self._datakinds.add(datakind)
+
     self._NeedAllNames()
 
   def NoteBinaryOp(self, op, datakind, name, value):
@@ -345,6 +357,36 @@ def _PrepareRegex(pattern):
     raise errors.ParameterError("Invalid regex pattern (%s)" % err)
 
 
+def _PrepareSplitTimestamp(value):
+  """Prepares a value for comparison by L{_MakeSplitTimestampComparison}.
+
+  """
+  if ht.TNumber(value):
+    return value
+  else:
+    return utils.MergeTime(value)
+
+
+def _MakeSplitTimestampComparison(fn):
+  """Compares split timestamp values after converting to float.
+
+  """
+  return lambda lhs, rhs: fn(utils.MergeTime(lhs), rhs)
+
+
+def _MakeComparisonChecks(fn):
+  """Prepares flag-specific comparisons using a comparison function.
+
+  """
+  return [
+    (QFF_SPLIT_TIMESTAMP, _MakeSplitTimestampComparison(fn),
+     _PrepareSplitTimestamp),
+    (QFF_JOB_ID, lambda lhs, rhs: fn(jstore.ParseJobId(lhs), rhs),
+     jstore.ParseJobId),
+    (None, fn, None),
+    ]
+
+
 class _FilterCompilerHelper:
   """Converts a query filter to a callable usable for filtering.
 
@@ -363,7 +405,7 @@ class _FilterCompilerHelper:
 
   List of tuples containing flags and a callable receiving the left- and
   right-hand side of the operator. The flags are an OR-ed value of C{QFF_*}
-  (e.g. L{QFF_HOSTNAME}).
+  (e.g. L{QFF_HOSTNAME} or L{QFF_SPLIT_TIMESTAMP}).
 
   Order matters. The first item with flags will be used. Flags are checked
   using binary AND.
@@ -374,6 +416,8 @@ class _FilterCompilerHelper:
      lambda lhs, rhs: utils.MatchNameComponent(rhs, [lhs],
                                                case_sensitive=False),
      None),
+    (QFF_SPLIT_TIMESTAMP, _MakeSplitTimestampComparison(operator.eq),
+     _PrepareSplitTimestamp),
     (None, operator.eq, None),
     ]
 
@@ -403,18 +447,10 @@ class _FilterCompilerHelper:
     qlang.OP_NOT_EQUAL:
       (_OPTYPE_BINARY, [(flags, compat.partial(_WrapNot, fn), valprepfn)
                         for (flags, fn, valprepfn) in _EQUALITY_CHECKS]),
-    qlang.OP_LT: (_OPTYPE_BINARY, [
-      (None, operator.lt, None),
-      ]),
-    qlang.OP_GT: (_OPTYPE_BINARY, [
-      (None, operator.gt, None),
-      ]),
-    qlang.OP_LE: (_OPTYPE_BINARY, [
-      (None, operator.le, None),
-      ]),
-    qlang.OP_GE: (_OPTYPE_BINARY, [
-      (None, operator.ge, None),
-      ]),
+    qlang.OP_LT: (_OPTYPE_BINARY, _MakeComparisonChecks(operator.lt)),
+    qlang.OP_LE: (_OPTYPE_BINARY, _MakeComparisonChecks(operator.le)),
+    qlang.OP_GT: (_OPTYPE_BINARY, _MakeComparisonChecks(operator.gt)),
+    qlang.OP_GE: (_OPTYPE_BINARY, _MakeComparisonChecks(operator.ge)),
     qlang.OP_REGEXP: (_OPTYPE_BINARY, [
       (None, lambda lhs, rhs: rhs.search(lhs), _PrepareRegex),
       ]),
@@ -536,19 +572,22 @@ class _FilterCompilerHelper:
     """
     assert op_fn is None
 
-    if hints_fn:
-      hints_fn(op)
-
     if len(operands) != 1:
       raise errors.ParameterError("Unary operator '%s' expects exactly one"
                                   " operand" % op)
 
     if op == qlang.OP_TRUE:
-      (_, _, _, retrieval_fn) = self._LookupField(operands[0])
+      (_, datakind, _, retrieval_fn) = self._LookupField(operands[0])
+
+      if hints_fn:
+        hints_fn(op, datakind)
 
       op_fn = operator.truth
       arg = retrieval_fn
     elif op == qlang.OP_NOT:
+      if hints_fn:
+        hints_fn(op, None)
+
       op_fn = operator.not_
       arg = self._Compile(operands[0], level + 1)
     else:
@@ -719,6 +758,7 @@ class Query:
         (status, name) = _ProcessResult(self._name_fn(ctx, item))
         assert status == constants.RS_NORMAL
         # TODO: Are there cases where we wouldn't want to use NiceSort?
+        # Answer: if the name field is non-string...
         result.append((utils.NiceSortKey(name), idx, row))
       else:
         result.append(row)
@@ -959,7 +999,9 @@ def _BuildNDFields(is_group):
     field_kind = GQ_CONFIG
   else:
     field_kind = NQ_GROUP
-  return [(_MakeField("ndp/%s" % name, NDP_TITLE.get(name, "ndp/%s" % name),
+  return [(_MakeField("ndp/%s" % name,
+                      constants.NDS_PARAMETER_TITLES.get(name,
+                                                         "ndp/%s" % name),
                       _VTToQFT[kind], "The \"%s\" node parameter" % name),
            field_kind, 0, _GetNDParam(name))
           for name, kind in constants.NDS_PARAMETER_TYPES.items()]
@@ -1193,8 +1235,24 @@ def _GetLiveNodeField(field, kind, ctx, node):
   if not ctx.curlive_data:
     return _FS_NODATA
 
+  return _GetStatsField(field, kind, ctx.curlive_data)
+
+
+def _GetStatsField(field, kind, data):
+  """Gets a value from live statistics.
+
+  If the value is not found, L{_FS_UNAVAIL} is returned. If the field kind is
+  numeric a conversion to integer is attempted. If that fails, L{_FS_UNAVAIL}
+  is returned.
+
+  @param field: Live field name
+  @param kind: Data kind, one of L{constants.QFT_ALL}
+  @type data: dict
+  @param data: Statistics
+
+  """
   try:
-    value = ctx.curlive_data[field]
+    value = data[field]
   except KeyError:
     return _FS_UNAVAIL
 
@@ -1208,7 +1266,7 @@ def _GetLiveNodeField(field, kind, ctx, node):
     return int(value)
   except (ValueError, TypeError):
     logging.exception("Failed to convert node field '%s' (value %r) to int",
-                      value, field)
+                      field, value)
     return _FS_UNAVAIL
 
 
@@ -1277,7 +1335,7 @@ def _BuildNodeFields():
                  constants.NR_REGULAR, constants.NR_DRAINED,
                  constants.NR_OFFLINE)
   role_doc = ("Node role; \"%s\" for master, \"%s\" for master candidate,"
-              " \"%s\" for regular, \"%s\" for a drained, \"%s\" for offline" %
+              " \"%s\" for regular, \"%s\" for drained, \"%s\" for offline" %
               role_values)
   fields.append((_MakeField("role", "Role", QFT_TEXT, role_doc), NQ_CONFIG, 0,
                  lambda ctx, node: _GetNodeRole(node, ctx.master_name)))
@@ -1307,15 +1365,13 @@ def _BuildNodeFields():
   # Add simple fields
   fields.extend([
     (_MakeField(name, title, kind, doc), NQ_CONFIG, flags, _GetItemAttr(name))
-    for (name, (title, kind, flags, doc)) in _NODE_SIMPLE_FIELDS.items()
-    ])
+    for (name, (title, kind, flags, doc)) in _NODE_SIMPLE_FIELDS.items()])
 
   # Add fields requiring live data
   fields.extend([
     (_MakeField(name, title, kind, doc), NQ_LIVE, 0,
      compat.partial(_GetLiveNodeField, nfield, kind))
-    for (name, (title, kind, nfield, doc)) in _NODE_LIVE_FIELDS.items()
-    ])
+    for (name, (title, kind, nfield, doc)) in _NODE_LIVE_FIELDS.items()])
 
   # Add timestamps
   fields.extend(_GetItemTimestampFields(NQ_CONFIG))
@@ -1328,7 +1384,7 @@ class InstanceQueryData:
 
   """
   def __init__(self, instances, cluster, disk_usage, offline_nodes, bad_nodes,
-               live_data, wrongnode_inst, console, nodes, groups):
+               live_data, wrongnode_inst, console, nodes, groups, networks):
     """Initializes this class.
 
     @param instances: List of instance objects
@@ -1347,6 +1403,8 @@ class InstanceQueryData:
     @param console: Per-instance console information
     @type nodes: dict; node name as key
     @param nodes: Node objects
+    @type networks: dict; net_uuid as key
+    @param networks: Network objects
 
     """
     assert len(set(bad_nodes) & set(offline_nodes)) == len(offline_nodes), \
@@ -1364,6 +1422,7 @@ class InstanceQueryData:
     self.console = console
     self.nodes = nodes
     self.groups = groups
+    self.networks = networks
 
     # Used for individual rows
     self.inst_hvparams = None
@@ -1514,6 +1573,34 @@ def _GetInstNic(index, cb):
   return fn
 
 
+def _GetInstNicNetworkName(ctx, _, nic): # pylint: disable=W0613
+  """Get a NIC's Network.
+
+  @type ctx: L{InstanceQueryData}
+  @type nic: L{objects.NIC}
+  @param nic: NIC object
+
+  """
+  if nic.network is None:
+    return _FS_UNAVAIL
+  else:
+    return ctx.networks[nic.network].name
+
+
+def _GetInstNicNetwork(ctx, _, nic): # pylint: disable=W0613
+  """Get a NIC's Network.
+
+  @type ctx: L{InstanceQueryData}
+  @type nic: L{objects.NIC}
+  @param nic: NIC object
+
+  """
+  if nic.network is None:
+    return _FS_UNAVAIL
+  else:
+    return nic.network
+
+
 def _GetInstNicIp(ctx, _, nic): # pylint: disable=W0613
   """Get a NIC's IP address.
 
@@ -1544,6 +1631,27 @@ def _GetInstNicBridge(ctx, index, _):
     return nicparams[constants.NIC_LINK]
   else:
     return _FS_UNAVAIL
+
+
+def _GetInstAllNicNetworkNames(ctx, inst):
+  """Get all network names for an instance.
+
+  @type ctx: L{InstanceQueryData}
+  @type inst: L{objects.Instance}
+  @param inst: Instance object
+
+  """
+  result = []
+
+  for nic in inst.nics:
+    name = None
+    if nic.network:
+      name = ctx.networks[nic.network].name
+    result.append(name)
+
+  assert len(result) == len(inst.nics)
+
+  return result
 
 
 def _GetInstAllNicBridges(ctx, inst):
@@ -1625,6 +1733,12 @@ def _GetInstanceNetworkFields():
     (_MakeField("nic.bridges", "NIC_bridges", QFT_OTHER,
                 "List containing each network interface's bridge"),
      IQ_CONFIG, 0, _GetInstAllNicBridges),
+    (_MakeField("nic.networks", "NIC_networks", QFT_OTHER,
+                "List containing each interface's network"), IQ_CONFIG, 0,
+     lambda ctx, inst: [nic.network for nic in inst.nics]),
+    (_MakeField("nic.networks.names", "NIC_networks_names", QFT_OTHER,
+                "List containing each interface's network"),
+     IQ_NETWORKS, 0, _GetInstAllNicNetworkNames)
     ]
 
   # NICs by number
@@ -1646,6 +1760,12 @@ def _GetInstanceNetworkFields():
       (_MakeField("nic.bridge/%s" % i, "NicBridge/%s" % i, QFT_TEXT,
                   "Bridge of %s network interface" % numtext),
        IQ_CONFIG, 0, _GetInstNic(i, _GetInstNicBridge)),
+      (_MakeField("nic.network/%s" % i, "NicNetwork/%s" % i, QFT_TEXT,
+                  "Network of %s network interface" % numtext),
+       IQ_CONFIG, 0, _GetInstNic(i, _GetInstNicNetwork)),
+      (_MakeField("nic.network.name/%s" % i, "NicNetworkName/%s" % i, QFT_TEXT,
+                  "Network name of %s network interface" % numtext),
+       IQ_NETWORKS, 0, _GetInstNic(i, _GetInstNicNetworkName)),
       ])
 
   aliases = [
@@ -1655,6 +1775,7 @@ def _GetInstanceNetworkFields():
     ("bridge", "nic.bridge/0"),
     ("nic_mode", "nic.mode/0"),
     ("nic_link", "nic.link/0"),
+    ("nic_network", "nic.network/0"),
     ]
 
   return (fields, aliases)
@@ -1715,8 +1836,7 @@ def _GetInstanceDiskFields():
     (_MakeField("disk.size/%s" % i, "Disk/%s" % i, QFT_UNIT,
                 "Disk size of %s disk" % utils.FormatOrdinal(i + 1)),
      IQ_CONFIG, 0, _GetInstDiskSize(i))
-    for i in range(constants.MAX_DISKS)
-    ])
+    for i in range(constants.MAX_DISKS)])
 
   return fields
 
@@ -1727,26 +1847,6 @@ def _GetInstanceParameterFields():
   @return: List of field definitions used as input for L{_PrepareFieldList}
 
   """
-  # TODO: Consider moving titles closer to constants
-  be_title = {
-    constants.BE_AUTO_BALANCE: "Auto_balance",
-    constants.BE_MAXMEM: "ConfigMaxMem",
-    constants.BE_MINMEM: "ConfigMinMem",
-    constants.BE_VCPUS: "ConfigVCPUs",
-    }
-
-  hv_title = {
-    constants.HV_ACPI: "ACPI",
-    constants.HV_BOOT_ORDER: "Boot_order",
-    constants.HV_CDROM_IMAGE_PATH: "CDROM_image_path",
-    constants.HV_DISK_TYPE: "Disk_type",
-    constants.HV_INITRD_PATH: "Initrd_path",
-    constants.HV_KERNEL_PATH: "Kernel_path",
-    constants.HV_NIC_TYPE: "NIC_type",
-    constants.HV_PAE: "PAE",
-    constants.HV_VNC_BIND_ADDRESS: "VNC_bind_address",
-    }
-
   fields = [
     # Filled parameters
     (_MakeField("hvparams", "HypervisorParameters", QFT_OTHER,
@@ -1779,23 +1879,23 @@ def _GetInstanceParameterFields():
     return lambda ctx, _: ctx.inst_hvparams.get(name, _FS_UNAVAIL)
 
   fields.extend([
-    (_MakeField("hv/%s" % name, hv_title.get(name, "hv/%s" % name),
+    (_MakeField("hv/%s" % name,
+                constants.HVS_PARAMETER_TITLES.get(name, "hv/%s" % name),
                 _VTToQFT[kind], "The \"%s\" hypervisor parameter" % name),
      IQ_CONFIG, 0, _GetInstHvParam(name))
     for name, kind in constants.HVS_PARAMETER_TYPES.items()
-    if name not in constants.HVC_GLOBALS
-    ])
+    if name not in constants.HVC_GLOBALS])
 
   # BE params
   def _GetInstBeParam(name):
     return lambda ctx, _: ctx.inst_beparams.get(name, None)
 
   fields.extend([
-    (_MakeField("be/%s" % name, be_title.get(name, "be/%s" % name),
+    (_MakeField("be/%s" % name,
+                constants.BES_PARAMETER_TITLES.get(name, "be/%s" % name),
                 _VTToQFT[kind], "The \"%s\" backend parameter" % name),
      IQ_CONFIG, 0, _GetInstBeParam(name))
-    for name, kind in constants.BES_PARAMETER_TYPES.items()
-    ])
+    for name, kind in constants.BES_PARAMETER_TYPES.items()])
 
   return fields
 
@@ -1898,8 +1998,7 @@ def _BuildInstanceFields():
   # Add simple fields
   fields.extend([
     (_MakeField(name, title, kind, doc), IQ_CONFIG, flags, _GetItemAttr(name))
-    for (name, (title, kind, flags, doc)) in _INST_SIMPLE_FIELDS.items()
-    ])
+    for (name, (title, kind, flags, doc)) in _INST_SIMPLE_FIELDS.items()])
 
   # Fields requiring talking to the node
   fields.extend([
@@ -2180,6 +2279,36 @@ def _BuildOsFields():
   return _PrepareFieldList(fields, [])
 
 
+class ExtStorageInfo(objects.ConfigObject):
+  __slots__ = [
+    "name",
+    "node_status",
+    "nodegroup_status",
+    "parameters",
+    ]
+
+
+def _BuildExtStorageFields():
+  """Builds list of fields for extstorage provider queries.
+
+  """
+  fields = [
+    (_MakeField("name", "Name", QFT_TEXT, "ExtStorage provider name"),
+     None, 0, _GetItemAttr("name")),
+    (_MakeField("node_status", "NodeStatus", QFT_OTHER,
+                "Status from node"),
+     None, 0, _GetItemAttr("node_status")),
+    (_MakeField("nodegroup_status", "NodegroupStatus", QFT_OTHER,
+                "Overall Nodegroup status"),
+     None, 0, _GetItemAttr("nodegroup_status")),
+    (_MakeField("parameters", "Parameters", QFT_OTHER,
+                "ExtStorage provider parameters"),
+     None, 0, _GetItemAttr("parameters")),
+    ]
+
+  return _PrepareFieldList(fields, [])
+
+
 def _JobUnavailInner(fn, ctx, (job_id, job)): # pylint: disable=W0613
   """Return L{_FS_UNAVAIL} if job is None.
 
@@ -2238,14 +2367,16 @@ def _BuildJobFields():
 
   """
   fields = [
-    (_MakeField("id", "ID", QFT_TEXT, "Job ID"),
-     None, 0, lambda _, (job_id, job): job_id),
+    (_MakeField("id", "ID", QFT_NUMBER, "Job ID"),
+     None, QFF_JOB_ID, lambda _, (job_id, job): job_id),
     (_MakeField("status", "Status", QFT_TEXT, "Job status"),
      None, 0, _JobUnavail(lambda job: job.CalcStatus())),
     (_MakeField("priority", "Priority", QFT_NUMBER,
                 ("Current job priority (%s to %s)" %
                  (constants.OP_PRIO_LOWEST, constants.OP_PRIO_HIGHEST))),
      None, 0, _JobUnavail(lambda job: job.CalcPriority())),
+    (_MakeField("archived", "Archived", QFT_BOOL, "Whether job is archived"),
+     JQ_ARCHIVED, 0, lambda _, (job_id, job): job.archived),
     (_MakeField("ops", "OpCodes", QFT_OTHER, "List of all opcodes"),
      None, 0, _PerJobOp(lambda op: op.input.__getstate__())),
     (_MakeField("opresult", "OpCode_result", QFT_OTHER,
@@ -2270,19 +2401,24 @@ def _BuildJobFields():
     (_MakeField("oppriority", "OpCode_prio", QFT_OTHER,
                 "List of opcode priorities"),
      None, 0, _PerJobOp(operator.attrgetter("priority"))),
-    (_MakeField("received_ts", "Received", QFT_OTHER,
-                "Timestamp of when job was received"),
-     None, 0, _JobTimestamp(operator.attrgetter("received_timestamp"))),
-    (_MakeField("start_ts", "Start", QFT_OTHER,
-                "Timestamp of job start"),
-     None, 0, _JobTimestamp(operator.attrgetter("start_timestamp"))),
-    (_MakeField("end_ts", "End", QFT_OTHER,
-                "Timestamp of job end"),
-     None, 0, _JobTimestamp(operator.attrgetter("end_timestamp"))),
     (_MakeField("summary", "Summary", QFT_OTHER,
                 "List of per-opcode summaries"),
      None, 0, _PerJobOp(lambda op: op.input.Summary())),
     ]
+
+  # Timestamp fields
+  for (name, attr, title, desc) in [
+    ("received_ts", "received_timestamp", "Received",
+     "Timestamp of when job was received"),
+    ("start_ts", "start_timestamp", "Start", "Timestamp of job start"),
+    ("end_ts", "end_timestamp", "End", "Timestamp of job end"),
+    ]:
+    getter = operator.attrgetter(attr)
+    fields.extend([
+      (_MakeField(name, title, QFT_OTHER,
+                  "%s (tuple containing seconds and microseconds)" % desc),
+       None, QFF_SPLIT_TIMESTAMP, _JobTimestamp(getter)),
+      ])
 
   return _PrepareFieldList(fields, [])
 
@@ -2385,21 +2521,135 @@ def _BuildClusterFields():
   fields.extend([
     (_MakeField(name, title, kind, doc), CQ_CONFIG, flags, _GetItemAttr(name))
     for (name, (title, kind, flags, doc)) in _CLUSTER_SIMPLE_FIELDS.items()
-    ])
+    ],)
 
   # Version fields
   fields.extend([
     (_MakeField(name, title, kind, doc), None, 0, _StaticValue(value))
-    for (name, (title, kind, value, doc)) in _CLUSTER_VERSION_FIELDS.items()
-    ])
+    for (name, (title, kind, value, doc)) in _CLUSTER_VERSION_FIELDS.items()])
 
   # Add timestamps
   fields.extend(_GetItemTimestampFields(CQ_CONFIG))
 
   return _PrepareFieldList(fields, [
-    ("name", "cluster_name"),
+    ("name", "cluster_name")])
+
+
+class NetworkQueryData:
+  """Data container for network data queries.
+
+  """
+  def __init__(self, networks, network_to_groups,
+               network_to_instances, stats):
+    """Initializes this class.
+
+    @param networks: List of network objects
+    @type network_to_groups: dict; network UUID as key
+    @param network_to_groups: Per-network list of groups
+    @type network_to_instances: dict; network UUID as key
+    @param network_to_instances: Per-network list of instances
+    @type stats: dict; network UUID as key
+    @param stats: Per-network usage statistics
+
+    """
+    self.networks = networks
+    self.network_to_groups = network_to_groups
+    self.network_to_instances = network_to_instances
+    self.stats = stats
+
+  def __iter__(self):
+    """Iterate over all networks.
+
+    """
+    for net in self.networks:
+      if self.stats:
+        self.curstats = self.stats.get(net.uuid, None)
+      else:
+        self.curstats = None
+      yield net
+
+
+_NETWORK_SIMPLE_FIELDS = {
+  "name": ("Network", QFT_TEXT, 0, "Name"),
+  "network": ("Subnet", QFT_TEXT, 0, "IPv4 subnet"),
+  "gateway": ("Gateway", QFT_OTHER, 0, "IPv4 gateway"),
+  "network6": ("IPv6Subnet", QFT_OTHER, 0, "IPv6 subnet"),
+  "gateway6": ("IPv6Gateway", QFT_OTHER, 0, "IPv6 gateway"),
+  "mac_prefix": ("MacPrefix", QFT_OTHER, 0, "MAC address prefix"),
+  "serial_no": ("SerialNo", QFT_NUMBER, 0, _SERIAL_NO_DOC % "Network"),
+  "uuid": ("UUID", QFT_TEXT, 0, "Network UUID"),
+  }
+
+
+_NETWORK_STATS_FIELDS = {
+  "free_count": ("FreeCount", QFT_NUMBER, 0, "Number of available addresses"),
+  "reserved_count":
+    ("ReservedCount", QFT_NUMBER, 0, "Number of reserved addresses"),
+  "map": ("Map", QFT_TEXT, 0, "Actual mapping"),
+  "external_reservations":
+    ("ExternalReservations", QFT_TEXT, 0, "External reservations"),
+  }
+
+
+def _GetNetworkStatsField(field, kind, ctx, _):
+  """Gets the value of a "stats" field from L{NetworkQueryData}.
+
+  @param field: Field name
+  @param kind: Data kind, one of L{constants.QFT_ALL}
+  @type ctx: L{NetworkQueryData}
+
+  """
+  return _GetStatsField(field, kind, ctx.curstats)
+
+
+def _BuildNetworkFields():
+  """Builds list of fields for network queries.
+
+  """
+  fields = [
+    (_MakeField("tags", "Tags", QFT_OTHER, "Tags"), IQ_CONFIG, 0,
+     lambda ctx, inst: list(inst.GetTags())),
+    ]
+
+  # Add simple fields
+  fields.extend([
+    (_MakeField(name, title, kind, doc),
+     NETQ_CONFIG, 0, _GetItemAttr(name))
+     for (name, (title, kind, _, doc)) in _NETWORK_SIMPLE_FIELDS.items()])
+
+  def _GetLength(getter):
+    return lambda ctx, network: len(getter(ctx)[network.uuid])
+
+  def _GetSortedList(getter):
+    return lambda ctx, network: utils.NiceSort(getter(ctx)[network.uuid])
+
+  network_to_groups = operator.attrgetter("network_to_groups")
+  network_to_instances = operator.attrgetter("network_to_instances")
+
+  # Add fields for node groups
+  fields.extend([
+    (_MakeField("group_cnt", "NodeGroups", QFT_NUMBER, "Number of nodegroups"),
+     NETQ_GROUP, 0, _GetLength(network_to_groups)),
+    (_MakeField("group_list", "GroupList", QFT_OTHER,
+     "List of nodegroups (group name, NIC mode, NIC link)"),
+     NETQ_GROUP, 0, lambda ctx, network: network_to_groups(ctx)[network.uuid]),
     ])
 
+  # Add fields for instances
+  fields.extend([
+    (_MakeField("inst_cnt", "Instances", QFT_NUMBER, "Number of instances"),
+     NETQ_INST, 0, _GetLength(network_to_instances)),
+    (_MakeField("inst_list", "InstanceList", QFT_OTHER, "List of instances"),
+     NETQ_INST, 0, _GetSortedList(network_to_instances)),
+    ])
+
+  # Add fields for usage statistics
+  fields.extend([
+    (_MakeField(name, title, kind, doc), NETQ_STATS, 0,
+    compat.partial(_GetNetworkStatsField, name, kind))
+    for (name, (title, kind, _, doc)) in _NETWORK_STATS_FIELDS.items()])
+
+  return _PrepareFieldList(fields, [])
 
 #: Fields for cluster information
 CLUSTER_FIELDS = _BuildClusterFields()
@@ -2419,11 +2669,17 @@ GROUP_FIELDS = _BuildGroupFields()
 #: Fields available for operating system queries
 OS_FIELDS = _BuildOsFields()
 
+#: Fields available for extstorage provider queries
+EXTSTORAGE_FIELDS = _BuildExtStorageFields()
+
 #: Fields available for job queries
 JOB_FIELDS = _BuildJobFields()
 
 #: Fields available for exports
 EXPORT_FIELDS = _BuildExportFields()
+
+#: Fields available for network queries
+NETWORK_FIELDS = _BuildNetworkFields()
 
 #: All available resources
 ALL_FIELDS = {
@@ -2433,8 +2689,10 @@ ALL_FIELDS = {
   constants.QR_LOCK: LOCK_FIELDS,
   constants.QR_GROUP: GROUP_FIELDS,
   constants.QR_OS: OS_FIELDS,
+  constants.QR_EXTSTORAGE: EXTSTORAGE_FIELDS,
   constants.QR_JOB: JOB_FIELDS,
   constants.QR_EXPORT: EXPORT_FIELDS,
+  constants.QR_NETWORK: NETWORK_FIELDS,
   }
 
 #: All available field lists

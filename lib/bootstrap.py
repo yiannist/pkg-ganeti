@@ -28,6 +28,7 @@ import os.path
 import re
 import logging
 import time
+import tempfile
 
 from ganeti import rpc
 from ganeti import ssh
@@ -41,9 +42,9 @@ from ganeti import serializer
 from ganeti import hypervisor
 from ganeti import bdev
 from ganeti import netutils
-from ganeti import backend
 from ganeti import luxi
 from ganeti import jstore
+from ganeti import pathutils
 
 
 # ec_id for InitConfig's temporary reservation manager
@@ -60,7 +61,7 @@ def _InitSSHSetup():
   permitted hosts and adds the hostkey to its own known hosts.
 
   """
-  priv_key, pub_key, auth_keys = ssh.GetUserFiles(constants.GANETI_RUNAS)
+  priv_key, pub_key, auth_keys = ssh.GetUserFiles(constants.SSH_LOGIN_USER)
 
   for name in priv_key, pub_key:
     if os.path.exists(name):
@@ -92,12 +93,12 @@ def GenerateClusterCrypto(new_cluster_cert, new_rapi_cert, new_spice_cert,
                           new_confd_hmac_key, new_cds,
                           rapi_cert_pem=None, spice_cert_pem=None,
                           spice_cacert_pem=None, cds=None,
-                          nodecert_file=constants.NODED_CERT_FILE,
-                          rapicert_file=constants.RAPI_CERT_FILE,
-                          spicecert_file=constants.SPICE_CERT_FILE,
-                          spicecacert_file=constants.SPICE_CACERT_FILE,
-                          hmackey_file=constants.CONFD_HMAC_KEY,
-                          cds_file=constants.CLUSTER_DOMAIN_SECRET_FILE):
+                          nodecert_file=pathutils.NODED_CERT_FILE,
+                          rapicert_file=pathutils.RAPI_CERT_FILE,
+                          spicecert_file=pathutils.SPICE_CERT_FILE,
+                          spicecacert_file=pathutils.SPICE_CACERT_FILE,
+                          hmackey_file=pathutils.CONFD_HMAC_KEY,
+                          cds_file=pathutils.CLUSTER_DOMAIN_SECRET_FILE):
   """Updates the cluster certificates, keys and secrets.
 
   @type new_cluster_cert: bool
@@ -208,7 +209,7 @@ def _InitGanetiServerSetup(master_name):
   # Generate cluster secrets
   GenerateClusterCrypto(True, False, False, False, False)
 
-  result = utils.RunCmd([constants.DAEMON_UTIL, "start", constants.NODED])
+  result = utils.RunCmd([pathutils.DAEMON_UTIL, "start", constants.NODED])
   if result.failed:
     raise errors.OpExecError("Could not start the node daemon, command %s"
                              " had exitcode %s and error %s" %
@@ -253,6 +254,61 @@ def _WaitForMasterDaemon():
   except utils.RetryTimeout:
     raise errors.OpExecError("Master daemon didn't answer queries within"
                              " %s seconds" % _DAEMON_READY_TIMEOUT)
+
+
+def RunNodeSetupCmd(cluster_name, node, basecmd, debug, verbose,
+                    use_cluster_key, ask_key, strict_host_check, data):
+  """Runs a command to configure something on a remote machine.
+
+  @type cluster_name: string
+  @param cluster_name: Cluster name
+  @type node: string
+  @param node: Node name
+  @type basecmd: string
+  @param basecmd: Base command (path on the remote machine)
+  @type debug: bool
+  @param debug: Enable debug output
+  @type verbose: bool
+  @param verbose: Enable verbose output
+  @type use_cluster_key: bool
+  @param use_cluster_key: See L{ssh.SshRunner.BuildCmd}
+  @type ask_key: bool
+  @param ask_key: See L{ssh.SshRunner.BuildCmd}
+  @type strict_host_check: bool
+  @param strict_host_check: See L{ssh.SshRunner.BuildCmd}
+  @param data: JSON-serializable input data for script (passed to stdin)
+
+  """
+  cmd = [basecmd]
+
+  # Pass --debug/--verbose to the external script if set on our invocation
+  if debug:
+    cmd.append("--debug")
+
+  if verbose:
+    cmd.append("--verbose")
+
+  family = ssconf.SimpleStore().GetPrimaryIPFamily()
+  srun = ssh.SshRunner(cluster_name,
+                       ipv6=(family == netutils.IP6Address.family))
+  scmd = srun.BuildCmd(node, constants.SSH_LOGIN_USER,
+                       utils.ShellQuoteArgs(cmd),
+                       batch=False, ask_key=ask_key, quiet=False,
+                       strict_host_check=strict_host_check,
+                       use_cluster_key=use_cluster_key)
+
+  tempfh = tempfile.TemporaryFile()
+  try:
+    tempfh.write(serializer.DumpJson(data))
+    tempfh.seek(0)
+
+    result = utils.RunCmd(scmd, interactive=True, input_fd=tempfh)
+  finally:
+    tempfh.close()
+
+  if result.failed:
+    raise errors.OpExecError("Command '%s' failed: %s" %
+                             (result.cmd, result.fail_reason))
 
 
 def _InitFileStorage(file_storage_dir):
@@ -318,17 +374,18 @@ def InitCluster(cluster_name, mac_prefix, # pylint: disable=R0913, R0914
     ipcls = netutils.IPAddress.GetClassFromIpVersion(primary_ip_version)
   except errors.ProgrammerError:
     raise errors.OpPrereqError("Invalid primary ip version: %d." %
-                               primary_ip_version)
+                               primary_ip_version, errors.ECODE_INVAL)
 
   hostname = netutils.GetHostname(family=ipcls.family)
   if not ipcls.IsValid(hostname.ip):
     raise errors.OpPrereqError("This host's IP (%s) is not a valid IPv%d"
-                               " address." % (hostname.ip, primary_ip_version))
+                               " address." % (hostname.ip, primary_ip_version),
+                               errors.ECODE_INVAL)
 
   if ipcls.IsLoopback(hostname.ip):
     raise errors.OpPrereqError("This host's IP (%s) resolves to a loopback"
                                " address. Please fix DNS or %s." %
-                               (hostname.ip, constants.ETC_HOSTS),
+                               (hostname.ip, pathutils.ETC_HOSTS),
                                errors.ECODE_ENVIRON)
 
   if not ipcls.Own(hostname.ip):
@@ -363,7 +420,8 @@ def InitCluster(cluster_name, mac_prefix, # pylint: disable=R0913, R0914
   if master_netmask is not None:
     if not ipcls.ValidateNetmask(master_netmask):
       raise errors.OpPrereqError("CIDR netmask (%s) not valid for IPv%s " %
-                                  (master_netmask, primary_ip_version))
+                                  (master_netmask, primary_ip_version),
+                                 errors.ECODE_INVAL)
   else:
     master_netmask = ipcls.iplen
 
@@ -390,6 +448,13 @@ def InitCluster(cluster_name, mac_prefix, # pylint: disable=R0913, R0914
                                                              curr_helper),
                                  errors.ECODE_INVAL)
 
+  logging.debug("Stopping daemons (if any are running)")
+  result = utils.RunCmd([pathutils.DAEMON_UTIL, "stop-all"])
+  if result.failed:
+    raise errors.OpExecError("Could not stop daemons, command %s"
+                             " had exitcode %s and error '%s'" %
+                             (result.cmd, result.exit_code, result.output))
+
   if constants.ENABLE_FILE_STORAGE:
     file_storage_dir = _InitFileStorage(file_storage_dir)
   else:
@@ -410,7 +475,7 @@ def InitCluster(cluster_name, mac_prefix, # pylint: disable=R0913, R0914
                                (master_netdev,
                                 result.output.strip()), errors.ECODE_INVAL)
 
-  dirs = [(constants.RUN_GANETI_DIR, constants.RUN_DIRS_MODE)]
+  dirs = [(pathutils.RUN_DIR, constants.RUN_DIRS_MODE)]
   utils.EnsureDirs(dirs)
 
   objects.UpgradeBeParams(beparams)
@@ -461,8 +526,14 @@ def InitCluster(cluster_name, mac_prefix, # pylint: disable=R0913, R0914
       unknown_params = param_keys - default_param_keys
       raise errors.OpPrereqError("Invalid parameters for disk template %s:"
                                  " %s" % (template,
-                                          utils.CommaJoin(unknown_params)))
+                                          utils.CommaJoin(unknown_params)),
+                                 errors.ECODE_INVAL)
     utils.ForceDictType(dt_params, constants.DISK_DT_TYPES)
+    if template == constants.DT_DRBD8 and vg_name is not None:
+      # The default METAVG value is equal to the VG name set at init time,
+      # if provided
+      dt_params[constants.DRBD_DEFAULT_METAVG] = vg_name
+
   try:
     utils.VerifyDictOptions(diskparams, constants.DISK_DT_DEFAULTS)
   except errors.OpPrereqError, err:
@@ -470,7 +541,7 @@ def InitCluster(cluster_name, mac_prefix, # pylint: disable=R0913, R0914
                                errors.ECODE_INVAL)
 
   # set up ssh config and /etc/hosts
-  sshline = utils.ReadFile(constants.SSH_HOST_RSA_PUB)
+  sshline = utils.ReadFile(pathutils.SSH_HOST_RSA_PUB)
   sshkey = sshline.split(" ")[1]
 
   if modify_etc_hosts:
@@ -543,15 +614,15 @@ def InitCluster(cluster_name, mac_prefix, # pylint: disable=R0913, R0914
                                     )
   InitConfig(constants.CONFIG_VERSION, cluster_config, master_node_config)
   cfg = config.ConfigWriter(offline=True)
-  ssh.WriteKnownHostsFile(cfg, constants.SSH_KNOWN_HOSTS_FILE)
+  ssh.WriteKnownHostsFile(cfg, pathutils.SSH_KNOWN_HOSTS_FILE)
   cfg.Update(cfg.GetClusterInfo(), logging.error)
-  backend.WriteSsconfFiles(cfg.GetSsconfValues())
+  ssconf.WriteSsconfFiles(cfg.GetSsconfValues())
 
   # set up the inter-node password and certificate
   _InitGanetiServerSetup(hostname.name)
 
   logging.debug("Starting daemons")
-  result = utils.RunCmd([constants.DAEMON_UTIL, "start-all"])
+  result = utils.RunCmd([pathutils.DAEMON_UTIL, "start-all"])
   if result.failed:
     raise errors.OpExecError("Could not start daemons, command %s"
                              " had exitcode %s and error %s" %
@@ -561,7 +632,7 @@ def InitCluster(cluster_name, mac_prefix, # pylint: disable=R0913, R0914
 
 
 def InitConfig(version, cluster_config, master_node_config,
-               cfg_file=constants.CLUSTER_CONF_FILE):
+               cfg_file=pathutils.CLUSTER_CONF_FILE):
   """Create the initial cluster configuration.
 
   It will contain the current node, which will also be the master
@@ -600,6 +671,7 @@ def InitConfig(version, cluster_config, master_node_config,
                                    nodegroups=nodegroups,
                                    nodes=nodes,
                                    instances={},
+                                   networks={},
                                    serial_no=1,
                                    ctime=now, mtime=now)
   utils.WriteFile(cfg_file,
@@ -640,7 +712,7 @@ def FinalizeClusterDestroy(master):
                     " the node: %s", msg)
 
 
-def SetupNodeDaemon(cluster_name, node, ssh_key_check):
+def SetupNodeDaemon(opts, cluster_name, node):
   """Add a node to the cluster.
 
   This function must be called before the actual opcode, and will ssh
@@ -649,38 +721,19 @@ def SetupNodeDaemon(cluster_name, node, ssh_key_check):
 
   @param cluster_name: the cluster name
   @param node: the name of the new node
-  @param ssh_key_check: whether to do a strict key check
 
   """
-  family = ssconf.SimpleStore().GetPrimaryIPFamily()
-  sshrunner = ssh.SshRunner(cluster_name,
-                            ipv6=(family == netutils.IP6Address.family))
+  data = {
+    constants.NDS_CLUSTER_NAME: cluster_name,
+    constants.NDS_NODE_DAEMON_CERTIFICATE:
+      utils.ReadFile(pathutils.NODED_CERT_FILE),
+    constants.NDS_SSCONF: ssconf.SimpleStore().ReadAll(),
+    constants.NDS_START_NODE_DAEMON: True,
+    }
 
-  bind_address = constants.IP4_ADDRESS_ANY
-  if family == netutils.IP6Address.family:
-    bind_address = constants.IP6_ADDRESS_ANY
-
-  # set up inter-node password and certificate and restarts the node daemon
-  # and then connect with ssh to set password and start ganeti-noded
-  # note that all the below variables are sanitized at this point,
-  # either by being constants or by the checks above
-  sshrunner.CopyFileToNode(node, constants.NODED_CERT_FILE)
-  sshrunner.CopyFileToNode(node, constants.RAPI_CERT_FILE)
-  sshrunner.CopyFileToNode(node, constants.SPICE_CERT_FILE)
-  sshrunner.CopyFileToNode(node, constants.SPICE_CACERT_FILE)
-  sshrunner.CopyFileToNode(node, constants.CONFD_HMAC_KEY)
-  mycommand = ("%s stop-all; %s start %s -b %s" %
-               (constants.DAEMON_UTIL, constants.DAEMON_UTIL, constants.NODED,
-                utils.ShellQuote(bind_address)))
-
-  result = sshrunner.Run(node, "root", mycommand, batch=False,
-                         ask_key=ssh_key_check,
-                         use_cluster_key=True,
-                         strict_host_check=ssh_key_check)
-  if result.failed:
-    raise errors.OpExecError("Remote command on node %s, error: %s,"
-                             " output: %s" %
-                             (node, result.fail_reason, result.output))
+  RunNodeSetupCmd(cluster_name, node, pathutils.NODE_DAEMON_SETUP,
+                  opts.debug, opts.verbose,
+                  True, opts.ssh_key_check, opts.ssh_key_check, data)
 
   _WaitForNodeDaemon(node)
 
@@ -776,7 +829,7 @@ def MasterFailover(no_voting=False):
   msg = result.fail_msg
   if msg:
     logging.error("Could not disable the master role on the old master"
-                 " %s, please disable manually: %s", old_master, msg)
+                  " %s, please disable manually: %s", old_master, msg)
 
   logging.info("Checking master IP non-reachability...")
 

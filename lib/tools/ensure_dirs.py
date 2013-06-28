@@ -34,13 +34,15 @@ from ganeti import runtime
 from ganeti import ssconf
 from ganeti import utils
 from ganeti import cli
+from ganeti import pathutils
+from ganeti import compat
 
 
 (DIR,
  FILE,
  QUEUE_DIR) = range(1, 4)
 
-ALL_TYPES = frozenset([
+ALL_TYPES = compat.UniqueFrozenset([
   DIR,
   FILE,
   QUEUE_DIR,
@@ -101,7 +103,7 @@ def ProcessPath(path):
 
   if pathtype in (DIR, QUEUE_DIR):
     # No additional parameters
-    assert len(path[5:]) == 0
+    assert len(path) == 5
     if pathtype == DIR:
       utils.MakeDirWithPerm(pathname, mode, uid, gid)
     elif pathtype == QUEUE_DIR:
@@ -122,98 +124,84 @@ def GetPaths():
   confd_log = constants.DAEMONS_LOGFILES[constants.CONFD]
   rapi_log = constants.DAEMONS_LOGFILES[constants.RAPI]
 
-  rapi_dir = os.path.join(constants.DATA_DIR, "rapi")
+  rapi_dir = os.path.join(pathutils.DATA_DIR, "rapi")
+  cleaner_log_dir = os.path.join(pathutils.LOG_DIR, "cleaner")
+  master_cleaner_log_dir = os.path.join(pathutils.LOG_DIR, "master-cleaner")
 
+  # A note on the ordering: The parent directory (type C{DIR}) must always be
+  # listed before files (type C{FILE}) in that directory. Once the directory is
+  # set, only files directly in that directory can be listed.
   paths = [
-    (constants.DATA_DIR, DIR, 0755, getent.masterd_uid,
-     getent.masterd_gid),
-    (constants.CLUSTER_DOMAIN_SECRET_FILE, FILE, 0640,
+    (pathutils.DATA_DIR, DIR, 0755, getent.masterd_uid, getent.masterd_gid),
+    (pathutils.CLUSTER_DOMAIN_SECRET_FILE, FILE, 0640,
      getent.masterd_uid, getent.masterd_gid, False),
-    (constants.CLUSTER_CONF_FILE, FILE, 0640, getent.masterd_uid,
-     getent.confd_gid, False),
-    (constants.CONFD_HMAC_KEY, FILE, 0440, getent.confd_uid,
-     getent.masterd_gid, False),
-    (constants.SSH_KNOWN_HOSTS_FILE, FILE, 0644, getent.masterd_uid,
-     getent.masterd_gid, False),
-    (constants.RAPI_CERT_FILE, FILE, 0440, getent.rapi_uid,
-     getent.masterd_gid, False),
-    (constants.SPICE_CERT_FILE, FILE, 0440, getent.noded_uid,
-     getent.masterd_gid, False),
-    (constants.SPICE_CACERT_FILE, FILE, 0440, getent.noded_uid,
-     getent.masterd_gid, False),
-    (constants.NODED_CERT_FILE, FILE, 0440, getent.masterd_uid,
-     getent.masterd_gid, False),
+    (pathutils.CLUSTER_CONF_FILE, FILE, 0640,
+     getent.masterd_uid, getent.confd_gid, False),
+    (pathutils.CONFD_HMAC_KEY, FILE, 0440,
+     getent.confd_uid, getent.masterd_gid, False),
+    (pathutils.SSH_KNOWN_HOSTS_FILE, FILE, 0644,
+     getent.masterd_uid, getent.masterd_gid, False),
+    (pathutils.RAPI_CERT_FILE, FILE, 0440,
+     getent.rapi_uid, getent.masterd_gid, False),
+    (pathutils.SPICE_CERT_FILE, FILE, 0440,
+     getent.noded_uid, getent.masterd_gid, False),
+    (pathutils.SPICE_CACERT_FILE, FILE, 0440,
+     getent.noded_uid, getent.masterd_gid, False),
+    (pathutils.NODED_CERT_FILE, FILE, pathutils.NODED_CERT_MODE,
+     getent.masterd_uid, getent.masterd_gid, False),
+    (pathutils.WATCHER_PAUSEFILE, FILE, 0644,
+     getent.masterd_uid, getent.masterd_gid, False),
     ]
 
   ss = ssconf.SimpleStore()
   for ss_path in ss.GetFileList():
     paths.append((ss_path, FILE, constants.SS_FILE_PERMS,
-                  getent.noded_uid, 0, False))
+                  getent.noded_uid, getent.noded_gid, False))
 
   paths.extend([
-    (constants.QUEUE_DIR, DIR, 0700, getent.masterd_uid,
-     getent.masterd_gid),
-    (constants.QUEUE_DIR, QUEUE_DIR, 0600, getent.masterd_uid,
-     getent.masterd_gid),
-    (constants.JOB_QUEUE_LOCK_FILE, FILE, 0600,
-     getent.masterd_uid, getent.masterd_gid, False),
-    (constants.JOB_QUEUE_SERIAL_FILE, FILE, 0600,
-     getent.masterd_uid, getent.masterd_gid, False),
-    (constants.JOB_QUEUE_VERSION_FILE, FILE, 0600,
-     getent.masterd_uid, getent.masterd_gid, False),
-    (constants.JOB_QUEUE_ARCHIVE_DIR, DIR, 0700,
-     getent.masterd_uid, getent.masterd_gid),
+    (pathutils.QUEUE_DIR, DIR, 0750, getent.masterd_uid, getent.daemons_gid),
+    (pathutils.QUEUE_DIR, QUEUE_DIR, constants.JOB_QUEUE_FILES_PERMS,
+     getent.masterd_uid, getent.daemons_gid),
+    (pathutils.JOB_QUEUE_DRAIN_FILE, FILE, 0644,
+     getent.masterd_uid, getent.daemons_gid, False),
+    (pathutils.JOB_QUEUE_LOCK_FILE, FILE, constants.JOB_QUEUE_FILES_PERMS,
+     getent.masterd_uid, getent.daemons_gid, False),
+    (pathutils.JOB_QUEUE_SERIAL_FILE, FILE, constants.JOB_QUEUE_FILES_PERMS,
+     getent.masterd_uid, getent.daemons_gid, False),
+    (pathutils.JOB_QUEUE_VERSION_FILE, FILE, constants.JOB_QUEUE_FILES_PERMS,
+     getent.masterd_uid, getent.daemons_gid, False),
+    (pathutils.JOB_QUEUE_ARCHIVE_DIR, DIR, 0750,
+     getent.masterd_uid, getent.daemons_gid),
     (rapi_dir, DIR, 0750, getent.rapi_uid, getent.masterd_gid),
-    (constants.RAPI_USERS_FILE, FILE, 0640, getent.rapi_uid,
-     getent.masterd_gid, False),
-    (constants.RUN_GANETI_DIR, DIR, 0775, getent.masterd_uid,
-     getent.daemons_gid),
-    (constants.SOCKET_DIR, DIR, 0750, getent.masterd_uid,
-     getent.daemons_gid),
-    (constants.MASTER_SOCKET, FILE, 0770, getent.masterd_uid,
-     getent.daemons_gid, False),
-    (constants.BDEV_CACHE_DIR, DIR, 0755, getent.noded_uid,
-     getent.masterd_gid),
-    (constants.UIDPOOL_LOCKDIR, DIR, 0750, getent.noded_uid,
-     getent.masterd_gid),
-    (constants.DISK_LINKS_DIR, DIR, 0755, getent.noded_uid,
-     getent.masterd_gid),
-    (constants.CRYPTO_KEYS_DIR, DIR, 0700, getent.noded_uid,
-     getent.masterd_gid),
-    (constants.IMPORT_EXPORT_DIR, DIR, 0755, getent.noded_uid,
-     getent.masterd_gid),
-    (constants.LOG_DIR, DIR, 0770, getent.masterd_uid,
-     getent.daemons_gid),
-    (masterd_log, FILE, 0600, getent.masterd_uid, getent.masterd_gid,
-     False),
+    (pathutils.RAPI_USERS_FILE, FILE, 0640,
+     getent.rapi_uid, getent.masterd_gid, False),
+    (pathutils.RUN_DIR, DIR, 0775, getent.masterd_uid, getent.daemons_gid),
+    (pathutils.SOCKET_DIR, DIR, 0770, getent.masterd_uid, getent.daemons_gid),
+    (pathutils.MASTER_SOCKET, FILE, 0660,
+     getent.masterd_uid, getent.daemons_gid, False),
+    (pathutils.QUERY_SOCKET, FILE, 0660,
+     getent.confd_uid, getent.daemons_gid, False),
+    (pathutils.BDEV_CACHE_DIR, DIR, 0755,
+     getent.noded_uid, getent.masterd_gid),
+    (pathutils.UIDPOOL_LOCKDIR, DIR, 0750,
+     getent.noded_uid, getent.masterd_gid),
+    (pathutils.DISK_LINKS_DIR, DIR, 0755,
+     getent.noded_uid, getent.masterd_gid),
+    (pathutils.CRYPTO_KEYS_DIR, DIR, 0700,
+     getent.noded_uid, getent.masterd_gid),
+    (pathutils.IMPORT_EXPORT_DIR, DIR, 0755,
+     getent.noded_uid, getent.masterd_gid),
+    (pathutils.LOG_DIR, DIR, 0770, getent.masterd_uid, getent.daemons_gid),
+    (masterd_log, FILE, 0600, getent.masterd_uid, getent.masterd_gid, False),
     (confd_log, FILE, 0600, getent.confd_uid, getent.masterd_gid, False),
     (noded_log, FILE, 0600, getent.noded_uid, getent.masterd_gid, False),
     (rapi_log, FILE, 0600, getent.rapi_uid, getent.masterd_gid, False),
-    (constants.LOG_OS_DIR, DIR, 0750, getent.masterd_uid,
-     getent.daemons_gid),
+    (pathutils.LOG_OS_DIR, DIR, 0750, getent.noded_uid, getent.daemons_gid),
+    (cleaner_log_dir, DIR, 0750, getent.noded_uid, getent.noded_gid),
+    (master_cleaner_log_dir, DIR, 0750, getent.masterd_uid, getent.masterd_gid),
     ])
 
-  return tuple(paths)
-
-
-def SetupLogging(opts):
-  """Configures the logging module.
-
-  """
-  formatter = logging.Formatter("%(asctime)s: %(message)s")
-
-  stderr_handler = logging.StreamHandler()
-  stderr_handler.setFormatter(formatter)
-  if opts.debug:
-    stderr_handler.setLevel(logging.NOTSET)
-  elif opts.verbose:
-    stderr_handler.setLevel(logging.INFO)
-  else:
-    stderr_handler.setLevel(logging.WARNING)
-
-  root_logger = logging.getLogger("")
-  root_logger.setLevel(logging.NOTSET)
-  root_logger.addHandler(stderr_handler)
+  return paths
 
 
 def ParseOptions():
@@ -224,7 +212,7 @@ def ParseOptions():
   """
   program = os.path.basename(sys.argv[0])
 
-  parser = optparse.OptionParser(usage="%%prog [--full-run]",
+  parser = optparse.OptionParser(usage="%prog [--full-run]",
                                  prog=program)
   parser.add_option(cli.DEBUG_OPT)
   parser.add_option(cli.VERBOSE_OPT)
@@ -239,9 +227,13 @@ def Main():
   """Main routine.
 
   """
-  (opts, _) = ParseOptions()
+  (opts, args) = ParseOptions()
 
-  SetupLogging(opts)
+  utils.SetupToolLogging(opts.debug, opts.verbose)
+
+  if args:
+    logging.error("No arguments are expected")
+    return constants.EXIT_FAILURE
 
   if opts.full_run:
     logging.info("Running in full mode")
@@ -253,8 +245,8 @@ def Main():
       ProcessPath(path)
 
     if opts.full_run:
-      RecursiveEnsure(constants.JOB_QUEUE_ARCHIVE_DIR, getent.masterd_uid,
-                      getent.masterd_gid, 0700, 0600)
+      RecursiveEnsure(pathutils.JOB_QUEUE_ARCHIVE_DIR, getent.masterd_uid,
+                      getent.daemons_gid, 0750, constants.JOB_QUEUE_FILES_PERMS)
   except errors.GenericError, err:
     logging.error("An error occurred while setting permissions: %s", err)
     return constants.EXIT_FAILURE

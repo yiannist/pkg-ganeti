@@ -1,27 +1,33 @@
+
+
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
   "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
 
 <html xmlns="http://www.w3.org/1999/xhtml">
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Design for import/export version 2 &mdash; Ganeti v2.6.2 documentation</title>
-    <link rel="stylesheet" href="_static/default.css" type="text/css" />
+    <title>Design for import/export version 2 &mdash; Ganeti 2.7.0~rc3 documentation</title>
+    
+    <link rel="stylesheet" href="_static/style.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.6.2',
-        COLLAPSE_MODINDEX: false,
+        VERSION:     '2.7.0~rc3',
+        COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
       };
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.6.2 documentation" href="index.html" />
+    <link rel="top" title="Ganeti 2.7.0~rc3 documentation" href="index.html" />
     <link rel="up" title="Design document drafts" href="design-draft.html" />
-    <link rel="next" title="Network management" href="design-network.html" />
+    <link rel="next" title="Resource model changes" href="design-resource-model.html" />
     <link rel="prev" title="Design for replacing Ganeti’s HTTP server" href="design-http-server.html" /> 
   </head>
   <body>
@@ -29,12 +35,12 @@
       <h3>Navigation</h3>
       <ul>
         <li class="right" style="margin-right: 10px">
-          <a href="design-network.html" title="Network management"
+          <a href="design-resource-model.html" title="Resource model changes"
              accesskey="N">next</a></li>
         <li class="right" >
           <a href="design-http-server.html" title="Design for replacing Ganeti’s HTTP server"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.6.2 documentation</a> &raquo;</li>
+        <li><a href="index.html">Ganeti 2.7.0~rc3 documentation</a> &raquo;</li>
           <li><a href="design-draft.html" accesskey="U">Design document drafts</a> &raquo;</li> 
       </ul>
     </div>  
@@ -84,7 +90,7 @@
 </div>
 <div class="section" id="current-state-and-shortcomings">
 <h2><a class="toc-backref" href="#id3">Current state and shortcomings</a><a class="headerlink" href="#current-state-and-shortcomings" title="Permalink to this headline">¶</a></h2>
-<p>Ganeti 2.2 introduced <a class="reference external" href="design-2.2.html"><em>inter-cluster instance moves</em></a>
+<p>Ganeti 2.2 introduced <a class="reference internal" href="design-2.2.html"><em>inter-cluster instance moves</em></a>
 and replaced the import/export mechanism with the same technology. It&#8217;s
 since shown that the chosen implementation was too complicated and and
 can be difficult to debug.</p>
@@ -119,8 +125,8 @@ but usually ended up doing raw data dumps.</p>
 the source. The active side is swapped. This design assumes the
 following design documents have been implemented:</p>
 <ul class="simple">
-<li><a class="reference external" href="design-x509-ca.html"><em>Design for a X509 Certificate Authority</em></a></li>
-<li><a class="reference external" href="design-http-server.html"><em>Design for replacing Ganeti&#8217;s HTTP server</em></a></li>
+<li><a class="reference internal" href="design-x509-ca.html"><em>Design for a X509 Certificate Authority</em></a></li>
+<li><a class="reference internal" href="design-http-server.html"><em>Design for replacing Ganeti&#8217;s HTTP server</em></a></li>
 </ul>
 <p>The following design is mostly targetted at inter-cluster instance
 moves. Intra-cluster import and export use the same technology, but do
@@ -140,7 +146,7 @@ client)</li>
 <div class="section" id="transport">
 <h3><a class="toc-backref" href="#id6">Transport</a><a class="headerlink" href="#transport" title="Permalink to this headline">¶</a></h3>
 <p>Instead of a home-grown, mostly raw protocol the widely used HTTP
-protocol will be used. Ganeti already uses HTTP for its <a class="reference external" href="rapi.html"><em>Remote API</em></a> and inter-node communication. Encryption and authentication will
+protocol will be used. Ganeti already uses HTTP for its <a class="reference internal" href="rapi.html"><em>Remote API</em></a> and inter-node communication. Encryption and authentication will
 be implemented using SSL and X509 certificates.</p>
 </div>
 <div class="section" id="ssl-certificates">
@@ -155,7 +161,7 @@ instance per instance import/export.</p>
 used. This disallows the use of self-signed certificates for
 authentication as the CA needs to be the same for all issued
 certificates.</p>
-<p>See the <a class="reference external" href="design-x509-ca.html"><em>separate design document for more details on how the
+<p>See the <a class="reference internal" href="design-x509-ca.html"><em>separate design document for more details on how the
 certificate authority will be implemented</em></a>.</p>
 <p>Local imports/exports will, like version 1, use the node daemon&#8217;s
 certificate/key. Doing so allows the verification of local connections.
@@ -179,14 +185,14 @@ configuration is automatically generated when starting Ganeti. The HTTP
 server is configured to listen on IPv4 and IPv6 simultaneously.
 Imports/exports will use a dedicated TCP port, similar to the Remote
 API.</p>
-<p>See the separate <a class="reference external" href="design-http-server.html#http-srv-shortcomings"><em>HTTP server design document</em></a> for why Ganeti&#8217;s existing, built-in HTTP server
+<p>See the separate <a class="reference internal" href="design-http-server.html#http-srv-shortcomings"><em>HTTP server design document</em></a> for why Ganeti&#8217;s existing, built-in HTTP server
 is not a good choice.</p>
 <p>The source cluster is provided with a X509 Certificate Signing Request
 (CSR) for a key private to the destination cluster.</p>
 <p>After shutting down the instance, creating snapshots and restarting the
 instance the master will sign the destination&#8217;s X509 certificate using
-the <a class="reference external" href="design-x509-ca.html"><em>X509 CA</em></a> once per instance disk. Instead of
-using another identifier, the certificate&#8217;s serial number (<a class="reference external" href="design-x509-ca.html#x509-ca-serial"><em>never
+the <a class="reference internal" href="design-x509-ca.html"><em>X509 CA</em></a> once per instance disk. Instead of
+using another identifier, the certificate&#8217;s serial number (<a class="reference internal" href="design-x509-ca.html#x509-ca-serial"><em>never
 reused</em></a>) and fingerprint are used to identify incoming
 requests. Once ready, the master will call an RPC method on the source
 node and provide it with the input information (e.g. file paths or block
@@ -215,7 +221,7 @@ the data. Since this notification may never arrive (e.g. network
 issues), an additional timeout needs to be used.</p>
 <p>There is no good way to avoid polling as the HTTP requests will be
 handled asynchronously in another process. Once, and if, implemented
-<a class="reference external" href="design-http-server.html#rpc-feedback"><em>RPC feedback</em></a> could be used to combine the two RPC
+<a class="reference internal" href="design-http-server.html#rpc-feedback"><em>RPC feedback</em></a> could be used to combine the two RPC
 methods.</p>
 <p>Upon completion of the transfer requests, the instance is removed if
 requested.</p>
@@ -270,7 +276,7 @@ source cluster will generate signed certificates from the CSR.</p>
 it&#8217;ll create the instance and call an RPC method on the instance&#8217;s
 primary node to download all data. The RPC method does not return until
 the transfer is complete or failed (see <a class="reference internal" href="#exp-size-fd"><em>EXP_SIZE_FD</em></a>
-and <a class="reference external" href="design-http-server.html#rpc-feedback"><em>RPC feedback</em></a>).</p>
+and <a class="reference internal" href="design-http-server.html#rpc-feedback"><em>RPC feedback</em></a>).</p>
 <p>The node will use pycURL to connect to the source machine and identify
 itself with the signed certificate received. pycURL will be configured
 to write directly to a file descriptor pointing to either a regular file
@@ -300,21 +306,21 @@ networks unable to talk to IPv6 networks).</p>
 <li><tt class="docutils literal"><span class="pre">OpInstanceImportPrepare</span></tt> (destination cluster)</li>
 </ol>
 <blockquote>
-Create RSA key and CSR (certificate signing request), return signed
-with cluster domain secret.</blockquote>
+<div>Create RSA key and CSR (certificate signing request), return signed
+with cluster domain secret.</div></blockquote>
 <ol class="arabic simple">
 <li><tt class="docutils literal"><span class="pre">OpBackupPrepare</span></tt> (source cluster)</li>
 </ol>
 <blockquote>
-Becomes a no-op in version 2, but see <a class="reference internal" href="#backwards-compat"><em>Backwards compatibility</em></a>.</blockquote>
+<div>Becomes a no-op in version 2, but see <a class="reference internal" href="#backwards-compat"><em>Backwards compatibility</em></a>.</div></blockquote>
 <ol class="arabic simple">
 <li><tt class="docutils literal"><span class="pre">OpBackupExport</span></tt> (source cluster)</li>
 </ol>
 <blockquote>
-<ul class="simple">
+<div><ul class="simple">
 <li>Receives destination cluster&#8217;s CSR, verifies signature using
 cluster domain secret.</li>
-<li>Creates certificates using CSR and <a class="reference external" href="design-x509-ca.html"><em>cluster CA</em></a>, one for each disk</li>
+<li>Creates certificates using CSR and <a class="reference internal" href="design-x509-ca.html"><em>cluster CA</em></a>, one for each disk</li>
 <li>Stop instance, create snapshots, start instance</li>
 <li>Prepare HTTP resources on node</li>
 <li>Send certificates, URLs and CA certificate to job submitter using
@@ -322,12 +328,12 @@ feedback mechanism</li>
 <li>Wait for all transfers to finish or fail (with timeout)</li>
 <li>Remove snapshots</li>
 </ul>
-</blockquote>
+</div></blockquote>
 <ol class="arabic simple">
 <li><tt class="docutils literal"><span class="pre">OpInstanceCreate</span></tt> (destination cluster)</li>
 </ol>
 <blockquote>
-<ul>
+<div><ul>
 <li><p class="first">Receives certificates signed by destination cluster, verifies
 certificates and URLs using cluster domain secret</p>
 <p>Note that the parameters should be implemented in a generic way
@@ -346,7 +352,7 @@ authenticated using signed certificates</p>
 <li><p class="first">Start instance</p>
 </li>
 </ul>
-</blockquote>
+</div></blockquote>
 </div>
 <div class="section" id="http-resources-on-source">
 <span id="impexp2-http-resources"></span><h2><a class="toc-backref" href="#id13">HTTP resources on source</a><a class="headerlink" href="#http-resources-on-source" title="Permalink to this headline">¶</a></h2>
@@ -359,7 +365,7 @@ accordingly by the server.</p>
 <dt><tt class="docutils literal"><span class="pre">GET</span> <span class="pre">/transfers/[transfer_id]/contents</span></tt></dt>
 <dd><p class="first">Dump disk contents. Important request headers:</p>
 <dl class="last docutils">
-<dt><tt class="docutils literal"><span class="pre">Accept</span></tt> (<span class="target" id="index-4"></span><a class="reference external" href="http://tools.ietf.org/html/rfc2616.html"><strong>RFC 2616</strong></a>, section 14.1)</dt>
+<dt><tt class="docutils literal"><span class="pre">Accept</span></tt> (<span class="target" id="index-0"></span><a class="rfc reference external" href="http://tools.ietf.org/html/rfc2616.html"><strong>RFC 2616</strong></a>, section 14.1)</dt>
 <dd><p class="first">Specify preferred media types. Only one type is supported in the
 initial implementation:</p>
 <dl class="docutils">
@@ -379,7 +385,7 @@ used media type using the <tt class="docutils literal"><span class="pre">Content
 exactly one media type is requested, the client must handle the
 different response types.</p>
 </dd>
-<dt><tt class="docutils literal"><span class="pre">Accept-Encoding</span></tt> (<span class="target" id="index-5"></span><a class="reference external" href="http://tools.ietf.org/html/rfc2616.html"><strong>RFC 2616</strong></a>, section 14.3)</dt>
+<dt><tt class="docutils literal"><span class="pre">Accept-Encoding</span></tt> (<span class="target" id="index-1"></span><a class="rfc reference external" href="http://tools.ietf.org/html/rfc2616.html"><strong>RFC 2616</strong></a>, section 14.3)</dt>
 <dd><p class="first">Specify desired content coding. Supported are <tt class="docutils literal"><span class="pre">identity</span></tt> for
 uncompressed data, <tt class="docutils literal"><span class="pre">gzip</span></tt> for compressed data and <tt class="docutils literal"><span class="pre">*</span></tt> for any.
 The response will include a <tt class="docutils literal"><span class="pre">Content-Encoding</span></tt> header with the
@@ -389,13 +395,13 @@ response status code will be 406 (Not Acceptable).</p>
 <a class="reference internal" href="#impexp2-compression"><em>Compression</em></a>) but only gets <tt class="docutils literal"><span class="pre">identity</span></tt>, it can
 either compress locally or abort the request.</p>
 </dd>
-<dt><tt class="docutils literal"><span class="pre">Range</span></tt> (<span class="target" id="index-6"></span><a class="reference external" href="http://tools.ietf.org/html/rfc2616.html"><strong>RFC 2616</strong></a>, section 14.35)</dt>
+<dt><tt class="docutils literal"><span class="pre">Range</span></tt> (<span class="target" id="index-2"></span><a class="rfc reference external" href="http://tools.ietf.org/html/rfc2616.html"><strong>RFC 2616</strong></a>, section 14.35)</dt>
 <dd><p class="first">Raw disk dumps can be resumed using this header (e.g. after a
 network issue).</p>
 <p>If this header was given in the request and the source supports
 resuming, the status code of the response will be 206 (Partial
 Content) and it&#8217;ll include the <tt class="docutils literal"><span class="pre">Content-Range</span></tt> header as per
-<span class="target" id="index-7"></span><a class="reference external" href="http://tools.ietf.org/html/rfc2616.html"><strong>RFC 2616</strong></a>. If it does not support resuming or the request was not
+<span class="target" id="index-3"></span><a class="rfc reference external" href="http://tools.ietf.org/html/rfc2616.html"><strong>RFC 2616</strong></a>. If it does not support resuming or the request was not
 specifying a range, the status code will be 200 (OK).</p>
 <p>Only a single byte range is supported. cURL does not support
 <tt class="docutils literal"><span class="pre">multipart/byteranges</span></tt> responses by itself. Even if they could be
@@ -435,7 +441,7 @@ process.</p>
 <div class="section" id="version-1">
 <span id="backwards-compat-v1"></span><h3><a class="toc-backref" href="#id17">Version 1</a><a class="headerlink" href="#version-1" title="Permalink to this headline">¶</a></h3>
 <p>The old inter-cluster import/export implementation described in the
-<a class="reference external" href="design-2.2.html"><em>Ganeti 2.2 design document</em></a> will be supported for at
+<a class="reference internal" href="design-2.2.html"><em>Ganeti 2.2 design document</em></a> will be supported for at
 least one minor (2.x) release. Intra-cluster imports/exports will use
 the new version right away.</p>
 </div>
@@ -464,7 +470,7 @@ compression, a custom content-coding type could be defined, e.g.
 </div>
 <div class="section" id="notes">
 <h2><a class="toc-backref" href="#id20">Notes</a><a class="headerlink" href="#notes" title="Permalink to this headline">¶</a></h2>
-<p>The HTTP/1.1 protocol (<span class="target" id="index-8"></span><a class="reference external" href="http://tools.ietf.org/html/rfc2616.html"><strong>RFC 2616</strong></a>) defines trailing headers for chunked
+<p>The HTTP/1.1 protocol (<span class="target" id="index-4"></span><a class="rfc reference external" href="http://tools.ietf.org/html/rfc2616.html"><strong>RFC 2616</strong></a>) defines trailing headers for chunked
 transfers in section 3.6.1. This could be used to transfer a checksum at
 the end of an import/export. cURL supports trailing headers since
 version 7.14.1. Lighttpd doesn&#8217;t seem to support them for FastCGI, but
@@ -548,65 +554,65 @@ server and backend.</p>
       </div>
       <div class="sphinxsidebar">
         <div class="sphinxsidebarwrapper">
-            <h3><a href="index.html">Table Of Contents</a></h3>
-            <ul>
-<li><a class="reference external" href="#">Design for import/export version 2</a><ul>
-<li><a class="reference external" href="#current-state-and-shortcomings">Current state and shortcomings</a></li>
-<li><a class="reference external" href="#proposed-changes">Proposed changes</a><ul>
-<li><a class="reference external" href="#software-requirements">Software requirements</a></li>
-<li><a class="reference external" href="#transport">Transport</a></li>
-<li><a class="reference external" href="#ssl-certificates">SSL certificates</a></li>
-<li><a class="reference external" href="#source">Source</a><ul>
-<li><a class="reference external" href="#option-1-cgi">Option 1: CGI</a></li>
-<li><a class="reference external" href="#option-2-fastcgi">Option 2: FastCGI</a></li>
+  <h3><a href="index.html">Table Of Contents</a></h3>
+  <ul>
+<li><a class="reference internal" href="#">Design for import/export version 2</a><ul>
+<li><a class="reference internal" href="#current-state-and-shortcomings">Current state and shortcomings</a></li>
+<li><a class="reference internal" href="#proposed-changes">Proposed changes</a><ul>
+<li><a class="reference internal" href="#software-requirements">Software requirements</a></li>
+<li><a class="reference internal" href="#transport">Transport</a></li>
+<li><a class="reference internal" href="#ssl-certificates">SSL certificates</a></li>
+<li><a class="reference internal" href="#source">Source</a><ul>
+<li><a class="reference internal" href="#option-1-cgi">Option 1: CGI</a></li>
+<li><a class="reference internal" href="#option-2-fastcgi">Option 2: FastCGI</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#destination">Destination</a></li>
+<li><a class="reference internal" href="#destination">Destination</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#the-big-picture-for-instance-moves">The big picture for instance moves</a></li>
-<li><a class="reference external" href="#http-resources-on-source">HTTP resources on source</a></li>
-<li><a class="reference external" href="#code-samples">Code samples</a><ul>
-<li><a class="reference external" href="#pycurl-to-file">pycURL to file</a></li>
+<li><a class="reference internal" href="#the-big-picture-for-instance-moves">The big picture for instance moves</a></li>
+<li><a class="reference internal" href="#http-resources-on-source">HTTP resources on source</a></li>
+<li><a class="reference internal" href="#code-samples">Code samples</a><ul>
+<li><a class="reference internal" href="#pycurl-to-file">pycURL to file</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#backwards-compatibility">Backwards compatibility</a><ul>
-<li><a class="reference external" href="#version-1">Version 1</a></li>
-<li><a class="reference external" href="#exp-size-fd"><tt class="docutils literal"><span class="pre">EXP_SIZE_FD</span></tt></a></li>
-<li><a class="reference external" href="#compression">Compression</a></li>
+<li><a class="reference internal" href="#backwards-compatibility">Backwards compatibility</a><ul>
+<li><a class="reference internal" href="#version-1">Version 1</a></li>
+<li><a class="reference internal" href="#exp-size-fd"><tt class="docutils literal"><span class="pre">EXP_SIZE_FD</span></tt></a></li>
+<li><a class="reference internal" href="#compression">Compression</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#notes">Notes</a></li>
-<li><a class="reference external" href="#performance-considerations">Performance considerations</a></li>
-<li><a class="reference external" href="#other-considered-solutions">Other considered solutions</a></li>
+<li><a class="reference internal" href="#notes">Notes</a></li>
+<li><a class="reference internal" href="#performance-considerations">Performance considerations</a></li>
+<li><a class="reference internal" href="#other-considered-solutions">Other considered solutions</a></li>
 </ul>
 </li>
 </ul>
 
-            <h4>Previous topic</h4>
-            <p class="topless"><a href="design-http-server.html"
-                                  title="previous chapter">Design for replacing Ganeti&#8217;s HTTP server</a></p>
-            <h4>Next topic</h4>
-            <p class="topless"><a href="design-network.html"
-                                  title="next chapter">Network management</a></p>
-            <h3>This Page</h3>
-            <ul class="this-page-menu">
-              <li><a href="_sources/design-impexp2.txt"
-                     rel="nofollow">Show Source</a></li>
-            </ul>
-          <div id="searchbox" style="display: none">
-            <h3>Quick search</h3>
-              <form class="search" action="search.html" method="get">
-                <input type="text" name="q" size="18" />
-                <input type="submit" value="Go" />
-                <input type="hidden" name="check_keywords" value="yes" />
-                <input type="hidden" name="area" value="default" />
-              </form>
-              <p class="searchtip" style="font-size: 90%">
-              Enter search terms or a module, class or function name.
-              </p>
-          </div>
-          <script type="text/javascript">$('#searchbox').show(0);</script>
+  <h4>Previous topic</h4>
+  <p class="topless"><a href="design-http-server.html"
+                        title="previous chapter">Design for replacing Ganeti&#8217;s HTTP server</a></p>
+  <h4>Next topic</h4>
+  <p class="topless"><a href="design-resource-model.html"
+                        title="next chapter">Resource model changes</a></p>
+  <h3>This Page</h3>
+  <ul class="this-page-menu">
+    <li><a href="_sources/design-impexp2.txt"
+           rel="nofollow">Show Source</a></li>
+  </ul>
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
         </div>
       </div>
       <div class="clearer"></div>
@@ -615,18 +621,18 @@ server and backend.</p>
       <h3>Navigation</h3>
       <ul>
         <li class="right" style="margin-right: 10px">
-          <a href="design-network.html" title="Network management"
+          <a href="design-resource-model.html" title="Resource model changes"
              >next</a></li>
         <li class="right" >
           <a href="design-http-server.html" title="Design for replacing Ganeti’s HTTP server"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.6.2 documentation</a> &raquo;</li>
+        <li><a href="index.html">Ganeti 2.7.0~rc3 documentation</a> &raquo;</li>
           <li><a href="design-draft.html" >Design document drafts</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">
-      &copy; Copyright 2006, 2007, 2008, 2009, 2010, 2011, 2012, Google Inc..
-      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 0.6.7.
+        &copy; Copyright 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Google Inc..
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
     </div>
   </body>
 </html>

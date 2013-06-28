@@ -35,11 +35,13 @@ import time
 import errno
 import logging
 
+from ganeti import compat
 from ganeti import serializer
 from ganeti import constants
 from ganeti import errors
 from ganeti import utils
 from ganeti import objects
+from ganeti import pathutils
 
 
 KEY_METHOD = "method"
@@ -53,6 +55,7 @@ REQ_SUBMIT_MANY_JOBS = "SubmitManyJobs"
 REQ_WAIT_FOR_JOB_CHANGE = "WaitForJobChange"
 REQ_CANCEL_JOB = "CancelJob"
 REQ_ARCHIVE_JOB = "ArchiveJob"
+REQ_CHANGE_JOB_PRIORITY = "ChangeJobPriority"
 REQ_AUTO_ARCHIVE_JOBS = "AutoArchiveJobs"
 REQ_QUERY = "Query"
 REQ_QUERY_FIELDS = "QueryFields"
@@ -60,6 +63,7 @@ REQ_QUERY_JOBS = "QueryJobs"
 REQ_QUERY_INSTANCES = "QueryInstances"
 REQ_QUERY_NODES = "QueryNodes"
 REQ_QUERY_GROUPS = "QueryGroups"
+REQ_QUERY_NETWORKS = "QueryNetworks"
 REQ_QUERY_EXPORTS = "QueryExports"
 REQ_QUERY_CONFIG_VALUES = "QueryConfigValues"
 REQ_QUERY_CLUSTER_INFO = "QueryClusterInfo"
@@ -68,10 +72,11 @@ REQ_SET_DRAIN_FLAG = "SetDrainFlag"
 REQ_SET_WATCHER_PAUSE = "SetWatcherPause"
 
 #: List of all LUXI requests
-REQ_ALL = frozenset([
+REQ_ALL = compat.UniqueFrozenset([
   REQ_ARCHIVE_JOB,
   REQ_AUTO_ARCHIVE_JOBS,
   REQ_CANCEL_JOB,
+  REQ_CHANGE_JOB_PRIORITY,
   REQ_QUERY,
   REQ_QUERY_CLUSTER_INFO,
   REQ_QUERY_CONFIG_VALUES,
@@ -412,7 +417,7 @@ class Client(object):
 
     """
     if address is None:
-      address = constants.MASTER_SOCKET
+      address = pathutils.MASTER_SOCKET
     self.address = address
     self.timeouts = timeouts
     self.transport_class = transport
@@ -487,6 +492,9 @@ class Client(object):
   def ArchiveJob(self, job_id):
     return self.CallMethod(REQ_ARCHIVE_JOB, (job_id, ))
 
+  def ChangeJobPriority(self, job_id, priority):
+    return self.CallMethod(REQ_CHANGE_JOB_PRIORITY, (job_id, priority))
+
   def AutoArchiveJobs(self, age):
     timeout = (DEF_RWTO - 1) / 2
     return self.CallMethod(REQ_AUTO_ARCHIVE_JOBS, (age, timeout))
@@ -559,6 +567,9 @@ class Client(object):
 
   def QueryGroups(self, names, fields, use_locking):
     return self.CallMethod(REQ_QUERY_GROUPS, (names, fields, use_locking))
+
+  def QueryNetworks(self, names, fields, use_locking):
+    return self.CallMethod(REQ_QUERY_NETWORKS, (names, fields, use_locking))
 
   def QueryExports(self, nodes, use_locking):
     return self.CallMethod(REQ_QUERY_EXPORTS, (nodes, use_locking))

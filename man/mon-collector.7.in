@@ -1,0 +1,85 @@
+.TH mon-collector 7 "" "Ganeti" "Version @GANETI_VERSION@"
+.SH NAME
+.PP
+mon-collector - Command line interface for the data collectors of the
+monitoring system
+.SH SYNOPSIS
+.PP
+\f[B]mon-collector\f[] {collector}
+.SH DESCRIPTION
+.PP
+\f[C]mon-collector\f[] is a suite of tools designed to provide a command
+line interface to the data collectors implemented by the ganeti
+monitoring system.
+\f[C]mon-collector\f[] is also the generic binary that must be invoked
+specifying, as the first command line parameter, the name of the actual
+desired data collector to be run.
+.PP
+When executed, \f[C]mon-collector\f[] will run the specified collector
+and will print its output to stdout, in JSON format.
+.SH COLLECTORS
+.SS DRBD
+.PP
+drbd [ [ \f[B]-s\f[] | \f[B]--drbd-status\f[] ] = \f[I]status-file\f[] ]
+[ [ \f[B]-p\f[] | \f[B]--drbd-pairing\f[]] = \f[I]pairing-file\f[] ]
+.PP
+Collects the information about the version and status of the DRBD kernel
+module, and of the disks it is managing.
+.PP
+If \f[I]status-file\f[] and \f[I]pairing-file\f[] are specified, the
+status and the instance-minor paring information will be read from those
+files.
+Otherwise, the collector will read them, respectively, from /proc/drbd
+and from the Confd server.
+.PP
+The options that can be passed to the DRBD collector are as follows:
+.TP
+.B -s \f[I]status-file\f[], --drbd-status=\f[I]status-file\f[]
+Read the DRBD status from the specified file instead of /proc/drbd.
+.RS
+.RE
+.TP
+.B -p \f[I]pairing-file\f[], --drbd-pairing=\f[I]pairing-file\f[]
+Read the information about the pairing between instances and DRBD minors
+from the specified file instead of asking the Confd servers for them.
+.RS
+.RE
+.SH REPORTING BUGS
+.PP
+Report bugs to project website (http://code.google.com/p/ganeti/) or
+contact the developers using the Ganeti mailing
+list (ganeti@googlegroups.com).
+.SH SEE ALSO
+.PP
+Ganeti overview and specifications: \f[B]ganeti\f[](7) (general
+overview), \f[B]ganeti-os-interface\f[](7) (guest OS definitions),
+\f[B]ganeti-extstorage-interface\f[](7) (external storage providers).
+.PP
+Ganeti commands: \f[B]gnt-cluster\f[](8) (cluster-wide commands),
+\f[B]gnt-job\f[](8) (job-related commands), \f[B]gnt-node\f[](8)
+(node-related commands), \f[B]gnt-instance\f[](8) (instance commands),
+\f[B]gnt-os\f[](8) (guest OS commands), \f[B]gnt-storage\f[](8) (storage
+commands), \f[B]gnt-group\f[](8) (node group commands),
+\f[B]gnt-backup\f[](8) (instance import/export commands),
+\f[B]gnt-debug\f[](8) (debug commands).
+.PP
+Ganeti daemons: \f[B]ganeti-watcher\f[](8) (automatic instance
+restarter), \f[B]ganeti-cleaner\f[](8) (job queue cleaner),
+\f[B]ganeti-noded\f[](8) (node daemon), \f[B]ganeti-masterd\f[](8)
+(master daemon), \f[B]ganeti-rapi\f[](8) (remote API daemon).
+.PP
+Ganeti htools: \f[B]htools\f[](1) (generic binary), \f[B]hbal\f[](1)
+(cluster balancer), \f[B]hspace\f[](1) (capacity calculation),
+\f[B]hail\f[](1) (IAllocator plugin), \f[B]hscan\f[](1) (data gatherer
+from remote clusters), \f[B]hinfo\f[](1) (cluster information printer),
+\f[B]mon-collector\f[](7) (data collectors interface).
+.SH COPYRIGHT
+.PP
+Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012 Google Inc.
+Permission is granted to copy, distribute and/or modify under the terms
+of the GNU General Public License as published by the Free Software
+Foundation; either version 2 of the License, or (at your option) any
+later version.
+.PP
+On Debian systems, the complete text of the GNU General Public License
+can be found in /usr/share/common-licenses/GPL.

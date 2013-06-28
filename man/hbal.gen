@@ -39,7 +39,7 @@ Reporting options:
 **[ -C[ *file* ] ]**
 **[ -p[ *fields* ] ]**
 **[ \--print-instances ]**
-**[ -o ]**
+**[ -S *file* ]**
 **[ -v... | -q ]**
 
 
@@ -220,7 +220,7 @@ The options that can be passed to the program are as follows:
 -p, \--print-nodes
   Prints the before and after node status, in a format designed to allow
   the user to understand the node's most important parameters. See the
-  man page **htools**(1) for more details about this option.
+  man page **htools**\(1) for more details about this option.
 
 \--print-instances
   Prints the before and after instance map. This is less useful as the
@@ -326,17 +326,17 @@ The options that can be passed to the program are as follows:
   Backend specification: the name of the file holding node and instance
   information (if not collecting via RAPI or LUXI). This or one of the
   other backends must be selected. The option is described in the man
-  page **htools**(1).
+  page **htools**\(1).
 
 -m *cluster*
   Backend specification: collect data directly from the *cluster* given
   as an argument via RAPI. The option is described in the man page
-  **htools**(1).
+  **htools**\(1).
 
 -L [*path*]
   Backend specification: collect data directly from the master daemon,
   which is to be contacted via LUXI (an internal Ganeti protocol). The
-  option is described in the man page **htools**(1).
+  option is described in the man page **htools**\(1).
 
 -X
   When using the Luxi backend, hbal can also execute the given
@@ -400,24 +400,32 @@ in two ways:
 
 - by sending a ``SIGINT`` (``^C``), hbal will register the termination
   request, and will wait until the currently submitted jobs finish, at
-  which point it will exit (with exit code 1)
+  which point it will exit (with exit code 0 if all jobs finished
+  correctly, otherwise with exit code 1 as usual)
+
 - by sending a ``SIGTERM``, hbal will immediately exit (with exit code
-  2); it is the responsibility of the user to follow up with Ganeti the
-  result of the currently-executing jobs
+  2\); it is the responsibility of the user to follow up with Ganeti
+  and check the result of the currently-executing jobs
 
 Note that in any situation, it's perfectly safe to kill hbal, either via
 the above signals or via any other signal (e.g. ``SIGQUIT``,
 ``SIGKILL``), since the jobs themselves are processed by Ganeti whereas
 hbal (after submission) only watches their progression. In this case,
-the use will again have to query Ganeti for job results.
+the user will have to query Ganeti for job results.
 
 EXIT STATUS
 -----------
 
 The exit status of the command will be zero, unless for some reason the
-algorithm fatally failed (e.g. wrong node or instance data), or (in case
-of job execution) either one of the jobs has failed or the balancing was
-interrupted early.
+algorithm failed (e.g. wrong node or instance data), invalid command
+line options, or (in case of job execution) one of the jobs has failed.
+
+Once job execution via Luxi has started (``-X``), if the balancing was
+interrupted early (via *SIGINT*, or via ``--max-length``) but all jobs
+executed successfully, then the exit status is zero; a non-zero exit
+code means that the cluster state should be investigated, since a job
+failed or we couldn't compute its status and this can also point to a
+problem on the Ganeti side.
 
 BUGS
 ----

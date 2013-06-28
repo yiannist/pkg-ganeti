@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2010 Google Inc.
+# Copyright (C) 2010, 2012 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -36,8 +36,8 @@ import random
 
 from ganeti import errors
 from ganeti import constants
-from ganeti import compat
 from ganeti import utils
+from ganeti import pathutils
 
 
 def ParseUidPool(value, separator=None):
@@ -65,7 +65,7 @@ def ParseUidPool(value, separator=None):
     if n_elements > 2:
       raise errors.OpPrereqError(
           "Invalid user-id range definition. Only one hyphen allowed: %s"
-          % boundaries)
+          % boundaries, errors.ECODE_INVAL)
     try:
       lower = int(boundaries[0])
     except (ValueError, TypeError), err:
@@ -115,17 +115,17 @@ def RemoveFromUidPool(uid_pool, remove_uids):
     uid_pool.remove(uid_range)
 
 
-def _FormatUidRange(lower, higher, roman=False):
+def _FormatUidRange(lower, higher):
   """Convert a user-id range definition into a string.
 
   """
   if lower == higher:
-    return str(compat.TryToRoman(lower, convert=roman))
-  return "%s-%s" % (compat.TryToRoman(lower, convert=roman),
-                    compat.TryToRoman(higher, convert=roman))
+    return str(lower)
+
+  return "%s-%s" % (lower, higher)
 
 
-def FormatUidPool(uid_pool, separator=None, roman=False):
+def FormatUidPool(uid_pool, separator=None):
   """Convert the internal representation of the user-id pool into a string.
 
   The output format is also accepted by ParseUidPool()
@@ -138,7 +138,7 @@ def FormatUidPool(uid_pool, separator=None, roman=False):
   """
   if separator is None:
     separator = ", "
-  return separator.join([_FormatUidRange(lower, higher, roman=roman)
+  return separator.join([_FormatUidRange(lower, higher)
                          for lower, higher in uid_pool])
 
 
@@ -269,14 +269,14 @@ def RequestUnusedUid(all_uids):
   """
   # Create the lock dir if it's not yet present
   try:
-    utils.EnsureDirs([(constants.UIDPOOL_LOCKDIR, 0755)])
+    utils.EnsureDirs([(pathutils.UIDPOOL_LOCKDIR, 0755)])
   except errors.GenericError, err:
     raise errors.LockError("Failed to create user-id pool lock dir: %s" % err)
 
   # Get list of currently used uids from the filesystem
   try:
     taken_uids = set()
-    for taken_uid in os.listdir(constants.UIDPOOL_LOCKDIR):
+    for taken_uid in os.listdir(pathutils.UIDPOOL_LOCKDIR):
       try:
         taken_uid = int(taken_uid)
       except ValueError, err:
@@ -306,7 +306,7 @@ def RequestUnusedUid(all_uids):
       # Create the lock file
       # Note: we don't care if it exists. Only the fact that we can
       # (or can't) lock it later is what matters.
-      uid_path = utils.PathJoin(constants.UIDPOOL_LOCKDIR, str(uid))
+      uid_path = utils.PathJoin(pathutils.UIDPOOL_LOCKDIR, str(uid))
       lock = utils.FileLock.Open(uid_path)
     except OSError, err:
       raise errors.LockError("Failed to create lockfile for user-id %s: %s"
@@ -349,7 +349,7 @@ def ReleaseUid(uid):
     uid_filename = str(uid)
 
   try:
-    uid_path = utils.PathJoin(constants.UIDPOOL_LOCKDIR, uid_filename)
+    uid_path = utils.PathJoin(pathutils.UIDPOOL_LOCKDIR, uid_filename)
     os.remove(uid_path)
   except OSError, err:
     raise errors.LockError("Failed to remove user-id lockfile"

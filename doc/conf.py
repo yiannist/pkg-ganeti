@@ -13,6 +13,8 @@
 
 import sys, os
 
+enable_manpages = bool(os.getenv("ENABLE_MANPAGES"))
+
 # If extensions (or modules to document with autodoc) are in another directory,
 # add these directories to sys.path here. If the directory is relative to the
 # documentation root, use os.path.abspath to make it absolute, like shown here.
@@ -21,7 +23,7 @@ import sys, os
 # -- General configuration -----------------------------------------------------
 
 # If your documentation needs a minimal Sphinx version, state it here.
-#needs_sphinx = "1.0"
+needs_sphinx = "1.0"
 
 # Add any Sphinx extension module names here, as strings. They can be extensions
 # coming with Sphinx (named "sphinx.ext.*") or your custom ones.
@@ -46,7 +48,7 @@ master_doc = "index"
 
 # General information about the project.
 project = u"Ganeti"
-copyright = u"2006, 2007, 2008, 2009, 2010, 2011, 2012, Google Inc."
+copyright = u"%s Google Inc." % ", ".join(map(str, range(2006, 2013 + 1)))
 
 # The version info for the project you're documenting, acts as replacement for
 # |version| and |release|, also used in various other places throughout the
@@ -70,6 +72,13 @@ language = "en"
 
 # List of documents that shouldn't be included in the build.
 #unused_docs = []
+
+if enable_manpages:
+  exclude_patterns = []
+else:
+  exclude_patterns = [
+    "man-*.rst",
+    ]
 
 # List of directories, relative to source directory, that shouldn't be searched
 # for source files.
@@ -134,7 +143,9 @@ html_theme = "default"
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
 # so a file named "default.css" will overwrite the builtin "default.css".
-html_static_path = []
+html_static_path = ["css"]
+
+html_style = "style.css"
 
 # If not "", a "Last updated on:" timestamp is inserted at every page bottom,
 # using the given strftime format.

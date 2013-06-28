@@ -1,7 +1,7 @@
 #!/usr/bin/python
 #
 
-# Copyright (C) 2011, 2012 Google Inc.
+# Copyright (C) 2011, 2012, 2013 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -25,9 +25,15 @@
 import re
 import types
 
+from ganeti import _autoconf
 from ganeti import compat
 from ganeti import constants
+from ganeti import errors
 from ganeti import luxi
+from ganeti import opcodes
+from ganeti import qlang
+from ganeti import jstore
+
 
 #: Constant name regex
 CONSTANT_RE = re.compile("^[A-Z][A-Z0-9_-]+$")
@@ -37,6 +43,13 @@ PRIVATE_RE = re.compile("^__.+__$")
 
 #: The type of regex objects
 RE_TYPE = type(CONSTANT_RE)
+
+#: Keys which do not declare a value (manually maintained). By adding
+# values here, we can make more lists use the actual names; otherwise
+# we'll have (e.g.) both DEFAULT_ENABLED_HYPERVISOR and HT_XEN_PVM
+# declare the same value, and thus the list of valid hypervisors will
+# have strings instead of easily looked-up names.
+IGNORED_DECL_NAMES = ["DEFAULT_ENABLED_HYPERVISOR"]
 
 
 def NameRules(name):
@@ -74,6 +87,8 @@ def HaskellTypeVal(value):
   """
   if isinstance(value, basestring):
     return ("String", "\"%s\"" % StringValueRules(value))
+  elif isinstance(value, bool):
+    return ("Bool", "%s" % value)
   elif isinstance(value, int):
     return ("Int", "%d" % value)
   elif isinstance(value, long):
@@ -96,7 +111,8 @@ def IdentifyOrigin(all_items, value):
   @param value: the value for which we try to find an origin
 
   """
-  found = [name for (name, v) in all_items.items() if v is value]
+  found = [name for (name, v) in all_items.items()
+           if v is value and name not in IGNORED_DECL_NAMES]
   if len(found) == 1:
     return found[0]
   else:
@@ -121,6 +137,55 @@ def FormatListElems(all_items, pfx_name, ovals, tvals):
   else:
     values = tvals
   return ", ".join(values)
+
+
+def FormatDict(all_items, pfx_name, py_name, hs_name, mydict):
+  """Converts a dictionary to a Haskell association list ([(k, v)]),
+  if possible.
+
+  @param all_items: a dictionary of name/values for the current module
+  @param pfx_name: the prefix name currently used
+  @param py_name: the Python name
+  @param hs_name: the Haskell name
+  @param mydict: a dictonary, unknown yet if homogenous or not
+
+  """
+  # need this for ordering
+  orig_list = mydict.items()
+  list_form = [(HaskellTypeVal(k), HaskellTypeVal(v)) for k, v in orig_list]
+  if compat.any(v is None or k is None for k, v in list_form):
+    # type not known
+    return []
+  all_keys = [k for k, _ in list_form]
+  all_vals = [v for _, v in list_form]
+  key_types = set(k[0] for k in all_keys)
+  val_types = set(v[0] for v in all_vals)
+  if not(len(key_types) == 1 and len(val_types) == 1):
+    # multiple types
+    return []
+  # record the key and value Haskell types
+  key_type = key_types.pop()
+  val_type = val_types.pop()
+
+  # now try to find names for the keys, instead of raw values
+  key_origins = [IdentifyOrigin(all_items, k) for k, _ in orig_list]
+  if compat.all(x is not None for x in key_origins):
+    key_v = [NameRules(pfx_name + origin) for origin in key_origins]
+  else:
+    key_v = [k[1] for k in all_keys]
+  # ... and for values
+  val_origins = [IdentifyOrigin(all_items, v) for _, v in orig_list]
+  if compat.all(x is not None for x in val_origins):
+    val_v = [NameRules(pfx_name + origin) for origin in val_origins]
+  else:
+    val_v = [v[1] for v in all_vals]
+
+  # finally generate the output
+  kv_pairs = ["(%s, %s)" % (k, v) for k, v in zip(key_v, val_v)]
+  return ["-- | Converted from Python dictionary @%s@" % py_name,
+          "%s :: [(%s, %s)]" % (hs_name, key_type, val_type),
+          "%s = [%s]" % (hs_name, ", ".join(kv_pairs)),
+          ]
 
 
 def ConvertVariable(prefix, name, value, all_items):
@@ -155,21 +220,32 @@ def ConvertVariable(prefix, name, value, all_items):
   elif hs_typeval is not None:
     # this is a simple value
     (hs_type, hs_val) = hs_typeval
-    lines.append("-- | Converted from Python constant %s" % fqn)
+    lines.append("-- | Converted from Python constant @%s@" % fqn)
     lines.append("%s :: %s" % (hs_name, hs_type))
     lines.append("%s = %s" % (hs_name, hs_val))
   elif isinstance(value, dict):
     if value:
       lines.append("-- Following lines come from dictionary %s" % fqn)
+      # try to build a real map here, if all keys have same type, and
+      # all values too (i.e. we have a homogeneous dictionary)
+      lines.extend(FormatDict(all_items, pfx_name, fqn, hs_name, value))
+      # and now create individual names
       for k in sorted(value.keys()):
         lines.extend(ConvertVariable(prefix, DictKeyName(name, k),
                                      value[k], all_items))
   elif isinstance(value, tuple):
     tvs = [HaskellTypeVal(elem) for elem in value]
+    # Custom rule for special cluster verify error tuples
+    if name.startswith("CV_E") and len(value) == 3 and tvs[1][0] is not None:
+      cv_ename = hs_name + "Code"
+      lines.append("-- | Special cluster verify code %s" % name)
+      lines.append("%s :: %s" % (cv_ename, tvs[1][0]))
+      lines.append("%s = %s" % (cv_ename, tvs[1][1]))
+      lines.append("")
     if compat.all(e is not None for e in tvs):
       ttypes = ", ".join(e[0] for e in tvs)
       tvals = FormatListElems(all_items, pfx_name, value, [e[1] for e in tvs])
-      lines.append("-- | Converted from Python tuple %s" % fqn)
+      lines.append("-- | Converted from Python tuple @%s@" % fqn)
       lines.append("%s :: (%s)" % (hs_name, ttypes))
       lines.append("%s = (%s)" % (hs_name, tvals))
     else:
@@ -188,7 +264,7 @@ def ConvertVariable(prefix, name, value, all_items):
       uniq_types = set(ttypes)
       if len(uniq_types) == 1:
         values = FormatListElems(all_items, pfx_name, value, tvals)
-        lines.append("-- | Converted from Python list or set %s" % fqn)
+        lines.append("-- | Converted from Python list or set @%s@" % fqn)
         lines.append("%s :: [%s]" % (hs_name, uniq_types.pop()))
         lines.append("%s = [%s]" % (hs_name, values))
       else:
@@ -198,7 +274,7 @@ def ConvertVariable(prefix, name, value, all_items):
   elif isinstance(value, RE_TYPE):
     tvs = HaskellTypeVal(value.pattern)
     assert tvs is not None
-    lines.append("-- | Converted from Python RE object %s" % fqn)
+    lines.append("-- | Converted from Python RE object @%s@" % fqn)
     lines.append("%s :: %s" % (hs_name, tvs[0]))
     lines.append("%s = %s" % (hs_name, tvs[1]))
   else:
@@ -224,9 +300,24 @@ def Convert(module, prefix):
   return "\n".join(lines)
 
 
+def ConvertMisc():
+  """Convert some extra computed-values to Haskell.
+
+  """
+  lines = [""]
+  lines.extend(ConvertVariable("opcodes", "OP_IDS",
+                               opcodes.OP_MAPPING.keys(), {}))
+  return "\n".join(lines)
+
+
 def main():
   print Convert(constants, "")
   print Convert(luxi, "luxi")
+  print Convert(qlang, "qlang")
+  print Convert(_autoconf, "autoconf")
+  print Convert(errors, "errors")
+  print Convert(jstore, "jstore")
+  print ConvertMisc()
 
 
 if __name__ == "__main__":

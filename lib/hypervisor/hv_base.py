@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2008, 2009, 2010 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2012, 2013 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -81,11 +81,11 @@ def _IsMultiCpuMaskWellFormed(cpu_mask):
 
 # must be afile
 _FILE_CHECK = (utils.IsNormAbsPath, "must be an absolute normalized path",
-              os.path.isfile, "not found or not a file")
+               os.path.isfile, "not found or not a file")
 
 # must be a directory
 _DIR_CHECK = (utils.IsNormAbsPath, "must be an absolute normalized path",
-             os.path.isdir, "not found or not a directory")
+              os.path.isdir, "not found or not a directory")
 
 # CPU mask must be well-formed
 # TODO: implement node level check for the CPU mask
@@ -102,6 +102,9 @@ _MULTI_CPU_MASK_CHECK = (_IsMultiCpuMaskWellFormed,
 _NET_PORT_CHECK = (lambda x: 0 < x < 65535, "invalid port number",
                    None, None)
 
+# Check that an integer is non negative
+_NONNEGATIVE_INT_CHECK = (lambda x: x >= 0, "cannot be negative", None, None)
+
 # nice wrappers for users
 REQ_FILE_CHECK = (True, ) + _FILE_CHECK
 OPT_FILE_CHECK = (False, ) + _FILE_CHECK
@@ -113,6 +116,8 @@ REQ_CPU_MASK_CHECK = (True, ) + _CPU_MASK_CHECK
 OPT_CPU_MASK_CHECK = (False, ) + _CPU_MASK_CHECK
 REQ_MULTI_CPU_MASK_CHECK = (True, ) + _MULTI_CPU_MASK_CHECK
 OPT_MULTI_CPU_MASK_CHECK = (False, ) + _MULTI_CPU_MASK_CHECK
+REQ_NONNEGATIVE_INT_CHECK = (True, ) + _NONNEGATIVE_INT_CHECK
+OPT_NONNEGATIVE_INT_CHECK = (False, ) + _NONNEGATIVE_INT_CHECK
 
 # no checks at all
 NO_CHECK = (False, None, None, None, None)
@@ -163,9 +168,6 @@ class BaseHypervisor(object):
   ANCILLARY_FILES = []
   ANCILLARY_FILES_OPT = []
   CAN_MIGRATE = False
-
-  def __init__(self):
-    pass
 
   def StartInstance(self, instance, block_devices, startup_paused):
     """Start an instance."""
@@ -263,6 +265,8 @@ class BaseHypervisor(object):
 
   def Verify(self):
     """Verify the hypervisor.
+
+    @return: Problem description if something is wrong, C{None} otherwise
 
     """
     raise NotImplementedError
@@ -516,3 +520,17 @@ class BaseHypervisor(object):
       result = utils.RunCmd(["reboot", "-n", "-f"])
       if not result:
         logging.error("Can't run shutdown: %s", result.output)
+
+  @staticmethod
+  def _FormatVerifyResults(msgs):
+    """Formats the verification results, given a list of errors.
+
+    @param msgs: list of errors, possibly empty
+    @return: overall problem description if something is wrong,
+        C{None} otherwise
+
+    """
+    if msgs:
+      return "; ".join(msgs)
+    else:
+      return None

@@ -16,6 +16,7 @@ it runs on TCP port 5080, but this can be changed either in
 which is used by default, can also be disabled by passing command line
 parameters.
 
+.. _rapi-users:
 
 Users and passwords
 -------------------
@@ -24,12 +25,24 @@ Users and passwords
 ``/var/lib/ganeti/rapi/users``) on startup. Changes to the file will be
 read automatically.
 
-Each line consists of two or three fields separated by whitespace. The
-first two fields are for username and password. The third field is
-optional and can be used to specify per-user options. Currently,
-``write`` is the only option supported and enables the user to execute
-operations modifying the cluster. Lines starting with the hash sign
-(``#``) are treated as comments.
+Lines starting with the hash sign (``#``) are treated as comments. Each
+line consists of two or three fields separated by whitespace. The first
+two fields are for username and password. The third field is optional
+and can be used to specify per-user options (separated by comma without
+spaces). Available options:
+
+.. pyassert::
+
+  rapi.RAPI_ACCESS_ALL == set([
+    rapi.RAPI_ACCESS_WRITE,
+    rapi.RAPI_ACCESS_READ,
+    ])
+
+:pyeval:`rapi.RAPI_ACCESS_WRITE`
+  Enables the user to execute operations modifying the cluster. Implies
+  :pyeval:`rapi.RAPI_ACCESS_READ` access.
+:pyeval:`rapi.RAPI_ACCESS_READ`
+  Allow access to operations querying for information.
 
 Passwords can either be written in clear text or as a hash. Clear text
 passwords may not start with an opening brace (``{``) or they must be
@@ -51,6 +64,19 @@ Example::
   # Hashed password for Jessica
   jessica {HA1}7046452df2cbb530877058712cf17bd4 write
 
+  # Monitoring can query for values
+  monitoring {HA1}ec018ffe72b8e75bb4d508ed5b6d079c read
+
+  # A user who can read and write (the former is implied by granting
+  # write access)
+  superuser {HA1}ec018ffe72b8e75bb4d508ed5b6d079c read,write
+
+When using the RAPI, username and password can be sent to the server
+by using the standard HTTP basic access authentication. This means that
+for accessing the protected URL ``https://cluster.example.com/resource``,
+the address ``https://username:password@cluster.example.com/resource`` should
+be used instead. Alternatively, the appropriate parameter of your HTTP client
+(such as ``-u`` for ``curl``) can be used.
 
 .. [#pwhash] Using the MD5 hash of username, realm and password is
    described in :rfc:`2617` ("HTTP Authentication"), sections 3.2.2.2
@@ -243,16 +269,21 @@ Ganeti includes a standalone RAPI client, ``lib/rapi/client.py``.
 Shell
 +++++
 
-.. highlight:: sh
+.. highlight:: shell-example
 
-Using wget::
+Using ``wget``::
 
-   wget -q -O - https://CLUSTERNAME:5080/2/info
+   $ wget -q -O - https://%CLUSTERNAME%:5080/2/info
 
-or curl::
+or ``curl``::
 
-  curl https://CLUSTERNAME:5080/2/info
+  $ curl https://%CLUSTERNAME%:5080/2/info
 
+Note: with ``curl``, the request method (GET, POST, PUT) can be specified
+using the ``-X`` command line option, and the username/password can be
+specified with the ``-u`` option. In case of POST requests with a body, the
+Content-Type can be set to JSON (as per the Protocol_ section) using the
+parameter ``-H "Content-Type: application/json"``.
 
 Python
 ++++++
@@ -350,8 +381,9 @@ Example::
         "vcpus": 1,
         "memory": 128
        }
-      }
-    }
+      },
+    …
+  }
 
 
 ``/2/redistribute-config``
@@ -461,7 +493,8 @@ Example::
           "node1.example.com",
           "node2.example.com"
         ],
-        "uuid": "0d7d407c-262e-49af-881a-6a430034bf43"
+        "uuid": "0d7d407c-262e-49af-881a-6a430034bf43",
+        …
       },
       {
         "name": "group2",
@@ -469,8 +502,10 @@ Example::
         "node_list": [
           "node3.example.com"
         ],
-        "uuid": "f5a277e7-68f9-44d3-a378-4b25ecb5df5c"
-      }
+        "uuid": "f5a277e7-68f9-44d3-a378-4b25ecb5df5c",
+        …
+      },
+      …
     ]
 
 ``POST``
@@ -628,6 +663,227 @@ to URI like::
 It supports the ``dry-run`` argument.
 
 
+``/2/networks``
++++++++++++++++
+
+The networks resource.
+
+It supports the following commands: ``GET``, ``POST``.
+
+``GET``
+~~~~~~~
+
+Returns a list of all existing networks.
+
+Example::
+
+    [
+      {
+        "name": "network1",
+        "uri": "\/2\/networks\/network1"
+      },
+      {
+        "name": "network2",
+        "uri": "\/2\/networks\/network2"
+      }
+    ]
+
+If the optional bool *bulk* argument is provided and set to a true value
+(i.e ``?bulk=1``), the output contains detailed information about networks
+as a list.
+
+Returned fields: :pyeval:`utils.CommaJoin(sorted(rlib2.NET_FIELDS))`.
+
+Example::
+
+    [
+      {
+        'external_reservations': '10.0.0.0, 10.0.0.1, 10.0.0.15',
+        'free_count': 13,
+        'gateway': '10.0.0.1',
+        'gateway6': None,
+        'group_list': ['default(bridged, prv0)'],
+        'inst_list': [],
+        'mac_prefix': None,
+        'map': 'XX.............X',
+        'name': 'nat',
+        'network': '10.0.0.0/28',
+        'network6': None,
+        'reserved_count': 3,
+        'tags': ['nfdhcpd'],
+        …
+      },
+      …
+    ]
+
+``POST``
+~~~~~~~~
+
+Creates a network.
+
+If the optional bool *dry-run* argument is provided, the job will not be
+actually executed, only the pre-execution checks will be done.
+
+Returns: a job ID that can be used later for polling.
+
+Body parameters:
+
+.. opcode_params:: OP_NETWORK_ADD
+
+Job result:
+
+.. opcode_result:: OP_NETWORK_ADD
+
+
+``/2/networks/[network_name]``
+++++++++++++++++++++++++++++++
+
+Returns information about a network.
+
+It supports the following commands: ``GET``, ``DELETE``.
+
+``GET``
+~~~~~~~
+
+Returns information about a network, similar to the bulk output from
+the network list.
+
+Returned fields: :pyeval:`utils.CommaJoin(sorted(rlib2.NET_FIELDS))`.
+
+``DELETE``
+~~~~~~~~~~
+
+Deletes a network.
+
+It supports the ``dry-run`` argument.
+
+Job result:
+
+.. opcode_result:: OP_NETWORK_REMOVE
+
+
+``/2/networks/[network_name]/modify``
++++++++++++++++++++++++++++++++++++++
+
+Modifies the parameters of a network.
+
+Supports the following commands: ``PUT``.
+
+``PUT``
+~~~~~~~
+
+Returns a job ID.
+
+Body parameters:
+
+.. opcode_params:: OP_NETWORK_SET_PARAMS
+
+Job result:
+
+.. opcode_result:: OP_NETWORK_SET_PARAMS
+
+
+``/2/networks/[network_name]/connect``
+++++++++++++++++++++++++++++++++++++++
+
+Connects a network to a nodegroup.
+
+Supports the following commands: ``PUT``.
+
+``PUT``
+~~~~~~~
+
+Returns a job ID. It supports the ``dry-run`` arguments.
+
+Body parameters:
+
+.. opcode_params:: OP_NETWORK_CONNECT
+
+Job result:
+
+.. opcode_result:: OP_NETWORK_CONNECT
+
+
+``/2/networks/[network_name]/disconnect``
++++++++++++++++++++++++++++++++++++++++++
+
+Disonnects a network from a nodegroup.
+
+Supports the following commands: ``PUT``.
+
+``PUT``
+~~~~~~~
+
+Returns a job ID. It supports the ``dry-run`` arguments.
+
+Body parameters:
+
+.. opcode_params:: OP_NETWORK_DISCONNECT
+
+Job result:
+
+.. opcode_result:: OP_NETWORK_DISCONNECT
+
+
+``/2/networks/[network_name]/tags``
++++++++++++++++++++++++++++++++++++
+
+Manages per-network tags.
+
+Supports the following commands: ``GET``, ``PUT``, ``DELETE``.
+
+``GET``
+~~~~~~~
+
+Returns a list of tags.
+
+Example::
+
+    ["tag1", "tag2", "tag3"]
+
+``PUT``
+~~~~~~~
+
+Add a set of tags.
+
+The request as a list of strings should be ``PUT`` to this URI. The
+result will be a job id.
+
+It supports the ``dry-run`` argument.
+
+
+``DELETE``
+~~~~~~~~~~
+
+Delete a tag.
+
+In order to delete a set of tags, the DELETE request should be addressed
+to URI like::
+
+    /tags?tag=[tag]&tag=[tag]
+
+It supports the ``dry-run`` argument.
+
+
+``/2/instances-multi-alloc``
+++++++++++++++++++++++++++++
+
+Tries to allocate multiple instances.
+
+It supports the following commands: ``POST``
+
+``POST``
+~~~~~~~~
+
+The parameters:
+
+.. opcode_params:: OP_INSTANCE_MULTI_ALLOC
+
+Job result:
+
+.. opcode_result:: OP_INSTANCE_MULTI_ALLOC
+
+
 ``/2/instances``
 ++++++++++++++++
 
@@ -663,29 +919,30 @@ Example::
 
     [
       {
-         "status": "running",
-         "disk_usage": 20480,
-         "nic.bridges": [
-           "xen-br0"
-          ],
-         "name": "web.example.com",
-         "tags": ["tag1", "tag2"],
-         "beparams": {
-           "vcpus": 2,
-           "memory": 512
-         },
-         "disk.sizes": [
-             20480
-         ],
-         "pnode": "node1.example.com",
-         "nic.macs": ["01:23:45:67:89:01"],
-         "snodes": ["node2.example.com"],
-         "disk_template": "drbd",
-         "admin_state": true,
-         "os": "debian-etch",
-         "oper_state": true
+        "status": "running",
+        "disk_usage": 20480,
+        "nic.bridges": [
+          "xen-br0"
+        ],
+        "name": "web.example.com",
+        "tags": ["tag1", "tag2"],
+        "beparams": {
+          "vcpus": 2,
+          "memory": 512
+        },
+        "disk.sizes": [
+          20480
+        ],
+        "pnode": "node1.example.com",
+        "nic.macs": ["01:23:45:67:89:01"],
+        "snodes": ["node2.example.com"],
+        "disk_template": "drbd",
+        "admin_state": true,
+        "os": "debian-etch",
+        "oper_state": true,
+        …
       },
-      ...
+      …
     ]
 
 
@@ -1102,7 +1359,15 @@ Job result:
 
 Request information for connecting to instance's console.
 
-Supports the following commands: ``GET``.
+.. pyassert::
+
+  not (hasattr(rlib2.R_2_instances_name_console, "PUT") or
+       hasattr(rlib2.R_2_instances_name_console, "POST") or
+       hasattr(rlib2.R_2_instances_name_console, "DELETE"))
+
+Supports the following commands: ``GET``. Requires authentication with
+one of the following options:
+:pyeval:`utils.CommaJoin(rlib2.R_2_instances_name_console.GET_ACCESS)`.
 
 ``GET``
 ~~~~~~~
@@ -1248,7 +1513,7 @@ classification:
    errors.ECODE_ALL == set([errors.ECODE_RESOLVER, errors.ECODE_NORES,
      errors.ECODE_INVAL, errors.ECODE_STATE, errors.ECODE_NOENT,
      errors.ECODE_EXISTS, errors.ECODE_NOTUNIQUE, errors.ECODE_FAULT,
-     errors.ECODE_ENVIRON])
+     errors.ECODE_ENVIRON, errors.ECODE_TEMP_NORES])
 
 :pyeval:`errors.ECODE_RESOLVER`
   Resolver errors. This usually means that a name doesn't exist in DNS,
@@ -1259,6 +1524,10 @@ classification:
   Not enough resources (iallocator failure, disk space, memory,
   etc.). If the resources on the cluster increase, the operation might
   succeed.
+
+:pyeval:`errors.ECODE_TEMP_NORES`
+  Simliar to :pyeval:`errors.ECODE_NORES`, but indicating the operation
+  should be attempted again after some time.
 
 :pyeval:`errors.ECODE_INVAL`
   Wrong arguments (at syntax level). The operation will not ever be
@@ -1366,9 +1635,10 @@ Example::
         "dtotal": 5246208,
         "sinst_cnt": 2,
         "dfree": 5171712,
-        "offline": false
+        "offline": false,
+        …
       },
-      ...
+      …
     ]
 
 ``/2/nodes/[node_name]``
@@ -1621,7 +1891,15 @@ pages and using ``/2/query/[resource]/fields``. The resource is one of
 :pyeval:`utils.CommaJoin(constants.QR_VIA_RAPI)`. See the :doc:`query2
 design document <design-query2>` for more details.
 
-Supports the following commands: ``GET``, ``PUT``.
+.. pyassert::
+
+  (rlib2.R_2_query.GET_ACCESS == rlib2.R_2_query.PUT_ACCESS and
+   not (hasattr(rlib2.R_2_query, "POST") or
+        hasattr(rlib2.R_2_query, "DELETE")))
+
+Supports the following commands: ``GET``, ``PUT``. Requires
+authentication with one of the following options:
+:pyeval:`utils.CommaJoin(rlib2.R_2_query.GET_ACCESS)`.
 
 ``GET``
 ~~~~~~~

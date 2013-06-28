@@ -1,40 +1,46 @@
+
+
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
   "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
 
 <html xmlns="http://www.w3.org/1999/xhtml">
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Splitting the query and job execution paths &mdash; Ganeti v2.6.2 documentation</title>
-    <link rel="stylesheet" href="_static/default.css" type="text/css" />
+    <title>Splitting the query and job execution paths &mdash; Ganeti 2.7.0~rc3 documentation</title>
+    
+    <link rel="stylesheet" href="_static/style.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.6.2',
-        COLLAPSE_MODINDEX: false,
+        VERSION:     '2.7.0~rc3',
+        COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
       };
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.6.2 documentation" href="index.html" />
+    <link rel="top" title="Ganeti 2.7.0~rc3 documentation" href="index.html" />
     <link rel="up" title="Design document drafts" href="design-draft.html" />
-    <link rel="next" title="Merging clusters" href="cluster-merge.html" />
-    <link rel="prev" title="Virtual clusters support" href="design-virtual-clusters.html" /> 
+    <link rel="next" title="Instance auto-repair" href="design-autorepair.html" />
+    <link rel="prev" title="Resource model changes" href="design-resource-model.html" /> 
   </head>
   <body>
     <div class="related">
       <h3>Navigation</h3>
       <ul>
         <li class="right" style="margin-right: 10px">
-          <a href="cluster-merge.html" title="Merging clusters"
+          <a href="design-autorepair.html" title="Instance auto-repair"
              accesskey="N">next</a></li>
         <li class="right" >
-          <a href="design-virtual-clusters.html" title="Virtual clusters support"
+          <a href="design-resource-model.html" title="Resource model changes"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.6.2 documentation</a> &raquo;</li>
+        <li><a href="index.html">Ganeti 2.7.0~rc3 documentation</a> &raquo;</li>
           <li><a href="design-draft.html" accesskey="U">Design document drafts</a> &raquo;</li> 
       </ul>
     </div>  
@@ -180,47 +186,47 @@ interface and it is consistent.</p>
       </div>
       <div class="sphinxsidebar">
         <div class="sphinxsidebarwrapper">
-            <h3><a href="index.html">Table Of Contents</a></h3>
-            <ul>
-<li><a class="reference external" href="#">Splitting the query and job execution paths</a><ul>
-<li><a class="reference external" href="#introduction">Introduction</a></li>
-<li><a class="reference external" href="#proposed-design">Proposed design</a><ul>
-<li><a class="reference external" href="#advantages">Advantages</a></li>
-<li><a class="reference external" href="#disadvantages">Disadvantages</a></li>
+  <h3><a href="index.html">Table Of Contents</a></h3>
+  <ul>
+<li><a class="reference internal" href="#">Splitting the query and job execution paths</a><ul>
+<li><a class="reference internal" href="#introduction">Introduction</a></li>
+<li><a class="reference internal" href="#proposed-design">Proposed design</a><ul>
+<li><a class="reference internal" href="#advantages">Advantages</a></li>
+<li><a class="reference internal" href="#disadvantages">Disadvantages</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#long-term-plans">Long-term plans</a><ul>
-<li><a class="reference external" href="#some-implementation-details">Some implementation details</a></li>
+<li><a class="reference internal" href="#long-term-plans">Long-term plans</a><ul>
+<li><a class="reference internal" href="#some-implementation-details">Some implementation details</a></li>
 </ul>
 </li>
 </ul>
 </li>
 </ul>
 
-            <h4>Previous topic</h4>
-            <p class="topless"><a href="design-virtual-clusters.html"
-                                  title="previous chapter">Virtual clusters support</a></p>
-            <h4>Next topic</h4>
-            <p class="topless"><a href="cluster-merge.html"
-                                  title="next chapter">Merging clusters</a></p>
-            <h3>This Page</h3>
-            <ul class="this-page-menu">
-              <li><a href="_sources/design-query-splitting.txt"
-                     rel="nofollow">Show Source</a></li>
-            </ul>
-          <div id="searchbox" style="display: none">
-            <h3>Quick search</h3>
-              <form class="search" action="search.html" method="get">
-                <input type="text" name="q" size="18" />
-                <input type="submit" value="Go" />
-                <input type="hidden" name="check_keywords" value="yes" />
-                <input type="hidden" name="area" value="default" />
-              </form>
-              <p class="searchtip" style="font-size: 90%">
-              Enter search terms or a module, class or function name.
-              </p>
-          </div>
-          <script type="text/javascript">$('#searchbox').show(0);</script>
+  <h4>Previous topic</h4>
+  <p class="topless"><a href="design-resource-model.html"
+                        title="previous chapter">Resource model changes</a></p>
+  <h4>Next topic</h4>
+  <p class="topless"><a href="design-autorepair.html"
+                        title="next chapter">Instance auto-repair</a></p>
+  <h3>This Page</h3>
+  <ul class="this-page-menu">
+    <li><a href="_sources/design-query-splitting.txt"
+           rel="nofollow">Show Source</a></li>
+  </ul>
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
         </div>
       </div>
       <div class="clearer"></div>
@@ -229,18 +235,18 @@ interface and it is consistent.</p>
       <h3>Navigation</h3>
       <ul>
         <li class="right" style="margin-right: 10px">
-          <a href="cluster-merge.html" title="Merging clusters"
+          <a href="design-autorepair.html" title="Instance auto-repair"
              >next</a></li>
         <li class="right" >
-          <a href="design-virtual-clusters.html" title="Virtual clusters support"
+          <a href="design-resource-model.html" title="Resource model changes"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.6.2 documentation</a> &raquo;</li>
+        <li><a href="index.html">Ganeti 2.7.0~rc3 documentation</a> &raquo;</li>
           <li><a href="design-draft.html" >Design document drafts</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">
-      &copy; Copyright 2006, 2007, 2008, 2009, 2010, 2011, 2012, Google Inc..
-      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 0.6.7.
+        &copy; Copyright 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Google Inc..
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
     </div>
   </body>
 </html>

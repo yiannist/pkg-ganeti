@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -56,6 +56,7 @@ PUT should be prefered over POST.
 # C0103: Invalid name, since the R_* names are not conforming
 
 from ganeti import opcodes
+from ganeti import objects
 from ganeti import http
 from ganeti import constants
 from ganeti import cli
@@ -70,7 +71,8 @@ _COMMON_FIELDS = ["ctime", "mtime", "uuid", "serial_no", "tags"]
 I_FIELDS = ["name", "admin_state", "os",
             "pnode", "snodes",
             "disk_template",
-            "nic.ips", "nic.macs", "nic.modes", "nic.links", "nic.bridges",
+            "nic.ips", "nic.macs", "nic.modes",
+            "nic.links", "nic.networks", "nic.bridges",
             "network_port",
             "disk.sizes", "disk_usage",
             "beparams", "hvparams",
@@ -89,6 +91,14 @@ N_FIELDS = ["name", "offline", "master_candidate", "drained",
             "ndparams",
             "group.uuid",
             ] + _COMMON_FIELDS
+
+NET_FIELDS = ["name", "network", "gateway",
+              "network6", "gateway6",
+              "mac_prefix",
+              "free_count", "reserved_count",
+              "map", "group_list", "inst_list",
+              "external_reservations", "tags",
+              ]
 
 G_FIELDS = [
   "alloc_policy",
@@ -145,7 +155,7 @@ _NODE_MIGRATE_REQV1 = "node-migrate-reqv1"
 # Feature string for node evacuation with LU-generated jobs
 _NODE_EVAC_RES1 = "node-evac-res1"
 
-ALL_FEATURES = frozenset([
+ALL_FEATURES = compat.UniqueFrozenset([
   _INST_CREATE_REQV1,
   _INST_REINSTALL_REQV1,
   _NODE_MIGRATE_REQV1,
@@ -157,7 +167,7 @@ _WFJC_TIMEOUT = 10
 
 
 # FIXME: For compatibility we update the beparams/memory field. Needs to be
-#        removed in Ganeti 2.7
+#        removed in Ganeti 2.8
 def _UpdateBeparams(inst):
   """Updates the beparams dict of inst to support the memory field.
 
@@ -214,7 +224,7 @@ class R_2_info(baserlib.OpcodeResource):
     """Returns cluster information.
 
     """
-    client = self.GetClient()
+    client = self.GetClient(query=True)
     return client.QueryClusterInfo()
 
 
@@ -285,7 +295,7 @@ class R_2_jobs(baserlib.ResourceBase):
     @return: a dictionary with jobs id and uri.
 
     """
-    client = self.GetClient()
+    client = self.GetClient(query=True)
 
     if self.useBulk():
       bulkdata = client.QueryJobs(None, J_FIELDS_BULK)
@@ -314,7 +324,7 @@ class R_2_jobs_id(baserlib.ResourceBase):
 
     """
     job_id = self.items[0]
-    result = self.GetClient().QueryJobs([job_id, ], J_FIELDS)[0]
+    result = self.GetClient(query=True).QueryJobs([job_id, ], J_FIELDS)[0]
     if result is None:
       raise http.HttpNotFound()
     return baserlib.MapFields(J_FIELDS, result)
@@ -387,7 +397,7 @@ class R_2_nodes(baserlib.OpcodeResource):
     """Returns a list of all nodes.
 
     """
-    client = self.GetClient()
+    client = self.GetClient(query=False)
 
     if self.useBulk():
       bulkdata = client.QueryNodes([], N_FIELDS, False)
@@ -410,7 +420,7 @@ class R_2_nodes_name(baserlib.OpcodeResource):
 
     """
     node_name = self.items[0]
-    client = self.GetClient()
+    client = self.GetClient(query=False)
 
     result = baserlib.HandleItemQueryErrors(client.QueryNodes,
                                             names=[node_name], fields=N_FIELDS,
@@ -448,7 +458,7 @@ class R_2_nodes_name_role(baserlib.OpcodeResource):
 
     """
     node_name = self.items[0]
-    client = self.GetClient()
+    client = self.GetClient(query=True)
     result = client.QueryNodes(names=[node_name], fields=["role"],
                                use_locking=self.useLocking())
 
@@ -642,6 +652,122 @@ class R_2_nodes_name_storage_repair(baserlib.OpcodeResource):
       })
 
 
+class R_2_networks(baserlib.OpcodeResource):
+  """/2/networks resource.
+
+  """
+  GET_OPCODE = opcodes.OpNetworkQuery
+  POST_OPCODE = opcodes.OpNetworkAdd
+  POST_RENAME = {
+    "name": "network_name",
+    }
+
+  def GetPostOpInput(self):
+    """Create a network.
+
+    """
+    assert not self.items
+    return (self.request_body, {
+      "dry_run": self.dryRun(),
+      })
+
+  def GET(self):
+    """Returns a list of all networks.
+
+    """
+    client = self.GetClient()
+
+    if self.useBulk():
+      bulkdata = client.QueryNetworks([], NET_FIELDS, False)
+      return baserlib.MapBulkFields(bulkdata, NET_FIELDS)
+    else:
+      data = client.QueryNetworks([], ["name"], False)
+      networknames = [row[0] for row in data]
+      return baserlib.BuildUriList(networknames, "/2/networks/%s",
+                                   uri_fields=("name", "uri"))
+
+
+class R_2_networks_name(baserlib.OpcodeResource):
+  """/2/networks/[network_name] resource.
+
+  """
+  DELETE_OPCODE = opcodes.OpNetworkRemove
+
+  def GET(self):
+    """Send information about a network.
+
+    """
+    network_name = self.items[0]
+    client = self.GetClient()
+
+    result = baserlib.HandleItemQueryErrors(client.QueryNetworks,
+                                            names=[network_name],
+                                            fields=NET_FIELDS,
+                                            use_locking=self.useLocking())
+
+    return baserlib.MapFields(NET_FIELDS, result[0])
+
+  def GetDeleteOpInput(self):
+    """Delete a network.
+
+    """
+    assert len(self.items) == 1
+    return (self.request_body, {
+      "network_name": self.items[0],
+      "dry_run": self.dryRun(),
+      })
+
+
+class R_2_networks_name_connect(baserlib.OpcodeResource):
+  """/2/networks/[network_name]/connect resource.
+
+  """
+  PUT_OPCODE = opcodes.OpNetworkConnect
+
+  def GetPutOpInput(self):
+    """Changes some parameters of node group.
+
+    """
+    assert self.items
+    return (self.request_body, {
+      "network_name": self.items[0],
+      "dry_run": self.dryRun(),
+      })
+
+
+class R_2_networks_name_disconnect(baserlib.OpcodeResource):
+  """/2/networks/[network_name]/disconnect resource.
+
+  """
+  PUT_OPCODE = opcodes.OpNetworkDisconnect
+
+  def GetPutOpInput(self):
+    """Changes some parameters of node group.
+
+    """
+    assert self.items
+    return (self.request_body, {
+      "network_name": self.items[0],
+      "dry_run": self.dryRun(),
+      })
+
+
+class R_2_networks_name_modify(baserlib.OpcodeResource):
+  """/2/networks/[network_name]/modify resource.
+
+  """
+  PUT_OPCODE = opcodes.OpNetworkSetParams
+
+  def GetPutOpInput(self):
+    """Changes some parameters of network.
+
+    """
+    assert self.items
+    return (self.request_body, {
+      "network_name": self.items[0],
+      })
+
+
 class R_2_groups(baserlib.OpcodeResource):
   """/2/groups resource.
 
@@ -655,6 +781,7 @@ class R_2_groups(baserlib.OpcodeResource):
   def GetPostOpInput(self):
     """Create a node group.
 
+
     """
     assert not self.items
     return (self.request_body, {
@@ -665,7 +792,7 @@ class R_2_groups(baserlib.OpcodeResource):
     """Returns a list of all node groups.
 
     """
-    client = self.GetClient()
+    client = self.GetClient(query=True)
 
     if self.useBulk():
       bulkdata = client.QueryGroups([], G_FIELDS, False)
@@ -688,7 +815,7 @@ class R_2_groups_name(baserlib.OpcodeResource):
 
     """
     group_name = self.items[0]
-    client = self.GetClient()
+    client = self.GetClient(query=True)
 
     result = baserlib.HandleItemQueryErrors(client.QueryGroups,
                                             names=[group_name], fields=G_FIELDS,
@@ -808,6 +935,36 @@ class R_2_instances(baserlib.OpcodeResource):
     data.pop(_REQ_DATA_VERSION, None)
 
     return (data, {
+      "dry_run": self.dryRun(),
+      })
+
+
+class R_2_instances_multi_alloc(baserlib.OpcodeResource):
+  """/2/instances-multi-alloc resource.
+
+  """
+  POST_OPCODE = opcodes.OpInstanceMultiAlloc
+
+  def GetPostOpInput(self):
+    """Try to allocate multiple instances.
+
+    @return: A dict with submitted jobs, allocatable instances and failed
+             allocations
+
+    """
+    if "instances" not in self.request_body:
+      raise http.HttpBadRequest("Request is missing required 'instances' field"
+                                " in body")
+
+    op_id = {
+      "OP_ID": self.POST_OPCODE.OP_ID, # pylint: disable=E1101
+      }
+    body = objects.FillDict(self.request_body, {
+      "instances": [objects.FillDict(inst, op_id)
+                    for inst in self.request_body["instances"]],
+      })
+
+    return (body, {
       "dry_run": self.dryRun(),
       })
 
@@ -1195,7 +1352,7 @@ class R_2_instances_name_console(baserlib.ResourceBase):
   """/2/instances/[instance_name]/console resource.
 
   """
-  GET_ACCESS = [rapi.RAPI_ACCESS_WRITE]
+  GET_ACCESS = [rapi.RAPI_ACCESS_WRITE, rapi.RAPI_ACCESS_READ]
   GET_OPCODE = opcodes.OpInstanceConsole
 
   def GET(self):
@@ -1217,7 +1374,11 @@ class R_2_instances_name_console(baserlib.ResourceBase):
 
 
 def _GetQueryFields(args):
-  """
+  """Tries to extract C{fields} query parameter.
+
+  @type args: dictionary
+  @rtype: list of string
+  @raise http.HttpBadRequest: When parameter can't be found
 
   """
   try:
@@ -1229,7 +1390,10 @@ def _GetQueryFields(args):
 
 
 def _SplitQueryFields(fields):
-  """
+  """Splits fields as given for a query request.
+
+  @type fields: string
+  @rtype: list of string
 
   """
   return [i.strip() for i in fields.split(",")]
@@ -1240,7 +1404,8 @@ class R_2_query(baserlib.ResourceBase):
 
   """
   # Results might contain sensitive information
-  GET_ACCESS = [rapi.RAPI_ACCESS_WRITE]
+  GET_ACCESS = [rapi.RAPI_ACCESS_WRITE, rapi.RAPI_ACCESS_READ]
+  PUT_ACCESS = GET_ACCESS
   GET_OPCODE = opcodes.OpQuery
   PUT_OPCODE = opcodes.OpQuery
 
@@ -1339,17 +1504,8 @@ class _R_Tags(baserlib.OpcodeResource):
       if not self.name:
         raise http.HttpBadRequest("Missing name on tag request")
 
-      cl = self.GetClient()
-      if kind == constants.TAG_INSTANCE:
-        fn = cl.QueryInstances
-      elif kind == constants.TAG_NODEGROUP:
-        fn = cl.QueryGroups
-      else:
-        fn = cl.QueryNodes
-      result = fn(names=[self.name], fields=["tags"], use_locking=False)
-      if not result or not result[0]:
-        raise http.HttpBadGateway("Invalid response from tag query")
-      tags = result[0][0]
+      cl = self.GetClient(query=True)
+      tags = list(cl.QueryTags(kind, self.name))
 
     elif kind == constants.TAG_CLUSTER:
       assert not self.name
@@ -1410,6 +1566,15 @@ class R_2_groups_name_tags(_R_Tags):
 
   """
   TAG_LEVEL = constants.TAG_NODEGROUP
+
+
+class R_2_networks_name_tags(_R_Tags):
+  """ /2/networks/[network_name]/tags resource.
+
+  Manages per-network tags.
+
+  """
+  TAG_LEVEL = constants.TAG_NETWORK
 
 
 class R_2_tags(_R_Tags):

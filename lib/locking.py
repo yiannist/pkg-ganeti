@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -46,6 +46,21 @@ _SHARED_TEXT = "shared"
 _DELETED_TEXT = "deleted"
 
 _DEFAULT_PRIORITY = 0
+
+#: Minimum timeout required to consider scheduling a pending acquisition
+#: (seconds)
+_LOCK_ACQUIRE_MIN_TIMEOUT = (1.0 / 1000)
+
+# Internal lock acquisition modes for L{LockSet}
+(_LS_ACQUIRE_EXACT,
+ _LS_ACQUIRE_ALL,
+ _LS_ACQUIRE_OPPORTUNISTIC) = range(1, 4)
+
+_LS_ACQUIRE_MODES = compat.UniqueFrozenset([
+  _LS_ACQUIRE_EXACT,
+  _LS_ACQUIRE_ALL,
+  _LS_ACQUIRE_OPPORTUNISTIC,
+  ])
 
 
 def ssynchronized(mylock, shared=0):
@@ -662,6 +677,12 @@ class SharedLock(object):
       self.__do_acquire(shared)
       return True
 
+    # The lock couldn't be acquired right away, so if a timeout is given and is
+    # considered too short, return right away as scheduling a pending
+    # acquisition is quite expensive
+    if timeout is not None and timeout < _LOCK_ACQUIRE_MIN_TIMEOUT:
+      return False
+
     prioqueue = self.__pending_by_prio.get(priority, None)
 
     if shared:
@@ -903,6 +924,52 @@ class SharedLock(object):
 ALL_SET = None
 
 
+def _TimeoutZero():
+  """Returns the number zero.
+
+  """
+  return 0
+
+
+def _GetLsAcquireModeAndTimeouts(want_all, timeout, opportunistic):
+  """Determines modes and timeouts for L{LockSet.acquire}.
+
+  @type want_all: boolean
+  @param want_all: Whether all locks in set should be acquired
+  @param timeout: Timeout in seconds or C{None}
+  @param opportunistic: Whther locks should be acquired opportunistically
+  @rtype: tuple
+  @return: Tuple containing mode to be passed to L{LockSet.__acquire_inner}
+    (one of L{_LS_ACQUIRE_MODES}), a function to calculate timeout for
+    acquiring the lockset-internal lock (might be C{None}) and a function to
+    calculate the timeout for acquiring individual locks
+
+  """
+  # Short circuit when no running timeout is needed
+  if opportunistic and not want_all:
+    assert timeout is None, "Got timeout for an opportunistic acquisition"
+    return (_LS_ACQUIRE_OPPORTUNISTIC, None, _TimeoutZero)
+
+  # We need to keep track of how long we spent waiting for a lock. The
+  # timeout passed to this function is over all lock acquisitions.
+  running_timeout = utils.RunningTimeout(timeout, False)
+
+  if want_all:
+    mode = _LS_ACQUIRE_ALL
+    ls_timeout_fn = running_timeout.Remaining
+  else:
+    mode = _LS_ACQUIRE_EXACT
+    ls_timeout_fn = None
+
+  if opportunistic:
+    mode = _LS_ACQUIRE_OPPORTUNISTIC
+    timeout_fn = _TimeoutZero
+  else:
+    timeout_fn = running_timeout.Remaining
+
+  return (mode, ls_timeout_fn, timeout_fn)
+
+
 class _AcquireTimeout(Exception):
   """Internal exception to abort an acquire on a timeout.
 
@@ -1019,6 +1086,18 @@ class LockSet:
     else:
       return False
 
+  def owning_all(self):
+    """Checks whether current thread owns internal lock.
+
+    Holding the internal lock is equivalent with holding all locks in the set
+    (the opposite does not necessarily hold as it can not be easily
+    determined). L{add} and L{remove} require the internal lock.
+
+    @rtype: boolean
+
+    """
+    return self.__lock.is_owned()
+
   def _add_owned(self, name=None):
     """Note the current thread owns the given lock"""
     if name is None:
@@ -1040,8 +1119,8 @@ class LockSet:
       self.__owners[threading.currentThread()].remove(name)
 
     # Only remove the key if we don't hold the set-lock as well
-    if (not self.__lock.is_owned() and
-        not self.__owners[threading.currentThread()]):
+    if not (self.__lock.is_owned() or
+            self.__owners[threading.currentThread()]):
       del self.__owners[threading.currentThread()]
 
   def list_owned(self):
@@ -1088,8 +1167,11 @@ class LockSet:
     return set(result)
 
   def acquire(self, names, timeout=None, shared=0, priority=None,
-              test_notify=None):
+              opportunistic=False, test_notify=None):
     """Acquire a set of resource locks.
+
+    @note: When acquiring locks opportunistically, any number of locks might
+      actually be acquired, even zero.
 
     @type names: list of strings (or string)
     @param names: the names of the locks which shall be acquired
@@ -1098,9 +1180,16 @@ class LockSet:
     @param shared: whether to acquire in shared mode; by default an
         exclusive lock will be acquired
     @type timeout: float or None
-    @param timeout: Maximum time to acquire all locks
+    @param timeout: Maximum time to acquire all locks; for opportunistic
+      acquisitions, a timeout can only be given when C{names} is C{None}, in
+      which case it is exclusively used for acquiring the L{LockSet}-internal
+      lock; opportunistic acquisitions don't use a timeout for acquiring
+      individual locks
     @type priority: integer
     @param priority: Priority for acquiring locks
+    @type opportunistic: boolean
+    @param opportunistic: Acquire locks opportunistically; use the return value
+      to determine which locks were actually acquired
     @type test_notify: callable or None
     @param test_notify: Special callback function for unittesting
 
@@ -1120,20 +1209,26 @@ class LockSet:
     if priority is None:
       priority = _DEFAULT_PRIORITY
 
-    # We need to keep track of how long we spent waiting for a lock. The
-    # timeout passed to this function is over all lock acquires.
-    running_timeout = utils.RunningTimeout(timeout, False)
-
     try:
       if names is not None:
+        assert timeout is None or not opportunistic, \
+          ("Opportunistic acquisitions can only use a timeout if no"
+           " names are given; see docstring for details")
+
         # Support passing in a single resource to acquire rather than many
         if isinstance(names, basestring):
           names = [names]
 
-        return self.__acquire_inner(names, False, shared, priority,
-                                    running_timeout.Remaining, test_notify)
+        (mode, _, timeout_fn) = \
+          _GetLsAcquireModeAndTimeouts(False, timeout, opportunistic)
+
+        return self.__acquire_inner(names, mode, shared, priority,
+                                    timeout_fn, test_notify)
 
       else:
+        (mode, ls_timeout_fn, timeout_fn) = \
+          _GetLsAcquireModeAndTimeouts(True, timeout, opportunistic)
+
         # If no names are given acquire the whole set by not letting new names
         # being added before we release, and getting the current list of names.
         # Some of them may then be deleted later, but we'll cope with this.
@@ -1144,14 +1239,15 @@ class LockSet:
         # anyway, though, so we'll get the list lock exclusively as well in
         # order to be able to do add() on the set while owning it.
         if not self.__lock.acquire(shared=shared, priority=priority,
-                                   timeout=running_timeout.Remaining()):
+                                   timeout=ls_timeout_fn()):
           raise _AcquireTimeout()
+
         try:
           # note we own the set-lock
           self._add_owned()
 
-          return self.__acquire_inner(self.__names(), True, shared, priority,
-                                      running_timeout.Remaining, test_notify)
+          return self.__acquire_inner(self.__names(), mode, shared,
+                                      priority, timeout_fn, test_notify)
         except:
           # We shouldn't have problems adding the lock to the owners list, but
           # if we did we'll try to release this lock and re-raise exception.
@@ -1163,37 +1259,50 @@ class LockSet:
     except _AcquireTimeout:
       return None
 
-  def __acquire_inner(self, names, want_all, shared, priority,
+  def __acquire_inner(self, names, mode, shared, priority,
                       timeout_fn, test_notify):
     """Inner logic for acquiring a number of locks.
 
+    Acquisition modes:
+
+      - C{_LS_ACQUIRE_ALL}: C{names} contains names of all locks in set, but
+        deleted locks can be ignored as the whole set is being acquired with
+        its internal lock held
+      - C{_LS_ACQUIRE_EXACT}: The names listed in C{names} must be acquired;
+        timeouts and deleted locks are fatal
+      - C{_LS_ACQUIRE_OPPORTUNISTIC}: C{names} lists names of locks (potentially
+        all within the set) which should be acquired opportunistically, that is
+        failures are ignored
+
     @param names: Names of the locks to be acquired
-    @param want_all: Whether all locks in the set should be acquired
+    @param mode: Lock acquisition mode (one of L{_LS_ACQUIRE_MODES})
     @param shared: Whether to acquire in shared mode
-    @param timeout_fn: Function returning remaining timeout
+    @param timeout_fn: Function returning remaining timeout (C{None} for
+      opportunistic acquisitions)
     @param priority: Priority for acquiring locks
     @param test_notify: Special callback function for unittesting
 
     """
+    assert mode in _LS_ACQUIRE_MODES
+
     acquire_list = []
 
     # First we look the locks up on __lockdict. We have no way of being sure
     # they will still be there after, but this makes it a lot faster should
     # just one of them be the already wrong. Using a sorted sequence to prevent
     # deadlocks.
-    for lname in sorted(utils.UniqueSequence(names)):
+    for lname in sorted(frozenset(names)):
       try:
         lock = self.__lockdict[lname] # raises KeyError if lock is not there
       except KeyError:
-        if want_all:
-          # We are acquiring all the set, it doesn't matter if this particular
-          # element is not there anymore.
-          continue
-
-        raise errors.LockError("Non-existing lock %s in set %s (it may have"
-                               " been removed)" % (lname, self.name))
-
-      acquire_list.append((lname, lock))
+        # We are acquiring the whole set, it doesn't matter if this particular
+        # element is not there anymore. If, however, only certain names should
+        # be acquired, not finding a lock is an error.
+        if mode == _LS_ACQUIRE_EXACT:
+          raise errors.LockError("Lock '%s' not found in set '%s' (it may have"
+                                 " been removed)" % (lname, self.name))
+      else:
+        acquire_list.append((lname, lock))
 
     # This will hold the locknames we effectively acquired.
     acquired = set()
@@ -1218,16 +1327,20 @@ class LockSet:
                                      priority=priority,
                                      test_notify=test_notify_fn)
         except errors.LockError:
-          if want_all:
-            # We are acquiring all the set, it doesn't matter if this
+          if mode in (_LS_ACQUIRE_ALL, _LS_ACQUIRE_OPPORTUNISTIC):
+            # We are acquiring the whole set, it doesn't matter if this
             # particular element is not there anymore.
             continue
 
-          raise errors.LockError("Non-existing lock %s in set %s (it may"
-                                 " have been removed)" % (lname, self.name))
+          raise errors.LockError("Lock '%s' not found in set '%s' (it may have"
+                                 " been removed)" % (lname, self.name))
 
         if not acq_success:
           # Couldn't get lock or timeout occurred
+          if mode == _LS_ACQUIRE_OPPORTUNISTIC:
+            # Ignore timeouts on opportunistic acquisitions
+            continue
+
           if timeout is None:
             # This shouldn't happen as SharedLock.acquire(timeout=None) is
             # blocking.
@@ -1451,48 +1564,65 @@ class LockSet:
     return removed
 
 
-# Locking levels, must be acquired in increasing order.
-# Current rules are:
-#   - at level LEVEL_CLUSTER resides the Big Ganeti Lock (BGL) which must be
-#   acquired before performing any operation, either in shared or in exclusive
-#   mode. acquiring the BGL in exclusive mode is discouraged and should be
-#   avoided.
-#   - at levels LEVEL_NODE and LEVEL_INSTANCE reside node and instance locks.
-#   If you need more than one node, or more than one instance, acquire them at
-#   the same time.
-LEVEL_CLUSTER = 0
-LEVEL_INSTANCE = 1
-LEVEL_NODEGROUP = 2
-LEVEL_NODE = 3
-LEVEL_NODE_RES = 4
+# Locking levels, must be acquired in increasing order. Current rules are:
+# - At level LEVEL_CLUSTER resides the Big Ganeti Lock (BGL) which must be
+#   acquired before performing any operation, either in shared or exclusive
+#   mode. Acquiring the BGL in exclusive mode is discouraged and should be
+#   avoided..
+# - At levels LEVEL_NODE and LEVEL_INSTANCE reside node and instance locks. If
+#   you need more than one node, or more than one instance, acquire them at the
+#   same time.
+# - LEVEL_NODE_RES is for node resources and should be used by operations with
+#   possibly high impact on the node's disks.
+# - LEVEL_NODE_ALLOC blocks instance allocations for the whole cluster
+#   ("NAL" is the only lock at this level). It should be acquired in shared
+#   mode when an opcode blocks all or a significant amount of a cluster's
+#   locks. Opcodes doing instance allocations should acquire in exclusive mode.
+#   Once the set of acquired locks for an opcode has been reduced to the working
+#   set, the NAL should be released as well to allow allocations to proceed.
+(LEVEL_CLUSTER,
+ LEVEL_INSTANCE,
+ LEVEL_NODE_ALLOC,
+ LEVEL_NODEGROUP,
+ LEVEL_NODE,
+ LEVEL_NODE_RES,
+ LEVEL_NETWORK) = range(0, 7)
 
 LEVELS = [
   LEVEL_CLUSTER,
   LEVEL_INSTANCE,
+  LEVEL_NODE_ALLOC,
   LEVEL_NODEGROUP,
   LEVEL_NODE,
   LEVEL_NODE_RES,
+  LEVEL_NETWORK,
   ]
 
 # Lock levels which are modifiable
-LEVELS_MOD = frozenset([
+LEVELS_MOD = compat.UniqueFrozenset([
   LEVEL_NODE_RES,
   LEVEL_NODE,
   LEVEL_NODEGROUP,
   LEVEL_INSTANCE,
+  LEVEL_NETWORK,
   ])
 
 #: Lock level names (make sure to use singular form)
 LEVEL_NAMES = {
   LEVEL_CLUSTER: "cluster",
   LEVEL_INSTANCE: "instance",
+  LEVEL_NODE_ALLOC: "node-alloc",
   LEVEL_NODEGROUP: "nodegroup",
   LEVEL_NODE: "node",
   LEVEL_NODE_RES: "node-res",
+  LEVEL_NETWORK: "network",
   }
 
 # Constant for the big ganeti lock
 BGL = "BGL"
+
+#: Node allocation lock
+NAL = "NAL"
 
 
 class GanetiLockManager:
@@ -1506,7 +1636,7 @@ class GanetiLockManager:
   """
   _instance = None
 
-  def __init__(self, nodes, nodegroups, instances):
+  def __init__(self, nodes, nodegroups, instances, networks):
     """Constructs a new GanetiLockManager object.
 
     There should be only a GanetiLockManager object at any time, so this
@@ -1531,12 +1661,14 @@ class GanetiLockManager:
       LEVEL_NODE: LockSet(nodes, "node", monitor=self._monitor),
       LEVEL_NODE_RES: LockSet(nodes, "node-res", monitor=self._monitor),
       LEVEL_NODEGROUP: LockSet(nodegroups, "nodegroup", monitor=self._monitor),
-      LEVEL_INSTANCE: LockSet(instances, "instance",
-                              monitor=self._monitor),
+      LEVEL_INSTANCE: LockSet(instances, "instance", monitor=self._monitor),
+      LEVEL_NETWORK: LockSet(networks, "network", monitor=self._monitor),
+      LEVEL_NODE_ALLOC: LockSet([NAL], "node-alloc", monitor=self._monitor),
       }
 
     assert compat.all(ls.name == LEVEL_NAMES[level]
-                      for (level, ls) in self.__keyring.items())
+                      for (level, ls) in self.__keyring.items()), \
+      "Keyring name mismatch"
 
   def AddToLockMonitor(self, provider):
     """Registers a new lock with the monitor.
@@ -1585,6 +1717,14 @@ class GanetiLockManager:
     """
     return self.__keyring[level].check_owned(names, shared=shared)
 
+  def owning_all(self, level):
+    """Checks whether current thread owns all locks at a certain level.
+
+    @see: L{LockSet.owning_all}
+
+    """
+    return self.__keyring[level].owning_all()
+
   def _upper_owned(self, level):
     """Check that we don't own any lock at a level greater than the given one.
 
@@ -1611,7 +1751,8 @@ class GanetiLockManager:
     """
     return level == LEVEL_CLUSTER and (names is None or BGL in names)
 
-  def acquire(self, level, names, timeout=None, shared=0, priority=None):
+  def acquire(self, level, names, timeout=None, shared=0, priority=None,
+              opportunistic=False):
     """Acquire a set of resource locks, at the same level.
 
     @type level: member of locking.LEVELS
@@ -1626,6 +1767,9 @@ class GanetiLockManager:
     @param timeout: Maximum time to acquire all locks
     @type priority: integer
     @param priority: Priority for acquiring lock
+    @type opportunistic: boolean
+    @param opportunistic: Acquire locks opportunistically; use the return value
+      to determine which locks were actually acquired
 
     """
     assert level in LEVELS, "Invalid locking level %s" % level
@@ -1637,15 +1781,16 @@ class GanetiLockManager:
     # point in acquiring any other lock, unless perhaps we are half way through
     # the migration of the current opcode.
     assert (self._contains_BGL(level, names) or self._BGL_owned()), (
-            "You must own the Big Ganeti Lock before acquiring any other")
+      "You must own the Big Ganeti Lock before acquiring any other")
 
     # Check we don't own locks at the same or upper levels.
     assert not self._upper_owned(level), ("Cannot acquire locks at a level"
-           " while owning some at a greater one")
+                                          " while owning some at a greater one")
 
     # Acquire the locks in the set.
     return self.__keyring[level].acquire(names, shared=shared, timeout=timeout,
-                                         priority=priority)
+                                         priority=priority,
+                                         opportunistic=opportunistic)
 
   def downgrade(self, level, names=None):
     """Downgrade a set of resource locks from exclusive to shared mode.
@@ -1679,10 +1824,10 @@ class GanetiLockManager:
     assert level in LEVELS, "Invalid locking level %s" % level
     assert (not self._contains_BGL(level, names) or
             not self._upper_owned(LEVEL_CLUSTER)), (
-            "Cannot release the Big Ganeti Lock while holding something"
-            " at upper levels (%r)" %
-            (utils.CommaJoin(["%s=%r" % (LEVEL_NAMES[i], self.list_owned(i))
-                              for i in self.__keyring.keys()]), ))
+              "Cannot release the Big Ganeti Lock while holding something"
+              " at upper levels (%r)" %
+              (utils.CommaJoin(["%s=%r" % (LEVEL_NAMES[i], self.list_owned(i))
+                                for i in self.__keyring.keys()]), ))
 
     # Release will complain if we don't own the locks already
     return self.__keyring[level].release(names)
@@ -1702,9 +1847,9 @@ class GanetiLockManager:
     """
     assert level in LEVELS_MOD, "Invalid or immutable level %s" % level
     assert self._BGL_owned(), ("You must own the BGL before performing other"
-           " operations")
+                               " operations")
     assert not self._upper_owned(level), ("Cannot add locks at a level"
-           " while owning some at a greater one")
+                                          " while owning some at a greater one")
     return self.__keyring[level].add(names, acquired=acquired, shared=shared)
 
   def remove(self, level, names):
@@ -1722,7 +1867,7 @@ class GanetiLockManager:
     """
     assert level in LEVELS_MOD, "Invalid or immutable level %s" % level
     assert self._BGL_owned(), ("You must own the BGL before performing other"
-           " operations")
+                               " operations")
     # Check we either own the level or don't own anything from here
     # up. LockSet.remove() will check the case in which we don't own
     # all the needed resources, or we have a shared ownership.

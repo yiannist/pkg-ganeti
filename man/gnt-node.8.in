@@ -7,38 +7,32 @@ gnt-node - Node administration
 \f[B]gnt-node\f[] {command} [arguments...]
 .SH DESCRIPTION
 .PP
-The \f[B]gnt-node\f[] is used for managing the (physical) nodes in
-the Ganeti system.
+The \f[B]gnt-node\f[] is used for managing the (physical) nodes in the
+Ganeti system.
 .SH COMMANDS
 .SS ADD
 .PP
-\f[B]add\f[] [--readd] [{-s|--secondary-ip}
-\f[I]secondary_ip\f[]]
+\f[B]add\f[] [--readd] [{-s|--secondary-ip} \f[I]secondary_ip\f[]]
 .PD 0
 .P
 .PD
-[{-g|--node-group}
-\f[I]nodegroup\f[]]
+[{-g|--node-group} \f[I]nodegroup\f[]]
 .PD 0
 .P
 .PD
-[--master-capable=\f[B]yes|no\f[]]
-[--vm-capable=\f[B]yes|no\f[]]
+[--master-capable=\f[C]yes|no\f[]] [--vm-capable=\f[C]yes|no\f[]]
 .PD 0
 .P
 .PD
-[--node-parameters
-\f[I]ndparams\f[]]
+[--node-parameters \f[I]ndparams\f[]]
 .PD 0
 .P
 .PD
-[--disk-state
-\f[I]diskstate\f[]]
+[--disk-state \f[I]diskstate\f[]]
 .PD 0
 .P
 .PD
-[--hypervisor-state
-\f[I]hvstate\f[]]
+[--hypervisor-state \f[I]hvstate\f[]]
 .PD 0
 .P
 .PD
@@ -46,160 +40,161 @@ the Ganeti system.
 .PP
 Adds the given node to the cluster.
 .PP
-This command is used to join a new node to the cluster. You will
-have to provide the password for root of the node to be able to add
-the node in the cluster. The command needs to be run on the Ganeti
-master.
+This command is used to join a new node to the cluster.
+You will have to provide the password for root of the node to be able to
+add the node in the cluster.
+The command needs to be run on the Ganeti master.
 .PP
-Note that the command is potentially destructive, as it will
-forcibly join the specified host the cluster, not paying attention
-to its current status (it could be already in a cluster, etc.)
+Note that the command is potentially destructive, as it will forcibly
+join the specified host the cluster, not paying attention to its current
+status (it could be already in a cluster, etc.)
 .PP
-The \f[B]-s\ (--secondary-ip)\f[] is used in dual-home clusters and
-specifies the new node\[aq]s IP in the secondary network. See the
-discussion in \f[B]gnt-cluster\f[](8) for more information.
+The \f[C]-s\ (--secondary-ip)\f[] is used in dual-home clusters and
+specifies the new node\[aq]s IP in the secondary network.
+See the discussion in \f[B]gnt-cluster\f[](8) for more information.
 .PP
-In case you\[aq]re readding a node after hardware failure, you can
-use the \f[B]--readd\f[] parameter. In this case, you don\[aq]t
-need to pass the secondary IP again, it will reused from the
-cluster. Also, the drained and offline flags of the node will be
-cleared before re-adding it.
+In case you\[aq]re readding a node after hardware failure, you can use
+the \f[C]--readd\f[] parameter.
+In this case, you don\[aq]t need to pass the secondary IP again, it will
+reused from the cluster.
+Also, the drained and offline flags of the node will be cleared before
+re-adding it.
 .PP
-The \f[B]--force-join\f[] option is to proceed with adding a node
-even if it already appears to belong to another cluster. This is
-used during cluster merging, for example.
+The \f[C]-g\ (--node-group)\f[] option is used to add the new node into
+a specific node group, specified by UUID or name.
+If only one node group exists you can skip this option, otherwise
+it\[aq]s mandatory.
 .PP
-The \f[B]-g\ (--node-group)\f[] option is used to add the new node
-into a specific node group, specified by UUID or name. If only one
-node group exists you can skip this option, otherwise it\[aq]s
-mandatory.
+The \f[C]vm_capable\f[], \f[C]master_capable\f[], \f[C]ndparams\f[],
+\f[C]diskstate\f[] and \f[C]hvstate\f[] options are described in
+\f[B]ganeti\f[](7), and are used to set the properties of the new node.
 .PP
-The \f[B]vm_capable\f[], \f[B]master_capable\f[],
-\f[B]ndparams\f[], \f[B]diskstate\f[] and \f[B]hvstate\f[] options
-are described in \f[B]ganeti\f[](7), and are used to set the
-properties of the new node.
+The command performs some operations that change the state of the master
+and the new node, like copying certificates and starting the node daemon
+on the new node, or updating \f[C]/etc/hosts\f[] on the master node.
+If the command fails at a later stage, it doesn\[aq]t undo such changes.
+This should not be a problem, as a successful run of
+\f[C]gnt-node\ add\f[] will bring everything back in sync.
 .PP
-The command performs some operations that change the state of the
-master and the new node, like copying certificates and starting the
-node daemon on the new node, or updating \f[B]/etc/hosts\f[] on the
-master node. If the command fails at a later stage, it doesn\[aq]t
-undo such changes. This should not be a problem, as a successful
-run of \f[B]gnt-node\ add\f[] will bring everything back in sync.
+If the node was previously part of another cluster and still has daemons
+running, the \f[C]node-cleanup\f[] tool can be run on the machine to be
+added to clean remains of the previous cluster from the node.
 .PP
 Example:
-.PP
-\f[CR]
-      #\ gnt-node\ add\ node5.example.com
-      #\ gnt-node\ add\ -s\ 192.0.2.5\ node5.example.com
-      #\ gnt-node\ add\ -g\ group2\ -s\ 192.0.2.9\ node9.group2.example.com
+.IP
+.nf
+\f[C]
+#\ gnt-node\ add\ node5.example.com
+#\ gnt-node\ add\ -s\ 192.0.2.5\ node5.example.com
+#\ gnt-node\ add\ -g\ group2\ -s\ 192.0.2.9\ node9.group2.example.com
 \f[]
-.SS ADD-TAGS
-.PP
-\f[B]add-tags\f[] [--from \f[I]file\f[]] {\f[I]nodename\f[]}
-{\f[I]tag\f[]...}
-.PP
-Add tags to the given node. If any of the tags contains invalid
-characters, the entire operation will abort.
-.PP
-If the \f[B]--from\f[] option is given, the list of tags will be
-extended with the contents of that file (each line becomes a tag).
-In this case, there is not need to pass tags on the command line
-(if you do, both sources will be used). A file name of - will be
-interpreted as stdin.
+.fi
 .SS EVACUATE
 .PP
-\f[B]evacuate\f[] [-f] [--early-release]
-[--submit]
+\f[B]evacuate\f[] [-f] [--early-release] [--submit]
 .PD 0
 .P
 .PD
-[{-I|--iallocator} \f[I]NAME\f[] |
-{-n|--new-secondary}
+[{-I|--iallocator} \f[I]NAME\f[] | {-n|--new-secondary}
 \f[I]destination_node\f[]]
 .PD 0
 .P
 .PD
-[{-p|--primary-only} |
-{-s|--secondary-only} ]
+[{-p|--primary-only} | {-s|--secondary-only} ]
 .PD 0
 .P
 .PD
  {\f[I]node\f[]}
 .PP
-This command will move instances away from the given node. If
-\f[B]--primary-only\f[] is given, only primary instances are
-evacuated, with \f[B]--secondary-only\f[] only secondaries. If
-neither is given, all instances are evacuated. It works only for
-instances having a drbd disk template.
+This command will move instances away from the given node.
+If \f[C]--primary-only\f[] is given, only primary instances are
+evacuated, with \f[C]--secondary-only\f[] only secondaries.
+If neither is given, all instances are evacuated.
+It works only for instances having a drbd disk template.
 .PP
 The new location for the instances can be specified in two ways:
 .IP \[bu] 2
 as a single node for all instances, via the
-\f[B]-n\ (--new-secondary)\f[] option
+\f[C]-n\ (--new-secondary)\f[] option
 .IP \[bu] 2
-or via the \f[B]-I\ (--iallocator)\f[] option, giving a script name
-as parameter, so each instance will be in turn placed on the (per
-the script) optimal node
+or via the \f[C]-I\ (--iallocator)\f[] option, giving a script name as
+parameter (or \f[C]\&.\f[] to use the default allocator), so each
+instance will be in turn placed on the (per the script) optimal node
 .PP
-The \f[B]--early-release\f[] changes the code so that the old
-storage on node being evacuated is removed early (before the resync
-is completed) and the internal Ganeti locks are also released for
-both the current secondary and the new secondary, thus allowing
-more parallelism in the cluster operation. This should be used only
-when recovering from a disk failure on the current secondary (thus
-the old storage is already broken) or when the storage on the
-primary node is known to be fine (thus we won\[aq]t need the old
-storage for potential recovery).
+The \f[C]--early-release\f[] changes the code so that the old storage on
+node being evacuated is removed early (before the resync is completed)
+and the internal Ganeti locks are also released for both the current
+secondary and the new secondary, thus allowing more parallelism in the
+cluster operation.
+This should be used only when recovering from a disk failure on the
+current secondary (thus the old storage is already broken) or when the
+storage on the primary node is known to be fine (thus we won\[aq]t need
+the old storage for potential recovery).
 .PP
-Note that this command is equivalent to using per-instance commands
-for each affected instance individually:
+Note that this command is equivalent to using per-instance commands for
+each affected instance individually:
 .IP \[bu] 2
-\f[B]--primary-only\f[] is equivalent to
-\f[B]gnt-instance\ failover/migration\f[] for non-DRBD instances,
-but for DRBD instances it\[aq]s different, and usually is a slow
-process (it will change the primary to another node while keeping
-the secondary, this requiring data copies, whereas failover/migrate
-will only toggle the primary/secondary roles, a fast process)
+\f[C]--primary-only\f[] is equivalent to
+\f[C]gnt-instance\ failover/migration\f[] for non-DRBD instances, but
+for DRBD instances it\[aq]s different, and usually is a slow process (it
+will change the primary to another node while keeping the secondary,
+this requiring data copies, whereas failover/migrate will only toggle
+the primary/secondary roles, a fast process)
 .IP \[bu] 2
-\f[B]--secondary-only\f[] is equivalent to
-\f[B]gnt-instance\ replace-disks\f[] in the secondary node change
-mode (only valid for DRBD instances)
+\f[C]--secondary-only\f[] is equivalent to
+\f[C]gnt-instance\ replace-disks\f[] in the secondary node change mode
+(only valid for DRBD instances)
 .IP \[bu] 2
-when neither of the above is done a combination of the two cases is
-run
+when neither of the above is done a combination of the two cases is run
 .PP
-See \f[B]ganeti(7)\f[] for a description of \f[B]--submit\f[] and
-other common options.
+See \f[B]ganeti\f[](7) for a description of \f[C]--submit\f[] and other
+common options.
 .PP
 Example:
-.PP
-\f[CR]
-      #\ gnt-node\ evacuate\ -I\ hail\ node3.example.com
+.IP
+.nf
+\f[C]
+#\ gnt-node\ evacuate\ -I\ hail\ node3.example.com
 \f[]
+.fi
+.PP
+Note that, due to an issue with the iallocator interface, evacuation of
+all instances at once is not yet implemented.
+Full evacuation can currently be achieved by sequentially evacuating
+primaries and secondaries.
+.IP
+.nf
+\f[C]
+#\ gnt-node\ evacuate\ -p\ node3.example.com
+#\ gnt-node\ evacuate\ -s\ node3.example.com
+\f[]
+.fi
 .SS FAILOVER
 .PP
 \f[B]failover\f[] [-f] [--ignore-consistency] {\f[I]node\f[]}
 .PP
 This command will fail over all instances having the given node as
-primary to their secondary nodes. This works only for instances
-having a drbd disk template.
+primary to their secondary nodes.
+This works only for instances having a drbd disk template.
 .PP
-Normally the failover will check the consistency of the disks
-before failing over the instance. If you are trying to migrate
-instances off a dead node, this will fail. Use the
-\f[B]--ignore-consistency\f[] option for this purpose.
+Normally the failover will check the consistency of the disks before
+failing over the instance.
+If you are trying to migrate instances off a dead node, this will fail.
+Use the \f[C]--ignore-consistency\f[] option for this purpose.
 .PP
 Example:
-.PP
-\f[CR]
-      #\ gnt-node\ failover\ node1.example.com
+.IP
+.nf
+\f[C]
+#\ gnt-node\ failover\ node1.example.com
 \f[]
+.fi
 .SS INFO
 .PP
 \f[B]info\f[] [\f[I]node\f[]...]
 .PP
-Show detailed information about the nodes in the cluster. If you
-don\[aq]t give any arguments, all nodes will be shows, otherwise
+Show detailed information about the nodes in the cluster.
+If you don\[aq]t give any arguments, all nodes will be shows, otherwise
 the output will be restricted to the given names.
 .SS LIST
 .PP
@@ -207,14 +202,11 @@ the output will be restricted to the given names.
 .PD 0
 .P
 .PD
-[--no-headers]
-[--separator=\f[I]SEPARATOR\f[]]
+[--no-headers] [--separator=\f[I]SEPARATOR\f[]]
 .PD 0
 .P
 .PD
-[--units=\f[I]UNITS\f[]]
-[-v] [{-o|--output}
-\f[I][+]FIELD,...\f[]]
+[--units=\f[I]UNITS\f[]] [-v] [{-o|--output} \f[I][+]FIELD,...\f[]]
 .PD 0
 .P
 .PD
@@ -226,452 +218,442 @@ the output will be restricted to the given names.
 .PP
 Lists the nodes in the cluster.
 .PP
-The \f[B]--no-headers\f[] option will skip the initial header line.
-The \f[B]--separator\f[] option takes an argument which denotes
-what will be used between the output fields. Both these options are
-to help scripting.
+The \f[C]--no-headers\f[] option will skip the initial header line.
+The \f[C]--separator\f[] option takes an argument which denotes what
+will be used between the output fields.
+Both these options are to help scripting.
 .PP
 The units used to display the numeric values in the output varies,
-depending on the options given. By default, the values will be
-formatted in the most appropriate unit. If the \f[B]--separator\f[]
-option is given, then the values are shown in mebibytes to allow
-parsing by scripts. In both cases, the \f[B]--units\f[] option can
-be used to enforce a given output unit.
+depending on the options given.
+By default, the values will be formatted in the most appropriate unit.
+If the \f[C]--separator\f[] option is given, then the values are shown
+in mebibytes to allow parsing by scripts.
+In both cases, the \f[C]--units\f[] option can be used to enforce a
+given output unit.
 .PP
 Queries of nodes will be done in parallel with any running jobs.
 This might give inconsistent results for the free disk/memory.
 .PP
-The \f[B]-v\f[] option activates verbose mode, which changes the
-display of special field states (see \f[B]ganeti(7)\f[]).
+The \f[C]-v\f[] option activates verbose mode, which changes the display
+of special field states (see \f[B]ganeti\f[](7)).
 .PP
-The \f[B]-o\ (--output)\f[] option takes a comma-separated list of
-output fields. The available fields and their meaning are:
+The \f[C]-o\ (--output)\f[] option takes a comma-separated list of
+output fields.
+The available fields and their meaning are:
 .TP
-.B \f[B]bootid\f[]
-Random UUID renewed for each system reboot, can be used for
-detecting reboots by tracking changes
+.B \f[C]bootid\f[]
+Random UUID renewed for each system reboot, can be used for detecting
+reboots by tracking changes
 .RS
 .RE
 .TP
-.B \f[B]cnodes\f[]
+.B \f[C]cnodes\f[]
 Number of NUMA domains on node (if exported by hypervisor)
 .RS
 .RE
 .TP
-.B \f[B]csockets\f[]
+.B \f[C]csockets\f[]
 Number of physical CPU sockets (if exported by hypervisor)
 .RS
 .RE
 .TP
-.B \f[B]ctime\f[]
+.B \f[C]ctime\f[]
 Creation timestamp
 .RS
 .RE
 .TP
-.B \f[B]ctotal\f[]
+.B \f[C]ctotal\f[]
 Number of logical processors
 .RS
 .RE
 .TP
-.B \f[B]custom_ndparams\f[]
+.B \f[C]custom_ndparams\f[]
 Custom node parameters
 .RS
 .RE
 .TP
-.B \f[B]dfree\f[]
+.B \f[C]dfree\f[]
 Available disk space in volume group
 .RS
 .RE
 .TP
-.B \f[B]disk_state\f[]
+.B \f[C]disk_state\f[]
 Disk state
 .RS
 .RE
 .TP
-.B \f[B]drained\f[]
+.B \f[C]drained\f[]
 Whether node is drained
 .RS
 .RE
 .TP
-.B \f[B]dtotal\f[]
+.B \f[C]dtotal\f[]
 Total disk space in volume group used for instance disk allocation
 .RS
 .RE
 .TP
-.B \f[B]group\f[]
+.B \f[C]group\f[]
 Node group
 .RS
 .RE
 .TP
-.B \f[B]group.uuid\f[]
+.B \f[C]group.uuid\f[]
 UUID of node group
 .RS
 .RE
 .TP
-.B \f[B]hv_state\f[]
+.B \f[C]hv_state\f[]
 Hypervisor state
 .RS
 .RE
 .TP
-.B \f[B]master\f[]
+.B \f[C]master\f[]
 Whether node is master
 .RS
 .RE
 .TP
-.B \f[B]master_candidate\f[]
+.B \f[C]master_candidate\f[]
 Whether node is a master candidate
 .RS
 .RE
 .TP
-.B \f[B]master_capable\f[]
+.B \f[C]master_capable\f[]
 Whether node can become a master candidate
 .RS
 .RE
 .TP
-.B \f[B]mfree\f[]
+.B \f[C]mfree\f[]
 Memory available for instance allocations
 .RS
 .RE
 .TP
-.B \f[B]mnode\f[]
+.B \f[C]mnode\f[]
 Amount of memory used by node (dom0 for Xen)
 .RS
 .RE
 .TP
-.B \f[B]mtime\f[]
+.B \f[C]mtime\f[]
 Modification timestamp
 .RS
 .RE
 .TP
-.B \f[B]mtotal\f[]
+.B \f[C]mtotal\f[]
 Total amount of memory of physical machine
 .RS
 .RE
 .TP
-.B \f[B]name\f[]
+.B \f[C]name\f[]
 Node name
 .RS
 .RE
 .TP
-.B \f[B]ndp/oob_program\f[]
+.B \f[C]ndp/exclusive_storage\f[]
+The "exclusive_storage" node parameter
+.RS
+.RE
+.TP
+.B \f[C]ndp/oob_program\f[]
 The "oob_program" node parameter
 .RS
 .RE
 .TP
-.B \f[B]ndp/spindle_count\f[]
+.B \f[C]ndp/spindle_count\f[]
 The "spindle_count" node parameter
 .RS
 .RE
 .TP
-.B \f[B]ndparams\f[]
+.B \f[C]ndparams\f[]
 Merged node parameters
 .RS
 .RE
 .TP
-.B \f[B]offline\f[]
+.B \f[C]offline\f[]
 Whether node is marked offline
 .RS
 .RE
 .TP
-.B \f[B]pinst_cnt\f[]
+.B \f[C]pinst_cnt\f[]
 Number of instances with this node as primary
 .RS
 .RE
 .TP
-.B \f[B]pinst_list\f[]
+.B \f[C]pinst_list\f[]
 List of instances with this node as primary
 .RS
 .RE
 .TP
-.B \f[B]pip\f[]
+.B \f[C]pip\f[]
 Primary IP address
 .RS
 .RE
 .TP
-.B \f[B]powered\f[]
+.B \f[C]powered\f[]
 Whether node is thought to be powered on
 .RS
 .RE
 .TP
-.B \f[B]role\f[]
-Node role; "M" for master, "C" for master candidate, "R" for
-regular, "D" for a drained, "O" for offline
+.B \f[C]role\f[]
+Node role; "M" for master, "C" for master candidate, "R" for regular,
+"D" for drained, "O" for offline
 .RS
 .RE
 .TP
-.B \f[B]serial_no\f[]
+.B \f[C]serial_no\f[]
 Node object serial number, incremented on each modification
 .RS
 .RE
 .TP
-.B \f[B]sinst_cnt\f[]
+.B \f[C]sinst_cnt\f[]
 Number of instances with this node as secondary
 .RS
 .RE
 .TP
-.B \f[B]sinst_list\f[]
+.B \f[C]sinst_list\f[]
 List of instances with this node as secondary
 .RS
 .RE
 .TP
-.B \f[B]sip\f[]
+.B \f[C]sip\f[]
 Secondary IP address
 .RS
 .RE
 .TP
-.B \f[B]tags\f[]
+.B \f[C]tags\f[]
 Tags
 .RS
 .RE
 .TP
-.B \f[B]uuid\f[]
+.B \f[C]uuid\f[]
 Node UUID
 .RS
 .RE
 .TP
-.B \f[B]vm_capable\f[]
+.B \f[C]vm_capable\f[]
 Whether node can host instances
 .RS
 .RE
 .PP
-If the value of the option starts with the character \f[B]+\f[],
-the new fields will be added to the default list. This allows one
-to quickly see the default list plus a few other fields, instead of
-retyping the entire list of fields.
+If the value of the option starts with the character \f[C]+\f[], the new
+fields will be added to the default list.
+This allows one to quickly see the default list plus a few other fields,
+instead of retyping the entire list of fields.
 .PP
-Note that some of these fields are known from the configuration of
-the cluster (e.g. \f[B]name\f[], \f[B]pinst\f[], \f[B]sinst\f[],
-\f[B]pip\f[], \f[B]sip\f[]) and thus the master does not need to
-contact the node for this data (making the listing fast if only
-fields from this set are selected), whereas the other fields are
-"live" fields and require a query to the cluster nodes.
+Note that some of these fields are known from the configuration of the
+cluster (e.g.
+\f[C]name\f[], \f[C]pinst\f[], \f[C]sinst\f[], \f[C]pip\f[],
+\f[C]sip\f[]) and thus the master does not need to contact the node for
+this data (making the listing fast if only fields from this set are
+selected), whereas the other fields are "live" fields and require a
+query to the cluster nodes.
 .PP
-Depending on the virtualization type and implementation details,
-the \f[B]mtotal\f[], \f[B]mnode\f[] and \f[B]mfree\f[] fields may
-have slightly varying meanings. For example, some solutions share
-the node memory with the pool of memory used for instances (KVM),
-whereas others have separate memory for the node and for the
-instances (Xen).
+Depending on the virtualization type and implementation details, the
+\f[C]mtotal\f[], \f[C]mnode\f[] and \f[C]mfree\f[] fields may have
+slightly varying meanings.
+For example, some solutions share the node memory with the pool of
+memory used for instances (KVM), whereas others have separate memory for
+the node and for the instances (Xen).
 .PP
-If exactly one argument is given and it appears to be a query
-filter (see \f[B]ganeti(7)\f[]), the query result is filtered
-accordingly. For ambiguous cases (e.g. a single field name as a
-filter) the \f[B]--filter\f[] (\f[B]-F\f[]) option forces the
-argument to be treated as a filter (e.g.
-\f[B]gnt-node\ list\ -F\ master_candidate\f[]).
+If exactly one argument is given and it appears to be a query filter
+(see \f[B]ganeti\f[](7)), the query result is filtered accordingly.
+For ambiguous cases (e.g.
+a single field name as a filter) the \f[C]--filter\f[] (\f[C]-F\f[])
+option forces the argument to be treated as a filter (e.g.
+\f[C]gnt-node\ list\ -F\ master_candidate\f[]).
 .PP
-If no node names are given, then all nodes are queried. Otherwise,
-only the given nodes will be listed.
+If no node names are given, then all nodes are queried.
+Otherwise, only the given nodes will be listed.
 .SS LIST-DRBD
 .PP
-\f[B]list-drbd\f[] [--no-headers] [--separator=\f[I]SEPARATOR\f[]]
-node
+\f[B]list-drbd\f[] [--no-headers] [--separator=\f[I]SEPARATOR\f[]] node
 .PP
-Lists the mapping of DRBD minors for a given node. This outputs a
-static list of fields (it doesn\[aq]t accept the \f[B]--output\f[]
-option), as follows:
+Lists the mapping of DRBD minors for a given node.
+This outputs a static list of fields (it doesn\[aq]t accept the
+\f[C]--output\f[] option), as follows:
 .TP
-.B \f[B]Node\f[]
+.B \f[C]Node\f[]
 The (full) name of the node we are querying
 .RS
 .RE
 .TP
-.B \f[B]Minor\f[]
+.B \f[C]Minor\f[]
 The DRBD minor
 .RS
 .RE
 .TP
-.B \f[B]Instance\f[]
+.B \f[C]Instance\f[]
 The instance the DRBD minor belongs to
 .RS
 .RE
 .TP
-.B \f[B]Disk\f[]
+.B \f[C]Disk\f[]
 The disk index that the DRBD minor belongs to
 .RS
 .RE
 .TP
-.B \f[B]Role\f[]
-Either \f[B]primary\f[] or \f[B]secondary\f[], denoting the role of
-the node for the instance (note: this is not the live status of the
-DRBD device, but the configuration value)
+.B \f[C]Role\f[]
+Either \f[C]primary\f[] or \f[C]secondary\f[], denoting the role of the
+node for the instance (note: this is not the live status of the DRBD
+device, but the configuration value)
 .RS
 .RE
 .TP
-.B \f[B]PeerNode\f[]
+.B \f[C]PeerNode\f[]
 The node that the minor is connected to on the other end
 .RS
 .RE
 .PP
-This command can be used as a reverse lookup (from node and minor)
-to a given instance, which can be useful when debugging DRBD
-issues.
+This command can be used as a reverse lookup (from node and minor) to a
+given instance, which can be useful when debugging DRBD issues.
 .PP
-Note that this command queries Ganeti via
-:manpage:`ganeti-confd(8)`, so it won\[aq]t be available if support
-for \f[B]confd\f[] has not been enabled at build time; furthermore,
-in Ganeti 2.6 this is only available via the Haskell version of
-confd (again selected at build time).
+Note that this command queries Ganeti via \f[B]ganeti-confd\f[](8), so
+it won\[aq]t be available if support for \f[C]confd\f[] has not been
+enabled at build time; furthermore, in Ganeti 2.6 this is only available
+via the Haskell version of confd (again selected at build time).
 .SS LIST-FIELDS
 .PP
 \f[B]list-fields\f[] [field...]
 .PP
 Lists available fields for nodes.
-.SS LIST-TAGS
-.PP
-\f[B]list-tags\f[] {\f[I]nodename\f[]}
-.PP
-List the tags of the given node.
 .SS MIGRATE
 .PP
-\f[B]migrate\f[] [-f] [--non-live]
-[--migration-mode=live|non-live]
+\f[B]migrate\f[] [-f] [--non-live] [--migration-mode=live|non-live]
 .PD 0
 .P
 .PD
-[--ignore-ipolicy]
-[--submit] {\f[I]node\f[]}
+[--ignore-ipolicy] [--submit] {\f[I]node\f[]}
 .PP
-This command will migrate all instances having the given node as
-primary to their secondary nodes. This works only for instances
-having a drbd disk template.
+This command will migrate all instances having the given node as primary
+to their secondary nodes.
+This works only for instances having a drbd disk template.
 .PP
 As for the \f[B]gnt-instance migrate\f[] command, the options
-\f[B]--no-live\f[], \f[B]--migration-mode\f[] and
-\f[B]--no-runtime-changes\f[] can be given to influence the
-migration type.
+\f[C]--no-live\f[], \f[C]--migration-mode\f[] and
+\f[C]--no-runtime-changes\f[] can be given to influence the migration
+type.
 .PP
-If \f[B]--ignore-ipolicy\f[] is given any instance policy
-violations occurring during this operation are ignored.
+If \f[C]--ignore-ipolicy\f[] is given any instance policy violations
+occurring during this operation are ignored.
 .PP
-See \f[B]ganeti(7)\f[] for a description of \f[B]--submit\f[] and
-other common options.
+See \f[B]ganeti\f[](7) for a description of \f[C]--submit\f[] and other
+common options.
 .PP
 Example:
-.PP
-\f[CR]
-      #\ gnt-node\ migrate\ node1.example.com
+.IP
+.nf
+\f[C]
+#\ gnt-node\ migrate\ node1.example.com
 \f[]
+.fi
 .SS MODIFY
 .PP
-\f[B]modify\f[] [-f]
-[--submit]
+\f[B]modify\f[] [-f] [--submit]
 .PD 0
 .P
 .PD
-[{-C|--master-candidate}
-\f[B]yes|no\f[]]
+[{-C|--master-candidate} \f[C]yes|no\f[]]
 .PD 0
 .P
 .PD
-[{-D|--drained} \f[B]yes|no\f[]]
-[{-O|--offline}
-\f[B]yes|no\f[]]
+[{-D|--drained} \f[C]yes|no\f[]] [{-O|--offline} \f[C]yes|no\f[]]
 .PD 0
 .P
 .PD
-[--master-capable=\f[B]yes|no\f[]]
-[--vm-capable=\f[B]yes|no\f[]]
+[--master-capable=\f[C]yes|no\f[]] [--vm-capable=\f[C]yes|no\f[]]
 [--auto-promote]
 .PD 0
 .P
 .PD
-[{-s|--secondary-ip}
-\f[I]secondary_ip\f[]]
+[{-s|--secondary-ip} \f[I]secondary_ip\f[]]
 .PD 0
 .P
 .PD
-[--node-parameters
-\f[I]ndparams\f[]]
+[--node-parameters \f[I]ndparams\f[]]
 .PD 0
 .P
 .PD
-[--node-powered=\f[B]yes|no\f[]]
+[--node-powered=\f[C]yes|no\f[]]
 .PD 0
 .P
 .PD
-[--hypervisor-state
-\f[I]hvstate\f[]]
+[--hypervisor-state \f[I]hvstate\f[]]
 .PD 0
 .P
 .PD
-[--disk-state
-\f[I]diskstate\f[]]
+[--disk-state \f[I]diskstate\f[]]
 .PD 0
 .P
 .PD
 {\f[I]node\f[]}
 .PP
-This command changes the role of the node. Each options takes
-either a literal yes or no, and only one option should be given as
-yes. The meaning of the roles and flags are described in the
-manpage \f[B]ganeti(7)\f[].
+This command changes the role of the node.
+Each options takes either a literal yes or no, and only one option
+should be given as yes.
+The meaning of the roles and flags are described in the manpage
+\f[B]ganeti\f[](7).
 .PP
-The option \f[B]--node-powered\f[] can be used to modify
-state-of-record if it doesn\[aq]t reflect the reality anymore.
+The option \f[C]--node-powered\f[] can be used to modify state-of-record
+if it doesn\[aq]t reflect the reality anymore.
 .PP
-In case a node is demoted from the master candidate role, the
-operation will be refused unless you pass the
-\f[B]--auto-promote\f[] option. This option will cause the
-operation to lock all cluster nodes (thus it will not be able to
-run in parallel with most other jobs), but it allows automated
-maintenance of the cluster candidate pool. If locking all cluster
-node is too expensive, another option is to promote manually
-another node to master candidate before demoting the current one.
+In case a node is demoted from the master candidate role, the operation
+will be refused unless you pass the \f[C]--auto-promote\f[] option.
+This option will cause the operation to lock all cluster nodes (thus it
+will not be able to run in parallel with most other jobs), but it allows
+automated maintenance of the cluster candidate pool.
+If locking all cluster node is too expensive, another option is to
+promote manually another node to master candidate before demoting the
+current one.
 .PP
 Example (setting a node offline, which will demote it from master
 candidate role if is in that role):
-.PP
-\f[CR]
-      #\ gnt-node\ modify\ --offline=yes\ node1.example.com
+.IP
+.nf
+\f[C]
+#\ gnt-node\ modify\ --offline=yes\ node1.example.com
 \f[]
+.fi
 .PP
-The \f[B]-s\ (--secondary-ip)\f[] option can be used to change the
-node\[aq]s secondary ip. No drbd instances can be running on the
-node, while this operation is taking place.
+The \f[C]-s\ (--secondary-ip)\f[] option can be used to change the
+node\[aq]s secondary ip.
+No drbd instances can be running on the node, while this operation is
+taking place.
+Remember that the secondary ip must be reachable from the master
+secondary ip, when being changed, so be sure that the node has the new
+IP already configured and active.
+In order to convert a cluster from single homed to multi-homed or vice
+versa \f[C]--force\f[] is needed as well, and the target node for the
+first change must be the master.
 .PP
-See \f[B]ganeti(7)\f[] for a description of \f[B]--submit\f[] and
-other common options.
+See \f[B]ganeti\f[](7) for a description of \f[C]--submit\f[] and other
+common options.
 .PP
 Example (setting the node back to online and master candidate):
-.PP
-\f[CR]
-      #\ gnt-node\ modify\ --offline=no\ --master-candidate=yes\ node1.example.com
+.IP
+.nf
+\f[C]
+#\ gnt-node\ modify\ --offline=no\ --master-candidate=yes\ node1.example.com
 \f[]
+.fi
 .SS REMOVE
 .PP
 \f[B]remove\f[] {\f[I]nodename\f[]}
 .PP
-Removes a node from the cluster. Instances must be removed or
-migrated to another cluster before.
+Removes a node from the cluster.
+Instances must be removed or migrated to another cluster before.
 .PP
 Example:
-.PP
-\f[CR]
-      #\ gnt-node\ remove\ node5.example.com
+.IP
+.nf
+\f[C]
+#\ gnt-node\ remove\ node5.example.com
 \f[]
-.SS REMOVE-TAGS
-.PP
-\f[B]remove-tags\f[] [--from \f[I]file\f[]] {\f[I]nodename\f[]}
-{\f[I]tag\f[]...}
-.PP
-Remove tags from the given node. If any of the tags are not
-existing on the node, the entire operation will abort.
-.PP
-If the \f[B]--from\f[] option is given, the list of tags to be
-removed will be extended with the contents of that file (each line
-becomes a tag). In this case, there is not need to pass tags on the
-command line (if you do, tags from both sources will be removed). A
-file name of - will be interpreted as stdin.
+.fi
 .SS VOLUMES
 .PP
-\f[B]volumes\f[] [--no-headers]
-[--human-readable]
+\f[B]volumes\f[] [--no-headers] [--human-readable]
 .PD 0
 .P
 .PD
-[--separator=\f[I]SEPARATOR\f[]]
-[{-o|--output} \f[I]FIELDS\f[]]
+[--separator=\f[I]SEPARATOR\f[]] [{-o|--output} \f[I]FIELDS\f[]]
 .PD 0
 .P
 .PD
@@ -680,20 +662,22 @@ file name of - will be interpreted as stdin.
 Lists all logical volumes and their physical disks from the node(s)
 provided.
 .PP
-The \f[B]--no-headers\f[] option will skip the initial header line.
-The \f[B]--separator\f[] option takes an argument which denotes
-what will be used between the output fields. Both these options are
-to help scripting.
+The \f[C]--no-headers\f[] option will skip the initial header line.
+The \f[C]--separator\f[] option takes an argument which denotes what
+will be used between the output fields.
+Both these options are to help scripting.
 .PP
 The units used to display the numeric values in the output varies,
-depending on the options given. By default, the values will be
-formatted in the most appropriate unit. If the \f[B]--separator\f[]
-option is given, then the values are shown in mebibytes to allow
-parsing by scripts. In both cases, the \f[B]--units\f[] option can
-be used to enforce a given output unit.
+depending on the options given.
+By default, the values will be formatted in the most appropriate unit.
+If the \f[C]--separator\f[] option is given, then the values are shown
+in mebibytes to allow parsing by scripts.
+In both cases, the \f[C]--units\f[] option can be used to enforce a
+given output unit.
 .PP
-The \f[B]-o\ (--output)\f[] option takes a comma-separated list of
-output fields. The available fields and their meaning are:
+The \f[C]-o\ (--output)\f[] option takes a comma-separated list of
+output fields.
+The available fields and their meaning are:
 .TP
 .B node
 the node name on which the volume exists
@@ -727,27 +711,26 @@ it\[aq]s an orphan volume) the character "-"
 .RE
 .PP
 Example:
-.PP
-\f[CR]
-      #\ gnt-node\ volumes\ node5.example.com
-      Node\ \ \ \ \ \ \ \ \ \ \ \ \ \ PhysDev\ \ \ VG\ \ \ \ Name\ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ Size\ Instance
-      node1.example.com\ /dev/hdc1\ xenvg\ instance1.example.com-sda_11000.meta\ 128\ \ instance1.example.com
-      node1.example.com\ /dev/hdc1\ xenvg\ instance1.example.com-sda_11001.data\ 256\ \ instance1.example.com
+.IP
+.nf
+\f[C]
+#\ gnt-node\ volumes\ node5.example.com
+Node\ \ \ \ \ \ \ \ \ \ \ \ \ \ PhysDev\ \ \ VG\ \ \ \ Name\ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ Size\ Instance
+node1.example.com\ /dev/hdc1\ xenvg\ instance1.example.com-sda_11000.meta\ 128\ \ instance1.example.com
+node1.example.com\ /dev/hdc1\ xenvg\ instance1.example.com-sda_11001.data\ 256\ \ instance1.example.com
 \f[]
+.fi
 .SS LIST-STORAGE
 .PP
-\f[B]list-storage\f[] [--no-headers]
-[--human-readable]
+\f[B]list-storage\f[] [--no-headers] [--human-readable]
 .PD 0
 .P
 .PD
-[--separator=\f[I]SEPARATOR\f[]]
-[--storage-type=\f[I]STORAGE_TYPE\f[]]
+[--separator=\f[I]SEPARATOR\f[]] [--storage-type=\f[I]STORAGE_TYPE\f[]]
 .PD 0
 .P
 .PD
-[{-o|--output}
-\f[I]FIELDS\f[]]
+[{-o|--output} \f[I]FIELDS\f[]]
 .PD 0
 .P
 .PD
@@ -756,23 +739,26 @@ Example:
 Lists the available storage units and their details for the given
 node(s).
 .PP
-The \f[B]--no-headers\f[] option will skip the initial header line.
-The \f[B]--separator\f[] option takes an argument which denotes
-what will be used between the output fields. Both these options are
-to help scripting.
+The \f[C]--no-headers\f[] option will skip the initial header line.
+The \f[C]--separator\f[] option takes an argument which denotes what
+will be used between the output fields.
+Both these options are to help scripting.
 .PP
 The units used to display the numeric values in the output varies,
-depending on the options given. By default, the values will be
-formatted in the most appropriate unit. If the \f[B]--separator\f[]
-option is given, then the values are shown in mebibytes to allow
-parsing by scripts. In both cases, the \f[B]--units\f[] option can
-be used to enforce a given output unit.
+depending on the options given.
+By default, the values will be formatted in the most appropriate unit.
+If the \f[C]--separator\f[] option is given, then the values are shown
+in mebibytes to allow parsing by scripts.
+In both cases, the \f[C]--units\f[] option can be used to enforce a
+given output unit.
 .PP
-The \f[B]--storage-type\f[] option can be used to choose a storage
-unit type. Possible choices are lvm-pv, lvm-vg or file.
+The \f[C]--storage-type\f[] option can be used to choose a storage unit
+type.
+Possible choices are lvm-pv, lvm-vg or file.
 .PP
-The \f[B]-o\ (--output)\f[] option takes a comma-separated list of
-output fields. The available fields and their meaning are:
+The \f[C]-o\ (--output)\f[] option takes a comma-separated list of
+output fields.
+The available fields and their meaning are:
 .TP
 .B node
 the node name on which the volume exists
@@ -781,7 +767,7 @@ the node name on which the volume exists
 .TP
 .B type
 the type of the storage unit (currently just what is passed in via
-\f[B]--storage-type\f[])
+\f[C]--storage-type\f[])
 .RS
 .RE
 .TP
@@ -806,176 +792,256 @@ available disk space
 .RE
 .TP
 .B allocatable
-whether we the unit is available for allocation (only lvm-pv can
-change this setting, the other types always report true)
+whether we the unit is available for allocation (only lvm-pv can change
+this setting, the other types always report true)
 .RS
 .RE
 .PP
-Note that for the "file" type, the total disk space might not equal
-to the sum of used and free, due to the method Ganeti uses to
-compute each of them. The total and free values are computed as the
-total and free space values for the filesystem to which the
-directory belongs, but the used space is computed from the used
-space under that directory \f[I]only\f[], which might not be
-necessarily the root of the filesystem, and as such there could be
-files outside the file storage directory using disk space and
-causing a mismatch in the values.
+Note that for the "file" type, the total disk space might not equal to
+the sum of used and free, due to the method Ganeti uses to compute each
+of them.
+The total and free values are computed as the total and free space
+values for the filesystem to which the directory belongs, but the used
+space is computed from the used space under that directory
+\f[I]only\f[], which might not be necessarily the root of the
+filesystem, and as such there could be files outside the file storage
+directory using disk space and causing a mismatch in the values.
 .PP
 Example:
-.PP
-\f[CR]
-      node1#\ gnt-node\ list-storage\ node2
-      Node\ \ Type\ \ \ Name\ \ \ \ \ \ \ \ Size\ Used\ \ \ Free\ Allocatable
-      node2\ lvm-pv\ /dev/sda7\ 673.8G\ 1.5G\ 672.3G\ Y
-      node2\ lvm-pv\ /dev/sdb1\ 698.6G\ \ \ 0M\ 698.6G\ Y
+.IP
+.nf
+\f[C]
+node1#\ gnt-node\ list-storage\ node2
+Node\ \ Type\ \ \ Name\ \ \ \ \ \ \ \ Size\ Used\ \ \ Free\ Allocatable
+node2\ lvm-pv\ /dev/sda7\ 673.8G\ 1.5G\ 672.3G\ Y
+node2\ lvm-pv\ /dev/sdb1\ 698.6G\ \ \ 0M\ 698.6G\ Y
 \f[]
+.fi
 .SS MODIFY-STORAGE
 .PP
-\f[B]modify-storage\f[] [--allocatable={yes|no}]
-[--submit]
+\f[B]modify-storage\f[] [--allocatable={yes|no}] [--submit]
 .PD 0
 .P
 .PD
-{\f[I]node\f[]} {\f[I]storage-type\f[]}
-{\f[I]volume-name\f[]}
+{\f[I]node\f[]} {\f[I]storage-type\f[]} {\f[I]volume-name\f[]}
 .PP
-Modifies storage volumes on a node. Only LVM physical volumes can
-be modified at the moment. They have a storage type of "lvm-pv".
+Modifies storage volumes on a node.
+Only LVM physical volumes can be modified at the moment.
+They have a storage type of "lvm-pv".
 .PP
 Example:
-.PP
-\f[CR]
-      #\ gnt-node\ modify-storage\ --allocatable\ no\ node5.example.com\ lvm-pv\ /dev/sdb1
+.IP
+.nf
+\f[C]
+#\ gnt-node\ modify-storage\ --allocatable\ no\ node5.example.com\ lvm-pv\ /dev/sdb1
 \f[]
+.fi
 .SS REPAIR-STORAGE
 .PP
-\f[B]repair-storage\f[] [--ignore-consistency]
-]--submit]
+\f[B]repair-storage\f[] [--ignore-consistency] ]--submit]
 .PD 0
 .P
 .PD
-{\f[I]node\f[]} {\f[I]storage-type\f[]}
-{\f[I]volume-name\f[]}
+{\f[I]node\f[]} {\f[I]storage-type\f[]} {\f[I]volume-name\f[]}
 .PP
-Repairs a storage volume on a node. Only LVM volume groups can be
-repaired at this time. They have the storage type "lvm-vg".
+Repairs a storage volume on a node.
+Only LVM volume groups can be repaired at this time.
+They have the storage type "lvm-vg".
 .PP
 On LVM volume groups, \f[B]repair-storage\f[] runs
-\f[B]vgreduce\ --removemissing\f[].
+\f[C]vgreduce\ --removemissing\f[].
 .PP
-\f[B]Caution:\f[] Running this command can lead to data loss. Use
-it with care.
+\f[B]Caution:\f[] Running this command can lead to data loss.
+Use it with care.
 .PP
-The \f[B]--ignore-consistency\f[] option will ignore any
-inconsistent disks (on the nodes paired with this one). Use of this
-option is most likely to lead to data-loss.
+The \f[C]--ignore-consistency\f[] option will ignore any inconsistent
+disks (on the nodes paired with this one).
+Use of this option is most likely to lead to data-loss.
 .PP
 Example:
-.PP
-\f[CR]
-      #\ gnt-node\ repair-storage\ node5.example.com\ lvm-vg\ xenvg
+.IP
+.nf
+\f[C]
+#\ gnt-node\ repair-storage\ node5.example.com\ lvm-vg\ xenvg
 \f[]
+.fi
 .SS POWERCYCLE
 .PP
 \f[B]powercycle\f[] [--yes] [--force] [--submit] {\f[I]node\f[]}
 .PP
-This command (tries to) forcefully reboot a node. It is a command
-that can be used if the node environment is broken, such that the
-admin can no longer login over SSH, but the Ganeti node daemon is
-still working.
+This command (tries to) forcefully reboot a node.
+It is a command that can be used if the node environment is broken, such
+that the admin can no longer login over SSH, but the Ganeti node daemon
+is still working.
 .PP
 Note that this command is not guaranteed to work; it depends on the
-hypervisor how effective is the reboot attempt. For Linux, this
-command requires the kernel option \f[B]CONFIG_MAGIC_SYSRQ\f[] to
-be enabled.
+hypervisor how effective is the reboot attempt.
+For Linux, this command requires the kernel option
+\f[C]CONFIG_MAGIC_SYSRQ\f[] to be enabled.
 .PP
-The \f[B]--yes\f[] option can be used to skip confirmation, while
-the \f[B]--force\f[] option is needed if the target node is the
-master node.
+The \f[C]--yes\f[] option can be used to skip confirmation, while the
+\f[C]--force\f[] option is needed if the target node is the master node.
 .PP
-See \f[B]ganeti(7)\f[] for a description of \f[B]--submit\f[] and
-other common options.
+See \f[B]ganeti\f[](7) for a description of \f[C]--submit\f[] and other
+common options.
 .SS POWER
 .PP
-\f[B]power\f[] [\f[B]--force\f[]] [\f[B]--ignore-status\f[]]
-[\f[B]--all\f[]] [\f[B]--power-delay\f[]] on|off|cycle|status
+\f[B]power\f[] [\f[C]--force\f[]] [\f[C]--ignore-status\f[]]
+[\f[C]--all\f[]] [\f[C]--power-delay\f[]] on|off|cycle|status
 [\f[I]nodes\f[]]
 .PP
-This command calls out to out-of-band management to change the
-power state of given node. With \f[B]status\f[] you get the power
-status as reported by the out-of-band management script.
+This command calls out to out-of-band management to change the power
+state of given node.
+With \f[C]status\f[] you get the power status as reported by the
+out-of-band management script.
 .PP
-Note that this command will only work if the out-of-band
-functionality is configured and enabled on the cluster. If this is
-not the case, please use the \f[B]powercycle\f[] command above.
+Note that this command will only work if the out-of-band functionality
+is configured and enabled on the cluster.
+If this is not the case, please use the \f[B]powercycle\f[] command
+above.
 .PP
-Using \f[B]--force\f[] you skip the confirmation to do the
-operation. Currently this only has effect on \f[B]off\f[] and
-\f[B]cycle\f[].
-On those two you can \f[I]not\f[] operate on the master. However,
-the command will provide you with the command to invoke to operate
-on the master nerver-mind. This is considered harmful and Ganeti
-does not support the use of it.
+Using \f[C]--force\f[] you skip the confirmation to do the operation.
+Currently this only has effect on \f[C]off\f[] and \f[C]cycle\f[].
+On those two you can \f[I]not\f[] operate on the master.
+However, the command will provide you with the command to invoke to
+operate on the master nerver-mind.
+This is considered harmful and Ganeti does not support the use of it.
 .PP
-Providing \f[B]--ignore-status\f[] will ignore the offline=N state
-of a node and continue with power off.
+Providing \f[C]--ignore-status\f[] will ignore the offline=N state of a
+node and continue with power off.
 .PP
-\f[B]--power-delay\f[] specifies the time in seconds (factions
-allowed) waited between powering on the next node. This is by
-default 2 seconds but can increased if needed with this option.
+\f[C]--power-delay\f[] specifies the time in seconds (factions allowed)
+waited between powering on the next node.
+This is by default 2 seconds but can increased if needed with this
+option.
 .PP
-\f[I]nodes\f[] are optional. If not provided it will call out for
-every node in the cluster. Except for the \f[B]off\f[] and
-\f[B]cycle\f[] command where you\[aq]ve to explicit use
-\f[B]--all\f[] to select all.
+\f[I]nodes\f[] are optional.
+If not provided it will call out for every node in the cluster.
+Except for the \f[C]off\f[] and \f[C]cycle\f[] command where you\[aq]ve
+to explicit use \f[C]--all\f[] to select all.
 .SS HEALTH
 .PP
 \f[B]health\f[] [\f[I]nodes\f[]]
 .PP
-This command calls out to out-of-band management to ask for the
-health status of all or given nodes. The health contains the node
-name and then the items element with their status in a
-\f[B]item=status\f[] manner. Where \f[B]item\f[] is script specific
-and \f[B]status\f[] can be one of \f[B]OK\f[], \f[B]WARNING\f[],
-\f[B]CRITICAL\f[] or \f[B]UNKNOWN\f[].
-Items with status \f[B]WARNING\f[] or \f[B]CRITICAL\f[] are logged
-and annotated in the command line output.
+This command calls out to out-of-band management to ask for the health
+status of all or given nodes.
+The health contains the node name and then the items element with their
+status in a \f[C]item=status\f[] manner.
+Where \f[C]item\f[] is script specific and \f[C]status\f[] can be one of
+\f[C]OK\f[], \f[C]WARNING\f[], \f[C]CRITICAL\f[] or \f[C]UNKNOWN\f[].
+Items with status \f[C]WARNING\f[] or \f[C]CRITICAL\f[] are logged and
+annotated in the command line output.
+.SS RESTRICTED-COMMAND
+.PP
+\f[B]restricted-command\f[] [-M] [--sync]
+.PD 0
+.P
+.PD
+{ -g \f[I]group\f[] \f[I]command\f[] | \f[I]command\f[]
+\f[I]nodes\f[]...
+}
+.PP
+Executes a restricted command on the specified nodes.
+Restricted commands are not arbitrary, but must reside in
+\f[C]@SYSCONFDIR@/ganeti/restricted-commands\f[] on a node, either as
+a regular file or as a symlink.
+The directory must be owned by root and not be world- or group-writable.
+If a command fails verification or otherwise fails to start, the node
+daemon log must be consulted for more detailed information.
+.PP
+Example for running a command on two nodes:
+.IP
+.nf
+\f[C]
+#\ gnt-node\ restricted-command\ mycommand\ \\
+\ \ node1.example.com\ node2.example.com
+\f[]
+.fi
+.PP
+The \f[C]-g\f[] option can be used to run a command only on a specific
+node group, e.g.:
+.IP
+.nf
+\f[C]
+#\ gnt-node\ restricted-command\ -g\ default\ mycommand
+\f[]
+.fi
+.PP
+The \f[C]-M\f[] option can be used to prepend the node name to all
+command output lines.
+\f[C]--sync\f[] forces the opcode to acquire the node lock(s) in
+exclusive mode.
+.SS Tags
+.SS ADD-TAGS
+.PP
+\f[B]add-tags\f[] [--from \f[I]file\f[]] {\f[I]nodename\f[]}
+{\f[I]tag\f[]...}
+.PP
+Add tags to the given node.
+If any of the tags contains invalid characters, the entire operation
+will abort.
+.PP
+If the \f[C]--from\f[] option is given, the list of tags will be
+extended with the contents of that file (each line becomes a tag).
+In this case, there is not need to pass tags on the command line (if you
+do, both sources will be used).
+A file name of - will be interpreted as stdin.
+.SS LIST-TAGS
+.PP
+\f[B]list-tags\f[] {\f[I]nodename\f[]}
+.PP
+List the tags of the given node.
+.SS REMOVE-TAGS
+.PP
+\f[B]remove-tags\f[] [--from \f[I]file\f[]] {\f[I]nodename\f[]}
+{\f[I]tag\f[]...}
+.PP
+Remove tags from the given node.
+If any of the tags are not existing on the node, the entire operation
+will abort.
+.PP
+If the \f[C]--from\f[] option is given, the list of tags to be removed
+will be extended with the contents of that file (each line becomes a
+tag).
+In this case, there is not need to pass tags on the command line (if you
+do, tags from both sources will be removed).
+A file name of - will be interpreted as stdin.
 .SH REPORTING BUGS
 .PP
-Report bugs to project website (http://code.google.com/p/ganeti/)
-or contact the developers using the
-Ganeti mailing list (ganeti@googlegroups.com).
+Report bugs to project website (http://code.google.com/p/ganeti/) or
+contact the developers using the Ganeti mailing
+list (ganeti@googlegroups.com).
 .SH SEE ALSO
 .PP
 Ganeti overview and specifications: \f[B]ganeti\f[](7) (general
-overview), \f[B]ganeti-os-interface\f[](7) (guest OS definitions).
+overview), \f[B]ganeti-os-interface\f[](7) (guest OS definitions),
+\f[B]ganeti-extstorage-interface\f[](7) (external storage providers).
 .PP
 Ganeti commands: \f[B]gnt-cluster\f[](8) (cluster-wide commands),
 \f[B]gnt-job\f[](8) (job-related commands), \f[B]gnt-node\f[](8)
-(node-related commands), \f[B]gnt-instance\f[](8) (instance
-commands), \f[B]gnt-os\f[](8) (guest OS commands),
-\f[B]gnt-group\f[](8) (node group commands), \f[B]gnt-backup\f[](8)
-(instance import/export commands), \f[B]gnt-debug\f[](8) (debug
-commands).
+(node-related commands), \f[B]gnt-instance\f[](8) (instance commands),
+\f[B]gnt-os\f[](8) (guest OS commands), \f[B]gnt-storage\f[](8) (storage
+commands), \f[B]gnt-group\f[](8) (node group commands),
+\f[B]gnt-backup\f[](8) (instance import/export commands),
+\f[B]gnt-debug\f[](8) (debug commands).
 .PP
 Ganeti daemons: \f[B]ganeti-watcher\f[](8) (automatic instance
 restarter), \f[B]ganeti-cleaner\f[](8) (job queue cleaner),
 \f[B]ganeti-noded\f[](8) (node daemon), \f[B]ganeti-masterd\f[](8)
 (master daemon), \f[B]ganeti-rapi\f[](8) (remote API daemon).
 .PP
-Ganeti htools: \f[B]htools\f[](1) (generic binary),
-\f[B]hbal\f[](1) (cluster balancer), \f[B]hspace\f[](1) (capacity
-calculation), \f[B]hail\f[](1) (IAllocator plugin),
-\f[B]hscan\f[](1) (data gatherer from remote clusters),
-\f[B]hinfo\f[](1) (cluster information printer).
+Ganeti htools: \f[B]htools\f[](1) (generic binary), \f[B]hbal\f[](1)
+(cluster balancer), \f[B]hspace\f[](1) (capacity calculation),
+\f[B]hail\f[](1) (IAllocator plugin), \f[B]hscan\f[](1) (data gatherer
+from remote clusters), \f[B]hinfo\f[](1) (cluster information printer),
+\f[B]mon-collector\f[](7) (data collectors interface).
 .SH COPYRIGHT
 .PP
 Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012 Google Inc.
-Permission is granted to copy, distribute and/or modify under the
-terms of the GNU General Public License as published by the Free
-Software Foundation; either version 2 of the License, or (at your
-option) any later version.
+Permission is granted to copy, distribute and/or modify under the terms
+of the GNU General Public License as published by the Free Software
+Foundation; either version 2 of the License, or (at your option) any
+later version.
 .PP
-On Debian systems, the complete text of the GNU General Public
-License can be found in /usr/share/common-licenses/GPL.
-
+On Debian systems, the complete text of the GNU General Public License
+can be found in /usr/share/common-licenses/GPL.

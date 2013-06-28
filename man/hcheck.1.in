@@ -4,40 +4,37 @@
 hcheck - Cluster checker
 .SH SYNOPSIS
 .PP
-\f[B]hcheck\f[] {backend options...} [algorithm options...]
-[reporting options...]
+\f[B]hcheck\f[] {backend options...} [algorithm options...] [reporting
+options...]
 .PP
 \f[B]hcheck\f[] --version
 .PP
 Backend options:
 .PP
-{ \f[B]-m\f[] \f[I]cluster\f[] | \f[B]-L[\f[] \f[I]path\f[]
-\f[B]] |\f[]-t\f[I]*\f[]data-file* | \f[B]-I\f[] \f[I]path\f[] }
+{ \f[B]-m\f[] \f[I]cluster\f[] | \f[B]-L[\f[] \f[I]path\f[] \f[B]]
+|\f[]-t\f[I]*\f[]data-file* | \f[B]-I\f[] \f[I]path\f[] }
 .PP
 Algorithm options:
 .PP
-\f[B][ --no-simulation ]\f[]
-\f[B][ --max-cpu \f[I]cpu-ratio\f[] ]\f[]
-\f[B][ --min-disk \f[I]disk-ratio\f[] ]\f[]
-\f[B][ -l \f[I]limit\f[] ]\f[] \f[B][ -e \f[I]score\f[] ]\f[]
-\f[B][ -g \f[I]delta\f[] ]\f[]
-\f[B][ --min-gain-limit \f[I]threshold\f[] ]\f[]
-\f[B][ -O \f[I]name...\f[] ]\f[] \f[B][ --no-disk-moves ]\f[]
-\f[B][ --no-instance-moves ]\f[] \f[B][ -U \f[I]util-file\f[] ]\f[]
-\f[B][ --evac-mode ]\f[]
-\f[B][ --select-instances \f[I]inst...\f[] ]\f[]
+\f[B][ --no-simulation ]\f[] \f[B][ --max-cpu \f[I]cpu-ratio\f[] ]\f[]
+\f[B][ --min-disk \f[I]disk-ratio\f[] ]\f[] \f[B][ -l \f[I]limit\f[]
+]\f[] \f[B][ -e \f[I]score\f[] ]\f[] \f[B][ -g \f[I]delta\f[] ]\f[]
+\f[B][ --min-gain-limit \f[I]threshold\f[] ]\f[] \f[B][ -O
+\f[I]name...\f[] ]\f[] \f[B][ --no-disk-moves ]\f[] \f[B][
+--no-instance-moves ]\f[] \f[B][ -U \f[I]util-file\f[] ]\f[] \f[B][
+--evac-mode ]\f[] \f[B][ --select-instances \f[I]inst...\f[] ]\f[]
 \f[B][ --exclude-instances \f[I]inst...\f[] ]\f[]
 .PP
 Reporting options:
 .PP
-\f[B][--machine-readable\f[][=\f[I]CHOICE\f[]] \f[B]]\f[]
-\f[B][ -p[ \f[I]fields\f[] ] ]\f[] \f[B][ --print-instances ]\f[]
-\f[B][ -v... | -q ]\f[]
+\f[B][--machine-readable\f[][=\f[I]CHOICE\f[]] \f[B]]\f[] \f[B][ -p[
+\f[I]fields\f[] ] ]\f[] \f[B][ --print-instances ]\f[] \f[B][ -v... | -q
+]\f[]
 .SH DESCRIPTION
 .PP
-hcheck is the cluster checker. It prints information about
-cluster\[aq]s health and checks whether a rebalance done using
-\f[B]hbal\f[] would help.
+hcheck is the cluster checker.
+It prints information about cluster\[aq]s health and checks whether a
+rebalance done using \f[B]hbal\f[] would help.
 .PP
 This information can be presented in both human-readable and
 machine-readable way.
@@ -45,55 +42,53 @@ machine-readable way.
 Note that it does not take any action, only performs a rebalance
 simulation if necessary.
 .PP
-For more information about the algorithm details check
-\f[B]hbal(1)\f[].
+For more information about the algorithm details check \f[B]hbal\f[](1).
 .SH OPTIONS
 .TP
 .B --no-simulation
-Only perform checks based on current cluster state, without trying
-to simulate rebalancing.
+Only perform checks based on current cluster state, without trying to
+simulate rebalancing.
 .RS
 .RE
 .PP
-For a detailed description about the options listed above have a
-look at \f[B]htools(7)\f[], \f[B]hspace(1)\f[] and
-\f[B]hbal(1)\f[].
+For a detailed description about the options listed above have a look at
+\f[B]htools\f[](7), \f[B]hspace\f[](1) and \f[B]hbal\f[](1).
 .SH REPORTING BUGS
 .PP
-Report bugs to project website (http://code.google.com/p/ganeti/)
-or contact the developers using the
-Ganeti mailing list (ganeti@googlegroups.com).
+Report bugs to project website (http://code.google.com/p/ganeti/) or
+contact the developers using the Ganeti mailing
+list (ganeti@googlegroups.com).
 .SH SEE ALSO
 .PP
 Ganeti overview and specifications: \f[B]ganeti\f[](7) (general
-overview), \f[B]ganeti-os-interface\f[](7) (guest OS definitions).
+overview), \f[B]ganeti-os-interface\f[](7) (guest OS definitions),
+\f[B]ganeti-extstorage-interface\f[](7) (external storage providers).
 .PP
 Ganeti commands: \f[B]gnt-cluster\f[](8) (cluster-wide commands),
 \f[B]gnt-job\f[](8) (job-related commands), \f[B]gnt-node\f[](8)
-(node-related commands), \f[B]gnt-instance\f[](8) (instance
-commands), \f[B]gnt-os\f[](8) (guest OS commands),
-\f[B]gnt-group\f[](8) (node group commands), \f[B]gnt-backup\f[](8)
-(instance import/export commands), \f[B]gnt-debug\f[](8) (debug
-commands).
+(node-related commands), \f[B]gnt-instance\f[](8) (instance commands),
+\f[B]gnt-os\f[](8) (guest OS commands), \f[B]gnt-storage\f[](8) (storage
+commands), \f[B]gnt-group\f[](8) (node group commands),
+\f[B]gnt-backup\f[](8) (instance import/export commands),
+\f[B]gnt-debug\f[](8) (debug commands).
 .PP
 Ganeti daemons: \f[B]ganeti-watcher\f[](8) (automatic instance
 restarter), \f[B]ganeti-cleaner\f[](8) (job queue cleaner),
 \f[B]ganeti-noded\f[](8) (node daemon), \f[B]ganeti-masterd\f[](8)
 (master daemon), \f[B]ganeti-rapi\f[](8) (remote API daemon).
 .PP
-Ganeti htools: \f[B]htools\f[](1) (generic binary),
-\f[B]hbal\f[](1) (cluster balancer), \f[B]hspace\f[](1) (capacity
-calculation), \f[B]hail\f[](1) (IAllocator plugin),
-\f[B]hscan\f[](1) (data gatherer from remote clusters),
-\f[B]hinfo\f[](1) (cluster information printer).
+Ganeti htools: \f[B]htools\f[](1) (generic binary), \f[B]hbal\f[](1)
+(cluster balancer), \f[B]hspace\f[](1) (capacity calculation),
+\f[B]hail\f[](1) (IAllocator plugin), \f[B]hscan\f[](1) (data gatherer
+from remote clusters), \f[B]hinfo\f[](1) (cluster information printer),
+\f[B]mon-collector\f[](7) (data collectors interface).
 .SH COPYRIGHT
 .PP
 Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012 Google Inc.
-Permission is granted to copy, distribute and/or modify under the
-terms of the GNU General Public License as published by the Free
-Software Foundation; either version 2 of the License, or (at your
-option) any later version.
+Permission is granted to copy, distribute and/or modify under the terms
+of the GNU General Public License as published by the Free Software
+Foundation; either version 2 of the License, or (at your option) any
+later version.
 .PP
-On Debian systems, the complete text of the GNU General Public
-License can be found in /usr/share/common-licenses/GPL.
-
+On Debian systems, the complete text of the GNU General Public License
+can be found in /usr/share/common-licenses/GPL.

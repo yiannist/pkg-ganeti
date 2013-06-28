@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -44,6 +44,7 @@ from ganeti import compat
 from ganeti import netutils
 from ganeti import qlang
 from ganeti import objects
+from ganeti import pathutils
 
 from optparse import (OptionParser, TitledHelpFormatter,
                       Option, OptionValueError)
@@ -53,6 +54,7 @@ __all__ = [
   # Command line options
   "ABSOLUTE_OPT",
   "ADD_UIDS_OPT",
+  "ADD_RESERVED_IPS_OPT",
   "ALLOCATABLE_OPT",
   "ALLOC_POLICY_OPT",
   "ALL_OPT",
@@ -80,12 +82,15 @@ __all__ = [
   "EARLY_RELEASE_OPT",
   "ENABLED_HV_OPT",
   "ERROR_CODES_OPT",
+  "FAILURE_ONLY_OPT",
   "FIELDS_OPT",
   "FILESTORE_DIR_OPT",
   "FILESTORE_DRIVER_OPT",
   "FORCE_FILTER_OPT",
   "FORCE_OPT",
   "FORCE_VARIANT_OPT",
+  "GATEWAY_OPT",
+  "GATEWAY6_OPT",
   "GLOBAL_FILEDIR_OPT",
   "HID_OS_OPT",
   "GLOBAL_SHARED_FILEDIR_OPT",
@@ -110,6 +115,8 @@ __all__ = [
   "MC_OPT",
   "MIGRATION_MODE_OPT",
   "NET_OPT",
+  "NETWORK_OPT",
+  "NETWORK6_OPT",
   "NEW_CLUSTER_CERT_OPT",
   "NEW_CLUSTER_DOMAIN_SECRET_OPT",
   "NEW_CONFD_HMAC_KEY_OPT",
@@ -117,6 +124,7 @@ __all__ = [
   "NEW_SECONDARY_OPT",
   "NEW_SPICE_CERT_OPT",
   "NIC_PARAMS_OPT",
+  "NOCONFLICTSCHECK_OPT",
   "NODE_FORCE_JOIN_OPT",
   "NODE_LIST_OPT",
   "NODE_PLACEMENT_OPT",
@@ -159,6 +167,7 @@ __all__ = [
   "READD_OPT",
   "REBOOT_TYPE_OPT",
   "REMOVE_INSTANCE_OPT",
+  "REMOVE_RESERVED_IPS_OPT",
   "REMOVE_UIDS_OPT",
   "RESERVED_LVS_OPT",
   "RUNTIME_MEM_OPT",
@@ -168,6 +177,7 @@ __all__ = [
   "SELECT_OS_OPT",
   "SEP_OPT",
   "SHOWCMD_OPT",
+  "SHOW_MACHINE_OPT",
   "SHUTDOWN_TIMEOUT_OPT",
   "SINGLE_NODE_OPT",
   "SPECS_CPU_COUNT_OPT",
@@ -195,6 +205,7 @@ __all__ = [
   "USE_REPL_NET_OPT",
   "VERBOSE_OPT",
   "VG_NAME_OPT",
+  "WFSYNC_OPT",
   "YES_DOIT_OPT",
   "DISK_STATE_OPT",
   "HV_STATE_OPT",
@@ -233,11 +244,13 @@ __all__ = [
   "ARGS_MANY_INSTANCES",
   "ARGS_MANY_NODES",
   "ARGS_MANY_GROUPS",
+  "ARGS_MANY_NETWORKS",
   "ARGS_NONE",
   "ARGS_ONE_INSTANCE",
   "ARGS_ONE_NODE",
   "ARGS_ONE_GROUP",
   "ARGS_ONE_OS",
+  "ARGS_ONE_NETWORK",
   "ArgChoice",
   "ArgCommand",
   "ArgFile",
@@ -245,8 +258,10 @@ __all__ = [
   "ArgHost",
   "ArgInstance",
   "ArgJobId",
+  "ArgNetwork",
   "ArgNode",
   "ArgOs",
+  "ArgExtStorage",
   "ArgSuggest",
   "ArgUnknown",
   "OPT_COMPL_INST_ADD_NODES",
@@ -255,7 +270,9 @@ __all__ = [
   "OPT_COMPL_ONE_INSTANCE",
   "OPT_COMPL_ONE_NODE",
   "OPT_COMPL_ONE_NODEGROUP",
+  "OPT_COMPL_ONE_NETWORK",
   "OPT_COMPL_ONE_OS",
+  "OPT_COMPL_ONE_EXTSTORAGE",
   "cli_option",
   "SplitNodeOption",
   "CalculateOSNames",
@@ -297,6 +314,17 @@ TISPECS_CLUSTER_TYPES = {
   constants.ISPECS_MIN: constants.VTYPE_INT,
   constants.ISPECS_MAX: constants.VTYPE_INT,
   constants.ISPECS_STD: constants.VTYPE_INT,
+  }
+
+#: User-friendly names for query2 field types
+_QFT_NAMES = {
+  constants.QFT_UNKNOWN: "Unknown",
+  constants.QFT_TEXT: "Text",
+  constants.QFT_BOOL: "Boolean",
+  constants.QFT_NUMBER: "Number",
+  constants.QFT_UNIT: "Storage size",
+  constants.QFT_TIMESTAMP: "Timestamp",
+  constants.QFT_OTHER: "Custom",
   }
 
 
@@ -353,6 +381,12 @@ class ArgNode(_Argument):
   """
 
 
+class ArgNetwork(_Argument):
+  """Network argument.
+
+  """
+
+
 class ArgGroup(_Argument):
   """Node group argument.
 
@@ -389,11 +423,19 @@ class ArgOs(_Argument):
   """
 
 
+class ArgExtStorage(_Argument):
+  """ExtStorage argument.
+
+  """
+
+
 ARGS_NONE = []
 ARGS_MANY_INSTANCES = [ArgInstance()]
+ARGS_MANY_NETWORKS = [ArgNetwork()]
 ARGS_MANY_NODES = [ArgNode()]
 ARGS_MANY_GROUPS = [ArgGroup()]
 ARGS_ONE_INSTANCE = [ArgInstance(min=1, max=1)]
+ARGS_ONE_NETWORK = [ArgNetwork(min=1, max=1)]
 ARGS_ONE_NODE = [ArgNode(min=1, max=1)]
 # TODO
 ARGS_ONE_GROUP = [ArgGroup(min=1, max=1)]
@@ -410,12 +452,14 @@ def _ExtractTagsObject(opts, args):
     raise errors.ProgrammerError("tag_type not passed to _ExtractTagsObject")
   kind = opts.tag_type
   if kind == constants.TAG_CLUSTER:
-    retval = kind, kind
+    retval = kind, None
   elif kind in (constants.TAG_NODEGROUP,
                 constants.TAG_NODE,
+                constants.TAG_NETWORK,
                 constants.TAG_INSTANCE):
     if not args:
-      raise errors.OpPrereqError("no arguments passed to the command")
+      raise errors.OpPrereqError("no arguments passed to the command",
+                                 errors.ECODE_INVAL)
     name = args.pop(0)
     retval = kind, name
   else:
@@ -462,7 +506,7 @@ def ListTags(opts, args):
 
   """
   kind, name = _ExtractTagsObject(opts, args)
-  cl = GetClient()
+  cl = GetClient(query=True)
   result = cl.QueryTags(kind, name)
   result = list(result)
   result.sort()
@@ -482,7 +526,7 @@ def AddTags(opts, args):
   kind, name = _ExtractTagsObject(opts, args)
   _ExtendTags(opts, args)
   if not args:
-    raise errors.OpPrereqError("No tags to be added")
+    raise errors.OpPrereqError("No tags to be added", errors.ECODE_INVAL)
   op = opcodes.OpTagsSet(kind=kind, name=name, tags=args)
   SubmitOrSend(op, opts)
 
@@ -499,7 +543,7 @@ def RemoveTags(opts, args):
   kind, name = _ExtractTagsObject(opts, args)
   _ExtendTags(opts, args)
   if not args:
-    raise errors.OpPrereqError("No tags to be removed")
+    raise errors.OpPrereqError("No tags to be removed", errors.ECODE_INVAL)
   op = opcodes.OpTagsDel(kind=kind, name=name, tags=args)
   SubmitOrSend(op, opts)
 
@@ -635,16 +679,20 @@ def check_maybefloat(option, opt, value): # pylint: disable=W0613
  OPT_COMPL_ONE_NODE,
  OPT_COMPL_ONE_INSTANCE,
  OPT_COMPL_ONE_OS,
+ OPT_COMPL_ONE_EXTSTORAGE,
  OPT_COMPL_ONE_IALLOCATOR,
+ OPT_COMPL_ONE_NETWORK,
  OPT_COMPL_INST_ADD_NODES,
- OPT_COMPL_ONE_NODEGROUP) = range(100, 107)
+ OPT_COMPL_ONE_NODEGROUP) = range(100, 109)
 
-OPT_COMPL_ALL = frozenset([
+OPT_COMPL_ALL = compat.UniqueFrozenset([
   OPT_COMPL_MANY_NODES,
   OPT_COMPL_ONE_NODE,
   OPT_COMPL_ONE_INSTANCE,
   OPT_COMPL_ONE_OS,
+  OPT_COMPL_ONE_EXTSTORAGE,
   OPT_COMPL_ONE_IALLOCATOR,
+  OPT_COMPL_ONE_NETWORK,
   OPT_COMPL_INST_ADD_NODES,
   OPT_COMPL_ONE_NODEGROUP,
   ])
@@ -731,7 +779,7 @@ SYNC_OPT = cli_option("--sync", dest="do_locking",
 DRY_RUN_OPT = cli_option("--dry-run", default=False,
                          action="store_true",
                          help=("Do not execute the operation, just run the"
-                               " check steps and verify it it could be"
+                               " check steps and verify if it could be"
                                " executed"))
 
 VERBOSE_OPT = cli_option("-v", "--verbose", default=False,
@@ -746,6 +794,10 @@ DEBUG_SIMERR_OPT = cli_option("--debug-simulate-errors", default=False,
 NWSYNC_OPT = cli_option("--no-wait-for-sync", dest="wait_for_sync",
                         default=True, action="store_false",
                         help="Don't wait for sync (DANGEROUS!)")
+
+WFSYNC_OPT = cli_option("--wait-for-sync", dest="wait_for_sync",
+                        default=False, action="store_true",
+                        help="Wait for disks to sync")
 
 ONLINE_INST_OPT = cli_option("--online", dest="online_inst",
                              action="store_true", default=False,
@@ -782,18 +834,19 @@ IALLOCATOR_OPT = cli_option("-I", "--iallocator", metavar="<NAME>",
                             completion_suggest=OPT_COMPL_ONE_IALLOCATOR)
 
 DEFAULT_IALLOCATOR_OPT = cli_option("-I", "--default-iallocator",
-                            metavar="<NAME>",
-                            help="Set the default instance allocator plugin",
-                            default=None, type="string",
-                            completion_suggest=OPT_COMPL_ONE_IALLOCATOR)
+                                    metavar="<NAME>",
+                                    help="Set the default instance"
+                                    " allocator plugin",
+                                    default=None, type="string",
+                                    completion_suggest=OPT_COMPL_ONE_IALLOCATOR)
 
 OS_OPT = cli_option("-o", "--os-type", dest="os", help="What OS to run",
                     metavar="<os>",
                     completion_suggest=OPT_COMPL_ONE_OS)
 
 OSPARAMS_OPT = cli_option("-O", "--os-parameters", dest="osparams",
-                         type="keyval", default={},
-                         help="OS parameters")
+                          type="keyval", default={},
+                          help="OS parameters")
 
 FORCE_VARIANT_OPT = cli_option("--force-variant", dest="force_variant",
                                action="store_true", default=False,
@@ -842,7 +895,7 @@ SPECS_DISK_COUNT_OPT = cli_option("--specs-disk-count",
 SPECS_DISK_SIZE_OPT = cli_option("--specs-disk-size", dest="ispecs_disk_size",
                                  type="keyval", default={},
                                  help="Disk size specs: list of key=value,"
-                                " where key is one of min, max, std"
+                                 " where key is one of min, max, std"
                                  " (in MB or using a unit)")
 
 SPECS_NIC_COUNT_OPT = cli_option("--specs-nic-count", dest="ispecs_nic_count",
@@ -851,10 +904,10 @@ SPECS_NIC_COUNT_OPT = cli_option("--specs-nic-count", dest="ispecs_nic_count",
                                  " where key is one of min, max, std")
 
 IPOLICY_DISK_TEMPLATES = cli_option("--ipolicy-disk-templates",
-                                 dest="ipolicy_disk_templates",
-                                 type="list", default=None,
-                                 help="Comma-separated list of"
-                                 " enabled disk templates")
+                                    dest="ipolicy_disk_templates",
+                                    type="list", default=None,
+                                    help="Comma-separated list of"
+                                    " enabled disk templates")
 
 IPOLICY_VCPU_RATIO = cli_option("--ipolicy-vcpu-ratio",
                                  dest="ipolicy_vcpu_ratio",
@@ -1081,12 +1134,12 @@ DRAINED_OPT = cli_option("-D", "--drained", dest="drained", metavar=_YORNO,
                                " (excluded from allocation operations)"))
 
 CAPAB_MASTER_OPT = cli_option("--master-capable", dest="master_capable",
-                    type="bool", default=None, metavar=_YORNO,
-                    help="Set the master_capable flag on the node")
+                              type="bool", default=None, metavar=_YORNO,
+                              help="Set the master_capable flag on the node")
 
 CAPAB_VM_OPT = cli_option("--vm-capable", dest="vm_capable",
-                    type="bool", default=None, metavar=_YORNO,
-                    help="Set the vm_capable flag on the node")
+                          type="bool", default=None, metavar=_YORNO,
+                          help="Set the vm_capable flag on the node")
 
 ALLOCATABLE_OPT = cli_option("--allocatable", dest="allocatable",
                              type="bool", default=None, metavar=_YORNO,
@@ -1143,30 +1196,30 @@ MASTER_NETMASK_OPT = cli_option("--master-netmask", dest="master_netmask",
                                 default=None)
 
 USE_EXTERNAL_MIP_SCRIPT = cli_option("--use-external-mip-script",
-                                dest="use_external_mip_script",
-                                help="Specify whether to run a user-provided"
-                                " script for the master IP address turnup and"
-                                " turndown operations",
-                                type="bool", metavar=_YORNO, default=None)
+                                     dest="use_external_mip_script",
+                                     help="Specify whether to run a"
+                                     " user-provided script for the master"
+                                     " IP address turnup and"
+                                     " turndown operations",
+                                     type="bool", metavar=_YORNO, default=None)
 
 GLOBAL_FILEDIR_OPT = cli_option("--file-storage-dir", dest="file_storage_dir",
                                 help="Specify the default directory (cluster-"
                                 "wide) for storing the file-based disks [%s]" %
-                                constants.DEFAULT_FILE_STORAGE_DIR,
+                                pathutils.DEFAULT_FILE_STORAGE_DIR,
                                 metavar="DIR",
-                                default=constants.DEFAULT_FILE_STORAGE_DIR)
+                                default=pathutils.DEFAULT_FILE_STORAGE_DIR)
 
-GLOBAL_SHARED_FILEDIR_OPT = cli_option("--shared-file-storage-dir",
-                            dest="shared_file_storage_dir",
-                            help="Specify the default directory (cluster-"
-                            "wide) for storing the shared file-based"
-                            " disks [%s]" %
-                            constants.DEFAULT_SHARED_FILE_STORAGE_DIR,
-                            metavar="SHAREDDIR",
-                            default=constants.DEFAULT_SHARED_FILE_STORAGE_DIR)
+GLOBAL_SHARED_FILEDIR_OPT = cli_option(
+  "--shared-file-storage-dir",
+  dest="shared_file_storage_dir",
+  help="Specify the default directory (cluster-wide) for storing the"
+  " shared file-based disks [%s]" %
+  pathutils.DEFAULT_SHARED_FILE_STORAGE_DIR,
+  metavar="SHAREDDIR", default=pathutils.DEFAULT_SHARED_FILE_STORAGE_DIR)
 
 NOMODIFY_ETCHOSTS_OPT = cli_option("--no-etc-hosts", dest="modify_etc_hosts",
-                                   help="Don't modify /etc/hosts",
+                                   help="Don't modify %s" % pathutils.ETC_HOSTS,
                                    action="store_false", default=True)
 
 NOMODIFY_SSH_SETUP_OPT = cli_option("--no-ssh-init", dest="modify_ssh_setup",
@@ -1201,9 +1254,10 @@ TIMEOUT_OPT = cli_option("--timeout", dest="timeout", type="int",
                          help="Maximum time to wait")
 
 SHUTDOWN_TIMEOUT_OPT = cli_option("--shutdown-timeout",
-                         dest="shutdown_timeout", type="int",
-                         default=constants.DEFAULT_SHUTDOWN_TIMEOUT,
-                         help="Maximum time to wait for instance shutdown")
+                                  dest="shutdown_timeout", type="int",
+                                  default=constants.DEFAULT_SHUTDOWN_TIMEOUT,
+                                  help="Maximum time to wait for instance"
+                                  " shutdown")
 
 INTERVAL_OPT = cli_option("--interval", dest="interval", type="int",
                           default=None,
@@ -1231,19 +1285,19 @@ NEW_RAPI_CERT_OPT = cli_option("--new-rapi-certificate", dest="new_rapi_cert",
                                      " certificate"))
 
 SPICE_CERT_OPT = cli_option("--spice-certificate", dest="spice_cert",
-                           default=None,
-                           help="File containing new SPICE certificate")
+                            default=None,
+                            help="File containing new SPICE certificate")
 
 SPICE_CACERT_OPT = cli_option("--spice-ca-certificate", dest="spice_cacert",
-                           default=None,
-                           help="File containing the certificate of the CA"
-                                " which signed the SPICE certificate")
+                              default=None,
+                              help="File containing the certificate of the CA"
+                              " which signed the SPICE certificate")
 
 NEW_SPICE_CERT_OPT = cli_option("--new-spice-certificate",
-                               dest="new_spice_cert", default=None,
-                               action="store_true",
-                               help=("Generate a new self-signed SPICE"
-                                     " certificate"))
+                                dest="new_spice_cert", default=None,
+                                action="store_true",
+                                help=("Generate a new self-signed SPICE"
+                                      " certificate"))
 
 NEW_CONFD_HMAC_KEY_OPT = cli_option("--new-confd-hmac-key",
                                     dest="new_confd_hmac_key",
@@ -1301,10 +1355,10 @@ REMOVE_UIDS_OPT = cli_option("--remove-uids", default=None,
                                    " removed from the user-id pool"))
 
 RESERVED_LVS_OPT = cli_option("--reserved-lvs", default=None,
-                             action="store", dest="reserved_lvs",
-                             help=("A comma-separated list of reserved"
-                                   " logical volumes names, that will be"
-                                   " ignored by cluster verify"))
+                              action="store", dest="reserved_lvs",
+                              help=("A comma-separated list of reserved"
+                                    " logical volumes names, that will be"
+                                    " ignored by cluster verify"))
 
 ROMAN_OPT = cli_option("--roman",
                        dest="roman_integers", default=False,
@@ -1326,9 +1380,30 @@ PRIMARY_IP_VERSION_OPT = \
                                   constants.IP6_VERSION),
                help="Cluster-wide IP version for primary IP")
 
+SHOW_MACHINE_OPT = cli_option("-M", "--show-machine-names", default=False,
+                              action="store_true",
+                              help="Show machine name for every line in output")
+
+FAILURE_ONLY_OPT = cli_option("--failure-only", default=False,
+                              action="store_true",
+                              help=("Hide successful results and show failures"
+                                    " only (determined by the exit code)"))
+
+
+def _PriorityOptionCb(option, _, value, parser):
+  """Callback for processing C{--priority} option.
+
+  """
+  value = _PRIONAME_TO_VALUE[value]
+
+  setattr(parser.values, option.dest, value)
+
+
 PRIORITY_OPT = cli_option("--priority", default=None, dest="priority",
                           metavar="|".join(name for name, _ in _PRIORITY_NAMES),
                           choices=_PRIONAME_TO_VALUE.keys(),
+                          action="callback", type="choice",
+                          callback=_PriorityOptionCb,
                           help="Priority for opcode processing")
 
 HID_OS_OPT = cli_option("--hidden", dest="hidden",
@@ -1359,8 +1434,8 @@ NODE_POWERED_OPT = cli_option("--node-powered", default=None,
                               help="Specify if the SoR for node is powered")
 
 OOB_TIMEOUT_OPT = cli_option("--oob-timeout", dest="oob_timeout", type="int",
-                         default=constants.OOB_TIMEOUT,
-                         help="Maximum time to wait for out-of-band helper")
+                             default=constants.OOB_TIMEOUT,
+                             help="Maximum time to wait for out-of-band helper")
 
 POWER_DELAY_OPT = cli_option("--power-delay", dest="power_delay", type="float",
                              default=constants.OOB_POWER_DELAY,
@@ -1431,6 +1506,40 @@ ABSOLUTE_OPT = cli_option("--absolute", dest="absolute",
                           help="Marks the grow as absolute instead of the"
                           " (default) relative mode")
 
+NETWORK_OPT = cli_option("--network",
+                         action="store", default=None, dest="network",
+                         help="IP network in CIDR notation")
+
+GATEWAY_OPT = cli_option("--gateway",
+                         action="store", default=None, dest="gateway",
+                         help="IP address of the router (gateway)")
+
+ADD_RESERVED_IPS_OPT = cli_option("--add-reserved-ips",
+                                  action="store", default=None,
+                                  dest="add_reserved_ips",
+                                  help="Comma-separated list of"
+                                  " reserved IPs to add")
+
+REMOVE_RESERVED_IPS_OPT = cli_option("--remove-reserved-ips",
+                                     action="store", default=None,
+                                     dest="remove_reserved_ips",
+                                     help="Comma-delimited list of"
+                                     " reserved IPs to remove")
+
+NETWORK6_OPT = cli_option("--network6",
+                          action="store", default=None, dest="network6",
+                          help="IP network in CIDR notation")
+
+GATEWAY6_OPT = cli_option("--gateway6",
+                          action="store", default=None, dest="gateway6",
+                          help="IP6 address of the router (gateway)")
+
+NOCONFLICTSCHECK_OPT = cli_option("--no-conflicts-check",
+                                  dest="conflicts_check",
+                                  default=True,
+                                  action="store_false",
+                                  help="Don't check for conflicting IPs")
+
 #: Options provided by all commands
 COMMON_OPTS = [DEBUG_OPT]
 
@@ -1447,6 +1556,7 @@ COMMON_CREATE_OPTS = [
   NET_OPT,
   NODE_PLACEMENT_OPT,
   NOIPCHECK_OPT,
+  NOCONFLICTSCHECK_OPT,
   NONAMECHECK_OPT,
   NONICS_OPT,
   NWSYNC_OPT,
@@ -1471,68 +1581,60 @@ INSTANCE_POLICY_OPTS = [
   ]
 
 
-def _ParseArgs(argv, commands, aliases, env_override):
+class _ShowUsage(Exception):
+  """Exception class for L{_ParseArgs}.
+
+  """
+  def __init__(self, exit_error):
+    """Initializes instances of this class.
+
+    @type exit_error: bool
+    @param exit_error: Whether to report failure on exit
+
+    """
+    Exception.__init__(self)
+    self.exit_error = exit_error
+
+
+class _ShowVersion(Exception):
+  """Exception class for L{_ParseArgs}.
+
+  """
+
+
+def _ParseArgs(binary, argv, commands, aliases, env_override):
   """Parser for the command line arguments.
 
   This function parses the arguments and returns the function which
   must be executed together with its (modified) arguments.
 
-  @param argv: the command line
-  @param commands: dictionary with special contents, see the design
-      doc for cmdline handling
-  @param aliases: dictionary with command aliases {'alias': 'target, ...}
+  @param binary: Script name
+  @param argv: Command line arguments
+  @param commands: Dictionary containing command definitions
+  @param aliases: dictionary with command aliases {"alias": "target", ...}
   @param env_override: list of env variables allowed for default args
+  @raise _ShowUsage: If usage description should be shown
+  @raise _ShowVersion: If version should be shown
 
   """
   assert not (env_override - set(commands))
+  assert not (set(aliases.keys()) & set(commands.keys()))
 
-  if len(argv) == 0:
-    binary = "<command>"
+  if len(argv) > 1:
+    cmd = argv[1]
   else:
-    binary = argv[0].split("/")[-1]
+    # No option or command given
+    raise _ShowUsage(exit_error=True)
 
-  if len(argv) > 1 and argv[1] == "--version":
-    ToStdout("%s (ganeti %s) %s", binary, constants.VCS_VERSION,
-             constants.RELEASE_VERSION)
-    # Quit right away. That way we don't have to care about this special
-    # argument. optparse.py does it the same.
-    sys.exit(0)
-
-  if len(argv) < 2 or not (argv[1] in commands or
-                           argv[1] in aliases):
-    # let's do a nice thing
-    sortedcmds = commands.keys()
-    sortedcmds.sort()
-
-    ToStdout("Usage: %s {command} [options...] [argument...]", binary)
-    ToStdout("%s <command> --help to see details, or man %s", binary, binary)
-    ToStdout("")
-
-    # compute the max line length for cmd + usage
-    mlen = max([len(" %s" % cmd) for cmd in commands])
-    mlen = min(60, mlen) # should not get here...
-
-    # and format a nice command list
-    ToStdout("Commands:")
-    for cmd in sortedcmds:
-      cmdstr = " %s" % (cmd,)
-      help_text = commands[cmd][4]
-      help_lines = textwrap.wrap(help_text, 79 - 3 - mlen)
-      ToStdout("%-*s - %s", mlen, cmdstr, help_lines.pop(0))
-      for line in help_lines:
-        ToStdout("%-*s   %s", mlen, "", line)
-
-    ToStdout("")
-
-    return None, None, None
+  if cmd == "--version":
+    raise _ShowVersion()
+  elif cmd == "--help":
+    raise _ShowUsage(exit_error=False)
+  elif not (cmd in commands or cmd in aliases):
+    raise _ShowUsage(exit_error=True)
 
   # get command, unalias it, and look it up in commands
-  cmd = argv.pop(1)
   if cmd in aliases:
-    if cmd in commands:
-      raise errors.ProgrammerError("Alias '%s' overrides an existing"
-                                   " command" % cmd)
-
     if aliases[cmd] not in commands:
       raise errors.ProgrammerError("Alias '%s' maps to non-existing"
                                    " command '%s'" % (cmd, aliases[cmd]))
@@ -1543,7 +1645,7 @@ def _ParseArgs(argv, commands, aliases, env_override):
     args_env_name = ("%s_%s" % (binary.replace("-", "_"), cmd)).upper()
     env_args = os.environ.get(args_env_name)
     if env_args:
-      argv = utils.InsertAtPos(argv, 1, shlex.split(env_args))
+      argv = utils.InsertAtPos(argv, 2, shlex.split(env_args))
 
   func, args_def, parser_opts, usage, description = commands[cmd]
   parser = OptionParser(option_list=parser_opts + COMMON_OPTS,
@@ -1551,12 +1653,37 @@ def _ParseArgs(argv, commands, aliases, env_override):
                         formatter=TitledHelpFormatter(),
                         usage="%%prog %s %s" % (cmd, usage))
   parser.disable_interspersed_args()
-  options, args = parser.parse_args(args=argv[1:])
+  options, args = parser.parse_args(args=argv[2:])
 
   if not _CheckArguments(cmd, args_def, args):
     return None, None, None
 
   return func, options, args
+
+
+def _FormatUsage(binary, commands):
+  """Generates a nice description of all commands.
+
+  @param binary: Script name
+  @param commands: Dictionary containing command definitions
+
+  """
+  # compute the max line length for cmd + usage
+  mlen = min(60, max(map(len, commands)))
+
+  yield "Usage: %s {command} [options...] [argument...]" % binary
+  yield "%s <command> --help to see details, or man %s" % (binary, binary)
+  yield ""
+  yield "Commands:"
+
+  # and format a nice command list
+  for (cmd, (_, _, _, _, help_text)) in sorted(commands.items()):
+    help_lines = textwrap.wrap(help_text, 79 - 3 - mlen)
+    yield " %-*s - %s" % (mlen, cmd, help_lines.pop(0))
+    for line in help_lines:
+      yield " %-*s   %s" % (mlen, "", line)
+
+  yield ""
 
 
 def _CheckArguments(cmd, args_def, args):
@@ -2071,13 +2198,26 @@ def SetGenericOpcodeOpts(opcode_list, options):
     if hasattr(options, "dry_run"):
       op.dry_run = options.dry_run
     if getattr(options, "priority", None) is not None:
-      op.priority = _PRIONAME_TO_VALUE[options.priority]
+      op.priority = options.priority
 
 
-def GetClient():
+def GetClient(query=False):
+  """Connects to the a luxi socket and returns a client.
+
+  @type query: boolean
+  @param query: this signifies that the client will only be
+      used for queries; if the build-time parameter
+      enable-split-queries is enabled, then the client will be
+      connected to the query socket instead of the masterd socket
+
+  """
+  if query and constants.ENABLE_SPLIT_QUERY:
+    address = pathutils.QUERY_SOCKET
+  else:
+    address = None
   # TODO: Cache object?
   try:
-    client = luxi.Client()
+    client = luxi.Client(address=address)
   except luxi.NoMasterError:
     ss = ssconf.SimpleStore()
 
@@ -2086,13 +2226,14 @@ def GetClient():
       ss.GetMasterNode()
     except errors.ConfigurationError:
       raise errors.OpPrereqError("Cluster not initialized or this machine is"
-                                 " not part of a cluster")
+                                 " not part of a cluster",
+                                 errors.ECODE_INVAL)
 
     master, myself = ssconf.GetMasterAndMyself(ss=ss)
     if master != myself:
       raise errors.OpPrereqError("This is not the master node, please connect"
                                  " to node '%s' and rerun the command" %
-                                 master)
+                                 master, errors.ECODE_INVAL)
     raise
   return client
 
@@ -2136,7 +2277,7 @@ def FormatError(err):
   elif isinstance(err, errors.OpPrereqError):
     if len(err.args) == 2:
       obuf.write("Failure: prerequisites not met for this"
-               " operation:\nerror type: %s, error details:\n%s" %
+                 " operation:\nerror type: %s, error details:\n%s" %
                  (err.args[1], err.args[0]))
     else:
       obuf.write("Failure: prerequisites not met for this"
@@ -2156,8 +2297,12 @@ def FormatError(err):
   elif isinstance(err, errors.ParameterError):
     obuf.write("Failure: unknown/wrong parameter name '%s'" % msg)
   elif isinstance(err, luxi.NoMasterError):
-    obuf.write("Cannot communicate with the master daemon.\nIs it running"
-               " and listening for connections?")
+    if err.args[0] == pathutils.MASTER_SOCKET:
+      daemon = "master"
+    else:
+      daemon = "config"
+    obuf.write("Cannot communicate with the %s daemon.\nIs it running"
+               " and listening for connections?" % daemon)
   elif isinstance(err, luxi.TimeoutError):
     obuf.write("Timeout while talking to the master daemon. Jobs might have"
                " been submitted and will continue to run even if the call"
@@ -2219,7 +2364,20 @@ def GenericMain(commands, override=None, aliases=None,
     aliases = {}
 
   try:
-    func, options, args = _ParseArgs(sys.argv, commands, aliases, env_override)
+    (func, options, args) = _ParseArgs(binary, sys.argv, commands, aliases,
+                                       env_override)
+  except _ShowVersion:
+    ToStdout("%s (ganeti %s) %s", binary, constants.VCS_VERSION,
+             constants.RELEASE_VERSION)
+    return constants.EXIT_SUCCESS
+  except _ShowUsage, err:
+    for line in _FormatUsage(binary, commands):
+      ToStdout(line)
+
+    if err.exit_error:
+      return constants.EXIT_FAILURE
+    else:
+      return constants.EXIT_SUCCESS
   except errors.ParameterError, err:
     result, err_msg = FormatError(err)
     ToStderr(err_msg)
@@ -2232,7 +2390,7 @@ def GenericMain(commands, override=None, aliases=None,
     for key, val in override.iteritems():
       setattr(options, key, val)
 
-  utils.SetupLogging(constants.LOG_COMMANDS, logname, debug=options.debug,
+  utils.SetupLogging(pathutils.LOG_COMMANDS, logname, debug=options.debug,
                      stderr_logging=True)
 
   logging.info("Command line: %s", cmdline)
@@ -2266,7 +2424,8 @@ def ParseNicOption(optvalue):
   try:
     nic_max = max(int(nidx[0]) + 1 for nidx in optvalue)
   except (TypeError, ValueError), err:
-    raise errors.OpPrereqError("Invalid NIC index passed: %s" % str(err))
+    raise errors.OpPrereqError("Invalid NIC index passed: %s" % str(err),
+                               errors.ECODE_INVAL)
 
   nics = [{}] * nic_max
   for nidx, ndict in optvalue:
@@ -2274,7 +2433,7 @@ def ParseNicOption(optvalue):
 
     if not isinstance(ndict, dict):
       raise errors.OpPrereqError("Invalid nic/%d value: expected dict,"
-                                 " got %s" % (nidx, ndict))
+                                 " got %s" % (nidx, ndict), errors.ECODE_INVAL)
 
     utils.ForceDictType(ndict, constants.INIC_PARAMS_TYPES)
 
@@ -2318,15 +2477,16 @@ def GenericInstanceCreate(mode, opts, args):
   if opts.disk_template == constants.DT_DISKLESS:
     if opts.disks or opts.sd_size is not None:
       raise errors.OpPrereqError("Diskless instance but disk"
-                                 " information passed")
+                                 " information passed", errors.ECODE_INVAL)
     disks = []
   else:
     if (not opts.disks and not opts.sd_size
         and mode == constants.INSTANCE_CREATE):
-      raise errors.OpPrereqError("No disk information specified")
+      raise errors.OpPrereqError("No disk information specified",
+                                 errors.ECODE_INVAL)
     if opts.disks and opts.sd_size is not None:
       raise errors.OpPrereqError("Please use either the '--disk' or"
-                                 " '-s' option")
+                                 " '-s' option", errors.ECODE_INVAL)
     if opts.sd_size is not None:
       opts.disks = [(0, {constants.IDISK_SIZE: opts.sd_size})]
 
@@ -2334,7 +2494,8 @@ def GenericInstanceCreate(mode, opts, args):
       try:
         disk_max = max(int(didx[0]) + 1 for didx in opts.disks)
       except ValueError, err:
-        raise errors.OpPrereqError("Invalid disk index passed: %s" % str(err))
+        raise errors.OpPrereqError("Invalid disk index passed: %s" % str(err),
+                                   errors.ECODE_INVAL)
       disks = [{}] * disk_max
     else:
       disks = []
@@ -2342,25 +2503,25 @@ def GenericInstanceCreate(mode, opts, args):
       didx = int(didx)
       if not isinstance(ddict, dict):
         msg = "Invalid disk/%d value: expected dict, got %s" % (didx, ddict)
-        raise errors.OpPrereqError(msg)
+        raise errors.OpPrereqError(msg, errors.ECODE_INVAL)
       elif constants.IDISK_SIZE in ddict:
         if constants.IDISK_ADOPT in ddict:
           raise errors.OpPrereqError("Only one of 'size' and 'adopt' allowed"
-                                     " (disk %d)" % didx)
+                                     " (disk %d)" % didx, errors.ECODE_INVAL)
         try:
           ddict[constants.IDISK_SIZE] = \
             utils.ParseUnit(ddict[constants.IDISK_SIZE])
         except ValueError, err:
           raise errors.OpPrereqError("Invalid disk size for disk %d: %s" %
-                                     (didx, err))
+                                     (didx, err), errors.ECODE_INVAL)
       elif constants.IDISK_ADOPT in ddict:
         if mode == constants.INSTANCE_IMPORT:
           raise errors.OpPrereqError("Disk adoption not allowed for instance"
-                                     " import")
+                                     " import", errors.ECODE_INVAL)
         ddict[constants.IDISK_SIZE] = 0
       else:
         raise errors.OpPrereqError("Missing size or adoption source for"
-                                   " disk %d" % didx)
+                                   " disk %d" % didx, errors.ECODE_INVAL)
       disks[didx] = ddict
 
   if opts.tags is not None:
@@ -2394,6 +2555,7 @@ def GenericInstanceCreate(mode, opts, args):
                                 disks=disks,
                                 disk_template=opts.disk_template,
                                 nics=nics,
+                                conflicts_check=opts.conflicts_check,
                                 pnode=pnode, snode=snode,
                                 ip_check=opts.ip_check,
                                 name_check=opts.name_check,
@@ -2462,7 +2624,8 @@ class _RunWhileClusterStoppedHelper:
       # No need to use SSH
       result = utils.RunCmd(cmd)
     else:
-      result = self.ssh.Run(node_name, "root", utils.ShellQuoteArgs(cmd))
+      result = self.ssh.Run(node_name, constants.SSH_LOGIN_USER,
+                            utils.ShellQuoteArgs(cmd))
 
     if result.failed:
       errmsg = ["Failed to run command %s" % result.cmd]
@@ -2481,7 +2644,7 @@ class _RunWhileClusterStoppedHelper:
     """
     # Pause watcher by acquiring an exclusive lock on watcher state file
     self.feedback_fn("Blocking watcher")
-    watcher_block = utils.FileLock.Open(constants.WATCHER_LOCK_FILE)
+    watcher_block = utils.FileLock.Open(pathutils.WATCHER_LOCK_FILE)
     try:
       # TODO: Currently, this just blocks. There's no timeout.
       # TODO: Should it be a shared lock?
@@ -2490,12 +2653,12 @@ class _RunWhileClusterStoppedHelper:
       # Stop master daemons, so that no new jobs can come in and all running
       # ones are finished
       self.feedback_fn("Stopping master daemons")
-      self._RunCmd(None, [constants.DAEMON_UTIL, "stop-master"])
+      self._RunCmd(None, [pathutils.DAEMON_UTIL, "stop-master"])
       try:
         # Stop daemons on all nodes
         for node_name in self.online_nodes:
           self.feedback_fn("Stopping daemons on %s" % node_name)
-          self._RunCmd(node_name, [constants.DAEMON_UTIL, "stop-all"])
+          self._RunCmd(node_name, [pathutils.DAEMON_UTIL, "stop-all"])
 
         # All daemons are shut down now
         try:
@@ -2509,7 +2672,7 @@ class _RunWhileClusterStoppedHelper:
         # Start cluster again, master node last
         for node_name in self.nonmaster_nodes + [self.master_node]:
           self.feedback_fn("Starting daemons on %s" % node_name)
-          self._RunCmd(node_name, [constants.DAEMON_UTIL, "start-all"])
+          self._RunCmd(node_name, [pathutils.DAEMON_UTIL, "start-all"])
     finally:
       # Resume watcher
       watcher_block.Close()
@@ -2851,7 +3014,7 @@ def _WarnUnknownFields(fdefs):
 
 def GenericList(resource, fields, names, unit, separator, header, cl=None,
                 format_override=None, verbose=False, force_filter=False,
-                namefield=None, qfilter=None):
+                namefield=None, qfilter=None, isnumeric=False):
   """Generic implementation for listing all items of a resource.
 
   @param resource: One of L{constants.QR_VIA_LUXI}
@@ -2879,12 +3042,17 @@ def GenericList(resource, fields, names, unit, separator, header, cl=None,
     L{qlang.MakeFilter} for details)
   @type qfilter: list or None
   @param qfilter: Query filter (in addition to names)
+  @param isnumeric: bool
+  @param isnumeric: Whether the namefield's type is numeric, and therefore
+    any simple filters built by namefield should use integer values to
+    reflect that
 
   """
   if not names:
     names = None
 
-  namefilter = qlang.MakeFilter(names, force_filter, namefield=namefield)
+  namefilter = qlang.MakeFilter(names, force_filter, namefield=namefield,
+                                isnumeric=isnumeric)
 
   if qfilter is None:
     qfilter = namefilter
@@ -2916,6 +3084,21 @@ def GenericList(resource, fields, names, unit, separator, header, cl=None,
   return constants.EXIT_SUCCESS
 
 
+def _FieldDescValues(fdef):
+  """Helper function for L{GenericListFields} to get query field description.
+
+  @type fdef: L{objects.QueryFieldDefinition}
+  @rtype: list
+
+  """
+  return [
+    fdef.name,
+    _QFT_NAMES.get(fdef.kind, fdef.kind),
+    fdef.title,
+    fdef.doc,
+    ]
+
+
 def GenericListFields(resource, fields, separator, header, cl=None):
   """Generic implementation for listing fields for a resource.
 
@@ -2940,11 +3123,12 @@ def GenericListFields(resource, fields, separator, header, cl=None):
 
   columns = [
     TableColumn("Name", str, False),
+    TableColumn("Type", str, False),
     TableColumn("Title", str, False),
     TableColumn("Description", str, False),
     ]
 
-  rows = [[fdef.name, fdef.title, fdef.doc] for fdef in response.fields]
+  rows = map(_FieldDescValues, response.fields)
 
   for line in FormatTable(rows, columns, header, separator):
     ToStdout(line)
@@ -3069,7 +3253,8 @@ def ParseTimespec(value):
   """
   value = str(value)
   if not value:
-    raise errors.OpPrereqError("Empty time specification passed")
+    raise errors.OpPrereqError("Empty time specification passed",
+                               errors.ECODE_INVAL)
   suffix_map = {
     "s": 1,
     "m": 60,
@@ -3081,17 +3266,19 @@ def ParseTimespec(value):
     try:
       value = int(value)
     except (TypeError, ValueError):
-      raise errors.OpPrereqError("Invalid time specification '%s'" % value)
+      raise errors.OpPrereqError("Invalid time specification '%s'" % value,
+                                 errors.ECODE_INVAL)
   else:
     multiplier = suffix_map[value[-1]]
     value = value[:-1]
     if not value: # no data left after stripping the suffix
       raise errors.OpPrereqError("Invalid time specification (only"
-                                 " suffix passed)")
+                                 " suffix passed)", errors.ECODE_INVAL)
     try:
       value = int(value) * multiplier
     except (TypeError, ValueError):
-      raise errors.OpPrereqError("Invalid time specification '%s'" % value)
+      raise errors.OpPrereqError("Invalid time specification '%s'" % value,
+                                 errors.ECODE_INVAL)
   return value
 
 

@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -27,6 +27,7 @@
 # C0103: Invalid name gnt-node
 
 import itertools
+import errno
 
 from ganeti.cli import *
 from ganeti import cli
@@ -36,6 +37,9 @@ from ganeti import utils
 from ganeti import constants
 from ganeti import errors
 from ganeti import netutils
+from ganeti import pathutils
+from ganeti import ssh
+from ganeti import compat
 from cStringIO import StringIO
 
 from ganeti import confd
@@ -103,13 +107,12 @@ _REPAIRABLE_STORAGE_TYPES = \
 
 _MODIFIABLE_STORAGE_TYPES = constants.MODIFIABLE_STORAGE_FIELDS.keys()
 
+_OOB_COMMAND_ASK = compat.UniqueFrozenset([
+  constants.OOB_POWER_OFF,
+  constants.OOB_POWER_CYCLE,
+  ])
 
-_OOB_COMMAND_ASK = frozenset([constants.OOB_POWER_OFF,
-                              constants.OOB_POWER_CYCLE])
-
-
-_ENV_OVERRIDE = frozenset(["list"])
-
+_ENV_OVERRIDE = compat.UniqueFrozenset(["list"])
 
 NONODE_SETUP_OPT = cli_option("--no-node-setup", default=True,
                               action="store_false", dest="node_setup",
@@ -133,37 +136,86 @@ def ConvertStorageType(user_storage_type):
                                errors.ECODE_INVAL)
 
 
-def _RunSetupSSH(options, nodes):
-  """Wrapper around utils.RunCmd to call setup-ssh
+def _TryReadFile(path):
+  """Tries to read a file.
 
-  @param options: The command line options
-  @param nodes: The nodes to setup
+  If the file is not found, C{None} is returned.
+
+  @type path: string
+  @param path: Filename
+  @rtype: None or string
+  @todo: Consider adding a generic ENOENT wrapper
 
   """
+  try:
+    return utils.ReadFile(path)
+  except EnvironmentError, err:
+    if err.errno == errno.ENOENT:
+      return None
+    else:
+      raise
 
-  assert nodes, "Empty node list"
 
-  cmd = [constants.SETUP_SSH]
+def _ReadSshKeys(keyfiles, _tostderr_fn=ToStderr):
+  """Reads SSH keys according to C{keyfiles}.
 
-  # Pass --debug|--verbose to the external script if set on our invocation
-  # --debug overrides --verbose
-  if options.debug:
-    cmd.append("--debug")
-  elif options.verbose:
-    cmd.append("--verbose")
-  if not options.ssh_key_check:
-    cmd.append("--no-ssh-key-check")
+  @type keyfiles: dict
+  @param keyfiles: Dictionary with keys of L{constants.SSHK_ALL} and two-values
+    tuples (private and public key file)
+  @rtype: list
+  @return: List of three-values tuples (L{constants.SSHK_ALL}, private and
+    public key as strings)
+
+  """
+  result = []
+
+  for (kind, (private_file, public_file)) in keyfiles.items():
+    private_key = _TryReadFile(private_file)
+    public_key = _TryReadFile(public_file)
+
+    if public_key and private_key:
+      result.append((kind, private_key, public_key))
+    elif public_key or private_key:
+      _tostderr_fn("Couldn't find a complete set of keys for kind '%s'; files"
+                   " '%s' and '%s'", kind, private_file, public_file)
+
+  return result
+
+
+def _SetupSSH(options, cluster_name, node):
+  """Configures a destination node's SSH daemon.
+
+  @param options: Command line options
+  @type cluster_name
+  @param cluster_name: Cluster name
+  @type node: string
+  @param node: Destination node name
+
+  """
   if options.force_join:
-    cmd.append("--force-join")
+    ToStderr("The \"--force-join\" option is no longer supported and will be"
+             " ignored.")
 
-  cmd.extend(nodes)
+  host_keys = _ReadSshKeys(constants.SSH_DAEMON_KEYFILES)
 
-  result = utils.RunCmd(cmd, interactive=True)
+  (_, root_keyfiles) = \
+    ssh.GetAllUserFiles(constants.SSH_LOGIN_USER, mkdir=False, dircheck=False)
 
-  if result.failed:
-    errmsg = ("Command '%s' failed with exit code %s; output %r" %
-              (result.cmd, result.exit_code, result.output))
-    raise errors.OpExecError(errmsg)
+  root_keys = _ReadSshKeys(root_keyfiles)
+
+  (_, cert_pem) = \
+    utils.ExtractX509Certificate(utils.ReadFile(pathutils.NODED_CERT_FILE))
+
+  data = {
+    constants.SSHS_CLUSTER_NAME: cluster_name,
+    constants.SSHS_NODE_DAEMON_CERTIFICATE: cert_pem,
+    constants.SSHS_SSH_HOST_KEY: host_keys,
+    constants.SSHS_SSH_ROOT_KEY: root_keys,
+    }
+
+  bootstrap.RunNodeSetupCmd(cluster_name, node, pathutils.PREPARE_NODE_JOIN,
+                            options.debug, options.verbose, False,
+                            options.ssh_key_check, options.ssh_key_check, data)
 
 
 @UsesRPC
@@ -205,8 +257,7 @@ def AddNode(opts, args):
     sip = opts.secondary_ip
 
   # read the cluster name from the master
-  output = cl.QueryConfigValues(["cluster_name"])
-  cluster_name = output[0]
+  (cluster_name, ) = cl.QueryConfigValues(["cluster_name"])
 
   if not readd and opts.node_setup:
     ToStderr("-- WARNING -- \n"
@@ -217,9 +268,9 @@ def AddNode(opts, args):
              "and grant full intra-cluster ssh root access to/from it\n", node)
 
   if opts.node_setup:
-    _RunSetupSSH(opts, [node])
+    _SetupSSH(opts, cluster_name, node)
 
-  bootstrap.SetupNodeDaemon(cluster_name, node, opts.ssh_key_check)
+  bootstrap.SetupNodeDaemon(opts, cluster_name, node)
 
   if opts.disk_state:
     disk_state = utils.FlatToDict(opts.disk_state)
@@ -252,10 +303,12 @@ def ListNodes(opts, args):
   fmtoverride = dict.fromkeys(["pinst_list", "sinst_list", "tags"],
                               (",".join, False))
 
+  cl = GetClient(query=False)
+
   return GenericList(constants.QR_NODE, selected_fields, args, opts.units,
                      opts.separator, not opts.no_headers,
                      format_override=fmtoverride, verbose=opts.verbose,
-                     force_filter=opts.force_filter)
+                     force_filter=opts.force_filter, cl=cl)
 
 
 def ListNodeFields(opts, args):
@@ -268,8 +321,10 @@ def ListNodeFields(opts, args):
   @return: the desired exit code
 
   """
+  cl = GetClient(query=True)
+
   return GenericListFields(constants.QR_NODE, args, opts.separator,
-                           not opts.no_headers)
+                           not opts.no_headers, cl=cl)
 
 
 def EvacuateNode(opts, args):
@@ -309,7 +364,10 @@ def EvacuateNode(opts, args):
 
   cl = GetClient()
 
-  result = cl.QueryNodes(names=args, fields=fields, use_locking=False)
+  qcl = GetClient(query=True)
+  result = qcl.QueryNodes(names=args, fields=fields, use_locking=False)
+  qcl.Close()
+
   instances = set(itertools.chain(*itertools.chain(*itertools.chain(result))))
 
   if not instances:
@@ -365,8 +423,10 @@ def FailoverNode(opts, args):
 
   # these fields are static data anyway, so it doesn't matter, but
   # locking=True should be safer
+  qcl = GetClient(query=True)
   result = cl.QueryNodes(names=args, fields=selected_fields,
                          use_locking=False)
+  qcl.Close()
   node, pinst = result[0]
 
   if not pinst:
@@ -405,7 +465,9 @@ def MigrateNode(opts, args):
   force = opts.force
   selected_fields = ["name", "pinst_list"]
 
+  qcl = GetClient(query=True)
   result = cl.QueryNodes(names=args, fields=selected_fields, use_locking=False)
+  qcl.Close()
   ((node, pinst), ) = result
 
   if not pinst:
@@ -467,7 +529,9 @@ def ShowNodeConfig(opts, args):
   @return: the desired exit code
 
   """
-  cl = GetClient()
+  # note: if this starts using RPC fields, and we haven't yet fixed
+  # hconfd, then we should revert to query=False
+  cl = GetClient(query=True)
   result = cl.QueryNodes(fields=["name", "pip", "sip",
                                  "pinst_list", "sinst_list",
                                  "master_candidate", "drained", "offline",
@@ -879,6 +943,47 @@ def SetNodeParams(opts, args):
   return 0
 
 
+def RestrictedCommand(opts, args):
+  """Runs a remote command on node(s).
+
+  @param opts: Command line options selected by user
+  @type args: list
+  @param args: Command line arguments
+  @rtype: int
+  @return: Exit code
+
+  """
+  cl = GetClient()
+
+  if len(args) > 1 or opts.nodegroup:
+    # Expand node names
+    nodes = GetOnlineNodes(nodes=args[1:], cl=cl, nodegroup=opts.nodegroup)
+  else:
+    raise errors.OpPrereqError("Node group or node names must be given",
+                               errors.ECODE_INVAL)
+
+  op = opcodes.OpRestrictedCommand(command=args[0], nodes=nodes,
+                                   use_locking=opts.do_locking)
+  result = SubmitOrSend(op, opts, cl=cl)
+
+  exit_code = constants.EXIT_SUCCESS
+
+  for (node, (status, text)) in zip(nodes, result):
+    ToStdout("------------------------------------------------")
+    if status:
+      if opts.show_machine_names:
+        for line in text.splitlines():
+          ToStdout("%s: %s", node, line)
+      else:
+        ToStdout("Node: %s", node)
+        ToStdout(text)
+    else:
+      exit_code = constants.EXIT_FAILURE
+      ToStdout(text)
+
+  return exit_code
+
+
 class ReplyStatus(object):
   """Class holding a reply status for synchronous confd clients.
 
@@ -907,11 +1012,6 @@ def ListDrbd(opts, args):
              " been enabled at build time.")
     return constants.EXIT_FAILURE
 
-  if not constants.HS_CONFD:
-    ToStderr("Error: this command requires the Haskell version of confd,"
-             " but it has not been enabled at build time.")
-    return constants.EXIT_FAILURE
-
   status = ReplyStatus()
 
   def ListDrbdConfdCallback(reply):
@@ -938,7 +1038,7 @@ def ListDrbd(opts, args):
         status.failure = True
 
   node = args[0]
-  hmac = utils.ReadFile(constants.CONFD_HMAC_KEY)
+  hmac = utils.ReadFile(pathutils.CONFD_HMAC_KEY)
   filter_callback = confd_client.ConfdFilterCallback(ListDrbdConfdCallback)
   counting_callback = confd_client.ConfdCountingCallback(filter_callback)
   cf_client = confd_client.ConfdClient(hmac, [constants.IP4_ADDRESS_LOCALHOST],
@@ -973,6 +1073,7 @@ def ListDrbd(opts, args):
     ToStdout(line)
 
   return constants.EXIT_SUCCESS
+
 
 commands = {
   "add": (
@@ -1089,6 +1190,11 @@ commands = {
     ListDrbd, ARGS_ONE_NODE,
     [NOHDR_OPT, SEP_OPT],
     "[<node_name>]", "Query the list of used DRBD minors on the given node"),
+  "restricted-command": (
+    RestrictedCommand, [ArgUnknown(min=1, max=1)] + ARGS_MANY_NODES,
+    [SYNC_OPT, PRIORITY_OPT, SUBMIT_OPT, SHOW_MACHINE_OPT, NODEGROUP_OPT],
+    "<command> <node_name> [<node_name>...]",
+    "Executes a restricted command on node(s)"),
   }
 
 #: dictionary with aliases for commands

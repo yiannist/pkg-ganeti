@@ -1,0 +1,347 @@
+.TH gnt-network 8 "" "Ganeti" "Version @GANETI_VERSION@"
+.SH Name
+.PP
+gnt-network - Ganeti network administration
+.SH Synopsis
+.PP
+\f[B]gnt-network\f[] {command} [arguments...]
+.SH DESCRIPTION
+.PP
+The \f[B]gnt-network\f[] command is used for network definition and
+administration in the Ganeti system.
+Each instance NIC can be connected to a network via the \f[C]network\f[]
+NIC parameter.
+See \f[B]gnt-instance\f[](8) for more details.
+.SH BUGS
+.PP
+The \f[C]hail\f[] iallocator hasn\[aq]t been updated to take networks
+into account in Ganeti 2.7.
+The only way to guarantee that it works correctly is having your
+networks connected to all nodegroups.
+This will be fixed in a future version.
+.SH COMMANDS
+.SS ADD
+.PP
+\f[B]add\f[]
+.PD 0
+.P
+.PD
+[--network=\f[I]NETWORK\f[]]
+.PD 0
+.P
+.PD
+[--gateway=\f[I]GATEWAY\f[]]
+.PD 0
+.P
+.PD
+[--add-reserved-ips=\f[I]RESERVEDIPS\f[]]
+.PD 0
+.P
+.PD
+[--network6=\f[I]NETWORK6\f[]]
+.PD 0
+.P
+.PD
+[--gateway6=\f[I]GATEWAY6\f[]]
+.PD 0
+.P
+.PD
+[--mac-prefix=\f[I]MACPREFIX\f[]]
+.PD 0
+.P
+.PD
+[--submit]
+.PD 0
+.P
+.PD
+{\f[I]network\f[]}
+.PP
+Creates a new network with the given name.
+The network will be unused initially.
+To connect it to a node group, use \f[C]gnt-network\ connect\f[].
+\f[C]--network\f[] option is mandatory.
+All other are optional.
+.PP
+The \f[C]--network\f[] option allows you to specify the network in a
+CIDR notation.
+.PP
+The \f[C]--gateway\f[] option allows you to specify the default gateway
+for this network.
+.PP
+IPv6 semantics can be assigned to the network via the
+\f[C]--network6\f[] and \f[C]--gateway6\f[] options.
+IP pool is meaningless for IPV6 so those two values can be used for
+EUI64 generation from a NIC\[aq]s MAC address.
+.PP
+Note that a when connecting a network to a node group (see below) you
+can specify also the NIC mode and link that will be used by instances on
+that group to physically connect to this network.
+This allows the system to work even if the parameters (eg.
+the VLAN number) change between groups.
+.PP
+See \f[B]ganeti\f[](7) for a description of \f[C]--submit\f[] and other
+common options.
+.SS MODIFY
+.PP
+\f[B]modify\f[]
+.PD 0
+.P
+.PD
+[--gateway=\f[I]GATEWAY\f[]]
+.PD 0
+.P
+.PD
+[--add-reserved-ips=\f[I]RESERVEDIPS\f[]]
+.PD 0
+.P
+.PD
+[--remove-reserved-ips=\f[I]RESERVEDIPS\f[]]
+.PD 0
+.P
+.PD
+[--network6=\f[I]NETWORK6\f[]]
+.PD 0
+.P
+.PD
+[--gateway6=\f[I]GATEWAY6\f[]]
+.PD 0
+.P
+.PD
+[--mac-prefix=\f[I]MACPREFIX\f[]]
+.PD 0
+.P
+.PD
+[--submit]
+.PD 0
+.P
+.PD
+{\f[I]network\f[]}
+.PP
+Modifies parameters from the network.
+.PP
+Unable to modify network (IP address range).
+Create a new network if you want to do so.
+All other options are documented in the \f[B]add\f[] command above.
+.PP
+See \f[B]ganeti\f[](7) for a description of \f[C]--submit\f[] and other
+common options.
+.SS REMOVE
+.PP
+\f[B]remove\f[] [--submit] {\f[I]network\f[]}
+.PP
+Deletes the indicated network, which must be not connected to any node
+group.
+.PP
+See \f[B]ganeti\f[](7) for a description of \f[C]--submit\f[] and other
+common options.
+.SS LIST
+.PP
+\f[B]list\f[] [--no-headers] [--separator=\f[I]SEPARATOR\f[]] [-v]
+.PD 0
+.P
+.PD
+[-o \f[I][+]FIELD,...\f[]] [network...]
+.PP
+Lists all existing networks in the cluster.
+If no group names are given, then all groups are included.
+Otherwise, only the named groups will be listed.
+.PP
+The \f[C]--no-headers\f[] option will skip the initial header line.
+The \f[C]--separator\f[] option takes an argument which denotes what
+will be used between the output fields.
+Both these options are to help scripting.
+.PP
+The \f[C]-v\f[] option activates verbose mode, which changes the display
+of special field states (see \f[B]ganeti\f[](7)).
+.PP
+The \f[C]-o\f[] option takes a comma-separated list of output fields.
+If the value of the option starts with the character \f[C]+\f[], the new
+fields will be added to the default list.
+This allows to quickly see the default list plus a few other fields,
+instead of retyping the entire list of fields.
+.PP
+The available fields and their meaning are:
+.TP
+.B \f[C]external_reservations\f[]
+External reservations
+.RS
+.RE
+.TP
+.B \f[C]free_count\f[]
+Number of available addresses
+.RS
+.RE
+.TP
+.B \f[C]gateway\f[]
+IPv4 gateway
+.RS
+.RE
+.TP
+.B \f[C]gateway6\f[]
+IPv6 gateway
+.RS
+.RE
+.TP
+.B \f[C]group_cnt\f[]
+Number of nodegroups
+.RS
+.RE
+.TP
+.B \f[C]group_list\f[]
+List of nodegroups (group name, NIC mode, NIC link)
+.RS
+.RE
+.TP
+.B \f[C]inst_cnt\f[]
+Number of instances
+.RS
+.RE
+.TP
+.B \f[C]inst_list\f[]
+List of instances
+.RS
+.RE
+.TP
+.B \f[C]mac_prefix\f[]
+MAC address prefix
+.RS
+.RE
+.TP
+.B \f[C]map\f[]
+Actual mapping
+.RS
+.RE
+.TP
+.B \f[C]name\f[]
+Name
+.RS
+.RE
+.TP
+.B \f[C]network\f[]
+IPv4 subnet
+.RS
+.RE
+.TP
+.B \f[C]network6\f[]
+IPv6 subnet
+.RS
+.RE
+.TP
+.B \f[C]reserved_count\f[]
+Number of reserved addresses
+.RS
+.RE
+.TP
+.B \f[C]serial_no\f[]
+Network object serial number, incremented on each modification
+.RS
+.RE
+.TP
+.B \f[C]tags\f[]
+Tags
+.RS
+.RE
+.TP
+.B \f[C]uuid\f[]
+Network UUID
+.RS
+.RE
+.SS LIST-FIELDS
+.PP
+\f[B]list-fields\f[] [field...]
+.PP
+List available fields for networks.
+.SS INFO
+.PP
+\f[B]info\f[] [network...]
+.PP
+Displays information about a given network.
+.SS CONNECT
+.PP
+\f[B]connect\f[] {\f[I]network\f[]} {\f[I]mode\f[]} {\f[I]link\f[]}
+[\f[I]groups\f[]...]
+.PP
+Connect a network to given node groups (all if not specified) with the
+network parameters \f[I]mode\f[] and \f[I]link\f[].
+Every network interface will inherit those parameters if assigned in a
+network.
+.SS DISCONNECT
+.PP
+\f[B]disconnect\f[] {\f[I]network\f[]} [\f[I]groups\f[]...]
+.PP
+Disconnect a network from given node groups (all if not specified).
+This is possible only if no instance is using the network.
+.SS Tags
+.SS ADD-TAGS
+.PP
+\f[B]add-tags\f[] [--from \f[I]file\f[]] {\f[I]networkname\f[]}
+{\f[I]tag\f[]...}
+.PP
+Add tags to the given network.
+If any of the tags contains invalid characters, the entire operation
+will abort.
+.PP
+If the \f[C]--from\f[] option is given, the list of tags will be
+extended with the contents of that file (each line becomes a tag).
+In this case, there is not need to pass tags on the command line (if you
+do, both sources will be used).
+A file name of \f[C]-\f[] will be interpreted as stdin.
+.SS LIST-TAGS
+.PP
+\f[B]list-tags\f[] {\f[I]networkname\f[]}
+.PP
+List the tags of the given network.
+.SS REMOVE-TAGS
+.PP
+\f[B]remove-tags\f[] [--from \f[I]file\f[]] {\f[I]networkname\f[]}
+{\f[I]tag\f[]...}
+.PP
+Remove tags from the given network.
+If any of the tags are not existing on the network, the entire operation
+will abort.
+.PP
+If the \f[C]--from\f[] option is given, the list of tags to be removed
+will be extended with the contents of that file (each line becomes a
+tag).
+In this case, there is not need to pass tags on the command line (if you
+do, tags from both sources will be removed).
+A file name of \f[C]-\f[] will be interpreted as stdin.
+.SH REPORTING BUGS
+.PP
+Report bugs to project website (http://code.google.com/p/ganeti/) or
+contact the developers using the Ganeti mailing
+list (ganeti@googlegroups.com).
+.SH SEE ALSO
+.PP
+Ganeti overview and specifications: \f[B]ganeti\f[](7) (general
+overview), \f[B]ganeti-os-interface\f[](7) (guest OS definitions),
+\f[B]ganeti-extstorage-interface\f[](7) (external storage providers).
+.PP
+Ganeti commands: \f[B]gnt-cluster\f[](8) (cluster-wide commands),
+\f[B]gnt-job\f[](8) (job-related commands), \f[B]gnt-node\f[](8)
+(node-related commands), \f[B]gnt-instance\f[](8) (instance commands),
+\f[B]gnt-os\f[](8) (guest OS commands), \f[B]gnt-storage\f[](8) (storage
+commands), \f[B]gnt-group\f[](8) (node group commands),
+\f[B]gnt-backup\f[](8) (instance import/export commands),
+\f[B]gnt-debug\f[](8) (debug commands).
+.PP
+Ganeti daemons: \f[B]ganeti-watcher\f[](8) (automatic instance
+restarter), \f[B]ganeti-cleaner\f[](8) (job queue cleaner),
+\f[B]ganeti-noded\f[](8) (node daemon), \f[B]ganeti-masterd\f[](8)
+(master daemon), \f[B]ganeti-rapi\f[](8) (remote API daemon).
+.PP
+Ganeti htools: \f[B]htools\f[](1) (generic binary), \f[B]hbal\f[](1)
+(cluster balancer), \f[B]hspace\f[](1) (capacity calculation),
+\f[B]hail\f[](1) (IAllocator plugin), \f[B]hscan\f[](1) (data gatherer
+from remote clusters), \f[B]hinfo\f[](1) (cluster information printer),
+\f[B]mon-collector\f[](7) (data collectors interface).
+.SH COPYRIGHT
+.PP
+Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012 Google Inc.
+Permission is granted to copy, distribute and/or modify under the terms
+of the GNU General Public License as published by the Free Software
+Foundation; either version 2 of the License, or (at your option) any
+later version.
+.PP
+On Debian systems, the complete text of the GNU General Public License
+can be found in /usr/share/common-licenses/GPL.

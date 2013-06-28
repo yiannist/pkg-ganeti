@@ -31,18 +31,21 @@ can be easily moved between them. By checking the signatures, the
 destination cluster can be sure the third party (e.g. this tool) didn't
 modify the received crypto keys and connection information.
 
-.. highlight:: sh
+.. highlight:: shell-example
 
 To create a new, random cluster domain secret, run the following command
 on the master node::
 
-  gnt-cluster renew-crypto --new-cluster-domain-secret
+  $ gnt-cluster renew-crypto --new-cluster-domain-secret
 
 
-To set the cluster domain secret, run the following command on the
-master node::
+To read and set the cluster domain secret from the contents of a file,
+run the following command on the master node::
 
-  gnt-cluster renew-crypto --cluster-domain-secret=/.../ganeti.cds
+  $ gnt-cluster renew-crypto --cluster-domain-secret=%/.../ganeti.cds%
+
+More information about the ``renew-crypto`` command can be found in
+:manpage:`gnt-cluster(8)`.
 
 
 Moving instances
@@ -51,7 +54,7 @@ Moving instances
 As soon as the clusters share a cluster domain secret, instances can be
 moved. The tool usage is as follows::
 
-  move-instance [options] <source-cluster> <destination-cluster> <instance-name...>
+  $ move-instance %[options]% %source-cluster% %destination-cluster% %instance-name...%
 
 Multiple instances can be moved with one invocation of the instance move
 tool, though a few options are only available when moving a single
@@ -66,9 +69,10 @@ destination-related options default to the source value (e.g. setting
 ``--src-ca-file``/``--dest-ca-file``
   Path to file containing source cluster Certificate Authority (CA) in
   PEM format. For self-signed certificates, this is the certificate
-  itself. For certificates signed by a third party CA, the complete
-  chain must be in the file (see documentation for
-  ``SSL_CTX_load_verify_locations(3)``).
+  itself (see more details below in
+  :ref:`instance-move-certificates`). For certificates signed by a third
+  party CA, the complete chain must be in the file (see documentation
+  for :manpage:`SSL_CTX_load_verify_locations(3)`).
 ``--src-username``/``--dest-username``
   RAPI username, must have write access to cluster.
 ``--src-password-file``/``--dest-password-file``
@@ -92,6 +96,28 @@ destination-related options default to the source value (e.g. setting
 
 The exit value of the tool is zero if and only if all instance moves
 were successful.
+
+.. _instance-move-certificates:
+
+Certificates
+------------
+
+If using certificates signed by a CA, then you need to pass the same CA
+certificate via both ``--src-ca-file`` and ``dest-ca-file``.
+
+However, if you're using self-signed certificates, this has a few
+(security) implications:
+
+- the certificates of both the source and destinations clusters
+  (``rapi.pem`` from the Ganeti configuration directory, usually
+  ``/var/lib/ganeti/rapi.pem``) must be available to the tool
+- by default, the certificates include the private key as well, so
+  simply copying them to a third machine means that machine can now
+  impersonate both the source and destination clusters RAPI endpoint
+
+It is therefore recommended to copy only the certificate from the
+``rapi.pem`` files, and pass these to ``--src-ca-file`` and
+``--dest-ca-file`` appropriately.
 
 .. vim: set textwidth=72 :
 .. Local Variables:

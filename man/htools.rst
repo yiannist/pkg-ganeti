@@ -27,10 +27,11 @@ SYNOPSIS
 **hinfo**
   cluster information printer
 
+**hroller**
+  cluster rolling maintenance scheduler
 
 DESCRIPTION
 -----------
-
 
 ``htools`` is a suite of tools designed to help with allocation/movement
 of instances and balancing of Ganeti clusters. ``htools`` is also the
@@ -56,6 +57,9 @@ saves it to files which can later be reused by the other roles.
 
 Installed as ``hinfo``, it prints information about the current cluster
 state.
+
+Installed as ``hroller``, it helps scheduling maintenances that require
+node reboots on a cluster.
 
 COMMON OPTIONS
 --------------
@@ -147,21 +151,24 @@ support all options. Some common options are:
   Backend specification: the name of the file holding node and instance
   information (if not collecting via RAPI or LUXI). This or one of the
   other backends must be selected. The option is described in the man
-  page **htools**(1).
+  page **htools**\(1).
 
-  The file should contain text data, line-based, with two empty lines
+  The file should contain text data, line-based, with single empty lines
   separating sections. The lines themselves are column-based, with the
   pipe symbol (``|``) acting as separator.
 
-  The first section contains group data, with two columns:
+  The first section contains group data, with the following columns:
 
   - group name
   - group uuid
+  - allocation policy
+  - tags (separated by comma)
 
   The second sections contains node data, with the following columns:
 
   - node name
   - node total memory
+  - memory used by the node
   - node free memory
   - node total disk
   - node free disk
@@ -177,7 +184,7 @@ support all options. Some common options are:
   - instance disk size
   - instance vcpus
   - instance status (in Ganeti's format, e.g. ``running`` or ``ERROR_down``)
-  - instance ``auto_balance`` flag (see man page **gnt-instance** (7))
+  - instance ``auto_balance`` flag (see man page **gnt-instance**\(8))
   - instance primary node
   - instance secondary node(s), if any
   - instance disk type (e.g. ``plain`` or ``drbd``)
@@ -196,7 +203,7 @@ support all options. Some common options are:
     - cpu count
     - disk size
     - disk count
-    - nic count
+    - NIC count
   - disk templates
   - vcpu ratio
   - spindle ratio
@@ -268,7 +275,7 @@ their longer equivalents of *MB*, *GB*, *TB*, for which case doesn't
 matter).
 
 More details about the difference between the SI and binary systems can
-be read in the *units(7)* man page.
+be read in the **units**\(7) man page.
 
 ENVIRONMENT
 -----------

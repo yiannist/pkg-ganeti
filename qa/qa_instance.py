@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2007, 2011, 2012 Google Inc.
+# Copyright (C) 2007, 2011, 2012, 2013 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -23,12 +23,13 @@
 
 """
 
+import operator
 import re
-import time
 
 from ganeti import utils
 from ganeti import constants
 from ganeti import query
+from ganeti import pathutils
 
 import qa_config
 import qa_utils
@@ -62,7 +63,7 @@ def _GetGenericAddParameters(inst, force_mac=None):
   return params
 
 
-def _DiskTest(node, disk_template):
+def _DiskTest(node, disk_template, fail=False):
   instance = qa_config.AcquireInstance()
   try:
     cmd = (["gnt-instance", "add",
@@ -72,26 +73,215 @@ def _DiskTest(node, disk_template):
            _GetGenericAddParameters(instance))
     cmd.append(instance["name"])
 
-    AssertCommand(cmd)
+    AssertCommand(cmd, fail=fail)
 
-    _CheckSsconfInstanceList(instance["name"])
+    if not fail:
+      _CheckSsconfInstanceList(instance["name"])
+      qa_config.SetInstanceTemplate(instance, disk_template)
 
-    return instance
+      return instance
   except:
     qa_config.ReleaseInstance(instance)
     raise
 
+  # Handle the case where creation is expected to fail
+  assert fail
+  qa_config.ReleaseInstance(instance)
+  return None
 
-@InstanceCheck(None, INST_UP, RETURN_VALUE)
-def TestInstanceAddWithPlainDisk(node):
+
+def _GetInstanceInfo(instance):
+  """Return information about the actual state of an instance.
+
+  @type instance: string
+  @param instance: the instance name
+  @return: a dictionary with the following keys:
+      - "nodes": instance nodes, a list of strings
+      - "volumes": instance volume IDs, a list of strings
+      - "drbd-minors": DRBD minors used by the instance, a dictionary where
+        keys are nodes, and values are lists of integers (or an empty
+        dictionary for non-DRBD instances)
+
+  """
+  master = qa_config.GetMasterNode()
+  infocmd = utils.ShellQuoteArgs(["gnt-instance", "info", instance])
+  info_out = qa_utils.GetCommandOutput(master["primary"], infocmd)
+  re_node = re.compile(r"^\s+-\s+(?:primary|secondaries):\s+(\S.+)$")
+  node_elem = r"([^,()]+)(?:\s+\([^)]+\))?"
+  # re_nodelist matches a list of nodes returned by gnt-instance info, e.g.:
+  #  node1.fqdn
+  #  node2.fqdn,node3.fqdn
+  #  node4.fqdn (group mygroup, group UUID 01234567-abcd-0123-4567-0123456789ab)
+  # FIXME This works with no more than 2 secondaries
+  re_nodelist = re.compile(node_elem + "(?:," + node_elem + ")?$")
+  re_vol = re.compile(r"^\s+logical_id:\s+(\S+)$")
+  re_drbdnode = re.compile(r"^\s+node[AB]:\s+([^\s,]+),\s+minor=([0-9]+)$")
+  nodes = []
+  vols = []
+  drbd_min = {}
+  for line in info_out.splitlines():
+    m = re_node.match(line)
+    if m:
+      nodestr = m.group(1)
+      m2 = re_nodelist.match(nodestr)
+      if m2:
+        nodes.extend(filter(None, m2.groups()))
+      else:
+        nodes.append(nodestr)
+    m = re_vol.match(line)
+    if m:
+      vols.append(m.group(1))
+    m = re_drbdnode.match(line)
+    if m:
+      node = m.group(1)
+      minor = int(m.group(2))
+      if drbd_min.get(node) is not None:
+        drbd_min[node].append(minor)
+      else:
+        drbd_min[node] = [minor]
+  assert vols
+  assert nodes
+  return {"nodes": nodes, "volumes": vols, "drbd-minors": drbd_min}
+
+
+def _DestroyInstanceVolumes(instance):
+  """Remove all the LVM volumes of an instance.
+
+  This is used to simulate HW errors (dead nodes, broken disks...); the
+  configuration of the instance is not affected.
+  @type instance: dictionary
+  @param instance: the instance
+
+  """
+  info = _GetInstanceInfo(instance["name"])
+  vols = info["volumes"]
+  for node in info["nodes"]:
+    AssertCommand(["lvremove", "-f"] + vols, node=node)
+
+
+def _GetInstanceField(instance, field):
+  """Get the value of a field of an instance.
+
+  @type instance: string
+  @param instance: Instance name
+  @type field: string
+  @param field: Name of the field
+  @rtype: string
+
+  """
+  master = qa_config.GetMasterNode()
+  infocmd = utils.ShellQuoteArgs(["gnt-instance", "list", "--no-headers",
+                                  "--units", "m", "-o", field, instance])
+  return qa_utils.GetCommandOutput(master["primary"], infocmd).strip()
+
+
+def _GetBoolInstanceField(instance, field):
+  """Get the Boolean value of a field of an instance.
+
+  @type instance: string
+  @param instance: Instance name
+  @type field: string
+  @param field: Name of the field
+  @rtype: bool
+
+  """
+  info_out = _GetInstanceField(instance, field)
+  if info_out == "Y":
+    return True
+  elif info_out == "N":
+    return False
+  else:
+    raise qa_error.Error("Field %s of instance %s has a non-Boolean value:"
+                         " %s" % (field, instance, info_out))
+
+
+def _GetNumInstanceField(instance, field):
+  """Get a numeric value of a field of an instance.
+
+  @type instance: string
+  @param instance: Instance name
+  @type field: string
+  @param field: Name of the field
+  @rtype: int or float
+
+  """
+  info_out = _GetInstanceField(instance, field)
+  try:
+    ret = int(info_out)
+  except ValueError:
+    try:
+      ret = float(info_out)
+    except ValueError:
+      raise qa_error.Error("Field %s of instance %s has a non-numeric value:"
+                           " %s" % (field, instance, info_out))
+  return ret
+
+
+def GetInstanceSpec(instance, spec):
+  """Return the current spec for the given parameter.
+
+  @type instance: string
+  @param instance: Instance name
+  @type spec: string
+  @param spec: one of the supported parameters: "mem-size", "cpu-count",
+      "disk-count", "disk-size", "nic-count"
+  @rtype: tuple
+  @return: (minspec, maxspec); minspec and maxspec can be different only for
+      memory and disk size
+
+  """
+  specmap = {
+    "mem-size": ["be/minmem", "be/maxmem"],
+    "cpu-count": ["vcpus"],
+    "disk-count": ["disk.count"],
+    "disk-size": ["disk.size/ "],
+    "nic-count": ["nic.count"],
+    }
+  # For disks, first we need the number of disks
+  if spec == "disk-size":
+    (numdisk, _) = GetInstanceSpec(instance, "disk-count")
+    fields = ["disk.size/%s" % k for k in range(0, numdisk)]
+  else:
+    assert spec in specmap, "%s not in %s" % (spec, specmap)
+    fields = specmap[spec]
+  values = [_GetNumInstanceField(instance, f) for f in fields]
+  return (min(values), max(values))
+
+
+def IsFailoverSupported(instance):
+  templ = qa_config.GetInstanceTemplate(instance)
+  return templ in constants.DTS_MIRRORED
+
+
+def IsMigrationSupported(instance):
+  templ = qa_config.GetInstanceTemplate(instance)
+  return templ in constants.DTS_MIRRORED
+
+
+def IsDiskReplacingSupported(instance):
+  templ = qa_config.GetInstanceTemplate(instance)
+  return templ == constants.DT_DRBD8
+
+
+def IsDiskSupported(instance):
+  templ = qa_config.GetInstanceTemplate(instance)
+  return templ != constants.DT_DISKLESS
+
+
+def TestInstanceAddWithPlainDisk(nodes, fail=False):
   """gnt-instance add -t plain"""
-  return _DiskTest(node["primary"], "plain")
+  assert len(nodes) == 1
+  instance = _DiskTest(nodes[0]["primary"], constants.DT_PLAIN, fail=fail)
+  if not fail:
+    qa_utils.RunInstanceCheck(instance, True)
+  return instance
 
 
 @InstanceCheck(None, INST_UP, RETURN_VALUE)
-def TestInstanceAddWithDrbdDisk(node, node2):
+def TestInstanceAddWithDrbdDisk(nodes):
   """gnt-instance add -t drbd"""
-  return _DiskTest("%s:%s" % (node["primary"], node2["primary"]),
+  assert len(nodes) == 2
+  return _DiskTest(":".join(map(operator.itemgetter("primary"), nodes)),
                    "drbd")
 
 
@@ -153,7 +343,7 @@ def _ReadSsconfInstanceList():
   """
   master = qa_config.GetMasterNode()
 
-  cmd = ["cat", utils.PathJoin(constants.DATA_DIR,
+  cmd = ["cat", utils.PathJoin(pathutils.DATA_DIR,
                                "ssconf_%s" % constants.SS_INSTANCE_LIST)]
 
   return qa_utils.GetCommandOutput(master["primary"],
@@ -190,21 +380,44 @@ def TestInstanceRenameAndBack(rename_source, rename_target):
   finally:
     qa_utils.RemoveFromEtcHosts(["meeeeh-not-exists", rename_target])
 
+  # Check instance volume tags correctly updated
+  # FIXME: this is LVM specific!
+  info = _GetInstanceInfo(rename_source)
+  tags_cmd = ("lvs -o tags --noheadings %s | grep " %
+              (" ".join(info["volumes"]), ))
+
   # and now rename instance to rename_target...
   AssertCommand(["gnt-instance", "rename", rename_source, rename_target])
   _CheckSsconfInstanceList(rename_target)
   qa_utils.RunInstanceCheck(rename_source, False)
   qa_utils.RunInstanceCheck(rename_target, False)
 
+  # NOTE: tags might not be the exactly as the instance name, due to
+  # charset restrictions; hence the test might be flaky
+  if rename_source != rename_target:
+    for node in info["nodes"]:
+      AssertCommand(tags_cmd + rename_source, node=node, fail=True)
+      AssertCommand(tags_cmd + rename_target, node=node, fail=False)
+
   # and back
   AssertCommand(["gnt-instance", "rename", rename_target, rename_source])
   _CheckSsconfInstanceList(rename_source)
   qa_utils.RunInstanceCheck(rename_target, False)
 
+  if rename_source != rename_target:
+    for node in info["nodes"]:
+      AssertCommand(tags_cmd + rename_source, node=node, fail=False)
+      AssertCommand(tags_cmd + rename_target, node=node, fail=True)
+
 
 @InstanceCheck(INST_UP, INST_UP, FIRST_ARG)
 def TestInstanceFailover(instance):
   """gnt-instance failover"""
+  if not IsFailoverSupported(instance):
+    print qa_utils.FormatInfo("Instance doesn't support failover, skipping"
+                              " test")
+    return
+
   cmd = ["gnt-instance", "failover", "--force", instance["name"]]
 
   # failover ...
@@ -216,16 +429,34 @@ def TestInstanceFailover(instance):
 
 
 @InstanceCheck(INST_UP, INST_UP, FIRST_ARG)
-def TestInstanceMigrate(instance):
+def TestInstanceMigrate(instance, toggle_always_failover=True):
   """gnt-instance migrate"""
+  if not IsMigrationSupported(instance):
+    print qa_utils.FormatInfo("Instance doesn't support migration, skipping"
+                              " test")
+    return
+
   cmd = ["gnt-instance", "migrate", "--force", instance["name"]]
+  af_par = constants.BE_ALWAYS_FAILOVER
+  af_field = "be/" + constants.BE_ALWAYS_FAILOVER
+  af_init_val = _GetBoolInstanceField(instance["name"], af_field)
 
   # migrate ...
   AssertCommand(cmd)
+  # TODO: Verify the choice between failover and migration
   qa_utils.RunInstanceCheck(instance, True)
 
-  # ... and back
+  # ... and back (possibly with always_failover toggled)
+  if toggle_always_failover:
+    AssertCommand(["gnt-instance", "modify", "-B",
+                   ("%s=%s" % (af_par, not af_init_val)),
+                   instance["name"]])
   AssertCommand(cmd)
+  # TODO: Verify the choice between failover and migration
+  qa_utils.RunInstanceCheck(instance, True)
+  if toggle_always_failover:
+    AssertCommand(["gnt-instance", "modify", "-B",
+                   ("%s=%s" % (af_par, af_init_val)), instance["name"]])
 
   # TODO: Split into multiple tests
   AssertCommand(["gnt-instance", "shutdown", instance["name"]])
@@ -235,6 +466,7 @@ def TestInstanceMigrate(instance):
                  instance["name"]])
   AssertCommand(["gnt-instance", "start", instance["name"]])
   AssertCommand(cmd)
+  # @InstanceCheck enforces the check that the instance is running
   qa_utils.RunInstanceCheck(instance, True)
 
   AssertCommand(["gnt-instance", "modify", "-B",
@@ -311,9 +543,12 @@ def TestInstanceModify(instance):
   # check no-modify
   AssertCommand(["gnt-instance", "modify", instance["name"]], fail=True)
 
-  # Marking offline/online while instance is running must fail
-  for arg in ["--online", "--offline"]:
-    AssertCommand(["gnt-instance", "modify", arg, instance["name"]], fail=True)
+  # Marking offline while instance is running must fail...
+  AssertCommand(["gnt-instance", "modify", "--offline", instance["name"]],
+                 fail=True)
+
+  # ...while making it online is ok, and should work
+  AssertCommand(["gnt-instance", "modify", "--online", instance["name"]])
 
 
 @InstanceCheck(INST_DOWN, INST_DOWN, FIRST_ARG)
@@ -327,22 +562,55 @@ def TestInstanceStoppedModify(instance):
   # Mark instance as offline
   AssertCommand(["gnt-instance", "modify", "--offline", name])
 
+  # When the instance is offline shutdown should only work with --force,
+  # while start should never work
+  AssertCommand(["gnt-instance", "shutdown", name], fail=True)
+  AssertCommand(["gnt-instance", "shutdown", "--force", name])
+  AssertCommand(["gnt-instance", "start", name], fail=True)
+  AssertCommand(["gnt-instance", "start", "--force", name], fail=True)
+
+  # Also do offline to offline
+  AssertCommand(["gnt-instance", "modify", "--offline", name])
+
   # And online again
   AssertCommand(["gnt-instance", "modify", "--online", name])
 
 
 @InstanceCheck(INST_DOWN, INST_DOWN, FIRST_ARG)
-def TestInstanceConvertDisk(instance, snode):
+def TestInstanceConvertDiskToPlain(instance, inodes):
   """gnt-instance modify -t"""
   name = instance["name"]
+  template = qa_config.GetInstanceTemplate(instance)
+  if template != "drbd":
+    print qa_utils.FormatInfo("Unsupported template %s, skipping conversion"
+                              " test" % template)
+    return
+  assert len(inodes) == 2
   AssertCommand(["gnt-instance", "modify", "-t", "plain", name])
   AssertCommand(["gnt-instance", "modify", "-t", "drbd",
-                 "-n", snode["primary"], name])
+                 "-n", inodes[1]["primary"], name])
+
+
+@InstanceCheck(INST_UP, INST_UP, FIRST_ARG)
+def TestInstanceModifyDisks(instance):
+  """gnt-instance modify --disk"""
+  if not IsDiskSupported(instance):
+    print qa_utils.FormatInfo("Instance doesn't support disks, skipping test")
+    return
+
+  size = qa_config.get("disk")[-1]
+  name = instance["name"]
+  build_cmd = lambda arg: ["gnt-instance", "modify", "--disk", arg, name]
+  AssertCommand(build_cmd("add:size=%s" % size))
+  AssertCommand(build_cmd("remove"))
 
 
 @InstanceCheck(INST_DOWN, INST_DOWN, FIRST_ARG)
 def TestInstanceGrowDisk(instance):
   """gnt-instance grow-disk"""
+  if qa_config.GetExclusiveStorage():
+    print qa_utils.FormatInfo("Test not supported with exclusive_storage")
+    return
   name = instance["name"]
   all_size = qa_config.get("disk")
   all_grow = qa_config.get("disk-growth")
@@ -380,31 +648,117 @@ def TestInstanceConsole(instance):
 
 
 @InstanceCheck(INST_UP, INST_UP, FIRST_ARG)
-def TestReplaceDisks(instance, pnode, snode, othernode):
+def TestReplaceDisks(instance, curr_nodes, other_nodes):
   """gnt-instance replace-disks"""
-  # pylint: disable=W0613
-  # due to unused pnode arg
-  # FIXME: should be removed from the function completely
   def buildcmd(args):
     cmd = ["gnt-instance", "replace-disks"]
     cmd.extend(args)
     cmd.append(instance["name"])
     return cmd
 
+  if not IsDiskReplacingSupported(instance):
+    print qa_utils.FormatInfo("Instance doesn't support disk replacing,"
+                              " skipping test")
+    return
+
+  # Currently all supported templates have one primary and one secondary node
+  assert len(curr_nodes) == 2
+  snode = curr_nodes[1]
+  assert len(other_nodes) == 1
+  othernode = other_nodes[0]
+
+  options = qa_config.get("options", {})
+  use_ialloc = options.get("use-iallocators", True)
   for data in [
     ["-p"],
     ["-s"],
-    ["--new-secondary=%s" % othernode["primary"]],
-    # and restore
+    # A placeholder; the actual command choice depends on use_ialloc
+    None,
+    # Restore the original secondary
     ["--new-secondary=%s" % snode["primary"]],
     ]:
+    if data is None:
+      if use_ialloc:
+        data = ["-I", constants.DEFAULT_IALLOCATOR_SHORTCUT]
+      else:
+        data = ["--new-secondary=%s" % othernode["primary"]]
     AssertCommand(buildcmd(data))
 
   AssertCommand(buildcmd(["-a"]))
   AssertCommand(["gnt-instance", "stop", instance["name"]])
   AssertCommand(buildcmd(["-a"]), fail=True)
   AssertCommand(["gnt-instance", "activate-disks", instance["name"]])
+  AssertCommand(["gnt-instance", "activate-disks", "--wait-for-sync",
+                 instance["name"]])
   AssertCommand(buildcmd(["-a"]))
+  AssertCommand(["gnt-instance", "start", instance["name"]])
+
+
+def _AssertRecreateDisks(cmdargs, instance, fail=False, check=True,
+                         destroy=True):
+  """Execute gnt-instance recreate-disks and check the result
+
+  @param cmdargs: Arguments (instance name excluded)
+  @param instance: Instance to operate on
+  @param fail: True if the command is expected to fail
+  @param check: If True and fail is False, check that the disks work
+  @prama destroy: If True, destroy the old disks first
+
+  """
+  if destroy:
+    _DestroyInstanceVolumes(instance)
+  AssertCommand((["gnt-instance", "recreate-disks"] + cmdargs +
+                 [instance["name"]]), fail)
+  if not fail and check:
+    # Quick check that the disks are there
+    AssertCommand(["gnt-instance", "activate-disks", instance["name"]])
+    AssertCommand(["gnt-instance", "activate-disks", "--wait-for-sync",
+                   instance["name"]])
+    AssertCommand(["gnt-instance", "deactivate-disks", instance["name"]])
+
+
+@InstanceCheck(INST_UP, INST_UP, FIRST_ARG)
+def TestRecreateDisks(instance, inodes, othernodes):
+  """gnt-instance recreate-disks
+
+  @param instance: Instance to work on
+  @param inodes: List of the current nodes of the instance
+  @param othernodes: list/tuple of nodes where to temporarily recreate disks
+
+  """
+  options = qa_config.get("options", {})
+  use_ialloc = options.get("use-iallocators", True)
+  other_seq = ":".join([n["primary"] for n in othernodes])
+  orig_seq = ":".join([n["primary"] for n in inodes])
+  # These fail because the instance is running
+  _AssertRecreateDisks(["-n", other_seq], instance, fail=True, destroy=False)
+  if use_ialloc:
+    _AssertRecreateDisks(["-I", "hail"], instance, fail=True, destroy=False)
+  else:
+    _AssertRecreateDisks(["-n", other_seq], instance, fail=True, destroy=False)
+  AssertCommand(["gnt-instance", "stop", instance["name"]])
+  # Disks exist: this should fail
+  _AssertRecreateDisks([], instance, fail=True, destroy=False)
+  # Recreate disks in place
+  _AssertRecreateDisks([], instance)
+  # Move disks away
+  if use_ialloc:
+    _AssertRecreateDisks(["-I", "hail"], instance)
+    # Move disks somewhere else
+    _AssertRecreateDisks(["-I", constants.DEFAULT_IALLOCATOR_SHORTCUT],
+                         instance)
+  else:
+    _AssertRecreateDisks(["-n", other_seq], instance)
+  # Move disks back
+  _AssertRecreateDisks(["-n", orig_seq], instance)
+  # Recreate the disks one by one
+  for idx in range(0, len(qa_config.get("disk"))):
+    # Only the first call should destroy all the disk
+    destroy = (idx == 0)
+    _AssertRecreateDisks(["--disk=%s" % idx], instance, destroy=destroy,
+                         check=False)
+  # This and InstanceCheck decoration check that the disks are working
+  AssertCommand(["gnt-instance", "reinstall", "-f", instance["name"]])
   AssertCommand(["gnt-instance", "start", instance["name"]])
 
 
@@ -421,6 +775,7 @@ def TestInstanceExportWithRemove(instance, node):
   """gnt-backup export --remove-instance"""
   AssertCommand(["gnt-backup", "export", "-n", node["primary"],
                  "--remove-instance", instance["name"]])
+  qa_config.ReleaseInstance(instance)
 
 
 @InstanceCheck(INST_UP, INST_UP, FIRST_ARG)
@@ -432,15 +787,17 @@ def TestInstanceExportNoTarget(instance):
 @InstanceCheck(None, INST_DOWN, FIRST_ARG)
 def TestInstanceImport(newinst, node, expnode, name):
   """gnt-backup import"""
+  templ = constants.DT_PLAIN
   cmd = (["gnt-backup", "import",
-          "--disk-template=plain",
+          "--disk-template=%s" % templ,
           "--no-ip-check",
           "--src-node=%s" % expnode["primary"],
-          "--src-dir=%s/%s" % (constants.EXPORT_DIR, name),
+          "--src-dir=%s/%s" % (pathutils.EXPORT_DIR, name),
           "--node=%s" % node["primary"]] +
          _GetGenericAddParameters(newinst, force_mac=constants.VALUE_GENERATE))
   cmd.append(newinst["name"])
   AssertCommand(cmd)
+  qa_config.SetInstanceTemplate(newinst, templ)
 
 
 def TestBackupList(expnode):
@@ -456,129 +813,22 @@ def TestBackupListFields():
   qa_utils.GenericQueryFieldsTest("gnt-backup", query.EXPORT_FIELDS.keys())
 
 
-def _TestInstanceDiskFailure(instance, node, node2, onmaster):
-  """Testing disk failure."""
-  master = qa_config.GetMasterNode()
-  sq = utils.ShellQuoteArgs
+def TestRemoveInstanceOfflineNode(instance, snode, set_offline, set_online):
+  """gtn-instance remove with an off-line node
 
-  instance_full = qa_utils.ResolveInstanceName(instance["name"])
-  node_full = qa_utils.ResolveNodeName(node)
-  node2_full = qa_utils.ResolveNodeName(node2)
+  @param instance: instance
+  @param snode: secondary node, to be set offline
+  @param set_offline: function to call to set the node off-line
+  @param set_online: function to call to set the node on-line
 
-  print qa_utils.FormatInfo("Getting physical disk names")
-  cmd = ["gnt-node", "volumes", "--separator=|", "--no-headers",
-         "--output=node,phys,instance",
-         node["primary"], node2["primary"]]
-  output = qa_utils.GetCommandOutput(master["primary"], sq(cmd))
-
-  # Get physical disk names
-  re_disk = re.compile(r"^/dev/([a-z]+)\d+$")
-  node2disk = {}
-  for line in output.splitlines():
-    (node_name, phys, inst) = line.split("|")
-    if inst == instance_full:
-      if node_name not in node2disk:
-        node2disk[node_name] = []
-
-      m = re_disk.match(phys)
-      if not m:
-        raise qa_error.Error("Unknown disk name format: %s" % phys)
-
-      name = m.group(1)
-      if name not in node2disk[node_name]:
-        node2disk[node_name].append(name)
-
-  if [node2_full, node_full][int(onmaster)] not in node2disk:
-    raise qa_error.Error("Couldn't find physical disks used on"
-                         " %s node" % ["secondary", "master"][int(onmaster)])
-
-  print qa_utils.FormatInfo("Checking whether nodes have ability to stop"
-                            " disks")
-  for node_name, disks in node2disk.iteritems():
-    cmds = []
-    for disk in disks:
-      cmds.append(sq(["test", "-f", _GetDiskStatePath(disk)]))
-    AssertCommand(" && ".join(cmds), node=node_name)
-
-  print qa_utils.FormatInfo("Getting device paths")
-  cmd = ["gnt-instance", "activate-disks", instance["name"]]
-  output = qa_utils.GetCommandOutput(master["primary"], sq(cmd))
-  devpath = []
-  for line in output.splitlines():
-    (_, _, tmpdevpath) = line.split(":")
-    devpath.append(tmpdevpath)
-  print devpath
-
-  print qa_utils.FormatInfo("Getting drbd device paths")
-  cmd = ["gnt-instance", "info", instance["name"]]
-  output = qa_utils.GetCommandOutput(master["primary"], sq(cmd))
-  pattern = (r"\s+-\s+sd[a-z]+,\s+type:\s+drbd8?,\s+.*$"
-             r"\s+primary:\s+(/dev/drbd\d+)\s+")
-  drbddevs = re.findall(pattern, output, re.M)
-  print drbddevs
-
-  halted_disks = []
+  """
+  info = _GetInstanceInfo(instance["name"])
+  set_offline(snode)
   try:
-    print qa_utils.FormatInfo("Deactivating disks")
-    cmds = []
-    for name in node2disk[[node2_full, node_full][int(onmaster)]]:
-      halted_disks.append(name)
-      cmds.append(sq(["echo", "offline"]) + " >%s" % _GetDiskStatePath(name))
-    AssertCommand(" && ".join(cmds), node=[node2, node][int(onmaster)])
-
-    print qa_utils.FormatInfo("Write to disks and give some time to notice"
-                              " the problem")
-    cmds = []
-    for disk in devpath:
-      cmds.append(sq(["dd", "count=1", "bs=512", "conv=notrunc",
-                      "if=%s" % disk, "of=%s" % disk]))
-    for _ in (0, 1, 2):
-      AssertCommand(" && ".join(cmds), node=node)
-      time.sleep(3)
-
-    print qa_utils.FormatInfo("Debugging info")
-    for name in drbddevs:
-      AssertCommand(["drbdsetup", name, "show"], node=node)
-
-    AssertCommand(["gnt-instance", "info", instance["name"]])
-
+    TestInstanceRemove(instance)
   finally:
-    print qa_utils.FormatInfo("Activating disks again")
-    cmds = []
-    for name in halted_disks:
-      cmds.append(sq(["echo", "running"]) + " >%s" % _GetDiskStatePath(name))
-    AssertCommand("; ".join(cmds), node=[node2, node][int(onmaster)])
-
-  if onmaster:
-    for name in drbddevs:
-      AssertCommand(["drbdsetup", name, "detach"], node=node)
-  else:
-    for name in drbddevs:
-      AssertCommand(["drbdsetup", name, "disconnect"], node=node2)
-
-  # TODO
-  #AssertCommand(["vgs"], [node2, node][int(onmaster)])
-
-  print qa_utils.FormatInfo("Making sure disks are up again")
-  AssertCommand(["gnt-instance", "replace-disks", instance["name"]])
-
-  print qa_utils.FormatInfo("Restarting instance")
-  AssertCommand(["gnt-instance", "shutdown", instance["name"]])
-  AssertCommand(["gnt-instance", "startup", instance["name"]])
-
-  AssertCommand(["gnt-cluster", "verify"])
-
-
-def TestInstanceMasterDiskFailure(instance, node, node2):
-  """Testing disk failure on master node."""
-  # pylint: disable=W0613
-  # due to unused args
-  print qa_utils.FormatError("Disk failure on primary node cannot be"
-                             " tested due to potential crashes.")
-  # The following can cause crashes, thus it's disabled until fixed
-  #return _TestInstanceDiskFailure(instance, node, node2, True)
-
-
-def TestInstanceSecondaryDiskFailure(instance, node, node2):
-  """Testing disk failure on secondary node."""
-  return _TestInstanceDiskFailure(instance, node, node2, False)
+    set_online(snode)
+  # Clean up the disks on the offline node
+  for minor in info["drbd-minors"][snode["primary"]]:
+    AssertCommand(["drbdsetup", str(minor), "down"], node=snode)
+  AssertCommand(["lvremove", "-f"] + info["volumes"], node=snode)

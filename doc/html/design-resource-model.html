@@ -1,40 +1,46 @@
+
+
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
   "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
 
 <html xmlns="http://www.w3.org/1999/xhtml">
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Resource model changes &mdash; Ganeti v2.6.2 documentation</title>
-    <link rel="stylesheet" href="_static/default.css" type="text/css" />
+    <title>Resource model changes &mdash; Ganeti 2.7.0~rc3 documentation</title>
+    
+    <link rel="stylesheet" href="_static/style.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.6.2',
-        COLLAPSE_MODINDEX: false,
+        VERSION:     '2.7.0~rc3',
+        COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
       };
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti v2.6.2 documentation" href="index.html" />
+    <link rel="top" title="Ganeti 2.7.0~rc3 documentation" href="index.html" />
     <link rel="up" title="Design document drafts" href="design-draft.html" />
-    <link rel="next" title="Virtual clusters support" href="design-virtual-clusters.html" />
-    <link rel="prev" title="Node State Cache" href="design-node-state-cache.html" /> 
+    <link rel="next" title="Splitting the query and job execution paths" href="design-query-splitting.html" />
+    <link rel="prev" title="Design for import/export version 2" href="design-impexp2.html" /> 
   </head>
   <body>
     <div class="related">
       <h3>Navigation</h3>
       <ul>
         <li class="right" style="margin-right: 10px">
-          <a href="design-virtual-clusters.html" title="Virtual clusters support"
+          <a href="design-query-splitting.html" title="Splitting the query and job execution paths"
              accesskey="N">next</a></li>
         <li class="right" >
-          <a href="design-node-state-cache.html" title="Node State Cache"
+          <a href="design-impexp2.html" title="Design for import/export version 2"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.6.2 documentation</a> &raquo;</li>
+        <li><a href="index.html">Ganeti 2.7.0~rc3 documentation</a> &raquo;</li>
           <li><a href="design-draft.html" accesskey="U">Design document drafts</a> &raquo;</li> 
       </ul>
     </div>  
@@ -60,7 +66,7 @@ cluster.</p>
 <p>While currently the HTools model is much more advanced than Ganeti&#8217;s,
 neither one is flexible enough and both are heavily geared toward a
 specific Xen model; they fail to work well with (e.g.) KVM or LXC, or
-with Xen when <a class="reference external" href="glossary.html#term-tmem"><em class="xref">tmem</em></a> is enabled. Furthermore, the set of metrics
+with Xen when <a class="reference internal" href="glossary.html#term-tmem"><em class="xref std std-term">tmem</em></a> is enabled. Furthermore, the set of metrics
 contained in the models is limited to historic requirements and fails to
 account for (e.g.)  heterogeneity in the I/O performance of the nodes.</p>
 </div>
@@ -76,7 +82,7 @@ cluster resources. It only does some runtime checks:</p>
 <li>during cluster verify, for enough N+1 memory on the secondaries, based
 on the (current) free memory</li>
 </ul>
-<p>Basically this model is a pure <a class="reference external" href="glossary.html#term-sow"><em class="xref">SoW</em></a> one, and it works well when
+<p>Basically this model is a pure <a class="reference internal" href="glossary.html#term-sow"><em class="xref std std-term">SoW</em></a> one, and it works well when
 there are other instances/LVs on the nodes, as it allows Ganeti to deal
 with ‘orphan’ resource usage, but on the other hand it has many issues,
 described below.</p>
@@ -85,7 +91,7 @@ described below.</p>
 <h3>HTools<a class="headerlink" href="#htools" title="Permalink to this headline">¶</a></h3>
 <p>Since HTools does an pure in-memory modelling of the cluster changes as
 it executes the balancing or allocation steps, it had to introduce a
-static (<a class="reference external" href="glossary.html#term-sor"><em class="xref">SoR</em></a>) cluster model.</p>
+static (<a class="reference internal" href="glossary.html#term-sor"><em class="xref std std-term">SoR</em></a>) cluster model.</p>
 <p>The model is constructed based on the received node properties from
 Ganeti (hence it basically is constructed on what Ganeti can export).</p>
 <div class="section" id="disk">
@@ -176,7 +182,7 @@ used by the base OS/kernel, and we currently try to compute a value for
 the node memory based on current consumption. This, being variable,
 breaks the assumptions in both Ganeti and HTools.</p>
 <p>This problem also shows for the free memory: if the free memory on the
-node is not constant (Xen with <a class="reference external" href="glossary.html#term-tmem"><em class="xref">tmem</em></a> auto-ballooning enabled), or
+node is not constant (Xen with <a class="reference internal" href="glossary.html#term-tmem"><em class="xref std std-term">tmem</em></a> auto-ballooning enabled), or
 if the node and instance memory are pooled together (Linux-based
 hypervisors like KVM and LXC), the current value of the free memory is
 meaningless and cannot be used for instance checks.</p>
@@ -185,7 +191,7 @@ don&#8217;t track memory use but rather memory availability, an instance that
 is temporary down changes Ganeti&#8217;s understanding of the memory status of
 the node. This can lead to problems such as:</p>
 <p class="graphviz">
-<img src="_images/graphviz-d7bd4e20b8a3dfd48e19a2d68175b6585ed56a84.png" alt="digraph &quot;free-mem-issue&quot; {
+<img src="_images/graphviz-5b5ea4c8e9e2ae3d5d3e44ab5eb4216ab6f6b3e3.png" alt="digraph &quot;free-mem-issue&quot; {
 node  [shape=box];
 inst1 [label=&quot;instance1&quot;];
 inst2 [label=&quot;instance2&quot;];
@@ -270,7 +276,7 @@ enough customisation of Ganeti&#8217;s behaviour), we have limited
 pass-through customisation of the various options of our storage
 backends; while LVM has a system-wide configuration file that can be
 used to tweak some of its behaviours, for DRBD we don&#8217;t use the
-<strong>drbdadmin</strong> tool, and instead we call <strong>drbdsetup</strong>
+<strong class="command">drbdadmin</strong> tool, and instead we call <strong class="command">drbdsetup</strong>
 directly, with a fixed/restricted set of options; so for example one
 cannot tweak the buffer sizes.</p>
 <p>Another current problem is that the support for shared storage in HTools
@@ -285,7 +291,7 @@ instance creations) we have to keep the respective objects locked
 modifications to the <em>free</em> values.</p>
 <p>A classic example of the locking problem is the following:</p>
 <p class="graphviz">
-<img src="_images/graphviz-a782e31fbbe6c8e2840a3ac8baa66dfc0eef5309.png" alt="digraph &quot;iallocator-lock-issues&quot; {
+<img src="_images/graphviz-f0c7223c9a2d442140b99701d819be865d1c3eca.png" alt="digraph &quot;iallocator-lock-issues&quot; {
 rankdir=TB;
 
 start [style=invis];
@@ -309,7 +315,7 @@ job1e -&gt; job2s [style=dotted,label=&quot;release locks&quot;];
 nodes <tt class="docutils literal"><span class="pre">A</span></tt> and <tt class="docutils literal"><span class="pre">B</span></tt>, even though in the end the second instance will
 be placed on another set of nodes (<tt class="docutils literal"><span class="pre">C</span></tt> and <tt class="docutils literal"><span class="pre">D</span></tt>). This wait shouldn&#8217;t
 be needed, since right after the first IAllocator run has finished,
-<strong>hail</strong> knows the status of the cluster after the allocation,
+<strong class="command">hail</strong> knows the status of the cluster after the allocation,
 and it could answer the question for the second run too; however, Ganeti
 doesn&#8217;t have such visibility into the cluster state and thus it is
 forced to wait with the second job.</p>
@@ -326,7 +332,7 @@ them, especially in a fully-automated workflow where end-users can
 request instances via an automated interface (that talks to the cluster
 via RAPI, LUXI or command line). However, such an automated interface
 will need to also take into account cluster capacity, and if the
-<strong>hspace</strong> tool is used for the capacity computation, it needs to
+<strong class="command">hspace</strong> tool is used for the capacity computation, it needs to
 be told the maximum instance size, however it has a built-in minimum
 instance size which is not customisable.</p>
 <p>It is clear that this situation leads to duplicate definition of
@@ -350,7 +356,7 @@ the instances around, with a series of moves of various types:</p>
 <em>“cost”</em> of the moves. In other words, the following can and will happen
 on a cluster:</p>
 <p class="graphviz">
-<img src="_images/graphviz-08a8572ae76d501525e42288643e59e328c898b7.png" alt="digraph &quot;balancing-cost-issues&quot; {
+<img src="_images/graphviz-61ae4a3d42d1c82ee0383d9fb7709419da270a96.png" alt="digraph &quot;balancing-cost-issues&quot; {
 rankdir=LR;
 ranksep=1;
 
@@ -405,11 +411,11 @@ going over CPU limits), or for any other resource.</p>
 N+1 protection doesn&#8217;t work for shared storage.</p>
 <p>If a given cluster administrator wants to survive up to two machine
 failures, or wants to ensure CPU limits too for DRBD, there is no
-possibility to configure this in HTools (neither in <strong>hail</strong> nor
-in <strong>hspace</strong>). Current workaround employ for example deducting a
-certain number of instances from the size computed by <strong>hspace</strong>,
+possibility to configure this in HTools (neither in <strong class="command">hail</strong> nor
+in <strong class="command">hspace</strong>). Current workaround employ for example deducting a
+certain number of instances from the size computed by <strong class="command">hspace</strong>,
 but this is a very crude method, and requires that instance creations
-are limited before Ganeti (otherwise <strong>hail</strong> would allocate
+are limited before Ganeti (otherwise <strong class="command">hail</strong> would allocate
 until the cluster is full).</p>
 </div>
 </div>
@@ -418,8 +424,8 @@ until the cluster is full).</p>
 <h2>Proposed architecture<a class="headerlink" href="#proposed-architecture" title="Permalink to this headline">¶</a></h2>
 <p>There are two main changes proposed:</p>
 <ul class="simple">
-<li>changing the resource model from a pure <a class="reference external" href="glossary.html#term-sow"><em class="xref">SoW</em></a> to a hybrid
-<a class="reference external" href="glossary.html#term-sor"><em class="xref">SoR</em></a>/<a class="reference external" href="glossary.html#term-sow"><em class="xref">SoW</em></a> one, where the <a class="reference external" href="glossary.html#term-sor"><em class="xref">SoR</em></a> component is
+<li>changing the resource model from a pure <a class="reference internal" href="glossary.html#term-sow"><em class="xref std std-term">SoW</em></a> to a hybrid
+<a class="reference internal" href="glossary.html#term-sor"><em class="xref std std-term">SoR</em></a>/<a class="reference internal" href="glossary.html#term-sow"><em class="xref std std-term">SoW</em></a> one, where the <a class="reference internal" href="glossary.html#term-sor"><em class="xref std std-term">SoR</em></a> component is
 heavily emphasised</li>
 <li>extending the resource model to cover additional properties,
 completing the “holes” in the current coverage</li>
@@ -451,7 +457,7 @@ Ganeti operations, even more than lengthy sequences of Ganeti jobs, it
 makes sense to treat them separately.</p>
 <p>The proposal is then to move the following resources into the
 configuration and treat the configuration as the authoritative source
-for them (a <a class="reference external" href="glossary.html#term-sor"><em class="xref">SoR</em></a> model):</p>
+for them (a <a class="reference internal" href="glossary.html#term-sor"><em class="xref std std-term">SoR</em></a> model):</p>
 <ul>
 <li><dl class="first docutils">
 <dt>CPU resources:</dt>
@@ -490,9 +496,9 @@ functionality to update the recorded values.</p>
 <p>Remember that the resource model used by HTools models the clusters as
 obeying the following equations:</p>
 <blockquote>
-<p>disk<sub>free</sub> = disk<sub>total</sub> - ∑ disk<sub>instances</sub></p>
+<div><p>disk<sub>free</sub> = disk<sub>total</sub> - ∑ disk<sub>instances</sub></p>
 <p>mem<sub>free</sub> = mem<sub>total</sub> - ∑ mem<sub>instances</sub> - mem<sub>node</sub> - mem<sub>overhead</sub></p>
-</blockquote>
+</div></blockquote>
 <p>As this model worked fine for HTools, we can consider it valid and adopt
 it in Ganeti. Furthermore, note that all values in the right-hand side
 come now from the configuration:</p>
@@ -560,7 +566,7 @@ compute the allocation solution.</p>
 <p>The remaining long-running locks will be the DRBD replace-disks ones
 (exclusive mode). These can also be removed, or changed into shared
 locks, but that is a separate design change.</p>
-<div class="admonition-fixme admonition ">
+<div class="admonition-fixme admonition">
 <p class="first admonition-title">FIXME</p>
 <p class="last">Need to rework instance replace disks. I don&#8217;t think we need exclusive
 locks for replacing disks: it is safe to stop/start the instance while
@@ -582,9 +588,9 @@ memory size will permit burst usage of more memory by instances, with
 the restriction that the sum of maximum memory usage will not be more
 than the free memory times the oversubscription factor:</p>
 <blockquote>
-<p>∑ memory<sub>min</sub> ≤ memory<sub>available</sub></p>
+<div><p>∑ memory<sub>min</sub> ≤ memory<sub>available</sub></p>
 <p>∑ memory<sub>max</sub> ≤ memory<sub>free</sub> * oversubscription_ratio</p>
-</blockquote>
+</div></blockquote>
 <p>The hypervisor will have the possibility of adjusting the instance&#8217;s
 memory size dynamically between these two boundaries.</p>
 <p>Note that the minimum memory is related to the available memory on the
@@ -592,7 +598,7 @@ node, whereas the maximum memory is related to the free memory. On
 DRBD-enabled clusters, this will have the advantage of using the
 reserved memory for N+1 failover for burst usage, instead of having it
 completely idle.</p>
-<div class="admonition-fixme admonition ">
+<div class="admonition-fixme admonition">
 <p class="first admonition-title">FIXME</p>
 <p class="last">Need to document how Ganeti forces minimum size at runtime, overriding
 the hypervisor, in cases of failover/lack of resources.</p>
@@ -630,29 +636,29 @@ in these structures:</p>
 <col width="22%" />
 </colgroup>
 <thead valign="bottom">
-<tr><th class="head">Name</th>
+<tr class="row-odd"><th class="head">Name</th>
 <th class="head">Description</th>
 <th class="head">Type</th>
 </tr>
 </thead>
 <tbody valign="top">
-<tr><td>mem_size</td>
+<tr class="row-even"><td>mem_size</td>
 <td>Allowed memory size</td>
 <td>int</td>
 </tr>
-<tr><td>cpu_count</td>
+<tr class="row-odd"><td>cpu_count</td>
 <td>Allowed vCPU count</td>
 <td>int</td>
 </tr>
-<tr><td>disk_count</td>
+<tr class="row-even"><td>disk_count</td>
 <td>Allowed disk count</td>
 <td>int</td>
 </tr>
-<tr><td>disk_size</td>
+<tr class="row-odd"><td>disk_size</td>
 <td>Allowed disk size</td>
 <td>int</td>
 </tr>
-<tr><td>nic_count</td>
+<tr class="row-even"><td>nic_count</td>
 <td>Alowed NIC count</td>
 <td>int</td>
 </tr>
@@ -686,7 +692,7 @@ the problems related to over allocation.</p>
 <col width="9%" />
 </colgroup>
 <thead valign="bottom">
-<tr><th class="head">Name</th>
+<tr class="row-odd"><th class="head">Name</th>
 <th class="head">Level(s)</th>
 <th class="head">Description</th>
 <th class="head">Current
@@ -695,7 +701,7 @@ value</th>
 </tr>
 </thead>
 <tbody valign="top">
-<tr><td>vcpu_ratio</td>
+<tr class="row-even"><td>vcpu_ratio</td>
 <td>cluster,
 node group</td>
 <td>Maximum ratio of virtual to
@@ -704,7 +710,7 @@ physical CPUs</td>
 in htools)</td>
 <td>float</td>
 </tr>
-<tr><td>spindle_ratio</td>
+<tr class="row-odd"><td>spindle_ratio</td>
 <td>cluster,
 node group</td>
 <td>Maximum ratio of instances
@@ -716,7 +722,7 @@ used instead</td>
 <td>none</td>
 <td>float</td>
 </tr>
-<tr><td>max_node_failures</td>
+<tr class="row-even"><td>max_node_failures</td>
 <td>cluster,
 node group</td>
 <td>Cap allocation/capacity so
@@ -761,7 +767,7 @@ brackets.</p>
 <col width="8%" />
 </colgroup>
 <thead valign="bottom">
-<tr><th class="head">Disk
+<tr class="row-odd"><th class="head">Disk
 template</th>
 <th class="head">Name</th>
 <th class="head">Description</th>
@@ -770,7 +776,7 @@ template</th>
 </tr>
 </thead>
 <tbody valign="top">
-<tr><td>plain</td>
+<tr class="row-even"><td>plain</td>
 <td>stripes</td>
 <td>How many stripes to use
 for newly created (plain)
@@ -781,7 +787,7 @@ overridable at
 runtime</td>
 <td>int</td>
 </tr>
-<tr><td>drbd</td>
+<tr class="row-odd"><td>drbd</td>
 <td>data-stripes</td>
 <td>How many stripes to use
 for data volumes</td>
@@ -789,7 +795,7 @@ for data volumes</td>
 plain/stripes</td>
 <td>int</td>
 </tr>
-<tr><td>drbd</td>
+<tr class="row-even"><td>drbd</td>
 <td>metavg</td>
 <td>Default volume group for
 the metadata LVs</td>
@@ -799,7 +805,7 @@ overridable via
 &#8216;metavg&#8217; key</td>
 <td>string</td>
 </tr>
-<tr><td>drbd</td>
+<tr class="row-odd"><td>drbd</td>
 <td>meta-stripes</td>
 <td>How many stripes to use
 for meta volumes</td>
@@ -809,7 +815,7 @@ as the meta LVs are
 small</td>
 <td>int</td>
 </tr>
-<tr><td>drbd</td>
+<tr class="row-even"><td>drbd</td>
 <td>disk-barriers</td>
 <td>What kind of barriers to
 <em>disable</em> for disks;
@@ -822,7 +828,7 @@ all disabled, per
 option</td>
 <td>string</td>
 </tr>
-<tr><td>drbd</td>
+<tr class="row-odd"><td>drbd</td>
 <td>meta-barriers</td>
 <td>Whether to disable or not
 the barriers for the meta
@@ -831,7 +837,7 @@ volume</td>
 disk-barriers</td>
 <td>bool</td>
 </tr>
-<tr><td>drbd</td>
+<tr class="row-even"><td>drbd</td>
 <td>resync-rate</td>
 <td>The (static) resync rate
 for drbd, when using the
@@ -841,7 +847,7 @@ constants.py, not
 changeable via Ganeti</td>
 <td>int</td>
 </tr>
-<tr><td>drbd</td>
+<tr class="row-odd"><td>drbd</td>
 <td>dynamic-resync</td>
 <td>Whether to use the
 dynamic resync speed
@@ -856,7 +862,7 @@ as a static resync speed.</td>
 <td>Not supported.</td>
 <td>bool</td>
 </tr>
-<tr><td>drbd</td>
+<tr class="row-even"><td>drbd</td>
 <td>c-plan-ahead</td>
 <td>Agility factor of the
 dynamic resync speed
@@ -870,7 +876,7 @@ disables the controller
 <td>Not supported.</td>
 <td>int</td>
 </tr>
-<tr><td>drbd</td>
+<tr class="row-odd"><td>drbd</td>
 <td>c-fill-target</td>
 <td>Maximum amount of
 in-flight resync data
@@ -880,7 +886,7 @@ speed controller
 <td>Not supported.</td>
 <td>int</td>
 </tr>
-<tr><td>drbd</td>
+<tr class="row-even"><td>drbd</td>
 <td>c-delay-target</td>
 <td>Maximum estimated peer
 response latency for the
@@ -889,7 +895,7 @@ controller [ds]</td>
 <td>Not supported.</td>
 <td>int</td>
 </tr>
-<tr><td>drbd</td>
+<tr class="row-odd"><td>drbd</td>
 <td>c-max-rate</td>
 <td>Upper bound on resync
 speed for the dynamic
@@ -898,7 +904,7 @@ resync speed controller
 <td>Not supported.</td>
 <td>int</td>
 </tr>
-<tr><td>drbd</td>
+<tr class="row-even"><td>drbd</td>
 <td>c-min-rate</td>
 <td>Minimum resync speed for
 the dynamic resync speed
@@ -906,7 +912,7 @@ controller [KiB/s]</td>
 <td>Not supported.</td>
 <td>int</td>
 </tr>
-<tr><td>drbd</td>
+<tr class="row-odd"><td>drbd</td>
 <td>disk-custom</td>
 <td>Free-form string that
 will be appended to the
@@ -917,7 +923,7 @@ itself</td>
 <td>Not supported</td>
 <td>string</td>
 </tr>
-<tr><td>drbd</td>
+<tr class="row-even"><td>drbd</td>
 <td>net-custom</td>
 <td>Free-form string for
 custom net setup options</td>
@@ -927,7 +933,7 @@ custom net setup options</td>
 </tbody>
 </table>
 <p>Currently Ganeti supports only DRBD 8.0.x, 8.2.x, 8.3.x.  It will refuse
-to work with DRBD 8.4 since the <strong>drbdsetup</strong> syntax has changed
+to work with DRBD 8.4 since the <strong class="command">drbdsetup</strong> syntax has changed
 significantly.</p>
 <p>The barriers-related parameters have been introduced in different DRBD
 versions; please make sure that your version supports all the barrier
@@ -946,7 +952,7 @@ interesting discussion about them can also be found in a
 other parts of the code, the intention is that all nodes in a node group
 should be equal. It will later be decided to which node group give
 precedence in case of instances split over node groups.</p>
-<div class="admonition-fixme admonition ">
+<div class="admonition-fixme admonition">
 <p class="first admonition-title">FIXME</p>
 <p class="last">Add details about when each parameter change takes effect (device
 creation vs. activation)</p>
@@ -971,21 +977,21 @@ inconsistencies.</p>
 <col width="10%" />
 </colgroup>
 <thead valign="bottom">
-<tr><th class="head">Name</th>
+<tr class="row-odd"><th class="head">Name</th>
 <th class="head">Description</th>
 <th class="head">Current state</th>
 <th class="head">Type</th>
 </tr>
 </thead>
 <tbody valign="top">
-<tr><td>mem_total</td>
+<tr class="row-even"><td>mem_total</td>
 <td>Total node memory, as discovered by
 this hypervisor</td>
 <td>Queried at
 runtime</td>
 <td>int</td>
 </tr>
-<tr><td>mem_node</td>
+<tr class="row-odd"><td>mem_node</td>
 <td>Memory used by, or reserved for,
 the node itself; not that some
 hypervisors can report this in an
@@ -994,7 +1000,7 @@ authoritative way, other not</td>
 runtime</td>
 <td>int</td>
 </tr>
-<tr><td>mem_hv</td>
+<tr class="row-even"><td>mem_hv</td>
 <td>Memory used either by the
 hypervisor itself or lost due to
 instance allocation rounding;
@@ -1006,7 +1012,7 @@ htools computes
 it internally</td>
 <td>int</td>
 </tr>
-<tr><td>cpu_total</td>
+<tr class="row-odd"><td>cpu_total</td>
 <td>Total node cpu (core) count;
 usually this can be discovered
 automatically</td>
@@ -1014,7 +1020,7 @@ automatically</td>
 runtime</td>
 <td>int</td>
 </tr>
-<tr><td>cpu_node</td>
+<tr class="row-even"><td>cpu_node</td>
 <td>Number of cores reserved for the
 node itself; this can either be
 discovered or set manually. Only
@@ -1058,19 +1064,19 @@ which is indexed per storage type and name; currently this will be just
 <col width="12%" />
 </colgroup>
 <thead valign="bottom">
-<tr><th class="head">Name</th>
+<tr class="row-odd"><th class="head">Name</th>
 <th class="head">Description</th>
 <th class="head">Current state</th>
 <th class="head">Type</th>
 </tr>
 </thead>
 <tbody valign="top">
-<tr><td>disk_total</td>
+<tr class="row-even"><td>disk_total</td>
 <td>Total disk size</td>
 <td>Queried at runtime</td>
 <td>int</td>
 </tr>
-<tr><td>disk_reserved</td>
+<tr class="row-odd"><td>disk_reserved</td>
 <td>Reserved disk size; this
 is a lower limit on the
 free space, if such a
@@ -1080,7 +1086,7 @@ htools has a
 parameter for this</td>
 <td>int</td>
 </tr>
-<tr><td>disk_overhead</td>
+<tr class="row-even"><td>disk_overhead</td>
 <td>Disk that is expected to
 be used by other volumes
 (set via
@@ -1106,14 +1112,14 @@ model:</p>
 <col width="8%" />
 </colgroup>
 <thead valign="bottom">
-<tr><th class="head">Name</th>
+<tr class="row-odd"><th class="head">Name</th>
 <th class="head">Description</th>
 <th class="head">Current status</th>
 <th class="head">Type</th>
 </tr>
 </thead>
 <tbody valign="top">
-<tr><td>offline</td>
+<tr class="row-even"><td>offline</td>
 <td>Whether the instance is in
 “permanent” offline mode; this is
 stronger than the &#8220;admin_down”
@@ -1122,7 +1128,7 @@ offline attribute</td>
 <td>Not supported</td>
 <td>bool</td>
 </tr>
-<tr><td>be/max_memory</td>
+<tr class="row-odd"><td>be/max_memory</td>
 <td>The maximum memory the instance is
 allowed</td>
 <td>Not existent, but
@@ -1143,7 +1149,7 @@ capacity computation.</p>
 <p>Since the Ganeti&#8217;s cluster model is much enhanced, Ganeti can also
 export its own reserved/overhead variables, and as such HTools can make
 less “guesses” as to the difference in values.</p>
-<div class="admonition-fixme admonition ">
+<div class="admonition-fixme admonition">
 <p class="first admonition-title">FIXME</p>
 <p class="last">Need to detail more the htools changes; the model is clear to me, but
 need to write it down.</p>
@@ -1158,81 +1164,81 @@ need to write it down.</p>
       </div>
       <div class="sphinxsidebar">
         <div class="sphinxsidebarwrapper">
-            <h3><a href="index.html">Table Of Contents</a></h3>
-            <ul>
-<li><a class="reference external" href="#">Resource model changes</a><ul>
-<li><a class="reference external" href="#introduction">Introduction</a></li>
-<li><a class="reference external" href="#current-situation">Current situation</a><ul>
-<li><a class="reference external" href="#ganeti">Ganeti</a></li>
-<li><a class="reference external" href="#htools">HTools</a><ul>
-<li><a class="reference external" href="#disk">Disk</a></li>
-<li><a class="reference external" href="#memory">Memory</a></li>
-<li><a class="reference external" href="#cpu">CPU</a></li>
-<li><a class="reference external" href="#dynamic-load">Dynamic load</a></li>
+  <h3><a href="index.html">Table Of Contents</a></h3>
+  <ul>
+<li><a class="reference internal" href="#">Resource model changes</a><ul>
+<li><a class="reference internal" href="#introduction">Introduction</a></li>
+<li><a class="reference internal" href="#current-situation">Current situation</a><ul>
+<li><a class="reference internal" href="#ganeti">Ganeti</a></li>
+<li><a class="reference internal" href="#htools">HTools</a><ul>
+<li><a class="reference internal" href="#disk">Disk</a></li>
+<li><a class="reference internal" href="#memory">Memory</a></li>
+<li><a class="reference internal" href="#cpu">CPU</a></li>
+<li><a class="reference internal" href="#dynamic-load">Dynamic load</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#limitations">Limitations</a><ul>
-<li><a class="reference external" href="#id1">Memory</a></li>
-<li><a class="reference external" href="#disks">Disks</a></li>
-<li><a class="reference external" href="#locking">Locking</a></li>
-<li><a class="reference external" href="#policies">Policies</a></li>
-<li><a class="reference external" href="#balancing-algorithm">Balancing algorithm</a></li>
-<li><a class="reference external" href="#allocation-algorithm">Allocation algorithm</a></li>
+<li><a class="reference internal" href="#limitations">Limitations</a><ul>
+<li><a class="reference internal" href="#id1">Memory</a></li>
+<li><a class="reference internal" href="#disks">Disks</a></li>
+<li><a class="reference internal" href="#locking">Locking</a></li>
+<li><a class="reference internal" href="#policies">Policies</a></li>
+<li><a class="reference internal" href="#balancing-algorithm">Balancing algorithm</a></li>
+<li><a class="reference internal" href="#allocation-algorithm">Allocation algorithm</a></li>
 </ul>
 </li>
 </ul>
 </li>
-<li><a class="reference external" href="#proposed-architecture">Proposed architecture</a><ul>
-<li><a class="reference external" href="#lock-improved-resource-model">Lock-improved resource model</a><ul>
-<li><a class="reference external" href="#hybrid-sor-sow-model">Hybrid SoR/SoW model</a></li>
-<li><a class="reference external" href="#pre-computing-dynamic-resource-values">Pre-computing dynamic resource values</a></li>
-<li><a class="reference external" href="#separating-per-node-resource-locks">Separating per-node resource locks</a></li>
-<li><a class="reference external" href="#lock-contention-reduction">Lock contention reduction</a></li>
+<li><a class="reference internal" href="#proposed-architecture">Proposed architecture</a><ul>
+<li><a class="reference internal" href="#lock-improved-resource-model">Lock-improved resource model</a><ul>
+<li><a class="reference internal" href="#hybrid-sor-sow-model">Hybrid SoR/SoW model</a></li>
+<li><a class="reference internal" href="#pre-computing-dynamic-resource-values">Pre-computing dynamic resource values</a></li>
+<li><a class="reference internal" href="#separating-per-node-resource-locks">Separating per-node resource locks</a></li>
+<li><a class="reference internal" href="#lock-contention-reduction">Lock contention reduction</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#instance-memory-model">Instance memory model</a></li>
-<li><a class="reference external" href="#new-parameters">New parameters</a><ul>
-<li><a class="reference external" href="#instance-size-limits">Instance size limits</a><ul>
-<li><a class="reference external" href="#inheritance">Inheritance</a></li>
+<li><a class="reference internal" href="#instance-memory-model">Instance memory model</a></li>
+<li><a class="reference internal" href="#new-parameters">New parameters</a><ul>
+<li><a class="reference internal" href="#instance-size-limits">Instance size limits</a><ul>
+<li><a class="reference internal" href="#inheritance">Inheritance</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#allocation-parameters">Allocation parameters</a></li>
-<li><a class="reference external" href="#disk-parameters">Disk parameters</a></li>
-<li><a class="reference external" href="#node-parameters">Node parameters</a></li>
-<li><a class="reference external" href="#instance-parameters">Instance parameters</a></li>
+<li><a class="reference internal" href="#allocation-parameters">Allocation parameters</a></li>
+<li><a class="reference internal" href="#disk-parameters">Disk parameters</a></li>
+<li><a class="reference internal" href="#node-parameters">Node parameters</a></li>
+<li><a class="reference internal" href="#instance-parameters">Instance parameters</a></li>
 </ul>
 </li>
-<li><a class="reference external" href="#htools-changes">HTools changes</a></li>
+<li><a class="reference internal" href="#htools-changes">HTools changes</a></li>
 </ul>
 </li>
 </ul>
 </li>
 </ul>
 
-            <h4>Previous topic</h4>
-            <p class="topless"><a href="design-node-state-cache.html"
-                                  title="previous chapter">Node State Cache</a></p>
-            <h4>Next topic</h4>
-            <p class="topless"><a href="design-virtual-clusters.html"
-                                  title="next chapter">Virtual clusters support</a></p>
-            <h3>This Page</h3>
-            <ul class="this-page-menu">
-              <li><a href="_sources/design-resource-model.txt"
-                     rel="nofollow">Show Source</a></li>
-            </ul>
-          <div id="searchbox" style="display: none">
-            <h3>Quick search</h3>
-              <form class="search" action="search.html" method="get">
-                <input type="text" name="q" size="18" />
-                <input type="submit" value="Go" />
-                <input type="hidden" name="check_keywords" value="yes" />
-                <input type="hidden" name="area" value="default" />
-              </form>
-              <p class="searchtip" style="font-size: 90%">
-              Enter search terms or a module, class or function name.
-              </p>
-          </div>
-          <script type="text/javascript">$('#searchbox').show(0);</script>
+  <h4>Previous topic</h4>
+  <p class="topless"><a href="design-impexp2.html"
+                        title="previous chapter">Design for import/export version 2</a></p>
+  <h4>Next topic</h4>
+  <p class="topless"><a href="design-query-splitting.html"
+                        title="next chapter">Splitting the query and job execution paths</a></p>
+  <h3>This Page</h3>
+  <ul class="this-page-menu">
+    <li><a href="_sources/design-resource-model.txt"
+           rel="nofollow">Show Source</a></li>
+  </ul>
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
         </div>
       </div>
       <div class="clearer"></div>
@@ -1241,18 +1247,18 @@ need to write it down.</p>
       <h3>Navigation</h3>
       <ul>
         <li class="right" style="margin-right: 10px">
-          <a href="design-virtual-clusters.html" title="Virtual clusters support"
+          <a href="design-query-splitting.html" title="Splitting the query and job execution paths"
              >next</a></li>
         <li class="right" >
-          <a href="design-node-state-cache.html" title="Node State Cache"
+          <a href="design-impexp2.html" title="Design for import/export version 2"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti v2.6.2 documentation</a> &raquo;</li>
+        <li><a href="index.html">Ganeti 2.7.0~rc3 documentation</a> &raquo;</li>
           <li><a href="design-draft.html" >Design document drafts</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">
-      &copy; Copyright 2006, 2007, 2008, 2009, 2010, 2011, 2012, Google Inc..
-      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 0.6.7.
+        &copy; Copyright 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Google Inc..
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
     </div>
   </body>
 </html>

@@ -4,11 +4,11 @@
 ganeti-os-interface - Specifications for guest OS types
 .SH DESCRIPTION
 .PP
-The method of supporting guest operating systems in Ganeti is to
-have, for each guest OS type, a directory containing a number of
-required files. This directory must be present across all nodes
-(Ganeti doesn\[aq]t replicate it) in order for the OS to be usable
-by Ganeti.
+The method of supporting guest operating systems in Ganeti is to have,
+for each guest OS type, a directory containing a number of required
+files.
+This directory must be present across all nodes (Ganeti doesn\[aq]t
+replicate it) in order for the OS to be usable by Ganeti.
 .SH REFERENCE
 .PP
 There are eight required files: \f[I]create\f[], \f[I]import\f[],
@@ -17,14 +17,15 @@ There are eight required files: \f[I]create\f[], \f[I]import\f[],
 \f[I]parameters.list\f[] (text files).
 .SS Common environment
 .PP
-All commands will get their input via environment variables. A
-common set of variables will be exported for all commands, and some
-of them might have extra ones. Note that all counts are zero-based.
+All commands will get their input via environment variables.
+A common set of variables will be exported for all commands, and some of
+them might have extra ones.
+Note that all counts are zero-based.
 .PP
 Since Ganeti version 2.5, the environment will be cleaned up before
-being passed to scripts, therefore they will not inherit the
-environment in with which the ganeti node daemon was started. If
-you depend on any environment variables (non-Ganeti), then you will
+being passed to scripts, therefore they will not inherit the environment
+in with which the ganeti node daemon was started.
+If you depend on any environment variables (non-Ganeti), then you will
 need to define or source them appropriately.
 .TP
 .B OS_API_VERSION
@@ -38,21 +39,23 @@ The instance name the script should operate on.
 .RE
 .TP
 .B INSTANCE_OS, OS_NAME
-Both names point to the name of the instance\[aq]s OS as Ganeti
-knows it. This can simplify the OS scripts by providing the same
-scripts under multiple names, and then the scripts can use this
-name to alter their behaviour.
+Both names point to the name of the instance\[aq]s OS as Ganeti knows
+it.
+This can simplify the OS scripts by providing the same scripts under
+multiple names, and then the scripts can use this name to alter their
+behaviour.
 .RS
 .PP
-With OS API 15 changing the script behavior based on this variable
-is deprecated: OS_VARIANT should be used instead (see below).
+With OS API 15 changing the script behavior based on this variable is
+deprecated: OS_VARIANT should be used instead (see below).
 .RE
 .TP
 .B OS_VARIANT
-The variant of the OS which should be installed. Each OS must
-support all variants listed under its variants.list file, and may
-support more. Any more supported variants should be properly
-documented in the per-OS documentation.
+The variant of the OS which should be installed.
+Each OS must support all variants listed under its variants.list file,
+and may support more.
+Any more supported variants should be properly documented in the per-OS
+documentation.
 .RS
 .RE
 .TP
@@ -62,47 +65,48 @@ The hypervisor of this instance.
 .RE
 .TP
 .B DISK_COUNT
-The number of disks the instance has. The actual disk defitions are
-in a set of additional variables. The instance\[aq]s disk will be
-numbered from 0 to this value minus one.
+The number of disks the instance has.
+The actual disk defitions are in a set of additional variables.
+The instance\[aq]s disk will be numbered from 0 to this value minus one.
 .RS
 .RE
 .TP
 .B DISK_%N_PATH
-The path to the storage for disk N of the instance. This might be
-either a block device or a regular file, in which case the OS
-scripts should use \f[B]losetup\f[] (if they need to mount it).
-E.g. the first disk of the instance might be exported as
-\f[B]DISK_0_PATH=/dev/drbd0\f[].
+The path to the storage for disk N of the instance.
+This might be either a block device or a regular file, in which case the
+OS scripts should use \f[C]losetup\f[] (if they need to mount it).
+E.g.
+the first disk of the instance might be exported as
+\f[C]DISK_0_PATH=/dev/drbd0\f[].
 .RS
 .RE
 .TP
 .B DISK_%N_ACCESS
 This is how the hypervisor will export the instance disks: either
-read-write (\f[B]rw\f[]) or read-only (\f[B]ro\f[]).
+read-write (\f[C]rw\f[]) or read-only (\f[C]ro\f[]).
 .RS
 .RE
 .TP
 .B DISK_%N_FRONTEND_TYPE
-(Optional) If applicable to the current hypervisor type: the type
-of the device exported by the hypervisor. For example, the Xen HVM
-hypervisor can export disks as either \f[B]paravirtual\f[] or
-\f[B]ioemu\f[].
+(Optional) If applicable to the current hypervisor type: the type of the
+device exported by the hypervisor.
+For example, the Xen HVM hypervisor can export disks as either
+\f[C]paravirtual\f[] or \f[C]ioemu\f[].
 .RS
 .RE
 .TP
 .B DISK_%N_BACKEND_TYPE
-How files are visible on the node side. This can be either
-\f[B]block\f[] (when using block devices) or \f[B]file:type\f[],
-where \f[B]type\f[] is either \f[B]loop\f[] or \f[B]blktap\f[]
-depending on how the hypervisor will be configured. Note that not
-all backend types apply to all hypervisors.
+How files are visible on the node side.
+This can be either \f[C]block\f[] (when using block devices) or
+\f[C]file:type\f[], where \f[C]type\f[] is either \f[C]loop\f[] or
+\f[C]blktap\f[] depending on how the hypervisor will be configured.
+Note that not all backend types apply to all hypervisors.
 .RS
 .RE
 .TP
 .B NIC_COUNT
-Similar to the \f[B]DISK_COUNT\f[], this represents the number of
-NICs of the instance.
+Similar to the \f[C]DISK_COUNT\f[], this represents the number of NICs
+of the instance.
 .RS
 .RE
 .TP
@@ -112,279 +116,342 @@ The MAC address associated with this interface.
 .RE
 .TP
 .B NIC_%N_IP
-The IP address, if any, associated with the N-th NIC of the
-instance.
+The IP address, if any, associated with the N-th NIC of the instance.
 .RS
 .RE
 .TP
 .B NIC_%N_MODE
-The NIC mode, either routed or bridged
+The NIC mode, routed, bridged or openvswitch
 .RS
 .RE
 .TP
 .B NIC_%N_BRIDGE
-The bridge to which this NIC will be attached. This variable is
-defined only when the NIC is in bridged mode.
+The bridge to which this NIC will be attached.
+This variable is defined only when the NIC is in bridged mode.
 .RS
 .RE
 .TP
 .B NIC_%N_LINK
-If the NIC is in bridged mode, this is the same as
-\f[B]NIC_%N_BRIDGE\f[].
-If it is in routed mode, the routing table which will be used by
-the hypervisor to insert the appropriate routes.
+In bridged or openvswitch mode, this is the interface to which the NIC
+will be attached (same as \f[C]NIC_%N_BRIDGE\f[] for bridged).
+In routed mode it is the routing table which will be used by the
+hypervisor to insert the appropriate routes.
 .RS
 .RE
 .TP
 .B NIC_%N_FRONTEND_TYPE
-(Optional) If applicable, the type of the exported NIC to the
-instance, this can be one of: \f[B]rtl8139\f[], \f[B]ne2k_pci\f[],
-\f[B]ne2k_isa\f[], \f[B]paravirtual\f[].
+(Optional) If applicable, the type of the exported NIC to the instance,
+this can be one of: \f[C]rtl8139\f[], \f[C]ne2k_pci\f[],
+\f[C]ne2k_isa\f[], \f[C]paravirtual\f[].
+.RS
+.RE
+.TP
+.B NIC_%d_NETWORK_NAME
+(Optional) If a NIC network is specified, the network\[aq]s name.
+.RS
+.RE
+.TP
+.B NIC_%d_NETWORK_UUID
+(Optional) If a NIC network is specified, the network\[aq]s uuid.
+.RS
+.RE
+.TP
+.B NIC_%d_NETWORK_FAMILY
+(Optional) If a NIC network is specified, the network\[aq]s family.
+.RS
+.RE
+.TP
+.B NIC_%d_NETWORK_SUBNET
+(Optional) If a NIC network is specified, the network\[aq]s IPv4 subnet.
+.RS
+.RE
+.TP
+.B NIC_%d_NETWORK_GATEWAY
+(Optional) If a NIC network is specified, the network\[aq]s IPv4
+gateway.
+.RS
+.RE
+.TP
+.B NIC_%d_NETWORK_SUBNET6
+(Optional) If a NIC network is specified, the network\[aq]s IPv6 subnet.
+.RS
+.RE
+.TP
+.B NIC_%d_NETWORK_GATEWAY6
+(Optional) If a NIC network is specified, the network\[aq]s IPv6
+gateway.
+.RS
+.RE
+.TP
+.B NIC_%d_NETWORK_MAC_PREFIX
+(Optional) If a NIC network is specified, the network\[aq]s mac prefix.
+.RS
+.RE
+.TP
+.B NIC_%d_NETWORK_TAGS
+(Optional) If a NIC network is specified, the network\[aq]s tags, space
+separated.
 .RS
 .RE
 .TP
 .B OSP_\f[I]name\f[]
 Each OS parameter (see below) will be exported in its own variable,
-prefixed with \f[B]OSP_\f[], and upper-cased. For example, a
-\f[B]dhcp\f[] parameter will be exported as \f[B]OSP_DHCP\f[].
+prefixed with \f[C]OSP_\f[], and upper-cased.
+For example, a \f[C]dhcp\f[] parameter will be exported as
+\f[C]OSP_DHCP\f[].
 .RS
 .RE
 .TP
 .B DEBUG_LEVEL
-If non-zero, this should cause the OS script to generate verbose
-logs of its execution, for troubleshooting purposes. Currently only
-\f[B]0\f[] and \f[B]1\f[] are valid values.
+If non-zero, this should cause the OS script to generate verbose logs of
+its execution, for troubleshooting purposes.
+Currently only \f[C]0\f[] and \f[C]1\f[] are valid values.
 .RS
 .RE
 .SH EXECUTABLE SCRIPTS
 .SS create
 .PP
-The \f[B]create\f[] command is used for creating a new instance
-from scratch. It has no additional environment variables bside the
-common ones.
+The \f[B]create\f[] command is used for creating a new instance from
+scratch.
+It has no additional environment variables bside the common ones.
 .PP
-The \f[B]INSTANCE_NAME\f[] variable denotes the name of the
-instance, which is guaranteed to resolve to an IP address. The
-create script should configure the instance according to this name.
-It can configure the IP statically or not, depending on the
-deployment environment.
+The \f[C]INSTANCE_NAME\f[] variable denotes the name of the instance,
+which is guaranteed to resolve to an IP address.
+The create script should configure the instance according to this name.
+It can configure the IP statically or not, depending on the deployment
+environment.
 .PP
-The \f[B]INSTANCE_REINSTALL\f[] variable is set to \f[B]1\f[] when
-this create request is reinstalling an existing instance, rather
-than creating one anew. This can be used, for example, to preserve
-some data in the old instance in an OS-specific way.
+The \f[C]INSTANCE_REINSTALL\f[] variable is set to \f[C]1\f[] when this
+create request is reinstalling an existing instance, rather than
+creating one anew.
+This can be used, for example, to preserve some data in the old instance
+in an OS-specific way.
 .SS export
 .PP
-This command is used in order to make a backup of a given disk of
-the instance. The command should write to stdout a dump of the
-given block device. The output of this program will be passed
-during restore to the \f[B]import\f[] command.
+This command is used in order to make a backup of a given disk of the
+instance.
+The command should write to stdout a dump of the given block device.
+The output of this program will be passed during restore to the
+\f[B]import\f[] command.
 .PP
-The specific disk to backup is denoted by two additional
-environment variables: \f[B]EXPORT_INDEX\f[] which denotes the
-index in the instance disks structure (and could be used for
-example to skip the second disk if not needed for backup) and
-\f[B]EXPORT_DEVICE\f[] which has the same value as
-\f[B]DISK_N_PATH\f[] but is duplicated here for easier usage by
-shell scripts (rather than parse the \f[B]DISK_...\f[] variables).
+The specific disk to backup is denoted by two additional environment
+variables: \f[C]EXPORT_INDEX\f[] which denotes the index in the instance
+disks structure (and could be used for example to skip the second disk
+if not needed for backup) and \f[C]EXPORT_DEVICE\f[] which has the same
+value as \f[C]DISK_N_PATH\f[] but is duplicated here for easier usage by
+shell scripts (rather than parse the \f[C]DISK_...\f[] variables).
 .PP
-To provide the user with an estimate on how long the export will
-take, a predicted size can be written to the file descriptor passed
-in the variable \f[B]EXP_SIZE_FD\f[].
+To provide the user with an estimate on how long the export will take, a
+predicted size can be written to the file descriptor passed in the
+variable \f[C]EXP_SIZE_FD\f[].
 The value is in bytes and must be terminated by a newline character
-(\f[B]\\n\f[]). Older versions of Ganeti don\[aq]t support this
-feature, hence the variable should be checked before use. Example:
-.PP
-\f[CR]
-      if\ test\ -n\ "$EXP_SIZE_FD";\ then
-      \ \ blockdev\ --getsize64\ $blockdev\ >&$EXP_SIZE_FD
-      fi
+(\f[C]\\n\f[]).
+Older versions of Ganeti don\[aq]t support this feature, hence the
+variable should be checked before use.
+Example:
+.IP
+.nf
+\f[C]
+if\ test\ -n\ "$EXP_SIZE_FD";\ then
+\ \ blockdev\ --getsize64\ $blockdev\ >&$EXP_SIZE_FD
+fi
 \f[]
+.fi
 .SS import
 .PP
-The \f[B]import\f[] command is used for restoring an instance from
-a backup as done by \f[B]export\f[].
-The arguments are the similar to those passed to \f[B]export\f[],
-whose output will be provided on stdin.
+The \f[B]import\f[] command is used for restoring an instance from a
+backup as done by \f[B]export\f[].
+The arguments are the similar to those passed to \f[B]export\f[], whose
+output will be provided on stdin.
 .PP
 The difference in variables is that the current disk is denoted by
-\f[B]IMPORT_DEVICE\f[] and \f[B]IMPORT_INDEX\f[] (instead of
-\f[B]EXPORT_...\f[]).
+\f[C]IMPORT_DEVICE\f[] and \f[C]IMPORT_INDEX\f[] (instead of
+\f[C]EXPORT_...\f[]).
 .SS rename
 .PP
-This command is used in order to perform a rename at the instance
-OS level, after the instance has been renamed in Ganeti. The
-command should do whatever steps are required to ensure that the
+This command is used in order to perform a rename at the instance OS
+level, after the instance has been renamed in Ganeti.
+The command should do whatever steps are required to ensure that the
 instance is updated to use the new name, if the operating system
 supports it.
 .PP
-Note that it is acceptable for the rename script to do nothing at
-all, however be warned that in this case, there will be a
-desynchronization between what gnt-instance list shows you and the
-actual hostname of the instance.
+Note that it is acceptable for the rename script to do nothing at all,
+however be warned that in this case, there will be a desynchronization
+between what gnt-instance list shows you and the actual hostname of the
+instance.
 .PP
-The script will be passed one additional environment variable
-called \f[B]OLD_INSTANCE_NAME\f[] which holds the old instance
-name. The \f[B]INSTANCE_NAME\f[] variable holds the new instance
-name.
+The script will be passed one additional environment variable called
+\f[C]OLD_INSTANCE_NAME\f[] which holds the old instance name.
+The \f[C]INSTANCE_NAME\f[] variable holds the new instance name.
 .PP
-A very simple rename script should at least change the hostname and
-IP address of the instance, leaving the administrator to update the
-other services.
+A very simple rename script should at least change the hostname and IP
+address of the instance, leaving the administrator to update the other
+services.
 .SS verify
 .PP
 The \f[I]verify\f[] script is used to verify consistency of the OS
-parameters (see below). The command should take one or more
-arguments denoting what checks should be performed, and return a
-proper exit code depending on whether the validation failed or
-succeeded.
+parameters (see below).
+The command should take one or more arguments denoting what checks
+should be performed, and return a proper exit code depending on whether
+the validation failed or succeeded.
 .PP
 Currently (API version 20), only one parameter is supported:
-\f[B]parameters\f[].
-This should validate the \f[B]OSP_\f[] variables from the
-environment, and output diagnostic messages in case the validation
-fails.
+\f[C]parameters\f[].
+This should validate the \f[C]OSP_\f[] variables from the environment,
+and output diagnostic messages in case the validation fails.
 .PP
-For the \f[B]dhcp\f[] parameter given as example above, a
-verification script could be:
-.PP
-\f[CR]
-      #!/bin/sh
-      
-      case\ $OSP_DHCP\ in
-      \ \ ""|yes|no)
-      \ \ \ \ \ \ ;;
-      \ \ *)
-      \ \ \ \ echo\ "Invalid\ value\ \[aq]$OSP_DHCP\[aq]\ for\ the\ dhcp\ parameter"\ 1>&2
-      \ \ \ \ exit\ 1;
-      \ \ \ \ ;;
-      esac
-      
-      exit\ 0
+For the \f[C]dhcp\f[] parameter given as example above, a verification
+script could be:
+.IP
+.nf
+\f[C]
+#!/bin/sh
+
+case\ $OSP_DHCP\ in
+\ \ ""|yes|no)
+\ \ \ \ \ \ ;;
+\ \ *)
+\ \ \ \ echo\ "Invalid\ value\ \[aq]$OSP_DHCP\[aq]\ for\ the\ dhcp\ parameter"\ 1>&2
+\ \ \ \ exit\ 1;
+\ \ \ \ ;;
+esac
+
+exit\ 0
 \f[]
+.fi
 .SH TEXT FILES
 .SS ganeti_api_version
 .PP
 The ganeti_api_version file is a plain text file containing the
-version(s) of the guest OS API that this OS definition complies
-with, one per line. The version documented by this man page is 20,
-so this file must contain the number 20 followed by a newline if
-only this version is supported. A script compatible with more than
-one Ganeti version should contain the most recent version first
-(i.e. 20), followed by the old version(s) (in this case 15 and/or
-10).
+version(s) of the guest OS API that this OS definition complies with,
+one per line.
+The version documented by this man page is 20, so this file must contain
+the number 20 followed by a newline if only this version is supported.
+A script compatible with more than one Ganeti version should contain the
+most recent version first (i.e.
+20), followed by the old version(s) (in this case 15 and/or 10).
 .SS variants.list
 .PP
-variants.list is a plain text file containing all the declared
-supported variants for this OS, one per line. If this file is
-missing or empty, then the OS won\[aq]t be considered to support
-variants.
+variants.list is a plain text file containing all the declared supported
+variants for this OS, one per line.
+If this file is missing or empty, then the OS won\[aq]t be considered to
+support variants.
+.PP
+Empty lines and lines starting with a hash (\f[C]#\f[]) are ignored.
 .SS parameters.list
 .PP
-This file declares the parameters supported by the OS, one
-parameter per line, with name and description (space and/or tab
-separated). For example:
-.PP
-\f[CR]
-      dhcp\ Whether\ to\ enable\ (yes)\ or\ disable\ (no)\ dhcp
-      root_size\ The\ size\ of\ the\ root\ partition,\ in\ GiB
+This file declares the parameters supported by the OS, one parameter per
+line, with name and description (space and/or tab separated).
+For example:
+.IP
+.nf
+\f[C]
+dhcp\ Whether\ to\ enable\ (yes)\ or\ disable\ (no)\ dhcp
+root_size\ The\ size\ of\ the\ root\ partition,\ in\ GiB
 \f[]
+.fi
 .PP
 The parameters can then be used in instance add or modification, as
 follows:
-.PP
-\f[CR]
-      #\ gnt-instance\ add\ -O\ dhcp=no,root_size=8\ ...
+.IP
+.nf
+\f[C]
+#\ gnt-instance\ add\ -O\ dhcp=no,root_size=8\ ...
 \f[]
+.fi
 .SH NOTES
 .SS Backwards compatibility
 .PP
 Ganeti 2.3 and up is compatible with API versions 10, 15 and 20.
-The OS parameters and related scripts (verify) are only supported
-in version 20. The variants functionality (variants.list, and
-OS_VARIANT env. var) are supported/present only in version 15 and
-up.
+The OS parameters and related scripts (verify) are only supported in
+version 20.
+The variants functionality (variants.list, and OS_VARIANT env.
+var) are supported/present only in version 15 and up.
 .SS Common behaviour
 .PP
-All the scripts should display an usage message when called with a
-wrong number of arguments or when the first argument is \f[B]-h\f[]
-or \f[B]--help\f[].
+All the scripts should display an usage message when called with a wrong
+number of arguments or when the first argument is \f[C]-h\f[] or
+\f[C]--help\f[].
 .SS Upgrading from old versions
 .SS Version 15 to 20
 .PP
-The \f[B]parameters.list\f[] file and \f[B]verify\f[] script have
-been added. For no parameters, an empty parameters file and an
-empty verify script which returns success can be used.
+The \f[C]parameters.list\f[] file and \f[C]verify\f[] script have been
+added.
+For no parameters, an empty parameters file and an empty verify script
+which returns success can be used.
 .SS Version 10 to 15
 .PP
-The \f[B]variants.list\f[] file has been added, so OSes should
-support at least one variant, declaring it in that file and must be
-prepared to parse the OS_VARIANT environment variable. OSes are
-free to support more variants than just the declared ones. Note
-that this file is optional; without it, the variants functionality
+The \f[C]variants.list\f[] file has been added, so OSes should support
+at least one variant, declaring it in that file and must be prepared to
+parse the OS_VARIANT environment variable.
+OSes are free to support more variants than just the declared ones.
+Note that this file is optional; without it, the variants functionality
 is disabled.
 .SS Version 5 to 10
 .PP
-The method for passing data has changed from command line options
-to environment variables, so scripts should be modified to use
-these. For an example of how this can be done in a way compatible
-with both versions, feel free to look at the debootstrap
-instance\[aq]s common.sh auxiliary script.
+The method for passing data has changed from command line options to
+environment variables, so scripts should be modified to use these.
+For an example of how this can be done in a way compatible with both
+versions, feel free to look at the debootstrap instance\[aq]s common.sh
+auxiliary script.
 .PP
-Also, instances can have now a variable number of disks, not only
-two, and a variable number of NICs (instead of fixed one), so the
-scripts should deal with this. The biggest change is in the
-import/export, which are called once per disk, instead of once per
-instance.
+Also, instances can have now a variable number of disks, not only two,
+and a variable number of NICs (instead of fixed one), so the scripts
+should deal with this.
+The biggest change is in the import/export, which are called once per
+disk, instead of once per instance.
 .SS Version 4 to 5
 .PP
-The rename script has been added. If you don\[aq]t want to do any
-changes on the instances after a rename, you can migrate the OS
-definition to version 5 by creating the rename script simply as:
-.PP
-\f[CR]
-      #!/bin/sh
-      
-      exit\ 0
+The rename script has been added.
+If you don\[aq]t want to do any changes on the instances after a rename,
+you can migrate the OS definition to version 5 by creating the rename
+script simply as:
+.IP
+.nf
+\f[C]
+#!/bin/sh
+
+exit\ 0
 \f[]
+.fi
 .PP
 Note that the script must be executable.
 .SH REPORTING BUGS
 .PP
-Report bugs to project website (http://code.google.com/p/ganeti/)
-or contact the developers using the
-Ganeti mailing list (ganeti@googlegroups.com).
+Report bugs to project website (http://code.google.com/p/ganeti/) or
+contact the developers using the Ganeti mailing
+list (ganeti@googlegroups.com).
 .SH SEE ALSO
 .PP
 Ganeti overview and specifications: \f[B]ganeti\f[](7) (general
-overview), \f[B]ganeti-os-interface\f[](7) (guest OS definitions).
+overview), \f[B]ganeti-os-interface\f[](7) (guest OS definitions),
+\f[B]ganeti-extstorage-interface\f[](7) (external storage providers).
 .PP
 Ganeti commands: \f[B]gnt-cluster\f[](8) (cluster-wide commands),
 \f[B]gnt-job\f[](8) (job-related commands), \f[B]gnt-node\f[](8)
-(node-related commands), \f[B]gnt-instance\f[](8) (instance
-commands), \f[B]gnt-os\f[](8) (guest OS commands),
-\f[B]gnt-group\f[](8) (node group commands), \f[B]gnt-backup\f[](8)
-(instance import/export commands), \f[B]gnt-debug\f[](8) (debug
-commands).
+(node-related commands), \f[B]gnt-instance\f[](8) (instance commands),
+\f[B]gnt-os\f[](8) (guest OS commands), \f[B]gnt-storage\f[](8) (storage
+commands), \f[B]gnt-group\f[](8) (node group commands),
+\f[B]gnt-backup\f[](8) (instance import/export commands),
+\f[B]gnt-debug\f[](8) (debug commands).
 .PP
 Ganeti daemons: \f[B]ganeti-watcher\f[](8) (automatic instance
 restarter), \f[B]ganeti-cleaner\f[](8) (job queue cleaner),
 \f[B]ganeti-noded\f[](8) (node daemon), \f[B]ganeti-masterd\f[](8)
 (master daemon), \f[B]ganeti-rapi\f[](8) (remote API daemon).
 .PP
-Ganeti htools: \f[B]htools\f[](1) (generic binary),
-\f[B]hbal\f[](1) (cluster balancer), \f[B]hspace\f[](1) (capacity
-calculation), \f[B]hail\f[](1) (IAllocator plugin),
-\f[B]hscan\f[](1) (data gatherer from remote clusters),
-\f[B]hinfo\f[](1) (cluster information printer).
+Ganeti htools: \f[B]htools\f[](1) (generic binary), \f[B]hbal\f[](1)
+(cluster balancer), \f[B]hspace\f[](1) (capacity calculation),
+\f[B]hail\f[](1) (IAllocator plugin), \f[B]hscan\f[](1) (data gatherer
+from remote clusters), \f[B]hinfo\f[](1) (cluster information printer),
+\f[B]mon-collector\f[](7) (data collectors interface).
 .SH COPYRIGHT
 .PP
 Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012 Google Inc.
-Permission is granted to copy, distribute and/or modify under the
-terms of the GNU General Public License as published by the Free
-Software Foundation; either version 2 of the License, or (at your
-option) any later version.
+Permission is granted to copy, distribute and/or modify under the terms
+of the GNU General Public License as published by the Free Software
+Foundation; either version 2 of the License, or (at your option) any
+later version.
 .PP
-On Debian systems, the complete text of the GNU General Public
-License can be found in /usr/share/common-licenses/GPL.
-
+On Debian systems, the complete text of the GNU General Public License
+can be found in /usr/share/common-licenses/GPL.

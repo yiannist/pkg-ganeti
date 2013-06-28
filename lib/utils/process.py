@@ -110,6 +110,8 @@ class RunResult(object):
 
     if fail_msgs and self.failed:
       self.fail_reason = utils_text.CommaJoin(fail_msgs)
+    else:
+      self.fail_reason = None
 
     if self.failed:
       logging.debug("Command '%s' failed (%s); output: %s",
@@ -142,7 +144,7 @@ def _BuildCmdEnvironment(env, reset):
 
 def RunCmd(cmd, env=None, output=None, cwd="/", reset_env=False,
            interactive=False, timeout=None, noclose_fds=None,
-           _postfork_fn=None):
+           input_fd=None, postfork_fn=None):
   """Execute a (shell) command.
 
   The command should not read from its standard input, as it will be
@@ -170,7 +172,10 @@ def RunCmd(cmd, env=None, output=None, cwd="/", reset_env=False,
   @type noclose_fds: list
   @param noclose_fds: list of additional (fd >=3) file descriptors to leave
                       open for the child process
-  @param _postfork_fn: Callback run after fork but before timeout (unittest)
+  @type input_fd: C{file}-like object or numeric file descriptor
+  @param input_fd: File descriptor for process' standard input
+  @type postfork_fn: Callable receiving PID as parameter
+  @param postfork_fn: Callback run after fork but before timeout
   @rtype: L{RunResult}
   @return: RunResult instance
   @raise errors.ProgrammerError: if we call this when forks are disabled
@@ -182,6 +187,12 @@ def RunCmd(cmd, env=None, output=None, cwd="/", reset_env=False,
   if output and interactive:
     raise errors.ProgrammerError("Parameters 'output' and 'interactive' can"
                                  " not be provided at the same time")
+
+  if not (output is None or input_fd is None):
+    # The current logic in "_RunCmdFile", which is used when output is defined,
+    # does not support input files (not hard to implement, though)
+    raise errors.ProgrammerError("Parameters 'output' and 'input_fd' can"
+                                 " not be used at the same time")
 
   if isinstance(cmd, basestring):
     strcmd = cmd
@@ -202,11 +213,13 @@ def RunCmd(cmd, env=None, output=None, cwd="/", reset_env=False,
     if output is None:
       out, err, status, timeout_action = _RunCmdPipe(cmd, cmd_env, shell, cwd,
                                                      interactive, timeout,
-                                                     noclose_fds,
-                                                     _postfork_fn=_postfork_fn)
+                                                     noclose_fds, input_fd,
+                                                     postfork_fn=postfork_fn)
     else:
-      assert _postfork_fn is None, \
-          "_postfork_fn not supported if output provided"
+      if postfork_fn:
+        raise errors.ProgrammerError("postfork_fn is not supported if output"
+                                     " should be captured")
+      assert input_fd is None
       timeout_action = _TIMEOUT_NONE
       status = _RunCmdFile(cmd, cmd_env, shell, output, cwd, noclose_fds)
       out = err = ""
@@ -481,8 +494,8 @@ def _WaitForProcess(child, timeout):
 
 
 def _RunCmdPipe(cmd, env, via_shell, cwd, interactive, timeout, noclose_fds,
-                _linger_timeout=constants.CHILD_LINGER_TIMEOUT,
-                _postfork_fn=None):
+                input_fd, postfork_fn=None,
+                _linger_timeout=constants.CHILD_LINGER_TIMEOUT):
   """Run a command and return its output.
 
   @type  cmd: string or list
@@ -500,19 +513,29 @@ def _RunCmdPipe(cmd, env, via_shell, cwd, interactive, timeout, noclose_fds,
   @type noclose_fds: list
   @param noclose_fds: list of additional (fd >=3) file descriptors to leave
                       open for the child process
-  @param _postfork_fn: Function run after fork but before timeout (unittest)
+  @type input_fd: C{file}-like object or numeric file descriptor
+  @param input_fd: File descriptor for process' standard input
+  @type postfork_fn: Callable receiving PID as parameter
+  @param postfork_fn: Function run after fork but before timeout
   @rtype: tuple
   @return: (out, err, status)
 
   """
   poller = select.poll()
 
-  stderr = subprocess.PIPE
-  stdout = subprocess.PIPE
-  stdin = subprocess.PIPE
-
   if interactive:
-    stderr = stdout = stdin = None
+    stderr = None
+    stdout = None
+  else:
+    stderr = subprocess.PIPE
+    stdout = subprocess.PIPE
+
+  if input_fd:
+    stdin = input_fd
+  elif interactive:
+    stdin = None
+  else:
+    stdin = subprocess.PIPE
 
   if noclose_fds:
     preexec_fn = lambda: CloseFDs(noclose_fds)
@@ -529,8 +552,8 @@ def _RunCmdPipe(cmd, env, via_shell, cwd, interactive, timeout, noclose_fds,
                            cwd=cwd,
                            preexec_fn=preexec_fn)
 
-  if _postfork_fn:
-    _postfork_fn(child.pid)
+  if postfork_fn:
+    postfork_fn(child.pid)
 
   out = StringIO()
   err = StringIO()
@@ -549,8 +572,14 @@ def _RunCmdPipe(cmd, env, via_shell, cwd, interactive, timeout, noclose_fds,
 
   timeout_action = _TIMEOUT_NONE
 
+  # subprocess: "If the stdin argument is PIPE, this attribute is a file object
+  # that provides input to the child process. Otherwise, it is None."
+  assert (stdin == subprocess.PIPE) ^ (child.stdin is None), \
+    "subprocess' stdin did not behave as documented"
+
   if not interactive:
-    child.stdin.close()
+    if child.stdin is not None:
+      child.stdin.close()
     poller.register(child.stdout, select.POLLIN)
     poller.register(child.stderr, select.POLLIN)
     fdmap = {
@@ -693,8 +722,8 @@ def RunParts(dir_name, env=None, reset_env=False):
 
   for relname in sorted(dir_contents):
     fname = utils_io.PathJoin(dir_name, relname)
-    if not (os.path.isfile(fname) and os.access(fname, os.X_OK) and
-            constants.EXT_PLUGIN_MASK.match(relname) is not None):
+    if not (constants.EXT_PLUGIN_MASK.match(relname) is not None and
+            utils_wrapper.IsExecutable(fname)):
       rr.append((relname, constants.RUNPARTS_SKIP, None))
     else:
       try:

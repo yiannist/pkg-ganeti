@@ -102,7 +102,44 @@ these operations are scheduled internally will change radically.
 
 The new design will change the cluster architecture to:
 
-.. image:: arch-2.0.png
+.. digraph:: "ganeti-2.0-architecture"
+
+  compound=false
+  concentrate=true
+  mclimit=100.0
+  nslimit=100.0
+  edge[fontsize="8" fontname="Helvetica-Oblique"]
+  node[width="0" height="0" fontsize="12" fontcolor="black" shape=rect]
+
+  subgraph outside {
+    rclient[label="external clients"]
+    label="Outside the cluster"
+  }
+
+  subgraph cluster_inside {
+    label="ganeti cluster"
+    labeljust=l
+    subgraph cluster_master_node {
+      label="master node"
+      rapi[label="RAPI daemon"]
+      cli[label="CLI"]
+      watcher[label="Watcher"]
+      burnin[label="Burnin"]
+      masterd[shape=record style=filled label="{ <luxi> luxi endpoint | master I/O thread | job queue | {<w1> worker| <w2> worker | <w3> worker }}"]
+      {rapi;cli;watcher;burnin} -> masterd:luxi [label="LUXI" labelpos=100]
+    }
+
+    subgraph cluster_nodes {
+        label="nodes"
+        noded1 [shape=record label="{ RPC listener | Disk management | Network management | Hypervisor } "]
+        noded2 [shape=record label="{ RPC listener | Disk management | Network management | Hypervisor } "]
+        noded3 [shape=record label="{ RPC listener | Disk management | Network management | Hypervisor } "]
+    }
+    masterd:w2 -> {noded1;noded2;noded3} [label="node RPC"]
+    cli -> {noded1;noded2;noded3} [label="SSH"]
+  }
+
+  rclient -> rapi [label="RAPI protocol"]
 
 This differs from the 1.2 architecture by the addition of the master
 daemon, which will be the only entity to talk to the node daemons.
@@ -1584,7 +1621,7 @@ DEBUG_LEVEL
 
 These are only the basic variables we are thinking of now, but more
 may come during the implementation and they will be documented in the
-:manpage:`ganeti-os-api` man page. All these variables will be
+:manpage:`ganeti-os-interface(7)` man page. All these variables will be
 available to all scripts.
 
 Some scripts will need a few more information to work. These will have

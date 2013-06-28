@@ -32,6 +32,7 @@ from ganeti import constants
 from ganeti import errors # pylint: disable=W0611
 from ganeti import utils
 from ganeti import objects
+from ganeti import pathutils
 from ganeti.hypervisor import hv_base
 from ganeti.errors import HypervisorError
 
@@ -58,7 +59,7 @@ class ChrootManager(hv_base.BaseHypervisor):
     - instance alive check is based on whether any process is using the chroot
 
   """
-  _ROOT_DIR = constants.RUN_GANETI_DIR + "/chroot-hypervisor"
+  _ROOT_DIR = pathutils.RUN_DIR + "/chroot-hypervisor"
 
   PARAMETERS = {
     constants.HV_INIT_SCRIPT: (True, utils.IsNormAbsPath,
@@ -272,7 +273,7 @@ class ChrootManager(hv_base.BaseHypervisor):
     return objects.InstanceConsole(instance=instance.name,
                                    kind=constants.CONS_SSH,
                                    host=instance.primary_node,
-                                   user=constants.GANETI_RUNAS,
+                                   user=constants.SSH_CONSOLE_USER,
                                    command=["chroot", root_dir])
 
   def Verify(self):
@@ -280,9 +281,13 @@ class ChrootManager(hv_base.BaseHypervisor):
 
     For the chroot manager, it just checks the existence of the base dir.
 
+    @return: Problem description if something is wrong, C{None} otherwise
+
     """
-    if not os.path.exists(self._ROOT_DIR):
-      return "The required directory '%s' does not exist." % self._ROOT_DIR
+    if os.path.exists(self._ROOT_DIR):
+      return None
+    else:
+      return "The required directory '%s' does not exist" % self._ROOT_DIR
 
   @classmethod
   def PowercycleNode(cls):
