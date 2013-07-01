@@ -7,6 +7,8 @@ ganeti (2.7.0~rc3-1) unstable; urgency=low
     script (Closes: #705005)
   * Update Xen recommends to be version-independent (Closes: #696133)
   * Remove outdated fix-no-kvm.patch
+  * Suggest ganeti-htools
+  * Split other haskell components in the ganeti-haskell package
 
  -- Guido Trotter <ultrotter@debian.org>  Fri, 28 Jun 2013 15:17:44 +0200
 

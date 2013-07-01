@@ -8,6 +8,7 @@
 
 GANETI_DIR=$(CURDIR)/debian/ganeti2
 HTOOLS_DIR=$(CURDIR)/debian/ganeti-htools
+HASKELL_DIR=$(CURDIR)/debian/ganeti-haskell
 
 build: build-arch build-indep
 build-arch: build-stamp
@@ -83,6 +84,11 @@ install: build
 	     $(HTOOLS_DIR)/usr/share/man/man1/ ; \
 	done
 	rmdir $(GANETI_DIR)/usr/share/man/man1
+
+        # haskell package
+	mv $(GANETI_DIR)/usr/sbin/ganeti-confd $(HASKELL_DIR)/usr/sbin/
+	mv $(GANETI_DIR)/usr/lib/ganeti/mon-collector $(HASKELL_DIR)/usr/lib/ganeti/
+	mv $(GANETI_DIR)/usr/share/man/man8/ganeti-confd.8 $(HASKELL_DIR)/usr/share/man/man8/
 
 # Build architecture-independent files here.
 binary-indep: build install

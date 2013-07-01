@@ -26,13 +26,13 @@ Depends: ${shlibs:Depends}, ${misc:Depends}, ${python:Depends}, lvm2,
  openssh-client, openssh-server, bridge-utils, iproute, iputils-arping,
  openssl, python-simplejson, python-pyparsing, python-openssl,
  python-pyinotify, python-pycurl, python-paramiko,
- socat, libjs-jquery, fping
+ socat, libjs-jquery, fping, ganeti-haskell
 Recommends: drbd8-utils (>= 8.0.7), qemu-kvm |
  xen-linux-system-amd64 | xen-linux-system-686 |
  xen-linux-system-686-pae, ganeti-instance-debootstrap,
  ndisc6
 Breaks: ganeti-htools (<< 0.3)
-Suggests: drbd8-module-source (>= 8.0.7)
+Suggests: drbd8-module-source (>= 8.0.7), ganeti-htools
 Provides: ${python:Provides}
 Description: Cluster-based virtualization management software
  Ganeti is a virtual server cluster management software tool built on top
@@ -49,6 +49,13 @@ Description: Cluster-based virtualization management software
  install scripts), startup, shutdown, failover of instances between physical
  systems.
 
+Package: ganeti-haskell
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: Haskell components of Ganeti
+ These are the components of Ganeti written in Haskell. They are split in a
+ separate package as they are not architecture independent.
+
 Package: ganeti-htools
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}
@@ -62,3 +69,4 @@ Description: Cluster allocation tools for Ganeti
    - hbal, used to redistribute instances on the cluster
    - hspace, used for capacity calculation
    - hscan, used to gather cluster files for offline use in hbal/hspace
+   - hroller, used to calculate rolling maintenances
