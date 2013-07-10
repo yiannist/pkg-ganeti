@@ -1,4 +1,4 @@
-ganeti (2.7.0~rc3-1) unstable; urgency=low
+ganeti (2.7.0-1) unstable; urgency=low
 
   * New upstream version
     - Fix compatibility with newer ghc (Closes: #713754)
