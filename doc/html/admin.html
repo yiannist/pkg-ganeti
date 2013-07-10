@@ -8,7 +8,7 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Ganeti administrator’s guide &mdash; Ganeti 2.7.0~rc3 documentation</title>
+    <title>Ganeti administrator’s guide &mdash; Ganeti 2.7.0 documentation</title>
     
     <link rel="stylesheet" href="_static/style.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
@@ -16,7 +16,7 @@
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.7.0~rc3',
+        VERSION:     '2.7.0',
         COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -25,7 +25,7 @@
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti 2.7.0~rc3 documentation" href="index.html" />
+    <link rel="top" title="Ganeti 2.7.0 documentation" href="index.html" />
     <link rel="next" title="Ganeti walk-through" href="walkthrough.html" />
     <link rel="prev" title="Upgrade notes" href="upgrade.html" /> 
   </head>
@@ -39,7 +39,7 @@
         <li class="right" >
           <a href="upgrade.html" title="Upgrade notes"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.7.0~rc3 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.7.0 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -903,13 +903,13 @@ to see a complete status for all your nodes is:</p>
 nodes <tt class="docutils literal"><span class="pre">(C,</span> <span class="pre">D)</span></tt> in a single move, it is possible to do so in a few
 steps:</p>
 <div class="highlight-shell-example"><div class="highlight"><pre><span class="c1"># instance is located on A, B</span>
-$ <span class="gs">gnt-instance</span> <span class="gs">replace</span> <span class="gs">-n</span> <span class="nv">nodeC</span> <span class="nv">instance1</span>
+$ <span class="gs">gnt-instance</span> <span class="gs">replace-disks</span> <span class="gs">-n</span> <span class="nv">nodeC</span> <span class="nv">instance1</span>
 <span class="c1"># instance has moved from (A, B) to (A, C)</span>
 <span class="c1"># we now flip the primary/secondary nodes</span>
 $ <span class="gs">gnt-instance</span> <span class="gs">migrate</span> <span class="nv">instance1</span>
 <span class="c1"># instance lives on (C, A)</span>
 <span class="c1"># we can then change A to D via:</span>
-$ <span class="gs">gnt-instance</span> <span class="gs">replace</span> <span class="gs">-n</span> <span class="nv">nodeD</span> <span class="nv">instance1</span>
+$ <span class="gs">gnt-instance</span> <span class="gs">replace-disks</span> <span class="gs">-n</span> <span class="nv">nodeD</span> <span class="nv">instance1</span>
 </pre></div>
 </div>
 <p>Which brings it into the final configuration of <tt class="docutils literal"><span class="pre">(C,</span> <span class="pre">D)</span></tt>. Note that we
@@ -1924,7 +1924,7 @@ in the source archive.</p>
         <li class="right" >
           <a href="upgrade.html" title="Upgrade notes"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.7.0~rc3 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.7.0 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">
