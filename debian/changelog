@@ -9,8 +9,9 @@ ganeti (2.7.0-1) unstable; urgency=low
   * Remove outdated fix-no-kvm.patch
   * Suggest ganeti-htools
   * Split other haskell components in the ganeti-haskell package
+  * Enable restricted commands
 
- -- Guido Trotter <ultrotter@debian.org>  Fri, 28 Jun 2013 15:17:44 +0200
+ -- Guido Trotter <ultrotter@debian.org>  Thu, 11 Jul 2013 13:27:18 +0200
 
 ganeti (2.6.2-2) experimental; urgency=low
 

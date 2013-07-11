@@ -26,7 +26,7 @@ build-stamp:
 	  --with-iallocator-search-path=/usr/local/lib/ganeti/iallocators,/usr/lib/ganeti/iallocators \
 	  --with-os-search-path=/srv/ganeti/os,/usr/local/lib/ganeti/os,/usr/lib/ganeti/os,/usr/share/ganeti/os \
 	  --docdir=/usr/share/doc/ganeti2 \
-	  --enable-htools --enable-htools-rapi
+	  --enable-htools --enable-htools-rapi --enable-restricted-commands
 
 	$(MAKE)
 
