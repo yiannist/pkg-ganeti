@@ -16,8 +16,8 @@ Build-Depends: debhelper (>= 7),
  socat, iproute
 Standards-Version: 3.9.3
 Homepage: http://code.google.com/p/ganeti/
-Vcs-Browser: http://git.debian.org/?p=pkg-ganeti/ganeti.git
-Vcs-Git: git://git.debian.org/pkg-ganeti/ganeti.git
+Vcs-Browser: http://anonscm.debian.org/gitweb/?p=pkg-ganeti/ganeti.git
+Vcs-Git: git://anonscm.debian.org/pkg-ganeti/ganeti.git
 
 Package: ganeti2
 Architecture: all
