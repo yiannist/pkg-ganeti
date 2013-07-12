@@ -10,14 +10,10 @@ GANETI_DIR=$(CURDIR)/debian/ganeti2
 HTOOLS_DIR=$(CURDIR)/debian/ganeti-htools
 HASKELL_DIR=$(CURDIR)/debian/ganeti-haskell
 
-build: build-arch build-indep
-build-arch: build-stamp
-build-indep: build-stamp
+%:
+	dh $@ --with python2
 
-build-stamp:
-	dh_testdir
-
-	# Add here commands to compile the package.
+override_dh_auto_configure:
 	./configure \
 	  --prefix=/usr \
 	  --localstatedir=/var \
@@ -28,17 +24,7 @@ build-stamp:
 	  --docdir=/usr/share/doc/ganeti2 \
 	  --enable-htools --enable-htools-rapi --enable-restricted-commands
 
-	$(MAKE)
-
-	touch $@
-
-clean:
-	dh_testdir
-	dh_testroot
-	rm -f build-stamp
-
-	# Add here commands to clean up after the build process.
-	#$(MAKE) clean
+override_dh_auto_clean:
 	[ ! -f Makefile ] || $(MAKE) distclean
 	# this is not removed by make distclean :(
 	rm -f ganeti
@@ -47,21 +33,14 @@ clean:
 	rm -f debian/ganeti2.ganeti.cron.d
 	rm -f debian/ganeti2.ganeti.default
 
-	dh_clean
+	dh_auto_clean
 
-install: build
-	dh_testdir
-	dh_testroot
-	dh_prep
-	dh_installdirs
-
-	# Add here commands to install the package into debian/<packagename>.
-	$(MAKE) install DESTDIR=$(CURDIR)/debian/ganeti2
+override_dh_auto_install:
+	$(MAKE) install DESTDIR=$(GANETI_DIR)
 	cp $(CURDIR)/doc/examples/ganeti.initd $(CURDIR)/debian/ganeti2.ganeti.init
 	cp $(CURDIR)/doc/examples/ganeti.cron $(CURDIR)/debian/ganeti2.ganeti.cron.d
 	cp $(CURDIR)/doc/examples/ganeti.default $(CURDIR)/debian/ganeti2.ganeti.default
-	# No longer needed with ganeti 2.1
-	#mv $(CURDIR)/debian/ganeti2/usr/share/doc/ganeti $(CURDIR)/debian/ganeti2/usr/share/doc/ganeti2
+
 	install -m 0644 $(CURDIR)/doc/examples/bash_completion \
 	  $(GANETI_DIR)/etc/bash_completion.d/ganeti
 	install -m 0644 $(CURDIR)/debian/ganeti2.overrides \
@@ -86,77 +65,8 @@ install: build
 	mv $(GANETI_DIR)/usr/lib/ganeti/mon-collector $(HASKELL_DIR)/usr/lib/ganeti/
 	mv $(GANETI_DIR)/usr/share/man/man8/ganeti-confd.8 $(HASKELL_DIR)/usr/share/man/man8/
 
-# Build architecture-independent files here.
-binary-indep: build install
-	dh_testdir -i
-	dh_testroot -i
-	dh_installchangelogs -i
-	dh_installdocs -i
-#	dh_installexamples -i
-#	dh_installmenu -i
-#	dh_installdebconf -i
-#	dh_installlogrotate -i
-#	dh_installemacsen -i
-#	dh_installcatalogs -i
-#	dh_installpam -i
-#	dh_installmime -i
-# Note: dh_python2 *must* be before dh_installinit, since the daemons
-# need the python modules as installed by dh_python2
-	dh_python2
+override_dh_installinit:
 	dh_installinit --name=ganeti --error-handler=true -i -- defaults 20 80
+
+override_dh_installcron:
 	dh_installcron --name=ganeti -i
-#	dh_installinfo -i
-#	dh_installwm -i
-#	dh_installudev -i
-#	dh_lintian -i
-#	dh_bugfiles -i
-#	dh_undocumented -i
-	dh_installman -i
-	dh_link -i
-	# Note: no compression on the html docs, since it will break navigation
-	dh_compress -Xganeti2/html/ -i
-	dh_fixperms -i
-#	dh_perl -i
-	dh_installdeb -i
-	dh_gencontrol -i
-	dh_md5sums -i
-	dh_builddeb -i
-
-# Build architecture-dependent files here.
-binary-arch: build install
-	dh_testdir -a
-	dh_testroot -a
-	dh_installchangelogs -a
-	dh_installdocs -a
-#	dh_installexamples -a
-#	dh_install -a
-#	dh_installmenu -a
-#	dh_installdebconf -a
-#	dh_installlogrotate -a
-#	dh_installemacsen -a
-#	dh_installcatalogs -a
-#	dh_installpam -a
-#	dh_installmime -a
-#	dh_installinit -a
-#	dh_installcron -a
-#	dh_installinfo -a
-#	dh_installwm -a
-#	dh_installudev -a
-#	dh_lintian -a
-#	dh_bugfiles -a
-#	dh_undocumented -a
-	dh_installman -a
-	dh_link -a
-	dh_strip -a
-	dh_compress -a
-	dh_fixperms -a
-#	dh_perl -a
-#	dh_makeshlibs -a
-	dh_installdeb -a
-	dh_shlibdeps -a
-	dh_gencontrol -a
-	dh_md5sums -a
-	dh_builddeb -a
-
-binary: binary-indep binary-arch
-.PHONY: build clean binary-indep binary-arch binary install
