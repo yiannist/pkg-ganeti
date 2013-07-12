@@ -1,3 +1,15 @@
+ganeti (2.7.0-2) UNRELEASED; urgency=low
+
+  [ Apollon Oikonomopoulos ]
+  * Switch from dh_pysupport to dh_python2
+  * Depend on libjs-underscore instead of embedding a copy
+  * Update standards version to 3.9.4 and compat to 9
+    - No changes needed, see #688251 for not adding Built-Using
+  * Update the Vcs-* fields to use anonscm.debian.org
+  * Add Apollon Oikonomopoulos <apoikos@gmail.com> to the Uploaders list
+
+ -- Apollon Oikonomopoulos <apoikos@gmail.com>  Fri, 12 Jul 2013 20:32:31 +0300
+
 ganeti (2.7.0-1) unstable; urgency=low
 
   * New upstream version
