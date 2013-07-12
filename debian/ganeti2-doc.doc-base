@@ -4,5 +4,5 @@ Abstract: This manual describes installation, administration and general use asp
 Section: System/Administration
 
 Format: HTML
-Index: /usr/share/doc/ganeti2/html/index.html
-Files: /usr/share/doc/ganeti2/html/*.html
+Index: /usr/share/doc/ganeti2-doc/html/index.html
+Files: /usr/share/doc/ganeti2-doc/html/*.html
