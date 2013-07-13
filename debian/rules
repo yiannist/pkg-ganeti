@@ -64,6 +64,7 @@ override_dh_auto_install:
 	mv $(GANETI_DIR)/usr/sbin/ganeti-confd $(HASKELL_DIR)/usr/sbin/
 	mv $(GANETI_DIR)/usr/lib/ganeti/mon-collector $(HASKELL_DIR)/usr/lib/ganeti/
 	mv $(GANETI_DIR)/usr/share/man/man8/ganeti-confd.8 $(HASKELL_DIR)/usr/share/man/man8/
+	mv $(GANETI_DIR)/usr/share/man/man7/mon-collector.7 $(HASKELL_DIR)/usr/share/man/man7/
 
 override_dh_installinit:
 	dh_installinit --name=ganeti --error-handler=true -i -- defaults 20 80
