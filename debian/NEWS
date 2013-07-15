@@ -1,5 +1,14 @@
 ganeti2 (2.7.0-2) unstable; urgency=low
 
+  Since 2.7.0-2, all internal Ganeti Python libraries are shipped as a private
+  module. This is done because the Ganeti internal APIs are not guaranteed to
+  be stable and direct use by 3rd-party applications is discouraged. Thus, any
+  3rd-party programs importing Ganeti's Python code, should now live under
+  /usr/share/ganeti2 or include /usr/share/ganeti2 in Python's sys.path.
+
+  The RAPI client library, being the only stable external API, is now shipped
+  as a public module in its own package, python-ganeti-rapi.
+
   Since 2.7.0-2, the HTML documentation is provided in the ganeti2-doc package.
 
  -- Apollon Oikonomopoulos <apoikos@gmail.com>  Sat, 13 Jul 2013 04:04:27 +0300
