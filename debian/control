@@ -107,3 +107,27 @@ Description: Cluster-based virtualization management software - documentation
  systems.
  .
  This package contains the full HTML documentation for Ganeti.
+
+Package: python-ganeti-rapi
+Architecture: all
+Section: python
+Depends: ${python:Depends}, ${misc:Depends}, python-pycurl, python-simplejson
+Suggests: ganeti2-doc
+Replaces: ganeti2 (<< 2.7.0-2)
+Breaks: ganeti2 (<< 2.7.0-2)
+Description: Cluster-based virtualization management software - RAPI client library
+ Ganeti is a virtual server cluster management software tool built on top
+ of the Xen virtual machine monitor and other Open Source software. After
+ setting it up it will provide you with an automated environment to
+ manage highly available virtual machine instances.
+ .
+ It has been designed to facilitate cluster management of virtual servers
+ and to provide fast and simple recovery after physical failures using
+ commodity hardware.
+ .
+ It will take care of operations such as redundant disk creation and
+ management, operating system installation  (in cooperation with OS-specific
+ install scripts), startup, shutdown, failover of instances between physical
+ systems.
+ .
+ This package contains a RAPI (Remote API) client library for Python.

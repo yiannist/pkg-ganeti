@@ -9,6 +9,7 @@
 GANETI_DIR=$(CURDIR)/debian/ganeti2
 HTOOLS_DIR=$(CURDIR)/debian/ganeti-htools
 HASKELL_DIR=$(CURDIR)/debian/ganeti-haskell
+RAPI_DIR=$(CURDIR)/debian/python-ganeti-rapi
 PRIVATE_DIR=$(GANETI_DIR)/usr/share/ganeti2
 
 %:
@@ -84,6 +85,11 @@ override_dh_auto_install:
 	  mv $(GANETI_DIR)/usr/lib/ganeti/$$file $(PRIVATE_DIR); \
 	  ln -s ../../share/ganeti2/$$file $(GANETI_DIR)/usr/lib/ganeti/$$file; \
 	done
+
+	# ship the RAPI client as a stand-alone package
+	install -Dp -m 0644 $(PRIVATE_DIR)/ganeti/rapi/client.py $(RAPI_DIR)/usr/share/pyshared/ganeti/rapi/client.py
+	touch $(RAPI_DIR)/usr/share/pyshared/ganeti/__init__.py
+	touch $(RAPI_DIR)/usr/share/pyshared/ganeti/rapi/__init__.py
 
 override_dh_installinit:
 	dh_installinit --name=ganeti --error-handler=true -i -- defaults 20 80
