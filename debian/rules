@@ -70,6 +70,7 @@ override_dh_auto_install:
 
 	# move the python libraries to the private module path
 	mv $(GANETI_DIR)/usr/lib/$$(pyversions -d)/dist-packages/ganeti $(GANETI_DIR)/usr/share/ganeti2/
+	rm -rf $(GANETI_DIR)/usr/lib/$$(pyversions -d)
 	for file in $(GANETI_DIR)/usr/sbin/*; do \
 	  mv $$file $(PRIVATE_DIR); \
 	  ln -s ../share/ganeti2/$$(basename $$file) $$file; \
