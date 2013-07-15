@@ -16,6 +16,7 @@ Build-Depends: debhelper (>= 9),
  python-paramiko, python-ipaddr, qemu-utils,
  socat, iproute, procps, shelltestrunner
 Standards-Version: 3.9.4
+X-Python-Version: >= 2.5
 Homepage: http://code.google.com/p/ganeti/
 Vcs-Browser: http://anonscm.debian.org/gitweb/?p=pkg-ganeti/ganeti.git
 Vcs-Git: git://anonscm.debian.org/pkg-ganeti/ganeti.git
