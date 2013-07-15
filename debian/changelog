@@ -15,6 +15,7 @@ ganeti (2.7.0-2) UNRELEASED; urgency=low
   * Update the Vcs-* fields to use anonscm.debian.org
   * Add Apollon Oikonomopoulos <apoikos@gmail.com> to the Uploaders list
   * Require Python version 2.5 or newer
+  * Convert debian/copyright to Format 1.0
 
  -- Apollon Oikonomopoulos <apoikos@gmail.com>  Fri, 12 Jul 2013 20:32:31 +0300
 
