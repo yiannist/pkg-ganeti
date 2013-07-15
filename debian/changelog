@@ -5,6 +5,8 @@ ganeti (2.7.0-2) UNRELEASED; urgency=low
     - Use the dh sequencer and cleanup debian/rules
     - Switch from dh_pysupport to dh_python2
     - Run the upstream test suite during build
+  * Ship the majority of the Python code in a private module under
+    /usr/share/ganeti2
   * Ship the HTML documentation as ganeti2-doc
     - Depend on libjs-underscore instead of embedding a copy
   * Update standards version to 3.9.4 and compat to 9
