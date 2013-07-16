@@ -1,4 +1,8 @@
 ganeti (2.7.0-2) unstable; urgency=low
+  The ganeti2 package has been renamed to ganeti, since the original reasons
+  for nameing the package ganeti2 (i.e. the 1.2 to 2.0 migration) no longer
+  apply. A dummy transitional ganeti2 package is provided for compatibility,
+  you can safely remove it after the installation has finished.
 
   Since 2.7.0-2, all internal Ganeti Python libraries are shipped as a private
   module. This is done because the Ganeti internal APIs are not guaranteed to

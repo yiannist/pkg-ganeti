@@ -1,6 +1,7 @@
 ganeti (2.7.0-2) UNRELEASED; urgency=low
 
   [ Apollon Oikonomopoulos ]
+  * Rename ganeti2 to ganeti
   * Build system refactoring
     - Use the dh sequencer and cleanup debian/rules
     - Switch from dh_pysupport to dh_python2
