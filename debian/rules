@@ -10,7 +10,7 @@ GANETI_DIR=$(CURDIR)/debian/ganeti2
 HTOOLS_DIR=$(CURDIR)/debian/ganeti-htools
 HASKELL_DIR=$(CURDIR)/debian/ganeti-haskell
 RAPI_DIR=$(CURDIR)/debian/python-ganeti-rapi
-PRIVATE_DIR=$(GANETI_DIR)/usr/share/ganeti2
+PRIVATE_DIR=$(GANETI_DIR)/usr/lib/ganeti
 
 %:
 	dh $@ --with python2
@@ -69,22 +69,17 @@ override_dh_auto_install:
 	mv $(GANETI_DIR)/usr/share/man/man7/mon-collector.7 $(HASKELL_DIR)/usr/share/man/man7/
 
 	# move the python libraries to the private module path
-	mv $(GANETI_DIR)/usr/lib/$$(pyversions -d)/dist-packages/ganeti $(GANETI_DIR)/usr/share/ganeti2/
+	mv $(GANETI_DIR)/usr/lib/$$(pyversions -d)/dist-packages/ganeti $(PRIVATE_DIR)
 	rm -rf $(GANETI_DIR)/usr/lib/$$(pyversions -d)
 	for file in $(GANETI_DIR)/usr/sbin/*; do \
 	  mv $$file $(PRIVATE_DIR); \
-	  ln -s ../share/ganeti2/$$(basename $$file) $$file; \
+	  ln -s ../lib/ganeti/$$(basename $$file) $$file; \
 	done
 
 	# ditto for all python tools needing internal APIs
 	for file in burnin cfgshell cfgupgrade cfgupgrade12 cluster-merge confd-client lvmstrap move-instance ovfconverter sanitize-config; do \
 	  mv $(GANETI_DIR)/usr/lib/ganeti/tools/$$file $(PRIVATE_DIR); \
-	  ln -s ../../../share/ganeti2/$$file $(GANETI_DIR)/usr/lib/ganeti/tools/$$file; \
-	done
-
-	for file in check-cert-expired ensure-dirs import-export node-daemon-setup prepare-node-join; do \
-	  mv $(GANETI_DIR)/usr/lib/ganeti/$$file $(PRIVATE_DIR); \
-	  ln -s ../../share/ganeti2/$$file $(GANETI_DIR)/usr/lib/ganeti/$$file; \
+	  ln -s ../$$file $(PRIVATE_DIR)/tools/$$file; \
 	done
 
 	# ship the RAPI client as a stand-alone package
@@ -97,3 +92,7 @@ override_dh_installinit:
 
 override_dh_installcron:
 	dh_installcron --name=ganeti -i
+
+override_dh_python2:
+	dh_python2
+	dh_python2 /usr/lib/ganeti

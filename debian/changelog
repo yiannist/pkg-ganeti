@@ -6,7 +6,7 @@ ganeti (2.7.0-2) UNRELEASED; urgency=low
     - Switch from dh_pysupport to dh_python2
     - Run the upstream test suite during build
   * Ship the majority of the Python code in a private module under
-    /usr/share/ganeti2
+    /usr/lib/ganeti
   * Ship the RAPI client as a separate package (python-ganeti-rapi)
   * Ship the HTML documentation as ganeti2-doc
     - Depend on libjs-underscore instead of embedding a copy
