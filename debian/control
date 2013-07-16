@@ -21,9 +21,10 @@ Homepage: http://code.google.com/p/ganeti/
 Vcs-Browser: http://anonscm.debian.org/gitweb/?p=pkg-ganeti/ganeti.git
 Vcs-Git: git://anonscm.debian.org/pkg-ganeti/ganeti.git
 
-Package: ganeti2
+Package: ganeti
 Architecture: all
-Conflicts: ganeti
+Breaks: ganeti2 (<< 2.7.0-2), ganeti-htools (<< 0.3)
+Replaces: ganeti2 (<< 2.7.0-2)
 Depends: ${shlibs:Depends}, ${misc:Depends}, ${python:Depends}, lvm2,
  openssh-client, openssh-server, bridge-utils, iproute, iputils-arping,
  openssl, python-simplejson, python-pyparsing, python-openssl,
@@ -33,8 +34,7 @@ Recommends: drbd8-utils (>= 8.0.7), qemu-kvm |
  xen-linux-system-amd64 | xen-linux-system-686 |
  xen-linux-system-686-pae, ganeti-instance-debootstrap,
  ndisc6
-Breaks: ganeti-htools (<< 0.3)
-Suggests: drbd8-module-source (>= 8.0.7), ganeti-htools, ganeti2-doc
+Suggests: drbd8-module-source (>= 8.0.7), ganeti-htools, ganeti-doc
 Provides: ${python:Provides}
 Description: Cluster-based virtualization management software
  Ganeti is a virtual server cluster management software tool built on top
@@ -50,6 +50,12 @@ Description: Cluster-based virtualization management software
  management, operating system installation  (in cooperation with OS-specific
  install scripts), startup, shutdown, failover of instances between physical
  systems.
+
+Package: ganeti2
+Architecture: all
+Depends: ganeti, ${misc:Depends}
+Description: transitional dummy package
+ This is a transitional dummy package for ganeti. It can safely be removed.
 
 Package: ganeti-haskell
 Architecture: any
@@ -87,7 +93,7 @@ Description: Cluster allocation tools for Ganeti
    - hscan, used to gather cluster files for offline use in hbal/hspace
    - hroller, used to calculate rolling maintenances
 
-Package: ganeti2-doc
+Package: ganeti-doc
 Architecture: all
 Section: doc
 Depends: ${shlibs:Depends}, ${misc:Depends}, libjs-jquery, libjs-underscore
@@ -112,7 +118,7 @@ Package: python-ganeti-rapi
 Architecture: all
 Section: python
 Depends: ${python:Depends}, ${misc:Depends}, python-pycurl, python-simplejson
-Suggests: ganeti2-doc
+Suggests: ganeti-doc
 Replaces: ganeti2 (<< 2.7.0-2)
 Breaks: ganeti2 (<< 2.7.0-2)
 Description: Cluster-based virtualization management software - RAPI client library

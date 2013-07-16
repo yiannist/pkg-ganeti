@@ -1,4 +1,4 @@
-ganeti2 (2.7.0-2) unstable; urgency=low
+ganeti (2.7.0-2) unstable; urgency=low
 
   Since 2.7.0-2, all internal Ganeti Python libraries are shipped as a private
   module. This is done because the Ganeti internal APIs are not guaranteed to
@@ -9,7 +9,7 @@ ganeti2 (2.7.0-2) unstable; urgency=low
   The RAPI client library, being the only stable external API, is now shipped
   as a public module in its own package, python-ganeti-rapi.
 
-  Since 2.7.0-2, the HTML documentation is provided in the ganeti2-doc package.
+  Since 2.7.0-2, the HTML documentation is provided in the ganeti-doc package.
 
  -- Apollon Oikonomopoulos <apoikos@gmail.com>  Sat, 13 Jul 2013 04:04:27 +0300
 
