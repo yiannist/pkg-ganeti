@@ -8,7 +8,7 @@ ganeti (2.7.0-2) unstable; urgency=low
   module. This is done because the Ganeti internal APIs are not guaranteed to
   be stable and direct use by 3rd-party applications is discouraged. Thus, any
   3rd-party programs importing Ganeti's Python code, should now live under
-  /usr/lib/ganeti or include /usr/lib/ganeti in Python's sys.path.
+  /usr/share/ganeti or include /usr/share/ganeti in Python's sys.path.
 
   The RAPI client library, being the only stable external API, is now shipped
   as a public module in its own package, python-ganeti-rapi.
