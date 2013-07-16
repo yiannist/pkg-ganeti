@@ -6,12 +6,6 @@
 # Uncomment this to turn on verbose mode.
 #export DH_VERBOSE=1
 
-GANETI_DIR=$(CURDIR)/debian/ganeti
-HTOOLS_DIR=$(CURDIR)/debian/ganeti-htools
-HASKELL_DIR=$(CURDIR)/debian/ganeti-haskell
-RAPI_DIR=$(CURDIR)/debian/python-ganeti-rapi
-PRIVATE_DIR=$(GANETI_DIR)/usr/lib/ganeti
-
 %:
 	dh $@ --with python2
 
@@ -38,52 +32,25 @@ override_dh_auto_clean:
 	dh_auto_clean
 
 override_dh_auto_install:
-	$(MAKE) install DESTDIR=$(GANETI_DIR)
+	dh_auto_install
 	cp $(CURDIR)/doc/examples/ganeti.initd $(CURDIR)/debian/ganeti.init
 	cp $(CURDIR)/doc/examples/ganeti.cron $(CURDIR)/debian/ganeti.cron.d
 	cp $(CURDIR)/doc/examples/ganeti.default $(CURDIR)/debian/ganeti.default
-
 	install -m 0644 $(CURDIR)/doc/examples/bash_completion \
-	  $(GANETI_DIR)/etc/bash_completion.d/ganeti
+	   $(CURDIR)/debian/ganeti/etc/bash_completion.d/ganeti
+	
+	# Hack to make our life a bit easier and be able to use wildcards in .install files
+	mv $(CURDIR)/debian/tmp/usr/lib/ganeti/mon-collector $(CURDIR)/debian/ganeti-haskell/usr/lib/ganeti
+	mv $(CURDIR)/debian/tmp/usr/sbin/ganeti-confd $(CURDIR)/debian/ganeti-haskell/usr/sbin
+	mv $(CURDIR)/debian/tmp/usr/share/man/man8/ganeti-confd.8 \
+	   $(CURDIR)/debian/ganeti-haskell/usr/share/man/man8/
 
-	rmdir $(GANETI_DIR)/var/run/ganeti
-	rmdir $(GANETI_DIR)/var/run
+	mv $(CURDIR)/debian/tmp/usr/lib/ganeti/iallocators/hail \
+	   $(CURDIR)/debian/ganeti-htools/usr/lib/ganeti/iallocators
 
-	# htools
-	mv $(GANETI_DIR)/usr/bin $(HTOOLS_DIR)/usr/
-	mv $(GANETI_DIR)/usr/lib/ganeti/iallocators/hail \
-	   $(HTOOLS_DIR)/usr/lib/ganeti/iallocators/
-
-	for i in htools hail hbal hscan hspace hcheck hinfo hroller; do \
-	  mv $(GANETI_DIR)/usr/share/man/man1/$${i}.1 \
-	     $(HTOOLS_DIR)/usr/share/man/man1/ ; \
-	done
-	rmdir $(GANETI_DIR)/usr/share/man/man1
-
-        # haskell package
-	mv $(GANETI_DIR)/usr/sbin/ganeti-confd $(HASKELL_DIR)/usr/sbin/
-	mv $(GANETI_DIR)/usr/lib/ganeti/mon-collector $(HASKELL_DIR)/usr/lib/ganeti/
-	mv $(GANETI_DIR)/usr/share/man/man8/ganeti-confd.8 $(HASKELL_DIR)/usr/share/man/man8/
-	mv $(GANETI_DIR)/usr/share/man/man7/mon-collector.7 $(HASKELL_DIR)/usr/share/man/man7/
-
-	# move the python libraries to the private module path
-	mv $(GANETI_DIR)/usr/lib/$$(pyversions -d)/dist-packages/ganeti $(PRIVATE_DIR)
-	rm -rf $(GANETI_DIR)/usr/lib/$$(pyversions -d)
-	for file in $(GANETI_DIR)/usr/sbin/*; do \
-	  mv $$file $(PRIVATE_DIR); \
-	  ln -s ../lib/ganeti/$$(basename $$file) $$file; \
-	done
-
-	# ditto for all python tools needing internal APIs
-	for file in burnin cfgshell cfgupgrade cfgupgrade12 cluster-merge confd-client lvmstrap move-instance ovfconverter sanitize-config; do \
-	  mv $(GANETI_DIR)/usr/lib/ganeti/tools/$$file $(PRIVATE_DIR); \
-	  ln -s ../$$file $(PRIVATE_DIR)/tools/$$file; \
-	done
-
-	# ship the RAPI client as a stand-alone package
-	install -Dp -m 0644 $(PRIVATE_DIR)/ganeti/rapi/client.py $(RAPI_DIR)/usr/share/pyshared/ganeti/rapi/client.py
-	touch $(RAPI_DIR)/usr/share/pyshared/ganeti/__init__.py
-	touch $(RAPI_DIR)/usr/share/pyshared/ganeti/rapi/__init__.py
+	# Dummy Python module for the RAPI client
+	touch $(CURDIR)/debian/python-ganeti-rapi/usr/share/pyshared/ganeti/__init__.py
+	touch $(CURDIR)/debian/python-ganeti-rapi/usr/share/pyshared/ganeti/rapi/__init__.py
 
 override_dh_installinit:
 	dh_installinit --error-handler=true -i -- defaults 20 80

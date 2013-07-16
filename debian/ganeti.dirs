@@ -3,3 +3,5 @@ etc/bash_completion.d
 usr/lib/ganeti
 usr/lib/ganeti/iallocators
 usr/share/lintian/overrides
+var/lib/ganeti
+var/log/ganeti

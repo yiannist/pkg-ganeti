@@ -1,0 +1,21 @@
+usr/share/man/man7/ganeti*
+usr/share/man/man8/gnt-*
+usr/share/man/man8/ganeti-*
+
+usr/lib/ganeti/
+
+usr/lib/python*/dist-packages/ganeti	/usr/lib/ganeti
+usr/sbin/gnt-*				/usr/lib/ganeti
+usr/sbin/ganeti-*			/usr/lib/ganeti
+
+usr/lib/ganeti/tools/burnin		/usr/lib/ganeti
+usr/lib/ganeti/tools/cfgshell		/usr/lib/ganeti
+usr/lib/ganeti/tools/cfgupgrade		/usr/lib/ganeti
+usr/lib/ganeti/tools/cfgupgrade12	/usr/lib/ganeti
+usr/lib/ganeti/tools/cluster-merge	/usr/lib/ganeti
+usr/lib/ganeti/tools/confd-client	/usr/lib/ganeti
+usr/lib/ganeti/tools/lvmstrap		/usr/lib/ganeti
+usr/lib/ganeti/tools/move-instance	/usr/lib/ganeti
+usr/lib/ganeti/tools/node-cleanup	/usr/lib/ganeti
+usr/lib/ganeti/tools/ovfconverter	/usr/lib/ganeti
+usr/lib/ganeti/tools/sanitize-config	/usr/lib/ganeti
