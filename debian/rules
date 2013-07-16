@@ -45,8 +45,6 @@ override_dh_auto_install:
 
 	install -m 0644 $(CURDIR)/doc/examples/bash_completion \
 	  $(GANETI_DIR)/etc/bash_completion.d/ganeti
-	install -m 0644 $(CURDIR)/debian/ganeti.overrides \
-	  $(GANETI_DIR)/usr/share/lintian/overrides/ganeti
 
 	rmdir $(GANETI_DIR)/var/run/ganeti
 	rmdir $(GANETI_DIR)/var/run
