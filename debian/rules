@@ -57,3 +57,6 @@ override_dh_installinit:
 
 override_dh_install:
 	dh_install --fail-missing
+
+.PHONY: override_dh_auto_configure override_dh_auto_clean override_dh_auto_install \
+	override_dh_installinit override_dh_install
