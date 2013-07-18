@@ -3,6 +3,7 @@ ganeti (2.7.0-2) unstable; urgency=low
   [ Apollon Oikonomopoulos ]
   * Rename ganeti2 to ganeti
   * Add missing dependencies on python-bitarray and python-ipaddr
+  * ganeti-haskell Replaces & Breaks older ganeti2 packages (Closes: #717242)
   * Build system refactoring
     - Use the dh sequencer and cleanup debian/rules
     - Switch from dh_pysupport to dh_python2

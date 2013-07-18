@@ -60,6 +60,8 @@ Description: transitional dummy package
 Package: ganeti-haskell
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}
+Replaces: ganeti2 (<< 2.7.0-2)
+Breaks: ganeti2 (<< 2.7.0-2)
 Description: Cluster-based virtualization management software - Haskell components
  Ganeti is a virtual server cluster management software tool built on top
  of the Xen virtual machine monitor and other Open Source software. After
