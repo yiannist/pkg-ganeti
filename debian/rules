@@ -54,3 +54,6 @@ override_dh_auto_install:
 
 override_dh_installinit:
 	dh_installinit --error-handler=true -i -- defaults 20 80
+
+override_dh_install:
+	dh_install --fail-missing
