@@ -2,6 +2,7 @@ ganeti (2.7.0-2) unstable; urgency=low
 
   [ Apollon Oikonomopoulos ]
   * Rename ganeti2 to ganeti
+    - Transition using a dummy ganeti2 package
   * Add dependencies on python-bitarray and python-ipaddr (Closes: #717296)
   * ganeti-haskell Replaces & Breaks older ganeti2 packages (Closes: #717242)
   * Build system refactoring
