@@ -8,7 +8,10 @@ ganeti (2.7.0-2) unstable; urgency=low
     - Use the dh sequencer and cleanup debian/rules
     - Switch from dh_pysupport to dh_python2
     - Run the upstream test suite during build
+      o Add a patch to disable running `local' checks
   * Provide the /etc/logrotate.d/ganeti snippet
+    - Include a patch forwarded upstream, providing the rotate-all command for
+      /usr/lib/ganeti/daemon-util
   * Ship the majority of the Python code in a private module under
     /usr/share/ganeti
   * Ship the RAPI client as a separate package (python-ganeti-rapi)
@@ -20,6 +23,8 @@ ganeti (2.7.0-2) unstable; urgency=low
   * Add Apollon Oikonomopoulos <apoikos@gmail.com> to the Uploaders list
   * Require Python version 2.5 or newer
   * Convert debian/copyright to Format 1.0
+  * Backport upstream commit 927840bc, fixing a stale check against
+    ganeti-master-cleaner from the crontab.
 
  -- Apollon Oikonomopoulos <apoikos@gmail.com>  Fri, 12 Jul 2013 20:32:31 +0300
 
