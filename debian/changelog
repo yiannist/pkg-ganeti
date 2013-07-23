@@ -8,6 +8,7 @@ ganeti (2.7.0-2) unstable; urgency=low
     - Use the dh sequencer and cleanup debian/rules
     - Switch from dh_pysupport to dh_python2
     - Run the upstream test suite during build
+  * Provide the /etc/logrotate.d/ganeti snippet
   * Ship the majority of the Python code in a private module under
     /usr/share/ganeti
   * Ship the RAPI client as a separate package (python-ganeti-rapi)
