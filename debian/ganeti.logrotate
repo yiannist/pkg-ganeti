@@ -8,6 +8,6 @@
         create 640 root root
         sharedscripts
         postrotate
-		/usr/lib/ganeti/daemon-util rotate-all
+               /usr/lib/ganeti/daemon-util rotate-all-logs
         endscript
 }

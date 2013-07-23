@@ -1,5 +1,5 @@
 fix-startup-with-old-config.patch
 cfgupgrade12-remove-old-ssconf.patch
 0003-Disable-local-checks-during-build.patch
-0001-daemon-util-provide-rotate-and-rotate_all-actions.patch
 fix-ganeti-cleaner-in-crontab.patch
+0001-daemon-util-provide-rotate_logs-and-rotate_all_logs-.patch
