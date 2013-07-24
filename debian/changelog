@@ -10,7 +10,7 @@ ganeti (2.7.0-2) unstable; urgency=low
     - Run the upstream test suite during build
       o Add a patch to disable running `local' checks
   * Provide the /etc/logrotate.d/ganeti snippet
-    - Include 1 patch, merged upstream, implementing the logrotate helper.
+    - Include 2 patches, merged upstream, implementing the logrotate helper.
   * Ship the majority of the Python code in a private module under
     /usr/share/ganeti
   * Ship the RAPI client as a separate package (python-ganeti-rapi)

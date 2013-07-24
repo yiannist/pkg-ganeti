@@ -3,3 +3,4 @@ cfgupgrade12-remove-old-ssconf.patch
 0003-Disable-local-checks-during-build.patch
 fix-ganeti-cleaner-in-crontab.patch
 0001-daemon-util-provide-rotate_logs-and-rotate_all_logs-.patch
+0001-daemon-util-pass-oknodo-at-rotate_logs.patch
