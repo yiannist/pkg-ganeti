@@ -1,6 +1,10 @@
 ganeti (2.7.1-1) unstable; urgency=low
 
   * New upstream version
+  * Drop the following patches already merged upstream:
+    - 0001-daemon-util-pass-oknodo-at-rotate_logs.patch
+    - 0001-daemon-util-provide-rotate_logs-and-rotate_all_logs-.patch
+    - fix-ganeti-cleaner-in-crontab.patch
 
  -- Apollon Oikonomopoulos <apoikos@gmail.com>  Sun, 28 Jul 2013 04:59:44 +0300
 
