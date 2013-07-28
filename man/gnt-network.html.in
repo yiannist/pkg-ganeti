@@ -70,6 +70,9 @@
 <p>The <code>-o</code> option takes a comma-separated list of output fields. If the value of the option starts with the character <code>+</code>, the new fields will be added to the default list. This allows to quickly see the default list plus a few other fields, instead of retyping the entire list of fields.</p>
 <p>The available fields and their meaning are:</p>
 <dl>
+<dt><code>ctime</code></dt>
+<dd><p>Creation timestamp</p>
+</dd>
 <dt><code>external_reservations</code></dt>
 <dd><p>External reservations</p>
 </dd>
@@ -99,6 +102,9 @@
 </dd>
 <dt><code>map</code></dt>
 <dd><p>Actual mapping</p>
+</dd>
+<dt><code>mtime</code></dt>
+<dd><p>Modification timestamp</p>
 </dd>
 <dt><code>name</code></dt>
 <dd><p>Name</p>

@@ -122,6 +122,8 @@ fields.
 
 The available fields and their meaning are:
 
+``ctime``
+  Creation timestamp
 ``external_reservations``
   External reservations
 ``free_count``
@@ -142,6 +144,8 @@ The available fields and their meaning are:
   MAC address prefix
 ``map``
   Actual mapping
+``mtime``
+  Modification timestamp
 ``name``
   Name
 ``network``

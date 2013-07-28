@@ -162,6 +162,11 @@ instead of retyping the entire list of fields.
 .PP
 The available fields and their meaning are:
 .TP
+.B \f[C]ctime\f[]
+Creation timestamp
+.RS
+.RE
+.TP
 .B \f[C]external_reservations\f[]
 External reservations
 .RS
@@ -209,6 +214,11 @@ MAC address prefix
 .TP
 .B \f[C]map\f[]
 Actual mapping
+.RS
+.RE
+.TP
+.B \f[C]mtime\f[]
+Modification timestamp
 .RS
 .RE
 .TP
