@@ -40,22 +40,15 @@ override_dh_auto_build:
 	mv doc/html doc/html.orig
 	$(MAKE) doc/html
 
-override_dh_auto_install:
-	dh_auto_install
+# Add missing bits to ganeti and python-ganeti-rapi. We do not use
+# override_dh_install (plain) because it will fail in binary-arch builds.
+override_dh_install-indep:
+	dh_install -i -Xganeti-confd -Xmon-collector -Xhail --fail-missing
 	cp $(CURDIR)/doc/examples/ganeti.initd $(CURDIR)/debian/ganeti.init
 	cp $(CURDIR)/doc/examples/ganeti.cron $(CURDIR)/debian/ganeti.cron.d
 	cp $(CURDIR)/doc/examples/ganeti.default $(CURDIR)/debian/ganeti.default
 	cp $(CURDIR)/doc/examples/ganeti.logrotate $(CURDIR)/debian/ganeti.logrotate
 	
-	# Hack to make our life a bit easier and be able to use wildcards in .install files
-	mv $(CURDIR)/debian/tmp/usr/lib/ganeti/mon-collector $(CURDIR)/debian/ganeti-haskell/usr/lib/ganeti
-	mv $(CURDIR)/debian/tmp/usr/sbin/ganeti-confd $(CURDIR)/debian/ganeti-haskell/usr/sbin
-	mv $(CURDIR)/debian/tmp/usr/share/man/man8/ganeti-confd.8 \
-	   $(CURDIR)/debian/ganeti-haskell/usr/share/man/man8/
-
-	mv $(CURDIR)/debian/tmp/usr/lib/ganeti/iallocators/hail \
-	   $(CURDIR)/debian/ganeti-htools/usr/lib/ganeti/iallocators
-
 	# Dummy Python module for the RAPI client
 	touch $(CURDIR)/debian/python-ganeti-rapi/usr/share/pyshared/ganeti/__init__.py
 	touch $(CURDIR)/debian/python-ganeti-rapi/usr/share/pyshared/ganeti/rapi/__init__.py
@@ -63,8 +56,9 @@ override_dh_auto_install:
 override_dh_installinit:
 	dh_installinit --error-handler=true -i -- defaults 20 80
 
-override_dh_install:
-	dh_install --fail-missing
+# Disable dh_sphinxdoc for binary-arch, as it will raise an error
+override_dh_sphinxdoc-arch:
 
-.PHONY: override_dh_auto_configure override_dh_auto_clean override_dh_auto_install \
-	override_dh_installinit override_dh_install
+
+.PHONY: override_dh_auto_configure override_dh_auto_clean override_dh_auto_build \
+	override_dh_installinit override_dh_install-indep override_dh_sphinxdoc-arch
