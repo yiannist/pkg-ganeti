@@ -28,6 +28,7 @@ override_dh_auto_clean:
 	rm -f debian/ganeti.init
 	rm -f debian/ganeti.cron.d
 	rm -f debian/ganeti.default
+	rm -f debian/ganeti.logrotate
 
 	dh_auto_clean
 
@@ -36,6 +37,7 @@ override_dh_auto_install:
 	cp $(CURDIR)/doc/examples/ganeti.initd $(CURDIR)/debian/ganeti.init
 	cp $(CURDIR)/doc/examples/ganeti.cron $(CURDIR)/debian/ganeti.cron.d
 	cp $(CURDIR)/doc/examples/ganeti.default $(CURDIR)/debian/ganeti.default
+	cp $(CURDIR)/doc/examples/ganeti.logrotate $(CURDIR)/debian/ganeti.logrotate
 	install -m 0644 $(CURDIR)/doc/examples/bash_completion \
 	   $(CURDIR)/debian/ganeti/etc/bash_completion.d/ganeti
 	
