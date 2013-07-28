@@ -1,6 +1,7 @@
 ganeti (2.7.1-1) unstable; urgency=low
 
   * New upstream version
+  * Rebuild the sphinx documentation and use dh_sphinxdoc (Closes: #718026)
   * Drop the following patches already merged upstream:
     - 0001-daemon-util-pass-oknodo-at-rotate_logs.patch
     - 0001-daemon-util-provide-rotate_logs-and-rotate_all_logs-.patch

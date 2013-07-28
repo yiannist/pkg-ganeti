@@ -7,7 +7,7 @@
 #export DH_VERBOSE=1
 
 %:
-	dh $@ --with python2
+	dh $@ --with python2,sphinxdoc
 
 override_dh_auto_configure:
 	./configure \
@@ -29,8 +29,16 @@ override_dh_auto_clean:
 	rm -f debian/ganeti.cron.d
 	rm -f debian/ganeti.default
 	rm -f debian/ganeti.logrotate
-
+	if [ -d doc/html.orig ]; then \
+		rm -rf doc/html; \
+		mv doc/html.orig doc/html; \
+	fi
 	dh_auto_clean
+
+override_dh_auto_build:
+	dh_auto_build
+	mv doc/html doc/html.orig
+	$(MAKE) doc/html
 
 override_dh_auto_install:
 	dh_auto_install
