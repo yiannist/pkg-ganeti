@@ -5,6 +5,8 @@ ganeti (2.7.1-1) unstable; urgency=low
     - 0001-daemon-util-pass-oknodo-at-rotate_logs.patch
     - 0001-daemon-util-provide-rotate_logs-and-rotate_all_logs-.patch
     - fix-ganeti-cleaner-in-crontab.patch
+  * Add a new patch, disable-TestVerifyRestrictedCmdDirectory.patch, that
+    disables a test currently breaking build on the Debian buildd's
 
  -- Apollon Oikonomopoulos <apoikos@gmail.com>  Sun, 28 Jul 2013 04:59:44 +0300
 
