@@ -7,7 +7,7 @@
 #export DH_VERBOSE=1
 
 %:
-	dh $@ --with python2,sphinxdoc
+	dh $@ --with python2,sphinxdoc,bash_completion
 
 override_dh_auto_configure:
 	./configure \
@@ -46,8 +46,6 @@ override_dh_auto_install:
 	cp $(CURDIR)/doc/examples/ganeti.cron $(CURDIR)/debian/ganeti.cron.d
 	cp $(CURDIR)/doc/examples/ganeti.default $(CURDIR)/debian/ganeti.default
 	cp $(CURDIR)/doc/examples/ganeti.logrotate $(CURDIR)/debian/ganeti.logrotate
-	install -m 0644 $(CURDIR)/doc/examples/bash_completion \
-	   $(CURDIR)/debian/ganeti/etc/bash_completion.d/ganeti
 	
 	# Hack to make our life a bit easier and be able to use wildcards in .install files
 	mv $(CURDIR)/debian/tmp/usr/lib/ganeti/mon-collector $(CURDIR)/debian/ganeti-haskell/usr/lib/ganeti
