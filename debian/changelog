@@ -1,3 +1,14 @@
+ganeti (2.7.1-2) unstable; urgency=low
+
+  * Build-Depend on bash-completion and use dh_bash-completion
+  * Fix binary-arch FTBFS (Closes: #718231)
+    - Switch ganeti-haskell and ganeti-htools to dh_install only
+    - Do not run dh_sphinxdoc when building binary-arch packages
+    - Have dh_install ignore ganeti-haskell and ganeti-htools files when
+      building binary-indep packages
+
+ -- Apollon Oikonomopoulos <apoikos@gmail.com>  Mon, 29 Jul 2013 09:42:21 +0300
+
 ganeti (2.7.1-1) unstable; urgency=low
 
   * New upstream version
