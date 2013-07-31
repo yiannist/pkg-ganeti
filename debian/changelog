@@ -1,3 +1,12 @@
+ganeti (2.7.1-3) UNRELEASED; urgency=low
+
+  * Remove Recommends: xen-linux-system-686 as the package has been replaced by
+    xen-linux-system-686-pae
+  * Ditto for Suggests: drbd8-module-source. DRBD has been available in all
+    stock kernels since squeeze
+
+ -- Apollon Oikonomopoulos <apoikos@gmail.com>  Wed, 31 Jul 2013 13:35:04 +0300
+
 ganeti (2.7.1-2) unstable; urgency=low
 
   * Build-Depend on bash-completion and use dh_bash-completion
