@@ -6,7 +6,7 @@ Uploaders: Guido Trotter <ultrotter@debian.org>,
  Apollon Oikonomopoulos <apoikos@gmail.com>
 Build-Depends: debhelper (>= 9),
  python-all, ghc (>= 6.12), ghc-ghci,
- libghc-curl-dev, libghc-json-dev,
+ libghc-curl-dev, libghc-json-dev, libghc-snap-server-dev,
  libghc-network-dev, libcurl4-gnutls-dev, libghc-parallel-dev,
  libghc-utf8-string-dev, libghc-deepseq-dev, libghc-hslogger-dev,
  libghc-crypto-dev, libghc-text-dev, libghc-hinotify-dev,
