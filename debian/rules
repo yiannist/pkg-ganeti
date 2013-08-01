@@ -40,7 +40,7 @@ override_dh_auto_build:
 # Add missing bits to ganeti and python-ganeti-rapi. We do not use
 # override_dh_install (plain) because it will fail in binary-arch builds.
 override_dh_install-indep:
-	dh_install -i -Xganeti-confd -Xmon-collector -Xhail --fail-missing
+	dh_install -i -Xganeti-confd -Xmon-collector -Xhail -Xganeti-mond -Xganeti-luxid --fail-missing
 	cp $(CURDIR)/doc/examples/ganeti.initd $(CURDIR)/debian/ganeti.init
 	cp $(CURDIR)/doc/examples/ganeti.cron $(CURDIR)/debian/ganeti.cron.d
 	cp $(CURDIR)/doc/examples/ganeti.default $(CURDIR)/debian/ganeti.default
