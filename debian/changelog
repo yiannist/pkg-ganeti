@@ -1,4 +1,4 @@
-ganeti (2.7.1-3) UNRELEASED; urgency=low
+ganeti (2.7.1-3) unstable; urgency=low
 
   * Remove Recommends: xen-linux-system-686 as the package has been replaced by
     xen-linux-system-686-pae
