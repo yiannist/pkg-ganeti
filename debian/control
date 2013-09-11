@@ -2,7 +2,7 @@ Source: ganeti
 Section: admin
 Priority: extra
 Maintainer: Debian Ganeti Team <pkg-ganeti-devel@lists.alioth.debian.org>
-Uploaders: Guido Trotter <ultrotter@debian.org>, Iustin Pop <iustin@debian.org>,
+Uploaders: Guido Trotter <ultrotter@debian.org>,
  Apollon Oikonomopoulos <apoikos@gmail.com>
 Build-Depends: debhelper (>= 9),
  python-all, ghc (>= 6.12), ghc-ghci,
