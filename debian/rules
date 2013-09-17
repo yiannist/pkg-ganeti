@@ -64,6 +64,11 @@ override_dh_installinit:
 # Disable dh_sphinxdoc for binary-arch, as it will raise an error
 override_dh_sphinxdoc-arch:
 
+# Disable the test suite, as it requires the daemon users to be present
+# at build time.
+override_dh_auto_test:
+
 
 .PHONY: override_dh_auto_configure override_dh_auto_clean override_dh_auto_build \
-	override_dh_installinit override_dh_install-indep override_dh_sphinxdoc-arch
+	override_dh_installinit override_dh_install-indep override_dh_sphinxdoc-arch \
+	override_dh_auto_test

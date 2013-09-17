@@ -12,9 +12,9 @@ Build-Depends: debhelper (>= 9),
  libghc-crypto-dev, libghc-text-dev, libghc-hinotify-dev,
  libghc-regex-pcre-dev, libghc-attoparsec-dev, libghc-vector-dev, libpcre3-dev,
  python-simplejson, python-pyparsing, python-openssl, python-bitarray,
- python-support (>= 0.6), python-pyinotify, python-pycurl, python-yaml,
+ python-support (>= 0.6), python-pyinotify, python-pycurl,
  python-paramiko, python-ipaddr, python-sphinx (>= 1.0.7+dfsg), graphviz,
- qemu-utils, socat, iproute2, procps, shelltestrunner, bash-completion
+ qemu-utils, socat, iproute2, bash-completion
 Standards-Version: 3.9.4
 X-Python-Version: >= 2.6
 Homepage: http://code.google.com/p/ganeti/
