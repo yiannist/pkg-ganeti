@@ -3,6 +3,8 @@
 # Uncomment this to turn on verbose mode.
 #export DH_VERBOSE=1
 
+GNT_USERGROUP_PREFIX="gnt-"
+
 %:
 	dh $@ --with python2,sphinxdoc,bash_completion
 
@@ -15,7 +17,9 @@ override_dh_auto_configure:
 	  --with-iallocator-search-path=/usr/local/lib/ganeti/iallocators,/usr/lib/ganeti/iallocators \
 	  --with-os-search-path=/srv/ganeti/os,/usr/local/lib/ganeti/os,/usr/lib/ganeti/os,/usr/share/ganeti/os \
 	  --docdir=/usr/share/doc/ganeti \
-	  --enable-htools-rapi --enable-restricted-commands
+	  --enable-htools-rapi --enable-restricted-commands \
+	  --with-user-prefix=$(GNT_USERGROUP_PREFIX) \
+	  --with-group-prefix=$(GNT_USERGROUP_PREFIX)
 
 override_dh_auto_clean:
 	[ ! -f Makefile ] || $(MAKE) distclean
@@ -26,6 +30,8 @@ override_dh_auto_clean:
 	rm -f debian/ganeti.cron.d
 	rm -f debian/ganeti.default
 	rm -f debian/ganeti.logrotate
+	rm -f debian/ganeti.postinst
+	rm -f debian/ganeti.postrm
 	if [ -d doc/html.orig ]; then \
 		rm -rf doc/html; \
 		mv doc/html.orig doc/html; \
@@ -36,6 +42,8 @@ override_dh_auto_build:
 	dh_auto_build
 	mv doc/html doc/html.orig
 	$(MAKE) doc/html
+	$(CURDIR)/debian/genscript.py postinst "$(CURDIR)" >"$(CURDIR)/debian/ganeti.postinst"
+	$(CURDIR)/debian/genscript.py postrm "$(CURDIR)" >"$(CURDIR)/debian/ganeti.postrm"
 
 # Add missing bits to ganeti and python-ganeti-rapi. We do not use
 # override_dh_install (plain) because it will fail in binary-arch builds.
