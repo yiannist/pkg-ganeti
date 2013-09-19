@@ -29,7 +29,6 @@ override_dh_auto_clean:
 	rm -f debian/ganeti.init
 	rm -f debian/ganeti.cron.d
 	rm -f debian/ganeti.default
-	rm -f debian/ganeti.logrotate
 	rm -f debian/ganeti.postinst
 	rm -f debian/ganeti.postrm
 	if [ -d doc/html.orig ]; then \
@@ -52,7 +51,6 @@ override_dh_install-indep:
 	cp $(CURDIR)/doc/examples/ganeti.initd $(CURDIR)/debian/ganeti.init
 	cp $(CURDIR)/doc/examples/ganeti.cron $(CURDIR)/debian/ganeti.cron.d
 	cp $(CURDIR)/doc/examples/ganeti.default $(CURDIR)/debian/ganeti.default
-	cp $(CURDIR)/doc/examples/ganeti.logrotate $(CURDIR)/debian/ganeti.logrotate
 	
 	# Dummy Python module for the RAPI client
 	touch $(CURDIR)/debian/python-ganeti-rapi/usr/share/pyshared/ganeti/__init__.py
