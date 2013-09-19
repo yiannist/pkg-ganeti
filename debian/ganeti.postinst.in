@@ -49,4 +49,12 @@ esac
 
 #DEBHELPER#
 
+# Fix jobqueue archive permissions
+# This may take a while, so we only do this if necessary
+find /var/lib/ganeti/queue/archive -mindepth 1 -maxdepth 1 \
+		-type d -not -user "@GNTMASTERUSER@" | while read dirname; do
+	/usr/lib/ganeti/ensure-dirs --full-run
+	break
+done
+
 exit 0

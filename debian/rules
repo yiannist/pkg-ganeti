@@ -41,7 +41,8 @@ override_dh_auto_build:
 	dh_auto_build
 	mv doc/html doc/html.orig
 	$(MAKE) doc/html
-	$(CURDIR)/debian/genscript.py postinst "$(CURDIR)" >"$(CURDIR)/debian/ganeti.postinst"
+	$(CURDIR)/debian/genscript.py postinst "$(CURDIR)" | \
+		sed -f "$(CURDIR)/autotools/replace_vars.sed" >"$(CURDIR)/debian/ganeti.postinst"
 	$(CURDIR)/debian/genscript.py postrm "$(CURDIR)" >"$(CURDIR)/debian/ganeti.postrm"
 
 # Add missing bits to ganeti and python-ganeti-rapi. We do not use
