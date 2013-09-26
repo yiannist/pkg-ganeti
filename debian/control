@@ -26,7 +26,7 @@ Architecture: all
 Breaks: ganeti2 (<< 2.7.0-2), ganeti-htools (<< 0.3)
 Replaces: ganeti2 (<< 2.7.0-2)
 Depends: ${shlibs:Depends}, ${misc:Depends}, ${python:Depends}, lvm2,
- openssh-client, openssh-server, bridge-utils, iproute, iputils-arping,
+ openssh-client, openssh-server, bridge-utils, iproute2, iputils-arping,
  openssl, python-simplejson, python-pyparsing, python-openssl,
  python-pyinotify, python-pycurl, python-paramiko, python-bitarray,
  python-ipaddr, socat, fping, ganeti-haskell (>= ${source:Version}),
