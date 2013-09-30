@@ -1,3 +1,24 @@
+ganeti (2.8.0-1) unstable; urgency=low
+
+  [ Iustin Pop ]
+  * Remove myself from uploaders
+
+  [ Apollon Oikonomopoulos ]
+  * New upstream version
+  * Replace forgotten iproute dependency with iproute2
+  * Build-Depend on libghc-snap-server-dev
+  * Ship ganeti-mond and ganeti-luxid in ganeti-haskell
+  * Require python version >= 2.6
+  * Build-Depend on python-yaml
+  * Enable user separation
+    + Add postinst/postrm templates and generator script
+    + Update logrotate snippet to use su root root due to logdir permissions
+    + Update job queue archive permissions in postinst if necessary
+  * Disable the test suite during build
+    + Broken due to the user separation
+
+ -- Apollon Oikonomopoulos <apoikos@gmail.com>  Mon, 30 Sep 2013 14:29:51 +0300
+
 ganeti (2.7.1-3) unstable; urgency=low
 
   * Remove Recommends: xen-linux-system-686 as the package has been replaced by
