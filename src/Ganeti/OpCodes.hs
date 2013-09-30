@@ -84,6 +84,7 @@ $(genOpCode "OpCode"
      , pMigrationTargetNode
      , pIgnoreIpolicy
      , pIallocator
+     , pMigrationCleanup
      ])
   , ("OpInstanceMigrate",
      [ pInstanceName
@@ -149,7 +150,8 @@ $(genOpCode "OpCode"
      [ pName
      ])
   , ("OpClusterSetParams",
-     [ pHvState
+     [ pForce
+     , pHvState
      , pDiskState
      , pVgName
      , pEnabledHypervisors
@@ -175,6 +177,8 @@ $(genOpCode "OpCode"
      , pHiddenOs
      , pBlacklistedOs
      , pUseExternalMipScript
+     , pEnabledDiskTemplates
+     , pModifyEtcHosts
      ])
   , ("OpClusterRedistConf", [])
   , ("OpClusterActivateMasterIp", [])
@@ -386,6 +390,7 @@ $(genOpCode "OpCode"
      , pRuntimeMem
      , pInstHvParams
      , pOptDiskTemplate
+     , pPrimaryNode
      , pRemoteNode
      , pOsNameChange
      , pInstOsParams
@@ -624,6 +629,7 @@ $(buildObject "CommonOpParams" "op"
   , pOpPriority
   , pDependencies
   , pComment
+  , pReason
   ])
 
 -- | Default common parameter values.
@@ -634,6 +640,7 @@ defOpParams =
                  , opPriority   = OpPrioNormal
                  , opDepends    = Nothing
                  , opComment    = Nothing
+                 , opReason     = []
                  }
 
 -- | The top-level opcode type.

@@ -21,6 +21,7 @@ Most dependencies from :doc:`install-quick`, including ``qemu-img``
 - `pylint <http://www.logilab.org/857>`_ and its associated
   dependencies
 - `pep8 <https://github.com/jcrocholl/pep8/>`_
+- `PyYAML <http://pyyaml.org/>`_
 
 For older developement (Ganeti < 2.4) ``docbook`` was used instead
 ``pandoc``.
@@ -44,13 +45,14 @@ To generate unittest coverage reports (``make coverage``), `coverage
 
 Installation of all dependencies listed here::
 
-     $ apt-get install python-setuptools
+     $ apt-get install python-setuptools automake git fakeroot
      $ apt-get install pandoc python-epydoc graphviz
+     $ apt-get install python-yaml
      $ cd / && sudo easy_install \
                sphinx \
-               logilab-astng==0.25.1 \
+               logilab-astng==0.23.1 \
                logilab-common==0.58.0 \
-               pylint==0.23.1 \
+               pylint==0.25.1 \
                pep8==1.2 \
                coverage
 

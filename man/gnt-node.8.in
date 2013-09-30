@@ -134,16 +134,15 @@ the old storage for potential recovery).
 Note that this command is equivalent to using per-instance commands for
 each affected instance individually:
 .IP \[bu] 2
-\f[C]--primary-only\f[] is equivalent to
-\f[C]gnt-instance\ failover/migration\f[] for non-DRBD instances, but
-for DRBD instances it\[aq]s different, and usually is a slow process (it
-will change the primary to another node while keeping the secondary,
-this requiring data copies, whereas failover/migrate will only toggle
-the primary/secondary roles, a fast process)
+\f[C]--primary-only\f[] is equivalent to performing
+\f[C]gnt-instance\ migrate\f[] for every primary instance running on the
+node that can be migrated and \f[C]gnt-instance\ failover\f[] for every
+primary instance that cannot be migrated.
 .IP \[bu] 2
 \f[C]--secondary-only\f[] is equivalent to
-\f[C]gnt-instance\ replace-disks\f[] in the secondary node change mode
-(only valid for DRBD instances)
+\f[C]gnt-instance\ replace-disks\f[] in secondary node change mode
+(\f[C]--new-secondary\f[]) for every DRBD instance that the node is a
+secondary for.
 .IP \[bu] 2
 when neither of the above is done a combination of the two cases is run
 .PP

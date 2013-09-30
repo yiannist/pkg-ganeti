@@ -71,10 +71,10 @@ _COMMON_FIELDS = ["ctime", "mtime", "uuid", "serial_no", "tags"]
 I_FIELDS = ["name", "admin_state", "os",
             "pnode", "snodes",
             "disk_template",
-            "nic.ips", "nic.macs", "nic.modes",
+            "nic.ips", "nic.macs", "nic.modes", "nic.uuids", "nic.names",
             "nic.links", "nic.networks", "nic.networks.names", "nic.bridges",
             "network_port",
-            "disk.sizes", "disk_usage",
+            "disk.sizes", "disk_usage", "disk.uuids", "disk.names",
             "beparams", "hvparams",
             "oper_state", "oper_ram", "oper_vcpus", "status",
             "custom_hvparams", "custom_beparams", "custom_nicparams",
@@ -397,7 +397,7 @@ class R_2_nodes(baserlib.OpcodeResource):
     """Returns a list of all nodes.
 
     """
-    client = self.GetClient(query=False)
+    client = self.GetClient(query=True)
 
     if self.useBulk():
       bulkdata = client.QueryNodes([], N_FIELDS, False)
@@ -420,7 +420,7 @@ class R_2_nodes_name(baserlib.OpcodeResource):
 
     """
     node_name = self.items[0]
-    client = self.GetClient(query=False)
+    client = self.GetClient(query=True)
 
     result = baserlib.HandleItemQueryErrors(client.QueryNodes,
                                             names=[node_name], fields=N_FIELDS,
@@ -675,7 +675,7 @@ class R_2_networks(baserlib.OpcodeResource):
     """Returns a list of all networks.
 
     """
-    client = self.GetClient()
+    client = self.GetClient(query=True)
 
     if self.useBulk():
       bulkdata = client.QueryNetworks([], NET_FIELDS, False)
@@ -698,7 +698,7 @@ class R_2_networks_name(baserlib.OpcodeResource):
 
     """
     network_name = self.items[0]
-    client = self.GetClient()
+    client = self.GetClient(query=True)
 
     result = baserlib.HandleItemQueryErrors(client.QueryNetworks,
                                             names=[network_name],

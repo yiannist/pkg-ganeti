@@ -7,7 +7,7 @@ intelligence is in the "Node" and "Cluster" modules.
 
 {-
 
-Copyright (C) 2009, 2010, 2011, 2012 Google Inc.
+Copyright (C) 2009, 2010, 2011, 2012, 2013 Google Inc.
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -60,6 +60,7 @@ module Ganeti.HTools.Instance
 import Ganeti.BasicTypes
 import qualified Ganeti.HTools.Types as T
 import qualified Ganeti.HTools.Container as Container
+import Ganeti.HTools.Nic (Nic)
 
 import Ganeti.Utils
 
@@ -85,6 +86,7 @@ data Instance = Instance
   , allTags      :: [String]  -- ^ List of all instance tags
   , exclTags     :: [String]  -- ^ List of instance exclusion tags
   , arPolicy     :: T.AutoRepairPolicy -- ^ Instance's auto-repair policy
+  , nics         :: [Nic]     -- ^ NICs of the instance
   } deriving (Show, Eq)
 
 instance T.Element Instance where
@@ -165,9 +167,9 @@ type List = Container.Container Instance
 -- later (via 'setIdx' for example).
 create :: String -> Int -> Int -> [Int] -> Int -> T.InstanceStatus
        -> [String] -> Bool -> T.Ndx -> T.Ndx -> T.DiskTemplate -> Int
-       -> Instance
+       -> [Nic] -> Instance
 create name_init mem_init dsk_init disks_init vcpus_init run_init tags_init
-       auto_balance_init pn sn dt su =
+       auto_balance_init pn sn dt su nics_init =
   Instance { name = name_init
            , alias = name_init
            , mem = mem_init
@@ -186,6 +188,7 @@ create name_init mem_init dsk_init disks_init vcpus_init run_init tags_init
            , allTags = tags_init
            , exclTags = []
            , arPolicy = T.ArNotEnabled
+           , nics = nics_init
            }
 
 -- | Changes the index.
@@ -281,11 +284,26 @@ instAboveISpec inst ispec
   | vcpus inst < T.iSpecCpuCount ispec = Bad T.FailCPU
   | otherwise = Ok ()
 
+-- | Checks if an instance matches a min/max specs pair
+instMatchesMinMaxSpecs :: Instance -> T.MinMaxISpecs -> T.OpResult ()
+instMatchesMinMaxSpecs inst minmax = do
+  instAboveISpec inst (T.minMaxISpecsMinSpec minmax)
+  instBelowISpec inst (T.minMaxISpecsMaxSpec minmax)
+
+-- | Checks if an instance matches any specs of a policy
+instMatchesSpecs :: Instance -> [T.MinMaxISpecs] -> T.OpResult ()
+ -- Return Ok for no constraints, though this should never happen
+instMatchesSpecs _ [] = Ok ()
+instMatchesSpecs inst (minmax:minmaxes) =
+  foldr eithermatch (instMatchesMinMaxSpecs inst minmax) minmaxes
+  where eithermatch mm (Bad _) = instMatchesMinMaxSpecs inst mm
+        eithermatch _ y@(Ok ()) = y
+--  # See 04f231771
+
 -- | Checks if an instance matches a policy.
 instMatchesPolicy :: Instance -> T.IPolicy -> T.OpResult ()
 instMatchesPolicy inst ipol = do
-  instAboveISpec inst (T.iPolicyMinSpec ipol)
-  instBelowISpec inst (T.iPolicyMaxSpec ipol)
+  instMatchesSpecs inst $ T.iPolicyMinMaxISpecs ipol
   if diskTemplate inst `elem` T.iPolicyDiskTemplates ipol
     then Ok ()
     else Bad T.FailDisk

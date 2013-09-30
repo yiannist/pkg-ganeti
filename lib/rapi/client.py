@@ -1001,11 +1001,11 @@ class GanetiRapiClient(object): # pylint: disable=R0904
                               (GANETI_RAPI_VERSION, instance)), query, None)
 
   def RebootInstance(self, instance, reboot_type=None, ignore_secondaries=None,
-                     dry_run=False):
+                     dry_run=False, reason=None):
     """Reboots an instance.
 
     @type instance: str
-    @param instance: instance to rebot
+    @param instance: instance to reboot
     @type reboot_type: str
     @param reboot_type: one of: hard, soft, full
     @type ignore_secondaries: bool
@@ -1013,6 +1013,8 @@ class GanetiRapiClient(object): # pylint: disable=R0904
         while re-assembling disks (in hard-reboot mode only)
     @type dry_run: bool
     @param dry_run: whether to perform a dry run
+    @type reason: string
+    @param reason: the reason for the reboot
     @rtype: string
     @return: job id
 
@@ -1022,13 +1024,14 @@ class GanetiRapiClient(object): # pylint: disable=R0904
     _AppendIf(query, reboot_type, ("type", reboot_type))
     _AppendIf(query, ignore_secondaries is not None,
               ("ignore_secondaries", ignore_secondaries))
+    _AppendIf(query, reason, ("reason", reason))
 
     return self._SendRequest(HTTP_POST,
                              ("/%s/instances/%s/reboot" %
                               (GANETI_RAPI_VERSION, instance)), query, None)
 
   def ShutdownInstance(self, instance, dry_run=False, no_remember=False,
-                       **kwargs):
+                       reason=None, **kwargs):
     """Shuts down an instance.
 
     @type instance: str
@@ -1037,6 +1040,8 @@ class GanetiRapiClient(object): # pylint: disable=R0904
     @param dry_run: whether to perform a dry run
     @type no_remember: bool
     @param no_remember: if true, will not record the state change
+    @type reason: string
+    @param reason: the reason for the shutdown
     @rtype: string
     @return: job id
 
@@ -1046,12 +1051,14 @@ class GanetiRapiClient(object): # pylint: disable=R0904
 
     _AppendDryRunIf(query, dry_run)
     _AppendIf(query, no_remember, ("no_remember", 1))
+    _AppendIf(query, reason, ("reason", reason))
 
     return self._SendRequest(HTTP_PUT,
                              ("/%s/instances/%s/shutdown" %
                               (GANETI_RAPI_VERSION, instance)), query, body)
 
-  def StartupInstance(self, instance, dry_run=False, no_remember=False):
+  def StartupInstance(self, instance, dry_run=False, no_remember=False,
+                      reason=None):
     """Starts up an instance.
 
     @type instance: str
@@ -1060,6 +1067,8 @@ class GanetiRapiClient(object): # pylint: disable=R0904
     @param dry_run: whether to perform a dry run
     @type no_remember: bool
     @param no_remember: if true, will not record the state change
+    @type reason: string
+    @param reason: the reason for the startup
     @rtype: string
     @return: job id
 
@@ -1067,6 +1076,7 @@ class GanetiRapiClient(object): # pylint: disable=R0904
     query = []
     _AppendDryRunIf(query, dry_run)
     _AppendIf(query, no_remember, ("no_remember", 1))
+    _AppendIf(query, reason, ("reason", reason))
 
     return self._SendRequest(HTTP_PUT,
                              ("/%s/instances/%s/startup" %
@@ -1284,17 +1294,28 @@ class GanetiRapiClient(object): # pylint: disable=R0904
                              ("/%s/instances/%s/console" %
                               (GANETI_RAPI_VERSION, instance)), None, None)
 
-  def GetJobs(self):
+  def GetJobs(self, bulk=False):
     """Gets all jobs for the cluster.
 
+    @type bulk: bool
+    @param bulk: Whether to return detailed information about jobs.
     @rtype: list of int
-    @return: job ids for the cluster
+    @return: List of job ids for the cluster or list of dicts with detailed
+             information about the jobs if bulk parameter was true.
 
     """
-    return [int(j["id"])
-            for j in self._SendRequest(HTTP_GET,
-                                       "/%s/jobs" % GANETI_RAPI_VERSION,
-                                       None, None)]
+    query = []
+    _AppendIf(query, bulk, ("bulk", 1))
+
+    if bulk:
+      return self._SendRequest(HTTP_GET,
+                               "/%s/jobs" % GANETI_RAPI_VERSION,
+                               query, None)
+    else:
+      return [int(j["id"])
+              for j in self._SendRequest(HTTP_GET,
+                                         "/%s/jobs" % GANETI_RAPI_VERSION,
+                                         None, None)]
 
   def GetJobStatus(self, job_id):
     """Gets the status of a job.

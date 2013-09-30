@@ -52,20 +52,23 @@ import qualified Ganeti.HTools.Types as Types
 -- | Null iPolicy, and by null we mean very liberal.
 nullIPolicy :: Types.IPolicy
 nullIPolicy = Types.IPolicy
-  { Types.iPolicyMinSpec = Types.ISpec { Types.iSpecMemorySize = 0
-                                       , Types.iSpecCpuCount   = 0
-                                       , Types.iSpecDiskSize   = 0
-                                       , Types.iSpecDiskCount  = 0
-                                       , Types.iSpecNicCount   = 0
-                                       , Types.iSpecSpindleUse = 0
-                                       }
-  , Types.iPolicyMaxSpec = Types.ISpec { Types.iSpecMemorySize = maxBound
-                                       , Types.iSpecCpuCount   = maxBound
-                                       , Types.iSpecDiskSize   = maxBound
-                                       , Types.iSpecDiskCount  = C.maxDisks
-                                       , Types.iSpecNicCount   = C.maxNics
-                                       , Types.iSpecSpindleUse = maxBound
-                                       }
+  { Types.iPolicyMinMaxISpecs = [Types.MinMaxISpecs
+    { Types.minMaxISpecsMinSpec = Types.ISpec { Types.iSpecMemorySize = 0
+                                              , Types.iSpecCpuCount   = 0
+                                              , Types.iSpecDiskSize   = 0
+                                              , Types.iSpecDiskCount  = 0
+                                              , Types.iSpecNicCount   = 0
+                                              , Types.iSpecSpindleUse = 0
+                                              }
+    , Types.minMaxISpecsMaxSpec = Types.ISpec
+      { Types.iSpecMemorySize = maxBound
+      , Types.iSpecCpuCount   = maxBound
+      , Types.iSpecDiskSize   = maxBound
+      , Types.iSpecDiskCount  = C.maxDisks
+      , Types.iSpecNicCount   = C.maxNics
+      , Types.iSpecSpindleUse = maxBound
+      }
+    }]
   , Types.iPolicyStdSpec = Types.ISpec { Types.iSpecMemorySize = Types.unitMem
                                        , Types.iSpecCpuCount   = Types.unitCpu
                                        , Types.iSpecDiskSize   = Types.unitDsk
@@ -83,7 +86,7 @@ nullIPolicy = Types.IPolicy
 defGroup :: Group.Group
 defGroup = flip Group.setIdx 0 $
              Group.create "default" Types.defaultGroupID Types.AllocPreferred
-                  nullIPolicy []
+                  [] nullIPolicy []
 
 -- | Default group, as a (singleton) 'Group.List'.
 defGroupList :: Group.List
@@ -97,7 +100,7 @@ defGroupAssoc = Map.singleton (Group.uuid defGroup) (Group.idx defGroup)
 createInstance :: Int -> Int -> Int -> Instance.Instance
 createInstance mem dsk vcpus =
   Instance.create "inst-unnamed" mem dsk [dsk] vcpus Types.Running [] True (-1)
-    (-1) Types.DTDrbd8 1
+    (-1) Types.DTDrbd8 1 []
 
 -- | Create a small cluster by repeating a node spec.
 makeSmallCluster :: Node.Node -> Int -> Node.List

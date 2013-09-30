@@ -46,11 +46,12 @@
 <p>The <code>hail</code> iallocator hasn't been updated to take networks into account in Ganeti 2.7. The only way to guarantee that it works correctly is having your networks connected to all nodegroups. This will be fixed in a future version.</p>
 <h1 id="commands"><a href="#TOC">COMMANDS</a></h1>
 <h2 id="add"><a href="#TOC">ADD</a></h2>
-<p><strong>add</strong><br />[--network=<em>NETWORK</em>]<br />[--gateway=<em>GATEWAY</em>]<br />[--add-reserved-ips=<em>RESERVEDIPS</em>]<br />[--network6=<em>NETWORK6</em>]<br />[--gateway6=<em>GATEWAY6</em>]<br />[--mac-prefix=<em>MACPREFIX</em>]<br />[--submit]<br />{<em>network</em>}</p>
+<p><strong>add</strong><br />[--network=<em>NETWORK</em>]<br />[--gateway=<em>GATEWAY</em>]<br />[--add-reserved-ips=<em>RESERVEDIPS</em>]<br />[--network6=<em>NETWORK6</em>]<br />[--gateway6=<em>GATEWAY6</em>]<br />[--mac-prefix=<em>MACPREFIX</em>]<br />[--submit]<br />[--no-conflicts-check]<br />{<em>network</em>}</p>
 <p>Creates a new network with the given name. The network will be unused initially. To connect it to a node group, use <code>gnt-network connect</code>. <code>--network</code> option is mandatory. All other are optional.</p>
 <p>The <code>--network</code> option allows you to specify the network in a CIDR notation.</p>
 <p>The <code>--gateway</code> option allows you to specify the default gateway for this network.</p>
 <p>IPv6 semantics can be assigned to the network via the <code>--network6</code> and <code>--gateway6</code> options. IP pool is meaningless for IPV6 so those two values can be used for EUI64 generation from a NIC's MAC address.</p>
+<p>The <code>--no-conflicts-check</code> option can be used to skip the check for conflicting IP addresses.</p>
 <p>Note that a when connecting a network to a node group (see below) you can specify also the NIC mode and link that will be used by instances on that group to physically connect to this network. This allows the system to work even if the parameters (eg. the VLAN number) change between groups.</p>
 <p>See <strong>ganeti</strong>(7) for a description of <code>--submit</code> and other common options.</p>
 <h2 id="modify"><a href="#TOC">MODIFY</a></h2>
@@ -135,8 +136,9 @@
 <p><strong>info</strong> [network...]</p>
 <p>Displays information about a given network.</p>
 <h2 id="connect"><a href="#TOC">CONNECT</a></h2>
-<p><strong>connect</strong> {<em>network</em>} {<em>mode</em>} {<em>link</em>} [<em>groups</em>...]</p>
+<p><strong>connect</strong><br />[--no-conflicts-check]<br />{<em>network</em>} {<em>mode</em>} {<em>link</em>} [<em>groups</em>...]</p>
 <p>Connect a network to given node groups (all if not specified) with the network parameters <em>mode</em> and <em>link</em>. Every network interface will inherit those parameters if assigned in a network.</p>
+<p>The <code>--no-conflicts-check</code> option can be used to skip the check for conflicting IP addresses.</p>
 <h2 id="disconnect"><a href="#TOC">DISCONNECT</a></h2>
 <p><strong>disconnect</strong> {<em>network</em>} [<em>groups</em>...]</p>
 <p>Disconnect a network from given node groups (all if not specified). This is possible only if no instance is using the network.</p>

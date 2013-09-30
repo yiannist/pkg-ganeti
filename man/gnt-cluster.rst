@@ -152,6 +152,14 @@ Passing the ``--roman`` option gnt-cluster info will try to print
 its integer fields in a latin friendly way. This allows further
 diffusion of Ganeti among ancient cultures.
 
+SHOW-ISPECS-CMD
+~~~~~~~~~~~~~~~
+
+**show-ispecs-cmd**
+
+Shows the command line that can be used to recreate the cluster with the
+same options relative to specs in the instance policies.
+
 INIT
 ~~~~
 
@@ -183,9 +191,14 @@ INIT
 | [\--specs-disk-size *spec-param*=*value* [,*spec-param*=*value*...]]
 | [\--specs-mem-size *spec-param*=*value* [,*spec-param*=*value*...]]
 | [\--specs-nic-count *spec-param*=*value* [,*spec-param*=*value*...]]
+| [\--ipolicy-std-specs *spec*=*value* [,*spec*=*value*...]]
+| [\--ipolicy-bounds-specs *bounds_ispecs*]
 | [\--ipolicy-disk-templates *template* [,*template*...]]
+| [\--ipolicy-spindle-ratio *ratio*]
+| [\--ipolicy-vcpu-ratio *ratio*]
 | [\--disk-state *diskstate*]
 | [\--hypervisor-state *hvstate*]
+| [\--enabled-disk-templates *template* [,*template*...]]
 | {*clustername*}
 
 This commands is only run once initially on the first node of the
@@ -492,14 +505,26 @@ The ``-C (--candidate-pool-size)`` option specifies the
 that the master will try to keep as master\_candidates. For more
 details about this role and other node roles, see the **ganeti**\(7).
 
-The ``--specs-...`` and ``--ipolicy-disk-templates`` options specify
-instance policy on the cluster. For the ``--specs-...`` options, each
-option can have three values: ``min``, ``max`` and ``std``, which can
-also be modified on group level (except for ``std``, which is defined
-once for the entire cluster). Please note, that ``std`` values are not
-the same as defaults set by ``--beparams``, but they are used for the
-capacity calculations. The ``--ipolicy-disk-templates`` option takes a
-comma-separated list of disk templates.
+The ``--specs-...`` and ``--ipolicy-...`` options specify the instance
+policy on the cluster. The ``--ipolicy-bounds-specs`` option sets the
+minimum and maximum specifications for instances. The format is:
+min:*param*=*value*,.../max:*param*=*value*,... and further
+specifications pairs can be added by using ``//`` as a separator. The
+``--ipolicy-std-specs`` option takes a list of parameter/value pairs.
+For both options, *param* can be:
+
+- ``cpu-count``: number of VCPUs for an instance
+- ``disk-count``: number of disk for an instance
+- ``disk-size``: size of each disk
+- ``memory-size``: instance memory
+- ``nic-count``: number of network interface
+- ``spindle-use``: spindle usage for an instance
+
+For the ``--specs-...`` options, each option can have three values:
+``min``, ``max`` and ``std``, which can also be modified on group level
+(except for ``std``, which is defined once for the entire cluster).
+Please note, that ``std`` values are not the same as defaults set by
+``--beparams``, but they are used for the capacity calculations.
 
 - ``--specs-cpu-count`` limits the number of VCPUs that can be used by an
   instance.
@@ -507,10 +532,29 @@ comma-separated list of disk templates.
 - ``--specs-disk-size`` limits the disk size for every disk used
 - ``--specs-mem-size`` limits the amount of memory available
 - ``--specs-nic-count`` sets limits on the number of NICs used
+
+The ``--ipolicy-disk-templates`` and ``--ipolicy-spindle-ratio`` options
+take a decimal number. The ``--ipolicy-disk-templates`` option takes a
+comma-separated list of disk templates.
+
 - ``--ipolicy-disk-templates`` limits the allowed disk templates
+- ``--ipolicy-spindle-ratio`` limits the instances-spindles ratio
+- ``--ipolicy-vcpu-ratio`` limits the vcpu-cpu ratio
+
+All the instance policy elements can be overridden at group level. Group
+level overrides can be removed by specifying ``default`` as the value of
+an item.
 
 For details about how to use ``--hypervisor-state`` and ``--disk-state``
 have a look at **ganeti**\(7).
+
+The ``--enabled-disk-templates`` option specifies a list of disk templates
+that can be used by instances of the cluster. For the possible values in
+this list, see **gnt-instance**\(8). Note that in contrast to the list of
+disk templates in the ipolicy, this list is a hard restriction. It is not
+possible to create instances with disk templates that are not enabled in
+the cluster. It is also not possible to disable a disk template when there
+are still instances using it.
 
 MASTER-FAILOVER
 ~~~~~~~~~~~~~~~
@@ -551,6 +595,7 @@ MODIFY
 ~~~~~~
 
 | **modify** [\--submit]
+| [\--force]
 | [\--vg-name *vg-name*]
 | [\--no-lvm-storage]
 | [\--enabled-hypervisors *hypervisors*]
@@ -572,12 +617,12 @@ MODIFY
 | [\--use-external-mip-script {yes \| no}]
 | [\--hypervisor-state *hvstate*]
 | [\--disk-state *diskstate*]
-| [\--specs-cpu-count *spec-param*=*value* [,*spec-param*=*value*...]]
-| [\--specs-disk-count *spec-param*=*value* [,*spec-param*=*value*...]]
-| [\--specs-disk-size *spec-param*=*value* [,*spec-param*=*value*...]]
-| [\--specs-mem-size *spec-param*=*value* [,*spec-param*=*value*...]]
-| [\--specs-nic-count *spec-param*=*value* [,*spec-param*=*value*...]]
+| [\--ipolicy-std-specs *spec*=*value* [,*spec*=*value*...]]
+| [\--ipolicy-bounds-specs *bounds_ispecs*]
 | [\--ipolicy-disk-templates *template* [,*template*...]]
+| [\--ipolicy-spindle-ratio *ratio*]
+| [\--ipolicy-vcpu-ratio *ratio*]
+| [\--enabled-disk-templates *template* [,*template*...]]
 
 
 Modify the options for the cluster.
@@ -587,8 +632,8 @@ The ``--vg-name``, ``--no-lvm-storage``, ``--enabled-hypervisors``,
 ``-D (--disk-parameters)``, ``--nic-parameters``, ``-C
 (--candidate-pool-size)``, ``--maintain-node-health``,
 ``--prealloc-wipe-disks``, ``--uid-pool``, ``--node-parameters``,
-``--master-netdev``, ``--master-netmask`` and
-``--use-external-mip-script`` options are described in the **init**
+``--master-netdev``, ``--master-netmask``, ``--use-external-mip-script``,
+and ``--enabled-disk-templates`` options are described in the **init**
 command.
 
 The ``--hypervisor-state`` and ``--disk-state`` options are described in
@@ -614,8 +659,7 @@ The ``-I (--default-iallocator)`` is described in the **init**
 command. To clear the default iallocator, just pass an empty string
 ('').
 
-The ``--specs-...`` and ``--ipolicy-disk-templates`` options are
-described in the **init** command.
+The ``--ipolicy-...`` options are described in the **init** command.
 
 See **ganeti**\(7) for a description of ``--submit`` and other common
 options.

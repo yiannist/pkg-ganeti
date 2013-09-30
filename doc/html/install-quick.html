@@ -8,7 +8,7 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Ganeti quick installation guide &mdash; Ganeti 2.7.1 documentation</title>
+    <title>Ganeti quick installation guide &mdash; Ganeti 2.8.0 documentation</title>
     
     <link rel="stylesheet" href="_static/style.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
@@ -16,7 +16,7 @@
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.7.1',
+        VERSION:     '2.8.0',
         COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -25,21 +25,21 @@
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti 2.7.1 documentation" href="index.html" />
-    <link rel="next" title="Ganeti installation tutorial" href="install.html" />
-    <link rel="prev" title="Welcome to Ganeti’s documentation!" href="index.html" /> 
+    <link rel="top" title="Ganeti 2.8.0 documentation" href="index.html" />
+    <link rel="next" title="Ganeti locking" href="locking.html" />
+    <link rel="prev" title="Ganeti installation tutorial" href="install.html" /> 
   </head>
   <body>
     <div class="related">
       <h3>Navigation</h3>
       <ul>
         <li class="right" style="margin-right: 10px">
-          <a href="install.html" title="Ganeti installation tutorial"
+          <a href="locking.html" title="Ganeti locking"
              accesskey="N">next</a></li>
         <li class="right" >
-          <a href="index.html" title="Welcome to Ganeti’s documentation!"
+          <a href="install.html" title="Ganeti installation tutorial"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.7.1 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.8.0 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -74,7 +74,7 @@ version 8.0.7 or above; note that Ganeti doesn&#8217;t yet support version 8.4</
 <li><a class="reference external" href="http://www.linuxfoundation.org/en/Net:Iproute2">iproute2</a></li>
 <li><a class="reference external" href="http://www.skbuff.net/iputils/">arping</a> (part of iputils)</li>
 <li><a class="reference external" href="http://www.remlab.net/ndisc6/">ndisc6</a> (if using IPv6)</li>
-<li><a class="reference external" href="http://www.python.org/">Python</a>, version 2.4 or above, not 3.0</li>
+<li><a class="reference external" href="http://www.python.org/">Python</a>, version 2.6 or above, not 3.0</li>
 <li><a class="reference external" href="http://pyopenssl.sourceforge.net/">Python OpenSSL bindings</a></li>
 <li><a class="reference external" href="http://code.google.com/p/simplejson/">simplejson Python module</a></li>
 <li><a class="reference external" href="http://pyparsing.wikispaces.com/">pyparsing Python module</a>, version
@@ -90,13 +90,14 @@ optional python package for supporting CPU pinning under KVM</li>
 <li><a class="reference external" href="http://fping.sourceforge.net/">fping</a></li>
 <li><a class="reference external" href="http://code.google.com/p/ipaddr-py/">Python IP address manipulation library</a></li>
 <li><a class="reference external" href="http://pypi.python.org/pypi/bitarray/">Bitarray Python library</a></li>
+<li><a class="reference external" href="http://www.gnu.org/software/make/">GNU Make</a></li>
 </ul>
 <p>These programs are supplied as part of most Linux distributions, so
 usually they can be installed via the standard package manager. Also
 many of them will already be installed on a standard machine. On
 Debian/Ubuntu, you can use this command line to install all required
 packages, except for RBD, DRBD and Xen:</p>
-<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">apt-get</span> <span class="gs">install</span> <span class="gs">lvm2</span> <span class="gs">ssh</span> <span class="gs">bridge-utils</span> <span class="gs">iproute</span> <span class="gs">iputils-arping</span> <span class="gs">\</span>
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">apt-get</span> <span class="gs">install</span> <span class="gs">lvm2</span> <span class="gs">ssh</span> <span class="gs">bridge-utils</span> <span class="gs">iproute</span> <span class="gs">iputils-arping</span> <span class="gs">make</span> <span class="gs">\</span>
                   <span class="gs">ndisc6</span> <span class="gs">python</span> <span class="gs">python-pyopenssl</span> <span class="gs">openssl</span> <span class="gs">\</span>
                   <span class="gs">python-pyparsing</span> <span class="gs">python-simplejson</span> <span class="gs">python-bitarray</span> <span class="gs">\</span>
                   <span class="gs">python-pyinotify</span> <span class="gs">python-pycurl</span> <span class="gs">python-ipaddr</span> <span class="gs">socat</span> <span class="gs">fping</span>
@@ -107,7 +108,7 @@ packages, except for RBD, DRBD and Xen:</p>
 </pre></div>
 </div>
 <p>Or on newer distributions (eg. Debian Wheezy) the above becomes:</p>
-<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">apt-get</span> <span class="gs">install</span> <span class="gs">lvm2</span> <span class="gs">ssh</span> <span class="gs">bridge-utils</span> <span class="gs">iproute</span> <span class="gs">iputils-arping</span> <span class="gs">\</span>
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">apt-get</span> <span class="gs">install</span> <span class="gs">lvm2</span> <span class="gs">ssh</span> <span class="gs">bridge-utils</span> <span class="gs">iproute</span> <span class="gs">iputils-arping</span> <span class="gs">make</span> <span class="gs">\</span>
                   <span class="gs">ndisc6</span> <span class="gs">python</span> <span class="gs">python-openssl</span> <span class="gs">openssl</span> <span class="gs">\</span>
                   <span class="gs">python-pyparsing</span> <span class="gs">python-simplejson</span> <span class="gs">python-bitarray</span> <span class="gs">\</span>
                   <span class="gs">python-pyinotify</span> <span class="gs">python-pycurl</span> <span class="gs">python-ipaddr</span> <span class="gs">socat</span> <span class="gs">fping</span>
@@ -120,15 +121,17 @@ packages, except for RBD, DRBD and Xen:</p>
 <p>If some of the python packages are not available in your system,
 you can try installing them using <tt class="docutils literal"><span class="pre">easy_install</span></tt> command.
 For example:</p>
-<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">apt-get</span> <span class="gs">install</span> <span class="gs">python-setuptools</span>
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">apt-get</span> <span class="gs">install</span> <span class="gs">python-setuptools</span> <span class="gs">python-dev</span>
 $ <span class="gs">cd</span> <span class="gs">/</span> <span class="gs">&amp;&amp;</span> <span class="gs">sudo</span> <span class="gs">easy_install</span> <span class="gs">\</span>
-          <span class="gs">affinity</span>
+          <span class="gs">affinity</span> <span class="gs">\</span>
+          <span class="gs">bitarray</span> <span class="gs">\</span>
+          <span class="gs">ipaddr</span>
 </pre></div>
 </div>
 <p>On Fedora to install all required packages except RBD, DRBD and Xen:</p>
-<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">yum</span> <span class="gs">install</span> <span class="gs">openssh</span> <span class="gs">openssh-clients</span> <span class="gs">bridge-utils</span> <span class="gs">iproute</span> <span class="gs">ndisc6</span> <span class="gs">\</span>
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">yum</span> <span class="gs">install</span> <span class="gs">openssh</span> <span class="gs">openssh-clients</span> <span class="gs">bridge-utils</span> <span class="gs">iproute</span> <span class="gs">ndisc6</span> <span class="gs">make</span> <span class="gs">\</span>
               <span class="gs">pyOpenSSL</span> <span class="gs">pyparsing</span> <span class="gs">python-simplejson</span> <span class="gs">python-inotify</span> <span class="gs">\</span>
-              <span class="gs">python-lxm</span> <span class="gs">socat</span> <span class="gs">fping</span>
+              <span class="gs">python-lxm</span> <span class="gs">socat</span> <span class="gs">fping</span> <span class="gs">python-bitarray</span> <span class="gs">python-ipaddr</span>
 </pre></div>
 </div>
 <p>For optional packages use the command:</p>
@@ -175,19 +178,22 @@ programming library (note: tested with up to version 3.x)</li>
 <a class="reference external" href="http://hackage.haskell.org/package/utf8-string">utf8-string</a>
 libraries; these usually come with the GHC compiler</li>
 <li><a class="reference external" href="http://hackage.haskell.org/package/deepseq">deepseq</a></li>
+<li><a class="reference external" href="http://hackage.haskell.org/package/curl">curl</a>, tested with
+versions 1.3.4 and above</li>
 </ul>
 <p>Some of these are also available as package in Debian/Ubuntu:</p>
 <div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">apt-get</span> <span class="gs">install</span> <span class="gs">ghc6</span> <span class="gs">libghc6-json-dev</span> <span class="gs">libghc6-network-dev</span> <span class="gs">\</span>
-                  <span class="gs">libghc6-parallel-dev</span> <span class="gs">libghc6-deepseq-dev</span>
+                  <span class="gs">libghc6-parallel-dev</span> <span class="gs">libghc6-deepseq-dev</span> <span class="gs">\</span>
+                  <span class="gs">libghc6-curl-dev</span>
 </pre></div>
 </div>
 <p>Or in newer versions of these distributions (using GHC 7.x):</p>
 <div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">apt-get</span> <span class="gs">install</span> <span class="gs">ghc</span> <span class="gs">libghc-json-dev</span> <span class="gs">libghc-network-dev</span> <span class="gs">\</span>
                   <span class="gs">libghc-parallel-dev</span> <span class="gs">libghc-deepseq-dev</span> <span class="gs">\</span>
-                  <span class="gs">libghc-utf8-string-dev</span>
+                  <span class="gs">libghc-utf8-string-dev</span> <span class="gs">libghc-curl-dev</span>
 </pre></div>
 </div>
-<p>In Fedora, they are available via packages as well:</p>
+<p>In Fedora, some of them are available via packages as well:</p>
 <div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">yum</span> <span class="gs">install</span> <span class="gs">ghc</span> <span class="gs">ghc-json-devel</span> <span class="gs">ghc-network-devel</span> <span class="gs">\</span>
                   <span class="gs">ghc-parallel-devel</span> <span class="gs">ghc-deepseq-devel</span>
 </pre></div>
@@ -195,28 +201,22 @@ libraries; these usually come with the GHC compiler</li>
 <p>If using a distribution which does not provide them, first install
 the Haskell platform. You can also install <tt class="docutils literal"><span class="pre">cabal</span></tt> manually:</p>
 <div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">apt-get</span> <span class="gs">install</span> <span class="gs">cabal-install</span>
+$ <span class="gs">cabal</span> <span class="gs">update</span>
 </pre></div>
 </div>
-<p>Then install the additional libraries via
-<tt class="docutils literal"><span class="pre">cabal</span></tt>:</p>
-<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">cabal</span> <span class="gs">install</span> <span class="gs">json</span> <span class="gs">network</span> <span class="gs">parallel</span> <span class="gs">utf8-string</span>
+<p>Then install the additional libraries (only the ones not available in your
+distribution packages) via <tt class="docutils literal"><span class="pre">cabal</span></tt>:</p>
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">cabal</span> <span class="gs">install</span> <span class="gs">json</span> <span class="gs">network</span> <span class="gs">parallel</span> <span class="gs">utf8-string</span> <span class="gs">curl</span>
 </pre></div>
 </div>
-<p>The compilation of the htools components is automatically enabled when
-the compiler and the requisite libraries are found. You can use the
-<tt class="docutils literal"><span class="pre">--enable-htools</span></tt> configure flag to force the selection (at which
-point <tt class="docutils literal"><span class="pre">./configure</span></tt> will fail if it doesn&#8217;t find the prerequisites).</p>
 </div>
 <div class="section" id="haskell-optional-features">
 <h3>Haskell optional features<a class="headerlink" href="#haskell-optional-features" title="Permalink to this headline">¶</a></h3>
 <p>Optionally, more functionality can be enabled if your build machine has
-a few more Haskell libraries enabled: RAPI access to remote cluster from
-htools (<tt class="docutils literal"><span class="pre">--enable-htools-rapi</span></tt>), the <tt class="docutils literal"><span class="pre">ganeti-confd</span></tt>
-daemon (<tt class="docutils literal"><span class="pre">--enable-confd</span></tt>) and the monitoring agent
-(<tt class="docutils literal"><span class="pre">--enable-monitoring</span></tt>). The list of extra dependencies for these is:</p>
+a few more Haskell libraries enabled: the <tt class="docutils literal"><span class="pre">ganeti-confd</span></tt> and
+<tt class="docutils literal"><span class="pre">ganeti-luxid</span></tt> daemon (<tt class="docutils literal"><span class="pre">--enable-confd</span></tt>) and the monitoring daemon
+(<tt class="docutils literal"><span class="pre">--enable-mond</span></tt>). The list of extra dependencies for these is:</p>
 <ul class="simple">
-<li><a class="reference external" href="http://hackage.haskell.org/package/curl">curl</a>, tested with
-versions 1.3.4 and above</li>
 <li><a class="reference external" href="http://software.complete.org/hslogger">hslogger</a>, version 1.1 and
 above (note that Debian Squeeze only has version 1.0.9)</li>
 <li><a class="reference external" href="http://hackage.haskell.org/package/Crypto">Crypto</a>, tested with
@@ -228,24 +228,36 @@ version 0.3.2</li>
 bindings for the <tt class="docutils literal"><span class="pre">pcre</span></tt> library</li>
 <li><a class="reference external" href="http://hackage.haskell.org/package/attoparsec">attoparsec</a></li>
 <li><a class="reference external" href="http://hackage.haskell.org/package/vector">vector</a></li>
+<li><cite>snap-server</cite> &lt;<a class="reference external" href="http://hackage.haskell.org/package/snap-server">http://hackage.haskell.org/package/snap-server</a>&gt;`_, version
+0.8.1 and above.</li>
 </ul>
-<p>These libraries are available in Debian Wheezy (but not in Squeeze, with
-the exception of curl), so you can use either apt:</p>
+<p>These libraries are available in Debian Wheezy (but not in Squeeze), so you
+can use either apt:</p>
 <div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">apt-get</span> <span class="gs">install</span> <span class="gs">libghc-hslogger-dev</span> <span class="gs">libghc-crypto-dev</span> <span class="gs">libghc-text-dev</span> <span class="gs">\</span>
-                  <span class="gs">libghc-hinotify-dev</span> <span class="gs">libghc-regex-pcre-dev</span> <span class="gs">libghc-curl-dev</span> <span class="gs">\</span>
-                  <span class="gs">libghc-attoparsec-dev</span> <span class="gs">libghc-vector-dev</span> <span class="gs">libpcre3-dev</span>
+                  <span class="gs">libghc-hinotify-dev</span> <span class="gs">libghc-regex-pcre-dev</span> <span class="gs">\</span>
+                  <span class="gs">libghc-attoparsec-dev</span> <span class="gs">libghc-vector-dev</span> <span class="gs">\</span>
+                  <span class="gs">libghc-snap-server-dev</span>
 </pre></div>
 </div>
-<p>or <tt class="docutils literal"><span class="pre">cabal</span></tt>:</p>
-<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">apt-get</span> <span class="gs">install</span> <span class="gs">libprcre3-dev</span> <span class="gs">libcurl4-openssl-dev</span>
-$ <span class="gs">cabal</span> <span class="gs">install</span> <span class="gs">hslogger</span> <span class="gs">Crypto</span> <span class="gs">text</span> <span class="gs">hinotify==0.3.2</span> <span class="gs">regex-pcre</span> <span class="gs">curl</span> <span class="gs">\</span>
-                <span class="gs">attoparsec</span> <span class="gs">vector</span>
+<p>or <tt class="docutils literal"><span class="pre">cabal</span></tt>, after installing a required non-Haskell dependency:</p>
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">apt-get</span> <span class="gs">install</span> <span class="gs">libpcre3-dev</span> <span class="gs">libcurl4-openssl-dev</span>
+$ <span class="gs">cabal</span> <span class="gs">install</span> <span class="gs">hslogger</span> <span class="gs">Crypto</span> <span class="gs">text</span> <span class="gs">hinotify==0.3.2</span> <span class="gs">regex-pcre</span> <span class="gs">\</span>
+                <span class="gs">attoparsec</span> <span class="gs">vector</span> <span class="gs">snap-server</span>
 </pre></div>
 </div>
 <p>to install them.</p>
-<p>The most recent Fedora doesn&#8217;t provide <tt class="docutils literal"><span class="pre">curl</span></tt>, <tt class="docutils literal"><span class="pre">crypto</span></tt>,
-<tt class="docutils literal"><span class="pre">inotify</span></tt>. So these need to be installed using <tt class="docutils literal"><span class="pre">cabal</span></tt>, if
-desired. The other packages can be installed via <tt class="docutils literal"><span class="pre">yum</span></tt>:</p>
+<p>In case you still use ghc-6.12, note that <tt class="docutils literal"><span class="pre">cabal</span></tt> would automatically try to
+install newer versions of some of the libraries snap-server depends on, that
+cannot be compiled with ghc-6.12, so you have to install snap-server on its
+own, esplicitly forcing the installation of compatible versions:</p>
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">cabal</span> <span class="gs">install</span> <span class="gs">MonadCatchIO-transformers==0.2.2.0</span> <span class="gs">mtl==2.0.1.0</span> <span class="gs">\</span>
+                <span class="gs">hashable==1.1.2.0</span> <span class="gs">case-insensitive==0.3</span> <span class="gs">parsec==3.0.1</span> <span class="gs">\</span>
+                <span class="gs">network==2.3</span> <span class="gs">snap-server==0.8.1</span>
+</pre></div>
+</div>
+<p>The most recent Fedora doesn&#8217;t provide <tt class="docutils literal"><span class="pre">crypto</span></tt>, <tt class="docutils literal"><span class="pre">inotify</span></tt>. So these
+need to be installed using <tt class="docutils literal"><span class="pre">cabal</span></tt>, if desired. The other packages can
+be installed via <tt class="docutils literal"><span class="pre">yum</span></tt>:</p>
 <div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">yum</span> <span class="gs">install</span> <span class="gs">ghc-hslogger-devel</span> <span class="gs">ghc-text-devel</span> <span class="gs">\</span>
               <span class="gs">ghc-regex-pcre-devel</span>
 </pre></div>
@@ -309,11 +321,11 @@ following directories:</p>
 </ul>
 
   <h4>Previous topic</h4>
-  <p class="topless"><a href="index.html"
-                        title="previous chapter">Welcome to Ganeti&#8217;s documentation!</a></p>
-  <h4>Next topic</h4>
   <p class="topless"><a href="install.html"
-                        title="next chapter">Ganeti installation tutorial</a></p>
+                        title="previous chapter">Ganeti installation tutorial</a></p>
+  <h4>Next topic</h4>
+  <p class="topless"><a href="locking.html"
+                        title="next chapter">Ganeti locking</a></p>
   <h3>This Page</h3>
   <ul class="this-page-menu">
     <li><a href="_sources/install-quick.txt"
@@ -340,12 +352,12 @@ following directories:</p>
       <h3>Navigation</h3>
       <ul>
         <li class="right" style="margin-right: 10px">
-          <a href="install.html" title="Ganeti installation tutorial"
+          <a href="locking.html" title="Ganeti locking"
              >next</a></li>
         <li class="right" >
-          <a href="index.html" title="Welcome to Ganeti’s documentation!"
+          <a href="install.html" title="Ganeti installation tutorial"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.7.1 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.8.0 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

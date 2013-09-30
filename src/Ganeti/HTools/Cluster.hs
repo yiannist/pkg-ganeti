@@ -33,6 +33,7 @@ module Ganeti.HTools.Cluster
   , EvacSolution(..)
   , Table(..)
   , CStats(..)
+  , AllocNodes
   , AllocResult
   , AllocMethod
   , AllocSolutionList
@@ -75,15 +76,18 @@ module Ganeti.HTools.Cluster
   , splitCluster
   ) where
 
+import Control.Applicative (liftA2)
+import Control.Arrow ((&&&))
 import qualified Data.IntSet as IntSet
 import Data.List
-import Data.Maybe (fromJust, isNothing)
+import Data.Maybe (fromJust, fromMaybe, isJust, isNothing)
 import Data.Ord (comparing)
 import Text.Printf (printf)
 
 import Ganeti.BasicTypes
 import qualified Ganeti.HTools.Container as Container
 import qualified Ganeti.HTools.Instance as Instance
+import qualified Ganeti.HTools.Nic as Nic
 import qualified Ganeti.HTools.Node as Node
 import qualified Ganeti.HTools.Group as Group
 import Ganeti.HTools.Types
@@ -771,39 +775,55 @@ tryAlloc nl _ inst (Left all_nodes) =
   in return $ annotateSolution sols
 
 -- | Given a group/result, describe it as a nice (list of) messages.
-solutionDescription :: Group.List -> (Gdx, Result AllocSolution) -> [String]
-solutionDescription gl (groupId, result) =
+solutionDescription :: (Group.Group, Result AllocSolution)
+                    -> [String]
+solutionDescription (grp, result) =
   case result of
     Ok solution -> map (printf "Group %s (%s): %s" gname pol) (asLog solution)
     Bad message -> [printf "Group %s: error %s" gname message]
-  where grp = Container.find groupId gl
-        gname = Group.name grp
+  where gname = Group.name grp
         pol = allocPolicyToRaw (Group.allocPolicy grp)
 
 -- | From a list of possibly bad and possibly empty solutions, filter
 -- only the groups with a valid result. Note that the result will be
 -- reversed compared to the original list.
-filterMGResults :: Group.List
-                -> [(Gdx, Result AllocSolution)]
-                -> [(Gdx, AllocSolution)]
-filterMGResults gl = foldl' fn []
-  where unallocable = not . Group.isAllocable . flip Container.find gl
-        fn accu (gdx, rasol) =
+filterMGResults :: [(Group.Group, Result AllocSolution)]
+                -> [(Group.Group, AllocSolution)]
+filterMGResults = foldl' fn []
+  where unallocable = not . Group.isAllocable
+        fn accu (grp, rasol) =
           case rasol of
             Bad _ -> accu
             Ok sol | isNothing (asSolution sol) -> accu
-                   | unallocable gdx -> accu
-                   | otherwise -> (gdx, sol):accu
+                   | unallocable grp -> accu
+                   | otherwise -> (grp, sol):accu
 
 -- | Sort multigroup results based on policy and score.
-sortMGResults :: Group.List
-             -> [(Gdx, AllocSolution)]
-             -> [(Gdx, AllocSolution)]
-sortMGResults gl sols =
+sortMGResults :: [(Group.Group, AllocSolution)]
+              -> [(Group.Group, AllocSolution)]
+sortMGResults sols =
   let extractScore (_, _, _, x) = x
-      solScore (gdx, sol) = (Group.allocPolicy (Container.find gdx gl),
+      solScore (grp, sol) = (Group.allocPolicy grp,
                              (extractScore . fromJust . asSolution) sol)
   in sortBy (comparing solScore) sols
+
+-- | Removes node groups which can't accommodate the instance
+filterValidGroups :: [(Group.Group, (Node.List, Instance.List))]
+                  -> Instance.Instance
+                  -> ([(Group.Group, (Node.List, Instance.List))], [String])
+filterValidGroups [] _ = ([], [])
+filterValidGroups (ng:ngs) inst =
+  let (valid_ngs, msgs) = filterValidGroups ngs inst
+      hasNetwork nic = case Nic.network nic of
+        Just net -> net `elem` Group.networks (fst ng)
+        Nothing -> True
+      hasRequiredNetworks = all hasNetwork (Instance.nics inst)
+  in if hasRequiredNetworks
+      then (ng:valid_ngs, msgs)
+      else (valid_ngs,
+            ("group " ++ Group.name (fst ng) ++
+             " is not connected to a network required by instance " ++
+             Instance.name inst):msgs)
 
 -- | Finds the best group for an instance on a multi-group cluster.
 --
@@ -817,18 +837,21 @@ findBestAllocGroup :: Group.List           -- ^ The group list
                    -> Maybe [Gdx]          -- ^ The allowed groups
                    -> Instance.Instance    -- ^ The instance to allocate
                    -> Int                  -- ^ Required number of nodes
-                   -> Result (Gdx, AllocSolution, [String])
+                   -> Result (Group.Group, AllocSolution, [String])
 findBestAllocGroup mggl mgnl mgil allowed_gdxs inst cnt =
-  let groups = splitCluster mgnl mgil
-      groups' = maybe groups (\gs -> filter ((`elem` gs) . fst) groups)
+  let groups_by_idx = splitCluster mgnl mgil
+      groups = map (\(gid, d) -> (Container.find gid mggl, d)) groups_by_idx
+      groups' = maybe groups
+                (\gs -> filter ((`elem` gs) . Group.idx . fst) groups)
                 allowed_gdxs
-      sols = map (\(gid, (nl, il)) ->
-                   (gid, genAllocNodes mggl nl cnt False >>=
-                       tryAlloc nl il inst))
-             groups'::[(Gdx, Result AllocSolution)]
-      all_msgs = concatMap (solutionDescription mggl) sols
-      goodSols = filterMGResults mggl sols
-      sortedSols = sortMGResults mggl goodSols
+      (groups'', filter_group_msgs) = filterValidGroups groups' inst
+      sols = map (\(gr, (nl, il)) ->
+                   (gr, genAllocNodes mggl nl cnt False >>=
+                        tryAlloc nl il inst))
+             groups''::[(Group.Group, Result AllocSolution)]
+      all_msgs = filter_group_msgs ++ concatMap solutionDescription sols
+      goodSols = filterMGResults sols
+      sortedSols = sortMGResults goodSols
   in case sortedSols of
        [] -> Bad $ if null groups'
                      then "no groups for evacuation: allowed groups was" ++
@@ -847,7 +870,7 @@ tryMGAlloc :: Group.List           -- ^ The group list
 tryMGAlloc mggl mgnl mgil inst cnt = do
   (best_group, solution, all_msgs) <-
       findBestAllocGroup mggl mgnl mgil Nothing inst cnt
-  let group_name = Group.name $ Container.find best_group mggl
+  let group_name = Group.name best_group
       selmsg = "Selected group: " ++ group_name
   return $ solution { asLog = selmsg:all_msgs }
 
@@ -1221,8 +1244,9 @@ tryChangeGroup gl ini_nl ini_il gdxs idxs =
                   let solution = do
                         let ncnt = Instance.requiredNodes $
                                    Instance.diskTemplate inst
-                        (gdx, _, _) <- findBestAllocGroup gl nl il
+                        (grp, _, _) <- findBestAllocGroup gl nl il
                                        (Just target_gdxs) inst ncnt
+                        let gdx = Group.idx grp
                         av_nodes <- availableGroupNodes group_ndx
                                     excl_ndx gdx
                         nodeEvacInstance nl il ChangeAll inst gdx av_nodes
@@ -1257,6 +1281,19 @@ iterateAlloc nl il limit newinst allocnodes ixes cstats =
                       newlimit newinst allocnodes (xi:ixes)
                       (totalResources xnl:cstats)
 
+-- | Predicate whether shrinking a single resource can lead to a valid
+-- allocation.
+sufficesShrinking :: (Instance.Instance -> AllocSolution) -> Instance.Instance
+                     -> FailMode  -> Maybe Instance.Instance
+sufficesShrinking allocFn inst fm =
+  case dropWhile (isNothing . asSolution . fst)
+       . takeWhile (liftA2 (||) (elem fm . asFailures . fst)
+                                (isJust . asSolution . fst))
+       . map (allocFn &&& id) $
+       iterateOk (`Instance.shrinkByType` fm) inst
+  of x:_ -> Just . snd $ x
+     _ -> Nothing
+
 -- | Tiered allocation method.
 --
 -- This places instances on the cluster, and decreases the spec until
@@ -1272,13 +1309,20 @@ tieredAlloc nl il limit newinst allocnodes ixes cstats =
           (stop, newlimit) = case limit of
                                Nothing -> (False, Nothing)
                                Just n -> (n <= ixes_cnt,
-                                            Just (n - ixes_cnt)) in
-      if stop then newsol else
-          case Instance.shrinkByType newinst . fst . last $
-               sortBy (comparing snd) errs of
-            Bad _ -> newsol
-            Ok newinst' -> tieredAlloc nl' il' newlimit
-                           newinst' allocnodes ixes' cstats'
+                                            Just (n - ixes_cnt))
+          sortedErrs = map fst $ sortBy (comparing snd) errs
+          suffShrink = sufficesShrinking (fromMaybe emptyAllocSolution
+                                          . flip (tryAlloc nl' il') allocnodes)
+                       newinst
+          bigSteps = filter isJust . map suffShrink . reverse $ sortedErrs
+      in if stop then newsol else
+          case bigSteps of
+            Just newinst':_ -> tieredAlloc nl' il' newlimit
+                               newinst' allocnodes ixes' cstats'
+            _ -> case Instance.shrinkByType newinst . last $ sortedErrs of
+                   Bad _ -> newsol
+                   Ok newinst' -> tieredAlloc nl' il' newlimit
+                                  newinst' allocnodes ixes' cstats'
 
 -- * Formatting functions
 
@@ -1521,11 +1565,11 @@ splitCluster :: Node.List -> Instance.List ->
                 [(Gdx, (Node.List, Instance.List))]
 splitCluster nl il =
   let ngroups = Node.computeGroups (Container.elems nl)
-  in map (\(guuid, nodes) ->
+  in map (\(gdx, nodes) ->
            let nidxs = map Node.idx nodes
                nodes' = zip nidxs nodes
                instances = Container.filter ((`elem` nidxs) . Instance.pNode) il
-           in (guuid, (Container.fromList nodes', instances))) ngroups
+           in (gdx, (Container.fromList nodes', instances))) ngroups
 
 -- | Compute the list of nodes that are to be evacuated, given a list
 -- of instances and an evacuation mode.

@@ -33,7 +33,7 @@ Before installing, please verify that you have the following programs:
 - `iproute2 <http://www.linuxfoundation.org/en/Net:Iproute2>`_
 - `arping <http://www.skbuff.net/iputils/>`_ (part of iputils)
 - `ndisc6 <http://www.remlab.net/ndisc6/>`_ (if using IPv6)
-- `Python <http://www.python.org/>`_, version 2.4 or above, not 3.0
+- `Python <http://www.python.org/>`_, version 2.6 or above, not 3.0
 - `Python OpenSSL bindings <http://pyopenssl.sourceforge.net/>`_
 - `simplejson Python module <http://code.google.com/p/simplejson/>`_
 - `pyparsing Python module <http://pyparsing.wikispaces.com/>`_, version
@@ -51,6 +51,7 @@ Before installing, please verify that you have the following programs:
 - `Python IP address manipulation library
   <http://code.google.com/p/ipaddr-py/>`_
 - `Bitarray Python library <http://pypi.python.org/pypi/bitarray/>`_
+- `GNU Make <http://www.gnu.org/software/make/>`_
 
 These programs are supplied as part of most Linux distributions, so
 usually they can be installed via the standard package manager. Also
@@ -58,7 +59,7 @@ many of them will already be installed on a standard machine. On
 Debian/Ubuntu, you can use this command line to install all required
 packages, except for RBD, DRBD and Xen::
 
-  $ apt-get install lvm2 ssh bridge-utils iproute iputils-arping \
+  $ apt-get install lvm2 ssh bridge-utils iproute iputils-arping make \
                     ndisc6 python python-pyopenssl openssl \
                     python-pyparsing python-simplejson python-bitarray \
                     python-pyinotify python-pycurl python-ipaddr socat fping
@@ -69,7 +70,7 @@ If bitarray is missing it can be installed from easy-install::
 
 Or on newer distributions (eg. Debian Wheezy) the above becomes::
 
-  $ apt-get install lvm2 ssh bridge-utils iproute iputils-arping \
+  $ apt-get install lvm2 ssh bridge-utils iproute iputils-arping make \
                     ndisc6 python python-openssl openssl \
                     python-pyparsing python-simplejson python-bitarray \
                     python-pyinotify python-pycurl python-ipaddr socat fping
@@ -82,16 +83,18 @@ If some of the python packages are not available in your system,
 you can try installing them using ``easy_install`` command.
 For example::
 
-  $ apt-get install python-setuptools
+  $ apt-get install python-setuptools python-dev
   $ cd / && sudo easy_install \
-            affinity
+            affinity \
+            bitarray \
+            ipaddr
 
 
 On Fedora to install all required packages except RBD, DRBD and Xen::
 
-  $ yum install openssh openssh-clients bridge-utils iproute ndisc6 \
+  $ yum install openssh openssh-clients bridge-utils iproute ndisc6 make \
                 pyOpenSSL pyparsing python-simplejson python-inotify \
-                python-lxm socat fping
+                python-lxm socat fping python-bitarray python-ipaddr
 
 For optional packages use the command::
 
@@ -143,19 +146,22 @@ deploy Ganeti on production machines). More specifically:
   `utf8-string <http://hackage.haskell.org/package/utf8-string>`_
   libraries; these usually come with the GHC compiler
 - `deepseq <http://hackage.haskell.org/package/deepseq>`_
+- `curl <http://hackage.haskell.org/package/curl>`_, tested with
+  versions 1.3.4 and above
 
 Some of these are also available as package in Debian/Ubuntu::
 
   $ apt-get install ghc6 libghc6-json-dev libghc6-network-dev \
-                    libghc6-parallel-dev libghc6-deepseq-dev
+                    libghc6-parallel-dev libghc6-deepseq-dev \
+                    libghc6-curl-dev
 
 Or in newer versions of these distributions (using GHC 7.x)::
 
   $ apt-get install ghc libghc-json-dev libghc-network-dev \
                     libghc-parallel-dev libghc-deepseq-dev \
-                    libghc-utf8-string-dev
+                    libghc-utf8-string-dev libghc-curl-dev
 
-In Fedora, they are available via packages as well::
+In Fedora, some of them are available via packages as well::
 
   $ yum install ghc ghc-json-devel ghc-network-devel \
                     ghc-parallel-devel ghc-deepseq-devel
@@ -164,29 +170,21 @@ If using a distribution which does not provide them, first install
 the Haskell platform. You can also install ``cabal`` manually::
 
   $ apt-get install cabal-install
+  $ cabal update
 
-Then install the additional libraries via
-``cabal``::
+Then install the additional libraries (only the ones not available in your
+distribution packages) via ``cabal``::
 
-  $ cabal install json network parallel utf8-string
-
-The compilation of the htools components is automatically enabled when
-the compiler and the requisite libraries are found. You can use the
-``--enable-htools`` configure flag to force the selection (at which
-point ``./configure`` will fail if it doesn't find the prerequisites).
-
+  $ cabal install json network parallel utf8-string curl
 
 Haskell optional features
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Optionally, more functionality can be enabled if your build machine has
-a few more Haskell libraries enabled: RAPI access to remote cluster from
-htools (``--enable-htools-rapi``), the ``ganeti-confd``
-daemon (``--enable-confd``) and the monitoring agent
-(``--enable-monitoring``). The list of extra dependencies for these is:
+a few more Haskell libraries enabled: the ``ganeti-confd`` and
+``ganeti-luxid`` daemon (``--enable-confd``) and the monitoring daemon
+(``--enable-mond``). The list of extra dependencies for these is:
 
-- `curl <http://hackage.haskell.org/package/curl>`_, tested with
-  versions 1.3.4 and above
 - `hslogger <http://software.complete.org/hslogger>`_, version 1.1 and
   above (note that Debian Squeeze only has version 1.0.9)
 - `Crypto <http://hackage.haskell.org/package/Crypto>`_, tested with
@@ -198,25 +196,37 @@ daemon (``--enable-confd``) and the monitoring agent
   bindings for the ``pcre`` library
 - `attoparsec <http://hackage.haskell.org/package/attoparsec>`_
 - `vector <http://hackage.haskell.org/package/vector>`_
+- `snap-server` <http://hackage.haskell.org/package/snap-server>`_, version
+  0.8.1 and above.
 
-These libraries are available in Debian Wheezy (but not in Squeeze, with
-the exception of curl), so you can use either apt::
+These libraries are available in Debian Wheezy (but not in Squeeze), so you
+can use either apt::
 
   $ apt-get install libghc-hslogger-dev libghc-crypto-dev libghc-text-dev \
-                    libghc-hinotify-dev libghc-regex-pcre-dev libghc-curl-dev \
-                    libghc-attoparsec-dev libghc-vector-dev libpcre3-dev
+                    libghc-hinotify-dev libghc-regex-pcre-dev \
+                    libghc-attoparsec-dev libghc-vector-dev \
+                    libghc-snap-server-dev
 
-or ``cabal``::
+or ``cabal``, after installing a required non-Haskell dependency::
 
-  $ apt-get install libprcre3-dev libcurl4-openssl-dev
-  $ cabal install hslogger Crypto text hinotify==0.3.2 regex-pcre curl \
-                  attoparsec vector
+  $ apt-get install libpcre3-dev libcurl4-openssl-dev
+  $ cabal install hslogger Crypto text hinotify==0.3.2 regex-pcre \
+                  attoparsec vector snap-server
 
 to install them.
 
-The most recent Fedora doesn't provide ``curl``, ``crypto``,
-``inotify``. So these need to be installed using ``cabal``, if
-desired. The other packages can be installed via ``yum``::
+In case you still use ghc-6.12, note that ``cabal`` would automatically try to
+install newer versions of some of the libraries snap-server depends on, that
+cannot be compiled with ghc-6.12, so you have to install snap-server on its
+own, esplicitly forcing the installation of compatible versions::
+
+  $ cabal install MonadCatchIO-transformers==0.2.2.0 mtl==2.0.1.0 \
+                  hashable==1.1.2.0 case-insensitive==0.3 parsec==3.0.1 \
+                  network==2.3 snap-server==0.8.1
+
+The most recent Fedora doesn't provide ``crypto``, ``inotify``. So these
+need to be installed using ``cabal``, if desired. The other packages can
+be installed via ``yum``::
 
   $ yum install ghc-hslogger-devel ghc-text-devel \
                 ghc-regex-pcre-devel

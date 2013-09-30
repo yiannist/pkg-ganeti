@@ -52,7 +52,11 @@ args = None
 #: Target major version we will upgrade to
 TARGET_MAJOR = 2
 #: Target minor version we will upgrade to
-TARGET_MINOR = 7
+TARGET_MINOR = 8
+#: Target major version for downgrade
+DOWNGRADE_MAJOR = 2
+#: Target minor version for downgrade
+DOWNGRADE_MINOR = 7
 
 
 class Error(Exception):
@@ -98,24 +102,67 @@ def CheckHostname(path):
   return False
 
 
+def _FillIPolicySpecs(default_ipolicy, ipolicy):
+  if "minmax" in ipolicy:
+    for (key, spec) in ipolicy["minmax"][0].items():
+      for (par, val) in default_ipolicy["minmax"][0][key].items():
+        if par not in spec:
+          spec[par] = val
+
+
+def UpgradeIPolicy(ipolicy, default_ipolicy, isgroup):
+  minmax_keys = ["min", "max"]
+  if any((k in ipolicy) for k in minmax_keys):
+    minmax = {}
+    for key in minmax_keys:
+      if key in ipolicy:
+        if ipolicy[key]:
+          minmax[key] = ipolicy[key]
+        del ipolicy[key]
+    if minmax:
+      ipolicy["minmax"] = [minmax]
+  if isgroup and "std" in ipolicy:
+    del ipolicy["std"]
+  _FillIPolicySpecs(default_ipolicy, ipolicy)
+
+
 def UpgradeNetworks(config_data):
   networks = config_data.get("networks", None)
   if not networks:
     config_data["networks"] = {}
 
 
+def UpgradeCluster(config_data):
+  cluster = config_data.get("cluster", None)
+  if cluster is None:
+    raise Error("Cannot find cluster")
+  ipolicy = cluster.setdefault("ipolicy", None)
+  if ipolicy:
+    UpgradeIPolicy(ipolicy, constants.IPOLICY_DEFAULTS, False)
+
+
 def UpgradeGroups(config_data):
+  cl_ipolicy = config_data["cluster"].get("ipolicy")
   for group in config_data["nodegroups"].values():
     networks = group.get("networks", None)
     if not networks:
       group["networks"] = {}
+    ipolicy = group.get("ipolicy", None)
+    if ipolicy:
+      if cl_ipolicy is None:
+        raise Error("A group defines an instance policy but there is no"
+                    " instance policy at cluster level")
+      UpgradeIPolicy(ipolicy, cl_ipolicy, True)
 
 
 def UpgradeInstances(config_data):
   network2uuid = dict((n["name"], n["uuid"])
                       for n in config_data["networks"].values())
-  for inst in config_data["instances"].values():
-    for nic in inst["nics"]:
+  if "instances" not in config_data:
+    raise Error("Can't find the 'instances' key in the configuration!")
+
+  for instance, iobj in config_data["instances"].items():
+    for nic in iobj["nics"]:
       name = nic.get("network", None)
       if name:
         uuid = network2uuid.get(name, None)
@@ -124,130 +171,20 @@ def UpgradeInstances(config_data):
                 " Substituting with uuid %s." % (name, uuid))
           nic["network"] = uuid
 
+    if "disks" not in iobj:
+      raise Error("Instance '%s' doesn't have a disks entry?!" % instance)
+    disks = iobj["disks"]
+    for idx, dobj in enumerate(disks):
+      expected = "disk/%s" % idx
+      current = dobj.get("iv_name", "")
+      if current != expected:
+        logging.warning("Updating iv_name for instance %s/disk %s"
+                        " from '%s' to '%s'",
+                        instance, idx, current, expected)
+        dobj["iv_name"] = expected
 
-def main():
-  """Main program.
 
-  """
-  global options, args # pylint: disable=W0603
-
-  # Option parsing
-  parser = optparse.OptionParser(usage="%prog [--debug|--verbose] [--force]")
-  parser.add_option("--dry-run", dest="dry_run",
-                    action="store_true",
-                    help="Try to do the conversion, but don't write"
-                         " output file")
-  parser.add_option(cli.FORCE_OPT)
-  parser.add_option(cli.DEBUG_OPT)
-  parser.add_option(cli.VERBOSE_OPT)
-  parser.add_option("--ignore-hostname", dest="ignore_hostname",
-                    action="store_true", default=False,
-                    help="Don't abort if hostname doesn't match")
-  parser.add_option("--path", help="Convert configuration in this"
-                    " directory instead of '%s'" % pathutils.DATA_DIR,
-                    default=pathutils.DATA_DIR, dest="data_dir")
-  parser.add_option("--confdir",
-                    help=("Use this directory instead of '%s'" %
-                          pathutils.CONF_DIR),
-                    default=pathutils.CONF_DIR, dest="conf_dir")
-  parser.add_option("--no-verify",
-                    help="Do not verify configuration after upgrade",
-                    action="store_true", dest="no_verify", default=False)
-  (options, args) = parser.parse_args()
-
-  # We need to keep filenames locally because they might be renamed between
-  # versions.
-  options.data_dir = os.path.abspath(options.data_dir)
-  options.CONFIG_DATA_PATH = options.data_dir + "/config.data"
-  options.SERVER_PEM_PATH = options.data_dir + "/server.pem"
-  options.KNOWN_HOSTS_PATH = options.data_dir + "/known_hosts"
-  options.RAPI_CERT_FILE = options.data_dir + "/rapi.pem"
-  options.SPICE_CERT_FILE = options.data_dir + "/spice.pem"
-  options.SPICE_CACERT_FILE = options.data_dir + "/spice-ca.pem"
-  options.RAPI_USERS_FILE = options.data_dir + "/rapi/users"
-  options.RAPI_USERS_FILE_PRE24 = options.data_dir + "/rapi_users"
-  options.CONFD_HMAC_KEY = options.data_dir + "/hmac.key"
-  options.CDS_FILE = options.data_dir + "/cluster-domain-secret"
-  options.SSCONF_MASTER_NODE = options.data_dir + "/ssconf_master_node"
-  options.WATCHER_STATEFILE = options.data_dir + "/watcher.data"
-  options.FILE_STORAGE_PATHS_FILE = options.conf_dir + "/file-storage-paths"
-
-  SetupLogging()
-
-  # Option checking
-  if args:
-    raise Error("No arguments expected")
-
-  # Check master name
-  if not (CheckHostname(options.SSCONF_MASTER_NODE) or options.ignore_hostname):
-    logging.error("Aborting due to hostname mismatch")
-    sys.exit(constants.EXIT_FAILURE)
-
-  if not options.force:
-    usertext = ("Please make sure you have read the upgrade notes for"
-                " Ganeti %s (available in the UPGRADE file and included"
-                " in other documentation formats). Continue with upgrading"
-                " configuration?" % constants.RELEASE_VERSION)
-    if not cli.AskUser(usertext):
-      sys.exit(constants.EXIT_FAILURE)
-
-  # Check whether it's a Ganeti configuration directory
-  if not (os.path.isfile(options.CONFIG_DATA_PATH) and
-          os.path.isfile(options.SERVER_PEM_PATH) and
-          os.path.isfile(options.KNOWN_HOSTS_PATH)):
-    raise Error(("%s does not seem to be a Ganeti configuration"
-                 " directory") % options.data_dir)
-
-  if not os.path.isdir(options.conf_dir):
-    raise Error("Not a directory: %s" % options.conf_dir)
-
-  config_data = serializer.LoadJson(utils.ReadFile(options.CONFIG_DATA_PATH))
-
-  try:
-    config_version = config_data["version"]
-  except KeyError:
-    raise Error("Unable to determine configuration version")
-
-  (config_major, config_minor, config_revision) = \
-    constants.SplitVersion(config_version)
-
-  logging.info("Found configuration version %s (%d.%d.%d)",
-               config_version, config_major, config_minor, config_revision)
-
-  if "config_version" in config_data["cluster"]:
-    raise Error("Inconsistent configuration: found config_version in"
-                " configuration file")
-
-  # Upgrade from 2.{0..6} to 2.7
-  if config_major == 2 and config_minor in (0, 1, 2, 3, 4, 5, 6):
-    if config_revision != 0:
-      logging.warning("Config revision is %s, not 0", config_revision)
-
-    config_data["version"] = constants.BuildVersion(TARGET_MAJOR,
-                                                    TARGET_MINOR, 0)
-
-    if "instances" not in config_data:
-      raise Error("Can't find the 'instances' key in the configuration!")
-    for instance, iobj in config_data["instances"].items():
-      if "disks" not in iobj:
-        raise Error("Instance '%s' doesn't have a disks entry?!" % instance)
-      disks = iobj["disks"]
-      for idx, dobj in enumerate(disks):
-        expected = "disk/%s" % idx
-        current = dobj.get("iv_name", "")
-        if current != expected:
-          logging.warning("Updating iv_name for instance %s/disk %s"
-                          " from '%s' to '%s'",
-                          instance, idx, current, expected)
-          dobj["iv_name"] = expected
-
-  elif config_major == TARGET_MAJOR and config_minor == TARGET_MINOR:
-    logging.info("No changes necessary")
-
-  else:
-    raise Error("Configuration version %d.%d.%d not supported by this tool" %
-                (config_major, config_minor, config_revision))
-
+def UpgradeRapiUsers():
   if (os.path.isfile(options.RAPI_USERS_FILE_PRE24) and
       not os.path.islink(options.RAPI_USERS_FILE_PRE24)):
     if os.path.exists(options.RAPI_USERS_FILE):
@@ -269,12 +206,16 @@ def main():
     if not options.dry_run:
       os.symlink(options.RAPI_USERS_FILE, options.RAPI_USERS_FILE_PRE24)
 
+
+def UpgradeWatcher():
   # Remove old watcher state file if it exists
   if os.path.exists(options.WATCHER_STATEFILE):
     logging.info("Removing watcher state file %s", options.WATCHER_STATEFILE)
     if not options.dry_run:
       utils.RemoveFile(options.WATCHER_STATEFILE)
 
+
+def UpgradeFileStoragePaths(config_data):
   # Write file storage paths
   if not os.path.exists(options.FILE_STORAGE_PATHS_FILE):
     cluster = config_data["cluster"]
@@ -306,9 +247,236 @@ def main():
                     dry_run=options.dry_run,
                     backup=True)
 
+
+def UpgradeAll(config_data):
+  config_data["version"] = constants.BuildVersion(TARGET_MAJOR,
+                                                  TARGET_MINOR, 0)
+  UpgradeRapiUsers()
+  UpgradeWatcher()
+  UpgradeFileStoragePaths(config_data)
   UpgradeNetworks(config_data)
+  UpgradeCluster(config_data)
   UpgradeGroups(config_data)
   UpgradeInstances(config_data)
+
+
+def DowngradeIPolicy(ipolicy, owner):
+  # Downgrade IPolicy to 2.7 (stable)
+  minmax_keys = ["min", "max"]
+  specs_is_split = any((k in ipolicy) for k in minmax_keys)
+  if not specs_is_split:
+    if "minmax" in ipolicy:
+      if type(ipolicy["minmax"]) is not list:
+        raise Error("Invalid minmax type in %s ipolicy: %s" %
+                    (owner, type(ipolicy["minmax"])))
+      if len(ipolicy["minmax"]) > 1:
+        logging.warning("Discarding some limit specs values from %s policy",
+                        owner)
+      minmax = ipolicy["minmax"][0]
+      del ipolicy["minmax"]
+    else:
+      minmax = {}
+    for key in minmax_keys:
+      spec = minmax.get(key, {})
+      ipolicy[key] = spec
+    if "std" not in ipolicy:
+      ipolicy["std"] = {}
+
+
+def DowngradeGroups(config_data):
+  for group in config_data["nodegroups"].values():
+    ipolicy = group.get("ipolicy", None)
+    if ipolicy is not None:
+      DowngradeIPolicy(ipolicy, "group \"%s\"" % group.get("name"))
+
+
+def DowngradeEnabledTemplates(cluster):
+  # Remove enabled disk templates to downgrade to 2.7
+  edt_key = "enabled_disk_templates"
+  if edt_key in cluster:
+    logging.warning("Removing cluster's enabled disk templates; value = %s",
+                    utils.CommaJoin(cluster[edt_key]))
+    del cluster[edt_key]
+
+
+def DowngradeCluster(config_data):
+  cluster = config_data.get("cluster", None)
+  if cluster is None:
+    raise Error("Cannot find cluster")
+  DowngradeEnabledTemplates(cluster)
+  ipolicy = cluster.get("ipolicy", None)
+  if ipolicy:
+    DowngradeIPolicy(ipolicy, "cluster")
+  if "dsahostkeypub" in cluster:
+    del cluster["dsahostkeypub"]
+
+
+def DowngradeDisk(disk):
+  if "uuid" in disk:
+    del disk["uuid"]
+  if "children" in disk:
+    for child_disk in disk["children"]:
+      DowngradeDisk(child_disk)
+
+
+def DowngradeInstances(config_data):
+  if "instances" not in config_data:
+    raise Error("Can't find the 'instances' key in the configuration!")
+
+  for _, iobj in config_data["instances"].items():
+    if "disks_active" in iobj:
+      del iobj["disks_active"]
+
+    # Remove the NICs UUIDs
+    for nic in iobj["nics"]:
+      if "uuid" in nic:
+        del nic["uuid"]
+
+    # Downgrade the disks
+    for disk in iobj["disks"]:
+      DowngradeDisk(disk)
+
+
+def DowngradeAll(config_data):
+  # Any code specific to a particular version should be labeled that way, so
+  # it can be removed when updating to the next version.
+  config_data["version"] = constants.BuildVersion(DOWNGRADE_MAJOR,
+                                                  DOWNGRADE_MINOR, 0)
+  DowngradeCluster(config_data)
+  DowngradeGroups(config_data)
+  DowngradeInstances(config_data)
+
+
+def main():
+  """Main program.
+
+  """
+  global options, args # pylint: disable=W0603
+
+  # Option parsing
+  parser = optparse.OptionParser(usage="%prog [--debug|--verbose] [--force]")
+  parser.add_option("--dry-run", dest="dry_run",
+                    action="store_true",
+                    help="Try to do the conversion, but don't write"
+                         " output file")
+  parser.add_option(cli.FORCE_OPT)
+  parser.add_option(cli.DEBUG_OPT)
+  parser.add_option(cli.VERBOSE_OPT)
+  parser.add_option("--ignore-hostname", dest="ignore_hostname",
+                    action="store_true", default=False,
+                    help="Don't abort if hostname doesn't match")
+  parser.add_option("--path", help="Convert configuration in this"
+                    " directory instead of '%s'" % pathutils.DATA_DIR,
+                    default=pathutils.DATA_DIR, dest="data_dir")
+  parser.add_option("--confdir",
+                    help=("Use this directory instead of '%s'" %
+                          pathutils.CONF_DIR),
+                    default=pathutils.CONF_DIR, dest="conf_dir")
+  parser.add_option("--no-verify",
+                    help="Do not verify configuration after upgrade",
+                    action="store_true", dest="no_verify", default=False)
+  parser.add_option("--downgrade",
+                    help="Downgrade to the previous stable version",
+                    action="store_true", dest="downgrade", default=False)
+  (options, args) = parser.parse_args()
+
+  # We need to keep filenames locally because they might be renamed between
+  # versions.
+  options.data_dir = os.path.abspath(options.data_dir)
+  options.CONFIG_DATA_PATH = options.data_dir + "/config.data"
+  options.SERVER_PEM_PATH = options.data_dir + "/server.pem"
+  options.KNOWN_HOSTS_PATH = options.data_dir + "/known_hosts"
+  options.RAPI_CERT_FILE = options.data_dir + "/rapi.pem"
+  options.SPICE_CERT_FILE = options.data_dir + "/spice.pem"
+  options.SPICE_CACERT_FILE = options.data_dir + "/spice-ca.pem"
+  options.RAPI_USERS_FILE = options.data_dir + "/rapi/users"
+  options.RAPI_USERS_FILE_PRE24 = options.data_dir + "/rapi_users"
+  options.CONFD_HMAC_KEY = options.data_dir + "/hmac.key"
+  options.CDS_FILE = options.data_dir + "/cluster-domain-secret"
+  options.SSCONF_MASTER_NODE = options.data_dir + "/ssconf_master_node"
+  options.WATCHER_STATEFILE = options.data_dir + "/watcher.data"
+  options.FILE_STORAGE_PATHS_FILE = options.conf_dir + "/file-storage-paths"
+
+  SetupLogging()
+
+  # Option checking
+  if args:
+    raise Error("No arguments expected")
+  if options.downgrade and not options.no_verify:
+    options.no_verify = True
+
+  # Check master name
+  if not (CheckHostname(options.SSCONF_MASTER_NODE) or options.ignore_hostname):
+    logging.error("Aborting due to hostname mismatch")
+    sys.exit(constants.EXIT_FAILURE)
+
+  if not options.force:
+    if options.downgrade:
+      usertext = ("The configuration is going to be DOWNGRADED to version %s.%s"
+                  " Some configuration data might be removed if they don't fit"
+                  " in the old format. Please make sure you have read the"
+                  " upgrade notes (available in the UPGRADE file and included"
+                  " in other documentation formats) to understand what they"
+                  " are. Continue with *DOWNGRADING* the configuration?" %
+                  (DOWNGRADE_MAJOR, DOWNGRADE_MINOR))
+    else:
+      usertext = ("Please make sure you have read the upgrade notes for"
+                  " Ganeti %s (available in the UPGRADE file and included"
+                  " in other documentation formats). Continue with upgrading"
+                  " configuration?" % constants.RELEASE_VERSION)
+    if not cli.AskUser(usertext):
+      sys.exit(constants.EXIT_FAILURE)
+
+  # Check whether it's a Ganeti configuration directory
+  if not (os.path.isfile(options.CONFIG_DATA_PATH) and
+          os.path.isfile(options.SERVER_PEM_PATH) and
+          os.path.isfile(options.KNOWN_HOSTS_PATH)):
+    raise Error(("%s does not seem to be a Ganeti configuration"
+                 " directory") % options.data_dir)
+
+  if not os.path.isdir(options.conf_dir):
+    raise Error("Not a directory: %s" % options.conf_dir)
+
+  config_data = serializer.LoadJson(utils.ReadFile(options.CONFIG_DATA_PATH))
+
+  try:
+    config_version = config_data["version"]
+  except KeyError:
+    raise Error("Unable to determine configuration version")
+
+  (config_major, config_minor, config_revision) = \
+    constants.SplitVersion(config_version)
+
+  logging.info("Found configuration version %s (%d.%d.%d)",
+               config_version, config_major, config_minor, config_revision)
+
+  if "config_version" in config_data["cluster"]:
+    raise Error("Inconsistent configuration: found config_version in"
+                " configuration file")
+
+  # Downgrade to the previous stable version
+  if options.downgrade:
+    if not ((config_major == TARGET_MAJOR and config_minor == TARGET_MINOR) or
+            (config_major == DOWNGRADE_MAJOR and
+             config_minor == DOWNGRADE_MINOR)):
+      raise Error("Downgrade supported only from the latest version (%s.%s),"
+                  " found %s (%s.%s.%s) instead" %
+                  (TARGET_MAJOR, TARGET_MINOR, config_version, config_major,
+                   config_minor, config_revision))
+    DowngradeAll(config_data)
+
+  # Upgrade from 2.{0..7} to 2.8
+  elif config_major == 2 and config_minor in range(0, 9):
+    if config_revision != 0:
+      logging.warning("Config revision is %s, not 0", config_revision)
+    UpgradeAll(config_data)
+
+  elif config_major == TARGET_MAJOR and config_minor == TARGET_MINOR:
+    logging.info("No changes necessary")
+
+  else:
+    raise Error("Configuration version %d.%d.%d not supported by this tool" %
+                (config_major, config_minor, config_revision))
 
   try:
     logging.info("Writing configuration file to %s", options.CONFIG_DATA_PATH)
@@ -351,12 +519,18 @@ def main():
       logging.info("File loaded successfully after upgrading")
     del cfg
 
-  if all_ok:
-    cli.ToStderr("Configuration successfully upgraded to version %s.",
-                 constants.RELEASE_VERSION)
+  if options.downgrade:
+    action = "downgraded"
+    out_ver = "%s.%s" % (DOWNGRADE_MAJOR, DOWNGRADE_MINOR)
   else:
-    cli.ToStderr("Configuration upgraded to version %s, but there are errors."
-                 "\nPlease review the file.", constants.RELEASE_VERSION)
+    action = "upgraded"
+    out_ver = constants.RELEASE_VERSION
+  if all_ok:
+    cli.ToStderr("Configuration successfully %s to version %s.",
+                 action, out_ver)
+  else:
+    cli.ToStderr("Configuration %s to version %s, but there are errors."
+                 "\nPlease review the file.", action, out_ver)
 
 
 if __name__ == "__main__":

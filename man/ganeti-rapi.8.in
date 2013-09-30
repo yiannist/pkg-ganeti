@@ -4,8 +4,11 @@
 ganeti-rapi - Ganeti remote API daemon
 .SH Synopsis
 .PP
-\f[B]ganeti-rapi\f[] [-d] [-f] [--no-ssl] [-K \f[I]SSL_KEY_FILE\f[]] [-C
-\f[I]SSL_CERT_FILE\f[]]
+\f[B]ganeti-rapi\f[] [-d] [-f] [--no-ssl] [-K \f[I]SSL_KEY_FILE\f[]]
+.PD 0
+.P
+.PD
+[-C \f[I]SSL_CERT_FILE\f[]] [--require-authentication]
 .SH DESCRIPTION
 .PP
 \f[B]ganeti-rapi\f[] is the daemon providing a remote API for Ganeti
@@ -17,7 +20,7 @@ This can be disabled by passing the \f[C]--no-ssl\f[] option, or
 alternatively the certificate used can be changed via the \f[C]-C\f[]
 option and the key via the \f[C]-K\f[] option.
 .PP
-The daemon will listen to the "ganeti-rapi" tcp port, as listed in the
+The daemon will listen to the "ganeti-rapi" TCP port, as listed in the
 system services database, or if not defined, to port 5080 by default.
 .PP
 See the \f[I]Ganeti remote API\f[] documentation for further
@@ -31,10 +34,12 @@ format as for the node and master daemon.
 Most query operations are allowed without authentication.
 Only the modification operations require authentication, in the form of
 basic authentication.
+Specify the \f[C]--require-authentication\f[] command line flag to
+always require authentication.
 .PP
 The users and their rights are defined in the
 \f[C]@LOCALSTATEDIR@/lib/ganeti/rapi/users\f[] file.
-Format of this file is described in the Ganeti documentation
+The format of this file is described in the Ganeti documentation
 (\f[C]rapi.html\f[]).
 .SH REPORTING BUGS
 .PP

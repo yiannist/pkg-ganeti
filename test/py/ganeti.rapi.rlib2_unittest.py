@@ -1,7 +1,7 @@
 #!/usr/bin/python
 #
 
-# Copyright (C) 2010, 2012 Google Inc.
+# Copyright (C) 2010, 2012, 2013 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -116,7 +116,7 @@ class TestClientConnectError(unittest.TestCase):
       rlib2.R_2_nodes,
       ]
     for cls in resources:
-      handler = _CreateHandler(cls, ["name"], [], None, self._FailingClient)
+      handler = _CreateHandler(cls, ["name"], {}, None, self._FailingClient)
       self.assertRaises(http.HttpBadGateway, handler.GET)
 
 
@@ -130,7 +130,7 @@ class TestJobSubmitError(unittest.TestCase):
       raise errors.JobQueueFull("test")
 
   def test(self):
-    handler = _CreateHandler(rlib2.R_2_redist_config, [], [], None,
+    handler = _CreateHandler(rlib2.R_2_redist_config, [], {}, None,
                              self._SubmitErrorClient)
     self.assertRaises(http.HttpServiceUnavailable, handler.PUT)
 
@@ -138,7 +138,7 @@ class TestJobSubmitError(unittest.TestCase):
 class TestClusterModify(unittest.TestCase):
   def test(self):
     clfactory = _FakeClientFactory(_FakeClient)
-    handler = _CreateHandler(rlib2.R_2_cluster_modify, [], [], {
+    handler = _CreateHandler(rlib2.R_2_cluster_modify, [], {}, {
       "vg_name": "testvg",
       "candidate_pool_size": 100,
       }, clfactory)
@@ -158,7 +158,7 @@ class TestClusterModify(unittest.TestCase):
   def testInvalidValue(self):
     for attr in ["vg_name", "candidate_pool_size", "beparams", "_-Unknown#"]:
       clfactory = _FakeClientFactory(_FakeClient)
-      handler = _CreateHandler(rlib2.R_2_cluster_modify, [], [], {
+      handler = _CreateHandler(rlib2.R_2_cluster_modify, [], {}, {
         attr: True,
         }, clfactory)
       self.assertRaises(http.HttpBadRequest, handler.PUT)
@@ -168,7 +168,7 @@ class TestClusterModify(unittest.TestCase):
 class TestRedistConfig(unittest.TestCase):
   def test(self):
     clfactory = _FakeClientFactory(_FakeClient)
-    handler = _CreateHandler(rlib2.R_2_redist_config, [], [], None, clfactory)
+    handler = _CreateHandler(rlib2.R_2_redist_config, [], {}, None, clfactory)
     job_id = handler.PUT()
 
     cl = clfactory.GetNextClient()
@@ -370,6 +370,7 @@ class TestInstanceReboot(unittest.TestCase):
     handler = _CreateHandler(rlib2.R_2_instances_name_reboot, ["inst847"], {
       "dry-run": ["1"],
       "ignore_secondaries": ["1"],
+      "reason": ["System update"],
       }, {}, clfactory)
     job_id = handler.POST()
 
@@ -383,6 +384,12 @@ class TestInstanceReboot(unittest.TestCase):
     self.assertEqual(op.reboot_type, constants.INSTANCE_REBOOT_HARD)
     self.assertTrue(op.ignore_secondaries)
     self.assertTrue(op.dry_run)
+    self.assertEqual(op.reason[0][0], constants.OPCODE_REASON_SRC_USER)
+    self.assertEqual(op.reason[0][1], "System update")
+    self.assertEqual(op.reason[1][0],
+                     "%s:%s" % (constants.OPCODE_REASON_SRC_RLIB2,
+                                "instances_name_reboot"))
+    self.assertEqual(op.reason[1][1], "")
 
     self.assertRaises(IndexError, cl.GetNextSubmittedJob)
 
@@ -393,6 +400,7 @@ class TestInstanceStartup(unittest.TestCase):
     handler = _CreateHandler(rlib2.R_2_instances_name_startup, ["inst31083"], {
       "force": ["1"],
       "no_remember": ["1"],
+      "reason": ["Newly created instance"],
       }, {}, clfactory)
     job_id = handler.PUT()
 
@@ -406,6 +414,12 @@ class TestInstanceStartup(unittest.TestCase):
     self.assertTrue(op.no_remember)
     self.assertTrue(op.force)
     self.assertFalse(op.dry_run)
+    self.assertEqual(op.reason[0][0], constants.OPCODE_REASON_SRC_USER)
+    self.assertEqual(op.reason[0][1], "Newly created instance")
+    self.assertEqual(op.reason[1][0],
+                     "%s:%s" % (constants.OPCODE_REASON_SRC_RLIB2,
+                                "instances_name_startup"))
+    self.assertEqual(op.reason[1][1], "")
 
     self.assertRaises(IndexError, cl.GetNextSubmittedJob)
 
@@ -415,6 +429,7 @@ class TestInstanceShutdown(unittest.TestCase):
     clfactory = _FakeClientFactory(_FakeClient)
     handler = _CreateHandler(rlib2.R_2_instances_name_shutdown, ["inst26791"], {
       "no_remember": ["0"],
+      "reason": ["Not used anymore"],
       }, {}, clfactory)
     job_id = handler.PUT()
 
@@ -427,6 +442,12 @@ class TestInstanceShutdown(unittest.TestCase):
     self.assertEqual(op.instance_name, "inst26791")
     self.assertFalse(op.no_remember)
     self.assertFalse(op.dry_run)
+    self.assertEqual(op.reason[0][0], constants.OPCODE_REASON_SRC_USER)
+    self.assertEqual(op.reason[0][1], "Not used anymore")
+    self.assertEqual(op.reason[1][0],
+                     "%s:%s" % (constants.OPCODE_REASON_SRC_RLIB2,
+                                "instances_name_shutdown"))
+    self.assertEqual(op.reason[1][1], "")
 
     self.assertRaises(IndexError, cl.GetNextSubmittedJob)
 
@@ -1765,7 +1786,8 @@ class TestPermissions(unittest.TestCase):
   def testMethodAccess(self):
     for handler in connector.CONNECTOR.values():
       for method in baserlib._SUPPORTED_METHODS:
-        access = getattr(handler, "%s_ACCESS" % method)
+        access = baserlib.GetHandlerAccess(handler, method)
+        self.assertFalse(access is None)
         self.assertFalse(set(access) - rapi.RAPI_ACCESS_ALL,
                          msg=("Handler '%s' uses unknown access options for"
                               " method %s" % (handler, method)))

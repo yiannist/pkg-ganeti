@@ -26,16 +26,17 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
 -}
 
 module Ganeti.Query.Server
-  ( ConfigReader
-  , prepQueryD
-  , runQueryD
+  ( main
+  , checkMain
+  , prepMain
   ) where
 
 import Control.Applicative
 import Control.Concurrent
 import Control.Exception
+import Control.Monad (forever)
 import Data.Bits (bitSize)
-import Data.Maybe
+import Data.IORef
 import qualified Network.Socket as S
 import qualified Text.JSON as J
 import Text.JSON (showJSON, JSValue(..))
@@ -47,18 +48,14 @@ import qualified Ganeti.Path as Path
 import Ganeti.Daemon
 import Ganeti.Objects
 import qualified Ganeti.Config as Config
+import Ganeti.ConfigReader
 import Ganeti.BasicTypes
 import Ganeti.Logging
 import Ganeti.Luxi
 import Ganeti.OpCodes (TagObject(..))
 import qualified Ganeti.Query.Language as Qlang
 import Ganeti.Query.Query
-import Ganeti.Query.Filter (FilterConstructor, makeSimpleFilter
-                           , makeHostnameFilter)
-
--- | A type for functions that can return the configuration when
--- executed.
-type ConfigReader = IO (Result ConfigData)
+import Ganeti.Query.Filter (makeSimpleFilter)
 
 -- | Helper for classic queries.
 handleClassicQuery :: ConfigData      -- ^ Cluster config
@@ -66,16 +63,12 @@ handleClassicQuery :: ConfigData      -- ^ Cluster config
                    -> [Either String Integer] -- ^ Requested names
                                               -- (empty means all)
                    -> [String]        -- ^ Requested fields
-                   -> Maybe FilterConstructor -- ^ the filter algorithm
-                                              -- to be used, defaults to
-                                              -- makeSimpleFilter
                    -> Bool            -- ^ Whether to do sync queries or not
                    -> IO (GenericResult GanetiException JSValue)
-handleClassicQuery _ _ _ _ _ True =
+handleClassicQuery _ _ _ _ True =
   return . Bad $ OpPrereqError "Sync queries are not allowed" ECodeInval
-handleClassicQuery cfg qkind names fields filterconstr _ = do
-  let fltcon = fromMaybe makeSimpleFilter filterconstr
-      flt = fltcon (nameField qkind) names
+handleClassicQuery cfg qkind names fields _ = do
+  let flt = makeSimpleFilter (nameField qkind) names
   qr <- query cfg True (Qlang.Query qkind fields flt)
   return $ showJSON <$> (qr >>= queryCompat)
 
@@ -92,6 +85,7 @@ handleCall :: ConfigData -> LuxiOp -> IO (ErrorResult JSValue)
 handleCall cdata QueryClusterInfo =
   let cluster = configCluster cdata
       hypervisors = clusterEnabledHypervisors cluster
+      diskTemplates = clusterEnabledDiskTemplates cluster
       def_hv = case hypervisors of
                  x:_ -> showJSON x
                  [] -> JSNull
@@ -102,6 +96,7 @@ handleCall cdata QueryClusterInfo =
             , ("config_version", showJSON C.configVersion)
             , ("os_api_version", showJSON $ maximum C.osApiVersions)
             , ("export_version", showJSON C.exportVersion)
+            , ("vcs_version", showJSON C.vcsVersion)
             , ("architecture", showJSON arch_tuple)
             , ("name", showJSON $ clusterClusterName cluster)
             , ("master", showJSON $ clusterMasterNode cluster)
@@ -140,10 +135,11 @@ handleCall cdata QueryClusterInfo =
             , ("reserved_lvs", showJSON $ clusterReservedLvs cluster)
             , ("primary_ip_version",
                showJSON . ipFamilyToVersion $ clusterPrimaryIpFamily cluster)
-             , ("prealloc_wipe_disks",
-                showJSON $ clusterPreallocWipeDisks cluster)
-             , ("hidden_os", showJSON $ clusterHiddenOs cluster)
-             , ("blacklisted_os", showJSON $ clusterBlacklistedOs cluster)
+            , ("prealloc_wipe_disks",
+               showJSON $ clusterPreallocWipeDisks cluster)
+            , ("hidden_os", showJSON $ clusterHiddenOs cluster)
+            , ("blacklisted_os", showJSON $ clusterBlacklistedOs cluster)
+            , ("enabled_disk_templates", showJSON diskTemplates)
             ]
 
   in return . Ok . J.makeObj $ obj
@@ -166,15 +162,19 @@ handleCall _ (QueryFields qkind qfields) = do
 
 handleCall cfg (QueryNodes names fields lock) =
   handleClassicQuery cfg (Qlang.ItemTypeOpCode Qlang.QRNode)
-    (map Left names) fields (Just makeHostnameFilter) lock
+    (map Left names) fields lock
 
 handleCall cfg (QueryGroups names fields lock) =
   handleClassicQuery cfg (Qlang.ItemTypeOpCode Qlang.QRGroup)
-    (map Left names) fields Nothing lock
+    (map Left names) fields lock
 
 handleCall cfg (QueryJobs names fields) =
   handleClassicQuery cfg (Qlang.ItemTypeLuxi Qlang.QRJob)
-    (map (Right . fromIntegral . fromJobId) names)  fields Nothing False
+    (map (Right . fromIntegral . fromJobId) names)  fields False
+
+handleCall cfg (QueryNetworks names fields lock) =
+  handleClassicQuery cfg (Qlang.ItemTypeOpCode Qlang.QRNetwork)
+    (map Left names) fields lock
 
 handleCall _ op =
   return . Bad $
@@ -206,6 +206,7 @@ handleClientMsg client creader args = do
 handleClient :: Client -> ConfigReader -> IO Bool
 handleClient client creader = do
   !msg <- recvMsgExt client
+  logDebug $ "Received message: " ++ show msg
   case msg of
     RecvConnClosed -> logDebug "Connection closed" >> return False
     RecvError err -> logWarning ("Error during message receiving: " ++ err) >>
@@ -220,7 +221,7 @@ handleClient client creader = do
         Ok args -> handleClientMsg client creader args
 
 -- | Main client loop: runs one loop of 'handleClient', and if that
--- doesn't repot a finished (closed) connection, restarts itself.
+-- doesn't report a finished (closed) connection, restarts itself.
 clientLoop :: Client -> ConfigReader -> IO ()
 clientLoop client creader = do
   result <- handleClient client creader
@@ -228,27 +229,37 @@ clientLoop client creader = do
     then clientLoop client creader
     else closeClient client
 
--- | Main loop: accepts clients, forks an I/O thread to handle that
--- client, and then restarts.
-mainLoop :: ConfigReader -> S.Socket -> IO ()
-mainLoop creader socket = do
+-- | Main listener loop: accepts clients, forks an I/O thread to handle
+-- that client.
+listener :: ConfigReader -> S.Socket -> IO ()
+listener creader socket = do
   client <- acceptClient socket
   _ <- forkIO $ clientLoop client creader
-  mainLoop creader socket
+  return ()
 
--- | Function that prepares the server socket.
-prepQueryD :: Maybe FilePath -> IO (FilePath, S.Socket)
-prepQueryD fpath = do
-  def_socket <- Path.defaultQuerySocket
-  let socket_path = fromMaybe def_socket fpath
+-- | Type alias for prepMain results
+type PrepResult = (FilePath, S.Socket, IORef (Result ConfigData))
+
+-- | Check function for luxid.
+checkMain :: CheckFn ()
+checkMain _ = return $ Right ()
+
+-- | Prepare function for luxid.
+prepMain :: PrepFn () PrepResult
+prepMain _ _ = do
+  socket_path <- Path.defaultQuerySocket
   cleanupSocket socket_path
   s <- describeError "binding to the Luxi socket"
-         Nothing (Just socket_path) $ getServer socket_path
-  return (socket_path, s)
+         Nothing (Just socket_path) $ getServer True socket_path
+  cref <- newIORef (Bad "Configuration not yet loaded")
+  return (socket_path, s, cref)
 
--- | Main function that runs the query endpoint.
-runQueryD :: (FilePath, S.Socket) -> ConfigReader -> IO ()
-runQueryD (socket_path, server) creader =
+-- | Main function.
+main :: MainFn () PrepResult
+main _ _ (socket_path, server, cref) = do
+  initConfigReader id cref
+  let creader = readIORef cref
+
   finally
-    (mainLoop creader server)
+    (forever $ listener creader server)
     (closeServer socket_path server)

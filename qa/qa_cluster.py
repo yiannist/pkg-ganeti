@@ -35,6 +35,7 @@ from ganeti import pathutils
 import qa_config
 import qa_utils
 import qa_error
+import qa_instance
 
 from qa_utils import AssertEqual, AssertCommand, GetCommandOutput
 
@@ -60,39 +61,25 @@ def _CheckFileOnAllNodes(filename, content):
   """
   cmd = utils.ShellQuoteArgs(["cat", filename])
   for node in qa_config.get("nodes"):
-    AssertEqual(qa_utils.GetCommandOutput(node["primary"], cmd), content)
+    AssertEqual(qa_utils.GetCommandOutput(node.primary, cmd), content)
 
 
-# "gnt-cluster info" fields
-_CIFIELD_RE = re.compile(r"^[-\s]*(?P<field>[^\s:]+):\s*(?P<value>\S.*)$")
+def _GetClusterField(field_path):
+  """Get the value of a cluster field.
 
-
-def _GetBoolClusterField(field):
-  """Get the Boolean value of a cluster field.
-
-  This function currently assumes that the field name is unique in the cluster
-  configuration. An assertion checks this assumption.
-
-  @type field: string
-  @param field: Name of the field
-  @rtype: bool
-  @return: The effective value of the field
+  @type field_path: list of strings
+  @param field_path: Names of the groups/fields to navigate to get the desired
+      value, e.g. C{["Default node parameters", "oob_program"]}
+  @return: The effective value of the field (the actual type depends on the
+      chosen field)
 
   """
-  master = qa_config.GetMasterNode()
-  infocmd = "gnt-cluster info"
-  info_out = qa_utils.GetCommandOutput(master["primary"], infocmd)
-  ret = None
-  for l in info_out.splitlines():
-    m = _CIFIELD_RE.match(l)
-    # FIXME: There should be a way to specify a field through a hierarchy
-    if m and m.group("field") == field:
-      # Make sure that ignoring the hierarchy doesn't cause a double match
-      assert ret is None
-      ret = (m.group("value").lower() == "true")
-  if ret is not None:
-    return ret
-  raise qa_error.Error("Field not found in cluster configuration: %s" % field)
+  assert isinstance(field_path, list)
+  assert field_path
+  ret = qa_utils.GetObjectInfo(["gnt-cluster", "info"])
+  for key in field_path:
+    ret = ret[key]
+  return ret
 
 
 # Cluster-verify errors (date, "ERROR", then error code)
@@ -138,7 +125,7 @@ def AssertClusterVerify(fail=False, errors=None, warnings=None):
   cvcmd = "gnt-cluster verify"
   mnode = qa_config.GetMasterNode()
   if errors or warnings:
-    cvout = GetCommandOutput(mnode["primary"], cvcmd + " --error-codes",
+    cvout = GetCommandOutput(mnode.primary, cvcmd + " --error-codes",
                              fail=(fail or errors))
     (act_errs, act_warns) = _GetCVErrorCodes(cvout)
     if errors:
@@ -167,7 +154,8 @@ def TestClusterInit(rapi_user, rapi_secret):
   """gnt-cluster init"""
   master = qa_config.GetMasterNode()
 
-  rapi_dir = os.path.dirname(pathutils.RAPI_USERS_FILE)
+  rapi_users_path = qa_utils.MakeNodePath(master, pathutils.RAPI_USERS_FILE)
+  rapi_dir = os.path.dirname(rapi_users_path)
 
   # First create the RAPI credentials
   fh = tempfile.NamedTemporaryFile()
@@ -175,10 +163,10 @@ def TestClusterInit(rapi_user, rapi_secret):
     fh.write("%s %s write\n" % (rapi_user, rapi_secret))
     fh.flush()
 
-    tmpru = qa_utils.UploadFile(master["primary"], fh.name)
+    tmpru = qa_utils.UploadFile(master.primary, fh.name)
     try:
       AssertCommand(["mkdir", "-p", rapi_dir])
-      AssertCommand(["mv", tmpru, pathutils.RAPI_USERS_FILE])
+      AssertCommand(["mv", tmpru, rapi_users_path])
     finally:
       AssertCommand(["rm", "-f", tmpru])
   finally:
@@ -189,6 +177,8 @@ def TestClusterInit(rapi_user, rapi_secret):
     "gnt-cluster", "init",
     "--primary-ip-version=%d" % qa_config.get("primary_ip_version", 4),
     "--enabled-hypervisors=%s" % ",".join(qa_config.GetEnabledHypervisors()),
+    "--enabled-disk-templates=%s" %
+      ",".join(qa_config.GetEnabledDiskTemplates())
     ]
 
   for spec_type in ("mem-size", "disk-size", "disk-count", "cpu-count",
@@ -196,11 +186,11 @@ def TestClusterInit(rapi_user, rapi_secret):
     for spec_val in ("min", "max", "std"):
       spec = qa_config.get("ispec_%s_%s" %
                            (spec_type.replace("-", "_"), spec_val), None)
-      if spec:
+      if spec is not None:
         cmd.append("--specs-%s=%s=%d" % (spec_type, spec_val, spec))
 
-  if master.get("secondary", None):
-    cmd.append("--secondary-ip=%s" % master["secondary"])
+  if master.secondary:
+    cmd.append("--secondary-ip=%s" % master.secondary)
 
   vgname = qa_config.get("vg-name", None)
   if vgname:
@@ -313,7 +303,7 @@ def TestClusterEpo():
   master = qa_config.GetMasterNode()
 
   # Assert that OOB is unavailable for all nodes
-  result_output = GetCommandOutput(master["primary"],
+  result_output = GetCommandOutput(master.primary,
                                    "gnt-node list --verbose --no-headers -o"
                                    " powered")
   AssertEqual(compat.all(powered == "(unavail)"
@@ -325,13 +315,13 @@ def TestClusterEpo():
   AssertCommand(["gnt-cluster", "epo", "--all", "some_arg"], fail=True)
 
   # Unless --all is given master is not allowed to be in the list
-  AssertCommand(["gnt-cluster", "epo", "-f", master["primary"]], fail=True)
+  AssertCommand(["gnt-cluster", "epo", "-f", master.primary], fail=True)
 
   # This shouldn't fail
   AssertCommand(["gnt-cluster", "epo", "-f", "--all"])
 
   # All instances should have been stopped now
-  result_output = GetCommandOutput(master["primary"],
+  result_output = GetCommandOutput(master.primary,
                                    "gnt-instance list --no-headers -o status")
   # ERROR_down because the instance is stopped but not recorded as such
   AssertEqual(compat.all(status == "ERROR_down"
@@ -341,7 +331,7 @@ def TestClusterEpo():
   AssertCommand(["gnt-cluster", "epo", "--on", "-f", "--all"])
 
   # All instances should have been started now
-  result_output = GetCommandOutput(master["primary"],
+  result_output = GetCommandOutput(master.primary,
                                    "gnt-instance list --no-headers -o status")
   AssertEqual(compat.all(status == "running"
                          for status in result_output.splitlines()), True)
@@ -363,7 +353,7 @@ def TestDelay(node):
   AssertCommand(["gnt-debug", "delay", "1"])
   AssertCommand(["gnt-debug", "delay", "--no-master", "1"])
   AssertCommand(["gnt-debug", "delay", "--no-master",
-                 "-n", node["primary"], "1"])
+                 "-n", node.primary, "1"])
 
 
 def TestClusterReservedLvs():
@@ -399,6 +389,105 @@ def TestClusterModifyDisk():
   """gnt-cluster modify -D"""
   for param in _FAIL_PARAMS:
     AssertCommand(["gnt-cluster", "modify", "-D", param], fail=True)
+
+
+def TestClusterModifyDiskTemplates():
+  """gnt-cluster modify --enabled-disk-templates=..."""
+  enabled_disk_templates = qa_config.GetEnabledDiskTemplates()
+  default_disk_template = qa_config.GetDefaultDiskTemplate()
+
+  _TestClusterModifyDiskTemplatesArguments(default_disk_template,
+                                           enabled_disk_templates)
+
+  _RestoreEnabledDiskTemplates()
+  nodes = qa_config.AcquireManyNodes(2)
+
+  instance_template = enabled_disk_templates[0]
+  instance = qa_instance.CreateInstanceByDiskTemplate(nodes, instance_template)
+
+  _TestClusterModifyUnusedDiskTemplate(instance_template)
+  _TestClusterModifyUsedDiskTemplate(instance_template,
+                                     enabled_disk_templates)
+
+  qa_instance.TestInstanceRemove(instance)
+  _RestoreEnabledDiskTemplates()
+
+
+def _RestoreEnabledDiskTemplates():
+  """Sets the list of enabled disk templates back to the list of enabled disk
+     templates from the QA configuration. This can be used to make sure that
+     the tests that modify the list of disk templates do not interfere with
+     other tests.
+
+  """
+  AssertCommand(
+    ["gnt-cluster", "modify",
+     "--enabled-disk-template=%s" %
+       ",".join(qa_config.GetEnabledDiskTemplates())],
+    fail=False)
+
+
+def _TestClusterModifyDiskTemplatesArguments(default_disk_template,
+                                             enabled_disk_templates):
+  """Tests argument handling of 'gnt-cluster modify' with respect to
+     the parameter '--enabled-disk-templates'. This test is independent
+     of instances.
+
+  """
+  AssertCommand(
+    ["gnt-cluster", "modify",
+     "--enabled-disk-template=%s" %
+       ",".join(enabled_disk_templates)],
+    fail=False)
+
+  # bogus templates
+  AssertCommand(["gnt-cluster", "modify",
+                 "--enabled-disk-templates=pinkbunny"],
+                fail=True)
+
+  # duplicate entries do no harm
+  AssertCommand(
+    ["gnt-cluster", "modify",
+     "--enabled-disk-templates=%s,%s" %
+      (default_disk_template, default_disk_template)],
+    fail=False)
+
+
+def _TestClusterModifyUsedDiskTemplate(instance_template,
+                                       enabled_disk_templates):
+  """Tests that disk templates that are currently in use by instances cannot
+     be disabled on the cluster.
+
+  """
+  # If the list of enabled disk templates contains only one template
+  # we need to add some other templates, because the list of enabled disk
+  # templates can only be set to a non-empty list.
+  new_disk_templates = list(set(enabled_disk_templates)
+                              - set([instance_template]))
+  if not new_disk_templates:
+    new_disk_templates = list(set(constants.DISK_TEMPLATES)
+                                - set([instance_template]))
+  AssertCommand(
+    ["gnt-cluster", "modify",
+     "--enabled-disk-templates=%s" %
+       ",".join(new_disk_templates)],
+    fail=True)
+
+
+def _TestClusterModifyUnusedDiskTemplate(instance_template):
+  """Tests that unused disk templates can be disabled safely."""
+  all_disk_templates = constants.DISK_TEMPLATES
+  AssertCommand(
+    ["gnt-cluster", "modify",
+     "--enabled-disk-templates=%s" %
+       ",".join(all_disk_templates)],
+    fail=False)
+  new_disk_templates = [instance_template]
+  AssertCommand(
+    ["gnt-cluster", "modify",
+     "--enabled-disk-templates=%s" %
+       ",".join(new_disk_templates)],
+    fail=False)
 
 
 def TestClusterModifyBe():
@@ -437,66 +526,25 @@ def TestClusterModifyBe():
     AssertCommand(["gnt-cluster", "modify", "-B", bep])
 
 
-_START_IPOLICY_RE = re.compile(r"^(\s*)Instance policy")
-_START_ISPEC_RE = re.compile(r"^\s+-\s+(std|min|max)")
-_VALUE_RE = r"([^\s:][^:]*):\s+(\S.*)$"
-_IPOLICY_PARAM_RE = re.compile(r"^\s+-\s+" + _VALUE_RE)
-_ISPEC_VALUE_RE = re.compile(r"^\s+" + _VALUE_RE)
-
-
 def _GetClusterIPolicy():
   """Return the run-time values of the cluster-level instance policy.
 
   @rtype: tuple
   @return: (policy, specs), where:
       - policy is a dictionary of the policy values, instance specs excluded
-      - specs is dict of dict, specs[par][key] is a spec value, where key is
-        "min", "max", or "std"
+      - specs is a dictionary containing only the specs, using the internal
+        format (see L{constants.IPOLICY_DEFAULTS} for an example)
 
   """
-  mnode = qa_config.GetMasterNode()
-  info = GetCommandOutput(mnode["primary"], "gnt-cluster info")
-  inside_policy = False
-  end_ispec_re = None
-  curr_spec = ""
-  specs = {}
-  policy = {}
-  for line in info.splitlines():
-    if inside_policy:
-      # The order of the matching is important, as some REs overlap
-      m = _START_ISPEC_RE.match(line)
-      if m:
-        curr_spec = m.group(1)
-        continue
-      m = _IPOLICY_PARAM_RE.match(line)
-      if m:
-        policy[m.group(1)] = m.group(2).strip()
-        continue
-      m = _ISPEC_VALUE_RE.match(line)
-      if m:
-        assert curr_spec
-        par = m.group(1)
-        if par == "memory-size":
-          par = "mem-size"
-        d = specs.setdefault(par, {})
-        d[curr_spec] = m.group(2).strip()
-        continue
-      assert end_ispec_re is not None
-      if end_ispec_re.match(line):
-        inside_policy = False
-    else:
-      m = _START_IPOLICY_RE.match(line)
-      if m:
-        inside_policy = True
-        # We stop parsing when we find the same indentation level
-        re_str = r"^\s{%s}\S" % len(m.group(1))
-        end_ispec_re = re.compile(re_str)
+  info = qa_utils.GetObjectInfo(["gnt-cluster", "info"])
+  policy = info["Instance policy - limits for instances"]
+  (ret_policy, ret_specs) = qa_utils.ParseIPolicy(policy)
+
   # Sanity checks
-  assert len(specs) > 0
-  good = ("min" in d and "std" in d and "max" in d for d in specs)
-  assert good, "Missing item in specs: %s" % specs
-  assert len(policy) > 0
-  return (policy, specs)
+  assert "minmax" in ret_specs and "std" in ret_specs
+  assert len(ret_specs["minmax"]) > 0
+  assert len(ret_policy) > 0
+  return (ret_policy, ret_specs)
 
 
 def TestClusterModifyIPolicy():
@@ -530,7 +578,7 @@ def TestClusterModifyIPolicy():
 
   # Disk templates are treated slightly differently
   par = "disk-templates"
-  disp_str = "enabled disk templates"
+  disp_str = "allowed disk templates"
   curr_val = old_policy[disp_str]
   test_values = [
     (True, constants.DT_PLAIN),
@@ -556,54 +604,40 @@ def TestClusterModifyIPolicy():
       AssertEqual(eff_policy[p], old_policy[p])
 
 
-def TestClusterSetISpecs(new_specs, fail=False, old_values=None):
+def TestClusterSetISpecs(new_specs=None, diff_specs=None, fail=False,
+                         old_values=None):
   """Change instance specs.
 
-  @type new_specs: dict of dict
-  @param new_specs: new_specs[par][key], where key is "min", "max", "std". It
-      can be an empty dictionary.
+  At most one of new_specs or diff_specs can be specified.
+
+  @type new_specs: dict
+  @param new_specs: new complete specs, in the same format returned by
+      L{_GetClusterIPolicy}
+  @type diff_specs: dict
+  @param diff_specs: partial specs, it can be an incomplete specifications, but
+      if min/max specs are specified, their number must match the number of the
+      existing specs
   @type fail: bool
   @param fail: if the change is expected to fail
   @type old_values: tuple
   @param old_values: (old_policy, old_specs), as returned by
-     L{_GetClusterIPolicy}
+      L{_GetClusterIPolicy}
   @return: same as L{_GetClusterIPolicy}
 
   """
-  if old_values:
-    (old_policy, old_specs) = old_values
-  else:
-    (old_policy, old_specs) = _GetClusterIPolicy()
-  if new_specs:
-    cmd = ["gnt-cluster", "modify"]
-    for (par, keyvals) in new_specs.items():
-      if par == "spindle-use":
-        # ignore spindle-use, which is not settable
-        continue
-      cmd += [
-        "--specs-%s" % par,
-        ",".join(["%s=%s" % (k, v) for (k, v) in keyvals.items()]),
-        ]
-    AssertCommand(cmd, fail=fail)
-  # Check the new state
-  (eff_policy, eff_specs) = _GetClusterIPolicy()
-  AssertEqual(eff_policy, old_policy)
-  if fail:
-    AssertEqual(eff_specs, old_specs)
-  else:
-    for par in eff_specs:
-      for key in eff_specs[par]:
-        if par in new_specs and key in new_specs[par]:
-          AssertEqual(int(eff_specs[par][key]), int(new_specs[par][key]))
-        else:
-          AssertEqual(int(eff_specs[par][key]), int(old_specs[par][key]))
-  return (eff_policy, eff_specs)
+  build_cmd = lambda opts: ["gnt-cluster", "modify"] + opts
+  return qa_utils.TestSetISpecs(
+    new_specs=new_specs, diff_specs=diff_specs,
+    get_policy_fn=_GetClusterIPolicy, build_cmd_fn=build_cmd,
+    fail=fail, old_values=old_values)
 
 
 def TestClusterModifyISpecs():
   """gnt-cluster modify --specs-*"""
-  params = ["mem-size", "disk-size", "disk-count", "cpu-count", "nic-count"]
+  params = ["memory-size", "disk-size", "disk-count", "cpu-count", "nic-count"]
   (cur_policy, cur_specs) = _GetClusterIPolicy()
+  # This test assumes that there is only one min/max bound
+  assert len(cur_specs[constants.ISPECS_MINMAX]) == 1
   for par in params:
     test_values = [
       (True, 0, 4, 12),
@@ -620,14 +654,37 @@ def TestClusterModifyISpecs():
       (False, 0, 4, "a"),
       # This is to restore the old values
       (True,
-       cur_specs[par]["min"], cur_specs[par]["std"], cur_specs[par]["max"])
+       cur_specs[constants.ISPECS_MINMAX][0][constants.ISPECS_MIN][par],
+       cur_specs[constants.ISPECS_STD][par],
+       cur_specs[constants.ISPECS_MINMAX][0][constants.ISPECS_MAX][par])
       ]
     for (good, mn, st, mx) in test_values:
-      new_vals = {par: {"min": str(mn), "std": str(st), "max": str(mx)}}
+      new_vals = {
+        constants.ISPECS_MINMAX: [{
+          constants.ISPECS_MIN: {par: mn},
+          constants.ISPECS_MAX: {par: mx}
+          }],
+        constants.ISPECS_STD: {par: st}
+        }
       cur_state = (cur_policy, cur_specs)
       # We update cur_specs, as we've copied the values to restore already
-      (cur_policy, cur_specs) = TestClusterSetISpecs(new_vals, fail=not good,
-                                                     old_values=cur_state)
+      (cur_policy, cur_specs) = TestClusterSetISpecs(
+        diff_specs=new_vals, fail=not good, old_values=cur_state)
+
+    # Get the ipolicy command
+    mnode = qa_config.GetMasterNode()
+    initcmd = GetCommandOutput(mnode.primary, "gnt-cluster show-ispecs-cmd")
+    modcmd = ["gnt-cluster", "modify"]
+    opts = initcmd.split()
+    assert opts[0:2] == ["gnt-cluster", "init"]
+    for k in range(2, len(opts) - 1):
+      if opts[k].startswith("--ipolicy-"):
+        assert k + 2 <= len(opts)
+        modcmd.extend(opts[k:k + 2])
+    # Re-apply the ipolicy (this should be a no-op)
+    AssertCommand(modcmd)
+    new_initcmd = GetCommandOutput(mnode.primary, "gnt-cluster show-ispecs-cmd")
+    AssertEqual(initcmd, new_initcmd)
 
 
 def TestClusterInfo():
@@ -669,7 +726,7 @@ def TestClusterRenewCrypto():
          "--rapi-certificate=/dev/null"]
   AssertCommand(cmd, fail=True)
 
-  rapi_cert_backup = qa_utils.BackupFile(master["primary"],
+  rapi_cert_backup = qa_utils.BackupFile(master.primary,
                                          pathutils.RAPI_CERT_FILE)
   try:
     # Custom RAPI certificate
@@ -680,7 +737,7 @@ def TestClusterRenewCrypto():
 
     utils.GenerateSelfSignedSslCert(fh.name, validity=validity)
 
-    tmpcert = qa_utils.UploadFile(master["primary"], fh.name)
+    tmpcert = qa_utils.UploadFile(master.primary, fh.name)
     try:
       AssertCommand(["gnt-cluster", "renew-crypto", "--force",
                      "--rapi-certificate=%s" % tmpcert])
@@ -693,7 +750,7 @@ def TestClusterRenewCrypto():
     cds_fh.write("\n")
     cds_fh.flush()
 
-    tmpcds = qa_utils.UploadFile(master["primary"], cds_fh.name)
+    tmpcds = qa_utils.UploadFile(master.primary, cds_fh.name)
     try:
       AssertCommand(["gnt-cluster", "renew-crypto", "--force",
                      "--cluster-domain-secret=%s" % tmpcds])
@@ -717,7 +774,7 @@ def TestClusterBurnin():
   master = qa_config.GetMasterNode()
 
   options = qa_config.get("options", {})
-  disk_template = options.get("burnin-disk-template", "drbd")
+  disk_template = options.get("burnin-disk-template", constants.DT_DRBD8)
   parallel = options.get("burnin-in-parallel", False)
   check_inst = options.get("burnin-check-instances", False)
   do_rename = options.get("burnin-rename", "")
@@ -737,15 +794,16 @@ def TestClusterBurnin():
     if len(instances) < 1:
       raise qa_error.Error("Burnin needs at least one instance")
 
-    script = qa_utils.UploadFile(master["primary"], "../tools/burnin")
+    script = qa_utils.UploadFile(master.primary, "../tools/burnin")
     try:
+      disks = qa_config.GetDiskOptions()
       # Run burnin
       cmd = [script,
              "--os=%s" % qa_config.get("os"),
              "--minmem-size=%s" % qa_config.get(constants.BE_MINMEM),
              "--maxmem-size=%s" % qa_config.get(constants.BE_MAXMEM),
-             "--disk-size=%s" % ",".join(qa_config.get("disk")),
-             "--disk-growth=%s" % ",".join(qa_config.get("disk-growth")),
+             "--disk-size=%s" % ",".join([d.get("size") for d in disks]),
+             "--disk-growth=%s" % ",".join([d.get("growth") for d in disks]),
              "--disk-template=%s" % disk_template]
       if parallel:
         cmd.append("--parallel")
@@ -758,14 +816,14 @@ def TestClusterBurnin():
         cmd.append("--no-reboot")
       else:
         cmd.append("--reboot-types=%s" % ",".join(reboot_types))
-      cmd += [inst["name"] for inst in instances]
+      cmd += [inst.name for inst in instances]
       AssertCommand(cmd)
     finally:
       AssertCommand(["rm", "-f", script])
 
   finally:
     for inst in instances:
-      qa_config.ReleaseInstance(inst)
+      inst.Release()
 
 
 def TestClusterMasterFailover():
@@ -779,37 +837,51 @@ def TestClusterMasterFailover():
     # Back to original master node
     AssertCommand(cmd, node=master)
   finally:
-    qa_config.ReleaseNode(failovermaster)
+    failovermaster.Release()
+
+
+def _NodeQueueDrainFile(node):
+  """Returns path to queue drain file for a node.
+
+  """
+  return qa_utils.MakeNodePath(node, pathutils.JOB_QUEUE_DRAIN_FILE)
+
+
+def _AssertDrainFile(node, **kwargs):
+  """Checks for the queue drain file.
+
+  """
+  AssertCommand(["test", "-f", _NodeQueueDrainFile(node)], node=node, **kwargs)
 
 
 def TestClusterMasterFailoverWithDrainedQueue():
   """gnt-cluster master-failover with drained queue"""
-  drain_check = ["test", "-f", pathutils.JOB_QUEUE_DRAIN_FILE]
-
   master = qa_config.GetMasterNode()
   failovermaster = qa_config.AcquireNode(exclude=master)
 
   # Ensure queue is not drained
   for node in [master, failovermaster]:
-    AssertCommand(drain_check, node=node, fail=True)
+    _AssertDrainFile(node, fail=True)
 
   # Drain queue on failover master
-  AssertCommand(["touch", pathutils.JOB_QUEUE_DRAIN_FILE], node=failovermaster)
+  AssertCommand(["touch", _NodeQueueDrainFile(failovermaster)],
+                node=failovermaster)
 
   cmd = ["gnt-cluster", "master-failover"]
   try:
-    AssertCommand(drain_check, node=failovermaster)
+    _AssertDrainFile(failovermaster)
     AssertCommand(cmd, node=failovermaster)
-    AssertCommand(drain_check, fail=True)
-    AssertCommand(drain_check, node=failovermaster, fail=True)
+    _AssertDrainFile(master, fail=True)
+    _AssertDrainFile(failovermaster, fail=True)
 
     # Back to original master node
     AssertCommand(cmd, node=master)
   finally:
-    qa_config.ReleaseNode(failovermaster)
+    failovermaster.Release()
 
-  AssertCommand(drain_check, fail=True)
-  AssertCommand(drain_check, node=failovermaster, fail=True)
+  # Ensure queue is not drained
+  for node in [master, failovermaster]:
+    _AssertDrainFile(node, fail=True)
 
 
 def TestClusterCopyfile():
@@ -825,7 +897,7 @@ def TestClusterCopyfile():
   f.seek(0)
 
   # Upload file to master node
-  testname = qa_utils.UploadFile(master["primary"], f.name)
+  testname = qa_utils.UploadFile(master.primary, f.name)
   try:
     # Copy file to all nodes
     AssertCommand(["gnt-cluster", "copyfile", testname])
@@ -868,10 +940,11 @@ def TestSetExclStorCluster(newvalue):
   @return: The old value of exclusive_storage
 
   """
-  oldvalue = _GetBoolClusterField("exclusive_storage")
+  es_path = ["Default node parameters", "exclusive_storage"]
+  oldvalue = _GetClusterField(es_path)
   AssertCommand(["gnt-cluster", "modify", "--node-parameters",
                  "exclusive_storage=%s" % newvalue])
-  effvalue = _GetBoolClusterField("exclusive_storage")
+  effvalue = _GetClusterField(es_path)
   if effvalue != newvalue:
     raise qa_error.Error("exclusive_storage has the wrong value: %s instead"
                          " of %s" % (effvalue, newvalue))
@@ -886,7 +959,7 @@ def TestExclStorSharedPv(node):
   vgname = qa_config.get("vg-name", constants.DEFAULT_VG)
   lvname1 = _QA_LV_PREFIX + "vol1"
   lvname2 = _QA_LV_PREFIX + "vol2"
-  node_name = node["primary"]
+  node_name = node.primary
   AssertCommand(["lvcreate", "-L1G", "-n", lvname1, vgname], node=node_name)
   AssertClusterVerify(fail=True, errors=[constants.CV_ENODEORPHANLV])
   AssertCommand(["lvcreate", "-L1G", "-n", lvname2, vgname], node=node_name)

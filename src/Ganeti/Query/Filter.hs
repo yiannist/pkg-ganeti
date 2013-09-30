@@ -25,7 +25,7 @@ between the two runs, hence we will not get inconsistent results).
 
 {-
 
-Copyright (C) 2012 Google Inc.
+Copyright (C) 2012, 2013 Google Inc.
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -48,15 +48,12 @@ module Ganeti.Query.Filter
   ( compileFilter
   , evaluateFilter
   , requestedNames
-  , FilterConstructor
   , makeSimpleFilter
-  , makeHostnameFilter
   ) where
 
 import Control.Applicative
 import Control.Monad (liftM)
 import qualified Data.Map as Map
-import Data.Maybe (fromJust)
 import Data.Traversable (traverse)
 import Text.JSON (JSValue(..), fromJSString)
 import Text.JSON.Pretty (pp_value)
@@ -82,6 +79,7 @@ compileFilter fm =
 -- | Processes a field value given a QffMode.
 qffField :: QffMode -> JSValue -> ErrorResult JSValue
 qffField QffNormal    v = Ok v
+qffField QffHostname  v = Ok v
 qffField QffTimestamp v =
   case v of
     JSArray [secs@(JSRational _ _), JSRational _ _] -> return secs
@@ -95,18 +93,22 @@ wrapGetter :: ConfigData
            -> Maybe b
            -> a
            -> (FieldGetter a b, QffMode)
-           -> (JSValue -> ErrorResult Bool)
+           -> (QffMode -> JSValue -> ErrorResult Bool)
            -> ErrorResult Bool
 wrapGetter cfg b a (getter, qff) faction =
   case tryGetter cfg b a getter of
     Nothing -> Ok True -- runtime missing, accepting the value
     Just v ->
       case v of
-        ResultEntry RSNormal (Just fval) -> qffField qff fval >>= faction
+        ResultEntry RSNormal (Just fval) -> qffField qff fval >>= faction qff
         ResultEntry RSNormal Nothing ->
           Bad $ ProgrammerError
                 "Internal error: Getter returned RSNormal/Nothing"
         _ -> Ok True -- filter has no data to work, accepting it
+
+-- | Wrapper alias over field functions to ignore their first Qff argument.
+ignoreMode :: a -> QffMode -> a
+ignoreMode = const
 
 -- | Helper to evaluate a filter getter (and the value it generates) in
 -- a boolean context.
@@ -120,6 +122,25 @@ trueFilter v = Bad . ParameterError $
 -- that we can pass the usual '<=', '>', '==' functions to 'binOpFilter'
 -- and for them to be used in multiple contexts.
 type Comparator = (Eq a, Ord a) => a -> a -> Bool
+
+-- | Equality checker.
+--
+-- This will handle hostnames correctly, if the mode is set to
+-- 'QffHostname'.
+eqFilter :: FilterValue -> QffMode -> JSValue -> ErrorResult Bool
+-- send 'QffNormal' queries to 'binOpFilter'
+eqFilter flv QffNormal    jsv = binOpFilter (==) flv jsv
+-- and 'QffTimestamp' as well
+eqFilter flv QffTimestamp jsv = binOpFilter (==) flv jsv
+-- error out if we set 'QffHostname' on a non-string field
+eqFilter _ QffHostname (JSRational _ _) =
+  Bad . ProgrammerError $ "QffHostname field returned a numeric value"
+-- test strings via 'compareNameComponent'
+eqFilter (QuotedString y) QffHostname (JSString x) =
+  Ok $ goodLookupResult (fromJSString x `compareNameComponent` y)
+-- send all other combinations (all errors) to 'binOpFilter', which
+-- has good error messages
+eqFilter flv _ jsv = binOpFilter (==) flv jsv
 
 -- | Helper to evaluate a filder getter (and the value it generates)
 -- in a boolean context. Note the order of arguments is reversed from
@@ -181,21 +202,21 @@ evaluateFilter c mb a (OrFilter flts) = helper flts
 evaluateFilter c mb a (NotFilter flt)  =
   not <$> evaluateFilter c mb a flt
 evaluateFilter c mb a (TrueFilter getter)  =
-  wrapGetter c mb a getter trueFilter
+  wrapGetter c mb a getter $ ignoreMode trueFilter
 evaluateFilter c mb a (EQFilter getter val) =
-  wrapGetter c mb a getter (binOpFilter (==) val)
+  wrapGetter c mb a getter (eqFilter val)
 evaluateFilter c mb a (LTFilter getter val) =
-  wrapGetter c mb a getter (binOpFilter (<) val)
+  wrapGetter c mb a getter $ ignoreMode (binOpFilter (<) val)
 evaluateFilter c mb a (LEFilter getter val) =
-  wrapGetter c mb a getter (binOpFilter (<=) val)
+  wrapGetter c mb a getter $ ignoreMode (binOpFilter (<=) val)
 evaluateFilter c mb a (GTFilter getter val) =
-  wrapGetter c mb a getter (binOpFilter (>) val)
+  wrapGetter c mb a getter $ ignoreMode (binOpFilter (>) val)
 evaluateFilter c mb a (GEFilter getter val) =
-  wrapGetter c mb a getter (binOpFilter (>=) val)
+  wrapGetter c mb a getter $ ignoreMode (binOpFilter (>=) val)
 evaluateFilter c mb a (RegexpFilter getter re) =
-  wrapGetter c mb a getter (regexpFilter re)
+  wrapGetter c mb a getter $ ignoreMode (regexpFilter re)
 evaluateFilter c mb a (ContainsFilter getter val) =
-  wrapGetter c mb a getter (containsFilter val)
+  wrapGetter c mb a getter $ ignoreMode (containsFilter val)
 
 -- | Runs a getter with potentially missing runtime context.
 tryGetter :: ConfigData -> Maybe b -> a -> FieldGetter a b -> Maybe ResultEntry
@@ -218,30 +239,8 @@ requestedNames namefield (EQFilter fld val) =
     else Nothing
 requestedNames _ _ = Nothing
 
-
-type FilterConstructor = String -> [Either String Integer] -> Filter FilterField
-  
 -- | Builds a simple filter from a list of names.
 makeSimpleFilter :: String -> [Either String Integer] -> Filter FilterField
 makeSimpleFilter _ [] = EmptyFilter
 makeSimpleFilter namefield vals =
   OrFilter $ map (EQFilter namefield . either QuotedString NumericValue) vals
-
--- | List of symbols with a special meaning for regular expressions.
-reSpecialSymbols :: String
-reSpecialSymbols = "\\.|()[]"
-
--- | Quote symbols that have special meaning in regular expressions.
-quoteForRegex :: String -> String
-quoteForRegex s = s >>= \x ->
-  if x `elem` reSpecialSymbols then ['\\', x] else [x]
-
--- | Builds a filter for hostnames from a list of names.
-makeHostnameFilter :: String -> [Either String Integer] -> Filter FilterField
-makeHostnameFilter _ [] = EmptyFilter
-makeHostnameFilter namefield vals = 
-  OrFilter . flip map vals
-  $ either  (RegexpFilter namefield . fromJust . mkRegex
-             . (\ s -> "^(" ++ s ++ "|" ++ s ++ "\\..*)$")
-             . quoteForRegex)
-            (EQFilter namefield  . NumericValue)

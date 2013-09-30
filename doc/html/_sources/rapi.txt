@@ -29,7 +29,21 @@ Lines starting with the hash sign (``#``) are treated as comments. Each
 line consists of two or three fields separated by whitespace. The first
 two fields are for username and password. The third field is optional
 and can be used to specify per-user options (separated by comma without
-spaces). Available options:
+spaces).
+
+Passwords can either be written in clear text or as a hash. Clear text
+passwords may not start with an opening brace (``{``) or they must be
+prefixed with ``{cleartext}``. To use the hashed form, get the MD5 hash
+of the string ``$username:Ganeti Remote API:$password`` (e.g. ``echo -n
+'jack:Ganeti Remote API:abc123' | openssl md5``) [#pwhash]_ and prefix
+it with ``{ha1}``. Using the scheme prefix for all passwords is
+recommended. Scheme prefixes are case insensitive.
+
+Options control a user's access permissions. The section
+:ref:`rapi-access-permissions` lists the permissions required for each
+resource. If the ``--require-authentication`` command line option is
+given to the ``ganeti-rapi`` daemon, all requests require
+authentication. Available options:
 
 .. pyassert::
 
@@ -38,19 +52,25 @@ spaces). Available options:
     rapi.RAPI_ACCESS_READ,
     ])
 
+.. pyassert::
+
+  rlib2.R_2_nodes_name_storage.GET_ACCESS == [rapi.RAPI_ACCESS_WRITE]
+
+.. pyassert::
+
+  rlib2.R_2_jobs_id_wait.GET_ACCESS == [rapi.RAPI_ACCESS_WRITE]
+
 :pyeval:`rapi.RAPI_ACCESS_WRITE`
   Enables the user to execute operations modifying the cluster. Implies
-  :pyeval:`rapi.RAPI_ACCESS_READ` access.
+  :pyeval:`rapi.RAPI_ACCESS_READ` access. Resources blocking other
+  operations for read-only access, such as
+  :ref:`/2/nodes/[node_name]/storage <rapi-res-nodes-node_name-storage+get>`
+  or blocking server-side processes, such as
+  :ref:`/2/jobs/[job_id]/wait <rapi-res-jobs-job_id-wait+get>`, use
+  :pyeval:`rapi.RAPI_ACCESS_WRITE` to control access to their
+  :pyeval:`http.HTTP_GET` method.
 :pyeval:`rapi.RAPI_ACCESS_READ`
   Allow access to operations querying for information.
-
-Passwords can either be written in clear text or as a hash. Clear text
-passwords may not start with an opening brace (``{``) or they must be
-prefixed with ``{cleartext}``. To use the hashed form, get the MD5 hash
-of the string ``$username:Ganeti Remote API:$password`` (e.g. ``echo -n
-'jack:Ganeti Remote API:abc123' | openssl md5``) [#pwhash]_ and prefix
-it with ``{ha1}``. Using the scheme prefix for all passwords is
-recommended. Scheme prefixes are not case sensitive.
 
 Example::
 
@@ -75,7 +95,8 @@ When using the RAPI, username and password can be sent to the server
 by using the standard HTTP basic access authentication. This means that
 for accessing the protected URL ``https://cluster.example.com/resource``,
 the address ``https://username:password@cluster.example.com/resource`` should
-be used instead. Alternatively, the appropriate parameter of your HTTP client
+be used instead.
+Alternatively, the appropriate parameter of your HTTP client
 (such as ``-u`` for ``curl``) can be used.
 
 .. [#pwhash] Using the MD5 hash of username, realm and password is
@@ -207,8 +228,7 @@ The instance policy specification is a dict with the following fields:
 
 .. pyassert::
 
-  constants.IPOLICY_ALL_KEYS == set([constants.ISPECS_MIN,
-                                     constants.ISPECS_MAX,
+  constants.IPOLICY_ALL_KEYS == set([constants.ISPECS_MINMAX,
                                      constants.ISPECS_STD,
                                      constants.IPOLICY_DTS,
                                      constants.IPOLICY_VCPU_RATIO,
@@ -230,24 +250,30 @@ The instance policy specification is a dict with the following fields:
 .. |ispec-std| replace:: :pyeval:`constants.ISPECS_STD`
 
 
-|ispec-min|, |ispec-max|, |ispec-std|
-  A sub- `dict` with the following fields, which sets the limit and standard
-  values of the instances:
+:pyeval:`constants.ISPECS_MINMAX`
+  A list of dictionaries, each with the following two fields:
 
-  :pyeval:`constants.ISPEC_MEM_SIZE`
-    The size in MiB of the memory used
-  :pyeval:`constants.ISPEC_DISK_SIZE`
-    The size in MiB of the disk used
-  :pyeval:`constants.ISPEC_DISK_COUNT`
-    The numbers of disks used
-  :pyeval:`constants.ISPEC_CPU_COUNT`
-    The numbers of cpus used
-  :pyeval:`constants.ISPEC_NIC_COUNT`
-    The numbers of nics used
-  :pyeval:`constants.ISPEC_SPINDLE_USE`
-    The numbers of virtual disk spindles used by this instance. They are
-    not real in the sense of actual HDD spindles, but useful for
-    accounting the spindle usage on the residing node
+  |ispec-min|, |ispec-max|
+    A sub- `dict` with the following fields, which sets the limit of the
+    instances:
+
+    :pyeval:`constants.ISPEC_MEM_SIZE`
+      The size in MiB of the memory used
+    :pyeval:`constants.ISPEC_DISK_SIZE`
+      The size in MiB of the disk used
+    :pyeval:`constants.ISPEC_DISK_COUNT`
+      The numbers of disks used
+    :pyeval:`constants.ISPEC_CPU_COUNT`
+      The numbers of cpus used
+    :pyeval:`constants.ISPEC_NIC_COUNT`
+      The numbers of nics used
+    :pyeval:`constants.ISPEC_SPINDLE_USE`
+      The numbers of virtual disk spindles used by this instance. They
+      are not real in the sense of actual HDD spindles, but useful for
+      accounting the spindle usage on the residing node
+|ispec-std|
+  A sub- `dict` with the same fields as |ispec-min| and |ispec-max| above,
+  which sets the standard values of the instances.
 :pyeval:`constants.IPOLICY_DTS`
   A `list` of disk templates allowed for instances using this policy
 :pyeval:`constants.IPOLICY_VCPU_RATIO`
@@ -341,12 +367,17 @@ method is supported.
 
 Has no function, but for legacy reasons the ``GET`` method is supported.
 
+.. _rapi-res-info:
+
 ``/2/info``
 +++++++++++
 
 Cluster information resource.
 
-It supports the following commands: ``GET``.
+.. rapi_resource_details:: /2/info
+
+
+.. _rapi-res-info+get:
 
 ``GET``
 ~~~~~~~
@@ -386,12 +417,17 @@ Example::
   }
 
 
+.. _rapi-res-redistribute-config:
+
 ``/2/redistribute-config``
 ++++++++++++++++++++++++++
 
 Redistribute configuration to all nodes.
 
-It supports the following commands: ``PUT``.
+.. rapi_resource_details:: /2/redistribute-config
+
+
+.. _rapi-res-redistribute-config+put:
 
 ``PUT``
 ~~~~~~~
@@ -403,8 +439,15 @@ Job result:
 .. opcode_result:: OP_CLUSTER_REDIST_CONF
 
 
+.. _rapi-res-features:
+
 ``/2/features``
 +++++++++++++++
+
+.. rapi_resource_details:: /2/features
+
+
+.. _rapi-res-features+get:
 
 ``GET``
 ~~~~~~~
@@ -431,12 +474,17 @@ features:
   a new-style result (see resource description)
 
 
+.. _rapi-res-modify:
+
 ``/2/modify``
 ++++++++++++++++++++++++++++++++++++++++
 
 Modifies cluster parameters.
 
-Supports the following commands: ``PUT``.
+.. rapi_resource_details:: /2/modify
+
+
+.. _rapi-res-modify+put:
 
 ``PUT``
 ~~~~~~~
@@ -452,12 +500,17 @@ Job result:
 .. opcode_result:: OP_CLUSTER_SET_PARAMS
 
 
+.. _rapi-res-groups:
+
 ``/2/groups``
 +++++++++++++
 
 The groups resource.
 
-It supports the following commands: ``GET``, ``POST``.
+.. rapi_resource_details:: /2/groups
+
+
+.. _rapi-res-groups+get:
 
 ``GET``
 ~~~~~~~
@@ -508,6 +561,9 @@ Example::
       …
     ]
 
+
+.. _rapi-res-groups+post:
+
 ``POST``
 ~~~~~~~~
 
@@ -530,12 +586,17 @@ Job result:
 .. opcode_result:: OP_GROUP_ADD
 
 
+.. _rapi-res-groups-group_name:
+
 ``/2/groups/[group_name]``
 ++++++++++++++++++++++++++
 
 Returns information about a node group.
 
-It supports the following commands: ``GET``, ``DELETE``.
+.. rapi_resource_details:: /2/groups/[group_name]
+
+
+.. _rapi-res-groups-group_name+get:
 
 ``GET``
 ~~~~~~~
@@ -544,6 +605,8 @@ Returns information about a node group, similar to the bulk output from
 the node group list.
 
 Returned fields: :pyeval:`utils.CommaJoin(sorted(rlib2.G_FIELDS))`.
+
+.. _rapi-res-groups-group_name+delete:
 
 ``DELETE``
 ~~~~~~~~~~
@@ -557,12 +620,17 @@ Job result:
 .. opcode_result:: OP_GROUP_REMOVE
 
 
+.. _rapi-res-groups-group_name-modify:
+
 ``/2/groups/[group_name]/modify``
 +++++++++++++++++++++++++++++++++
 
 Modifies the parameters of a node group.
 
-Supports the following commands: ``PUT``.
+.. rapi_resource_details:: /2/groups/[group_name]/modify
+
+
+.. _rapi-res-groups-group_name-modify+put:
 
 ``PUT``
 ~~~~~~~
@@ -579,12 +647,17 @@ Job result:
 .. opcode_result:: OP_GROUP_SET_PARAMS
 
 
+.. _rapi-res-groups-group_name-rename:
+
 ``/2/groups/[group_name]/rename``
 +++++++++++++++++++++++++++++++++
 
 Renames a node group.
 
-Supports the following commands: ``PUT``.
+.. rapi_resource_details:: /2/groups/[group_name]/rename
+
+
+.. _rapi-res-groups-group_name-rename+put:
 
 ``PUT``
 ~~~~~~~
@@ -601,12 +674,16 @@ Job result:
 .. opcode_result:: OP_GROUP_RENAME
 
 
+.. _rapi-res-groups-group_name-assign-nodes:
+
 ``/2/groups/[group_name]/assign-nodes``
 +++++++++++++++++++++++++++++++++++++++
 
 Assigns nodes to a group.
 
-Supports the following commands: ``PUT``.
+.. rapi_resource_details:: /2/groups/[group_name]/assign-nodes
+
+.. _rapi-res-groups-group_name-assign-nodes+put:
 
 ``PUT``
 ~~~~~~~
@@ -622,13 +699,17 @@ Job result:
 
 .. opcode_result:: OP_GROUP_ASSIGN_NODES
 
+.. _rapi-res-groups-group_name-tags:
 
 ``/2/groups/[group_name]/tags``
 +++++++++++++++++++++++++++++++
 
 Manages per-nodegroup tags.
 
-Supports the following commands: ``GET``, ``PUT``, ``DELETE``.
+.. rapi_resource_details:: /2/groups/[group_name]/tags
+
+
+.. _rapi-res-groups-group_name-tags+get:
 
 ``GET``
 ~~~~~~~
@@ -638,6 +719,8 @@ Returns a list of tags.
 Example::
 
     ["tag1", "tag2", "tag3"]
+
+.. _rapi-res-groups-group_name-tags+put:
 
 ``PUT``
 ~~~~~~~
@@ -649,6 +732,8 @@ result will be a job id.
 
 It supports the ``dry-run`` argument.
 
+
+.. _rapi-res-groups-group_name-tags+delete:
 
 ``DELETE``
 ~~~~~~~~~~
@@ -663,12 +748,17 @@ to URI like::
 It supports the ``dry-run`` argument.
 
 
+.. _rapi-res-networks:
+
 ``/2/networks``
 +++++++++++++++
 
 The networks resource.
 
-It supports the following commands: ``GET``, ``POST``.
+.. rapi_resource_details:: /2/networks
+
+
+.. _rapi-res-networks+get:
 
 ``GET``
 ~~~~~~~
@@ -716,6 +806,9 @@ Example::
       …
     ]
 
+
+.. _rapi-res-networks+post:
+
 ``POST``
 ~~~~~~~~
 
@@ -735,12 +828,17 @@ Job result:
 .. opcode_result:: OP_NETWORK_ADD
 
 
+.. _rapi-res-networks-network_name:
+
 ``/2/networks/[network_name]``
 ++++++++++++++++++++++++++++++
 
 Returns information about a network.
 
-It supports the following commands: ``GET``, ``DELETE``.
+.. rapi_resource_details:: /2/networks/[network_name]
+
+
+.. _rapi-res-networks-network_name+get:
 
 ``GET``
 ~~~~~~~
@@ -749,6 +847,9 @@ Returns information about a network, similar to the bulk output from
 the network list.
 
 Returned fields: :pyeval:`utils.CommaJoin(sorted(rlib2.NET_FIELDS))`.
+
+
+.. _rapi-res-networks-network_name+delete:
 
 ``DELETE``
 ~~~~~~~~~~
@@ -762,12 +863,17 @@ Job result:
 .. opcode_result:: OP_NETWORK_REMOVE
 
 
+.. _rapi-res-networks-network_name-modify:
+
 ``/2/networks/[network_name]/modify``
 +++++++++++++++++++++++++++++++++++++
 
 Modifies the parameters of a network.
 
-Supports the following commands: ``PUT``.
+.. rapi_resource_details:: /2/networks/[network_name]/modify
+
+
+.. _rapi-res-networks-network_name-modify+put:
 
 ``PUT``
 ~~~~~~~
@@ -783,12 +889,17 @@ Job result:
 .. opcode_result:: OP_NETWORK_SET_PARAMS
 
 
+.. _rapi-res-networks-network_name-connect:
+
 ``/2/networks/[network_name]/connect``
 ++++++++++++++++++++++++++++++++++++++
 
 Connects a network to a nodegroup.
 
-Supports the following commands: ``PUT``.
+.. rapi_resource_details:: /2/networks/[network_name]/connect
+
+
+.. _rapi-res-networks-network_name-connect+put:
 
 ``PUT``
 ~~~~~~~
@@ -804,12 +915,17 @@ Job result:
 .. opcode_result:: OP_NETWORK_CONNECT
 
 
+.. _rapi-res-networks-network_name-disconnect:
+
 ``/2/networks/[network_name]/disconnect``
 +++++++++++++++++++++++++++++++++++++++++
 
 Disonnects a network from a nodegroup.
 
-Supports the following commands: ``PUT``.
+.. rapi_resource_details:: /2/networks/[network_name]/disconnect
+
+
+.. _rapi-res-networks-network_name-disconnect+put:
 
 ``PUT``
 ~~~~~~~
@@ -825,12 +941,17 @@ Job result:
 .. opcode_result:: OP_NETWORK_DISCONNECT
 
 
+.. _rapi-res-networks-network_name-tags:
+
 ``/2/networks/[network_name]/tags``
 +++++++++++++++++++++++++++++++++++
 
 Manages per-network tags.
 
-Supports the following commands: ``GET``, ``PUT``, ``DELETE``.
+.. rapi_resource_details:: /2/networks/[network_name]/tags
+
+
+.. _rapi-res-networks-network_name-tags+get:
 
 ``GET``
 ~~~~~~~
@@ -840,6 +961,9 @@ Returns a list of tags.
 Example::
 
     ["tag1", "tag2", "tag3"]
+
+
+.. _rapi-res-networks-network_name-tags+put:
 
 ``PUT``
 ~~~~~~~
@@ -851,6 +975,8 @@ result will be a job id.
 
 It supports the ``dry-run`` argument.
 
+
+.. _rapi-res-networks-network_name-tags+delete:
 
 ``DELETE``
 ~~~~~~~~~~
@@ -865,12 +991,17 @@ to URI like::
 It supports the ``dry-run`` argument.
 
 
+.. _rapi-res-instances-multi-alloc:
+
 ``/2/instances-multi-alloc``
 ++++++++++++++++++++++++++++
 
 Tries to allocate multiple instances.
 
-It supports the following commands: ``POST``
+.. rapi_resource_details:: /2/instances-multi-alloc
+
+
+.. _rapi-res-instances-multi-alloc+post:
 
 ``POST``
 ~~~~~~~~
@@ -884,12 +1015,17 @@ Job result:
 .. opcode_result:: OP_INSTANCE_MULTI_ALLOC
 
 
+.. _rapi-res-instances:
+
 ``/2/instances``
 ++++++++++++++++
 
 The instances resource.
 
-It supports the following commands: ``GET``, ``POST``.
+.. rapi_resource_details:: /2/instances
+
+
+.. _rapi-res-instances+get:
 
 ``GET``
 ~~~~~~~
@@ -946,6 +1082,8 @@ Example::
     ]
 
 
+.. _rapi-res-instances+post:
+
 ``POST``
 ~~~~~~~~
 
@@ -976,12 +1114,17 @@ Job result:
 .. opcode_result:: OP_INSTANCE_CREATE
 
 
+.. _rapi-res-instances-instance_name:
+
 ``/2/instances/[instance_name]``
 ++++++++++++++++++++++++++++++++
 
 Instance-specific resource.
 
-It supports the following commands: ``GET``, ``DELETE``.
+.. rapi_resource_details:: /2/instances/[instance_name]
+
+
+.. _rapi-res-instances-instance_name+get:
 
 ``GET``
 ~~~~~~~
@@ -990,6 +1133,9 @@ Returns information about an instance, similar to the bulk output from
 the instance list.
 
 Returned fields: :pyeval:`utils.CommaJoin(sorted(rlib2.I_FIELDS))`.
+
+
+.. _rapi-res-instances-instance_name+delete:
 
 ``DELETE``
 ~~~~~~~~~~
@@ -1003,10 +1149,15 @@ Job result:
 .. opcode_result:: OP_INSTANCE_REMOVE
 
 
+.. _rapi-res-instances-instance_name-info:
+
 ``/2/instances/[instance_name]/info``
 +++++++++++++++++++++++++++++++++++++++
 
-It supports the following commands: ``GET``.
+.. rapi_resource_details:: /2/instances/[instance_name]/info
+
+
+.. _rapi-res-instances-instance_name-info+get:
 
 ``GET``
 ~~~~~~~
@@ -1021,12 +1172,17 @@ Job result:
 .. opcode_result:: OP_INSTANCE_QUERY_DATA
 
 
+.. _rapi-res-instances-instance_name-reboot:
+
 ``/2/instances/[instance_name]/reboot``
 +++++++++++++++++++++++++++++++++++++++
 
 Reboots URI for an instance.
 
-It supports the following commands: ``POST``.
+.. rapi_resource_details:: /2/instances/[instance_name]/reboot
+
+
+.. _rapi-res-instances-instance_name-reboot+post:
 
 ``POST``
 ~~~~~~~~
@@ -1053,12 +1209,17 @@ Job result:
 .. opcode_result:: OP_INSTANCE_REBOOT
 
 
+.. _rapi-res-instances-instance_name-shutdown:
+
 ``/2/instances/[instance_name]/shutdown``
 +++++++++++++++++++++++++++++++++++++++++
 
 Instance shutdown URI.
 
-It supports the following commands: ``PUT``.
+.. rapi_resource_details:: /2/instances/[instance_name]/shutdown
+
+
+.. _rapi-res-instances-instance_name-shutdown+put:
 
 ``PUT``
 ~~~~~~~
@@ -1075,12 +1236,17 @@ Job result:
 .. opcode_result:: OP_INSTANCE_SHUTDOWN
 
 
+.. _rapi-res-instances-instance_name-startup:
+
 ``/2/instances/[instance_name]/startup``
 ++++++++++++++++++++++++++++++++++++++++
 
 Instance startup URI.
 
-It supports the following commands: ``PUT``.
+.. rapi_resource_details:: /2/instances/[instance_name]/startup
+
+
+.. _rapi-res-instances-instance_name-startup+put:
 
 ``PUT``
 ~~~~~~~
@@ -1097,12 +1263,17 @@ Job result:
 .. opcode_result:: OP_INSTANCE_STARTUP
 
 
+.. _rapi-res-instances-instance_name-reinstall:
+
 ``/2/instances/[instance_name]/reinstall``
 ++++++++++++++++++++++++++++++++++++++++++++++
 
 Installs the operating system again.
 
-It supports the following commands: ``POST``.
+.. rapi_resource_details:: /2/instances/[instance_name]/reinstall
+
+
+.. _rapi-res-instances-instance_name-reinstall+post:
 
 ``POST``
 ~~~~~~~~
@@ -1123,12 +1294,17 @@ parameters ``os`` (OS template name) and ``nostartup`` (bool). New
 clients should use the body parameters.
 
 
+.. _rapi-res-instances-instance_name-replace-disks:
+
 ``/2/instances/[instance_name]/replace-disks``
 ++++++++++++++++++++++++++++++++++++++++++++++
 
 Replaces disks on an instance.
 
-It supports the following commands: ``POST``.
+.. rapi_resource_details:: /2/instances/[instance_name]/replace-disks
+
+
+.. _rapi-res-instances-instance_name-replace-disks+post:
 
 ``POST``
 ~~~~~~~~
@@ -1148,12 +1324,17 @@ Job result:
 .. opcode_result:: OP_INSTANCE_REPLACE_DISKS
 
 
+.. _rapi-res-instances-instance_name-activate-disks:
+
 ``/2/instances/[instance_name]/activate-disks``
 +++++++++++++++++++++++++++++++++++++++++++++++
 
 Activate disks on an instance.
 
-It supports the following commands: ``PUT``.
+.. rapi_resource_details:: /2/instances/[instance_name]/activate-disks
+
+
+.. _rapi-res-instances-instance_name-activate-disks+put:
 
 ``PUT``
 ~~~~~~~
@@ -1166,12 +1347,17 @@ Job result:
 .. opcode_result:: OP_INSTANCE_ACTIVATE_DISKS
 
 
+.. _rapi-res-instances-instance_name-deactivate-disks:
+
 ``/2/instances/[instance_name]/deactivate-disks``
 +++++++++++++++++++++++++++++++++++++++++++++++++
 
 Deactivate disks on an instance.
 
-It supports the following commands: ``PUT``.
+.. rapi_resource_details:: /2/instances/[instance_name]/deactivate-disks
+
+
+.. _rapi-res-instances-instance_name-deactivate-disks+put:
 
 ``PUT``
 ~~~~~~~
@@ -1183,11 +1369,17 @@ Job result:
 .. opcode_result:: OP_INSTANCE_DEACTIVATE_DISKS
 
 
+.. _rapi-res-instances-instance_name-recreate-disks:
+
 ``/2/instances/[instance_name]/recreate-disks``
 +++++++++++++++++++++++++++++++++++++++++++++++++
 
-Recreate disks of an instance. Supports the following commands:
-``POST``.
+Recreate disks of an instance.
+
+.. rapi_resource_details:: /2/instances/[instance_name]/recreate-disks
+
+
+.. _rapi-res-instances-instance_name-recreate-disks+post:
 
 ``POST``
 ~~~~~~~~
@@ -1204,12 +1396,17 @@ Job result:
 .. opcode_result:: OP_INSTANCE_RECREATE_DISKS
 
 
+.. _rapi-res-instances-instance_name-disk-disk_index-grow:
+
 ``/2/instances/[instance_name]/disk/[disk_index]/grow``
 +++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
 Grows one disk of an instance.
 
-Supports the following commands: ``POST``.
+.. rapi_resource_details:: /2/instances/[instance_name]/disk/[disk_index]/grow
+
+
+.. _rapi-res-instances-instance_name-disk-disk_index-grow+post:
 
 ``POST``
 ~~~~~~~~
@@ -1226,12 +1423,17 @@ Job result:
 .. opcode_result:: OP_INSTANCE_GROW_DISK
 
 
+.. _rapi-res-instances-instance_name-prepare-export:
+
 ``/2/instances/[instance_name]/prepare-export``
 +++++++++++++++++++++++++++++++++++++++++++++++++
 
 Prepares an export of an instance.
 
-It supports the following commands: ``PUT``.
+.. rapi_resource_details:: /2/instances/[instance_name]/prepare-export
+
+
+.. _rapi-res-instances-instance_name-prepare-export+put:
 
 ``PUT``
 ~~~~~~~
@@ -1243,12 +1445,17 @@ Job result:
 .. opcode_result:: OP_BACKUP_PREPARE
 
 
+.. _rapi-res-instances-instance_name-export:
+
 ``/2/instances/[instance_name]/export``
 +++++++++++++++++++++++++++++++++++++++++++++++++
 
 Exports an instance.
 
-It supports the following commands: ``PUT``.
+.. rapi_resource_details:: /2/instances/[instance_name]/export
+
+
+.. _rapi-res-instances-instance_name-export+put:
 
 ``PUT``
 ~~~~~~~
@@ -1266,12 +1473,17 @@ Job result:
 .. opcode_result:: OP_BACKUP_EXPORT
 
 
+.. _rapi-res-instances-instance_name-migrate:
+
 ``/2/instances/[instance_name]/migrate``
 ++++++++++++++++++++++++++++++++++++++++
 
 Migrates an instance.
 
-Supports the following commands: ``PUT``.
+.. rapi_resource_details:: /2/instances/[instance_name]/migrate
+
+
+.. _rapi-res-instances-instance_name-migrate+put:
 
 ``PUT``
 ~~~~~~~
@@ -1288,12 +1500,17 @@ Job result:
 .. opcode_result:: OP_INSTANCE_MIGRATE
 
 
+.. _rapi-res-instances-instance_name-failover:
+
 ``/2/instances/[instance_name]/failover``
 +++++++++++++++++++++++++++++++++++++++++
 
 Does a failover of an instance.
 
-Supports the following commands: ``PUT``.
+.. rapi_resource_details:: /2/instances/[instance_name]/failover
+
+
+.. _rapi-res-instances-instance_name-failover+put:
 
 ``PUT``
 ~~~~~~~
@@ -1310,12 +1527,17 @@ Job result:
 .. opcode_result:: OP_INSTANCE_FAILOVER
 
 
+.. _rapi-res-instances-instance_name-rename:
+
 ``/2/instances/[instance_name]/rename``
 ++++++++++++++++++++++++++++++++++++++++
 
 Renames an instance.
 
-Supports the following commands: ``PUT``.
+.. rapi_resource_details:: /2/instances/[instance_name]/rename
+
+
+.. _rapi-res-instances-instance_name-rename+put:
 
 ``PUT``
 ~~~~~~~
@@ -1332,12 +1554,17 @@ Job result:
 .. opcode_result:: OP_INSTANCE_RENAME
 
 
+.. _rapi-res-instances-instance_name-modify:
+
 ``/2/instances/[instance_name]/modify``
 ++++++++++++++++++++++++++++++++++++++++
 
 Modifies an instance.
 
-Supports the following commands: ``PUT``.
+.. rapi_resource_details:: /2/instances/[instance_name]/modify
+
+
+.. _rapi-res-instances-instance_name-modify+put:
 
 ``PUT``
 ~~~~~~~
@@ -1354,20 +1581,17 @@ Job result:
 .. opcode_result:: OP_INSTANCE_SET_PARAMS
 
 
+.. _rapi-res-instances-instance_name-console:
+
 ``/2/instances/[instance_name]/console``
 ++++++++++++++++++++++++++++++++++++++++
 
 Request information for connecting to instance's console.
 
-.. pyassert::
+.. rapi_resource_details:: /2/instances/[instance_name]/console
 
-  not (hasattr(rlib2.R_2_instances_name_console, "PUT") or
-       hasattr(rlib2.R_2_instances_name_console, "POST") or
-       hasattr(rlib2.R_2_instances_name_console, "DELETE"))
 
-Supports the following commands: ``GET``. Requires authentication with
-one of the following options:
-:pyeval:`utils.CommaJoin(rlib2.R_2_instances_name_console.GET_ACCESS)`.
+.. _rapi-res-instances-instance_name-console+get:
 
 ``GET``
 ~~~~~~~
@@ -1383,6 +1607,20 @@ console. Contained keys:
      constants.CONS_VNC,
      constants.CONS_SPICE,
      ])
+
+.. pyassert::
+
+  frozenset(objects.InstanceConsole.GetAllSlots()) == frozenset([
+    "command",
+    "display",
+    "host",
+    "instance",
+    "kind",
+    "message",
+    "port",
+    "user",
+    ])
+
 
 ``instance``
   Instance name
@@ -1406,12 +1644,17 @@ console. Contained keys:
   VNC display number (:pyeval:`constants.CONS_VNC` only)
 
 
+.. _rapi-res-instances-instance_name-tags:
+
 ``/2/instances/[instance_name]/tags``
 +++++++++++++++++++++++++++++++++++++
 
 Manages per-instance tags.
 
-It supports the following commands: ``GET``, ``PUT``, ``DELETE``.
+.. rapi_resource_details:: /2/instances/[instance_name]/tags
+
+
+.. _rapi-res-instances-instance_name-tags+get:
 
 ``GET``
 ~~~~~~~
@@ -1421,6 +1664,9 @@ Returns a list of tags.
 Example::
 
     ["tag1", "tag2", "tag3"]
+
+
+.. _rapi-res-instances-instance_name-tags+put:
 
 ``PUT``
 ~~~~~~~
@@ -1432,6 +1678,8 @@ result will be a job id.
 
 It supports the ``dry-run`` argument.
 
+
+.. _rapi-res-instances-instance_name-tags+delete:
 
 ``DELETE``
 ~~~~~~~~~~
@@ -1446,12 +1694,17 @@ to URI like::
 It supports the ``dry-run`` argument.
 
 
+.. _rapi-res-jobs:
+
 ``/2/jobs``
 +++++++++++
 
 The ``/2/jobs`` resource.
 
-It supports the following commands: ``GET``.
+.. rapi_resource_details:: /2/jobs
+
+
+.. _rapi-res-jobs+get:
 
 ``GET``
 ~~~~~~~
@@ -1468,13 +1721,18 @@ Returned fields for bulk requests (unlike other bulk requests, these
 fields are not the same as for per-job requests):
 :pyeval:`utils.CommaJoin(sorted(rlib2.J_FIELDS_BULK))`.
 
+
+.. _rapi-res-jobs-job_id:
+
 ``/2/jobs/[job_id]``
 ++++++++++++++++++++
 
-
 Individual job URI.
 
-It supports the following commands: ``GET``, ``DELETE``.
+.. rapi_resource_details:: /2/jobs/[job_id]
+
+
+.. _rapi-res-jobs-job_id+get:
 
 ``GET``
 ~~~~~~~
@@ -1562,14 +1820,23 @@ Note that in the above list, by entity we refer to a node or instance,
 while by a resource we refer to an instance's disk, or NIC, etc.
 
 
+.. _rapi-res-jobs-job_id+delete:
+
 ``DELETE``
 ~~~~~~~~~~
 
 Cancel a not-yet-started job.
 
 
+.. _rapi-res-jobs-job_id-wait:
+
 ``/2/jobs/[job_id]/wait``
 +++++++++++++++++++++++++
+
+.. rapi_resource_details:: /2/jobs/[job_id]/wait
+
+
+.. _rapi-res-jobs-job_id-wait+get:
 
 ``GET``
 ~~~~~~~
@@ -1591,12 +1858,17 @@ Returns None if no changes have been detected and a dict with two keys,
 ``job_info`` and ``log_entries`` otherwise.
 
 
+.. _rapi-res-nodes:
+
 ``/2/nodes``
 ++++++++++++
 
 Nodes resource.
 
-It supports the following commands: ``GET``.
+.. rapi_resource_details:: /2/nodes
+
+
+.. _rapi-res-nodes+get:
 
 ``GET``
 ~~~~~~~
@@ -1641,19 +1913,37 @@ Example::
       …
     ]
 
+
+.. _rapi-res-nodes-node_name:
+
 ``/2/nodes/[node_name]``
 +++++++++++++++++++++++++++++++++
 
 Returns information about a node.
 
-It supports the following commands: ``GET``.
+.. rapi_resource_details:: /2/nodes/[node_name]
+
+
+.. _rapi-res-nodes-node_name+get:
+
+``GET``
+~~~~~~~
 
 Returned fields: :pyeval:`utils.CommaJoin(sorted(rlib2.N_FIELDS))`.
+
+
+
+.. _rapi-res-nodes-node_name-powercycle:
 
 ``/2/nodes/[node_name]/powercycle``
 +++++++++++++++++++++++++++++++++++
 
-Powercycles a node. Supports the following commands: ``POST``.
+Powercycles a node.
+
+.. rapi_resource_details:: /2/nodes/[node_name]/powercycle
+
+
+.. _rapi-res-nodes-node_name-powercycle+post:
 
 ``POST``
 ~~~~~~~~
@@ -1665,12 +1955,17 @@ Job result:
 .. opcode_result:: OP_NODE_POWERCYCLE
 
 
+.. _rapi-res-nodes-node_name-evacuate:
+
 ``/2/nodes/[node_name]/evacuate``
 +++++++++++++++++++++++++++++++++
 
 Evacuates instances off a node.
 
-It supports the following commands: ``POST``.
+.. rapi_resource_details:: /2/nodes/[node_name]/evacuate
+
+
+.. _rapi-res-nodes-node_name-evacuate+post:
 
 ``POST``
 ~~~~~~~~
@@ -1692,12 +1987,17 @@ Job result:
 .. opcode_result:: OP_NODE_EVACUATE
 
 
+.. _rapi-res-nodes-node_name-migrate:
+
 ``/2/nodes/[node_name]/migrate``
 +++++++++++++++++++++++++++++++++
 
 Migrates all primary instances from a node.
 
-It supports the following commands: ``POST``.
+.. rapi_resource_details:: /2/nodes/[node_name]/migrate
+
+
+.. _rapi-res-nodes-node_name-migrate+post:
 
 ``POST``
 ~~~~~~~~
@@ -1717,12 +2017,14 @@ Job result:
 .. opcode_result:: OP_NODE_MIGRATE
 
 
+.. _rapi-res-nodes-node_name-role:
+
 ``/2/nodes/[node_name]/role``
 +++++++++++++++++++++++++++++
 
 Manages node role.
 
-It supports the following commands: ``GET``, ``PUT``.
+.. rapi_resource_details:: /2/nodes/[node_name]/role
 
 The role is always one of the following:
 
@@ -1735,6 +2037,9 @@ Note that the 'master' role is a special, and currently it can't be
 modified via RAPI, only via the command line (``gnt-cluster
 master-failover``).
 
+
+.. _rapi-res-nodes-node_name-role+get:
+
 ``GET``
 ~~~~~~~
 
@@ -1743,6 +2048,9 @@ Returns the current node role.
 Example::
 
     "master-candidate"
+
+
+.. _rapi-res-nodes-node_name-role+put:
 
 ``PUT``
 ~~~~~~~
@@ -1759,11 +2067,17 @@ Job result:
 .. opcode_result:: OP_NODE_SET_PARAMS
 
 
+.. _rapi-res-nodes-node_name-modify:
+
 ``/2/nodes/[node_name]/modify``
 +++++++++++++++++++++++++++++++
 
-Modifies the parameters of a node. Supports the following commands:
-``POST``.
+Modifies the parameters of a node.
+
+.. rapi_resource_details:: /2/nodes/[node_name]/modify
+
+
+.. _rapi-res-nodes-node_name-modify+post:
 
 ``POST``
 ~~~~~~~~
@@ -1780,15 +2094,23 @@ Job result:
 .. opcode_result:: OP_NODE_SET_PARAMS
 
 
+.. _rapi-res-nodes-node_name-storage:
+
 ``/2/nodes/[node_name]/storage``
 ++++++++++++++++++++++++++++++++
 
 Manages storage units on the node.
 
+.. rapi_resource_details:: /2/nodes/[node_name]/storage
+
+
+.. _rapi-res-nodes-node_name-storage+get:
+
 ``GET``
 ~~~~~~~
 
-.. pyassert::
+FIXME: enable ".. pyassert::" again when all storage types are
+implemented::
 
    constants.VALID_STORAGE_TYPES == set([constants.ST_FILE,
                                          constants.ST_LVM_PV,
@@ -1800,10 +2122,18 @@ Requests a list of storage units on a node. Requires the parameters
 ``output_fields``. The result will be a job id, using which the result
 can be retrieved.
 
+
+.. _rapi-res-nodes-node_name-storage-modify:
+
 ``/2/nodes/[node_name]/storage/modify``
 +++++++++++++++++++++++++++++++++++++++
 
 Modifies storage units on the node.
+
+.. rapi_resource_details:: /2/nodes/[node_name]/storage/modify
+
+
+.. _rapi-res-nodes-node_name-storage-modify+put:
 
 ``PUT``
 ~~~~~~~
@@ -1820,10 +2150,17 @@ Job result:
 .. opcode_result:: OP_NODE_MODIFY_STORAGE
 
 
+.. _rapi-res-nodes-node_name-storage-repair:
+
 ``/2/nodes/[node_name]/storage/repair``
 +++++++++++++++++++++++++++++++++++++++
 
 Repairs a storage unit on the node.
+
+.. rapi_resource_details:: /2/nodes/[node_name]/storage/repair
+
+
+.. _rapi-res-nodes-node_name-storage-repair+put:
 
 ``PUT``
 ~~~~~~~
@@ -1844,12 +2181,17 @@ Job result:
 .. opcode_result:: OP_REPAIR_NODE_STORAGE
 
 
+.. _rapi-res-nodes-node_name-tags:
+
 ``/2/nodes/[node_name]/tags``
 +++++++++++++++++++++++++++++
 
 Manages per-node tags.
 
-It supports the following commands: ``GET``, ``PUT``, ``DELETE``.
+.. rapi_resource_details:: /2/nodes/[node_name]/tags
+
+
+.. _rapi-res-nodes-node_name-tags+get:
 
 ``GET``
 ~~~~~~~
@@ -1860,6 +2202,9 @@ Example::
 
     ["tag1", "tag2", "tag3"]
 
+
+.. _rapi-res-nodes-node_name-tags+put:
+
 ``PUT``
 ~~~~~~~
 
@@ -1869,6 +2214,9 @@ The request as a list of strings should be PUT to this URI. The result
 will be a job id.
 
 It supports the ``dry-run`` argument.
+
+
+.. _rapi-res-nodes-node_name-tags+delete:
 
 ``DELETE``
 ~~~~~~~~~~
@@ -1883,6 +2231,8 @@ to URI like::
 It supports the ``dry-run`` argument.
 
 
+.. _rapi-res-query-resource:
+
 ``/2/query/[resource]``
 +++++++++++++++++++++++
 
@@ -1891,15 +2241,10 @@ pages and using ``/2/query/[resource]/fields``. The resource is one of
 :pyeval:`utils.CommaJoin(constants.QR_VIA_RAPI)`. See the :doc:`query2
 design document <design-query2>` for more details.
 
-.. pyassert::
+.. rapi_resource_details:: /2/query/[resource]
 
-  (rlib2.R_2_query.GET_ACCESS == rlib2.R_2_query.PUT_ACCESS and
-   not (hasattr(rlib2.R_2_query, "POST") or
-        hasattr(rlib2.R_2_query, "DELETE")))
 
-Supports the following commands: ``GET``, ``PUT``. Requires
-authentication with one of the following options:
-:pyeval:`utils.CommaJoin(rlib2.R_2_query.GET_ACCESS)`.
+.. _rapi-res-query-resource+get:
 
 ``GET``
 ~~~~~~~
@@ -1907,6 +2252,9 @@ authentication with one of the following options:
 Returns list of included fields and actual data. Takes a query parameter
 named "fields", containing a comma-separated list of field names. Does
 not support filtering.
+
+
+.. _rapi-res-query-resource+put:
 
 ``PUT``
 ~~~~~~~
@@ -1918,6 +2266,8 @@ be given and must be either ``null`` or a list containing filter
 operators.
 
 
+.. _rapi-res-query-resource-fields:
+
 ``/2/query/[resource]/fields``
 ++++++++++++++++++++++++++++++
 
@@ -1925,7 +2275,10 @@ Request list of available fields for a resource. The resource is one of
 :pyeval:`utils.CommaJoin(constants.QR_VIA_RAPI)`. See the
 :doc:`query2 design document <design-query2>` for more details.
 
-Supports the following commands: ``GET``.
+.. rapi_resource_details:: /2/query/[resource]/fields
+
+
+.. _rapi-res-query-resource-fields+get:
 
 ``GET``
 ~~~~~~~
@@ -1935,12 +2288,17 @@ optional query parameter named "fields", containing a comma-separated
 list of field names.
 
 
+.. _rapi-res-os:
+
 ``/2/os``
 +++++++++
 
 OS resource.
 
-It supports the following commands: ``GET``.
+.. rapi_resource_details:: /2/os
+
+
+.. _rapi-res-os+get:
 
 ``GET``
 ~~~~~~~
@@ -1954,12 +2312,18 @@ Example::
 
     ["debian-etch"]
 
+
+.. _rapi-res-tags:
+
 ``/2/tags``
 +++++++++++
 
 Manages cluster tags.
 
-It supports the following commands: ``GET``, ``PUT``, ``DELETE``.
+.. rapi_resource_details:: /2/tags
+
+
+.. _rapi-res-tags+get:
 
 ``GET``
 ~~~~~~~
@@ -1969,6 +2333,9 @@ Returns the cluster tags.
 Example::
 
     ["tag1", "tag2", "tag3"]
+
+
+.. _rapi-res-tags+put:
 
 ``PUT``
 ~~~~~~~
@@ -1980,6 +2347,8 @@ will be a job id.
 
 It supports the ``dry-run`` argument.
 
+
+.. _rapi-res-tags+delete:
 
 ``DELETE``
 ~~~~~~~~~~
@@ -1994,6 +2363,8 @@ to URI like::
 It supports the ``dry-run`` argument.
 
 
+.. _rapi-res-version:
+
 ``/version``
 ++++++++++++
 
@@ -2002,13 +2373,28 @@ The version resource.
 This resource should be used to determine the remote API version and to
 adapt clients accordingly.
 
-It supports the following commands: ``GET``.
+.. rapi_resource_details:: /version
+
+
+.. _rapi-res-version+get:
 
 ``GET``
 ~~~~~~~
 
 Returns the remote API version. Ganeti 1.2 returned ``1`` and Ganeti 2.0
 returns ``2``.
+
+
+.. _rapi-access-permissions:
+
+Access permissions
+------------------
+
+The following list describes the access permissions required for each
+resource. See :ref:`rapi-users` for more details.
+
+.. rapi_access_table::
+
 
 .. vim: set textwidth=72 :
 .. Local Variables:

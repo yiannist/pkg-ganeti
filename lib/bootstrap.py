@@ -256,6 +256,27 @@ def _WaitForMasterDaemon():
                              " %s seconds" % _DAEMON_READY_TIMEOUT)
 
 
+def _WaitForSshDaemon(hostname, port, family):
+  """Wait for SSH daemon to become responsive.
+
+  """
+  hostip = netutils.GetHostname(name=hostname, family=family).ip
+
+  def _CheckSshDaemon():
+    if netutils.TcpPing(hostip, port, timeout=1.0, live_port_needed=True):
+      logging.debug("SSH daemon on %s:%s (IP address %s) has become"
+                    " responsive", hostname, port, hostip)
+    else:
+      raise utils.RetryAgain()
+
+  try:
+    utils.Retry(_CheckSshDaemon, 1.0, _DAEMON_READY_TIMEOUT)
+  except utils.RetryTimeout:
+    raise errors.OpExecError("SSH daemon on %s:%s (IP address %s) didn't"
+                             " become responsive within %s seconds" %
+                             (hostname, port, hostip, _DAEMON_READY_TIMEOUT))
+
+
 def RunNodeSetupCmd(cluster_name, node, basecmd, debug, verbose,
                     use_cluster_key, ask_key, strict_host_check, data):
   """Runs a command to configure something on a remote machine.
@@ -310,6 +331,8 @@ def RunNodeSetupCmd(cluster_name, node, basecmd, debug, verbose,
     raise errors.OpExecError("Command '%s' failed: %s" %
                              (result.cmd, result.fail_reason))
 
+  _WaitForSshDaemon(node, netutils.GetDaemonPort(constants.SSH), family)
+
 
 def _InitFileStorage(file_storage_dir):
   """Initialize if needed the file storage.
@@ -349,11 +372,14 @@ def InitCluster(cluster_name, mac_prefix, # pylint: disable=R0913, R0914
                 maintain_node_health=False, drbd_helper=None, uid_pool=None,
                 default_iallocator=None, primary_ip_version=None, ipolicy=None,
                 prealloc_wipe_disks=False, use_external_mip_script=False,
-                hv_state=None, disk_state=None):
+                hv_state=None, disk_state=None, enabled_disk_templates=None):
   """Initialise the cluster.
 
   @type candidate_pool_size: int
   @param candidate_pool_size: master candidate pool size
+  @type enabled_disk_templates: list of string
+  @param enabled_disk_templates: list of disk_templates to be used in this
+    cluster
 
   """
   # TODO: complete the docstring
@@ -368,6 +394,16 @@ def InitCluster(cluster_name, mac_prefix, # pylint: disable=R0913, R0914
   if invalid_hvs:
     raise errors.OpPrereqError("Enabled hypervisors contains invalid"
                                " entries: %s" % invalid_hvs,
+                               errors.ECODE_INVAL)
+
+  if not enabled_disk_templates:
+    raise errors.OpPrereqError("Enabled disk templates list must contain at"
+                               " least one member", errors.ECODE_INVAL)
+  invalid_disk_templates = \
+    set(enabled_disk_templates) - constants.DISK_TEMPLATES
+  if invalid_disk_templates:
+    raise errors.OpPrereqError("Enabled disk templates list contains invalid"
+                               " entries: %s" % invalid_disk_templates,
                                errors.ECODE_INVAL)
 
   try:
@@ -541,8 +577,17 @@ def InitCluster(cluster_name, mac_prefix, # pylint: disable=R0913, R0914
                                errors.ECODE_INVAL)
 
   # set up ssh config and /etc/hosts
-  sshline = utils.ReadFile(pathutils.SSH_HOST_RSA_PUB)
-  sshkey = sshline.split(" ")[1]
+  rsa_sshkey = ""
+  dsa_sshkey = ""
+  if os.path.isfile(pathutils.SSH_HOST_RSA_PUB):
+    sshline = utils.ReadFile(pathutils.SSH_HOST_RSA_PUB)
+    rsa_sshkey = sshline.split(" ")[1]
+  if os.path.isfile(pathutils.SSH_HOST_DSA_PUB):
+    sshline = utils.ReadFile(pathutils.SSH_HOST_DSA_PUB)
+    dsa_sshkey = sshline.split(" ")[1]
+  if not rsa_sshkey and not dsa_sshkey:
+    raise errors.OpPrereqError("Failed to find SSH public keys",
+                               errors.ECODE_ENVIRON)
 
   if modify_etc_hosts:
     utils.AddHostToEtcHosts(hostname.name, hostname.ip)
@@ -570,7 +615,8 @@ def InitCluster(cluster_name, mac_prefix, # pylint: disable=R0913, R0914
   # init of cluster config file
   cluster_config = objects.Cluster(
     serial_no=1,
-    rsahostkeypub=sshkey,
+    rsahostkeypub=rsa_sshkey,
+    dsahostkeypub=dsa_sshkey,
     highest_used_port=(constants.FIRST_DRBD_PORT - 1),
     mac_prefix=mac_prefix,
     volume_group_name=vg_name,
@@ -603,6 +649,7 @@ def InitCluster(cluster_name, mac_prefix, # pylint: disable=R0913, R0914
     ipolicy=full_ipolicy,
     hv_state_static=hv_state,
     disk_state_static=disk_state,
+    enabled_disk_templates=enabled_disk_templates,
     )
   master_node_config = objects.Node(name=hostname.name,
                                     primary_ip=hostname.ip,

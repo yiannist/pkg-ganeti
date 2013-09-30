@@ -23,12 +23,15 @@
 
 """
 
+import copy
+import operator
 import os
-import re
-import sys
-import subprocess
 import random
+import re
+import subprocess
+import sys
 import tempfile
+import yaml
 
 try:
   import functools
@@ -40,6 +43,7 @@ from ganeti import compat
 from ganeti import constants
 from ganeti import ht
 from ganeti import pathutils
+from ganeti import vcluster
 
 import qa_config
 import qa_error
@@ -129,21 +133,17 @@ def AssertMatch(string, pattern):
     raise qa_error.Error("%r doesn't match /%r/" % (string, pattern))
 
 
-def _GetName(entity, key):
+def _GetName(entity, fn):
   """Tries to get name of an entity.
 
   @type entity: string or dict
-  @type key: string
-  @param key: Dictionary key containing name
+  @param fn: Function retrieving name from entity
 
   """
   if isinstance(entity, basestring):
     result = entity
-  elif isinstance(entity, dict):
-    result = entity[key]
   else:
-    raise qa_error.Error("Expected string or dictionary, got %s: %s" %
-                         (type(entity), entity))
+    result = fn(entity)
 
   if not ht.TNonEmptyString(result):
     raise Exception("Invalid name '%s'" % result)
@@ -182,7 +182,7 @@ def AssertCommand(cmd, fail=False, node=None, log_cmd=True):
   if node is None:
     node = qa_config.GetMasterNode()
 
-  nodename = _GetName(node, "primary")
+  nodename = _GetName(node, operator.attrgetter("primary"))
 
   if isinstance(cmd, basestring):
     cmdstr = cmd
@@ -253,9 +253,25 @@ def GetSSHCommand(node, cmd, strict=True, opts=None, tty=None):
     spath = _MULTIPLEXERS[node][0]
     args.append("-oControlPath=%s" % spath)
     args.append("-oControlMaster=no")
-  args.append(node)
-  if cmd:
-    args.append(cmd)
+
+  (vcluster_master, vcluster_basedir) = \
+    qa_config.GetVclusterSettings()
+
+  if vcluster_master:
+    args.append(vcluster_master)
+    args.append("%s/%s/cmd" % (vcluster_basedir, node))
+
+    if cmd:
+      # For virtual clusters the whole command must be wrapped using the "cmd"
+      # script, as that script sets a number of environment variables. If the
+      # command contains shell meta characters the whole command needs to be
+      # quoted.
+      args.append(utils.ShellQuote(cmd))
+  else:
+    args.append(node)
+
+    if cmd:
+      args.append(cmd)
 
   return args
 
@@ -329,6 +345,21 @@ def GetCommandOutput(node, cmd, tty=None, fail=False):
   return p.stdout.read()
 
 
+def GetObjectInfo(infocmd):
+  """Get and parse information about a Ganeti object.
+
+  @type infocmd: list of strings
+  @param infocmd: command to be executed, e.g. ["gnt-cluster", "info"]
+  @return: the information parsed, appropriately stored in dictionaries,
+      lists...
+
+  """
+  master = qa_config.GetMasterNode()
+  cmdline = utils.ShellQuoteArgs(infocmd)
+  info_out = GetCommandOutput(master.primary, cmdline)
+  return yaml.load(info_out)
+
+
 def UploadFile(node, src):
   """Uploads a file to a node and returns the filename.
 
@@ -389,27 +420,19 @@ def BackupFile(node, path):
   anymore.
 
   """
+  vpath = MakeNodePath(node, path)
+
   cmd = ("tmp=$(tempfile --prefix .gnt --directory=$(dirname %s)) && "
          "[[ -f \"$tmp\" ]] && "
          "cp %s $tmp && "
-         "echo $tmp") % (utils.ShellQuote(path), utils.ShellQuote(path))
+         "echo $tmp") % (utils.ShellQuote(vpath), utils.ShellQuote(vpath))
 
   # Return temporary filename
-  return GetCommandOutput(node, cmd).strip()
+  result = GetCommandOutput(node, cmd).strip()
 
+  print "Backup filename: %s" % result
 
-def _ResolveName(cmd, key):
-  """Helper function.
-
-  """
-  master = qa_config.GetMasterNode()
-
-  output = GetCommandOutput(master["primary"], utils.ShellQuoteArgs(cmd))
-  for line in output.splitlines():
-    (lkey, lvalue) = line.split(":", 1)
-    if lkey == key:
-      return lvalue.lstrip()
-  raise KeyError("Key not found")
+  return result
 
 
 def ResolveInstanceName(instance):
@@ -419,16 +442,16 @@ def ResolveInstanceName(instance):
   @param instance: Instance name
 
   """
-  return _ResolveName(["gnt-instance", "info", instance],
-                      "Instance name")
+  info = GetObjectInfo(["gnt-instance", "info", instance])
+  return info[0]["Instance name"]
 
 
 def ResolveNodeName(node):
   """Gets the full name of a node.
 
   """
-  return _ResolveName(["gnt-node", "info", node["primary"]],
-                      "Node name")
+  info = GetObjectInfo(["gnt-node", "info", node.primary])
+  return info[0]["Node name"]
 
 
 def GetNodeInstances(node, secondaries=False):
@@ -441,7 +464,7 @@ def GetNodeInstances(node, secondaries=False):
   # Get list of all instances
   cmd = ["gnt-instance", "list", "--separator=:", "--no-headers",
          "--output=name,pnode,snodes"]
-  output = GetCommandOutput(master["primary"], utils.ShellQuoteArgs(cmd))
+  output = GetCommandOutput(master.primary, utils.ShellQuoteArgs(cmd))
 
   instances = []
   for line in output.splitlines():
@@ -485,7 +508,7 @@ def _List(listcmd, fields, names):
   if names:
     cmd.extend(names)
 
-  return GetCommandOutput(master["primary"],
+  return GetCommandOutput(master.primary,
                           utils.ShellQuoteArgs(cmd)).splitlines()
 
 
@@ -541,7 +564,7 @@ def GenericQueryFieldsTest(cmd, fields):
 
   # Check listed fields (all, must be sorted)
   realcmd = [cmd, "list-fields", "--separator=|", "--no-headers"]
-  output = GetCommandOutput(master["primary"],
+  output = GetCommandOutput(master.primary,
                             utils.ShellQuoteArgs(realcmd)).splitlines()
   AssertEqual([line.split("|", 1)[0] for line in output],
               utils.NiceSort(fields))
@@ -570,7 +593,7 @@ def AddToEtcHosts(hostnames):
 
   """
   master = qa_config.GetMasterNode()
-  tmp_hosts = UploadData(master["primary"], "", mode=0644)
+  tmp_hosts = UploadData(master.primary, "", mode=0644)
 
   data = []
   for localhost in ("::1", "127.0.0.1"):
@@ -595,7 +618,7 @@ def RemoveFromEtcHosts(hostnames):
 
   """
   master = qa_config.GetMasterNode()
-  tmp_hosts = UploadData(master["primary"], "", mode=0644)
+  tmp_hosts = UploadData(master.primary, "", mode=0644)
   quoted_tmp_hosts = utils.ShellQuote(tmp_hosts)
 
   sed_data = " ".join(hostnames)
@@ -614,7 +637,7 @@ def RunInstanceCheck(instance, running):
   """Check if instance is running or not.
 
   """
-  instance_name = _GetName(instance, "name")
+  instance_name = _GetName(instance, operator.attrgetter("name"))
 
   script = qa_config.GetInstanceCheckScript()
   if not script:
@@ -623,7 +646,7 @@ def RunInstanceCheck(instance, running):
   master_node = qa_config.GetMasterNode()
 
   # Build command to connect to master node
-  master_ssh = GetSSHCommand(master_node["primary"], "--")
+  master_ssh = GetSSHCommand(master_node.primary, "--")
 
   if running:
     running_shellval = "1"
@@ -695,17 +718,187 @@ def GetNonexistentGroups(count):
   """Gets group names which shouldn't exist on the cluster.
 
   @param count: Number of groups to get
-  @rtype: list
+  @rtype: integer
 
   """
-  groups = qa_config.get("groups", {})
+  return GetNonexistentEntityNames(count, "groups", "group")
 
-  default = ["group1", "group2", "group3"]
+
+def GetNonexistentEntityNames(count, name_config, name_prefix):
+  """Gets entity names which shouldn't exist on the cluster.
+
+  The actualy names can refer to arbitrary entities (for example
+  groups, networks).
+
+  @param count: Number of names to get
+  @rtype: integer
+  @param name_config: name of the leaf in the config containing
+    this entity's configuration, including a 'inexistent-'
+    element
+  @rtype: string
+  @param name_prefix: prefix of the entity's names, used to compose
+    the default values; for example for groups, the prefix is
+    'group' and the generated names are then group1, group2, ...
+  @rtype: string
+
+  """
+  entities = qa_config.get(name_config, {})
+
+  default = [name_prefix + str(i) for i in range(count)]
   assert count <= len(default)
 
-  candidates = groups.get("inexistent-groups", default)[:count]
+  name_config_inexistent = "inexistent-" + name_config
+  candidates = entities.get(name_config_inexistent, default)[:count]
 
   if len(candidates) < count:
-    raise Exception("At least %s non-existent groups are needed" % count)
+    raise Exception("At least %s non-existent %s are needed" %
+                    (count, name_config))
 
   return candidates
+
+
+def MakeNodePath(node, path):
+  """Builds an absolute path for a virtual node.
+
+  @type node: string or L{qa_config._QaNode}
+  @param node: Node
+  @type path: string
+  @param path: Path without node-specific prefix
+
+  """
+  (_, basedir) = qa_config.GetVclusterSettings()
+
+  if isinstance(node, basestring):
+    name = node
+  else:
+    name = node.primary
+
+  if basedir:
+    assert path.startswith("/")
+    return "%s%s" % (vcluster.MakeNodeRoot(basedir, name), path)
+  else:
+    return path
+
+
+def _GetParameterOptions(specs):
+  """Helper to build policy options."""
+  values = ["%s=%s" % (par, val)
+            for (par, val) in specs.items()]
+  return ",".join(values)
+
+
+def TestSetISpecs(new_specs=None, diff_specs=None, get_policy_fn=None,
+                  build_cmd_fn=None, fail=False, old_values=None):
+  """Change instance specs for an object.
+
+  At most one of new_specs or diff_specs can be specified.
+
+  @type new_specs: dict
+  @param new_specs: new complete specs, in the same format returned by
+      L{ParseIPolicy}.
+  @type diff_specs: dict
+  @param diff_specs: partial specs, it can be an incomplete specifications, but
+      if min/max specs are specified, their number must match the number of the
+      existing specs
+  @type get_policy_fn: function
+  @param get_policy_fn: function that returns the current policy as in
+      L{ParseIPolicy}
+  @type build_cmd_fn: function
+  @param build_cmd_fn: function that return the full command line from the
+      options alone
+  @type fail: bool
+  @param fail: if the change is expected to fail
+  @type old_values: tuple
+  @param old_values: (old_policy, old_specs), as returned by
+     L{ParseIPolicy}
+  @return: same as L{ParseIPolicy}
+
+  """
+  assert get_policy_fn is not None
+  assert build_cmd_fn is not None
+  assert new_specs is None or diff_specs is None
+
+  if old_values:
+    (old_policy, old_specs) = old_values
+  else:
+    (old_policy, old_specs) = get_policy_fn()
+
+  if diff_specs:
+    new_specs = copy.deepcopy(old_specs)
+    if constants.ISPECS_MINMAX in diff_specs:
+      AssertEqual(len(new_specs[constants.ISPECS_MINMAX]),
+                  len(diff_specs[constants.ISPECS_MINMAX]))
+      for (new_minmax, diff_minmax) in zip(new_specs[constants.ISPECS_MINMAX],
+                                           diff_specs[constants.ISPECS_MINMAX]):
+        for (key, parvals) in diff_minmax.items():
+          for (par, val) in parvals.items():
+            new_minmax[key][par] = val
+    for (par, val) in diff_specs.get(constants.ISPECS_STD, {}).items():
+      new_specs[constants.ISPECS_STD][par] = val
+
+  if new_specs:
+    cmd = []
+    if (diff_specs is None or constants.ISPECS_MINMAX in diff_specs):
+      minmax_opt_items = []
+      for minmax in new_specs[constants.ISPECS_MINMAX]:
+        minmax_opts = []
+        for key in ["min", "max"]:
+          keyopt = _GetParameterOptions(minmax[key])
+          minmax_opts.append("%s:%s" % (key, keyopt))
+        minmax_opt_items.append("/".join(minmax_opts))
+      cmd.extend([
+        "--ipolicy-bounds-specs",
+        "//".join(minmax_opt_items)
+        ])
+    if diff_specs is None:
+      std_source = new_specs
+    else:
+      std_source = diff_specs
+    std_opt = _GetParameterOptions(std_source.get("std", {}))
+    if std_opt:
+      cmd.extend(["--ipolicy-std-specs", std_opt])
+    AssertCommand(build_cmd_fn(cmd), fail=fail)
+
+    # Check the new state
+    (eff_policy, eff_specs) = get_policy_fn()
+    AssertEqual(eff_policy, old_policy)
+    if fail:
+      AssertEqual(eff_specs, old_specs)
+    else:
+      AssertEqual(eff_specs, new_specs)
+
+  else:
+    (eff_policy, eff_specs) = (old_policy, old_specs)
+
+  return (eff_policy, eff_specs)
+
+
+def ParseIPolicy(policy):
+  """Parse and split instance an instance policy.
+
+  @type policy: dict
+  @param policy: policy, as returned by L{GetObjectInfo}
+  @rtype: tuple
+  @return: (policy, specs), where:
+      - policy is a dictionary of the policy values, instance specs excluded
+      - specs is a dictionary containing only the specs, using the internal
+        format (see L{constants.IPOLICY_DEFAULTS} for an example)
+
+  """
+  ret_specs = {}
+  ret_policy = {}
+  for (key, val) in policy.items():
+    if key == "bounds specs":
+      ret_specs[constants.ISPECS_MINMAX] = []
+      for minmax in val:
+        ret_minmax = {}
+        for key in minmax:
+          keyparts = key.split("/", 1)
+          assert len(keyparts) > 1
+          ret_minmax[keyparts[0]] = minmax[key]
+        ret_specs[constants.ISPECS_MINMAX].append(ret_minmax)
+    elif key == constants.ISPECS_STD:
+      ret_specs[key] = val
+    else:
+      ret_policy[key] = val
+  return (ret_policy, ret_specs)

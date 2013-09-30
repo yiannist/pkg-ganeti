@@ -4,7 +4,7 @@
 
 {-
 
-Copyright (C) 2012 Google Inc.
+Copyright (C) 2012, 2013 Google Inc.
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -67,11 +67,13 @@ import Ganeti.JQueue
 import Ganeti.JSON
 import Ganeti.Objects
 import Ganeti.Query.Common
+import qualified Ganeti.Query.Export as Export
 import Ganeti.Query.Filter
 import qualified Ganeti.Query.Job as Query.Job
-import Ganeti.Query.Group
+import qualified Ganeti.Query.Group as Group
 import Ganeti.Query.Language
-import Ganeti.Query.Node
+import qualified Ganeti.Query.Network as Network
+import qualified Ganeti.Query.Node as Node
 import Ganeti.Query.Types
 import Ganeti.Path
 import Ganeti.Types
@@ -116,6 +118,7 @@ needsNames (Query kind _ qfilter) = requestedNames (nameField kind) qfilter
 -- | Computes the name field for different query types.
 nameField :: ItemType -> FilterField
 nameField (ItemTypeLuxi QRJob) = "id"
+nameField (ItemTypeOpCode QRExport) = "node"
 nameField _ = "name"
 
 -- | Extracts all quoted strings from a list, ignoring the
@@ -147,6 +150,42 @@ getRequestedJobIDs qfilter =
                     NumericValue i -> makeJobId $ fromIntegral i
            ) vals
 
+-- | Generic query implementation for resources that are backed by
+-- some configuration objects.
+genericQuery :: FieldMap a b       -- ^ Field map
+             -> (Bool -> ConfigData -> [a] -> IO [(a, b)]) -- ^ Collector
+             -> (a -> String)      -- ^ Object to name function
+             -> (ConfigData -> Container a) -- ^ Get all objects from config
+             -> (ConfigData -> String -> ErrorResult a) -- ^ Lookup object
+             -> ConfigData         -- ^ The config to run the query against
+             -> Bool               -- ^ Whether the query should be run live
+             -> [String]           -- ^ List of requested fields
+             -> Filter FilterField -- ^ Filter field
+             -> [String]           -- ^ List of requested names
+             -> IO (ErrorResult QueryResult)
+genericQuery fieldsMap collector nameFn configFn getFn cfg
+             live fields qfilter wanted =
+  runResultT $ do
+  cfilter <- resultT $ compileFilter fieldsMap qfilter
+  let selected = getSelectedFields fieldsMap fields
+      (fdefs, fgetters, _) = unzip3 selected
+      live' = live && needsLiveData fgetters
+  objects <- resultT $ case wanted of
+             [] -> Ok . niceSortKey nameFn .
+                   Map.elems . fromContainer $ configFn cfg
+             _  -> mapM (getFn cfg) wanted
+  -- runs first pass of the filter, without a runtime context; this
+  -- will limit the objects that we'll contact for exports
+  fobjects <- resultT $ filterM (\n -> evaluateFilter cfg Nothing n cfilter)
+                        objects
+  -- here run the runtime data gathering...
+  runtimes <- lift $ collector live' cfg fobjects
+  -- ... then filter again the results, based on gathered runtime data
+  let fdata = map (\(obj, runtime) ->
+                     map (execGetter cfg runtime obj) fgetters)
+              runtimes
+  return QueryResult { qresFields = fdefs, qresData = fdata }
+
 -- | Main query execution function.
 query :: ConfigData   -- ^ The current configuration
       -> Bool         -- ^ Whether to collect live data
@@ -164,40 +203,21 @@ queryInner :: ConfigData   -- ^ The current configuration
            -> IO (ErrorResult QueryResult) -- ^ Result
 
 queryInner cfg live (Query (ItemTypeOpCode QRNode) fields qfilter) wanted =
-  runResultT $ do
-  cfilter <- resultT $ compileFilter nodeFieldsMap qfilter
-  let selected = getSelectedFields nodeFieldsMap fields
-      (fdefs, fgetters, _) = unzip3 selected
-      live' = live && needsLiveData fgetters
-  nodes <- resultT $ case wanted of
-             [] -> Ok . niceSortKey nodeName .
-                   Map.elems . fromContainer $ configNodes cfg
-             _  -> mapM (getNode cfg) wanted
-  -- runs first pass of the filter, without a runtime context; this
-  -- will limit the nodes that we'll contact for runtime data
-  fnodes <- resultT $ filterM (\n -> evaluateFilter cfg Nothing n cfilter)
-                      nodes
-  -- here we would run the runtime data gathering, then filter again
-  -- the nodes, based on existing runtime data
-  nruntimes <- lift $ maybeCollectLiveData live' cfg fnodes
-  let fdata = map (\(node, nrt) -> map (execGetter cfg nrt node) fgetters)
-              nruntimes
-  return QueryResult { qresFields = fdefs, qresData = fdata }
+  genericQuery Node.fieldsMap Node.collectLiveData nodeName configNodes getNode
+               cfg live fields qfilter wanted
 
-queryInner cfg _ (Query (ItemTypeOpCode QRGroup) fields qfilter) wanted =
-  return $ do
-  cfilter <- compileFilter groupFieldsMap qfilter
-  let selected = getSelectedFields groupFieldsMap fields
-      (fdefs, fgetters, _) = unzip3 selected
-  groups <- case wanted of
-              [] -> Ok . niceSortKey groupName .
-                    Map.elems . fromContainer $ configNodegroups cfg
-              _  -> mapM (getGroup cfg) wanted
-  -- there is no live data for groups, so filtering is much simpler
-  fgroups <- filterM (\n -> evaluateFilter cfg Nothing n cfilter) groups
-  let fdata = map (\node ->
-                       map (execGetter cfg GroupRuntime node) fgetters) fgroups
-  return QueryResult {qresFields = fdefs, qresData = fdata }
+queryInner cfg live (Query (ItemTypeOpCode QRGroup) fields qfilter) wanted =
+  genericQuery Group.fieldsMap Group.collectLiveData groupName configNodegroups
+               getGroup cfg live fields qfilter wanted
+
+queryInner cfg live (Query (ItemTypeOpCode QRNetwork) fields qfilter) wanted =
+  genericQuery Network.fieldsMap Network.collectLiveData
+               (fromNonEmpty . networkName)
+               configNetworks getNetwork cfg live fields qfilter wanted
+
+queryInner cfg live (Query (ItemTypeOpCode QRExport) fields qfilter) wanted =
+  genericQuery Export.fieldsMap Export.collectLiveData nodeName configNodes
+               getNode cfg live fields qfilter wanted
 
 queryInner _ _ (Query qkind _ _) _ =
   return . Bad . GenericError $ "Query '" ++ show qkind ++ "' not supported"
@@ -270,13 +290,19 @@ fieldsExtractor fieldsMap fields =
 -- | Query fields call.
 queryFields :: QueryFields -> ErrorResult QueryFieldsResult
 queryFields (QueryFields (ItemTypeOpCode QRNode) fields) =
-  Ok $ fieldsExtractor nodeFieldsMap fields
+  Ok $ fieldsExtractor Node.fieldsMap fields
 
 queryFields (QueryFields (ItemTypeOpCode QRGroup) fields) =
-  Ok $ fieldsExtractor groupFieldsMap fields
+  Ok $ fieldsExtractor Group.fieldsMap fields
+
+queryFields (QueryFields (ItemTypeOpCode QRNetwork) fields) =
+  Ok $ fieldsExtractor Network.fieldsMap fields
 
 queryFields (QueryFields (ItemTypeLuxi QRJob) fields) =
   Ok $ fieldsExtractor Query.Job.fieldsMap fields
+
+queryFields (QueryFields (ItemTypeOpCode QRExport) fields) =
+  Ok $ fieldsExtractor Export.fieldsMap fields
 
 queryFields (QueryFields qkind _) =
   Bad . GenericError $ "QueryFields '" ++ show qkind ++ "' not supported"

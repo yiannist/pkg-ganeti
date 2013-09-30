@@ -1,4 +1,4 @@
-{-# LANGUAGE MultiParamTypeClasses, FunctionalDependencies, CPP,
+{-# LANGUAGE MultiParamTypeClasses, FunctionalDependencies,
   BangPatterns, TemplateHaskell #-}
 
 {-| Implementation of the RPC client.
@@ -7,7 +7,7 @@
 
 {-
 
-Copyright (C) 2012 Google Inc.
+Copyright (C) 2012, 2013 Google Inc.
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -33,6 +33,7 @@ module Ganeti.Rpc
   , ERpcError
   , explainRpcError
   , executeRpcCall
+  , logRpcErrors
 
   , rpcCallName
   , rpcCallTimeout
@@ -66,6 +67,9 @@ module Ganeti.Rpc
   , RpcCallTestDelay(..)
   , RpcResultTestDelay(..)
 
+  , RpcCallExportList(..)
+  , RpcResultExportList(..)
+
   , rpcTimeoutFromRaw -- FIXME: Not used anywhere
   ) where
 
@@ -75,20 +79,20 @@ import Data.Maybe (fromMaybe)
 import qualified Text.JSON as J
 import Text.JSON.Pretty (pp_value)
 
-#ifndef NO_CURL
 import Network.Curl
 import qualified Ganeti.Path as P
-#endif
 
+import Ganeti.BasicTypes
 import qualified Ganeti.Constants as C
+import Ganeti.Logging
 import Ganeti.Objects
 import Ganeti.THH
 import Ganeti.Types
-import Ganeti.Compat
+import Ganeti.Curl.Multi
+import Ganeti.Utils
 
 -- * Base RPC functionality and types
 
-#ifndef NO_CURL
 -- | The curl options used for RPC.
 curlOpts :: [CurlOption]
 curlOpts = [ CurlFollowLocation False
@@ -98,29 +102,25 @@ curlOpts = [ CurlFollowLocation False
            , CurlSSLKeyType "PEM"
            , CurlConnectTimeout (fromIntegral C.rpcConnectTimeout)
            ]
-#endif
 
 -- | Data type for RPC error reporting.
 data RpcError
-  = CurlDisabledError
-  | CurlLayerError Node String
+  = CurlLayerError String
   | JsonDecodeError String
   | RpcResultError String
-  | OfflineNodeError Node
+  | OfflineNodeError
   deriving (Show, Eq)
 
 -- | Provide explanation to RPC errors.
 explainRpcError :: RpcError -> String
-explainRpcError CurlDisabledError =
-    "RPC/curl backend disabled at compile time"
-explainRpcError (CurlLayerError node code) =
-    "Curl error for " ++ nodeName node ++ ", " ++ code
+explainRpcError (CurlLayerError code) =
+    "Curl error:" ++ code
 explainRpcError (JsonDecodeError msg) =
     "Error while decoding JSON from HTTP response: " ++ msg
 explainRpcError (RpcResultError msg) =
     "Error reponse received from RPC server: " ++ msg
-explainRpcError (OfflineNodeError node) =
-    "Node " ++ nodeName node ++ " is marked as offline"
+explainRpcError OfflineNodeError =
+    "Node is marked offline"
 
 type ERpcError = Either RpcError
 
@@ -153,35 +153,10 @@ class (RpcCall a, J.JSON b) => Rpc a b  | a -> b, b -> a where
 
 -- | Http Request definition.
 data HttpClientRequest = HttpClientRequest
-  { requestTimeout :: Int
-  , requestUrl :: String
-  , requestPostData :: String
+  { requestUrl  :: String       -- ^ The actual URL for the node endpoint
+  , requestData :: String       -- ^ The arguments for the call
+  , requestOpts :: [CurlOption] -- ^ The various curl options
   }
-
--- | Execute the request and return the result as a plain String. When
--- curl reports an error, we propagate it.
-executeHttpRequest :: Node -> ERpcError HttpClientRequest
-                   -> IO (ERpcError String)
-
-executeHttpRequest _ (Left rpc_err) = return $ Left rpc_err
-#ifdef NO_CURL
-executeHttpRequest _ _ = return $ Left CurlDisabledError
-#else
-executeHttpRequest node (Right request) = do
-  cert_file <- P.nodedCertFile
-  let reqOpts = [ CurlTimeout (fromIntegral $ requestTimeout request)
-                , CurlPostFields [requestPostData request]
-                , CurlSSLCert cert_file
-                , CurlSSLKey cert_file
-                , CurlCAInfo cert_file
-                ]
-      url = requestUrl request
-  -- FIXME: This is very similar to getUrl in Htools/Rapi.hs
-  (code, !body) <- curlGetString url $ curlOpts ++ reqOpts
-  return $ case code of
-             CurlOK -> Right body
-             _ -> Left $ CurlLayerError node (show code)
-#endif
 
 -- | Prepare url for the HTTP request.
 prepareUrl :: (RpcCall a) => Node -> a -> String
@@ -193,20 +168,27 @@ prepareUrl node call =
 
 -- | Create HTTP request for a given node provided it is online,
 -- otherwise create empty response.
-prepareHttpRequest ::  (RpcCall a) => Node -> a
+prepareHttpRequest :: (RpcCall a) => [CurlOption] -> Node -> a
                    -> ERpcError HttpClientRequest
-prepareHttpRequest node call
+prepareHttpRequest opts node call
   | rpcCallAcceptOffline call || not (nodeOffline node) =
-      Right HttpClientRequest { requestTimeout = rpcCallTimeout call
-                              , requestUrl = prepareUrl node call
-                              , requestPostData = rpcCallData node call
+      Right HttpClientRequest { requestUrl  = prepareUrl node call
+                              , requestData = rpcCallData node call
+                              , requestOpts = opts ++ curlOpts
                               }
-  | otherwise = Left $ OfflineNodeError node
+  | otherwise = Left OfflineNodeError
+
+-- | Parse an HTTP reply.
+parseHttpReply :: (Rpc a b) =>
+                  a -> ERpcError (CurlCode, String) -> ERpcError b
+parseHttpReply _ (Left e) = Left e
+parseHttpReply call (Right (CurlOK, body)) = parseHttpResponse call body
+parseHttpReply _ (Right (code, err)) =
+  Left . CurlLayerError $ "code: " ++ show code ++ ", explanation: " ++ err
 
 -- | Parse a result based on the received HTTP response.
-parseHttpResponse :: (Rpc a b) => a -> ERpcError String -> ERpcError b
-parseHttpResponse _ (Left err) = Left err
-parseHttpResponse call (Right res) =
+parseHttpResponse :: (Rpc a b) => a -> String -> ERpcError b
+parseHttpResponse call res =
   case J.decode res of
     J.Error val -> Left $ JsonDecodeError val
     J.Ok (True, res'') -> rpcResultFill call res''
@@ -214,19 +196,44 @@ parseHttpResponse call (Right res) =
        J.JSString msg -> Left $ RpcResultError (J.fromJSString msg)
        _ -> Left . JsonDecodeError $ show (pp_value jerr)
 
--- | Execute RPC call for a sigle node.
-executeSingleRpcCall :: (Rpc a b) => Node -> a -> IO (Node, ERpcError b)
-executeSingleRpcCall node call = do
-  let request = prepareHttpRequest node call
-  response <- executeHttpRequest node request
-  let result = parseHttpResponse call response
-  return (node, result)
+-- | Scan the list of results produced by executeRpcCall and log all the RPC
+-- errors.
+logRpcErrors :: [(a, ERpcError b)] -> IO ()
+logRpcErrors allElems =
+  let logOneRpcErr (_, Right _) = return ()
+      logOneRpcErr (_, Left err) =
+        logError $ "Error in the RPC HTTP reply: " ++ show err
+  in mapM_ logOneRpcErr allElems
 
 -- | Execute RPC call for many nodes in parallel.
 executeRpcCall :: (Rpc a b) => [Node] -> a -> IO [(Node, ERpcError b)]
-executeRpcCall nodes call =
-  sequence $ parMap rwhnf (uncurry executeSingleRpcCall)
-               (zip nodes $ repeat call)
+executeRpcCall nodes call = do
+  cert_file <- P.nodedCertFile
+  let opts = [ CurlTimeout (fromIntegral $ rpcCallTimeout call)
+             , CurlSSLCert cert_file
+             , CurlSSLKey cert_file
+             , CurlCAInfo cert_file
+             ]
+      opts_urls = map (\n ->
+                         case prepareHttpRequest opts n call of
+                           Left v -> Left v
+                           Right request ->
+                             Right (CurlPostFields [requestData request]:
+                                    requestOpts request,
+                                    requestUrl request)
+                      ) nodes
+  -- split the opts_urls list; we don't want to pass the
+  -- failed-already nodes to Curl
+  let (lefts, rights, trail) = splitEithers opts_urls
+  results <- execMultiCall rights
+  results' <- case recombineEithers lefts results trail of
+                Bad msg -> error msg
+                Ok r -> return r
+  -- now parse the replies
+  let results'' = map (parseHttpReply call) results'
+      pairedList = zip nodes results''
+  logRpcErrors pairedList
+  return pairedList
 
 -- | Helper function that is used to read dictionaries of values.
 sanitizeDictResults :: [(String, J.Result a)] -> ERpcError [(String, a)]
@@ -388,17 +395,10 @@ instance Rpc RpcCallNodeInfo RpcResultNodeInfo where
 
 -- ** Version
 
--- | Version
--- Query node version.
--- Note: We can't use THH as it does not know what to do with empty dict
-data RpcCallVersion = RpcCallVersion {}
-  deriving (Show, Eq)
+-- | Query node version.
+$(buildObject "RpcCallVersion" "rpcCallVersion" [])
 
-instance J.JSON RpcCallVersion where
-  showJSON _ = J.JSNull
-  readJSON J.JSNull = return RpcCallVersion
-  readJSON _ = fail "Unable to read RpcCallVersion"
-
+-- | Query node reply.
 $(buildObject "RpcResultVersion" "rpcResultVersion"
   [ simpleField "version" [t| Int |]
   ])
@@ -456,7 +456,6 @@ instance Rpc RpcCallStorageList RpcResultStorageList where
 
 -- ** TestDelay
 
-
 -- | Call definition for test delay.
 $(buildObject "RpcCallTestDelay" "rpcCallTestDelay"
   [ simpleField "duration" [t| Double |]
@@ -480,3 +479,23 @@ instance RpcCall RpcCallTestDelay where
 
 instance Rpc RpcCallTestDelay RpcResultTestDelay where
   rpcResultFill _ res = fromJSValueToRes res id
+
+-- ** ExportList
+
+-- | Call definition for export list.
+
+$(buildObject "RpcCallExportList" "rpcCallExportList" [])
+
+-- | Result definition for export list.
+$(buildObject "RpcResultExportList" "rpcResExportList"
+  [ simpleField "exports" [t| [String] |]
+  ])
+
+instance RpcCall RpcCallExportList where
+  rpcCallName _          = "export_list"
+  rpcCallTimeout _       = rpcTimeoutToRaw Fast
+  rpcCallAcceptOffline _ = False
+  rpcCallData _          = J.encode
+
+instance Rpc RpcCallExportList RpcResultExportList where
+  rpcResultFill _ res = fromJSValueToRes res RpcResultExportList

@@ -1,7 +1,7 @@
 #!/usr/bin/python
 #
 
-# Copyright (C) 2010, 2011, 2012 Google Inc.
+# Copyright (C) 2010, 2011, 2012, 2013 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -524,7 +524,7 @@ class TestNodeQuery(unittest.TestCase):
                       list(node_to_primary[master_name])))
     self.assertEqual(live_data_row[field_index["sinst_list"]],
                      (constants.RS_NORMAL,
-                      list(node_to_secondary[live_data_name])))
+                      utils.NiceSort(list(node_to_secondary[live_data_name]))))
 
   def testGetLiveNodeField(self):
     nodes = [
@@ -677,6 +677,7 @@ class TestInstanceQuery(unittest.TestCase):
         primary_node="node1",
         disk_template=constants.DT_PLAIN,
         disks=[],
+        disks_active=True,
         osparams={}),
       objects.Instance(name="inst2", hvparams={}, nics=[],
         uuid="73a0f8a7-068c-4630-ada2-c3440015ab1a",
@@ -686,6 +687,7 @@ class TestInstanceQuery(unittest.TestCase):
         primary_node="node5",
         disk_template=constants.DT_DISKLESS,
         disks=[],
+        disks_active=True,
         beparams={
           constants.BE_MAXMEM: 512,
           constants.BE_MINMEM: 256,
@@ -699,6 +701,7 @@ class TestInstanceQuery(unittest.TestCase):
         primary_node="node6",
         disk_template=constants.DT_DRBD8,
         disks=[],
+        disks_active=False,
         nics=[
           objects.NIC(ip="192.0.2.99", mac=macs.pop(),
                       nicparams={
@@ -715,6 +718,7 @@ class TestInstanceQuery(unittest.TestCase):
         primary_node="nodeoff2",
         disk_template=constants.DT_DRBD8,
         disks=[],
+        disks_active=True,
         nics=[
           objects.NIC(ip="192.0.2.1", mac=macs.pop(),
                       nicparams={
@@ -740,6 +744,7 @@ class TestInstanceQuery(unittest.TestCase):
         primary_node="nodebad2",
         disk_template=constants.DT_DISKLESS,
         disks=[],
+        disks_active=True,
         beparams={
           constants.BE_MAXMEM: 512,
           constants.BE_MINMEM: 512,
@@ -753,6 +758,7 @@ class TestInstanceQuery(unittest.TestCase):
         primary_node="node7",
         disk_template=constants.DT_DISKLESS,
         disks=[],
+        disks_active=False,
         beparams={
           constants.BE_MAXMEM: 768,
           constants.BE_MINMEM: 256,
@@ -768,6 +774,7 @@ class TestInstanceQuery(unittest.TestCase):
         primary_node="node6",
         disk_template=constants.DT_DISKLESS,
         disks=[],
+        disks_active=False,
         beparams={},
         osparams={}),
       objects.Instance(name="inst8", hvparams={}, nics=[],
@@ -778,6 +785,7 @@ class TestInstanceQuery(unittest.TestCase):
         primary_node="node6",
         disk_template=constants.DT_DISKLESS,
         disks=[],
+        disks_active=False,
         beparams={},
         osparams={}),
       ]

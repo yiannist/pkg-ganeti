@@ -46,6 +46,7 @@ module Test.Ganeti.TestCommon
   , genFields
   , genUniquesList
   , SmallRatio(..)
+  , genSetHelper
   , genSet
   , genIp4AddrStr
   , genIp4Addr
@@ -64,6 +65,7 @@ import Control.Applicative
 import Control.Exception (catchJust)
 import Control.Monad
 import Data.List
+import Data.Word
 import qualified Data.Set as Set
 import System.Environment (getEnv)
 import System.Exit (ExitCode(..))
@@ -279,7 +281,7 @@ genIp4Net = do
 
 -- | Helper function to compute the number of hosts in a network
 -- given the netmask. (For IPv4 only.)
-netmask2NumHosts :: Int -> Int
+netmask2NumHosts :: Word8 -> Int
 netmask2NumHosts n = 2^(32-n)
 
 -- | Generates an arbitrary IPv6 network address in textual form.

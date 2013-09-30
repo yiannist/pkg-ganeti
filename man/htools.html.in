@@ -140,6 +140,7 @@
 <li>group uuid</li>
 <li>allocation policy</li>
 <li>tags (separated by comma)</li>
+<li>networks (UUID's, separated by comma)</li>
 </ul>
 <p>The second sections contains node data, with the following columns:</p>
 <ul>
@@ -150,7 +151,7 @@
 <li>node total disk</li>
 <li>node free disk</li>
 <li>node physical cores</li>
-<li>offline field (as <code>Y</code> or <code>N</code>)</li>
+<li>offline/role field (<code>Y</code> for offline nodes, <code>N</code> for online non-master nodes, and <code>M</code> for the master node which is always online)</li>
 <li>group UUID</li>
 <li>node spindle count</li>
 </ul>
@@ -171,7 +172,7 @@
 <p>The fifth section contains the ipolicies of the cluster and the node groups, in the following format (separated by <code>|</code>):</p>
 <ul>
 <li>owner (empty if cluster, group name otherwise)</li>
-<li>standard, min, max instance specs, containing the following values separated by commas:
+<li>standard, min, max instance specs; min and max instance specs are separated between them by a semicolon, and can be specified multiple times (min;max;min;max...); each of the specs contains the following values separated by commas:
 
 <ul>
 <li>memory size</li>

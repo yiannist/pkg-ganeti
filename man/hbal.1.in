@@ -82,7 +82,8 @@ At each step, we prevent an instance move if it would cause:
 a node to go into N+1 failure state
 .IP \[bu] 2
 an instance to move onto an offline node (offline nodes are either read
-from the cluster or declared with \f[I]-O\f[])
+from the cluster or declared with \f[I]-O\f[]; drained nodes are
+considered offline)
 .IP \[bu] 2
 an exclusion-tag based conflict (exclusion tags are read from the
 cluster and/or defined via the \f[I]--exclusion-tags\f[] option)
@@ -95,7 +96,8 @@ via \f[I]--min-disk\f[])
 .PP
 As said before, the algorithm tries to minimise the cluster score at
 each step.
-Currently this score is computed as a sum of the following components:
+Currently this score is computed as a weighted sum of the following
+components:
 .IP \[bu] 2
 standard deviation of the percent of free memory
 .IP \[bu] 2
@@ -106,7 +108,8 @@ standard deviation of the percent of free disk
 count of nodes failing N+1 check
 .IP \[bu] 2
 count of instances living (either as primary or secondary) on offline
-nodes
+nodes; in the sense of hbal (and the other htools) drained nodes are
+considered offline
 .IP \[bu] 2
 count of instances living (as primary) on offline nodes; this differs
 from the above metric by helping failover of such instances in 2-node

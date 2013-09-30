@@ -8,7 +8,7 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Upgrade notes &mdash; Ganeti 2.7.1 documentation</title>
+    <title>Upgrade notes &mdash; Ganeti 2.8.0 documentation</title>
     
     <link rel="stylesheet" href="_static/style.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
@@ -16,7 +16,7 @@
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.7.1',
+        VERSION:     '2.8.0',
         COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -25,21 +25,21 @@
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti 2.7.1 documentation" href="index.html" />
-    <link rel="next" title="Ganeti administrator’s guide" href="admin.html" />
-    <link rel="prev" title="Ganeti installation tutorial" href="install.html" /> 
+    <link rel="top" title="Ganeti 2.8.0 documentation" href="index.html" />
+    <link rel="next" title="Virtual cluster support" href="virtual-cluster.html" />
+    <link rel="prev" title="Security in Ganeti" href="security.html" /> 
   </head>
   <body>
     <div class="related">
       <h3>Navigation</h3>
       <ul>
         <li class="right" style="margin-right: 10px">
-          <a href="admin.html" title="Ganeti administrator’s guide"
+          <a href="virtual-cluster.html" title="Virtual cluster support"
              accesskey="N">next</a></li>
         <li class="right" >
-          <a href="install.html" title="Ganeti installation tutorial"
+          <a href="security.html" title="Security in Ganeti"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.7.1 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.8.0 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -73,6 +73,11 @@ minor releases.</p>
 </pre></div>
 </div>
 </li>
+<li><p class="first">Pause the watcher for an hour (master node only):</p>
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-cluster</span> <span class="gs">watcher</span> <span class="gs">pause</span> <span class="gs">1h</span>
+</pre></div>
+</div>
+</li>
 <li><p class="first">Stop all daemons on all nodes:</p>
 <div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">/etc/init.d/ganeti</span> <span class="gs">stop</span>
 </pre></div>
@@ -98,6 +103,14 @@ $ <span class="gs">/usr/lib/ganeti/tools/cfgupgrade</span> <span class="gs">--ve
 </pre></div>
 </div>
 </li>
+<li><p class="first">Create the (missing) required users and make users part of the required
+groups on all nodes:</p>
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">/usr/lib/ganeti/tools/users-setup</span>
+</pre></div>
+</div>
+<p>This will ask for confirmation. To execute directly, add the <tt class="docutils literal"><span class="pre">--yes-do-it</span></tt>
+option.</p>
+</li>
 <li><p class="first">Restart daemons on all nodes:</p>
 <div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">/etc/init.d/ganeti</span> <span class="gs">restart</span>
 </pre></div>
@@ -120,12 +133,99 @@ automatically, but it can be copied manually via:</p>
 </pre></div>
 </div>
 </li>
+<li><p class="first">Enable the watcher again (master node only):</p>
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-cluster</span> <span class="gs">watcher</span> <span class="gs">continue</span>
+</pre></div>
+</div>
+</li>
 <li><p class="first">Verify cluster (master node only):</p>
 <div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-cluster</span> <span class="gs">verify</span>
 </pre></div>
 </div>
 </li>
 </ol>
+<div class="section" id="reverting-an-upgrade">
+<h3>Reverting an upgrade<a class="headerlink" href="#reverting-an-upgrade" title="Permalink to this headline">¶</a></h3>
+<p>For going back between revisions (e.g. 2.1.1 to 2.1.0) no manual
+intervention is required, as for upgrades.</p>
+<p>Starting from version 2.8, <tt class="docutils literal"><span class="pre">cfgupgrade</span></tt> supports <tt class="docutils literal"><span class="pre">--downgrade</span></tt>
+option to bring the configuration back to the previous stable version.
+This is useful if you upgrade Ganeti and after some time you run into
+problems with the new version. You can downgrade the configuration
+without losing the changes made since the upgrade. Any feature not
+supported by the old version will be removed from the configuration, of
+course, but you get a warning about it. If there is any new feature and
+you haven&#8217;t changed from its default value, you don&#8217;t have to worry
+about it, as it will get the same value whenever you&#8217;ll upgrade again.</p>
+<p>The procedure is similar to upgrading, but please notice that you have to
+revert the configuration <strong>before</strong> installing the old version.</p>
+<ol class="arabic">
+<li><p class="first">Ensure no jobs are running (master node only):</p>
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-job</span> <span class="gs">list</span>
+</pre></div>
+</div>
+</li>
+<li><p class="first">Pause the watcher for an hour (master node only):</p>
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-cluster</span> <span class="gs">watcher</span> <span class="gs">pause</span> <span class="gs">1h</span>
+</pre></div>
+</div>
+</li>
+<li><p class="first">Stop all daemons on all nodes:</p>
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">/etc/init.d/ganeti</span> <span class="gs">stop</span>
+</pre></div>
+</div>
+</li>
+<li><p class="first">Backup old configuration (master node only):</p>
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">tar</span> <span class="gs">czf</span> <span class="gs">/var/lib/ganeti-$(date</span> <span class="gs">+</span>%<span class="gs">FT</span>%<span class="gs">T).tar.gz</span> <span class="gs">-C</span> <span class="gs">/var/lib</span> <span class="gs">ganeti</span>
+</pre></div>
+</div>
+</li>
+<li><p class="first">Run cfgupgrade on the master node:</p>
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">/usr/lib/ganeti/tools/cfgupgrade</span> <span class="gs">--verbose</span> <span class="gs">--downgrade</span> <span class="gs">--dry-run</span>
+$ <span class="gs">/usr/lib/ganeti/tools/cfgupgrade</span> <span class="gs">--verbose</span> <span class="gs">--downgrade</span>
+</pre></div>
+</div>
+<p>You may want to copy all the messages about features that have been
+removed during the downgrade, in case you want to restore them when
+upgrading again.</p>
+</li>
+<li><p class="first">Install the old Ganeti version on all nodes</p>
+<p>NB: in Ganeti 2.8, the <tt class="docutils literal"><span class="pre">cmdlib.py</span></tt> file was split into a series of files
+contained in the <tt class="docutils literal"><span class="pre">cmdlib</span></tt> directory. If Ganeti is installed from sources
+and not from a package, while downgrading Ganeti to a pre-2.8
+version it is important to remember to remove the <tt class="docutils literal"><span class="pre">cmdlib</span></tt> directory
+from the directory containing the Ganeti python files (which usually is
+<tt class="docutils literal"><span class="pre">${PREFIX}/lib/python${VERSION}/dist-packages/ganeti</span></tt>).
+A simpler upgrade/downgrade procedure will be made available in future
+versions of Ganeti.</p>
+</li>
+<li><p class="first">Restart daemons on all nodes:</p>
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">/etc/init.d/ganeti</span> <span class="gs">restart</span>
+</pre></div>
+</div>
+</li>
+<li><p class="first">Re-distribute configuration (master node only):</p>
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-cluster</span> <span class="gs">redist-conf</span>
+</pre></div>
+</div>
+</li>
+<li><p class="first">Restart daemons again on all nodes:</p>
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">/etc/init.d/ganeti</span> <span class="gs">restart</span>
+</pre></div>
+</div>
+</li>
+<li><p class="first">Enable the watcher again (master node only):</p>
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-cluster</span> <span class="gs">watcher</span> <span class="gs">continue</span>
+</pre></div>
+</div>
+</li>
+<li><p class="first">Verify cluster (master node only):</p>
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-cluster</span> <span class="gs">verify</span>
+</pre></div>
+</div>
+</li>
+</ol>
+</div>
 </div>
 <div class="section" id="releases">
 <h2>2.0 releases<a class="headerlink" href="#releases" title="Permalink to this headline">¶</a></h2>
@@ -344,7 +444,10 @@ debian-etch-instance OS (0.2) that goes along with beta 2.</p>
   <h3><a href="index.html">Table Of Contents</a></h3>
   <ul>
 <li><a class="reference internal" href="#">Upgrade notes</a><ul>
-<li><a class="reference internal" href="#and-above">2.1 and above</a></li>
+<li><a class="reference internal" href="#and-above">2.1 and above</a><ul>
+<li><a class="reference internal" href="#reverting-an-upgrade">Reverting an upgrade</a></li>
+</ul>
+</li>
 <li><a class="reference internal" href="#releases">2.0 releases</a><ul>
 <li><a class="reference internal" href="#to-2-0-4">2.0.3 to 2.0.4</a></li>
 <li><a class="reference internal" href="#to-2-0-2-2-0-3">2.0.1 to 2.0.2/2.0.3</a></li>
@@ -367,11 +470,11 @@ debian-etch-instance OS (0.2) that goes along with beta 2.</p>
 </ul>
 
   <h4>Previous topic</h4>
-  <p class="topless"><a href="install.html"
-                        title="previous chapter">Ganeti installation tutorial</a></p>
+  <p class="topless"><a href="security.html"
+                        title="previous chapter">Security in Ganeti</a></p>
   <h4>Next topic</h4>
-  <p class="topless"><a href="admin.html"
-                        title="next chapter">Ganeti administrator&#8217;s guide</a></p>
+  <p class="topless"><a href="virtual-cluster.html"
+                        title="next chapter">Virtual cluster support</a></p>
   <h3>This Page</h3>
   <ul class="this-page-menu">
     <li><a href="_sources/upgrade.txt"
@@ -398,12 +501,12 @@ debian-etch-instance OS (0.2) that goes along with beta 2.</p>
       <h3>Navigation</h3>
       <ul>
         <li class="right" style="margin-right: 10px">
-          <a href="admin.html" title="Ganeti administrator’s guide"
+          <a href="virtual-cluster.html" title="Virtual cluster support"
              >next</a></li>
         <li class="right" >
-          <a href="install.html" title="Ganeti installation tutorial"
+          <a href="security.html" title="Security in Ganeti"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.7.1 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.8.0 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

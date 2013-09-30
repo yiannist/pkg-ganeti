@@ -110,6 +110,34 @@ class RPCFail(Exception):
   """
 
 
+def _GetInstReasonFilename(instance_name):
+  """Path of the file containing the reason of the instance status change.
+
+  @type instance_name: string
+  @param instance_name: The name of the instance
+  @rtype: string
+  @return: The path of the file
+
+  """
+  return utils.PathJoin(pathutils.INSTANCE_REASON_DIR, instance_name)
+
+
+def _StoreInstReasonTrail(instance_name, trail):
+  """Serialize a reason trail related to an instance change of state to file.
+
+  The exact location of the file depends on the name of the instance and on
+  the configuration of the Ganeti cluster defined at deploy time.
+
+  @type instance_name: string
+  @param instance_name: The name of the instance
+  @rtype: None
+
+  """
+  json = serializer.DumpJson(trail)
+  filename = _GetInstReasonFilename(instance_name)
+  utils.WriteFile(filename, data=json)
+
+
 def _Fail(msg, *args, **kwargs):
   """Log an error and the raise an RPCFail exception.
 
@@ -1300,13 +1328,17 @@ def _GatherAndLinkBlockDevs(instance):
   return block_devices
 
 
-def StartInstance(instance, startup_paused):
+def StartInstance(instance, startup_paused, reason, store_reason=True):
   """Start an instance.
 
   @type instance: L{objects.Instance}
   @param instance: the instance object
   @type startup_paused: bool
   @param instance: pause instance at startup?
+  @type reason: list of reasons
+  @param reason: the reason trail for this startup
+  @type store_reason: boolean
+  @param store_reason: whether to store the shutdown reason trail on file
   @rtype: None
 
   """
@@ -1320,6 +1352,8 @@ def StartInstance(instance, startup_paused):
     block_devices = _GatherAndLinkBlockDevs(instance)
     hyper = hypervisor.GetHypervisor(instance.hypervisor)
     hyper.StartInstance(instance, block_devices, startup_paused)
+    if store_reason:
+      _StoreInstReasonTrail(instance.name, reason)
   except errors.BlockDeviceError, err:
     _Fail("Block device error: %s", err, exc=True)
   except errors.HypervisorError, err:
@@ -1327,7 +1361,7 @@ def StartInstance(instance, startup_paused):
     _Fail("Hypervisor error: %s", err, exc=True)
 
 
-def InstanceShutdown(instance, timeout):
+def InstanceShutdown(instance, timeout, reason, store_reason=True):
   """Shut an instance down.
 
   @note: this functions uses polling with a hardcoded timeout.
@@ -1336,6 +1370,10 @@ def InstanceShutdown(instance, timeout):
   @param instance: the instance object
   @type timeout: integer
   @param timeout: maximum timeout for soft shutdown
+  @type reason: list of reasons
+  @param reason: the reason trail for this shutdown
+  @type store_reason: boolean
+  @param store_reason: whether to store the shutdown reason trail on file
   @rtype: None
 
   """
@@ -1357,6 +1395,8 @@ def InstanceShutdown(instance, timeout):
 
       try:
         hyper.StopInstance(instance, retry=self.tried_once)
+        if store_reason:
+          _StoreInstReasonTrail(instance.name, reason)
       except errors.HypervisorError, err:
         if iname not in hyper.ListInstances():
           # if the instance is no longer existing, consider this a
@@ -1396,7 +1436,7 @@ def InstanceShutdown(instance, timeout):
   _RemoveBlockDevLinks(iname, instance.disks)
 
 
-def InstanceReboot(instance, reboot_type, shutdown_timeout):
+def InstanceReboot(instance, reboot_type, shutdown_timeout, reason):
   """Reboot an instance.
 
   @type instance: L{objects.Instance}
@@ -1414,6 +1454,8 @@ def InstanceReboot(instance, reboot_type, shutdown_timeout):
         instance (instead of a call_instance_reboot RPC)
   @type shutdown_timeout: integer
   @param shutdown_timeout: maximum timeout for soft shutdown
+  @type reason: list of reasons
+  @param reason: the reason trail for this reboot
   @rtype: None
 
   """
@@ -1430,8 +1472,10 @@ def InstanceReboot(instance, reboot_type, shutdown_timeout):
       _Fail("Failed to soft reboot instance %s: %s", instance.name, err)
   elif reboot_type == constants.INSTANCE_REBOOT_HARD:
     try:
-      InstanceShutdown(instance, shutdown_timeout)
-      return StartInstance(instance, False)
+      InstanceShutdown(instance, shutdown_timeout, reason, store_reason=False)
+      result = StartInstance(instance, False, reason, store_reason=False)
+      _StoreInstReasonTrail(instance.name, reason)
+      return result
     except errors.HypervisorError, err:
       _Fail("Failed to hard reboot instance %s: %s", instance.name, err)
   else:
@@ -2479,6 +2523,9 @@ def OSEnvironment(instance, inst_os, debug=0):
     real_disk = _OpenRealBD(disk)
     result["DISK_%d_PATH" % idx] = real_disk.dev_path
     result["DISK_%d_ACCESS" % idx] = disk.mode
+    result["DISK_%d_UUID" % idx] = disk.uuid
+    if disk.name:
+      result["DISK_%d_NAME" % idx] = disk.name
     if constants.HV_DISK_TYPE in instance.hvparams:
       result["DISK_%d_FRONTEND_TYPE" % idx] = \
         instance.hvparams[constants.HV_DISK_TYPE]
@@ -2491,6 +2538,9 @@ def OSEnvironment(instance, inst_os, debug=0):
   # NICs
   for idx, nic in enumerate(instance.nics):
     result["NIC_%d_MAC" % idx] = nic.mac
+    result["NIC_%d_UUID" % idx] = nic.uuid
+    if nic.name:
+      result["NIC_%d_NAME" % idx] = nic.name
     if nic.ip:
       result["NIC_%d_IP" % idx] = nic.ip
     result["NIC_%d_MODE" % idx] = nic.nicparams[constants.NIC_MODE]

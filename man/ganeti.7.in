@@ -301,6 +301,21 @@ Currently supported commands are \f[C]gnt-node\ list\f[],
 So you can configure default command line flags by setting
 \f[C]GNT_NODE_LIST\f[], \f[C]GNT_GROUP_LIST\f[] and
 \f[C]GNT_INSTANCE_LIST\f[].
+.SS Debug options
+.PP
+If the variable \f[C]FORCE_LUXI_SOCKET\f[] is set, it will override the
+socket used for LUXI connections by command-line tools (\f[C]gnt-*\f[]).
+This is useful mostly for debugging, and some operations won\[aq]t work
+at all if, for example, you point this variable to the confd-supplied
+query socket and try to submit a job.
+.PP
+If the variable is set to the value \f[C]master\f[], it will connect to
+the correct path for the master daemon (even if, for example, split
+queries are enabled and this is a query operation).
+If set to \f[C]query\f[], it will always (try to) connect to the query
+socket, even if split queries are disabled.
+Otherwise, the value is taken to represent a filesystem path to the
+socket to use.
 .SH Field formatting
 .PP
 Multiple ganeti commands use the same framework for tabular listing of

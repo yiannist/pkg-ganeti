@@ -54,13 +54,20 @@ from ganeti import opcodes
 from ganeti import ht
 from ganeti import rapi
 from ganeti import luxi
+from ganeti import objects
+from ganeti import http
 from ganeti import _autoconf
 
 import ganeti.rapi.rlib2 # pylint: disable=W0611
+import ganeti.rapi.connector # pylint: disable=W0611
 
 
 #: Regular expression for man page names
 _MAN_RE = re.compile(r"^(?P<name>[-\w_]+)\((?P<section>\d+)\)$")
+
+_TAB_WIDTH = 2
+
+RAPI_URI_ENCODE_RE = re.compile("[^_a-z0-9]+", re.I)
 
 
 class ReSTError(Exception):
@@ -85,7 +92,8 @@ COMMON_PARAM_NAMES = _GetCommonParamNames()
 
 #: Namespace for evaluating expressions
 EVAL_NS = dict(compat=compat, constants=constants, utils=utils, errors=errors,
-               rlib2=rapi.rlib2, luxi=luxi, rapi=rapi)
+               rlib2=rapi.rlib2, luxi=luxi, rapi=rapi, objects=objects,
+               http=http)
 
 # Constants documentation for man pages
 CV_ECODES_DOC = "ecodes"
@@ -213,12 +221,11 @@ class OpcodeParams(s_compat.Directive):
     exclude = self.options.get("exclude", None)
     alias = self.options.get("alias", {})
 
-    tab_width = 2
     path = op_id
     include_text = "\n".join(_BuildOpcodeParams(op_id, include, exclude, alias))
 
     # Inject into state machine
-    include_lines = docutils.statemachine.string2lines(include_text, tab_width,
+    include_lines = docutils.statemachine.string2lines(include_text, _TAB_WIDTH,
                                                        convert_whitespace=1)
     self.state_machine.insert_input(include_lines, path)
 
@@ -239,12 +246,11 @@ class OpcodeResult(s_compat.Directive):
   def run(self):
     op_id = self.arguments[0]
 
-    tab_width = 2
     path = op_id
     include_text = _BuildOpcodeResult(op_id)
 
     # Inject into state machine
-    include_lines = docutils.statemachine.string2lines(include_text, tab_width,
+    include_lines = docutils.statemachine.string2lines(include_text, _TAB_WIDTH,
                                                        convert_whitespace=1)
     self.state_machine.insert_input(include_lines, path)
 
@@ -424,6 +430,189 @@ def _ManPageRole(typ, rawtext, text, lineno, inliner, # pylint: disable=W0102
                            options=options, content=content)
 
 
+def _EncodeRapiResourceLink(method, uri):
+  """Encodes a RAPI resource URI for use as a link target.
+
+  """
+  parts = [RAPI_URI_ENCODE_RE.sub("-", uri.lower()).strip("-")]
+
+  if method is not None:
+    parts.append(method.lower())
+
+  return "rapi-res-%s" % "+".join(filter(None, parts))
+
+
+def _MakeRapiResourceLink(method, uri):
+  """Generates link target name for RAPI resource.
+
+  """
+  if uri in ["/", "/2"]:
+    # Don't link these
+    return None
+
+  elif uri == "/version":
+    return _EncodeRapiResourceLink(method, uri)
+
+  elif uri.startswith("/2/"):
+    return _EncodeRapiResourceLink(method, uri[len("/2/"):])
+
+  else:
+    raise ReSTError("Unhandled URI '%s'" % uri)
+
+
+def _GetHandlerMethods(handler):
+  """Returns list of HTTP methods supported by handler class.
+
+  @type handler: L{rapi.baserlib.ResourceBase}
+  @param handler: Handler class
+  @rtype: list of strings
+
+  """
+  return sorted(method
+                for (method, op_attr, _, _) in rapi.baserlib.OPCODE_ATTRS
+                # Only if handler supports method
+                if hasattr(handler, method) or hasattr(handler, op_attr))
+
+
+def _DescribeHandlerAccess(handler, method):
+  """Returns textual description of required RAPI permissions.
+
+  @type handler: L{rapi.baserlib.ResourceBase}
+  @param handler: Handler class
+  @type method: string
+  @param method: HTTP method (e.g. L{http.HTTP_GET})
+  @rtype: string
+
+  """
+  access = rapi.baserlib.GetHandlerAccess(handler, method)
+
+  if access:
+    return utils.CommaJoin(sorted(access))
+  else:
+    return "*(none)*"
+
+
+class _RapiHandlersForDocsHelper(object):
+  @classmethod
+  def Build(cls):
+    """Returns dictionary of resource handlers.
+
+    """
+    resources = \
+      rapi.connector.GetHandlers("[node_name]", "[instance_name]",
+                                 "[group_name]", "[network_name]", "[job_id]",
+                                 "[disk_index]", "[resource]",
+                                 translate=cls._TranslateResourceUri)
+
+    return resources
+
+  @classmethod
+  def _TranslateResourceUri(cls, *args):
+    """Translates a resource URI for use in documentation.
+
+    @see: L{rapi.connector.GetHandlers}
+
+    """
+    return "".join(map(cls._UriPatternToString, args))
+
+  @staticmethod
+  def _UriPatternToString(value):
+    """Converts L{rapi.connector.UriPattern} to strings.
+
+    """
+    if isinstance(value, rapi.connector.UriPattern):
+      return value.content
+    else:
+      return value
+
+
+_RAPI_RESOURCES_FOR_DOCS = _RapiHandlersForDocsHelper.Build()
+
+
+def _BuildRapiAccessTable(res):
+  """Build a table with access permissions needed for all RAPI resources.
+
+  """
+  for (uri, handler) in utils.NiceSort(res.items(), key=compat.fst):
+    reslink = _MakeRapiResourceLink(None, uri)
+    if not reslink:
+      # No link was generated
+      continue
+
+    yield ":ref:`%s <%s>`" % (uri, reslink)
+
+    for method in _GetHandlerMethods(handler):
+      yield ("  | :ref:`%s <%s>`: %s" %
+             (method, _MakeRapiResourceLink(method, uri),
+              _DescribeHandlerAccess(handler, method)))
+
+
+class RapiAccessTable(s_compat.Directive):
+  """Custom directive to generate table of all RAPI resources.
+
+  See also <http://docutils.sourceforge.net/docs/howto/rst-directives.html>.
+
+  """
+  has_content = False
+  required_arguments = 0
+  optional_arguments = 0
+  final_argument_whitespace = False
+  option_spec = {}
+
+  def run(self):
+    include_text = "\n".join(_BuildRapiAccessTable(_RAPI_RESOURCES_FOR_DOCS))
+
+    # Inject into state machine
+    include_lines = docutils.statemachine.string2lines(include_text, _TAB_WIDTH,
+                                                       convert_whitespace=1)
+    self.state_machine.insert_input(include_lines, self.__class__.__name__)
+
+    return []
+
+
+class RapiResourceDetails(s_compat.Directive):
+  """Custom directive for RAPI resource details.
+
+  See also <http://docutils.sourceforge.net/docs/howto/rst-directives.html>.
+
+  """
+  has_content = False
+  required_arguments = 1
+  optional_arguments = 0
+  final_argument_whitespace = False
+
+  def run(self):
+    uri = self.arguments[0]
+
+    try:
+      handler = _RAPI_RESOURCES_FOR_DOCS[uri]
+    except KeyError:
+      raise self.error("Unknown resource URI '%s'" % uri)
+
+    lines = [
+      ".. list-table::",
+      "   :widths: 1 4",
+      "   :header-rows: 1",
+      "",
+      "   * - Method",
+      "     - :ref:`Required permissions <rapi-users>`",
+      ]
+
+    for method in _GetHandlerMethods(handler):
+      lines.extend([
+        "   * - :ref:`%s <%s>`" % (method, _MakeRapiResourceLink(method, uri)),
+        "     - %s" % _DescribeHandlerAccess(handler, method),
+        ])
+
+    # Inject into state machine
+    include_lines = \
+      docutils.statemachine.string2lines("\n".join(lines), _TAB_WIDTH,
+                                         convert_whitespace=1)
+    self.state_machine.insert_input(include_lines, self.__class__.__name__)
+
+    return []
+
+
 def setup(app):
   """Sphinx extension callback.
 
@@ -433,6 +622,8 @@ def setup(app):
   app.add_directive("opcode_result", OpcodeResult)
   app.add_directive("pyassert", PythonAssert)
   app.add_role("pyeval", PythonEvalRole)
+  app.add_directive("rapi_access_table", RapiAccessTable)
+  app.add_directive("rapi_resource_details", RapiResourceDetails)
 
   app.add_config_value("enable_manpages", False, True)
   app.add_role("manpage", _ManPageRole)

@@ -52,9 +52,11 @@ module Ganeti.HTools.CLI
   , oExInst
   , oExTags
   , oExecJobs
+  , oForce
   , oGroup
   , oIAllocSrc
   , oInstMoves
+  , oJobDelay
   , genOLuxiSocket
   , oLuxiSocket
   , oMachineReadable
@@ -116,10 +118,12 @@ data Options = Options
   , optExInst      :: [String]       -- ^ Instances to be excluded
   , optExTags      :: Maybe [String] -- ^ Tags to use for exclusion
   , optExecJobs    :: Bool           -- ^ Execute the commands via Luxi
+  , optForce       :: Bool           -- ^ Force the execution
   , optGroup       :: Maybe GroupID  -- ^ The UUID of the group to process
   , optIAllocSrc   :: Maybe FilePath -- ^ The iallocation spec
   , optSelInst     :: [String]       -- ^ Instances to be excluded
   , optLuxi        :: Maybe FilePath -- ^ Collect data from Luxi
+  , optJobDelay    :: Double         -- ^ Delay before executing first job
   , optMachineReadable :: Bool       -- ^ Output machine-readable format
   , optMaster      :: String         -- ^ Collect data from RAPI
   , optMaxLength   :: Int            -- ^ Stop after this many steps
@@ -161,10 +165,12 @@ defaultOptions  = Options
   , optExInst      = []
   , optExTags      = Nothing
   , optExecJobs    = False
+  , optForce       = False
   , optGroup       = Nothing
   , optIAllocSrc   = Nothing
   , optSelInst     = []
   , optLuxi        = Nothing
+  , optJobDelay    = 10
   , optMachineReadable = False
   , optMaster      = ""
   , optMaxLength   = -1
@@ -316,6 +322,14 @@ oExecJobs =
    \ it for data gathering)",
    OptComplNone)
 
+oForce :: OptType
+oForce =
+  (Option "f" ["force"]
+   (NoArg (\ opts -> Ok opts {optForce = True}))
+   "force the execution of this program, even if warnings would\
+   \ otherwise prevent it",
+   OptComplNone)
+
 oGroup :: OptType
 oGroup =
   (Option "G" ["group"]
@@ -329,6 +343,15 @@ oIAllocSrc =
    (ReqArg (\ f opts -> Ok opts { optIAllocSrc = Just f }) "FILE")
    "Specify an iallocator spec as the cluster data source",
    OptComplFile)
+
+oJobDelay :: OptType
+oJobDelay =
+  (Option "" ["job-delay"]
+   (reqWithConversion (tryRead "job delay")
+    (\d opts -> Ok opts { optJobDelay = d }) "SECONDS")
+   "insert this much delay before the execution of repair jobs\
+   \ to allow the tool to continue processing instances",
+   OptComplFloat)
 
 genOLuxiSocket :: String -> OptType
 genOLuxiSocket defSocket =
@@ -350,7 +373,7 @@ oMachineReadable =
               return $ opts { optMachineReadable = flag }) "CHOICE")
    "enable machine readable output (pass either 'yes' or 'no' to\
    \ explicitly control the flag, or without an argument defaults to\
-   \ yes",
+   \ yes)",
    optComplYesNo)
 
 oMaxCpu :: OptType

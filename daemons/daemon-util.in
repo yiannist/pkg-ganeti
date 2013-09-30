@@ -39,12 +39,23 @@ _confd_enabled() {
 
 if _confd_enabled; then
   DAEMONS+=( ganeti-confd )
+  DAEMONS+=( ganeti-luxid )
+fi
+
+_mond_enabled() {
+  [[ "@CUSTOM_ENABLE_MOND@" == True ]]
+}
+
+if _mond_enabled; then
+  DAEMONS+=( ganeti-mond )
 fi
 
 NODED_ARGS=
 MASTERD_ARGS=
 CONFD_ARGS=
+LUXID_ARGS=
 RAPI_ARGS=
+MOND_ARGS=
 
 # Read defaults file if it exists
 if [[ -s $defaults_file ]]; then
@@ -73,11 +84,17 @@ _daemon_usergroup() {
     confd)
       echo "@GNTCONFDUSER@:@GNTCONFDGROUP@"
       ;;
+    luxid)
+      echo "@GNTLUXIDUSER@:@GNTLUXIDGROUP@"
+      ;;
     rapi)
       echo "@GNTRAPIUSER@:@GNTRAPIGROUP@"
       ;;
     noded)
       echo "@GNTNODEDUSER@:@GNTDAEMONSGROUP@"
+      ;;
+    mond)
+      echo "@GNTMONDUSER@:@GNTMONDGROUP@"
       ;;
     *)
       echo "root:@GNTDAEMONSGROUP@"
@@ -216,7 +233,8 @@ start() {
   local usergroup=$(_daemon_usergroup $plain_name)
   local daemonexec=$(_daemon_executable $name)
 
-  if [[ "$name" == ganeti-confd ]] && ! _confd_enabled; then
+  if ( [[ "$name" == ganeti-confd ]] || [[ "$name" == ganeti-luxid ]] ) \
+      && ! _confd_enabled; then
     echo 'ganeti-confd disabled at build time' >&2
     return 1
   fi
@@ -241,11 +259,6 @@ start() {
       $daemonexec $args "$@"
   fi
 
-  # FIXME: This is a workaround for issue 477. Remove this once confd does not
-  # mess up the permissions anymore.
-  if [[ "$name" == ganeti-confd ]]; then
-    @PKGLIBDIR@/ensure-dirs;
-  fi
 }
 
 # Stops a daemon

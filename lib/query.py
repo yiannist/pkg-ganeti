@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2010, 2011, 2012 Google Inc.
+# Copyright (C) 2010, 2011, 2012, 2013 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -977,6 +977,23 @@ def _GetItemAttr(attr):
   return lambda _, item: getter(item)
 
 
+def _GetItemMaybeAttr(attr):
+  """Returns a field function to return a not-None attribute of the item.
+
+  If the value is None, then C{_FS_UNAVAIL} will be returned instead.
+
+  @param attr: Attribute name
+
+  """
+  def _helper(_, obj):
+    val = getattr(obj, attr)
+    if val is None:
+      return _FS_UNAVAIL
+    else:
+      return val
+  return _helper
+
+
 def _GetNDParam(name):
   """Return a field function to return an ND parameter out of the context.
 
@@ -1345,7 +1362,7 @@ def _BuildNodeFields():
     return lambda ctx, node: len(getter(ctx)[node.name])
 
   def _GetList(getter):
-    return lambda ctx, node: list(getter(ctx)[node.name])
+    return lambda ctx, node: utils.NiceSort(list(getter(ctx)[node.name]))
 
   # Add fields operating on instance lists
   for prefix, titleprefix, docword, getter in \
@@ -1524,26 +1541,73 @@ def _GetInstStatus(ctx, inst):
   return constants.INSTST_ADMINOFFLINE
 
 
-def _GetInstDiskSize(index):
-  """Build function for retrieving disk size.
+def _GetInstDisk(index, cb):
+  """Build function for calling another function with an instance Disk.
 
   @type index: int
   @param index: Disk index
+  @type cb: callable
+  @param cb: Callback
 
   """
-  def fn(_, inst):
-    """Get size of a disk.
+  def fn(ctx, inst):
+    """Call helper function with instance Disk.
 
+    @type ctx: L{InstanceQueryData}
     @type inst: L{objects.Instance}
     @param inst: Instance object
 
     """
     try:
-      return inst.disks[index].size
+      nic = inst.disks[index]
     except IndexError:
       return _FS_UNAVAIL
 
+    return cb(ctx, index, nic)
+
   return fn
+
+
+def _GetInstDiskSize(ctx, _, disk): # pylint: disable=W0613
+  """Get a Disk's size.
+
+  @type ctx: L{InstanceQueryData}
+  @type disk: L{objects.Disk}
+  @param disk: The Disk object
+
+  """
+  if disk.size is None:
+    return _FS_UNAVAIL
+  else:
+    return disk.size
+
+
+def _GetInstDeviceName(ctx, _, device): # pylint: disable=W0613
+  """Get a Device's Name.
+
+  @type ctx: L{InstanceQueryData}
+  @type device: L{objects.NIC} or L{objects.Disk}
+  @param device: The NIC or Disk object
+
+  """
+  if device.name is None:
+    return _FS_UNAVAIL
+  else:
+    return device.name
+
+
+def _GetInstDeviceUUID(ctx, _, device): # pylint: disable=W0613
+  """Get a Device's UUID.
+
+  @type ctx: L{InstanceQueryData}
+  @type device: L{objects.NIC} or L{objects.Disk}
+  @param device: The NIC or Disk object
+
+  """
+  if device.uuid is None:
+    return _FS_UNAVAIL
+  else:
+    return device.uuid
 
 
 def _GetInstNic(index, cb):
@@ -1722,6 +1786,12 @@ def _GetInstanceNetworkFields():
     (_MakeField("nic.ips", "NIC_IPs", QFT_OTHER,
                 "List containing each network interface's IP address"),
      IQ_CONFIG, 0, lambda ctx, inst: [nic.ip for nic in inst.nics]),
+    (_MakeField("nic.names", "NIC_Names", QFT_OTHER,
+                "List containing each network interface's name"),
+     IQ_CONFIG, 0, lambda ctx, inst: [nic.name for nic in inst.nics]),
+    (_MakeField("nic.uuids", "NIC_UUIDs", QFT_OTHER,
+                "List containing each network interface's UUID"),
+     IQ_CONFIG, 0, lambda ctx, inst: [nic.uuid for nic in inst.nics]),
     (_MakeField("nic.modes", "NIC_modes", QFT_OTHER,
                 "List containing each network interface's mode"), IQ_CONFIG, 0,
      lambda ctx, inst: [nicp[constants.NIC_MODE]
@@ -1751,6 +1821,12 @@ def _GetInstanceNetworkFields():
       (_MakeField("nic.mac/%s" % i, "NicMAC/%s" % i, QFT_TEXT,
                   "MAC address of %s network interface" % numtext),
        IQ_CONFIG, 0, _GetInstNic(i, nic_mac_fn)),
+      (_MakeField("nic.name/%s" % i, "NicName/%s" % i, QFT_TEXT,
+                  "Name address of %s network interface" % numtext),
+       IQ_CONFIG, 0, _GetInstNic(i, _GetInstDeviceName)),
+      (_MakeField("nic.uuid/%s" % i, "NicUUID/%s" % i, QFT_TEXT,
+                  "UUID address of %s network interface" % numtext),
+       IQ_CONFIG, 0, _GetInstNic(i, _GetInstDeviceUUID)),
       (_MakeField("nic.mode/%s" % i, "NicMode/%s" % i, QFT_TEXT,
                   "Mode of %s network interface" % numtext),
        IQ_CONFIG, 0, _GetInstNic(i, nic_mode_fn)),
@@ -1829,14 +1905,25 @@ def _GetInstanceDiskFields():
      IQ_CONFIG, 0, lambda ctx, inst: len(inst.disks)),
     (_MakeField("disk.sizes", "Disk_sizes", QFT_OTHER, "List of disk sizes"),
      IQ_CONFIG, 0, lambda ctx, inst: [disk.size for disk in inst.disks]),
+    (_MakeField("disk.names", "Disk_names", QFT_OTHER, "List of disk names"),
+     IQ_CONFIG, 0, lambda ctx, inst: [disk.name for disk in inst.disks]),
+    (_MakeField("disk.uuids", "Disk_UUIDs", QFT_OTHER, "List of disk UUIDs"),
+     IQ_CONFIG, 0, lambda ctx, inst: [disk.uuid for disk in inst.disks]),
     ]
 
   # Disks by number
-  fields.extend([
-    (_MakeField("disk.size/%s" % i, "Disk/%s" % i, QFT_UNIT,
-                "Disk size of %s disk" % utils.FormatOrdinal(i + 1)),
-     IQ_CONFIG, 0, _GetInstDiskSize(i))
-    for i in range(constants.MAX_DISKS)])
+  for i in range(constants.MAX_DISKS):
+    numtext = utils.FormatOrdinal(i + 1)
+    fields.extend([
+        (_MakeField("disk.size/%s" % i, "Disk/%s" % i, QFT_UNIT,
+                    "Disk size of %s disk" % numtext),
+        IQ_CONFIG, 0, _GetInstDisk(i, _GetInstDiskSize)),
+        (_MakeField("disk.name/%s" % i, "DiskName/%s" % i, QFT_TEXT,
+                    "Name of %s disk" % numtext),
+        IQ_CONFIG, 0, _GetInstDisk(i, _GetInstDeviceName)),
+        (_MakeField("disk.uuid/%s" % i, "DiskUUID/%s" % i, QFT_TEXT,
+                    "UUID of %s disk" % numtext),
+        IQ_CONFIG, 0, _GetInstDisk(i, _GetInstDeviceUUID))])
 
   return fields
 
@@ -1988,6 +2075,9 @@ def _BuildInstanceFields():
     (_MakeField("admin_up", "Autostart", QFT_BOOL,
                 "Desired state of instance"),
      IQ_CONFIG, 0, lambda ctx, inst: inst.admin_state == constants.ADMINST_UP),
+    (_MakeField("disks_active", "DisksActive", QFT_BOOL,
+                "Desired state of instance disks"),
+     IQ_CONFIG, 0, _GetItemAttr("disks_active")),
     (_MakeField("tags", "Tags", QFT_OTHER, "Tags"), IQ_CONFIG, 0,
      lambda ctx, inst: list(inst.GetTags())),
     (_MakeField("console", "Console", QFT_OTHER,
@@ -2428,7 +2518,7 @@ def _GetExportName(_, (node_name, expname)): # pylint: disable=W0613
 
   """
   if expname is None:
-    return _FS_UNAVAIL
+    return _FS_NODATA
   else:
     return expname
 
@@ -2459,6 +2549,8 @@ _CLUSTER_VERSION_FIELDS = {
                      "API version for OS template scripts"),
   "export_version": ("ExportVersion", QFT_NUMBER, constants.EXPORT_VERSION,
                      "Import/export file format version"),
+  "vcs_version": ("VCSVersion", QFT_TEXT, constants.VCS_VERSION,
+                     "VCS version"),
   }
 
 
@@ -2614,7 +2706,7 @@ def _BuildNetworkFields():
   # Add simple fields
   fields.extend([
     (_MakeField(name, title, kind, doc),
-     NETQ_CONFIG, 0, _GetItemAttr(name))
+     NETQ_CONFIG, 0, _GetItemMaybeAttr(name))
      for (name, (title, kind, _, doc)) in _NETWORK_SIMPLE_FIELDS.items()])
 
   def _GetLength(getter):

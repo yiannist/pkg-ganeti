@@ -29,60 +29,455 @@ from ganeti import constants
 from ganeti import utils
 from ganeti import serializer
 from ganeti import compat
+from ganeti import ht
 
 import qa_error
 
 
 _INSTANCE_CHECK_KEY = "instance-check"
 _ENABLED_HV_KEY = "enabled-hypervisors"
-# Key to store the cluster-wide run-time value of the exclusive storage flag
-_EXCLUSIVE_STORAGE_KEY = "_exclusive_storage"
+_VCLUSTER_MASTER_KEY = "vcluster-master"
+_VCLUSTER_BASEDIR_KEY = "vcluster-basedir"
+_ENABLED_DISK_TEMPLATES_KEY = "enabled-disk-templates"
+
+#: QA configuration (L{_QaConfig})
+_config = None
 
 
-cfg = {}
-options = None
+class _QaInstance(object):
+  __slots__ = [
+    "name",
+    "nicmac",
+    "_used",
+    "_disk_template",
+    ]
+
+  def __init__(self, name, nicmac):
+    """Initializes instances of this class.
+
+    """
+    self.name = name
+    self.nicmac = nicmac
+    self._used = None
+    self._disk_template = None
+
+  @classmethod
+  def FromDict(cls, data):
+    """Creates instance object from JSON dictionary.
+
+    """
+    nicmac = []
+
+    macaddr = data.get("nic.mac/0")
+    if macaddr:
+      nicmac.append(macaddr)
+
+    return cls(name=data["name"], nicmac=nicmac)
+
+  def __repr__(self):
+    status = [
+      "%s.%s" % (self.__class__.__module__, self.__class__.__name__),
+      "name=%s" % self.name,
+      "nicmac=%s" % self.nicmac,
+      "used=%s" % self._used,
+      "disk_template=%s" % self._disk_template,
+      ]
+
+    return "<%s at %#x>" % (" ".join(status), id(self))
+
+  def Use(self):
+    """Marks instance as being in use.
+
+    """
+    assert not self._used
+    assert self._disk_template is None
+
+    self._used = True
+
+  def Release(self):
+    """Releases instance and makes it available again.
+
+    """
+    assert self._used, \
+      ("Instance '%s' was never acquired or released more than once" %
+       self.name)
+
+    self._used = False
+    self._disk_template = None
+
+  def GetNicMacAddr(self, idx, default):
+    """Returns MAC address for NIC.
+
+    @type idx: int
+    @param idx: NIC index
+    @param default: Default value
+
+    """
+    if len(self.nicmac) > idx:
+      return self.nicmac[idx]
+    else:
+      return default
+
+  def SetDiskTemplate(self, template):
+    """Set the disk template.
+
+    """
+    assert template in constants.DISK_TEMPLATES
+
+    self._disk_template = template
+
+  @property
+  def used(self):
+    """Returns boolean denoting whether instance is in use.
+
+    """
+    return self._used
+
+  @property
+  def disk_template(self):
+    """Returns the current disk template.
+
+    """
+    return self._disk_template
+
+
+class _QaNode(object):
+  __slots__ = [
+    "primary",
+    "secondary",
+    "_added",
+    "_use_count",
+    ]
+
+  def __init__(self, primary, secondary):
+    """Initializes instances of this class.
+
+    """
+    self.primary = primary
+    self.secondary = secondary
+    self._added = False
+    self._use_count = 0
+
+  @classmethod
+  def FromDict(cls, data):
+    """Creates node object from JSON dictionary.
+
+    """
+    return cls(primary=data["primary"], secondary=data.get("secondary"))
+
+  def __repr__(self):
+    status = [
+      "%s.%s" % (self.__class__.__module__, self.__class__.__name__),
+      "primary=%s" % self.primary,
+      "secondary=%s" % self.secondary,
+      "added=%s" % self._added,
+      "use_count=%s" % self._use_count,
+      ]
+
+    return "<%s at %#x>" % (" ".join(status), id(self))
+
+  def Use(self):
+    """Marks a node as being in use.
+
+    """
+    assert self._use_count >= 0
+
+    self._use_count += 1
+
+    return self
+
+  def Release(self):
+    """Release a node (opposite of L{Use}).
+
+    """
+    assert self.use_count > 0
+
+    self._use_count -= 1
+
+  def MarkAdded(self):
+    """Marks node as having been added to a cluster.
+
+    """
+    assert not self._added
+    self._added = True
+
+  def MarkRemoved(self):
+    """Marks node as having been removed from a cluster.
+
+    """
+    assert self._added
+    self._added = False
+
+  @property
+  def added(self):
+    """Returns whether a node is part of a cluster.
+
+    """
+    return self._added
+
+  @property
+  def use_count(self):
+    """Returns number of current uses (controlled by L{Use} and L{Release}).
+
+    """
+    return self._use_count
+
+
+_RESOURCE_CONVERTER = {
+  "instances": _QaInstance.FromDict,
+  "nodes": _QaNode.FromDict,
+  }
+
+
+def _ConvertResources((key, value)):
+  """Converts cluster resources in configuration to Python objects.
+
+  """
+  fn = _RESOURCE_CONVERTER.get(key, None)
+  if fn:
+    return (key, map(fn, value))
+  else:
+    return (key, value)
+
+
+class _QaConfig(object):
+  def __init__(self, data):
+    """Initializes instances of this class.
+
+    """
+    self._data = data
+
+    #: Cluster-wide run-time value of the exclusive storage flag
+    self._exclusive_storage = None
+
+  @classmethod
+  def Load(cls, filename):
+    """Loads a configuration file and produces a configuration object.
+
+    @type filename: string
+    @param filename: Path to configuration file
+    @rtype: L{_QaConfig}
+
+    """
+    data = serializer.LoadJson(utils.ReadFile(filename))
+
+    result = cls(dict(map(_ConvertResources,
+                          data.items()))) # pylint: disable=E1103
+    result.Validate()
+
+    return result
+
+  def Validate(self):
+    """Validates loaded configuration data.
+
+    """
+    if not self.get("name"):
+      raise qa_error.Error("Cluster name is required")
+
+    if not self.get("nodes"):
+      raise qa_error.Error("Need at least one node")
+
+    if not self.get("instances"):
+      raise qa_error.Error("Need at least one instance")
+
+    disks = self.GetDiskOptions()
+    if disks is None:
+      raise qa_error.Error("Config option 'disks' must exist")
+    else:
+      for d in disks:
+        if d.get("size") is None or d.get("growth") is None:
+          raise qa_error.Error("Config options `size` and `growth` must exist"
+                               " for all `disks` items")
+    check = self.GetInstanceCheckScript()
+    if check:
+      try:
+        os.stat(check)
+      except EnvironmentError, err:
+        raise qa_error.Error("Can't find instance check script '%s': %s" %
+                             (check, err))
+
+    enabled_hv = frozenset(self.GetEnabledHypervisors())
+    if not enabled_hv:
+      raise qa_error.Error("No hypervisor is enabled")
+
+    difference = enabled_hv - constants.HYPER_TYPES
+    if difference:
+      raise qa_error.Error("Unknown hypervisor(s) enabled: %s" %
+                           utils.CommaJoin(difference))
+
+    (vc_master, vc_basedir) = self.GetVclusterSettings()
+    if bool(vc_master) != bool(vc_basedir):
+      raise qa_error.Error("All or none of the config options '%s' and '%s'"
+                           " must be set" %
+                           (_VCLUSTER_MASTER_KEY, _VCLUSTER_BASEDIR_KEY))
+
+    if vc_basedir and not utils.IsNormAbsPath(vc_basedir):
+      raise qa_error.Error("Path given in option '%s' must be absolute and"
+                           " normalized" % _VCLUSTER_BASEDIR_KEY)
+
+  def __getitem__(self, name):
+    """Returns configuration value.
+
+    @type name: string
+    @param name: Name of configuration entry
+
+    """
+    return self._data[name]
+
+  def get(self, name, default=None):
+    """Returns configuration value.
+
+    @type name: string
+    @param name: Name of configuration entry
+    @param default: Default value
+
+    """
+    return self._data.get(name, default)
+
+  def GetMasterNode(self):
+    """Returns the default master node for the cluster.
+
+    """
+    return self["nodes"][0]
+
+  def GetInstanceCheckScript(self):
+    """Returns path to instance check script or C{None}.
+
+    """
+    return self._data.get(_INSTANCE_CHECK_KEY, None)
+
+  def GetEnabledHypervisors(self):
+    """Returns list of enabled hypervisors.
+
+    @rtype: list
+
+    """
+    return self._GetStringListParameter(
+      _ENABLED_HV_KEY,
+      [constants.DEFAULT_ENABLED_HYPERVISOR])
+
+  def GetDefaultHypervisor(self):
+    """Returns the default hypervisor to be used.
+
+    """
+    return self.GetEnabledHypervisors()[0]
+
+  def GetEnabledDiskTemplates(self):
+    """Returns the list of enabled disk templates.
+
+    @rtype: list
+
+    """
+    return self._GetStringListParameter(
+      _ENABLED_DISK_TEMPLATES_KEY,
+      list(constants.DEFAULT_ENABLED_DISK_TEMPLATES))
+
+  def GetDefaultDiskTemplate(self):
+    """Returns the default disk template to be used.
+
+    """
+    return self.GetEnabledDiskTemplates()[0]
+
+  def _GetStringListParameter(self, key, default_values):
+    """Retrieves a parameter's value that is supposed to be a list of strings.
+
+    @rtype: list
+
+    """
+    try:
+      value = self._data[key]
+    except KeyError:
+      return default_values
+    else:
+      if value is None:
+        return []
+      elif isinstance(value, basestring):
+        return value.split(",")
+      else:
+        return value
+
+  def SetExclusiveStorage(self, value):
+    """Set the expected value of the C{exclusive_storage} flag for the cluster.
+
+    """
+    self._exclusive_storage = bool(value)
+
+  def GetExclusiveStorage(self):
+    """Get the expected value of the C{exclusive_storage} flag for the cluster.
+
+    """
+    value = self._exclusive_storage
+    assert value is not None
+    return value
+
+  def IsTemplateSupported(self, templ):
+    """Is the given disk template supported by the current configuration?
+
+    """
+    enabled = templ in self.GetEnabledDiskTemplates()
+    return enabled and (not self.GetExclusiveStorage() or
+                        templ in constants.DTS_EXCL_STORAGE)
+
+  def GetVclusterSettings(self):
+    """Returns settings for virtual cluster.
+
+    """
+    master = self.get(_VCLUSTER_MASTER_KEY)
+    basedir = self.get(_VCLUSTER_BASEDIR_KEY)
+
+    return (master, basedir)
+
+  def GetDiskOptions(self):
+    """Return options for the disks of the instances.
+
+    Get 'disks' parameter from the configuration data. If 'disks' is missing,
+    try to create it from the legacy 'disk' and 'disk-growth' parameters.
+
+    """
+    try:
+      return self._data["disks"]
+    except KeyError:
+      pass
+
+    # Legacy interface
+    sizes = self._data.get("disk")
+    growths = self._data.get("disk-growth")
+    if sizes or growths:
+      if (sizes is None or growths is None or len(sizes) != len(growths)):
+        raise qa_error.Error("Config options 'disk' and 'disk-growth' must"
+                             " exist and have the same number of items")
+      disks = []
+      for (size, growth) in zip(sizes, growths):
+        disks.append({"size": size, "growth": growth})
+      return disks
+    else:
+      return None
 
 
 def Load(path):
   """Loads the passed configuration file.
 
   """
-  global cfg # pylint: disable=W0603
+  global _config # pylint: disable=W0603
 
-  cfg = serializer.LoadJson(utils.ReadFile(path))
-
-  Validate()
+  _config = _QaConfig.Load(path)
 
 
-def Validate():
-  if len(cfg["nodes"]) < 1:
-    raise qa_error.Error("Need at least one node")
-  if len(cfg["instances"]) < 1:
-    raise qa_error.Error("Need at least one instance")
-  if len(cfg["disk"]) != len(cfg["disk-growth"]):
-    raise qa_error.Error("Config options 'disk' and 'disk-growth' must have"
-                         " the same number of items")
+def GetConfig():
+  """Returns the configuration object.
 
-  check = GetInstanceCheckScript()
-  if check:
-    try:
-      os.stat(check)
-    except EnvironmentError, err:
-      raise qa_error.Error("Can't find instance check script '%s': %s" %
-                           (check, err))
+  """
+  if _config is None:
+    raise RuntimeError("Configuration not yet loaded")
 
-  enabled_hv = frozenset(GetEnabledHypervisors())
-  if not enabled_hv:
-    raise qa_error.Error("No hypervisor is enabled")
-
-  difference = enabled_hv - constants.HYPER_TYPES
-  if difference:
-    raise qa_error.Error("Unknown hypervisor(s) enabled: %s" %
-                         utils.CommaJoin(difference))
+  return _config
 
 
 def get(name, default=None):
-  return cfg.get(name, default)
+  """Wrapper for L{_QaConfig.get}.
+
+  """
+  return GetConfig().get(name, default=default)
 
 
 class Either:
@@ -132,6 +527,8 @@ def _TestEnabledInner(check_fn, names, fn):
       value = _TestEnabledInner(check_fn, name.tests, compat.any)
     elif isinstance(name, (list, tuple)):
       value = _TestEnabledInner(check_fn, name, compat.all)
+    elif callable(name):
+      value = name()
     else:
       value = check_fn(name)
 
@@ -148,10 +545,12 @@ def TestEnabled(tests, _cfg=None):
 
   """
   if _cfg is None:
-    _cfg = cfg
+    cfg = GetConfig()
+  else:
+    cfg = _cfg
 
   # Get settings for all tests
-  cfg_tests = _cfg.get("tests", {})
+  cfg_tests = cfg.get("tests", {})
 
   # Get default setting
   default = cfg_tests.get("default", True)
@@ -160,121 +559,109 @@ def TestEnabled(tests, _cfg=None):
                            tests, compat.all)
 
 
-def GetInstanceCheckScript():
-  """Returns path to instance check script or C{None}.
+def GetInstanceCheckScript(*args):
+  """Wrapper for L{_QaConfig.GetInstanceCheckScript}.
 
   """
-  return cfg.get(_INSTANCE_CHECK_KEY, None)
+  return GetConfig().GetInstanceCheckScript(*args)
 
 
-def GetEnabledHypervisors():
-  """Returns list of enabled hypervisors.
-
-  @rtype: list
+def GetEnabledHypervisors(*args):
+  """Wrapper for L{_QaConfig.GetEnabledHypervisors}.
 
   """
-  try:
-    value = cfg[_ENABLED_HV_KEY]
-  except KeyError:
-    return [constants.DEFAULT_ENABLED_HYPERVISOR]
-  else:
-    if isinstance(value, basestring):
-      # The configuration key ("enabled-hypervisors") implies there can be
-      # multiple values. Multiple hypervisors are comma-separated on the
-      # command line option to "gnt-cluster init", so we need to handle them
-      # equally here.
-      return value.split(",")
-    else:
-      return value
+  return GetConfig().GetEnabledHypervisors(*args)
 
 
-def GetDefaultHypervisor():
-  """Returns the default hypervisor to be used.
+def GetDefaultHypervisor(*args):
+  """Wrapper for L{_QaConfig.GetDefaultHypervisor}.
 
   """
-  return GetEnabledHypervisors()[0]
+  return GetConfig().GetDefaultHypervisor(*args)
 
 
-def GetInstanceNicMac(inst, default=None):
-  """Returns MAC address for instance's network interface.
+def GetEnabledDiskTemplates(*args):
+  """Wrapper for L{_QaConfig.GetEnabledDiskTemplates}.
 
   """
-  return inst.get("nic.mac/0", default)
+  return GetConfig().GetEnabledDiskTemplates(*args)
+
+
+def GetDefaultDiskTemplate(*args):
+  """Wrapper for L{_QaConfig.GetDefaultDiskTemplate}.
+
+  """
+  return GetConfig().GetDefaultDiskTemplate(*args)
 
 
 def GetMasterNode():
-  return cfg["nodes"][0]
+  """Wrapper for L{_QaConfig.GetMasterNode}.
+
+  """
+  return GetConfig().GetMasterNode()
 
 
-def AcquireInstance():
+def AcquireInstance(_cfg=None):
   """Returns an instance which isn't in use.
 
   """
-  # Filter out unwanted instances
-  tmp_flt = lambda inst: not inst.get("_used", False)
-  instances = filter(tmp_flt, cfg["instances"])
-  del tmp_flt
+  if _cfg is None:
+    cfg = GetConfig()
+  else:
+    cfg = _cfg
 
-  if len(instances) == 0:
+  # Filter out unwanted instances
+  instances = filter(lambda inst: not inst.used, cfg["instances"])
+
+  if not instances:
     raise qa_error.OutOfInstancesError("No instances left")
 
-  inst = instances[0]
-  inst["_used"] = True
-  inst["_template"] = None
-  return inst
+  instance = instances[0]
+  instance.Use()
 
-
-def ReleaseInstance(inst):
-  inst["_used"] = False
-
-
-def GetInstanceTemplate(inst):
-  """Return the disk template of an instance.
-
-  """
-  templ = inst["_template"]
-  assert templ is not None
-  return templ
-
-
-def SetInstanceTemplate(inst, template):
-  """Set the disk template for an instance.
-
-  """
-  inst["_template"] = template
+  return instance
 
 
 def SetExclusiveStorage(value):
-  """Set the expected value of the exclusive_storage flag for the cluster.
+  """Wrapper for L{_QaConfig.SetExclusiveStorage}.
 
   """
-  cfg[_EXCLUSIVE_STORAGE_KEY] = bool(value)
+  return GetConfig().SetExclusiveStorage(value)
 
 
 def GetExclusiveStorage():
-  """Get the expected value of the exclusive_storage flag for the cluster.
+  """Wrapper for L{_QaConfig.GetExclusiveStorage}.
 
   """
-  val = cfg.get(_EXCLUSIVE_STORAGE_KEY)
-  assert val is not None
-  return val
+  return GetConfig().GetExclusiveStorage()
 
 
 def IsTemplateSupported(templ):
-  """Is the given templated supported by the current configuration?
+  """Wrapper for L{_QaConfig.IsTemplateSupported}.
 
   """
-  if GetExclusiveStorage():
-    return templ in constants.DTS_EXCL_STORAGE
-  else:
-    return True
+  return GetConfig().IsTemplateSupported(templ)
 
 
-def AcquireNode(exclude=None):
+def _NodeSortKey(node):
+  """Returns sort key for a node.
+
+  @type node: L{_QaNode}
+
+  """
+  return (node.use_count, utils.NiceSortKey(node.primary))
+
+
+def AcquireNode(exclude=None, _cfg=None):
   """Returns the least used node.
 
   """
-  master = GetMasterNode()
+  if _cfg is None:
+    cfg = GetConfig()
+  else:
+    cfg = _cfg
+
+  master = cfg.GetMasterNode()
 
   # Filter out unwanted nodes
   # TODO: Maybe combine filters
@@ -285,25 +672,13 @@ def AcquireNode(exclude=None):
   else:
     nodes = filter(lambda node: node != exclude, cfg["nodes"])
 
-  tmp_flt = lambda node: node.get("_added", False) or node == master
-  nodes = filter(tmp_flt, nodes)
-  del tmp_flt
+  nodes = filter(lambda node: node.added or node == master, nodes)
 
-  if len(nodes) == 0:
+  if not nodes:
     raise qa_error.OutOfNodesError("No nodes left")
 
-  # Get node with least number of uses
-  def compare(a, b):
-    result = cmp(a.get("_count", 0), b.get("_count", 0))
-    if result == 0:
-      result = cmp(a["primary"], b["primary"])
-    return result
-
-  nodes.sort(cmp=compare)
-
-  node = nodes[0]
-  node["_count"] = node.get("_count", 0) + 1
-  return node
+  # Return node with least number of uses
+  return sorted(nodes, key=_NodeSortKey)[0].Use()
 
 
 def AcquireManyNodes(num, exclude=None):
@@ -337,10 +712,44 @@ def AcquireManyNodes(num, exclude=None):
   return nodes
 
 
-def ReleaseNode(node):
-  node["_count"] = node.get("_count", 0) - 1
-
-
 def ReleaseManyNodes(nodes):
-  for n in nodes:
-    ReleaseNode(n)
+  for node in nodes:
+    node.Release()
+
+
+def GetVclusterSettings():
+  """Wrapper for L{_QaConfig.GetVclusterSettings}.
+
+  """
+  return GetConfig().GetVclusterSettings()
+
+
+def UseVirtualCluster(_cfg=None):
+  """Returns whether a virtual cluster is used.
+
+  @rtype: bool
+
+  """
+  if _cfg is None:
+    cfg = GetConfig()
+  else:
+    cfg = _cfg
+
+  (master, _) = cfg.GetVclusterSettings()
+
+  return bool(master)
+
+
+@ht.WithDesc("No virtual cluster")
+def NoVirtualCluster():
+  """Used to disable tests for virtual clusters.
+
+  """
+  return not UseVirtualCluster()
+
+
+def GetDiskOptions():
+  """Wrapper for L{_QaConfig.GetDiskOptions}.
+
+  """
+  return GetConfig().GetDiskOptions()

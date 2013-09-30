@@ -4,7 +4,7 @@
 
 {-
 
-Copyright (C) 2012 Google Inc.
+Copyright (C) 2012, 2013 Google Inc.
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -24,8 +24,9 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
 -}
 
 module Ganeti.Query.Group
-  ( GroupRuntime(..)
-  , groupFieldsMap
+  ( Runtime
+  , fieldsMap
+  , collectLiveData
   ) where
 
 import qualified Data.Map as Map
@@ -35,11 +36,12 @@ import Ganeti.Objects
 import Ganeti.Query.Language
 import Ganeti.Query.Common
 import Ganeti.Query.Types
+import Ganeti.Utils (niceSort)
 
 -- | There is no runtime.
-data GroupRuntime = GroupRuntime
+data Runtime = Runtime
 
-groupFields :: FieldList NodeGroup GroupRuntime
+groupFields :: FieldList NodeGroup Runtime
 groupFields =
   [ (FieldDefinition "alloc_policy" "AllocPolicy" QFTText
        "Allocation policy for group",
@@ -76,7 +78,8 @@ groupFields =
      QffNormal)
   , (FieldDefinition "pinst_list" "InstanceList" QFTOther
        "List of primary instances",
-     FieldConfig (\cfg -> rsNormal . map instName . fst .
+     -- FIXME: the niceSort here is not tested
+     FieldConfig (\cfg -> rsNormal . niceSort . map instName . fst .
                           getGroupInstances cfg . groupUuid), QffNormal)
   ] ++
   map buildNdParamField allNDParamFields ++
@@ -86,6 +89,11 @@ groupFields =
   tagsFields
 
 -- | The group fields map.
-groupFieldsMap :: FieldMap NodeGroup GroupRuntime
-groupFieldsMap =
+fieldsMap :: FieldMap NodeGroup Runtime
+fieldsMap =
   Map.fromList $ map (\v@(f, _, _) -> (fdefName f, v)) groupFields
+
+-- | Dummy function for collecting live data (which groups don't have).
+collectLiveData :: Bool -> ConfigData -> [NodeGroup]
+                -> IO [(NodeGroup, Runtime)]
+collectLiveData _ _ = return . map (\n -> (n, Runtime))

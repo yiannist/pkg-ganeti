@@ -63,19 +63,19 @@
 <p>At each step, we prevent an instance move if it would cause:</p>
 <ul>
 <li>a node to go into N+1 failure state</li>
-<li>an instance to move onto an offline node (offline nodes are either read from the cluster or declared with <em>-O</em>)</li>
+<li>an instance to move onto an offline node (offline nodes are either read from the cluster or declared with <em>-O</em>; drained nodes are considered offline)</li>
 <li>an exclusion-tag based conflict (exclusion tags are read from the cluster and/or defined via the <em>--exclusion-tags</em> option)</li>
 <li>a max vcpu/pcpu ratio to be exceeded (configured via <em>--max-cpu</em>)</li>
 <li>min disk free percentage to go below the configured limit (configured via <em>--min-disk</em>)</li>
 </ul>
 <h2 id="cluster-scoring"><a href="#TOC">CLUSTER SCORING</a></h2>
-<p>As said before, the algorithm tries to minimise the cluster score at each step. Currently this score is computed as a sum of the following components:</p>
+<p>As said before, the algorithm tries to minimise the cluster score at each step. Currently this score is computed as a weighted sum of the following components:</p>
 <ul>
 <li>standard deviation of the percent of free memory</li>
 <li>standard deviation of the percent of reserved memory</li>
 <li>standard deviation of the percent of free disk</li>
 <li>count of nodes failing N+1 check</li>
-<li>count of instances living (either as primary or secondary) on offline nodes</li>
+<li>count of instances living (either as primary or secondary) on offline nodes; in the sense of hbal (and the other htools) drained nodes are considered offline</li>
 <li>count of instances living (as primary) on offline nodes; this differs from the above metric by helping failover of such instances in 2-node clusters</li>
 <li>standard deviation of the ratio of virtual-to-physical cpus (for primary instances of the node)</li>
 <li>standard deviation of the dynamic load on the nodes, for cpus, memory, disk and network</li>

@@ -32,6 +32,7 @@ from ganeti import constants
 from ganeti import backend
 from ganeti import netutils
 from ganeti import errors
+from ganeti import serializer
 
 import testutils
 import mocks
@@ -167,6 +168,7 @@ class TestVerifyRestrictedCmdDirectory(unittest.TestCase):
   def testNormal(self):
     tmpname = utils.PathJoin(self.tmpdir, "foobar")
     os.mkdir(tmpname)
+    os.chmod(tmpname, 0755)
     self.assertTrue(os.path.isdir(tmpname))
     (status, msg) = \
       backend._VerifyRestrictedCmdDirectory(tmpname,

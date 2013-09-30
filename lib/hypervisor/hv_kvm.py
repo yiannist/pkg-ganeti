@@ -80,7 +80,24 @@ _SPICE_ADDITIONAL_PARAMS = frozenset([
   ])
 
 
-def _ProbeTapVnetHdr(fd):
+def _GetTunFeatures(fd, _ioctl=fcntl.ioctl):
+  """Retrieves supported TUN features from file descriptor.
+
+  @see: L{_ProbeTapVnetHdr}
+
+  """
+  req = struct.pack("I", 0)
+  try:
+    buf = _ioctl(fd, TUNGETFEATURES, req)
+  except EnvironmentError, err:
+    logging.warning("ioctl(TUNGETFEATURES) failed: %s", err)
+    return None
+  else:
+    (flags, ) = struct.unpack("I", buf)
+    return flags
+
+
+def _ProbeTapVnetHdr(fd, _features_fn=_GetTunFeatures):
   """Check whether to enable the IFF_VNET_HDR flag.
 
   To do this, _all_ of the following conditions must be met:
@@ -97,19 +114,18 @@ def _ProbeTapVnetHdr(fd):
    @param fd: the file descriptor of /dev/net/tun
 
   """
-  req = struct.pack("I", 0)
-  try:
-    res = fcntl.ioctl(fd, TUNGETFEATURES, req)
-  except EnvironmentError:
-    logging.warning("TUNGETFEATURES ioctl() not implemented")
+  flags = _features_fn(fd)
+
+  if flags is None:
+    # Not supported
     return False
 
-  tunflags = struct.unpack("I", res)[0]
-  if tunflags & IFF_VNET_HDR:
-    return True
-  else:
-    logging.warning("Host does not support IFF_VNET_HDR, not enabling")
-    return False
+  result = bool(flags & IFF_VNET_HDR)
+
+  if not result:
+    logging.warning("Kernel does not support IFF_VNET_HDR, not enabling")
+
+  return result
 
 
 def _OpenTap(vnet_hdr=True):
@@ -284,7 +300,7 @@ class QmpConnection:
     greeting = self._Recv()
     if not greeting[self._FIRST_MESSAGE_KEY]:
       self._connected = False
-      raise errors.HypervisorError("kvm: qmp communication error (wrong"
+      raise errors.HypervisorError("kvm: QMP communication error (wrong"
                                    " server greeting")
 
     # Let's put the monitor in command mode using the qmp_capabilities
@@ -447,7 +463,7 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     constants.HV_VNC_BIND_ADDRESS:
       (False, lambda x: (netutils.IP4Address.IsValid(x) or
                          utils.IsNormAbsPath(x)),
-       "the VNC bind address must be either a valid IP address or an absolute"
+       "The VNC bind address must be either a valid IP address or an absolute"
        " pathname", None, None),
     constants.HV_VNC_TLS: hv_base.NO_CHECK,
     constants.HV_VNC_X509: hv_base.OPT_DIR_CHECK,
@@ -457,7 +473,7 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     constants.HV_KVM_SPICE_IP_VERSION:
       (False, lambda x: (x == constants.IFACE_NO_IP_VERSION_SPECIFIED or
                          x in constants.VALID_IP_VERSIONS),
-       "the SPICE IP version should be 4 or 6",
+       "The SPICE IP version should be 4 or 6",
        None, None),
     constants.HV_KVM_SPICE_PASSWORD_FILE: hv_base.OPT_FILE_CHECK,
     constants.HV_KVM_SPICE_LOSSLESS_IMG_COMPR:
@@ -517,6 +533,7 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     constants.HV_VGA: hv_base.NO_CHECK,
     constants.HV_KVM_EXTRA: hv_base.NO_CHECK,
     constants.HV_KVM_MACHINE_VERSION: hv_base.NO_CHECK,
+    constants.HV_VNET_HDR: hv_base.NO_CHECK,
     }
 
   _VIRTIO = "virtio"
@@ -840,8 +857,8 @@ class KVMHypervisor(hv_base.BaseHypervisor):
 
     result = utils.RunCmd([pathutils.KVM_IFUP, tap], env=env)
     if result.failed:
-      raise errors.HypervisorError("Failed to configure interface %s: %s."
-                                   " Network configuration script output: %s" %
+      raise errors.HypervisorError("Failed to configure interface %s: %s;"
+                                   " network configuration script output: %s" %
                                    (tap, result.fail_reason, result.output))
 
   @staticmethod
@@ -1217,9 +1234,9 @@ class KVMHypervisor(hv_base.BaseHypervisor):
           else:
             vnc_arg = "%s:%d" % (vnc_bind_address, display)
         else:
-          logging.error("Network port is not a valid VNC display (%d < %d)."
-                        " Not starting VNC", instance.network_port,
-                        constants.VNC_BASE_PORT)
+          logging.error("Network port is not a valid VNC display (%d < %d),"
+                        " not starting VNC",
+                        instance.network_port, constants.VNC_BASE_PORT)
           vnc_arg = "none"
 
         # Only allow tls and other option when not binding to a file, for now.
@@ -1255,7 +1272,7 @@ class KVMHypervisor(hv_base.BaseHypervisor):
         # have that kind of IP addresses, throw an exception
         if spice_ip_version != constants.IFACE_NO_IP_VERSION_SPECIFIED:
           if not addresses[spice_ip_version]:
-            raise errors.HypervisorError("spice: unable to get an IPv%s address"
+            raise errors.HypervisorError("SPICE: Unable to get an IPv%s address"
                                          " for %s" % (spice_ip_version,
                                                       spice_bind))
 
@@ -1272,7 +1289,7 @@ class KVMHypervisor(hv_base.BaseHypervisor):
         elif addresses[constants.IP6_VERSION]:
           spice_ip_version = constants.IP6_VERSION
         else:
-          raise errors.HypervisorError("spice: unable to get an IP address"
+          raise errors.HypervisorError("SPICE: Unable to get an IP address"
                                        " for %s" % (spice_bind))
 
         spice_address = addresses[spice_ip_version][0]
@@ -1327,8 +1344,10 @@ class KVMHypervisor(hv_base.BaseHypervisor):
         # Enable the spice agent communication channel between the host and the
         # agent.
         kvm_cmd.extend(["-device", "virtio-serial-pci"])
-        kvm_cmd.extend(["-device", "virtserialport,chardev=spicechannel0,"
-                                                   "name=com.redhat.spice.0"])
+        kvm_cmd.extend([
+          "-device",
+          "virtserialport,chardev=spicechannel0,name=com.redhat.spice.0",
+          ])
         kvm_cmd.extend(["-chardev", "spicevmc,id=spicechannel0,name=vdagent"])
 
       logging.info("KVM: SPICE will listen on port %s", instance.network_port)
@@ -1502,7 +1521,7 @@ class KVMHypervisor(hv_base.BaseHypervisor):
           devlist = self._GetKVMOutput(kvm_path, self._KVMOPT_DEVICELIST)
           if self._NEW_VIRTIO_RE.search(devlist):
             nic_model = self._VIRTIO_NET_PCI
-            vnet_hdr = True
+            vnet_hdr = up_hvp[constants.HV_VNET_HDR]
         except errors.HypervisorError, _:
           # Older versions of kvm don't support DEVICE_LIST, but they don't
           # have new virtio syntax either.
@@ -1665,16 +1684,22 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     """Invoke a command on the instance monitor.
 
     """
+    # TODO: Replace monitor calls with QMP once KVM >= 0.14 is the minimum
+    # version. The monitor protocol is designed for human consumption, whereas
+    # QMP is made for programmatic usage. In the worst case QMP can also
+    # execute monitor commands. As it is, all calls to socat take at least
+    # 500ms and likely more: socat can't detect the end of the reply and waits
+    # for 500ms of no data received before exiting (500 ms is the default for
+    # the "-t" parameter).
     socat = ("echo %s | %s STDIO UNIX-CONNECT:%s" %
              (utils.ShellQuote(command),
               constants.SOCAT_PATH,
               utils.ShellQuote(self._InstanceMonitor(instance_name))))
     result = utils.RunCmd(socat)
     if result.failed:
-      msg = ("Failed to send command '%s' to instance %s."
-             " output: %s, error: %s, fail_reason: %s" %
-             (command, instance_name,
-              result.stdout, result.stderr, result.fail_reason))
+      msg = ("Failed to send command '%s' to instance '%s', reason '%s',"
+             " output: %s" %
+             (command, instance_name, result.fail_reason, result.output))
       raise errors.HypervisorError(msg)
 
     return result
@@ -2091,13 +2116,13 @@ class KVMHypervisor(hv_base.BaseHypervisor):
         # IP of that family
         if (netutils.IP4Address.IsValid(spice_bind) and
             spice_ip_version != constants.IP4_VERSION):
-          raise errors.HypervisorError("spice: got an IPv4 address (%s), but"
+          raise errors.HypervisorError("SPICE: Got an IPv4 address (%s), but"
                                        " the specified IP version is %s" %
                                        (spice_bind, spice_ip_version))
 
         if (netutils.IP6Address.IsValid(spice_bind) and
             spice_ip_version != constants.IP6_VERSION):
-          raise errors.HypervisorError("spice: got an IPv6 address (%s), but"
+          raise errors.HypervisorError("SPICE: Got an IPv6 address (%s), but"
                                        " the specified IP version is %s" %
                                        (spice_bind, spice_ip_version))
     else:
@@ -2105,7 +2130,7 @@ class KVMHypervisor(hv_base.BaseHypervisor):
       # error if any of them is set without it.
       for param in _SPICE_ADDITIONAL_PARAMS:
         if hvparams[param]:
-          raise errors.HypervisorError("spice: %s requires %s to be set" %
+          raise errors.HypervisorError("SPICE: %s requires %s to be set" %
                                        (param, constants.HV_KVM_SPICE_BIND))
 
   @classmethod
@@ -2134,21 +2159,21 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     if spice_bind:
       # only one of VNC and SPICE can be used currently.
       if hvparams[constants.HV_VNC_BIND_ADDRESS]:
-        raise errors.HypervisorError("both SPICE and VNC are configured, but"
+        raise errors.HypervisorError("Both SPICE and VNC are configured, but"
                                      " only one of them can be used at a"
-                                     " given time.")
+                                     " given time")
 
       # check that KVM supports SPICE
       kvmhelp = cls._GetKVMOutput(kvm_path, cls._KVMOPT_HELP)
       if not cls._SPICE_RE.search(kvmhelp):
-        raise errors.HypervisorError("spice is configured, but it is not"
-                                     " supported according to kvm --help")
+        raise errors.HypervisorError("SPICE is configured, but it is not"
+                                     " supported according to 'kvm --help'")
 
       # if spice_bind is not an IP address, it must be a valid interface
-      bound_to_addr = (netutils.IP4Address.IsValid(spice_bind)
-                       or netutils.IP6Address.IsValid(spice_bind))
+      bound_to_addr = (netutils.IP4Address.IsValid(spice_bind) or
+                       netutils.IP6Address.IsValid(spice_bind))
       if not bound_to_addr and not netutils.IsValidInterface(spice_bind):
-        raise errors.HypervisorError("spice: the %s parameter must be either"
+        raise errors.HypervisorError("SPICE: The %s parameter must be either"
                                      " a valid IP address or interface name" %
                                      constants.HV_KVM_SPICE_BIND)
 

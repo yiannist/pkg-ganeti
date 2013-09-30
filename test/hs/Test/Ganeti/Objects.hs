@@ -1,4 +1,5 @@
-{-# LANGUAGE TemplateHaskell, TypeSynonymInstances, FlexibleInstances #-}
+{-# LANGUAGE TemplateHaskell, TypeSynonymInstances, FlexibleInstances,
+  OverloadedStrings #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 {-| Unittests for ganeti-htools.
@@ -29,7 +30,12 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
 module Test.Ganeti.Objects
   ( testObjects
   , Node(..)
+  , genConfigDataWithNetworks
+  , genDisk
+  , genDiskWithChildren
   , genEmptyCluster
+  , genInst
+  , genInstWithNets
   , genValidNetwork
   , genBitStringMaxLen
   ) where
@@ -40,8 +46,11 @@ import qualified Test.HUnit as HUnit
 import Control.Applicative
 import Control.Monad
 import Data.Char
+import qualified Data.List as List
 import qualified Data.Map as Map
+import Data.Maybe (fromMaybe)
 import qualified Data.Set as Set
+import GHC.Exts (IsString(..))
 import qualified Text.JSON as J
 
 import Test.Ganeti.TestHelper
@@ -53,8 +62,6 @@ import Ganeti.Network
 import Ganeti.Objects as Objects
 import Ganeti.JSON
 import Ganeti.Types
-
-{-# ANN module "HLint: ignore Use camelCase" #-}
 
 -- * Arbitrary instances
 
@@ -85,7 +92,8 @@ instance Arbitrary DiskLogicalId where
 -- generating recursive datastructures is a bit more work.
 instance Arbitrary Disk where
   arbitrary = Disk <$> arbitrary <*> pure [] <*> arbitrary
-                   <*> arbitrary <*> arbitrary
+                   <*> arbitrary <*> arbitrary <*> arbitrary
+                   <*> arbitrary
 
 -- FIXME: we should generate proper values, >=0, etc., but this is
 -- hard for partial ones, where all must be wrapped in a 'Maybe'
@@ -100,13 +108,33 @@ $(genArbitrary ''PartialNic)
 instance Arbitrary Instance where
   arbitrary =
     Instance
-      <$> genFQDN <*> genFQDN <*> genFQDN -- OS name, but...
+      -- name
+      <$> genFQDN
+      -- primary node
+      <*> genFQDN
+      -- OS
+      <*> genFQDN
+      -- hypervisor
       <*> arbitrary
+      -- hvparams
       -- FIXME: add non-empty hvparams when they're a proper type
-      <*> pure (GenericContainer Map.empty) <*> arbitrary
-      -- ... and for OSParams
-      <*> pure (GenericContainer Map.empty) <*> arbitrary <*> arbitrary
-      <*> arbitrary <*> arbitrary <*> arbitrary
+      <*> pure (GenericContainer Map.empty)
+      -- beparams
+      <*> arbitrary
+      -- osparams
+      <*> pure (GenericContainer Map.empty)
+      -- admin_state
+      <*> arbitrary
+      -- nics
+      <*> arbitrary
+      -- disks
+      <*> vectorOf 5 genDisk
+      -- disk template
+      <*> arbitrary
+      -- disks active
+      <*> arbitrary
+      -- network port
+      <*> arbitrary
       -- ts
       <*> arbitrary <*> arbitrary
       -- uuid
@@ -115,6 +143,50 @@ instance Arbitrary Instance where
       <*> arbitrary
       -- tags
       <*> (Set.fromList <$> genTags)
+
+-- | Generates an instance that is connected to the given networks
+-- and possibly some other networks
+genInstWithNets :: [String] -> Gen Instance
+genInstWithNets nets = do
+  plain_inst <- arbitrary
+  enhanceInstWithNets plain_inst nets
+
+-- | Generates an instance that is connected to some networks
+genInst :: Gen Instance
+genInst = genInstWithNets []
+
+-- | Enhances a given instance with network information, by connecting it to the
+-- given networks and possibly some other networks
+enhanceInstWithNets :: Instance -> [String] -> Gen Instance
+enhanceInstWithNets inst nets = do
+  mac <- arbitrary
+  ip <- arbitrary
+  nicparams <- arbitrary
+  name <- arbitrary
+  uuid <- arbitrary
+  -- generate some more networks than the given ones
+  num_more_nets <- choose (0,3)
+  more_nets <- vectorOf num_more_nets genName
+  let genNic net = PartialNic mac ip nicparams net name uuid
+      partial_nics = map (genNic . Just)
+                         (List.nub (nets ++ more_nets))
+      new_inst = inst { instNics = partial_nics }
+  return new_inst
+
+genDiskWithChildren :: Int -> Gen Disk
+genDiskWithChildren num_children = do
+  logicalid <- arbitrary
+  children <- vectorOf num_children (genDiskWithChildren 0)
+  ivname <- genName
+  size <- arbitrary
+  mode <- arbitrary
+  name <- genMaybe genName
+  uuid <- genName
+  let disk = Disk logicalid children ivname size mode name uuid
+  return disk
+
+genDisk :: Gen Disk
+genDisk = genDiskWithChildren 3
 
 -- | FIXME: This generates completely random data, without normal
 -- validation rules.
@@ -125,6 +197,7 @@ $(genArbitrary ''PartialISpecParams)
 $(genArbitrary ''PartialIPolicy)
 
 $(genArbitrary ''FilledISpecParams)
+$(genArbitrary ''MinMaxISpecs)
 $(genArbitrary ''FilledIPolicy)
 $(genArbitrary ''IpFamily)
 $(genArbitrary ''FilledNDParams)
@@ -165,19 +238,20 @@ instance Arbitrary Network where
 genValidNetwork :: Gen Objects.Network
 genValidNetwork = do
   -- generate netmask for the IPv4 network
-  netmask <- choose (24::Int, 30)
+  netmask <- fromIntegral <$> choose (24::Int, 30)
   name <- genName >>= mkNonEmpty
   mac_prefix <- genMaybe genName
-  net <- genIp4NetWithNetmask netmask
+  net <- arbitrary
   net6 <- genMaybe genIp6Net
-  gateway <- genMaybe genIp4AddrStr
+  gateway <- genMaybe arbitrary
   gateway6 <- genMaybe genIp6Addr
   res <- liftM Just (genBitString $ netmask2NumHosts netmask)
   ext_res <- liftM Just (genBitString $ netmask2NumHosts netmask)
+  uuid <- arbitrary
   ctime <- arbitrary
   mtime <- arbitrary
-  let n = Network name mac_prefix net net6 gateway
-          gateway6 res ext_res ctime mtime 0 Set.empty
+  let n = Network name mac_prefix (Ip4Network net netmask) net6 gateway
+          gateway6 res ext_res uuid ctime mtime 0 Set.empty
   return n
 
 -- | Generate an arbitrary string consisting of '0' and '1' of the given length.
@@ -209,11 +283,31 @@ genEmptyCluster ncount = do
                                 show (map fst nodes'))
                     else GenericContainer nodemap
       continsts = GenericContainer Map.empty
+      networks = GenericContainer Map.empty
   let contgroups = GenericContainer $ Map.singleton guuid grp
   serial <- arbitrary
   cluster <- resize 8 arbitrary
-  let c = ConfigData version cluster contnodes contgroups continsts serial
+  let c = ConfigData version cluster contnodes contgroups continsts networks
+            serial
   return c
+
+-- | FIXME: make an even simpler base version of creating a cluster.
+
+-- | Generates config data with a couple of networks.
+genConfigDataWithNetworks :: ConfigData -> Gen ConfigData
+genConfigDataWithNetworks old_cfg = do
+  num_nets <- choose (0, 3)
+  -- generate a list of network names (no duplicates)
+  net_names <- genUniquesList num_nets genName >>= mapM mkNonEmpty
+  -- generate a random list of networks (possibly with duplicate names)
+  nets <- vectorOf num_nets genValidNetwork
+  -- use unique names for the networks
+  let nets_unique = map ( \(name, net) -> net { networkName = name } )
+        (zip net_names nets)
+      net_map = GenericContainer $ Map.fromList
+        (map (\n -> (networkUuid n, n)) nets_unique)
+      new_cfg = old_cfg { configNetworks = net_map }
+  return new_cfg
 
 -- * Test properties
 
@@ -262,8 +356,8 @@ prop_Config_serialisation =
 -- networks and their Python decoded, validated and re-encoded version.
 -- For the technical background of this unit test, check the documentation
 -- of "case_py_compat_types" of test/hs/Test/Ganeti/Opcodes.hs
-case_py_compat_networks :: HUnit.Assertion
-case_py_compat_networks = do
+casePyCompatNetworks :: HUnit.Assertion
+casePyCompatNetworks = do
   let num_networks = 500::Int
   networks <- genSample (vectorOf num_networks genValidNetwork)
   let networks_with_properties = map getNetworkProperties networks
@@ -311,8 +405,8 @@ getNetworkProperties net =
 
 -- | Tests the compatibility between Haskell-serialized node groups and their
 -- python-decoded and encoded version.
-case_py_compat_nodegroups :: HUnit.Assertion
-case_py_compat_nodegroups = do
+casePyCompatNodegroups :: HUnit.Assertion
+casePyCompatNodegroups = do
   let num_groups = 500::Int
   groups <- genSample (vectorOf num_groups genNodeGroup)
   let serialized = J.encode groups
@@ -372,6 +466,71 @@ genNodeGroup = do
 instance Arbitrary NodeGroup where
   arbitrary = genNodeGroup
 
+$(genArbitrary ''Ip4Address)
+
+$(genArbitrary ''Ip4Network)
+
+-- | Helper to compute absolute value of an IPv4 address.
+ip4AddrValue :: Ip4Address -> Integer
+ip4AddrValue (Ip4Address a b c d) =
+  fromIntegral a * (2^(24::Integer)) +
+  fromIntegral b * (2^(16::Integer)) +
+  fromIntegral c * (2^(8::Integer)) + fromIntegral d
+
+-- | Tests that any difference between IPv4 consecutive addresses is 1.
+prop_nextIp4Address :: Ip4Address -> Property
+prop_nextIp4Address ip4 =
+  ip4AddrValue (nextIp4Address ip4) ==? ip4AddrValue ip4 + 1
+
+-- | IsString instance for 'Ip4Address', to help write the tests.
+instance IsString Ip4Address where
+  fromString s =
+    fromMaybe (error $ "Failed to parse address from " ++ s) (readIp4Address s)
+
+-- | Tests a few simple cases of IPv4 next address.
+caseNextIp4Address :: HUnit.Assertion
+caseNextIp4Address = do
+  HUnit.assertEqual "" "0.0.0.1" $ nextIp4Address "0.0.0.0"
+  HUnit.assertEqual "" "0.0.0.0" $ nextIp4Address "255.255.255.255"
+  HUnit.assertEqual "" "1.2.3.5" $ nextIp4Address "1.2.3.4"
+  HUnit.assertEqual "" "1.3.0.0" $ nextIp4Address "1.2.255.255"
+  HUnit.assertEqual "" "1.2.255.63" $ nextIp4Address "1.2.255.62"
+
+-- | Tests the compatibility between Haskell-serialized instances and their
+-- python-decoded and encoded version.
+-- Note: this can be enhanced with logical validations on the decoded objects
+casePyCompatInstances :: HUnit.Assertion
+casePyCompatInstances = do
+  let num_inst = 500::Int
+  instances <- genSample (vectorOf num_inst genInst)
+  let serialized = J.encode instances
+  -- check for non-ASCII fields, usually due to 'arbitrary :: String'
+  mapM_ (\inst -> when (any (not . isAscii) (J.encode inst)) .
+                 HUnit.assertFailure $
+                 "Instance has non-ASCII fields: " ++ show inst
+        ) instances
+  py_stdout <-
+    runPython "from ganeti import objects\n\
+              \from ganeti import serializer\n\
+              \import sys\n\
+              \inst_data = serializer.Load(sys.stdin.read())\n\
+              \decoded = [objects.Instance.FromDict(i) for i in inst_data]\n\
+              \encoded = [i.ToDict() for i in decoded]\n\
+              \print serializer.Dump(encoded)" serialized
+    >>= checkPythonResult
+  let deserialised = J.decode py_stdout::J.Result [Instance]
+  decoded <- case deserialised of
+               J.Ok ops -> return ops
+               J.Error msg ->
+                 HUnit.assertFailure ("Unable to decode instance: " ++ msg)
+                 -- this already raised an expection, but we need it
+                 -- for proper types
+                 >> fail "Unable to decode instances"
+  HUnit.assertEqual "Mismatch in number of returned instances"
+    (length decoded) (length instances)
+  mapM_ (uncurry (HUnit.assertEqual "Different result after encoding/decoding")
+        ) $ zip decoded instances
+
 testSuite "Objects"
   [ 'prop_fillDict
   , 'prop_Disk_serialisation
@@ -379,6 +538,9 @@ testSuite "Objects"
   , 'prop_Network_serialisation
   , 'prop_Node_serialisation
   , 'prop_Config_serialisation
-  , 'case_py_compat_networks
-  , 'case_py_compat_nodegroups
+  , 'casePyCompatNetworks
+  , 'casePyCompatNodegroups
+  , 'casePyCompatInstances
+  , 'prop_nextIp4Address
+  , 'caseNextIp4Address
   ]

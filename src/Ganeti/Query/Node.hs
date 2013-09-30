@@ -24,9 +24,9 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
 -}
 
 module Ganeti.Query.Node
-  ( NodeRuntime
-  , nodeFieldsMap
-  , maybeCollectLiveData
+  ( Runtime
+  , fieldsMap
+  , collectLiveData
   ) where
 
 import Control.Applicative
@@ -42,9 +42,10 @@ import Ganeti.Rpc
 import Ganeti.Query.Language
 import Ganeti.Query.Common
 import Ganeti.Query.Types
+import Ganeti.Utils (niceSort)
 
--- | NodeRuntime is the resulting type for NodeInfo call.
-type NodeRuntime = Either RpcError RpcResultNodeInfo
+-- | Runtime is the resulting type for NodeInfo call.
+type Runtime = Either RpcError RpcResultNodeInfo
 
 -- | List of node live fields.
 nodeLiveFieldsDefs :: [(FieldName, FieldTitle, FieldType, String, FieldDoc)]
@@ -94,7 +95,7 @@ nodeLiveFieldExtract "mtotal" res =
 nodeLiveFieldExtract _ _ = J.JSNull
 
 -- | Helper for extracting field from RPC result.
-nodeLiveRpcCall :: FieldName -> NodeRuntime -> Node -> ResultEntry
+nodeLiveRpcCall :: FieldName -> Runtime -> Node -> ResultEntry
 nodeLiveRpcCall fname (Right res) _ =
   case nodeLiveFieldExtract fname res of
     J.JSNull -> rsNoData
@@ -104,7 +105,7 @@ nodeLiveRpcCall _ (Left err) _ =
 
 -- | Builder for node live fields.
 nodeLiveFieldBuilder :: (FieldName, FieldTitle, FieldType, String, FieldDoc)
-                     -> FieldData Node NodeRuntime
+                     -> FieldData Node Runtime
 nodeLiveFieldBuilder (fname, ftitle, ftype, _, fdoc) =
   ( FieldDefinition fname ftitle ftype fdoc
   , FieldRuntime $ nodeLiveRpcCall fname
@@ -130,7 +131,7 @@ getNodePower cfg node =
                   else rsNormal (nodePowered node)
 
 -- | List of all node fields.
-nodeFields :: FieldList Node NodeRuntime
+nodeFields :: FieldList Node Runtime
 nodeFields =
   [ (FieldDefinition "drained" "Drained" QFTBool "Whether node is drained",
      FieldSimple (rsNormal . nodeDrained), QffNormal)
@@ -141,7 +142,7 @@ nodeFields =
        "Whether node can become a master candidate",
      FieldSimple (rsNormal . nodeMasterCapable), QffNormal)
   , (FieldDefinition "name" "Node" QFTText "Node name",
-     FieldSimple (rsNormal . nodeName), QffNormal)
+     FieldSimple (rsNormal . nodeName), QffHostname)
   , (FieldDefinition "offline" "Offline" QFTBool
        "Whether node is marked offline",
      FieldSimple (rsNormal . nodeOffline), QffNormal)
@@ -159,13 +160,13 @@ nodeFields =
      QffNormal)
   , (FieldDefinition "group" "Group" QFTText "Node group",
      FieldConfig (\cfg node ->
-                    rsMaybe (groupName <$> getGroupOfNode cfg node)),
+                    rsMaybeNoData (groupName <$> getGroupOfNode cfg node)),
      QffNormal)
   , (FieldDefinition "group.uuid" "GroupUUID" QFTText "UUID of node group",
      FieldSimple (rsNormal . nodeGroup), QffNormal)
   ,  (FieldDefinition "ndparams" "NodeParameters" QFTOther
         "Merged node parameters",
-      FieldConfig ((rsMaybe .) . getNodeNdParams), QffNormal)
+      FieldConfig ((rsMaybeNoData .) . getNodeNdParams), QffNormal)
   , (FieldDefinition "custom_ndparams" "CustomNodeParameters" QFTOther
                        "Custom node parameters",
      FieldSimple (rsNormal . nodeNdparams), QffNormal)
@@ -182,11 +183,11 @@ nodeFields =
      QffNormal)
   , (FieldDefinition "pinst_list" "PriInstances" QFTOther
        "List of instances with this node as primary",
-     FieldConfig (\cfg -> rsNormal . map instName . fst .
+     FieldConfig (\cfg -> rsNormal . niceSort . map instName . fst .
                           getNodeInstances cfg . nodeName), QffNormal)
   , (FieldDefinition "sinst_list" "SecInstances" QFTOther
        "List of instances with this node as secondary",
-     FieldConfig (\cfg -> rsNormal . map instName . snd .
+     FieldConfig (\cfg -> rsNormal . niceSort . map instName . snd .
                           getNodeInstances cfg . nodeName), QffNormal)
   , (FieldDefinition "role" "Role" QFTText nodeRoleDoc,
      FieldConfig ((rsNormal .) . getNodeRole), QffNormal)
@@ -197,9 +198,9 @@ nodeFields =
   -- non-implemented node resource model; they are declared just for
   -- parity, but are not functional
   , (FieldDefinition "hv_state" "HypervisorState" QFTOther "Hypervisor state",
-     missingRuntime, QffNormal)
+     FieldSimple (const rsUnavail), QffNormal)
   , (FieldDefinition "disk_state" "DiskState" QFTOther "Disk state",
-     missingRuntime, QffNormal)
+     FieldSimple (const rsUnavail), QffNormal)
   ] ++
   map nodeLiveFieldBuilder nodeLiveFieldsDefs ++
   map buildNdParamField allNDParamFields ++
@@ -209,19 +210,19 @@ nodeFields =
   tagsFields
 
 -- | The node fields map.
-nodeFieldsMap :: FieldMap Node NodeRuntime
-nodeFieldsMap =
+fieldsMap :: FieldMap Node Runtime
+fieldsMap =
   Map.fromList $ map (\v@(f, _, _) -> (fdefName f, v)) nodeFields
 
 -- | Collect live data from RPC query if enabled.
 --
 -- FIXME: Check which fields we actually need and possibly send empty
--- hvs/vgs if no info from hypervisor/volume group respectively is
+-- hvs\/vgs if no info from hypervisor\/volume group respectively is
 -- required
-maybeCollectLiveData:: Bool -> ConfigData -> [Node] -> IO [(Node, NodeRuntime)]
-maybeCollectLiveData False _ nodes =
+collectLiveData:: Bool -> ConfigData -> [Node] -> IO [(Node, Runtime)]
+collectLiveData False _ nodes =
   return $ zip nodes (repeat $ Left (RpcResultError "Live data disabled"))
-maybeCollectLiveData True cfg nodes = do
+collectLiveData True cfg nodes = do
   let vgs = maybeToList . clusterVolumeGroupName $ configCluster cfg
       hvs = [getDefaultHypervisor cfg]
       step n (bn, gn, em) =

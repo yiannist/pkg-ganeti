@@ -159,6 +159,12 @@ bit), master node, node list and instance list.
 Passing the \f[C]--roman\f[] option gnt-cluster info will try to print
 its integer fields in a latin friendly way.
 This allows further diffusion of Ganeti among ancient cultures.
+.SS SHOW-ISPECS-CMD
+.PP
+\f[B]show-ispecs-cmd\f[]
+.PP
+Shows the command line that can be used to recreate the cluster with the
+same options relative to specs in the instance policies.
 .SS INIT
 .PP
 \f[B]init\f[]
@@ -282,7 +288,24 @@ This allows further diffusion of Ganeti among ancient cultures.
 .PD 0
 .P
 .PD
+[--ipolicy-std-specs \f[I]spec\f[]=\f[I]value\f[]
+[,\f[I]spec\f[]=\f[I]value\f[]...]]
+.PD 0
+.P
+.PD
+[--ipolicy-bounds-specs \f[I]bounds_ispecs\f[]]
+.PD 0
+.P
+.PD
 [--ipolicy-disk-templates \f[I]template\f[] [,\f[I]template\f[]...]]
+.PD 0
+.P
+.PD
+[--ipolicy-spindle-ratio \f[I]ratio\f[]]
+.PD 0
+.P
+.PD
+[--ipolicy-vcpu-ratio \f[I]ratio\f[]]
 .PD 0
 .P
 .PD
@@ -291,6 +314,10 @@ This allows further diffusion of Ganeti among ancient cultures.
 .P
 .PD
 [--hypervisor-state \f[I]hvstate\f[]]
+.PD 0
+.P
+.PD
+[--enabled-disk-templates \f[I]template\f[] [,\f[I]template\f[]...]]
 .PD 0
 .P
 .PD
@@ -691,16 +718,36 @@ master_candidates.
 For more details about this role and other node roles, see the
 \f[B]ganeti\f[](7).
 .PP
-The \f[C]--specs-...\f[] and \f[C]--ipolicy-disk-templates\f[] options
-specify instance policy on the cluster.
+The \f[C]--specs-...\f[] and \f[C]--ipolicy-...\f[] options specify the
+instance policy on the cluster.
+The \f[C]--ipolicy-bounds-specs\f[] option sets the minimum and maximum
+specifications for instances.
+The format is:
+min:\f[I]param\f[]=\f[I]value\f[],.../max:\f[I]param\f[]=\f[I]value\f[],...
+and further specifications pairs can be added by using \f[C]//\f[] as a
+separator.
+The \f[C]--ipolicy-std-specs\f[] option takes a list of parameter/value
+pairs.
+For both options, \f[I]param\f[] can be:
+.IP \[bu] 2
+\f[C]cpu-count\f[]: number of VCPUs for an instance
+.IP \[bu] 2
+\f[C]disk-count\f[]: number of disk for an instance
+.IP \[bu] 2
+\f[C]disk-size\f[]: size of each disk
+.IP \[bu] 2
+\f[C]memory-size\f[]: instance memory
+.IP \[bu] 2
+\f[C]nic-count\f[]: number of network interface
+.IP \[bu] 2
+\f[C]spindle-use\f[]: spindle usage for an instance
+.PP
 For the \f[C]--specs-...\f[] options, each option can have three values:
 \f[C]min\f[], \f[C]max\f[] and \f[C]std\f[], which can also be modified
 on group level (except for \f[C]std\f[], which is defined once for the
 entire cluster).
 Please note, that \f[C]std\f[] values are not the same as defaults set
 by \f[C]--beparams\f[], but they are used for the capacity calculations.
-The \f[C]--ipolicy-disk-templates\f[] option takes a comma-separated
-list of disk templates.
 .IP \[bu] 2
 \f[C]--specs-cpu-count\f[] limits the number of VCPUs that can be used
 by an instance.
@@ -712,11 +759,34 @@ by an instance.
 \f[C]--specs-mem-size\f[] limits the amount of memory available
 .IP \[bu] 2
 \f[C]--specs-nic-count\f[] sets limits on the number of NICs used
+.PP
+The \f[C]--ipolicy-disk-templates\f[] and
+\f[C]--ipolicy-spindle-ratio\f[] options take a decimal number.
+The \f[C]--ipolicy-disk-templates\f[] option takes a comma-separated
+list of disk templates.
 .IP \[bu] 2
 \f[C]--ipolicy-disk-templates\f[] limits the allowed disk templates
+.IP \[bu] 2
+\f[C]--ipolicy-spindle-ratio\f[] limits the instances-spindles ratio
+.IP \[bu] 2
+\f[C]--ipolicy-vcpu-ratio\f[] limits the vcpu-cpu ratio
+.PP
+All the instance policy elements can be overridden at group level.
+Group level overrides can be removed by specifying \f[C]default\f[] as
+the value of an item.
 .PP
 For details about how to use \f[C]--hypervisor-state\f[] and
 \f[C]--disk-state\f[] have a look at \f[B]ganeti\f[](7).
+.PP
+The \f[C]--enabled-disk-templates\f[] option specifies a list of disk
+templates that can be used by instances of the cluster.
+For the possible values in this list, see \f[B]gnt-instance\f[](8).
+Note that in contrast to the list of disk templates in the ipolicy, this
+list is a hard restriction.
+It is not possible to create instances with disk templates that are not
+enabled in the cluster.
+It is also not possible to disable a disk template when there are still
+instances using it.
 .SS MASTER-FAILOVER
 .PP
 \f[B]master-failover\f[] [--no-voting] [--yes-do-it]
@@ -752,6 +822,10 @@ is not the master node), the exit code will be 1.
 .SS MODIFY
 .PP
 \f[B]modify\f[] [--submit]
+.PD 0
+.P
+.PD
+[--force]
 .PD 0
 .P
 .PD
@@ -843,32 +917,28 @@ is not the master node), the exit code will be 1.
 .PD 0
 .P
 .PD
-[--specs-cpu-count \f[I]spec-param\f[]=\f[I]value\f[]
-[,\f[I]spec-param\f[]=\f[I]value\f[]...]]
+[--ipolicy-std-specs \f[I]spec\f[]=\f[I]value\f[]
+[,\f[I]spec\f[]=\f[I]value\f[]...]]
 .PD 0
 .P
 .PD
-[--specs-disk-count \f[I]spec-param\f[]=\f[I]value\f[]
-[,\f[I]spec-param\f[]=\f[I]value\f[]...]]
-.PD 0
-.P
-.PD
-[--specs-disk-size \f[I]spec-param\f[]=\f[I]value\f[]
-[,\f[I]spec-param\f[]=\f[I]value\f[]...]]
-.PD 0
-.P
-.PD
-[--specs-mem-size \f[I]spec-param\f[]=\f[I]value\f[]
-[,\f[I]spec-param\f[]=\f[I]value\f[]...]]
-.PD 0
-.P
-.PD
-[--specs-nic-count \f[I]spec-param\f[]=\f[I]value\f[]
-[,\f[I]spec-param\f[]=\f[I]value\f[]...]]
+[--ipolicy-bounds-specs \f[I]bounds_ispecs\f[]]
 .PD 0
 .P
 .PD
 [--ipolicy-disk-templates \f[I]template\f[] [,\f[I]template\f[]...]]
+.PD 0
+.P
+.PD
+[--ipolicy-spindle-ratio \f[I]ratio\f[]]
+.PD 0
+.P
+.PD
+[--ipolicy-vcpu-ratio \f[I]ratio\f[]]
+.PD 0
+.P
+.PD
+[--enabled-disk-templates \f[I]template\f[] [,\f[I]template\f[]...]]
 .PP
 Modify the options for the cluster.
 .PP
@@ -878,8 +948,9 @@ The \f[C]--vg-name\f[], \f[C]--no-lvm-storage\f[],
 \f[C]--nic-parameters\f[], \f[C]-C\ (--candidate-pool-size)\f[],
 \f[C]--maintain-node-health\f[], \f[C]--prealloc-wipe-disks\f[],
 \f[C]--uid-pool\f[], \f[C]--node-parameters\f[],
-\f[C]--master-netdev\f[], \f[C]--master-netmask\f[] and
-\f[C]--use-external-mip-script\f[] options are described in the
+\f[C]--master-netdev\f[], \f[C]--master-netmask\f[],
+\f[C]--use-external-mip-script\f[], and
+\f[C]--enabled-disk-templates\f[] options are described in the
 \f[B]init\f[] command.
 .PP
 The \f[C]--hypervisor-state\f[] and \f[C]--disk-state\f[] options are
@@ -907,8 +978,8 @@ The \f[C]-I\ (--default-iallocator)\f[] is described in the
 \f[B]init\f[] command.
 To clear the default iallocator, just pass an empty string (\[aq]\[aq]).
 .PP
-The \f[C]--specs-...\f[] and \f[C]--ipolicy-disk-templates\f[] options
-are described in the \f[B]init\f[] command.
+The \f[C]--ipolicy-...\f[] options are described in the \f[B]init\f[]
+command.
 .PP
 See \f[B]ganeti\f[](7) for a description of \f[C]--submit\f[] and other
 common options.

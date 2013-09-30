@@ -6,7 +6,7 @@
 
 {-
 
-Copyright (C) 2009, 2010, 2011, 2012 Google Inc.
+Copyright (C) 2009, 2010, 2011, 2012, 2013 Google Inc.
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -37,6 +37,7 @@ module Ganeti.HTools.Types
   , AllocPolicy(..)
   , allocPolicyFromRaw
   , allocPolicyToRaw
+  , NetworkID
   , InstanceStatus(..)
   , instanceStatusFromRaw
   , instanceStatusToRaw
@@ -69,6 +70,7 @@ module Ganeti.HTools.Types
   , opToResult
   , EvacMode(..)
   , ISpec(..)
+  , MinMaxISpecs(..)
   , IPolicy(..)
   , defIPolicy
   , rspecFromISpec
@@ -156,6 +158,9 @@ data AllocInfo = AllocInfo
 -- | Currently used, possibly to allocate, unallocable.
 type AllocStats = (AllocInfo, AllocInfo, AllocInfo)
 
+-- | The network UUID type.
+type NetworkID = String
+
 -- | Instance specification type.
 $(THH.buildObject "ISpec" "iSpec"
   [ THH.renameField "MemorySize" $ THH.simpleField C.ispecMemSize    [t| Int |]
@@ -168,12 +173,12 @@ $(THH.buildObject "ISpec" "iSpec"
 
 -- | The default minimum ispec.
 defMinISpec :: ISpec
-defMinISpec = ISpec { iSpecMemorySize = C.ipolicyDefaultsMinMemorySize
-                    , iSpecCpuCount   = C.ipolicyDefaultsMinCpuCount
-                    , iSpecDiskSize   = C.ipolicyDefaultsMinDiskSize
-                    , iSpecDiskCount  = C.ipolicyDefaultsMinDiskCount
-                    , iSpecNicCount   = C.ipolicyDefaultsMinNicCount
-                    , iSpecSpindleUse = C.ipolicyDefaultsMinSpindleUse
+defMinISpec = ISpec { iSpecMemorySize = C.ispecsMinmaxDefaultsMinMemorySize
+                    , iSpecCpuCount   = C.ispecsMinmaxDefaultsMinCpuCount
+                    , iSpecDiskSize   = C.ispecsMinmaxDefaultsMinDiskSize
+                    , iSpecDiskCount  = C.ispecsMinmaxDefaultsMinDiskCount
+                    , iSpecNicCount   = C.ispecsMinmaxDefaultsMinNicCount
+                    , iSpecSpindleUse = C.ispecsMinmaxDefaultsMinSpindleUse
                     }
 
 -- | The default standard ispec.
@@ -188,19 +193,31 @@ defStdISpec = ISpec { iSpecMemorySize = C.ipolicyDefaultsStdMemorySize
 
 -- | The default max ispec.
 defMaxISpec :: ISpec
-defMaxISpec = ISpec { iSpecMemorySize = C.ipolicyDefaultsMaxMemorySize
-                    , iSpecCpuCount   = C.ipolicyDefaultsMaxCpuCount
-                    , iSpecDiskSize   = C.ipolicyDefaultsMaxDiskSize
-                    , iSpecDiskCount  = C.ipolicyDefaultsMaxDiskCount
-                    , iSpecNicCount   = C.ipolicyDefaultsMaxNicCount
-                    , iSpecSpindleUse = C.ipolicyDefaultsMaxSpindleUse
+defMaxISpec = ISpec { iSpecMemorySize = C.ispecsMinmaxDefaultsMaxMemorySize
+                    , iSpecCpuCount   = C.ispecsMinmaxDefaultsMaxCpuCount
+                    , iSpecDiskSize   = C.ispecsMinmaxDefaultsMaxDiskSize
+                    , iSpecDiskCount  = C.ispecsMinmaxDefaultsMaxDiskCount
+                    , iSpecNicCount   = C.ispecsMinmaxDefaultsMaxNicCount
+                    , iSpecSpindleUse = C.ispecsMinmaxDefaultsMaxSpindleUse
                     }
+
+-- | Minimum and maximum instance specs type.
+$(THH.buildObject "MinMaxISpecs" "minMaxISpecs"
+  [ THH.renameField "MinSpec" $ THH.simpleField "min" [t| ISpec |]
+  , THH.renameField "MaxSpec" $ THH.simpleField "max" [t| ISpec |]
+  ])
+
+-- | Defult minimum and maximum instance specs.
+defMinMaxISpecs :: [MinMaxISpecs]
+defMinMaxISpecs = [MinMaxISpecs { minMaxISpecsMinSpec = defMinISpec
+                                , minMaxISpecsMaxSpec = defMaxISpec
+                                }]
 
 -- | Instance policy type.
 $(THH.buildObject "IPolicy" "iPolicy"
-  [ THH.renameField "StdSpec" $ THH.simpleField C.ispecsStd [t| ISpec |]
-  , THH.renameField "MinSpec" $ THH.simpleField C.ispecsMin [t| ISpec |]
-  , THH.renameField "MaxSpec" $ THH.simpleField C.ispecsMax [t| ISpec |]
+  [ THH.renameField "MinMaxISpecs" $
+      THH.simpleField C.ispecsMinmax [t| [MinMaxISpecs] |]
+  , THH.renameField "StdSpec" $ THH.simpleField C.ispecsStd [t| ISpec |]
   , THH.renameField "DiskTemplates" $
       THH.simpleField C.ipolicyDts [t| [DiskTemplate] |]
   , THH.renameField "VcpuRatio" $
@@ -218,9 +235,8 @@ rspecFromISpec ispec = RSpec { rspecCpu = iSpecCpuCount ispec
 
 -- | The default instance policy.
 defIPolicy :: IPolicy
-defIPolicy = IPolicy { iPolicyStdSpec = defStdISpec
-                     , iPolicyMinSpec = defMinISpec
-                     , iPolicyMaxSpec = defMaxISpec
+defIPolicy = IPolicy { iPolicyMinMaxISpecs = defMinMaxISpecs
+                     , iPolicyStdSpec = defStdISpec
                      -- hardcoding here since Constants.hs exports the
                      -- string values, not the actual type; and in
                      -- htools, we are mostly looking at DRBD
@@ -370,9 +386,11 @@ $(THH.declareSADT "AutoRepairType"
 
 -- | The possible auto-repair results.
 $(THH.declareSADT "AutoRepairResult"
-       [ ("ArSuccess", 'C.autoRepairSuccess)
+       -- Order is important here: higher results take precedence when an object
+       -- has several result annotations attached.
+       [ ("ArEnoperm", 'C.autoRepairEnoperm)
+       , ("ArSuccess", 'C.autoRepairSuccess)
        , ("ArFailure", 'C.autoRepairFailure)
-       , ("ArEnoperm", 'C.autoRepairEnoperm)
        ])
 
 -- | The possible auto-repair policy for a given instance.
@@ -389,10 +407,11 @@ data AutoRepairSuspendTime = Forever         -- ^ Permanently suspended
 
 -- | The possible auto-repair states for any given instance.
 data AutoRepairStatus
-  = ArHealthy                      -- ^ No problems detected with the instance
+  = ArHealthy (Maybe AutoRepairData) -- ^ No problems detected with the instance
   | ArNeedsRepair AutoRepairData   -- ^ Instance has problems, no action taken
   | ArPendingRepair AutoRepairData -- ^ Repair jobs ongoing for the instance
   | ArFailedRepair AutoRepairData  -- ^ Some repair jobs for the instance failed
+  deriving (Eq, Show)
 
 -- | The data accompanying a repair operation (future, pending, or failed).
 data AutoRepairData = AutoRepairData { arType :: AutoRepairType
@@ -400,4 +419,6 @@ data AutoRepairData = AutoRepairData { arType :: AutoRepairType
                                      , arTime :: ClockTime
                                      , arJobs :: [JobId]
                                      , arResult :: Maybe AutoRepairResult
+                                     , arTag :: String
                                      }
+                    deriving (Eq, Show)

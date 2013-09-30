@@ -78,8 +78,8 @@
 <p>The <code>--early-release</code> changes the code so that the old storage on node being evacuated is removed early (before the resync is completed) and the internal Ganeti locks are also released for both the current secondary and the new secondary, thus allowing more parallelism in the cluster operation. This should be used only when recovering from a disk failure on the current secondary (thus the old storage is already broken) or when the storage on the primary node is known to be fine (thus we won't need the old storage for potential recovery).</p>
 <p>Note that this command is equivalent to using per-instance commands for each affected instance individually:</p>
 <ul>
-<li><code>--primary-only</code> is equivalent to <code>gnt-instance failover/migration</code> for non-DRBD instances, but for DRBD instances it's different, and usually is a slow process (it will change the primary to another node while keeping the secondary, this requiring data copies, whereas failover/migrate will only toggle the primary/secondary roles, a fast process)</li>
-<li><code>--secondary-only</code> is equivalent to <code>gnt-instance replace-disks</code> in the secondary node change mode (only valid for DRBD instances)</li>
+<li><code>--primary-only</code> is equivalent to performing <code>gnt-instance migrate</code> for every primary instance running on the node that can be migrated and <code>gnt-instance failover</code> for every primary instance that cannot be migrated.</li>
+<li><code>--secondary-only</code> is equivalent to <code>gnt-instance replace-disks</code> in secondary node change mode (<code>--new-secondary</code>) for every DRBD instance that the node is a secondary for.</li>
 <li>when neither of the above is done a combination of the two cases is run</li>
 </ul>
 <p>See <strong>ganeti</strong>(7) for a description of <code>--submit</code> and other common options.</p>

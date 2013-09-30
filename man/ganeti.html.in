@@ -28,6 +28,7 @@
 <li><a href="#common-command-line-features">Common command line features</a><ul>
 <li><a href="#options">Options</a></li>
 <li><a href="#defaults">Defaults</a></li>
+<li><a href="#debug-options">Debug options</a></li>
 </ul></li>
 <li><a href="#field-formatting">Field formatting</a><ul>
 <li><a href="#key-value-parameters">Key-value parameters</a></li>
@@ -173,6 +174,9 @@
 <h2 id="defaults"><a href="#TOC">Defaults</a></h2>
 <p>For certain commands you can use environment variables to provide default command line arguments. Just assign the arguments as a string to the corresponding environment variable. The format of that variable name is <strong>binary</strong>_<em>command</em>. <strong>binary</strong> is the name of the <code>gnt-*</code> script all upper case and dashes replaced by underscores, and <em>command</em> is the command invoked on that script.</p>
 <p>Currently supported commands are <code>gnt-node list</code>, <code>gnt-group list</code> and <code>gnt-instance list</code>. So you can configure default command line flags by setting <code>GNT_NODE_LIST</code>, <code>GNT_GROUP_LIST</code> and <code>GNT_INSTANCE_LIST</code>.</p>
+<h2 id="debug-options"><a href="#TOC">Debug options</a></h2>
+<p>If the variable <code>FORCE_LUXI_SOCKET</code> is set, it will override the socket used for LUXI connections by command-line tools (<code>gnt-*</code>). This is useful mostly for debugging, and some operations won't work at all if, for example, you point this variable to the confd-supplied query socket and try to submit a job.</p>
+<p>If the variable is set to the value <code>master</code>, it will connect to the correct path for the master daemon (even if, for example, split queries are enabled and this is a query operation). If set to <code>query</code>, it will always (try to) connect to the query socket, even if split queries are disabled. Otherwise, the value is taken to represent a filesystem path to the socket to use.</p>
 <h1 id="field-formatting"><a href="#TOC">Field formatting</a></h1>
 <p>Multiple ganeti commands use the same framework for tabular listing of resources (e.g. <strong>gnt-instance list</strong>, <strong>gnt-node list</strong>, <strong>gnt-group list</strong>, <strong>gnt-debug locks</strong>, etc.). For these commands, special states are denoted via a special symbol (in terse mode) or a string (in verbose mode):</p>
 <dl>

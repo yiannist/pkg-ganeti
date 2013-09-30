@@ -74,12 +74,12 @@ instance Arbitrary OpCodes.DiskIndex where
 
 instance Arbitrary INicParams where
   arbitrary = INicParams <$> genMaybe genNameNE <*> genMaybe genName <*>
-              genMaybe genNameNE <*> genMaybe genNameNE
+              genMaybe genNameNE <*> genMaybe genNameNE <*> genMaybe genNameNE
 
 instance Arbitrary IDiskParams where
   arbitrary = IDiskParams <$> arbitrary <*> arbitrary <*>
               genMaybe genNameNE <*> genMaybe genNameNE <*>
-              genMaybe genNameNE
+              genMaybe genNameNE <*> genMaybe genNameNE
 
 instance Arbitrary RecreateDisksInfo where
   arbitrary = oneof [ pure RecreateDisksAll
@@ -116,7 +116,8 @@ instance Arbitrary OpCodes.OpCode where
           genMaybe genNodeNameNE <*> genMaybe genNameNE
       "OP_INSTANCE_FAILOVER" ->
         OpCodes.OpInstanceFailover <$> genFQDN <*> arbitrary <*> arbitrary <*>
-          genMaybe genNodeNameNE <*> arbitrary <*> genMaybe genNameNE
+          genMaybe genNodeNameNE <*> arbitrary <*> genMaybe genNameNE <*>
+          arbitrary
       "OP_INSTANCE_MIGRATE" ->
         OpCodes.OpInstanceMigrate <$> genFQDN <*> arbitrary <*> arbitrary <*>
           genMaybe genNodeNameNE <*> arbitrary <*>
@@ -152,7 +153,7 @@ instance Arbitrary OpCodes.OpCode where
       "OP_CLUSTER_RENAME" ->
         OpCodes.OpClusterRename <$> genNameNE
       "OP_CLUSTER_SET_PARAMS" ->
-        OpCodes.OpClusterSetParams <$> emptyMUD <*> emptyMUD <*>
+        OpCodes.OpClusterSetParams <$> arbitrary <*> emptyMUD <*> emptyMUD <*>
           arbitrary <*> genMaybe (listOf1 arbitrary >>= mkNonEmpty) <*>
           genMaybe genEmptyContainer <*> emptyMUD <*>
           genMaybe genEmptyContainer <*> genMaybe genEmptyContainer <*>
@@ -161,7 +162,7 @@ instance Arbitrary OpCodes.OpCode where
           arbitrary <*> arbitrary <*> arbitrary <*>
           emptyMUD <*> emptyMUD <*> arbitrary <*>
           arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*>
-          arbitrary <*> arbitrary <*> arbitrary
+          arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
       "OP_CLUSTER_REDIST_CONF" -> pure OpCodes.OpClusterRedistConf
       "OP_CLUSTER_ACTIVATE_MASTER_IP" ->
         pure OpCodes.OpClusterActivateMasterIp
@@ -261,8 +262,9 @@ instance Arbitrary OpCodes.OpCode where
         OpCodes.OpInstanceSetParams <$> genFQDN <*> arbitrary <*>
           arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*>
           pure emptyJSObject <*> arbitrary <*> pure emptyJSObject <*>
-          arbitrary <*> genMaybe genNodeNameNE <*> genMaybe genNameNE <*>
-          pure emptyJSObject <*> arbitrary <*> arbitrary <*> arbitrary
+          arbitrary <*> genMaybe genNodeNameNE <*> genMaybe genNodeNameNE <*>
+          genMaybe genNameNE <*> pure emptyJSObject <*> arbitrary <*>
+          arbitrary <*> arbitrary
       "OP_INSTANCE_GROW_DISK" ->
         OpCodes.OpInstanceGrowDisk <$> genFQDN <*> arbitrary <*>
           arbitrary <*> arbitrary <*> arbitrary
@@ -341,9 +343,20 @@ instance Arbitrary OpCodes.OpCode where
           genNameNE
       _ -> fail $ "Undefined arbitrary for opcode " ++ op_id
 
+-- | Generates one element of a reason trail
+genReasonElem :: Gen ReasonElem
+genReasonElem = (,,) <$> genFQDN <*> genFQDN <*> arbitrary
+
+-- | Generates a reason trail
+genReasonTrail :: Gen ReasonTrail
+genReasonTrail = do
+  size <- choose (0, 10)
+  vectorOf size genReasonElem
+
 instance Arbitrary OpCodes.CommonOpParams where
   arbitrary = OpCodes.CommonOpParams <$> arbitrary <*> arbitrary <*>
-                arbitrary <*> resize 5 arbitrary <*> genMaybe genName
+                arbitrary <*> resize 5 arbitrary <*> genMaybe genName <*>
+                genReasonTrail
 
 -- * Helper functions
 

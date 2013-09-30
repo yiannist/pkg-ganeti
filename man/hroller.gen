@@ -21,6 +21,8 @@ Backend options:
 
 Algorithm options:
 
+**[ -G *name* ]**
+
 **[ -O *name...* ]**
 
 Reporting options:
@@ -34,6 +36,10 @@ DESCRIPTION
 hroller is a cluster maintenance reboot scheduler. It can calculate
 which set of nodes can be rebooted at the same time while avoiding
 having both primary and secondary nodes being rebooted at the same time.
+
+For backends that support identifying the master node (currenlty
+RAPI and LUXI), the master node is scheduled as the last node
+in the last reboot group.
 
 ALGORITHM FOR CALCULATING OFFLINE REBOOT GROUPS
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -49,17 +55,12 @@ OPTIONS
 -------
 
 Currently only standard htools options are supported. For a description of them
-check **htools**\(7) and **hbal**\(1).
+check **htools**\(1) and **hbal**\(1).
 
 BUGS
 ----
 
-The master node should be always the last node of the last group, or anyway
-somehow easily identifiable. Right now this is not done.
-
 Offline nodes should be ignored.
-
-Filtering by nodegroup should be allowed.
 
 If instances are online the tool should refuse to do offline rolling
 maintenances, unless explicitly requested.
@@ -73,15 +74,14 @@ should support them both with and without secondary node replacement.
 EXAMPLE
 -------
 
-Note that these examples may not for the latest version.
-
 Offline Rolling node reboot output
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 With the default options, the program shows one reboot group per line as
 a comma-separated list.
+::
 
-    $ hroller
+    $ hroller -L
     'Node Reboot Groups'
     node1.example.com,node3.example.com,node5.example.com
     node8.example.com,node6.example.com,node2.example.com

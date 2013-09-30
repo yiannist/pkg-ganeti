@@ -8,7 +8,7 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Developer notes &mdash; Ganeti 2.7.1 documentation</title>
+    <title>Developer notes &mdash; Ganeti 2.8.0 documentation</title>
     
     <link rel="stylesheet" href="_static/style.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
@@ -16,7 +16,7 @@
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.7.1',
+        VERSION:     '2.8.0',
         COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -25,21 +25,21 @@
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti 2.7.1 documentation" href="index.html" />
-    <link rel="next" title="News" href="news.html" />
-    <link rel="prev" title="OVF converter" href="ovfconverter.html" /> 
+    <link rel="top" title="Ganeti 2.8.0 documentation" href="index.html" />
+    <link rel="next" title="Glossary" href="glossary.html" />
+    <link rel="prev" title="Design for virtual clusters support" href="design-virtual-clusters.html" /> 
   </head>
   <body>
     <div class="related">
       <h3>Navigation</h3>
       <ul>
         <li class="right" style="margin-right: 10px">
-          <a href="news.html" title="News"
+          <a href="glossary.html" title="Glossary"
              accesskey="N">next</a></li>
         <li class="right" >
-          <a href="ovfconverter.html" title="OVF converter"
+          <a href="design-virtual-clusters.html" title="Design for virtual clusters support"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.7.1 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.8.0 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -67,6 +67,7 @@
 <li><a class="reference external" href="http://www.logilab.org/857">pylint</a> and its associated
 dependencies</li>
 <li><a class="reference external" href="https://github.com/jcrocholl/pep8/">pep8</a></li>
+<li><a class="reference external" href="http://pyyaml.org/">PyYAML</a></li>
 </ul>
 <p>For older developement (Ganeti &lt; 2.4) <tt class="docutils literal"><span class="pre">docbook</span></tt> was used instead
 <tt class="docutils literal"><span class="pre">pandoc</span></tt>.</p>
@@ -85,13 +86,14 @@ astng 0.23.1, common 0.58.0
 <p>Both these versions are the ones shipped with Debian Wheezy.</p>
 <p>To generate unittest coverage reports (<tt class="docutils literal"><span class="pre">make</span> <span class="pre">coverage</span></tt>), <a class="reference external" href="http://pypi.python.org/pypi/coverage">coverage</a> needs to be installed.</p>
 <p>Installation of all dependencies listed here:</p>
-<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">apt-get</span> <span class="gs">install</span> <span class="gs">python-setuptools</span>
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">apt-get</span> <span class="gs">install</span> <span class="gs">python-setuptools</span> <span class="gs">automake</span> <span class="gs">git</span> <span class="gs">fakeroot</span>
 $ <span class="gs">apt-get</span> <span class="gs">install</span> <span class="gs">pandoc</span> <span class="gs">python-epydoc</span> <span class="gs">graphviz</span>
+$ <span class="gs">apt-get</span> <span class="gs">install</span> <span class="gs">python-yaml</span>
 $ <span class="gs">cd</span> <span class="gs">/</span> <span class="gs">&amp;&amp;</span> <span class="gs">sudo</span> <span class="gs">easy_install</span> <span class="gs">\</span>
           <span class="gs">sphinx</span> <span class="gs">\</span>
-          <span class="gs">logilab-astng==0.25.1</span> <span class="gs">\</span>
+          <span class="gs">logilab-astng==0.23.1</span> <span class="gs">\</span>
           <span class="gs">logilab-common==0.58.0</span> <span class="gs">\</span>
-          <span class="gs">pylint==0.23.1</span> <span class="gs">\</span>
+          <span class="gs">pylint==0.25.1</span> <span class="gs">\</span>
           <span class="gs">pep8==1.2</span> <span class="gs">\</span>
           <span class="gs">coverage</span>
 </pre></div>
@@ -271,11 +273,11 @@ for reloading the OpenSSH daemon&#8217;s host keys.</p>
 </ul>
 
   <h4>Previous topic</h4>
-  <p class="topless"><a href="ovfconverter.html"
-                        title="previous chapter">OVF converter</a></p>
+  <p class="topless"><a href="design-virtual-clusters.html"
+                        title="previous chapter">Design for virtual clusters support</a></p>
   <h4>Next topic</h4>
-  <p class="topless"><a href="news.html"
-                        title="next chapter">News</a></p>
+  <p class="topless"><a href="glossary.html"
+                        title="next chapter">Glossary</a></p>
   <h3>This Page</h3>
   <ul class="this-page-menu">
     <li><a href="_sources/devnotes.txt"
@@ -302,12 +304,12 @@ for reloading the OpenSSH daemon&#8217;s host keys.</p>
       <h3>Navigation</h3>
       <ul>
         <li class="right" style="margin-right: 10px">
-          <a href="news.html" title="News"
+          <a href="glossary.html" title="Glossary"
              >next</a></li>
         <li class="right" >
-          <a href="ovfconverter.html" title="OVF converter"
+          <a href="design-virtual-clusters.html" title="Design for virtual clusters support"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.7.1 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.8.0 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

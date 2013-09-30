@@ -109,20 +109,20 @@ class TestOpcodeResource(unittest.TestCase):
     attrs = ["%s_OPCODE" % method, "%s_RENAME" % method,
              "Get%sOpInput" % method.capitalize()]
     assert attrs == dict((opattrs[0], list(opattrs[1:]))
-                         for opattrs in baserlib._OPCODE_ATTRS)[method]
+                         for opattrs in baserlib.OPCODE_ATTRS)[method]
     return attrs
 
   def test(self):
     for method in baserlib._SUPPORTED_METHODS:
       # Empty handler
-      obj = self._MakeClass(method, {})(None, None, None)
-      for attr in itertools.chain(*baserlib._OPCODE_ATTRS):
+      obj = self._MakeClass(method, {})(None, {}, None)
+      for attr in itertools.chain(*baserlib.OPCODE_ATTRS):
         self.assertFalse(hasattr(obj, attr))
 
       # Direct handler function
       obj = self._MakeClass(method, {
         method: lambda _: None,
-        })(None, None, None)
+        })(None, {}, None)
       self.assertFalse(compat.all(hasattr(obj, attr)
                                   for i in baserlib._SUPPORTED_METHODS
                                   for attr in self._GetMethodAttributes(i)))
@@ -131,7 +131,7 @@ class TestOpcodeResource(unittest.TestCase):
       for opcls in [None, object()]:
         obj = self._MakeClass(method, {
           "%s_OPCODE" % method: opcls,
-          })(None, None, None)
+          })(None, {}, None)
         self.assertTrue(callable(getattr(obj, method)))
         self.assertEqual(getattr(obj, "%s_OPCODE" % method), opcls)
         self.assertFalse(hasattr(obj, "%s_RENAME" % method))
@@ -151,9 +151,9 @@ class TestOpcodeResource(unittest.TestCase):
     class _Empty(baserlib.OpcodeResource):
       pass
 
-    obj = _Empty(None, None, None)
+    obj = _Empty(None, {}, None)
 
-    for attr in itertools.chain(*baserlib._OPCODE_ATTRS):
+    for attr in itertools.chain(*baserlib.OPCODE_ATTRS):
       self.assertFalse(hasattr(obj, attr))
 
 

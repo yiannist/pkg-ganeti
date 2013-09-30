@@ -54,6 +54,7 @@ def TestGanetiCommands():
           ["ganeti-rapi", "--version"],
           ["ganeti-watcher", "--version"],
           ["ganeti-confd", "--version"],
+          ["ganeti-luxid", "--version"],
           )
 
   cmd = " && ".join([utils.ShellQuoteArgs(i) for i in cmds])
@@ -75,9 +76,9 @@ def TestIcmpPing():
   pricmd = [pingprimary, "-e"]
   seccmd = [pingsecondary, "-e"]
   for i in nodes:
-    pricmd.append(i["primary"])
-    if "secondary" in i:
-      seccmd.append(i["secondary"])
+    pricmd.append(i.primary)
+    if i.secondary:
+      seccmd.append(i.secondary)
 
   pristr = utils.ShellQuoteArgs(pricmd)
   if seccmd:

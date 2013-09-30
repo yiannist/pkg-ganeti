@@ -8,7 +8,7 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Splitting the query and job execution paths &mdash; Ganeti 2.7.1 documentation</title>
+    <title>Splitting the query and job execution paths &mdash; Ganeti 2.8.0 documentation</title>
     
     <link rel="stylesheet" href="_static/style.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
@@ -16,7 +16,7 @@
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.7.1',
+        VERSION:     '2.8.0',
         COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -25,9 +25,9 @@
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti 2.7.1 documentation" href="index.html" />
+    <link rel="top" title="Ganeti 2.8.0 documentation" href="index.html" />
     <link rel="up" title="Design document drafts" href="design-draft.html" />
-    <link rel="next" title="Instance auto-repair" href="design-autorepair.html" />
+    <link rel="next" title="Partitioned Ganeti" href="design-partitioned.html" />
     <link rel="prev" title="Resource model changes" href="design-resource-model.html" /> 
   </head>
   <body>
@@ -35,12 +35,12 @@
       <h3>Navigation</h3>
       <ul>
         <li class="right" style="margin-right: 10px">
-          <a href="design-autorepair.html" title="Instance auto-repair"
+          <a href="design-partitioned.html" title="Partitioned Ganeti"
              accesskey="N">next</a></li>
         <li class="right" >
           <a href="design-resource-model.html" title="Resource model changes"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.7.1 documentation</a> &raquo;</li>
+        <li><a href="index.html">Ganeti 2.8.0 documentation</a> &raquo;</li>
           <li><a href="design-draft.html" accesskey="U">Design document drafts</a> &raquo;</li> 
       </ul>
     </div>  
@@ -115,7 +115,7 @@ the instance console), to a split model:</p>
 <li>if just masterd is stopped, then other cluster functionality remains
 available: listing instances, connecting to the console of an
 instance, etc.</li>
-<li>if just &#8220;queryd&#8221; is stopped, masterd can still process jobs, and one
+<li>if just &#8220;luxid&#8221; is stopped, masterd can still process jobs, and one
 can furthermore run queries from other nodes (MCs)</li>
 <li>only if both are stopped, we end up with the previous state</li>
 </ul>
@@ -170,11 +170,11 @@ one. As advantages, we&#8217;ll have a single daemons that handles
 configuration queries.</p>
 <p>The redirection of Luxi requests can be easily done based on the
 request type, if we have both sockets open, or if we open on demand.</p>
-<p>We don&#8217;t want the masterd to talk to the queryd itself (hidden
+<p>We don&#8217;t want the masterd to talk to the luxid itself (hidden
 redirection), since we want to be able to run queries while masterd is
 down.</p>
 <p>During the 2.7 release cycle, we can test all queries against both
-masterd and queryd in QA, so we know we have exactly the same
+masterd and luxid in QA, so we know we have exactly the same
 interface and it is consistent.</p>
 </div>
 </div>
@@ -207,8 +207,8 @@ interface and it is consistent.</p>
   <p class="topless"><a href="design-resource-model.html"
                         title="previous chapter">Resource model changes</a></p>
   <h4>Next topic</h4>
-  <p class="topless"><a href="design-autorepair.html"
-                        title="next chapter">Instance auto-repair</a></p>
+  <p class="topless"><a href="design-partitioned.html"
+                        title="next chapter">Partitioned Ganeti</a></p>
   <h3>This Page</h3>
   <ul class="this-page-menu">
     <li><a href="_sources/design-query-splitting.txt"
@@ -235,12 +235,12 @@ interface and it is consistent.</p>
       <h3>Navigation</h3>
       <ul>
         <li class="right" style="margin-right: 10px">
-          <a href="design-autorepair.html" title="Instance auto-repair"
+          <a href="design-partitioned.html" title="Partitioned Ganeti"
              >next</a></li>
         <li class="right" >
           <a href="design-resource-model.html" title="Resource model changes"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.7.1 documentation</a> &raquo;</li>
+        <li><a href="index.html">Ganeti 2.8.0 documentation</a> &raquo;</li>
           <li><a href="design-draft.html" >Design document drafts</a> &raquo;</li> 
       </ul>
     </div>
