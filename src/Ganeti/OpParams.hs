@@ -116,6 +116,7 @@ module Ganeti.OpParams
   , pAddUids
   , pRemoveUids
   , pMaintainNodeHealth
+  , pModifyEtcHosts
   , pPreallocWipeDisks
   , pNicParams
   , pInstNics
@@ -236,6 +237,8 @@ module Ganeti.OpParams
   , pOpPriority
   , pDependencies
   , pComment
+  , pReason
+  , pEnabledDiskTemplates
   , dOldQuery
   , dOldQueryNoLocking
   ) where
@@ -401,6 +404,7 @@ $(buildObject "INicParams" "inic"
   , optionalField $ simpleField C.inicIp   [t| String         |]
   , optionalField $ simpleField C.inicMode [t| NonEmptyString |]
   , optionalField $ simpleField C.inicLink [t| NonEmptyString |]
+  , optionalField $ simpleField C.inicName [t| NonEmptyString |]
   ])
 
 -- | Disk modification definition. FIXME: disksize should be VTYPE_UNIT.
@@ -410,6 +414,7 @@ $(buildObject "IDiskParams" "idisk"
   , optionalField $ simpleField C.idiskAdopt  [t| NonEmptyString |]
   , optionalField $ simpleField C.idiskVg     [t| NonEmptyString |]
   , optionalField $ simpleField C.idiskMetavg [t| NonEmptyString |]
+  , optionalField $ simpleField C.idiskName   [t| NonEmptyString |]
   ])
 
 -- | Disk changes type for OpInstanceRecreateDisks. This is a bit
@@ -757,6 +762,12 @@ pEnabledHypervisors =
   optionalField $
   simpleField "enabled_hypervisors" [t| NonEmpty Hypervisor |]
 
+-- | List of enabled disk templates.
+pEnabledDiskTemplates :: Field
+pEnabledDiskTemplates =
+  optionalField $
+  simpleField "enabled_disk_templates" [t| NonEmpty DiskTemplate |]
+
 -- | Selected hypervisor for an instance.
 pHypervisor :: Field
 pHypervisor =
@@ -854,6 +865,10 @@ pRemoveUids = optionalField $ simpleField "remove_uids" [t| [[(Int, Int)]] |]
 -- | Whether to automatically maintain node health.
 pMaintainNodeHealth :: Field
 pMaintainNodeHealth = optionalField $ booleanField "maintain_node_health"
+
+-- | Whether to modify and keep in sync the @/etc/hosts@ files of nodes.
+pModifyEtcHosts :: Field
+pModifyEtcHosts = optionalField $ booleanField "modify_etc_hosts"
 
 -- | Whether to wipe disks before allocating them to instances.
 pPreallocWipeDisks :: Field
@@ -1434,6 +1449,10 @@ pDependencies =
 -- | Comment field.
 pComment :: Field
 pComment = optionalNullSerField $ stringField "comment"
+
+-- | Reason trail field.
+pReason :: Field
+pReason = simpleField C.opcodeReason [t| ReasonTrail |]
 
 -- * Entire opcode parameter list
 

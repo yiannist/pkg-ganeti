@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -445,6 +445,35 @@ class ConfigWriter:
         lvnames.update(lv_list)
     return lvnames
 
+  def _AllDisks(self):
+    """Compute the list of all Disks (recursively, including children).
+
+    """
+    def DiskAndAllChildren(disk):
+      """Returns a list containing the given disk and all of his children.
+
+      """
+      disks = [disk]
+      if disk.children:
+        for child_disk in disk.children:
+          disks.extend(DiskAndAllChildren(child_disk))
+      return disks
+
+    disks = []
+    for instance in self._config_data.instances.values():
+      for disk in instance.disks:
+        disks.extend(DiskAndAllChildren(disk))
+    return disks
+
+  def _AllNICs(self):
+    """Compute the list of all NICs.
+
+    """
+    nics = []
+    for instance in self._config_data.instances.values():
+      nics.extend(instance.nics)
+    return nics
+
   def _AllIDs(self, include_temporary):
     """Compute the list of all UUIDs and names we have.
 
@@ -577,12 +606,20 @@ class ConfigWriter:
     invalid_hvs = set(cluster.enabled_hypervisors) - constants.HYPER_TYPES
     if invalid_hvs:
       result.append("enabled hypervisors contains invalid entries: %s" %
-                    invalid_hvs)
+                    utils.CommaJoin(invalid_hvs))
     missing_hvp = (set(cluster.enabled_hypervisors) -
                    set(cluster.hvparams.keys()))
     if missing_hvp:
       result.append("hypervisor parameters missing for the enabled"
                     " hypervisor(s) %s" % utils.CommaJoin(missing_hvp))
+
+    if not cluster.enabled_disk_templates:
+      result.append("enabled disk templates list doesn't have any entries")
+    invalid_disk_templates = set(cluster.enabled_disk_templates) \
+                               - constants.DISK_TEMPLATES
+    if invalid_disk_templates:
+      result.append("enabled disk templates list contains invalid entries:"
+                    " %s" % utils.CommaJoin(invalid_disk_templates))
 
     if cluster.master_node not in data.nodes:
       result.append("cluster has invalid primary node '%s'" %
@@ -600,17 +637,18 @@ class ConfigWriter:
       except errors.ConfigurationError, err:
         result.append("%s has invalid nicparams: %s" % (owner, err))
 
-    def _helper_ipolicy(owner, params, check_std):
+    def _helper_ipolicy(owner, ipolicy, iscluster):
       try:
-        objects.InstancePolicy.CheckParameterSyntax(params, check_std)
+        objects.InstancePolicy.CheckParameterSyntax(ipolicy, iscluster)
       except errors.ConfigurationError, err:
         result.append("%s has invalid instance policy: %s" % (owner, err))
-
-    def _helper_ispecs(owner, params):
-      for key, value in params.items():
-        if key in constants.IPOLICY_ISPECS:
-          fullkey = "ipolicy/" + key
-          _helper(owner, fullkey, value, constants.ISPECS_PARAMETER_TYPES)
+      for key, value in ipolicy.items():
+        if key == constants.ISPECS_MINMAX:
+          for k in range(len(value)):
+            _helper_ispecs(owner, "ipolicy/%s[%s]" % (key, k), value[k])
+        elif key == constants.ISPECS_STD:
+          _helper(owner, "ipolicy/" + key, value,
+                  constants.ISPECS_PARAMETER_TYPES)
         else:
           # FIXME: assuming list type
           if key in constants.IPOLICY_PARAMETERS:
@@ -622,6 +660,11 @@ class ConfigWriter:
                           " expecting %s, got %s" %
                           (owner, key, exp_type.__name__, type(value)))
 
+    def _helper_ispecs(owner, parentkey, params):
+      for (key, value) in params.items():
+        fullkey = "/".join([parentkey, key])
+        _helper(owner, fullkey, value, constants.ISPECS_PARAMETER_TYPES)
+
     # check cluster parameters
     _helper("cluster", "beparams", cluster.SimpleFillBE({}),
             constants.BES_PARAMETER_TYPES)
@@ -630,8 +673,7 @@ class ConfigWriter:
     _helper_nic("cluster", cluster.SimpleFillNIC({}))
     _helper("cluster", "ndparams", cluster.SimpleFillND({}),
             constants.NDS_PARAMETER_TYPES)
-    _helper_ipolicy("cluster", cluster.SimpleFillIPolicy({}), True)
-    _helper_ispecs("cluster", cluster.SimpleFillIPolicy({}))
+    _helper_ipolicy("cluster", cluster.ipolicy, True)
 
     # per-instance checks
     for instance_name in data.instances:
@@ -658,6 +700,11 @@ class ConfigWriter:
           _helper(owner, "nicparams",
                   filled, constants.NICS_PARAMETER_TYPES)
           _helper_nic(owner, filled)
+
+      # disk template checks
+      if not instance.disk_template in data.cluster.enabled_disk_templates:
+        result.append("instance '%s' uses the disabled disk template '%s'." %
+                      (instance_name, instance.disk_template))
 
       # parameter checks
       if instance.beparams:
@@ -762,7 +809,6 @@ class ConfigWriter:
       group_name = "group %s" % nodegroup.name
       _helper_ipolicy(group_name, cluster.SimpleFillIPolicy(nodegroup.ipolicy),
                       False)
-      _helper_ispecs(group_name, cluster.SimpleFillIPolicy(nodegroup.ipolicy))
       if nodegroup.ndparams:
         _helper(group_name, "ndparams",
                 cluster.SimpleFillND(nodegroup.ndparams),
@@ -1144,7 +1190,7 @@ class ConfigWriter:
     return self._config_data.cluster.enabled_hypervisors[0]
 
   @locking.ssynchronized(_config_lock, shared=1)
-  def GetHostKey(self):
+  def GetRsaHostKey(self):
     """Return the rsa hostkey from the config.
 
     @rtype: string
@@ -1152,6 +1198,16 @@ class ConfigWriter:
 
     """
     return self._config_data.cluster.rsahostkeypub
+
+  @locking.ssynchronized(_config_lock, shared=1)
+  def GetDsaHostKey(self):
+    """Return the dsa hostkey from the config.
+
+    @rtype: string
+    @return: the dsa hostkey
+
+    """
+    return self._config_data.cluster.dsahostkeypub
 
   @locking.ssynchronized(_config_lock, shared=1)
   def GetDefaultIAllocator(self):
@@ -1401,19 +1457,27 @@ class ConfigWriter:
       raise errors.ConfigurationError("Cannot add '%s': UUID %s already"
                                       " in use" % (item.name, item.uuid))
 
-  def _SetInstanceStatus(self, instance_name, status):
+  def _SetInstanceStatus(self, instance_name, status, disks_active):
     """Set the instance's status to a given value.
 
     """
-    assert status in constants.ADMINST_ALL, \
-           "Invalid status '%s' passed to SetInstanceStatus" % (status,)
-
     if instance_name not in self._config_data.instances:
       raise errors.ConfigurationError("Unknown instance '%s'" %
                                       instance_name)
     instance = self._config_data.instances[instance_name]
-    if instance.admin_state != status:
+
+    if status is None:
+      status = instance.admin_state
+    if disks_active is None:
+      disks_active = instance.disks_active
+
+    assert status in constants.ADMINST_ALL, \
+           "Invalid status '%s' passed to SetInstanceStatus" % (status,)
+
+    if instance.admin_state != status or \
+       instance.disks_active != disks_active:
       instance.admin_state = status
+      instance.disks_active = disks_active
       instance.serial_no += 1
       instance.mtime = time.time()
       self._WriteConfig()
@@ -1422,15 +1486,19 @@ class ConfigWriter:
   def MarkInstanceUp(self, instance_name):
     """Mark the instance status to up in the config.
 
+    This also sets the instance disks active flag.
+
     """
-    self._SetInstanceStatus(instance_name, constants.ADMINST_UP)
+    self._SetInstanceStatus(instance_name, constants.ADMINST_UP, True)
 
   @locking.ssynchronized(_config_lock)
   def MarkInstanceOffline(self, instance_name):
     """Mark the instance status to down in the config.
 
+    This also clears the instance disks active flag.
+
     """
-    self._SetInstanceStatus(instance_name, constants.ADMINST_OFFLINE)
+    self._SetInstanceStatus(instance_name, constants.ADMINST_OFFLINE, False)
 
   @locking.ssynchronized(_config_lock)
   def RemoveInstance(self, instance_name):
@@ -1496,8 +1564,25 @@ class ConfigWriter:
   def MarkInstanceDown(self, instance_name):
     """Mark the status of an instance to down in the configuration.
 
+    This does not touch the instance disks active flag, as shut down instances
+    can still have active disks.
+
     """
-    self._SetInstanceStatus(instance_name, constants.ADMINST_DOWN)
+    self._SetInstanceStatus(instance_name, constants.ADMINST_DOWN, None)
+
+  @locking.ssynchronized(_config_lock)
+  def MarkInstanceDisksActive(self, instance_name):
+    """Mark the status of instance disks active.
+
+    """
+    self._SetInstanceStatus(instance_name, None, True)
+
+  @locking.ssynchronized(_config_lock)
+  def MarkInstanceDisksInactive(self, instance_name):
+    """Mark the status of instance disks inactive.
+
+    """
+    self._SetInstanceStatus(instance_name, None, False)
 
   def _UnlockedGetInstanceList(self):
     """Get the list of instances.
@@ -2022,6 +2107,8 @@ class ConfigWriter:
             self._config_data.nodes.values() +
             self._config_data.nodegroups.values() +
             self._config_data.networks.values() +
+            self._AllDisks() +
+            self._AllNICs() +
             [self._config_data.cluster])
 
   def _OpenConfig(self, accept_foreign):
@@ -2104,6 +2191,12 @@ class ConfigWriter:
       # This is ok even if it acquires the internal lock, as _UpgradeConfig is
       # only called at config init time, without the lock held
       self.DropECReservations(_UPGRADE_CONFIG_JID)
+    else:
+      config_errors = self._UnlockedVerifyConfig()
+      if config_errors:
+        errmsg = ("Loaded configuration data is not consistent: %s" %
+                  (utils.CommaJoin(config_errors)))
+        logging.critical(errmsg)
 
   def _DistributeConfig(self, feedback_fn):
     """Distribute the configuration to the other nodes.

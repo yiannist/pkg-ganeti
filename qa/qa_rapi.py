@@ -76,11 +76,11 @@ def Setup(username, password):
   master = qa_config.GetMasterNode()
 
   # Load RAPI certificate from master node
-  cmd = ["cat", pathutils.RAPI_CERT_FILE]
+  cmd = ["cat", qa_utils.MakeNodePath(master, pathutils.RAPI_CERT_FILE)]
 
   # Write to temporary file
   _rapi_ca = tempfile.NamedTemporaryFile()
-  _rapi_ca.write(qa_utils.GetCommandOutput(master["primary"],
+  _rapi_ca.write(qa_utils.GetCommandOutput(master.primary,
                                            utils.ShellQuoteArgs(cmd)))
   _rapi_ca.flush()
 
@@ -88,12 +88,19 @@ def Setup(username, password):
   cfg_curl = rapi.client.GenericCurlConfig(cafile=_rapi_ca.name,
                                            proxy="")
 
-  _rapi_client = rapi.client.GanetiRapiClient(master["primary"], port=port,
-                                              username=username,
-                                              password=password,
-                                              curl_config_fn=cfg_curl)
+  if qa_config.UseVirtualCluster():
+    # TODO: Implement full support for RAPI on virtual clusters
+    print qa_utils.FormatWarning("RAPI tests are not yet supported on"
+                                 " virtual clusters and will be disabled")
 
-  print "RAPI protocol version: %s" % _rapi_client.GetVersion()
+    assert _rapi_client is None
+  else:
+    _rapi_client = rapi.client.GanetiRapiClient(master.primary, port=port,
+                                                username=username,
+                                                password=password,
+                                                curl_config_fn=cfg_curl)
+
+    print "RAPI protocol version: %s" % _rapi_client.GetVersion()
 
 
 INSTANCE_FIELDS = ("name", "os", "pnode", "snodes",
@@ -126,7 +133,9 @@ def Enabled():
   """Return whether remote API tests should be run.
 
   """
-  return qa_config.TestEnabled("rapi")
+  # TODO: Implement RAPI tests for virtual clusters
+  return (qa_config.TestEnabled("rapi") and
+          not qa_config.UseVirtualCluster())
 
 
 def _DoTests(uris):
@@ -377,19 +386,19 @@ def TestInstance(instance):
       _VerifyInstance(instance_data)
 
   _DoTests([
-    ("/2/instances/%s" % instance["name"], _VerifyInstance, "GET", None),
+    ("/2/instances/%s" % instance.name, _VerifyInstance, "GET", None),
     ("/2/instances", _VerifyInstancesList, "GET", None),
     ("/2/instances?bulk=1", _VerifyInstancesBulk, "GET", None),
-    ("/2/instances/%s/activate-disks" % instance["name"],
+    ("/2/instances/%s/activate-disks" % instance.name,
      _VerifyReturnsJob, "PUT", None),
-    ("/2/instances/%s/deactivate-disks" % instance["name"],
+    ("/2/instances/%s/deactivate-disks" % instance.name,
      _VerifyReturnsJob, "PUT", None),
     ])
 
   # Test OpBackupPrepare
   (job_id, ) = _DoTests([
     ("/2/instances/%s/prepare-export?mode=%s" %
-     (instance["name"], constants.EXPORT_MODE_REMOTE),
+     (instance.name, constants.EXPORT_MODE_REMOTE),
      _VerifyReturnsJob, "PUT", None),
     ])
 
@@ -418,7 +427,7 @@ def TestNode(node):
       _VerifyNode(node_data)
 
   _DoTests([
-    ("/2/nodes/%s" % node["primary"], _VerifyNode, "GET", None),
+    ("/2/nodes/%s" % node.primary, _VerifyNode, "GET", None),
     ("/2/nodes", _VerifyNodesList, "GET", None),
     ("/2/nodes?bulk=1", _VerifyNodesBulk, "GET", None),
     ])
@@ -554,12 +563,12 @@ def TestRapiNodeGroups():
 def TestRapiInstanceAdd(node, use_client):
   """Test adding a new instance via RAPI"""
   instance = qa_config.AcquireInstance()
-  qa_config.SetInstanceTemplate(instance, constants.DT_PLAIN)
+  instance.SetDiskTemplate(constants.DT_PLAIN)
   try:
-    disk_sizes = [utils.ParseUnit(size) for size in qa_config.get("disk")]
-    disks = [{"size": size} for size in disk_sizes]
-    nic0_mac = qa_config.GetInstanceNicMac(instance,
-                                           default=constants.VALUE_GENERATE)
+    disks = [{"size": utils.ParseUnit(d.get("size")),
+              "name": str(d.get("name"))}
+             for d in qa_config.GetDiskOptions()]
+    nic0_mac = instance.GetNicMacAddr(0, constants.VALUE_GENERATE)
     nics = [{
       constants.INIC_MAC: nic0_mac,
       }]
@@ -571,20 +580,20 @@ def TestRapiInstanceAdd(node, use_client):
 
     if use_client:
       job_id = _rapi_client.CreateInstance(constants.INSTANCE_CREATE,
-                                           instance["name"],
+                                           instance.name,
                                            constants.DT_PLAIN,
                                            disks, nics,
                                            os=qa_config.get("os"),
-                                           pnode=node["primary"],
+                                           pnode=node.primary,
                                            beparams=beparams)
     else:
       body = {
         "__version__": 1,
         "mode": constants.INSTANCE_CREATE,
-        "name": instance["name"],
+        "name": instance.name,
         "os_type": qa_config.get("os"),
         "disk_template": constants.DT_PLAIN,
-        "pnode": node["primary"],
+        "pnode": node.primary,
         "beparams": beparams,
         "disks": disks,
         "nics": nics,
@@ -598,7 +607,7 @@ def TestRapiInstanceAdd(node, use_client):
 
     return instance
   except:
-    qa_config.ReleaseInstance(instance)
+    instance.Release()
     raise
 
 
@@ -606,15 +615,13 @@ def TestRapiInstanceAdd(node, use_client):
 def TestRapiInstanceRemove(instance, use_client):
   """Test removing instance via RAPI"""
   if use_client:
-    job_id = _rapi_client.DeleteInstance(instance["name"])
+    job_id = _rapi_client.DeleteInstance(instance.name)
   else:
     (job_id, ) = _DoTests([
-      ("/2/instances/%s" % instance["name"], _VerifyReturnsJob, "DELETE", None),
+      ("/2/instances/%s" % instance.name, _VerifyReturnsJob, "DELETE", None),
       ])
 
   _WaitForRapiJob(job_id)
-
-  qa_config.ReleaseInstance(instance)
 
 
 @InstanceCheck(INST_UP, INST_UP, FIRST_ARG)
@@ -625,10 +632,10 @@ def TestRapiInstanceMigrate(instance):
                               " test")
     return
   # Move to secondary node
-  _WaitForRapiJob(_rapi_client.MigrateInstance(instance["name"]))
+  _WaitForRapiJob(_rapi_client.MigrateInstance(instance.name))
   qa_utils.RunInstanceCheck(instance, True)
   # And back to previous primary
-  _WaitForRapiJob(_rapi_client.MigrateInstance(instance["name"]))
+  _WaitForRapiJob(_rapi_client.MigrateInstance(instance.name))
 
 
 @InstanceCheck(INST_UP, INST_UP, FIRST_ARG)
@@ -639,22 +646,22 @@ def TestRapiInstanceFailover(instance):
                               " test")
     return
   # Move to secondary node
-  _WaitForRapiJob(_rapi_client.FailoverInstance(instance["name"]))
+  _WaitForRapiJob(_rapi_client.FailoverInstance(instance.name))
   qa_utils.RunInstanceCheck(instance, True)
   # And back to previous primary
-  _WaitForRapiJob(_rapi_client.FailoverInstance(instance["name"]))
+  _WaitForRapiJob(_rapi_client.FailoverInstance(instance.name))
 
 
 @InstanceCheck(INST_UP, INST_DOWN, FIRST_ARG)
 def TestRapiInstanceShutdown(instance):
   """Test stopping an instance via RAPI"""
-  _WaitForRapiJob(_rapi_client.ShutdownInstance(instance["name"]))
+  _WaitForRapiJob(_rapi_client.ShutdownInstance(instance.name))
 
 
 @InstanceCheck(INST_DOWN, INST_UP, FIRST_ARG)
 def TestRapiInstanceStartup(instance):
   """Test starting an instance via RAPI"""
-  _WaitForRapiJob(_rapi_client.StartupInstance(instance["name"]))
+  _WaitForRapiJob(_rapi_client.StartupInstance(instance.name))
 
 
 @InstanceCheck(INST_DOWN, INST_DOWN, FIRST_ARG)
@@ -675,12 +682,16 @@ def TestRapiInstanceRenameAndBack(rename_source, rename_target):
 @InstanceCheck(INST_DOWN, INST_DOWN, FIRST_ARG)
 def TestRapiInstanceReinstall(instance):
   """Test reinstalling an instance via RAPI"""
-  _WaitForRapiJob(_rapi_client.ReinstallInstance(instance["name"]))
+  if instance.disk_template == constants.DT_DISKLESS:
+    print qa_utils.FormatInfo("Test not supported for diskless instances")
+    return
+
+  _WaitForRapiJob(_rapi_client.ReinstallInstance(instance.name))
   # By default, the instance is started again
   qa_utils.RunInstanceCheck(instance, True)
 
   # Reinstall again without starting
-  _WaitForRapiJob(_rapi_client.ReinstallInstance(instance["name"],
+  _WaitForRapiJob(_rapi_client.ReinstallInstance(instance.name,
                                                  no_startup=True))
 
 
@@ -692,9 +703,9 @@ def TestRapiInstanceReplaceDisks(instance):
                               " skipping test")
     return
   fn = _rapi_client.ReplaceInstanceDisks
-  _WaitForRapiJob(fn(instance["name"],
+  _WaitForRapiJob(fn(instance.name,
                      mode=constants.REPLACE_DISK_AUTO, disks=[]))
-  _WaitForRapiJob(fn(instance["name"],
+  _WaitForRapiJob(fn(instance.name,
                      mode=constants.REPLACE_DISK_SEC, disks="0"))
 
 
@@ -704,7 +715,7 @@ def TestRapiInstanceModify(instance):
   default_hv = qa_config.GetDefaultHypervisor()
 
   def _ModifyInstance(**kwargs):
-    _WaitForRapiJob(_rapi_client.ModifyInstance(instance["name"], **kwargs))
+    _WaitForRapiJob(_rapi_client.ModifyInstance(instance.name, **kwargs))
 
   _ModifyInstance(beparams={
     constants.BE_VCPUS: 3,
@@ -733,17 +744,17 @@ def TestRapiInstanceModify(instance):
 @InstanceCheck(INST_UP, INST_UP, FIRST_ARG)
 def TestRapiInstanceConsole(instance):
   """Test getting instance console information via RAPI"""
-  result = _rapi_client.GetInstanceConsole(instance["name"])
+  result = _rapi_client.GetInstanceConsole(instance.name)
   console = objects.InstanceConsole.FromDict(result)
   AssertEqual(console.Validate(), True)
-  AssertEqual(console.instance, qa_utils.ResolveInstanceName(instance["name"]))
+  AssertEqual(console.instance, qa_utils.ResolveInstanceName(instance.name))
 
 
 @InstanceCheck(INST_DOWN, INST_DOWN, FIRST_ARG)
 def TestRapiStoppedInstanceConsole(instance):
   """Test getting stopped instance's console information via RAPI"""
   try:
-    _rapi_client.GetInstanceConsole(instance["name"])
+    _rapi_client.GetInstanceConsole(instance.name)
   except rapi.client.GanetiApiError, err:
     AssertEqual(err.code, 503)
   else:
@@ -767,8 +778,7 @@ def TestInterClusterInstanceMove(src_instance, dest_instance,
   rapi_pw_file.write(_rapi_password)
   rapi_pw_file.flush()
 
-  qa_config.SetInstanceTemplate(dest_instance,
-                                qa_config.GetInstanceTemplate(src_instance))
+  dest_instance.SetDiskTemplate(src_instance.disk_template)
 
   # TODO: Run some instance tests before moving back
 
@@ -784,10 +794,10 @@ def TestInterClusterInstanceMove(src_instance, dest_instance,
   pnode = inodes[0]
   # note: pnode:snode are the *current* nodes, so we move it first to
   # tnode:pnode, then back to pnode:snode
-  for si, di, pn, sn in [(src_instance["name"], dest_instance["name"],
-                          tnode["primary"], pnode["primary"]),
-                         (dest_instance["name"], src_instance["name"],
-                          pnode["primary"], snode["primary"])]:
+  for si, di, pn, sn in [(src_instance.name, dest_instance.name,
+                          tnode.primary, pnode.primary),
+                         (dest_instance.name, src_instance.name,
+                          pnode.primary, snode.primary)]:
     cmd = [
       "../tools/move-instance",
       "--verbose",
@@ -798,8 +808,8 @@ def TestInterClusterInstanceMove(src_instance, dest_instance,
       "--dest-primary-node=%s" % pn,
       "--dest-secondary-node=%s" % sn,
       "--net=0:mac=%s" % constants.VALUE_GENERATE,
-      master["primary"],
-      master["primary"],
+      master.primary,
+      master.primary,
       si,
       ]
 

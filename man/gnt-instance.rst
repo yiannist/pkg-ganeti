@@ -28,8 +28,8 @@ ADD
 
 | **add**
 | {-t|\--disk-template {diskless | file \| plain \| drbd \| rbd}}
-| {\--disk=*N*: {size=*VAL* \| adopt=*LV*}[,vg=*VG*][,metavg=*VG*][,mode=*ro\|rw*]
-|  \| {size=*VAL*,provider=*PROVIDER*}[,param=*value*... ][,mode=*ro\|rw*]
+| {\--disk=*N*: {size=*VAL* \| adopt=*LV*}[,options...]
+|  \| {size=*VAL*,provider=*PROVIDER*}[,param=*value*... ][,options...]
 |  \| {-s|\--os-size} *SIZE*}
 | [\--no-ip-check] [\--no-name-check] [\--no-conflicts-check]
 | [\--no-start] [\--no-install]
@@ -51,15 +51,26 @@ in the same network as the nodes in the cluster.
 The ``disk`` option specifies the parameters for the disks of the
 instance. The numbering of disks starts at zero, and at least one disk
 needs to be passed. For each disk, either the size or the adoption
-source needs to be given, and optionally the access mode (read-only or
-the default of read-write). The size is interpreted (when no unit is
+source needs to be given. The size is interpreted (when no unit is
 given) in mebibytes. You can also use one of the suffixes *m*, *g* or
 *t* to specify the exact the units used; these suffixes map to
-mebibytes, gibibytes and tebibytes. For LVM and DRBD devices, the LVM
-volume group can also be specified (via the ``vg`` key). For DRBD
-devices, a different VG can be specified for the metadata device using
-the ``metavg`` key. For ExtStorage devices, also the ``provider``
-option is mandatory, to specify which ExtStorage provider to use.
+mebibytes, gibibytes and tebibytes. Each disk can also take these
+parameters (all optional):
+
+mode
+  The access mode. Either ``ro`` (read-only) or the default ``rw``
+  (read-write).
+
+name
+   this option specifies a name for the disk, which can be used as a disk
+   identifier. An instance can not have two disks with the same name.
+
+vg
+   The LVM volume group. This works only for LVM and DRBD devices.
+
+metavg
+   This options specifies a different VG for the metadata device. This
+   works only for DRBD devices
 
 When creating ExtStorage disks, also arbitrary parameters can be passed,
 to the ExtStorage provider. Those parameters are passed as additional
@@ -141,6 +152,10 @@ network
     depend on the network-to-nodegroup connection, thus allowing
     different nodegroups to be connected to the same network in
     different ways.
+
+name
+   this option specifies a name for the NIC, which can be used as a NIC
+   identifier. An instance can not have two NICs with the same name.
 
 
 Of these "mode" and "link" are NIC parameters, and inherit their
@@ -451,9 +466,16 @@ acpi
 pae
     Valid for the Xen HVM and KVM hypervisors.
 
-    A boolean option that specifies if the hypervisor should enabled
+    A boolean option that specifies if the hypervisor should enable
     PAE support for this instance. The default is false, disabling PAE
     support.
+
+viridian
+    Valid for the Xen HVM hypervisor.
+
+    A boolean option that specifies if the hypervisor should enable
+    viridian (Hyper-V) for this instance. The default is false,
+    disabling viridian support.
 
 use\_localtime
     Valid for the Xen HVM and KVM hypervisors.
@@ -731,6 +753,19 @@ kvm\_path
 
     Path to the userspace KVM (or qemu) program.
 
+vnet\_hdr
+    Valid for the KVM hypervisor.
+
+    This boolean option determines whether the tap devices used by the
+    KVM paravirtual nics (virtio-net) will get created with VNET_HDR
+    (IFF_VNET_HDR) support.
+
+    If set to false, it effectively disables offloading on the virio-net
+    interfaces, which prevents host kernel tainting and log flooding,
+    when dealing with broken or malicious virtio-net drivers.
+
+    It is set to ``true`` by default.
+
 The ``-O (--os-parameters)`` option allows customisation of the OS
 parameters. The actual parameter names and values depends on the OS
 being used, but the syntax is the same key=value. For example, setting
@@ -837,36 +872,42 @@ Example::
 BATCH-CREATE
 ^^^^^^^^^^^^
 
-**batch-create** {instances\_file.json}
+| **batch-create**
+| [{-I|\--iallocator} *instance allocator*]
+| {instances\_file.json}
 
 This command (similar to the Ganeti 1.2 **batcher** tool) submits
-multiple instance creation jobs based on a definition file. The
-instance configurations do not encompass all the possible options for
-the **add** command, but only a subset.
+multiple instance creation jobs based on a definition file. This
+file can contain all options which are valid when adding an instance
+with the exception of the ``iallocator`` field. The IAllocator is,
+for optimization purposes, only allowed to be set for the whole batch
+operation using the ``--iallocator`` parameter.
 
-The instance file should be a valid-formed JSON file, containing a
-dictionary with instance name and instance parameters. The accepted
-parameters are:
+The instance file must be a valid-formed JSON file, containing an
+array of dictionaries with instance creation parameters. All parameters
+(except ``iallocator``) which are valid for the instance creation
+OP code are allowed. The most important ones are:
 
-disk\_size
-    The size of the disks of the instance.
+instance\_name
+    The FQDN of the new instance.
 
 disk\_template
     The disk template to use for the instance, the same as in the
     **add** command.
 
-backend
+disks
+    Array of disk specifications. Each entry describes one disk as a
+    dictionary of disk parameters.
+
+beparams
     A dictionary of backend parameters.
 
 hypervisor
-    A dictionary with a single key (the hypervisor name), and as value
-    the hypervisor options. If not passed, the default hypervisor and
-    hypervisor options will be inherited.
+    The hypervisor for the instance.
 
-mac, ip, mode, link
-    Specifications for the one NIC that will be created for the
-    instance. 'bridge' is also accepted as a backwards compatible
-    key.
+hvparams
+    A dictionary with the hypervisor options. If not passed, the default
+    hypervisor options will be inherited.
 
 nics
     List of NICs that will be created for the instance. Each entry
@@ -874,13 +915,11 @@ nics
     Please don't provide the "mac, ip, mode, link" parent keys if you
     use this method for specifying NICs.
 
-primary\_node, secondary\_node
+pnode, snode
     The primary and optionally the secondary node to use for the
-    instance (in case an iallocator script is not used).
-
-iallocator
-    Instead of specifying the nodes, an iallocator script can be used
-    to automatically compute them.
+    instance (in case an iallocator script is not used). If those
+    parameters are given, they have to be given consistently for all
+    instances in the batch operation.
 
 start
     whether to start the instance
@@ -901,30 +940,34 @@ file\_storage\_dir, file\_driver
 A simple definition for one instance can be (with most of the
 parameters taken from the cluster defaults)::
 
-    {
-      "instance3": {
-        "template": "drbd",
-        "os": "debootstrap",
-        "disk_size": ["25G"],
-        "iallocator": "dumb"
+    [
+      {
+        "mode": "create",
+        "instance_name": "instance1.example.com",
+        "disk_template": "drbd",
+        "os_type": "debootstrap",
+        "disks": [{"size":"1024"}],
+        "nics": [{}],
+        "hypervisor": "xen-pvm"
       },
-      "instance5": {
-        "template": "drbd",
-        "os": "debootstrap",
-        "disk_size": ["25G"],
-        "iallocator": "dumb",
+      {
+        "mode": "create",
+        "instance_name": "instance2.example.com",
+        "disk_template": "drbd",
+        "os_type": "debootstrap",
+        "disks": [{"size":"4096", "mode": "rw", "vg": "xenvg"}],
+        "nics": [{}],
         "hypervisor": "xen-hvm",
         "hvparams": {"acpi": true},
-        "backend": {"maxmem": 512, "minmem": 256}
+        "beparams": {"maxmem": 512, "minmem": 256}
       }
-    }
+    ]
 
 The command will display the job id for each submitted instance, as
 follows::
 
     # gnt-instance batch-create instances.json
-    instance3: 11224
-    instance5: 11225
+    Submitted jobs 37, 38
 
 REMOVE
 ^^^^^^
@@ -1046,12 +1089,17 @@ MODIFY
 | [{-H|\--hypervisor-parameters} *HYPERVISOR\_PARAMETERS*]
 | [{-B|\--backend-parameters} *BACKEND\_PARAMETERS*]
 | [{-m|\--runtime-memory} *SIZE*]
-| [\--net add*[:options]* \| \--net [*N*:]remove \| \--net *N:options*]
-| [\--disk add:size=*SIZE*[,vg=*VG*][,metavg=*VG*] \|
-|  \--disk add:size=*SIZE*,provider=*PROVIDER*[,param=*value*... ] \|
-|  \--disk [*N*:]remove \|
-|  \--disk *N*:mode=*MODE*]
+| [\--net add[:options...] \|
+|  \--net [*N*:]add[,options...] \|
+|  \--net [*ID*:]remove \|
+|  \--net *ID*:modify[,options...]]
+| [\--disk add:size=*SIZE*[,options...] \|
+|  \--disk *N*:add,size=*SIZE*[,options...] \|
+|  \--disk *N*:add,size=*SIZE*,provider=*PROVIDER*[,options...][,param=*value*... ] \|
+|  \--disk *ID*:modify[,options...]
+|  \--disk [*ID*:]remove]
 | [{-t|\--disk-template} plain | {-t|\--disk-template} drbd -n *new_secondary*] [\--no-wait-for-sync]
+| [\--new-primary=*node*]
 | [\--os-type=*OS* [\--force-variant]]
 | [{-O|\--os-parameters} *param*=*value*... ]
 | [\--offline \| \--online]
@@ -1082,33 +1130,45 @@ The ``-m (--runtime-memory)`` option will change an instance's runtime
 memory to the given size (in MB if a different suffix is not specified),
 by ballooning it up or down to the new value.
 
-The ``--disk add:size=``*SIZE* option adds a disk to the instance. The
-optional ``vg=``*VG* option specifies an LVM volume group other than the
-default volume group to create the disk on. For DRBD disks, the
-``metavg=``*VG* option specifies the volume group for the metadata
-device. When adding an ExtStorage disk the ``provider=``*PROVIDER*
-option is also mandatory and specifies the ExtStorage provider. Also,
-for ExtStorage disks arbitrary parameters can be passed as additional
-comma separated options, same as in the **add** command. ``--disk``
-*N*``:add,size=``**SIZE** can be used to add a disk at a specific index.
-The ``--disk remove`` option will remove the last disk of the instance.
-Use ``--disk `` *N*``:remove`` to remove a disk by its index. The
-``--disk`` *N*``:mode=``*MODE* option will change the mode of the Nth
-disk of the instance between read-only (``ro``) and read-write (``rw``).
+The ``--disk add:size=*SIZE*,[options..]`` option adds a disk to the
+instance, and ``--disk *N*:add:size=*SIZE*,[options..]`` will add a disk
+to the the instance at a specific index. The available options are the
+same as in the **add** command(``mode``, ``name``, ``vg``, ``metavg``).
+When adding an ExtStorage disk the ``provider=*PROVIDER*`` option is
+also mandatory and specifies the ExtStorage provider. Also, for
+ExtStorage disks arbitrary parameters can be passed as additional comma
+separated options, same as in the **add** command. -The ``--disk remove``
+option will remove the last disk of the instance. Use
+``--disk `` *ID*``:remove`` to remove a disk by its identifier.  *ID*
+can be the index of the disk, the disks's name or the disks's UUID.  The
+``--disk *ID*:modify[,options...]`` wil change the options of the disk.
+Available options are:
 
-The ``--net add:``*options* and ``--net`` *N*``:add,``*options* option
-will add a new network interface to the instance. The available options
-are the same as in the **add** command (``mac``, ``ip``, ``link``,
-``mode``, ``network``). The ``--net remove`` will remove the last network
-interface of the instance (``--net`` *N*``:remove`` for a specific index),
-while the ``--net`` *N*``:``*options* option will change the parameters of
-the Nth instance network interface.
+mode
+  The access mode. Either ``ro`` (read-only) or the default ``rw`` (read-write).
+
+name
+   this option specifies a name for the disk, which can be used as a disk
+   identifier. An instance can not have two disks with the same name.
+
+The ``--net *N*:add[,options..]`` will add a new network interface to
+the instance. The available options are the same as in the **add**
+command (``mac``, ``ip``, ``link``, ``mode``, ``network``). The
+``--net *ID*,remove`` will remove the intances' NIC with *ID* identifier,
+which can be the index of the NIC, the NIC's name or the NIC's UUID.
+The ``--net *ID*:modify[,options..]`` option will change the parameters of
+the instance network interface with the *ID* identifier.
 
 The option ``-o (--os-type)`` will change the OS name for the instance
 (without reinstallation). In case an OS variant is specified that is
 not found, then by default the modification is refused, unless
 ``--force-variant`` is passed. An invalid OS will also be refused,
 unless the ``--force`` option is given.
+
+The option ``--new-primary`` will set the new primary node of an instance
+assuming the disks have already been moved manually. Unless the ``--force``
+option is given, it is verified that the instance is no longer running
+on its current primary node.
 
 The ``--online`` and ``--offline`` options are used to transition an
 instance into and out of the ``offline`` state. An instance can be
@@ -1628,7 +1688,7 @@ FAILOVER
 | **failover** [-f] [\--ignore-consistency] [\--ignore-ipolicy]
 | [\--shutdown-timeout=*N*]
 | [{-n|\--target-node} *node* \| {-I|\--iallocator} *name*]
-| [\--submit]
+| [\--submit] [\--cleanup]
 | {*instance*}
 
 Failover will stop the instance (if running), change its primary node,
@@ -1664,6 +1724,12 @@ to stop.
 
 If ``--ignore-ipolicy`` is given any instance policy violations occuring
 during this operation are ignored.
+
+If the ``--cleanup`` option is passed, the operation changes from
+performin a failover to attempting recovery from a failed previous failover.
+In this mode, Ganeti checks if the instance runs on the correct node (and
+updates its configuration if not) and ensures the instances' disks
+are configured correctly.
 
 See **ganeti**\(7) for a description of ``--submit`` and other common
 options.

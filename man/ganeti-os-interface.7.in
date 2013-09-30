@@ -87,6 +87,17 @@ read-write (\f[C]rw\f[]) or read-only (\f[C]ro\f[]).
 .RS
 .RE
 .TP
+.B DISK_%N_UUID
+The uuid associated with the N-th disk of the instance.
+.RS
+.RE
+.TP
+.B DISK_%N_NAME
+(Optional) The name, if any, associated with the N-th disk of the
+instance.
+.RS
+.RE
+.TP
 .B DISK_%N_FRONTEND_TYPE
 (Optional) If applicable to the current hypervisor type: the type of the
 device exported by the hypervisor.
@@ -112,6 +123,17 @@ of the instance.
 .TP
 .B NIC_%N_MAC
 The MAC address associated with this interface.
+.RS
+.RE
+.TP
+.B NIC_%N_UUID
+The uuid associated with the N-th NIC of the instance.
+.RS
+.RE
+.TP
+.B NIC_%N_NAME
+(Optional) The name, if any, associated with the N-th NIC of the
+instance.
 .RS
 .RE
 .TP

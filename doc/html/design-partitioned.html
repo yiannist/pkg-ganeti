@@ -8,7 +8,7 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Partitioned Ganeti &mdash; Ganeti 2.7.1 documentation</title>
+    <title>Partitioned Ganeti &mdash; Ganeti 2.8.0 documentation</title>
     
     <link rel="stylesheet" href="_static/style.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
@@ -16,7 +16,7 @@
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.7.1',
+        VERSION:     '2.8.0',
         COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -25,10 +25,10 @@
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti 2.7.1 documentation" href="index.html" />
+    <link rel="top" title="Ganeti 2.8.0 documentation" href="index.html" />
     <link rel="up" title="Design document drafts" href="design-draft.html" />
     <link rel="next" title="Ganeti monitoring agent" href="design-monitoring-agent.html" />
-    <link rel="prev" title="Instance auto-repair" href="design-autorepair.html" /> 
+    <link rel="prev" title="Splitting the query and job execution paths" href="design-query-splitting.html" /> 
   </head>
   <body>
     <div class="related">
@@ -38,9 +38,9 @@
           <a href="design-monitoring-agent.html" title="Ganeti monitoring agent"
              accesskey="N">next</a></li>
         <li class="right" >
-          <a href="design-autorepair.html" title="Instance auto-repair"
+          <a href="design-query-splitting.html" title="Splitting the query and job execution paths"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.7.1 documentation</a> &raquo;</li>
+        <li><a href="index.html">Ganeti 2.8.0 documentation</a> &raquo;</li>
           <li><a href="design-draft.html" accesskey="U">Design document drafts</a> &raquo;</li> 
       </ul>
     </div>  
@@ -221,10 +221,12 @@ defined at node-group level.</p>
 <p>Currently it&#8217;s possible to define an instance policy that limits the
 minimum and maximum value for CPU, memory, and disk usage (and spindles
 and any other resource, when implemented), independently from each other. We
-extend the policy by allowing it to specify more specifications, where
-each specification contains the limits (minimum, maximum, and standard)
-for all the resources. Each specification has a unique priority (an
-integer) associated to it, which is used by <tt class="docutils literal"><span class="pre">hspace</span></tt> (see below).</p>
+extend the policy by allowing it to contain more occurrences of the
+specifications for both the limits for the instance resources. Each
+specification pair (minimum and maximum) has a unique priority
+associated to it (or in other words, specifications are ordered), which
+is used by <tt class="docutils literal"><span class="pre">hspace</span></tt> (see below). The standard specification doesn&#8217;t
+change: there is one for the whole cluster.</p>
 <p>For example, a policy could be set up to allow instances with this
 constraints:
 - between 1 and 2 CPUs, 2 GB of RAM, and between 10 GB and 400 GB of
@@ -237,12 +239,11 @@ illegal.</p>
 <p>Ganeti will refuse to create (or modify) instances that violate instance
 policy constraints, unless the flag <tt class="docutils literal"><span class="pre">--ignore-ipolicy</span></tt> is passed.</p>
 <p>While the changes needed to check constraint violations are
-straightforward, <tt class="docutils literal"><span class="pre">hspace</span></tt> behavior needs some adjustments. For both
-standard and tiered allocation, <tt class="docutils literal"><span class="pre">hspace</span></tt> will start to allocate
-instances using the specification with the highest priority, then it
-will fall back to second highest priority, and so on. For tiered
-allocation, it will try to lower the most constrained resources (without
-breaking the policy) before going to the next specification.</p>
+straightforward, <tt class="docutils literal"><span class="pre">hspace</span></tt> behavior needs some adjustments for tiered
+allocation. <tt class="docutils literal"><span class="pre">hspace</span></tt> will start to allocate instances using the
+maximum specification with the highest priority, then it will try to
+lower the most constrained resources (without breaking the policy)
+before moving to the second highest priority, and so on.</p>
 <p>For consistent results in capacity calculation, the specifications
 inside a policy should be ordered so that the biggest specifications
 have the highest priorities. Also, specifications should not overlap.
@@ -349,8 +350,8 @@ parameters to overcommit memory and disks, similar to <tt class="docutils litera
 </ul>
 
   <h4>Previous topic</h4>
-  <p class="topless"><a href="design-autorepair.html"
-                        title="previous chapter">Instance auto-repair</a></p>
+  <p class="topless"><a href="design-query-splitting.html"
+                        title="previous chapter">Splitting the query and job execution paths</a></p>
   <h4>Next topic</h4>
   <p class="topless"><a href="design-monitoring-agent.html"
                         title="next chapter">Ganeti monitoring agent</a></p>
@@ -383,9 +384,9 @@ parameters to overcommit memory and disks, similar to <tt class="docutils litera
           <a href="design-monitoring-agent.html" title="Ganeti monitoring agent"
              >next</a></li>
         <li class="right" >
-          <a href="design-autorepair.html" title="Instance auto-repair"
+          <a href="design-query-splitting.html" title="Splitting the query and job execution paths"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.7.1 documentation</a> &raquo;</li>
+        <li><a href="index.html">Ganeti 2.8.0 documentation</a> &raquo;</li>
           <li><a href="design-draft.html" >Design document drafts</a> &raquo;</li> 
       </ul>
     </div>

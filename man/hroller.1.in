@@ -16,6 +16,8 @@ Backend options:
 .PP
 Algorithm options:
 .PP
+\f[B][ -G \f[I]name\f[] ]\f[]
+.PP
 \f[B][ -O \f[I]name...\f[] ]\f[]
 .PP
 Reporting options:
@@ -27,6 +29,10 @@ hroller is a cluster maintenance reboot scheduler.
 It can calculate which set of nodes can be rebooted at the same time
 while avoiding having both primary and secondary nodes being rebooted at
 the same time.
+.PP
+For backends that support identifying the master node (currenlty RAPI
+and LUXI), the master node is scheduled as the last node in the last
+reboot group.
 .SS ALGORITHM FOR CALCULATING OFFLINE REBOOT GROUPS
 .PP
 hroller will view the nodes as vertices of an undirected graph,
@@ -39,16 +45,10 @@ are safe to be rebooted concurrently.
 .SH OPTIONS
 .PP
 Currently only standard htools options are supported.
-For a description of them check \f[B]htools\f[](7) and \f[B]hbal\f[](1).
+For a description of them check \f[B]htools\f[](1) and \f[B]hbal\f[](1).
 .SH BUGS
 .PP
-The master node should be always the last node of the last group, or
-anyway somehow easily identifiable.
-Right now this is not done.
-.PP
 Offline nodes should be ignored.
-.PP
-Filtering by nodegroup should be allowed.
 .PP
 If instances are online the tool should refuse to do offline rolling
 maintenances, unless explicitly requested.
@@ -60,19 +60,20 @@ are migrated from node to node) are not supported yet.
 Hroller by design should support them both with and without secondary
 node replacement.
 .SH EXAMPLE
-.PP
-Note that these examples may not for the latest version.
 .SS Offline Rolling node reboot output
 .PP
 With the default options, the program shows one reboot group per line as
 a comma-separated list.
-.RS
-.PP
-$ hroller \[aq]Node Reboot Groups\[aq]
+.IP
+.nf
+\f[C]
+$\ hroller\ -L
+\[aq]Node\ Reboot\ Groups\[aq]
 node1.example.com,node3.example.com,node5.example.com
 node8.example.com,node6.example.com,node2.example.com
 node7.example.com,node4.example.com
-.RE
+\f[]
+.fi
 .SH REPORTING BUGS
 .PP
 Report bugs to project website (http://code.google.com/p/ganeti/) or

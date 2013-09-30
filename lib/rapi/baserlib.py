@@ -36,6 +36,7 @@ from ganeti import errors
 from ganeti import compat
 from ganeti import constants
 from ganeti import pathutils
+from ganeti import utils
 
 
 # Dummy value to detect unchanged parameters
@@ -59,7 +60,7 @@ def _BuildOpcodeAttributes():
           for method in _SUPPORTED_METHODS]
 
 
-_OPCODE_ATTRS = _BuildOpcodeAttributes()
+OPCODE_ATTRS = _BuildOpcodeAttributes()
 
 
 def BuildUriList(ids, uri_format, uri_fields=("name", "uri")):
@@ -263,6 +264,8 @@ class ResourceBase(object):
     @param _client_cls: L{luxi} client class (unittests only)
 
     """
+    assert isinstance(queryargs, dict)
+
     self.items = items
     self.queryargs = queryargs
     self._req = req
@@ -403,7 +406,18 @@ def GetResourceOpcodes(cls):
 
   """
   return frozenset(filter(None, (getattr(cls, op_attr, None)
-                                 for (_, op_attr, _, _) in _OPCODE_ATTRS)))
+                                 for (_, op_attr, _, _) in OPCODE_ATTRS)))
+
+
+def GetHandlerAccess(handler, method):
+  """Returns the access rights for a method on a handler.
+
+  @type handler: L{ResourceBase}
+  @type method: string
+  @rtype: string or None
+
+  """
+  return getattr(handler, "%s_ACCESS" % method, None)
 
 
 class _MetaOpcodeResource(type):
@@ -417,7 +431,7 @@ class _MetaOpcodeResource(type):
     # Access to private attributes of a client class, pylint: disable=W0212
     obj = type.__call__(mcs, *args, **kwargs)
 
-    for (method, op_attr, rename_attr, fn_attr) in _OPCODE_ATTRS:
+    for (method, op_attr, rename_attr, fn_attr) in OPCODE_ATTRS:
       if hasattr(obj, method):
         # If the method handler is already defined, "*_RENAME" or "Get*OpInput"
         # shouldn't be (they're only used by the automatically generated
@@ -483,7 +497,41 @@ class OpcodeResource(ResourceBase):
   def _GetDefaultData(self):
     return (self.request_body, None)
 
+  def _GetRapiOpName(self):
+    """Extracts the name of the RAPI operation from the class name
+
+    """
+    if self.__class__.__name__.startswith("R_2_"):
+      return self.__class__.__name__[4:]
+    return self.__class__.__name__
+
+  def _GetCommonStatic(self):
+    """Return the static parameters common to all the RAPI calls
+
+    The reason is a parameter present in all the RAPI calls, and the reason
+    trail has to be build for all of them, so the parameter is read here and
+    used to build the reason trail, that is the actual parameter passed
+    forward.
+
+    """
+    trail = []
+    usr_reason = self._checkStringVariable("reason", default=None)
+    if usr_reason:
+      trail.append((constants.OPCODE_REASON_SRC_USER,
+                    usr_reason,
+                    utils.EpochNano()))
+    reason_src = "%s:%s" % (constants.OPCODE_REASON_SRC_RLIB2,
+                            self._GetRapiOpName())
+    trail.append((reason_src, "", utils.EpochNano()))
+    common_static = {
+      "reason": trail,
+      }
+    return common_static
+
   def _GenericHandler(self, opcode, rename, fn):
-    (body, static) = fn()
+    (body, specific_static) = fn()
+    static = self._GetCommonStatic()
+    if specific_static:
+      static.update(specific_static)
     op = FillOpcode(opcode, body, static, rename=rename)
     return self.SubmitJob([op])

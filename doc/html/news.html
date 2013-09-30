@@ -8,7 +8,7 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>News &mdash; Ganeti 2.7.1 documentation</title>
+    <title>News &mdash; Ganeti 2.8.0 documentation</title>
     
     <link rel="stylesheet" href="_static/style.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
@@ -16,7 +16,7 @@
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.7.1',
+        VERSION:     '2.8.0',
         COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -25,21 +25,21 @@
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti 2.7.1 documentation" href="index.html" />
-    <link rel="next" title="Man pages" href="manpages.html" />
-    <link rel="prev" title="Developer notes" href="devnotes.html" /> 
+    <link rel="top" title="Ganeti 2.8.0 documentation" href="index.html" />
+    <link rel="next" title="OVF converter" href="ovfconverter.html" />
+    <link rel="prev" title="Moving instances between clusters" href="move-instance.html" /> 
   </head>
   <body>
     <div class="related">
       <h3>Navigation</h3>
       <ul>
         <li class="right" style="margin-right: 10px">
-          <a href="manpages.html" title="Man pages"
+          <a href="ovfconverter.html" title="OVF converter"
              accesskey="N">next</a></li>
         <li class="right" >
-          <a href="devnotes.html" title="Developer notes"
+          <a href="move-instance.html" title="Moving instances between clusters"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.7.1 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.8.0 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -50,6 +50,176 @@
             
   <div class="section" id="news">
 <h1>News<a class="headerlink" href="#news" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="version-2-8-0">
+<h2>Version 2.8.0<a class="headerlink" href="#version-2-8-0" title="Permalink to this headline">¶</a></h2>
+<p><em>(Released Mon, 30 Sep 2013)</em></p>
+<div class="section" id="incompatible-important-changes">
+<h3>Incompatible/important changes<a class="headerlink" href="#incompatible-important-changes" title="Permalink to this headline">¶</a></h3>
+<ul class="simple">
+<li>Instance policy can contain multiple instance specs, as described in
+the “Constrained instance sizes” section of <a class="reference internal" href="design-partitioned.html"><em>Partitioned Ganeti</em></a>. As a consequence, it&#8217;s not possible to partially change
+or override instance specs. Bounding specs (min and max) can be specified as a
+whole using the new option <tt class="docutils literal"><span class="pre">--ipolicy-bounds-specs</span></tt>, while standard
+specs use the new option <tt class="docutils literal"><span class="pre">--ipolicy-std-specs</span></tt>.</li>
+<li>The output of the info command of gnt-cluster, gnt-group, gnt-node,
+gnt-instance is a valid YAML object.</li>
+<li>hail now honors network restrictions when allocating nodes. This led to an
+update of the IAllocator protocol. See the IAllocator documentation for
+details.</li>
+<li>confd now only answers static configuration request over the network. luxid
+was extracted, listens on the local LUXI socket and responds to live queries.
+This allows finer grained permissions if using separate users.</li>
+</ul>
+</div>
+<div class="section" id="new-features">
+<h3>New features<a class="headerlink" href="#new-features" title="Permalink to this headline">¶</a></h3>
+<ul class="simple">
+<li>The <a class="reference internal" href="rapi.html"><em>Remote API</em></a> daemon now supports a command line flag
+to always require authentication, <tt class="docutils literal"><span class="pre">--require-authentication</span></tt>. It can
+be specified in <tt class="docutils literal"><span class="pre">$sysconfdir/default/ganeti</span></tt>.</li>
+<li>A new cluster attribute &#8216;enabled_disk_templates&#8217; is introduced. It will
+be used to manage the disk templates to be used by instances in the cluster.
+Initially, it will be set to a list that includes plain, drbd, if they were
+enabled by specifying a volume group name, and file and sharedfile, if those
+were enabled at configure time. Additionally, it will include all disk
+templates that are currently used by instances. The order of disk templates
+will be based on Ganeti&#8217;s history of supporting them. In the future, the
+first entry of the list will be used as a default disk template on instance
+creation.</li>
+<li><tt class="docutils literal"><span class="pre">cfgupgrade</span></tt> now supports a <tt class="docutils literal"><span class="pre">--downgrade</span></tt> option to bring the
+configuration back to the previous stable version.</li>
+<li>Disk templates in group ipolicy can be restored to the default value.</li>
+<li>Initial support for diskless instances and virtual clusters in QA.</li>
+<li>More QA and unit tests for instance policies.</li>
+<li>Every opcode now contains a reason trail (visible through <tt class="docutils literal"><span class="pre">gnt-job</span> <span class="pre">info</span></tt>)
+describing why the opcode itself was executed.</li>
+<li>The monitoring daemon is now available. It allows users to query the cluster
+for obtaining information about the status of the system. The daemon is only
+responsible for providing the information over the network: the actual data
+gathering is performed by data collectors (currently, only the DRBD status
+collector is available).</li>
+<li>In order to help developers work on Ganeti, a new script
+(<tt class="docutils literal"><span class="pre">devel/build_chroot</span></tt>) is provided, for building a chroot that contains all
+the required development libraries and tools for compiling Ganeti on a Debian
+Squeeze system.</li>
+<li>A new tool, <tt class="docutils literal"><span class="pre">harep</span></tt>, for performing self-repair and recreation of instances
+in Ganeti has been added.</li>
+<li>Split queries are enabled for tags, network, exports, cluster info, groups,
+jobs, nodes.</li>
+<li>New command <tt class="docutils literal"><span class="pre">show-ispecs-cmd</span></tt> for <tt class="docutils literal"><span class="pre">gnt-cluster</span></tt> and <tt class="docutils literal"><span class="pre">gnt-group</span></tt>.
+It prints the command line to set the current policies, to ease
+changing them.</li>
+<li>Add the <tt class="docutils literal"><span class="pre">vnet_hdr</span></tt> HV parameter for KVM, to control whether the tap
+devices for KVM virtio-net interfaces will get created with VNET_HDR
+(IFF_VNET_HDR) support. If set to false, it disables offloading on the
+virtio-net interfaces, which prevents host kernel tainting and log
+flooding, when dealing with broken or malicious virtio-net drivers.
+It&#8217;s set to true by default.</li>
+<li>Instance failover now supports a <tt class="docutils literal"><span class="pre">--cleanup</span></tt> parameter for fixing previous
+failures.</li>
+<li>Support &#8216;viridian&#8217; parameter in Xen HVM</li>
+<li>Support DSA SSH keys in bootstrap</li>
+<li>To simplify the work of packaging frameworks that want to add the needed users
+and groups in a split-user setup themselves, at build time three files in
+<tt class="docutils literal"><span class="pre">doc/users</span></tt> will be generated. The <tt class="docutils literal"><span class="pre">groups</span></tt> files contains, one per line,
+the groups to be generated, the <tt class="docutils literal"><span class="pre">users</span></tt> file contains, one per line, the
+users to be generated, optionally followed by their primary group, where
+important. The <tt class="docutils literal"><span class="pre">groupmemberships</span></tt> file contains, one per line, additional
+user-group membership relations that need to be established. The syntax of
+these files will remain stable in all future versions.</li>
+</ul>
+</div>
+<div class="section" id="new-dependencies">
+<h3>New dependencies<a class="headerlink" href="#new-dependencies" title="Permalink to this headline">¶</a></h3>
+<p>The following new dependencies have been added:</p>
+<p>For Haskell:
+- The <tt class="docutils literal"><span class="pre">curl</span></tt> library is not optional anymore for compiling the Haskell code.
+- <tt class="docutils literal"><span class="pre">snap-server</span></tt> library (if monitoring is enabled).</p>
+<p>For Python:
+- The minimum Python version needed to run Ganeti is now 2.6.
+- <tt class="docutils literal"><span class="pre">yaml</span></tt> library (only for running the QA).</p>
+</div>
+<div class="section" id="since-2-8-0-rc3">
+<h3>Since 2.8.0 rc3<a class="headerlink" href="#since-2-8-0-rc3" title="Permalink to this headline">¶</a></h3>
+<ul class="simple">
+<li>Perform proper cleanup on termination of Haskell daemons</li>
+<li>Fix corner-case in handling of remaining retry time</li>
+</ul>
+</div>
+</div>
+<div class="section" id="version-2-8-0-rc3">
+<h2>Version 2.8.0 rc3<a class="headerlink" href="#version-2-8-0-rc3" title="Permalink to this headline">¶</a></h2>
+<p><em>(Released Tue, 17 Sep 2013)</em></p>
+<ul class="simple">
+<li>To simplify the work of packaging frameworks that want to add the needed users
+and groups in a split-user setup themselves, at build time three files in
+<tt class="docutils literal"><span class="pre">doc/users</span></tt> will be generated. The <tt class="docutils literal"><span class="pre">groups</span></tt> files contains, one per line,
+the groups to be generated, the <tt class="docutils literal"><span class="pre">users</span></tt> file contains, one per line, the
+users to be generated, optionally followed by their primary group, where
+important. The <tt class="docutils literal"><span class="pre">groupmemberships</span></tt> file contains, one per line, additional
+user-group membership relations that need to be established. The syntax of
+these files will remain stable in all future versions.</li>
+<li>Add a default to file-driver when unspecified over RAPI (Issue 571)</li>
+<li>Mark the DSA host pubkey as optional, and remove it during config downgrade
+(Issue 560)</li>
+<li>Some documentation fixes</li>
+</ul>
+</div>
+<div class="section" id="version-2-8-0-rc2">
+<h2>Version 2.8.0 rc2<a class="headerlink" href="#version-2-8-0-rc2" title="Permalink to this headline">¶</a></h2>
+<p><em>(Released Tue, 27 Aug 2013)</em></p>
+<p>The second release candidate of the 2.8 series. Since 2.8.0. rc1:</p>
+<ul class="simple">
+<li>Support &#8216;viridian&#8217; parameter in Xen HVM (Issue 233)</li>
+<li>Include VCS version in <tt class="docutils literal"><span class="pre">gnt-cluster</span> <span class="pre">version</span></tt></li>
+<li>Support DSA SSH keys in bootstrap (Issue 338)</li>
+<li>Fix batch creation of instances</li>
+<li>Use FQDN to check master node status (Issue 551)</li>
+<li>Make the DRBD collector more failure-resilient</li>
+</ul>
+</div>
+<div class="section" id="version-2-8-0-rc1">
+<h2>Version 2.8.0 rc1<a class="headerlink" href="#version-2-8-0-rc1" title="Permalink to this headline">¶</a></h2>
+<p><em>(Released Fri, 2 Aug 2013)</em></p>
+<p>The first release candidate of the 2.8 series. Since 2.8.0 beta1:</p>
+<ul class="simple">
+<li>Fix upgrading/downgrading from 2.7</li>
+<li>Increase maximum RAPI message size</li>
+<li>Documentation updates</li>
+<li>Split <tt class="docutils literal"><span class="pre">confd</span></tt> between <tt class="docutils literal"><span class="pre">luxid</span></tt> and <tt class="docutils literal"><span class="pre">confd</span></tt></li>
+<li>Merge 2.7 series up to the 2.7.1 release</li>
+<li>Allow the <tt class="docutils literal"><span class="pre">modify_etc_hosts</span></tt> option to be changed</li>
+<li>Add better debugging for <tt class="docutils literal"><span class="pre">luxid</span></tt> queries</li>
+<li>Expose bulk parameter for GetJobs in RAPI client</li>
+<li>Expose missing <tt class="docutils literal"><span class="pre">network</span></tt> fields in RAPI</li>
+<li>Add some <tt class="docutils literal"><span class="pre">cluster</span> <span class="pre">verify</span></tt> tests</li>
+<li>Some unittest fixes</li>
+<li>Fix a malfunction in <tt class="docutils literal"><span class="pre">hspace</span></tt>&#8216;s tiered allocation</li>
+<li>Fix query compatibility between haskell and python implementations</li>
+<li>Add the <tt class="docutils literal"><span class="pre">vnet_hdr</span></tt> HV parameter for KVM</li>
+<li>Add <tt class="docutils literal"><span class="pre">--cleanup</span></tt> to instance failover</li>
+<li>Change the connected groups format in <tt class="docutils literal"><span class="pre">gnt-network</span> <span class="pre">info</span></tt> output; it
+was previously displayed as a raw list by mistake. (Merged from 2.7)</li>
+</ul>
+</div>
+<div class="section" id="version-2-8-0-beta1">
+<h2>Version 2.8.0 beta1<a class="headerlink" href="#version-2-8-0-beta1" title="Permalink to this headline">¶</a></h2>
+<p><em>(Released Mon, 24 Jun 2013)</em></p>
+<p>This was the first beta release of the 2.8 series. All important changes
+are listed in the latest 2.8 entry.</p>
+</div>
+<div class="section" id="version-2-7-2">
+<h2>Version 2.7.2<a class="headerlink" href="#version-2-7-2" title="Permalink to this headline">¶</a></h2>
+<p><em>(Released Thu, 26 Sep 2013)</em></p>
+<ul class="simple">
+<li>Change the connected groups format in <tt class="docutils literal"><span class="pre">gnt-network</span> <span class="pre">info</span></tt> output; it
+was previously displayed as a raw list by mistake</li>
+<li>Check disk template in right dict when copying</li>
+<li>Support multi-instance allocs without iallocator</li>
+<li>Fix some errors in the documentation</li>
+<li>Fix formatting of tuple in an error message</li>
+</ul>
+</div>
 <div class="section" id="version-2-7-1">
 <h2>Version 2.7.1<a class="headerlink" href="#version-2-7-1" title="Permalink to this headline">¶</a></h2>
 <p><em>(Released Thu, 25 Jul 2013)</em></p>
@@ -66,8 +236,8 @@
 <div class="section" id="version-2-7-0">
 <h2>Version 2.7.0<a class="headerlink" href="#version-2-7-0" title="Permalink to this headline">¶</a></h2>
 <p><em>(Released Thu, 04 Jul 2013)</em></p>
-<div class="section" id="incompatible-important-changes">
-<h3>Incompatible/important changes<a class="headerlink" href="#incompatible-important-changes" title="Permalink to this headline">¶</a></h3>
+<div class="section" id="id1">
+<h3>Incompatible/important changes<a class="headerlink" href="#id1" title="Permalink to this headline">¶</a></h3>
 <ul class="simple">
 <li>Instance policies for disk size were documented to be on a per-disk
 basis, but hail applied them to the sum of all disks. This has been
@@ -108,8 +278,8 @@ the flag is not reset after a master failover.</li>
 is recommended. 2.6 will be mandatory from the 2.8 series.</li>
 </ul>
 </div>
-<div class="section" id="new-features">
-<h3>New features<a class="headerlink" href="#new-features" title="Permalink to this headline">¶</a></h3>
+<div class="section" id="id2">
+<h3>New features<a class="headerlink" href="#id2" title="Permalink to this headline">¶</a></h3>
 <ul class="simple">
 <li>New network management functionality to support automatic allocation
 of IP addresses and managing of network parameters. See
@@ -391,8 +561,8 @@ restart Ganeti daemons soon after the upgrade, otherwise most
 pausing/resuming the watcher, cancelling and archiving jobs, querying
 the cluster configuration) will fail.</p>
 </div>
-<div class="section" id="id1">
-<h3>New features<a class="headerlink" href="#id1" title="Permalink to this headline">¶</a></h3>
+<div class="section" id="id3">
+<h3>New features<a class="headerlink" href="#id3" title="Permalink to this headline">¶</a></h3>
 <div class="section" id="instance-run-status">
 <h4>Instance run status<a class="headerlink" href="#instance-run-status" title="Permalink to this headline">¶</a></h4>
 <p>The current <tt class="docutils literal"><span class="pre">admin_up</span></tt> field, which used to denote whether an instance
@@ -845,8 +1015,8 @@ removal.</li>
 <li>Includes all bugfixes made in the 2.4 series</li>
 </ul>
 </div>
-<div class="section" id="id2">
-<h3>New features<a class="headerlink" href="#id2" title="Permalink to this headline">¶</a></h3>
+<div class="section" id="id4">
+<h3>New features<a class="headerlink" href="#id4" title="Permalink to this headline">¶</a></h3>
 <ul class="simple">
 <li>The ganeti-htools project has been merged into the ganeti-core source
 tree and will be built as part of Ganeti (see <a class="reference internal" href="install-quick.html"><em>Ganeti quick installation guide</em></a>).</li>
@@ -1342,8 +1512,8 @@ use of special settings on reinstallation (e.g. for preserving data)</li>
 </li>
 </ul>
 </div>
-<div class="section" id="id3">
-<h3>Misc<a class="headerlink" href="#id3" title="Permalink to this headline">¶</a></h3>
+<div class="section" id="id5">
+<h3>Misc<a class="headerlink" href="#id5" title="Permalink to this headline">¶</a></h3>
 <ul class="simple">
 <li>Added IPv6 support in import/export</li>
 <li>Pause DRBD synchronization while wiping disks on instance creation</li>
@@ -1780,8 +1950,8 @@ you need the en_US.UTF-8 locale enabled to build Ganeti from git.</li>
 <p><em>(Released Fri, 7 May 2010)</em></p>
 <p>Another release with a long development cycle, during which many
 different features were added.</p>
-<div class="section" id="id4">
-<h3>Significant features<a class="headerlink" href="#id4" title="Permalink to this headline">¶</a></h3>
+<div class="section" id="id6">
+<h3>Significant features<a class="headerlink" href="#id6" title="Permalink to this headline">¶</a></h3>
 <p>The KVM hypervisor now can run the individual instances as non-root, to
 reduce the impact of a VM being hijacked due to bugs in the
 hypervisor. It is possible to run all instances as a single (non-root)
@@ -1821,8 +1991,8 @@ number of NICs.</p>
 <p>Cluster verify has added a few new checks: SSL certificates validity,
 /etc/hosts consistency across the cluster, etc.</p>
 </div>
-<div class="section" id="id5">
-<h3>Other changes<a class="headerlink" href="#id5" title="Permalink to this headline">¶</a></h3>
+<div class="section" id="id7">
+<h3>Other changes<a class="headerlink" href="#id7" title="Permalink to this headline">¶</a></h3>
 <p>As usual, many internal changes were done, documentation fixes,
 etc. Among others:</p>
 <ul class="simple">
@@ -1928,8 +2098,8 @@ proper use of <tt class="docutils literal"><span class="pre">__slots__</span></t
 <li>Many documentation fixes based on feedback from users</li>
 </ul>
 </div>
-<div class="section" id="id6">
-<h3>New features<a class="headerlink" href="#id6" title="Permalink to this headline">¶</a></h3>
+<div class="section" id="id8">
+<h3>New features<a class="headerlink" href="#id8" title="Permalink to this headline">¶</a></h3>
 <ul class="simple">
 <li>Added an &#8220;early_release&#8221; more for instance replace disks and node
 evacuate, where we release locks earlier and thus allow higher
@@ -2559,10 +2729,22 @@ post-configuration update hook)</li>
   <h3><a href="index.html">Table Of Contents</a></h3>
   <ul>
 <li><a class="reference internal" href="#">News</a><ul>
-<li><a class="reference internal" href="#version-2-7-1">Version 2.7.1</a></li>
-<li><a class="reference internal" href="#version-2-7-0">Version 2.7.0</a><ul>
+<li><a class="reference internal" href="#version-2-8-0">Version 2.8.0</a><ul>
 <li><a class="reference internal" href="#incompatible-important-changes">Incompatible/important changes</a></li>
 <li><a class="reference internal" href="#new-features">New features</a></li>
+<li><a class="reference internal" href="#new-dependencies">New dependencies</a></li>
+<li><a class="reference internal" href="#since-2-8-0-rc3">Since 2.8.0 rc3</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#version-2-8-0-rc3">Version 2.8.0 rc3</a></li>
+<li><a class="reference internal" href="#version-2-8-0-rc2">Version 2.8.0 rc2</a></li>
+<li><a class="reference internal" href="#version-2-8-0-rc1">Version 2.8.0 rc1</a></li>
+<li><a class="reference internal" href="#version-2-8-0-beta1">Version 2.8.0 beta1</a></li>
+<li><a class="reference internal" href="#version-2-7-2">Version 2.7.2</a></li>
+<li><a class="reference internal" href="#version-2-7-1">Version 2.7.1</a></li>
+<li><a class="reference internal" href="#version-2-7-0">Version 2.7.0</a><ul>
+<li><a class="reference internal" href="#id1">Incompatible/important changes</a></li>
+<li><a class="reference internal" href="#id2">New features</a></li>
 <li><a class="reference internal" href="#misc-changes">Misc changes</a></li>
 </ul>
 </li>
@@ -2575,7 +2757,7 @@ post-configuration update hook)</li>
 <li><a class="reference internal" href="#version-2-6-2">Version 2.6.2</a></li>
 <li><a class="reference internal" href="#version-2-6-1">Version 2.6.1</a></li>
 <li><a class="reference internal" href="#version-2-6-0">Version 2.6.0</a><ul>
-<li><a class="reference internal" href="#id1">New features</a><ul>
+<li><a class="reference internal" href="#id3">New features</a><ul>
 <li><a class="reference internal" href="#instance-run-status">Instance run status</a></li>
 <li><a class="reference internal" href="#instance-policies-and-specs">Instance policies and specs</a></li>
 <li><a class="reference internal" href="#instance-migration-behaviour">Instance migration behaviour</a></li>
@@ -2605,7 +2787,7 @@ post-configuration update hook)</li>
 <li><a class="reference internal" href="#version-2-5-1">Version 2.5.1</a></li>
 <li><a class="reference internal" href="#version-2-5-0">Version 2.5.0</a><ul>
 <li><a class="reference internal" href="#incompatible-important-changes-and-bugfixes">Incompatible/important changes and bugfixes</a></li>
-<li><a class="reference internal" href="#id2">New features</a></li>
+<li><a class="reference internal" href="#id4">New features</a></li>
 <li><a class="reference internal" href="#node-group-improvements">Node group improvements</a></li>
 <li><a class="reference internal" href="#misc">Misc</a></li>
 </ul>
@@ -2637,7 +2819,7 @@ post-configuration update hook)</li>
 <li><a class="reference internal" href="#user-visible">User-visible</a></li>
 <li><a class="reference internal" href="#integration">Integration</a></li>
 <li><a class="reference internal" href="#remote-api">Remote API</a></li>
-<li><a class="reference internal" href="#id3">Misc</a></li>
+<li><a class="reference internal" href="#id5">Misc</a></li>
 </ul>
 </li>
 <li><a class="reference internal" href="#version-2-3-1">Version 2.3.1</a></li>
@@ -2667,14 +2849,14 @@ post-configuration update hook)</li>
 </li>
 <li><a class="reference internal" href="#version-2-1-2-1">Version 2.1.2.1</a></li>
 <li><a class="reference internal" href="#version-2-1-2">Version 2.1.2</a><ul>
-<li><a class="reference internal" href="#id4">Significant features</a></li>
-<li><a class="reference internal" href="#id5">Other changes</a></li>
+<li><a class="reference internal" href="#id6">Significant features</a></li>
+<li><a class="reference internal" href="#id7">Other changes</a></li>
 </ul>
 </li>
 <li><a class="reference internal" href="#version-2-1-1">Version 2.1.1</a><ul>
 <li><a class="reference internal" href="#major-changes">Major changes</a></li>
 <li><a class="reference internal" href="#bug-fixes">Bug fixes</a></li>
-<li><a class="reference internal" href="#id6">New features</a></li>
+<li><a class="reference internal" href="#id8">New features</a></li>
 </ul>
 </li>
 <li><a class="reference internal" href="#version-2-1-0">Version 2.1.0</a><ul>
@@ -2710,11 +2892,11 @@ post-configuration update hook)</li>
 </ul>
 
   <h4>Previous topic</h4>
-  <p class="topless"><a href="devnotes.html"
-                        title="previous chapter">Developer notes</a></p>
+  <p class="topless"><a href="move-instance.html"
+                        title="previous chapter">Moving instances between clusters</a></p>
   <h4>Next topic</h4>
-  <p class="topless"><a href="manpages.html"
-                        title="next chapter">Man pages</a></p>
+  <p class="topless"><a href="ovfconverter.html"
+                        title="next chapter">OVF converter</a></p>
   <h3>This Page</h3>
   <ul class="this-page-menu">
     <li><a href="_sources/news.txt"
@@ -2741,12 +2923,12 @@ post-configuration update hook)</li>
       <h3>Navigation</h3>
       <ul>
         <li class="right" style="margin-right: 10px">
-          <a href="manpages.html" title="Man pages"
+          <a href="ovfconverter.html" title="OVF converter"
              >next</a></li>
         <li class="right" >
-          <a href="devnotes.html" title="Developer notes"
+          <a href="move-instance.html" title="Moving instances between clusters"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.7.1 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.8.0 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

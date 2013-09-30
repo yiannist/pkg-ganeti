@@ -43,7 +43,7 @@
 <dd><p>Only perform checks based on current cluster state, without trying to simulate rebalancing.</p>
 </dd>
 </dl>
-<p>For a detailed description about the options listed above have a look at <strong>htools</strong>(7), <strong>hspace</strong>(1) and <strong>hbal</strong>(1).</p>
+<p>For a detailed description about the options listed above have a look at <strong>htools</strong>(1), <strong>hspace</strong>(1) and <strong>hbal</strong>(1).</p>
 <h1 id="reporting-bugs"><a href="#TOC">REPORTING BUGS</a></h1>
 <p>Report bugs to <a href="http://code.google.com/p/ganeti/">project website</a> or contact the developers using the <a href="ganeti@googlegroups.com">Ganeti mailing list</a>.</p>
 <h1 id="see-also"><a href="#TOC">SEE ALSO</a></h1>

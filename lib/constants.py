@@ -104,8 +104,12 @@ RAPI_USER = _autoconf.RAPI_USER
 RAPI_GROUP = _autoconf.RAPI_GROUP
 CONFD_USER = _autoconf.CONFD_USER
 CONFD_GROUP = _autoconf.CONFD_GROUP
+LUXID_USER = _autoconf.LUXID_USER
+LUXID_GROUP = _autoconf.LUXID_GROUP
 NODED_USER = _autoconf.NODED_USER
 NODED_GROUP = _autoconf.NODED_GROUP
+MOND_USER = _autoconf.MOND_USER
+MOND_GROUP = _autoconf.MOND_GROUP
 SSH_LOGIN_USER = _autoconf.SSH_LOGIN_USER
 SSH_CONSOLE_USER = _autoconf.SSH_CONSOLE_USER
 
@@ -144,23 +148,42 @@ ADOPTABLE_BLOCKDEV_ROOT = "/dev/disk/"
 ENABLE_FILE_STORAGE = _autoconf.ENABLE_FILE_STORAGE
 ENABLE_SHARED_FILE_STORAGE = _autoconf.ENABLE_SHARED_FILE_STORAGE
 ENABLE_CONFD = _autoconf.ENABLE_CONFD
+ENABLE_MOND = _autoconf.ENABLE_MOND
 ENABLE_SPLIT_QUERY = _autoconf.ENABLE_SPLIT_QUERY
 ENABLE_RESTRICTED_COMMANDS = _autoconf.ENABLE_RESTRICTED_COMMANDS
 
+# SSH constants
+SSH = "ssh"
+SCP = "scp"
+
 NODED = "ganeti-noded"
 CONFD = "ganeti-confd"
+LUXID = "ganeti-luxid"
 RAPI = "ganeti-rapi"
 MASTERD = "ganeti-masterd"
+MOND = "ganeti-mond"
+
+DAEMONS = compat.UniqueFrozenset([
+  NODED,
+  CONFD,
+  LUXID,
+  RAPI,
+  MASTERD,
+  MOND,
+  ])
 
 DAEMONS_PORTS = {
   # daemon-name: ("proto", "default-port")
   NODED: ("tcp", 1811),
   CONFD: ("udp", 1814),
+  MOND: ("tcp", 1815),
   RAPI: ("tcp", 5080),
-  "ssh": ("tcp", 22),
+  SSH: ("tcp", 22),
 }
+
 DEFAULT_NODED_PORT = DAEMONS_PORTS[NODED][1]
 DEFAULT_CONFD_PORT = DAEMONS_PORTS[CONFD][1]
+DEFAULT_MOND_PORT = DAEMONS_PORTS[MOND][1]
 DEFAULT_RAPI_PORT = DAEMONS_PORTS[RAPI][1]
 
 FIRST_DRBD_PORT = 11000
@@ -169,13 +192,42 @@ LAST_DRBD_PORT = 14999
 DAEMONS_LOGBASE = {
   NODED: "node-daemon",
   CONFD: "conf-daemon",
+  LUXID: "luxi-daemon",
   RAPI: "rapi-daemon",
   MASTERD: "master-daemon",
+  MOND: "monitoring-daemon",
   }
 
 DAEMONS_LOGFILES = \
     dict((daemon, pathutils.GetLogFilename(DAEMONS_LOGBASE[daemon]))
          for daemon in DAEMONS_LOGBASE)
+
+# Some daemons might require more than one logfile.
+# Specifically, right now only the Haskell http library "snap", used by the
+# monitoring daemon, requires multiple log files.
+
+# These are the only valid reasons for having an extra logfile
+EXTRA_LOGREASON_ACCESS = "access"
+EXTRA_LOGREASON_ERROR = "error"
+
+VALID_EXTRA_LOGREASONS = compat.UniqueFrozenset([
+  EXTRA_LOGREASON_ACCESS,
+  EXTRA_LOGREASON_ERROR,
+  ])
+
+# These are the extra logfiles, grouped by daemon
+DAEMONS_EXTRA_LOGBASE = {
+  MOND: {
+    EXTRA_LOGREASON_ACCESS: "monitoring-daemon-access",
+    EXTRA_LOGREASON_ERROR: "monitoring-daemon-error",
+    }
+  }
+
+DAEMONS_EXTRA_LOGFILES = \
+  dict((daemon, dict((extra,
+       pathutils.GetLogFilename(DAEMONS_EXTRA_LOGBASE[daemon][extra]))
+       for extra in DAEMONS_EXTRA_LOGBASE[daemon]))
+         for daemon in DAEMONS_EXTRA_LOGBASE)
 
 DEV_CONSOLE = "/dev/console"
 
@@ -184,6 +236,10 @@ PROC_MOUNTS = "/proc/mounts"
 # Local UniX Interface related constants
 LUXI_EOM = "\3"
 LUXI_VERSION = CONFIG_VERSION
+#: Environment variable for the luxi override socket
+LUXI_OVERRIDE = "FORCE_LUXI_SOCKET"
+LUXI_OVERRIDE_MASTER = "master"
+LUXI_OVERRIDE_QUERY = "query"
 
 # one of "no", "yes", "only"
 SYSLOG_USAGE = _autoconf.SYSLOG_USAGE
@@ -201,6 +257,12 @@ XEN_CMD_XM = "xm"
 XEN_CMD_XL = "xl"
 # FIXME: This will be made configurable using hvparams in Ganeti 2.7
 XEN_CMD = _autoconf.XEN_CMD
+
+KNOWN_XEN_COMMANDS = compat.UniqueFrozenset([
+  XEN_CMD_XM,
+  XEN_CMD_XL,
+  ])
+
 # When the Xen toolstack used is "xl", live migration requires the source host
 # to connect to the target host via ssh (xl runs this command). We need to pass
 # the command xl runs some extra info so that it can use Ganeti's key
@@ -317,9 +379,23 @@ HKR_FAIL = 1
 HKR_SUCCESS = 2
 
 # Storage types
+ST_BLOCK = "blockdev"
+ST_DISKLESS = "diskless"
+ST_EXT = "ext"
 ST_FILE = "file"
 ST_LVM_PV = "lvm-pv"
 ST_LVM_VG = "lvm-vg"
+ST_RADOS = "rados"
+
+VALID_STORAGE_TYPES = compat.UniqueFrozenset([
+  ST_BLOCK,
+  ST_DISKLESS,
+  ST_EXT,
+  ST_FILE,
+  ST_LVM_PV,
+  ST_LVM_VG,
+  ST_RADOS,
+  ])
 
 # Storage fields
 # first two are valid in LU context only, not passed to backend
@@ -345,12 +421,6 @@ VALID_STORAGE_FIELDS = compat.UniqueFrozenset([
   SF_ALLOCATABLE,
   ])
 
-VALID_STORAGE_TYPES = compat.UniqueFrozenset([
-  ST_FILE,
-  ST_LVM_PV,
-  ST_LVM_VG,
-  ])
-
 MODIFIABLE_STORAGE_FIELDS = {
   ST_LVM_PV: frozenset([SF_ALLOCATABLE]),
   }
@@ -366,14 +436,58 @@ VALID_STORAGE_OPERATIONS = {
  LDS_FAULTY) = range(1, 4)
 
 # disk template types
-DT_DISKLESS = "diskless"
-DT_PLAIN = "plain"
-DT_DRBD8 = "drbd"
-DT_FILE = "file"
-DT_SHARED_FILE = "sharedfile"
 DT_BLOCK = "blockdev"
-DT_RBD = "rbd"
+DT_DISKLESS = "diskless"
+DT_DRBD8 = "drbd"
 DT_EXT = "ext"
+DT_FILE = "file"
+DT_PLAIN = "plain"
+DT_RBD = "rbd"
+DT_SHARED_FILE = "sharedfile"
+
+# This is used to order determine the default disk template when the list
+# of enabled disk templates is inferred from the current state of the cluster.
+# This only happens on an upgrade from a version of Ganeti that did not
+# support the 'enabled_disk_templates' so far.
+DISK_TEMPLATE_PREFERENCE = [
+  DT_DRBD8,
+  DT_PLAIN,
+  DT_FILE,
+  DT_SHARED_FILE,
+  DT_RBD,
+  DT_BLOCK,
+  DT_DISKLESS,
+  DT_EXT
+  ]
+
+DISK_TEMPLATES = compat.UniqueFrozenset([
+  DT_DISKLESS,
+  DT_PLAIN,
+  DT_DRBD8,
+  DT_FILE,
+  DT_SHARED_FILE,
+  DT_BLOCK,
+  DT_RBD,
+  DT_EXT
+  ])
+
+# disk templates that are enabled by default
+DEFAULT_ENABLED_DISK_TEMPLATES = compat.UniqueFrozenset([
+  DT_DRBD8,
+  DT_PLAIN,
+  ])
+
+# mapping of disk templates to storage types
+DISK_TEMPLATES_STORAGE_TYPE = {
+  DT_BLOCK: ST_BLOCK,
+  DT_DISKLESS: ST_DISKLESS,
+  DT_DRBD8: ST_LVM_VG,
+  DT_EXT: ST_EXT,
+  DT_FILE: ST_FILE,
+  DT_PLAIN: ST_LVM_VG,
+  DT_RBD: ST_RADOS,
+  DT_SHARED_FILE: ST_FILE,
+  }
 
 # the set of network-mirrored disk templates
 DTS_INT_MIRROR = compat.UniqueFrozenset([DT_DRBD8])
@@ -558,17 +672,6 @@ RIE_CONNECT_RETRIES = 10
 #: Give child process up to 5 seconds to exit after sending a signal
 CHILD_LINGER_TIMEOUT = 5.0
 
-DISK_TEMPLATES = compat.UniqueFrozenset([
-  DT_DISKLESS,
-  DT_PLAIN,
-  DT_DRBD8,
-  DT_FILE,
-  DT_SHARED_FILE,
-  DT_BLOCK,
-  DT_RBD,
-  DT_EXT
-  ])
-
 FILE_DRIVER = compat.UniqueFrozenset([FD_LOOP, FD_BLKTAP])
 
 # import/export config options
@@ -721,10 +824,6 @@ ES_SCRIPTS = frozenset([
 
 ES_PARAMETERS_FILE = "parameters.list"
 
-# ssh constants
-SSH = "ssh"
-SCP = "scp"
-
 # reboot types
 INSTANCE_REBOOT_SOFT = "soft"
 INSTANCE_REBOOT_HARD = "hard"
@@ -850,6 +949,8 @@ HV_KVM_EXTRA = "kvm_extra"
 HV_KVM_MACHINE_VERSION = "machine_version"
 HV_KVM_PATH = "kvm_path"
 HV_VIF_TYPE = "vif_type"
+HV_VNET_HDR = "vnet_hdr"
+HV_VIRIDIAN = "viridian"
 
 
 HVS_PARAMETER_TYPES = {
@@ -920,6 +1021,8 @@ HVS_PARAMETER_TYPES = {
   HV_KVM_EXTRA: VTYPE_STRING,
   HV_KVM_MACHINE_VERSION: VTYPE_STRING,
   HV_VIF_TYPE: VTYPE_STRING,
+  HV_VNET_HDR: VTYPE_BOOL,
+  HV_VIRIDIAN: VTYPE_BOOL,
   }
 
 HVS_PARAMETERS = frozenset(HVS_PARAMETER_TYPES.keys())
@@ -1058,6 +1161,7 @@ ISPECS_PARAMETER_TYPES = {
 
 ISPECS_PARAMETERS = frozenset(ISPECS_PARAMETER_TYPES.keys())
 
+ISPECS_MINMAX = "minmax"
 ISPECS_MIN = "min"
 ISPECS_MAX = "max"
 ISPECS_STD = "std"
@@ -1065,10 +1169,9 @@ IPOLICY_DTS = "disk-templates"
 IPOLICY_VCPU_RATIO = "vcpu-ratio"
 IPOLICY_SPINDLE_RATIO = "spindle-ratio"
 
-IPOLICY_ISPECS = compat.UniqueFrozenset([
+ISPECS_MINMAX_KEYS = compat.UniqueFrozenset([
   ISPECS_MIN,
   ISPECS_MAX,
-  ISPECS_STD,
   ])
 
 IPOLICY_PARAMETERS = compat.UniqueFrozenset([
@@ -1076,9 +1179,8 @@ IPOLICY_PARAMETERS = compat.UniqueFrozenset([
   IPOLICY_SPINDLE_RATIO,
   ])
 
-IPOLICY_ALL_KEYS = (IPOLICY_ISPECS |
-                    IPOLICY_PARAMETERS |
-                    frozenset([IPOLICY_DTS]))
+IPOLICY_ALL_KEYS = (IPOLICY_PARAMETERS |
+                    frozenset([ISPECS_MINMAX, ISPECS_STD, IPOLICY_DTS]))
 
 # Node parameter names
 ND_OOB_PROGRAM = "oob_program"
@@ -1238,6 +1340,7 @@ IDISK_ADOPT = "adopt"
 IDISK_VG = "vg"
 IDISK_METAVG = "metavg"
 IDISK_PROVIDER = "provider"
+IDISK_NAME = "name"
 IDISK_PARAMS_TYPES = {
   IDISK_SIZE: VTYPE_SIZE,
   IDISK_MODE: VTYPE_STRING,
@@ -1245,6 +1348,7 @@ IDISK_PARAMS_TYPES = {
   IDISK_VG: VTYPE_STRING,
   IDISK_METAVG: VTYPE_STRING,
   IDISK_PROVIDER: VTYPE_STRING,
+  IDISK_NAME: VTYPE_MAYBE_STRING,
   }
 IDISK_PARAMS = frozenset(IDISK_PARAMS_TYPES.keys())
 
@@ -1254,12 +1358,14 @@ INIC_IP = "ip"
 INIC_MODE = "mode"
 INIC_LINK = "link"
 INIC_NETWORK = "network"
+INIC_NAME = "name"
 INIC_PARAMS_TYPES = {
   INIC_IP: VTYPE_MAYBE_STRING,
   INIC_LINK: VTYPE_STRING,
   INIC_MAC: VTYPE_STRING,
   INIC_MODE: VTYPE_STRING,
   INIC_NETWORK: VTYPE_MAYBE_STRING,
+  INIC_NAME: VTYPE_MAYBE_STRING,
   }
 INIC_PARAMS = frozenset(INIC_PARAMS_TYPES.keys())
 
@@ -1943,6 +2049,7 @@ HVC_DEFAULTS = {
     HV_CPU_CAP: 0,
     HV_CPU_WEIGHT: 256,
     HV_VIF_TYPE: HT_HVM_VIF_IOEMU,
+    HV_VIRIDIAN: False,
     },
   HT_KVM: {
     HV_KVM_PATH: KVM_PATH,
@@ -2001,6 +2108,7 @@ HVC_DEFAULTS = {
     HV_VGA: "",
     HV_KVM_EXTRA: "",
     HV_KVM_MACHINE_VERSION: "",
+    HV_VNET_HDR: True,
     },
   HT_FAKE: {},
   HT_CHROOT: {
@@ -2046,11 +2154,11 @@ DISK_LD_DEFAULTS = {
     LDP_NET_CUSTOM: "",
     LDP_DYNAMIC_RESYNC: False,
 
-    # The default values for the DRBD dynamic resync speed algorithm are taken
-    # from the drbsetup 8.3.11 man page, except for c-plan-ahead (that we
-    # don't need to set to 0, because we have a separate option to enable it)
-    # and for c-max-rate, that we cap to the default value for the static resync
-    # rate.
+    # The default values for the DRBD dynamic resync speed algorithm
+    # are taken from the drbsetup 8.3.11 man page, except for
+    # c-plan-ahead (that we don't need to set to 0, because we have a
+    # separate option to enable it) and for c-max-rate, that we cap to
+    # the default value for the static resync rate.
     LDP_PLAN_AHEAD: 20, # ds
     LDP_FILL_TARGET: 0, # sectors
     LDP_DELAY_TARGET: 1, # ds
@@ -2112,7 +2220,7 @@ NICC_DEFAULTS = {
 
 # All of the following values are quite arbitrarily - there are no
 # "good" defaults, these must be customised per-site
-IPOLICY_DEFAULTS = {
+ISPECS_MINMAX_DEFAULTS = {
   ISPECS_MIN: {
     ISPEC_MEM_SIZE: 128,
     ISPEC_CPU_COUNT: 1,
@@ -2129,6 +2237,9 @@ IPOLICY_DEFAULTS = {
     ISPEC_NIC_COUNT: MAX_NICS,
     ISPEC_SPINDLE_USE: 12,
     },
+  }
+IPOLICY_DEFAULTS = {
+  ISPECS_MINMAX: [ISPECS_MINMAX_DEFAULTS],
   ISPECS_STD: {
     ISPEC_MEM_SIZE: 128,
     ISPEC_CPU_COUNT: 1,
@@ -2160,6 +2271,7 @@ CONFD_REQ_NODE_PIP_LIST = 4
 CONFD_REQ_MC_PIP_LIST = 5
 CONFD_REQ_INSTANCES_IPS_LIST = 6
 CONFD_REQ_NODE_DRBD = 7
+CONFD_REQ_NODE_INSTANCES = 8
 
 # Confd request query fields. These are used to narrow down queries.
 # These must be strings rather than integers, because json-encoding
@@ -2346,6 +2458,24 @@ AUTO_REPAIR_ALL_RESULTS = frozenset([
 
 # The version identifier for builtin data collectors
 BUILTIN_DATA_COLLECTOR_VERSION = "B"
+
+# The reason trail opcode parameter name
+OPCODE_REASON = "reason"
+
+# The source reasons for the execution of an OpCode
+OPCODE_REASON_SRC_CLIENT = "gnt:client"
+OPCODE_REASON_SRC_NODED = "gnt:daemon:noded"
+OPCODE_REASON_SRC_OPCODE = "gnt:opcode"
+OPCODE_REASON_SRC_RLIB2 = "gnt:library:rlib2"
+OPCODE_REASON_SRC_USER = "gnt:user"
+
+OPCODE_REASON_SOURCES = compat.UniqueFrozenset([
+  OPCODE_REASON_SRC_CLIENT,
+  OPCODE_REASON_SRC_NODED,
+  OPCODE_REASON_SRC_OPCODE,
+  OPCODE_REASON_SRC_RLIB2,
+  OPCODE_REASON_SRC_USER,
+  ])
 
 # Do not re-export imported modules
 del re, _vcsversion, _autoconf, socket, pathutils, compat

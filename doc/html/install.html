@@ -8,7 +8,7 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Ganeti installation tutorial &mdash; Ganeti 2.7.1 documentation</title>
+    <title>Ganeti installation tutorial &mdash; Ganeti 2.8.0 documentation</title>
     
     <link rel="stylesheet" href="_static/style.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
@@ -16,7 +16,7 @@
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.7.1',
+        VERSION:     '2.8.0',
         COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -25,21 +25,21 @@
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti 2.7.1 documentation" href="index.html" />
-    <link rel="next" title="Upgrade notes" href="upgrade.html" />
-    <link rel="prev" title="Ganeti quick installation guide" href="install-quick.html" /> 
+    <link rel="top" title="Ganeti 2.8.0 documentation" href="index.html" />
+    <link rel="next" title="Ganeti quick installation guide" href="install-quick.html" />
+    <link rel="prev" title="Ganeti automatic instance allocation" href="iallocator.html" /> 
   </head>
   <body>
     <div class="related">
       <h3>Navigation</h3>
       <ul>
         <li class="right" style="margin-right: 10px">
-          <a href="upgrade.html" title="Upgrade notes"
+          <a href="install-quick.html" title="Ganeti quick installation guide"
              accesskey="N">next</a></li>
         <li class="right" >
-          <a href="install-quick.html" title="Ganeti quick installation guide"
+          <a href="iallocator.html" title="Ganeti automatic instance allocation"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.7.1 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.8.0 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -50,7 +50,7 @@
             
   <div class="section" id="ganeti-installation-tutorial">
 <h1><a class="toc-backref" href="#id2">Ganeti installation tutorial</a><a class="headerlink" href="#ganeti-installation-tutorial" title="Permalink to this headline">¶</a></h1>
-<p>Documents Ganeti version 2.7</p>
+<p>Documents Ganeti version 2.8</p>
 <div class="contents topic" id="contents">
 <p class="topic-title first">Contents</p>
 <ul class="simple">
@@ -591,7 +591,8 @@ $ <span class="gs">mkdir</span> <span class="gs">/srv/ganeti/</span> <span class
 <p>You also need to copy the file <tt class="docutils literal"><span class="pre">doc/examples/ganeti.initd</span></tt> from the
 source archive to <tt class="docutils literal"><span class="pre">/etc/init.d/ganeti</span></tt> and register it with your
 distribution&#8217;s startup scripts, for example in Debian:</p>
-<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">update-rc.d</span> <span class="gs">ganeti</span> <span class="gs">defaults</span> <span class="gs">20</span> <span class="gs">80</span>
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">chmod</span> <span class="gs">+x</span> <span class="gs">/etc/init.d/ganeti</span>
+$ <span class="gs">update-rc.d</span> <span class="gs">ganeti</span> <span class="gs">defaults</span> <span class="gs">20</span> <span class="gs">80</span>
 </pre></div>
 </div>
 <p>In order to automatically restart failed instances, you need to setup a
@@ -868,11 +869,11 @@ instance level.</td></tr>
 </ul>
 
   <h4>Previous topic</h4>
-  <p class="topless"><a href="install-quick.html"
-                        title="previous chapter">Ganeti quick installation guide</a></p>
+  <p class="topless"><a href="iallocator.html"
+                        title="previous chapter">Ganeti automatic instance allocation</a></p>
   <h4>Next topic</h4>
-  <p class="topless"><a href="upgrade.html"
-                        title="next chapter">Upgrade notes</a></p>
+  <p class="topless"><a href="install-quick.html"
+                        title="next chapter">Ganeti quick installation guide</a></p>
   <h3>This Page</h3>
   <ul class="this-page-menu">
     <li><a href="_sources/install.txt"
@@ -899,12 +900,12 @@ instance level.</td></tr>
       <h3>Navigation</h3>
       <ul>
         <li class="right" style="margin-right: 10px">
-          <a href="upgrade.html" title="Upgrade notes"
+          <a href="install-quick.html" title="Ganeti quick installation guide"
              >next</a></li>
         <li class="right" >
-          <a href="install-quick.html" title="Ganeti quick installation guide"
+          <a href="iallocator.html" title="Ganeti automatic instance allocation"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.7.1 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.8.0 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

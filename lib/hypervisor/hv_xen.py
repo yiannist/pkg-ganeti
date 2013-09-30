@@ -24,6 +24,7 @@
 """
 
 import logging
+import string # pylint: disable=W0402
 from cStringIO import StringIO
 
 from ganeti import constants
@@ -41,6 +42,12 @@ XL_CONFIG_FILE = utils.PathJoin(pathutils.XEN_CONFIG_DIR, "xen/xl.conf")
 VIF_BRIDGE_SCRIPT = utils.PathJoin(pathutils.XEN_CONFIG_DIR,
                                    "scripts/vif-bridge")
 _DOM0_NAME = "Domain-0"
+_DISK_LETTERS = string.ascii_lowercase
+
+_FILE_DRIVER_MAP = {
+  constants.FD_LOOP: "file",
+  constants.FD_BLKTAP: "tap:aio",
+  }
 
 
 def _CreateConfigCpus(cpu_mask):
@@ -75,6 +82,224 @@ def _CreateConfigCpus(cpu_mask):
     return "cpus = [ %s ]" % ", ".join(map(_GetCPUMap, cpu_list))
 
 
+def _RunXmList(fn, xmllist_errors):
+  """Helper function for L{_GetXmList} to run "xm list".
+
+  @type fn: callable
+  @param fn: Function returning result of running C{xm list}
+  @type xmllist_errors: list
+  @param xmllist_errors: Error list
+  @rtype: list
+
+  """
+  result = fn()
+  if result.failed:
+    logging.error("xm list failed (%s): %s", result.fail_reason,
+                  result.output)
+    xmllist_errors.append(result)
+    raise utils.RetryAgain()
+
+  # skip over the heading
+  return result.stdout.splitlines()
+
+
+def _ParseXmList(lines, include_node):
+  """Parses the output of C{xm list}.
+
+  @type lines: list
+  @param lines: Output lines of C{xm list}
+  @type include_node: boolean
+  @param include_node: If True, return information for Dom0
+  @return: list of tuple containing (name, id, memory, vcpus, state, time
+    spent)
+
+  """
+  result = []
+
+  # Iterate through all lines while ignoring header
+  for line in lines[1:]:
+    # The format of lines is:
+    # Name      ID Mem(MiB) VCPUs State  Time(s)
+    # Domain-0   0  3418     4 r-----    266.2
+    data = line.split()
+    if len(data) != 6:
+      raise errors.HypervisorError("Can't parse output of xm list,"
+                                   " line: %s" % line)
+    try:
+      data[1] = int(data[1])
+      data[2] = int(data[2])
+      data[3] = int(data[3])
+      data[5] = float(data[5])
+    except (TypeError, ValueError), err:
+      raise errors.HypervisorError("Can't parse output of xm list,"
+                                   " line: %s, error: %s" % (line, err))
+
+    # skip the Domain-0 (optional)
+    if include_node or data[0] != _DOM0_NAME:
+      result.append(data)
+
+  return result
+
+
+def _GetXmList(fn, include_node, _timeout=5):
+  """Return the list of running instances.
+
+  See L{_RunXmList} and L{_ParseXmList} for parameter details.
+
+  """
+  xmllist_errors = []
+  try:
+    lines = utils.Retry(_RunXmList, (0.3, 1.5, 1.0), _timeout,
+                        args=(fn, xmllist_errors))
+  except utils.RetryTimeout:
+    if xmllist_errors:
+      xmlist_result = xmllist_errors.pop()
+
+      errmsg = ("xm list failed, timeout exceeded (%s): %s" %
+                (xmlist_result.fail_reason, xmlist_result.output))
+    else:
+      errmsg = "xm list failed"
+
+    raise errors.HypervisorError(errmsg)
+
+  return _ParseXmList(lines, include_node)
+
+
+def _ParseNodeInfo(info):
+  """Return information about the node.
+
+  @return: a dict with the following keys (memory values in MiB):
+        - memory_total: the total memory size on the node
+        - memory_free: the available memory on the node for instances
+        - nr_cpus: total number of CPUs
+        - nr_nodes: in a NUMA system, the number of domains
+        - nr_sockets: the number of physical CPU sockets in the node
+        - hv_version: the hypervisor version in the form (major, minor)
+
+  """
+  result = {}
+  cores_per_socket = threads_per_core = nr_cpus = None
+  xen_major, xen_minor = None, None
+  memory_total = None
+  memory_free = None
+
+  for line in info.splitlines():
+    fields = line.split(":", 1)
+
+    if len(fields) < 2:
+      continue
+
+    (key, val) = map(lambda s: s.strip(), fields)
+
+    # Note: in Xen 3, memory has changed to total_memory
+    if key in ("memory", "total_memory"):
+      memory_total = int(val)
+    elif key == "free_memory":
+      memory_free = int(val)
+    elif key == "nr_cpus":
+      nr_cpus = result["cpu_total"] = int(val)
+    elif key == "nr_nodes":
+      result["cpu_nodes"] = int(val)
+    elif key == "cores_per_socket":
+      cores_per_socket = int(val)
+    elif key == "threads_per_core":
+      threads_per_core = int(val)
+    elif key == "xen_major":
+      xen_major = int(val)
+    elif key == "xen_minor":
+      xen_minor = int(val)
+
+  if None not in [cores_per_socket, threads_per_core, nr_cpus]:
+    result["cpu_sockets"] = nr_cpus / (cores_per_socket * threads_per_core)
+
+  if memory_free is not None:
+    result["memory_free"] = memory_free
+
+  if memory_total is not None:
+    result["memory_total"] = memory_total
+
+  if not (xen_major is None or xen_minor is None):
+    result[constants.HV_NODEINFO_KEY_VERSION] = (xen_major, xen_minor)
+
+  return result
+
+
+def _MergeInstanceInfo(info, fn):
+  """Updates node information from L{_ParseNodeInfo} with instance info.
+
+  @type info: dict
+  @param info: Result from L{_ParseNodeInfo}
+  @type fn: callable
+  @param fn: Function returning result of running C{xm list}
+  @rtype: dict
+
+  """
+  total_instmem = 0
+
+  for (name, _, mem, vcpus, _, _) in fn(True):
+    if name == _DOM0_NAME:
+      info["memory_dom0"] = mem
+      info["dom0_cpus"] = vcpus
+
+    # Include Dom0 in total memory usage
+    total_instmem += mem
+
+  memory_free = info.get("memory_free")
+  memory_total = info.get("memory_total")
+
+  # Calculate memory used by hypervisor
+  if None not in [memory_total, memory_free, total_instmem]:
+    info["memory_hv"] = memory_total - memory_free - total_instmem
+
+  return info
+
+
+def _GetNodeInfo(info, fn):
+  """Combines L{_MergeInstanceInfo} and L{_ParseNodeInfo}.
+
+  """
+  return _MergeInstanceInfo(_ParseNodeInfo(info), fn)
+
+
+def _GetConfigFileDiskData(block_devices, blockdev_prefix,
+                           _letters=_DISK_LETTERS):
+  """Get disk directives for Xen config file.
+
+  This method builds the xen config disk directive according to the
+  given disk_template and block_devices.
+
+  @param block_devices: list of tuples (cfdev, rldev):
+      - cfdev: dict containing ganeti config disk part
+      - rldev: ganeti.bdev.BlockDev object
+  @param blockdev_prefix: a string containing blockdevice prefix,
+                          e.g. "sd" for /dev/sda
+
+  @return: string containing disk directive for xen instance config file
+
+  """
+  if len(block_devices) > len(_letters):
+    raise errors.HypervisorError("Too many disks")
+
+  disk_data = []
+
+  for sd_suffix, (cfdev, dev_path) in zip(_letters, block_devices):
+    sd_name = blockdev_prefix + sd_suffix
+
+    if cfdev.mode == constants.DISK_RDWR:
+      mode = "w"
+    else:
+      mode = "r"
+
+    if cfdev.dev_type == constants.LD_FILE:
+      driver = _FILE_DRIVER_MAP[cfdev.physical_id[0]]
+    else:
+      driver = "phy"
+
+    disk_data.append("'%s:%s,%s,%s'" % (driver, dev_path, sd_name, mode))
+
+  return disk_data
+
+
 class XenHypervisor(hv_base.BaseHypervisor):
   """Xen generic hypervisor interface
 
@@ -95,8 +320,48 @@ class XenHypervisor(hv_base.BaseHypervisor):
     XL_CONFIG_FILE,
     ]
 
-  @staticmethod
-  def _ConfigFileName(instance_name):
+  def __init__(self, _cfgdir=None, _run_cmd_fn=None, _cmd=None):
+    hv_base.BaseHypervisor.__init__(self)
+
+    if _cfgdir is None:
+      self._cfgdir = pathutils.XEN_CONFIG_DIR
+    else:
+      self._cfgdir = _cfgdir
+
+    if _run_cmd_fn is None:
+      self._run_cmd_fn = utils.RunCmd
+    else:
+      self._run_cmd_fn = _run_cmd_fn
+
+    self._cmd = _cmd
+
+  def _GetCommand(self):
+    """Returns Xen command to use.
+
+    """
+    if self._cmd is None:
+      # TODO: Make command a hypervisor parameter
+      cmd = constants.XEN_CMD
+    else:
+      cmd = self._cmd
+
+    if cmd not in constants.KNOWN_XEN_COMMANDS:
+      raise errors.ProgrammerError("Unknown Xen command '%s'" % cmd)
+
+    return cmd
+
+  def _RunXen(self, args):
+    """Wrapper around L{utils.process.RunCmd} to run Xen command.
+
+    @see: L{utils.process.RunCmd}
+
+    """
+    cmd = [self._GetCommand()]
+    cmd.extend(args)
+
+    return self._run_cmd_fn(cmd)
+
+  def _ConfigFileName(self, instance_name):
     """Get the config file name for an instance.
 
     @param instance_name: instance name
@@ -105,39 +370,36 @@ class XenHypervisor(hv_base.BaseHypervisor):
     @rtype: str
 
     """
-    return utils.PathJoin(pathutils.XEN_CONFIG_DIR, instance_name)
+    return utils.PathJoin(self._cfgdir, instance_name)
 
   @classmethod
-  def _WriteConfigFile(cls, instance, startup_memory, block_devices):
-    """Write the Xen config file for the instance.
+  def _GetConfig(cls, instance, startup_memory, block_devices):
+    """Build Xen configuration for an instance.
 
     """
     raise NotImplementedError
 
-  @staticmethod
-  def _WriteConfigFileStatic(instance_name, data):
+  def _WriteConfigFile(self, instance_name, data):
     """Write the Xen config file for the instance.
 
     This version of the function just writes the config file from static data.
 
     """
     # just in case it exists
-    utils.RemoveFile(utils.PathJoin(pathutils.XEN_CONFIG_DIR, "auto",
-                                    instance_name))
+    utils.RemoveFile(utils.PathJoin(self._cfgdir, "auto", instance_name))
 
-    cfg_file = XenHypervisor._ConfigFileName(instance_name)
+    cfg_file = self._ConfigFileName(instance_name)
     try:
       utils.WriteFile(cfg_file, data=data)
     except EnvironmentError, err:
       raise errors.HypervisorError("Cannot write Xen instance configuration"
                                    " file %s: %s" % (cfg_file, err))
 
-  @staticmethod
-  def _ReadConfigFile(instance_name):
+  def _ReadConfigFile(self, instance_name):
     """Returns the contents of the instance config file.
 
     """
-    filename = XenHypervisor._ConfigFileName(instance_name)
+    filename = self._ConfigFileName(instance_name)
 
     try:
       file_content = utils.ReadFile(filename)
@@ -146,81 +408,34 @@ class XenHypervisor(hv_base.BaseHypervisor):
 
     return file_content
 
-  @staticmethod
-  def _RemoveConfigFile(instance_name):
+  def _RemoveConfigFile(self, instance_name):
     """Remove the xen configuration file.
 
     """
-    utils.RemoveFile(XenHypervisor._ConfigFileName(instance_name))
+    utils.RemoveFile(self._ConfigFileName(instance_name))
 
-  @staticmethod
-  def _RunXmList(xmlist_errors):
-    """Helper function for L{_GetXMList} to run "xm list".
-
-    """
-    result = utils.RunCmd([constants.XEN_CMD, "list"])
-    if result.failed:
-      logging.error("xm list failed (%s): %s", result.fail_reason,
-                    result.output)
-      xmlist_errors.append(result)
-      raise utils.RetryAgain()
-
-    # skip over the heading
-    return result.stdout.splitlines()[1:]
-
-  @classmethod
-  def _GetXMList(cls, include_node):
-    """Return the list of running instances.
-
-    If the include_node argument is True, then we return information
-    for dom0 also, otherwise we filter that from the return value.
-
-    @return: list of (name, id, memory, vcpus, state, time spent)
+  def _StashConfigFile(self, instance_name):
+    """Move the Xen config file to the log directory and return its new path.
 
     """
-    xmlist_errors = []
-    try:
-      lines = utils.Retry(cls._RunXmList, 1, 5, args=(xmlist_errors, ))
-    except utils.RetryTimeout:
-      if xmlist_errors:
-        xmlist_result = xmlist_errors.pop()
+    old_filename = self._ConfigFileName(instance_name)
+    base = ("%s-%s" %
+            (instance_name, utils.TimestampForFilename()))
+    new_filename = utils.PathJoin(pathutils.LOG_XEN_DIR, base)
+    utils.RenameFile(old_filename, new_filename)
+    return new_filename
 
-        errmsg = ("xm list failed, timeout exceeded (%s): %s" %
-                  (xmlist_result.fail_reason, xmlist_result.output))
-      else:
-        errmsg = "xm list failed"
+  def _GetXmList(self, include_node):
+    """Wrapper around module level L{_GetXmList}.
 
-      raise errors.HypervisorError(errmsg)
-
-    result = []
-    for line in lines:
-      # The format of lines is:
-      # Name      ID Mem(MiB) VCPUs State  Time(s)
-      # Domain-0   0  3418     4 r-----    266.2
-      data = line.split()
-      if len(data) != 6:
-        raise errors.HypervisorError("Can't parse output of xm list,"
-                                     " line: %s" % line)
-      try:
-        data[1] = int(data[1])
-        data[2] = int(data[2])
-        data[3] = int(data[3])
-        data[5] = float(data[5])
-      except (TypeError, ValueError), err:
-        raise errors.HypervisorError("Can't parse output of xm list,"
-                                     " line: %s, error: %s" % (line, err))
-
-      # skip the Domain-0 (optional)
-      if include_node or data[0] != _DOM0_NAME:
-        result.append(data)
-
-    return result
+    """
+    return _GetXmList(lambda: self._RunXen(["list"]), include_node)
 
   def ListInstances(self):
     """Get the list of running instances.
 
     """
-    xm_list = self._GetXMList(False)
+    xm_list = self._GetXmList(False)
     names = [info[0] for info in xm_list]
     return names
 
@@ -232,7 +447,7 @@ class XenHypervisor(hv_base.BaseHypervisor):
     @return: tuple (name, id, memory, vcpus, stat, times)
 
     """
-    xm_list = self._GetXMList(instance_name == _DOM0_NAME)
+    xm_list = self._GetXmList(instance_name == _DOM0_NAME)
     result = None
     for data in xm_list:
       if data[0] == instance_name:
@@ -246,25 +461,45 @@ class XenHypervisor(hv_base.BaseHypervisor):
     @return: list of tuples (name, id, memory, vcpus, stat, times)
 
     """
-    xm_list = self._GetXMList(False)
+    xm_list = self._GetXmList(False)
     return xm_list
+
+  def _MakeConfigFile(self, instance, startup_memory, block_devices):
+    """Gather configuration details and write to disk.
+
+    See L{_GetConfig} for arguments.
+
+    """
+    buf = StringIO()
+    buf.write("# Automatically generated by Ganeti. Do not edit!\n")
+    buf.write("\n")
+    buf.write(self._GetConfig(instance, startup_memory, block_devices))
+    buf.write("\n")
+
+    self._WriteConfigFile(instance.name, buf.getvalue())
 
   def StartInstance(self, instance, block_devices, startup_paused):
     """Start an instance.
 
     """
     startup_memory = self._InstanceStartupMemory(instance)
-    self._WriteConfigFile(instance, startup_memory, block_devices)
-    cmd = [constants.XEN_CMD, "create"]
-    if startup_paused:
-      cmd.extend(["-p"])
-    cmd.extend([self._ConfigFileName(instance.name)])
-    result = utils.RunCmd(cmd)
 
+    self._MakeConfigFile(instance, startup_memory, block_devices)
+
+    cmd = ["create"]
+    if startup_paused:
+      cmd.append("-p")
+    cmd.append(self._ConfigFileName(instance.name))
+
+    result = self._RunXen(cmd)
     if result.failed:
-      raise errors.HypervisorError("Failed to start instance %s: %s (%s)" %
+      # Move the Xen configuration file to the log directory to avoid
+      # leaving a stale config file behind.
+      stashed_config = self._StashConfigFile(instance.name)
+      raise errors.HypervisorError("Failed to start instance %s: %s (%s). Moved"
+                                   " config file to %s" %
                                    (instance.name, result.fail_reason,
-                                    result.output))
+                                    result.output, stashed_config))
 
   def StopInstance(self, instance, force=False, retry=False, name=None):
     """Stop an instance.
@@ -273,12 +508,18 @@ class XenHypervisor(hv_base.BaseHypervisor):
     if name is None:
       name = instance.name
 
-    if force:
-      command = [constants.XEN_CMD, "destroy", name]
-    else:
-      command = [constants.XEN_CMD, "shutdown", name]
-    result = utils.RunCmd(command)
+    return self._StopInstance(name, force)
 
+  def _StopInstance(self, name, force):
+    """Stop an instance.
+
+    """
+    if force:
+      action = "destroy"
+    else:
+      action = "shutdown"
+
+    result = self._RunXen([action, name])
     if result.failed:
       raise errors.HypervisorError("Failed to stop instance %s: %s, %s" %
                                    (name, result.fail_reason, result.output))
@@ -296,7 +537,7 @@ class XenHypervisor(hv_base.BaseHypervisor):
       raise errors.HypervisorError("Failed to reboot instance %s,"
                                    " not running" % instance.name)
 
-    result = utils.RunCmd([constants.XEN_CMD, "reboot", instance.name])
+    result = self._RunXen(["reboot", instance.name])
     if result.failed:
       raise errors.HypervisorError("Failed to reboot instance %s: %s, %s" %
                                    (instance.name, result.fail_reason,
@@ -329,14 +570,16 @@ class XenHypervisor(hv_base.BaseHypervisor):
     @param mem: actual memory size to use for instance runtime
 
     """
-    cmd = [constants.XEN_CMD, "mem-set", instance.name, mem]
-    result = utils.RunCmd(cmd)
+    result = self._RunXen(["mem-set", instance.name, mem])
     if result.failed:
       raise errors.HypervisorError("Failed to balloon instance %s: %s (%s)" %
                                    (instance.name, result.fail_reason,
                                     result.output))
+
+    # Update configuration file
     cmd = ["sed", "-ie", "s/^memory.*$/memory = %s/" % mem]
-    cmd.append(XenHypervisor._ConfigFileName(instance.name))
+    cmd.append(self._ConfigFileName(instance.name))
+
     result = utils.RunCmd(cmd)
     if result.failed:
       raise errors.HypervisorError("Failed to update memory for %s: %s (%s)" %
@@ -346,80 +589,16 @@ class XenHypervisor(hv_base.BaseHypervisor):
   def GetNodeInfo(self):
     """Return information about the node.
 
-    @return: a dict with the following keys (memory values in MiB):
-          - memory_total: the total memory size on the node
-          - memory_free: the available memory on the node for instances
-          - memory_dom0: the memory used by the node itself, if available
-          - nr_cpus: total number of CPUs
-          - nr_nodes: in a NUMA system, the number of domains
-          - nr_sockets: the number of physical CPU sockets in the node
-          - hv_version: the hypervisor version in the form (major, minor)
+    @see: L{_GetNodeInfo} and L{_ParseNodeInfo}
 
     """
-    result = utils.RunCmd([constants.XEN_CMD, "info"])
+    result = self._RunXen(["info"])
     if result.failed:
       logging.error("Can't run 'xm info' (%s): %s", result.fail_reason,
                     result.output)
       return None
 
-    xmoutput = result.stdout.splitlines()
-    result = {}
-    cores_per_socket = threads_per_core = nr_cpus = None
-    xen_major, xen_minor = None, None
-    memory_total = None
-    memory_free = None
-
-    for line in xmoutput:
-      splitfields = line.split(":", 1)
-
-      if len(splitfields) > 1:
-        key = splitfields[0].strip()
-        val = splitfields[1].strip()
-
-        # note: in xen 3, memory has changed to total_memory
-        if key == "memory" or key == "total_memory":
-          memory_total = int(val)
-        elif key == "free_memory":
-          memory_free = int(val)
-        elif key == "nr_cpus":
-          nr_cpus = result["cpu_total"] = int(val)
-        elif key == "nr_nodes":
-          result["cpu_nodes"] = int(val)
-        elif key == "cores_per_socket":
-          cores_per_socket = int(val)
-        elif key == "threads_per_core":
-          threads_per_core = int(val)
-        elif key == "xen_major":
-          xen_major = int(val)
-        elif key == "xen_minor":
-          xen_minor = int(val)
-
-    if None not in [cores_per_socket, threads_per_core, nr_cpus]:
-      result["cpu_sockets"] = nr_cpus / (cores_per_socket * threads_per_core)
-
-    total_instmem = 0
-    for (name, _, mem, vcpus, _, _) in self._GetXMList(True):
-      if name == _DOM0_NAME:
-        result["memory_dom0"] = mem
-        result["dom0_cpus"] = vcpus
-
-      # Include Dom0 in total memory usage
-      total_instmem += mem
-
-    if memory_free is not None:
-      result["memory_free"] = memory_free
-
-    if memory_total is not None:
-      result["memory_total"] = memory_total
-
-    # Calculate memory used by hypervisor
-    if None not in [memory_total, memory_free, total_instmem]:
-      result["memory_hv"] = memory_total - memory_free - total_instmem
-
-    if not (xen_major is None or xen_minor is None):
-      result[constants.HV_NODEINFO_KEY_VERSION] = (xen_major, xen_minor)
-
-    return result
+    return _GetNodeInfo(result.stdout, self._GetXmList)
 
   @classmethod
   def GetInstanceConsole(cls, instance, hvparams, beparams):
@@ -441,50 +620,11 @@ class XenHypervisor(hv_base.BaseHypervisor):
     @return: Problem description if something is wrong, C{None} otherwise
 
     """
-    result = utils.RunCmd([constants.XEN_CMD, "info"])
+    result = self._RunXen(["info"])
     if result.failed:
       return "'xm info' failed: %s, %s" % (result.fail_reason, result.output)
 
     return None
-
-  @staticmethod
-  def _GetConfigFileDiskData(block_devices, blockdev_prefix):
-    """Get disk directive for xen config file.
-
-    This method builds the xen config disk directive according to the
-    given disk_template and block_devices.
-
-    @param block_devices: list of tuples (cfdev, rldev):
-        - cfdev: dict containing ganeti config disk part
-        - rldev: ganeti.bdev.BlockDev object
-    @param blockdev_prefix: a string containing blockdevice prefix,
-                            e.g. "sd" for /dev/sda
-
-    @return: string containing disk directive for xen instance config file
-
-    """
-    FILE_DRIVER_MAP = {
-      constants.FD_LOOP: "file",
-      constants.FD_BLKTAP: "tap:aio",
-      }
-    disk_data = []
-    if len(block_devices) > 24:
-      # 'z' - 'a' = 24
-      raise errors.HypervisorError("Too many disks")
-    namespace = [blockdev_prefix + chr(i + ord("a")) for i in range(24)]
-    for sd_name, (cfdev, dev_path) in zip(namespace, block_devices):
-      if cfdev.mode == constants.DISK_RDWR:
-        mode = "w"
-      else:
-        mode = "r"
-      if cfdev.dev_type == constants.LD_FILE:
-        line = "'%s:%s,%s,%s'" % (FILE_DRIVER_MAP[cfdev.physical_id[0]],
-                                  dev_path, sd_name, mode)
-      else:
-        line = "'phy:%s,%s,%s'" % (dev_path, sd_name, mode)
-      disk_data.append(line)
-
-    return disk_data
 
   def MigrationInfo(self, instance):
     """Get instance information to perform a migration.
@@ -525,7 +665,7 @@ class XenHypervisor(hv_base.BaseHypervisor):
 
     """
     if success:
-      self._WriteConfigFileStatic(instance.name, info)
+      self._WriteConfigFile(instance.name, info)
 
   def MigrateInstance(self, instance, target, live):
     """Migrate an instance to a target node.
@@ -541,34 +681,53 @@ class XenHypervisor(hv_base.BaseHypervisor):
     @param live: perform a live migration
 
     """
-    if self.GetInstanceInfo(instance.name) is None:
-      raise errors.HypervisorError("Instance not running, cannot migrate")
-
     port = instance.hvparams[constants.HV_MIGRATION_PORT]
 
-    if (constants.XEN_CMD == constants.XEN_CMD_XM and
-        not netutils.TcpPing(target, port, live_port_needed=True)):
+    # TODO: Pass cluster name via RPC
+    cluster_name = ssconf.SimpleStore().GetClusterName()
+
+    return self._MigrateInstance(cluster_name, instance.name, target, port,
+                                 live)
+
+  def _MigrateInstance(self, cluster_name, instance_name, target, port, live,
+                       _ping_fn=netutils.TcpPing):
+    """Migrate an instance to a target node.
+
+    @see: L{MigrateInstance} for details
+
+    """
+    if self.GetInstanceInfo(instance_name) is None:
+      raise errors.HypervisorError("Instance not running, cannot migrate")
+
+    cmd = self._GetCommand()
+
+    if (cmd == constants.XEN_CMD_XM and
+        not _ping_fn(target, port, live_port_needed=True)):
       raise errors.HypervisorError("Remote host %s not listening on port"
                                    " %s, cannot migrate" % (target, port))
 
-    args = [constants.XEN_CMD, "migrate"]
-    if constants.XEN_CMD == constants.XEN_CMD_XM:
+    args = ["migrate"]
+
+    if cmd == constants.XEN_CMD_XM:
       args.extend(["-p", "%d" % port])
       if live:
         args.append("-l")
-    elif constants.XEN_CMD == constants.XEN_CMD_XL:
-      cluster_name = ssconf.SimpleStore().GetClusterName()
-      args.extend(["-s", constants.XL_SSH_CMD % cluster_name])
-      args.extend(["-C", self._ConfigFileName(instance.name)])
-    else:
-      raise errors.HypervisorError("Unsupported xen command: %s" %
-                                   constants.XEN_CMD)
 
-    args.extend([instance.name, target])
-    result = utils.RunCmd(args)
+    elif cmd == constants.XEN_CMD_XL:
+      args.extend([
+        "-s", constants.XL_SSH_CMD % cluster_name,
+        "-C", self._ConfigFileName(instance_name),
+        ])
+
+    else:
+      raise errors.HypervisorError("Unsupported Xen command: %s" % self._cmd)
+
+    args.extend([instance_name, target])
+
+    result = self._RunXen(args)
     if result.failed:
       raise errors.HypervisorError("Failed to migrate instance %s: %s" %
-                                   (instance.name, result.output))
+                                   (instance_name, result.output))
 
   def FinalizeMigrationSource(self, instance, success, live):
     """Finalize the instance migration on the source node.
@@ -647,8 +806,7 @@ class XenPvmHypervisor(XenHypervisor):
       (False, lambda x: 0 < x < 65536, "invalid weight", None, None),
     }
 
-  @classmethod
-  def _WriteConfigFile(cls, instance, startup_memory, block_devices):
+  def _GetConfig(self, instance, startup_memory, block_devices):
     """Write the Xen config file for the instance.
 
     """
@@ -706,8 +864,8 @@ class XenPvmHypervisor(XenHypervisor):
         nic_str += ", bridge=%s" % nic.nicparams[constants.NIC_LINK]
       vif_data.append("'%s'" % nic_str)
 
-    disk_data = cls._GetConfigFileDiskData(block_devices,
-                                           hvp[constants.HV_BLOCKDEV_PREFIX])
+    disk_data = \
+      _GetConfigFileDiskData(block_devices, hvp[constants.HV_BLOCKDEV_PREFIX])
 
     config.write("vif = [%s]\n" % ",".join(vif_data))
     config.write("disk = [%s]\n" % ",".join(disk_data))
@@ -721,9 +879,8 @@ class XenPvmHypervisor(XenHypervisor):
       config.write("on_reboot = 'destroy'\n")
     config.write("on_crash = 'restart'\n")
     config.write("extra = '%s'\n" % hvp[constants.HV_KERNEL_ARGS])
-    cls._WriteConfigFileStatic(instance.name, config.getvalue())
 
-    return True
+    return config.getvalue()
 
 
 class XenHvmHypervisor(XenHypervisor):
@@ -769,17 +926,16 @@ class XenHvmHypervisor(XenHypervisor):
       (False, lambda x: 0 < x < 65535, "invalid weight", None, None),
     constants.HV_VIF_TYPE:
       hv_base.ParamInSet(False, constants.HT_HVM_VALID_VIF_TYPES),
+    constants.HV_VIRIDIAN: hv_base.NO_CHECK,
     }
 
-  @classmethod
-  def _WriteConfigFile(cls, instance, startup_memory, block_devices):
+  def _GetConfig(self, instance, startup_memory, block_devices):
     """Create a Xen 3.1 HVM config file.
 
     """
     hvp = instance.hvparams
 
     config = StringIO()
-    config.write("# this is autogenerated by Ganeti, please do not edit\n#\n")
 
     # kernel handling
     kpath = hvp[constants.HV_KERNEL_PATH]
@@ -808,6 +964,11 @@ class XenHvmHypervisor(XenHypervisor):
       config.write("acpi = 1\n")
     else:
       config.write("acpi = 0\n")
+    if hvp[constants.HV_VIRIDIAN]:
+      config.write("viridian = 1\n")
+    else:
+      config.write("viridian = 0\n")
+
     config.write("apic = 1\n")
     config.write("device_model = '%s'\n" % hvp[constants.HV_DEVICE_MODEL])
     config.write("boot = '%s'\n" % hvp[constants.HV_BOOT_ORDER])
@@ -870,8 +1031,8 @@ class XenHvmHypervisor(XenHypervisor):
 
     config.write("vif = [%s]\n" % ",".join(vif_data))
 
-    disk_data = cls._GetConfigFileDiskData(block_devices,
-                                           hvp[constants.HV_BLOCKDEV_PREFIX])
+    disk_data = \
+      _GetConfigFileDiskData(block_devices, hvp[constants.HV_BLOCKDEV_PREFIX])
 
     iso_path = hvp[constants.HV_CDROM_IMAGE_PATH]
     if iso_path:
@@ -891,6 +1052,5 @@ class XenHvmHypervisor(XenHypervisor):
     else:
       config.write("on_reboot = 'destroy'\n")
     config.write("on_crash = 'restart'\n")
-    cls._WriteConfigFileStatic(instance.name, config.getvalue())
 
-    return True
+    return config.getvalue()

@@ -92,6 +92,8 @@ module Ganeti.Types
   , opStatusToRaw
   , opStatusFromRaw
   , ELogType(..)
+  , ReasonElem
+  , ReasonTrail
   ) where
 
 import Control.Monad (liftM)
@@ -301,6 +303,10 @@ $(THH.declareSADT "StorageType"
   [ ("StorageFile", 'C.stFile)
   , ("StorageLvmPv", 'C.stLvmPv)
   , ("StorageLvmVg", 'C.stLvmVg)
+  , ("StorageDiskless", 'C.stDiskless)
+  , ("StorageBlock", 'C.stBlock)
+  , ("StorageRados", 'C.stRados)
+  , ("StorageExt", 'C.stExt)
   ])
 $(THH.makeJSONInstance ''StorageType)
 
@@ -359,7 +365,7 @@ $(THH.declareSADT "IAllocatorMode"
   ])
 $(THH.makeJSONInstance ''IAllocatorMode)
 
--- | Netork mode.
+-- | Network mode.
 $(THH.declareSADT "NICMode"
   [ ("NMBridged", 'C.nicModeBridged)
   , ("NMRouted",  'C.nicModeRouted)
@@ -481,3 +487,9 @@ $(THH.declareSADT "ELogType"
   , ("ELogJqueueTest",   'C.elogJqueueTest)
   ])
 $(THH.makeJSONInstance ''ELogType)
+
+-- | Type of one element of a reason trail.
+type ReasonElem = (String, String, Integer)
+
+-- | Type representing a reason trail.
+type ReasonTrail = [ReasonElem]

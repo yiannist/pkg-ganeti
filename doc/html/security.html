@@ -8,7 +8,7 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Security in Ganeti &mdash; Ganeti 2.7.1 documentation</title>
+    <title>Security in Ganeti &mdash; Ganeti 2.8.0 documentation</title>
     
     <link rel="stylesheet" href="_static/style.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
@@ -16,7 +16,7 @@
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.7.1',
+        VERSION:     '2.8.0',
         COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -25,21 +25,21 @@
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti 2.7.1 documentation" href="index.html" />
-    <link rel="next" title="Ganeti 2.0 design" href="design-2.0.html" />
-    <link rel="prev" title="Ganeti walk-through" href="walkthrough.html" /> 
+    <link rel="top" title="Ganeti 2.8.0 documentation" href="index.html" />
+    <link rel="next" title="Upgrade notes" href="upgrade.html" />
+    <link rel="prev" title="Ganeti remote API" href="rapi.html" /> 
   </head>
   <body>
     <div class="related">
       <h3>Navigation</h3>
       <ul>
         <li class="right" style="margin-right: 10px">
-          <a href="design-2.0.html" title="Ganeti 2.0 design"
+          <a href="upgrade.html" title="Upgrade notes"
              accesskey="N">next</a></li>
         <li class="right" >
-          <a href="walkthrough.html" title="Ganeti walk-through"
+          <a href="rapi.html" title="Ganeti remote API"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.7.1 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.8.0 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -50,15 +50,17 @@
             
   <div class="section" id="security-in-ganeti">
 <h1>Security in Ganeti<a class="headerlink" href="#security-in-ganeti" title="Permalink to this headline">¶</a></h1>
-<p>Documents Ganeti version 2.7</p>
+<p>Documents Ganeti version 2.8</p>
 <p>Ganeti was developed to run on internal, trusted systems. As such, the
 security model is all-or-nothing.</p>
 <p>Up to version 2.3 all Ganeti code ran as root. Since version 2.4 it is
-possible to run all daemons except the node daemon as non-root users by
-specifying user names and groups at build time. The node daemon
-continues to require root privileges to create logical volumes, DRBD
-devices, start instances, etc. Cluster commands can be run as root or by
-users in a group specified at build time.</p>
+possible to run all daemons except the node daemon and the monitoring daemon
+as non-root users by specifying user names and groups at build time.
+The node daemon continues to require root privileges to create logical volumes,
+DRBD devices, start instances, etc. Cluster commands can be run as root or by
+users in a group specified at build time. The monitoring daemon requires root
+privileges in order to be able to access and present information that are only
+avilable to root (such as the output of the <tt class="docutils literal"><span class="pre">xm</span></tt> command of Xen).</p>
 <div class="section" id="host-issues">
 <h2>Host issues<a class="headerlink" href="#host-issues" title="Permalink to this headline">¶</a></h2>
 <p>For a host on which the Ganeti software has been installed, but not
@@ -158,23 +160,46 @@ before serving requests. This permission-based protection is documented
 and works on Linux, but is not-portable; however, Ganeti doesn&#8217;t work on
 non-Linux system at the moment.</p>
 </div>
+<div class="section" id="luxi-daemon">
+<h2>Luxi daemon<a class="headerlink" href="#luxi-daemon" title="Permalink to this headline">¶</a></h2>
+<p>The <tt class="docutils literal"><span class="pre">luxid</span></tt> daemon (automatically enabled if <tt class="docutils literal"><span class="pre">confd</span></tt> is enabled at
+build time) serves local (UNIX socket) queries about the run-time
+configuration. Answering these means talking to other cluster nodes,
+exactly as <tt class="docutils literal"><span class="pre">masterd</span></tt> does. See the notes for <tt class="docutils literal"><span class="pre">masterd</span></tt> regarding
+permission-based protection.</p>
+</div>
 <div class="section" id="conf-daemon">
 <h2>Conf daemon<a class="headerlink" href="#conf-daemon" title="Permalink to this headline">¶</a></h2>
-<p>In Ganeti 2.7, the <tt class="docutils literal"><span class="pre">confd</span></tt> daemon (if enabled at build time), serves
-both network-originated queries (about the static configuration) and
-local (UNIX socket) queries (about the run-time configuration; answering
-these means talking to other cluster nodes, which makes use of the
-internal RPC SSL certificate). This makes it a bit more sensitive to
-bugs (a remote attacker could get direct access to the intra-cluster
-RPC), so to harden security it&#8217;s recommended to:</p>
+<p>In Ganeti 2.8, the <tt class="docutils literal"><span class="pre">confd</span></tt> daemon (if enabled at build time), serves
+network-originated queries about parts of the static cluster
+configuration.</p>
+<p>If Ganeti is not configured (at build time) to use separate users,
+<tt class="docutils literal"><span class="pre">confd</span></tt> has access to all Ganeti related files (including internal RPC
+SSL certificates). This makes it a bit more sensitive to bugs (a remote
+attacker could get direct access to the intra-cluster RPC), so to harden
+security it&#8217;s recommended to:</p>
 <ul class="simple">
-<li>disable confd at build time if it&#8217;s not needed in your setup</li>
-<li>otherwise, configure Ganeti (at build time) to use separate users, so
-that the confd daemon doesn&#8217;t also have access to the server SSL/TLS
-certificates</li>
+<li>disable confd at build time if it (and <tt class="docutils literal"><span class="pre">luxid</span></tt>) is not needed in
+your setup.</li>
+<li>configure Ganeti (at build time) to use separate users, so that the
+confd daemon doesn&#8217;t also have access to the server SSL/TLS
+certificates.</li>
+<li>add firewall rules to protect the <tt class="docutils literal"><span class="pre">confd</span></tt> port or bind it to a
+trusted address. Make sure that all nodes can access the daemon, as
+the monitoring daemon requires it.</li>
 </ul>
-<p>It is planned to split the two functionalities (local/remote querying)
-of confd into two separate daemons in a future Ganeti version.</p>
+</div>
+<div class="section" id="monitoring-daemon">
+<h2>Monitoring daemon<a class="headerlink" href="#monitoring-daemon" title="Permalink to this headline">¶</a></h2>
+<p>The monitoring daemon provides information about the status and the
+performance of the cluster over HTTP.
+It is currently unencrypted and non-authenticated, therefore it is strongly
+advised to set proper firewalling rules to prevent unwanted access.</p>
+<p>The monitoring daemon runs as root, because it needs to be able to access
+privileged information (such as the state of the instances as provided by
+the Xen hypervisor). Nevertheless, the security implications are mitigated
+by the fact that the agent only provides reporting functionalities,
+without the ability to actually modify the state of the cluster.</p>
 </div>
 <div class="section" id="remote-api">
 <h2>Remote API<a class="headerlink" href="#remote-api" title="Permalink to this headline">¶</a></h2>
@@ -248,7 +273,9 @@ from a jailbroken instance.</p>
 </li>
 <li><a class="reference internal" href="#cluster-issues">Cluster issues</a></li>
 <li><a class="reference internal" href="#master-daemon">Master daemon</a></li>
+<li><a class="reference internal" href="#luxi-daemon">Luxi daemon</a></li>
 <li><a class="reference internal" href="#conf-daemon">Conf daemon</a></li>
+<li><a class="reference internal" href="#monitoring-daemon">Monitoring daemon</a></li>
 <li><a class="reference internal" href="#remote-api">Remote API</a></li>
 <li><a class="reference internal" href="#inter-cluster-instance-moves">Inter-cluster instance moves</a></li>
 <li><a class="reference internal" href="#kvm-security">KVM Security</a></li>
@@ -257,11 +284,11 @@ from a jailbroken instance.</p>
 </ul>
 
   <h4>Previous topic</h4>
-  <p class="topless"><a href="walkthrough.html"
-                        title="previous chapter">Ganeti walk-through</a></p>
+  <p class="topless"><a href="rapi.html"
+                        title="previous chapter">Ganeti remote API</a></p>
   <h4>Next topic</h4>
-  <p class="topless"><a href="design-2.0.html"
-                        title="next chapter">Ganeti 2.0 design</a></p>
+  <p class="topless"><a href="upgrade.html"
+                        title="next chapter">Upgrade notes</a></p>
   <h3>This Page</h3>
   <ul class="this-page-menu">
     <li><a href="_sources/security.txt"
@@ -288,12 +315,12 @@ from a jailbroken instance.</p>
       <h3>Navigation</h3>
       <ul>
         <li class="right" style="margin-right: 10px">
-          <a href="design-2.0.html" title="Ganeti 2.0 design"
+          <a href="upgrade.html" title="Upgrade notes"
              >next</a></li>
         <li class="right" >
-          <a href="walkthrough.html" title="Ganeti walk-through"
+          <a href="rapi.html" title="Ganeti remote API"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.7.1 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.8.0 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

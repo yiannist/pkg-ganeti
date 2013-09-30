@@ -33,10 +33,8 @@ module Ganeti.HTools.Backend.Rapi
 import Control.Exception
 import Data.List (isPrefixOf)
 import Data.Maybe (fromMaybe)
-#ifndef NO_CURL
 import Network.Curl
 import Network.Curl.Types ()
-#endif
 import Control.Monad
 import Text.JSON (JSObject, fromJSObject, decodeStrict)
 import Text.JSON.Types (JSValue(..))
@@ -61,11 +59,6 @@ filePrefix = "file://"
 -- | Read an URL via curl and return the body if successful.
 getUrl :: (Monad m) => String -> IO (m String)
 
-#ifdef NO_CURL
-getUrl _ = return $ fail "RAPI/curl backend disabled at compile time"
-
-#else
-
 -- | Connection timeout (when using non-file methods).
 connTimeout :: Long
 connTimeout = 15
@@ -88,7 +81,6 @@ getUrl url = do
             CurlOK -> return body
             _ -> fail $ printf "Curl error for '%s', error %s"
                  url (show code))
-#endif
 
 -- | Helper to convert I/O errors in 'Bad' values.
 ioErrToResult :: IO a -> IO (Result a)
@@ -148,7 +140,7 @@ parseInstance ktn a = do
   dt <- extract "disk_template" a
   su <- extract "spindle_use" beparams
   let inst = Instance.create name mem disk disks vcpus running tags
-             auto_balance pnode snode dt su
+             auto_balance pnode snode dt su []
   return (name, inst)
 
 -- | Construct a node from a JSON object.
@@ -187,16 +179,18 @@ parseGroup a = do
   apol <- extract "alloc_policy"
   ipol <- extract "ipolicy"
   tags <- extract "tags"
-  return (uuid, Group.create name uuid apol ipol tags)
+  -- TODO: parse networks to which this group is connected
+  return (uuid, Group.create name uuid apol [] ipol tags)
 
 -- | Parse cluster data from the info resource.
-parseCluster :: JSObject JSValue -> Result ([String], IPolicy)
+parseCluster :: JSObject JSValue -> Result ([String], IPolicy, String)
 parseCluster obj = do
   let obj' = fromJSObject obj
       extract s = tryFromObj "Parsing cluster data" obj' s
+  master <- extract "master"
   tags <- extract "tags"
   ipolicy <- extract "ipolicy"
-  return (tags, ipolicy)
+  return (tags, ipolicy, master)
 
 -- | Loads the raw cluster data from an URL.
 readDataHttp :: String -- ^ Cluster or URL to use as source
@@ -237,10 +231,12 @@ parseData (group_body, node_body, inst_body, info_body) = do
   let (node_names, node_idx) = assignIndices node_data
   inst_data <- inst_body >>= getInstances node_names
   let (_, inst_idx) = assignIndices inst_data
-  (tags, ipolicy) <- info_body >>=
-                     (fromJResult "Parsing cluster info" . decodeStrict) >>=
-                     parseCluster
-  return (ClusterData group_idx node_idx inst_idx tags ipolicy)
+  (tags, ipolicy, master) <-
+    info_body >>=
+    (fromJResult "Parsing cluster info" . decodeStrict) >>=
+    parseCluster
+  node_idx' <- setMaster node_names node_idx master
+  return (ClusterData group_idx node_idx' inst_idx tags ipolicy)
 
 -- | Top level function for data loading.
 loadData :: String -- ^ Cluster or URL to use as source

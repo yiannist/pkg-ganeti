@@ -21,14 +21,13 @@ the Ganeti system.
 .PD 0
 .P
 .PD
-{--disk=\f[I]N\f[]: {size=\f[I]VAL\f[] |
-adopt=\f[I]LV\f[]}[,vg=\f[I]VG\f[]][,metavg=\f[I]VG\f[]][,mode=\f[I]ro|rw\f[]]
+{--disk=\f[I]N\f[]: {size=\f[I]VAL\f[] | adopt=\f[I]LV\f[]}[,options...]
 .PD 0
 .P
 .PD
  |
 {size=\f[I]VAL\f[],provider=\f[I]PROVIDER\f[]}[,param=\f[I]value\f[]...
-][,mode=\f[I]ro|rw\f[]]
+][,options...]
 .PD 0
 .P
 .PD
@@ -95,18 +94,37 @@ The \f[C]disk\f[] option specifies the parameters for the disks of the
 instance.
 The numbering of disks starts at zero, and at least one disk needs to be
 passed.
-For each disk, either the size or the adoption source needs to be given,
-and optionally the access mode (read-only or the default of read-write).
+For each disk, either the size or the adoption source needs to be given.
 The size is interpreted (when no unit is given) in mebibytes.
 You can also use one of the suffixes \f[I]m\f[], \f[I]g\f[] or
 \f[I]t\f[] to specify the exact the units used; these suffixes map to
 mebibytes, gibibytes and tebibytes.
-For LVM and DRBD devices, the LVM volume group can also be specified
-(via the \f[C]vg\f[] key).
-For DRBD devices, a different VG can be specified for the metadata
-device using the \f[C]metavg\f[] key.
-For ExtStorage devices, also the \f[C]provider\f[] option is mandatory,
-to specify which ExtStorage provider to use.
+Each disk can also take these parameters (all optional):
+.TP
+.B mode
+The access mode.
+Either \f[C]ro\f[] (read-only) or the default \f[C]rw\f[] (read-write).
+.RS
+.RE
+.TP
+.B name
+this option specifies a name for the disk, which can be used as a disk
+identifier.
+An instance can not have two disks with the same name.
+.RS
+.RE
+.TP
+.B vg
+The LVM volume group.
+This works only for LVM and DRBD devices.
+.RS
+.RE
+.TP
+.B metavg
+This options specifies a different VG for the metadata device.
+This works only for DRBD devices
+.RS
+.RE
 .PP
 When creating ExtStorage disks, also arbitrary parameters can be passed,
 to the ExtStorage provider.
@@ -201,6 +219,13 @@ If the network option is chosen, link and mode must not be specified.
 Note that the mode and link depend on the network-to-nodegroup
 connection, thus allowing different nodegroups to be connected to the
 same network in different ways.
+.RS
+.RE
+.TP
+.B name
+this option specifies a name for the NIC, which can be used as a NIC
+identifier.
+An instance can not have two NICs with the same name.
 .RS
 .RE
 .PP
@@ -637,9 +662,18 @@ By default, ACPI is disabled.
 Valid for the Xen HVM and KVM hypervisors.
 .RS
 .PP
-A boolean option that specifies if the hypervisor should enabled PAE
+A boolean option that specifies if the hypervisor should enable PAE
 support for this instance.
 The default is false, disabling PAE support.
+.RE
+.TP
+.B viridian
+Valid for the Xen HVM hypervisor.
+.RS
+.PP
+A boolean option that specifies if the hypervisor should enable viridian
+(Hyper-V) for this instance.
+The default is false, disabling viridian support.
 .RE
 .TP
 .B use_localtime
@@ -992,6 +1026,21 @@ Valid for the KVM hypervisor.
 .PP
 Path to the userspace KVM (or qemu) program.
 .RE
+.TP
+.B vnet_hdr
+Valid for the KVM hypervisor.
+.RS
+.PP
+This boolean option determines whether the tap devices used by the KVM
+paravirtual nics (virtio-net) will get created with VNET_HDR
+(IFF_VNET_HDR) support.
+.PP
+If set to false, it effectively disables offloading on the virio-net
+interfaces, which prevents host kernel tainting and log flooding, when
+dealing with broken or malicious virtio-net drivers.
+.PP
+It is set to \f[C]true\f[] by default.
+.RE
 .PP
 The \f[C]-O\ (--os-parameters)\f[] option allows customisation of the OS
 parameters.
@@ -1138,19 +1187,31 @@ Example:
 .fi
 .SS BATCH-CREATE
 .PP
-\f[B]batch-create\f[] {instances_file.json}
+\f[B]batch-create\f[]
+.PD 0
+.P
+.PD
+[{-I|--iallocator} \f[I]instance allocator\f[]]
+.PD 0
+.P
+.PD
+{instances_file.json}
 .PP
 This command (similar to the Ganeti 1.2 \f[B]batcher\f[] tool) submits
 multiple instance creation jobs based on a definition file.
-The instance configurations do not encompass all the possible options
-for the \f[B]add\f[] command, but only a subset.
+This file can contain all options which are valid when adding an
+instance with the exception of the \f[C]iallocator\f[] field.
+The IAllocator is, for optimization purposes, only allowed to be set for
+the whole batch operation using the \f[C]--iallocator\f[] parameter.
 .PP
-The instance file should be a valid-formed JSON file, containing a
-dictionary with instance name and instance parameters.
-The accepted parameters are:
+The instance file must be a valid-formed JSON file, containing an array
+of dictionaries with instance creation parameters.
+All parameters (except \f[C]iallocator\f[]) which are valid for the
+instance creation OP code are allowed.
+The most important ones are:
 .TP
-.B disk_size
-The size of the disks of the instance.
+.B instance_name
+The FQDN of the new instance.
 .RS
 .RE
 .TP
@@ -1160,22 +1221,25 @@ The disk template to use for the instance, the same as in the
 .RS
 .RE
 .TP
-.B backend
+.B disks
+Array of disk specifications.
+Each entry describes one disk as a dictionary of disk parameters.
+.RS
+.RE
+.TP
+.B beparams
 A dictionary of backend parameters.
 .RS
 .RE
 .TP
 .B hypervisor
-A dictionary with a single key (the hypervisor name), and as value the
-hypervisor options.
-If not passed, the default hypervisor and hypervisor options will be
-inherited.
+The hypervisor for the instance.
 .RS
 .RE
 .TP
-.B mac, ip, mode, link
-Specifications for the one NIC that will be created for the instance.
-\[aq]bridge\[aq] is also accepted as a backwards compatible key.
+.B hvparams
+A dictionary with the hypervisor options.
+If not passed, the default hypervisor options will be inherited.
 .RS
 .RE
 .TP
@@ -1188,15 +1252,11 @@ use this method for specifying NICs.
 .RS
 .RE
 .TP
-.B primary_node, secondary_node
+.B pnode, snode
 The primary and optionally the secondary node to use for the instance
 (in case an iallocator script is not used).
-.RS
-.RE
-.TP
-.B iallocator
-Instead of specifying the nodes, an iallocator script can be used to
-automatically compute them.
+If those parameters are given, they have to be given consistently for
+all instances in the batch operation.
 .RS
 .RE
 .TP
@@ -1228,23 +1288,28 @@ taken from the cluster defaults):
 .IP
 .nf
 \f[C]
-{
-\ \ "instance3":\ {
-\ \ \ \ "template":\ "drbd",
-\ \ \ \ "os":\ "debootstrap",
-\ \ \ \ "disk_size":\ ["25G"],
-\ \ \ \ "iallocator":\ "dumb"
+[
+\ \ {
+\ \ \ \ "mode":\ "create",
+\ \ \ \ "instance_name":\ "instance1.example.com",
+\ \ \ \ "disk_template":\ "drbd",
+\ \ \ \ "os_type":\ "debootstrap",
+\ \ \ \ "disks":\ [{"size":"1024"}],
+\ \ \ \ "nics":\ [{}],
+\ \ \ \ "hypervisor":\ "xen-pvm"
 \ \ },
-\ \ "instance5":\ {
-\ \ \ \ "template":\ "drbd",
-\ \ \ \ "os":\ "debootstrap",
-\ \ \ \ "disk_size":\ ["25G"],
-\ \ \ \ "iallocator":\ "dumb",
+\ \ {
+\ \ \ \ "mode":\ "create",
+\ \ \ \ "instance_name":\ "instance2.example.com",
+\ \ \ \ "disk_template":\ "drbd",
+\ \ \ \ "os_type":\ "debootstrap",
+\ \ \ \ "disks":\ [{"size":"4096",\ "mode":\ "rw",\ "vg":\ "xenvg"}],
+\ \ \ \ "nics":\ [{}],
 \ \ \ \ "hypervisor":\ "xen-hvm",
 \ \ \ \ "hvparams":\ {"acpi":\ true},
-\ \ \ \ "backend":\ {"maxmem":\ 512,\ "minmem":\ 256}
+\ \ \ \ "beparams":\ {"maxmem":\ 512,\ "minmem":\ 256}
 \ \ }
-}
+]
 \f[]
 .fi
 .PP
@@ -1254,8 +1319,7 @@ follows:
 .nf
 \f[C]
 #\ gnt-instance\ batch-create\ instances.json
-instance3:\ 11224
-instance5:\ 11225
+Submitted\ jobs\ 37,\ 38
 \f[]
 .fi
 .SS REMOVE
@@ -1419,6 +1483,91 @@ Number of disks
 .RS
 .RE
 .TP
+.B \f[C]disk.name/0\f[]
+Name of 1st disk
+.RS
+.RE
+.TP
+.B \f[C]disk.name/1\f[]
+Name of 2nd disk
+.RS
+.RE
+.TP
+.B \f[C]disk.name/2\f[]
+Name of 3rd disk
+.RS
+.RE
+.TP
+.B \f[C]disk.name/3\f[]
+Name of 4th disk
+.RS
+.RE
+.TP
+.B \f[C]disk.name/4\f[]
+Name of 5th disk
+.RS
+.RE
+.TP
+.B \f[C]disk.name/5\f[]
+Name of 6th disk
+.RS
+.RE
+.TP
+.B \f[C]disk.name/6\f[]
+Name of 7th disk
+.RS
+.RE
+.TP
+.B \f[C]disk.name/7\f[]
+Name of 8th disk
+.RS
+.RE
+.TP
+.B \f[C]disk.name/8\f[]
+Name of 9th disk
+.RS
+.RE
+.TP
+.B \f[C]disk.name/9\f[]
+Name of 10th disk
+.RS
+.RE
+.TP
+.B \f[C]disk.name/10\f[]
+Name of 11th disk
+.RS
+.RE
+.TP
+.B \f[C]disk.name/11\f[]
+Name of 12th disk
+.RS
+.RE
+.TP
+.B \f[C]disk.name/12\f[]
+Name of 13th disk
+.RS
+.RE
+.TP
+.B \f[C]disk.name/13\f[]
+Name of 14th disk
+.RS
+.RE
+.TP
+.B \f[C]disk.name/14\f[]
+Name of 15th disk
+.RS
+.RE
+.TP
+.B \f[C]disk.name/15\f[]
+Name of 16th disk
+.RS
+.RE
+.TP
+.B \f[C]disk.names\f[]
+List of disk names
+.RS
+.RE
+.TP
 .B \f[C]disk.size/0\f[]
 Disk size of 1st disk
 .RS
@@ -1504,6 +1653,91 @@ List of disk sizes
 .RS
 .RE
 .TP
+.B \f[C]disk.uuid/0\f[]
+UUID of 1st disk
+.RS
+.RE
+.TP
+.B \f[C]disk.uuid/1\f[]
+UUID of 2nd disk
+.RS
+.RE
+.TP
+.B \f[C]disk.uuid/2\f[]
+UUID of 3rd disk
+.RS
+.RE
+.TP
+.B \f[C]disk.uuid/3\f[]
+UUID of 4th disk
+.RS
+.RE
+.TP
+.B \f[C]disk.uuid/4\f[]
+UUID of 5th disk
+.RS
+.RE
+.TP
+.B \f[C]disk.uuid/5\f[]
+UUID of 6th disk
+.RS
+.RE
+.TP
+.B \f[C]disk.uuid/6\f[]
+UUID of 7th disk
+.RS
+.RE
+.TP
+.B \f[C]disk.uuid/7\f[]
+UUID of 8th disk
+.RS
+.RE
+.TP
+.B \f[C]disk.uuid/8\f[]
+UUID of 9th disk
+.RS
+.RE
+.TP
+.B \f[C]disk.uuid/9\f[]
+UUID of 10th disk
+.RS
+.RE
+.TP
+.B \f[C]disk.uuid/10\f[]
+UUID of 11th disk
+.RS
+.RE
+.TP
+.B \f[C]disk.uuid/11\f[]
+UUID of 12th disk
+.RS
+.RE
+.TP
+.B \f[C]disk.uuid/12\f[]
+UUID of 13th disk
+.RS
+.RE
+.TP
+.B \f[C]disk.uuid/13\f[]
+UUID of 14th disk
+.RS
+.RE
+.TP
+.B \f[C]disk.uuid/14\f[]
+UUID of 15th disk
+.RS
+.RE
+.TP
+.B \f[C]disk.uuid/15\f[]
+UUID of 16th disk
+.RS
+.RE
+.TP
+.B \f[C]disk.uuids\f[]
+List of disk UUIDs
+.RS
+.RE
+.TP
 .B \f[C]disk_template\f[]
 Instance disk template
 .RS
@@ -1512,6 +1746,11 @@ Instance disk template
 .B \f[C]disk_usage\f[]
 Total disk space used by instance on each of its nodes; this is not the
 disk size visible to the instance, but the usage on the node
+.RS
+.RE
+.TP
+.B \f[C]disks_active\f[]
+Desired state of instance disks
 .RS
 .RE
 .TP
@@ -1810,6 +2049,11 @@ The "vif_type" hypervisor parameter
 .RS
 .RE
 .TP
+.B \f[C]hv/viridian\f[]
+The "viridian" hypervisor parameter
+.RS
+.RE
+.TP
 .B \f[C]hv/vnc_bind_address\f[]
 The "vnc_bind_address" hypervisor parameter
 .RS
@@ -1832,6 +2076,11 @@ The "vnc_x509_path" hypervisor parameter
 .TP
 .B \f[C]hv/vnc_x509_verify\f[]
 The "vnc_x509_verify" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[C]hv/vnet_hdr\f[]
+The "vnet_hdr" hypervisor parameter
 .RS
 .RE
 .TP
@@ -2101,6 +2350,51 @@ List containing each network interface\[aq]s mode
 .RS
 .RE
 .TP
+.B \f[C]nic.name/0\f[]
+Name address of 1st network interface
+.RS
+.RE
+.TP
+.B \f[C]nic.name/1\f[]
+Name address of 2nd network interface
+.RS
+.RE
+.TP
+.B \f[C]nic.name/2\f[]
+Name address of 3rd network interface
+.RS
+.RE
+.TP
+.B \f[C]nic.name/3\f[]
+Name address of 4th network interface
+.RS
+.RE
+.TP
+.B \f[C]nic.name/4\f[]
+Name address of 5th network interface
+.RS
+.RE
+.TP
+.B \f[C]nic.name/5\f[]
+Name address of 6th network interface
+.RS
+.RE
+.TP
+.B \f[C]nic.name/6\f[]
+Name address of 7th network interface
+.RS
+.RE
+.TP
+.B \f[C]nic.name/7\f[]
+Name address of 8th network interface
+.RS
+.RE
+.TP
+.B \f[C]nic.names\f[]
+List containing each network interface\[aq]s name
+.RS
+.RE
+.TP
 .B \f[C]nic.network.name/0\f[]
 Network name of 1st network interface
 .RS
@@ -2188,6 +2482,51 @@ List containing each interface\[aq]s network
 .TP
 .B \f[C]nic.networks.names\f[]
 List containing each interface\[aq]s network
+.RS
+.RE
+.TP
+.B \f[C]nic.uuid/0\f[]
+UUID address of 1st network interface
+.RS
+.RE
+.TP
+.B \f[C]nic.uuid/1\f[]
+UUID address of 2nd network interface
+.RS
+.RE
+.TP
+.B \f[C]nic.uuid/2\f[]
+UUID address of 3rd network interface
+.RS
+.RE
+.TP
+.B \f[C]nic.uuid/3\f[]
+UUID address of 4th network interface
+.RS
+.RE
+.TP
+.B \f[C]nic.uuid/4\f[]
+UUID address of 5th network interface
+.RS
+.RE
+.TP
+.B \f[C]nic.uuid/5\f[]
+UUID address of 6th network interface
+.RS
+.RE
+.TP
+.B \f[C]nic.uuid/6\f[]
+UUID address of 7th network interface
+.RS
+.RE
+.TP
+.B \f[C]nic.uuid/7\f[]
+UUID address of 8th network interface
+.RS
+.RE
+.TP
+.B \f[C]nic.uuids\f[]
+List containing each network interface\[aq]s UUID
 .RS
 .RE
 .TP
@@ -2368,31 +2707,50 @@ virtualization technologies.
 .PD 0
 .P
 .PD
-[--net add\f[I][:options]\f[] | --net [\f[I]N\f[]:]remove | --net
-\f[I]N:options\f[]]
+[--net add[:options...] |
 .PD 0
 .P
 .PD
-[--disk add:size=\f[I]SIZE\f[][,vg=\f[I]VG\f[]][,metavg=\f[I]VG\f[]] |
+ --net [\f[I]N\f[]:]add[,options...] |
+.PD 0
+.P
+.PD
+ --net [\f[I]ID\f[]:]remove |
+.PD 0
+.P
+.PD
+ --net \f[I]ID\f[]:modify[,options...]]
+.PD 0
+.P
+.PD
+[--disk add:size=\f[I]SIZE\f[][,options...] |
+.PD 0
+.P
+.PD
+ --disk \f[I]N\f[]:add,size=\f[I]SIZE\f[][,options...] |
 .PD 0
 .P
 .PD
  --disk
-add:size=\f[I]SIZE\f[],provider=\f[I]PROVIDER\f[][,param=\f[I]value\f[]...
+\f[I]N\f[]:add,size=\f[I]SIZE\f[],provider=\f[I]PROVIDER\f[][,options...][,param=\f[I]value\f[]...
 ] |
 .PD 0
 .P
 .PD
- --disk [\f[I]N\f[]:]remove |
+ --disk \f[I]ID\f[]:modify[,options...]
 .PD 0
 .P
 .PD
- --disk \f[I]N\f[]:mode=\f[I]MODE\f[]]
+ --disk [\f[I]ID\f[]:]remove]
 .PD 0
 .P
 .PD
 [{-t|--disk-template} plain | {-t|--disk-template} drbd -n
 \f[I]new_secondary\f[]] [--no-wait-for-sync]
+.PD 0
+.P
+.PD
+[--new-primary=\f[I]node\f[]]
 .PD 0
 .P
 .PD
@@ -2447,36 +2805,49 @@ The \f[C]-m\ (--runtime-memory)\f[] option will change an instance\[aq]s
 runtime memory to the given size (in MB if a different suffix is not
 specified), by ballooning it up or down to the new value.
 .PP
-The \f[C]--disk\ add:size=\f[]\f[I]SIZE\f[] option adds a disk to the
-instance.
-The optional \f[C]vg=\f[]\f[I]VG\f[] option specifies an LVM volume
-group other than the default volume group to create the disk on.
-For DRBD disks, the \f[C]metavg=\f[]\f[I]VG\f[] option specifies the
-volume group for the metadata device.
-When adding an ExtStorage disk the \f[C]provider=\f[]\f[I]PROVIDER\f[]
-option is also mandatory and specifies the ExtStorage provider.
+The \f[C]--disk\ add:size=*SIZE*,[options..]\f[] option adds a disk to
+the instance, and \f[C]--disk\ *N*:add:size=*SIZE*,[options..]\f[] will
+add a disk to the the instance at a specific index.
+The available options are the same as in the \f[B]add\f[]
+command(\f[C]mode\f[], \f[C]name\f[], \f[C]vg\f[], \f[C]metavg\f[]).
+When adding an ExtStorage disk the \f[C]provider=*PROVIDER*\f[] option
+is also mandatory and specifies the ExtStorage provider.
 Also, for ExtStorage disks arbitrary parameters can be passed as
 additional comma separated options, same as in the \f[B]add\f[] command.
-\f[C]--disk\f[] \f[I]N\f[]\f[C]:add,size=\f[]\f[B]SIZE\f[] can be used
-to add a disk at a specific index.
-The \f[C]--disk\ remove\f[] option will remove the last disk of the
+-The \f[C]--disk\ remove\f[] option will remove the last disk of the
 instance.
-Use \f[C]--disk\f[] \f[I]N\f[]\f[C]:remove\f[] to remove a disk by its
-index.
-The \f[C]--disk\f[] \f[I]N\f[]\f[C]:mode=\f[]\f[I]MODE\f[] option will
-change the mode of the Nth disk of the instance between read-only
-(\f[C]ro\f[]) and read-write (\f[C]rw\f[]).
+Use \f[C]--disk\f[] \f[I]ID\f[]\f[C]:remove\f[] to remove a disk by its
+identifier.
+\f[I]ID\f[] can be the index of the disk, the disks\[aq]s name or the
+disks\[aq]s UUID.
+The \f[C]--disk\ *ID*:modify[,options...]\f[] wil change the options of
+the disk.
+Available options are:
+.TP
+.B mode
+The access mode.
+Either \f[C]ro\f[] (read-only) or the default \f[C]rw\f[] (read-write).
+.RS
+.RE
+.TP
+.B name
+this option specifies a name for the disk, which can be used as a disk
+identifier.
+An instance can not have two disks with the same name.
+.RS
+.RE
 .PP
-The \f[C]--net\ add:\f[]\f[I]options\f[] and \f[C]--net\f[]
-\f[I]N\f[]\f[C]:add,\f[]\f[I]options\f[] option will add a new network
-interface to the instance.
+The \f[C]--net\ *N*:add[,options..]\f[] will add a new network interface
+to the instance.
 The available options are the same as in the \f[B]add\f[] command
 (\f[C]mac\f[], \f[C]ip\f[], \f[C]link\f[], \f[C]mode\f[],
 \f[C]network\f[]).
-The \f[C]--net\ remove\f[] will remove the last network interface of the
-instance (\f[C]--net\f[] \f[I]N\f[]\f[C]:remove\f[] for a specific
-index), while the \f[C]--net\f[] \f[I]N\f[]\f[C]:\f[]\f[I]options\f[]
-option will change the parameters of the Nth instance network interface.
+The \f[C]--net\ *ID*,remove\f[] will remove the intances\[aq] NIC with
+\f[I]ID\f[] identifier, which can be the index of the NIC, the NIC\[aq]s
+name or the NIC\[aq]s UUID.
+The \f[C]--net\ *ID*:modify[,options..]\f[] option will change the
+parameters of the instance network interface with the \f[I]ID\f[]
+identifier.
 .PP
 The option \f[C]-o\ (--os-type)\f[] will change the OS name for the
 instance (without reinstallation).
@@ -2484,6 +2855,11 @@ In case an OS variant is specified that is not found, then by default
 the modification is refused, unless \f[C]--force-variant\f[] is passed.
 An invalid OS will also be refused, unless the \f[C]--force\f[] option
 is given.
+.PP
+The option \f[C]--new-primary\f[] will set the new primary node of an
+instance assuming the disks have already been moved manually.
+Unless the \f[C]--force\f[] option is given, it is verified that the
+instance is no longer running on its current primary node.
 .PP
 The \f[C]--online\f[] and \f[C]--offline\f[] options are used to
 transition an instance into and out of the \f[C]offline\f[] state.
@@ -3152,7 +3528,7 @@ common options.
 .PD 0
 .P
 .PD
-[--submit]
+[--submit] [--cleanup]
 .PD 0
 .P
 .PD
@@ -3193,6 +3569,13 @@ By default two minutes are given to each instance to stop.
 .PP
 If \f[C]--ignore-ipolicy\f[] is given any instance policy violations
 occuring during this operation are ignored.
+.PP
+If the \f[C]--cleanup\f[] option is passed, the operation changes from
+performin a failover to attempting recovery from a failed previous
+failover.
+In this mode, Ganeti checks if the instance runs on the correct node
+(and updates its configuration if not) and ensures the instances\[aq]
+disks are configured correctly.
 .PP
 See \f[B]ganeti\f[](7) for a description of \f[C]--submit\f[] and other
 common options.

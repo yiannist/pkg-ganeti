@@ -58,26 +58,33 @@ NORMAL_UNINSTALL = :
 PRE_UNINSTALL = :
 POST_UNINSTALL = :
 @WANT_HTOOLS_TRUE@am__append_1 = $(HS_PROGS)
-@ENABLE_CONFD_TRUE@@WANT_HTOOLS_TRUE@am__append_2 = src/hconfd src/ganeti-confd
-@MANPAGES_IN_DOC_TRUE@am__append_3 = doc/man-html
-@WANT_HTOOLS_TRUE@am__append_4 = $(HS_BIN_PROGS)
-@ENABLE_CONFD_TRUE@am__append_5 = src/ganeti-confd
-@WANT_HSTESTS_TRUE@am__append_6 = $(haskell_tests)
-@WANT_HSTESTS_TRUE@am__append_7 = test/hs/offline-test.sh
-@WANT_HSTESTS_TRUE@am__append_8 = \
+@ENABLE_CONFD_TRUE@@WANT_HTOOLS_TRUE@am__append_2 = src/hconfd src/ganeti-confd src/hluxid src/ganeti-luxid
+@ENABLE_MOND_TRUE@@WANT_HTOOLS_TRUE@am__append_3 = src/ganeti-mond
+@HAS_SPHINX_TRUE@@MANPAGES_IN_DOC_TRUE@am__append_4 = doc/man-html
+@HAS_SPHINX_TRUE@@MANPAGES_IN_DOC_FALSE@am__append_5 = doc/html
+@WANT_HTOOLS_TRUE@am__append_6 = $(HS_BIN_PROGS)
+@ENABLE_CONFD_TRUE@am__append_7 = src/ganeti-confd src/ganeti-luxid
+@ENABLE_MOND_TRUE@am__append_8 = src/ganeti-mond
+@PY_UNIT_TRUE@am__append_9 = $(python_tests)
+@WANT_HSTESTS_TRUE@am__append_10 = $(haskell_tests)
+@WANT_HSTESTS_TRUE@am__append_11 = test/hs/offline-test.sh
+@WANT_HSTESTS_TRUE@am__append_12 = \
 @WANT_HSTESTS_TRUE@	test/hs/hpc-htools \
 @WANT_HSTESTS_TRUE@	test/hs/hpc-mon-collector \
 @WANT_HSTESTS_TRUE@	$(HS_BUILT_TEST_HELPERS)
 
-@HAS_PEP8_TRUE@am__append_9 = pep8
-@HAS_HLINT_TRUE@am__append_10 = hlint
+@PY_UNIT_TRUE@am__append_13 = $(python_tests)
+@HAS_PEP8_TRUE@am__append_14 = pep8
+@HAS_HLINT_TRUE@am__append_15 = hlint
+@WANT_HTOOLS_TRUE@am__append_16 = hs-coverage
+@PY_UNIT_TRUE@am__append_17 = py-coverage
 subdir = .
 DIST_COMMON = README $(am__configure_deps) $(client_PYTHON) \
-	$(confd_PYTHON) $(dist_sbin_SCRIPTS) $(dist_tools_SCRIPTS) \
-	$(http_PYTHON) $(hypervisor_PYTHON) $(impexpd_PYTHON) \
-	$(masterd_PYTHON) $(noinst_PYTHON) $(pkgpython_PYTHON) \
-	$(pytools_PYTHON) $(rapi_PYTHON) $(server_PYTHON) \
-	$(srcdir)/Makefile.am $(srcdir)/Makefile.in \
+	$(cmdlib_PYTHON) $(confd_PYTHON) $(dist_sbin_SCRIPTS) \
+	$(dist_tools_SCRIPTS) $(http_PYTHON) $(hypervisor_PYTHON) \
+	$(impexpd_PYTHON) $(masterd_PYTHON) $(noinst_PYTHON) \
+	$(pkgpython_PYTHON) $(pytools_PYTHON) $(rapi_PYTHON) \
+	$(server_PYTHON) $(srcdir)/Makefile.am $(srcdir)/Makefile.in \
 	$(top_srcdir)/configure $(utils_PYTHON) $(watcher_PYTHON) \
 	COPYING INSTALL NEWS autotools/install-sh autotools/missing \
 	autotools/py-compile
@@ -123,14 +130,14 @@ am__installdirs = "$(DESTDIR)$(bindir)" "$(DESTDIR)$(sbindir)" \
 	"$(DESTDIR)$(toolsdir)" "$(DESTDIR)$(myexeclibdir)" \
 	"$(DESTDIR)$(myexeclibdir)" "$(DESTDIR)$(sbindir)" \
 	"$(DESTDIR)$(toolsdir)" "$(DESTDIR)$(clientdir)" \
-	"$(DESTDIR)$(confddir)" "$(DESTDIR)$(httpdir)" \
-	"$(DESTDIR)$(hypervisordir)" "$(DESTDIR)$(impexpddir)" \
-	"$(DESTDIR)$(masterddir)" "$(DESTDIR)$(pkgpythondir)" \
-	"$(DESTDIR)$(pkgpythondir)" "$(DESTDIR)$(pytoolsdir)" \
-	"$(DESTDIR)$(rapidir)" "$(DESTDIR)$(serverdir)" \
-	"$(DESTDIR)$(utilsdir)" "$(DESTDIR)$(watcherdir)" \
-	"$(DESTDIR)$(man1dir)" "$(DESTDIR)$(man7dir)" \
-	"$(DESTDIR)$(man8dir)"
+	"$(DESTDIR)$(cmdlibdir)" "$(DESTDIR)$(confddir)" \
+	"$(DESTDIR)$(httpdir)" "$(DESTDIR)$(hypervisordir)" \
+	"$(DESTDIR)$(impexpddir)" "$(DESTDIR)$(masterddir)" \
+	"$(DESTDIR)$(pkgpythondir)" "$(DESTDIR)$(pkgpythondir)" \
+	"$(DESTDIR)$(pytoolsdir)" "$(DESTDIR)$(rapidir)" \
+	"$(DESTDIR)$(serverdir)" "$(DESTDIR)$(utilsdir)" \
+	"$(DESTDIR)$(watcherdir)" "$(DESTDIR)$(man1dir)" \
+	"$(DESTDIR)$(man7dir)" "$(DESTDIR)$(man8dir)"
 SCRIPTS = $(bin_SCRIPTS) $(dist_sbin_SCRIPTS) $(dist_tools_SCRIPTS) \
 	$(myexeclib_SCRIPTS) $(nodist_myexeclib_SCRIPTS) \
 	$(nodist_sbin_SCRIPTS) $(nodist_tools_SCRIPTS)
@@ -187,7 +194,7 @@ ECHO_N = @ECHO_N@
 ECHO_T = @ECHO_T@
 ENABLE_CONFD = @ENABLE_CONFD@
 ENABLE_FILE_STORAGE = @ENABLE_FILE_STORAGE@
-ENABLE_MONITORING = @ENABLE_MONITORING@
+ENABLE_MOND = @ENABLE_MOND@
 ENABLE_RESTRICTED_COMMANDS = @ENABLE_RESTRICTED_COMMANDS@
 ENABLE_SHARED_FILE_STORAGE = @ENABLE_SHARED_FILE_STORAGE@
 ENABLE_SPLIT_QUERY = @ENABLE_SPLIT_QUERY@
@@ -202,7 +209,6 @@ HADDOCK = @HADDOCK@
 HLINT = @HLINT@
 HSCOLOUR = @HSCOLOUR@
 HS_APIDOC = @HS_APIDOC@
-HS_NOCURL = @HS_NOCURL@
 HS_NODEV = @HS_NODEV@
 HS_PARALLEL3 = @HS_PARALLEL3@
 HS_REGEX_PCRE = @HS_REGEX_PCRE@
@@ -220,6 +226,8 @@ LIBOBJS = @LIBOBJS@
 LIBS = @LIBS@
 LN_S = @LN_S@
 LTLIBOBJS = @LTLIBOBJS@
+LUXID_GROUP = @LUXID_GROUP@
+LUXID_USER = @LUXID_USER@
 LVM_STRIPECOUNT = @LVM_STRIPECOUNT@
 MAKEINFO = @MAKEINFO@
 MANPAGES_IN_DOC = @MANPAGES_IN_DOC@
@@ -227,6 +235,8 @@ MAN_HAS_WARNINGS = @MAN_HAS_WARNINGS@
 MASTERD_GROUP = @MASTERD_GROUP@
 MASTERD_USER = @MASTERD_USER@
 MKDIR_P = @MKDIR_P@
+MOND_GROUP = @MOND_GROUP@
+MOND_USER = @MOND_USER@
 NODED_GROUP = @NODED_GROUP@
 NODED_USER = @NODED_USER@
 OS_SEARCH_PATH = @OS_SEARCH_PATH@
@@ -247,6 +257,7 @@ PYTHON_EXEC_PREFIX = @PYTHON_EXEC_PREFIX@
 PYTHON_PLATFORM = @PYTHON_PLATFORM@
 PYTHON_PREFIX = @PYTHON_PREFIX@
 PYTHON_VERSION = @PYTHON_VERSION@
+PY_NODEV = @PY_NODEV@
 QEMUIMG_PATH = @QEMUIMG_PATH@
 RAPI_GROUP = @RAPI_GROUP@
 RAPI_USER = @RAPI_USER@
@@ -349,6 +360,7 @@ SHELL_ENV_INIT = autotools/shell-env-init
 # Note: these are automake-specific variables, and must be named after
 # the directory + 'dir' suffix
 clientdir = $(pkgpythondir)/client
+cmdlibdir = $(pkgpythondir)/cmdlib
 hypervisordir = $(pkgpythondir)/hypervisor
 httpdir = $(pkgpythondir)/http
 masterddir = $(pkgpythondir)/masterd
@@ -368,10 +380,14 @@ HS_DIRS = \
 	src/Ganeti/Block \
 	src/Ganeti/Block/Drbd \
 	src/Ganeti/Confd \
+	src/Ganeti/Curl \
 	src/Ganeti/DataCollectors \
 	src/Ganeti/HTools \
 	src/Ganeti/HTools/Backend \
 	src/Ganeti/HTools/Program \
+	src/Ganeti/Hypervisor \
+	src/Ganeti/Hypervisor/Xen \
+	src/Ganeti/Monitoring \
 	src/Ganeti/Query \
 	test/hs \
 	test/hs/Test \
@@ -381,6 +397,8 @@ HS_DIRS = \
 	test/hs/Test/Ganeti/Confd \
 	test/hs/Test/Ganeti/HTools \
 	test/hs/Test/Ganeti/HTools/Backend \
+	test/hs/Test/Ganeti/Hypervisor \
+	test/hs/Test/Ganeti/Hypervisor/Xen \
 	test/hs/Test/Ganeti/Query
 
 
@@ -391,17 +409,21 @@ DIRS = \
 	autotools \
 	daemons \
 	devel \
+	devel/data \
 	doc \
 	doc/css \
 	doc/examples \
 	doc/examples/gnt-debug \
 	doc/examples/hooks \
+	doc/users \
 	test/data/htools \
 	test/data/htools/rapi \
 	test/hs/shelltests \
+	test/autotools \
 	lib \
 	lib/build \
 	lib/client \
+	lib/cmdlib \
 	lib/confd \
 	lib/http \
 	lib/hypervisor \
@@ -473,11 +495,14 @@ CLEANFILES = \
 	$(SHELL_ENV_INIT) \
 	daemons/daemon-util \
 	daemons/ganeti-cleaner \
+	devel/squeeze-amd64.tar.gz \
+	devel/squeeze-amd64.conf \
 	$(mandocrst) \
 	doc/manpages-enabled.rst \
 	$(BUILT_EXAMPLES) \
 	doc/examples/bash_completion \
 	doc/examples/bash_completion-debug \
+	$(userspecs) \
 	lib/_generated_rpc.py \
 	$(man_MANS) \
 	$(manhtml) \
@@ -490,6 +515,8 @@ CLEANFILES = \
 	$(HS_ALL_PROGS) $(HS_BUILT_SRCS) \
 	$(HS_BUILT_TEST_HELPERS) \
 	src/ganeti-confd \
+	src/ganeti-luxid \
+	src/ganeti-mond \
 	.hpc/*.mix src/*.tix test/hs/*.tix \
 	doc/hs-lint.html
 
@@ -498,7 +525,7 @@ GENERATED_FILES = \
 	$(BUILT_PYTHON_SOURCES) \
 	$(PYTHON_BOOTSTRAP)
 
-HS_GENERATED_FILES = $(am__append_1) $(am__append_2)
+HS_GENERATED_FILES = $(am__append_1) $(am__append_2) $(am__append_3)
 built_base_sources = \
 	stamp-directories \
 	stamp-srclinks
@@ -538,7 +565,6 @@ pkgpython_PYTHON = \
 	lib/bdev.py \
 	lib/bootstrap.py \
 	lib/cli.py \
-	lib/cmdlib.py \
 	lib/compat.py \
 	lib/config.py \
 	lib/constants.py \
@@ -583,6 +609,27 @@ client_PYTHON = \
 	lib/client/gnt_network.py \
 	lib/client/gnt_os.py \
 	lib/client/gnt_storage.py
+
+cmdlib_PYTHON = \
+	lib/cmdlib/__init__.py \
+	lib/cmdlib/backup.py \
+	lib/cmdlib/base.py \
+	lib/cmdlib/cluster.py \
+	lib/cmdlib/common.py \
+	lib/cmdlib/group.py \
+	lib/cmdlib/instance.py \
+	lib/cmdlib/instance_migration.py \
+	lib/cmdlib/instance_operation.py \
+	lib/cmdlib/instance_query.py \
+	lib/cmdlib/instance_storage.py \
+	lib/cmdlib/instance_utils.py \
+	lib/cmdlib/misc.py \
+	lib/cmdlib/network.py \
+	lib/cmdlib/node.py \
+	lib/cmdlib/operating_system.py \
+	lib/cmdlib/query.py \
+	lib/cmdlib/tags.py \
+	lib/cmdlib/test.py
 
 hypervisor_PYTHON = \
 	lib/hypervisor/__init__.py \
@@ -668,11 +715,14 @@ docinput = \
 	doc/design-2.5.rst \
 	doc/design-2.6.rst \
 	doc/design-2.7.rst \
+	doc/design-2.8.rst \
 	doc/design-autorepair.rst \
 	doc/design-bulk-create.rst \
 	doc/design-chained-jobs.rst \
 	doc/design-cpu-pinning.rst \
+	doc/design-device-uuid-name.rst \
 	doc/design-draft.rst \
+	doc/design-daemons.rst \
 	doc/design-htools-2.3.rst \
 	doc/design-http-server.rst \
 	doc/design-impexp2.rst \
@@ -687,12 +737,15 @@ docinput = \
 	doc/design-partitioned.rst \
 	doc/design-query-splitting.rst \
 	doc/design-query2.rst \
+	doc/design-reason-trail.rst \
 	doc/design-resource-model.rst \
 	doc/design-restricted-commands.rst \
 	doc/design-shared-storage.rst \
 	doc/design-monitoring-agent.rst \
 	doc/design-virtual-clusters.rst \
 	doc/design-x509-ca.rst \
+	doc/design-hroller.rst \
+	doc/design-storagetypes.rst \
 	doc/devnotes.rst \
 	doc/glossary.rst \
 	doc/hooks.rst \
@@ -702,6 +755,7 @@ docinput = \
 	doc/install.rst \
 	doc/locking.rst \
 	doc/manpages-disabled.rst \
+	doc/monitoring-query-format.rst \
 	doc/move-instance.rst \
 	doc/news.rst \
 	doc/ovfconverter.rst \
@@ -717,21 +771,22 @@ mandocrst = $(addprefix doc/man-,$(notdir $(manrst)))
 
 # Haskell programs to be installed in $PREFIX/bin
 HS_BIN_PROGS = src/htools
-@ENABLE_MONITORING_FALSE@HS_MYEXECLIB_PROGS = 
+@ENABLE_MOND_FALSE@HS_MYEXECLIB_PROGS = 
 
 # Haskell programs to be installed in the MYEXECLIB dir
-@ENABLE_MONITORING_TRUE@HS_MYEXECLIB_PROGS = src/mon-collector
+@ENABLE_MOND_TRUE@HS_MYEXECLIB_PROGS = src/mon-collector
 
-# Haskell programs to compiled but not installed automatically
-# Usually they have their own specific installation rules
+# Haskell programs to be compiled by "make really-all"
 HS_COMPILE_PROGS = \
+	src/ganeti-mond \
 	src/hconfd \
+	src/hluxid \
 	src/rpc-test
 
 
 # All Haskell non-test programs to be compiled but not automatically installed
 HS_PROGS = $(HS_BIN_PROGS) $(HS_MYEXECLIB_PROGS)
-HS_BIN_ROLES = hbal hscan hspace hinfo hcheck hroller
+HS_BIN_ROLES = harep hbal hscan hspace hinfo hcheck hroller
 HS_HTOOLS_PROGS = $(HS_BIN_ROLES) hail
 HS_ALL_PROGS = \
 	$(HS_PROGS) \
@@ -777,6 +832,8 @@ HS_LIB_SRCS = \
 	src/Ganeti/Confd/Types.hs \
 	src/Ganeti/Confd/Utils.hs \
 	src/Ganeti/Config.hs \
+	src/Ganeti/ConfigReader.hs \
+	src/Ganeti/Curl/Multi.hs \
 	src/Ganeti/Daemon.hs \
 	src/Ganeti/DataCollectors/CLI.hs \
 	src/Ganeti/DataCollectors/Drbd.hs \
@@ -796,9 +853,11 @@ HS_LIB_SRCS = \
 	src/Ganeti/HTools/Group.hs \
 	src/Ganeti/HTools/Instance.hs \
 	src/Ganeti/HTools/Loader.hs \
+	src/Ganeti/HTools/Nic.hs \
 	src/Ganeti/HTools/Node.hs \
 	src/Ganeti/HTools/PeerMap.hs \
 	src/Ganeti/HTools/Program/Hail.hs \
+	src/Ganeti/HTools/Program/Harep.hs \
 	src/Ganeti/HTools/Program/Hbal.hs \
 	src/Ganeti/HTools/Program/Hcheck.hs \
 	src/Ganeti/HTools/Program/Hinfo.hs \
@@ -807,22 +866,27 @@ HS_LIB_SRCS = \
 	src/Ganeti/HTools/Program/Hroller.hs \
 	src/Ganeti/HTools/Program/Main.hs \
 	src/Ganeti/HTools/Types.hs \
+	src/Ganeti/Hypervisor/Xen/XmParser.hs \
+	src/Ganeti/Hypervisor/Xen/Types.hs \
 	src/Ganeti/Hash.hs \
 	src/Ganeti/JQueue.hs \
 	src/Ganeti/JSON.hs \
 	src/Ganeti/Jobs.hs \
 	src/Ganeti/Logging.hs \
 	src/Ganeti/Luxi.hs \
+	src/Ganeti/Monitoring/Server.hs \
 	src/Ganeti/Network.hs \
 	src/Ganeti/Objects.hs \
 	src/Ganeti/OpCodes.hs \
 	src/Ganeti/OpParams.hs \
 	src/Ganeti/Path.hs \
 	src/Ganeti/Query/Common.hs \
+	src/Ganeti/Query/Export.hs \
 	src/Ganeti/Query/Filter.hs \
 	src/Ganeti/Query/Group.hs \
 	src/Ganeti/Query/Job.hs \
 	src/Ganeti/Query/Language.hs \
+	src/Ganeti/Query/Network.hs \
 	src/Ganeti/Query/Node.hs \
 	src/Ganeti/Query/Query.hs \
 	src/Ganeti/Query/Server.hs \
@@ -855,6 +919,7 @@ HS_TEST_SRCS = \
 	test/hs/Test/Ganeti/HTools/Node.hs \
 	test/hs/Test/Ganeti/HTools/PeerMap.hs \
 	test/hs/Test/Ganeti/HTools/Types.hs \
+	test/hs/Test/Ganeti/Hypervisor/Xen/XmParser.hs \
 	test/hs/Test/Ganeti/JSON.hs \
 	test/hs/Test/Ganeti/Jobs.hs \
 	test/hs/Test/Ganeti/JQueue.hs \
@@ -864,6 +929,7 @@ HS_TEST_SRCS = \
 	test/hs/Test/Ganeti/OpCodes.hs \
 	test/hs/Test/Ganeti/Query/Filter.hs \
 	test/hs/Test/Ganeti/Query/Language.hs \
+	test/hs/Test/Ganeti/Query/Network.hs \
 	test/hs/Test/Ganeti/Query/Query.hs \
 	test/hs/Test/Ganeti/Rpc.hs \
 	test/hs/Test/Ganeti/Runtime.hs \
@@ -879,15 +945,25 @@ HS_LIBTEST_SRCS = $(HS_LIB_SRCS) $(HS_TEST_SRCS)
 HS_BUILT_SRCS = \
 	test/hs/Test/Ganeti/TestImports.hs \
 	src/Ganeti/Constants.hs \
+	src/Ganeti/Curl/Internal.hs \
 	src/Ganeti/Version.hs
 
-HS_BUILT_SRCS_IN = $(patsubst %,%.in,$(HS_BUILT_SRCS))
+HS_BUILT_SRCS_IN = \
+	$(patsubst %,%.in,$(filter-out src/Ganeti/Curl/Internal.hs,$(HS_BUILT_SRCS))) \
+	src/Ganeti/Curl/Internal.hsc
+
 HS_LIBTESTBUILT_SRCS = $(HS_LIBTEST_SRCS) $(HS_BUILT_SRCS)
+userspecs = \
+	doc/users/users \
+	doc/users/groups \
+	doc/users/groupmemberships
+
 
 # Things to build but not to install (add it to EXTRA_DIST if it should be
 # distributed)
-noinst_DATA = doc/html $(BUILT_EXAMPLES) doc/examples/bash_completion \
-	doc/examples/bash_completion-debug $(manhtml) $(am__append_3)
+noinst_DATA = $(BUILT_EXAMPLES) doc/examples/bash_completion \
+	doc/examples/bash_completion-debug $(userspecs) $(manhtml) \
+	$(am__append_4) $(am__append_5)
 gnt_scripts = \
 	scripts/gnt-backup \
 	scripts/gnt-cluster \
@@ -932,12 +1008,12 @@ qa_scripts = \
 	qa/qa_tags.py \
 	qa/qa_utils.py
 
-bin_SCRIPTS = $(am__append_4)
+bin_SCRIPTS = $(am__append_6)
 dist_sbin_SCRIPTS = \
 	tools/ganeti-listrunner
 
 nodist_sbin_SCRIPTS = $(PYTHON_BOOTSTRAP_SBIN) daemons/ganeti-cleaner \
-	$(am__append_5)
+	$(am__append_7) $(am__append_8)
 python_scripts = \
 	tools/cfgshell \
 	tools/cfgupgrade \
@@ -1012,7 +1088,6 @@ EXTRA_DIST = \
 	devel/upload \
 	devel/webserver \
 	tools/kvm-ifup.in \
-	tools/users-setup.in \
 	tools/vcluster-setup.in \
 	$(docinput) \
 	doc/html \
@@ -1023,6 +1098,9 @@ EXTRA_DIST = \
 	doc/examples/gnt-debug/README \
 	doc/examples/gnt-debug/delay0.json \
 	doc/examples/gnt-debug/delay50.json \
+	doc/users/groupmemberships.in \
+	doc/users/groups.in \
+	doc/users/users.in \
 	test/py/lockperf.py \
 	test/py/testutils.py \
 	test/py/mocks.py \
@@ -1043,8 +1121,10 @@ EXTRA_DIST = \
 man_MANS = \
 	man/ganeti-cleaner.8 \
 	man/ganeti-confd.8 \
+	man/ganeti-luxid.8 \
 	man/ganeti-listrunner.8 \
 	man/ganeti-masterd.8 \
+	man/ganeti-mond.8 \
 	man/ganeti-noded.8 \
 	man/ganeti-os-interface.7 \
 	man/ganeti-extstorage-interface.7 \
@@ -1062,6 +1142,7 @@ man_MANS = \
 	man/gnt-os.8 \
 	man/gnt-storage.8 \
 	man/hail.1 \
+	man/harep.1 \
 	man/hbal.1 \
 	man/hcheck.1 \
 	man/hinfo.1 \
@@ -1083,11 +1164,14 @@ maninput = \
 	$(mangen)
 
 TEST_FILES = \
+	test/autotools/autotools-check-news.test \
 	test/data/htools/clean-nonzero-score.data \
 	test/data/htools/common-suffix.data \
 	test/data/htools/empty-cluster.data \
 	test/data/htools/hail-alloc-drbd.json \
+	test/data/htools/hail-alloc-invalid-network.json \
 	test/data/htools/hail-alloc-invalid-twodisks.json \
+	test/data/htools/hail-alloc-restricted-network.json \
 	test/data/htools/hail-alloc-twodisks.json \
 	test/data/htools/hail-change-group.json \
 	test/data/htools/hail-invalid-reloc.json \
@@ -1095,19 +1179,25 @@ TEST_FILES = \
 	test/data/htools/hail-reloc-drbd.json \
 	test/data/htools/hbal-excl-tags.data \
 	test/data/htools/hbal-split-insts.data \
+	test/data/htools/hspace-tiered-dualspec.data \
 	test/data/htools/hspace-tiered-ipolicy.data \
+	test/data/htools/hspace-tiered-resourcetypes.data \
+	test/data/htools/hspace-tiered.data \
 	test/data/htools/invalid-node.data \
 	test/data/htools/missing-resources.data \
+	test/data/htools/multiple-master.data \
 	test/data/htools/n1-failure.data \
 	test/data/htools/rapi/groups.json \
 	test/data/htools/rapi/info.json \
 	test/data/htools/rapi/instances.json \
 	test/data/htools/rapi/nodes.json \
+	test/data/htools/unique-reboot-order.data \
 	test/hs/shelltests/htools-balancing.test \
 	test/hs/shelltests/htools-basic.test \
 	test/hs/shelltests/htools-dynutil.test \
 	test/hs/shelltests/htools-excl.test \
 	test/hs/shelltests/htools-hail.test \
+	test/hs/shelltests/htools-hroller.test \
 	test/hs/shelltests/htools-hspace.test \
 	test/hs/shelltests/htools-invalid.test \
 	test/hs/shelltests/htools-multi-group.test \
@@ -1135,6 +1225,8 @@ TEST_FILES = \
 	test/data/bdev-rbd/output_invalid.txt \
 	test/data/cert1.pem \
 	test/data/cert2.pem \
+	test/data/cluster_config_2.7.json \
+	test/data/cluster_config_downgraded_2.7.json \
 	test/data/instance-minor-pairing.txt \
 	test/data/ip-addr-show-dummy0.txt \
 	test/data/ip-addr-show-lo-ipv4.txt \
@@ -1149,6 +1241,8 @@ TEST_FILES = \
 	test/data/kvm_0.9.1_help_boot_test.txt \
 	test/data/kvm_1.0_help.txt \
 	test/data/kvm_1.1.2_help.txt \
+	test/data/NEWS_OK.txt \
+	test/data/NEWS_previous_unreleased.txt \
 	test/data/ovfdata/compr_disk.vmdk.gz \
 	test/data/ovfdata/config.ini \
 	test/data/ovfdata/corrupted_resources.ovf \
@@ -1180,12 +1274,20 @@ TEST_FILES = \
 	test/data/proc_drbd83_sync.txt \
 	test/data/proc_drbd83_sync_want.txt \
 	test/data/proc_drbd83_sync_krnl2.6.39.txt \
+	test/data/proc_meminfo.txt \
+	test/data/proc_cpuinfo.txt \
+	test/data/qa-minimal-nodes-instances-only.json \
 	test/data/sys_drbd_usermode_helper.txt \
 	test/data/vgreduce-removemissing-2.02.02.txt \
 	test/data/vgreduce-removemissing-2.02.66-fail.txt \
 	test/data/vgreduce-removemissing-2.02.66-ok.txt \
 	test/data/vgs-missing-pvs-2.02.02.txt \
 	test/data/vgs-missing-pvs-2.02.66.txt \
+	test/data/xen-xm-info-4.0.1.txt \
+	test/data/xen-xm-list-4.0.1-dom0-only.txt \
+	test/data/xen-xm-list-4.0.1-four-instances.txt \
+	test/data/xen-xm-list-long-4.0.1.txt \
+	test/data/xen-xm-uptime-4.0.1.txt \
 	test/py/ganeti-cli.test \
 	test/py/gnt-cli.test \
 	test/py/import-export_unittest-helper
@@ -1276,9 +1378,9 @@ dist_TESTS = test/py/check-cert-expired_unittest.bash \
 	test/py/daemon-util_unittest.bash \
 	test/py/ganeti-cleaner_unittest.bash \
 	test/py/import-export_unittest.bash test/py/cli-test.bash \
-	test/py/bash_completion.bash $(python_tests) $(am__append_7)
-nodist_TESTS = $(am__append_6)
-check_SCRIPTS = $(am__append_8)
+	test/py/bash_completion.bash $(am__append_9) $(am__append_11)
+nodist_TESTS = $(am__append_10)
+check_SCRIPTS = $(am__append_12)
 TESTS = $(dist_TESTS) $(nodist_TESTS)
 
 # Environment for all tests
@@ -1293,28 +1395,14 @@ PLAIN_TESTS_ENVIRONMENT = \
 TESTS_ENVIRONMENT = \
 	$(PLAIN_TESTS_ENVIRONMENT) $(abs_top_srcdir)/autotools/testrunner
 
-all_python_code = \
-	$(dist_sbin_SCRIPTS) \
-	$(python_scripts) \
-	$(pkglib_python_scripts) \
-	$(nodist_pkglib_python_scripts) \
-	$(nodist_tools_python_scripts) \
-	$(python_tests) \
-	$(pkgpython_PYTHON) \
-	$(client_PYTHON) \
-	$(hypervisor_PYTHON) \
-	$(rapi_PYTHON) \
-	$(server_PYTHON) \
-	$(pytools_PYTHON) \
-	$(http_PYTHON) \
-	$(confd_PYTHON) \
-	$(masterd_PYTHON) \
-	$(impexpd_PYTHON) \
-	$(utils_PYTHON) \
-	$(watcher_PYTHON) \
-	$(noinst_PYTHON) \
-	$(qa_scripts)
-
+all_python_code = $(dist_sbin_SCRIPTS) $(python_scripts) \
+	$(pkglib_python_scripts) $(nodist_pkglib_python_scripts) \
+	$(nodist_tools_python_scripts) $(pkgpython_PYTHON) \
+	$(client_PYTHON) $(cmdlib_PYTHON) $(hypervisor_PYTHON) \
+	$(rapi_PYTHON) $(server_PYTHON) $(pytools_PYTHON) \
+	$(http_PYTHON) $(confd_PYTHON) $(masterd_PYTHON) \
+	$(impexpd_PYTHON) $(utils_PYTHON) $(watcher_PYTHON) \
+	$(noinst_PYTHON) $(qa_scripts) $(am__append_13)
 srclink_files = \
 	man/footer.rst \
 	test/py/check-cert-expired_unittest.bash \
@@ -1382,10 +1470,11 @@ PEP8_IGNORE = E111,E121,E125,E127,E261,E501
 
 # For excluding pep8 expects filenames only, not whole paths
 PEP8_EXCLUDE = $(subst $(space),$(comma),$(strip $(notdir $(BUILT_PYTHON_SOURCES))))
-LINT_TARGETS = pylint pylint-qa $(am__append_9) $(am__append_10)
+LINT_TARGETS = pylint pylint-qa $(am__append_14) $(am__append_15)
 
 # FIXME: remove ignore "Use void" when GHC 6.x is deprecated
 HLINT_EXCLUDES = src/Ganeti/THH.hs test/hs/hpc-htools.hs
+COVERAGE_TESTS = $(am__append_16) $(am__append_17)
 all: all-am
 
 .SUFFIXES:
@@ -1699,6 +1788,44 @@ uninstall-clientPYTHON:
 	files=`for p in $$list; do echo $$p; done | sed -e 's|^.*/||'`; \
 	test -n "$$files" || exit 0; \
 	dir='$(DESTDIR)$(clientdir)'; \
+	filesc=`echo "$$files" | sed 's|$$|c|'`; \
+	fileso=`echo "$$files" | sed 's|$$|o|'`; \
+	st=0; \
+	for files in "$$files" "$$filesc" "$$fileso"; do \
+	  $(am__uninstall_files_from_dir) || st=$$?; \
+	done; \
+	exit $$st
+install-cmdlibPYTHON: $(cmdlib_PYTHON)
+	@$(NORMAL_INSTALL)
+	@list='$(cmdlib_PYTHON)'; dlist=; list2=; test -n "$(cmdlibdir)" || list=; \
+	if test -n "$$list"; then \
+	  echo " $(MKDIR_P) '$(DESTDIR)$(cmdlibdir)'"; \
+	  $(MKDIR_P) "$(DESTDIR)$(cmdlibdir)" || exit 1; \
+	fi; \
+	for p in $$list; do \
+	  if test -f "$$p"; then b=; else b="$(srcdir)/"; fi; \
+	  if test -f $$b$$p; then \
+	    $(am__strip_dir) \
+	    dlist="$$dlist $$f"; \
+	    list2="$$list2 $$b$$p"; \
+	  else :; fi; \
+	done; \
+	for file in $$list2; do echo $$file; done | $(am__base_list) | \
+	while read files; do \
+	  echo " $(INSTALL_DATA) $$files '$(DESTDIR)$(cmdlibdir)'"; \
+	  $(INSTALL_DATA) $$files "$(DESTDIR)$(cmdlibdir)" || exit $$?; \
+	done || exit $$?; \
+	if test -n "$$dlist"; then \
+	  $(am__py_compile) --destdir "$(DESTDIR)" \
+	                    --basedir "$(cmdlibdir)" $$dlist; \
+	else :; fi
+
+uninstall-cmdlibPYTHON:
+	@$(NORMAL_UNINSTALL)
+	@list='$(cmdlib_PYTHON)'; test -n "$(cmdlibdir)" || list=; \
+	files=`for p in $$list; do echo $$p; done | sed -e 's|^.*/||'`; \
+	test -n "$$files" || exit 0; \
+	dir='$(DESTDIR)$(cmdlibdir)'; \
 	filesc=`echo "$$files" | sed 's|$$|c|'`; \
 	fileso=`echo "$$files" | sed 's|$$|o|'`; \
 	st=0; \
@@ -2576,7 +2703,7 @@ check-am: all-am
 check: check-am
 all-am: Makefile $(SCRIPTS) $(MANS) $(DATA)
 installdirs:
-	for dir in "$(DESTDIR)$(bindir)" "$(DESTDIR)$(sbindir)" "$(DESTDIR)$(toolsdir)" "$(DESTDIR)$(myexeclibdir)" "$(DESTDIR)$(myexeclibdir)" "$(DESTDIR)$(sbindir)" "$(DESTDIR)$(toolsdir)" "$(DESTDIR)$(clientdir)" "$(DESTDIR)$(confddir)" "$(DESTDIR)$(httpdir)" "$(DESTDIR)$(hypervisordir)" "$(DESTDIR)$(impexpddir)" "$(DESTDIR)$(masterddir)" "$(DESTDIR)$(pkgpythondir)" "$(DESTDIR)$(pkgpythondir)" "$(DESTDIR)$(pytoolsdir)" "$(DESTDIR)$(rapidir)" "$(DESTDIR)$(serverdir)" "$(DESTDIR)$(utilsdir)" "$(DESTDIR)$(watcherdir)" "$(DESTDIR)$(man1dir)" "$(DESTDIR)$(man7dir)" "$(DESTDIR)$(man8dir)"; do \
+	for dir in "$(DESTDIR)$(bindir)" "$(DESTDIR)$(sbindir)" "$(DESTDIR)$(toolsdir)" "$(DESTDIR)$(myexeclibdir)" "$(DESTDIR)$(myexeclibdir)" "$(DESTDIR)$(sbindir)" "$(DESTDIR)$(toolsdir)" "$(DESTDIR)$(clientdir)" "$(DESTDIR)$(cmdlibdir)" "$(DESTDIR)$(confddir)" "$(DESTDIR)$(httpdir)" "$(DESTDIR)$(hypervisordir)" "$(DESTDIR)$(impexpddir)" "$(DESTDIR)$(masterddir)" "$(DESTDIR)$(pkgpythondir)" "$(DESTDIR)$(pkgpythondir)" "$(DESTDIR)$(pytoolsdir)" "$(DESTDIR)$(rapidir)" "$(DESTDIR)$(serverdir)" "$(DESTDIR)$(utilsdir)" "$(DESTDIR)$(watcherdir)" "$(DESTDIR)$(man1dir)" "$(DESTDIR)$(man7dir)" "$(DESTDIR)$(man8dir)"; do \
 	  test -z "$$dir" || $(MKDIR_P) "$$dir"; \
 	done
 install: install-am
@@ -2633,13 +2760,14 @@ info: info-am
 
 info-am:
 
-install-data-am: install-clientPYTHON install-confdPYTHON \
-	install-dist_toolsSCRIPTS install-httpPYTHON \
-	install-hypervisorPYTHON install-impexpdPYTHON install-man \
-	install-masterdPYTHON install-nodist_pkgpythonPYTHON \
-	install-nodist_toolsSCRIPTS install-pkgpythonPYTHON \
-	install-pytoolsPYTHON install-rapiPYTHON install-serverPYTHON \
-	install-utilsPYTHON install-watcherPYTHON
+install-data-am: install-clientPYTHON install-cmdlibPYTHON \
+	install-confdPYTHON install-dist_toolsSCRIPTS \
+	install-httpPYTHON install-hypervisorPYTHON \
+	install-impexpdPYTHON install-man install-masterdPYTHON \
+	install-nodist_pkgpythonPYTHON install-nodist_toolsSCRIPTS \
+	install-pkgpythonPYTHON install-pytoolsPYTHON \
+	install-rapiPYTHON install-serverPYTHON install-utilsPYTHON \
+	install-watcherPYTHON
 
 install-dvi: install-dvi-am
 
@@ -2690,10 +2818,10 @@ ps: ps-am
 ps-am:
 
 uninstall-am: uninstall-binSCRIPTS uninstall-clientPYTHON \
-	uninstall-confdPYTHON uninstall-dist_sbinSCRIPTS \
-	uninstall-dist_toolsSCRIPTS uninstall-httpPYTHON \
-	uninstall-hypervisorPYTHON uninstall-impexpdPYTHON \
-	uninstall-man uninstall-masterdPYTHON \
+	uninstall-cmdlibPYTHON uninstall-confdPYTHON \
+	uninstall-dist_sbinSCRIPTS uninstall-dist_toolsSCRIPTS \
+	uninstall-httpPYTHON uninstall-hypervisorPYTHON \
+	uninstall-impexpdPYTHON uninstall-man uninstall-masterdPYTHON \
 	uninstall-myexeclibSCRIPTS uninstall-nodist_myexeclibSCRIPTS \
 	uninstall-nodist_pkgpythonPYTHON uninstall-nodist_sbinSCRIPTS \
 	uninstall-nodist_toolsSCRIPTS uninstall-pkgpythonPYTHON \
@@ -2711,8 +2839,8 @@ uninstall-man: uninstall-man1 uninstall-man7 uninstall-man8
 	dist-zip distcheck distclean distclean-generic distcleancheck \
 	distdir distuninstallcheck dvi dvi-am html html-am info \
 	info-am install install-am install-binSCRIPTS \
-	install-clientPYTHON install-confdPYTHON install-data \
-	install-data-am install-dist_sbinSCRIPTS \
+	install-clientPYTHON install-cmdlibPYTHON install-confdPYTHON \
+	install-data install-data-am install-dist_sbinSCRIPTS \
 	install-dist_toolsSCRIPTS install-dvi install-dvi-am \
 	install-exec install-exec-am install-exec-hook \
 	install-exec-local install-html install-html-am \
@@ -2729,12 +2857,12 @@ uninstall-man: uninstall-man1 uninstall-man7 uninstall-man8
 	maintainer-clean-generic maintainer-clean-local mostlyclean \
 	mostlyclean-generic pdf pdf-am ps ps-am uninstall uninstall-am \
 	uninstall-binSCRIPTS uninstall-clientPYTHON \
-	uninstall-confdPYTHON uninstall-dist_sbinSCRIPTS \
-	uninstall-dist_toolsSCRIPTS uninstall-httpPYTHON \
-	uninstall-hypervisorPYTHON uninstall-impexpdPYTHON \
-	uninstall-man uninstall-man1 uninstall-man7 uninstall-man8 \
-	uninstall-masterdPYTHON uninstall-myexeclibSCRIPTS \
-	uninstall-nodist_myexeclibSCRIPTS \
+	uninstall-cmdlibPYTHON uninstall-confdPYTHON \
+	uninstall-dist_sbinSCRIPTS uninstall-dist_toolsSCRIPTS \
+	uninstall-httpPYTHON uninstall-hypervisorPYTHON \
+	uninstall-impexpdPYTHON uninstall-man uninstall-man1 \
+	uninstall-man7 uninstall-man8 uninstall-masterdPYTHON \
+	uninstall-myexeclibSCRIPTS uninstall-nodist_myexeclibSCRIPTS \
 	uninstall-nodist_pkgpythonPYTHON uninstall-nodist_sbinSCRIPTS \
 	uninstall-nodist_toolsSCRIPTS uninstall-pkgpythonPYTHON \
 	uninstall-pytoolsPYTHON uninstall-rapiPYTHON \
@@ -2766,7 +2894,7 @@ doc/man-html/index.html: doc/manpages-enabled.rst $(mandocrst)
 doc/html/index.html doc/man-html/index.html: $(docinput) doc/conf.py \
 	configure.ac $(RUN_IN_TEMPDIR) lib/build/sphinx_ext.py \
 	lib/build/shell_example_lexer.py lib/opcodes.py lib/ht.py \
-	doc/css/style.css \
+	doc/css/style.css lib/rapi/connector.py lib/rapi/rlib2.py \
 	| $(BUILT_PYTHON_SOURCES)
 	@test -n "$(SPHINX)" || \
 	    { echo 'sphinx-build' not found during configure; exit 1; }
@@ -2827,6 +2955,9 @@ doc/man-%.rst: man/%.gen Makefile $(REPLACE_VARS_SED) | $(built_base_sources)
 @MANPAGES_IN_DOC_TRUE@	} > $@
 @MANPAGES_IN_DOC_FALSE@	echo 'Man pages in documentation were disabled at configure time' >&2; \
 @MANPAGES_IN_DOC_FALSE@	exit 1;
+
+doc/users/%: doc/users/%.in Makefile $(REPLACE_VARS_SED)
+	cat $< | sed -f $(REPLACE_VARS_SED) | LC_ALL=C sort | uniq | (grep -v '^root' || true) > $@
 @WANT_HTOOLS_TRUE@install-exec-hook:
 @WANT_HTOOLS_TRUE@	@mkdir_p@ $(DESTDIR)$(iallocatorsdir)
 # FIXME: this is a hardcoded logic, instead of auto-resolving
@@ -2845,7 +2976,7 @@ $(HS_ALL_PROGS): %: %.hs $(HS_LIBTESTBUILT_SRCS) Makefile
 	@rm -f $(notdir $@).tix
 	$(GHC) --make \
 	  $(HFLAGS) \
-	  $(HS_NOCURL) $(HS_PARALLEL3) $(HS_REGEX_PCRE) \
+	  $(HS_PARALLEL3) $(HS_REGEX_PCRE) \
 	  -osuf $(notdir $@).o -hisuf $(notdir $@).hi \
 	  $(HEXTRA) $(HEXTRA_INT) $@
 	@touch "$@"
@@ -2860,7 +2991,7 @@ test/hs/hpc-htools: HEXTRA_INT=-fhpc
 test/hs/hpc-mon-collector: HEXTRA_INT=-fhpc
 
 # test dependency
-test/hs/offline-tests.sh: test/hs/hpc-htools test/hs/hpc-mon-collector
+test/hs/offline-test.sh: test/hs/hpc-htools test/hs/hpc-mon-collector
 
 # rules for building profiling-enabled versions of the haskell
 # programs: hs-prof does the full two-step build, whereas
@@ -2887,6 +3018,9 @@ hs-prof-quick:
 @ENABLE_CONFD_TRUE@src/ganeti-confd: src/hconfd
 @ENABLE_CONFD_TRUE@	cp -f $< $@
 
+@ENABLE_CONFD_TRUE@src/ganeti-luxid: src/hluxid
+@ENABLE_CONFD_TRUE@	cp -f $< $@
+
 test/py/daemon-util_unittest.bash: daemons/daemon-util
 
 test/py/ganeti-cleaner_unittest.bash: daemons/ganeti-cleaner
@@ -2897,8 +3031,26 @@ tools/kvm-ifup: tools/kvm-ifup.in $(REPLACE_VARS_SED)
 	sed -f $(REPLACE_VARS_SED) < $< > $@
 	chmod +x $@
 
-tools/users-setup: tools/users-setup.in $(REPLACE_VARS_SED)
-	sed -f $(REPLACE_VARS_SED) < $< > $@
+tools/users-setup: Makefile $(userspecs)
+	set -e; \
+	{ echo '#!/bin/sh'; \
+	  echo 'if [ "x$$1" != "x--yes-do-it" ];'; \
+	  echo 'then echo "This will do the following changes"'; \
+	  $(AWK) -- '{print "echo + Will add group ",$$1; count++}\
+	             END {if (count == 0) {print "echo + No groups to add"}}' doc/users/groups; \
+	  $(AWK) -- '{if (NF > 1) {print "echo + Will add user",$$1,"with primary group",$$2} \
+	                          else {print "echo + Will add user",$$1}; count++}\
+	             END {if (count == 0) {print "echo + No users to add"}}' doc/users/users; \
+	  $(AWK) -- '{print "echo + Will add user",$$1,"to group",$$2}' doc/users/groupmemberships; \
+	  echo 'echo'; \
+	  echo 'echo "OK? (y/n)"'; \
+	  echo 'read confirm'; \
+	  echo 'if [ "x$$confirm" != "xy" ]; then exit 0; fi'; \
+	  echo 'fi'; \
+	  $(AWK) -- '{print "addgroup --system",$$1}' doc/users/groups; \
+	  $(AWK) -- '{if (NF > 1) {print "adduser --system --ingroup",$$2,$$1} else {print "adduser --system",$$1}}' doc/users/users; \
+	  $(AWK) -- '{print "adduser",$$1,$$2}' doc/users/groupmemberships; \
+	} > $@
 	chmod +x $@
 
 tools/vcluster-setup: tools/vcluster-setup.in $(REPLACE_VARS_SED)
@@ -3000,6 +3152,9 @@ src/Ganeti/Constants.hs: src/Ganeti/Constants.hs.in \
 	  PYTHONPATH=. $(RUN_IN_TEMPDIR) $(CURDIR)/$(CONVERT_CONSTANTS); \
 	} > $@
 
+src/Ganeti/Curl/Internal.hs: src/Ganeti/Curl/Internal.hsc | stamp-directories
+	hsc2hs -o $@ $<
+
 test/hs/Test/Ganeti/TestImports.hs: test/hs/Test/Ganeti/TestImports.hs.in \
 	$(built_base_sources)
 	set -e; \
@@ -3072,8 +3227,12 @@ lib/_autoconf.py: Makefile | stamp-directories
 	  echo "RAPI_GROUP = '$(RAPI_GROUP)'"; \
 	  echo "CONFD_USER = '$(CONFD_USER)'"; \
 	  echo "CONFD_GROUP = '$(CONFD_GROUP)'"; \
+	  echo "LUXID_USER = '$(LUXID_USER)'"; \
+	  echo "LUXID_GROUP = '$(LUXID_GROUP)'"; \
 	  echo "NODED_USER = '$(NODED_USER)'"; \
 	  echo "NODED_GROUP = '$(NODED_GROUP)'"; \
+	  echo "MOND_USER = '$(MOND_USER)'"; \
+	  echo "MOND_GROUP = '$(MOND_GROUP)'"; \
 	  echo "DISK_SEPARATOR = '$(DISK_SEPARATOR)'"; \
 	  echo "QEMUIMG_PATH = '$(QEMUIMG_PATH)'"; \
 	  echo "HTOOLS = True"; \
@@ -3081,7 +3240,7 @@ lib/_autoconf.py: Makefile | stamp-directories
 	  echo "XEN_CMD = '$(XEN_CMD)'"; \
 	  echo "ENABLE_SPLIT_QUERY = $(ENABLE_SPLIT_QUERY)"; \
 	  echo "ENABLE_RESTRICTED_COMMANDS = $(ENABLE_RESTRICTED_COMMANDS)"; \
-	  echo "ENABLE_MONITORING = $(ENABLE_MONITORING)"; \
+	  echo "ENABLE_MOND = $(ENABLE_MOND)"; \
 	  echo "MAN_PAGES = {"; \
 	  for i in $(notdir $(man_MANS)); do \
 	    echo "$$i" | sed -re 's/^(.*)\.([0-9]+)$$/  "\1": \2,/g'; \
@@ -3146,13 +3305,18 @@ $(REPLACE_VARS_SED): $(SHELL_ENV_INIT) Makefile stamp-directories
 	  echo 's#@''GNTMASTERUSER@#$(MASTERD_USER)#g'; \
 	  echo 's#@''GNTRAPIUSER@#$(RAPI_USER)#g'; \
 	  echo 's#@''GNTCONFDUSER@#$(CONFD_USER)#g'; \
+	  echo 's#@''GNTLUXIDUSER@#$(LUXID_USER)#g'; \
 	  echo 's#@''GNTNODEDUSER@#$(NODED_USER)#g'; \
+	  echo 's#@''GNTMONDUSER@#$(MOND_USER)#g'; \
 	  echo 's#@''GNTRAPIGROUP@#$(RAPI_GROUP)#g'; \
 	  echo 's#@''GNTADMINGROUP@#$(ADMIN_GROUP)#g'; \
 	  echo 's#@''GNTCONFDGROUP@#$(CONFD_GROUP)#g'; \
+	  echo 's#@''GNTLUXIDGROUP@#$(LUXID_GROUP)#g'; \
 	  echo 's#@''GNTMASTERDGROUP@#$(MASTERD_GROUP)#g'; \
+	  echo 's#@''GNTMONDGROUP@#$(MOND_GROUP)#g'; \
 	  echo 's#@''GNTDAEMONSGROUP@#$(DAEMONS_GROUP)#g'; \
 	  echo 's#@''CUSTOM_ENABLE_CONFD@#$(ENABLE_CONFD)#g'; \
+	  echo 's#@''CUSTOM_ENABLE_MOND@#$(ENABLE_MOND)#g'; \
 	  echo 's#@''MODULES@#$(strip $(lint_python_code))#g'; \
 	  echo 's#@''XEN_CONFIG_DIR@#$(XEN_CONFIG_DIR)#g'; \
 	  echo; \
@@ -3258,28 +3422,30 @@ check-local: check-dirs $(GENERATED_FILES)
 	$(CHECK_VERSION) $(VERSION) $(top_srcdir)/NEWS
 	RELEASE=$(PACKAGE_VERSION) $(CHECK_NEWS) < $(top_srcdir)/NEWS
 	PYTHONPATH=. $(RUN_IN_TEMPDIR) $(CURDIR)/$(CHECK_IMPORTS) . $(standalone_python_modules)
-	@expver=$(VERSION_MAJOR).$(VERSION_MINOR); \
 	error= ; \
-	if test "`head -n 1 $(top_srcdir)/README`" != "Ganeti $$expver"; then \
-	  echo "Incorrect version in README, expected $$expver" >&2; \
-	  error=1; \
-	fi; \
-	for file in doc/iallocator.rst doc/hooks.rst doc/virtual-cluster.rst \
-	    doc/security.rst; do \
-	  if test "`sed -ne '4 p' $(top_srcdir)/$$file`" != \
-	    "Documents Ganeti version $$expver"; then \
-	    echo "Incorrect version in $$file, expected $$expver" >&2; \
+	if [ "x`echo $(VERSION_SUFFIX)|grep 'alpha'`" == "x" ]; then \
+	  expver=$(VERSION_MAJOR).$(VERSION_MINOR); \
+	  if test "`head -n 1 $(top_srcdir)/README`" != "Ganeti $$expver"; then \
+	    echo "Incorrect version in README, expected $$expver" >&2; \
 	    error=1; \
 	  fi; \
-	done; \
-	if ! test -f $(top_srcdir)/doc/design-$$expver.rst; then \
-	  echo "File $(top_srcdir)/doc/design-$$expver.rst not found" >&2; \
-	  error=1; \
-	fi; \
-	if test "`sed -ne '5 p' $(top_srcdir)/doc/design-draft.rst`" != \
-	  ".. Last updated for Ganeti $$expver"; then \
-	  echo "doc/design-draft.rst was not updated for version $$expver" >&2; \
-	  error=1; \
+	  for file in doc/iallocator.rst doc/hooks.rst doc/virtual-cluster.rst \
+	      doc/security.rst; do \
+	    if test "`sed -ne '4 p' $(top_srcdir)/$$file`" != \
+	      "Documents Ganeti version $$expver"; then \
+	      echo "Incorrect version in $$file, expected $$expver" >&2; \
+	      error=1; \
+	    fi; \
+	  done; \
+	  if ! test -f $(top_srcdir)/doc/design-$$expver.rst; then \
+	    echo "File $(top_srcdir)/doc/design-$$expver.rst not found" >&2; \
+	    error=1; \
+	  fi; \
+	  if test "`sed -ne '5 p' $(top_srcdir)/doc/design-draft.rst`" != \
+	    ".. Last updated for Ganeti $$expver"; then \
+	    echo "doc/design-draft.rst was not updated for version $$expver" >&2; \
+	    error=1; \
+	  fi; \
 	fi; \
 	for file in configure.ac $(HS_LIBTEST_SRCS) $(HS_PROG_SRCS); do \
 	  if test $$(wc --max-line-length < $(top_srcdir)/$$file) -gt 80; then \
@@ -3429,9 +3595,6 @@ $(APIDOC_HS_DIR)/index.html: $(HS_LIBTESTBUILT_SRCS) Makefile
 	set -e ; \
 	export LC_ALL=en_US.UTF-8; \
 	OPTGHC="--optghc=-isrc --optghc=-itest/hs"; \
-	if [ "$(HS_NOCURL)" ]; \
-	then OPTGHC="$$OPTGHC --optghc=$(HS_NOCURL)"; \
-	fi; \
 	if [ "$(HS_PARALLEL3)" ]; \
 	then OPTGHC="$$OPTGHC --optghc=$(HS_PARALLEL3)"; \
 	fi; \
@@ -3456,7 +3619,7 @@ TAGS: $(GENERATED_FILES)
 	rm -f TAGS
 	$(GHC) -e ":etags" -v0 \
 	  $(filter-out -O -Werror,$(HFLAGS)) \
-	  $(HS_NOCURL) $(HS_PARALLEL3) $(HS_REGEX_PCRE) \
+	  $(HS_PARALLEL3) $(HS_REGEX_PCRE) \
 	  $(HS_LIBTEST_SRCS)
 	find . -path './lib/*.py' -o -path './scripts/gnt-*' -o \
 	  -path './daemons/ganeti-*' -o -path './tools/*' -o \
@@ -3464,8 +3627,8 @@ TAGS: $(GENERATED_FILES)
 	  etags -l python -a -
 
 .PHONY: coverage
-@WANT_HTOOLS_TRUE@coverage: py-coverage hs-coverage
-@WANT_HTOOLS_FALSE@coverage: py-coverage
+
+coverage: $(COVERAGE_TESTS)
 
 .PHONY: py-coverage
 py-coverage: $(GENERATED_FILES) $(python_tests)
@@ -3507,7 +3670,12 @@ live-test: all
 	  --srcdir=.. $(HPCEXCL) ; \
 	hpc report --srcdir=.. live-test $(HPCEXCL)
 
-commit-check: distcheck lint apidoc
+commit-check: autotools-check distcheck lint apidoc
+
+autotools-check:
+	TESTDATA_DIR=./test/data shelltest $(SHELLTESTARGS) \
+  $(abs_top_srcdir)/test/autotools/*-*.test \
+  -- --hide-successes
 
 .PHONY: gitignore-check
 gitignore-check:

@@ -1,7 +1,7 @@
 Ganeti automatic instance allocation
 ====================================
 
-Documents Ganeti version 2.7
+Documents Ganeti version 2.8
 
 .. contents::
 
@@ -109,6 +109,8 @@ nodegroups
   alloc_policy
     the allocation policy of the node group (consult the semantics of
     this attribute in the :manpage:`gnt-group(8)` manpage)
+  networks
+    the list of network UUID's this node group is connected to
   ipolicy
     the instance policy of the node group
   tags
@@ -380,6 +382,7 @@ time, but not included in further examples below)::
       "f4e06e0d-528a-4963-a5ad-10f3e114232d": {
         "name": "default",
         "alloc_policy": "preferred",
+        "networks": ["net-uuid-1", "net-uuid-2"],
         "ipolicy": {
           "disk-templates": ["drbd", "plain"],
           "minmax": [

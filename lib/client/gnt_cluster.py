@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2010, 2011, 2012 Google Inc.
+# Copyright (C) 2006, 2007, 2010, 2011, 2012, 2013 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -26,6 +26,7 @@
 # W0614: Unused import %s from wildcard import (since we need cli)
 # C0103: Invalid name gnt-cluster
 
+from cStringIO import StringIO
 import os.path
 import time
 import OpenSSL
@@ -144,17 +145,18 @@ def InitCluster(opts, args):
     utils.ForceDictType(diskparams[templ], constants.DISK_DT_TYPES)
 
   # prepare ipolicy dict
-  ipolicy_raw = CreateIPolicyFromOpts(
+  ipolicy = CreateIPolicyFromOpts(
     ispecs_mem_size=opts.ispecs_mem_size,
     ispecs_cpu_count=opts.ispecs_cpu_count,
     ispecs_disk_count=opts.ispecs_disk_count,
     ispecs_disk_size=opts.ispecs_disk_size,
     ispecs_nic_count=opts.ispecs_nic_count,
+    minmax_ispecs=opts.ipolicy_bounds_specs,
+    std_ispecs=opts.ipolicy_std_specs,
     ipolicy_disk_templates=opts.ipolicy_disk_templates,
     ipolicy_vcpu_ratio=opts.ipolicy_vcpu_ratio,
     ipolicy_spindle_ratio=opts.ipolicy_spindle_ratio,
     fill_all=True)
-  ipolicy = objects.FillIPolicy(constants.IPOLICY_DEFAULTS, ipolicy_raw)
 
   if opts.candidate_pool_size is None:
     opts.candidate_pool_size = constants.MASTER_POOL_SIZE_DEFAULT
@@ -194,6 +196,12 @@ def InitCluster(opts, args):
 
   hv_state = dict(opts.hv_state)
 
+  enabled_disk_templates = opts.enabled_disk_templates
+  if enabled_disk_templates:
+    enabled_disk_templates = enabled_disk_templates.split(",")
+  else:
+    enabled_disk_templates = list(constants.DEFAULT_ENABLED_DISK_TEMPLATES)
+
   bootstrap.InitCluster(cluster_name=args[0],
                         secondary_ip=opts.secondary_ip,
                         vg_name=vg_name,
@@ -221,6 +229,7 @@ def InitCluster(opts, args):
                         use_external_mip_script=external_ip_setup_script,
                         hv_state=hv_state,
                         disk_state=disk_state,
+                        enabled_disk_templates=enabled_disk_templates,
                         )
   op = opcodes.OpClusterPostInit()
   SubmitOpCode(op, opts=opts)
@@ -342,6 +351,7 @@ def ShowClusterVersion(opts, args):
   ToStdout("Configuration format: %s", result["config_version"])
   ToStdout("OS api version: %s", result["os_api_version"])
   ToStdout("Export interface: %s", result["export_version"])
+  ToStdout("VCS version: %s", result["vcs_version"])
   return 0
 
 
@@ -360,24 +370,24 @@ def ShowClusterMaster(opts, args):
   return 0
 
 
-def _PrintGroupedParams(paramsdict, level=1, roman=False):
-  """Print Grouped parameters (be, nic, disk) by group.
+def _FormatGroupedParams(paramsdict, roman=False):
+  """Format Grouped parameters (be, nic, disk) by group.
 
   @type paramsdict: dict of dicts
   @param paramsdict: {group: {param: value, ...}, ...}
-  @type level: int
-  @param level: Level of indention
+  @rtype: dict of dicts
+  @return: copy of the input dictionaries with strings as values
 
   """
-  indent = "  " * level
-  for item, val in sorted(paramsdict.items()):
+  ret = {}
+  for (item, val) in paramsdict.items():
     if isinstance(val, dict):
-      ToStdout("%s- %s:", indent, item)
-      _PrintGroupedParams(val, level=level + 1, roman=roman)
+      ret[item] = _FormatGroupedParams(val, roman=roman)
     elif roman and isinstance(val, int):
-      ToStdout("%s  %s: %s", indent, item, compat.TryToRoman(val))
+      ret[item] = compat.TryToRoman(val)
     else:
-      ToStdout("%s  %s: %s", indent, item, val)
+      ret[item] = str(val)
+  return ret
 
 
 def ShowClusterConfig(opts, args):
@@ -393,89 +403,88 @@ def ShowClusterConfig(opts, args):
   cl = GetClient(query=True)
   result = cl.QueryClusterInfo()
 
-  ToStdout("Cluster name: %s", result["name"])
-  ToStdout("Cluster UUID: %s", result["uuid"])
-
-  ToStdout("Creation time: %s", utils.FormatTime(result["ctime"]))
-  ToStdout("Modification time: %s", utils.FormatTime(result["mtime"]))
-
-  ToStdout("Master node: %s", result["master"])
-
-  ToStdout("Architecture (this node): %s (%s)",
-           result["architecture"][0], result["architecture"][1])
-
   if result["tags"]:
     tags = utils.CommaJoin(utils.NiceSort(result["tags"]))
   else:
     tags = "(none)"
-
-  ToStdout("Tags: %s", tags)
-
-  ToStdout("Default hypervisor: %s", result["default_hypervisor"])
-  ToStdout("Enabled hypervisors: %s",
-           utils.CommaJoin(result["enabled_hypervisors"]))
-
-  ToStdout("Hypervisor parameters:")
-  _PrintGroupedParams(result["hvparams"])
-
-  ToStdout("OS-specific hypervisor parameters:")
-  _PrintGroupedParams(result["os_hvp"])
-
-  ToStdout("OS parameters:")
-  _PrintGroupedParams(result["osparams"])
-
-  ToStdout("Hidden OSes: %s", utils.CommaJoin(result["hidden_os"]))
-  ToStdout("Blacklisted OSes: %s", utils.CommaJoin(result["blacklisted_os"]))
-
-  ToStdout("Cluster parameters:")
-  ToStdout("  - candidate pool size: %s",
-            compat.TryToRoman(result["candidate_pool_size"],
-                              convert=opts.roman_integers))
-  ToStdout("  - master netdev: %s", result["master_netdev"])
-  ToStdout("  - master netmask: %s", result["master_netmask"])
-  ToStdout("  - use external master IP address setup script: %s",
-           result["use_external_mip_script"])
-  ToStdout("  - lvm volume group: %s", result["volume_group_name"])
   if result["reserved_lvs"]:
     reserved_lvs = utils.CommaJoin(result["reserved_lvs"])
   else:
     reserved_lvs = "(none)"
-  ToStdout("  - lvm reserved volumes: %s", reserved_lvs)
-  ToStdout("  - drbd usermode helper: %s", result["drbd_usermode_helper"])
-  ToStdout("  - file storage path: %s", result["file_storage_dir"])
-  ToStdout("  - shared file storage path: %s",
-           result["shared_file_storage_dir"])
-  ToStdout("  - maintenance of node health: %s",
-           result["maintain_node_health"])
-  ToStdout("  - uid pool: %s", uidpool.FormatUidPool(result["uid_pool"]))
-  ToStdout("  - default instance allocator: %s", result["default_iallocator"])
-  ToStdout("  - primary ip version: %d", result["primary_ip_version"])
-  ToStdout("  - preallocation wipe disks: %s", result["prealloc_wipe_disks"])
-  ToStdout("  - OS search path: %s", utils.CommaJoin(pathutils.OS_SEARCH_PATH))
-  ToStdout("  - ExtStorage Providers search path: %s",
-           utils.CommaJoin(pathutils.ES_SEARCH_PATH))
 
-  ToStdout("Default node parameters:")
-  _PrintGroupedParams(result["ndparams"], roman=opts.roman_integers)
+  enabled_hv = result["enabled_hypervisors"]
+  hvparams = dict((k, v) for k, v in result["hvparams"].iteritems()
+                  if k in enabled_hv)
 
-  ToStdout("Default instance parameters:")
-  _PrintGroupedParams(result["beparams"], roman=opts.roman_integers)
+  info = [
+    ("Cluster name", result["name"]),
+    ("Cluster UUID", result["uuid"]),
 
-  ToStdout("Default nic parameters:")
-  _PrintGroupedParams(result["nicparams"], roman=opts.roman_integers)
+    ("Creation time", utils.FormatTime(result["ctime"])),
+    ("Modification time", utils.FormatTime(result["mtime"])),
 
-  ToStdout("Default disk parameters:")
-  _PrintGroupedParams(result["diskparams"], roman=opts.roman_integers)
+    ("Master node", result["master"]),
 
-  ToStdout("Instance policy - limits for instances:")
-  for key in constants.IPOLICY_ISPECS:
-    ToStdout("  - %s", key)
-    _PrintGroupedParams(result["ipolicy"][key], roman=opts.roman_integers)
-  ToStdout("  - enabled disk templates: %s",
-           utils.CommaJoin(result["ipolicy"][constants.IPOLICY_DTS]))
-  for key in constants.IPOLICY_PARAMETERS:
-    ToStdout("  - %s: %s", key, result["ipolicy"][key])
+    ("Architecture (this node)",
+     "%s (%s)" % (result["architecture"][0], result["architecture"][1])),
 
+    ("Tags", tags),
+
+    ("Default hypervisor", result["default_hypervisor"]),
+    ("Enabled hypervisors", utils.CommaJoin(enabled_hv)),
+
+    ("Hypervisor parameters", _FormatGroupedParams(hvparams)),
+
+    ("OS-specific hypervisor parameters",
+     _FormatGroupedParams(result["os_hvp"])),
+
+    ("OS parameters", _FormatGroupedParams(result["osparams"])),
+
+    ("Hidden OSes", utils.CommaJoin(result["hidden_os"])),
+    ("Blacklisted OSes", utils.CommaJoin(result["blacklisted_os"])),
+
+    ("Cluster parameters", [
+      ("candidate pool size",
+       compat.TryToRoman(result["candidate_pool_size"],
+                         convert=opts.roman_integers)),
+      ("master netdev", result["master_netdev"]),
+      ("master netmask", result["master_netmask"]),
+      ("use external master IP address setup script",
+       result["use_external_mip_script"]),
+      ("lvm volume group", result["volume_group_name"]),
+      ("lvm reserved volumes", reserved_lvs),
+      ("drbd usermode helper", result["drbd_usermode_helper"]),
+      ("file storage path", result["file_storage_dir"]),
+      ("shared file storage path", result["shared_file_storage_dir"]),
+      ("maintenance of node health", result["maintain_node_health"]),
+      ("uid pool", uidpool.FormatUidPool(result["uid_pool"])),
+      ("default instance allocator", result["default_iallocator"]),
+      ("primary ip version", result["primary_ip_version"]),
+      ("preallocation wipe disks", result["prealloc_wipe_disks"]),
+      ("OS search path", utils.CommaJoin(pathutils.OS_SEARCH_PATH)),
+      ("ExtStorage Providers search path",
+       utils.CommaJoin(pathutils.ES_SEARCH_PATH)),
+      ("enabled disk templates",
+       utils.CommaJoin(result["enabled_disk_templates"])),
+      ]),
+
+    ("Default node parameters",
+     _FormatGroupedParams(result["ndparams"], roman=opts.roman_integers)),
+
+    ("Default instance parameters",
+     _FormatGroupedParams(result["beparams"], roman=opts.roman_integers)),
+
+    ("Default nic parameters",
+     _FormatGroupedParams(result["nicparams"], roman=opts.roman_integers)),
+
+    ("Default disk parameters",
+     _FormatGroupedParams(result["diskparams"], roman=opts.roman_integers)),
+
+    ("Instance policy - limits for instances",
+     FormatPolicyInfo(result["ipolicy"], None, True)),
+    ]
+
+  PrintGenericInfo(info)
   return 0
 
 
@@ -960,15 +969,14 @@ def SetClusterParams(opts, args):
           opts.use_external_mip_script is not None or
           opts.prealloc_wipe_disks is not None or
           opts.hv_state or
+          opts.enabled_disk_templates or
           opts.disk_state or
-          opts.ispecs_mem_size or
-          opts.ispecs_cpu_count or
-          opts.ispecs_disk_count or
-          opts.ispecs_disk_size or
-          opts.ispecs_nic_count or
+          opts.ipolicy_bounds_specs is not None or
+          opts.ipolicy_std_specs is not None or
           opts.ipolicy_disk_templates is not None or
           opts.ipolicy_vcpu_ratio is not None or
-          opts.ipolicy_spindle_ratio is not None):
+          opts.ipolicy_spindle_ratio is not None or
+          opts.modify_etc_hosts is not None):
     ToStderr("Please give at least one of the parameters.")
     return 1
 
@@ -992,6 +1000,10 @@ def SetClusterParams(opts, args):
   if hvlist is not None:
     hvlist = hvlist.split(",")
 
+  enabled_disk_templates = opts.enabled_disk_templates
+  if enabled_disk_templates:
+    enabled_disk_templates = enabled_disk_templates.split(",")
+
   # a list of (name, dict) we can pass directly to dict() (or [])
   hvparams = dict(opts.hvparams)
   for hv_params in hvparams.values():
@@ -1013,11 +1025,8 @@ def SetClusterParams(opts, args):
     utils.ForceDictType(ndparams, constants.NDS_PARAMETER_TYPES)
 
   ipolicy = CreateIPolicyFromOpts(
-    ispecs_mem_size=opts.ispecs_mem_size,
-    ispecs_cpu_count=opts.ispecs_cpu_count,
-    ispecs_disk_count=opts.ispecs_disk_count,
-    ispecs_disk_size=opts.ispecs_disk_size,
-    ispecs_nic_count=opts.ispecs_nic_count,
+    minmax_ispecs=opts.ipolicy_bounds_specs,
+    std_ispecs=opts.ipolicy_std_specs,
     ipolicy_disk_templates=opts.ipolicy_disk_templates,
     ipolicy_vcpu_ratio=opts.ipolicy_vcpu_ratio,
     ipolicy_spindle_ratio=opts.ipolicy_spindle_ratio,
@@ -1059,30 +1068,34 @@ def SetClusterParams(opts, args):
 
   hv_state = dict(opts.hv_state)
 
-  op = opcodes.OpClusterSetParams(vg_name=vg_name,
-                                  drbd_helper=drbd_helper,
-                                  enabled_hypervisors=hvlist,
-                                  hvparams=hvparams,
-                                  os_hvp=None,
-                                  beparams=beparams,
-                                  nicparams=nicparams,
-                                  ndparams=ndparams,
-                                  diskparams=diskparams,
-                                  ipolicy=ipolicy,
-                                  candidate_pool_size=opts.candidate_pool_size,
-                                  maintain_node_health=mnh,
-                                  uid_pool=uid_pool,
-                                  add_uids=add_uids,
-                                  remove_uids=remove_uids,
-                                  default_iallocator=opts.default_iallocator,
-                                  prealloc_wipe_disks=opts.prealloc_wipe_disks,
-                                  master_netdev=opts.master_netdev,
-                                  master_netmask=opts.master_netmask,
-                                  reserved_lvs=opts.reserved_lvs,
-                                  use_external_mip_script=ext_ip_script,
-                                  hv_state=hv_state,
-                                  disk_state=disk_state,
-                                  )
+  op = opcodes.OpClusterSetParams(
+    vg_name=vg_name,
+    drbd_helper=drbd_helper,
+    enabled_hypervisors=hvlist,
+    hvparams=hvparams,
+    os_hvp=None,
+    beparams=beparams,
+    nicparams=nicparams,
+    ndparams=ndparams,
+    diskparams=diskparams,
+    ipolicy=ipolicy,
+    candidate_pool_size=opts.candidate_pool_size,
+    maintain_node_health=mnh,
+    modify_etc_hosts=opts.modify_etc_hosts,
+    uid_pool=uid_pool,
+    add_uids=add_uids,
+    remove_uids=remove_uids,
+    default_iallocator=opts.default_iallocator,
+    prealloc_wipe_disks=opts.prealloc_wipe_disks,
+    master_netdev=opts.master_netdev,
+    master_netmask=opts.master_netmask,
+    reserved_lvs=opts.reserved_lvs,
+    use_external_mip_script=ext_ip_script,
+    hv_state=hv_state,
+    disk_state=disk_state,
+    enabled_disk_templates=enabled_disk_templates,
+    force=opts.force,
+    )
   SubmitOrSend(op, opts)
   return 0
 
@@ -1476,6 +1489,26 @@ def Epo(opts, args, cl=None, _on_fn=_EpoOn, _off_fn=_EpoOff,
     return _off_fn(opts, node_list, inst_map)
 
 
+def _GetCreateCommand(info):
+  buf = StringIO()
+  buf.write("gnt-cluster init")
+  PrintIPolicyCommand(buf, info["ipolicy"], False)
+  buf.write(" ")
+  buf.write(info["name"])
+  return buf.getvalue()
+
+
+def ShowCreateCommand(opts, args):
+  """Shows the command that can be used to re-create the cluster.
+
+  Currently it works only for ipolicy specs.
+
+  """
+  cl = GetClient(query=True)
+  result = cl.QueryClusterInfo()
+  ToStdout(_GetCreateCommand(result))
+
+
 commands = {
   "init": (
     InitCluster, [ArgHost(min=1, max=1)],
@@ -1486,7 +1519,8 @@ commands = {
      MAINTAIN_NODE_HEALTH_OPT, UIDPOOL_OPT, DRBD_HELPER_OPT, NODRBD_STORAGE_OPT,
      DEFAULT_IALLOCATOR_OPT, PRIMARY_IP_VERSION_OPT, PREALLOC_WIPE_DISKS_OPT,
      NODE_PARAMS_OPT, GLOBAL_SHARED_FILEDIR_OPT, USE_EXTERNAL_MIP_SCRIPT,
-     DISK_PARAMS_OPT, HV_STATE_OPT, DISK_STATE_OPT] + INSTANCE_POLICY_OPTS,
+     DISK_PARAMS_OPT, HV_STATE_OPT, DISK_STATE_OPT, ENABLED_DISK_TEMPLATES_OPT,
+     IPOLICY_STD_SPECS_OPT] + INSTANCE_POLICY_OPTS + SPLIT_ISPECS_OPTS,
     "[opts...] <cluster_name>", "Initialises a new cluster configuration"),
   "destroy": (
     DestroyCluster, ARGS_NONE, [YES_DOIT_OPT],
@@ -1558,14 +1592,15 @@ commands = {
     "{pause <timespec>|continue|info}", "Change watcher properties"),
   "modify": (
     SetClusterParams, ARGS_NONE,
-    [BACKEND_OPT, CP_SIZE_OPT, ENABLED_HV_OPT, HVLIST_OPT, MASTER_NETDEV_OPT,
+    [FORCE_OPT,
+     BACKEND_OPT, CP_SIZE_OPT, ENABLED_HV_OPT, HVLIST_OPT, MASTER_NETDEV_OPT,
      MASTER_NETMASK_OPT, NIC_PARAMS_OPT, NOLVM_STORAGE_OPT, VG_NAME_OPT,
      MAINTAIN_NODE_HEALTH_OPT, UIDPOOL_OPT, ADD_UIDS_OPT, REMOVE_UIDS_OPT,
      DRBD_HELPER_OPT, NODRBD_STORAGE_OPT, DEFAULT_IALLOCATOR_OPT,
      RESERVED_LVS_OPT, DRY_RUN_OPT, PRIORITY_OPT, PREALLOC_WIPE_DISKS_OPT,
      NODE_PARAMS_OPT, USE_EXTERNAL_MIP_SCRIPT, DISK_PARAMS_OPT, HV_STATE_OPT,
-     DISK_STATE_OPT, SUBMIT_OPT] +
-    INSTANCE_POLICY_OPTS,
+     DISK_STATE_OPT, SUBMIT_OPT, ENABLED_DISK_TEMPLATES_OPT,
+     IPOLICY_STD_SPECS_OPT, MODIFY_ETCHOSTS_OPT] + INSTANCE_POLICY_OPTS,
     "[opts...]",
     "Alters the parameters of the cluster"),
   "renew-crypto": (
@@ -1587,6 +1622,9 @@ commands = {
   "deactivate-master-ip": (
     DeactivateMasterIp, ARGS_NONE, [CONFIRM_OPT], "",
     "Deactivates the master IP"),
+  "show-ispecs-cmd": (
+    ShowCreateCommand, ARGS_NONE, [], "",
+    "Show the command line to re-create the cluster"),
   }
 
 

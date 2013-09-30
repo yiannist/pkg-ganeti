@@ -44,6 +44,7 @@ module Ganeti.Config
     , getGroupOfNode
     , getInstPrimaryNode
     , getInstMinorsForNode
+    , getNetwork
     , buildLinkIpInstnameMap
     , instNodes
     ) where
@@ -209,6 +210,18 @@ getGroupInstances cfg gname =
   let gnodes = map nodeName (getGroupNodes cfg gname)
       ginsts = map (getNodeInstances cfg) gnodes in
   (concatMap fst ginsts, concatMap snd ginsts)
+
+-- | Looks up a network. If looking up by uuid fails, we look up
+-- by name.
+getNetwork :: ConfigData -> String -> ErrorResult Network
+getNetwork cfg name =
+  let networks = fromContainer (configNetworks cfg)
+  in case getItem "Network" name networks of
+       Ok net -> Ok net
+       Bad _ -> let by_name = M.mapKeys
+                              (fromNonEmpty . networkName . (M.!) networks)
+                              networks
+                in getItem "Network" name by_name
 
 -- | Looks up an instance's primary node.
 getInstPrimaryNode :: ConfigData -> String -> ErrorResult Node

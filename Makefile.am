@@ -40,6 +40,7 @@ SHELL_ENV_INIT = autotools/shell-env-init
 # Note: these are automake-specific variables, and must be named after
 # the directory + 'dir' suffix
 clientdir = $(pkgpythondir)/client
+cmdlibdir = $(pkgpythondir)/cmdlib
 hypervisordir = $(pkgpythondir)/hypervisor
 httpdir = $(pkgpythondir)/http
 masterddir = $(pkgpythondir)/masterd
@@ -64,10 +65,14 @@ HS_DIRS = \
 	src/Ganeti/Block \
 	src/Ganeti/Block/Drbd \
 	src/Ganeti/Confd \
+	src/Ganeti/Curl \
 	src/Ganeti/DataCollectors \
 	src/Ganeti/HTools \
 	src/Ganeti/HTools/Backend \
 	src/Ganeti/HTools/Program \
+	src/Ganeti/Hypervisor \
+	src/Ganeti/Hypervisor/Xen \
+	src/Ganeti/Monitoring \
 	src/Ganeti/Query \
 	test/hs \
 	test/hs/Test \
@@ -77,6 +82,8 @@ HS_DIRS = \
 	test/hs/Test/Ganeti/Confd \
 	test/hs/Test/Ganeti/HTools \
 	test/hs/Test/Ganeti/HTools/Backend \
+	test/hs/Test/Ganeti/Hypervisor \
+	test/hs/Test/Ganeti/Hypervisor/Xen \
 	test/hs/Test/Ganeti/Query
 
 # Haskell directories without the roots (src, test/hs)
@@ -87,17 +94,21 @@ DIRS = \
 	autotools \
 	daemons \
 	devel \
+	devel/data \
 	doc \
 	doc/css \
 	doc/examples \
 	doc/examples/gnt-debug \
 	doc/examples/hooks \
+	doc/users \
 	test/data/htools \
 	test/data/htools/rapi \
 	test/hs/shelltests \
+	test/autotools \
 	lib \
 	lib/build \
 	lib/client \
+	lib/cmdlib \
 	lib/confd \
 	lib/http \
 	lib/hypervisor \
@@ -172,11 +183,14 @@ CLEANFILES = \
 	$(SHELL_ENV_INIT) \
 	daemons/daemon-util \
 	daemons/ganeti-cleaner \
+	devel/squeeze-amd64.tar.gz \
+	devel/squeeze-amd64.conf \
 	$(mandocrst) \
 	doc/manpages-enabled.rst \
 	$(BUILT_EXAMPLES) \
 	doc/examples/bash_completion \
 	doc/examples/bash_completion-debug \
+	$(userspecs) \
 	lib/_generated_rpc.py \
 	$(man_MANS) \
 	$(manhtml) \
@@ -189,6 +203,8 @@ CLEANFILES = \
 	$(HS_ALL_PROGS) $(HS_BUILT_SRCS) \
 	$(HS_BUILT_TEST_HELPERS) \
 	src/ganeti-confd \
+	src/ganeti-luxid \
+	src/ganeti-mond \
 	.hpc/*.mix src/*.tix test/hs/*.tix \
 	doc/hs-lint.html
 
@@ -201,7 +217,11 @@ HS_GENERATED_FILES =
 if WANT_HTOOLS
 HS_GENERATED_FILES += $(HS_PROGS)
 if ENABLE_CONFD
-HS_GENERATED_FILES += src/hconfd src/ganeti-confd
+HS_GENERATED_FILES += src/hconfd src/ganeti-confd src/hluxid src/ganeti-luxid
+endif
+
+if ENABLE_MOND
+HS_GENERATED_FILES += src/ganeti-mond
 endif
 endif
 
@@ -247,7 +267,6 @@ pkgpython_PYTHON = \
 	lib/bdev.py \
 	lib/bootstrap.py \
 	lib/cli.py \
-	lib/cmdlib.py \
 	lib/compat.py \
 	lib/config.py \
 	lib/constants.py \
@@ -292,6 +311,27 @@ client_PYTHON = \
 	lib/client/gnt_network.py \
 	lib/client/gnt_os.py \
 	lib/client/gnt_storage.py
+
+cmdlib_PYTHON = \
+	lib/cmdlib/__init__.py \
+	lib/cmdlib/backup.py \
+	lib/cmdlib/base.py \
+	lib/cmdlib/cluster.py \
+	lib/cmdlib/common.py \
+	lib/cmdlib/group.py \
+	lib/cmdlib/instance.py \
+	lib/cmdlib/instance_migration.py \
+	lib/cmdlib/instance_operation.py \
+	lib/cmdlib/instance_query.py \
+	lib/cmdlib/instance_storage.py \
+	lib/cmdlib/instance_utils.py \
+	lib/cmdlib/misc.py \
+	lib/cmdlib/network.py \
+	lib/cmdlib/node.py \
+	lib/cmdlib/operating_system.py \
+	lib/cmdlib/query.py \
+	lib/cmdlib/tags.py \
+	lib/cmdlib/test.py
 
 hypervisor_PYTHON = \
 	lib/hypervisor/__init__.py \
@@ -377,11 +417,14 @@ docinput = \
 	doc/design-2.5.rst \
 	doc/design-2.6.rst \
 	doc/design-2.7.rst \
+	doc/design-2.8.rst \
 	doc/design-autorepair.rst \
 	doc/design-bulk-create.rst \
 	doc/design-chained-jobs.rst \
 	doc/design-cpu-pinning.rst \
+	doc/design-device-uuid-name.rst \
 	doc/design-draft.rst \
+	doc/design-daemons.rst \
 	doc/design-htools-2.3.rst \
 	doc/design-http-server.rst \
 	doc/design-impexp2.rst \
@@ -396,12 +439,15 @@ docinput = \
 	doc/design-partitioned.rst \
 	doc/design-query-splitting.rst \
 	doc/design-query2.rst \
+	doc/design-reason-trail.rst \
 	doc/design-resource-model.rst \
 	doc/design-restricted-commands.rst \
 	doc/design-shared-storage.rst \
 	doc/design-monitoring-agent.rst \
 	doc/design-virtual-clusters.rst \
 	doc/design-x509-ca.rst \
+	doc/design-hroller.rst \
+	doc/design-storagetypes.rst \
 	doc/devnotes.rst \
 	doc/glossary.rst \
 	doc/hooks.rst \
@@ -411,6 +457,7 @@ docinput = \
 	doc/install.rst \
 	doc/locking.rst \
 	doc/manpages-disabled.rst \
+	doc/monitoring-query-format.rst \
 	doc/move-instance.rst \
 	doc/news.rst \
 	doc/ovfconverter.rst \
@@ -427,22 +474,23 @@ mandocrst = $(addprefix doc/man-,$(notdir $(manrst)))
 HS_BIN_PROGS=src/htools
 
 # Haskell programs to be installed in the MYEXECLIB dir
-if ENABLE_MONITORING
+if ENABLE_MOND
 HS_MYEXECLIB_PROGS=src/mon-collector
 else
 HS_MYEXECLIB_PROGS=
 endif
 
-# Haskell programs to compiled but not installed automatically
-# Usually they have their own specific installation rules
+# Haskell programs to be compiled by "make really-all"
 HS_COMPILE_PROGS= \
+	src/ganeti-mond \
 	src/hconfd \
+	src/hluxid \
 	src/rpc-test
 
 # All Haskell non-test programs to be compiled but not automatically installed
 HS_PROGS = $(HS_BIN_PROGS) $(HS_MYEXECLIB_PROGS)
 
-HS_BIN_ROLES = hbal hscan hspace hinfo hcheck hroller
+HS_BIN_ROLES = harep hbal hscan hspace hinfo hcheck hroller
 HS_HTOOLS_PROGS = $(HS_BIN_ROLES) hail
 
 HS_ALL_PROGS = \
@@ -489,6 +537,8 @@ HS_LIB_SRCS = \
 	src/Ganeti/Confd/Types.hs \
 	src/Ganeti/Confd/Utils.hs \
 	src/Ganeti/Config.hs \
+	src/Ganeti/ConfigReader.hs \
+	src/Ganeti/Curl/Multi.hs \
 	src/Ganeti/Daemon.hs \
 	src/Ganeti/DataCollectors/CLI.hs \
 	src/Ganeti/DataCollectors/Drbd.hs \
@@ -508,9 +558,11 @@ HS_LIB_SRCS = \
 	src/Ganeti/HTools/Group.hs \
 	src/Ganeti/HTools/Instance.hs \
 	src/Ganeti/HTools/Loader.hs \
+	src/Ganeti/HTools/Nic.hs \
 	src/Ganeti/HTools/Node.hs \
 	src/Ganeti/HTools/PeerMap.hs \
 	src/Ganeti/HTools/Program/Hail.hs \
+	src/Ganeti/HTools/Program/Harep.hs \
 	src/Ganeti/HTools/Program/Hbal.hs \
 	src/Ganeti/HTools/Program/Hcheck.hs \
 	src/Ganeti/HTools/Program/Hinfo.hs \
@@ -519,22 +571,27 @@ HS_LIB_SRCS = \
 	src/Ganeti/HTools/Program/Hroller.hs \
 	src/Ganeti/HTools/Program/Main.hs \
 	src/Ganeti/HTools/Types.hs \
+	src/Ganeti/Hypervisor/Xen/XmParser.hs \
+	src/Ganeti/Hypervisor/Xen/Types.hs \
 	src/Ganeti/Hash.hs \
 	src/Ganeti/JQueue.hs \
 	src/Ganeti/JSON.hs \
 	src/Ganeti/Jobs.hs \
 	src/Ganeti/Logging.hs \
 	src/Ganeti/Luxi.hs \
+	src/Ganeti/Monitoring/Server.hs \
 	src/Ganeti/Network.hs \
 	src/Ganeti/Objects.hs \
 	src/Ganeti/OpCodes.hs \
 	src/Ganeti/OpParams.hs \
 	src/Ganeti/Path.hs \
 	src/Ganeti/Query/Common.hs \
+	src/Ganeti/Query/Export.hs \
 	src/Ganeti/Query/Filter.hs \
 	src/Ganeti/Query/Group.hs \
 	src/Ganeti/Query/Job.hs \
 	src/Ganeti/Query/Language.hs \
+	src/Ganeti/Query/Network.hs \
 	src/Ganeti/Query/Node.hs \
 	src/Ganeti/Query/Query.hs \
 	src/Ganeti/Query/Server.hs \
@@ -567,6 +624,7 @@ HS_TEST_SRCS = \
 	test/hs/Test/Ganeti/HTools/Node.hs \
 	test/hs/Test/Ganeti/HTools/PeerMap.hs \
 	test/hs/Test/Ganeti/HTools/Types.hs \
+	test/hs/Test/Ganeti/Hypervisor/Xen/XmParser.hs \
 	test/hs/Test/Ganeti/JSON.hs \
 	test/hs/Test/Ganeti/Jobs.hs \
 	test/hs/Test/Ganeti/JQueue.hs \
@@ -576,6 +634,7 @@ HS_TEST_SRCS = \
 	test/hs/Test/Ganeti/OpCodes.hs \
 	test/hs/Test/Ganeti/Query/Filter.hs \
 	test/hs/Test/Ganeti/Query/Language.hs \
+	test/hs/Test/Ganeti/Query/Network.hs \
 	test/hs/Test/Ganeti/Query/Query.hs \
 	test/hs/Test/Ganeti/Rpc.hs \
 	test/hs/Test/Ganeti/Runtime.hs \
@@ -592,8 +651,11 @@ HS_LIBTEST_SRCS = $(HS_LIB_SRCS) $(HS_TEST_SRCS)
 HS_BUILT_SRCS = \
 	test/hs/Test/Ganeti/TestImports.hs \
 	src/Ganeti/Constants.hs \
+	src/Ganeti/Curl/Internal.hs \
 	src/Ganeti/Version.hs
-HS_BUILT_SRCS_IN = $(patsubst %,%.in,$(HS_BUILT_SRCS))
+HS_BUILT_SRCS_IN = \
+	$(patsubst %,%.in,$(filter-out src/Ganeti/Curl/Internal.hs,$(HS_BUILT_SRCS))) \
+	src/Ganeti/Curl/Internal.hsc
 
 HS_LIBTESTBUILT_SRCS = $(HS_LIBTEST_SRCS) $(HS_BUILT_SRCS)
 
@@ -611,7 +673,7 @@ doc/man-html/index.html: doc/manpages-enabled.rst $(mandocrst)
 doc/html/index.html doc/man-html/index.html: $(docinput) doc/conf.py \
 	configure.ac $(RUN_IN_TEMPDIR) lib/build/sphinx_ext.py \
 	lib/build/shell_example_lexer.py lib/opcodes.py lib/ht.py \
-	doc/css/style.css \
+	doc/css/style.css lib/rapi/connector.py lib/rapi/rlib2.py \
 	| $(BUILT_PYTHON_SOURCES)
 	@test -n "$(SPHINX)" || \
 	    { echo 'sphinx-build' not found during configure; exit 1; }
@@ -684,17 +746,29 @@ else
 	exit 1;
 endif
 
+doc/users/%: doc/users/%.in Makefile $(REPLACE_VARS_SED)
+	cat $< | sed -f $(REPLACE_VARS_SED) | LC_ALL=C sort | uniq | (grep -v '^root' || true) > $@
+
+userspecs = \
+	doc/users/users \
+	doc/users/groups \
+	doc/users/groupmemberships
+
 # Things to build but not to install (add it to EXTRA_DIST if it should be
 # distributed)
 noinst_DATA = \
-	doc/html \
 	$(BUILT_EXAMPLES) \
 	doc/examples/bash_completion \
 	doc/examples/bash_completion-debug \
+	$(userspecs) \
 	$(manhtml)
 
+if HAS_SPHINX
 if MANPAGES_IN_DOC
 noinst_DATA += doc/man-html
+else
+noinst_DATA += doc/html
+endif
 endif
 
 gnt_scripts = \
@@ -763,7 +837,7 @@ $(HS_ALL_PROGS): %: %.hs $(HS_LIBTESTBUILT_SRCS) Makefile
 	@rm -f $(notdir $@).tix
 	$(GHC) --make \
 	  $(HFLAGS) \
-	  $(HS_NOCURL) $(HS_PARALLEL3) $(HS_REGEX_PCRE) \
+	  $(HS_PARALLEL3) $(HS_REGEX_PCRE) \
 	  -osuf $(notdir $@).o -hisuf $(notdir $@).hi \
 	  $(HEXTRA) $(HEXTRA_INT) $@
 	@touch "$@"
@@ -778,7 +852,7 @@ test/hs/hpc-htools: HEXTRA_INT=-fhpc
 test/hs/hpc-mon-collector: HEXTRA_INT=-fhpc
 
 # test dependency
-test/hs/offline-tests.sh: test/hs/hpc-htools test/hs/hpc-mon-collector
+test/hs/offline-test.sh: test/hs/hpc-htools test/hs/hpc-mon-collector
 
 # rules for building profiling-enabled versions of the haskell
 # programs: hs-prof does the full two-step build, whereas
@@ -813,7 +887,15 @@ if ENABLE_CONFD
 src/ganeti-confd: src/hconfd
 	cp -f $< $@
 
+src/ganeti-luxid: src/hluxid
+	cp -f $< $@
+
 nodist_sbin_SCRIPTS += src/ganeti-confd
+nodist_sbin_SCRIPTS += src/ganeti-luxid
+endif
+
+if ENABLE_MOND
+nodist_sbin_SCRIPTS += src/ganeti-mond
 endif
 
 python_scripts = \
@@ -890,7 +972,6 @@ EXTRA_DIST = \
 	devel/upload \
 	devel/webserver \
 	tools/kvm-ifup.in \
-	tools/users-setup.in \
 	tools/vcluster-setup.in \
 	$(docinput) \
 	doc/html \
@@ -901,6 +982,9 @@ EXTRA_DIST = \
 	doc/examples/gnt-debug/README \
 	doc/examples/gnt-debug/delay0.json \
 	doc/examples/gnt-debug/delay50.json \
+	doc/users/groupmemberships.in \
+	doc/users/groups.in \
+	doc/users/users.in \
 	test/py/lockperf.py \
 	test/py/testutils.py \
 	test/py/mocks.py \
@@ -921,8 +1005,10 @@ EXTRA_DIST = \
 man_MANS = \
 	man/ganeti-cleaner.8 \
 	man/ganeti-confd.8 \
+	man/ganeti-luxid.8 \
 	man/ganeti-listrunner.8 \
 	man/ganeti-masterd.8 \
+	man/ganeti-mond.8 \
 	man/ganeti-noded.8 \
 	man/ganeti-os-interface.7 \
 	man/ganeti-extstorage-interface.7 \
@@ -940,6 +1026,7 @@ man_MANS = \
 	man/gnt-os.8 \
 	man/gnt-storage.8 \
 	man/hail.1 \
+	man/harep.1 \
 	man/hbal.1 \
 	man/hcheck.1 \
 	man/hinfo.1 \
@@ -961,11 +1048,14 @@ maninput = \
 	$(mangen)
 
 TEST_FILES = \
+	test/autotools/autotools-check-news.test \
 	test/data/htools/clean-nonzero-score.data \
 	test/data/htools/common-suffix.data \
 	test/data/htools/empty-cluster.data \
 	test/data/htools/hail-alloc-drbd.json \
+	test/data/htools/hail-alloc-invalid-network.json \
 	test/data/htools/hail-alloc-invalid-twodisks.json \
+	test/data/htools/hail-alloc-restricted-network.json \
 	test/data/htools/hail-alloc-twodisks.json \
 	test/data/htools/hail-change-group.json \
 	test/data/htools/hail-invalid-reloc.json \
@@ -973,19 +1063,25 @@ TEST_FILES = \
 	test/data/htools/hail-reloc-drbd.json \
 	test/data/htools/hbal-excl-tags.data \
 	test/data/htools/hbal-split-insts.data \
+	test/data/htools/hspace-tiered-dualspec.data \
 	test/data/htools/hspace-tiered-ipolicy.data \
+	test/data/htools/hspace-tiered-resourcetypes.data \
+	test/data/htools/hspace-tiered.data \
 	test/data/htools/invalid-node.data \
 	test/data/htools/missing-resources.data \
+	test/data/htools/multiple-master.data \
 	test/data/htools/n1-failure.data \
 	test/data/htools/rapi/groups.json \
 	test/data/htools/rapi/info.json \
 	test/data/htools/rapi/instances.json \
 	test/data/htools/rapi/nodes.json \
+	test/data/htools/unique-reboot-order.data \
 	test/hs/shelltests/htools-balancing.test \
 	test/hs/shelltests/htools-basic.test \
 	test/hs/shelltests/htools-dynutil.test \
 	test/hs/shelltests/htools-excl.test \
 	test/hs/shelltests/htools-hail.test \
+	test/hs/shelltests/htools-hroller.test \
 	test/hs/shelltests/htools-hspace.test \
 	test/hs/shelltests/htools-invalid.test \
 	test/hs/shelltests/htools-multi-group.test \
@@ -1013,6 +1109,8 @@ TEST_FILES = \
 	test/data/bdev-rbd/output_invalid.txt \
 	test/data/cert1.pem \
 	test/data/cert2.pem \
+	test/data/cluster_config_2.7.json \
+	test/data/cluster_config_downgraded_2.7.json \
 	test/data/instance-minor-pairing.txt \
 	test/data/ip-addr-show-dummy0.txt \
 	test/data/ip-addr-show-lo-ipv4.txt \
@@ -1027,6 +1125,8 @@ TEST_FILES = \
 	test/data/kvm_0.9.1_help_boot_test.txt \
 	test/data/kvm_1.0_help.txt \
 	test/data/kvm_1.1.2_help.txt \
+	test/data/NEWS_OK.txt \
+	test/data/NEWS_previous_unreleased.txt \
 	test/data/ovfdata/compr_disk.vmdk.gz \
 	test/data/ovfdata/config.ini \
 	test/data/ovfdata/corrupted_resources.ovf \
@@ -1058,15 +1158,24 @@ TEST_FILES = \
 	test/data/proc_drbd83_sync.txt \
 	test/data/proc_drbd83_sync_want.txt \
 	test/data/proc_drbd83_sync_krnl2.6.39.txt \
+	test/data/proc_meminfo.txt \
+	test/data/proc_cpuinfo.txt \
+	test/data/qa-minimal-nodes-instances-only.json \
 	test/data/sys_drbd_usermode_helper.txt \
 	test/data/vgreduce-removemissing-2.02.02.txt \
 	test/data/vgreduce-removemissing-2.02.66-fail.txt \
 	test/data/vgreduce-removemissing-2.02.66-ok.txt \
 	test/data/vgs-missing-pvs-2.02.02.txt \
 	test/data/vgs-missing-pvs-2.02.66.txt \
+	test/data/xen-xm-info-4.0.1.txt \
+	test/data/xen-xm-list-4.0.1-dom0-only.txt \
+	test/data/xen-xm-list-4.0.1-four-instances.txt \
+	test/data/xen-xm-list-long-4.0.1.txt \
+	test/data/xen-xm-uptime-4.0.1.txt \
 	test/py/ganeti-cli.test \
 	test/py/gnt-cli.test \
 	test/py/import-export_unittest-helper
+
 
 python_tests = \
 	doc/examples/rapi_testutils.py \
@@ -1157,8 +1266,11 @@ dist_TESTS = \
 	test/py/ganeti-cleaner_unittest.bash \
 	test/py/import-export_unittest.bash \
 	test/py/cli-test.bash \
-	test/py/bash_completion.bash \
-	$(python_tests)
+	test/py/bash_completion.bash
+
+if PY_UNIT
+dist_TESTS += $(python_tests)
+endif
 
 nodist_TESTS =
 check_SCRIPTS =
@@ -1191,9 +1303,9 @@ all_python_code = \
 	$(pkglib_python_scripts) \
 	$(nodist_pkglib_python_scripts) \
 	$(nodist_tools_python_scripts) \
-	$(python_tests) \
 	$(pkgpython_PYTHON) \
 	$(client_PYTHON) \
+	$(cmdlib_PYTHON) \
 	$(hypervisor_PYTHON) \
 	$(rapi_PYTHON) \
 	$(server_PYTHON) \
@@ -1206,6 +1318,10 @@ all_python_code = \
 	$(watcher_PYTHON) \
 	$(noinst_PYTHON) \
 	$(qa_scripts)
+
+if PY_UNIT
+all_python_code += $(python_tests)
+endif
 
 srclink_files = \
 	man/footer.rst \
@@ -1266,8 +1382,26 @@ tools/kvm-ifup: tools/kvm-ifup.in $(REPLACE_VARS_SED)
 	sed -f $(REPLACE_VARS_SED) < $< > $@
 	chmod +x $@
 
-tools/users-setup: tools/users-setup.in $(REPLACE_VARS_SED)
-	sed -f $(REPLACE_VARS_SED) < $< > $@
+tools/users-setup: Makefile $(userspecs)
+	set -e; \
+	{ echo '#!/bin/sh'; \
+	  echo 'if [ "x$$1" != "x--yes-do-it" ];'; \
+	  echo 'then echo "This will do the following changes"'; \
+	  $(AWK) -- '{print "echo + Will add group ",$$1; count++}\
+	             END {if (count == 0) {print "echo + No groups to add"}}' doc/users/groups; \
+	  $(AWK) -- '{if (NF > 1) {print "echo + Will add user",$$1,"with primary group",$$2} \
+	                          else {print "echo + Will add user",$$1}; count++}\
+	             END {if (count == 0) {print "echo + No users to add"}}' doc/users/users; \
+	  $(AWK) -- '{print "echo + Will add user",$$1,"to group",$$2}' doc/users/groupmemberships; \
+	  echo 'echo'; \
+	  echo 'echo "OK? (y/n)"'; \
+	  echo 'read confirm'; \
+	  echo 'if [ "x$$confirm" != "xy" ]; then exit 0; fi'; \
+	  echo 'fi'; \
+	  $(AWK) -- '{print "addgroup --system",$$1}' doc/users/groups; \
+	  $(AWK) -- '{if (NF > 1) {print "adduser --system --ingroup",$$2,$$1} else {print "adduser --system",$$1}}' doc/users/users; \
+	  $(AWK) -- '{print "adduser",$$1,$$2}' doc/users/groupmemberships; \
+	} > $@
 	chmod +x $@
 
 tools/vcluster-setup: tools/vcluster-setup.in $(REPLACE_VARS_SED)
@@ -1369,6 +1503,9 @@ src/Ganeti/Constants.hs: src/Ganeti/Constants.hs.in \
 	  PYTHONPATH=. $(RUN_IN_TEMPDIR) $(CURDIR)/$(CONVERT_CONSTANTS); \
 	} > $@
 
+src/Ganeti/Curl/Internal.hs: src/Ganeti/Curl/Internal.hsc | stamp-directories
+	hsc2hs -o $@ $<
+
 test/hs/Test/Ganeti/TestImports.hs: test/hs/Test/Ganeti/TestImports.hs.in \
 	$(built_base_sources)
 	set -e; \
@@ -1441,8 +1578,12 @@ lib/_autoconf.py: Makefile | stamp-directories
 	  echo "RAPI_GROUP = '$(RAPI_GROUP)'"; \
 	  echo "CONFD_USER = '$(CONFD_USER)'"; \
 	  echo "CONFD_GROUP = '$(CONFD_GROUP)'"; \
+	  echo "LUXID_USER = '$(LUXID_USER)'"; \
+	  echo "LUXID_GROUP = '$(LUXID_GROUP)'"; \
 	  echo "NODED_USER = '$(NODED_USER)'"; \
 	  echo "NODED_GROUP = '$(NODED_GROUP)'"; \
+	  echo "MOND_USER = '$(MOND_USER)'"; \
+	  echo "MOND_GROUP = '$(MOND_GROUP)'"; \
 	  echo "DISK_SEPARATOR = '$(DISK_SEPARATOR)'"; \
 	  echo "QEMUIMG_PATH = '$(QEMUIMG_PATH)'"; \
 	  echo "HTOOLS = True"; \
@@ -1450,7 +1591,7 @@ lib/_autoconf.py: Makefile | stamp-directories
 	  echo "XEN_CMD = '$(XEN_CMD)'"; \
 	  echo "ENABLE_SPLIT_QUERY = $(ENABLE_SPLIT_QUERY)"; \
 	  echo "ENABLE_RESTRICTED_COMMANDS = $(ENABLE_RESTRICTED_COMMANDS)"; \
-	  echo "ENABLE_MONITORING = $(ENABLE_MONITORING)"; \
+	  echo "ENABLE_MOND = $(ENABLE_MOND)"; \
 ## Write dictionary with man page name as the key and the section number as the
 ## value
 	  echo "MAN_PAGES = {"; \
@@ -1520,13 +1661,18 @@ $(REPLACE_VARS_SED): $(SHELL_ENV_INIT) Makefile stamp-directories
 	  echo 's#@''GNTMASTERUSER@#$(MASTERD_USER)#g'; \
 	  echo 's#@''GNTRAPIUSER@#$(RAPI_USER)#g'; \
 	  echo 's#@''GNTCONFDUSER@#$(CONFD_USER)#g'; \
+	  echo 's#@''GNTLUXIDUSER@#$(LUXID_USER)#g'; \
 	  echo 's#@''GNTNODEDUSER@#$(NODED_USER)#g'; \
+	  echo 's#@''GNTMONDUSER@#$(MOND_USER)#g'; \
 	  echo 's#@''GNTRAPIGROUP@#$(RAPI_GROUP)#g'; \
 	  echo 's#@''GNTADMINGROUP@#$(ADMIN_GROUP)#g'; \
 	  echo 's#@''GNTCONFDGROUP@#$(CONFD_GROUP)#g'; \
+	  echo 's#@''GNTLUXIDGROUP@#$(LUXID_GROUP)#g'; \
 	  echo 's#@''GNTMASTERDGROUP@#$(MASTERD_GROUP)#g'; \
+	  echo 's#@''GNTMONDGROUP@#$(MOND_GROUP)#g'; \
 	  echo 's#@''GNTDAEMONSGROUP@#$(DAEMONS_GROUP)#g'; \
 	  echo 's#@''CUSTOM_ENABLE_CONFD@#$(ENABLE_CONFD)#g'; \
+	  echo 's#@''CUSTOM_ENABLE_MOND@#$(ENABLE_MOND)#g'; \
 	  echo 's#@''MODULES@#$(strip $(lint_python_code))#g'; \
 	  echo 's#@''XEN_CONFIG_DIR@#$(XEN_CONFIG_DIR)#g'; \
 	  echo; \
@@ -1632,28 +1778,30 @@ check-local: check-dirs $(GENERATED_FILES)
 	$(CHECK_VERSION) $(VERSION) $(top_srcdir)/NEWS
 	RELEASE=$(PACKAGE_VERSION) $(CHECK_NEWS) < $(top_srcdir)/NEWS
 	PYTHONPATH=. $(RUN_IN_TEMPDIR) $(CURDIR)/$(CHECK_IMPORTS) . $(standalone_python_modules)
-	@expver=$(VERSION_MAJOR).$(VERSION_MINOR); \
 	error= ; \
-	if test "`head -n 1 $(top_srcdir)/README`" != "Ganeti $$expver"; then \
-	  echo "Incorrect version in README, expected $$expver" >&2; \
-	  error=1; \
-	fi; \
-	for file in doc/iallocator.rst doc/hooks.rst doc/virtual-cluster.rst \
-	    doc/security.rst; do \
-	  if test "`sed -ne '4 p' $(top_srcdir)/$$file`" != \
-	    "Documents Ganeti version $$expver"; then \
-	    echo "Incorrect version in $$file, expected $$expver" >&2; \
+	if [ "x`echo $(VERSION_SUFFIX)|grep 'alpha'`" == "x" ]; then \
+	  expver=$(VERSION_MAJOR).$(VERSION_MINOR); \
+	  if test "`head -n 1 $(top_srcdir)/README`" != "Ganeti $$expver"; then \
+	    echo "Incorrect version in README, expected $$expver" >&2; \
 	    error=1; \
 	  fi; \
-	done; \
-	if ! test -f $(top_srcdir)/doc/design-$$expver.rst; then \
-	  echo "File $(top_srcdir)/doc/design-$$expver.rst not found" >&2; \
-	  error=1; \
-	fi; \
-	if test "`sed -ne '5 p' $(top_srcdir)/doc/design-draft.rst`" != \
-	  ".. Last updated for Ganeti $$expver"; then \
-	  echo "doc/design-draft.rst was not updated for version $$expver" >&2; \
-	  error=1; \
+	  for file in doc/iallocator.rst doc/hooks.rst doc/virtual-cluster.rst \
+	      doc/security.rst; do \
+	    if test "`sed -ne '4 p' $(top_srcdir)/$$file`" != \
+	      "Documents Ganeti version $$expver"; then \
+	      echo "Incorrect version in $$file, expected $$expver" >&2; \
+	      error=1; \
+	    fi; \
+	  done; \
+	  if ! test -f $(top_srcdir)/doc/design-$$expver.rst; then \
+	    echo "File $(top_srcdir)/doc/design-$$expver.rst not found" >&2; \
+	    error=1; \
+	  fi; \
+	  if test "`sed -ne '5 p' $(top_srcdir)/doc/design-draft.rst`" != \
+	    ".. Last updated for Ganeti $$expver"; then \
+	    echo "doc/design-draft.rst was not updated for version $$expver" >&2; \
+	    error=1; \
+	  fi; \
 	fi; \
 	for file in configure.ac $(HS_LIBTEST_SRCS) $(HS_PROG_SRCS); do \
 	  if test $$(wc --max-line-length < $(top_srcdir)/$$file) -gt 80; then \
@@ -1835,9 +1983,6 @@ $(APIDOC_HS_DIR)/index.html: $(HS_LIBTESTBUILT_SRCS) Makefile
 	set -e ; \
 	export LC_ALL=en_US.UTF-8; \
 	OPTGHC="--optghc=-isrc --optghc=-itest/hs"; \
-	if [ "$(HS_NOCURL)" ]; \
-	then OPTGHC="$$OPTGHC --optghc=$(HS_NOCURL)"; \
-	fi; \
 	if [ "$(HS_PARALLEL3)" ]; \
 	then OPTGHC="$$OPTGHC --optghc=$(HS_PARALLEL3)"; \
 	fi; \
@@ -1862,7 +2007,7 @@ TAGS: $(GENERATED_FILES)
 	rm -f TAGS
 	$(GHC) -e ":etags" -v0 \
 	  $(filter-out -O -Werror,$(HFLAGS)) \
-	  $(HS_NOCURL) $(HS_PARALLEL3) $(HS_REGEX_PCRE) \
+	  $(HS_PARALLEL3) $(HS_REGEX_PCRE) \
 	  $(HS_LIBTEST_SRCS)
 	find . -path './lib/*.py' -o -path './scripts/gnt-*' -o \
 	  -path './daemons/ganeti-*' -o -path './tools/*' -o \
@@ -1870,11 +2015,16 @@ TAGS: $(GENERATED_FILES)
 	  etags -l python -a -
 
 .PHONY: coverage
+
+COVERAGE_TESTS=
 if WANT_HTOOLS
-coverage: py-coverage hs-coverage
-else
-coverage: py-coverage
+COVERAGE_TESTS += hs-coverage
 endif
+if PY_UNIT
+COVERAGE_TESTS += py-coverage
+endif
+
+coverage: $(COVERAGE_TESTS)
 
 .PHONY: py-coverage
 py-coverage: $(GENERATED_FILES) $(python_tests)
@@ -1916,7 +2066,12 @@ live-test: all
 	  --srcdir=.. $(HPCEXCL) ; \
 	hpc report --srcdir=.. live-test $(HPCEXCL)
 
-commit-check: distcheck lint apidoc
+commit-check: autotools-check distcheck lint apidoc
+
+autotools-check:
+	TESTDATA_DIR=./test/data shelltest $(SHELLTESTARGS) \
+  $(abs_top_srcdir)/test/autotools/*-*.test \
+  -- --hide-successes
 
 .PHONY: gitignore-check
 gitignore-check:

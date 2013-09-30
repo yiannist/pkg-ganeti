@@ -57,6 +57,16 @@ import ganeti.http.server # pylint: disable=W0611
 queue_lock = None
 
 
+def _extendReasonTrail(trail, source, reason=""):
+  """Extend the reason trail with noded information
+
+  The trail is extended by appending the name of the noded functionality
+  """
+  assert trail is not None
+  trail_source = "%s:%s" % (constants.OPCODE_REASON_SRC_NODED, source)
+  trail.append((trail_source, reason, utils.EpochNano()))
+
+
 def _PrepareQueueLock():
   """Try to prepare the queue lock.
 
@@ -110,6 +120,23 @@ def _DecodeImportExportIO(ieio, ieioargs):
     return (objects.Disk.FromDict(ieioargs[0]), ieioargs[1])
 
   return ieioargs
+
+
+def _DefaultAlternative(value, default):
+  """Returns value or, if evaluating to False, a default value.
+
+  Returns the given value, unless it evaluates to False. In the latter case the
+  default value is returned.
+
+  @param value: Value to return if it doesn't evaluate to False
+  @param default: Default value
+  @return: Given value or the default
+
+  """
+  if value:
+    return value
+
+  return default
 
 
 class MlockallRequestExecutor(http.server.HttpServerRequestExecutor):
@@ -562,16 +589,19 @@ class NodeRequestHandler(http.server.HttpServerHandler):
     """
     instance = objects.Instance.FromDict(params[0])
     timeout = params[1]
-    return backend.InstanceShutdown(instance, timeout)
+    trail = params[2]
+    _extendReasonTrail(trail, "shutdown")
+    return backend.InstanceShutdown(instance, timeout, trail)
 
   @staticmethod
   def perspective_instance_start(params):
     """Start an instance.
 
     """
-    (instance_name, startup_paused) = params
+    (instance_name, startup_paused, trail) = params
     instance = objects.Instance.FromDict(instance_name)
-    return backend.StartInstance(instance, startup_paused)
+    _extendReasonTrail(trail, "start")
+    return backend.StartInstance(instance, startup_paused, trail)
 
   @staticmethod
   def perspective_migration_info(params):
@@ -633,7 +663,10 @@ class NodeRequestHandler(http.server.HttpServerHandler):
     instance = objects.Instance.FromDict(params[0])
     reboot_type = params[1]
     shutdown_timeout = params[2]
-    return backend.InstanceReboot(instance, reboot_type, shutdown_timeout)
+    trail = params[3]
+    _extendReasonTrail(trail, "reboot")
+    return backend.InstanceReboot(instance, reboot_type, shutdown_timeout,
+                                  trail)
 
   @staticmethod
   def perspective_instance_balloon_memory(params):

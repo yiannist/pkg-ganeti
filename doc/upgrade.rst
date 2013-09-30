@@ -33,6 +33,10 @@ To run commands on all nodes, the `distributed shell (dsh)
 
     $ gnt-job list
 
+#. Pause the watcher for an hour (master node only)::
+
+    $ gnt-cluster watcher pause 1h
+
 #. Stop all daemons on all nodes::
 
     $ /etc/init.d/ganeti stop
@@ -54,6 +58,14 @@ To run commands on all nodes, the `distributed shell (dsh)
 
     $ /usr/lib/ganeti/ensure-dirs --full-run
 
+#. Create the (missing) required users and make users part of the required
+   groups on all nodes::
+
+    $ /usr/lib/ganeti/tools/users-setup
+
+   This will ask for confirmation. To execute directly, add the ``--yes-do-it``
+   option.
+
 #. Restart daemons on all nodes::
 
     $ /etc/init.d/ganeti restart
@@ -71,6 +83,85 @@ To run commands on all nodes, the `distributed shell (dsh)
 #. Restart daemons again on all nodes::
 
     $ /etc/init.d/ganeti restart
+
+#. Enable the watcher again (master node only)::
+
+    $ gnt-cluster watcher continue
+
+#. Verify cluster (master node only)::
+
+    $ gnt-cluster verify
+
+Reverting an upgrade
+~~~~~~~~~~~~~~~~~~~~
+
+For going back between revisions (e.g. 2.1.1 to 2.1.0) no manual
+intervention is required, as for upgrades.
+
+Starting from version 2.8, ``cfgupgrade`` supports ``--downgrade``
+option to bring the configuration back to the previous stable version.
+This is useful if you upgrade Ganeti and after some time you run into
+problems with the new version. You can downgrade the configuration
+without losing the changes made since the upgrade. Any feature not
+supported by the old version will be removed from the configuration, of
+course, but you get a warning about it. If there is any new feature and
+you haven't changed from its default value, you don't have to worry
+about it, as it will get the same value whenever you'll upgrade again.
+
+The procedure is similar to upgrading, but please notice that you have to
+revert the configuration **before** installing the old version.
+
+#. Ensure no jobs are running (master node only)::
+
+    $ gnt-job list
+
+#. Pause the watcher for an hour (master node only)::
+
+    $ gnt-cluster watcher pause 1h
+
+#. Stop all daemons on all nodes::
+
+    $ /etc/init.d/ganeti stop
+
+#. Backup old configuration (master node only)::
+
+    $ tar czf /var/lib/ganeti-$(date +\%FT\%T).tar.gz -C /var/lib ganeti
+
+#. Run cfgupgrade on the master node::
+
+    $ /usr/lib/ganeti/tools/cfgupgrade --verbose --downgrade --dry-run
+    $ /usr/lib/ganeti/tools/cfgupgrade --verbose --downgrade
+
+   You may want to copy all the messages about features that have been
+   removed during the downgrade, in case you want to restore them when
+   upgrading again.
+
+#. Install the old Ganeti version on all nodes
+
+   NB: in Ganeti 2.8, the ``cmdlib.py`` file was split into a series of files
+   contained in the ``cmdlib`` directory. If Ganeti is installed from sources
+   and not from a package, while downgrading Ganeti to a pre-2.8
+   version it is important to remember to remove the ``cmdlib`` directory
+   from the directory containing the Ganeti python files (which usually is
+   ``${PREFIX}/lib/python${VERSION}/dist-packages/ganeti``).
+   A simpler upgrade/downgrade procedure will be made available in future
+   versions of Ganeti.
+
+#. Restart daemons on all nodes::
+
+    $ /etc/init.d/ganeti restart
+
+#. Re-distribute configuration (master node only)::
+
+    $ gnt-cluster redist-conf
+
+#. Restart daemons again on all nodes::
+
+    $ /etc/init.d/ganeti restart
+
+#. Enable the watcher again (master node only)::
+
+    $ gnt-cluster watcher continue
 
 #. Verify cluster (master node only)::
 

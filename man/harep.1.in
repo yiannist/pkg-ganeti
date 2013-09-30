@@ -1,0 +1,69 @@
+.TH HAREP 1 "" "Ganeti" "Version @GANETI_VERSION@"
+.SH NAME
+.PP
+harep - Ganeti auto-repair tool
+.SH SYNOPSIS
+.PP
+\f[B]harep\f[] [ [\f[B]-L\f[] | \f[B]--luxi\f[] ] = \f[I]socket\f[] ] [
+--job-delay = \f[I]seconds\f[] ]
+.PP
+\f[B]harep\f[] --version
+.SH DESCRIPTION
+.PP
+harep is the Ganeti auto-repair tool.
+It is able to detect that an instance is broken and to generate a
+sequence of jobs that will fix it, in accordance to the policies set by
+the administrator.
+.SH OPTIONS
+.PP
+The options that can be passed to the program are as follows:
+.TP
+.B -L \f[I]socket\f[], --luxi=\f[I]socket\f[]
+collect data via Luxi, optionally using the given \f[I]socket\f[] path.
+.RS
+.RE
+.TP
+.B --job-delay=\f[I]seconds\f[]
+insert this much delay before the execution of repair jobs to allow the
+tool to continue processing instances.
+.RS
+.RE
+.SH REPORTING BUGS
+.PP
+Report bugs to project website (http://code.google.com/p/ganeti/) or
+contact the developers using the Ganeti mailing
+list (ganeti@googlegroups.com).
+.SH SEE ALSO
+.PP
+Ganeti overview and specifications: \f[B]ganeti\f[](7) (general
+overview), \f[B]ganeti-os-interface\f[](7) (guest OS definitions),
+\f[B]ganeti-extstorage-interface\f[](7) (external storage providers).
+.PP
+Ganeti commands: \f[B]gnt-cluster\f[](8) (cluster-wide commands),
+\f[B]gnt-job\f[](8) (job-related commands), \f[B]gnt-node\f[](8)
+(node-related commands), \f[B]gnt-instance\f[](8) (instance commands),
+\f[B]gnt-os\f[](8) (guest OS commands), \f[B]gnt-storage\f[](8) (storage
+commands), \f[B]gnt-group\f[](8) (node group commands),
+\f[B]gnt-backup\f[](8) (instance import/export commands),
+\f[B]gnt-debug\f[](8) (debug commands).
+.PP
+Ganeti daemons: \f[B]ganeti-watcher\f[](8) (automatic instance
+restarter), \f[B]ganeti-cleaner\f[](8) (job queue cleaner),
+\f[B]ganeti-noded\f[](8) (node daemon), \f[B]ganeti-masterd\f[](8)
+(master daemon), \f[B]ganeti-rapi\f[](8) (remote API daemon).
+.PP
+Ganeti htools: \f[B]htools\f[](1) (generic binary), \f[B]hbal\f[](1)
+(cluster balancer), \f[B]hspace\f[](1) (capacity calculation),
+\f[B]hail\f[](1) (IAllocator plugin), \f[B]hscan\f[](1) (data gatherer
+from remote clusters), \f[B]hinfo\f[](1) (cluster information printer),
+\f[B]mon-collector\f[](7) (data collectors interface).
+.SH COPYRIGHT
+.PP
+Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012 Google Inc.
+Permission is granted to copy, distribute and/or modify under the terms
+of the GNU General Public License as published by the Free Software
+Foundation; either version 2 of the License, or (at your option) any
+later version.
+.PP
+On Debian systems, the complete text of the GNU General Public License
+can be found in /usr/share/common-licenses/GPL.

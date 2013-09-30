@@ -1,4 +1,4 @@
-{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TemplateHaskell, BangPatterns #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 {-| Unittests for ganeti-htools.
@@ -7,7 +7,7 @@
 
 {-
 
-Copyright (C) 2009, 2010, 2011, 2012 Google Inc.
+Copyright (C) 2009, 2010, 2011, 2012, 2013 Google Inc.
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -36,6 +36,7 @@ import Data.Function (on)
 import Data.List
 import qualified Data.Map as Map
 import Data.Maybe
+import qualified Data.Set as Set
 import Text.JSON (JSValue(..), showJSON)
 
 import Test.Ganeti.TestHelper
@@ -44,12 +45,15 @@ import Test.Ganeti.Objects (genEmptyCluster)
 
 import Ganeti.BasicTypes
 import Ganeti.Errors
+import Ganeti.JSON
+import Ganeti.Objects
 import Ganeti.Query.Filter
-import Ganeti.Query.Group
+import qualified Ganeti.Query.Group as Group
 import Ganeti.Query.Language
-import Ganeti.Query.Node
+import qualified Ganeti.Query.Node as Node
 import Ganeti.Query.Query
 import qualified Ganeti.Query.Job as Job
+import Ganeti.Utils (sepSplit)
 
 {-# ANN module "HLint: ignore Use camelCase" #-}
 
@@ -68,7 +72,7 @@ hasUnknownFields = (QFTUnknown `notElem`) . map fdefKind
 prop_queryNode_noUnknown :: Property
 prop_queryNode_noUnknown =
   forAll (choose (0, maxNodes) >>= genEmptyCluster) $ \cluster ->
-  forAll (elements (Map.keys nodeFieldsMap)) $ \field -> monadicIO $ do
+  forAll (elements (Map.keys Node.fieldsMap)) $ \field -> monadicIO $ do
   QueryResult fdefs fdata <-
     run (query cluster False (Query (ItemTypeOpCode QRNode)
                               [field] EmptyFilter)) >>= resultProp
@@ -88,7 +92,7 @@ prop_queryNode_noUnknown =
 prop_queryNode_Unknown :: Property
 prop_queryNode_Unknown =
   forAll (choose (0, maxNodes) >>= genEmptyCluster) $ \cluster ->
-  forAll (arbitrary `suchThat` (`notElem` Map.keys nodeFieldsMap))
+  forAll (arbitrary `suchThat` (`notElem` Map.keys Node.fieldsMap))
     $ \field -> monadicIO $ do
   QueryResult fdefs fdata <-
     run (query cluster False (Query (ItemTypeOpCode QRNode)
@@ -136,7 +140,7 @@ prop_queryNode_types :: Property
 prop_queryNode_types =
   forAll (choose (0, maxNodes)) $ \numnodes ->
   forAll (genEmptyCluster numnodes) $ \cfg ->
-  forAll (elements (Map.keys nodeFieldsMap)) $ \field -> monadicIO $ do
+  forAll (elements (Map.keys Node.fieldsMap)) $ \field -> monadicIO $ do
   QueryResult fdefs fdata <-
     run (query cfg False (Query (ItemTypeOpCode QRNode)
                           [field] EmptyFilter)) >>= resultProp
@@ -154,41 +158,69 @@ prop_queryNode_types =
 -- | Test that queryFields with empty fields list returns all node fields.
 case_queryNode_allfields :: Assertion
 case_queryNode_allfields = do
-   fdefs <- case queryFields (QueryFields (ItemTypeOpCode QRNode) []) of
-              Bad msg -> fail $ "Error in query all fields: " ++
-                         formatError msg
-              Ok (QueryFieldsResult v) -> return v
-   let field_sort = compare `on` fdefName
-   assertEqual "Mismatch in all fields list"
-     (sortBy field_sort . map (\(f, _, _) -> f) $ Map.elems nodeFieldsMap)
-     (sortBy field_sort fdefs)
+  fdefs <- case queryFields (QueryFields (ItemTypeOpCode QRNode) []) of
+             Bad msg -> fail $ "Error in query all fields: " ++
+                        formatError msg
+             Ok (QueryFieldsResult v) -> return v
+  let field_sort = compare `on` fdefName
+  assertEqual "Mismatch in all fields list"
+    (sortBy field_sort . map (\(f, _, _) -> f) $ Map.elems Node.fieldsMap)
+    (sortBy field_sort fdefs)
+
+-- | Check if cluster node names are unique (first elems).
+areNodeNamesSane :: ConfigData -> Bool
+areNodeNamesSane cfg =
+  let fqdns = map nodeName . Map.elems . fromContainer $ configNodes cfg
+      names = map (head . sepSplit '.') fqdns
+  in length names == length (nub names)
+
+-- | Check that the nodes reported by a name filter are sane.
+prop_queryNode_filter :: Property
+prop_queryNode_filter =
+  forAll (choose (1, maxNodes)) $ \nodes ->
+  forAll (genEmptyCluster nodes `suchThat`
+          areNodeNamesSane) $ \cluster -> monadicIO $ do
+    let node_list = map nodeName . Map.elems . fromContainer $
+                    configNodes cluster
+    count <- pick $ choose (1, nodes)
+    fqdn_set <- pick . genSetHelper node_list $ Just count
+    let fqdns = Set.elems fqdn_set
+        names = map (head . sepSplit '.') fqdns
+        flt = makeSimpleFilter "name" $ map Left names
+    QueryResult _ fdata <-
+      run (query cluster False (Query (ItemTypeOpCode QRNode)
+                                ["name"] flt)) >>= resultProp
+    stop $ conjoin
+      [ printTestCase "Invalid node names" $
+        map (map rentryValue) fdata ==? map (\f -> [Just (showJSON f)]) fqdns
+      ]
 
 -- ** Group queries
 
 prop_queryGroup_noUnknown :: Property
 prop_queryGroup_noUnknown =
   forAll (choose (0, maxNodes) >>= genEmptyCluster) $ \cluster ->
-   forAll (elements (Map.keys groupFieldsMap)) $ \field -> monadicIO $ do
-   QueryResult fdefs fdata <-
-     run (query cluster False (Query (ItemTypeOpCode QRGroup)
-                               [field] EmptyFilter)) >>=
-         resultProp
-   QueryFieldsResult fdefs' <-
-     resultProp $ queryFields (QueryFields (ItemTypeOpCode QRGroup) [field])
-   stop $ conjoin
-    [ printTestCase ("Got unknown fields via query (" ++ show fdefs ++ ")")
-         (hasUnknownFields fdefs)
-    , printTestCase ("Got unknown result status via query (" ++
-                     show fdata ++ ")")
-      (all (all ((/= RSUnknown) . rentryStatus)) fdata)
-    , printTestCase ("Got unknown fields via query fields (" ++ show fdefs'
-                     ++ ")") (hasUnknownFields fdefs')
-    ]
+  forAll (elements (Map.keys Group.fieldsMap)) $ \field -> monadicIO $ do
+    QueryResult fdefs fdata <-
+      run (query cluster False (Query (ItemTypeOpCode QRGroup)
+                                [field] EmptyFilter)) >>=
+           resultProp
+    QueryFieldsResult fdefs' <-
+      resultProp $ queryFields (QueryFields (ItemTypeOpCode QRGroup) [field])
+    stop $ conjoin
+     [ printTestCase ("Got unknown fields via query (" ++ show fdefs ++ ")")
+          (hasUnknownFields fdefs)
+     , printTestCase ("Got unknown result status via query (" ++
+                      show fdata ++ ")")
+       (all (all ((/= RSUnknown) . rentryStatus)) fdata)
+     , printTestCase ("Got unknown fields via query fields (" ++ show fdefs'
+                      ++ ")") (hasUnknownFields fdefs')
+     ]
 
 prop_queryGroup_Unknown :: Property
 prop_queryGroup_Unknown =
   forAll (choose (0, maxNodes) >>= genEmptyCluster) $ \cluster ->
-  forAll (arbitrary `suchThat` (`notElem` Map.keys groupFieldsMap))
+  forAll (arbitrary `suchThat` (`notElem` Map.keys Group.fieldsMap))
     $ \field -> monadicIO $ do
   QueryResult fdefs fdata <-
     run (query cluster False (Query (ItemTypeOpCode QRGroup)
@@ -212,7 +244,7 @@ prop_queryGroup_types :: Property
 prop_queryGroup_types =
   forAll (choose (0, maxNodes)) $ \numnodes ->
   forAll (genEmptyCluster numnodes) $ \cfg ->
-  forAll (elements (Map.keys groupFieldsMap)) $ \field -> monadicIO $ do
+  forAll (elements (Map.keys Group.fieldsMap)) $ \field -> monadicIO $ do
   QueryResult fdefs fdata <-
     run (query cfg False (Query (ItemTypeOpCode QRGroup)
                           [field] EmptyFilter)) >>= resultProp
@@ -226,14 +258,14 @@ prop_queryGroup_types =
 
 case_queryGroup_allfields :: Assertion
 case_queryGroup_allfields = do
-   fdefs <- case queryFields (QueryFields (ItemTypeOpCode QRGroup) []) of
-              Bad msg -> fail $ "Error in query all fields: " ++
-                         formatError msg
-              Ok (QueryFieldsResult v) -> return v
-   let field_sort = compare `on` fdefName
-   assertEqual "Mismatch in all fields list"
-     (sortBy field_sort . map (\(f, _, _) -> f) $ Map.elems groupFieldsMap)
-     (sortBy field_sort fdefs)
+  fdefs <- case queryFields (QueryFields (ItemTypeOpCode QRGroup) []) of
+             Bad msg -> fail $ "Error in query all fields: " ++
+                        formatError msg
+             Ok (QueryFieldsResult v) -> return v
+  let field_sort = compare `on` fdefName
+  assertEqual "Mismatch in all fields list"
+    (sortBy field_sort . map (\(f, _, _) -> f) $ Map.elems Group.fieldsMap)
+    (sortBy field_sort fdefs)
 
 -- | Check that the node count reported by a group list is sane.
 --
@@ -328,6 +360,7 @@ testSuite "Query/Query"
   [ 'prop_queryNode_noUnknown
   , 'prop_queryNode_Unknown
   , 'prop_queryNode_types
+  , 'prop_queryNode_filter
   , 'case_queryNode_allfields
   , 'prop_queryGroup_noUnknown
   , 'prop_queryGroup_Unknown

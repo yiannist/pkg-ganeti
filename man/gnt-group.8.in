@@ -29,32 +29,19 @@ the Ganeti system.
 .PD 0
 .P
 .PD
-[--specs-cpu-count \f[I]spec-param\f[]=\f[I]value\f[]
-[,\f[I]spec-param\f[]=\f[I]value\f[]...]]
-.PD 0
-.P
-.PD
-[--specs-disk-count \f[I]spec-param\f[]=\f[I]value\f[]
-[,\f[I]spec-param\f[]=\f[I]value\f[]...]]
-.PD 0
-.P
-.PD
-[--specs-disk-size \f[I]spec-param\f[]=\f[I]value\f[]
-[,\f[I]spec-param\f[]=\f[I]value\f[]...]]
-.PD 0
-.P
-.PD
-[--specs-mem-size \f[I]spec-param\f[]=\f[I]value\f[]
-[,\f[I]spec-param\f[]=\f[I]value\f[]...]]
-.PD 0
-.P
-.PD
-[--specs-nic-count \f[I]spec-param\f[]=\f[I]value\f[]
-[,\f[I]spec-param\f[]=\f[I]value\f[]...]]
+[--ipolicy-bounds-specs \f[I]bound_ispecs\f[]]
 .PD 0
 .P
 .PD
 [--ipolicy-disk-templates \f[I]template\f[] [,\f[I]template\f[]...]]
+.PD 0
+.P
+.PD
+[--ipolicy-spindle-ratio \f[I]ratio\f[]]
+.PD 0
+.P
+.PD
+[--ipolicy-vcpu-ratio \f[I]ratio\f[]]
 .PD 0
 .P
 .PD
@@ -107,9 +94,8 @@ parameters for the node group; please see the section about
 \f[B]gnt-cluster add\f[] in \f[B]gnt-cluster\f[](8) for more information
 about disk parameters
 .PP
-The \f[C]--specs-...\f[] and \f[C]--ipolicy-disk-templates\f[] options
-specify instance policies on the node group, and are documented in the
-\f[B]gnt-cluster\f[](8) man page.
+The \f[C]--ipolicy-...\f[] options specify instance policies on the node
+group, and are documented in the \f[B]gnt-cluster\f[](8) man page.
 .PP
 See \f[B]ganeti\f[](7) for a description of \f[C]--submit\f[] and other
 common options.
@@ -164,32 +150,19 @@ common options.
 .PD 0
 .P
 .PD
-[--specs-cpu-count \f[I]spec-param\f[]=\f[I]value\f[]
-[,\f[I]spec-param\f[]=\f[I]value\f[]...]]
-.PD 0
-.P
-.PD
-[--specs-disk-count \f[I]spec-param\f[]=\f[I]value\f[]
-[,\f[I]spec-param\f[]=\f[I]value\f[]...]]
-.PD 0
-.P
-.PD
-[--specs-disk-size \f[I]spec-param\f[]=\f[I]value\f[]
-[,\f[I]spec-param\f[]=\f[I]value\f[]...]]
-.PD 0
-.P
-.PD
-[--specs-mem-size \f[I]spec-param\f[]=\f[I]value\f[]
-[,\f[I]spec-param\f[]=\f[I]value\f[]...]]
-.PD 0
-.P
-.PD
-[--specs-nic-count \f[I]spec-param\f[]=\f[I]value\f[]
-[,\f[I]spec-param\f[]=\f[I]value\f[]...]]
+[--ipolicy-bounds-specs \f[I]bound_ispecs\f[]]
 .PD 0
 .P
 .PD
 [--ipolicy-disk-templates \f[I]template\f[] [,\f[I]template\f[]...]]
+.PD 0
+.P
+.PD
+[--ipolicy-spindle-ratio \f[I]ratio\f[]]
+.PD 0
+.P
+.PD
+[--ipolicy-vcpu-ratio \f[I]ratio\f[]]
 .PD 0
 .P
 .PD
@@ -206,9 +179,8 @@ The \f[C]--node-parameters\f[], \f[C]--alloc-policy\f[],
 \f[C]-D\ (--disk-parameters)\f[] options are documented in the
 \f[B]add\f[] command above.
 .PP
-The \f[C]--specs-...\f[] and \f[C]--ipolicy-disk-templates\f[] options
-specify instance policies on the node group, and are documented in the
-\f[B]gnt-cluster\f[](8) man page.
+The \f[C]--ipolicy-...\f[] options specify instance policies on the node
+group, and are documented in the \f[B]gnt-cluster\f[](8) man page.
 .PP
 See \f[B]ganeti\f[](7) for a description of \f[C]--submit\f[] and other
 common options.
@@ -428,9 +400,21 @@ do, tags from both sources will be removed).
 A file name of \f[C]-\f[] will be interpreted as stdin.
 .SS INFO
 .PP
-\f[B]info\f[] [group...]
+\f[B]info\f[] [\f[I]group\f[]...]
 .PP
 Shows config information for all (or given) groups.
+.SS SHOW-ISPECS-CMD
+.PP
+\f[B]show-ispecs-cmd\f[] [--include-defaults] [\f[I]group\f[]...]
+.PP
+Shows the command line that can be used to recreate the given groups (or
+all groups, if none is given) with the same options relative to specs in
+the instance policies.
+.PP
+If \f[C]--include-defaults\f[] is specified, include also the default
+values (i.e.
+the cluster-level settings), and not only the configuration items that a
+group overrides.
 .SH REPORTING BUGS
 .PP
 Report bugs to project website (http://code.google.com/p/ganeti/) or

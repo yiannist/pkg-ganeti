@@ -82,23 +82,17 @@ def FillDict(defaults_dict, custom_dict, skip_keys=None):
   return ret_dict
 
 
-def FillIPolicy(default_ipolicy, custom_ipolicy, skip_keys=None):
+def FillIPolicy(default_ipolicy, custom_ipolicy):
   """Fills an instance policy with defaults.
 
   """
   assert frozenset(default_ipolicy.keys()) == constants.IPOLICY_ALL_KEYS
-  ret_dict = {}
-  for key in constants.IPOLICY_ISPECS:
-    ret_dict[key] = FillDict(default_ipolicy[key],
-                             custom_ipolicy.get(key, {}),
-                             skip_keys=skip_keys)
-  # list items
-  for key in [constants.IPOLICY_DTS]:
-    ret_dict[key] = list(custom_ipolicy.get(key, default_ipolicy[key]))
-  # other items which we know we can directly copy (immutables)
-  for key in constants.IPOLICY_PARAMETERS:
-    ret_dict[key] = custom_ipolicy.get(key, default_ipolicy[key])
-
+  ret_dict = copy.deepcopy(custom_ipolicy)
+  for key in default_ipolicy:
+    if key not in ret_dict:
+      ret_dict[key] = copy.deepcopy(default_ipolicy[key])
+    elif key == constants.ISPECS_STD:
+      ret_dict[key] = FillDict(default_ipolicy[key], ret_dict[key])
   return ret_dict
 
 
@@ -186,11 +180,7 @@ def MakeEmptyIPolicy():
   """Create empty IPolicy dictionary.
 
   """
-  return dict([
-    (constants.ISPECS_MIN, {}),
-    (constants.ISPECS_MAX, {}),
-    (constants.ISPECS_STD, {}),
-    ])
+  return {}
 
 
 class ConfigObject(outils.ValidatedSlots):
@@ -263,47 +253,6 @@ class ConfigObject(outils.ValidatedSlots):
     val_str = dict([(str(k), v) for k, v in val.iteritems()])
     obj = cls(**val_str) # pylint: disable=W0142
     return obj
-
-  @staticmethod
-  def _ContainerToDicts(container):
-    """Convert the elements of a container to standard python types.
-
-    This method converts a container with elements derived from
-    ConfigData to standard python types. If the container is a dict,
-    we don't touch the keys, only the values.
-
-    """
-    if isinstance(container, dict):
-      ret = dict([(k, v.ToDict()) for k, v in container.iteritems()])
-    elif isinstance(container, (list, tuple, set, frozenset)):
-      ret = [elem.ToDict() for elem in container]
-    else:
-      raise TypeError("Invalid type %s passed to _ContainerToDicts" %
-                      type(container))
-    return ret
-
-  @staticmethod
-  def _ContainerFromDicts(source, c_type, e_type):
-    """Convert a container from standard python types.
-
-    This method converts a container with standard python types to
-    ConfigData objects. If the container is a dict, we don't touch the
-    keys, only the values.
-
-    """
-    if not isinstance(c_type, type):
-      raise TypeError("Container type %s passed to _ContainerFromDicts is"
-                      " not a type" % type(c_type))
-    if source is None:
-      source = c_type()
-    if c_type is dict:
-      ret = dict([(k, e_type.FromDict(v)) for k, v in source.iteritems()])
-    elif c_type in (list, tuple, set, frozenset):
-      ret = c_type([e_type.FromDict(elem) for elem in source])
-    else:
-      raise TypeError("Invalid container type %s passed to"
-                      " _ContainerFromDicts" % c_type)
-    return ret
 
   def Copy(self):
     """Makes a deep copy of the current object and its children.
@@ -447,7 +396,7 @@ class ConfigData(ConfigObject):
     mydict = super(ConfigData, self).ToDict()
     mydict["cluster"] = mydict["cluster"].ToDict()
     for key in "nodes", "instances", "nodegroups", "networks":
-      mydict[key] = self._ContainerToDicts(mydict[key])
+      mydict[key] = outils.ContainerToDicts(mydict[key])
 
     return mydict
 
@@ -458,10 +407,12 @@ class ConfigData(ConfigObject):
     """
     obj = super(ConfigData, cls).FromDict(val)
     obj.cluster = Cluster.FromDict(obj.cluster)
-    obj.nodes = cls._ContainerFromDicts(obj.nodes, dict, Node)
-    obj.instances = cls._ContainerFromDicts(obj.instances, dict, Instance)
-    obj.nodegroups = cls._ContainerFromDicts(obj.nodegroups, dict, NodeGroup)
-    obj.networks = cls._ContainerFromDicts(obj.networks, dict, Network)
+    obj.nodes = outils.ContainerFromDicts(obj.nodes, dict, Node)
+    obj.instances = \
+      outils.ContainerFromDicts(obj.instances, dict, Instance)
+    obj.nodegroups = \
+      outils.ContainerFromDicts(obj.nodegroups, dict, NodeGroup)
+    obj.networks = outils.ContainerFromDicts(obj.networks, dict, Network)
     return obj
 
   def HasAnyDiskOfType(self, dev_type):
@@ -502,11 +453,43 @@ class ConfigData(ConfigObject):
       self.networks = {}
     for network in self.networks.values():
       network.UpgradeConfig()
+    self._UpgradeEnabledDiskTemplates()
+
+  def _UpgradeEnabledDiskTemplates(self):
+    """Upgrade the cluster's enabled disk templates by inspecting the currently
+       enabled and/or used disk templates.
+
+    """
+    # enabled_disk_templates in the cluster config were introduced in 2.8.
+    # Remove this code once upgrading from earlier versions is deprecated.
+    if not self.cluster.enabled_disk_templates:
+      template_set = \
+        set([inst.disk_template for inst in self.instances.values()])
+      # Add drbd and plain, if lvm is enabled (by specifying a volume group)
+      if self.cluster.volume_group_name:
+        template_set.add(constants.DT_DRBD8)
+        template_set.add(constants.DT_PLAIN)
+      # FIXME: Adapt this when dis/enabling at configure time is removed.
+      # Enable 'file' and 'sharedfile', if they are enabled, even though they
+      # might currently not be used.
+      if constants.ENABLE_FILE_STORAGE:
+        template_set.add(constants.DT_FILE)
+      if constants.ENABLE_SHARED_FILE_STORAGE:
+        template_set.add(constants.DT_SHARED_FILE)
+      # Set enabled_disk_templates to the inferred disk templates. Order them
+      # according to a preference list that is based on Ganeti's history of
+      # supported disk templates.
+      self.cluster.enabled_disk_templates = []
+      for preferred_template in constants.DISK_TEMPLATE_PREFERENCE:
+        if preferred_template in template_set:
+          self.cluster.enabled_disk_templates.append(preferred_template)
+          template_set.remove(preferred_template)
+      self.cluster.enabled_disk_templates.extend(list(template_set))
 
 
 class NIC(ConfigObject):
   """Config object representing a network card."""
-  __slots__ = ["mac", "ip", "network", "nicparams", "netinfo"]
+  __slots__ = ["name", "mac", "ip", "network", "nicparams", "netinfo"] + _UUID
 
   @classmethod
   def CheckParameterSyntax(cls, nicparams):
@@ -529,8 +512,8 @@ class NIC(ConfigObject):
 
 class Disk(ConfigObject):
   """Config object representing a block device."""
-  __slots__ = ["dev_type", "logical_id", "physical_id",
-               "children", "iv_name", "size", "mode", "params"]
+  __slots__ = ["name", "dev_type", "logical_id", "physical_id",
+               "children", "iv_name", "size", "mode", "params"] + _UUID
 
   def CreateOnSecondary(self):
     """Test if this device needs to be created on a secondary node."""
@@ -771,7 +754,7 @@ class Disk(ConfigObject):
     for attr in ("children",):
       alist = bo.get(attr, None)
       if alist:
-        bo[attr] = self._ContainerToDicts(alist)
+        bo[attr] = outils.ContainerToDicts(alist)
     return bo
 
   @classmethod
@@ -781,7 +764,7 @@ class Disk(ConfigObject):
     """
     obj = super(Disk, cls).FromDict(val)
     if obj.children:
-      obj.children = cls._ContainerFromDicts(obj.children, list, Disk)
+      obj.children = outils.ContainerFromDicts(obj.children, list, Disk)
     if obj.logical_id and isinstance(obj.logical_id, list):
       obj.logical_id = tuple(obj.logical_id)
     if obj.physical_id and isinstance(obj.physical_id, list):
@@ -920,7 +903,6 @@ class Disk(ConfigObject):
 class InstancePolicy(ConfigObject):
   """Config object representing instance policy limits dictionary.
 
-
   Note that this object is not actually used in the config, it's just
   used as a placeholder for a few functions.
 
@@ -929,9 +911,14 @@ class InstancePolicy(ConfigObject):
   def CheckParameterSyntax(cls, ipolicy, check_std):
     """ Check the instance policy for validity.
 
+    @type ipolicy: dict
+    @param ipolicy: dictionary with min/max/std specs and policies
+    @type check_std: bool
+    @param check_std: Whether to check std value or just assume compliance
+    @raise errors.ConfigurationError: when the policy is not legal
+
     """
-    for param in constants.ISPECS_PARAMETERS:
-      InstancePolicy.CheckISpecSyntax(ipolicy, param, check_std)
+    InstancePolicy.CheckISpecSyntax(ipolicy, check_std)
     if constants.IPOLICY_DTS in ipolicy:
       InstancePolicy.CheckDiskTemplates(ipolicy[constants.IPOLICY_DTS])
     for key in constants.IPOLICY_PARAMETERS:
@@ -943,38 +930,91 @@ class InstancePolicy(ConfigObject):
                                       utils.CommaJoin(wrong_keys))
 
   @classmethod
-  def CheckISpecSyntax(cls, ipolicy, name, check_std):
-    """Check the instance policy for validity on a given key.
+  def _CheckIncompleteSpec(cls, spec, keyname):
+    missing_params = constants.ISPECS_PARAMETERS - frozenset(spec.keys())
+    if missing_params:
+      msg = ("Missing instance specs parameters for %s: %s" %
+             (keyname, utils.CommaJoin(missing_params)))
+      raise errors.ConfigurationError(msg)
 
-    We check if the instance policy makes sense for a given key, that is
-    if ipolicy[min][name] <= ipolicy[std][name] <= ipolicy[max][name].
+  @classmethod
+  def CheckISpecSyntax(cls, ipolicy, check_std):
+    """Check the instance policy specs for validity.
 
     @type ipolicy: dict
-    @param ipolicy: dictionary with min, max, std specs
+    @param ipolicy: dictionary with min/max/std specs
+    @type check_std: bool
+    @param check_std: Whether to check std value or just assume compliance
+    @raise errors.ConfigurationError: when specs are not valid
+
+    """
+    if constants.ISPECS_MINMAX not in ipolicy:
+      # Nothing to check
+      return
+
+    if check_std and constants.ISPECS_STD not in ipolicy:
+      msg = "Missing key in ipolicy: %s" % constants.ISPECS_STD
+      raise errors.ConfigurationError(msg)
+    stdspec = ipolicy.get(constants.ISPECS_STD)
+    if check_std:
+      InstancePolicy._CheckIncompleteSpec(stdspec, constants.ISPECS_STD)
+
+    if not ipolicy[constants.ISPECS_MINMAX]:
+      raise errors.ConfigurationError("Empty minmax specifications")
+    std_is_good = False
+    for minmaxspecs in ipolicy[constants.ISPECS_MINMAX]:
+      missing = constants.ISPECS_MINMAX_KEYS - frozenset(minmaxspecs.keys())
+      if missing:
+        msg = "Missing instance specification: %s" % utils.CommaJoin(missing)
+        raise errors.ConfigurationError(msg)
+      for (key, spec) in minmaxspecs.items():
+        InstancePolicy._CheckIncompleteSpec(spec, key)
+
+      spec_std_ok = True
+      for param in constants.ISPECS_PARAMETERS:
+        par_std_ok = InstancePolicy._CheckISpecParamSyntax(minmaxspecs, stdspec,
+                                                           param, check_std)
+        spec_std_ok = spec_std_ok and par_std_ok
+      std_is_good = std_is_good or spec_std_ok
+    if not std_is_good:
+      raise errors.ConfigurationError("Invalid std specifications")
+
+  @classmethod
+  def _CheckISpecParamSyntax(cls, minmaxspecs, stdspec, name, check_std):
+    """Check the instance policy specs for validity on a given key.
+
+    We check if the instance specs makes sense for a given key, that is
+    if minmaxspecs[min][name] <= stdspec[name] <= minmaxspec[max][name].
+
+    @type minmaxspecs: dict
+    @param minmaxspecs: dictionary with min and max instance spec
+    @type stdspec: dict
+    @param stdspec: dictionary with standard instance spec
     @type name: string
     @param name: what are the limits for
     @type check_std: bool
     @param check_std: Whether to check std value or just assume compliance
-    @raise errors.ConfigureError: when specs for given name are not valid
+    @rtype: bool
+    @return: C{True} when specs are valid, C{False} when standard spec for the
+        given name is not valid
+    @raise errors.ConfigurationError: when min/max specs for the given name
+        are not valid
 
     """
-    min_v = ipolicy[constants.ISPECS_MIN].get(name, 0)
+    minspec = minmaxspecs[constants.ISPECS_MIN]
+    maxspec = minmaxspecs[constants.ISPECS_MAX]
+    min_v = minspec[name]
+    max_v = maxspec[name]
 
-    if check_std:
-      std_v = ipolicy[constants.ISPECS_STD].get(name, min_v)
-      std_msg = std_v
-    else:
-      std_v = min_v
-      std_msg = "-"
-
-    max_v = ipolicy[constants.ISPECS_MAX].get(name, std_v)
-    err = ("Invalid specification of min/max/std values for %s: %s/%s/%s" %
-           (name,
-            ipolicy[constants.ISPECS_MIN].get(name, "-"),
-            ipolicy[constants.ISPECS_MAX].get(name, "-"),
-            std_msg))
-    if min_v > std_v or std_v > max_v:
+    if min_v > max_v:
+      err = ("Invalid specification of min/max values for %s: %s/%s" %
+             (name, min_v, max_v))
       raise errors.ConfigurationError(err)
+    elif check_std:
+      std_v = stdspec.get(name, min_v)
+      return std_v >= min_v and std_v <= max_v
+    else:
+      return True
 
   @classmethod
   def CheckDiskTemplates(cls, disk_templates):
@@ -1017,6 +1057,7 @@ class Instance(TaggableObject):
     "nics",
     "disks",
     "disk_template",
+    "disks_active",
     "network_port",
     "serial_no",
     ] + _TIMESTAMPS + _UUID
@@ -1142,7 +1183,7 @@ class Instance(TaggableObject):
     for attr in "nics", "disks":
       alist = bo.get(attr, None)
       if alist:
-        nlist = self._ContainerToDicts(alist)
+        nlist = outils.ContainerToDicts(alist)
       else:
         nlist = []
       bo[attr] = nlist
@@ -1161,8 +1202,8 @@ class Instance(TaggableObject):
     if "admin_up" in val:
       del val["admin_up"]
     obj = super(Instance, cls).FromDict(val)
-    obj.nics = cls._ContainerFromDicts(obj.nics, list, NIC)
-    obj.disks = cls._ContainerFromDicts(obj.disks, list, Disk)
+    obj.nics = outils.ContainerFromDicts(obj.nics, list, NIC)
+    obj.disks = outils.ContainerFromDicts(obj.disks, list, Disk)
     return obj
 
   def UpgradeConfig(self):
@@ -1182,6 +1223,8 @@ class Instance(TaggableObject):
     if self.osparams is None:
       self.osparams = {}
     UpgradeBeParams(self.beparams)
+    if self.disks_active is None:
+      self.disks_active = self.admin_state == constants.ADMINST_UP
 
 
 class OS(ConfigObject):
@@ -1356,12 +1399,12 @@ class Node(TaggableObject):
 
     hv_state = data.get("hv_state", None)
     if hv_state is not None:
-      data["hv_state"] = self._ContainerToDicts(hv_state)
+      data["hv_state"] = outils.ContainerToDicts(hv_state)
 
     disk_state = data.get("disk_state", None)
     if disk_state is not None:
       data["disk_state"] = \
-        dict((key, self._ContainerToDicts(value))
+        dict((key, outils.ContainerToDicts(value))
              for (key, value) in disk_state.items())
 
     return data
@@ -1374,11 +1417,12 @@ class Node(TaggableObject):
     obj = super(Node, cls).FromDict(val)
 
     if obj.hv_state is not None:
-      obj.hv_state = cls._ContainerFromDicts(obj.hv_state, dict, NodeHvState)
+      obj.hv_state = \
+        outils.ContainerFromDicts(obj.hv_state, dict, NodeHvState)
 
     if obj.disk_state is not None:
       obj.disk_state = \
-        dict((key, cls._ContainerFromDicts(value, dict, NodeDiskState))
+        dict((key, outils.ContainerFromDicts(value, dict, NodeDiskState))
              for (key, value) in obj.disk_state.items())
 
     return obj
@@ -1475,6 +1519,7 @@ class Cluster(TaggableObject):
   __slots__ = [
     "serial_no",
     "rsahostkeypub",
+    "dsahostkeypub",
     "highest_used_port",
     "tcpudp_port_pool",
     "mac_prefix",
@@ -1512,6 +1557,7 @@ class Cluster(TaggableObject):
     "prealloc_wipe_disks",
     "hv_state_static",
     "disk_state_static",
+    "enabled_disk_templates",
     ] + _TIMESTAMPS + _UUID
 
   def UpgradeConfig(self):
@@ -1641,7 +1687,14 @@ class Cluster(TaggableObject):
 
     """
     mydict = super(Cluster, self).ToDict()
-    mydict["tcpudp_port_pool"] = list(self.tcpudp_port_pool)
+
+    if self.tcpudp_port_pool is None:
+      tcpudp_port_pool = []
+    else:
+      tcpudp_port_pool = list(self.tcpudp_port_pool)
+
+    mydict["tcpudp_port_pool"] = tcpudp_port_pool
+
     return mydict
 
   @classmethod
@@ -1650,8 +1703,12 @@ class Cluster(TaggableObject):
 
     """
     obj = super(Cluster, cls).FromDict(val)
-    if not isinstance(obj.tcpudp_port_pool, set):
+
+    if obj.tcpudp_port_pool is None:
+      obj.tcpudp_port_pool = set()
+    elif not isinstance(obj.tcpudp_port_pool, set):
       obj.tcpudp_port_pool = set(obj.tcpudp_port_pool)
+
     return obj
 
   def SimpleFillDP(self, diskparams):
@@ -1942,7 +1999,7 @@ class _QueryResponseBase(ConfigObject):
 
     """
     mydict = super(_QueryResponseBase, self).ToDict()
-    mydict["fields"] = self._ContainerToDicts(mydict["fields"])
+    mydict["fields"] = outils.ContainerToDicts(mydict["fields"])
     return mydict
 
   @classmethod
@@ -1951,7 +2008,8 @@ class _QueryResponseBase(ConfigObject):
 
     """
     obj = super(_QueryResponseBase, cls).FromDict(val)
-    obj.fields = cls._ContainerFromDicts(obj.fields, list, QueryFieldDefinition)
+    obj.fields = \
+      outils.ContainerFromDicts(obj.fields, list, QueryFieldDefinition)
     return obj
 
 

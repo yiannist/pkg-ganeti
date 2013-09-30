@@ -45,7 +45,7 @@ def _InstanceRunning(name):
 
   cmd = (utils.ShellQuoteArgs(["gnt-instance", "list", "-o", "status", name]) +
          ' | grep running')
-  ret = StartSSH(master["primary"], cmd).wait()
+  ret = StartSSH(master.primary, cmd).wait()
   return ret == 0
 
 
@@ -77,10 +77,11 @@ def _ResetWatcherDaemon():
   """Removes the watcher daemon's state file.
 
   """
-  AssertCommand([
-    "bash", "-c",
-    "rm -vf %s" % (pathutils.WATCHER_GROUP_STATE_FILE % "*-*-*-*"),
-    ])
+  path = \
+    qa_utils.MakeNodePath(qa_config.GetMasterNode(),
+                          pathutils.WATCHER_GROUP_STATE_FILE % "*-*-*-*")
+
+  AssertCommand(["bash", "-c", "rm -vf %s" % path])
 
 
 def _RunWatcherDaemon():
@@ -99,7 +100,7 @@ def TestPauseWatcher():
   AssertCommand(["gnt-cluster", "watcher", "pause", "4h"])
 
   cmd = ["gnt-cluster", "watcher", "info"]
-  output = GetCommandOutput(master["primary"],
+  output = GetCommandOutput(master.primary,
                             utils.ShellQuoteArgs(cmd))
   AssertMatch(output, r"^.*\bis paused\b.*")
 
@@ -113,7 +114,7 @@ def TestResumeWatcher():
   AssertCommand(["gnt-cluster", "watcher", "continue"])
 
   cmd = ["gnt-cluster", "watcher", "info"]
-  output = GetCommandOutput(master["primary"],
+  output = GetCommandOutput(master.primary,
                             utils.ShellQuoteArgs(cmd))
   AssertMatch(output, r"^.*\bis not paused\b.*")
 
@@ -122,7 +123,7 @@ def TestInstanceAutomaticRestart(instance):
   """Test automatic restart of instance by ganeti-watcher.
 
   """
-  inst_name = qa_utils.ResolveInstanceName(instance["name"])
+  inst_name = qa_utils.ResolveInstanceName(instance.name)
 
   _ResetWatcherDaemon()
   _ShutdownInstance(inst_name)
@@ -140,7 +141,7 @@ def TestInstanceConsecutiveFailures(instance):
   """Test five consecutive instance failures.
 
   """
-  inst_name = qa_utils.ResolveInstanceName(instance["name"])
+  inst_name = qa_utils.ResolveInstanceName(instance.name)
   inst_was_running = bool(_InstanceRunning(inst_name))
 
   _ResetWatcherDaemon()

@@ -1,17 +1,19 @@
 Security in Ganeti
 ==================
 
-Documents Ganeti version 2.7
+Documents Ganeti version 2.8
 
 Ganeti was developed to run on internal, trusted systems. As such, the
 security model is all-or-nothing.
 
 Up to version 2.3 all Ganeti code ran as root. Since version 2.4 it is
-possible to run all daemons except the node daemon as non-root users by
-specifying user names and groups at build time. The node daemon
-continues to require root privileges to create logical volumes, DRBD
-devices, start instances, etc. Cluster commands can be run as root or by
-users in a group specified at build time.
+possible to run all daemons except the node daemon and the monitoring daemon
+as non-root users by specifying user names and groups at build time.
+The node daemon continues to require root privileges to create logical volumes,
+DRBD devices, start instances, etc. Cluster commands can be run as root or by
+users in a group specified at build time. The monitoring daemon requires root
+privileges in order to be able to access and present information that are only
+avilable to root (such as the output of the ``xm`` command of Xen).
 
 Host issues
 -----------
@@ -122,24 +124,50 @@ before serving requests. This permission-based protection is documented
 and works on Linux, but is not-portable; however, Ganeti doesn't work on
 non-Linux system at the moment.
 
+Luxi daemon
+-----------
+
+The ``luxid`` daemon (automatically enabled if ``confd`` is enabled at
+build time) serves local (UNIX socket) queries about the run-time
+configuration. Answering these means talking to other cluster nodes,
+exactly as ``masterd`` does. See the notes for ``masterd`` regarding
+permission-based protection.
+
 Conf daemon
 -----------
 
-In Ganeti 2.7, the ``confd`` daemon (if enabled at build time), serves
-both network-originated queries (about the static configuration) and
-local (UNIX socket) queries (about the run-time configuration; answering
-these means talking to other cluster nodes, which makes use of the
-internal RPC SSL certificate). This makes it a bit more sensitive to
-bugs (a remote attacker could get direct access to the intra-cluster
-RPC), so to harden security it's recommended to:
+In Ganeti 2.8, the ``confd`` daemon (if enabled at build time), serves
+network-originated queries about parts of the static cluster
+configuration.
 
-- disable confd at build time if it's not needed in your setup
-- otherwise, configure Ganeti (at build time) to use separate users, so
-  that the confd daemon doesn't also have access to the server SSL/TLS
-  certificates
+If Ganeti is not configured (at build time) to use separate users,
+``confd`` has access to all Ganeti related files (including internal RPC
+SSL certificates). This makes it a bit more sensitive to bugs (a remote
+attacker could get direct access to the intra-cluster RPC), so to harden
+security it's recommended to:
 
-It is planned to split the two functionalities (local/remote querying)
-of confd into two separate daemons in a future Ganeti version.
+- disable confd at build time if it (and ``luxid``) is not needed in
+  your setup.
+- configure Ganeti (at build time) to use separate users, so that the
+  confd daemon doesn't also have access to the server SSL/TLS
+  certificates.
+- add firewall rules to protect the ``confd`` port or bind it to a
+  trusted address. Make sure that all nodes can access the daemon, as
+  the monitoring daemon requires it.
+
+Monitoring daemon
+-----------------
+
+The monitoring daemon provides information about the status and the
+performance of the cluster over HTTP.
+It is currently unencrypted and non-authenticated, therefore it is strongly
+advised to set proper firewalling rules to prevent unwanted access.
+
+The monitoring daemon runs as root, because it needs to be able to access
+privileged information (such as the state of the instances as provided by
+the Xen hypervisor). Nevertheless, the security implications are mitigated
+by the fact that the agent only provides reporting functionalities,
+without the ability to actually modify the state of the cluster.
 
 Remote API
 ----------

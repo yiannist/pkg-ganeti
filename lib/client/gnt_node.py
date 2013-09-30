@@ -40,7 +40,6 @@ from ganeti import netutils
 from ganeti import pathutils
 from ganeti import ssh
 from ganeti import compat
-from cStringIO import StringIO
 
 from ganeti import confd
 from ganeti.confd import client as confd_client
@@ -303,7 +302,7 @@ def ListNodes(opts, args):
   fmtoverride = dict.fromkeys(["pinst_list", "sinst_list", "tags"],
                               (",".join, False))
 
-  cl = GetClient(query=False)
+  cl = GetClient(query=True)
 
   return GenericList(constants.QR_NODE, selected_fields, args, opts.units,
                      opts.separator, not opts.no_headers,
@@ -517,6 +516,38 @@ def MigrateNode(opts, args):
   return rcode
 
 
+def _FormatNodeInfo(node_info):
+  """Format node information for L{cli.PrintGenericInfo()}.
+
+  """
+  (name, primary_ip, secondary_ip, pinst, sinst, is_mc, drained, offline,
+   master_capable, vm_capable, powered, ndparams, ndparams_custom) = node_info
+  info = [
+    ("Node name", name),
+    ("primary ip", primary_ip),
+    ("secondary ip", secondary_ip),
+    ("master candidate", is_mc),
+    ("drained", drained),
+    ("offline", offline),
+    ]
+  if powered is not None:
+    info.append(("powered", powered))
+  info.extend([
+    ("master_capable", master_capable),
+    ("vm_capable", vm_capable),
+    ])
+  if vm_capable:
+    info.extend([
+      ("primary for instances",
+       [iname for iname in utils.NiceSort(pinst)]),
+      ("secondary for instances",
+       [iname for iname in utils.NiceSort(sinst)]),
+      ])
+  info.append(("node parameters",
+               FormatParamsDictInfo(ndparams_custom, ndparams)))
+  return info
+
+
 def ShowNodeConfig(opts, args):
   """Show node information.
 
@@ -529,8 +560,6 @@ def ShowNodeConfig(opts, args):
   @return: the desired exit code
 
   """
-  # note: if this starts using RPC fields, and we haven't yet fixed
-  # hconfd, then we should revert to query=False
   cl = GetClient(query=True)
   result = cl.QueryNodes(fields=["name", "pip", "sip",
                                  "pinst_list", "sinst_list",
@@ -538,38 +567,10 @@ def ShowNodeConfig(opts, args):
                                  "master_capable", "vm_capable", "powered",
                                  "ndparams", "custom_ndparams"],
                          names=args, use_locking=False)
-
-  for (name, primary_ip, secondary_ip, pinst, sinst, is_mc, drained, offline,
-       master_capable, vm_capable, powered, ndparams,
-       ndparams_custom) in result:
-    ToStdout("Node name: %s", name)
-    ToStdout("  primary ip: %s", primary_ip)
-    ToStdout("  secondary ip: %s", secondary_ip)
-    ToStdout("  master candidate: %s", is_mc)
-    ToStdout("  drained: %s", drained)
-    ToStdout("  offline: %s", offline)
-    if powered is not None:
-      ToStdout("  powered: %s", powered)
-    ToStdout("  master_capable: %s", master_capable)
-    ToStdout("  vm_capable: %s", vm_capable)
-    if vm_capable:
-      if pinst:
-        ToStdout("  primary for instances:")
-        for iname in utils.NiceSort(pinst):
-          ToStdout("    - %s", iname)
-      else:
-        ToStdout("  primary for no instances")
-      if sinst:
-        ToStdout("  secondary for instances:")
-        for iname in utils.NiceSort(sinst):
-          ToStdout("    - %s", iname)
-      else:
-        ToStdout("  secondary for no instances")
-    ToStdout("  node parameters:")
-    buf = StringIO()
-    FormatParameterDict(buf, ndparams_custom, ndparams, level=2)
-    ToStdout(buf.getvalue().rstrip("\n"))
-
+  PrintGenericInfo([
+    _FormatNodeInfo(node_info)
+    for node_info in result
+    ])
   return 0
 
 

@@ -75,6 +75,8 @@ class GetentResolver:
   @ivar masterd_gid: The resolved gid of the masterd group
   @ivar confd_uid: The resolved uid of the confd user
   @ivar confd_gid: The resolved gid of the confd group
+  @ivar luxid_uid: The resolved uid of the luxid user
+  @ivar luxid_gid: The resolved gid of the luxid group
   @ivar rapi_uid: The resolved uid of the rapi user
   @ivar rapi_gid: The resolved gid of the rapi group
   @ivar noded_uid: The resolved uid of the noded user
@@ -93,11 +95,17 @@ class GetentResolver:
     self.confd_uid = GetUid(constants.CONFD_USER, _getpwnam)
     self.confd_gid = GetGid(constants.CONFD_GROUP, _getgrnam)
 
+    self.luxid_uid = GetUid(constants.LUXID_USER, _getpwnam)
+    self.luxid_gid = GetGid(constants.LUXID_GROUP, _getgrnam)
+
     self.rapi_uid = GetUid(constants.RAPI_USER, _getpwnam)
     self.rapi_gid = GetGid(constants.RAPI_GROUP, _getgrnam)
 
     self.noded_uid = GetUid(constants.NODED_USER, _getpwnam)
     self.noded_gid = GetGid(constants.NODED_GROUP, _getgrnam)
+
+    self.mond_uid = GetUid(constants.MOND_USER, _getpwnam)
+    self.mond_gid = GetGid(constants.MOND_GROUP, _getgrnam)
 
     # Misc Ganeti groups
     self.daemons_gid = GetGid(constants.DAEMONS_GROUP, _getgrnam)
@@ -106,15 +114,19 @@ class GetentResolver:
     self._uid2user = {
       self.masterd_uid: constants.MASTERD_USER,
       self.confd_uid: constants.CONFD_USER,
+      self.luxid_uid: constants.LUXID_USER,
       self.rapi_uid: constants.RAPI_USER,
       self.noded_uid: constants.NODED_USER,
+      self.mond_uid: constants.MOND_USER,
       }
 
     self._gid2group = {
       self.masterd_gid: constants.MASTERD_GROUP,
       self.confd_gid: constants.CONFD_GROUP,
+      self.luxid_gid: constants.LUXID_GROUP,
       self.rapi_gid: constants.RAPI_GROUP,
       self.noded_gid: constants.NODED_GROUP,
+      self.mond_gid: constants.MOND_GROUP,
       self.daemons_gid: constants.DAEMONS_GROUP,
       self.admin_gid: constants.ADMIN_GROUP,
       }

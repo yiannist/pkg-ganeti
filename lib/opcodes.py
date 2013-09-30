@@ -245,6 +245,26 @@ DEPEND_ATTR = "depends"
 COMMENT_ATTR = "comment"
 
 
+def _NameComponents(name):
+  """Split an opcode class name into its components
+
+  @type name: string
+  @param name: the class name, as OpXxxYyy
+  @rtype: array of strings
+  @return: the components of the name
+
+  """
+  assert name.startswith("Op")
+  # Note: (?<=[a-z])(?=[A-Z]) would be ideal, since it wouldn't
+  # consume any input, and hence we would just have all the elements
+  # in the list, one by one; but it seems that split doesn't work on
+  # non-consuming input, hence we have to process the input string a
+  # bit
+  name = _OPID_RE.sub(r"\1,\2", name)
+  elems = name.split(",")
+  return elems
+
+
 def _NameToId(name):
   """Convert an opcode class name to an OP_ID.
 
@@ -256,14 +276,22 @@ def _NameToId(name):
   """
   if not name.startswith("Op"):
     return None
-  # Note: (?<=[a-z])(?=[A-Z]) would be ideal, since it wouldn't
-  # consume any input, and hence we would just have all the elements
-  # in the list, one by one; but it seems that split doesn't work on
-  # non-consuming input, hence we have to process the input string a
-  # bit
-  name = _OPID_RE.sub(r"\1,\2", name)
-  elems = name.split(",")
-  return "_".join(n.upper() for n in elems)
+  return "_".join(n.upper() for n in _NameComponents(name))
+
+
+def NameToReasonSrc(name):
+  """Convert an opcode class name to a source string for the reason trail
+
+  @type name: string
+  @param name: the class name, as OpXxxYyy
+  @rtype: string
+  @return: the name in the OP_XXXX_YYYY format
+
+  """
+  if not name.startswith("Op"):
+    return None
+  return "%s:%s" % (constants.OPCODE_REASON_SRC_OPCODE,
+                    "_".join(n.lower() for n in _NameComponents(name)))
 
 
 def _GenerateObjectTypeCheck(obj, fields_types):
@@ -631,6 +659,8 @@ class OpCode(BaseOpCode):
      " for details"),
     (COMMENT_ATTR, None, ht.TMaybeString,
      "Comment describing the purpose of the opcode"),
+    (constants.OPCODE_REASON, ht.EmptyList, ht.TMaybeList,
+     "The reason trail, describing why the OpCode is executed"),
     ]
   OP_RESULT = None
 
@@ -888,6 +918,7 @@ class OpClusterSetParams(OpCode):
 
   """
   OP_PARAMS = [
+    _PForce,
     _PHvState,
     _PDiskState,
     ("vg_name", None, ht.TMaybe(ht.TString), "Volume group name"),
@@ -944,6 +975,12 @@ class OpClusterSetParams(OpCode):
      " ``%s`` or ``%s``" % (constants.DDM_ADD, constants.DDM_REMOVE)),
     ("use_external_mip_script", None, ht.TMaybeBool,
      "Whether to use an external master IP address setup script"),
+    ("enabled_disk_templates", None,
+     ht.TMaybe(ht.TAnd(ht.TListOf(ht.TElemOf(constants.DISK_TEMPLATES)),
+                       ht.TTrue)),
+     "List of enabled disk templates"),
+    ("modify_etc_hosts", None, ht.TMaybeBool,
+     "Whether the cluster can modify and keep in sync the /etc/hosts files"),
     ]
   OP_RESULT = ht.TNone
 
@@ -1483,6 +1520,8 @@ class OpInstanceFailover(OpCode):
     _PIgnoreIpolicy,
     _PIAllocFromDesc("Iallocator for deciding the target node for"
                      " shared-storage instances"),
+    ("cleanup", False, ht.TBool,
+     "Whether a previously failed failover should be cleaned up"),
     ]
   OP_RESULT = ht.TNone
 
@@ -1630,7 +1669,8 @@ def _TestInstSetParamsModList(fn):
   mod_item_fn = \
     ht.TAnd(ht.TIsLength(3), ht.TItems([
       ht.TElemOf(constants.DDMS_VALUES_WITH_MODIFY),
-      ht.Comment("Disk index, can be negative, e.g. -1 for last disk")(ht.TInt),
+      ht.Comment("Device index, can be negative, e.g. -1 for last disk")
+                 (ht.TOr(ht.TInt, ht.TString)),
       fn,
       ]))
 
@@ -1652,9 +1692,10 @@ class OpInstanceSetParams(OpCode):
     _PForceVariant,
     _PIgnoreIpolicy,
     ("nics", ht.EmptyList, TestNicModifications,
-     "List of NIC changes: each item is of the form ``(op, index, settings)``,"
-     " ``op`` is one of ``%s``, ``%s`` or ``%s``, ``index`` can be either -1"
-     " to refer to the last position, or a zero-based index number; a"
+     "List of NIC changes: each item is of the form"
+     " ``(op, identifier, settings)``, ``op`` is one of ``%s``, ``%s`` or"
+     " ``%s``, ``identifier`` can be a zero-based index number (or -1 to refer"
+     " to the last position), the NIC's UUID of the NIC's name; a"
      " deprecated version of this parameter used the form ``(op, settings)``,"
      " where ``op`` can be ``%s`` to add a new NIC with the specified"
      " settings, ``%s`` to remove the last NIC or a number to modify the"
@@ -1669,6 +1710,7 @@ class OpInstanceSetParams(OpCode):
      "Per-instance hypervisor parameters, hypervisor-dependent"),
     ("disk_template", None, ht.TMaybe(_BuildDiskTemplateCheck(False)),
      "Disk template for instance"),
+    ("pnode", None, ht.TMaybeString, "New primary node"),
     ("remote_node", None, ht.TMaybeString,
      "Secondary node (used when changing disk template)"),
     ("os_name", None, ht.TMaybeString,
@@ -1957,7 +1999,7 @@ class OpTestDelay(OpCode):
   This is used just for debugging and testing.
 
   Parameters:
-    - duration: the time to sleep
+    - duration: the time to sleep, in seconds
     - on_master: if true, sleep on the master
     - on_nodes: list of nodes in which to sleep
 

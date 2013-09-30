@@ -9,7 +9,7 @@ commented out below.
 
 {-
 
-Copyright (C) 2011, 2012 Google Inc.
+Copyright (C) 2011, 2012, 2013 Google Inc.
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -66,6 +66,7 @@ module Ganeti.Objects
   , PartialISpecParams(..)
   , fillISpecParams
   , allISpecParamFields
+  , MinMaxISpecs(..)
   , FilledIPolicy(..)
   , PartialIPolicy(..)
   , fillIPolicy
@@ -88,19 +89,26 @@ module Ganeti.Objects
   , DictObject(..) -- re-exported from THH
   , TagSet -- re-exported from THH
   , Network(..)
+  , Ip4Address(..)
+  , Ip4Network(..)
+  , readIp4Address
+  , nextIp4Address
   ) where
 
+import Control.Applicative
 import Data.List (foldl')
 import Data.Maybe
 import qualified Data.Map as Map
 import qualified Data.Set as Set
-import Text.JSON (showJSON, readJSON, JSON, JSValue(..))
+import Data.Word
+import Text.JSON (showJSON, readJSON, JSON, JSValue(..), fromJSString)
 import qualified Text.JSON as J
 
 import qualified Ganeti.Constants as C
 import Ganeti.JSON
 import Ganeti.Types
 import Ganeti.THH
+import Ganeti.Utils (sepSplit, tryRead)
 
 -- * Generic definitions
 
@@ -168,17 +176,81 @@ roleDescription NRMaster    = "master"
 
 -- * Network definitions
 
+-- ** Ipv4 types
+
+-- | Custom type for a simple IPv4 address.
+data Ip4Address = Ip4Address Word8 Word8 Word8 Word8
+                  deriving Eq
+
+instance Show Ip4Address where
+  show (Ip4Address a b c d) = show a ++ "." ++ show b ++ "." ++
+                              show c ++ "." ++ show d
+
+-- | Parses an IPv4 address from a string.
+readIp4Address :: (Applicative m, Monad m) => String -> m Ip4Address
+readIp4Address s =
+  case sepSplit '.' s of
+    [a, b, c, d] -> Ip4Address <$>
+                      tryRead "first octect" a <*>
+                      tryRead "second octet" b <*>
+                      tryRead "third octet"  c <*>
+                      tryRead "fourth octet" d
+    _ -> fail $ "Can't parse IPv4 address from string " ++ s
+
+-- | JSON instance for 'Ip4Address'.
+instance JSON Ip4Address where
+  showJSON = showJSON . show
+  readJSON (JSString s) = readIp4Address (fromJSString s)
+  readJSON v = fail $ "Invalid JSON value " ++ show v ++ " for an IPv4 address"
+
+-- | \"Next\" address implementation for IPv4 addresses.
+--
+-- Note that this loops! Note also that this is a very dumb
+-- implementation.
+nextIp4Address :: Ip4Address -> Ip4Address
+nextIp4Address (Ip4Address a b c d) =
+  let inc xs y = if all (==0) xs then y + 1 else y
+      d' = d + 1
+      c' = inc [d'] c
+      b' = inc [c', d'] b
+      a' = inc [b', c', d'] a
+  in Ip4Address a' b' c' d'
+
+-- | Custom type for an IPv4 network.
+data Ip4Network = Ip4Network Ip4Address Word8
+                  deriving Eq
+
+instance Show Ip4Network where
+  show (Ip4Network ip netmask) = show ip ++ "/" ++ show netmask
+
+-- | JSON instance for 'Ip4Network'.
+instance JSON Ip4Network where
+  showJSON = showJSON . show
+  readJSON (JSString s) =
+    case sepSplit '/' (fromJSString s) of
+      [ip, nm] -> do
+        ip' <- readIp4Address ip
+        nm' <- tryRead "parsing netmask" nm
+        if nm' >= 0 && nm' <= 32
+          then return $ Ip4Network ip' nm'
+          else fail $ "Invalid netmask " ++ show nm' ++ " from string " ++
+                      fromJSString s
+      _ -> fail $ "Can't parse IPv4 network from string " ++ fromJSString s
+  readJSON v = fail $ "Invalid JSON value " ++ show v ++ " for an IPv4 network"
+
+-- ** Ganeti \"network\" config object.
+
 -- FIXME: Not all types might be correct here, since they
 -- haven't been exhaustively deduced from the python code yet.
 $(buildObject "Network" "network" $
   [ simpleField "name"             [t| NonEmptyString |]
   , optionalField $
     simpleField "mac_prefix"       [t| String |]
-  , simpleField "network"          [t| NonEmptyString |]
+  , simpleField "network"          [t| Ip4Network |]
   , optionalField $
     simpleField "network6"         [t| String |]
   , optionalField $
-    simpleField "gateway"          [t| String |]
+    simpleField "gateway"          [t| Ip4Address |]
   , optionalField $
     simpleField "gateway6"         [t| String |]
   , optionalField $
@@ -186,6 +258,7 @@ $(buildObject "Network" "network" $
   , optionalField $
     simpleField "ext_reservations" [t| String |]
   ]
+  ++ uuidFields
   ++ timeStampFields
   ++ serialFields
   ++ tagsFields)
@@ -195,6 +268,9 @@ instance SerialNoObject Network where
 
 instance TagsObject Network where
   tagsOf = networkTags
+
+instance UuidObject Network where
+  uuidOf = networkUuid
 
 instance TimeStampObject Network where
   cTimeOf = networkCtime
@@ -207,12 +283,16 @@ $(buildParam "Nic" "nicp"
   , simpleField "link" [t| String  |]
   ])
 
-$(buildObject "PartialNic" "nic"
+$(buildObject "PartialNic" "nic" $
   [ simpleField "mac" [t| String |]
   , optionalField $ simpleField "ip" [t| String |]
   , simpleField "nicparams" [t| PartialNicParams |]
   , optionalField $ simpleField "network" [t| String |]
-  ])
+  , optionalField $ simpleField "name" [t| String |]
+  ] ++ uuidFields)
+
+instance UuidObject PartialNic where
+  uuidOf = nicUuid
 
 -- * Disk definitions
 
@@ -350,9 +430,11 @@ data Disk = Disk
   , diskIvName     :: String
   , diskSize       :: Int
   , diskMode       :: DiskMode
+  , diskName       :: Maybe String
+  , diskUuid       :: String
   } deriving (Show, Eq)
 
-$(buildObjectSerialisation "Disk"
+$(buildObjectSerialisation "Disk" $
   [ customField 'decodeDLId 'encodeFullDLId ["dev_type"] $
       simpleField "logical_id"    [t| DiskLogicalId   |]
 --  , simpleField "physical_id" [t| String   |]
@@ -360,7 +442,12 @@ $(buildObjectSerialisation "Disk"
   , defaultField [| "" |] $ simpleField "iv_name" [t| String |]
   , simpleField "size" [t| Int |]
   , defaultField [| DiskRdWr |] $ simpleField "mode" [t| DiskMode |]
-  ])
+  , optionalField $ simpleField "name" [t| String |]
+  ]
+  ++ uuidFields)
+
+instance UuidObject Disk where
+  uuidOf = diskUuid
 
 -- * Instance definitions
 
@@ -390,6 +477,7 @@ $(buildObject "Instance" "inst" $
   , simpleField "nics"           [t| [PartialNic]       |]
   , simpleField "disks"          [t| [Disk]             |]
   , simpleField "disk_template"  [t| DiskTemplate       |]
+  , simpleField "disks_active"   [t| Bool               |]
   , optionalField $ simpleField "network_port" [t| Int  |]
   ]
   ++ timeStampFields
@@ -421,12 +509,18 @@ $(buildParam "ISpec" "ispec"
   , simpleField C.ispecSpindleUse  [t| Int |]
   ])
 
+$(buildObject "MinMaxISpecs" "mmis"
+  [ renameField "MinSpec" $ simpleField "min" [t| FilledISpecParams |]
+  , renameField "MaxSpec" $ simpleField "max" [t| FilledISpecParams |]
+  ])
+
 -- | Custom partial ipolicy. This is not built via buildParam since it
 -- has a special 2-level inheritance mode.
 $(buildObject "PartialIPolicy" "ipolicy"
-  [ renameField "MinSpecP" $ simpleField "min" [t| PartialISpecParams |]
-  , renameField "MaxSpecP" $ simpleField "max" [t| PartialISpecParams |]
-  , renameField "StdSpecP" $ simpleField "std" [t| PartialISpecParams |]
+  [ optionalField . renameField "MinMaxISpecsP"
+                    $ simpleField C.ispecsMinmax   [t| [MinMaxISpecs] |]
+  , optionalField . renameField "StdSpecP"
+                    $ simpleField "std"            [t| PartialISpecParams |]
   , optionalField . renameField "SpindleRatioP"
                     $ simpleField "spindle-ratio"  [t| Double |]
   , optionalField . renameField "VcpuRatioP"
@@ -438,8 +532,8 @@ $(buildObject "PartialIPolicy" "ipolicy"
 -- | Custom filled ipolicy. This is not built via buildParam since it
 -- has a special 2-level inheritance mode.
 $(buildObject "FilledIPolicy" "ipolicy"
-  [ renameField "MinSpec" $ simpleField "min" [t| FilledISpecParams |]
-  , renameField "MaxSpec" $ simpleField "max" [t| FilledISpecParams |]
+  [ renameField "MinMaxISpecs"
+    $ simpleField C.ispecsMinmax [t| [MinMaxISpecs] |]
   , renameField "StdSpec" $ simpleField "std" [t| FilledISpecParams |]
   , simpleField "spindle-ratio"  [t| Double |]
   , simpleField "vcpu-ratio"     [t| Double |]
@@ -448,21 +542,20 @@ $(buildObject "FilledIPolicy" "ipolicy"
 
 -- | Custom filler for the ipolicy types.
 fillIPolicy :: FilledIPolicy -> PartialIPolicy -> FilledIPolicy
-fillIPolicy (FilledIPolicy { ipolicyMinSpec       = fmin
-                           , ipolicyMaxSpec       = fmax
+fillIPolicy (FilledIPolicy { ipolicyMinMaxISpecs  = fminmax
                            , ipolicyStdSpec       = fstd
                            , ipolicySpindleRatio  = fspindleRatio
                            , ipolicyVcpuRatio     = fvcpuRatio
                            , ipolicyDiskTemplates = fdiskTemplates})
-            (PartialIPolicy { ipolicyMinSpecP       = pmin
-                            , ipolicyMaxSpecP       = pmax
+            (PartialIPolicy { ipolicyMinMaxISpecsP  = pminmax
                             , ipolicyStdSpecP       = pstd
                             , ipolicySpindleRatioP  = pspindleRatio
                             , ipolicyVcpuRatioP     = pvcpuRatio
                             , ipolicyDiskTemplatesP = pdiskTemplates}) =
-  FilledIPolicy { ipolicyMinSpec       = fillISpecParams fmin pmin
-                , ipolicyMaxSpec       = fillISpecParams fmax pmax
-                , ipolicyStdSpec       = fillISpecParams fstd pstd
+  FilledIPolicy { ipolicyMinMaxISpecs  = fromMaybe fminmax pminmax
+                , ipolicyStdSpec       = case pstd of
+                                         Nothing -> fstd
+                                         Just p -> fillISpecParams fstd p
                 , ipolicySpindleRatio  = fromMaybe fspindleRatio pspindleRatio
                 , ipolicyVcpuRatio     = fromMaybe fvcpuRatio pvcpuRatio
                 , ipolicyDiskTemplates = fromMaybe fdiskTemplates
@@ -576,6 +669,8 @@ type UidPool = [(Int, Int)]
 -- * Cluster definitions
 $(buildObject "Cluster" "cluster" $
   [ simpleField "rsahostkeypub"           [t| String           |]
+  , optionalField $
+    simpleField "dsahostkeypub"           [t| String           |]
   , simpleField "highest_used_port"       [t| Int              |]
   , simpleField "tcpudp_port_pool"        [t| [Int]            |]
   , simpleField "mac_prefix"              [t| String           |]
@@ -611,6 +706,7 @@ $(buildObject "Cluster" "cluster" $
   , simpleField "primary_ip_family"       [t| IpFamily         |]
   , simpleField "prealloc_wipe_disks"     [t| Bool             |]
   , simpleField "ipolicy"                 [t| FilledIPolicy    |]
+  , simpleField "enabled_disk_templates"  [t| [DiskTemplate]   |]
  ]
  ++ timeStampFields
  ++ uuidFields
@@ -639,6 +735,7 @@ $(buildObject "ConfigData" "config" $
   , simpleField "nodes"      [t| Container Node      |]
   , simpleField "nodegroups" [t| Container NodeGroup |]
   , simpleField "instances"  [t| Container Instance  |]
+  , simpleField "networks"   [t| Container Network   |]
   ]
   ++ serialFields)
 

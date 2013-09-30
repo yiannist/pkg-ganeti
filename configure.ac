@@ -1,7 +1,7 @@
 # Configure script for Ganeti
 m4_define([gnt_version_major], [2])
-m4_define([gnt_version_minor], [7])
-m4_define([gnt_version_revision], [1])
+m4_define([gnt_version_minor], [8])
+m4_define([gnt_version_revision], [0])
 m4_define([gnt_version_suffix], [])
 m4_define([gnt_version_full],
           m4_format([%d.%d.%d%s],
@@ -243,15 +243,21 @@ AC_ARG_WITH([user-prefix],
   [user_masterd="${withval}masterd";
    user_rapi="${withval}rapi";
    user_confd="${withval}confd";
-   user_noded="$user_default"],
+   user_luxid="${withval}luxid";
+   user_noded="$user_default";
+   user_mond="${withval}mond"],
   [user_masterd="$user_default";
    user_rapi="$user_default";
    user_confd="$user_default";
-   user_noded="$user_default"])
+   user_luxid="$user_default";
+   user_noded="$user_default";
+   user_mond="$user_default"])
 AC_SUBST(MASTERD_USER, $user_masterd)
 AC_SUBST(RAPI_USER, $user_rapi)
 AC_SUBST(CONFD_USER, $user_confd)
+AC_SUBST(LUXID_USER, $user_luxid)
 AC_SUBST(NODED_USER, $user_noded)
+AC_SUBST(MOND_USER, $user_mond)
 
 # --with-group-prefix=...
 AC_ARG_WITH([group-prefix],
@@ -263,26 +269,33 @@ AC_ARG_WITH([group-prefix],
   [group_rapi="${withval}rapi";
    group_admin="${withval}admin";
    group_confd="${withval}confd";
+   group_luxid="${withval}luxid";
    group_masterd="${withval}masterd";
    group_noded="$group_default";
-   group_daemons="${withval}daemons";],
+   group_daemons="${withval}daemons";
+   group_mond="${withval}mond"],
   [group_rapi="$group_default";
    group_admin="$group_default";
    group_confd="$group_default";
+   group_luxid="$group_default";
    group_masterd="$group_default";
    group_noded="$group_default";
-   group_daemons="$group_default"])
+   group_daemons="$group_default";
+   group_mond="$group_default"])
 AC_SUBST(RAPI_GROUP, $group_rapi)
 AC_SUBST(ADMIN_GROUP, $group_admin)
 AC_SUBST(CONFD_GROUP, $group_confd)
+AC_SUBST(LUXID_GROUP, $group_luxid)
 AC_SUBST(MASTERD_GROUP, $group_masterd)
 AC_SUBST(NODED_GROUP, $group_noded)
 AC_SUBST(DAEMONS_GROUP, $group_daemons)
+AC_SUBST(MOND_GROUP, $group_mond)
 
 # Print the config to the user
 AC_MSG_NOTICE([Running ganeti-masterd as $group_masterd:$group_masterd])
 AC_MSG_NOTICE([Running ganeti-rapi as $user_rapi:$group_rapi])
 AC_MSG_NOTICE([Running ganeti-confd as $user_confd:$group_confd])
+AC_MSG_NOTICE([Running ganeti-luxid as $user_luxid:$group_luxid])
 AC_MSG_NOTICE([Group for daemons is $group_daemons])
 AC_MSG_NOTICE([Group for clients is $group_admin])
 
@@ -395,6 +408,7 @@ else
     AC_MSG_ERROR([Sphinx 1.0 or higher is required])
   fi
 fi
+AM_CONDITIONAL([HAS_SPHINX], [test -n "$SPHINX"])
 
 AC_ARG_ENABLE([manpages-in-doc],
   [AS_HELP_STRING([--enable-manpages-in-doc],
@@ -467,14 +481,6 @@ then
   AC_MSG_WARN([qemu-img not found, using ovfconverter will not be possible])
 fi
 
-# --enable-htools-rapi
-HTOOLS_RAPI=
-AC_ARG_ENABLE([htools-rapi],
-        [AS_HELP_STRING([--enable-htools-rapi],
-        [enable use of curl in the Haskell code (default: check)])],
-        [],
-        [enable_htools_rapi=check])
-
 # --enable-confd
 ENABLE_CONFD=
 AC_ARG_ENABLE([confd],
@@ -483,10 +489,10 @@ AC_ARG_ENABLE([confd],
   [],
   [enable_confd=check])
 
-ENABLE_MONITORING=
+ENABLE_MOND=
 AC_ARG_ENABLE([monitoring],
   [AS_HELP_STRING([--enable-monitoring],
-  [enable the ganeti monitoring agent (default: check)])],
+  [enable the ganeti monitoring daemon (default: check)])],
   [],
   [enable_monitoring=check])
 
@@ -517,29 +523,13 @@ fi
 
 # check for modules, first custom/special checks
 AC_MSG_NOTICE([checking for required haskell modules])
-HS_NOCURL=-DNO_CURL
-if test "$enable_htools_rapi" != no; then
-  AC_GHC_PKG_CHECK([curl], [HS_NOCURL=], [])
-  if test -n "$HS_NOCURL"; then
-    if test "$enable_htools_rapi" = check; then
-      AC_MSG_WARN(m4_normalize([The curl library was not found, Haskell
-                                code will be compiled without RAPI support]))
-    else
-      AC_MSG_FAILURE(m4_normalize([The curl library was not found, but it has
-                                   been requested]))
-    fi
-  else
-    AC_MSG_NOTICE([Enabling curl/RAPI/RPC usage in Haskell code])
-  fi
-fi
-AC_SUBST(HS_NOCURL)
-
 HS_PARALLEL3=
 AC_GHC_PKG_CHECK([parallel-3.*], [HS_PARALLEL3=-DPARALLEL3],
                  [AC_GHC_PKG_REQUIRE(parallel)], t)
 AC_SUBST(HS_PARALLEL3)
 
 # and now standard modules
+AC_GHC_PKG_REQUIRE(curl)
 AC_GHC_PKG_REQUIRE(json)
 AC_GHC_PKG_REQUIRE(network)
 AC_GHC_PKG_REQUIRE(mtl)
@@ -576,12 +566,14 @@ fi
 AC_SUBST(ENABLE_CONFD, $has_confd)
 AM_CONDITIONAL([ENABLE_CONFD], [test x$has_confd = xTrue])
 
-#extra modules for monitoring agent functionality
+#extra modules for monitoring daemon functionality
 has_monitoring=False
 if test "$enable_monitoring" != no; then
   MONITORING_PKG=
   AC_GHC_PKG_CHECK([attoparsec], [],
                    [MONITORING_PKG="$MONITORING_PKG attoparsec"])
+  AC_GHC_PKG_CHECK([snap-server], [],
+                   [MONITORING_PKG="$MONITORING_PKG snap-server"])
   MONITORING_DEP=
   if test "$has_confd" = False; then
     MONITORING_DEP="$MONITORING_DEP confd"
@@ -591,7 +583,7 @@ if test "$enable_monitoring" != no; then
     has_monitoring_pkg=True
   elif test "$enable_monitoring" = check; then
     AC_MSG_WARN(m4_normalize([The required extra libraries for the monitoring
-                              agent were not found ($MONITORING_PKG),
+                              daemon were not found ($MONITORING_PKG),
                               monitoring disabled]))
   else
     AC_MSG_FAILURE(m4_normalize([The monitoring functionality was requested, but
@@ -616,8 +608,8 @@ if test "$has_monitoring_pkg" = True -a "$has_monitoring_dep" = True; then
   has_monitoring=True
   AC_MSG_NOTICE([Enabling the monitoring agent usage])
 fi
-AC_SUBST(ENABLE_MONITORING, $has_monitoring)
-AM_CONDITIONAL([ENABLE_MONITORING], [test "$has_monitoring" = True])
+AC_SUBST(ENABLE_MOND, $has_monitoring)
+AM_CONDITIONAL([ENABLE_MOND], [test "$has_monitoring" = True])
 
 # development modules
 HS_NODEV=
@@ -660,8 +652,8 @@ AC_ARG_ENABLE([split-query],
         ;;
     esac
   ]],
-  [[case "x${has_confd}x${HS_NOCURL}x" in
-     xTruexx)
+  [[case "x${has_confd}x" in
+     xTruex)
        enable_split_query=True
        ;;
      *)
@@ -672,10 +664,6 @@ AC_SUBST(ENABLE_SPLIT_QUERY, $enable_split_query)
 
 if test x$enable_split_query = xTrue -a x$has_confd != xTrue; then
   AC_MSG_ERROR([Split queries require the confd daemon])
-fi
-
-if test x$enable_split_query = xTrue -a x$HS_NOCURL != x; then
-  AC_MSG_ERROR([Split queries require the htools-rapi feature (curl library)])
 fi
 
 if test x$enable_split_query = xTrue; then
@@ -787,7 +775,7 @@ fi
 AC_SUBST(MAN_HAS_WARNINGS)
 
 # Check for Python
-AM_PATH_PYTHON(2.4)
+AM_PATH_PYTHON(2.6)
 
 AC_PYTHON_MODULE(OpenSSL, t)
 AC_PYTHON_MODULE(simplejson, t)
@@ -798,6 +786,22 @@ AC_PYTHON_MODULE(bitarray, t)
 AC_PYTHON_MODULE(ipaddr, t)
 AC_PYTHON_MODULE(affinity)
 AC_PYTHON_MODULE(paramiko)
+
+# Development-only Python modules
+PY_NODEV=
+AC_PYTHON_MODULE(yaml)
+if test $HAVE_PYMOD_YAML == "no"; then
+  PY_NODEV="$PY_NODEV yaml"
+fi
+
+if test -n "$PY_NODEV"; then
+  AC_MSG_WARN(m4_normalize([Required development modules ($PY_NODEV) were not
+                            found, you won't be able to run Python unittests]))
+else
+  AC_MSG_NOTICE([Python development modules found, unittests enabled])
+fi
+AC_SUBST(PY_NODEV)
+AM_CONDITIONAL([PY_UNIT], [test -n $PY_NODEV])
 
 AC_CONFIG_FILES([ Makefile ])
 

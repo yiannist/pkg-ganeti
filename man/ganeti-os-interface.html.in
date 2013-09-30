@@ -98,6 +98,12 @@ code > span.er { color: #ff0000; font-weight: bold; }
 <dt>DISK_%N_ACCESS</dt>
 <dd><p>This is how the hypervisor will export the instance disks: either read-write (<code>rw</code>) or read-only (<code>ro</code>).</p>
 </dd>
+<dt>DISK_%N_UUID</dt>
+<dd><p>The uuid associated with the N-th disk of the instance.</p>
+</dd>
+<dt>DISK_%N_NAME</dt>
+<dd><p>(Optional) The name, if any, associated with the N-th disk of the instance.</p>
+</dd>
 <dt>DISK_%N_FRONTEND_TYPE</dt>
 <dd><p>(Optional) If applicable to the current hypervisor type: the type of the device exported by the hypervisor. For example, the Xen HVM hypervisor can export disks as either <code>paravirtual</code> or <code>ioemu</code>.</p>
 </dd>
@@ -109,6 +115,12 @@ code > span.er { color: #ff0000; font-weight: bold; }
 </dd>
 <dt>NIC_%N_MAC</dt>
 <dd><p>The MAC address associated with this interface.</p>
+</dd>
+<dt>NIC_%N_UUID</dt>
+<dd><p>The uuid associated with the N-th NIC of the instance.</p>
+</dd>
+<dt>NIC_%N_NAME</dt>
+<dd><p>(Optional) The name, if any, associated with the N-th NIC of the instance.</p>
 </dd>
 <dt>NIC_%N_IP</dt>
 <dd><p>The IP address, if any, associated with the N-th NIC of the instance.</p>

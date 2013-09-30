@@ -594,6 +594,19 @@ class GanetiRapiClientTests(testutils.GanetiTestCase):
   def testRebootInstance(self):
     self.rapi.AddResponse("6146")
     job_id = self.client.RebootInstance("i-bar", reboot_type="hard",
+                                        ignore_secondaries=True, dry_run=True,
+                                        reason="Updates")
+    self.assertEqual(6146, job_id)
+    self.assertHandler(rlib2.R_2_instances_name_reboot)
+    self.assertItems(["i-bar"])
+    self.assertDryRun()
+    self.assertQuery("type", ["hard"])
+    self.assertQuery("ignore_secondaries", ["1"])
+    self.assertQuery("reason", ["Updates"])
+
+  def testRebootInstanceDefaultReason(self):
+    self.rapi.AddResponse("6146")
+    job_id = self.client.RebootInstance("i-bar", reboot_type="hard",
                                         ignore_secondaries=True, dry_run=True)
     self.assertEqual(6146, job_id)
     self.assertHandler(rlib2.R_2_instances_name_reboot)
@@ -601,22 +614,45 @@ class GanetiRapiClientTests(testutils.GanetiTestCase):
     self.assertDryRun()
     self.assertQuery("type", ["hard"])
     self.assertQuery("ignore_secondaries", ["1"])
+    self.assertQuery("reason", None)
 
   def testShutdownInstance(self):
+    self.rapi.AddResponse("1487")
+    self.assertEqual(1487, self.client.ShutdownInstance("foo-instance",
+                                                        dry_run=True,
+                                                        reason="NoMore"))
+    self.assertHandler(rlib2.R_2_instances_name_shutdown)
+    self.assertItems(["foo-instance"])
+    self.assertDryRun()
+    self.assertQuery("reason", ["NoMore"])
+
+  def testShutdownInstanceDefaultReason(self):
     self.rapi.AddResponse("1487")
     self.assertEqual(1487, self.client.ShutdownInstance("foo-instance",
                                                         dry_run=True))
     self.assertHandler(rlib2.R_2_instances_name_shutdown)
     self.assertItems(["foo-instance"])
     self.assertDryRun()
+    self.assertQuery("reason", None)
 
   def testStartupInstance(self):
+    self.rapi.AddResponse("27149")
+    self.assertEqual(27149, self.client.StartupInstance("bar-instance",
+                                                        dry_run=True,
+                                                        reason="New"))
+    self.assertHandler(rlib2.R_2_instances_name_startup)
+    self.assertItems(["bar-instance"])
+    self.assertDryRun()
+    self.assertQuery("reason", ["New"])
+
+  def testStartupInstanceDefaultReason(self):
     self.rapi.AddResponse("27149")
     self.assertEqual(27149, self.client.StartupInstance("bar-instance",
                                                         dry_run=True))
     self.assertHandler(rlib2.R_2_instances_name_startup)
     self.assertItems(["bar-instance"])
     self.assertDryRun()
+    self.assertQuery("reason", None)
 
   def testReinstallInstance(self):
     self.rapi.AddResponse(serializer.DumpJson([]))
@@ -800,6 +836,14 @@ class GanetiRapiClientTests(testutils.GanetiTestCase):
                           '  { "id": "124", "uri": "\\/2\\/jobs\\/124" } ]')
     self.assertEqual([123, 124], self.client.GetJobs())
     self.assertHandler(rlib2.R_2_jobs)
+
+    self.rapi.AddResponse('[ { "id": "123", "uri": "\\/2\\/jobs\\/123" },'
+                          '  { "id": "124", "uri": "\\/2\\/jobs\\/124" } ]')
+    self.assertEqual([{"id": "123", "uri": "/2/jobs/123"},
+                      {"id": "124", "uri": "/2/jobs/124"}],
+                      self.client.GetJobs(bulk=True))
+    self.assertHandler(rlib2.R_2_jobs)
+    self.assertBulk()
 
   def testGetJobStatus(self):
     self.rapi.AddResponse("{\"foo\": \"bar\"}")

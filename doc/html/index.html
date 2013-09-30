@@ -8,7 +8,7 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Welcome to Ganeti’s documentation! &mdash; Ganeti 2.7.1 documentation</title>
+    <title>Welcome to Ganeti’s documentation! &mdash; Ganeti 2.8.0 documentation</title>
     
     <link rel="stylesheet" href="_static/style.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
@@ -16,7 +16,7 @@
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.7.1',
+        VERSION:     '2.8.0',
         COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -25,17 +25,17 @@
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti 2.7.1 documentation" href="#" />
-    <link rel="next" title="Ganeti quick installation guide" href="install-quick.html" /> 
+    <link rel="top" title="Ganeti 2.8.0 documentation" href="#" />
+    <link rel="next" title="Ganeti 2.0 design" href="design-2.0.html" /> 
   </head>
   <body>
     <div class="related">
       <h3>Navigation</h3>
       <ul>
         <li class="right" style="margin-right: 10px">
-          <a href="install-quick.html" title="Ganeti quick installation guide"
+          <a href="design-2.0.html" title="Ganeti 2.0 design"
              accesskey="N">next</a></li>
-        <li><a href="#">Ganeti 2.7.1 documentation</a> &raquo;</li> 
+        <li><a href="#">Ganeti 2.8.0 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -46,273 +46,98 @@
             
   <div class="section" id="welcome-to-ganeti-s-documentation">
 <h1>Welcome to Ganeti&#8217;s documentation!<a class="headerlink" href="#welcome-to-ganeti-s-documentation" title="Permalink to this headline">¶</a></h1>
-<p>Contents:</p>
+<p>This page is the starting point for browsing the ganeti documentation. It
+contains link to all the sections of the documentation, grouped by topic.</p>
+<p>The list of changes between Ganeti versions is provided in the <a class="reference internal" href="news.html"><em>News</em></a> file.</p>
+<p>In order to help understanding the Ganeti terminology, a <a class="reference internal" href="glossary.html"><em>Glossary</em></a> is
+provided.</p>
+<p>Also see the <a class="reference internal" href="search.html"><em>Search Page</em></a>.</p>
+<div class="section" id="installing-ganeti">
+<h2>Installing Ganeti<a class="headerlink" href="#installing-ganeti" title="Permalink to this headline">¶</a></h2>
+<p>In order to install Ganeti, follow the instructions contained in the
+<a class="reference internal" href="install.html"><em>Ganeti installation tutorial</em></a>.</p>
+<p>If you are an experienced user, the content of the <a class="reference internal" href="install-quick.html"><em>Ganeti quick installation guide</em></a> should
+be enough.</p>
+<p>Instructions for upgrading an existing installation to the latest version of
+Ganeti are contained in the <a class="reference internal" href="upgrade.html"><em>Upgrade notes</em></a>.</p>
+</div>
+<div class="section" id="using-ganeti">
+<h2>Using Ganeti<a class="headerlink" href="#using-ganeti" title="Permalink to this headline">¶</a></h2>
+<p>Information about how to manage a Ganeti cluster after it has been installed
+(including management of nodes, instances, info about the tools and the
+monitoring agent) can be found in <a class="reference internal" href="admin.html"><em>Ganeti administrator&#8217;s guide</em></a>.</p>
+<p>A more example-oriended guide is available in <a class="reference internal" href="walkthrough.html"><em>Ganeti walk-through</em></a>.</p>
+<p>The various tool that are part of Ganeti are described one by one in the
+<a class="reference internal" href="manpages.html"><em>Man pages</em></a>.</p>
+<p>A description of the security model underlying a Ganeti cluster can be found in
+the <a class="reference internal" href="security.html"><em>Security in Ganeti</em></a> document.</p>
+<p>Ganeti functionalities can be extended by hooking scripts automatically
+activated when certain events happen. Information on this mechanism is provided
+in the <a class="reference internal" href="hooks.html"><em>Ganeti customisation using hooks</em></a> document.</p>
+<p>While using Ganeti, the allocation of instances can happen manually or
+automatically, through some external tools making decisions about this. The API
+for such tools is described in <a class="reference internal" href="iallocator.html"><em>Ganeti automatic instance allocation</em></a>.</p>
+<p>Most of the functionalities of Ganeti can be programmatically accessed through
+an API, the <a class="reference internal" href="rapi.html"><em>Ganeti remote API</em></a>.</p>
+<p>Compatibility with the standard OVF virtual machine interchange format is
+provided by the <a class="reference internal" href="ovfconverter.html"><em>OVF converter</em></a>.</p>
+<p>Mainly for testing reasons, Ganeti also has <a class="reference internal" href="virtual-cluster.html"><em>Virtual cluster support</em></a>.</p>
+<p>A few functionalities are explicitly targeted for big installations, where
+multiple clusters are present. A tool for merging two existing clusters
+is provided, and is described in <a class="reference internal" href="cluster-merge.html"><em>Merging clusters</em></a>. There is also a document
+describing the procedure for <a class="reference internal" href="move-instance.html"><em>Moving instances between clusters</em></a>.</p>
+</div>
+<div class="section" id="developing-ganeti">
+<h2>Developing Ganeti<a class="headerlink" href="#developing-ganeti" title="Permalink to this headline">¶</a></h2>
+<p>A few documents useful for who wants to modify Ganeti are available and listed
+in this section.</p>
+<p>A description of the locking strategy and, in particular, lock order
+dependencies is presented in <a class="reference internal" href="locking.html"><em>Ganeti locking</em></a>.</p>
+<p>Build dependencies and other useful development-related information are provided
+in the <a class="reference internal" href="devnotes.html"><em>Developer notes</em></a>.</p>
+<p>All the features implemented in Ganeti are described in a design document before
+being actually implemented. Designs can be implemented in a released version, or
+be still draft (and therefore either incomplete or not implemented).</p>
+<div class="section" id="implemented-designs">
+<h3>Implemented designs<a class="headerlink" href="#implemented-designs" title="Permalink to this headline">¶</a></h3>
 <div class="toctree-wrapper compound">
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="install-quick.html">Ganeti quick installation guide</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="install-quick.html#software-requirements">Software Requirements</a></li>
-<li class="toctree-l2"><a class="reference internal" href="install-quick.html#installation-of-the-software">Installation of the software</a></li>
-<li class="toctree-l2"><a class="reference internal" href="install-quick.html#cluster-initialisation">Cluster initialisation</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="install.html">Ganeti installation tutorial</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="install.html#introduction">Introduction</a></li>
-<li class="toctree-l2"><a class="reference internal" href="install.html#installing-the-base-system-and-base-components">Installing the base system and base components</a></li>
-<li class="toctree-l2"><a class="reference internal" href="install.html#setting-up-the-environment-for-ganeti">Setting up the environment for Ganeti</a></li>
-<li class="toctree-l2"><a class="reference internal" href="install.html#further-steps">Further steps</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="upgrade.html">Upgrade notes</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="upgrade.html#and-above">2.1 and above</a></li>
-<li class="toctree-l2"><a class="reference internal" href="upgrade.html#releases">2.0 releases</a></li>
-<li class="toctree-l2"><a class="reference internal" href="upgrade.html#to-2-0">1.2 to 2.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="upgrade.html#id1">1.2 releases</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="admin.html">Ganeti administrator&#8217;s guide</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="admin.html#introduction">Introduction</a></li>
-<li class="toctree-l2"><a class="reference internal" href="admin.html#instance-management">Instance management</a></li>
-<li class="toctree-l2"><a class="reference internal" href="admin.html#instance-ha-features">Instance HA features</a></li>
-<li class="toctree-l2"><a class="reference internal" href="admin.html#node-operations">Node operations</a></li>
-<li class="toctree-l2"><a class="reference internal" href="admin.html#cluster-operations">Cluster operations</a></li>
-<li class="toctree-l2"><a class="reference internal" href="admin.html#tags-handling">Tags handling</a></li>
-<li class="toctree-l2"><a class="reference internal" href="admin.html#job-operations">Job operations</a></li>
-<li class="toctree-l2"><a class="reference internal" href="admin.html#special-ganeti-deployments">Special Ganeti deployments</a></li>
-<li class="toctree-l2"><a class="reference internal" href="admin.html#ganeti-tools">Ganeti tools</a></li>
-<li class="toctree-l2"><a class="reference internal" href="admin.html#other-ganeti-projects">Other Ganeti projects</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="walkthrough.html">Ganeti walk-through</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="walkthrough.html#introduction">Introduction</a></li>
-<li class="toctree-l2"><a class="reference internal" href="walkthrough.html#cluster-creation">Cluster creation</a></li>
-<li class="toctree-l2"><a class="reference internal" href="walkthrough.html#running-a-burn-in">Running a burn-in</a></li>
-<li class="toctree-l2"><a class="reference internal" href="walkthrough.html#instance-operations">Instance operations</a></li>
-<li class="toctree-l2"><a class="reference internal" href="walkthrough.html#recovering-from-hardware-failures">Recovering from hardware failures</a></li>
-<li class="toctree-l2"><a class="reference internal" href="walkthrough.html#common-cluster-problems">Common cluster problems</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="security.html">Security in Ganeti</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="security.html#host-issues">Host issues</a></li>
-<li class="toctree-l2"><a class="reference internal" href="security.html#cluster-issues">Cluster issues</a></li>
-<li class="toctree-l2"><a class="reference internal" href="security.html#master-daemon">Master daemon</a></li>
-<li class="toctree-l2"><a class="reference internal" href="security.html#conf-daemon">Conf daemon</a></li>
-<li class="toctree-l2"><a class="reference internal" href="security.html#remote-api">Remote API</a></li>
-<li class="toctree-l2"><a class="reference internal" href="security.html#inter-cluster-instance-moves">Inter-cluster instance moves</a></li>
-<li class="toctree-l2"><a class="reference internal" href="security.html#kvm-security">KVM Security</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="design-2.0.html">Ganeti 2.0 design</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="design-2.0.html#objective">Objective</a></li>
-<li class="toctree-l2"><a class="reference internal" href="design-2.0.html#background">Background</a></li>
-<li class="toctree-l2"><a class="reference internal" href="design-2.0.html#overview">Overview</a></li>
-<li class="toctree-l2"><a class="reference internal" href="design-2.0.html#detailed-design">Detailed design</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="design-2.1.html">Ganeti 2.1 design</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="design-2.1.html#objective">Objective</a></li>
-<li class="toctree-l2"><a class="reference internal" href="design-2.1.html#detailed-design">Detailed design</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="design-2.2.html">Ganeti 2.2 design</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="design-2.2.html#core-changes">Core changes</a></li>
-<li class="toctree-l2"><a class="reference internal" href="design-2.2.html#feature-changes">Feature changes</a></li>
-<li class="toctree-l2"><a class="reference internal" href="design-2.2.html#external-interface-changes">External interface changes</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="design-2.3.html">Ganeti 2.3 design</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="design-2.3.html#core-changes">Core changes</a></li>
-<li class="toctree-l2"><a class="reference internal" href="design-2.3.html#feature-changes">Feature changes</a></li>
-<li class="toctree-l2"><a class="reference internal" href="design-2.3.html#external-interface-changes">External interface changes</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="design-htools-2.3.html">Synchronising htools to Ganeti 2.3</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="design-htools-2.3.html#shared-storage-support">Shared storage support</a></li>
-<li class="toctree-l2"><a class="reference internal" href="design-htools-2.3.html#node-groups-support">Node groups support</a></li>
-</ul>
-</li>
+<li class="toctree-l1"><a class="reference internal" href="design-2.0.html">Ganeti 2.0 design</a></li>
+<li class="toctree-l1"><a class="reference internal" href="design-2.1.html">Ganeti 2.1 design</a></li>
+<li class="toctree-l1"><a class="reference internal" href="design-2.2.html">Ganeti 2.2 design</a></li>
+<li class="toctree-l1"><a class="reference internal" href="design-2.3.html">Ganeti 2.3 design</a></li>
+<li class="toctree-l1"><a class="reference internal" href="design-htools-2.3.html">Synchronising htools to Ganeti 2.3</a></li>
 <li class="toctree-l1"><a class="reference internal" href="design-2.4.html">Ganeti 2.4 design</a></li>
 <li class="toctree-l1"><a class="reference internal" href="design-2.5.html">Ganeti 2.5 design</a></li>
 <li class="toctree-l1"><a class="reference internal" href="design-2.6.html">Ganeti 2.6 design</a></li>
 <li class="toctree-l1"><a class="reference internal" href="design-2.7.html">Ganeti 2.7 design</a></li>
+<li class="toctree-l1"><a class="reference internal" href="design-2.8.html">Ganeti 2.8 design</a></li>
+</ul>
+</div>
+</div>
+<div class="section" id="draft-designs">
+<h3>Draft designs<a class="headerlink" href="#draft-designs" title="Permalink to this headline">¶</a></h3>
+<div class="toctree-wrapper compound">
+<ul>
 <li class="toctree-l1"><a class="reference internal" href="design-draft.html">Design document drafts</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="design-x509-ca.html">Design for a X509 Certificate Authority</a></li>
 <li class="toctree-l2"><a class="reference internal" href="design-http-server.html">Design for replacing Ganeti&#8217;s HTTP server</a></li>
 <li class="toctree-l2"><a class="reference internal" href="design-impexp2.html">Design for import/export version 2</a></li>
 <li class="toctree-l2"><a class="reference internal" href="design-resource-model.html">Resource model changes</a></li>
 <li class="toctree-l2"><a class="reference internal" href="design-query-splitting.html">Splitting the query and job execution paths</a></li>
-<li class="toctree-l2"><a class="reference internal" href="design-autorepair.html">Instance auto-repair</a></li>
 <li class="toctree-l2"><a class="reference internal" href="design-partitioned.html">Partitioned Ganeti</a></li>
 <li class="toctree-l2"><a class="reference internal" href="design-monitoring-agent.html">Ganeti monitoring agent</a></li>
+<li class="toctree-l2"><a class="reference internal" href="design-hroller.html">HRoller tool</a></li>
+<li class="toctree-l2"><a class="reference internal" href="design-storagetypes.html">Management of storage types and disk templates, incl. storage space reporting</a></li>
+<li class="toctree-l2"><a class="reference internal" href="design-daemons.html">Ganeti daemons refactoring</a></li>
 </ul>
 </li>
-<li class="toctree-l1"><a class="reference internal" href="cluster-merge.html">Merging clusters</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="cluster-merge.html#merge-clusters">Merge Clusters</a></li>
-<li class="toctree-l2"><a class="reference internal" href="cluster-merge.html#rollback">Rollback</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="locking.html">Ganeti locking</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="locking.html#introduction">Introduction</a></li>
-<li class="toctree-l2"><a class="reference internal" href="locking.html#opcode-execution-locking">Opcode Execution Locking</a></li>
-<li class="toctree-l2"><a class="reference internal" href="locking.html#job-queue-locking">Job Queue Locking</a></li>
-<li class="toctree-l2"><a class="reference internal" href="locking.html#node-daemon-locking">Node Daemon Locking</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="hooks.html">Ganeti customisation using hooks</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="hooks.html#introduction">Introduction</a></li>
-<li class="toctree-l2"><a class="reference internal" href="hooks.html#organisation">Organisation</a></li>
-<li class="toctree-l2"><a class="reference internal" href="hooks.html#operation-list">Operation list</a></li>
-<li class="toctree-l2"><a class="reference internal" href="hooks.html#environment-variables">Environment variables</a></li>
-<li class="toctree-l2"><a class="reference internal" href="hooks.html#examples">Examples</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="iallocator.html">Ganeti automatic instance allocation</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="iallocator.html#introduction">Introduction</a></li>
-<li class="toctree-l2"><a class="reference internal" href="iallocator.html#iallocator-api">IAllocator API</a></li>
-<li class="toctree-l2"><a class="reference internal" href="iallocator.html#examples">Examples</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="rapi.html">Ganeti remote API</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="rapi.html#introduction">Introduction</a></li>
-<li class="toctree-l2"><a class="reference internal" href="rapi.html#users-and-passwords">Users and passwords</a></li>
-<li class="toctree-l2"><a class="reference internal" href="rapi.html#protocol">Protocol</a></li>
-<li class="toctree-l2"><a class="reference internal" href="rapi.html#put-or-post">PUT or POST?</a></li>
-<li class="toctree-l2"><a class="reference internal" href="rapi.html#generic-parameter-types">Generic parameter types</a></li>
-<li class="toctree-l2"><a class="reference internal" href="rapi.html#generic-parameters">Generic parameters</a></li>
-<li class="toctree-l2"><a class="reference internal" href="rapi.html#parameter-details">Parameter details</a></li>
-<li class="toctree-l2"><a class="reference internal" href="rapi.html#usage-examples">Usage examples</a></li>
-<li class="toctree-l2"><a class="reference internal" href="rapi.html#resources">Resources</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="move-instance.html">Moving instances between clusters</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="move-instance.html#configuring-clusters-for-instance-moves">Configuring clusters for instance moves</a></li>
-<li class="toctree-l2"><a class="reference internal" href="move-instance.html#moving-instances">Moving instances</a></li>
-<li class="toctree-l2"><a class="reference internal" href="move-instance.html#certificates">Certificates</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="virtual-cluster.html">Virtual cluster support</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="virtual-cluster.html#introduction">Introduction</a></li>
-<li class="toctree-l2"><a class="reference internal" href="virtual-cluster.html#limitations">Limitations</a></li>
-<li class="toctree-l2"><a class="reference internal" href="virtual-cluster.html#basics">Basics</a></li>
-<li class="toctree-l2"><a class="reference internal" href="virtual-cluster.html#setup">Setup</a></li>
-<li class="toctree-l2"><a class="reference internal" href="virtual-cluster.html#use">Use</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="ovfconverter.html">OVF converter</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="ovfconverter.html#limitations-on-import">Limitations on import</a></li>
-<li class="toctree-l2"><a class="reference internal" href="ovfconverter.html#limitations-on-export">Limitations on export</a></li>
-<li class="toctree-l2"><a class="reference internal" href="ovfconverter.html#import-examples">Import examples</a></li>
-<li class="toctree-l2"><a class="reference internal" href="ovfconverter.html#export-example">Export example</a></li>
-<li class="toctree-l2"><a class="reference internal" href="ovfconverter.html#known-issues">Known issues</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="devnotes.html">Developer notes</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="devnotes.html#build-dependencies">Build dependencies</a></li>
-<li class="toctree-l2"><a class="reference internal" href="devnotes.html#configuring-for-development">Configuring for development</a></li>
-<li class="toctree-l2"><a class="reference internal" href="devnotes.html#haskell-development-notes">Haskell development notes</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="devnotes.html#packaging-notes">Packaging notes</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="devnotes.html#daemon-util"><tt class="docutils literal"><span class="pre">daemon-util</span></tt></a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="news.html">News</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-7-1">Version 2.7.1</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-7-0">Version 2.7.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-7-0-rc3">Version 2.7.0 rc3</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-7-0-rc2">Version 2.7.0 rc2</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-7-0-rc1">Version 2.7.0 rc1</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-7-0-beta3">Version 2.7.0 beta3</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-7-0-beta2">Version 2.7.0 beta2</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-7-0-beta1">Version 2.7.0 beta1</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-6-2">Version 2.6.2</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-6-1">Version 2.6.1</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-6-0">Version 2.6.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-6-0-rc4">Version 2.6.0 rc4</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-6-0-rc3">Version 2.6.0 rc3</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-6-0-rc2">Version 2.6.0 rc2</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-6-0-rc1">Version 2.6.0 rc1</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-6-0-beta2">Version 2.6.0 beta2</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-6-0-beta1">Version 2.6.0 beta1</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-5-2">Version 2.5.2</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-5-1">Version 2.5.1</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-5-0">Version 2.5.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-5-0-rc6">Version 2.5.0 rc6</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-5-0-rc5">Version 2.5.0 rc5</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-5-0-rc4">Version 2.5.0 rc4</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-5-0-rc3">Version 2.5.0 rc3</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-5-0-rc2">Version 2.5.0 rc2</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-5-0-rc1">Version 2.5.0 rc1</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-5-0-beta3">Version 2.5.0 beta3</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-5-0-beta2">Version 2.5.0 beta2</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-5-0-beta1">Version 2.5.0 beta1</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-4-5">Version 2.4.5</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-4-4">Version 2.4.4</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-4-3">Version 2.4.3</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-4-2">Version 2.4.2</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-4-1">Version 2.4.1</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-4-0">Version 2.4.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-4-0-rc3">Version 2.4.0 rc3</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-4-0-rc2">Version 2.4.0 rc2</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-4-0-rc1">Version 2.4.0 rc1</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-4-0-beta1">Version 2.4.0 beta1</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-3-1">Version 2.3.1</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-3-1-rc1">Version 2.3.1 rc1</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-3-0">Version 2.3.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-3-0-rc1">Version 2.3.0 rc1</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-3-0-rc0">Version 2.3.0 rc0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-2-2">Version 2.2.2</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-2-1">Version 2.2.1</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-2-1-rc1">Version 2.2.1 rc1</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-2-1-rc0">Version 2.2.1 rc0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-2-0-1">Version 2.2.0.1</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-2-0">Version 2.2.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-2-0-rc2">Version 2.2.0 rc2</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-2-0-rc1">Version 2.2.0 rc1</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-2-0-rc0">Version 2.2.0 rc0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-2-0-beta0">Version 2.2.0 beta0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-1-8">Version 2.1.8</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-1-7">Version 2.1.7</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-1-6">Version 2.1.6</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-1-5">Version 2.1.5</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-1-4">Version 2.1.4</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-1-3">Version 2.1.3</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-1-2-1">Version 2.1.2.1</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-1-2">Version 2.1.2</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-1-1">Version 2.1.1</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-1-0">Version 2.1.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-0-6">Version 2.0.6</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-0-5">Version 2.0.5</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-0-4">Version 2.0.4</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-0-3">Version 2.0.3</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-0-2">Version 2.0.2</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-0-1">Version 2.0.1</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-0-0">Version 2.0.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-0-rc5">Version 2.0 rc5</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-0-rc4">Version 2.0 rc4</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-0-rc3">Version 2.0 rc3</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-0-rc2">Version 2.0 rc2</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-0-rc1">Version 2.0 rc1</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-0-beta2">Version 2.0 beta2</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-2-0-beta1">Version 2.0 beta1</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-1-2-7">Version 1.2.7</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-1-2-6">Version 1.2.6</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-1-2-5">Version 1.2.5</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-1-2-4">Version 1.2.4</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-1-2-3">Version 1.2.3</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-1-2-2">Version 1.2.2</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-1-2-1">Version 1.2.1</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-1-2-0">Version 1.2.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-1-2-beta3">Version 1.2 beta3</a></li>
-<li class="toctree-l2"><a class="reference internal" href="news.html#version-1-2-beta2">Version 1.2 beta2</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="manpages.html">Man pages</a></li>
-<li class="toctree-l1"><a class="reference internal" href="glossary.html">Glossary</a></li>
 </ul>
 </div>
 <div class="toctree-wrapper compound">
 </div>
-<p>Also see the <a class="reference internal" href="search.html"><em>Search Page</em></a>.</p>
+</div>
+</div>
 </div>
 
 
@@ -321,9 +146,27 @@
       </div>
       <div class="sphinxsidebar">
         <div class="sphinxsidebarwrapper">
+  <h3><a href="#">Table Of Contents</a></h3>
+  <ul>
+<li><a class="reference internal" href="#">Welcome to Ganeti&#8217;s documentation!</a><ul>
+<li><a class="reference internal" href="#installing-ganeti">Installing Ganeti</a></li>
+<li><a class="reference internal" href="#using-ganeti">Using Ganeti</a></li>
+<li><a class="reference internal" href="#developing-ganeti">Developing Ganeti</a><ul>
+<li><a class="reference internal" href="#implemented-designs">Implemented designs</a><ul>
+</ul>
+</li>
+<li><a class="reference internal" href="#draft-designs">Draft designs</a><ul>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
   <h4>Next topic</h4>
-  <p class="topless"><a href="install-quick.html"
-                        title="next chapter">Ganeti quick installation guide</a></p>
+  <p class="topless"><a href="design-2.0.html"
+                        title="next chapter">Ganeti 2.0 design</a></p>
   <h3>This Page</h3>
   <ul class="this-page-menu">
     <li><a href="_sources/index.txt"
@@ -350,9 +193,9 @@
       <h3>Navigation</h3>
       <ul>
         <li class="right" style="margin-right: 10px">
-          <a href="install-quick.html" title="Ganeti quick installation guide"
+          <a href="design-2.0.html" title="Ganeti 2.0 design"
              >next</a></li>
-        <li><a href="#">Ganeti 2.7.1 documentation</a> &raquo;</li> 
+        <li><a href="#">Ganeti 2.8.0 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

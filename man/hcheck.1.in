@@ -52,7 +52,7 @@ simulate rebalancing.
 .RE
 .PP
 For a detailed description about the options listed above have a look at
-\f[B]htools\f[](7), \f[B]hspace\f[](1) and \f[B]hbal\f[](1).
+\f[B]htools\f[](1), \f[B]hspace\f[](1) and \f[B]hbal\f[](1).
 .SH REPORTING BUGS
 .PP
 Report bugs to project website (http://code.google.com/p/ganeti/) or

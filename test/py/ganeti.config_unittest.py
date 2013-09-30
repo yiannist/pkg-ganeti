@@ -1,7 +1,7 @@
 #!/usr/bin/python
 #
 
-# Copyright (C) 2006, 2007, 2010, 2011, 2012 Google Inc.
+# Copyright (C) 2006, 2007, 2010, 2011, 2012, 2013 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -24,12 +24,8 @@
 
 import unittest
 import os
-import time
 import tempfile
-import os.path
-import socket
 import operator
-import itertools
 
 from ganeti import bootstrap
 from ganeti import config
@@ -39,7 +35,7 @@ from ganeti import objects
 from ganeti import utils
 from ganeti import netutils
 from ganeti import compat
-from ganeti import cmdlib
+from ganeti.cmdlib import instance
 
 from ganeti.config import TemporaryReservationManager
 
@@ -65,7 +61,7 @@ class TestConfigRunner(unittest.TestCase):
       pass
 
   def _get_object(self):
-    """Returns a instance of ConfigWriter"""
+    """Returns an instance of ConfigWriter"""
     cfg = config.ConfigWriter(cfg_file=self.cfg_file, offline=True,
                               _getents=_StubGetEntResolver)
     return cfg
@@ -80,6 +76,7 @@ class TestConfigRunner(unittest.TestCase):
     cluster_config = objects.Cluster(
       serial_no=1,
       rsahostkeypub="",
+      dsahostkeypub="",
       highest_used_port=(constants.FIRST_DRBD_PORT - 1),
       mac_prefix="aa:00:00",
       volume_group_name="xenvg",
@@ -428,6 +425,135 @@ class TestConfigRunner(unittest.TestCase):
     finally:
       node2.group = orig_group
 
+  def _TestVerifyConfigIPolicy(self, ipolicy, ipowner, cfg, isgroup):
+    INVALID_KEY = "this_key_cannot_exist"
+
+    ipolicy[INVALID_KEY] = None
+    # A call to cluster.SimpleFillIPolicy causes different kinds of error
+    # depending on the owner (cluster or group)
+    if isgroup:
+      errs = cfg.VerifyConfig()
+      self.assertTrue(len(errs) >= 1)
+      errstr = "%s has invalid instance policy" % ipowner
+      self.assertTrue(_IsErrorInList(errstr, errs))
+    else:
+      self.assertRaises(AssertionError, cfg.VerifyConfig)
+    del ipolicy[INVALID_KEY]
+    errs = cfg.VerifyConfig()
+    self.assertFalse(errs)
+
+    key = list(constants.IPOLICY_PARAMETERS)[0]
+    hasoldv = (key in ipolicy)
+    if hasoldv:
+      oldv = ipolicy[key]
+    ipolicy[key] = "blah"
+    errs = cfg.VerifyConfig()
+    self.assertTrue(len(errs) >= 1)
+    self.assertTrue(_IsErrorInList("%s has invalid instance policy" % ipowner,
+                                   errs))
+    if hasoldv:
+      ipolicy[key] = oldv
+    else:
+      del ipolicy[key]
+
+    ispeclist = []
+    if constants.ISPECS_MINMAX in ipolicy:
+      for k in range(len(ipolicy[constants.ISPECS_MINMAX])):
+        ispeclist.extend([
+            (ipolicy[constants.ISPECS_MINMAX][k][constants.ISPECS_MIN],
+             "%s[%s]/%s" % (constants.ISPECS_MINMAX, k, constants.ISPECS_MIN)),
+            (ipolicy[constants.ISPECS_MINMAX][k][constants.ISPECS_MAX],
+             "%s[%s]/%s" % (constants.ISPECS_MINMAX, k, constants.ISPECS_MAX)),
+            ])
+    if constants.ISPECS_STD in ipolicy:
+      ispeclist.append((ipolicy[constants.ISPECS_STD], constants.ISPECS_STD))
+
+    for (ispec, ispecpath) in ispeclist:
+      ispec[INVALID_KEY] = None
+      errs = cfg.VerifyConfig()
+      self.assertTrue(len(errs) >= 1)
+      self.assertTrue(_IsErrorInList(("%s has invalid ipolicy/%s" %
+                                      (ipowner, ispecpath)), errs))
+      del ispec[INVALID_KEY]
+      errs = cfg.VerifyConfig()
+      self.assertFalse(errs)
+
+      for par in constants.ISPECS_PARAMETERS:
+        hasoldv = par in ispec
+        if hasoldv:
+          oldv = ispec[par]
+        ispec[par] = "blah"
+        errs = cfg.VerifyConfig()
+        self.assertTrue(len(errs) >= 1)
+        self.assertTrue(_IsErrorInList(("%s has invalid ipolicy/%s" %
+                                        (ipowner, ispecpath)), errs))
+        if hasoldv:
+          ispec[par] = oldv
+        else:
+          del ispec[par]
+        errs = cfg.VerifyConfig()
+        self.assertFalse(errs)
+
+    if constants.ISPECS_MINMAX in ipolicy:
+      # Test partial minmax specs
+      for minmax in ipolicy[constants.ISPECS_MINMAX]:
+        for key in constants.ISPECS_MINMAX_KEYS:
+          self.assertTrue(key in minmax)
+          ispec = minmax[key]
+          del minmax[key]
+          errs = cfg.VerifyConfig()
+          self.assertTrue(len(errs) >= 1)
+          self.assertTrue(_IsErrorInList("Missing instance specification",
+                                         errs))
+          minmax[key] = ispec
+          for par in constants.ISPECS_PARAMETERS:
+            oldv = ispec[par]
+            del ispec[par]
+            errs = cfg.VerifyConfig()
+            self.assertTrue(len(errs) >= 1)
+            self.assertTrue(_IsErrorInList("Missing instance specs parameters",
+                                           errs))
+            ispec[par] = oldv
+      errs = cfg.VerifyConfig()
+      self.assertFalse(errs)
+
+  def _TestVerifyConfigGroupIPolicy(self, groupinfo, cfg):
+    old_ipolicy = groupinfo.ipolicy
+    ipolicy = cfg.GetClusterInfo().SimpleFillIPolicy({})
+    groupinfo.ipolicy = ipolicy
+    # Test partial policies
+    for key in constants.IPOLICY_ALL_KEYS:
+      self.assertTrue(key in ipolicy)
+      oldv = ipolicy[key]
+      del ipolicy[key]
+      errs = cfg.VerifyConfig()
+      self.assertFalse(errs)
+      ipolicy[key] = oldv
+    groupinfo.ipolicy = old_ipolicy
+
+  def _TestVerifyConfigClusterIPolicy(self, ipolicy, cfg):
+    # Test partial policies
+    for key in constants.IPOLICY_ALL_KEYS:
+      self.assertTrue(key in ipolicy)
+      oldv = ipolicy[key]
+      del ipolicy[key]
+      self.assertRaises(AssertionError, cfg.VerifyConfig)
+      ipolicy[key] = oldv
+    errs = cfg.VerifyConfig()
+    self.assertFalse(errs)
+    # Partial standard specs
+    ispec = ipolicy[constants.ISPECS_STD]
+    for par in constants.ISPECS_PARAMETERS:
+      oldv = ispec[par]
+      del ispec[par]
+      errs = cfg.VerifyConfig()
+      self.assertTrue(len(errs) >= 1)
+      self.assertTrue(_IsErrorInList("Missing instance specs parameters",
+                                     errs))
+      ispec[par] = oldv
+    errs = cfg.VerifyConfig()
+    self.assertFalse(errs)
+
   def testVerifyConfig(self):
     cfg = self._get_object()
 
@@ -444,6 +570,15 @@ class TestConfigRunner(unittest.TestCase):
     del node.ndparams[key]
     errs = cfg.VerifyConfig()
     self.assertFalse(errs)
+
+    cluster = cfg.GetClusterInfo()
+    nodegroup = cfg.GetNodeGroup(cfg.GetNodeGroupList()[0])
+    self._TestVerifyConfigIPolicy(cluster.ipolicy, "cluster", cfg, False)
+    self._TestVerifyConfigClusterIPolicy(cluster.ipolicy, cfg)
+    self._TestVerifyConfigIPolicy(nodegroup.ipolicy, nodegroup.name, cfg, True)
+    self._TestVerifyConfigGroupIPolicy(nodegroup, cfg)
+    nodegroup.ipolicy = cluster.SimpleFillIPolicy(nodegroup.ipolicy)
+    self._TestVerifyConfigIPolicy(nodegroup.ipolicy, nodegroup.name, cfg, True)
 
 
 def _IsErrorInList(err_str, err_list):
@@ -476,7 +611,7 @@ class TestCheckInstanceDiskIvNames(unittest.TestCase):
   def testNoError(self):
     disks = self._MakeDisks(["disk/0", "disk/1"])
     self.assertEqual(config._CheckInstanceDiskIvNames(disks), [])
-    cmdlib._UpdateIvNames(0, disks)
+    instance._UpdateIvNames(0, disks)
     self.assertEqual(config._CheckInstanceDiskIvNames(disks), [])
 
   def testWrongNames(self):
@@ -487,7 +622,7 @@ class TestCheckInstanceDiskIvNames(unittest.TestCase):
       ])
 
     # Fix names
-    cmdlib._UpdateIvNames(0, disks)
+    instance._UpdateIvNames(0, disks)
     self.assertEqual(config._CheckInstanceDiskIvNames(disks), [])
 
 

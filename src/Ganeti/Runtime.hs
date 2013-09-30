@@ -29,6 +29,7 @@ module Ganeti.Runtime
   , GanetiGroup(..)
   , RuntimeEnts
   , daemonName
+  , daemonOnlyOnMaster
   , daemonUser
   , daemonGroup
   , daemonLogFile
@@ -56,6 +57,8 @@ data GanetiDaemon = GanetiMasterd
                   | GanetiNoded
                   | GanetiRapi
                   | GanetiConfd
+                  | GanetiLuxid
+                  | GanetiMond
                     deriving (Show, Enum, Bounded, Eq, Ord)
 
 data MiscGroup = DaemonsGroup
@@ -74,6 +77,17 @@ daemonName GanetiMasterd = C.masterd
 daemonName GanetiNoded   = C.noded
 daemonName GanetiRapi    = C.rapi
 daemonName GanetiConfd   = C.confd
+daemonName GanetiLuxid   = C.luxid
+daemonName GanetiMond    = C.mond
+
+-- | Returns whether the daemon only runs on the master node.
+daemonOnlyOnMaster :: GanetiDaemon -> Bool
+daemonOnlyOnMaster GanetiMasterd = True
+daemonOnlyOnMaster GanetiNoded   = False
+daemonOnlyOnMaster GanetiRapi    = False
+daemonOnlyOnMaster GanetiConfd   = False
+daemonOnlyOnMaster GanetiLuxid   = True
+daemonOnlyOnMaster GanetiMond    = False
 
 -- | Returns the log file base for a daemon.
 daemonLogBase :: GanetiDaemon -> String
@@ -81,6 +95,8 @@ daemonLogBase GanetiMasterd = C.daemonsLogbaseGanetiMasterd
 daemonLogBase GanetiNoded   = C.daemonsLogbaseGanetiNoded
 daemonLogBase GanetiRapi    = C.daemonsLogbaseGanetiRapi
 daemonLogBase GanetiConfd   = C.daemonsLogbaseGanetiConfd
+daemonLogBase GanetiLuxid   = C.daemonsLogbaseGanetiLuxid
+daemonLogBase GanetiMond    = C.daemonsLogbaseGanetiMond
 
 -- | Returns the configured user name for a daemon.
 daemonUser :: GanetiDaemon -> String
@@ -88,6 +104,8 @@ daemonUser GanetiMasterd = C.masterdUser
 daemonUser GanetiNoded   = C.nodedUser
 daemonUser GanetiRapi    = C.rapiUser
 daemonUser GanetiConfd   = C.confdUser
+daemonUser GanetiLuxid   = C.luxidUser
+daemonUser GanetiMond    = C.mondUser
 
 -- | Returns the configured group for a daemon.
 daemonGroup :: GanetiGroup -> String
@@ -95,6 +113,8 @@ daemonGroup (DaemonGroup GanetiMasterd) = C.masterdGroup
 daemonGroup (DaemonGroup GanetiNoded)   = C.nodedGroup
 daemonGroup (DaemonGroup GanetiRapi)    = C.rapiGroup
 daemonGroup (DaemonGroup GanetiConfd)   = C.confdGroup
+daemonGroup (DaemonGroup GanetiLuxid)   = C.luxidGroup
+daemonGroup (DaemonGroup GanetiMond)    = C.mondGroup
 daemonGroup (ExtraGroup  DaemonsGroup)  = C.daemonsGroup
 daemonGroup (ExtraGroup  AdminGroup)    = C.adminGroup
 

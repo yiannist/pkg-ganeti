@@ -54,6 +54,10 @@ This will be fixed in a future version.
 .PD 0
 .P
 .PD
+[--no-conflicts-check]
+.PD 0
+.P
+.PD
 {\f[I]network\f[]}
 .PP
 Creates a new network with the given name.
@@ -72,6 +76,9 @@ IPv6 semantics can be assigned to the network via the
 \f[C]--network6\f[] and \f[C]--gateway6\f[] options.
 IP pool is meaningless for IPV6 so those two values can be used for
 EUI64 generation from a NIC\[aq]s MAC address.
+.PP
+The \f[C]--no-conflicts-check\f[] option can be used to skip the check
+for conflicting IP addresses.
 .PP
 Note that a when connecting a network to a node group (see below) you
 can specify also the NIC mode and link that will be used by instances on
@@ -268,13 +275,23 @@ List available fields for networks.
 Displays information about a given network.
 .SS CONNECT
 .PP
-\f[B]connect\f[] {\f[I]network\f[]} {\f[I]mode\f[]} {\f[I]link\f[]}
-[\f[I]groups\f[]...]
+\f[B]connect\f[]
+.PD 0
+.P
+.PD
+[--no-conflicts-check]
+.PD 0
+.P
+.PD
+{\f[I]network\f[]} {\f[I]mode\f[]} {\f[I]link\f[]} [\f[I]groups\f[]...]
 .PP
 Connect a network to given node groups (all if not specified) with the
 network parameters \f[I]mode\f[] and \f[I]link\f[].
 Every network interface will inherit those parameters if assigned in a
 network.
+.PP
+The \f[C]--no-conflicts-check\f[] option can be used to skip the check
+for conflicting IP addresses.
 .SS DISCONNECT
 .PP
 \f[B]disconnect\f[] {\f[I]network\f[]} [\f[I]groups\f[]...]

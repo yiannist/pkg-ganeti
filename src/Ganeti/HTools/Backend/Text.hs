@@ -7,7 +7,7 @@ files, as produced by @gnt-node@ and @gnt-instance@ @list@ command.
 
 {-
 
-Copyright (C) 2009, 2010, 2011, 2012 Google Inc.
+Copyright (C) 2009, 2010, 2011, 2012, 2013 Google Inc.
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -32,12 +32,14 @@ module Ganeti.HTools.Backend.Text
   , loadInst
   , loadNode
   , loadISpec
+  , loadMultipleMinMaxISpecs
   , loadIPolicy
   , serializeInstances
   , serializeNode
   , serializeNodes
   , serializeGroup
   , serializeISpec
+  , serializeMultipleMinMaxISpecs
   , serializeIPolicy
   , serializeCluster
   ) where
@@ -67,9 +69,10 @@ commaSplit = sepSplit ','
 -- | Serialize a single group.
 serializeGroup :: Group.Group -> String
 serializeGroup grp =
-  printf "%s|%s|%s|%s" (Group.name grp) (Group.uuid grp)
+  printf "%s|%s|%s|%s|%s" (Group.name grp) (Group.uuid grp)
            (allocPolicyToRaw (Group.allocPolicy grp))
            (intercalate "," (Group.allTags grp))
+           (intercalate "," (Group.networks grp))
 
 -- | Generate group file data from a group list.
 serializeGroups :: Group.List -> String
@@ -83,7 +86,8 @@ serializeNode gl node =
   printf "%s|%.0f|%d|%d|%.0f|%d|%.0f|%c|%s|%d" (Node.name node)
            (Node.tMem node) (Node.nMem node) (Node.fMem node)
            (Node.tDsk node) (Node.fDsk node) (Node.tCpu node)
-           (if Node.offline node then 'Y' else 'N')
+           (if Node.offline node then 'Y' else
+              if Node.isMaster node then 'M' else 'N')
            (Group.uuid grp)
            (Node.spindleCount node)
     where grp = Container.find (Node.group node) gl
@@ -116,6 +120,10 @@ serializeInstances :: Node.List -> Instance.List -> String
 serializeInstances nl =
   unlines . map (serializeInstance nl) . Container.elems
 
+-- | Separator between ISpecs (in MinMaxISpecs).
+iSpecsSeparator :: Char
+iSpecsSeparator = ';'
+
 -- | Generate a spec data from a given ISpec object.
 serializeISpec :: ISpec -> String
 serializeISpec ispec =
@@ -129,14 +137,20 @@ serializeISpec ispec =
 serializeDiskTemplates :: [DiskTemplate] -> String
 serializeDiskTemplates = intercalate "," . map diskTemplateToRaw
 
+-- | Generate min/max instance specs data.
+serializeMultipleMinMaxISpecs :: [MinMaxISpecs] -> String
+serializeMultipleMinMaxISpecs minmaxes =
+  intercalate [iSpecsSeparator] $ foldr serialpair [] minmaxes
+  where serialpair (MinMaxISpecs minspec maxspec) acc =
+          serializeISpec minspec : serializeISpec maxspec : acc
+
 -- | Generate policy data from a given policy object.
 serializeIPolicy :: String -> IPolicy -> String
 serializeIPolicy owner ipol =
-  let IPolicy stdspec minspec maxspec dts vcpu_ratio spindle_ratio = ipol
+  let IPolicy minmax stdspec dts vcpu_ratio spindle_ratio = ipol
       strings = [ owner
                 , serializeISpec stdspec
-                , serializeISpec minspec
-                , serializeISpec maxspec
+                , serializeMultipleMinMaxISpecs minmax
                 , serializeDiskTemplates dts
                 , show vcpu_ratio
                 , show spindle_ratio
@@ -169,11 +183,12 @@ serializeCluster (ClusterData gl nl il ctags cpol) =
 loadGroup :: (Monad m) => [String]
           -> m (String, Group.Group) -- ^ The result, a tuple of group
                                      -- UUID and group object
-loadGroup [name, gid, apol, tags] = do
+loadGroup [name, gid, apol, tags, nets] = do
   xapol <- allocPolicyFromRaw apol
   let xtags = commaSplit tags
-  return (gid, Group.create name gid xapol defIPolicy xtags)
-
+  let xnets = commaSplit nets
+  return (gid, Group.create name gid xapol xnets defIPolicy xtags)
+loadGroup [name, gid, apol, tags] = loadGroup [name, gid, apol, tags, ""]
 loadGroup s = fail $ "Invalid/incomplete group data: '" ++ show s ++ "'"
 
 -- | Load a node from a field list.
@@ -195,7 +210,8 @@ loadNode ktg [name, tm, nm, fm, td, fd, tc, fo, gu, spindles] = do
         vfd <- tryRead name fd
         vtc <- tryRead name tc
         vspindles <- tryRead name spindles
-        return $ Node.create name vtm vnm vfm vtd vfd vtc False vspindles gdx
+        return . flip Node.setMaster (fo == "M") $
+          Node.create name vtm vnm vfm vtd vfd vtc False vspindles gdx
   return (name, new_node)
 
 loadNode ktg [name, tm, nm, fm, td, fd, tc, fo, gu] =
@@ -231,7 +247,7 @@ loadInst ktn [ name, mem, dsk, vcpus, status, auto_bal, pnode, snode
            " has same primary and secondary node - " ++ pnode
   let vtags = commaSplit tags
       newinst = Instance.create name vmem vdsk [vdsk] vvcpus vstatus vtags
-                auto_balance pidx sidx disk_template spindle_use
+                auto_balance pidx sidx disk_template spindle_use []
   return (name, newinst)
 
 loadInst ktn [ name, mem, dsk, vcpus, status, auto_bal, pnode, snode
@@ -252,18 +268,42 @@ loadISpec owner [mem_s, cpu_c, dsk_s, dsk_c, nic_c, su] = do
   return $ ISpec xmem_s xcpu_c xdsk_s xdsk_c xnic_c xsu
 loadISpec owner s = fail $ "Invalid ispec data for " ++ owner ++ ": " ++ show s
 
--- | Loads an ipolicy from a field list.
-loadIPolicy :: [String] -> Result (String, IPolicy)
-loadIPolicy [owner, stdspec, minspec, maxspec, dtemplates,
-             vcpu_ratio, spindle_ratio] = do
-  xstdspec <- loadISpec (owner ++ "/stdspec") (commaSplit stdspec)
+-- | Load a single min/max ISpec pair
+loadMinMaxISpecs :: String -> String -> String -> Result MinMaxISpecs
+loadMinMaxISpecs owner minspec maxspec = do
   xminspec <- loadISpec (owner ++ "/minspec") (commaSplit minspec)
   xmaxspec <- loadISpec (owner ++ "/maxspec") (commaSplit maxspec)
+  return $ MinMaxISpecs xminspec xmaxspec
+
+-- | Break a list of ispecs strings into a list of (min/max) ispecs pairs
+breakISpecsPairs :: String -> [String] -> Result [(String, String)]
+breakISpecsPairs _ [] =
+  return []
+breakISpecsPairs owner (x:y:xs) = do
+  rest <- breakISpecsPairs owner xs
+  return $ (x, y) : rest
+breakISpecsPairs owner _ =
+  fail $ "Odd number of min/max specs for " ++ owner
+
+-- | Load a list of min/max ispecs pairs
+loadMultipleMinMaxISpecs :: String -> [String] -> Result [MinMaxISpecs]
+loadMultipleMinMaxISpecs owner ispecs = do
+  pairs <- breakISpecsPairs owner ispecs
+  mapM (uncurry $ loadMinMaxISpecs owner) pairs
+
+-- | Loads an ipolicy from a field list.
+loadIPolicy :: [String] -> Result (String, IPolicy)
+loadIPolicy [owner, stdspec, minmaxspecs, dtemplates,
+             vcpu_ratio, spindle_ratio] = do
+  xstdspec <- loadISpec (owner ++ "/stdspec") (commaSplit stdspec)
+  xminmaxspecs <- loadMultipleMinMaxISpecs owner $
+                  sepSplit iSpecsSeparator minmaxspecs
   xdts <- mapM diskTemplateFromRaw $ commaSplit dtemplates
   xvcpu_ratio <- tryRead (owner ++ "/vcpu_ratio") vcpu_ratio
   xspindle_ratio <- tryRead (owner ++ "/spindle_ratio") spindle_ratio
   return (owner,
-          IPolicy xstdspec xminspec xmaxspec xdts xvcpu_ratio xspindle_ratio)
+          IPolicy xminmaxspecs xstdspec
+                xdts xvcpu_ratio xspindle_ratio)
 loadIPolicy s = fail $ "Invalid ipolicy data: '" ++ show s ++ "'"
 
 loadOnePolicy :: (IPolicy, Group.List) -> String

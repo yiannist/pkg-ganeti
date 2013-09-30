@@ -51,6 +51,7 @@ import Test.Ganeti.HTools.Loader
 import Test.Ganeti.HTools.Node
 import Test.Ganeti.HTools.PeerMap
 import Test.Ganeti.HTools.Types
+import Test.Ganeti.Hypervisor.Xen.XmParser
 import Test.Ganeti.JSON
 import Test.Ganeti.Jobs
 import Test.Ganeti.JQueue
@@ -60,6 +61,7 @@ import Test.Ganeti.Objects
 import Test.Ganeti.OpCodes
 import Test.Ganeti.Query.Filter
 import Test.Ganeti.Query.Language
+import Test.Ganeti.Query.Network
 import Test.Ganeti.Query.Query
 import Test.Ganeti.Rpc
 import Test.Ganeti.Runtime
@@ -103,6 +105,7 @@ allTests =
   , testHTools_Node
   , testHTools_PeerMap
   , testHTools_Types
+  , testHypervisor_Xen_XmParser
   , testJSON
   , testJobs
   , testJQueue
@@ -112,6 +115,7 @@ allTests =
   , testOpCodes
   , testQuery_Filter
   , testQuery_Language
+  , testQuery_Network
   , testQuery_Query
   , testRpc
   , testRuntime

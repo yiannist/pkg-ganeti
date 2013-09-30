@@ -24,16 +24,16 @@
 <h1 id="name"><a href="#TOC">Name</a></h1>
 <p>ganeti-rapi - Ganeti remote API daemon</p>
 <h1 id="synopsis"><a href="#TOC">Synopsis</a></h1>
-<p><strong>ganeti-rapi</strong> [-d] [-f] [--no-ssl] [-K <em>SSL_KEY_FILE</em>] [-C <em>SSL_CERT_FILE</em>]</p>
+<p><strong>ganeti-rapi</strong> [-d] [-f] [--no-ssl] [-K <em>SSL_KEY_FILE</em>]<br />[-C <em>SSL_CERT_FILE</em>] [--require-authentication]</p>
 <h1 id="description"><a href="#TOC">DESCRIPTION</a></h1>
 <p><strong>ganeti-rapi</strong> is the daemon providing a remote API for Ganeti clusters.</p>
 <p>It is automatically started on the master node, and by default it uses SSL encryption. This can be disabled by passing the <code>--no-ssl</code> option, or alternatively the certificate used can be changed via the <code>-C</code> option and the key via the <code>-K</code> option.</p>
-<p>The daemon will listen to the &quot;ganeti-rapi&quot; tcp port, as listed in the system services database, or if not defined, to port 5080 by default.</p>
+<p>The daemon will listen to the &quot;ganeti-rapi&quot; TCP port, as listed in the system services database, or if not defined, to port 5080 by default.</p>
 <p>See the <em>Ganeti remote API</em> documentation for further information.</p>
 <p>Requests are logged to <code>@LOCALSTATEDIR@/log/ganeti/rapi-daemon.log</code>, in the same format as for the node and master daemon.</p>
 <h1 id="access-controls"><a href="#TOC">ACCESS CONTROLS</a></h1>
-<p>Most query operations are allowed without authentication. Only the modification operations require authentication, in the form of basic authentication.</p>
-<p>The users and their rights are defined in the <code>@LOCALSTATEDIR@/lib/ganeti/rapi/users</code> file. Format of this file is described in the Ganeti documentation (<code>rapi.html</code>).</p>
+<p>Most query operations are allowed without authentication. Only the modification operations require authentication, in the form of basic authentication. Specify the <code>--require-authentication</code> command line flag to always require authentication.</p>
+<p>The users and their rights are defined in the <code>@LOCALSTATEDIR@/lib/ganeti/rapi/users</code> file. The format of this file is described in the Ganeti documentation (<code>rapi.html</code>).</p>
 <h1 id="reporting-bugs"><a href="#TOC">REPORTING BUGS</a></h1>
 <p>Report bugs to <a href="http://code.google.com/p/ganeti/">project website</a> or contact the developers using the <a href="ganeti@googlegroups.com">Ganeti mailing list</a>.</p>
 <h1 id="see-also"><a href="#TOC">SEE ALSO</a></h1>

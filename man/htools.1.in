@@ -222,6 +222,8 @@ group uuid
 allocation policy
 .IP \[bu] 2
 tags (separated by comma)
+.IP \[bu] 2
+networks (UUID\[aq]s, separated by comma)
 .PP
 The second sections contains node data, with the following columns:
 .IP \[bu] 2
@@ -239,7 +241,9 @@ node free disk
 .IP \[bu] 2
 node physical cores
 .IP \[bu] 2
-offline field (as \f[C]Y\f[] or \f[C]N\f[])
+offline/role field (\f[C]Y\f[] for offline nodes, \f[C]N\f[] for online
+non-master nodes, and \f[C]M\f[] for the master node which is always
+online)
 .IP \[bu] 2
 group UUID
 .IP \[bu] 2
@@ -278,8 +282,10 @@ groups, in the following format (separated by \f[C]|\f[]):
 .IP \[bu] 2
 owner (empty if cluster, group name otherwise)
 .IP \[bu] 2
-standard, min, max instance specs, containing the following values
-separated by commas:
+standard, min, max instance specs; min and max instance specs are
+separated between them by a semicolon, and can be specified multiple
+times (min;max;min;max...)
+; each of the specs contains the following values separated by commas:
 .RS 2
 .IP \[bu] 2
 memory size

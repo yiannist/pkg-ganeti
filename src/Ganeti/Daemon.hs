@@ -45,13 +45,16 @@ module Ganeti.Daemon
   , genericMain
   ) where
 
+import Control.Concurrent
 import Control.Exception
 import Control.Monad
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Word
 import GHC.IO.Handle (hDuplicateTo)
+import Network.BSD (getHostName)
 import qualified Network.Socket as Socket
 import System.Console.GetOpt
+import System.Directory
 import System.Exit
 import System.Environment
 import System.IO
@@ -234,6 +237,19 @@ setupDaemonEnv cwd umask = do
   _ <- createSession
   return ()
 
+-- | Cleanup function, performing all the operations that need to be done prior
+-- to shutting down a daemon.
+finalCleanup :: FilePath -> IO ()
+finalCleanup = removeFile
+
+-- | Signal handler for the termination signal.
+handleSigTerm :: ThreadId -> IO ()
+handleSigTerm mainTID =
+  -- Throw termination exception to the main thread, so that the daemon is
+  -- actually stopped in the proper way, executing all the functions waiting on
+  -- "finally" statement.
+  Control.Exception.throwTo mainTID ExitSuccess
+
 -- | Signal handler for reopening log files.
 handleSigHup :: FilePath -> IO ()
 handleSigHup path = do
@@ -291,6 +307,47 @@ parseAddress opts defport = do
                     (resolveAddr port saddr)
                     (ioErrorToResult $ "Invalid address " ++ saddr)
 
+-- | Environment variable to override the assumed host name of the
+-- current node.
+vClusterHostNameEnvVar :: String
+vClusterHostNameEnvVar = "GANETI_HOSTNAME"
+
+getFQDN :: IO String
+getFQDN = do
+  hostname <- getHostName
+  addrInfos <- Socket.getAddrInfo Nothing (Just hostname) Nothing
+  let address = listToMaybe addrInfos >>= (Just . Socket.addrAddress)
+  case address of
+    Just a -> do
+      fqdn <- liftM fst $ Socket.getNameInfo [] True False a
+      return (fromMaybe hostname fqdn)
+    Nothing -> return hostname
+
+-- | Returns if the current node is the master node.
+isMaster :: IO Bool
+isMaster = do
+  let ioErrorToNothing :: IOError -> IO (Maybe String)
+      ioErrorToNothing _ = return Nothing
+  vcluster_node <- Control.Exception.catch
+                     (liftM Just (getEnv vClusterHostNameEnvVar))
+                     ioErrorToNothing
+  curNode <- case vcluster_node of
+    Just node_name -> return node_name
+    Nothing -> getFQDN
+  masterNode <- Ssconf.getMasterNode Nothing
+  case masterNode of
+    Ok n -> return (curNode == n)
+    Bad _ -> return False
+
+-- | Ensures that the daemon runs on the right node (and exits
+-- gracefully if it doesnt)
+ensureNode :: GanetiDaemon -> IO ()
+ensureNode daemon = do
+  is_master <- isMaster
+  when (daemonOnlyOnMaster daemon && not is_master) $ do
+    putStrLn "Not master, exiting."
+    exitWith (ExitFailure C.exitNotmaster)
+
 -- | Run an I\/O action that might throw an I\/O error, under a
 -- handler that will simply annotate and re-throw the exception.
 describeError :: String -> Maybe Handle -> Maybe FilePath -> IO a -> IO a
@@ -337,7 +394,10 @@ genericMain :: GanetiDaemon -- ^ The daemon we're running
             -> IO ()
 genericMain daemon options check_fn prep_fn exec_fn = do
   let progname = daemonName daemon
+
   (opts, args) <- parseArgs progname options
+
+  ensureNode daemon
 
   exitUnless (null args) "This program doesn't take any arguments"
 
@@ -373,7 +433,7 @@ fullPrep :: GanetiDaemon  -- ^ The daemon we're running
          -> SyslogUsage   -- ^ Syslog mode
          -> a             -- ^ Check results
          -> PrepFn a b    -- ^ Prepare function
-         -> IO b
+         -> IO (FilePath, b)
 fullPrep daemon opts syslog check_result prep_fn = do
   logfile <- if optDaemonize opts
                then return Nothing
@@ -384,7 +444,10 @@ fullPrep daemon opts syslog check_result prep_fn = do
   _ <- describeError "writing PID file; already locked?"
          Nothing (Just pidfile) $ writePidFile pidfile
   logNotice $ dname ++ " daemon startup"
-  prep_fn opts check_result
+  prep_res <- prep_fn opts check_result
+  tid <- myThreadId
+  _ <- installHandler sigTERM (Catch $ handleSigTerm tid) Nothing
+  return (pidfile, prep_res)
 
 -- | Inner daemon function.
 --
@@ -398,11 +461,11 @@ innerMain :: GanetiDaemon  -- ^ The daemon we're running
           -> Maybe Fd      -- ^ Error reporting function
           -> IO ()
 innerMain daemon opts syslog check_result prep_fn exec_fn fd = do
-  prep_result <- fullPrep daemon opts syslog check_result prep_fn
+  (pidFile, prep_result) <- fullPrep daemon opts syslog check_result prep_fn
                  `Control.Exception.catch` handlePrepErr True fd
   -- no error reported, we should now close the fd
   maybeCloseFd fd
-  exec_fn opts check_result prep_result
+  finally (exec_fn opts check_result prep_result) (finalCleanup pidFile)
 
 -- | Daemon prepare error handling function.
 handlePrepErr :: Bool -> Maybe Fd -> IOError -> IO a

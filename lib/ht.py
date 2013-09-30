@@ -297,7 +297,7 @@ def TAnd(*args):
 
 
 def TOr(*args):
-  """Combine multiple functions using an AND operation.
+  """Combine multiple functions using an OR operation.
 
   """
   def fn(val):
@@ -355,6 +355,9 @@ TMaybeBool = TMaybe(TBool)
 
 #: Maybe a dictionary (dict or None)
 TMaybeDict = TMaybe(TDict)
+
+#: Maybe a list (list or None)
+TMaybeList = TMaybe(TList)
 
 #: a non-negative integer (value >= 0)
 TNonNegativeInt = \
