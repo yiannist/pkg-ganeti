@@ -1,3 +1,13 @@
+ganeti (2.8.0-1) unstable; urgency=low
+
+  As of 2.8.0-1, ganeti is configured to use separate users for its daemons.
+  Each daemon now runs as a different user (all with a “gnt-” username prefix)
+  and root access is currently granted only to the node daemon. This is a
+  build-time setting and existing installations will be automatically converted
+  to use the new user separation model.
+
+ -- Apollon Oikonomopoulos <apoikos@gmail.com>  Tue, 01 Oct 2013 18:02:24 +0300
+
 ganeti (2.7.0-2) unstable; urgency=low
   The ganeti2 package has been renamed to ganeti, since the original reasons
   for nameing the package ganeti2 (i.e. the 1.2 to 2.0 migration) no longer
