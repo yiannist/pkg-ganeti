@@ -6,16 +6,15 @@ ganeti (2.8.0-1) unstable; urgency=low
   [ Apollon Oikonomopoulos ]
   * New upstream version (Closes: #721824)
   * Replace forgotten iproute dependency with iproute2
-  * Build-Depend on libghc-snap-server-dev
+  * Build-Depend on libghc-snap-server-dev for the new ganeti-mond
   * Ship ganeti-mond and ganeti-luxid in ganeti-haskell
   * Require python version >= 2.6
-  * Build-Depend on python-yaml
   * Enable user separation
     + Add postinst/postrm templates and generator script
     + Update logrotate snippet to use su root root due to logdir permissions
     + Update job queue archive permissions in postinst if necessary
   * Disable the test suite during build
-    + Broken due to the user separation
+    + Currently broken due to the user separation
 
  -- Apollon Oikonomopoulos <apoikos@gmail.com>  Mon, 30 Sep 2013 14:29:51 +0300
 
