@@ -4,7 +4,7 @@ ganeti (2.8.0-1) unstable; urgency=low
   * Remove myself from uploaders
 
   [ Apollon Oikonomopoulos ]
-  * New upstream version
+  * New upstream version (Closes: #721824)
   * Replace forgotten iproute dependency with iproute2
   * Build-Depend on libghc-snap-server-dev
   * Ship ganeti-mond and ganeti-luxid in ganeti-haskell
