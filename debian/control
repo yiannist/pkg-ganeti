@@ -23,7 +23,8 @@ Vcs-Git: git://anonscm.debian.org/pkg-ganeti/ganeti.git
 
 Package: ganeti
 Architecture: all
-Breaks: ganeti2 (<< 2.7.0-2), ganeti-htools (<< 0.3)
+Breaks: ganeti2 (<< 2.7.0-2), ganeti-htools (<< ${source:Version}),
+ ganeti-htools (>= ${source:Version}.1~)
 Replaces: ganeti2 (<< 2.7.0-2)
 Depends: ${shlibs:Depends}, ${misc:Depends}, ${python:Depends}, lvm2,
  openssh-client, openssh-server, bridge-utils, iproute2, iputils-arping,
@@ -33,8 +34,8 @@ Depends: ${shlibs:Depends}, ${misc:Depends}, ${python:Depends}, lvm2,
  ganeti-haskell (<< ${source:Version}.1~), adduser
 Recommends: drbd8-utils (>= 8.0.7), qemu-system-x86 |
  xen-linux-system-amd64 | xen-linux-system-686-pae,
- ganeti-instance-debootstrap, ndisc6
-Suggests: ganeti-htools, ganeti-doc
+ ganeti-instance-debootstrap, ndisc6, ganeti-htools
+Suggests: ganeti-doc
 Provides: ${python:Provides}
 Description: Cluster-based virtualization management software
  Ganeti is a virtual server cluster management software tool built on top
