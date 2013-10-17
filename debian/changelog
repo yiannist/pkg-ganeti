@@ -1,3 +1,15 @@
+ganeti (2.8.1-1) unstable; urgency=low
+
+  * New upstream version (closes: #726502)
+  * Specify additional extstorage provider search paths:
+    + /srv/ganeti/extstorage
+    + /usr/local/lib/ganeti/extstorage
+    + /usr/lib/ganeti/extstorage
+    + /usr/share/ganeti/extstorage
+  * Recommend ganeti-htools (instead of Suggest) and break older htools versions
+
+ -- Apollon Oikonomopoulos <apoikos@gmail.com>  Thu, 17 Oct 2013 23:16:36 +0300
+
 ganeti (2.8.0-1) unstable; urgency=low
 
   [ Iustin Pop ]
