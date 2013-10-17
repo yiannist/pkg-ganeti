@@ -8,7 +8,7 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Ganeti administrator’s guide &mdash; Ganeti 2.8.0 documentation</title>
+    <title>Ganeti administrator’s guide &mdash; Ganeti 2.8.1 documentation</title>
     
     <link rel="stylesheet" href="_static/style.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
@@ -16,7 +16,7 @@
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.8.0',
+        VERSION:     '2.8.1',
         COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -25,7 +25,7 @@
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti 2.8.0 documentation" href="index.html" />
+    <link rel="top" title="Ganeti 2.8.1 documentation" href="index.html" />
     <link rel="next" title="Merging clusters" href="cluster-merge.html" />
     <link rel="prev" title="Ganeti daemons refactoring" href="design-daemons.html" /> 
   </head>
@@ -39,7 +39,7 @@
         <li class="right" >
           <a href="design-daemons.html" title="Ganeti daemons refactoring"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.8.0 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.8.1 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -1880,7 +1880,10 @@ and they need to belong to the proper groups in order for the access
 permissions to files and programs to be correct.</p>
 <p>The <tt class="docutils literal"><span class="pre">users-setup</span></tt> tool, when run, takes care of setting up the proper
 users and groups.</p>
-<p>The tool does not accept any parameter, and requires root permissions to run.</p>
+<p>When invoked without parameters, the tool runs in interactive mode, showing the
+list of actions it will perform and asking for confirmation before proceeding.</p>
+<p>Providing the <tt class="docutils literal"><span class="pre">--yes-do-it</span></tt> parameter to the tool prevents the confirmation
+from being asked, and the users and groups will be created immediately.</p>
 </div>
 </div>
 <div class="section" id="other-ganeti-projects">
@@ -2097,7 +2100,7 @@ in the source archive.</p>
         <li class="right" >
           <a href="design-daemons.html" title="Ganeti daemons refactoring"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.8.0 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.8.1 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

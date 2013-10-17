@@ -10,10 +10,68 @@ harep - Ganeti auto-repair tool
 \f[B]harep\f[] --version
 .SH DESCRIPTION
 .PP
-harep is the Ganeti auto-repair tool.
+Harep is the Ganeti auto-repair tool.
 It is able to detect that an instance is broken and to generate a
 sequence of jobs that will fix it, in accordance to the policies set by
 the administrator.
+.PP
+Harep is able to recognize what state an instance is in (healthy,
+suspended, needs repair, repair disallowed, pending repair, repair
+disallowed, repair failed) and to lead it through a sequence of steps
+that will bring the instance back to the healthy state.
+Therefore, harep is mainly meant to be run regularly and frequently
+using a cron job, so that is can actually follow the instance along all
+the process.
+At every run, harep will update the tags it adds to instances that
+describe its repair status, and will submit jobs that actually perform
+the required repair operations.
+.PP
+By default, harep only reports on the health status of instances, but
+doesn\[aq]t perform any action, as they might be potentially dangerous.
+Therefore, harep will only touch instances that it has been explicitly
+authorized to work on.
+.PP
+The tags enabling harep, can be associated to single instances, or to a
+nodegroup or to the whole cluster, therefore affecting all the instances
+they contain.
+The possible tags share the common structure:
+.IP
+.nf
+\f[C]
+ganeti:watcher:autorepair:<type>
+\f[]
+.fi
+.PP
+where \f[C]<type>\f[] can have the following values:
+.IP \[bu] 2
+\f[C]fix-storage\f[]: allow disk replacement or fix the backend without
+affecting the instance itself (broken DRBD secondary)
+.IP \[bu] 2
+\f[C]migrate\f[]: allow instance migration
+.IP \[bu] 2
+\f[C]failover\f[]: allow instance reboot on the secondary
+.IP \[bu] 2
+\f[C]reinstall\f[]: allow disks to be recreated and the instance to be
+reinstalled
+.PP
+Each element in the list of tags, includes all the authorizations of the
+previous one, with \f[C]fix-storage\f[] being the least powerful and
+\f[C]reinstall\f[] being the most powerful.
+.PP
+In case multiple autorepair tags act on the same instance, only one can
+actually be active.
+The conflict is solved according to the following rules:
+.IP "1." 3
+if multiple tags are in the same object, the least destructive takes
+precedence.
+.IP "2." 3
+if the tags are across objects, the nearest tag wins.
+.PP
+Example: A cluster has instances I1 and I2, where I1 has the
+\f[C]failover\f[] tag, and the cluster has both \f[C]fix-storage\f[] and
+\f[C]reinstall\f[].
+The I1 instance will be allowed to \f[C]failover\f[], the I2 instance
+only to \f[C]fix-storage\f[].
 .SH OPTIONS
 .PP
 The options that can be passed to the program are as follows:
