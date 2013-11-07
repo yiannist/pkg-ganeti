@@ -33,6 +33,14 @@ case "$1" in
 
 	# Also remove luxid's socket
 	rm -f /var/run/ganeti/socket/ganeti-query
+
+	# Since 2.9.0, mond runs as root, so remove the old gnt-mond user (that
+	# was also created during 2.9.0~rcX.
+	if [ -n "$2" ] && dpkg --compare-versions "$2" lt 2.9.0 && \
+			getent passwd gnt-mond >/dev/null; then
+		find /var/log/ganeti -user gnt-mond -exec chown root:root {} \;
+		deluser --system gnt-mond || true
+	fi
     ;;
 
     abort-upgrade|abort-remove|abort-deconfigure)
