@@ -1,3 +1,15 @@
+ganeti (2.8.2-1) unstable; urgency=medium
+
+  * New upstream bugfix release
+    + Urgency set to medium, as this is a bugfix-only release and it fixes a
+      serious bug with DRBD during live migrations.
+  * Build Haskell binaries with read-only relocations (fixes hardening-no-relro
+    lintian warning).
+  * Do not emit an error message in postinst if /var/lib/ganeti/queue/archive
+    does not exist.
+
+ -- Apollon Oikonomopoulos <apoikos@gmail.com>  Fri, 08 Nov 2013 10:53:59 +0200
+
 ganeti (2.8.1-1) unstable; urgency=low
 
   * New upstream version (closes: #726502)
