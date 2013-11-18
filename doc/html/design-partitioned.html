@@ -8,7 +8,7 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Partitioned Ganeti &mdash; Ganeti 2.8.2 documentation</title>
+    <title>Partitioned Ganeti &mdash; Ganeti 2.9.1 documentation</title>
     
     <link rel="stylesheet" href="_static/style.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
@@ -16,7 +16,7 @@
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.8.2',
+        VERSION:     '2.9.1',
         COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -25,23 +25,21 @@
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti 2.8.2 documentation" href="index.html" />
-    <link rel="up" title="Design document drafts" href="design-draft.html" />
-    <link rel="next" title="Ganeti monitoring agent" href="design-monitoring-agent.html" />
-    <link rel="prev" title="Splitting the query and job execution paths" href="design-query-splitting.html" /> 
+    <link rel="top" title="Ganeti 2.9.1 documentation" href="index.html" />
+    <link rel="next" title="Query version 2 design" href="design-query2.html" />
+    <link rel="prev" title="Ganeti Instance Import/Export using Open Virtualization Format" href="design-ovf-support.html" /> 
   </head>
   <body>
     <div class="related">
       <h3>Navigation</h3>
       <ul>
         <li class="right" style="margin-right: 10px">
-          <a href="design-monitoring-agent.html" title="Ganeti monitoring agent"
+          <a href="design-query2.html" title="Query version 2 design"
              accesskey="N">next</a></li>
         <li class="right" >
-          <a href="design-query-splitting.html" title="Splitting the query and job execution paths"
+          <a href="design-ovf-support.html" title="Ganeti Instance Import/Export using Open Virtualization Format"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.8.2 documentation</a> &raquo;</li>
-          <li><a href="design-draft.html" accesskey="U">Design document drafts</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.9.1 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -153,12 +151,22 @@ accounted separately in allocation and balancing.</p>
 <p>There is already a concept of spindles in Ganeti. It&#8217;s not related to
 any actual spindle or volume count, but it&#8217;s used in <tt class="docutils literal"><span class="pre">spindle_use</span></tt> to
 measure the pressure of an instance on the storage system and in
-<tt class="docutils literal"><span class="pre">spindle_ratio</span></tt> to balance the I/O load on the nodes. These two
-parameters will be renamed to <tt class="docutils literal"><span class="pre">storage_io_use</span></tt> and
-<tt class="docutils literal"><span class="pre">storage_io_ratio</span></tt> to reflect better their meaning. When
-<tt class="docutils literal"><span class="pre">exclusive_storage</span></tt> is enabled, such parameters are ignored, as
-balancing the use of storage I/O is already addressed by the exclusive
-assignment of PVs.</p>
+<tt class="docutils literal"><span class="pre">spindle_ratio</span></tt> to balance the I/O load on the nodes. When
+<tt class="docutils literal"><span class="pre">exclusive_storage</span></tt> is enabled, these parameters as currently defined
+won&#8217;t make any sense, so their meaning will be changed in this way:</p>
+<ul class="simple">
+<li><tt class="docutils literal"><span class="pre">spindle_use</span></tt> refers to the resource, hence to the actual spindles
+(PVs in LVM), used by an instance. The values specified in the instance
+policy specifications are compared to the run-time numbers of spindle
+used by an instance. The <tt class="docutils literal"><span class="pre">spindle_use</span></tt> back-end parameter will be
+ignored.</li>
+<li><tt class="docutils literal"><span class="pre">spindle_ratio</span></tt> in instance policies and <tt class="docutils literal"><span class="pre">spindle_count</span></tt> in node
+parameters are ignored, as the exclusive assignment of PVs already
+implies a value of 1.0 for the first, and the second is replaced by
+the actual number of spindles.</li>
+</ul>
+<p>When <tt class="docutils literal"><span class="pre">exclusive_storage</span></tt> is disabled, the existing spindle parameters
+behave as before.</p>
 </div>
 </div>
 <div class="section" id="dedicated-cpus">
@@ -228,10 +236,12 @@ associated to it (or in other words, specifications are ordered), which
 is used by <tt class="docutils literal"><span class="pre">hspace</span></tt> (see below). The standard specification doesn&#8217;t
 change: there is one for the whole cluster.</p>
 <p>For example, a policy could be set up to allow instances with this
-constraints:
-- between 1 and 2 CPUs, 2 GB of RAM, and between 10 GB and 400 GB of
-disk space;
-- 4 CPUs, 4 GB of RAM, and between 10 GB and 800 GB of disk space.</p>
+constraints:</p>
+<ul class="simple">
+<li>between 1 and 2 CPUs, 2 GB of RAM, and between 10 GB and 400 GB of
+disk space;</li>
+<li>4 CPUs, 4 GB of RAM, and between 10 GB and 800 GB of disk space.</li>
+</ul>
 <p>Then, an instance using 1 CPU, 2 GB of RAM and 50 GB of disk would be
 legal, as an instance using 4 CPUs, 4 GB of RAM, and 20 GB of disk,
 while an instance using 2 CPUs, 4 GB of RAM and 40 GB of disk would be
@@ -350,11 +360,11 @@ parameters to overcommit memory and disks, similar to <tt class="docutils litera
 </ul>
 
   <h4>Previous topic</h4>
-  <p class="topless"><a href="design-query-splitting.html"
-                        title="previous chapter">Splitting the query and job execution paths</a></p>
+  <p class="topless"><a href="design-ovf-support.html"
+                        title="previous chapter">Ganeti Instance Import/Export using Open Virtualization Format</a></p>
   <h4>Next topic</h4>
-  <p class="topless"><a href="design-monitoring-agent.html"
-                        title="next chapter">Ganeti monitoring agent</a></p>
+  <p class="topless"><a href="design-query2.html"
+                        title="next chapter">Query version 2 design</a></p>
   <h3>This Page</h3>
   <ul class="this-page-menu">
     <li><a href="_sources/design-partitioned.txt"
@@ -381,13 +391,12 @@ parameters to overcommit memory and disks, similar to <tt class="docutils litera
       <h3>Navigation</h3>
       <ul>
         <li class="right" style="margin-right: 10px">
-          <a href="design-monitoring-agent.html" title="Ganeti monitoring agent"
+          <a href="design-query2.html" title="Query version 2 design"
              >next</a></li>
         <li class="right" >
-          <a href="design-query-splitting.html" title="Splitting the query and job execution paths"
+          <a href="design-ovf-support.html" title="Ganeti Instance Import/Export using Open Virtualization Format"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.8.2 documentation</a> &raquo;</li>
-          <li><a href="design-draft.html" >Design document drafts</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.9.1 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

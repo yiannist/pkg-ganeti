@@ -8,7 +8,7 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Design document drafts &mdash; Ganeti 2.8.2 documentation</title>
+    <title>Design document drafts &mdash; Ganeti 2.9.1 documentation</title>
     
     <link rel="stylesheet" href="_static/style.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
@@ -16,7 +16,7 @@
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.8.2',
+        VERSION:     '2.9.1',
         COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -25,9 +25,9 @@
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti 2.8.2 documentation" href="index.html" />
+    <link rel="top" title="Ganeti 2.9.1 documentation" href="index.html" />
     <link rel="next" title="Design for a X509 Certificate Authority" href="design-x509-ca.html" />
-    <link rel="prev" title="Ganeti 2.8 design" href="design-2.8.html" /> 
+    <link rel="prev" title="Ganeti 2.9 design" href="design-2.9.html" /> 
   </head>
   <body>
     <div class="related">
@@ -37,9 +37,9 @@
           <a href="design-x509-ca.html" title="Design for a X509 Certificate Authority"
              accesskey="N">next</a></li>
         <li class="right" >
-          <a href="design-2.8.html" title="Ganeti 2.8 design"
+          <a href="design-2.9.html" title="Ganeti 2.9 design"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.8.2 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.9.1 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -88,28 +88,25 @@
 <li class="toctree-l2"><a class="reference internal" href="design-query-splitting.html#long-term-plans">Long-term plans</a></li>
 </ul>
 </li>
-<li class="toctree-l1"><a class="reference internal" href="design-partitioned.html">Partitioned Ganeti</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="design-partitioned.html#current-state-and-shortcomings">Current state and shortcomings</a></li>
-<li class="toctree-l2"><a class="reference internal" href="design-partitioned.html#proposed-changes">Proposed changes</a></li>
-<li class="toctree-l2"><a class="reference internal" href="design-partitioned.html#implementation-order">Implementation order</a></li>
-<li class="toctree-l2"><a class="reference internal" href="design-partitioned.html#possible-future-enhancements">Possible future enhancements</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="design-monitoring-agent.html">Ganeti monitoring agent</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="design-monitoring-agent.html#current-state-and-shortcomings">Current state and shortcomings</a></li>
-<li class="toctree-l2"><a class="reference internal" href="design-monitoring-agent.html#proposed-changes">Proposed changes</a></li>
-<li class="toctree-l2"><a class="reference internal" href="design-monitoring-agent.html#future-work">Future work</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="design-hroller.html">HRoller tool</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="design-hroller.html#current-state-and-shortcomings">Current state and shortcomings</a></li>
-<li class="toctree-l2"><a class="reference internal" href="design-hroller.html#proposed-changes">Proposed changes</a></li>
-<li class="toctree-l2"><a class="reference internal" href="design-hroller.html#future-work">Future work</a></li>
-</ul>
-</li>
 <li class="toctree-l1"><a class="reference internal" href="design-storagetypes.html">Management of storage types and disk templates, incl. storage space reporting</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="design-storagetypes.html#background">Background</a></li>
 <li class="toctree-l2"><a class="reference internal" href="design-storagetypes.html#proposed-changes">Proposed changes</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="design-internal-shutdown.html">Detection of user-initiated shutdown from inside an instance</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="design-internal-shutdown.html#current-state-and-shortcomings">Current state and shortcomings</a></li>
+<li class="toctree-l2"><a class="reference internal" href="design-internal-shutdown.html#proposed-changes">Proposed changes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="design-internal-shutdown.html#implementation">Implementation</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="design-glusterfs-ganeti-support.html">GlusterFS Ganeti support</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="design-glusterfs-ganeti-support.html#objective">Objective</a></li>
+<li class="toctree-l2"><a class="reference internal" href="design-glusterfs-ganeti-support.html#background">Background</a></li>
+<li class="toctree-l2"><a class="reference internal" href="design-glusterfs-ganeti-support.html#implementation-plan">Implementation Plan</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="design-openvswitch.html">Support for Open vSwitch</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="design-openvswitch.html#current-state-and-shortcomings">Current state and shortcomings</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="design-daemons.html">Ganeti daemons refactoring</a><ul>
@@ -130,8 +127,8 @@
       <div class="sphinxsidebar">
         <div class="sphinxsidebarwrapper">
   <h4>Previous topic</h4>
-  <p class="topless"><a href="design-2.8.html"
-                        title="previous chapter">Ganeti 2.8 design</a></p>
+  <p class="topless"><a href="design-2.9.html"
+                        title="previous chapter">Ganeti 2.9 design</a></p>
   <h4>Next topic</h4>
   <p class="topless"><a href="design-x509-ca.html"
                         title="next chapter">Design for a X509 Certificate Authority</a></p>
@@ -164,9 +161,9 @@
           <a href="design-x509-ca.html" title="Design for a X509 Certificate Authority"
              >next</a></li>
         <li class="right" >
-          <a href="design-2.8.html" title="Ganeti 2.8 design"
+          <a href="design-2.9.html" title="Ganeti 2.9 design"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.8.2 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.9.1 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

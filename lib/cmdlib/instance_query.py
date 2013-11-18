@@ -47,7 +47,7 @@ class InstanceQuery(QueryBase):
     lu.share_locks = ShareAll()
 
     if self.names:
-      self.wanted = GetWantedInstances(lu, self.names)
+      (_, self.wanted) = GetWantedInstances(lu, self.names)
     else:
       self.wanted = locking.ALL_SET
 
@@ -73,7 +73,9 @@ class InstanceQuery(QueryBase):
         lu.needed_locks[locking.LEVEL_NODEGROUP] = \
           set(group_uuid
               for instance_name in lu.owned_locks(locking.LEVEL_INSTANCE)
-              for group_uuid in lu.cfg.GetInstanceNodeGroups(instance_name))
+              for group_uuid in
+                lu.cfg.GetInstanceNodeGroups(
+                  lu.cfg.GetInstanceInfoByName(instance_name).uuid))
       elif level == locking.LEVEL_NODE:
         lu._LockInstancesNodes() # pylint: disable=W0212
 
@@ -81,16 +83,19 @@ class InstanceQuery(QueryBase):
         lu.needed_locks[locking.LEVEL_NETWORK] = \
           frozenset(net_uuid
                     for instance_name in lu.owned_locks(locking.LEVEL_INSTANCE)
-                    for net_uuid in lu.cfg.GetInstanceNetworks(instance_name))
+                    for net_uuid in
+                      lu.cfg.GetInstanceNetworks(
+                        lu.cfg.GetInstanceInfoByName(instance_name).uuid))
 
   @staticmethod
   def _CheckGroupLocks(lu):
-    owned_instances = frozenset(lu.owned_locks(locking.LEVEL_INSTANCE))
+    owned_instance_names = frozenset(lu.owned_locks(locking.LEVEL_INSTANCE))
     owned_groups = frozenset(lu.owned_locks(locking.LEVEL_NODEGROUP))
 
     # Check if node groups for locked instances are still correct
-    for instance_name in owned_instances:
-      CheckInstanceNodeGroups(lu.cfg, instance_name, owned_groups)
+    for instance_name in owned_instance_names:
+      instance = lu.cfg.GetInstanceInfoByName(instance_name)
+      CheckInstanceNodeGroups(lu.cfg, instance.uuid, owned_groups)
 
   def _GetQueryData(self, lu):
     """Computes the list of instances and their attributes.
@@ -100,49 +105,54 @@ class InstanceQuery(QueryBase):
       self._CheckGroupLocks(lu)
 
     cluster = lu.cfg.GetClusterInfo()
-    all_info = lu.cfg.GetAllInstancesInfo()
+    insts_by_name = dict((inst.name, inst) for
+                         inst in lu.cfg.GetAllInstancesInfo().values())
 
-    instance_names = self._GetNames(lu, all_info.keys(), locking.LEVEL_INSTANCE)
+    instance_names = self._GetNames(lu, insts_by_name.keys(),
+                                    locking.LEVEL_INSTANCE)
 
-    instance_list = [all_info[name] for name in instance_names]
-    nodes = frozenset(itertools.chain(*(inst.all_nodes
-                                        for inst in instance_list)))
+    instance_list = [insts_by_name[node] for node in instance_names]
+    node_uuids = frozenset(itertools.chain(*(inst.all_nodes
+                                             for inst in instance_list)))
     hv_list = list(set([inst.hypervisor for inst in instance_list]))
-    bad_nodes = []
-    offline_nodes = []
-    wrongnode_inst = set()
+    bad_node_uuids = []
+    offline_node_uuids = []
+    wrongnode_inst_uuids = set()
 
     # Gather data as requested
     if self.requested_data & set([query.IQ_LIVE, query.IQ_CONSOLE]):
       live_data = {}
-      node_data = lu.rpc.call_all_instances_info(nodes, hv_list)
-      for name in nodes:
-        result = node_data[name]
+      node_data = lu.rpc.call_all_instances_info(node_uuids, hv_list,
+                                                 cluster.hvparams)
+      for node_uuid in node_uuids:
+        result = node_data[node_uuid]
         if result.offline:
           # offline nodes will be in both lists
           assert result.fail_msg
-          offline_nodes.append(name)
+          offline_node_uuids.append(node_uuid)
         if result.fail_msg:
-          bad_nodes.append(name)
+          bad_node_uuids.append(node_uuid)
         elif result.payload:
-          for inst in result.payload:
-            if inst in all_info:
-              if all_info[inst].primary_node == name:
-                live_data.update(result.payload)
+          for inst_name in result.payload:
+            if inst_name in insts_by_name:
+              instance = insts_by_name[inst_name]
+              if instance.primary_node == node_uuid:
+                for iname in result.payload:
+                  live_data[insts_by_name[iname].uuid] = result.payload[iname]
               else:
-                wrongnode_inst.add(inst)
+                wrongnode_inst_uuids.add(instance.uuid)
             else:
               # orphan instance; we don't list it here as we don't
               # handle this case yet in the output of instance listing
               logging.warning("Orphan instance '%s' found on node %s",
-                              inst, name)
+                              inst_name, lu.cfg.GetNodeName(node_uuid))
               # else no instance is alive
     else:
       live_data = {}
 
     if query.IQ_DISKUSAGE in self.requested_data:
       gmi = ganeti.masterd.instance
-      disk_usage = dict((inst.name,
+      disk_usage = dict((inst.uuid,
                          gmi.ComputeDiskSize(inst.disk_template,
                                              [{constants.IDISK_SIZE: disk.size}
                                               for disk in inst.disks]))
@@ -153,19 +163,18 @@ class InstanceQuery(QueryBase):
     if query.IQ_CONSOLE in self.requested_data:
       consinfo = {}
       for inst in instance_list:
-        if inst.name in live_data:
+        if inst.uuid in live_data:
           # Instance is running
-          consinfo[inst.name] = GetInstanceConsole(cluster, inst)
+          consinfo[inst.uuid] = \
+            GetInstanceConsole(cluster, inst,
+                               lu.cfg.GetNodeInfo(inst.primary_node))
         else:
-          consinfo[inst.name] = None
-      assert set(consinfo.keys()) == set(instance_names)
+          consinfo[inst.uuid] = None
     else:
       consinfo = None
 
     if query.IQ_NODES in self.requested_data:
-      node_names = set(itertools.chain(*map(operator.attrgetter("all_nodes"),
-                                            instance_list)))
-      nodes = dict(lu.cfg.GetMultiNodeInfo(node_names))
+      nodes = dict(lu.cfg.GetMultiNodeInfo(node_uuids))
       groups = dict((uuid, lu.cfg.GetNodeGroup(uuid))
                     for uuid in set(map(operator.attrgetter("group"),
                                         nodes.values())))
@@ -174,16 +183,17 @@ class InstanceQuery(QueryBase):
       groups = None
 
     if query.IQ_NETWORKS in self.requested_data:
-      net_uuids = itertools.chain(*(lu.cfg.GetInstanceNetworks(i.name)
+      net_uuids = itertools.chain(*(lu.cfg.GetInstanceNetworks(i.uuid)
                                     for i in instance_list))
       networks = dict((uuid, lu.cfg.GetNetwork(uuid)) for uuid in net_uuids)
     else:
       networks = None
 
     return query.InstanceQueryData(instance_list, lu.cfg.GetClusterInfo(),
-                                   disk_usage, offline_nodes, bad_nodes,
-                                   live_data, wrongnode_inst, consinfo,
-                                   nodes, groups, networks)
+                                   disk_usage, offline_node_uuids,
+                                   bad_node_uuids, live_data,
+                                   wrongnode_inst_uuids, consinfo, nodes,
+                                   groups, networks)
 
 
 class LUInstanceQuery(NoHooksLU):
@@ -223,7 +233,7 @@ class LUInstanceQueryData(NoHooksLU):
 
     if self.op.instances or not self.op.use_locking:
       # Expand instance names right here
-      self.wanted_names = GetWantedInstances(self, self.op.instances)
+      (_, self.wanted_names) = GetWantedInstances(self, self.op.instances)
     else:
       # Will use acquired locks
       self.wanted_names = None
@@ -243,16 +253,17 @@ class LUInstanceQueryData(NoHooksLU):
 
   def DeclareLocks(self, level):
     if self.op.use_locking:
-      owned_instances = self.owned_locks(locking.LEVEL_INSTANCE)
+      owned_instances = dict(self.cfg.GetMultiInstanceInfoByName(
+                               self.owned_locks(locking.LEVEL_INSTANCE)))
       if level == locking.LEVEL_NODEGROUP:
 
         # Lock all groups used by instances optimistically; this requires going
         # via the node before it's locked, requiring verification later on
         self.needed_locks[locking.LEVEL_NODEGROUP] = \
           frozenset(group_uuid
-                    for instance_name in owned_instances
+                    for instance_uuid in owned_instances.keys()
                     for group_uuid in
-                    self.cfg.GetInstanceNodeGroups(instance_name))
+                    self.cfg.GetInstanceNodeGroups(instance_uuid))
 
       elif level == locking.LEVEL_NODE:
         self._LockInstancesNodes()
@@ -260,9 +271,9 @@ class LUInstanceQueryData(NoHooksLU):
       elif level == locking.LEVEL_NETWORK:
         self.needed_locks[locking.LEVEL_NETWORK] = \
           frozenset(net_uuid
-                    for instance_name in owned_instances
+                    for instance_uuid in owned_instances.keys()
                     for net_uuid in
-                    self.cfg.GetInstanceNetworks(instance_name))
+                    self.cfg.GetInstanceNetworks(instance_uuid))
 
   def CheckPrereq(self):
     """Check prerequisites.
@@ -272,34 +283,34 @@ class LUInstanceQueryData(NoHooksLU):
     """
     owned_instances = frozenset(self.owned_locks(locking.LEVEL_INSTANCE))
     owned_groups = frozenset(self.owned_locks(locking.LEVEL_NODEGROUP))
-    owned_nodes = frozenset(self.owned_locks(locking.LEVEL_NODE))
+    owned_node_uuids = frozenset(self.owned_locks(locking.LEVEL_NODE))
     owned_networks = frozenset(self.owned_locks(locking.LEVEL_NETWORK))
 
     if self.wanted_names is None:
       assert self.op.use_locking, "Locking was not used"
       self.wanted_names = owned_instances
 
-    instances = dict(self.cfg.GetMultiInstanceInfo(self.wanted_names))
+    instances = dict(self.cfg.GetMultiInstanceInfoByName(self.wanted_names))
 
     if self.op.use_locking:
-      CheckInstancesNodeGroups(self.cfg, instances, owned_groups, owned_nodes,
-                               None)
+      CheckInstancesNodeGroups(self.cfg, instances, owned_groups,
+                               owned_node_uuids, None)
     else:
       assert not (owned_instances or owned_groups or
-                  owned_nodes or owned_networks)
+                  owned_node_uuids or owned_networks)
 
     self.wanted_instances = instances.values()
 
-  def _ComputeBlockdevStatus(self, node, instance, dev):
+  def _ComputeBlockdevStatus(self, node_uuid, instance, dev):
     """Returns the status of a block device
 
     """
-    if self.op.static or not node:
+    if self.op.static or not node_uuid:
       return None
 
-    self.cfg.SetDiskID(dev, node)
+    self.cfg.SetDiskID(dev, node_uuid)
 
-    result = self.rpc.call_blockdev_find(node, dev)
+    result = self.rpc.call_blockdev_find(node_uuid, dev)
     if result.offline:
       return None
 
@@ -313,34 +324,46 @@ class LUInstanceQueryData(NoHooksLU):
             status.sync_percent, status.estimated_time,
             status.is_degraded, status.ldisk_status)
 
-  def _ComputeDiskStatus(self, instance, snode, dev):
+  def _ComputeDiskStatus(self, instance, node_uuid2name_fn, dev):
     """Compute block device status.
 
     """
     (anno_dev,) = AnnotateDiskParams(instance, [dev], self.cfg)
 
-    return self._ComputeDiskStatusInner(instance, snode, anno_dev)
+    return self._ComputeDiskStatusInner(instance, None, node_uuid2name_fn,
+                                        anno_dev)
 
-  def _ComputeDiskStatusInner(self, instance, snode, dev):
+  def _ComputeDiskStatusInner(self, instance, snode_uuid, node_uuid2name_fn,
+                              dev):
     """Compute block device status.
 
     @attention: The device has to be annotated already.
 
     """
-    if dev.dev_type in constants.LDS_DRBD:
+    drbd_info = None
+    if dev.dev_type in constants.DTS_DRBD:
       # we change the snode then (otherwise we use the one passed in)
       if dev.logical_id[0] == instance.primary_node:
-        snode = dev.logical_id[1]
+        snode_uuid = dev.logical_id[1]
       else:
-        snode = dev.logical_id[0]
+        snode_uuid = dev.logical_id[0]
+      drbd_info = {
+        "primary_node": node_uuid2name_fn(instance.primary_node),
+        "primary_minor": dev.logical_id[3],
+        "secondary_node": node_uuid2name_fn(snode_uuid),
+        "secondary_minor": dev.logical_id[4],
+        "port": dev.logical_id[2],
+        "secret": dev.logical_id[5],
+      }
 
     dev_pstatus = self._ComputeBlockdevStatus(instance.primary_node,
                                               instance, dev)
-    dev_sstatus = self._ComputeBlockdevStatus(snode, instance, dev)
+    dev_sstatus = self._ComputeBlockdevStatus(snode_uuid, instance, dev)
 
     if dev.children:
       dev_children = map(compat.partial(self._ComputeDiskStatusInner,
-                                        instance, snode),
+                                        instance, snode_uuid,
+                                        node_uuid2name_fn),
                          dev.children)
     else:
       dev_children = []
@@ -349,12 +372,14 @@ class LUInstanceQueryData(NoHooksLU):
       "iv_name": dev.iv_name,
       "dev_type": dev.dev_type,
       "logical_id": dev.logical_id,
+      "drbd_info": drbd_info,
       "physical_id": dev.physical_id,
       "pstatus": dev_pstatus,
       "sstatus": dev_sstatus,
       "children": dev_children,
       "mode": dev.mode,
       "size": dev.size,
+      "spindles": dev.spindles,
       "name": dev.name,
       "uuid": dev.uuid,
       }
@@ -365,13 +390,12 @@ class LUInstanceQueryData(NoHooksLU):
 
     cluster = self.cfg.GetClusterInfo()
 
-    node_names = itertools.chain(*(i.all_nodes for i in self.wanted_instances))
-    nodes = dict(self.cfg.GetMultiNodeInfo(node_names))
+    node_uuids = itertools.chain(*(i.all_nodes for i in self.wanted_instances))
+    nodes = dict(self.cfg.GetMultiNodeInfo(node_uuids))
 
     groups = dict(self.cfg.GetMultiNodeGroupInfo(node.group
                                                  for node in nodes.values()))
 
-    group2name_fn = lambda uuid: groups[uuid].name
     for instance in self.wanted_instances:
       pnode = nodes[instance.primary_node]
 
@@ -382,10 +406,10 @@ class LUInstanceQueryData(NoHooksLU):
                           " information only for instance %s" %
                           (pnode.name, instance.name))
       else:
-        remote_info = self.rpc.call_instance_info(instance.primary_node,
-                                                  instance.name,
-                                                  instance.hypervisor)
-        remote_info.Raise("Error checking node %s" % instance.primary_node)
+        remote_info = self.rpc.call_instance_info(
+            instance.primary_node, instance.name, instance.hypervisor,
+            cluster.hvparams[instance.hypervisor])
+        remote_info.Raise("Error checking node %s" % pnode.name)
         remote_info = remote_info.payload
         if remote_info and "state" in remote_info:
           remote_state = "up"
@@ -395,20 +419,24 @@ class LUInstanceQueryData(NoHooksLU):
           else:
             remote_state = instance.admin_state
 
-      disks = map(compat.partial(self._ComputeDiskStatus, instance, None),
+      group2name_fn = lambda uuid: groups[uuid].name
+      node_uuid2name_fn = lambda uuid: nodes[uuid].name
+
+      disks = map(compat.partial(self._ComputeDiskStatus, instance,
+                                 node_uuid2name_fn),
                   instance.disks)
 
-      snodes_group_uuids = [nodes[snode_name].group
-                            for snode_name in instance.secondary_nodes]
+      snodes_group_uuids = [nodes[snode_uuid].group
+                            for snode_uuid in instance.secondary_nodes]
 
       result[instance.name] = {
         "name": instance.name,
         "config_state": instance.admin_state,
         "run_state": remote_state,
-        "pnode": instance.primary_node,
+        "pnode": pnode.name,
         "pnode_group_uuid": pnode.group,
         "pnode_group_name": group2name_fn(pnode.group),
-        "snodes": instance.secondary_nodes,
+        "snodes": map(node_uuid2name_fn, instance.secondary_nodes),
         "snodes_group_uuids": snodes_group_uuids,
         "snodes_group_names": map(group2name_fn, snodes_group_uuids),
         "os": instance.os,

@@ -341,7 +341,7 @@ class TestSsconfResolver(unittest.TestCase):
     ssc = GetFakeSimpleStoreClass(lambda _: node_addr_list)
     result = rpc._SsconfResolver(True, node_list, NotImplemented,
                                  ssc=ssc, nslookup_fn=NotImplemented)
-    self.assertEqual(result, zip(node_list, addr_list))
+    self.assertEqual(result, zip(node_list, addr_list, node_list))
 
   def testNsLookup(self):
     addr_list = ["192.0.2.%d" % n for n in range(0, 255, 13)]
@@ -351,7 +351,7 @@ class TestSsconfResolver(unittest.TestCase):
     nslookup_fn = lambda name, family=None: node_addr_map.get(name)
     result = rpc._SsconfResolver(True, node_list, NotImplemented,
                                  ssc=ssc, nslookup_fn=nslookup_fn)
-    self.assertEqual(result, zip(node_list, addr_list))
+    self.assertEqual(result, zip(node_list, addr_list, node_list))
 
   def testDisabledSsconfIp(self):
     addr_list = ["192.0.2.%d" % n for n in range(0, 255, 13)]
@@ -361,7 +361,7 @@ class TestSsconfResolver(unittest.TestCase):
     nslookup_fn = lambda name, family=None: node_addr_map.get(name)
     result = rpc._SsconfResolver(False, node_list, NotImplemented,
                                  ssc=ssc, nslookup_fn=nslookup_fn)
-    self.assertEqual(result, zip(node_list, addr_list))
+    self.assertEqual(result, zip(node_list, addr_list, node_list))
 
   def testBothLookups(self):
     addr_list = ["192.0.2.%d" % n for n in range(0, 255, 13)]
@@ -373,7 +373,7 @@ class TestSsconfResolver(unittest.TestCase):
     nslookup_fn = lambda name, family=None: node_addr_map.get(name)
     result = rpc._SsconfResolver(True, node_list, NotImplemented,
                                  ssc=ssc, nslookup_fn=nslookup_fn)
-    self.assertEqual(result, zip(node_list, addr_list))
+    self.assertEqual(result, zip(node_list, addr_list, node_list))
 
   def testAddressLookupIPv6(self):
     addr_list = ["2001:db8::%d" % n for n in range(0, 255, 11)]
@@ -382,7 +382,7 @@ class TestSsconfResolver(unittest.TestCase):
     ssc = GetFakeSimpleStoreClass(lambda _: node_addr_list)
     result = rpc._SsconfResolver(True, node_list, NotImplemented,
                                  ssc=ssc, nslookup_fn=NotImplemented)
-    self.assertEqual(result, zip(node_list, addr_list))
+    self.assertEqual(result, zip(node_list, addr_list, node_list))
 
 
 class TestStaticResolver(unittest.TestCase):
@@ -390,7 +390,7 @@ class TestStaticResolver(unittest.TestCase):
     addresses = ["192.0.2.%d" % n for n in range(0, 123, 7)]
     nodes = ["node%s.example.com" % n for n in range(0, 123, 7)]
     res = rpc._StaticResolver(addresses)
-    self.assertEqual(res(nodes, NotImplemented), zip(nodes, addresses))
+    self.assertEqual(res(nodes, NotImplemented), zip(nodes, addresses, nodes))
 
   def testWrongLength(self):
     res = rpc._StaticResolver([])
@@ -399,34 +399,40 @@ class TestStaticResolver(unittest.TestCase):
 
 class TestNodeConfigResolver(unittest.TestCase):
   @staticmethod
-  def _GetSingleOnlineNode(name):
-    assert name == "node90.example.com"
-    return objects.Node(name=name, offline=False, primary_ip="192.0.2.90")
+  def _GetSingleOnlineNode(uuid):
+    assert uuid == "node90-uuid"
+    return objects.Node(name="node90.example.com",
+                        uuid=uuid,
+                        offline=False,
+                        primary_ip="192.0.2.90")
 
   @staticmethod
-  def _GetSingleOfflineNode(name):
-    assert name == "node100.example.com"
-    return objects.Node(name=name, offline=True, primary_ip="192.0.2.100")
+  def _GetSingleOfflineNode(uuid):
+    assert uuid == "node100-uuid"
+    return objects.Node(name="node100.example.com",
+                        uuid=uuid,
+                        offline=True,
+                        primary_ip="192.0.2.100")
 
   def testSingleOnline(self):
     self.assertEqual(rpc._NodeConfigResolver(self._GetSingleOnlineNode,
                                              NotImplemented,
-                                             ["node90.example.com"], None),
-                     [("node90.example.com", "192.0.2.90")])
+                                             ["node90-uuid"], None),
+                     [("node90.example.com", "192.0.2.90", "node90-uuid")])
 
   def testSingleOffline(self):
     self.assertEqual(rpc._NodeConfigResolver(self._GetSingleOfflineNode,
                                              NotImplemented,
-                                             ["node100.example.com"], None),
-                     [("node100.example.com", rpc._OFFLINE)])
+                                             ["node100-uuid"], None),
+                     [("node100.example.com", rpc._OFFLINE, "node100-uuid")])
 
   def testSingleOfflineWithAcceptOffline(self):
     fn = self._GetSingleOfflineNode
-    assert fn("node100.example.com").offline
+    assert fn("node100-uuid").offline
     self.assertEqual(rpc._NodeConfigResolver(fn, NotImplemented,
-                                             ["node100.example.com"],
+                                             ["node100-uuid"],
                                              rpc_defs.ACCEPT_OFFLINE_NODE),
-                     [("node100.example.com", "192.0.2.100")])
+                     [("node100.example.com", "192.0.2.100", "node100-uuid")])
     for i in [False, True, "", "Hello", 0, 1]:
       self.assertRaises(AssertionError, rpc._NodeConfigResolver,
                         fn, NotImplemented, ["node100.example.com"], i)
@@ -434,7 +440,8 @@ class TestNodeConfigResolver(unittest.TestCase):
   def testUnknownSingleNode(self):
     self.assertEqual(rpc._NodeConfigResolver(lambda _: None, NotImplemented,
                                              ["node110.example.com"], None),
-                     [("node110.example.com", "node110.example.com")])
+                     [("node110.example.com", "node110.example.com",
+                       "node110.example.com")])
 
   def testMultiEmpty(self):
     self.assertEqual(rpc._NodeConfigResolver(NotImplemented,
@@ -443,10 +450,11 @@ class TestNodeConfigResolver(unittest.TestCase):
                      [])
 
   def testMultiSomeOffline(self):
-    nodes = dict(("node%s.example.com" % i,
+    nodes = dict(("node%s-uuid" % i,
                   objects.Node(name="node%s.example.com" % i,
                                offline=((i % 3) == 0),
-                               primary_ip="192.0.2.%s" % i))
+                               primary_ip="192.0.2.%s" % i,
+                               uuid="node%s-uuid" % i))
                   for i in range(1, 255))
 
     # Resolve no names
@@ -458,15 +466,15 @@ class TestNodeConfigResolver(unittest.TestCase):
     # Offline, online and unknown hosts
     self.assertEqual(rpc._NodeConfigResolver(NotImplemented,
                                              lambda: nodes,
-                                             ["node3.example.com",
-                                              "node92.example.com",
-                                              "node54.example.com",
+                                             ["node3-uuid",
+                                              "node92-uuid",
+                                              "node54-uuid",
                                               "unknown.example.com",],
                                              None), [
-      ("node3.example.com", rpc._OFFLINE),
-      ("node92.example.com", "192.0.2.92"),
-      ("node54.example.com", rpc._OFFLINE),
-      ("unknown.example.com", "unknown.example.com"),
+      ("node3.example.com", rpc._OFFLINE, "node3-uuid"),
+      ("node92.example.com", "192.0.2.92", "node92-uuid"),
+      ("node54.example.com", rpc._OFFLINE, "node54-uuid"),
+      ("unknown.example.com", "unknown.example.com", "unknown.example.com"),
       ])
 
 
@@ -672,7 +680,7 @@ class TestRpcClientBase(unittest.TestCase):
     def _Resolver(expected, hosts, options):
       self.assertEqual(hosts, nodes)
       self.assertEqual(options, expected)
-      return zip(hosts, nodes)
+      return zip(hosts, nodes, hosts)
 
     def _DynamicResolverOptions((arg0, )):
       return sum(arg0)
@@ -802,9 +810,9 @@ class TestRpcRunner(unittest.TestCase):
         ],
       disk_template=constants.DT_PLAIN,
       disks=[
-        objects.Disk(dev_type=constants.LD_LV, size=4096,
+        objects.Disk(dev_type=constants.DT_PLAIN, size=4096,
                      logical_id=("vg", "disk6120")),
-        objects.Disk(dev_type=constants.LD_LV, size=1024,
+        objects.Disk(dev_type=constants.DT_PLAIN, size=1024,
                      logical_id=("vg", "disk8508")),
         ])
     inst.UpgradeConfig()
@@ -874,12 +882,12 @@ class TestRpcRunner(unittest.TestCase):
       constants.HV_BOOT_ORDER: "xyz",
       })
     self.assertEqual(result["disks"], [{
-      "dev_type": constants.LD_LV,
+      "dev_type": constants.DT_PLAIN,
       "size": 4096,
       "logical_id": ("vg", "disk6120"),
       "params": constants.DISK_DT_DEFAULTS[inst.disk_template],
       }, {
-      "dev_type": constants.LD_LV,
+      "dev_type": constants.DT_PLAIN,
       "size": 1024,
       "logical_id": ("vg", "disk8508"),
       "params": constants.DISK_DT_DEFAULTS[inst.disk_template],
@@ -891,35 +899,94 @@ class TestRpcRunner(unittest.TestCase):
 
 class TestLegacyNodeInfo(unittest.TestCase):
   KEY_BOOT = "bootid"
-  KEY_VG = "disk_free"
+  KEY_VG0 = "name"
+  KEY_VG1 = "storage_free"
+  KEY_VG2 = "storage_size"
   KEY_HV = "cpu_count"
+  KEY_SP1 = "spindles_free"
+  KEY_SP2 = "spindles_total"
+  KEY_ST = "type" # key for storage type
   VAL_BOOT = 0
-  VAL_VG = 1
+  VAL_VG0 = "xy"
+  VAL_VG1 = 11
+  VAL_VG2 = 12
+  VAL_VG3 = "lvm-vg"
   VAL_HV = 2
-  DICT_VG = {KEY_VG: VAL_VG}
+  VAL_SP0 = "ab"
+  VAL_SP1 = 31
+  VAL_SP2 = 32
+  VAL_SP3 = "lvm-pv"
+  DICT_VG = {
+    KEY_VG0: VAL_VG0,
+    KEY_VG1: VAL_VG1,
+    KEY_VG2: VAL_VG2,
+    KEY_ST: VAL_VG3,
+    }
   DICT_HV = {KEY_HV: VAL_HV}
-  STD_LST = [VAL_BOOT, [DICT_VG], [DICT_HV]]
+  DICT_SP = {
+    KEY_ST: VAL_SP3,
+    KEY_VG0: VAL_SP0,
+    KEY_VG1: VAL_SP1,
+    KEY_VG2: VAL_SP2,
+    }
+  STD_LST = [VAL_BOOT, [DICT_VG, DICT_SP], [DICT_HV]]
   STD_DICT = {
     KEY_BOOT: VAL_BOOT,
-    KEY_VG: VAL_VG,
-    KEY_HV: VAL_HV
+    KEY_VG0: VAL_VG0,
+    KEY_VG1: VAL_VG1,
+    KEY_VG2: VAL_VG2,
+    KEY_HV: VAL_HV,
     }
 
   def testStandard(self):
     result = rpc.MakeLegacyNodeInfo(self.STD_LST)
     self.assertEqual(result, self.STD_DICT)
 
-  def testReqVg(self):
+  def testSpindlesRequired(self):
     my_lst = [self.VAL_BOOT, [], [self.DICT_HV]]
-    self.assertRaises(ValueError, rpc.MakeLegacyNodeInfo, my_lst)
+    self.assertRaises(errors.OpExecError, rpc.MakeLegacyNodeInfo, my_lst,
+        require_spindles=True)
 
-  def testNoReqVg(self):
+  def testNoSpindlesRequired(self):
     my_lst = [self.VAL_BOOT, [], [self.DICT_HV]]
-    result = rpc.MakeLegacyNodeInfo(my_lst, require_vg_info = False)
+    result = rpc.MakeLegacyNodeInfo(my_lst, require_spindles = False)
     self.assertEqual(result, {self.KEY_BOOT: self.VAL_BOOT,
                               self.KEY_HV: self.VAL_HV})
-    result = rpc.MakeLegacyNodeInfo(self.STD_LST, require_vg_info = False)
+    result = rpc.MakeLegacyNodeInfo(self.STD_LST, require_spindles = False)
     self.assertEqual(result, self.STD_DICT)
+
+
+class TestAddDefaultStorageInfoToLegacyNodeInfo(unittest.TestCase):
+
+  def setUp(self):
+    self.free_storage_file = 23
+    self.total_storage_file = 42
+    self.free_storage_lvm = 69
+    self.total_storage_lvm = 666
+    self.node_info = [{"name": "myfile",
+                       "type": constants.ST_FILE,
+                       "storage_free": self.free_storage_file,
+                       "storage_size": self.total_storage_file},
+                      {"name": "myvg",
+                       "type": constants.ST_LVM_VG,
+                       "storage_free": self.free_storage_lvm,
+                       "storage_size": self.total_storage_lvm},
+                      {"name": "myspindle",
+                       "type": constants.ST_LVM_PV,
+                       "storage_free": 33,
+                       "storage_size": 44}]
+
+  def testAddDefaultStorageInfoToLegacyNodeInfo(self):
+    result = {}
+    rpc._AddDefaultStorageInfoToLegacyNodeInfo(result, self.node_info)
+    self.assertEqual(self.free_storage_file, result["storage_free"])
+    self.assertEqual(self.total_storage_file, result["storage_size"])
+
+  def testAddDefaultStorageInfoToLegacyNodeInfoNoDefaults(self):
+    result = {}
+    rpc._AddDefaultStorageInfoToLegacyNodeInfo(result, self.node_info[-1:])
+    self.assertFalse("storage_free" in result)
+    self.assertFalse("storage_size" in result)
 
 
 if __name__ == "__main__":

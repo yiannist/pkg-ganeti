@@ -471,7 +471,7 @@ class NetworkQuery(QueryBase):
       for instance in all_instances.values():
         for nic in instance.nics:
           if nic.network in network_uuids:
-            network_to_instances[nic.network].append(instance.name)
+            network_to_instances[nic.network].append(instance.uuid)
             break
 
     if query.NETQ_STATS in self.requested_data:
@@ -536,12 +536,14 @@ def _NetworkConflictCheck(lu, check_fn, action, instances):
   @param check_fn: Function checking for conflict
   @type action: string
   @param action: Part of error message (see code)
+  @param instances: the instances to check
+  @type instances: list of instance objects
   @raise errors.OpPrereqError: If conflicting IP addresses are found.
 
   """
   conflicts = []
 
-  for (_, instance) in lu.cfg.GetMultiInstanceInfo(instances):
+  for instance in instances:
     instconflicts = [(idx, nic.ip)
                      for (idx, nic) in enumerate(instance.nics)
                      if check_fn(nic)]
@@ -597,7 +599,8 @@ class LUNetworkConnect(LogicalUnit):
       # been acquired
       if self.op.conflicts_check:
         self.needed_locks[locking.LEVEL_INSTANCE] = \
-            self.cfg.GetNodeGroupInstances(self.group_uuid)
+          self.cfg.GetInstanceNames(
+            self.cfg.GetNodeGroupInstances(self.group_uuid))
 
   def BuildHooksEnv(self):
     ret = {
@@ -608,8 +611,8 @@ class LUNetworkConnect(LogicalUnit):
     return ret
 
   def BuildHooksNodes(self):
-    nodes = self.cfg.GetNodeGroup(self.group_uuid).members
-    return (nodes, nodes)
+    node_uuids = self.cfg.GetNodeGroup(self.group_uuid).members
+    return (node_uuids, node_uuids)
 
   def CheckPrereq(self):
     owned_groups = frozenset(self.owned_locks(locking.LEVEL_NODEGROUP))
@@ -617,9 +620,9 @@ class LUNetworkConnect(LogicalUnit):
     assert self.group_uuid in owned_groups
 
     # Check if locked instances are still correct
-    owned_instances = frozenset(self.owned_locks(locking.LEVEL_INSTANCE))
+    owned_instance_names = frozenset(self.owned_locks(locking.LEVEL_INSTANCE))
     if self.op.conflicts_check:
-      CheckNodeGroupInstances(self.cfg, self.group_uuid, owned_instances)
+      CheckNodeGroupInstances(self.cfg, self.group_uuid, owned_instance_names)
 
     self.netparams = {
       constants.NIC_MODE: self.network_mode,
@@ -640,8 +643,10 @@ class LUNetworkConnect(LogicalUnit):
     elif self.op.conflicts_check:
       pool = network.AddressPool(self.cfg.GetNetwork(self.network_uuid))
 
-      _NetworkConflictCheck(self, lambda nic: pool.Contains(nic.ip),
-                            "connect to", owned_instances)
+      _NetworkConflictCheck(
+        self, lambda nic: pool.Contains(nic.ip), "connect to",
+        [instance_info for (_, instance_info) in
+         self.cfg.GetMultiInstanceInfoByName(owned_instance_names)])
 
   def Exec(self, feedback_fn):
     # Connect the network and update the group only if not already connected
@@ -678,7 +683,8 @@ class LUNetworkDisconnect(LogicalUnit):
       # Lock instances optimistically, needs verification once group lock has
       # been acquired
       self.needed_locks[locking.LEVEL_INSTANCE] = \
-        self.cfg.GetNodeGroupInstances(self.group_uuid)
+        self.cfg.GetInstanceNames(
+          self.cfg.GetNodeGroupInstances(self.group_uuid))
 
   def BuildHooksEnv(self):
     ret = {
@@ -708,8 +714,10 @@ class LUNetworkDisconnect(LogicalUnit):
 
     # We need this check only if network is not already connected
     else:
-      _NetworkConflictCheck(self, lambda nic: nic.network == self.network_uuid,
-                            "disconnect from", owned_instances)
+      _NetworkConflictCheck(
+        self, lambda nic: nic.network == self.network_uuid, "disconnect from",
+        [instance_info for (_, instance_info) in
+         self.cfg.GetMultiInstanceInfoByName(owned_instances)])
 
   def Exec(self, feedback_fn):
     # Disconnect the network and update the group only if network is connected

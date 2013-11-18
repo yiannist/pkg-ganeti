@@ -28,6 +28,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
 
 module Ganeti.HTools.Instance
   ( Instance(..)
+  , Disk(..)
   , AssocList
   , List
   , create
@@ -45,6 +46,7 @@ module Ganeti.HTools.Instance
   , setBoth
   , setMovable
   , specOf
+  , getTotalSpindles
   , instBelowISpec
   , instAboveISpec
   , instMatchesPolicy
@@ -57,6 +59,8 @@ module Ganeti.HTools.Instance
   , mirrorType
   ) where
 
+import Control.Monad (liftM2)
+
 import Ganeti.BasicTypes
 import qualified Ganeti.HTools.Types as T
 import qualified Ganeti.HTools.Container as Container
@@ -65,6 +69,10 @@ import Ganeti.HTools.Nic (Nic)
 import Ganeti.Utils
 
 -- * Type declarations
+data Disk = Disk
+  { dskSize     :: Int       -- ^ Size in bytes
+  , dskSpindles :: Maybe Int -- ^ Number of spindles
+  } deriving (Show, Eq)
 
 -- | The instance type.
 data Instance = Instance
@@ -72,7 +80,7 @@ data Instance = Instance
   , alias        :: String    -- ^ The shortened name
   , mem          :: Int       -- ^ Memory of the instance
   , dsk          :: Int       -- ^ Total disk usage of the instance
-  , disks        :: [Int]     -- ^ Sizes of the individual disks
+  , disks        :: [Disk]    -- ^ Sizes of the individual disks
   , vcpus        :: Int       -- ^ Number of VCPUs
   , runSt        :: T.InstanceStatus -- ^ Original run status
   , pNode        :: T.Ndx     -- ^ Original primary node
@@ -165,7 +173,7 @@ type List = Container.Container Instance
 --
 -- Some parameters are not initialized by function, and must be set
 -- later (via 'setIdx' for example).
-create :: String -> Int -> Int -> [Int] -> Int -> T.InstanceStatus
+create :: String -> Int -> Int -> [Disk] -> Int -> T.InstanceStatus
        -> [String] -> Bool -> T.Ndx -> T.Ndx -> T.DiskTemplate -> Int
        -> [Nic] -> Instance
 create name_init mem_init dsk_init disks_init vcpus_init run_init tags_init
@@ -250,60 +258,89 @@ shrinkByType inst T.FailMem = let v = mem inst - T.unitMem
                                  then Bad "out of memory"
                                  else Ok inst { mem = v }
 shrinkByType inst T.FailDisk =
-  let newdisks = map (flip (-) T.unitDsk) $ disks inst
+  let newdisks = [d {dskSize = dskSize d - T.unitDsk}| d <- disks inst]
       v = dsk inst - (length . disks $ inst) * T.unitDsk
-  in if any (< T.unitDsk) newdisks
+  in if any (< T.unitDsk) $ map dskSize newdisks
      then Bad "out of disk"
      else Ok inst { dsk = v, disks = newdisks }
 shrinkByType inst T.FailCPU = let v = vcpus inst - T.unitCpu
                               in if v < T.unitCpu
                                  then Bad "out of vcpus"
                                  else Ok inst { vcpus = v }
+shrinkByType inst T.FailSpindles =
+  case disks inst of
+    [Disk ds sp] -> case sp of
+                      Nothing -> Bad "No spindles, shouldn't have happened"
+                      Just sp' -> let v = sp' - T.unitSpindle
+                                  in if v < T.unitSpindle
+                                     then Bad "out of spindles"
+                                     else Ok inst { disks = [Disk ds (Just v)] }
+    d -> Bad $ "Expected one disk, but found " ++ show d
 shrinkByType _ f = Bad $ "Unhandled failure mode " ++ show f
+
+-- | Get the number of disk spindles
+getTotalSpindles :: Instance -> Maybe Int
+getTotalSpindles inst =
+  foldr (liftM2 (+) . dskSpindles ) (Just 0) (disks inst)
 
 -- | Return the spec of an instance.
 specOf :: Instance -> T.RSpec
-specOf Instance { mem = m, dsk = d, vcpus = c } =
-  T.RSpec { T.rspecCpu = c, T.rspecMem = m, T.rspecDsk = d }
+specOf Instance { mem = m, dsk = d, vcpus = c, disks = dl } =
+  let sp = case dl of
+             [Disk _ (Just sp')] -> sp'
+             _ -> 0
+  in T.RSpec { T.rspecCpu = c, T.rspecMem = m,
+               T.rspecDsk = d, T.rspecSpn = sp }
 
--- | Checks if an instance is smaller than a given spec. Returns
+-- | Checks if an instance is smaller/bigger than a given spec. Returns
 -- OpGood for a correct spec, otherwise Bad one of the possible
 -- failure modes.
-instBelowISpec :: Instance -> T.ISpec -> T.OpResult ()
-instBelowISpec inst ispec
-  | mem inst > T.iSpecMemorySize ispec = Bad T.FailMem
-  | any (> T.iSpecDiskSize ispec) (disks inst) = Bad T.FailDisk
-  | vcpus inst > T.iSpecCpuCount ispec = Bad T.FailCPU
+instCompareISpec :: Ordering -> Instance-> T.ISpec -> Bool -> T.OpResult ()
+instCompareISpec which inst ispec exclstor
+  | which == mem inst `compare` T.iSpecMemorySize ispec = Bad T.FailMem
+  | which `elem` map ((`compare` T.iSpecDiskSize ispec) . dskSize)
+    (disks inst) = Bad T.FailDisk
+  | which == vcpus inst `compare` T.iSpecCpuCount ispec = Bad T.FailCPU
+  | exclstor &&
+    case getTotalSpindles inst of
+      Nothing -> True
+      Just sp_sum -> which == sp_sum `compare` T.iSpecSpindleUse ispec
+    = Bad T.FailSpindles
+  | not exclstor && which == spindleUse inst `compare` T.iSpecSpindleUse ispec
+    = Bad T.FailSpindles
+  | diskTemplate inst /= T.DTDiskless &&
+    which == length (disks inst) `compare` T.iSpecDiskCount ispec
+    = Bad T.FailDiskCount
   | otherwise = Ok ()
+
+-- | Checks if an instance is smaller than a given spec.
+instBelowISpec :: Instance -> T.ISpec -> Bool -> T.OpResult ()
+instBelowISpec = instCompareISpec GT
 
 -- | Checks if an instance is bigger than a given spec.
-instAboveISpec :: Instance -> T.ISpec -> T.OpResult ()
-instAboveISpec inst ispec
-  | mem inst < T.iSpecMemorySize ispec = Bad T.FailMem
-  | any (< T.iSpecDiskSize ispec) (disks inst) = Bad T.FailDisk
-  | vcpus inst < T.iSpecCpuCount ispec = Bad T.FailCPU
-  | otherwise = Ok ()
+instAboveISpec :: Instance -> T.ISpec -> Bool -> T.OpResult ()
+instAboveISpec = instCompareISpec LT
 
 -- | Checks if an instance matches a min/max specs pair
-instMatchesMinMaxSpecs :: Instance -> T.MinMaxISpecs -> T.OpResult ()
-instMatchesMinMaxSpecs inst minmax = do
-  instAboveISpec inst (T.minMaxISpecsMinSpec minmax)
-  instBelowISpec inst (T.minMaxISpecsMaxSpec minmax)
+instMatchesMinMaxSpecs :: Instance -> T.MinMaxISpecs -> Bool -> T.OpResult ()
+instMatchesMinMaxSpecs inst minmax exclstor = do
+  instAboveISpec inst (T.minMaxISpecsMinSpec minmax) exclstor
+  instBelowISpec inst (T.minMaxISpecsMaxSpec minmax) exclstor
 
 -- | Checks if an instance matches any specs of a policy
-instMatchesSpecs :: Instance -> [T.MinMaxISpecs] -> T.OpResult ()
+instMatchesSpecs :: Instance -> [T.MinMaxISpecs] -> Bool -> T.OpResult ()
  -- Return Ok for no constraints, though this should never happen
-instMatchesSpecs _ [] = Ok ()
-instMatchesSpecs inst (minmax:minmaxes) =
-  foldr eithermatch (instMatchesMinMaxSpecs inst minmax) minmaxes
-  where eithermatch mm (Bad _) = instMatchesMinMaxSpecs inst mm
+instMatchesSpecs _ [] _ = Ok ()
+instMatchesSpecs inst minmaxes exclstor =
+  -- The initial "Bad" should be always replaced by a real result
+  foldr eithermatch (Bad T.FailInternal) minmaxes
+  where eithermatch mm (Bad _) = instMatchesMinMaxSpecs inst mm exclstor
         eithermatch _ y@(Ok ()) = y
---  # See 04f231771
 
 -- | Checks if an instance matches a policy.
-instMatchesPolicy :: Instance -> T.IPolicy -> T.OpResult ()
-instMatchesPolicy inst ipol = do
-  instMatchesSpecs inst $ T.iPolicyMinMaxISpecs ipol
+instMatchesPolicy :: Instance -> T.IPolicy -> Bool -> T.OpResult ()
+instMatchesPolicy inst ipol exclstor = do
+  instMatchesSpecs inst (T.iPolicyMinMaxISpecs ipol) exclstor
   if diskTemplate inst `elem` T.iPolicyDiskTemplates ipol
     then Ok ()
     else Bad T.FailDisk

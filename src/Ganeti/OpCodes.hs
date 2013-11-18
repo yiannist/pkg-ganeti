@@ -66,31 +66,38 @@ $(genOpCode "OpCode"
      [ pDelayDuration
      , pDelayOnMaster
      , pDelayOnNodes
+     , pDelayOnNodeUuids
      , pDelayRepeat
      ])
   , ("OpInstanceReplaceDisks",
      [ pInstanceName
+     , pInstanceUuid
      , pEarlyRelease
      , pIgnoreIpolicy
      , pReplaceDisksMode
      , pReplaceDisksList
      , pRemoteNode
+     , pRemoteNodeUuid
      , pIallocator
      ])
   , ("OpInstanceFailover",
      [ pInstanceName
+     , pInstanceUuid
      , pShutdownTimeout
      , pIgnoreConsistency
      , pMigrationTargetNode
+     , pMigrationTargetNodeUuid
      , pIgnoreIpolicy
      , pIallocator
      , pMigrationCleanup
      ])
   , ("OpInstanceMigrate",
      [ pInstanceName
+     , pInstanceUuid
      , pMigrationMode
      , pMigrationLive
      , pMigrationTargetNode
+     , pMigrationTargetNodeUuid
      , pAllowRuntimeChgs
      , pIgnoreIpolicy
      , pMigrationCleanup
@@ -179,6 +186,8 @@ $(genOpCode "OpCode"
      , pUseExternalMipScript
      , pEnabledDiskTemplates
      , pModifyEtcHosts
+     , pGlobalFileStorageDir
+     , pGlobalSharedFileStorageDir
      ])
   , ("OpClusterRedistConf", [])
   , ("OpClusterActivateMasterIp", [])
@@ -195,12 +204,16 @@ $(genOpCode "OpCode"
      ])
   , ("OpOobCommand",
      [ pNodeNames
+     , pNodeUuids
      , pOobCommand
      , pOobTimeout
      , pIgnoreStatus
      , pPowerDelay
      ])
-  , ("OpNodeRemove", [ pNodeName ])
+  , ("OpNodeRemove",
+     [ pNodeName
+     , pNodeUuid
+     ])
   , ("OpNodeAdd",
      [ pNodeName
      , pHvState
@@ -226,18 +239,21 @@ $(genOpCode "OpCode"
      ])
   , ("OpNodeModifyStorage",
      [ pNodeName
+     , pNodeUuid
      , pStorageType
      , pStorageName
      , pStorageChanges
      ])
   , ("OpRepairNodeStorage",
      [ pNodeName
+     , pNodeUuid
      , pStorageType
      , pStorageName
      , pIgnoreConsistency
      ])
   , ("OpNodeSetParams",
      [ pNodeName
+     , pNodeUuid
      , pForce
      , pHvState
      , pDiskState
@@ -253,13 +269,16 @@ $(genOpCode "OpCode"
      ])
   , ("OpNodePowercycle",
      [ pNodeName
+     , pNodeUuid
      , pForce
      ])
   , ("OpNodeMigrate",
      [ pNodeName
+     , pNodeUuid
      , pMigrationMode
      , pMigrationLive
      , pMigrationTargetNode
+     , pMigrationTargetNodeUuid
      , pAllowRuntimeChgs
      , pIgnoreIpolicy
      , pIallocator
@@ -267,7 +286,9 @@ $(genOpCode "OpCode"
   , ("OpNodeEvacuate",
      [ pEarlyRelease
      , pNodeName
+     , pNodeUuid
      , pRemoteNode
+     , pRemoteNodeUuid
      , pIallocator
      , pEvacMode
      ])
@@ -294,12 +315,15 @@ $(genOpCode "OpCode"
      , pInstOsParams
      , pInstOs
      , pPrimaryNode
+     , pPrimaryNodeUuid
      , pSecondaryNode
+     , pSecondaryNodeUuid
      , pSourceHandshake
      , pSourceInstance
      , pSourceShutdownTimeout
      , pSourceX509Ca
      , pSrcNode
+     , pSrcNodeUuid
      , pSrcPath
      , pStartInstance
      , pOpportunisticLocking
@@ -312,23 +336,27 @@ $(genOpCode "OpCode"
      ])
   , ("OpInstanceReinstall",
      [ pInstanceName
+     , pInstanceUuid
      , pForceVariant
      , pInstOs
      , pTempOsParams
      ])
   , ("OpInstanceRemove",
      [ pInstanceName
+     , pInstanceUuid
      , pShutdownTimeout
      , pIgnoreFailures
      ])
   , ("OpInstanceRename",
      [ pInstanceName
+     , pInstanceUuid
      , pNewName
      , pNameCheck
      , pIpCheck
      ])
   , ("OpInstanceStartup",
      [ pInstanceName
+     , pInstanceUuid
      , pForce
      , pIgnoreOfflineNodes
      , pTempHvParams
@@ -338,6 +366,7 @@ $(genOpCode "OpCode"
      ])
   , ("OpInstanceShutdown",
      [ pInstanceName
+     , pInstanceUuid
      , pForce
      , pIgnoreOfflineNodes
      , pShutdownTimeout'
@@ -345,32 +374,41 @@ $(genOpCode "OpCode"
      ])
   , ("OpInstanceReboot",
      [ pInstanceName
+     , pInstanceUuid
      , pShutdownTimeout
      , pIgnoreSecondaries
      , pRebootType
      ])
   , ("OpInstanceMove",
      [ pInstanceName
+     , pInstanceUuid
      , pShutdownTimeout
      , pIgnoreIpolicy
      , pMoveTargetNode
+     , pMoveTargetNodeUuid
      , pIgnoreConsistency
      ])
   , ("OpInstanceConsole",
-     [ pInstanceName ])
+     [ pInstanceName
+     , pInstanceUuid
+     ])
   , ("OpInstanceActivateDisks",
      [ pInstanceName
+     , pInstanceUuid
      , pIgnoreDiskSize
      , pWaitForSyncFalse
      ])
   , ("OpInstanceDeactivateDisks",
      [ pInstanceName
+     , pInstanceUuid
      , pForce
      ])
   , ("OpInstanceRecreateDisks",
      [ pInstanceName
+     , pInstanceUuid
      , pRecreateDisksInfo
      , pNodes
+     , pNodeUuids
      , pIallocator
      ])
   , ("OpInstanceQuery", dOldQuery)
@@ -381,6 +419,7 @@ $(genOpCode "OpCode"
      ])
   , ("OpInstanceSetParams",
      [ pInstanceName
+     , pInstanceUuid
      , pForce
      , pForceVariant
      , pIgnoreIpolicy
@@ -391,7 +430,9 @@ $(genOpCode "OpCode"
      , pInstHvParams
      , pOptDiskTemplate
      , pPrimaryNode
+     , pPrimaryNodeUuid
      , pRemoteNode
+     , pRemoteNodeUuid
      , pOsNameChange
      , pInstOsParams
      , pWaitForSync
@@ -400,6 +441,7 @@ $(genOpCode "OpCode"
      ])
   , ("OpInstanceGrowDisk",
      [ pInstanceName
+     , pInstanceUuid
      , pWaitForSync
      , pDiskIndex
      , pDiskChgAmount
@@ -407,6 +449,7 @@ $(genOpCode "OpCode"
      ])
   , ("OpInstanceChangeGroup",
      [ pInstanceName
+     , pInstanceUuid
      , pEarlyRelease
      , pIallocator
      , pTargetGroups
@@ -424,6 +467,7 @@ $(genOpCode "OpCode"
      [ pGroupName
      , pForce
      , pRequiredNodes
+     , pRequiredNodeUuids
      ])
   , ("OpGroupQuery", dOldQueryNoLocking)
   , ("OpGroupSetParams",
@@ -459,12 +503,15 @@ $(genOpCode "OpCode"
      ])
   , ("OpBackupPrepare",
      [ pInstanceName
+     , pInstanceUuid
      , pExportMode
      ])
   , ("OpBackupExport",
      [ pInstanceName
+     , pInstanceUuid
      , pShutdownTimeout
      , pExportTargetNode
+     , pExportTargetNodeUuid
      , pShutdownInstance
      , pRemoveInstance
      , pIgnoreRemoveFailures
@@ -473,7 +520,9 @@ $(genOpCode "OpCode"
      , pX509DestCA
      ])
   , ("OpBackupRemove",
-     [ pInstanceName ])
+     [ pInstanceName
+     , pInstanceUuid
+     ])
   , ("OpTestAllocator",
      [ pIAllocatorDirection
      , pIAllocatorMode
@@ -544,6 +593,7 @@ $(genOpCode "OpCode"
   , ("OpRestrictedCommand",
      [ pUseLocking
      , pRequiredNodes
+     , pRequiredNodeUuids
      , pRestrictedCommand
      ])
   ])

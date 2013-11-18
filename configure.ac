@@ -1,7 +1,7 @@
 # Configure script for Ganeti
 m4_define([gnt_version_major], [2])
-m4_define([gnt_version_minor], [8])
-m4_define([gnt_version_revision], [2])
+m4_define([gnt_version_minor], [9])
+m4_define([gnt_version_revision], [1])
 m4_define([gnt_version_suffix], [])
 m4_define([gnt_version_full],
           m4_format([%d.%d.%d%s],
@@ -119,19 +119,6 @@ AC_ARG_WITH([xen-initrd],
   [xen_initrd="/boot/initrd-3-xenU"])
 AC_SUBST(XEN_INITRD, $xen_initrd)
 
-# --with-xen-cmd=...
-AC_ARG_WITH([xen-cmd],
-  [AS_HELP_STRING([--with-xen-cmd=CMD],
-    [Sets the xen cli interface command (default is xm)]
-  )],
-  [xen_cmd="$withval"],
-  [xen_cmd=xm])
-AC_SUBST(XEN_CMD, $xen_cmd)
-
-if ! test "$XEN_CMD" = xl -o "$XEN_CMD" = xm; then
-  AC_MSG_ERROR([Unsupported xen command specified])
-fi
-
 # --with-kvm-kernel=...
 AC_ARG_WITH([kvm-kernel],
   [AS_HELP_STRING([--with-kvm-kernel=PATH],
@@ -140,42 +127,6 @@ AC_ARG_WITH([kvm-kernel],
   [kvm_kernel="$withval"],
   [kvm_kernel="/boot/vmlinuz-3-kvmU"])
 AC_SUBST(KVM_KERNEL, $kvm_kernel)
-
-# --with-file-storage-dir=...
-AC_ARG_WITH([file-storage-dir],
-  [AS_HELP_STRING([--with-file-storage-dir=PATH],
-    [directory to store files for file-based backend]
-    [ (default is /srv/ganeti/file-storage)]
-  )],
-  [[file_storage_dir="$withval";
-    if test "$withval" != no; then
-      enable_file_storage=True
-    else
-      enable_file_storage=False
-    fi
-  ]],
-  [[file_storage_dir="/srv/ganeti/file-storage";
-    enable_file_storage=True]])
-AC_SUBST(FILE_STORAGE_DIR, $file_storage_dir)
-AC_SUBST(ENABLE_FILE_STORAGE, $enable_file_storage)
-
-# --with-shared-file-storage-dir=...
-AC_ARG_WITH([shared-file-storage-dir],
-  [AS_HELP_STRING([--with-shared-file-storage-dir=PATH],
-    [directory to store files for shared file-based backend]
-    [ (default is /srv/ganeti/shared-file-storage)]
-  )],
-  [[shared_file_storage_dir="$withval";
-    if test "$withval" != no; then
-      enable_shared_file_storage=True
-    else
-      enable_shared_file_storage=False
-    fi
-  ]],
-  [[shared_file_storage_dir="/srv/ganeti/shared-file-storage";
-    enable_shared_file_storage=True]])
-AC_SUBST(SHARED_FILE_STORAGE_DIR, $shared_file_storage_dir)
-AC_SUBST(ENABLE_SHARED_FILE_STORAGE, $enable_shared_file_storage)
 
 # --with-kvm-path=...
 AC_ARG_WITH([kvm-path],
@@ -245,7 +196,7 @@ AC_ARG_WITH([user-prefix],
    user_confd="${withval}confd";
    user_luxid="${withval}luxid";
    user_noded="$user_default";
-   user_mond="${withval}mond"],
+   user_mond="$user_default"],
   [user_masterd="$user_default";
    user_rapi="$user_default";
    user_confd="$user_default";
@@ -273,7 +224,7 @@ AC_ARG_WITH([group-prefix],
    group_masterd="${withval}masterd";
    group_noded="$group_default";
    group_daemons="${withval}daemons";
-   group_mond="${withval}mond"],
+   group_mond="$group_default"],
   [group_rapi="$group_default";
    group_admin="$group_default";
    group_confd="$group_default";
@@ -535,6 +486,7 @@ AC_GHC_PKG_REQUIRE(network)
 AC_GHC_PKG_REQUIRE(mtl)
 AC_GHC_PKG_REQUIRE(bytestring)
 AC_GHC_PKG_REQUIRE(utf8-string)
+AC_GHC_PKG_REQUIRE(hslogger)
 
 # extra modules for confd functionality
 HS_REGEX_PCRE=-DNO_REGEX_PCRE
@@ -543,7 +495,6 @@ if test "$enable_confd" != no; then
   CONFD_PKG=
   AC_GHC_PKG_CHECK([regex-pcre], [HS_REGEX_PCRE=],
                    [CONFD_PKG="$CONFD_PKG regex-pcre"])
-  AC_GHC_PKG_CHECK([hslogger], [], [CONFD_PKG="$CONFD_PKG hslogger"])
   AC_GHC_PKG_CHECK([Crypto], [], [CONFD_PKG="$CONFD_PKG Crypto"])
   AC_GHC_PKG_CHECK([text], [], [CONFD_PKG="$CONFD_PKG text"])
   AC_GHC_PKG_CHECK([hinotify], [], [CONFD_PKG="$CONFD_PKG hinotify"])
@@ -574,6 +525,8 @@ if test "$enable_monitoring" != no; then
                    [MONITORING_PKG="$MONITORING_PKG attoparsec"])
   AC_GHC_PKG_CHECK([snap-server], [],
                    [MONITORING_PKG="$MONITORING_PKG snap-server"])
+  AC_GHC_PKG_CHECK([process], [],
+                   [MONITORING_PKG="$MONITORING_PKG process"])
   MONITORING_DEP=
   if test "$has_confd" = False; then
     MONITORING_DEP="$MONITORING_DEP confd"
@@ -623,6 +576,7 @@ AC_GHC_PKG_CHECK([temporary], [], [HS_NODEV=1])
 #        of the checks.
 AC_GHC_PKG_CHECK([attoparsec], [], [HS_NODEV=1])
 AC_GHC_PKG_CHECK([vector], [], [HS_NODEV=1])
+AC_GHC_PKG_CHECK([process], [], [HS_NODEV=1])
 AC_GHC_PKG_CHECK([snap-server], [], [HS_NODEV=1])
 AC_GHC_PKG_CHECK([regex-pcre], [], [HS_NODEV=1])
 AC_GHC_PKG_CHECK([Crypto], [], [HS_NODEV=1])
@@ -789,6 +743,7 @@ AC_PYTHON_MODULE(pyinotify, t)
 AC_PYTHON_MODULE(pycurl, t)
 AC_PYTHON_MODULE(bitarray, t)
 AC_PYTHON_MODULE(ipaddr, t)
+AC_PYTHON_MODULE(mock)
 AC_PYTHON_MODULE(affinity)
 AC_PYTHON_MODULE(paramiko)
 

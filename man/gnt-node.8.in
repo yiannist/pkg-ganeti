@@ -91,7 +91,7 @@ Example:
 .fi
 .SS EVACUATE
 .PP
-\f[B]evacuate\f[] [-f] [--early-release] [--submit]
+\f[B]evacuate\f[] [-f] [--early-release] [--submit] [--print-job-id]
 .PD 0
 .P
 .PD
@@ -251,6 +251,11 @@ Number of NUMA domains on node (if exported by hypervisor)
 .RS
 .RE
 .TP
+.B \f[C]cnos\f[]
+Number of logical processors used by the node OS (dom0 for Xen)
+.RS
+.RE
+.TP
 .B \f[C]csockets\f[]
 Number of physical CPU sockets (if exported by hypervisor)
 .RS
@@ -272,7 +277,7 @@ Custom node parameters
 .RE
 .TP
 .B \f[C]dfree\f[]
-Available disk space in volume group
+Available storage space in storage unit
 .RS
 .RE
 .TP
@@ -287,7 +292,7 @@ Whether node is drained
 .RE
 .TP
 .B \f[C]dtotal\f[]
-Total disk space in volume group used for instance disk allocation
+Total storage space in storage unit used for instance disk allocation
 .RS
 .RE
 .TP
@@ -417,6 +422,16 @@ Secondary IP address
 .RS
 .RE
 .TP
+.B \f[C]spfree\f[]
+Available spindles in volume group (exclusive storage only)
+.RS
+.RE
+.TP
+.B \f[C]sptotal\f[]
+Total spindles in volume group (exclusive storage only)
+.RS
+.RE
+.TP
 .B \f[C]tags\f[]
 Tags
 .RS
@@ -519,7 +534,7 @@ Lists available fields for nodes.
 .PD 0
 .P
 .PD
-[--ignore-ipolicy] [--submit] {\f[I]node\f[]}
+[--ignore-ipolicy] [--submit] [--print-job-id] {\f[I]node\f[]}
 .PP
 This command will migrate all instances having the given node as primary
 to their secondary nodes.
@@ -545,7 +560,7 @@ Example:
 .fi
 .SS MODIFY
 .PP
-\f[B]modify\f[] [-f] [--submit]
+\f[B]modify\f[] [-f] [--submit] [--print-job-id]
 .PD 0
 .P
 .PD
@@ -819,6 +834,7 @@ node2\ lvm-pv\ /dev/sdb1\ 698.6G\ \ \ 0M\ 698.6G\ Y
 .SS MODIFY-STORAGE
 .PP
 \f[B]modify-storage\f[] [--allocatable={yes|no}] [--submit]
+[--print-job-id]
 .PD 0
 .P
 .PD
@@ -866,7 +882,8 @@ Example:
 .fi
 .SS POWERCYCLE
 .PP
-\f[B]powercycle\f[] [--yes] [--force] [--submit] {\f[I]node\f[]}
+\f[B]powercycle\f[] [--yes] [--force] [--submit] [--print-job-id]
+{\f[I]node\f[]}
 .PP
 This command (tries to) forcefully reboot a node.
 It is a command that can be used if the node environment is broken, such

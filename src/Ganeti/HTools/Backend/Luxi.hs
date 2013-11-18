@@ -83,6 +83,11 @@ fromJValWithStatus (st, v) = do
   st' <- fromJVal st
   Qlang.checkRS st' v >>= fromJVal
 
+annotateConvert :: String -> String -> String -> Result a -> Result a
+annotateConvert otype oname oattr =
+  annotateResult $ otype ++ " '" ++ oname ++
+    "', error while reading attribute '" ++ oattr ++ "'"
+
 -- | Annotate errors when converting values with owner/attribute for
 -- better debugging.
 genericConvert :: (Text.JSON.JSON a) =>
@@ -92,9 +97,18 @@ genericConvert :: (Text.JSON.JSON a) =>
                -> (JSValue, JSValue) -- ^ The value we're trying to convert
                -> Result a           -- ^ The annotated result
 genericConvert otype oname oattr =
-  annotateResult (otype ++ " '" ++ oname ++
-                  "', error while reading attribute '" ++
-                  oattr ++ "'") . fromJValWithStatus
+  annotateConvert otype oname oattr . fromJValWithStatus
+
+convertArrayMaybe :: (Text.JSON.JSON a) =>
+                  String             -- ^ The object type
+               -> String             -- ^ The object name
+               -> String             -- ^ The attribute we're trying to convert
+               -> (JSValue, JSValue) -- ^ The value we're trying to convert
+               -> Result [Maybe a]   -- ^ The annotated result
+convertArrayMaybe otype oname oattr (st, v) = do
+  st' <- fromJVal st
+  Qlang.checkRS st' v >>=
+    annotateConvert otype oname oattr . arrayMaybeFromJVal
 
 -- * Data querying functionality
 
@@ -103,8 +117,9 @@ queryNodesMsg :: L.LuxiOp
 queryNodesMsg =
   L.Query (Qlang.ItemTypeOpCode Qlang.QRNode)
      ["name", "mtotal", "mnode", "mfree", "dtotal", "dfree",
-      "ctotal", "offline", "drained", "vm_capable",
-      "ndp/spindle_count", "group.uuid"] Qlang.EmptyFilter
+      "ctotal", "cnos", "offline", "drained", "vm_capable",
+      "ndp/spindle_count", "group.uuid", "tags",
+      "ndp/exclusive_storage", "sptotal", "spfree"] Qlang.EmptyFilter
 
 -- | The input data for instance query.
 queryInstancesMsg :: L.LuxiOp
@@ -113,7 +128,7 @@ queryInstancesMsg =
      ["name", "disk_usage", "be/memory", "be/vcpus",
       "status", "pnode", "snodes", "tags", "oper_ram",
       "be/auto_balance", "disk_template",
-      "be/spindle_use"] Qlang.EmptyFilter
+      "be/spindle_use", "disk.sizes", "disk.spindles"] Qlang.EmptyFilter
 
 -- | The input data for cluster query.
 queryClusterInfoMsg :: L.LuxiOp
@@ -154,7 +169,8 @@ parseInstance :: NameAssoc
               -> Result (String, Instance.Instance)
 parseInstance ktn [ name, disk, mem, vcpus
                   , status, pnode, snodes, tags, oram
-                  , auto_balance, disk_template, su ] = do
+                  , auto_balance, disk_template, su
+                  , dsizes, dspindles ] = do
   xname <- annotateResult "Parsing new instance" (fromJValWithStatus name)
   let convert a = genericConvert "Instance" xname a
   xdisk <- convert "disk_usage" disk
@@ -172,8 +188,11 @@ parseInstance ktn [ name, disk, mem, vcpus
   xauto_balance <- convert "auto_balance" auto_balance
   xdt <- convert "disk_template" disk_template
   xsu <- convert "be/spindle_use" su
-  let inst = Instance.create xname xmem xdisk [xdisk] xvcpus
-             xrunning xtags xauto_balance xpnode snode xdt xsu []
+  xdsizes <- convert "disk.sizes" dsizes
+  xdspindles <- convertArrayMaybe "Instance" xname "disk.spindles" dspindles
+  let disks = zipWith Instance.Disk xdsizes xdspindles
+      inst = Instance.create xname xmem xdisk disks
+             xvcpus xrunning xtags xauto_balance xpnode snode xdt xsu []
   return (xname, inst)
 
 parseInstance _ v = fail ("Invalid instance query result: " ++ show v)
@@ -185,26 +204,33 @@ getNodes ktg arr = extractArray arr >>= mapM (parseNode ktg)
 -- | Construct a node from a JSON object.
 parseNode :: NameAssoc -> [(JSValue, JSValue)] -> Result (String, Node.Node)
 parseNode ktg [ name, mtotal, mnode, mfree, dtotal, dfree
-              , ctotal, offline, drained, vm_capable, spindles, g_uuid ]
+              , ctotal, cnos, offline, drained, vm_capable, spindles, g_uuid
+              , tags, excl_stor, sptotal, spfree ]
     = do
   xname <- annotateResult "Parsing new node" (fromJValWithStatus name)
   let convert a = genericConvert "Node" xname a
   xoffline <- convert "offline" offline
   xdrained <- convert "drained" drained
   xvm_capable <- convert "vm_capable" vm_capable
-  xspindles <- convert "spindles" spindles
   xgdx   <- convert "group.uuid" g_uuid >>= lookupGroup ktg xname
-  node <- if xoffline || xdrained || not xvm_capable
-            then return $ Node.create xname 0 0 0 0 0 0 True xspindles xgdx
-            else do
-              xmtotal  <- convert "mtotal" mtotal
-              xmnode   <- convert "mnode" mnode
-              xmfree   <- convert "mfree" mfree
-              xdtotal  <- convert "dtotal" dtotal
-              xdfree   <- convert "dfree" dfree
-              xctotal  <- convert "ctotal" ctotal
-              return $ Node.create xname xmtotal xmnode xmfree
-                     xdtotal xdfree xctotal False xspindles xgdx
+  xtags <- convert "tags" tags
+  xexcl_stor <- convert "exclusive_storage" excl_stor
+  let live = not xoffline && not xdrained && xvm_capable
+      lvconvert def n d = eitherLive live def $ convert n d
+  xsptotal <- if xexcl_stor
+              then lvconvert 0 "sptotal" sptotal
+              else convert "spindles" spindles
+  xspfree <- lvconvert 0 "spfree" spfree
+  xmtotal <- lvconvert 0.0 "mtotal" mtotal
+  xmnode <- lvconvert 0 "mnode" mnode
+  xmfree <- lvconvert 0 "mfree" mfree
+  xdtotal <- lvconvert 0.0 "dtotal" dtotal
+  xdfree <- lvconvert 0 "dfree" dfree
+  xctotal <- lvconvert 0.0 "ctotal" ctotal
+  xcnos <- lvconvert 0 "cnos" cnos
+  let node = flip Node.setNodeTags xtags $
+             Node.create xname xmtotal xmnode xmfree xdtotal xdfree
+             xctotal xcnos (not live) xsptotal xspfree xgdx xexcl_stor
   return (xname, node)
 
 parseNode _ v = fail ("Invalid node query result: " ++ show v)

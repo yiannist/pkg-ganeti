@@ -106,7 +106,8 @@ prop_Score_Zero :: Node.Node -> Property
 prop_Score_Zero node =
   forAll (choose (1, 1024)) $ \count ->
     (not (Node.offline node) && not (Node.failN1 node) && (count > 0) &&
-     (Node.tDsk node > 0) && (Node.tMem node > 0)) ==>
+     (Node.tDsk node > 0) && (Node.tMem node > 0) &&
+     (Node.tSpindles node > 0) && (Node.tCpu node > 0)) ==>
   let fn = Node.buildPeers node Container.empty
       nlst = replicate count fn
       score = Cluster.compCVNodes nlst
@@ -359,8 +360,9 @@ prop_AllocPolicy =
   forAll genOnlineNode $ \node ->
   forAll (choose (5, 20)) $ \count ->
   forAll (genInstanceSmallerThanNode node) $ \inst ->
-  forAll (arbitrary `suchThat` (isBad .
-                                Instance.instMatchesPolicy inst)) $ \ipol ->
+  forAll (arbitrary `suchThat`
+          (isBad . flip (Instance.instMatchesPolicy inst)
+           (Node.exclStorage node))) $ \ipol ->
   let rqn = Instance.requiredNodes $ Instance.diskTemplate inst
       node' = Node.setPolicy ipol node
       nl = makeSmallCluster node' count

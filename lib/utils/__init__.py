@@ -53,6 +53,7 @@ from ganeti.utils.mlock import *
 from ganeti.utils.nodesetup import *
 from ganeti.utils.process import *
 from ganeti.utils.retry import *
+from ganeti.utils.storage import *
 from ganeti.utils.text import *
 from ganeti.utils.wrapper import *
 from ganeti.utils.x509 import *
@@ -671,7 +672,7 @@ class SignalWakeupFd(object):
     """Notifies the wakeup file descriptor.
 
     """
-    self._write_fh.write("\0")
+    self._write_fh.write(chr(0))
 
   def __del__(self):
     """Called before object deletion.

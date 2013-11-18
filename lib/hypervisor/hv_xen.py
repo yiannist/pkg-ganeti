@@ -24,7 +24,9 @@
 """
 
 import logging
+import errno
 import string # pylint: disable=W0402
+import shutil
 from cStringIO import StringIO
 
 from ganeti import constants
@@ -34,7 +36,6 @@ from ganeti.hypervisor import hv_base
 from ganeti import netutils
 from ganeti import objects
 from ganeti import pathutils
-from ganeti import ssconf
 
 
 XEND_CONFIG_FILE = utils.PathJoin(pathutils.XEN_CONFIG_DIR, "xend-config.sxp")
@@ -82,32 +83,33 @@ def _CreateConfigCpus(cpu_mask):
     return "cpus = [ %s ]" % ", ".join(map(_GetCPUMap, cpu_list))
 
 
-def _RunXmList(fn, xmllist_errors):
-  """Helper function for L{_GetXmList} to run "xm list".
+def _RunInstanceList(fn, instance_list_errors):
+  """Helper function for L{_GetInstanceList} to retrieve the list of instances
+  from xen.
 
   @type fn: callable
-  @param fn: Function returning result of running C{xm list}
-  @type xmllist_errors: list
-  @param xmllist_errors: Error list
+  @param fn: Function to query xen for the list of instances
+  @type instance_list_errors: list
+  @param instance_list_errors: Error list
   @rtype: list
 
   """
   result = fn()
   if result.failed:
-    logging.error("xm list failed (%s): %s", result.fail_reason,
-                  result.output)
-    xmllist_errors.append(result)
+    logging.error("Retrieving the instance list from xen failed (%s): %s",
+                  result.fail_reason, result.output)
+    instance_list_errors.append(result)
     raise utils.RetryAgain()
 
   # skip over the heading
   return result.stdout.splitlines()
 
 
-def _ParseXmList(lines, include_node):
-  """Parses the output of C{xm list}.
+def _ParseInstanceList(lines, include_node):
+  """Parses the output of listing instances by xen.
 
   @type lines: list
-  @param lines: Output lines of C{xm list}
+  @param lines: Result of retrieving the instance list from xen
   @type include_node: boolean
   @param include_node: If True, return information for Dom0
   @return: list of tuple containing (name, id, memory, vcpus, state, time
@@ -123,7 +125,7 @@ def _ParseXmList(lines, include_node):
     # Domain-0   0  3418     4 r-----    266.2
     data = line.split()
     if len(data) != 6:
-      raise errors.HypervisorError("Can't parse output of xm list,"
+      raise errors.HypervisorError("Can't parse instance list,"
                                    " line: %s" % line)
     try:
       data[1] = int(data[1])
@@ -131,7 +133,7 @@ def _ParseXmList(lines, include_node):
       data[3] = int(data[3])
       data[5] = float(data[5])
     except (TypeError, ValueError), err:
-      raise errors.HypervisorError("Can't parse output of xm list,"
+      raise errors.HypervisorError("Can't parse instance list,"
                                    " line: %s, error: %s" % (line, err))
 
     # skip the Domain-0 (optional)
@@ -141,28 +143,28 @@ def _ParseXmList(lines, include_node):
   return result
 
 
-def _GetXmList(fn, include_node, _timeout=5):
+def _GetInstanceList(fn, include_node, _timeout=5):
   """Return the list of running instances.
 
-  See L{_RunXmList} and L{_ParseXmList} for parameter details.
+  See L{_RunInstanceList} and L{_ParseInstanceList} for parameter details.
 
   """
-  xmllist_errors = []
+  instance_list_errors = []
   try:
-    lines = utils.Retry(_RunXmList, (0.3, 1.5, 1.0), _timeout,
-                        args=(fn, xmllist_errors))
+    lines = utils.Retry(_RunInstanceList, (0.3, 1.5, 1.0), _timeout,
+                        args=(fn, instance_list_errors))
   except utils.RetryTimeout:
-    if xmllist_errors:
-      xmlist_result = xmllist_errors.pop()
+    if instance_list_errors:
+      instance_list_result = instance_list_errors.pop()
 
-      errmsg = ("xm list failed, timeout exceeded (%s): %s" %
-                (xmlist_result.fail_reason, xmlist_result.output))
+      errmsg = ("listing instances failed, timeout exceeded (%s): %s" %
+                (instance_list_result.fail_reason, instance_list_result.output))
     else:
-      errmsg = "xm list failed"
+      errmsg = "listing instances failed"
 
     raise errors.HypervisorError(errmsg)
 
-  return _ParseXmList(lines, include_node)
+  return _ParseInstanceList(lines, include_node)
 
 
 def _ParseNodeInfo(info):
@@ -224,22 +226,22 @@ def _ParseNodeInfo(info):
   return result
 
 
-def _MergeInstanceInfo(info, fn):
+def _MergeInstanceInfo(info, instance_list):
   """Updates node information from L{_ParseNodeInfo} with instance info.
 
   @type info: dict
   @param info: Result from L{_ParseNodeInfo}
-  @type fn: callable
-  @param fn: Function returning result of running C{xm list}
+  @type instance_list: list of tuples
+  @param instance_list: list of instance information; one tuple per instance
   @rtype: dict
 
   """
   total_instmem = 0
 
-  for (name, _, mem, vcpus, _, _) in fn(True):
+  for (name, _, mem, vcpus, _, _) in instance_list:
     if name == _DOM0_NAME:
       info["memory_dom0"] = mem
-      info["dom0_cpus"] = vcpus
+      info["cpu_dom0"] = vcpus
 
     # Include Dom0 in total memory usage
     total_instmem += mem
@@ -254,11 +256,14 @@ def _MergeInstanceInfo(info, fn):
   return info
 
 
-def _GetNodeInfo(info, fn):
+def _GetNodeInfo(info, instance_list):
   """Combines L{_MergeInstanceInfo} and L{_ParseNodeInfo}.
 
+  @type instance_list: list of tuples
+  @param instance_list: list of instance information; one tuple per instance
+
   """
-  return _MergeInstanceInfo(_ParseNodeInfo(info), fn)
+  return _MergeInstanceInfo(_ParseNodeInfo(info), instance_list)
 
 
 def _GetConfigFileDiskData(block_devices, blockdev_prefix,
@@ -270,7 +275,7 @@ def _GetConfigFileDiskData(block_devices, blockdev_prefix,
 
   @param block_devices: list of tuples (cfdev, rldev):
       - cfdev: dict containing ganeti config disk part
-      - rldev: ganeti.bdev.BlockDev object
+      - rldev: ganeti.block.bdev.BlockDev object
   @param blockdev_prefix: a string containing blockdevice prefix,
                           e.g. "sd" for /dev/sda
 
@@ -290,7 +295,7 @@ def _GetConfigFileDiskData(block_devices, blockdev_prefix,
     else:
       mode = "r"
 
-    if cfdev.dev_type == constants.LD_FILE:
+    if cfdev.dev_type in [constants.DT_FILE, constants.DT_SHARED_FILE]:
       driver = _FILE_DRIVER_MAP[cfdev.physical_id[0]]
     else:
       driver = "phy"
@@ -310,6 +315,9 @@ class XenHypervisor(hv_base.BaseHypervisor):
   CAN_MIGRATE = True
   REBOOT_RETRY_COUNT = 60
   REBOOT_RETRY_INTERVAL = 10
+  _ROOT_DIR = pathutils.RUN_DIR + "/xen-hypervisor"
+  _NICS_DIR = _ROOT_DIR + "/nic" # contains NICs' info
+  _DIRS = [_ROOT_DIR, _NICS_DIR]
 
   ANCILLARY_FILES = [
     XEND_CONFIG_FILE,
@@ -335,13 +343,28 @@ class XenHypervisor(hv_base.BaseHypervisor):
 
     self._cmd = _cmd
 
-  def _GetCommand(self):
+  @staticmethod
+  def _GetCommandFromHvparams(hvparams):
+    """Returns the Xen command extracted from the given hvparams.
+
+    @type hvparams: dict of strings
+    @param hvparams: hypervisor parameters
+
+    """
+    if hvparams is None or constants.HV_XEN_CMD not in hvparams:
+      raise errors.HypervisorError("Cannot determine xen command.")
+    else:
+      return hvparams[constants.HV_XEN_CMD]
+
+  def _GetCommand(self, hvparams):
     """Returns Xen command to use.
+
+    @type hvparams: dict of strings
+    @param hvparams: hypervisor parameters
 
     """
     if self._cmd is None:
-      # TODO: Make command a hypervisor parameter
-      cmd = constants.XEN_CMD
+      cmd = XenHypervisor._GetCommandFromHvparams(hvparams)
     else:
       cmd = self._cmd
 
@@ -350,13 +373,15 @@ class XenHypervisor(hv_base.BaseHypervisor):
 
     return cmd
 
-  def _RunXen(self, args):
+  def _RunXen(self, args, hvparams):
     """Wrapper around L{utils.process.RunCmd} to run Xen command.
 
+    @type hvparams: dict of strings
+    @param hvparams: dictionary of hypervisor params
     @see: L{utils.process.RunCmd}
 
     """
-    cmd = [self._GetCommand()]
+    cmd = [self._GetCommand(hvparams)]
     cmd.extend(args)
 
     return self._run_cmd_fn(cmd)
@@ -371,6 +396,61 @@ class XenHypervisor(hv_base.BaseHypervisor):
 
     """
     return utils.PathJoin(self._cfgdir, instance_name)
+
+  @classmethod
+  def _WriteNICInfoFile(cls, instance_name, idx, nic):
+    """Write the Xen config file for the instance.
+
+    This version of the function just writes the config file from static data.
+
+    """
+    dirs = [(dname, constants.RUN_DIRS_MODE)
+            for dname in cls._DIRS + [cls._InstanceNICDir(instance_name)]]
+    utils.EnsureDirs(dirs)
+
+    cfg_file = cls._InstanceNICFile(instance_name, idx)
+    data = StringIO()
+
+    if nic.netinfo:
+      netinfo = objects.Network.FromDict(nic.netinfo)
+      data.write("NETWORK_NAME=%s\n" % netinfo.name)
+      if netinfo.network:
+        data.write("NETWORK_SUBNET=%s\n" % netinfo.network)
+      if netinfo.gateway:
+        data.write("NETWORK_GATEWAY=%s\n" % netinfo.gateway)
+      if netinfo.network6:
+        data.write("NETWORK_SUBNET6=%s\n" % netinfo.network6)
+      if netinfo.gateway6:
+        data.write("NETWORK_GATEWAY6=%s\n" % netinfo.gateway6)
+      if netinfo.mac_prefix:
+        data.write("NETWORK_MAC_PREFIX=%s\n" % netinfo.mac_prefix)
+      if netinfo.tags:
+        data.write("NETWORK_TAGS=%s\n" % r"\ ".join(netinfo.tags))
+
+    data.write("MAC=%s\n" % nic.mac)
+    data.write("IP=%s\n" % nic.ip)
+    data.write("MODE=%s\n" % nic.nicparams[constants.NIC_MODE])
+    data.write("LINK=%s\n" % nic.nicparams[constants.NIC_LINK])
+
+    try:
+      utils.WriteFile(cfg_file, data=data.getvalue())
+    except EnvironmentError, err:
+      raise errors.HypervisorError("Cannot write Xen instance configuration"
+                                   " file %s: %s" % (cfg_file, err))
+
+  @classmethod
+  def _InstanceNICDir(cls, instance_name):
+    """Returns the directory holding the tap device files for a given instance.
+
+    """
+    return utils.PathJoin(cls._NICS_DIR, instance_name)
+
+  @classmethod
+  def _InstanceNICFile(cls, instance_name, seq):
+    """Returns the name of the file containing the tap device for a given NIC
+
+    """
+    return utils.PathJoin(cls._InstanceNICDir(instance_name), str(seq))
 
   @classmethod
   def _GetConfig(cls, instance, startup_memory, block_devices):
@@ -413,6 +493,11 @@ class XenHypervisor(hv_base.BaseHypervisor):
 
     """
     utils.RemoveFile(self._ConfigFileName(instance_name))
+    try:
+      shutil.rmtree(self._InstanceNICDir(instance_name))
+    except OSError, err:
+      if err.errno != errno.ENOENT:
+        raise
 
   def _StashConfigFile(self, instance_name):
     """Move the Xen config file to the log directory and return its new path.
@@ -425,44 +510,52 @@ class XenHypervisor(hv_base.BaseHypervisor):
     utils.RenameFile(old_filename, new_filename)
     return new_filename
 
-  def _GetXmList(self, include_node):
-    """Wrapper around module level L{_GetXmList}.
+  def _GetInstanceList(self, include_node, hvparams):
+    """Wrapper around module level L{_GetInstanceList}.
+
+    @type hvparams: dict of strings
+    @param hvparams: hypervisor parameters to be used on this node
 
     """
-    return _GetXmList(lambda: self._RunXen(["list"]), include_node)
+    return _GetInstanceList(lambda: self._RunXen(["list"], hvparams),
+                            include_node)
 
-  def ListInstances(self):
+  def ListInstances(self, hvparams=None):
     """Get the list of running instances.
 
     """
-    xm_list = self._GetXmList(False)
-    names = [info[0] for info in xm_list]
+    instance_list = self._GetInstanceList(False, hvparams)
+    names = [info[0] for info in instance_list]
     return names
 
-  def GetInstanceInfo(self, instance_name):
+  def GetInstanceInfo(self, instance_name, hvparams=None):
     """Get instance properties.
 
+    @type instance_name: string
     @param instance_name: the instance name
+    @type hvparams: dict of strings
+    @param hvparams: the instance's hypervisor params
 
     @return: tuple (name, id, memory, vcpus, stat, times)
 
     """
-    xm_list = self._GetXmList(instance_name == _DOM0_NAME)
+    instance_list = self._GetInstanceList(instance_name == _DOM0_NAME, hvparams)
     result = None
-    for data in xm_list:
+    for data in instance_list:
       if data[0] == instance_name:
         result = data
         break
     return result
 
-  def GetAllInstancesInfo(self):
+  def GetAllInstancesInfo(self, hvparams=None):
     """Get properties of all instances.
 
+    @type hvparams: dict of strings
+    @param hvparams: hypervisor parameters
     @return: list of tuples (name, id, memory, vcpus, stat, times)
 
     """
-    xm_list = self._GetXmList(False)
-    return xm_list
+    return self._GetInstanceList(False, hvparams)
 
   def _MakeConfigFile(self, instance, startup_memory, block_devices):
     """Gather configuration details and write to disk.
@@ -482,7 +575,8 @@ class XenHypervisor(hv_base.BaseHypervisor):
     """Start an instance.
 
     """
-    startup_memory = self._InstanceStartupMemory(instance)
+    startup_memory = self._InstanceStartupMemory(instance,
+                                                 hvparams=instance.hvparams)
 
     self._MakeConfigFile(instance, startup_memory, block_devices)
 
@@ -491,7 +585,7 @@ class XenHypervisor(hv_base.BaseHypervisor):
       cmd.append("-p")
     cmd.append(self._ConfigFileName(instance.name))
 
-    result = self._RunXen(cmd)
+    result = self._RunXen(cmd, instance.hvparams)
     if result.failed:
       # Move the Xen configuration file to the log directory to avoid
       # leaving a stale config file behind.
@@ -508,10 +602,17 @@ class XenHypervisor(hv_base.BaseHypervisor):
     if name is None:
       name = instance.name
 
-    return self._StopInstance(name, force)
+    return self._StopInstance(name, force, instance.hvparams)
 
-  def _StopInstance(self, name, force):
+  def _StopInstance(self, name, force, hvparams):
     """Stop an instance.
+
+    @type name: string
+    @param name: name of the instance to be shutdown
+    @type force: boolean
+    @param force: flag specifying whether shutdown should be forced
+    @type hvparams: dict of string
+    @param hvparams: hypervisor parameters of the instance
 
     """
     if force:
@@ -519,7 +620,7 @@ class XenHypervisor(hv_base.BaseHypervisor):
     else:
       action = "shutdown"
 
-    result = self._RunXen([action, name])
+    result = self._RunXen([action, name], hvparams)
     if result.failed:
       raise errors.HypervisorError("Failed to stop instance %s: %s, %s" %
                                    (name, result.fail_reason, result.output))
@@ -531,20 +632,20 @@ class XenHypervisor(hv_base.BaseHypervisor):
     """Reboot an instance.
 
     """
-    ini_info = self.GetInstanceInfo(instance.name)
+    ini_info = self.GetInstanceInfo(instance.name, hvparams=instance.hvparams)
 
     if ini_info is None:
       raise errors.HypervisorError("Failed to reboot instance %s,"
                                    " not running" % instance.name)
 
-    result = self._RunXen(["reboot", instance.name])
+    result = self._RunXen(["reboot", instance.name], instance.hvparams)
     if result.failed:
       raise errors.HypervisorError("Failed to reboot instance %s: %s, %s" %
                                    (instance.name, result.fail_reason,
                                     result.output))
 
     def _CheckInstance():
-      new_info = self.GetInstanceInfo(instance.name)
+      new_info = self.GetInstanceInfo(instance.name, hvparams=instance.hvparams)
 
       # check if the domain ID has changed or the run time has decreased
       if (new_info is not None and
@@ -570,7 +671,7 @@ class XenHypervisor(hv_base.BaseHypervisor):
     @param mem: actual memory size to use for instance runtime
 
     """
-    result = self._RunXen(["mem-set", instance.name, mem])
+    result = self._RunXen(["mem-set", instance.name, mem], instance.hvparams)
     if result.failed:
       raise errors.HypervisorError("Failed to balloon instance %s: %s (%s)" %
                                    (instance.name, result.fail_reason,
@@ -586,43 +687,61 @@ class XenHypervisor(hv_base.BaseHypervisor):
                                    (instance.name, result.fail_reason,
                                     result.output))
 
-  def GetNodeInfo(self):
+  def GetNodeInfo(self, hvparams=None):
     """Return information about the node.
 
     @see: L{_GetNodeInfo} and L{_ParseNodeInfo}
 
     """
-    result = self._RunXen(["info"])
+    result = self._RunXen(["info"], hvparams)
     if result.failed:
-      logging.error("Can't run 'xm info' (%s): %s", result.fail_reason,
-                    result.output)
+      logging.error("Can't retrieve xen hypervisor information (%s): %s",
+                    result.fail_reason, result.output)
       return None
 
-    return _GetNodeInfo(result.stdout, self._GetXmList)
+    instance_list = self._GetInstanceList(True, hvparams)
+    return _GetNodeInfo(result.stdout, instance_list)
 
   @classmethod
-  def GetInstanceConsole(cls, instance, hvparams, beparams):
+  def GetInstanceConsole(cls, instance, primary_node, hvparams, beparams):
     """Return a command for connecting to the console of an instance.
 
     """
+    xen_cmd = XenHypervisor._GetCommandFromHvparams(hvparams)
     return objects.InstanceConsole(instance=instance.name,
                                    kind=constants.CONS_SSH,
-                                   host=instance.primary_node,
+                                   host=primary_node.name,
                                    user=constants.SSH_CONSOLE_USER,
                                    command=[pathutils.XEN_CONSOLE_WRAPPER,
-                                            constants.XEN_CMD, instance.name])
+                                            xen_cmd, instance.name])
 
-  def Verify(self):
+  def Verify(self, hvparams=None):
     """Verify the hypervisor.
 
     For Xen, this verifies that the xend process is running.
 
+    @type hvparams: dict of strings
+    @param hvparams: hypervisor parameters to be verified against
+
     @return: Problem description if something is wrong, C{None} otherwise
 
     """
-    result = self._RunXen(["info"])
+    if hvparams is None:
+      return "Could not verify the hypervisor, because no hvparams were" \
+             " provided."
+
+    if constants.HV_XEN_CMD in hvparams:
+      xen_cmd = hvparams[constants.HV_XEN_CMD]
+      try:
+        self._CheckToolstack(xen_cmd)
+      except errors.HypervisorError:
+        return "The configured xen toolstack '%s' is not available on this" \
+               " node." % xen_cmd
+
+    result = self._RunXen(["info"], hvparams)
     if result.failed:
-      return "'xm info' failed: %s, %s" % (result.fail_reason, result.output)
+      return "Retrieving information from xen failed: %s, %s" % \
+        (result.fail_reason, result.output)
 
     return None
 
@@ -667,7 +786,7 @@ class XenHypervisor(hv_base.BaseHypervisor):
     if success:
       self._WriteConfigFile(instance.name, info)
 
-  def MigrateInstance(self, instance, target, live):
+  def MigrateInstance(self, cluster_name, instance, target, live):
     """Migrate an instance to a target node.
 
     The migration will not be attempted if the instance is not
@@ -683,23 +802,23 @@ class XenHypervisor(hv_base.BaseHypervisor):
     """
     port = instance.hvparams[constants.HV_MIGRATION_PORT]
 
-    # TODO: Pass cluster name via RPC
-    cluster_name = ssconf.SimpleStore().GetClusterName()
-
     return self._MigrateInstance(cluster_name, instance.name, target, port,
-                                 live)
+                                 live, instance.hvparams)
 
   def _MigrateInstance(self, cluster_name, instance_name, target, port, live,
-                       _ping_fn=netutils.TcpPing):
+                       hvparams, _ping_fn=netutils.TcpPing):
     """Migrate an instance to a target node.
 
     @see: L{MigrateInstance} for details
 
     """
-    if self.GetInstanceInfo(instance_name) is None:
+    if hvparams is None:
+      raise errors.HypervisorError("No hvparams provided.")
+
+    if self.GetInstanceInfo(instance_name, hvparams=hvparams) is None:
       raise errors.HypervisorError("Instance not running, cannot migrate")
 
-    cmd = self._GetCommand()
+    cmd = self._GetCommand(hvparams)
 
     if (cmd == constants.XEN_CMD_XM and
         not _ping_fn(target, port, live_port_needed=True)):
@@ -724,7 +843,7 @@ class XenHypervisor(hv_base.BaseHypervisor):
 
     args.extend([instance_name, target])
 
-    result = self._RunXen(args)
+    result = self._RunXen(args, hvparams)
     if result.failed:
       raise errors.HypervisorError("Failed to migrate instance %s: %s" %
                                    (instance_name, result.output))
@@ -765,8 +884,7 @@ class XenHypervisor(hv_base.BaseHypervisor):
     """
     return objects.MigrationStatus(status=constants.HV_MIGRATION_COMPLETED)
 
-  @classmethod
-  def PowercycleNode(cls):
+  def PowercycleNode(self, hvparams=None):
     """Xen-specific powercycle.
 
     This first does a Linux reboot (which triggers automatically a Xen
@@ -776,11 +894,57 @@ class XenHypervisor(hv_base.BaseHypervisor):
     won't work in case the root filesystem is broken and/or the xend
     daemon is not working.
 
+    @type hvparams: dict of strings
+    @param hvparams: hypervisor params to be used on this node
+
     """
     try:
-      cls.LinuxPowercycle()
+      self.LinuxPowercycle()
     finally:
-      utils.RunCmd([constants.XEN_CMD, "debug", "R"])
+      xen_cmd = self._GetCommand(hvparams)
+      utils.RunCmd([xen_cmd, "debug", "R"])
+
+  def _CheckToolstack(self, xen_cmd):
+    """Check whether the given toolstack is available on the node.
+
+    @type xen_cmd: string
+    @param xen_cmd: xen command (e.g. 'xm' or 'xl')
+
+    """
+    binary_found = self._CheckToolstackBinary(xen_cmd)
+    if not binary_found:
+      raise errors.HypervisorError("No '%s' binary found on node." % xen_cmd)
+    elif xen_cmd == constants.XEN_CMD_XL:
+      if not self._CheckToolstackXlConfigured():
+        raise errors.HypervisorError("Toolstack '%s' is not enabled on this"
+                                     "node." % xen_cmd)
+
+  def _CheckToolstackBinary(self, xen_cmd):
+    """Checks whether the xen command's binary is found on the machine.
+
+    """
+    if xen_cmd not in constants.KNOWN_XEN_COMMANDS:
+      raise errors.HypervisorError("Unknown xen command '%s'." % xen_cmd)
+    result = self._run_cmd_fn(["which", xen_cmd])
+    return not result.failed
+
+  def _CheckToolstackXlConfigured(self):
+    """Checks whether xl is enabled on an xl-capable node.
+
+    @rtype: bool
+    @returns: C{True} if 'xl' is enabled, C{False} otherwise
+
+    """
+    result = self._run_cmd_fn([constants.XEN_CMD_XL, "help"])
+    if not result.failed:
+      return True
+    elif result.failed:
+      if "toolstack" in result.stderr:
+        return False
+      # xl fails for some other reason than the toolstack
+      else:
+        raise errors.HypervisorError("Cannot run xen ('%s'). Error: %s."
+                                     % (constants.XEN_CMD_XL, result.stderr))
 
 
 class XenPvmHypervisor(XenHypervisor):
@@ -804,6 +968,9 @@ class XenPvmHypervisor(XenHypervisor):
     constants.HV_CPU_CAP: hv_base.OPT_NONNEGATIVE_INT_CHECK,
     constants.HV_CPU_WEIGHT:
       (False, lambda x: 0 < x < 65536, "invalid weight", None, None),
+    constants.HV_VIF_SCRIPT: hv_base.OPT_FILE_CHECK,
+    constants.HV_XEN_CMD:
+      hv_base.ParamInSet(True, constants.KNOWN_XEN_COMMANDS),
     }
 
   def _GetConfig(self, instance, startup_memory, block_devices):
@@ -855,14 +1022,17 @@ class XenPvmHypervisor(XenHypervisor):
     config.write("name = '%s'\n" % instance.name)
 
     vif_data = []
-    for nic in instance.nics:
+    for idx, nic in enumerate(instance.nics):
       nic_str = "mac=%s" % (nic.mac)
       ip = getattr(nic, "ip", None)
       if ip is not None:
         nic_str += ", ip=%s" % ip
       if nic.nicparams[constants.NIC_MODE] == constants.NIC_MODE_BRIDGED:
         nic_str += ", bridge=%s" % nic.nicparams[constants.NIC_LINK]
+      if hvp[constants.HV_VIF_SCRIPT]:
+        nic_str += ", script=%s" % hvp[constants.HV_VIF_SCRIPT]
       vif_data.append("'%s'" % nic_str)
+      self._WriteNICInfoFile(instance.name, idx, nic)
 
     disk_data = \
       _GetConfigFileDiskData(block_devices, hvp[constants.HV_BLOCKDEV_PREFIX])
@@ -926,7 +1096,10 @@ class XenHvmHypervisor(XenHypervisor):
       (False, lambda x: 0 < x < 65535, "invalid weight", None, None),
     constants.HV_VIF_TYPE:
       hv_base.ParamInSet(False, constants.HT_HVM_VALID_VIF_TYPES),
+    constants.HV_VIF_SCRIPT: hv_base.OPT_FILE_CHECK,
     constants.HV_VIRIDIAN: hv_base.NO_CHECK,
+    constants.HV_XEN_CMD:
+      hv_base.ParamInSet(True, constants.KNOWN_XEN_COMMANDS),
     }
 
   def _GetConfig(self, instance, startup_memory, block_devices):
@@ -1020,14 +1193,17 @@ class XenHvmHypervisor(XenHypervisor):
       # parameter 'model' is only valid with type 'ioemu'
       nic_type_str = ", model=%s, type=%s" % \
         (nic_type, constants.HT_HVM_VIF_IOEMU)
-    for nic in instance.nics:
+    for idx, nic in enumerate(instance.nics):
       nic_str = "mac=%s%s" % (nic.mac, nic_type_str)
       ip = getattr(nic, "ip", None)
       if ip is not None:
         nic_str += ", ip=%s" % ip
       if nic.nicparams[constants.NIC_MODE] == constants.NIC_MODE_BRIDGED:
         nic_str += ", bridge=%s" % nic.nicparams[constants.NIC_LINK]
+      if hvp[constants.HV_VIF_SCRIPT]:
+        nic_str += ", script=%s" % hvp[constants.HV_VIF_SCRIPT]
       vif_data.append("'%s'" % nic_str)
+      self._WriteNICInfoFile(instance.name, idx, nic)
 
     config.write("vif = [%s]\n" % ",".join(vif_data))
 

@@ -52,11 +52,17 @@ args = None
 #: Target major version we will upgrade to
 TARGET_MAJOR = 2
 #: Target minor version we will upgrade to
-TARGET_MINOR = 8
+TARGET_MINOR = 9
 #: Target major version for downgrade
 DOWNGRADE_MAJOR = 2
 #: Target minor version for downgrade
-DOWNGRADE_MINOR = 7
+DOWNGRADE_MINOR = 8
+
+# map of legacy device types
+# (mapping differing old LD_* constants to new DT_* constants)
+DEV_TYPE_OLD_NEW = {"lvm": constants.DT_PLAIN, "drbd8": constants.DT_DRBD8}
+# (mapping differing new DT_* constants to old LD_* constants)
+DEV_TYPE_NEW_OLD = dict((v, k) for k, v in DEV_TYPE_OLD_NEW.items())
 
 
 class Error(Exception):
@@ -155,12 +161,50 @@ def UpgradeGroups(config_data):
       UpgradeIPolicy(ipolicy, cl_ipolicy, True)
 
 
+def GetExclusiveStorageValue(config_data):
+  """Return a conservative value of the exclusive_storage flag.
+
+  Return C{True} if the cluster or at least a nodegroup have the flag set.
+
+  """
+  ret = False
+  cluster = config_data["cluster"]
+  ndparams = cluster.get("ndparams")
+  if ndparams is not None and ndparams.get("exclusive_storage"):
+    ret = True
+  for group in config_data["nodegroups"].values():
+    ndparams = group.get("ndparams")
+    if ndparams is not None and ndparams.get("exclusive_storage"):
+      ret = True
+  return ret
+
+
+def ChangeDiskDevType(disk, dev_type_map):
+  """Replaces disk's dev_type attributes according to the given map.
+
+  This can be used for both, up or downgrading the disks.
+  """
+  if disk["dev_type"] in dev_type_map:
+    disk["dev_type"] = dev_type_map[disk["dev_type"]]
+  if "children" in disk:
+    for child in disk["children"]:
+      ChangeDiskDevType(child, dev_type_map)
+
+
+def UpgradeDiskDevType(disk):
+  """Upgrades the disks' device type."""
+  ChangeDiskDevType(disk, DEV_TYPE_OLD_NEW)
+
+
 def UpgradeInstances(config_data):
+  """Upgrades the instances' configuration."""
+
   network2uuid = dict((n["name"], n["uuid"])
                       for n in config_data["networks"].values())
   if "instances" not in config_data:
     raise Error("Can't find the 'instances' key in the configuration!")
 
+  missing_spindles = False
   for instance, iobj in config_data["instances"].items():
     for nic in iobj["nics"]:
       name = nic.get("network", None)
@@ -182,6 +226,21 @@ def UpgradeInstances(config_data):
                         " from '%s' to '%s'",
                         instance, idx, current, expected)
         dobj["iv_name"] = expected
+
+      if "dev_type" in dobj:
+        UpgradeDiskDevType(dobj)
+
+      if not "spindles" in dobj:
+        missing_spindles = True
+
+  if GetExclusiveStorageValue(config_data) and missing_spindles:
+    # We cannot be sure that the instances that are missing spindles have
+    # exclusive storage enabled (the check would be more complicated), so we
+    # give a noncommittal message
+    logging.warning("Some instance disks could be needing to update the"
+                    " spindles parameter; you can check by running"
+                    " 'gnt-cluster verify', and fix any problem with"
+                    " 'gnt-cluster repair-disk-sizes'")
 
 
 def UpgradeRapiUsers():
@@ -248,6 +307,68 @@ def UpgradeFileStoragePaths(config_data):
                     backup=True)
 
 
+def GetNewNodeIndex(nodes_by_old_key, old_key, new_key_field):
+  if old_key not in nodes_by_old_key:
+    logging.warning("Can't find node '%s' in configuration, assuming that it's"
+                    " already up-to-date", old_key)
+    return old_key
+  return nodes_by_old_key[old_key][new_key_field]
+
+
+def ChangeNodeIndices(config_data, old_key_field, new_key_field):
+  def ChangeDiskNodeIndices(disk):
+    # Note: 'drbd8' is a legacy device type from pre 2.9 and needs to be
+    # considered when up/downgrading from/to any versions touching 2.9 on the
+    # way.
+    drbd_disk_types = set(["drbd8"]) | constants.DTS_DRBD
+    if disk["dev_type"] in drbd_disk_types:
+      for i in range(0, 2):
+        disk["logical_id"][i] = GetNewNodeIndex(nodes_by_old_key,
+                                                disk["logical_id"][i],
+                                                new_key_field)
+    if "children" in disk:
+      for child in disk["children"]:
+        ChangeDiskNodeIndices(child)
+
+  nodes_by_old_key = {}
+  nodes_by_new_key = {}
+  for (_, node) in config_data["nodes"].items():
+    nodes_by_old_key[node[old_key_field]] = node
+    nodes_by_new_key[node[new_key_field]] = node
+
+  config_data["nodes"] = nodes_by_new_key
+
+  cluster = config_data["cluster"]
+  cluster["master_node"] = GetNewNodeIndex(nodes_by_old_key,
+                                           cluster["master_node"],
+                                           new_key_field)
+
+  for inst in config_data["instances"].values():
+    inst["primary_node"] = GetNewNodeIndex(nodes_by_old_key,
+                                           inst["primary_node"],
+                                           new_key_field)
+    for disk in inst["disks"]:
+      ChangeDiskNodeIndices(disk)
+
+
+def ChangeInstanceIndices(config_data, old_key_field, new_key_field):
+  insts_by_old_key = {}
+  insts_by_new_key = {}
+  for (_, inst) in config_data["instances"].items():
+    insts_by_old_key[inst[old_key_field]] = inst
+    insts_by_new_key[inst[new_key_field]] = inst
+
+  config_data["instances"] = insts_by_new_key
+
+
+def UpgradeNodeIndices(config_data):
+  ChangeNodeIndices(config_data, "name", "uuid")
+
+
+def UpgradeInstanceIndices(config_data):
+  ChangeInstanceIndices(config_data, "name", "uuid")
+
+
 def UpgradeAll(config_data):
   config_data["version"] = constants.BuildVersion(TARGET_MAJOR,
                                                   TARGET_MINOR, 0)
@@ -258,83 +379,59 @@ def UpgradeAll(config_data):
   UpgradeCluster(config_data)
   UpgradeGroups(config_data)
   UpgradeInstances(config_data)
+  UpgradeNodeIndices(config_data)
+  UpgradeInstanceIndices(config_data)
 
 
-def DowngradeIPolicy(ipolicy, owner):
-  # Downgrade IPolicy to 2.7 (stable)
-  minmax_keys = ["min", "max"]
-  specs_is_split = any((k in ipolicy) for k in minmax_keys)
-  if not specs_is_split:
-    if "minmax" in ipolicy:
-      if type(ipolicy["minmax"]) is not list:
-        raise Error("Invalid minmax type in %s ipolicy: %s" %
-                    (owner, type(ipolicy["minmax"])))
-      if len(ipolicy["minmax"]) > 1:
-        logging.warning("Discarding some limit specs values from %s policy",
-                        owner)
-      minmax = ipolicy["minmax"][0]
-      del ipolicy["minmax"]
-    else:
-      minmax = {}
-    for key in minmax_keys:
-      spec = minmax.get(key, {})
-      ipolicy[key] = spec
-    if "std" not in ipolicy:
-      ipolicy["std"] = {}
+def DowngradeDiskDevType(disk):
+  """Downgrades the disks' device type."""
+  ChangeDiskDevType(disk, DEV_TYPE_NEW_OLD)
 
 
-def DowngradeGroups(config_data):
-  for group in config_data["nodegroups"].values():
-    ipolicy = group.get("ipolicy", None)
-    if ipolicy is not None:
-      DowngradeIPolicy(ipolicy, "group \"%s\"" % group.get("name"))
-
-
-def DowngradeEnabledTemplates(cluster):
-  # Remove enabled disk templates to downgrade to 2.7
-  edt_key = "enabled_disk_templates"
-  if edt_key in cluster:
-    logging.warning("Removing cluster's enabled disk templates; value = %s",
-                    utils.CommaJoin(cluster[edt_key]))
-    del cluster[edt_key]
-
-
-def DowngradeCluster(config_data):
-  cluster = config_data.get("cluster", None)
-  if cluster is None:
-    raise Error("Cannot find cluster")
-  DowngradeEnabledTemplates(cluster)
-  ipolicy = cluster.get("ipolicy", None)
-  if ipolicy:
-    DowngradeIPolicy(ipolicy, "cluster")
-  if "dsahostkeypub" in cluster:
-    del cluster["dsahostkeypub"]
-
-
-def DowngradeDisk(disk):
-  if "uuid" in disk:
-    del disk["uuid"]
-  if "children" in disk:
-    for child_disk in disk["children"]:
-      DowngradeDisk(child_disk)
+def DowngradeDisks(disks, owner):
+  for disk in disks:
+    # Remove spindles to downgrade to 2.8
+    if "spindles" in disk:
+      logging.warning("Removing spindles (value=%s) from disk %s (%s) of"
+                      " instance %s",
+                      disk["spindles"], disk["iv_name"], disk["uuid"], owner)
+      del disk["spindles"]
+    if "dev_type" in disk:
+      DowngradeDiskDevType(disk)
 
 
 def DowngradeInstances(config_data):
   if "instances" not in config_data:
-    raise Error("Can't find the 'instances' key in the configuration!")
+    raise Error("Cannot find the 'instances' key in the configuration!")
+  for (iname, iobj) in config_data["instances"].items():
+    if "disks" not in iobj:
+      raise Error("Cannot find 'disks' key for instance %s" % iname)
+    DowngradeDisks(iobj["disks"], iname)
 
-  for _, iobj in config_data["instances"].items():
-    if "disks_active" in iobj:
-      del iobj["disks_active"]
 
-    # Remove the NICs UUIDs
-    for nic in iobj["nics"]:
-      if "uuid" in nic:
-        del nic["uuid"]
+def DowngradeNodeIndices(config_data):
+  ChangeNodeIndices(config_data, "uuid", "name")
 
-    # Downgrade the disks
-    for disk in iobj["disks"]:
-      DowngradeDisk(disk)
+
+def DowngradeInstanceIndices(config_data):
+  ChangeInstanceIndices(config_data, "uuid", "name")
+
+
+def DowngradeHvparams(config_data):
+  """Downgrade the cluster's hypervisor parameters."""
+  cluster = config_data["cluster"]
+  if "hvparams" in cluster:
+    hvparams = cluster["hvparams"]
+    xen_params = None
+    for xen_variant in [constants.HT_XEN_PVM, constants.HT_XEN_HVM]:
+      if xen_variant in hvparams:
+        xen_params = hvparams[xen_variant]
+        # 'xen_cmd' was introduced in 2.9
+        if constants.HV_XEN_CMD in xen_params:
+          del xen_params[constants.HV_XEN_CMD]
+        # 'vif_script' was introducted in 2.9
+        if constants.HV_VIF_SCRIPT in xen_params:
+          del xen_params[constants.HV_VIF_SCRIPT]
 
 
 def DowngradeAll(config_data):
@@ -342,9 +439,10 @@ def DowngradeAll(config_data):
   # it can be removed when updating to the next version.
   config_data["version"] = constants.BuildVersion(DOWNGRADE_MAJOR,
                                                   DOWNGRADE_MINOR, 0)
-  DowngradeCluster(config_data)
-  DowngradeGroups(config_data)
   DowngradeInstances(config_data)
+  DowngradeNodeIndices(config_data)
+  DowngradeInstanceIndices(config_data)
+  DowngradeHvparams(config_data)
 
 
 def main():
@@ -465,8 +563,8 @@ def main():
                    config_minor, config_revision))
     DowngradeAll(config_data)
 
-  # Upgrade from 2.{0..7} to 2.8
-  elif config_major == 2 and config_minor in range(0, 9):
+  # Upgrade from 2.{0..7} to 2.9
+  elif config_major == 2 and config_minor in range(0, 10):
     if config_revision != 0:
       logging.warning("Config revision is %s, not 0", config_revision)
     UpgradeAll(config_data)

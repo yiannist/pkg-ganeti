@@ -80,8 +80,9 @@ class TestConstants(unittest.TestCase):
     self.failUnless(constants.OP_PRIO_HIGH > constants.OP_PRIO_HIGHEST)
 
   def testDiskDefaults(self):
-    self.failUnless(set(constants.DISK_LD_DEFAULTS.keys()) ==
-                    constants.LOGICAL_DISK_TYPES)
+    self.failUnless(
+        set(constants.DISK_LD_DEFAULTS.keys()) ==
+        set(constants.DISK_TEMPLATES) - set([constants.DT_DISKLESS]))
     self.failUnless(set(constants.DISK_DT_DEFAULTS.keys()) ==
                     constants.DISK_TEMPLATES)
 
@@ -155,6 +156,17 @@ class TestConfdConstants(unittest.TestCase):
   def testReplStatuses(self):
     self.assertFalse(utils.FindDuplicates(constants.CONFD_REPL_STATUSES),
                      msg="Duplicated confd reply status code")
+
+class TestDiskTemplateConstants(unittest.TestCase):
+
+  def testPreference(self):
+    self.assertEqual(set(constants.DISK_TEMPLATE_PREFERENCE),
+                     set(constants.DISK_TEMPLATES))
+
+  def testMapToStorageTypes(self):
+    for disk_template in constants.DISK_TEMPLATES:
+      self.assertTrue(
+          constants.MAP_DISK_TEMPLATE_STORAGE_TYPE[disk_template] is not None)
 
 
 if __name__ == "__main__":

@@ -230,6 +230,19 @@ class RpcResult(object):
       args = (msg, )
     raise ec(*args) # pylint: disable=W0142
 
+  def Warn(self, msg, feedback_fn):
+    """If the result has failed, call the feedback_fn.
+
+    This is used to in cases were LU wants to warn the
+    user about a failure, but continue anyway.
+
+    """
+    if not self.fail_msg:
+      return
+
+    msg = "%s: %s" % (msg, self.fail_msg)
+    feedback_fn(msg)
+
 
 def _SsconfResolver(ssconf_ips, node_list, _,
                     ssc=ssconf.SimpleStore,
@@ -262,7 +275,7 @@ def _SsconfResolver(ssconf_ips, node_list, _,
     ip = ipmap.get(node)
     if ip is None:
       ip = nslookup_fn(node, family=family)
-    result.append((node, ip))
+    result.append((node, ip, node))
 
   return result
 
@@ -279,30 +292,35 @@ class _StaticResolver:
 
     """
     assert len(hosts) == len(self._addresses)
-    return zip(hosts, self._addresses)
+    return zip(hosts, self._addresses, hosts)
 
 
-def _CheckConfigNode(name, node, accept_offline_node):
+def _CheckConfigNode(node_uuid_or_name, node, accept_offline_node):
   """Checks if a node is online.
 
-  @type name: string
-  @param name: Node name
+  @type node_uuid_or_name: string
+  @param node_uuid_or_name: Node UUID
   @type node: L{objects.Node} or None
   @param node: Node object
 
   """
   if node is None:
-    # Depend on DNS for name resolution
-    ip = name
-  elif node.offline and not accept_offline_node:
-    ip = _OFFLINE
+    # Assume that the passed parameter was actually a node name, so depend on
+    # DNS for name resolution
+    return (node_uuid_or_name, node_uuid_or_name, node_uuid_or_name)
   else:
-    ip = node.primary_ip
-  return (name, ip)
+    if node.offline and not accept_offline_node:
+      ip = _OFFLINE
+    else:
+      ip = node.primary_ip
+    return (node.name, ip, node_uuid_or_name)
 
 
-def _NodeConfigResolver(single_node_fn, all_nodes_fn, hosts, opts):
+def _NodeConfigResolver(single_node_fn, all_nodes_fn, node_uuids, opts):
   """Calculate node addresses using configuration.
+
+  Note that strings in node_uuids are treated as node names if the UUID is not
+  found in the configuration.
 
   """
   accept_offline_node = (opts is rpc_defs.ACCEPT_OFFLINE_NODE)
@@ -310,23 +328,24 @@ def _NodeConfigResolver(single_node_fn, all_nodes_fn, hosts, opts):
   assert accept_offline_node or opts is None, "Unknown option"
 
   # Special case for single-host lookups
-  if len(hosts) == 1:
-    (name, ) = hosts
-    return [_CheckConfigNode(name, single_node_fn(name), accept_offline_node)]
+  if len(node_uuids) == 1:
+    (uuid, ) = node_uuids
+    return [_CheckConfigNode(uuid, single_node_fn(uuid), accept_offline_node)]
   else:
     all_nodes = all_nodes_fn()
-    return [_CheckConfigNode(name, all_nodes.get(name, None),
+    return [_CheckConfigNode(uuid, all_nodes.get(uuid, None),
                              accept_offline_node)
-            for name in hosts]
+            for uuid in node_uuids]
 
 
 class _RpcProcessor:
   def __init__(self, resolver, port, lock_monitor_cb=None):
     """Initializes this class.
 
-    @param resolver: callable accepting a list of hostnames, returning a list
-      of tuples containing name and IP address (IP address can be the name or
-      the special value L{_OFFLINE} to mark offline machines)
+    @param resolver: callable accepting a list of node UUIDs or hostnames,
+      returning a list of tuples containing name, IP address and original name
+      of the resolved node. IP address can be the name or the special value
+      L{_OFFLINE} to mark offline machines.
     @type port: int
     @param port: TCP port
     @param lock_monitor_cb: Callable for registering with lock monitor
@@ -350,19 +369,21 @@ class _RpcProcessor:
     assert isinstance(body, dict)
     assert len(body) == len(hosts)
     assert compat.all(isinstance(v, str) for v in body.values())
-    assert frozenset(map(compat.fst, hosts)) == frozenset(body.keys()), \
+    assert frozenset(map(lambda x: x[2], hosts)) == frozenset(body.keys()), \
         "%s != %s" % (hosts, body.keys())
 
-    for (name, ip) in hosts:
+    for (name, ip, original_name) in hosts:
       if ip is _OFFLINE:
         # Node is marked as offline
-        results[name] = RpcResult(node=name, offline=True, call=procedure)
+        results[original_name] = RpcResult(node=name,
+                                           offline=True,
+                                           call=procedure)
       else:
-        requests[name] = \
+        requests[original_name] = \
           http.client.HttpClientRequest(str(ip), port,
                                         http.HTTP_POST, str("/%s" % procedure),
                                         headers=_RPC_CLIENT_HEADERS,
-                                        post_data=body[name],
+                                        post_data=body[original_name],
                                         read_timeout=read_timeout,
                                         nicename="%s/%s" % (name, procedure),
                                         curl_config_fn=_ConfigRpcCurl)
@@ -393,12 +414,12 @@ class _RpcProcessor:
 
     return results
 
-  def __call__(self, hosts, procedure, body, read_timeout, resolver_opts,
+  def __call__(self, nodes, procedure, body, read_timeout, resolver_opts,
                _req_process_fn=None):
     """Makes an RPC request to a number of nodes.
 
-    @type hosts: sequence
-    @param hosts: Hostnames
+    @type nodes: sequence
+    @param nodes: node UUIDs or Hostnames
     @type procedure: string
     @param procedure: Request path
     @type body: dictionary
@@ -416,7 +437,7 @@ class _RpcProcessor:
       _req_process_fn = http.client.ProcessRequests
 
     (results, requests) = \
-      self._PrepareRequests(self._resolver(hosts, resolver_opts), self._port,
+      self._PrepareRequests(self._resolver(nodes, resolver_opts), self._port,
                             procedure, body, read_timeout)
 
     _req_process_fn(requests.values(), lock_monitor_cb=self._lock_monitor_cb)
@@ -571,23 +592,68 @@ def _EncodeBlockdevRename(value):
   return [(d.ToDict(), uid) for d, uid in value]
 
 
-def MakeLegacyNodeInfo(data, require_vg_info=True):
+def _AddSpindlesToLegacyNodeInfo(result, space_info):
+  """Extracts the spindle information from the space info and adds
+  it to the result dictionary.
+
+  @type result: dict of strings
+  @param result: dictionary holding the result of the legacy node info
+  @type space_info: list of dicts of strings
+  @param space_info: list, each row holding space information of one storage
+    unit
+  @rtype: None
+  @return: does not return anything, manipulates the C{result} variable
+
+  """
+  lvm_pv_info = utils.storage.LookupSpaceInfoByStorageType(
+      space_info, constants.ST_LVM_PV)
+  if lvm_pv_info:
+    result["spindles_free"] = lvm_pv_info["storage_free"]
+    result["spindles_total"] = lvm_pv_info["storage_size"]
+  else:
+    raise errors.OpExecError("No spindle storage information available.")
+
+
+def _AddDefaultStorageInfoToLegacyNodeInfo(result, space_info):
+  """Extracts the storage space information of the default storage type from
+  the space info and adds it to the result dictionary.
+
+  @see: C{_AddSpindlesToLegacyNodeInfo} for parameter information.
+
+  """
+  # Check if there is at least one row for non-spindle storage info.
+  no_defaults = (len(space_info) < 1) or \
+      (space_info[0]["type"] == constants.ST_LVM_PV and len(space_info) == 1)
+
+  default_space_info = None
+  if no_defaults:
+    logging.warning("No storage info provided for default storage type.")
+  else:
+    default_space_info = space_info[0]
+
+  if default_space_info:
+    result["name"] = default_space_info["name"]
+    result["storage_free"] = default_space_info["storage_free"]
+    result["storage_size"] = default_space_info["storage_size"]
+
+
+def MakeLegacyNodeInfo(data, require_spindles=False):
   """Formats the data returned by L{rpc.RpcRunner.call_node_info}.
 
   Converts the data into a single dictionary. This is fine for most use cases,
   but some require information from more than one volume group or hypervisor.
 
-  @param require_vg_info: raise an error if the returnd vg_info
-      doesn't have any values
+  @param require_spindles: add spindle storage information to the legacy node
+      info
 
   """
-  (bootid, vgs_info, (hv_info, )) = data
+  (bootid, space_info, (hv_info, )) = data
 
   ret = utils.JoinDisjointDicts(hv_info, {"bootid": bootid})
 
-  if require_vg_info or vgs_info:
-    (vg0_info, ) = vgs_info
-    ret = utils.JoinDisjointDicts(vg0_info, ret)
+  if require_spindles:
+    _AddSpindlesToLegacyNodeInfo(ret, space_info)
+  _AddDefaultStorageInfoToLegacyNodeInfo(ret, space_info)
 
   return ret
 
@@ -596,7 +662,7 @@ def _AnnotateDParamsDRBD(disk, (drbd_params, data_params, meta_params)):
   """Annotates just DRBD disks layouts.
 
   """
-  assert disk.dev_type == constants.LD_DRBD8
+  assert disk.dev_type == constants.DT_DRBD8
 
   disk.params = objects.FillDict(drbd_params, disk.params)
   (dev_data, dev_meta) = disk.children
@@ -610,7 +676,7 @@ def _AnnotateDParamsGeneric(disk, (params, )):
   """Generic disk parameter annotation routine.
 
   """
-  assert disk.dev_type != constants.LD_DRBD8
+  assert disk.dev_type != constants.DT_DRBD8
 
   disk.params = objects.FillDict(params, disk.params)
 
@@ -638,29 +704,81 @@ def AnnotateDiskParams(template, disks, disk_params):
   return [annotation_fn(disk.Copy(), ld_params) for disk in disks]
 
 
-def _GetESFlag(cfg, nodename):
-  ni = cfg.GetNodeInfo(nodename)
+def _GetExclusiveStorageFlag(cfg, node_uuid):
+  ni = cfg.GetNodeInfo(node_uuid)
   if ni is None:
-    raise errors.OpPrereqError("Invalid node name %s" % nodename,
+    raise errors.OpPrereqError("Invalid node name %s" % node_uuid,
                                errors.ECODE_NOENT)
   return cfg.GetNdParams(ni)[constants.ND_EXCLUSIVE_STORAGE]
 
 
-def GetExclusiveStorageForNodeNames(cfg, nodelist):
+def _AddExclusiveStorageFlagToLvmStorageUnits(storage_units, es_flag):
+  """Adds the exclusive storage flag to lvm units.
+
+  This function creates a copy of the storage_units lists, with the
+  es_flag being added to all lvm storage units.
+
+  @type storage_units: list of pairs (string, string)
+  @param storage_units: list of 'raw' storage units, consisting only of
+    (storage_type, storage_key)
+  @type es_flag: boolean
+  @param es_flag: exclusive storage flag
+  @rtype: list of tuples (string, string, list)
+  @return: list of storage units (storage_type, storage_key, params) with
+    the params containing the es_flag for lvm-vg storage units
+
+  """
+  result = []
+  for (storage_type, storage_key) in storage_units:
+    if storage_type in [constants.ST_LVM_VG, constants.ST_LVM_PV]:
+      result.append((storage_type, storage_key, [es_flag]))
+    else:
+      result.append((storage_type, storage_key, []))
+  return result
+
+
+def GetExclusiveStorageForNodes(cfg, node_uuids):
   """Return the exclusive storage flag for all the given nodes.
 
   @type cfg: L{config.ConfigWriter}
   @param cfg: cluster configuration
-  @type nodelist: list or tuple
-  @param nodelist: node names for which to read the flag
+  @type node_uuids: list or tuple
+  @param node_uuids: node UUIDs for which to read the flag
   @rtype: dict
-  @return: mapping from node names to exclusive storage flags
-  @raise errors.OpPrereqError: if any given node name has no corresponding node
+  @return: mapping from node uuids to exclusive storage flags
+  @raise errors.OpPrereqError: if any given node name has no corresponding
+  node
 
   """
-  getflag = lambda n: _GetESFlag(cfg, n)
-  flags = map(getflag, nodelist)
-  return dict(zip(nodelist, flags))
+  getflag = lambda n: _GetExclusiveStorageFlag(cfg, n)
+  flags = map(getflag, node_uuids)
+  return dict(zip(node_uuids, flags))
+
+
+def PrepareStorageUnitsForNodes(cfg, storage_units, node_uuids):
+  """Return the lvm storage unit for all the given nodes.
+
+  Main purpose of this function is to map the exclusive storage flag, which
+  can be different for each node, to the default LVM storage unit.
+
+  @type cfg: L{config.ConfigWriter}
+  @param cfg: cluster configuration
+  @type storage_units: list of pairs (string, string)
+  @param storage_units: list of 'raw' storage units, e.g. pairs of
+    (storage_type, storage_key)
+  @type node_uuids: list or tuple
+  @param node_uuids: node UUIDs for which to read the flag
+  @rtype: dict
+  @return: mapping from node uuids to a list of storage units which include
+    the exclusive storage flag for lvm storage
+  @raise errors.OpPrereqError: if any given node name has no corresponding
+  node
+
+  """
+  getunit = lambda n: _AddExclusiveStorageFlagToLvmStorageUnits(
+      storage_units, _GetExclusiveStorageFlag(cfg, n))
+  flags = map(getunit, node_uuids)
+  return dict(zip(node_uuids, flags))
 
 
 #: Generic encoders
@@ -705,6 +823,7 @@ class RpcRunner(_RpcClientBase,
 
       # Encoders annotating disk parameters
       rpc_defs.ED_DISKS_DICT_DP: self._DisksDictDP,
+      rpc_defs.ED_MULTI_DISKS_DICT_DP: self._MultiDiskDictDP,
       rpc_defs.ED_SINGLE_DISK_DICT_DP: self._SingleDiskDictDP,
 
       # Encoders with special requirements
@@ -802,6 +921,14 @@ class RpcRunner(_RpcClientBase,
     return [disk.ToDict()
             for disk in AnnotateDiskParams(instance.disk_template,
                                            disks, diskparams)]
+
+  def _MultiDiskDictDP(self, disks_insts):
+    """Wrapper for L{AnnotateDiskParams}.
+
+    Supports a list of (disk, instance) tuples.
+    """
+    return [disk for disk_inst in disks_insts
+            for disk in self._DisksDictDP(disk_inst)]
 
   def _SingleDiskDictDP(self, (disk, instance)):
     """Wrapper for L{AnnotateDiskParams}.

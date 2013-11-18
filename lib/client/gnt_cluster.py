@@ -63,6 +63,19 @@ _EPO_PING_TIMEOUT = 1 # 1 second
 _EPO_REACHABLE_TIMEOUT = 15 * 60 # 15 minutes
 
 
+def _CheckNoLvmStorageOptDeprecated(opts):
+  """Checks if the legacy option '--no-lvm-storage' is used.
+
+  """
+  if not opts.lvm_storage:
+    ToStderr("The option --no-lvm-storage is no longer supported. If you want"
+             " to disable lvm-based storage cluster-wide, use the option"
+             " --enabled-disk-templates to disable all of these lvm-base disk "
+             "  templates: %s" %
+             utils.CommaJoin(utils.GetLvmDiskTemplates()))
+    return 1
+
+
 @UsesRPC
 def InitCluster(opts, args):
   """Initialize the cluster.
@@ -75,13 +88,28 @@ def InitCluster(opts, args):
   @return: the desired exit code
 
   """
-  if not opts.lvm_storage and opts.vg_name:
-    ToStderr("Options --no-lvm-storage and --vg-name conflict.")
+  if _CheckNoLvmStorageOptDeprecated(opts):
     return 1
+  enabled_disk_templates = opts.enabled_disk_templates
+  if enabled_disk_templates:
+    enabled_disk_templates = enabled_disk_templates.split(",")
+  else:
+    enabled_disk_templates = constants.DEFAULT_ENABLED_DISK_TEMPLATES
 
-  vg_name = opts.vg_name
-  if opts.lvm_storage and not opts.vg_name:
-    vg_name = constants.DEFAULT_VG
+  vg_name = None
+  if opts.vg_name is not None:
+    vg_name = opts.vg_name
+    if vg_name:
+      if not utils.IsLvmEnabled(enabled_disk_templates):
+        ToStdout("You specified a volume group with --vg-name, but you did not"
+                 " enable any disk template that uses lvm.")
+    else:
+      if utils.IsLvmEnabled(enabled_disk_templates):
+        ToStderr("LVM disk templates are enabled, but vg name not set.")
+        return 1
+  else:
+    if utils.IsLvmEnabled(enabled_disk_templates):
+      vg_name = constants.DEFAULT_VG
 
   if not opts.drbd_storage and opts.drbd_helper:
     ToStderr("Options --no-drbd-storage and --drbd-usermode-helper conflict.")
@@ -196,12 +224,6 @@ def InitCluster(opts, args):
 
   hv_state = dict(opts.hv_state)
 
-  enabled_disk_templates = opts.enabled_disk_templates
-  if enabled_disk_templates:
-    enabled_disk_templates = enabled_disk_templates.split(",")
-  else:
-    enabled_disk_templates = list(constants.DEFAULT_ENABLED_DISK_TEMPLATES)
-
   bootstrap.InitCluster(cluster_name=args[0],
                         secondary_ip=opts.secondary_ip,
                         vg_name=vg_name,
@@ -253,10 +275,10 @@ def DestroyCluster(opts, args):
     return 1
 
   op = opcodes.OpClusterDestroy()
-  master = SubmitOpCode(op, opts=opts)
+  master_uuid = SubmitOpCode(op, opts=opts)
   # if we reached this, the opcode didn't fail; we can proceed to
   # shutdown all the daemons
-  bootstrap.FinalizeClusterDestroy(master)
+  bootstrap.FinalizeClusterDestroy(master_uuid)
   return 0
 
 
@@ -952,8 +974,7 @@ def SetClusterParams(opts, args):
   @return: the desired exit code
 
   """
-  if not (not opts.lvm_storage or opts.vg_name or
-          not opts.drbd_storage or opts.drbd_helper or
+  if not (opts.vg_name is not None or opts.drbd_helper or
           opts.enabled_hypervisors or opts.hvparams or
           opts.beparams or opts.nicparams or
           opts.ndparams or opts.diskparams or
@@ -976,17 +997,27 @@ def SetClusterParams(opts, args):
           opts.ipolicy_disk_templates is not None or
           opts.ipolicy_vcpu_ratio is not None or
           opts.ipolicy_spindle_ratio is not None or
-          opts.modify_etc_hosts is not None):
+          opts.modify_etc_hosts is not None or
+          opts.file_storage_dir is not None):
     ToStderr("Please give at least one of the parameters.")
     return 1
 
-  vg_name = opts.vg_name
-  if not opts.lvm_storage and opts.vg_name:
-    ToStderr("Options --no-lvm-storage and --vg-name conflict.")
+  if _CheckNoLvmStorageOptDeprecated(opts):
     return 1
 
-  if not opts.lvm_storage:
-    vg_name = ""
+  enabled_disk_templates = None
+  if opts.enabled_disk_templates:
+    enabled_disk_templates = opts.enabled_disk_templates.split(",")
+
+  # consistency between vg name and enabled disk templates
+  vg_name = None
+  if opts.vg_name is not None:
+    vg_name = opts.vg_name
+  if enabled_disk_templates:
+    if vg_name and not utils.IsLvmEnabled(enabled_disk_templates):
+      ToStdout("You specified a volume group with --vg-name, but you did not"
+               " enable any of the following lvm-based disk templates: %s" %
+               utils.CommaJoin(utils.GetLvmDiskTemplates()))
 
   drbd_helper = opts.drbd_helper
   if not opts.drbd_storage and opts.drbd_helper:
@@ -999,10 +1030,6 @@ def SetClusterParams(opts, args):
   hvlist = opts.enabled_hypervisors
   if hvlist is not None:
     hvlist = hvlist.split(",")
-
-  enabled_disk_templates = opts.enabled_disk_templates
-  if enabled_disk_templates:
-    enabled_disk_templates = enabled_disk_templates.split(",")
 
   # a list of (name, dict) we can pass directly to dict() (or [])
   hvparams = dict(opts.hvparams)
@@ -1095,6 +1122,7 @@ def SetClusterParams(opts, args):
     disk_state=disk_state,
     enabled_disk_templates=enabled_disk_templates,
     force=opts.force,
+    file_storage_dir=opts.file_storage_dir,
     )
   SubmitOrSend(op, opts)
   return 0
@@ -1531,7 +1559,7 @@ commands = {
     "<new_name>",
     "Renames the cluster"),
   "redist-conf": (
-    RedistributeConfig, ARGS_NONE, [SUBMIT_OPT, DRY_RUN_OPT, PRIORITY_OPT],
+    RedistributeConfig, ARGS_NONE, SUBMIT_OPTS + [DRY_RUN_OPT, PRIORITY_OPT],
     "", "Forces a push of the configuration file and ssconf files"
     " to the nodes in the cluster"),
   "verify": (
@@ -1571,10 +1599,10 @@ commands = {
   "list-tags": (
     ListTags, ARGS_NONE, [], "", "List the tags of the cluster"),
   "add-tags": (
-    AddTags, [ArgUnknown()], [TAG_SRC_OPT, PRIORITY_OPT, SUBMIT_OPT],
+    AddTags, [ArgUnknown()], [TAG_SRC_OPT, PRIORITY_OPT] + SUBMIT_OPTS,
     "tag...", "Add tags to the cluster"),
   "remove-tags": (
-    RemoveTags, [ArgUnknown()], [TAG_SRC_OPT, PRIORITY_OPT, SUBMIT_OPT],
+    RemoveTags, [ArgUnknown()], [TAG_SRC_OPT, PRIORITY_OPT] + SUBMIT_OPTS,
     "tag...", "Remove tags from the cluster"),
   "search-tags": (
     SearchTags, [ArgUnknown(min=1, max=1)], [PRIORITY_OPT], "",
@@ -1599,8 +1627,9 @@ commands = {
      DRBD_HELPER_OPT, NODRBD_STORAGE_OPT, DEFAULT_IALLOCATOR_OPT,
      RESERVED_LVS_OPT, DRY_RUN_OPT, PRIORITY_OPT, PREALLOC_WIPE_DISKS_OPT,
      NODE_PARAMS_OPT, USE_EXTERNAL_MIP_SCRIPT, DISK_PARAMS_OPT, HV_STATE_OPT,
-     DISK_STATE_OPT, SUBMIT_OPT, ENABLED_DISK_TEMPLATES_OPT,
-     IPOLICY_STD_SPECS_OPT, MODIFY_ETCHOSTS_OPT] + INSTANCE_POLICY_OPTS,
+     DISK_STATE_OPT] + SUBMIT_OPTS +
+     [ENABLED_DISK_TEMPLATES_OPT, IPOLICY_STD_SPECS_OPT, MODIFY_ETCHOSTS_OPT] +
+     INSTANCE_POLICY_OPTS + [GLOBAL_FILEDIR_OPT],
     "[opts...]",
     "Alters the parameters of the cluster"),
   "renew-crypto": (

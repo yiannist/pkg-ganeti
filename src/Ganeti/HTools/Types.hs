@@ -53,6 +53,7 @@ module Ganeti.HTools.Types
   , unitMem
   , unitCpu
   , unitDsk
+  , unitSpindle
   , unknownField
   , Placement
   , IMove(..)
@@ -141,6 +142,7 @@ data RSpec = RSpec
   { rspecCpu  :: Int  -- ^ Requested VCPUs
   , rspecMem  :: Int  -- ^ Requested memory
   , rspecDsk  :: Int  -- ^ Requested disk
+  , rspecSpn  :: Int  -- ^ Requested spindles
   } deriving (Show, Eq)
 
 -- | Allocation stats type. This is used instead of 'RSpec' (which was
@@ -153,6 +155,7 @@ data AllocInfo = AllocInfo
   , allocInfoNCpus :: Double -- ^ Normalised CPUs
   , allocInfoMem   :: Int    -- ^ Memory
   , allocInfoDisk  :: Int    -- ^ Disk
+  , allocInfoSpn   :: Int    -- ^ Spindles
   } deriving (Show, Eq)
 
 -- | Currently used, possibly to allocate, unallocable.
@@ -231,6 +234,7 @@ rspecFromISpec :: ISpec -> RSpec
 rspecFromISpec ispec = RSpec { rspecCpu = iSpecCpuCount ispec
                              , rspecMem = iSpecMemorySize ispec
                              , rspecDsk = iSpecDiskSize ispec
+                             , rspecSpn = iSpecSpindleUse ispec
                              }
 
 -- | The default instance policy.
@@ -317,12 +321,19 @@ unitDsk = 256
 unitCpu :: Int
 unitCpu = 1
 
+-- | Base spindles unit.
+unitSpindle :: Int
+unitSpindle = 1
+
 -- | Reason for an operation's falure.
 data FailMode = FailMem  -- ^ Failed due to not enough RAM
               | FailDisk -- ^ Failed due to not enough disk
               | FailCPU  -- ^ Failed due to not enough CPU capacity
               | FailN1   -- ^ Failed due to not passing N1 checks
               | FailTags -- ^ Failed due to tag exclusion
+              | FailDiskCount -- ^ Failed due to wrong number of disks
+              | FailSpindles -- ^ Failed due to wrong/missing spindles
+              | FailInternal -- ^ Internal error
                 deriving (Eq, Enum, Bounded, Show)
 
 -- | List with failure statistics.

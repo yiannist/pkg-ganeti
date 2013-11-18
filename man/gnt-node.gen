@@ -81,7 +81,7 @@ Example::
 EVACUATE
 ~~~~~~~~
 
-| **evacuate** [-f] [\--early-release] [\--submit]
+| **evacuate** [-f] [\--early-release] [\--submit] [\--print-job-id]
 | [{-I|\--iallocator} *NAME* \| {-n|\--new-secondary} *destination\_node*]
 | [{-p|\--primary-only} \| {-s|\--secondary-only} ]
 |  {*node*}
@@ -204,6 +204,8 @@ fields. The available fields and their meaning are:
   Random UUID renewed for each system reboot, can be used for detecting reboots by tracking changes
 ``cnodes``
   Number of NUMA domains on node (if exported by hypervisor)
+``cnos``
+  Number of logical processors used by the node OS (dom0 for Xen)
 ``csockets``
   Number of physical CPU sockets (if exported by hypervisor)
 ``ctime``
@@ -213,13 +215,13 @@ fields. The available fields and their meaning are:
 ``custom_ndparams``
   Custom node parameters
 ``dfree``
-  Available disk space in volume group
+  Available storage space in storage unit
 ``disk_state``
   Disk state
 ``drained``
   Whether node is drained
 ``dtotal``
-  Total disk space in volume group used for instance disk allocation
+  Total storage space in storage unit used for instance disk allocation
 ``group``
   Node group
 ``group.uuid``
@@ -270,6 +272,10 @@ fields. The available fields and their meaning are:
   List of instances with this node as secondary
 ``sip``
   Secondary IP address
+``spfree``
+  Available spindles in volume group (exclusive storage only)
+``sptotal``
+  Total spindles in volume group (exclusive storage only)
 ``tags``
   Tags
 ``uuid``
@@ -347,7 +353,7 @@ MIGRATE
 ~~~~~~~
 
 | **migrate** [-f] [\--non-live] [\--migration-mode=live\|non-live]
-| [\--ignore-ipolicy] [\--submit] {*node*}
+| [\--ignore-ipolicy] [\--submit] [\--print-job-id] {*node*}
 
 This command will migrate all instances having the given node as
 primary to their secondary nodes. This works only for instances
@@ -371,7 +377,7 @@ Example::
 MODIFY
 ~~~~~~
 
-| **modify** [-f] [\--submit]
+| **modify** [-f] [\--submit] [\--print-job-id]
 | [{-C|\--master-candidate} ``yes|no``]
 | [{-D|\--drained} ``yes|no``] [{-O|\--offline} ``yes|no``]
 | [\--master-capable=``yes|no``] [\--vm-capable=``yes|no``] [\--auto-promote]
@@ -561,7 +567,7 @@ Example::
 MODIFY-STORAGE
 ~~~~~~~~~~~~~~
 
-| **modify-storage** [\--allocatable={yes|no}] [\--submit]
+| **modify-storage** [\--allocatable={yes|no}] [\--submit] [\--print-job-id]
 | {*node*} {*storage-type*} {*volume-name*}
 
 Modifies storage volumes on a node. Only LVM physical volumes can
@@ -601,7 +607,7 @@ Example::
 POWERCYCLE
 ~~~~~~~~~~
 
-**powercycle** [\--yes] [\--force] [\--submit] {*node*}
+**powercycle** [\--yes] [\--force] [\--submit] [\--print-job-id] {*node*}
 
 This command (tries to) forcefully reboot a node. It is a command
 that can be used if the node environment is broken, such that the

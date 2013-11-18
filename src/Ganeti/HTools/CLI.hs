@@ -53,8 +53,10 @@ module Ganeti.HTools.CLI
   , oExTags
   , oExecJobs
   , oForce
+  , oFullEvacuation
   , oGroup
   , oIAllocSrc
+  , oIgnoreNonRedundant
   , oInstMoves
   , oJobDelay
   , genOLuxiSocket
@@ -69,10 +71,14 @@ module Ganeti.HTools.CLI
   , oNoHeaders
   , oNoSimulation
   , oNodeSim
+  , oNodeTags
+  , oOfflineMaintenance
   , oOfflineNode
+  , oOneStepOnly
   , oOutputDir
   , oPrintCommands
   , oPrintInsts
+  , oPrintMoves
   , oPrintNodes
   , oQuiet
   , oRapiMaster
@@ -81,6 +87,7 @@ module Ganeti.HTools.CLI
   , oShowHelp
   , oShowVer
   , oShowComp
+  , oSkipNonRedundant
   , oStdSpec
   , oTieredSpec
   , oVerbose
@@ -119,8 +126,10 @@ data Options = Options
   , optExTags      :: Maybe [String] -- ^ Tags to use for exclusion
   , optExecJobs    :: Bool           -- ^ Execute the commands via Luxi
   , optForce       :: Bool           -- ^ Force the execution
+  , optFullEvacuation :: Bool        -- ^ Fully evacuate nodes to be rebooted
   , optGroup       :: Maybe GroupID  -- ^ The UUID of the group to process
   , optIAllocSrc   :: Maybe FilePath -- ^ The iallocation spec
+  , optIgnoreNonRedundant :: Bool    -- ^ Ignore non-redundant instances
   , optSelInst     :: [String]       -- ^ Instances to be excluded
   , optLuxi        :: Maybe FilePath -- ^ Collect data from Luxi
   , optJobDelay    :: Double         -- ^ Delay before executing first job
@@ -135,8 +144,12 @@ data Options = Options
   , optNoHeaders   :: Bool           -- ^ Do not show a header line
   , optNoSimulation :: Bool          -- ^ Skip the rebalancing dry-run
   , optNodeSim     :: [String]       -- ^ Cluster simulation mode
+  , optNodeTags    :: Maybe [String] -- ^ List of node tags to restrict to 
   , optOffline     :: [String]       -- ^ Names of offline nodes
+  , optOfflineMaintenance :: Bool    -- ^ Pretend all instances are offline
+  , optOneStepOnly :: Bool           -- ^ Only do the first step
   , optOutPath     :: FilePath       -- ^ Path to the output directory
+  , optPrintMoves  :: Bool           -- ^ Whether to show the instance moves
   , optSaveCluster :: Maybe FilePath -- ^ Save cluster state to this file
   , optShowCmds    :: Maybe FilePath -- ^ Whether to show the command list
   , optShowHelp    :: Bool           -- ^ Just show the help
@@ -144,6 +157,7 @@ data Options = Options
   , optShowInsts   :: Bool           -- ^ Whether to show the instance map
   , optShowNodes   :: Maybe [String] -- ^ Whether to show node status
   , optShowVer     :: Bool           -- ^ Just show the program version
+  , optSkipNonRedundant :: Bool      -- ^ Skip nodes with non-redundant instance
   , optStdSpec     :: Maybe RSpec    -- ^ Requested standard specs
   , optTestCount   :: Maybe Int      -- ^ Optional test count override
   , optTieredSpec  :: Maybe RSpec    -- ^ Requested specs for tiered mode
@@ -166,8 +180,10 @@ defaultOptions  = Options
   , optExTags      = Nothing
   , optExecJobs    = False
   , optForce       = False
+  , optFullEvacuation = False
   , optGroup       = Nothing
   , optIAllocSrc   = Nothing
+  , optIgnoreNonRedundant = False
   , optSelInst     = []
   , optLuxi        = Nothing
   , optJobDelay    = 10
@@ -182,8 +198,13 @@ defaultOptions  = Options
   , optNoHeaders   = False
   , optNoSimulation = False
   , optNodeSim     = []
+  , optNodeTags    = Nothing
+  , optSkipNonRedundant = False
   , optOffline     = []
+  , optOfflineMaintenance = False
+  , optOneStepOnly = False
   , optOutPath     = "."
+  , optPrintMoves  = False
   , optSaveCluster = Nothing
   , optShowCmds    = Nothing
   , optShowHelp    = False
@@ -217,14 +238,21 @@ parseISpecString descr inp = do
   let sp = sepSplit ',' inp
       err = Bad ("Invalid " ++ descr ++ " specification: '" ++ inp ++
                  "', expected disk,ram,cpu")
-  when (length sp /= 3) err
+  when (length sp < 3 || length sp > 4) err
   prs <- mapM (\(fn, val) -> fn val) $
          zip [ annotateResult (descr ++ " specs disk") . parseUnit
              , annotateResult (descr ++ " specs memory") . parseUnit
              , tryRead (descr ++ " specs cpus")
+             , tryRead (descr ++ " specs spindles")
              ] sp
   case prs of
-    [dsk, ram, cpu] -> return $ RSpec cpu ram dsk
+    {- Spindles are optional, so that they are not needed when exclusive storage
+       is disabled. When exclusive storage is disabled, spindles are ignored,
+       so the actual value doesn't matter. We use 1 as a default so that in
+       case someone forgets and exclusive storage is enabled, we don't run into
+       weird situations. -}
+    [dsk, ram, cpu] -> return $ RSpec cpu ram dsk 1
+    [dsk, ram, cpu, spn] -> return $ RSpec cpu ram dsk spn
     _ -> err
 
 -- | Disk template choices.
@@ -330,6 +358,13 @@ oForce =
    \ otherwise prevent it",
    OptComplNone)
 
+oFullEvacuation :: OptType
+oFullEvacuation =
+  (Option "" ["full-evacuation"]
+   (NoArg (\ opts -> Ok opts { optFullEvacuation = True}))
+   "fully evacuate the nodes to be rebooted",
+   OptComplNone)
+
 oGroup :: OptType
 oGroup =
   (Option "G" ["group"]
@@ -343,6 +378,13 @@ oIAllocSrc =
    (ReqArg (\ f opts -> Ok opts { optIAllocSrc = Just f }) "FILE")
    "Specify an iallocator spec as the cluster data source",
    OptComplFile)
+
+oIgnoreNonRedundant :: OptType
+oIgnoreNonRedundant =
+  (Option "" ["ignore-non-redundant"]
+   (NoArg (\ opts -> Ok opts { optIgnoreNonRedundant = True }))
+    "Pretend that there are no non-redundant instances in the cluster",
+    OptComplNone)
 
 oJobDelay :: OptType
 oJobDelay =
@@ -452,12 +494,34 @@ oNodeSim =
    \ 'alloc_policy,num_nodes,disk,ram,cpu'",
    OptComplString)
 
+oNodeTags :: OptType
+oNodeTags =
+  (Option "" ["node-tags"]
+   (ReqArg (\ f opts -> Ok opts { optNodeTags = Just $ sepSplit ',' f })
+    "TAG,...") "Restrict to nodes with the given tags",
+   OptComplString)
+     
+oOfflineMaintenance :: OptType
+oOfflineMaintenance =
+  (Option "" ["offline-maintenance"]
+   (NoArg (\ opts -> Ok opts {optOfflineMaintenance = True}))
+   "Schedule offline maintenance, i.e., pretend that all instance are\
+   \ offline.",
+   OptComplNone)
+
 oOfflineNode :: OptType
 oOfflineNode =
   (Option "O" ["offline"]
    (ReqArg (\ n o -> Ok o { optOffline = n:optOffline o }) "NODE")
    "set node as offline",
    OptComplOneNode)
+
+oOneStepOnly :: OptType
+oOneStepOnly =
+  (Option "" ["one-step-only"]
+   (NoArg (\ opts -> Ok opts {optOneStepOnly = True}))
+   "Only do the first step",
+   OptComplNone)
 
 oOutputDir :: OptType
 oOutputDir =
@@ -482,6 +546,13 @@ oPrintInsts =
   (Option "" ["print-instances"]
    (NoArg (\ opts -> Ok opts { optShowInsts = True }))
    "print the final instance map",
+   OptComplNone)
+
+oPrintMoves :: OptType
+oPrintMoves =
+  (Option "" ["print-moves"]
+   (NoArg (\ opts -> Ok opts { optPrintMoves = True }))
+   "print the moves of the instances",
    OptComplNone)
 
 oPrintNodes :: OptType
@@ -517,6 +588,13 @@ oSaveCluster =
    (ReqArg (\ f opts -> Ok opts { optSaveCluster = Just f }) "FILE")
    "Save cluster state at the end of the processing to FILE",
    OptComplNone)
+
+oSkipNonRedundant :: OptType
+oSkipNonRedundant =
+  (Option "" ["skip-non-redundant"]
+   (NoArg (\ opts -> Ok opts { optSkipNonRedundant = True }))
+    "Skip nodes that host a non-redundant instance",
+    OptComplNone)
 
 oStdSpec :: OptType
 oStdSpec =

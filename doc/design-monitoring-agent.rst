@@ -46,6 +46,7 @@ The monitoring agent system will report on the following basic information:
 - Ganeti daemons status, CPU usage, memory footprint
 - Hypervisor resources report (memory, CPU, network interfaces)
 - Node OS resources report (memory, CPU, network interfaces)
+- Node OS CPU load average report
 - Information from a plugin system
 
 Format of the report
@@ -170,9 +171,9 @@ in its ``data`` section, at least the following field:
 
   ``code``
     It assumes a numeric value, encoded in such a way to allow using a bitset
-    to easily distinguish which states are currently present in the whole cluster.
-    If the bitwise OR of all the ``status`` fields is 0, the cluster is
-    completely healty.
+    to easily distinguish which states are currently present in the whole
+    cluster. If the bitwise OR of all the ``status`` fields is 0, the cluster
+    is completely healty.
     The status codes are as follows:
 
     ``0``
@@ -246,7 +247,8 @@ upon.
 
 The instance status will be on each node, for the instances it is
 primary for, and its ``data`` section of the report will contain a list
-of instances, with at least the following fields for each instance:
+of instances, named ``instances``, with at least the following fields for
+each instance:
 
 ``name``
   The name of the instance.
@@ -269,8 +271,8 @@ of instances, with at least the following fields for each instance:
 
 ``state_reason``
   The last known reason for state change of the instance, described according
-  to the JSON representation of a reason trail, as detailed in the :doc:`reason trail
-  design document <design-reason-trail>`.
+  to the JSON representation of a reason trail, as detailed in the :doc:`reason
+  trail design document <design-reason-trail>`.
 
 ``status``
   It represents the status of the instance, and its format is the same as that
@@ -295,39 +297,177 @@ collector will be:
 ``1``
   otherwise.
 
-Storage status
-++++++++++++++
+Storage collectors
+++++++++++++++++++
 
-The storage status collectors will be a series of data collectors
-(drbd, rbd, plain, file) that will gather data about all the storage types
-for the current node (this is right now hardcoded to the enabled storage
-types, and in the future tied to the enabled storage pools for the nodegroup).
+The storage collectors will be a series of data collectors
+that will gather data about storage for the current node. The collection
+will be performed at different granularity and abstraction levels, from
+the physical disks, to partitions, logical volumes and to the specific
+storage types used by Ganeti itself (drbd, rbd, plain, file).
 
 The ``name`` of each of these collector will reflect what storage type each of
 them refers to.
 
 The ``category`` field of these collector will be ``storage``.
 
-The ``kind`` field will be ``1`` (`Status reporting collectors`_).
+The ``kind`` field will depend on the specific collector.
 
-The ``data`` section of the report will provide at least the following fields:
+Each ``storage`` collector's ``data`` section will provide collector-specific
+fields.
 
-``free``
-  The amount of free space (in KBytes).
+The various storage collectors will provide keys to join the data they provide,
+in order to allow the user to get a better understanding of the system. E.g.:
+through device names, or instance names.
 
-``used``
-  The amount of used space (in KBytes).
+Diskstats collector
+*******************
 
-``total``
-  The total visible space (in KBytes).
+This storage data collector will gather information about the status of the
+disks installed in the system, as listed in the /proc/diskstats file. This means
+that not only physical hard drives, but also ramdisks and loopback devices will
+be listed.
 
-Each specific storage type might provide more type-specific fields.
+Its ``kind`` in the report will be ``0`` (`Performance reporting collectors`_).
 
-In case of error, the ``message`` subfield of the ``status`` field of the
-report of the instance status collector will disclose the nature of the error
-as a type specific information. Examples of these are "backend pv unavailable"
-for lvm storage, "unreachable" for network based storage or "filesystem error"
-for filesystem based implementations.
+Its ``category`` field in the report will contain the value ``storage``.
+
+When executed in verbose mode, the ``data`` section of the report of this
+collector will be a list of items, each representing one disk, each providing
+the following fields:
+
+``major``
+  The major number of the device.
+
+``minor``
+  The minor number of the device.
+
+``name``
+  The name of the device.
+
+``readsNum``
+  This is the total number of reads completed successfully.
+
+``mergedReads``
+  Reads which are adjacent to each other may be merged for efficiency. Thus
+  two 4K reads may become one 8K read before it is ultimately handed to the
+  disk, and so it will be counted (and queued) as only one I/O. This field
+  specifies how often this was done.
+
+``secRead``
+  This is the total number of sectors read successfully.
+
+``timeRead``
+  This is the total number of milliseconds spent by all reads.
+
+``writes``
+  This is the total number of writes completed successfully.
+
+``mergedWrites``
+  Writes which are adjacent to each other may be merged for efficiency. Thus
+  two 4K writes may become one 8K read before it is ultimately handed to the
+  disk, and so it will be counted (and queued) as only one I/O. This field
+  specifies how often this was done.
+
+``secWritten``
+  This is the total number of sectors written successfully.
+
+``timeWrite``
+  This is the total number of milliseconds spent by all writes.
+
+``ios``
+  The number of I/Os currently in progress.
+  The only field that should go to zero, it is incremented as requests are
+  given to appropriate struct request_queue and decremented as they finish.
+
+``timeIO``
+  The number of milliseconds spent doing I/Os. This field increases so long
+  as field ``IOs`` is nonzero.
+
+``wIOmillis``
+  The weighted number of milliseconds spent doing I/Os.
+  This field is incremented at each I/O start, I/O completion, I/O merge,
+  or read of these stats by the number of I/Os in progress (field ``IOs``)
+  times the number of milliseconds spent doing I/O since the last update of
+  this field. This can provide an easy measure of both I/O completion time
+  and the backlog that may be accumulating.
+
+Logical Volume collector
+************************
+
+This data collector will gather information about the attributes of logical
+volumes present in the system.
+
+Its ``kind`` in the report will be ``0`` (`Performance reporting collectors`_).
+
+Its ``category`` field in the report will contain the value ``storage``.
+
+The ``data`` section of the report of this collector will be a list of items,
+each representing one logical volume and providing the following fields:
+
+``uuid``
+  The UUID of the logical volume.
+
+``name``
+  The name of the logical volume.
+
+``attr``
+  The attributes of the logical volume.
+
+``major``
+  Persistent major number or -1 if not persistent.
+
+``minor``
+  Persistent minor number or -1 if not persistent.
+
+``kernel_major``
+  Currently assigned major number or -1 if LV is not active.
+
+``kernel_minor``
+  Currently assigned minor number or -1 if LV is not active.
+
+``size``
+  Size of LV in bytes.
+
+``seg_count``
+  Number of segments in LV.
+
+``tags``
+  Tags, if any.
+
+``modules``
+  Kernel device-mapper modules required for this LV, if any.
+
+``vg_uuid``
+  Unique identifier of the volume group.
+
+``vg_name``
+  Name of the volume group.
+
+``segtype``
+  Type of LV segment.
+
+``seg_start``
+  Offset within the LVto the start of the segment in bytes.
+
+``seg_start_pe``
+  Offset within the LV to the start of the segment in physical extents.
+
+``seg_size``
+  Size of the segment in bytes.
+
+``seg_tags``
+  Tags for the segment, if any.
+
+``seg_pe_ranges``
+  Ranges of Physical Extents of underlying devices in lvs command line format.
+
+``devices``
+  Underlying devices used with starting extent numbers.
+
+``instance``
+  The name of the instance this LV is used by, or ``null`` if it was not
+  possible to determine it.
 
 DRBD status
 ***********
@@ -553,6 +693,42 @@ node RAID is outside the scope of this, and can be implemented as a
 plugin) but we can easily just report the information above, since it's
 standard enough across all systems.
 
+Node OS CPU load average report
++++++++++++++++++++++++++++++++
+
+This data collector will export CPU load statistics as seen by the host
+system. Apart from using the data from an external monitoring system we
+can also use the data to improve instance allocation and/or the Ganeti
+cluster balance. To compute the CPU load average we will use a number of
+values collected inside a time window. The collection process will be
+done by an independent thread (see `Mode of Operation`_).
+
+This report is a subset of the previous report (`Node OS resources
+report`_) and they might eventually get merged, once reporting for the
+other fields (memory, filesystem, NICs) gets implemented too.
+
+Specifically:
+
+The ``category`` field of the report will be ``null``.
+
+The ``kind`` field will be ``0`` (`Performance reporting collectors`_).
+
+The ``data`` section will include:
+
+``cpu_number``
+  The number of available cpus.
+
+``cpus``
+  A list with one element per cpu, showing its average load.
+
+``cpu_total``
+  The total CPU load average as a sum of the all separate cpus.
+
+The CPU load report function will get N values, collected by the
+CPU load collection function and calculate the above averages. Please
+see the section `Mode of Operation`_  for more information one how the
+two functions of the data collector interact.
+
 Format of the query
 -------------------
 
@@ -624,6 +800,26 @@ depending on those two parameters.
 
 When run as stand-alone binaries, the data collector will not using any
 caching system, and just fetch and return the data immediately.
+
+Since some performance collectors have to operate on a number of values
+collected in previous times, we need a mechanism independent of the data
+collector which will trigger the collection of those values and also
+store them, so that they are available for calculation by the data
+collectors.
+
+To collect data periodically, a thread will be created by the monitoring
+agent which will run the collection function of every data collector
+that provides one. The values returned by the collection function of
+the data collector will be saved in an appropriate map, associating each
+value to the corresponding collector, using the collector's name as the
+key of the map. This map will be stored in mond's memory.
+
+For example: the collection function of the CPU load collector will
+collect a CPU load value and save it in the map mentioned above. The
+collection function will be called by the collector thread every t
+milliseconds. When the report function of the collector is called, it
+will process the last N values of the map and calculate the
+corresponding average.
 
 Implementation place
 --------------------

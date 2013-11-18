@@ -52,6 +52,7 @@ import Ganeti.ConfigReader
 import Ganeti.Hash
 import Ganeti.Logging
 import qualified Ganeti.Constants as C
+import qualified Ganeti.Query.Cluster as QCluster
 import Ganeti.Utils
 
 -- * Types and constants definitions
@@ -85,16 +86,16 @@ gntErrorToResult (Ok x) = Ok x
 
 -- | Computes the node role.
 nodeRole :: ConfigData -> String -> Result ConfdNodeRole
-nodeRole cfg name =
-  let cmaster = clusterMasterNode . configCluster $ cfg
-      mnode = M.lookup name . fromContainer . configNodes $ cfg
-  in case mnode of
-       Nothing -> Bad "Node not found"
-       Just node | cmaster == name -> Ok NodeRoleMaster
-                 | nodeDrained node -> Ok NodeRoleDrained
-                 | nodeOffline node -> Ok NodeRoleOffline
-                 | nodeMasterCandidate node -> Ok NodeRoleCandidate
-       _ -> Ok NodeRoleRegular
+nodeRole cfg name = do
+  cmaster <- errToResult $ QCluster.clusterMasterNodeName cfg
+  mnode <- errToResult $ getNode cfg name
+  let role = case mnode of
+               node | cmaster == name -> NodeRoleMaster
+                    | nodeDrained node -> NodeRoleDrained
+                    | nodeOffline node -> NodeRoleOffline
+                    | nodeMasterCandidate node -> NodeRoleCandidate
+               _ -> NodeRoleRegular
+  return role
 
 -- | Does an instance ip -> instance -> primary node -> primary ip
 -- transformation.
@@ -118,17 +119,19 @@ buildResponse (cfg, _) (ConfdRequest { confdRqType = ReqPing }) =
 
 buildResponse cdata req@(ConfdRequest { confdRqType = ReqClusterMaster }) =
   case confdRqQuery req of
-    EmptyQuery -> return (ReplyStatusOk, J.showJSON master_name)
+    EmptyQuery -> liftM ((,) ReplyStatusOk . J.showJSON) master_name
     PlainQuery _ -> return queryArgumentError
     DictQuery reqq -> do
-      mnode <- gntErrorToResult $ getNode cfg master_name
+      mnode <- gntErrorToResult $ getNode cfg master_uuid
+      mname <- master_name
       let fvals = map (\field -> case field of
-                                   ReqFieldName -> master_name
+                                   ReqFieldName -> mname
                                    ReqFieldIp -> clusterMasterIp cluster
                                    ReqFieldMNodePip -> nodePrimaryIp mnode
                       ) (confdReqQFields reqq)
       return (ReplyStatusOk, J.showJSON fvals)
-    where master_name = clusterMasterNode cluster
+    where master_uuid = clusterMasterNode cluster
+          master_name = errToResult $ QCluster.clusterMasterNodeName cfg
           cluster = configCluster cfg
           cfg = fst cdata
 
@@ -190,12 +193,19 @@ buildResponse cdata req@(ConfdRequest { confdRqType = ReqNodeDrbd }) = do
                  (a, b, c, d, e, f) <- minors]
   return (ReplyStatusOk, J.showJSON encoded)
 
+-- | Return the list of instances for a node (as ([primary], [secondary])) given
+-- the node name.
 buildResponse cdata req@(ConfdRequest { confdRqType = ReqNodeInstances }) = do
   let cfg = fst cdata
   node_name <- case confdRqQuery req of
                 PlainQuery str -> return str
                 _ -> fail $ "Invalid query type " ++ show (confdRqQuery req)
-  let instances = getNodeInstances cfg node_name
+  node <-
+    case getNode cfg node_name of
+      Ok n -> return n
+      Bad e -> fail $ "Node not found in the configuration: " ++ show e
+  let node_uuid = nodeUuid node
+      instances = getNodeInstances cfg node_uuid
   return (ReplyStatusOk, J.showJSON instances)
 
 -- | Creates a ConfdReply from a given answer.
@@ -221,6 +231,7 @@ responder cfgref socket hmac msg peer = do
               mcfg <- readIORef cfgref
               let response = respondInner mcfg hmac rq
               _ <- S.sendTo socket response peer
+              logDebug $ "Response sent: " ++ response
               return ()
     Bad err -> logInfo $ "Failed to parse incoming message: " ++ err
   return ()

@@ -206,42 +206,53 @@ class BaseHypervisor(object):
     """Reboot an instance."""
     raise NotImplementedError
 
-  def ListInstances(self):
+  def ListInstances(self, hvparams=None):
     """Get the list of running instances."""
     raise NotImplementedError
 
-  def GetInstanceInfo(self, instance_name):
+  def GetInstanceInfo(self, instance_name, hvparams=None):
     """Get instance properties.
 
     @type instance_name: string
     @param instance_name: the instance name
+    @type hvparams: dict of strings
+    @param hvparams: hvparams to be used with this instance
 
     @return: tuple (name, id, memory, vcpus, state, times)
 
     """
     raise NotImplementedError
 
-  def GetAllInstancesInfo(self):
+  def GetAllInstancesInfo(self, hvparams=None):
     """Get properties of all instances.
 
+    @type hvparams: dict of strings
+    @param hvparams: hypervisor parameter
     @return: list of tuples (name, id, memory, vcpus, stat, times)
 
     """
     raise NotImplementedError
 
-  def GetNodeInfo(self):
+  def GetNodeInfo(self, hvparams=None):
     """Return information about the node.
 
-    @return: a dict with the following keys (values in MiB):
+    @type hvparams: dict of strings
+    @param hvparams: hypervisor parameters
+
+    @return: a dict with at least the following keys (memory values in MiB):
           - memory_total: the total memory size on the node
           - memory_free: the available memory on the node for instances
           - memory_dom0: the memory used by the node itself, if available
+          - cpu_total: total number of CPUs
+          - cpu_dom0: number of CPUs used by the node OS
+          - cpu_nodes: number of NUMA domains
+          - cpu_sockets: number of physical CPU sockets
 
     """
     raise NotImplementedError
 
   @classmethod
-  def GetInstanceConsole(cls, instance, hvparams, beparams):
+  def GetInstanceConsole(cls, instance, primary_node, hvparams, beparams):
     """Return information for connecting to the console of an instance.
 
     """
@@ -263,8 +274,11 @@ class BaseHypervisor(object):
 
     return (cls.ANCILLARY_FILES, cls.ANCILLARY_FILES_OPT)
 
-  def Verify(self):
+  def Verify(self, hvparams=None):
     """Verify the hypervisor.
+
+    @type hvparams: dict of strings
+    @param hvparams: hypervisor parameters to be verified against
 
     @return: Problem description if something is wrong, C{None} otherwise
 
@@ -326,9 +340,11 @@ class BaseHypervisor(object):
     """
     pass
 
-  def MigrateInstance(self, instance, target, live):
+  def MigrateInstance(self, cluster_name, instance, target, live):
     """Migrate an instance.
 
+    @type cluster_name: string
+    @param cluster_name: name of the cluster
     @type instance: L{objects.Instance}
     @param instance: the instance to be migrated
     @type target: string
@@ -365,7 +381,7 @@ class BaseHypervisor(object):
     """
     raise NotImplementedError
 
-  def _InstanceStartupMemory(self, instance):
+  def _InstanceStartupMemory(self, instance, hvparams=None):
     """Get the correct startup memory for an instance
 
     This function calculates how much memory an instance should be started
@@ -378,7 +394,7 @@ class BaseHypervisor(object):
     @return: memory the instance should be started with
 
     """
-    free_memory = self.GetNodeInfo()["memory_free"]
+    free_memory = self.GetNodeInfo(hvparams=hvparams)["memory_free"]
     max_start_mem = min(instance.beparams[constants.BE_MAXMEM], free_memory)
     start_mem = max(instance.beparams[constants.BE_MINMEM], max_start_mem)
     return start_mem
@@ -436,12 +452,15 @@ class BaseHypervisor(object):
                                      (name, errstr, value))
 
   @classmethod
-  def PowercycleNode(cls):
+  def PowercycleNode(cls, hvparams=None):
     """Hard powercycle a node using hypervisor specific methods.
 
     This method should hard powercycle the node, using whatever
     methods the hypervisor provides. Note that this means that all
     instances running on the node must be stopped too.
+
+    @type hvparams: dict of strings
+    @param hvparams: hypervisor params to be used on this node
 
     """
     raise NotImplementedError
@@ -464,6 +483,10 @@ class BaseHypervisor(object):
           - memory_total: the total memory size on the node
           - memory_free: the available memory on the node for instances
           - memory_dom0: the memory used by the node itself, if available
+          - cpu_total: total number of CPUs
+          - cpu_dom0: number of CPUs used by the node OS
+          - cpu_nodes: number of NUMA domains
+          - cpu_sockets: number of physical CPU sockets
 
     """
     try:
@@ -495,13 +518,15 @@ class BaseHypervisor(object):
     try:
       fh = open(cpuinfo)
       try:
-        cpu_total = len(re.findall("(?m)^processor\s*:\s*[0-9]+\s*$",
+        cpu_total = len(re.findall(r"(?m)^processor\s*:\s*[0-9]+\s*$",
                                    fh.read()))
       finally:
         fh.close()
     except EnvironmentError, err:
       raise errors.HypervisorError("Failed to list node info: %s" % (err,))
     result["cpu_total"] = cpu_total
+    # We assume that the node OS can access all the CPUs
+    result["cpu_dom0"] = cpu_total
     # FIXME: export correct data here
     result["cpu_nodes"] = 1
     result["cpu_sockets"] = 1

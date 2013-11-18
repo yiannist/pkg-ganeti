@@ -2,7 +2,7 @@
 Design document drafts
 ======================
 
-.. Last updated for Ganeti 2.8
+.. Last updated for Ganeti 2.9
 
 .. toctree::
    :maxdepth: 2
@@ -12,10 +12,10 @@ Design document drafts
    design-impexp2.rst
    design-resource-model.rst
    design-query-splitting.rst
-   design-partitioned.rst
-   design-monitoring-agent.rst
-   design-hroller.rst
    design-storagetypes.rst
+   design-internal-shutdown.rst
+   design-glusterfs-ganeti-support.rst
+   design-openvswitch.rst
    design-daemons.rst
 
 .. vim: set textwidth=72 :

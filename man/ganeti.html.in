@@ -167,10 +167,11 @@
 <h1 id="common-command-line-features"><a href="#TOC">Common command line features</a></h1>
 <h2 id="options"><a href="#TOC">Options</a></h2>
 <p>Many Ganeti commands provide the following options. The availability for a certain command can be checked by calling the command using the <code>--help</code> option.</p>
-<p><strong>gnt-...</strong> <em>command</em> [--dry-run] [--priority {low | normal | high}]<br />[--submit]</p>
+<p><strong>gnt-...</strong> <em>command</em> [--dry-run] [--priority {low | normal | high}]<br />[--submit] [--print-job-id]</p>
 <p>The <code>--dry-run</code> option can be used to check whether an operation would succeed.</p>
 <p>The option <code>--priority</code> sets the priority for opcodes submitted by the command.</p>
 <p>The <code>--submit</code> option is used to send the job to the master daemon but not wait for its completion. The job ID will be shown so that it can be examined using <strong>gnt-job info</strong>.</p>
+<p>The <code>--print-job-id</code> option makes the command print the job id as first line on stdout, so that it is easy to parse by other programs.</p>
 <h2 id="defaults"><a href="#TOC">Defaults</a></h2>
 <p>For certain commands you can use environment variables to provide default command line arguments. Just assign the arguments as a string to the corresponding environment variable. The format of that variable name is <strong>binary</strong>_<em>command</em>. <strong>binary</strong> is the name of the <code>gnt-*</code> script all upper case and dashes replaced by underscores, and <em>command</em> is the command invoked on that script.</p>
 <p>Currently supported commands are <code>gnt-node list</code>, <code>gnt-group list</code> and <code>gnt-instance list</code>. So you can configure default command line flags by setting <code>GNT_NODE_LIST</code>, <code>GNT_GROUP_LIST</code> and <code>GNT_INSTANCE_LIST</code>.</p>

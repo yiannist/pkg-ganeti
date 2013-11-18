@@ -145,8 +145,6 @@ RUN_DIRS_MODE = 0775
 SECURE_DIR_MODE = 0700
 SECURE_FILE_MODE = 0600
 ADOPTABLE_BLOCKDEV_ROOT = "/dev/disk/"
-ENABLE_FILE_STORAGE = _autoconf.ENABLE_FILE_STORAGE
-ENABLE_SHARED_FILE_STORAGE = _autoconf.ENABLE_SHARED_FILE_STORAGE
 ENABLE_CONFD = _autoconf.ENABLE_CONFD
 ENABLE_MOND = _autoconf.ENABLE_MOND
 ENABLE_SPLIT_QUERY = _autoconf.ENABLE_SPLIT_QUERY
@@ -234,7 +232,7 @@ DEV_CONSOLE = "/dev/console"
 PROC_MOUNTS = "/proc/mounts"
 
 # Local UniX Interface related constants
-LUXI_EOM = "\3"
+LUXI_EOM = chr(3)
 LUXI_VERSION = CONFIG_VERSION
 #: Environment variable for the luxi override socket
 LUXI_OVERRIDE = "FORCE_LUXI_SOCKET"
@@ -255,8 +253,6 @@ XEN_KERNEL = _autoconf.XEN_KERNEL
 XEN_INITRD = _autoconf.XEN_INITRD
 XEN_CMD_XM = "xm"
 XEN_CMD_XL = "xl"
-# FIXME: This will be made configurable using hvparams in Ganeti 2.7
-XEN_CMD = _autoconf.XEN_CMD
 
 KNOWN_XEN_COMMANDS = compat.UniqueFrozenset([
   XEN_CMD_XM,
@@ -387,7 +383,7 @@ ST_LVM_PV = "lvm-pv"
 ST_LVM_VG = "lvm-vg"
 ST_RADOS = "rados"
 
-VALID_STORAGE_TYPES = compat.UniqueFrozenset([
+STORAGE_TYPES = compat.UniqueFrozenset([
   ST_BLOCK,
   ST_DISKLESS,
   ST_EXT,
@@ -396,6 +392,10 @@ VALID_STORAGE_TYPES = compat.UniqueFrozenset([
   ST_LVM_VG,
   ST_RADOS,
   ])
+
+# the set of storage types for which storage reporting is available
+# FIXME: Remove this, once storage reporting is available for all types.
+STS_REPORT = compat.UniqueFrozenset([ST_FILE, ST_LVM_PV, ST_LVM_VG])
 
 # Storage fields
 # first two are valid in LU context only, not passed to backend
@@ -435,6 +435,12 @@ VALID_STORAGE_OPERATIONS = {
  LDS_UNKNOWN,
  LDS_FAULTY) = range(1, 4)
 
+LDS_NAMES = {
+  LDS_OKAY: "ok",
+  LDS_UNKNOWN: "unknown",
+  LDS_FAULTY: "faulty",
+}
+
 # disk template types
 DT_BLOCK = "blockdev"
 DT_DISKLESS = "diskless"
@@ -450,14 +456,14 @@ DT_SHARED_FILE = "sharedfile"
 # This only happens on an upgrade from a version of Ganeti that did not
 # support the 'enabled_disk_templates' so far.
 DISK_TEMPLATE_PREFERENCE = [
-  DT_DRBD8,
-  DT_PLAIN,
-  DT_FILE,
-  DT_SHARED_FILE,
-  DT_RBD,
   DT_BLOCK,
   DT_DISKLESS,
-  DT_EXT
+  DT_DRBD8,
+  DT_EXT,
+  DT_FILE,
+  DT_PLAIN,
+  DT_RBD,
+  DT_SHARED_FILE,
   ]
 
 DISK_TEMPLATES = compat.UniqueFrozenset([
@@ -472,13 +478,13 @@ DISK_TEMPLATES = compat.UniqueFrozenset([
   ])
 
 # disk templates that are enabled by default
-DEFAULT_ENABLED_DISK_TEMPLATES = compat.UniqueFrozenset([
+DEFAULT_ENABLED_DISK_TEMPLATES = [
   DT_DRBD8,
   DT_PLAIN,
-  ])
+  ]
 
 # mapping of disk templates to storage types
-DISK_TEMPLATES_STORAGE_TYPE = {
+MAP_DISK_TEMPLATE_STORAGE_TYPE = {
   DT_BLOCK: ST_BLOCK,
   DT_DISKLESS: ST_DISKLESS,
   DT_DRBD8: ST_LVM_VG,
@@ -558,33 +564,21 @@ DTS_NO_FREE_SPACE_CHECK = compat.UniqueFrozenset([
   DT_EXT,
   ])
 
-# logical disk types
-LD_LV = "lvm"
-LD_DRBD8 = "drbd8"
-LD_FILE = "file"
-LD_BLOCKDEV = "blockdev"
-LD_RBD = "rbd"
-LD_EXT = "ext"
-LOGICAL_DISK_TYPES = compat.UniqueFrozenset([
-  LD_LV,
-  LD_DRBD8,
-  LD_FILE,
-  LD_BLOCKDEV,
-  LD_RBD,
-  LD_EXT,
+DTS_BLOCK = compat.UniqueFrozenset([
+  DT_PLAIN,
+  DT_DRBD8,
+  DT_BLOCK,
+  DT_RBD,
+  DT_EXT,
   ])
 
-LDS_BLOCK = compat.UniqueFrozenset([
-  LD_LV,
-  LD_DRBD8,
-  LD_BLOCKDEV,
-  LD_RBD,
-  LD_EXT,
-  ])
+# the set of drbd-like disk types
+DTS_DRBD = compat.UniqueFrozenset([DT_DRBD8])
 
 # drbd constants
 DRBD_HMAC_ALG = "md5"
-DRBD_NET_PROTOCOL = "C"
+DRBD_DEFAULT_NET_PROTOCOL = "C"
+DRBD_MIGRATION_NET_PROTOCOL = "C"
 DRBD_STATUS_FILE = "/proc/drbd"
 
 #: Size of DRBD meta block device
@@ -614,9 +608,6 @@ RBD_CMD = "rbd"
 # file backend driver
 FD_LOOP = "loop"
 FD_BLKTAP = "blktap"
-
-# the set of drbd-like disk types
-LDS_DRBD = compat.UniqueFrozenset([LD_DRBD8])
 
 # disk access mode
 DISK_RDONLY = "ro"
@@ -949,6 +940,8 @@ HV_KVM_EXTRA = "kvm_extra"
 HV_KVM_MACHINE_VERSION = "machine_version"
 HV_KVM_PATH = "kvm_path"
 HV_VIF_TYPE = "vif_type"
+HV_VIF_SCRIPT = "vif_script"
+HV_XEN_CMD = "xen_cmd"
 HV_VNET_HDR = "vnet_hdr"
 HV_VIRIDIAN = "viridian"
 
@@ -1021,6 +1014,8 @@ HVS_PARAMETER_TYPES = {
   HV_KVM_EXTRA: VTYPE_STRING,
   HV_KVM_MACHINE_VERSION: VTYPE_STRING,
   HV_VIF_TYPE: VTYPE_STRING,
+  HV_VIF_SCRIPT: VTYPE_STRING,
+  HV_XEN_CMD: VTYPE_STRING,
   HV_VNET_HDR: VTYPE_BOOL,
   HV_VIRIDIAN: VTYPE_BOOL,
   }
@@ -1108,7 +1103,7 @@ DSS_PARAMETER_TYPES = {
   }
 
 DSS_PARAMETERS = frozenset(DSS_PARAMETER_TYPES.keys())
-DS_VALID_TYPES = compat.UniqueFrozenset([LD_LV])
+DS_VALID_TYPES = compat.UniqueFrozenset([DT_PLAIN])
 
 # Backend parameter names
 BE_MEMORY = "memory" # deprecated and replaced by max and min mem
@@ -1209,6 +1204,7 @@ LDP_NO_META_FLUSH = "disable-meta-flush"
 LDP_DEFAULT_METAVG = "default-metavg"
 LDP_DISK_CUSTOM = "disk-custom"
 LDP_NET_CUSTOM = "net-custom"
+LDP_PROTOCOL = "protocol"
 LDP_DYNAMIC_RESYNC = "dynamic-resync"
 LDP_PLAN_AHEAD = "c-plan-ahead"
 LDP_FILL_TARGET = "c-fill-target"
@@ -1224,6 +1220,7 @@ DISK_LD_TYPES = {
   LDP_DEFAULT_METAVG: VTYPE_STRING,
   LDP_DISK_CUSTOM: VTYPE_STRING,
   LDP_NET_CUSTOM: VTYPE_STRING,
+  LDP_PROTOCOL: VTYPE_STRING,
   LDP_DYNAMIC_RESYNC: VTYPE_BOOL,
   LDP_PLAN_AHEAD: VTYPE_INT,
   LDP_FILL_TARGET: VTYPE_INT,
@@ -1244,6 +1241,7 @@ DRBD_META_BARRIERS = "meta-barriers"
 DRBD_DEFAULT_METAVG = "metavg"
 DRBD_DISK_CUSTOM = "disk-custom"
 DRBD_NET_CUSTOM = "net-custom"
+DRBD_PROTOCOL = "protocol"
 DRBD_DYNAMIC_RESYNC = "dynamic-resync"
 DRBD_PLAN_AHEAD = "c-plan-ahead"
 DRBD_FILL_TARGET = "c-fill-target"
@@ -1261,6 +1259,7 @@ DISK_DT_TYPES = {
   DRBD_DEFAULT_METAVG: VTYPE_STRING,
   DRBD_DISK_CUSTOM: VTYPE_STRING,
   DRBD_NET_CUSTOM: VTYPE_STRING,
+  DRBD_PROTOCOL: VTYPE_STRING,
   DRBD_DYNAMIC_RESYNC: VTYPE_BOOL,
   DRBD_PLAN_AHEAD: VTYPE_INT,
   DRBD_FILL_TARGET: VTYPE_INT,
@@ -1335,6 +1334,7 @@ NICS_PARAMETERS = frozenset(NICS_PARAMETER_TYPES.keys())
 
 # IDISK_* constants are used in opcodes, to create/change disks
 IDISK_SIZE = "size"
+IDISK_SPINDLES = "spindles"
 IDISK_MODE = "mode"
 IDISK_ADOPT = "adopt"
 IDISK_VG = "vg"
@@ -1343,6 +1343,7 @@ IDISK_PROVIDER = "provider"
 IDISK_NAME = "name"
 IDISK_PARAMS_TYPES = {
   IDISK_SIZE: VTYPE_SIZE,
+  IDISK_SPINDLES: VTYPE_INT,
   IDISK_MODE: VTYPE_STRING,
   IDISK_ADOPT: VTYPE_STRING,
   IDISK_VG: VTYPE_STRING,
@@ -1596,8 +1597,13 @@ CV_EINSTANCEPOLICY = \
 CV_EINSTANCEUNSUITABLENODE = \
   (CV_TINSTANCE, "EINSTANCEUNSUITABLENODE",
    "Instance running on nodes that are not suitable for it")
+CV_EINSTANCEMISSINGCFGPARAMETER = \
+  (CV_TINSTANCE, "EINSTANCEMISSINGCFGPARAMETER",
+   "A configuration parameter for an instance is missing")
 CV_ENODEDRBD = \
   (CV_TNODE, "ENODEDRBD", "Error parsing the DRBD status file")
+CV_ENODEDRBDVERSION = \
+  (CV_TNODE, "ENODEDRBDVERSION", "DRBD version mismatch within a node group")
 CV_ENODEDRBDHELPER = \
   (CV_TNODE, "ENODEDRBDHELPER", "Error caused by the DRBD helper")
 CV_ENODEFILECHECK = \
@@ -1637,6 +1643,11 @@ CV_ENODEUSERSCRIPTS = \
   (CV_TNODE, "ENODEUSERSCRIPTS", "User scripts not present or not executable")
 CV_ENODEFILESTORAGEPATHS = \
   (CV_TNODE, "ENODEFILESTORAGEPATHS", "Detected bad file storage paths")
+CV_ENODEFILESTORAGEPATHUNUSABLE = \
+  (CV_TNODE, "ENODEFILESTORAGEPATHUNUSABLE", "File storage path unusable")
+CV_ENODESHAREDFILESTORAGEPATHUNUSABLE = \
+  (CV_TNODE, "ENODESHAREDFILESTORAGEPATHUNUSABLE",
+      "Shared file storage path unusable")
 
 CV_ALL_ECODES = compat.UniqueFrozenset([
   CV_ECLUSTERCFG,
@@ -1671,6 +1682,8 @@ CV_ALL_ECODES = compat.UniqueFrozenset([
   CV_ENODEOOBPATH,
   CV_ENODEUSERSCRIPTS,
   CV_ENODEFILESTORAGEPATHS,
+  CV_ENODEFILESTORAGEPATHUNUSABLE,
+  CV_ENODESHAREDFILESTORAGEPATHUNUSABLE,
   ])
 
 CV_ALL_ECODES_STRINGS = \
@@ -1679,10 +1692,13 @@ CV_ALL_ECODES_STRINGS = \
 # Node verify constants
 NV_BRIDGES = "bridges"
 NV_DRBDHELPER = "drbd-helper"
+NV_DRBDVERSION = "drbd-version"
 NV_DRBDLIST = "drbd-list"
 NV_EXCLUSIVEPVS = "exclusive-pvs"
 NV_FILELIST = "filelist"
-NV_FILE_STORAGE_PATHS = "file-storage-paths"
+NV_ACCEPTED_STORAGE_PATHS = "allowed-file-storage-paths"
+NV_FILE_STORAGE_PATH = "file-storage-path"
+NV_SHARED_FILE_STORAGE_PATH = "shared-file-storage-path"
 NV_HVINFO = "hvinfo"
 NV_HVPARAMS = "hvparms"
 NV_HYPERVISOR = "hypervisor"
@@ -2006,6 +2022,26 @@ SS_UID_POOL = "uid_pool"
 SS_NODEGROUPS = "nodegroups"
 SS_NETWORKS = "networks"
 
+# This is not a complete SSCONF key, but the prefix for the hypervisor keys
+SS_HVPARAMS_PREF = "hvparams_"
+
+# Hvparams keys:
+SS_HVPARAMS_XEN_PVM = SS_HVPARAMS_PREF + HT_XEN_PVM
+SS_HVPARAMS_XEN_FAKE = SS_HVPARAMS_PREF + HT_FAKE
+SS_HVPARAMS_XEN_HVM = SS_HVPARAMS_PREF + HT_XEN_HVM
+SS_HVPARAMS_XEN_KVM = SS_HVPARAMS_PREF + HT_KVM
+SS_HVPARAMS_XEN_CHROOT = SS_HVPARAMS_PREF + HT_CHROOT
+SS_HVPARAMS_XEN_LXC = SS_HVPARAMS_PREF + HT_LXC
+
+VALID_SS_HVPARAMS_KEYS = compat.UniqueFrozenset([
+  SS_HVPARAMS_XEN_PVM,
+  SS_HVPARAMS_XEN_FAKE,
+  SS_HVPARAMS_XEN_HVM,
+  SS_HVPARAMS_XEN_KVM,
+  SS_HVPARAMS_XEN_CHROOT,
+  SS_HVPARAMS_XEN_LXC,
+  ])
+
 SS_FILE_PERMS = 0444
 
 # cluster wide default parameters
@@ -2027,6 +2063,8 @@ HVC_DEFAULTS = {
     HV_CPU_MASK: CPU_PINNING_ALL,
     HV_CPU_CAP: 0,
     HV_CPU_WEIGHT: 256,
+    HV_VIF_SCRIPT: "",
+    HV_XEN_CMD: XEN_CMD_XM,
     },
   HT_XEN_HVM: {
     HV_BOOT_ORDER: "cd",
@@ -2049,7 +2087,9 @@ HVC_DEFAULTS = {
     HV_CPU_CAP: 0,
     HV_CPU_WEIGHT: 256,
     HV_VIF_TYPE: HT_HVM_VIF_IOEMU,
+    HV_VIF_SCRIPT: "",
     HV_VIRIDIAN: False,
+    HV_XEN_CMD: XEN_CMD_XM,
     },
   HT_KVM: {
     HV_KVM_PATH: KVM_PATH,
@@ -2110,7 +2150,9 @@ HVC_DEFAULTS = {
     HV_KVM_MACHINE_VERSION: "",
     HV_VNET_HDR: True,
     },
-  HT_FAKE: {},
+  HT_FAKE: {
+    HV_MIGRATION_MODE: HT_MIGRATION_LIVE,
+  },
   HT_CHROOT: {
     HV_INIT_SCRIPT: "/ganeti-chroot",
     },
@@ -2123,6 +2165,7 @@ HVC_GLOBALS = compat.UniqueFrozenset([
   HV_MIGRATION_PORT,
   HV_MIGRATION_BANDWIDTH,
   HV_MIGRATION_MODE,
+  HV_XEN_CMD,
   ])
 
 BEC_DEFAULTS = {
@@ -2145,13 +2188,14 @@ NDC_GLOBALS = compat.UniqueFrozenset([
   ])
 
 DISK_LD_DEFAULTS = {
-  LD_DRBD8: {
+  DT_DRBD8: {
     LDP_RESYNC_RATE: CLASSIC_DRBD_SYNC_SPEED,
     LDP_BARRIERS: _autoconf.DRBD_BARRIERS,
     LDP_NO_META_FLUSH: _autoconf.DRBD_NO_META_FLUSH,
     LDP_DEFAULT_METAVG: DEFAULT_VG,
     LDP_DISK_CUSTOM: "",
     LDP_NET_CUSTOM: "",
+    LDP_PROTOCOL: DRBD_DEFAULT_NET_PROTOCOL,
     LDP_DYNAMIC_RESYNC: False,
 
     # The default values for the DRBD dynamic resync speed algorithm
@@ -2165,24 +2209,25 @@ DISK_LD_DEFAULTS = {
     LDP_MAX_RATE: CLASSIC_DRBD_SYNC_SPEED, # KiB/s
     LDP_MIN_RATE: 4 * 1024, # KiB/s
     },
-  LD_LV: {
+  DT_PLAIN: {
     LDP_STRIPES: _autoconf.LVM_STRIPECOUNT
     },
-  LD_FILE: {},
-  LD_BLOCKDEV: {},
-  LD_RBD: {
+  DT_FILE: {},
+  DT_SHARED_FILE: {},
+  DT_BLOCK: {},
+  DT_RBD: {
     LDP_POOL: "rbd"
     },
-  LD_EXT: {},
+  DT_EXT: {},
   }
 
 # readability shortcuts
-_LV_DEFAULTS = DISK_LD_DEFAULTS[LD_LV]
-_DRBD_DEFAULTS = DISK_LD_DEFAULTS[LD_DRBD8]
+_LV_DEFAULTS = DISK_LD_DEFAULTS[DT_PLAIN]
+_DRBD_DEFAULTS = DISK_LD_DEFAULTS[DT_DRBD8]
 
 DISK_DT_DEFAULTS = {
   DT_PLAIN: {
-    LV_STRIPES: DISK_LD_DEFAULTS[LD_LV][LDP_STRIPES],
+    LV_STRIPES: DISK_LD_DEFAULTS[DT_PLAIN][LDP_STRIPES],
     },
   DT_DRBD8: {
     DRBD_RESYNC_RATE: _DRBD_DEFAULTS[LDP_RESYNC_RATE],
@@ -2193,6 +2238,7 @@ DISK_DT_DEFAULTS = {
     DRBD_DEFAULT_METAVG: _DRBD_DEFAULTS[LDP_DEFAULT_METAVG],
     DRBD_DISK_CUSTOM: _DRBD_DEFAULTS[LDP_DISK_CUSTOM],
     DRBD_NET_CUSTOM: _DRBD_DEFAULTS[LDP_NET_CUSTOM],
+    DRBD_PROTOCOL: _DRBD_DEFAULTS[LDP_PROTOCOL],
     DRBD_DYNAMIC_RESYNC: _DRBD_DEFAULTS[LDP_DYNAMIC_RESYNC],
     DRBD_PLAN_AHEAD: _DRBD_DEFAULTS[LDP_PLAN_AHEAD],
     DRBD_FILL_TARGET: _DRBD_DEFAULTS[LDP_FILL_TARGET],
@@ -2205,7 +2251,7 @@ DISK_DT_DEFAULTS = {
   DT_SHARED_FILE: {},
   DT_BLOCK: {},
   DT_RBD: {
-    RBD_POOL: DISK_LD_DEFAULTS[LD_RBD][LDP_POOL]
+    RBD_POOL: DISK_LD_DEFAULTS[DT_RBD][LDP_POOL]
     },
   DT_EXT: {},
   }
@@ -2476,6 +2522,8 @@ OPCODE_REASON_SOURCES = compat.UniqueFrozenset([
   OPCODE_REASON_SRC_RLIB2,
   OPCODE_REASON_SRC_USER,
   ])
+
+DISKSTATS_FILE = "/proc/diskstats"
 
 # Do not re-export imported modules
 del re, _vcsversion, _autoconf, socket, pathutils, compat

@@ -30,6 +30,7 @@ import logging
 import time
 import tempfile
 
+from ganeti.cmdlib import cluster
 from ganeti import rpc
 from ganeti import ssh
 from ganeti import utils
@@ -40,7 +41,8 @@ from ganeti import objects
 from ganeti import ssconf
 from ganeti import serializer
 from ganeti import hypervisor
-from ganeti import bdev
+from ganeti.storage import drbd
+from ganeti.storage import filestorage
 from ganeti import netutils
 from ganeti import luxi
 from ganeti import jstore
@@ -334,7 +336,7 @@ def RunNodeSetupCmd(cluster_name, node, basecmd, debug, verbose,
   _WaitForSshDaemon(node, netutils.GetDaemonPort(constants.SSH), family)
 
 
-def _InitFileStorage(file_storage_dir):
+def _InitFileStorageDir(file_storage_dir):
   """Initialize if needed the file storage.
 
   @param file_storage_dir: the user-supplied value
@@ -360,7 +362,114 @@ def _InitFileStorage(file_storage_dir):
     raise errors.OpPrereqError("The file storage directory '%s' is not"
                                " a directory." % file_storage_dir,
                                errors.ECODE_ENVIRON)
+
   return file_storage_dir
+
+
+def _PrepareFileBasedStorage(
+    enabled_disk_templates, file_storage_dir,
+    default_dir, file_disk_template,
+    init_fn=_InitFileStorageDir, acceptance_fn=None):
+  """Checks if a file-base storage type is enabled and inits the dir.
+
+  @type enabled_disk_templates: list of string
+  @param enabled_disk_templates: list of enabled disk templates
+  @type file_storage_dir: string
+  @param file_storage_dir: the file storage directory
+  @type default_dir: string
+  @param default_dir: default file storage directory when C{file_storage_dir}
+      is 'None'
+  @type file_disk_template: string
+  @param file_disk_template: a disk template whose storage type is 'ST_FILE'
+  @rtype: string
+  @returns: the name of the actual file storage directory
+
+  """
+  assert (file_disk_template in
+          utils.storage.GetDiskTemplatesOfStorageType(constants.ST_FILE))
+  if file_storage_dir is None:
+    file_storage_dir = default_dir
+  if not acceptance_fn:
+    acceptance_fn = \
+        lambda path: filestorage.CheckFileStoragePathAcceptance(
+            path, exact_match_ok=True)
+
+  cluster.CheckFileStoragePathVsEnabledDiskTemplates(
+      logging.warning, file_storage_dir, enabled_disk_templates)
+
+  file_storage_enabled = file_disk_template in enabled_disk_templates
+  if file_storage_enabled:
+    try:
+      acceptance_fn(file_storage_dir)
+    except errors.FileStoragePathError as e:
+      raise errors.OpPrereqError(str(e))
+    result_file_storage_dir = init_fn(file_storage_dir)
+  else:
+    result_file_storage_dir = file_storage_dir
+  return result_file_storage_dir
+
+
+def _PrepareFileStorage(
+    enabled_disk_templates, file_storage_dir, init_fn=_InitFileStorageDir,
+    acceptance_fn=None):
+  """Checks if file storage is enabled and inits the dir.
+
+  @see: C{_PrepareFileBasedStorage}
+
+  """
+  return _PrepareFileBasedStorage(
+      enabled_disk_templates, file_storage_dir,
+      pathutils.DEFAULT_FILE_STORAGE_DIR, constants.DT_FILE,
+      init_fn=init_fn, acceptance_fn=acceptance_fn)
+
+
+def _PrepareSharedFileStorage(
+    enabled_disk_templates, file_storage_dir, init_fn=_InitFileStorageDir,
+    acceptance_fn=None):
+  """Checks if shared file storage is enabled and inits the dir.
+
+  @see: C{_PrepareFileBasedStorage}
+
+  """
+  return _PrepareFileBasedStorage(
+      enabled_disk_templates, file_storage_dir,
+      pathutils.DEFAULT_SHARED_FILE_STORAGE_DIR, constants.DT_SHARED_FILE,
+      init_fn=init_fn, acceptance_fn=acceptance_fn)
+
+
+def _InitCheckEnabledDiskTemplates(enabled_disk_templates):
+  """Checks the sanity of the enabled disk templates.
+
+  """
+  if not enabled_disk_templates:
+    raise errors.OpPrereqError("Enabled disk templates list must contain at"
+                               " least one member", errors.ECODE_INVAL)
+  invalid_disk_templates = \
+    set(enabled_disk_templates) - constants.DISK_TEMPLATES
+  if invalid_disk_templates:
+    raise errors.OpPrereqError("Enabled disk templates list contains invalid"
+                               " entries: %s" % invalid_disk_templates,
+                               errors.ECODE_INVAL)
+
+
+def _RestrictIpolicyToEnabledDiskTemplates(ipolicy, enabled_disk_templates):
+  """Restricts the ipolicy's disk templates to the enabled ones.
+
+  This function clears the ipolicy's list of allowed disk templates from the
+  ones that are not enabled by the cluster.
+
+  @type ipolicy: dict
+  @param ipolicy: the instance policy
+  @type enabled_disk_templates: list of string
+  @param enabled_disk_templates: the list of cluster-wide enabled disk
+    templates
+
+  """
+  assert constants.IPOLICY_DTS in ipolicy
+  allowed_disk_templates = ipolicy[constants.IPOLICY_DTS]
+  restricted_disk_templates = list(set(allowed_disk_templates)
+                                   .intersection(set(enabled_disk_templates)))
+  ipolicy[constants.IPOLICY_DTS] = restricted_disk_templates
 
 
 def InitCluster(cluster_name, mac_prefix, # pylint: disable=R0913, R0914
@@ -396,15 +505,7 @@ def InitCluster(cluster_name, mac_prefix, # pylint: disable=R0913, R0914
                                " entries: %s" % invalid_hvs,
                                errors.ECODE_INVAL)
 
-  if not enabled_disk_templates:
-    raise errors.OpPrereqError("Enabled disk templates list must contain at"
-                               " least one member", errors.ECODE_INVAL)
-  invalid_disk_templates = \
-    set(enabled_disk_templates) - constants.DISK_TEMPLATES
-  if invalid_disk_templates:
-    raise errors.OpPrereqError("Enabled disk templates list contains invalid"
-                               " entries: %s" % invalid_disk_templates,
-                               errors.ECODE_INVAL)
+  _InitCheckEnabledDiskTemplates(enabled_disk_templates)
 
   try:
     ipcls = netutils.IPAddress.GetClassFromIpVersion(primary_ip_version)
@@ -461,18 +562,16 @@ def InitCluster(cluster_name, mac_prefix, # pylint: disable=R0913, R0914
   else:
     master_netmask = ipcls.iplen
 
-  if vg_name is not None:
+  if vg_name:
     # Check if volume group is valid
     vgstatus = utils.CheckVolumeGroupSize(utils.ListVolumeGroups(), vg_name,
                                           constants.MIN_VG_SIZE)
     if vgstatus:
-      raise errors.OpPrereqError("Error: %s\nspecify --no-lvm-storage if"
-                                 " you are not using lvm" % vgstatus,
-                                 errors.ECODE_INVAL)
+      raise errors.OpPrereqError("Error: %s" % vgstatus, errors.ECODE_INVAL)
 
   if drbd_helper is not None:
     try:
-      curr_helper = bdev.BaseDRBD.GetUsermodeHelper()
+      curr_helper = drbd.DRBD8.GetUsermodeHelper()
     except errors.BlockDeviceError, err:
       raise errors.OpPrereqError("Error while checking drbd helper"
                                  " (specify --no-drbd-storage if you are not"
@@ -491,15 +590,10 @@ def InitCluster(cluster_name, mac_prefix, # pylint: disable=R0913, R0914
                              " had exitcode %s and error '%s'" %
                              (result.cmd, result.exit_code, result.output))
 
-  if constants.ENABLE_FILE_STORAGE:
-    file_storage_dir = _InitFileStorage(file_storage_dir)
-  else:
-    file_storage_dir = ""
-
-  if constants.ENABLE_SHARED_FILE_STORAGE:
-    shared_file_storage_dir = _InitFileStorage(shared_file_storage_dir)
-  else:
-    shared_file_storage_dir = ""
+  file_storage_dir = _PrepareFileStorage(enabled_disk_templates,
+                                         file_storage_dir)
+  shared_file_storage_dir = _PrepareSharedFileStorage(enabled_disk_templates,
+                                                      shared_file_storage_dir)
 
   if not re.match("^[0-9a-z]{2}:[0-9a-z]{2}:[0-9a-z]{2}$", mac_prefix):
     raise errors.OpPrereqError("Invalid mac prefix given '%s'" % mac_prefix,
@@ -521,6 +615,7 @@ def InitCluster(cluster_name, mac_prefix, # pylint: disable=R0913, R0914
   objects.NIC.CheckParameterSyntax(nicparams)
 
   full_ipolicy = objects.FillIPolicy(constants.IPOLICY_DEFAULTS, ipolicy)
+  _RestrictIpolicyToEnabledDiskTemplates(full_ipolicy, enabled_disk_templates)
 
   if ndparams is not None:
     utils.ForceDictType(ndparams, constants.NDS_PARAMETER_TYPES)
@@ -621,7 +716,6 @@ def InitCluster(cluster_name, mac_prefix, # pylint: disable=R0913, R0914
     mac_prefix=mac_prefix,
     volume_group_name=vg_name,
     tcpudp_port_pool=set(),
-    master_node=hostname.name,
     master_ip=clustername.ip,
     master_netmask=master_netmask,
     master_netdev=master_netdev,
@@ -700,13 +794,14 @@ def InitConfig(version, cluster_config, master_node_config,
                                                 _INITCONF_ECID)
   master_node_config.uuid = uuid_generator.Generate([], utils.NewUUID,
                                                     _INITCONF_ECID)
+  cluster_config.master_node = master_node_config.uuid
   nodes = {
-    master_node_config.name: master_node_config,
+    master_node_config.uuid: master_node_config,
     }
   default_nodegroup = objects.NodeGroup(
     uuid=uuid_generator.Generate([], utils.NewUUID, _INITCONF_ECID),
     name=constants.INITIAL_NODE_GROUP_NAME,
-    members=[master_node_config.name],
+    members=[master_node_config.uuid],
     diskparams={},
     )
   nodegroups = {
@@ -726,7 +821,7 @@ def InitConfig(version, cluster_config, master_node_config,
                   mode=0600)
 
 
-def FinalizeClusterDestroy(master):
+def FinalizeClusterDestroy(master_uuid):
   """Execute the last steps of cluster destroy
 
   This function shuts down all the daemons, completing the destroy
@@ -737,22 +832,24 @@ def FinalizeClusterDestroy(master):
   modify_ssh_setup = cfg.GetClusterInfo().modify_ssh_setup
   runner = rpc.BootstrapRunner()
 
+  master_name = cfg.GetNodeName(master_uuid)
+
   master_params = cfg.GetMasterNetworkParameters()
-  master_params.name = master
+  master_params.uuid = master_uuid
   ems = cfg.GetUseExternalMipScript()
-  result = runner.call_node_deactivate_master_ip(master_params.name,
-                                                 master_params, ems)
+  result = runner.call_node_deactivate_master_ip(master_name, master_params,
+                                                 ems)
 
   msg = result.fail_msg
   if msg:
     logging.warning("Could not disable the master IP: %s", msg)
 
-  result = runner.call_node_stop_master(master)
+  result = runner.call_node_stop_master(master_name)
   msg = result.fail_msg
   if msg:
     logging.warning("Could not disable the master role: %s", msg)
 
-  result = runner.call_node_leave_cluster(master, modify_ssh_setup)
+  result = runner.call_node_leave_cluster(master_name, modify_ssh_setup)
   msg = result.fail_msg
   if msg:
     logging.warning("Could not shutdown the node daemon and cleanup"
@@ -800,7 +897,7 @@ def MasterFailover(no_voting=False):
   sstore = ssconf.SimpleStore()
 
   old_master, new_master = ssconf.GetMasterAndMyself(sstore)
-  node_list = sstore.GetNodeList()
+  node_names = sstore.GetNodeList()
   mc_list = sstore.GetMasterCandidates()
 
   if old_master == new_master:
@@ -819,7 +916,7 @@ def MasterFailover(no_voting=False):
                                errors.ECODE_STATE)
 
   if not no_voting:
-    vote_list = GatherMasterVotes(node_list)
+    vote_list = GatherMasterVotes(node_names)
 
     if vote_list:
       voted_master = vote_list[0][0]
@@ -844,8 +941,20 @@ def MasterFailover(no_voting=False):
     # configuration data
     cfg = config.ConfigWriter(accept_foreign=True)
 
+    old_master_node = cfg.GetNodeInfoByName(old_master)
+    if old_master_node is None:
+      raise errors.OpPrereqError("Could not find old master node '%s' in"
+                                 " cluster configuration." % old_master,
+                                 errors.ECODE_NOENT)
+
     cluster_info = cfg.GetClusterInfo()
-    cluster_info.master_node = new_master
+    new_master_node = cfg.GetNodeInfoByName(new_master)
+    if new_master_node is None:
+      raise errors.OpPrereqError("Could not find new master node '%s' in"
+                                 " cluster configuration." % new_master,
+                                 errors.ECODE_NOENT)
+
+    cluster_info.master_node = new_master_node.uuid
     # this will also regenerate the ssconf files, since we updated the
     # cluster info
     cfg.Update(cluster_info, logging.error)
@@ -863,9 +972,9 @@ def MasterFailover(no_voting=False):
 
   runner = rpc.BootstrapRunner()
   master_params = cfg.GetMasterNetworkParameters()
-  master_params.name = old_master
+  master_params.uuid = old_master_node.uuid
   ems = cfg.GetUseExternalMipScript()
-  result = runner.call_node_deactivate_master_ip(master_params.name,
+  result = runner.call_node_deactivate_master_ip(old_master,
                                                  master_params, ems)
 
   msg = result.fail_msg
@@ -929,7 +1038,7 @@ def GetMaster():
   return old_master
 
 
-def GatherMasterVotes(node_list):
+def GatherMasterVotes(node_names):
   """Check the agreement on who is the master.
 
   This function will return a list of (node, number of votes), ordered
@@ -943,8 +1052,8 @@ def GatherMasterVotes(node_list):
   since we use the same source for configuration information for both
   backend and boostrap, we'll always vote for ourselves.
 
-  @type node_list: list
-  @param node_list: the list of nodes to query for master info; the current
+  @type node_names: list
+  @param node_names: the list of nodes to query for master info; the current
       node will be removed if it is in the list
   @rtype: list
   @return: list of (node, votes)
@@ -952,30 +1061,31 @@ def GatherMasterVotes(node_list):
   """
   myself = netutils.Hostname.GetSysName()
   try:
-    node_list.remove(myself)
+    node_names.remove(myself)
   except ValueError:
     pass
-  if not node_list:
+  if not node_names:
     # no nodes left (eventually after removing myself)
     return []
-  results = rpc.BootstrapRunner().call_master_info(node_list)
+  results = rpc.BootstrapRunner().call_master_info(node_names)
   if not isinstance(results, dict):
     # this should not happen (unless internal error in rpc)
     logging.critical("Can't complete rpc call, aborting master startup")
-    return [(None, len(node_list))]
+    return [(None, len(node_names))]
   votes = {}
-  for node in results:
-    nres = results[node]
+  for node_name in results:
+    nres = results[node_name]
     data = nres.payload
     msg = nres.fail_msg
     fail = False
     if msg:
-      logging.warning("Error contacting node %s: %s", node, msg)
+      logging.warning("Error contacting node %s: %s", node_name, msg)
       fail = True
     # for now we accept both length 3, 4 and 5 (data[3] is primary ip version
     # and data[4] is the master netmask)
     elif not isinstance(data, (tuple, list)) or len(data) < 3:
-      logging.warning("Invalid data received from node %s: %s", node, data)
+      logging.warning("Invalid data received from node %s: %s",
+                      node_name, data)
       fail = True
     if fail:
       if None not in votes:

@@ -68,7 +68,7 @@
 # gnt-node add -s 192.0.2.5 node5.example.com
 # gnt-node add -g group2 -s 192.0.2.9 node9.group2.example.com</code></pre>
 <h2 id="evacuate"><a href="#TOC">EVACUATE</a></h2>
-<p><strong>evacuate</strong> [-f] [--early-release] [--submit]<br />[{-I|--iallocator} <em>NAME</em> | {-n|--new-secondary} <em>destination_node</em>]<br />[{-p|--primary-only} | {-s|--secondary-only} ]<br /> {<em>node</em>}</p>
+<p><strong>evacuate</strong> [-f] [--early-release] [--submit] [--print-job-id]<br />[{-I|--iallocator} <em>NAME</em> | {-n|--new-secondary} <em>destination_node</em>]<br />[{-p|--primary-only} | {-s|--secondary-only} ]<br /> {<em>node</em>}</p>
 <p>This command will move instances away from the given node. If <code>--primary-only</code> is given, only primary instances are evacuated, with <code>--secondary-only</code> only secondaries. If neither is given, all instances are evacuated. It works only for instances having a drbd disk template.</p>
 <p>The new location for the instances can be specified in two ways:</p>
 <ul>
@@ -112,6 +112,9 @@
 <dt><code>cnodes</code></dt>
 <dd><p>Number of NUMA domains on node (if exported by hypervisor)</p>
 </dd>
+<dt><code>cnos</code></dt>
+<dd><p>Number of logical processors used by the node OS (dom0 for Xen)</p>
+</dd>
 <dt><code>csockets</code></dt>
 <dd><p>Number of physical CPU sockets (if exported by hypervisor)</p>
 </dd>
@@ -125,7 +128,7 @@
 <dd><p>Custom node parameters</p>
 </dd>
 <dt><code>dfree</code></dt>
-<dd><p>Available disk space in volume group</p>
+<dd><p>Available storage space in storage unit</p>
 </dd>
 <dt><code>disk_state</code></dt>
 <dd><p>Disk state</p>
@@ -134,7 +137,7 @@
 <dd><p>Whether node is drained</p>
 </dd>
 <dt><code>dtotal</code></dt>
-<dd><p>Total disk space in volume group used for instance disk allocation</p>
+<dd><p>Total storage space in storage unit used for instance disk allocation</p>
 </dd>
 <dt><code>group</code></dt>
 <dd><p>Node group</p>
@@ -211,6 +214,12 @@
 <dt><code>sip</code></dt>
 <dd><p>Secondary IP address</p>
 </dd>
+<dt><code>spfree</code></dt>
+<dd><p>Available spindles in volume group (exclusive storage only)</p>
+</dd>
+<dt><code>sptotal</code></dt>
+<dd><p>Total spindles in volume group (exclusive storage only)</p>
+</dd>
 <dt><code>tags</code></dt>
 <dd><p>Tags</p>
 </dd>
@@ -255,7 +264,7 @@
 <p><strong>list-fields</strong> [field...]</p>
 <p>Lists available fields for nodes.</p>
 <h2 id="migrate"><a href="#TOC">MIGRATE</a></h2>
-<p><strong>migrate</strong> [-f] [--non-live] [--migration-mode=live|non-live]<br />[--ignore-ipolicy] [--submit] {<em>node</em>}</p>
+<p><strong>migrate</strong> [-f] [--non-live] [--migration-mode=live|non-live]<br />[--ignore-ipolicy] [--submit] [--print-job-id] {<em>node</em>}</p>
 <p>This command will migrate all instances having the given node as primary to their secondary nodes. This works only for instances having a drbd disk template.</p>
 <p>As for the <strong>gnt-instance migrate</strong> command, the options <code>--no-live</code>, <code>--migration-mode</code> and <code>--no-runtime-changes</code> can be given to influence the migration type.</p>
 <p>If <code>--ignore-ipolicy</code> is given any instance policy violations occurring during this operation are ignored.</p>
@@ -263,7 +272,7 @@
 <p>Example:</p>
 <pre><code># gnt-node migrate node1.example.com</code></pre>
 <h2 id="modify"><a href="#TOC">MODIFY</a></h2>
-<p><strong>modify</strong> [-f] [--submit]<br />[{-C|--master-candidate} <code>yes|no</code>]<br />[{-D|--drained} <code>yes|no</code>] [{-O|--offline} <code>yes|no</code>]<br />[--master-capable=<code>yes|no</code>] [--vm-capable=<code>yes|no</code>] [--auto-promote]<br />[{-s|--secondary-ip} <em>secondary_ip</em>]<br />[--node-parameters <em>ndparams</em>]<br />[--node-powered=<code>yes|no</code>]<br />[--hypervisor-state <em>hvstate</em>]<br />[--disk-state <em>diskstate</em>]<br />{<em>node</em>}</p>
+<p><strong>modify</strong> [-f] [--submit] [--print-job-id]<br />[{-C|--master-candidate} <code>yes|no</code>]<br />[{-D|--drained} <code>yes|no</code>] [{-O|--offline} <code>yes|no</code>]<br />[--master-capable=<code>yes|no</code>] [--vm-capable=<code>yes|no</code>] [--auto-promote]<br />[{-s|--secondary-ip} <em>secondary_ip</em>]<br />[--node-parameters <em>ndparams</em>]<br />[--node-powered=<code>yes|no</code>]<br />[--hypervisor-state <em>hvstate</em>]<br />[--disk-state <em>diskstate</em>]<br />{<em>node</em>}</p>
 <p>This command changes the role of the node. Each options takes either a literal yes or no, and only one option should be given as yes. The meaning of the roles and flags are described in the manpage <strong>ganeti</strong>(7).</p>
 <p>The option <code>--node-powered</code> can be used to modify state-of-record if it doesn't reflect the reality anymore.</p>
 <p>In case a node is demoted from the master candidate role, the operation will be refused unless you pass the <code>--auto-promote</code> option. This option will cause the operation to lock all cluster nodes (thus it will not be able to run in parallel with most other jobs), but it allows automated maintenance of the cluster candidate pool. If locking all cluster node is too expensive, another option is to promote manually another node to master candidate before demoting the current one.</p>
@@ -346,7 +355,7 @@ Node  Type   Name        Size Used   Free Allocatable
 node2 lvm-pv /dev/sda7 673.8G 1.5G 672.3G Y
 node2 lvm-pv /dev/sdb1 698.6G   0M 698.6G Y</code></pre>
 <h2 id="modify-storage"><a href="#TOC">MODIFY-STORAGE</a></h2>
-<p><strong>modify-storage</strong> [--allocatable={yes|no}] [--submit]<br />{<em>node</em>} {<em>storage-type</em>} {<em>volume-name</em>}</p>
+<p><strong>modify-storage</strong> [--allocatable={yes|no}] [--submit] [--print-job-id]<br />{<em>node</em>} {<em>storage-type</em>} {<em>volume-name</em>}</p>
 <p>Modifies storage volumes on a node. Only LVM physical volumes can be modified at the moment. They have a storage type of &quot;lvm-pv&quot;.</p>
 <p>Example:</p>
 <pre><code># gnt-node modify-storage --allocatable no node5.example.com lvm-pv /dev/sdb1</code></pre>
@@ -359,7 +368,7 @@ node2 lvm-pv /dev/sdb1 698.6G   0M 698.6G Y</code></pre>
 <p>Example:</p>
 <pre><code># gnt-node repair-storage node5.example.com lvm-vg xenvg</code></pre>
 <h2 id="powercycle"><a href="#TOC">POWERCYCLE</a></h2>
-<p><strong>powercycle</strong> [--yes] [--force] [--submit] {<em>node</em>}</p>
+<p><strong>powercycle</strong> [--yes] [--force] [--submit] [--print-job-id] {<em>node</em>}</p>
 <p>This command (tries to) forcefully reboot a node. It is a command that can be used if the node environment is broken, such that the admin can no longer login over SSH, but the Ganeti node daemon is still working.</p>
 <p>Note that this command is not guaranteed to work; it depends on the hypervisor how effective is the reboot attempt. For Linux, this command requires the kernel option <code>CONFIG_MAGIC_SYSRQ</code> to be enabled.</p>
 <p>The <code>--yes</code> option can be used to skip confirmation, while the <code>--force</code> option is needed if the target node is the master node.</p>

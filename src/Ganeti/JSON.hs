@@ -5,7 +5,7 @@
 
 {-
 
-Copyright (C) 2009, 2010, 2011, 2012 Google Inc.
+Copyright (C) 2009, 2010, 2011, 2012, 2013 Google Inc.
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -36,9 +36,12 @@ module Ganeti.JSON
   , fromJVal
   , jsonHead
   , getMaybeJsonHead
+  , getMaybeJsonElem
   , asJSObject
   , asObjectList
   , tryFromObj
+  , arrayMaybeFromJVal
+  , tryArrayMaybeFromObj
   , toArray
   , optionalJSField
   , optFieldsToObj
@@ -104,12 +107,16 @@ loadJSArray :: (Monad m)
                -> m [J.JSObject J.JSValue]
 loadJSArray s = fromJResult s . J.decodeStrict
 
+-- | Helper function for missing-key errors
+buildNoKeyError :: JSRecord -> String -> String
+buildNoKeyError o k =
+  printf "key '%s' not found, object contains only %s" k (show (map fst o))
+
 -- | Reads the value of a key in a JSON object.
 fromObj :: (J.JSON a, Monad m) => JSRecord -> String -> m a
 fromObj o k =
   case lookup k o of
-    Nothing -> fail $ printf "key '%s' not found, object contains only %s"
-               k (show (map fst o))
+    Nothing -> fail $ buildNoKeyError o k
     Just val -> fromKeyValue k val
 
 -- | Reads the value of an optional key in a JSON object. Missing
@@ -136,6 +143,31 @@ fromObjWithDefault :: (J.JSON a, Monad m) =>
                       JSRecord -> String -> a -> m a
 fromObjWithDefault o k d = liftM (fromMaybe d) $ maybeFromObj o k
 
+arrayMaybeFromJVal :: (J.JSON a, Monad m) => J.JSValue -> m [Maybe a]
+arrayMaybeFromJVal (J.JSArray xs) =
+  mapM parse xs
+    where
+      parse J.JSNull = return Nothing
+      parse x = liftM Just $ fromJVal x
+arrayMaybeFromJVal v =
+  fail $ "Expecting array, got '" ++ show (pp_value v) ++ "'"
+
+-- | Reads an array of optional items
+arrayMaybeFromObj :: (J.JSON a, Monad m) =>
+                     JSRecord -> String -> m [Maybe a]
+arrayMaybeFromObj o k =
+  case lookup k o of
+    Just a -> arrayMaybeFromJVal a
+    _ -> fail $ buildNoKeyError o k
+
+-- | Wrapper for arrayMaybeFromObj with better diagnostic
+tryArrayMaybeFromObj :: (J.JSON a)
+                     => String     -- ^ Textual "owner" in error messages
+                     -> JSRecord   -- ^ The object array
+                     -> String     -- ^ The desired key from the object
+                     -> Result [Maybe a]
+tryArrayMaybeFromObj t o = annotateResult t . arrayMaybeFromObj o
+
 -- | Reads a JValue, that originated from an object key.
 fromKeyValue :: (J.JSON a, Monad m)
               => String     -- ^ The key name
@@ -161,6 +193,14 @@ jsonHead (x:_) f = J.showJSON $ f x
 getMaybeJsonHead :: (J.JSON b) => [a] -> (a -> Maybe b) -> J.JSValue
 getMaybeJsonHead [] _ = J.JSNull
 getMaybeJsonHead (x:_) f = maybe J.JSNull J.showJSON (f x)
+
+-- | Helper for extracting Maybe values from a list that might be too short.
+getMaybeJsonElem :: (J.JSON b) => [a] -> Int -> (a -> Maybe b) -> J.JSValue
+getMaybeJsonElem [] _ _ = J.JSNull
+getMaybeJsonElem xs 0 f = getMaybeJsonHead xs f
+getMaybeJsonElem (_:xs) n f
+  | n < 0 = J.JSNull
+  | otherwise = getMaybeJsonElem xs (n - 1) f
 
 -- | Converts a JSON value into a JSON object.
 asJSObject :: (Monad m) => J.JSValue -> m (J.JSObject J.JSValue)

@@ -34,6 +34,7 @@ module Ganeti.HTools.Backend.Text
   , loadISpec
   , loadMultipleMinMaxISpecs
   , loadIPolicy
+  , serializeInstance
   , serializeInstances
   , serializeNode
   , serializeNodes
@@ -83,13 +84,17 @@ serializeNode :: Group.List -- ^ The list of groups (needed for group uuid)
               -> Node.Node  -- ^ The node to be serialised
               -> String
 serializeNode gl node =
-  printf "%s|%.0f|%d|%d|%.0f|%d|%.0f|%c|%s|%d" (Node.name node)
+  printf "%s|%.0f|%d|%d|%.0f|%d|%.0f|%c|%s|%d|%s|%s|%d|%d" (Node.name node)
            (Node.tMem node) (Node.nMem node) (Node.fMem node)
            (Node.tDsk node) (Node.fDsk node) (Node.tCpu node)
            (if Node.offline node then 'Y' else
               if Node.isMaster node then 'M' else 'N')
            (Group.uuid grp)
-           (Node.spindleCount node)
+           (Node.tSpindles node)
+           (intercalate "," (Node.nTags node))
+           (if Node.exclStorage node then "Y" else "N")
+           (Node.fSpindles node)
+           (Node.nCpu node)
     where grp = Container.find (Node.group node) gl
 
 -- | Generate node file data from node objects.
@@ -108,12 +113,16 @@ serializeInstance nl inst =
       snode = (if sidx == Node.noSecondary
                  then ""
                  else Container.nameOf nl sidx)
-  in printf "%s|%d|%d|%d|%s|%s|%s|%s|%s|%s|%d"
+  in printf "%s|%d|%d|%d|%s|%s|%s|%s|%s|%s|%d|%s"
        iname (Instance.mem inst) (Instance.dsk inst)
        (Instance.vcpus inst) (instanceStatusToRaw (Instance.runSt inst))
        (if Instance.autoBalance inst then "Y" else "N")
        pnode snode (diskTemplateToRaw (Instance.diskTemplate inst))
        (intercalate "," (Instance.allTags inst)) (Instance.spindleUse inst)
+       -- disk spindles are summed together, as it's done for disk size
+       (case Instance.getTotalSpindles inst of
+          Nothing -> "-"
+          Just x -> show x)
 
 -- | Generate instance file data from instance objects.
 serializeInstances :: Node.List -> Instance.List -> String
@@ -197,25 +206,52 @@ loadNode :: (Monad m) =>
          -> [String]              -- ^ Input data as a list of fields
          -> m (String, Node.Node) -- ^ The result, a tuple o node name
                                   -- and node object
-loadNode ktg [name, tm, nm, fm, td, fd, tc, fo, gu, spindles] = do
+loadNode ktg [name, tm, nm, fm, td, fd, tc, fo, gu, spindles, tags,
+              excl_stor, free_spindles, nos_cpu] = do
   gdx <- lookupGroup ktg name gu
   new_node <-
       if "?" `elem` [tm,nm,fm,td,fd,tc] || fo == "Y" then
-          return $ Node.create name 0 0 0 0 0 0 True 0 gdx
+          return $ Node.create name 0 0 0 0 0 0 0 True 0 0 gdx False
       else do
+        let vtags = commaSplit tags
         vtm <- tryRead name tm
         vnm <- tryRead name nm
         vfm <- tryRead name fm
         vtd <- tryRead name td
         vfd <- tryRead name fd
         vtc <- tryRead name tc
+        vnc <- tryRead name nos_cpu
         vspindles <- tryRead name spindles
-        return . flip Node.setMaster (fo == "M") $
-          Node.create name vtm vnm vfm vtd vfd vtc False vspindles gdx
+        vfree_spindles <- tryRead name free_spindles
+        vexcl_stor <- case excl_stor of
+                        "Y" -> return True
+                        "N" -> return False
+                        _ -> fail $
+                             "Invalid exclusive_storage value for node '" ++
+                             name ++ "': " ++ excl_stor
+        return . flip Node.setMaster (fo == "M") . flip Node.setNodeTags vtags $
+          Node.create name vtm vnm vfm vtd vfd vtc vnc False vspindles
+          vfree_spindles gdx vexcl_stor
   return (name, new_node)
 
 loadNode ktg [name, tm, nm, fm, td, fd, tc, fo, gu] =
   loadNode ktg [name, tm, nm, fm, td, fd, tc, fo, gu, "1"]
+
+loadNode ktg [name, tm, nm, fm, td, fd, tc, fo, gu, spindles] =
+  loadNode ktg [name, tm, nm, fm, td, fd, tc, fo, gu, spindles, ""]
+
+loadNode ktg [name, tm, nm, fm, td, fd, tc, fo, gu, spindles, tags] =
+  loadNode ktg [name, tm, nm, fm, td, fd, tc, fo, gu, spindles, tags, "N"]
+
+loadNode ktg [name, tm, nm, fm, td, fd, tc, fo, gu, spindles, tags,
+              excl_stor] =
+  loadNode ktg [name, tm, nm, fm, td, fd, tc, fo, gu, spindles, tags,
+                excl_stor, "0"]
+
+loadNode ktg [name, tm, nm, fm, td, fd, tc, fo, gu, spindles, tags,
+              excl_stor, free_spindles] =
+  loadNode ktg [name, tm, nm, fm, td, fd, tc, fo, gu, spindles, tags,
+                excl_stor, free_spindles, "1"]
 
 loadNode _ s = fail $ "Invalid/incomplete node data: '" ++ show s ++ "'"
 
@@ -226,13 +262,13 @@ loadInst :: NameAssoc -- ^ Association list with the current nodes
                                                -- instance name and
                                                -- the instance object
 loadInst ktn [ name, mem, dsk, vcpus, status, auto_bal, pnode, snode
-             , dt, tags, su ] = do
+             , dt, tags, su, spindles ] = do
   pidx <- lookupNode ktn name pnode
   sidx <- if null snode
             then return Node.noSecondary
             else lookupNode ktn name snode
   vmem <- tryRead name mem
-  vdsk <- tryRead name dsk
+  dsize <- tryRead name dsk
   vvcpus <- tryRead name vcpus
   vstatus <- instanceStatusFromRaw status
   auto_balance <- case auto_bal of
@@ -243,17 +279,27 @@ loadInst ktn [ name, mem, dsk, vcpus, status, auto_bal, pnode, snode
   disk_template <- annotateResult ("Instance " ++ name)
                    (diskTemplateFromRaw dt)
   spindle_use <- tryRead name su
-  when (sidx == pidx) . fail $ "Instance " ++ name ++
-           " has same primary and secondary node - " ++ pnode
+  vspindles <- case spindles of
+                 "-" -> return Nothing
+                 _ -> liftM Just (tryRead name spindles)
+  let disk = Instance.Disk dsize vspindles
   let vtags = commaSplit tags
-      newinst = Instance.create name vmem vdsk [vdsk] vvcpus vstatus vtags
+      newinst = Instance.create name vmem dsize [disk] vvcpus vstatus vtags
                 auto_balance pidx sidx disk_template spindle_use []
+  when (Instance.hasSecondary newinst && sidx == pidx) . fail $
+    "Instance " ++ name ++ " has same primary and secondary node - " ++ pnode
   return (name, newinst)
 
 loadInst ktn [ name, mem, dsk, vcpus, status, auto_bal, pnode, snode
              , dt, tags ] = loadInst ktn [ name, mem, dsk, vcpus, status,
                                            auto_bal, pnode, snode, dt, tags,
                                            "1" ]
+
+loadInst ktn [ name, mem, dsk, vcpus, status, auto_bal, pnode, snode
+             , dt, tags, su ] =
+  loadInst ktn [ name, mem, dsk, vcpus, status, auto_bal, pnode, snode, dt
+               , tags, su, "-" ]
+
 loadInst _ s = fail $ "Invalid/incomplete instance data: '" ++ show s ++ "'"
 
 -- | Loads a spec from a field list.
@@ -365,7 +411,7 @@ parseData fdata = do
   {- group file: name uuid alloc_policy -}
   (ktg, gl) <- loadTabular glines loadGroup
   {- node file: name t_mem n_mem f_mem t_disk f_disk t_cpu offline grp_uuid
-                spindles -}
+                spindles tags -}
   (ktn, nl) <- loadTabular nlines (loadNode ktg)
   {- instance file: name mem disk vcpus status auto_bal pnode snode
                     disk_template tags spindle_use -}

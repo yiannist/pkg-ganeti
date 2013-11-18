@@ -16,6 +16,7 @@ Most dependencies from :doc:`install-quick`, including ``qemu-img``
 - `python-epydoc <http://epydoc.sourceforge.net/>`_
 - `python-sphinx <http://sphinx.pocoo.org/>`_
   (tested with version 1.1.3)
+- `python-mock <http://www.voidspace.org.uk/python/mock/>`_
 - `graphviz <http://www.graphviz.org/>`_
 - the `en_US.UTF-8` locale must be enabled on the system
 - `pylint <http://www.logilab.org/857>`_ and its associated
@@ -23,22 +24,22 @@ Most dependencies from :doc:`install-quick`, including ``qemu-img``
 - `pep8 <https://github.com/jcrocholl/pep8/>`_
 - `PyYAML <http://pyyaml.org/>`_
 
-For older developement (Ganeti < 2.4) ``docbook`` was used instead
+For older developement (Ganeti < 2.4) ``docbook`` was used instead of
 ``pandoc``.
 
 Note that for pylint, at the current moment the following versions
 must be used::
 
     $ pylint --version
-    pylint 0.25.1,
-    astng 0.23.1, common 0.58.0
+    pylint 0.26.0,
+    astng 0.24.1, common 0.58.3
 
 The same with pep8, other versions may give you errors::
 
      $ pep8 --version
-     1.2
+     1.3.3
 
-Both these versions are the ones shipped with Debian Wheezy.
+Both these versions are the ones shipped with Ubuntu 13.04.
 
 To generate unittest coverage reports (``make coverage``), `coverage
 <http://pypi.python.org/pypi/coverage>`_ needs to be installed.
@@ -47,13 +48,13 @@ Installation of all dependencies listed here::
 
      $ apt-get install python-setuptools automake git fakeroot
      $ apt-get install pandoc python-epydoc graphviz
-     $ apt-get install python-yaml
+     $ apt-get install python-yaml python-mock
      $ cd / && sudo easy_install \
                sphinx \
-               logilab-astng==0.23.1 \
-               logilab-common==0.58.0 \
-               pylint==0.25.1 \
-               pep8==1.2 \
+               logilab-astng==0.24.1 \
+               logilab-common==0.58.3 \
+               pylint==0.26.0 \
+               pep8==1.3.3 \
                coverage
 
 For Haskell development, again all things from the quick install
@@ -65,7 +66,7 @@ document, plus:
   used for documentation (it's source-code pretty-printing)
 - `hlint <http://community.haskell.org/~ndm/hlint/>`_, a source code
   linter (equivalent to pylint for Python), recommended version 1.8 or
-  above (tested with 1.8.15)
+  above (tested with 1.8.43)
 - the `QuickCheck <http://hackage.haskell.org/package/QuickCheck>`_
   library, version 2.x
 - the `HUnit <http://hunit.sourceforge.net/>`_ library (tested with
@@ -174,8 +175,8 @@ Running individual tests
 ~~~~~~~~~~~~~~~~~~~~~~~~
 
 When developing code, running the entire test suite can be
-slow. Running individual tests is possible easily for unit-tests, less
-so for shell-tests (but these are faster, so it shouldn't be needed).
+slow. Running individual tests is possible. There are different
+Makefile targets for running individual Python and Haskell tests.
 
 For Python tests::
 
@@ -184,14 +185,32 @@ For Python tests::
 
 For Haskell tests::
 
-  $ make test/hs/htest && ./test/hs/htest -t %pattern%
+  $ make hs-test-%pattern%
 
 Where ``pattern`` can be a simple test pattern (e.g. ``comma``,
 matching any test whose name contains ``comma``), a test pattern
 denoting a group (ending with a slash, e.g. ``Utils/``), or more
-complex glob pattern. For more details, see the documentation (on the
-`test-framework homepage
+complex glob pattern. For more details, search for glob patterns in
+the documentation of `test-framework
 <http://batterseapower.github.com/test-framework/>`_).
+
+For individual Haskell shelltests::
+
+  $ make hs-shell-%name%
+
+which runs the test ``test/hs/shelltests/htools-%name%.test``. For
+example, to run the test ``test/hs/shelltests/htools-balancing.test``,
+use::
+
+  $ make hs-shell-balancing
+
+For combined Haskell shelltests::
+
+  $ make hs-shell-{%name1%,%name2%,...}
+
+for example::
+
+  $ make hs-shell-{balancing,basic}
 
 Packaging notes
 ===============

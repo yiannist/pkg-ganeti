@@ -57,6 +57,7 @@ module Ganeti.Utils
   , exitIfEmpty
   , splitEithers
   , recombineEithers
+  , resolveAddr
   , setOwnerAndGroupFromNames
   ) where
 
@@ -67,6 +68,7 @@ import qualified Data.Map as M
 import Control.Monad (foldM)
 
 import Debug.Trace
+import Network.Socket
 
 import Ganeti.BasicTypes
 import qualified Ganeti.Constants as C
@@ -445,6 +447,19 @@ recombineEithers lefts rights trail =
           recombiner (_,  ls, rs) t = Bad $ "Inconsistent trail log: l=" ++
                                       show ls ++ ", r=" ++ show rs ++ ",t=" ++
                                       show t
+
+-- | Default hints for the resolver
+resolveAddrHints :: Maybe AddrInfo
+resolveAddrHints =
+  Just defaultHints { addrFlags = [AI_NUMERICHOST, AI_NUMERICSERV] }
+
+-- | Resolves a numeric address.
+resolveAddr :: Int -> String -> IO (Result (Family, SockAddr))
+resolveAddr port str = do
+  resolved <- getAddrInfo resolveAddrHints (Just str) (Just (show port))
+  return $ case resolved of
+             [] -> Bad "Invalid results from lookup?"
+             best:_ -> Ok (addrFamily best, addrAddress best)
 
 -- | Set the owner and the group of a file (given as names, not numeric id).
 setOwnerAndGroupFromNames :: FilePath -> GanetiDaemon -> GanetiGroup -> IO ()

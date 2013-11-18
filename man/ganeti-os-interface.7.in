@@ -66,7 +66,7 @@ The hypervisor of this instance.
 .TP
 .B DISK_COUNT
 The number of disks the instance has.
-The actual disk defitions are in a set of additional variables.
+The actual disk definitions are in a set of additional variables.
 The instance\[aq]s disk will be numbered from 0 to this value minus one.
 .RS
 .RE
@@ -245,7 +245,7 @@ environment.
 .PP
 The \f[C]INSTANCE_REINSTALL\f[] variable is set to \f[C]1\f[] when this
 create request is reinstalling an existing instance, rather than
-creating one anew.
+creating a new one.
 This can be used, for example, to preserve some data in the old instance
 in an OS-specific way.
 .SS export

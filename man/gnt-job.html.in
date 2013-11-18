@@ -23,6 +23,7 @@
 <li><a href="#info">INFO</a></li>
 <li><a href="#list">LIST</a></li>
 <li><a href="#list-fields">LIST-FIELDS</a></li>
+<li><a href="#wait">WAIT</a></li>
 <li><a href="#watch">WATCH</a></li>
 </ul></li>
 <li><a href="#reporting-bugs">REPORTING BUGS</a></li>
@@ -128,6 +129,9 @@
 <h2 id="list-fields"><a href="#TOC">LIST-FIELDS</a></h2>
 <p><strong>list-fields</strong> [field...]</p>
 <p>Lists available fields for jobs.</p>
+<h2 id="wait"><a href="#TOC">WAIT</a></h2>
+<p><strong>wait</strong> {id}</p>
+<p>Wait for the job by the given <em>id</em> to finish; do not produce any output.</p>
 <h2 id="watch"><a href="#TOC">WATCH</a></h2>
 <p><strong>watch</strong> {id}</p>
 <p>This command follows the output of the job by the given <em>id</em> and prints it.</p>

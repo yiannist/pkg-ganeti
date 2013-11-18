@@ -39,8 +39,11 @@ the cluster, including its validity status, the supported API versions,
 the supported parameters (if any) and their documentations, etc.
 .SS MODIFY
 .PP
-\f[B]modify\f[] [--submit] [-H
-\f[I]HYPERVISOR\f[]:option=\f[I]value\f[][,...]]
+\f[B]modify\f[] [--submit] [--print-job-id]
+.PD 0
+.P
+.PD
+[-H \f[I]HYPERVISOR\f[]:option=\f[I]value\f[][,...]]
 .PD 0
 .P
 .PD

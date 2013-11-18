@@ -7,7 +7,7 @@
 
 {-
 
-Copyright (C) 2009, 2010, 2011, 2012 Google Inc.
+Copyright (C) 2009, 2010, 2011, 2012, 2013 Google Inc.
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -33,6 +33,7 @@ module Test.Ganeti.HTools.Node
   , genNode
   , genOnlineNode
   , genNodeList
+  , genUniqueNodeList
   ) where
 
 import Test.QuickCheck
@@ -68,18 +69,20 @@ genNode :: Maybe Int -- ^ Minimum node size in terms of units
                      -- just by the max... constants)
         -> Gen Node.Node
 genNode min_multiplier max_multiplier = do
-  let (base_mem, base_dsk, base_cpu) =
+  let (base_mem, base_dsk, base_cpu, base_spindles) =
         case min_multiplier of
           Just mm -> (mm * Types.unitMem,
                       mm * Types.unitDsk,
-                      mm * Types.unitCpu)
-          Nothing -> (0, 0, 0)
-      (top_mem, top_dsk, top_cpu)  =
+                      mm * Types.unitCpu,
+                      mm)
+          Nothing -> (0, 0, 0, 0)
+      (top_mem, top_dsk, top_cpu, top_spindles)  =
         case max_multiplier of
           Just mm -> (mm * Types.unitMem,
                       mm * Types.unitDsk,
-                      mm * Types.unitCpu)
-          Nothing -> (maxMem, maxDsk, maxCpu)
+                      mm * Types.unitCpu,
+                      mm)
+          Nothing -> (maxMem, maxDsk, maxCpu, maxSpindles)
   name  <- genFQDN
   mem_t <- choose (base_mem, top_mem)
   mem_f <- choose (base_mem, mem_t)
@@ -87,9 +90,12 @@ genNode min_multiplier max_multiplier = do
   dsk_t <- choose (base_dsk, top_dsk)
   dsk_f <- choose (base_dsk, dsk_t)
   cpu_t <- choose (base_cpu, top_cpu)
+  cpu_n <- choose (base_cpu, cpu_t)
   offl  <- arbitrary
+  spindles <- choose (base_spindles, top_spindles)
   let n = Node.create name (fromIntegral mem_t) mem_n mem_f
-          (fromIntegral dsk_t) dsk_f (fromIntegral cpu_t) offl 1 0
+          (fromIntegral dsk_t) dsk_f (fromIntegral cpu_t) cpu_n offl spindles
+          0 0 False
       n' = Node.setPolicy nullIPolicy n
   return $ Node.buildPeers n' Container.empty
 
@@ -100,7 +106,23 @@ genOnlineNode =
                               not (Node.failN1 n) &&
                               Node.availDisk n > 0 &&
                               Node.availMem n > 0 &&
-                              Node.availCpu n > 0)
+                              Node.availCpu n > 0 &&
+                              Node.tSpindles n > 0)
+
+-- | Generate a node with exclusive storage enabled.
+genExclStorNode :: Gen Node.Node
+genExclStorNode = do
+  n <- genOnlineNode
+  fs <- choose (Types.unitSpindle, Node.tSpindles n)
+  let pd = fromIntegral fs / fromIntegral (Node.tSpindles n)::Double
+  return n { Node.exclStorage = True
+           , Node.fSpindles = fs
+           , Node.pDsk = pd
+           }
+
+-- | Generate a node with exclusive storage possibly enabled.
+genMaybeExclStorNode :: Gen Node.Node
+genMaybeExclStorNode = oneof [genOnlineNode, genExclStorNode]
 
 -- and a random node
 instance Arbitrary Node.Node where
@@ -115,6 +137,15 @@ genNodeList ngen = fmap (snd . Loader.assignIndices) names_nodes
     where names_nodes = (fmap . map) (\n -> (Node.name n, n)) nodes
           nodes = listOf1 ngen `suchThat`
                   ((\ns -> ns == nub ns) . map Node.name)
+
+-- | Node list generator where node names are unique
+genUniqueNodeList :: Gen Node.Node -> Gen (Node.List, Types.NameAssoc)
+genUniqueNodeList ngen = (do
+  nl <- genNodeList ngen
+  let na = (fst . Loader.assignIndices) $
+           map (\n -> (Node.name n, n)) (Container.elems nl)
+  return (nl, na)) `suchThat`
+    (\(nl, na) -> Container.size nl == Map.size na)
 
 -- | Generate a node list, an instance list, and a node graph.
 -- We choose instances with nodes contained in the node list.
@@ -162,7 +193,7 @@ prop_setFmemExact node =
 -- memory does not raise an N+1 error
 prop_addPri_NoN1Fail :: Property
 prop_addPri_NoN1Fail =
-  forAll genOnlineNode $ \node ->
+  forAll genMaybeExclStorNode $ \node ->
   forAll (genInstanceSmallerThanNode node) $ \inst ->
   let inst' = inst { Instance.mem = Node.fMem node - Node.rMem node }
   in (Node.addPri node inst' /=? Bad Types.FailN1)
@@ -188,12 +219,32 @@ prop_addPriFD node inst =
                      , Instance.diskTemplate = dt }
   in (Node.addPri node inst'' ==? Bad Types.FailDisk)
 
+-- | Check if an instance exceeds a spindles limit or has no spindles set.
+hasInstTooManySpindles :: Instance.Instance -> Int -> Bool
+hasInstTooManySpindles inst sp_lim =
+  case Instance.getTotalSpindles inst of
+    Just s -> s > sp_lim
+    Nothing -> True
+
+-- | Check that adding a primary instance with too many spindles fails
+-- with type FailSpindles (when exclusive storage is enabled).
+prop_addPriFS :: Instance.Instance -> Property
+prop_addPriFS inst =
+  forAll genExclStorNode $ \node ->
+  forAll (elements Instance.localStorageTemplates) $ \dt ->
+  hasInstTooManySpindles inst (Node.fSpindles node) &&
+    not (Node.failN1 node) ==>
+  let inst' = setInstanceSmallerThanNode node inst
+      inst'' = inst' { Instance.disks = Instance.disks inst
+                     , Instance.diskTemplate = dt }
+  in (Node.addPri node inst'' ==? Bad Types.FailSpindles)
+
 -- | Check that adding a primary instance with too many VCPUs fails
 -- with type FailCPU.
 prop_addPriFC :: Property
 prop_addPriFC =
   forAll (choose (1, maxCpu)) $ \extra ->
-  forAll genOnlineNode $ \node ->
+  forAll genMaybeExclStorNode $ \node ->
   forAll (arbitrary `suchThat` Instance.notOffline) $ \inst ->
   let inst' = setInstanceSmallerThanNode node inst
       inst'' = inst' { Instance.vcpus = Node.availCpu node + extra }
@@ -207,7 +258,9 @@ prop_addSec :: Node.Node -> Instance.Instance -> Int -> Property
 prop_addSec node inst pdx =
   ((Instance.mem inst >= (Node.fMem node - Node.rMem node) &&
     not (Instance.isOffline inst)) ||
-   Instance.dsk inst >= Node.fDsk node) &&
+   Instance.dsk inst >= Node.fDsk node ||
+   (Node.exclStorage node &&
+    hasInstTooManySpindles inst (Node.fSpindles node))) &&
   not (Node.failN1 node) ==>
       isBad (Node.addSec node inst pdx)
 
@@ -215,7 +268,7 @@ prop_addSec node inst pdx =
 -- extra mem/cpu can always be added.
 prop_addOfflinePri :: NonNegative Int -> NonNegative Int -> Property
 prop_addOfflinePri (NonNegative extra_mem) (NonNegative extra_cpu) =
-  forAll genOnlineNode $ \node ->
+  forAll genMaybeExclStorNode $ \node ->
   forAll (genInstanceSmallerThanNode node) $ \inst ->
   let inst' = inst { Instance.runSt = Types.StatusOffline
                    , Instance.mem = Node.availMem node + extra_mem
@@ -229,7 +282,7 @@ prop_addOfflinePri (NonNegative extra_mem) (NonNegative extra_cpu) =
 prop_addOfflineSec :: NonNegative Int -> NonNegative Int
                    -> Types.Ndx -> Property
 prop_addOfflineSec (NonNegative extra_mem) (NonNegative extra_cpu) pdx =
-  forAll genOnlineNode $ \node ->
+  forAll genMaybeExclStorNode $ \node ->
   forAll (genInstanceSmallerThanNode node) $ \inst ->
   let inst' = inst { Instance.runSt = Types.StatusOffline
                    , Instance.mem = Node.availMem node + extra_mem
@@ -243,7 +296,8 @@ prop_addOfflineSec (NonNegative extra_mem) (NonNegative extra_cpu) pdx =
 prop_rMem :: Instance.Instance -> Property
 prop_rMem inst =
   not (Instance.isOffline inst) ==>
-  forAll (genOnlineNode `suchThat` ((> Types.unitMem) . Node.fMem)) $ \node ->
+  forAll (genMaybeExclStorNode `suchThat` ((> Types.unitMem) . Node.fMem)) $
+    \node ->
   -- ab = auto_balance, nb = non-auto_balance
   -- we use -1 as the primary node of the instance
   let inst' = inst { Instance.pNode = -1, Instance.autoBalance = True
@@ -316,7 +370,7 @@ prop_computeGroups nodes =
 -- Check idempotence of add/remove operations
 prop_addPri_idempotent :: Property
 prop_addPri_idempotent =
-  forAll genOnlineNode $ \node ->
+  forAll genMaybeExclStorNode $ \node ->
   forAll (genInstanceSmallerThanNode node) $ \inst ->
   case Node.addPri node inst of
     Ok node' -> Node.removePri node' inst ==? node
@@ -324,7 +378,7 @@ prop_addPri_idempotent =
 
 prop_addSec_idempotent :: Property
 prop_addSec_idempotent =
-  forAll genOnlineNode $ \node ->
+  forAll genMaybeExclStorNode $ \node ->
   forAll (genInstanceSmallerThanNode node) $ \inst ->
   let pdx = Node.idx node + 1
       inst' = Instance.setPri inst pdx
@@ -392,6 +446,7 @@ testSuite "HTools/Node"
             , 'prop_setXmem
             , 'prop_addPriFM
             , 'prop_addPriFD
+            , 'prop_addPriFS
             , 'prop_addPriFC
             , 'prop_addPri_NoN1Fail
             , 'prop_addSec

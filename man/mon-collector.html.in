@@ -16,7 +16,10 @@
 <li><a href="#synopsis">SYNOPSIS</a></li>
 <li><a href="#description">DESCRIPTION</a></li>
 <li><a href="#collectors">COLLECTORS</a><ul>
+<li><a href="#diskstats">DISKSTATS</a></li>
 <li><a href="#drbd">DRBD</a></li>
+<li><a href="#instance-status">INSTANCE STATUS</a></li>
+<li><a href="#logical-volumes">LOGICAL VOLUMES</a></li>
 </ul></li>
 <li><a href="#reporting-bugs">REPORTING BUGS</a></li>
 <li><a href="#see-also">SEE ALSO</a></li>
@@ -31,6 +34,15 @@
 <p><code>mon-collector</code> is a suite of tools designed to provide a command line interface to the data collectors implemented by the ganeti monitoring system. <code>mon-collector</code> is also the generic binary that must be invoked specifying, as the first command line parameter, the name of the actual desired data collector to be run.</p>
 <p>When executed, <code>mon-collector</code> will run the specified collector and will print its output to stdout, in JSON format.</p>
 <h1 id="collectors"><a href="#TOC">COLLECTORS</a></h1>
+<h2 id="diskstats"><a href="#TOC">DISKSTATS</a></h2>
+<p>diskstats [ [ <strong>-f</strong> | <strong>--file</strong> ] = <em>input-file</em> ]</p>
+<p>Collects the information about the status of the disks of the system, as listed by /proc/diskstats, or by an alternate file with the same syntax specified on the command line.</p>
+<p>The options that can be passed to the DRBD collector are as follows:</p>
+<dl>
+<dt>-f <em>input-file</em>, --file=<em>input-file</em></dt>
+<dd><p>Where to read the data from. Default if not specified: /proc/diskstats</p>
+</dd>
+</dl>
 <h2 id="drbd"><a href="#TOC">DRBD</a></h2>
 <p>drbd [ [ <strong>-s</strong> | <strong>--drbd-status</strong> ] = <em>status-file</em> ] [ [ <strong>-p</strong> | <strong>--drbd-pairing</strong>] = <em>pairing-file</em> ]</p>
 <p>Collects the information about the version and status of the DRBD kernel module, and of the disks it is managing.</p>
@@ -42,6 +54,40 @@
 </dd>
 <dt>-p <em>pairing-file</em>, --drbd-pairing=<em>pairing-file</em></dt>
 <dd><p>Read the information about the pairing between instances and DRBD minors from the specified file instead of asking the Confd servers for them.</p>
+</dd>
+</dl>
+<h2 id="instance-status"><a href="#TOC">INSTANCE STATUS</a></h2>
+<p>inst-status-xen [ [ <strong>-a</strong> | <strong>--address</strong> ] = <em>ip-address</em> ] [ [ <strong>-p</strong> | <strong>--port</strong> ] = <em>port-number</em> ]</p>
+<p>Collects the information about the status of the instances of the current node. In order to perform this task, it needs to connect to the ConfD daemon to fetch some configuration information. The following parameters allow the user to specify the position where the daemon is listening, in case it's not the default one:</p>
+<dl>
+<dt>-a <em>ip-address</em>, --address=<em>ip-address</em></dt>
+<dd><p>The IP address the ConfD daemon is listening on.</p>
+</dd>
+<dt>-p <em>port-number</em>, --port=<em>port-number</em></dt>
+<dd><p>The port the ConfD deamon is listening on.</p>
+</dd>
+</dl>
+<h2 id="logical-volumes"><a href="#TOC">LOGICAL VOLUMES</a></h2>
+<p>lv [ [ <strong>-a</strong> | <strong>--address</strong> ] = <em>ip-address</em> ] [ [ <strong>-p</strong> | <strong>--port</strong> ] = <em>port-number</em> ] [ [ <strong>-f</strong> | <strong>--file</strong> ] = <em>input-file</em> ] [ [ <strong>-i</strong> | <strong>--instances</strong> ] = <em>instances-file</em> ]</p>
+<p>Collects the information about the logical volumes of the current node.</p>
+<p>In order to perform this task, it needs to interact with the <code>lvs</code> command line tool and to connect to the ConfD daemon to fetch some configuration information. The following parameters allow the user to specify the position where the daemon is listening, in case it's not the default one:</p>
+<dl>
+<dt>-a <em>ip-address</em>, --address=<em>ip-address</em></dt>
+<dd><p>The IP address the ConfD daemon is listening on.</p>
+</dd>
+<dt>-p <em>port-number</em>, --port=<em>port-number</em></dt>
+<dd><p>The port the ConfD deamon is listening on.</p>
+</dd>
+</dl>
+<p>Instead of accessing the live data on the cluster, the tool can also read data serialized on files (mainly for testing purposes). Namely:</p>
+<dl>
+<dt>-f <em>input-file</em>, --file <em>input-file</em></dt>
+<dd><p>The name of the file containing a recorded output of the <code>lvs</code> tool.</p>
+</dd>
+<dt>-i <em>instances-file</em>, --instances=<em>instances-file</em></dt>
+<dd><p>The name of the file containing a JSON serialization of instances the current node is primary and secondary for, listed as:</p>
+<pre><code>([Instance], [Instance])</code></pre>
+<p>where the first list contains the instances the node is primary for, the second list those the node is secondary for.</p>
 </dd>
 </dl>
 <h1 id="reporting-bugs"><a href="#TOC">REPORTING BUGS</a></h1>

@@ -1,0 +1,48 @@
+#!/bin/bash
+#
+
+# Copyright (C) 2011, 2012, 2013 Google Inc.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+# General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
+# 02110-1301, USA.
+
+
+if [ -x "@XEN_CONFIG_DIR@/scripts/vif-custom" ]; then
+	exec @XEN_CONFIG_DIR@/scripts/vif-custom $*
+fi
+
+source @PKGLIBDIR@/net-common
+
+dir=$(dirname "$0")
+. "$dir"/vif-common.sh
+
+# taken from older vif-common.sh
+dev=$vif
+dev_=${dev#vif}
+domid=${dev_%.*}
+devid=${dev_#*.}
+domname=$(xm domname $domid)
+
+NIC_DIR=$RUN_DIR/xen-hypervisor/nic
+INTERFACE=$dev
+INSTANCE=$domname
+
+source $NIC_DIR/$domname/$devid
+
+setup_bridge
+setup_ovs
+setup_route
+
+success

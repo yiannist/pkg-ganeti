@@ -210,6 +210,12 @@ option forces the argument to be treated as a filter.
 \f[B]list-fields\f[] [field...]
 .PP
 Lists available fields for jobs.
+.SS WAIT
+.PP
+\f[B]wait\f[] {id}
+.PP
+Wait for the job by the given \f[I]id\f[] to finish; do not produce any
+output.
 .SS WATCH
 .PP
 \f[B]watch\f[] {id}

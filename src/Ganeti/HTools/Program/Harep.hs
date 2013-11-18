@@ -292,6 +292,7 @@ detectBroken nl inst =
          Just (
            ArReinstall,
            [ OpInstanceRecreateDisks { opInstanceName = iname
+                                     , opInstanceUuid = Nothing
                                      , opRecreateDisksInfo = RecreateDisksAll
                                      , opNodes = []
                                        -- FIXME: there should be a better way to
@@ -299,9 +300,11 @@ detectBroken nl inst =
                                        -- mkNonEmpty in this way (using the fact
                                        -- that Maybe is used both for optional
                                        -- fields, and to express failure).
+                                     , opNodeUuids = Nothing
                                      , opIallocator = mkNonEmpty "hail"
                                      }
            , OpInstanceReinstall { opInstanceName = iname
+                                 , opInstanceUuid = Nothing
                                  , opOsType = Nothing
                                  , opTempOsParams = Nothing
                                  , opForceVariant = False
@@ -311,11 +314,13 @@ detectBroken nl inst =
          Just (
            ArFailover,
            [ OpInstanceFailover { opInstanceName = iname
+                                , opInstanceUuid = Nothing
                                   -- FIXME: ditto, see above.
                                 , opShutdownTimeout = fromJust $ mkNonNegative
                                                       C.defaultShutdownTimeout
                                 , opIgnoreConsistency = False
                                 , opTargetNode = Nothing
+                                , opTargetNodeUuid = Nothing
                                 , opIgnoreIpolicy = False
                                 , opIallocator = Nothing
                                 , opMigrationCleanup = False
@@ -325,10 +330,12 @@ detectBroken nl inst =
          Just (
            ArFixStorage,
            [ OpInstanceReplaceDisks { opInstanceName = iname
+                                    , opInstanceUuid = Nothing
                                     , opReplaceDisksMode = ReplaceNewSecondary
                                     , opReplaceDisksList = []
                                     , opRemoteNode = Nothing
                                       -- FIXME: ditto, see above.
+                                    , opRemoteNodeUuid = Nothing
                                     , opIallocator = mkNonEmpty "hail"
                                     , opEarlyRelease = False
                                     , opIgnoreIpolicy = False
@@ -341,12 +348,15 @@ detectBroken nl inst =
          Just (
            ArReinstall,
            [ OpInstanceRecreateDisks { opInstanceName = iname
+                                     , opInstanceUuid = Nothing
                                      , opRecreateDisksInfo = RecreateDisksAll
                                      , opNodes = []
                                        -- FIXME: ditto, see above.
+                                     , opNodeUuids = Nothing
                                      , opIallocator = mkNonEmpty "hail"
                                      }
            , OpInstanceReinstall { opInstanceName = iname
+                                 , opInstanceUuid = Nothing
                                  , opOsType = Nothing
                                  , opTempOsParams = Nothing
                                  , opForceVariant = False
@@ -411,6 +421,7 @@ doRepair client delay instData (rtype, opcodes) =
                 OpTestDelay { opDelayDuration = delay
                             , opDelayOnMaster = True
                             , opDelayOnNodes = []
+                            , opDelayOnNodeUuids = Nothing
                             , opDelayRepeat = fromJust $ mkNonNegative 0
                             } : opcodes
               else

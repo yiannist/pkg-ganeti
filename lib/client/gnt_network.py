@@ -246,9 +246,13 @@ def ShowNetworkConfig(_, args):
       ToStdout("  not connected to any node group")
 
     if instances:
+      idata = cl.QueryInstances([], ["uuid", "name"], False)
+      uuid2name = dict(idata)
+
       ToStdout("  used by %d instances:", len(instances))
       for inst in instances:
-        ((ips, networks), ) = cl.QueryInstances([inst],
+        name = uuid2name[inst]
+        ((ips, networks), ) = cl.QueryInstances([name],
                                                 ["nic.ips", "nic.networks"],
                                                 use_locking=False)
 
@@ -256,7 +260,7 @@ def ShowNetworkConfig(_, args):
                                     for idx, (ip, net) in enumerate(value)
                                       if net == uuid)
 
-        ToStdout("    %s : %s", inst, l(zip(ips, networks)))
+        ToStdout("    %s: %s", name, l(zip(ips, networks)))
     else:
       ToStdout("  not used by any instances")
 
@@ -313,7 +317,7 @@ commands = {
     AddNetwork, ARGS_ONE_NETWORK,
     [DRY_RUN_OPT, NETWORK_OPT, GATEWAY_OPT, ADD_RESERVED_IPS_OPT,
      MAC_PREFIX_OPT, NETWORK6_OPT, GATEWAY6_OPT,
-     NOCONFLICTSCHECK_OPT, TAG_ADD_OPT, PRIORITY_OPT, SUBMIT_OPT],
+     NOCONFLICTSCHECK_OPT, TAG_ADD_OPT, PRIORITY_OPT] + SUBMIT_OPTS,
     "<network_name>", "Add a new IP network to the cluster"),
   "list": (
     ListNetworks, ARGS_MANY_NETWORKS,
@@ -330,9 +334,10 @@ commands = {
     "[<network_name>...]", "Show information about the network(s)"),
   "modify": (
     SetNetworkParams, ARGS_ONE_NETWORK,
-    [DRY_RUN_OPT, SUBMIT_OPT, ADD_RESERVED_IPS_OPT, REMOVE_RESERVED_IPS_OPT,
-     GATEWAY_OPT, MAC_PREFIX_OPT, NETWORK6_OPT, GATEWAY6_OPT,
-     PRIORITY_OPT],
+    [DRY_RUN_OPT] + SUBMIT_OPTS +
+    [ADD_RESERVED_IPS_OPT,
+     REMOVE_RESERVED_IPS_OPT, GATEWAY_OPT, MAC_PREFIX_OPT, NETWORK6_OPT,
+     GATEWAY6_OPT, PRIORITY_OPT],
     "<network_name>", "Alters the parameters of a network"),
   "connect": (
     ConnectNetwork,
@@ -352,7 +357,7 @@ commands = {
     "Unmap a given network from a specified node group"),
   "remove": (
     RemoveNetwork, ARGS_ONE_NETWORK,
-    [FORCE_OPT, DRY_RUN_OPT, SUBMIT_OPT, PRIORITY_OPT],
+    [FORCE_OPT, DRY_RUN_OPT] + SUBMIT_OPTS + [PRIORITY_OPT],
     "[--dry-run] <network_id>",
     "Remove an (empty) network from the cluster"),
   "list-tags": (
@@ -360,11 +365,11 @@ commands = {
     "<network_name>", "List the tags of the given network"),
   "add-tags": (
     AddTags, [ArgNetwork(min=1, max=1), ArgUnknown()],
-    [TAG_SRC_OPT, PRIORITY_OPT, SUBMIT_OPT],
+    [TAG_SRC_OPT, PRIORITY_OPT] + SUBMIT_OPTS,
     "<network_name> tag...", "Add tags to the given network"),
   "remove-tags": (
     RemoveTags, [ArgNetwork(min=1, max=1), ArgUnknown()],
-    [TAG_SRC_OPT, PRIORITY_OPT, SUBMIT_OPT],
+    [TAG_SRC_OPT, PRIORITY_OPT] + SUBMIT_OPTS,
     "<network_name> tag...", "Remove tags from given network"),
 }
 

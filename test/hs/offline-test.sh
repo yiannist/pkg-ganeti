@@ -20,6 +20,14 @@
 # This is an offline testing script for most/all of the htools
 # programs, checking basic command line functionality.
 
+# Optional argument that specifies the test files to run. If not
+# specified, then all tests are run.
+#
+# For example, a value of 'balancing' runs the file
+# 'shelltests/htools-balancing.test'.  Multiple files can be specified
+# using shell notation, for example, '{balancing,basic}'.
+TESTS=${1:-*}
+
 set -e
 set -o pipefail
 
@@ -67,8 +75,18 @@ export BACKEND_EXCL="-t $T/simu-onegroup.standard"
 echo -n Generating data files for IAllocator checks...
 for evac_mode in primary-only secondary-only all; do
   sed -e 's/"evac_mode": "all"/"evac_mode": "'${evac_mode}'"/' \
+    -e 's/"spindles": [0-9]\+,//' \
     < $TESTDATA_DIR/hail-node-evac.json \
     > $T/hail-node-evac.json.$evac_mode
+done
+for bf in hail-alloc-drbd hail-alloc-invalid-twodisks hail-alloc-twodisks \
+  hail-change-group hail-node-evac hail-reloc-drbd hail-alloc-spindles; do
+  f=$bf.json
+  sed -e 's/"exclusive_storage": false/"exclusive_storage": true/' \
+    < $TESTDATA_DIR/$f > $T/$f.excl-stor
+  sed -e 's/"exclusive_storage": false/"exclusive_storage": true/' \
+    -e 's/"spindles": [0-9]\+,//' \
+    < $TESTDATA_DIR/$f > $T/$f.fail-excl-stor
 done
 echo OK
 
@@ -87,7 +105,4 @@ echo OK
 echo Running shelltest...
 
 shelltest $SHELLTESTARGS \
-  ${TOP_SRCDIR:-.}/test/hs/shelltests/htools-*.test \
-  -- --hide-successes
-
-echo All OK
+  ${TOP_SRCDIR:-.}/test/hs/shelltests/htools-$TESTS.test

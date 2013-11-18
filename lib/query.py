@@ -1091,16 +1091,18 @@ class NodeQueryData:
   """Data container for node data queries.
 
   """
-  def __init__(self, nodes, live_data, master_name, node_to_primary,
-               node_to_secondary, groups, oob_support, cluster):
+  def __init__(self, nodes, live_data, master_uuid, node_to_primary,
+               node_to_secondary, inst_uuid_to_inst_name, groups, oob_support,
+               cluster):
     """Initializes this class.
 
     """
     self.nodes = nodes
     self.live_data = live_data
-    self.master_name = master_name
+    self.master_uuid = master_uuid
     self.node_to_primary = node_to_primary
     self.node_to_secondary = node_to_secondary
+    self.inst_uuid_to_inst_name = inst_uuid_to_inst_name
     self.groups = groups
     self.oob_support = oob_support
     self.cluster = cluster
@@ -1123,7 +1125,7 @@ class NodeQueryData:
       else:
         self.ndparams = self.cluster.FillND(node, group)
       if self.live_data:
-        self.curlive_data = self.live_data.get(node.name, None)
+        self.curlive_data = self.live_data.get(node.uuid, None)
       else:
         self.curlive_data = None
       yield node
@@ -1152,14 +1154,20 @@ _NODE_LIVE_FIELDS = {
              " for detecting reboots by tracking changes"),
   "cnodes": ("CNodes", QFT_NUMBER, "cpu_nodes",
              "Number of NUMA domains on node (if exported by hypervisor)"),
+  "cnos": ("CNOs", QFT_NUMBER, "cpu_dom0",
+            "Number of logical processors used by the node OS (dom0 for Xen)"),
   "csockets": ("CSockets", QFT_NUMBER, "cpu_sockets",
                "Number of physical CPU sockets (if exported by hypervisor)"),
   "ctotal": ("CTotal", QFT_NUMBER, "cpu_total", "Number of logical processors"),
-  "dfree": ("DFree", QFT_UNIT, "vg_free",
-            "Available disk space in volume group"),
-  "dtotal": ("DTotal", QFT_UNIT, "vg_size",
-             "Total disk space in volume group used for instance disk"
+  "dfree": ("DFree", QFT_UNIT, "storage_free",
+            "Available storage space in storage unit"),
+  "dtotal": ("DTotal", QFT_UNIT, "storage_size",
+             "Total storage space in storage unit used for instance disk"
              " allocation"),
+  "spfree": ("SpFree", QFT_NUMBER, "spindles_free",
+             "Available spindles in volume group (exclusive storage only)"),
+  "sptotal": ("SpTotal", QFT_NUMBER, "spindles_total",
+              "Total spindles in volume group (exclusive storage only)"),
   "mfree": ("MFree", QFT_UNIT, "memory_free",
             "Memory available for instance allocations"),
   "mnode": ("MNode", QFT_UNIT, "memory_dom0",
@@ -1214,7 +1222,7 @@ def _GetNodePower(ctx, node):
   @param node: Node object
 
   """
-  if ctx.oob_support[node.name]:
+  if ctx.oob_support[node.uuid]:
     return node.powered
 
   return _FS_UNAVAIL
@@ -1325,7 +1333,7 @@ def _BuildNodeFields():
     (_MakeField("tags", "Tags", QFT_OTHER, "Tags"), NQ_CONFIG, 0,
      lambda ctx, node: list(node.GetTags())),
     (_MakeField("master", "IsMaster", QFT_BOOL, "Whether node is master"),
-     NQ_CONFIG, 0, lambda ctx, node: node.name == ctx.master_name),
+     NQ_CONFIG, 0, lambda ctx, node: node.uuid == ctx.master_uuid),
     (_MakeField("group", "Group", QFT_TEXT, "Node group"), NQ_GROUP, 0,
      _GetGroup(_GetNodeGroup)),
     (_MakeField("group.uuid", "GroupUUID", QFT_TEXT, "UUID of node group"),
@@ -1355,14 +1363,16 @@ def _BuildNodeFields():
               " \"%s\" for regular, \"%s\" for drained, \"%s\" for offline" %
               role_values)
   fields.append((_MakeField("role", "Role", QFT_TEXT, role_doc), NQ_CONFIG, 0,
-                 lambda ctx, node: _GetNodeRole(node, ctx.master_name)))
+                 lambda ctx, node: _GetNodeRole(node, ctx.master_uuid)))
   assert set(role_values) == constants.NR_ALL
 
   def _GetLength(getter):
-    return lambda ctx, node: len(getter(ctx)[node.name])
+    return lambda ctx, node: len(getter(ctx)[node.uuid])
 
   def _GetList(getter):
-    return lambda ctx, node: utils.NiceSort(list(getter(ctx)[node.name]))
+    return lambda ctx, node: utils.NiceSort(
+                               [ctx.inst_uuid_to_inst_name[uuid]
+                                for uuid in getter(ctx)[node.uuid]])
 
   # Add fields operating on instance lists
   for prefix, titleprefix, docword, getter in \
@@ -1400,40 +1410,42 @@ class InstanceQueryData:
   """Data container for instance data queries.
 
   """
-  def __init__(self, instances, cluster, disk_usage, offline_nodes, bad_nodes,
-               live_data, wrongnode_inst, console, nodes, groups, networks):
+  def __init__(self, instances, cluster, disk_usage, offline_node_uuids,
+               bad_node_uuids, live_data, wrongnode_inst, console, nodes,
+               groups, networks):
     """Initializes this class.
 
     @param instances: List of instance objects
     @param cluster: Cluster object
-    @type disk_usage: dict; instance name as key
+    @type disk_usage: dict; instance UUID as key
     @param disk_usage: Per-instance disk usage
-    @type offline_nodes: list of strings
-    @param offline_nodes: List of offline nodes
-    @type bad_nodes: list of strings
-    @param bad_nodes: List of faulty nodes
-    @type live_data: dict; instance name as key
+    @type offline_node_uuids: list of strings
+    @param offline_node_uuids: List of offline nodes
+    @type bad_node_uuids: list of strings
+    @param bad_node_uuids: List of faulty nodes
+    @type live_data: dict; instance UUID as key
     @param live_data: Per-instance live data
     @type wrongnode_inst: set
     @param wrongnode_inst: Set of instances running on wrong node(s)
-    @type console: dict; instance name as key
+    @type console: dict; instance UUID as key
     @param console: Per-instance console information
-    @type nodes: dict; node name as key
+    @type nodes: dict; node UUID as key
     @param nodes: Node objects
     @type networks: dict; net_uuid as key
     @param networks: Network objects
 
     """
-    assert len(set(bad_nodes) & set(offline_nodes)) == len(offline_nodes), \
+    assert len(set(bad_node_uuids) & set(offline_node_uuids)) == \
+           len(offline_node_uuids), \
            "Offline nodes not included in bad nodes"
-    assert not (set(live_data.keys()) & set(bad_nodes)), \
+    assert not (set(live_data.keys()) & set(bad_node_uuids)), \
            "Found live data for bad or offline nodes"
 
     self.instances = instances
     self.cluster = cluster
     self.disk_usage = disk_usage
-    self.offline_nodes = offline_nodes
-    self.bad_nodes = bad_nodes
+    self.offline_nodes = offline_node_uuids
+    self.bad_nodes = bad_node_uuids
     self.live_data = live_data
     self.wrongnode_inst = wrongnode_inst
     self.console = console
@@ -1477,7 +1489,7 @@ def _GetInstOperState(ctx, inst):
   if inst.primary_node in ctx.bad_nodes:
     return _FS_NODATA
   else:
-    return bool(ctx.live_data.get(inst.name))
+    return bool(ctx.live_data.get(inst.uuid))
 
 
 def _GetInstLiveData(name):
@@ -1501,8 +1513,8 @@ def _GetInstLiveData(name):
       # offline when we actually don't know due to missing data
       return _FS_NODATA
 
-    if inst.name in ctx.live_data:
-      data = ctx.live_data[inst.name]
+    if inst.uuid in ctx.live_data:
+      data = ctx.live_data[inst.uuid]
       if name in data:
         return data[name]
 
@@ -1525,8 +1537,8 @@ def _GetInstStatus(ctx, inst):
   if inst.primary_node in ctx.bad_nodes:
     return constants.INSTST_NODEDOWN
 
-  if bool(ctx.live_data.get(inst.name)):
-    if inst.name in ctx.wrongnode_inst:
+  if bool(ctx.live_data.get(inst.uuid)):
+    if inst.uuid in ctx.wrongnode_inst:
       return constants.INSTST_WRONGNODE
     elif inst.admin_state == constants.ADMINST_UP:
       return constants.INSTST_RUNNING
@@ -1580,6 +1592,19 @@ def _GetInstDiskSize(ctx, _, disk): # pylint: disable=W0613
     return _FS_UNAVAIL
   else:
     return disk.size
+
+
+def _GetInstDiskSpindles(ctx, _, disk): # pylint: disable=W0613
+  """Get a Disk's spindles.
+
+  @type disk: L{objects.Disk}
+  @param disk: The Disk object
+
+  """
+  if disk.spindles is None:
+    return _FS_UNAVAIL
+  else:
+    return disk.spindles
 
 
 def _GetInstDeviceName(ctx, _, device): # pylint: disable=W0613
@@ -1865,7 +1890,7 @@ def _GetInstDiskUsage(ctx, inst):
   @param inst: Instance object
 
   """
-  usage = ctx.disk_usage[inst.name]
+  usage = ctx.disk_usage[inst.uuid]
 
   if usage is None:
     usage = 0
@@ -1881,7 +1906,7 @@ def _GetInstanceConsole(ctx, inst):
   @param inst: Instance object
 
   """
-  consinfo = ctx.console[inst.name]
+  consinfo = ctx.console[inst.uuid]
 
   if consinfo is None:
     return _FS_UNAVAIL
@@ -1905,6 +1930,9 @@ def _GetInstanceDiskFields():
      IQ_CONFIG, 0, lambda ctx, inst: len(inst.disks)),
     (_MakeField("disk.sizes", "Disk_sizes", QFT_OTHER, "List of disk sizes"),
      IQ_CONFIG, 0, lambda ctx, inst: [disk.size for disk in inst.disks]),
+    (_MakeField("disk.spindles", "Disk_spindles", QFT_OTHER,
+                "List of disk spindles"),
+     IQ_CONFIG, 0, lambda ctx, inst: [disk.spindles for disk in inst.disks]),
     (_MakeField("disk.names", "Disk_names", QFT_OTHER, "List of disk names"),
      IQ_CONFIG, 0, lambda ctx, inst: [disk.name for disk in inst.disks]),
     (_MakeField("disk.uuids", "Disk_UUIDs", QFT_OTHER, "List of disk UUIDs"),
@@ -1917,13 +1945,16 @@ def _GetInstanceDiskFields():
     fields.extend([
         (_MakeField("disk.size/%s" % i, "Disk/%s" % i, QFT_UNIT,
                     "Disk size of %s disk" % numtext),
-        IQ_CONFIG, 0, _GetInstDisk(i, _GetInstDiskSize)),
+         IQ_CONFIG, 0, _GetInstDisk(i, _GetInstDiskSize)),
+        (_MakeField("disk.spindles/%s" % i, "DiskSpindles/%s" % i, QFT_NUMBER,
+                    "Spindles of %s disk" % numtext),
+         IQ_CONFIG, 0, _GetInstDisk(i, _GetInstDiskSpindles)),
         (_MakeField("disk.name/%s" % i, "DiskName/%s" % i, QFT_TEXT,
                     "Name of %s disk" % numtext),
-        IQ_CONFIG, 0, _GetInstDisk(i, _GetInstDeviceName)),
+         IQ_CONFIG, 0, _GetInstDisk(i, _GetInstDeviceName)),
         (_MakeField("disk.uuid/%s" % i, "DiskUUID/%s" % i, QFT_TEXT,
                     "UUID of %s disk" % numtext),
-        IQ_CONFIG, 0, _GetInstDisk(i, _GetInstDeviceUUID))])
+         IQ_CONFIG, 0, _GetInstDisk(i, _GetInstDeviceUUID))])
 
   return fields
 
@@ -2000,34 +2031,51 @@ _INST_SIMPLE_FIELDS = {
   }
 
 
-def _GetInstNodeGroup(ctx, default, node_name):
+def _GetNodeName(ctx, default, node_uuid):
+  """Gets node name of a node.
+
+  @type ctx: L{InstanceQueryData}
+  @param default: Default value
+  @type node_uuid: string
+  @param node_uuid: Node UUID
+
+  """
+  try:
+    node = ctx.nodes[node_uuid]
+  except KeyError:
+    return default
+  else:
+    return node.name
+
+
+def _GetInstNodeGroup(ctx, default, node_uuid):
   """Gets group UUID of an instance node.
 
   @type ctx: L{InstanceQueryData}
   @param default: Default value
-  @type node_name: string
-  @param node_name: Node name
+  @type node_uuid: string
+  @param node_uuid: Node UUID
 
   """
   try:
-    node = ctx.nodes[node_name]
+    node = ctx.nodes[node_uuid]
   except KeyError:
     return default
   else:
     return node.group
 
 
-def _GetInstNodeGroupName(ctx, default, node_name):
+def _GetInstNodeGroupName(ctx, default, node_uuid):
   """Gets group name of an instance node.
 
   @type ctx: L{InstanceQueryData}
   @param default: Default value
-  @type node_name: string
-  @param node_name: Node name
+  @type node_uuid: string
+  @param node_uuid: Node UUID
 
   """
   try:
-    node = ctx.nodes[node_name]
+    node = ctx.nodes[node_uuid]
   except KeyError:
     return default
 
@@ -2045,7 +2093,8 @@ def _BuildInstanceFields():
   """
   fields = [
     (_MakeField("pnode", "Primary_node", QFT_TEXT, "Primary node"),
-     IQ_CONFIG, QFF_HOSTNAME, _GetItemAttr("primary_node")),
+     IQ_NODES, QFF_HOSTNAME,
+     lambda ctx, inst: _GetNodeName(ctx, None, inst.primary_node)),
     (_MakeField("pnode.group", "PrimaryNodeGroup", QFT_TEXT,
                 "Primary node's group"),
      IQ_NODES, 0,
@@ -2058,7 +2107,9 @@ def _BuildInstanceFields():
     # TODO: Allow filtering by secondary node as hostname
     (_MakeField("snodes", "Secondary_Nodes", QFT_OTHER,
                 "Secondary nodes; usually this will just be one node"),
-     IQ_CONFIG, 0, lambda ctx, inst: list(inst.secondary_nodes)),
+     IQ_NODES, 0,
+     lambda ctx, inst: map(compat.partial(_GetNodeName, ctx, None),
+                           inst.secondary_nodes)),
     (_MakeField("snodes.group", "SecondaryNodesGroups", QFT_OTHER,
                 "Node groups of secondary nodes"),
      IQ_NODES, 0,
@@ -2556,17 +2607,18 @@ _CLUSTER_VERSION_FIELDS = {
 
 _CLUSTER_SIMPLE_FIELDS = {
   "cluster_name": ("Name", QFT_TEXT, QFF_HOSTNAME, "Cluster name"),
-  "master_node": ("Master", QFT_TEXT, QFF_HOSTNAME, "Master node name"),
   "volume_group_name": ("VgName", QFT_TEXT, 0, "LVM volume group name"),
   }
 
 
 class ClusterQueryData:
-  def __init__(self, cluster, drain_flag, watcher_pause):
+  def __init__(self, cluster, nodes, drain_flag, watcher_pause):
     """Initializes this class.
 
     @type cluster: L{objects.Cluster}
     @param cluster: Instance of cluster object
+    @type nodes: dict; node UUID as key
+    @param nodes: Node objects
     @type drain_flag: bool
     @param drain_flag: Whether job queue is drained
     @type watcher_pause: number
@@ -2574,6 +2626,7 @@ class ClusterQueryData:
 
     """
     self._cluster = cluster
+    self.nodes = nodes
     self.drain_flag = drain_flag
     self.watcher_pause = watcher_pause
 
@@ -2607,6 +2660,9 @@ def _BuildClusterFields():
     (_MakeField("watcher_pause", "WatcherPause", QFT_TIMESTAMP,
                 "Until when watcher is paused"), CQ_WATCHER_PAUSE, 0,
      _ClusterWatcherPause),
+    (_MakeField("master_node", "Master", QFT_TEXT, "Master node name"),
+     CQ_CONFIG, QFF_HOSTNAME,
+     lambda ctx, cluster: _GetNodeName(ctx, None, cluster.master_node)),
     ]
 
   # Simple fields
@@ -2738,7 +2794,7 @@ def _BuildNetworkFields():
   # Add fields for usage statistics
   fields.extend([
     (_MakeField(name, title, kind, doc), NETQ_STATS, 0,
-    compat.partial(_GetNetworkStatsField, name, kind))
+     compat.partial(_GetNetworkStatsField, name, kind))
     for (name, (title, kind, _, doc)) in _NETWORK_STATS_FIELDS.items()])
 
   # Add timestamps

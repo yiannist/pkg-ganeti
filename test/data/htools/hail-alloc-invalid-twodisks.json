@@ -57,15 +57,19 @@
       "drained": false,
       "free_disk": 1377280,
       "free_memory": 31389,
+      "free_spindles": 12,
       "group": "uuid-group-1",
       "ndparams": {
-        "spindle_count": 1
+        "spindle_count": 1,
+        "exclusive_storage": false
       },
       "offline": false,
       "reserved_memory": 1017,
+      "reserved_cpus": 1,
       "total_cpus": 4,
       "total_disk": 1377280,
-      "total_memory": 32763
+      "total_memory": 32763,
+      "total_spindles": 12
     }
   },
   "request": {
@@ -73,9 +77,11 @@
     "disk_template": "file",
     "disks": [
       {
+        "spindles": 1,
         "size": 768
       },
       {
+        "spindles": 1,
         "size": 768
       }
     ],
