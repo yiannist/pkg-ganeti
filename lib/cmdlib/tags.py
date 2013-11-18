@@ -29,7 +29,8 @@ from ganeti import locking
 from ganeti import objects
 from ganeti import utils
 from ganeti.cmdlib.base import NoHooksLU
-from ganeti.cmdlib.common import ExpandNodeName, ExpandInstanceName, ShareAll
+from ganeti.cmdlib.common import ExpandNodeUuidAndName, \
+  ExpandInstanceUuidAndName, ShareAll
 
 
 class TagsLU(NoHooksLU): # pylint: disable=W0223
@@ -43,13 +44,15 @@ class TagsLU(NoHooksLU): # pylint: disable=W0223
     self.needed_locks = {}
 
     if self.op.kind == constants.TAG_NODE:
-      self.op.name = ExpandNodeName(self.cfg, self.op.name)
+      (self.node_uuid, _) = \
+        ExpandNodeUuidAndName(self.cfg, None, self.op.name)
       lock_level = locking.LEVEL_NODE
-      lock_name = self.op.name
+      lock_name = self.node_uuid
     elif self.op.kind == constants.TAG_INSTANCE:
-      self.op.name = ExpandInstanceName(self.cfg, self.op.name)
+      (self.inst_uuid, inst_name) = \
+        ExpandInstanceUuidAndName(self.cfg, None, self.op.name)
       lock_level = locking.LEVEL_INSTANCE
-      lock_name = self.op.name
+      lock_name = inst_name
     elif self.op.kind == constants.TAG_NODEGROUP:
       self.group_uuid = self.cfg.LookupNodeGroup(self.op.name)
       lock_level = locking.LEVEL_NODEGROUP
@@ -75,9 +78,9 @@ class TagsLU(NoHooksLU): # pylint: disable=W0223
     if self.op.kind == constants.TAG_CLUSTER:
       self.target = self.cfg.GetClusterInfo()
     elif self.op.kind == constants.TAG_NODE:
-      self.target = self.cfg.GetNodeInfo(self.op.name)
+      self.target = self.cfg.GetNodeInfo(self.node_uuid)
     elif self.op.kind == constants.TAG_INSTANCE:
-      self.target = self.cfg.GetInstanceInfo(self.op.name)
+      self.target = self.cfg.GetInstanceInfo(self.inst_uuid)
     elif self.op.kind == constants.TAG_NODEGROUP:
       self.target = self.cfg.GetNodeGroup(self.group_uuid)
     elif self.op.kind == constants.TAG_NETWORK:
@@ -131,14 +134,13 @@ class LUTagsSearch(NoHooksLU):
     """Returns the tag list.
 
     """
-    cfg = self.cfg
-    tgts = [("/cluster", cfg.GetClusterInfo())]
-    ilist = cfg.GetAllInstancesInfo().values()
+    tgts = [("/cluster", self.cfg.GetClusterInfo())]
+    ilist = self.cfg.GetAllInstancesInfo().values()
     tgts.extend([("/instances/%s" % i.name, i) for i in ilist])
-    nlist = cfg.GetAllNodesInfo().values()
+    nlist = self.cfg.GetAllNodesInfo().values()
     tgts.extend([("/nodes/%s" % n.name, n) for n in nlist])
     tgts.extend(("/nodegroup/%s" % n.name, n)
-                for n in cfg.GetAllNodeGroupsInfo().values())
+                for n in self.cfg.GetAllNodeGroupsInfo().values())
     results = []
     for path, target in tgts:
       for tag in target.GetTags():

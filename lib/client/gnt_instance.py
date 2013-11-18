@@ -915,25 +915,29 @@ def _DoConsole(console, show_command, cluster_name, feedback_fn=ToStdout,
   return constants.EXIT_SUCCESS
 
 
-def _FormatLogicalID(dev_type, logical_id, roman):
+def _FormatDiskDetails(dev_type, dev, roman):
   """Formats the logical_id of a disk.
 
   """
-  if dev_type == constants.LD_DRBD8:
-    node_a, node_b, port, minor_a, minor_b, key = logical_id
+  if dev_type == constants.DT_DRBD8:
+    drbd_info = dev["drbd_info"]
     data = [
-      ("nodeA", "%s, minor=%s" % (node_a, compat.TryToRoman(minor_a,
-                                                            convert=roman))),
-      ("nodeB", "%s, minor=%s" % (node_b, compat.TryToRoman(minor_b,
-                                                            convert=roman))),
-      ("port", str(compat.TryToRoman(port, convert=roman))),
-      ("auth key", str(key)),
+      ("nodeA", "%s, minor=%s" %
+                (drbd_info["primary_node"],
+                 compat.TryToRoman(drbd_info["primary_minor"],
+                                   convert=roman))),
+      ("nodeB", "%s, minor=%s" %
+                (drbd_info["secondary_node"],
+                 compat.TryToRoman(drbd_info["secondary_minor"],
+                                   convert=roman))),
+      ("port", str(compat.TryToRoman(drbd_info["port"], convert=roman))),
+      ("auth key", str(drbd_info["secret"])),
       ]
-  elif dev_type == constants.LD_LV:
-    vg_name, lv_name = logical_id
+  elif dev_type == constants.DT_PLAIN:
+    vg_name, lv_name = dev["logical_id"]
     data = ["%s/%s" % (vg_name, lv_name)]
   else:
-    data = [str(logical_id)]
+    data = [str(dev["logical_id"])]
 
   return data
 
@@ -964,7 +968,7 @@ def _FormatBlockDevInfo(idx, top_level, dev, roman):
     """Format one line for physical device status.
 
     @type dtype: str
-    @param dtype: a constant from the L{constants.LDS_BLOCK} set
+    @param dtype: a constant from the L{constants.DTS_BLOCK} set
     @type status: tuple
     @param status: a tuple as returned from L{backend.FindBlockDevice}
     @return: the string representing the status
@@ -985,7 +989,7 @@ def _FormatBlockDevInfo(idx, top_level, dev, roman):
       minor_string = str(compat.TryToRoman(minor, convert=roman))
 
     txt += ("%s (%s:%s)" % (path, major_string, minor_string))
-    if dtype in (constants.LD_DRBD8, ):
+    if dtype in (constants.DT_DRBD8, ):
       if syncp is not None:
         sync_text = "*RECOVERING* %5.2f%%," % syncp
         if estt:
@@ -1005,7 +1009,7 @@ def _FormatBlockDevInfo(idx, top_level, dev, roman):
       else:
         ldisk_text = ""
       txt += (" %s, status %s%s" % (sync_text, degr_text, ldisk_text))
-    elif dtype == constants.LD_LV:
+    elif dtype == constants.DT_PLAIN:
       if ldisk_status == constants.LDS_FAULTY:
         ldisk_text = " *FAILED* (failed drive?)"
       else:
@@ -1027,10 +1031,12 @@ def _FormatBlockDevInfo(idx, top_level, dev, roman):
     nice_size = str(dev["size"])
   data = [(txt, "%s, size %s" % (dev["dev_type"], nice_size))]
   if top_level:
+    if dev["spindles"] is not None:
+      data.append(("spindles", dev["spindles"]))
     data.append(("access mode", dev["mode"]))
   if dev["logical_id"] is not None:
     try:
-      l_id = _FormatLogicalID(dev["dev_type"], dev["logical_id"], roman)
+      l_id = _FormatDiskDetails(dev["dev_type"], dev, roman)
     except ValueError:
       l_id = [str(dev["logical_id"])]
     if len(l_id) == 1:
@@ -1456,7 +1462,7 @@ commands = {
     "Creates and adds a new instance to the cluster"),
   "batch-create": (
     BatchCreate, [ArgFile(min=1, max=1)],
-    [DRY_RUN_OPT, PRIORITY_OPT, IALLOCATOR_OPT, SUBMIT_OPT],
+    [DRY_RUN_OPT, PRIORITY_OPT, IALLOCATOR_OPT] + SUBMIT_OPTS,
     "<instances.json>",
     "Create a bunch of instances based on specs in the file."),
   "console": (
@@ -1465,7 +1471,8 @@ commands = {
     "[--show-cmd] <instance>", "Opens a console on the specified instance"),
   "failover": (
     FailoverInstance, ARGS_ONE_INSTANCE,
-    [FORCE_OPT, IGNORE_CONSIST_OPT, SUBMIT_OPT, SHUTDOWN_TIMEOUT_OPT,
+    [FORCE_OPT, IGNORE_CONSIST_OPT] + SUBMIT_OPTS +
+    [SHUTDOWN_TIMEOUT_OPT,
      DRY_RUN_OPT, PRIORITY_OPT, DST_NODE_OPT, IALLOCATOR_OPT,
      IGNORE_IPOLICY_OPT, CLEANUP_OPT],
     "[-f] <instance>", "Stops the instance, changes its primary node and"
@@ -1476,13 +1483,15 @@ commands = {
     MigrateInstance, ARGS_ONE_INSTANCE,
     [FORCE_OPT, NONLIVE_OPT, MIGRATION_MODE_OPT, CLEANUP_OPT, DRY_RUN_OPT,
      PRIORITY_OPT, DST_NODE_OPT, IALLOCATOR_OPT, ALLOW_FAILOVER_OPT,
-     IGNORE_IPOLICY_OPT, NORUNTIME_CHGS_OPT, SUBMIT_OPT],
+     IGNORE_IPOLICY_OPT, NORUNTIME_CHGS_OPT] + SUBMIT_OPTS,
     "[-f] <instance>", "Migrate instance to its secondary node"
     " (only for mirrored instances)"),
   "move": (
     MoveInstance, ARGS_ONE_INSTANCE,
-    [FORCE_OPT, SUBMIT_OPT, SINGLE_NODE_OPT, SHUTDOWN_TIMEOUT_OPT,
-     DRY_RUN_OPT, PRIORITY_OPT, IGNORE_CONSIST_OPT, IGNORE_IPOLICY_OPT],
+    [FORCE_OPT] + SUBMIT_OPTS +
+    [SINGLE_NODE_OPT,
+     SHUTDOWN_TIMEOUT_OPT, DRY_RUN_OPT, PRIORITY_OPT, IGNORE_CONSIST_OPT,
+     IGNORE_IPOLICY_OPT],
     "[-f] <instance>", "Move instance to an arbitrary node"
     " (only for instances of type file and lv)"),
   "info": (
@@ -1509,30 +1518,31 @@ commands = {
     ReinstallInstance, [ArgInstance()],
     [FORCE_OPT, OS_OPT, FORCE_VARIANT_OPT, m_force_multi, m_node_opt,
      m_pri_node_opt, m_sec_node_opt, m_clust_opt, m_inst_opt, m_node_tags_opt,
-     m_pri_node_tags_opt, m_sec_node_tags_opt, m_inst_tags_opt, SELECT_OS_OPT,
-     SUBMIT_OPT, DRY_RUN_OPT, PRIORITY_OPT, OSPARAMS_OPT],
+     m_pri_node_tags_opt, m_sec_node_tags_opt, m_inst_tags_opt, SELECT_OS_OPT]
+    + SUBMIT_OPTS + [DRY_RUN_OPT, PRIORITY_OPT, OSPARAMS_OPT],
     "[-f] <instance>", "Reinstall a stopped instance"),
   "remove": (
     RemoveInstance, ARGS_ONE_INSTANCE,
-    [FORCE_OPT, SHUTDOWN_TIMEOUT_OPT, IGNORE_FAILURES_OPT, SUBMIT_OPT,
-     DRY_RUN_OPT, PRIORITY_OPT],
+    [FORCE_OPT, SHUTDOWN_TIMEOUT_OPT, IGNORE_FAILURES_OPT] + SUBMIT_OPTS
+    + [DRY_RUN_OPT, PRIORITY_OPT],
     "[-f] <instance>", "Shuts down the instance and removes it"),
   "rename": (
     RenameInstance,
     [ArgInstance(min=1, max=1), ArgHost(min=1, max=1)],
-    [NOIPCHECK_OPT, NONAMECHECK_OPT, SUBMIT_OPT, DRY_RUN_OPT, PRIORITY_OPT],
+    [NOIPCHECK_OPT, NONAMECHECK_OPT] + SUBMIT_OPTS
+    + [DRY_RUN_OPT, PRIORITY_OPT],
     "<instance> <new_name>", "Rename the instance"),
   "replace-disks": (
     ReplaceDisks, ARGS_ONE_INSTANCE,
     [AUTO_REPLACE_OPT, DISKIDX_OPT, IALLOCATOR_OPT, EARLY_RELEASE_OPT,
-     NEW_SECONDARY_OPT, ON_PRIMARY_OPT, ON_SECONDARY_OPT, SUBMIT_OPT,
-     DRY_RUN_OPT, PRIORITY_OPT, IGNORE_IPOLICY_OPT],
+     NEW_SECONDARY_OPT, ON_PRIMARY_OPT, ON_SECONDARY_OPT] + SUBMIT_OPTS
+    + [DRY_RUN_OPT, PRIORITY_OPT, IGNORE_IPOLICY_OPT],
     "[-s|-p|-a|-n NODE|-I NAME] <instance>",
     "Replaces disks for the instance"),
   "modify": (
     SetInstanceParams, ARGS_ONE_INSTANCE,
-    [BACKEND_OPT, DISK_OPT, FORCE_OPT, HVOPTS_OPT, NET_OPT, SUBMIT_OPT,
-     DISK_TEMPLATE_OPT, SINGLE_NODE_OPT, OS_OPT, FORCE_VARIANT_OPT,
+    [BACKEND_OPT, DISK_OPT, FORCE_OPT, HVOPTS_OPT, NET_OPT] + SUBMIT_OPTS +
+    [DISK_TEMPLATE_OPT, SINGLE_NODE_OPT, OS_OPT, FORCE_VARIANT_OPT,
      OSPARAMS_OPT, DRY_RUN_OPT, PRIORITY_OPT, NWSYNC_OPT, OFFLINE_INST_OPT,
      ONLINE_INST_OPT, IGNORE_IPOLICY_OPT, RUNTIME_MEM_OPT,
      NOCONFLICTSCHECK_OPT, NEW_PRIMARY_OPT],
@@ -1541,57 +1551,60 @@ commands = {
     GenericManyOps("shutdown", _ShutdownInstance), [ArgInstance()],
     [FORCE_OPT, m_node_opt, m_pri_node_opt, m_sec_node_opt, m_clust_opt,
      m_node_tags_opt, m_pri_node_tags_opt, m_sec_node_tags_opt,
-     m_inst_tags_opt, m_inst_opt, m_force_multi, TIMEOUT_OPT, SUBMIT_OPT,
-     DRY_RUN_OPT, PRIORITY_OPT, IGNORE_OFFLINE_OPT, NO_REMEMBER_OPT],
+     m_inst_tags_opt, m_inst_opt, m_force_multi, TIMEOUT_OPT] + SUBMIT_OPTS
+    + [DRY_RUN_OPT, PRIORITY_OPT, IGNORE_OFFLINE_OPT, NO_REMEMBER_OPT],
     "<instance>", "Stops an instance"),
   "startup": (
     GenericManyOps("startup", _StartupInstance), [ArgInstance()],
     [FORCE_OPT, m_force_multi, m_node_opt, m_pri_node_opt, m_sec_node_opt,
      m_node_tags_opt, m_pri_node_tags_opt, m_sec_node_tags_opt,
-     m_inst_tags_opt, m_clust_opt, m_inst_opt, SUBMIT_OPT, HVOPTS_OPT,
+     m_inst_tags_opt, m_clust_opt, m_inst_opt] + SUBMIT_OPTS +
+    [HVOPTS_OPT,
      BACKEND_OPT, DRY_RUN_OPT, PRIORITY_OPT, IGNORE_OFFLINE_OPT,
      NO_REMEMBER_OPT, STARTUP_PAUSED_OPT],
     "<instance>", "Starts an instance"),
   "reboot": (
     GenericManyOps("reboot", _RebootInstance), [ArgInstance()],
     [m_force_multi, REBOOT_TYPE_OPT, IGNORE_SECONDARIES_OPT, m_node_opt,
-     m_pri_node_opt, m_sec_node_opt, m_clust_opt, m_inst_opt, SUBMIT_OPT,
-     m_node_tags_opt, m_pri_node_tags_opt, m_sec_node_tags_opt,
+     m_pri_node_opt, m_sec_node_opt, m_clust_opt, m_inst_opt] + SUBMIT_OPTS +
+    [m_node_tags_opt, m_pri_node_tags_opt, m_sec_node_tags_opt,
      m_inst_tags_opt, SHUTDOWN_TIMEOUT_OPT, DRY_RUN_OPT, PRIORITY_OPT],
     "<instance>", "Reboots an instance"),
   "activate-disks": (
     ActivateDisks, ARGS_ONE_INSTANCE,
-    [SUBMIT_OPT, IGNORE_SIZE_OPT, PRIORITY_OPT, WFSYNC_OPT],
+    SUBMIT_OPTS + [IGNORE_SIZE_OPT, PRIORITY_OPT, WFSYNC_OPT],
     "<instance>", "Activate an instance's disks"),
   "deactivate-disks": (
     DeactivateDisks, ARGS_ONE_INSTANCE,
-    [FORCE_OPT, SUBMIT_OPT, DRY_RUN_OPT, PRIORITY_OPT],
+    [FORCE_OPT] + SUBMIT_OPTS + [DRY_RUN_OPT, PRIORITY_OPT],
     "[-f] <instance>", "Deactivate an instance's disks"),
   "recreate-disks": (
     RecreateDisks, ARGS_ONE_INSTANCE,
-    [SUBMIT_OPT, DISK_OPT, NODE_PLACEMENT_OPT, DRY_RUN_OPT, PRIORITY_OPT,
+    SUBMIT_OPTS +
+    [DISK_OPT, NODE_PLACEMENT_OPT, DRY_RUN_OPT, PRIORITY_OPT,
      IALLOCATOR_OPT],
     "<instance>", "Recreate an instance's disks"),
   "grow-disk": (
     GrowDisk,
     [ArgInstance(min=1, max=1), ArgUnknown(min=1, max=1),
      ArgUnknown(min=1, max=1)],
-    [SUBMIT_OPT, NWSYNC_OPT, DRY_RUN_OPT, PRIORITY_OPT, ABSOLUTE_OPT],
+    SUBMIT_OPTS + [NWSYNC_OPT, DRY_RUN_OPT, PRIORITY_OPT, ABSOLUTE_OPT],
     "<instance> <disk> <size>", "Grow an instance's disk"),
   "change-group": (
     ChangeGroup, ARGS_ONE_INSTANCE,
-    [TO_GROUP_OPT, IALLOCATOR_OPT, EARLY_RELEASE_OPT, PRIORITY_OPT, SUBMIT_OPT],
+    [TO_GROUP_OPT, IALLOCATOR_OPT, EARLY_RELEASE_OPT, PRIORITY_OPT]
+    + SUBMIT_OPTS,
     "[-I <iallocator>] [--to <group>]", "Change group of instance"),
   "list-tags": (
     ListTags, ARGS_ONE_INSTANCE, [],
     "<instance_name>", "List the tags of the given instance"),
   "add-tags": (
     AddTags, [ArgInstance(min=1, max=1), ArgUnknown()],
-    [TAG_SRC_OPT, PRIORITY_OPT, SUBMIT_OPT],
+    [TAG_SRC_OPT, PRIORITY_OPT] + SUBMIT_OPTS,
     "<instance_name> tag...", "Add tags to the given instance"),
   "remove-tags": (
     RemoveTags, [ArgInstance(min=1, max=1), ArgUnknown()],
-    [TAG_SRC_OPT, PRIORITY_OPT, SUBMIT_OPT],
+    [TAG_SRC_OPT, PRIORITY_OPT] + SUBMIT_OPTS,
     "<instance_name> tag...", "Remove tags from given instance"),
   }
 

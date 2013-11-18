@@ -41,11 +41,11 @@ from ganeti.cmdlib.base import LogicalUnit, NoHooksLU, QueryBase, \
 from ganeti.cmdlib.common import CheckParamsNotGlobal, \
   MergeAndVerifyHvState, MergeAndVerifyDiskState, \
   IsExclusiveStorageEnabledNode, CheckNodePVs, \
-  RedistributeAncillaryFiles, ExpandNodeName, ShareAll, SupportsOob, \
+  RedistributeAncillaryFiles, ExpandNodeUuidAndName, ShareAll, SupportsOob, \
   CheckInstanceState, INSTANCE_DOWN, GetUpdatedParams, \
   AdjustCandidatePool, CheckIAllocatorOrNode, LoadNodeEvacResult, \
-  GetWantedNodes, MapInstanceDisksToNodes, RunPostHook, \
-  FindFaultyInstanceDisks
+  GetWantedNodes, MapInstanceLvsToNodes, RunPostHook, \
+  FindFaultyInstanceDisks, CheckStorageTypeEnabled
 
 
 def _DecideSelfPromotion(lu, exceptions=None):
@@ -64,18 +64,21 @@ def _CheckNodeHasSecondaryIP(lu, node, secondary_ip, prereq):
 
   @type lu: L{LogicalUnit}
   @param lu: the LU on behalf of which we make the check
-  @type node: string
+  @type node: L{objects.Node}
   @param node: the node to check
   @type secondary_ip: string
   @param secondary_ip: the ip to check
   @type prereq: boolean
   @param prereq: whether to throw a prerequisite or an execute error
-  @raise errors.OpPrereqError: if the node doesn't have the ip, and prereq=True
+  @raise errors.OpPrereqError: if the node doesn't have the ip,
+  and prereq=True
   @raise errors.OpExecError: if the node doesn't have the ip, and prereq=False
 
   """
-  result = lu.rpc.call_node_has_ip_address(node, secondary_ip)
-  result.Raise("Failure checking secondary ip on node %s" % node,
+  # this can be called with a new node, which has no UUID yet, so perform the
+  # RPC call using its name
+  result = lu.rpc.call_node_has_ip_address(node.name, secondary_ip)
+  result.Raise("Failure checking secondary ip on node %s" % node.name,
                prereq=prereq, ecode=errors.ECODE_ENVIRON)
   if not result.payload:
     msg = ("Node claims it doesn't have the secondary ip you gave (%s),"
@@ -101,7 +104,7 @@ class LUNodeAdd(LogicalUnit):
                                          family=self.primary_ip_family)
     self.op.node_name = self.hostname.name
 
-    if self.op.readd and self.op.node_name == self.cfg.GetMasterNode():
+    if self.op.readd and self.op.node_name == self.cfg.GetMasterNodeName():
       raise errors.OpPrereqError("Cannot readd the master node",
                                  errors.ECODE_STATE)
 
@@ -128,11 +131,14 @@ class LUNodeAdd(LogicalUnit):
     """Build hooks nodes.
 
     """
-    # Exclude added node
-    pre_nodes = list(set(self.cfg.GetNodeList()) - set([self.op.node_name]))
-    post_nodes = pre_nodes + [self.op.node_name, ]
+    hook_nodes = self.cfg.GetNodeList()
+    new_node_info = self.cfg.GetNodeInfoByName(self.op.node_name)
+    if new_node_info is not None:
+      # Exclude added node
+      hook_nodes = list(set(hook_nodes) - set([new_node_info.uuid]))
 
-    return (pre_nodes, post_nodes)
+    # add the new node as post hook node by name; it does not have an UUID yet
+    return (hook_nodes, hook_nodes, [self.op.node_name, ])
 
   def CheckPrereq(self):
     """Check prerequisites.
@@ -145,45 +151,43 @@ class LUNodeAdd(LogicalUnit):
     Any errors are signaled by raising errors.OpPrereqError.
 
     """
-    cfg = self.cfg
-    hostname = self.hostname
-    node = hostname.name
-    primary_ip = self.op.primary_ip = hostname.ip
+    node_name = self.hostname.name
+    self.op.primary_ip = self.hostname.ip
     if self.op.secondary_ip is None:
       if self.primary_ip_family == netutils.IP6Address.family:
         raise errors.OpPrereqError("When using a IPv6 primary address, a valid"
                                    " IPv4 address must be given as secondary",
                                    errors.ECODE_INVAL)
-      self.op.secondary_ip = primary_ip
+      self.op.secondary_ip = self.op.primary_ip
 
     secondary_ip = self.op.secondary_ip
     if not netutils.IP4Address.IsValid(secondary_ip):
       raise errors.OpPrereqError("Secondary IP (%s) needs to be a valid IPv4"
                                  " address" % secondary_ip, errors.ECODE_INVAL)
 
-    node_list = cfg.GetNodeList()
-    if not self.op.readd and node in node_list:
+    existing_node_info = self.cfg.GetNodeInfoByName(node_name)
+    if not self.op.readd and existing_node_info is not None:
       raise errors.OpPrereqError("Node %s is already in the configuration" %
-                                 node, errors.ECODE_EXISTS)
-    elif self.op.readd and node not in node_list:
-      raise errors.OpPrereqError("Node %s is not in the configuration" % node,
-                                 errors.ECODE_NOENT)
+                                 node_name, errors.ECODE_EXISTS)
+    elif self.op.readd and existing_node_info is None:
+      raise errors.OpPrereqError("Node %s is not in the configuration" %
+                                 node_name, errors.ECODE_NOENT)
 
     self.changed_primary_ip = False
 
-    for existing_node_name, existing_node in cfg.GetMultiNodeInfo(node_list):
-      if self.op.readd and node == existing_node_name:
+    for existing_node in self.cfg.GetAllNodesInfo().values():
+      if self.op.readd and node_name == existing_node.name:
         if existing_node.secondary_ip != secondary_ip:
           raise errors.OpPrereqError("Readded node doesn't have the same IP"
                                      " address configuration as before",
                                      errors.ECODE_INVAL)
-        if existing_node.primary_ip != primary_ip:
+        if existing_node.primary_ip != self.op.primary_ip:
           self.changed_primary_ip = True
 
         continue
 
-      if (existing_node.primary_ip == primary_ip or
-          existing_node.secondary_ip == primary_ip or
+      if (existing_node.primary_ip == self.op.primary_ip or
+          existing_node.secondary_ip == self.op.primary_ip or
           existing_node.primary_ip == secondary_ip or
           existing_node.secondary_ip == secondary_ip):
         raise errors.OpPrereqError("New node ip address(es) conflict with"
@@ -193,29 +197,29 @@ class LUNodeAdd(LogicalUnit):
     # After this 'if' block, None is no longer a valid value for the
     # _capable op attributes
     if self.op.readd:
-      old_node = self.cfg.GetNodeInfo(node)
-      assert old_node is not None, "Can't retrieve locked node %s" % node
+      assert existing_node_info is not None, \
+        "Can't retrieve locked node %s" % node_name
       for attr in self._NFLAGS:
         if getattr(self.op, attr) is None:
-          setattr(self.op, attr, getattr(old_node, attr))
+          setattr(self.op, attr, getattr(existing_node_info, attr))
     else:
       for attr in self._NFLAGS:
         if getattr(self.op, attr) is None:
           setattr(self.op, attr, True)
 
     if self.op.readd and not self.op.vm_capable:
-      pri, sec = cfg.GetNodeInstances(node)
+      pri, sec = self.cfg.GetNodeInstances(existing_node_info.uuid)
       if pri or sec:
         raise errors.OpPrereqError("Node %s being re-added with vm_capable"
                                    " flag set to false, but it already holds"
-                                   " instances" % node,
+                                   " instances" % node_name,
                                    errors.ECODE_STATE)
 
     # check that the type of the node (single versus dual homed) is the
     # same as for the master
-    myself = cfg.GetNodeInfo(self.cfg.GetMasterNode())
+    myself = self.cfg.GetNodeInfo(self.cfg.GetMasterNode())
     master_singlehomed = myself.secondary_ip == myself.primary_ip
-    newbie_singlehomed = secondary_ip == primary_ip
+    newbie_singlehomed = secondary_ip == self.op.primary_ip
     if master_singlehomed != newbie_singlehomed:
       if master_singlehomed:
         raise errors.OpPrereqError("The master has no secondary ip but the"
@@ -227,7 +231,7 @@ class LUNodeAdd(LogicalUnit):
                                    errors.ECODE_INVAL)
 
     # checks reachability
-    if not netutils.TcpPing(primary_ip, constants.DEFAULT_NODED_PORT):
+    if not netutils.TcpPing(self.op.primary_ip, constants.DEFAULT_NODED_PORT):
       raise errors.OpPrereqError("Node not reachable by ping",
                                  errors.ECODE_ENVIRON)
 
@@ -240,7 +244,7 @@ class LUNodeAdd(LogicalUnit):
                                    errors.ECODE_ENVIRON)
 
     if self.op.readd:
-      exceptions = [node]
+      exceptions = [existing_node_info.uuid]
     else:
       exceptions = []
 
@@ -250,11 +254,11 @@ class LUNodeAdd(LogicalUnit):
       self.master_candidate = False
 
     if self.op.readd:
-      self.new_node = old_node
+      self.new_node = existing_node_info
     else:
-      node_group = cfg.LookupNodeGroup(self.op.group)
-      self.new_node = objects.Node(name=node,
-                                   primary_ip=primary_ip,
+      node_group = self.cfg.LookupNodeGroup(self.op.group)
+      self.new_node = objects.Node(name=node_name,
+                                   primary_ip=self.op.primary_ip,
                                    secondary_ip=secondary_ip,
                                    master_candidate=self.master_candidate,
                                    offline=False, drained=False,
@@ -274,23 +278,25 @@ class LUNodeAdd(LogicalUnit):
     # TODO: If we need to have multiple DnsOnlyRunner we probably should make
     #       it a property on the base class.
     rpcrunner = rpc.DnsOnlyRunner()
-    result = rpcrunner.call_version([node])[node]
-    result.Raise("Can't get version information from node %s" % node)
+    result = rpcrunner.call_version([node_name])[node_name]
+    result.Raise("Can't get version information from node %s" % node_name)
     if constants.PROTOCOL_VERSION == result.payload:
       logging.info("Communication to node %s fine, sw version %s match",
-                   node, result.payload)
+                   node_name, result.payload)
     else:
       raise errors.OpPrereqError("Version mismatch master version %s,"
                                  " node version %s" %
                                  (constants.PROTOCOL_VERSION, result.payload),
                                  errors.ECODE_ENVIRON)
 
-    vg_name = cfg.GetVGName()
+    vg_name = self.cfg.GetVGName()
     if vg_name is not None:
       vparams = {constants.NV_PVLIST: [vg_name]}
-      excl_stor = IsExclusiveStorageEnabledNode(cfg, self.new_node)
+      excl_stor = IsExclusiveStorageEnabledNode(self.cfg, self.new_node)
       cname = self.cfg.GetClusterName()
-      result = rpcrunner.call_node_verify_light([node], vparams, cname)[node]
+      result = rpcrunner.call_node_verify_light(
+          [node_name], vparams, cname,
+          self.cfg.GetClusterInfo().hvparams)[node_name]
       (errmsgs, _) = CheckNodePVs(result.payload, excl_stor)
       if errmsgs:
         raise errors.OpPrereqError("Checks on node PVs failed: %s" %
@@ -300,68 +306,67 @@ class LUNodeAdd(LogicalUnit):
     """Adds the new node to the cluster.
 
     """
-    new_node = self.new_node
-    node = new_node.name
-
     assert locking.BGL in self.owned_locks(locking.LEVEL_CLUSTER), \
       "Not owning BGL"
 
     # We adding a new node so we assume it's powered
-    new_node.powered = True
+    self.new_node.powered = True
 
     # for re-adds, reset the offline/drained/master-candidate flags;
     # we need to reset here, otherwise offline would prevent RPC calls
     # later in the procedure; this also means that if the re-add
     # fails, we are left with a non-offlined, broken node
     if self.op.readd:
-      new_node.drained = new_node.offline = False # pylint: disable=W0201
+      self.new_node.offline = False
+      self.new_node.drained = False
       self.LogInfo("Readding a node, the offline/drained flags were reset")
       # if we demote the node, we do cleanup later in the procedure
-      new_node.master_candidate = self.master_candidate
+      self.new_node.master_candidate = self.master_candidate
       if self.changed_primary_ip:
-        new_node.primary_ip = self.op.primary_ip
+        self.new_node.primary_ip = self.op.primary_ip
 
     # copy the master/vm_capable flags
     for attr in self._NFLAGS:
-      setattr(new_node, attr, getattr(self.op, attr))
+      setattr(self.new_node, attr, getattr(self.op, attr))
 
     # notify the user about any possible mc promotion
-    if new_node.master_candidate:
+    if self.new_node.master_candidate:
       self.LogInfo("Node will be a master candidate")
 
     if self.op.ndparams:
-      new_node.ndparams = self.op.ndparams
+      self.new_node.ndparams = self.op.ndparams
     else:
-      new_node.ndparams = {}
+      self.new_node.ndparams = {}
 
     if self.op.hv_state:
-      new_node.hv_state_static = self.new_hv_state
+      self.new_node.hv_state_static = self.new_hv_state
 
     if self.op.disk_state:
-      new_node.disk_state_static = self.new_disk_state
+      self.new_node.disk_state_static = self.new_disk_state
 
     # Add node to our /etc/hosts, and add key to known_hosts
     if self.cfg.GetClusterInfo().modify_etc_hosts:
       master_node = self.cfg.GetMasterNode()
-      result = self.rpc.call_etc_hosts_modify(master_node,
-                                              constants.ETC_HOSTS_ADD,
-                                              self.hostname.name,
-                                              self.hostname.ip)
+      result = self.rpc.call_etc_hosts_modify(
+                 master_node, constants.ETC_HOSTS_ADD, self.hostname.name,
+                 self.hostname.ip)
       result.Raise("Can't update hosts file with new host data")
 
-    if new_node.secondary_ip != new_node.primary_ip:
-      _CheckNodeHasSecondaryIP(self, new_node.name, new_node.secondary_ip,
+    if self.new_node.secondary_ip != self.new_node.primary_ip:
+      _CheckNodeHasSecondaryIP(self, self.new_node, self.new_node.secondary_ip,
                                False)
 
-    node_verify_list = [self.cfg.GetMasterNode()]
+    node_verifier_uuids = [self.cfg.GetMasterNode()]
     node_verify_param = {
-      constants.NV_NODELIST: ([node], {}),
+      constants.NV_NODELIST: ([self.new_node.name], {}),
       # TODO: do a node-net-test as well?
     }
 
-    result = self.rpc.call_node_verify(node_verify_list, node_verify_param,
-                                       self.cfg.GetClusterName())
-    for verifier in node_verify_list:
+    result = self.rpc.call_node_verify(
+               node_verifier_uuids, node_verify_param,
+               self.cfg.GetClusterName(),
+               self.cfg.GetClusterInfo().hvparams)
+    for verifier in node_verifier_uuids:
       result[verifier].Raise("Cannot communicate with node %s" % verifier)
       nl_payload = result[verifier].payload[constants.NV_NODELIST]
       if nl_payload:
@@ -372,21 +377,18 @@ class LUNodeAdd(LogicalUnit):
         raise errors.OpExecError("ssh/hostname verification failed")
 
     if self.op.readd:
+      self.context.ReaddNode(self.new_node)
       RedistributeAncillaryFiles(self)
-      self.context.ReaddNode(new_node)
       # make sure we redistribute the config
-      self.cfg.Update(new_node, feedback_fn)
+      self.cfg.Update(self.new_node, feedback_fn)
       # and make sure the new node will not have old files around
-      if not new_node.master_candidate:
-        result = self.rpc.call_node_demote_from_mc(new_node.name)
-        msg = result.fail_msg
-        if msg:
-          self.LogWarning("Node failed to demote itself from master"
-                          " candidate status: %s" % msg)
+      if not self.new_node.master_candidate:
+        result = self.rpc.call_node_demote_from_mc(self.new_node.uuid)
+        result.Warn("Node failed to demote itself from master candidate status",
+                    self.LogWarning)
     else:
-      RedistributeAncillaryFiles(self, additional_nodes=[node],
-                                 additional_vm=self.op.vm_capable)
-      self.context.AddNode(new_node, self.proc.GetECId())
+      self.context.AddNode(self.new_node, self.proc.GetECId())
+      RedistributeAncillaryFiles(self)
 
 
 class LUNodeSetParams(LogicalUnit):
@@ -412,7 +414,8 @@ class LUNodeSetParams(LogicalUnit):
   _FLAGS = ["master_candidate", "drained", "offline"]
 
   def CheckArguments(self):
-    self.op.node_name = ExpandNodeName(self.cfg, self.op.node_name)
+    (self.op.node_uuid, self.op.node_name) = \
+      ExpandNodeUuidAndName(self.cfg, self.op.node_uuid, self.op.node_name)
     all_mods = [self.op.offline, self.op.master_candidate, self.op.drained,
                 self.op.master_capable, self.op.vm_capable,
                 self.op.secondary_ip, self.op.ndparams, self.op.hv_state,
@@ -445,7 +448,7 @@ class LUNodeSetParams(LogicalUnit):
 
     """
     return (instance.disk_template in constants.DTS_INT_MIRROR and
-            self.op.node_name in instance.all_nodes)
+            self.op.node_uuid in instance.all_nodes)
 
   def ExpandNames(self):
     if self.lock_all:
@@ -457,7 +460,7 @@ class LUNodeSetParams(LogicalUnit):
         }
     else:
       self.needed_locks = {
-        locking.LEVEL_NODE: self.op.node_name,
+        locking.LEVEL_NODE: self.op.node_uuid,
         }
 
     # Since modifying a node can have severe effects on currently running
@@ -474,7 +477,8 @@ class LUNodeSetParams(LogicalUnit):
 
     if self.lock_instances:
       self.needed_locks[locking.LEVEL_INSTANCE] = \
-        frozenset(self.cfg.GetInstancesInfoByFilter(self._InstanceFilter))
+        self.cfg.GetInstanceNames(
+          self.cfg.GetInstancesInfoByFilter(self._InstanceFilter).keys())
 
   def BuildHooksEnv(self):
     """Build hooks env.
@@ -495,7 +499,7 @@ class LUNodeSetParams(LogicalUnit):
     """Build hooks nodes.
 
     """
-    nl = [self.cfg.GetMasterNode(), self.op.node_name]
+    nl = [self.cfg.GetMasterNode(), self.op.node_uuid]
     return (nl, nl)
 
   def CheckPrereq(self):
@@ -504,23 +508,23 @@ class LUNodeSetParams(LogicalUnit):
     This only checks the instance list against the existing names.
 
     """
-    node = self.node = self.cfg.GetNodeInfo(self.op.node_name)
-
+    node = self.cfg.GetNodeInfo(self.op.node_uuid)
     if self.lock_instances:
       affected_instances = \
         self.cfg.GetInstancesInfoByFilter(self._InstanceFilter)
 
       # Verify instance locks
-      owned_instances = self.owned_locks(locking.LEVEL_INSTANCE)
-      wanted_instances = frozenset(affected_instances.keys())
-      if wanted_instances - owned_instances:
+      owned_instance_names = self.owned_locks(locking.LEVEL_INSTANCE)
+      wanted_instance_names = frozenset([inst.name for inst in
+                                         affected_instances.values()])
+      if wanted_instance_names - owned_instance_names:
         raise errors.OpPrereqError("Instances affected by changing node %s's"
                                    " secondary IP address have changed since"
                                    " locks were acquired, wanted '%s', have"
                                    " '%s'; retry the operation" %
-                                   (self.op.node_name,
-                                    utils.CommaJoin(wanted_instances),
-                                    utils.CommaJoin(owned_instances)),
+                                   (node.name,
+                                    utils.CommaJoin(wanted_instance_names),
+                                    utils.CommaJoin(owned_instance_names)),
                                    errors.ECODE_STATE)
     else:
       affected_instances = None
@@ -529,7 +533,7 @@ class LUNodeSetParams(LogicalUnit):
         self.op.drained is not None or
         self.op.offline is not None):
       # we can't change the master's node flags
-      if self.op.node_name == self.cfg.GetMasterNode():
+      if node.uuid == self.cfg.GetMasterNode():
         raise errors.OpPrereqError("The master role can be changed"
                                    " only via master-failover",
                                    errors.ECODE_INVAL)
@@ -540,7 +544,7 @@ class LUNodeSetParams(LogicalUnit):
                                  errors.ECODE_STATE)
 
     if self.op.vm_capable is False:
-      (ipri, isec) = self.cfg.GetNodeInstances(self.op.node_name)
+      (ipri, isec) = self.cfg.GetNodeInstances(node.uuid)
       if ipri or isec:
         raise errors.OpPrereqError("Node %s hosts instances, cannot unset"
                                    " the vm_capable flag" % node.name,
@@ -551,7 +555,7 @@ class LUNodeSetParams(LogicalUnit):
       # check if after removing the current node, we're missing master
       # candidates
       (mc_remaining, mc_should, _) = \
-          self.cfg.GetMasterCandidateStats(exceptions=[node.name])
+          self.cfg.GetMasterCandidateStats(exceptions=[node.uuid])
       if mc_remaining < mc_should:
         raise errors.OpPrereqError("Not enough master candidates, please"
                                    " pass auto promote option to allow"
@@ -565,7 +569,7 @@ class LUNodeSetParams(LogicalUnit):
 
     # Check for ineffective changes
     for attr in self._FLAGS:
-      if (getattr(self.op, attr) is False and getattr(node, attr) is False):
+      if getattr(self.op, attr) is False and getattr(node, attr) is False:
         self.LogInfo("Ignoring request to unset flag %s, already unset", attr)
         setattr(self.op, attr, None)
 
@@ -616,7 +620,7 @@ class LUNodeSetParams(LogicalUnit):
 
     if old_role == self._ROLE_OFFLINE and new_role != old_role:
       # Trying to transition out of offline status
-      result = self.rpc.call_version([node.name])[node.name]
+      result = self.rpc.call_version([node.uuid])[node.uuid]
       if result.fail_msg:
         raise errors.OpPrereqError("Node %s is being de-offlined but fails"
                                    " to report its version: %s" %
@@ -635,7 +639,7 @@ class LUNodeSetParams(LogicalUnit):
       master = self.cfg.GetNodeInfo(self.cfg.GetMasterNode())
       master_singlehomed = master.secondary_ip == master.primary_ip
       if master_singlehomed and self.op.secondary_ip != node.primary_ip:
-        if self.op.force and node.name == master.name:
+        if self.op.force and node.uuid == master.uuid:
           self.LogWarning("Transitioning from single-homed to multi-homed"
                           " cluster; all nodes will require a secondary IP"
                           " address")
@@ -646,7 +650,7 @@ class LUNodeSetParams(LogicalUnit):
                                      " target node to be the master",
                                      errors.ECODE_INVAL)
       elif not master_singlehomed and self.op.secondary_ip == node.primary_ip:
-        if self.op.force and node.name == master.name:
+        if self.op.force and node.uuid == master.uuid:
           self.LogWarning("Transitioning from multi-homed to single-homed"
                           " cluster; secondary IP addresses will have to be"
                           " removed")
@@ -657,14 +661,15 @@ class LUNodeSetParams(LogicalUnit):
                                      " passed, and the target node is the"
                                      " master", errors.ECODE_INVAL)
 
-      assert not (frozenset(affected_instances) -
+      assert not (set([inst.name for inst in affected_instances.values()]) -
                   self.owned_locks(locking.LEVEL_INSTANCE))
 
       if node.offline:
         if affected_instances:
           msg = ("Cannot change secondary IP address: offline node has"
                  " instances (%s) configured to use it" %
-                 utils.CommaJoin(affected_instances.keys()))
+                 utils.CommaJoin(
+                   [inst.name for inst in affected_instances.values()]))
           raise errors.OpPrereqError(msg, errors.ECODE_STATE)
       else:
         # On online nodes, check that no instances are running, and that
@@ -673,8 +678,8 @@ class LUNodeSetParams(LogicalUnit):
           CheckInstanceState(self, instance, INSTANCE_DOWN,
                              msg="cannot change secondary ip")
 
-        _CheckNodeHasSecondaryIP(self, node.name, self.op.secondary_ip, True)
-        if master.name != node.name:
+        _CheckNodeHasSecondaryIP(self, node, self.op.secondary_ip, True)
+        if master.uuid != node.uuid:
           # check reachability from master secondary ip to new secondary ip
           if not netutils.TcpPing(self.op.secondary_ip,
                                   constants.DEFAULT_NODED_PORT,
@@ -684,7 +689,7 @@ class LUNodeSetParams(LogicalUnit):
                                        errors.ECODE_ENVIRON)
 
     if self.op.ndparams:
-      new_ndparams = GetUpdatedParams(self.node.ndparams, self.op.ndparams)
+      new_ndparams = GetUpdatedParams(node.ndparams, self.op.ndparams)
       utils.ForceDictType(new_ndparams, constants.NDS_PARAMETER_TYPES)
       CheckParamsNotGlobal(self.op.ndparams, constants.NDC_GLOBALS, "node",
                            "node", "cluster or group")
@@ -692,21 +697,17 @@ class LUNodeSetParams(LogicalUnit):
 
     if self.op.hv_state:
       self.new_hv_state = MergeAndVerifyHvState(self.op.hv_state,
-                                                self.node.hv_state_static)
+                                                node.hv_state_static)
 
     if self.op.disk_state:
       self.new_disk_state = \
-        MergeAndVerifyDiskState(self.op.disk_state,
-                                self.node.disk_state_static)
+        MergeAndVerifyDiskState(self.op.disk_state, node.disk_state_static)
 
   def Exec(self, feedback_fn):
     """Modifies a node.
 
     """
-    node = self.node
-    old_role = self.old_role
-    new_role = self.new_role
-
+    node = self.cfg.GetNodeInfo(self.op.node_uuid)
     result = []
 
     if self.op.ndparams:
@@ -727,14 +728,15 @@ class LUNodeSetParams(LogicalUnit):
         setattr(node, attr, val)
         result.append((attr, str(val)))
 
-    if new_role != old_role:
+    if self.new_role != self.old_role:
       # Tell the node to demote itself, if no longer MC and not offline
-      if old_role == self._ROLE_CANDIDATE and new_role != self._ROLE_OFFLINE:
+      if self.old_role == self._ROLE_CANDIDATE and \
+          self.new_role != self._ROLE_OFFLINE:
         msg = self.rpc.call_node_demote_from_mc(node.name).fail_msg
         if msg:
           self.LogWarning("Node failed to demote itself: %s", msg)
 
-      new_flags = self._R2F[new_role]
+      new_flags = self._R2F[self.new_role]
       for of, nf, desc in zip(self.old_flags, new_flags, self._FLAGS):
         if of != nf:
           result.append((desc, str(nf)))
@@ -742,7 +744,7 @@ class LUNodeSetParams(LogicalUnit):
 
       # we locked all nodes, we adjust the CP before updating this node
       if self.lock_all:
-        AdjustCandidatePool(self, [node.name])
+        AdjustCandidatePool(self, [node.uuid])
 
     if self.op.secondary_ip:
       node.secondary_ip = self.op.secondary_ip
@@ -753,7 +755,7 @@ class LUNodeSetParams(LogicalUnit):
 
     # this will trigger job queue propagation or cleanup if the mc
     # flag changed
-    if [old_role, new_role].count(self._ROLE_CANDIDATE) == 1:
+    if [self.old_role, self.new_role].count(self._ROLE_CANDIDATE) == 1:
       self.context.ReaddNode(node)
 
     return result
@@ -766,8 +768,10 @@ class LUNodePowercycle(NoHooksLU):
   REQ_BGL = False
 
   def CheckArguments(self):
-    self.op.node_name = ExpandNodeName(self.cfg, self.op.node_name)
-    if self.op.node_name == self.cfg.GetMasterNode() and not self.op.force:
+    (self.op.node_uuid, self.op.node_name) = \
+      ExpandNodeUuidAndName(self.cfg, self.op.node_uuid, self.op.node_name)
+
+    if self.op.node_uuid == self.cfg.GetMasterNode() and not self.op.force:
       raise errors.OpPrereqError("The node is the master and the force"
                                  " parameter was not set",
                                  errors.ECODE_INVAL)
@@ -785,8 +789,11 @@ class LUNodePowercycle(NoHooksLU):
     """Reboots a node.
 
     """
-    result = self.rpc.call_node_powercycle(self.op.node_name,
-                                           self.cfg.GetHypervisorType())
+    default_hypervisor = self.cfg.GetHypervisorType()
+    hvparams = self.cfg.GetClusterInfo().hvparams[default_hypervisor]
+    result = self.rpc.call_node_powercycle(self.op.node_uuid,
+                                           default_hypervisor,
+                                           hvparams)
     result.Raise("Failed to schedule the reboot")
     return result.payload
 
@@ -795,28 +802,28 @@ def _GetNodeInstancesInner(cfg, fn):
   return [i for i in cfg.GetAllInstancesInfo().values() if fn(i)]
 
 
-def _GetNodePrimaryInstances(cfg, node_name):
+def _GetNodePrimaryInstances(cfg, node_uuid):
   """Returns primary instances on a node.
 
   """
   return _GetNodeInstancesInner(cfg,
-                                lambda inst: node_name == inst.primary_node)
+                                lambda inst: node_uuid == inst.primary_node)
 
 
-def _GetNodeSecondaryInstances(cfg, node_name):
+def _GetNodeSecondaryInstances(cfg, node_uuid):
   """Returns secondary instances on a node.
 
   """
   return _GetNodeInstancesInner(cfg,
-                                lambda inst: node_name in inst.secondary_nodes)
+                                lambda inst: node_uuid in inst.secondary_nodes)
 
 
-def _GetNodeInstances(cfg, node_name):
+def _GetNodeInstances(cfg, node_uuid):
   """Returns a list of all primary and secondary instances on a node.
 
   """
 
-  return _GetNodeInstancesInner(cfg, lambda inst: node_name in inst.all_nodes)
+  return _GetNodeInstancesInner(cfg, lambda inst: node_uuid in inst.all_nodes)
 
 
 class LUNodeEvacuate(NoHooksLU):
@@ -838,13 +845,16 @@ class LUNodeEvacuate(NoHooksLU):
     CheckIAllocatorOrNode(self, "iallocator", "remote_node")
 
   def ExpandNames(self):
-    self.op.node_name = ExpandNodeName(self.cfg, self.op.node_name)
+    (self.op.node_uuid, self.op.node_name) = \
+      ExpandNodeUuidAndName(self.cfg, self.op.node_uuid, self.op.node_name)
 
     if self.op.remote_node is not None:
-      self.op.remote_node = ExpandNodeName(self.cfg, self.op.remote_node)
+      (self.op.remote_node_uuid, self.op.remote_node) = \
+        ExpandNodeUuidAndName(self.cfg, self.op.remote_node_uuid,
+                              self.op.remote_node)
       assert self.op.remote_node
 
-      if self.op.remote_node == self.op.node_name:
+      if self.op.node_uuid == self.op.remote_node_uuid:
         raise errors.OpPrereqError("Can not use evacuated node as a new"
                                    " secondary node", errors.ECODE_INVAL)
 
@@ -866,17 +876,17 @@ class LUNodeEvacuate(NoHooksLU):
     self.lock_nodes = self._DetermineNodes()
 
   def _DetermineNodes(self):
-    """Gets the list of nodes to operate on.
+    """Gets the list of node UUIDs to operate on.
 
     """
     if self.op.remote_node is None:
       # Iallocator will choose any node(s) in the same group
-      group_nodes = self.cfg.GetNodeGroupMembersByNodes([self.op.node_name])
+      group_nodes = self.cfg.GetNodeGroupMembersByNodes([self.op.node_uuid])
     else:
-      group_nodes = frozenset([self.op.remote_node])
+      group_nodes = frozenset([self.op.remote_node_uuid])
 
     # Determine nodes to be locked
-    return set([self.op.node_name]) | group_nodes
+    return set([self.op.node_uuid]) | group_nodes
 
   def _DetermineInstances(self):
     """Builds list of instances to operate on.
@@ -905,7 +915,7 @@ class LUNodeEvacuate(NoHooksLU):
                                  " instances",
                                  errors.ECODE_INVAL)
 
-    return inst_fn(self.cfg, self.op.node_name)
+    return inst_fn(self.cfg, self.op.node_uuid)
 
   def DeclareLocks(self, level):
     if level == locking.LEVEL_INSTANCE:
@@ -925,7 +935,7 @@ class LUNodeEvacuate(NoHooksLU):
 
   def CheckPrereq(self):
     # Verify locks
-    owned_instances = self.owned_locks(locking.LEVEL_INSTANCE)
+    owned_instance_names = self.owned_locks(locking.LEVEL_INSTANCE)
     owned_nodes = self.owned_locks(locking.LEVEL_NODE)
     owned_groups = self.owned_locks(locking.LEVEL_NODEGROUP)
 
@@ -953,13 +963,13 @@ class LUNodeEvacuate(NoHooksLU):
     self.instances = self._DetermineInstances()
     self.instance_names = [i.name for i in self.instances]
 
-    if set(self.instance_names) != owned_instances:
+    if set(self.instance_names) != owned_instance_names:
       raise errors.OpExecError("Instances on node '%s' changed since locks"
                                " were acquired, current instances are '%s',"
                                " used to be '%s'; retry the operation" %
                                (self.op.node_name,
                                 utils.CommaJoin(self.instance_names),
-                                utils.CommaJoin(owned_instances)))
+                                utils.CommaJoin(owned_instance_names)))
 
     if self.instance_names:
       self.LogInfo("Evacuating instances from node '%s': %s",
@@ -971,7 +981,7 @@ class LUNodeEvacuate(NoHooksLU):
 
     if self.op.remote_node is not None:
       for i in self.instances:
-        if i.primary_node == self.op.remote_node:
+        if i.primary_node == self.op.remote_node_uuid:
           raise errors.OpPrereqError("Node %s is the primary node of"
                                      " instance %s, cannot use it as"
                                      " secondary" %
@@ -1030,11 +1040,12 @@ class LUNodeMigrate(LogicalUnit):
     pass
 
   def ExpandNames(self):
-    self.op.node_name = ExpandNodeName(self.cfg, self.op.node_name)
+    (self.op.node_uuid, self.op.node_name) = \
+      ExpandNodeUuidAndName(self.cfg, self.op.node_uuid, self.op.node_name)
 
     self.share_locks = ShareAll()
     self.needed_locks = {
-      locking.LEVEL_NODE: [self.op.node_name],
+      locking.LEVEL_NODE: [self.op.node_uuid],
       }
 
   def BuildHooksEnv(self):
@@ -1060,16 +1071,16 @@ class LUNodeMigrate(LogicalUnit):
 
   def Exec(self, feedback_fn):
     # Prepare jobs for migration instances
-    allow_runtime_changes = self.op.allow_runtime_changes
     jobs = [
-      [opcodes.OpInstanceMigrate(instance_name=inst.name,
-                                 mode=self.op.mode,
-                                 live=self.op.live,
-                                 iallocator=self.op.iallocator,
-                                 target_node=self.op.target_node,
-                                 allow_runtime_changes=allow_runtime_changes,
-                                 ignore_ipolicy=self.op.ignore_ipolicy)]
-      for inst in _GetNodePrimaryInstances(self.cfg, self.op.node_name)]
+      [opcodes.OpInstanceMigrate(
+        instance_name=inst.name,
+        mode=self.op.mode,
+        live=self.op.live,
+        iallocator=self.op.iallocator,
+        target_node=self.op.target_node,
+        allow_runtime_changes=self.op.allow_runtime_changes,
+        ignore_ipolicy=self.op.ignore_ipolicy)]
+      for inst in _GetNodePrimaryInstances(self.cfg, self.op.node_uuid)]
 
     # TODO: Run iallocator in this opcode and pass correct placement options to
     # OpInstanceMigrate. Since other jobs can modify the cluster between
@@ -1077,7 +1088,7 @@ class LUNodeMigrate(LogicalUnit):
     # will have to be found.
 
     assert (frozenset(self.owned_locks(locking.LEVEL_NODE)) ==
-            frozenset([self.op.node_name]))
+            frozenset([self.op.node_uuid]))
 
     return ResultWithJobs(jobs)
 
@@ -1101,7 +1112,8 @@ class LUNodeModifyStorage(NoHooksLU):
   REQ_BGL = False
 
   def CheckArguments(self):
-    self.op.node_name = ExpandNodeName(self.cfg, self.op.node_name)
+    (self.op.node_uuid, self.op.node_name) = \
+      ExpandNodeUuidAndName(self.cfg, self.op.node_uuid, self.op.node_name)
 
     storage_type = self.op.storage_type
 
@@ -1119,9 +1131,15 @@ class LUNodeModifyStorage(NoHooksLU):
                                  (storage_type, list(diff)),
                                  errors.ECODE_INVAL)
 
+  def CheckPrereq(self):
+    """Check prerequisites.
+
+    """
+    CheckStorageTypeEnabled(self.cfg.GetClusterInfo(), self.op.storage_type)
+
   def ExpandNames(self):
     self.needed_locks = {
-      locking.LEVEL_NODE: self.op.node_name,
+      locking.LEVEL_NODE: self.op.node_uuid,
       }
 
   def Exec(self, feedback_fn):
@@ -1129,7 +1147,7 @@ class LUNodeModifyStorage(NoHooksLU):
 
     """
     st_args = _GetStorageTypeArgs(self.cfg, self.op.storage_type)
-    result = self.rpc.call_storage_modify(self.op.node_name,
+    result = self.rpc.call_storage_modify(self.op.node_uuid,
                                           self.op.storage_type, st_args,
                                           self.op.name, self.op.changes)
     result.Raise("Failed to modify storage unit '%s' on %s" %
@@ -1144,7 +1162,7 @@ class NodeQuery(QueryBase):
     lu.share_locks = ShareAll()
 
     if self.names:
-      self.wanted = GetWantedNodes(lu, self.names)
+      (self.wanted, _) = GetWantedNodes(lu, self.names)
     else:
       self.wanted = locking.ALL_SET
 
@@ -1165,41 +1183,57 @@ class NodeQuery(QueryBase):
     """
     all_info = lu.cfg.GetAllNodesInfo()
 
-    nodenames = self._GetNames(lu, all_info.keys(), locking.LEVEL_NODE)
+    node_uuids = self._GetNames(lu, all_info.keys(), locking.LEVEL_NODE)
 
     # Gather data as requested
     if query.NQ_LIVE in self.requested_data:
       # filter out non-vm_capable nodes
-      toquery_nodes = [name for name in nodenames if all_info[name].vm_capable]
-
-      es_flags = rpc.GetExclusiveStorageForNodeNames(lu.cfg, toquery_nodes)
-      node_data = lu.rpc.call_node_info(toquery_nodes, [lu.cfg.GetVGName()],
-                                        [lu.cfg.GetHypervisorType()], es_flags)
-      live_data = dict((name, rpc.MakeLegacyNodeInfo(nresult.payload))
-                       for (name, nresult) in node_data.items()
-                       if not nresult.fail_msg and nresult.payload)
+      toquery_node_uuids = [node.uuid for node in all_info.values()
+                            if node.vm_capable and node.uuid in node_uuids]
+      lvm_enabled = utils.storage.IsLvmEnabled(
+          lu.cfg.GetClusterInfo().enabled_disk_templates)
+      # FIXME: this per default asks for storage space information for all
+      # enabled disk templates. Fix this by making it possible to specify
+      # space report fields for specific disk templates.
+      raw_storage_units = utils.storage.GetStorageUnitsOfCluster(
+          lu.cfg, include_spindles=lvm_enabled)
+      storage_units = rpc.PrepareStorageUnitsForNodes(
+          lu.cfg, raw_storage_units, toquery_node_uuids)
+      default_hypervisor = lu.cfg.GetHypervisorType()
+      hvparams = lu.cfg.GetClusterInfo().hvparams[default_hypervisor]
+      hvspecs = [(default_hypervisor, hvparams)]
+      node_data = lu.rpc.call_node_info(toquery_node_uuids, storage_units,
+                                        hvspecs)
+      live_data = dict(
+          (uuid, rpc.MakeLegacyNodeInfo(nresult.payload,
+                                        require_spindles=lvm_enabled))
+          for (uuid, nresult) in node_data.items()
+          if not nresult.fail_msg and nresult.payload)
     else:
       live_data = None
 
     if query.NQ_INST in self.requested_data:
-      node_to_primary = dict([(name, set()) for name in nodenames])
-      node_to_secondary = dict([(name, set()) for name in nodenames])
+      node_to_primary = dict([(uuid, set()) for uuid in node_uuids])
+      node_to_secondary = dict([(uuid, set()) for uuid in node_uuids])
 
       inst_data = lu.cfg.GetAllInstancesInfo()
+      inst_uuid_to_inst_name = {}
 
       for inst in inst_data.values():
+        inst_uuid_to_inst_name[inst.uuid] = inst.name
         if inst.primary_node in node_to_primary:
-          node_to_primary[inst.primary_node].add(inst.name)
+          node_to_primary[inst.primary_node].add(inst.uuid)
         for secnode in inst.secondary_nodes:
           if secnode in node_to_secondary:
-            node_to_secondary[secnode].add(inst.name)
+            node_to_secondary[secnode].add(inst.uuid)
     else:
       node_to_primary = None
       node_to_secondary = None
+      inst_uuid_to_inst_name = None
 
     if query.NQ_OOB in self.requested_data:
-      oob_support = dict((name, bool(SupportsOob(lu.cfg, node)))
-                         for name, node in all_info.iteritems())
+      oob_support = dict((uuid, bool(SupportsOob(lu.cfg, node)))
+                         for uuid, node in all_info.iteritems())
     else:
       oob_support = None
 
@@ -1208,10 +1242,11 @@ class NodeQuery(QueryBase):
     else:
       groups = {}
 
-    return query.NodeQueryData([all_info[name] for name in nodenames],
+    return query.NodeQueryData([all_info[uuid] for uuid in node_uuids],
                                live_data, lu.cfg.GetMasterNode(),
-                               node_to_primary, node_to_secondary, groups,
-                               oob_support, lu.cfg.GetClusterInfo())
+                               node_to_primary, node_to_secondary,
+                               inst_uuid_to_inst_name, groups, oob_support,
+                               lu.cfg.GetClusterInfo())
 
 
 class LUNodeQuery(NoHooksLU):
@@ -1272,7 +1307,7 @@ class LUNodeQueryvols(NoHooksLU):
 
     if self.op.nodes:
       self.needed_locks = {
-        locking.LEVEL_NODE: GetWantedNodes(self, self.op.nodes),
+        locking.LEVEL_NODE: GetWantedNodes(self, self.op.nodes)[0],
         }
     else:
       self.needed_locks = {
@@ -1284,20 +1319,21 @@ class LUNodeQueryvols(NoHooksLU):
     """Computes the list of nodes and their attributes.
 
     """
-    nodenames = self.owned_locks(locking.LEVEL_NODE)
-    volumes = self.rpc.call_node_volumes(nodenames)
+    node_uuids = self.owned_locks(locking.LEVEL_NODE)
+    volumes = self.rpc.call_node_volumes(node_uuids)
 
     ilist = self.cfg.GetAllInstancesInfo()
-    vol2inst = MapInstanceDisksToNodes(ilist.values())
+    vol2inst = MapInstanceLvsToNodes(ilist.values())
 
     output = []
-    for node in nodenames:
-      nresult = volumes[node]
+    for node_uuid in node_uuids:
+      nresult = volumes[node_uuid]
       if nresult.offline:
         continue
       msg = nresult.fail_msg
       if msg:
-        self.LogWarning("Can't compute volume data on node %s: %s", node, msg)
+        self.LogWarning("Can't compute volume data on node %s: %s",
+                        self.cfg.GetNodeName(node_uuid), msg)
         continue
 
       node_vols = sorted(nresult.payload,
@@ -1307,7 +1343,7 @@ class LUNodeQueryvols(NoHooksLU):
         node_output = []
         for field in self.op.output_fields:
           if field == "node":
-            val = node
+            val = self.cfg.GetNodeName(node_uuid)
           elif field == "phys":
             val = vol["dev"]
           elif field == "vg":
@@ -1317,7 +1353,12 @@ class LUNodeQueryvols(NoHooksLU):
           elif field == "size":
             val = int(float(vol["size"]))
           elif field == "instance":
-            val = vol2inst.get((node, vol["vg"] + "/" + vol["name"]), "-")
+            inst = vol2inst.get((node_uuid, vol["vg"] + "/" + vol["name"]),
+                                None)
+            if inst is not None:
+              val = inst.name
+            else:
+              val = "-"
           else:
             raise errors.ParameterError(field)
           node_output.append(str(val))
@@ -1344,7 +1385,7 @@ class LUNodeQueryStorage(NoHooksLU):
 
     if self.op.nodes:
       self.needed_locks = {
-        locking.LEVEL_NODE: GetWantedNodes(self, self.op.nodes),
+        locking.LEVEL_NODE: GetWantedNodes(self, self.op.nodes)[0],
         }
     else:
       self.needed_locks = {
@@ -1352,11 +1393,17 @@ class LUNodeQueryStorage(NoHooksLU):
         locking.LEVEL_NODE_ALLOC: locking.ALL_SET,
         }
 
+  def CheckPrereq(self):
+    """Check prerequisites.
+
+    """
+    CheckStorageTypeEnabled(self.cfg.GetClusterInfo(), self.op.storage_type)
+
   def Exec(self, feedback_fn):
     """Computes the list of nodes and their attributes.
 
     """
-    self.nodes = self.owned_locks(locking.LEVEL_NODE)
+    self.node_uuids = self.owned_locks(locking.LEVEL_NODE)
 
     # Always get name to sort by
     if constants.SF_NAME in self.op.output_fields:
@@ -1373,20 +1420,22 @@ class LUNodeQueryStorage(NoHooksLU):
     name_idx = field_idx[constants.SF_NAME]
 
     st_args = _GetStorageTypeArgs(self.cfg, self.op.storage_type)
-    data = self.rpc.call_storage_list(self.nodes,
+    data = self.rpc.call_storage_list(self.node_uuids,
                                       self.op.storage_type, st_args,
                                       self.op.name, fields)
 
     result = []
 
-    for node in utils.NiceSort(self.nodes):
-      nresult = data[node]
+    for node_uuid in utils.NiceSort(self.node_uuids):
+      node_name = self.cfg.GetNodeName(node_uuid)
+      nresult = data[node_uuid]
       if nresult.offline:
         continue
 
       msg = nresult.fail_msg
       if msg:
-        self.LogWarning("Can't get storage data from node %s: %s", node, msg)
+        self.LogWarning("Can't get storage data from node %s: %s",
+                        node_name, msg)
         continue
 
       rows = dict([(row[name_idx], row) for row in nresult.payload])
@@ -1398,7 +1447,7 @@ class LUNodeQueryStorage(NoHooksLU):
 
         for field in self.op.output_fields:
           if field == constants.SF_NODE:
-            val = node
+            val = node_name
           elif field == constants.SF_TYPE:
             val = self.op.storage_type
           elif field in field_idx:
@@ -1438,7 +1487,7 @@ class LUNodeRemove(LogicalUnit):
     """
     all_nodes = self.cfg.GetNodeList()
     try:
-      all_nodes.remove(self.op.node_name)
+      all_nodes.remove(self.op.node_uuid)
     except ValueError:
       pass
     return (all_nodes, all_nodes)
@@ -1454,19 +1503,20 @@ class LUNodeRemove(LogicalUnit):
     Any errors are signaled by raising errors.OpPrereqError.
 
     """
-    self.op.node_name = ExpandNodeName(self.cfg, self.op.node_name)
-    node = self.cfg.GetNodeInfo(self.op.node_name)
+    (self.op.node_uuid, self.op.node_name) = \
+      ExpandNodeUuidAndName(self.cfg, self.op.node_uuid, self.op.node_name)
+    node = self.cfg.GetNodeInfo(self.op.node_uuid)
     assert node is not None
 
     masternode = self.cfg.GetMasterNode()
-    if node.name == masternode:
+    if node.uuid == masternode:
       raise errors.OpPrereqError("Node is the master node, failover to another"
                                  " node is required", errors.ECODE_INVAL)
 
-    for instance_name, instance in self.cfg.GetAllInstancesInfo().items():
-      if node.name in instance.all_nodes:
+    for _, instance in self.cfg.GetAllInstancesInfo().items():
+      if node.uuid in instance.all_nodes:
         raise errors.OpPrereqError("Instance %s is still running on the node,"
-                                   " please remove first" % instance_name,
+                                   " please remove first" % instance.name,
                                    errors.ECODE_INVAL)
     self.op.node_name = node.name
     self.node = node
@@ -1475,9 +1525,8 @@ class LUNodeRemove(LogicalUnit):
     """Removes the node from the cluster.
 
     """
-    node = self.node
     logging.info("Stopping the node daemon and removing configs from node %s",
-                 node.name)
+                 self.node.name)
 
     modify_ssh_setup = self.cfg.GetClusterInfo().modify_ssh_setup
 
@@ -1485,13 +1534,15 @@ class LUNodeRemove(LogicalUnit):
       "Not owning BGL"
 
     # Promote nodes to master candidate as needed
-    AdjustCandidatePool(self, exceptions=[node.name])
-    self.context.RemoveNode(node.name)
+    AdjustCandidatePool(self, exceptions=[self.node.uuid])
+    self.context.RemoveNode(self.node)
 
     # Run post hooks on the node before it's removed
-    RunPostHook(self, node.name)
+    RunPostHook(self, self.node.name)
 
-    result = self.rpc.call_node_leave_cluster(node.name, modify_ssh_setup)
+    # we have to call this by name rather than by UUID, as the node is no longer
+    # in the config
+    result = self.rpc.call_node_leave_cluster(self.node.name, modify_ssh_setup)
     msg = result.fail_msg
     if msg:
       self.LogWarning("Errors encountered on the remote node while leaving"
@@ -1499,10 +1550,10 @@ class LUNodeRemove(LogicalUnit):
 
     # Remove node from our /etc/hosts
     if self.cfg.GetClusterInfo().modify_etc_hosts:
-      master_node = self.cfg.GetMasterNode()
-      result = self.rpc.call_etc_hosts_modify(master_node,
+      master_node_uuid = self.cfg.GetMasterNode()
+      result = self.rpc.call_etc_hosts_modify(master_node_uuid,
                                               constants.ETC_HOSTS_REMOVE,
-                                              node.name, None)
+                                              self.node.name, None)
       result.Raise("Can't update hosts file with new host data")
       RedistributeAncillaryFiles(self)
 
@@ -1514,7 +1565,8 @@ class LURepairNodeStorage(NoHooksLU):
   REQ_BGL = False
 
   def CheckArguments(self):
-    self.op.node_name = ExpandNodeName(self.cfg, self.op.node_name)
+    (self.op.node_uuid, self.op.node_name) = \
+      ExpandNodeUuidAndName(self.cfg, self.op.node_uuid, self.op.node_name)
 
     storage_type = self.op.storage_type
 
@@ -1526,16 +1578,18 @@ class LURepairNodeStorage(NoHooksLU):
 
   def ExpandNames(self):
     self.needed_locks = {
-      locking.LEVEL_NODE: [self.op.node_name],
+      locking.LEVEL_NODE: [self.op.node_uuid],
       }
 
-  def _CheckFaultyDisks(self, instance, node_name):
+  def _CheckFaultyDisks(self, instance, node_uuid):
     """Ensure faulty disks abort the opcode or at least warn."""
     try:
       if FindFaultyInstanceDisks(self.cfg, self.rpc, instance,
-                                 node_name, True):
+                                 node_uuid, True):
         raise errors.OpPrereqError("Instance '%s' has faulty disks on"
-                                   " node '%s'" % (instance.name, node_name),
+                                   " node '%s'" %
+                                   (instance.name,
+                                    self.cfg.GetNodeName(node_uuid)),
                                    errors.ECODE_STATE)
     except errors.OpPrereqError, err:
       if self.op.ignore_consistency:
@@ -1547,21 +1601,23 @@ class LURepairNodeStorage(NoHooksLU):
     """Check prerequisites.
 
     """
+    CheckStorageTypeEnabled(self.cfg.GetClusterInfo(), self.op.storage_type)
+
     # Check whether any instance on this node has faulty disks
-    for inst in _GetNodeInstances(self.cfg, self.op.node_name):
+    for inst in _GetNodeInstances(self.cfg, self.op.node_uuid):
       if not inst.disks_active:
         continue
       check_nodes = set(inst.all_nodes)
-      check_nodes.discard(self.op.node_name)
-      for inst_node_name in check_nodes:
-        self._CheckFaultyDisks(inst, inst_node_name)
+      check_nodes.discard(self.op.node_uuid)
+      for inst_node_uuid in check_nodes:
+        self._CheckFaultyDisks(inst, inst_node_uuid)
 
   def Exec(self, feedback_fn):
     feedback_fn("Repairing storage unit '%s' on %s ..." %
                 (self.op.name, self.op.node_name))
 
     st_args = _GetStorageTypeArgs(self.cfg, self.op.storage_type)
-    result = self.rpc.call_storage_execute(self.op.node_name,
+    result = self.rpc.call_storage_execute(self.op.node_uuid,
                                            self.op.storage_type, st_args,
                                            self.op.name,
                                            constants.SO_FIX_CONSISTENCY)

@@ -21,21 +21,19 @@
 
 """Script for testing ganeti.backend"""
 
+import mock
 import os
-import sys
 import shutil
 import tempfile
+import testutils
 import unittest
 
-from ganeti import utils
-from ganeti import constants
 from ganeti import backend
-from ganeti import netutils
+from ganeti import constants
 from ganeti import errors
-from ganeti import serializer
-
-import testutils
-import mocks
+from ganeti import hypervisor
+from ganeti import netutils
+from ganeti import utils
 
 
 class TestX509Certificates(unittest.TestCase):
@@ -75,11 +73,22 @@ class TestX509Certificates(unittest.TestCase):
 
 
 class TestNodeVerify(testutils.GanetiTestCase):
+
+  def setUp(self):
+    testutils.GanetiTestCase.setUp(self)
+    self._mock_hv = None
+
+  def _GetHypervisor(self, hv_name):
+    self._mock_hv = hypervisor.GetHypervisor(hv_name)
+    self._mock_hv.ValidateParameters = mock.Mock()
+    self._mock_hv.Verify = mock.Mock()
+    return self._mock_hv
+
   def testMasterIPLocalhost(self):
     # this a real functional test, but requires localhost to be reachable
     local_data = (netutils.Hostname.GetSysName(),
                   constants.IP4_ADDRESS_LOCALHOST)
-    result = backend.VerifyNode({constants.NV_MASTERIP: local_data}, None)
+    result = backend.VerifyNode({constants.NV_MASTERIP: local_data}, None, {})
     self.failUnless(constants.NV_MASTERIP in result,
                     "Master IP data not returned")
     self.failUnless(result[constants.NV_MASTERIP], "Cannot reach localhost")
@@ -90,11 +99,31 @@ class TestNodeVerify(testutils.GanetiTestCase):
     bad_data =  ("master.example.com", "192.0.2.1")
     # we just test that whatever TcpPing returns, VerifyNode returns too
     netutils.TcpPing = lambda a, b, source=None: False
-    result = backend.VerifyNode({constants.NV_MASTERIP: bad_data}, None)
+    result = backend.VerifyNode({constants.NV_MASTERIP: bad_data}, None, {})
     self.failUnless(constants.NV_MASTERIP in result,
                     "Master IP data not returned")
     self.failIf(result[constants.NV_MASTERIP],
                 "Result from netutils.TcpPing corrupted")
+
+  def testVerifyHvparams(self):
+    test_hvparams = {constants.HV_XEN_CMD: constants.XEN_CMD_XL}
+    test_what = {constants.NV_HVPARAMS: \
+        [("mynode", constants.HT_XEN_PVM, test_hvparams)]}
+    result = {}
+    backend._VerifyHvparams(test_what, True, result,
+                            get_hv_fn=self._GetHypervisor)
+    self._mock_hv.ValidateParameters.assert_called_with(test_hvparams)
+
+  def testVerifyHypervisors(self):
+    hvname = constants.HT_XEN_PVM
+    hvparams = {constants.HV_XEN_CMD: constants.XEN_CMD_XL}
+    all_hvparams = {hvname: hvparams}
+    test_what = {constants.NV_HYPERVISOR: [hvname]}
+    result = {}
+    backend._VerifyHypervisors(
+        test_what, True, result, all_hvparams=all_hvparams,
+        get_hv_fn=self._GetHypervisor)
+    self._mock_hv.Verify.assert_called_with(hvparams=hvparams)
 
 
 def _DefRestrictedCmdOwner():
@@ -537,6 +566,249 @@ class TestGetBlockDevSymlinkPath(unittest.TestCase):
   def test(self):
     for idx in range(100):
       self._Test("inst1.example.com", idx)
+
+
+class TestGetInstanceList(unittest.TestCase):
+
+  def setUp(self):
+    self._test_hv = self._TestHypervisor()
+    self._test_hv.ListInstances = mock.Mock(
+      return_value=["instance1", "instance2", "instance3"] )
+
+  class _TestHypervisor(hypervisor.hv_base.BaseHypervisor):
+    def __init__(self):
+      hypervisor.hv_base.BaseHypervisor.__init__(self)
+
+  def _GetHypervisor(self, name):
+    return self._test_hv
+
+  def testHvparams(self):
+    fake_hvparams = {constants.HV_XEN_CMD: constants.XEN_CMD_XL}
+    hvparams = {constants.HT_FAKE: fake_hvparams}
+    backend.GetInstanceList([constants.HT_FAKE], all_hvparams=hvparams,
+                            get_hv_fn=self._GetHypervisor)
+    self._test_hv.ListInstances.assert_called_with(hvparams=fake_hvparams)
+
+
+class TestGetHvInfo(unittest.TestCase):
+
+  def setUp(self):
+    self._test_hv = self._TestHypervisor()
+    self._test_hv.GetNodeInfo = mock.Mock()
+
+  class _TestHypervisor(hypervisor.hv_base.BaseHypervisor):
+    def __init__(self):
+      hypervisor.hv_base.BaseHypervisor.__init__(self)
+
+  def _GetHypervisor(self, name):
+    return self._test_hv
+
+  def testGetHvInfoAllNone(self):
+    result = backend._GetHvInfoAll(None)
+    self.assertTrue(result is None)
+
+  def testGetHvInfoAll(self):
+    hvname = constants.HT_XEN_PVM
+    hvparams = {constants.HV_XEN_CMD: constants.XEN_CMD_XL}
+    hv_specs = [(hvname, hvparams)]
+
+    backend._GetHvInfoAll(hv_specs, self._GetHypervisor)
+    self._test_hv.GetNodeInfo.assert_called_with(hvparams=hvparams)
+
+
+class TestApplyStorageInfoFunction(unittest.TestCase):
+
+  _STORAGE_KEY = "some_key"
+  _SOME_ARGS = ["some_args"]
+
+  def setUp(self):
+    self.mock_storage_fn = mock.Mock()
+
+  def testApplyValidStorageType(self):
+    storage_type = constants.ST_LVM_VG
+    info_fn_orig = backend._STORAGE_TYPE_INFO_FN
+    backend._STORAGE_TYPE_INFO_FN = {
+        storage_type: self.mock_storage_fn
+      }
+
+    backend._ApplyStorageInfoFunction(
+        storage_type, self._STORAGE_KEY, self._SOME_ARGS)
+
+    self.mock_storage_fn.assert_called_with(self._STORAGE_KEY, self._SOME_ARGS)
+    backend._STORAGE_TYPE_INFO_FN = info_fn_orig
+
+  def testApplyInValidStorageType(self):
+    storage_type = "invalid_storage_type"
+    info_fn_orig = backend._STORAGE_TYPE_INFO_FN
+    backend._STORAGE_TYPE_INFO_FN = {}
+
+    self.assertRaises(KeyError, backend._ApplyStorageInfoFunction,
+                      storage_type, self._STORAGE_KEY, self._SOME_ARGS)
+    backend._STORAGE_TYPE_INFO_FN = info_fn_orig
+
+  def testApplyNotImplementedStorageType(self):
+    storage_type = "not_implemented_storage_type"
+    info_fn_orig = backend._STORAGE_TYPE_INFO_FN
+    backend._STORAGE_TYPE_INFO_FN = {storage_type: None}
+
+    self.assertRaises(NotImplementedError,
+                      backend._ApplyStorageInfoFunction,
+                      storage_type, self._STORAGE_KEY, self._SOME_ARGS)
+    backend._STORAGE_TYPE_INFO_FN = info_fn_orig
+
+
+class TestGetLvmVgSpaceInfo(unittest.TestCase):
+
+  def testValid(self):
+    path = "somepath"
+    excl_stor = True
+    orig_fn = backend._GetVgInfo
+    backend._GetVgInfo = mock.Mock()
+    backend._GetLvmVgSpaceInfo(path, [excl_stor])
+    backend._GetVgInfo.assert_called_with(path, excl_stor)
+    backend._GetVgInfo = orig_fn
+
+  def testNoExclStorageNotBool(self):
+    path = "somepath"
+    excl_stor = "123"
+    self.assertRaises(errors.ProgrammerError, backend._GetLvmVgSpaceInfo,
+                      path, [excl_stor])
+
+  def testNoExclStorageNotInList(self):
+    path = "somepath"
+    excl_stor = "123"
+    self.assertRaises(errors.ProgrammerError, backend._GetLvmVgSpaceInfo,
+                      path, excl_stor)
+
+class TestGetLvmPvSpaceInfo(unittest.TestCase):
+
+  def testValid(self):
+    path = "somepath"
+    excl_stor = True
+    orig_fn = backend._GetVgSpindlesInfo
+    backend._GetVgSpindlesInfo = mock.Mock()
+    backend._GetLvmPvSpaceInfo(path, [excl_stor])
+    backend._GetVgSpindlesInfo.assert_called_with(path, excl_stor)
+    backend._GetVgSpindlesInfo = orig_fn
+
+
+class TestCheckStorageParams(unittest.TestCase):
+
+  def testParamsNone(self):
+    self.assertRaises(errors.ProgrammerError, backend._CheckStorageParams,
+                      None, NotImplemented)
+
+  def testParamsWrongType(self):
+    self.assertRaises(errors.ProgrammerError, backend._CheckStorageParams,
+                      "string", NotImplemented)
+
+  def testParamsEmpty(self):
+    backend._CheckStorageParams([], 0)
+
+  def testParamsValidNumber(self):
+    backend._CheckStorageParams(["a", True], 2)
+
+  def testParamsInvalidNumber(self):
+    self.assertRaises(errors.ProgrammerError, backend._CheckStorageParams,
+                      ["b", False], 3)
+
+
+class TestGetVgSpindlesInfo(unittest.TestCase):
+
+  def setUp(self):
+    self.vg_free = 13
+    self.vg_size = 31
+    self.mock_fn = mock.Mock(return_value=(self.vg_free, self.vg_size))
+
+  def testValidInput(self):
+    name = "myvg"
+    excl_stor = True
+    result = backend._GetVgSpindlesInfo(name, excl_stor, info_fn=self.mock_fn)
+    self.mock_fn.assert_called_with(name)
+    self.assertEqual(name, result["name"])
+    self.assertEqual(constants.ST_LVM_PV, result["type"])
+    self.assertEqual(self.vg_free, result["storage_free"])
+    self.assertEqual(self.vg_size, result["storage_size"])
+
+  def testNoExclStor(self):
+    name = "myvg"
+    excl_stor = False
+    result = backend._GetVgSpindlesInfo(name, excl_stor, info_fn=self.mock_fn)
+    self.mock_fn.assert_not_called()
+    self.assertEqual(name, result["name"])
+    self.assertEqual(constants.ST_LVM_PV, result["type"])
+    self.assertEqual(0, result["storage_free"])
+    self.assertEqual(0, result["storage_size"])
+
+
+class TestGetVgSpindlesInfo(unittest.TestCase):
+
+  def testValidInput(self):
+    self.vg_free = 13
+    self.vg_size = 31
+    self.mock_fn = mock.Mock(return_value=[(self.vg_free, self.vg_size)])
+    name = "myvg"
+    excl_stor = True
+    result = backend._GetVgInfo(name, excl_stor, info_fn=self.mock_fn)
+    self.mock_fn.assert_called_with([name], excl_stor)
+    self.assertEqual(name, result["name"])
+    self.assertEqual(constants.ST_LVM_VG, result["type"])
+    self.assertEqual(self.vg_free, result["storage_free"])
+    self.assertEqual(self.vg_size, result["storage_size"])
+
+  def testNoExclStor(self):
+    name = "myvg"
+    excl_stor = True
+    self.mock_fn = mock.Mock(return_value=None)
+    result = backend._GetVgInfo(name, excl_stor, info_fn=self.mock_fn)
+    self.mock_fn.assert_called_with([name], excl_stor)
+    self.assertEqual(name, result["name"])
+    self.assertEqual(constants.ST_LVM_VG, result["type"])
+    self.assertEqual(None, result["storage_free"])
+    self.assertEqual(None, result["storage_size"])
+
+
+class TestGetNodeInfo(unittest.TestCase):
+
+  _SOME_RESULT = None
+
+  def testApplyStorageInfoFunction(self):
+    orig_fn = backend._ApplyStorageInfoFunction
+    backend._ApplyStorageInfoFunction = mock.Mock(
+        return_value=self._SOME_RESULT)
+    storage_units = [(st, st + "_key", [st + "_params"]) for st in
+                     constants.STORAGE_TYPES]
+
+    backend.GetNodeInfo(storage_units, None)
+
+    call_args_list = backend._ApplyStorageInfoFunction.call_args_list
+    self.assertEqual(len(constants.STORAGE_TYPES), len(call_args_list))
+    for call in call_args_list:
+      storage_type, storage_key, storage_params = call[0]
+      self.assertEqual(storage_type + "_key", storage_key)
+      self.assertEqual([storage_type + "_params"], storage_params)
+      self.assertTrue(storage_type in constants.STORAGE_TYPES)
+    backend._ApplyStorageInfoFunction = orig_fn
+
+
+class TestSpaceReportingConstants(unittest.TestCase):
+  """Ensures consistency between STS_REPORT and backend.
+
+  These tests ensure, that the constant 'STS_REPORT' is consitent
+  with the implementation of invoking space reporting functions
+  in backend.py. Once space reporting is available for all types,
+  the constant can be removed and these tests as well.
+
+  """
+  def testAllReportingTypesHaveAReportingFunction(self):
+    for storage_type in constants.STS_REPORT:
+      self.assertTrue(backend._STORAGE_TYPE_INFO_FN[storage_type] is not None)
+
+  def testAllNotReportingTypesDoneHaveFunction(self):
+    non_reporting_types = set(constants.STORAGE_TYPES)\
+        - set(constants.STS_REPORT)
+    for storage_type in non_reporting_types:
+      self.assertEqual(None, backend._STORAGE_TYPE_INFO_FN[storage_type])
 
 
 if __name__ == "__main__":

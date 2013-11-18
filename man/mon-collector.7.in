@@ -18,6 +18,21 @@ desired data collector to be run.
 When executed, \f[C]mon-collector\f[] will run the specified collector
 and will print its output to stdout, in JSON format.
 .SH COLLECTORS
+.SS DISKSTATS
+.PP
+diskstats [ [ \f[B]-f\f[] | \f[B]--file\f[] ] = \f[I]input-file\f[] ]
+.PP
+Collects the information about the status of the disks of the system, as
+listed by /proc/diskstats, or by an alternate file with the same syntax
+specified on the command line.
+.PP
+The options that can be passed to the DRBD collector are as follows:
+.TP
+.B -f \f[I]input-file\f[], --file=\f[I]input-file\f[]
+Where to read the data from.
+Default if not specified: /proc/diskstats
+.RS
+.RE
 .SS DRBD
 .PP
 drbd [ [ \f[B]-s\f[] | \f[B]--drbd-status\f[] ] = \f[I]status-file\f[] ]
@@ -43,6 +58,77 @@ Read the DRBD status from the specified file instead of /proc/drbd.
 Read the information about the pairing between instances and DRBD minors
 from the specified file instead of asking the Confd servers for them.
 .RS
+.RE
+.SS INSTANCE STATUS
+.PP
+inst-status-xen [ [ \f[B]-a\f[] | \f[B]--address\f[] ] =
+\f[I]ip-address\f[] ] [ [ \f[B]-p\f[] | \f[B]--port\f[] ] =
+\f[I]port-number\f[] ]
+.PP
+Collects the information about the status of the instances of the
+current node.
+In order to perform this task, it needs to connect to the ConfD daemon
+to fetch some configuration information.
+The following parameters allow the user to specify the position where
+the daemon is listening, in case it\[aq]s not the default one:
+.TP
+.B -a \f[I]ip-address\f[], --address=\f[I]ip-address\f[]
+The IP address the ConfD daemon is listening on.
+.RS
+.RE
+.TP
+.B -p \f[I]port-number\f[], --port=\f[I]port-number\f[]
+The port the ConfD deamon is listening on.
+.RS
+.RE
+.SS LOGICAL VOLUMES
+.PP
+lv [ [ \f[B]-a\f[] | \f[B]--address\f[] ] = \f[I]ip-address\f[] ] [ [
+\f[B]-p\f[] | \f[B]--port\f[] ] = \f[I]port-number\f[] ] [ [ \f[B]-f\f[]
+| \f[B]--file\f[] ] = \f[I]input-file\f[] ] [ [ \f[B]-i\f[] |
+\f[B]--instances\f[] ] = \f[I]instances-file\f[] ]
+.PP
+Collects the information about the logical volumes of the current node.
+.PP
+In order to perform this task, it needs to interact with the
+\f[C]lvs\f[] command line tool and to connect to the ConfD daemon to
+fetch some configuration information.
+The following parameters allow the user to specify the position where
+the daemon is listening, in case it\[aq]s not the default one:
+.TP
+.B -a \f[I]ip-address\f[], --address=\f[I]ip-address\f[]
+The IP address the ConfD daemon is listening on.
+.RS
+.RE
+.TP
+.B -p \f[I]port-number\f[], --port=\f[I]port-number\f[]
+The port the ConfD deamon is listening on.
+.RS
+.RE
+.PP
+Instead of accessing the live data on the cluster, the tool can also
+read data serialized on files (mainly for testing purposes).
+Namely:
+.TP
+.B -f \f[I]input-file\f[], --file \f[I]input-file\f[]
+The name of the file containing a recorded output of the \f[C]lvs\f[]
+tool.
+.RS
+.RE
+.TP
+.B -i \f[I]instances-file\f[], --instances=\f[I]instances-file\f[]
+The name of the file containing a JSON serialization of instances the
+current node is primary and secondary for, listed as:
+.RS
+.IP
+.nf
+\f[C]
+([Instance],\ [Instance])
+\f[]
+.fi
+.PP
+where the first list contains the instances the node is primary for, the
+second list those the node is secondary for.
 .RE
 .SH REPORTING BUGS
 .PP

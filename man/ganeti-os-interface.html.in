@@ -90,7 +90,7 @@ code > span.er { color: #ff0000; font-weight: bold; }
 <dd><p>The hypervisor of this instance.</p>
 </dd>
 <dt>DISK_COUNT</dt>
-<dd><p>The number of disks the instance has. The actual disk defitions are in a set of additional variables. The instance's disk will be numbered from 0 to this value minus one.</p>
+<dd><p>The number of disks the instance has. The actual disk definitions are in a set of additional variables. The instance's disk will be numbered from 0 to this value minus one.</p>
 </dd>
 <dt>DISK_%N_PATH</dt>
 <dd><p>The path to the storage for disk N of the instance. This might be either a block device or a regular file, in which case the OS scripts should use <code>losetup</code> (if they need to mount it). E.g. the first disk of the instance might be exported as <code>DISK_0_PATH=/dev/drbd0</code>.</p>
@@ -175,7 +175,7 @@ code > span.er { color: #ff0000; font-weight: bold; }
 <h2 id="create"><a href="#TOC">create</a></h2>
 <p>The <strong>create</strong> command is used for creating a new instance from scratch. It has no additional environment variables bside the common ones.</p>
 <p>The <code>INSTANCE_NAME</code> variable denotes the name of the instance, which is guaranteed to resolve to an IP address. The create script should configure the instance according to this name. It can configure the IP statically or not, depending on the deployment environment.</p>
-<p>The <code>INSTANCE_REINSTALL</code> variable is set to <code>1</code> when this create request is reinstalling an existing instance, rather than creating one anew. This can be used, for example, to preserve some data in the old instance in an OS-specific way.</p>
+<p>The <code>INSTANCE_REINSTALL</code> variable is set to <code>1</code> when this create request is reinstalling an existing instance, rather than creating a new one. This can be used, for example, to preserve some data in the old instance in an OS-specific way.</p>
 <h2 id="export"><a href="#TOC">export</a></h2>
 <p>This command is used in order to make a backup of a given disk of the instance. The command should write to stdout a dump of the given block device. The output of this program will be passed during restore to the <strong>import</strong> command.</p>
 <p>The specific disk to backup is denoted by two additional environment variables: <code>EXPORT_INDEX</code> which denotes the index in the instance disks structure (and could be used for example to skip the second disk if not needed for backup) and <code>EXPORT_DEVICE</code> which has the same value as <code>DISK_N_PATH</code> but is duplicated here for easier usage by shell scripts (rather than parse the <code>DISK_...</code> variables).</p>

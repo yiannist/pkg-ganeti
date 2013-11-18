@@ -47,8 +47,8 @@ import qualified Text.JSON as J
 
 import qualified Ganeti.BasicTypes as BT
 import qualified Ganeti.Constants as C
-import Ganeti.Block.Drbd.Parser(drbdStatusParser)
-import Ganeti.Block.Drbd.Types
+import Ganeti.Storage.Drbd.Parser(drbdStatusParser)
+import Ganeti.Storage.Drbd.Types
 import Ganeti.Common
 import Ganeti.Confd.Client
 import Ganeti.Confd.Types
@@ -136,17 +136,6 @@ computeStatus (DRBDStatus _ devInfos) =
   let statuses = map computeDevStatus devInfos
       (code, strList) = foldr mergeStatuses (DCSCOk, [""]) statuses
   in DCStatus code $ intercalate "\n" strList
-
--- | Helper function for merging statuses.
-mergeStatuses :: (DCStatusCode, String) -> (DCStatusCode, [String])
-              -> (DCStatusCode, [String])
-mergeStatuses (newStat, newStr) (storedStat, storedStrs) =
-  let resStat = max newStat storedStat
-      resStrs =
-        if newStr == ""
-          then storedStrs
-          else storedStrs ++ [newStr]
-  in (resStat, resStrs)
 
 -- | Compute the status of a DRBD device and its error message.
 computeDevStatus :: DeviceInfo -> (DCStatusCode, String)

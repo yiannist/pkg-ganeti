@@ -36,12 +36,15 @@ import qualified Data.Map as Map
 import qualified Text.JSON as J
 
 import Ganeti.Config
+import Ganeti.Common
 import Ganeti.Objects
 import Ganeti.JSON
 import Ganeti.Rpc
+import Ganeti.Types
 import Ganeti.Query.Language
 import Ganeti.Query.Common
 import Ganeti.Query.Types
+import Ganeti.Storage.Utils
 import Ganeti.Utils (niceSort)
 
 -- | Runtime is the resulting type for NodeInfo call.
@@ -55,14 +58,20 @@ nodeLiveFieldsDefs =
      \ for detecting reboots by tracking changes")
   , ("cnodes", "CNodes", QFTNumber, "cpu_nodes",
      "Number of NUMA domains on node (if exported by hypervisor)")
+  , ("cnos", "CNOs", QFTNumber, "cpu_dom0",
+     "Number of logical processors used by the node OS (dom0 for Xen)")
   , ("csockets", "CSockets", QFTNumber, "cpu_sockets",
      "Number of physical CPU sockets (if exported by hypervisor)")
   , ("ctotal", "CTotal", QFTNumber, "cpu_total",
      "Number of logical processors")
-  , ("dfree", "DFree", QFTUnit, "vg_free",
-     "Available disk space in volume group")
-  , ("dtotal", "DTotal", QFTUnit, "vg_size",
-     "Total disk space in volume group used for instance disk allocation")
+  , ("dfree", "DFree", QFTUnit, "storage_free",
+     "Available storage space on storage unit")
+  , ("dtotal", "DTotal", QFTUnit, "storage_size",
+     "Total storage space on storage unit for instance disk allocation")
+  , ("spfree", "SpFree", QFTNumber, "spindles_free",
+     "Available spindles in volume group (exclusive storage only)")
+  , ("sptotal", "SpTotal", QFTNumber, "spindles_total",
+     "Total spindles in volume group (exclusive storage only)")
   , ("mfree", "MFree", QFTUnit, "memory_free",
      "Memory available for instance allocations")
   , ("mnode", "MNode", QFTUnit, "memory_dom0",
@@ -71,6 +80,32 @@ nodeLiveFieldsDefs =
      "Total amount of memory of physical machine")
   ]
 
+-- | Helper function to extract an attribute from a maybe StorageType
+getAttrFromStorageInfo :: (J.JSON a) => (StorageInfo -> Maybe a)
+                       -> Maybe StorageInfo -> J.JSValue
+getAttrFromStorageInfo attr_fn (Just info) =
+  case attr_fn info of
+    Just val -> J.showJSON val
+    Nothing -> J.JSNull
+getAttrFromStorageInfo _ Nothing = J.JSNull
+
+-- | Check whether the given storage info fits to the given storage type
+isStorageInfoOfType :: StorageType -> StorageInfo -> Bool
+isStorageInfoOfType stype sinfo = storageInfoType sinfo ==
+    storageTypeToRaw stype
+
+-- | Get storage info for the default storage unit
+getStorageInfoForDefault :: [StorageInfo] -> Maybe StorageInfo
+getStorageInfoForDefault sinfos = listToMaybe $ filter
+    (not . isStorageInfoOfType StorageLvmPv) sinfos
+
+-- | Gets the storage info for a storage type
+-- FIXME: This needs to be extended when storage pools are implemented,
+-- because storage types are not necessarily unique then
+getStorageInfoForType :: [StorageInfo] -> StorageType -> Maybe StorageInfo
+getStorageInfoForType sinfos stype = listToMaybe $ filter
+    (isStorageInfoOfType stype) sinfos
+
 -- | Map each name to a function that extracts that value from
 -- the RPC result.
 nodeLiveFieldExtract :: FieldName -> RpcResultNodeInfo -> J.JSValue
@@ -78,14 +113,24 @@ nodeLiveFieldExtract "bootid" res =
   J.showJSON $ rpcResNodeInfoBootId res
 nodeLiveFieldExtract "cnodes" res =
   jsonHead (rpcResNodeInfoHvInfo res) hvInfoCpuNodes
+nodeLiveFieldExtract "cnos" res =
+  jsonHead (rpcResNodeInfoHvInfo res) hvInfoCpuDom0
 nodeLiveFieldExtract "csockets" res =
   jsonHead (rpcResNodeInfoHvInfo res) hvInfoCpuSockets
 nodeLiveFieldExtract "ctotal" res =
   jsonHead (rpcResNodeInfoHvInfo res) hvInfoCpuTotal
 nodeLiveFieldExtract "dfree" res =
-  getMaybeJsonHead (rpcResNodeInfoVgInfo res) vgInfoVgFree
+  getAttrFromStorageInfo storageInfoStorageFree (getStorageInfoForDefault
+      (rpcResNodeInfoStorageInfo res))
 nodeLiveFieldExtract "dtotal" res =
-  getMaybeJsonHead (rpcResNodeInfoVgInfo res) vgInfoVgSize
+  getAttrFromStorageInfo storageInfoStorageSize (getStorageInfoForDefault
+      (rpcResNodeInfoStorageInfo res))
+nodeLiveFieldExtract "spfree" res =
+  getAttrFromStorageInfo storageInfoStorageFree (getStorageInfoForType
+      (rpcResNodeInfoStorageInfo res) StorageLvmPv)
+nodeLiveFieldExtract "sptotal" res =
+  getAttrFromStorageInfo storageInfoStorageSize (getStorageInfoForType
+      (rpcResNodeInfoStorageInfo res) StorageLvmPv)
 nodeLiveFieldExtract "mfree" res =
   jsonHead (rpcResNodeInfoHvInfo res) hvInfoMemoryFree
 nodeLiveFieldExtract "mnode" res =
@@ -174,21 +219,21 @@ nodeFields =
   , (FieldDefinition "pinst_cnt" "Pinst" QFTNumber
        "Number of instances with this node as primary",
      FieldConfig (\cfg ->
-                    rsNormal . length . fst . getNodeInstances cfg . nodeName),
+                    rsNormal . length . fst . getNodeInstances cfg . nodeUuid),
      QffNormal)
   , (FieldDefinition "sinst_cnt" "Sinst" QFTNumber
        "Number of instances with this node as secondary",
      FieldConfig (\cfg ->
-                    rsNormal . length . snd . getNodeInstances cfg . nodeName),
+                    rsNormal . length . snd . getNodeInstances cfg . nodeUuid),
      QffNormal)
   , (FieldDefinition "pinst_list" "PriInstances" QFTOther
        "List of instances with this node as primary",
      FieldConfig (\cfg -> rsNormal . niceSort . map instName . fst .
-                          getNodeInstances cfg . nodeName), QffNormal)
+                          getNodeInstances cfg . nodeUuid), QffNormal)
   , (FieldDefinition "sinst_list" "SecInstances" QFTOther
        "List of instances with this node as secondary",
      FieldConfig (\cfg -> rsNormal . niceSort . map instName . snd .
-                          getNodeInstances cfg . nodeName), QffNormal)
+                          getNodeInstances cfg . nodeUuid), QffNormal)
   , (FieldDefinition "role" "Role" QFTText nodeRoleDoc,
      FieldConfig ((rsNormal .) . getNodeRole), QffNormal)
   , (FieldDefinition "powered" "Powered" QFTBool
@@ -214,6 +259,10 @@ fieldsMap :: FieldMap Node Runtime
 fieldsMap =
   Map.fromList $ map (\v@(f, _, _) -> (fdefName f, v)) nodeFields
 
+-- | Create an RPC result for a broken node
+rpcResultNodeBroken :: Node -> (Node, Runtime)
+rpcResultNodeBroken node = (node, Left (RpcResultError "Broken configuration"))
+
 -- | Collect live data from RPC query if enabled.
 --
 -- FIXME: Check which fields we actually need and possibly send empty
@@ -223,16 +272,22 @@ collectLiveData:: Bool -> ConfigData -> [Node] -> IO [(Node, Runtime)]
 collectLiveData False _ nodes =
   return $ zip nodes (repeat $ Left (RpcResultError "Live data disabled"))
 collectLiveData True cfg nodes = do
-  let vgs = maybeToList . clusterVolumeGroupName $ configCluster cfg
-      hvs = [getDefaultHypervisor cfg]
-      step n (bn, gn, em) =
-        let ndp' = getNodeNdParams cfg n
-        in case ndp' of
-             Just ndp -> (bn, n : gn,
-                          (nodeName n, ndpExclusiveStorage ndp) : em)
-             Nothing -> (n : bn, gn, em)
-      (bnodes, gnodes, emap) = foldr step ([], [], []) nodes
-  rpcres <- executeRpcCall gnodes (RpcCallNodeInfo vgs hvs (Map.fromList emap))
-  -- FIXME: The order of nodes in the result could be different from the input
-  return $ zip bnodes (repeat $ Left (RpcResultError "Broken configuration"))
-           ++ rpcres
+  let hvs = [getDefaultHypervisorSpec cfg]
+      good_nodes = nodesWithValidConfig cfg nodes
+      -- FIXME: use storage units from calling code
+      storage_units = getStorageUnitsOfNodes cfg good_nodes
+  rpcres <- executeRpcCall good_nodes (RpcCallNodeInfo storage_units hvs)
+  return $ fillUpList (fillPairFromMaybe rpcResultNodeBroken pickPairUnique)
+      nodes rpcres
+
+-- | Looks up the default hypervisor and it's hvparams
+getDefaultHypervisorSpec :: ConfigData -> (Hypervisor, HvParams)
+getDefaultHypervisorSpec cfg = (hv, getHvParamsFromCluster cfg hv)
+  where hv = getDefaultHypervisor cfg
+
+-- | Looks up the cluster's hvparams of the given hypervisor
+getHvParamsFromCluster :: ConfigData -> Hypervisor -> HvParams
+getHvParamsFromCluster cfg hv =
+  fromMaybe (GenericContainer (Map.fromList []))
+    (Map.lookup (hypervisorToRaw hv)
+       (fromContainer (clusterHvparams (configCluster cfg))))

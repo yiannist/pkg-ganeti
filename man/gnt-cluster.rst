@@ -170,10 +170,10 @@ INIT
 | [\--master-netmask *netmask*]
 | [\--use-external-mip-script {yes \| no}]
 | [{-m|\--mac-prefix} *mac-prefix*]
-| [\--no-lvm-storage]
 | [\--no-etc-hosts]
 | [\--no-ssh-init]
 | [\--file-storage-dir *dir*]
+| [\--shared-file-storage-dir *dir*]
 | [\--enabled-hypervisors *hypervisors*]
 | [{-H|\--hypervisor-parameters} *hypervisor*:*hv-param*=*value*[,*hv-param*=*value*...]]
 | [{-B|\--backend-parameters} *be-param*=*value*[,*be-param*=*value*...]]
@@ -198,6 +198,7 @@ INIT
 | [\--ipolicy-vcpu-ratio *ratio*]
 | [\--disk-state *diskstate*]
 | [\--hypervisor-state *hvstate*]
+| [\--drbd-usermode-helper *helper*]
 | [\--enabled-disk-templates *template* [,*template*...]]
 | {*clustername*}
 
@@ -235,7 +236,8 @@ the cluster creation and DRBD support is enabled you might have to
 manually modify the metavg as well.
 
 If you don't want to use lvm storage at all use
-the ``--no-lvm-storage`` option. Once the cluster is initialized
+the ``--enabled-disk-templates`` option to restrict the set of enabled
+disk templates. Once the cluster is initialized
 you can change this setup with the **modify** command.
 
 The ``--master-netdev`` option is useful for specifying a different
@@ -259,21 +261,20 @@ prefix under which the virtual MAC addresses of your instances will be
 generated. The prefix must be specified in the format ``XX:XX:XX`` and
 the default is ``aa:00:00``.
 
-The ``--no-lvm-storage`` option allows you to initialize the
-cluster without lvm support. This means that only instances using
-files as storage backend will be possible to create. Once the
-cluster is initialized you can change this setup with the
-**modify** command.
-
 The ``--no-etc-hosts`` option allows you to initialize the cluster
 without modifying the /etc/hosts file.
 
 The ``--no-ssh-init`` option allows you to initialize the cluster
 without creating or distributing SSH key pairs.
 
-The ``--file-storage-dir`` option allows you set the directory to
-use for storing the instance disk files when using file storage as
-backend for instance disks.
+The ``--file-storage-dir`` and ``--shared-file-storage-dir`` options
+allow you set the directory to use for storing the instance disk files
+when using file storage backend, respectively shared file storage
+backend,  for instance disks. Note that the file and shared file storage
+dir must be an allowed directory for file storage. Those directories
+are specified in the ``@SYSCONFDIR@/ganeti/file-storage-paths`` file.
+The file storage directory can also be a subdirectory of an allowed one.
+The file storage directory should be present on all nodes.
 
 The ``--prealloc-wipe-disks`` sets a cluster wide configuration value
 for wiping disks prior to allocation and size changes (``gnt-instance
@@ -425,6 +426,11 @@ net-custom
     String containing additional parameters to be appended to the
     arguments list of ``drbdsetup net``.
 
+protocol
+    Replication protocol for the DRBD device. Has to be either "A", "B"
+    or "C". Refer to the DRBD documentation for further information
+    about the differences between the protocols.
+
 dynamic-resync
     Boolean indicating whether to use the dynamic resync speed
     controller or not. If enabled, c-plan-ahead must be non-zero and all
@@ -533,17 +539,21 @@ Please note, that ``std`` values are not the same as defaults set by
 - ``--specs-mem-size`` limits the amount of memory available
 - ``--specs-nic-count`` sets limits on the number of NICs used
 
-The ``--ipolicy-disk-templates`` and ``--ipolicy-spindle-ratio`` options
-take a decimal number. The ``--ipolicy-disk-templates`` option takes a
-comma-separated list of disk templates.
+The ``--ipolicy-spindle-ratio`` option takes a decimal number. The
+``--ipolicy-disk-templates`` option takes a comma-separated list of disk
+templates. This list of disk templates must be a subset of the list
+of cluster-wide enabled disk templates (which can be set with
+``--enabled-disk-templates``).
 
-- ``--ipolicy-disk-templates`` limits the allowed disk templates
 - ``--ipolicy-spindle-ratio`` limits the instances-spindles ratio
 - ``--ipolicy-vcpu-ratio`` limits the vcpu-cpu ratio
 
 All the instance policy elements can be overridden at group level. Group
 level overrides can be removed by specifying ``default`` as the value of
 an item.
+
+The ``--drbd-usermode-helper`` option can be used to specify a usermode
+helper. Check that this string is the one used by the DRBD kernel.
 
 For details about how to use ``--hypervisor-state`` and ``--disk-state``
 have a look at **ganeti**\(7).
@@ -554,7 +564,9 @@ this list, see **gnt-instance**\(8). Note that in contrast to the list of
 disk templates in the ipolicy, this list is a hard restriction. It is not
 possible to create instances with disk templates that are not enabled in
 the cluster. It is also not possible to disable a disk template when there
-are still instances using it.
+are still instances using it. The first disk template in the list of
+enabled disk template is the default disk template. It will be used for
+instance creation, if no disk template is requested explicitely.
 
 MASTER-FAILOVER
 ~~~~~~~~~~~~~~~
@@ -594,10 +606,9 @@ be 1.
 MODIFY
 ~~~~~~
 
-| **modify** [\--submit]
+| **modify** [\--submit] [\--print-job-id]
 | [\--force]
 | [\--vg-name *vg-name*]
-| [\--no-lvm-storage]
 | [\--enabled-hypervisors *hypervisors*]
 | [{-H|\--hypervisor-parameters} *hypervisor*:*hv-param*=*value*[,*hv-param*=*value*...]]
 | [{-B|\--backend-parameters} *be-param*=*value*[,*be-param*=*value*...]]
@@ -623,18 +634,21 @@ MODIFY
 | [\--ipolicy-spindle-ratio *ratio*]
 | [\--ipolicy-vcpu-ratio *ratio*]
 | [\--enabled-disk-templates *template* [,*template*...]]
+| [\--drbd-usermode-helper *helper*]
+| [\--file-storage-dir *dir*]
+| [\--shared-file-storage-dir *dir*]
 
 
 Modify the options for the cluster.
 
-The ``--vg-name``, ``--no-lvm-storage``, ``--enabled-hypervisors``,
-``-H (--hypervisor-parameters)``, ``-B (--backend-parameters)``,
-``-D (--disk-parameters)``, ``--nic-parameters``, ``-C
-(--candidate-pool-size)``, ``--maintain-node-health``,
+The ``--vg-name``, ``--enabled-hypervisors``, ``-H (--hypervisor-parameters)``,
+``-B (--backend-parameters)``, ``-D (--disk-parameters)``, ``--nic-parameters``,
+``-C (--candidate-pool-size)``, ``--maintain-node-health``,
 ``--prealloc-wipe-disks``, ``--uid-pool``, ``--node-parameters``,
 ``--master-netdev``, ``--master-netmask``, ``--use-external-mip-script``,
-and ``--enabled-disk-templates`` options are described in the **init**
-command.
+``--drbd-usermode-helper``, ``--file-storage-dir``,
+``--shared-file-storage-dir``, and ``--enabled-disk-templates`` options are
+described in the **init** command.
 
 The ``--hypervisor-state`` and ``--disk-state`` options are described in
 detail in **ganeti**\(7).
@@ -697,7 +711,7 @@ The ``info`` option shows whether the watcher is currently paused.
 REDIST-CONF
 ~~~~~~~~~~~
 
-**redist-conf** [\--submit]
+**redist-conf** [\--submit] [\--print-job-id]
 
 This command forces a full push of configuration files from the
 master node to the other nodes in the cluster. This is normally not
@@ -762,14 +776,15 @@ This command checks that the recorded size of the given instance's
 disks matches the actual size and updates any mismatches found.
 This is needed if the Ganeti configuration is no longer consistent
 with reality, as it will impact some disk operations. If no
-arguments are given, all instances will be checked.
+arguments are given, all instances will be checked. When exclusive
+storage is active, also spindles are updated.
 
 Note that only active disks can be checked by this command; in case
 a disk cannot be activated it's advised to use
 **gnt-instance activate-disks \--ignore-size ...** to force
 activation without regard to the current size.
 
-When the all disk sizes are consistent, the command will return no
+When all the disk sizes are consistent, the command will return no
 output. Otherwise it will log details about the inconsistencies in
 the configuration.
 

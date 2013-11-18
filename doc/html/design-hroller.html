@@ -8,7 +8,7 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>HRoller tool &mdash; Ganeti 2.8.2 documentation</title>
+    <title>HRoller tool &mdash; Ganeti 2.9.1 documentation</title>
     
     <link rel="stylesheet" href="_static/style.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
@@ -16,7 +16,7 @@
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.8.2',
+        VERSION:     '2.9.1',
         COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -25,23 +25,21 @@
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti 2.8.2 documentation" href="index.html" />
-    <link rel="up" title="Design document drafts" href="design-draft.html" />
-    <link rel="next" title="Management of storage types and disk templates, incl. storage space reporting" href="design-storagetypes.html" />
-    <link rel="prev" title="Ganeti monitoring agent" href="design-monitoring-agent.html" /> 
+    <link rel="top" title="Ganeti 2.9.1 documentation" href="index.html" />
+    <link rel="next" title="Linux HA integration" href="design-linuxha.html" />
+    <link rel="prev" title="Design for adding UUID and name to devices" href="design-device-uuid-name.html" /> 
   </head>
   <body>
     <div class="related">
       <h3>Navigation</h3>
       <ul>
         <li class="right" style="margin-right: 10px">
-          <a href="design-storagetypes.html" title="Management of storage types and disk templates, incl. storage space reporting"
+          <a href="design-linuxha.html" title="Linux HA integration"
              accesskey="N">next</a></li>
         <li class="right" >
-          <a href="design-monitoring-agent.html" title="Ganeti monitoring agent"
+          <a href="design-device-uuid-name.html" title="Design for adding UUID and name to devices"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.8.2 documentation</a> &raquo;</li>
-          <li><a href="design-draft.html" accesskey="U">Design document drafts</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.9.1 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -63,11 +61,12 @@
 <li><a class="reference internal" href="#down-instances" id="id6">Down instances</a></li>
 <li><a class="reference internal" href="#drbd" id="id7">DRBD</a></li>
 <li><a class="reference internal" href="#non-drbd" id="id8">Non-DRBD</a></li>
+<li><a class="reference internal" href="#full-evacuation" id="id9">Full-Evacuation</a></li>
 </ul>
 </li>
 </ul>
 </li>
-<li><a class="reference internal" href="#future-work" id="id9">Future work</a></li>
+<li><a class="reference internal" href="#future-work" id="id10">Future work</a></li>
 </ul>
 </li>
 </ul>
@@ -135,18 +134,18 @@ them (citation needed). As such we&#8217;ll implement for now just the
 <p>In order to do that we can use the following algorithm:</p>
 <ol class="arabic simple">
 <li>Compute node sets that don&#8217;t contain both the primary and the
-secondary for any instance. This can be done already by the current
-hroller graph coloring algorithm: nodes are in the same set (color)
-if and only if no edge (instance) exists between them (see the
-<em class="manpage">hroller(1)</em> manpage for more details).</li>
-<li>Inside each node set calculate subsets that don&#8217;t have any secondary
-node in common (this can be done by creating a graph of nodes that
-are connected if and only if an instance on both has the same
-secondary node, and coloring that graph)</li>
-<li>It is then possible to migrate in parallel all nodes in a subset
-created at step 2, and then reboot/perform maintenance on them, and
+secondary of any instance, and also don&#8217;t contain the primary
+nodes of two instances that have the same node as secondary. These
+can be obtained by computing a coloring of the graph with nodes
+as vertexes and an edge between two nodes, if either condition
+prevents simultaneous maintenance. (This is the current algorithm of
+<em class="manpage">hroller(1)</em> with the extension that the graph to be colored
+has additional edges between the primary nodes of two instances sharing
+their secondary node.)</li>
+<li>It is then possible to migrate in parallel all nodes in a set
+created at step 1, and then reboot/perform maintenance on them, and
 migrate back their original primaries, which allows the computation
-above to be reused for each following subset without N+1 failures
+above to be reused for each following set without N+1 failures
 being triggered, if none were present before. See below about the
 actual execution of the maintenance.</li>
 </ol>
@@ -178,10 +177,20 @@ algorithm might be safe. This perhaps would be a good reason to consider
 managing better RBD pools, if those are implemented on top of nodes
 storage, rather than on dedicated storage machines.</p>
 </div>
+<div class="section" id="full-evacuation">
+<h4><a class="toc-backref" href="#id9">Full-Evacuation</a><a class="headerlink" href="#full-evacuation" title="Permalink to this headline">¶</a></h4>
+<p>If full evacuation of the nodes to be rebooted is desired, a simple
+migration is not enough for the DRBD instances. To keep the number of
+disk operations small, we restrict moves to <tt class="docutils literal"><span class="pre">migrate,</span> <span class="pre">replace-secondary</span></tt>.
+That is, after migrating instances out of the nodes to be rebooted,
+replacement secondaries are searched for, for all instances that have
+their then secondary on one of the rebooted nodes. This is done by a
+greedy algorithm, refining the initial reboot partition, if necessary.</p>
+</div>
 </div>
 </div>
 <div class="section" id="future-work">
-<h2><a class="toc-backref" href="#id9">Future work</a><a class="headerlink" href="#future-work" title="Permalink to this headline">¶</a></h2>
+<h2><a class="toc-backref" href="#id10">Future work</a><a class="headerlink" href="#future-work" title="Permalink to this headline">¶</a></h2>
 <p>Hroller should become able to execute rolling maintenances, rather than
 just calculate them. For this to succeed properly one of the following
 must happen:</p>
@@ -226,6 +235,7 @@ continuing on the new master.</p>
 <li><a class="reference internal" href="#down-instances">Down instances</a></li>
 <li><a class="reference internal" href="#drbd">DRBD</a></li>
 <li><a class="reference internal" href="#non-drbd">Non-DRBD</a></li>
+<li><a class="reference internal" href="#full-evacuation">Full-Evacuation</a></li>
 </ul>
 </li>
 </ul>
@@ -236,11 +246,11 @@ continuing on the new master.</p>
 </ul>
 
   <h4>Previous topic</h4>
-  <p class="topless"><a href="design-monitoring-agent.html"
-                        title="previous chapter">Ganeti monitoring agent</a></p>
+  <p class="topless"><a href="design-device-uuid-name.html"
+                        title="previous chapter">Design for adding UUID and name to devices</a></p>
   <h4>Next topic</h4>
-  <p class="topless"><a href="design-storagetypes.html"
-                        title="next chapter">Management of storage types and disk templates, incl. storage space reporting</a></p>
+  <p class="topless"><a href="design-linuxha.html"
+                        title="next chapter">Linux HA integration</a></p>
   <h3>This Page</h3>
   <ul class="this-page-menu">
     <li><a href="_sources/design-hroller.txt"
@@ -267,13 +277,12 @@ continuing on the new master.</p>
       <h3>Navigation</h3>
       <ul>
         <li class="right" style="margin-right: 10px">
-          <a href="design-storagetypes.html" title="Management of storage types and disk templates, incl. storage space reporting"
+          <a href="design-linuxha.html" title="Linux HA integration"
              >next</a></li>
         <li class="right" >
-          <a href="design-monitoring-agent.html" title="Ganeti monitoring agent"
+          <a href="design-device-uuid-name.html" title="Design for adding UUID and name to devices"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.8.2 documentation</a> &raquo;</li>
-          <li><a href="design-draft.html" >Design document drafts</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.9.1 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

@@ -154,6 +154,10 @@
 <li>offline/role field (<code>Y</code> for offline nodes, <code>N</code> for online non-master nodes, and <code>M</code> for the master node which is always online)</li>
 <li>group UUID</li>
 <li>node spindle count</li>
+<li>node tags</li>
+<li>exclusive storage value (<code>Y</code> if active, <code>N</code> otherwise)</li>
+<li>node free spindles</li>
+<li>virtual CPUs used by the node OS</li>
 </ul>
 <p>The third section contains instance data, with the fields:</p>
 <ul>
@@ -167,6 +171,8 @@
 <li>instance secondary node(s), if any</li>
 <li>instance disk type (e.g. <code>plain</code> or <code>drbd</code>)</li>
 <li>instance tags</li>
+<li>spindle use back-end parameter</li>
+<li>actual disk spindles used by the instance (it can be <code>-</code> when exclusive storage is not active)</li>
 </ul>
 <p>The fourth section contains the cluster tags, with one tag per line (no columns/no column processing).</p>
 <p>The fifth section contains the ipolicies of the cluster and the node groups, in the following format (separated by <code>|</code>):</p>

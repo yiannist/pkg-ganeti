@@ -192,20 +192,21 @@ class TestLUGroupAssignNodes(unittest.TestCase):
                                     ("n3c", "g3"),
                                     ])
 
-    def Instance(name, pnode, snode):
+    def Instance(uuid, pnode, snode):
       if snode is None:
         disks = []
         disk_template = constants.DT_DISKLESS
       else:
-        disks = [objects.Disk(dev_type=constants.LD_DRBD8,
+        disks = [objects.Disk(dev_type=constants.DT_DRBD8,
                               logical_id=[pnode, snode, 1, 17, 17])]
         disk_template = constants.DT_DRBD8
 
-      return objects.Instance(name=name, primary_node=pnode, disks=disks,
+      return objects.Instance(name="%s-name" % uuid, uuid="%s" % uuid,
+                              primary_node=pnode, disks=disks,
                               disk_template=disk_template)
 
-    instance_data = dict((name, Instance(name, pnode, snode))
-                         for name, pnode, snode in [("inst1a", "n1a", "n1b"),
+    instance_data = dict((uuid, Instance(uuid, pnode, snode))
+                         for uuid, pnode, snode in [("inst1a", "n1a", "n1b"),
                                                     ("inst1b", "n1b", "n1a"),
                                                     ("inst2a", "n2a", "n2b"),
                                                     ("inst3a", "n3a", None),
@@ -306,22 +307,33 @@ class TestClusterVerifyFiles(unittest.TestCase):
     if cond:
       errors.append((item, msg))
 
-  _VerifyFiles = cluster.LUClusterVerifyGroup._VerifyFiles
-
   def test(self):
     errors = []
-    master_name = "master.example.com"
     nodeinfo = [
-      objects.Node(name=master_name, offline=False, vm_capable=True),
-      objects.Node(name="node2.example.com", offline=False, vm_capable=True),
-      objects.Node(name="node3.example.com", master_candidate=True,
+      objects.Node(name="master.example.com",
+                   uuid="master-uuid",
+                   offline=False,
+                   vm_capable=True),
+      objects.Node(name="node2.example.com",
+                   uuid="node2-uuid",
+                   offline=False,
+                   vm_capable=True),
+      objects.Node(name="node3.example.com",
+                   uuid="node3-uuid",
+                   master_candidate=True,
                    vm_capable=False),
-      objects.Node(name="node4.example.com", offline=False, vm_capable=True),
-      objects.Node(name="nodata.example.com", offline=False, vm_capable=True),
-      objects.Node(name="offline.example.com", offline=True),
+      objects.Node(name="node4.example.com",
+                   uuid="node4-uuid",
+                   offline=False,
+                   vm_capable=True),
+      objects.Node(name="nodata.example.com",
+                   uuid="nodata-uuid",
+                   offline=False,
+                   vm_capable=True),
+      objects.Node(name="offline.example.com",
+                   uuid="offline-uuid",
+                   offline=True),
       ]
-    cluster = objects.Cluster(modify_etc_hosts=True,
-                              enabled_hypervisors=[constants.HT_XEN_HVM])
     files_all = set([
       pathutils.CLUSTER_DOMAIN_SECRET_FILE,
       pathutils.RAPI_CERT_FILE,
@@ -341,7 +353,7 @@ class TestClusterVerifyFiles(unittest.TestCase):
       pathutils.VNC_PASSWORD_FILE,
       ])
     nvinfo = {
-      master_name: rpc.RpcResult(data=(True, {
+      "master-uuid": rpc.RpcResult(data=(True, {
         constants.NV_FILELIST: {
           pathutils.CLUSTER_CONF_FILE: "82314f897f38b35f9dab2f7c6b1593e0",
           pathutils.RAPI_CERT_FILE: "babbce8f387bc082228e544a2146fee4",
@@ -349,19 +361,19 @@ class TestClusterVerifyFiles(unittest.TestCase):
           hv_xen.XEND_CONFIG_FILE: "b4a8a824ab3cac3d88839a9adeadf310",
           hv_xen.XL_CONFIG_FILE: "77935cee92afd26d162f9e525e3d49b9"
         }})),
-      "node2.example.com": rpc.RpcResult(data=(True, {
+      "node2-uuid": rpc.RpcResult(data=(True, {
         constants.NV_FILELIST: {
           pathutils.RAPI_CERT_FILE: "97f0356500e866387f4b84233848cc4a",
           hv_xen.XEND_CONFIG_FILE: "b4a8a824ab3cac3d88839a9adeadf310",
           }
         })),
-      "node3.example.com": rpc.RpcResult(data=(True, {
+      "node3-uuid": rpc.RpcResult(data=(True, {
         constants.NV_FILELIST: {
           pathutils.RAPI_CERT_FILE: "97f0356500e866387f4b84233848cc4a",
           pathutils.CLUSTER_DOMAIN_SECRET_FILE: "cds-47b5b3f19202936bb4",
           }
         })),
-      "node4.example.com": rpc.RpcResult(data=(True, {
+      "node4-uuid": rpc.RpcResult(data=(True, {
         constants.NV_FILELIST: {
           pathutils.RAPI_CERT_FILE: "97f0356500e866387f4b84233848cc4a",
           pathutils.CLUSTER_CONF_FILE: "conf-a6d4b13e407867f7a7b4f0f232a8f527",
@@ -370,14 +382,30 @@ class TestClusterVerifyFiles(unittest.TestCase):
           hv_xen.XL_CONFIG_FILE: "77935cee92afd26d162f9e525e3d49b9"
           }
         })),
-      "nodata.example.com": rpc.RpcResult(data=(True, {})),
-      "offline.example.com": rpc.RpcResult(offline=True),
+      "nodata-uuid": rpc.RpcResult(data=(True, {})),
+      "offline-uuid": rpc.RpcResult(offline=True),
       }
-    assert set(nvinfo.keys()) == set(map(operator.attrgetter("name"), nodeinfo))
+    assert set(nvinfo.keys()) == set(map(operator.attrgetter("uuid"), nodeinfo))
 
-    self._VerifyFiles(compat.partial(self._FakeErrorIf, errors), nodeinfo,
-                      master_name, nvinfo,
-                      (files_all, files_opt, files_mc, files_vm))
+    verify_lu = cluster.LUClusterVerifyGroup(mocks.FakeProc(),
+                                             opcodes.OpClusterVerify(),
+                                             mocks.FakeContext(),
+                                             None)
+
+    verify_lu._ErrorIf = compat.partial(self._FakeErrorIf, errors)
+
+    # TODO: That's a bit hackish to mock only this single method. We should
+    # build a better FakeConfig which provides such a feature already.
+    def GetNodeName(node_uuid):
+      for node in nodeinfo:
+        if node.uuid == node_uuid:
+          return node.name
+      return None
+
+    verify_lu.cfg.GetNodeName = GetNodeName
+
+    verify_lu._VerifyFiles(nodeinfo, "master-uuid", nvinfo,
+                           (files_all, files_opt, files_mc, files_vm))
     self.assertEqual(sorted(errors), sorted([
       (None, ("File %s found with 2 different checksums (variant 1 on"
               " node2.example.com, node3.example.com, node4.example.com;"
@@ -576,7 +604,7 @@ class TestDiskStateHelper(unittest.TestCase):
 
   def testWithoutOldData(self):
     new = {
-      constants.LD_LV: {
+      constants.DT_PLAIN: {
         "xenvg": {
           constants.DS_DISK_RESERVED: 1024,
           },
@@ -827,11 +855,20 @@ class _StubComputeIPolicySpecViolation:
 
 
 class _FakeConfigForComputeIPolicyInstanceViolation:
-  def __init__(self, be):
+  def __init__(self, be, excl_stor):
     self.cluster = objects.Cluster(beparams={"default": be})
+    self.excl_stor = excl_stor
 
   def GetClusterInfo(self):
     return self.cluster
+
+  def GetNodeInfo(self, _):
+    return {}
+
+  def GetNdParams(self, _):
+    return {
+      constants.ND_EXCLUSIVE_STORAGE: self.excl_stor,
+      }
 
 
 class TestComputeIPolicyInstanceViolation(unittest.TestCase):
@@ -841,8 +878,8 @@ class TestComputeIPolicyInstanceViolation(unittest.TestCase):
       constants.BE_VCPUS: 2,
       constants.BE_SPINDLE_USE: 4,
       }
-    disks = [objects.Disk(size=512)]
-    cfg = _FakeConfigForComputeIPolicyInstanceViolation(beparams)
+    disks = [objects.Disk(size=512, spindles=13)]
+    cfg = _FakeConfigForComputeIPolicyInstanceViolation(beparams, False)
     instance = objects.Instance(beparams=beparams, disks=disks, nics=[],
                                 disk_template=constants.DT_PLAIN)
     stub = _StubComputeIPolicySpecViolation(2048, 2, 1, 0, [512], 4,
@@ -854,6 +891,15 @@ class TestComputeIPolicyInstanceViolation(unittest.TestCase):
                                  disk_template=constants.DT_PLAIN)
     ret = common.ComputeIPolicyInstanceViolation(NotImplemented, instance2,
                                                  cfg, _compute_fn=stub)
+    self.assertEqual(ret, [])
+    cfg_es = _FakeConfigForComputeIPolicyInstanceViolation(beparams, True)
+    stub_es = _StubComputeIPolicySpecViolation(2048, 2, 1, 0, [512], 13,
+                                               constants.DT_PLAIN)
+    ret = common.ComputeIPolicyInstanceViolation(NotImplemented, instance,
+                                                 cfg_es, _compute_fn=stub_es)
+    self.assertEqual(ret, [])
+    ret = common.ComputeIPolicyInstanceViolation(NotImplemented, instance2,
+                                                 cfg_es, _compute_fn=stub_es)
     self.assertEqual(ret, [])
 
 
@@ -1120,11 +1166,12 @@ class TestApplyContainerMods(unittest.TestCase):
 
 
 class _FakeConfigForGenDiskTemplate:
-  def __init__(self):
+  def __init__(self, enabled_disk_templates):
     self._unique_id = itertools.count()
     self._drbd_minor = itertools.count(20)
     self._port = itertools.count(constants.FIRST_DRBD_PORT)
     self._secret = itertools.count()
+    self._enabled_disk_templates = enabled_disk_templates
 
   def GetVGName(self):
     return "testvg"
@@ -1145,6 +1192,11 @@ class _FakeConfigForGenDiskTemplate:
   def GetInstanceInfo(self, _):
     return "foobar"
 
+  def GetClusterInfo(self):
+    cluster = objects.Cluster()
+    cluster.enabled_disk_templates = self._enabled_disk_templates
+    return cluster
+
 
 class _FakeProcForGenDiskTemplate:
   def GetECId(self):
@@ -1152,14 +1204,20 @@ class _FakeProcForGenDiskTemplate:
 
 
 class TestGenerateDiskTemplate(unittest.TestCase):
+
+  def _SetUpLUWithTemplates(self, enabled_disk_templates):
+    self._enabled_disk_templates = enabled_disk_templates
+    cfg = _FakeConfigForGenDiskTemplate(self._enabled_disk_templates)
+    proc = _FakeProcForGenDiskTemplate()
+
+    self.lu = _FakeLU(cfg=cfg, proc=proc)
+
   def setUp(self):
     nodegroup = objects.NodeGroup(name="ng")
     nodegroup.UpgradeConfig()
 
-    cfg = _FakeConfigForGenDiskTemplate()
-    proc = _FakeProcForGenDiskTemplate()
-
-    self.lu = _FakeLU(cfg=cfg, proc=proc)
+    self._enabled_disk_templates = list(constants.DISK_TEMPLATES)
+    self._SetUpLUWithTemplates(self._enabled_disk_templates)
     self.nodegroup = nodegroup
 
   @staticmethod
@@ -1172,7 +1230,7 @@ class TestGenerateDiskTemplate(unittest.TestCase):
 
     assert disk_template not in constants.DISK_TEMPLATES
 
-    self.assertRaises(errors.ProgrammerError, gdt, self.lu, disk_template,
+    self.assertRaises(errors.OpPrereqError, gdt, self.lu, disk_template,
                       "inst26831.example.com", "node30113.example.com", [], [],
                       NotImplemented, NotImplemented, 0, self.lu.LogInfo,
                       self.GetDiskParams())
@@ -1188,9 +1246,7 @@ class TestGenerateDiskTemplate(unittest.TestCase):
 
   def _TestTrivialDisk(self, template, disk_info, base_index, exp_dev_type,
                        file_storage_dir=NotImplemented,
-                       file_driver=NotImplemented,
-                       req_file_storage=NotImplemented,
-                       req_shr_file_storage=NotImplemented):
+                       file_driver=NotImplemented):
     gdt = instance.GenerateDiskTemplate
 
     map(lambda params: utils.ForceDictType(params,
@@ -1202,16 +1258,12 @@ class TestGenerateDiskTemplate(unittest.TestCase):
                       template, "inst25088.example.com",
                       "node185.example.com", ["node323.example.com"], [],
                       NotImplemented, NotImplemented, base_index,
-                      self.lu.LogInfo, self.GetDiskParams(),
-                      _req_file_storage=req_file_storage,
-                      _req_shr_file_storage=req_shr_file_storage)
+                      self.lu.LogInfo, self.GetDiskParams())
 
     result = gdt(self.lu, template, "inst21662.example.com",
                  "node21741.example.com", [],
                  disk_info, file_storage_dir, file_driver, base_index,
-                 self.lu.LogInfo, self.GetDiskParams(),
-                 _req_file_storage=req_file_storage,
-                 _req_shr_file_storage=req_shr_file_storage)
+                 self.lu.LogInfo, self.GetDiskParams())
 
     for (idx, disk) in enumerate(result):
       self.assertTrue(isinstance(disk, objects.Disk))
@@ -1241,28 +1293,20 @@ class TestGenerateDiskTemplate(unittest.TestCase):
       }]
 
     result = self._TestTrivialDisk(constants.DT_PLAIN, disk_info, 3,
-                                   constants.LD_LV)
+                                   constants.DT_PLAIN)
 
     self.assertEqual(map(operator.attrgetter("logical_id"), result), [
       ("testvg", "ec0-uq0.disk3"),
       ("othervg", "ec0-uq1.disk4"),
       ])
 
-  @staticmethod
-  def _AllowFileStorage():
-    pass
-
-  @staticmethod
-  def _ForbidFileStorage():
-    raise errors.OpPrereqError("Disallowed in test")
-
   def testFile(self):
+    # anything != DT_FILE would do here
+    self._SetUpLUWithTemplates([constants.DT_PLAIN])
     self.assertRaises(errors.OpPrereqError, self._TestTrivialDisk,
-                      constants.DT_FILE, [], 0, NotImplemented,
-                      req_file_storage=self._ForbidFileStorage)
+                      constants.DT_FILE, [], 0, NotImplemented)
     self.assertRaises(errors.OpPrereqError, self._TestTrivialDisk,
-                      constants.DT_SHARED_FILE, [], 0, NotImplemented,
-                      req_shr_file_storage=self._ForbidFileStorage)
+                      constants.DT_SHARED_FILE, [], 0, NotImplemented)
 
     for disk_template in [constants.DT_FILE, constants.DT_SHARED_FILE]:
       disk_info = [{
@@ -1276,11 +1320,10 @@ class TestGenerateDiskTemplate(unittest.TestCase):
         constants.IDISK_MODE: constants.DISK_RDWR,
         }]
 
+      self._SetUpLUWithTemplates([disk_template])
       result = self._TestTrivialDisk(disk_template, disk_info, 2,
-        constants.LD_FILE, file_storage_dir="/tmp",
-        file_driver=constants.FD_BLKTAP,
-        req_file_storage=self._AllowFileStorage,
-        req_shr_file_storage=self._AllowFileStorage)
+        disk_template, file_storage_dir="/tmp",
+        file_driver=constants.FD_BLKTAP)
 
       self.assertEqual(map(operator.attrgetter("logical_id"), result), [
         (constants.FD_BLKTAP, "/tmp/disk2"),
@@ -1296,7 +1339,7 @@ class TestGenerateDiskTemplate(unittest.TestCase):
       }]
 
     result = self._TestTrivialDisk(constants.DT_BLOCK, disk_info, 10,
-                                   constants.LD_BLOCKDEV)
+                                   constants.DT_BLOCK)
 
     self.assertEqual(map(operator.attrgetter("logical_id"), result), [
       (constants.BLOCKDEV_DRIVER_MANUAL, "/tmp/some/block/dev"),
@@ -1312,7 +1355,7 @@ class TestGenerateDiskTemplate(unittest.TestCase):
       }]
 
     result = self._TestTrivialDisk(constants.DT_RBD, disk_info, 0,
-                                   constants.LD_RBD)
+                                   constants.DT_RBD)
 
     self.assertEqual(map(operator.attrgetter("logical_id"), result), [
       ("rbd", "ec0-uq0.rbd.disk0"),
@@ -1321,7 +1364,7 @@ class TestGenerateDiskTemplate(unittest.TestCase):
 
   def testDrbd8(self):
     gdt = instance.GenerateDiskTemplate
-    drbd8_defaults = constants.DISK_LD_DEFAULTS[constants.LD_DRBD8]
+    drbd8_defaults = constants.DISK_LD_DEFAULTS[constants.DT_DRBD8]
     drbd8_default_metavg = drbd8_defaults[constants.LDP_DEFAULT_METAVG]
 
     disk_info = [{
@@ -1368,13 +1411,13 @@ class TestGenerateDiskTemplate(unittest.TestCase):
 
     for (idx, disk) in enumerate(result):
       self.assertTrue(isinstance(disk, objects.Disk))
-      self.assertEqual(disk.dev_type, constants.LD_DRBD8)
+      self.assertEqual(disk.dev_type, constants.DT_DRBD8)
       self.assertEqual(disk.size, disk_info[idx][constants.IDISK_SIZE])
       self.assertEqual(disk.mode, disk_info[idx][constants.IDISK_MODE])
 
       for child in disk.children:
         self.assertTrue(isinstance(disk, objects.Disk))
-        self.assertEqual(child.dev_type, constants.LD_LV)
+        self.assertEqual(child.dev_type, constants.DT_PLAIN)
         self.assertTrue(child.children is None)
 
       self.assertEqual(map(operator.attrgetter("logical_id"), disk.children),
@@ -1399,12 +1442,16 @@ class TestGenerateDiskTemplate(unittest.TestCase):
 
 
 class _ConfigForDiskWipe:
-  def __init__(self, exp_node):
-    self._exp_node = exp_node
+  def __init__(self, exp_node_uuid):
+    self._exp_node_uuid = exp_node_uuid
 
-  def SetDiskID(self, device, node):
+  def SetDiskID(self, device, node_uuid):
     assert isinstance(device, objects.Disk)
-    assert node == self._exp_node
+    assert node_uuid == self._exp_node_uuid
+
+  def GetNodeName(self, node_uuid):
+    assert node_uuid == self._exp_node_uuid
+    return "name.of.expected.node"
 
 
 class _RpcForDiskWipe:
@@ -1481,9 +1528,9 @@ class TestWipeDisks(unittest.TestCase):
                  cfg=_ConfigForDiskWipe(node_name))
 
     disks = [
-      objects.Disk(dev_type=constants.LD_LV),
-      objects.Disk(dev_type=constants.LD_LV),
-      objects.Disk(dev_type=constants.LD_LV),
+      objects.Disk(dev_type=constants.DT_PLAIN),
+      objects.Disk(dev_type=constants.DT_PLAIN),
+      objects.Disk(dev_type=constants.DT_PLAIN),
       ]
 
     inst = objects.Instance(name="inst21201",
@@ -1499,22 +1546,22 @@ class TestWipeDisks(unittest.TestCase):
     return (False, None)
 
   def testFailingWipe(self):
-    node_name = "node13445.example.com"
+    node_uuid = "node13445-uuid"
     pt = _DiskPauseTracker()
 
-    lu = _FakeLU(rpc=_RpcForDiskWipe(node_name, pt, self._FailingWipeCb),
-                 cfg=_ConfigForDiskWipe(node_name))
+    lu = _FakeLU(rpc=_RpcForDiskWipe(node_uuid, pt, self._FailingWipeCb),
+                 cfg=_ConfigForDiskWipe(node_uuid))
 
     disks = [
-      objects.Disk(dev_type=constants.LD_LV, logical_id="disk0",
+      objects.Disk(dev_type=constants.DT_PLAIN, logical_id="disk0",
                    size=100 * 1024),
-      objects.Disk(dev_type=constants.LD_LV, logical_id="disk1",
+      objects.Disk(dev_type=constants.DT_PLAIN, logical_id="disk1",
                    size=500 * 1024),
-      objects.Disk(dev_type=constants.LD_LV, logical_id="disk2", size=256),
+      objects.Disk(dev_type=constants.DT_PLAIN, logical_id="disk2", size=256),
       ]
 
     inst = objects.Instance(name="inst562",
-                            primary_node=node_name,
+                            primary_node=node_uuid,
                             disk_template=constants.DT_PLAIN,
                             disks=disks)
 
@@ -1552,11 +1599,11 @@ class TestWipeDisks(unittest.TestCase):
 
   def testNormalWipe(self):
     disks = [
-      objects.Disk(dev_type=constants.LD_LV, logical_id="disk0", size=1024),
-      objects.Disk(dev_type=constants.LD_LV, logical_id="disk1",
+      objects.Disk(dev_type=constants.DT_PLAIN, logical_id="disk0", size=1024),
+      objects.Disk(dev_type=constants.DT_PLAIN, logical_id="disk1",
                    size=500 * 1024),
-      objects.Disk(dev_type=constants.LD_LV, logical_id="disk2", size=128),
-      objects.Disk(dev_type=constants.LD_LV, logical_id="disk3",
+      objects.Disk(dev_type=constants.DT_PLAIN, logical_id="disk2", size=128),
+      objects.Disk(dev_type=constants.DT_PLAIN, logical_id="disk3",
                    size=constants.MAX_WIPE_CHUNK),
       ]
 
@@ -1582,9 +1629,9 @@ class TestWipeDisks(unittest.TestCase):
   def testWipeWithStartOffset(self):
     for start_offset in [0, 280, 8895, 1563204]:
       disks = [
-        objects.Disk(dev_type=constants.LD_LV, logical_id="disk0",
+        objects.Disk(dev_type=constants.DT_PLAIN, logical_id="disk0",
                      size=128),
-        objects.Disk(dev_type=constants.LD_LV, logical_id="disk1",
+        objects.Disk(dev_type=constants.DT_PLAIN, logical_id="disk1",
                      size=start_offset + (100 * 1024)),
         ]
 

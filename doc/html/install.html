@@ -8,7 +8,7 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Ganeti installation tutorial &mdash; Ganeti 2.8.2 documentation</title>
+    <title>Ganeti installation tutorial &mdash; Ganeti 2.9.1 documentation</title>
     
     <link rel="stylesheet" href="_static/style.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
@@ -16,7 +16,7 @@
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.8.2',
+        VERSION:     '2.9.1',
         COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -25,7 +25,7 @@
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti 2.8.2 documentation" href="index.html" />
+    <link rel="top" title="Ganeti 2.9.1 documentation" href="index.html" />
     <link rel="next" title="Ganeti quick installation guide" href="install-quick.html" />
     <link rel="prev" title="Ganeti automatic instance allocation" href="iallocator.html" /> 
   </head>
@@ -39,7 +39,7 @@
         <li class="right" >
           <a href="iallocator.html" title="Ganeti automatic instance allocation"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.8.2 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.9.1 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -50,7 +50,7 @@
             
   <div class="section" id="ganeti-installation-tutorial">
 <h1><a class="toc-backref" href="#id2">Ganeti installation tutorial</a><a class="headerlink" href="#ganeti-installation-tutorial" title="Permalink to this headline">¶</a></h1>
-<p>Documents Ganeti version 2.8</p>
+<p>Documents Ganeti version 2.9</p>
 <div class="contents topic" id="contents">
 <p class="topic-title first">Contents</p>
 <ul class="simple">
@@ -537,6 +537,20 @@ bridge name     bridge id               STP enabled     interfaces
 xen-br0         8000.0020fc1ed55d       no              eth0
 </pre></div>
 </div>
+<p>In order to have a custom and more advanced networking configuration in Xen
+which can vary among instances, after having successfully installed Ganeti
+you have to create a symbolic link to the vif-script provided by Ganeti
+inside /etc/xen/scripts (assuming you installed Ganeti under /usr/lib):</p>
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">ln</span> <span class="gs">-s</span> <span class="gs">/usr/lib/ganeti/vif-ganeti</span> <span class="gs">/etc/xen/scripts/vif-ganeti</span>
+</pre></div>
+</div>
+<p>This has to be done on all nodes. Afterwards you can set the <tt class="docutils literal"><span class="pre">vif_script</span></tt>
+hypervisor parameter to point to that script by:</p>
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-cluster</span> <span class="gs">modify</span> <span class="gs">-H</span> <span class="gs">xen-pvm:vif_script=/etc/xen/scripts/vif-ganeti</span>
+</pre></div>
+</div>
+<p>Having this hypervisor parameter you are able to create your own scripts
+and create instances with different networking configurations.</p>
 </div>
 <div class="section" id="configuring-lvm">
 <span id="configure-lvm-label"></span><h3><a class="toc-backref" href="#id20">Configuring LVM</a><a class="headerlink" href="#configuring-lvm" title="Permalink to this headline">¶</a></h3>
@@ -905,7 +919,7 @@ instance level.</td></tr>
         <li class="right" >
           <a href="iallocator.html" title="Ganeti automatic instance allocation"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.8.2 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.9.1 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

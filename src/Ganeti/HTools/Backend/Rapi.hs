@@ -122,7 +122,8 @@ parseInstance ktn a = do
   let owner_name = "Instance '" ++ name ++ "', error while parsing data"
   let extract s x = tryFromObj owner_name x s
   disk <- extract "disk_usage" a
-  disks <- extract "disk.sizes" a
+  dsizes <- extract "disk.sizes" a
+  dspindles <- tryArrayMaybeFromObj owner_name a "disk.spindles"
   beparams <- liftM fromJSObject (extract "beparams" a)
   omem <- extract "oper_ram" a
   mem <- case omem of
@@ -139,6 +140,7 @@ parseInstance ktn a = do
   auto_balance <- extract "auto_balance" beparams
   dt <- extract "disk_template" a
   su <- extract "spindle_use" beparams
+  let disks = zipWith Instance.Disk dsizes dspindles
   let inst = Instance.create name mem disk disks vcpus running tags
              auto_balance pnode snode dt su []
   return (name, inst)
@@ -154,20 +156,26 @@ parseNode ktg a = do
   vm_cap  <- annotateResult desc $ maybeFromObj a "vm_capable"
   let vm_cap' = fromMaybe True vm_cap
   ndparams <- extract "ndparams" >>= asJSObject
-  spindles <- tryFromObj desc (fromJSObject ndparams) "spindle_count"
+  excl_stor <- tryFromObj desc (fromJSObject ndparams) "exclusive_storage"
   guuid   <- annotateResult desc $ maybeFromObj a "group.uuid"
   guuid' <-  lookupGroup ktg name (fromMaybe defaultGroupID guuid)
-  node <- if offline || drained || not vm_cap'
-            then return $ Node.create name 0 0 0 0 0 0 True 0 guuid'
-            else do
-              mtotal  <- extract "mtotal"
-              mnode   <- extract "mnode"
-              mfree   <- extract "mfree"
-              dtotal  <- extract "dtotal"
-              dfree   <- extract "dfree"
-              ctotal  <- extract "ctotal"
-              return $ Node.create name mtotal mnode mfree
-                     dtotal dfree ctotal False spindles guuid'
+  let live = not offline && not drained && vm_cap'
+      lvextract def = eitherLive live def . extract
+  sptotal <- if excl_stor
+             then lvextract 0 "sptotal"
+             else tryFromObj desc (fromJSObject ndparams) "spindle_count"
+  spfree <- lvextract 0 "spfree"
+  mtotal <- lvextract 0.0 "mtotal"
+  mnode <- lvextract 0 "mnode"
+  mfree <- lvextract 0 "mfree"
+  dtotal <- lvextract 0.0 "dtotal"
+  dfree <- lvextract 0 "dfree"
+  ctotal <- lvextract 0.0 "ctotal"
+  cnos <- lvextract 0 "cnos"
+  tags <- extract "tags"
+  let node = flip Node.setNodeTags tags $
+             Node.create name mtotal mnode mfree dtotal dfree ctotal cnos
+             (not live) sptotal spfree guuid' excl_stor
   return (name, node)
 
 -- | Construct a group from a JSON object.

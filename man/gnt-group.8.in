@@ -12,7 +12,7 @@ the Ganeti system.
 .SH COMMANDS
 .SS ADD
 .PP
-\f[B]add\f[] [--submit]
+\f[B]add\f[] [--submit] [--print-job-id]
 .PD 0
 .P
 .PD
@@ -105,7 +105,7 @@ common options.
 .PD 0
 .P
 .PD
-[--force] [--submit]
+[--force] [--submit] [--print-job-id]
 .PD 0
 .P
 .PD
@@ -125,7 +125,7 @@ See \f[B]ganeti\f[](7) for a description of \f[C]--submit\f[] and other
 common options.
 .SS MODIFY
 .PP
-\f[B]modify\f[] [--submit]
+\f[B]modify\f[] [--submit] [--print-job-id]
 .PD 0
 .P
 .PD
@@ -186,7 +186,7 @@ See \f[B]ganeti\f[](7) for a description of \f[C]--submit\f[] and other
 common options.
 .SS REMOVE
 .PP
-\f[B]remove\f[] [--submit] {\f[I]group\f[]}
+\f[B]remove\f[] [--submit] [--print-job-id] {\f[I]group\f[]}
 .PP
 Deletes the indicated node group, which must be empty.
 There must always be at least one group, so the last group cannot be
@@ -335,7 +335,8 @@ Otherwise, only the named groups will be listed.
 List available fields for node groups.
 .SS RENAME
 .PP
-\f[B]rename\f[] [--submit] {\f[I]oldname\f[]} {\f[I]newname\f[]}
+\f[B]rename\f[] [--submit] [--print-job-id] {\f[I]oldname\f[]}
+{\f[I]newname\f[]}
 .PP
 Renames a given group from \f[I]oldname\f[] to \f[I]newname\f[].
 .PP
@@ -343,8 +344,11 @@ See \f[B]ganeti\f[](7) for a description of \f[C]--submit\f[] and other
 common options.
 .SS EVACUATE
 .PP
-\f[B]evacuate\f[] [--submit] [--iallocator \f[I]NAME\f[]] [--to
-\f[I]GROUP\f[]...] {\f[I]group\f[]}
+\f[B]evacuate\f[] [--submit] [--print-job-id]
+.PD 0
+.P
+.PD
+[--iallocator \f[I]NAME\f[]] [--to \f[I]GROUP\f[]...] {\f[I]group\f[]}
 .PP
 This command will move all instances out of the given node group.
 Instances are placed in a new group by an iallocator, either given on

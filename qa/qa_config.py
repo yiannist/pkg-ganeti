@@ -324,6 +324,24 @@ class _QaConfig(object):
     """
     return self._data[name]
 
+  def __setitem__(self, key, value):
+    """Sets a configuration value.
+
+    """
+    self._data[key] = value
+
+  def __delitem__(self, key):
+    """Deletes a value from the configuration.
+
+    """
+    del(self._data[key])
+
+  def __len__(self):
+    """Return the number of configuration items.
+
+    """
+    return len(self._data)
+
   def get(self, name, default=None):
     """Returns configuration value.
 
@@ -370,7 +388,24 @@ class _QaConfig(object):
     """
     return self._GetStringListParameter(
       _ENABLED_DISK_TEMPLATES_KEY,
-      list(constants.DEFAULT_ENABLED_DISK_TEMPLATES))
+      constants.DEFAULT_ENABLED_DISK_TEMPLATES)
+
+  def GetEnabledStorageTypes(self):
+    """Returns the list of enabled storage types.
+
+    @rtype: list
+    @returns: the list of storage types enabled for QA
+
+    """
+    enabled_disk_templates = self.GetEnabledDiskTemplates()
+    enabled_storage_types = list(
+        set([constants.MAP_DISK_TEMPLATE_STORAGE_TYPE[dt]
+             for dt in enabled_disk_templates]))
+    # Storage type 'lvm-pv' cannot be activated via a disk template,
+    # therefore we add it if 'lvm-vg' is present.
+    if constants.ST_LVM_VG in enabled_storage_types:
+      enabled_storage_types.append(constants.ST_LVM_PV)
+    return enabled_storage_types
 
   def GetDefaultDiskTemplate(self):
     """Returns the default disk template to be used.
@@ -417,6 +452,26 @@ class _QaConfig(object):
     enabled = templ in self.GetEnabledDiskTemplates()
     return enabled and (not self.GetExclusiveStorage() or
                         templ in constants.DTS_EXCL_STORAGE)
+
+  def IsStorageTypeSupported(self, storage_type):
+    """Is the given storage type supported by the current configuration?
+
+    This is determined by looking if at least one of the disk templates
+    which is associated with the storage type is enabled in the configuration.
+
+    """
+    enabled_disk_templates = self.GetEnabledDiskTemplates()
+    if storage_type == constants.ST_LVM_PV:
+      disk_templates = utils.GetDiskTemplatesOfStorageType(constants.ST_LVM_VG)
+    else:
+      disk_templates = utils.GetDiskTemplatesOfStorageType(storage_type)
+    return bool(set(enabled_disk_templates).intersection(set(disk_templates)))
+
+  def AreSpindlesSupported(self):
+    """Are spindles supported by the current configuration?
+
+    """
+    return self.GetExclusiveStorage()
 
   def GetVclusterSettings(self):
     """Returns settings for virtual cluster.
@@ -587,6 +642,13 @@ def GetEnabledDiskTemplates(*args):
   return GetConfig().GetEnabledDiskTemplates(*args)
 
 
+def GetEnabledStorageTypes(*args):
+  """Wrapper for L{_QaConfig.GetEnabledStorageTypes}.
+
+  """
+  return GetConfig().GetEnabledStorageTypes(*args)
+
+
 def GetDefaultDiskTemplate(*args):
   """Wrapper for L{_QaConfig.GetDefaultDiskTemplate}.
 
@@ -641,6 +703,20 @@ def IsTemplateSupported(templ):
 
   """
   return GetConfig().IsTemplateSupported(templ)
+
+
+def IsStorageTypeSupported(storage_type):
+  """Wrapper for L{_QaConfig.IsTemplateSupported}.
+
+  """
+  return GetConfig().IsStorageTypeSupported(storage_type)
+
+
+def AreSpindlesSupported():
+  """Wrapper for L{_QaConfig.AreSpindlesSupported}.
+
+  """
+  return GetConfig().AreSpindlesSupported()
 
 
 def _NodeSortKey(node):

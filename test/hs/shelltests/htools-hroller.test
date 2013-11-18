@@ -1,5 +1,94 @@
-./test/hs/hroller --no-headers -t $TESTDATA_DIR/unique-reboot-order.data
+./test/hs/hroller --no-headers --ignore-non-redundant -t $TESTDATA_DIR/unique-reboot-order.data
 >>>
 node-01-002
 node-01-003,node-01-001
 >>>= 0
+
+./test/hs/hroller --no-headers --skip-non-redundant -t $TESTDATA_DIR/unique-reboot-order.data
+>>>
+node-01-002
+>>>= 0
+
+./test/hs/hroller --no-headers -t $TESTDATA_DIR/unique-reboot-order.data
+>>>/^node-01-00.
+node-01-00.
+node-01-001$/
+>>>= 0
+
+./test/hs/hroller --ignore-non-redundant -O node-01-002 --no-headers -t $TESTDATA_DIR/unique-reboot-order.data
+>>>
+node-01-003,node-01-001
+>>>= 0
+
+./test/hs/hroller --ignore-non-redundant -O node-01-003 --no-headers -t $TESTDATA_DIR/unique-reboot-order.data
+>>>
+node-01-002
+node-01-001
+>>>= 0
+
+./test/hs/hroller --node-tags=red --no-headers -t $TESTDATA_DIR/multiple-tags.data
+>>>/^node-01-00[45],node-01-00[45],node-01-001$/
+>>>= 0
+
+./test/hs/hroller --node-tags=blue --no-headers -t $TESTDATA_DIR/multiple-tags.data
+>>>/^node-01-00[246],node-01-00[246],node-01-00[246]$/
+>>>= 0
+
+./test/hs/hroller --no-headers --offline-maintenance -t $TESTDATA_DIR/hroller-online.data
+>>>/node-01-00.,node-01-00.
+node-01-001,node-01-003/
+>>>= 0
+
+./test/hs/hroller --no-headers -t $TESTDATA_DIR/hroller-online.data
+>>>/node-01-00.,node-01-00.
+node-01-002
+node-01-003/
+>>>= 0
+
+./test/hs/hroller --no-headers -t $TESTDATA_DIR/hroller-nonredundant.data
+>>>/^node-01-00.,node-01-00.
+node-01-00.,node-01-00.
+node-01-00.,node-01-000$/
+>>>= 0
+
+./test/hs/hroller --skip-non-redundant -t $TESTDATA_DIR/hroller-nonredundant.data
+>>>2
+Error: Cannot create node graph
+>>>=1
+
+./test/hs/hroller --no-headers --ignore-non-redundant -t $TESTDATA_DIR/hroller-nonredundant.data
+>>>/^node-01-00.,node-01-00.,node-01-00.,node-01-00.,node-01-00.,node-01-000$/
+>>>= 0
+
+
+./test/hs/hroller --no-headers -t $TESTDATA_DIR/hroller-nodegroups.data
+>>>/^node-01-00.
+node-01-00.
+node-01-00.,node-02-000$/
+>>>= 0
+
+./test/hs/hroller --no-headers -t $TESTDATA_DIR/hroller-full.data
+>>>/^node-..,node-..,node-..,node-..
+node-..,node-..,node-..,node-31$/
+>>>= 0
+
+./test/hs/hroller --no-headers --full-evacuation -t $TESTDATA_DIR/hroller-full.data
+>>>/^node-..,node-..
+node-..,node-..
+node-..,node-..
+node-..,node-31$/
+>>>= 0
+
+./test/hs/hroller --no-headers --full-evacuation --one-step-only --print-moves -t $TESTDATA_DIR/hroller-full.data
+>>>/^node-..
+node-..
+  inst-.. node-.. node-..
+  inst-.. node-.. node-..
+  inst-.. node-.. node-..
+  inst-.. node-.. node-..$/
+>>>= 0
+
+./test/hs/hroller --full-evacuation -t $TESTDATA_DIR/unique-reboot-order.data
+>>>2
+Error: Not enough capacity to move secondaries
+>>>=1

@@ -8,7 +8,7 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Management of storage types and disk templates, incl. storage space reporting &mdash; Ganeti 2.8.2 documentation</title>
+    <title>Management of storage types and disk templates, incl. storage space reporting &mdash; Ganeti 2.9.1 documentation</title>
     
     <link rel="stylesheet" href="_static/style.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
@@ -16,7 +16,7 @@
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.8.2',
+        VERSION:     '2.9.1',
         COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -25,22 +25,22 @@
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti 2.8.2 documentation" href="index.html" />
+    <link rel="top" title="Ganeti 2.9.1 documentation" href="index.html" />
     <link rel="up" title="Design document drafts" href="design-draft.html" />
-    <link rel="next" title="Ganeti daemons refactoring" href="design-daemons.html" />
-    <link rel="prev" title="HRoller tool" href="design-hroller.html" /> 
+    <link rel="next" title="Detection of user-initiated shutdown from inside an instance" href="design-internal-shutdown.html" />
+    <link rel="prev" title="Splitting the query and job execution paths" href="design-query-splitting.html" /> 
   </head>
   <body>
     <div class="related">
       <h3>Navigation</h3>
       <ul>
         <li class="right" style="margin-right: 10px">
-          <a href="design-daemons.html" title="Ganeti daemons refactoring"
+          <a href="design-internal-shutdown.html" title="Detection of user-initiated shutdown from inside an instance"
              accesskey="N">next</a></li>
         <li class="right" >
-          <a href="design-hroller.html" title="HRoller tool"
+          <a href="design-query-splitting.html" title="Splitting the query and job execution paths"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.8.2 documentation</a> &raquo;</li>
+        <li><a href="index.html">Ganeti 2.9.1 documentation</a> &raquo;</li>
           <li><a href="design-draft.html" accesskey="U">Design document drafts</a> &raquo;</li> 
       </ul>
     </div>  
@@ -116,7 +116,13 @@ user tries to create an inconsistent situation here, gnt-cluster should emit
 a warning.</p>
 <p>We consider the first disk template in the list to be the default template for
 instance creation and storage reporting. This will remove the need to specify
-the disk template with <tt class="docutils literal"><span class="pre">-t</span></tt> on instance creation.</p>
+the disk template with <tt class="docutils literal"><span class="pre">-t</span></tt> on instance creation. Note: It would be
+better to take the default disk template from the node-group-specific
+ipolicy. However, when using the iallocator, the nodegroup can only be
+determined from the node which is determined by the iallocator, which in
+turn needs the disk-template first. To solve this
+chicken-and-egg-problem we first need to extend &#8216;gnt-instance add&#8217; to
+accept a nodegroup in the first place.</p>
 <p>Currently, cluster-wide dis/enabling of disk templates is not implemented
 consistently. <tt class="docutils literal"><span class="pre">lvm</span></tt> based disk templates are enabled by specifying a volume
 group name on cluster initialization and can only be disabled by explicitly
@@ -204,14 +210,14 @@ inside a block device.</p>
 <div class="section" id="rpc-changes">
 <h3><a class="toc-backref" href="#id6">RPC changes</a><a class="headerlink" href="#rpc-changes" title="Permalink to this headline">¶</a></h3>
 <p>The noded RPC call that reports node storage space will be changed to
-accept a list of &lt;disktemplate&gt;,&lt;key&gt; string tuples. For each of them, it will
+accept a list of &lt;storage_type&gt;,&lt;key&gt; string tuples. For each of them, it will
 report the free amount of storage space found on storage &lt;key&gt; as known
-by the requested disk template. Depending on the disk template, the key would
-be a volume group name, in case of lvm-based disk templates, a directory name
-for the file and shared file storage, and a rados pool name for rados storage.</p>
-<p>Masterd will know through the mapping of disk templates to storage types which
-storage type uses which mechanism for storage calculation and invoke only the
-needed ones.</p>
+by the requested storage_type. Depending on the storage_type, the key would
+be a volume group name in case of lvm, a directory name for the file-based
+storage, and a rados pool name for rados storage.</p>
+<p>Masterd will know through the mapping of storage types to storage calculation
+functions which storage type uses which mechanism for storage calculation
+and invoke only the needed ones.</p>
 <p>Note that for file and sharedfile the node knows which directories are allowed
 and won&#8217;t allow any other directory to be queried for security reasons. The
 actual path still needs to be passed to distinguish the two, as the type will
@@ -300,8 +306,8 @@ But the <tt class="docutils literal"><span class="pre">node</span> <span class="
 <tt class="docutils literal"><span class="pre">exclusive_storage</span></tt> flag, which is currently only meaningful for the
 LVM storage type. Additional flags like the <tt class="docutils literal"><span class="pre">exclusive_storage</span></tt> flag
 for lvm might be useful for other disk templates / storage types as well.
-We therefore extend the RPC call with &lt;disktemplate&gt;,&lt;key&gt; to
-&lt;disktemplate&gt;,&lt;key&gt;,&lt;params&gt; to include any disk-template-specific
+We therefore extend the RPC call with &lt;storage_type&gt;,&lt;key&gt; to
+&lt;storage_type&gt;,&lt;key&gt;,[&lt;param&gt;] to include any disk-template-specific
 (or storage-type specific) parameters in the RPC call.</p>
 <p>The reporting of free spindles, also part of Partitioned Ganeti, is not
 concerned with this design doc, as those are seen as a separate resource.</p>
@@ -335,11 +341,11 @@ concerned with this design doc, as those are seen as a separate resource.</p>
 </ul>
 
   <h4>Previous topic</h4>
-  <p class="topless"><a href="design-hroller.html"
-                        title="previous chapter">HRoller tool</a></p>
+  <p class="topless"><a href="design-query-splitting.html"
+                        title="previous chapter">Splitting the query and job execution paths</a></p>
   <h4>Next topic</h4>
-  <p class="topless"><a href="design-daemons.html"
-                        title="next chapter">Ganeti daemons refactoring</a></p>
+  <p class="topless"><a href="design-internal-shutdown.html"
+                        title="next chapter">Detection of user-initiated shutdown from inside an instance</a></p>
   <h3>This Page</h3>
   <ul class="this-page-menu">
     <li><a href="_sources/design-storagetypes.txt"
@@ -366,12 +372,12 @@ concerned with this design doc, as those are seen as a separate resource.</p>
       <h3>Navigation</h3>
       <ul>
         <li class="right" style="margin-right: 10px">
-          <a href="design-daemons.html" title="Ganeti daemons refactoring"
+          <a href="design-internal-shutdown.html" title="Detection of user-initiated shutdown from inside an instance"
              >next</a></li>
         <li class="right" >
-          <a href="design-hroller.html" title="HRoller tool"
+          <a href="design-query-splitting.html" title="Splitting the query and job execution paths"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.8.2 documentation</a> &raquo;</li>
+        <li><a href="index.html">Ganeti 2.9.1 documentation</a> &raquo;</li>
           <li><a href="design-draft.html" >Design document drafts</a> &raquo;</li> 
       </ul>
     </div>

@@ -281,7 +281,7 @@ class TaggableObject(ConfigObject):
 
   """
   __slots__ = ["tags"]
-  VALID_TAG_RE = re.compile("^[\w.+*/:@-]+$")
+  VALID_TAG_RE = re.compile(r"^[\w.+*/:@-]+$")
 
   @classmethod
   def ValidateTag(cls, tag):
@@ -358,7 +358,7 @@ class TaggableObject(ConfigObject):
 class MasterNetworkParameters(ConfigObject):
   """Network configuration parameters for the master
 
-  @ivar name: master name
+  @ivar uuid: master nodes UUID
   @ivar ip: master IP
   @ivar netmask: master netmask
   @ivar netdev: master network device
@@ -366,7 +366,7 @@ class MasterNetworkParameters(ConfigObject):
 
   """
   __slots__ = [
-    "name",
+    "uuid",
     "ip",
     "netmask",
     "netdev",
@@ -418,7 +418,7 @@ class ConfigData(ConfigObject):
   def HasAnyDiskOfType(self, dev_type):
     """Check if in there is at disk of the given type in the configuration.
 
-    @type dev_type: L{constants.LDS_BLOCK}
+    @type dev_type: L{constants.DTS_BLOCK}
     @param dev_type: the type to look for
     @rtype: boolean
     @return: boolean indicating if a disk of the given type was found or not
@@ -439,29 +439,29 @@ class ConfigData(ConfigObject):
       node.UpgradeConfig()
     for instance in self.instances.values():
       instance.UpgradeConfig()
+    self._UpgradeEnabledDiskTemplates()
     if self.nodegroups is None:
       self.nodegroups = {}
     for nodegroup in self.nodegroups.values():
       nodegroup.UpgradeConfig()
+      InstancePolicy.UpgradeDiskTemplates(
+        nodegroup.ipolicy, self.cluster.enabled_disk_templates)
     if self.cluster.drbd_usermode_helper is None:
       # To decide if we set an helper let's check if at least one instance has
       # a DRBD disk. This does not cover all the possible scenarios but it
       # gives a good approximation.
-      if self.HasAnyDiskOfType(constants.LD_DRBD8):
+      if self.HasAnyDiskOfType(constants.DT_DRBD8):
         self.cluster.drbd_usermode_helper = constants.DEFAULT_DRBD_HELPER
     if self.networks is None:
       self.networks = {}
     for network in self.networks.values():
       network.UpgradeConfig()
-    self._UpgradeEnabledDiskTemplates()
 
   def _UpgradeEnabledDiskTemplates(self):
     """Upgrade the cluster's enabled disk templates by inspecting the currently
        enabled and/or used disk templates.
 
     """
-    # enabled_disk_templates in the cluster config were introduced in 2.8.
-    # Remove this code once upgrading from earlier versions is deprecated.
     if not self.cluster.enabled_disk_templates:
       template_set = \
         set([inst.disk_template for inst in self.instances.values()])
@@ -469,13 +469,6 @@ class ConfigData(ConfigObject):
       if self.cluster.volume_group_name:
         template_set.add(constants.DT_DRBD8)
         template_set.add(constants.DT_PLAIN)
-      # FIXME: Adapt this when dis/enabling at configure time is removed.
-      # Enable 'file' and 'sharedfile', if they are enabled, even though they
-      # might currently not be used.
-      if constants.ENABLE_FILE_STORAGE:
-        template_set.add(constants.DT_FILE)
-      if constants.ENABLE_SHARED_FILE_STORAGE:
-        template_set.add(constants.DT_SHARED_FILE)
       # Set enabled_disk_templates to the inferred disk templates. Order them
       # according to a preference list that is based on Ganeti's history of
       # supported disk templates.
@@ -485,6 +478,8 @@ class ConfigData(ConfigObject):
           self.cluster.enabled_disk_templates.append(preferred_template)
           template_set.remove(preferred_template)
       self.cluster.enabled_disk_templates.extend(list(template_set))
+    InstancePolicy.UpgradeDiskTemplates(
+      self.cluster.ipolicy, self.cluster.enabled_disk_templates)
 
 
 class NIC(ConfigObject):
@@ -512,20 +507,21 @@ class NIC(ConfigObject):
 
 class Disk(ConfigObject):
   """Config object representing a block device."""
-  __slots__ = ["name", "dev_type", "logical_id", "physical_id",
-               "children", "iv_name", "size", "mode", "params"] + _UUID
+  __slots__ = (["name", "dev_type", "logical_id", "physical_id",
+                "children", "iv_name", "size", "mode", "params", "spindles"] +
+               _UUID)
 
   def CreateOnSecondary(self):
     """Test if this device needs to be created on a secondary node."""
-    return self.dev_type in (constants.LD_DRBD8, constants.LD_LV)
+    return self.dev_type in (constants.DT_DRBD8, constants.DT_PLAIN)
 
   def AssembleOnSecondary(self):
     """Test if this device needs to be assembled on a secondary node."""
-    return self.dev_type in (constants.LD_DRBD8, constants.LD_LV)
+    return self.dev_type in (constants.DT_DRBD8, constants.DT_PLAIN)
 
   def OpenOnSecondary(self):
     """Test if this device needs to be opened on a secondary node."""
-    return self.dev_type in (constants.LD_LV,)
+    return self.dev_type in (constants.DT_PLAIN,)
 
   def StaticDevPath(self):
     """Return the device path if this device type has a static one.
@@ -538,11 +534,11 @@ class Disk(ConfigObject):
         should check that it is a valid path.
 
     """
-    if self.dev_type == constants.LD_LV:
+    if self.dev_type == constants.DT_PLAIN:
       return "/dev/%s/%s" % (self.logical_id[0], self.logical_id[1])
-    elif self.dev_type == constants.LD_BLOCKDEV:
+    elif self.dev_type == constants.DT_BLOCK:
       return self.logical_id[1]
-    elif self.dev_type == constants.LD_RBD:
+    elif self.dev_type == constants.DT_RBD:
       return "/dev/%s/%s" % (self.logical_id[0], self.logical_id[1])
     return None
 
@@ -558,14 +554,14 @@ class Disk(ConfigObject):
     -1.
 
     """
-    if self.dev_type == constants.LD_DRBD8:
+    if self.dev_type == constants.DT_DRBD8:
       return 0
     return -1
 
   def IsBasedOnDiskType(self, dev_type):
     """Check if the disk or its children are based on the given type.
 
-    @type dev_type: L{constants.LDS_BLOCK}
+    @type dev_type: L{constants.DTS_BLOCK}
     @param dev_type: the type to look for
     @rtype: boolean
     @return: boolean indicating if a device of the given type was found or not
@@ -577,7 +573,7 @@ class Disk(ConfigObject):
           return True
     return self.dev_type == dev_type
 
-  def GetNodes(self, node):
+  def GetNodes(self, node_uuid):
     """This function returns the nodes this device lives on.
 
     Given the node on which the parent of the device lives on (or, in
@@ -586,29 +582,29 @@ class Disk(ConfigObject):
     devices needs to (or can) be assembled.
 
     """
-    if self.dev_type in [constants.LD_LV, constants.LD_FILE,
-                         constants.LD_BLOCKDEV, constants.LD_RBD,
-                         constants.LD_EXT]:
-      result = [node]
-    elif self.dev_type in constants.LDS_DRBD:
+    if self.dev_type in [constants.DT_PLAIN, constants.DT_FILE,
+                         constants.DT_BLOCK, constants.DT_RBD,
+                         constants.DT_EXT, constants.DT_SHARED_FILE]:
+      result = [node_uuid]
+    elif self.dev_type in constants.DTS_DRBD:
       result = [self.logical_id[0], self.logical_id[1]]
-      if node not in result:
+      if node_uuid not in result:
         raise errors.ConfigurationError("DRBD device passed unknown node")
     else:
       raise errors.ProgrammerError("Unhandled device type %s" % self.dev_type)
     return result
 
-  def ComputeNodeTree(self, parent_node):
+  def ComputeNodeTree(self, parent_node_uuid):
     """Compute the node/disk tree for this disk and its children.
 
     This method, given the node on which the parent disk lives, will
-    return the list of all (node, disk) pairs which describe the disk
+    return the list of all (node UUID, disk) pairs which describe the disk
     tree in the most compact way. For example, a drbd/lvm stack
     will be returned as (primary_node, drbd) and (secondary_node, drbd)
     which represents all the top-level devices on the nodes.
 
     """
-    my_nodes = self.GetNodes(parent_node)
+    my_nodes = self.GetNodes(parent_node_uuid)
     result = [(node, self) for node in my_nodes]
     if not self.children:
       # leaf device
@@ -644,9 +640,9 @@ class Disk(ConfigObject):
     @return: a dictionary of volume-groups and the required size
 
     """
-    if self.dev_type == constants.LD_LV:
+    if self.dev_type == constants.DT_PLAIN:
       return {self.logical_id[0]: amount}
-    elif self.dev_type == constants.LD_DRBD8:
+    elif self.dev_type == constants.DT_DRBD8:
       if self.children:
         return self.children[0].ComputeGrowth(amount)
       else:
@@ -663,10 +659,11 @@ class Disk(ConfigObject):
     actual algorithms from bdev.
 
     """
-    if self.dev_type in (constants.LD_LV, constants.LD_FILE,
-                         constants.LD_RBD, constants.LD_EXT):
+    if self.dev_type in (constants.DT_PLAIN, constants.DT_FILE,
+                         constants.DT_RBD, constants.DT_EXT,
+                         constants.DT_SHARED_FILE):
       self.size += amount
-    elif self.dev_type == constants.LD_DRBD8:
+    elif self.dev_type == constants.DT_DRBD8:
       if self.children:
         self.children[0].RecordGrow(amount)
       self.size += amount
@@ -674,11 +671,11 @@ class Disk(ConfigObject):
       raise errors.ProgrammerError("Disk.RecordGrow called for unsupported"
                                    " disk type %s" % self.dev_type)
 
-  def Update(self, size=None, mode=None):
-    """Apply changes to size and mode.
+  def Update(self, size=None, mode=None, spindles=None):
+    """Apply changes to size, spindles and mode.
 
     """
-    if self.dev_type == constants.LD_DRBD8:
+    if self.dev_type == constants.DT_DRBD8:
       if self.children:
         self.children[0].Update(size=size, mode=mode)
     else:
@@ -688,6 +685,8 @@ class Disk(ConfigObject):
       self.size = size
     if mode is not None:
       self.mode = mode
+    if spindles is not None:
+      self.spindles = spindles
 
   def UnsetSize(self):
     """Sets recursively the size to zero for the disk and its children.
@@ -698,7 +697,7 @@ class Disk(ConfigObject):
         child.UnsetSize()
     self.size = 0
 
-  def SetPhysicalID(self, target_node, nodes_ip):
+  def SetPhysicalID(self, target_node_uuid, nodes_ip):
     """Convert the logical ID to the physical ID.
 
     This is used only for drbd, which needs ip/port configuration.
@@ -708,7 +707,7 @@ class Disk(ConfigObject):
     node.
 
     Arguments:
-      - target_node: the node we wish to configure for
+      - target_node_uuid: the node UUID we wish to configure for
       - nodes_ip: a mapping of node name to ip
 
     The target_node must exist in in nodes_ip, and must be one of the
@@ -718,23 +717,23 @@ class Disk(ConfigObject):
     """
     if self.children:
       for child in self.children:
-        child.SetPhysicalID(target_node, nodes_ip)
+        child.SetPhysicalID(target_node_uuid, nodes_ip)
 
     if self.logical_id is None and self.physical_id is not None:
       return
-    if self.dev_type in constants.LDS_DRBD:
-      pnode, snode, port, pminor, sminor, secret = self.logical_id
-      if target_node not in (pnode, snode):
+    if self.dev_type in constants.DTS_DRBD:
+      pnode_uuid, snode_uuid, port, pminor, sminor, secret = self.logical_id
+      if target_node_uuid not in (pnode_uuid, snode_uuid):
         raise errors.ConfigurationError("DRBD device not knowing node %s" %
-                                        target_node)
-      pnode_ip = nodes_ip.get(pnode, None)
-      snode_ip = nodes_ip.get(snode, None)
+                                        target_node_uuid)
+      pnode_ip = nodes_ip.get(pnode_uuid, None)
+      snode_ip = nodes_ip.get(snode_uuid, None)
       if pnode_ip is None or snode_ip is None:
         raise errors.ConfigurationError("Can't find primary or secondary node"
                                         " for %s" % str(self))
       p_data = (pnode_ip, port)
       s_data = (snode_ip, port)
-      if pnode == target_node:
+      if pnode_uuid == target_node_uuid:
         self.physical_id = p_data + s_data + (pminor, secret)
       else: # it must be secondary, we tested above
         self.physical_id = s_data + p_data + (sminor, secret)
@@ -769,7 +768,7 @@ class Disk(ConfigObject):
       obj.logical_id = tuple(obj.logical_id)
     if obj.physical_id and isinstance(obj.physical_id, list):
       obj.physical_id = tuple(obj.physical_id)
-    if obj.dev_type in constants.LDS_DRBD:
+    if obj.dev_type in constants.DTS_DRBD:
       # we need a tuple of length six here
       if len(obj.logical_id) < 6:
         obj.logical_id += (None,) * (6 - len(obj.logical_id))
@@ -779,9 +778,9 @@ class Disk(ConfigObject):
     """Custom str() formatter for disks.
 
     """
-    if self.dev_type == constants.LD_LV:
+    if self.dev_type == constants.DT_PLAIN:
       val = "<LogicalVolume(/dev/%s/%s" % self.logical_id
-    elif self.dev_type in constants.LDS_DRBD:
+    elif self.dev_type in constants.DTS_DRBD:
       node_a, node_b, port, minor_a, minor_b = self.logical_id[:5]
       val = "<DRBD8("
       if self.physical_id is None:
@@ -804,6 +803,8 @@ class Disk(ConfigObject):
       val += ", not visible"
     else:
       val += ", visible as /dev/%s" % self.iv_name
+    if self.spindles is not None:
+      val += ", spindles=%s" % self.spindles
     if isinstance(self.size, int):
       val += ", size=%dm)>" % self.size
     else:
@@ -831,6 +832,12 @@ class Disk(ConfigObject):
     self.params = {}
     # add here config upgrade for this disk
 
+    # map of legacy device types (mapping differing LD constants to new
+    # DT constants)
+    LEG_DEV_TYPE_MAP = {"lvm": constants.DT_PLAIN, "drbd8": constants.DT_DRBD8}
+    if self.dev_type in LEG_DEV_TYPE_MAP:
+      self.dev_type = LEG_DEV_TYPE_MAP[self.dev_type]
+
   @staticmethod
   def ComputeLDParams(disk_template, disk_params):
     """Computes Logical Disk parameters from Disk Template parameters.
@@ -853,13 +860,14 @@ class Disk(ConfigObject):
     result = list()
     dt_params = disk_params[disk_template]
     if disk_template == constants.DT_DRBD8:
-      result.append(FillDict(constants.DISK_LD_DEFAULTS[constants.LD_DRBD8], {
+      result.append(FillDict(constants.DISK_LD_DEFAULTS[constants.DT_DRBD8], {
         constants.LDP_RESYNC_RATE: dt_params[constants.DRBD_RESYNC_RATE],
         constants.LDP_BARRIERS: dt_params[constants.DRBD_DISK_BARRIERS],
         constants.LDP_NO_META_FLUSH: dt_params[constants.DRBD_META_BARRIERS],
         constants.LDP_DEFAULT_METAVG: dt_params[constants.DRBD_DEFAULT_METAVG],
         constants.LDP_DISK_CUSTOM: dt_params[constants.DRBD_DISK_CUSTOM],
         constants.LDP_NET_CUSTOM: dt_params[constants.DRBD_NET_CUSTOM],
+        constants.LDP_PROTOCOL: dt_params[constants.DRBD_PROTOCOL],
         constants.LDP_DYNAMIC_RESYNC: dt_params[constants.DRBD_DYNAMIC_RESYNC],
         constants.LDP_PLAN_AHEAD: dt_params[constants.DRBD_PLAN_AHEAD],
         constants.LDP_FILL_TARGET: dt_params[constants.DRBD_FILL_TARGET],
@@ -869,33 +877,33 @@ class Disk(ConfigObject):
         }))
 
       # data LV
-      result.append(FillDict(constants.DISK_LD_DEFAULTS[constants.LD_LV], {
+      result.append(FillDict(constants.DISK_LD_DEFAULTS[constants.DT_PLAIN], {
         constants.LDP_STRIPES: dt_params[constants.DRBD_DATA_STRIPES],
         }))
 
       # metadata LV
-      result.append(FillDict(constants.DISK_LD_DEFAULTS[constants.LD_LV], {
+      result.append(FillDict(constants.DISK_LD_DEFAULTS[constants.DT_PLAIN], {
         constants.LDP_STRIPES: dt_params[constants.DRBD_META_STRIPES],
         }))
 
     elif disk_template in (constants.DT_FILE, constants.DT_SHARED_FILE):
-      result.append(constants.DISK_LD_DEFAULTS[constants.LD_FILE])
+      result.append(constants.DISK_LD_DEFAULTS[disk_template])
 
     elif disk_template == constants.DT_PLAIN:
-      result.append(FillDict(constants.DISK_LD_DEFAULTS[constants.LD_LV], {
+      result.append(FillDict(constants.DISK_LD_DEFAULTS[constants.DT_PLAIN], {
         constants.LDP_STRIPES: dt_params[constants.LV_STRIPES],
         }))
 
     elif disk_template == constants.DT_BLOCK:
-      result.append(constants.DISK_LD_DEFAULTS[constants.LD_BLOCKDEV])
+      result.append(constants.DISK_LD_DEFAULTS[constants.DT_BLOCK])
 
     elif disk_template == constants.DT_RBD:
-      result.append(FillDict(constants.DISK_LD_DEFAULTS[constants.LD_RBD], {
+      result.append(FillDict(constants.DISK_LD_DEFAULTS[constants.DT_RBD], {
         constants.LDP_POOL: dt_params[constants.RBD_POOL],
         }))
 
     elif disk_template == constants.DT_EXT:
-      result.append(constants.DISK_LD_DEFAULTS[constants.LD_EXT])
+      result.append(constants.DISK_LD_DEFAULTS[constants.DT_EXT])
 
     return result
 
@@ -907,6 +915,15 @@ class InstancePolicy(ConfigObject):
   used as a placeholder for a few functions.
 
   """
+  @classmethod
+  def UpgradeDiskTemplates(cls, ipolicy, enabled_disk_templates):
+    """Upgrades the ipolicy configuration."""
+    if constants.IPOLICY_DTS in ipolicy:
+      if not set(ipolicy[constants.IPOLICY_DTS]).issubset(
+        set(enabled_disk_templates)):
+        ipolicy[constants.IPOLICY_DTS] = list(
+          set(ipolicy[constants.IPOLICY_DTS]) & set(enabled_disk_templates))
+
   @classmethod
   def CheckParameterSyntax(cls, ipolicy, check_std):
     """ Check the instance policy for validity.
@@ -1086,7 +1103,7 @@ class Instance(TaggableObject):
     """
     def _Helper(nodes, device):
       """Recursively computes nodes given a top device."""
-      if device.dev_type in constants.LDS_DRBD:
+      if device.dev_type in constants.DTS_DRBD:
         nodea, nodeb = device.logical_id[:2]
         nodes.add(nodea)
         nodes.add(nodeb)
@@ -1103,48 +1120,54 @@ class Instance(TaggableObject):
   all_nodes = property(_ComputeAllNodes, None, None,
                        "List of names of all the nodes of the instance")
 
-  def MapLVsByNode(self, lvmap=None, devs=None, node=None):
+  def MapLVsByNode(self, lvmap=None, devs=None, node_uuid=None):
     """Provide a mapping of nodes to LVs this instance owns.
 
     This function figures out what logical volumes should belong on
     which nodes, recursing through a device tree.
 
+    @type lvmap: dict
     @param lvmap: optional dictionary to receive the
         'node' : ['lv', ...] data.
-
+    @type devs: list of L{Disk}
+    @param devs: disks to get the LV name for. If None, all disk of this
+        instance are used.
+    @type node_uuid: string
+    @param node_uuid: UUID of the node to get the LV names for. If None, the
+        primary node of this instance is used.
     @return: None if lvmap arg is given, otherwise, a dictionary of
-        the form { 'nodename' : ['volume1', 'volume2', ...], ... };
+        the form { 'node_uuid' : ['volume1', 'volume2', ...], ... };
         volumeN is of the form "vg_name/lv_name", compatible with
         GetVolumeList()
 
     """
-    if node is None:
-      node = self.primary_node
+    if node_uuid is None:
+      node_uuid = self.primary_node
 
     if lvmap is None:
       lvmap = {
-        node: [],
+        node_uuid: [],
         }
       ret = lvmap
     else:
-      if not node in lvmap:
-        lvmap[node] = []
+      if not node_uuid in lvmap:
+        lvmap[node_uuid] = []
       ret = None
 
     if not devs:
       devs = self.disks
 
     for dev in devs:
-      if dev.dev_type == constants.LD_LV:
-        lvmap[node].append(dev.logical_id[0] + "/" + dev.logical_id[1])
+      if dev.dev_type == constants.DT_PLAIN:
+        lvmap[node_uuid].append(dev.logical_id[0] + "/" + dev.logical_id[1])
 
-      elif dev.dev_type in constants.LDS_DRBD:
+      elif dev.dev_type in constants.DTS_DRBD:
         if dev.children:
           self.MapLVsByNode(lvmap, dev.children, dev.logical_id[0])
           self.MapLVsByNode(lvmap, dev.children, dev.logical_id[1])
 
       elif dev.children:
-        self.MapLVsByNode(lvmap, dev.children, node)
+        self.MapLVsByNode(lvmap, dev.children, node_uuid)
 
     return ret
 
@@ -1887,6 +1910,26 @@ class Cluster(TaggableObject):
 
     """
     return FillIPolicy(self.ipolicy, ipolicy)
+
+  def IsDiskTemplateEnabled(self, disk_template):
+    """Checks if a particular disk template is enabled.
+
+    """
+    return utils.storage.IsDiskTemplateEnabled(
+        disk_template, self.enabled_disk_templates)
+
+  def IsFileStorageEnabled(self):
+    """Checks if file storage is enabled.
+
+    """
+    return utils.storage.IsFileStorageEnabled(self.enabled_disk_templates)
+
+  def IsSharedFileStorageEnabled(self):
+    """Checks if shared file storage is enabled.
+
+    """
+    return utils.storage.IsSharedFileStorageEnabled(
+        self.enabled_disk_templates)
 
 
 class BlockDevStatus(ConfigObject):

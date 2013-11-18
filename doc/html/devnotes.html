@@ -8,7 +8,7 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Developer notes &mdash; Ganeti 2.8.2 documentation</title>
+    <title>Developer notes &mdash; Ganeti 2.9.1 documentation</title>
     
     <link rel="stylesheet" href="_static/style.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
@@ -16,7 +16,7 @@
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.8.2',
+        VERSION:     '2.9.1',
         COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -25,7 +25,7 @@
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti 2.8.2 documentation" href="index.html" />
+    <link rel="top" title="Ganeti 2.9.1 documentation" href="index.html" />
     <link rel="next" title="Glossary" href="glossary.html" />
     <link rel="prev" title="Design for virtual clusters support" href="design-virtual-clusters.html" /> 
   </head>
@@ -39,7 +39,7 @@
         <li class="right" >
           <a href="design-virtual-clusters.html" title="Design for virtual clusters support"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.8.2 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.9.1 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -62,6 +62,7 @@
 <li><a class="reference external" href="http://epydoc.sourceforge.net/">python-epydoc</a></li>
 <li><a class="reference external" href="http://sphinx.pocoo.org/">python-sphinx</a>
 (tested with version 1.1.3)</li>
+<li><a class="reference external" href="http://www.voidspace.org.uk/python/mock/">python-mock</a></li>
 <li><a class="reference external" href="http://www.graphviz.org/">graphviz</a></li>
 <li>the <cite>en_US.UTF-8</cite> locale must be enabled on the system</li>
 <li><a class="reference external" href="http://www.logilab.org/857">pylint</a> and its associated
@@ -69,32 +70,32 @@ dependencies</li>
 <li><a class="reference external" href="https://github.com/jcrocholl/pep8/">pep8</a></li>
 <li><a class="reference external" href="http://pyyaml.org/">PyYAML</a></li>
 </ul>
-<p>For older developement (Ganeti &lt; 2.4) <tt class="docutils literal"><span class="pre">docbook</span></tt> was used instead
+<p>For older developement (Ganeti &lt; 2.4) <tt class="docutils literal"><span class="pre">docbook</span></tt> was used instead of
 <tt class="docutils literal"><span class="pre">pandoc</span></tt>.</p>
 <p>Note that for pylint, at the current moment the following versions
 must be used:</p>
 <div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">pylint</span> <span class="gs">--version</span>
-pylint 0.25.1,
-astng 0.23.1, common 0.58.0
+pylint 0.26.0,
+astng 0.24.1, common 0.58.3
 </pre></div>
 </div>
 <p>The same with pep8, other versions may give you errors:</p>
 <div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">pep8</span> <span class="gs">--version</span>
-1.2
+1.3.3
 </pre></div>
 </div>
-<p>Both these versions are the ones shipped with Debian Wheezy.</p>
+<p>Both these versions are the ones shipped with Ubuntu 13.04.</p>
 <p>To generate unittest coverage reports (<tt class="docutils literal"><span class="pre">make</span> <span class="pre">coverage</span></tt>), <a class="reference external" href="http://pypi.python.org/pypi/coverage">coverage</a> needs to be installed.</p>
 <p>Installation of all dependencies listed here:</p>
 <div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">apt-get</span> <span class="gs">install</span> <span class="gs">python-setuptools</span> <span class="gs">automake</span> <span class="gs">git</span> <span class="gs">fakeroot</span>
 $ <span class="gs">apt-get</span> <span class="gs">install</span> <span class="gs">pandoc</span> <span class="gs">python-epydoc</span> <span class="gs">graphviz</span>
-$ <span class="gs">apt-get</span> <span class="gs">install</span> <span class="gs">python-yaml</span>
+$ <span class="gs">apt-get</span> <span class="gs">install</span> <span class="gs">python-yaml</span> <span class="gs">python-mock</span>
 $ <span class="gs">cd</span> <span class="gs">/</span> <span class="gs">&amp;&amp;</span> <span class="gs">sudo</span> <span class="gs">easy_install</span> <span class="gs">\</span>
           <span class="gs">sphinx</span> <span class="gs">\</span>
-          <span class="gs">logilab-astng==0.23.1</span> <span class="gs">\</span>
-          <span class="gs">logilab-common==0.58.0</span> <span class="gs">\</span>
-          <span class="gs">pylint==0.25.1</span> <span class="gs">\</span>
-          <span class="gs">pep8==1.2</span> <span class="gs">\</span>
+          <span class="gs">logilab-astng==0.24.1</span> <span class="gs">\</span>
+          <span class="gs">logilab-common==0.58.3</span> <span class="gs">\</span>
+          <span class="gs">pylint==0.26.0</span> <span class="gs">\</span>
+          <span class="gs">pep8==1.3.3</span> <span class="gs">\</span>
           <span class="gs">coverage</span>
 </pre></div>
 </div>
@@ -107,7 +108,7 @@ generator (equivalent to epydoc for Python)</li>
 used for documentation (it&#8217;s source-code pretty-printing)</li>
 <li><a class="reference external" href="http://community.haskell.org/~ndm/hlint/">hlint</a>, a source code
 linter (equivalent to pylint for Python), recommended version 1.8 or
-above (tested with 1.8.15)</li>
+above (tested with 1.8.43)</li>
 <li>the <a class="reference external" href="http://hackage.haskell.org/package/QuickCheck">QuickCheck</a>
 library, version 2.x</li>
 <li>the <a class="reference external" href="http://hunit.sourceforge.net/">HUnit</a> library (tested with
@@ -206,22 +207,40 @@ for example, in bash via <tt class="docutils literal"><span class="pre">.bashrc<
 <div class="section" id="running-individual-tests">
 <h3>Running individual tests<a class="headerlink" href="#running-individual-tests" title="Permalink to this headline">¶</a></h3>
 <p>When developing code, running the entire test suite can be
-slow. Running individual tests is possible easily for unit-tests, less
-so for shell-tests (but these are faster, so it shouldn&#8217;t be needed).</p>
+slow. Running individual tests is possible. There are different
+Makefile targets for running individual Python and Haskell tests.</p>
 <p>For Python tests:</p>
 <div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">export</span> <span class="gs">PYTHONPATH=$PWD</span>
 $ <span class="gs">python</span> <span class="gs">./test/py/ganeti.</span><span class="nv">mytest</span>
 </pre></div>
 </div>
 <p>For Haskell tests:</p>
-<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">make</span> <span class="gs">test/hs/htest</span> <span class="gs">&amp;&amp;</span> <span class="gs">./test/hs/htest</span> <span class="gs">-t</span> <span class="nv">pattern</span>
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">make</span> <span class="gs">hs-test-</span><span class="nv">pattern</span>
 </pre></div>
 </div>
 <p>Where <tt class="docutils literal"><span class="pre">pattern</span></tt> can be a simple test pattern (e.g. <tt class="docutils literal"><span class="pre">comma</span></tt>,
 matching any test whose name contains <tt class="docutils literal"><span class="pre">comma</span></tt>), a test pattern
 denoting a group (ending with a slash, e.g. <tt class="docutils literal"><span class="pre">Utils/</span></tt>), or more
-complex glob pattern. For more details, see the documentation (on the
-<a class="reference external" href="http://batterseapower.github.com/test-framework/">test-framework homepage</a>).</p>
+complex glob pattern. For more details, search for glob patterns in
+the documentation of <a class="reference external" href="http://batterseapower.github.com/test-framework/">test-framework</a>).</p>
+<p>For individual Haskell shelltests:</p>
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">make</span> <span class="gs">hs-shell-</span><span class="nv">name</span>
+</pre></div>
+</div>
+<p>which runs the test <tt class="docutils literal"><span class="pre">test/hs/shelltests/htools-%name%.test</span></tt>. For
+example, to run the test <tt class="docutils literal"><span class="pre">test/hs/shelltests/htools-balancing.test</span></tt>,
+use:</p>
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">make</span> <span class="gs">hs-shell-balancing</span>
+</pre></div>
+</div>
+<p>For combined Haskell shelltests:</p>
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">make</span> <span class="gs">hs-shell-{</span><span class="nv">name1</span><span class="gs">,</span><span class="nv">name2</span><span class="gs">,...}</span>
+</pre></div>
+</div>
+<p>for example:</p>
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">make</span> <span class="gs">hs-shell-{balancing,basic}</span>
+</pre></div>
+</div>
 </div>
 </div>
 </div>
@@ -309,7 +328,7 @@ for reloading the OpenSSH daemon&#8217;s host keys.</p>
         <li class="right" >
           <a href="design-virtual-clusters.html" title="Design for virtual clusters support"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.8.2 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.9.1 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

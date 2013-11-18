@@ -194,6 +194,18 @@ class QmpMessage:
     """
     self.data[field_name] = field_value
 
+  def __len__(self):
+    """Return the number of fields stored in this QmpMessage.
+
+    """
+    return len(self.data)
+
+  def __delitem__(self, key):
+    """Delete the specified element from the QmpMessage.
+
+    """
+    del(self.data[key])
+
   @staticmethod
   def BuildFromJsonString(json_string):
     """Build a QmpMessage from a JSON encoded string.
@@ -460,11 +472,7 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     constants.HV_ACPI: hv_base.NO_CHECK,
     constants.HV_SERIAL_CONSOLE: hv_base.NO_CHECK,
     constants.HV_SERIAL_SPEED: hv_base.NO_CHECK,
-    constants.HV_VNC_BIND_ADDRESS:
-      (False, lambda x: (netutils.IP4Address.IsValid(x) or
-                         utils.IsNormAbsPath(x)),
-       "The VNC bind address must be either a valid IP address or an absolute"
-       " pathname", None, None),
+    constants.HV_VNC_BIND_ADDRESS: hv_base.NO_CHECK, # will be checked later
     constants.HV_VNC_TLS: hv_base.NO_CHECK,
     constants.HV_VNC_X509: hv_base.OPT_DIR_CHECK,
     constants.HV_VNC_X509_VERIFY: hv_base.NO_CHECK,
@@ -539,7 +547,7 @@ class KVMHypervisor(hv_base.BaseHypervisor):
   _VIRTIO = "virtio"
   _VIRTIO_NET_PCI = "virtio-net-pci"
 
-  _MIGRATION_STATUS_RE = re.compile("Migration\s+status:\s+(\w+)",
+  _MIGRATION_STATUS_RE = re.compile(r"Migration\s+status:\s+(\w+)",
                                     re.M | re.I)
   _MIGRATION_PROGRESS_RE = \
     re.compile(r"\s*transferred\s+ram:\s+(?P<transferred>\d+)\s+kbytes\s*\n"
@@ -572,6 +580,7 @@ class KVMHypervisor(hv_base.BaseHypervisor):
   # dashes not preceeded by a new line (which would mean another option
   # different than -drive is starting)
   _BOOT_RE = re.compile(r"^-drive\s([^-]|(?<!^)-)*,boot=on\|off", re.M | re.S)
+  _UUID_RE = re.compile(r"^-uuid\s", re.M)
 
   ANCILLARY_FILES = [
     _KVM_NETWORK_SCRIPT,
@@ -961,7 +970,7 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     # Run CPU pinning, based on configured mask
     self._AssignCpuAffinity(cpu_mask, pid, thread_dict)
 
-  def ListInstances(self):
+  def ListInstances(self, hvparams=None):
     """Get the list of running instances.
 
     We can do this by listing our live instances directory and
@@ -974,11 +983,13 @@ class KVMHypervisor(hv_base.BaseHypervisor):
         result.append(name)
     return result
 
-  def GetInstanceInfo(self, instance_name):
+  def GetInstanceInfo(self, instance_name, hvparams=None):
     """Get instance properties.
 
     @type instance_name: string
     @param instance_name: the instance name
+    @type hvparams: dict of strings
+    @param hvparams: hvparams to be used with this instance
     @rtype: tuple of strings
     @return: (name, id, memory, vcpus, stat, times)
 
@@ -1004,9 +1015,11 @@ class KVMHypervisor(hv_base.BaseHypervisor):
 
     return (instance_name, pid, memory, vcpus, istat, times)
 
-  def GetAllInstancesInfo(self):
+  def GetAllInstancesInfo(self, hvparams=None):
     """Get properties of all instances.
 
+    @type hvparams: dict of strings
+    @param hvparams: hypervisor parameter
     @return: list of tuples (name, id, memory, vcpus, stat, times)
 
     """
@@ -1226,6 +1239,14 @@ class KVMHypervisor(hv_base.BaseHypervisor):
       kvm_cmd.extend(["-usbdevice", constants.HT_MOUSE_TABLET])
 
     if vnc_bind_address:
+      if netutils.IsValidInterface(vnc_bind_address):
+        if_addresses = netutils.GetInterfaceIpAddresses(vnc_bind_address)
+        if_ip4_addresses = if_addresses[constants.IP4_VERSION]
+        if len(if_ip4_addresses) < 1:
+          logging.error("Could not determine IPv4 address of interface %s",
+                        vnc_bind_address)
+        else:
+          vnc_bind_address = if_ip4_addresses[0]
       if netutils.IP4Address.IsValid(vnc_bind_address):
         if instance.network_port > constants.VNC_BASE_PORT:
           display = instance.network_port - constants.VNC_BASE_PORT
@@ -1386,6 +1407,10 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     if hvp[constants.HV_USB_DEVICES]:
       for dev in hvp[constants.HV_USB_DEVICES].split(","):
         kvm_cmd.extend(["-usbdevice", dev])
+
+    # Set system UUID to instance UUID
+    if self._UUID_RE.search(kvmhelp):
+      kvm_cmd.extend(["-uuid", instance.uuid])
 
     if hvp[constants.HV_KVM_EXTRA]:
       kvm_cmd.extend(hvp[constants.HV_KVM_EXTRA].split(" "))
@@ -1882,12 +1907,14 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     else:
       self.StopInstance(instance, force=True)
 
-  def MigrateInstance(self, instance, target, live):
+  def MigrateInstance(self, cluster_name, instance, target, live):
     """Migrate an instance to a target node.
 
     The migration will not be attempted if the instance is not
     currently running.
 
+    @type cluster_name: string
+    @param cluster_name: name of the cluster
     @type instance: L{objects.Instance}
     @param instance: the instance to be migrated
     @type target: string
@@ -1983,13 +2010,14 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     """
     self._CallMonitorCommand(instance.name, "balloon %d" % mem)
 
-  def GetNodeInfo(self):
+  def GetNodeInfo(self, hvparams=None):
     """Return information about the node.
 
-    @return: a dict with the following keys (values in MiB):
-          - memory_total: the total memory size on the node
-          - memory_free: the available memory on the node for instances
-          - memory_dom0: the memory used by the node itself, if available
+    @type hvparams: dict of strings
+    @param hvparams: hypervisor parameters, not used in this class
+
+    @return: a dict as returned by L{BaseHypervisor.GetLinuxNodeInfo} plus
+        the following keys:
           - hv_version: the hypervisor version in the form (major, minor,
                         revision)
 
@@ -2003,7 +2031,7 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     return result
 
   @classmethod
-  def GetInstanceConsole(cls, instance, hvparams, beparams):
+  def GetInstanceConsole(cls, instance, primary_node, hvparams, beparams):
     """Return a command for connecting to the console of an instance.
 
     """
@@ -2015,7 +2043,7 @@ class KVMHypervisor(hv_base.BaseHypervisor):
              "UNIX-CONNECT:%s" % cls._InstanceSerial(instance.name)]
       return objects.InstanceConsole(instance=instance.name,
                                      kind=constants.CONS_SSH,
-                                     host=instance.primary_node,
+                                     host=primary_node.name,
                                      user=constants.SSH_CONSOLE_USER,
                                      command=cmd)
 
@@ -2040,10 +2068,13 @@ class KVMHypervisor(hv_base.BaseHypervisor):
                                    message=("No serial shell for instance %s" %
                                             instance.name))
 
-  def Verify(self):
+  def Verify(self, hvparams=None):
     """Verify the hypervisor.
 
     Check that the required binaries exist.
+
+    @type hvparams: dict of strings
+    @param hvparams: hypervisor parameters to be verified against, not used here
 
     @return: Problem description if something is wrong, C{None} otherwise
 
@@ -2154,6 +2185,16 @@ class KVMHypervisor(hv_base.BaseHypervisor):
       except KeyError:
         raise errors.HypervisorError("Unknown security domain user %s"
                                      % username)
+    vnc_bind_address = hvparams[constants.HV_VNC_BIND_ADDRESS]
+    if vnc_bind_address:
+      bound_to_addr = netutils.IP4Address.IsValid(vnc_bind_address)
+      is_interface = netutils.IsValidInterface(vnc_bind_address)
+      is_path = utils.IsNormAbsPath(vnc_bind_address)
+      if not bound_to_addr and not is_interface and not is_path:
+        raise errors.HypervisorError("VNC: The %s parameter must be either"
+                                     " a valid IP address, an interface name,"
+                                     " or an absolute path" %
+                                     constants.HV_KVM_SPICE_BIND)
 
     spice_bind = hvparams[constants.HV_KVM_SPICE_BIND]
     if spice_bind:
@@ -2185,8 +2226,11 @@ class KVMHypervisor(hv_base.BaseHypervisor):
                                      machine_version)
 
   @classmethod
-  def PowercycleNode(cls):
+  def PowercycleNode(cls, hvparams=None):
     """KVM powercycle, just a wrapper over Linux powercycle.
+
+    @type hvparams: dict of strings
+    @param hvparams: hypervisor params to be used on this node
 
     """
     cls.LinuxPowercycle()

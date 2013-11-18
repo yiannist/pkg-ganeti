@@ -114,19 +114,15 @@ def TestNodeStorage():
   """gnt-node storage"""
   master = qa_config.GetMasterNode()
 
-  # FIXME: test all storage_types in constants.VALID_STORAGE_TYPES
+  # FIXME: test all storage_types in constants.STORAGE_TYPES
   # as soon as they are implemented.
-  for storage_type in [constants.ST_FILE, constants.ST_LVM_VG,
-                       constants.ST_LVM_PV]:
+  enabled_storage_types = qa_config.GetEnabledStorageTypes()
+  testable_storage_types = list(set(enabled_storage_types).intersection(
+      set([constants.ST_FILE, constants.ST_LVM_VG, constants.ST_LVM_PV])))
+
+  for storage_type in testable_storage_types:
 
     cmd = ["gnt-node", "list-storage", "--storage-type", storage_type]
-
-    # Skip file storage if not enabled, otherwise QA will fail; we
-    # just test for basic failure, but otherwise skip the rest of the
-    # tests
-    if storage_type == constants.ST_FILE and not constants.ENABLE_FILE_STORAGE:
-      AssertCommand(cmd, fail=True)
-      continue
 
     # Test simple list
     AssertCommand(cmd)
@@ -201,6 +197,20 @@ def TestNodeFailover(node, node2):
   AssertCommand(["gnt-node", "failover", "-f", node2.primary])
 
 
+def TestNodeMigrate(node, node2):
+  """gnt-node migrate"""
+  if qa_utils.GetNodeInstances(node2, secondaries=False):
+    raise qa_error.UnusableNodeError("Secondary node has at least one"
+                                     " primary instance. This test requires"
+                                     " it to have no primary instances.")
+
+  # Migrate to secondary node
+  AssertCommand(["gnt-node", "migrate", "-f", node.primary])
+
+  # ... and back again.
+  AssertCommand(["gnt-node", "migrate", "-f", node2.primary])
+
+
 def TestNodeEvacuate(node, node2):
   """gnt-node evacuate"""
   node3 = qa_config.AcquireNode(exclude=[node, node2])
@@ -223,13 +233,19 @@ def TestNodeEvacuate(node, node2):
 
 def TestNodeModify(node):
   """gnt-node modify"""
+
+  # make sure enough master candidates will be available by disabling the
+  # master candidate role first with --auto-promote
+  AssertCommand(["gnt-node", "modify", "--master-candidate=no",
+                "--auto-promote", node.primary])
+
+  # now it's save to force-remove the master candidate role
   for flag in ["master-candidate", "drained", "offline"]:
     for value in ["yes", "no"]:
       AssertCommand(["gnt-node", "modify", "--force",
                      "--%s=%s" % (flag, value), node.primary])
 
-  AssertCommand(["gnt-node", "modify", "--master-candidate=yes",
-                 "--auto-promote", node.primary])
+  AssertCommand(["gnt-node", "modify", "--master-candidate=yes", node.primary])
 
   # Test setting secondary IP address
   AssertCommand(["gnt-node", "modify", "--secondary-ip=%s" % node.secondary,

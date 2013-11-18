@@ -20,6 +20,9 @@ strip_hsroot = $(patsubst src/%,%,$(patsubst test/hs/%,%,$(1)))
 # Use bash in order to be able to use pipefail
 SHELL=/bin/bash
 
+# Enable colors in shelltest
+SHELLTESTARGS = "-c"
+
 ACLOCAL_AMFLAGS = -I autotools
 BUILD_BASH_COMPLETION = $(top_srcdir)/autotools/build-bash-completion
 RUN_IN_TEMPDIR = $(top_srcdir)/autotools/run-in-tempdir
@@ -42,6 +45,7 @@ SHELL_ENV_INIT = autotools/shell-env-init
 clientdir = $(pkgpythondir)/client
 cmdlibdir = $(pkgpythondir)/cmdlib
 hypervisordir = $(pkgpythondir)/hypervisor
+storagedir = $(pkgpythondir)/storage
 httpdir = $(pkgpythondir)/http
 masterddir = $(pkgpythondir)/masterd
 confddir = $(pkgpythondir)/confd
@@ -62,8 +66,6 @@ myexeclibdir = $(pkglibdir)
 HS_DIRS = \
 	src \
 	src/Ganeti \
-	src/Ganeti/Block \
-	src/Ganeti/Block/Drbd \
 	src/Ganeti/Confd \
 	src/Ganeti/Curl \
 	src/Ganeti/DataCollectors \
@@ -74,11 +76,17 @@ HS_DIRS = \
 	src/Ganeti/Hypervisor/Xen \
 	src/Ganeti/Monitoring \
 	src/Ganeti/Query \
+	src/Ganeti/Storage \
+	src/Ganeti/Storage/Diskstats \
+	src/Ganeti/Storage/Drbd \
+	src/Ganeti/Storage/Lvm \
 	test/hs \
 	test/hs/Test \
 	test/hs/Test/Ganeti \
-	test/hs/Test/Ganeti/Block \
-	test/hs/Test/Ganeti/Block/Drbd \
+	test/hs/Test/Ganeti/Storage \
+	test/hs/Test/Ganeti/Storage/Diskstats \
+	test/hs/Test/Ganeti/Storage/Drbd \
+	test/hs/Test/Ganeti/Storage/Lvm \
 	test/hs/Test/Ganeti/Confd \
 	test/hs/Test/Ganeti/HTools \
 	test/hs/Test/Ganeti/HTools/Backend \
@@ -116,6 +124,7 @@ DIRS = \
 	lib/masterd \
 	lib/rapi \
 	lib/server \
+	lib/storage \
 	lib/tools \
 	lib/utils \
 	lib/watcher \
@@ -195,6 +204,8 @@ CLEANFILES = \
 	$(man_MANS) \
 	$(manhtml) \
 	tools/kvm-ifup \
+	tools/vif-ganeti \
+	tools/net-common \
 	tools/users-setup \
 	tools/vcluster-setup \
 	stamp-directories \
@@ -264,7 +275,6 @@ pkgpython_PYTHON = \
 	lib/__init__.py \
 	lib/asyncnotifier.py \
 	lib/backend.py \
-	lib/bdev.py \
 	lib/bootstrap.py \
 	lib/cli.py \
 	lib/compat.py \
@@ -293,7 +303,6 @@ pkgpython_PYTHON = \
 	lib/serializer.py \
 	lib/ssconf.py \
 	lib/ssh.py \
-	lib/storage.py \
 	lib/uidpool.py \
 	lib/vcluster.py \
 	lib/network.py \
@@ -341,6 +350,16 @@ hypervisor_PYTHON = \
 	lib/hypervisor/hv_kvm.py \
 	lib/hypervisor/hv_lxc.py \
 	lib/hypervisor/hv_xen.py
+
+storage_PYTHON = \
+	lib/storage/__init__.py \
+	lib/storage/bdev.py \
+	lib/storage/base.py \
+	lib/storage/container.py \
+	lib/storage/drbd.py \
+	lib/storage/drbd_info.py \
+	lib/storage/drbd_cmdgen.py \
+	lib/storage/filestorage.py
 
 rapi_PYTHON = \
 	lib/rapi/__init__.py \
@@ -400,6 +419,7 @@ utils_PYTHON = \
 	lib/utils/nodesetup.py \
 	lib/utils/process.py \
 	lib/utils/retry.py \
+	lib/utils/storage.py \
 	lib/utils/text.py \
 	lib/utils/wrapper.py \
 	lib/utils/x509.py
@@ -418,22 +438,26 @@ docinput = \
 	doc/design-2.6.rst \
 	doc/design-2.7.rst \
 	doc/design-2.8.rst \
+	doc/design-2.9.rst \
 	doc/design-autorepair.rst \
 	doc/design-bulk-create.rst \
 	doc/design-chained-jobs.rst \
 	doc/design-cpu-pinning.rst \
 	doc/design-device-uuid-name.rst \
 	doc/design-draft.rst \
+	doc/design-glusterfs-ganeti-support.rst \
 	doc/design-daemons.rst \
 	doc/design-htools-2.3.rst \
 	doc/design-http-server.rst \
 	doc/design-impexp2.rst \
+	doc/design-internal-shutdown.rst \
 	doc/design-lu-generated-jobs.rst \
 	doc/design-linuxha.rst \
 	doc/design-multi-reloc.rst \
 	doc/design-network.rst \
 	doc/design-node-add.rst \
 	doc/design-oob.rst \
+	doc/design-openvswitch.rst \
 	doc/design-ovf-support.rst \
 	doc/design-opportunistic-locking.rst \
 	doc/design-partitioned.rst \
@@ -527,12 +551,11 @@ HPCEXCL = --exclude Main \
 	$(patsubst src.%,--exclude Test.%,$(subst /,.,$(patsubst %.hs,%, $(HS_LIB_SRCS))))
 
 HS_LIB_SRCS = \
-	src/Ganeti/Block/Drbd/Types.hs \
-	src/Ganeti/Block/Drbd/Parser.hs \
 	src/Ganeti/BasicTypes.hs \
 	src/Ganeti/Common.hs \
 	src/Ganeti/Compat.hs \
 	src/Ganeti/Confd/Client.hs \
+	src/Ganeti/Confd/ClientFunctions.hs \
 	src/Ganeti/Confd/Server.hs \
 	src/Ganeti/Confd/Types.hs \
 	src/Ganeti/Confd/Utils.hs \
@@ -541,7 +564,11 @@ HS_LIB_SRCS = \
 	src/Ganeti/Curl/Multi.hs \
 	src/Ganeti/Daemon.hs \
 	src/Ganeti/DataCollectors/CLI.hs \
+	src/Ganeti/DataCollectors/Diskstats.hs \
 	src/Ganeti/DataCollectors/Drbd.hs \
+	src/Ganeti/DataCollectors/InstStatus.hs \
+	src/Ganeti/DataCollectors/InstStatusTypes.hs \
+	src/Ganeti/DataCollectors/Lv.hs \
 	src/Ganeti/DataCollectors/Program.hs \
 	src/Ganeti/DataCollectors/Types.hs \
 	src/Ganeti/Errors.hs \
@@ -571,6 +598,7 @@ HS_LIB_SRCS = \
 	src/Ganeti/HTools/Program/Hroller.hs \
 	src/Ganeti/HTools/Program/Main.hs \
 	src/Ganeti/HTools/Types.hs \
+	src/Ganeti/Hypervisor/Xen.hs \
 	src/Ganeti/Hypervisor/Xen/XmParser.hs \
 	src/Ganeti/Hypervisor/Xen/Types.hs \
 	src/Ganeti/Hash.hs \
@@ -585,6 +613,7 @@ HS_LIB_SRCS = \
 	src/Ganeti/OpCodes.hs \
 	src/Ganeti/OpParams.hs \
 	src/Ganeti/Path.hs \
+	src/Ganeti/Query/Cluster.hs \
 	src/Ganeti/Query/Common.hs \
 	src/Ganeti/Query/Export.hs \
 	src/Ganeti/Query/Filter.hs \
@@ -599,6 +628,13 @@ HS_LIB_SRCS = \
 	src/Ganeti/Rpc.hs \
 	src/Ganeti/Runtime.hs \
 	src/Ganeti/Ssconf.hs \
+	src/Ganeti/Storage/Diskstats/Parser.hs \
+	src/Ganeti/Storage/Diskstats/Types.hs \
+	src/Ganeti/Storage/Drbd/Parser.hs \
+	src/Ganeti/Storage/Drbd/Types.hs \
+	src/Ganeti/Storage/Lvm/LVParser.hs \
+	src/Ganeti/Storage/Lvm/Types.hs \
+	src/Ganeti/Storage/Utils.hs \
 	src/Ganeti/THH.hs \
 	src/Ganeti/Types.hs \
 	src/Ganeti/Utils.hs
@@ -606,8 +642,6 @@ HS_LIB_SRCS = \
 HS_TEST_SRCS = \
 	test/hs/Test/Ganeti/Attoparsec.hs \
 	test/hs/Test/Ganeti/BasicTypes.hs \
-	test/hs/Test/Ganeti/Block/Drbd/Parser.hs \
-	test/hs/Test/Ganeti/Block/Drbd/Types.hs \
 	test/hs/Test/Ganeti/Common.hs \
 	test/hs/Test/Ganeti/Confd/Types.hs \
 	test/hs/Test/Ganeti/Confd/Utils.hs \
@@ -639,6 +673,10 @@ HS_TEST_SRCS = \
 	test/hs/Test/Ganeti/Rpc.hs \
 	test/hs/Test/Ganeti/Runtime.hs \
 	test/hs/Test/Ganeti/Ssconf.hs \
+	test/hs/Test/Ganeti/Storage/Diskstats/Parser.hs \
+	test/hs/Test/Ganeti/Storage/Drbd/Parser.hs \
+	test/hs/Test/Ganeti/Storage/Drbd/Types.hs \
+	test/hs/Test/Ganeti/Storage/Lvm/LVParser.hs \
 	test/hs/Test/Ganeti/THH.hs \
 	test/hs/Test/Ganeti/TestCommon.hs \
 	test/hs/Test/Ganeti/TestHTools.hs \
@@ -808,7 +846,9 @@ qa_scripts = \
 	qa/qa_error.py \
 	qa/qa_group.py \
 	qa/qa_instance.py \
+	qa/qa_instance_utils.py \
 	qa/qa_job.py \
+	qa/qa_monitoring.py \
 	qa/qa_node.py \
 	qa/qa_os.py \
 	qa/qa_rapi.py \
@@ -937,6 +977,8 @@ nodist_pkglib_python_scripts = \
 myexeclib_SCRIPTS = \
 	daemons/daemon-util \
 	tools/kvm-ifup \
+	tools/vif-ganeti \
+	tools/net-common \
 	$(pkglib_python_scripts) \
 	$(HS_MYEXECLIB_PROGS)
 
@@ -972,6 +1014,8 @@ EXTRA_DIST = \
 	devel/upload \
 	devel/webserver \
 	tools/kvm-ifup.in \
+	tools/vif-ganeti.in \
+	tools/net-common.in \
 	tools/vcluster-setup.in \
 	$(docinput) \
 	doc/html \
@@ -1056,6 +1100,7 @@ TEST_FILES = \
 	test/data/htools/hail-alloc-invalid-network.json \
 	test/data/htools/hail-alloc-invalid-twodisks.json \
 	test/data/htools/hail-alloc-restricted-network.json \
+	test/data/htools/hail-alloc-spindles.json \
 	test/data/htools/hail-alloc-twodisks.json \
 	test/data/htools/hail-change-group.json \
 	test/data/htools/hail-invalid-reloc.json \
@@ -1063,18 +1108,27 @@ TEST_FILES = \
 	test/data/htools/hail-reloc-drbd.json \
 	test/data/htools/hbal-excl-tags.data \
 	test/data/htools/hbal-split-insts.data \
+	test/data/htools/hspace-tiered-dualspec-exclusive.data \
 	test/data/htools/hspace-tiered-dualspec.data \
+	test/data/htools/hspace-tiered-exclusive.data \
 	test/data/htools/hspace-tiered-ipolicy.data \
+	test/data/htools/hspace-tiered-mixed.data \
 	test/data/htools/hspace-tiered-resourcetypes.data \
+	test/data/htools/hspace-tiered-vcpu.data \
 	test/data/htools/hspace-tiered.data \
 	test/data/htools/invalid-node.data \
 	test/data/htools/missing-resources.data \
 	test/data/htools/multiple-master.data \
+	test/data/htools/multiple-tags.data \
 	test/data/htools/n1-failure.data \
 	test/data/htools/rapi/groups.json \
 	test/data/htools/rapi/info.json \
 	test/data/htools/rapi/instances.json \
 	test/data/htools/rapi/nodes.json \
+	test/data/htools/hroller-full.data \
+	test/data/htools/hroller-nodegroups.data \
+	test/data/htools/hroller-nonredundant.data \
+	test/data/htools/hroller-online.data \
 	test/data/htools/unique-reboot-order.data \
 	test/hs/shelltests/htools-balancing.test \
 	test/hs/shelltests/htools-basic.test \
@@ -1092,6 +1146,8 @@ TEST_FILES = \
 	test/hs/shelltests/htools-mon-collector.test \
 	test/data/bdev-drbd-8.0.txt \
 	test/data/bdev-drbd-8.3.txt \
+	test/data/bdev-drbd-8.4.txt \
+	test/data/bdev-drbd-8.4-no-disk-params.txt \
 	test/data/bdev-drbd-disk.txt \
 	test/data/bdev-drbd-net-ip4.txt \
 	test/data/bdev-drbd-net-ip6.txt \
@@ -1110,8 +1166,10 @@ TEST_FILES = \
 	test/data/cert1.pem \
 	test/data/cert2.pem \
 	test/data/cluster_config_2.7.json \
-	test/data/cluster_config_downgraded_2.7.json \
+	test/data/cluster_config_2.8.json \
+	test/data/cluster_config_2.9.json \
 	test/data/instance-minor-pairing.txt \
+	test/data/instance-prim-sec.txt \
 	test/data/ip-addr-show-dummy0.txt \
 	test/data/ip-addr-show-lo-ipv4.txt \
 	test/data/ip-addr-show-lo-ipv6.txt \
@@ -1125,6 +1183,7 @@ TEST_FILES = \
 	test/data/kvm_0.9.1_help_boot_test.txt \
 	test/data/kvm_1.0_help.txt \
 	test/data/kvm_1.1.2_help.txt \
+	test/data/lvs_lv.txt \
 	test/data/NEWS_OK.txt \
 	test/data/NEWS_previous_unreleased.txt \
 	test/data/ovfdata/compr_disk.vmdk.gz \
@@ -1152,12 +1211,16 @@ TEST_FILES = \
 	test/data/ovfdata/wrong_manifest.ovf \
 	test/data/ovfdata/wrong_ova.ova \
 	test/data/ovfdata/wrong_xml.ovf \
+	test/data/proc_diskstats.txt \
 	test/data/proc_drbd8.txt \
 	test/data/proc_drbd80-emptyline.txt \
+	test/data/proc_drbd80-emptyversion.txt \
 	test/data/proc_drbd83.txt \
 	test/data/proc_drbd83_sync.txt \
 	test/data/proc_drbd83_sync_want.txt \
 	test/data/proc_drbd83_sync_krnl2.6.39.txt \
+	test/data/proc_drbd84.txt \
+	test/data/proc_drbd84_sync.txt \
 	test/data/proc_meminfo.txt \
 	test/data/proc_cpuinfo.txt \
 	test/data/qa-minimal-nodes-instances-only.json \
@@ -1184,12 +1247,14 @@ python_tests = \
 	test/py/ganeti.asyncnotifier_unittest.py \
 	test/py/ganeti.backend_unittest-runasroot.py \
 	test/py/ganeti.backend_unittest.py \
-	test/py/ganeti.bdev_unittest.py \
+	test/py/ganeti.bootstrap_unittest.py \
 	test/py/ganeti.cli_unittest.py \
 	test/py/ganeti.client.gnt_cluster_unittest.py \
 	test/py/ganeti.client.gnt_instance_unittest.py \
 	test/py/ganeti.client.gnt_job_unittest.py \
 	test/py/ganeti.cmdlib_unittest.py \
+	test/py/ganeti.cmdlib.cluster_unittest.py \
+	test/py/ganeti.cmdlib.instance_storage_unittest.py \
 	test/py/ganeti.compat_unittest.py \
 	test/py/ganeti.confd.client_unittest.py \
 	test/py/ganeti.config_unittest.py \
@@ -1231,7 +1296,10 @@ python_tests = \
 	test/py/ganeti.server.rapi_unittest.py \
 	test/py/ganeti.ssconf_unittest.py \
 	test/py/ganeti.ssh_unittest.py \
-	test/py/ganeti.storage_unittest.py \
+	test/py/ganeti.storage.bdev_unittest.py \
+	test/py/ganeti.storage.container_unittest.py \
+	test/py/ganeti.storage.drbd_unittest.py \
+	test/py/ganeti.storage.filestorage_unittest.py \
 	test/py/ganeti.tools.burnin_unittest.py \
 	test/py/ganeti.tools.ensure_dirs_unittest.py \
 	test/py/ganeti.tools.node_daemon_setup_unittest.py \
@@ -1248,6 +1316,7 @@ python_tests = \
 	test/py/ganeti.utils.nodesetup_unittest.py \
 	test/py/ganeti.utils.process_unittest.py \
 	test/py/ganeti.utils.retry_unittest.py \
+	test/py/ganeti.utils.storage_unittest.py \
 	test/py/ganeti.utils.text_unittest.py \
 	test/py/ganeti.utils.wrapper_unittest.py \
 	test/py/ganeti.utils.x509_unittest.py \
@@ -1307,6 +1376,7 @@ all_python_code = \
 	$(client_PYTHON) \
 	$(cmdlib_PYTHON) \
 	$(hypervisor_PYTHON) \
+	$(storage_PYTHON) \
 	$(rapi_PYTHON) \
 	$(server_PYTHON) \
 	$(pytools_PYTHON) \
@@ -1379,6 +1449,14 @@ test/py/ganeti-cleaner_unittest.bash: daemons/ganeti-cleaner
 test/py/bash_completion.bash: doc/examples/bash_completion-debug
 
 tools/kvm-ifup: tools/kvm-ifup.in $(REPLACE_VARS_SED)
+	sed -f $(REPLACE_VARS_SED) < $< > $@
+	chmod +x $@
+
+tools/vif-ganeti: tools/vif-ganeti.in $(REPLACE_VARS_SED)
+	sed -f $(REPLACE_VARS_SED) < $< > $@
+	chmod +x $@
+
+tools/net-common: tools/net-common.in $(REPLACE_VARS_SED)
 	sed -f $(REPLACE_VARS_SED) < $< > $@
 	chmod +x $@
 
@@ -1552,10 +1630,6 @@ lib/_autoconf.py: Makefile | stamp-directories
 	  echo "XEN_KERNEL = '$(XEN_KERNEL)'"; \
 	  echo "XEN_INITRD = '$(XEN_INITRD)'"; \
 	  echo "KVM_KERNEL = '$(KVM_KERNEL)'"; \
-	  echo "FILE_STORAGE_DIR = '$(FILE_STORAGE_DIR)'"; \
-	  echo "ENABLE_FILE_STORAGE = $(ENABLE_FILE_STORAGE)"; \
-	  echo "SHARED_FILE_STORAGE_DIR = '$(SHARED_FILE_STORAGE_DIR)'"; \
-	  echo "ENABLE_SHARED_FILE_STORAGE = $(ENABLE_SHARED_FILE_STORAGE)"; \
 	  echo "IALLOCATOR_SEARCH_PATH = [$(IALLOCATOR_SEARCH_PATH)]"; \
 	  echo "KVM_PATH = '$(KVM_PATH)'"; \
 	  echo "IP_PATH = '$(IP_PATH)'"; \
@@ -1655,7 +1729,6 @@ $(REPLACE_VARS_SED): $(SHELL_ENV_INIT) Makefile stamp-directories
 	  echo 's#@''CUSTOM_XEN_INITRD@#$(XEN_INITRD)#g'; \
 	  echo 's#@''CUSTOM_IALLOCATOR_SEARCH_PATH@#$(IALLOCATOR_SEARCH_PATH)#g'; \
 	  echo 's#@''CUSTOM_EXPORT_DIR@#$(EXPORT_DIR)#g'; \
-	  echo 's#@''RPL_FILE_STORAGE_DIR@#$(FILE_STORAGE_DIR)#g'; \
 	  echo 's#@''RPL_SSH_INITD_SCRIPT@#$(SSH_INITD_SCRIPT)#g'; \
 	  echo 's#@''PKGLIBDIR@#$(pkglibdir)#g'; \
 	  echo 's#@''GNTMASTERUSER@#$(MASTERD_USER)#g'; \
@@ -1811,15 +1884,30 @@ check-local: check-dirs $(GENERATED_FILES)
 	done; \
 	test -z "$$error"
 
+.PHONY: hs-test-%
+hs-test-%: test/hs/htest | $(BUILT_PYTHON_SOURCES)
+	@rm -f htest.tix
+	test/hs/htest -t $*
+
 .PHONY: hs-tests
 hs-tests: test/hs/htest | $(BUILT_PYTHON_SOURCES)
 	@rm -f htest.tix
 	./test/hs/htest
 
+.PHONY: hs-shell-%
+hs-shell-%: test/hs/hpc-htools test/hs/hpc-mon-collector \
+            $(HS_BUILT_TEST_HELPERS)
+	@rm -f hpc-htools.tix hpc-mon-collector.tix
+	HBINARY="./test/hs/hpc-htools" \
+	SHELLTESTARGS=$(SHELLTESTARGS) \
+	./test/hs/offline-test.sh $*
+
 .PHONY: hs-shell
 hs-shell: test/hs/hpc-htools test/hs/hpc-mon-collector $(HS_BUILT_TEST_HELPERS)
 	@rm -f hpc-htools.tix hpc-mon-collector.tix
-	HBINARY="./test/hs/hpc-htools" ./test/hs/offline-test.sh
+	HBINARY="./test/hs/hpc-htools" \
+	SHELLTESTARGS=$(SHELLTESTARGS) \
+	./test/hs/offline-test.sh
 
 .PHONY: hs-check
 hs-check: hs-tests hs-shell
@@ -1829,6 +1917,7 @@ hs-check: hs-tests hs-shell
 #       (since our indent level is not 4)
 # E125: continuation line does not distinguish itself from next logical line
 #       (since our indent level is not 4)
+# E123: closing bracket does not match indentation of opening bracket's line
 # E127: continuation line over-indented for visual indent
 #       (since our indent level is not 4)
 # note: do NOT add E128 here; it's a valid style error in most cases!
@@ -1837,7 +1926,7 @@ hs-check: hs-tests hs-shell
 # instead of silencing it
 # E261: at least two spaces before inline comment
 # E501: line too long (80 characters)
-PEP8_IGNORE = E111,E121,E125,E127,E261,E501
+PEP8_IGNORE = E111,E121,E123,E125,E127,E261,E501
 
 # For excluding pep8 expects filenames only, not whole paths
 PEP8_EXCLUDE = $(subst $(space),$(comma),$(strip $(notdir $(BUILT_PYTHON_SOURCES))))

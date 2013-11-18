@@ -1,6 +1,7 @@
 [
   {
     "cnodes": 2,
+    "cnos": 1,
     "csockets": 2,
     "ctime": 1324472016.2968869,
     "ctotal": 4,
@@ -24,16 +25,20 @@
     "sinst_cnt": 0,
     "sinst_list": [],
     "sip": "192.168.1.2",
+    "spfree": 0,
+    "sptotal": 0,
     "tags": [],
     "uuid": "7750ef3d-450f-4724-9d3d-8726d6335417",
     "vm_capable": true,
     "ndparams": {
       "spindle_count": 1,
-      "oob_program": null
+      "oob_program": null,
+      "exclusive_storage": false
     }
   },
   {
     "cnodes": 2,
+    "cnos": 1,
     "csockets": 2,
     "ctime": 1324472016.2968869,
     "ctotal": 4,
@@ -57,16 +62,20 @@
     "sinst_cnt": 0,
     "sinst_list": [],
     "sip": "192.168.2.2",
+    "spfree": 0,
+    "sptotal": 0,
     "tags": [],
     "uuid": "7750ef3d-450f-4724-9d3d-8726d6335417",
     "vm_capable": true,
     "ndparams": {
       "spindle_count": 1,
-      "oob_program": null
+      "oob_program": null,
+      "exclusive_storage": false
     }
   },
   {
     "cnodes": 2,
+    "cnos": 1,
     "dfree": 1373336,
     "drained": false,
     "dtotal": 1377304,
@@ -94,6 +103,8 @@
     "master_candidate": true,
     "ctime": 1271425438.5,
     "mnode": 1017,
+    "spfree": 0,
+    "sptotal": 0,
     "pinst_list": [
       "instance14",
       "instance19",
@@ -103,11 +114,13 @@
     ],
     "ndparams": {
       "spindle_count": 1,
-      "oob_program": null
+      "oob_program": null,
+      "exclusive_storage": false
     }
   },
   {
     "cnodes": 2,
+    "cnos": 1,
     "dfree": 1371520,
     "drained": false,
     "dtotal": 1377280,
@@ -139,6 +152,8 @@
     "master_candidate": true,
     "ctime": 1309185898.51,
     "mnode": 1017,
+    "spfree": 0,
+    "sptotal": 0,
     "pinst_list": [
       "instance20",
       "instance3",
@@ -150,7 +165,8 @@
     ],
     "ndparams": {
       "spindle_count": 1,
-      "oob_program": null
+      "oob_program": null,
+      "exclusive_storage": false
     }
   }
 ]

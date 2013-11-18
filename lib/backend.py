@@ -54,7 +54,9 @@ from ganeti import utils
 from ganeti import ssh
 from ganeti import hypervisor
 from ganeti import constants
-from ganeti import bdev
+from ganeti.storage import bdev
+from ganeti.storage import drbd
+from ganeti.storage import filestorage
 from ganeti import objects
 from ganeti import ssconf
 from ganeti import serializer
@@ -64,6 +66,8 @@ from ganeti import compat
 from ganeti import pathutils
 from ganeti import vcluster
 from ganeti import ht
+from ganeti.storage.base import BlockDev
+from ganeti.storage.drbd import DRBD8
 from ganeti import hooksmaster
 
 
@@ -82,7 +86,7 @@ _IES_PID_FILE = "pid"
 _IES_CA_FILE = "ca"
 
 #: Valid LVS output line regex
-_LVSLINE_REGEX = re.compile("^ *([^|]+)\|([^|]+)\|([0-9.]+)\|([^|]{6,})\|?$")
+_LVSLINE_REGEX = re.compile(r"^ *([^|]+)\|([^|]+)\|([0-9.]+)\|([^|]{6,})\|?$")
 
 # Actions for the master setup script
 _MASTER_START = "start"
@@ -569,12 +573,62 @@ def LeaveCluster(modify_ssh_setup):
   raise errors.QuitGanetiException(True, "Shutdown scheduled")
 
 
-def _GetVgInfo(name, excl_stor):
+def _CheckStorageParams(params, num_params):
+  """Performs sanity checks for storage parameters.
+
+  @type params: list
+  @param params: list of storage parameters
+  @type num_params: int
+  @param num_params: expected number of parameters
+
+  """
+  if params is None:
+    raise errors.ProgrammerError("No storage parameters for storage"
+                                 " reporting is provided.")
+  if not isinstance(params, list):
+    raise errors.ProgrammerError("The storage parameters are not of type"
+                                 " list: '%s'" % params)
+  if not len(params) == num_params:
+    raise errors.ProgrammerError("Did not receive the expected number of"
+                                 "storage parameters: expected %s,"
+                                 " received '%s'" % (num_params, len(params)))
+
+
+def _CheckLvmStorageParams(params):
+  """Performs sanity check for the 'exclusive storage' flag.
+
+  @see: C{_CheckStorageParams}
+
+  """
+  _CheckStorageParams(params, 1)
+  excl_stor = params[0]
+  if not isinstance(params[0], bool):
+    raise errors.ProgrammerError("Exclusive storage parameter is not"
+                                 " boolean: '%s'." % excl_stor)
+  return excl_stor
+
+
+def _GetLvmVgSpaceInfo(name, params):
+  """Wrapper around C{_GetVgInfo} which checks the storage parameters.
+
+  @type name: string
+  @param name: name of the volume group
+  @type params: list
+  @param params: list of storage parameters, which in this case should be
+    containing only one for exclusive storage
+
+  """
+  excl_stor = _CheckLvmStorageParams(params)
+  return _GetVgInfo(name, excl_stor)
+
+
+def _GetVgInfo(
+    name, excl_stor, info_fn=bdev.LogicalVolume.GetVGInfo):
   """Retrieves information about a LVM volume group.
 
   """
   # TODO: GetVGInfo supports returning information for multiple VGs at once
-  vginfo = bdev.LogicalVolume.GetVGInfo([name], excl_stor)
+  vginfo = info_fn([name], excl_stor)
   if vginfo:
     vg_free = int(round(vginfo[0][0], 0))
     vg_size = int(round(vginfo[0][1], 0))
@@ -583,13 +637,50 @@ def _GetVgInfo(name, excl_stor):
     vg_size = None
 
   return {
+    "type": constants.ST_LVM_VG,
     "name": name,
-    "vg_free": vg_free,
-    "vg_size": vg_size,
+    "storage_free": vg_free,
+    "storage_size": vg_size,
     }
 
 
-def _GetHvInfo(name):
+def _GetLvmPvSpaceInfo(name, params):
+  """Wrapper around C{_GetVgSpindlesInfo} with sanity checks.
+
+  @see: C{_GetLvmVgSpaceInfo}
+
+  """
+  excl_stor = _CheckLvmStorageParams(params)
+  return _GetVgSpindlesInfo(name, excl_stor)
+
+
+def _GetVgSpindlesInfo(
+    name, excl_stor, info_fn=bdev.LogicalVolume.GetVgSpindlesInfo):
+  """Retrieves information about spindles in an LVM volume group.
+
+  @type name: string
+  @param name: VG name
+  @type excl_stor: bool
+  @param excl_stor: exclusive storage
+  @rtype: dict
+  @return: dictionary whose keys are "name", "vg_free", "vg_size" for VG name,
+      free spindles, total spindles respectively
+
+  """
+  if excl_stor:
+    (vg_free, vg_size) = info_fn(name)
+  else:
+    vg_free = 0
+    vg_size = 0
+  return {
+    "type": constants.ST_LVM_PV,
+    "name": name,
+    "storage_free": vg_free,
+    "storage_size": vg_size,
+    }
+
+
+def _GetHvInfo(name, hvparams, get_hv_fn=hypervisor.GetHypervisor):
   """Retrieves node information from a hypervisor.
 
   The information returned depends on the hypervisor. Common items:
@@ -601,8 +692,29 @@ def _GetHvInfo(name):
     - memory_total is the total number of ram in MiB
     - hv_version: the hypervisor version, if available
 
+  @type hvparams: dict of string
+  @param hvparams: the hypervisor's hvparams
+
   """
-  return hypervisor.GetHypervisor(name).GetNodeInfo()
+  return get_hv_fn(name).GetNodeInfo(hvparams=hvparams)
+
+
+def _GetHvInfoAll(hv_specs, get_hv_fn=hypervisor.GetHypervisor):
+  """Retrieves node information for all hypervisors.
+
+  See C{_GetHvInfo} for information on the output.
+
+  @type hv_specs: list of pairs (string, dict of strings)
+  @param hv_specs: list of pairs of a hypervisor's name and its hvparams
+
+  """
+  if hv_specs is None:
+    return None
+
+  result = []
+  for hvname, hvparams in hv_specs:
+    result.append(_GetHvInfo(hvname, hvparams, get_hv_fn))
+  return result
 
 
 def _GetNamedNodeInfo(names, fn):
@@ -617,25 +729,81 @@ def _GetNamedNodeInfo(names, fn):
     return map(fn, names)
 
 
-def GetNodeInfo(vg_names, hv_names, excl_stor):
+def GetNodeInfo(storage_units, hv_specs):
   """Gives back a hash with different information about the node.
 
-  @type vg_names: list of string
-  @param vg_names: Names of the volume groups to ask for disk space information
-  @type hv_names: list of string
-  @param hv_names: Names of the hypervisors to ask for node information
-  @type excl_stor: boolean
-  @param excl_stor: Whether exclusive_storage is active
+  @type storage_units: list of tuples (string, string, list)
+  @param storage_units: List of tuples (storage unit, identifier, parameters) to
+    ask for disk space information. In case of lvm-vg, the identifier is
+    the VG name. The parameters can contain additional, storage-type-specific
+    parameters, for example exclusive storage for lvm storage.
+  @type hv_specs: list of pairs (string, dict of strings)
+  @param hv_specs: list of pairs of a hypervisor's name and its hvparams
   @rtype: tuple; (string, None/dict, None/dict)
   @return: Tuple containing boot ID, volume group information and hypervisor
     information
 
   """
   bootid = utils.ReadFile(_BOOT_ID_PATH, size=128).rstrip("\n")
-  vg_info = _GetNamedNodeInfo(vg_names, (lambda vg: _GetVgInfo(vg, excl_stor)))
-  hv_info = _GetNamedNodeInfo(hv_names, _GetHvInfo)
+  storage_info = _GetNamedNodeInfo(
+    storage_units,
+    (lambda (storage_type, storage_key, storage_params):
+        _ApplyStorageInfoFunction(storage_type, storage_key, storage_params)))
+  hv_info = _GetHvInfoAll(hv_specs)
+  return (bootid, storage_info, hv_info)
 
-  return (bootid, vg_info, hv_info)
+
+def _GetFileStorageSpaceInfo(path, params):
+  """Wrapper around filestorage.GetSpaceInfo.
+
+  The purpose of this wrapper is to call filestorage.GetFileStorageSpaceInfo
+  and ignore the *args parameter to not leak it into the filestorage
+  module's code.
+
+  @see: C{filestorage.GetFileStorageSpaceInfo} for description of the
+    parameters.
+
+  """
+  _CheckStorageParams(params, 0)
+  return filestorage.GetFileStorageSpaceInfo(path)
+
+
+# FIXME: implement storage reporting for all missing storage types.
+_STORAGE_TYPE_INFO_FN = {
+  constants.ST_BLOCK: None,
+  constants.ST_DISKLESS: None,
+  constants.ST_EXT: None,
+  constants.ST_FILE: _GetFileStorageSpaceInfo,
+  constants.ST_LVM_PV: _GetLvmPvSpaceInfo,
+  constants.ST_LVM_VG: _GetLvmVgSpaceInfo,
+  constants.ST_RADOS: None,
+}
+
+
+def _ApplyStorageInfoFunction(storage_type, storage_key, *args):
+  """Looks up and applies the correct function to calculate free and total
+  storage for the given storage type.
+
+  @type storage_type: string
+  @param storage_type: the storage type for which the storage shall be reported.
+  @type storage_key: string
+  @param storage_key: identifier of a storage unit, e.g. the volume group name
+    of an LVM storage unit
+  @type args: any
+  @param args: various parameters that can be used for storage reporting. These
+    parameters and their semantics vary from storage type to storage type and
+    are just propagated in this function.
+  @return: the results of the application of the storage space function (see
+    _STORAGE_TYPE_INFO_FN) if storage space reporting is implemented for that
+    storage type
+  @raises NotImplementedError: for storage types who don't support space
+    reporting yet
+  """
+  fn = _STORAGE_TYPE_INFO_FN[storage_type]
+  if fn is not None:
+    return fn(storage_key, *args)
+  else:
+    raise NotImplementedError
 
 
 def _CheckExclusivePvs(pvi_list):
@@ -655,7 +823,111 @@ def _CheckExclusivePvs(pvi_list):
   return res
 
 
-def VerifyNode(what, cluster_name):
+def _VerifyHypervisors(what, vm_capable, result, all_hvparams,
+                       get_hv_fn=hypervisor.GetHypervisor):
+  """Verifies the hypervisor. Appends the results to the 'results' list.
+
+  @type what: C{dict}
+  @param what: a dictionary of things to check
+  @type vm_capable: boolean
+  @param vm_capable: whether or not this node is vm capable
+  @type result: dict
+  @param result: dictionary of verification results; results of the
+    verifications in this function will be added here
+  @type all_hvparams: dict of dict of string
+  @param all_hvparams: dictionary mapping hypervisor names to hvparams
+  @type get_hv_fn: function
+  @param get_hv_fn: function to retrieve the hypervisor, to improve testability
+
+  """
+  if not vm_capable:
+    return
+
+  if constants.NV_HYPERVISOR in what:
+    result[constants.NV_HYPERVISOR] = {}
+    for hv_name in what[constants.NV_HYPERVISOR]:
+      hvparams = all_hvparams[hv_name]
+      try:
+        val = get_hv_fn(hv_name).Verify(hvparams=hvparams)
+      except errors.HypervisorError, err:
+        val = "Error while checking hypervisor: %s" % str(err)
+      result[constants.NV_HYPERVISOR][hv_name] = val
+
+
+def _VerifyHvparams(what, vm_capable, result,
+                    get_hv_fn=hypervisor.GetHypervisor):
+  """Verifies the hvparams. Appends the results to the 'results' list.
+
+  @type what: C{dict}
+  @param what: a dictionary of things to check
+  @type vm_capable: boolean
+  @param vm_capable: whether or not this node is vm capable
+  @type result: dict
+  @param result: dictionary of verification results; results of the
+    verifications in this function will be added here
+  @type get_hv_fn: function
+  @param get_hv_fn: function to retrieve the hypervisor, to improve testability
+
+  """
+  if not vm_capable:
+    return
+
+  if constants.NV_HVPARAMS in what:
+    result[constants.NV_HVPARAMS] = []
+    for source, hv_name, hvparms in what[constants.NV_HVPARAMS]:
+      try:
+        logging.info("Validating hv %s, %s", hv_name, hvparms)
+        get_hv_fn(hv_name).ValidateParameters(hvparms)
+      except errors.HypervisorError, err:
+        result[constants.NV_HVPARAMS].append((source, hv_name, str(err)))
+
+
+def _VerifyInstanceList(what, vm_capable, result, all_hvparams):
+  """Verifies the instance list.
+
+  @type what: C{dict}
+  @param what: a dictionary of things to check
+  @type vm_capable: boolean
+  @param vm_capable: whether or not this node is vm capable
+  @type result: dict
+  @param result: dictionary of verification results; results of the
+    verifications in this function will be added here
+  @type all_hvparams: dict of dict of string
+  @param all_hvparams: dictionary mapping hypervisor names to hvparams
+
+  """
+  if constants.NV_INSTANCELIST in what and vm_capable:
+    # GetInstanceList can fail
+    try:
+      val = GetInstanceList(what[constants.NV_INSTANCELIST],
+                            all_hvparams=all_hvparams)
+    except RPCFail, err:
+      val = str(err)
+    result[constants.NV_INSTANCELIST] = val
+
+
+def _VerifyNodeInfo(what, vm_capable, result, all_hvparams):
+  """Verifies the node info.
+
+  @type what: C{dict}
+  @param what: a dictionary of things to check
+  @type vm_capable: boolean
+  @param vm_capable: whether or not this node is vm capable
+  @type result: dict
+  @param result: dictionary of verification results; results of the
+    verifications in this function will be added here
+  @type all_hvparams: dict of dict of string
+  @param all_hvparams: dictionary mapping hypervisor names to hvparams
+
+  """
+  if constants.NV_HVINFO in what and vm_capable:
+    hvname = what[constants.NV_HVINFO]
+    hyper = hypervisor.GetHypervisor(hvname)
+    hvparams = all_hvparams[hvname]
+    result[constants.NV_HVINFO] = hyper.GetNodeInfo(hvparams=hvparams)
+
+
+def VerifyNode(what, cluster_name, all_hvparams):
   """Verify the status of the local node.
 
   Based on the input L{what} parameter, various checks are done on the
@@ -679,6 +951,10 @@ def VerifyNode(what, cluster_name):
       - node-net-test: list of nodes we should check node daemon port
         connectivity with
       - hypervisor: list with hypervisors to run the verify for
+  @type cluster_name: string
+  @param cluster_name: the cluster's name
+  @type all_hvparams: dict of dict of strings
+  @param all_hvparams: a dictionary mapping hypervisor names to hvparams
   @rtype: dict
   @return: a dictionary with the same keys as the input dict, and
       values representing the result of the checks
@@ -689,23 +965,8 @@ def VerifyNode(what, cluster_name):
   port = netutils.GetDaemonPort(constants.NODED)
   vm_capable = my_name not in what.get(constants.NV_VMNODES, [])
 
-  if constants.NV_HYPERVISOR in what and vm_capable:
-    result[constants.NV_HYPERVISOR] = tmp = {}
-    for hv_name in what[constants.NV_HYPERVISOR]:
-      try:
-        val = hypervisor.GetHypervisor(hv_name).Verify()
-      except errors.HypervisorError, err:
-        val = "Error while checking hypervisor: %s" % str(err)
-      tmp[hv_name] = val
-
-  if constants.NV_HVPARAMS in what and vm_capable:
-    result[constants.NV_HVPARAMS] = tmp = []
-    for source, hv_name, hvparms in what[constants.NV_HVPARAMS]:
-      try:
-        logging.info("Validating hv %s, %s", hv_name, hvparms)
-        hypervisor.GetHypervisor(hv_name).ValidateParameters(hvparms)
-      except errors.HypervisorError, err:
-        tmp.append((source, hv_name, str(err)))
+  _VerifyHypervisors(what, vm_capable, result, all_hvparams)
+  _VerifyHvparams(what, vm_capable, result)
 
   if constants.NV_FILELIST in what:
     fingerprints = utils.FingerprintFiles(map(vcluster.LocalizeVirtualPath,
@@ -797,13 +1058,7 @@ def VerifyNode(what, cluster_name):
       val = str(err)
     result[constants.NV_LVLIST] = val
 
-  if constants.NV_INSTANCELIST in what and vm_capable:
-    # GetInstanceList can fail
-    try:
-      val = GetInstanceList(what[constants.NV_INSTANCELIST])
-    except RPCFail, err:
-      val = str(err)
-    result[constants.NV_INSTANCELIST] = val
+  _VerifyInstanceList(what, vm_capable, result, all_hvparams)
 
   if constants.NV_VGLIST in what and vm_capable:
     result[constants.NV_VGLIST] = utils.ListVolumeGroups()
@@ -824,13 +1079,19 @@ def VerifyNode(what, cluster_name):
     result[constants.NV_VERSION] = (constants.PROTOCOL_VERSION,
                                     constants.RELEASE_VERSION)
 
-  if constants.NV_HVINFO in what and vm_capable:
-    hyper = hypervisor.GetHypervisor(what[constants.NV_HVINFO])
-    result[constants.NV_HVINFO] = hyper.GetNodeInfo()
+  _VerifyNodeInfo(what, vm_capable, result, all_hvparams)
+
+  if constants.NV_DRBDVERSION in what and vm_capable:
+    try:
+      drbd_version = DRBD8.GetProcInfo().GetVersionString()
+    except errors.BlockDeviceError, err:
+      logging.warning("Can't get DRBD version", exc_info=True)
+      drbd_version = str(err)
+    result[constants.NV_DRBDVERSION] = drbd_version
 
   if constants.NV_DRBDLIST in what and vm_capable:
     try:
-      used_minors = bdev.DRBD8.GetUsedDevs().keys()
+      used_minors = drbd.DRBD8.GetUsedDevs()
     except errors.BlockDeviceError, err:
       logging.warning("Can't get used minors list", exc_info=True)
       used_minors = str(err)
@@ -839,7 +1100,7 @@ def VerifyNode(what, cluster_name):
   if constants.NV_DRBDHELPER in what and vm_capable:
     status = True
     try:
-      payload = bdev.BaseDRBD.GetUsermodeHelper()
+      payload = drbd.DRBD8.GetUsermodeHelper()
     except errors.BlockDeviceError, err:
       logging.error("Can't get DRBD usermode helper: %s", str(err))
       status = False
@@ -869,9 +1130,21 @@ def VerifyNode(what, cluster_name):
                                     for bridge in what[constants.NV_BRIDGES]
                                     if not utils.BridgeExists(bridge)]
 
-  if what.get(constants.NV_FILE_STORAGE_PATHS) == my_name:
-    result[constants.NV_FILE_STORAGE_PATHS] = \
-      bdev.ComputeWrongFileStoragePaths()
+  if what.get(constants.NV_ACCEPTED_STORAGE_PATHS) == my_name:
+    result[constants.NV_ACCEPTED_STORAGE_PATHS] = \
+        filestorage.ComputeWrongFileStoragePaths()
+
+  if what.get(constants.NV_FILE_STORAGE_PATH):
+    pathresult = filestorage.CheckFileStoragePath(
+        what[constants.NV_FILE_STORAGE_PATH])
+    if pathresult:
+      result[constants.NV_FILE_STORAGE_PATH] = pathresult
+
+  if what.get(constants.NV_SHARED_FILE_STORAGE_PATH):
+    pathresult = filestorage.CheckFileStoragePath(
+        what[constants.NV_SHARED_FILE_STORAGE_PATH])
+    if pathresult:
+      result[constants.NV_SHARED_FILE_STORAGE_PATH] = pathresult
 
   return result
 
@@ -1033,11 +1306,47 @@ def BridgesExist(bridges_list):
     _Fail("Missing bridges %s", utils.CommaJoin(missing))
 
 
-def GetInstanceList(hypervisor_list):
+def GetInstanceListForHypervisor(hname, hvparams=None,
+                                 get_hv_fn=hypervisor.GetHypervisor):
+  """Provides a list of instances of the given hypervisor.
+
+  @type hname: string
+  @param hname: name of the hypervisor
+  @type hvparams: dict of strings
+  @param hvparams: hypervisor parameters for the given hypervisor
+  @type get_hv_fn: function
+  @param get_hv_fn: function that returns a hypervisor for the given hypervisor
+    name; optional parameter to increase testability
+
+  @rtype: list
+  @return: a list of all running instances on the current node
+    - instance1.example.com
+    - instance2.example.com
+
+  """
+  results = []
+  try:
+    hv = get_hv_fn(hname)
+    names = hv.ListInstances(hvparams=hvparams)
+    results.extend(names)
+  except errors.HypervisorError, err:
+    _Fail("Error enumerating instances (hypervisor %s): %s",
+          hname, err, exc=True)
+  return results
+
+
+def GetInstanceList(hypervisor_list, all_hvparams=None,
+                    get_hv_fn=hypervisor.GetHypervisor):
   """Provides a list of instances.
 
   @type hypervisor_list: list
   @param hypervisor_list: the list of hypervisors to query information
+  @type all_hvparams: dict of dict of strings
+  @param all_hvparams: a dictionary mapping hypervisor types to respective
+    cluster-wide hypervisor parameters
+  @type get_hv_fn: function
+  @param get_hv_fn: function that returns a hypervisor for the given hypervisor
+    name; optional parameter to increase testability
 
   @rtype: list
   @return: a list of all running instances on the current node
@@ -1047,23 +1356,21 @@ def GetInstanceList(hypervisor_list):
   """
   results = []
   for hname in hypervisor_list:
-    try:
-      names = hypervisor.GetHypervisor(hname).ListInstances()
-      results.extend(names)
-    except errors.HypervisorError, err:
-      _Fail("Error enumerating instances (hypervisor %s): %s",
-            hname, err, exc=True)
-
+    hvparams = all_hvparams[hname]
+    results.extend(GetInstanceListForHypervisor(hname, hvparams=hvparams,
+                                                get_hv_fn=get_hv_fn))
   return results
 
 
-def GetInstanceInfo(instance, hname):
+def GetInstanceInfo(instance, hname, hvparams=None):
   """Gives back the information about an instance as a dictionary.
 
   @type instance: string
   @param instance: the instance name
   @type hname: string
   @param hname: the hypervisor type of the instance
+  @type hvparams: dict of strings
+  @param hvparams: the instance's hvparams
 
   @rtype: dict
   @return: dictionary with the following keys:
@@ -1075,7 +1382,8 @@ def GetInstanceInfo(instance, hname):
   """
   output = {}
 
-  iinfo = hypervisor.GetHypervisor(hname).GetInstanceInfo(instance)
+  iinfo = hypervisor.GetHypervisor(hname).GetInstanceInfo(instance,
+                                                          hvparams=hvparams)
   if iinfo is not None:
     output["memory"] = iinfo[2]
     output["vcpus"] = iinfo[3]
@@ -1086,7 +1394,7 @@ def GetInstanceInfo(instance, hname):
 
 
 def GetInstanceMigratable(instance):
-  """Gives whether an instance can be migrated.
+  """Computes whether an instance can be migrated.
 
   @type instance: L{objects.Instance}
   @param instance: object representing the instance to be checked.
@@ -1099,7 +1407,7 @@ def GetInstanceMigratable(instance):
   """
   hyper = hypervisor.GetHypervisor(instance.hypervisor)
   iname = instance.name
-  if iname not in hyper.ListInstances():
+  if iname not in hyper.ListInstances(instance.hvparams):
     _Fail("Instance %s is not running", iname)
 
   for idx in range(len(instance.disks)):
@@ -1109,7 +1417,7 @@ def GetInstanceMigratable(instance):
                       iname, link_name, idx)
 
 
-def GetAllInstancesInfo(hypervisor_list):
+def GetAllInstancesInfo(hypervisor_list, all_hvparams):
   """Gather data about all instances.
 
   This is the equivalent of L{GetInstanceInfo}, except that it
@@ -1118,6 +1426,8 @@ def GetAllInstancesInfo(hypervisor_list):
 
   @type hypervisor_list: list
   @param hypervisor_list: list of hypervisors to query for instance data
+  @type all_hvparams: dict of dict of strings
+  @param all_hvparams: mapping of hypervisor names to hvparams
 
   @rtype: dict
   @return: dictionary of instance: data, with data having the following keys:
@@ -1130,7 +1440,8 @@ def GetAllInstancesInfo(hypervisor_list):
   output = {}
 
   for hname in hypervisor_list:
-    iinfo = hypervisor.GetHypervisor(hname).GetAllInstancesInfo()
+    hvparams = all_hvparams[hname]
+    iinfo = hypervisor.GetHypervisor(hname).GetAllInstancesInfo(hvparams)
     if iinfo:
       for name, _, memory, vcpus, state, times in iinfo:
         value = {
@@ -1342,7 +1653,8 @@ def StartInstance(instance, startup_paused, reason, store_reason=True):
   @rtype: None
 
   """
-  running_instances = GetInstanceList([instance.hypervisor])
+  running_instances = GetInstanceListForHypervisor(instance.hypervisor,
+                                                   instance.hvparams)
 
   if instance.name in running_instances:
     logging.info("Instance %s already running, not starting", instance.name)
@@ -1381,7 +1693,7 @@ def InstanceShutdown(instance, timeout, reason, store_reason=True):
   hyper = hypervisor.GetHypervisor(hv_name)
   iname = instance.name
 
-  if instance.name not in hyper.ListInstances():
+  if instance.name not in hyper.ListInstances(instance.hvparams):
     logging.info("Instance %s not running, doing nothing", iname)
     return
 
@@ -1390,7 +1702,7 @@ def InstanceShutdown(instance, timeout, reason, store_reason=True):
       self.tried_once = False
 
     def __call__(self):
-      if iname not in hyper.ListInstances():
+      if iname not in hyper.ListInstances(instance.hvparams):
         return
 
       try:
@@ -1398,7 +1710,7 @@ def InstanceShutdown(instance, timeout, reason, store_reason=True):
         if store_reason:
           _StoreInstReasonTrail(instance.name, reason)
       except errors.HypervisorError, err:
-        if iname not in hyper.ListInstances():
+        if iname not in hyper.ListInstances(instance.hvparams):
           # if the instance is no longer existing, consider this a
           # success and go to cleanup
           return
@@ -1418,14 +1730,14 @@ def InstanceShutdown(instance, timeout, reason, store_reason=True):
     try:
       hyper.StopInstance(instance, force=True)
     except errors.HypervisorError, err:
-      if iname in hyper.ListInstances():
+      if iname in hyper.ListInstances(instance.hvparams):
         # only raise an error if the instance still exists, otherwise
         # the error could simply be "instance ... unknown"!
         _Fail("Failed to force stop instance %s: %s", iname, err)
 
     time.sleep(1)
 
-    if iname in hyper.ListInstances():
+    if iname in hyper.ListInstances(instance.hvparams):
       _Fail("Could not shutdown instance %s even by destroy", iname)
 
   try:
@@ -1459,7 +1771,8 @@ def InstanceReboot(instance, reboot_type, shutdown_timeout, reason):
   @rtype: None
 
   """
-  running_instances = GetInstanceList([instance.hypervisor])
+  running_instances = GetInstanceListForHypervisor(instance.hypervisor,
+                                                   instance.hvparams)
 
   if instance.name not in running_instances:
     _Fail("Cannot reboot instance %s that is not running", instance.name)
@@ -1493,7 +1806,7 @@ def InstanceBalloonMemory(instance, memory):
 
   """
   hyper = hypervisor.GetHypervisor(instance.hypervisor)
-  running = hyper.ListInstances()
+  running = hyper.ListInstances(instance.hvparams)
   if instance.name not in running:
     logging.info("Instance %s is not running, cannot balloon", instance.name)
     return
@@ -1565,9 +1878,11 @@ def FinalizeMigrationDst(instance, info, success):
     _Fail("Failed to finalize migration on the target node: %s", err, exc=True)
 
 
-def MigrateInstance(instance, target, live):
+def MigrateInstance(cluster_name, instance, target, live):
   """Migrates an instance to another node.
 
+  @type cluster_name: string
+  @param cluster_name: name of the cluster
   @type instance: L{objects.Instance}
   @param instance: the instance definition
   @type target: string
@@ -1581,7 +1896,7 @@ def MigrateInstance(instance, target, live):
   hyper = hypervisor.GetHypervisor(instance.hypervisor)
 
   try:
-    hyper.MigrateInstance(instance, target, live)
+    hyper.MigrateInstance(cluster_name, instance, target, live)
   except errors.HypervisorError, err:
     _Fail("Failed to migrate instance: %s", err, exc=True)
 
@@ -1884,7 +2199,7 @@ def BlockdevAssemble(disk, owner, as_primary, idx):
   """
   try:
     result = _RecursiveAssembleBD(disk, owner, as_primary)
-    if isinstance(result, bdev.BlockDev):
+    if isinstance(result, BlockDev):
       # pylint: disable=E1103
       result = result.dev_path
       if as_primary:
@@ -2095,7 +2410,7 @@ def BlockdevFind(disk):
   return rbd.GetSyncStatus()
 
 
-def BlockdevGetsize(disks):
+def BlockdevGetdimensions(disks):
   """Computes the size of the given disks.
 
   If a disk is not found, returns None instead.
@@ -2104,7 +2419,8 @@ def BlockdevGetsize(disks):
   @param disks: the list of disk to compute the size for
   @rtype: list
   @return: list with elements None if the disk cannot be found,
-      otherwise the size
+      otherwise the pair (size, spindles), where spindles is None if the
+      device doesn't support that
 
   """
   result = []
@@ -2117,17 +2433,17 @@ def BlockdevGetsize(disks):
     if rbd is None:
       result.append(None)
     else:
-      result.append(rbd.GetActualSize())
+      result.append(rbd.GetActualDimensions())
   return result
 
 
-def BlockdevExport(disk, dest_node, dest_path, cluster_name):
+def BlockdevExport(disk, dest_node_ip, dest_path, cluster_name):
   """Export a block device to a remote node.
 
   @type disk: L{objects.Disk}
   @param disk: the description of the disk to export
-  @type dest_node: str
-  @param dest_node: the destination node to export to
+  @type dest_node_ip: str
+  @param dest_node_ip: the destination node IP to export to
   @type dest_path: str
   @param dest_path: the destination path on the target node
   @type cluster_name: str
@@ -2151,7 +2467,7 @@ def BlockdevExport(disk, dest_node, dest_path, cluster_name):
   destcmd = utils.BuildShellCmd("dd of=%s conv=nocreat,notrunc bs=65536"
                                 " oflag=dsync", dest_path)
 
-  remotecmd = _GetSshRunner(cluster_name).BuildCmd(dest_node,
+  remotecmd = _GetSshRunner(cluster_name).BuildCmd(dest_node_ip,
                                                    constants.SSH_LOGIN_USER,
                                                    destcmd)
 
@@ -2529,9 +2845,9 @@ def OSEnvironment(instance, inst_os, debug=0):
     if constants.HV_DISK_TYPE in instance.hvparams:
       result["DISK_%d_FRONTEND_TYPE" % idx] = \
         instance.hvparams[constants.HV_DISK_TYPE]
-    if disk.dev_type in constants.LDS_BLOCK:
+    if disk.dev_type in constants.DTS_BLOCK:
       result["DISK_%d_BACKEND_TYPE" % idx] = "block"
-    elif disk.dev_type == constants.LD_FILE:
+    elif disk.dev_type in [constants.DT_FILE, constants.DT_SHARED_FILE]:
       result["DISK_%d_BACKEND_TYPE" % idx] = \
         "file:%s" % disk.physical_id[0]
 
@@ -2608,7 +2924,7 @@ def DiagnoseExtStorage(top_dirs=None):
   return result
 
 
-def BlockdevGrow(disk, amount, dryrun, backingstore):
+def BlockdevGrow(disk, amount, dryrun, backingstore, excl_stor):
   """Grow a stack of block devices.
 
   This function is called recursively, with the childrens being the
@@ -2625,6 +2941,8 @@ def BlockdevGrow(disk, amount, dryrun, backingstore):
       only, or on "logical" storage only; e.g. DRBD is logical storage,
       whereas LVM, file, RBD are backing storage
   @rtype: (status, result)
+  @type excl_stor: boolean
+  @param excl_stor: Whether exclusive_storage is active
   @return: a tuple with the status of the operation (True/False), and
       the errors message if status is False
 
@@ -2634,7 +2952,7 @@ def BlockdevGrow(disk, amount, dryrun, backingstore):
     _Fail("Cannot find block device %s", disk)
 
   try:
-    r_dev.Grow(amount, dryrun, backingstore)
+    r_dev.Grow(amount, dryrun, backingstore, excl_stor)
   except errors.BlockDeviceError, err:
     _Fail("Failed to grow block device: %s", err, exc=True)
 
@@ -2651,12 +2969,12 @@ def BlockdevSnapshot(disk):
   @return: snapshot disk ID as (vg, lv)
 
   """
-  if disk.dev_type == constants.LD_DRBD8:
+  if disk.dev_type == constants.DT_DRBD8:
     if not disk.children:
       _Fail("DRBD device '%s' without backing storage cannot be snapshotted",
             disk.unique_id)
     return BlockdevSnapshot(disk.children[0])
-  elif disk.dev_type == constants.LD_LV:
+  elif disk.dev_type == constants.DT_PLAIN:
     r_dev = _RecursiveFindBD(disk)
     if r_dev is not None:
       # FIXME: choose a saner value for the snapshot size
@@ -2889,11 +3207,7 @@ def _TransformFileStorageDir(fs_dir):
   @return: the normalized path if valid, None otherwise
 
   """
-  if not (constants.ENABLE_FILE_STORAGE or
-          constants.ENABLE_SHARED_FILE_STORAGE):
-    _Fail("File storage disabled at configure time")
-
-  bdev.CheckFileStoragePath(fs_dir)
+  filestorage.CheckFileStoragePath(fs_dir)
 
   return os.path.normpath(fs_dir)
 
@@ -3556,14 +3870,19 @@ def CleanupImportExport(name):
   shutil.rmtree(status_dir, ignore_errors=True)
 
 
-def _FindDisks(nodes_ip, disks):
+def _SetPhysicalId(target_node_uuid, nodes_ip, disks):
+  """Sets the correct physical ID on all passed disks.
+
+  """
+  for cf in disks:
+    cf.SetPhysicalID(target_node_uuid, nodes_ip)
+
+
+def _FindDisks(target_node_uuid, nodes_ip, disks):
   """Sets the physical ID on disks and returns the block devices.
 
   """
-  # set the correct physical ID
-  my_name = netutils.Hostname.GetSysName()
-  for cf in disks:
-    cf.SetPhysicalID(my_name, nodes_ip)
+  _SetPhysicalId(target_node_uuid, nodes_ip, disks)
 
   bdevs = []
 
@@ -3575,11 +3894,11 @@ def _FindDisks(nodes_ip, disks):
   return bdevs
 
 
-def DrbdDisconnectNet(nodes_ip, disks):
+def DrbdDisconnectNet(target_node_uuid, nodes_ip, disks):
   """Disconnects the network on a list of drbd devices.
 
   """
-  bdevs = _FindDisks(nodes_ip, disks)
+  bdevs = _FindDisks(target_node_uuid, nodes_ip, disks)
 
   # disconnect disks
   for rd in bdevs:
@@ -3590,11 +3909,12 @@ def DrbdDisconnectNet(nodes_ip, disks):
             err, exc=True)
 
 
-def DrbdAttachNet(nodes_ip, disks, instance_name, multimaster):
+def DrbdAttachNet(target_node_uuid, nodes_ip, disks, instance_name,
+                  multimaster):
   """Attaches the network on a list of drbd devices.
 
   """
-  bdevs = _FindDisks(nodes_ip, disks)
+  bdevs = _FindDisks(target_node_uuid, nodes_ip, disks)
 
   if multimaster:
     for idx, rd in enumerate(bdevs):
@@ -3664,7 +3984,7 @@ def DrbdAttachNet(nodes_ip, disks, instance_name, multimaster):
         _Fail("Can't change to primary mode: %s", err)
 
 
-def DrbdWaitSync(nodes_ip, disks):
+def DrbdWaitSync(target_node_uuid, nodes_ip, disks):
   """Wait until DRBDs have synchronized.
 
   """
@@ -3674,7 +3994,7 @@ def DrbdWaitSync(nodes_ip, disks):
       raise utils.RetryAgain()
     return stats
 
-  bdevs = _FindDisks(nodes_ip, disks)
+  bdevs = _FindDisks(target_node_uuid, nodes_ip, disks)
 
   min_resync = 100
   alldone = True
@@ -3694,17 +4014,37 @@ def DrbdWaitSync(nodes_ip, disks):
   return (alldone, min_resync)
 
 
+def DrbdNeedsActivation(target_node_uuid, nodes_ip, disks):
+  """Checks which of the passed disks needs activation and returns their UUIDs.
+
+  """
+  _SetPhysicalId(target_node_uuid, nodes_ip, disks)
+  faulty_disks = []
+
+  for disk in disks:
+    rd = _RecursiveFindBD(disk)
+    if rd is None:
+      faulty_disks.append(disk)
+      continue
+
+    stats = rd.GetProcStatus()
+    if stats.is_standalone or stats.is_diskless:
+      faulty_disks.append(disk)
+
+  return [disk.uuid for disk in faulty_disks]
+
+
 def GetDrbdUsermodeHelper():
   """Returns DRBD usermode helper currently configured.
 
   """
   try:
-    return bdev.BaseDRBD.GetUsermodeHelper()
+    return drbd.DRBD8.GetUsermodeHelper()
   except errors.BlockDeviceError, err:
     _Fail(str(err))
 
 
-def PowercycleNode(hypervisor_type):
+def PowercycleNode(hypervisor_type, hvparams=None):
   """Hard-powercycle the node.
 
   Because we need to return first, and schedule the powercycle in the
@@ -3725,7 +4065,7 @@ def PowercycleNode(hypervisor_type):
   except Exception: # pylint: disable=W0703
     pass
   time.sleep(5)
-  hyper.PowercycleNode()
+  hyper.PowercycleNode(hvparams=hvparams)
 
 
 def _VerifyRestrictedCmdName(cmd):

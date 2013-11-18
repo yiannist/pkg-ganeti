@@ -40,6 +40,7 @@ module Ganeti.HTools.Node
   , setPri
   , setSec
   , setMaster
+  , setNodeTags
   , setMdsk
   , setMcpu
   , setPolicy
@@ -72,9 +73,12 @@ module Ganeti.HTools.Node
   , noSecondary
   , computeGroups
   , mkNodeGraph
+  , mkRebootNodeGraph
+  , haveExclStorage
   ) where
 
 import Control.Monad (liftM, liftM2)
+import Control.Applicative ((<$>), (<*>))
 import qualified Data.Foldable as Foldable
 import Data.Function (on)
 import qualified Data.Graph as Graph
@@ -107,8 +111,11 @@ data Node = Node
   , tDsk     :: Double    -- ^ Total disk space (MiB)
   , fDsk     :: Int       -- ^ Free disk space (MiB)
   , tCpu     :: Double    -- ^ Total CPU count
+  , nCpu     :: Int       -- ^ VCPUs used by the node OS
   , uCpu     :: Int       -- ^ Used VCPU count
-  , spindleCount :: Int   -- ^ Node spindles (spindle_count node parameter)
+  , tSpindles :: Int      -- ^ Node spindles (spindle_count node parameter,
+                          -- or actual spindles, see note below)
+  , fSpindles :: Int      -- ^ Free spindles (see note below)
   , pList    :: [T.Idx]   -- ^ List of primary instance indices
   , sList    :: [T.Idx]   -- ^ List of secondary instance indices
   , idx      :: T.Ndx     -- ^ Internal index for book-keeping
@@ -125,19 +132,31 @@ data Node = Node
                           -- threshold
   , hiCpu    :: Int       -- ^ Autocomputed from mCpu high cpu
                           -- threshold
-  , hiSpindles :: Double  -- ^ Auto-computed from policy spindle_ratio
-                          -- and the node spindle count
-  , instSpindles :: Double -- ^ Spindles used by instances
+  , hiSpindles :: Double  -- ^ Limit auto-computed from policy spindle_ratio
+                          -- and the node spindle count (see note below)
+  , instSpindles :: Double -- ^ Spindles used by instances (see note below)
   , offline  :: Bool      -- ^ Whether the node should not be used for
                           -- allocations and skipped from score
                           -- computations
   , isMaster :: Bool      -- ^ Whether the node is the master node
+  , nTags    :: [String]  -- ^ The node tags for this node
   , utilPool :: T.DynUtil -- ^ Total utilisation capacity
   , utilLoad :: T.DynUtil -- ^ Sum of instance utilisation
   , pTags    :: TagMap    -- ^ Primary instance exclusion tags and their count
   , group    :: T.Gdx     -- ^ The node's group (index)
   , iPolicy  :: T.IPolicy -- ^ The instance policy (of the node's group)
+  , exclStorage :: Bool   -- ^ Effective value of exclusive_storage
   } deriving (Show, Eq)
+{- A note on how we handle spindles
+
+With exclusive storage spindles is a resource, so we track the number of
+spindles still available (fSpindles). This is the only reliable way, as some
+spindles could be used outside of Ganeti. When exclusive storage is off,
+spindles are a way to represent disk I/O pressure, and hence we track the amount
+used by the instances. We compare it against 'hiSpindles', computed from the
+instance policy, to avoid policy violations. In both cases we store the total
+spindles in 'tSpindles'.
+-}
 
 instance T.Element Node where
   nameOf = name
@@ -205,17 +224,24 @@ decIf :: (Num a) => Bool -> a -> a -> a
 decIf True  base delta = base - delta
 decIf False base _     = base
 
+-- | Is exclusive storage enabled on any node?
+haveExclStorage :: List -> Bool
+haveExclStorage nl =
+  any exclStorage $ Container.elems nl
+
 -- * Initialization functions
 
 -- | Create a new node.
 --
 -- The index and the peers maps are empty, and will be need to be
 -- update later via the 'setIdx' and 'buildPeers' functions.
-create :: String -> Double -> Int -> Int -> Double
-       -> Int -> Double -> Bool -> Int -> T.Gdx -> Node
+create :: String -> Double -> Int -> Int
+       -> Double -> Int -> Double -> Int -> Bool
+       -> Int -> Int -> T.Gdx -> Bool
+       -> Node
 create name_init mem_t_init mem_n_init mem_f_init
-       dsk_t_init dsk_f_init cpu_t_init offline_init spindles_init
-       group_init =
+       dsk_t_init dsk_f_init cpu_t_init cpu_n_init offline_init
+       spindles_t_init spindles_f_init group_init excl_stor =
   Node { name = name_init
        , alias = name_init
        , tMem = mem_t_init
@@ -224,8 +250,10 @@ create name_init mem_t_init mem_n_init mem_f_init
        , tDsk = dsk_t_init
        , fDsk = dsk_f_init
        , tCpu = cpu_t_init
-       , spindleCount = spindles_init
-       , uCpu = 0
+       , nCpu = cpu_n_init
+       , uCpu = cpu_n_init
+       , tSpindles = spindles_t_init
+       , fSpindles = spindles_f_init
        , pList = []
        , sList = []
        , failN1 = True
@@ -233,23 +261,27 @@ create name_init mem_t_init mem_n_init mem_f_init
        , peers = P.empty
        , rMem = 0
        , pMem = fromIntegral mem_f_init / mem_t_init
-       , pDsk = computePDsk dsk_f_init dsk_t_init
+       , pDsk = if excl_stor
+                then computePDsk spindles_f_init $ fromIntegral spindles_t_init
+                else computePDsk dsk_f_init dsk_t_init
        , pRem = 0
-       , pCpu = 0
+       , pCpu = fromIntegral cpu_n_init / cpu_t_init
        , offline = offline_init
        , isMaster = False
+       , nTags = []
        , xMem = 0
        , mDsk = T.defReservedDiskRatio
        , loDsk = mDskToloDsk T.defReservedDiskRatio dsk_t_init
        , hiCpu = mCpuTohiCpu (T.iPolicyVcpuRatio T.defIPolicy) cpu_t_init
        , hiSpindles = computeHiSpindles (T.iPolicySpindleRatio T.defIPolicy)
-                      spindles_init
+                      spindles_t_init
        , instSpindles = 0
        , utilPool = T.baseUtil
        , utilLoad = T.zeroUtil
        , pTags = Map.empty
        , group = group_init
        , iPolicy = T.defIPolicy
+       , exclStorage = excl_stor
        }
 
 -- | Conversion formula from mDsk\/tDsk to loDsk.
@@ -284,6 +316,10 @@ setOffline t val = t { offline = val }
 setMaster :: Node -> Bool -> Node
 setMaster t val = t { isMaster = val }
 
+-- | Sets the node tags attribute
+setNodeTags :: Node -> [String] -> Node
+setNodeTags t val = t { nTags = val }
+
 -- | Sets the unnaccounted memory.
 setXmem :: Node -> Int -> Node
 setXmem t val = t { xMem = val }
@@ -305,7 +341,7 @@ setPolicy pol node =
   node { iPolicy = pol
        , hiCpu = mCpuTohiCpu (T.iPolicyVcpuRatio pol) (tCpu node)
        , hiSpindles = computeHiSpindles (T.iPolicySpindleRatio pol)
-                      (spindleCount node)
+                      (tSpindles node)
        }
 
 -- | Computes the maximum reserved memory for peers from a peer map.
@@ -329,9 +365,28 @@ buildPeers t il =
   in t {peers=pmap, failN1 = new_failN1, rMem = new_rmem, pRem = new_prem}
 
 -- | Calculate the new spindle usage
-calcSpindleUse :: Node -> Instance.Instance -> Double
-calcSpindleUse n i = incIf (Instance.usesLocalStorage i) (instSpindles n)
-                       (fromIntegral $ Instance.spindleUse i)
+calcSpindleUse ::
+                  Bool -- Action: True = adding instance, False = removing it
+               -> Node -> Instance.Instance -> Double
+calcSpindleUse _ (Node {exclStorage = True}) _ = 0.0
+calcSpindleUse act n@(Node {exclStorage = False}) i =
+  f (Instance.usesLocalStorage i) (instSpindles n)
+    (fromIntegral $ Instance.spindleUse i)
+    where
+      f :: Bool -> Double -> Double -> Double -- avoid monomorphism restriction
+      f = if act then incIf else decIf
+
+-- | Calculate the new number of free spindles
+calcNewFreeSpindles ::
+                       Bool -- Action: True = adding instance, False = removing
+                    -> Node -> Instance.Instance -> Int
+calcNewFreeSpindles _ (Node {exclStorage = False}) _ = 0
+calcNewFreeSpindles act n@(Node {exclStorage = True}) i =
+  case Instance.getTotalSpindles i of
+    Nothing -> if act
+               then -1 -- Force a spindle error, so the instance don't go here
+               else fSpindles n -- No change, as we aren't sure
+    Just s -> (if act then (-) else (+)) (fSpindles n) s
 
 -- | Assigns an instance to a node as primary and update the used VCPU
 -- count, utilisation data and tags map.
@@ -341,25 +396,32 @@ setPri t inst = t { pList = Instance.idx inst:pList t
                   , pCpu = fromIntegral new_count / tCpu t
                   , utilLoad = utilLoad t `T.addUtil` Instance.util inst
                   , pTags = addTags (pTags t) (Instance.exclTags inst)
-                  , instSpindles = calcSpindleUse t inst
+                  , instSpindles = calcSpindleUse True t inst
                   }
   where new_count = Instance.applyIfOnline inst (+ Instance.vcpus inst)
                     (uCpu t )
 
--- | Assigns an instance to a node as secondary without other updates.
+-- | Assigns an instance to a node as secondary and updates disk utilisation.
 setSec :: Node -> Instance.Instance -> Node
 setSec t inst = t { sList = Instance.idx inst:sList t
                   , utilLoad = old_load { T.dskWeight = T.dskWeight old_load +
                                           T.dskWeight (Instance.util inst) }
-                  , instSpindles = calcSpindleUse t inst
+                  , instSpindles = calcSpindleUse True t inst
                   }
   where old_load = utilLoad t
 
 -- | Computes the new 'pDsk' value, handling nodes without local disk
--- storage (we consider all their disk used).
+-- storage (we consider all their disk unused).
 computePDsk :: Int -> Double -> Double
 computePDsk _    0     = 1
-computePDsk used total = fromIntegral used / total
+computePDsk free total = fromIntegral free / total
+
+-- | Computes the new 'pDsk' value, handling the exclusive storage state.
+computeNewPDsk :: Node -> Int -> Int -> Double
+computeNewPDsk node new_free_sp new_free_dsk =
+  if exclStorage node
+  then computePDsk new_free_sp . fromIntegral $ tSpindles node
+  else computePDsk new_free_dsk $ tDsk node
 
 -- * Update functions
 
@@ -379,9 +441,10 @@ removePri t inst =
       new_plist = delete iname (pList t)
       new_mem = incIf i_online (fMem t) (Instance.mem inst)
       new_dsk = incIf uses_disk (fDsk t) (Instance.dsk inst)
-      new_spindles = decIf uses_disk (instSpindles t) 1
+      new_free_sp = calcNewFreeSpindles False t inst
+      new_inst_sp = calcSpindleUse False t inst
       new_mp = fromIntegral new_mem / tMem t
-      new_dp = computePDsk new_dsk (tDsk t)
+      new_dp = computeNewPDsk t new_free_sp new_dsk
       new_failn1 = new_mem <= rMem t
       new_ucpu = decIf i_online (uCpu t) (Instance.vcpus inst)
       new_rcpu = fromIntegral new_ucpu / tCpu t
@@ -390,7 +453,7 @@ removePri t inst =
        , failN1 = new_failn1, pMem = new_mp, pDsk = new_dp
        , uCpu = new_ucpu, pCpu = new_rcpu, utilLoad = new_load
        , pTags = delTags (pTags t) (Instance.exclTags inst)
-       , instSpindles = new_spindles
+       , instSpindles = new_inst_sp, fSpindles = new_free_sp
        }
 
 -- | Removes a secondary instance.
@@ -402,7 +465,8 @@ removeSec t inst =
       pnode = Instance.pNode inst
       new_slist = delete iname (sList t)
       new_dsk = incIf uses_disk cur_dsk (Instance.dsk inst)
-      new_spindles = decIf uses_disk (instSpindles t) 1
+      new_free_sp = calcNewFreeSpindles False t inst
+      new_inst_sp = calcSpindleUse False t inst
       old_peers = peers t
       old_peem = P.find pnode old_peers
       new_peem = decIf (Instance.usesSecMem inst) old_peem (Instance.mem inst)
@@ -415,14 +479,14 @@ removeSec t inst =
                    else computeMaxRes new_peers
       new_prem = fromIntegral new_rmem / tMem t
       new_failn1 = fMem t <= new_rmem
-      new_dp = computePDsk new_dsk (tDsk t)
+      new_dp = computeNewPDsk t new_free_sp new_dsk
       old_load = utilLoad t
       new_load = old_load { T.dskWeight = T.dskWeight old_load -
                                           T.dskWeight (Instance.util inst) }
   in t { sList = new_slist, fDsk = new_dsk, peers = new_peers
        , failN1 = new_failn1, rMem = new_rmem, pDsk = new_dp
        , pRem = new_prem, utilLoad = new_load
-       , instSpindles = new_spindles
+       , instSpindles = new_inst_sp, fSpindles = new_free_sp
        }
 
 -- | Adds a primary instance (basic version).
@@ -446,11 +510,12 @@ addPriEx force t inst =
       cur_dsk = fDsk t
       new_mem = decIf i_online (fMem t) (Instance.mem inst)
       new_dsk = decIf uses_disk cur_dsk (Instance.dsk inst)
-      new_spindles = incIf uses_disk (instSpindles t) 1
+      new_free_sp = calcNewFreeSpindles True t inst
+      new_inst_sp = calcSpindleUse True t inst
       new_failn1 = new_mem <= rMem t
       new_ucpu = incIf i_online (uCpu t) (Instance.vcpus inst)
       new_pcpu = fromIntegral new_ucpu / tCpu t
-      new_dp = computePDsk new_dsk (tDsk t)
+      new_dp = computeNewPDsk t new_free_sp new_dsk
       l_cpu = T.iPolicyVcpuRatio $ iPolicy t
       new_load = utilLoad t `T.addUtil` Instance.util inst
       inst_tags = Instance.exclTags inst
@@ -459,9 +524,9 @@ addPriEx force t inst =
   in case () of
        _ | new_mem <= 0 -> Bad T.FailMem
          | uses_disk && new_dsk <= 0 -> Bad T.FailDisk
-         | uses_disk && mDsk t > new_dp && strict -> Bad T.FailDisk
-         | uses_disk && new_spindles > hiSpindles t
-             && strict -> Bad T.FailDisk
+         | uses_disk && new_dsk < loDsk t && strict -> Bad T.FailDisk
+         | uses_disk && exclStorage t && new_free_sp < 0 -> Bad T.FailSpindles
+         | uses_disk && new_inst_sp > hiSpindles t && strict -> Bad T.FailDisk
          | new_failn1 && not (failN1 t) && strict -> Bad T.FailMem
          | l_cpu >= 0 && l_cpu < new_pcpu && strict -> Bad T.FailCPU
          | rejectAddTags old_tags inst_tags -> Bad T.FailTags
@@ -473,7 +538,8 @@ addPriEx force t inst =
                      , uCpu = new_ucpu, pCpu = new_pcpu
                      , utilLoad = new_load
                      , pTags = addTags old_tags inst_tags
-                     , instSpindles = new_spindles
+                     , instSpindles = new_inst_sp
+                     , fSpindles = new_free_sp
                      }
            in Ok r
 
@@ -488,7 +554,8 @@ addSecEx force t inst pdx =
       old_peers = peers t
       old_mem = fMem t
       new_dsk = fDsk t - Instance.dsk inst
-      new_spindles = instSpindles t + 1
+      new_free_sp = calcNewFreeSpindles True t inst
+      new_inst_sp = calcSpindleUse True t inst
       secondary_needed_mem = if Instance.usesSecMem inst
                                then Instance.mem inst
                                else 0
@@ -497,7 +564,7 @@ addSecEx force t inst pdx =
       new_rmem = max (rMem t) new_peem
       new_prem = fromIntegral new_rmem / tMem t
       new_failn1 = old_mem <= new_rmem
-      new_dp = computePDsk new_dsk (tDsk t)
+      new_dp = computeNewPDsk t new_free_sp new_dsk
       old_load = utilLoad t
       new_load = old_load { T.dskWeight = T.dskWeight old_load +
                                           T.dskWeight (Instance.util inst) }
@@ -505,8 +572,9 @@ addSecEx force t inst pdx =
   in case () of
        _ | not (Instance.hasSecondary inst) -> Bad T.FailDisk
          | new_dsk <= 0 -> Bad T.FailDisk
-         | mDsk t > new_dp && strict -> Bad T.FailDisk
-         | new_spindles > hiSpindles t && strict -> Bad T.FailDisk
+         | new_dsk < loDsk t && strict -> Bad T.FailDisk
+         | exclStorage t && new_free_sp < 0 -> Bad T.FailSpindles
+         | new_inst_sp > hiSpindles t && strict -> Bad T.FailDisk
          | secondary_needed_mem >= old_mem && strict -> Bad T.FailMem
          | new_failn1 && not (failN1 t) && strict -> Bad T.FailMem
          | otherwise ->
@@ -515,7 +583,8 @@ addSecEx force t inst pdx =
                      , peers = new_peers, failN1 = new_failn1
                      , rMem = new_rmem, pDsk = new_dp
                      , pRem = new_prem, utilLoad = new_load
-                     , instSpindles = new_spindles
+                     , instSpindles = new_inst_sp
+                     , fSpindles = new_free_sp
                      }
            in Ok r
 
@@ -582,11 +651,37 @@ nodesToBounds nl = liftM2 (,) nmin nmax
     where nmin = fmap (fst . fst) (IntMap.minViewWithKey nl)
           nmax = fmap (fst . fst) (IntMap.maxViewWithKey nl)
 
+-- | The clique of the primary nodes of the instances with a given secondary.
+-- Return the full graph of those nodes that are primary node of at least one
+-- instance that has the given node as secondary.
+nodeToSharedSecondaryEdge :: Instance.List -> Node -> [Graph.Edge]
+nodeToSharedSecondaryEdge il n = (,) <$> primaries <*> primaries
+  where primaries = map (Instance.pNode . flip Container.find il) $ sList n
+
+
+-- | Predicate of an edge having both vertices in a set of nodes.
+filterValid :: List -> [Graph.Edge] -> [Graph.Edge]
+filterValid nl  =  filter $ \(x,y) -> IntMap.member x nl && IntMap.member y nl
+
 -- | Transform a Node + Instance list into a NodeGraph type.
 -- Returns Nothing if the node list is empty.
 mkNodeGraph :: List -> Instance.List -> Maybe Graph.Graph
 mkNodeGraph nl il =
-  liftM (`Graph.buildG` instancesToEdges il) (nodesToBounds nl)
+  liftM (`Graph.buildG` (filterValid nl . instancesToEdges $ il))
+  (nodesToBounds nl)
+
+-- | Transform a Nodes + Instances into a NodeGraph with all reboot exclusions.
+-- This includes edges between nodes that are the primary nodes of instances
+-- that have the same secondary node. Nodes not in the node list will not be
+-- part of the graph, but they are still considered for the edges arising from
+-- two instances having the same secondary node.
+-- Return Nothing if the node list is empty.
+mkRebootNodeGraph :: List -> List -> Instance.List -> Maybe Graph.Graph
+mkRebootNodeGraph allnodes nl il =
+  liftM (`Graph.buildG` filterValid nl edges) (nodesToBounds nl)
+  where
+    edges = instancesToEdges il `union`
+            (Container.elems allnodes >>= nodeToSharedSecondaryEdge il) 
 
 -- * Display functions
 
@@ -628,7 +723,7 @@ showField t field =
     "ptags" -> intercalate "," . map (uncurry (printf "%s=%d")) .
                Map.toList $ pTags t
     "peermap" -> show $ peers t
-    "spindle_count" -> show $ spindleCount t
+    "spindle_count" -> show $ tSpindles t
     "hi_spindles" -> show $ hiSpindles t
     "inst_spindles" -> show $ instSpindles t
     _ -> T.unknownField

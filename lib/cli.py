@@ -166,6 +166,7 @@ __all__ = [
   "PREALLOC_WIPE_DISKS_OPT",
   "PRIMARY_IP_VERSION_OPT",
   "PRIMARY_ONLY_OPT",
+  "PRINT_JOBID_OPT",
   "PRIORITY_OPT",
   "RAPI_CERT_OPT",
   "READD_OPT",
@@ -199,6 +200,7 @@ __all__ = [
   "SRC_DIR_OPT",
   "SRC_NODE_OPT",
   "SUBMIT_OPT",
+  "SUBMIT_OPTS",
   "STARTUP_PAUSED_OPT",
   "STATIC_OPT",
   "SYNC_OPT",
@@ -833,6 +835,11 @@ SUBMIT_OPT = cli_option("--submit", dest="submit_only",
                         help=("Submit the job and return the job ID, but"
                               " don't wait for the job to finish"))
 
+PRINT_JOBID_OPT = cli_option("--print-jobid", dest="print_jobid",
+                             default=False, action="store_true",
+                             help=("Additionally print the job as first line"
+                                   " on stdout (for scripting)."))
+
 SYNC_OPT = cli_option("--sync", dest="do_locking",
                       default=False, action="store_true",
                       help=("Grab locks while doing the queries"
@@ -1293,7 +1300,7 @@ GLOBAL_FILEDIR_OPT = cli_option("--file-storage-dir", dest="file_storage_dir",
                                 "wide) for storing the file-based disks [%s]" %
                                 pathutils.DEFAULT_FILE_STORAGE_DIR,
                                 metavar="DIR",
-                                default=pathutils.DEFAULT_FILE_STORAGE_DIR)
+                                default=None)
 
 GLOBAL_SHARED_FILEDIR_OPT = cli_option(
   "--shared-file-storage-dir",
@@ -1301,7 +1308,7 @@ GLOBAL_SHARED_FILEDIR_OPT = cli_option(
   help="Specify the default directory (cluster-wide) for storing the"
   " shared file-based disks [%s]" %
   pathutils.DEFAULT_SHARED_FILE_STORAGE_DIR,
-  metavar="SHAREDDIR", default=pathutils.DEFAULT_SHARED_FILE_STORAGE_DIR)
+  metavar="SHAREDDIR", default=None)
 
 NOMODIFY_ETCHOSTS_OPT = cli_option("--no-etc-hosts", dest="modify_etc_hosts",
                                    help="Don't modify %s" % pathutils.ETC_HOSTS,
@@ -1641,6 +1648,13 @@ INCLUDEDEFAULTS_OPT = cli_option("--include-defaults", dest="include_defaults",
 #: Options provided by all commands
 COMMON_OPTS = [DEBUG_OPT, REASON_OPT]
 
+# options related to asynchronous job handling
+
+SUBMIT_OPTS = [
+  SUBMIT_OPT,
+  PRINT_JOBID_OPT,
+  ]
+
 # common options for creating instances. add and import then add their own
 # specific ones.
 COMMON_CREATE_OPTS = [
@@ -1661,6 +1675,7 @@ COMMON_CREATE_OPTS = [
   OSPARAMS_OPT,
   OS_SIZE_OPT,
   SUBMIT_OPT,
+  PRINT_JOBID_OPT,
   TAG_ADD_OPT,
   DRY_RUN_OPT,
   PRIORITY_OPT,
@@ -2255,6 +2270,8 @@ def SubmitOpCode(op, cl=None, feedback_fn=None, opts=None, reporter=None):
   SetGenericOpcodeOpts([op], opts)
 
   job_id = SendJob([op], cl=cl)
+  if hasattr(opts, "print_jobid") and opts.print_jobid:
+    ToStdout("%d" % job_id)
 
   op_results = PollJob(job_id, cl=cl, feedback_fn=feedback_fn,
                        reporter=reporter)
@@ -2278,6 +2295,8 @@ def SubmitOrSend(op, opts, cl=None, feedback_fn=None):
     job = [op]
     SetGenericOpcodeOpts(job, opts)
     job_id = SendJob(job, cl=cl)
+    if opts.print_jobid:
+      ToStdout("%d" % job_id)
     raise JobSubmittedException(job_id)
   else:
     return SubmitOpCode(op, cl=cl, feedback_fn=feedback_fn, opts=opts)
@@ -2654,6 +2673,9 @@ def GenericInstanceCreate(mode, opts, args):
           raise errors.OpPrereqError("Invalid disk size for disk %d: %s" %
                                      (didx, err), errors.ECODE_INVAL)
       elif constants.IDISK_ADOPT in ddict:
+        if constants.IDISK_SPINDLES in ddict:
+          raise errors.OpPrereqError("spindles is not a valid option when"
+                                     " adopting a disk", errors.ECODE_INVAL)
         if mode == constants.INSTANCE_IMPORT:
           raise errors.OpPrereqError("Disk adoption not allowed for instance"
                                      " import", errors.ECODE_INVAL)

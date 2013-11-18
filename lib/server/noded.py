@@ -45,7 +45,7 @@ from ganeti import jstore
 from ganeti import daemon
 from ganeti import http
 from ganeti import utils
-from ganeti import storage
+from ganeti.storage import container
 from ganeti import serializer
 from ganeti import netutils
 from ganeti import pathutils
@@ -361,14 +361,15 @@ class NodeRequestHandler(http.server.HttpServerHandler):
     """Grow a stack of devices.
 
     """
-    if len(params) < 4:
-      raise ValueError("Received only 3 parameters in blockdev_grow,"
-                       " old master?")
+    if len(params) < 5:
+      raise ValueError("Received only %s parameters in blockdev_grow,"
+                       " old master?" % len(params))
     cfbd = objects.Disk.FromDict(params[0])
     amount = params[1]
     dryrun = params[2]
     backingstore = params[3]
-    return backend.BlockdevGrow(cfbd, amount, dryrun, backingstore)
+    excl_stor = params[4]
+    return backend.BlockdevGrow(cfbd, amount, dryrun, backingstore, excl_stor)
 
   @staticmethod
   def perspective_blockdev_close(params):
@@ -379,12 +380,12 @@ class NodeRequestHandler(http.server.HttpServerHandler):
     return backend.BlockdevClose(params[0], disks)
 
   @staticmethod
-  def perspective_blockdev_getsize(params):
+  def perspective_blockdev_getdimensions(params):
     """Compute the sizes of the given block devices.
 
     """
     disks = [objects.Disk.FromDict(cf) for cf in params[0]]
-    return backend.BlockdevGetsize(disks)
+    return backend.BlockdevGetdimensions(disks)
 
   @staticmethod
   def perspective_blockdev_export(params):
@@ -392,8 +393,8 @@ class NodeRequestHandler(http.server.HttpServerHandler):
 
     """
     disk = objects.Disk.FromDict(params[0])
-    dest_node, dest_path, cluster_name = params[1:]
-    return backend.BlockdevExport(disk, dest_node, dest_path, cluster_name)
+    dest_node_ip, dest_path, cluster_name = params[1:]
+    return backend.BlockdevExport(disk, dest_node_ip, dest_path, cluster_name)
 
   @staticmethod
   def perspective_blockdev_setinfo(params):
@@ -414,9 +415,9 @@ class NodeRequestHandler(http.server.HttpServerHandler):
     disk list must all be drbd devices.
 
     """
-    nodes_ip, disks = params
+    nodes_ip, disks, target_node_uuid = params
     disks = [objects.Disk.FromDict(cf) for cf in disks]
-    return backend.DrbdDisconnectNet(nodes_ip, disks)
+    return backend.DrbdDisconnectNet(target_node_uuid, nodes_ip, disks)
 
   @staticmethod
   def perspective_drbd_attach_net(params):
@@ -426,10 +427,10 @@ class NodeRequestHandler(http.server.HttpServerHandler):
     disk list must all be drbd devices.
 
     """
-    nodes_ip, disks, instance_name, multimaster = params
+    nodes_ip, disks, instance_name, multimaster, target_node_uuid = params
     disks = [objects.Disk.FromDict(cf) for cf in disks]
-    return backend.DrbdAttachNet(nodes_ip, disks,
-                                     instance_name, multimaster)
+    return backend.DrbdAttachNet(target_node_uuid, nodes_ip, disks,
+                                 instance_name, multimaster)
 
   @staticmethod
   def perspective_drbd_wait_sync(params):
@@ -439,9 +440,21 @@ class NodeRequestHandler(http.server.HttpServerHandler):
     disk list must all be drbd devices.
 
     """
-    nodes_ip, disks = params
+    nodes_ip, disks, target_node_uuid = params
     disks = [objects.Disk.FromDict(cf) for cf in disks]
-    return backend.DrbdWaitSync(nodes_ip, disks)
+    return backend.DrbdWaitSync(target_node_uuid, nodes_ip, disks)
+
+  @staticmethod
+  def perspective_drbd_needs_activation(params):
+    """Checks if the drbd devices need activation
+
+    Note that this is only valid for drbd disks, so the members of the
+    disk list must all be drbd devices.
+
+    """
+    nodes_ip, disks, target_node_uuid = params
+    disks = [objects.Disk.FromDict(cf) for cf in disks]
+    return backend.DrbdNeedsActivation(target_node_uuid, nodes_ip, disks)
 
   @staticmethod
   def perspective_drbd_helper(params):
@@ -532,7 +545,7 @@ class NodeRequestHandler(http.server.HttpServerHandler):
 
     """
     (su_name, su_args, name, fields) = params
-    return storage.GetStorage(su_name, *su_args).List(name, fields)
+    return container.GetStorage(su_name, *su_args).List(name, fields)
 
   @staticmethod
   def perspective_storage_modify(params):
@@ -540,7 +553,7 @@ class NodeRequestHandler(http.server.HttpServerHandler):
 
     """
     (su_name, su_args, name, changes) = params
-    return storage.GetStorage(su_name, *su_args).Modify(name, changes)
+    return container.GetStorage(su_name, *su_args).Modify(name, changes)
 
   @staticmethod
   def perspective_storage_execute(params):
@@ -548,7 +561,7 @@ class NodeRequestHandler(http.server.HttpServerHandler):
 
     """
     (su_name, su_args, name, op) = params
-    return storage.GetStorage(su_name, *su_args).Execute(name, op)
+    return container.GetStorage(su_name, *su_args).Execute(name, op)
 
   # bridge  --------------------------
 
@@ -634,9 +647,9 @@ class NodeRequestHandler(http.server.HttpServerHandler):
     """Migrates an instance.
 
     """
-    instance, target, live = params
+    cluster_name, instance, target, live = params
     instance = objects.Instance.FromDict(instance)
-    return backend.MigrateInstance(instance, target, live)
+    return backend.MigrateInstance(cluster_name, instance, target, live)
 
   @staticmethod
   def perspective_instance_finalize_migration_src(params):
@@ -682,7 +695,8 @@ class NodeRequestHandler(http.server.HttpServerHandler):
     """Query instance information.
 
     """
-    return backend.GetInstanceInfo(params[0], params[1])
+    (instance_name, hypervisor_name, hvparams) = params
+    return backend.GetInstanceInfo(instance_name, hypervisor_name, hvparams)
 
   @staticmethod
   def perspective_instance_migratable(params):
@@ -697,14 +711,16 @@ class NodeRequestHandler(http.server.HttpServerHandler):
     """Query information about all instances.
 
     """
-    return backend.GetAllInstancesInfo(params[0])
+    (hypervisor_list, all_hvparams) = params
+    return backend.GetAllInstancesInfo(hypervisor_list, all_hvparams)
 
   @staticmethod
   def perspective_instance_list(params):
     """Query the list of running instances.
 
     """
-    return backend.GetInstanceList(params[0])
+    (hypervisor_list, hvparams) = params
+    return backend.GetInstanceList(hypervisor_list, hvparams)
 
   # node --------------------------
 
@@ -720,8 +736,8 @@ class NodeRequestHandler(http.server.HttpServerHandler):
     """Query node information.
 
     """
-    (vg_names, hv_names, excl_stor) = params
-    return backend.GetNodeInfo(vg_names, hv_names, excl_stor)
+    (storage_units, hv_specs) = params
+    return backend.GetNodeInfo(storage_units, hv_specs)
 
   @staticmethod
   def perspective_etc_hosts_modify(params):
@@ -737,7 +753,8 @@ class NodeRequestHandler(http.server.HttpServerHandler):
     """Run a verify sequence on this node.
 
     """
-    return backend.VerifyNode(params[0], params[1])
+    (what, cluster_name, hvparams) = params
+    return backend.VerifyNode(what, cluster_name, hvparams)
 
   @classmethod
   def perspective_node_verify_light(cls, params):
@@ -811,8 +828,8 @@ class NodeRequestHandler(http.server.HttpServerHandler):
     """Tries to powercycle the nod.
 
     """
-    hypervisor_type = params[0]
-    return backend.PowercycleNode(hypervisor_type)
+    (hypervisor_type, hvparams) = params
+    return backend.PowercycleNode(hypervisor_type, hvparams)
 
   # cluster --------------------------
 
@@ -1177,7 +1194,8 @@ def Main():
 
   """
   parser = OptionParser(description="Ganeti node daemon",
-                        usage="%prog [-f] [-d] [-p port] [-b ADDRESS]",
+                        usage=("%prog [-f] [-d] [-p port] [-b ADDRESS]"
+                               " [-i INTERFACE]"),
                         version="%%prog (ganeti) %s" %
                         constants.RELEASE_VERSION)
   parser.add_option("--no-mlock", dest="mlock",

@@ -1,6 +1,6 @@
 {-# LANGUAGE TemplateHaskell #-}
 
-{-| Unittests for Attoparsec support for unicode -}
+{-| Unittests for the DRBD Parser -}
 
 {-
 
@@ -23,7 +23,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
 
 -}
 
-module Test.Ganeti.Block.Drbd.Parser (testBlock_Drbd_Parser) where
+module Test.Ganeti.Storage.Drbd.Parser (testBlock_Drbd_Parser) where
 
 import Test.QuickCheck as QuickCheck hiding (Result)
 import Test.HUnit
@@ -35,23 +35,37 @@ import qualified Data.Attoparsec.Text as A
 import Data.List (intercalate)
 import Data.Text (pack)
 
-import Ganeti.Block.Drbd.Parser (drbdStatusParser, commaIntParser)
-import Ganeti.Block.Drbd.Types
+import Ganeti.Storage.Drbd.Parser (drbdStatusParser, commaIntParser)
+import Ganeti.Storage.Drbd.Types
 
 {-# ANN module "HLint: ignore Use camelCase" #-}
 
--- | Function for testing whether a file is parsed correctly.
-testFile :: String -> DRBDStatus -> Assertion
-testFile fileName expectedContent = do
-    fileContent <- readTestData fileName
-    case A.parseOnly (drbdStatusParser []) $ pack fileContent of
-        Left msg -> assertFailure $ "Parsing failed: " ++ msg
-        Right obtained -> assertEqual fileName expectedContent obtained
-
 -- | Test a DRBD 8.0 file with an empty line inside.
 case_drbd80_emptyline :: Assertion
-case_drbd80_emptyline = testFile "proc_drbd80-emptyline.txt" $
-  DRBDStatus
+case_drbd80_emptyline = testParser (drbdStatusParser [])
+  "proc_drbd80-emptyline.txt" $ DRBDStatus
+    ( VersionInfo (Just "8.0.12") (Just "86") (Just "86") Nothing
+        (Just "5c9f89594553e32adb87d9638dce591782f947e3")
+        (Just "root@node1.example.com, 2009-05-22 12:47:52")
+    )
+    [ DeviceInfo 0 Connected (LocalRemote Primary Secondary)
+        (LocalRemote UpToDate UpToDate) 'C' "r---"
+        (PerfIndicators 78728316 0 77675644 1277039 254 270 0 0 0 0
+          Nothing Nothing Nothing)
+        Nothing
+        (Just $ AdditionalInfo 0 61 65657 135 0 0 135)
+        (Just $ AdditionalInfo 0 257 11378843 254 0 0 254)
+        Nothing,
+      UnconfiguredDevice 1,
+      UnconfiguredDevice 2,
+      UnconfiguredDevice 5,
+      UnconfiguredDevice 6
+    ]
+
+-- | Test a DRBD 8.0 file with an empty version.
+case_drbd80_emptyversion :: Assertion
+case_drbd80_emptyversion = testParser (drbdStatusParser [])
+  "proc_drbd80-emptyversion.txt" $ DRBDStatus
     ( VersionInfo Nothing Nothing Nothing Nothing
         (Just "5c9f89594553e32adb87d9638dce591782f947e3")
         (Just "root@node1.example.com, 2009-05-22 12:47:52")
@@ -70,10 +84,89 @@ case_drbd80_emptyline = testFile "proc_drbd80-emptyline.txt" $
       UnconfiguredDevice 6
     ]
 
+-- | Test a DRBD 8.4 file with an ongoing synchronization.
+case_drbd84_sync :: Assertion
+case_drbd84_sync = testParser (drbdStatusParser []) "proc_drbd84_sync.txt" $
+  DRBDStatus
+    ( VersionInfo (Just "8.4.2") (Just "1") (Just "86-101") Nothing
+        (Just "7ad5f850d711223713d6dcadc3dd48860321070c")
+        (Just "root@example.com, 2013-04-10 07:45:25")
+    )
+    [ DeviceInfo 0 StandAlone (LocalRemote Primary Unknown)
+        (LocalRemote UpToDate DUnknown) ' ' "r-----"
+        (PerfIndicators 0 0 33318 730 15 0 0 0 0 0 (Just 1)
+          (Just 'd') (Just 1048320))
+        Nothing
+        Nothing
+        Nothing
+        Nothing,
+      UnconfiguredDevice 3,
+      DeviceInfo 5 SyncSource (LocalRemote Secondary Secondary)
+        (LocalRemote UpToDate Inconsistent) 'C' "r---n-"
+        (PerfIndicators 716992 0 0 719432 0 43 0 33 18 0 (Just 1)
+          (Just 'f') (Just 335744))
+        (Just $ SyncStatus 68.5 335744 1048576 KiloByte (Time 0 0 5) 64800
+          Nothing KiloByte Second)
+        Nothing
+        Nothing
+        Nothing
+    ]
+
+-- | Test a DRBD 8.4 file.
+case_drbd84 :: Assertion
+case_drbd84 = testParser (drbdStatusParser []) "proc_drbd84.txt" $
+  DRBDStatus
+    ( VersionInfo (Just "8.4.2") (Just "1") (Just "86-101") Nothing
+      (Just "7ad5f850d711223713d6dcadc3dd48860321070c")
+      (Just "root@example.com, 2013-04-10 07:45:25")
+    )
+    [ DeviceInfo 0 Connected (LocalRemote Primary Secondary)
+        (LocalRemote UpToDate UpToDate) 'C' "r-----"
+        (PerfIndicators 1048576 0 0 1048776 0 64 0 0 0 0 (Just 1)
+          (Just 'f') (Just 0))
+        Nothing
+        Nothing
+        Nothing
+        Nothing,
+      DeviceInfo 1 Connected (LocalRemote Secondary Primary)
+        (LocalRemote UpToDate UpToDate) 'C' "r-----"
+        (PerfIndicators 0 1048576 1048576 0 0 64 0 0 0 0 (Just 1)
+          (Just 'f') (Just 0))
+        Nothing
+        Nothing
+        Nothing
+        Nothing,
+      UnconfiguredDevice 2,
+      DeviceInfo 4 WFConnection (LocalRemote Primary Unknown)
+        (LocalRemote UpToDate DUnknown) 'C' "r-----"
+        (PerfIndicators 0 0 0 200 0 0 0 0 0 0 (Just 1)
+          (Just 'f') (Just 1048320))
+        Nothing
+        Nothing
+        Nothing
+        Nothing,
+      DeviceInfo 6 Connected (LocalRemote Secondary Primary)
+        (LocalRemote Diskless UpToDate) 'C' "r-----"
+        (PerfIndicators 0 0 0 0 0 0 0 0 0 0 (Just 1) (Just 'b')
+          (Just 0))
+        Nothing
+        Nothing
+        Nothing
+        Nothing,
+      DeviceInfo 8 StandAlone (LocalRemote Secondary Unknown)
+        (LocalRemote UpToDate DUnknown) ' ' "r-----"
+        (PerfIndicators 0 0 0 200 0 0 0 0 0 0 (Just 1)
+          (Just 'f') (Just 1048320))
+        Nothing
+        Nothing
+        Nothing
+        Nothing
+    ]
+
 -- | Test a DRBD 8.3 file with a NULL caracter inside.
 case_drbd83_sync_krnl2_6_39 :: Assertion
-case_drbd83_sync_krnl2_6_39 = testFile "proc_drbd83_sync_krnl2.6.39.txt" $
-  DRBDStatus
+case_drbd83_sync_krnl2_6_39 = testParser (drbdStatusParser [])
+  "proc_drbd83_sync_krnl2.6.39.txt" $ DRBDStatus
     ( VersionInfo (Just "8.3.1") (Just "88") (Just "86-89") Nothing
         (Just "fd40f4a8f9104941537d1afc8521e584a6d3003c")
         (Just "phil@fat-tyre, 2009-03-27 12:19:49")
@@ -116,7 +209,7 @@ case_drbd83_sync_krnl2_6_39 = testFile "proc_drbd83_sync_krnl2.6.39.txt" $
 
 -- | Test a DRBD 8.3 file with an ongoing synchronization.
 case_drbd83_sync :: Assertion
-case_drbd83_sync = testFile "proc_drbd83_sync.txt" $
+case_drbd83_sync = testParser (drbdStatusParser []) "proc_drbd83_sync.txt" $
   DRBDStatus
     ( VersionInfo (Just "8.3.1") (Just "88") (Just "86-89") Nothing
         (Just "fd40f4a8f9104941537d1afc8521e584a6d3003c")
@@ -161,8 +254,8 @@ case_drbd83_sync = testFile "proc_drbd83_sync.txt" $
 -- | Test a DRBD 8.3 file not from git sources, with an ongoing synchronization
 -- and the "want" field
 case_drbd83_sync_want :: Assertion
-case_drbd83_sync_want = testFile "proc_drbd83_sync_want.txt" $
-  DRBDStatus
+case_drbd83_sync_want = testParser (drbdStatusParser [])
+  "proc_drbd83_sync_want.txt" $ DRBDStatus
     ( VersionInfo (Just "8.3.11") (Just "88") (Just "86-96")
         (Just "2D876214BAAD53B31ADC1D6")
         Nothing Nothing
@@ -183,7 +276,7 @@ case_drbd83_sync_want = testFile "proc_drbd83_sync_want.txt" $
 
 -- | Test a DRBD 8.3 file.
 case_drbd83 :: Assertion
-case_drbd83 = testFile "proc_drbd83.txt" $
+case_drbd83 = testParser (drbdStatusParser []) "proc_drbd83.txt" $
   DRBDStatus
     ( VersionInfo (Just "8.3.1") (Just "88") (Just "86-89")
       Nothing
@@ -251,7 +344,7 @@ case_drbd83 = testFile "proc_drbd83.txt" $
 
 -- | Test a DRBD 8.0 file with a missing device.
 case_drbd8 :: Assertion
-case_drbd8 = testFile "proc_drbd8.txt" $
+case_drbd8 = testParser (drbdStatusParser []) "proc_drbd8.txt" $
   DRBDStatus
     ( VersionInfo (Just "8.0.12") (Just "86") (Just "86") Nothing
         (Just "5c9f89594553e32adb87d9638dce591782f947e3")
@@ -381,6 +474,9 @@ case_commaInt_non_triplet = testCommaInt "61,736,12" 61736
 
 testSuite "Block/Drbd/Parser"
           [ 'case_drbd80_emptyline,
+            'case_drbd80_emptyversion,
+            'case_drbd84_sync,
+            'case_drbd84,
             'case_drbd83_sync_krnl2_6_39,
             'case_drbd83_sync,
             'case_drbd83_sync_want,

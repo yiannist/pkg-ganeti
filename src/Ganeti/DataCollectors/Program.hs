@@ -28,11 +28,24 @@ module Ganeti.DataCollectors.Program (personalities) where
 import Ganeti.Common (PersonalityList)
 import Ganeti.DataCollectors.CLI (Options)
 
+import qualified Ganeti.DataCollectors.Diskstats as Diskstats
 import qualified Ganeti.DataCollectors.Drbd as Drbd
+import qualified Ganeti.DataCollectors.InstStatus as InstStatus
+import qualified Ganeti.DataCollectors.Lv as Lv
 
 -- | Supported binaries.
 personalities :: PersonalityList Options
-personalities = [ ("drbd",   (Drbd.main, Drbd.options, Drbd.arguments,
-                             "gathers and displays DRBD statistics in JSON\
-                             \ format"))
+personalities = [ (Drbd.dcName, (Drbd.main, Drbd.options, Drbd.arguments,
+                                 "gathers and displays DRBD statistics in JSON\
+                                 \ format"))
+                , (InstStatus.dcName, (InstStatus.main, InstStatus.options,
+                                       InstStatus.arguments,
+                                       "gathers and displays the status of the\
+                                       \ instances in JSON format"))
+                , (Diskstats.dcName, (Diskstats.main, Diskstats.options,
+                                      Diskstats.arguments,
+                                      "gathers and displays the disk usage\
+                                      \ statistics in JSON format"))
+                , (Lv.dcName, (Lv.main, Lv.options, Lv.arguments, "gathers and\
+                               \ displays info about logical volumes"))
                 ]

@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2008 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2013 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -42,6 +42,10 @@ class FakeHypervisor(hv_base.BaseHypervisor):
   a real virtualisation software installed.
 
   """
+  PARAMETERS = {
+    constants.HV_MIGRATION_MODE: hv_base.MIGRATION_MODE_CHECK,
+    }
+
   CAN_MIGRATE = True
 
   _ROOT_DIR = pathutils.RUN_DIR + "/fake-hypervisor"
@@ -50,16 +54,19 @@ class FakeHypervisor(hv_base.BaseHypervisor):
     hv_base.BaseHypervisor.__init__(self)
     utils.EnsureDirs([(self._ROOT_DIR, constants.RUN_DIRS_MODE)])
 
-  def ListInstances(self):
+  def ListInstances(self, hvparams=None):
     """Get the list of running instances.
 
     """
     return os.listdir(self._ROOT_DIR)
 
-  def GetInstanceInfo(self, instance_name):
+  def GetInstanceInfo(self, instance_name, hvparams=None):
     """Get instance properties.
 
+    @type instance_name: string
     @param instance_name: the instance name
+    @type hvparams: dict of strings
+    @param hvparams: hvparams to be used with this instance
 
     @return: tuple of (name, id, memory, vcpus, stat, times)
 
@@ -82,9 +89,11 @@ class FakeHypervisor(hv_base.BaseHypervisor):
       raise errors.HypervisorError("Failed to list instance %s: %s" %
                                    (instance_name, err))
 
-  def GetAllInstancesInfo(self):
+  def GetAllInstancesInfo(self, hvparams=None):
     """Get properties of all instances.
 
+    @type hvparams: dict of strings
+    @param hvparams: hypervisor parameter
     @return: list of tuples (name, id, memory, vcpus, stat, times)
 
     """
@@ -205,15 +214,10 @@ class FakeHypervisor(hv_base.BaseHypervisor):
       raise errors.HypervisorError("Failed to balloon memory for %s: %s" %
                                    (instance.name, utils.ErrnoOrStr(err)))
 
-  def GetNodeInfo(self):
+  def GetNodeInfo(self, hvparams=None):
     """Return information about the node.
 
-    This is just a wrapper over the base GetLinuxNodeInfo method.
-
-    @return: a dict with the following keys (values in MiB):
-          - memory_total: the total memory size on the node
-          - memory_free: the available memory on the node for instances
-          - memory_dom0: the memory used by the node itself, if available
+    See L{BaseHypervisor.GetLinuxNodeInfo}.
 
     """
     result = self.GetLinuxNodeInfo()
@@ -224,7 +228,7 @@ class FakeHypervisor(hv_base.BaseHypervisor):
     return result
 
   @classmethod
-  def GetInstanceConsole(cls, instance, hvparams, beparams):
+  def GetInstanceConsole(cls, instance, primary_node, hvparams, beparams):
     """Return information for connecting to the console of an instance.
 
     """
@@ -233,11 +237,15 @@ class FakeHypervisor(hv_base.BaseHypervisor):
                                    message=("Console not available for fake"
                                             " hypervisor"))
 
-  def Verify(self):
+  def Verify(self, hvparams=None):
     """Verify the hypervisor.
 
     For the fake hypervisor, it just checks the existence of the base
     dir.
+
+    @type hvparams: dict of strings
+    @param hvparams: hypervisor parameters to be verified against; not used
+      for fake hypervisors
 
     @return: Problem description if something is wrong, C{None} otherwise
 
@@ -248,8 +256,11 @@ class FakeHypervisor(hv_base.BaseHypervisor):
       return "The required directory '%s' does not exist" % self._ROOT_DIR
 
   @classmethod
-  def PowercycleNode(cls):
+  def PowercycleNode(cls, hvparams=None):
     """Fake hypervisor powercycle, just a wrapper over Linux powercycle.
+
+    @type hvparams: dict of strings
+    @param hvparams: hypervisor params to be used on this node
 
     """
     cls.LinuxPowercycle()
@@ -268,9 +279,11 @@ class FakeHypervisor(hv_base.BaseHypervisor):
     if self._IsAlive(instance.name):
       raise errors.HypervisorError("Can't accept instance, already running")
 
-  def MigrateInstance(self, instance, target, live):
+  def MigrateInstance(self, cluster_name, instance, target, live):
     """Migrate an instance.
 
+    @type cluster_name: string
+    @param cluster_name: name of the cluster
     @type instance: L{objects.Instance}
     @param instance: the instance to be migrated
     @type target: string

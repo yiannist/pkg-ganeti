@@ -53,7 +53,7 @@ module Ganeti.Rpc
   , RpcResultInstanceList(..)
 
   , HvInfo(..)
-  , VgInfo(..)
+  , StorageInfo(..)
   , RpcCallNodeInfo(..)
   , RpcResultNodeInfo(..)
 
@@ -350,15 +350,15 @@ instance Rpc RpcCallInstanceList RpcResultInstanceList where
 -- | NodeInfo
 -- Return node information.
 $(buildObject "RpcCallNodeInfo" "rpcCallNodeInfo"
-  [ simpleField "volume_groups" [t| [String] |]
-  , simpleField "hypervisors" [t| [Hypervisor] |]
-  , simpleField "exclusive_storage" [t| Map.Map String Bool |]
+  [ simpleField "storage_units" [t| Map.Map String [StorageUnit] |]
+  , simpleField "hypervisors" [t| [ (Hypervisor, HvParams) ] |]
   ])
 
-$(buildObject "VgInfo" "vgInfo"
+$(buildObject "StorageInfo" "storageInfo"
   [ simpleField "name" [t| String |]
-  , optionalField $ simpleField "vg_free" [t| Int |]
-  , optionalField $ simpleField "vg_size" [t| Int |]
+  , simpleField "type" [t| String |]
+  , optionalField $ simpleField "storage_free" [t| Int |]
+  , optionalField $ simpleField "storage_size" [t| Int |]
   ])
 
 -- | We only provide common fields as described in hv_base.py.
@@ -369,11 +369,12 @@ $(buildObject "HvInfo" "hvInfo"
   , simpleField "cpu_total" [t| Int |]
   , simpleField "cpu_nodes" [t| Int |]
   , simpleField "cpu_sockets" [t| Int |]
+  , simpleField "cpu_dom0" [t| Int |]
   ])
 
 $(buildObject "RpcResultNodeInfo" "rpcResNodeInfo"
   [ simpleField "boot_id" [t| String |]
-  , simpleField "vg_info" [t| [VgInfo] |]
+  , simpleField "storage_info" [t| [StorageInfo] |]
   , simpleField "hv_info" [t| [HvInfo] |]
   ])
 
@@ -382,11 +383,10 @@ instance RpcCall RpcCallNodeInfo where
   rpcCallTimeout _       = rpcTimeoutToRaw Urgent
   rpcCallAcceptOffline _ = False
   rpcCallData n call     = J.encode
-    ( rpcCallNodeInfoVolumeGroups call
-    , rpcCallNodeInfoHypervisors call
-    , fromMaybe (error $ "Programmer error: missing parameter for node named "
+    ( fromMaybe (error $ "Programmer error: missing parameter for node named "
                          ++ nodeName n)
-                $ Map.lookup (nodeName n) (rpcCallNodeInfoExclusiveStorage call)
+          $ Map.lookup (nodeUuid n) (rpcCallNodeInfoStorageUnits call)
+    , rpcCallNodeInfoHypervisors call
     )
 
 instance Rpc RpcCallNodeInfo RpcResultNodeInfo where

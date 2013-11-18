@@ -46,7 +46,7 @@
 <p>The <code>hail</code> iallocator hasn't been updated to take networks into account in Ganeti 2.7. The only way to guarantee that it works correctly is having your networks connected to all nodegroups. This will be fixed in a future version.</p>
 <h1 id="commands"><a href="#TOC">COMMANDS</a></h1>
 <h2 id="add"><a href="#TOC">ADD</a></h2>
-<p><strong>add</strong><br />[--network=<em>NETWORK</em>]<br />[--gateway=<em>GATEWAY</em>]<br />[--add-reserved-ips=<em>RESERVEDIPS</em>]<br />[--network6=<em>NETWORK6</em>]<br />[--gateway6=<em>GATEWAY6</em>]<br />[--mac-prefix=<em>MACPREFIX</em>]<br />[--submit]<br />[--no-conflicts-check]<br />{<em>network</em>}</p>
+<p><strong>add</strong><br />[--network=<em>NETWORK</em>]<br />[--gateway=<em>GATEWAY</em>]<br />[--add-reserved-ips=<em>RESERVEDIPS</em>]<br />[--network6=<em>NETWORK6</em>]<br />[--gateway6=<em>GATEWAY6</em>]<br />[--mac-prefix=<em>MACPREFIX</em>]<br />[--submit] [--print-job-id]<br />[--no-conflicts-check]<br />{<em>network</em>}</p>
 <p>Creates a new network with the given name. The network will be unused initially. To connect it to a node group, use <code>gnt-network connect</code>. <code>--network</code> option is mandatory. All other are optional.</p>
 <p>The <code>--network</code> option allows you to specify the network in a CIDR notation.</p>
 <p>The <code>--gateway</code> option allows you to specify the default gateway for this network.</p>
@@ -55,12 +55,12 @@
 <p>Note that a when connecting a network to a node group (see below) you can specify also the NIC mode and link that will be used by instances on that group to physically connect to this network. This allows the system to work even if the parameters (eg. the VLAN number) change between groups.</p>
 <p>See <strong>ganeti</strong>(7) for a description of <code>--submit</code> and other common options.</p>
 <h2 id="modify"><a href="#TOC">MODIFY</a></h2>
-<p><strong>modify</strong><br />[--gateway=<em>GATEWAY</em>]<br />[--add-reserved-ips=<em>RESERVEDIPS</em>]<br />[--remove-reserved-ips=<em>RESERVEDIPS</em>]<br />[--network6=<em>NETWORK6</em>]<br />[--gateway6=<em>GATEWAY6</em>]<br />[--mac-prefix=<em>MACPREFIX</em>]<br />[--submit]<br />{<em>network</em>}</p>
+<p><strong>modify</strong><br />[--gateway=<em>GATEWAY</em>]<br />[--add-reserved-ips=<em>RESERVEDIPS</em>]<br />[--remove-reserved-ips=<em>RESERVEDIPS</em>]<br />[--network6=<em>NETWORK6</em>]<br />[--gateway6=<em>GATEWAY6</em>]<br />[--mac-prefix=<em>MACPREFIX</em>]<br />[--submit] [--print-job-id]<br />{<em>network</em>}</p>
 <p>Modifies parameters from the network.</p>
 <p>Unable to modify network (IP address range). Create a new network if you want to do so. All other options are documented in the <strong>add</strong> command above.</p>
 <p>See <strong>ganeti</strong>(7) for a description of <code>--submit</code> and other common options.</p>
 <h2 id="remove"><a href="#TOC">REMOVE</a></h2>
-<p><strong>remove</strong> [--submit] {<em>network</em>}</p>
+<p><strong>remove</strong> [--submit] [--print-job-id] {<em>network</em>}</p>
 <p>Deletes the indicated network, which must be not connected to any node group.</p>
 <p>See <strong>ganeti</strong>(7) for a description of <code>--submit</code> and other common options.</p>
 <h2 id="list"><a href="#TOC">LIST</a></h2>

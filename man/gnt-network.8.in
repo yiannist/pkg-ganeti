@@ -50,7 +50,7 @@ This will be fixed in a future version.
 .PD 0
 .P
 .PD
-[--submit]
+[--submit] [--print-job-id]
 .PD 0
 .P
 .PD
@@ -118,7 +118,7 @@ common options.
 .PD 0
 .P
 .PD
-[--submit]
+[--submit] [--print-job-id]
 .PD 0
 .P
 .PD
@@ -134,7 +134,7 @@ See \f[B]ganeti\f[](7) for a description of \f[C]--submit\f[] and other
 common options.
 .SS REMOVE
 .PP
-\f[B]remove\f[] [--submit] {\f[I]network\f[]}
+\f[B]remove\f[] [--submit] [--print-job-id] {\f[I]network\f[]}
 .PP
 Deletes the indicated network, which must be not connected to any node
 group.

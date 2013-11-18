@@ -23,7 +23,6 @@
 
 """
 
-import operator
 import os
 import re
 
@@ -36,147 +35,20 @@ import qa_config
 import qa_utils
 import qa_error
 
-from qa_utils import AssertIn, AssertCommand, AssertEqual
+from qa_utils import AssertCommand, AssertEqual
 from qa_utils import InstanceCheck, INST_DOWN, INST_UP, FIRST_ARG, RETURN_VALUE
+from qa_instance_utils import CheckSsconfInstanceList, \
+                              CreateInstanceDrbd8, \
+                              CreateInstanceByDiskTemplate, \
+                              CreateInstanceByDiskTemplateOneNode, \
+                              GetGenericAddParameters
 
 
 def _GetDiskStatePath(disk):
   return "/sys/block/%s/device/state" % disk
 
 
-def _GetGenericAddParameters(inst, disk_template, force_mac=None):
-  params = ["-B"]
-  params.append("%s=%s,%s=%s" % (constants.BE_MINMEM,
-                                 qa_config.get(constants.BE_MINMEM),
-                                 constants.BE_MAXMEM,
-                                 qa_config.get(constants.BE_MAXMEM)))
-
-  if disk_template != constants.DT_DISKLESS:
-    for idx, disk in enumerate(qa_config.GetDiskOptions()):
-      size = disk.get("size")
-      name = disk.get("name")
-      diskparams = "%s:size=%s" % (idx, size)
-      if name:
-        diskparams += ",name=%s" % name
-      params.extend(["--disk", diskparams])
-
-  # Set static MAC address if configured
-  if force_mac:
-    nic0_mac = force_mac
-  else:
-    nic0_mac = inst.GetNicMacAddr(0, None)
-
-  if nic0_mac:
-    params.extend(["--net", "0:mac=%s" % nic0_mac])
-
-  return params
-
-
-def _CreateInstanceByDiskTemplateRaw(nodes_spec, disk_template, fail=False):
-  """Creates an instance with the given disk template on the given nodes(s).
-     Note that this function does not check if enough nodes are given for
-     the respective disk template.
-
-  @type nodes_spec: string
-  @param nodes_spec: string specification of one node (by node name) or several
-                     nodes according to the requirements of the disk template
-  @type disk_template: string
-  @param disk_template: the disk template to be used by the instance
-  @return: the created instance
-
-  """
-  instance = qa_config.AcquireInstance()
-  try:
-    cmd = (["gnt-instance", "add",
-            "--os-type=%s" % qa_config.get("os"),
-            "--disk-template=%s" % disk_template,
-            "--node=%s" % nodes_spec] +
-           _GetGenericAddParameters(instance, disk_template))
-    cmd.append(instance.name)
-
-    AssertCommand(cmd, fail=fail)
-
-    if not fail:
-      _CheckSsconfInstanceList(instance.name)
-      instance.SetDiskTemplate(disk_template)
-
-      return instance
-  except:
-    instance.Release()
-    raise
-
-  # Handle the case where creation is expected to fail
-  assert fail
-  instance.Release()
-  return None
-
-
-def _CreateInstanceByDiskTemplateOneNode(nodes, disk_template, fail=False):
-  """Creates an instance using the given disk template for disk templates
-     for which one given node is sufficient. These templates are for example:
-     plain, diskless, file, sharedfile, blockdev, rados.
-
-  @type nodes: list of nodes
-  @param nodes: a list of nodes, whose first element is used to create the
-                instance
-  @type disk_template: string
-  @param disk_template: the disk template to be used by the instance
-  @return: the created instance
-
-  """
-  assert len(nodes) > 0
-  return _CreateInstanceByDiskTemplateRaw(nodes[0].primary, disk_template,
-                                          fail=fail)
-
-
-def _CreateInstanceDrbd8(nodes, fail=False):
-  """Creates an instance using disk template 'drbd' on the given nodes.
-
-  @type nodes: list of nodes
-  @param nodes: nodes to be used by the instance
-  @return: the created instance
-
-  """
-  assert len(nodes) > 1
-  return _CreateInstanceByDiskTemplateRaw(
-    ":".join(map(operator.attrgetter("primary"), nodes)),
-    constants.DT_DRBD8, fail=fail)
-
-
-def CreateInstanceByDiskTemplate(nodes, disk_template, fail=False):
-  """Given a disk template, this function creates an instance using
-     the template. It uses the required number of nodes depending on
-     the disk template. This function is intended to be used by tests
-     that don't care about the specifics of the instance other than
-     that it uses the given disk template.
-
-     Note: If you use this function, make sure to call
-     'TestInstanceRemove' at the end of your tests to avoid orphaned
-     instances hanging around and interfering with the following tests.
-
-  @type nodes: list of nodes
-  @param nodes: the list of the nodes on which the instance will be placed;
-                it needs to have sufficiently many elements for the given
-                disk template
-  @type disk_template: string
-  @param disk_template: the disk template to be used by the instance
-  @return: the created instance
-
-  """
-  if disk_template == constants.DT_DRBD8:
-    return _CreateInstanceDrbd8(nodes, fail=fail)
-  elif disk_template in [constants.DT_DISKLESS, constants.DT_PLAIN,
-                         constants.DT_FILE]:
-    return _CreateInstanceByDiskTemplateOneNode(nodes, disk_template, fail=fail)
-  else:
-    # FIXME: This assumes that for all other disk templates, we only need one
-    # node and no disk template specific parameters. This else-branch is
-    # currently only used in cases where we expect failure. Extend it when
-    # QA needs for these templates change.
-    return _CreateInstanceByDiskTemplateOneNode(nodes, disk_template, fail=fail)
-
-
-def _GetInstanceInfo(instance):
+def GetInstanceInfo(instance):
   """Return information about the actual state of an instance.
 
   @type instance: string
@@ -216,14 +88,14 @@ def _GetInstanceInfo(instance):
   disk_template = info["Disk template"]
   if not disk_template:
     raise qa_error.Error("Can't get instance disk template")
-  storage_type = constants.DISK_TEMPLATES_STORAGE_TYPE[disk_template]
+  storage_type = constants.MAP_DISK_TEMPLATE_STORAGE_TYPE[disk_template]
 
   re_drbdnode = re.compile(r"^([^\s,]+),\s+minor=([0-9]+)$")
   vols = []
   drbd_min = {}
   for (count, diskinfo) in enumerate(info["Disks"]):
     (dtype, _) = diskinfo["disk/%s" % count].split(",", 1)
-    if dtype == constants.LD_DRBD8:
+    if dtype == constants.DT_DRBD8:
       for child in diskinfo["child devices"]:
         vols.append(child["logical_id"])
       for key in ["nodeA", "nodeB"]:
@@ -234,7 +106,7 @@ def _GetInstanceInfo(instance):
         minor = int(m.group(2))
         minorlist = drbd_min.setdefault(node, [])
         minorlist.append(minor)
-    elif dtype == constants.LD_LV:
+    elif dtype == constants.DT_PLAIN:
       vols.append(diskinfo["logical_id"])
 
   assert nodes
@@ -257,17 +129,17 @@ def _DestroyInstanceDisks(instance):
   @param instance: the instance
 
   """
-  info = _GetInstanceInfo(instance.name)
+  info = GetInstanceInfo(instance.name)
   # FIXME: destruction/removal should be part of the disk class
   if info["storage-type"] == constants.ST_LVM_VG:
     vols = info["volumes"]
     for node in info["nodes"]:
       AssertCommand(["lvremove", "-f"] + vols, node=node)
   elif info["storage-type"] == constants.ST_FILE:
-    # FIXME: file storage dir not configurable in qa
     # Note that this works for both file and sharedfile, and this is intended.
-    filestorage = pathutils.DEFAULT_FILE_STORAGE_DIR
-    idir = os.path.join(filestorage, instance.name)
+    storage_dir = qa_config.get("file-storage-dir",
+                                pathutils.DEFAULT_FILE_STORAGE_DIR)
+    idir = os.path.join(storage_dir, instance.name)
     for node in info["nodes"]:
       AssertCommand(["rm", "-rf", idir], node=node)
   elif info["storage-type"] == constants.ST_DISKLESS:
@@ -382,7 +254,7 @@ def IsDiskSupported(instance):
 def TestInstanceAddWithPlainDisk(nodes, fail=False):
   """gnt-instance add -t plain"""
   if constants.DT_PLAIN in qa_config.GetEnabledDiskTemplates():
-    instance = _CreateInstanceByDiskTemplateOneNode(nodes, constants.DT_PLAIN,
+    instance = CreateInstanceByDiskTemplateOneNode(nodes, constants.DT_PLAIN,
                                                     fail=fail)
     if not fail:
       qa_utils.RunInstanceCheck(instance, True)
@@ -393,7 +265,7 @@ def TestInstanceAddWithPlainDisk(nodes, fail=False):
 def TestInstanceAddWithDrbdDisk(nodes):
   """gnt-instance add -t drbd"""
   if constants.DT_DRBD8 in qa_config.GetEnabledDiskTemplates():
-    return _CreateInstanceDrbd8(nodes)
+    return CreateInstanceDrbd8(nodes)
 
 
 @InstanceCheck(None, INST_UP, RETURN_VALUE)
@@ -401,15 +273,23 @@ def TestInstanceAddFile(nodes):
   """gnt-instance add -t file"""
   assert len(nodes) == 1
   if constants.DT_FILE in qa_config.GetEnabledDiskTemplates():
-    return _CreateInstanceByDiskTemplateOneNode(nodes, constants.DT_FILE)
+    return CreateInstanceByDiskTemplateOneNode(nodes, constants.DT_FILE)
+
+
+@InstanceCheck(None, INST_UP, RETURN_VALUE)
+def TestInstanceAddSharedFile(nodes):
+  """gnt-instance add -t sharedfile"""
+  assert len(nodes) == 1
+  if constants.DT_SHARED_FILE in qa_config.GetEnabledDiskTemplates():
+    return CreateInstanceByDiskTemplateOneNode(nodes, constants.DT_SHARED_FILE)
 
 
 @InstanceCheck(None, INST_UP, RETURN_VALUE)
 def TestInstanceAddDiskless(nodes):
   """gnt-instance add -t diskless"""
   assert len(nodes) == 1
-  if constants.DT_FILE in qa_config.GetEnabledDiskTemplates():
-    return _CreateInstanceByDiskTemplateOneNode(nodes, constants.DT_DISKLESS)
+  if constants.DT_DISKLESS in qa_config.GetEnabledDiskTemplates():
+    return CreateInstanceByDiskTemplateOneNode(nodes, constants.DT_DISKLESS)
 
 
 @InstanceCheck(None, INST_DOWN, FIRST_ARG)
@@ -466,32 +346,6 @@ def TestInstanceReinstall(instance):
                 fail=True)
 
 
-def _ReadSsconfInstanceList():
-  """Reads ssconf_instance_list from the master node.
-
-  """
-  master = qa_config.GetMasterNode()
-
-  ssconf_path = utils.PathJoin(pathutils.DATA_DIR,
-                               "ssconf_%s" % constants.SS_INSTANCE_LIST)
-
-  cmd = ["cat", qa_utils.MakeNodePath(master, ssconf_path)]
-
-  return qa_utils.GetCommandOutput(master.primary,
-                                   utils.ShellQuoteArgs(cmd)).splitlines()
-
-
-def _CheckSsconfInstanceList(instance):
-  """Checks if a certain instance is in the ssconf instance list.
-
-  @type instance: string
-  @param instance: Instance name
-
-  """
-  AssertIn(qa_utils.ResolveInstanceName(instance),
-           _ReadSsconfInstanceList())
-
-
 @InstanceCheck(INST_DOWN, INST_DOWN, FIRST_ARG)
 def TestInstanceRenameAndBack(rename_source, rename_target):
   """gnt-instance rename
@@ -500,18 +354,18 @@ def TestInstanceRenameAndBack(rename_source, rename_target):
   name.
 
   """
-  _CheckSsconfInstanceList(rename_source)
+  CheckSsconfInstanceList(rename_source)
 
   # first do a rename to a different actual name, expecting it to fail
   qa_utils.AddToEtcHosts(["meeeeh-not-exists", rename_target])
   try:
     AssertCommand(["gnt-instance", "rename", rename_source, rename_target],
                   fail=True)
-    _CheckSsconfInstanceList(rename_source)
+    CheckSsconfInstanceList(rename_source)
   finally:
     qa_utils.RemoveFromEtcHosts(["meeeeh-not-exists", rename_target])
 
-  info = _GetInstanceInfo(rename_source)
+  info = GetInstanceInfo(rename_source)
 
   # Check instance volume tags correctly updated. Note that this check is lvm
   # specific, so we skip it for non-lvm-based instances.
@@ -530,7 +384,7 @@ def TestInstanceRenameAndBack(rename_source, rename_target):
 
   # and now rename instance to rename_target...
   AssertCommand(["gnt-instance", "rename", rename_source, rename_target])
-  _CheckSsconfInstanceList(rename_target)
+  CheckSsconfInstanceList(rename_target)
   qa_utils.RunInstanceCheck(rename_source, False)
   qa_utils.RunInstanceCheck(rename_target, False)
 
@@ -544,7 +398,7 @@ def TestInstanceRenameAndBack(rename_source, rename_target):
 
   # and back
   AssertCommand(["gnt-instance", "rename", rename_target, rename_source])
-  _CheckSsconfInstanceList(rename_source)
+  CheckSsconfInstanceList(rename_source)
   qa_utils.RunInstanceCheck(rename_target, False)
 
   if (rename_source != rename_target and
@@ -712,9 +566,8 @@ def TestInstanceModifyPrimaryAndBack(instance, currentnode, othernode):
   current = currentnode.primary
   other = othernode.primary
 
-  # FIXME: the qa doesn't have a customizable file storage dir parameter. As
-  # such for now we use the default.
-  filestorage = pathutils.DEFAULT_FILE_STORAGE_DIR
+  filestorage = qa_config.get("file-storage-dir",
+                              pathutils.DEFAULT_FILE_STORAGE_DIR)
   disk = os.path.join(filestorage, name)
 
   AssertCommand(["gnt-instance", "modify", "--new-primary=%s" % other, name],
@@ -784,20 +637,28 @@ def TestInstanceModifyDisks(instance):
     print qa_utils.FormatInfo("Instance doesn't support disks, skipping test")
     return
 
-  size = qa_config.GetDiskOptions()[-1].get("size")
+  disk_conf = qa_config.GetDiskOptions()[-1]
+  size = disk_conf.get("size")
   name = instance.name
   build_cmd = lambda arg: ["gnt-instance", "modify", "--disk", arg, name]
-  AssertCommand(build_cmd("add:size=%s" % size))
+  if qa_config.AreSpindlesSupported():
+    spindles = disk_conf.get("spindles")
+    spindles_supported = True
+  else:
+    # Any number is good for spindles in this case
+    spindles = 1
+    spindles_supported = False
+  AssertCommand(build_cmd("add:size=%s,spindles=%s" % (size, spindles)),
+                fail=not spindles_supported)
+  AssertCommand(build_cmd("add:size=%s" % size),
+                fail=spindles_supported)
+  # Exactly one of the above commands has succeded, so we need one remove
   AssertCommand(build_cmd("remove"))
 
 
 @InstanceCheck(INST_DOWN, INST_DOWN, FIRST_ARG)
 def TestInstanceGrowDisk(instance):
   """gnt-instance grow-disk"""
-  if qa_config.GetExclusiveStorage():
-    print qa_utils.FormatInfo("Test not supported with exclusive_storage")
-    return
-
   if instance.disk_template == constants.DT_DISKLESS:
     print qa_utils.FormatInfo("Test not supported for diskless instances")
     return
@@ -835,6 +696,8 @@ def TestInstanceDeviceNames(instance):
   for dev_type in ["disk", "net"]:
     if dev_type == "disk":
       options = ",size=512M"
+      if qa_config.AreSpindlesSupported():
+        options += ",spindles=1"
     else:
       options = ""
     # succeed in adding a device named 'test_device'
@@ -960,6 +823,33 @@ def _AssertRecreateDisks(cmdargs, instance, fail=False, check=True,
     AssertCommand(["gnt-instance", "deactivate-disks", instance.name])
 
 
+def _BuildRecreateDisksOpts(en_disks, with_spindles, with_growth,
+                            spindles_supported):
+  if with_spindles:
+    if spindles_supported:
+      if with_growth:
+        build_spindles_opt = (lambda disk:
+                              ",spindles=%s" %
+                              (disk["spindles"] + disk["spindles-growth"]))
+      else:
+        build_spindles_opt = (lambda disk:
+                              ",spindles=%s" % disk["spindles"])
+    else:
+      build_spindles_opt = (lambda _: ",spindles=1")
+  else:
+    build_spindles_opt = (lambda _: "")
+  if with_growth:
+    build_size_opt = (lambda disk:
+                      "size=%s" % (utils.ParseUnit(disk["size"]) +
+                                   utils.ParseUnit(disk["growth"])))
+  else:
+    build_size_opt = (lambda disk: "size=%s" % disk["size"])
+  build_disk_opt = (lambda (idx, disk):
+                    "--disk=%s:%s%s" % (idx, build_size_opt(disk),
+                                        build_spindles_opt(disk)))
+  return map(build_disk_opt, en_disks)
+
+
 @InstanceCheck(INST_UP, INST_UP, FIRST_ARG)
 def TestRecreateDisks(instance, inodes, othernodes):
   """gnt-instance recreate-disks
@@ -982,6 +872,10 @@ def TestRecreateDisks(instance, inodes, othernodes):
   AssertCommand(["gnt-instance", "stop", instance.name])
   # Disks exist: this should fail
   _AssertRecreateDisks([], instance, fail=True, destroy=False)
+  # Unsupported spindles parameters: fail
+  if not qa_config.AreSpindlesSupported():
+    _AssertRecreateDisks(["--disk=0:spindles=2"], instance,
+                         fail=True, destroy=False)
   # Recreate disks in place
   _AssertRecreateDisks([], instance)
   # Move disks away
@@ -994,12 +888,32 @@ def TestRecreateDisks(instance, inodes, othernodes):
     _AssertRecreateDisks(["-n", other_seq], instance)
   # Move disks back
   _AssertRecreateDisks(["-n", orig_seq], instance)
-  # Recreate the disks one by one
-  for idx in range(0, len(qa_config.GetDiskOptions())):
+  # Recreate resized disks
+  # One of the two commands fails because either spindles are given when they
+  # should not or vice versa
+  alldisks = qa_config.GetDiskOptions()
+  spindles_supported = qa_config.AreSpindlesSupported()
+  disk_opts = _BuildRecreateDisksOpts(enumerate(alldisks), True, True,
+                                      spindles_supported)
+  _AssertRecreateDisks(disk_opts, instance, destroy=True,
+                       fail=not spindles_supported)
+  disk_opts = _BuildRecreateDisksOpts(enumerate(alldisks), False, True,
+                                      spindles_supported)
+  _AssertRecreateDisks(disk_opts, instance, destroy=False,
+                       fail=spindles_supported)
+  # Recreate the disks one by one (with the original size)
+  for (idx, disk) in enumerate(alldisks):
     # Only the first call should destroy all the disk
     destroy = (idx == 0)
-    _AssertRecreateDisks(["--disk=%s" % idx], instance, destroy=destroy,
-                         check=False)
+    # Again, one of the two commands is expected to fail
+    disk_opts = _BuildRecreateDisksOpts([(idx, disk)], True, False,
+                                        spindles_supported)
+    _AssertRecreateDisks(disk_opts, instance, destroy=destroy, check=False,
+                         fail=not spindles_supported)
+    disk_opts = _BuildRecreateDisksOpts([(idx, disk)], False, False,
+                                        spindles_supported)
+    _AssertRecreateDisks(disk_opts, instance, destroy=False, check=False,
+                         fail=spindles_supported)
   # This and InstanceCheck decoration check that the disks are working
   AssertCommand(["gnt-instance", "reinstall", "-f", instance.name])
   AssertCommand(["gnt-instance", "start", instance.name])
@@ -1009,6 +923,9 @@ def TestRecreateDisks(instance, inodes, othernodes):
 def TestInstanceExport(instance, node):
   """gnt-backup export -n ..."""
   name = instance.name
+  # Export does not work for file-based templates, thus we skip the test
+  if instance.disk_template in [constants.DT_FILE, constants.DT_SHARED_FILE]:
+    return
   AssertCommand(["gnt-backup", "export", "-n", node.primary, name])
   return qa_utils.ResolveInstanceName(name)
 
@@ -1030,13 +947,15 @@ def TestInstanceExportNoTarget(instance):
 def TestInstanceImport(newinst, node, expnode, name):
   """gnt-backup import"""
   templ = constants.DT_PLAIN
+  if not qa_config.IsTemplateSupported(templ):
+    return
   cmd = (["gnt-backup", "import",
           "--disk-template=%s" % templ,
           "--no-ip-check",
           "--src-node=%s" % expnode.primary,
           "--src-dir=%s/%s" % (pathutils.EXPORT_DIR, name),
           "--node=%s" % node.primary] +
-         _GetGenericAddParameters(newinst, templ,
+         GetGenericAddParameters(newinst, templ,
                                   force_mac=constants.VALUE_GENERATE))
   cmd.append(newinst.name)
   AssertCommand(cmd)
@@ -1065,7 +984,7 @@ def TestRemoveInstanceOfflineNode(instance, snode, set_offline, set_online):
   @param set_online: function to call to set the node on-line
 
   """
-  info = _GetInstanceInfo(instance.name)
+  info = GetInstanceInfo(instance.name)
   set_offline(snode)
   try:
     TestInstanceRemove(instance)
@@ -1077,24 +996,39 @@ def TestRemoveInstanceOfflineNode(instance, snode, set_offline, set_online):
     # FIXME: abstract the cleanup inside the disks
     if info["storage-type"] == constants.ST_LVM_VG:
       for minor in info["drbd-minors"][snode.primary]:
-        AssertCommand(["drbdsetup", str(minor), "down"], node=snode)
+        # DRBD 8.3 syntax comes first, then DRBD 8.4 syntax. The 8.4 syntax
+        # relies on the fact that we always create a resources for each minor,
+        # and that this resources is always named resource{minor}.
+        # As 'drbdsetup 0 down' does return success (even though that's invalid
+        # syntax), we always have to perform both commands and ignore the
+        # output.
+        drbd_shutdown_cmd = \
+          "(drbdsetup %d down >/dev/null 2>&1;" \
+          " drbdsetup down resource%d >/dev/null 2>&1) || /bin/true" % \
+            (minor, minor)
+        AssertCommand(drbd_shutdown_cmd, node=snode)
       AssertCommand(["lvremove", "-f"] + info["volumes"], node=snode)
     elif info["storage-type"] == constants.ST_FILE:
-      filestorage = pathutils.DEFAULT_FILE_STORAGE_DIR
+      filestorage = qa_config.get("file-storage-dir",
+                                  pathutils.DEFAULT_FILE_STORAGE_DIR)
       disk = os.path.join(filestorage, instance.name)
       AssertCommand(["rm", "-rf", disk], node=snode)
 
 
 def TestInstanceCreationRestrictedByDiskTemplates():
   """Test adding instances for disabled disk templates."""
+  if qa_config.TestEnabled("cluster-exclusive-storage"):
+    # These tests are valid only for non-exclusive storage
+    return
+
   enabled_disk_templates = qa_config.GetEnabledDiskTemplates()
   nodes = qa_config.AcquireManyNodes(2)
 
   # Setup the cluster with the enabled_disk_templates
   AssertCommand(
     ["gnt-cluster", "modify",
-     "--enabled-disk-template=%s" %
-       ",".join(enabled_disk_templates)],
+     "--enabled-disk-templates=%s" % ",".join(enabled_disk_templates),
+     "--ipolicy-disk-templates=%s" % ",".join(enabled_disk_templates)],
     fail=False)
 
   # Test instance creation for enabled disk templates
@@ -1120,18 +1054,23 @@ def TestInstanceCreationRestrictedByDiskTemplates():
     for (enabled, disabled) in [(templates1, templates2),
                                 (templates2, templates1)]:
       AssertCommand(["gnt-cluster", "modify",
-                     "--enabled-disk-template=%s" %
-                       ",".join(enabled)],
+                     "--enabled-disk-templates=%s" % ",".join(enabled),
+                     "--ipolicy-disk-templates=%s" % ",".join(enabled)],
                     fail=False)
       for disk_template in disabled:
         CreateInstanceByDiskTemplate(nodes, disk_template, fail=True)
   elif (len(enabled_disk_templates) == 1):
     # If only one disk template is enabled in the QA config, we have to enable
-    # some of the disabled disk templates in order to test if the disabling the
-    # only enabled disk template prohibits creating instances of that template.
+    # some other templates in order to test if the disabling the only enabled
+    # disk template prohibits creating instances of that template.
+    other_disk_templates = list(
+                             set([constants.DT_DISKLESS, constants.DT_BLOCK]) -
+                             set(enabled_disk_templates))
     AssertCommand(["gnt-cluster", "modify",
-                   "--enabled-disk-template=%s" %
-                     ",".join(disabled_disk_templates)],
+                   "--enabled-disk-templates=%s" %
+                     ",".join(other_disk_templates),
+                   "--ipolicy-disk-templates=%s" %
+                     ",".join(other_disk_templates)],
                   fail=False)
     CreateInstanceByDiskTemplate(nodes, enabled_disk_templates[0], fail=True)
   else:
@@ -1140,6 +1079,8 @@ def TestInstanceCreationRestrictedByDiskTemplates():
 
   # Restore initially enabled disk templates
   AssertCommand(["gnt-cluster", "modify",
-                 "--enabled-disk-template=%s" %
+                 "--enabled-disk-templates=%s" %
+                   ",".join(enabled_disk_templates),
+                 "--ipolicy-disk-templates=%s" %
                    ",".join(enabled_disk_templates)],
                  fail=False)

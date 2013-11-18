@@ -58,6 +58,7 @@ _NEVAC_RESULT = ht.TAnd(ht.TIsLength(3),
                         ht.TItems([_NEVAC_MOVED, _NEVAC_FAILED, _JOB_LIST]))
 
 _INST_NAME = ("name", ht.TNonEmptyString)
+_INST_UUID = ("inst_uuid", ht.TNonEmptyString)
 
 
 class _AutoReqParam(outils.AutoSlots):
@@ -233,8 +234,8 @@ class IAReqRelocate(IARequestBase):
   # pylint: disable=E1101
   MODE = constants.IALLOCATOR_MODE_RELOC
   REQ_PARAMS = [
-    _INST_NAME,
-    ("relocate_from", _STRING_LIST),
+    _INST_UUID,
+    ("relocate_from_node_uuids", _STRING_LIST),
     ]
   REQ_RESULT = ht.TList
 
@@ -245,10 +246,10 @@ class IAReqRelocate(IARequestBase):
     done.
 
     """
-    instance = cfg.GetInstanceInfo(self.name)
+    instance = cfg.GetInstanceInfo(self.inst_uuid)
     if instance is None:
       raise errors.ProgrammerError("Unknown instance '%s' passed to"
-                                   " IAllocator" % self.name)
+                                   " IAllocator" % self.inst_uuid)
 
     if instance.disk_template not in constants.DTS_MIRRORED:
       raise errors.OpPrereqError("Can't relocate non-mirrored instances",
@@ -263,10 +264,10 @@ class IAReqRelocate(IARequestBase):
     disk_space = gmi.ComputeDiskSize(instance.disk_template, disk_sizes)
 
     return {
-      "name": self.name,
+      "name": instance.name,
       "disk_space_total": disk_space,
       "required_nodes": 1,
-      "relocate_from": self.relocate_from,
+      "relocate_from": cfg.GetNodeNames(self.relocate_from_node_uuids),
       }
 
   def ValidateResult(self, ia, result):
@@ -281,13 +282,14 @@ class IAReqRelocate(IARequestBase):
     fn = compat.partial(self._NodesToGroups, node2group,
                         ia.in_data["nodegroups"])
 
-    instance = ia.cfg.GetInstanceInfo(self.name)
-    request_groups = fn(self.relocate_from + [instance.primary_node])
-    result_groups = fn(result + [instance.primary_node])
+    instance = ia.cfg.GetInstanceInfo(self.inst_uuid)
+    request_groups = fn(ia.cfg.GetNodeNames(self.relocate_from_node_uuids) +
+                        ia.cfg.GetNodeNames([instance.primary_node]))
+    result_groups = fn(result + ia.cfg.GetNodeNames([instance.primary_node]))
 
     if ia.success and not set(result_groups).issubset(request_groups):
       raise errors.ResultValidationError("Groups of nodes returned by"
-                                         "iallocator (%s) differ from original"
+                                         " iallocator (%s) differ from original"
                                          " groups (%s)" %
                                          (utils.CommaJoin(result_groups),
                                           utils.CommaJoin(request_groups)))
@@ -397,62 +399,78 @@ class IAllocator(object):
 
     self._BuildInputData(req)
 
+  def _ComputeClusterDataNodeInfo(self, node_list, cluster_info,
+                                   hypervisor_name):
+    """Prepare and execute node info call.
+
+    @type node_list: list of strings
+    @param node_list: list of nodes' UUIDs
+    @type cluster_info: L{objects.Cluster}
+    @param cluster_info: the cluster's information from the config
+    @type hypervisor_name: string
+    @param hypervisor_name: the hypervisor name
+    @rtype: same as the result of the node info RPC call
+    @return: the result of the node info RPC call
+
+    """
+    storage_units_raw = utils.storage.GetStorageUnitsOfCluster(
+        self.cfg, include_spindles=True)
+    storage_units = rpc.PrepareStorageUnitsForNodes(self.cfg, storage_units_raw,
+                                                    node_list)
+    hvspecs = [(hypervisor_name, cluster_info.hvparams[hypervisor_name])]
+    return self.rpc.call_node_info(node_list, storage_units, hvspecs)
+
   def _ComputeClusterData(self):
     """Compute the generic allocator input data.
 
     This is the data that is independent of the actual operation.
 
     """
-    cfg = self.cfg
-    cluster_info = cfg.GetClusterInfo()
+    cluster_info = self.cfg.GetClusterInfo()
     # cluster data
     data = {
       "version": constants.IALLOCATOR_VERSION,
-      "cluster_name": cfg.GetClusterName(),
+      "cluster_name": self.cfg.GetClusterName(),
       "cluster_tags": list(cluster_info.GetTags()),
       "enabled_hypervisors": list(cluster_info.enabled_hypervisors),
       "ipolicy": cluster_info.ipolicy,
       }
-    ninfo = cfg.GetAllNodesInfo()
-    iinfo = cfg.GetAllInstancesInfo().values()
+    ninfo = self.cfg.GetAllNodesInfo()
+    iinfo = self.cfg.GetAllInstancesInfo().values()
     i_list = [(inst, cluster_info.FillBE(inst)) for inst in iinfo]
 
     # node data
-    node_list = [n.name for n in ninfo.values() if n.vm_capable]
+    node_list = [n.uuid for n in ninfo.values() if n.vm_capable]
 
     if isinstance(self.req, IAReqInstanceAlloc):
       hypervisor_name = self.req.hypervisor
       node_whitelist = self.req.node_whitelist
     elif isinstance(self.req, IAReqRelocate):
-      hypervisor_name = cfg.GetInstanceInfo(self.req.name).hypervisor
+      hypervisor_name = self.cfg.GetInstanceInfo(self.req.inst_uuid).hypervisor
       node_whitelist = None
     else:
       hypervisor_name = cluster_info.primary_hypervisor
       node_whitelist = None
 
-    es_flags = rpc.GetExclusiveStorageForNodeNames(cfg, node_list)
-    vg_name = cfg.GetVGName()
-    if vg_name is not None:
-      has_lvm = True
-      vg_req = [vg_name]
-    else:
-      has_lvm = False
-      vg_req = []
-    node_data = self.rpc.call_node_info(node_list, vg_req,
-                                        [hypervisor_name], es_flags)
+    has_lvm = utils.storage.IsLvmEnabled(cluster_info.enabled_disk_templates)
+    node_data = self._ComputeClusterDataNodeInfo(node_list, cluster_info,
+                                                 hypervisor_name)
+
     node_iinfo = \
       self.rpc.call_all_instances_info(node_list,
-                                       cluster_info.enabled_hypervisors)
+                                       cluster_info.enabled_hypervisors,
+                                       cluster_info.hvparams)
 
-    data["nodegroups"] = self._ComputeNodeGroupData(cfg)
+    data["nodegroups"] = self._ComputeNodeGroupData(self.cfg)
 
-    config_ndata = self._ComputeBasicNodeData(cfg, ninfo, node_whitelist)
+    config_ndata = self._ComputeBasicNodeData(self.cfg, ninfo, node_whitelist)
     data["nodes"] = self._ComputeDynamicNodeData(ninfo, node_data, node_iinfo,
                                                  i_list, config_ndata, has_lvm)
     assert len(data["nodes"]) == len(ninfo), \
         "Incomplete node data computed"
 
-    data["instances"] = self._ComputeInstanceData(cluster_info, i_list)
+    data["instances"] = self._ComputeInstanceData(self.cfg, cluster_info,
+                                                  i_list)
 
     self.in_data = data
 
@@ -501,7 +519,103 @@ class IAllocator(object):
     return node_results
 
   @staticmethod
-  def _ComputeDynamicNodeData(node_cfg, node_data, node_iinfo, i_list,
+  def _GetAttributeFromHypervisorNodeData(hv_info, node_name, attr):
+    """Extract an attribute from the hypervisor's node information.
+
+    This is a helper function to extract data from the hypervisor's information
+    about the node, as part of the result of a node_info query.
+
+    @type hv_info: dict of strings
+    @param hv_info: dictionary of node information from the hypervisor
+    @type node_name: string
+    @param node_name: name of the node
+    @type attr: string
+    @param attr: key of the attribute in the hv_info dictionary
+    @rtype: integer
+    @return: the value of the attribute
+    @raises errors.OpExecError: if key not in dictionary or value not
+      integer
+
+    """
+    if attr not in hv_info:
+      raise errors.OpExecError("Node '%s' didn't return attribute"
+                               " '%s'" % (node_name, attr))
+    value = hv_info[attr]
+    if not isinstance(value, int):
+      raise errors.OpExecError("Node '%s' returned invalid value"
+                               " for '%s': %s" %
+                               (node_name, attr, value))
+    return value
+
+  @staticmethod
+  def _ComputeStorageDataFromSpaceInfo(space_info, node_name, has_lvm):
+    """Extract storage data from node info.
+
+    @type space_info: see result of the RPC call node info
+    @param space_info: the storage reporting part of the result of the RPC call
+      node info
+    @type node_name: string
+    @param node_name: the node's name
+    @type has_lvm: boolean
+    @param has_lvm: whether or not LVM storage information is requested
+    @rtype: 4-tuple of integers
+    @return: tuple of storage info (total_disk, free_disk, total_spindles,
+       free_spindles)
+
+    """
+    # TODO: replace this with proper storage reporting
+    if has_lvm:
+      lvm_vg_info = utils.storage.LookupSpaceInfoByStorageType(
+         space_info, constants.ST_LVM_VG)
+      if not lvm_vg_info:
+        raise errors.OpExecError("Node '%s' didn't return LVM vg space info."
+                                 % (node_name))
+      total_disk = lvm_vg_info["storage_size"]
+      free_disk = lvm_vg_info["storage_free"]
+      lvm_pv_info = utils.storage.LookupSpaceInfoByStorageType(
+         space_info, constants.ST_LVM_PV)
+      if not lvm_vg_info:
+        raise errors.OpExecError("Node '%s' didn't return LVM pv space info."
+                                 % (node_name))
+      total_spindles = lvm_pv_info["storage_size"]
+      free_spindles = lvm_pv_info["storage_free"]
+    else:
+      # we didn't even ask the node for VG status, so use zeros
+      total_disk = free_disk = 0
+      total_spindles = free_spindles = 0
+    return (total_disk, free_disk, total_spindles, free_spindles)
+
+  @staticmethod
+  def _ComputeInstanceMemory(instance_list, node_instances_info, node_uuid,
+                             input_mem_free):
+    """Compute memory used by primary instances.
+
+    @rtype: tuple (int, int, int)
+    @returns: A tuple of three integers: 1. the sum of memory used by primary
+      instances on the node (including the ones that are currently down), 2.
+      the sum of memory used by primary instances of the node that are up, 3.
+      the amount of memory that is free on the node considering the current
+      usage of the instances.
+
+    """
+    i_p_mem = i_p_up_mem = 0
+    mem_free = input_mem_free
+    for iinfo, beinfo in instance_list:
+      if iinfo.primary_node == node_uuid:
+        i_p_mem += beinfo[constants.BE_MAXMEM]
+        if iinfo.name not in node_instances_info[node_uuid].payload:
+          i_used_mem = 0
+        else:
+          i_used_mem = int(node_instances_info[node_uuid]
+                           .payload[iinfo.name]["memory"])
+        i_mem_diff = beinfo[constants.BE_MAXMEM] - i_used_mem
+        mem_free -= max(0, i_mem_diff)
+
+        if iinfo.admin_state == constants.ADMINST_UP:
+          i_p_up_mem += beinfo[constants.BE_MAXMEM]
+    return (i_p_mem, i_p_up_mem, mem_free)
+
+  def _ComputeDynamicNodeData(self, node_cfg, node_data, node_iinfo, i_list,
                               node_results, has_lvm):
     """Compute global node data.
 
@@ -511,71 +625,51 @@ class IAllocator(object):
     #TODO(dynmem): compute the right data on MAX and MIN memory
     # make a copy of the current dict
     node_results = dict(node_results)
-    for nname, nresult in node_data.items():
-      assert nname in node_results, "Missing basic data for node %s" % nname
-      ninfo = node_cfg[nname]
+    for nuuid, nresult in node_data.items():
+      ninfo = node_cfg[nuuid]
+      assert ninfo.name in node_results, "Missing basic data for node %s" % \
+                                         ninfo.name
 
       if not (ninfo.offline or ninfo.drained):
-        nresult.Raise("Can't get data for node %s" % nname)
-        node_iinfo[nname].Raise("Can't get node instance info from node %s" %
-                                nname)
-        remote_info = rpc.MakeLegacyNodeInfo(nresult.payload,
-                                             require_vg_info=has_lvm)
+        nresult.Raise("Can't get data for node %s" % ninfo.name)
+        node_iinfo[nuuid].Raise("Can't get node instance info from node %s" %
+                                ninfo.name)
+        (_, space_info, (hv_info, )) = nresult.payload
 
-        def get_attr(attr):
-          if attr not in remote_info:
-            raise errors.OpExecError("Node '%s' didn't return attribute"
-                                     " '%s'" % (nname, attr))
-          value = remote_info[attr]
-          if not isinstance(value, int):
-            raise errors.OpExecError("Node '%s' returned invalid value"
-                                     " for '%s': %s" %
-                                     (nname, attr, value))
-          return value
+        mem_free = self._GetAttributeFromHypervisorNodeData(hv_info, ninfo.name,
+                                                            "memory_free")
 
-        mem_free = get_attr("memory_free")
-
-        # compute memory used by primary instances
-        i_p_mem = i_p_up_mem = 0
-        for iinfo, beinfo in i_list:
-          if iinfo.primary_node == nname:
-            i_p_mem += beinfo[constants.BE_MAXMEM]
-            if iinfo.name not in node_iinfo[nname].payload:
-              i_used_mem = 0
-            else:
-              i_used_mem = int(node_iinfo[nname].payload[iinfo.name]["memory"])
-            i_mem_diff = beinfo[constants.BE_MAXMEM] - i_used_mem
-            mem_free -= max(0, i_mem_diff)
-
-            if iinfo.admin_state == constants.ADMINST_UP:
-              i_p_up_mem += beinfo[constants.BE_MAXMEM]
-
-        # TODO: replace this with proper storage reporting
-        if has_lvm:
-          total_disk = get_attr("vg_size")
-          free_disk = get_attr("vg_free")
-        else:
-          # we didn't even ask the node for VG status, so use zeros
-          total_disk = free_disk = 0
+        (i_p_mem, i_p_up_mem, mem_free) = self._ComputeInstanceMemory(
+             i_list, node_iinfo, nuuid, mem_free)
+        (total_disk, free_disk, total_spindles, free_spindles) = \
+            self._ComputeStorageDataFromSpaceInfo(space_info, ninfo.name,
+                                                  has_lvm)
 
         # compute memory used by instances
         pnr_dyn = {
-          "total_memory": get_attr("memory_total"),
-          "reserved_memory": get_attr("memory_dom0"),
+          "total_memory": self._GetAttributeFromHypervisorNodeData(
+              hv_info, ninfo.name, "memory_total"),
+          "reserved_memory": self._GetAttributeFromHypervisorNodeData(
+              hv_info, ninfo.name, "memory_dom0"),
           "free_memory": mem_free,
           "total_disk": total_disk,
           "free_disk": free_disk,
-          "total_cpus": get_attr("cpu_total"),
+          "total_spindles": total_spindles,
+          "free_spindles": free_spindles,
+          "total_cpus": self._GetAttributeFromHypervisorNodeData(
+              hv_info, ninfo.name, "cpu_total"),
+          "reserved_cpus": self._GetAttributeFromHypervisorNodeData(
+            hv_info, ninfo.name, "cpu_dom0"),
           "i_pri_memory": i_p_mem,
           "i_pri_up_memory": i_p_up_mem,
           }
-        pnr_dyn.update(node_results[nname])
-        node_results[nname] = pnr_dyn
+        pnr_dyn.update(node_results[ninfo.name])
+        node_results[ninfo.name] = pnr_dyn
 
     return node_results
 
   @staticmethod
-  def _ComputeInstanceData(cluster_info, i_list):
+  def _ComputeInstanceData(cfg, cluster_info, i_list):
     """Compute global instance data.
 
     """
@@ -600,10 +694,12 @@ class IAllocator(object):
         "memory": beinfo[constants.BE_MAXMEM],
         "spindle_use": beinfo[constants.BE_SPINDLE_USE],
         "os": iinfo.os,
-        "nodes": [iinfo.primary_node] + list(iinfo.secondary_nodes),
+        "nodes": [cfg.GetNodeName(iinfo.primary_node)] +
+                 cfg.GetNodeNames(iinfo.secondary_nodes),
         "nics": nic_data,
         "disks": [{constants.IDISK_SIZE: dsk.size,
-                   constants.IDISK_MODE: dsk.mode}
+                   constants.IDISK_MODE: dsk.mode,
+                   constants.IDISK_SPINDLES: dsk.spindles}
                   for dsk in iinfo.disks],
         "disk_template": iinfo.disk_template,
         "disks_active": iinfo.disks_active,

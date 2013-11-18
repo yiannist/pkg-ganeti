@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2008, 2009 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2009, 2013 Google Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -102,18 +102,20 @@ class ChrootManager(hv_base.BaseHypervisor):
     """
     return utils.PathJoin(cls._ROOT_DIR, instance_name)
 
-  def ListInstances(self):
+  def ListInstances(self, hvparams=None):
     """Get the list of running instances.
 
     """
     return [name for name in os.listdir(self._ROOT_DIR)
             if self._IsDirLive(utils.PathJoin(self._ROOT_DIR, name))]
 
-  def GetInstanceInfo(self, instance_name):
+  def GetInstanceInfo(self, instance_name, hvparams=None):
     """Get instance properties.
 
     @type instance_name: string
     @param instance_name: the instance name
+    @type hvparams: dict of strings
+    @param hvparams: hvparams to be used with this instance
 
     @return: (name, id, memory, vcpus, stat, times)
 
@@ -123,9 +125,11 @@ class ChrootManager(hv_base.BaseHypervisor):
       raise HypervisorError("Instance %s is not running" % instance_name)
     return (instance_name, 0, 0, 0, 0, 0)
 
-  def GetAllInstancesInfo(self):
+  def GetAllInstancesInfo(self, hvparams=None):
     """Get properties of all instances.
 
+    @type hvparams: dict of strings
+    @param hvparams: hypervisor parameter
     @return: [(name, id, memory, vcpus, stat, times),...]
 
     """
@@ -246,21 +250,16 @@ class ChrootManager(hv_base.BaseHypervisor):
     # Currently chroots don't have memory limits
     pass
 
-  def GetNodeInfo(self):
+  def GetNodeInfo(self, hvparams=None):
     """Return information about the node.
 
-    This is just a wrapper over the base GetLinuxNodeInfo method.
-
-    @return: a dict with the following keys (values in MiB):
-          - memory_total: the total memory size on the node
-          - memory_free: the available memory on the node for instances
-          - memory_dom0: the memory used by the node itself, if available
+    See L{BaseHypervisor.GetLinuxNodeInfo}.
 
     """
     return self.GetLinuxNodeInfo()
 
   @classmethod
-  def GetInstanceConsole(cls, instance, # pylint: disable=W0221
+  def GetInstanceConsole(cls, instance, primary_node, # pylint: disable=W0221
                          hvparams, beparams, root_dir=None):
     """Return information for connecting to the console of an instance.
 
@@ -272,14 +271,18 @@ class ChrootManager(hv_base.BaseHypervisor):
 
     return objects.InstanceConsole(instance=instance.name,
                                    kind=constants.CONS_SSH,
-                                   host=instance.primary_node,
+                                   host=primary_node.name,
                                    user=constants.SSH_CONSOLE_USER,
                                    command=["chroot", root_dir])
 
-  def Verify(self):
+  def Verify(self, hvparams=None):
     """Verify the hypervisor.
 
     For the chroot manager, it just checks the existence of the base dir.
+
+    @type hvparams: dict of strings
+    @param hvparams: hypervisor parameters to be verified against, not used
+      in for chroot
 
     @return: Problem description if something is wrong, C{None} otherwise
 
@@ -290,15 +293,20 @@ class ChrootManager(hv_base.BaseHypervisor):
       return "The required directory '%s' does not exist" % self._ROOT_DIR
 
   @classmethod
-  def PowercycleNode(cls):
+  def PowercycleNode(cls, hvparams=None):
     """Chroot powercycle, just a wrapper over Linux powercycle.
+
+    @type hvparams: dict of strings
+    @param hvparams: hypervisor params to be used on this node
 
     """
     cls.LinuxPowercycle()
 
-  def MigrateInstance(self, instance, target, live):
+  def MigrateInstance(self, cluster_name, instance, target, live):
     """Migrate an instance.
 
+    @type cluster_name: string
+    @param cluster_name: name of the cluster
     @type instance: L{objects.Instance}
     @param instance: the instance to be migrated
     @type target: string

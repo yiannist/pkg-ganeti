@@ -40,7 +40,7 @@ ADD
 | [\--network6=*NETWORK6*]
 | [\--gateway6=*GATEWAY6*]
 | [\--mac-prefix=*MACPREFIX*]
-| [\--submit]
+| [\--submit] [\--print-job-id]
 | [\--no-conflicts-check]
 | {*network*}
 
@@ -80,7 +80,7 @@ MODIFY
 | [\--network6=*NETWORK6*]
 | [\--gateway6=*GATEWAY6*]
 | [\--mac-prefix=*MACPREFIX*]
-| [\--submit]
+| [\--submit] [\--print-job-id]
 | {*network*}
 
 Modifies parameters from the network.
@@ -95,7 +95,7 @@ options.
 REMOVE
 ~~~~~~
 
-| **remove** [\--submit] {*network*}
+| **remove** [\--submit] [\--print-job-id] {*network*}
 
 Deletes the indicated network, which must be not connected to any node group.
 

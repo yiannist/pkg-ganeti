@@ -27,6 +27,7 @@ module Test.Ganeti.TestCommon
   ( maxMem
   , maxDsk
   , maxCpu
+  , maxSpindles
   , maxVcpuRatio
   , maxSpindleRatio
   , maxNodes
@@ -41,6 +42,7 @@ module Test.Ganeti.TestCommon
   , DNSChar(..)
   , genName
   , genFQDN
+  , genUUID
   , genMaybe
   , genTags
   , genFields
@@ -59,12 +61,17 @@ module Test.Ganeti.TestCommon
   , resultProp
   , readTestData
   , genSample
+  , testParser
+  , genPropParser
+  , genNonNegative
   ) where
 
 import Control.Applicative
 import Control.Exception (catchJust)
 import Control.Monad
+import Data.Attoparsec.Text (Parser, parseOnly)
 import Data.List
+import Data.Text (pack)
 import Data.Word
 import qualified Data.Set as Set
 import System.Environment (getEnv)
@@ -93,6 +100,10 @@ maxDsk = 1024 * 1024 * 8
 -- | Max CPUs (1024, somewhat random value).
 maxCpu :: Int
 maxCpu = 1024
+
+-- | Max spindles (1024, somewhat random value).
+maxSpindles :: Int
+maxSpindles = 1024
 
 -- | Max vcpu ratio (random value).
 maxVcpuRatio :: Double
@@ -183,6 +194,24 @@ genFQDN = do
   ncomps <- choose (1, 4)
   names <- vectorOf ncomps genName
   return $ intercalate "." names
+
+-- | Generates a UUID-like string.
+--
+-- Only to be used for QuickCheck testing. For obtaining actual UUIDs use
+-- the newUUID function in Ganeti.Utils
+genUUID :: Gen String
+genUUID = do
+  c1 <- vector 6
+  c2 <- vector 4
+  c3 <- vector 4
+  c4 <- vector 4
+  c5 <- vector 4
+  c6 <- vector 4
+  c7 <- vector 6
+  return $ map dnsGetChar c1 ++ "-" ++ map dnsGetChar c2 ++ "-" ++
+    map dnsGetChar c3 ++ "-" ++ map dnsGetChar c4 ++ "-" ++
+    map dnsGetChar c5 ++ "-" ++ map dnsGetChar c6 ++ "-" ++
+    map dnsGetChar c7
 
 -- | Combinator that generates a 'Maybe' using a sub-combinator.
 genMaybe :: Gen a -> Gen (Maybe a)
@@ -340,3 +369,23 @@ genSample gen = do
   case values of
     [] -> error "sample' returned an empty list of values??"
     x:_ -> return x
+
+-- | Function for testing whether a file is parsed correctly.
+testParser :: (Show a, Eq a) => Parser a -> String -> a -> HUnit.Assertion
+testParser parser fileName expectedContent = do
+  fileContent <- readTestData fileName
+  case parseOnly parser $ pack fileContent of
+    Left msg -> HUnit.assertFailure $ "Parsing failed: " ++ msg
+    Right obtained -> HUnit.assertEqual fileName expectedContent obtained
+
+-- | Generate a property test for parsers.
+genPropParser :: (Show a, Eq a) => Parser a -> String -> a -> Property
+genPropParser parser s expected =
+  case parseOnly parser $ pack s of
+    Left msg -> failTest $ "Parsing failed: " ++ msg
+    Right obtained -> expected ==? obtained
+
+-- | Generate an arbitrary non negative integer number
+genNonNegative :: Gen Int
+genNonNegative =
+  fmap fromIntegral (arbitrary::Gen (Test.QuickCheck.NonNegative Int))

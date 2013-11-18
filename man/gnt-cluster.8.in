@@ -195,10 +195,6 @@ same options relative to specs in the instance policies.
 .PD 0
 .P
 .PD
-[--no-lvm-storage]
-.PD 0
-.P
-.PD
 [--no-etc-hosts]
 .PD 0
 .P
@@ -208,6 +204,10 @@ same options relative to specs in the instance policies.
 .P
 .PD
 [--file-storage-dir \f[I]dir\f[]]
+.PD 0
+.P
+.PD
+[--shared-file-storage-dir \f[I]dir\f[]]
 .PD 0
 .P
 .PD
@@ -317,6 +317,10 @@ same options relative to specs in the instance policies.
 .PD 0
 .P
 .PD
+[--drbd-usermode-helper \f[I]helper\f[]]
+.PD 0
+.P
+.PD
 [--enabled-disk-templates \f[I]template\f[] [,\f[I]template\f[]...]]
 .PD 0
 .P
@@ -362,7 +366,8 @@ creation and DRBD support is enabled you might have to manually modify
 the metavg as well.
 .PP
 If you don\[aq]t want to use lvm storage at all use the
-\f[C]--no-lvm-storage\f[] option.
+\f[C]--enabled-disk-templates\f[] option to restrict the set of enabled
+disk templates.
 Once the cluster is initialized you can change this setup with the
 \f[B]modify\f[] command.
 .PP
@@ -389,22 +394,22 @@ generated.
 The prefix must be specified in the format \f[C]XX:XX:XX\f[] and the
 default is \f[C]aa:00:00\f[].
 .PP
-The \f[C]--no-lvm-storage\f[] option allows you to initialize the
-cluster without lvm support.
-This means that only instances using files as storage backend will be
-possible to create.
-Once the cluster is initialized you can change this setup with the
-\f[B]modify\f[] command.
-.PP
 The \f[C]--no-etc-hosts\f[] option allows you to initialize the cluster
 without modifying the /etc/hosts file.
 .PP
 The \f[C]--no-ssh-init\f[] option allows you to initialize the cluster
 without creating or distributing SSH key pairs.
 .PP
-The \f[C]--file-storage-dir\f[] option allows you set the directory to
-use for storing the instance disk files when using file storage as
-backend for instance disks.
+The \f[C]--file-storage-dir\f[] and \f[C]--shared-file-storage-dir\f[]
+options allow you set the directory to use for storing the instance disk
+files when using file storage backend, respectively shared file storage
+backend, for instance disks.
+Note that the file and shared file storage dir must be an allowed
+directory for file storage.
+Those directories are specified in the
+\f[C]@SYSCONFDIR@/ganeti/file-storage-paths\f[] file.
+The file storage directory can also be a subdirectory of an allowed one.
+The file storage directory should be present on all nodes.
 .PP
 The \f[C]--prealloc-wipe-disks\f[] sets a cluster wide configuration
 value for wiping disks prior to allocation and size changes
@@ -607,6 +612,14 @@ list of \f[C]drbdsetup\ net\f[].
 .RS
 .RE
 .TP
+.B protocol
+Replication protocol for the DRBD device.
+Has to be either "A", "B" or "C".
+Refer to the DRBD documentation for further information about the
+differences between the protocols.
+.RS
+.RE
+.TP
 .B dynamic-resync
 Boolean indicating whether to use the dynamic resync speed controller or
 not.
@@ -760,12 +773,12 @@ by an instance.
 .IP \[bu] 2
 \f[C]--specs-nic-count\f[] sets limits on the number of NICs used
 .PP
-The \f[C]--ipolicy-disk-templates\f[] and
-\f[C]--ipolicy-spindle-ratio\f[] options take a decimal number.
+The \f[C]--ipolicy-spindle-ratio\f[] option takes a decimal number.
 The \f[C]--ipolicy-disk-templates\f[] option takes a comma-separated
 list of disk templates.
-.IP \[bu] 2
-\f[C]--ipolicy-disk-templates\f[] limits the allowed disk templates
+This list of disk templates must be a subset of the list of cluster-wide
+enabled disk templates (which can be set with
+\f[C]--enabled-disk-templates\f[]).
 .IP \[bu] 2
 \f[C]--ipolicy-spindle-ratio\f[] limits the instances-spindles ratio
 .IP \[bu] 2
@@ -774,6 +787,10 @@ list of disk templates.
 All the instance policy elements can be overridden at group level.
 Group level overrides can be removed by specifying \f[C]default\f[] as
 the value of an item.
+.PP
+The \f[C]--drbd-usermode-helper\f[] option can be used to specify a
+usermode helper.
+Check that this string is the one used by the DRBD kernel.
 .PP
 For details about how to use \f[C]--hypervisor-state\f[] and
 \f[C]--disk-state\f[] have a look at \f[B]ganeti\f[](7).
@@ -787,6 +804,10 @@ It is not possible to create instances with disk templates that are not
 enabled in the cluster.
 It is also not possible to disable a disk template when there are still
 instances using it.
+The first disk template in the list of enabled disk template is the
+default disk template.
+It will be used for instance creation, if no disk template is requested
+explicitely.
 .SS MASTER-FAILOVER
 .PP
 \f[B]master-failover\f[] [--no-voting] [--yes-do-it]
@@ -821,7 +842,7 @@ If the master daemon is not alive (either due to a crash or because this
 is not the master node), the exit code will be 1.
 .SS MODIFY
 .PP
-\f[B]modify\f[] [--submit]
+\f[B]modify\f[] [--submit] [--print-job-id]
 .PD 0
 .P
 .PD
@@ -830,10 +851,6 @@ is not the master node), the exit code will be 1.
 .P
 .PD
 [--vg-name \f[I]vg-name\f[]]
-.PD 0
-.P
-.PD
-[--no-lvm-storage]
 .PD 0
 .P
 .PD
@@ -939,17 +956,30 @@ is not the master node), the exit code will be 1.
 .P
 .PD
 [--enabled-disk-templates \f[I]template\f[] [,\f[I]template\f[]...]]
+.PD 0
+.P
+.PD
+[--drbd-usermode-helper \f[I]helper\f[]]
+.PD 0
+.P
+.PD
+[--file-storage-dir \f[I]dir\f[]]
+.PD 0
+.P
+.PD
+[--shared-file-storage-dir \f[I]dir\f[]]
 .PP
 Modify the options for the cluster.
 .PP
-The \f[C]--vg-name\f[], \f[C]--no-lvm-storage\f[],
-\f[C]--enabled-hypervisors\f[], \f[C]-H\ (--hypervisor-parameters)\f[],
+The \f[C]--vg-name\f[], \f[C]--enabled-hypervisors\f[],
+\f[C]-H\ (--hypervisor-parameters)\f[],
 \f[C]-B\ (--backend-parameters)\f[], \f[C]-D\ (--disk-parameters)\f[],
 \f[C]--nic-parameters\f[], \f[C]-C\ (--candidate-pool-size)\f[],
 \f[C]--maintain-node-health\f[], \f[C]--prealloc-wipe-disks\f[],
 \f[C]--uid-pool\f[], \f[C]--node-parameters\f[],
 \f[C]--master-netdev\f[], \f[C]--master-netmask\f[],
-\f[C]--use-external-mip-script\f[], and
+\f[C]--use-external-mip-script\f[], \f[C]--drbd-usermode-helper\f[],
+\f[C]--file-storage-dir\f[], \f[C]--shared-file-storage-dir\f[], and
 \f[C]--enabled-disk-templates\f[] options are described in the
 \f[B]init\f[] command.
 .PP
@@ -1011,7 +1041,7 @@ The \f[C]continue\f[] option will let the watcher continue.
 The \f[C]info\f[] option shows whether the watcher is currently paused.
 .SS REDIST-CONF
 .PP
-\f[B]redist-conf\f[] [--submit]
+\f[B]redist-conf\f[] [--submit] [--print-job-id]
 .PP
 This command forces a full push of configuration files from the master
 node to the other nodes in the cluster.
@@ -1091,13 +1121,14 @@ disks matches the actual size and updates any mismatches found.
 This is needed if the Ganeti configuration is no longer consistent with
 reality, as it will impact some disk operations.
 If no arguments are given, all instances will be checked.
+When exclusive storage is active, also spindles are updated.
 .PP
 Note that only active disks can be checked by this command; in case a
 disk cannot be activated it\[aq]s advised to use \f[B]gnt-instance
 activate-disks --ignore-size ...\f[] to force activation without regard
 to the current size.
 .PP
-When the all disk sizes are consistent, the command will return no
+When all the disk sizes are consistent, the command will return no
 output.
 Otherwise it will log details about the inconsistencies in the
 configuration.
@@ -1172,6 +1203,11 @@ code of a given error.
 .PP
 List of error codes:
 .TP
+.B \f[C]ENODESHAREDFILESTORAGEPATHUNUSABLE\f[]
+Shared file storage path unusable
+.RS
+.RE
+.TP
 .B \f[C]EINSTANCEWRONGNODE\f[]
 Instance running on the wrong node
 .RS
@@ -1244,6 +1280,11 @@ Instance not running on its primary node
 .TP
 .B \f[C]EINSTANCELAYOUT\f[]
 Instance has multiple secondary nodes
+.RS
+.RE
+.TP
+.B \f[C]ENODEFILESTORAGEPATHUNUSABLE\f[]
+File storage path unusable
 .RS
 .RE
 .TP

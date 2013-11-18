@@ -25,7 +25,6 @@
 
 import logging
 
-from ganeti import bdev
 from ganeti import constants
 from ganeti import errors
 from ganeti import hypervisor
@@ -33,6 +32,7 @@ from ganeti import netutils
 from ganeti import ssconf
 from ganeti import utils
 from ganeti import confd
+from ganeti.storage import drbd
 
 import ganeti.confd.client # pylint: disable=W0611
 
@@ -64,11 +64,12 @@ class NodeMaintenance(object):
 
     """
     hyp_list = ssconf.SimpleStore().GetHypervisorList()
+    hvparams = ssconf.SimpleStore().GetHvparams()
     results = []
     for hv_name in hyp_list:
       try:
         hv = hypervisor.GetHypervisor(hv_name)
-        ilist = hv.ListInstances()
+        ilist = hv.ListInstances(hvparams=hvparams)
         results.extend([(iname, hv_name) for iname in ilist])
       except: # pylint: disable=W0702
         logging.error("Error while listing instances for hypervisor %s",
@@ -80,7 +81,7 @@ class NodeMaintenance(object):
     """Get list of used DRBD minors.
 
     """
-    return bdev.DRBD8.GetUsedDevs().keys()
+    return drbd.DRBD8.GetUsedDevs()
 
   @classmethod
   def DoMaintenance(cls, role):
@@ -121,10 +122,7 @@ class NodeMaintenance(object):
       logging.info("Following DRBD minors should not be active,"
                    " shutting them down: %s", utils.CommaJoin(drbd_running))
       for minor in drbd_running:
-        # pylint: disable=W0212
-        # using the private method as is, pending enhancements to the DRBD
-        # interface
-        bdev.DRBD8._ShutdownAll(minor)
+        drbd.DRBD8.ShutdownAll(minor)
 
   def Exec(self):
     """Check node status versus cluster desired state.

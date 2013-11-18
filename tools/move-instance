@@ -486,11 +486,17 @@ class MoveDestExecutor(object):
     """
     disk_template = instance["disk_template"]
 
-    disks = [{
-      constants.IDISK_SIZE: i["size"],
-      constants.IDISK_MODE: i["mode"],
-      constants.IDISK_NAME: str(i.get("name")),
-      } for i in instance["disks"]]
+    disks = []
+    for idisk in instance["disks"]:
+      odisk = {
+        constants.IDISK_SIZE: idisk["size"],
+        constants.IDISK_MODE: idisk["mode"],
+        constants.IDISK_NAME: str(idisk.get("name")),
+        }
+      spindles = idisk.get("spindles")
+      if spindles is not None:
+        odisk[constants.IDISK_SPINDLES] = spindles
+      disks.append(odisk)
 
     nics = [{
       constants.INIC_IP: ip,
@@ -563,7 +569,8 @@ class MoveSourceExecutor(object):
     logging.info("Retrieving instance information from source cluster")
     instinfo = self._GetInstanceInfo(src_client, mrt.PollJob,
                                      mrt.move.src_instance_name)
-    if instinfo["disk_template"] == constants.DT_FILE:
+    if (instinfo["disk_template"] in
+        [constants.DT_FILE, constants.DT_SHARED_FILE]):
       raise Error("Inter-cluster move of file-based instances is not"
                   " supported.")
 

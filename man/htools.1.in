@@ -248,6 +248,14 @@ online)
 group UUID
 .IP \[bu] 2
 node spindle count
+.IP \[bu] 2
+node tags
+.IP \[bu] 2
+exclusive storage value (\f[C]Y\f[] if active, \f[C]N\f[] otherwise)
+.IP \[bu] 2
+node free spindles
+.IP \[bu] 2
+virtual CPUs used by the node OS
 .PP
 The third section contains instance data, with the fields:
 .IP \[bu] 2
@@ -273,6 +281,11 @@ instance disk type (e.g.
 \f[C]plain\f[] or \f[C]drbd\f[])
 .IP \[bu] 2
 instance tags
+.IP \[bu] 2
+spindle use back-end parameter
+.IP \[bu] 2
+actual disk spindles used by the instance (it can be \f[C]-\f[] when
+exclusive storage is not active)
 .PP
 The fourth section contains the cluster tags, with one tag per line (no
 columns/no column processing).

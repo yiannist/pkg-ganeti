@@ -27,8 +27,8 @@ ADD
 ^^^
 
 | **add**
-| {-t|\--disk-template {diskless | file \| plain \| drbd \| rbd}}
-| {\--disk=*N*: {size=*VAL* \| adopt=*LV*}[,options...]
+| {-t|\--disk-template {diskless \| file \| plain \| drbd \| rbd}}
+| {\--disk=*N*: {size=*VAL*[,spindles=*VAL*] \| adopt=*LV*}[,options...]
 |  \| {size=*VAL*,provider=*PROVIDER*}[,param=*value*... ][,options...]
 |  \| {-s|\--os-size} *SIZE*}
 | [\--no-ip-check] [\--no-name-check] [\--no-conflicts-check]
@@ -40,7 +40,7 @@ ADD
 | [\--file-storage-dir *dir\_path*] [\--file-driver {loop \| blktap}]
 | {{-n|\--node} *node[:secondary-node]* \| {-I|\--iallocator} *name*}
 | {{-o|\--os-type} *os-type*}
-| [\--submit]
+| [\--submit] [\--print-job-id]
 | [\--ignore-ipolicy]
 | {*instance*}
 
@@ -57,12 +57,15 @@ given) in mebibytes. You can also use one of the suffixes *m*, *g* or
 mebibytes, gibibytes and tebibytes. Each disk can also take these
 parameters (all optional):
 
+spindles
+  How many spindles (physical disks on the node) the disk should span.
+
 mode
   The access mode. Either ``ro`` (read-only) or the default ``rw``
   (read-write).
 
 name
-   this option specifies a name for the disk, which can be used as a disk
+   This option specifies a name for the disk, which can be used as a disk
    identifier. An instance can not have two disks with the same name.
 
 vg
@@ -780,7 +783,10 @@ don't need to pass them with the ``-n`` option. For more information
 please refer to the instance allocator documentation.
 
 The ``-t (--disk-template)`` options specifies the disk layout type
-for the instance.  The available choices are:
+for the instance. If no disk template is specified, the default disk
+template is used. The default disk template is the first in the list
+of enabled disk templates, which can be adjusted cluster-wide with
+``gnt-cluster modify``. The available choices for disk templates are:
 
 diskless
     This creates an instance with no disks. Its useful for testing only
@@ -819,9 +825,8 @@ cluster-wide file storage directory to store file-based disks. It is
 useful for having different subdirectories for different
 instances. The full path of the directory where the disk files are
 stored will consist of cluster-wide file storage directory + optional
-subdirectory + instance name. Example:
-``@RPL_FILE_STORAGE_DIR@/mysubdir/instance1.example.com``. This
-option is only relevant for instances using the file storage backend.
+subdirectory + instance name. This option is only relevant for
+instances using the file storage backend.
 
 The ``--file-driver`` specifies the driver to use for file-based
 disks. Note that currently these drivers work with the xen hypervisor
@@ -972,8 +977,8 @@ follows::
 REMOVE
 ^^^^^^
 
-**remove** [\--ignore-failures] [\--shutdown-timeout=*N*] [\--submit]
-[\--force] {*instance*}
+| **remove** [\--ignore-failures] [\--shutdown-timeout=*N*] [\--submit]
+| [\--print-job-id] [\--force] {*instance*}
 
 Remove an instance. This will remove all data from the instance and
 there is *no way back*. If you are not sure if you use an instance
@@ -1098,12 +1103,12 @@ MODIFY
 |  \--disk *N*:add,size=*SIZE*,provider=*PROVIDER*[,options...][,param=*value*... ] \|
 |  \--disk *ID*:modify[,options...]
 |  \--disk [*ID*:]remove]
-| [{-t|\--disk-template} plain | {-t|\--disk-template} drbd -n *new_secondary*] [\--no-wait-for-sync]
+| [{-t|\--disk-template} plain \| {-t|\--disk-template} drbd -n *new_secondary*] [\--no-wait-for-sync]
 | [\--new-primary=*node*]
 | [\--os-type=*OS* [\--force-variant]]
 | [{-O|\--os-parameters} *param*=*value*... ]
 | [\--offline \| \--online]
-| [\--submit]
+| [\--submit] [\--print-job-id]
 | [\--ignore-ipolicy]
 | {*instance*}
 
@@ -1133,22 +1138,22 @@ by ballooning it up or down to the new value.
 The ``--disk add:size=*SIZE*,[options..]`` option adds a disk to the
 instance, and ``--disk *N*:add:size=*SIZE*,[options..]`` will add a disk
 to the the instance at a specific index. The available options are the
-same as in the **add** command(``mode``, ``name``, ``vg``, ``metavg``).
-When adding an ExtStorage disk the ``provider=*PROVIDER*`` option is
-also mandatory and specifies the ExtStorage provider. Also, for
-ExtStorage disks arbitrary parameters can be passed as additional comma
-separated options, same as in the **add** command. -The ``--disk remove``
-option will remove the last disk of the instance. Use
-``--disk `` *ID*``:remove`` to remove a disk by its identifier.  *ID*
-can be the index of the disk, the disks's name or the disks's UUID.  The
-``--disk *ID*:modify[,options...]`` wil change the options of the disk.
+same as in the **add** command(``spindles``, ``mode``, ``name``, ``vg``,
+``metavg``). When adding an ExtStorage disk the ``provider=*PROVIDER*``
+option is also mandatory and specifies the ExtStorage provider. Also,
+for ExtStorage disks arbitrary parameters can be passed as additional
+comma separated options, same as in the **add** command. -The ``--disk
+remove`` option will remove the last disk of the instance. Use ``--disk
+`` *ID*``:remove`` to remove a disk by its identifier. *ID* can be the
+index of the disk, the disks's name or the disks's UUID. The ``--disk
+*ID*:modify[,options...]`` will change the options of the disk.
 Available options are:
 
 mode
   The access mode. Either ``ro`` (read-only) or the default ``rw`` (read-write).
 
 name
-   this option specifies a name for the disk, which can be used as a disk
+   This option specifies a name for the disk, which can be used as a disk
    identifier. An instance can not have two disks with the same name.
 
 The ``--net *N*:add[,options..]`` will add a new network interface to
@@ -1192,7 +1197,8 @@ REINSTALL
 | **reinstall** [{-o|\--os-type} *os-type*] [\--select-os] [-f *force*]
 | [\--force-multiple]
 | [\--instance \| \--node \| \--primary \| \--secondary \| \--all]
-| [{-O|\--os-parameters} *OS\_PARAMETERS*] [\--submit] {*instance*...}
+| [{-O|\--os-parameters} *OS\_PARAMETERS*] [\--submit] [\--print-job-id]
+| {*instance*...}
 
 Reinstalls the operating system on the given instance(s). The
 instance(s) must be stopped when running this command. If the ``-o
@@ -1217,7 +1223,7 @@ options.
 RENAME
 ^^^^^^
 
-| **rename** [\--no-ip-check] [\--no-name-check] [\--submit]
+| **rename** [\--no-ip-check] [\--no-name-check] [\--submit] [\--print-job-id]
 | {*instance*} {*new\_name*}
 
 Renames the given instance. The instance must be stopped when running
@@ -1253,7 +1259,7 @@ STARTUP
 | \--tags \| \--node-tags \| \--pri-node-tags \| \--sec-node-tags]
 | [{-H|\--hypervisor-parameters} ``key=value...``]
 | [{-B|\--backend-parameters} ``key=value...``]
-| [\--submit] [\--paused]
+| [\--submit] [\--print-job-id] [\--paused]
 | {*name*...}
 
 Starts one or more instances, depending on the following options.  The
@@ -1351,7 +1357,7 @@ SHUTDOWN
 | [\--force] [\--force-multiple] [\--ignore-offline] [\--no-remember]
 | [\--instance \| \--node \| \--primary \| \--secondary \| \--all \|
 | \--tags \| \--node-tags \| \--pri-node-tags \| \--sec-node-tags]
-| [\--submit]
+| [\--submit] [\--print-job-id]
 | {*name*...}
 
 Stops one or more instances. If the instance cannot be cleanly stopped
@@ -1405,7 +1411,7 @@ REBOOT
 | [\--force-multiple]
 | [\--instance \| \--node \| \--primary \| \--secondary \| \--all \|
 | \--tags \| \--node-tags \| \--pri-node-tags \| \--sec-node-tags]
-| [\--submit]
+| [\--submit] [\--print-job-id]
 | [*name*...]
 
 Reboots one or more instances. The type of reboot depends on the value
@@ -1469,17 +1475,18 @@ Disk management
 REPLACE-DISKS
 ^^^^^^^^^^^^^
 
-**replace-disks** [\--submit] [\--early-release] [\--ignore-ipolicy] {-p}
-[\--disks *idx*] {*instance*}
+| **replace-disks** [\--submit] [\--print-job-id] [\--early-release]
+| [\--ignore-ipolicy] {-p} [\--disks *idx*] {*instance*}
 
-**replace-disks** [\--submit] [\--early-release] [\--ignore-ipolicy] {-s}
-[\--disks *idx*] {*instance*}
+| **replace-disks** [\--submit] [\--print-job-id] [\--early-release]
+| [\--ignore-ipolicy] {-s} [\--disks *idx*] {*instance*}
 
-**replace-disks** [\--submit] [\--early-release] [\--ignore-ipolicy]
-{{-I\|\--iallocator} *name* \| {{-n|\--new-secondary} *node* } {*instance*}
+| **replace-disks** [\--submit] [\--print-job-id] [\--early-release]
+| [\--ignore-ipolicy]
+| {{-I\|\--iallocator} *name* \| {{-n|\--new-secondary} *node* } {*instance*}
 
-**replace-disks** [\--submit] [\--early-release] [\--ignore-ipolicy]
-{-a\|\--auto} {*instance*}
+| **replace-disks** [\--submit] [\--print-job-id] [\--early-release]
+| [\--ignore-ipolicy] {-a\|\--auto} {*instance*}
 
 This command is a generalized form for replacing disks. It is
 currently only valid for the mirrored (DRBD) disk template.
@@ -1527,7 +1534,8 @@ options.
 ACTIVATE-DISKS
 ^^^^^^^^^^^^^^
 
-**activate-disks** [\--submit] [\--ignore-size] [\--wait-for-sync] {*instance*}
+| **activate-disks** [\--submit] [\--print-job-id] [\--ignore-size]
+| [\--wait-for-sync] {*instance*}
 
 Activates the block devices of the given instance. If successful, the
 command will show the location and name of the block devices::
@@ -1565,7 +1573,7 @@ options.
 DEACTIVATE-DISKS
 ^^^^^^^^^^^^^^^^
 
-**deactivate-disks** [-f] [\--submit] {*instance*}
+**deactivate-disks** [-f] [\--submit] [\--print-job-id] {*instance*}
 
 De-activates the block devices of the given instance. Note that if you
 run this command for an instance with a drbd disk template, while it
@@ -1586,7 +1594,8 @@ options.
 GROW-DISK
 ^^^^^^^^^
 
-| **grow-disk** [\--no-wait-for-sync] [\--submit] [\--absolute]
+| **grow-disk** [\--no-wait-for-sync] [\--submit] [\--print-job-id]
+| [\--absolute]
 | {*instance*} {*disk*} {*amount*}
 
 Grows an instance's disk. This is only possible for instances having a
@@ -1644,9 +1653,9 @@ instance.
 RECREATE-DISKS
 ^^^^^^^^^^^^^^
 
-| **recreate-disks** [\--submit]
+| **recreate-disks** [\--submit] [\--print-job-id]
 | [{-n node1:[node2] \| {-I\|\--iallocator *name*}}]
-| [\--disk=*N*[:[size=*VAL*][,mode=*ro\|rw*]]] {*instance*}
+| [\--disk=*N*[:[size=*VAL*][,spindles=*VAL*][,mode=*ro\|rw*]]] {*instance*}
 
 Recreates all or a subset of disks of the given instance.
 
@@ -1657,10 +1666,10 @@ normal operation and as such the impact of this is low.
 
 If only a subset should be recreated, any number of ``disk`` options can
 be specified. It expects a disk index and an optional list of disk
-parameters to change. Only ``size`` and ``mode`` can be changed while
-recreating disks. To recreate all disks while changing parameters on
-a subset only, a ``--disk`` option must be given for every disk of the
-instance.
+parameters to change. Only ``size``, ``spindles``, and ``mode`` can be
+changed while recreating disks. To recreate all disks while changing
+parameters on a subset only, a ``--disk`` option must be given for every
+disk of the instance.
 
 Optionally the instance's disks can be recreated on different
 nodes. This can be useful if, for example, the original nodes of the
@@ -1688,7 +1697,8 @@ FAILOVER
 | **failover** [-f] [\--ignore-consistency] [\--ignore-ipolicy]
 | [\--shutdown-timeout=*N*]
 | [{-n|\--target-node} *node* \| {-I|\--iallocator} *name*]
-| [\--submit] [\--cleanup]
+| [\--cleanup]
+| [\--submit] [\--print-job-id]
 | {*instance*}
 
 Failover will stop the instance (if running), change its primary node,
@@ -1748,10 +1758,10 @@ MIGRATE
 
 | **migrate** [-f] [\--allow-failover] [\--non-live]
 | [\--migration-mode=live\|non-live] [\--ignore-ipolicy]
-| [\--no-runtime-changes] [\--submit]
+| [\--no-runtime-changes] [\--submit] [\--print-job-id]
 | [{-n|\--target-node} *node* \| {-I|\--iallocator} *name*] {*instance*}
 
-| **migrate** [-f] \--cleanup [\--submit] {*instance*}
+| **migrate** [-f] \--cleanup [\--submit] [\--print-job-id] {*instance*}
 
 Migrate will move the instance to its secondary node without shutdown.
 As with failover, it works for instances having the drbd disk template
@@ -1841,7 +1851,8 @@ MOVE
 ^^^^
 
 | **move** [-f] [\--ignore-consistency]
-| [-n *node*] [\--shutdown-timeout=*N*] [\--submit] [\--ignore-ipolicy]
+| [-n *node*] [\--shutdown-timeout=*N*] [\--submit] [\--print-job-id]
+| [\--ignore-ipolicy]
 | {*instance*}
 
 Move will move the instance to an arbitrary node in the cluster. This
@@ -1874,7 +1885,7 @@ Example::
 CHANGE-GROUP
 ^^^^^^^^^^^^
 
-| **change-group** [\--submit]
+| **change-group** [\--submit] [\--print-job-id]
 | [\--iallocator *NAME*] [\--to *GROUP*...] {*instance*}
 
 This command moves an instance to another node group. The move is

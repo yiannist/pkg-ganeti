@@ -38,6 +38,7 @@ import qa_env
 import qa_error
 import qa_group
 import qa_instance
+import qa_monitoring
 import qa_network
 import qa_node
 import qa_os
@@ -212,6 +213,8 @@ def RunClusterTests():
     ("cluster-modify", qa_cluster.TestClusterModifyBe),
     ("cluster-modify", qa_cluster.TestClusterModifyDisk),
     ("cluster-modify", qa_cluster.TestClusterModifyDiskTemplates),
+    ("cluster-modify", qa_cluster.TestClusterModifyFileStorageDir),
+    ("cluster-modify", qa_cluster.TestClusterModifySharedFileStorageDir),
     ("cluster-rename", qa_cluster.TestClusterRename),
     ("cluster-info", qa_cluster.TestClusterVersion),
     ("cluster-info", qa_cluster.TestClusterInfo),
@@ -272,7 +275,7 @@ def RunOsTests():
     RunTestIf(os_enabled, fn)
 
 
-def RunCommonInstanceTests(instance):
+def RunCommonInstanceTests(instance, inst_nodes):
   """Runs a few tests that are common to all disk types.
 
   """
@@ -345,6 +348,9 @@ def RunCommonInstanceTests(instance):
 
   RunTestIf("tags", qa_tags.TestInstanceTags, instance)
 
+  if instance.disk_template == constants.DT_DRBD8:
+    RunTestIf("cluster-verify",
+              qa_cluster.TestClusterVerifyDisksBrokenDRBD, instance, inst_nodes)
   RunTestIf("cluster-verify", qa_cluster.TestClusterVerify)
 
   RunTestIf(qa_rapi.Enabled, qa_rapi.TestInstance, instance)
@@ -404,7 +410,8 @@ def RunExportImportTests(instance, inodes):
   # based storage types are untested, though. Also note that import could still
   # work, but is deeply embedded into the "export" case.
   if (qa_config.TestEnabled("instance-export") and
-      instance.disk_template != constants.DT_FILE):
+      instance.disk_template not in [constants.DT_FILE,
+                                     constants.DT_SHARED_FILE]):
     RunTest(qa_instance.TestInstanceExportNoTarget, instance)
 
     pnode = inodes[0]
@@ -430,7 +437,8 @@ def RunExportImportTests(instance, inodes):
   # FIXME: inter-cluster-instance-move crashes on file based instances :/
   # See Issue 414.
   if (qa_config.TestEnabled([qa_rapi.Enabled, "inter-cluster-instance-move"])
-      and instance.disk_template != constants.DT_FILE):
+      and (instance.disk_template not in
+           [constants.DT_FILE, constants.DT_SHARED_FILE])):
     newinst = qa_config.AcquireInstance()
     try:
       tnode = qa_config.AcquireNode(exclude=inodes)
@@ -502,6 +510,7 @@ def RunHardwareFailureTests(instance, inodes):
   if len(inodes) >= 2:
     RunTestIf("node-evacuate", qa_node.TestNodeEvacuate, inodes[0], inodes[1])
     RunTestIf("node-failover", qa_node.TestNodeFailover, inodes[0], inodes[1])
+    RunTestIf("node-migrate", qa_node.TestNodeMigrate, inodes[0], inodes[1])
 
 
 def RunExclusiveStorageTests():
@@ -702,7 +711,9 @@ def RunInstanceTests():
     ("instance-add-diskless", constants.DT_DISKLESS,
      qa_instance.TestInstanceAddDiskless, 1),
     ("instance-add-file", constants.DT_FILE,
-     qa_instance.TestInstanceAddFile, 1)
+     qa_instance.TestInstanceAddFile, 1),
+    ("instance-add-shared-file", constants.DT_SHARED_FILE,
+     qa_instance.TestInstanceAddSharedFile, 1),
     ]
 
   for (test_name, templ, create_fun, num_nodes) in instance_tests:
@@ -727,7 +738,7 @@ def RunInstanceTests():
             RunTest(qa_instance.TestInstanceStartup, instance)
           RunTestIf("instance-modify-disks",
                     qa_instance.TestInstanceModifyDisks, instance)
-          RunCommonInstanceTests(instance)
+          RunCommonInstanceTests(instance, inodes)
           if qa_config.TestEnabled("instance-modify-primary"):
             othernode = qa_config.AcquireNode()
             RunTest(qa_instance.TestInstanceModifyPrimaryAndBack,
@@ -744,6 +755,11 @@ def RunInstanceTests():
       finally:
         qa_config.ReleaseManyNodes(inodes)
       qa_cluster.AssertClusterVerify()
+
+
+def RunMonitoringTests():
+  if qa_config.TestEnabled("mon-collector"):
+    RunTest(qa_monitoring.TestInstStatusCollector)
 
 
 def RunQa():
@@ -789,13 +805,14 @@ def RunQa():
     if qa_rapi.Enabled():
       RunTest(qa_rapi.TestNode, pnode)
 
-      if qa_config.TestEnabled("instance-add-plain-disk"):
+      if (qa_config.TestEnabled("instance-add-plain-disk")
+          and qa_config.IsTemplateSupported(constants.DT_PLAIN)):
         for use_client in [True, False]:
           rapi_instance = RunTest(qa_rapi.TestRapiInstanceAdd, pnode,
                                   use_client)
           try:
             if qa_config.TestEnabled("instance-plain-rapi-common-tests"):
-              RunCommonInstanceTests(rapi_instance)
+              RunCommonInstanceTests(rapi_instance, [pnode])
             RunTest(qa_rapi.TestRapiInstanceRemove, rapi_instance, use_client)
           finally:
             rapi_instance.Release()
@@ -866,6 +883,8 @@ def RunQa():
     finally:
       snode.Release()
     qa_cluster.AssertClusterVerify()
+
+  RunMonitoringTests()
 
   RunTestIf("create-cluster", qa_node.TestNodeRemoveAll)
 

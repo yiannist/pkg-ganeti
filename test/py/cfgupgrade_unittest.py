@@ -30,11 +30,27 @@ import operator
 
 from ganeti import constants
 from ganeti import utils
-from ganeti import errors
 from ganeti import serializer
 from ganeti import netutils
 
 import testutils
+
+
+def GetMinimalConfig():
+  return {
+    "version": constants.CONFIG_VERSION,
+    "cluster": {
+      "master_node": "node1-uuid"
+    },
+    "instances": {},
+    "nodegroups": {},
+    "nodes": {
+      "node1-uuid": {
+        "name": "node1",
+        "uuid": "node1-uuid"
+      }
+    },
+  }
 
 
 def _RunUpgrade(path, dry_run, no_verify, ignore_hostname=True,
@@ -95,12 +111,8 @@ class TestCfgupgrade(unittest.TestCase):
   def testWrongHostname(self):
     self._CreateValidConfigDir()
 
-    utils.WriteFile(self.config_path, data=serializer.DumpJson({
-      "version": constants.CONFIG_VERSION,
-      "cluster": {},
-      "instances": {},
-      "nodegroups": {},
-      }))
+    utils.WriteFile(self.config_path,
+                    data=serializer.DumpJson(GetMinimalConfig()))
 
     hostname = netutils.GetHostname().name
     assert hostname != utils.ReadOneLineFile(self.ss_master_node_path)
@@ -111,12 +123,8 @@ class TestCfgupgrade(unittest.TestCase):
   def testCorrectHostname(self):
     self._CreateValidConfigDir()
 
-    utils.WriteFile(self.config_path, data=serializer.DumpJson({
-      "version": constants.CONFIG_VERSION,
-      "cluster": {},
-      "instances": {},
-      "nodegroups": {},
-      }))
+    utils.WriteFile(self.config_path,
+                    data=serializer.DumpJson(GetMinimalConfig()))
 
     utils.WriteFile(self.ss_master_node_path,
                     data="%s\n" % netutils.GetHostname().name)
@@ -126,14 +134,9 @@ class TestCfgupgrade(unittest.TestCase):
   def testInconsistentConfig(self):
     self._CreateValidConfigDir()
     # There should be no "config_version"
-    cfg = {
-      "version": 0,
-      "cluster": {
-        "config_version": 0,
-        },
-      "instances": {},
-      "nodegroups": {},
-      }
+    cfg = GetMinimalConfig()
+    cfg["version"] = 0
+    cfg["cluster"]["config_version"] = 0
     utils.WriteFile(self.config_path, data=serializer.DumpJson(cfg))
     self.assertRaises(Exception, _RunUpgrade, self.tmpdir, False, True)
 
@@ -150,19 +153,15 @@ class TestCfgupgrade(unittest.TestCase):
   def _TestSimpleUpgrade(self, from_version, dry_run,
                          file_storage_dir=None,
                          shared_file_storage_dir=None):
-    cluster = {}
+    cfg = GetMinimalConfig()
+    cfg["version"] = from_version
+    cluster = cfg["cluster"]
 
     if file_storage_dir:
       cluster["file_storage_dir"] = file_storage_dir
     if shared_file_storage_dir:
       cluster["shared_file_storage_dir"] = shared_file_storage_dir
 
-    cfg = {
-      "version": from_version,
-      "cluster": cluster,
-      "instances": {},
-      "nodegroups": {},
-      }
     self._TestUpgradeFromData(cfg, dry_run)
 
   def _TestUpgradeFromData(self, cfg, dry_run):
@@ -365,6 +364,9 @@ class TestCfgupgrade(unittest.TestCase):
   def testUpgradeFullConfigFrom_2_7(self):
     self._TestUpgradeFromFile("cluster_config_2.7.json", False)
 
+  def testUpgradeFullConfigFrom_2_8(self):
+    self._TestUpgradeFromFile("cluster_config_2.8.json", False)
+
   def testUpgradeCurrent(self):
     self._TestSimpleUpgrade(constants.CONFIG_VERSION, False)
 
@@ -382,14 +384,26 @@ class TestCfgupgrade(unittest.TestCase):
   def testDowngradeFullConfig(self):
     """Test for upgrade + downgrade combination."""
     # This test can work only with the previous version of a configuration!
-    # For 2.7, downgrading returns the original file only if group policies
-    # don't override instance specs, so we need to use an ad-hoc configuration.
-    oldconfname = "cluster_config_downgraded_2.7.json"
+    oldconfname = "cluster_config_2.8.json"
     self._TestUpgradeFromFile(oldconfname, False)
     _RunUpgrade(self.tmpdir, False, True, downgrade=True)
     oldconf = self._LoadTestDataConfig(oldconfname)
     newconf = self._LoadConfig()
     self.assertEqual(oldconf, newconf)
+
+  def testDowngradeFrom_2_9(self):
+    cfg29_name = "cluster_config_2.9.json"
+    cfg29 = self._LoadTestDataConfig(cfg29_name)
+    self._CreateValidConfigDir()
+    utils.WriteFile(self.config_path, data=serializer.DumpJson(cfg29))
+    _RunUpgrade(self.tmpdir, False, True, downgrade=True)
+    cfg28 = self._LoadConfig()
+
+    hvparams = cfg28["cluster"]["hvparams"]
+    for xen_variant in [constants.HT_XEN_PVM, constants.HT_XEN_HVM]:
+      xen_params = hvparams[xen_variant]
+      self.assertTrue(constants.HV_XEN_CMD not in xen_params)
+      self.assertTrue(constants.HV_VIF_SCRIPT not in xen_params)
 
   def testDowngradeFullConfigBackwardFrom_2_7(self):
     """Test for upgrade + downgrade + upgrade combination."""

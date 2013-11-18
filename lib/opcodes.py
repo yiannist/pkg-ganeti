@@ -62,12 +62,19 @@ _PForce = ("force", False, ht.TBool, "Whether to force the operation")
 _PInstanceName = ("instance_name", ht.NoDefault, ht.TNonEmptyString,
                   "Instance name")
 
+#: a instance UUID (for single-instance LUs)
+_PInstanceUuid = ("instance_uuid", None, ht.TMaybeString,
+                  "Instance UUID")
+
 #: Whether to ignore offline nodes
 _PIgnoreOfflineNodes = ("ignore_offline_nodes", False, ht.TBool,
                         "Whether to ignore offline nodes")
 
 #: a required node name (for single-node LUs)
 _PNodeName = ("node_name", ht.NoDefault, ht.TNonEmptyString, "Node name")
+
+#: a node UUID (for use with _PNodeName)
+_PNodeUuid = ("node_uuid", None, ht.TMaybeString, "Node UUID")
 
 #: a required node group name (for single-group LUs)
 _PGroupName = ("group_name", ht.NoDefault, ht.TNonEmptyString, "Group name")
@@ -132,6 +139,9 @@ _PNoRemember = ("no_remember", False, ht.TBool,
 #: Target node for instance migration/failover
 _PMigrationTargetNode = ("target_node", None, ht.TMaybeString,
                          "Target node for shared-storage instances")
+
+_PMigrationTargetNodeUuid = ("target_node_uuid", None, ht.TMaybeString,
+                             "Target node UUID for shared-storage instances")
 
 _PStartupPaused = ("startup_paused", False, ht.TBool,
                    "Pause instance at startup")
@@ -316,46 +326,6 @@ _TQueryFieldDef = \
     })
 
 
-def RequireFileStorage():
-  """Checks that file storage is enabled.
-
-  While it doesn't really fit into this module, L{utils} was deemed too large
-  of a dependency to be imported for just one or two functions.
-
-  @raise errors.OpPrereqError: when file storage is disabled
-
-  """
-  if not constants.ENABLE_FILE_STORAGE:
-    raise errors.OpPrereqError("File storage disabled at configure time",
-                               errors.ECODE_INVAL)
-
-
-def RequireSharedFileStorage():
-  """Checks that shared file storage is enabled.
-
-  While it doesn't really fit into this module, L{utils} was deemed too large
-  of a dependency to be imported for just one or two functions.
-
-  @raise errors.OpPrereqError: when shared file storage is disabled
-
-  """
-  if not constants.ENABLE_SHARED_FILE_STORAGE:
-    raise errors.OpPrereqError("Shared file storage disabled at"
-                               " configure time", errors.ECODE_INVAL)
-
-
-@ht.WithDesc("CheckFileStorage")
-def _CheckFileStorage(value):
-  """Ensures file storage is enabled if used.
-
-  """
-  if value == constants.DT_FILE:
-    RequireFileStorage()
-  elif value == constants.DT_SHARED_FILE:
-    RequireSharedFileStorage()
-  return True
-
-
 def _BuildDiskTemplateCheck(accept_none):
   """Builds check for disk template.
 
@@ -369,19 +339,16 @@ def _BuildDiskTemplateCheck(accept_none):
   if accept_none:
     template_check = ht.TMaybe(template_check)
 
-  return ht.TAnd(template_check, _CheckFileStorage)
+  return template_check
 
 
 def _CheckStorageType(storage_type):
   """Ensure a given storage type is valid.
 
   """
-  if storage_type not in constants.VALID_STORAGE_TYPES:
+  if storage_type not in constants.STORAGE_TYPES:
     raise errors.OpPrereqError("Unknown storage type: %s" % storage_type,
                                errors.ECODE_INVAL)
-  if storage_type == constants.ST_FILE:
-    # TODO: What about shared file storage?
-    RequireFileStorage()
   return True
 
 
@@ -868,7 +835,7 @@ class OpClusterRepairDiskSizes(OpCode):
   Parameters: optional instances list, in case we want to restrict the
   checks to only a subset of the instances.
 
-  Result: a list of tuples, (instance, disk, new-size) for changed
+  Result: a list of tuples, (instance, disk, parameter, new-size) for changed
   configurations.
 
   In normal operation, the list should be empty.
@@ -880,9 +847,10 @@ class OpClusterRepairDiskSizes(OpCode):
   OP_PARAMS = [
     ("instances", ht.EmptyList, ht.TListOf(ht.TNonEmptyString), None),
     ]
-  OP_RESULT = ht.TListOf(ht.TAnd(ht.TIsLength(3),
+  OP_RESULT = ht.TListOf(ht.TAnd(ht.TIsLength(4),
                                  ht.TItems([ht.TNonEmptyString,
                                             ht.TNonNegativeInt,
+                                            ht.TNonEmptyString,
                                             ht.TNonNegativeInt])))
 
 
@@ -981,6 +949,10 @@ class OpClusterSetParams(OpCode):
      "List of enabled disk templates"),
     ("modify_etc_hosts", None, ht.TMaybeBool,
      "Whether the cluster can modify and keep in sync the /etc/hosts files"),
+    ("file_storage_dir", None, ht.TMaybe(ht.TString),
+     "Default directory for storing file-backed disks"),
+    ("shared_file_storage_dir", None, ht.TMaybe(ht.TString),
+     "Default directory for storing shared-file-backed disks"),
     ]
   OP_RESULT = ht.TNone
 
@@ -1053,7 +1025,9 @@ class OpOobCommand(OpCode):
   """Interact with OOB."""
   OP_PARAMS = [
     ("node_names", ht.EmptyList, ht.TListOf(ht.TNonEmptyString),
-     "List of nodes to run the OOB command against"),
+     "List of node names to run the OOB command against"),
+    ("node_uuids", None, ht.TMaybeListOf(ht.TNonEmptyString),
+     "List of node UUIDs to run the OOB command against"),
     ("command", ht.NoDefault, ht.TElemOf(constants.OOB_COMMANDS),
      "OOB command to be run"),
     ("timeout", constants.OOB_TIMEOUT, ht.TInt,
@@ -1075,6 +1049,8 @@ class OpRestrictedCommand(OpCode):
     _PUseLocking,
     ("nodes", ht.NoDefault, ht.TListOf(ht.TNonEmptyString),
      "Nodes on which the command should be run (at least one)"),
+    ("node_uuids", None, ht.TMaybeListOf(ht.TNonEmptyString),
+     "Node UUIDs on which the command should be run (at least one)"),
     ("command", ht.NoDefault, ht.TNonEmptyString,
      "Command name (no parameters)"),
     ]
@@ -1102,6 +1078,7 @@ class OpNodeRemove(OpCode):
   OP_DSC_FIELD = "node_name"
   OP_PARAMS = [
     _PNodeName,
+    _PNodeUuid
     ]
   OP_RESULT = ht.TNone
 
@@ -1189,6 +1166,7 @@ class OpNodeModifyStorage(OpCode):
   OP_DSC_FIELD = "node_name"
   OP_PARAMS = [
     _PNodeName,
+    _PNodeUuid,
     _PStorageType,
     _PStorageName,
     ("changes", ht.NoDefault, ht.TDict, "Requested changes"),
@@ -1201,6 +1179,7 @@ class OpRepairNodeStorage(OpCode):
   OP_DSC_FIELD = "node_name"
   OP_PARAMS = [
     _PNodeName,
+    _PNodeUuid,
     _PStorageType,
     _PStorageName,
     _PIgnoreConsistency,
@@ -1213,6 +1192,7 @@ class OpNodeSetParams(OpCode):
   OP_DSC_FIELD = "node_name"
   OP_PARAMS = [
     _PNodeName,
+    _PNodeUuid,
     _PForce,
     _PHvState,
     _PDiskState,
@@ -1242,6 +1222,7 @@ class OpNodePowercycle(OpCode):
   OP_DSC_FIELD = "node_name"
   OP_PARAMS = [
     _PNodeName,
+    _PNodeUuid,
     _PForce,
     ]
   OP_RESULT = ht.TMaybeString
@@ -1252,9 +1233,11 @@ class OpNodeMigrate(OpCode):
   OP_DSC_FIELD = "node_name"
   OP_PARAMS = [
     _PNodeName,
+    _PNodeUuid,
     _PMigrationMode,
     _PMigrationLive,
     _PMigrationTargetNode,
+    _PMigrationTargetNodeUuid,
     _PAllowRuntimeChgs,
     _PIgnoreIpolicy,
     _PIAllocFromDesc("Iallocator for deciding the target node"
@@ -1269,7 +1252,9 @@ class OpNodeEvacuate(OpCode):
   OP_PARAMS = [
     _PEarlyRelease,
     _PNodeName,
+    _PNodeUuid,
     ("remote_node", None, ht.TMaybeString, "New secondary node"),
+    ("remote_node_uuid", None, ht.TMaybeString, "New secondary node UUID"),
     _PIAllocFromDesc("Iallocator for computing solution"),
     ("mode", ht.NoDefault, ht.TElemOf(constants.NODE_EVAC_MODES),
      "Node evacuation mode"),
@@ -1335,7 +1320,9 @@ class OpInstanceCreate(OpCode):
     ("osparams", ht.EmptyDict, ht.TDict, "OS parameters for instance"),
     ("os_type", None, ht.TMaybeString, "Operating system"),
     ("pnode", None, ht.TMaybeString, "Primary node"),
+    ("pnode_uuid", None, ht.TMaybeString, "Primary node UUID"),
     ("snode", None, ht.TMaybeString, "Secondary node"),
+    ("snode_uuid", None, ht.TMaybeString, "Secondary node UUID"),
     ("source_handshake", None, ht.TMaybe(ht.TList),
      "Signed handshake from source (remote import only)"),
     ("source_instance_name", None, ht.TMaybeString,
@@ -1346,6 +1333,7 @@ class OpInstanceCreate(OpCode):
     ("source_x509_ca", None, ht.TMaybeString,
      "Source X509 CA in PEM format (remote import only)"),
     ("src_node", None, ht.TMaybeString, "Source node for import"),
+    ("src_node_uuid", None, ht.TMaybeString, "Source node UUID for import"),
     ("src_path", None, ht.TMaybeString, "Source directory for import"),
     ("start", True, ht.TBool, "Whether to start instance after creation"),
     ("tags", ht.EmptyList, ht.TListOf(ht.TNonEmptyString), "Instance tags"),
@@ -1418,6 +1406,7 @@ class OpInstanceReinstall(OpCode):
   OP_DSC_FIELD = "instance_name"
   OP_PARAMS = [
     _PInstanceName,
+    _PInstanceUuid,
     _PForceVariant,
     ("os_type", None, ht.TMaybeString, "Instance operating system"),
     ("osparams", None, ht.TMaybeDict, "Temporary OS parameters"),
@@ -1430,6 +1419,7 @@ class OpInstanceRemove(OpCode):
   OP_DSC_FIELD = "instance_name"
   OP_PARAMS = [
     _PInstanceName,
+    _PInstanceUuid,
     _PShutdownTimeout,
     ("ignore_failures", False, ht.TBool,
      "Whether to ignore failures during removal"),
@@ -1441,6 +1431,7 @@ class OpInstanceRename(OpCode):
   """Rename an instance."""
   OP_PARAMS = [
     _PInstanceName,
+    _PInstanceUuid,
     _PNameCheck,
     ("new_name", ht.NoDefault, ht.TNonEmptyString, "New instance name"),
     ("ip_check", False, ht.TBool, _PIpCheckDoc),
@@ -1453,6 +1444,7 @@ class OpInstanceStartup(OpCode):
   OP_DSC_FIELD = "instance_name"
   OP_PARAMS = [
     _PInstanceName,
+    _PInstanceUuid,
     _PForce,
     _PIgnoreOfflineNodes,
     ("hvparams", ht.EmptyDict, ht.TDict,
@@ -1469,6 +1461,7 @@ class OpInstanceShutdown(OpCode):
   OP_DSC_FIELD = "instance_name"
   OP_PARAMS = [
     _PInstanceName,
+    _PInstanceUuid,
     _PForce,
     _PIgnoreOfflineNodes,
     ("timeout", constants.DEFAULT_SHUTDOWN_TIMEOUT, ht.TNonNegativeInt,
@@ -1483,6 +1476,7 @@ class OpInstanceReboot(OpCode):
   OP_DSC_FIELD = "instance_name"
   OP_PARAMS = [
     _PInstanceName,
+    _PInstanceUuid,
     _PShutdownTimeout,
     ("ignore_secondaries", False, ht.TBool,
      "Whether to start the instance even if secondary disks are failing"),
@@ -1497,6 +1491,7 @@ class OpInstanceReplaceDisks(OpCode):
   OP_DSC_FIELD = "instance_name"
   OP_PARAMS = [
     _PInstanceName,
+    _PInstanceUuid,
     _PEarlyRelease,
     _PIgnoreIpolicy,
     ("mode", ht.NoDefault, ht.TElemOf(constants.REPLACE_MODES),
@@ -1504,6 +1499,7 @@ class OpInstanceReplaceDisks(OpCode):
     ("disks", ht.EmptyList, ht.TListOf(ht.TNonNegativeInt),
      "Disk indexes"),
     ("remote_node", None, ht.TMaybeString, "New secondary node"),
+    ("remote_node_uuid", None, ht.TMaybeString, "New secondary node UUID"),
     _PIAllocFromDesc("Iallocator for deciding new secondary node"),
     ]
   OP_RESULT = ht.TNone
@@ -1514,9 +1510,11 @@ class OpInstanceFailover(OpCode):
   OP_DSC_FIELD = "instance_name"
   OP_PARAMS = [
     _PInstanceName,
+    _PInstanceUuid,
     _PShutdownTimeout,
     _PIgnoreConsistency,
     _PMigrationTargetNode,
+    _PMigrationTargetNodeUuid,
     _PIgnoreIpolicy,
     _PIAllocFromDesc("Iallocator for deciding the target node for"
                      " shared-storage instances"),
@@ -1539,9 +1537,11 @@ class OpInstanceMigrate(OpCode):
   OP_DSC_FIELD = "instance_name"
   OP_PARAMS = [
     _PInstanceName,
+    _PInstanceUuid,
     _PMigrationMode,
     _PMigrationLive,
     _PMigrationTargetNode,
+    _PMigrationTargetNodeUuid,
     _PAllowRuntimeChgs,
     _PIgnoreIpolicy,
     ("cleanup", False, ht.TBool,
@@ -1567,9 +1567,11 @@ class OpInstanceMove(OpCode):
   OP_DSC_FIELD = "instance_name"
   OP_PARAMS = [
     _PInstanceName,
+    _PInstanceUuid,
     _PShutdownTimeout,
     _PIgnoreIpolicy,
     ("target_node", ht.NoDefault, ht.TNonEmptyString, "Target node"),
+    ("target_node_uuid", None, ht.TMaybeString, "Target node UUID"),
     _PIgnoreConsistency,
     ]
   OP_RESULT = ht.TNone
@@ -1580,6 +1582,7 @@ class OpInstanceConsole(OpCode):
   OP_DSC_FIELD = "instance_name"
   OP_PARAMS = [
     _PInstanceName,
+    _PInstanceUuid,
     ]
   OP_RESULT = ht.TDict
 
@@ -1589,6 +1592,7 @@ class OpInstanceActivateDisks(OpCode):
   OP_DSC_FIELD = "instance_name"
   OP_PARAMS = [
     _PInstanceName,
+    _PInstanceUuid,
     ("ignore_size", False, ht.TBool, "Whether to ignore recorded size"),
     _PWaitForSyncFalse,
     ]
@@ -1603,6 +1607,7 @@ class OpInstanceDeactivateDisks(OpCode):
   OP_DSC_FIELD = "instance_name"
   OP_PARAMS = [
     _PInstanceName,
+    _PInstanceUuid,
     _PForce,
     ]
   OP_RESULT = ht.TNone
@@ -1618,12 +1623,15 @@ class OpInstanceRecreateDisks(OpCode):
   OP_DSC_FIELD = "instance_name"
   OP_PARAMS = [
     _PInstanceName,
+    _PInstanceUuid,
     ("disks", ht.EmptyList,
      ht.TOr(ht.TListOf(ht.TNonNegativeInt), ht.TListOf(_TDiskChanges)),
      "List of disk indexes (deprecated) or a list of tuples containing a disk"
      " index and a possibly empty dictionary with disk parameter changes"),
     ("nodes", ht.EmptyList, ht.TListOf(ht.TNonEmptyString),
      "New instance nodes, if relocation is desired"),
+    ("node_uuids", None, ht.TMaybeListOf(ht.TNonEmptyString),
+     "New instance node UUIDs, if relocation is desired"),
     _PIAllocFromDesc("Iallocator for deciding new nodes"),
     ]
   OP_RESULT = ht.TNone
@@ -1688,6 +1696,7 @@ class OpInstanceSetParams(OpCode):
   OP_DSC_FIELD = "instance_name"
   OP_PARAMS = [
     _PInstanceName,
+    _PInstanceUuid,
     _PForce,
     _PForceVariant,
     _PIgnoreIpolicy,
@@ -1711,8 +1720,11 @@ class OpInstanceSetParams(OpCode):
     ("disk_template", None, ht.TMaybe(_BuildDiskTemplateCheck(False)),
      "Disk template for instance"),
     ("pnode", None, ht.TMaybeString, "New primary node"),
+    ("pnode_uuid", None, ht.TMaybeString, "New primary node UUID"),
     ("remote_node", None, ht.TMaybeString,
      "Secondary node (used when changing disk template)"),
+    ("remote_node_uuid", None, ht.TMaybeString,
+     "Secondary node UUID (used when changing disk template)"),
     ("os_name", None, ht.TMaybeString,
      "Change the instance's OS without reinstalling the instance"),
     ("osparams", None, ht.TMaybeDict, "Per-instance OS parameters"),
@@ -1729,6 +1741,7 @@ class OpInstanceGrowDisk(OpCode):
   OP_DSC_FIELD = "instance_name"
   OP_PARAMS = [
     _PInstanceName,
+    _PInstanceUuid,
     _PWaitForSync,
     ("disk", ht.NoDefault, ht.TInt, "Disk index"),
     ("amount", ht.NoDefault, ht.TNonNegativeInt,
@@ -1744,6 +1757,7 @@ class OpInstanceChangeGroup(OpCode):
   OP_DSC_FIELD = "instance_name"
   OP_PARAMS = [
     _PInstanceName,
+    _PInstanceUuid,
     _PEarlyRelease,
     _PIAllocFromDesc("Iallocator for computing solution"),
     _PTargetGroups,
@@ -1777,6 +1791,8 @@ class OpGroupAssignNodes(OpCode):
     _PForce,
     ("nodes", ht.NoDefault, ht.TListOf(ht.TNonEmptyString),
      "List of nodes to assign"),
+    ("node_uuids", None, ht.TMaybeListOf(ht.TNonEmptyString),
+     "List of node UUIDs to assign"),
     ]
   OP_RESULT = ht.TNone
 
@@ -1881,6 +1897,7 @@ class OpBackupPrepare(OpCode):
   OP_DSC_FIELD = "instance_name"
   OP_PARAMS = [
     _PInstanceName,
+    _PInstanceUuid,
     ("mode", ht.NoDefault, ht.TElemOf(constants.EXPORT_MODES),
      "Export mode"),
     ]
@@ -1907,11 +1924,14 @@ class OpBackupExport(OpCode):
   OP_DSC_FIELD = "instance_name"
   OP_PARAMS = [
     _PInstanceName,
+    _PInstanceUuid,
     _PShutdownTimeout,
     # TODO: Rename target_node as it changes meaning for different export modes
     # (e.g. "destination")
     ("target_node", ht.NoDefault, ht.TOr(ht.TNonEmptyString, ht.TList),
      "Destination information, depends on export mode"),
+    ("target_node_uuid", None, ht.TMaybeString,
+     "Target node UUID (if local export)"),
     ("shutdown", True, ht.TBool, "Whether to shutdown instance before export"),
     ("remove_instance", False, ht.TBool,
      "Whether to remove instance after export"),
@@ -1936,6 +1956,7 @@ class OpBackupRemove(OpCode):
   OP_DSC_FIELD = "instance_name"
   OP_PARAMS = [
     _PInstanceName,
+    _PInstanceUuid,
     ]
   OP_RESULT = ht.TNone
 
@@ -2019,6 +2040,7 @@ class OpTestDelay(OpCode):
     ("duration", ht.NoDefault, ht.TNumber, None),
     ("on_master", True, ht.TBool, None),
     ("on_nodes", ht.EmptyList, ht.TListOf(ht.TNonEmptyString), None),
+    ("on_node_uuids", None, ht.TMaybeListOf(ht.TNonEmptyString), None),
     ("repeat", 0, ht.TNonNegativeInt, None),
     ]
 

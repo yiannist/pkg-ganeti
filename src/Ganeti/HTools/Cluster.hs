@@ -152,6 +152,7 @@ data Table = Table Node.List Instance.List Score [Placement]
 data CStats = CStats
   { csFmem :: Integer -- ^ Cluster free mem
   , csFdsk :: Integer -- ^ Cluster free disk
+  , csFspn :: Integer -- ^ Cluster free spindles
   , csAmem :: Integer -- ^ Cluster allocatable mem
   , csAdsk :: Integer -- ^ Cluster allocatable disk
   , csAcpu :: Integer -- ^ Cluster allocatable cpus
@@ -160,9 +161,11 @@ data CStats = CStats
   , csMcpu :: Integer -- ^ Max node allocatable cpu
   , csImem :: Integer -- ^ Instance used mem
   , csIdsk :: Integer -- ^ Instance used disk
+  , csIspn :: Integer -- ^ Instance used spindles
   , csIcpu :: Integer -- ^ Instance used cpu
   , csTmem :: Double  -- ^ Cluster total mem
   , csTdsk :: Double  -- ^ Cluster total disk
+  , csTspn :: Double  -- ^ Cluster total spindles
   , csTcpu :: Double  -- ^ Cluster total cpus
   , csVcpu :: Integer -- ^ Cluster total virtual cpus
   , csNcpu :: Double  -- ^ Equivalent to 'csIcpu' but in terms of
@@ -224,7 +227,7 @@ instanceNodes nl inst =
 
 -- | Zero-initializer for the CStats type.
 emptyCStats :: CStats
-emptyCStats = CStats 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+emptyCStats = CStats 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
 
 -- | Update stats with data from a new node.
 updateCStats :: CStats -> Node.Node -> CStats
@@ -235,7 +238,8 @@ updateCStats cs node =
                csImem = x_imem, csIdsk = x_idsk, csIcpu = x_icpu,
                csTmem = x_tmem, csTdsk = x_tdsk, csTcpu = x_tcpu,
                csVcpu = x_vcpu, csNcpu = x_ncpu,
-               csXmem = x_xmem, csNmem = x_nmem, csNinst = x_ninst
+               csXmem = x_xmem, csNmem = x_nmem, csNinst = x_ninst,
+               csFspn = x_fspn, csIspn = x_ispn, csTspn = x_tspn
              }
         = cs
       inc_amem = Node.fMem node - Node.rMem node
@@ -245,12 +249,14 @@ updateCStats cs node =
                  - Node.xMem node - Node.fMem node
       inc_icpu = Node.uCpu node
       inc_idsk = truncate (Node.tDsk node) - Node.fDsk node
+      inc_ispn = Node.tSpindles node - Node.fSpindles node
       inc_vcpu = Node.hiCpu node
       inc_acpu = Node.availCpu node
       inc_ncpu = fromIntegral (Node.uCpu node) /
                  iPolicyVcpuRatio (Node.iPolicy node)
   in cs { csFmem = x_fmem + fromIntegral (Node.fMem node)
         , csFdsk = x_fdsk + fromIntegral (Node.fDsk node)
+        , csFspn = x_fspn + fromIntegral (Node.fSpindles node)
         , csAmem = x_amem + fromIntegral inc_amem'
         , csAdsk = x_adsk + fromIntegral inc_adsk
         , csAcpu = x_acpu + fromIntegral inc_acpu
@@ -259,9 +265,11 @@ updateCStats cs node =
         , csMcpu = max x_mcpu (fromIntegral inc_acpu)
         , csImem = x_imem + fromIntegral inc_imem
         , csIdsk = x_idsk + fromIntegral inc_idsk
+        , csIspn = x_ispn + fromIntegral inc_ispn
         , csIcpu = x_icpu + fromIntegral inc_icpu
         , csTmem = x_tmem + Node.tMem node
         , csTdsk = x_tdsk + Node.tDsk node
+        , csTspn = x_tspn + fromIntegral (Node.tSpindles node)
         , csTcpu = x_tcpu + Node.tCpu node
         , csVcpu = x_vcpu + fromIntegral inc_vcpu
         , csNcpu = x_ncpu + inc_ncpu
@@ -285,24 +293,28 @@ totalResources nl =
 computeAllocationDelta :: CStats -> CStats -> AllocStats
 computeAllocationDelta cini cfin =
   let CStats {csImem = i_imem, csIdsk = i_idsk, csIcpu = i_icpu,
-              csNcpu = i_ncpu } = cini
+              csNcpu = i_ncpu, csIspn = i_ispn } = cini
       CStats {csImem = f_imem, csIdsk = f_idsk, csIcpu = f_icpu,
               csTmem = t_mem, csTdsk = t_dsk, csVcpu = f_vcpu,
-              csNcpu = f_ncpu, csTcpu = f_tcpu } = cfin
+              csNcpu = f_ncpu, csTcpu = f_tcpu,
+              csIspn = f_ispn, csTspn = t_spn } = cfin
       rini = AllocInfo { allocInfoVCpus = fromIntegral i_icpu
                        , allocInfoNCpus = i_ncpu
                        , allocInfoMem   = fromIntegral i_imem
                        , allocInfoDisk  = fromIntegral i_idsk
+                       , allocInfoSpn   = fromIntegral i_ispn
                        }
       rfin = AllocInfo { allocInfoVCpus = fromIntegral (f_icpu - i_icpu)
                        , allocInfoNCpus = f_ncpu - i_ncpu
                        , allocInfoMem   = fromIntegral (f_imem - i_imem)
                        , allocInfoDisk  = fromIntegral (f_idsk - i_idsk)
+                       , allocInfoSpn   = fromIntegral (f_ispn - i_ispn)
                        }
       runa = AllocInfo { allocInfoVCpus = fromIntegral (f_vcpu - f_icpu)
                        , allocInfoNCpus = f_tcpu - f_ncpu
                        , allocInfoMem   = truncate t_mem - fromIntegral f_imem
                        , allocInfoDisk  = truncate t_dsk - fromIntegral f_idsk
+                       , allocInfoSpn   = truncate t_spn - fromIntegral f_ispn
                        }
   in (rini, rfin, runa)
 
@@ -491,7 +503,7 @@ allocateOnSingle nl inst new_pdx =
   let p = Container.find new_pdx nl
       new_inst = Instance.setBoth inst new_pdx Node.noSecondary
   in do
-    Instance.instMatchesPolicy inst (Node.iPolicy p)
+    Instance.instMatchesPolicy inst (Node.iPolicy p) (Node.exclStorage p)
     new_p <- Node.addPri p inst
     let new_nl = Container.add new_pdx new_p nl
         new_score = compCV new_nl
@@ -505,6 +517,7 @@ allocateOnPair nl inst new_pdx new_sdx =
       tgt_s = Container.find new_sdx nl
   in do
     Instance.instMatchesPolicy inst (Node.iPolicy tgt_p)
+      (Node.exclStorage tgt_p)
     new_p <- Node.addPri tgt_p inst
     new_s <- Node.addSec tgt_s inst new_pdx
     let new_inst = Instance.setBoth inst new_pdx new_sdx
@@ -1505,9 +1518,11 @@ iMoveToJob nl il idx move =
                       Ok ne -> Just ne
       opF = OpCodes.OpInstanceMigrate
               { OpCodes.opInstanceName        = iname
+              , OpCodes.opInstanceUuid        = Nothing
               , OpCodes.opMigrationMode       = Nothing -- default
               , OpCodes.opOldLiveMode         = Nothing -- default as well
               , OpCodes.opTargetNode          = Nothing -- this is drbd
+              , OpCodes.opTargetNodeUuid      = Nothing
               , OpCodes.opAllowRuntimeChanges = False
               , OpCodes.opIgnoreIpolicy       = False
               , OpCodes.opMigrationCleanup    = False
@@ -1516,11 +1531,13 @@ iMoveToJob nl il idx move =
       opFA n = opF { OpCodes.opTargetNode = lookNode n } -- not drbd
       opR n = OpCodes.OpInstanceReplaceDisks
                 { OpCodes.opInstanceName     = iname
+                , OpCodes.opInstanceUuid     = Nothing
                 , OpCodes.opEarlyRelease     = False
                 , OpCodes.opIgnoreIpolicy    = False
                 , OpCodes.opReplaceDisksMode = OpCodes.ReplaceNewSecondary
                 , OpCodes.opReplaceDisksList = []
                 , OpCodes.opRemoteNode       = lookNode n
+                , OpCodes.opRemoteNodeUuid   = Nothing
                 , OpCodes.opIallocator       = Nothing
                 }
   in case move of

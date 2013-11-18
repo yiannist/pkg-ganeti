@@ -35,6 +35,10 @@
     "diskless"
   ],
 
+  "# Default file storage directories": null,
+  "default-file-storage-dir": "/srv/ganeti/file-storage",
+  "default-shared-file-storage-dir": "/srv/ganeti/shared-file-storage",
+
   "# Additional arguments for initializing cluster": null,
   "cluster-init-args": [],
 
@@ -72,13 +76,17 @@
   "disks": [
     {
       "size": "1G",
+      "spindles": 2,
       "name": "disk0",
-      "growth": "2G"
+      "growth": "2G",
+      "spindles-growth": 1
     },
     {
       "size": "512M",
+      "spindles": 1,
       "name": "disk1",
-      "growth": "768M"
+      "growth": "768M",
+      "spindles-growth": 0
     }
   ],
 
@@ -179,14 +187,16 @@
     "node-modify": true,
     "node-oob": true,
 
-    "# This test needs at least three nodes": null,
+    "# These tests need at least three nodes": null,
     "node-evacuate": false,
+    "node-migrate": false,
 
     "# This test needs at least two nodes": null,
     "node-failover": false,
 
     "instance-add-plain-disk": true,
     "instance-add-file": true,
+    "instance-add-shared-file": true,
     "instance-add-drbd-disk": true,
     "instance-add-diskless": true,
     "instance-add-restricted-by-disktemplates": true,
@@ -229,7 +239,9 @@
 
     "# Run instance tests with different cluster configurations": null,
     "default-instance-tests": true,
-    "exclusive-storage-instance-tests": false
+    "exclusive-storage-instance-tests": false,
+
+    "mon-collector": true
   },
 
   "options": {

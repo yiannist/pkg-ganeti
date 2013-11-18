@@ -70,8 +70,9 @@ ACCEPT_OFFLINE_NODE = object()
  ED_COMPRESS,
  ED_BLOCKDEV_RENAME,
  ED_DISKS_DICT_DP,
+ ED_MULTI_DISKS_DICT_DP,
  ED_SINGLE_DISK_DICT_DP,
- ED_NIC_DICT) = range(1, 15)
+ ED_NIC_DICT) = range(1, 16)
 
 
 def _Prepare(calls):
@@ -132,14 +133,19 @@ def _BlockdevGetMirrorStatusMultiPostProc(result):
 
 
 def _NodeInfoPreProc(node, args):
-  """Prepare the exclusive_storage argument for node_info calls."""
-  assert len(args) == 3
-  # The third argument is either a dictionary with one value for each node, or
-  # a fixed value to be used for all the nodes
-  if type(args[2]) is dict:
-    return [args[0], args[1], args[2][node]]
+  """Prepare the storage_units argument for node_info calls."""
+  assert len(args) == 2
+  # The storage_units argument is either a dictionary with one value for each
+  # node, or a fixed value to be used for all the nodes
+  if type(args[0]) is dict:
+    return [args[0][node], args[1]]
   else:
     return args
+
+
+def _DrbdCallsPreProc(node, args):
+  """Add the target node UUID as additional field for DRBD related calls."""
+  return args + [node]
 
 
 def _OsGetPostProc(result):
@@ -218,13 +224,16 @@ _INSTANCE_CALLS = [
   ("instance_info", SINGLE, None, constants.RPC_TMO_URGENT, [
     ("instance", None, "Instance name"),
     ("hname", None, "Hypervisor type"),
+    ("hvparams", None, "Hypervisor parameters"),
     ], None, None, "Returns information about a single instance"),
   ("all_instances_info", MULTI, None, constants.RPC_TMO_URGENT, [
     ("hypervisor_list", None, "Hypervisors to query for instances"),
+    ("all_hvparams", None, "Dictionary mapping hypervisor names to hvparams"),
     ], None, None,
    "Returns information about all instances on the given nodes"),
   ("instance_list", MULTI, None, constants.RPC_TMO_URGENT, [
     ("hypervisor_list", None, "Hypervisors to query for instances"),
+    ("hvparams", None, "Hvparams of all hypervisors"),
     ], None, None, "Returns the list of running instances on the given nodes"),
   ("instance_reboot", SINGLE, None, constants.RPC_TMO_NORMAL, [
     ("inst", ED_INST_DICT, "Instance object"),
@@ -264,6 +273,7 @@ _INSTANCE_CALLS = [
     ("success", None, "Whether the migration was a success or failure"),
     ], None, None, "Finalize any target-node migration specific operation"),
   ("instance_migrate", SINGLE, None, constants.RPC_TMO_SLOW, [
+    ("cluster_name", None, "Cluster name"),
     ("instance", ED_INST_DICT, "Instance object"),
     ("target", None, "Target node name"),
     ("live", None, "Whether the migration should be done live or not"),
@@ -384,34 +394,41 @@ _BLOCKDEV_CALLS = [
     ("instance_name", None, None),
     ("disks", ED_OBJECT_DICT_LIST, None),
     ], None, None, "Closes the given block devices"),
-  ("blockdev_getsize", SINGLE, None, constants.RPC_TMO_NORMAL, [
+  ("blockdev_getdimensions", SINGLE, None, constants.RPC_TMO_NORMAL, [
     ("disks", ED_OBJECT_DICT_LIST, None),
-    ], None, None, "Returns the size of the given disks"),
+    ], None, None, "Returns size and spindles of the given disks"),
   ("drbd_disconnect_net", MULTI, None, constants.RPC_TMO_NORMAL, [
     ("nodes_ip", None, None),
     ("disks", ED_OBJECT_DICT_LIST, None),
-    ], None, None, "Disconnects the network of the given drbd devices"),
+    ], _DrbdCallsPreProc, None,
+   "Disconnects the network of the given drbd devices"),
   ("drbd_attach_net", MULTI, None, constants.RPC_TMO_NORMAL, [
     ("nodes_ip", None, None),
     ("disks", ED_DISKS_DICT_DP, None),
     ("instance_name", None, None),
     ("multimaster", None, None),
-    ], None, None, "Connects the given DRBD devices"),
+    ], _DrbdCallsPreProc, None, "Connects the given DRBD devices"),
   ("drbd_wait_sync", MULTI, None, constants.RPC_TMO_SLOW, [
     ("nodes_ip", None, None),
     ("disks", ED_DISKS_DICT_DP, None),
-    ], None, None,
+    ], _DrbdCallsPreProc, None,
    "Waits for the synchronization of drbd devices is complete"),
+  ("drbd_needs_activation", SINGLE, None, constants.RPC_TMO_NORMAL, [
+    ("nodes_ip", None, None),
+    ("disks", ED_MULTI_DISKS_DICT_DP, None),
+    ], _DrbdCallsPreProc, None,
+   "Returns the drbd disks which need activation"),
   ("blockdev_grow", SINGLE, None, constants.RPC_TMO_NORMAL, [
     ("cf_bdev", ED_SINGLE_DISK_DICT_DP, None),
     ("amount", None, None),
     ("dryrun", None, None),
     ("backingstore", None, None),
+    ("es_flag", None, None),
     ], None, None, "Request growing of the given block device by a"
    " given amount"),
   ("blockdev_export", SINGLE, None, constants.RPC_TMO_1DAY, [
     ("cf_bdev", ED_SINGLE_DISK_DICT_DP, None),
-    ("dest_node", None, None),
+    ("dest_node_ip", None, None),
     ("dest_path", None, None),
     ("cluster_name", None, None),
     ], None, None, "Export a given disk to another node"),
@@ -464,16 +481,17 @@ _NODE_CALLS = [
     ("address", None, "IP address"),
     ], None, None, "Checks if a node has the given IP address"),
   ("node_info", MULTI, None, constants.RPC_TMO_URGENT, [
-    ("vg_names", None,
-     "Names of the volume groups to ask for disk space information"),
-    ("hv_names", None,
-     "Names of the hypervisors to ask for node information"),
-    ("exclusive_storage", None,
-     "Whether exclusive storage is enabled"),
+    ("storage_units", None,
+     "List of tuples '<storage_type>,<key>,[<param>]' to ask for disk space"
+     " information; the parameter list varies depending on the storage_type"),
+    ("hv_specs", None,
+     "List of hypervisor specification (name, hvparams) to ask for node "
+     "information"),
     ], _NodeInfoPreProc, None, "Return node information"),
   ("node_verify", MULTI, None, constants.RPC_TMO_NORMAL, [
-    ("checkdict", None, None),
-    ("cluster_name", None, None),
+    ("checkdict", None, "What to verify"),
+    ("cluster_name", None, "Cluster name"),
+    ("all_hvparams", None, "Dictionary mapping hypervisor names to hvparams"),
     ], None, None, "Request verification of given parameters"),
   ("node_volumes", MULTI, None, constants.RPC_TMO_FAST, [], None, None,
    "Gets all volumes on node(s)"),
@@ -481,6 +499,7 @@ _NODE_CALLS = [
    "Demote a node from the master candidate role"),
   ("node_powercycle", SINGLE, ACCEPT_OFFLINE_NODE, constants.RPC_TMO_NORMAL, [
     ("hypervisor", None, "Hypervisor type"),
+    ("hvparams", None, "Hypervisor parameters"),
     ], None, None, "Tries to powercycle a node"),
   ]
 
@@ -588,8 +607,9 @@ CALLS = {
     ("version", MULTI, ACCEPT_OFFLINE_NODE, constants.RPC_TMO_URGENT, [], None,
      None, "Query node version"),
     ("node_verify_light", MULTI, None, constants.RPC_TMO_NORMAL, [
-      ("checkdict", None, None),
-      ("cluster_name", None, None),
+      ("checkdict", None, "What to verify"),
+      ("cluster_name", None, "Cluster name"),
+      ("hvparams", None, "Dictionary mapping hypervisor names to hvparams"),
       ], None, None, "Request verification of given parameters"),
     ]),
   "RpcClientConfig": _Prepare([

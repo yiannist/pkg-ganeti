@@ -177,6 +177,46 @@ class TestComputeBasicNodeData(unittest.TestCase):
       else:
         self.assertTrue(result["node1"]["offline"])
 
+class TestProcessStorageInfo(unittest.TestCase):
+
+  def setUp(self):
+    self.free_storage_file = 23
+    self.total_storage_file = 42
+    self.free_storage_lvm = 69
+    self.total_storage_lvm = 666
+    self.space_info = [{"name": "mynode",
+                       "type": constants.ST_FILE,
+                       "storage_free": self.free_storage_file,
+                       "storage_size": self.total_storage_file},
+                      {"name": "mynode",
+                       "type": constants.ST_LVM_VG,
+                       "storage_free": self.free_storage_lvm,
+                       "storage_size": self.total_storage_lvm},
+                      {"name": "mynode",
+                       "type": constants.ST_LVM_PV,
+                       "storage_free": 33,
+                       "storage_size": 44}]
+
+  def testComputeStorageDataFromNodeInfoDefault(self):
+    has_lvm = False
+    node_name = "mynode"
+    (total_disk, free_disk, total_spindles, free_spindles) = \
+        iallocator.IAllocator._ComputeStorageDataFromSpaceInfo(
+            self.space_info, node_name, has_lvm)
+    # FIXME: right now, iallocator ignores anything else than LVM, adjust
+    # this test once that arbitrary storage is supported
+    self.assertEqual(0, free_disk)
+    self.assertEqual(0, total_disk)
+
+  def testComputeStorageDataFromNodeInfoLvm(self):
+    has_lvm = True
+    node_name = "mynode"
+    (total_disk, free_disk, total_spindles, free_spindles) = \
+        iallocator.IAllocator._ComputeStorageDataFromSpaceInfo(
+            self.space_info, node_name, has_lvm)
+    self.assertEqual(self.free_storage_lvm, free_disk)
+    self.assertEqual(self.total_storage_lvm, total_disk)
+
 
 if __name__ == "__main__":
   testutils.GanetiTestProgram()
