@@ -1,3 +1,12 @@
+ganeti (2.9.1-1) unstable; urgency=low
+
+  * New upstream version
+  * postinst: remove the ganeti-mond user when upgrading from previous versions
+  * (Build-)Depends: OR with wheezy's names for iproute and kvm to ease
+    backports
+
+ -- Apollon Oikonomopoulos <apoikos@gmail.com>  Mon, 18 Nov 2013 08:13:22 +0200
+
 ganeti (2.8.2-1) unstable; urgency=medium
 
   * New upstream bugfix release
