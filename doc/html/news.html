@@ -8,7 +8,7 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>News &mdash; Ganeti 2.9.1 documentation</title>
+    <title>News &mdash; Ganeti 2.9.2 documentation</title>
     
     <link rel="stylesheet" href="_static/style.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
@@ -16,7 +16,7 @@
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.9.1',
+        VERSION:     '2.9.2',
         COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -25,7 +25,7 @@
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti 2.9.1 documentation" href="index.html" />
+    <link rel="top" title="Ganeti 2.9.2 documentation" href="index.html" />
     <link rel="next" title="OVF converter" href="ovfconverter.html" />
     <link rel="prev" title="Moving instances between clusters" href="move-instance.html" /> 
   </head>
@@ -39,7 +39,7 @@
         <li class="right" >
           <a href="move-instance.html" title="Moving instances between clusters"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.9.1 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.9.2 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -50,6 +50,38 @@
             
   <div class="section" id="news">
 <h1>News<a class="headerlink" href="#news" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="version-2-9-2">
+<h2>Version 2.9.2<a class="headerlink" href="#version-2-9-2" title="Permalink to this headline">¶</a></h2>
+<p><em>(Released Fri, 13 Dec 2013)</em></p>
+<ul class="simple">
+<li>use custom KVM path if set for version checking</li>
+<li>SingleNotifyPipeCondition: don&#8217;t share pollers</li>
+</ul>
+<p>Inherited from the 2.8 branch:</p>
+<ul class="simple">
+<li>Fixed Luxi daemon socket permissions after master-failover</li>
+<li>Improve IP version detection code directly checking for colons rather than
+passing the family from the cluster object</li>
+<li>Fix NODE/NODE_RES locking in LUInstanceCreate by not acquiring NODE_RES locks
+opportunistically anymore (Issue 622)</li>
+<li>Allow link local IPv6 gateways (Issue 624)</li>
+<li>Fix error printing (Issue 616)</li>
+<li>Fix a bug in InstanceSetParams concerning names: in case no name is passed in
+disk modifications, keep the old one. If name=none then set disk name to
+None.</li>
+<li>Update build_chroot script to work with the latest hackage packages</li>
+<li>Add a packet number limit to &#8220;fping&#8221; in master-ip-setup (Issue 630)</li>
+<li>Fix evacuation out of drained node (Issue 615)</li>
+<li>Add default file_driver if missing (Issue 571)</li>
+<li>Fix job error message after unclean master shutdown (Issue 618)</li>
+<li>Lock group(s) when creating instances (Issue 621)</li>
+<li>SetDiskID() before accepting an instance (Issue 633)</li>
+<li>Allow the ext template disks to receive arbitrary parameters, both at creation
+time and while being modified</li>
+<li>Xen handle domain shutdown (future proofing cherry-pick)</li>
+<li>Refactor reading live data in htools (future proofing cherry-pick)</li>
+</ul>
+</div>
 <div class="section" id="version-2-9-1">
 <h2>Version 2.9.1<a class="headerlink" href="#version-2-9-1" title="Permalink to this headline">¶</a></h2>
 <p><em>(Released Wed, 13 Nov 2013)</em></p>
@@ -175,6 +207,33 @@ downgrading.</li>
 <p><em>(Released Thu, 29 Aug 2013)</em></p>
 <p>This was the first beta release of the 2.9 series. All important changes
 are listed in the latest 2.9 entry.</p>
+</div>
+<div class="section" id="version-2-8-3">
+<h2>Version 2.8.3<a class="headerlink" href="#version-2-8-3" title="Permalink to this headline">¶</a></h2>
+<p><em>(Released Thu, 12 Dec 2013)</em></p>
+<ul class="simple">
+<li>Fixed Luxi daemon socket permissions after master-failover</li>
+<li>Improve IP version detection code directly checking for colons rather than
+passing the family from the cluster object</li>
+<li>Fix NODE/NODE_RES locking in LUInstanceCreate by not acquiring NODE_RES locks
+opportunistically anymore (Issue 622)</li>
+<li>Allow link local IPv6 gateways (Issue 624)</li>
+<li>Fix error printing (Issue 616)</li>
+<li>Fix a bug in InstanceSetParams concerning names: in case no name is passed in
+disk modifications, keep the old one. If name=none then set disk name to
+None.</li>
+<li>Update build_chroot script to work with the latest hackage packages</li>
+<li>Add a packet number limit to &#8220;fping&#8221; in master-ip-setup (Issue 630)</li>
+<li>Fix evacuation out of drained node (Issue 615)</li>
+<li>Add default file_driver if missing (Issue 571)</li>
+<li>Fix job error message after unclean master shutdown (Issue 618)</li>
+<li>Lock group(s) when creating instances (Issue 621)</li>
+<li>SetDiskID() before accepting an instance (Issue 633)</li>
+<li>Allow the ext template disks to receive arbitrary parameters, both at creation
+time and while being modified</li>
+<li>Xen handle domain shutdown (future proofing cherry-pick)</li>
+<li>Refactor reading live data in htools (future proofing cherry-pick)</li>
+</ul>
 </div>
 <div class="section" id="version-2-8-2">
 <h2>Version 2.8.2<a class="headerlink" href="#version-2-8-2" title="Permalink to this headline">¶</a></h2>
@@ -2876,6 +2935,7 @@ post-configuration update hook)</li>
   <h3><a href="index.html">Table Of Contents</a></h3>
   <ul>
 <li><a class="reference internal" href="#">News</a><ul>
+<li><a class="reference internal" href="#version-2-9-2">Version 2.9.2</a></li>
 <li><a class="reference internal" href="#version-2-9-1">Version 2.9.1</a></li>
 <li><a class="reference internal" href="#version-2-9-0">Version 2.9.0</a><ul>
 <li><a class="reference internal" href="#incompatible-important-changes">Incompatible/important changes</a></li>
@@ -2888,6 +2948,7 @@ post-configuration update hook)</li>
 <li><a class="reference internal" href="#version-2-9-0-rc2">Version 2.9.0 rc2</a></li>
 <li><a class="reference internal" href="#version-2-9-0-rc1">Version 2.9.0 rc1</a></li>
 <li><a class="reference internal" href="#version-2-9-0-beta1">Version 2.9.0 beta1</a></li>
+<li><a class="reference internal" href="#version-2-8-3">Version 2.8.3</a></li>
 <li><a class="reference internal" href="#version-2-8-2">Version 2.8.2</a></li>
 <li><a class="reference internal" href="#version-2-8-1">Version 2.8.1</a></li>
 <li><a class="reference internal" href="#version-2-8-0">Version 2.8.0</a><ul>
@@ -3089,7 +3150,7 @@ post-configuration update hook)</li>
         <li class="right" >
           <a href="move-instance.html" title="Moving instances between clusters"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.9.1 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.9.2 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">
