@@ -32,7 +32,7 @@ Depends: ${shlibs:Depends}, ${misc:Depends}, ${python:Depends}, lvm2,
  python-pyinotify, python-pycurl, python-paramiko, python-bitarray,
  python-ipaddr, socat, fping, ganeti-haskell (>= ${source:Version}),
  ganeti-haskell (<< ${source:Version}.1~), adduser
-Recommends: drbd8-utils (>= 8.0.7), qemu-system-x86 | qemu-kvm |
+Recommends: drbd8-utils (>= 8.0.7), qemu-kvm |
  xen-linux-system-amd64 | xen-linux-system-686-pae,
  ganeti-instance-debootstrap, ndisc6, ganeti-htools
 Suggests: ganeti-doc
