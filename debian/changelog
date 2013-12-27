@@ -4,6 +4,8 @@ ganeti (2.9.2-2) unstable; urgency=medium
     (closes: #733181)
   * Drop Recommends on qemu-system-x86, since it does not provide /usr/bin/kvm
     anymore.
+  * Do not pass --enable-htools-rapi to configure, the option has been removed
+    upstream since 2.8.
 
  -- Apollon Oikonomopoulos <apoikos@gmail.com>  Fri, 27 Dec 2013 10:38:05 +0200
 
