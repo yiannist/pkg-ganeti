@@ -6,6 +6,7 @@ ganeti (2.9.2-2) unstable; urgency=medium
     anymore.
   * Do not pass --enable-htools-rapi to configure, the option has been removed
     upstream since 2.8.
+  * Bump standards to 3.9.5 (no changes needed).
 
  -- Apollon Oikonomopoulos <apoikos@gmail.com>  Fri, 27 Dec 2013 10:38:05 +0200
 
