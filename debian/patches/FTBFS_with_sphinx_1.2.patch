@@ -1,0 +1,16 @@
+Author: Apollon Oikonomopoulos
+Description: Fix FTBFS with python-sphinx 1.2
+Bug: http://code.google.com/p/ganeti/issues/detail?id=502
+Forwarded: No
+Last-Update: 2013-12-27
+--- a/configure
++++ b/configure
+@@ -3075,7 +3075,7 @@
+ 
+   # Note: Character classes ([...]) need to be double quoted due to autoconf
+   # using m4
+-  elif ! echo "$sphinxver" | grep -q -E '^Sphinx[[:space:]]+v[1-9]\>'; then
++  elif ! echo "$sphinxver" | grep -q -E '^Sphinx[[:space:]]+(\(sphinx-build\)[[:space:]]+|v)[1-9]\>'; then
+     as_fn_error $? "Sphinx 1.0 or higher is required" "$LINENO" 5
+   fi
+ fi

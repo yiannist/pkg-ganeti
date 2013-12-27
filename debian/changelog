@@ -1,3 +1,10 @@
+ganeti (2.9.2-2) unstable; urgency=medium
+
+  * Add patch fixing FTBFS with python-sphinx 1.2. Thanks to Andreas Moog!
+    (closes: #733181)
+
+ -- Apollon Oikonomopoulos <apoikos@gmail.com>  Fri, 27 Dec 2013 10:38:05 +0200
+
 ganeti (2.9.2-1) unstable; urgency=medium
 
   * New upstream bugfix release (see /usr/share/doc/ganeti/NEWS.gz)

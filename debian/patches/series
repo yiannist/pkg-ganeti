@@ -2,3 +2,4 @@ fix-startup-with-old-config.patch
 cfgupgrade12-remove-old-ssconf.patch
 0003-Disable-local-checks-during-build.patch
 pass-ghc-linker-flags.patch
+FTBFS_with_sphinx_1.2.patch
