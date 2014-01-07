@@ -39,7 +39,7 @@ Suggests: ganeti-doc
 Provides: ${python:Provides}
 Description: Cluster-based virtualization management software
  Ganeti is a virtual server cluster management software tool built on top
- of the Xen virtual machine monitor and other Open Source software. After
+ of the Xen and KVM virtualization technologies and other Free Software. After
  setting it up it will provide you with an automated environment to
  manage highly available virtual machine instances.
  .
@@ -48,7 +48,7 @@ Description: Cluster-based virtualization management software
  commodity hardware.
  .
  It will take care of operations such as redundant disk creation and
- management, operating system installation  (in cooperation with OS-specific
+ management, operating system installation (in cooperation with OS-specific
  install scripts), startup, shutdown, failover of instances between physical
  systems.
 
@@ -65,7 +65,7 @@ Replaces: ganeti2 (<< 2.7.0-2)
 Breaks: ganeti2 (<< 2.7.0-2)
 Description: Cluster-based virtualization management software - Haskell components
  Ganeti is a virtual server cluster management software tool built on top
- of the Xen virtual machine monitor and other Open Source software. After
+ of the Xen and KVM virtualization technologies and other Free Software. After
  setting it up it will provide you with an automated environment to
  manage highly available virtual machine instances.
  .
@@ -74,7 +74,7 @@ Description: Cluster-based virtualization management software - Haskell componen
  commodity hardware.
  .
  It will take care of operations such as redundant disk creation and
- management, operating system installation  (in cooperation with OS-specific
+ management, operating system installation (in cooperation with OS-specific
  install scripts), startup, shutdown, failover of instances between physical
  systems.
  .
@@ -104,7 +104,7 @@ Replaces: ganeti2 (<< 2.7.0-2)
 Breaks: ganeti2 (<< 2.7.0-2)
 Description: Cluster-based virtualization management software - documentation
  Ganeti is a virtual server cluster management software tool built on top
- of the Xen virtual machine monitor and other Open Source software. After
+ of the Xen and KVM virtualization technologies and other Free Software. After
  setting it up it will provide you with an automated environment to
  manage highly available virtual machine instances.
  .
@@ -113,7 +113,7 @@ Description: Cluster-based virtualization management software - documentation
  commodity hardware.
  .
  It will take care of operations such as redundant disk creation and
- management, operating system installation  (in cooperation with OS-specific
+ management, operating system installation (in cooperation with OS-specific
  install scripts), startup, shutdown, failover of instances between physical
  systems.
  .
@@ -128,7 +128,7 @@ Replaces: ganeti2 (<< 2.7.0-2)
 Breaks: ganeti2 (<< 2.7.0-2)
 Description: Cluster-based virtualization management software - RAPI client library
  Ganeti is a virtual server cluster management software tool built on top
- of the Xen virtual machine monitor and other Open Source software. After
+ of the Xen and KVM virtualization technologies and other Free Software. After
  setting it up it will provide you with an automated environment to
  manage highly available virtual machine instances.
  .
@@ -137,7 +137,7 @@ Description: Cluster-based virtualization management software - RAPI client libr
  commodity hardware.
  .
  It will take care of operations such as redundant disk creation and
- management, operating system installation  (in cooperation with OS-specific
+ management, operating system installation (in cooperation with OS-specific
  install scripts), startup, shutdown, failover of instances between physical
  systems.
  .
