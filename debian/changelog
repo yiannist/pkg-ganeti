@@ -1,3 +1,16 @@
+ganeti (2.9.3-1) unstable; urgency=medium
+
+  * New upstream bugfix release (see /usr/share/doc/ganeti/NEWS.gz)
+    + Supports the blktap2 Xen driver. Be sure to install blktap-dkms if you
+      want to use file-backed instances on Xen 4.0.1+ (closes: #686823).
+    + Drop debian/patches/FTBFS_with_sphinx_1.2.patch (merged upstream).
+  * Update package description to also mention KVM.
+  * Suggest blktap-dkms for blktap2 compatibility.
+  * debian/watch: use the new downloads.ganeti.org distribution point and
+    verify upstream GPG signatures.
+
+ -- Apollon Oikonomopoulos <apoikos@debian.org>  Tue, 28 Jan 2014 11:52:11 +0200
+
 ganeti (2.9.2-2) unstable; urgency=medium
 
   * Add patch fixing FTBFS with python-sphinx 1.2. Thanks to Andreas Moog!
