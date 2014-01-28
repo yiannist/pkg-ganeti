@@ -8,7 +8,7 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>News &mdash; Ganeti 2.9.2 documentation</title>
+    <title>News &mdash; Ganeti 2.9.3 documentation</title>
     
     <link rel="stylesheet" href="_static/style.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
@@ -16,7 +16,7 @@
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.9.2',
+        VERSION:     '2.9.3',
         COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -25,7 +25,7 @@
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti 2.9.2 documentation" href="index.html" />
+    <link rel="top" title="Ganeti 2.9.3 documentation" href="index.html" />
     <link rel="next" title="OVF converter" href="ovfconverter.html" />
     <link rel="prev" title="Moving instances between clusters" href="move-instance.html" /> 
   </head>
@@ -39,7 +39,7 @@
         <li class="right" >
           <a href="move-instance.html" title="Moving instances between clusters"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.9.2 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.9.3 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -50,6 +50,28 @@
             
   <div class="section" id="news">
 <h1>News<a class="headerlink" href="#news" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="version-2-9-3">
+<h2>Version 2.9.3<a class="headerlink" href="#version-2-9-3" title="Permalink to this headline">¶</a></h2>
+<p><em>(Released Mon, 27 Jan 2014)</em></p>
+<ul class="simple">
+<li>Ensure that all the hypervisors exist in the config file (Issue 640)</li>
+<li>Correctly recognise the role as master node (Issue 687)</li>
+<li>configure: allow detection of Sphinx 1.2+ (Issue 502)</li>
+<li>gnt-instance now honors the KVM path correctly (Issue 691)</li>
+</ul>
+<p>Inherited from the 2.8 branch:</p>
+<ul class="simple">
+<li>Change the list separator for the usb_devices parameter from comma to space.
+Commas could not work because they are already the hypervisor option
+separator (Issue 649)</li>
+<li>Add support for blktap2 file-driver (Issue 638)</li>
+<li>Add network tag definitions to the haskell codebase (Issue 641)</li>
+<li>Fix RAPI network tag handling</li>
+<li>Add the network tags to the tags searched by gnt-cluster search-tags</li>
+<li>Fix caching bug preventing jobs from being cancelled</li>
+<li>Start-master/stop-master was always failing if ConfD was disabled. (Issue 685)</li>
+</ul>
+</div>
 <div class="section" id="version-2-9-2">
 <h2>Version 2.9.2<a class="headerlink" href="#version-2-9-2" title="Permalink to this headline">¶</a></h2>
 <p><em>(Released Fri, 13 Dec 2013)</em></p>
@@ -207,6 +229,21 @@ downgrading.</li>
 <p><em>(Released Thu, 29 Aug 2013)</em></p>
 <p>This was the first beta release of the 2.9 series. All important changes
 are listed in the latest 2.9 entry.</p>
+</div>
+<div class="section" id="version-2-8-4">
+<h2>Version 2.8.4<a class="headerlink" href="#version-2-8-4" title="Permalink to this headline">¶</a></h2>
+<p><em>(Released Thu, 23 Jan 2014)</em></p>
+<ul class="simple">
+<li>Change the list separator for the usb_devices parameter from comma to space.
+Commas could not work because they are already the hypervisor option
+separator (Issue 649)</li>
+<li>Add support for blktap2 file-driver (Issue 638)</li>
+<li>Add network tag definitions to the haskell codebase (Issue 641)</li>
+<li>Fix RAPI network tag handling</li>
+<li>Add the network tags to the tags searched by gnt-cluster search-tags</li>
+<li>Fix caching bug preventing jobs from being cancelled</li>
+<li>Start-master/stop-master was always failing if ConfD was disabled. (Issue 685)</li>
+</ul>
 </div>
 <div class="section" id="version-2-8-3">
 <h2>Version 2.8.3<a class="headerlink" href="#version-2-8-3" title="Permalink to this headline">¶</a></h2>
@@ -2935,6 +2972,7 @@ post-configuration update hook)</li>
   <h3><a href="index.html">Table Of Contents</a></h3>
   <ul>
 <li><a class="reference internal" href="#">News</a><ul>
+<li><a class="reference internal" href="#version-2-9-3">Version 2.9.3</a></li>
 <li><a class="reference internal" href="#version-2-9-2">Version 2.9.2</a></li>
 <li><a class="reference internal" href="#version-2-9-1">Version 2.9.1</a></li>
 <li><a class="reference internal" href="#version-2-9-0">Version 2.9.0</a><ul>
@@ -2948,6 +2986,7 @@ post-configuration update hook)</li>
 <li><a class="reference internal" href="#version-2-9-0-rc2">Version 2.9.0 rc2</a></li>
 <li><a class="reference internal" href="#version-2-9-0-rc1">Version 2.9.0 rc1</a></li>
 <li><a class="reference internal" href="#version-2-9-0-beta1">Version 2.9.0 beta1</a></li>
+<li><a class="reference internal" href="#version-2-8-4">Version 2.8.4</a></li>
 <li><a class="reference internal" href="#version-2-8-3">Version 2.8.3</a></li>
 <li><a class="reference internal" href="#version-2-8-2">Version 2.8.2</a></li>
 <li><a class="reference internal" href="#version-2-8-1">Version 2.8.1</a></li>
@@ -3150,7 +3189,7 @@ post-configuration update hook)</li>
         <li class="right" >
           <a href="move-instance.html" title="Moving instances between clusters"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.9.2 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.9.3 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

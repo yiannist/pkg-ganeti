@@ -109,8 +109,9 @@ For example, the Xen HVM hypervisor can export disks as either
 .B DISK_%N_BACKEND_TYPE
 How files are visible on the node side.
 This can be either \f[C]block\f[] (when using block devices) or
-\f[C]file:type\f[], where \f[C]type\f[] is either \f[C]loop\f[] or
-\f[C]blktap\f[] depending on how the hypervisor will be configured.
+\f[C]file:type\f[], where \f[C]type\f[] is either \f[C]loop\f[],
+\f[C]blktap\f[] or \f[C]blktap2\f[], depending on how the hypervisor
+will be configured.
 Note that not all backend types apply to all hypervisors.
 .RS
 .RE

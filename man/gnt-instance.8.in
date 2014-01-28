@@ -63,7 +63,8 @@ option=\f[I]value\f[]...
 .PD 0
 .P
 .PD
-[--file-storage-dir \f[I]dir_path\f[]] [--file-driver {loop | blktap}]
+[--file-storage-dir \f[I]dir_path\f[]] [--file-driver {loop | blktap |
+blktap2}]
 .PD 0
 .P
 .PD
@@ -81,6 +82,10 @@ option=\f[I]value\f[]...
 .P
 .PD
 [--ignore-ipolicy]
+.PD 0
+.P
+.PD
+[--no-wait-for-sync]
 .PD 0
 .P
 .PD
@@ -437,7 +442,9 @@ The possible options are:
 .IP \[bu] 2
 ioemu [default] (HVM & KVM)
 .IP \[bu] 2
-ide (HVM & KVM)
+paravirtual (HVM & KVM)
+.IP \[bu] 2
+ide (KVM)
 .IP \[bu] 2
 scsi (KVM)
 .IP \[bu] 2
@@ -481,6 +488,16 @@ Valid values are IPv4 addresses.
 Use the address 0.0.0.0 to bind to all available interfaces (this is the
 default) or specify the address of one of the interfaces on the node to
 restrict listening to that interface.
+.RE
+.TP
+.B vnc_password_file
+Valid for the Xen HVM and KVM hypervisors.
+.RS
+.PP
+Specifies the location of the file containing the password for
+connections using VNC.
+The default is a file named vnc-cluster-password which can be found in
+the configuration directory.
 .RE
 .TP
 .B vnc_tls
@@ -991,11 +1008,15 @@ the available ones.
 Valid for the KVM hypervisor.
 .RS
 .PP
-Comma separated list of usb devices.
+Space separated list of usb devices.
 These can be emulated devices or passthrough ones, and each one gets
 passed to kvm with its own \f[C]-usbdevice\f[] option.
 See the \f[B]qemu\f[](1) manpage for the syntax of the possible
 components.
+Note that values set with this parameter are split on a space character
+and currently don\[aq]t support quoting.
+For backwards compatibility reasons, the RAPI interface keeps accepting
+comma separated lists too.
 .RE
 .TP
 .B vga
@@ -1163,6 +1184,11 @@ This user-level disk I/O interface has the advantage of better
 performance.
 Especially if you use a network file system (e.g.
 NFS) to store your instances this is the recommended choice.
+.RS
+.RE
+.TP
+.B blktap2
+Analogous to the blktap driver, but used by newer versions of Xen.
 .RS
 .RE
 .PP
