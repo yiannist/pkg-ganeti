@@ -85,7 +85,7 @@ code > span.er { color: #ff0000; font-weight: bold; }
 <h1 id="commands"><a href="#TOC">COMMANDS</a></h1>
 <h2 id="creationremovalquerying"><a href="#TOC">Creation/removal/querying</a></h2>
 <h3 id="add"><a href="#TOC">ADD</a></h3>
-<p><strong>add</strong><br />{-t|--disk-template {diskless | file | plain | drbd | rbd}}<br />{--disk=<em>N</em>: {size=<em>VAL</em>[,spindles=<em>VAL</em>] | adopt=<em>LV</em>}[,options...]<br /> | {size=<em>VAL</em>,provider=<em>PROVIDER</em>}[,param=<em>value</em>... ][,options...]<br /> | {-s|--os-size} <em>SIZE</em>}<br />[--no-ip-check] [--no-name-check] [--no-conflicts-check]<br />[--no-start] [--no-install]<br />[--net=<em>N</em> [:options...] | --no-nics]<br />[{-B|--backend-parameters} <em>BEPARAMS</em>]<br />[{-H|--hypervisor-parameters} <em>HYPERVISOR</em> [: option=<em>value</em>... ]]<br />[{-O|--os-parameters} <em>param</em>=<em>value</em>... ]<br />[--file-storage-dir <em>dir_path</em>] [--file-driver {loop | blktap}]<br />{{-n|--node} <em>node[:secondary-node]</em> | {-I|--iallocator} <em>name</em>}<br />{{-o|--os-type} <em>os-type</em>}<br />[--submit] [--print-job-id]<br />[--ignore-ipolicy]<br />{<em>instance</em>}</p>
+<p><strong>add</strong><br />{-t|--disk-template {diskless | file | plain | drbd | rbd}}<br />{--disk=<em>N</em>: {size=<em>VAL</em>[,spindles=<em>VAL</em>] | adopt=<em>LV</em>}[,options...]<br /> | {size=<em>VAL</em>,provider=<em>PROVIDER</em>}[,param=<em>value</em>... ][,options...]<br /> | {-s|--os-size} <em>SIZE</em>}<br />[--no-ip-check] [--no-name-check] [--no-conflicts-check]<br />[--no-start] [--no-install]<br />[--net=<em>N</em> [:options...] | --no-nics]<br />[{-B|--backend-parameters} <em>BEPARAMS</em>]<br />[{-H|--hypervisor-parameters} <em>HYPERVISOR</em> [: option=<em>value</em>... ]]<br />[{-O|--os-parameters} <em>param</em>=<em>value</em>... ]<br />[--file-storage-dir <em>dir_path</em>] [--file-driver {loop | blktap | blktap2}]<br />{{-n|--node} <em>node[:secondary-node]</em> | {-I|--iallocator} <em>name</em>}<br />{{-o|--os-type} <em>os-type</em>}<br />[--submit] [--print-job-id]<br />[--ignore-ipolicy]<br />[--no-wait-for-sync]<br />{<em>instance</em>}</p>
 <p>Creates a new instance on the specified host. The <em>instance</em> argument must be in DNS, but depending on the bridge/routing setup, need not be in the same network as the nodes in the cluster.</p>
 <p>The <code>disk</code> option specifies the parameters for the disks of the instance. The numbering of disks starts at zero, and at least one disk needs to be passed. For each disk, either the size or the adoption source needs to be given. The size is interpreted (when no unit is given) in mebibytes. You can also use one of the suffixes <em>m</em>, <em>g</em> or <em>t</em> to specify the exact the units used; these suffixes map to mebibytes, gibibytes and tebibytes. Each disk can also take these parameters (all optional):</p>
 <dl>
@@ -223,7 +223,8 @@ code > span.er { color: #ff0000; font-weight: bold; }
 <p>This parameter determines the way the disks are presented to the instance. The possible options are:</p>
 <ul>
 <li>ioemu [default] (HVM &amp; KVM)</li>
-<li>ide (HVM &amp; KVM)</li>
+<li>paravirtual (HVM &amp; KVM)</li>
+<li>ide (KVM)</li>
 <li>scsi (KVM)</li>
 <li>sd (KVM)</li>
 <li>mtd (KVM)</li>
@@ -245,6 +246,10 @@ code > span.er { color: #ff0000; font-weight: bold; }
 <dt>vnc_bind_address</dt>
 <dd><p>Valid for the Xen HVM and KVM hypervisors.</p>
 <p>Specifies the address that the VNC listener for this instance should bind to. Valid values are IPv4 addresses. Use the address 0.0.0.0 to bind to all available interfaces (this is the default) or specify the address of one of the interfaces on the node to restrict listening to that interface.</p>
+</dd>
+<dt>vnc_password_file</dt>
+<dd><p>Valid for the Xen HVM and KVM hypervisors.</p>
+<p>Specifies the location of the file containing the password for connections using VNC. The default is a file named vnc-cluster-password which can be found in the configuration directory.</p>
 </dd>
 <dt>vnc_tls</dt>
 <dd><p>Valid for the KVM hypervisor.</p>
@@ -478,7 +483,7 @@ gnt-instance modify -H <span class="ot">cpu_mask=</span>all my-inst</code></pre>
 </dd>
 <dt>usb_devices</dt>
 <dd><p>Valid for the KVM hypervisor.</p>
-<p>Comma separated list of usb devices. These can be emulated devices or passthrough ones, and each one gets passed to kvm with its own <code>-usbdevice</code> option. See the <strong>qemu</strong>(1) manpage for the syntax of the possible components.</p>
+<p>Space separated list of usb devices. These can be emulated devices or passthrough ones, and each one gets passed to kvm with its own <code>-usbdevice</code> option. See the <strong>qemu</strong>(1) manpage for the syntax of the possible components. Note that values set with this parameter are split on a space character and currently don't support quoting. For backwards compatibility reasons, the RAPI interface keeps accepting comma separated lists too.</p>
 </dd>
 <dt>vga</dt>
 <dd><p>Valid for the KVM hypervisor.</p>
@@ -543,6 +548,9 @@ gnt-instance modify -H <span class="ot">cpu_mask=</span>all my-inst</code></pre>
 </dd>
 <dt>blktap</dt>
 <dd><p>The blktap driver (for Xen hypervisors). In order to be able to use the blktap driver you should check if the 'blktapctrl' user space disk agent is running (usually automatically started via xend). This user-level disk I/O interface has the advantage of better performance. Especially if you use a network file system (e.g. NFS) to store your instances this is the recommended choice.</p>
+</dd>
+<dt>blktap2</dt>
+<dd><p>Analogous to the blktap driver, but used by newer versions of Xen.</p>
 </dd>
 </dl>
 <p>If <code>--ignore-ipolicy</code> is given any instance policy violations occuring during this operation are ignored.</p>

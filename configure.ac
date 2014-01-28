@@ -1,7 +1,7 @@
 # Configure script for Ganeti
 m4_define([gnt_version_major], [2])
 m4_define([gnt_version_minor], [9])
-m4_define([gnt_version_revision], [2])
+m4_define([gnt_version_revision], [3])
 m4_define([gnt_version_suffix], [])
 m4_define([gnt_version_full],
           m4_format([%d.%d.%d%s],
@@ -355,7 +355,8 @@ else
 
   # Note: Character classes ([...]) need to be double quoted due to autoconf
   # using m4
-  elif ! echo "$sphinxver" | grep -q -E '^Sphinx[[[:space:]]]+v[[1-9]]\>'; then
+  elif ! echo "$sphinxver" | grep -q -E \
+       '^Sphinx[[[:space:]]]+(\(sphinx-build\)[[[:space:]]]+|v)[[1-9]]\>'; then
     AC_MSG_ERROR([Sphinx 1.0 or higher is required])
   fi
 fi

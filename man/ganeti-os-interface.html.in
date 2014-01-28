@@ -108,7 +108,7 @@ code > span.er { color: #ff0000; font-weight: bold; }
 <dd><p>(Optional) If applicable to the current hypervisor type: the type of the device exported by the hypervisor. For example, the Xen HVM hypervisor can export disks as either <code>paravirtual</code> or <code>ioemu</code>.</p>
 </dd>
 <dt>DISK_%N_BACKEND_TYPE</dt>
-<dd><p>How files are visible on the node side. This can be either <code>block</code> (when using block devices) or <code>file:type</code>, where <code>type</code> is either <code>loop</code> or <code>blktap</code> depending on how the hypervisor will be configured. Note that not all backend types apply to all hypervisors.</p>
+<dd><p>How files are visible on the node side. This can be either <code>block</code> (when using block devices) or <code>file:type</code>, where <code>type</code> is either <code>loop</code>, <code>blktap</code> or <code>blktap2</code>, depending on how the hypervisor will be configured. Note that not all backend types apply to all hypervisors.</p>
 </dd>
 <dt>NIC_COUNT</dt>
 <dd><p>Similar to the <code>DISK_COUNT</code>, this represents the number of NICs of the instance.</p>
