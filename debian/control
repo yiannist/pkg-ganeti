@@ -3,7 +3,7 @@ Section: admin
 Priority: extra
 Maintainer: Debian Ganeti Team <pkg-ganeti-devel@lists.alioth.debian.org>
 Uploaders: Guido Trotter <ultrotter@debian.org>,
- Apollon Oikonomopoulos <apoikos@gmail.com>
+ Apollon Oikonomopoulos <apoikos@debian.org>
 Build-Depends: debhelper (>= 9),
  python-all, ghc (>= 6.12), ghc-ghci,
  libghc-curl-dev, libghc-json-dev, libghc-snap-server-dev,
