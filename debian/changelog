@@ -1,3 +1,16 @@
+ganeti (2.9.5-1) unstable; urgency=medium
+
+  * New upstream bugfix release (see /usr/share/doc/ganeti/NEWS.gz):
+    + Fix overflow problem in hbal that caused it to break when waiting for
+      jobs for more than 10 minutes.
+    + Make hbal properly handle non-LVM storage.
+    + Properly export and import NIC parameters, and do so in a backwards
+      compatible way.
+    + Fix net-common script in case of routed mode.
+    + Improve documentation.
+    
+ -- Apollon Oikonomopoulos <apoikos@debian.org>  Wed, 26 Feb 2014 14:11:38 +0200
+
 ganeti (2.9.4-1) unstable; urgency=medium
 
   * New upstream bugfix release (see /usr/share/doc/ganeti/NEWS.gz).
