@@ -47,14 +47,14 @@
 <p>By default, the instance specifications will be read from the cluster; the options <code>--standard-alloc</code> and <code>--tiered-alloc</code> can be used to override them.</p>
 <p>The following keys are available in the machine-readable output of the script (all prefixed with <em>HTS_</em>):</p>
 <dl>
-<dt>SPEC_MEM, SPEC_DSK, SPEC_CPU, SPEC_RQN, SPEC_DISK_TEMPLATE</dt>
-<dd><p>These represent the specifications of the instance model used for allocation (the memory, disk, cpu, requested nodes, disk template).</p>
+<dt>SPEC_MEM, SPEC_DSK, SPEC_CPU, SPEC_RQN, SPEC_DISK_TEMPLATE, SPEC_SPN</dt>
+<dd><p>These represent the specifications of the instance model used for allocation (the memory, disk, cpu, requested nodes, disk template, spindles).</p>
 </dd>
 <dt>TSPEC_INI_MEM, TSPEC_INI_DSK, TSPEC_INI_CPU, ...</dt>
 <dd><p>Only defined when the tiered mode allocation is enabled, these are similar to the above specifications but show the initial starting spec for tiered allocation.</p>
 </dd>
-<dt>CLUSTER_MEM, CLUSTER_DSK, CLUSTER_CPU, CLUSTER_NODES</dt>
-<dd><p>These represent the total memory, disk, CPU count and total nodes in the cluster.</p>
+<dt>CLUSTER_MEM, CLUSTER_DSK, CLUSTER_CPU, CLUSTER_NODES, CLUSTER_SPN</dt>
+<dd><p>These represent the total memory, disk, CPU count, total nodes, and total spindles in the cluster.</p>
 </dd>
 <dt>INI_SCORE, FIN_SCORE</dt>
 <dd><p>These are the initial (current) and final cluster score (see the hbal man page for details about the scoring algorithm).</p>
@@ -86,6 +86,9 @@
 <dt>FIN_DSK_FREE, FIN_DSK_AVAIL, FIN_DSK_RESVD, FIN_DSK_INST, FIN_DSK_EFF</dt>
 <dd><p>Final disk stats, similar to the memory ones.</p>
 </dd>
+<dt>INI_SPN_FREE, ..., FIN_SPN_FREE, ..</dt>
+<dd><p>Initial and final spindles stats, similar to memory ones.</p>
+</dd>
 <dt>INI_CPU_INST, FIN_CPU_INST</dt>
 <dd><p>Initial and final number of virtual CPUs used by instances.</p>
 </dd>
@@ -99,7 +102,7 @@
 <dd><p>Like the above but for disk.</p>
 </dd>
 <dt>TSPEC</dt>
-<dd><p>This parameter holds the pairs of specifications and counts of instances that can be created in the <em>tiered allocation</em> mode. The value of the key is a space-separated list of values; each value is of the form <em>memory,disk,vcpu=count</em> where the memory, disk and vcpu are the values for the current spec, and count is how many instances of this spec can be created. A complete value for this variable could be: <strong>4096,102400,2=225 2560,102400,2=20 512,102400,2=21</strong>.</p>
+<dd><p>This parameter holds the pairs of specifications and counts of instances that can be created in the <em>tiered allocation</em> mode. The value of the key is a space-separated list of values; each value is of the form <em>memory,disk,vcpu,spindles=count</em> where the memory, disk and vcpu are the values for the current spec, and count is how many instances of this spec can be created. A complete value for this variable could be: <strong>4096,102400,2,1=225 2560,102400,2,1=20 512,102400,2,1=21</strong>.</p>
 </dd>
 <dt>KM_USED_CPU, KM_USED_NPU, KM_USED_MEM, KM_USED_DSK</dt>
 <dd><p>These represents the metrics of used resources at the start of the computation (only for tiered allocation mode). The NPU value is &quot;normalized&quot; CPU count, i.e. the number of virtual CPUs divided by the maximum ratio of the virtual to physical CPUs.</p>

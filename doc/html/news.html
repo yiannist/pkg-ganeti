@@ -8,7 +8,7 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>News &mdash; Ganeti 2.9.4 documentation</title>
+    <title>News &mdash; Ganeti 2.9.5 documentation</title>
     
     <link rel="stylesheet" href="_static/style.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
@@ -16,7 +16,7 @@
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.9.4',
+        VERSION:     '2.9.5',
         COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -25,7 +25,7 @@
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti 2.9.4 documentation" href="index.html" />
+    <link rel="top" title="Ganeti 2.9.5 documentation" href="index.html" />
     <link rel="next" title="OVF converter" href="ovfconverter.html" />
     <link rel="prev" title="Moving instances between clusters" href="move-instance.html" /> 
   </head>
@@ -39,7 +39,7 @@
         <li class="right" >
           <a href="move-instance.html" title="Moving instances between clusters"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.9.4 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.9.5 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -50,6 +50,19 @@
             
   <div class="section" id="news">
 <h1>News<a class="headerlink" href="#news" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="version-2-9-5">
+<h2>Version 2.9.5<a class="headerlink" href="#version-2-9-5" title="Permalink to this headline">¶</a></h2>
+<p><em>(Released Tue, 25 Feb 2014)</em></p>
+<ul class="simple">
+<li>Fix overflow problem in hbal that caused it to break when waiting for
+jobs for more than 10 minutes (issue 717)</li>
+<li>Make hbal properly handle non-LVM storage</li>
+<li>Properly export and import NIC parameters, and do so in a backwards
+compatible way (issue 716)</li>
+<li>Fix net-common script in case of routed mode (issue 728)</li>
+<li>Improve documentation (issues 724, 730)</li>
+</ul>
+</div>
 <div class="section" id="version-2-9-4">
 <h2>Version 2.9.4<a class="headerlink" href="#version-2-9-4" title="Permalink to this headline">¶</a></h2>
 <p><em>(Released Mon, 10 Feb 2014)</em></p>
@@ -2985,6 +2998,7 @@ post-configuration update hook)</li>
   <h3><a href="index.html">Table Of Contents</a></h3>
   <ul>
 <li><a class="reference internal" href="#">News</a><ul>
+<li><a class="reference internal" href="#version-2-9-5">Version 2.9.5</a></li>
 <li><a class="reference internal" href="#version-2-9-4">Version 2.9.4</a></li>
 <li><a class="reference internal" href="#version-2-9-3">Version 2.9.3</a></li>
 <li><a class="reference internal" href="#version-2-9-2">Version 2.9.2</a></li>
@@ -3203,7 +3217,7 @@ post-configuration update hook)</li>
         <li class="right" >
           <a href="move-instance.html" title="Moving instances between clusters"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.9.4 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.9.5 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">
