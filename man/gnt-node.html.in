@@ -91,6 +91,7 @@
 <h2 id="failover"><a href="#TOC">FAILOVER</a></h2>
 <p><strong>failover</strong> [-f] [--ignore-consistency] {<em>node</em>}</p>
 <p>This command will fail over all instances having the given node as primary to their secondary nodes. This works only for instances having a drbd disk template.</p>
+<p>Note that failover will stop any running instances on the given node and restart them again on the new primary. See also FAILOVER in <strong>gnt-instance</strong>(8).</p>
 <p>Normally the failover will check the consistency of the disks before failing over the instance. If you are trying to migrate instances off a dead node, this will fail. Use the <code>--ignore-consistency</code> option for this purpose.</p>
 <p>Example:</p>
 <pre><code># gnt-node failover node1.example.com</code></pre>

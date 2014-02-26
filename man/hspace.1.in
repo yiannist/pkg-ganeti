@@ -60,9 +60,10 @@ used to override them.
 The following keys are available in the machine-readable output of the
 script (all prefixed with \f[I]HTS_\f[]):
 .TP
-.B SPEC_MEM, SPEC_DSK, SPEC_CPU, SPEC_RQN, SPEC_DISK_TEMPLATE
+.B SPEC_MEM, SPEC_DSK, SPEC_CPU, SPEC_RQN, SPEC_DISK_TEMPLATE, SPEC_SPN
 These represent the specifications of the instance model used for
-allocation (the memory, disk, cpu, requested nodes, disk template).
+allocation (the memory, disk, cpu, requested nodes, disk template,
+spindles).
 .RS
 .RE
 .TP
@@ -73,9 +74,9 @@ for tiered allocation.
 .RS
 .RE
 .TP
-.B CLUSTER_MEM, CLUSTER_DSK, CLUSTER_CPU, CLUSTER_NODES
-These represent the total memory, disk, CPU count and total nodes in the
-cluster.
+.B CLUSTER_MEM, CLUSTER_DSK, CLUSTER_CPU, CLUSTER_NODES, CLUSTER_SPN
+These represent the total memory, disk, CPU count, total nodes, and
+total spindles in the cluster.
 .RS
 .RE
 .TP
@@ -139,6 +140,11 @@ Final disk stats, similar to the memory ones.
 .RS
 .RE
 .TP
+.B INI_SPN_FREE, ..., FIN_SPN_FREE, ..
+Initial and final spindles stats, similar to memory ones.
+.RS
+.RE
+.TP
 .B INI_CPU_INST, FIN_CPU_INST
 Initial and final number of virtual CPUs used by instances.
 .RS
@@ -167,11 +173,11 @@ Like the above but for disk.
 This parameter holds the pairs of specifications and counts of instances
 that can be created in the \f[I]tiered allocation\f[] mode.
 The value of the key is a space-separated list of values; each value is
-of the form \f[I]memory,disk,vcpu=count\f[] where the memory, disk and
-vcpu are the values for the current spec, and count is how many
+of the form \f[I]memory,disk,vcpu,spindles=count\f[] where the memory,
+disk and vcpu are the values for the current spec, and count is how many
 instances of this spec can be created.
-A complete value for this variable could be: \f[B]4096,102400,2=225
-2560,102400,2=20 512,102400,2=21\f[].
+A complete value for this variable could be: \f[B]4096,102400,2,1=225
+2560,102400,2,1=20 512,102400,2,1=21\f[].
 .RS
 .RE
 .TP
