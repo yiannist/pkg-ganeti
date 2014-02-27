@@ -1,2 +1,0 @@
-ganeti-htools binary: hardening-no-fortify-functions usr/bin/htools
-ganeti-htools binary: hyphen-used-as-minus-sign
