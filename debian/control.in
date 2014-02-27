@@ -31,11 +31,11 @@ Package: ganeti
 Architecture: all
 Breaks: ganeti2 (<< 2.7.0-2), ganeti-haskell
 Replaces: ganeti2 (<< 2.7.0-2), ganeti-haskell, ganeti-htools
-Depends: ganeti-2.10 (= ${source:Version}),
- ganeti-haskell-2.10 (>= ${source:Version}),
- ganeti-haskell-2.10 (<< ${source:Version}.1~),
- ganeti-htools-2.10 (>= ${source:Version}),
- ganeti-htools-2.10 (<< ${source:Version}.1~),
+Depends: ganeti-#VER# (= ${source:Version}),
+ ganeti-haskell-#VER# (>= ${source:Version}),
+ ganeti-haskell-#VER# (<< ${source:Version}.1~),
+ ganeti-htools-#VER# (>= ${source:Version}),
+ ganeti-htools-#VER# (<< ${source:Version}.1~),
  adduser, ${misc:Depends}
 Recommends: drbd8-utils (>= 8.0.7), qemu-kvm |
  xen-linux-system-amd64 | xen-linux-system-686-pae,
@@ -60,7 +60,7 @@ Description: Cluster-based virtualization management software
  .
  This package installs the complete Ganeti system.
 
-Package: ganeti-2.10
+Package: ganeti-#VER#
 Architecture: all
 Depends: ${shlibs:Depends}, ${misc:Depends}, ${python:Depends}, lvm2,
  openssh-client, openssh-server, bridge-utils, iproute2 | iproute,
@@ -83,9 +83,9 @@ Description: Cluster-based virtualization management software - Python component
  install scripts), startup, shutdown, failover of instances between physical
  systems.
  .
- This package contains all architecture-independent components of Ganeti 2.10.
+ This package contains all architecture-independent components of Ganeti #VER#.
 
-Package: ganeti-haskell-2.10
+Package: ganeti-haskell-#VER#
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}
 Description: Cluster-based virtualization management software - Haskell components
@@ -103,12 +103,12 @@ Description: Cluster-based virtualization management software - Haskell componen
  install scripts), startup, shutdown, failover of instances between physical
  systems.
  .
- This package contains the architecture-dependent components of Ganeti 2.10
+ This package contains the architecture-dependent components of Ganeti #VER#
  written in Haskell.
 
 Package: ganeti-htools
 Architecture: all
-Depends: ${shlibs:Depends}, ${misc:Depends}, ganeti-htools-2.10
+Depends: ${shlibs:Depends}, ${misc:Depends}, ganeti-htools-#VER#
 Breaks: ganeti2 (<< 2.4)
 Description: Cluster allocation tools for Ganeti - stand-alone version
  Additional tools used for enhanced allocation, maintenance and capacity
@@ -126,10 +126,10 @@ Description: Cluster allocation tools for Ganeti - stand-alone version
  This package is intended for stand-alone systems that are not part of a Ganeti
  cluster.
 
-Package: ganeti-htools-2.10
+Package: ganeti-htools-#VER#
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}
-Description: Cluster allocation tools for Ganeti 2.10
+Description: Cluster allocation tools for Ganeti #VER#
  Additional tools used for enhanced allocation, maintenance and capacity
  calculation on Ganeti clusters.
  .
