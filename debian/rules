@@ -54,6 +54,8 @@ override_dh_auto_clean:
 
 override_dh_auto_build:
 	dh_auto_build
+
+	# Rebuild the sphinx documentation
 	mv doc/html doc/html.orig
 	$(MAKE) doc/html
 
@@ -63,8 +65,6 @@ override_dh_auto_build:
 		    -e "s#@VER@#$(VER)#g" >"$(CURDIR)/debian/ganeti.postinst"
 	$(CURDIR)/debian/genscript.py postrm "$(CURDIR)" >"$(CURDIR)/debian/ganeti.postrm"
 
-# Add missing bits to ganeti and python-ganeti-rapi. We do not use
-# override_dh_install (plain) because it will fail in binary-arch builds.
 override_dh_install-indep:
 	dh_install --fail-missing -pganeti-$(VER) -Xsbin/ganeti-confd -Xganeti/mon-collector \
 		-Xganeti/default -Xbin/h -Xman1/h -Xsbin/ganeti-mond -Xsbin/ganeti-luxid -Xhail
@@ -73,7 +73,7 @@ override_dh_install-indep:
 	cp $(CURDIR)/doc/examples/ganeti.initd $(CURDIR)/debian/ganeti.init
 	cp $(CURDIR)/doc/examples/ganeti.cron $(CURDIR)/debian/ganeti.cron.d
 	cp $(CURDIR)/doc/examples/ganeti.default $(CURDIR)/debian/ganeti.default
-	
+
 	# Dummy Python module for the RAPI client
 	# Add missing bits to ganeti and python-ganeti-rapi.
 	cp $(CURDIR)/debian/tmp/usr/share/ganeti/$(VER)/ganeti/rapi/client.py \
