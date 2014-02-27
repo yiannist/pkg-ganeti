@@ -78,6 +78,12 @@ override_dh_install-indep:
 	touch $(CURDIR)/debian/python-ganeti-rapi/usr/share/pyshared/ganeti/__init__.py
 	touch $(CURDIR)/debian/python-ganeti-rapi/usr/share/pyshared/ganeti/rapi/__init__.py
 
+override_dh_python2:
+	dh_python2
+
+	# /usr/share/ganeti/<VER> is not in the default search path of dh_python2
+	dh_python2 -pganeti-$(VER) usr/share/ganeti/$(VER)
+
 override_dh_installinit:
 	dh_installinit --error-handler=true -i -- defaults 20 80
 
@@ -91,4 +97,4 @@ override_dh_auto_test:
 
 .PHONY: override_dh_auto_configure override_dh_auto_clean override_dh_auto_build \
 	override_dh_installinit override_dh_install-indep override_dh_sphinxdoc-arch \
-	override_dh_auto_test genfiles
+	override_dh_auto_test override_dh_python2 genfiles
