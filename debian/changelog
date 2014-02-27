@@ -1,3 +1,37 @@
+ganeti (2.10.1-1) unstable; urgency=medium
+
+  * New upstream stable release
+    + For new features and changes since 2.9.x, see
+      http://docs.ganeti.org/ganeti/2.10/html/news.html or NEWS.gz.
+    + Support multiple co-existing versions and cluster-wide upgrades, see
+      http://docs.ganeti.org/ganeti/2.10/html/design-upgrade.html
+  * Build-Depend on m4 (required upstream)
+  * New binary packages:
+    + ganeti-2.10: Python code and scripts for Ganeti 2.10
+    + ganeti-haskell-2.10: Haskell binaries for Ganeti 2.10. ganeti-haskell no
+      longer exists.
+    + ganeti-htools-2.10: Haskell tools for Ganeti 2.10
+  * Generate debian/control and most debhelper files from templates for the
+    given Ganeti version.
+  * ganeti-htools is now intended only for standalone use and conflicts with
+    ganeti, which now depends on ganeti-htools-2.10 and includes all htools
+    functionality.
+  * debian/watch: look for stable 2.10 releases
+  * postinst: restart the ganeti service only when needed, i.e. when the
+    actual running version has changed.
+  * Prompt (using debconf) to abort removal of versioned packages when they
+    are still in use (e.g. before `gnt-cluster upgrade' is run).
+    + ganeti-haskell-2.10, ganeti-htools-2.10 and ganeti-2.10 now depend on
+      debconf | debconf-2.0.
+    + Build-depend on po-debconf.
+    + Add debconf templates and translation template.
+    + Add Greek debconf translation.
+    + Override lintian's no-debconf-config tag, since we are using debconf
+      only to prompt interactively on removal (no actual configuration is
+      done).
+
+ -- Apollon Oikonomopoulos <apoikos@debian.org>  Thu, 06 Mar 2014 18:00:05 +0200
+
 ganeti (2.9.5-1) unstable; urgency=medium
 
   * New upstream bugfix release (see /usr/share/doc/ganeti/NEWS.gz):
