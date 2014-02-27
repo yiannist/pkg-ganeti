@@ -109,6 +109,15 @@ override_dh_compress:
 		ln -sf "$${target}.gz" "$${file}.gz"; \
 	done
 
+override_dh_link:
+	# Fix the links in ganeti-htools to refer directly to the version at hand
+	for file in $$(find $(CURDIR)/debian/ganeti-htools/usr -type l); do \
+		target="$$(readlink "$$file" | sed -r -e 's#/usr/(lib|share)/ganeti/default/#/usr/\1/ganeti/$(VER)/#')"; \
+		ln -sf "$$target" "$$file"; \
+	done
+
+	# Now let dh_link fix all symlinks
+	dh_link
 
 # Disable dh_sphinxdoc for binary-arch, as it will raise an error
 override_dh_sphinxdoc-arch:
@@ -121,4 +130,4 @@ override_dh_auto_test:
 .PHONY: override_dh_auto_configure override_dh_auto_clean override_dh_auto_build \
 	override_dh_installinit override_dh_install-indep override_dh_sphinxdoc-arch \
 	override_dh_auto_test override_dh_compress override_dh_python2 \
-	genfiles
+	override_dh_link genfiles
