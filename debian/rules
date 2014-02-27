@@ -87,6 +87,29 @@ override_dh_python2:
 override_dh_installinit:
 	dh_installinit --error-handler=true -i -- defaults 20 80
 
+override_dh_compress:
+	dh_compress
+
+	# Compress version-specific manpages, not automatically detected by dh_compress
+	for package in ganeti-$(VER) ganeti-htools-$(VER); do \
+		(cd $(CURDIR)/debian/$$package && \
+			find usr/share/ganeti/$(VER)/root/usr/share/man -type f) | \
+			xargs dh_compress -p$$package; \
+	done
+
+	# Fix the symlinks under /usr/share/man to point to the compressed
+	# files. The symlinks are shipped in the ganeti package, and because
+	# they are indirect links through /etc, they would not be detected by
+	# dh_compress anyway.
+	for file in $$(find $(CURDIR)/debian/ganeti/usr/share/man \
+			    $(CURDIR)/debian/ganeti-htools/usr/share/man \
+			    -type l); do \
+		target=$$(readlink "$$file"); \
+		rm "$$file"; \
+		ln -sf "$${target}.gz" "$${file}.gz"; \
+	done
+
+
 # Disable dh_sphinxdoc for binary-arch, as it will raise an error
 override_dh_sphinxdoc-arch:
 
@@ -97,4 +120,5 @@ override_dh_auto_test:
 
 .PHONY: override_dh_auto_configure override_dh_auto_clean override_dh_auto_build \
 	override_dh_installinit override_dh_install-indep override_dh_sphinxdoc-arch \
-	override_dh_auto_test override_dh_python2 genfiles
+	override_dh_auto_test override_dh_compress override_dh_python2 \
+	genfiles
