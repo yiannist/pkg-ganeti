@@ -1,0 +1,4 @@
+ganeti-haskell-VER: hardening-no-fortify-functions usr/lib/ganeti/VER/usr/sbin/ganeti-confd
+ganeti-haskell-VER: hardening-no-fortify-functions usr/lib/ganeti/VER/usr/sbin/ganeti-luxid
+ganeti-haskell-VER: hardening-no-fortify-functions usr/lib/ganeti/VER/usr/sbin/ganeti-mond
+ganeti-haskell-VER: hardening-no-fortify-functions usr/lib/ganeti/VER/usr/lib/ganeti/mon-collector
