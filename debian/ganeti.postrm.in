@@ -20,9 +20,12 @@ set -e
 
 case "$1" in
     purge)
+	rm -f /etc/ganeti/share /etc/ganeti/lib
+
 	#GANETI_USERS#
     ;;
     remove|upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
+	rm -f /etc/ganeti/share /etc/ganeti/lib
     ;;
 
     *)

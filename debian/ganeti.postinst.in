@@ -41,6 +41,38 @@ case "$1" in
 		find /var/log/ganeti -user gnt-mond -exec chown root:root {} \;
 		deluser --system gnt-mond || true
 	fi
+
+	update_symlinks=0
+	# Handle symlinks...
+	# ... if we are upgrading from pre-2.10 versions
+	if [ -n "$2" ] && dpkg --compare-versions "$2" lt 2.10.0; then
+		update_symlinks=1
+
+	# ... or if we are not part of a cluster
+	elif ! /usr/lib/ganeti/@VER@/usr/lib/ganeti/daemon-util check-config; then
+		update_symlinks=1
+
+	# ... or if something is broken
+	elif [ ! -e /etc/ganeti/lib -o ! -e /etc/ganeti/share ]; then
+		update_symlinks=1
+	fi
+
+	if [ "$update_symlinks" = 1 ]; then
+		for target in lib share; do
+			if [ "$(readlink /etc/ganeti/${target})" != "/usr/${target}/ganeti/@VER@" ]; then
+				echo "Updating /etc/ganeti/${target}"
+				ln -snf /usr/${target}/ganeti/@VER@ /etc/ganeti/${target}
+			fi
+		done
+	fi
+
+	# Restart the service if we have either updated the symlinks, or
+	# shipped the same minor version
+	if [ "$update_symlinks" = 1 -o "${2%.*}" = "@VER@" ]; then
+		if [ -x "/etc/init.d/ganeti" ]; then
+			invoke-rc.d ganeti restart || true
+		fi
+	fi
     ;;
 
     abort-upgrade|abort-remove|abort-deconfigure)

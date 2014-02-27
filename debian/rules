@@ -56,8 +56,11 @@ override_dh_auto_build:
 	dh_auto_build
 	mv doc/html doc/html.orig
 	$(MAKE) doc/html
+
+	# Generate postinst and postrm scripts
 	$(CURDIR)/debian/genscript.py postinst "$(CURDIR)" | \
-		sed -f "$(CURDIR)/autotools/replace_vars.sed" >"$(CURDIR)/debian/ganeti.postinst"
+		sed -f "$(CURDIR)/autotools/replace_vars.sed" \
+		    -e "s#@VER@#$(VER)#g" >"$(CURDIR)/debian/ganeti.postinst"
 	$(CURDIR)/debian/genscript.py postrm "$(CURDIR)" >"$(CURDIR)/debian/ganeti.postrm"
 
 # Add missing bits to ganeti and python-ganeti-rapi. We do not use
@@ -85,7 +88,7 @@ override_dh_python2:
 	dh_python2 -pganeti-$(VER) usr/share/ganeti/$(VER)
 
 override_dh_installinit:
-	dh_installinit --error-handler=true -i -- defaults 20 80
+	dh_installinit --error-handler=true --no-restart-on-upgrade -i -- defaults 20 80
 
 override_dh_compress:
 	dh_compress
