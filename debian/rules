@@ -24,6 +24,7 @@ override_dh_auto_configure: genfiles
 	  --with-extstorage-search-path=/srv/ganeti/extstorage,/usr/local/lib/ganeti/extstorage,/usr/lib/ganeti/extstorage,/usr/share/ganeti/extstorage \
 	  --docdir=/usr/share/doc/ganeti \
 	  --enable-restricted-commands \
+	  --disable-symlinks \
 	  --with-user-prefix=$(GNT_USERGROUP_PREFIX) \
 	  --with-group-prefix=$(GNT_USERGROUP_PREFIX)
 
