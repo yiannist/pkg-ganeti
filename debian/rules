@@ -13,6 +13,12 @@ GNT_USERGROUP_PREFIX="gnt-"
 debian/control: debian/control.in vcs-version
 	sed -s 's/#VER#/$(VER)/g' debian/control.in > debian/control
 
+genfiles:
+	for file in debian/*-VER*; do \
+		fname="$$(echo $$file | sed 's/VER/$(VER)/')"; \
+		sed -e 's/VER/$(VER)/g' $$file >"$$fname"; \
+	done
+
 override_dh_auto_configure: genfiles
 	./configure \
 	  --prefix=/usr \
@@ -38,6 +44,8 @@ override_dh_auto_clean:
 	rm -f debian/ganeti.default
 	rm -f debian/ganeti.postinst
 	rm -f debian/ganeti.postrm
+	rm -f debian/*-$(VER).install
+	rm -f debian/*-$(VER).lintian-overrides
 	if [ -d doc/html.orig ]; then \
 		rm -rf doc/html; \
 		mv doc/html.orig doc/html; \
@@ -55,7 +63,10 @@ override_dh_auto_build:
 # Add missing bits to ganeti and python-ganeti-rapi. We do not use
 # override_dh_install (plain) because it will fail in binary-arch builds.
 override_dh_install-indep:
-	dh_install -i -Xganeti-confd -Xmon-collector -Xhail -Xganeti-mond -Xganeti-luxid --fail-missing
+	dh_install --fail-missing -pganeti-$(VER) -Xsbin/ganeti-confd -Xganeti/mon-collector \
+		-Xganeti/default -Xbin/h -Xman1/h -Xsbin/ganeti-mond -Xsbin/ganeti-luxid -Xhail
+	dh_install --fail-missing -i -Nganeti-$(VER) -Xganeti/$(VER)
+
 	cp $(CURDIR)/doc/examples/ganeti.initd $(CURDIR)/debian/ganeti.init
 	cp $(CURDIR)/doc/examples/ganeti.cron $(CURDIR)/debian/ganeti.cron.d
 	cp $(CURDIR)/doc/examples/ganeti.default $(CURDIR)/debian/ganeti.default
@@ -77,4 +88,4 @@ override_dh_auto_test:
 
 .PHONY: override_dh_auto_configure override_dh_auto_clean override_dh_auto_build \
 	override_dh_installinit override_dh_install-indep override_dh_sphinxdoc-arch \
-	override_dh_auto_test
+	override_dh_auto_test genfiles
