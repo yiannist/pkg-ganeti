@@ -1,7 +1,7 @@
 # Configure script for Ganeti
 m4_define([gnt_version_major], [2])
-m4_define([gnt_version_minor], [9])
-m4_define([gnt_version_revision], [5])
+m4_define([gnt_version_minor], [10])
+m4_define([gnt_version_revision], [1])
 m4_define([gnt_version_suffix], [])
 m4_define([gnt_version_full],
           m4_format([%d.%d.%d%s],
@@ -19,6 +19,42 @@ AC_SUBST([VERSION_MINOR], gnt_version_minor)
 AC_SUBST([VERSION_REVISION], gnt_version_revision)
 AC_SUBST([VERSION_SUFFIX], gnt_version_suffix)
 AC_SUBST([VERSION_FULL], gnt_version_full)
+
+AC_SUBST([BINDIR], $bindir)
+AC_SUBST([SBINDIR], $sbindir)
+AC_SUBST([MANDIR], $mandir)
+
+# --enable-versionfull
+AC_ARG_ENABLE([versionfull],
+  [AS_HELP_STRING([--enable-versionfull],
+                  m4_normalize([use the full version string rather
+                  than major.minor for version directories]))],
+  [[if test "$enableval" != no; then
+      USE_VERSION_FULL=yes
+    else
+      USER_VERSION_FULL=no
+    fi
+  ]],
+  [USE_VERSION_FULL=no
+  ])
+AC_SUBST(USE_VERSION_FULL, $USE_VERSION_FULL)
+AM_CONDITIONAL([USE_VERSION_FULL], [test "$USE_VERSION_FULL" = yes])
+
+# --enable-symlinks
+AC_ARG_ENABLE([symlinks],
+  [AS_HELP_STRING([--enable-symlinks],
+                  m4_normalize([also install version-dependent symlinks under
+                  $sysconfdir (default: enabled)]))],
+  [[if test "$enableval" != no; then
+      INSTALL_SYMLINKS=yes
+    else
+      INSTALL_SYMLINKS=no
+    fi
+  ]],
+  [INSTALL_SYMLINKS=yes
+  ])
+AC_SUBST(INSTALL_SYMLINKS, $INSTALL_SYMLINKS)
+AM_CONDITIONAL([INSTALL_SYMLINKS], [test "$INSTALL_SYMLINKS" = yes])
 
 # --with-ssh-initscript=...
 AC_ARG_WITH([ssh-initscript],
@@ -59,37 +95,34 @@ AC_ARG_WITH([xen-config-dir],
 AC_SUBST(XEN_CONFIG_DIR, $xen_config_dir)
 
 # --with-os-search-path=...
-# do a bit of black sed magic to for quoting of the strings in the list
 AC_ARG_WITH([os-search-path],
   [AS_HELP_STRING([--with-os-search-path=LIST],
     [comma separated list of directories to]
     [ search for OS images (default is /srv/ganeti/os)]
   )],
-  [os_search_path=`echo -n "$withval" | sed -e "s/\([[^,]]*\)/'\1'/g"`],
-  [os_search_path="'/srv/ganeti/os'"])
+  [os_search_path="$withval"],
+  [os_search_path="/srv/ganeti/os"])
 AC_SUBST(OS_SEARCH_PATH, $os_search_path)
 
 # --with-extstorage-search-path=...
-# same black sed magic for quoting of the strings in the list
 AC_ARG_WITH([extstorage-search-path],
   [AS_HELP_STRING([--with-extstorage-search-path=LIST],
     [comma separated list of directories to]
     [ search for External Storage Providers]
     [ (default is /srv/ganeti/extstorage)]
   )],
-  [es_search_path=`echo -n "$withval" | sed -e "s/\([[^,]]*\)/'\1'/g"`],
-  [es_search_path="'/srv/ganeti/extstorage'"])
+  [es_search_path="$withval"],
+  [es_search_path="/srv/ganeti/extstorage"])
 AC_SUBST(ES_SEARCH_PATH, $es_search_path)
 
 # --with-iallocator-search-path=...
-# do a bit of black sed magic to for quoting of the strings in the list
 AC_ARG_WITH([iallocator-search-path],
   [AS_HELP_STRING([--with-iallocator-search-path=LIST],
     [comma separated list of directories to]
     [ search for instance allocators (default is $libdir/ganeti/iallocators)]
   )],
-  [iallocator_search_path=`echo -n "$withval" | sed -e "s/\([[^,]]*\)/'\1'/g"`],
-  [iallocator_search_path="'$libdir/$PACKAGE_NAME/iallocators'"])
+  [iallocator_search_path="$withval"],
+  [iallocator_search_path="$libdir/$PACKAGE_NAME/iallocators"])
 AC_SUBST(IALLOCATOR_SEARCH_PATH, $iallocator_search_path)
 
 # --with-xen-bootloader=...
@@ -296,6 +329,7 @@ then
 fi
 AC_SUBST(SYSLOG_USAGE, $SYSLOG)
 
+# --enable-restricted-commands[=no/yes]
 AC_ARG_ENABLE([restricted-commands],
   [AS_HELP_STRING([--enable-restricted-commands],
                   m4_normalize([enable restricted commands in the node daemon
@@ -322,6 +356,14 @@ AC_SUBST(DISK_SEPARATOR, $disk_separator)
 # Check common programs
 AC_PROG_INSTALL
 AC_PROG_LN_S
+
+# check if ln is the GNU version of ln (and hence supports -T)
+if ln --version 2> /dev/null | head -1 | grep -q GNU
+then
+  AC_SUBST(HAS_GNU_LN, True)
+else
+  AC_SUBST(HAS_GNU_LN, False)
+fi
 
 # Check for the ip command
 AC_ARG_VAR(IP_PATH, [ip path])

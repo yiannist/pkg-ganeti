@@ -1165,10 +1165,11 @@ class ExportInstanceHelper:
 
     instance = self._instance
     src_node = instance.primary_node
+    src_node_name = self._lu.cfg.GetNodeName(src_node)
 
     for idx, disk in enumerate(instance.disks):
       self._feedback_fn("Creating a snapshot of disk/%s on node %s" %
-                        (idx, src_node))
+                        (idx, src_node_name))
 
       # result.payload will be a snapshot of an lvm leaf of the one we
       # passed
@@ -1177,17 +1178,16 @@ class ExportInstanceHelper:
       msg = result.fail_msg
       if msg:
         self._lu.LogWarning("Could not snapshot disk/%s on node %s: %s",
-                            idx, src_node, msg)
+                            idx, src_node_name, msg)
       elif (not isinstance(result.payload, (tuple, list)) or
             len(result.payload) != 2):
         self._lu.LogWarning("Could not snapshot disk/%s on node %s: invalid"
-                            " result '%s'", idx, src_node, result.payload)
+                            " result '%s'", idx, src_node_name, result.payload)
       else:
         disk_id = tuple(result.payload)
         disk_params = constants.DISK_LD_DEFAULTS[constants.DT_PLAIN].copy()
         new_dev = objects.Disk(dev_type=constants.DT_PLAIN, size=disk.size,
-                               logical_id=disk_id, physical_id=disk_id,
-                               iv_name=disk.iv_name,
+                               logical_id=disk_id, iv_name=disk.iv_name,
                                params=disk_params)
 
       self._snap_disks.append(new_dev)
@@ -1205,14 +1205,17 @@ class ExportInstanceHelper:
     disk = self._snap_disks[disk_index]
     if disk and not self._removed_snaps[disk_index]:
       src_node = self._instance.primary_node
+      src_node_name = self._lu.cfg.GetNodeName(src_node)
 
       self._feedback_fn("Removing snapshot of disk/%s on node %s" %
-                        (disk_index, src_node))
+                        (disk_index, src_node_name))
 
-      result = self._lu.rpc.call_blockdev_remove(src_node, disk)
+      result = self._lu.rpc.call_blockdev_remove(src_node,
+                                                 (disk, self._instance))
       if result.fail_msg:
         self._lu.LogWarning("Could not remove snapshot for disk/%d from node"
-                            " %s: %s", disk_index, src_node, result.fail_msg)
+                            " %s: %s", disk_index, src_node_name,
+                            result.fail_msg)
       else:
         self._removed_snaps[disk_index] = True
 
@@ -1236,13 +1239,13 @@ class ExportInstanceHelper:
         continue
 
       path = utils.PathJoin(pathutils.EXPORT_DIR, "%s.new" % instance.name,
-                            dev.physical_id[1])
+                            dev.logical_id[1])
 
       finished_fn = compat.partial(self._TransferFinished, idx)
 
       # FIXME: pass debug option from opcode to backend
       dt = DiskTransfer("snapshot/%s" % idx,
-                        constants.IEIO_SCRIPT, (dev, idx),
+                        constants.IEIO_SCRIPT, ((dev, instance), idx),
                         constants.IEIO_FILE, (path, ),
                         finished_fn)
       transfers.append(dt)
@@ -1300,7 +1303,7 @@ class ExportInstanceHelper:
         finished_fn = compat.partial(self._TransferFinished, idx)
         ieloop.Add(DiskExport(self._lu, instance.primary_node,
                               opts, host, port, instance, "disk%d" % idx,
-                              constants.IEIO_SCRIPT, (dev, idx),
+                              constants.IEIO_SCRIPT, ((dev, instance), idx),
                               timeouts, cbs, private=(idx, finished_fn)))
 
       ieloop.Run()
@@ -1482,7 +1485,7 @@ def RemoteImport(lu, feedback_fn, instance, pnode, source_x509_ca,
 
         ieloop.Add(DiskImport(lu, instance.primary_node, opts, instance,
                               "disk%d" % idx,
-                              constants.IEIO_SCRIPT, (dev, idx),
+                              constants.IEIO_SCRIPT, ((dev, instance), idx),
                               timeouts, cbs, private=(idx, )))
 
       ieloop.Run()

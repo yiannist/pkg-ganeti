@@ -367,6 +367,31 @@ above. We recommend using the latest version of ``ceph-common``.
 
       $ apt-get install ceph-common
 
+KVM userspace access
+~~~~~~~~~~~~~~~~~~~~
+
+If your cluster uses a sufficiently new version of KVM (you will need at
+least QEMU 0.14 with RBD support compiled in), you can take advantage of
+KVM's native support for ceph in order to have better performance and
+avoid potential deadlocks_ in low memory scenarios.
+
+.. _deadlocks: http://tracker.ceph.com/issues/3076
+
+To initialize a cluster with support for this feature, use a command
+such as::
+
+  $ gnt-cluster init \
+      --enabled-disk-templates rbd \
+      --ipolicy-disk-templates rbd \
+      --enabled-hypervisors=kvm \
+      -D rbd:access=userspace
+
+(You may want to enable more templates than just ``rbd``.)
+
+You can also change this setting on a live cluster by giving the same
+switches to ``gnt-cluster modify``, or change those settings at the node
+group level with ``gnt-group modify``.
+
 Configuration file
 ~~~~~~~~~~~~~~~~~~
 
@@ -618,13 +643,13 @@ To be able to install instances you need to have an Operating System
 installation script. An example OS that works under Debian and can
 install Debian and Ubuntu instace OSes is provided on the project web
 site.  Download it from the project page and follow the instructions in
-the ``README`` file.  Here is the installation procedure (replace 0.12
+the ``README`` file.  Here is the installation procedure (replace 0.14
 with the latest version that is compatible with your ganeti version)::
 
   $ cd /usr/local/src/
-  $ wget http://ganeti.googlecode.com/files/ganeti-instance-debootstrap-%0.12%.tar.gz
-  $ tar xzf ganeti-instance-debootstrap-%0.12%.tar.gz
-  $ cd ganeti-instance-debootstrap-%0.12%
+  $ wget http://ganeti.googlecode.com/files/ganeti-instance-debootstrap-%0.14%.tar.gz
+  $ tar xzf ganeti-instance-debootstrap-%0.14%.tar.gz
+  $ cd ganeti-instance-debootstrap-%0.14%
   $ ./configure --with-os-dir=/srv/ganeti/os
   $ make
   $ make install

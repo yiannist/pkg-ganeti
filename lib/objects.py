@@ -266,6 +266,10 @@ class ConfigObject(outils.ValidatedSlots):
     """Implement __repr__ for ConfigObjects."""
     return repr(self.ToDict())
 
+  def __eq__(self, other):
+    """Implement __eq__ for ConfigObjects."""
+    return isinstance(other, self.__class__) and self.ToDict() == other.ToDict()
+
   def UpgradeConfig(self):
     """Fill defaults for missing configuration values.
 
@@ -447,10 +451,7 @@ class ConfigData(ConfigObject):
       InstancePolicy.UpgradeDiskTemplates(
         nodegroup.ipolicy, self.cluster.enabled_disk_templates)
     if self.cluster.drbd_usermode_helper is None:
-      # To decide if we set an helper let's check if at least one instance has
-      # a DRBD disk. This does not cover all the possible scenarios but it
-      # gives a good approximation.
-      if self.HasAnyDiskOfType(constants.DT_DRBD8):
+      if self.cluster.IsDiskTemplateEnabled(constants.DT_DRBD8):
         self.cluster.drbd_usermode_helper = constants.DEFAULT_DRBD_HELPER
     if self.networks is None:
       self.networks = {}
@@ -484,7 +485,8 @@ class ConfigData(ConfigObject):
 
 class NIC(ConfigObject):
   """Config object representing a network card."""
-  __slots__ = ["name", "mac", "ip", "network", "nicparams", "netinfo"] + _UUID
+  __slots__ = ["name", "mac", "ip", "network",
+               "nicparams", "netinfo", "pci"] + _UUID
 
   @classmethod
   def CheckParameterSyntax(cls, nicparams):
@@ -507,9 +509,11 @@ class NIC(ConfigObject):
 
 class Disk(ConfigObject):
   """Config object representing a block device."""
-  __slots__ = (["name", "dev_type", "logical_id", "physical_id",
-                "children", "iv_name", "size", "mode", "params", "spindles"] +
-               _UUID)
+  __slots__ = (["name", "dev_type", "logical_id", "children", "iv_name",
+                "size", "mode", "params", "spindles", "pci"] + _UUID +
+               # dynamic_params is special. It depends on the node this instance
+               # is sent to, and should not be persisted.
+               ["dynamic_params"])
 
   def CreateOnSecondary(self):
     """Test if this device needs to be created on a secondary node."""
@@ -697,51 +701,53 @@ class Disk(ConfigObject):
         child.UnsetSize()
     self.size = 0
 
-  def SetPhysicalID(self, target_node_uuid, nodes_ip):
-    """Convert the logical ID to the physical ID.
+  def UpdateDynamicDiskParams(self, target_node_uuid, nodes_ip):
+    """Updates the dynamic disk params for the given node.
 
-    This is used only for drbd, which needs ip/port configuration.
-
-    The routine descends down and updates its children also, because
-    this helps when the only the top device is passed to the remote
-    node.
+    This is mainly used for drbd, which needs ip/port configuration.
 
     Arguments:
       - target_node_uuid: the node UUID we wish to configure for
       - nodes_ip: a mapping of node name to ip
 
-    The target_node must exist in in nodes_ip, and must be one of the
-    nodes in the logical ID for each of the DRBD devices encountered
-    in the disk tree.
+    The target_node must exist in nodes_ip, and should be one of the
+    nodes in the logical ID if this device is a DRBD device.
 
     """
     if self.children:
       for child in self.children:
-        child.SetPhysicalID(target_node_uuid, nodes_ip)
+        child.UpdateDynamicDiskParams(target_node_uuid, nodes_ip)
 
-    if self.logical_id is None and self.physical_id is not None:
-      return
-    if self.dev_type in constants.DTS_DRBD:
-      pnode_uuid, snode_uuid, port, pminor, sminor, secret = self.logical_id
+    dyn_disk_params = {}
+    if self.logical_id is not None and self.dev_type in constants.DTS_DRBD:
+      pnode_uuid, snode_uuid, _, pminor, sminor, _ = self.logical_id
       if target_node_uuid not in (pnode_uuid, snode_uuid):
-        raise errors.ConfigurationError("DRBD device not knowing node %s" %
-                                        target_node_uuid)
+        # disk object is being sent to neither the primary nor the secondary
+        # node. reset the dynamic parameters, the target node is not
+        # supposed to use them.
+        self.dynamic_params = dyn_disk_params
+        return
+
       pnode_ip = nodes_ip.get(pnode_uuid, None)
       snode_ip = nodes_ip.get(snode_uuid, None)
       if pnode_ip is None or snode_ip is None:
         raise errors.ConfigurationError("Can't find primary or secondary node"
                                         " for %s" % str(self))
-      p_data = (pnode_ip, port)
-      s_data = (snode_ip, port)
       if pnode_uuid == target_node_uuid:
-        self.physical_id = p_data + s_data + (pminor, secret)
+        dyn_disk_params[constants.DDP_LOCAL_IP] = pnode_ip
+        dyn_disk_params[constants.DDP_REMOTE_IP] = snode_ip
+        dyn_disk_params[constants.DDP_LOCAL_MINOR] = pminor
+        dyn_disk_params[constants.DDP_REMOTE_MINOR] = sminor
       else: # it must be secondary, we tested above
-        self.physical_id = s_data + p_data + (sminor, secret)
-    else:
-      self.physical_id = self.logical_id
-    return
+        dyn_disk_params[constants.DDP_LOCAL_IP] = snode_ip
+        dyn_disk_params[constants.DDP_REMOTE_IP] = pnode_ip
+        dyn_disk_params[constants.DDP_LOCAL_MINOR] = sminor
+        dyn_disk_params[constants.DDP_REMOTE_MINOR] = pminor
 
-  def ToDict(self):
+    self.dynamic_params = dyn_disk_params
+
+  # pylint: disable=W0221
+  def ToDict(self, include_dynamic_params=False):
     """Disk-specific conversion to standard python types.
 
     This replaces the children lists of objects with lists of
@@ -749,6 +755,8 @@ class Disk(ConfigObject):
 
     """
     bo = super(Disk, self).ToDict()
+    if not include_dynamic_params and "dynamic_params" in bo:
+      del bo["dynamic_params"]
 
     for attr in ("children",):
       alist = bo.get(attr, None)
@@ -766,8 +774,6 @@ class Disk(ConfigObject):
       obj.children = outils.ContainerFromDicts(obj.children, list, Disk)
     if obj.logical_id and isinstance(obj.logical_id, list):
       obj.logical_id = tuple(obj.logical_id)
-    if obj.physical_id and isinstance(obj.physical_id, list):
-      obj.physical_id = tuple(obj.physical_id)
     if obj.dev_type in constants.DTS_DRBD:
       # we need a tuple of length six here
       if len(obj.logical_id) < 6:
@@ -783,22 +789,16 @@ class Disk(ConfigObject):
     elif self.dev_type in constants.DTS_DRBD:
       node_a, node_b, port, minor_a, minor_b = self.logical_id[:5]
       val = "<DRBD8("
-      if self.physical_id is None:
-        phy = "unconfigured"
-      else:
-        phy = ("configured as %s:%s %s:%s" %
-               (self.physical_id[0], self.physical_id[1],
-                self.physical_id[2], self.physical_id[3]))
 
-      val += ("hosts=%s/%d-%s/%d, port=%s, %s, " %
-              (node_a, minor_a, node_b, minor_b, port, phy))
+      val += ("hosts=%s/%d-%s/%d, port=%s, " %
+              (node_a, minor_a, node_b, minor_b, port))
       if self.children and self.children.count(None) == 0:
         val += "backend=%s, metadev=%s" % (self.children[0], self.children[1])
       else:
         val += "no local storage"
     else:
-      val = ("<Disk(type=%s, logical_id=%s, physical_id=%s, children=%s" %
-             (self.dev_type, self.logical_id, self.physical_id, self.children))
+      val = ("<Disk(type=%s, logical_id=%s, children=%s" %
+             (self.dev_type, self.logical_id, self.children))
     if self.iv_name is None:
       val += ", not visible"
     else:
@@ -905,6 +905,7 @@ class Disk(ConfigObject):
     elif disk_template == constants.DT_RBD:
       result.append(FillDict(constants.DISK_LD_DEFAULTS[constants.DT_RBD], {
         constants.LDP_POOL: dt_params[constants.RBD_POOL],
+        constants.LDP_ACCESS: dt_params[constants.RBD_ACCESS],
         }))
 
     elif disk_template == constants.DT_EXT:
@@ -1117,10 +1118,11 @@ class Instance(TaggableObject):
           _Helper(nodes, child)
 
     all_nodes = set()
-    all_nodes.add(self.primary_node)
     for device in self.disks:
       _Helper(all_nodes, device)
-    return tuple(all_nodes)
+    # ensure that the primary node is always the first
+    all_nodes.discard(self.primary_node)
+    return (self.primary_node, ) + tuple(all_nodes)
 
   all_nodes = property(_ComputeAllNodes, None, None,
                        "List of names of all the nodes of the instance")

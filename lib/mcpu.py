@@ -36,6 +36,7 @@ import itertools
 import traceback
 
 from ganeti import opcodes
+from ganeti import opcodes_base
 from ganeti import constants
 from ganeti import errors
 from ganeti import hooksmaster
@@ -207,7 +208,7 @@ def _SetBaseOpParams(src, defcomment, dst):
       hasattr(src, "priority")):
     dst.priority = src.priority
 
-  if not getattr(dst, opcodes.COMMENT_ATTR, None):
+  if not getattr(dst, opcodes_base.COMMENT_ATTR, None):
     dst.comment = defcomment
 
 
@@ -469,6 +470,22 @@ class Processor(object):
 
     return result
 
+  # pylint: disable=R0201
+  def _CheckLUResult(self, op, result):
+    """Check the LU result against the contract in the opcode.
+
+    """
+    resultcheck_fn = op.OP_RESULT
+    if not (resultcheck_fn is None or resultcheck_fn(result)):
+      logging.error("Expected opcode result matching %s, got %s",
+                    resultcheck_fn, result)
+      if not getattr(op, "dry_run", False):
+        # FIXME: LUs should still behave in dry_run mode, or
+        # alternately we should have OP_DRYRUN_RESULT; in the
+        # meantime, we simply skip the OP_RESULT check in dry-run mode
+        raise errors.OpResultError("Opcode result does not match %s: %s" %
+                                   (resultcheck_fn, utils.Truncate(result, 80)))
+
   def ExecOpCode(self, op, cbs, timeout=None):
     """Execute an opcode.
 
@@ -526,16 +543,7 @@ class Processor(object):
     finally:
       self._cbs = None
 
-    resultcheck_fn = op.OP_RESULT
-    if not (resultcheck_fn is None or resultcheck_fn(result)):
-      logging.error("Expected opcode result matching %s, got %s",
-                    resultcheck_fn, result)
-      if not getattr(op, "dry_run", False):
-        # FIXME: LUs should still behave in dry_run mode, or
-        # alternately we should have OP_DRYRUN_RESULT; in the
-        # meantime, we simply skip the OP_RESULT check in dry-run mode
-        raise errors.OpResultError("Opcode result does not match %s: %s" %
-                                   (resultcheck_fn, utils.Truncate(result, 80)))
+    self._CheckLUResult(op, result)
 
     return result
 

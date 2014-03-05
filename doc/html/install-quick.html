@@ -8,7 +8,7 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Ganeti quick installation guide &mdash; Ganeti 2.9.5 documentation</title>
+    <title>Ganeti quick installation guide &mdash; Ganeti 2.10.1 documentation</title>
     
     <link rel="stylesheet" href="_static/style.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
@@ -16,7 +16,7 @@
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.9.5',
+        VERSION:     '2.10.1',
         COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -25,7 +25,7 @@
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti 2.9.5 documentation" href="index.html" />
+    <link rel="top" title="Ganeti 2.10.1 documentation" href="index.html" />
     <link rel="next" title="Ganeti locking" href="locking.html" />
     <link rel="prev" title="Ganeti installation tutorial" href="install.html" /> 
   </head>
@@ -39,7 +39,7 @@
         <li class="right" >
           <a href="install.html" title="Ganeti installation tutorial"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.9.5 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.10.1 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -91,13 +91,14 @@ optional python package for supporting CPU pinning under KVM</li>
 <li><a class="reference external" href="http://code.google.com/p/ipaddr-py/">Python IP address manipulation library</a></li>
 <li><a class="reference external" href="http://pypi.python.org/pypi/bitarray/">Bitarray Python library</a></li>
 <li><a class="reference external" href="http://www.gnu.org/software/make/">GNU Make</a></li>
+<li><a class="reference external" href="http://www.gnu.org/software/m4/">GNU M4</a></li>
 </ul>
 <p>These programs are supplied as part of most Linux distributions, so
 usually they can be installed via the standard package manager. Also
 many of them will already be installed on a standard machine. On
 Debian/Ubuntu, you can use this command line to install all required
 packages, except for RBD, DRBD and Xen:</p>
-<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">apt-get</span> <span class="gs">install</span> <span class="gs">lvm2</span> <span class="gs">ssh</span> <span class="gs">bridge-utils</span> <span class="gs">iproute</span> <span class="gs">iputils-arping</span> <span class="gs">make</span> <span class="gs">\</span>
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">apt-get</span> <span class="gs">install</span> <span class="gs">lvm2</span> <span class="gs">ssh</span> <span class="gs">bridge-utils</span> <span class="gs">iproute</span> <span class="gs">iputils-arping</span> <span class="gs">make</span> <span class="gs">m4</span> <span class="gs">\</span>
                   <span class="gs">ndisc6</span> <span class="gs">python</span> <span class="gs">python-openssl</span> <span class="gs">openssl</span> <span class="gs">\</span>
                   <span class="gs">python-pyparsing</span> <span class="gs">python-simplejson</span> <span class="gs">python-bitarray</span> <span class="gs">\</span>
                   <span class="gs">python-pyinotify</span> <span class="gs">python-pycurl</span> <span class="gs">python-ipaddr</span> <span class="gs">socat</span> <span class="gs">fping</span>
@@ -116,14 +117,14 @@ different.:</p>
 </pre></div>
 </div>
 <p>Note that this does not install optional packages:</p>
-<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">apt-get</span> <span class="gs">install</span> <span class="gs">python-paramiko</span> <span class="gs">python-affinity</span> <span class="gs">qemu-img</span>
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">apt-get</span> <span class="gs">install</span> <span class="gs">python-paramiko</span> <span class="gs">python-affinity</span> <span class="gs">qemu-utils</span>
 </pre></div>
 </div>
 <p>If some of the python packages are not available in your system,
 you can try installing them using <tt class="docutils literal"><span class="pre">easy_install</span></tt> command.
 For example:</p>
 <div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">apt-get</span> <span class="gs">install</span> <span class="gs">python-setuptools</span> <span class="gs">python-dev</span>
-$ <span class="gs">cd</span> <span class="gs">/</span> <span class="gs">&amp;&amp;</span> <span class="gs">sudo</span> <span class="gs">easy_install</span> <span class="gs">\</span>
+$ <span class="gs">cd</span> <span class="gs">/</span> <span class="gs">&amp;&amp;</span> <span class="gs">easy_install</span> <span class="gs">\</span>
           <span class="gs">affinity</span> <span class="gs">\</span>
           <span class="gs">bitarray</span> <span class="gs">\</span>
           <span class="gs">ipaddr</span>
@@ -239,6 +240,7 @@ above</li>
 can use either apt:</p>
 <div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">apt-get</span> <span class="gs">install</span> <span class="gs">libghc-crypto-dev</span> <span class="gs">libghc-text-dev</span> <span class="gs">\</span>
                   <span class="gs">libghc-hinotify-dev</span> <span class="gs">libghc-regex-pcre-dev</span> <span class="gs">\</span>
+                  <span class="gs">libpcre3-dev</span> <span class="gs">\</span>
                   <span class="gs">libghc-attoparsec-dev</span> <span class="gs">libghc-vector-dev</span> <span class="gs">\</span>
                   <span class="gs">libghc-snap-server-dev</span>
 </pre></div>
@@ -253,7 +255,7 @@ $ <span class="gs">cabal</span> <span class="gs">install</span> <span class="gs"
 <p>In case you still use ghc-6.12, note that <tt class="docutils literal"><span class="pre">cabal</span></tt> would automatically try to
 install newer versions of some of the libraries snap-server depends on, that
 cannot be compiled with ghc-6.12, so you have to install snap-server on its
-own, esplicitly forcing the installation of compatible versions:</p>
+own, explicitly forcing the installation of compatible versions:</p>
 <div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">cabal</span> <span class="gs">install</span> <span class="gs">MonadCatchIO-transformers==0.2.2.0</span> <span class="gs">mtl==2.0.1.0</span> <span class="gs">\</span>
                 <span class="gs">hashable==1.1.2.0</span> <span class="gs">case-insensitive==0.3</span> <span class="gs">parsec==3.0.1</span> <span class="gs">\</span>
                 <span class="gs">network==2.3</span> <span class="gs">snap-server==0.8.1</span>
@@ -361,7 +363,7 @@ following directories:</p>
         <li class="right" >
           <a href="install.html" title="Ganeti installation tutorial"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.9.5 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.10.1 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

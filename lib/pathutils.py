@@ -23,7 +23,7 @@
 
 """
 
-from ganeti import _autoconf
+from ganeti import _constants
 from ganeti import compat
 from ganeti import vcluster
 
@@ -34,23 +34,28 @@ DEFAULT_FILE_STORAGE_DIR = vcluster.AddNodePrefix(DEFAULT_FILE_STORAGE_DIR)
 DEFAULT_SHARED_FILE_STORAGE_DIR = "/srv/ganeti/shared-file-storage"
 DEFAULT_SHARED_FILE_STORAGE_DIR = \
     vcluster.AddNodePrefix(DEFAULT_SHARED_FILE_STORAGE_DIR)
-EXPORT_DIR = vcluster.AddNodePrefix(_autoconf.EXPORT_DIR)
-OS_SEARCH_PATH = _autoconf.OS_SEARCH_PATH
-ES_SEARCH_PATH = _autoconf.ES_SEARCH_PATH
-SSH_CONFIG_DIR = _autoconf.SSH_CONFIG_DIR
-XEN_CONFIG_DIR = vcluster.AddNodePrefix(_autoconf.XEN_CONFIG_DIR)
-SYSCONFDIR = vcluster.AddNodePrefix(_autoconf.SYSCONFDIR)
-TOOLSDIR = _autoconf.TOOLSDIR
-LOCALSTATEDIR = vcluster.AddNodePrefix(_autoconf.LOCALSTATEDIR)
+EXPORT_DIR = vcluster.AddNodePrefix(_constants.EXPORT_DIR)
+OS_SEARCH_PATH = _constants.OS_SEARCH_PATH
+ES_SEARCH_PATH = _constants.ES_SEARCH_PATH
+SSH_CONFIG_DIR = _constants.SSH_CONFIG_DIR
+XEN_CONFIG_DIR = vcluster.AddNodePrefix(_constants.XEN_CONFIG_DIR)
+SYSCONFDIR = vcluster.AddNodePrefix(_constants.SYSCONFDIR)
+TOOLSDIR = _constants.TOOLSDIR
+PKGLIBDIR = _constants.PKGLIBDIR
+SHAREDIR = _constants.SHAREDIR
+LOCALSTATEDIR = vcluster.AddNodePrefix(_constants.LOCALSTATEDIR)
 
 # Paths which don't change for a virtual cluster
-DAEMON_UTIL = _autoconf.PKGLIBDIR + "/daemon-util"
-IMPORT_EXPORT_DAEMON = _autoconf.PKGLIBDIR + "/import-export"
-KVM_CONSOLE_WRAPPER = _autoconf.PKGLIBDIR + "/tools/kvm-console-wrapper"
-KVM_IFUP = _autoconf.PKGLIBDIR + "/kvm-ifup"
-PREPARE_NODE_JOIN = _autoconf.PKGLIBDIR + "/prepare-node-join"
-NODE_DAEMON_SETUP = _autoconf.PKGLIBDIR + "/node-daemon-setup"
-XEN_CONSOLE_WRAPPER = _autoconf.PKGLIBDIR + "/tools/xen-console-wrapper"
+DAEMON_UTIL = _constants.PKGLIBDIR + "/daemon-util"
+IMPORT_EXPORT_DAEMON = _constants.PKGLIBDIR + "/import-export"
+KVM_CONSOLE_WRAPPER = _constants.PKGLIBDIR + "/tools/kvm-console-wrapper"
+KVM_IFUP = _constants.PKGLIBDIR + "/kvm-ifup"
+PREPARE_NODE_JOIN = _constants.PKGLIBDIR + "/prepare-node-join"
+NODE_DAEMON_SETUP = _constants.PKGLIBDIR + "/node-daemon-setup"
+XEN_CONSOLE_WRAPPER = _constants.PKGLIBDIR + "/tools/xen-console-wrapper"
+CFGUPGRADE = _constants.PKGLIBDIR + "/tools/cfgupgrade"
+POST_UPGRADE = _constants.PKGLIBDIR + "/tools/post-upgrade"
+ENSURE_DIRS = _constants.PKGLIBDIR + "/ensure-dirs"
 ETC_HOSTS = vcluster.ETC_HOSTS
 
 # Top-level paths
@@ -62,10 +67,10 @@ RUN_DIR = LOCALSTATEDIR + "/run/ganeti"
 #: Script to configure master IP address
 DEFAULT_MASTER_SETUP_SCRIPT = TOOLSDIR + "/master-ip-setup"
 
-SSH_HOST_DSA_PRIV = SSH_CONFIG_DIR + "/ssh_host_dsa_key"
-SSH_HOST_DSA_PUB = SSH_HOST_DSA_PRIV + ".pub"
-SSH_HOST_RSA_PRIV = SSH_CONFIG_DIR + "/ssh_host_rsa_key"
-SSH_HOST_RSA_PUB = SSH_HOST_RSA_PRIV + ".pub"
+SSH_HOST_DSA_PRIV = _constants.SSH_HOST_DSA_PRIV
+SSH_HOST_DSA_PUB = _constants.SSH_HOST_DSA_PUB
+SSH_HOST_RSA_PRIV = _constants.SSH_HOST_RSA_PRIV
+SSH_HOST_RSA_PUB = _constants.SSH_HOST_RSA_PUB
 
 BDEV_CACHE_DIR = RUN_DIR + "/bdev-cache"
 DISK_LINKS_DIR = RUN_DIR + "/instance-disks"
@@ -89,6 +94,7 @@ CLUSTER_DOMAIN_SECRET_FILE = DATA_DIR + "/cluster-domain-secret"
 SSH_KNOWN_HOSTS_FILE = DATA_DIR + "/known_hosts"
 RAPI_USERS_FILE = DATA_DIR + "/rapi/users"
 QUEUE_DIR = DATA_DIR + "/queue"
+INTENT_TO_UPGRADE = DATA_DIR + "/intent-to-upgrade"
 CONF_DIR = SYSCONFDIR + "/ganeti"
 USER_SCRIPTS_DIR = CONF_DIR + "/scripts"
 VNC_PASSWORD_FILE = CONF_DIR + "/vnc-cluster-password"

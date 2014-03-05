@@ -178,6 +178,12 @@ The available fields and their meaning are:
   The "exclusive_storage" node parameter
 ``ndp/oob_program``
   The "oob_program" node parameter
+``ndp/ovs``
+  The "ovs" node parameter
+``ndp/ovs_link``
+  The "ovs_link" node parameter
+``ndp/ovs_name``
+  The "ovs_name" node parameter
 ``ndp/spindle_count``
   The "spindle_count" node parameter
 ``ndparams``

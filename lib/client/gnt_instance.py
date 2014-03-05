@@ -942,10 +942,6 @@ def _FormatDiskDetails(dev_type, dev, roman):
   return data
 
 
-def _FormatListInfo(data):
-  return list(str(i) for i in data)
-
-
 def _FormatBlockDevInfo(idx, top_level, dev, roman):
   """Show block device information.
 
@@ -1043,8 +1039,6 @@ def _FormatBlockDevInfo(idx, top_level, dev, roman):
       data.append(("logical_id", l_id[0]))
     else:
       data.extend(l_id)
-  elif dev["physical_id"] is not None:
-    data.append(("physical_id:", _FormatListInfo(dev["physical_id"])))
 
   if dev["pstatus"]:
     data.append(("on primary", helper(dev["dev_type"], dev["pstatus"])))
@@ -1065,7 +1059,7 @@ def _FormatBlockDevInfo(idx, top_level, dev, roman):
 
 def _FormatInstanceNicInfo(idx, nic):
   """Helper function for L{_FormatInstanceInfo()}"""
-  (name, uuid, ip, mac, mode, link, _, netinfo) = nic
+  (name, uuid, ip, mac, mode, link, vlan, _, netinfo) = nic
   network_name = None
   if netinfo:
     network_name = netinfo["name"]
@@ -1075,6 +1069,7 @@ def _FormatInstanceNicInfo(idx, nic):
     ("IP", str(ip)),
     ("mode", str(mode)),
     ("link", str(link)),
+    ("vlan", str(vlan)),
     ("network", str(network_name)),
     ("UUID", str(uuid)),
     ("name", str(name)),
@@ -1320,6 +1315,14 @@ def SetInstanceParams(opts, args):
   FixHvParams(opts.hvparams)
 
   nics = _ConvertNicDiskModifications(opts.nics)
+  for action, _, __ in nics:
+    if action == constants.DDM_MODIFY and opts.hotplug and not opts.force:
+      usertext = ("You are about to hot-modify a NIC. This will be done"
+                  " by removing the exisiting and then adding a new one."
+                  " Network connection might be lost. Continue?")
+      if not AskUser(usertext):
+        return 1
+
   disks = _ParseDiskSizes(_ConvertNicDiskModifications(opts.disks))
 
   if (opts.disk_template and
@@ -1339,6 +1342,8 @@ def SetInstanceParams(opts, args):
   op = opcodes.OpInstanceSetParams(instance_name=args[0],
                                    nics=nics,
                                    disks=disks,
+                                   hotplug=opts.hotplug,
+                                   hotplug_if_possible=opts.hotplug_if_possible,
                                    disk_template=opts.disk_template,
                                    remote_node=opts.node,
                                    pnode=opts.new_primary_node,
@@ -1546,7 +1551,8 @@ commands = {
     [DISK_TEMPLATE_OPT, SINGLE_NODE_OPT, OS_OPT, FORCE_VARIANT_OPT,
      OSPARAMS_OPT, DRY_RUN_OPT, PRIORITY_OPT, NWSYNC_OPT, OFFLINE_INST_OPT,
      ONLINE_INST_OPT, IGNORE_IPOLICY_OPT, RUNTIME_MEM_OPT,
-     NOCONFLICTSCHECK_OPT, NEW_PRIMARY_OPT],
+     NOCONFLICTSCHECK_OPT, NEW_PRIMARY_OPT, HOTPLUG_OPT,
+     HOTPLUG_IF_POSSIBLE_OPT],
     "<instance>", "Alters the parameters of an instance"),
   "shutdown": (
     GenericManyOps("shutdown", _ShutdownInstance), [ArgInstance()],

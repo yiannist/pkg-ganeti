@@ -28,11 +28,13 @@
 
 """
 
-# pylint: disable=E1103
+# pylint: disable=E1103,C0302
 
 # E1103: %s %r has no %r member (but some types could not be
 # inferred), because the _TryOSFromDisk returns either (True, os_obj)
 # or (False, "string") which confuses pylint
+
+# C0302: This module has become too big and should be split up
 
 
 import os
@@ -330,7 +332,7 @@ def RunLocalHooks(hook_opcode, hooks_path, env_builder_fn):
       cfg = _GetConfig()
       hr = HooksRunner()
       hm = hooksmaster.HooksMaster(hook_opcode, hooks_path, nodes,
-                                   hr.RunLocalHooks, None, env_fn,
+                                   hr.RunLocalHooks, None, env_fn, None,
                                    logging.warning, cfg.GetClusterName(),
                                    cfg.GetMasterNode())
       hm.RunPhase(constants.HOOKS_PHASE_PRE)
@@ -1609,6 +1611,28 @@ def _RemoveBlockDevLinks(instance_name, disks):
         logging.exception("Can't remove symlink '%s'", link_name)
 
 
+def _CalculateDeviceURI(instance, disk, device):
+  """Get the URI for the device.
+
+  @type instance: L{objects.Instance}
+  @param instance: the instance which disk belongs to
+  @type disk: L{objects.Disk}
+  @param disk: the target disk object
+  @type device: L{bdev.BlockDev}
+  @param device: the corresponding BlockDevice
+  @rtype: string
+  @return: the device uri if any else None
+
+  """
+  access_mode = disk.params.get(constants.LDP_ACCESS,
+                                constants.DISK_KERNELSPACE)
+  if access_mode == constants.DISK_USERSPACE:
+    # This can raise errors.BlockDeviceError
+    return device.GetUserspaceAccessUri(instance.hypervisor)
+  else:
+    return None
+
+
 def _GatherAndLinkBlockDevs(instance):
   """Set up an instance's block device(s).
 
@@ -1616,9 +1640,9 @@ def _GatherAndLinkBlockDevs(instance):
   devices must be already assembled.
 
   @type instance: L{objects.Instance}
-  @param instance: the instance whose disks we shoul assemble
+  @param instance: the instance whose disks we should assemble
   @rtype: list
-  @return: list of (disk_object, device_path)
+  @return: list of (disk_object, link_name, drive_uri)
 
   """
   block_devices = []
@@ -1633,8 +1657,9 @@ def _GatherAndLinkBlockDevs(instance):
     except OSError, e:
       raise errors.BlockDeviceError("Cannot create block device symlink: %s" %
                                     e.strerror)
+    uri = _CalculateDeviceURI(instance, disk, device)
 
-    block_devices.append((disk, link_name))
+    block_devices.append((disk, link_name, uri))
 
   return block_devices
 
@@ -1941,6 +1966,54 @@ def GetMigrationStatus(instance):
     _Fail("Failed to get migration status: %s", err, exc=True)
 
 
+def HotplugDevice(instance, action, dev_type, device, extra, seq):
+  """Hotplug a device
+
+  Hotplug is currently supported only for KVM Hypervisor.
+  @type instance: L{objects.Instance}
+  @param instance: the instance to which we hotplug a device
+  @type action: string
+  @param action: the hotplug action to perform
+  @type dev_type: string
+  @param dev_type: the device type to hotplug
+  @type device: either L{objects.NIC} or L{objects.Disk}
+  @param device: the device object to hotplug
+  @type extra: string
+  @param extra: extra info used by hotplug code (e.g. disk link)
+  @type seq: int
+  @param seq: the index of the device from master perspective
+  @raise RPCFail: in case instance does not have KVM hypervisor
+
+  """
+  hyper = hypervisor.GetHypervisor(instance.hypervisor)
+  try:
+    hyper.VerifyHotplugSupport(instance, action, dev_type)
+  except errors.HotplugError, err:
+    _Fail("Hotplug is not supported: %s", err)
+
+  if action == constants.HOTPLUG_ACTION_ADD:
+    fn = hyper.HotAddDevice
+  elif action == constants.HOTPLUG_ACTION_REMOVE:
+    fn = hyper.HotDelDevice
+  elif action == constants.HOTPLUG_ACTION_MODIFY:
+    fn = hyper.HotModDevice
+  else:
+    assert action in constants.HOTPLUG_ALL_ACTIONS
+
+  return fn(instance, dev_type, device, extra, seq)
+
+
+def HotplugSupported(instance):
+  """Checks if hotplug is generally supported.
+
+  """
+  hyper = hypervisor.GetHypervisor(instance.hypervisor)
+  try:
+    hyper.HotplugSupported(instance)
+  except errors.HotplugError, err:
+    _Fail("Hotplug is not supported: %s", err)
+
+
 def BlockdevCreate(disk, size, owner, on_primary, info, excl_stor):
   """Creates a block device for an instance.
 
@@ -2116,10 +2189,18 @@ def BlockdevRemove(disk):
     rdev = None
   if rdev is not None:
     r_path = rdev.dev_path
-    try:
-      rdev.Remove()
-    except errors.BlockDeviceError, err:
-      msgs.append(str(err))
+
+    def _TryRemove():
+      try:
+        rdev.Remove()
+        return []
+      except errors.BlockDeviceError, err:
+        return [str(err)]
+
+    msgs.extend(utils.SimpleRetry([], _TryRemove,
+                                  constants.DISK_REMOVE_RETRY_INTERVAL,
+                                  constants.DISK_REMOVE_RETRY_TIMEOUT))
+
     if not msgs:
       DevCacheManager.RemoveCache(r_path)
 
@@ -2193,23 +2274,28 @@ def BlockdevAssemble(disk, owner, as_primary, idx):
   This is a wrapper over _RecursiveAssembleBD.
 
   @rtype: str or boolean
-  @return: a C{/dev/...} path for primary nodes, and
-      C{True} for secondary nodes
+  @return: a tuple with the C{/dev/...} path and the created symlink
+      for primary nodes, and (C{True}, C{True}) for secondary nodes
 
   """
   try:
     result = _RecursiveAssembleBD(disk, owner, as_primary)
     if isinstance(result, BlockDev):
       # pylint: disable=E1103
-      result = result.dev_path
+      dev_path = result.dev_path
+      link_name = None
       if as_primary:
-        _SymlinkBlockDev(owner, result, idx)
+        link_name = _SymlinkBlockDev(owner, dev_path, idx)
+    elif result:
+      return result, result
+    else:
+      _Fail("Unexpected result from _RecursiveAssembleBD")
   except errors.BlockDeviceError, err:
     _Fail("Error while assembling disk: %s", err, exc=True)
   except OSError, err:
     _Fail("Error while symlinking disk: %s", err, exc=True)
 
-  return result
+  return dev_path, link_name
 
 
 def BlockdevShutdown(disk):
@@ -2849,7 +2935,7 @@ def OSEnvironment(instance, inst_os, debug=0):
       result["DISK_%d_BACKEND_TYPE" % idx] = "block"
     elif disk.dev_type in [constants.DT_FILE, constants.DT_SHARED_FILE]:
       result["DISK_%d_BACKEND_TYPE" % idx] = \
-        "file:%s" % disk.physical_id[0]
+        "file:%s" % disk.logical_id[0]
 
   # NICs
   for idx, nic in enumerate(instance.nics):
@@ -3076,7 +3162,7 @@ def FinalizeExport(instance, snap_disks):
       config.set(constants.INISECT_INS, "disk%d_ivname" % disk_count,
                  ("%s" % disk.iv_name))
       config.set(constants.INISECT_INS, "disk%d_dump" % disk_count,
-                 ("%s" % disk.physical_id[1]))
+                 ("%s" % disk.logical_id[1]))
       config.set(constants.INISECT_INS, "disk%d_size" % disk_count,
                  ("%d" % disk.size))
       config.set(constants.INISECT_INS, "disk%d_name" % disk_count,
@@ -3161,11 +3247,9 @@ def BlockdevRename(devlist):
   """Rename a list of block devices.
 
   @type devlist: list of tuples
-  @param devlist: list of tuples of the form  (disk,
-      new_logical_id, new_physical_id); disk is an
-      L{objects.Disk} object describing the current disk,
-      and new logical_id/physical_id is the name we
-      rename it to
+  @param devlist: list of tuples of the form  (disk, new_unique_id); disk is
+      an L{objects.Disk} object describing the current disk, and new
+      unique_id is the name we rename it to
   @rtype: boolean
   @return: True if all renames succeeded, False otherwise
 
@@ -3636,8 +3720,6 @@ def _GetImportExportIoCommand(instance, mode, ieio, ieargs):
 
     assert isinstance(disk_index, (int, long))
 
-    real_disk = _OpenRealBD(disk)
-
     inst_os = OSFromDisk(instance.os)
     env = OSEnvironment(instance, inst_os)
 
@@ -3647,6 +3729,7 @@ def _GetImportExportIoCommand(instance, mode, ieio, ieargs):
       script = inst_os.import_script
 
     elif mode == constants.IEM_EXPORT:
+      real_disk = _OpenRealBD(disk)
       env["EXPORT_DEVICE"] = real_disk.dev_path
       env["EXPORT_INDEX"] = str(disk_index)
       script = inst_os.export_script
@@ -3874,35 +3957,31 @@ def CleanupImportExport(name):
   shutil.rmtree(status_dir, ignore_errors=True)
 
 
-def _SetPhysicalId(target_node_uuid, nodes_ip, disks):
-  """Sets the correct physical ID on all passed disks.
+def _FindDisks(disks):
+  """Finds attached L{BlockDev}s for the given disks.
+
+  @type disks: list of L{objects.Disk}
+  @param disks: the disk objects we need to find
+
+  @return: list of L{BlockDev} objects or C{None} if a given disk
+           was not found or was no attached.
 
   """
-  for cf in disks:
-    cf.SetPhysicalID(target_node_uuid, nodes_ip)
-
-
-def _FindDisks(target_node_uuid, nodes_ip, disks):
-  """Sets the physical ID on disks and returns the block devices.
-
-  """
-  _SetPhysicalId(target_node_uuid, nodes_ip, disks)
-
   bdevs = []
 
-  for cf in disks:
-    rd = _RecursiveFindBD(cf)
+  for disk in disks:
+    rd = _RecursiveFindBD(disk)
     if rd is None:
-      _Fail("Can't find device %s", cf)
+      _Fail("Can't find device %s", disk)
     bdevs.append(rd)
   return bdevs
 
 
-def DrbdDisconnectNet(target_node_uuid, nodes_ip, disks):
+def DrbdDisconnectNet(disks):
   """Disconnects the network on a list of drbd devices.
 
   """
-  bdevs = _FindDisks(target_node_uuid, nodes_ip, disks)
+  bdevs = _FindDisks(disks)
 
   # disconnect disks
   for rd in bdevs:
@@ -3913,12 +3992,11 @@ def DrbdDisconnectNet(target_node_uuid, nodes_ip, disks):
             err, exc=True)
 
 
-def DrbdAttachNet(target_node_uuid, nodes_ip, disks, instance_name,
-                  multimaster):
+def DrbdAttachNet(disks, instance_name, multimaster):
   """Attaches the network on a list of drbd devices.
 
   """
-  bdevs = _FindDisks(target_node_uuid, nodes_ip, disks)
+  bdevs = _FindDisks(disks)
 
   if multimaster:
     for idx, rd in enumerate(bdevs):
@@ -3988,7 +4066,7 @@ def DrbdAttachNet(target_node_uuid, nodes_ip, disks, instance_name,
         _Fail("Can't change to primary mode: %s", err)
 
 
-def DrbdWaitSync(target_node_uuid, nodes_ip, disks):
+def DrbdWaitSync(disks):
   """Wait until DRBDs have synchronized.
 
   """
@@ -3998,7 +4076,7 @@ def DrbdWaitSync(target_node_uuid, nodes_ip, disks):
       raise utils.RetryAgain()
     return stats
 
-  bdevs = _FindDisks(target_node_uuid, nodes_ip, disks)
+  bdevs = _FindDisks(disks)
 
   min_resync = 100
   alldone = True
@@ -4018,11 +4096,10 @@ def DrbdWaitSync(target_node_uuid, nodes_ip, disks):
   return (alldone, min_resync)
 
 
-def DrbdNeedsActivation(target_node_uuid, nodes_ip, disks):
+def DrbdNeedsActivation(disks):
   """Checks which of the passed disks needs activation and returns their UUIDs.
 
   """
-  _SetPhysicalId(target_node_uuid, nodes_ip, disks)
   faulty_disks = []
 
   for disk in disks:
@@ -4273,6 +4350,33 @@ def SetWatcherPause(until, _filename=pathutils.WATCHER_PAUSEFILE):
       _Fail("Duration must be numeric")
 
     utils.WriteFile(_filename, data="%d\n" % (until, ), mode=0644)
+
+
+def ConfigureOVS(ovs_name, ovs_link):
+  """Creates a OpenvSwitch on the node.
+
+  This function sets up a OpenvSwitch on the node with given name nad
+  connects it via a given eth device.
+
+  @type ovs_name: string
+  @param ovs_name: Name of the OpenvSwitch to create.
+  @type ovs_link: None or string
+  @param ovs_link: Ethernet device for outside connection (can be missing)
+
+  """
+  # Initialize the OpenvSwitch
+  result = utils.RunCmd(["ovs-vsctl", "add-br", ovs_name])
+  if result.failed:
+    _Fail("Failed to create openvswitch. Script return value: %s, output: '%s'"
+          % (result.exit_code, result.output), log=True)
+
+  # And connect it to a physical interface, if given
+  if ovs_link:
+    result = utils.RunCmd(["ovs-vsctl", "add-port", ovs_name, ovs_link])
+    if result.failed:
+      _Fail("Failed to connect openvswitch to  interface %s. Script return"
+            " value: %s, output: '%s'" % (ovs_link, result.exit_code,
+            result.output), log=True)
 
 
 class HooksRunner(object):

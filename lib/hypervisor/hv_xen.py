@@ -297,7 +297,7 @@ def _GetConfigFileDiskData(block_devices, blockdev_prefix,
 
   disk_data = []
 
-  for sd_suffix, (cfdev, dev_path) in zip(_letters, block_devices):
+  for sd_suffix, (cfdev, dev_path, _) in zip(_letters, block_devices):
     sd_name = blockdev_prefix + sd_suffix
 
     if cfdev.mode == constants.DISK_RDWR:
@@ -306,13 +306,26 @@ def _GetConfigFileDiskData(block_devices, blockdev_prefix,
       mode = "r"
 
     if cfdev.dev_type in [constants.DT_FILE, constants.DT_SHARED_FILE]:
-      driver = _FILE_DRIVER_MAP[cfdev.physical_id[0]]
+      driver = _FILE_DRIVER_MAP[cfdev.logical_id[0]]
     else:
       driver = "phy"
 
     disk_data.append("'%s:%s,%s,%s'" % (driver, dev_path, sd_name, mode))
 
   return disk_data
+
+
+def _QuoteCpuidField(data):
+  """Add quotes around the CPUID field only if necessary.
+
+  Xen CPUID fields come in two shapes: LIBXL strings, which need quotes around
+  them, and lists of XEND strings, which don't.
+
+  @param data: Either type of parameter.
+  @return: The quoted version thereof.
+
+  """
+  return "'%s'" % data if data.startswith("host") else data
 
 
 class XenHypervisor(hv_base.BaseHypervisor):
@@ -408,12 +421,13 @@ class XenHypervisor(hv_base.BaseHypervisor):
     return utils.PathJoin(self._cfgdir, instance_name)
 
   @classmethod
-  def _WriteNICInfoFile(cls, instance_name, idx, nic):
+  def _WriteNICInfoFile(cls, instance, idx, nic):
     """Write the Xen config file for the instance.
 
     This version of the function just writes the config file from static data.
 
     """
+    instance_name = instance.name
     dirs = [(dname, constants.RUN_DIRS_MODE)
             for dname in cls._DIRS + [cls._InstanceNICDir(instance_name)]]
     utils.EnsureDirs(dirs)
@@ -421,24 +435,19 @@ class XenHypervisor(hv_base.BaseHypervisor):
     cfg_file = cls._InstanceNICFile(instance_name, idx)
     data = StringIO()
 
+    data.write("TAGS=%s\n" % r"\ ".join(instance.GetTags()))
     if nic.netinfo:
       netinfo = objects.Network.FromDict(nic.netinfo)
-      data.write("NETWORK_NAME=%s\n" % netinfo.name)
-      if netinfo.network:
-        data.write("NETWORK_SUBNET=%s\n" % netinfo.network)
-      if netinfo.gateway:
-        data.write("NETWORK_GATEWAY=%s\n" % netinfo.gateway)
-      if netinfo.network6:
-        data.write("NETWORK_SUBNET6=%s\n" % netinfo.network6)
-      if netinfo.gateway6:
-        data.write("NETWORK_GATEWAY6=%s\n" % netinfo.gateway6)
-      if netinfo.mac_prefix:
-        data.write("NETWORK_MAC_PREFIX=%s\n" % netinfo.mac_prefix)
-      if netinfo.tags:
-        data.write("NETWORK_TAGS=%s\n" % r"\ ".join(netinfo.tags))
+      for k, v in netinfo.HooksDict().iteritems():
+        data.write("%s=%s\n" % (k, v))
 
     data.write("MAC=%s\n" % nic.mac)
-    data.write("IP=%s\n" % nic.ip)
+    if nic.ip:
+      data.write("IP=%s\n" % nic.ip)
+    data.write("INTERFACE_INDEX=%s\n" % str(idx))
+    if nic.name:
+      data.write("INTERFACE_NAME=%s\n" % nic.name)
+    data.write("INTERFACE_UUID=%s\n" % nic.uuid)
     data.write("MODE=%s\n" % nic.nicparams[constants.NIC_MODE])
     data.write("LINK=%s\n" % nic.nicparams[constants.NIC_LINK])
 
@@ -1021,6 +1030,8 @@ class XenPvmHypervisor(XenHypervisor):
     constants.HV_VIF_SCRIPT: hv_base.OPT_FILE_CHECK,
     constants.HV_XEN_CMD:
       hv_base.ParamInSet(True, constants.KNOWN_XEN_COMMANDS),
+    constants.HV_XEN_CPUID: hv_base.NO_CHECK,
+    constants.HV_SOUNDHW: hv_base.NO_CHECK,
     }
 
   def _GetConfig(self, instance, startup_memory, block_devices):
@@ -1079,10 +1090,14 @@ class XenPvmHypervisor(XenHypervisor):
         nic_str += ", ip=%s" % ip
       if nic.nicparams[constants.NIC_MODE] == constants.NIC_MODE_BRIDGED:
         nic_str += ", bridge=%s" % nic.nicparams[constants.NIC_LINK]
+      if nic.nicparams[constants.NIC_MODE] == constants.NIC_MODE_OVS:
+        nic_str += ", bridge=%s" % nic.nicparams[constants.NIC_LINK]
+        if nic.nicparams[constants.NIC_VLAN]:
+          nic_str += "%s" % nic.nicparams[constants.NIC_VLAN]
       if hvp[constants.HV_VIF_SCRIPT]:
         nic_str += ", script=%s" % hvp[constants.HV_VIF_SCRIPT]
       vif_data.append("'%s'" % nic_str)
-      self._WriteNICInfoFile(instance.name, idx, nic)
+      self._WriteNICInfoFile(instance, idx, nic)
 
     disk_data = \
       _GetConfigFileDiskData(block_devices, hvp[constants.HV_BLOCKDEV_PREFIX])
@@ -1099,6 +1114,13 @@ class XenPvmHypervisor(XenHypervisor):
       config.write("on_reboot = 'destroy'\n")
     config.write("on_crash = 'restart'\n")
     config.write("extra = '%s'\n" % hvp[constants.HV_KERNEL_ARGS])
+
+    cpuid = hvp[constants.HV_XEN_CPUID]
+    if cpuid:
+      config.write("cpuid = %s\n" % _QuoteCpuidField(cpuid))
+
+    if hvp[constants.HV_SOUNDHW]:
+      config.write("soundhw = '%s'\n" % hvp[constants.HV_SOUNDHW])
 
     return config.getvalue()
 
@@ -1150,6 +1172,8 @@ class XenHvmHypervisor(XenHypervisor):
     constants.HV_VIRIDIAN: hv_base.NO_CHECK,
     constants.HV_XEN_CMD:
       hv_base.ParamInSet(True, constants.KNOWN_XEN_COMMANDS),
+    constants.HV_XEN_CPUID: hv_base.NO_CHECK,
+    constants.HV_SOUNDHW: hv_base.NO_CHECK,
     }
 
   def _GetConfig(self, instance, startup_memory, block_devices):
@@ -1253,7 +1277,7 @@ class XenHvmHypervisor(XenHypervisor):
       if hvp[constants.HV_VIF_SCRIPT]:
         nic_str += ", script=%s" % hvp[constants.HV_VIF_SCRIPT]
       vif_data.append("'%s'" % nic_str)
-      self._WriteNICInfoFile(instance.name, idx, nic)
+      self._WriteNICInfoFile(instance, idx, nic)
 
     config.write("vif = [%s]\n" % ",".join(vif_data))
 
@@ -1278,5 +1302,12 @@ class XenHvmHypervisor(XenHypervisor):
     else:
       config.write("on_reboot = 'destroy'\n")
     config.write("on_crash = 'restart'\n")
+
+    cpuid = hvp[constants.HV_XEN_CPUID]
+    if cpuid:
+      config.write("cpuid = %s\n" % _QuoteCpuidField(cpuid))
+
+    if hvp[constants.HV_SOUNDHW]:
+      config.write("soundhw = '%s'\n" % hvp[constants.HV_SOUNDHW])
 
     return config.getvalue()

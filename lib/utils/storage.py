@@ -34,11 +34,6 @@ def GetDiskTemplatesOfStorageType(storage_type):
           if constants.MAP_DISK_TEMPLATE_STORAGE_TYPE[dt] == storage_type]
 
 
-def GetLvmDiskTemplates():
-  """Returns all disk templates that use LVM."""
-  return GetDiskTemplatesOfStorageType(constants.ST_LVM_VG)
-
-
 def IsDiskTemplateEnabled(disk_template, enabled_disk_templates):
   """Checks if a particular disk template is enabled.
 
@@ -62,8 +57,7 @@ def IsSharedFileStorageEnabled(enabled_disk_templates):
 
 def IsLvmEnabled(enabled_disk_templates):
   """Check whether or not any lvm-based disk templates are enabled."""
-  return len(set(GetLvmDiskTemplates())
-             .intersection(set(enabled_disk_templates))) != 0
+  return len(constants.DTS_LVM & set(enabled_disk_templates)) != 0
 
 
 def LvmGetsEnabled(enabled_disk_templates, new_enabled_disk_templates):
@@ -73,8 +67,7 @@ def LvmGetsEnabled(enabled_disk_templates, new_enabled_disk_templates):
   """
   if IsLvmEnabled(enabled_disk_templates):
     return False
-  return set(GetLvmDiskTemplates()).intersection(
-      set(new_enabled_disk_templates))
+  return len(constants.DTS_LVM & set(new_enabled_disk_templates)) != 0
 
 
 def _GetDefaultStorageUnitForDiskTemplate(cfg, disk_template):
@@ -92,7 +85,7 @@ def _GetDefaultStorageUnitForDiskTemplate(cfg, disk_template):
   """
   storage_type = constants.MAP_DISK_TEMPLATE_STORAGE_TYPE[disk_template]
   cluster = cfg.GetClusterInfo()
-  if disk_template in GetLvmDiskTemplates():
+  if disk_template in constants.DTS_LVM:
     return (storage_type, cfg.GetVGName())
   elif disk_template == constants.DT_FILE:
     return (storage_type, cluster.file_storage_dir)
@@ -102,28 +95,23 @@ def _GetDefaultStorageUnitForDiskTemplate(cfg, disk_template):
     return (storage_type, None)
 
 
-def _GetDefaultStorageUnitForSpindles(cfg):
-  """Creates a 'spindle' storage unit, by retrieving the volume group
-  name and associating it to the lvm-pv storage type.
-
-  @rtype: (string, string)
-  @return: tuple (storage_type, storage_key), where storage type is
-    'lvm-pv' and storage_key the name of the default volume group
-
-  """
-  return (constants.ST_LVM_PV, cfg.GetVGName())
+def DiskTemplateSupportsSpaceReporting(disk_template):
+  """Check whether the disk template supports storage space reporting."""
+  return (constants.MAP_DISK_TEMPLATE_STORAGE_TYPE[disk_template]
+          in constants.STS_REPORT)
 
 
-def GetStorageUnitsOfCluster(cfg, include_spindles=False):
-  """Examines the cluster's configuration and returns a list of storage
-  units and their storage keys, ordered by the order in which they
-  are enabled.
+def GetStorageUnits(cfg, disk_templates):
+  """Get the cluster's storage units for the given disk templates.
+
+  If any lvm-based disk template is requested, spindle information
+  is added to the request.
 
   @type cfg: L{config.ConfigWriter}
   @param cfg: Cluster configuration
-  @type include_spindles: boolean
-  @param include_spindles: flag to include an extra storage unit for physical
-    volumes
+  @type disk_templates: list of string
+  @param disk_templates: list of disk templates for which the storage
+    units will be computed
   @rtype: list of tuples (string, string)
   @return: list of storage units, each storage unit being a tuple of
     (storage_type, storage_key); storage_type is in
@@ -132,20 +120,28 @@ def GetStorageUnitsOfCluster(cfg, include_spindles=False):
     name for LVM storage or a file for file storage.
 
   """
-  cluster_config = cfg.GetClusterInfo()
   storage_units = []
-  for disk_template in cluster_config.enabled_disk_templates:
-    if constants.MAP_DISK_TEMPLATE_STORAGE_TYPE[disk_template]\
-        in constants.STS_REPORT:
+  for disk_template in disk_templates:
+    if DiskTemplateSupportsSpaceReporting(disk_template):
       storage_units.append(
           _GetDefaultStorageUnitForDiskTemplate(cfg, disk_template))
-  if include_spindles:
-    included_storage_types = set([st for (st, _) in storage_units])
-    if not constants.ST_LVM_PV in included_storage_types:
-      storage_units.append(
-          _GetDefaultStorageUnitForSpindles(cfg))
-
   return storage_units
+
+
+def LookupSpaceInfoByDiskTemplate(storage_space_info, disk_template):
+  """Looks up the storage space info for a given disk template.
+
+  @type storage_space_info: list of dicts
+  @param storage_space_info: result of C{GetNodeInfo}
+  @type disk_template: string
+  @param disk_template: disk template to get storage space info
+  @rtype: tuple
+  @return: returns the element of storage_space_info that matches the given
+    disk template
+
+  """
+  storage_type = constants.MAP_DISK_TEMPLATE_STORAGE_TYPE[disk_template]
+  return LookupSpaceInfoByStorageType(storage_space_info, storage_type)
 
 
 def LookupSpaceInfoByStorageType(storage_space_info, storage_type):

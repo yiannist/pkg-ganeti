@@ -36,7 +36,6 @@ from ganeti.masterd import iallocator
 from ganeti import masterd
 from ganeti import netutils
 from ganeti import objects
-from ganeti import opcodes
 from ganeti import pathutils
 from ganeti import rpc
 from ganeti import utils
@@ -50,7 +49,7 @@ from ganeti.cmdlib.common import INSTANCE_DOWN, \
   IsExclusiveStorageEnabledNode, CheckHVParams, CheckOSParams, \
   AnnotateDiskParams, GetUpdatedParams, ExpandInstanceUuidAndName, \
   ComputeIPolicySpecViolation, CheckInstanceState, ExpandNodeUuidAndName, \
-  CheckDiskTemplateEnabled
+  CheckDiskTemplateEnabled, IsValidDiskAccessModeCombination
 from ganeti.cmdlib.instance_storage import CreateDisks, \
   CheckNodesFreeDiskPerVG, WipeDisks, WipeOrCleanupDisks, WaitForSync, \
   IsExclusiveStorageEnabledNodeUuid, CreateSingleBlockDev, ComputeDisks, \
@@ -174,6 +173,7 @@ def _ComputeNics(op, cluster, default_ip, cfg, ec_id):
     net = nic.get(constants.INIC_NETWORK, None)
     link = nic.get(constants.NIC_LINK, None)
     ip = nic.get(constants.INIC_IP, None)
+    vlan = nic.get(constants.INIC_VLAN, None)
 
     if net is None or net.lower() == constants.VALUE_NONE:
       net = None
@@ -231,6 +231,8 @@ def _ComputeNics(op, cluster, default_ip, cfg, ec_id):
       nicparams[constants.NIC_MODE] = nic_mode
     if link:
       nicparams[constants.NIC_LINK] = link
+    if vlan:
+      nicparams[constants.NIC_VLAN] = vlan
 
     check_params = cluster.SimpleFillNIC(nicparams)
     objects.NIC.CheckParameterSyntax(check_params)
@@ -379,6 +381,38 @@ class LUInstanceCreate(LogicalUnit):
 
     self.adopt_disks = has_adopt
 
+  def _CheckVLANArguments(self):
+    """ Check validity of VLANs if given
+
+    """
+    for nic in self.op.nics:
+      vlan = nic.get(constants.INIC_VLAN, None)
+      if vlan:
+        if vlan[0] == ".":
+          # vlan starting with dot means single untagged vlan,
+          # might be followed by trunk (:)
+          if not vlan[1:].isdigit():
+            vlanlist = vlan[1:].split(':')
+            for vl in vlanlist:
+              if not vl.isdigit():
+                raise errors.OpPrereqError("Specified VLAN parameter is "
+                                           "invalid : %s" % vlan,
+                                             errors.ECODE_INVAL)
+        elif vlan[0] == ":":
+          # Trunk - tagged only
+          vlanlist = vlan[1:].split(':')
+          for vl in vlanlist:
+            if not vl.isdigit():
+              raise errors.OpPrereqError("Specified VLAN parameter is invalid"
+                                           " : %s" % vlan, errors.ECODE_INVAL)
+        elif vlan.isdigit():
+          # This is the simplest case. No dots, only single digit
+          # -> Create untagged access port, dot needs to be added
+          nic[constants.INIC_VLAN] = "." + vlan
+        else:
+          raise errors.OpPrereqError("Specified VLAN parameter is invalid"
+                                       " : %s" % vlan, errors.ECODE_INVAL)
+
   def CheckArguments(self):
     """Check arguments.
 
@@ -403,7 +437,10 @@ class LUInstanceCreate(LogicalUnit):
     # check that NIC's parameters names are unique and valid
     utils.ValidateDeviceNames("NIC", self.op.nics)
 
+    self._CheckVLANArguments()
+
     self._CheckDiskArguments()
+    assert self.op.disk_template is not None
 
     # instance name verification
     if self.op.name_check:
@@ -441,8 +478,6 @@ class LUInstanceCreate(LogicalUnit):
 
     _CheckOpportunisticLocking(self.op)
 
-    self._cds = GetClusterDomainSecret()
-
     if self.op.mode == constants.INSTANCE_IMPORT:
       # On import force_variant must be True, because if we forced it at
       # initial install, our only chance when importing it back is that it
@@ -460,11 +495,9 @@ class LUInstanceCreate(LogicalUnit):
         raise errors.OpPrereqError("Guest OS '%s' is not allowed for"
                                    " installation" % self.op.os_type,
                                    errors.ECODE_STATE)
-      if self.op.disk_template is None:
-        raise errors.OpPrereqError("No disk template specified",
-                                   errors.ECODE_INVAL)
-
     elif self.op.mode == constants.INSTANCE_REMOTE_IMPORT:
+      self._cds = GetClusterDomainSecret()
+
       # Check handshake to ensure both clusters have the same domain secret
       src_handshake = self.op.source_handshake
       if not src_handshake:
@@ -608,8 +641,6 @@ class LUInstanceCreate(LogicalUnit):
     else:
       node_name_whitelist = None
 
-    #TODO Export network to iallocator so that it chooses a pnode
-    #     in a nodegroup that has the desired network connected to
     req = _CreateInstanceAllocRequest(self.op, self.disks,
                                       self.nics, self.be_full,
                                       node_name_whitelist)
@@ -1043,7 +1074,7 @@ class LUInstanceCreate(LogicalUnit):
         netparams = self.cfg.GetGroupNetParams(net_uuid, self.pnode.uuid)
         if netparams is None:
           raise errors.OpPrereqError("No netparams found for network"
-                                     " %s. Propably not connected to"
+                                     " %s. Probably not connected to"
                                      " node's %s nodegroup" %
                                      (nobj.name, self.pnode.name),
                                      errors.ECODE_INVAL)
@@ -1061,7 +1092,8 @@ class LUInstanceCreate(LogicalUnit):
             self.LogInfo("Chose IP %s from network %s", nic.ip, nobj.name)
           else:
             try:
-              self.cfg.ReserveIp(net_uuid, nic.ip, self.proc.GetECId())
+              self.cfg.ReserveIp(net_uuid, nic.ip, self.proc.GetECId(),
+                                 check=self.op.conflicts_check)
             except errors.ReservationError:
               raise errors.OpPrereqError("IP address %s already in use"
                                          " or does not belong to network %s" %
@@ -1112,7 +1144,7 @@ class LUInstanceCreate(LogicalUnit):
       elif self.op.disk_template == constants.DT_EXT:
         # FIXME: Function that checks prereqs if needed
         pass
-      elif self.op.disk_template in utils.GetLvmDiskTemplates():
+      elif self.op.disk_template in constants.DTS_LVM:
         # Check lv size requirements, if not adopting
         req_sizes = ComputeDiskSizePerVG(self.op.disk_template, self.disks)
         CheckNodesFreeDiskPerVG(self, node_uuids, req_sizes)
@@ -1189,6 +1221,22 @@ class LUInstanceCreate(LogicalUnit):
       for dsk in self.disks:
         dsk[constants.IDISK_SIZE] = \
           int(float(node_disks[dsk[constants.IDISK_ADOPT]]))
+
+    # Check disk access param to be compatible with specified hypervisor
+    node_info = self.cfg.GetNodeInfo(self.op.pnode_uuid)
+    node_group = self.cfg.GetNodeGroup(node_info.group)
+    disk_params = self.cfg.GetGroupDiskParams(node_group)
+    access_type = disk_params[self.op.disk_template].get(
+      constants.RBD_ACCESS, constants.DISK_KERNELSPACE
+    )
+
+    if not IsValidDiskAccessModeCombination(self.op.hypervisor,
+                                            self.op.disk_template,
+                                            access_type):
+      raise errors.OpPrereqError("Selected hypervisor (%s) cannot be"
+                                 " used with %s disk access param" %
+                                 (self.op.hypervisor, access_type),
+                                  errors.ECODE_STATE)
 
     # Verify instance specs
     spindle_use = self.be_full.get(constants.BE_SPINDLE_USE, None)
@@ -1294,7 +1342,6 @@ class LUInstanceCreate(LogicalUnit):
         for t_dsk, a_dsk in zip(tmp_disks, self.disks):
           rename_to.append(t_dsk.logical_id)
           t_dsk.logical_id = (t_dsk.logical_id[0], a_dsk[constants.IDISK_ADOPT])
-          self.cfg.SetDiskID(t_dsk, self.pnode.uuid)
         result = self.rpc.call_blockdev_rename(self.pnode.uuid,
                                                zip(tmp_disks, rename_to))
         result.Raise("Failed to rename adoped LVs")
@@ -1359,11 +1406,6 @@ class LUInstanceCreate(LogicalUnit):
     ReleaseLocks(self, locking.LEVEL_NODE_RES)
 
     if iobj.disk_template != constants.DT_DISKLESS and not self.adopt_disks:
-      # we need to set the disks ID to the primary node, since the
-      # preceding code might or might have not done it, depending on
-      # disk template and other options
-      for disk in iobj.disks:
-        self.cfg.SetDiskID(disk, self.pnode.uuid)
       if self.op.mode == constants.INSTANCE_CREATE:
         if not self.op.no_install:
           pause_sync = (iobj.disk_template in constants.DTS_INT_MIRROR and
@@ -1411,7 +1453,7 @@ class LUInstanceCreate(LogicalUnit):
             dt = masterd.instance.DiskTransfer("disk/%s" % idx,
                                                constants.IEIO_FILE, (image, ),
                                                constants.IEIO_SCRIPT,
-                                               (iobj.disks[idx], idx),
+                                               ((iobj.disks[idx], iobj), idx),
                                                None)
             transfers.append(dt)
 
@@ -1595,8 +1637,8 @@ class LUInstanceRename(LogicalUnit):
     info = GetInstanceInfoText(renamed_inst)
     for (idx, disk) in enumerate(renamed_inst.disks):
       for node_uuid in renamed_inst.all_nodes:
-        self.cfg.SetDiskID(disk, node_uuid)
-        result = self.rpc.call_blockdev_setinfo(node_uuid, disk, info)
+        result = self.rpc.call_blockdev_setinfo(node_uuid,
+                                                (disk, renamed_inst), info)
         result.Warn("Error setting info on node %s for disk %s" %
                     (self.cfg.GetNodeName(node_uuid), idx), self.LogWarning)
     try:
@@ -1846,7 +1888,7 @@ class LUInstanceMove(LogicalUnit):
                         idx, result.fail_msg)
         errs.append(result.fail_msg)
         break
-      dev_path = result.payload
+      dev_path, _ = result.payload
       result = self.rpc.call_blockdev_export(source_node.uuid, (disk,
                                                                 self.instance),
                                              target_node.secondary_ip,
@@ -2031,8 +2073,8 @@ class LUInstanceMultiAlloc(NoHooksLU):
       failed_insts = []
 
     return {
-      opcodes.OpInstanceMultiAlloc.ALLOCATABLE_KEY: allocatable_insts,
-      opcodes.OpInstanceMultiAlloc.FAILED_KEY: failed_insts,
+      constants.ALLOCATABLE_KEY: allocatable_insts,
+      constants.FAILED_KEY: failed_insts,
       }
 
   def Exec(self, feedback_fn):
@@ -2171,7 +2213,8 @@ def GetItemFromContainer(identifier, kind, container):
 
 
 def _ApplyContainerMods(kind, container, chgdesc, mods,
-                        create_fn, modify_fn, remove_fn):
+                        create_fn, modify_fn, remove_fn,
+                        post_add_fn=None):
   """Applies descriptions in C{mods} to C{container}.
 
   @type kind: string
@@ -2195,6 +2238,10 @@ def _ApplyContainerMods(kind, container, chgdesc, mods,
   @type remove_fn: callable
   @param remove_fn: Callback on removing item; receives absolute item index,
     item and private data object as added by L{_PrepareContainerMods}
+  @type post_add_fn: callable
+  @param post_add_fn: Callable for post-processing a newly created item after
+    it has been put into the container. It receives the index of the new item
+    and the new item as parameters.
 
   """
   for (op, identifier, params, private) in mods:
@@ -2231,6 +2278,10 @@ def _ApplyContainerMods(kind, container, chgdesc, mods,
         assert idx <= len(container)
         # list.insert does so before the specified index
         container.insert(idx, item)
+
+      if post_add_fn is not None:
+        post_add_fn(addidx, item)
+
     else:
       # Retrieve existing item
       (absidx, item) = GetItemFromContainer(identifier, kind, container)
@@ -2238,10 +2289,12 @@ def _ApplyContainerMods(kind, container, chgdesc, mods,
       if op == constants.DDM_REMOVE:
         assert not params
 
-        if remove_fn is not None:
-          remove_fn(absidx, item, private)
-
         changes = [("%s/%s" % (kind, absidx), "remove")]
+
+        if remove_fn is not None:
+          msg = remove_fn(absidx, item, private)
+          if msg:
+            changes.append(("%s/%s" % (kind, absidx), msg))
 
         assert container[absidx] == item
         del container[absidx]
@@ -2339,12 +2392,7 @@ class LUInstanceSetParams(LogicalUnit):
       if size is None:
         raise errors.OpPrereqError("Required disk parameter '%s' missing" %
                                    constants.IDISK_SIZE, errors.ECODE_INVAL)
-
-      try:
-        size = int(size)
-      except (TypeError, ValueError), err:
-        raise errors.OpPrereqError("Invalid disk size parameter: %s" % err,
-                                   errors.ECODE_INVAL)
+      size = int(size)
 
       params[constants.IDISK_SIZE] = size
       name = params.get(constants.IDISK_NAME, None)
@@ -2430,9 +2478,9 @@ class LUInstanceSetParams(LogicalUnit):
                            "hypervisor", "instance", "cluster")
 
     self.op.disks = self._UpgradeDiskNicMods(
-      "disk", self.op.disks, opcodes.OpInstanceSetParams.TestDiskModifications)
+      "disk", self.op.disks, ht.TSetParamsMods(ht.TIDiskParams))
     self.op.nics = self._UpgradeDiskNicMods(
-      "NIC", self.op.nics, opcodes.OpInstanceSetParams.TestNicModifications)
+      "NIC", self.op.nics, ht.TSetParamsMods(ht.TINicParams))
 
     if self.op.disks and self.op.disk_template is not None:
       raise errors.OpPrereqError("Disk template conversion and other disk"
@@ -2638,7 +2686,8 @@ class LUInstanceSetParams(LogicalUnit):
         # Reserve new IP if in the new network if any
         elif new_net_uuid:
           try:
-            self.cfg.ReserveIp(new_net_uuid, new_ip, self.proc.GetECId())
+            self.cfg.ReserveIp(new_net_uuid, new_ip, self.proc.GetECId(),
+                               check=self.op.conflicts_check)
             self.LogInfo("Reserving IP %s in network %s",
                          new_ip, new_net_obj.name)
           except errors.ReservationError:
@@ -2780,6 +2829,14 @@ class LUInstanceSetParams(LogicalUnit):
                                       constants.DT_EXT),
                                      errors.ECODE_INVAL)
 
+    if not self.op.wait_for_sync and self.instance.disks_active:
+      for mod in self.diskmod:
+        if mod[0] == constants.DDM_ADD:
+          raise errors.OpPrereqError("Can't add a disk to an instance with"
+                                     " activated disks and"
+                                     " --no-wait-for-sync given.",
+                                     errors.ECODE_INVAL)
+
     if self.op.disks and self.instance.disk_template == constants.DT_DISKLESS:
       raise errors.OpPrereqError("Disk operations not supported for"
                                  " diskless instances", errors.ECODE_INVAL)
@@ -2815,6 +2872,7 @@ class LUInstanceSetParams(LogicalUnit):
     assert self.op.instance_name in self.owned_locks(locking.LEVEL_INSTANCE)
     self.instance = self.cfg.GetInstanceInfo(self.op.instance_uuid)
     self.cluster = self.cfg.GetClusterInfo()
+    cluster_hvparams = self.cluster.hvparams[self.instance.hypervisor]
 
     assert self.instance is not None, \
       "Cannot retrieve locked instance %s" % self.op.instance_name
@@ -2828,7 +2886,7 @@ class LUInstanceSetParams(LogicalUnit):
       # verify that the instance is not up
       instance_info = self.rpc.call_instance_info(
           pnode_uuid, self.instance.name, self.instance.hypervisor,
-          self.instance.hvparams)
+          cluster_hvparams)
       if instance_info.fail_msg:
         self.warn.append("Can't get instance runtime information: %s" %
                          instance_info.fail_msg)
@@ -2847,6 +2905,20 @@ class LUInstanceSetParams(LogicalUnit):
 
     # dictionary with instance information after the modification
     ispec = {}
+
+    if self.op.hotplug or self.op.hotplug_if_possible:
+      result = self.rpc.call_hotplug_supported(self.instance.primary_node,
+                                               self.instance)
+      if result.fail_msg:
+        if self.op.hotplug:
+          result.Raise("Hotplug is not possible: %s" % result.fail_msg,
+                       prereq=True)
+        else:
+          self.LogWarning(result.fail_msg)
+          self.op.hotplug = False
+          self.LogInfo("Modification will take place without hotplugging.")
+      else:
+        self.op.hotplug = True
 
     # Prepare NIC modifications
     self.nicmod = _PrepareContainerMods(self.op.nics, _InstNicModPrivate)
@@ -2947,9 +3019,9 @@ class LUInstanceSetParams(LogicalUnit):
         mem_check_list.extend(self.instance.secondary_nodes)
       instance_info = self.rpc.call_instance_info(
           pnode_uuid, self.instance.name, self.instance.hypervisor,
-          self.instance.hvparams)
+          cluster_hvparams)
       hvspecs = [(self.instance.hypervisor,
-                  self.cluster.hvparams[self.instance.hypervisor])]
+                  cluster_hvparams)]
       nodeinfo = self.rpc.call_node_info(mem_check_list, None,
                                          hvspecs)
       pninfo = nodeinfo[pnode_uuid]
@@ -3010,7 +3082,7 @@ class LUInstanceSetParams(LogicalUnit):
       remote_info = self.rpc.call_instance_info(
          self.instance.primary_node, self.instance.name,
          self.instance.hypervisor,
-         self.cluster.hvparams[self.instance.hypervisor])
+         cluster_hvparams)
       remote_info.Raise("Error checking node %s" %
                         self.cfg.GetNodeName(self.instance.primary_node))
       if not remote_info.payload: # not running already
@@ -3071,7 +3143,8 @@ class LUInstanceSetParams(LogicalUnit):
       # Operate on copies as this is still in prereq
       nics = [nic.Copy() for nic in self.instance.nics]
       _ApplyContainerMods("NIC", nics, self._nic_chgdesc, self.nicmod,
-                          self._CreateNewNic, self._ApplyNicMods, None)
+                          self._CreateNewNic, self._ApplyNicMods,
+                          self._RemoveNic)
       # Verify that NIC names are unique and valid
       utils.ValidateDeviceNames("NIC", nics)
       self._new_nics = nics
@@ -3133,8 +3206,7 @@ class LUInstanceSetParams(LogicalUnit):
                                      self.instance.uuid, pnode_uuid,
                                      [snode_uuid], disk_info, None, None, 0,
                                      feedback_fn, self.diskparams)
-    anno_disks = rpc.AnnotateDiskParams(constants.DT_DRBD8, new_disks,
-                                        self.diskparams)
+    anno_disks = rpc.AnnotateDiskParams(new_disks, self.diskparams)
     p_excl_stor = IsExclusiveStorageEnabledNodeUuid(self.cfg, pnode_uuid)
     s_excl_stor = IsExclusiveStorageEnabledNodeUuid(self.cfg, snode_uuid)
     info = GetInstanceInfoText(self.instance)
@@ -3167,8 +3239,6 @@ class LUInstanceSetParams(LogicalUnit):
     except errors.GenericError, e:
       feedback_fn("Initializing of DRBD devices failed;"
                   " renaming back original volumes...")
-      for disk in new_disks:
-        self.cfg.SetDiskID(disk, pnode_uuid)
       rename_back_list = [(n.children[0], o.logical_id)
                           for (n, o) in zip(new_disks, self.instance.disks)]
       result = self.rpc.call_blockdev_rename(pnode_uuid, rename_back_list)
@@ -3229,22 +3299,36 @@ class LUInstanceSetParams(LogicalUnit):
 
     feedback_fn("Removing volumes on the secondary node...")
     for disk in old_disks:
-      self.cfg.SetDiskID(disk, snode_uuid)
-      msg = self.rpc.call_blockdev_remove(snode_uuid, disk).fail_msg
-      if msg:
-        self.LogWarning("Could not remove block device %s on node %s,"
-                        " continuing anyway: %s", disk.iv_name,
-                        self.cfg.GetNodeName(snode_uuid), msg)
+      result = self.rpc.call_blockdev_remove(snode_uuid, (disk, self.instance))
+      result.Warn("Could not remove block device %s on node %s,"
+                  " continuing anyway" %
+                  (disk.iv_name, self.cfg.GetNodeName(snode_uuid)),
+                  self.LogWarning)
 
     feedback_fn("Removing unneeded volumes on the primary node...")
     for idx, disk in enumerate(old_disks):
       meta = disk.children[1]
-      self.cfg.SetDiskID(meta, pnode_uuid)
-      msg = self.rpc.call_blockdev_remove(pnode_uuid, meta).fail_msg
-      if msg:
-        self.LogWarning("Could not remove metadata for disk %d on node %s,"
-                        " continuing anyway: %s", idx,
-                        self.cfg.GetNodeName(pnode_uuid), msg)
+      result = self.rpc.call_blockdev_remove(pnode_uuid, (meta, self.instance))
+      result.Warn("Could not remove metadata for disk %d on node %s,"
+                  " continuing anyway" %
+                  (idx, self.cfg.GetNodeName(pnode_uuid)),
+                  self.LogWarning)
+
+  def _HotplugDevice(self, action, dev_type, device, extra, seq):
+    self.LogInfo("Trying to hotplug device...")
+    msg = "hotplug:"
+    result = self.rpc.call_hotplug_device(self.instance.primary_node,
+                                          self.instance, action, dev_type,
+                                          (device, self.instance),
+                                          extra, seq)
+    if result.fail_msg:
+      self.LogWarning("Could not hotplug device: %s" % result.fail_msg)
+      self.LogInfo("Continuing execution..")
+      msg += "failed"
+    else:
+      self.LogInfo("Hotplug done.")
+      msg += "done"
+    return msg
 
   def _CreateNewDisk(self, idx, params, _):
     """Creates a new disk.
@@ -3271,9 +3355,37 @@ class LUInstanceSetParams(LogicalUnit):
                          disks=[(idx, disk, 0)],
                          cleanup=new_disks)
 
-    return (disk, [
-      ("disk/%d" % idx, "add:size=%s,mode=%s" % (disk.size, disk.mode)),
-      ])
+    changes = [
+      ("disk/%d" % idx,
+       "add:size=%s,mode=%s" % (disk.size, disk.mode)),
+      ]
+    if self.op.hotplug:
+      result = self.rpc.call_blockdev_assemble(self.instance.primary_node,
+                                               (disk, self.instance),
+                                               self.instance.name, True, idx)
+      if result.fail_msg:
+        changes.append(("disk/%d" % idx, "assemble:failed"))
+        self.LogWarning("Can't assemble newly created disk %d: %s",
+                        idx, result.fail_msg)
+      else:
+        _, link_name = result.payload
+        msg = self._HotplugDevice(constants.HOTPLUG_ACTION_ADD,
+                                  constants.HOTPLUG_TARGET_DISK,
+                                  disk, link_name, idx)
+        changes.append(("disk/%d" % idx, msg))
+
+    return (disk, changes)
+
+  def _PostAddDisk(self, _, disk):
+    if not WaitForSync(self, self.instance, disks=[disk],
+                       oneshot=not self.op.wait_for_sync):
+      raise errors.OpExecError("Failed to sync disks of %s" %
+                               self.instance.name)
+
+    # the disk is active at this point, so deactivate it if the instance disks
+    # are supposed to be inactive
+    if not self.instance.disks_active:
+      ShutdownInstanceDisks(self, self.instance, disks=[disk])
 
   def _ModifyDisk(self, idx, disk, params, _):
     """Modifies a disk.
@@ -3308,11 +3420,18 @@ class LUInstanceSetParams(LogicalUnit):
     """Removes a disk.
 
     """
+    hotmsg = ""
+    if self.op.hotplug:
+      hotmsg = self._HotplugDevice(constants.HOTPLUG_ACTION_REMOVE,
+                                   constants.HOTPLUG_TARGET_DISK,
+                                   root, None, idx)
+      ShutdownInstanceDisks(self, self.instance, [root])
+
     (anno_disk,) = AnnotateDiskParams(self.instance, [root], self.cfg)
     for node_uuid, disk in anno_disk.ComputeNodeTree(
                              self.instance.primary_node):
-      self.cfg.SetDiskID(disk, node_uuid)
-      msg = self.rpc.call_blockdev_remove(node_uuid, disk).fail_msg
+      msg = self.rpc.call_blockdev_remove(node_uuid, (disk, self.instance)) \
+              .fail_msg
       if msg:
         self.LogWarning("Could not remove disk/%d on node '%s': %s,"
                         " continuing anyway", idx,
@@ -3321,6 +3440,8 @@ class LUInstanceSetParams(LogicalUnit):
     # if this is a DRBD disk, return its port to the pool
     if root.dev_type in constants.DTS_DRBD:
       self.cfg.AddTcpUdpPort(root.logical_id[2])
+
+    return hotmsg
 
   def _CreateNewNic(self, idx, params, private):
     """Creates data structure for a new network interface.
@@ -3337,13 +3458,20 @@ class LUInstanceSetParams(LogicalUnit):
                        nicparams=nicparams)
     nobj.uuid = self.cfg.GenerateUniqueID(self.proc.GetECId())
 
-    return (nobj, [
+    changes = [
       ("nic.%d" % idx,
        "add:mac=%s,ip=%s,mode=%s,link=%s,network=%s" %
        (mac, ip, private.filled[constants.NIC_MODE],
-       private.filled[constants.NIC_LINK],
-       net)),
-      ])
+       private.filled[constants.NIC_LINK], net)),
+      ]
+
+    if self.op.hotplug:
+      msg = self._HotplugDevice(constants.HOTPLUG_ACTION_ADD,
+                                constants.HOTPLUG_TARGET_NIC,
+                                nobj, None, idx)
+      changes.append(("nic.%d" % idx, msg))
+
+    return (nobj, changes)
 
   def _ApplyNicMods(self, idx, nic, params, private):
     """Modifies a network interface.
@@ -3368,7 +3496,19 @@ class LUInstanceSetParams(LogicalUnit):
       for (key, val) in nic.nicparams.items():
         changes.append(("nic.%s/%d" % (key, idx), val))
 
+    if self.op.hotplug:
+      msg = self._HotplugDevice(constants.HOTPLUG_ACTION_MODIFY,
+                                constants.HOTPLUG_TARGET_NIC,
+                                nic, None, idx)
+      changes.append(("nic/%d" % idx, msg))
+
     return changes
+
+  def _RemoveNic(self, idx, nic, _):
+    if self.op.hotplug:
+      return self._HotplugDevice(constants.HOTPLUG_ACTION_REMOVE,
+                                 constants.HOTPLUG_TARGET_NIC,
+                                 nic, None, idx)
 
   def Exec(self, feedback_fn):
     """Modifies an instance.
@@ -3403,7 +3543,7 @@ class LUInstanceSetParams(LogicalUnit):
     # Apply disk changes
     _ApplyContainerMods("disk", self.instance.disks, result, self.diskmod,
                         self._CreateNewDisk, self._ModifyDisk,
-                        self._RemoveDisk)
+                        self._RemoveDisk, post_add_fn=self._PostAddDisk)
     _UpdateIvNames(0, self.instance.disks)
 
     if self.op.disk_template:

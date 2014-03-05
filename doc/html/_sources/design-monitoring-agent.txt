@@ -49,6 +49,8 @@ The monitoring agent system will report on the following basic information:
 - Node OS CPU load average report
 - Information from a plugin system
 
+.. _monitoring-agent-format-of-the-report:
+
 Format of the report
 --------------------
 
@@ -813,6 +815,13 @@ that provides one. The values returned by the collection function of
 the data collector will be saved in an appropriate map, associating each
 value to the corresponding collector, using the collector's name as the
 key of the map. This map will be stored in mond's memory.
+
+The collectors are divided in two categories:
+
+- stateless collectors, collectors who have immediate access to the
+  reported information
+- stateful collectors, collectors whose report is based on data collected
+  in a previous time window
 
 For example: the collection function of the CPU load collector will
 collect a CPU load value and save it in the map mentioned above. The

@@ -120,6 +120,15 @@
 <dt><code>ndp/oob_program</code></dt>
 <dd><p>The &quot;oob_program&quot; node parameter</p>
 </dd>
+<dt><code>ndp/ovs</code></dt>
+<dd><p>The &quot;ovs&quot; node parameter</p>
+</dd>
+<dt><code>ndp/ovs_link</code></dt>
+<dd><p>The &quot;ovs_link&quot; node parameter</p>
+</dd>
+<dt><code>ndp/ovs_name</code></dt>
+<dd><p>The &quot;ovs_name&quot; node parameter</p>
+</dd>
 <dt><code>ndp/spindle_count</code></dt>
 <dd><p>The &quot;spindle_count&quot; node parameter</p>
 </dd>

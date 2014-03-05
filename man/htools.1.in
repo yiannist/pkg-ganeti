@@ -318,6 +318,34 @@ vcpu ratio
 spindle ratio
 .RE
 .TP
+.B --mond
+If given the program will query all MonDs to fetch data from the
+supported data collectors over the network.
+.RS
+.RE
+.TP
+.B --mond-data \f[I]datafile\f[]
+The name of the file holding the data provided by MonD, to override
+quering MonDs over the network.
+This is mostly used for debugging.
+The file must be in JSON format and present an array of JSON objects ,
+one for every node, with two members.
+The first member named \f[C]node\f[] is the name of the node and the
+second member named \f[C]reports\f[] is an array of report objects.
+The report objects must be in the same format as produced by the
+monitoring agent.
+.RS
+.RE
+.TP
+.B --ignore-dynu
+If given, all dynamic utilisation information will be ignored by
+assuming it to be 0.
+This option will take precedence over any data passed by the \f[C]-U\f[]
+option (available with hbal) or by the MonDs with the \f[C]--mond\f[]
+and the \f[C]--mond-data\f[] option.
+.RS
+.RE
+.TP
 .B -m \f[I]cluster\f[]
 Backend specification: collect data directly from the \f[I]cluster\f[]
 given as an argument via RAPI.

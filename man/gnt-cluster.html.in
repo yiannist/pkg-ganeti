@@ -35,6 +35,7 @@
 <li><a href="#rename">RENAME</a></li>
 <li><a href="#renew-crypto">RENEW-CRYPTO</a></li>
 <li><a href="#repair-disk-sizes">REPAIR-DISK-SIZES</a></li>
+<li><a href="#upgrade">UPGRADE</a></li>
 <li><a href="#verify">VERIFY</a></li>
 <li><a href="#verify-disks">VERIFY-DISKS</a></li>
 <li><a href="#version">VERSION</a></li>
@@ -235,6 +236,11 @@
 <dt>pool</dt>
 <dd><p>The RADOS cluster pool, inside which all rbd volumes will reside. When a new RADOS cluster is deployed, the default pool to put rbd volumes (Images in RADOS terminology) is 'rbd'.</p>
 </dd>
+<dt>access</dt>
+<dd><p>If 'userspace', instances will access their disks directly without going through a block device, avoiding expensive context switches with kernel space and the potential for <a href="http://tracker.ceph.com/issues/3076">deadlocks</a> in low memory scenarios.</p>
+<p>The default value is 'kernelspace' and it disables this behaviour. This setting may only be changed to 'userspace' if all instance disks in the affected group or cluster can be accessed in userspace.</p>
+<p>Attempts to use this feature without rbd support compiled in KVM result in a &quot;no such file or directory&quot; error messages.</p>
+</dd>
 </dl>
 <p>The option <code>--maintain-node-health</code> allows one to enable/disable automatic maintenance actions on nodes. Currently these include automatic shutdown of instances and deactivation of DRBD devices on offline nodes; in the future it might be extended to automatic removal of unknown LVM volumes, etc. Note that this option is only useful if the use of <code>ganeti-confd</code> was enabled at compilation.</p>
 <p>The <code>--uid-pool</code> option initializes the user-id pool. The <em>user-id pool definition</em> can contain a list of user-ids and/or a list of user-id ranges. The parameter format is a comma-separated list of numeric user-ids or user-id ranges. The ranges are defined by a lower and higher boundary, separated by a dash. The boundaries are inclusive. If the <code>--uid-pool</code> option is not supplied, the user-id pool is initialized to an empty list. An empty list means that the user-id pool feature is disabled.</p>
@@ -319,6 +325,10 @@
 <p>This command checks that the recorded size of the given instance's disks matches the actual size and updates any mismatches found. This is needed if the Ganeti configuration is no longer consistent with reality, as it will impact some disk operations. If no arguments are given, all instances will be checked. When exclusive storage is active, also spindles are updated.</p>
 <p>Note that only active disks can be checked by this command; in case a disk cannot be activated it's advised to use <strong>gnt-instance activate-disks --ignore-size ...</strong> to force activation without regard to the current size.</p>
 <p>When all the disk sizes are consistent, the command will return no output. Otherwise it will log details about the inconsistencies in the configuration.</p>
+<h2 id="upgrade"><a href="#TOC">UPGRADE</a></h2>
+<p><strong>upgrade</strong> {--to <em>version</em> | --resume}</p>
+<p>This command safely switches all nodes of the cluster to a new Ganeti version. It is a prerequisite that the new version is already installed, albeit not activated, on all nodes; this requisite is checked before any actions are done.</p>
+<p>If called with the <code>--resume</code> option, any pending upgrade is continued, that was interrupted by a power failure or similar on master. It will do nothing, if not run on the master node, or if no upgrade was in progress.</p>
 <h2 id="verify"><a href="#TOC">VERIFY</a></h2>
 <p><strong>verify</strong> [--no-nplus1-mem] [--node-group <em>nodegroup</em>]<br />[--error-codes] [{-I|--ignore-errors} <em>errorcode</em>]<br />[{-I|--ignore-errors} <em>errorcode</em>...]</p>
 <p>Verify correctness of cluster configuration. This is safe with respect to running instances, and incurs no downtime of the instances.</p>
@@ -358,8 +368,8 @@
 <dt><code>ENODEORPHANINSTANCE</code></dt>
 <dd><p>Unknown intance running on a node</p>
 </dd>
-<dt><code>ENODENET</code></dt>
-<dd><p>Network-related node error</p>
+<dt><code>ECLUSTERDANGLINGINST</code></dt>
+<dd><p>Some instances have a non-existing primary node</p>
 </dd>
 <dt><code>ENODESSH</code></dt>
 <dd><p>SSH-related node error</p>
@@ -369,9 +379,6 @@
 </dd>
 <dt><code>ENODEHOOKS</code></dt>
 <dd><p>Communication failure in hooks execution</p>
-</dd>
-<dt><code>ENODEDRBD</code></dt>
-<dd><p>Error parsing the DRBD status file</p>
 </dd>
 <dt><code>ENODEDRBDHELPER</code></dt>
 <dd><p>Error caused by the DRBD helper</p>
@@ -394,8 +401,11 @@
 <dt><code>EINSTANCELAYOUT</code></dt>
 <dd><p>Instance has multiple secondary nodes</p>
 </dd>
-<dt><code>ENODEFILESTORAGEPATHUNUSABLE</code></dt>
-<dd><p>File storage path unusable</p>
+<dt><code>ENODENET</code></dt>
+<dd><p>Network-related node error</p>
+</dd>
+<dt><code>EINSTANCEUNSUITABLENODE</code></dt>
+<dd><p>Instance running on nodes that are not suitable for it</p>
 </dd>
 <dt><code>EINSTANCEBADNODE</code></dt>
 <dd><p>Instance marked as running lives on an offline node</p>
@@ -403,8 +413,11 @@
 <dt><code>ENODEUSERSCRIPTS</code></dt>
 <dd><p>User scripts not present or not executable</p>
 </dd>
-<dt><code>ENODELVM</code></dt>
-<dd><p>LVM-related node error</p>
+<dt><code>ENODEDRBDVERSION</code></dt>
+<dd><p>DRBD version mismatch within a node group</p>
+</dd>
+<dt><code>ENODEFILESTORAGEPATHUNUSABLE</code></dt>
+<dd><p>File storage path unusable</p>
 </dd>
 <dt><code>EINSTANCEFAULTYDISK</code></dt>
 <dd><p>Impossible to retrieve status for a disk</p>
@@ -415,8 +428,11 @@
 <dt><code>ECLUSTERCERT</code></dt>
 <dd><p>Cluster certificate files verification failure</p>
 </dd>
-<dt><code>ENODEHV</code></dt>
-<dd><p>Hypervisor parameters verification failure</p>
+<dt><code>ENODEDRBD</code></dt>
+<dd><p>Error parsing the DRBD status file</p>
+</dd>
+<dt><code>EGROUPDIFFERENTPVSIZE</code></dt>
+<dd><p>PVs in the group have different sizes</p>
 </dd>
 <dt><code>ENODETIME</code></dt>
 <dd><p>Node returned invalid time</p>
@@ -439,14 +455,20 @@
 <dt><code>ECLUSTERCFG</code></dt>
 <dd><p>Cluster configuration verification failure</p>
 </dd>
+<dt><code>EINSTANCEMISSINGCFGPARAMETER</code></dt>
+<dd><p>A configuration parameter for an instance is missing</p>
+</dd>
+<dt><code>ENODELVM</code></dt>
+<dd><p>LVM-related node error</p>
+</dd>
 <dt><code>ENODEORPHANLV</code></dt>
 <dd><p>Unknown LVM logical volume</p>
 </dd>
 <dt><code>ENODEFILECHECK</code></dt>
 <dd><p>Error retrieving the checksum of the node files</p>
 </dd>
-<dt><code>ECLUSTERDANGLINGINST</code></dt>
-<dd><p>Some instances have a non-existing primary node</p>
+<dt><code>ENODEHV</code></dt>
+<dd><p>Hypervisor parameters verification failure</p>
 </dd>
 </dl>
 <h2 id="verify-disks"><a href="#TOC">VERIFY-DISKS</a></h2>

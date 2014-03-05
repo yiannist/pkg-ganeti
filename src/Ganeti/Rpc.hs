@@ -60,7 +60,6 @@ module Ganeti.Rpc
   , RpcCallVersion(..)
   , RpcResultVersion(..)
 
-  , StorageField(..)
   , RpcCallStorageList(..)
   , RpcResultStorageList(..)
 
@@ -69,8 +68,6 @@ module Ganeti.Rpc
 
   , RpcCallExportList(..)
   , RpcResultExportList(..)
-
-  , rpcTimeoutFromRaw -- FIXME: Not used anywhere
   ) where
 
 import Control.Arrow (second)
@@ -124,16 +121,6 @@ explainRpcError OfflineNodeError =
 
 type ERpcError = Either RpcError
 
--- | Basic timeouts for RPC calls.
-$(declareIADT "RpcTimeout"
-  [ ( "Urgent",    'C.rpcTmoUrgent )
-  , ( "Fast",      'C.rpcTmoFast )
-  , ( "Normal",    'C.rpcTmoNormal )
-  , ( "Slow",      'C.rpcTmoSlow )
-  , ( "FourHours", 'C.rpcTmo4hrs )
-  , ( "OneDay",    'C.rpcTmo1day )
-  ])
-
 -- | A generic class for RPC calls.
 class (J.JSON a) => RpcCall a where
   -- | Give the (Python) name of the procedure.
@@ -169,7 +156,7 @@ prepareUrl node call =
       node_address = if isIpV6 node_ip
                      then "[" ++ node_ip ++ "]"
                      else node_ip
-      port = snd C.daemonsPortsGanetiNoded
+      port = C.defaultNodedPort
       path_prefix = "https://" ++ node_address ++ ":" ++ show port
   in path_prefix ++ "/" ++ rpcCallName call
 
@@ -420,18 +407,6 @@ instance Rpc RpcCallVersion RpcResultVersion where
   rpcResultFill _ res = fromJSValueToRes res RpcResultVersion
 
 -- ** StorageList
-
--- | StorageList
-
--- FIXME: This may be moved to Objects
-$(declareSADT "StorageField"
-  [ ( "SFUsed",        'C.sfUsed)
-  , ( "SFName",        'C.sfName)
-  , ( "SFAllocatable", 'C.sfAllocatable)
-  , ( "SFFree",        'C.sfFree)
-  , ( "SFSize",        'C.sfSize)
-  ])
-$(makeJSONInstance ''StorageField)
 
 $(buildObject "RpcCallStorageList" "rpcCallStorageList"
   [ simpleField "su_name" [t| StorageType |]

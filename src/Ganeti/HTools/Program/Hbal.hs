@@ -91,6 +91,9 @@ options = do
     , oSelInst
     , oInstMoves
     , oDynuFile
+    , oIgnoreDyn 
+    , oMonD
+    , oMonDDataFile
     , oExTags
     , oExInst
     , oSaveCluster

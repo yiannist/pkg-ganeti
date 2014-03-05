@@ -29,9 +29,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
 -}
 
 module Ganeti.Objects
-  ( VType(..)
-  , vTypeFromRaw
-  , HvParams
+  ( HvParams
   , OsParams
   , PartialNicParams(..)
   , FilledNicParams(..)
@@ -39,8 +37,6 @@ module Ganeti.Objects
   , allNicParamFields
   , PartialNic(..)
   , FileDriver(..)
-  , BlockDriver(..)
-  , DiskMode(..)
   , DiskLogicalId(..)
   , Disk(..)
   , includesLogicalId
@@ -49,8 +45,6 @@ module Ganeti.Objects
   , FilledBeParams(..)
   , fillBeParams
   , allBeParamFields
-  , AdminState(..)
-  , adminStateFromRaw
   , Instance(..)
   , toDictInstance
   , PartialNDParams(..)
@@ -58,9 +52,6 @@ module Ganeti.Objects
   , fillNDParams
   , allNDParamFields
   , Node(..)
-  , NodeRole(..)
-  , nodeRoleToRaw
-  , roleDescription
   , AllocPolicy(..)
   , FilledISpecParams(..)
   , PartialISpecParams(..)
@@ -104,7 +95,9 @@ import Data.Word
 import Text.JSON (showJSON, readJSON, JSON, JSValue(..), fromJSString)
 import qualified Text.JSON as J
 
+import qualified AutoConf
 import qualified Ganeti.Constants as C
+import qualified Ganeti.ConstantUtils as ConstantUtils
 import Ganeti.JSON
 import Ganeti.Types
 import Ganeti.THH
@@ -118,16 +111,6 @@ fillDict :: (Ord k) => Map.Map k v -> Map.Map k v -> [k] -> Map.Map k v
 fillDict defaults custom skip_keys =
   let updated = Map.union custom defaults
   in foldl' (flip Map.delete) updated skip_keys
-
--- | The VTYPES, a mini-type system in Python.
-$(declareSADT "VType"
-  [ ("VTypeString",      'C.vtypeString)
-  , ("VTypeMaybeString", 'C.vtypeMaybeString)
-  , ("VTypeBool",        'C.vtypeBool)
-  , ("VTypeSize",        'C.vtypeSize)
-  , ("VTypeInt",         'C.vtypeInt)
-  ])
-$(makeJSONInstance ''VType)
 
 -- | The hypervisor parameter type. This is currently a simple map,
 -- without type checking on key/value pairs.
@@ -154,25 +137,6 @@ class SerialNoObject a where
 -- | Class of objects that have tags.
 class TagsObject a where
   tagsOf :: a -> Set.Set String
-
--- * Node role object
-
-$(declareSADT "NodeRole"
-  [ ("NROffline",   'C.nrOffline)
-  , ("NRDrained",   'C.nrDrained)
-  , ("NRRegular",   'C.nrRegular)
-  , ("NRCandidate", 'C.nrMcandidate)
-  , ("NRMaster",    'C.nrMaster)
-  ])
-$(makeJSONInstance ''NodeRole)
-
--- | The description of the node role.
-roleDescription :: NodeRole -> String
-roleDescription NROffline   = "offline"
-roleDescription NRDrained   = "drained"
-roleDescription NRRegular   = "regular"
-roleDescription NRCandidate = "master candidate"
-roleDescription NRMaster    = "master"
 
 -- * Network definitions
 
@@ -281,6 +245,7 @@ instance TimeStampObject Network where
 $(buildParam "Nic" "nicp"
   [ simpleField "mode" [t| NICMode |]
   , simpleField "link" [t| String  |]
+  , simpleField "vlan" [t| String |]
   ])
 
 $(buildObject "PartialNic" "nic" $
@@ -295,18 +260,6 @@ instance UuidObject PartialNic where
   uuidOf = nicUuid
 
 -- * Disk definitions
-
-$(declareSADT "DiskMode"
-  [ ("DiskRdOnly", 'C.diskRdonly)
-  , ("DiskRdWr",   'C.diskRdwr)
-  ])
-$(makeJSONInstance ''DiskMode)
-
--- | The persistent block driver type. Currently only one type is allowed.
-$(declareSADT "BlockDriver"
-  [ ("BlockDrvManual", 'C.blockdevDriverManual)
-  ])
-$(makeJSONInstance ''BlockDriver)
 
 -- | Constant for the dev_type key entry in the disk config.
 devType :: String
@@ -428,7 +381,6 @@ decodeDLId obj lid = do
 -- code currently can't build it.
 data Disk = Disk
   { diskLogicalId  :: DiskLogicalId
---  , diskPhysicalId :: String
   , diskChildren   :: [Disk]
   , diskIvName     :: String
   , diskSize       :: Int
@@ -441,7 +393,6 @@ data Disk = Disk
 $(buildObjectSerialisation "Disk" $
   [ customField 'decodeDLId 'encodeFullDLId ["dev_type"] $
       simpleField "logical_id"    [t| DiskLogicalId   |]
---  , simpleField "physical_id" [t| String   |]
   , defaultField  [| [] |] $ simpleField "children" [t| [Disk] |]
   , defaultField [| "" |] $ simpleField "iv_name" [t| String |]
   , simpleField "size" [t| Int |]
@@ -465,15 +416,7 @@ includesLogicalId vg_name lv_name disk =
       any (includesLogicalId vg_name lv_name) $ diskChildren disk
     _ -> False
 
-
 -- * Instance definitions
-
-$(declareSADT "AdminState"
-  [ ("AdminOffline", 'C.adminstOffline)
-  , ("AdminDown",    'C.adminstDown)
-  , ("AdminUp",      'C.adminstUp)
-  ])
-$(makeJSONInstance ''AdminState)
 
 $(buildParam "Be" "bep"
   [ simpleField "minmem"       [t| Int  |]
@@ -518,12 +461,12 @@ instance TagsObject Instance where
 -- * IPolicy definitions
 
 $(buildParam "ISpec" "ispec"
-  [ simpleField C.ispecMemSize     [t| Int |]
-  , simpleField C.ispecDiskSize    [t| Int |]
-  , simpleField C.ispecDiskCount   [t| Int |]
-  , simpleField C.ispecCpuCount    [t| Int |]
-  , simpleField C.ispecNicCount    [t| Int |]
-  , simpleField C.ispecSpindleUse  [t| Int |]
+  [ simpleField ConstantUtils.ispecMemSize     [t| Int |]
+  , simpleField ConstantUtils.ispecDiskSize    [t| Int |]
+  , simpleField ConstantUtils.ispecDiskCount   [t| Int |]
+  , simpleField ConstantUtils.ispecCpuCount    [t| Int |]
+  , simpleField ConstantUtils.ispecNicCount    [t| Int |]
+  , simpleField ConstantUtils.ispecSpindleUse  [t| Int |]
   ])
 
 $(buildObject "MinMaxISpecs" "mmis"
@@ -534,23 +477,23 @@ $(buildObject "MinMaxISpecs" "mmis"
 -- | Custom partial ipolicy. This is not built via buildParam since it
 -- has a special 2-level inheritance mode.
 $(buildObject "PartialIPolicy" "ipolicy"
-  [ optionalField . renameField "MinMaxISpecsP"
-                    $ simpleField C.ispecsMinmax   [t| [MinMaxISpecs] |]
-  , optionalField . renameField "StdSpecP"
-                    $ simpleField "std"            [t| PartialISpecParams |]
-  , optionalField . renameField "SpindleRatioP"
-                    $ simpleField "spindle-ratio"  [t| Double |]
-  , optionalField . renameField "VcpuRatioP"
-                    $ simpleField "vcpu-ratio"     [t| Double |]
-  , optionalField . renameField "DiskTemplatesP"
-                    $ simpleField "disk-templates" [t| [DiskTemplate] |]
+  [ optionalField . renameField "MinMaxISpecsP" $
+    simpleField ConstantUtils.ispecsMinmax [t| [MinMaxISpecs] |]
+  , optionalField . renameField "StdSpecP" $
+    simpleField "std" [t| PartialISpecParams |]
+  , optionalField . renameField "SpindleRatioP" $
+    simpleField "spindle-ratio" [t| Double |]
+  , optionalField . renameField "VcpuRatioP" $
+    simpleField "vcpu-ratio" [t| Double |]
+  , optionalField . renameField "DiskTemplatesP" $
+    simpleField "disk-templates" [t| [DiskTemplate] |]
   ])
 
 -- | Custom filled ipolicy. This is not built via buildParam since it
 -- has a special 2-level inheritance mode.
 $(buildObject "FilledIPolicy" "ipolicy"
-  [ renameField "MinMaxISpecs"
-    $ simpleField C.ispecsMinmax [t| [MinMaxISpecs] |]
+  [ renameField "MinMaxISpecs" $
+    simpleField ConstantUtils.ispecsMinmax [t| [MinMaxISpecs] |]
   , renameField "StdSpec" $ simpleField "std" [t| FilledISpecParams |]
   , simpleField "spindle-ratio"  [t| Double |]
   , simpleField "vcpu-ratio"     [t| Double |]
@@ -584,6 +527,9 @@ $(buildParam "ND" "ndp"
   [ simpleField "oob_program"   [t| String |]
   , simpleField "spindle_count" [t| Int    |]
   , simpleField "exclusive_storage" [t| Bool |]
+  , simpleField "ovs"           [t| Bool |]
+  , simpleField "ovs_name"       [t| String |]
+  , simpleField "ovs_link"       [t| String |]
   ])
 
 $(buildObject "Node" "node" $
@@ -654,8 +600,8 @@ instance TagsObject NodeGroup where
 
 -- | IP family type
 $(declareIADT "IpFamily"
-  [ ("IpFamilyV4", 'C.ip4Family)
-  , ("IpFamilyV6", 'C.ip6Family)
+  [ ("IpFamilyV4", 'AutoConf.pyAfInet4)
+  , ("IpFamilyV6", 'AutoConf.pyAfInet6)
   ])
 $(makeJSONInstance ''IpFamily)
 

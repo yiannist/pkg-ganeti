@@ -21,9 +21,9 @@ Algorithm options:
 \f[I]score\f[] ]\f[] \f[B][ -g \f[I]delta\f[] ]\f[] \f[B][
 --min-gain-limit \f[I]threshold\f[] ]\f[] \f[B][ -O \f[I]name...\f[]
 ]\f[] \f[B][ --no-disk-moves ]\f[] \f[B][ --no-instance-moves ]\f[]
-\f[B][ -U \f[I]util-file\f[] ]\f[] \f[B][ --evac-mode ]\f[] \f[B][
---select-instances \f[I]inst...\f[] ]\f[] \f[B][ --exclude-instances
-\f[I]inst...\f[] ]\f[]
+\f[B][ -U \f[I]util-file\f[] ]\f[] \f[B][ --ignore-dynu ]\f[] \f[B][
+--evac-mode ]\f[] \f[B][ --select-instances \f[I]inst...\f[] ]\f[]
+\f[B][ --exclude-instances \f[I]inst...\f[] ]\f[]
 .PP
 Reporting options:
 .PP
@@ -43,6 +43,11 @@ the solution) and reasonably fast.
 It is not, however, designed to be a perfect algorithm: it is possible
 to make it go into a corner from which it can find no improvement,
 because it looks only one "step" ahead.
+.PP
+The program accesses the cluster state via Rapi or Luxi.
+It also requests data over the network from all MonDs with the --mond
+option.
+Currently it uses only data produced by CPUload collector.
 .PP
 By default, the program will show the solution incrementally as it is
 computed, in a somewhat cryptic format; for getting the actual Ganeti
@@ -120,6 +125,8 @@ instances of the node)
 .IP \[bu] 2
 standard deviation of the dynamic load on the nodes, for cpus, memory,
 disk and network
+.IP \[bu] 2
+standard deviation of the CPU load provided by MonD
 .PP
 The free memory and free disk values help ensure that all nodes are
 somewhat balanced in their resource usage.
@@ -161,6 +168,14 @@ normalised to between zero and one.
 Note that it\[aq]s recommended to not have zero as the load value for
 any instance metric since then secondary instances are not well
 balanced.
+.PP
+The CPUload from MonD\[aq]s data collector will be used only if all
+MonDs are running, otherwise it won\[aq]t affect the cluster score.
+Since we can\[aq]t find the CPU load of each instance, we can assume
+that the CPU load of an instance is proportional to the number of its
+vcpus.
+With this heuristic, instances from nodes with high CPU load will tend
+to move to nodes with less CPU load.
 .PP
 On a perfectly balanced cluster (all nodes the same size, all instances
 the same size and spread across the nodes equally), the values for all
@@ -353,6 +368,15 @@ count, but that is already tracked via other metrics and thus the
 influence of the dynamic utilisation will be practically insignificant.
 .RE
 .TP
+.B --ignore-dynu
+If given, all dynamic utilisation information will be ignored by
+assuming it to be 0.
+This option will take precedence over any data passed by the \f[C]-U\f[]
+option or by the MonDs with the \f[C]--mond\f[] and the
+\f[C]--mond-data\f[] option.
+.RS
+.RE
+.TP
 .B -S \f[I]filename\f[], --save-cluster=\f[I]filename\f[]
 If given, the state of the cluster before the balancing is saved to the
 given file plus the extension "original" (i.e.
@@ -369,6 +393,25 @@ Backend specification: the name of the file holding node and instance
 information (if not collecting via RAPI or LUXI).
 This or one of the other backends must be selected.
 The option is described in the man page \f[B]htools\f[](1).
+.RS
+.RE
+.TP
+.B --mond
+If given the program will query all MonDs to fetch data from the
+supported data collectors over the network.
+.RS
+.RE
+.TP
+.B --mond-data \f[I]datafile\f[]
+The name of the file holding the data provided by MonD, to override
+quering MonDs over the network.
+This is mostly used for debugging.
+The file must be in JSON format and present an array of JSON objects ,
+one for every node, with two members.
+The first member named \f[C]node\f[] is the name of the node and the
+second member named \f[C]reports\f[] is an array of report objects.
+The report objects must be in the same format as produced by the
+monitoring agent.
 .RS
 .RE
 .TP

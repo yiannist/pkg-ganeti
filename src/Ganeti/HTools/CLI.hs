@@ -48,6 +48,8 @@ module Ganeti.HTools.CLI
   , oDiskTemplate
   , oSpindleUse
   , oDynuFile
+  , oMonD
+  , oMonDDataFile
   , oEvacMode
   , oExInst
   , oExTags
@@ -56,6 +58,7 @@ module Ganeti.HTools.CLI
   , oFullEvacuation
   , oGroup
   , oIAllocSrc
+  , oIgnoreDyn 
   , oIgnoreNonRedundant
   , oInstMoves
   , oJobDelay
@@ -121,6 +124,10 @@ data Options = Options
   , optDiskTemplate :: Maybe DiskTemplate  -- ^ Override for the disk template
   , optSpindleUse  :: Maybe Int      -- ^ Override for the spindle usage
   , optDynuFile    :: Maybe FilePath -- ^ Optional file with dynamic use data
+  , optIgnoreDynu  :: Bool           -- ^ Do not use dynamic use data
+  , optMonD        :: Bool           -- ^ Query MonDs
+  , optMonDFile    :: Maybe FilePath -- ^ Optional file with data provided
+                                     -- ^ by MonDs
   , optEvacMode    :: Bool           -- ^ Enable evacuation mode
   , optExInst      :: [String]       -- ^ Instances to be excluded
   , optExTags      :: Maybe [String] -- ^ Tags to use for exclusion
@@ -174,7 +181,10 @@ defaultOptions  = Options
   , optInstMoves   = True
   , optDiskTemplate = Nothing
   , optSpindleUse  = Nothing
+  , optIgnoreDynu  = False
   , optDynuFile    = Nothing
+  , optMonD        = False
+  , optMonDFile = Nothing
   , optEvacMode    = False
   , optExInst      = []
   , optExTags      = Nothing
@@ -277,6 +287,20 @@ oDiskMoves =
    \ thus allowing only the 'cheap' failover/migrate operations",
    OptComplNone)
 
+oMonD :: OptType
+oMonD =
+  (Option "" ["mond"]
+   (NoArg (\ opts -> Ok opts {optMonD = True}))
+   "Query MonDs",
+   OptComplNone)
+
+oMonDDataFile :: OptType
+oMonDDataFile =
+  (Option "" ["mond-data"]
+   (ReqArg (\ f opts -> Ok opts { optMonDFile = Just f }) "FILE")
+   "Import data provided by MonDs from the given FILE",
+   OptComplFile)
+
 oDiskTemplate :: OptType
 oDiskTemplate =
   (Option "" ["disk-template"]
@@ -319,6 +343,13 @@ oDynuFile =
    (ReqArg (\ f opts -> Ok opts { optDynuFile = Just f }) "FILE")
    "Import dynamic utilisation data from the given FILE",
    OptComplFile)
+
+oIgnoreDyn :: OptType
+oIgnoreDyn =
+  (Option "" ["ignore-dynu"]
+   (NoArg (\ opts -> Ok opts {optIgnoreDynu = True}))
+   "Ignore any dynamic utilisation information",
+   OptComplNone)
 
 oEvacMode :: OptType
 oEvacMode =

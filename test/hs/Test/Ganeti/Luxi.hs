@@ -73,8 +73,12 @@ instance Arbitrary Luxi.LuxiOp where
                               listOf genFQDN <*> arbitrary
       Luxi.ReqQueryConfigValues -> Luxi.QueryConfigValues <$> genFields
       Luxi.ReqQueryClusterInfo -> pure Luxi.QueryClusterInfo
-      Luxi.ReqQueryTags -> Luxi.QueryTags <$> arbitrary
+      Luxi.ReqQueryTags -> do
+        kind <- arbitrary
+        Luxi.QueryTags kind <$> genLuxiTagName kind
       Luxi.ReqSubmitJob -> Luxi.SubmitJob <$> resize maxOpCodes arbitrary
+      Luxi.ReqSubmitJobToDrainedQueue -> Luxi.SubmitJobToDrainedQueue <$>
+                                         resize maxOpCodes arbitrary
       Luxi.ReqSubmitManyJobs -> Luxi.SubmitManyJobs <$>
                                 resize maxOpCodes arbitrary
       Luxi.ReqWaitForJobChange -> Luxi.WaitForJobChange <$> arbitrary <*>

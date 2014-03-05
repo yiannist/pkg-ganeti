@@ -194,7 +194,7 @@ def RedistributeAncillaryFiles(lu):
   """
   # Gather target nodes
   cluster = lu.cfg.GetClusterInfo()
-  master_info = lu.cfg.GetNodeInfo(lu.cfg.GetMasterNode())
+  master_info = lu.cfg.GetMasterNodeInfo()
 
   online_node_uuids = lu.cfg.GetOnlineNodeList()
   online_node_uuid_set = frozenset(online_node_uuids)
@@ -720,8 +720,7 @@ def AnnotateDiskParams(instance, devs, cfg):
   @see L{rpc.AnnotateDiskParams}
 
   """
-  return rpc.AnnotateDiskParams(instance.disk_template, devs,
-                                cfg.GetInstanceDiskParams(instance))
+  return rpc.AnnotateDiskParams(devs, cfg.GetInstanceDiskParams(instance))
 
 
 def SupportsOob(cfg, node):
@@ -1037,9 +1036,6 @@ def CheckIAllocatorOrNode(lu, iallocator_slot, node_slot):
 def FindFaultyInstanceDisks(cfg, rpc_runner, instance, node_uuid, prereq):
   faulty = []
 
-  for dev in instance.disks:
-    cfg.SetDiskID(dev, node_uuid)
-
   result = rpc_runner.call_blockdev_getmirrorstatus(
              node_uuid, (instance.disks, instance))
   result.Raise("Failed to get disk status from node %s" %
@@ -1137,3 +1133,88 @@ def CheckIpolicyVsDiskTemplates(ipolicy, enabled_disk_templates):
     raise errors.OpPrereqError("The following disk template are allowed"
                                " by the ipolicy, but not enabled on the"
                                " cluster: %s" % utils.CommaJoin(not_enabled))
+
+
+def CheckDiskAccessModeValidity(parameters):
+  """Checks if the access parameter is legal.
+
+  @see: L{CheckDiskAccessModeConsistency} for cluster consistency checks.
+  @raise errors.OpPrereqError: if the check fails.
+
+  """
+  if constants.DT_RBD in parameters:
+    access = parameters[constants.DT_RBD].get(constants.RBD_ACCESS,
+                                              constants.DISK_KERNELSPACE)
+    if access not in constants.DISK_VALID_ACCESS_MODES:
+      valid_vals_str = utils.CommaJoin(constants.DISK_VALID_ACCESS_MODES)
+      raise errors.OpPrereqError("Invalid value of '{d}:{a}': '{v}' (expected"
+                                 " one of {o})".format(d=constants.DT_RBD,
+                                                       a=constants.RBD_ACCESS,
+                                                       v=access,
+                                                       o=valid_vals_str))
+
+
+def CheckDiskAccessModeConsistency(parameters, cfg, group=None):
+  """Checks if the access param is consistent with the cluster configuration.
+
+  @note: requires a configuration lock to run.
+  @param parameters: the parameters to validate
+  @param cfg: the cfg object of the cluster
+  @param group: if set, only check for consistency within this group.
+  @raise errors.OpPrereqError: if the LU attempts to change the access parameter
+                               to an invalid value, such as "pink bunny".
+  @raise errors.OpPrereqError: if the LU attempts to change the access parameter
+                               to an inconsistent value, such as asking for RBD
+                               userspace access to the chroot hypervisor.
+
+  """
+  CheckDiskAccessModeValidity(parameters)
+
+  if constants.DT_RBD in parameters:
+    access = parameters[constants.DT_RBD].get(constants.RBD_ACCESS,
+                                              constants.DISK_KERNELSPACE)
+
+    #Check the combination of instance hypervisor, disk template and access
+    #protocol is sane.
+    inst_uuids = cfg.GetNodeGroupInstances(group) if group else \
+                 cfg.GetInstanceList()
+
+    for entry in inst_uuids:
+      #hyp, disk, access
+      inst = cfg.GetInstanceInfo(entry)
+      hv = inst.hypervisor
+      dt = inst.disk_template
+
+      #do not check for disk types that don't have this setting.
+      if dt != constants.DT_RBD:
+        continue
+
+      if not IsValidDiskAccessModeCombination(hv, dt, access):
+        raise errors.OpPrereqError("Instance {i}: cannot use '{a}' access"
+                                   " setting with {h} hypervisor and {d} disk"
+                                   " type.".format(i=inst.name,
+                                                   a=access,
+                                                   h=hv,
+                                                   d=dt))
+
+
+def IsValidDiskAccessModeCombination(hv, disk_template, mode):
+  """Checks if an hypervisor can read a disk template with given mode.
+
+  @param hv: the hypervisor that will access the data
+  @param disk_template: the disk template the data is stored as
+  @param mode: how the hypervisor should access the data
+  @return: True if the hypervisor can read a given read disk_template
+           in the specified mode.
+
+  """
+  if mode == constants.DISK_KERNELSPACE:
+    return True
+
+  if (hv == constants.HT_KVM and
+      disk_template == constants.DT_RBD and
+      mode == constants.DISK_USERSPACE):
+    return True
+
+  # Everything else:
+  return False

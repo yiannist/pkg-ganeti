@@ -136,11 +136,12 @@ class LUInstanceFailover(LogicalUnit):
     """
     instance = self._migrater.instance
     source_node_uuid = instance.primary_node
+    target_node_uuid = self._migrater.target_node_uuid
     env = {
       "IGNORE_CONSISTENCY": self.op.ignore_consistency,
       "SHUTDOWN_TIMEOUT": self.op.shutdown_timeout,
       "OLD_PRIMARY": self.cfg.GetNodeName(source_node_uuid),
-      "NEW_PRIMARY": self.op.target_node,
+      "NEW_PRIMARY": self.cfg.GetNodeName(target_node_uuid),
       "FAILOVER_CLEANUP": self.op.cleanup,
       }
 
@@ -160,6 +161,7 @@ class LUInstanceFailover(LogicalUnit):
     """
     instance = self._migrater.instance
     nl = [self.cfg.GetMasterNode()] + list(instance.secondary_nodes)
+    nl.append(self._migrater.target_node_uuid)
     return (nl, nl + [instance.primary_node])
 
 
@@ -198,12 +200,13 @@ class LUInstanceMigrate(LogicalUnit):
     """
     instance = self._migrater.instance
     source_node_uuid = instance.primary_node
+    target_node_uuid = self._migrater.target_node_uuid
     env = BuildInstanceHookEnvByObject(self, instance)
     env.update({
       "MIGRATE_LIVE": self._migrater.live,
       "MIGRATE_CLEANUP": self.op.cleanup,
       "OLD_PRIMARY": self.cfg.GetNodeName(source_node_uuid),
-      "NEW_PRIMARY": self.op.target_node,
+      "NEW_PRIMARY": self.cfg.GetNodeName(target_node_uuid),
       "ALLOW_RUNTIME_CHANGES": self.op.allow_runtime_changes,
       })
 
@@ -211,7 +214,7 @@ class LUInstanceMigrate(LogicalUnit):
       env["OLD_SECONDARY"] = self.cfg.GetNodeName(instance.secondary_nodes[0])
       env["NEW_SECONDARY"] = self.cfg.GetNodeName(source_node_uuid)
     else:
-      env["OLD_SECONDARY"] = env["NEW_SECONDARY"] = None
+      env["OLD_SECONDARY"] = env["NEW_SECONDARY"] = ""
 
     return env
 
@@ -222,6 +225,7 @@ class LUInstanceMigrate(LogicalUnit):
     instance = self._migrater.instance
     snode_uuids = list(instance.secondary_nodes)
     nl = [self.cfg.GetMasterNode(), instance.primary_node] + snode_uuids
+    nl.append(self._migrater.target_node_uuid)
     return (nl, nl)
 
 
@@ -350,7 +354,7 @@ class TLMigrateInstance(Tasklet):
         raise errors.ConfigurationError("No secondary node but using"
                                         " %s disk template" %
                                         self.instance.disk_template)
-      target_node_uuid = secondary_node_uuids[0]
+      self.target_node_uuid = target_node_uuid = secondary_node_uuids[0]
       if self.lu.op.iallocator or \
         (self.lu.op.target_node_uuid and
          self.lu.op.target_node_uuid != target_node_uuid):
@@ -480,7 +484,6 @@ class TLMigrateInstance(Tasklet):
     while not all_done:
       all_done = True
       result = self.rpc.call_drbd_wait_sync(self.all_node_uuids,
-                                            self.nodes_ip,
                                             (self.instance.disks,
                                              self.instance))
       min_percent = 100
@@ -503,11 +506,8 @@ class TLMigrateInstance(Tasklet):
     self.feedback_fn("* switching node %s to secondary mode" %
                      self.cfg.GetNodeName(node_uuid))
 
-    for dev in self.instance.disks:
-      self.cfg.SetDiskID(dev, node_uuid)
-
     result = self.rpc.call_blockdev_close(node_uuid, self.instance.name,
-                                          self.instance.disks)
+                                          (self.instance.disks, self.instance))
     result.Raise("Cannot change disk to secondary on node %s" %
                  self.cfg.GetNodeName(node_uuid))
 
@@ -516,9 +516,8 @@ class TLMigrateInstance(Tasklet):
 
     """
     self.feedback_fn("* changing into standalone mode")
-    result = self.rpc.call_drbd_disconnect_net(self.all_node_uuids,
-                                               self.nodes_ip,
-                                               self.instance.disks)
+    result = self.rpc.call_drbd_disconnect_net(
+               self.all_node_uuids, (self.instance.disks, self.instance))
     for node_uuid, nres in result.items():
       nres.Raise("Cannot disconnect disks node %s" %
                  self.cfg.GetNodeName(node_uuid))
@@ -532,7 +531,7 @@ class TLMigrateInstance(Tasklet):
     else:
       msg = "single-master"
     self.feedback_fn("* changing disks into %s mode" % msg)
-    result = self.rpc.call_drbd_attach_net(self.all_node_uuids, self.nodes_ip,
+    result = self.rpc.call_drbd_attach_net(self.all_node_uuids,
                                            (self.instance.disks, self.instance),
                                            self.instance.name, multimaster)
     for node_uuid, nres in result.items():
@@ -721,9 +720,6 @@ class TLMigrateInstance(Tasklet):
 
     self.feedback_fn("* preparing %s to accept the instance" %
                      self.cfg.GetNodeName(self.target_node_uuid))
-    # This fills physical_id slot that may be missing on newly created disks
-    for disk in self.instance.disks:
-      self.cfg.SetDiskID(disk, self.target_node_uuid)
     result = self.rpc.call_accept_instance(self.target_node_uuid,
                                            self.instance,
                                            migration_info,

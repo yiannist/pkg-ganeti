@@ -481,11 +481,11 @@ class TestNodeConfigResolver(unittest.TestCase):
 class TestCompress(unittest.TestCase):
   def test(self):
     for data in ["", "Hello", "Hello World!\nnew\nlines"]:
-      self.assertEqual(rpc._Compress(data),
+      self.assertEqual(rpc._Compress(NotImplemented, data),
                        (constants.RPC_ENCODING_NONE, data))
 
     for data in [512 * " ", 5242 * "Hello World!\n"]:
-      compressed = rpc._Compress(data)
+      compressed = rpc._Compress(NotImplemented, data)
       self.assertEqual(len(compressed), 2)
       self.assertEqual(backend._Decompress(compressed), data)
 
@@ -566,8 +566,8 @@ class TestRpcClientBase(unittest.TestCase):
       ]
 
     encoders = {
-      AT1: hex,
-      AT2: hash,
+      AT1: lambda _, value: hex(value),
+      AT2: lambda _, value: hash(value),
       }
 
     cdef = ("test_call", NotImplemented, None, constants.RPC_TMO_NORMAL, [
@@ -720,6 +720,9 @@ class _FakeConfigForRpcRunner:
   def GetNodeInfo(self, name):
     return objects.Node(name=name)
 
+  def GetMultiNodeInfo(self, names):
+    return [(name, self.GetNodeInfo(name)) for name in names]
+
   def GetClusterInfo(self):
     return self._cluster
 
@@ -736,11 +739,15 @@ class TestRpcRunner(unittest.TestCase):
     tmpfile.flush()
     st = os.stat(tmpfile.name)
 
+    nodes = [
+      "node1.example.com",
+      ]
+
     def _VerifyRequest(req):
       (uldata, ) = serializer.LoadJson(req.post_data)
       self.assertEqual(len(uldata), 7)
       self.assertEqual(uldata[0], tmpfile.name)
-      self.assertEqual(list(uldata[1]), list(rpc._Compress(data)))
+      self.assertEqual(list(uldata[1]), list(rpc._Compress(nodes[0], data)))
       self.assertEqual(uldata[2], st.st_mode)
       self.assertEqual(uldata[3], "user%s" % os.getuid())
       self.assertEqual(uldata[4], "group%s" % os.getgid())
@@ -760,10 +767,6 @@ class TestRpcRunner(unittest.TestCase):
     cfg_runner = rpc.ConfigRunner(None, ["192.0.2.13"],
                                   _req_process_fn=http_proc,
                                   _getents=mocks.FakeGetentResolver)
-
-    nodes = [
-      "node1.example.com",
-      ]
 
     for runner in [std_runner, cfg_runner]:
       result = runner.call_upload_file(nodes, tmpfile.name)
@@ -829,16 +832,17 @@ class TestRpcRunner(unittest.TestCase):
                        "mymode")
 
     # Generic object serialization
-    result = runner._encoder((rpc_defs.ED_OBJECT_DICT, inst))
+    result = runner._encoder(NotImplemented, (rpc_defs.ED_OBJECT_DICT, inst))
     _CheckBasics(result)
     self.assertEqual(len(result["hvparams"]), 2)
 
-    result = runner._encoder((rpc_defs.ED_OBJECT_DICT_LIST, 5 * [inst]))
+    result = runner._encoder(NotImplemented,
+                             (rpc_defs.ED_OBJECT_DICT_LIST, 5 * [inst]))
     map(_CheckBasics, result)
     map(lambda r: self.assertEqual(len(r["hvparams"]), 2), result)
 
     # Just an instance
-    result = runner._encoder((rpc_defs.ED_INST_DICT, inst))
+    result = runner._encoder(NotImplemented, (rpc_defs.ED_INST_DICT, inst))
     _CheckBasics(result)
     self.assertEqual(result["beparams"][constants.BE_MAXMEM], 256)
     self.assertEqual(result["hvparams"][constants.HV_CDROM_IMAGE_PATH], "bar")
@@ -850,10 +854,11 @@ class TestRpcRunner(unittest.TestCase):
                      len(constants.HVC_DEFAULTS[constants.HT_KVM]))
 
     # Instance with OS parameters
-    result = runner._encoder((rpc_defs.ED_INST_DICT_OSP_DP, (inst, {
-      "role": "webserver",
-      "other": "field",
-      })))
+    result = runner._encoder(NotImplemented,
+                             (rpc_defs.ED_INST_DICT_OSP_DP, (inst, {
+                               "role": "webserver",
+                               "other": "field",
+                             })))
     _CheckBasics(result)
     self.assertEqual(result["beparams"][constants.BE_MAXMEM], 256)
     self.assertEqual(result["hvparams"][constants.HV_CDROM_IMAGE_PATH], "bar")
@@ -864,8 +869,11 @@ class TestRpcRunner(unittest.TestCase):
       })
 
     # Instance with hypervisor and backend parameters
-    result = runner._encoder((rpc_defs.ED_INST_DICT_HVP_BEP_DP, (inst, {
-      constants.HV_BOOT_ORDER: "xyz",
+    result = runner._encoder(NotImplemented,
+                             (rpc_defs.ED_INST_DICT_HVP_BEP_DP, (inst, {
+      constants.HT_KVM: {
+        constants.HV_BOOT_ORDER: "xyz",
+        },
       }, {
       constants.BE_VCPUS: 100,
       constants.BE_MAXMEM: 4096,
@@ -873,14 +881,18 @@ class TestRpcRunner(unittest.TestCase):
     _CheckBasics(result)
     self.assertEqual(result["beparams"][constants.BE_MAXMEM], 4096)
     self.assertEqual(result["beparams"][constants.BE_VCPUS], 100)
-    self.assertEqual(result["hvparams"][constants.HV_BOOT_ORDER], "xyz")
+    self.assertEqual(result["hvparams"][constants.HT_KVM], {
+      constants.HV_BOOT_ORDER: "xyz",
+      })
     self.assertEqual(result["disks"], [{
       "dev_type": constants.DT_PLAIN,
+      "dynamic_params": {},
       "size": 4096,
       "logical_id": ("vg", "disk6120"),
       "params": constants.DISK_DT_DEFAULTS[inst.disk_template],
       }, {
       "dev_type": constants.DT_PLAIN,
+      "dynamic_params": {},
       "size": 1024,
       "logical_id": ("vg", "disk8508"),
       "params": constants.DISK_DT_DEFAULTS[inst.disk_template],
@@ -892,94 +904,58 @@ class TestRpcRunner(unittest.TestCase):
 
 class TestLegacyNodeInfo(unittest.TestCase):
   KEY_BOOT = "bootid"
-  KEY_VG0 = "name"
-  KEY_VG1 = "storage_free"
-  KEY_VG2 = "storage_size"
-  KEY_HV = "cpu_count"
-  KEY_SP1 = "spindles_free"
-  KEY_SP2 = "spindles_total"
-  KEY_ST = "type" # key for storage type
+  KEY_NAME = "name"
+  KEY_STORAGE_FREE = "storage_free"
+  KEY_STORAGE_TOTAL = "storage_size"
+  KEY_CPU_COUNT = "cpu_count"
+  KEY_SPINDLES_FREE = "spindles_free"
+  KEY_SPINDLES_TOTAL = "spindles_total"
+  KEY_STORAGE_TYPE = "type" # key for storage type
   VAL_BOOT = 0
-  VAL_VG0 = "xy"
-  VAL_VG1 = 11
-  VAL_VG2 = 12
-  VAL_VG3 = "lvm-vg"
-  VAL_HV = 2
-  VAL_SP0 = "ab"
-  VAL_SP1 = 31
-  VAL_SP2 = 32
-  VAL_SP3 = "lvm-pv"
+  VAL_VG_NAME = "xy"
+  VAL_VG_FREE = 11
+  VAL_VG_TOTAL = 12
+  VAL_VG_TYPE = "lvm-vg"
+  VAL_CPU_COUNT = 2
+  VAL_PV_NAME = "ab"
+  VAL_PV_FREE = 31
+  VAL_PV_TOTAL = 32
+  VAL_PV_TYPE = "lvm-pv"
   DICT_VG = {
-    KEY_VG0: VAL_VG0,
-    KEY_VG1: VAL_VG1,
-    KEY_VG2: VAL_VG2,
-    KEY_ST: VAL_VG3,
+    KEY_NAME: VAL_VG_NAME,
+    KEY_STORAGE_FREE: VAL_VG_FREE,
+    KEY_STORAGE_TOTAL: VAL_VG_TOTAL,
+    KEY_STORAGE_TYPE: VAL_VG_TYPE,
     }
-  DICT_HV = {KEY_HV: VAL_HV}
+  DICT_HV = {KEY_CPU_COUNT: VAL_CPU_COUNT}
   DICT_SP = {
-    KEY_ST: VAL_SP3,
-    KEY_VG0: VAL_SP0,
-    KEY_VG1: VAL_SP1,
-    KEY_VG2: VAL_SP2,
+    KEY_STORAGE_TYPE: VAL_PV_TYPE,
+    KEY_NAME: VAL_PV_NAME,
+    KEY_STORAGE_FREE: VAL_PV_FREE,
+    KEY_STORAGE_TOTAL: VAL_PV_TOTAL,
     }
   STD_LST = [VAL_BOOT, [DICT_VG, DICT_SP], [DICT_HV]]
   STD_DICT = {
     KEY_BOOT: VAL_BOOT,
-    KEY_VG0: VAL_VG0,
-    KEY_VG1: VAL_VG1,
-    KEY_VG2: VAL_VG2,
-    KEY_HV: VAL_HV,
+    KEY_NAME: VAL_VG_NAME,
+    KEY_STORAGE_FREE: VAL_VG_FREE,
+    KEY_STORAGE_TOTAL: VAL_VG_TOTAL,
+    KEY_SPINDLES_FREE: VAL_PV_FREE,
+    KEY_SPINDLES_TOTAL: VAL_PV_TOTAL,
+    KEY_CPU_COUNT: VAL_CPU_COUNT,
     }
 
-  def testStandard(self):
-    result = rpc.MakeLegacyNodeInfo(self.STD_LST)
+  def testWithSpindles(self):
+    result = rpc.MakeLegacyNodeInfo(self.STD_LST, constants.DT_PLAIN)
     self.assertEqual(result, self.STD_DICT)
 
-  def testSpindlesRequired(self):
-    my_lst = [self.VAL_BOOT, [], [self.DICT_HV]]
-    self.assertRaises(errors.OpExecError, rpc.MakeLegacyNodeInfo, my_lst,
-        require_spindles=True)
-
-  def testNoSpindlesRequired(self):
-    my_lst = [self.VAL_BOOT, [], [self.DICT_HV]]
-    result = rpc.MakeLegacyNodeInfo(my_lst, require_spindles = False)
-    self.assertEqual(result, {self.KEY_BOOT: self.VAL_BOOT,
-                              self.KEY_HV: self.VAL_HV})
-    result = rpc.MakeLegacyNodeInfo(self.STD_LST, require_spindles = False)
-    self.assertEqual(result, self.STD_DICT)
-
-
-class TestAddDefaultStorageInfoToLegacyNodeInfo(unittest.TestCase):
-
-  def setUp(self):
-    self.free_storage_file = 23
-    self.total_storage_file = 42
-    self.free_storage_lvm = 69
-    self.total_storage_lvm = 666
-    self.node_info = [{"name": "myfile",
-                       "type": constants.ST_FILE,
-                       "storage_free": self.free_storage_file,
-                       "storage_size": self.total_storage_file},
-                      {"name": "myvg",
-                       "type": constants.ST_LVM_VG,
-                       "storage_free": self.free_storage_lvm,
-                       "storage_size": self.total_storage_lvm},
-                      {"name": "myspindle",
-                       "type": constants.ST_LVM_PV,
-                       "storage_free": 33,
-                       "storage_size": 44}]
-
-  def testAddDefaultStorageInfoToLegacyNodeInfo(self):
-    result = {}
-    rpc._AddDefaultStorageInfoToLegacyNodeInfo(result, self.node_info)
-    self.assertEqual(self.free_storage_file, result["storage_free"])
-    self.assertEqual(self.total_storage_file, result["storage_size"])
-
-  def testAddDefaultStorageInfoToLegacyNodeInfoNoDefaults(self):
-    result = {}
-    rpc._AddDefaultStorageInfoToLegacyNodeInfo(result, self.node_info[-1:])
-    self.assertFalse("storage_free" in result)
-    self.assertFalse("storage_size" in result)
+  def testNoSpindles(self):
+    my_lst = [self.VAL_BOOT, [self.DICT_VG], [self.DICT_HV]]
+    result = rpc.MakeLegacyNodeInfo(my_lst, constants.DT_PLAIN)
+    expected_dict = dict((k,v) for k, v in self.STD_DICT.iteritems())
+    expected_dict[self.KEY_SPINDLES_FREE] = 0
+    expected_dict[self.KEY_SPINDLES_TOTAL] = 0
+    self.assertEqual(result, expected_dict)
 
 
 if __name__ == "__main__":

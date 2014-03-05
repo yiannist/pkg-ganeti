@@ -795,16 +795,10 @@ def ListStorage(opts, args):
   @return: the desired exit code
 
   """
-  # TODO: Default to ST_FILE if LVM is disabled on the cluster
-  if opts.user_storage_type is None:
-    opts.user_storage_type = constants.ST_LVM_PV
-
-  storage_type = ConvertStorageType(opts.user_storage_type)
-
   selected_fields = ParseFields(opts.output, _LIST_STOR_DEF_FIELDS)
 
   op = opcodes.OpNodeQueryStorage(nodes=args,
-                                  storage_type=storage_type,
+                                  storage_type=opts.user_storage_type,
                                   output_fields=selected_fields)
   output = SubmitOpCode(op, opts=opts)
 
@@ -1084,8 +1078,7 @@ commands = {
      CAPAB_MASTER_OPT, CAPAB_VM_OPT, NODE_PARAMS_OPT, HV_STATE_OPT,
      DISK_STATE_OPT],
     "[-s ip] [--readd] [--no-ssh-key-check] [--force-join]"
-    " [--no-node-setup] [--verbose]"
-    " <node_name>",
+    " [--no-node-setup] [--verbose] [--network] <node_name>",
     "Add a node to the cluster"),
   "evacuate": (
     EvacuateNode, ARGS_ONE_NODE,

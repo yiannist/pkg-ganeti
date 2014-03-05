@@ -24,11 +24,13 @@
 import unittest
 import optparse
 
+from ganeti import errors
 from ganeti.client import gnt_cluster
 from ganeti import utils
 from ganeti import compat
 from ganeti import constants
 
+import mock
 import testutils
 
 
@@ -256,6 +258,100 @@ class TestEpo(unittest.TestCase):
       ])
     result = self._Test(opts, [], cl=client, _confirm_fn=self._ConfirmForce)
     self.assertEqual(result, constants.EXIT_FAILURE)
+
+
+class DrbdHelperTestCase(unittest.TestCase):
+
+  def setUp(self):
+    unittest.TestCase.setUp(self)
+    self.enabled_disk_templates = []
+
+  def enableDrbd(self):
+    self.enabled_disk_templates = [constants.DT_DRBD8]
+
+  def disableDrbd(self):
+    self.enabled_disk_templates = [constants.DT_DISKLESS]
+
+
+class InitDrbdHelper(DrbdHelperTestCase):
+
+  def testNoDrbdNoHelper(self):
+    opts = mock.Mock()
+    opts.drbd_helper = None
+    self.disableDrbd()
+    helper = gnt_cluster._InitDrbdHelper(opts, self.enabled_disk_templates)
+    self.assertEquals(None, helper)
+
+  def testNoDrbdHelper(self):
+    opts = mock.Mock()
+    self.disableDrbd()
+    opts.drbd_helper = "/bin/true"
+    helper = gnt_cluster._InitDrbdHelper(opts, self.enabled_disk_templates)
+    self.assertEquals(opts.drbd_helper, helper)
+
+  def testDrbdHelperNone(self):
+    opts = mock.Mock()
+    self.enableDrbd()
+    opts.drbd_helper = None
+    helper = gnt_cluster._InitDrbdHelper(opts, self.enabled_disk_templates)
+    self.assertEquals(constants.DEFAULT_DRBD_HELPER, helper)
+
+  def testDrbdHelperEmpty(self):
+    opts = mock.Mock()
+    self.enableDrbd()
+    opts.drbd_helper = ''
+    self.assertRaises(errors.OpPrereqError, gnt_cluster._InitDrbdHelper, opts,
+        self.enabled_disk_templates)
+
+  def testDrbdHelper(self):
+    opts = mock.Mock()
+    self.enableDrbd()
+    opts.drbd_helper = "/bin/true"
+    helper = gnt_cluster._InitDrbdHelper(opts, self.enabled_disk_templates)
+    self.assertEquals(opts.drbd_helper, helper)
+
+
+class GetDrbdHelper(DrbdHelperTestCase):
+
+  def testNoDrbdNoHelper(self):
+    opts = mock.Mock()
+    self.disableDrbd()
+    opts.drbd_helper = None
+    helper = gnt_cluster._GetDrbdHelper(opts, self.enabled_disk_templates)
+    self.assertEquals(None, helper)
+
+  def testNoTemplateInfoNoHelper(self):
+    opts = mock.Mock()
+    opts.drbd_helper = None
+    helper = gnt_cluster._GetDrbdHelper(opts, None)
+    self.assertEquals(None, helper)
+
+  def testNoTemplateInfoHelper(self):
+    opts = mock.Mock()
+    opts.drbd_helper = "/bin/true"
+    helper = gnt_cluster._GetDrbdHelper(opts, None)
+    self.assertEquals(opts.drbd_helper, helper)
+
+  def testNoDrbdHelper(self):
+    opts = mock.Mock()
+    self.disableDrbd()
+    opts.drbd_helper = "/bin/true"
+    helper = gnt_cluster._GetDrbdHelper(opts, None)
+    self.assertEquals(opts.drbd_helper, helper)
+
+  def testDrbdNoHelper(self):
+    opts = mock.Mock()
+    self.enableDrbd()
+    opts.drbd_helper = None
+    helper = gnt_cluster._GetDrbdHelper(opts, self.enabled_disk_templates)
+    self.assertEquals(None, helper)
+
+  def testDrbdHelper(self):
+    opts = mock.Mock()
+    self.enableDrbd()
+    opts.drbd_helper = "/bin/true"
+    helper = gnt_cluster._GetDrbdHelper(opts, self.enabled_disk_templates)
+    self.assertEquals(opts.drbd_helper, helper)
 
 
 if __name__ == "__main__":

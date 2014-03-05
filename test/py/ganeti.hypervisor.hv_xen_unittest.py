@@ -269,7 +269,9 @@ class TestGetConfigFileDiskData(unittest.TestCase):
 
   def testManyDisks(self):
     for offset in [0, 1, 10]:
-      disks = [(objects.Disk(dev_type=constants.DT_PLAIN), "/tmp/disk/%s" % idx)
+      disks = [(objects.Disk(dev_type=constants.DT_PLAIN),
+               "/tmp/disk/%s" % idx,
+               NotImplemented)
                for idx in range(len(hv_xen._DISK_LETTERS) + offset)]
 
       if offset == 0:
@@ -289,9 +291,11 @@ class TestGetConfigFileDiskData(unittest.TestCase):
   def testTwoLvDisksWithMode(self):
     disks = [
       (objects.Disk(dev_type=constants.DT_PLAIN, mode=constants.DISK_RDWR),
-       "/tmp/diskFirst"),
+       "/tmp/diskFirst",
+       NotImplemented),
       (objects.Disk(dev_type=constants.DT_PLAIN, mode=constants.DISK_RDONLY),
-       "/tmp/diskLast"),
+       "/tmp/diskLast",
+       NotImplemented),
       ]
 
     result = hv_xen._GetConfigFileDiskData(disks, "hd")
@@ -303,20 +307,25 @@ class TestGetConfigFileDiskData(unittest.TestCase):
   def testFileDisks(self):
     disks = [
       (objects.Disk(dev_type=constants.DT_FILE, mode=constants.DISK_RDWR,
-                    physical_id=[constants.FD_LOOP]),
-       "/tmp/diskFirst"),
+                    logical_id=[constants.FD_LOOP]),
+       "/tmp/diskFirst",
+       NotImplemented),
       (objects.Disk(dev_type=constants.DT_FILE, mode=constants.DISK_RDONLY,
-                    physical_id=[constants.FD_BLKTAP]),
-       "/tmp/diskTwo"),
+                    logical_id=[constants.FD_BLKTAP]),
+       "/tmp/diskTwo",
+       NotImplemented),
       (objects.Disk(dev_type=constants.DT_FILE, mode=constants.DISK_RDWR,
-                    physical_id=[constants.FD_LOOP]),
-       "/tmp/diskThree"),
+                    logical_id=[constants.FD_LOOP]),
+       "/tmp/diskThree",
+       NotImplemented),
       (objects.Disk(dev_type=constants.DT_FILE, mode=constants.DISK_RDONLY,
-                    physical_id=[constants.FD_BLKTAP2]),
-       "/tmp/diskFour"),
+                    logical_id=[constants.FD_BLKTAP2]),
+       "/tmp/diskFour",
+       NotImplemented),
       (objects.Disk(dev_type=constants.DT_FILE, mode=constants.DISK_RDWR,
-                    physical_id=[constants.FD_BLKTAP]),
-       "/tmp/diskLast"),
+                    logical_id=[constants.FD_BLKTAP]),
+       "/tmp/diskLast",
+       NotImplemented),
       ]
 
     result = hv_xen._GetConfigFileDiskData(disks, "sd")
@@ -331,8 +340,9 @@ class TestGetConfigFileDiskData(unittest.TestCase):
   def testInvalidFileDisk(self):
     disks = [
       (objects.Disk(dev_type=constants.DT_FILE, mode=constants.DISK_RDWR,
-                    physical_id=["#unknown#"]),
-       "/tmp/diskinvalid"),
+                    logical_id=["#unknown#"]),
+       "/tmp/diskinvalid",
+       NotImplemented),
       ]
 
     self.assertRaises(KeyError, hv_xen._GetConfigFileDiskData, disks, "sd")
@@ -683,9 +693,11 @@ class _TestXenHypervisor(object):
 
     disks = [
       (objects.Disk(dev_type=constants.DT_PLAIN, mode=constants.DISK_RDWR),
-       utils.PathJoin(self.tmpdir, "disk0")),
+       utils.PathJoin(self.tmpdir, "disk0"),
+       NotImplemented),
       (objects.Disk(dev_type=constants.DT_PLAIN, mode=constants.DISK_RDONLY),
-       utils.PathJoin(self.tmpdir, "disk1")),
+       utils.PathJoin(self.tmpdir, "disk1"),
+       NotImplemented),
       ]
 
     inst = objects.Instance(name="server01.example.com",

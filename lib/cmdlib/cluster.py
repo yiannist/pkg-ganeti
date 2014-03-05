@@ -57,7 +57,8 @@ from ganeti.cmdlib.common import ShareAll, RunPostHook, \
   GetUpdatedIPolicy, ComputeNewInstanceViolations, GetUpdatedParams, \
   CheckOSParams, CheckHVParams, AdjustCandidatePool, CheckNodePVs, \
   ComputeIPolicyInstanceViolation, AnnotateDiskParams, SupportsOob, \
-  CheckIpolicyVsDiskTemplates
+  CheckIpolicyVsDiskTemplates, CheckDiskAccessModeValidity, \
+  CheckDiskAccessModeConsistency
 
 import ganeti.masterd.instance
 
@@ -180,6 +181,21 @@ class LUClusterPostInit(LogicalUnit):
   HPATH = "cluster-init"
   HTYPE = constants.HTYPE_CLUSTER
 
+  def CheckArguments(self):
+    self.master_uuid = self.cfg.GetMasterNode()
+    self.master_ndparams = self.cfg.GetNdParams(self.cfg.GetMasterNodeInfo())
+
+    # TODO: When Issue 584 is solved, and None is properly parsed when used
+    # as a default value, ndparams.get(.., None) can be changed to
+    # ndparams[..] to access the values directly
+
+    # OpenvSwitch: Warn user if link is missing
+    if (self.master_ndparams[constants.ND_OVS] and not
+        self.master_ndparams.get(constants.ND_OVS_LINK, None)):
+      self.LogInfo("No physical interface for OpenvSwitch was given."
+                   " OpenvSwitch will not have an outside connection. This"
+                   " might not be what you want.")
+
   def BuildHooksEnv(self):
     """Build hooks env.
 
@@ -195,9 +211,15 @@ class LUClusterPostInit(LogicalUnit):
     return ([], [self.cfg.GetMasterNode()])
 
   def Exec(self, feedback_fn):
-    """Nothing to do.
+    """Create and configure Open vSwitch
 
     """
+    if self.master_ndparams[constants.ND_OVS]:
+      result = self.rpc.call_node_configure_ovs(
+                 self.master_uuid,
+                 self.master_ndparams[constants.ND_OVS_NAME],
+                 self.master_ndparams.get(constants.ND_OVS_LINK, None))
+      result.Raise("Could not successully configure Open vSwitch")
     return True
 
 
@@ -533,9 +555,11 @@ class LUClusterRepairDiskSizes(NoHooksLU):
 
     changed = []
     for node_uuid, dskl in per_node_disks.items():
-      newl = [v[2].Copy() for v in dskl]
-      for dsk in newl:
-        self.cfg.SetDiskID(dsk, node_uuid)
+      if not dskl:
+        # no disks on the node
+        continue
+
+      newl = [([v[2].Copy()], v[0]) for v in dskl]
       node_name = self.cfg.GetNodeName(node_uuid)
       result = self.rpc.call_blockdev_getdimensions(node_uuid, newl)
       if result.fail_msg:
@@ -702,6 +726,7 @@ class LUClusterSetParams(LogicalUnit):
         utils.ForceDictType(dt_params, constants.DISK_DT_TYPES)
       try:
         utils.VerifyDictOptions(self.op.diskparams, constants.DISK_DT_DEFAULTS)
+        CheckDiskAccessModeValidity(self.op.diskparams)
       except errors.OpPrereqError, err:
         raise errors.OpPrereqError("While verify diskparams options: %s" % err,
                                    errors.ECODE_INVAL)
@@ -787,30 +812,42 @@ class LUClusterSetParams(LogicalUnit):
                                    errors.ECODE_ENVIRON)
 
   @staticmethod
-  def _GetEnabledDiskTemplatesInner(op_enabled_disk_templates,
-                                    old_enabled_disk_templates):
-    """Determines the enabled disk templates and the subset of disk templates
-       that are newly enabled by this operation.
+  def _GetDiskTemplateSetsInner(op_enabled_disk_templates,
+                                old_enabled_disk_templates):
+    """Computes three sets of disk templates.
+
+    @see: C{_GetDiskTemplateSets} for more details.
 
     """
     enabled_disk_templates = None
     new_enabled_disk_templates = []
+    disabled_disk_templates = []
     if op_enabled_disk_templates:
       enabled_disk_templates = op_enabled_disk_templates
       new_enabled_disk_templates = \
         list(set(enabled_disk_templates)
              - set(old_enabled_disk_templates))
+      disabled_disk_templates = \
+        list(set(old_enabled_disk_templates)
+             - set(enabled_disk_templates))
     else:
       enabled_disk_templates = old_enabled_disk_templates
-    return (enabled_disk_templates, new_enabled_disk_templates)
+    return (enabled_disk_templates, new_enabled_disk_templates,
+            disabled_disk_templates)
 
-  def _GetEnabledDiskTemplates(self, cluster):
-    """Determines the enabled disk templates and the subset of disk templates
-       that are newly enabled by this operation.
+  def _GetDiskTemplateSets(self, cluster):
+    """Computes three sets of disk templates.
+
+    The three sets are:
+      - disk templates that will be enabled after this operation (no matter if
+        they were enabled before or not)
+      - disk templates that get enabled by this operation (thus haven't been
+        enabled before.)
+      - disk templates that get disabled by this operation
 
     """
-    return self._GetEnabledDiskTemplatesInner(self.op.enabled_disk_templates,
-                                              cluster.enabled_disk_templates)
+    return self._GetDiskTemplateSetsInner(self.op.enabled_disk_templates,
+                                          cluster.enabled_disk_templates)
 
   def _CheckIpolicy(self, cluster, enabled_disk_templates):
     """Checks the ipolicy.
@@ -851,6 +888,82 @@ class LUClusterSetParams(LogicalUnit):
       CheckIpolicyVsDiskTemplates(cluster.ipolicy,
                                   enabled_disk_templates)
 
+  def _CheckDrbdHelperOnNodes(self, drbd_helper, node_uuids):
+    """Checks whether the set DRBD helper actually exists on the nodes.
+
+    @type drbd_helper: string
+    @param drbd_helper: path of the drbd usermode helper binary
+    @type node_uuids: list of strings
+    @param node_uuids: list of node UUIDs to check for the helper
+
+    """
+    # checks given drbd helper on all nodes
+    helpers = self.rpc.call_drbd_helper(node_uuids)
+    for (_, ninfo) in self.cfg.GetMultiNodeInfo(node_uuids):
+      if ninfo.offline:
+        self.LogInfo("Not checking drbd helper on offline node %s",
+                     ninfo.name)
+        continue
+      msg = helpers[ninfo.uuid].fail_msg
+      if msg:
+        raise errors.OpPrereqError("Error checking drbd helper on node"
+                                   " '%s': %s" % (ninfo.name, msg),
+                                   errors.ECODE_ENVIRON)
+      node_helper = helpers[ninfo.uuid].payload
+      if node_helper != drbd_helper:
+        raise errors.OpPrereqError("Error on node '%s': drbd helper is %s" %
+                                   (ninfo.name, node_helper),
+                                   errors.ECODE_ENVIRON)
+
+  def _CheckDrbdHelper(self, node_uuids, drbd_enabled, drbd_gets_enabled):
+    """Check the DRBD usermode helper.
+
+    @type node_uuids: list of strings
+    @param node_uuids: a list of nodes' UUIDs
+    @type drbd_enabled: boolean
+    @param drbd_enabled: whether DRBD will be enabled after this operation
+      (no matter if it was disabled before or not)
+    @type drbd_gets_enabled: boolen
+    @param drbd_gets_enabled: true if DRBD was disabled before this
+      operation, but will be enabled afterwards
+
+    """
+    if self.op.drbd_helper == '':
+      if drbd_enabled:
+        raise errors.OpPrereqError("Cannot disable drbd helper while"
+                                   " DRBD is enabled.")
+      if self.cfg.HasAnyDiskOfType(constants.DT_DRBD8):
+        raise errors.OpPrereqError("Cannot disable drbd helper while"
+                                   " drbd-based instances exist",
+                                   errors.ECODE_INVAL)
+
+    else:
+      if self.op.drbd_helper is not None and drbd_enabled:
+        self._CheckDrbdHelperOnNodes(self.op.drbd_helper, node_uuids)
+      else:
+        if drbd_gets_enabled:
+          current_drbd_helper = self.cfg.GetClusterInfo().drbd_usermode_helper
+          if current_drbd_helper is not None:
+            self._CheckDrbdHelperOnNodes(current_drbd_helper, node_uuids)
+          else:
+            raise errors.OpPrereqError("Cannot enable DRBD without a"
+                                       " DRBD usermode helper set.")
+
+  def _CheckInstancesOfDisabledDiskTemplates(
+      self, disabled_disk_templates):
+    """Check whether we try to disable a disk template that is in use.
+
+    @type disabled_disk_templates: list of string
+    @param disabled_disk_templates: list of disk templates that are going to
+      be disabled by this operation
+
+    """
+    for disk_template in disabled_disk_templates:
+      if self.cfg.HasAnyDiskOfType(disk_template):
+        raise errors.OpPrereqError(
+            "Cannot disable disk template '%s', because there is at least one"
+            " instance using it." % disk_template)
+
   def CheckPrereq(self):
     """Check prerequisites.
 
@@ -858,12 +971,6 @@ class LUClusterSetParams(LogicalUnit):
     if the given volume group is valid.
 
     """
-    if self.op.drbd_helper is not None and not self.op.drbd_helper:
-      if self.cfg.HasAnyDiskOfType(constants.DT_DRBD8):
-        raise errors.OpPrereqError("Cannot disable drbd helper while"
-                                   " drbd-based instances exist",
-                                   errors.ECODE_INVAL)
-
     node_uuids = self.owned_locks(locking.LEVEL_NODE)
     self.cluster = cluster = self.cfg.GetClusterInfo()
 
@@ -871,8 +978,9 @@ class LUClusterSetParams(LogicalUnit):
                              for node in self.cfg.GetAllNodesInfo().values()
                              if node.uuid in node_uuids and node.vm_capable]
 
-    (enabled_disk_templates, new_enabled_disk_templates) = \
-      self._GetEnabledDiskTemplates(cluster)
+    (enabled_disk_templates, new_enabled_disk_templates,
+      disabled_disk_templates) = self._GetDiskTemplateSets(cluster)
+    self._CheckInstancesOfDisabledDiskTemplates(disabled_disk_templates)
 
     self._CheckVgName(vm_capable_node_uuids, enabled_disk_templates,
                       new_enabled_disk_templates)
@@ -886,24 +994,9 @@ class LUClusterSetParams(LogicalUnit):
           self.LogWarning, self.op.shared_file_storage_dir,
           enabled_disk_templates)
 
-    if self.op.drbd_helper:
-      # checks given drbd helper on all nodes
-      helpers = self.rpc.call_drbd_helper(node_uuids)
-      for (_, ninfo) in self.cfg.GetMultiNodeInfo(node_uuids):
-        if ninfo.offline:
-          self.LogInfo("Not checking drbd helper on offline node %s",
-                       ninfo.name)
-          continue
-        msg = helpers[ninfo.uuid].fail_msg
-        if msg:
-          raise errors.OpPrereqError("Error checking drbd helper on node"
-                                     " '%s': %s" % (ninfo.name, msg),
-                                     errors.ECODE_ENVIRON)
-        node_helper = helpers[ninfo.uuid].payload
-        if node_helper != self.op.drbd_helper:
-          raise errors.OpPrereqError("Error on node '%s': drbd helper is %s" %
-                                     (ninfo.name, node_helper),
-                                     errors.ECODE_ENVIRON)
+    drbd_enabled = constants.DT_DRBD8 in enabled_disk_templates
+    drbd_gets_enabled = constants.DT_DRBD8 in new_enabled_disk_templates
+    self._CheckDrbdHelper(node_uuids, drbd_enabled, drbd_gets_enabled)
 
     # validate params changes
     if self.op.beparams:
@@ -982,6 +1075,7 @@ class LUClusterSetParams(LogicalUnit):
           self.new_diskparams[dt_name] = dt_params
         else:
           self.new_diskparams[dt_name].update(dt_params)
+      CheckDiskAccessModeConsistency(self.op.diskparams, self.cfg)
 
     # os hypervisor parameters
     self.new_os_hvp = objects.FillDict(cluster.os_hvp, {})
@@ -1111,21 +1205,14 @@ class LUClusterSetParams(LogicalUnit):
       else:
         self.cluster.file_storage_dir = self.op.file_storage_dir
 
-  def Exec(self, feedback_fn):
-    """Change the parameters of the cluster.
+  def _SetDrbdHelper(self, feedback_fn):
+    """Set the DRBD usermode helper.
 
     """
-    if self.op.enabled_disk_templates:
-      self.cluster.enabled_disk_templates = \
-        list(set(self.op.enabled_disk_templates))
-
-    self._SetVgName(feedback_fn)
-    self._SetFileStorageDir(feedback_fn)
-
     if self.op.drbd_helper is not None:
       if not constants.DT_DRBD8 in self.cluster.enabled_disk_templates:
-        feedback_fn("Note that you specified a drbd user helper, but did"
-                    " enabled the drbd disk template.")
+        feedback_fn("Note that you specified a drbd user helper, but did not"
+                    " enable the drbd disk template.")
       new_helper = self.op.drbd_helper
       if not new_helper:
         new_helper = None
@@ -1134,6 +1221,19 @@ class LUClusterSetParams(LogicalUnit):
       else:
         feedback_fn("Cluster DRBD helper already in desired state,"
                     " not changing")
+
+  def Exec(self, feedback_fn):
+    """Change the parameters of the cluster.
+
+    """
+    if self.op.enabled_disk_templates:
+      self.cluster.enabled_disk_templates = \
+        list(self.op.enabled_disk_templates)
+
+    self._SetVgName(feedback_fn)
+    self._SetFileStorageDir(feedback_fn)
+    self._SetDrbdHelper(feedback_fn)
+
     if self.op.hvparams:
       self.cluster.hvparams = self.new_hvparams
     if self.op.os_hvp:
@@ -2137,7 +2237,7 @@ class LUClusterVerifyGroup(LogicalUnit, _VerifyErrors):
          self.all_node_info[node_uuid].group != self.group_uuid:
         # we're skipping nodes marked offline and nodes in other groups from
         # the N+1 warning, since most likely we don't have good memory
-        # infromation from them; we already list instances living on such
+        # information from them; we already list instances living on such
         # nodes, and that's enough warning
         continue
       #TODO(dynmem): also consider ballooning out other instances
@@ -2268,17 +2368,8 @@ class LUClusterVerifyGroup(LogicalUnit, _VerifyErrors):
                     "File %s found with %s different checksums (%s)",
                     filename, len(checksums), "; ".join(variants))
 
-  def _VerifyNodeDrbd(self, ninfo, nresult, instanceinfo, drbd_helper,
-                      drbd_map):
-    """Verifies and the node DRBD status.
-
-    @type ninfo: L{objects.Node}
-    @param ninfo: the node to check
-    @param nresult: the remote results for the node
-    @param instanceinfo: the dict of instances
-    @param drbd_helper: the configured DRBD usermode helper
-    @param drbd_map: the DRBD map as returned by
-        L{ganeti.config.ConfigWriter.ComputeDRBDMap}
+  def _VerifyNodeDrbdHelper(self, ninfo, nresult, drbd_helper):
+    """Verify the drbd helper.
 
     """
     if drbd_helper:
@@ -2294,6 +2385,21 @@ class LUClusterVerifyGroup(LogicalUnit, _VerifyErrors):
         test = status and (payload != drbd_helper)
         self._ErrorIf(test, constants.CV_ENODEDRBDHELPER, ninfo.name,
                       "wrong drbd usermode helper: %s", payload)
+
+  def _VerifyNodeDrbd(self, ninfo, nresult, instanceinfo, drbd_helper,
+                      drbd_map):
+    """Verifies and the node DRBD status.
+
+    @type ninfo: L{objects.Node}
+    @param ninfo: the node to check
+    @param nresult: the remote results for the node
+    @param instanceinfo: the dict of instances
+    @param drbd_helper: the configured DRBD usermode helper
+    @param drbd_map: the DRBD map as returned by
+        L{ganeti.config.ConfigWriter.ComputeDRBDMap}
+
+    """
+    self._VerifyNodeDrbdHelper(ninfo, nresult, drbd_helper)
 
     # compute the DRBD minors
     node_drbd = {}
@@ -2616,7 +2722,7 @@ class LUClusterVerifyGroup(LogicalUnit, _VerifyErrors):
 
     """
     node_disks = {}
-    node_disks_devonly = {}
+    node_disks_dev_inst_only = {}
     diskless_instances = set()
     nodisk_instances = set()
     diskless = constants.DT_DISKLESS
@@ -2639,20 +2745,19 @@ class LUClusterVerifyGroup(LogicalUnit, _VerifyErrors):
       node_disks[nuuid] = disks
 
       # _AnnotateDiskParams makes already copies of the disks
-      devonly = []
+      dev_inst_only = []
       for (inst_uuid, dev) in disks:
         (anno_disk,) = AnnotateDiskParams(instanceinfo[inst_uuid], [dev],
                                           self.cfg)
-        self.cfg.SetDiskID(anno_disk, nuuid)
-        devonly.append(anno_disk)
+        dev_inst_only.append((anno_disk, instanceinfo[inst_uuid]))
 
-      node_disks_devonly[nuuid] = devonly
+      node_disks_dev_inst_only[nuuid] = dev_inst_only
 
-    assert len(node_disks) == len(node_disks_devonly)
+    assert len(node_disks) == len(node_disks_dev_inst_only)
 
     # Collect data from all nodes with disks
-    result = self.rpc.call_blockdev_getmirrorstatus_multi(node_disks.keys(),
-                                                          node_disks_devonly)
+    result = self.rpc.call_blockdev_getmirrorstatus_multi(
+               node_disks.keys(), node_disks_dev_inst_only)
 
     assert len(result) == len(node_disks)
 
@@ -2841,10 +2946,11 @@ class LUClusterVerifyGroup(LogicalUnit, _VerifyErrors):
       node_verify_param[constants.NV_LVLIST] = vg_name
       node_verify_param[constants.NV_PVLIST] = [vg_name]
 
-    if drbd_helper:
-      node_verify_param[constants.NV_DRBDVERSION] = None
-      node_verify_param[constants.NV_DRBDLIST] = None
-      node_verify_param[constants.NV_DRBDHELPER] = drbd_helper
+    if cluster.IsDiskTemplateEnabled(constants.DT_DRBD8):
+      if drbd_helper:
+        node_verify_param[constants.NV_DRBDVERSION] = None
+        node_verify_param[constants.NV_DRBDLIST] = None
+        node_verify_param[constants.NV_DRBDHELPER] = drbd_helper
 
     if cluster.IsFileStorageEnabled() or \
         cluster.IsSharedFileStorageEnabled():
@@ -3143,9 +3249,11 @@ class LUClusterVerifyGroup(LogicalUnit, _VerifyErrors):
         test = msg and not res.offline
         self._ErrorIf(test, constants.CV_ENODEHOOKS, node_name,
                       "Communication failure in hooks execution: %s", msg)
-        if res.offline or msg:
-          # No need to investigate payload if node is offline or gave
-          # an error.
+        if test:
+          lu_result = False
+          continue
+        if res.offline:
+          # No need to investigate payload if node is offline
           continue
         for script, hkr, output in res.payload:
           test = hkr == constants.HKR_FAIL

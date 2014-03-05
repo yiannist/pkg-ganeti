@@ -192,6 +192,15 @@
 <li>spindle ratio</li>
 </ul>
 </dd>
+<dt>--mond</dt>
+<dd><p>If given the program will query all MonDs to fetch data from the supported data collectors over the network.</p>
+</dd>
+<dt>--mond-data <em>datafile</em></dt>
+<dd><p>The name of the file holding the data provided by MonD, to override quering MonDs over the network. This is mostly used for debugging. The file must be in JSON format and present an array of JSON objects , one for every node, with two members. The first member named <code>node</code> is the name of the node and the second member named <code>reports</code> is an array of report objects. The report objects must be in the same format as produced by the monitoring agent.</p>
+</dd>
+<dt>--ignore-dynu</dt>
+<dd><p>If given, all dynamic utilisation information will be ignored by assuming it to be 0. This option will take precedence over any data passed by the <code>-U</code> option (available with hbal) or by the MonDs with the <code>--mond</code> and the <code>--mond-data</code> option.</p>
+</dd>
 <dt>-m <em>cluster</em></dt>
 <dd><p>Backend specification: collect data directly from the <em>cluster</em> given as an argument via RAPI. If the argument doesn't contain a colon (:), then it is converted into a fully-built URL via prepending <code>https://</code> and appending the default RAPI port, otherwise it is considered a fully-specified URL and used as-is.</p>
 </dd>

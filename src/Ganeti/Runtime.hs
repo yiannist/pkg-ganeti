@@ -30,9 +30,13 @@ module Ganeti.Runtime
   , RuntimeEnts
   , daemonName
   , daemonOnlyOnMaster
+  , daemonLogBase
   , daemonUser
   , daemonGroup
+  , ExtraLogReason(..)
   , daemonLogFile
+  , daemonsExtraLogbase
+  , daemonsExtraLogFile
   , daemonPidFile
   , getEnts
   , verifyDaemonUser
@@ -49,9 +53,11 @@ import System.Posix.Types
 import System.Posix.User
 import Text.Printf
 
-import qualified Ganeti.Constants as C
+import qualified Ganeti.ConstantUtils as ConstantUtils
 import qualified Ganeti.Path as Path
 import Ganeti.BasicTypes
+
+import AutoConf
 
 data GanetiDaemon = GanetiMasterd
                   | GanetiNoded
@@ -73,12 +79,12 @@ type RuntimeEnts = (M.Map GanetiDaemon UserID, M.Map GanetiGroup GroupID)
 
 -- | Returns the daemon name for a given daemon.
 daemonName :: GanetiDaemon -> String
-daemonName GanetiMasterd = C.masterd
-daemonName GanetiNoded   = C.noded
-daemonName GanetiRapi    = C.rapi
-daemonName GanetiConfd   = C.confd
-daemonName GanetiLuxid   = C.luxid
-daemonName GanetiMond    = C.mond
+daemonName GanetiMasterd = "ganeti-masterd"
+daemonName GanetiNoded   = "ganeti-noded"
+daemonName GanetiRapi    = "ganeti-rapi"
+daemonName GanetiConfd   = "ganeti-confd"
+daemonName GanetiLuxid   = "ganeti-luxid"
+daemonName GanetiMond    = "ganeti-mond"
 
 -- | Returns whether the daemon only runs on the master node.
 daemonOnlyOnMaster :: GanetiDaemon -> Bool
@@ -91,38 +97,53 @@ daemonOnlyOnMaster GanetiMond    = False
 
 -- | Returns the log file base for a daemon.
 daemonLogBase :: GanetiDaemon -> String
-daemonLogBase GanetiMasterd = C.daemonsLogbaseGanetiMasterd
-daemonLogBase GanetiNoded   = C.daemonsLogbaseGanetiNoded
-daemonLogBase GanetiRapi    = C.daemonsLogbaseGanetiRapi
-daemonLogBase GanetiConfd   = C.daemonsLogbaseGanetiConfd
-daemonLogBase GanetiLuxid   = C.daemonsLogbaseGanetiLuxid
-daemonLogBase GanetiMond    = C.daemonsLogbaseGanetiMond
+daemonLogBase GanetiMasterd = "master-daemon"
+daemonLogBase GanetiNoded   = "node-daemon"
+daemonLogBase GanetiRapi    = "rapi-daemon"
+daemonLogBase GanetiConfd   = "conf-daemon"
+daemonLogBase GanetiLuxid   = "luxi-daemon"
+daemonLogBase GanetiMond    = "monitoring-daemon"
 
 -- | Returns the configured user name for a daemon.
 daemonUser :: GanetiDaemon -> String
-daemonUser GanetiMasterd = C.masterdUser
-daemonUser GanetiNoded   = C.nodedUser
-daemonUser GanetiRapi    = C.rapiUser
-daemonUser GanetiConfd   = C.confdUser
-daemonUser GanetiLuxid   = C.luxidUser
-daemonUser GanetiMond    = C.mondUser
+daemonUser GanetiMasterd = AutoConf.masterdUser
+daemonUser GanetiNoded   = AutoConf.nodedUser
+daemonUser GanetiRapi    = AutoConf.rapiUser
+daemonUser GanetiConfd   = AutoConf.confdUser
+daemonUser GanetiLuxid   = AutoConf.luxidUser
+daemonUser GanetiMond    = AutoConf.mondUser
 
 -- | Returns the configured group for a daemon.
 daemonGroup :: GanetiGroup -> String
-daemonGroup (DaemonGroup GanetiMasterd) = C.masterdGroup
-daemonGroup (DaemonGroup GanetiNoded)   = C.nodedGroup
-daemonGroup (DaemonGroup GanetiRapi)    = C.rapiGroup
-daemonGroup (DaemonGroup GanetiConfd)   = C.confdGroup
-daemonGroup (DaemonGroup GanetiLuxid)   = C.luxidGroup
-daemonGroup (DaemonGroup GanetiMond)    = C.mondGroup
-daemonGroup (ExtraGroup  DaemonsGroup)  = C.daemonsGroup
-daemonGroup (ExtraGroup  AdminGroup)    = C.adminGroup
+daemonGroup (DaemonGroup GanetiMasterd) = AutoConf.masterdGroup
+daemonGroup (DaemonGroup GanetiNoded)   = AutoConf.nodedGroup
+daemonGroup (DaemonGroup GanetiRapi)    = AutoConf.rapiGroup
+daemonGroup (DaemonGroup GanetiConfd)   = AutoConf.confdGroup
+daemonGroup (DaemonGroup GanetiLuxid)   = AutoConf.luxidGroup
+daemonGroup (DaemonGroup GanetiMond)    = AutoConf.mondGroup
+daemonGroup (ExtraGroup  DaemonsGroup)  = AutoConf.daemonsGroup
+daemonGroup (ExtraGroup  AdminGroup)    = AutoConf.adminGroup
+
+data ExtraLogReason = AccessLog | ErrorLog
+
+-- | Some daemons might require more than one logfile.  Specifically,
+-- right now only the Haskell http library "snap", used by the
+-- monitoring daemon, requires multiple log files.
+daemonsExtraLogbase :: GanetiDaemon -> ExtraLogReason -> String
+daemonsExtraLogbase daemon AccessLog = daemonLogBase daemon ++ "-access"
+daemonsExtraLogbase daemon ErrorLog = daemonLogBase daemon ++ "-error"
 
 -- | Returns the log file for a daemon.
 daemonLogFile :: GanetiDaemon -> IO FilePath
 daemonLogFile daemon = do
   logDir <- Path.logDir
   return $ logDir </> daemonLogBase daemon <.> "log"
+
+-- | Returns the extra log files for a daemon.
+daemonsExtraLogFile :: GanetiDaemon -> ExtraLogReason -> IO FilePath
+daemonsExtraLogFile daemon logreason = do
+  logDir <- Path.logDir
+  return $ logDir </> daemonsExtraLogbase daemon logreason <.> "log"
 
 -- | Returns the pid file name for a daemon.
 daemonPidFile :: GanetiDaemon -> IO FilePath
@@ -182,4 +203,4 @@ checkUidMatch name expected actual =
                    \expected %d\n" name
               (fromIntegral actual::Int)
               (fromIntegral expected::Int) :: IO ()
-    exitWith $ ExitFailure C.exitFailure
+    exitWith $ ExitFailure ConstantUtils.exitFailure

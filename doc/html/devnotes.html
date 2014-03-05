@@ -8,7 +8,7 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Developer notes &mdash; Ganeti 2.9.5 documentation</title>
+    <title>Developer notes &mdash; Ganeti 2.10.1 documentation</title>
     
     <link rel="stylesheet" href="_static/style.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
@@ -16,7 +16,7 @@
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.9.5',
+        VERSION:     '2.10.1',
         COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -25,8 +25,8 @@
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti 2.9.5 documentation" href="index.html" />
-    <link rel="next" title="Glossary" href="glossary.html" />
+    <link rel="top" title="Ganeti 2.10.1 documentation" href="index.html" />
+    <link rel="next" title="Code style guide" href="dev-codestyle.html" />
     <link rel="prev" title="Design for virtual clusters support" href="design-virtual-clusters.html" /> 
   </head>
   <body>
@@ -34,12 +34,12 @@
       <h3>Navigation</h3>
       <ul>
         <li class="right" style="margin-right: 10px">
-          <a href="glossary.html" title="Glossary"
+          <a href="dev-codestyle.html" title="Code style guide"
              accesskey="N">next</a></li>
         <li class="right" >
           <a href="design-virtual-clusters.html" title="Design for virtual clusters support"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.9.5 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.10.1 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -62,7 +62,8 @@
 <li><a class="reference external" href="http://epydoc.sourceforge.net/">python-epydoc</a></li>
 <li><a class="reference external" href="http://sphinx.pocoo.org/">python-sphinx</a>
 (tested with version 1.1.3)</li>
-<li><a class="reference external" href="http://www.voidspace.org.uk/python/mock/">python-mock</a></li>
+<li><a class="reference external" href="http://www.voidspace.org.uk/python/mock/">python-mock</a>
+(tested with version 1.0.1)</li>
 <li><a class="reference external" href="http://www.graphviz.org/">graphviz</a></li>
 <li>the <cite>en_US.UTF-8</cite> locale must be enabled on the system</li>
 <li><a class="reference external" href="http://www.logilab.org/857">pylint</a> and its associated
@@ -88,14 +89,14 @@ astng 0.24.1, common 0.58.3
 <p>To generate unittest coverage reports (<tt class="docutils literal"><span class="pre">make</span> <span class="pre">coverage</span></tt>), <a class="reference external" href="http://pypi.python.org/pypi/coverage">coverage</a> needs to be installed.</p>
 <p>Installation of all dependencies listed here:</p>
 <div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">apt-get</span> <span class="gs">install</span> <span class="gs">python-setuptools</span> <span class="gs">automake</span> <span class="gs">git</span> <span class="gs">fakeroot</span>
-$ <span class="gs">apt-get</span> <span class="gs">install</span> <span class="gs">pandoc</span> <span class="gs">python-epydoc</span> <span class="gs">graphviz</span>
-$ <span class="gs">apt-get</span> <span class="gs">install</span> <span class="gs">python-yaml</span> <span class="gs">python-mock</span>
-$ <span class="gs">cd</span> <span class="gs">/</span> <span class="gs">&amp;&amp;</span> <span class="gs">sudo</span> <span class="gs">easy_install</span> <span class="gs">\</span>
-          <span class="gs">sphinx</span> <span class="gs">\</span>
+$ <span class="gs">apt-get</span> <span class="gs">install</span> <span class="gs">pandoc</span> <span class="gs">python-epydoc</span> <span class="gs">graphviz</span> <span class="gs">python-sphinx</span>
+$ <span class="gs">apt-get</span> <span class="gs">install</span> <span class="gs">python-yaml</span>
+$ <span class="gs">cd</span> <span class="gs">/</span> <span class="gs">&amp;&amp;</span> <span class="gs">easy_install</span> <span class="gs">\</span>
           <span class="gs">logilab-astng==0.24.1</span> <span class="gs">\</span>
           <span class="gs">logilab-common==0.58.3</span> <span class="gs">\</span>
           <span class="gs">pylint==0.26.0</span> <span class="gs">\</span>
           <span class="gs">pep8==1.3.3</span> <span class="gs">\</span>
+          <span class="gs">mock==1.0.1</span> <span class="gs">\</span>
           <span class="gs">coverage</span>
 </pre></div>
 </div>
@@ -129,7 +130,7 @@ required ones from the quick install document) via:</p>
       <span class="gs">libghc-test-framework-dev</span> <span class="gs">\</span>
       <span class="gs">libghc-test-framework-quickcheck2-dev</span> <span class="gs">\</span>
       <span class="gs">libghc-test-framework-hunit-dev</span> <span class="gs">\</span>
-      <span class="gs">libghc-temporary-dev</span> <span class="gs">\</span>
+      <span class="gs">libghc-temporary-dev</span> <span class="gs">shelltestrunner</span> <span class="gs">\</span>
       <span class="gs">hscolour</span> <span class="gs">hlint</span>
 </pre></div>
 </div>
@@ -154,6 +155,10 @@ installed is problematic, as <tt class="docutils literal"><span class="pre">PYTH
 the installed and developed versions are very similar, and/or if
 PYTHONPATH is customised correctly). As such, in general it&#8217;s
 recommended to use a &#8220;clean&#8221; machine for ganeti development.</p>
+</div>
+<div class="section" id="style-guide">
+<h2>Style guide<a class="headerlink" href="#style-guide" title="Permalink to this headline">¶</a></h2>
+<p>Please adhere to the <a class="reference internal" href="dev-codestyle.html"><em>Code style guide</em></a> while writing code for Ganeti.</p>
 </div>
 <div class="section" id="haskell-development-notes">
 <h2>Haskell development notes<a class="headerlink" href="#haskell-development-notes" title="Permalink to this headline">¶</a></h2>
@@ -241,6 +246,10 @@ use:</p>
 <div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">make</span> <span class="gs">hs-shell-{balancing,basic}</span>
 </pre></div>
 </div>
+<p>Checking for the correct style of the NEWS file is also possible, by running:</p>
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">make</span> <span class="gs">check-news</span>
+</pre></div>
+</div>
 </div>
 </div>
 </div>
@@ -279,6 +288,7 @@ for reloading the OpenSSH daemon&#8217;s host keys.</p>
 <li><a class="reference internal" href="#">Developer notes</a><ul>
 <li><a class="reference internal" href="#build-dependencies">Build dependencies</a></li>
 <li><a class="reference internal" href="#configuring-for-development">Configuring for development</a></li>
+<li><a class="reference internal" href="#style-guide">Style guide</a></li>
 <li><a class="reference internal" href="#haskell-development-notes">Haskell development notes</a><ul>
 <li><a class="reference internal" href="#running-individual-tests">Running individual tests</a></li>
 </ul>
@@ -295,8 +305,8 @@ for reloading the OpenSSH daemon&#8217;s host keys.</p>
   <p class="topless"><a href="design-virtual-clusters.html"
                         title="previous chapter">Design for virtual clusters support</a></p>
   <h4>Next topic</h4>
-  <p class="topless"><a href="glossary.html"
-                        title="next chapter">Glossary</a></p>
+  <p class="topless"><a href="dev-codestyle.html"
+                        title="next chapter">Code style guide</a></p>
   <h3>This Page</h3>
   <ul class="this-page-menu">
     <li><a href="_sources/devnotes.txt"
@@ -323,12 +333,12 @@ for reloading the OpenSSH daemon&#8217;s host keys.</p>
       <h3>Navigation</h3>
       <ul>
         <li class="right" style="margin-right: 10px">
-          <a href="glossary.html" title="Glossary"
+          <a href="dev-codestyle.html" title="Code style guide"
              >next</a></li>
         <li class="right" >
           <a href="design-virtual-clusters.html" title="Design for virtual clusters support"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.9.5 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.10.1 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

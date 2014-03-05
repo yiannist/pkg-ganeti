@@ -27,7 +27,7 @@
 # C0103: Invalid name gnt-cluster
 
 from cStringIO import StringIO
-import os.path
+import os
 import time
 import OpenSSL
 import itertools
@@ -43,7 +43,10 @@ from ganeti import objects
 from ganeti import uidpool
 from ganeti import compat
 from ganeti import netutils
+from ganeti import ssconf
 from ganeti import pathutils
+from ganeti import serializer
+from ganeti import qlang
 
 
 ON_OPT = cli_option("--on", default=False,
@@ -57,6 +60,18 @@ GROUPS_OPT = cli_option("--groups", default=False,
 FORCE_FAILOVER = cli_option("--yes-do-it", dest="yes_do_it",
                             help="Override interactive check for --no-voting",
                             default=False, action="store_true")
+
+FORCE_DISTRIBUTION = cli_option("--yes-do-it", dest="yes_do_it",
+                                help="Unconditionally distribute the"
+                                " configuration, even if the queue"
+                                " is drained",
+                                default=False, action="store_true")
+
+TO_OPT = cli_option("--to", default=None, type="string",
+                    help="The Ganeti version to upgrade to")
+
+RESUME_OPT = cli_option("--resume", default=False, action="store_true",
+                        help="Resume any pending Ganeti upgrades")
 
 _EPO_PING_INTERVAL = 30 # 30 seconds between pings
 _EPO_PING_TIMEOUT = 1 # 1 second
@@ -72,8 +87,61 @@ def _CheckNoLvmStorageOptDeprecated(opts):
              " to disable lvm-based storage cluster-wide, use the option"
              " --enabled-disk-templates to disable all of these lvm-base disk "
              "  templates: %s" %
-             utils.CommaJoin(utils.GetLvmDiskTemplates()))
+             utils.CommaJoin(constants.DTS_LVM))
     return 1
+
+
+def _InitEnabledDiskTemplates(opts):
+  """Initialize the list of enabled disk templates.
+
+  """
+  if opts.enabled_disk_templates:
+    return opts.enabled_disk_templates.split(",")
+  else:
+    return constants.DEFAULT_ENABLED_DISK_TEMPLATES
+
+
+def _InitVgName(opts, enabled_disk_templates):
+  """Initialize the volume group name.
+
+  @type enabled_disk_templates: list of strings
+  @param enabled_disk_templates: cluster-wide enabled disk templates
+
+  """
+  vg_name = None
+  if opts.vg_name is not None:
+    vg_name = opts.vg_name
+    if vg_name:
+      if not utils.IsLvmEnabled(enabled_disk_templates):
+        ToStdout("You specified a volume group with --vg-name, but you did not"
+                 " enable any disk template that uses lvm.")
+    elif utils.IsLvmEnabled(enabled_disk_templates):
+      raise errors.OpPrereqError(
+          "LVM disk templates are enabled, but vg name not set.")
+  elif utils.IsLvmEnabled(enabled_disk_templates):
+    vg_name = constants.DEFAULT_VG
+  return vg_name
+
+
+def _InitDrbdHelper(opts, enabled_disk_templates):
+  """Initialize the DRBD usermode helper.
+
+  """
+  drbd_enabled = constants.DT_DRBD8 in enabled_disk_templates
+
+  if not drbd_enabled and opts.drbd_helper is not None:
+    ToStdout("Note: You specified a DRBD usermode helper, while DRBD storage"
+             " is not enabled.")
+
+  if drbd_enabled:
+    if opts.drbd_helper is None:
+      return constants.DEFAULT_DRBD_HELPER
+    if opts.drbd_helper == '':
+      raise errors.OpPrereqError(
+          "Unsetting the drbd usermode helper while enabling DRBD is not"
+          " allowed.")
+
+  return opts.drbd_helper
 
 
 @UsesRPC
@@ -90,38 +158,26 @@ def InitCluster(opts, args):
   """
   if _CheckNoLvmStorageOptDeprecated(opts):
     return 1
-  enabled_disk_templates = opts.enabled_disk_templates
-  if enabled_disk_templates:
-    enabled_disk_templates = enabled_disk_templates.split(",")
-  else:
-    enabled_disk_templates = constants.DEFAULT_ENABLED_DISK_TEMPLATES
 
-  vg_name = None
-  if opts.vg_name is not None:
-    vg_name = opts.vg_name
-    if vg_name:
-      if not utils.IsLvmEnabled(enabled_disk_templates):
-        ToStdout("You specified a volume group with --vg-name, but you did not"
-                 " enable any disk template that uses lvm.")
-    else:
-      if utils.IsLvmEnabled(enabled_disk_templates):
-        ToStderr("LVM disk templates are enabled, but vg name not set.")
-        return 1
-  else:
-    if utils.IsLvmEnabled(enabled_disk_templates):
-      vg_name = constants.DEFAULT_VG
+  enabled_disk_templates = _InitEnabledDiskTemplates(opts)
 
-  if not opts.drbd_storage and opts.drbd_helper:
-    ToStderr("Options --no-drbd-storage and --drbd-usermode-helper conflict.")
+  try:
+    vg_name = _InitVgName(opts, enabled_disk_templates)
+    drbd_helper = _InitDrbdHelper(opts, enabled_disk_templates)
+  except errors.OpPrereqError, e:
+    ToStderr(str(e))
     return 1
-
-  drbd_helper = opts.drbd_helper
-  if opts.drbd_storage and not opts.drbd_helper:
-    drbd_helper = constants.DEFAULT_DRBD_HELPER
 
   master_netdev = opts.master_netdev
   if master_netdev is None:
-    master_netdev = constants.DEFAULT_BRIDGE
+    nic_mode = opts.nicparams.get(constants.NIC_MODE, None)
+    if not nic_mode:
+      # default case, use bridging
+      master_netdev = constants.DEFAULT_BRIDGE
+    elif nic_mode == constants.NIC_MODE_OVS:
+      # default ovs is different from default bridge
+      master_netdev = constants.DEFAULT_OVS
+      opts.nicparams[constants.NIC_LINK] = constants.DEFAULT_OVS
 
   hvlist = opts.enabled_hypervisors
   if hvlist is None:
@@ -352,7 +408,10 @@ def RedistributeConfig(opts, args):
 
   """
   op = opcodes.OpClusterRedistConf()
-  SubmitOrSend(op, opts)
+  if opts.yes_do_it:
+    SubmitOpCodeToDrainedQueue(op)
+  else:
+    SubmitOrSend(op, opts)
   return 0
 
 
@@ -964,6 +1023,48 @@ def RenewCrypto(opts, args):
                       opts.force)
 
 
+def _GetEnabledDiskTemplates(opts):
+  """Determine the list of enabled disk templates.
+
+  """
+  if opts.enabled_disk_templates:
+    return opts.enabled_disk_templates.split(",")
+  else:
+    return None
+
+
+def _GetVgName(opts, enabled_disk_templates):
+  """Determine the volume group name.
+
+  @type enabled_disk_templates: list of strings
+  @param enabled_disk_templates: cluster-wide enabled disk-templates
+
+  """
+  # consistency between vg name and enabled disk templates
+  vg_name = None
+  if opts.vg_name is not None:
+    vg_name = opts.vg_name
+  if enabled_disk_templates:
+    if vg_name and not utils.IsLvmEnabled(enabled_disk_templates):
+      ToStdout("You specified a volume group with --vg-name, but you did not"
+               " enable any of the following lvm-based disk templates: %s" %
+               utils.CommaJoin(constants.DTS_LVM))
+  return vg_name
+
+
+def _GetDrbdHelper(opts, enabled_disk_templates):
+  """Determine the DRBD usermode helper.
+
+  """
+  drbd_helper = opts.drbd_helper
+  if enabled_disk_templates:
+    drbd_enabled = constants.DT_DRBD8 in enabled_disk_templates
+    if not drbd_enabled and opts.drbd_helper:
+      ToStdout("You specified a DRBD usermode helper with "
+               " --drbd-usermode-helper while DRBD is not enabled.")
+  return drbd_helper
+
+
 def SetClusterParams(opts, args):
   """Modify the cluster.
 
@@ -974,7 +1075,8 @@ def SetClusterParams(opts, args):
   @return: the desired exit code
 
   """
-  if not (opts.vg_name is not None or opts.drbd_helper or
+  if not (opts.vg_name is not None or
+          opts.drbd_helper is not None or
           opts.enabled_hypervisors or opts.hvparams or
           opts.beparams or opts.nicparams or
           opts.ndparams or opts.diskparams or
@@ -1005,27 +1107,14 @@ def SetClusterParams(opts, args):
   if _CheckNoLvmStorageOptDeprecated(opts):
     return 1
 
-  enabled_disk_templates = None
-  if opts.enabled_disk_templates:
-    enabled_disk_templates = opts.enabled_disk_templates.split(",")
+  enabled_disk_templates = _GetEnabledDiskTemplates(opts)
+  vg_name = _GetVgName(opts, enabled_disk_templates)
 
-  # consistency between vg name and enabled disk templates
-  vg_name = None
-  if opts.vg_name is not None:
-    vg_name = opts.vg_name
-  if enabled_disk_templates:
-    if vg_name and not utils.IsLvmEnabled(enabled_disk_templates):
-      ToStdout("You specified a volume group with --vg-name, but you did not"
-               " enable any of the following lvm-based disk templates: %s" %
-               utils.CommaJoin(utils.GetLvmDiskTemplates()))
-
-  drbd_helper = opts.drbd_helper
-  if not opts.drbd_storage and opts.drbd_helper:
-    ToStderr("Options --no-drbd-storage and --drbd-usermode-helper conflict.")
+  try:
+    drbd_helper = _GetDrbdHelper(opts, enabled_disk_templates)
+  except errors.OpPrereqError, e:
+    ToStderr(str(e))
     return 1
-
-  if not opts.drbd_storage:
-    drbd_helper = ""
 
   hvlist = opts.enabled_hypervisors
   if hvlist is not None:
@@ -1537,6 +1626,424 @@ def ShowCreateCommand(opts, args):
   ToStdout(_GetCreateCommand(result))
 
 
+def _RunCommandAndReport(cmd):
+  """Run a command and report its output, iff it failed.
+
+  @param cmd: the command to execute
+  @type cmd: list
+  @rtype: bool
+  @return: False, if the execution failed.
+
+  """
+  result = utils.RunCmd(cmd)
+  if result.failed:
+    ToStderr("Command %s failed: %s; Output %s" %
+             (cmd, result.fail_reason, result.output))
+    return False
+  return True
+
+
+def _VerifyCommand(cmd):
+  """Verify that a given command succeeds on all online nodes.
+
+  As this function is intended to run during upgrades, it
+  is implemented in such a way that it still works, if all Ganeti
+  daemons are down.
+
+  @param cmd: the command to execute
+  @type cmd: list
+  @rtype: list
+  @return: the list of node names that are online where
+      the command failed.
+
+  """
+  command = utils.text.ShellQuoteArgs([str(val) for val in cmd])
+
+  nodes = ssconf.SimpleStore().GetOnlineNodeList()
+  master_node = ssconf.SimpleStore().GetMasterNode()
+  cluster_name = ssconf.SimpleStore().GetClusterName()
+
+  # If master node is in 'nodes', make sure master node is at list end
+  if master_node in nodes:
+    nodes.remove(master_node)
+    nodes.append(master_node)
+
+  failed = []
+
+  srun = ssh.SshRunner(cluster_name=cluster_name)
+  for name in nodes:
+    result = srun.Run(name, constants.SSH_LOGIN_USER, command)
+    if result.exit_code != 0:
+      failed.append(name)
+
+  return failed
+
+
+def _VerifyVersionInstalled(versionstring):
+  """Verify that the given version of ganeti is installed on all online nodes.
+
+  Do nothing, if this is the case, otherwise print an appropriate
+  message to stderr.
+
+  @param versionstring: the version to check for
+  @type versionstring: string
+  @rtype: bool
+  @return: True, if the version is installed on all online nodes
+
+  """
+  badnodes = _VerifyCommand(["test", "-d",
+                             os.path.join(pathutils.PKGLIBDIR, versionstring)])
+  if badnodes:
+    ToStderr("Ganeti version %s not installed on nodes %s"
+             % (versionstring, ", ".join(badnodes)))
+    return False
+
+  return True
+
+
+def _GetRunning():
+  """Determine the list of running jobs.
+
+  @rtype: list
+  @return: the number of jobs still running
+
+  """
+  cl = GetClient()
+  qfilter = qlang.MakeSimpleFilter("status",
+                                   frozenset([constants.JOB_STATUS_RUNNING]))
+  return len(cl.Query(constants.QR_JOB, [], qfilter).data)
+
+
+def _SetGanetiVersion(versionstring):
+  """Set the active version of ganeti to the given versionstring
+
+  @type versionstring: string
+  @rtype: list
+  @return: the list of nodes where the version change failed
+
+  """
+  failed = []
+  if constants.HAS_GNU_LN:
+    failed.extend(_VerifyCommand(
+        ["ln", "-s", "-f", "-T",
+         os.path.join(pathutils.PKGLIBDIR, versionstring),
+         os.path.join(pathutils.SYSCONFDIR, "ganeti/lib")]))
+    failed.extend(_VerifyCommand(
+        ["ln", "-s", "-f", "-T",
+         os.path.join(pathutils.SHAREDIR, versionstring),
+         os.path.join(pathutils.SYSCONFDIR, "ganeti/share")]))
+  else:
+    failed.extend(_VerifyCommand(
+        ["rm", "-f", os.path.join(pathutils.SYSCONFDIR, "ganeti/lib")]))
+    failed.extend(_VerifyCommand(
+        ["ln", "-s", "-f", os.path.join(pathutils.PKGLIBDIR, versionstring),
+         os.path.join(pathutils.SYSCONFDIR, "ganeti/lib")]))
+    failed.extend(_VerifyCommand(
+        ["rm", "-f", os.path.join(pathutils.SYSCONFDIR, "ganeti/share")]))
+    failed.extend(_VerifyCommand(
+        ["ln", "-s", "-f", os.path.join(pathutils.SHAREDIR, versionstring),
+         os.path.join(pathutils.SYSCONFDIR, "ganeti/share")]))
+  return list(set(failed))
+
+
+def _ExecuteCommands(fns):
+  """Execute a list of functions, in reverse order.
+
+  @type fns: list of functions.
+  @param fns: the functions to be executed.
+
+  """
+  for fn in reversed(fns):
+    fn()
+
+
+def _GetConfigVersion():
+  """Determine the version the configuration file currently has.
+
+  @rtype: tuple or None
+  @return: (major, minor, revision) if the version can be determined,
+      None otherwise
+
+  """
+  config_data = serializer.LoadJson(utils.ReadFile(pathutils.CLUSTER_CONF_FILE))
+  try:
+    config_version = config_data["version"]
+  except KeyError:
+    return None
+  return utils.SplitVersion(config_version)
+
+
+def _ReadIntentToUpgrade():
+  """Read the file documenting the intent to upgrade the cluster.
+
+  @rtype: (string, string) or (None, None)
+  @return: (old version, version to upgrade to), if the file exists,
+      and (None, None) otherwise.
+
+  """
+  if not os.path.isfile(pathutils.INTENT_TO_UPGRADE):
+    return (None, None)
+
+  contentstring = utils.ReadFile(pathutils.INTENT_TO_UPGRADE)
+  contents = utils.UnescapeAndSplit(contentstring)
+  if len(contents) != 3:
+    # file syntactically mal-formed
+    return (None, None)
+  return (contents[0], contents[1])
+
+
+def _WriteIntentToUpgrade(version):
+  """Write file documenting the intent to upgrade the cluster.
+
+  @type version: string
+  @param version: the version we intent to upgrade to
+
+  """
+  utils.WriteFile(pathutils.INTENT_TO_UPGRADE,
+                  data=utils.EscapeAndJoin([constants.RELEASE_VERSION, version,
+                                            "%d" % os.getpid()]))
+
+
+def _UpgradeBeforeConfigurationChange(versionstring):
+  """
+  Carry out all the tasks necessary for an upgrade that happen before
+  the configuration file, or Ganeti version, changes.
+
+  @type versionstring: string
+  @param versionstring: the version to upgrade to
+  @rtype: (bool, list)
+  @return: tuple of a bool indicating success and a list of rollback tasks
+
+  """
+  rollback = []
+
+  if not _VerifyVersionInstalled(versionstring):
+    return (False, rollback)
+
+  _WriteIntentToUpgrade(versionstring)
+  rollback.append(
+    lambda: utils.RunCmd(["rm", "-f", pathutils.INTENT_TO_UPGRADE]))
+
+  ToStdout("Draining queue")
+  client = GetClient()
+  client.SetQueueDrainFlag(True)
+
+  rollback.append(lambda: GetClient().SetQueueDrainFlag(False))
+
+  if utils.SimpleRetry(0, _GetRunning,
+                       constants.UPGRADE_QUEUE_POLL_INTERVAL,
+                       constants.UPGRADE_QUEUE_DRAIN_TIMEOUT):
+    ToStderr("Failed to completely empty the queue.")
+    return (False, rollback)
+
+  ToStdout("Stopping daemons on master node.")
+  if not _RunCommandAndReport([pathutils.DAEMON_UTIL, "stop-all"]):
+    return (False, rollback)
+
+  if not _VerifyVersionInstalled(versionstring):
+    utils.RunCmd([pathutils.DAEMON_UTIL, "start-all"])
+    return (False, rollback)
+
+  ToStdout("Stopping daemons everywhere.")
+  rollback.append(lambda: _VerifyCommand([pathutils.DAEMON_UTIL, "start-all"]))
+  badnodes = _VerifyCommand([pathutils.DAEMON_UTIL, "stop-all"])
+  if badnodes:
+    ToStderr("Failed to stop daemons on %s." % (", ".join(badnodes),))
+    return (False, rollback)
+
+  backuptar = os.path.join(pathutils.LOCALSTATEDIR,
+                           "lib/ganeti%d.tar" % time.time())
+  ToStdout("Backing up configuration as %s" % backuptar)
+  if not _RunCommandAndReport(["tar", "cf", backuptar,
+                               pathutils.DATA_DIR]):
+    return (False, rollback)
+
+  return (True, rollback)
+
+
+def _SwitchVersionAndConfig(versionstring, downgrade):
+  """
+  Switch to the new Ganeti version and change the configuration,
+  in correct order.
+
+  @type versionstring: string
+  @param versionstring: the version to change to
+  @type downgrade: bool
+  @param downgrade: True, if the configuration should be downgraded
+  @rtype: (bool, list)
+  @return: tupe of a bool indicating success, and a list of
+      additional rollback tasks
+
+  """
+  rollback = []
+  if downgrade:
+    ToStdout("Downgrading configuration")
+    if not _RunCommandAndReport([pathutils.CFGUPGRADE, "--downgrade", "-f"]):
+      return (False, rollback)
+
+  # Configuration change is the point of no return. From then onwards, it is
+  # safer to push through the up/dowgrade than to try to roll it back.
+
+  ToStdout("Switching to version %s on all nodes" % versionstring)
+  rollback.append(lambda: _SetGanetiVersion(constants.DIR_VERSION))
+  badnodes = _SetGanetiVersion(versionstring)
+  if badnodes:
+    ToStderr("Failed to switch to Ganeti version %s on nodes %s"
+             % (versionstring, ", ".join(badnodes)))
+    if not downgrade:
+      return (False, rollback)
+
+  # Now that we have changed to the new version of Ganeti we should
+  # not communicate over luxi any more, as luxi might have changed in
+  # incompatible ways. Therefore, manually call the corresponding ganeti
+  # commands using their canonical (version independent) path.
+
+  if not downgrade:
+    ToStdout("Upgrading configuration")
+    if not _RunCommandAndReport([pathutils.CFGUPGRADE, "-f"]):
+      return (False, rollback)
+
+  return (True, rollback)
+
+
+def _UpgradeAfterConfigurationChange(oldversion):
+  """
+  Carry out the upgrade actions necessary after switching to the new
+  Ganeti version and updating the configuration.
+
+  As this part is run at a time where the new version of Ganeti is already
+  running, no communication should happen via luxi, as this is not a stable
+  interface. Also, as the configuration change is the point of no return,
+  all actions are pushed trough, even if some of them fail.
+
+  @param oldversion: the version the upgrade started from
+  @type oldversion: string
+  @rtype: int
+  @return: the intended return value
+
+  """
+  returnvalue = 0
+
+  ToStdout("Ensuring directories everywhere.")
+  badnodes = _VerifyCommand([pathutils.ENSURE_DIRS])
+  if badnodes:
+    ToStderr("Warning: failed to ensure directories on %s." %
+             (", ".join(badnodes)))
+    returnvalue = 1
+
+  ToStdout("Starting daemons everywhere.")
+  badnodes = _VerifyCommand([pathutils.DAEMON_UTIL, "start-all"])
+  if badnodes:
+    ToStderr("Warning: failed to start daemons on %s." % (", ".join(badnodes),))
+    returnvalue = 1
+
+  ToStdout("Redistributing the configuration.")
+  if not _RunCommandAndReport(["gnt-cluster", "redist-conf", "--yes-do-it"]):
+    returnvalue = 1
+
+  ToStdout("Restarting daemons everywhere.")
+  badnodes = _VerifyCommand([pathutils.DAEMON_UTIL, "stop-all"])
+  badnodes.extend(_VerifyCommand([pathutils.DAEMON_UTIL, "start-all"]))
+  if badnodes:
+    ToStderr("Warning: failed to start daemons on %s." %
+             (", ".join(list(set(badnodes))),))
+    returnvalue = 1
+
+  ToStdout("Undraining the queue.")
+  if not _RunCommandAndReport(["gnt-cluster", "queue", "undrain"]):
+    returnvalue = 1
+
+  _RunCommandAndReport(["rm", "-f", pathutils.INTENT_TO_UPGRADE])
+
+  ToStdout("Running post-upgrade hooks")
+  if not _RunCommandAndReport([pathutils.POST_UPGRADE, oldversion]):
+    returnvalue = 1
+
+  ToStdout("Verifying cluster.")
+  if not _RunCommandAndReport(["gnt-cluster", "verify"]):
+    returnvalue = 1
+
+  return returnvalue
+
+
+def UpgradeGanetiCommand(opts, args):
+  """Upgrade a cluster to a new ganeti version.
+
+  @param opts: the command line options selected by the user
+  @type args: list
+  @param args: should be an empty list
+  @rtype: int
+  @return: the desired exit code
+
+  """
+  if ((not opts.resume and opts.to is None)
+      or (opts.resume and opts.to is not None)):
+    ToStderr("Precisely one of the options --to and --resume"
+             " has to be given")
+    return 1
+
+  oldversion = constants.RELEASE_VERSION
+
+  if opts.resume:
+    ssconf.CheckMaster(False)
+    oldversion, versionstring = _ReadIntentToUpgrade()
+    if versionstring is None:
+      return 0
+    version = utils.version.ParseVersion(versionstring)
+    if version is None:
+      return 1
+    configversion = _GetConfigVersion()
+    if configversion is None:
+      return 1
+    # If the upgrade we resume was an upgrade between compatible
+    # versions (like 2.10.0 to 2.10.1), the correct configversion
+    # does not guarantee that the config has been updated.
+    # However, in the case of a compatible update with the configuration
+    # not touched, we are running a different dirversion with the same
+    # config version.
+    config_already_modified = \
+      (utils.IsCorrectConfigVersion(version, configversion) and
+       not (versionstring != constants.DIR_VERSION and
+            configversion == (constants.CONFIG_MAJOR, constants.CONFIG_MINOR,
+                              constants.CONFIG_REVISION)))
+    if not config_already_modified:
+      # We have to start from the beginning; however, some daemons might have
+      # already been stopped, so the only way to get into a well-defined state
+      # is by starting all daemons again.
+      _VerifyCommand([pathutils.DAEMON_UTIL, "start-all"])
+  else:
+    versionstring = opts.to
+    config_already_modified = False
+    version = utils.version.ParseVersion(versionstring)
+    if version is None:
+      ToStderr("Could not parse version string %s" % versionstring)
+      return 1
+
+  msg = utils.version.UpgradeRange(version)
+  if msg is not None:
+    ToStderr("Cannot upgrade to %s: %s" % (versionstring, msg))
+    return 1
+
+  if not config_already_modified:
+    success, rollback = _UpgradeBeforeConfigurationChange(versionstring)
+    if not success:
+      _ExecuteCommands(rollback)
+      return 1
+  else:
+    rollback = []
+
+  downgrade = utils.version.ShouldCfgdowngrade(version)
+
+  success, additionalrollback =  \
+      _SwitchVersionAndConfig(versionstring, downgrade)
+  if not success:
+    rollback.extend(additionalrollback)
+    _ExecuteCommands(rollback)
+    return 1
+
+  return _UpgradeAfterConfigurationChange(oldversion)
+
+
 commands = {
   "init": (
     InitCluster, [ArgHost(min=1, max=1)],
@@ -1544,7 +2051,7 @@ commands = {
      HVLIST_OPT, MAC_PREFIX_OPT, MASTER_NETDEV_OPT, MASTER_NETMASK_OPT,
      NIC_PARAMS_OPT, NOLVM_STORAGE_OPT, NOMODIFY_ETCHOSTS_OPT,
      NOMODIFY_SSH_SETUP_OPT, SECONDARY_IP_OPT, VG_NAME_OPT,
-     MAINTAIN_NODE_HEALTH_OPT, UIDPOOL_OPT, DRBD_HELPER_OPT, NODRBD_STORAGE_OPT,
+     MAINTAIN_NODE_HEALTH_OPT, UIDPOOL_OPT, DRBD_HELPER_OPT,
      DEFAULT_IALLOCATOR_OPT, PRIMARY_IP_VERSION_OPT, PREALLOC_WIPE_DISKS_OPT,
      NODE_PARAMS_OPT, GLOBAL_SHARED_FILEDIR_OPT, USE_EXTERNAL_MIP_SCRIPT,
      DISK_PARAMS_OPT, HV_STATE_OPT, DISK_STATE_OPT, ENABLED_DISK_TEMPLATES_OPT,
@@ -1559,7 +2066,8 @@ commands = {
     "<new_name>",
     "Renames the cluster"),
   "redist-conf": (
-    RedistributeConfig, ARGS_NONE, SUBMIT_OPTS + [DRY_RUN_OPT, PRIORITY_OPT],
+    RedistributeConfig, ARGS_NONE, SUBMIT_OPTS +
+    [DRY_RUN_OPT, PRIORITY_OPT, FORCE_DISTRIBUTION],
     "", "Forces a push of the configuration file and ssconf files"
     " to the nodes in the cluster"),
   "verify": (
@@ -1624,7 +2132,7 @@ commands = {
      BACKEND_OPT, CP_SIZE_OPT, ENABLED_HV_OPT, HVLIST_OPT, MASTER_NETDEV_OPT,
      MASTER_NETMASK_OPT, NIC_PARAMS_OPT, NOLVM_STORAGE_OPT, VG_NAME_OPT,
      MAINTAIN_NODE_HEALTH_OPT, UIDPOOL_OPT, ADD_UIDS_OPT, REMOVE_UIDS_OPT,
-     DRBD_HELPER_OPT, NODRBD_STORAGE_OPT, DEFAULT_IALLOCATOR_OPT,
+     DRBD_HELPER_OPT, DEFAULT_IALLOCATOR_OPT,
      RESERVED_LVS_OPT, DRY_RUN_OPT, PRIORITY_OPT, PREALLOC_WIPE_DISKS_OPT,
      NODE_PARAMS_OPT, USE_EXTERNAL_MIP_SCRIPT, DISK_PARAMS_OPT, HV_STATE_OPT,
      DISK_STATE_OPT] + SUBMIT_OPTS +
@@ -1654,6 +2162,9 @@ commands = {
   "show-ispecs-cmd": (
     ShowCreateCommand, ARGS_NONE, [], "",
     "Show the command line to re-create the cluster"),
+  "upgrade": (
+    UpgradeGanetiCommand, ARGS_NONE, [TO_OPT, RESUME_OPT], "",
+    "Upgrade (or downgrade) to a new Ganeti version"),
   }
 
 
