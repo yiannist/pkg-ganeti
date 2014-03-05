@@ -1,3 +1,17 @@
+ganeti (2.10.1-1) unstable; urgency=medium
+
+  As of 2.10.1-1, ganeti-htools is intended for stand-alone installation on
+  non-cluster systems only and conflicts with the ganeti package. The ganeti
+  package itself now provides the htools binaries for cluster systems in a way
+  that is compatible with upstream's new upgrade model[1].
+
+  Future minor version upgrades (e.g. from 2.10 to 2.11) will be compatible
+  with upstream's new upgrade model, using `gnt-cluster upgrade' (see [1]).
+
+    [1] http://docs.ganeti.org/ganeti/2.10/html/design-upgrade.html
+
+ -- Apollon Oikonomopoulos <apoikos@debian.org>  Wed, 05 Mar 2014 15:35:16 +0200
+
 ganeti (2.8.0-1) unstable; urgency=low
 
   As of 2.8.0-1, ganeti is configured to use separate users for its daemons.
