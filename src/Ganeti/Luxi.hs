@@ -77,8 +77,8 @@ import Ganeti.Errors
 import Ganeti.JSON
 import Ganeti.OpParams (pTagsObject)
 import Ganeti.OpCodes
-import Ganeti.Runtime
 import qualified Ganeti.Query.Language as Qlang
+import Ganeti.Runtime (GanetiDaemon(..), MiscGroup(..), GanetiGroup(..))
 import Ganeti.THH
 import Ganeti.Types
 import Ganeti.Utils
@@ -145,8 +145,13 @@ $(genLuxiOp "LuxiOp"
     )
   , (luxiReqQueryClusterInfo, [])
   , (luxiReqQueryTags,
-     [ pTagsObject ])
+     [ pTagsObject 
+     , simpleField "name" [t| String |]
+     ])
   , (luxiReqSubmitJob,
+     [ simpleField "job" [t| [MetaOpCode] |] ]
+    )
+  , (luxiReqSubmitJobToDrainedQueue,
      [ simpleField "job" [t| [MetaOpCode] |] ]
     )
   , (luxiReqSubmitManyJobs,
@@ -368,6 +373,10 @@ decodeCall (LuxiCall call args) =
               [ops1] <- fromJVal args
               ops2 <- mapM (fromJResult (luxiReqToRaw call) . J.readJSON) ops1
               return $ SubmitJob ops2
+    ReqSubmitJobToDrainedQueue -> do
+              [ops1] <- fromJVal args
+              ops2 <- mapM (fromJResult (luxiReqToRaw call) . J.readJSON) ops1
+              return $ SubmitJobToDrainedQueue ops2
     ReqSubmitManyJobs -> do
               [ops1] <- fromJVal args
               ops2 <- mapM (fromJResult (luxiReqToRaw call) . J.readJSON) ops1
@@ -401,8 +410,7 @@ decodeCall (LuxiCall call args) =
               return $ QueryConfigValues fields
     ReqQueryTags -> do
               (kind, name) <- fromJVal args
-              item <- tagObjectFrom kind name
-              return $ QueryTags item
+              return $ QueryTags kind name
     ReqCancelJob -> do
               [jid] <- fromJVal args
               return $ CancelJob jid

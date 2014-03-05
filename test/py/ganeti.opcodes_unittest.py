@@ -27,22 +27,13 @@ import unittest
 
 from ganeti import utils
 from ganeti import opcodes
+from ganeti import opcodes_base
 from ganeti import ht
 from ganeti import constants
 from ganeti import errors
 from ganeti import compat
 
 import testutils
-
-
-#: Unless an opcode is included in the following list it must have a result
-#: check of some sort
-MISSING_RESULT_CHECK = compat.UniqueFrozenset([
-  opcodes.OpTestAllocator,
-  opcodes.OpTestDelay,
-  opcodes.OpTestDummy,
-  opcodes.OpTestJqueue,
-  ])
 
 
 class TestOpcodes(unittest.TestCase):
@@ -56,16 +47,12 @@ class TestOpcodes(unittest.TestCase):
       self.assert_(cls.OP_ID.startswith("OP_"))
       self.assert_(len(cls.OP_ID) > 3)
       self.assertEqual(cls.OP_ID, cls.OP_ID.upper())
-      self.assertEqual(cls.OP_ID, opcodes._NameToId(cls.__name__))
-      self.assertFalse(compat.any(cls.OP_ID.startswith(prefix)
-                                  for prefix in opcodes._SUMMARY_PREFIX.keys()))
-      if cls in MISSING_RESULT_CHECK:
-        self.assertTrue(cls.OP_RESULT is None,
-                        msg=("%s is listed to not have a result check" %
-                             cls.OP_ID))
-      else:
-        self.assertTrue(callable(cls.OP_RESULT),
-                        msg=("%s should have a result check" % cls.OP_ID))
+      self.assertEqual(cls.OP_ID, opcodes_base._NameToId(cls.__name__))
+      self.assertFalse(
+        compat.any(cls.OP_ID.startswith(prefix)
+                   for prefix in opcodes_base.SUMMARY_PREFIX.keys()))
+      self.assertTrue(callable(cls.OP_RESULT),
+                      msg=("%s should have a result check" % cls.OP_ID))
 
       self.assertRaises(TypeError, cls, unsupported_parameter="some value")
 
@@ -132,10 +119,11 @@ class TestOpcodes(unittest.TestCase):
     self.assertEqual(OpTest(data="b").Summary(), "TEST(a)")
 
   def testTinySummary(self):
-    self.assertFalse(utils.FindDuplicates(opcodes._SUMMARY_PREFIX.values()))
+    self.assertFalse(
+      utils.FindDuplicates(opcodes_base.SUMMARY_PREFIX.values()))
     self.assertTrue(compat.all(prefix.endswith("_") and supplement.endswith("_")
                                for (prefix, supplement) in
-                                 opcodes._SUMMARY_PREFIX.items()))
+                                 opcodes_base.SUMMARY_PREFIX.items()))
 
     self.assertEqual(opcodes.OpClusterPostInit().TinySummary(), "C_POST_INIT")
     self.assertEqual(opcodes.OpNodeRemove().TinySummary(), "N_REMOVE")
@@ -164,7 +152,7 @@ class TestOpcodes(unittest.TestCase):
   def testParams(self):
     supported_by_all = set(["debug_level", "dry_run", "priority"])
 
-    self.assertTrue(opcodes.BaseOpCode not in opcodes.OP_MAPPING.values())
+    self.assertTrue(opcodes_base.BaseOpCode not in opcodes.OP_MAPPING.values())
     self.assertTrue(opcodes.OpCode not in opcodes.OP_MAPPING.values())
 
     for cls in opcodes.OP_MAPPING.values() + [opcodes.OpCode]:
@@ -195,7 +183,7 @@ class TestOpcodes(unittest.TestCase):
       # Check parameter definitions
       for attr_name, aval, test, doc in cls.GetAllParams():
         self.assert_(attr_name)
-        self.assert_(test is None or test is ht.NoType or callable(test),
+        self.assertTrue(callable(test),
                      msg=("Invalid type check for %s.%s" %
                           (cls.OP_ID, attr_name)))
         self.assertTrue(doc is None or isinstance(doc, basestring))
@@ -206,13 +194,9 @@ class TestOpcodes(unittest.TestCase):
                            msg=("Default value of %s.%s returned by function"
                                 " is callable" % (cls.OP_ID, attr_name)))
         else:
-          self.assertFalse(isinstance(aval, (list, dict, set)),
-                           msg=("Default value of %s.%s is mutable (%s)" %
-                                (cls.OP_ID, attr_name, repr(aval))))
-
           default_value = aval
 
-        if aval is not ht.NoDefault and test is not ht.NoType:
+        if aval is not ht.NoDefault and aval is not None:
           self.assertTrue(test(default_value),
                           msg=("Default value of %s.%s does not verify" %
                                (cls.OP_ID, attr_name)))
@@ -225,10 +209,10 @@ class TestOpcodes(unittest.TestCase):
   def testValidateNoModification(self):
     class OpTest(opcodes.OpCode):
       OP_PARAMS = [
-        ("nodef", ht.NoDefault, ht.TMaybeString, None),
+        ("nodef", None, ht.TString, None),
         ("wdef", "default", ht.TMaybeString, None),
         ("number", 0, ht.TInt, None),
-        ("notype", None, ht.NoType, None),
+        ("notype", None, ht.TAny, None),
         ]
 
     # Missing required parameter "nodef"
@@ -285,11 +269,8 @@ class TestOpcodes(unittest.TestCase):
   def testValidateSetDefaults(self):
     class OpTest(opcodes.OpCode):
       OP_PARAMS = [
-        # Static default value
         ("value1", "default", ht.TMaybeString, None),
-
-        # Default value callback
-        ("value2", lambda: "result", ht.TMaybeString, None),
+        ("value2", "result", ht.TMaybeString, None),
         ]
 
     op = OpTest()
@@ -328,8 +309,8 @@ class TestOpcodes(unittest.TestCase):
 
 class TestOpcodeDepends(unittest.TestCase):
   def test(self):
-    check_relative = opcodes._BuildJobDepCheck(True)
-    check_norelative = opcodes.TNoRelativeJobDependencies
+    check_relative = opcodes_base.BuildJobDepCheck(True)
+    check_norelative = opcodes_base.TNoRelativeJobDependencies
 
     for fn in [check_relative, check_norelative]:
       self.assertTrue(fn(None))
@@ -362,58 +343,32 @@ class TestResultChecks(unittest.TestCase):
   def testJobIdList(self):
     for i in [[], [(False, "error")], [(False, "")],
               [(True, 123), (True, "999")]]:
-      self.assertTrue(opcodes.TJobIdList(i))
+      self.assertTrue(ht.TJobIdList(i))
 
     for i in ["", [("x", 1)], [[], []], [[False, "", None], [True, 123]]]:
-      self.assertFalse(opcodes.TJobIdList(i))
+      self.assertFalse(ht.TJobIdList(i))
 
   def testJobIdListOnly(self):
-    self.assertTrue(opcodes.TJobIdListOnly({
+    self.assertTrue(ht.TJobIdListOnly({
       constants.JOB_IDS_KEY: [],
       }))
-    self.assertTrue(opcodes.TJobIdListOnly({
+    self.assertTrue(ht.TJobIdListOnly({
       constants.JOB_IDS_KEY: [(True, "9282")],
       }))
 
-    self.assertFalse(opcodes.TJobIdListOnly({
+    self.assertFalse(ht.TJobIdListOnly({
       "x": None,
       }))
-    self.assertFalse(opcodes.TJobIdListOnly({
+    self.assertFalse(ht.TJobIdListOnly({
       constants.JOB_IDS_KEY: [],
       "x": None,
       }))
-    self.assertFalse(opcodes.TJobIdListOnly({
+    self.assertFalse(ht.TJobIdListOnly({
       constants.JOB_IDS_KEY: [("foo", "bar")],
       }))
-    self.assertFalse(opcodes.TJobIdListOnly({
+    self.assertFalse(ht.TJobIdListOnly({
       constants.JOB_IDS_KEY: [("one", "two", "three")],
       }))
-
-
-class TestClusterOsList(unittest.TestCase):
-  def test(self):
-    good = [
-      None,
-      [],
-      [(constants.DDM_ADD, "dos"),
-       (constants.DDM_REMOVE, "linux")],
-      ]
-
-    for i in good:
-      self.assertTrue(opcodes._TestClusterOsList(i))
-
-    wrong = ["", 0, "xy", ["Hello World"], object(),
-      [("foo", "bar")],
-      [("", "")],
-      [[constants.DDM_ADD]],
-      [(constants.DDM_ADD, "")],
-      [(constants.DDM_REMOVE, "")],
-      [(constants.DDM_ADD, None)],
-      [(constants.DDM_REMOVE, None)],
-      ]
-
-    for i in wrong:
-      self.assertFalse(opcodes._TestClusterOsList(i))
 
 
 class TestOpInstanceSetParams(unittest.TestCase):
@@ -433,7 +388,7 @@ class TestOpInstanceSetParams(unittest.TestCase):
     self.assertFalse(fn([[constants.DDM_ADD]]))
 
   def testNicModifications(self):
-    fn = opcodes.OpInstanceSetParams.TestNicModifications
+    fn = ht.TSetParamsMods(ht.TINicParams)
     self._GenericTests(fn)
 
     for param in constants.INIC_PARAMS:
@@ -441,7 +396,7 @@ class TestOpInstanceSetParams(unittest.TestCase):
       self.assertTrue(fn([[constants.DDM_ADD, {param: param}]]))
 
   def testDiskModifications(self):
-    fn = opcodes.OpInstanceSetParams.TestDiskModifications
+    fn = ht.TSetParamsMods(ht.TIDiskParams)
     self._GenericTests(fn)
 
     for param in constants.IDISK_PARAMS:

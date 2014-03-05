@@ -46,17 +46,18 @@ except (AttributeError, ValueError, KeyError), err:
   # Normally the "manpage" role is registered by sphinx/roles.py
   raise Exception("Can't find reST role named 'manpage': %s" % err)
 
+from ganeti import _constants
 from ganeti import constants
 from ganeti import compat
 from ganeti import errors
 from ganeti import utils
 from ganeti import opcodes
+from ganeti import opcodes_base
 from ganeti import ht
 from ganeti import rapi
 from ganeti import luxi
 from ganeti import objects
 from ganeti import http
-from ganeti import _autoconf
 
 import ganeti.rapi.rlib2 # pylint: disable=W0611
 import ganeti.rapi.connector # pylint: disable=W0611
@@ -83,7 +84,7 @@ def _GetCommonParamNames():
   names = set(map(compat.fst, opcodes.OpCode.OP_PARAMS))
 
   # The "depends" attribute should be listed
-  names.remove(opcodes.DEPEND_ATTR)
+  names.remove(opcodes_base.DEPEND_ATTR)
 
   return names
 
@@ -164,8 +165,8 @@ def _BuildOpcodeParams(op_id, include, exclude, alias):
     if include is not None and name not in include:
       continue
 
-    has_default = default is not ht.NoDefault
-    has_test = not (test is None or test is ht.NoType)
+    has_default = default is not None or default is not ht.NoDefault
+    has_test = test is not None
 
     buf = StringIO()
     buf.write("``%s``" % (rapi_name,))
@@ -222,7 +223,10 @@ class OpcodeParams(s_compat.Directive):
     alias = self.options.get("alias", {})
 
     path = op_id
-    include_text = "\n".join(_BuildOpcodeParams(op_id, include, exclude, alias))
+    include_text = "\n\n".join(_BuildOpcodeParams(op_id,
+                                                  include,
+                                                  exclude,
+                                                  alias))
 
     # Inject into state machine
     include_lines = docutils.statemachine.string2lines(include_text, _TAB_WIDTH,
@@ -381,7 +385,7 @@ class _ManPageXRefRole(sphinx.roles.XRefRole):
     name = m.group("name")
     section = int(m.group("section"))
 
-    wanted_section = _autoconf.MAN_PAGES.get(name, None)
+    wanted_section = _constants.MAN_PAGES.get(name, None)
 
     if not (wanted_section is None or wanted_section == section):
       raise ReSTError("Referenced man page '%s' has section number %s, but the"

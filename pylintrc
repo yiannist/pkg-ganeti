@@ -1,6 +1,8 @@
 # Configuration file for pylint (http://www.logilab.org/project/pylint). See
 # http://www.logilab.org/card/pylintfeatures for more detailed variable
 # descriptions.
+#
+# NOTE: Keep this file in sync (as much as possible) with pylintrc-test!
 
 [MASTER]
 profile = no

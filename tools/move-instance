@@ -110,6 +110,11 @@ DEST_SECONDARY_NODE_OPT = \
                  help=("Secondary node on destination cluster (only"
                        " when moving exactly one instance)"))
 
+DEST_DISK_TEMPLATE_OPT = \
+  cli.cli_option("--dest-disk-template", action="store", type="string",
+                 dest="dest_disk_template", default=None,
+                 help="Disk template to use on destination cluster")
+
 PARALLEL_OPT = \
   cli.cli_option("-p", "--parallel", action="store", type="int", default=1,
                  dest="parallel", metavar="<number>",
@@ -272,7 +277,8 @@ class InstanceMove(object):
   """
   def __init__(self, src_instance_name, dest_instance_name,
                dest_pnode, dest_snode, dest_iallocator,
-               hvparams, beparams, osparams, nics):
+               dest_disk_template, hvparams,
+               beparams, osparams, nics):
     """Initializes this class.
 
     @type src_instance_name: string
@@ -285,6 +291,8 @@ class InstanceMove(object):
     @param dest_snode: Name of secondary node on destination cluster
     @type dest_iallocator: string or None
     @param dest_iallocator: Name of iallocator to use
+    @type dest_disk_template: string or None
+    @param dest_disk_template: Disk template to use instead of the original one
     @type hvparams: dict or None
     @param hvparams: Hypervisor parameters to override
     @type beparams: dict or None
@@ -300,6 +308,7 @@ class InstanceMove(object):
     self.dest_pnode = dest_pnode
     self.dest_snode = dest_snode
     self.dest_iallocator = dest_iallocator
+    self.dest_disk_template = dest_disk_template
     self.hvparams = hvparams
     self.beparams = beparams
     self.osparams = osparams
@@ -429,6 +438,7 @@ class MoveDestExecutor(object):
     job_id = self._CreateInstance(dest_client, mrt.move.dest_instance_name,
                                   mrt.move.dest_pnode, mrt.move.dest_snode,
                                   mrt.move.dest_iallocator,
+                                  mrt.move.dest_disk_template,
                                   mrt.src_instinfo, mrt.src_expinfo,
                                   mrt.move.hvparams, mrt.move.beparams,
                                   mrt.move.beparams, mrt.move.nics)
@@ -454,9 +464,9 @@ class MoveDestExecutor(object):
       mrt.dest_to_source.release()
 
   @staticmethod
-  def _CreateInstance(cl, name, pnode, snode, iallocator, instance, expinfo,
-                      override_hvparams, override_beparams, override_osparams,
-                      override_nics):
+  def _CreateInstance(cl, name, pnode, snode, iallocator, dest_disk_template,
+                      instance, expinfo, override_hvparams, override_beparams,
+                      override_osparams, override_nics):
     """Starts the instance creation in remote import mode.
 
     @type cl: L{rapi.client.GanetiRapiClient}
@@ -469,6 +479,8 @@ class MoveDestExecutor(object):
     @param snode: Name of secondary node on destination cluster
     @type iallocator: string or None
     @param iallocator: Name of iallocator to use
+    @type dest_disk_template: string or None
+    @param dest_disk_template: Disk template to use instead of the original one
     @type instance: dict
     @param instance: Instance details from source cluster
     @type expinfo: dict
@@ -484,7 +496,10 @@ class MoveDestExecutor(object):
     @return: Job ID
 
     """
-    disk_template = instance["disk_template"]
+    if dest_disk_template:
+      disk_template = dest_disk_template
+    else:
+      disk_template = instance["disk_template"]
 
     disks = []
     for idisk in instance["disks"]:
@@ -503,9 +518,11 @@ class MoveDestExecutor(object):
       constants.INIC_MAC: mac,
       constants.INIC_MODE: mode,
       constants.INIC_LINK: link,
+      constants.INIC_VLAN: vlan,
       constants.INIC_NETWORK: network,
       constants.INIC_NAME: nic_name
-      } for nic_name, _, ip, mac, mode, link, network, _ in instance["nics"]]
+      } for nic_name, _, ip, mac, mode, link, vlan, network, _
+        in instance["nics"]]
 
     if len(override_nics) > len(nics):
       raise Error("Can not create new NICs")
@@ -759,6 +776,7 @@ def ParseOptions():
   parser.add_option(DEST_INSTANCE_NAME_OPT)
   parser.add_option(DEST_PRIMARY_NODE_OPT)
   parser.add_option(DEST_SECONDARY_NODE_OPT)
+  parser.add_option(DEST_DISK_TEMPLATE_OPT)
   parser.add_option(PARALLEL_OPT)
 
   (options, args) = parser.parse_args()
@@ -787,17 +805,12 @@ def CheckOptions(parser, options, args):
   if options.parallel < 1:
     parser.error("Number of simultaneous moves must be >= 1")
 
-  if not (bool(options.iallocator) ^
-          bool(options.dest_primary_node or options.dest_secondary_node)):
+  if (bool(options.iallocator) and
+      bool(options.dest_primary_node or options.dest_secondary_node)):
     parser.error("Destination node and iallocator options exclude each other")
 
   if len(instance_names) == 1:
     # Moving one instance only
-    if not (options.iallocator or
-            options.dest_primary_node or
-            options.dest_secondary_node):
-      parser.error("An iallocator or the destination node is required")
-
     if options.hvparams:
       utils.ForceDictType(options.hvparams, constants.HVS_PARAMETER_TYPES)
 
@@ -816,11 +829,24 @@ def CheckOptions(parser, options, args):
                    " --backend-parameters, --os-parameters and --net can"
                    " only be used when moving exactly one instance")
 
-    if not options.iallocator:
-      parser.error("An iallocator must be specified for moving more than one"
-                   " instance")
-
   return (src_cluster_name, dest_cluster_name, instance_names)
+
+
+def DestClusterHasDefaultIAllocator(rapi_factory):
+  """Determines if a given cluster has a default iallocator.
+
+  """
+  result = rapi_factory.GetDestClient().GetInfo()
+  ia_name = "default_iallocator"
+  return ia_name in result and result[ia_name]
+
+
+def ExitWithError(message):
+  """Exits after an error and shows a message.
+
+  """
+  sys.stderr.write("move-instance: error: " + message + "\n")
+  sys.exit(constants.EXIT_FAILURE)
 
 
 @UsesRapiClient
@@ -843,14 +869,17 @@ def main():
 
   CheckRapiSetup(rapi_factory)
 
-  assert (len(instance_names) == 1 or
-          not (options.dest_primary_node or options.dest_secondary_node))
-  assert len(instance_names) == 1 or options.iallocator
-  assert (len(instance_names) > 1 or options.iallocator or
-          options.dest_primary_node or options.dest_secondary_node)
-  assert (len(instance_names) == 1 or
-          not (options.hvparams or options.beparams or options.osparams or
-               options.nics))
+  has_iallocator = options.iallocator or \
+                   DestClusterHasDefaultIAllocator(rapi_factory)
+
+  if len(instance_names) > 1 and not has_iallocator:
+    ExitWithError("When moving multiple nodes, an iallocator must be used. "
+                  "None was provided and the target cluster does not have "
+                  "a default iallocator.")
+  if (len(instance_names) == 1 and not (has_iallocator or
+      options.dest_primary_node or options.dest_secondary_node)):
+    ExitWithError("Target cluster does not have a default iallocator, "
+                  "please specify either destination nodes or an iallocator.")
 
   # Prepare list of instance moves
   moves = []
@@ -865,8 +894,11 @@ def main():
     moves.append(InstanceMove(src_instance_name, dest_instance_name,
                               options.dest_primary_node,
                               options.dest_secondary_node,
-                              options.iallocator, options.hvparams,
-                              options.beparams, options.osparams,
+                              options.iallocator,
+                              options.dest_disk_template,
+                              options.hvparams,
+                              options.beparams,
+                              options.osparams,
                               options.nics))
 
   assert len(moves) == len(instance_names)

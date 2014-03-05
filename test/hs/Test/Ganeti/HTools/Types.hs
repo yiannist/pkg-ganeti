@@ -31,7 +31,6 @@ module Test.Ganeti.HTools.Types
   , Types.AllocPolicy(..)
   , Types.DiskTemplate(..)
   , Types.FailMode(..)
-  , Types.EvacMode(..)
   , Types.ISpec(..)
   , Types.IPolicy(..)
   , nullIPolicy
@@ -41,7 +40,6 @@ import Test.QuickCheck hiding (Result)
 import Test.HUnit
 
 import Control.Applicative
-import Data.List (sort)
 import Control.Monad (replicateM)
 
 import Test.Ganeti.TestHelper
@@ -51,6 +49,7 @@ import Test.Ganeti.Types (allDiskTemplates)
 
 import Ganeti.BasicTypes
 import qualified Ganeti.Constants as C
+import Ganeti.ConstantUtils
 import qualified Ganeti.HTools.Types as Types
 
 {-# ANN module "HLint: ignore Use camelCase" #-}
@@ -60,8 +59,6 @@ import qualified Ganeti.HTools.Types as Types
 -- * Arbitrary instance
 
 $(genArbitrary ''Types.FailMode)
-
-$(genArbitrary ''Types.EvacMode)
 
 instance Arbitrary a => Arbitrary (Types.OpResult a) where
   arbitrary = arbitrary >>= \c ->
@@ -155,9 +152,6 @@ prop_ISpec_serialisation = testSerialisation
 prop_IPolicy_serialisation :: Types.IPolicy -> Property
 prop_IPolicy_serialisation = testSerialisation
 
-prop_EvacMode_serialisation :: Types.EvacMode -> Property
-prop_EvacMode_serialisation = testSerialisation
-
 prop_opToResult :: Types.OpResult Int -> Property
 prop_opToResult op =
   case op of
@@ -185,22 +179,21 @@ case_AutoRepairType_sort = do
                  , Types.ArFailover
                  , Types.ArReinstall
                  ]
-      all_hs_raw = map Types.autoRepairTypeToRaw [minBound..maxBound]
+      all_hs_raw = mkSet $ map Types.autoRepairTypeToRaw [minBound..maxBound]
   assertEqual "Haskell order" expected [minBound..maxBound]
   assertEqual "consistent with Python" C.autoRepairAllTypes all_hs_raw
 
 -- | Test 'AutoRepairResult' type is equivalent with Python codebase.
 case_AutoRepairResult_pyequiv :: Assertion
 case_AutoRepairResult_pyequiv = do
-  let all_py_results = sort C.autoRepairAllResults
-      all_hs_results = sort $
+  let all_py_results = C.autoRepairAllResults
+      all_hs_results = mkSet $
                        map Types.autoRepairResultToRaw [minBound..maxBound]
   assertEqual "for AutoRepairResult equivalence" all_py_results all_hs_results
 
 testSuite "HTools/Types"
             [ 'prop_ISpec_serialisation
             , 'prop_IPolicy_serialisation
-            , 'prop_EvacMode_serialisation
             , 'prop_opToResult
             , 'prop_eitherToResult
             , 'case_AutoRepairType_sort

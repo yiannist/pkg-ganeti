@@ -39,7 +39,7 @@ the node in the cluster. The command needs to be run on the Ganeti
 master.
 
 Note that the command is potentially destructive, as it will
-forcibly join the specified host the cluster, not paying attention
+forcibly join the specified host to the cluster, not paying attention
 to its current status (it could be already in a cluster, etc.)
 
 The ``-s (--secondary-ip)`` is used in dual-home clusters and
@@ -48,7 +48,7 @@ discussion in **gnt-cluster**\(8) for more information.
 
 In case you're readding a node after hardware failure, you can use
 the ``--readd`` parameter. In this case, you don't need to pass the
-secondary IP again, it will reused from the cluster. Also, the
+secondary IP again, it will be reused from the cluster. Also, the
 drained and offline flags of the node will be cleared before
 re-adding it.
 
@@ -122,6 +122,10 @@ each affected instance individually:
   in secondary node change mode (``--new-secondary``) for every DRBD
   instance that the node is a secondary for.
 - when neither of the above is done a combination of the two cases is run
+
+Note that the iallocator currently only considers disk information of
+the default disk template, even if the instance's disk templates differ
+from that.
 
 See **ganeti**\(7) for a description of ``--submit`` and other common
 options.
@@ -252,6 +256,12 @@ fields. The available fields and their meaning are:
   The "exclusive_storage" node parameter
 ``ndp/oob_program``
   The "oob_program" node parameter
+``ndp/ovs``
+  The "ovs" node parameter
+``ndp/ovs_link``
+  The "ovs_link" node parameter
+``ndp/ovs_name``
+  The "ovs_name" node parameter
 ``ndp/spindle_count``
   The "spindle_count" node parameter
 ``ndparams``
@@ -303,6 +313,13 @@ Depending on the virtualization type and implementation details, the
 meanings. For example, some solutions share the node memory with the
 pool of memory used for instances (KVM), whereas others have separate
 memory for the node and for the instances (Xen).
+
+Note that the field 'dtotal' and 'dfree' refer to the storage type
+that is defined by the default disk template. The default disk template
+is the first on in the list of cluster-wide enabled disk templates and
+can be set with ``gnt-cluster modify``. Currently, only the disk
+templates 'plain', 'drbd', 'file', and 'sharedfile' support storage
+reporting, for all others '0' is displayed.
 
 If exactly one argument is given and it appears to be a query filter
 (see **ganeti**\(7)), the query result is filtered accordingly. For

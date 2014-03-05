@@ -85,12 +85,12 @@ class ExportQuery(QueryBase):
     node_uuids = self._GetNames(lu, lu.cfg.GetNodeList(), locking.LEVEL_NODE)
 
     result = []
-
     for (node_uuid, nres) in lu.rpc.call_export_list(node_uuids).items():
+      node = lu.cfg.GetNodeInfo(node_uuid)
       if nres.fail_msg:
-        result.append((node_uuid, None))
+        result.append((node.name, None))
       else:
-        result.extend((node_uuid, expname) for expname in nres.payload)
+        result.extend((node.name, expname) for expname in nres.payload)
 
     return result
 
@@ -393,15 +393,10 @@ class LUBackupExport(LogicalUnit):
                    " node %s" % (self.instance.name,
                                  self.cfg.GetNodeName(src_node_uuid)))
 
-    # set the disks ID correctly since call_instance_start needs the
-    # correct drbd minor to create the symlinks
-    for disk in self.instance.disks:
-      self.cfg.SetDiskID(disk, src_node_uuid)
-
     activate_disks = not self.instance.disks_active
 
     if activate_disks:
-      # Activate the instance disks if we'exporting a stopped instance
+      # Activate the instance disks if we're exporting a stopped instance
       feedback_fn("Activating disks for %s" % self.instance.name)
       StartInstanceDisks(self, self.instance, None)
 

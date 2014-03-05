@@ -230,9 +230,10 @@ class LUInstanceShutdown(LogicalUnit):
       assert self.op.ignore_offline_nodes
       self.LogInfo("Primary node offline, marked instance as stopped")
     else:
-      result = self.rpc.call_instance_shutdown(self.instance.primary_node,
-                                               self.instance,
-                                               self.op.timeout, self.op.reason)
+      result = self.rpc.call_instance_shutdown(
+        self.instance.primary_node,
+        self.instance,
+        self.op.timeout, self.op.reason)
       msg = result.fail_msg
       if msg:
         self.LogWarning("Could not shutdown instance: %s", msg)
@@ -393,8 +394,6 @@ class LUInstanceReboot(LogicalUnit):
     if instance_running and \
         self.op.reboot_type in [constants.INSTANCE_REBOOT_SOFT,
                                 constants.INSTANCE_REBOOT_HARD]:
-      for disk in self.instance.disks:
-        self.cfg.SetDiskID(disk, current_node_uuid)
       result = self.rpc.call_instance_reboot(current_node_uuid, self.instance,
                                              self.op.reboot_type,
                                              self.op.shutdown_timeout,

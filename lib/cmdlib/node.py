@@ -138,7 +138,10 @@ class LUNodeAdd(LogicalUnit):
       hook_nodes = list(set(hook_nodes) - set([new_node_info.uuid]))
 
     # add the new node as post hook node by name; it does not have an UUID yet
-    return (hook_nodes, hook_nodes, [self.op.node_name, ])
+    return (hook_nodes, hook_nodes)
+
+  def PreparePostHookNodes(self, post_hook_node_uuids):
+    return post_hook_node_uuids + [self.new_node.uuid]
 
   def CheckPrereq(self):
     """Check prerequisites.
@@ -217,7 +220,7 @@ class LUNodeAdd(LogicalUnit):
 
     # check that the type of the node (single versus dual homed) is the
     # same as for the master
-    myself = self.cfg.GetNodeInfo(self.cfg.GetMasterNode())
+    myself = self.cfg.GetMasterNodeInfo()
     master_singlehomed = myself.secondary_ip == myself.primary_ip
     newbie_singlehomed = secondary_ip == self.op.primary_ip
     if master_singlehomed != newbie_singlehomed:
@@ -302,6 +305,24 @@ class LUNodeAdd(LogicalUnit):
         raise errors.OpPrereqError("Checks on node PVs failed: %s" %
                                    "; ".join(errmsgs), errors.ECODE_ENVIRON)
 
+  def _InitOpenVSwitch(self):
+    filled_ndparams = self.cfg.GetClusterInfo().FillND(
+      self.new_node, self.cfg.GetNodeGroup(self.new_node.group))
+
+    ovs = filled_ndparams.get(constants.ND_OVS, None)
+    ovs_name = filled_ndparams.get(constants.ND_OVS_NAME, None)
+    ovs_link = filled_ndparams.get(constants.ND_OVS_LINK, None)
+
+    if ovs:
+      if not ovs_link:
+        self.LogInfo("No physical interface for OpenvSwitch was given."
+                     " OpenvSwitch will not have an outside connection. This"
+                     " might not be what you want.")
+
+      result = self.rpc.call_node_configure_ovs(
+                 self.new_node.name, ovs_name, ovs_link)
+      result.Raise("Failed to initialize OpenVSwitch on new node")
+
   def Exec(self, feedback_fn):
     """Adds the new node to the cluster.
 
@@ -375,6 +396,8 @@ class LUNodeAdd(LogicalUnit):
                       " (checking from %s): %s" %
                       (verifier, nl_payload[failed]))
         raise errors.OpExecError("ssh/hostname verification failed")
+
+    self._InitOpenVSwitch()
 
     if self.op.readd:
       self.context.ReaddNode(self.new_node)
@@ -636,7 +659,7 @@ class LUNodeSetParams(LogicalUnit):
     # restrictions.
     if self.op.secondary_ip:
       # Ok even without locking, because this can't be changed by any LU
-      master = self.cfg.GetNodeInfo(self.cfg.GetMasterNode())
+      master = self.cfg.GetMasterNodeInfo()
       master_singlehomed = master.secondary_ip == master.primary_ip
       if master_singlehomed and self.op.secondary_ip != node.primary_ip:
         if self.op.force and node.uuid == master.uuid:
@@ -832,15 +855,6 @@ class LUNodeEvacuate(NoHooksLU):
   """
   REQ_BGL = False
 
-  _MODE2IALLOCATOR = {
-    constants.NODE_EVAC_PRI: constants.IALLOCATOR_NEVAC_PRI,
-    constants.NODE_EVAC_SEC: constants.IALLOCATOR_NEVAC_SEC,
-    constants.NODE_EVAC_ALL: constants.IALLOCATOR_NEVAC_ALL,
-    }
-  assert frozenset(_MODE2IALLOCATOR.keys()) == constants.NODE_EVAC_MODES
-  assert (frozenset(_MODE2IALLOCATOR.values()) ==
-          constants.IALLOCATOR_NEVAC_MODES)
-
   def CheckArguments(self):
     CheckIAllocatorOrNode(self, "iallocator", "remote_node")
 
@@ -997,8 +1011,7 @@ class LUNodeEvacuate(NoHooksLU):
 
     elif self.op.iallocator is not None:
       # TODO: Implement relocation to other group
-      evac_mode = self._MODE2IALLOCATOR[self.op.mode]
-      req = iallocator.IAReqNodeEvac(evac_mode=evac_mode,
+      req = iallocator.IAReqNodeEvac(evac_mode=self.op.mode,
                                      instances=list(self.instance_names))
       ial = iallocator.IAllocator(self.cfg, self.rpc, req)
 
@@ -1190,13 +1203,9 @@ class NodeQuery(QueryBase):
       # filter out non-vm_capable nodes
       toquery_node_uuids = [node.uuid for node in all_info.values()
                             if node.vm_capable and node.uuid in node_uuids]
-      lvm_enabled = utils.storage.IsLvmEnabled(
-          lu.cfg.GetClusterInfo().enabled_disk_templates)
-      # FIXME: this per default asks for storage space information for all
-      # enabled disk templates. Fix this by making it possible to specify
-      # space report fields for specific disk templates.
-      raw_storage_units = utils.storage.GetStorageUnitsOfCluster(
-          lu.cfg, include_spindles=lvm_enabled)
+      default_template = lu.cfg.GetClusterInfo().enabled_disk_templates[0]
+      raw_storage_units = utils.storage.GetStorageUnits(
+          lu.cfg, [default_template])
       storage_units = rpc.PrepareStorageUnitsForNodes(
           lu.cfg, raw_storage_units, toquery_node_uuids)
       default_hypervisor = lu.cfg.GetHypervisorType()
@@ -1205,8 +1214,7 @@ class NodeQuery(QueryBase):
       node_data = lu.rpc.call_node_info(toquery_node_uuids, storage_units,
                                         hvspecs)
       live_data = dict(
-          (uuid, rpc.MakeLegacyNodeInfo(nresult.payload,
-                                        require_spindles=lvm_enabled))
+          (uuid, rpc.MakeLegacyNodeInfo(nresult.payload, default_template))
           for (uuid, nresult) in node_data.items()
           if not nresult.fail_msg and nresult.payload)
     else:
@@ -1270,20 +1278,16 @@ class LUNodeQuery(NoHooksLU):
     return self.nq.OldStyleQuery(self)
 
 
-def _CheckOutputFields(static, dynamic, selected):
-  """Checks whether all selected fields are valid.
+def _CheckOutputFields(fields, selected):
+  """Checks whether all selected fields are valid according to fields.
 
-  @type static: L{utils.FieldSet}
-  @param static: static fields set
-  @type dynamic: L{utils.FieldSet}
-  @param dynamic: dynamic fields set
+  @type fields: L{utils.FieldSet}
+  @param fields: fields set
+  @type selected: L{utils.FieldSet}
+  @param selected: fields set
 
   """
-  f = utils.FieldSet()
-  f.Extend(static)
-  f.Extend(dynamic)
-
-  delta = f.NonMatching(selected)
+  delta = fields.NonMatching(selected)
   if delta:
     raise errors.OpPrereqError("Unknown output fields selected: %s"
                                % ",".join(delta), errors.ECODE_INVAL)
@@ -1294,13 +1298,12 @@ class LUNodeQueryvols(NoHooksLU):
 
   """
   REQ_BGL = False
-  _FIELDS_DYNAMIC = utils.FieldSet("phys", "vg", "name", "size", "instance")
-  _FIELDS_STATIC = utils.FieldSet("node")
 
   def CheckArguments(self):
-    _CheckOutputFields(static=self._FIELDS_STATIC,
-                       dynamic=self._FIELDS_DYNAMIC,
-                       selected=self.op.output_fields)
+    _CheckOutputFields(utils.FieldSet(constants.VF_NODE, constants.VF_PHYS,
+                                      constants.VF_VG, constants.VF_NAME,
+                                      constants.VF_SIZE, constants.VF_INSTANCE),
+                       self.op.output_fields)
 
   def ExpandNames(self):
     self.share_locks = ShareAll()
@@ -1337,24 +1340,24 @@ class LUNodeQueryvols(NoHooksLU):
         continue
 
       node_vols = sorted(nresult.payload,
-                         key=operator.itemgetter("dev"))
+                         key=operator.itemgetter(constants.VF_DEV))
 
       for vol in node_vols:
         node_output = []
         for field in self.op.output_fields:
-          if field == "node":
+          if field == constants.VF_NODE:
             val = self.cfg.GetNodeName(node_uuid)
-          elif field == "phys":
-            val = vol["dev"]
-          elif field == "vg":
-            val = vol["vg"]
-          elif field == "name":
-            val = vol["name"]
-          elif field == "size":
-            val = int(float(vol["size"]))
-          elif field == "instance":
-            inst = vol2inst.get((node_uuid, vol["vg"] + "/" + vol["name"]),
-                                None)
+          elif field == constants.VF_PHYS:
+            val = vol[constants.VF_DEV]
+          elif field == constants.VF_VG:
+            val = vol[constants.VF_VG]
+          elif field == constants.VF_NAME:
+            val = vol[constants.VF_NAME]
+          elif field == constants.VF_SIZE:
+            val = int(float(vol[constants.VF_SIZE]))
+          elif field == constants.VF_INSTANCE:
+            inst = vol2inst.get((node_uuid, vol[constants.VF_VG] + "/" +
+                                 vol[constants.VF_NAME]), None)
             if inst is not None:
               val = inst.name
             else:
@@ -1372,13 +1375,11 @@ class LUNodeQueryStorage(NoHooksLU):
   """Logical unit for getting information on storage units on node(s).
 
   """
-  _FIELDS_STATIC = utils.FieldSet(constants.SF_NODE)
   REQ_BGL = False
 
   def CheckArguments(self):
-    _CheckOutputFields(static=self._FIELDS_STATIC,
-                       dynamic=utils.FieldSet(*constants.VALID_STORAGE_FIELDS),
-                       selected=self.op.output_fields)
+    _CheckOutputFields(utils.FieldSet(*constants.VALID_STORAGE_FIELDS),
+                       self.op.output_fields)
 
   def ExpandNames(self):
     self.share_locks = ShareAll()
@@ -1393,16 +1394,41 @@ class LUNodeQueryStorage(NoHooksLU):
         locking.LEVEL_NODE_ALLOC: locking.ALL_SET,
         }
 
+  def _DetermineStorageType(self):
+    """Determines the default storage type of the cluster.
+
+    """
+    enabled_disk_templates = self.cfg.GetClusterInfo().enabled_disk_templates
+    default_storage_type = \
+        constants.MAP_DISK_TEMPLATE_STORAGE_TYPE[enabled_disk_templates[0]]
+    return default_storage_type
+
   def CheckPrereq(self):
     """Check prerequisites.
 
     """
-    CheckStorageTypeEnabled(self.cfg.GetClusterInfo(), self.op.storage_type)
+    if self.op.storage_type:
+      CheckStorageTypeEnabled(self.cfg.GetClusterInfo(), self.op.storage_type)
+      self.storage_type = self.op.storage_type
+    else:
+      self.storage_type = self._DetermineStorageType()
+      if self.storage_type not in constants.STS_REPORT:
+        raise errors.OpPrereqError(
+            "Storage reporting for storage type '%s' is not supported. Please"
+            " use the --storage-type option to specify one of the supported"
+            " storage types (%s) or set the default disk template to one that"
+            " supports storage reporting." %
+            (self.storage_type, utils.CommaJoin(constants.STS_REPORT)))
 
   def Exec(self, feedback_fn):
     """Computes the list of nodes and their attributes.
 
     """
+    if self.op.storage_type:
+      self.storage_type = self.op.storage_type
+    else:
+      self.storage_type = self._DetermineStorageType()
+
     self.node_uuids = self.owned_locks(locking.LEVEL_NODE)
 
     # Always get name to sort by
@@ -1419,9 +1445,9 @@ class LUNodeQueryStorage(NoHooksLU):
     field_idx = dict([(name, idx) for (idx, name) in enumerate(fields)])
     name_idx = field_idx[constants.SF_NAME]
 
-    st_args = _GetStorageTypeArgs(self.cfg, self.op.storage_type)
+    st_args = _GetStorageTypeArgs(self.cfg, self.storage_type)
     data = self.rpc.call_storage_list(self.node_uuids,
-                                      self.op.storage_type, st_args,
+                                      self.storage_type, st_args,
                                       self.op.name, fields)
 
     result = []
@@ -1449,7 +1475,7 @@ class LUNodeQueryStorage(NoHooksLU):
           if field == constants.SF_NODE:
             val = node_name
           elif field == constants.SF_TYPE:
-            val = self.op.storage_type
+            val = self.storage_type
           elif field in field_idx:
             val = row[field_idx[field]]
           else:

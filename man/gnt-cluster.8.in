@@ -679,6 +679,22 @@ When a new RADOS cluster is deployed, the default pool to put rbd
 volumes (Images in RADOS terminology) is \[aq]rbd\[aq].
 .RS
 .RE
+.TP
+.B access
+If \[aq]userspace\[aq], instances will access their disks directly
+without going through a block device, avoiding expensive context
+switches with kernel space and the potential for
+deadlocks (http://tracker.ceph.com/issues/3076) in low memory scenarios.
+.RS
+.PP
+The default value is \[aq]kernelspace\[aq] and it disables this
+behaviour.
+This setting may only be changed to \[aq]userspace\[aq] if all instance
+disks in the affected group or cluster can be accessed in userspace.
+.PP
+Attempts to use this feature without rbd support compiled in KVM result
+in a "no such file or directory" error messages.
+.RE
 .PP
 The option \f[C]--maintain-node-health\f[] allows one to enable/disable
 automatic maintenance actions on nodes.
@@ -1132,6 +1148,20 @@ When all the disk sizes are consistent, the command will return no
 output.
 Otherwise it will log details about the inconsistencies in the
 configuration.
+.SS UPGRADE
+.PP
+\f[B]upgrade\f[] {--to \f[I]version\f[] | --resume}
+.PP
+This command safely switches all nodes of the cluster to a new Ganeti
+version.
+It is a prerequisite that the new version is already installed, albeit
+not activated, on all nodes; this requisite is checked before any
+actions are done.
+.PP
+If called with the \f[C]--resume\f[] option, any pending upgrade is
+continued, that was interrupted by a power failure or similar on master.
+It will do nothing, if not run on the master node, or if no upgrade was
+in progress.
 .SS VERIFY
 .PP
 \f[B]verify\f[] [--no-nplus1-mem] [--node-group \f[I]nodegroup\f[]]
@@ -1223,8 +1253,8 @@ Unknown intance running on a node
 .RS
 .RE
 .TP
-.B \f[C]ENODENET\f[]
-Network-related node error
+.B \f[C]ECLUSTERDANGLINGINST\f[]
+Some instances have a non-existing primary node
 .RS
 .RE
 .TP
@@ -1240,11 +1270,6 @@ Cluster configuration verification failure
 .TP
 .B \f[C]ENODEHOOKS\f[]
 Communication failure in hooks execution
-.RS
-.RE
-.TP
-.B \f[C]ENODEDRBD\f[]
-Error parsing the DRBD status file
 .RS
 .RE
 .TP
@@ -1283,8 +1308,13 @@ Instance has multiple secondary nodes
 .RS
 .RE
 .TP
-.B \f[C]ENODEFILESTORAGEPATHUNUSABLE\f[]
-File storage path unusable
+.B \f[C]ENODENET\f[]
+Network-related node error
+.RS
+.RE
+.TP
+.B \f[C]EINSTANCEUNSUITABLENODE\f[]
+Instance running on nodes that are not suitable for it
 .RS
 .RE
 .TP
@@ -1298,8 +1328,13 @@ User scripts not present or not executable
 .RS
 .RE
 .TP
-.B \f[C]ENODELVM\f[]
-LVM-related node error
+.B \f[C]ENODEDRBDVERSION\f[]
+DRBD version mismatch within a node group
+.RS
+.RE
+.TP
+.B \f[C]ENODEFILESTORAGEPATHUNUSABLE\f[]
+File storage path unusable
 .RS
 .RE
 .TP
@@ -1318,8 +1353,13 @@ Cluster certificate files verification failure
 .RS
 .RE
 .TP
-.B \f[C]ENODEHV\f[]
-Hypervisor parameters verification failure
+.B \f[C]ENODEDRBD\f[]
+Error parsing the DRBD status file
+.RS
+.RE
+.TP
+.B \f[C]EGROUPDIFFERENTPVSIZE\f[]
+PVs in the group have different sizes
 .RS
 .RE
 .TP
@@ -1358,6 +1398,16 @@ Cluster configuration verification failure
 .RS
 .RE
 .TP
+.B \f[C]EINSTANCEMISSINGCFGPARAMETER\f[]
+A configuration parameter for an instance is missing
+.RS
+.RE
+.TP
+.B \f[C]ENODELVM\f[]
+LVM-related node error
+.RS
+.RE
+.TP
 .B \f[C]ENODEORPHANLV\f[]
 Unknown LVM logical volume
 .RS
@@ -1368,8 +1418,8 @@ Error retrieving the checksum of the node files
 .RS
 .RE
 .TP
-.B \f[C]ECLUSTERDANGLINGINST\f[]
-Some instances have a non-existing primary node
+.B \f[C]ENODEHV\f[]
+Hypervisor parameters verification failure
 .RS
 .RE
 .SS VERIFY-DISKS

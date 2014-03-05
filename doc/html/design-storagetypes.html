@@ -8,7 +8,7 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Management of storage types and disk templates, incl. storage space reporting &mdash; Ganeti 2.9.5 documentation</title>
+    <title>Management of storage types and disk templates, incl. storage space reporting &mdash; Ganeti 2.10.1 documentation</title>
     
     <link rel="stylesheet" href="_static/style.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
@@ -16,7 +16,7 @@
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.9.5',
+        VERSION:     '2.10.1',
         COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -25,23 +25,21 @@
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti 2.9.5 documentation" href="index.html" />
-    <link rel="up" title="Design document drafts" href="design-draft.html" />
-    <link rel="next" title="Detection of user-initiated shutdown from inside an instance" href="design-internal-shutdown.html" />
-    <link rel="prev" title="Splitting the query and job execution paths" href="design-query-splitting.html" /> 
+    <link rel="top" title="Ganeti 2.10.1 documentation" href="index.html" />
+    <link rel="next" title="Automatized Upgrade Procedure for Ganeti" href="design-upgrade.html" />
+    <link rel="prev" title="Ganeti shared storage support" href="design-shared-storage.html" /> 
   </head>
   <body>
     <div class="related">
       <h3>Navigation</h3>
       <ul>
         <li class="right" style="margin-right: 10px">
-          <a href="design-internal-shutdown.html" title="Detection of user-initiated shutdown from inside an instance"
+          <a href="design-upgrade.html" title="Automatized Upgrade Procedure for Ganeti"
              accesskey="N">next</a></li>
         <li class="right" >
-          <a href="design-query-splitting.html" title="Splitting the query and job execution paths"
+          <a href="design-shared-storage.html" title="Ganeti shared storage support"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.9.5 documentation</a> &raquo;</li>
-          <li><a href="design-draft.html" accesskey="U">Design document drafts</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.10.1 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -112,8 +110,8 @@ template is not enabled by the cluster.</p>
 <p>The ipolicy also contains a list of enabled disk templates. Since the cluster-
 wide enabled disk templates should be a stronger constraint, the list of
 enabled disk templates in the ipolicy should be a subset of those. In case the
-user tries to create an inconsistent situation here, gnt-cluster should emit
-a warning.</p>
+user tries to create an inconsistent situation here, gnt-cluster should
+display this as an error.</p>
 <p>We consider the first disk template in the list to be the default template for
 instance creation and storage reporting. This will remove the need to specify
 the disk template with <tt class="docutils literal"><span class="pre">-t</span></tt> on instance creation. Note: It would be
@@ -128,6 +126,8 @@ consistently. <tt class="docutils literal"><span class="pre">lvm</span></tt> bas
 group name on cluster initialization and can only be disabled by explicitly
 using the option <tt class="docutils literal"><span class="pre">--no-lvm-storage</span></tt>. This will be replaced by adding/removing
 <tt class="docutils literal"><span class="pre">drbd</span></tt> and <tt class="docutils literal"><span class="pre">plain</span></tt> from the set of enabled disk templates.</p>
+<p>The option <tt class="docutils literal"><span class="pre">--no-drbd-storage</span></tt> is also subsumed by dis/enabling the
+disk template <tt class="docutils literal"><span class="pre">drbd</span></tt> on the cluster.</p>
 <p>Up till now, file storage and shared file storage could be dis/enabled at
 <tt class="docutils literal"><span class="pre">./configure</span></tt> time. This will also be replaced by adding/removing the
 respective disk templates from the set of enabled disk templates.</p>
@@ -144,7 +144,6 @@ based on the current configuration of the cluster. We propose the following
 update logic to be implemented in the online update of the config in
 the <tt class="docutils literal"><span class="pre">Cluster</span></tt> class in <tt class="docutils literal"><span class="pre">objects.py</span></tt>:
 - If a <tt class="docutils literal"><span class="pre">volume_group_name</span></tt> is existing, then enable <tt class="docutils literal"><span class="pre">drbd</span></tt> and <tt class="docutils literal"><span class="pre">plain</span></tt>.
-(TODO: can we narrow that down further?)
 - If <tt class="docutils literal"><span class="pre">file</span></tt> or <tt class="docutils literal"><span class="pre">sharedfile</span></tt> was enabled at configure time, add the
 respective disk template to the list of enabled disk templates.
 - For disk templates <tt class="docutils literal"><span class="pre">diskless</span></tt>, <tt class="docutils literal"><span class="pre">blockdev</span></tt>, <tt class="docutils literal"><span class="pre">ext</span></tt>, and <tt class="docutils literal"><span class="pre">rbd</span></tt>, we
@@ -187,17 +186,18 @@ type is currently only used to enable the user to mark it as (un)allocatable.
 (See <tt class="docutils literal"><span class="pre">man</span> <span class="pre">gnt-node</span></tt>.) It is not possible to create an instance on a storage
 unit that is of type <tt class="docutils literal"><span class="pre">lvm-pv</span></tt> directly, therefore it is not included in the
 mapping.</p>
-<p>The storage reporting for file storage will report space on the file storage
-dir, which is currently limited to one directory. In the future, if we&#8217;ll have
-support for more directories, or for per-nodegroup directories this can be
-changed.</p>
-<p>For now, we will implement only the storage reporting for non-shared storage,
-that is disk templates <tt class="docutils literal"><span class="pre">file</span></tt>, <tt class="docutils literal"><span class="pre">lvm</span></tt>, and <tt class="docutils literal"><span class="pre">drbd</span></tt>. For disk template
-<tt class="docutils literal"><span class="pre">diskless</span></tt>, there is obviously nothing to report about. When implementing
-storage reporting for file, we can also use it for <tt class="docutils literal"><span class="pre">sharedfile</span></tt>, since it
-uses the same file system mechanisms to determine the free space. In the
-future, we can optimize storage reporting for shared storage by not querying
-all nodes that use a common shared file for the same space information.</p>
+<p>The storage reporting for file and sharedfile storage will report space
+on the file storage dir, which is currently limited to one directory.
+In the future, if we&#8217;ll have support for more directories, or for per-nodegroup
+directories this can be changed.</p>
+<p>For now, we will implement only the storage reporting for lvm-based and
+file-based storage, that is disk templates <tt class="docutils literal"><span class="pre">file</span></tt>, <tt class="docutils literal"><span class="pre">sharedfile</span></tt>, <tt class="docutils literal"><span class="pre">lvm</span></tt>,
+and <tt class="docutils literal"><span class="pre">drbd</span></tt>. For disk template <tt class="docutils literal"><span class="pre">diskless</span></tt>, there is obviously nothing to
+report about. When implementing storage reporting for file, we can also use
+it for <tt class="docutils literal"><span class="pre">sharedfile</span></tt>, since it uses the same file system mechanisms to
+determine the free space. In the future, we can optimize storage reporting
+for shared storage by not querying all nodes that use a common shared file
+for the same space information.</p>
 <p>In the future, we extend storage reporting for shared storage types like
 <tt class="docutils literal"><span class="pre">rados</span></tt> and <tt class="docutils literal"><span class="pre">ext</span></tt>. Note that it will not make sense to query each node for
 storage reporting on a storage unit that is used by several nodes.</p>
@@ -258,6 +258,18 @@ available and of what type. Storage pools will have a storage pool type which is
 one of the disk templates. There can be more than one storage pool based on the
 same disk template, therefore we will then start referencing the storage pool
 name instead of the disk template.</p>
+<p>Note: As of version 2.10, <tt class="docutils literal"><span class="pre">gnt-node</span> <span class="pre">list</span></tt> only reports storage space
+information for the default disk template, as supporting more options
+turned out to be not feasible without storage pools.</p>
+<p>Besides in <tt class="docutils literal"><span class="pre">gnt-node</span> <span class="pre">list</span></tt>, storage space information is also
+displayed in <tt class="docutils literal"><span class="pre">gnt-node</span> <span class="pre">list-storage</span></tt>. This will also adapt to the
+extended storage reporting capabilities. The user can specify a storage
+type using <tt class="docutils literal"><span class="pre">--storage-type</span></tt>. If he requests storage information about
+a storage type which does not support space reporting, a warning is
+emitted. If no storage type is specified explicitely, <tt class="docutils literal"><span class="pre">gnt-node</span>
+<span class="pre">list-storage</span></tt> will try to report storage on the storage type of the
+default disk template. If the default disk template&#8217;s storage type does
+not support space reporting, an error message is emitted.</p>
 <p><tt class="docutils literal"><span class="pre">gnt-cluster</span> <span class="pre">info</span></tt> will report which disk templates are enabled, i.e.
 which ones are supported according to the cluster configuration. Example
 output:</p>
@@ -279,6 +291,12 @@ disk template to the iallocator, when asking for an allocation to be
 made. Note that for DRBD nowadays we ignore the case when vg and metavg
 are different, and we only consider the main volume group. Fixing this is
 outside the scope of this design.</p>
+<p>Although the iallocator protocol itself does not need change, the
+invocation of the iallocator needs quite some adaption. So far, it
+always requested LVM storage information no matter if that was the
+disk template to be considered for the allocation. For instance
+allocation, this is the disk template of the instance.
+TODO: consider other allocator requests.</p>
 <p>With this design, we ensure forward-compatibility with respect to storage
 pools. For now, we&#8217;ll report space for all available disk templates that
 are based on non-shared storage types, in the future, for all available
@@ -341,11 +359,11 @@ concerned with this design doc, as those are seen as a separate resource.</p>
 </ul>
 
   <h4>Previous topic</h4>
-  <p class="topless"><a href="design-query-splitting.html"
-                        title="previous chapter">Splitting the query and job execution paths</a></p>
+  <p class="topless"><a href="design-shared-storage.html"
+                        title="previous chapter">Ganeti shared storage support</a></p>
   <h4>Next topic</h4>
-  <p class="topless"><a href="design-internal-shutdown.html"
-                        title="next chapter">Detection of user-initiated shutdown from inside an instance</a></p>
+  <p class="topless"><a href="design-upgrade.html"
+                        title="next chapter">Automatized Upgrade Procedure for Ganeti</a></p>
   <h3>This Page</h3>
   <ul class="this-page-menu">
     <li><a href="_sources/design-storagetypes.txt"
@@ -372,13 +390,12 @@ concerned with this design doc, as those are seen as a separate resource.</p>
       <h3>Navigation</h3>
       <ul>
         <li class="right" style="margin-right: 10px">
-          <a href="design-internal-shutdown.html" title="Detection of user-initiated shutdown from inside an instance"
+          <a href="design-upgrade.html" title="Automatized Upgrade Procedure for Ganeti"
              >next</a></li>
         <li class="right" >
-          <a href="design-query-splitting.html" title="Splitting the query and job execution paths"
+          <a href="design-shared-storage.html" title="Ganeti shared storage support"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.9.5 documentation</a> &raquo;</li>
-          <li><a href="design-draft.html" >Design document drafts</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.10.1 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

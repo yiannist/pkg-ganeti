@@ -5,6 +5,218 @@ News
 ====
 
 
+Version 2.10.1
+--------------
+
+*(Released Wed, 5 Mar 2014)*
+
+- Fix incorrect invocation of hooks on offline nodes (issue 742)
+- Fix incorrect exit code of gnt-cluster verify in certain circumstances
+  (issue 744)
+
+Inherited from the 2.9 branch:
+
+- Fix overflow problem in hbal that caused it to break when waiting for
+  jobs for more than 10 minutes (issue 717)
+- Make hbal properly handle non-LVM storage
+- Properly export and import NIC parameters, and do so in a backwards
+  compatible way (issue 716)
+- Fix net-common script in case of routed mode (issue 728)
+- Improve documentation (issues 724, 730)
+
+
+Version 2.10.0
+--------------
+
+*(Released Thu, 20 Feb 2014)*
+
+Incompatible/important changes
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- Adding disks with 'gnt-instance modify' now waits for the disks to sync per
+  default. Specify --no-wait-for-sync to override this behavior.
+- The Ganeti python code now adheres to a private-module layout. In particular,
+  the module 'ganeti' is no longer in the python search path.
+- On instance allocation, the iallocator now considers non-LVM storage
+  properly. In particular, actual file storage space information is used
+  when allocating space for a file/sharedfile instance.
+- When disabling disk templates cluster-wide, the cluster now first
+  checks whether there are instances still using those templates.
+- 'gnt-node list-storage' now also reports storage information about
+  file-based storage types.
+- In case of non drbd instances, export \*_SECONDARY environment variables
+  as empty strings (and not "None") during 'instance-migrate' related hooks.
+
+New features
+~~~~~~~~~~~~
+
+- KVM hypervisors can now access RBD storage directly without having to
+  go through a block device.
+- A new command 'gnt-cluster upgrade' was added that automates the upgrade
+  procedure between two Ganeti versions that are both 2.10 or higher.
+- The move-instance command can now change disk templates when moving
+  instances, and does not require any node placement options to be
+  specified if the destination cluster has a default iallocator.
+- Users can now change the soundhw and cpuid settings for XEN hypervisors.
+- Hail and hbal now have the (optional) capability of accessing average CPU
+  load information through the monitoring deamon, and to use it to dynamically
+  adapt the allocation of instances.
+- Hotplug support. Introduce new option '--hotplug' to ``gnt-instance modify``
+  so that disk and NIC modifications take effect without the need of actual
+  reboot. There are a couple of constrains currently for this feature:
+
+   - only KVM hypervisor (versions >= 1.0) supports it,
+   - one can not (yet) hotplug a disk using userspace access mode for RBD
+   - in case of a downgrade instances should suffer a reboot in order to
+     be migratable (due to core change of runtime files)
+
+Misc changes
+~~~~~~~~~~~~
+
+- A new test framework for logical units was introduced and the test
+  coverage for logical units was improved significantly.
+- Opcodes are entirely generated from Haskell using the tool 'hs2py' and
+  the module 'src/Ganeti/OpCodes.hs'.
+- Constants are also generated from Haskell using the tool
+  'hs2py-constants' and the module 'src/Ganeti/Constants.hs', with the
+  exception of socket related constants, which require changing the
+  cluster configuration file, and HVS related constants, because they
+  are part of a port of instance queries to Haskell.  As a result, these
+  changes will be part of the next release of Ganeti.
+
+New dependencies
+~~~~~~~~~~~~~~~~
+
+The following new dependencies have been added/updated.
+
+Python
+
+- The version requirements for ``python-mock`` have increased to at least
+  version 1.0.1. It is still used for testing only.
+
+Since 2.10.0 rc3
+~~~~~~~~~~~~~~~~
+
+- Fix integer overflow problem in hbal
+
+
+Version 2.10.0 rc3
+------------------
+
+*(Released Wed, 12 Feb 2014)*
+
+This was the third RC release of the 2.10 series. Since 2.10.0 rc2:
+
+- Improved hotplug robustness
+- Start Ganeti daemons after ensure-dirs during upgrade
+- Documentation improvements
+
+Inherited from the 2.9 branch:
+
+- Fix the RAPI instances-multi-alloc call
+- assign unique filenames to file-based disks
+- gracefully handle degraded non-diskless instances with 0 disks (issue 697)
+- noded now runs with its specified group, which is the default group,
+  defaulting to root (issue 707)
+- make using UUIDs to identify nodes in gnt-node consistently possible
+  (issue 703)
+
+
+Version 2.10.0 rc2
+------------------
+
+*(Released Fri, 31 Jan 2014)*
+
+This was the second RC release of the 2.10 series. Since 2.10.0 rc1:
+
+- Documentation improvements
+- Run drbdsetup syncer only on network attach
+- Include target node in hooks nodes for migration
+- Fix configure dirs
+- Support post-upgrade hooks during cluster upgrades
+
+Inherited from the 2.9 branch:
+
+- Ensure that all the hypervisors exist in the config file (Issue 640)
+- Correctly recognise the role as master node (Issue 687)
+- configure: allow detection of Sphinx 1.2+ (Issue 502)
+- gnt-instance now honors the KVM path correctly (Issue 691)
+
+Inherited from the 2.8 branch:
+
+- Change the list separator for the usb_devices parameter from comma to space.
+  Commas could not work because they are already the hypervisor option
+  separator (Issue 649)
+- Add support for blktap2 file-driver (Issue 638)
+- Add network tag definitions to the haskell codebase (Issue 641)
+- Fix RAPI network tag handling
+- Add the network tags to the tags searched by gnt-cluster search-tags
+- Fix caching bug preventing jobs from being cancelled
+- Start-master/stop-master was always failing if ConfD was disabled. (Issue 685)
+
+
+Version 2.10.0 rc1
+------------------
+
+*(Released Tue, 17 Dec 2013)*
+
+This was the first RC release of the 2.10 series. Since 2.10.0 beta1:
+
+- All known issues in 2.10.0 beta1 have been resolved (see changes from
+  the 2.8 branch).
+- Improve handling of KVM runtime files from earlier Ganeti versions
+- Documentation fixes
+
+Inherited from the 2.9 branch:
+
+- use custom KVM path if set for version checking
+- SingleNotifyPipeCondition: don't share pollers
+
+Inherited from the 2.8 branch:
+
+- Fixed Luxi daemon socket permissions after master-failover
+- Improve IP version detection code directly checking for colons rather than
+  passing the family from the cluster object
+- Fix NODE/NODE_RES locking in LUInstanceCreate by not acquiring NODE_RES locks
+  opportunistically anymore (Issue 622)
+- Allow link local IPv6 gateways (Issue 624)
+- Fix error printing (Issue 616)
+- Fix a bug in InstanceSetParams concerning names: in case no name is passed in
+  disk modifications, keep the old one. If name=none then set disk name to
+  None.
+- Update build_chroot script to work with the latest hackage packages
+- Add a packet number limit to "fping" in master-ip-setup (Issue 630)
+- Fix evacuation out of drained node (Issue 615)
+- Add default file_driver if missing (Issue 571)
+- Fix job error message after unclean master shutdown (Issue 618)
+- Lock group(s) when creating instances (Issue 621)
+- SetDiskID() before accepting an instance (Issue 633)
+- Allow the ext template disks to receive arbitrary parameters, both at creation
+  time and while being modified
+- Xen handle domain shutdown (future proofing cherry-pick)
+- Refactor reading live data in htools (future proofing cherry-pick)
+
+
+Version 2.10.0 beta1
+--------------------
+
+*(Released Wed, 27 Nov 2013)*
+
+This was the first beta release of the 2.10 series. All important changes
+are listed in the latest 2.10 entry.
+
+Known issues
+~~~~~~~~~~~~
+
+The following issues are known to be present in the beta and will be fixed
+before rc1.
+
+- Issue 477: Wrong permissions for confd LUXI socket
+- Issue 621: Instance related opcodes do not aquire network/group locks
+- Issue 622: Assertion Error: Node locks differ from node resource locks
+- Issue 623: IPv6 Masterd <-> Luxid communication error
+
+
 Version 2.9.5
 -------------
 

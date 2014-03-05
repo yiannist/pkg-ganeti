@@ -95,6 +95,8 @@ __all__ = [
   "GLOBAL_FILEDIR_OPT",
   "HID_OS_OPT",
   "GLOBAL_SHARED_FILEDIR_OPT",
+  "HOTPLUG_OPT",
+  "HOTPLUG_IF_POSSIBLE_OPT",
   "HVLIST_OPT",
   "HVOPTS_OPT",
   "HYPERVISOR_OPT",
@@ -135,7 +137,6 @@ __all__ = [
   "NODEGROUP_OPT",
   "NODE_PARAMS_OPT",
   "NODE_POWERED_OPT",
-  "NODRBD_STORAGE_OPT",
   "NOHDR_OPT",
   "NOIPCHECK_OPT",
   "NO_INSTALL_OPT",
@@ -234,6 +235,7 @@ __all__ = [
   "ParseTimespec",
   "RunWhileClusterStopped",
   "SubmitOpCode",
+  "SubmitOpCodeToDrainedQueue",
   "SubmitOrSend",
   "UsesRPC",
   # Formatting functions
@@ -465,7 +467,7 @@ def _ExtractTagsObject(opts, args):
     raise errors.ProgrammerError("tag_type not passed to _ExtractTagsObject")
   kind = opts.tag_type
   if kind == constants.TAG_CLUSTER:
-    retval = kind, None
+    retval = kind, ""
   elif kind in (constants.TAG_NODEGROUP,
                 constants.TAG_NODE,
                 constants.TAG_NETWORK,
@@ -1468,10 +1470,6 @@ DRBD_HELPER_OPT = cli_option("--drbd-usermode-helper", dest="drbd_helper",
                              action="store", default=None,
                              help="Specifies usermode helper for DRBD")
 
-NODRBD_STORAGE_OPT = cli_option("--no-drbd-storage", dest="drbd_storage",
-                                action="store_false", default=True,
-                                help="Disable support for DRBD")
-
 PRIMARY_IP_VERSION_OPT = \
     cli_option("--primary-ip-version", default=constants.IP4_VERSION,
                action="store", dest="primary_ip_version",
@@ -1645,6 +1643,16 @@ NOCONFLICTSCHECK_OPT = cli_option("--no-conflicts-check",
 INCLUDEDEFAULTS_OPT = cli_option("--include-defaults", dest="include_defaults",
                                  default=False, action="store_true",
                                  help="Include default values")
+
+HOTPLUG_OPT = cli_option("--hotplug", dest="hotplug",
+                         action="store_true", default=False,
+                         help="Hotplug supported devices (NICs and Disks)")
+
+HOTPLUG_IF_POSSIBLE_OPT = cli_option("--hotplug-if-possible",
+                                     dest="hotplug_if_possible",
+                                     action="store_true", default=False,
+                                     help="Hotplug devices in case"
+                                          " hotplug is supported")
 
 #: Options provided by all commands
 COMMON_OPTS = [DEBUG_OPT, REASON_OPT]
@@ -2277,6 +2285,16 @@ def SubmitOpCode(op, cl=None, feedback_fn=None, opts=None, reporter=None):
   op_results = PollJob(job_id, cl=cl, feedback_fn=feedback_fn,
                        reporter=reporter)
 
+  return op_results[0]
+
+
+def SubmitOpCodeToDrainedQueue(op):
+  """Forcefully insert a job in the queue, even if it is drained.
+
+  """
+  cl = GetClient()
+  job_id = cl.SubmitJobToDrainedQueue([op])
+  op_results = PollJob(job_id, cl=cl)
   return op_results[0]
 
 

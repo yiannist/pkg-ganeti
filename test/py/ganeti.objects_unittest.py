@@ -174,6 +174,9 @@ class TestClusterObject(unittest.TestCase):
         constants.ND_OOB_PROGRAM: "/bin/group-oob",
         constants.ND_SPINDLE_COUNT: 10,
         constants.ND_EXCLUSIVE_STORAGE: True,
+        constants.ND_OVS: True,
+        constants.ND_OVS_LINK: "eth2",
+        constants.ND_OVS_NAME: "openvswitch",
         }
     fake_group = objects.NodeGroup(name="testgroup",
                                    ndparams=group_ndparams)
@@ -185,6 +188,9 @@ class TestClusterObject(unittest.TestCase):
         constants.ND_OOB_PROGRAM: "/bin/node-oob",
         constants.ND_SPINDLE_COUNT: 2,
         constants.ND_EXCLUSIVE_STORAGE: True,
+        constants.ND_OVS: True,
+        constants.ND_OVS_LINK: "eth2",
+        constants.ND_OVS_NAME: "openvswitch",
         }
     fake_node = objects.Node(name="test",
                              ndparams=node_ndparams,
@@ -199,6 +205,9 @@ class TestClusterObject(unittest.TestCase):
         constants.ND_OOB_PROGRAM: "/bin/node-oob",
         constants.ND_SPINDLE_COUNT: 5,
         constants.ND_EXCLUSIVE_STORAGE: True,
+        constants.ND_OVS: True,
+        constants.ND_OVS_LINK: "eth2",
+        constants.ND_OVS_NAME: "openvswitch",
         }
     fake_node = objects.Node(name="test",
                              ndparams=node_ndparams,
@@ -347,10 +356,10 @@ class TestInstance(unittest.TestCase):
 
   def testNodesDrbdDisks(self):
     inst = objects.Instance(name="fakeinstdrbd.example.com",
-      primary_node="node10.example.com",
+      primary_node="node20.example.com",
       disks=[
         objects.Disk(dev_type=constants.DT_DRBD8, size=786432,
-          logical_id=("node10.example.com", "node15.example.com",
+          logical_id=("node20.example.com", "node15.example.com",
                       12300, 0, 0, "secret"),
           children=[
             objects.Disk(dev_type=constants.DT_PLAIN, size=786432,

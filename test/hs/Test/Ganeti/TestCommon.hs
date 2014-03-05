@@ -50,12 +50,13 @@ module Test.Ganeti.TestCommon
   , SmallRatio(..)
   , genSetHelper
   , genSet
-  , genIp4AddrStr
-  , genIp4Addr
-  , genIp4NetWithNetmask
-  , genIp4Net
+  , genListSet
+  , genIPv4Address
+  , genIPv4Network
   , genIp6Addr
   , genIp6Net
+  , genOpCodesTagName
+  , genLuxiTagName
   , netmask2NumHosts
   , testSerialisation
   , resultProp
@@ -64,6 +65,7 @@ module Test.Ganeti.TestCommon
   , testParser
   , genPropParser
   , genNonNegative
+  , relativeError
   ) where
 
 import Control.Applicative
@@ -279,34 +281,36 @@ genSetHelper candidates size = do
            newelem <- elements candidates `suchThat` (`Set.notMember` set)
            return (Set.insert newelem set)) Set.empty [1..size']
 
--- | Generates a set of arbitrary elements.
+-- | Generates a 'Set' of arbitrary elements.
 genSet :: (Ord a, Bounded a, Enum a) => Maybe Int -> Gen (Set.Set a)
 genSet = genSetHelper [minBound..maxBound]
 
--- | Generate an arbitrary IPv4 address in textual form (non empty).
-genIp4Addr :: Gen NonEmptyString
-genIp4Addr = genIp4AddrStr >>= mkNonEmpty
+-- | Generates a 'Set' of arbitrary elements wrapped in a 'ListSet'
+genListSet :: (Ord a, Bounded a, Enum a) => Maybe Int
+              -> Gen (BasicTypes.ListSet a)
+genListSet is = BasicTypes.ListSet <$> genSet is
 
 -- | Generate an arbitrary IPv4 address in textual form.
-genIp4AddrStr :: Gen String
-genIp4AddrStr = do
+genIPv4 :: Gen String
+genIPv4 = do
   a <- choose (1::Int, 255)
   b <- choose (0::Int, 255)
   c <- choose (0::Int, 255)
   d <- choose (0::Int, 255)
-  return $ intercalate "." (map show [a, b, c, d])
+  return . intercalate "." $ map show [a, b, c, d]
 
--- | Generates an arbitrary IPv4 address with a given netmask in textual form.
-genIp4NetWithNetmask :: Int -> Gen NonEmptyString
-genIp4NetWithNetmask netmask = do
-  ip <- genIp4AddrStr
-  mkNonEmpty $ ip ++ "/" ++ show netmask
+genIPv4Address :: Gen IPv4Address
+genIPv4Address = mkIPv4Address =<< genIPv4
 
 -- | Generate an arbitrary IPv4 network in textual form.
-genIp4Net :: Gen NonEmptyString
-genIp4Net = do
+genIPv4AddrRange :: Gen String
+genIPv4AddrRange = do
+  ip <- genIPv4
   netmask <- choose (8::Int, 30)
-  genIp4NetWithNetmask netmask
+  return $ ip ++ "/" ++ show netmask
+
+genIPv4Network :: Gen IPv4Network
+genIPv4Network = mkIPv4Network =<< genIPv4AddrRange
 
 -- | Helper function to compute the number of hosts in a network
 -- given the netmask. (For IPv4 only.)
@@ -328,6 +332,18 @@ genIp6Net = do
   netmask <- choose (8::Int, 126)
   ip <- genIp6Addr
   return $ ip ++ "/" ++ show netmask
+
+-- | Generates a valid, arbitrary tag name with respect to the given
+-- 'TagKind' for opcodes.
+genOpCodesTagName :: TagKind -> Gen (Maybe String)
+genOpCodesTagName TagKindCluster = return Nothing
+genOpCodesTagName _ = Just <$> genFQDN
+
+-- | Generates a valid, arbitrary tag name with respect to the given
+-- 'TagKind' for Luxi.
+genLuxiTagName :: TagKind -> Gen String
+genLuxiTagName TagKindCluster = return ""
+genLuxiTagName _ = genFQDN
 
 -- * Helper functions
 
@@ -389,3 +405,19 @@ genPropParser parser s expected =
 genNonNegative :: Gen Int
 genNonNegative =
   fmap fromIntegral (arbitrary::Gen (Test.QuickCheck.NonNegative Int))
+
+-- | Computes the relative error of two 'Double' numbers.
+--
+-- This is the \"relative error\" algorithm in
+-- http:\/\/randomascii.wordpress.com\/2012\/02\/25\/
+-- comparing-floating-point-numbers-2012-edition (URL split due to too
+-- long line).
+relativeError :: Double -> Double -> Double
+relativeError d1 d2 =
+  let delta = abs $ d1 - d2
+      a1 = abs d1
+      a2 = abs d2
+      greatest = max a1 a2
+  in if delta == 0
+       then 0
+       else delta / greatest

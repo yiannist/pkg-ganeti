@@ -415,9 +415,9 @@ class NodeRequestHandler(http.server.HttpServerHandler):
     disk list must all be drbd devices.
 
     """
-    nodes_ip, disks, target_node_uuid = params
-    disks = [objects.Disk.FromDict(cf) for cf in disks]
-    return backend.DrbdDisconnectNet(target_node_uuid, nodes_ip, disks)
+    (disks,) = params
+    disks = [objects.Disk.FromDict(disk) for disk in disks]
+    return backend.DrbdDisconnectNet(disks)
 
   @staticmethod
   def perspective_drbd_attach_net(params):
@@ -427,10 +427,9 @@ class NodeRequestHandler(http.server.HttpServerHandler):
     disk list must all be drbd devices.
 
     """
-    nodes_ip, disks, instance_name, multimaster, target_node_uuid = params
-    disks = [objects.Disk.FromDict(cf) for cf in disks]
-    return backend.DrbdAttachNet(target_node_uuid, nodes_ip, disks,
-                                 instance_name, multimaster)
+    disks, instance_name, multimaster = params
+    disks = [objects.Disk.FromDict(disk) for disk in disks]
+    return backend.DrbdAttachNet(disks, instance_name, multimaster)
 
   @staticmethod
   def perspective_drbd_wait_sync(params):
@@ -440,9 +439,9 @@ class NodeRequestHandler(http.server.HttpServerHandler):
     disk list must all be drbd devices.
 
     """
-    nodes_ip, disks, target_node_uuid = params
-    disks = [objects.Disk.FromDict(cf) for cf in disks]
-    return backend.DrbdWaitSync(target_node_uuid, nodes_ip, disks)
+    (disks,) = params
+    disks = [objects.Disk.FromDict(disk) for disk in disks]
+    return backend.DrbdWaitSync(disks)
 
   @staticmethod
   def perspective_drbd_needs_activation(params):
@@ -452,12 +451,12 @@ class NodeRequestHandler(http.server.HttpServerHandler):
     disk list must all be drbd devices.
 
     """
-    nodes_ip, disks, target_node_uuid = params
-    disks = [objects.Disk.FromDict(cf) for cf in disks]
-    return backend.DrbdNeedsActivation(target_node_uuid, nodes_ip, disks)
+    (disks,) = params
+    disks = [objects.Disk.FromDict(disk) for disk in disks]
+    return backend.DrbdNeedsActivation(disks)
 
   @staticmethod
-  def perspective_drbd_helper(params):
+  def perspective_drbd_helper(_):
     """Query drbd helper.
 
     """
@@ -615,6 +614,29 @@ class NodeRequestHandler(http.server.HttpServerHandler):
     instance = objects.Instance.FromDict(instance_name)
     _extendReasonTrail(trail, "start")
     return backend.StartInstance(instance, startup_paused, trail)
+
+  @staticmethod
+  def perspective_hotplug_device(params):
+    """Hotplugs device to a running instance.
+
+    """
+    (idict, action, dev_type, ddict, extra, seq) = params
+    instance = objects.Instance.FromDict(idict)
+    if dev_type == constants.HOTPLUG_TARGET_DISK:
+      device = objects.Disk.FromDict(ddict)
+    elif dev_type == constants.HOTPLUG_TARGET_NIC:
+      device = objects.NIC.FromDict(ddict)
+    else:
+      assert dev_type in constants.HOTPLUG_ALL_TARGETS
+    return backend.HotplugDevice(instance, action, dev_type, device, extra, seq)
+
+  @staticmethod
+  def perspective_hotplug_supported(params):
+    """Checks if hotplug is supported.
+
+    """
+    instance = objects.Instance.FromDict(params[0])
+    return backend.HotplugSupported(instance)
 
   @staticmethod
   def perspective_migration_info(params):
@@ -825,11 +847,19 @@ class NodeRequestHandler(http.server.HttpServerHandler):
 
   @staticmethod
   def perspective_node_powercycle(params):
-    """Tries to powercycle the nod.
+    """Tries to powercycle the node.
 
     """
     (hypervisor_type, hvparams) = params
     return backend.PowercycleNode(hypervisor_type, hvparams)
+
+  @staticmethod
+  def perspective_node_configure_ovs(params):
+    """Sets up OpenvSwitch on the node.
+
+    """
+    (ovs_name, ovs_link) = params
+    return backend.ConfigureOVS(ovs_name, ovs_link)
 
   # cluster --------------------------
 

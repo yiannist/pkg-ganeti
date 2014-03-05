@@ -36,6 +36,7 @@ import Control.Concurrent
 import Control.Exception
 import Control.Monad (forever)
 import Data.Bits (bitSize)
+import qualified Data.Set as Set (toList)
 import Data.IORef
 import qualified Network.Socket as S
 import qualified Text.JSON as J
@@ -43,6 +44,7 @@ import Text.JSON (showJSON, JSValue(..))
 import System.Info (arch)
 
 import qualified Ganeti.Constants as C
+import qualified Ganeti.ConstantUtils as ConstantUtils (unFrozenSet)
 import Ganeti.Errors
 import qualified Ganeti.Path as Path
 import Ganeti.Daemon
@@ -52,11 +54,12 @@ import Ganeti.ConfigReader
 import Ganeti.BasicTypes
 import Ganeti.Logging
 import Ganeti.Luxi
-import Ganeti.OpCodes (TagObject(..))
 import qualified Ganeti.Query.Language as Qlang
 import qualified Ganeti.Query.Cluster as QCluster
 import Ganeti.Query.Query
 import Ganeti.Query.Filter (makeSimpleFilter)
+import Ganeti.Types
+import qualified Ganeti.Version as Version
 
 -- | Helper for classic queries.
 handleClassicQuery :: ConfigData      -- ^ Cluster config
@@ -97,9 +100,11 @@ handleCall cdata QueryClusterInfo =
       obj = [ ("software_version", showJSON C.releaseVersion)
             , ("protocol_version", showJSON C.protocolVersion)
             , ("config_version", showJSON C.configVersion)
-            , ("os_api_version", showJSON $ maximum C.osApiVersions)
+            , ("os_api_version", showJSON . maximum .
+                                 Set.toList . ConstantUtils.unFrozenSet $
+                                 C.osApiVersions)
             , ("export_version", showJSON C.exportVersion)
-            , ("vcs_version", showJSON C.vcsVersion)
+            , ("vcs_version", showJSON Version.version)
             , ("architecture", showJSON arch_tuple)
             , ("name", showJSON $ clusterClusterName cluster)
             , ("master", showJSON (case master of
@@ -151,14 +156,14 @@ handleCall cdata QueryClusterInfo =
     Ok _ -> return . Ok . J.makeObj $ obj
     Bad ex -> return $ Bad ex
 
-handleCall cfg (QueryTags kind) =
+handleCall cfg (QueryTags kind name) = do
   let tags = case kind of
-               TagCluster       -> Ok . clusterTags $ configCluster cfg
-               TagGroup    name -> groupTags <$> Config.getGroup    cfg name
-               TagNode     name -> nodeTags  <$> Config.getNode     cfg name
-               TagInstance name -> instTags  <$> Config.getInstance cfg name
-               TagNetwork  name -> networkTags  <$> Config.getNetwork cfg name
-  in return (J.showJSON <$> tags)
+               TagKindCluster  -> Ok . clusterTags $ configCluster cfg
+               TagKindGroup    -> groupTags   <$> Config.getGroup    cfg name
+               TagKindNode     -> nodeTags    <$> Config.getNode     cfg name
+               TagKindInstance -> instTags    <$> Config.getInstance cfg name
+               TagKindNetwork  -> networkTags <$> Config.getNetwork  cfg name
+  return (J.showJSON <$> tags)
 
 handleCall cfg (Query qkind qfields qfilter) = do
   result <- query cfg True (Qlang.Query qkind qfields qfilter)

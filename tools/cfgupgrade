@@ -44,6 +44,8 @@ from ganeti import config
 from ganeti import netutils
 from ganeti import pathutils
 
+from ganeti.utils import version
+
 
 options = None
 args = None
@@ -52,11 +54,11 @@ args = None
 #: Target major version we will upgrade to
 TARGET_MAJOR = 2
 #: Target minor version we will upgrade to
-TARGET_MINOR = 9
+TARGET_MINOR = 10
 #: Target major version for downgrade
 DOWNGRADE_MAJOR = 2
 #: Target minor version for downgrade
-DOWNGRADE_MINOR = 8
+DOWNGRADE_MINOR = 9
 
 # map of legacy device types
 # (mapping differing old LD_* constants to new DT_* constants)
@@ -179,6 +181,14 @@ def GetExclusiveStorageValue(config_data):
   return ret
 
 
+def RemovePhysicalId(disk):
+  if "children" in disk:
+    for d in disk["children"]:
+      RemovePhysicalId(d)
+  if "physical_id" in disk:
+    del disk["physical_id"]
+
+
 def ChangeDiskDevType(disk, dev_type_map):
   """Replaces disk's dev_type attributes according to the given map.
 
@@ -219,6 +229,8 @@ def UpgradeInstances(config_data):
       raise Error("Instance '%s' doesn't have a disks entry?!" % instance)
     disks = iobj["disks"]
     for idx, dobj in enumerate(disks):
+      RemovePhysicalId(dobj)
+
       expected = "disk/%s" % idx
       current = dobj.get("iv_name", "")
       if current != expected:
@@ -370,8 +382,7 @@ def UpgradeInstanceIndices(config_data):
 
 
 def UpgradeAll(config_data):
-  config_data["version"] = constants.BuildVersion(TARGET_MAJOR,
-                                                  TARGET_MINOR, 0)
+  config_data["version"] = version.BuildVersion(TARGET_MAJOR, TARGET_MINOR, 0)
   UpgradeRapiUsers()
   UpgradeWatcher()
   UpgradeFileStoragePaths(config_data)
@@ -383,66 +394,64 @@ def UpgradeAll(config_data):
   UpgradeInstanceIndices(config_data)
 
 
-def DowngradeDiskDevType(disk):
-  """Downgrades the disks' device type."""
-  ChangeDiskDevType(disk, DEV_TYPE_NEW_OLD)
+def DowngradeNDParams(ndparams):
+  for param in ["ovs", "ovs_link", "ovs_name"]:
+    if param in ndparams:
+      del ndparams[param]
 
 
-def DowngradeDisks(disks, owner):
-  for disk in disks:
-    # Remove spindles to downgrade to 2.8
-    if "spindles" in disk:
-      logging.warning("Removing spindles (value=%s) from disk %s (%s) of"
-                      " instance %s",
-                      disk["spindles"], disk["iv_name"], disk["uuid"], owner)
-      del disk["spindles"]
-    if "dev_type" in disk:
-      DowngradeDiskDevType(disk)
+def DowngradeNicParams(nicparams):
+  if "vlan" in nicparams:
+    del nicparams["vlan"]
+
+
+def DowngradeHVParams(hvparams):
+  for hv in ["xen-pvm", "xen-hvm"]:
+    if hv not in hvparams:
+      continue
+    for param in ["cpuid", "soundhw"]:
+      if param in hvparams[hv]:
+        del hvparams[hv][param]
+
+
+def DowngradeCluster(config_data):
+  cluster = config_data["cluster"]
+  if "ndparams" in cluster:
+    DowngradeNDParams(cluster["ndparams"])
+  if "nicparams" in cluster:
+    DowngradeNicParams(cluster["nicparams"][constants.PP_DEFAULT])
+  if "hvparams" in cluster:
+    DowngradeHVParams(cluster["hvparams"])
+
+
+def DowngradeNodeGroups(config_data):
+  for (_, ngobj) in config_data["nodegroups"].items():
+    if "ndparams" in ngobj:
+      DowngradeNDParams(ngobj["ndparams"])
+
+
+def DowngradeNodes(config_data):
+  for (_, nobj) in config_data["nodes"].items():
+    if "ndparams" in nobj:
+      DowngradeNDParams(nobj["ndparams"])
 
 
 def DowngradeInstances(config_data):
-  if "instances" not in config_data:
-    raise Error("Cannot find the 'instances' key in the configuration!")
-  for (iname, iobj) in config_data["instances"].items():
-    if "disks" not in iobj:
-      raise Error("Cannot find 'disks' key for instance %s" % iname)
-    DowngradeDisks(iobj["disks"], iname)
-
-
-def DowngradeNodeIndices(config_data):
-  ChangeNodeIndices(config_data, "uuid", "name")
-
-
-def DowngradeInstanceIndices(config_data):
-  ChangeInstanceIndices(config_data, "uuid", "name")
-
-
-def DowngradeHvparams(config_data):
-  """Downgrade the cluster's hypervisor parameters."""
-  cluster = config_data["cluster"]
-  if "hvparams" in cluster:
-    hvparams = cluster["hvparams"]
-    xen_params = None
-    for xen_variant in [constants.HT_XEN_PVM, constants.HT_XEN_HVM]:
-      if xen_variant in hvparams:
-        xen_params = hvparams[xen_variant]
-        # 'xen_cmd' was introduced in 2.9
-        if constants.HV_XEN_CMD in xen_params:
-          del xen_params[constants.HV_XEN_CMD]
-        # 'vif_script' was introducted in 2.9
-        if constants.HV_VIF_SCRIPT in xen_params:
-          del xen_params[constants.HV_VIF_SCRIPT]
+  for (_, iobj) in config_data["instances"].items():
+    DowngradeHVParams(iobj["hvparams"])
+    for nic in iobj["nics"]:
+      DowngradeNicParams(nic["nicparams"])
 
 
 def DowngradeAll(config_data):
   # Any code specific to a particular version should be labeled that way, so
   # it can be removed when updating to the next version.
-  config_data["version"] = constants.BuildVersion(DOWNGRADE_MAJOR,
-                                                  DOWNGRADE_MINOR, 0)
+  config_data["version"] = version.BuildVersion(DOWNGRADE_MAJOR,
+                                                DOWNGRADE_MINOR, 0)
+  DowngradeCluster(config_data)
+  DowngradeNodeGroups(config_data)
+  DowngradeNodes(config_data)
   DowngradeInstances(config_data)
-  DowngradeNodeIndices(config_data)
-  DowngradeInstanceIndices(config_data)
-  DowngradeHvparams(config_data)
 
 
 def main():
@@ -543,7 +552,7 @@ def main():
     raise Error("Unable to determine configuration version")
 
   (config_major, config_minor, config_revision) = \
-    constants.SplitVersion(config_version)
+    version.SplitVersion(config_version)
 
   logging.info("Found configuration version %s (%d.%d.%d)",
                config_version, config_major, config_minor, config_revision)
@@ -563,7 +572,7 @@ def main():
                    config_minor, config_revision))
     DowngradeAll(config_data)
 
-  # Upgrade from 2.{0..7} to 2.9
+  # Upgrade from 2.{0..9} to 2.10
   elif config_major == 2 and config_minor in range(0, 10):
     if config_revision != 0:
       logging.warning("Config revision is %s, not 0", config_revision)

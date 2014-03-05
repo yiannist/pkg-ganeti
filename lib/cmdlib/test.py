@@ -74,7 +74,7 @@ class LUTestDelay(NoHooksLU):
 
     """
     if self.op.on_master:
-      if not utils.TestDelay(self.op.duration):
+      if not utils.TestDelay(self.op.duration)[0]:
         raise errors.OpExecError("Error during master delay test")
     if self.op.on_node_uuids:
       result = self.rpc.call_test_delay(self.op.on_node_uuids, self.op.duration)
@@ -245,21 +245,10 @@ class LUTestAllocator(NoHooksLU):
     """
     if self.op.mode in (constants.IALLOCATOR_MODE_ALLOC,
                         constants.IALLOCATOR_MODE_MULTI_ALLOC):
-      for attr in ["memory", "disks", "disk_template",
-                   "os", "tags", "nics", "vcpus"]:
-        if not hasattr(self.op, attr):
-          raise errors.OpPrereqError("Missing attribute '%s' on opcode input" %
-                                     attr, errors.ECODE_INVAL)
       (self.inst_uuid, iname) = self.cfg.ExpandInstanceName(self.op.name)
       if iname is not None:
         raise errors.OpPrereqError("Instance '%s' already in the cluster" %
                                    iname, errors.ECODE_EXISTS)
-      if not isinstance(self.op.nics, list):
-        raise errors.OpPrereqError("Invalid parameter 'nics'",
-                                   errors.ECODE_INVAL)
-      if not isinstance(self.op.disks, list):
-        raise errors.OpPrereqError("Invalid parameter 'disks'",
-                                   errors.ECODE_INVAL)
       for row in self.op.disks:
         if (not isinstance(row, dict) or
             constants.IDISK_SIZE not in row or
@@ -271,10 +260,10 @@ class LUTestAllocator(NoHooksLU):
       if self.op.hypervisor is None:
         self.op.hypervisor = self.cfg.GetHypervisorType()
     elif self.op.mode == constants.IALLOCATOR_MODE_RELOC:
-      (fuuid, fname) = ExpandInstanceUuidAndName(self.cfg, None, self.op.name)
-      self.op.name = fname
+      (self.inst_uuid, self.op.name) = ExpandInstanceUuidAndName(self.cfg, None,
+                                                                 self.op.name)
       self.relocate_from_node_uuids = \
-          list(self.cfg.GetInstanceInfo(fuuid).secondary_nodes)
+          list(self.cfg.GetInstanceInfo(self.inst_uuid).secondary_nodes)
     elif self.op.mode in (constants.IALLOCATOR_MODE_CHG_GROUP,
                           constants.IALLOCATOR_MODE_NODE_EVAC):
       if not self.op.instances:
@@ -288,9 +277,6 @@ class LUTestAllocator(NoHooksLU):
       if self.op.iallocator is None:
         raise errors.OpPrereqError("Missing allocator name",
                                    errors.ECODE_INVAL)
-    elif self.op.direction != constants.IALLOCATOR_DIR_IN:
-      raise errors.OpPrereqError("Wrong allocator test '%s'" %
-                                 self.op.direction, errors.ECODE_INVAL)
 
   def Exec(self, feedback_fn):
     """Run the allocator test.
@@ -329,7 +315,8 @@ class LUTestAllocator(NoHooksLU):
                                              nics=self.op.nics,
                                              vcpus=self.op.vcpus,
                                              spindle_use=self.op.spindle_use,
-                                             hypervisor=self.op.hypervisor)
+                                             hypervisor=self.op.hypervisor,
+                                             node_whitelist=None)
                for idx in range(self.op.count)]
       req = iallocator.IAReqMultiInstanceAlloc(instances=insts)
     else:

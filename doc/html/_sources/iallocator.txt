@@ -1,7 +1,7 @@
 Ganeti automatic instance allocation
 ====================================
 
-Documents Ganeti version 2.9
+Documents Ganeti version 2.10
 
 .. contents::
 
@@ -324,6 +324,16 @@ As for ``node-evacuate``, it needs the following request arguments:
 
   instances
     a list of request dicts
+
+MonD data
++++++++++
+
+Additional information is available from mond. Mond's data collectors
+provide information that can help an allocator script make better
+decisions when allocating a new instance. Mond's information may also be
+accessible from a mock file mainly for testing purposes. The file will
+be in JSON format and will present an array of :ref:`report objects
+<monitoring-agent-format-of-the-report>`.
 
 Response message
 ~~~~~~~~~~~~~~~~

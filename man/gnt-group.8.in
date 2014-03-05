@@ -275,6 +275,21 @@ The "oob_program" node parameter
 .RS
 .RE
 .TP
+.B \f[C]ndp/ovs\f[]
+The "ovs" node parameter
+.RS
+.RE
+.TP
+.B \f[C]ndp/ovs_link\f[]
+The "ovs_link" node parameter
+.RS
+.RE
+.TP
+.B \f[C]ndp/ovs_name\f[]
+The "ovs_name" node parameter
+.RS
+.RE
+.TP
 .B \f[C]ndp/spindle_count\f[]
 The "spindle_count" node parameter
 .RS

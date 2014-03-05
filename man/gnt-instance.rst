@@ -136,6 +136,9 @@ ip
     connected to the said network. ``--no-conflicts-check`` can be used
     to override this check. The special value **pool** causes Ganeti to
     select an IP from the the network the NIC is or will be connected to.
+    One can pick an externally reserved IP of a network along with
+    ``--no-conflict-check``. Note that this IP cannot be assigned to
+    any other instance until it gets released.
 
 mode
     specifies the connection mode for this NIC: routed, bridged or
@@ -161,6 +164,11 @@ name
    this option specifies a name for the NIC, which can be used as a NIC
    identifier. An instance can not have two NICs with the same name.
 
+vlan
+   in openvswitch mode specifies the VLANs that the NIC will be
+   connected to. To connect as an access port use ``n`` or ``.n`` with
+   **n** being the VLAN ID. To connect as an trunk port use ``:n[:n]``.
+   A hybrid port can be created with ``.n:n[:n]``
 
 Of these "mode" and "link" are NIC parameters, and inherit their
 default at cluster level.  Alternatively, if no network is desired for
@@ -728,10 +736,23 @@ cpu\_sockets
     Number of emulated CPU sockets.
 
 soundhw
-    Valid for the KVM hypervisor.
+    Valid for the KVM and XEN hypervisors.
 
     Comma separated list of emulated sounds cards, or "all" to enable
     all the available ones.
+
+cpuid
+    Valid for the XEN hypervisor.
+
+    Modify the values returned by CPUID_ instructions run within instances.
+
+    This allows you to enable migration between nodes with different CPU
+    attributes like cores, threads, hyperthreading or SS4 support by hiding
+    the extra features where needed.
+
+    See the XEN documentation for syntax and more information.
+
+.. _CPUID: http://en.wikipedia.org/wiki/CPUID
 
 usb\_devices
     Valid for the KVM hypervisor.
@@ -990,6 +1011,14 @@ follows::
     # gnt-instance batch-create instances.json
     Submitted jobs 37, 38
 
+
+Note: If the allocator is used for computing suitable nodes for the
+instances, it will only take into account disk information for the
+default disk template. That means, even if other disk templates are
+specified for the instances, storage space information of these disk
+templates will not be considered in the allocation computation.
+
+
 REMOVE
 ^^^^^^
 
@@ -1126,6 +1155,8 @@ MODIFY
 | [\--offline \| \--online]
 | [\--submit] [\--print-job-id]
 | [\--ignore-ipolicy]
+| [\--hotplug]
+| [\--hotplug-if-possible]
 | {*instance*}
 
 Modifies the memory size, number of vcpus, ip address, MAC address
@@ -1155,14 +1186,16 @@ The ``--disk add:size=*SIZE*,[options..]`` option adds a disk to the
 instance, and ``--disk *N*:add:size=*SIZE*,[options..]`` will add a disk
 to the the instance at a specific index. The available options are the
 same as in the **add** command(``spindles``, ``mode``, ``name``, ``vg``,
-``metavg``). When adding an ExtStorage disk the ``provider=*PROVIDER*``
-option is also mandatory and specifies the ExtStorage provider. Also,
-for ExtStorage disks arbitrary parameters can be passed as additional
-comma separated options, same as in the **add** command. -The ``--disk
-remove`` option will remove the last disk of the instance. Use ``--disk
-`` *ID*``:remove`` to remove a disk by its identifier. *ID* can be the
-index of the disk, the disks's name or the disks's UUID. The ``--disk
-*ID*:modify[,options...]`` will change the options of the disk.
+``metavg``). Per default, gnt-instance waits for the disk mirror to sync.
+If you do not want this behavior, use the ``--no-wait-for-sync`` option.
+When adding an ExtStorage disk, the ``provider=*PROVIDER*`` option is
+also mandatory and specifies the ExtStorage provider. Also, for
+ExtStorage disks arbitrary parameters can be passed as additional comma
+separated options, same as in the **add** command. The ``--disk remove``
+option will remove the last disk of the instance. Use
+``--disk `` *ID*``:remove`` to remove a disk by its identifier. *ID*
+can be the index of the disk, the disks's name or the disks's UUID. The
+``--disk *ID*:modify[,options...]`` will change the options of the disk.
 Available options are:
 
 mode
@@ -1200,6 +1233,21 @@ immediately.
 
 If ``--ignore-ipolicy`` is given any instance policy violations occuring
 during this operation are ignored.
+
+If ``--hotplug`` is given any disk and NIC modifications will take
+effect without the need of actual reboot. Please note that this feature
+is currently supported only for KVM hypervisor and there are some
+restrictions: a) KVM versions >= 1.0 support it b) instances with chroot
+or uid pool security model do not support disk hotplug c) RBD disks with
+userspace access mode can not be hotplugged (yet) d) if hotplug fails
+(for any reason) a warning is printed but execution is continued e)
+for existing NIC modification interactive verification is needed unless
+``--force`` option is passed.
+
+If ``--hotplug-if-possible`` is given then ganeti won't abort in case
+hotplug is not supported. It will continue execution and modification
+will take place after reboot. This covers use cases where instances are
+not running or hypervisor is not KVM.
 
 See **ganeti**\(7) for a description of ``--submit`` and other common
 options.
@@ -1906,7 +1954,9 @@ CHANGE-GROUP
 
 This command moves an instance to another node group. The move is
 calculated by an iallocator, either given on the command line or as a
-cluster default.
+cluster default. Note that the iallocator does only consider disk
+information of the default disk template, even if the instances'
+disk templates differ from that.
 
 If no specific destination groups are specified using ``--to``, all
 groups except the one containing the instance are considered.

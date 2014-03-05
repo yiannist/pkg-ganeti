@@ -17,6 +17,7 @@ Most dependencies from :doc:`install-quick`, including ``qemu-img``
 - `python-sphinx <http://sphinx.pocoo.org/>`_
   (tested with version 1.1.3)
 - `python-mock <http://www.voidspace.org.uk/python/mock/>`_
+  (tested with version 1.0.1)
 - `graphviz <http://www.graphviz.org/>`_
 - the `en_US.UTF-8` locale must be enabled on the system
 - `pylint <http://www.logilab.org/857>`_ and its associated
@@ -47,14 +48,14 @@ To generate unittest coverage reports (``make coverage``), `coverage
 Installation of all dependencies listed here::
 
      $ apt-get install python-setuptools automake git fakeroot
-     $ apt-get install pandoc python-epydoc graphviz
-     $ apt-get install python-yaml python-mock
-     $ cd / && sudo easy_install \
-               sphinx \
+     $ apt-get install pandoc python-epydoc graphviz python-sphinx
+     $ apt-get install python-yaml
+     $ cd / && easy_install \
                logilab-astng==0.24.1 \
                logilab-common==0.58.3 \
                pylint==0.26.0 \
                pep8==1.3.3 \
+               mock==1.0.1 \
                coverage
 
 For Haskell development, again all things from the quick install
@@ -89,7 +90,7 @@ required ones from the quick install document) via::
         libghc-test-framework-dev \
         libghc-test-framework-quickcheck2-dev \
         libghc-test-framework-hunit-dev \
-        libghc-temporary-dev \
+        libghc-temporary-dev shelltestrunner \
         hscolour hlint
 
 Or alternatively via ``cabal``::
@@ -114,6 +115,11 @@ installed is problematic, as ``PYTHONPATH`` behaviour can be confusing
 the installed and developed versions are very similar, and/or if
 PYTHONPATH is customised correctly). As such, in general it's
 recommended to use a "clean" machine for ganeti development.
+
+Style guide
+-----------
+
+Please adhere to the :doc:`dev-codestyle` while writing code for Ganeti.
 
 Haskell development notes
 -------------------------
@@ -211,6 +217,10 @@ For combined Haskell shelltests::
 for example::
 
   $ make hs-shell-{balancing,basic}
+
+Checking for the correct style of the NEWS file is also possible, by running::
+
+  $ make check-news
 
 Packaging notes
 ===============

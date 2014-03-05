@@ -36,6 +36,7 @@
 <p>hail is a Ganeti IAllocator plugin that implements the instance placement and movement using the same algorithm as <strong>hbal</strong>(1).</p>
 <p>The program takes input via a JSON-file containing current cluster state and the request details, and output (on stdout) a JSON-formatted response. In case of critical failures, the error message is printed on stderr and the exit code is changed to show failure.</p>
 <p>If the input file name is <code>-</code> (a single minus sign), then the request data will be read from <em>stdin</em>.</p>
+<p>Apart from input data, hail collects data over the network from all MonDs with the --mond option. Currently it uses only data produced by the CPUload collector.</p>
 <h2 id="algorithm"><a href="#TOC">ALGORITHM</a></h2>
 <p>The program uses a simplified version of the hbal algorithm.</p>
 <p>For single-node allocations (non-mirrored instances), again we select the node which, when chosen as the primary node, gives the best score.</p>
@@ -53,6 +54,15 @@
 </dd>
 <dt>-t <em>datafile</em>, --text-data=<em>datafile</em></dt>
 <dd><p>The name of the file holding cluster information, to override the data in the JSON request itself. This is mostly used for debugging. The format of the file is described in the man page <strong>htools</strong>(1).</p>
+</dd>
+<dt>--mond</dt>
+<dd><p>If given the program will query all MonDs to fetch data from the supported data collectors over the network.</p>
+</dd>
+<dt>--mond-data <em>datafile</em></dt>
+<dd><p>The name of the file holding the data provided by MonD, to override quering MonDs over the network. This is mostly used for debugging. The file must be in JSON format and present an array of JSON objects , one for every node, with two members. The first member named <code>node</code> is the name of the node and the second member named <code>reports</code> is an array of report objects. The report objects must be in the same format as produced by the monitoring agent.</p>
+</dd>
+<dt>--ignore-dynu</dt>
+<dd><p>If given, all dynamic utilisation information will be ignored by assuming it to be 0. This option will take precedence over any data passed by the MonDs with the <code>--mond</code> and the <code>--mond-data</code> option.</p>
 </dd>
 <dt>--simulate <em>description</em></dt>
 <dd><p>Backend specification: similar to the <strong>-t</strong> option, this allows overriding the cluster data with a simulated cluster. For details about the description, see the man page <strong>htools</strong>(1).</p>

@@ -205,6 +205,10 @@ this NIC is meant to be connected to the said network.
 \f[C]--no-conflicts-check\f[] can be used to override this check.
 The special value \f[B]pool\f[] causes Ganeti to select an IP from the
 the network the NIC is or will be connected to.
+One can pick an externally reserved IP of a network along with
+\f[C]--no-conflict-check\f[].
+Note that this IP cannot be assigned to any other instance until it gets
+released.
 .RS
 .RE
 .TP
@@ -237,6 +241,16 @@ same network in different ways.
 this option specifies a name for the NIC, which can be used as a NIC
 identifier.
 An instance can not have two NICs with the same name.
+.RS
+.RE
+.TP
+.B vlan
+in openvswitch mode specifies the VLANs that the NIC will be connected
+to.
+To connect as an access port use \f[C]n\f[] or \f[C]\&.n\f[] with
+\f[B]n\f[] being the VLAN ID.
+To connect as an trunk port use \f[C]:n[:n]\f[].
+A hybrid port can be created with \f[C]\&.n:n[:n]\f[]
 .RS
 .RE
 .PP
@@ -997,11 +1011,25 @@ Number of emulated CPU sockets.
 .RE
 .TP
 .B soundhw
-Valid for the KVM hypervisor.
+Valid for the KVM and XEN hypervisors.
 .RS
 .PP
 Comma separated list of emulated sounds cards, or "all" to enable all
 the available ones.
+.RE
+.TP
+.B cpuid
+Valid for the XEN hypervisor.
+.RS
+.PP
+Modify the values returned by CPUID (http://en.wikipedia.org/wiki/CPUID)
+instructions run within instances.
+.PP
+This allows you to enable migration between nodes with different CPU
+attributes like cores, threads, hyperthreading or SS4 support by hiding
+the extra features where needed.
+.PP
+See the XEN documentation for syntax and more information.
 .RE
 .TP
 .B usb_devices
@@ -1356,6 +1384,13 @@ follows:
 Submitted\ jobs\ 37,\ 38
 \f[]
 .fi
+.PP
+Note: If the allocator is used for computing suitable nodes for the
+instances, it will only take into account disk information for the
+default disk template.
+That means, even if other disk templates are specified for the
+instances, storage space information of these disk templates will not be
+considered in the allocation computation.
 .SS REMOVE
 .PP
 \f[B]remove\f[] [--ignore-failures] [--shutdown-timeout=\f[I]N\f[]]
@@ -1949,6 +1984,11 @@ The "cpu_type" hypervisor parameter
 .TP
 .B \f[C]hv/cpu_weight\f[]
 The "cpu_weight" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[C]hv/cpuid\f[]
+The "cpuid" hypervisor parameter
 .RS
 .RE
 .TP
@@ -2658,6 +2698,51 @@ List containing each network interface\[aq]s UUID
 .RS
 .RE
 .TP
+.B \f[C]nic.vlan/0\f[]
+VLAN of 1st network interface
+.RS
+.RE
+.TP
+.B \f[C]nic.vlan/1\f[]
+VLAN of 2nd network interface
+.RS
+.RE
+.TP
+.B \f[C]nic.vlan/2\f[]
+VLAN of 3rd network interface
+.RS
+.RE
+.TP
+.B \f[C]nic.vlan/3\f[]
+VLAN of 4th network interface
+.RS
+.RE
+.TP
+.B \f[C]nic.vlan/4\f[]
+VLAN of 5th network interface
+.RS
+.RE
+.TP
+.B \f[C]nic.vlan/5\f[]
+VLAN of 6th network interface
+.RS
+.RE
+.TP
+.B \f[C]nic.vlan/6\f[]
+VLAN of 7th network interface
+.RS
+.RE
+.TP
+.B \f[C]nic.vlan/7\f[]
+VLAN of 8th network interface
+.RS
+.RE
+.TP
+.B \f[C]nic.vlans\f[]
+List containing each network interface\[aq]s VLAN
+.RS
+.RE
+.TP
 .B \f[C]nic_link\f[]
 Link of 1st network interface
 .RS
@@ -2903,6 +2988,14 @@ virtualization technologies.
 .PD 0
 .P
 .PD
+[--hotplug]
+.PD 0
+.P
+.PD
+[--hotplug-if-possible]
+.PD 0
+.P
+.PD
 {\f[I]instance\f[]}
 .PP
 Modifies the memory size, number of vcpus, ip address, MAC address
@@ -2939,11 +3032,14 @@ add a disk to the the instance at a specific index.
 The available options are the same as in the \f[B]add\f[]
 command(\f[C]spindles\f[], \f[C]mode\f[], \f[C]name\f[], \f[C]vg\f[],
 \f[C]metavg\f[]).
-When adding an ExtStorage disk the \f[C]provider=*PROVIDER*\f[] option
+Per default, gnt-instance waits for the disk mirror to sync.
+If you do not want this behavior, use the \f[C]--no-wait-for-sync\f[]
+option.
+When adding an ExtStorage disk, the \f[C]provider=*PROVIDER*\f[] option
 is also mandatory and specifies the ExtStorage provider.
 Also, for ExtStorage disks arbitrary parameters can be passed as
 additional comma separated options, same as in the \f[B]add\f[] command.
--The \f[C]--disk\ remove\f[] option will remove the last disk of the
+The \f[C]--disk\ remove\f[] option will remove the last disk of the
 instance.
 Use \f[C]--disk\f[] \f[I]ID\f[]\f[C]:remove\f[] to remove a disk by its
 identifier.
@@ -3000,6 +3096,24 @@ These modifications take effect immediately.
 .PP
 If \f[C]--ignore-ipolicy\f[] is given any instance policy violations
 occuring during this operation are ignored.
+.PP
+If \f[C]--hotplug\f[] is given any disk and NIC modifications will take
+effect without the need of actual reboot.
+Please note that this feature is currently supported only for KVM
+hypervisor and there are some restrictions: a) KVM versions >= 1.0
+support it b) instances with chroot or uid pool security model do not
+support disk hotplug c) RBD disks with userspace access mode can not be
+hotplugged (yet) d) if hotplug fails (for any reason) a warning is
+printed but execution is continued e) for existing NIC modification
+interactive verification is needed unless \f[C]--force\f[] option is
+passed.
+.PP
+If \f[C]--hotplug-if-possible\f[] is given then ganeti won\[aq]t abort
+in case hotplug is not supported.
+It will continue execution and modification will take place after
+reboot.
+This covers use cases where instances are not running or hypervisor is
+not KVM.
 .PP
 See \f[B]ganeti\f[](7) for a description of \f[C]--submit\f[] and other
 common options.
@@ -3929,6 +4043,9 @@ Example:
 This command moves an instance to another node group.
 The move is calculated by an iallocator, either given on the command
 line or as a cluster default.
+Note that the iallocator does only consider disk information of the
+default disk template, even if the instances\[aq] disk templates differ
+from that.
 .PP
 If no specific destination groups are specified using \f[C]--to\f[], all
 groups except the one containing the instance are considered.
