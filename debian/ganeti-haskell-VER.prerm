@@ -12,6 +12,8 @@ target=$(readlink /etc/ganeti/lib || true)
 if [ "$target" = "/usr/lib/ganeti/VER" ]; then
        db_version 2.0
        db_fset ganeti-haskell-VER/abort-removal seen false
+       db_subst ganeti-haskell-VER/abort-removal version VER
+       db_subst ganeti-haskell-VER/abort-removal package ganeti-haskell-VER
        db_input critical ganeti-haskell-VER/abort-removal
        db_go
        db_get ganeti-haskell-VER/abort-removal
