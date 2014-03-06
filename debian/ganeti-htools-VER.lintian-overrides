@@ -1,1 +1,5 @@
 ganeti-htools-VER: hardening-no-fortify-functions usr/lib/ganeti/VER/usr/bin/htools
+
+# We only use debconf during prerm to interactively abort installation of
+# packages that are still in use.
+ganeti-htools-VER: no-debconf-config
