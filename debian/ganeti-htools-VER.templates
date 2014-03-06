@@ -1,0 +1,13 @@
+Template: ganeti-htools-VER/abort-removal
+Type: boolean
+Default: true
+Description: Abort ganeti-htools-VER removal?
+ You are attempting to remove ganeti-htools-VER, but it seems that the running
+ Ganeti version is still VER.
+ .
+ This can happen if you upgrade the Ganeti package to a new minor version, but
+ have not run `gnt-cluster upgrade' yet. Removing the package will cause Ganeti to
+ stop functioning correctly.
+ .
+ It is highly recommended to abort removal now and upgrade your cluster before
+ removing ganeti-htools-VER.

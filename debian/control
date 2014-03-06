@@ -66,7 +66,7 @@ Depends: ${shlibs:Depends}, ${misc:Depends}, ${python:Depends}, lvm2,
  openssh-client, openssh-server, bridge-utils, iproute2 | iproute,
  iputils-arping, openssl, python-simplejson, python-pyparsing, python-openssl,
  python-pyinotify, python-pycurl, python-paramiko, python-bitarray,
- python-ipaddr, socat, fping, adduser
+ python-ipaddr, socat, fping, adduser, debconf | debconf-2.0
 Provides: ${python:Provides}
 Description: Cluster-based virtualization management software - Python components
  Ganeti is a virtual server cluster management software tool built on top
@@ -87,7 +87,7 @@ Description: Cluster-based virtualization management software - Python component
 
 Package: ganeti-haskell-2.10
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}
+Depends: ${shlibs:Depends}, ${misc:Depends}, debconf | debconf-2.0
 Description: Cluster-based virtualization management software - Haskell components
  Ganeti is a virtual server cluster management software tool built on top
  of the Xen and KVM virtualization technologies and other Free Software. After
@@ -128,7 +128,7 @@ Description: Cluster allocation tools for Ganeti - stand-alone version
 
 Package: ganeti-htools-2.10
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}
+Depends: ${shlibs:Depends}, ${misc:Depends}, debconf | debconf-2.0
 Description: Cluster allocation tools for Ganeti 2.10
  Additional tools used for enhanced allocation, maintenance and capacity
  calculation on Ganeti clusters.
