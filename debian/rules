@@ -44,7 +44,7 @@ override_dh_auto_clean:
 	rm -f debian/ganeti.default
 	rm -f debian/ganeti.postinst
 	rm -f debian/ganeti.postrm
-	rm -f debian/*-$(VER).install
+	rm -f debian/*-$(VER).install debian/*-$(VER).prerm debian/*-$(VER).templates debian/*-$(VER).postinst
 	rm -f debian/*-$(VER).lintian-overrides
 	if [ -d doc/html.orig ]; then \
 		rm -rf doc/html; \
