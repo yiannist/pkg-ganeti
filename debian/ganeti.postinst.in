@@ -49,7 +49,7 @@ case "$1" in
 		update_symlinks=1
 
 	# ... or if we are not part of a cluster
-	elif ! /usr/lib/ganeti/@VER@/usr/lib/ganeti/daemon-util check-config; then
+	elif ! /usr/lib/ganeti/@VER@/usr/lib/ganeti/daemon-util check-config 2>/dev/null; then
 		update_symlinks=1
 
 	# ... or if something is broken
