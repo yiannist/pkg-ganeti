@@ -1,3 +1,1 @@
-[type: gettext/rfc822deb] ganeti-VER.templates
-[type: gettext/rfc822deb] ganeti-htools-VER.templates
-[type: gettext/rfc822deb] ganeti-haskell-VER.templates
+[type: gettext/rfc822deb] templates/versioned.templates
