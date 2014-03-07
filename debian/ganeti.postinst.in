@@ -60,7 +60,7 @@ case "$1" in
 	if [ "$update_symlinks" = 1 ]; then
 		for target in lib share; do
 			if [ "$(readlink /etc/ganeti/${target})" != "/usr/${target}/ganeti/@VER@" ]; then
-				echo "Updating /etc/ganeti/${target}"
+				echo "Linking /etc/ganeti/${target} to /usr/${target}/ganeti/@VER@"
 				ln -snf /usr/${target}/ganeti/@VER@ /etc/ganeti/${target}
 			fi
 		done
