@@ -14,12 +14,21 @@ debian/control: debian/control.in vcs-version
 	sed -s 's/#VER#/$(VER)/g' debian/control.in > debian/control
 
 genfiles:
-	for file in debian/*-VER*; do \
-		fname="$$(echo $$file | sed 's/VER/$(VER)/')"; \
-		sed -e 's/VER/$(VER)/g' $$file >"$$fname"; \
+	for file in debian/templates/*-VER*; do \
+		fname="$$(echo $$file | sed -e 's#VER#$(VER)#' -e 's#templates/##')"; \
+		sed -e 's/@version@/$(VER)/g' $$file >"$$fname"; \
 	done
 
-override_dh_auto_configure: genfiles
+	for package in ganeti-haskell-$(VER) ganeti-htools-$(VER) ganeti-$(VER); do \
+		for file in debian/templates/versioned.*; do \
+			kind="$$(echo $$file | sed -r 's#.*\.(.*)#\1#')"; \
+			sed -e "s/@package@/$$package/g" \
+			    -e 's/@version@/$(VER)/g' \
+			    "$$file" > "debian/$${package}.$${kind}"; \
+		done; \
+	done
+
+override_dh_auto_configure:
 	./configure \
 	  --prefix=/usr \
 	  --localstatedir=/var \

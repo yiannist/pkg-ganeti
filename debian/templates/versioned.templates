@@ -1,4 +1,4 @@
-Template: ganeti-VER/abort-removal
+Template: @package@/abort-removal
 Type: boolean
 Default: true
 _Description: Abort ${package} removal?
