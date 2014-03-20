@@ -67,10 +67,11 @@ case "$1" in
 	fi
 
 	# Restart the service if we have either updated the symlinks, or
-	# shipped the same minor version
+	# shipped the same minor version. We only stop the service here and
+	# let the debhelper snippet below start it again.
 	if [ "$update_symlinks" = 1 -o "${2%.*}" = "@VER@" ]; then
 		if [ -x "/etc/init.d/ganeti" ]; then
-			invoke-rc.d ganeti restart || true
+			invoke-rc.d ganeti stop || true
 		fi
 	fi
     ;;
