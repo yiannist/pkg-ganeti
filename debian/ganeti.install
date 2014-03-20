@@ -3,3 +3,4 @@ usr/sbin
 usr/lib/ganeti
 usr/share/man
 usr/share/ganeti/default
+debian/15-ganeti etc/molly-guard/run.d
