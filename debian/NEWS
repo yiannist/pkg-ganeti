@@ -1,4 +1,4 @@
-ganeti (2.10.1-2) UNRELEASED; urgency=medium
+ganeti (2.10.2-1) unstable; urgency=medium
 
   Ganeti now ships a molly-guard(8) script that attempts to prevent an
   accidental shutdown or reboot of a node with running instances. To use this

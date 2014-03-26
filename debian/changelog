@@ -1,3 +1,22 @@
+ganeti (2.10.2-1) unstable; urgency=medium
+
+  * New upstream bugfix release (see /usr/share/doc/ganeti/NEWS.gz):
+    + Fix conflict between virtio + spice or soundhw
+    + accept relative paths in gnt-cluster copyfile
+    + Introduce shutdown timeout for 'xm shutdown' command
+    + Improve RAPI detection of the watcher
+  * Add molly-guard helper script to prevent accidental shutdown/reboot of
+    nodes with running instances. ganeti now Suggests: molly-guard.
+  * ganeti.postinst fixes:
+    + Silence daemon-util errors
+    + Do not double-start ganeti upon upgrade
+    + Fix a bug where the Haskell daemons would not be restarted properly on
+      upgrade (affecting upgrades from 2.10 and on only).
+  * ganeti-2.10: add dependency on python-fdsend, required for KVM NIC
+    hotplugging to work.
+
+ -- Apollon Oikonomopoulos <apoikos@debian.org>  Wed, 26 Mar 2014 09:58:14 +0200
+
 ganeti (2.10.1-1) unstable; urgency=medium
 
   * New upstream stable release
