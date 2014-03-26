@@ -137,29 +137,36 @@ def _GenerateDeviceKVMId(dev_type, dev):
   return "%s-%s-pci-%d" % (dev_type.lower(), dev.uuid.split("-")[0], dev.pci)
 
 
-def _UpdatePCISlots(dev, pci_reservations):
-  """Update pci configuration for a stopped instance
+def _GetFreeSlot(slots, slot=None, reserve=False):
+  """Helper method to get first available slot in a bitarray
 
-  If dev has a pci slot then reserve it, else find first available
-  in pci_reservations bitarray. It acts on the same objects passed
-  as params so there is no need to return anything.
-
-  @type dev: L{objects.Disk} or L{objects.NIC}
-  @param dev: the device object for which we update its pci slot
-  @type pci_reservations: bitarray
-  @param pci_reservations: existing pci reservations for an instance
-  @raise errors.HotplugError: in case an instance has all its slot occupied
+  @type slots: bitarray
+  @param slots: the bitarray to operate on
+  @type slot: integer
+  @param slot: if given we check whether the slot is free
+  @type reserve: boolean
+  @param reserve: whether to reserve the first available slot or not
+  @return: the idx of the (first) available slot
+  @raise errors.HotplugError: If all slots in a bitarray are occupied
+    or the given slot is not free.
 
   """
-  if dev.pci:
-    free = dev.pci
-  else: # pylint: disable=E1103
-    [free] = pci_reservations.search(_AVAILABLE_PCI_SLOT, 1)
-    if not free:
-      raise errors.HypervisorError("All PCI slots occupied")
-    dev.pci = int(free)
+  if slot is not None:
+    assert slot < len(slots)
+    if slots[slot]:
+      raise errors.HypervisorError("Slots %d occupied" % slot)
 
-  pci_reservations[free] = True
+  else:
+    avail = slots.search(_AVAILABLE_PCI_SLOT, 1)
+    if not avail:
+      raise errors.HypervisorError("All slots occupied")
+
+    slot = int(avail[0])
+
+  if reserve:
+    slots[slot] = True
+
+  return slot
 
 
 def _GetExistingDeviceInfo(dev_type, device, runtime):
@@ -774,7 +781,9 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     re.compile(r'^QEMU (\d+)\.(\d+)(\.(\d+))?.*monitor.*', re.M)
   _INFO_VERSION_CMD = "info version"
 
-  _DEFAULT_PCI_RESERVATIONS = "11110000000000000000000000000000"
+  # Slot 0 for Host bridge, Slot 1 for ISA bridge, Slot 2 for VGA controller
+  _DEFAULT_PCI_RESERVATIONS = "11100000000000000000000000000000"
+  _SOUNDHW_WITH_PCI_SLOT = ["ac97", "es1370", "hda"]
 
   ANCILLARY_FILES = [
     _KVM_NETWORK_SCRIPT,
@@ -1355,7 +1364,23 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     kvm_cmd.extend(["-smp", ",".join(smp_list)])
 
     kvm_cmd.extend(["-pidfile", pidfile])
-    kvm_cmd.extend(["-balloon", "virtio"])
+
+    pci_reservations = bitarray(self._DEFAULT_PCI_RESERVATIONS)
+
+    # As requested by music lovers
+    if hvp[constants.HV_SOUNDHW]:
+      soundhw = hvp[constants.HV_SOUNDHW]
+      # For some reason only few sound devices require a PCI slot
+      # while the Audio controller *must* be in slot 3.
+      # That's why we bridge this option early in command line
+      if soundhw in self._SOUNDHW_WITH_PCI_SLOT:
+        _ = _GetFreeSlot(pci_reservations, reserve=True)
+      kvm_cmd.extend(["-soundhw", soundhw])
+
+    # Add id to ballon and place to the first available slot (3 or 4)
+    addr = _GetFreeSlot(pci_reservations, reserve=True)
+    pci_info = ",bus=pci.0,addr=%s" % hex(addr)
+    kvm_cmd.extend(["-balloon", "virtio,id=balloon%s" % pci_info])
     kvm_cmd.extend(["-daemonize"])
     if not instance.hvparams[constants.HV_ACPI]:
       kvm_cmd.extend(["-no-acpi"])
@@ -1616,7 +1641,9 @@ class KVMHypervisor(hv_base.BaseHypervisor):
       else:
         # Enable the spice agent communication channel between the host and the
         # agent.
-        kvm_cmd.extend(["-device", "virtio-serial-pci"])
+        addr = _GetFreeSlot(pci_reservations, reserve=True)
+        pci_info = ",bus=pci.0,addr=%s" % hex(addr)
+        kvm_cmd.extend(["-device", "virtio-serial-pci,id=spice%s" % pci_info])
         kvm_cmd.extend([
           "-device",
           "virtserialport,chardev=spicechannel0,name=com.redhat.spice.0",
@@ -1644,10 +1671,6 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     if hvp[constants.HV_CPU_TYPE]:
       kvm_cmd.extend(["-cpu", hvp[constants.HV_CPU_TYPE]])
 
-    # As requested by music lovers
-    if hvp[constants.HV_SOUNDHW]:
-      kvm_cmd.extend(["-soundhw", hvp[constants.HV_SOUNDHW]])
-
     # Pass a -vga option if requested, or if spice is used, for backwards
     # compatibility.
     if hvp[constants.HV_VGA]:
@@ -1667,15 +1690,14 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     if hvp[constants.HV_KVM_EXTRA]:
       kvm_cmd.extend(hvp[constants.HV_KVM_EXTRA].split(" "))
 
-    pci_reservations = bitarray(self._DEFAULT_PCI_RESERVATIONS)
     kvm_disks = []
     for disk, link_name, uri in block_devices:
-      _UpdatePCISlots(disk, pci_reservations)
+      disk.pci = _GetFreeSlot(pci_reservations, disk.pci, True)
       kvm_disks.append((disk, link_name, uri))
 
     kvm_nics = []
     for nic in instance.nics:
-      _UpdatePCISlots(nic, pci_reservations)
+      nic.pci = _GetFreeSlot(pci_reservations, nic.pci, True)
       kvm_nics.append(nic)
 
     hvparams = hvp
@@ -1985,10 +2007,15 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     self._SaveKVMRuntime(instance, kvm_runtime)
     self._ExecuteKVMRuntime(instance, kvm_runtime, kvmhelp)
 
-  def _CallMonitorCommand(self, instance_name, command):
+  def _CallMonitorCommand(self, instance_name, command, timeout=None):
     """Invoke a command on the instance monitor.
 
     """
+    if timeout is not None:
+      timeout_cmd = "timeout %s" % (timeout, )
+    else:
+      timeout_cmd = ""
+
     # TODO: Replace monitor calls with QMP once KVM >= 0.14 is the minimum
     # version. The monitor protocol is designed for human consumption, whereas
     # QMP is made for programmatic usage. In the worst case QMP can also
@@ -1996,10 +2023,12 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     # 500ms and likely more: socat can't detect the end of the reply and waits
     # for 500ms of no data received before exiting (500 ms is the default for
     # the "-t" parameter).
-    socat = ("echo %s | %s STDIO UNIX-CONNECT:%s" %
+    socat = ("echo %s | %s %s STDIO UNIX-CONNECT:%s" %
              (utils.ShellQuote(command),
+              timeout_cmd,
               constants.SOCAT_PATH,
               utils.ShellQuote(self._InstanceMonitor(instance_name))))
+
     result = utils.RunCmd(socat)
     if result.failed:
       msg = ("Failed to send command '%s' to instance '%s', reason '%s',"
@@ -2022,11 +2051,7 @@ class KVMHypervisor(hv_base.BaseHypervisor):
         slot = int(match.group(1))
         slots[slot] = True
 
-    [free] = slots.search(_AVAILABLE_PCI_SLOT, 1) # pylint: disable=E1101
-    if not free:
-      raise errors.HypervisorError("All PCI slots occupied")
-
-    dev.pci = int(free)
+    dev.pci = _GetFreeSlot(slots)
 
   def VerifyHotplugSupport(self, instance, action, dev_type):
     """Verifies that hotplug is supported.
@@ -2264,10 +2289,13 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     else:
       return "pc"
 
-  def StopInstance(self, instance, force=False, retry=False, name=None):
+  def StopInstance(self, instance, force=False, retry=False, name=None,
+                   timeout=None):
     """Stop an instance.
 
     """
+    assert(timeout is None or force is not None)
+
     if name is not None and not force:
       raise errors.HypervisorError("Cannot shutdown cleanly by name only")
     if name is None:
@@ -2280,7 +2308,7 @@ class KVMHypervisor(hv_base.BaseHypervisor):
       if force or not acpi:
         utils.KillProcess(pid)
       else:
-        self._CallMonitorCommand(name, "system_powerdown")
+        self._CallMonitorCommand(name, "system_powerdown", timeout)
 
   def CleanupInstance(self, instance_name):
     """Cleanup after a stopped instance
