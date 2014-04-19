@@ -220,6 +220,10 @@ class R_2_info(baserlib.OpcodeResource):
 
   """
   GET_OPCODE = opcodes.OpClusterQuery
+  GET_ALIASES = {
+    "volume_group_name": "vg_name",
+    "drbd_usermode_helper": "drbd_helper",
+    }
 
   def GET(self):
     """Returns cluster information.
@@ -415,6 +419,9 @@ class R_2_nodes_name(baserlib.OpcodeResource):
 
   """
   GET_OPCODE = opcodes.OpNodeQuery
+  GET_ALIASES = {
+    "sip": "secondary_ip",
+    }
 
   def GET(self):
     """Send information about a node.
@@ -840,6 +847,11 @@ class R_2_groups_name_modify(baserlib.OpcodeResource):
 
   """
   PUT_OPCODE = opcodes.OpGroupSetParams
+  PUT_RENAME = {
+    "custom_ndparams": "ndparams",
+    "custom_ipolicy": "ipolicy",
+    "custom_diskparams": "diskparams",
+    }
 
   def GetPutOpInput(self):
     """Changes some parameters of node group.
@@ -1353,6 +1365,10 @@ class R_2_instances_name_modify(baserlib.OpcodeResource):
 
   """
   PUT_OPCODE = opcodes.OpInstanceSetParams
+  PUT_RENAME = {
+    "custom_beparams": "beparams",
+    "custom_hvparams": "hvparams",
+    }
 
   def GetPutOpInput(self):
     """Changes parameters of an instance.
