@@ -8,7 +8,7 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>News &mdash; Ganeti 2.10.2 documentation</title>
+    <title>News &mdash; Ganeti 2.10.3 documentation</title>
     
     <link rel="stylesheet" href="_static/style.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
@@ -16,7 +16,7 @@
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.10.2',
+        VERSION:     '2.10.3',
         COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -25,7 +25,7 @@
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti 2.10.2 documentation" href="index.html" />
+    <link rel="top" title="Ganeti 2.10.3 documentation" href="index.html" />
     <link rel="next" title="OVF converter" href="ovfconverter.html" />
     <link rel="prev" title="Moving instances between clusters" href="move-instance.html" /> 
   </head>
@@ -39,7 +39,7 @@
         <li class="right" >
           <a href="move-instance.html" title="Moving instances between clusters"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.10.2 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.10.3 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -50,6 +50,29 @@
             
   <div class="section" id="news">
 <h1>News<a class="headerlink" href="#news" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="version-2-10-3">
+<h2>Version 2.10.3<a class="headerlink" href="#version-2-10-3" title="Permalink to this headline">¶</a></h2>
+<p><em>(Released Wed, 16 Apr 2014)</em></p>
+<ul class="simple">
+<li>Fix filtering of pending jobs with -o id (issue 778)</li>
+<li>Make RAPI API calls more symmetric (issue 770)</li>
+<li>Make parsing of old cluster configuration more robust (issue 783)</li>
+<li>Fix wrong output of gnt-instance info after migrations</li>
+<li>Fix reserved PCI slots for KVM hotplugging</li>
+<li>Use runtime hypervisor parameters to calculate bockdevice options for KVM</li>
+<li>Fix high node daemon load during disk sync if the sync is paused manually
+(issue 792)</li>
+<li>Improve opportunistic locking during instance creation (issue 791)</li>
+</ul>
+<p>Inherited from the 2.9 branch:</p>
+<ul class="simple">
+<li>Make watcher submit queries low priority (issue 772)</li>
+<li>Add reason parameter to RAPI client functions (issue 776)</li>
+<li>Fix failing gnt-node list-drbd command (issue 777)</li>
+<li>Properly display fake job locks in gnt-debug.</li>
+<li>small fixes in documentation</li>
+</ul>
+</div>
 <div class="section" id="version-2-10-2">
 <h2>Version 2.10.2<a class="headerlink" href="#version-2-10-2" title="Permalink to this headline">¶</a></h2>
 <p><em>(Released Mon, 24 Mar 2014)</em></p>
@@ -128,6 +151,7 @@ reboot. There are a couple of constrains currently for this feature:</p>
 <li>one can not (yet) hotplug a disk using userspace access mode for RBD</li>
 <li>in case of a downgrade instances should suffer a reboot in order to
 be migratable (due to core change of runtime files)</li>
+<li><tt class="docutils literal"><span class="pre">python-fdsend</span></tt> is required for NIC hotplugging.</li>
 </ul>
 </div></blockquote>
 </li>
@@ -155,6 +179,8 @@ changes will be part of the next release of Ganeti.</li>
 <ul class="simple">
 <li>The version requirements for <tt class="docutils literal"><span class="pre">python-mock</span></tt> have increased to at least
 version 1.0.1. It is still used for testing only.</li>
+<li><tt class="docutils literal"><span class="pre">python-fdsend</span></tt> (<a class="reference external" href="https://gitorious.org/python-fdsend">https://gitorious.org/python-fdsend</a>) is optional
+but required for KVM NIC hotplugging to work.</li>
 </ul>
 </div>
 <div class="section" id="since-2-10-0-rc3">
@@ -271,6 +297,20 @@ before rc1.</p>
 <li>Issue 623: IPv6 Masterd &lt;-&gt; Luxid communication error</li>
 </ul>
 </div>
+</div>
+<div class="section" id="version-2-9-6">
+<h2>Version 2.9.6<a class="headerlink" href="#version-2-9-6" title="Permalink to this headline">¶</a></h2>
+<p><em>(Released Mon, 7 Apr 2014)</em></p>
+<ul class="simple">
+<li>Improve RAPI detection of the watcher (Issue 752)</li>
+<li>gnt-cluster copyfile: accept relative paths (Issue 754)</li>
+<li>Make watcher submit queries low priority (Issue 772)</li>
+<li>Add reason parameter to RAPI client functions (Issue 776)</li>
+<li>Fix failing gnt-node list-drbd command (Issue 777)</li>
+<li>Properly display fake job locks in gnt-debug.</li>
+<li>Enable timeout for instance shutdown</li>
+<li>small fixes in documentation</li>
+</ul>
 </div>
 <div class="section" id="version-2-9-5">
 <h2>Version 2.9.5<a class="headerlink" href="#version-2-9-5" title="Permalink to this headline">¶</a></h2>
@@ -3220,6 +3260,7 @@ post-configuration update hook)</li>
   <h3><a href="index.html">Table Of Contents</a></h3>
   <ul>
 <li><a class="reference internal" href="#">News</a><ul>
+<li><a class="reference internal" href="#version-2-10-3">Version 2.10.3</a></li>
 <li><a class="reference internal" href="#version-2-10-2">Version 2.10.2</a></li>
 <li><a class="reference internal" href="#version-2-10-1">Version 2.10.1</a></li>
 <li><a class="reference internal" href="#version-2-10-0">Version 2.10.0</a><ul>
@@ -3237,6 +3278,7 @@ post-configuration update hook)</li>
 <li><a class="reference internal" href="#known-issues">Known issues</a></li>
 </ul>
 </li>
+<li><a class="reference internal" href="#version-2-9-6">Version 2.9.6</a></li>
 <li><a class="reference internal" href="#version-2-9-5">Version 2.9.5</a></li>
 <li><a class="reference internal" href="#version-2-9-4">Version 2.9.4</a></li>
 <li><a class="reference internal" href="#version-2-9-3">Version 2.9.3</a></li>
@@ -3456,7 +3498,7 @@ post-configuration update hook)</li>
         <li class="right" >
           <a href="move-instance.html" title="Moving instances between clusters"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.10.2 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.10.3 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

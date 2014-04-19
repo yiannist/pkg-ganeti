@@ -5,6 +5,30 @@ News
 ====
 
 
+Version 2.10.3
+--------------
+
+*(Released Wed, 16 Apr 2014)*
+
+- Fix filtering of pending jobs with -o id (issue 778)
+- Make RAPI API calls more symmetric (issue 770)
+- Make parsing of old cluster configuration more robust (issue 783)
+- Fix wrong output of gnt-instance info after migrations
+- Fix reserved PCI slots for KVM hotplugging
+- Use runtime hypervisor parameters to calculate bockdevice options for KVM
+- Fix high node daemon load during disk sync if the sync is paused manually
+  (issue 792)
+- Improve opportunistic locking during instance creation (issue 791)
+
+Inherited from the 2.9 branch:
+
+- Make watcher submit queries low priority (issue 772)
+- Add reason parameter to RAPI client functions (issue 776)
+- Fix failing gnt-node list-drbd command (issue 777)
+- Properly display fake job locks in gnt-debug.
+- small fixes in documentation
+
+
 Version 2.10.2
 --------------
 
@@ -80,6 +104,7 @@ New features
    - one can not (yet) hotplug a disk using userspace access mode for RBD
    - in case of a downgrade instances should suffer a reboot in order to
      be migratable (due to core change of runtime files)
+   - ``python-fdsend`` is required for NIC hotplugging.
 
 Misc changes
 ~~~~~~~~~~~~
@@ -104,6 +129,8 @@ Python
 
 - The version requirements for ``python-mock`` have increased to at least
   version 1.0.1. It is still used for testing only.
+- ``python-fdsend`` (https://gitorious.org/python-fdsend) is optional
+  but required for KVM NIC hotplugging to work.
 
 Since 2.10.0 rc3
 ~~~~~~~~~~~~~~~~
@@ -226,6 +253,21 @@ before rc1.
 - Issue 621: Instance related opcodes do not aquire network/group locks
 - Issue 622: Assertion Error: Node locks differ from node resource locks
 - Issue 623: IPv6 Masterd <-> Luxid communication error
+
+
+Version 2.9.6
+-------------
+
+*(Released Mon, 7 Apr 2014)*
+
+- Improve RAPI detection of the watcher (Issue 752)
+- gnt-cluster copyfile: accept relative paths (Issue 754)
+- Make watcher submit queries low priority (Issue 772)
+- Add reason parameter to RAPI client functions (Issue 776)
+- Fix failing gnt-node list-drbd command (Issue 777)
+- Properly display fake job locks in gnt-debug.
+- Enable timeout for instance shutdown
+- small fixes in documentation
 
 
 Version 2.9.5
