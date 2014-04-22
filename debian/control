@@ -68,22 +68,20 @@ Depends: ${shlibs:Depends}, ${misc:Depends}, ${python:Depends}, lvm2,
  python-pyinotify, python-pycurl, python-paramiko, python-bitarray,
  python-ipaddr, python-fdsend, socat, fping, adduser, debconf | debconf-2.0
 Provides: ${python:Provides}
-Description: Cluster-based virtualization management software - Python components
- Ganeti is a virtual server cluster management software tool built on top
- of the Xen and KVM virtualization technologies and other Free Software. After
- setting it up it will provide you with an automated environment to
- manage highly available virtual machine instances.
+Description: cluster virtualization manager - Python components
+ Ganeti is a virtual server cluster management tool built on top of the
+ Xen and KVM virtualization technologies and other free software. It
+ provides an automated environment to manage highly available virtual
+ machine instances.
  .
- It has been designed to facilitate cluster management of virtual servers
- and to provide fast and simple recovery after physical failures using
- commodity hardware.
+ It is designed to facilitate cluster management of virtual servers using
+ commodity hardware, and to provide fast and simple recovery after physical
+ failures. It can take care of operations such as redundant disk creation
+ and management, operating system installation (in cooperation with
+ OS-specific install scripts), startup, shutdown, and failover of instances
+ between physical systems.
  .
- It will take care of operations such as redundant disk creation and
- management, operating system installation (in cooperation with OS-specific
- install scripts), startup, shutdown, failover of instances between physical
- systems.
- .
- This package contains all architecture-independent components of Ganeti 2.10.
+ This package provides all architecture-independent components of Ganeti 2.10.
 
 Package: ganeti-haskell-2.10
 Architecture: any
@@ -103,46 +101,57 @@ Description: Cluster-based virtualization management software - Haskell componen
  install scripts), startup, shutdown, failover of instances between physical
  systems.
  .
- This package contains the architecture-dependent components of Ganeti 2.10
+ This package provides the architecture-dependent components of Ganeti 2.10
  written in Haskell.
 
 Package: ganeti-htools
 Architecture: all
 Depends: ${shlibs:Depends}, ${misc:Depends}, ganeti-htools-2.10
 Breaks: ganeti2 (<< 2.4)
-Description: Cluster allocation tools for Ganeti - stand-alone version
- Additional tools used for enhanced allocation, maintenance and capacity
- calculation on Ganeti clusters.
+Description: cluster virtualization manager - tools (stand-alone)
+ Ganeti is a virtual server cluster management tool built on top of the
+ Xen and KVM virtualization technologies and other free software. It
+ provides an automated environment to manage highly available virtual
+ machine instances.
+ .
+ This package provides additional tools used for enhanced allocation,
+ maintenance and capacity calculation on Ganeti clusters.
  .
  The tools provided are:
-   - hail: advanced instance allocator
-   - harep: tool for automatically repairing Ganeti clusters
-   - hbal: automatic cluster balancing tool
-   - hinfo: print cluster information
-   - hroller: rolling maintenance/reboot scheduler for Ganeti nodes
-   - hscan: used to gather cluster files for offline use in hbal/hspace
-   - hspace: cluster capacity calculator
+  * hail: advanced instance allocator;
+  * harep: tool for automatically repairing Ganeti clusters;
+  * hbal: automatic cluster balancing tool;
+  * hinfo: print cluster information;
+  * hroller: rolling maintenance/reboot scheduler for Ganeti nodes;
+  * hscan: used to gather cluster files for offline use in hbal/hspace;
+  * hspace: cluster capacity calculator.
  .
- This package is intended for stand-alone systems that are not part of a Ganeti
- cluster.
+ This package provides the version intended for stand-alone systems that
+ are not part of a Ganeti cluster.
 
 Package: ganeti-htools-2.10
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}, debconf | debconf-2.0
-Description: Cluster allocation tools for Ganeti 2.10
- Additional tools used for enhanced allocation, maintenance and capacity
- calculation on Ganeti clusters.
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: cluster virtualization manager - tools for Ganeti 2.10
+ Ganeti is a virtual server cluster management tool built on top of the
+ Xen and KVM virtualization technologies and other free software. It
+ provides an automated environment to manage highly available virtual
+ machine instances.
+ .
+ This package provides additional tools used for enhanced allocation,
+ maintenance and capacity calculation on Ganeti clusters.
  .
  The tools provided are:
-   - hail: advanced instance allocator
-   - harep: tool for automatically repairing Ganeti clusters
-   - hbal: automatic cluster balancing tool
-   - hinfo: print cluster information
-   - hroller: rolling maintenance/reboot scheduler for Ganeti nodes
-   - hscan: used to gather cluster files for offline use in hbal/hspace
-   - hspace: cluster capacity calculator
+  * hail: advanced instance allocator;
+  * harep: tool for automatically repairing Ganeti clusters;
+  * hbal: automatic cluster balancing tool;
+  * hinfo: print cluster information;
+  * hroller: rolling maintenance/reboot scheduler for Ganeti nodes;
+  * hscan: used to gather cluster files for offline use in hbal/hspace;
+  * hspace: cluster capacity calculator.
  .
- For use in non-cluster systems, install ganeti-htools instead of this package.
+ This package provides the version intended for use on systems that are part
+ of a Ganeti 2.10 cluster. On stand-alone systems, use ganeti-htools instead.
 
 Package: ganeti-doc
 Architecture: all
@@ -150,22 +159,20 @@ Section: doc
 Depends: ${shlibs:Depends}, ${misc:Depends}, ${sphinxdoc:Depends}
 Replaces: ganeti2 (<< 2.7.0-2)
 Breaks: ganeti2 (<< 2.7.0-2)
-Description: Cluster-based virtualization management software - documentation
- Ganeti is a virtual server cluster management software tool built on top
- of the Xen and KVM virtualization technologies and other Free Software. After
- setting it up it will provide you with an automated environment to
- manage highly available virtual machine instances.
+Description: cluster virtualization manager - documentation
+ Ganeti is a virtual server cluster management tool built on top of the
+ Xen and KVM virtualization technologies and other free software. It
+ provides an automated environment to manage highly available virtual
+ machine instances.
  .
- It has been designed to facilitate cluster management of virtual servers
- and to provide fast and simple recovery after physical failures using
- commodity hardware.
+ It is designed to facilitate cluster management of virtual servers using
+ commodity hardware, and to provide fast and simple recovery after physical
+ failures. It can take care of operations such as redundant disk creation
+ and management, operating system installation (in cooperation with
+ OS-specific install scripts), startup, shutdown, and failover of instances
+ between physical systems.
  .
- It will take care of operations such as redundant disk creation and
- management, operating system installation (in cooperation with OS-specific
- install scripts), startup, shutdown, failover of instances between physical
- systems.
- .
- This package contains the full HTML documentation for Ganeti.
+ This package provides the full HTML documentation for Ganeti.
 
 Package: python-ganeti-rapi
 Architecture: all
@@ -174,19 +181,17 @@ Depends: ${python:Depends}, ${misc:Depends}, python-pycurl, python-simplejson
 Suggests: ganeti-doc
 Replaces: ganeti2 (<< 2.7.0-2)
 Breaks: ganeti2 (<< 2.7.0-2)
-Description: Cluster-based virtualization management software - RAPI client library
- Ganeti is a virtual server cluster management software tool built on top
- of the Xen and KVM virtualization technologies and other Free Software. After
- setting it up it will provide you with an automated environment to
- manage highly available virtual machine instances.
+Description: cluster virtualization manager - RAPI client library
+ Ganeti is a virtual server cluster management tool built on top of the
+ Xen and KVM virtualization technologies and other free software. It
+ provides an automated environment to manage highly available virtual
+ machine instances.
  .
- It has been designed to facilitate cluster management of virtual servers
- and to provide fast and simple recovery after physical failures using
- commodity hardware.
+ It is designed to facilitate cluster management of virtual servers using
+ commodity hardware, and to provide fast and simple recovery after physical
+ failures. It can take care of operations such as redundant disk creation
+ and management, operating system installation (in cooperation with
+ OS-specific install scripts), startup, shutdown, and failover of instances
+ between physical systems.
  .
- It will take care of operations such as redundant disk creation and
- management, operating system installation (in cooperation with OS-specific
- install scripts), startup, shutdown, failover of instances between physical
- systems.
- .
- This package contains a RAPI (Remote API) client library for Python.
+ This package provides an RAPI (Remote API) client library for Python.
