@@ -14,7 +14,7 @@ Build-Depends: debhelper (>= 9), m4,
  python-simplejson, python-pyparsing, python-openssl, python-bitarray,
  python-support (>= 0.6), python-pyinotify, python-pycurl,
  python-paramiko, python-ipaddr, python-sphinx (>= 1.0.7+dfsg), graphviz,
- qemu-utils, socat, iproute2 | iproute, bash-completion
+ qemu-utils, socat, iproute2 | iproute, bash-completion, po-debconf
 Standards-Version: 3.9.5
 X-Python-Version: >= 2.6
 Homepage: http://code.google.com/p/ganeti/
@@ -40,7 +40,7 @@ Depends: ganeti-#VER# (= ${source:Version}),
 Recommends: drbd8-utils (>= 8.0.7), qemu-kvm |
  xen-linux-system-amd64 | xen-linux-system-686-pae,
  ganeti-instance-debootstrap, ndisc6
-Suggests: ganeti-doc, blktap-dkms
+Suggests: ganeti-doc, blktap-dkms, molly-guard
 Conflicts: ganeti-htools
 Provides: ${python:Provides}, ganeti-htools
 Description: Cluster-based virtualization management software
@@ -66,7 +66,7 @@ Depends: ${shlibs:Depends}, ${misc:Depends}, ${python:Depends}, lvm2,
  openssh-client, openssh-server, bridge-utils, iproute2 | iproute,
  iputils-arping, openssl, python-simplejson, python-pyparsing, python-openssl,
  python-pyinotify, python-pycurl, python-paramiko, python-bitarray,
- python-ipaddr, socat, fping, adduser
+ python-ipaddr, python-fdsend, socat, fping, adduser, debconf | debconf-2.0
 Provides: ${python:Provides}
 Description: cluster virtualization manager - Python components
  Ganeti is a virtual server cluster management tool built on top of the
@@ -85,7 +85,7 @@ Description: cluster virtualization manager - Python components
 
 Package: ganeti-haskell-#VER#
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}
+Depends: ${shlibs:Depends}, ${misc:Depends}, debconf | debconf-2.0
 Description: Cluster-based virtualization management software - Haskell components
  Ganeti is a virtual server cluster management software tool built on top
  of the Xen and KVM virtualization technologies and other Free Software. After
