@@ -1,3 +1,35 @@
+ganeti (2.10.3-1) unstable; urgency=medium
+
+  [ Apollon Oikonomopoulos ]
+  * New upstream bugfix release (see /usr/share/doc/ganeti/NEWS.gz):
+    + Fix filtering of pending jobs with -o id
+    + Make RAPI API calls more symmetric
+    + Make parsing of old cluster configuration more robust
+    + Fix wrong output of gnt-instance info after migrations
+    + Fix reserved PCI slots for KVM hotplugging
+    + Use runtime hypervisor parameters to calculate bockdevice options for KVM
+    + Fix high node daemon load during disk sync if the sync is paused manually
+    + Improve opportunistic locking during instance creation
+    + Make watcher submit queries low priority
+    + Add reason parameter to RAPI client functions
+    + Fix failing gnt-node list-drbd command
+    + Properly display fake job locks in gnt-debug.
+    + small fixes in documentation
+  * Drop 0001-Fix-specification-of-TIDiskParams.patch, merged upstream
+  * Update debconf templates and package descriptions (Closes: #741404)
+    + Update Greek translation to match the new templates
+  * control.in: add missing dependencies, already present in debian/control
+
+  [ Debconf translations ]
+  * Danish (Joe Hansen, closes: #744899)
+  * Japanese (Victory, closes: #743904)
+  * Russian (Yuri Kozlov, closes: #744272)
+  * Portuguese (Americo Monteiro, closes: #745146)
+  * French (Julien Patriarca, closes: #744361)
+  * Spanish (Camaleon, closes: #745429)
+
+ -- Apollon Oikonomopoulos <apoikos@debian.org>  Tue, 22 Apr 2014 16:15:41 +0300
+
 ganeti (2.10.2-2) unstable; urgency=high
 
   * Fix broken extstorage support (upstream commit b26a275a0, closes: #742699)
