@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ganeti\n"
 "Report-Msgid-Bugs-To: ganeti@packages.debian.org\n"
-"POT-Creation-Date: 2014-03-07 10:47+0200\n"
+"POT-Creation-Date: 2014-04-08 08:41+0200\n"
 "PO-Revision-Date: 2014-03-06 20:00+0200\n"
 "Last-Translator: Apollon Oikonomopoulos <apoikos@debian.org>\n"
 "Language: \n"
@@ -17,13 +17,13 @@ msgstr ""
 
 #. Type: boolean
 #. Description
-#: ../templates/versioned.templates:1001
+#: ../templates/versioned.templates:2001
 msgid "Abort ${package} removal?"
 msgstr "Διακοπή απεγκατάστασης του ${package};"
 
 #. Type: boolean
 #. Description
-#: ../templates/versioned.templates:1001
+#: ../templates/versioned.templates:2001
 msgid ""
 "You are attempting to remove ${package}, but it seems that the running "
 "Ganeti version is still ${version}."
@@ -33,10 +33,15 @@ msgstr ""
 
 #. Type: boolean
 #. Description
-#: ../templates/versioned.templates:1001
+#: ../templates/versioned.templates:2001
+#, fuzzy
+#| msgid ""
+#| "This can happen if you upgrade the ganeti package to a new minor version, "
+#| "but have not run `gnt-cluster upgrade' yet. Removing ${package} will "
+#| "cause Ganeti to stop functioning correctly."
 msgid ""
 "This can happen if you upgrade the ganeti package to a new minor version, "
-"but have not run `gnt-cluster upgrade' yet. Removing ${package} will cause "
+"but have not run \"gnt-cluster upgrade\" yet. Removing ${package} will cause "
 "Ganeti to stop functioning correctly."
 msgstr ""
 "Αυτό μπορεί να συμβαίνει επειδή αναβαθμίσατε το πακέτο ganeti σε νέα έκδοση, "
@@ -45,9 +50,13 @@ msgstr ""
 
 #. Type: boolean
 #. Description
-#: ../templates/versioned.templates:1001
+#: ../templates/versioned.templates:2001
+#, fuzzy
+#| msgid ""
+#| "It is highly recommended to abort removal now and upgrade your cluster "
+#| "before removing ${package}."
 msgid ""
-"It is highly recommended to abort removal now and upgrade your cluster "
+"It is highly recommended to abort the removal now and upgrade the cluster "
 "before removing ${package}."
 msgstr ""
 "Σας συνιστούμε να διακόψετε τώρα την απεγκατάσταση και να αναβαθμίσετε το "
