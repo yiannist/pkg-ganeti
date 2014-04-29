@@ -1,4 +1,5 @@
 ganeti-haskell-2.11: hardening-no-fortify-functions usr/lib/ganeti/2.11/usr/sbin/ganeti-confd
+ganeti-haskell-2.11: hardening-no-fortify-functions usr/lib/ganeti/2.11/usr/sbin/ganeti-kvmd
 ganeti-haskell-2.11: hardening-no-fortify-functions usr/lib/ganeti/2.11/usr/sbin/ganeti-luxid
 ganeti-haskell-2.11: hardening-no-fortify-functions usr/lib/ganeti/2.11/usr/sbin/ganeti-mond
 ganeti-haskell-2.11: hardening-no-fortify-functions usr/lib/ganeti/2.11/usr/lib/ganeti/mon-collector

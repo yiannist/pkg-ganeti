@@ -1,4 +1,5 @@
 usr/lib/ganeti/2.11/usr/sbin/ganeti-confd
 usr/lib/ganeti/2.11/usr/sbin/ganeti-mond
+usr/lib/ganeti/2.11/usr/sbin/ganeti-kvmd
 usr/lib/ganeti/2.11/usr/sbin/ganeti-luxid
 usr/lib/ganeti/2.11/usr/lib/ganeti/mon-collector
