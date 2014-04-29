@@ -8,7 +8,7 @@ Last-Update: 2010-10-24
 +++ b/tools/cfgupgrade12
 @@ -407,6 +407,10 @@
          logging.debug("Writing RAPI certificate to %s", options.RAPI_CERT_FILE)
-         utils.GenerateSelfSignedSslCert(options.RAPI_CERT_FILE)
+         utils.GenerateSelfSignedSslCert(options.RAPI_CERT_FILE, 1)
  
 +      ss_hyp = SsconfName('hypervisor')
 +      if os.path.exists(ss_hyp):

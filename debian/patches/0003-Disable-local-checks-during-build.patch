@@ -13,7 +13,7 @@ Last-Update: 2013-07-12
 
 --- a/Makefile.in
 +++ b/Makefile.in
-@@ -3142,7 +3142,7 @@
+@@ -3226,7 +3226,7 @@
  	       exit 1; } >&2
  check-am: all-am
  	$(MAKE) $(AM_MAKEFLAGS) $(check_SCRIPTS)
