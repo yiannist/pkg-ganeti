@@ -11,11 +11,9 @@ Last-Update: 2013-07-12
  Makefile.in |    2 +-
  1 file changed, 1 insertion(+), 1 deletion(-)
 
-diff --git a/Makefile.in b/Makefile.in
-index 2936193..a1890e5 100644
 --- a/Makefile.in
 +++ b/Makefile.in
-@@ -2571,7 +2571,7 @@ distcleancheck: distclean
+@@ -3142,7 +3142,7 @@
  	       exit 1; } >&2
  check-am: all-am
  	$(MAKE) $(AM_MAKEFLAGS) $(check_SCRIPTS)

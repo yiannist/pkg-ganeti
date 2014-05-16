@@ -5,7 +5,7 @@ Author: Iustin Pop <iusty@k1024.org>
 Last-Update: 2009-12-04
 --- a/doc/examples/ganeti.initd.in
 +++ b/doc/examples/ganeti.initd.in
-@@ -59,6 +59,16 @@
+@@ -68,6 +68,16 @@
  }
  
  start_all() {
