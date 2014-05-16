@@ -22,8 +22,9 @@ Algorithm options:
 --min-gain-limit \f[I]threshold\f[] ]\f[] \f[B][ -O \f[I]name...\f[]
 ]\f[] \f[B][ --no-disk-moves ]\f[] \f[B][ --no-instance-moves ]\f[]
 \f[B][ -U \f[I]util-file\f[] ]\f[] \f[B][ --ignore-dynu ]\f[] \f[B][
---evac-mode ]\f[] \f[B][ --select-instances \f[I]inst...\f[] ]\f[]
-\f[B][ --exclude-instances \f[I]inst...\f[] ]\f[]
+--evac-mode ]\f[] \f[B][ --restricted-migration ]\f[] \f[B][
+--select-instances \f[I]inst...\f[] ]\f[] \f[B][ --exclude-instances
+\f[I]inst...\f[] ]\f[]
 .PP
 Reporting options:
 .PP
@@ -122,6 +123,11 @@ clusters
 .IP \[bu] 2
 standard deviation of the ratio of virtual-to-physical cpus (for primary
 instances of the node)
+.IP \[bu] 2
+standard deviation of the fraction of the available spindles (in
+dedicated mode, spindles represent physical spindles; otherwise this
+oversubscribable measure for IO load, and the oversubscription factor is
+taken into account when computing the number of available spindles)
 .IP \[bu] 2
 standard deviation of the dynamic load on the nodes, for cpus, memory,
 disk and network
@@ -333,6 +339,18 @@ the ones living on offline/drained nodes.
 It can be used as a (bulk) replacement for Ganeti\[aq]s own
 \f[I]gnt-node evacuate\f[], with the note that it doesn\[aq]t guarantee
 full evacuation.
+.RS
+.RE
+.TP
+.B --restricted-migration
+This parameter disallows any replace-primary moves (frf), as well as
+those replace-and-failover moves (rf) where the primary node of the
+instance is not drained.
+If used together with the \f[C]--evac-mode\f[] option, the only
+migrations that hbal will do are migrations of instances off a drained
+node.
+This can be useful if during a reinstall of the base operating system
+migration is only possible from the old OS to the new OS.
 .RS
 .RE
 .TP

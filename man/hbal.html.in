@@ -41,7 +41,7 @@
 <p>Backend options:</p>
 <p>{ <strong>-m</strong> <em>cluster</em> | <strong>-L[</strong> <em>path</em> <strong>] [-X]</strong> | <strong>-t</strong> <em>data-file</em> | <strong>-I</strong> <em>path</em> }</p>
 <p>Algorithm options:</p>
-<p><strong>[ --max-cpu <em>cpu-ratio</em> ]</strong> <strong>[ --min-disk <em>disk-ratio</em> ]</strong> <strong>[ -l <em>limit</em> ]</strong> <strong>[ -e <em>score</em> ]</strong> <strong>[ -g <em>delta</em> ]</strong> <strong>[ --min-gain-limit <em>threshold</em> ]</strong> <strong>[ -O <em>name...</em> ]</strong> <strong>[ --no-disk-moves ]</strong> <strong>[ --no-instance-moves ]</strong> <strong>[ -U <em>util-file</em> ]</strong> <strong>[ --ignore-dynu ]</strong> <strong>[ --evac-mode ]</strong> <strong>[ --select-instances <em>inst...</em> ]</strong> <strong>[ --exclude-instances <em>inst...</em> ]</strong></p>
+<p><strong>[ --max-cpu <em>cpu-ratio</em> ]</strong> <strong>[ --min-disk <em>disk-ratio</em> ]</strong> <strong>[ -l <em>limit</em> ]</strong> <strong>[ -e <em>score</em> ]</strong> <strong>[ -g <em>delta</em> ]</strong> <strong>[ --min-gain-limit <em>threshold</em> ]</strong> <strong>[ -O <em>name...</em> ]</strong> <strong>[ --no-disk-moves ]</strong> <strong>[ --no-instance-moves ]</strong> <strong>[ -U <em>util-file</em> ]</strong> <strong>[ --ignore-dynu ]</strong> <strong>[ --evac-mode ]</strong> <strong>[ --restricted-migration ]</strong> <strong>[ --select-instances <em>inst...</em> ]</strong> <strong>[ --exclude-instances <em>inst...</em> ]</strong></p>
 <p>Reporting options:</p>
 <p><strong>[ -C[ <em>file</em> ] ]</strong> <strong>[ -p[ <em>fields</em> ] ]</strong> <strong>[ --print-instances ]</strong> <strong>[ -S <em>file</em> ]</strong> <strong>[ -v... | -q ]</strong></p>
 <h1 id="description"><a href="#TOC">DESCRIPTION</a></h1>
@@ -79,6 +79,7 @@
 <li>count of instances living (either as primary or secondary) on offline nodes; in the sense of hbal (and the other htools) drained nodes are considered offline</li>
 <li>count of instances living (as primary) on offline nodes; this differs from the above metric by helping failover of such instances in 2-node clusters</li>
 <li>standard deviation of the ratio of virtual-to-physical cpus (for primary instances of the node)</li>
+<li>standard deviation of the fraction of the available spindles (in dedicated mode, spindles represent physical spindles; otherwise this oversubscribable measure for IO load, and the oversubscription factor is taken into account when computing the number of available spindles)</li>
 <li>standard deviation of the dynamic load on the nodes, for cpus, memory, disk and network</li>
 <li>standard deviation of the CPU load provided by MonD</li>
 </ul>
@@ -145,6 +146,9 @@
 </dd>
 <dt>--evac-mode</dt>
 <dd><p>This parameter restricts the list of instances considered for moving to the ones living on offline/drained nodes. It can be used as a (bulk) replacement for Ganeti's own <em>gnt-node evacuate</em>, with the note that it doesn't guarantee full evacuation.</p>
+</dd>
+<dt>--restricted-migration</dt>
+<dd><p>This parameter disallows any replace-primary moves (frf), as well as those replace-and-failover moves (rf) where the primary node of the instance is not drained. If used together with the <code>--evac-mode</code> option, the only migrations that hbal will do are migrations of instances off a drained node. This can be useful if during a reinstall of the base operating system migration is only possible from the old OS to the new OS.</p>
 </dd>
 <dt>--select-instances=<em>instances</em></dt>
 <dd><p>This parameter marks the given instances (as a comma-separated list) as the only ones being moved during the rebalance.</p>
