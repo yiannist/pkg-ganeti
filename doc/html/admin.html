@@ -8,7 +8,7 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Ganeti administrator’s guide &mdash; Ganeti 2.10.3 documentation</title>
+    <title>Ganeti administrator’s guide &mdash; Ganeti 2.10.4 documentation</title>
     
     <link rel="stylesheet" href="_static/style.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
@@ -16,7 +16,7 @@
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.10.3',
+        VERSION:     '2.10.4',
         COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -25,9 +25,9 @@
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti 2.10.3 documentation" href="index.html" />
+    <link rel="top" title="Ganeti 2.10.4 documentation" href="index.html" />
     <link rel="next" title="Merging clusters" href="cluster-merge.html" />
-    <link rel="prev" title="HSqueeze tool" href="design-hsqueeze.html" /> 
+    <link rel="prev" title="Performance tests for QA" href="design-performance-tests.html" /> 
   </head>
   <body>
     <div class="related">
@@ -37,9 +37,9 @@
           <a href="cluster-merge.html" title="Merging clusters"
              accesskey="N">next</a></li>
         <li class="right" >
-          <a href="design-hsqueeze.html" title="HSqueeze tool"
+          <a href="design-performance-tests.html" title="Performance tests for QA"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.10.3 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.10.4 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -1270,19 +1270,19 @@ that tries to abstract the handling of the storage type the cluster
 uses.</p>
 <p>First is listing the backend storage and their space situation:</p>
 <div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-node</span> <span class="gs">list-storage</span>
-Node  Name        Size Used   Free
-node1 /dev/sda7 673.8G   0M 673.8G
-node1 /dev/sdb1 698.6G 1.5G 697.1G
-node2 /dev/sda7 673.8G   0M 673.8G
-node2 /dev/sdb1 698.6G 1.0G 697.6G
+Node  Type   Name  Size Used Free Allocatable
+node1 lvm-vg xenvg 3.6T   0M 3.6T Y
+node2 lvm-vg xenvg 3.6T   0M 3.6T Y
+node3 lvm-vg xenvg 3.6T 2.0G 3.6T Y
 </pre></div>
 </div>
 <p>The default is to list LVM physical volumes. It&#8217;s also possible to list
 the LVM volume groups:</p>
 <div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-node</span> <span class="gs">list-storage</span> <span class="gs">-t</span> <span class="gs">lvm-vg</span>
-Node  Name  Size
-node1 xenvg 1.3T
-node2 xenvg 1.3T
+Node  Type   Name  Size Used Free Allocatable
+node1 lvm-vg xenvg 3.6T   0M 3.6T Y
+node2 lvm-vg xenvg 3.6T   0M 3.6T Y
+node3 lvm-vg xenvg 3.6T 2.0G 3.6T Y
 </pre></div>
 </div>
 <p>Next is repairing storage units, which is currently only implemented for
@@ -1369,15 +1369,15 @@ commands as follows:</p>
 modify command (e.g. <tt class="docutils literal"><span class="pre">--candidate-pool-size</span></tt>, etc.)</li>
 </ul>
 <p>For detailed option list see the <em class="manpage">gnt-cluster(8)</em> man page.</p>
-<dl class="docutils">
-<dt>The cluster version can be obtained via the <tt class="docutils literal"><span class="pre">version</span></tt> command::</dt>
-<dd>$ gnt-cluster version
+<p>The cluster version can be obtained via the <tt class="docutils literal"><span class="pre">version</span></tt> command:</p>
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-cluster</span> <span class="gs">version</span>
 Software version: 2.1.0
 Internode protocol: 20
 Configuration format: 2010000
 OS api version: 15
-Export interface: 0</dd>
-</dl>
+Export interface: 0
+</pre></div>
+</div>
 <p>This is not very useful except when debugging Ganeti.</p>
 </div>
 <div class="section" id="global-node-commands">
@@ -2249,8 +2249,8 @@ in the source archive.</p>
 </ul>
 
   <h4>Previous topic</h4>
-  <p class="topless"><a href="design-hsqueeze.html"
-                        title="previous chapter">HSqueeze tool</a></p>
+  <p class="topless"><a href="design-performance-tests.html"
+                        title="previous chapter">Performance tests for QA</a></p>
   <h4>Next topic</h4>
   <p class="topless"><a href="cluster-merge.html"
                         title="next chapter">Merging clusters</a></p>
@@ -2283,9 +2283,9 @@ in the source archive.</p>
           <a href="cluster-merge.html" title="Merging clusters"
              >next</a></li>
         <li class="right" >
-          <a href="design-hsqueeze.html" title="HSqueeze tool"
+          <a href="design-performance-tests.html" title="Performance tests for QA"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.10.3 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.10.4 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

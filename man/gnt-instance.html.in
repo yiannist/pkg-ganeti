@@ -102,7 +102,7 @@ code > span.er { color: #ff0000; font-weight: bold; }
 <dd><p>The LVM volume group. This works only for LVM and DRBD devices.</p>
 </dd>
 <dt>metavg</dt>
-<dd><p>This options specifies a different VG for the metadata device. This works only for DRBD devices</p>
+<dd><p>This options specifies a different VG for the metadata device. This works only for DRBD devices. If not specified, the default metavg of the node-group (possibly inherited from the cluster-wide settings) will be used.</p>
 </dd>
 </dl>
 <p>When creating ExtStorage disks, also arbitrary parameters can be passed, to the ExtStorage provider. Those parameters are passed as additional comma separated options. Therefore, an ExtStorage disk provided by provider <code>pvdr1</code> with parameters <code>param1</code>, <code>param2</code> would be passed as <code>--disk 0:size=10G,provider=pvdr1,param1=val1,param2=val2</code>.</p>

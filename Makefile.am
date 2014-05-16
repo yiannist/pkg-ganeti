@@ -534,6 +534,7 @@ docinput = \
 	doc/design-optables.rst \
 	doc/design-ovf-support.rst \
 	doc/design-partitioned.rst \
+	doc/design-performance-tests.rst \
 	doc/design-query-splitting.rst \
 	doc/design-query2.rst \
 	doc/design-reason-trail.rst \
@@ -615,6 +616,8 @@ HFLAGS = \
 HEXTRA =
 # internal extra flags (used for test/hs/htest mainly)
 HEXTRA_INT =
+# combination of HEXTRA and HEXTRA_CONFIGURE
+HEXTRA_COMBINED = $(HEXTRA) $(HEXTRA_CONFIGURE)
 # exclude options for coverage reports
 HPCEXCL = --exclude Main \
 	--exclude Ganeti.Constants \
@@ -949,6 +952,7 @@ qa_scripts = \
 	qa/qa_instance.py \
 	qa/qa_instance_utils.py \
 	qa/qa_job.py \
+	qa/qa_job_utils.py \
 	qa/qa_monitoring.py \
 	qa/qa_logging.py \
 	qa/qa_node.py \
@@ -981,7 +985,7 @@ $(HS_ALL_PROGS): %: %.hs $(HS_LIBTESTBUILT_SRCS) Makefile
 	  $(HFLAGS) \
 	  $(HS_PARALLEL3) $(HS_REGEX_PCRE) \
 	  -osuf $(notdir $@).o -hisuf $(notdir $@).hi \
-	  $(HEXTRA) $(HEXTRA_INT) $@
+	  $(HEXTRA_COMBINED) $(HEXTRA_INT) $@
 	@touch "$@"
 
 # for the test/hs/htest binary, we need to enable profiling/coverage
@@ -1227,6 +1231,7 @@ TEST_FILES = \
 	test/data/htools/hail-node-evac.json \
 	test/data/htools/hail-reloc-drbd.json \
 	test/data/htools/hbal-dyn.data \
+	test/data/htools/hbal-evac.data \
 	test/data/htools/hbal-excl-tags.data \
 	test/data/htools/hbal-split-insts.data \
 	test/data/htools/hspace-tiered-dualspec-exclusive.data \
@@ -1256,6 +1261,7 @@ TEST_FILES = \
 	test/hs/shelltests/htools-dynutil.test \
 	test/hs/shelltests/htools-excl.test \
 	test/hs/shelltests/htools-hail.test \
+	test/hs/shelltests/htools-hbal-evac.test \
 	test/hs/shelltests/htools-hroller.test \
 	test/hs/shelltests/htools-hspace.test \
 	test/hs/shelltests/htools-invalid.test \
@@ -1677,7 +1683,7 @@ man/%.7.in man/%.8.in man/%.1.in: man/%.gen man/footer.rst
 	trap 'echo auto-removing $@; rm $@' EXIT; \
 	$(PANDOC) -s -f rst -t man $< man/footer.rst | \
 	  sed -e 's/\\@/@/g' > $@; \
-	if test -n "$(MAN_HAS_WARNINGS)"; then $(CHECK_MAN_WARNINGS) $@; fi; \
+	if test -n "$(MAN_HAS_WARNINGS)"; then LC_ALL=en_US.UTF-8 $(CHECK_MAN_WARNINGS) $@; fi; \
 	$(CHECK_MAN_DASHES) $@; \
 	trap - EXIT
 

@@ -133,7 +133,9 @@ This works only for LVM and DRBD devices.
 .TP
 .B metavg
 This options specifies a different VG for the metadata device.
-This works only for DRBD devices
+This works only for DRBD devices.
+If not specified, the default metavg of the node-group (possibly
+inherited from the cluster-wide settings) will be used.
 .RS
 .RE
 .PP
