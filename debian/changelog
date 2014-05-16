@@ -1,3 +1,15 @@
+ganeti (2.10.4-1) unstable; urgency=medium
+
+  * New upstream bugfix release (see /usr/share/doc/ganeti/NEWS.gz):
+    + Support restricted migration in hbal
+    + Fix for the --shared-file-storage-dir of gnt-cluster modify
+    + Fail in replace-disks if attaching disks fails
+    + Set IFF_ONE_QUEUE on created tap interfaces for KVM
+    + Small fixes and enhancements in the build system
+    + Various documentation fixes
+
+ -- Apollon Oikonomopoulos <apoikos@debian.org>  Fri, 16 May 2014 09:48:05 +0300
+
 ganeti (2.10.3-1) unstable; urgency=medium
 
   [ Apollon Oikonomopoulos ]
