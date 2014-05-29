@@ -43,20 +43,18 @@ Recommends: drbd8-utils (>= 8.0.7), qemu-kvm |
 Suggests: ganeti-doc, blktap-dkms, molly-guard
 Conflicts: ganeti-htools
 Provides: ${python:Provides}, ganeti-htools
-Description: Cluster-based virtualization management software
- Ganeti is a virtual server cluster management software tool built on top
- of the Xen and KVM virtualization technologies and other Free Software. After
- setting it up it will provide you with an automated environment to
- manage highly available virtual machine instances.
+Description: cluster virtualization manager
+ Ganeti is a virtual server cluster management tool built on top of the
+ Xen and KVM virtualization technologies and other free software. It
+ provides an automated environment to manage highly available virtual
+ machine instances.
  .
- It has been designed to facilitate cluster management of virtual servers
- and to provide fast and simple recovery after physical failures using
- commodity hardware.
- .
- It will take care of operations such as redundant disk creation and
- management, operating system installation (in cooperation with OS-specific
- install scripts), startup, shutdown, failover of instances between physical
- systems.
+ It is designed to facilitate cluster management of virtual servers using
+ commodity hardware, and to provide fast and simple recovery after physical
+ failures. It can take care of operations such as redundant disk creation
+ and management, operating system installation (in cooperation with
+ OS-specific install scripts), startup, shutdown, and failover of instances
+ between physical systems.
  .
  This package installs the complete Ganeti system.
 
@@ -86,20 +84,18 @@ Description: cluster virtualization manager - Python components
 Package: ganeti-haskell-#VER#
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}, debconf | debconf-2.0
-Description: Cluster-based virtualization management software - Haskell components
- Ganeti is a virtual server cluster management software tool built on top
- of the Xen and KVM virtualization technologies and other Free Software. After
- setting it up it will provide you with an automated environment to
- manage highly available virtual machine instances.
+Description: cluster virtualization manager - Haskell components
+ Ganeti is a virtual server cluster management tool built on top of the
+ Xen and KVM virtualization technologies and other free software. It
+ provides an automated environment to manage highly available virtual
+ machine instances.
  .
- It has been designed to facilitate cluster management of virtual servers
- and to provide fast and simple recovery after physical failures using
- commodity hardware.
- .
- It will take care of operations such as redundant disk creation and
- management, operating system installation (in cooperation with OS-specific
- install scripts), startup, shutdown, failover of instances between physical
- systems.
+ It is designed to facilitate cluster management of virtual servers using
+ commodity hardware, and to provide fast and simple recovery after physical
+ failures. It can take care of operations such as redundant disk creation
+ and management, operating system installation (in cooperation with
+ OS-specific install scripts), startup, shutdown, and failover of instances
+ between physical systems.
  .
  This package provides the architecture-dependent components of Ganeti #VER#
  written in Haskell.
