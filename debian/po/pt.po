@@ -43,8 +43,8 @@ msgid ""
 "Ganeti to stop functioning correctly."
 msgstr ""
 "Isto pode acontecer se você actualizou o pacote ganeti para uma nova versão "
-"menor, mas ainda não correu \"gnt-cluster upgrade\". Remover o ${package} irá "
-"fazer com que o Ganeti pare de funcionar correctamente."
+"menor, mas ainda não correu \"gnt-cluster upgrade\". Remover o ${package} "
+"irá fazer com que o Ganeti pare de funcionar correctamente."
 
 #. Type: boolean
 #. Description
@@ -53,6 +53,5 @@ msgid ""
 "It is highly recommended to abort the removal now and upgrade the cluster "
 "before removing ${package}."
 msgstr ""
-"É altamente recomendado aborta a remoção agora e actualizar o cluster "
-"antes de remover o ${package}."
-
+"É altamente recomendado aborta a remoção agora e actualizar o cluster antes "
+"de remover o ${package}."

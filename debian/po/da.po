@@ -41,8 +41,8 @@ msgid ""
 "Ganeti to stop functioning correctly."
 msgstr ""
 "Dette kan ske, hvis du opgraderer pakken ganeti til en ny mindre version, "
-"men endnu ikke har kørt »gnt-cluster upgrade«. Fjernelse af ${package} "
-"vil medføre at Ganeti stopper med at fungere korrekt."
+"men endnu ikke har kørt »gnt-cluster upgrade«. Fjernelse af ${package} vil "
+"medføre at Ganeti stopper med at fungere korrekt."
 
 #. Type: boolean
 #. Description

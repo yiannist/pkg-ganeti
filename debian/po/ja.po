@@ -18,13 +18,13 @@ msgstr ""
 
 #. Type: boolean
 #. Description
-#: ../templates/versioned.templates:1001
+#: ../templates/versioned.templates:2001
 msgid "Abort ${package} removal?"
 msgstr "${package} の削除を中止しますか?"
 
 #. Type: boolean
 #. Description
-#: ../templates/versioned.templates:1001
+#: ../templates/versioned.templates:2001
 msgid ""
 "You are attempting to remove ${package}, but it seems that the running "
 "Ganeti version is still ${version}."
@@ -34,19 +34,19 @@ msgstr ""
 
 #. Type: boolean
 #. Description
-#: ../templates/versioned.templates:1001
+#: ../templates/versioned.templates:2001
 msgid ""
 "This can happen if you upgrade the ganeti package to a new minor version, "
 "but have not run \"gnt-cluster upgrade\" yet. Removing ${package} will cause "
 "Ganeti to stop functioning correctly."
 msgstr ""
 "これは ganeti パッケージを番号の小さい新しいバージョンにアップグレードし、"
-"「gnt-cluster upgrade」を実行していない場合に起きることがあります。${package} "
-"を削除すると Ganeti は正常に機能しなくなります。"
+"「gnt-cluster upgrade」を実行していない場合に起きることがありま"
+"す。${package} を削除すると Ganeti は正常に機能しなくなります。"
 
 #. Type: boolean
 #. Description
-#: ../templates/versioned.templates:1001
+#: ../templates/versioned.templates:2001
 msgid ""
 "It is highly recommended to abort the removal now and upgrade the cluster "
 "before removing ${package}."
