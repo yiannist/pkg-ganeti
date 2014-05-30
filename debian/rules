@@ -41,7 +41,8 @@ override_dh_auto_configure:
 	  --enable-restricted-commands \
 	  --disable-symlinks \
 	  --with-user-prefix=$(GNT_USERGROUP_PREFIX) \
-	  --with-group-prefix=$(GNT_USERGROUP_PREFIX)
+	  --with-group-prefix=$(GNT_USERGROUP_PREFIX) \
+	  --with-ssh-initscript="/usr/sbin/invoke-rc.d ssh"
 
 override_dh_auto_clean:
 	[ ! -f Makefile ] || $(MAKE) distclean
