@@ -1,3 +1,23 @@
+ganeti (2.10.5-1) unstable; urgency=medium
+
+  [ Apollon Oikonomopoulos ]
+  * New upstream bugfix release (see /usr/share/doc/ganeti/NEWS.gz):
+    + Make aspects of gnt-group evacuate behaviour controllable.
+    + hspace performance improvements on large clusters with DRBD.
+    + Fix instance network queries.
+    + Relax the DRBD helper cluster parameter requirements.
+  * Configure ganeti to use invoke-rc.d for SSH restart during node add
+  * d/control: update forgotten descriptions
+  * Update versioned.templates according to debian-l10n-en
+  * Add reformatted PO files
+
+  [ Debconf translations ]
+  * German debconf translation (Stephan Beck, closes: #745211)
+  * Italian debconf translation (Beatrice Torracca, closes: #745642)
+  * Polish debconf translation (Michał Kułach, closes: #745067)
+
+ -- Apollon Oikonomopoulos <apoikos@debian.org>  Mon, 02 Jun 2014 17:34:44 +0300
+
 ganeti (2.10.4-1) unstable; urgency=medium
 
   * New upstream bugfix release (see /usr/share/doc/ganeti/NEWS.gz):
