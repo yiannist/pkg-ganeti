@@ -87,6 +87,7 @@ __all__ = [
   "FIELDS_OPT",
   "FILESTORE_DIR_OPT",
   "FILESTORE_DRIVER_OPT",
+  "FORCE_FAILOVER_OPT",
   "FORCE_FILTER_OPT",
   "FORCE_OPT",
   "FORCE_VARIANT_OPT",
@@ -196,6 +197,7 @@ __all__ = [
   "IPOLICY_STD_SPECS_OPT",
   "IPOLICY_DISK_TEMPLATES",
   "IPOLICY_VCPU_RATIO",
+  "SEQUENTIAL_OPT",
   "SPICE_CACERT_OPT",
   "SPICE_CERT_OPT",
   "SRC_DIR_OPT",
@@ -343,7 +345,7 @@ _QFT_NAMES = {
   }
 
 
-class _Argument:
+class _Argument(object):
   def __init__(self, min=0, max=None): # pylint: disable=W0622
     self.min = min
     self.max = max
@@ -843,6 +845,10 @@ PRINT_JOBID_OPT = cli_option("--print-jobid", dest="print_jobid",
                              help=("Additionally print the job as first line"
                                    " on stdout (for scripting)."))
 
+SEQUENTIAL_OPT = cli_option("--sequential", dest="sequential",
+                            default=False, action="store_true",
+                            help=("Execute all resulting jobs sequentially"))
+
 SYNC_OPT = cli_option("--sync", dest="do_locking",
                       default=False, action="store_true",
                       help=("Grab locks while doing the queries"
@@ -1051,6 +1057,12 @@ ALLOW_FAILOVER_OPT = cli_option("--allow-failover",
                                 dest="allow_failover",
                                 action="store_true", default=False,
                                 help="If migration is not possible fallback to"
+                                     " failover")
+
+FORCE_FAILOVER_OPT = cli_option("--force-failover",
+                                dest="force_failover",
+                                action="store_true", default=False,
+                                help="Do not use migration, always use"
                                      " failover")
 
 NONLIVE_OPT = cli_option("--non-live", dest="live",
@@ -2096,7 +2108,7 @@ def GenericPollJob(job_id, cbs, report_cbs):
   raise errors.OpExecError(result)
 
 
-class JobPollCbBase:
+class JobPollCbBase(object):
   """Base class for L{GenericPollJob} callbacks.
 
   """
@@ -2124,7 +2136,7 @@ class JobPollCbBase:
     raise NotImplementedError()
 
 
-class JobPollReportCbBase:
+class JobPollReportCbBase(object):
   """Base class for L{GenericPollJob} reporting callbacks.
 
   """
@@ -2778,7 +2790,7 @@ def GenericInstanceCreate(mode, opts, args):
   return 0
 
 
-class _RunWhileClusterStoppedHelper:
+class _RunWhileClusterStoppedHelper(object):
   """Helper class for L{RunWhileClusterStopped} to simplify state management
 
   """
@@ -3061,7 +3073,7 @@ def _GetColumnFormatter(fdef, override, unit):
   raise NotImplementedError("Can't format column type '%s'" % fdef.kind)
 
 
-class _QueryColumnFormatter:
+class _QueryColumnFormatter(object):
   """Callable class for formatting fields of a query.
 
   """
@@ -3335,7 +3347,7 @@ def GenericListFields(resource, fields, separator, header, cl=None):
   return constants.EXIT_SUCCESS
 
 
-class TableColumn:
+class TableColumn(object):
   """Describes a column for L{FormatTable}.
 
   """

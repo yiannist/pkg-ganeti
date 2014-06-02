@@ -8,7 +8,7 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>News &mdash; Ganeti 2.10.4 documentation</title>
+    <title>News &mdash; Ganeti 2.10.5 documentation</title>
     
     <link rel="stylesheet" href="_static/style.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
@@ -16,7 +16,7 @@
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.10.4',
+        VERSION:     '2.10.5',
         COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -25,7 +25,7 @@
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti 2.10.4 documentation" href="index.html" />
+    <link rel="top" title="Ganeti 2.10.5 documentation" href="index.html" />
     <link rel="next" title="OVF converter" href="ovfconverter.html" />
     <link rel="prev" title="Moving instances between clusters" href="move-instance.html" /> 
   </head>
@@ -39,7 +39,7 @@
         <li class="right" >
           <a href="move-instance.html" title="Moving instances between clusters"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.10.4 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.10.5 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -50,6 +50,35 @@
             
   <div class="section" id="news">
 <h1>News<a class="headerlink" href="#news" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="version-2-10-5">
+<h2>Version 2.10.5<a class="headerlink" href="#version-2-10-5" title="Permalink to this headline">¶</a></h2>
+<p><em>(Released Mon, 2 Jun 2014)</em></p>
+<ul class="simple">
+<li>Two new options have been added to gnt-group evacuate.
+The &#8216;sequential&#8217; option forces all the evacuation steps to
+be carried out sequentially, thus avoiding congestion on a
+slow link between node groups. The &#8216;force-failover&#8217; option
+disallows migrations and forces failovers to be used instead.
+In this way evacuation to a group with vastly differnet
+hypervisor is possible.</li>
+<li>In tiered allocation, when looking for ways on how to shrink
+an instance, the canoncial path is tried first, i.e., in each
+step reduce on the resource most placements are blocked on. Only
+if no smaller fitting instance can be found shrinking a single
+resource till fit is tried.</li>
+<li>For finding the placement of an instance, the duplicate computations
+in the computation of the various cluster scores are computed only
+once. This significantly improves the performance of hspace for DRBD
+on large clusters; for other clusters, a slight performance decrease
+might occur. Moreover, due to the changed order, floating point
+number inaccuracies accumulate differently, thus resulting in different
+cluster scores. It has been verified that the effect of these different
+roundings is less than 1e-12.</li>
+<li>network queries fixed with respect to instances</li>
+<li>relax too strict prerequisite in LUClusterSetParams for DRBD helpers</li>
+<li>VArious improvements to QA and build-time tests</li>
+</ul>
+</div>
 <div class="section" id="version-2-10-4">
 <h2>Version 2.10.4<a class="headerlink" href="#version-2-10-4" title="Permalink to this headline">¶</a></h2>
 <p><em>(Released Thu, 15 May 2014)</em></p>
@@ -3272,6 +3301,7 @@ post-configuration update hook)</li>
   <h3><a href="index.html">Table Of Contents</a></h3>
   <ul>
 <li><a class="reference internal" href="#">News</a><ul>
+<li><a class="reference internal" href="#version-2-10-5">Version 2.10.5</a></li>
 <li><a class="reference internal" href="#version-2-10-4">Version 2.10.4</a></li>
 <li><a class="reference internal" href="#version-2-10-3">Version 2.10.3</a></li>
 <li><a class="reference internal" href="#version-2-10-2">Version 2.10.2</a></li>
@@ -3511,7 +3541,7 @@ post-configuration update hook)</li>
         <li class="right" >
           <a href="move-instance.html" title="Moving instances between clusters"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.10.4 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.10.5 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

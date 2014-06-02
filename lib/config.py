@@ -75,7 +75,7 @@ def _ValidateConfig(data):
                                        data['version'])
 
 
-class TemporaryReservationManager:
+class TemporaryReservationManager(object):
   """A temporary resource reservation manager.
 
   This is used to reserve resources in a job, before using them, making sure
@@ -853,6 +853,8 @@ class ConfigWriter(object):
           link = "bridge:%s" % nic_link
         elif nic_mode == constants.NIC_MODE_ROUTED:
           link = "route:%s" % nic_link
+        elif nic_mode == constants.NIC_MODE_OVS:
+          link = "ovs:%s" % nic_link
         else:
           raise errors.ProgrammerError("NIC mode '%s' not handled" % nic_mode)
 
