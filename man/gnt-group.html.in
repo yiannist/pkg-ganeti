@@ -167,9 +167,10 @@
 <p>Renames a given group from <em>oldname</em> to <em>newname</em>.</p>
 <p>See <strong>ganeti</strong>(7) for a description of <code>--submit</code> and other common options.</p>
 <h2 id="evacuate"><a href="#TOC">EVACUATE</a></h2>
-<p><strong>evacuate</strong> [--submit] [--print-job-id]<br />[--iallocator <em>NAME</em>] [--to <em>GROUP</em>...] {<em>group</em>}</p>
+<p><strong>evacuate</strong> [--submit] [--print-job-id] [--sequential] [--force-failover]<br />[--iallocator <em>NAME</em>] [--to <em>GROUP</em>...] {<em>group</em>}</p>
 <p>This command will move all instances out of the given node group. Instances are placed in a new group by an iallocator, either given on the command line or as a cluster default.</p>
 <p>If no specific destination groups are specified using <code>--to</code>, all groups except the evacuated group are considered.</p>
+<p>The moves of the individual instances are handled as separate jobs to allow for maximal parallelism. If the <code>--sequential</code> option is given, the moves of the individual instances will be executed sequentially. This can be usefull if the link between the groups is vulnerable to congestion. If the <code>--force-failover</code> option is given, no migrations will be made. This might be necessary if the group being evacuated is too different from the other groups in the cluster.</p>
 <p>See <strong>ganeti</strong>(7) for a description of <code>--submit</code> and other common options.</p>
 <p>Example:</p>
 <pre><code># gnt-group evacuate -I hail --to rack4 rack1</code></pre>

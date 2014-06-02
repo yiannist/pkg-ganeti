@@ -359,7 +359,8 @@ See \f[B]ganeti\f[](7) for a description of \f[C]--submit\f[] and other
 common options.
 .SS EVACUATE
 .PP
-\f[B]evacuate\f[] [--submit] [--print-job-id]
+\f[B]evacuate\f[] [--submit] [--print-job-id] [--sequential]
+[--force-failover]
 .PD 0
 .P
 .PD
@@ -371,6 +372,17 @@ the command line or as a cluster default.
 .PP
 If no specific destination groups are specified using \f[C]--to\f[], all
 groups except the evacuated group are considered.
+.PP
+The moves of the individual instances are handled as separate jobs to
+allow for maximal parallelism.
+If the \f[C]--sequential\f[] option is given, the moves of the
+individual instances will be executed sequentially.
+This can be usefull if the link between the groups is vulnerable to
+congestion.
+If the \f[C]--force-failover\f[] option is given, no migrations will be
+made.
+This might be necessary if the group being evacuated is too different
+from the other groups in the cluster.
 .PP
 See \f[B]ganeti\f[](7) for a description of \f[C]--submit\f[] and other
 common options.
