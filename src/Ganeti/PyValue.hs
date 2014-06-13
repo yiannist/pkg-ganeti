@@ -1,4 +1,4 @@
-{-| PyValueInstances contains instances for the 'PyValue' typeclass.
+{-| PyValue contains instances for the 'PyValue' typeclass.
 
 The typeclass 'PyValue' converts Haskell values to Python values.
 This module contains instances of this typeclass for several generic
@@ -27,10 +27,11 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
 02110-1301, USA.
 
 -}
-{-# LANGUAGE FlexibleInstances, OverlappingInstances,
-             TypeSynonymInstances, IncoherentInstances #-}
-{-# OPTIONS_GHC -fno-warn-orphans #-}
-module Ganeti.PyValueInstances where
+{-# LANGUAGE ExistentialQuantification #-}
+module Ganeti.PyValue
+  ( PyValue(..)
+  , PyValueEx(..)
+  ) where
 
 import Data.List (intercalate)
 import Data.Map (Map)
@@ -38,7 +39,19 @@ import qualified Data.Map as Map
 import qualified Data.Set as Set (toList)
 
 import Ganeti.BasicTypes
-import Ganeti.THH
+
+-- * PyValue represents data types convertible to Python
+
+-- | Converts Haskell values into Python values
+--
+-- This is necessary for the default values of opcode parameters and
+-- return values.  For example, if a default value or return type is a
+-- Data.Map, then it must be shown as a Python dictioanry.
+class PyValue a where
+  showValue :: a -> String
+
+  showValueList :: [a] -> String
+  showValueList xs =  "[" ++ intercalate "," (map showValue xs) ++ "]"
 
 instance PyValue Bool where
   showValue = show
@@ -54,6 +67,7 @@ instance PyValue Double where
 
 instance PyValue Char where
   showValue = show
+  showValueList = show
 
 instance (PyValue a, PyValue b) => PyValue (a, b) where
   showValue (x, y) = "(" ++ showValue x ++ "," ++ showValue y ++ ")"
@@ -66,11 +80,8 @@ instance (PyValue a, PyValue b, PyValue c) => PyValue (a, b, c) where
     showValue z ++
     ")"
 
-instance PyValue String where
-  showValue = show
-
 instance PyValue a => PyValue [a] where
-  showValue xs = "[" ++ intercalate "," (map showValue xs) ++ "]"
+  showValue = showValueList
 
 instance (PyValue k, PyValue a) => PyValue (Map k a) where
   showValue mp =
@@ -79,3 +90,11 @@ instance (PyValue k, PyValue a) => PyValue (Map k a) where
 
 instance PyValue a => PyValue (ListSet a) where
   showValue = showValue . Set.toList . unListSet
+
+-- * PyValue represents an unspecified value convertible to Python
+
+-- | Encapsulates Python default values
+data PyValueEx = forall a. PyValue a => PyValueEx a
+
+instance PyValue PyValueEx where
+  showValue (PyValueEx x) = showValue x

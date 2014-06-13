@@ -80,8 +80,8 @@ class FakeHypervisor(hv_base.BaseHypervisor):
         inst_id = fh.readline().strip()
         memory = utils.TryConvert(int, fh.readline().strip())
         vcpus = utils.TryConvert(int, fh.readline().strip())
-        stat = "---b-"
-        times = "0"
+        stat = hv_base.HvInstanceState.RUNNING
+        times = 0
         return (instance_name, inst_id, memory, vcpus, stat, times)
       finally:
         fh.close()
@@ -104,14 +104,14 @@ class FakeHypervisor(hv_base.BaseHypervisor):
         inst_id = "-1"
         memory = 0
         vcpus = 1
-        stat = "-----"
-        times = "-1"
+        stat = hv_base.HvInstanceState.SHUTDOWN
+        times = -1
         try:
           inst_id = fh.readline().strip()
           memory = utils.TryConvert(int, fh.readline().strip())
           vcpus = utils.TryConvert(int, fh.readline().strip())
-          stat = "---b-"
-          times = "0"
+          stat = hv_base.HvInstanceState.RUNNING
+          times = 0
         finally:
           fh.close()
         data.append((file_name, inst_id, memory, vcpus, stat, times))
@@ -231,7 +231,8 @@ class FakeHypervisor(hv_base.BaseHypervisor):
     return result
 
   @classmethod
-  def GetInstanceConsole(cls, instance, primary_node, hvparams, beparams):
+  def GetInstanceConsole(cls, instance, primary_node, node_group,
+                         hvparams, beparams):
     """Return information for connecting to the console of an instance.
 
     """

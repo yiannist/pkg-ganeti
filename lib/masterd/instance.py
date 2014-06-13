@@ -1007,7 +1007,7 @@ def _GetInstDiskMagic(base, instance_name, index):
 
 
 def TransferInstanceData(lu, feedback_fn, src_node_uuid, dest_node_uuid,
-                         dest_ip, instance, all_transfers):
+                         dest_ip, compress, instance, all_transfers):
   """Transfers an instance's data from one node to another.
 
   @param lu: Logical unit instance
@@ -1018,6 +1018,8 @@ def TransferInstanceData(lu, feedback_fn, src_node_uuid, dest_node_uuid,
   @param dest_node_uuid: Destination node UUID
   @type dest_ip: string
   @param dest_ip: IP address of destination node
+  @type compress: string
+  @param compress: one of L{constants.IEC_ALL}
   @type instance: L{objects.Instance}
   @param instance: Instance object
   @type all_transfers: list of L{DiskTransfer} instances
@@ -1027,9 +1029,6 @@ def TransferInstanceData(lu, feedback_fn, src_node_uuid, dest_node_uuid,
            each transfer
 
   """
-  # Disable compression for all moves as these are all within the same cluster
-  compress = constants.IEC_NONE
-
   src_node_name = lu.cfg.GetNodeName(src_node_uuid)
   dest_node_name = lu.cfg.GetNodeName(dest_node_uuid)
 
@@ -1219,11 +1218,13 @@ class ExportInstanceHelper(object):
       else:
         self._removed_snaps[disk_index] = True
 
-  def LocalExport(self, dest_node):
+  def LocalExport(self, dest_node, compress):
     """Intra-cluster instance export.
 
     @type dest_node: L{objects.Node}
     @param dest_node: Destination node
+    @type compress: string
+    @param compress: one of L{constants.IEC_ALL}
 
     """
     instance = self._instance
@@ -1254,6 +1255,7 @@ class ExportInstanceHelper(object):
     dresults = TransferInstanceData(self._lu, self._feedback_fn,
                                     src_node_uuid, dest_node.uuid,
                                     dest_node.secondary_ip,
+                                    compress,
                                     instance, transfers)
 
     assert len(dresults) == len(instance.disks)
@@ -1269,7 +1271,7 @@ class ExportInstanceHelper(object):
 
     return (fin_resu, dresults)
 
-  def RemoteExport(self, disk_info, key_name, dest_ca_pem, timeouts):
+  def RemoteExport(self, disk_info, key_name, dest_ca_pem, compress, timeouts):
     """Inter-cluster instance export.
 
     @type disk_info: list
@@ -1278,6 +1280,8 @@ class ExportInstanceHelper(object):
     @param key_name: Name of X509 key to use
     @type dest_ca_pem: string
     @param dest_ca_pem: Destination X509 CA in PEM format
+    @type compress: string
+    @param compress: one of L{constants.IEC_ALL}
     @type timeouts: L{ImportExportTimeouts}
     @param timeouts: Timeouts for this import
 
@@ -1297,7 +1301,9 @@ class ExportInstanceHelper(object):
 
         opts = objects.ImportExportOptions(key_name=key_name,
                                            ca_pem=dest_ca_pem,
-                                           magic=magic, ipv6=ipv6)
+                                           magic=magic,
+                                           compress=compress,
+                                           ipv6=ipv6)
 
         self._feedback_fn("Sending disk %s to %s:%s" % (idx, host, port))
         finished_fn = compat.partial(self._TransferFinished, idx)
@@ -1430,7 +1436,7 @@ class _RemoteImportCb(ImportExportCbBase):
 
 
 def RemoteImport(lu, feedback_fn, instance, pnode, source_x509_ca,
-                 cds, timeouts):
+                 cds, compress, timeouts):
   """Imports an instance from another cluster.
 
   @param lu: Logical unit instance
@@ -1443,6 +1449,8 @@ def RemoteImport(lu, feedback_fn, instance, pnode, source_x509_ca,
   @param source_x509_ca: Import source's X509 CA
   @type cds: string
   @param cds: Cluster domain secret
+  @type compress: string
+  @param compress: one of L{constants.IEC_ALL}
   @type timeouts: L{ImportExportTimeouts}
   @param timeouts: Timeouts for this import
 
@@ -1481,7 +1489,9 @@ def RemoteImport(lu, feedback_fn, instance, pnode, source_x509_ca,
         # Import daemon options
         opts = objects.ImportExportOptions(key_name=x509_key_name,
                                            ca_pem=source_ca_pem,
-                                           magic=magic, ipv6=ipv6)
+                                           magic=magic,
+                                           compress=compress,
+                                           ipv6=ipv6)
 
         ieloop.Add(DiskImport(lu, instance.primary_node, opts, instance,
                               "disk%d" % idx,
@@ -1638,6 +1648,7 @@ def ComputeDiskSize(disk_template, disks):
       sum(d[constants.IDISK_SIZE] + constants.DRBD_META_SIZE for d in disks),
     constants.DT_FILE: sum(d[constants.IDISK_SIZE] for d in disks),
     constants.DT_SHARED_FILE: sum(d[constants.IDISK_SIZE] for d in disks),
+    constants.DT_GLUSTER: sum(d[constants.IDISK_SIZE] for d in disks),
     constants.DT_BLOCK: 0,
     constants.DT_RBD: sum(d[constants.IDISK_SIZE] for d in disks),
     constants.DT_EXT: sum(d[constants.IDISK_SIZE] for d in disks),

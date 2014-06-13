@@ -166,6 +166,7 @@ class NodeRequestHandler(http.server.HttpServerHandler):
     """Handle a request.
 
     """
+
     if req.request_method.upper() != http.HTTP_POST:
       raise http.HttpBadRequest("Only the POST method is supported")
 
@@ -386,15 +387,6 @@ class NodeRequestHandler(http.server.HttpServerHandler):
     """
     disks = [objects.Disk.FromDict(cf) for cf in params[0]]
     return backend.BlockdevGetdimensions(disks)
-
-  @staticmethod
-  def perspective_blockdev_export(params):
-    """Compute the sizes of the given block devices.
-
-    """
-    disk = objects.Disk.FromDict(params[0])
-    dest_node_ip, dest_path, cluster_name = params[1:]
-    return backend.BlockdevExport(disk, dest_node_ip, dest_path, cluster_name)
 
   @staticmethod
   def perspective_blockdev_setinfo(params):
@@ -737,6 +729,13 @@ class NodeRequestHandler(http.server.HttpServerHandler):
     return backend.GetAllInstancesInfo(hypervisor_list, all_hvparams)
 
   @staticmethod
+  def perspective_instance_console_info(params):
+    """Query information on how to get console access to instances
+
+    """
+    return backend.GetInstanceConsoleInfo(params)
+
+  @staticmethod
   def perspective_instance_list(params):
     """Query the list of running instances.
 
@@ -775,15 +774,19 @@ class NodeRequestHandler(http.server.HttpServerHandler):
     """Run a verify sequence on this node.
 
     """
-    (what, cluster_name, hvparams) = params
-    return backend.VerifyNode(what, cluster_name, hvparams)
+    (what, cluster_name, hvparams, node_groups, groups_cfg) = params
+    return backend.VerifyNode(what, cluster_name, hvparams,
+                              node_groups, groups_cfg)
 
   @classmethod
   def perspective_node_verify_light(cls, params):
     """Run a light verify sequence on this node.
 
+    This call is meant to perform a less strict verification of the node in
+    certain situations. Right now, it is invoked only when a node is just about
+    to be added to a cluster, and even then, it performs the same checks as
+    L{perspective_node_verify}.
     """
-    # So far it's the same as the normal node_verify
     return cls.perspective_node_verify(params)
 
   @staticmethod
@@ -861,6 +864,22 @@ class NodeRequestHandler(http.server.HttpServerHandler):
     (ovs_name, ovs_link) = params
     return backend.ConfigureOVS(ovs_name, ovs_link)
 
+  @staticmethod
+  def perspective_node_crypto_tokens(params):
+    """Gets the node's public crypto tokens.
+
+    """
+    token_requests = params[0]
+    return backend.GetCryptoTokens(token_requests)
+
+  @staticmethod
+  def perspective_node_ensure_daemon(params):
+    """Ensure daemon is running.
+
+    """
+    (daemon_name, run) = params
+    return backend.EnsureDaemon(daemon_name, run)
+
   # cluster --------------------------
 
   @staticmethod
@@ -881,11 +900,11 @@ class NodeRequestHandler(http.server.HttpServerHandler):
     return backend.UploadFile(*(params[0]))
 
   @staticmethod
-  def perspective_master_info(params):
-    """Query master information.
+  def perspective_master_node_name(params):
+    """Returns the master node name.
 
     """
-    return backend.GetMasterInfo()
+    return backend.GetMasterNodeName()
 
   @staticmethod
   def perspective_run_oob(params):
@@ -984,9 +1003,12 @@ class NodeRequestHandler(http.server.HttpServerHandler):
     """Run an iallocator script.
 
     """
-    name, idata = params
+    name, idata, ial_params_dict = params
+    ial_params = []
+    for ial_param in ial_params_dict.items():
+      ial_params.append("--" + ial_param[0] + "=" + ial_param[1])
     iar = backend.IAllocatorRunner()
-    return iar.Run(name, idata)
+    return iar.Run(name, idata, ial_params)
 
   # test -----------------------
 
@@ -1168,6 +1190,53 @@ def CheckNoded(_, args):
     sys.exit(constants.EXIT_FAILURE)
 
 
+def SSLVerifyPeer(conn, cert, errnum, errdepth, ok):
+  """Callback function to verify a peer against the candidate cert map.
+
+  Note that we have a chicken-and-egg problem during cluster init and upgrade.
+  This method checks whether the incoming connection comes from a master
+  candidate by comparing it to the master certificate map in the cluster
+  configuration. However, during cluster init and cluster upgrade there
+  are various RPC calls done to the master node itself, before the candidate
+  certificate list is established and the cluster configuration is written.
+  In this case, we cannot check against the master candidate map.
+
+  This problem is solved by checking whether the candidate map is empty. An
+  initialized 2.11 or higher cluster has at least one entry for the master
+  node in the candidate map. If the map is empty, we know that we are still
+  in the bootstrap/upgrade phase. In this case, we read the server certificate
+  digest and compare it to the incoming request.
+
+  This means that after an upgrade of Ganeti, the system continues to operate
+  like before, using server certificates only. After the client certificates
+  are generated with ``gnt-cluster renew-crypto --new-node-certificates``,
+  RPC communication is switched to using client certificates and the trick of
+  using server certificates does not work anymore.
+
+  @type conn: C{OpenSSL.SSL.Connection}
+  @param conn: the OpenSSL connection object
+  @type cert: C{OpenSSL.X509}
+  @param cert: the peer's SSL certificate
+
+  """
+  # some parameters are unused, but this is the API
+  # pylint: disable=W0613
+  _BOOTSTRAP = "bootstrap"
+  sstore = ssconf.SimpleStore()
+  try:
+    candidate_certs = sstore.GetMasterCandidatesCertMap()
+  except errors.ConfigurationError:
+    logging.info("No candidate certificates found. Switching to "
+                 "bootstrap/update mode.")
+    candidate_certs = None
+  if not candidate_certs:
+    candidate_certs = {
+      _BOOTSTRAP: utils.GetCertificateDigest(
+        cert_filename=pathutils.NODED_CERT_FILE)}
+  return cert.digest("sha1") in candidate_certs.values()
+  # pylint: enable=W0613
+
+
 def PrepNoded(options, _):
   """Preparation node daemon function, executed with the PID file held.
 
@@ -1202,7 +1271,8 @@ def PrepNoded(options, _):
   server = \
     http.server.HttpServer(mainloop, options.bind_address, options.port,
                            handler, ssl_params=ssl_params, ssl_verify_peer=True,
-                           request_executor_class=request_executor_class)
+                           request_executor_class=request_executor_class,
+                           ssl_verify_callback=SSLVerifyPeer)
   server.Start()
 
   return (mainloop, server)

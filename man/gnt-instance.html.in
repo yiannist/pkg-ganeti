@@ -348,6 +348,7 @@ code > span.er { color: #ff0000; font-weight: bold; }
 <dt>acpi</dt>
 <dd><p>Valid for the Xen HVM and KVM hypervisors.</p>
 <p>A boolean option that specifies if the hypervisor should enable ACPI support for this instance. By default, ACPI is disabled.</p>
+<p>ACPI should be enabled for user shutdown detection. See <code>user_shutdown</code>.</p>
 </dd>
 <dt>pae</dt>
 <dd><p>Valid for the Xen HVM and KVM hypervisors.</p>
@@ -414,6 +415,12 @@ code > span.er { color: #ff0000; font-weight: bold; }
 <dd><p>Valid for the KVM hypervisor.</p>
 <p>This boolean option determines whether to run the KVM instance in a chroot directory.</p>
 <p>If it is set to <code>true</code>, an empty directory is created before starting the instance and its path is passed via the -chroot flag to kvm. The directory is removed when the instance is stopped.</p>
+<p>It is set to <code>false</code> by default.</p>
+</dd>
+<dt>user_shutdown</dt>
+<dd><p>Valid for the KVM hypervisor.</p>
+<p>This boolean option determines whether the KVM instance suports user shutdown detection. This option does not necessarily require ACPI enabled, but ACPI must be enabled for users to poweroff their KVM instances.</p>
+<p>If it is set to <code>true</code>, the user can shutdown this KVM instance and its status is reported as <code>USER_down</code>.</p>
 <p>It is set to <code>false</code> by default.</p>
 </dd>
 <dt>migration_downtime</dt>
@@ -517,7 +524,7 @@ gnt-instance modify -H <span class="ot">cpu_mask=</span>all my-inst</code></pre>
 <p>It is set to <code>true</code> by default.</p>
 </dd>
 </dl>
-<p>The <code>-O (--os-parameters)</code> option allows customisation of the OS parameters. The actual parameter names and values depends on the OS being used, but the syntax is the same key=value. For example, setting a hypothetical <code>dhcp</code> parameter to yes can be achieved by:</p>
+<p>The <code>-O (--os-parameters)</code> option allows customisation of the OS parameters. The actual parameter names and values depend on the OS being used, but the syntax is the same key=value. For example, setting a hypothetical <code>dhcp</code> parameter to yes can be achieved by:</p>
 <pre><code>gnt-instance add -O dhcp=yes ...</code></pre>
 <p>The <code>-I (--iallocator)</code> option specifies the instance allocator plugin to use (<code>.</code> means the default allocator). If you pass in this option the allocator will select nodes for this instance automatically, so you don't need to pass them with the <code>-n</code> option. For more information please refer to the instance allocator documentation.</p>
 <p>The <code>-t (--disk-template)</code> options specifies the disk layout type for the instance. If no disk template is specified, the default disk template is used. The default disk template is the first in the list of enabled disk templates, which can be adjusted cluster-wide with <code>gnt-cluster modify</code>. The available choices for disk templates are:</p>
@@ -667,10 +674,13 @@ Submitted jobs 37, 38</code></pre>
 <p>The <code>-o (--output)</code> option takes a comma-separated list of output fields. The available fields and their meaning are:</p>
 <dl>
 <dt><code>admin_state</code></dt>
-<dd><p>Desired state of instance</p>
+<dd><p>Desired state of the instance</p>
+</dd>
+<dt><code>admin_state_source</code></dt>
+<dd><p>Who last changed the desired state of the instance</p>
 </dd>
 <dt><code>admin_up</code></dt>
-<dd><p>Desired state of instance</p>
+<dd><p>Desired state of the instance</p>
 </dd>
 <dt><code>be/always_failover</code></dt>
 <dd><p>The &quot;always_failover&quot; backend parameter</p>
@@ -931,7 +941,7 @@ Submitted jobs 37, 38</code></pre>
 <dd><p>Total disk space used by instance on each of its nodes; this is not the disk size visible to the instance, but the usage on the node</p>
 </dd>
 <dt><code>disks_active</code></dt>
-<dd><p>Desired state of instance disks</p>
+<dd><p>Desired state of the instance disks</p>
 </dd>
 <dt><code>hv/acpi</code></dt>
 <dd><p>The &quot;acpi&quot; hypervisor parameter</p>
@@ -1103,6 +1113,9 @@ Submitted jobs 37, 38</code></pre>
 </dd>
 <dt><code>hv/use_localtime</code></dt>
 <dd><p>The &quot;use_localtime&quot; hypervisor parameter</p>
+</dd>
+<dt><code>hv/user_shutdown</code></dt>
+<dd><p>The &quot;user_shutdown&quot; hypervisor parameter</p>
 </dd>
 <dt><code>hv/vga</code></dt>
 <dd><p>The &quot;vga&quot; hypervisor parameter</p>
@@ -1483,7 +1496,7 @@ Submitted jobs 37, 38</code></pre>
 <dd><p>Node group UUIDs of secondary nodes</p>
 </dd>
 <dt><code>status</code></dt>
-<dd><p>Instance status; &quot;running&quot; if instance is set to be running and actually is, &quot;ADMIN_down&quot; if instance is stopped and is not running, &quot;ERROR_wrongnode&quot; if instance running, but not on its designated primary node, &quot;ERROR_up&quot; if instance should be stopped, but is actually running, &quot;ERROR_down&quot; if instance should run, but doesn't, &quot;ERROR_nodedown&quot; if instance's primary node is down, &quot;ERROR_nodeoffline&quot; if instance's primary node is marked offline, &quot;ADMIN_offline&quot; if instance is offline and does not use dynamic resources</p>
+<dd><p>Instance status; &quot;running&quot; if instance is set to be running and actually is, &quot;ADMIN_down&quot; if instance is stopped and is not running, &quot;ERROR_wrongnode&quot; if instance running, but not on its designated primary node, &quot;ERROR_up&quot; if instance should be stopped, but is actually running, &quot;ERROR_down&quot; if instance should run, but doesn't, &quot;ERROR_nodedown&quot; if instance's primary node is down, &quot;ERROR_nodeoffline&quot; if instance's primary node is marked offline, &quot;ADMIN_offline&quot; if instance is offline and does not use dynamic, &quot;USER_down&quot; if the user shutdown the instance resources</p>
 </dd>
 <dt><code>tags</code></dt>
 <dd><p>Tags</p>
@@ -1729,9 +1742,10 @@ Migrating instance instance1.example.com
 * done
 #</code></pre>
 <h3 id="move"><a href="#TOC">MOVE</a></h3>
-<p><strong>move</strong> [-f] [--ignore-consistency]<br />[-n <em>node</em>] [--shutdown-timeout=<em>N</em>] [--submit] [--print-job-id]<br />[--ignore-ipolicy]<br />{<em>instance</em>}</p>
+<p><strong>move</strong> [-f] [--ignore-consistency]<br />[-n <em>node</em>] [--compress=<em>compression-mode</em>] [--shutdown-timeout=<em>N</em>]<br />[--submit] [--print-job-id] [--ignore-ipolicy]<br />{<em>instance</em>}</p>
 <p>Move will move the instance to an arbitrary node in the cluster. This works only for instances having a plain or file disk template.</p>
 <p>Note that since this operation is done via data copy, it will take a long time for big disks (similar to replace-disks for a drbd instance).</p>
+<p>The <code>--compress</code> option is used to specify which compression mode is used during the move. Valid values are 'none' (the default) and 'gzip'.</p>
 <p>The <code>--shutdown-timeout</code> is used to specify how much time to wait before forcing the shutdown (e.g. <code>xm destroy</code> in XEN, killing the kvm process for KVM, etc.). By default two minutes are given to each instance to stop.</p>
 <p>The <code>--ignore-consistency</code> option will make Ganeti ignore any errors in trying to shutdown the instance on its node; useful if the hypervisor is broken and you want to recover the data.</p>
 <p>If <code>--ignore-ipolicy</code> is given any instance policy violations occuring during this operation are ignored.</p>

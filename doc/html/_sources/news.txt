@@ -5,6 +5,235 @@ News
 ====
 
 
+Version 2.11.2
+--------------
+
+*(Released Fri, 13 Jun 2014)*
+
+- Improvements to KVM wrt to the kvmd and instance shutdown behavior.
+  WARNING: In contrast to our standard policy, this bug fix update
+  introduces new parameters to the configuration. This means in
+  particular that after an upgrade from 2.11.0 or 2.11.1, 'cfgupgrade'
+  needs to be run, either manually or explicitly by running
+  'gnt-cluster upgrade --to 2.11.2' (which requires that they
+  had configured the cluster with --enable-full-version).
+  This also means, that it is not easily possible to downgrade from
+  2.11.2 to 2.11.1 or 2.11.0. The only way is to go back to 2.10 and
+  back.
+
+Inherited from the 2.10 branch:
+
+- Check for SSL encoding inconsistencies
+- Check drbd helper only in VM capable nodes
+- Improvements in statistics utils
+
+Inherited from the 2.9 branch:
+
+- check-man-warnings: use C.UTF-8 and set LC_ALL
+
+
+Version 2.11.1
+--------------
+
+*(Released Wed, 14 May 2014)*
+
+- Add design-node-security.rst to docinput
+- kvm: use a dedicated QMP socket for kvmd
+
+Inherited from the 2.10 branch:
+
+- Set correct Ganeti version on setup commands
+- Add a utility to combine shell commands
+- Add design doc for performance tests
+- Fix failed DRBD disk creation cleanup
+- Hooking up verification for shared file storage
+- Fix --shared-file-storage-dir option of gnt-cluster modify
+- Clarify default setting of 'metavg'
+- Fix invocation of GetCommandOutput in QA
+- Clean up RunWithLocks
+- Add an exception-trapping thread class
+- Wait for delay to provide interruption information
+- Add an expected block option to RunWithLocks
+- Track if a QA test was blocked by locks
+- Add a RunWithLocks QA utility function
+- Add restricted migration
+- Add an example for node evacuation
+- Add a test for parsing version strings
+- Tests for parallel job execution
+- Fail in replace-disks if attaching disks fails
+- Fix passing of ispecs in cluster init during QA
+- Move QAThreadGroup to qa_job_utils.py
+- Extract GetJobStatuses and use an unified version
+- Run disk template specific tests only if possible
+
+Inherited from the 2.9 branch:
+
+- If Automake version > 1.11, force serial tests
+- KVM: set IFF_ONE_QUEUE on created tap interfaces
+- Add configure option to pass GHC flags
+
+
+Version 2.11.0
+--------------
+
+*(Released Fri, 25 Apr 2014)*
+
+Incompatible/important changes
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- ``gnt-node list`` no longer shows disk space information for shared file
+  disk templates because it is not a node attribute. (For example, if you have
+  both the file and shared file disk templates enabled, ``gnt-node list`` now
+  only shows information about the file disk template.)
+- The shared file disk template is now in the new 'sharedfile' storage type.
+  As a result, ``gnt-node list-storage -t file`` now only shows information
+  about the file disk template and you may use ``gnt-node list-storage -t
+  sharedfile`` to query storage information for the shared file disk template.
+- Over luxi, syntactially incorrect queries are now rejected as a whole;
+  before, a 'SumbmitManyJobs' request was partially executed, if the outer
+  structure of the request was syntactically correct. As the luxi protocol
+  is internal (external applications are expected to use RAPI), the impact
+  of this incompatible change should be limited.
+- Queries for nodes, instances, groups, backups and networks are now
+  exclusively done via the luxi daemon. Legacy python code was removed,
+  as well as the --enable-split-queries configuration option.
+- Orphan volumes errors are demoted to warnings and no longer affect the exit
+  code of ``gnt-cluster verify``.
+- RPC security got enhanced by using different client SSL certificates
+  for each node. In this context 'gnt-cluster renew-crypto' got a new
+  option '--renew-node-certificates', which renews the client
+  certificates of all nodes. After a cluster upgrade from pre-2.11, run
+  this to create client certificates and activate this feature.
+
+New features
+~~~~~~~~~~~~
+
+- Instance moves, backups and imports can now use compression to transfer the
+  instance data.
+- Node groups can be configured to use an SSH port different than the
+  default 22.
+- Added experimental support for Gluster distributed file storage as the
+  ``gluster`` disk template under the new ``sharedfile`` storage type through
+  automatic management of per-node FUSE mount points. You can configure the
+  mount point location at ``gnt-cluster init`` time by using the new
+  ``--gluster-storage-dir`` switch.
+- Job scheduling is now handled by luxid, and the maximal number of jobs running
+  in parallel is a run-time parameter of the cluster.
+- A new tool for planning dynamic power management, called ``hsqueeze``, has
+  been added. It suggests nodes to power up or down and corresponding instance
+  moves.
+
+New dependencies
+~~~~~~~~~~~~~~~~
+
+The following new dependencies have been added:
+
+For Haskell:
+
+- ``zlib`` library (http://hackage.haskell.org/package/base64-bytestring)
+
+- ``base64-bytestring`` library (http://hackage.haskell.org/package/zlib),
+  at least version 1.0.0.0
+
+Since 2.11.0 rc1
+~~~~~~~~~~~~~~~~
+
+- Fix Xen instance state
+
+Inherited from the 2.10 branch:
+
+- Fix conflict between virtio + spice or soundhw
+- Fix bitarray ops wrt PCI slots
+- Allow releases scheduled 5 days in advance
+- Make watcher submit queries low priority
+- Fix specification of TIDiskParams
+- Add unittests for instance modify parameter renaming
+- Add renaming of instance custom params
+- Add RAPI symmetry tests for groups
+- Extend RAPI symmetry tests with RAPI-only aliases
+- Add test for group custom parameter renaming
+- Add renaming of group custom ndparams, ipolicy, diskparams
+- Add the RAPI symmetry test for nodes
+- Add aliases for nodes
+- Allow choice of HTTP method for modification
+- Add cluster RAPI symmetry test
+- Fix failing cluster query test
+- Add aliases for cluster parameters
+- Add support for value aliases to RAPI
+- Provide tests for GET/PUT symmetry
+- Sort imports
+- Also consider filter fields for deciding if using live data
+- Document the python-fdsend dependency
+- Verify configuration version number before parsing
+- KVM: use running HVPs to calc blockdev options
+- KVM: reserve a PCI slot for the SCSI controller
+- Check for LVM-based verification results only when enabled
+- Fix "existing" typos
+- Fix output of gnt-instance info after migration
+- Warn in UPGRADE about not tar'ing exported insts
+- Fix non-running test and remove custom_nicparams rename
+- Account for NODE_RES lock in opportunistic locking
+- Fix request flooding of noded during disk sync
+
+Inherited from the 2.9 branch:
+
+- Make watcher submit queries low priority
+- Fix failing gnt-node list-drbd command
+- Update installation guide wrt to DRBD version
+- Fix list-drbd QA test
+- Add messages about skipped QA disk template tests
+- Allow QA asserts to produce more messages
+- Set exclusion tags correctly in requested instance
+- Export extractExTags and updateExclTags
+- Document spindles in the hbal man page
+- Sample logrotate conf breaks permissions with split users
+- Fix 'gnt-cluster' and 'gnt-node list-storage' outputs
+
+Inherited from the 2.8 branch:
+
+- Add reason parameter to RAPI client functions
+- Include qa/patch in Makefile
+- Handle empty patches better
+- Move message formatting functions to separate file
+- Add optional ordering of QA patch files
+- Allow multiple QA patches
+- Refactor current patching code
+
+
+Version 2.11.0 rc1
+------------------
+
+*(Released Thu, 20 Mar 2014)*
+
+This was the first RC release of the 2.11 series. Since 2.11.0 beta1:
+
+- Convert int to float when checking config. consistency
+- Rename compression option in gnt-backup export
+
+Inherited from the 2.9 branch:
+
+- Fix error introduced during merge
+- gnt-cluster copyfile: accept relative paths
+
+Inherited from the 2.8 branch:
+
+- Improve RAPI detection of the watcher
+- Add patching QA configuration files on buildbots
+- Enable a timeout for instance shutdown
+- Allow KVM commands to have a timeout
+- Allow xen commands to have a timeout
+- Fix wrong docstring
+
+
+Version 2.11.0 beta1
+--------------------
+
+*(Released Wed, 5 Mar 2014)*
+
+This was the first beta release of the 2.11 series. All important changes
+are listed in the latest 2.11 entry.
+
+
 Version 2.10.5
 --------------
 

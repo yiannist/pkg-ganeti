@@ -37,7 +37,7 @@ from ganeti import masterd
 from ganeti import netutils
 from ganeti import objects
 from ganeti import pathutils
-from ganeti import rpc
+import ganeti.rpc.node as rpc
 from ganeti import utils
 
 from ganeti.cmdlib.base import NoHooksLU, LogicalUnit, ResultWithJobs
@@ -459,9 +459,8 @@ class LUInstanceCreate(LogicalUnit):
 
     # set default file_driver if unset and required
     if (not self.op.file_driver and
-        self.op.disk_template in [constants.DT_FILE,
-                                  constants.DT_SHARED_FILE]):
-      self.op.file_driver = constants.FD_DEFAULT
+        self.op.disk_template in constants.DTS_FILEBASED):
+      self.op.file_driver = constants.FD_LOOP
 
     ### Node/iallocator related checks
     CheckIAllocatorOrNode(self, "iallocator", "pnode")
@@ -883,24 +882,35 @@ class LUInstanceCreate(LogicalUnit):
       # build the full file storage dir path
       joinargs = []
 
-      if self.op.disk_template == constants.DT_SHARED_FILE:
-        get_fsd_fn = self.cfg.GetSharedFileStorageDir
-      else:
-        get_fsd_fn = self.cfg.GetFileStorageDir
+      cfg_storage = None
+      if self.op.disk_template == constants.DT_FILE:
+        cfg_storage = self.cfg.GetFileStorageDir()
+      elif self.op.disk_template == constants.DT_SHARED_FILE:
+        cfg_storage = self.cfg.GetSharedFileStorageDir()
+      elif self.op.disk_template == constants.DT_GLUSTER:
+        cfg_storage = self.cfg.GetGlusterStorageDir()
 
-      cfg_storagedir = get_fsd_fn()
-      if not cfg_storagedir:
-        raise errors.OpPrereqError("Cluster file storage dir not defined",
-                                   errors.ECODE_STATE)
-      joinargs.append(cfg_storagedir)
+      if not cfg_storage:
+        raise errors.OpPrereqError(
+          "Cluster file storage dir for {tpl} storage type not defined".format(
+            tpl=repr(self.op.disk_template)
+          ),
+          errors.ECODE_STATE
+      )
+
+      joinargs.append(cfg_storage)
 
       if self.op.file_storage_dir is not None:
         joinargs.append(self.op.file_storage_dir)
 
-      joinargs.append(self.op.instance_name)
+      if self.op.disk_template != constants.DT_GLUSTER:
+        joinargs.append(self.op.instance_name)
 
-      # pylint: disable=W0142
-      self.instance_file_storage_dir = utils.PathJoin(*joinargs)
+      if len(joinargs) > 1:
+        # pylint: disable=W0142
+        self.instance_file_storage_dir = utils.PathJoin(*joinargs)
+      else:
+        self.instance_file_storage_dir = joinargs[0]
 
   def CheckPrereq(self): # pylint: disable=R0914
     """Check prerequisites.
@@ -1318,6 +1328,7 @@ class LUInstanceCreate(LogicalUnit):
                             disk_template=self.op.disk_template,
                             disks_active=False,
                             admin_state=constants.ADMINST_DOWN,
+                            admin_state_source=constants.ADMIN_SOURCE,
                             network_port=network_port,
                             beparams=self.op.beparams,
                             hvparams=self.op.hvparams,
@@ -1458,6 +1469,7 @@ class LUInstanceCreate(LogicalUnit):
                                                   self.op.src_node_uuid,
                                                   self.pnode.uuid,
                                                   self.pnode.secondary_ip,
+                                                  self.op.compress,
                                                   iobj, transfers)
           if not compat.all(import_result):
             self.LogWarning("Some disks for instance %s on node %s were not"
@@ -1480,7 +1492,7 @@ class LUInstanceCreate(LogicalUnit):
           disk_results = \
             masterd.instance.RemoteImport(self, feedback_fn, iobj, self.pnode,
                                           self.source_x509_ca,
-                                          self._cds, timeouts)
+                                          self._cds, self.op.compress, timeouts)
           if not compat.all(disk_results):
             # TODO: Should the instance still be started, even if some disks
             # failed to import (valid for local imports, too)?
@@ -1600,7 +1612,8 @@ class LUInstanceRename(LogicalUnit):
     old_name = self.instance.name
 
     rename_file_storage = False
-    if (self.instance.disk_template in constants.DTS_FILEBASED and
+    if (self.instance.disk_template in (constants.DT_FILE,
+                                        constants.DT_SHARED_FILE) and
         self.op.new_name != self.instance.name):
       old_file_storage_dir = os.path.dirname(
                                self.instance.disks[0].logical_id[1])
@@ -1757,7 +1770,7 @@ class LUInstanceMove(LogicalUnit):
   def BuildHooksEnv(self):
     """Build hooks env.
 
-    This runs on master, primary and secondary nodes of the instance.
+    This runs on master, primary and target nodes of the instance.
 
     """
     env = {
@@ -1803,30 +1816,30 @@ class LUInstanceMove(LogicalUnit):
                                  (self.instance.name, target_node.name),
                                  errors.ECODE_STATE)
 
-    bep = self.cfg.GetClusterInfo().FillBE(self.instance)
+    cluster = self.cfg.GetClusterInfo()
+    bep = cluster.FillBE(self.instance)
 
     for idx, dsk in enumerate(self.instance.disks):
       if dsk.dev_type not in (constants.DT_PLAIN, constants.DT_FILE,
-                              constants.DT_SHARED_FILE):
+                              constants.DT_SHARED_FILE, constants.DT_GLUSTER):
         raise errors.OpPrereqError("Instance disk %d has a complex layout,"
                                    " cannot copy" % idx, errors.ECODE_STATE)
 
     CheckNodeOnline(self, target_node.uuid)
     CheckNodeNotDrained(self, target_node.uuid)
     CheckNodeVmCapable(self, target_node.uuid)
-    cluster = self.cfg.GetClusterInfo()
     group_info = self.cfg.GetNodeGroup(target_node.group)
     ipolicy = ganeti.masterd.instance.CalculateGroupIPolicy(cluster, group_info)
     CheckTargetNodeIPolicy(self, ipolicy, self.instance, target_node, self.cfg,
                            ignore=self.op.ignore_ipolicy)
 
     if self.instance.admin_state == constants.ADMINST_UP:
-      # check memory requirements on the secondary node
+      # check memory requirements on the target node
       CheckNodeFreeMemory(
           self, target_node.uuid, "failing over instance %s" %
           self.instance.name, bep[constants.BE_MAXMEM],
           self.instance.hypervisor,
-          self.cfg.GetClusterInfo().hvparams[self.instance.hypervisor])
+          cluster.hvparams[self.instance.hypervisor])
     else:
       self.LogInfo("Not checking memory on the secondary node as"
                    " instance will not be started")
@@ -1870,30 +1883,28 @@ class LUInstanceMove(LogicalUnit):
       self.cfg.ReleaseDRBDMinors(self.instance.uuid)
       raise
 
-    cluster_name = self.cfg.GetClusterInfo().cluster_name
-
     errs = []
-    # activate, get path, copy the data over
+    transfers = []
+    # activate, get path, create transfer jobs
     for idx, disk in enumerate(self.instance.disks):
-      self.LogInfo("Copying data for disk %d", idx)
-      result = self.rpc.call_blockdev_assemble(
-                 target_node.uuid, (disk, self.instance), self.instance.name,
-                 True, idx)
-      if result.fail_msg:
-        self.LogWarning("Can't assemble newly created disk %d: %s",
-                        idx, result.fail_msg)
-        errs.append(result.fail_msg)
-        break
-      dev_path, _ = result.payload
-      result = self.rpc.call_blockdev_export(source_node.uuid, (disk,
-                                                                self.instance),
-                                             target_node.secondary_ip,
-                                             dev_path, cluster_name)
-      if result.fail_msg:
-        self.LogWarning("Can't copy data over for disk %d: %s",
-                        idx, result.fail_msg)
-        errs.append(result.fail_msg)
-        break
+      # FIXME: pass debug option from opcode to backend
+      dt = masterd.instance.DiskTransfer("disk/%s" % idx,
+                                         constants.IEIO_RAW_DISK,
+                                         (disk, self.instance),
+                                         constants.IEIO_RAW_DISK,
+                                         (disk, self.instance),
+                                         None)
+      transfers.append(dt)
+
+    import_result = \
+      masterd.instance.TransferInstanceData(self, feedback_fn,
+                                            source_node.uuid,
+                                            target_node.uuid,
+                                            target_node.secondary_ip,
+                                            self.op.compress,
+                                            self.instance, transfers)
+    if not compat.all(import_result):
+      errs.append("Failed to transfer instance data")
 
     if errs:
       self.LogWarning("Some disks failed to copy, aborting")

@@ -43,6 +43,7 @@ module Ganeti.Utils
   , formatTable
   , printTable
   , parseUnit
+  , parseUnitAssumeBinary
   , plural
   , niceSort
   , niceSortKey
@@ -65,14 +66,37 @@ module Ganeti.Utils
   , splitEithers
   , recombineEithers
   , resolveAddr
+  , monadicThe
   , setOwnerAndGroupFromNames
+  , formatOrdinal
+  , atomicWriteFile
+  , tryAndLogIOError
+  , lockFile
+  , FStat
+  , nullFStat
+  , getFStat
+  , getFStatSafe
+  , needsReload
+  , watchFile
+  , safeRenameFile
+  , FilePermissions(..)
+  , ensurePermissions
   ) where
 
+import Control.Concurrent
+import Control.Exception (try)
+import Control.Monad (foldM, liftM, when, unless)
 import Data.Char (toUpper, isAlphaNum, isDigit, isSpace)
+import qualified Data.Either as E
 import Data.Function (on)
+import Data.IORef
 import Data.List
 import qualified Data.Map as M
-import Control.Monad (foldM)
+import Numeric (showOct)
+import System.Directory (renameFile, createDirectoryIfMissing)
+import System.FilePath.Posix (takeDirectory, takeBaseName)
+import System.INotify
+import System.Posix.Types
 
 import Debug.Trace
 import Network.Socket
@@ -84,6 +108,8 @@ import Ganeti.Runtime
 import System.IO
 import System.Exit
 import System.Posix.Files
+import System.Posix.IO
+import System.Posix.User
 import System.Time
 
 -- * Debug functions
@@ -111,7 +137,7 @@ applyIf b f x = if b then f x else x
 commaJoin :: [String] -> String
 commaJoin = intercalate ","
 
--- | Split a list on a separator and return an array.
+-- | Split a list on a separator and return a list of lists.
 sepSplit :: Eq a => a -> [a] -> [[a]]
 sepSplit sep s
   | null s    = []
@@ -211,7 +237,7 @@ if' _    _ y = y
 -- * Parsing utility functions
 
 -- | Parse results from readsPrec.
-parseChoices :: (Monad m, Read a) => String -> String -> [(a, String)] -> m a
+parseChoices :: Monad m => String -> String -> [(a, String)] -> m a
 parseChoices _ _ ((v, ""):[]) = return v
 parseChoices name s ((_, e):[]) =
     fail $ name ++ ": leftover characters when parsing '"
@@ -248,8 +274,8 @@ printTable lp header rows isnum =
   formatTable (header:rows) isnum
 
 -- | Converts a unit (e.g. m or GB) into a scaling factor.
-parseUnitValue :: (Monad m) => String -> m Rational
-parseUnitValue unit
+parseUnitValue :: (Monad m) => Bool -> String -> m Rational
+parseUnitValue noDecimal unit
   -- binary conversions first
   | null unit                     = return 1
   | unit == "m" || upper == "MIB" = return 1
@@ -262,7 +288,7 @@ parseUnitValue unit
   | otherwise = fail $ "Unknown unit '" ++ unit ++ "'"
   where upper = map toUpper unit
         kbBinary = 1024 :: Rational
-        kbDecimal = 1000 :: Rational
+        kbDecimal = if noDecimal then kbBinary else 1000
         decToBin = kbDecimal / kbBinary -- factor for 1K conversion
         mbFactor = decToBin * decToBin -- twice the factor for just 1K
 
@@ -270,18 +296,31 @@ parseUnitValue unit
 --
 -- Input must be in the format NUMBER+ SPACE* [UNIT]. If no unit is
 -- specified, it defaults to MiB. Return value is always an integral
--- value in MiB.
-parseUnit :: (Monad m, Integral a, Read a) => String -> m a
-parseUnit str =
+-- value in MiB; if the first argument is True, all kilos are binary.
+parseUnitEx :: (Monad m, Integral a, Read a) => Bool -> String -> m a
+parseUnitEx noDecimal str =
   -- TODO: enhance this by splitting the unit parsing code out and
   -- accepting floating-point numbers
   case (reads str::[(Int, String)]) of
     [(v, suffix)] ->
       let unit = dropWhile (== ' ') suffix
       in do
-        scaling <- parseUnitValue unit
+        scaling <- parseUnitValue noDecimal unit
         return $ truncate (fromIntegral v * scaling)
     _ -> fail $ "Can't parse string '" ++ str ++ "'"
+
+-- | Tries to extract number and scale from the given string.
+--
+-- Input must be in the format NUMBER+ SPACE* [UNIT]. If no unit is
+-- specified, it defaults to MiB. Return value is always an integral
+-- value in MiB.
+parseUnit :: (Monad m, Integral a, Read a) => String -> m a
+parseUnit = parseUnitEx False
+
+-- | Tries to extract a number and scale from a given string, taking
+-- all kilos to be binary.
+parseUnitAssumeBinary :: (Monad m, Integral a, Read a) => String -> m a
+parseUnitAssumeBinary = parseUnitEx True
 
 -- | Unwraps a 'Result', exiting the program if it is a 'Bad' value,
 -- otherwise returning the actual contained value.
@@ -312,6 +351,16 @@ logWarningIfBad msg defVal (Bad s) = do
   logWarning $ msg ++ ": " ++ s
   return defVal
 logWarningIfBad _ _ (Ok v) = return v
+
+-- | Try an IO interaction, log errors and unfold as a 'Result'.
+tryAndLogIOError :: IO a -> String -> (a -> Result b) -> IO (Result b)
+tryAndLogIOError io msg okfn =
+ try io >>= either
+   (\ e -> do
+       let combinedmsg = msg ++ ": " ++ show (e :: IOError)
+       logError combinedmsg
+       return . Bad $ combinedmsg)
+   (return . okfn)
 
 -- | Print a warning, but do not exit.
 warn :: String -> IO ()
@@ -456,6 +505,13 @@ exitIfEmpty :: String -> [a] -> IO a
 exitIfEmpty _ (x:_) = return x
 exitIfEmpty s []    = exitErr s
 
+-- | Obtain the unique element of a list in an arbitrary monad.
+monadicThe :: (Eq a, Monad m) => String -> [a] -> m a
+monadicThe s [] = fail s
+monadicThe s (x:xs)
+  | all (x ==) xs = return x
+  | otherwise = fail s
+
 -- | Split an 'Either' list into two separate lists (containing the
 -- 'Left' and 'Right' elements, plus a \"trail\" list that allows
 -- recombination later.
@@ -522,3 +578,173 @@ setOwnerAndGroupFromNames filename daemon dGroup = do
   let uid = fst ents M.! daemon
   let gid = snd ents M.! dGroup
   setOwnerAndGroup filename uid gid
+
+-- | Formats an integral number, appending a suffix.
+formatOrdinal :: (Integral a, Show a) => a -> String
+formatOrdinal num
+  | num > 10 && num < 20 = suffix "th"
+  | tens == 1            = suffix "st"
+  | tens == 2            = suffix "nd"
+  | tens == 3            = suffix "rd"
+  | otherwise            = suffix "th"
+  where tens     = num `mod` 10
+        suffix s = show num ++ s
+
+-- | Atomically write a file, by first writing the contents into a temporary
+-- file and then renaming it to the old position.
+atomicWriteFile :: FilePath -> String -> IO ()
+atomicWriteFile path contents = do
+  (tmppath, tmphandle) <- openTempFile (takeDirectory path) (takeBaseName path)
+  hPutStr tmphandle contents
+  hClose tmphandle
+  renameFile tmppath path
+
+-- | Attempt, in a non-blocking way, to obtain a lock on a given file; report
+-- back success.
+lockFile :: FilePath -> IO (Result ())
+lockFile path = do
+  handle <- openFile path WriteMode
+  fd <- handleToFd handle
+  Control.Monad.liftM (either (Bad . show) Ok)
+    (try (setLock fd (WriteLock, AbsoluteSeek, 0, 0)) :: IO (Either IOError ()))
+
+-- | File stat identifier.
+type FStat = (EpochTime, FileID, FileOffset)
+
+-- | Null 'FStat' value.
+nullFStat :: FStat
+nullFStat = (-1, -1, -1)
+
+-- | Computes the file cache data from a FileStatus structure.
+buildFileStatus :: FileStatus -> FStat
+buildFileStatus ofs =
+    let modt = modificationTime ofs
+        inum = fileID ofs
+        fsize = fileSize ofs
+    in (modt, inum, fsize)
+
+-- | Wrapper over 'buildFileStatus'. This reads the data from the
+-- filesystem and then builds our cache structure.
+getFStat :: FilePath -> IO FStat
+getFStat p = liftM buildFileStatus (getFileStatus p)
+
+-- | Safe version of 'getFStat', that ignores IOErrors.
+getFStatSafe :: FilePath -> IO FStat
+getFStatSafe fpath = liftM (either (const nullFStat) id)
+                       ((try $ getFStat fpath) :: IO (Either IOError FStat))
+
+-- | Check if the file needs reloading
+needsReload :: FStat -> FilePath -> IO (Maybe FStat)
+needsReload oldstat path = do
+  newstat <- getFStat path
+  return $ if newstat /= oldstat
+             then Just newstat
+             else Nothing
+
+-- | Until the given point in time (useconds since the epoch), wait
+-- for the output of a given method to change and return the new value;
+-- make use of the promise that the output only changes if the reference
+-- has a value different than the given one.
+watchFileEx :: (Eq a, Eq b) => Integer -> b -> IORef b -> a -> IO a -> IO a
+watchFileEx endtime base ref old read_fn = do
+  current <- getCurrentTimeUSec
+  if current > endtime then read_fn else do
+    val <- readIORef ref
+    if val /= base
+      then do
+        new <- read_fn
+        if new /= old then return new else do
+          logDebug "Observed change not relevant"
+          threadDelay 100000
+          watchFileEx endtime val ref old read_fn
+      else do 
+       threadDelay 100000
+       watchFileEx endtime base ref old read_fn
+
+-- | Within the given timeout (in seconds), wait for for the output
+-- of the given method to change and return the new value; make use of
+-- the promise that the method will only change its value, if
+-- the given file changes on disk. If the file does not exist on disk, return
+-- immediately.
+watchFile :: Eq a => FilePath -> Int -> a -> IO a -> IO a
+watchFile fpath timeout old read_fn = do
+  current <- getCurrentTimeUSec
+  let endtime = current + fromIntegral timeout * 1000000
+  fstat <- getFStatSafe fpath
+  ref <- newIORef fstat
+  inotify <- initINotify
+  let do_watch e = do
+                     logDebug $ "Notified of change in " ++ fpath 
+                                  ++ "; event: " ++ show e
+                     when (e == Ignored)
+                       (addWatch inotify [Modify, Delete] fpath do_watch
+                          >> return ())
+                     fstat' <- getFStatSafe fpath
+                     writeIORef ref fstat'
+  _ <- addWatch inotify [Modify, Delete] fpath do_watch
+  newval <- read_fn
+  if newval /= old
+    then do
+      logDebug $ "File " ++ fpath ++ " changed during setup of inotify"
+      killINotify inotify
+      return newval
+    else do
+      result <- watchFileEx endtime fstat ref old read_fn
+      killINotify inotify
+      return result
+
+-- | Type describing ownership and permissions of newly generated
+-- directories and files. All parameters are optional, with nothing
+-- meaning that the default value should be left untouched.
+
+data FilePermissions = FilePermissions { fpOwner :: Maybe String
+                                       , fpGroup :: Maybe String
+                                       , fpPermissions :: FileMode
+                                       }
+
+-- | Ensure that a given file or directory has the permissions, and
+-- possibly ownerships, as required.
+ensurePermissions :: FilePath -> FilePermissions -> IO (Result ())
+ensurePermissions fpath perms = do
+  eitherFileStatus <- try $ getFileStatus fpath
+                      :: IO (Either IOError FileStatus)
+  (flip $ either (return . Bad . show)) eitherFileStatus $ \fstat -> do
+    ownertry <- case fpOwner perms of
+      Nothing -> return $ Right ()
+      Just owner -> try $ do
+        ownerid <- userID `liftM` getUserEntryForName owner
+        unless (ownerid == fileOwner fstat) $ do
+          logDebug $ "Changing owner of " ++ fpath ++ " to " ++ owner
+          setOwnerAndGroup fpath ownerid (-1)
+    grouptry <- case fpGroup perms of
+      Nothing -> return $ Right ()
+      Just grp -> try $ do
+        groupid <- groupID `liftM` getGroupEntryForName grp
+        unless (groupid == fileGroup fstat) $ do
+          logDebug $ "Changing group of " ++ fpath ++ " to " ++ grp
+          setOwnerAndGroup fpath (-1) groupid
+    let fp = fpPermissions perms
+    permtry <- if fileMode fstat == fp
+      then return $ Right ()
+      else try $ do
+        logInfo $ "Changing permissions of " ++ fpath ++ " to "
+                    ++ showOct fp ""
+        setFileMode fpath fp
+    let errors = E.lefts ([ownertry, grouptry, permtry] :: [Either IOError ()])
+    if null errors
+      then return $ Ok ()
+      else return . Bad $ show errors
+
+-- | Safely rename a file, creating the target directory, if needed.
+safeRenameFile :: FilePermissions -> FilePath -> FilePath -> IO (Result ())
+safeRenameFile perms from to = do
+  directtry <- try $ renameFile from to
+  case (directtry :: Either IOError ()) of
+    Right () -> return $ Ok ()
+    Left _ -> do
+      result <- try $ do
+        let dir = takeDirectory to
+        createDirectoryIfMissing True dir
+        _ <- ensurePermissions dir perms
+        renameFile from to
+      return $ either (Bad . show) Ok (result :: Either IOError ())

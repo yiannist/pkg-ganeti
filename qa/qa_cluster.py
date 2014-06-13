@@ -25,6 +25,7 @@
 
 import re
 import tempfile
+import time
 import os.path
 
 from ganeti import _constants
@@ -112,29 +113,44 @@ def _CheckVerifyErrors(actual, expected, etype):
                          " %ss: %s" % (etype, utils.CommaJoin(missing)))
 
 
-def AssertClusterVerify(fail=False, errors=None, warnings=None):
-  """Run cluster-verify and check the result
+def _CheckVerifyNoWarnings(actual, expected):
+  exp_codes = compat.UniqueFrozenset(e for (_, e, _) in expected)
+  excess = actual.intersection(exp_codes)
+  if excess:
+    raise qa_error.Error("Cluster-verify returned these warnings:"
+                         " %s" % (utils.CommaJoin(excess)))
+
+
+def AssertClusterVerify(fail=False, errors=None,
+                        warnings=None, no_warnings=None):
+  """Run cluster-verify and check the result, ignoring warnings by default.
 
   @type fail: bool
-  @param fail: if cluster-verify is expected to fail instead of succeeding
+  @param fail: if cluster-verify is expected to fail instead of succeeding.
   @type errors: list of tuples
   @param errors: List of CV_XXX errors that are expected; if specified, all the
       errors listed must appear in cluster-verify output. A non-empty value
       implies C{fail=True}.
   @type warnings: list of tuples
-  @param warnings: Same as C{errors} but for warnings.
-
+  @param warnings: List of CV_XXX warnings that are expected to be raised; if
+      specified, all the errors listed must appear in cluster-verify output.
+  @type no_warnings: list of tuples
+  @param no_warnings: List of CV_XXX warnings that we expect NOT to be raised.
   """
   cvcmd = "gnt-cluster verify"
   mnode = qa_config.GetMasterNode()
-  if errors or warnings:
+  if errors or warnings or no_warnings:
     cvout = GetCommandOutput(mnode.primary, cvcmd + " --error-codes",
                              fail=(fail or errors))
+    print cvout
     (act_errs, act_warns) = _GetCVErrorCodes(cvout)
     if errors:
       _CheckVerifyErrors(act_errs, errors, "error")
     if warnings:
       _CheckVerifyErrors(act_warns, warnings, "warning")
+    if no_warnings:
+      _CheckVerifyNoWarnings(act_warns, no_warnings)
+
   else:
     AssertCommand(cvcmd, fail=fail, node=mnode)
 
@@ -424,23 +440,29 @@ def TestClusterReservedLvs():
   vgname = qa_config.get("vg-name", constants.DEFAULT_VG)
   lvname = _QA_LV_PREFIX + "test"
   lvfullname = "/".join([vgname, lvname])
-  for fail, cmd in [
-    (False, _CLUSTER_VERIFY),
-    (False, ["gnt-cluster", "modify", "--reserved-lvs", ""]),
-    (False, ["lvcreate", "-L1G", "-n", lvname, vgname]),
-    (True, _CLUSTER_VERIFY),
-    (False, ["gnt-cluster", "modify", "--reserved-lvs",
-             "%s,.*/other-test" % lvfullname]),
-    (False, _CLUSTER_VERIFY),
-    (False, ["gnt-cluster", "modify", "--reserved-lvs",
-             ".*/%s.*" % _QA_LV_PREFIX]),
-    (False, _CLUSTER_VERIFY),
-    (False, ["gnt-cluster", "modify", "--reserved-lvs", ""]),
-    (True, _CLUSTER_VERIFY),
-    (False, ["lvremove", "-f", lvfullname]),
-    (False, _CLUSTER_VERIFY),
-    ]:
-    AssertCommand(cmd, fail=fail)
+
+  # Clean cluster
+  AssertClusterVerify()
+
+  AssertCommand(["gnt-cluster", "modify", "--reserved-lvs", ""])
+  AssertCommand(["lvcreate", "-L1G", "-n", lvname, vgname])
+  AssertClusterVerify(fail=False,
+                      warnings=[constants.CV_ENODEORPHANLV])
+
+  AssertCommand(["gnt-cluster", "modify", "--reserved-lvs",
+                 "%s,.*/other-test" % lvfullname])
+  AssertClusterVerify(no_warnings=[constants.CV_ENODEORPHANLV])
+
+  AssertCommand(["gnt-cluster", "modify", "--reserved-lvs",
+                ".*/%s.*" % _QA_LV_PREFIX])
+  AssertClusterVerify(no_warnings=[constants.CV_ENODEORPHANLV])
+
+  AssertCommand(["gnt-cluster", "modify", "--reserved-lvs", ""])
+  AssertClusterVerify(fail=False,
+                      warnings=[constants.CV_ENODEORPHANLV])
+
+  AssertCommand(["lvremove", "-f", lvfullname])
+  AssertClusterVerify()
 
 
 def TestClusterModifyEmpty():
@@ -496,14 +518,16 @@ def TestClusterModifyFileBasedStorageDir(
 
   """
   enabled_disk_templates = qa_config.GetEnabledDiskTemplates()
-  assert file_disk_template in [constants.DT_FILE, constants.DT_SHARED_FILE]
+  assert file_disk_template in constants.DTS_FILEBASED
   if not qa_config.IsTemplateSupported(file_disk_template):
     return
 
   # Get some non-file-based disk template to disable file storage
   other_disk_template = _GetOtherEnabledDiskTemplate(
-      utils.storage.GetDiskTemplatesOfStorageType(constants.ST_FILE),
-      enabled_disk_templates)
+    utils.storage.GetDiskTemplatesOfStorageTypes(constants.ST_FILE,
+                                                 constants.ST_SHARED_FILE),
+    enabled_disk_templates
+  )
 
   file_storage_dir = qa_config.get(dir_config_key, default_dir)
   invalid_file_storage_dir = "/boot/"
@@ -982,6 +1006,105 @@ def TestClusterModifyISpecs():
     AssertEqual(initcmd, new_initcmd)
 
 
+def _TestClusterModifyUserShutdownXen(nodes):
+  """Tests user shutdown cluster wide for the KVM hypervisor.
+
+  Note that for the Xen hypervisor, the KVM daemon should never run.
+
+  """
+  AssertCommand(["gnt-cluster", "modify", "--user-shutdown=true"])
+
+  # Give time for kvmd to start and stop on all nodes
+  time.sleep(5)
+
+  for node in nodes:
+    AssertCommand("pgrep ganeti-kvmd", node=node, fail=True)
+
+  AssertCommand(["gnt-cluster", "modify", "--user-shutdown=false"])
+
+  for node in nodes:
+    AssertCommand("pgrep ganeti-kvmd", node=node, fail=True)
+
+
+def _TestClusterModifyUserShutdownKvm(nodes):
+  """Tests user shutdown cluster wide for the KVM hypervisor.
+
+  Note that for the KVM hypervisor, the KVM daemon should run
+  according to '--user-shutdown' and whether the node is VM capable.
+
+  """
+  # How much time to wait for kvmd to start/stop
+  kvmd_cycle_time = 4
+
+  # Start kvmd on all nodes
+  AssertCommand(["gnt-cluster", "modify", "--user-shutdown=true"])
+  time.sleep(kvmd_cycle_time)
+  for node in nodes:
+    AssertCommand("pgrep ganeti-kvmd", node=node)
+
+  # Test VM capable node attribute
+  test_node = None
+
+  for node in nodes:
+    node_info = qa_utils.GetObjectInfo(["gnt-node", "info", node.primary])[0]
+    if "vm_capable" in node_info and node_info["vm_capable"]:
+      test_node = node
+      break
+
+  if test_node is None:
+    raise qa_error.Error("Failed to find viable node for this test")
+
+  # Stop kvmd by disabling vm capable
+  AssertCommand(["gnt-node", "modify", "--vm-capable=no", test_node.primary])
+  time.sleep(kvmd_cycle_time)
+  AssertCommand("pgrep ganeti-kvmd", node=test_node, fail=True)
+
+  # Start kvmd by enabling vm capable
+  AssertCommand(["gnt-node", "modify", "--vm-capable=yes", test_node.primary])
+  time.sleep(kvmd_cycle_time)
+  AssertCommand("pgrep ganeti-kvmd", node=test_node)
+
+  # Stop kvmd on all nodes by removing KVM from the enabled hypervisors
+  enabled_hypervisors = qa_config.GetEnabledHypervisors()
+
+  AssertCommand(["gnt-cluster", "modify", "--enabled-hypervisors=xen-pvm"])
+  time.sleep(kvmd_cycle_time)
+  for node in nodes:
+    AssertCommand("pgrep ganeti-kvmd", node=node, fail=True)
+
+  # Start kvmd on all nodes by restoring KVM to the enabled hypervisors
+  AssertCommand(["gnt-cluster", "modify",
+                 "--enabled-hypervisors=%s" % ",".join(enabled_hypervisors)])
+  time.sleep(kvmd_cycle_time)
+  for node in nodes:
+    AssertCommand("pgrep ganeti-kvmd", node=node)
+
+  # Stop kvmd on all nodes
+  AssertCommand(["gnt-cluster", "modify", "--user-shutdown=false"])
+  time.sleep(kvmd_cycle_time)
+  for node in nodes:
+    AssertCommand("pgrep ganeti-kvmd", node=node, fail=True)
+
+
+def TestClusterModifyUserShutdown():
+  """Tests user shutdown cluster wide.
+
+  """
+  enabled_hypervisors = qa_config.GetEnabledHypervisors()
+  nodes = qa_config.get("nodes")
+
+  for (hv, fn) in [(constants.HT_XEN_PVM, _TestClusterModifyUserShutdownXen),
+                   (constants.HT_XEN_HVM, _TestClusterModifyUserShutdownXen),
+                   (constants.HT_KVM, _TestClusterModifyUserShutdownKvm)]:
+    if hv in enabled_hypervisors:
+      qa_daemon.TestPauseWatcher()
+      fn(nodes)
+      qa_daemon.TestResumeWatcher()
+    else:
+      print "%s hypervisor is not enabled, skipping test for this hypervisor" \
+          % hv
+
+
 def TestClusterInfo():
   """gnt-cluster info"""
   AssertCommand(["gnt-cluster", "info"])
@@ -1030,7 +1153,7 @@ def TestClusterRenewCrypto():
     # Ensure certificate doesn't cause "gnt-cluster verify" to complain
     validity = constants.SSL_CERT_EXPIRATION_WARN * 3
 
-    utils.GenerateSelfSignedSslCert(fh.name, validity=validity)
+    utils.GenerateSelfSignedSslCert(fh.name, 1, validity=validity)
 
     tmpcert = qa_utils.UploadFile(master.primary, fh.name)
     try:
@@ -1055,7 +1178,12 @@ def TestClusterRenewCrypto():
     # Normal case
     AssertCommand(["gnt-cluster", "renew-crypto", "--force",
                    "--new-cluster-certificate", "--new-confd-hmac-key",
-                   "--new-rapi-certificate", "--new-cluster-domain-secret"])
+                   "--new-rapi-certificate", "--new-cluster-domain-secret",
+                   "--new-node-certificates"])
+
+    # Only renew node certificates
+    AssertCommand(["gnt-cluster", "renew-crypto", "--force",
+                   "--new-node-certificates"])
 
     # Restore RAPI certificate
     AssertCommand(["gnt-cluster", "renew-crypto", "--force",
@@ -1138,6 +1266,53 @@ def TestClusterMasterFailover():
     AssertCommand(node_list_cmd, node=master)
   finally:
     failovermaster.Release()
+
+
+def TestUpgrade():
+  """Test gnt-cluster upgrade.
+
+  This tests the 'gnt-cluster upgrade' command by flipping
+  between the current and a different version of Ganeti.
+  To also recover subtile points in the configuration up/down
+  grades, instances are left over both upgrades.
+
+  """
+  this_version = qa_config.get("dir-version")
+  other_version = qa_config.get("other-dir-version")
+  if this_version is None or other_version is None:
+    print qa_utils.FormatInfo("Test not run, as versions not specified")
+    return
+
+  inst_creates = []
+  upgrade_instances = qa_config.get("upgrade-instances", [])
+  live_instances = []
+  for (test_name, templ, cf, n) in qa_instance.available_instance_tests:
+    if (qa_config.TestEnabled(test_name) and
+        qa_config.IsTemplateSupported(templ) and
+        templ in upgrade_instances):
+      inst_creates.append((cf, n))
+
+  for (cf, n) in inst_creates:
+    nodes = qa_config.AcquireManyNodes(n)
+    live_instances.append(cf(nodes))
+
+  AssertCommand(["gnt-cluster", "upgrade", "--to", other_version])
+  AssertCommand(["gnt-cluster", "verify"])
+
+  for instance in live_instances:
+    qa_instance.TestInstanceRemove(instance)
+    instance.Release()
+  live_instances = []
+  for (cf, n) in inst_creates:
+    nodes = qa_config.AcquireManyNodes(n)
+    live_instances.append(cf(nodes))
+
+  AssertCommand(["gnt-cluster", "upgrade", "--to", this_version])
+  AssertCommand(["gnt-cluster", "verify"])
+
+  for instance in live_instances:
+    qa_instance.TestInstanceRemove(instance)
+    instance.Release()
 
 
 def _NodeQueueDrainFile(node):
@@ -1261,10 +1436,12 @@ def TestExclStorSharedPv(node):
   lvname2 = _QA_LV_PREFIX + "vol2"
   node_name = node.primary
   AssertCommand(["lvcreate", "-L1G", "-n", lvname1, vgname], node=node_name)
-  AssertClusterVerify(fail=True, errors=[constants.CV_ENODEORPHANLV])
+  AssertClusterVerify(fail=False,
+                      warnings=[constants.CV_ENODEORPHANLV])
   AssertCommand(["lvcreate", "-L1G", "-n", lvname2, vgname], node=node_name)
-  AssertClusterVerify(fail=True, errors=[constants.CV_ENODELVM,
-                                         constants.CV_ENODEORPHANLV])
+  AssertClusterVerify(fail=True,
+                      errors=[constants.CV_ENODELVM],
+                      warnings=[constants.CV_ENODEORPHANLV])
   AssertCommand(["lvremove", "-f", "/".join([vgname, lvname1])], node=node_name)
   AssertCommand(["lvremove", "-f", "/".join([vgname, lvname2])], node=node_name)
   AssertClusterVerify()

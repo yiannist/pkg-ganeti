@@ -55,7 +55,7 @@
 <dt>-t <em>datafile</em>, --text-data=<em>datafile</em></dt>
 <dd><p>The name of the file holding cluster information, to override the data in the JSON request itself. This is mostly used for debugging. The format of the file is described in the man page <strong>htools</strong>(1).</p>
 </dd>
-<dt>--mond</dt>
+<dt>--mond=<em>yes|no</em></dt>
 <dd><p>If given the program will query all MonDs to fetch data from the supported data collectors over the network.</p>
 </dd>
 <dt>--mond-data <em>datafile</em></dt>

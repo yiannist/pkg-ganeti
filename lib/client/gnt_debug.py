@@ -189,9 +189,8 @@ def _TestJobDependency(opts):
   """
   ToStdout("Testing job dependencies")
 
-  cl = cli.GetClient()
-
   try:
+    cl = cli.GetClient()
     SubmitOpCode(opcodes.OpTestDelay(duration=0, depends=[(-1, None)]), cl=cl)
   except errors.GenericError, err:
     if opts.debug:
@@ -219,6 +218,7 @@ def _TestJobDependency(opts):
                                            ht.TOr(ht.TNonEmptyString,
                                                   ht.TJobId)])))
 
+  cl = cli.GetClient()
   result = cl.SubmitManyJobs(jobs)
   if not check_fn(result):
     raise errors.OpExecError("Job submission doesn't match %s: %s" %
@@ -288,8 +288,6 @@ def _TestJobSubmission(opts):
         (4, 2, priority + offset),
         ])
 
-  cl = cli.GetClient()
-
   for before, after, failpriority in testdata:
     ops = []
     ops.extend([opcodes.OpTestDelay(duration=0) for _ in range(before)])
@@ -297,6 +295,7 @@ def _TestJobSubmission(opts):
     ops.extend([opcodes.OpTestDelay(duration=0) for _ in range(after)])
 
     try:
+      cl = cli.GetClient()
       cl.SubmitJob(ops)
     except errors.GenericError, err:
       if opts.debug:
@@ -312,16 +311,15 @@ def _TestJobSubmission(opts):
        opcodes.OpTestDelay(duration=0, dry_run=True)],
       ops,
       ]
-    result = cl.SubmitManyJobs(jobs)
-    if not (len(result) == 2 and
-            compat.all(len(i) == 2 for i in result) and
-            isinstance(result[0][1], int) and
-            isinstance(result[1][1], basestring) and
-            result[0][0] and not result[1][0]):
-      raise errors.OpExecError("Submitting multiple jobs did not work as"
-                               " expected, result %s" % result)
-    assert len(result) == 2
-
+    try:
+      cl = cli.GetClient()
+      cl.SubmitManyJobs(jobs)
+    except errors.GenericError, err:
+      if opts.debug:
+        ToStdout("Ignoring error for 'wrong priority' test: %s", err)
+    else:
+      raise errors.OpExecError("Submitting manyjobs with an incorrect one"
+                               " did not fail when it should.")
   ToStdout("Job submission tests were successful")
 
 

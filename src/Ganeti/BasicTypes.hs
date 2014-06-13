@@ -1,4 +1,4 @@
-{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FlexibleInstances, MultiParamTypeClasses #-}
 
 {-
 
@@ -26,12 +26,22 @@ module Ganeti.BasicTypes
   , genericResult
   , Result
   , ResultT(..)
+  , mkResultT
+  , withError
+  , withErrorT
   , resultT
-  , FromString(..)
+  , toErrorStr
+  , Error(..) -- re-export from Control.Monad.Error
   , isOk
   , isBad
+  , justOk
+  , justBad
   , eitherToResult
   , annotateResult
+  , annotateError
+  , failError
+  , catchErrorT
+  , handleErrorT
   , iterateOk
   , select
   , LookupResult(..)
@@ -47,9 +57,12 @@ module Ganeti.BasicTypes
 
 import Control.Applicative
 import Control.Monad
+import Control.Monad.Error.Class
 import Control.Monad.Trans
 import Data.Function
 import Data.List
+import Data.Maybe
+import Data.Monoid
 import Data.Set (Set)
 import qualified Data.Set as Set (empty)
 import Text.JSON (JSON)
@@ -65,37 +78,35 @@ data GenericResult a b
 genericResult :: (a -> c) -> (b -> c) -> GenericResult a b -> c
 genericResult f _ (Bad a) = f a
 genericResult _ g (Ok b) = g b
+{-# INLINE genericResult #-}
 
 -- | Type alias for a string Result.
 type Result = GenericResult String
 
--- | Type class for things that can be built from strings.
-class FromString a where
-  mkFromString :: String -> a
-
--- | Trivial 'String' instance; requires FlexibleInstances extension
--- though.
-instance FromString [Char] where
-  mkFromString = id
-
 -- | 'Monad' instance for 'GenericResult'.
-instance (FromString a) => Monad (GenericResult a) where
+instance (Error a) => Monad (GenericResult a) where
   (>>=) (Bad x) _ = Bad x
   (>>=) (Ok x) fn = fn x
   return = Ok
-  fail   = Bad . mkFromString
+  fail   = Bad . strMsg
 
 instance Functor (GenericResult a) where
   fmap _ (Bad msg) = Bad msg
   fmap fn (Ok val) = Ok (fn val)
 
-instance MonadPlus (GenericResult String) where
-  mzero = Bad "zero Result when used as MonadPlus"
+instance (Error a, Monoid a) => MonadPlus (GenericResult a) where
+  mzero = Bad $ strMsg "zero Result when used as MonadPlus"
   -- for mplus, when we 'add' two Bad values, we concatenate their
   -- error descriptions
-  (Bad x) `mplus` (Bad y) = Bad (x ++ "; " ++ y)
+  (Bad x) `mplus` (Bad y) = Bad (x `mappend` strMsg "; " `mappend` y)
   (Bad _) `mplus` x = x
   x@(Ok _) `mplus` _ = x
+
+instance (Error a) => MonadError a (GenericResult a) where
+  throwError = Bad
+  {-# INLINE throwError #-}
+  catchError x h = genericResult h (const x) x
+  {-# INLINE catchError #-}
 
 instance Applicative (GenericResult a) where
   pure = Ok
@@ -103,28 +114,94 @@ instance Applicative (GenericResult a) where
   _       <*> (Bad x) = Bad x
   (Ok f)  <*> (Ok x)  = Ok $ f x
 
+instance (Error a, Monoid a) => Alternative (GenericResult a) where
+  empty = mzero
+  (<|>) = mplus
+
 -- | This is a monad transformation for Result. It's implementation is
 -- based on the implementations of MaybeT and ErrorT.
+--
+-- 'ResultT' is very similar to @ErrorT@, but with one subtle difference:
+-- If 'mplus' combines two failing operations, errors of both of them
+-- are combined.
 newtype ResultT a m b = ResultT {runResultT :: m (GenericResult a b)}
 
-instance (Monad m, FromString a) => Monad (ResultT a m) where
-  fail err = ResultT (return . Bad $ mkFromString err)
+-- | Eliminates a 'ResultT' value given appropriate continuations
+elimResultT :: (Monad m)
+            => (a -> ResultT a' m b')
+            -> (b -> ResultT a' m b')
+            -> ResultT a m b
+            -> ResultT a' m b'
+elimResultT l r = ResultT . (runResultT . result <=< runResultT)
+  where
+    result (Ok x)   = r x
+    result (Bad e)  = l e
+{-# INLINE elimResultT #-}
+
+instance (Monad f) => Functor (ResultT a f) where
+  fmap f = ResultT . liftM (fmap f) . runResultT
+
+instance (Monad m, Error a) => Applicative (ResultT a m) where
+  pure = return
+  (<*>) = ap
+
+instance (Monad m, Error a) => Monad (ResultT a m) where
+  fail err = ResultT (return . Bad $ strMsg err)
   return   = lift . return
-  x >>= f  = ResultT $ do
-               a <- runResultT x
-               case a of
-                 Ok val -> runResultT $ f val
-                 Bad err -> return $ Bad err
+  (>>=)    = flip (elimResultT throwError)
+
+instance (Monad m, Error a) => MonadError a (ResultT a m) where
+  throwError = resultT . Bad
+  catchError = catchErrorT
 
 instance MonadTrans (ResultT a) where
-  lift x = ResultT (liftM Ok x)
+  lift = ResultT . liftM Ok
 
-instance (MonadIO m, FromString a) => MonadIO (ResultT a m) where
+instance (MonadIO m, Error a) => MonadIO (ResultT a m) where
   liftIO = lift . liftIO
+
+instance (Monad m, Error a, Monoid a) => MonadPlus (ResultT a m) where
+  mzero = ResultT $ return mzero
+  -- Ensure that 'y' isn't run if 'x' contains a value. This makes it a bit
+  -- more complicated than 'mplus' of 'GenericResult'.
+  mplus x y = elimResultT combine return x
+    where combine x' = ResultT $ liftM (mplus (Bad x')) (runResultT y)
+
+instance (Monad m, Error a, Monoid a) => Alternative (ResultT a m) where
+  empty = mzero
+  (<|>) = mplus
+
+-- | Changes the error message of a result value, if present.
+-- Note that since 'GenericResult' is also a 'MonadError', this function
+-- is a generalization of
+-- @(Error e') => (e' -> e) -> GenericResult e' a -> GenericResult e a@
+withError :: (MonadError e m) => (e' -> e) -> GenericResult e' a -> m a
+withError f = genericResult (throwError . f) return
+
+-- | Changes the error message of a @ResultT@ value, if present.
+withErrorT :: (Monad m, Error e)
+           => (e' -> e) -> ResultT e' m a -> ResultT e m a
+withErrorT f = ResultT . liftM (withError f) . runResultT
 
 -- | Lift a `Result` value to a `ResultT`.
 resultT :: Monad m => GenericResult a b -> ResultT a m b
 resultT = ResultT . return
+
+-- | An alias for @withError strMsg@, which is often used to lift a pure error
+-- to a monad stack. See also 'annotateResult'.
+toErrorStr :: (MonadError e m, Error e) => Result a -> m a
+toErrorStr = withError strMsg
+
+-- | Converts a monadic result with a 'String' message into
+-- a 'ResultT' with an arbitrary 'Error'.
+--
+-- Expects that the given action has already taken care of any possible
+-- errors. In particular, if applied on @IO (Result a)@, any exceptions
+-- should be handled by the given action.
+--
+-- See also 'toErrorStr'.
+mkResultT :: (Monad m, Error e) => m (Result a) -> ResultT e m a
+mkResultT = ResultT . liftM toErrorStr
 
 -- | Simple checker for whether a 'GenericResult' is OK.
 isOk :: GenericResult a b -> Bool
@@ -135,15 +212,50 @@ isOk _      = False
 isBad :: GenericResult a b -> Bool
 isBad = not . isOk
 
+-- | Simple filter returning only OK values of GenericResult
+justOk :: [GenericResult a b] -> [b]
+justOk = mapMaybe (genericResult (const Nothing) Just)
+
+-- | Simple filter returning only Bad values of GenericResult
+justBad :: [GenericResult a b] -> [a]
+justBad = mapMaybe (genericResult Just (const Nothing))
+
 -- | Converter from Either to 'GenericResult'.
 eitherToResult :: Either a b -> GenericResult a b
 eitherToResult (Left  s) = Bad s
 eitherToResult (Right v) = Ok  v
 
--- | Annotate a Result with an ownership information.
+--- | Annotate a Result with an ownership information.
 annotateResult :: String -> Result a -> Result a
 annotateResult owner (Bad s) = Bad $ owner ++ ": " ++ s
 annotateResult _ v = v
+
+-- | Annotate an error with an ownership information inside a 'MonadError'.
+-- See also 'annotateResult'.
+annotateError :: (MonadError e m, Error e, Monoid e) => String -> m a -> m a
+annotateError owner =
+  flip catchError (throwError . mappend (strMsg $ owner ++ ": "))
+{-# INLINE annotateError #-}
+
+-- | Throws a 'String' message as an error in a 'MonadError'.
+-- This is a generalization of 'Bad'.
+-- It's similar to 'fail', but works within a 'MonadError', avoiding the
+-- unsafe nature of 'fail'.
+failError :: (MonadError e m, Error e) => String -> m a
+failError = throwError . strMsg
+
+-- | A synonym for @flip@ 'catchErrorT'.
+handleErrorT :: (Monad m, Error e)
+             => (e' -> ResultT e m a) -> ResultT e' m a -> ResultT e m a
+handleErrorT handler = elimResultT handler return
+{-# INLINE handleErrorT #-}
+
+-- | Catches an error in a @ResultT@ value. This is similar to 'catchError',
+-- but in addition allows to change the error type.
+catchErrorT :: (Monad m, Error e)
+            => ResultT e' m a -> (e' -> ResultT e m a) -> ResultT e m a
+catchErrorT = flip handleErrorT
+{-# INLINE catchErrorT #-}
 
 -- | Iterate while Ok.
 iterateOk :: (a -> GenericResult b a) -> a -> [a]

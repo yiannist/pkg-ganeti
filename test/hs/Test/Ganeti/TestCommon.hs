@@ -51,6 +51,7 @@ module Test.Ganeti.TestCommon
   , genSetHelper
   , genSet
   , genListSet
+  , genAndRestArguments
   , genIPv4Address
   , genIPv4Network
   , genIp6Addr
@@ -66,6 +67,7 @@ module Test.Ganeti.TestCommon
   , genPropParser
   , genNonNegative
   , relativeError
+  , getTempFileName
   ) where
 
 import Control.Applicative
@@ -73,11 +75,14 @@ import Control.Exception (catchJust)
 import Control.Monad
 import Data.Attoparsec.Text (Parser, parseOnly)
 import Data.List
+import qualified Data.Map as M
 import Data.Text (pack)
 import Data.Word
 import qualified Data.Set as Set
+import System.Directory (getTemporaryDirectory, removeFile)
 import System.Environment (getEnv)
 import System.Exit (ExitCode(..))
+import System.IO (hClose, openTempFile)
 import System.IO.Error (isDoesNotExistError)
 import System.Process (readProcessWithExitCode)
 import qualified Test.HUnit as HUnit
@@ -290,6 +295,20 @@ genListSet :: (Ord a, Bounded a, Enum a) => Maybe Int
               -> Gen (BasicTypes.ListSet a)
 genListSet is = BasicTypes.ListSet <$> genSet is
 
+-- | Generate an arbitrary element of and AndRestArguments field.
+genAndRestArguments :: Gen (M.Map String J.JSValue)
+genAndRestArguments = do
+  n <- choose (0::Int, 10)
+  let oneParam _ = do
+                      name <- choose (15 ::Int, 25)
+                                >>= flip vectorOf (elements tagChar)
+                      intvalue <- arbitrary
+                      value <- oneof [ J.JSString . J.toJSString <$> genName
+                                     , return $ J.showJSON (intvalue :: Int)
+                                     ]
+                      return (name, value)
+  M.fromList `liftM` mapM oneParam [1..n]
+
 -- | Generate an arbitrary IPv4 address in textual form.
 genIPv4 :: Gen String
 genIPv4 = do
@@ -421,3 +440,12 @@ relativeError d1 d2 =
   in if delta == 0
        then 0
        else delta / greatest
+
+-- | Helper to a get a temporary file name.
+getTempFileName :: String -> IO FilePath
+getTempFileName filename = do
+  tempdir <- getTemporaryDirectory
+  (fpath, handle) <- openTempFile tempdir filename
+  _ <- hClose handle
+  removeFile fpath
+  return fpath

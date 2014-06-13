@@ -64,6 +64,12 @@
 <dt>VOL_METADATA</dt>
 <dd><p>Available only to the <strong>setinfo</strong> script. A string containing metadata to be associated with the volume. Currently, Ganeti sets this value to <code>originstname+X</code> where <code>X</code> is the instance's name.</p>
 </dd>
+<dt>VOL_CNAME</dt>
+<dd><p>The name of the Disk config object (optional).</p>
+</dd>
+<dt>VOL_UUID</dt>
+<dd><p>The uuid of the Disk config object.</p>
+</dd>
 </dl>
 <h1 id="executable-scripts"><a href="#TOC">EXECUTABLE SCRIPTS</a></h1>
 <h2 id="create"><a href="#TOC">create</a></h2>

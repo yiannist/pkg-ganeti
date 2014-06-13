@@ -26,7 +26,7 @@ This will be fixed in a future version.
 .PD 0
 .P
 .PD
-[--network=\f[I]NETWORK\f[]]
+--network=\f[I]NETWORK\f[]
 .PD 0
 .P
 .PD

@@ -8,7 +8,7 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Splitting the query and job execution paths &mdash; Ganeti 2.10.5 documentation</title>
+    <title>Splitting the query and job execution paths &mdash; Ganeti 2.11.2 documentation</title>
     
     <link rel="stylesheet" href="_static/style.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
@@ -16,7 +16,7 @@
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.10.5',
+        VERSION:     '2.11.2',
         COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -25,9 +25,9 @@
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti 2.10.5 documentation" href="index.html" />
+    <link rel="top" title="Ganeti 2.11.2 documentation" href="index.html" />
     <link rel="up" title="Design document drafts" href="design-draft.html" />
-    <link rel="next" title="Detection of user-initiated shutdown from inside an instance" href="design-internal-shutdown.html" />
+    <link rel="next" title="GlusterFS Ganeti support" href="design-glusterfs-ganeti-support.html" />
     <link rel="prev" title="Resource model changes" href="design-resource-model.html" /> 
   </head>
   <body>
@@ -35,12 +35,12 @@
       <h3>Navigation</h3>
       <ul>
         <li class="right" style="margin-right: 10px">
-          <a href="design-internal-shutdown.html" title="Detection of user-initiated shutdown from inside an instance"
+          <a href="design-glusterfs-ganeti-support.html" title="GlusterFS Ganeti support"
              accesskey="N">next</a></li>
         <li class="right" >
           <a href="design-resource-model.html" title="Resource model changes"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.10.5 documentation</a> &raquo;</li>
+        <li><a href="index.html">Ganeti 2.11.2 documentation</a> &raquo;</li>
           <li><a href="design-draft.html" accesskey="U">Design document drafts</a> &raquo;</li> 
       </ul>
     </div>  
@@ -161,6 +161,10 @@ execute any query from any node; except maybe practical reasons
 (network topology, remote nodes, etc.) or security reasons (if/whether
 we want to change the cluster security model). In any case, it should
 be possible to do this in a reliable way from all master candidates.</p>
+<p>Update: We decided to keep the restriction to run queries on the master
+node. The reason is that it is confusing from a usability point of view
+that querying will work on any node and suddenly, when the user tries
+to submit a job, it won&#8217;t work.</p>
 <div class="section" id="some-implementation-details">
 <h3>Some implementation details<a class="headerlink" href="#some-implementation-details" title="Permalink to this headline">¶</a></h3>
 <p>We will fold this in confd, at least initially, to reduce the
@@ -207,8 +211,8 @@ interface and it is consistent.</p>
   <p class="topless"><a href="design-resource-model.html"
                         title="previous chapter">Resource model changes</a></p>
   <h4>Next topic</h4>
-  <p class="topless"><a href="design-internal-shutdown.html"
-                        title="next chapter">Detection of user-initiated shutdown from inside an instance</a></p>
+  <p class="topless"><a href="design-glusterfs-ganeti-support.html"
+                        title="next chapter">GlusterFS Ganeti support</a></p>
   <h3>This Page</h3>
   <ul class="this-page-menu">
     <li><a href="_sources/design-query-splitting.txt"
@@ -235,12 +239,12 @@ interface and it is consistent.</p>
       <h3>Navigation</h3>
       <ul>
         <li class="right" style="margin-right: 10px">
-          <a href="design-internal-shutdown.html" title="Detection of user-initiated shutdown from inside an instance"
+          <a href="design-glusterfs-ganeti-support.html" title="GlusterFS Ganeti support"
              >next</a></li>
         <li class="right" >
           <a href="design-resource-model.html" title="Resource model changes"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.10.5 documentation</a> &raquo;</li>
+        <li><a href="index.html">Ganeti 2.11.2 documentation</a> &raquo;</li>
           <li><a href="design-draft.html" >Design document drafts</a> &raquo;</li> 
       </ul>
     </div>

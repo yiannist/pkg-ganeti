@@ -41,6 +41,7 @@ module Ganeti.Daemon
   , parseArgs
   , parseAddress
   , cleanupSocket
+  , getFQDN
   , describeError
   , genericMain
   ) where
@@ -139,7 +140,7 @@ type MainFn a b = DaemonOptions -> a -> b -> IO ()
 oNoDaemonize :: OptType
 oNoDaemonize =
   (Option "f" ["foreground"]
-   (NoArg (\ opts -> Ok opts { optDaemonize = False}))
+   (NoArg (\ opts -> Ok opts { optDaemonize = False }))
    "Don't detach from the current terminal",
    OptComplNone)
 

@@ -35,9 +35,11 @@ import testutils
 class TestConsole(unittest.TestCase):
   def test(self):
     instance = objects.Instance(name="fake.example.com")
-    node = objects.Node(name="fakenode.example.com")
-    cons = hv_fake.FakeHypervisor.GetInstanceConsole(instance, node, {}, {})
-    self.assertTrue(cons.Validate())
+    node = objects.Node(name="fakenode.example.com", ndparams={})
+    group = objects.NodeGroup(name="default", ndparams={})
+    cons = hv_fake.FakeHypervisor.GetInstanceConsole(instance, node, group,
+                                                     {}, {})
+    self.assertEqual(cons.Validate(), None)
     self.assertEqual(cons.kind, constants.CONS_MESSAGE)
 
 

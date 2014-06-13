@@ -34,32 +34,31 @@ module Ganeti.OpCodes
   , mkDiskIndex
   , unDiskIndex
   , opID
+  , opReasonSrcID
   , allOpIDs
   , allOpFields
   , opSummary
   , CommonOpParams(..)
   , defOpParams
   , MetaOpCode(..)
+  , resolveDependencies
   , wrapOpCode
   , setOpComment
   , setOpPriority
   ) where
 
-import Text.JSON (readJSON, JSObject, JSON, JSValue(..), makeObj, fromJSObject)
-import qualified Text.JSON
-
-import Ganeti.THH
-
-import qualified Ganeti.Hs2Py.OpDoc as OpDoc
-import Ganeti.OpParams
-import Ganeti.PyValueInstances ()
-import Ganeti.Types
-import Ganeti.Query.Language (queryTypeOpToRaw)
-
 import Data.List (intercalate)
 import Data.Map (Map)
+import qualified Text.JSON
+import Text.JSON (readJSON, JSObject, JSON, JSValue(..), makeObj, fromJSObject)
 
 import qualified Ganeti.Constants as C
+import qualified Ganeti.Hs2Py.OpDoc as OpDoc
+import Ganeti.OpParams
+import Ganeti.PyValue ()
+import Ganeti.Query.Language (queryTypeOpToRaw)
+import Ganeti.THH
+import Ganeti.Types
 
 instance PyValue DiskIndex where
   showValue = showValue . unDiskIndex
@@ -214,6 +213,7 @@ $(genOpCode "OpCode"
      , pClusterOsParams
      , pDiskParams
      , pCandidatePoolSize
+     , pMaxRunningJobs
      , pUidPool
      , pAddUids
      , pRemoveUids
@@ -224,6 +224,7 @@ $(genOpCode "OpCode"
      , withDoc "Cluster-wide ipolicy specs" pIpolicy
      , pDrbdHelper
      , pDefaultIAllocator
+     , pDefaultIAllocatorParams
      , pMasterNetdev
      , pMasterNetmask
      , pReservedLvs
@@ -234,6 +235,8 @@ $(genOpCode "OpCode"
      , pModifyEtcHosts
      , pClusterFileStorageDir
      , pClusterSharedFileStorageDir
+     , pClusterGlusterStorageDir
+     , pEnabledUserShutdown
      ],
      [])
   , ("OpClusterRedistConf",
@@ -249,6 +252,11 @@ $(genOpCode "OpCode"
   , ("OpClusterDeactivateMasterIp",
      [t| () |],
      OpDoc.opClusterDeactivateMasterIp,
+     [],
+     [])
+  , ("OpClusterRenewCrypto",
+     [t| () |],
+     OpDoc.opClusterRenewCrypto,
      [],
      [])
   , ("OpQuery",
@@ -313,14 +321,6 @@ $(genOpCode "OpCode"
      , pNdParams
      ],
      "node_name")
-  , ("OpNodeQuery",
-     [t| [[JSValue]] |],
-     OpDoc.opNodeQuery,
-     [ pOutputFields
-     , withDoc "Empty list to query all nodes, node names otherwise" pNames
-     , pUseLocking
-     ],
-     [])
   , ("OpNodeQueryvols",
      [t| [JSValue] |],
      OpDoc.opNodeQueryvols,
@@ -448,6 +448,7 @@ $(genOpCode "OpCode"
      , pSrcNode
      , pSrcNodeUuid
      , pSrcPath
+     , pBackupCompress
      , pStartInstance
      , pInstTags
      ],
@@ -500,6 +501,8 @@ $(genOpCode "OpCode"
      , pTempBeParams
      , pNoRemember
      , pStartupPaused
+       -- timeout to cleanup a user down instance
+     , pShutdownTimeout
      ],
      "instance_name")
   , ("OpInstanceShutdown",
@@ -511,6 +514,7 @@ $(genOpCode "OpCode"
      , pIgnoreOfflineNodes
      , pShutdownTimeout'
      , pNoRemember
+     , pAdminStateSource
      ],
      "instance_name")
   , ("OpInstanceReboot",
@@ -576,6 +580,7 @@ $(genOpCode "OpCode"
      , pIgnoreIpolicy
      , pMoveTargetNode
      , pMoveTargetNodeUuid
+     , pMoveCompress
      , pIgnoreConsistency
      ],
      "instance_name")
@@ -614,16 +619,6 @@ $(genOpCode "OpCode"
      , pIallocator
      ],
      "instance_name")
-  , ("OpInstanceQuery",
-     [t| [[JSValue]] |],
-     OpDoc.opInstanceQuery,
-     [ pOutputFields
-     , pUseLocking
-     , withDoc
-       "Empty list to query all instances, instance names otherwise"
-       pNames
-     ],
-     [])
   , ("OpInstanceQueryData",
      [t| JSObject (JSObject JSValue) |],
      OpDoc.opInstanceQueryData,
@@ -703,13 +698,6 @@ $(genOpCode "OpCode"
      , withDoc "List of node UUIDs to assign" pRequiredNodeUuids
      ],
      "group_name")
-  , ("OpGroupQuery",
-     [t| [[JSValue]] |],
-     OpDoc.opGroupQuery,
-     [ pOutputFields
-     , withDoc "Empty list to query all groups, group names otherwise" pNames
-     ],
-     [])
   , ("OpGroupSetParams",
      [t| [(NonEmptyString, JSValue)] |],
      OpDoc.opGroupSetParams,
@@ -760,13 +748,6 @@ $(genOpCode "OpCode"
      , withDoc "Which ExtStorage Provider to diagnose" pNames
      ],
      [])
-  , ("OpBackupQuery",
-     [t| JSObject (Either Bool [NonEmptyString]) |],
-     OpDoc.opBackupQuery,
-     [ pUseLocking
-     , withDoc "Empty list to query all nodes, node names otherwise" pNodes
-     ],
-     [])
   , ("OpBackupPrepare",
      [t| Maybe (JSObject JSValue) |],
      OpDoc.opBackupPrepare,
@@ -780,6 +761,7 @@ $(genOpCode "OpCode"
      OpDoc.opBackupExport,
      [ pInstanceName
      , pInstanceUuid
+     , pBackupCompress
      , pShutdownTimeout
      , pExportTargetNode
      , pExportTargetNodeUuid
@@ -929,14 +911,6 @@ $(genOpCode "OpCode"
      , pNetworkName
      ],
      "network_name")
-  , ("OpNetworkQuery",
-     [t| [[JSValue]] |],
-     OpDoc.opNetworkQuery,
-     [ pOutputFields
-     , pUseLocking
-     , withDoc "Empty list to query all groups, group names otherwise" pNames
-     ],
-     [])
   ])
 
 -- | Returns the OP_ID for a given opcode value.
@@ -944,6 +918,10 @@ $(genOpID ''OpCode "opID")
 
 -- | A list of all defined/supported opcode IDs.
 $(genAllOpIDs ''OpCode "allOpIDs")
+
+-- | Convert the opcode name to lowercase with underscores and strip
+-- the @Op@ prefix.
+$(genOpLowerStrip (C.opcodeReasonSrcOpcode ++ ":") ''OpCode "opReasonSrcID")
 
 instance JSON OpCode where
   readJSON = loadOpCode
@@ -1033,10 +1011,23 @@ defOpParams =
                  , opReason     = []
                  }
 
+-- | Resolve relative dependencies to absolute ones, given the job ID.
+resolveDependsCommon :: (Monad m) => CommonOpParams -> JobId -> m CommonOpParams
+resolveDependsCommon p@(CommonOpParams { opDepends = Just deps}) jid = do
+  deps' <- mapM (`absoluteJobDependency` jid) deps
+  return p { opDepends = Just deps' }
+resolveDependsCommon p _ = return p
+
 -- | The top-level opcode type.
 data MetaOpCode = MetaOpCode { metaParams :: CommonOpParams
                              , metaOpCode :: OpCode
                              } deriving (Show, Eq)
+
+-- | Resolve relative dependencies to absolute ones, given the job Id.
+resolveDependencies :: (Monad m) => MetaOpCode -> JobId -> m MetaOpCode
+resolveDependencies mopc jid = do
+  mpar <- resolveDependsCommon (metaParams mopc) jid
+  return (mopc { metaParams = mpar })
 
 -- | JSON serialisation for 'MetaOpCode'.
 showMeta :: MetaOpCode -> JSValue

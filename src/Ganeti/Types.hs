@@ -75,6 +75,7 @@ module Ganeti.Types
   , CVErrorCode(..)
   , cVErrorCodeToRaw
   , Hypervisor(..)
+  , hypervisorFromRaw
   , hypervisorToRaw
   , OobCommand(..)
   , oobCommandToRaw
@@ -110,6 +111,7 @@ module Ganeti.Types
   , RelativeJobId
   , JobIdDep(..)
   , JobDependency(..)
+  , absoluteJobDependency
   , OpSubmitPriority(..)
   , opSubmitPriorityToRaw
   , parseSubmitPriority
@@ -139,6 +141,9 @@ module Ganeti.Types
   , AdminState(..)
   , adminStateFromRaw
   , adminStateToRaw
+  , AdminStateSource(..)
+  , adminStateSourceFromRaw
+  , adminStateSourceToRaw
   , StorageField(..)
   , storageFieldToRaw
   , DiskAccessMode(..)
@@ -152,6 +157,8 @@ module Ganeti.Types
   , RpcTimeout(..)
   , rpcTimeoutFromRaw -- FIXME: no used anywhere
   , rpcTimeoutToRaw
+  , ImportExportCompression(..)
+  , importExportCompressionToRaw
   , HotplugTarget(..)
   , hotplugTargetToRaw
   , HotplugAction(..)
@@ -294,6 +301,7 @@ $(THH.declareLADT ''String "DiskTemplate"
        , ("DTDrbd8",      "drbd")
        , ("DTRbd",        "rbd")
        , ("DTExt",        "ext")
+       , ("DTGluster",    "gluster")
        ])
 $(THH.makeJSONInstance ''DiskTemplate)
 
@@ -327,8 +335,7 @@ $(THH.declareLADT ''String "AllocPolicy"
        ])
 $(THH.makeJSONInstance ''AllocPolicy)
 
--- | The Instance real state type. FIXME: this could be improved to
--- just wrap a /NormalState AdminStatus | ErrorState ErrorCondition/.
+-- | The Instance real state type.
 $(THH.declareLADT ''String "InstanceStatus"
        [ ("StatusDown",    "ADMIN_down")
        , ("StatusOffline", "ADMIN_offline")
@@ -337,6 +344,7 @@ $(THH.declareLADT ''String "InstanceStatus"
        , ("NodeDown",      "ERROR_nodedown")
        , ("NodeOffline",   "ERROR_nodeoffline")
        , ("Running",       "running")
+       , ("UserDown",      "USER_down")
        , ("WrongNode",     "ERROR_wrongnode")
        ])
 $(THH.makeJSONInstance ''InstanceStatus)
@@ -358,6 +366,7 @@ $(THH.makeJSONInstance ''VerifyOptionalChecks)
 $(THH.declareLADT ''String "CVErrorCode"
   [ ("CvECLUSTERCFG",                  "ECLUSTERCFG")
   , ("CvECLUSTERCERT",                 "ECLUSTERCERT")
+  , ("CvECLUSTERCLIENTCERT",           "ECLUSTERCLIENTCERT")
   , ("CvECLUSTERFILECHECK",            "ECLUSTERFILECHECK")
   , ("CvECLUSTERDANGLINGNODES",        "ECLUSTERDANGLINGNODES")
   , ("CvECLUSTERDANGLINGINST",         "ECLUSTERDANGLINGINST")
@@ -429,6 +438,10 @@ $(THH.makeJSONInstance ''Hypervisor)
 instance THH.PyValue Hypervisor where
   showValue = show . hypervisorToRaw
 
+instance HasStringRepr Hypervisor where
+  fromStringRepr = hypervisorFromRaw
+  toStringRepr = hypervisorToRaw
+
 -- | Oob command type.
 $(THH.declareLADT ''String "OobCommand"
   [ ("OobHealth",      "health")
@@ -451,6 +464,7 @@ $(THH.makeJSONInstance ''OobStatus)
 -- | Storage type.
 $(THH.declareLADT ''String "StorageType"
   [ ("StorageFile", "file")
+  , ("StorageSharedFile", "sharedfile")
   , ("StorageLvmPv", "lvm-pv")
   , ("StorageLvmVg", "lvm-vg")
   , ("StorageDiskless", "diskless")
@@ -473,6 +487,7 @@ data StorageUnitRaw = SURaw StorageType StorageKey
 
 -- | Full storage unit with storage-type-specific parameters
 data StorageUnit = SUFile StorageKey
+                 | SUSharedFile StorageKey
                  | SULvmPv StorageKey SPExclusiveStorage
                  | SULvmVg StorageKey SPExclusiveStorage
                  | SUDiskless StorageKey
@@ -483,6 +498,7 @@ data StorageUnit = SUFile StorageKey
 
 instance Show StorageUnit where
   show (SUFile key) = showSUSimple StorageFile key
+  show (SUSharedFile key) = showSUSimple StorageSharedFile key
   show (SULvmPv key es) = showSULvm StorageLvmPv key es
   show (SULvmVg key es) = showSULvm StorageLvmVg key es
   show (SUDiskless key) = showSUSimple StorageDiskless key
@@ -492,6 +508,7 @@ instance Show StorageUnit where
 
 instance JSON StorageUnit where
   showJSON (SUFile key) = showJSON (StorageFile, key, []::[String])
+  showJSON (SUSharedFile key) = showJSON (StorageSharedFile, key, []::[String])
   showJSON (SULvmPv key es) = showJSON (StorageLvmPv, key, [es])
   showJSON (SULvmVg key es) = showJSON (StorageLvmVg, key, [es])
   showJSON (SUDiskless key) = showJSON (StorageDiskless, key, []::[String])
@@ -517,12 +534,13 @@ showSULvm st sk es = show (storageTypeToRaw st, sk, [es])
 diskTemplateToStorageType :: DiskTemplate -> StorageType
 diskTemplateToStorageType DTExt = StorageExt
 diskTemplateToStorageType DTFile = StorageFile
-diskTemplateToStorageType DTSharedFile = StorageFile
+diskTemplateToStorageType DTSharedFile = StorageSharedFile
 diskTemplateToStorageType DTDrbd8 = StorageLvmVg
 diskTemplateToStorageType DTPlain = StorageLvmVg
 diskTemplateToStorageType DTRbd = StorageRados
 diskTemplateToStorageType DTDiskless = StorageDiskless
 diskTemplateToStorageType DTBlock = StorageBlock
+diskTemplateToStorageType DTGluster = StorageSharedFile
 
 -- | Equips a raw storage unit with its parameters
 addParamsToStorageUnit :: SPExclusiveStorage -> StorageUnitRaw -> StorageUnit
@@ -530,6 +548,7 @@ addParamsToStorageUnit _ (SURaw StorageBlock key) = SUBlock key
 addParamsToStorageUnit _ (SURaw StorageDiskless key) = SUDiskless key
 addParamsToStorageUnit _ (SURaw StorageExt key) = SUExt key
 addParamsToStorageUnit _ (SURaw StorageFile key) = SUFile key
+addParamsToStorageUnit _ (SURaw StorageSharedFile key) = SUSharedFile key
 addParamsToStorageUnit es (SURaw StorageLvmPv key) = SULvmPv key es
 addParamsToStorageUnit es (SURaw StorageLvmVg key) = SULvmVg key es
 addParamsToStorageUnit _ (SURaw StorageRados key) = SURados key
@@ -670,6 +689,12 @@ instance JSON.JSON JobIdDep where
       JSON.Ok r -> return $ JobDepRelative r
       JSON.Error _ -> liftM JobDepAbsolute (parseJobId v)
 
+-- | From job ID dependency and job ID, compute the absolute dependency.
+absoluteJobIdDep :: (Monad m) => JobIdDep -> JobId -> m JobIdDep
+absoluteJobIdDep (JobDepAbsolute jid) _ = return $ JobDepAbsolute jid
+absoluteJobIdDep (JobDepRelative rjid) jid =
+  liftM JobDepAbsolute . makeJobId $ fromJobId jid + fromNegative rjid 
+
 -- | Job Dependency type.
 data JobDependency = JobDependency JobIdDep [FinalizedJobStatus]
                      deriving (Show, Eq)
@@ -677,6 +702,11 @@ data JobDependency = JobDependency JobIdDep [FinalizedJobStatus]
 instance JSON JobDependency where
   showJSON (JobDependency dep status) = showJSON (dep, status)
   readJSON = liftM (uncurry JobDependency) . readJSON
+
+-- | From job dependency and job id compute an absolute job dependency.
+absoluteJobDependency :: (Monad m) => JobDependency -> JobId -> m JobDependency
+absoluteJobDependency (JobDependency jdep fstats) jid =
+  liftM (flip JobDependency fstats) $ absoluteJobIdDep jdep jid 
 
 -- | Valid opcode priorities for submit.
 $(THH.declareIADT "OpSubmitPriority"
@@ -780,6 +810,15 @@ $(THH.declareLADT ''String "AdminState"
   ])
 $(THH.makeJSONInstance ''AdminState)
 
+$(THH.declareLADT ''String "AdminStateSource"
+  [ ("AdminSource", "admin")
+  , ("UserSource",  "user")
+  ])
+$(THH.makeJSONInstance ''AdminStateSource)
+
+instance THH.PyValue AdminStateSource where
+  showValue = THH.showValue . adminStateSourceToRaw
+
 -- * Storage field type
 
 $(THH.declareLADT ''String "StorageField"
@@ -835,6 +874,17 @@ $(THH.declareILADT "RpcTimeout"
   , ("FourHours", 4 * 3600) -- 4 hours
   , ("OneDay",    86400)    -- 1 day
   ])
+
+$(THH.declareLADT ''String "ImportExportCompression"
+  [ -- No compression
+    ("None", "none")
+    -- gzip compression
+  , ("GZip", "gzip")
+  ])
+$(THH.makeJSONInstance ''ImportExportCompression)
+
+instance THH.PyValue ImportExportCompression where
+  showValue = THH.showValue . importExportCompressionToRaw
 
 -- | Hotplug action.
 

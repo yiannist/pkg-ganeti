@@ -48,13 +48,14 @@ from ganeti import constants
 from ganeti import serializer
 from ganeti import workerpool
 from ganeti import locking
+from ganeti import luxi
 from ganeti import opcodes
 from ganeti import opcodes_base
 from ganeti import errors
 from ganeti import mcpu
 from ganeti import utils
 from ganeti import jstore
-from ganeti import rpc
+import ganeti.rpc.node as rpc
 from ganeti import runtime
 from ganeti import netutils
 from ganeti import compat
@@ -223,7 +224,7 @@ class _QueuedJob(object):
                "received_timestamp", "start_timestamp", "end_timestamp",
                "__weakref__", "processor_lock", "writable", "archived"]
 
-  def _AddReasons(self):
+  def AddReasons(self, pickup=False):
     """Extend the reason trail
 
     Add the reason for all the opcodes of this job to be executed.
@@ -232,7 +233,12 @@ class _QueuedJob(object):
     count = 0
     for queued_op in self.ops:
       op = queued_op.input
-      reason_src = opcodes_base.NameToReasonSrc(op.__class__.__name__)
+      if pickup:
+        reason_src_prefix = constants.OPCODE_REASON_SRC_PICKUP
+      else:
+        reason_src_prefix = constants.OPCODE_REASON_SRC_OPCODE
+      reason_src = opcodes_base.NameToReasonSrc(op.__class__.__name__,
+                                                reason_src_prefix)
       reason_text = "job=%d;index=%d" % (self.id, count)
       reason = getattr(op, "reason", [])
       reason.append((reason_src, reason_text, utils.EpochNano()))
@@ -259,7 +265,7 @@ class _QueuedJob(object):
     self.queue = queue
     self.id = int(job_id)
     self.ops = [_QueuedOpCode(op) for op in ops]
-    self._AddReasons()
+    self.AddReasons()
     self.log_serial = 0
     self.received_timestamp = TimeStampNow()
     self.start_timestamp = None
@@ -1714,69 +1720,46 @@ class JobQueue(object):
 
     # Setup worker pool
     self._wpool = _JobQueueWorkerPool(self)
-    try:
-      self._InspectQueue()
-    except:
-      self._wpool.TerminateWorkers()
-      raise
 
-  @locking.ssynchronized(_LOCK)
-  @_RequireOpenQueue
-  def _InspectQueue(self):
-    """Loads the whole job queue and resumes unfinished jobs.
+  def _PickupJobUnlocked(self, job_id):
+    """Load a job from the job queue
 
-    This function needs the lock here because WorkerPool.AddTask() may start a
-    job while we're still doing our work.
+    Pick up a job that already is in the job queue and start/resume it.
 
     """
-    logging.info("Inspecting job queue")
+    job = self._LoadJobUnlocked(job_id)
 
-    restartjobs = []
+    if job is None:
+      logging.warning("Job %s could not be read", job_id)
+      return
 
-    all_job_ids = self._GetJobIDsUnlocked()
-    jobs_count = len(all_job_ids)
-    lastinfo = time.time()
-    for idx, job_id in enumerate(all_job_ids):
-      # Give an update every 1000 jobs or 10 seconds
-      if (idx % 1000 == 0 or time.time() >= (lastinfo + 10.0) or
-          idx == (jobs_count - 1)):
-        logging.info("Job queue inspection: %d/%d (%0.1f %%)",
-                     idx, jobs_count - 1, 100.0 * (idx + 1) / jobs_count)
-        lastinfo = time.time()
+    job.AddReasons(pickup=True)
 
-      job = self._LoadJobUnlocked(job_id)
+    status = job.CalcStatus()
+    if status == constants.JOB_STATUS_QUEUED:
+      self._EnqueueJobsUnlocked([job])
+      logging.info("Restarting job %s", job.id)
 
-      # a failure in loading the job can cause 'None' to be returned
-      if job is None:
-        continue
+    elif status in (constants.JOB_STATUS_RUNNING,
+                    constants.JOB_STATUS_WAITING,
+                    constants.JOB_STATUS_CANCELING):
+      logging.warning("Unfinished job %s found: %s", job.id, job)
 
-      status = job.CalcStatus()
+      if status == constants.JOB_STATUS_WAITING:
+        job.MarkUnfinishedOps(constants.OP_STATUS_QUEUED, None)
+        self._EnqueueJobsUnlocked([job])
+        logging.info("Restarting job %s", job.id)
+      else:
+        to_encode = errors.OpExecError("Unclean master daemon shutdown")
+        job.MarkUnfinishedOps(constants.OP_STATUS_ERROR,
+                              _EncodeOpError(to_encode))
+        job.Finalize()
 
-      if status == constants.JOB_STATUS_QUEUED:
-        restartjobs.append(job)
+    self.UpdateJobUnlocked(job)
 
-      elif status in (constants.JOB_STATUS_RUNNING,
-                      constants.JOB_STATUS_WAITING,
-                      constants.JOB_STATUS_CANCELING):
-        logging.warning("Unfinished job %s found: %s", job.id, job)
-
-        if status == constants.JOB_STATUS_WAITING:
-          # Restart job
-          job.MarkUnfinishedOps(constants.OP_STATUS_QUEUED, None)
-          restartjobs.append(job)
-        else:
-          to_encode = errors.OpExecError("Unclean master daemon shutdown")
-          job.MarkUnfinishedOps(constants.OP_STATUS_ERROR,
-                                _EncodeOpError(to_encode))
-          job.Finalize()
-
-        self.UpdateJobUnlocked(job)
-
-    if restartjobs:
-      logging.info("Restarting %s jobs", len(restartjobs))
-      self._EnqueueJobsUnlocked(restartjobs)
-
-    logging.info("Job queue inspection finished")
+  @locking.ssynchronized(_LOCK)
+  def PickupJob(self, job_id):
+    self._PickupJobUnlocked(job_id)
 
   def _GetRpc(self, address_list):
     """Gets RPC runner with context.
@@ -1938,36 +1921,6 @@ class JobQueue(object):
     names, addrs = self._GetNodeIp()
     result = self._GetRpc(addrs).call_jobqueue_rename(names, rename)
     self._CheckRpcResult(result, self._nodes, "Renaming files (%r)" % rename)
-
-  def _NewSerialsUnlocked(self, count):
-    """Generates a new job identifier.
-
-    Job identifiers are unique during the lifetime of a cluster.
-
-    @type count: integer
-    @param count: how many serials to return
-    @rtype: list of int
-    @return: a list of job identifiers.
-
-    """
-    assert ht.TNonNegativeInt(count)
-
-    # New number
-    serial = self._last_serial + count
-
-    # Write to file
-    self._UpdateJobQueueFile(pathutils.JOB_QUEUE_SERIAL_FILE,
-                             "%s\n" % serial, True)
-
-    result = [jstore.FormatJobID(v)
-              for v in range(self._last_serial + 1, serial + 1)]
-
-    # Keep it only if we were able to write the file
-    self._last_serial = serial
-
-    assert len(result) == count
-
-    return result
 
   @staticmethod
   def _GetJobPath(job_id):
@@ -2178,96 +2131,29 @@ class JobQueue(object):
 
     return True
 
-  @_RequireOpenQueue
-  def _SubmitJobUnlocked(self, job_id, ops):
+  @classmethod
+  def SubmitJob(cls, ops):
     """Create and store a new job.
 
-    This enters the job into our job queue and also puts it on the new
-    queue, in order for it to be picked up by the queue processors.
-
-    @type job_id: job ID
-    @param job_id: the job ID for the new job
-    @type ops: list
-    @param ops: The list of OpCodes that will become the new job.
-    @rtype: L{_QueuedJob}
-    @return: the job object to be queued
-    @raise errors.JobQueueFull: if the job queue has too many jobs in it
-    @raise errors.GenericError: If an opcode is not valid
-
     """
-    if self._queue_size >= constants.JOB_QUEUE_SIZE_HARD_LIMIT:
-      raise errors.JobQueueFull()
+    return luxi.Client(address=pathutils.QUERY_SOCKET).SubmitJob(ops)
 
-    job = _QueuedJob(self, job_id, ops, True)
-
-    for idx, op in enumerate(job.ops):
-      # Check priority
-      if op.priority not in constants.OP_PRIO_SUBMIT_VALID:
-        allowed = utils.CommaJoin(constants.OP_PRIO_SUBMIT_VALID)
-        raise errors.GenericError("Opcode %s has invalid priority %s, allowed"
-                                  " are %s" % (idx, op.priority, allowed))
-
-      # Check job dependencies
-      dependencies = getattr(op.input, opcodes_base.DEPEND_ATTR, None)
-      if not opcodes_base.TNoRelativeJobDependencies(dependencies):
-        raise errors.GenericError("Opcode %s has invalid dependencies, must"
-                                  " match %s: %s" %
-                                  (idx, opcodes_base.TNoRelativeJobDependencies,
-                                   dependencies))
-
-    # Write to disk
-    self.UpdateJobUnlocked(job)
-
-    self._queue_size += 1
-
-    logging.debug("Adding new job %s to the cache", job_id)
-    self._memcache[job_id] = job
-
-    return job
-
-  @locking.ssynchronized(_LOCK)
-  @_RequireOpenQueue
-  @_RequireNonDrainedQueue
-  def SubmitJob(self, ops):
-    """Create and store a new job.
-
-    @see: L{_SubmitJobUnlocked}
-
-    """
-    (job_id, ) = self._NewSerialsUnlocked(1)
-    self._EnqueueJobsUnlocked([self._SubmitJobUnlocked(job_id, ops)])
-    return job_id
-
-  @locking.ssynchronized(_LOCK)
-  @_RequireOpenQueue
-  def SubmitJobToDrainedQueue(self, ops):
+  @classmethod
+  def SubmitJobToDrainedQueue(cls, ops):
     """Forcefully create and store a new job.
 
     Do so, even if the job queue is drained.
-    @see: L{_SubmitJobUnlocked}
 
     """
-    (job_id, ) = self._NewSerialsUnlocked(1)
-    self._EnqueueJobsUnlocked([self._SubmitJobUnlocked(job_id, ops)])
-    return job_id
+    return luxi.Client(address=pathutils.QUERY_SOCKET)\
+        .SubmitJobToDrainedQueue(ops)
 
-  @locking.ssynchronized(_LOCK)
-  @_RequireOpenQueue
-  @_RequireNonDrainedQueue
-  def SubmitManyJobs(self, jobs):
+  @classmethod
+  def SubmitManyJobs(cls, jobs):
     """Create and store multiple jobs.
 
-    @see: L{_SubmitJobUnlocked}
-
     """
-    all_job_ids = self._NewSerialsUnlocked(len(jobs))
-
-    (results, added_jobs) = \
-      self._SubmitManyJobsUnlocked(jobs, all_job_ids, [])
-
-    self._EnqueueJobsUnlocked(added_jobs)
-
-    return results
+    return luxi.Client(address=pathutils.QUERY_SOCKET).SubmitManyJobs(jobs)
 
   @staticmethod
   def _FormatSubmitError(msg, ops):
@@ -2307,46 +2193,6 @@ class JobQueue(object):
       result.append((job_id, dep_status))
 
     return (True, result)
-
-  def _SubmitManyJobsUnlocked(self, jobs, job_ids, previous_job_ids):
-    """Create and store multiple jobs.
-
-    @see: L{_SubmitJobUnlocked}
-
-    """
-    results = []
-    added_jobs = []
-
-    def resolve_fn(job_idx, reljobid):
-      assert reljobid < 0
-      return (previous_job_ids + job_ids[:job_idx])[reljobid]
-
-    for (idx, (job_id, ops)) in enumerate(zip(job_ids, jobs)):
-      for op in ops:
-        if getattr(op, opcodes_base.DEPEND_ATTR, None):
-          (status, data) = \
-            self._ResolveJobDependencies(compat.partial(resolve_fn, idx),
-                                         op.depends)
-          if not status:
-            # Abort resolving dependencies
-            assert ht.TNonEmptyString(data), "No error message"
-            break
-          # Use resolved dependencies
-          op.depends = data
-      else:
-        try:
-          job = self._SubmitJobUnlocked(job_id, ops)
-        except errors.GenericError, err:
-          status = False
-          data = self._FormatSubmitError(str(err), ops)
-        else:
-          status = True
-          data = job_id
-          added_jobs.append(job)
-
-      results.append((status, data))
-
-    return (results, added_jobs)
 
   @locking.ssynchronized(_LOCK)
   def _EnqueueJobs(self, jobs):

@@ -486,6 +486,9 @@ acpi
     A boolean option that specifies if the hypervisor should enable
     ACPI support for this instance. By default, ACPI is disabled.
 
+    ACPI should be enabled for user shutdown detection.  See
+    ``user_shutdown``.
+
 pae
     Valid for the Xen HVM and KVM hypervisors.
 
@@ -627,6 +630,19 @@ use\_chroot
     If it is set to ``true``, an empty directory is created before
     starting the instance and its path is passed via the -chroot flag
     to kvm. The directory is removed when the instance is stopped.
+
+    It is set to ``false`` by default.
+
+user\_shutdown
+    Valid for the KVM hypervisor.
+
+    This boolean option determines whether the KVM instance suports user
+    shutdown detection.  This option does not necessarily require ACPI
+    enabled, but ACPI must be enabled for users to poweroff their KVM
+    instances.
+
+    If it is set to ``true``, the user can shutdown this KVM instance
+    and its status is reported as ``USER_down``.
 
     It is set to ``false`` by default.
 
@@ -806,9 +822,9 @@ vnet\_hdr
     It is set to ``true`` by default.
 
 The ``-O (--os-parameters)`` option allows customisation of the OS
-parameters. The actual parameter names and values depends on the OS
-being used, but the syntax is the same key=value. For example, setting
-a hypothetical ``dhcp`` parameter to yes can be achieved by::
+parameters. The actual parameter names and values depend on the OS being
+used, but the syntax is the same key=value. For example, setting a
+hypothetical ``dhcp`` parameter to yes can be achieved by::
 
     gnt-instance add -O dhcp=yes ...
 
@@ -1917,8 +1933,8 @@ MOVE
 ^^^^
 
 | **move** [-f] [\--ignore-consistency]
-| [-n *node*] [\--shutdown-timeout=*N*] [\--submit] [\--print-job-id]
-| [\--ignore-ipolicy]
+| [-n *node*] [\--compress=*compression-mode*] [\--shutdown-timeout=*N*]
+| [\--submit] [\--print-job-id] [\--ignore-ipolicy]
 | {*instance*}
 
 Move will move the instance to an arbitrary node in the cluster. This
@@ -1927,6 +1943,10 @@ works only for instances having a plain or file disk template.
 Note that since this operation is done via data copy, it will take a
 long time for big disks (similar to replace-disks for a drbd
 instance).
+
+The ``--compress`` option is used to specify which compression mode
+is used during the move. Valid values are 'none' (the default) and
+'gzip'.
 
 The ``--shutdown-timeout`` is used to specify how much time to wait
 before forcing the shutdown (e.g. ``xm destroy`` in XEN, killing the

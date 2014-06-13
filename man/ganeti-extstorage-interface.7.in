@@ -69,6 +69,16 @@ Currently, Ganeti sets this value to \f[C]originstname+X\f[] where
 \f[C]X\f[] is the instance\[aq]s name.
 .RS
 .RE
+.TP
+.B VOL_CNAME
+The name of the Disk config object (optional).
+.RS
+.RE
+.TP
+.B VOL_UUID
+The uuid of the Disk config object.
+.RS
+.RE
 .SH EXECUTABLE SCRIPTS
 .SS create
 .PP

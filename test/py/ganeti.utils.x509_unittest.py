@@ -25,14 +25,12 @@ import os
 import tempfile
 import unittest
 import shutil
-import time
 import OpenSSL
 import distutils.version
 import string
 
 from ganeti import constants
 from ganeti import utils
-from ganeti import compat
 from ganeti import errors
 
 import testutils
@@ -98,7 +96,7 @@ class TestSignX509Certificate(unittest.TestCase):
 
   def test(self):
     # Generate certificate valid for 5 minutes
-    (_, cert_pem) = utils.GenerateSelfSignedX509Cert(None, 300)
+    (_, cert_pem) = utils.GenerateSelfSignedX509Cert(None, 300, 1)
 
     cert = OpenSSL.crypto.load_certificate(OpenSSL.crypto.FILETYPE_PEM,
                                            cert_pem)
@@ -259,7 +257,8 @@ class TestGenerateSelfSignedX509Cert(unittest.TestCase):
 
   def test(self):
     for common_name in [None, ".", "Ganeti", "node1.example.com"]:
-      (key_pem, cert_pem) = utils.GenerateSelfSignedX509Cert(common_name, 300)
+      (key_pem, cert_pem) = utils.GenerateSelfSignedX509Cert(common_name, 300,
+                                                             1)
       self._checkRsaPrivateKey(key_pem)
       self._checkCertificate(cert_pem)
 
@@ -279,7 +278,7 @@ class TestGenerateSelfSignedX509Cert(unittest.TestCase):
   def testLegacy(self):
     cert1_filename = os.path.join(self.tmpdir, "cert1.pem")
 
-    utils.GenerateSelfSignedSslCert(cert1_filename, validity=1)
+    utils.GenerateSelfSignedSslCert(cert1_filename, 1, validity=1)
 
     cert1 = utils.ReadFile(cert1_filename)
 

@@ -24,10 +24,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
 -}
 
 module Ganeti.Query.Group
-  ( Runtime
-  , fieldsMap
-  , collectLiveData
-  ) where
+  (fieldsMap) where
 
 import qualified Data.Map as Map
 
@@ -38,10 +35,7 @@ import Ganeti.Query.Common
 import Ganeti.Query.Types
 import Ganeti.Utils (niceSort)
 
--- | There is no runtime.
-data Runtime = Runtime
-
-groupFields :: FieldList NodeGroup Runtime
+groupFields :: FieldList NodeGroup NoDataRuntime
 groupFields =
   [ (FieldDefinition "alloc_policy" "AllocPolicy" QFTText
        "Allocation policy for group",
@@ -78,7 +72,6 @@ groupFields =
      QffNormal)
   , (FieldDefinition "pinst_list" "InstanceList" QFTOther
        "List of primary instances",
-     -- FIXME: the niceSort here is not tested
      FieldConfig (\cfg -> rsNormal . niceSort . map instName . fst .
                           getGroupInstances cfg . groupUuid), QffNormal)
   ] ++
@@ -89,11 +82,6 @@ groupFields =
   tagsFields
 
 -- | The group fields map.
-fieldsMap :: FieldMap NodeGroup Runtime
+fieldsMap :: FieldMap NodeGroup NoDataRuntime
 fieldsMap =
   Map.fromList $ map (\v@(f, _, _) -> (fdefName f, v)) groupFields
-
--- | Dummy function for collecting live data (which groups don't have).
-collectLiveData :: Bool -> ConfigData -> [NodeGroup]
-                -> IO [(NodeGroup, Runtime)]
-collectLiveData _ _ = return . map (\n -> (n, Runtime))

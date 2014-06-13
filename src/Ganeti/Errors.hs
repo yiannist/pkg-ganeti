@@ -37,6 +37,7 @@ module Ganeti.Errors
   , errorExitCode
   , excName
   , formatError
+  , maybeToError
   ) where
 
 import Text.JSON hiding (Result, Ok)
@@ -110,12 +111,12 @@ $(genException "GanetiException"
   , ("FileStoragePathError", [excErrMsg])
   ])
 
+instance Error GanetiException where
+  strMsg = GenericError
+
 instance JSON GanetiException where
   showJSON = saveGanetiException
   readJSON = loadGanetiException
-
-instance FromString GanetiException where
-  mkFromString = GenericError
 
 -- | Error monad using 'GanetiException' type alias.
 type ErrorResult = GenericResult GanetiException
@@ -177,3 +178,8 @@ formatError err =
 errToResult :: ErrorResult a -> Result a
 errToResult (Ok a)  = Ok a
 errToResult (Bad e) = Bad $ formatError e
+
+-- | Convert from a 'Maybe' to a an 'ErrorResult'.
+maybeToError :: String -> Maybe a -> ErrorResult a
+maybeToError _ (Just a) = Ok a
+maybeToError m  Nothing = Bad $ GenericError m

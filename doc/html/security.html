@@ -8,7 +8,7 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Security in Ganeti &mdash; Ganeti 2.10.5 documentation</title>
+    <title>Security in Ganeti &mdash; Ganeti 2.11.2 documentation</title>
     
     <link rel="stylesheet" href="_static/style.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
@@ -16,7 +16,7 @@
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.10.5',
+        VERSION:     '2.11.2',
         COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -25,7 +25,7 @@
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti 2.10.5 documentation" href="index.html" />
+    <link rel="top" title="Ganeti 2.11.2 documentation" href="index.html" />
     <link rel="next" title="Upgrade notes" href="upgrade.html" />
     <link rel="prev" title="Ganeti remote API" href="rapi.html" /> 
   </head>
@@ -39,7 +39,7 @@
         <li class="right" >
           <a href="rapi.html" title="Ganeti remote API"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.10.5 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.11.2 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -50,7 +50,7 @@
             
   <div class="section" id="security-in-ganeti">
 <h1>Security in Ganeti<a class="headerlink" href="#security-in-ganeti" title="Permalink to this headline">¶</a></h1>
-<p>Documents Ganeti version 2.10</p>
+<p>Documents Ganeti version 2.11</p>
 <p>Ganeti was developed to run on internal, trusted systems. As such, the
 security model is all-or-nothing.</p>
 <p>Up to version 2.3 all Ganeti code ran as root. Since version 2.4 it is
@@ -77,8 +77,8 @@ the key is also distributed to all nodes. Old files are renamed.</li>
 <li>Communication between nodes is encrypted using SSL/TLS. A common key
 and certificate combo is shared between all nodes of the cluster.  At
 this time, no CA is used.</li>
-<li>The Ganeti node daemon will accept RPC requests from any host within
-the cluster with the correct certificate, and the operations it will
+<li>The Ganeti node daemon will accept RPC requests from any host that is
+master candidate within the cluster, and the operations it will
 do as a result of these requests are:<ul>
 <li>running commands under the <tt class="docutils literal"><span class="pre">/etc/ganeti/hooks</span></tt> directory</li>
 <li>creating DRBD disks between it and the IP it has been told</li>
@@ -87,7 +87,8 @@ do as a result of these requests are:<ul>
 </li>
 </ul>
 <p>As you can see, as soon as a node is joined, it becomes equal to all
-other nodes in the cluster, and the security of the cluster is
+other nodes in the cluster wrt to SSH and equal to all non-master
+candidate nodes wrt to RPC, and the security of the cluster is
 determined by the weakest node.</p>
 <p>Note that only the SSH key will allow other machines to run any command
 on this node; the RPC method will run only:</p>
@@ -138,10 +139,13 @@ command, e.g. restarting the Ganeti node daemon</li>
 <p>The SSH traffic is protected (after the initial login to a new node) by
 the cluster-wide shared SSH key.</p>
 <p>RPC communication between the master and nodes is protected using
-SSL/TLS encryption. Both the client and the server must have the
-cluster-wide shared SSL/TLS certificate and verify it when establishing
-the connection by comparing fingerprints. We decided not to use a CA to
-simplify the key handling.</p>
+SSL/TLS encryption. The server must have must have the cluster-wide
+shared SSL/TLS certificate. When acting as a client, the nodes use an
+individual SSL/TLS certificate. On incoming requests, the server checks
+whether the client&#8217;s certificate is that of a master candidate by
+verifying its finterprint to a list of known master candidate
+certificates. We decided not to use a CA (yet) to simplify the key
+handling.</p>
 <p>The DRBD traffic is not protected by encryption, as DRBD does not
 support this. It&#8217;s therefore recommended to implement host-level
 firewalling or to use a separate range of IP addresses for the DRBD
@@ -320,7 +324,7 @@ from a jailbroken instance.</p>
         <li class="right" >
           <a href="rapi.html" title="Ganeti remote API"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.10.5 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.11.2 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

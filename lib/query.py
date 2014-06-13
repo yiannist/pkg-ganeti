@@ -65,6 +65,7 @@ from ganeti import ht
 from ganeti import runtime
 from ganeti import qlang
 from ganeti import jstore
+from ganeti.hypervisor import hv_base
 
 from ganeti.constants import (QFT_UNKNOWN, QFT_TEXT, QFT_BOOL, QFT_NUMBER,
                               QFT_UNIT, QFT_TIMESTAMP, QFT_OTHER,
@@ -1523,6 +1524,43 @@ def _GetInstLiveData(name):
   return fn
 
 
+def _GetLiveInstStatus(ctx, instance, instance_state):
+  hvparams = ctx.cluster.FillHV(instance, skip_globals=True)
+
+  allow_userdown = \
+      ctx.cluster.enabled_user_shutdown and \
+      (instance.hypervisor != constants.HT_KVM or
+       hvparams[constants.HV_KVM_USER_SHUTDOWN])
+
+  if instance.uuid in ctx.wrongnode_inst:
+    return constants.INSTST_WRONGNODE
+  else:
+    if hv_base.HvInstanceState.IsShutdown(instance_state):
+      if instance.admin_state == constants.ADMINST_UP and allow_userdown:
+        return constants.INSTST_USERDOWN
+      elif instance.admin_state == constants.ADMINST_UP:
+        return constants.INSTST_ERRORDOWN
+      else:
+        return constants.INSTST_ADMINDOWN
+    else:
+      if instance.admin_state == constants.ADMINST_UP:
+        return constants.INSTST_RUNNING
+      else:
+        return constants.INSTST_ERRORUP
+
+
+def _GetDeadInstStatus(inst):
+  if inst.admin_state == constants.ADMINST_UP:
+    return constants.INSTST_ERRORDOWN
+  elif inst.admin_state == constants.ADMINST_DOWN:
+    if inst.admin_state_source == constants.USER_SOURCE:
+      return constants.INSTST_USERDOWN
+    else:
+      return constants.INSTST_ADMINDOWN
+  else:
+    return constants.INSTST_ADMINOFFLINE
+
+
 def _GetInstStatus(ctx, inst):
   """Get instance status.
 
@@ -1537,20 +1575,12 @@ def _GetInstStatus(ctx, inst):
   if inst.primary_node in ctx.bad_nodes:
     return constants.INSTST_NODEDOWN
 
-  if bool(ctx.live_data.get(inst.uuid)):
-    if inst.uuid in ctx.wrongnode_inst:
-      return constants.INSTST_WRONGNODE
-    elif inst.admin_state == constants.ADMINST_UP:
-      return constants.INSTST_RUNNING
-    else:
-      return constants.INSTST_ERRORUP
+  instance_live_data = ctx.live_data.get(inst.uuid)
 
-  if inst.admin_state == constants.ADMINST_UP:
-    return constants.INSTST_ERRORDOWN
-  elif inst.admin_state == constants.ADMINST_DOWN:
-    return constants.INSTST_ADMINDOWN
-
-  return constants.INSTST_ADMINOFFLINE
+  if bool(instance_live_data):
+    return _GetLiveInstStatus(ctx, inst, instance_live_data["state"])
+  else:
+    return _GetDeadInstStatus(inst)
 
 
 def _GetInstDisk(index, cb):
@@ -1761,6 +1791,30 @@ def _GetInstAllNicNetworkNames(ctx, inst):
   return result
 
 
+def _GetInstAllNicVlans(ctx, inst):
+  """Get all network VLANs for an instance.
+
+  @type ctx: L{InstanceQueryData}
+  @type inst: L{objects.Instance}
+  @param inst: Instance object
+
+  """
+  assert len(ctx.inst_nicparams) == len(inst.nics)
+
+  result = []
+
+  for nicp in ctx.inst_nicparams:
+    if nicp[constants.NIC_MODE] in \
+          [constants.NIC_MODE_BRIDGED, constants.NIC_MODE_OVS]:
+      result.append(nicp[constants.NIC_VLAN])
+    else:
+      result.append(None)
+
+  assert len(result) == len(inst.nics)
+
+  return result
+
+
 def _GetInstAllNicBridges(ctx, inst):
   """Get all network bridges for an instance.
 
@@ -1776,29 +1830,6 @@ def _GetInstAllNicBridges(ctx, inst):
   for nicp in ctx.inst_nicparams:
     if nicp[constants.NIC_MODE] == constants.NIC_MODE_BRIDGED:
       result.append(nicp[constants.NIC_LINK])
-    else:
-      result.append(None)
-
-  assert len(result) == len(inst.nics)
-
-  return result
-
-
-def _GetInstAllNicVlans(ctx, inst):
-  """Get all network VLANs of an instance.
-
-  @type ctx: L{InstanceQueryData}
-  @type inst: L{objects.Instance}
-  @param inst: Instance object
-
-  """
-  assert len(ctx.inst_nicparams) == len(inst.nics)
-
-  result = []
-
-  for nicp in ctx.inst_nicparams:
-    if nicp[constants.NIC_MODE] == constants.NIC_MODE_OVS:
-      result.append(nicp[constants.NIC_VLAN])
     else:
       result.append(None)
 
@@ -2168,13 +2199,16 @@ def _BuildInstanceFields():
      lambda ctx, inst: map(compat.partial(_GetInstNodeGroup, ctx, None),
                            inst.secondary_nodes)),
     (_MakeField("admin_state", "InstanceState", QFT_TEXT,
-                "Desired state of instance"),
+                "Desired state of the instance"),
      IQ_CONFIG, 0, _GetItemAttr("admin_state")),
     (_MakeField("admin_up", "Autostart", QFT_BOOL,
-                "Desired state of instance"),
+                "Desired state of the instance"),
      IQ_CONFIG, 0, lambda ctx, inst: inst.admin_state == constants.ADMINST_UP),
+    (_MakeField("admin_state_source", "InstanceStateSource", QFT_TEXT,
+                "Who last changed the desired state of the instance"),
+     IQ_CONFIG, 0, _GetItemAttr("admin_state_source")),
     (_MakeField("disks_active", "DisksActive", QFT_BOOL,
-                "Desired state of instance disks"),
+                "Desired state of the instance disks"),
      IQ_CONFIG, 0, _GetItemAttr("disks_active")),
     (_MakeField("tags", "Tags", QFT_OTHER, "Tags"), IQ_CONFIG, 0,
      lambda ctx, inst: list(inst.GetTags())),
@@ -2204,7 +2238,8 @@ def _BuildInstanceFields():
   status_values = (constants.INSTST_RUNNING, constants.INSTST_ADMINDOWN,
                    constants.INSTST_WRONGNODE, constants.INSTST_ERRORUP,
                    constants.INSTST_ERRORDOWN, constants.INSTST_NODEDOWN,
-                   constants.INSTST_NODEOFFLINE, constants.INSTST_ADMINOFFLINE)
+                   constants.INSTST_NODEOFFLINE, constants.INSTST_ADMINOFFLINE,
+                   constants.INSTST_USERDOWN)
   status_doc = ("Instance status; \"%s\" if instance is set to be running"
                 " and actually is, \"%s\" if instance is stopped and"
                 " is not running, \"%s\" if instance running, but not on its"
@@ -2212,10 +2247,12 @@ def _BuildInstanceFields():
                 " stopped, but is actually running, \"%s\" if instance should"
                 " run, but doesn't, \"%s\" if instance's primary node is down,"
                 " \"%s\" if instance's primary node is marked offline,"
-                " \"%s\" if instance is offline and does not use dynamic"
+                " \"%s\" if instance is offline and does not use dynamic,"
+                " \"%s\" if the user shutdown the instance"
                 " resources" % status_values)
   fields.append((_MakeField("status", "Status", QFT_TEXT, status_doc),
                  IQ_LIVE, 0, _GetInstStatus))
+
   assert set(status_values) == constants.INSTST_ALL, \
          "Status documentation mismatch"
 

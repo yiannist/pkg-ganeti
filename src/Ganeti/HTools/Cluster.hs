@@ -46,6 +46,7 @@ module Ganeti.HTools.Cluster
   , printSolutionLine
   , formatCmds
   , involvedNodes
+  , getMoves
   , splitJobs
   -- * Display functions
   , printNodes
@@ -1043,6 +1044,12 @@ nodeEvacInstance nl il mode inst@(Instance.Instance
                    failOnSecondaryChange mode dt >>
                    evacOneNodeOnly nl il inst gdx avail_nodes
 
+nodeEvacInstance nl il mode inst@(Instance.Instance
+                                  {Instance.diskTemplate = dt@DTGluster})
+                 gdx avail_nodes =
+                   failOnSecondaryChange mode dt >>
+                   evacOneNodeOnly nl il inst gdx avail_nodes
+
 nodeEvacInstance nl il ChangePrimary
                  inst@(Instance.Instance {Instance.diskTemplate = DTDrbd8})
                  _ _ =
@@ -1478,8 +1485,23 @@ involvedNodes :: Instance.List -- ^ Instance list, used for retrieving
 involvedNodes il plc =
   let (i, np, ns, _, _) = plc
       inst = Container.find i il
-  in nub $ [np, ns] ++ Instance.allNodes inst
+  in nub . filter (>= 0) $ [np, ns] ++ Instance.allNodes inst
 
+-- | From two adjacent cluster tables get the list of moves that transitions
+-- from to the other
+getMoves :: (Table, Table) -> [MoveJob]
+getMoves (Table _ initial_il _ initial_plc, Table final_nl _ _ final_plc) =
+  let
+    plctoMoves (plc@(idx, p, s, mv, _)) =
+      let inst = Container.find idx initial_il
+          inst_name = Instance.name inst
+          affected = involvedNodes initial_il plc
+          np = Node.alias $ Container.find p final_nl
+          ns = Node.alias $ Container.find s final_nl
+          (_, cmds) = computeMoves inst inst_name mv np ns
+      in (affected, idx, mv, cmds)
+  in map plctoMoves . reverse . drop (length initial_plc) $ reverse final_plc
+             
 -- | Inner function for splitJobs, that either appends the next job to
 -- the current jobset, or starts a new jobset.
 mergeJobs :: ([JobSet], [Ndx]) -> MoveJob -> ([JobSet], [Ndx])

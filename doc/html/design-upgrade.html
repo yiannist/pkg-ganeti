@@ -8,7 +8,7 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Automatized Upgrade Procedure for Ganeti &mdash; Ganeti 2.10.5 documentation</title>
+    <title>Automatized Upgrade Procedure for Ganeti &mdash; Ganeti 2.11.2 documentation</title>
     
     <link rel="stylesheet" href="_static/style.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
@@ -16,7 +16,7 @@
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.10.5',
+        VERSION:     '2.11.2',
         COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -25,7 +25,7 @@
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti 2.10.5 documentation" href="index.html" />
+    <link rel="top" title="Ganeti 2.11.2 documentation" href="index.html" />
     <link rel="next" title="Design for virtual clusters support" href="design-virtual-clusters.html" />
     <link rel="prev" title="Management of storage types and disk templates, incl. storage space reporting" href="design-storagetypes.html" /> 
   </head>
@@ -39,7 +39,7 @@
         <li class="right" >
           <a href="design-storagetypes.html" title="Management of storage types and disk templates, incl. storage space reporting"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.10.5 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.11.2 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -62,7 +62,7 @@
 </li>
 <li><a class="reference internal" href="#considerations-on-unintended-reboots-of-the-master-node" id="id6">Considerations on unintended reboots of the master node</a></li>
 <li><a class="reference internal" href="#caveats" id="id7">Caveats</a></li>
-<li><a class="reference internal" href="#requirement-of-opcode-backwards-compatibility" id="id8">Requirement of opcode backwards compatibility</a></li>
+<li><a class="reference internal" href="#requirement-of-job-queue-update" id="id8">Requirement of job queue update</a></li>
 </ul>
 </li>
 </ul>
@@ -248,6 +248,8 @@ additional safety net, especially for jump-upgrades (skipping
 intermediate minor versions).</li>
 <li>If the action is a downgrade to the previous minor version, the
 configuration is downgraded now, using <tt class="docutils literal"><span class="pre">cfgupgrade</span> <span class="pre">--downgrade</span></tt>.</li>
+<li>If the action is downgrade, any version-specific additional downgrade
+actions are carried out.</li>
 <li>The <tt class="docutils literal"><span class="pre">${sysconfdir}/ganeti/lib</span></tt> and <tt class="docutils literal"><span class="pre">${sysconfdir}/ganeti/share</span></tt>
 symbolic links are updated.</li>
 <li>If the action is an upgrade to a higher minor version, the configuration
@@ -307,16 +309,20 @@ information about a previous drain gets lost. This problem will
 disappear, once <a class="reference internal" href="design-optables.html"><em>Filtering of jobs for the Ganeti job queue</em></a> is implemented, as then the
 undrain will then be restricted to filters by gnt-upgrade.</p>
 </div>
-<div class="section" id="requirement-of-opcode-backwards-compatibility">
-<h2><a class="toc-backref" href="#id8">Requirement of opcode backwards compatibility</a><a class="headerlink" href="#requirement-of-opcode-backwards-compatibility" title="Permalink to this headline">¶</a></h2>
+<div class="section" id="requirement-of-job-queue-update">
+<h2><a class="toc-backref" href="#id8">Requirement of job queue update</a><a class="headerlink" href="#requirement-of-job-queue-update" title="Permalink to this headline">¶</a></h2>
 <p>Since for upgrades we only pause jobs and do not fully drain the
 queue, we need to be able to transform the job queue into a queue for
-the new version. The way this is achieved is by keeping the
-serialization format backwards compatible. This is in line with
-current practice that opcodes do not change between versions, and at
-most new fields are added. Whenever we add a new field to an opcode,
-we will make sure that the deserialization function will provide a
-default value if the field is not present.</p>
+the new version. The preferred way to obtain this is to keep the
+serialization format backwards compatible, i.e., only adding new
+opcodes and new optional fields.</p>
+<p>However, even with soft drain, no job is running at the moment <cite>cfgupgrade</cite>
+is running. So, if we change the queue representation, including the
+representation of individual opcodes in any way, <cite>cfgupgrade</cite> will also
+modify the queue accordingly. In a jobs-as-processes world, pausing a job
+will be implemented in such a way that the corresponding process stops after
+finishing the current opcode, and a new process is created if and when the
+job is unpaused again.</p>
 </div>
 </div>
 
@@ -337,7 +343,7 @@ default value if the field is not present.</p>
 </li>
 <li><a class="reference internal" href="#considerations-on-unintended-reboots-of-the-master-node">Considerations on unintended reboots of the master node</a></li>
 <li><a class="reference internal" href="#caveats">Caveats</a></li>
-<li><a class="reference internal" href="#requirement-of-opcode-backwards-compatibility">Requirement of opcode backwards compatibility</a></li>
+<li><a class="reference internal" href="#requirement-of-job-queue-update">Requirement of job queue update</a></li>
 </ul>
 </li>
 </ul>
@@ -379,7 +385,7 @@ default value if the field is not present.</p>
         <li class="right" >
           <a href="design-storagetypes.html" title="Management of storage types and disk templates, incl. storage space reporting"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.10.5 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.11.2 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

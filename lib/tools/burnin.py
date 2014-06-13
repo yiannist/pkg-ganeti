@@ -41,6 +41,7 @@ from ganeti import compat
 from ganeti import pathutils
 
 from ganeti.confd import client as confd_client
+from ganeti.runtime import (GetClient)
 
 
 USAGE = ("\tburnin -o OS_NAME [options...] instance_name ...")
@@ -60,6 +61,7 @@ _SINGLE_NODE_DISK_TEMPLATES = compat.UniqueFrozenset([
   constants.DT_SHARED_FILE,
   constants.DT_EXT,
   constants.DT_RBD,
+  constants.DT_GLUSTER
   ])
 
 _SUPPORTED_DISK_TEMPLATES = compat.UniqueFrozenset([
@@ -70,6 +72,7 @@ _SUPPORTED_DISK_TEMPLATES = compat.UniqueFrozenset([
   constants.DT_PLAIN,
   constants.DT_RBD,
   constants.DT_SHARED_FILE,
+  constants.DT_GLUSTER
   ])
 
 #: Disk templates for which import/export is tested
@@ -77,6 +80,7 @@ _IMPEXP_DISK_TEMPLATES = (_SUPPORTED_DISK_TEMPLATES - frozenset([
   constants.DT_DISKLESS,
   constants.DT_FILE,
   constants.DT_SHARED_FILE,
+  constants.DT_GLUSTER
   ]))
 
 
@@ -545,12 +549,13 @@ class Burner(object):
     else:
       names = []
     try:
-      op = opcodes.OpNodeQuery(output_fields=["name", "offline", "drained"],
-                               names=names, use_locking=True)
-      result = self.ExecOp(True, op)
+      qcl = GetClient(query=True)
+      result = qcl.QueryNodes(names, ["name", "offline", "drained"], False)
     except errors.GenericError, err:
       err_code, msg = cli.FormatError(err)
       Err(msg, exit_code=err_code)
+    finally:
+      qcl.Close()
     self.nodes = [data[0] for data in result if not (data[1] or data[2])]
 
     op_diagnose = opcodes.OpOsDiagnose(output_fields=["name",
@@ -748,12 +753,11 @@ class Burner(object):
                  islice(cycle(self.nodes), 2, None),
                  self.instances)
 
+    qcl = GetClient(query=True)
     for pnode, snode, enode, instance in mytor:
       Log("instance %s", instance, indent=1)
       # read the full name of the instance
-      nam_op = opcodes.OpInstanceQuery(output_fields=["name"],
-                                       names=[instance], use_locking=True)
-      full_name = self.ExecOp(False, nam_op)[0][0]
+      ((full_name, ), ) = qcl.QueryInstances([instance], ["name"], False)
 
       if self.opts.iallocator:
         pnode = snode = None
@@ -804,6 +808,7 @@ class Burner(object):
       Log(import_log_msg, indent=2)
       Log("remove export", indent=2)
       self.ExecOrQueue(instance, [exp_op, rem_op, imp_op, erem_op])
+    qcl.Close()
 
   @staticmethod
   def StopInstanceOp(instance):

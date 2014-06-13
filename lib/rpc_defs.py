@@ -84,7 +84,7 @@ def _Prepare(calls):
 
 
 def _MigrationStatusPostProc(result):
-  """Post-processor for L{rpc.RpcRunner.call_instance_get_migration_status}.
+  """Post-processor for L{rpc.node.RpcRunner.call_instance_get_migration_status}
 
   """
   if not result.fail_msg and result.payload is not None:
@@ -93,7 +93,7 @@ def _MigrationStatusPostProc(result):
 
 
 def _BlockdevFindPostProc(result):
-  """Post-processor for L{rpc.RpcRunner.call_blockdev_find}.
+  """Post-processor for L{rpc.node.RpcRunner.call_blockdev_find}.
 
   """
   if not result.fail_msg and result.payload is not None:
@@ -102,7 +102,7 @@ def _BlockdevFindPostProc(result):
 
 
 def _BlockdevGetMirrorStatusPostProc(result):
-  """Post-processor for L{rpc.RpcRunner.call_blockdev_getmirrorstatus}.
+  """Post-processor for call_blockdev_getmirrorstatus.
 
   """
   if not result.fail_msg:
@@ -122,7 +122,7 @@ def _BlockdevGetMirrorStatusMultiPreProc(node, args):
 
 
 def _BlockdevGetMirrorStatusMultiPostProc(result):
-  """Post-processor for L{rpc.RpcRunner.call_blockdev_getmirrorstatus_multi}.
+  """Post-processor for call_blockdev_getmirrorstatus_multi.
 
   """
   if not result.fail_msg:
@@ -145,7 +145,7 @@ def _NodeInfoPreProc(node, args):
 
 
 def _OsGetPostProc(result):
-  """Post-processor for L{rpc.RpcRunner.call_os_get}.
+  """Post-processor for L{rpc.node.RpcRunner.call_os_get}.
 
   """
   if not result.fail_msg and isinstance(result.payload, dict):
@@ -429,12 +429,6 @@ _BLOCKDEV_CALLS = [
     ("es_flag", None, None),
     ], None, None, "Request growing of the given block device by a"
    " given amount"),
-  ("blockdev_export", SINGLE, None, constants.RPC_TMO_1DAY, [
-    ("cf_bdev", ED_SINGLE_DISK_DICT_DP, None),
-    ("dest_node_ip", None, None),
-    ("dest_path", None, None),
-    ("cluster_name", None, None),
-    ], None, None, "Export a given disk to another node"),
   ("blockdev_snapshot", SINGLE, None, constants.RPC_TMO_NORMAL, [
     ("cf_bdev", ED_SINGLE_DISK_DICT_DP, None),
     ], None, None, "Export a given disk to another node"),
@@ -495,6 +489,9 @@ _NODE_CALLS = [
     ("checkdict", None, "What to verify"),
     ("cluster_name", None, "Cluster name"),
     ("all_hvparams", None, "Dictionary mapping hypervisor names to hvparams"),
+    ("node_groups", None, "node names mapped to their group uuids"),
+    ("groups_cfg", None,
+      "a dictionary mapping group uuids to their configuration"),
     ], None, None, "Request verification of given parameters"),
   ("node_volumes", MULTI, None, constants.RPC_TMO_FAST, [], None, None,
    "Gets all volumes on node(s)"),
@@ -508,6 +505,14 @@ _NODE_CALLS = [
     ("ovs_name", None, "Name of the OpenvSwitch to create"),
     ("ovs_link", None, "Link of the OpenvSwitch to the outside"),
     ], None, None, "This will create and setup the OpenvSwitch"),
+  ("node_crypto_tokens", SINGLE, None, constants.RPC_TMO_NORMAL, [
+    ("token_request", None,
+     "List of tuples of requested crypto token types, actions"),
+    ], None, None, "Handle crypto tokens of the node."),
+  ("node_ensure_daemon", MULTI, None, constants.RPC_TMO_URGENT, [
+    ("daemon", None, "Daemon name"),
+    ("run", None, "Whether the daemon should be running or stopped"),
+    ], None, None, "Ensure daemon is running on the node."),
   ]
 
 _MISC_CALLS = [
@@ -545,6 +550,7 @@ _MISC_CALLS = [
   ("iallocator_runner", SINGLE, None, constants.RPC_TMO_NORMAL, [
     ("name", None, "Iallocator name"),
     ("idata", None, "JSON-encoded input string"),
+    ("default_iallocator_params", None, "Additional iallocator parameters"),
     ], None, None, "Call an iallocator on a remote node"),
   ("test_delay", MULTI, None, _TestDelayTimeout, [
     ("duration", None, None),
@@ -607,8 +613,8 @@ CALLS = {
       ("modify_ssh_setup", None, None),
       ], None, None,
      "Requests a node to clean the cluster information it has"),
-    ("master_info", MULTI, None, constants.RPC_TMO_URGENT, [], None, None,
-     "Query master info"),
+    ("master_node_name", MULTI, None, constants.RPC_TMO_URGENT, [], None, None,
+     "Returns the master node name"),
     ]),
   "RpcClientDnsOnly": _Prepare([
     ("version", MULTI, ACCEPT_OFFLINE_NODE, constants.RPC_TMO_URGENT, [], None,
@@ -617,6 +623,9 @@ CALLS = {
       ("checkdict", None, "What to verify"),
       ("cluster_name", None, "Cluster name"),
       ("hvparams", None, "Dictionary mapping hypervisor names to hvparams"),
+      ("node_groups", None, "node names mapped to their group uuids"),
+      ("groups_cfg", None,
+       "a dictionary mapping group uuids to their configuration"),
       ], None, None, "Request verification of given parameters"),
     ]),
   "RpcClientConfig": _Prepare([

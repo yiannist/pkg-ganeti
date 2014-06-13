@@ -33,6 +33,7 @@ module Ganeti.Config
     , getDefaultNicLink
     , getDefaultHypervisor
     , getInstancesIpByLink
+    , getMasterCandidates
     , getNode
     , getInstance
     , getGroup
@@ -44,13 +45,17 @@ module Ganeti.Config
     , getGroupOfNode
     , getInstPrimaryNode
     , getInstMinorsForNode
+    , getInstAllNodes
+    , getFilledInstHvParams
+    , getFilledInstBeParams
+    , getFilledInstOsParams
     , getNetwork
     , buildLinkIpInstnameMap
     , instNodes
     ) where
 
 import Control.Monad (liftM)
-import Data.List (foldl')
+import Data.List (foldl', nub)
 import qualified Data.Map as M
 import qualified Data.Set as S
 import qualified Text.JSON as J
@@ -124,6 +129,12 @@ getNodeRole cfg node
   | nodeDrained node = NRDrained
   | nodeOffline node = NROffline
   | otherwise = NRRegular
+
+-- | Get the list of master candidates.
+getMasterCandidates :: ConfigData -> [Node]
+getMasterCandidates cfg = 
+  filter ((==) NRCandidate . getNodeRole cfg)
+    (map snd . M.toList . fromContainer . configNodes $ cfg)
 
 -- | Returns the default cluster link.
 getDefaultNicLink :: ConfigData -> String
@@ -236,10 +247,70 @@ getNetwork cfg name =
                               networks
                 in getItem "Network" name by_name
 
+-- | Retrieves the instance hypervisor params, missing values filled with
+-- cluster defaults.
+getFilledInstHvParams :: [String] -> ConfigData -> Instance -> HvParams
+getFilledInstHvParams globals cfg inst =
+  -- First get the defaults of the parent
+  let hvName = hypervisorToRaw . instHypervisor $ inst
+      hvParamMap = fromContainer . clusterHvparams $ configCluster cfg
+      parentHvParams = maybe M.empty fromContainer $ M.lookup hvName hvParamMap
+  -- Then the os defaults for the given hypervisor
+      osName = instOs inst
+      osParamMap = fromContainer . clusterOsHvp $ configCluster cfg
+      osHvParamMap = maybe M.empty fromContainer $ M.lookup osName osParamMap
+      osHvParams = maybe M.empty fromContainer $ M.lookup hvName osHvParamMap
+  -- Then the child
+      childHvParams = fromContainer . instHvparams $ inst
+  -- Helper function
+      fillFn con val = fillDict con val globals
+  in GenericContainer $ fillFn (fillFn parentHvParams osHvParams) childHvParams
+
+-- | Retrieves the instance backend params, missing values filled with cluster
+-- defaults.
+getFilledInstBeParams :: ConfigData -> Instance -> ErrorResult FilledBeParams
+getFilledInstBeParams cfg inst = do
+  let beParamMap = fromContainer . clusterBeparams . configCluster $ cfg
+  parentParams <- getItem "FilledBeParams" C.ppDefault beParamMap
+  return $ fillBeParams parentParams (instBeparams inst)
+
+-- | Retrieves the instance os params, missing values filled with cluster
+-- defaults.
+getFilledInstOsParams :: ConfigData -> Instance -> OsParams
+getFilledInstOsParams cfg inst =
+  let osLookupName = takeWhile (/= '+') (instOs inst)
+      osParamMap = fromContainer . clusterOsparams $ configCluster cfg
+      childOsParams = instOsparams inst
+  in case getItem "OsParams" osLookupName osParamMap of
+       Ok parentOsParams -> GenericContainer $
+                              fillDict (fromContainer parentOsParams)
+                                       (fromContainer childOsParams) []
+       Bad _             -> childOsParams
+
 -- | Looks up an instance's primary node.
 getInstPrimaryNode :: ConfigData -> String -> ErrorResult Node
 getInstPrimaryNode cfg name =
   liftM instPrimaryNode (getInstance cfg name) >>= getNode cfg
+
+-- | Retrieves all nodes hosting a DRBD disk
+getDrbdDiskNodes :: ConfigData -> Disk -> [Node]
+getDrbdDiskNodes cfg disk =
+  let retrieved = case diskLogicalId disk of
+                    LIDDrbd8 nodeA nodeB _ _ _ _ ->
+                      justOk [getNode cfg nodeA, getNode cfg nodeB]
+                    _                            -> []
+  in retrieved ++ concatMap (getDrbdDiskNodes cfg) (diskChildren disk)
+
+-- | Retrieves all the nodes of the instance.
+--
+-- As instances not using DRBD can be sent as a parameter as well,
+-- the primary node has to be appended to the results.
+getInstAllNodes :: ConfigData -> String -> ErrorResult [Node]
+getInstAllNodes cfg name = do
+  inst <- getInstance cfg name
+  let diskNodes = concatMap (getDrbdDiskNodes cfg) $ instDisks inst
+  pNode <- getInstPrimaryNode cfg name
+  return . nub $ pNode:diskNodes
 
 -- | Filters DRBD minors for a given node.
 getDrbdMinorsForNode :: String -> Disk -> [(Int, String)]

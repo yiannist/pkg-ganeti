@@ -540,6 +540,8 @@ TDiskTemplate = TElemOf(constants.DISK_TEMPLATES)
 TEvacMode = TElemOf(constants.NODE_EVAC_MODES)
 TIAllocatorTestDir = TElemOf(constants.VALID_IALLOCATOR_DIRECTIONS)
 TIAllocatorMode = TElemOf(constants.VALID_IALLOCATOR_MODES)
+TImportExportCompression = TElemOf(constants.IEC_ALL)
+TAdminStateSource = TElemOf(constants.ADMIN_STATE_SOURCES)
 
 
 def TSetParamsMods(fn):
@@ -580,7 +582,9 @@ TInstCreateMode = TElemOf(constants.INSTANCE_CREATE_MODES)
 TRebootType = TElemOf(constants.REBOOT_TYPES)
 TFileDriver = TElemOf(constants.FILE_DRIVER)
 TOobCommand = TElemOf(constants.OOB_COMMANDS)
-TQueryTypeOp = TElemOf(constants.QR_VIA_OP)
+# FIXME: adjust this after all queries are in haskell
+TQueryTypeOp = TElemOf(set(constants.QR_VIA_OP)
+                       .union(set(constants.QR_VIA_LUXI)))
 
 TDiskParams = \
     Comment("Disk parameters")(TDictOf(TNonEmptyString,

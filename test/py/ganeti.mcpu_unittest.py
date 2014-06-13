@@ -39,12 +39,14 @@ from ganeti.constants import \
 import testutils
 
 
+# FIXME: Document what BGL whitelist means
 REQ_BGL_WHITELIST = compat.UniqueFrozenset([
   opcodes.OpClusterActivateMasterIp,
   opcodes.OpClusterDeactivateMasterIp,
   opcodes.OpClusterDestroy,
   opcodes.OpClusterPostInit,
   opcodes.OpClusterRename,
+  opcodes.OpClusterRenewCrypto,
   opcodes.OpInstanceRename,
   opcodes.OpNodeAdd,
   opcodes.OpNodeRemove,
@@ -136,8 +138,6 @@ class TestProcessResult(unittest.TestCase):
 
     for op in [op1, op2, op3]:
       self.assertTrue("OP_TEST_DUMMY" in op.comment)
-      self.assertFalse(hasattr(op, "priority"))
-      self.assertFalse(hasattr(op, "debug_level"))
 
   def testParams(self):
     src = opcodes.OpTestDummy(priority=constants.OP_PRIO_HIGH,
@@ -163,7 +163,8 @@ class TestProcessResult(unittest.TestCase):
     self.assertTrue("OP_TEST_DUMMY" in op1.comment)
     self.assertEqual(op1.debug_level, 3)
 
-    self.assertEqual(op2.priority, constants.OP_PRIO_HIGH)
+    # FIXME: as priority is mandatory, there is no way
+    # of specifying "just inherit the priority".
     self.assertEqual(op2.comment, "foobar")
     self.assertEqual(op2.debug_level, 3)
 

@@ -128,7 +128,6 @@ class TestOpcodes(unittest.TestCase):
     self.assertEqual(opcodes.OpClusterPostInit().TinySummary(), "C_POST_INIT")
     self.assertEqual(opcodes.OpNodeRemove().TinySummary(), "N_REMOVE")
     self.assertEqual(opcodes.OpInstanceMigrate().TinySummary(), "I_MIGRATE")
-    self.assertEqual(opcodes.OpGroupQuery().TinySummary(), "G_QUERY")
     self.assertEqual(opcodes.OpTestJqueue().TinySummary(), "TEST_JQUEUE")
 
   def testListSummary(self):
@@ -219,10 +218,10 @@ class TestOpcodes(unittest.TestCase):
     op = OpTest()
     before = op.__getstate__()
     self.assertRaises(errors.OpPrereqError, op.Validate, False)
-    self.assertFalse(hasattr(op, "nodef"))
-    self.assertFalse(hasattr(op, "wdef"))
-    self.assertFalse(hasattr(op, "number"))
-    self.assertFalse(hasattr(op, "notype"))
+    self.assertTrue(op.nodef is None)
+    self.assertEqual(op.wdef, "default")
+    self.assertEqual(op.number, 0)
+    self.assertTrue(op.notype is None)
     self.assertEqual(op.__getstate__(), before, msg="Opcode was modified")
 
     # Required parameter "nodef" is provided
@@ -231,16 +230,16 @@ class TestOpcodes(unittest.TestCase):
     op.Validate(False)
     self.assertEqual(op.__getstate__(), before, msg="Opcode was modified")
     self.assertEqual(op.nodef, "foo")
-    self.assertFalse(hasattr(op, "wdef"))
-    self.assertFalse(hasattr(op, "number"))
-    self.assertFalse(hasattr(op, "notype"))
+    self.assertEqual(op.wdef, "default")
+    self.assertEqual(op.number, 0)
+    self.assertTrue(op.notype is None)
 
     # Missing required parameter "nodef"
     op = OpTest(wdef="hello", number=999)
     before = op.__getstate__()
     self.assertRaises(errors.OpPrereqError, op.Validate, False)
-    self.assertFalse(hasattr(op, "nodef"))
-    self.assertFalse(hasattr(op, "notype"))
+    self.assertTrue(op.nodef is None)
+    self.assertTrue(op.notype is None)
     self.assertEqual(op.__getstate__(), before, msg="Opcode was modified")
 
     # Wrong type for "nodef"
@@ -248,7 +247,7 @@ class TestOpcodes(unittest.TestCase):
     before = op.__getstate__()
     self.assertRaises(errors.OpPrereqError, op.Validate, False)
     self.assertEqual(op.nodef, 987)
-    self.assertFalse(hasattr(op, "notype"))
+    self.assertTrue(op.notype is None)
     self.assertEqual(op.__getstate__(), before, msg="Opcode was modified")
 
     # Testing different types for "notype"
@@ -274,10 +273,7 @@ class TestOpcodes(unittest.TestCase):
         ]
 
     op = OpTest()
-    before = op.__getstate__()
     op.Validate(True)
-    self.assertNotEqual(op.__getstate__(), before,
-                        msg="Opcode was not modified")
     self.assertEqual(op.value1, "default")
     self.assertEqual(op.value2, "result")
     self.assert_(op.dry_run is None)
@@ -285,10 +281,7 @@ class TestOpcodes(unittest.TestCase):
     self.assertEqual(op.priority, constants.OP_PRIO_DEFAULT)
 
     op = OpTest(value1="hello", value2="world", debug_level=123)
-    before = op.__getstate__()
     op.Validate(True)
-    self.assertNotEqual(op.__getstate__(), before,
-                        msg="Opcode was not modified")
     self.assertEqual(op.value1, "hello")
     self.assertEqual(op.value2, "world")
     self.assertEqual(op.debug_level, 123)

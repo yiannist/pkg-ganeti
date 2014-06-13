@@ -55,11 +55,14 @@ import Test.Ganeti.Hypervisor.Xen.XmParser
 import Test.Ganeti.JSON
 import Test.Ganeti.Jobs
 import Test.Ganeti.JQueue
+import Test.Ganeti.Kvmd
 import Test.Ganeti.Luxi
 import Test.Ganeti.Network
 import Test.Ganeti.Objects
 import Test.Ganeti.OpCodes
+import Test.Ganeti.Query.Aliases
 import Test.Ganeti.Query.Filter
+import Test.Ganeti.Query.Instance
 import Test.Ganeti.Query.Language
 import Test.Ganeti.Query.Network
 import Test.Ganeti.Query.Query
@@ -116,11 +119,14 @@ allTests =
   , testJSON
   , testJobs
   , testJQueue
+  , testKvmd
   , testLuxi
   , testNetwork
   , testObjects
   , testOpCodes
+  , testQuery_Aliases
   , testQuery_Filter
+  , testQuery_Instance
   , testQuery_Language
   , testQuery_Network
   , testQuery_Query

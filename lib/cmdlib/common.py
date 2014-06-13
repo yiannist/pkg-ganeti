@@ -32,7 +32,7 @@ from ganeti import locking
 from ganeti import objects
 from ganeti import opcodes
 from ganeti import pathutils
-from ganeti import rpc
+import ganeti.rpc.node as rpc
 from ganeti import ssconf
 from ganeti import utils
 
@@ -398,7 +398,7 @@ def CheckOSParams(lu, required, node_uuids, osname, osparams):
 def CheckHVParams(lu, node_uuids, hvname, hvparams):
   """Hypervisor parameter validation.
 
-  This function abstract the hypervisor parameter validation to be
+  This function abstracts the hypervisor parameter validation to be
   used in both instance create and instance modify.
 
   @type lu: L{LogicalUnit}
@@ -426,7 +426,7 @@ def CheckHVParams(lu, node_uuids, hvname, hvparams):
                lu.cfg.GetNodeName(node_uuid))
 
 
-def AdjustCandidatePool(lu, exceptions):
+def AdjustCandidatePool(lu, exceptions, feedback_fn):
   """Adjust the candidate pool after node operations.
 
   """
@@ -436,6 +436,9 @@ def AdjustCandidatePool(lu, exceptions):
                utils.CommaJoin(node.name for node in mod_list))
     for node in mod_list:
       lu.context.ReaddNode(node)
+      cluster = lu.cfg.GetClusterInfo()
+      AddNodeCertToCandidateCerts(lu, node.uuid, cluster)
+      lu.cfg.Update(cluster, feedback_fn)
   mc_now, mc_max, _ = lu.cfg.GetMasterCandidateStats(exceptions)
   if mc_now > mc_max:
     lu.LogInfo("Note: more nodes are candidates (%d) than desired (%d)" %
@@ -717,7 +720,7 @@ def AnnotateDiskParams(instance, devs, cfg):
   @param devs: The root devices (not any of its children!)
   @param cfg: The config object
   @returns The annotated disk copies
-  @see L{rpc.AnnotateDiskParams}
+  @see L{rpc.node.AnnotateDiskParams}
 
   """
   return rpc.AnnotateDiskParams(devs, cfg.GetInstanceDiskParams(instance))
@@ -1104,7 +1107,7 @@ def CheckStorageTypeEnabled(cluster, storage_type):
     CheckStorageTypeEnabled(cluster, constants.ST_LVM_VG)
   else:
     possible_disk_templates = \
-        utils.storage.GetDiskTemplatesOfStorageType(storage_type)
+        utils.storage.GetDiskTemplatesOfStorageTypes(storage_type)
     for disk_template in possible_disk_templates:
       if disk_template in cluster.enabled_disk_templates:
         return
@@ -1142,14 +1145,14 @@ def CheckDiskAccessModeValidity(parameters):
   @raise errors.OpPrereqError: if the check fails.
 
   """
-  if constants.DT_RBD in parameters:
-    access = parameters[constants.DT_RBD].get(constants.RBD_ACCESS,
-                                              constants.DISK_KERNELSPACE)
+  for disk_template in parameters:
+    access = parameters[disk_template].get(constants.LDP_ACCESS,
+                                           constants.DISK_KERNELSPACE)
     if access not in constants.DISK_VALID_ACCESS_MODES:
       valid_vals_str = utils.CommaJoin(constants.DISK_VALID_ACCESS_MODES)
       raise errors.OpPrereqError("Invalid value of '{d}:{a}': '{v}' (expected"
-                                 " one of {o})".format(d=constants.DT_RBD,
-                                                       a=constants.RBD_ACCESS,
+                                 " one of {o})".format(d=disk_template,
+                                                       a=constants.LDP_ACCESS,
                                                        v=access,
                                                        o=valid_vals_str))
 
@@ -1170,9 +1173,12 @@ def CheckDiskAccessModeConsistency(parameters, cfg, group=None):
   """
   CheckDiskAccessModeValidity(parameters)
 
-  if constants.DT_RBD in parameters:
-    access = parameters[constants.DT_RBD].get(constants.RBD_ACCESS,
-                                              constants.DISK_KERNELSPACE)
+  for disk_template in parameters:
+    access = parameters[disk_template].get(constants.LDP_ACCESS,
+                                           constants.DISK_KERNELSPACE)
+
+    if disk_template not in constants.DTS_HAVE_ACCESS:
+      continue
 
     #Check the combination of instance hypervisor, disk template and access
     #protocol is sane.
@@ -1180,14 +1186,9 @@ def CheckDiskAccessModeConsistency(parameters, cfg, group=None):
                  cfg.GetInstanceList()
 
     for entry in inst_uuids:
-      #hyp, disk, access
       inst = cfg.GetInstanceInfo(entry)
       hv = inst.hypervisor
       dt = inst.disk_template
-
-      #do not check for disk types that don't have this setting.
-      if dt != constants.DT_RBD:
-        continue
 
       if not IsValidDiskAccessModeCombination(hv, dt, access):
         raise errors.OpPrereqError("Instance {i}: cannot use '{a}' access"
@@ -1212,9 +1213,131 @@ def IsValidDiskAccessModeCombination(hv, disk_template, mode):
     return True
 
   if (hv == constants.HT_KVM and
-      disk_template == constants.DT_RBD and
+      disk_template in (constants.DT_RBD, constants.DT_GLUSTER) and
       mode == constants.DISK_USERSPACE):
     return True
 
   # Everything else:
   return False
+
+
+def AddNodeCertToCandidateCerts(lu, node_uuid, cluster):
+  """Add the node's client SSL certificate digest to the candidate certs.
+
+  @type node_uuid: string
+  @param node_uuid: the node's UUID
+  @type cluster: C{object.Cluster}
+  @param cluster: the cluster's configuration
+
+  """
+  result = lu.rpc.call_node_crypto_tokens(
+             node_uuid,
+             [(constants.CRYPTO_TYPE_SSL_DIGEST, constants.CRYPTO_ACTION_GET,
+               None)])
+  result.Raise("Could not retrieve the node's (uuid %s) SSL digest."
+               % node_uuid)
+  ((crypto_type, digest), ) = result.payload
+  assert crypto_type == constants.CRYPTO_TYPE_SSL_DIGEST
+
+  utils.AddNodeToCandidateCerts(node_uuid, digest, cluster.candidate_certs)
+
+
+def RemoveNodeCertFromCandidateCerts(node_uuid, cluster):
+  """Removes the node's certificate from the candidate certificates list.
+
+  @type node_uuid: string
+  @param node_uuid: the node's UUID
+  @type cluster: C{objects.Cluster}
+  @param cluster: the cluster's configuration
+
+  """
+  utils.RemoveNodeFromCandidateCerts(node_uuid, cluster.candidate_certs)
+
+
+def CreateNewClientCert(lu, node_uuid, filename=None):
+  """Creates a new client SSL certificate for the node.
+
+  @type node_uuid: string
+  @param node_uuid: the node's UUID
+  @type filename: string
+  @param filename: the certificate's filename
+  @rtype: string
+  @return: the digest of the newly created certificate
+
+  """
+  options = {}
+  if filename:
+    options[constants.CRYPTO_OPTION_CERT_FILE] = filename
+  options[constants.CRYPTO_OPTION_SERIAL_NO] = utils.UuidToInt(node_uuid)
+  result = lu.rpc.call_node_crypto_tokens(
+             node_uuid,
+             [(constants.CRYPTO_TYPE_SSL_DIGEST,
+               constants.CRYPTO_ACTION_CREATE,
+               options)])
+  result.Raise("Could not create the node's (uuid %s) SSL client"
+               " certificate." % node_uuid)
+  ((crypto_type, new_digest), ) = result.payload
+  assert crypto_type == constants.CRYPTO_TYPE_SSL_DIGEST
+  return new_digest
+
+
+def EnsureKvmdOnNodes(lu, feedback_fn, nodes=None):
+  """Ensure KVM daemon is running on nodes with KVM instances.
+
+  If user shutdown is enabled in the cluster:
+    - The KVM daemon will be started on VM capable nodes containing
+      KVM instances.
+    - The KVM daemon will be stopped on non VM capable nodes.
+
+  If user shutdown is disabled in the cluster:
+    - The KVM daemon will be stopped on all nodes
+
+  Issues a warning for each failed RPC call.
+
+  @type lu: L{LogicalUnit}
+  @param lu: logical unit on whose behalf we execute
+
+  @type feedback_fn: callable
+  @param feedback_fn: feedback function
+
+  @type nodes: list of string
+  @param nodes: if supplied, it overrides the node uuids to start/stop;
+                this is used mainly for optimization
+
+  """
+  cluster = lu.cfg.GetClusterInfo()
+
+  # Either use the passed nodes or consider all cluster nodes
+  if nodes is not None:
+    node_uuids = set(nodes)
+  else:
+    node_uuids = lu.cfg.GetNodeList()
+
+  # Determine in which nodes should the KVM daemon be started/stopped
+  if constants.HT_KVM in cluster.enabled_hypervisors and \
+        cluster.enabled_user_shutdown:
+    start_nodes = []
+    stop_nodes = []
+
+    for node_uuid in node_uuids:
+      if lu.cfg.GetNodeInfo(node_uuid).vm_capable:
+        start_nodes.append(node_uuid)
+      else:
+        stop_nodes.append(node_uuid)
+  else:
+    start_nodes = []
+    stop_nodes = node_uuids
+
+  # Start KVM where necessary
+  if start_nodes:
+    results = lu.rpc.call_node_ensure_daemon(start_nodes, constants.KVMD, True)
+    for node_uuid in start_nodes:
+      results[node_uuid].Warn("Failed to start KVM daemon in node '%s'" %
+                              node_uuid, feedback_fn)
+
+  # Stop KVM where necessary
+  if stop_nodes:
+    results = lu.rpc.call_node_ensure_daemon(stop_nodes, constants.KVMD, False)
+    for node_uuid in stop_nodes:
+      results[node_uuid].Warn("Failed to stop KVM daemon in node '%s'" %
+                              node_uuid, feedback_fn)

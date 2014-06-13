@@ -78,19 +78,6 @@ _EPO_PING_TIMEOUT = 1 # 1 second
 _EPO_REACHABLE_TIMEOUT = 15 * 60 # 15 minutes
 
 
-def _CheckNoLvmStorageOptDeprecated(opts):
-  """Checks if the legacy option '--no-lvm-storage' is used.
-
-  """
-  if not opts.lvm_storage:
-    ToStderr("The option --no-lvm-storage is no longer supported. If you want"
-             " to disable lvm-based storage cluster-wide, use the option"
-             " --enabled-disk-templates to disable all of these lvm-base disk "
-             "  templates: %s" %
-             utils.CommaJoin(constants.DTS_LVM))
-    return 1
-
-
 def _InitEnabledDiskTemplates(opts):
   """Initialize the list of enabled disk templates.
 
@@ -156,9 +143,6 @@ def InitCluster(opts, args):
   @return: the desired exit code
 
   """
-  if _CheckNoLvmStorageOptDeprecated(opts):
-    return 1
-
   enabled_disk_templates = _InitEnabledDiskTemplates(opts)
 
   try:
@@ -280,6 +264,13 @@ def InitCluster(opts, args):
 
   hv_state = dict(opts.hv_state)
 
+  default_ialloc_params = opts.default_iallocator_params
+
+  if opts.enabled_user_shutdown:
+    enabled_user_shutdown = True
+  else:
+    enabled_user_shutdown = False
+
   bootstrap.InitCluster(cluster_name=args[0],
                         secondary_ip=opts.secondary_ip,
                         vg_name=vg_name,
@@ -288,6 +279,7 @@ def InitCluster(opts, args):
                         master_netdev=master_netdev,
                         file_storage_dir=opts.file_storage_dir,
                         shared_file_storage_dir=opts.shared_file_storage_dir,
+                        gluster_storage_dir=opts.gluster_storage_dir,
                         enabled_hypervisors=hvlist,
                         hvparams=hvparams,
                         beparams=beparams,
@@ -302,12 +294,14 @@ def InitCluster(opts, args):
                         drbd_helper=drbd_helper,
                         uid_pool=uid_pool,
                         default_iallocator=opts.default_iallocator,
+                        default_iallocator_params=default_ialloc_params,
                         primary_ip_version=primary_ip_version,
                         prealloc_wipe_disks=opts.prealloc_wipe_disks,
                         use_external_mip_script=external_ip_setup_script,
                         hv_state=hv_state,
                         disk_state=disk_state,
                         enabled_disk_templates=enabled_disk_templates,
+                        enabled_user_shutdown=enabled_user_shutdown,
                         )
   op = opcodes.OpClusterPostInit()
   SubmitOpCode(op, opts=opts)
@@ -528,6 +522,9 @@ def ShowClusterConfig(opts, args):
       ("candidate pool size",
        compat.TryToRoman(result["candidate_pool_size"],
                          convert=opts.roman_integers)),
+      ("maximal number of jobs running simultaneously",
+       compat.TryToRoman(result["max_running_jobs"],
+                         convert=opts.roman_integers)),
       ("master netdev", result["master_netdev"]),
       ("master netmask", result["master_netmask"]),
       ("use external master IP address setup script",
@@ -537,9 +534,12 @@ def ShowClusterConfig(opts, args):
       ("drbd usermode helper", result["drbd_usermode_helper"]),
       ("file storage path", result["file_storage_dir"]),
       ("shared file storage path", result["shared_file_storage_dir"]),
+      ("gluster storage path", result["gluster_storage_dir"]),
       ("maintenance of node health", result["maintain_node_health"]),
       ("uid pool", uidpool.FormatUidPool(result["uid_pool"])),
       ("default instance allocator", result["default_iallocator"]),
+      ("default instance allocator parameters",
+       result["default_iallocator_params"]),
       ("primary ip version", result["primary_ip_version"]),
       ("preallocation wipe disks", result["prealloc_wipe_disks"]),
       ("OS search path", utils.CommaJoin(pathutils.OS_SEARCH_PATH)),
@@ -547,6 +547,7 @@ def ShowClusterConfig(opts, args):
        utils.CommaJoin(pathutils.ES_SEARCH_PATH)),
       ("enabled disk templates",
        utils.CommaJoin(result["enabled_disk_templates"])),
+      ("enabled user shutdown", result["enabled_user_shutdown"]),
       ]),
 
     ("Default node parameters",
@@ -588,17 +589,22 @@ def ClusterCopyFile(opts, args):
                                errors.ECODE_INVAL)
 
   cl = GetClient()
+  qcl = GetClient(query=True)
+  try:
+    cluster_name = cl.QueryConfigValues(["cluster_name"])[0]
 
-  cluster_name = cl.QueryConfigValues(["cluster_name"])[0]
-
-  results = GetOnlineNodes(nodes=opts.nodes, cl=cl, filter_master=True,
-                           secondary_ips=opts.use_replication_network,
-                           nodegroup=opts.nodegroup)
+    results = GetOnlineNodes(nodes=opts.nodes, cl=qcl, filter_master=True,
+                             secondary_ips=opts.use_replication_network,
+                             nodegroup=opts.nodegroup)
+    ports = GetNodesSshPorts(opts.nodes, qcl)
+  finally:
+    cl.Close()
+    qcl.Close()
 
   srun = ssh.SshRunner(cluster_name)
-  for node in results:
-    if not srun.CopyFileToNode(node, filename):
-      ToStderr("Copy of file %s to node %s failed", filename, node)
+  for (node, port) in zip(results, ports):
+    if not srun.CopyFileToNode(node, port, filename):
+      ToStderr("Copy of file %s to node %s:%d failed", filename, node, port)
 
   return 0
 
@@ -614,10 +620,12 @@ def RunClusterCommand(opts, args):
 
   """
   cl = GetClient()
+  qcl = GetClient(query=True)
 
   command = " ".join(args)
 
-  nodes = GetOnlineNodes(nodes=opts.nodes, cl=cl, nodegroup=opts.nodegroup)
+  nodes = GetOnlineNodes(nodes=opts.nodes, cl=qcl, nodegroup=opts.nodegroup)
+  ports = GetNodesSshPorts(nodes, qcl)
 
   cluster_name, master_node = cl.QueryConfigValues(["cluster_name",
                                                     "master_node"])
@@ -629,8 +637,8 @@ def RunClusterCommand(opts, args):
     nodes.remove(master_node)
     nodes.append(master_node)
 
-  for name in nodes:
-    result = srun.Run(name, constants.SSH_LOGIN_USER, command)
+  for (name, port) in zip(nodes, ports):
+    result = srun.Run(name, constants.SSH_LOGIN_USER, command, port=port)
 
     if opts.failure_only and result.exit_code == constants.EXIT_SUCCESS:
       # Do not output anything for successful commands
@@ -890,7 +898,7 @@ def _ReadAndVerifyCert(cert_filename, verify_private_key=False):
 def _RenewCrypto(new_cluster_cert, new_rapi_cert, # pylint: disable=R0911
                  rapi_cert_filename, new_spice_cert, spice_cert_filename,
                  spice_cacert_filename, new_confd_hmac_key, new_cds,
-                 cds_filename, force):
+                 cds_filename, force, new_node_cert):
   """Renews cluster certificates, keys and secrets.
 
   @type new_cluster_cert: bool
@@ -914,6 +922,8 @@ def _RenewCrypto(new_cluster_cert, new_rapi_cert, # pylint: disable=R0911
   @param cds_filename: Path to file containing new cluster domain secret
   @type force: bool
   @param force: Whether to ask user for confirmation
+  @type new_node_cert: string
+  @param new_node_cert: Whether to generate new node certificates
 
   """
   if new_rapi_cert and rapi_cert_filename:
@@ -966,6 +976,7 @@ def _RenewCrypto(new_cluster_cert, new_rapi_cert, # pylint: disable=R0911
 
   def _RenewCryptoInner(ctx):
     ctx.feedback_fn("Updating certificates and keys")
+    # Note: the node certificate will be generated in the LU
     bootstrap.GenerateClusterCrypto(new_cluster_cert,
                                     new_rapi_cert,
                                     new_spice_cert,
@@ -996,15 +1007,21 @@ def _RenewCrypto(new_cluster_cert, new_rapi_cert, # pylint: disable=R0911
 
     if files_to_copy:
       for node_name in ctx.nonmaster_nodes:
-        ctx.feedback_fn("Copying %s to %s" %
-                        (", ".join(files_to_copy), node_name))
+        port = ctx.ssh_ports[node_name]
+        ctx.feedback_fn("Copying %s to %s:%d" %
+                        (", ".join(files_to_copy), node_name, port))
         for file_name in files_to_copy:
-          ctx.ssh.CopyFileToNode(node_name, file_name)
+          ctx.ssh.CopyFileToNode(node_name, port, file_name)
 
   RunWhileClusterStopped(ToStdout, _RenewCryptoInner)
 
   ToStdout("All requested certificates and keys have been replaced."
            " Running \"gnt-cluster verify\" now is recommended.")
+
+  if new_node_cert:
+    cl = GetClient()
+    renew_op = opcodes.OpClusterRenewCrypto()
+    SubmitOpCode(renew_op, cl=cl)
 
   return 0
 
@@ -1022,7 +1039,8 @@ def RenewCrypto(opts, args):
                       opts.new_confd_hmac_key,
                       opts.new_cluster_domain_secret,
                       opts.cluster_domain_secret,
-                      opts.force)
+                      opts.force,
+                      opts.new_node_cert)
 
 
 def _GetEnabledDiskTemplates(opts):
@@ -1083,11 +1101,13 @@ def SetClusterParams(opts, args):
           opts.beparams or opts.nicparams or
           opts.ndparams or opts.diskparams or
           opts.candidate_pool_size is not None or
+          opts.max_running_jobs is not None or
           opts.uid_pool is not None or
           opts.maintain_node_health is not None or
           opts.add_uids is not None or
           opts.remove_uids is not None or
           opts.default_iallocator is not None or
+          opts.default_iallocator_params or
           opts.reserved_lvs is not None or
           opts.master_netdev is not None or
           opts.master_netmask is not None or
@@ -1103,11 +1123,9 @@ def SetClusterParams(opts, args):
           opts.ipolicy_spindle_ratio is not None or
           opts.modify_etc_hosts is not None or
           opts.file_storage_dir is not None or
-          opts.shared_file_storage_dir is not None):
+          opts.shared_file_storage_dir is not None or
+          opts.enabled_user_shutdown is not None):
     ToStderr("Please give at least one of the parameters.")
-    return 1
-
-  if _CheckNoLvmStorageOptDeprecated(opts):
     return 1
 
   enabled_disk_templates = _GetEnabledDiskTemplates(opts)
@@ -1199,12 +1217,14 @@ def SetClusterParams(opts, args):
     diskparams=diskparams,
     ipolicy=ipolicy,
     candidate_pool_size=opts.candidate_pool_size,
+    max_running_jobs=opts.max_running_jobs,
     maintain_node_health=mnh,
     modify_etc_hosts=opts.modify_etc_hosts,
     uid_pool=uid_pool,
     add_uids=add_uids,
     remove_uids=remove_uids,
     default_iallocator=opts.default_iallocator,
+    default_iallocator_params=opts.default_iallocator_params,
     prealloc_wipe_disks=opts.prealloc_wipe_disks,
     master_netdev=opts.master_netdev,
     master_netmask=opts.master_netmask,
@@ -1216,6 +1236,7 @@ def SetClusterParams(opts, args):
     force=opts.force,
     file_storage_dir=opts.file_storage_dir,
     shared_file_storage_dir=opts.shared_file_storage_dir,
+    enabled_user_shutdown=opts.enabled_user_shutdown,
     )
   SubmitOrSend(op, opts)
   return 0
@@ -1538,7 +1559,7 @@ def _EpoOff(opts, node_list, inst_map):
     return constants.EXIT_FAILURE
 
 
-def Epo(opts, args, cl=None, _on_fn=_EpoOn, _off_fn=_EpoOff,
+def Epo(opts, args, qcl=None, _on_fn=_EpoOn, _off_fn=_EpoOff,
         _confirm_fn=ConfirmOperation,
         _stdout_fn=ToStdout, _stderr_fn=ToStderr):
   """EPO operations.
@@ -1557,18 +1578,19 @@ def Epo(opts, args, cl=None, _on_fn=_EpoOn, _off_fn=_EpoOff,
     _stderr_fn("Arguments in combination with --all are not allowed")
     return constants.EXIT_FAILURE
 
-  if cl is None:
-    cl = GetClient()
+  if qcl is None:
+    # Query client
+    qcl = GetClient(query=True)
 
   if opts.groups:
     node_query_list = \
-      itertools.chain(*cl.QueryGroups(args, ["node_list"], False))
+      itertools.chain(*qcl.QueryGroups(args, ["node_list"], False))
   else:
     node_query_list = args
 
-  result = cl.QueryNodes(node_query_list, ["name", "master", "pinst_list",
-                                           "sinst_list", "powered", "offline"],
-                         False)
+  result = qcl.QueryNodes(node_query_list, ["name", "master", "pinst_list",
+                                            "sinst_list", "powered", "offline"],
+                          False)
 
   all_nodes = map(compat.fst, result)
   node_list = []
@@ -1865,6 +1887,39 @@ def _UpgradeBeforeConfigurationChange(versionstring):
   return (True, rollback)
 
 
+def _VersionSpecificDowngrade():
+  """
+  Perform any additional downrade tasks that are version specific
+  and need to be done just after the configuration downgrade. This
+  function needs to be idempotent, so that it can be redone if the
+  downgrade procedure gets interrupted after changing the
+  configuration.
+
+  Note that this function has to be reset with every version bump.
+
+  @return: True upon success
+  """
+  ToStdout("Performing version-specific downgrade tasks.")
+
+  ToStdout("...removing client certificates ssconf file")
+  ssconffile = ssconf.SimpleStore().KeyToFilename(
+    constants.SS_MASTER_CANDIDATES_CERTS)
+  badnodes = _VerifyCommand(["rm", "-f", ssconffile])
+  if badnodes:
+    ToStderr("Warning: failed to clean up ssconf on %s."
+             % (", ".join(badnodes),))
+    return False
+
+  ToStdout("...removing client certificates")
+  badnodes = _VerifyCommand(["rm", "-f", pathutils.NODED_CLIENT_CERT_FILE])
+  if badnodes:
+    ToStderr("Warning: failed to clean up certificates on %s."
+             % (", ".join(badnodes),))
+    return False
+
+  return True
+
+
 def _SwitchVersionAndConfig(versionstring, downgrade):
   """
   Switch to the new Ganeti version and change the configuration,
@@ -1883,6 +1938,11 @@ def _SwitchVersionAndConfig(versionstring, downgrade):
   if downgrade:
     ToStdout("Downgrading configuration")
     if not _RunCommandAndReport([pathutils.CFGUPGRADE, "--downgrade", "-f"]):
+      return (False, rollback)
+    # Note: version specific downgrades need to be done before switching
+    # binaries, so that we still have the knowledgeable binary if the downgrade
+    # process gets interrupted at this point.
+    if not _VersionSpecificDowngrade():
       return (False, rollback)
 
   # Configuration change is the point of no return. From then onwards, it is
@@ -2053,13 +2113,15 @@ commands = {
     InitCluster, [ArgHost(min=1, max=1)],
     [BACKEND_OPT, CP_SIZE_OPT, ENABLED_HV_OPT, GLOBAL_FILEDIR_OPT,
      HVLIST_OPT, MAC_PREFIX_OPT, MASTER_NETDEV_OPT, MASTER_NETMASK_OPT,
-     NIC_PARAMS_OPT, NOLVM_STORAGE_OPT, NOMODIFY_ETCHOSTS_OPT,
-     NOMODIFY_SSH_SETUP_OPT, SECONDARY_IP_OPT, VG_NAME_OPT,
-     MAINTAIN_NODE_HEALTH_OPT, UIDPOOL_OPT, DRBD_HELPER_OPT,
-     DEFAULT_IALLOCATOR_OPT, PRIMARY_IP_VERSION_OPT, PREALLOC_WIPE_DISKS_OPT,
-     NODE_PARAMS_OPT, GLOBAL_SHARED_FILEDIR_OPT, USE_EXTERNAL_MIP_SCRIPT,
-     DISK_PARAMS_OPT, HV_STATE_OPT, DISK_STATE_OPT, ENABLED_DISK_TEMPLATES_OPT,
-     IPOLICY_STD_SPECS_OPT] + INSTANCE_POLICY_OPTS + SPLIT_ISPECS_OPTS,
+     NIC_PARAMS_OPT, NOMODIFY_ETCHOSTS_OPT, NOMODIFY_SSH_SETUP_OPT,
+     SECONDARY_IP_OPT, VG_NAME_OPT, MAINTAIN_NODE_HEALTH_OPT, UIDPOOL_OPT,
+     DRBD_HELPER_OPT, DEFAULT_IALLOCATOR_OPT, DEFAULT_IALLOCATOR_PARAMS_OPT,
+     PRIMARY_IP_VERSION_OPT, PREALLOC_WIPE_DISKS_OPT, NODE_PARAMS_OPT,
+     GLOBAL_SHARED_FILEDIR_OPT, USE_EXTERNAL_MIP_SCRIPT, DISK_PARAMS_OPT,
+     HV_STATE_OPT, DISK_STATE_OPT, ENABLED_DISK_TEMPLATES_OPT,
+     ENABLED_USER_SHUTDOWN_OPT, IPOLICY_STD_SPECS_OPT,
+     GLOBAL_GLUSTER_FILEDIR_OPT]
+     + INSTANCE_POLICY_OPTS + SPLIT_ISPECS_OPTS,
     "[opts...] <cluster_name>", "Initialises a new cluster configuration"),
   "destroy": (
     DestroyCluster, ARGS_NONE, [YES_DOIT_OPT],
@@ -2133,14 +2195,16 @@ commands = {
   "modify": (
     SetClusterParams, ARGS_NONE,
     [FORCE_OPT,
-     BACKEND_OPT, CP_SIZE_OPT, ENABLED_HV_OPT, HVLIST_OPT, MASTER_NETDEV_OPT,
-     MASTER_NETMASK_OPT, NIC_PARAMS_OPT, NOLVM_STORAGE_OPT, VG_NAME_OPT,
-     MAINTAIN_NODE_HEALTH_OPT, UIDPOOL_OPT, ADD_UIDS_OPT, REMOVE_UIDS_OPT,
-     DRBD_HELPER_OPT, DEFAULT_IALLOCATOR_OPT,
-     RESERVED_LVS_OPT, DRY_RUN_OPT, PRIORITY_OPT, PREALLOC_WIPE_DISKS_OPT,
-     NODE_PARAMS_OPT, USE_EXTERNAL_MIP_SCRIPT, DISK_PARAMS_OPT, HV_STATE_OPT,
-     DISK_STATE_OPT] + SUBMIT_OPTS +
-     [ENABLED_DISK_TEMPLATES_OPT, IPOLICY_STD_SPECS_OPT, MODIFY_ETCHOSTS_OPT] +
+     BACKEND_OPT, CP_SIZE_OPT, RQL_OPT,
+     ENABLED_HV_OPT, HVLIST_OPT, MASTER_NETDEV_OPT,
+     MASTER_NETMASK_OPT, NIC_PARAMS_OPT, VG_NAME_OPT, MAINTAIN_NODE_HEALTH_OPT,
+     UIDPOOL_OPT, ADD_UIDS_OPT, REMOVE_UIDS_OPT, DRBD_HELPER_OPT,
+     DEFAULT_IALLOCATOR_OPT, DEFAULT_IALLOCATOR_PARAMS_OPT, RESERVED_LVS_OPT,
+     DRY_RUN_OPT, PRIORITY_OPT, PREALLOC_WIPE_DISKS_OPT, NODE_PARAMS_OPT,
+     USE_EXTERNAL_MIP_SCRIPT, DISK_PARAMS_OPT, HV_STATE_OPT, DISK_STATE_OPT] +
+     SUBMIT_OPTS +
+     [ENABLED_DISK_TEMPLATES_OPT, IPOLICY_STD_SPECS_OPT, MODIFY_ETCHOSTS_OPT,
+      ENABLED_USER_SHUTDOWN_OPT] +
      INSTANCE_POLICY_OPTS + [GLOBAL_FILEDIR_OPT, GLOBAL_SHARED_FILEDIR_OPT],
     "[opts...]",
     "Alters the parameters of the cluster"),
@@ -2149,7 +2213,8 @@ commands = {
     [NEW_CLUSTER_CERT_OPT, NEW_RAPI_CERT_OPT, RAPI_CERT_OPT,
      NEW_CONFD_HMAC_KEY_OPT, FORCE_OPT,
      NEW_CLUSTER_DOMAIN_SECRET_OPT, CLUSTER_DOMAIN_SECRET_OPT,
-     NEW_SPICE_CERT_OPT, SPICE_CERT_OPT, SPICE_CACERT_OPT],
+     NEW_SPICE_CERT_OPT, SPICE_CERT_OPT, SPICE_CACERT_OPT,
+     NEW_NODE_CERT_OPT],
     "[opts...]",
     "Renews cluster certificates, keys and secrets"),
   "epo": (

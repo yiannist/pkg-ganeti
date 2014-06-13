@@ -264,6 +264,8 @@ fields. The available fields and their meaning are:
   The "ovs_name" node parameter
 ``ndp/spindle_count``
   The "spindle_count" node parameter
+``ndp/ssh_port``
+  The "ssh_port" node parameter
 ``ndparams``
   Merged node parameters
 ``offline``

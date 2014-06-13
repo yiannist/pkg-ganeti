@@ -34,6 +34,7 @@ import Ganeti.Types
 import qualified Ganeti.Types as T
 
 import Control.Monad
+import Data.List (nub)
 import Data.Maybe
 import qualified Data.Map as M
 
@@ -43,8 +44,6 @@ getDefaultStorageKey cfg T.DTDrbd8 = clusterVolumeGroupName $ configCluster cfg
 getDefaultStorageKey cfg T.DTPlain = clusterVolumeGroupName $ configCluster cfg
 getDefaultStorageKey cfg T.DTFile =
     Just (clusterFileStorageDir $ configCluster cfg)
-getDefaultStorageKey cfg T.DTSharedFile =
-    Just (clusterSharedFileStorageDir $ configCluster cfg)
 getDefaultStorageKey _ _ = Nothing
 
 -- | Get the cluster's default spindle storage unit
@@ -54,7 +53,8 @@ getDefaultSpindleSU cfg =
 
 -- | Get the cluster's storage units from the configuration
 getClusterStorageUnitRaws :: ConfigData -> [StorageUnitRaw]
-getClusterStorageUnitRaws cfg = foldSUs (maybe_units ++ [spindle_unit])
+getClusterStorageUnitRaws cfg =
+    foldSUs (nub (maybe_units ++ [spindle_unit]))
   where disk_templates = clusterEnabledDiskTemplates $ configCluster cfg
         storage_types = map diskTemplateToStorageType disk_templates
         maybe_units = zip storage_types (map (getDefaultStorageKey cfg)

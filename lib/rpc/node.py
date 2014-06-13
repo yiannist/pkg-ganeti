@@ -36,6 +36,7 @@ import base64
 import pycurl
 import threading
 import copy
+import os
 
 from ganeti import utils
 from ganeti import objects
@@ -97,15 +98,23 @@ def Shutdown():
 
 def _ConfigRpcCurl(curl):
   noded_cert = str(pathutils.NODED_CERT_FILE)
+  noded_client_cert = str(pathutils.NODED_CLIENT_CERT_FILE)
+
+  # FIXME: The next two lines are necessary to ensure upgradability from
+  # 2.10 to 2.11. Remove in 2.12, because this slows down RPC calls.
+  if not os.path.exists(noded_client_cert):
+    logging.info("Using server certificate as client certificate for RPC"
+                 "call.")
+    noded_client_cert = noded_cert
 
   curl.setopt(pycurl.FOLLOWLOCATION, False)
   curl.setopt(pycurl.CAINFO, noded_cert)
   curl.setopt(pycurl.SSL_VERIFYHOST, 0)
   curl.setopt(pycurl.SSL_VERIFYPEER, True)
   curl.setopt(pycurl.SSLCERTTYPE, "PEM")
-  curl.setopt(pycurl.SSLCERT, noded_cert)
+  curl.setopt(pycurl.SSLCERT, noded_client_cert)
   curl.setopt(pycurl.SSLKEYTYPE, "PEM")
-  curl.setopt(pycurl.SSLKEY, noded_cert)
+  curl.setopt(pycurl.SSLKEY, noded_client_cert)
   curl.setopt(pycurl.CONNECTTIMEOUT, constants.RPC_CONNECT_TIMEOUT)
 
 
@@ -196,6 +205,10 @@ class RpcResult(object):
     for attr_name in ["call", "data", "fail_msg",
                       "node", "offline", "payload"]:
       assert hasattr(self, attr_name), "Missing attribute %s" % attr_name
+
+  def __repr__(self):
+    return ("RpcResult(data=%s, call=%s, node=%s, offline=%s, fail_msg=%s)" %
+            (self.offline, self.call, self.node, self.offline, self.fail_msg))
 
   @staticmethod
   def _EnsureErr(val):
@@ -611,7 +624,7 @@ def _AddStorageInfoToLegacyNodeInfoByTemplate(
 
 
 def MakeLegacyNodeInfo(data, disk_template):
-  """Formats the data returned by L{rpc.RpcRunner.call_node_info}.
+  """Formats the data returned by call_node_info.
 
   Converts the data into a single dictionary. This is fine for most use cases,
   but some require information from more than one volume group or hypervisor.
@@ -937,8 +950,8 @@ class RpcRunner(_RpcClientBase,
 
     """
     if ieio == constants.IEIO_RAW_DISK:
-      assert len(ieioargs) == 1
-      return (ieio, (self._SingleDiskDictDP(node, ieioargs[0]), ))
+      assert len(ieioargs) == 2
+      return (ieio, (self._SingleDiskDictDP(node, ieioargs), ))
 
     if ieio == constants.IEIO_SCRIPT:
       assert len(ieioargs) == 2

@@ -29,98 +29,15 @@ from ganeti import constants
 from ganeti import errors
 from ganeti import locking
 from ganeti import masterd
-from ganeti import qlang
-from ganeti import query
 from ganeti import utils
 
-from ganeti.cmdlib.base import QueryBase, NoHooksLU, LogicalUnit
-from ganeti.cmdlib.common import GetWantedNodes, ShareAll, CheckNodeOnline, \
+from ganeti.cmdlib.base import NoHooksLU, LogicalUnit
+from ganeti.cmdlib.common import CheckNodeOnline, \
   ExpandNodeUuidAndName
 from ganeti.cmdlib.instance_storage import StartInstanceDisks, \
   ShutdownInstanceDisks
 from ganeti.cmdlib.instance_utils import GetClusterDomainSecret, \
   BuildInstanceHookEnvByObject, CheckNodeNotDrained, RemoveInstance
-
-
-class ExportQuery(QueryBase):
-  FIELDS = query.EXPORT_FIELDS
-
-  #: The node name is not a unique key for this query
-  SORT_FIELD = "node"
-
-  def ExpandNames(self, lu):
-    lu.needed_locks = {}
-
-    # The following variables interact with _QueryBase._GetNames
-    if self.names:
-      (self.wanted, _) = GetWantedNodes(lu, self.names)
-    else:
-      self.wanted = locking.ALL_SET
-
-    self.do_locking = self.use_locking
-
-    if self.do_locking:
-      lu.share_locks = ShareAll()
-      lu.needed_locks = {
-        locking.LEVEL_NODE: self.wanted,
-        }
-
-      if not self.names:
-        lu.needed_locks[locking.LEVEL_NODE_ALLOC] = locking.ALL_SET
-
-  def DeclareLocks(self, lu, level):
-    pass
-
-  def _GetQueryData(self, lu):
-    """Computes the list of nodes and their attributes.
-
-    """
-    # Locking is not used
-    # TODO
-    assert not (compat.any(lu.glm.is_owned(level)
-                           for level in locking.LEVELS
-                           if level != locking.LEVEL_CLUSTER) or
-                self.do_locking or self.use_locking)
-
-    node_uuids = self._GetNames(lu, lu.cfg.GetNodeList(), locking.LEVEL_NODE)
-
-    result = []
-    for (node_uuid, nres) in lu.rpc.call_export_list(node_uuids).items():
-      node = lu.cfg.GetNodeInfo(node_uuid)
-      if nres.fail_msg:
-        result.append((node.name, None))
-      else:
-        result.extend((node.name, expname) for expname in nres.payload)
-
-    return result
-
-
-class LUBackupQuery(NoHooksLU):
-  """Query the exports list
-
-  """
-  REQ_BGL = False
-
-  def CheckArguments(self):
-    self.expq = ExportQuery(qlang.MakeSimpleFilter("node", self.op.nodes),
-                            ["node", "export"], self.op.use_locking)
-
-  def ExpandNames(self):
-    self.expq.ExpandNames(self)
-
-  def DeclareLocks(self, level):
-    self.expq.DeclareLocks(self, level)
-
-  def Exec(self, feedback_fn):
-    result = {}
-
-    for (node, expname) in self.expq.OldStyleQuery(self):
-      if expname is None:
-        result[node] = False
-      else:
-        result.setdefault(node, []).append(expname)
-
-    return result
 
 
 class LUBackupPrepare(NoHooksLU):
@@ -341,7 +258,7 @@ class LUBackupExport(LogicalUnit):
     # instance disk type verification
     # TODO: Implement export support for file-based disks
     for disk in self.instance.disks:
-      if disk.dev_type in [constants.DT_FILE, constants.DT_SHARED_FILE]:
+      if disk.dev_type in constants.DTS_FILEBASED:
         raise errors.OpPrereqError("Export not supported for instances with"
                                    " file-based disks", errors.ECODE_INVAL)
 
@@ -421,7 +338,8 @@ class LUBackupExport(LogicalUnit):
             raise errors.OpExecError("Could not start instance: %s" % msg)
 
         if self.op.mode == constants.EXPORT_MODE_LOCAL:
-          (fin_resu, dresults) = helper.LocalExport(self.dst_node)
+          (fin_resu, dresults) = helper.LocalExport(self.dst_node,
+                                                    self.op.compress)
         elif self.op.mode == constants.EXPORT_MODE_REMOTE:
           connect_timeout = constants.RIE_CONNECT_TIMEOUT
           timeouts = masterd.instance.ImportExportTimeouts(connect_timeout)
@@ -434,6 +352,7 @@ class LUBackupExport(LogicalUnit):
 
           (fin_resu, dresults) = helper.RemoteExport(self.dest_disk_info,
                                                      key_name, dest_ca_pem,
+                                                     self.op.compress,
                                                      timeouts)
       finally:
         helper.Cleanup()

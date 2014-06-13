@@ -75,10 +75,8 @@ def FillDict(defaults_dict, custom_dict, skip_keys=None):
   ret_dict.update(custom_dict)
   if skip_keys:
     for k in skip_keys:
-      try:
+      if k in ret_dict:
         del ret_dict[k]
-      except KeyError:
-        pass
   return ret_dict
 
 
@@ -212,6 +210,16 @@ class ConfigObject(outils.ValidatedSlots):
 
   def Validate(self):
     """Validates the slots.
+
+    This method returns L{None} if the validation succeeds, or raises
+    an exception otherwise.
+
+    This method must be implemented by the child classes.
+
+    @rtype: NoneType
+    @return: L{None}, if the validation succeeds
+
+    @raise Exception: validation fails
 
     """
 
@@ -588,7 +596,8 @@ class Disk(ConfigObject):
     """
     if self.dev_type in [constants.DT_PLAIN, constants.DT_FILE,
                          constants.DT_BLOCK, constants.DT_RBD,
-                         constants.DT_EXT, constants.DT_SHARED_FILE]:
+                         constants.DT_EXT, constants.DT_SHARED_FILE,
+                         constants.DT_GLUSTER]:
       result = [node_uuid]
     elif self.dev_type in constants.DTS_DRBD:
       result = [self.logical_id[0], self.logical_id[1]]
@@ -665,7 +674,7 @@ class Disk(ConfigObject):
     """
     if self.dev_type in (constants.DT_PLAIN, constants.DT_FILE,
                          constants.DT_RBD, constants.DT_EXT,
-                         constants.DT_SHARED_FILE):
+                         constants.DT_SHARED_FILE, constants.DT_GLUSTER):
       self.size += amount
     elif self.dev_type == constants.DT_DRBD8:
       if self.children:
@@ -864,6 +873,7 @@ class Disk(ConfigObject):
 
     result = list()
     dt_params = disk_params[disk_template]
+
     if disk_template == constants.DT_DRBD8:
       result.append(FillDict(constants.DISK_LD_DEFAULTS[constants.DT_DRBD8], {
         constants.LDP_RESYNC_RATE: dt_params[constants.DRBD_RESYNC_RATE],
@@ -891,25 +901,12 @@ class Disk(ConfigObject):
         constants.LDP_STRIPES: dt_params[constants.DRBD_META_STRIPES],
         }))
 
-    elif disk_template in (constants.DT_FILE, constants.DT_SHARED_FILE):
-      result.append(constants.DISK_LD_DEFAULTS[disk_template])
-
-    elif disk_template == constants.DT_PLAIN:
-      result.append(FillDict(constants.DISK_LD_DEFAULTS[constants.DT_PLAIN], {
-        constants.LDP_STRIPES: dt_params[constants.LV_STRIPES],
-        }))
-
-    elif disk_template == constants.DT_BLOCK:
-      result.append(constants.DISK_LD_DEFAULTS[constants.DT_BLOCK])
-
-    elif disk_template == constants.DT_RBD:
-      result.append(FillDict(constants.DISK_LD_DEFAULTS[constants.DT_RBD], {
-        constants.LDP_POOL: dt_params[constants.RBD_POOL],
-        constants.LDP_ACCESS: dt_params[constants.RBD_ACCESS],
-        }))
-
-    elif disk_template == constants.DT_EXT:
-      result.append(constants.DISK_LD_DEFAULTS[constants.DT_EXT])
+    else:
+      defaults = constants.DISK_LD_DEFAULTS[disk_template]
+      values = {}
+      for field in defaults:
+        values[field] = dt_params[field]
+      result.append(FillDict(defaults, values))
 
     return result
 
@@ -1077,6 +1074,7 @@ class Instance(TaggableObject):
     "beparams",
     "osparams",
     "admin_state",
+    "admin_state_source",
     "nics",
     "disks",
     "disk_template",
@@ -1240,6 +1238,8 @@ class Instance(TaggableObject):
     """Fill defaults for missing configuration values.
 
     """
+    if self.admin_state_source is None:
+      self.admin_state_source = constants.ADMIN_SOURCE
     for nic in self.nics:
       nic.UpgradeConfig()
     for disk in self.disks:
@@ -1566,6 +1566,7 @@ class Cluster(TaggableObject):
     "cluster_name",
     "file_storage_dir",
     "shared_file_storage_dir",
+    "gluster_storage_dir",
     "enabled_hypervisors",
     "hvparams",
     "ipolicy",
@@ -1581,6 +1582,7 @@ class Cluster(TaggableObject):
     "maintain_node_health",
     "uid_pool",
     "default_iallocator",
+    "default_iallocator_params",
     "hidden_os",
     "blacklisted_os",
     "primary_ip_family",
@@ -1588,6 +1590,9 @@ class Cluster(TaggableObject):
     "hv_state_static",
     "disk_state_static",
     "enabled_disk_templates",
+    "candidate_certs",
+    "max_running_jobs",
+    "enabled_user_shutdown",
     ] + _TIMESTAMPS + _UUID
 
   def UpgradeConfig(self):
@@ -1658,6 +1663,9 @@ class Cluster(TaggableObject):
     if self.default_iallocator is None:
       self.default_iallocator = ""
 
+    if self.default_iallocator_params is None:
+      self.default_iallocator_params = {}
+
     # reserved_lvs added before 2.2
     if self.reserved_lvs is None:
       self.reserved_lvs = []
@@ -1684,6 +1692,10 @@ class Cluster(TaggableObject):
     if self.shared_file_storage_dir is None:
       self.shared_file_storage_dir = ""
 
+    # gluster_storage_dir added in 2.11
+    if self.gluster_storage_dir is None:
+      self.gluster_storage_dir = ""
+
     if self.use_external_mip_script is None:
       self.use_external_mip_script = False
 
@@ -1706,6 +1718,15 @@ class Cluster(TaggableObject):
                utils.CommaJoin(wrongkeys))
         raise errors.ConfigurationError(msg)
       self.ipolicy = FillIPolicy(constants.IPOLICY_DEFAULTS, self.ipolicy)
+
+    if self.candidate_certs is None:
+      self.candidate_certs = {}
+
+    if self.max_running_jobs is None:
+      self.max_running_jobs = constants.LUXID_MAXIMAL_RUNNING_JOBS_DEFAULT
+
+    if self.enabled_user_shutdown is None:
+      self.enabled_user_shutdown = False
 
   @property
   def primary_hypervisor(self):
@@ -1897,6 +1918,16 @@ class Cluster(TaggableObject):
 
     """
     return self.SimpleFillND(nodegroup.FillND(node))
+
+  def FillNDGroup(self, nodegroup):
+    """Return filled out ndparams for just L{objects.NodeGroup}
+
+    @type nodegroup: L{objects.NodeGroup}
+    @param nodegroup: A Node object to fill
+    @return a copy of the node group's ndparams with defaults filled
+
+    """
+    return self.SimpleFillND(nodegroup.SimpleFillND({}))
 
   def SimpleFillND(self, ndparams):
     """Fill a given ndparams dict with defaults.
@@ -2145,7 +2176,6 @@ class InstanceConsole(ConfigObject):
     assert self.display or self.kind in [constants.CONS_MESSAGE,
                                          constants.CONS_SPICE,
                                          constants.CONS_SSH]
-    return True
 
 
 class Network(TaggableObject):

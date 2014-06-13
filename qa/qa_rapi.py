@@ -41,6 +41,7 @@ from ganeti import qlang
 from ganeti import rapi
 from ganeti import utils
 
+from ganeti.http.auth import ParsePasswordFile
 import ganeti.rapi.client        # pylint: disable=W0611
 import ganeti.rapi.client_utils
 
@@ -104,6 +105,33 @@ def Setup(username, password):
                                                 curl_config_fn=cfg_curl)
 
     print "RAPI protocol version: %s" % _rapi_client.GetVersion()
+
+  return _rapi_client
+
+
+def LookupRapiSecret(rapi_user):
+  """Find the RAPI secret for the given user.
+
+  @param rapi_user: Login user
+  @return: Login secret for the user
+
+  """
+  CTEXT = "{CLEARTEXT}"
+  master = qa_config.GetMasterNode()
+  cmd = ["cat", qa_utils.MakeNodePath(master, pathutils.RAPI_USERS_FILE)]
+  file_content = qa_utils.GetCommandOutput(master.primary,
+                                           utils.ShellQuoteArgs(cmd))
+  users = ParsePasswordFile(file_content)
+  entry = users.get(rapi_user)
+  if not entry:
+    raise qa_error.Error("User %s not found in RAPI users file" % rapi_user)
+  secret = entry.password
+  if secret.upper().startswith(CTEXT):
+    secret = secret[len(CTEXT):]
+  elif secret.startswith("{"):
+    raise qa_error.Error("Unsupported password schema for RAPI user %s:"
+                         " not a clear text password" % rapi_user)
+  return secret
 
 
 INSTANCE_FIELDS = ("name", "os", "pnode", "snodes",
@@ -343,10 +371,13 @@ def TestRapiQuery():
   for what in constants.QR_VIA_RAPI:
     if what == constants.QR_JOB:
       namefield = "id"
+      trivial_filter = [qlang.OP_GE, namefield, 0]
     elif what == constants.QR_EXPORT:
       namefield = "export"
+      trivial_filter = [qlang.OP_REGEXP, ".*", namefield]
     else:
       namefield = "name"
+      trivial_filter = [qlang.OP_REGEXP, ".*", namefield]
 
     all_fields = query.ALL_FIELDS[what].keys()
     rnd.shuffle(all_fields)
@@ -408,22 +439,24 @@ def TestRapiQuery():
       # Note the spaces
       ("/2/query/%s?fields=%s,%%20%s%%09,%s%%20" %
        (what, namefield, namefield, namefield),
-       compat.partial(_Check, [namefield] * 3), "GET", None),
+       compat.partial(_Check, [namefield] * 3), "GET", None)])
 
-      # PUT with fields in query
-      ("/2/query/%s?fields=%s" % (what, namefield),
-       compat.partial(_Check, [namefield]), "PUT", {}),
+    if what in constants.QR_VIA_RAPI_PUT:
+      _DoTests([
+        # PUT with fields in query
+        ("/2/query/%s?fields=%s" % (what, namefield),
+         compat.partial(_Check, [namefield]), "PUT", {}),
 
-      ("/2/query/%s" % what, compat.partial(_Check, [namefield] * 4), "PUT", {
-         "fields": [namefield] * 4,
-         }),
+        ("/2/query/%s" % what, compat.partial(_Check, [namefield] * 4), "PUT", {
+           "fields": [namefield] * 4,
+           }),
 
-      ("/2/query/%s" % what, compat.partial(_Check, all_fields), "PUT", {
-         "fields": all_fields,
-         }),
+        ("/2/query/%s" % what, compat.partial(_Check, all_fields), "PUT", {
+           "fields": all_fields,
+           }),
 
-      ("/2/query/%s" % what, compat.partial(_Check, [namefield] * 4), "PUT", {
-         "fields": [namefield] * 4
+        ("/2/query/%s" % what, compat.partial(_Check, [namefield] * 4), "PUT", {
+           "fields": [namefield] * 4
          })])
 
     def _CheckFilter():
@@ -431,7 +464,7 @@ def TestRapiQuery():
         # With filter
         ("/2/query/%s" % what, compat.partial(_Check, all_fields), "PUT", {
            "fields": all_fields,
-           "filter": [qlang.OP_TRUE, namefield],
+           "filter": trivial_filter
            }),
         ])
 
@@ -444,7 +477,8 @@ def TestRapiQuery():
       else:
         raise qa_error.Error("Filtering locks didn't fail")
     else:
-      _CheckFilter()
+      if what in constants.QR_VIA_RAPI_PUT:
+        _CheckFilter()
 
     if what == constants.QR_NODE:
       # Test with filter
@@ -953,7 +987,7 @@ def TestRapiInstanceConsole(instance):
   """Test getting instance console information via RAPI"""
   result = _rapi_client.GetInstanceConsole(instance.name)
   console = objects.InstanceConsole.FromDict(result)
-  AssertEqual(console.Validate(), True)
+  AssertEqual(console.Validate(), None)
   AssertEqual(console.instance, qa_utils.ResolveInstanceName(instance.name))
 
 
@@ -977,7 +1011,7 @@ def GetOperatingSystems():
 
 
 def TestInterClusterInstanceMove(src_instance, dest_instance,
-                                 inodes, tnode):
+                                 inodes, tnode, perform_checks=True):
   """Test tools/move-instance"""
   master = qa_config.GetMasterNode()
 
@@ -985,7 +1019,9 @@ def TestInterClusterInstanceMove(src_instance, dest_instance,
   rapi_pw_file.write(_rapi_password)
   rapi_pw_file.flush()
 
-  dest_instance.SetDiskTemplate(src_instance.disk_template)
+  # Needed only if checks are to be performed
+  if perform_checks:
+    dest_instance.SetDiskTemplate(src_instance.disk_template)
 
   # TODO: Run some instance tests before moving back
 
@@ -1001,26 +1037,32 @@ def TestInterClusterInstanceMove(src_instance, dest_instance,
   pnode = inodes[0]
   # note: pnode:snode are the *current* nodes, so we move it first to
   # tnode:pnode, then back to pnode:snode
-  for si, di, pn, sn in [(src_instance.name, dest_instance.name,
-                          tnode.primary, pnode.primary),
-                         (dest_instance.name, src_instance.name,
-                          pnode.primary, snode.primary)]:
+  for current_src_inst, current_dest_inst, target_pnode, target_snode in \
+    [(src_instance.name, dest_instance.name, tnode.primary, pnode.primary),
+     (dest_instance.name, src_instance.name, pnode.primary, snode.primary)]:
     cmd = [
       "../tools/move-instance",
       "--verbose",
       "--src-ca-file=%s" % _rapi_ca.name,
       "--src-username=%s" % _rapi_username,
       "--src-password-file=%s" % rapi_pw_file.name,
-      "--dest-instance-name=%s" % di,
-      "--dest-primary-node=%s" % pn,
-      "--dest-secondary-node=%s" % sn,
+      "--dest-instance-name=%s" % current_dest_inst,
+      "--dest-primary-node=%s" % target_pnode,
+      "--dest-secondary-node=%s" % target_snode,
       "--net=0:mac=%s" % constants.VALUE_GENERATE,
       master.primary,
       master.primary,
-      si,
+      current_src_inst,
       ]
 
-    qa_utils.RunInstanceCheck(di, False)
+    # Some uses of this test might require that RAPI-only commands are used,
+    # and the checks are command-line based.
+
+    if perform_checks:
+      qa_utils.RunInstanceCheck(current_dest_inst, False)
+
     AssertEqual(StartLocalCommand(cmd).wait(), 0)
-    qa_utils.RunInstanceCheck(si, False)
-    qa_utils.RunInstanceCheck(di, True)
+
+    if perform_checks:
+      qa_utils.RunInstanceCheck(current_src_inst, False)
+      qa_utils.RunInstanceCheck(current_dest_inst, True)

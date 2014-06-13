@@ -36,8 +36,6 @@ import Data.List
 import Control.Applicative
 import Control.Concurrent (forkIO)
 import Control.Exception (bracket)
-import System.Directory (getTemporaryDirectory, removeFile)
-import System.IO (hClose, openTempFile)
 import qualified Text.JSON as J
 
 import Test.Ganeti.TestHelper
@@ -47,6 +45,7 @@ import Test.Ganeti.OpCodes ()
 
 import Ganeti.BasicTypes
 import qualified Ganeti.Luxi as Luxi
+import qualified Ganeti.UDSServer as US
 
 {-# ANN module "HLint: ignore Use camelCase" #-}
 
@@ -84,6 +83,7 @@ instance Arbitrary Luxi.LuxiOp where
       Luxi.ReqWaitForJobChange -> Luxi.WaitForJobChange <$> arbitrary <*>
                                   genFields <*> pure J.JSNull <*>
                                   pure J.JSNull <*> arbitrary
+      Luxi.ReqPickupJob -> Luxi.PickupJob <$> arbitrary
       Luxi.ReqArchiveJob -> Luxi.ArchiveJob <$> arbitrary
       Luxi.ReqAutoArchiveJobs -> Luxi.AutoArchiveJobs <$> arbitrary <*>
                                  arbitrary
@@ -96,16 +96,7 @@ instance Arbitrary Luxi.LuxiOp where
 -- | Simple check that encoding/decoding of LuxiOp works.
 prop_CallEncoding :: Luxi.LuxiOp -> Property
 prop_CallEncoding op =
-  (Luxi.validateCall (Luxi.buildCall op) >>= Luxi.decodeCall) ==? Ok op
-
--- | Helper to a get a temporary file name.
-getTempFileName :: IO FilePath
-getTempFileName = do
-  tempdir <- getTemporaryDirectory
-  (fpath, handle) <- openTempFile tempdir "luxitest"
-  _ <- hClose handle
-  removeFile fpath
-  return fpath
+  (US.parseCall (Luxi.buildCall op) >>= uncurry Luxi.decodeLuxiCall) ==? Ok op
 
 -- | Server ping-pong helper.
 luxiServerPong :: Luxi.Client -> IO ()
@@ -126,20 +117,20 @@ luxiClientPong c =
 prop_ClientServer :: [[DNSChar]] -> Property
 prop_ClientServer dnschars = monadicIO $ do
   let msgs = map (map dnsGetChar) dnschars
-  fpath <- run getTempFileName
+  fpath <- run $ getTempFileName "luxitest"
   -- we need to create the server first, otherwise (if we do it in the
   -- forked thread) the client could try to connect to it before it's
   -- ready
-  server <- run $ Luxi.getServer False fpath
+  server <- run $ Luxi.getLuxiServer False fpath
   -- fork the server responder
   _ <- run . forkIO $
     bracket
       (Luxi.acceptClient server)
-      (\c -> Luxi.closeClient c >> Luxi.closeServer fpath server)
+      (\c -> Luxi.closeClient c >> Luxi.closeServer server)
       luxiServerPong
   replies <- run $
     bracket
-      (Luxi.getClient fpath)
+      (Luxi.getLuxiClient fpath)
       Luxi.closeClient
       (`luxiClientPong` msgs)
   stop $ replies ==? msgs

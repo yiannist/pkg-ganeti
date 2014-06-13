@@ -8,7 +8,7 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Ganeti daemons refactoring &mdash; Ganeti 2.10.5 documentation</title>
+    <title>Ganeti daemons refactoring &mdash; Ganeti 2.11.2 documentation</title>
     
     <link rel="stylesheet" href="_static/style.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
@@ -16,7 +16,7 @@
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.10.5',
+        VERSION:     '2.11.2',
         COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -25,7 +25,7 @@
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti 2.10.5 documentation" href="index.html" />
+    <link rel="top" title="Ganeti 2.11.2 documentation" href="index.html" />
     <link rel="up" title="Design document drafts" href="design-draft.html" />
     <link rel="next" title="HSqueeze tool" href="design-hsqueeze.html" />
     <link rel="prev" title="RADOS/Ceph support in Ganeti" href="design-ceph-ganeti-support.html" /> 
@@ -40,7 +40,7 @@
         <li class="right" >
           <a href="design-ceph-ganeti-support.html" title="RADOS/Ceph support in Ganeti"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.10.5 documentation</a> &raquo;</li>
+        <li><a href="index.html">Ganeti 2.11.2 documentation</a> &raquo;</li>
           <li><a href="design-draft.html" accesskey="U">Design document drafts</a> &raquo;</li> 
       </ul>
     </div>  
@@ -276,8 +276,8 @@ Receiving the queries and managing the job queue will be extracted from
 MasterD into LuxiD.
 Actually executing jobs will still be done by MasterD, that contains all the
 logic for doing that and for properly managing locks and the configuration.
-A separate design document will detail how the system will decide which jobs
-to send over for execution, and how to rate-limit them.</li>
+At this stage, scheduling will simply consist in starting jobs until a fixed
+maximum number of simultaneously running jobs is reached.</li>
 <li>Extract WConfD from MasterD.
 The logic for managing the configuration file is factored out to the
 dedicated WConfD daemon. All configuration changes, currently executed
@@ -294,7 +294,123 @@ job. The RPCs will remain unchanged, and the LU code will stay as is as much
 as possible.
 MasterD will cease to exist as a deamon on its own at this point, but not
 before.</li>
+<li>Improve job scheduling algorithm.
+The simple algorithm for scheduling jobs will be replaced by a more
+intelligent one. Also, the implementation of <a class="reference internal" href="design-optables.html"><em>Filtering of jobs for the Ganeti job queue</em></a> can be
+started.</li>
 </ol>
+<div class="section" id="wconfd-details">
+<h3>WConfD details<a class="headerlink" href="#wconfd-details" title="Permalink to this headline">¶</a></h3>
+<p>WConfD will communicate with its clients through a Unix domain socket for both
+configuration management and locking. Clients can issue multiple RPC calls
+through one socket. For each such a call the client sends a JSON request
+document with a remote function name and data for its arguments. The server
+replies with a JSON response document containing either the result of
+signalling a failure.</p>
+<p>There will be a special RPC call for identifying a client when connecting to
+WConfD. The client will tell WConfD it&#8217;s job number and process ID. WConfD will
+fail any other RPC calls before a client identifies this way.</p>
+<p>Any state associated with client processes will be mirrored on persistent
+storage and linked to the identity of processes so that the WConfD daemon will
+be able to resume its operation at any point after a restart or a crash. WConfD
+will track each client&#8217;s process start time along with its process ID to be
+able detect if a process dies and it&#8217;s process ID is reused.  WConfD will clear
+all locks and other state associated with a client if it detects it&#8217;s process
+no longer exists.</p>
+<div class="section" id="configuration-management">
+<h4>Configuration management<a class="headerlink" href="#configuration-management" title="Permalink to this headline">¶</a></h4>
+<p>The new configuration management protocol will be implemented in the following
+steps:</p>
+<ol class="arabic simple">
+<li>Reimplement all current methods of <tt class="docutils literal"><span class="pre">ConfigWriter</span></tt> for reading and writing
+the configuration of a cluster in WConfD.</li>
+<li>Expose each of those functions in WConfD as a RPC function. This will allow
+easy future extensions or modifications.</li>
+<li>Replace <tt class="docutils literal"><span class="pre">ConfigWriter</span></tt> with a stub (preferably automatically generated
+from the Haskell code) that will contain the same methods as the current
+<tt class="docutils literal"><span class="pre">ConfigWriter</span></tt> and delegate all calls to its methods to WConfD.</li>
+</ol>
+<p>After this step it&#8217;ll be possible access the configuration from separate
+processes.</p>
+<p>Future aims:</p>
+<ul class="simple">
+<li>Optionally refactor the RPC calls to reduce their number or improve their
+efficiency (for example by obtaining a larger set of data instead of
+querying items one by one).</li>
+</ul>
+</div>
+<div class="section" id="locking">
+<h4>Locking<a class="headerlink" href="#locking" title="Permalink to this headline">¶</a></h4>
+<p>The new locking protocol will be implemented as follows:</p>
+<p>Re-implement the current locking mechanism in WConfD and expose it for RPC
+calls. All current locks will be mapped into a data structure that will
+uniquely identify them (storing lock&#8217;s level together with it&#8217;s name).</p>
+<p>WConfD will impose a linear order on locks. The order will be compatible
+with the current ordering of lock levels so that existing code will work
+without changes.</p>
+<p>WConfD will keep the set of currently held locks for each client. The
+protocol will allow the following operations on the set:</p>
+<dl class="docutils">
+<dt><em>Update:</em></dt>
+<dd>Update the current set of locks according to a given list. The list contains
+locks and their desired level (release / shared / exclusive). To prevent
+deadlocks, WConfD will check that all newly requested locks (or already held
+locks requested to be upgraded to <em>exclusive</em>) are greater in the sense of
+the linear order than all currently held locks, and fail the operation if
+not. Only the locks in the list will be updated, other locks already held
+will be left intact. If the operation fails, the client&#8217;s lock set will be
+left intact.</dd>
+<dt><em>Opportunistic union:</em></dt>
+<dd>Add as much as possible locks from a given set to the current set within a
+given timeout. WConfD will again check the proper order of locks and
+acquire only the ones that are allowed wrt. the current set.  Returns the
+set of acquired locks, possibly empty. Immediate. Never fails. (It would also
+be possible to extend the operation to try to wait until a given number of
+locks is available, or a given timeout elapses.)</dd>
+<dt><em>List:</em></dt>
+<dd>List the current set of held locks. Immediate, never fails.</dd>
+<dt><em>Intersection:</em></dt>
+<dd>Retain only a given set of locks in the current one. This function is
+provided for convenience, it&#8217;s redundant wrt. <em>list</em> and <em>update</em>. Immediate,
+never fails.</dd>
+</dl>
+<p>After this step it&#8217;ll be possible to use locks from jobs as separate processes.</p>
+<p>The above set of operations allows the clients to use various work-flows. In particular:</p>
+<dl class="docutils">
+<dt>Pessimistic strategy:</dt>
+<dd>Lock all potentially relevant resources (for example all nodes), determine
+which will be needed, and release all the others.</dd>
+<dt>Optimistic strategy:</dt>
+<dd>Determine what locks need to be acquired without holding any. Lock the
+required set of locks. Determine the set of required locks again and check if
+they are all held. If not, release everything and restart.</dd>
+</dl>
+<p>Future aims:</p>
+<ul class="simple">
+<li>Add more fine-grained locks to prevent unnecessary blocking of jobs. This
+could include locks on parameters of entities or locks on their states (so that
+a node remains online, but otherwise can change, etc.). In particular,
+adding, moving and removing instances currently blocks the whole node.</li>
+<li>Add checks that all modified configuration parameters belong to entities
+the client has locked and log violations.</li>
+<li>Make the above checks mandatory.</li>
+<li>Automate optimistic locking and checking the locks in logical units.
+For example, this could be accomplished by allowing some of the initial
+phases of <cite>LogicalUnit</cite> (such as <cite>ExpandNames</cite> and <cite>DeclareLocks</cite>) to be run
+repeatedly, checking if the set of locks requested the second time is
+contained in the set acquired after the first pass.</li>
+<li>Add the possibility for a job to reserve hardware resources such as disk
+space or memory on nodes. Most likely as a new, special kind of instances
+that would only block its resources and allow to be converted to a regular
+instance. This would allow long-running jobs such as instance creation or
+move to lock the corresponding nodes, acquire the resources and turn the
+locks into shared ones, keeping an exclusive lock only on the instance.</li>
+<li>Use more sophisticated algorithm for preventing deadlocks such as a
+<a class="reference external" href="http://en.wikipedia.org/wiki/Wait-for_graph">wait-for graph</a>. This would allow less <em>union</em> failures and allow more
+optimistic, scalable acquisition of locks.</li>
+</ul>
+</div>
+</div>
 </div>
 <div class="section" id="further-considerations">
 <h2><a class="toc-backref" href="#id5">Further considerations</a><a class="headerlink" href="#further-considerations" title="Permalink to this headline">¶</a></h2>
@@ -325,7 +441,14 @@ all the terminated jobs.</p>
 <li><a class="reference internal" href="#">Ganeti daemons refactoring</a><ul>
 <li><a class="reference internal" href="#current-state-and-shortcomings">Current state and shortcomings</a></li>
 <li><a class="reference internal" href="#proposed-changes">Proposed changes</a></li>
-<li><a class="reference internal" href="#implementation">Implementation</a></li>
+<li><a class="reference internal" href="#implementation">Implementation</a><ul>
+<li><a class="reference internal" href="#wconfd-details">WConfD details</a><ul>
+<li><a class="reference internal" href="#configuration-management">Configuration management</a></li>
+<li><a class="reference internal" href="#locking">Locking</a></li>
+</ul>
+</li>
+</ul>
+</li>
 <li><a class="reference internal" href="#further-considerations">Further considerations</a></li>
 </ul>
 </li>
@@ -368,7 +491,7 @@ all the terminated jobs.</p>
         <li class="right" >
           <a href="design-ceph-ganeti-support.html" title="RADOS/Ceph support in Ganeti"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.10.5 documentation</a> &raquo;</li>
+        <li><a href="index.html">Ganeti 2.11.2 documentation</a> &raquo;</li>
           <li><a href="design-draft.html" >Design document drafts</a> &raquo;</li> 
       </ul>
     </div>

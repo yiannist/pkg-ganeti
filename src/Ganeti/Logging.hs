@@ -33,6 +33,8 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
 
 module Ganeti.Logging
   ( setupLogging
+  , MonadLog(..)
+  , Priority(..)
   , logDebug
   , logInfo
   , logNotice
@@ -46,7 +48,8 @@ module Ganeti.Logging
   , syslogUsageFromRaw
   ) where
 
-import Control.Monad (when)
+import Control.Monad
+import Control.Monad.Reader
 import System.Log.Logger
 import System.Log.Handler.Simple
 import System.Log.Handler.Syslog
@@ -123,34 +126,45 @@ setupLogging logf program debug stderr_logging console syslog = do
 
 -- * Logging function aliases
 
+-- | A monad that allows logging.
+class Monad m => MonadLog m where
+  -- | Log at a given level.
+  logAt :: Priority -> String -> m ()
+
+instance MonadLog IO where
+  logAt = logM rootLoggerName
+
+instance (MonadLog m) => MonadLog (ReaderT r m) where
+  logAt p x = lift $ logAt p x
+
 -- | Log at debug level.
-logDebug :: String -> IO ()
-logDebug = debugM rootLoggerName
+logDebug :: (MonadLog m) => String -> m ()
+logDebug = logAt DEBUG
 
 -- | Log at info level.
-logInfo :: String -> IO ()
-logInfo = infoM rootLoggerName
+logInfo :: (MonadLog m) => String -> m ()
+logInfo = logAt INFO
 
 -- | Log at notice level.
-logNotice :: String -> IO ()
-logNotice = noticeM rootLoggerName
+logNotice :: (MonadLog m) => String -> m ()
+logNotice = logAt NOTICE
 
 -- | Log at warning level.
-logWarning :: String -> IO ()
-logWarning = warningM rootLoggerName
+logWarning :: (MonadLog m) => String -> m ()
+logWarning = logAt WARNING
 
 -- | Log at error level.
-logError :: String -> IO ()
-logError = errorM rootLoggerName
+logError :: (MonadLog m) => String -> m ()
+logError = logAt ERROR
 
 -- | Log at critical level.
-logCritical :: String -> IO ()
-logCritical = criticalM rootLoggerName
+logCritical :: (MonadLog m) => String -> m ()
+logCritical = logAt CRITICAL
 
 -- | Log at alert level.
-logAlert :: String -> IO ()
-logAlert = alertM rootLoggerName
+logAlert :: (MonadLog m) => String -> m ()
+logAlert = logAt ALERT
 
 -- | Log at emergency level.
-logEmergency :: String -> IO ()
-logEmergency = emergencyM rootLoggerName
+logEmergency :: (MonadLog m) => String -> m ()
+logEmergency = logAt EMERGENCY

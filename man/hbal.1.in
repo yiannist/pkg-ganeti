@@ -22,9 +22,9 @@ Algorithm options:
 --min-gain-limit \f[I]threshold\f[] ]\f[] \f[B][ -O \f[I]name...\f[]
 ]\f[] \f[B][ --no-disk-moves ]\f[] \f[B][ --no-instance-moves ]\f[]
 \f[B][ -U \f[I]util-file\f[] ]\f[] \f[B][ --ignore-dynu ]\f[] \f[B][
---evac-mode ]\f[] \f[B][ --restricted-migration ]\f[] \f[B][
---select-instances \f[I]inst...\f[] ]\f[] \f[B][ --exclude-instances
-\f[I]inst...\f[] ]\f[]
+--mond \f[I]yes|no\f[] ]\f[] \f[B][ --evac-mode ]\f[] \f[B][
+--restricted-migration ]\f[] \f[B][ --select-instances \f[I]inst...\f[]
+]\f[] \f[B][ --exclude-instances \f[I]inst...\f[] ]\f[]
 .PP
 Reporting options:
 .PP
@@ -414,7 +414,7 @@ The option is described in the man page \f[B]htools\f[](1).
 .RS
 .RE
 .TP
-.B --mond
+.B --mond=\f[I]yes|no\f[]
 If given the program will query all MonDs to fetch data from the
 supported data collectors over the network.
 .RS

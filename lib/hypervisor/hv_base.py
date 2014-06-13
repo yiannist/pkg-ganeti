@@ -144,6 +144,19 @@ def ParamInSet(required, my_set):
   return (required, fn, err, None, None)
 
 
+class HvInstanceState(object):
+  RUNNING = 0
+  SHUTDOWN = 1
+
+  @staticmethod
+  def IsRunning(s):
+    return s == HvInstanceState.RUNNING
+
+  @staticmethod
+  def IsShutdown(s):
+    return s == HvInstanceState.SHUTDOWN
+
+
 class BaseHypervisor(object):
   """Abstract virtualisation technology interface
 
@@ -191,6 +204,8 @@ class BaseHypervisor(object):
     @param timeout: if the parameter is not None, a soft shutdown operation will
         be killed after the specified number of seconds. A hard (forced)
         shutdown cannot have a timeout
+    @raise errors.HypervisorError: when a parameter is not valid or
+        the instance failed to be stopped
 
     """
     raise NotImplementedError
@@ -223,6 +238,7 @@ class BaseHypervisor(object):
     @type hvparams: dict of strings
     @param hvparams: hvparams to be used with this instance
 
+    @rtype: (string, string, int, int, HvInstanceState, int)
     @return: tuple (name, id, memory, vcpus, state, times)
 
     """
@@ -233,7 +249,9 @@ class BaseHypervisor(object):
 
     @type hvparams: dict of strings
     @param hvparams: hypervisor parameter
-    @return: list of tuples (name, id, memory, vcpus, stat, times)
+
+    @rtype: (string, string, int, int, HvInstanceState, int)
+    @return: list of tuples (name, id, memory, vcpus, state, times)
 
     """
     raise NotImplementedError
@@ -257,7 +275,8 @@ class BaseHypervisor(object):
     raise NotImplementedError
 
   @classmethod
-  def GetInstanceConsole(cls, instance, primary_node, hvparams, beparams):
+  def GetInstanceConsole(cls, instance, primary_node, node_group,
+                         hvparams, beparams):
     """Return information for connecting to the console of an instance.
 
     """

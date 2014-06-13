@@ -715,6 +715,7 @@ class KVMHypervisor(hv_base.BaseHypervisor):
       hv_base.ParamInSet(False, constants.HT_KVM_FLAG_VALUES),
     constants.HV_VHOST_NET: hv_base.NO_CHECK,
     constants.HV_KVM_USE_CHROOT: hv_base.NO_CHECK,
+    constants.HV_KVM_USER_SHUTDOWN: hv_base.NO_CHECK,
     constants.HV_MEM_PATH: hv_base.OPT_DIR_CHECK,
     constants.HV_REBOOT_BEHAVIOR:
       hv_base.ParamInSet(True, constants.REBOOT_BEHAVIORS),
@@ -872,7 +873,8 @@ class KVMHypervisor(hv_base.BaseHypervisor):
 
     return (instance, memory, vcpus)
 
-  def _InstancePidAlive(self, instance_name):
+  @classmethod
+  def _InstancePidAlive(cls, instance_name):
     """Returns the instance pidfile, pid, and liveness.
 
     @type instance_name: string
@@ -881,23 +883,24 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     @return: (pid file name, pid, liveness)
 
     """
-    pidfile = self._InstancePidFile(instance_name)
+    pidfile = cls._InstancePidFile(instance_name)
     pid = utils.ReadPidFile(pidfile)
 
     alive = False
     try:
-      cmd_instance = self._InstancePidInfo(pid)[0]
+      cmd_instance = cls._InstancePidInfo(pid)[0]
       alive = (cmd_instance == instance_name)
     except errors.HypervisorError:
       pass
 
     return (pidfile, pid, alive)
 
-  def _CheckDown(self, instance_name):
+  @classmethod
+  def _CheckDown(cls, instance_name):
     """Raises an error unless the given instance is down.
 
     """
-    alive = self._InstancePidAlive(instance_name)[2]
+    alive = cls._InstancePidAlive(instance_name)[2]
     if alive:
       raise errors.HypervisorError("Failed to start instance %s: %s" %
                                    (instance_name, "already running"))
@@ -922,6 +925,20 @@ class KVMHypervisor(hv_base.BaseHypervisor):
 
     """
     return utils.PathJoin(cls._CTRL_DIR, "%s.qmp" % instance_name)
+
+  @classmethod
+  def _InstanceKvmdMonitor(cls, instance_name):
+    """Returns the instance kvm daemon socket name
+
+    """
+    return utils.PathJoin(cls._CTRL_DIR, "%s.kvmd" % instance_name)
+
+  @classmethod
+  def _InstanceShutdownMonitor(cls, instance_name):
+    """Returns the instance QMP output filename
+
+    """
+    return utils.PathJoin(cls._CTRL_DIR, "%s.shutdown" % instance_name)
 
   @staticmethod
   def _SocatUnixConsoleParams():
@@ -1186,24 +1203,35 @@ class KVMHypervisor(hv_base.BaseHypervisor):
         result.append(name)
     return result
 
+  @classmethod
+  def _IsUserShutdown(cls, instance_name):
+    return os.path.exists(cls._InstanceShutdownMonitor(instance_name))
+
+  @classmethod
+  def _ClearUserShutdown(cls, instance_name):
+    utils.RemoveFile(cls._InstanceShutdownMonitor(instance_name))
+
   def GetInstanceInfo(self, instance_name, hvparams=None):
     """Get instance properties.
 
     @type instance_name: string
     @param instance_name: the instance name
     @type hvparams: dict of strings
-    @param hvparams: hvparams to be used with this instance
+    @param hvparams: hypervisor parameters to be used with this instance
     @rtype: tuple of strings
     @return: (name, id, memory, vcpus, stat, times)
 
     """
     _, pid, alive = self._InstancePidAlive(instance_name)
     if not alive:
-      return None
+      if self._IsUserShutdown(instance_name):
+        return (instance_name, -1, 0, 0, hv_base.HvInstanceState.SHUTDOWN, 0)
+      else:
+        return None
 
     _, memory, vcpus = self._InstancePidInfo(pid)
-    istat = "---b-"
-    times = "0"
+    istat = hv_base.HvInstanceState.RUNNING
+    times = 0
 
     try:
       qmp = QmpConnection(self._InstanceQmpMonitor(instance_name))
@@ -1222,7 +1250,7 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     """Get properties of all instances.
 
     @type hvparams: dict of strings
-    @param hvparams: hypervisor parameter
+    @param hvparams: hypervisor parameters
     @return: list of tuples (name, id, memory, vcpus, stat, times)
 
     """
@@ -1799,6 +1827,9 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     name = instance.name
     self._CheckDown(name)
 
+    self._ClearUserShutdown(instance.name)
+    self._StartKvmd(instance.hvparams)
+
     temp_files = []
 
     kvm_cmd, kvm_nics, up_hvp, kvm_disks = kvm_runtime
@@ -1906,6 +1937,9 @@ class KVMHypervisor(hv_base.BaseHypervisor):
       logging.debug("Enabling QMP")
       kvm_cmd.extend(["-qmp", "unix:%s,server,nowait" %
                       self._InstanceQmpMonitor(instance.name)])
+      # Add a second monitor for kvmd
+      kvm_cmd.extend(["-qmp", "unix:%s,server,nowait" %
+                      self._InstanceKvmdMonitor(instance.name)])
 
     # Configure the network now for starting instances and bridged interfaces,
     # during FinalizeMigration for incoming instances' routed interfaces
@@ -2002,6 +2036,24 @@ class KVMHypervisor(hv_base.BaseHypervisor):
       # explicitly requested resume the vm status.
       self._CallMonitorCommand(instance.name, self._CONT_CMD)
 
+  @staticmethod
+  def _StartKvmd(hvparams):
+    """Ensure that the Kvm daemon is running.
+
+    @type hvparams: dict of strings
+    @param hvparams: hypervisor parameters
+
+    """
+    if hvparams is None \
+          or not hvparams[constants.HV_KVM_USER_SHUTDOWN] \
+          or utils.IsDaemonAlive(constants.KVMD):
+      return
+
+    result = utils.RunCmd(constants.KVMD)
+
+    if result.failed:
+      raise errors.HypervisorError("Failed to start KVM daemon")
+
   def StartInstance(self, instance, block_devices, startup_paused):
     """Start an instance.
 
@@ -2014,7 +2066,8 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     self._SaveKVMRuntime(instance, kvm_runtime)
     self._ExecuteKVMRuntime(instance, kvm_runtime, kvmhelp)
 
-  def _CallMonitorCommand(self, instance_name, command, timeout=None):
+  @classmethod
+  def _CallMonitorCommand(cls, instance_name, command, timeout=None):
     """Invoke a command on the instance monitor.
 
     """
@@ -2034,8 +2087,7 @@ class KVMHypervisor(hv_base.BaseHypervisor):
              (utils.ShellQuote(command),
               timeout_cmd,
               constants.SOCAT_PATH,
-              utils.ShellQuote(self._InstanceMonitor(instance_name))))
-
+              utils.ShellQuote(cls._InstanceMonitor(instance_name))))
     result = utils.RunCmd(socat)
     if result.failed:
       msg = ("Failed to send command '%s' to instance '%s', reason '%s',"
@@ -2296,8 +2348,8 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     else:
       return "pc"
 
-  def StopInstance(self, instance, force=False, retry=False, name=None,
-                   timeout=None):
+  @classmethod
+  def _StopInstance(cls, instance, force=False, name=None, timeout=None):
     """Stop an instance.
 
     """
@@ -2310,12 +2362,20 @@ class KVMHypervisor(hv_base.BaseHypervisor):
       acpi = instance.hvparams[constants.HV_ACPI]
     else:
       acpi = False
-    _, pid, alive = self._InstancePidAlive(name)
+    _, pid, alive = cls._InstancePidAlive(name)
     if pid > 0 and alive:
       if force or not acpi:
         utils.KillProcess(pid)
       else:
-        self._CallMonitorCommand(name, "system_powerdown", timeout)
+        cls._CallMonitorCommand(name, "system_powerdown", timeout)
+    cls._ClearUserShutdown(instance.name)
+
+  def StopInstance(self, instance, force=False, retry=False, name=None,
+                   timeout=None):
+    """Stop an instance.
+
+    """
+    self._StopInstance(instance, force, name=name, timeout=timeout)
 
   def CleanupInstance(self, instance_name):
     """Cleanup after a stopped instance
@@ -2325,6 +2385,7 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     if pid > 0 and alive:
       raise errors.HypervisorError("Cannot cleanup a live instance")
     self._RemoveInstanceRuntimeFiles(pidfile, instance_name)
+    self._ClearUserShutdown(instance_name)
 
   def RebootInstance(self, instance):
     """Reboot an instance.
@@ -2463,6 +2524,7 @@ class KVMHypervisor(hv_base.BaseHypervisor):
       self._RemoveInstanceRuntimeFiles(pidfile, instance.name)
     elif live:
       self._CallMonitorCommand(instance.name, self._CONT_CMD)
+    self._ClearUserShutdown(instance.name)
 
   def GetMigrationStatus(self, instance):
     """Get the migration status
@@ -2534,7 +2596,8 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     return result
 
   @classmethod
-  def GetInstanceConsole(cls, instance, primary_node, hvparams, beparams):
+  def GetInstanceConsole(cls, instance, primary_node, node_group,
+                         hvparams, beparams):
     """Return a command for connecting to the console of an instance.
 
     """
@@ -2544,9 +2607,11 @@ class KVMHypervisor(hv_base.BaseHypervisor):
              utils.ShellQuote(cls._InstanceMonitor(instance.name)),
              "STDIO,%s" % cls._SocatUnixConsoleParams(),
              "UNIX-CONNECT:%s" % cls._InstanceSerial(instance.name)]
+      ndparams = node_group.FillND(primary_node)
       return objects.InstanceConsole(instance=instance.name,
                                      kind=constants.CONS_SSH,
                                      host=primary_node.name,
+                                     port=ndparams.get(constants.ND_SSH_PORT),
                                      user=constants.SSH_CONSOLE_USER,
                                      command=cmd)
 
@@ -2598,8 +2663,8 @@ class KVMHypervisor(hv_base.BaseHypervisor):
   def CheckParameterSyntax(cls, hvparams):
     """Check the given parameters for validity.
 
-    @type hvparams:  dict
-    @param hvparams: dictionary with parameter names/value
+    @type hvparams: dict of strings
+    @param hvparams: hypervisor parameters
     @raise errors.HypervisorError: when a parameter is not valid
 
     """
@@ -2671,8 +2736,8 @@ class KVMHypervisor(hv_base.BaseHypervisor):
   def ValidateParameters(cls, hvparams):
     """Check the given parameters for validity.
 
-    @type hvparams:  dict
-    @param hvparams: dictionary with parameter names/value
+    @type hvparams: dict of strings
+    @param hvparams: hypervisor parameters
     @raise errors.HypervisorError: when a parameter is not valid
 
     """
@@ -2733,7 +2798,7 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     """KVM powercycle, just a wrapper over Linux powercycle.
 
     @type hvparams: dict of strings
-    @param hvparams: hypervisor params to be used on this node
+    @param hvparams: hypervisor parameters to be used on this node
 
     """
     cls.LinuxPowercycle()

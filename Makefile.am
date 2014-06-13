@@ -86,6 +86,7 @@ httpdir = $(pkgpythondir)/http
 masterddir = $(pkgpythondir)/masterd
 confddir = $(pkgpythondir)/confd
 rapidir = $(pkgpythondir)/rapi
+rpcdir = $(pkgpythondir)/rpc
 serverdir = $(pkgpythondir)/server
 watcherdir = $(pkgpythondir)/watcher
 impexpddir = $(pkgpythondir)/impexpd
@@ -128,6 +129,7 @@ HS_DIRS = \
 	src/Ganeti/Storage/Diskstats \
 	src/Ganeti/Storage/Drbd \
 	src/Ganeti/Storage/Lvm \
+	src/Ganeti/THH \
 	test/hs \
 	test/hs/Test \
 	test/hs/Test/Ganeti \
@@ -171,6 +173,7 @@ DIRS = \
 	lib/impexpd \
 	lib/masterd \
 	lib/rapi \
+	lib/rpc \
 	lib/server \
 	lib/storage \
 	lib/tools \
@@ -237,6 +240,10 @@ CLEANFILES = \
 	$(addsuffix /*.py[co],$(DIRS)) \
 	$(addsuffix /*.hi,$(HS_DIRS)) \
 	$(addsuffix /*.o,$(HS_DIRS)) \
+	$(addsuffix /*.$(HTEST_SUFFIX)_hi,$(HS_DIRS)) \
+	$(addsuffix /*.$(HTEST_SUFFIX)_o,$(HS_DIRS)) \
+	Makefile.ghc \
+	Makefile.ghc.bak \
 	$(PYTHON_BOOTSTRAP) \
 	$(gnt_python_sbin_SCRIPTS) \
 	epydoc.conf \
@@ -278,16 +285,12 @@ GENERATED_FILES = \
 	$(PYTHON_BOOTSTRAP) \
 	$(gnt_python_sbin_SCRIPTS)
 
-HS_GENERATED_FILES =
-if WANT_HTOOLS
-HS_GENERATED_FILES += $(HS_PROGS)
+HS_GENERATED_FILES = $(HS_PROGS) src/hluxid src/ganeti-luxid
 if ENABLE_CONFD
-HS_GENERATED_FILES += src/hconfd src/ganeti-confd src/hluxid src/ganeti-luxid
+HS_GENERATED_FILES += src/hconfd src/ganeti-confd
 endif
-
 if ENABLE_MOND
 HS_GENERATED_FILES += src/ganeti-mond
-endif
 endif
 
 built_base_sources = \
@@ -358,7 +361,6 @@ pkgpython_PYTHON = \
 	lib/pathutils.py \
 	lib/qlang.py \
 	lib/query.py \
-	lib/rpc.py \
 	lib/rpc_defs.py \
 	lib/runtime.py \
 	lib/serializer.py \
@@ -420,7 +422,8 @@ storage_PYTHON = \
 	lib/storage/drbd.py \
 	lib/storage/drbd_info.py \
 	lib/storage/drbd_cmdgen.py \
-	lib/storage/filestorage.py
+	lib/storage/filestorage.py \
+	lib/storage/gluster.py
 
 rapi_PYTHON = \
 	lib/rapi/__init__.py \
@@ -460,6 +463,13 @@ server_PYTHON = \
 	lib/server/noded.py \
 	lib/server/rapi.py
 
+rpc_PYTHON = \
+	lib/rpc/__init__.py \
+	lib/rpc/client.py \
+	lib/rpc/errors.py \
+	lib/rpc/node.py \
+	lib/rpc/transport.py
+
 pytools_PYTHON = \
 	lib/tools/__init__.py \
 	lib/tools/burnin.py \
@@ -480,6 +490,7 @@ utils_PYTHON = \
 	lib/utils/nodesetup.py \
 	lib/utils/process.py \
 	lib/utils/retry.py \
+	lib/utils/security.py \
 	lib/utils/storage.py \
 	lib/utils/text.py \
 	lib/utils/version.py \
@@ -503,6 +514,7 @@ docinput = \
 	doc/design-2.8.rst \
 	doc/design-2.9.rst \
 	doc/design-2.10.rst \
+	doc/design-2.11.rst \
 	doc/design-autorepair.rst \
 	doc/design-bulk-create.rst \
 	doc/design-ceph-ganeti-support.rst \
@@ -522,25 +534,31 @@ docinput = \
 	doc/design-hugepages-support.rst \
 	doc/design-impexp2.rst \
 	doc/design-internal-shutdown.rst \
+	doc/design-kvmd.rst \
 	doc/design-linuxha.rst \
 	doc/design-lu-generated-jobs.rst \
 	doc/design-monitoring-agent.rst \
 	doc/design-multi-reloc.rst \
+	doc/design-multi-version-tests.rst \
 	doc/design-network.rst \
 	doc/design-node-add.rst \
+	doc/design-node-security.rst \
 	doc/design-oob.rst \
 	doc/design-openvswitch.rst \
 	doc/design-opportunistic-locking.rst \
 	doc/design-optables.rst \
+	doc/design-os.rst \
 	doc/design-ovf-support.rst \
 	doc/design-partitioned.rst \
 	doc/design-performance-tests.rst \
 	doc/design-query-splitting.rst \
 	doc/design-query2.rst \
+	doc/design-query-splitting.rst \
 	doc/design-reason-trail.rst \
 	doc/design-resource-model.rst \
 	doc/design-restricted-commands.rst \
 	doc/design-shared-storage.rst \
+	doc/design-ssh-ports.rst \
 	doc/design-storagetypes.rst \
 	doc/design-upgrade.rst \
 	doc/design-virtual-clusters.rst \
@@ -579,17 +597,22 @@ HS_MYEXECLIB_PROGS=
 endif
 
 # Haskell programs to be compiled by "make really-all"
-HS_COMPILE_PROGS= \
-	src/ganeti-mond \
-	src/hconfd \
+HS_COMPILE_PROGS = \
+	src/ganeti-kvmd \
 	src/hluxid \
 	src/hs2py \
 	src/rpc-test
+if ENABLE_CONFD
+HS_COMPILE_PROGS += src/hconfd
+endif
+if ENABLE_MOND
+HS_COMPILE_PROGS += src/ganeti-mond
+endif
 
 # All Haskell non-test programs to be compiled but not automatically installed
 HS_PROGS = $(HS_BIN_PROGS) $(HS_MYEXECLIB_PROGS)
 
-HS_BIN_ROLES = harep hbal hscan hspace hinfo hcheck hroller
+HS_BIN_ROLES = harep hbal hscan hspace hinfo hcheck hroller hsqueeze
 HS_HTOOLS_PROGS = $(HS_BIN_ROLES) hail
 
 # Haskell programs that cannot be disabled at configure (e.g., unlike
@@ -603,6 +626,9 @@ HS_DEFAULT_PROGS = \
 
 HS_ALL_PROGS = $(HS_DEFAULT_PROGS) $(HS_MYEXECLIB_PROGS)
 
+HS_TEST_PROGS = $(filter test/%,$(HS_ALL_PROGS))
+HS_SRC_PROGS = $(filter-out test/%,$(HS_ALL_PROGS))
+
 HS_PROG_SRCS = $(patsubst %,%.hs,$(HS_DEFAULT_PROGS)) src/mon-collector.hs
 HS_BUILT_TEST_HELPERS = $(HS_BIN_ROLES:%=test/hs/%) test/hs/hail
 
@@ -611,6 +637,22 @@ HFLAGS = \
 	-fwarn-monomorphism-restriction \
 	-fwarn-tabs \
 	$(GHC_BYVERSION_FLAGS)
+
+if HPROFILE
+HFLAGS += -prof -auto-all
+endif
+if HCOVERAGE
+HFLAGS += -fhpc
+endif
+if HTEST
+HFLAGS += -DTEST
+endif
+
+HTEST_SUFFIX = hpc
+
+HTEST_FLAGS = $(HFLAGS) -fhpc -itest/hs \
+	-osuf .$(HTEST_SUFFIX)_o \
+	-hisuf .$(HTEST_SUFFIX)_hi
 
 # extra flags that can be overriden on the command line (e.g. -Wwarn, etc.)
 HEXTRA =
@@ -681,6 +723,7 @@ HS_LIB_SRCS = \
 	src/Ganeti/HTools/Program/Hinfo.hs \
 	src/Ganeti/HTools/Program/Hscan.hs \
 	src/Ganeti/HTools/Program/Hspace.hs \
+	src/Ganeti/HTools/Program/Hsqueeze.hs \
 	src/Ganeti/HTools/Program/Hroller.hs \
 	src/Ganeti/HTools/Program/Main.hs \
 	src/Ganeti/HTools/Types.hs \
@@ -692,8 +735,10 @@ HS_LIB_SRCS = \
 	src/Ganeti/Hs2Py/GenOpCodes.hs \
 	src/Ganeti/Hs2Py/OpDoc.hs \
 	src/Ganeti/JQueue.hs \
+	src/Ganeti/JQScheduler.hs \
 	src/Ganeti/JSON.hs \
 	src/Ganeti/Jobs.hs \
+	src/Ganeti/Kvmd.hs \
 	src/Ganeti/Logging.hs \
 	src/Ganeti/Luxi.hs \
 	src/Ganeti/Monitoring/Server.hs \
@@ -703,14 +748,16 @@ HS_LIB_SRCS = \
 	src/Ganeti/OpParams.hs \
 	src/Ganeti/Path.hs \
 	src/Ganeti/Parsers.hs \
-	src/Ganeti/PyValueInstances.hs \
+	src/Ganeti/PyValue.hs \
 	src/Ganeti/Query/Cluster.hs \
 	src/Ganeti/Query/Common.hs \
 	src/Ganeti/Query/Export.hs \
 	src/Ganeti/Query/Filter.hs \
 	src/Ganeti/Query/Group.hs \
+	src/Ganeti/Query/Instance.hs \
 	src/Ganeti/Query/Job.hs \
 	src/Ganeti/Query/Language.hs \
+	src/Ganeti/Query/Locks.hs \
 	src/Ganeti/Query/Network.hs \
 	src/Ganeti/Query/Node.hs \
 	src/Ganeti/Query/Query.hs \
@@ -727,8 +774,11 @@ HS_LIB_SRCS = \
 	src/Ganeti/Storage/Lvm/Types.hs \
 	src/Ganeti/Storage/Utils.hs \
 	src/Ganeti/THH.hs \
+	src/Ganeti/THH/PyType.hs \
 	src/Ganeti/Types.hs \
-	src/Ganeti/Utils.hs
+	src/Ganeti/UDSServer.hs \
+	src/Ganeti/Utils.hs\
+	src/Ganeti/VCluster.hs
 
 HS_TEST_SRCS = \
 	test/hs/Test/AutoConf.hs \
@@ -756,11 +806,14 @@ HS_TEST_SRCS = \
 	test/hs/Test/Ganeti/JSON.hs \
 	test/hs/Test/Ganeti/Jobs.hs \
 	test/hs/Test/Ganeti/JQueue.hs \
+	test/hs/Test/Ganeti/Kvmd.hs \
 	test/hs/Test/Ganeti/Luxi.hs \
 	test/hs/Test/Ganeti/Network.hs \
 	test/hs/Test/Ganeti/Objects.hs \
 	test/hs/Test/Ganeti/OpCodes.hs \
+	test/hs/Test/Ganeti/Query/Aliases.hs \
 	test/hs/Test/Ganeti/Query/Filter.hs \
+	test/hs/Test/Ganeti/Query/Instance.hs \
 	test/hs/Test/Ganeti/Query/Language.hs \
 	test/hs/Test/Ganeti/Query/Network.hs \
 	test/hs/Test/Ganeti/Query/Query.hs \
@@ -959,11 +1012,10 @@ qa_scripts = \
 	qa/qa_os.py \
 	qa/qa_rapi.py \
 	qa/qa_tags.py \
-	qa/qa_utils.py
+	qa/qa_utils.py \
+        qa/rapi-workload.py
 
-bin_SCRIPTS =
-if WANT_HTOOLS
-bin_SCRIPTS += $(HS_BIN_PROGS)
+bin_SCRIPTS = $(HS_BIN_PROGS)
 install-exec-hook:
 	@mkdir_p@ $(DESTDIR)$(iallocatorsdir)
 # FIXME: this is a hardcoded logic, instead of auto-resolving
@@ -972,55 +1024,50 @@ install-exec-hook:
 	for role in $(HS_BIN_ROLES); do \
 	  $(LN_S) -f htools $(DESTDIR)$(bindir)/$$role ; \
 	done
-endif
 
-$(HS_ALL_PROGS): %: %.hs $(HS_LIBTESTBUILT_SRCS) Makefile
-	@if [ "$(notdir $@)" = "test" ] && [ "$(HS_NODEV)" ]; then \
+HS_SRCS = $(HS_LIBTESTBUILT_SRCS)
+
+HS_MAKEFILE_GHC_SRCS = $(HS_SRC_PROGS:%=%.hs)
+if WANT_HSTESTS
+HS_MAKEFILE_GHC_SRCS += $(HS_TEST_PROGS:%=%.hs)
+endif
+Makefile.ghc: $(HS_MAKEFILE_GHC_SRCS) Makefile \
+              | $(built_base_sources) $(HS_BUILT_SRCS)
+	$(GHC) -M -dep-makefile $@ -dep-suffix $(HTEST_SUFFIX) $(HFLAGS) -itest/hs \
+		$(HS_PARALLEL3) $(HS_REGEX_PCRE) $(HEXTRA_COMBINED) $(HS_MAKEFILE_GHC_SRCS)
+
+@include_makefile_ghc@
+
+%.o:
+	@echo '[GHC]: $@ <- $^'
+	@$(GHC) -c $(HFLAGS) \
+		$(HS_PARALLEL3) $(HS_REGEX_PCRE) $(HEXTRA_COMBINED) $(@:%.o=%.hs)
+
+%.$(HTEST_SUFFIX)_o:
+	@echo '[GHC]: $@ <- $^'
+	@$(GHC) -c $(HTEST_FLAGS) \
+		$(HS_PARALLEL3) $(HS_REGEX_PCRE) $(HEXTRA_COMBINED) $(@:%.$(HTEST_SUFFIX)_o=%.hs)
+
+%.hi: %.o ;
+%.$(HTEST_SUFFIX)_hi: %.$(HTEST_SUFFIX)_o ;
+
+$(HS_SRC_PROGS): %: %.o | stamp-directories
+	$(GHC) $(HFLAGS) \
+		$(HS_PARALLEL3) $(HS_REGEX_PCRE) $(HEXTRA_COMBINED) --make $(@:%=%.hs)
+	@rm -f $(notdir $@).tix
+	@touch "$@"
+
+$(HS_TEST_PROGS): %: %.$(HTEST_SUFFIX)_o \
+	                   | stamp-directories $(BUILT_PYTHON_SOURCES)
+	@if [ "$(HS_NODEV)" ]; then \
 	  echo "Error: cannot run unittests without the development" \
 	       " libraries (see devnotes.rst)" 1>&2; \
 	  exit 1; \
 	fi
+	$(GHC) $(HTEST_FLAGS) \
+		$(HS_PARALLEL3) $(HS_REGEX_PCRE) $(HEXTRA_COMBINED) --make $(@:%=%.hs)
 	@rm -f $(notdir $@).tix
-	$(GHC) --make \
-	  $(HFLAGS) \
-	  $(HS_PARALLEL3) $(HS_REGEX_PCRE) \
-	  -osuf $(notdir $@).o -hisuf $(notdir $@).hi \
-	  $(HEXTRA_COMBINED) $(HEXTRA_INT) $@
 	@touch "$@"
-
-# for the test/hs/htest binary, we need to enable profiling/coverage
-test/hs/htest: HEXTRA_INT=-fhpc -itest/hs
-
-# we compile the hpc-htools binary with the program coverage
-test/hs/hpc-htools: HEXTRA_INT=-fhpc
-
-# we compile the hpc-mon-collector binary with the program coverage
-test/hs/hpc-mon-collector: HEXTRA_INT=-fhpc
-
-# test dependency
-test/hs/offline-test.sh: test/hs/hpc-htools test/hs/hpc-mon-collector
-
-# rules for building profiling-enabled versions of the haskell
-# programs: hs-prof does the full two-step build, whereas
-# hs-prof-quick does only the final rebuild (hs-prof must have been
-# run before)
-.PHONY: hs-prof hs-prof-quick
-hs-prof:
-	@if [ -z "$(TARGET)" ]; then \
-	  echo "You need to define TARGET when running this rule" 1>&2; \
-	  exit 1; \
-	fi
-	$(MAKE) $(AM_MAKEFLAGS) clean
-	$(MAKE) $(AM_MAKEFLAGS) $(TARGET) HEXTRA="-osuf o"
-	rm -f $(HS_ALL_PROGS)
-	$(MAKE) $(AM_MAKEFLAGS) hs-prof-quick
-
-hs-prof-quick:
-	@if [ -z "$(TARGET)" ]; then \
-	  echo "You need to define TARGET when running this rule" 1>&2; \
-	  exit 1; \
-	fi
-	$(MAKE) $(AM_MAKEFLAGS) $(TARGET) HEXTRA="-osuf prof_o -prof -auto-all"
 
 dist_sbin_SCRIPTS = \
 	tools/ganeti-listrunner
@@ -1042,6 +1089,7 @@ src/ganeti-luxid: src/hluxid
 
 nodist_sbin_SCRIPTS += src/ganeti-confd
 nodist_sbin_SCRIPTS += src/ganeti-luxid
+nodist_sbin_SCRIPTS += src/ganeti-kvmd
 endif
 
 if ENABLE_MOND
@@ -1171,6 +1219,7 @@ man_MANS = \
 	man/ganeti-confd.8 \
 	man/ganeti-luxid.8 \
 	man/ganeti-listrunner.8 \
+	man/ganeti-kvmd.8 \
 	man/ganeti-masterd.8 \
 	man/ganeti-mond.8 \
 	man/ganeti-noded.8 \
@@ -1196,6 +1245,7 @@ man_MANS = \
 	man/hinfo.1 \
 	man/hscan.1 \
 	man/hspace.1 \
+	man/hsqueeze.1 \
 	man/hroller.1 \
 	man/htools.1 \
 	man/mon-collector.7
@@ -1255,6 +1305,9 @@ TEST_FILES = \
 	test/data/htools/hroller-nodegroups.data \
 	test/data/htools/hroller-nonredundant.data \
 	test/data/htools/hroller-online.data \
+	test/data/htools/hsqueeze-mixed-instances.data \
+	test/data/htools/hsqueeze-overutilized.data \
+	test/data/htools/hsqueeze-underutilized.data \
 	test/data/htools/unique-reboot-order.data \
 	test/hs/shelltests/htools-balancing.test \
 	test/hs/shelltests/htools-basic.test \
@@ -1264,6 +1317,7 @@ TEST_FILES = \
 	test/hs/shelltests/htools-hbal-evac.test \
 	test/hs/shelltests/htools-hroller.test \
 	test/hs/shelltests/htools-hspace.test \
+	test/hs/shelltests/htools-hsqueeze.test \
 	test/hs/shelltests/htools-invalid.test \
 	test/hs/shelltests/htools-multi-group.test \
 	test/hs/shelltests/htools-no-backend.test \
@@ -1295,6 +1349,7 @@ TEST_FILES = \
 	test/data/cluster_config_2.7.json \
 	test/data/cluster_config_2.8.json \
 	test/data/cluster_config_2.9.json \
+	test/data/cluster_config_2.10.json \
 	test/data/instance-minor-pairing.txt \
 	test/data/instance-prim-sec.txt \
 	test/data/ip-addr-show-dummy0.txt \
@@ -1426,6 +1481,7 @@ python_tests = \
 	test/py/ganeti.rapi.rlib2_unittest.py \
 	test/py/ganeti.rapi.testutils_unittest.py \
 	test/py/ganeti.rpc_unittest.py \
+	test/py/ganeti.rpc.client_unittest.py \
 	test/py/ganeti.runtime_unittest.py \
 	test/py/ganeti.serializer_unittest.py \
 	test/py/ganeti.server.rapi_unittest.py \
@@ -1435,6 +1491,7 @@ python_tests = \
 	test/py/ganeti.storage.container_unittest.py \
 	test/py/ganeti.storage.drbd_unittest.py \
 	test/py/ganeti.storage.filestorage_unittest.py \
+	test/py/ganeti.storage.gluster_unittest.py \
 	test/py/ganeti.tools.burnin_unittest.py \
 	test/py/ganeti.tools.ensure_dirs_unittest.py \
 	test/py/ganeti.tools.node_daemon_setup_unittest.py \
@@ -1451,6 +1508,7 @@ python_tests = \
 	test/py/ganeti.utils.nodesetup_unittest.py \
 	test/py/ganeti.utils.process_unittest.py \
 	test/py/ganeti.utils.retry_unittest.py \
+	test/py/ganeti.utils.security_unittest.py \
 	test/py/ganeti.utils.storage_unittest.py \
 	test/py/ganeti.utils.text_unittest.py \
 	test/py/ganeti.utils.version_unittest.py \
@@ -1500,6 +1558,8 @@ check_SCRIPTS =
 
 if WANT_HSTESTS
 nodist_TESTS += $(haskell_tests)
+# test dependency
+test/hs/offline-test.sh: test/hs/hpc-htools test/hs/hpc-mon-collector
 dist_TESTS += test/hs/offline-test.sh
 check_SCRIPTS += \
 	test/hs/hpc-htools \
@@ -1533,6 +1593,7 @@ all_python_code = \
 	$(storage_PYTHON) \
 	$(rapi_PYTHON) \
 	$(server_PYTHON) \
+	$(rpc_PYTHON) \
 	$(pytools_PYTHON) \
 	$(http_PYTHON) \
 	$(confd_PYTHON) \
@@ -1744,7 +1805,8 @@ src/Ganeti/Hs2Py/ListConstants.hs: src/Ganeti/Hs2Py/ListConstants.hs.in \
 ##   'adminstDown
 	NAMES=$$(sed -e "/^--/ d" $(abs_top_srcdir)/src/Ganeti/Constants.hs |\
 		 sed -n -e "/=/ s/\(.*\) =.*/    '\1:/g p"); \
-	m4 -DPY_CONSTANT_NAMES="$$NAMES" $(abs_top_srcdir)/$< > $@
+	m4 -DPY_CONSTANT_NAMES="$$NAMES" \
+		$(abs_top_srcdir)/src/Ganeti/Hs2Py/ListConstants.hs.in > $@
 
 src/Ganeti/Curl/Internal.hs: src/Ganeti/Curl/Internal.hsc | stamp-directories
 	hsc2hs -o $@ $<
@@ -1813,6 +1875,8 @@ src/AutoConf.hs: Makefile src/AutoConf.hs.in $(PRINT_PY_CONSTANTS) \
 	    -DRAPI_GROUP="$(RAPI_GROUP)" \
 	    -DCONFD_USER="$(CONFD_USER)" \
 	    -DCONFD_GROUP="$(CONFD_GROUP)" \
+	    -DKVMD_USER="$(KVMD_USER)" \
+	    -DKVMD_GROUP="$(KVMD_GROUP)" \
 	    -DLUXID_USER="$(LUXID_USER)" \
 	    -DLUXID_GROUP="$(LUXID_GROUP)" \
 	    -DNODED_USER="$(NODED_USER)" \
@@ -1821,10 +1885,8 @@ src/AutoConf.hs: Makefile src/AutoConf.hs.in $(PRINT_PY_CONSTANTS) \
 	    -DMOND_GROUP="$(MOND_GROUP)" \
 	    -DDISK_SEPARATOR="$(DISK_SEPARATOR)" \
 	    -DQEMUIMG_PATH="$(QEMUIMG_PATH)" \
-	    -DHTOOLS="True" \
 	    -DENABLE_CONFD="$(ENABLE_CONFD)" \
 	    -DXEN_CMD="$(XEN_CMD)" \
-	    -DENABLE_SPLIT_QUERY="$(ENABLE_SPLIT_QUERY)" \
 	    -DENABLE_RESTRICTED_COMMANDS="$(ENABLE_RESTRICTED_COMMANDS)" \
 	    -DENABLE_MOND="$(ENABLE_MOND)" \
 	    -DHAS_GNU_LN="$(HAS_GNU_LN)" \
@@ -2055,12 +2117,12 @@ check-local: check-dirs check-news $(GENERATED_FILES)
 	test -z "$$error"
 
 .PHONY: hs-test-%
-hs-test-%: test/hs/htest | $(BUILT_PYTHON_SOURCES)
+hs-test-%: test/hs/htest
 	@rm -f htest.tix
 	test/hs/htest -t $*
 
 .PHONY: hs-tests
-hs-tests: test/hs/htest | $(BUILT_PYTHON_SOURCES)
+hs-tests: test/hs/htest
 	@rm -f htest.tix
 	./test/hs/htest
 
@@ -2306,19 +2368,22 @@ $(APIDOC_HS_DIR)/index.html: $(HS_LIBTESTBUILT_SRCS) Makefile
 .PHONY: TAGS
 TAGS: $(GENERATED_FILES)
 	rm -f TAGS
-	$(GHC) -e ":etags" -v0 \
+	$(GHC) -e ":etags TAGS_hs" -v0 \
 	  $(filter-out -O -Werror,$(HFLAGS)) \
+		-osuf tags.o \
+		-hisuf tags.hi \
+    -lcurl \
 	  $(HS_PARALLEL3) $(HS_REGEX_PCRE) \
 	  $(HS_LIBTEST_SRCS)
 	find . -path './lib/*.py' -o -path './scripts/gnt-*' -o \
 	  -path './daemons/ganeti-*' -o -path './tools/*' -o \
 	  -path './qa/*.py' | \
-	  etags -l python -a -
+	  etags --etags-include=TAGS_hs -L -
 
 .PHONY: coverage
 
 COVERAGE_TESTS=
-if WANT_HTOOLS
+if HS_UNIT
 COVERAGE_TESTS += hs-coverage
 endif
 if PY_UNIT
@@ -2326,6 +2391,8 @@ COVERAGE_TESTS += py-coverage
 endif
 
 coverage: $(COVERAGE_TESTS)
+
+test/py/docs_unittest.py: $(gnt_scripts)
 
 .PHONY: py-coverage
 py-coverage: $(GENERATED_FILES) $(python_tests)

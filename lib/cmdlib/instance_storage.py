@@ -34,7 +34,7 @@ from ganeti import locking
 from ganeti.masterd import iallocator
 from ganeti import objects
 from ganeti import utils
-from ganeti import rpc
+import ganeti.rpc.node as rpc
 from ganeti.cmdlib.base import LogicalUnit, NoHooksLU, Tasklet
 from ganeti.cmdlib.common import INSTANCE_DOWN, INSTANCE_NOT_RUNNING, \
   AnnotateDiskParams, CheckIAllocatorOrNode, ExpandNodeUuidAndName, \
@@ -287,6 +287,7 @@ def ComputeDiskSizePerVG(disk_template, disks):
     constants.DT_DRBD8: _compute(disks, constants.DRBD_META_SIZE),
     constants.DT_FILE: {},
     constants.DT_SHARED_FILE: {},
+    constants.DT_GLUSTER: {},
     }
 
   if disk_template not in req_size_dict:
@@ -461,7 +462,12 @@ def GenerateDiskTemplate(
         vg = disk.get(constants.IDISK_VG, vgname)
         return (vg, names[idx])
 
-    elif template_name in (constants.DT_FILE, constants.DT_SHARED_FILE):
+    elif template_name == constants.DT_GLUSTER:
+      logical_id_fn = lambda _1, disk_index, _2: \
+        (file_driver, "ganeti/%s.%d" % (instance_uuid,
+                                        disk_index))
+
+    elif template_name in constants.DTS_FILEBASED: # Gluster handled above
       logical_id_fn = \
         lambda _, disk_index, disk: (file_driver,
                                      "%s/%s" % (file_storage_dir,

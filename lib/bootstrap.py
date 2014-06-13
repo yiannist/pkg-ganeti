@@ -31,7 +31,7 @@ import time
 import tempfile
 
 from ganeti.cmdlib import cluster
-from ganeti import rpc
+import ganeti.rpc.node as rpc
 from ganeti import ssh
 from ganeti import utils
 from ganeti import errors
@@ -47,6 +47,7 @@ from ganeti import netutils
 from ganeti import luxi
 from ganeti import jstore
 from ganeti import pathutils
+from ganeti import runtime
 
 
 # ec_id for InitConfig's temporary reservation manager
@@ -91,6 +92,7 @@ def GenerateHmacKey(file_name):
                   backup=True)
 
 
+# pylint: disable=R0913
 def GenerateClusterCrypto(new_cluster_cert, new_rapi_cert, new_spice_cert,
                           new_confd_hmac_key, new_cds,
                           rapi_cert_pem=None, spice_cert_pem=None,
@@ -134,34 +136,26 @@ def GenerateClusterCrypto(new_cluster_cert, new_rapi_cert, new_spice_cert,
   @param hmackey_file: optional override of the hmac key file path
 
   """
+  # pylint: disable=R0913
   # noded SSL certificate
-  cluster_cert_exists = os.path.exists(nodecert_file)
-  if new_cluster_cert or not cluster_cert_exists:
-    if cluster_cert_exists:
-      utils.CreateBackup(nodecert_file)
-
-    logging.debug("Generating new cluster certificate at %s", nodecert_file)
-    utils.GenerateSelfSignedSslCert(nodecert_file)
+  utils.GenerateNewSslCert(
+    new_cluster_cert, nodecert_file, 1,
+    "Generating new cluster certificate at %s" % nodecert_file)
 
   # confd HMAC key
   if new_confd_hmac_key or not os.path.exists(hmackey_file):
     logging.debug("Writing new confd HMAC key to %s", hmackey_file)
     GenerateHmacKey(hmackey_file)
 
-  # RAPI
-  rapi_cert_exists = os.path.exists(rapicert_file)
-
   if rapi_cert_pem:
     # Assume rapi_pem contains a valid PEM-formatted certificate and key
     logging.debug("Writing RAPI certificate at %s", rapicert_file)
     utils.WriteFile(rapicert_file, data=rapi_cert_pem, backup=True)
 
-  elif new_rapi_cert or not rapi_cert_exists:
-    if rapi_cert_exists:
-      utils.CreateBackup(rapicert_file)
-
-    logging.debug("Generating new RAPI certificate at %s", rapicert_file)
-    utils.GenerateSelfSignedSslCert(rapicert_file)
+  else:
+    utils.GenerateNewSslCert(
+      new_rapi_cert, rapicert_file, 1,
+      "Generating new RAPI certificate at %s" % rapicert_file)
 
   # SPICE
   spice_cert_exists = os.path.exists(spicecert_file)
@@ -180,7 +174,7 @@ def GenerateClusterCrypto(new_cluster_cert, new_rapi_cert, new_spice_cert,
 
     logging.debug("Generating new self-signed SPICE certificate at %s",
                   spicecert_file)
-    (_, cert_pem) = utils.GenerateSelfSignedSslCert(spicecert_file)
+    (_, cert_pem) = utils.GenerateSelfSignedSslCert(spicecert_file, 1)
 
     # Self-signed certificate -> the public certificate is also the CA public
     # certificate
@@ -280,7 +274,8 @@ def _WaitForSshDaemon(hostname, port, family):
 
 
 def RunNodeSetupCmd(cluster_name, node, basecmd, debug, verbose,
-                    use_cluster_key, ask_key, strict_host_check, data):
+                    use_cluster_key, ask_key, strict_host_check,
+                    port, data):
   """Runs a command to configure something on a remote machine.
 
   @type cluster_name: string
@@ -299,6 +294,8 @@ def RunNodeSetupCmd(cluster_name, node, basecmd, debug, verbose,
   @param ask_key: See L{ssh.SshRunner.BuildCmd}
   @type strict_host_check: bool
   @param strict_host_check: See L{ssh.SshRunner.BuildCmd}
+  @type port: int
+  @param port: The SSH port of the remote machine or None for the default
   @param data: JSON-serializable input data for script (passed to stdin)
 
   """
@@ -335,6 +332,9 @@ def RunNodeSetupCmd(cluster_name, node, basecmd, debug, verbose,
                       os.path.join(pathutils.SYSCONFDIR, "ganeti/share")]])
   all_cmds.append(cmd)
 
+  if port is None:
+    port = netutils.GetDaemonPort(constants.SSH)
+
   family = ssconf.SimpleStore().GetPrimaryIPFamily()
   srun = ssh.SshRunner(cluster_name,
                        ipv6=(family == netutils.IP6Address.family))
@@ -343,7 +343,8 @@ def RunNodeSetupCmd(cluster_name, node, basecmd, debug, verbose,
                            utils.ShellCombineCommands(all_cmds)),
                        batch=False, ask_key=ask_key, quiet=False,
                        strict_host_check=strict_host_check,
-                       use_cluster_key=use_cluster_key)
+                       use_cluster_key=use_cluster_key,
+                       port=port)
 
   tempfh = tempfile.TemporaryFile()
   try:
@@ -358,7 +359,7 @@ def RunNodeSetupCmd(cluster_name, node, basecmd, debug, verbose,
     raise errors.OpExecError("Command '%s' failed: %s" %
                              (result.cmd, result.fail_reason))
 
-  _WaitForSshDaemon(node, netutils.GetDaemonPort(constants.SSH), family)
+  _WaitForSshDaemon(node, port, family)
 
 
 def _InitFileStorageDir(file_storage_dir):
@@ -405,13 +406,16 @@ def _PrepareFileBasedStorage(
   @param default_dir: default file storage directory when C{file_storage_dir}
       is 'None'
   @type file_disk_template: string
-  @param file_disk_template: a disk template whose storage type is 'ST_FILE'
+  @param file_disk_template: a disk template whose storage type is 'ST_FILE' or
+      'ST_SHARED_FILE'
   @rtype: string
   @returns: the name of the actual file storage directory
 
   """
-  assert (file_disk_template in
-          utils.storage.GetDiskTemplatesOfStorageType(constants.ST_FILE))
+  assert (file_disk_template in utils.storage.GetDiskTemplatesOfStorageTypes(
+            constants.ST_FILE, constants.ST_SHARED_FILE
+         ))
+
   if file_storage_dir is None:
     file_storage_dir = default_dir
   if not acceptance_fn:
@@ -459,6 +463,20 @@ def _PrepareSharedFileStorage(
   return _PrepareFileBasedStorage(
       enabled_disk_templates, file_storage_dir,
       pathutils.DEFAULT_SHARED_FILE_STORAGE_DIR, constants.DT_SHARED_FILE,
+      init_fn=init_fn, acceptance_fn=acceptance_fn)
+
+
+def _PrepareGlusterStorage(
+    enabled_disk_templates, file_storage_dir, init_fn=_InitFileStorageDir,
+    acceptance_fn=None):
+  """Checks if gluster storage is enabled and inits the dir.
+
+  @see: C{_PrepareFileBasedStorage}
+
+  """
+  return _PrepareFileBasedStorage(
+      enabled_disk_templates, file_storage_dir,
+      pathutils.DEFAULT_GLUSTER_STORAGE_DIR, constants.DT_GLUSTER,
       init_fn=init_fn, acceptance_fn=acceptance_fn)
 
 
@@ -525,21 +543,29 @@ def _InitCheckDrbdHelper(drbd_helper, drbd_enabled):
 
 def InitCluster(cluster_name, mac_prefix, # pylint: disable=R0913, R0914
                 master_netmask, master_netdev, file_storage_dir,
-                shared_file_storage_dir, candidate_pool_size, secondary_ip=None,
+                shared_file_storage_dir, gluster_storage_dir,
+                candidate_pool_size, secondary_ip=None,
                 vg_name=None, beparams=None, nicparams=None, ndparams=None,
                 hvparams=None, diskparams=None, enabled_hypervisors=None,
                 modify_etc_hosts=True, modify_ssh_setup=True,
                 maintain_node_health=False, drbd_helper=None, uid_pool=None,
-                default_iallocator=None, primary_ip_version=None, ipolicy=None,
+                default_iallocator=None, default_iallocator_params=None,
+                primary_ip_version=None, ipolicy=None,
                 prealloc_wipe_disks=False, use_external_mip_script=False,
-                hv_state=None, disk_state=None, enabled_disk_templates=None):
+                hv_state=None, disk_state=None, enabled_disk_templates=None,
+                enabled_user_shutdown=False):
   """Initialise the cluster.
 
   @type candidate_pool_size: int
   @param candidate_pool_size: master candidate pool size
+
   @type enabled_disk_templates: list of string
   @param enabled_disk_templates: list of disk_templates to be used in this
     cluster
+
+  @type enabled_user_shutdown: bool
+  @param enabled_user_shutdown: whether user shutdown is enabled cluster
+                                wide
 
   """
   # TODO: complete the docstring
@@ -741,12 +767,21 @@ def InitCluster(cluster_name, mac_prefix, # pylint: disable=R0913, R0914
       raise errors.OpPrereqError("Invalid default iallocator script '%s'"
                                  " specified" % default_iallocator,
                                  errors.ECODE_INVAL)
-  elif constants.HTOOLS:
-    # htools was enabled at build-time, we default to it
+  else:
+    # default to htools
     if utils.FindFile(constants.IALLOC_HAIL,
                       constants.IALLOCATOR_SEARCH_PATH,
                       os.path.isfile):
       default_iallocator = constants.IALLOC_HAIL
+
+  # check if we have all the users we need
+  try:
+    runtime.GetEnts()
+  except errors.ConfigurationError, err:
+    raise errors.OpPrereqError("Required system user/group missing: %s" %
+                               err, errors.ECODE_ENVIRON)
+
+  candidate_certs = {}
 
   now = time.time()
 
@@ -765,6 +800,7 @@ def InitCluster(cluster_name, mac_prefix, # pylint: disable=R0913, R0914
     cluster_name=clustername.name,
     file_storage_dir=file_storage_dir,
     shared_file_storage_dir=shared_file_storage_dir,
+    gluster_storage_dir=gluster_storage_dir,
     enabled_hypervisors=enabled_hypervisors,
     beparams={constants.PP_DEFAULT: beparams},
     nicparams={constants.PP_DEFAULT: nicparams},
@@ -780,6 +816,7 @@ def InitCluster(cluster_name, mac_prefix, # pylint: disable=R0913, R0914
     maintain_node_health=maintain_node_health,
     drbd_usermode_helper=drbd_helper,
     default_iallocator=default_iallocator,
+    default_iallocator_params=default_iallocator_params,
     primary_ip_family=ipcls.family,
     prealloc_wipe_disks=prealloc_wipe_disks,
     use_external_mip_script=use_external_mip_script,
@@ -787,6 +824,8 @@ def InitCluster(cluster_name, mac_prefix, # pylint: disable=R0913, R0914
     hv_state_static=hv_state,
     disk_state_static=disk_state,
     enabled_disk_templates=enabled_disk_templates,
+    candidate_certs=candidate_certs,
+    enabled_user_shutdown=enabled_user_shutdown,
     )
   master_node_config = objects.Node(name=hostname.name,
                                     primary_ip=hostname.ip,
@@ -899,7 +938,7 @@ def FinalizeClusterDestroy(master_uuid):
                     " the node: %s", msg)
 
 
-def SetupNodeDaemon(opts, cluster_name, node):
+def SetupNodeDaemon(opts, cluster_name, node, ssh_port):
   """Add a node to the cluster.
 
   This function must be called before the actual opcode, and will ssh
@@ -908,6 +947,7 @@ def SetupNodeDaemon(opts, cluster_name, node):
 
   @param cluster_name: the cluster name
   @param node: the name of the new node
+  @param ssh_port: the SSH port of the new node
 
   """
   data = {
@@ -920,7 +960,8 @@ def SetupNodeDaemon(opts, cluster_name, node):
 
   RunNodeSetupCmd(cluster_name, node, pathutils.NODE_DAEMON_SETUP,
                   opts.debug, opts.verbose,
-                  True, opts.ssh_key_check, opts.ssh_key_check, data)
+                  True, opts.ssh_key_check, opts.ssh_key_check,
+                  ssh_port, data)
 
   _WaitForNodeDaemon(node)
 
@@ -1110,7 +1151,7 @@ def GatherMasterVotes(node_names):
   if not node_names:
     # no nodes left (eventually after removing myself)
     return []
-  results = rpc.BootstrapRunner().call_master_info(node_names)
+  results = rpc.BootstrapRunner().call_master_node_name(node_names)
   if not isinstance(results, dict):
     # this should not happen (unless internal error in rpc)
     logging.critical("Can't complete rpc call, aborting master startup")
@@ -1118,27 +1159,18 @@ def GatherMasterVotes(node_names):
   votes = {}
   for node_name in results:
     nres = results[node_name]
-    data = nres.payload
     msg = nres.fail_msg
-    fail = False
+
     if msg:
       logging.warning("Error contacting node %s: %s", node_name, msg)
-      fail = True
-    # for now we accept both length 3, 4 and 5 (data[3] is primary ip version
-    # and data[4] is the master netmask)
-    elif not isinstance(data, (tuple, list)) or len(data) < 3:
-      logging.warning("Invalid data received from node %s: %s",
-                      node_name, data)
-      fail = True
-    if fail:
-      if None not in votes:
-        votes[None] = 0
-      votes[None] += 1
-      continue
-    master_node = data[2]
-    if master_node not in votes:
-      votes[master_node] = 0
-    votes[master_node] += 1
+      node = None
+    else:
+      node = nres.payload
+
+    if node not in votes:
+      votes[node] = 1
+    else:
+      votes[node] += 1
 
   vote_list = [v for v in votes.items()]
   # sort first on number of votes then on name, since we want None

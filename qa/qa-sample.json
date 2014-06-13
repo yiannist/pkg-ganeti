@@ -9,6 +9,15 @@
   "# Name used for renaming cluster": null,
   "rename": "xen-test-rename",
 
+  "# Directory versions of the two installed versions of ganeti, for upgrade testing." : null,
+  "# dir-version is the version installed at the beginning, and the majority of tests" : null,
+  "# run in; the other-dir-version, which mus the adjacent, is the version a detour" : null,
+  "# is made through." : null,
+  "dir-version": "2.11",
+  "other-dir-version": "2.10",
+  "# instances of the following types are to remain over upgrades." : null,
+  "upgrade-instances": ["drbd", "plain"],
+
   "# Virtual cluster": null,
   "#vcluster-master": "xen-vcluster",
   "#vcluster-basedir": "/srv/ganeti/vcluster",
@@ -171,12 +180,14 @@
     "cluster-repair-disk-sizes": true,
     "cluster-exclusive-storage": true,
     "cluster-instance-policy": true,
+    "cluster-upgrade" : true,
 
     "haskell-confd": true,
     "htools": true,
 
     "group-list": true,
     "group-rwops": true,
+    "group-custom-ssh-port": true,
 
     "network": false,
 
@@ -221,6 +232,7 @@
     "instance-shutdown": true,
     "instance-device-names": true,
     "instance-device-hotplug": false,
+    "instance-user-down": true,
 
     "job-list": true,
 
@@ -257,7 +269,9 @@
     "burnin-rename": "xen-test-rename",
     "burnin-reboot": true,
     "reboot-types": ["soft", "hard", "full"],
-    "use-iallocators": false
+    "use-iallocators": false,
+    "# Uncomment if you want to run the whole cluster on a different SSH port": null,
+    "# ssh-port": 222
   },
 
   "# vim: set syntax=javascript :": null
