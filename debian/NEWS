@@ -1,3 +1,25 @@
+ganeti (2.11.2-1) unstable; urgency=medium
+
+  Ganeti versions 2.10 and onwards support a coordinated cluster-wide
+  upgrade between different minor versions (e.g. 2.10.5 -> 2.11.2). This makes
+  the upgrade process different, depending on the previously installed
+  version:
+
+  * If you are upgrading from 2.10.x, you should first upgrade the packages on
+    all cluster nodes and then run
+
+      gnt-cluster upgrade --to=2.11
+
+    on the master node to switch to the new version. The old 2.10 packages can
+    be safely removed after a successful upgrade.
+
+  * If you are upgrading from 2.9.x or earlier, please follow the usual
+    upgrade procedure by stopping the master, upgrading the packages on all
+    nodes (the master daemon will refuse to start), and then running
+    cfgupgrade on the master node to upgrade the configuration.
+
+ -- Apollon Oikonomopoulos <apoikos@debian.org>  Fri, 13 Jun 2014 12:15:19 +0300
+
 ganeti (2.10.2-1) unstable; urgency=medium
 
   Ganeti now ships a molly-guard(8) script that attempts to prevent an

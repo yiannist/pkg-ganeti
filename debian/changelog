@@ -1,3 +1,26 @@
+ganeti (2.11.2-1) unstable; urgency=medium
+
+  [ Apollon Oikonomopoulos ]
+  * New upstream release. New features include:
+     + Detection of user-initiated instance shutdown (KVM & Xen) and
+       configurable watcher behavior towards user-down instances.
+     + Compression support for instance moves/backups/imports.
+     + Ability to use SSH on ports other than 22.
+     + Experimental GlusterFS-backed shared storage support.
+     + New tool for dynamic power management planning, hsqueeze.
+    See /usr/share/doc/ganeti/NEWS.gz for details
+  * debian/watch: track 2.11 releases
+  * Packaging changes for 2.11
+     + New version-specific binary packages (ganeti-*-2.11)
+     + Add build-depends on Haskell base64-bytestring and zlib
+     + Refresh all patches for 2.11
+     + Install ganeti-kvmd in ganeti-haskell-2.11
+
+  [ Debconf translations ]
+  * Czech debconf translation (Michal Šimůnek, closes: #751427)
+
+ -- Apollon Oikonomopoulos <apoikos@debian.org>  Fri, 13 Jun 2014 12:07:09 +0300
+
 ganeti (2.10.5-1) unstable; urgency=medium
 
   [ Apollon Oikonomopoulos ]
