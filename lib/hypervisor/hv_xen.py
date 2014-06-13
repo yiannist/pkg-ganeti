@@ -85,8 +85,8 @@ def _CreateConfigCpus(cpu_mask):
 
 
 def _RunInstanceList(fn, instance_list_errors):
-  """Helper function for L{_GetInstanceList} to retrieve the list of instances
-  from xen.
+  """Helper function for L{_GetAllInstanceList} to retrieve the list
+  of instances from xen.
 
   @type fn: callable
   @param fn: Function to query xen for the list of instances
@@ -132,6 +132,7 @@ def _ParseInstanceList(lines, include_node):
       data[1] = int(data[1])
       data[2] = int(data[2])
       data[3] = int(data[3])
+      data[4] = _XenToHypervisorInstanceState(data[4])
       data[5] = float(data[5])
     except (TypeError, ValueError), err:
       raise errors.HypervisorError("Can't parse instance list,"
@@ -144,8 +145,8 @@ def _ParseInstanceList(lines, include_node):
   return result
 
 
-def _GetInstanceList(fn, include_node, _timeout=5):
-  """Return the list of running instances.
+def _GetAllInstanceList(fn, include_node, _timeout=5):
+  """Return the list of instances including running and shutdown.
 
   See L{_RunInstanceList} and L{_ParseInstanceList} for parameter details.
 
@@ -168,13 +169,55 @@ def _GetInstanceList(fn, include_node, _timeout=5):
   return _ParseInstanceList(lines, include_node)
 
 
+# Determine whether an instance is running
+#
+# An instance is running if it is in the following Xen states:
+# running, blocked, or paused.
+#
+# For some strange reason, Xen once printed 'rb----' which does not
+# make any sense because an instance cannot be both running and
+# blocked.  Fortunately, for Ganeti 'running' or 'blocked' is the same
+# as 'running'.
 def _IsInstanceRunning(instance_info):
   return instance_info == "r-----" \
-      or instance_info == "-b----"
+      or instance_info == "-b----" \
+      or instance_info == "rb----" \
+      or instance_info == "--p---"
 
 
 def _IsInstanceShutdown(instance_info):
   return instance_info == "---s--"
+
+
+def _XenToHypervisorInstanceState(instance_info):
+  if _IsInstanceRunning(instance_info):
+    return hv_base.HvInstanceState.RUNNING
+  elif _IsInstanceShutdown(instance_info):
+    return hv_base.HvInstanceState.SHUTDOWN
+  else:
+    raise errors.HypervisorError("hv_xen._XenToHypervisorInstanceState:"
+                                 " unhandled Xen instance state '%s'" %
+                                   instance_info)
+
+
+def _GetRunningInstanceList(fn, include_node, _timeout=5):
+  """Return the list of running instances.
+
+  See L{_GetAllInstanceList} for parameter details.
+
+  """
+  instances = _GetAllInstanceList(fn, include_node, _timeout)
+  return [i for i in instances if hv_base.HvInstanceState.IsRunning(i[4])]
+
+
+def _GetShutdownInstanceList(fn, include_node, _timeout=5):
+  """Return the list of shutdown instances.
+
+  See L{_GetAllInstanceList} for parameter details.
+
+  """
+  instances = _GetAllInstanceList(fn, include_node, _timeout)
+  return [i for i in instances if hv_base.HvInstanceState.IsShutdown(i[4])]
 
 
 def _ParseNodeInfo(info):
@@ -305,7 +348,7 @@ def _GetConfigFileDiskData(block_devices, blockdev_prefix,
     else:
       mode = "r"
 
-    if cfdev.dev_type in [constants.DT_FILE, constants.DT_SHARED_FILE]:
+    if cfdev.dev_type in constants.DTS_FILEBASED:
       driver = _FILE_DRIVER_MAP[cfdev.logical_id[0]]
     else:
       driver = "phy"
@@ -538,22 +581,29 @@ class XenHypervisor(hv_base.BaseHypervisor):
     return new_filename
 
   def _GetInstanceList(self, include_node, hvparams):
-    """Wrapper around module level L{_GetInstanceList}.
+    """Wrapper around module level L{_GetAllInstanceList}.
 
     @type hvparams: dict of strings
     @param hvparams: hypervisor parameters to be used on this node
 
     """
-    return _GetInstanceList(lambda: self._RunXen(["list"], hvparams),
-                            include_node)
+    return _GetAllInstanceList(lambda: self._RunXen(["list"], hvparams),
+                               include_node)
 
   def ListInstances(self, hvparams=None):
     """Get the list of running instances.
 
+    @type hvparams: dict of strings
+    @param hvparams: the instance's hypervisor params
+
+    @rtype: list of strings
+    @return: names of running instances
+
     """
-    instance_list = self._GetInstanceList(False, hvparams)
-    names = [info[0] for info in instance_list]
-    return names
+    instance_list = _GetRunningInstanceList(
+      lambda: self._RunXen(["list"], hvparams),
+      False)
+    return [info[0] for info in instance_list]
 
   def GetInstanceInfo(self, instance_name, hvparams=None):
     """Get instance properties.
@@ -579,7 +629,9 @@ class XenHypervisor(hv_base.BaseHypervisor):
 
     @type hvparams: dict of strings
     @param hvparams: hypervisor parameters
-    @return: list of tuples (name, id, memory, vcpus, stat, times)
+
+    @rtype: (string, string, int, int, HypervisorInstanceState, int)
+    @return: list of tuples (name, id, memory, vcpus, state, times)
 
     """
     return self._GetInstanceList(False, hvparams)
@@ -676,6 +728,23 @@ class XenHypervisor(hv_base.BaseHypervisor):
 
     return self._RunXen(["destroy", name], hvparams)
 
+  # Destroy a domain only if necessary
+  #
+  # This method checks if the domain has already been destroyed before
+  # issuing the 'destroy' command.  This step is necessary to handle
+  # domains created by other versions of Ganeti.  For example, an
+  # instance created with 2.10 will be destroy by the
+  # '_ShutdownInstance', thus not requiring an additional destroy,
+  # which would cause an error if issued.  See issue 619.
+  def _DestroyInstanceIfAlive(self, name, hvparams):
+    instance_info = self.GetInstanceInfo(name, hvparams=hvparams)
+
+    if instance_info is None:
+      raise errors.HypervisorError("Failed to destroy instance %s, already"
+                                   " destroyed" % name)
+    else:
+      self._DestroyInstance(name, hvparams)
+
   def _StopInstance(self, name, force, hvparams, timeout):
     """Stop an instance.
 
@@ -693,11 +762,17 @@ class XenHypervisor(hv_base.BaseHypervisor):
                     or None for no timeout
 
     """
+    instance_info = self.GetInstanceInfo(name, hvparams=hvparams)
+
+    if instance_info is None:
+      raise errors.HypervisorError("Failed to shutdown instance %s,"
+                                   " not running" % name)
+
     if force:
-      result = self._DestroyInstance(name, hvparams)
+      result = self._DestroyInstanceIfAlive(name, hvparams)
     else:
       self._ShutdownInstance(name, hvparams, timeout)
-      result = self._DestroyInstance(name, hvparams)
+      result = self._DestroyInstanceIfAlive(name, hvparams)
 
     if result is not None and result.failed and \
           self.GetInstanceInfo(name, hvparams=hvparams) is not None:
@@ -782,14 +857,17 @@ class XenHypervisor(hv_base.BaseHypervisor):
     return _GetNodeInfo(result.stdout, instance_list)
 
   @classmethod
-  def GetInstanceConsole(cls, instance, primary_node, hvparams, beparams):
+  def GetInstanceConsole(cls, instance, primary_node, node_group,
+                         hvparams, beparams):
     """Return a command for connecting to the console of an instance.
 
     """
     xen_cmd = XenHypervisor._GetCommandFromHvparams(hvparams)
+    ndparams = node_group.FillND(primary_node)
     return objects.InstanceConsole(instance=instance.name,
                                    kind=constants.CONS_SSH,
                                    host=primary_node.name,
+                                   port=ndparams.get(constants.ND_SSH_PORT),
                                    user=constants.SSH_CONSOLE_USER,
                                    command=[pathutils.XEN_CONSOLE_WRAPPER,
                                             xen_cmd, instance.name])
@@ -1026,6 +1104,15 @@ class XenHypervisor(hv_base.BaseHypervisor):
                                      % (constants.XEN_CMD_XL, result.stderr))
 
 
+def WriteXenConfigEvents(config, hvp):
+  config.write("on_poweroff = 'preserve'\n")
+  if hvp[constants.HV_REBOOT_BEHAVIOR] == constants.INSTANCE_REBOOT_ALLOWED:
+    config.write("on_reboot = 'restart'\n")
+  else:
+    config.write("on_reboot = 'destroy'\n")
+  config.write("on_crash = 'restart'\n")
+
+
 class XenPvmHypervisor(XenHypervisor):
   """Xen PVM hypervisor interface"""
 
@@ -1127,12 +1214,8 @@ class XenPvmHypervisor(XenHypervisor):
 
     if hvp[constants.HV_ROOT_PATH]:
       config.write("root = '%s'\n" % hvp[constants.HV_ROOT_PATH])
-    config.write("on_poweroff = 'destroy'\n")
-    if hvp[constants.HV_REBOOT_BEHAVIOR] == constants.INSTANCE_REBOOT_ALLOWED:
-      config.write("on_reboot = 'restart'\n")
-    else:
-      config.write("on_reboot = 'destroy'\n")
-    config.write("on_crash = 'restart'\n")
+
+    WriteXenConfigEvents(config, hvp)
     config.write("extra = '%s'\n" % hvp[constants.HV_KERNEL_ARGS])
 
     cpuid = hvp[constants.HV_XEN_CPUID]
@@ -1316,12 +1399,8 @@ class XenHvmHypervisor(XenHypervisor):
     if pci_pass:
       pci_pass_arr = pci_pass.split(";")
       config.write("pci = %s\n" % pci_pass_arr)
-    config.write("on_poweroff = 'destroy'\n")
-    if hvp[constants.HV_REBOOT_BEHAVIOR] == constants.INSTANCE_REBOOT_ALLOWED:
-      config.write("on_reboot = 'restart'\n")
-    else:
-      config.write("on_reboot = 'destroy'\n")
-    config.write("on_crash = 'restart'\n")
+
+    WriteXenConfigEvents(config, hvp)
 
     cpuid = hvp[constants.HV_XEN_CPUID]
     if cpuid:

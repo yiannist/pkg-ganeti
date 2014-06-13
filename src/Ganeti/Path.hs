@@ -28,13 +28,17 @@ module Ganeti.Path
   , runDir
   , logDir
   , socketDir
-  , defaultLuxiSocket
+  , defaultMasterSocket
   , defaultQuerySocket
   , confdHmacKey
   , clusterConfFile
+  , watcherPauseFile
   , nodedCertFile
+  , nodedClientCertFile
   , queueDir
   , jobQueueSerialFile
+  , jobQueueLockFile 
+  , jobQueueDrainFile  
   , jobQueueArchiveSubDir
   , instanceReasonDir
   , getInstReasonFilename
@@ -82,9 +86,9 @@ logDir = addNodePrefix $ AutoConf.localstatedir </> "log" </> "ganeti"
 socketDir :: IO FilePath
 socketDir = runDir `pjoin` "socket"
 
--- | The default LUXI socket path.
-defaultLuxiSocket :: IO FilePath
-defaultLuxiSocket = socketDir `pjoin` "ganeti-master"
+-- | The default path for the master-daemon LUXI socket.
+defaultMasterSocket :: IO FilePath
+defaultMasterSocket = socketDir `pjoin` "ganeti-master"
 
 -- | The default LUXI socket for queries.
 defaultQuerySocket :: IO FilePath
@@ -98,9 +102,17 @@ confdHmacKey = dataDirP "hmac.key"
 clusterConfFile :: IO FilePath
 clusterConfFile  = dataDirP "config.data"
 
+-- | Path to the watcher pause file.
+watcherPauseFile :: IO FilePath
+watcherPauseFile = dataDirP "watcher.pause"
+
 -- | Path to the noded certificate.
 nodedCertFile :: IO FilePath
 nodedCertFile = dataDirP "server.pem"
+
+-- | Path to the noded client certificate.
+nodedClientCertFile :: IO FilePath
+nodedClientCertFile = dataDirP "client.pem"
 
 -- | Job queue directory.
 queueDir :: IO FilePath
@@ -109,6 +121,14 @@ queueDir = dataDirP "queue"
 -- | Job queue serial file.
 jobQueueSerialFile :: IO FilePath
 jobQueueSerialFile = queueDir `pjoin` "serial"
+
+-- | Job queue lock file
+jobQueueLockFile :: IO FilePath
+jobQueueLockFile = queueDir `pjoin` "lock"
+
+-- | Job queue drain file
+jobQueueDrainFile :: IO FilePath
+jobQueueDrainFile = queueDir `pjoin` "drain"
 
 -- | Job queue archive directory.
 jobQueueArchiveSubDir :: FilePath

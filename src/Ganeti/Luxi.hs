@@ -6,7 +6,7 @@
 
 {-
 
-Copyright (C) 2009, 2010, 2011, 2012 Google Inc.
+Copyright (C) 2009, 2010, 2011, 2012, 2013 Google Inc.
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -29,13 +29,14 @@ module Ganeti.Luxi
   ( LuxiOp(..)
   , LuxiReq(..)
   , Client
+  , Server
   , JobId
   , fromJobId
   , makeJobId
   , RecvResult(..)
   , strOfOp
-  , getClient
-  , getServer
+  , getLuxiClient
+  , getLuxiServer
   , acceptClient
   , closeClient
   , closeServer
@@ -44,62 +45,32 @@ module Ganeti.Luxi
   , queryJobsStatus
   , buildCall
   , buildResponse
-  , validateCall
-  , decodeCall
+  , decodeLuxiCall
   , recvMsg
   , recvMsgExt
   , sendMsg
   , allLuxiCalls
   ) where
 
-import Control.Exception (catch)
-import Data.IORef
-import qualified Data.ByteString as B
-import qualified Data.ByteString.Lazy as BL
-import qualified Data.ByteString.UTF8 as UTF8
-import qualified Data.ByteString.Lazy.UTF8 as UTF8L
-import Data.Word (Word8)
 import Control.Monad
+import qualified Data.ByteString.UTF8 as UTF8
 import Text.JSON (encodeStrict, decodeStrict)
 import qualified Text.JSON as J
 import Text.JSON.Pretty (pp_value)
 import Text.JSON.Types
-import System.Directory (removeFile)
-import System.IO (hClose, hFlush, hWaitForInput, Handle, IOMode(..))
-import System.IO.Error (isEOFError)
-import System.Posix.Files
-import System.Timeout
-import qualified Network.Socket as S
 
 import Ganeti.BasicTypes
 import Ganeti.Constants
 import Ganeti.Errors
 import Ganeti.JSON
+import Ganeti.UDSServer
 import Ganeti.OpParams (pTagsObject)
 import Ganeti.OpCodes
 import qualified Ganeti.Query.Language as Qlang
-import Ganeti.Runtime (GanetiDaemon(..), MiscGroup(..), GanetiGroup(..))
+import Ganeti.Runtime (GanetiDaemon(..))
 import Ganeti.THH
 import Ganeti.Types
-import Ganeti.Utils
 
--- * Utility functions
-
--- | Wrapper over System.Timeout.timeout that fails in the IO monad.
-withTimeout :: Int -> String -> IO a -> IO a
-withTimeout secs descr action = do
-  result <- timeout (secs * 1000000) action
-  case result of
-    Nothing -> fail $ "Timeout in " ++ descr
-    Just v -> return v
-
--- * Generic protocol functionality
-
--- | Result of receiving a message from the socket.
-data RecvResult = RecvConnClosed    -- ^ Connection closed
-                | RecvError String  -- ^ Any other error
-                | RecvOk String     -- ^ Successfull receive
-                  deriving (Show, Eq)
 
 -- | Currently supported Luxi operations and JSON serialization.
 $(genLuxiOp "LuxiOp"
@@ -145,7 +116,7 @@ $(genLuxiOp "LuxiOp"
     )
   , (luxiReqQueryClusterInfo, [])
   , (luxiReqQueryTags,
-     [ pTagsObject 
+     [ pTagsObject
      , simpleField "name" [t| String |]
      ])
   , (luxiReqSubmitJob,
@@ -164,6 +135,9 @@ $(genLuxiOp "LuxiOp"
      , simpleField "prev_log" [t| JSValue |]
      , simpleField "tmout"    [t| Int     |]
      ])
+  , (luxiReqPickupJob,
+     [ simpleField "job" [t| JobId |] ]
+    )
   , (luxiReqArchiveJob,
      [ simpleField "job" [t| JobId |] ]
     )
@@ -182,7 +156,8 @@ $(genLuxiOp "LuxiOp"
      [ simpleField "flag" [t| Bool |] ]
     )
   , (luxiReqSetWatcherPause,
-     [ simpleField "duration" [t| Double |] ]
+     [ optionalNullSerField
+         $ simpleField "duration" [t| Double |] ]
     )
   ])
 
@@ -194,114 +169,20 @@ $(genAllConstr (drop 3) ''LuxiReq "allLuxiCalls")
 -- | The serialisation of LuxiOps into strings in messages.
 $(genStrOfOp ''LuxiOp "strOfOp")
 
--- | Type holding the initial (unparsed) Luxi call.
-data LuxiCall = LuxiCall LuxiReq JSValue
 
--- | The end-of-message separator.
-eOM :: Word8
-eOM = 3
-
--- | The end-of-message encoded as a ByteString.
-bEOM :: B.ByteString
-bEOM = B.singleton eOM
-
--- | Valid keys in the requests and responses.
-data MsgKeys = Method
-             | Args
-             | Success
-             | Result
-
--- | The serialisation of MsgKeys into strings in messages.
-$(genStrOfKey ''MsgKeys "strOfKey")
-
--- | Luxi client encapsulation.
-data Client = Client { socket :: Handle           -- ^ The socket of the client
-                     , rbuf :: IORef B.ByteString -- ^ Already received buffer
-                     }
+luxiConnectConfig :: ConnectConfig
+luxiConnectConfig = ConnectConfig { connDaemon = GanetiLuxid
+                                  , recvTmo    = luxiDefRwto
+                                  , sendTmo    = luxiDefRwto
+                                  }
 
 -- | Connects to the master daemon and returns a luxi Client.
-getClient :: String -> IO Client
-getClient path = do
-  s <- S.socket S.AF_UNIX S.Stream S.defaultProtocol
-  withTimeout luxiDefCtmo "creating luxi connection" $
-              S.connect s (S.SockAddrUnix path)
-  rf <- newIORef B.empty
-  h <- S.socketToHandle s ReadWriteMode
-  return Client { socket=h, rbuf=rf }
+getLuxiClient :: String -> IO Client
+getLuxiClient = connectClient luxiConnectConfig luxiDefCtmo
 
 -- | Creates and returns a server endpoint.
-getServer :: Bool -> FilePath -> IO S.Socket
-getServer setOwner path = do
-  s <- S.socket S.AF_UNIX S.Stream S.defaultProtocol
-  S.bindSocket s (S.SockAddrUnix path)
-  when setOwner $ do
-    setOwnerAndGroupFromNames path GanetiLuxid $ ExtraGroup DaemonsGroup
-    setFileMode path $ fromIntegral luxiSocketPerms
-  S.listen s 5 -- 5 is the max backlog
-  return s
-
--- | Closes a server endpoint.
--- FIXME: this should be encapsulated into a nicer type.
-closeServer :: FilePath -> S.Socket -> IO ()
-closeServer path sock = do
-  S.sClose sock
-  removeFile path
-
--- | Accepts a client
-acceptClient :: S.Socket -> IO Client
-acceptClient s = do
-  -- second return is the address of the client, which we ignore here
-  (client_socket, _) <- S.accept s
-  new_buffer <- newIORef B.empty
-  handle <- S.socketToHandle client_socket ReadWriteMode
-  return Client { socket=handle, rbuf=new_buffer }
-
--- | Closes the client socket.
-closeClient :: Client -> IO ()
-closeClient = hClose . socket
-
--- | Sends a message over a luxi transport.
-sendMsg :: Client -> String -> IO ()
-sendMsg s buf = withTimeout luxiDefRwto "sending luxi message" $ do
-  let encoded = UTF8L.fromString buf
-      handle = socket s
-  BL.hPut handle encoded
-  B.hPut handle bEOM
-  hFlush handle
-
--- | Given a current buffer and the handle, it will read from the
--- network until we get a full message, and it will return that
--- message and the leftover buffer contents.
-recvUpdate :: Handle -> B.ByteString -> IO (B.ByteString, B.ByteString)
-recvUpdate handle obuf = do
-  nbuf <- withTimeout luxiDefRwto "reading luxi response" $ do
-            _ <- hWaitForInput handle (-1)
-            B.hGetNonBlocking handle 4096
-  let (msg, remaining) = B.break (eOM ==) nbuf
-      newbuf = B.append obuf msg
-  if B.null remaining
-    then recvUpdate handle newbuf
-    else return (newbuf, B.tail remaining)
-
--- | Waits for a message over a luxi transport.
-recvMsg :: Client -> IO String
-recvMsg s = do
-  cbuf <- readIORef $ rbuf s
-  let (imsg, ibuf) = B.break (eOM ==) cbuf
-  (msg, nbuf) <-
-    if B.null ibuf      -- if old buffer didn't contain a full message
-      then recvUpdate (socket s) cbuf   -- then we read from network
-      else return (imsg, B.tail ibuf)   -- else we return data from our buffer
-  writeIORef (rbuf s) nbuf
-  return $ UTF8.toString msg
-
--- | Extended wrapper over recvMsg.
-recvMsgExt :: Client -> IO RecvResult
-recvMsgExt s =
-  Control.Exception.catch (liftM RecvOk (recvMsg s)) $ \e ->
-    return $ if isEOFError e
-               then RecvConnClosed
-               else RecvError (show e)
+getLuxiServer :: Bool -> FilePath -> IO Server
+getLuxiServer = connectServer luxiConnectConfig
 
 -- | Serialize a request to String.
 buildCall :: LuxiOp  -- ^ The method
@@ -313,32 +194,15 @@ buildCall lo =
       jo = toJSObject ja
   in encodeStrict jo
 
--- | Serialize the response to String.
-buildResponse :: Bool    -- ^ Success
-              -> JSValue -- ^ The arguments
-              -> String  -- ^ The serialized form
-buildResponse success args =
-  let ja = [ (strOfKey Success, JSBool success)
-           , (strOfKey Result, args)]
-      jo = toJSObject ja
-  in encodeStrict jo
-
--- | Check that luxi request contains the required keys and parse it.
-validateCall :: String -> Result LuxiCall
-validateCall s = do
-  arr <- fromJResult "parsing top-level luxi message" $
-         decodeStrict s::Result (JSObject JSValue)
-  let aobj = fromJSObject arr
-  call <- fromObj aobj (strOfKey Method)::Result LuxiReq
-  args <- fromObj aobj (strOfKey Args)
-  return (LuxiCall call args)
 
 -- | Converts Luxi call arguments into a 'LuxiOp' data structure.
+-- This is used for building a Luxi 'Handler'.
 --
 -- This is currently hand-coded until we make it more uniform so that
 -- it can be generated using TH.
-decodeCall :: LuxiCall -> Result LuxiOp
-decodeCall (LuxiCall call args) =
+decodeLuxiCall :: JSValue -> JSValue -> Result LuxiOp
+decodeLuxiCall method args = do
+  call <- fromJResult "Unable to parse LUXI request method" $ J.readJSON method
   case call of
     ReqQueryJobs -> do
               (jids, jargs) <- fromJVal args
@@ -396,6 +260,9 @@ decodeCall (LuxiCall call args) =
                     J.readJSON e
                   _ -> J.Error "Not enough values"
               return $ WaitForJobChange jid fields pinfo pidx wtmout
+    ReqPickupJob -> do
+              [jid] <- fromJVal args
+              return $ PickupJob jid
     ReqArchiveJob -> do
               [jid] <- fromJVal args
               return $ ArchiveJob jid
@@ -421,7 +288,10 @@ decodeCall (LuxiCall call args) =
               [flag] <- fromJVal args
               return $ SetDrainFlag flag
     ReqSetWatcherPause -> do
-              [duration] <- fromJVal args
+              let duration = case args of
+                               JSArray [JSRational _ x]
+                                 -> Just (fromRational x :: Double)
+                               _ -> Nothing
               return $ SetWatcherPause duration
 
 -- | Check that luxi responses contain the required keys and that the

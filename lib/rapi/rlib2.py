@@ -396,7 +396,6 @@ class R_2_nodes(baserlib.OpcodeResource):
   """/2/nodes resource.
 
   """
-  GET_OPCODE = opcodes.OpNodeQuery
 
   def GET(self):
     """Returns a list of all nodes.
@@ -418,7 +417,6 @@ class R_2_nodes_name(baserlib.OpcodeResource):
   """/2/nodes/[node_name] resource.
 
   """
-  GET_OPCODE = opcodes.OpNodeQuery
   GET_ALIASES = {
     "sip": "secondary_ip",
     }
@@ -664,7 +662,6 @@ class R_2_networks(baserlib.OpcodeResource):
   """/2/networks resource.
 
   """
-  GET_OPCODE = opcodes.OpNetworkQuery
   POST_OPCODE = opcodes.OpNetworkAdd
   POST_RENAME = {
     "name": "network_name",
@@ -780,7 +777,6 @@ class R_2_groups(baserlib.OpcodeResource):
   """/2/groups resource.
 
   """
-  GET_OPCODE = opcodes.OpGroupQuery
   POST_OPCODE = opcodes.OpGroupAdd
   POST_RENAME = {
     "name": "group_name",
@@ -923,7 +919,6 @@ class R_2_instances(baserlib.OpcodeResource):
   """/2/instances resource.
 
   """
-  GET_OPCODE = opcodes.OpInstanceQuery
   POST_OPCODE = opcodes.OpInstanceCreate
   POST_RENAME = {
     "os": "os_type",
@@ -934,7 +929,7 @@ class R_2_instances(baserlib.OpcodeResource):
     """Returns a list of all available instances.
 
     """
-    client = self.GetClient()
+    client = self.GetClient(query=True)
 
     use_locking = self.useLocking()
     if self.useBulk():
@@ -1016,14 +1011,13 @@ class R_2_instances_name(baserlib.OpcodeResource):
   """/2/instances/[instance_name] resource.
 
   """
-  GET_OPCODE = opcodes.OpInstanceQuery
   DELETE_OPCODE = opcodes.OpInstanceRemove
 
   def GET(self):
     """Send information about an instance.
 
     """
-    client = self.GetClient()
+    client = self.GetClient(query=True)
     instance_name = self.items[0]
 
     result = baserlib.HandleItemQueryErrors(client.QueryInstances,
@@ -1412,11 +1406,13 @@ class R_2_instances_name_console(baserlib.ResourceBase):
              L{objects.InstanceConsole}
 
     """
-    client = self.GetClient()
+    instance_name = self.items[0]
+    client = self.GetClient(query=True)
 
-    ((console, ), ) = client.QueryInstances([self.items[0]], ["console"], False)
+    ((console, oper_state), ) = \
+        client.QueryInstances([instance_name], ["console", "oper_state"], False)
 
-    if console is None:
+    if not oper_state:
       raise http.HttpServiceUnavailable("Instance console unavailable")
 
     assert isinstance(console, dict)
@@ -1460,7 +1456,8 @@ class R_2_query(baserlib.ResourceBase):
   PUT_OPCODE = opcodes.OpQuery
 
   def _Query(self, fields, qfilter):
-    return self.GetClient().Query(self.items[0], fields, qfilter).ToDict()
+    client = self.GetClient()
+    return client.Query(self.items[0], fields, qfilter).ToDict()
 
   def GET(self):
     """Returns resource information.

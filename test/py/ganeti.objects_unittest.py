@@ -177,6 +177,7 @@ class TestClusterObject(unittest.TestCase):
         constants.ND_OVS: True,
         constants.ND_OVS_LINK: "eth2",
         constants.ND_OVS_NAME: "openvswitch",
+        constants.ND_SSH_PORT: 122,
         }
     fake_group = objects.NodeGroup(name="testgroup",
                                    ndparams=group_ndparams)
@@ -191,6 +192,7 @@ class TestClusterObject(unittest.TestCase):
         constants.ND_OVS: True,
         constants.ND_OVS_LINK: "eth2",
         constants.ND_OVS_NAME: "openvswitch",
+        constants.ND_SSH_PORT: 222,
         }
     fake_node = objects.Node(name="test",
                              ndparams=node_ndparams,
@@ -208,6 +210,7 @@ class TestClusterObject(unittest.TestCase):
         constants.ND_OVS: True,
         constants.ND_OVS_LINK: "eth2",
         constants.ND_OVS_NAME: "openvswitch",
+        constants.ND_SSH_PORT: 322,
         }
     fake_node = objects.Node(name="test",
                              ndparams=node_ndparams,
@@ -215,6 +218,7 @@ class TestClusterObject(unittest.TestCase):
     group_ndparams = {
         constants.ND_OOB_PROGRAM: "/bin/group-oob",
         constants.ND_SPINDLE_COUNT: 4,
+        constants.ND_SSH_PORT: 422,
         }
     fake_group = objects.NodeGroup(name="testgroup",
                                    ndparams=group_ndparams)
@@ -749,7 +753,7 @@ class TestDisk(unittest.TestCase):
   def testUpgradeConfigDevTypeLegacyUnchanged(self):
     dev_types = [constants.DT_FILE, constants.DT_SHARED_FILE,
                  constants.DT_BLOCK, constants.DT_EXT,
-                 constants.DT_RBD]
+                 constants.DT_RBD, constants.DT_GLUSTER]
     for dev_type in dev_types:
       disk = objects.Disk()
       disk.dev_type = dev_type

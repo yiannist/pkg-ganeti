@@ -318,7 +318,7 @@ vcpu ratio
 spindle ratio
 .RE
 .TP
-.B --mond
+.B --mond=\f[I]yes|no\f[]
 If given the program will query all MonDs to fetch data from the
 supported data collectors over the network.
 .RS

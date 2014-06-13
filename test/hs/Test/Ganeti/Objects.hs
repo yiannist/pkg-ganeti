@@ -101,6 +101,8 @@ $(genArbitrary ''PartialBeParams)
 
 $(genArbitrary ''AdminState)
 
+$(genArbitrary ''AdminStateSource)
+
 $(genArbitrary ''PartialNicParams)
 
 $(genArbitrary ''PartialNic)
@@ -124,6 +126,8 @@ instance Arbitrary Instance where
       -- osparams
       <*> pure (GenericContainer Map.empty)
       -- admin_state
+      <*> arbitrary
+      -- admin_state_source
       <*> arbitrary
       -- nics
       <*> arbitrary
@@ -227,6 +231,9 @@ instance Arbitrary ClusterBeParams where
 
 instance Arbitrary TagSet where
   arbitrary = Set.fromList <$> genTags
+
+instance Arbitrary IAllocatorParams where
+  arbitrary = return $ GenericContainer Map.empty
 
 $(genArbitrary ''Cluster)
 

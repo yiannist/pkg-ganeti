@@ -76,6 +76,7 @@ and draft versions (which are either incomplete or not implemented).
    design-2.8.rst
    design-2.9.rst
    design-2.10.rst
+   design-2.11.rst
 
 Draft designs
 -------------
@@ -99,15 +100,20 @@ Draft designs
    design-file-based-storage.rst
    design-hroller.rst
    design-hotplug.rst
+   design-internal-shutdown.rst
+   design-kvmd.rst
    design-linuxha.rst
    design-lu-generated-jobs.rst
    design-monitoring-agent.rst
    design-multi-reloc.rst
+   design-multi-version-tests.rst
    design-network.rst
    design-node-add.rst
+   design-node-security.rst
    design-oob.rst
    design-openvswitch.rst
    design-opportunistic-locking.rst
+   design-os.rst
    design-ovf-support.rst
    design-partitioned
    design-performance-tests.rst
@@ -115,6 +121,7 @@ Draft designs
    design-reason-trail.rst
    design-restricted-commands.rst
    design-shared-storage.rst
+   design-ssh-ports.rst
    design-storagetypes.rst
    design-upgrade.rst
    design-virtual-clusters.rst

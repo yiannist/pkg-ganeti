@@ -1,4 +1,4 @@
-{-# LANGUAGE ExistentialQuantification, ParallelListComp, TemplateHaskell #-}
+{-# LANGUAGE ParallelListComp, TemplateHaskell #-}
 
 {-| TemplateHaskell helper for Ganeti Haskell code.
 
@@ -10,7 +10,7 @@ needs in this module (except the one for unittests).
 
 {-
 
-Copyright (C) 2011, 2012 Google Inc.
+Copyright (C) 2011, 2012, 2013 Google Inc.
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -36,17 +36,21 @@ module Ganeti.THH ( declareSADT
                   , makeJSONInstance
                   , deCamelCase
                   , genOpID
+                  , genOpLowerStrip
                   , genAllConstr
                   , genAllOpIDs
                   , PyValue(..)
                   , PyValueEx(..)
-                  , OpCodeDescriptor
+                  , OpCodeField(..)
+                  , OpCodeDescriptor(..)
                   , genOpCode
                   , genStrOfOp
                   , genStrOfKey
                   , genLuxiOp
                   , Field (..)
                   , simpleField
+                  , andRestArguments
+                  , specialNumericalField
                   , withDoc
                   , defaultField
                   , optionalField
@@ -66,9 +70,12 @@ module Ganeti.THH ( declareSADT
                   , excErrMsg
                   ) where
 
-import Control.Monad (liftM)
+import Control.Applicative
+import Control.Monad
 import Data.Char
 import Data.List
+import Data.Maybe
+import qualified Data.Map as M
 import qualified Data.Set as Set
 import Language.Haskell.TH
 
@@ -76,9 +83,9 @@ import qualified Text.JSON as JSON
 import Text.JSON.Pretty (pp_value)
 
 import Ganeti.JSON
+import Ganeti.PyValue
+import Ganeti.THH.PyType
 
-import Data.Maybe
-import Data.Functor ((<$>))
 
 -- * Exported types
 
@@ -92,6 +99,8 @@ data OptionalType
   = NotOptional           -- ^ Field is not optional
   | OptionalOmitNull      -- ^ Field is optional, null is not serialised
   | OptionalSerializeNull -- ^ Field is optional, null is serialised
+  | AndRestArguments      -- ^ Special field capturing all the remaining fields
+                          -- as plain JSON values
   deriving (Show, Eq)
 
 -- | Serialised field data type.
@@ -120,6 +129,20 @@ simpleField fname ftype =
         , fieldDoc         = ""
         }
 
+-- | Generate an AndRestArguments catch-all field.
+andRestArguments :: String -> Field
+andRestArguments fname =
+  Field { fieldName        = fname
+        , fieldType        = [t| M.Map String JSON.JSValue |]
+        , fieldRead        = Nothing
+        , fieldShow        = Nothing
+        , fieldExtraKeys   = []
+        , fieldDefault     = Nothing
+        , fieldConstr      = Nothing
+        , fieldIsOptional  = AndRestArguments
+        , fieldDoc         = ""
+        }
+
 withDoc :: String -> Field -> Field
 withDoc doc field =
   field { fieldDoc = doc }
@@ -141,6 +164,32 @@ optionalField field = field { fieldIsOptional = OptionalOmitNull }
 -- with 'Nothing' serialised explicitly as /null/.
 optionalNullSerField :: Field -> Field
 optionalNullSerField field = field { fieldIsOptional = OptionalSerializeNull }
+
+-- | Wrapper around a special parse function, suitable as field-parsing
+-- function.
+numericalReadFn :: JSON.JSON a => (String -> JSON.Result a)
+                   -> [(String, JSON.JSValue)] -> JSON.JSValue -> JSON.Result a
+numericalReadFn _ _ v@(JSON.JSRational _ _) = JSON.readJSON v
+numericalReadFn f _ (JSON.JSString x) = f $ JSON.fromJSString x
+numericalReadFn _ _ _ = JSON.Error "A numerical field has to be a number or\ 
+                                   \ a string."
+
+-- | Wrapper to lift a read function to optional values
+makeReadOptional :: ([(String, JSON.JSValue)] -> JSON.JSValue -> JSON.Result a)
+                    -> [(String, JSON.JSValue)]
+                    -> Maybe JSON.JSValue -> JSON.Result (Maybe a)
+makeReadOptional _ _ Nothing = JSON.Ok Nothing
+makeReadOptional f o (Just x) = fmap Just $ f o x
+
+-- | Sets the read function to also accept string parsable by the given
+-- function.
+specialNumericalField :: Name -> Field -> Field
+specialNumericalField f field =
+  if (fieldIsOptional field == NotOptional)
+     then field { fieldRead = Just (appE (varE 'numericalReadFn) (varE f)) }
+     else field { fieldRead = Just (appE (varE 'makeReadOptional)
+                                         (appE (varE 'numericalReadFn)
+                                               (varE f))) }
 
 -- | Sets custom functions on a field.
 customField :: Name      -- ^ The name of the read function
@@ -172,8 +221,8 @@ fieldVariable f =
 -- | Compute the actual field type (taking into account possible
 -- optional status).
 actualFieldType :: Field -> Q Type
-actualFieldType f | fieldIsOptional f /= NotOptional = [t| Maybe $t |]
-                  | otherwise = t
+actualFieldType f | fieldIsOptional f `elem` [NotOptional, AndRestArguments] = t
+                  | otherwise =  [t| Maybe $t |]
                   where t = fieldType f
 
 -- | Checks that a given field is not optional (for object types or
@@ -520,15 +569,27 @@ reifyConsNames name = do
 --
 -- This builds a custom list of name\/string pairs and then uses
 -- 'genToRaw' to actually generate the function.
-genConstrToStr :: (String -> String) -> Name -> String -> Q [Dec]
+genConstrToStr :: (String -> Q String) -> Name -> String -> Q [Dec]
 genConstrToStr trans_fun name fname = do
   cnames <- reifyConsNames name
-  let svalues = map (Left . trans_fun) cnames
+  svalues <- mapM (liftM Left . trans_fun) cnames
   genToRaw ''String (mkName fname) name $ zip cnames svalues
 
 -- | Constructor-to-string for OpCode.
 genOpID :: Name -> String -> Q [Dec]
-genOpID = genConstrToStr deCamelCase
+genOpID = genConstrToStr (return . deCamelCase)
+
+-- | Strips @Op@ from the constructor name, converts to lower-case
+-- and adds a given prefix.
+genOpLowerStrip :: String -> Name -> String -> Q [Dec]
+genOpLowerStrip prefix =
+    genConstrToStr (liftM ((prefix ++) . map toLower . deCamelCase)
+                    . stripPrefixM "Op")
+  where
+    stripPrefixM :: String -> String -> Q String
+    stripPrefixM pfx s = maybe (fail $ s ++ " doesn't start with " ++ pfx)
+                               return
+                         $ stripPrefix pfx s
 
 -- | Builds a list with all defined constructor names for a type.
 --
@@ -557,100 +618,20 @@ type OpParam = (String, Q Type, Q Exp)
 
 -- * Python code generation
 
--- | Converts Haskell values into Python values
---
--- This is necessary for the default values of opcode parameters and
--- return values.  For example, if a default value or return type is a
--- Data.Map, then it must be shown as a Python dictioanry.
-class PyValue a where
-  showValue :: a -> String
-
--- | Encapsulates Python default values
-data PyValueEx = forall a. PyValue a => PyValueEx a
-
-instance PyValue PyValueEx where
-  showValue (PyValueEx x) = showValue x
+data OpCodeField = OpCodeField { ocfName :: String
+                               , ocfType :: PyType
+                               , ocfDefl :: Maybe PyValueEx
+                               , ocfDoc  :: String
+                               }
 
 -- | Transfers opcode data between the opcode description (through
 -- @genOpCode@) and the Python code generation functions.
-type OpCodeDescriptor =
-  (String, String, String, [String],
-   [String], [Maybe PyValueEx], [String], String)
-
--- | Strips out the module name
---
--- @
--- pyBaseName "Data.Map" = "Map"
--- @
-pyBaseName :: String -> String
-pyBaseName str =
-  case span (/= '.') str of
-    (x, []) -> x
-    (_, _:x) -> pyBaseName x
-
--- | Converts a Haskell type name into a Python type name.
---
--- @
--- pyTypename "Bool" = "ht.TBool"
--- @
-pyTypeName :: Show a => a -> String
-pyTypeName name =
-  "ht.T" ++ (case pyBaseName (show name) of
-                "()" -> "None"
-                "Map" -> "DictOf"
-                "Set" -> "SetOf"
-                "ListSet" -> "SetOf"
-                "Either" -> "Or"
-                "GenericContainer" -> "DictOf"
-                "JSValue" -> "Any"
-                "JSObject" -> "Object"
-                str -> str)
-
--- | Converts a Haskell type into a Python type.
---
--- @
--- pyType [Int] = "ht.TListOf(ht.TInt)"
--- @
-pyType :: Type -> Q String
-pyType (AppT typ1 typ2) =
-  do t <- pyCall typ1 typ2
-     return $ t ++ ")"
-
-pyType (ConT name) = return (pyTypeName name)
-pyType ListT = return "ht.TListOf"
-pyType (TupleT 0) = return "ht.TNone"
-pyType (TupleT _) = return "ht.TTupleOf"
-pyType typ = error $ "unhandled case for type " ++ show typ
-        
--- | Converts a Haskell type application into a Python type.
---
--- @
--- Maybe Int = "ht.TMaybe(ht.TInt)"
--- @
-pyCall :: Type -> Type -> Q String
-pyCall (AppT typ1 typ2) arg =
-  do t <- pyCall typ1 typ2
-     targ <- pyType arg
-     return $ t ++ ", " ++ targ
-
-pyCall typ1 typ2 =
-  do t1 <- pyType typ1
-     t2 <- pyType typ2
-     return $ t1 ++ "(" ++ t2
-
--- | @pyType opt typ@ converts Haskell type @typ@ into a Python type,
--- where @opt@ determines if the converted type is optional (i.e.,
--- Maybe).
---
--- @
--- pyType False [Int] = "ht.TListOf(ht.TInt)" (mandatory)
--- pyType True [Int] = "ht.TMaybe(ht.TListOf(ht.TInt))" (optional)
--- @
-pyOptionalType :: Bool -> Type -> Q String
-pyOptionalType opt typ
-  | opt = do t <- pyType typ
-             return $ "ht.TMaybe(" ++ t ++ ")"
-  | otherwise = pyType typ
+data OpCodeDescriptor = OpCodeDescriptor { ocdName   :: String
+                                         , ocdType   :: PyType
+                                         , ocdDoc    :: String
+                                         , ocdFields :: [OpCodeField]
+                                         , ocdDescr  :: String
+                                         }
 
 -- | Optionally encapsulates default values in @PyValueEx@.
 --
@@ -665,44 +646,41 @@ maybeApp Nothing _ =
 maybeApp (Just expr) typ =
   [| Just ($(conE (mkName "PyValueEx")) ($expr :: $typ)) |]
 
-
 -- | Generates a Python type according to whether the field is
--- optional
-genPyType :: OptionalType -> Q Type -> Q ExpQ
-genPyType opt typ =
-  do t <- typ
-     stringE <$> pyOptionalType (opt /= NotOptional) t
+-- optional.
+--
+-- The type of created expression is PyType.
+genPyType' :: OptionalType -> Q Type -> Q PyType
+genPyType' opt typ = typ >>= pyOptionalType (opt /= NotOptional)
 
 -- | Generates Python types from opcode parameters.
-genPyTypes :: [Field] -> Q ExpQ
-genPyTypes fs =
-  listE <$> mapM (\f -> genPyType (fieldIsOptional f) (fieldType f)) fs
+genPyType :: Field -> Q PyType
+genPyType f = genPyType' (fieldIsOptional f) (fieldType f)
 
 -- | Generates Python default values from opcode parameters.
-genPyDefaults :: [Field] -> ExpQ
-genPyDefaults fs =
-  listE $ map (\f -> maybeApp (fieldDefault f) (fieldType f)) fs
+genPyDefault :: Field -> Q Exp
+genPyDefault f = maybeApp (fieldDefault f) (fieldType f)
+
+pyField :: Field -> Q Exp
+pyField f = genPyType f >>= \t ->
+            [| OpCodeField $(stringE (fieldName f))
+                           t
+                           $(genPyDefault f)
+                           $(stringE (fieldDoc f)) |]
 
 -- | Generates a Haskell function call to "showPyClass" with the
 -- necessary information on how to build the Python class string.
-pyClass :: OpCodeConstructor -> ExpQ
+pyClass :: OpCodeConstructor -> Q Exp
 pyClass (consName, consType, consDoc, consFields, consDscField) =
   do let pyClassVar = varNameE "showPyClass"
          consName' = stringE consName
-     consType' <- genPyType NotOptional consType
+     consType' <- genPyType' NotOptional consType
      let consDoc' = stringE consDoc
-         consFieldNames = listE $ map (stringE . fieldName) consFields
-         consFieldDocs = listE $ map (stringE . fieldDoc) consFields
-     consFieldTypes <- genPyTypes consFields
-     let consFieldDefaults = genPyDefaults consFields
-     [| ($consName',
-         $consType',
-         $consDoc',
-         $consFieldNames,
-         $consFieldTypes,
-         $consFieldDefaults,
-         $consFieldDocs,
-         consDscField) |]
+     [| OpCodeDescriptor $consName'
+                         consType'
+                         $consDoc'
+                         $(listE $ map pyField consFields)
+                         consDscField |]
 
 -- | Generates a function called "pyClasses" that holds the list of
 -- all the opcode descriptors necessary for generating the Python
@@ -816,7 +794,7 @@ genSaveOpCode tname jvalstr tdstr opdefs fn gen_object = do
 loadConstructor :: OpCodeConstructor -> Q Exp
 loadConstructor (sname, _, _, fields, _) = do
   let name = mkName sname
-  fbinds <- mapM loadObjectField fields
+  fbinds <- mapM (loadObjectField fields) fields
   let (fnames, fstmts) = unzip fbinds
   let cval = foldl (\accu fn -> AppE accu (VarE fn)) (ConE name) fnames
       fstmts' = fstmts ++ [NoBindS (AppE (VarE 'return) cval)]
@@ -849,11 +827,11 @@ genLoadOpCode opdefs = do
 
 -- | Constructor-to-string for LuxiOp.
 genStrOfOp :: Name -> String -> Q [Dec]
-genStrOfOp = genConstrToStr id
+genStrOfOp = genConstrToStr return
 
 -- | Constructor-to-string for MsgKeys.
 genStrOfKey :: Name -> String -> Q [Dec]
-genStrOfKey = genConstrToStr ensureLower
+genStrOfKey = genConstrToStr (return . ensureLower)
 
 -- | Generates the LuxiOp data type.
 --
@@ -919,7 +897,7 @@ buildObjectSerialisation :: String -> [Field] -> Q [Dec]
 buildObjectSerialisation sname fields = do
   let name = mkName sname
   savedecls <- genSaveObject saveObjectField sname fields
-  (loadsig, loadfn) <- genLoadObject loadObjectField sname fields
+  (loadsig, loadfn) <- genLoadObject (loadObjectField fields) sname fields
   shjson <- objectShowJSON sname
   rdjson <- objectReadJSON sname
   let instdecl = InstanceD [] (AppT (ConT ''JSON.JSON) (ConT name))
@@ -974,6 +952,7 @@ saveObjectField fvar field =
         Just fn -> [| let (actual, extra) = $fn $fvarE
                       in ($nameE, JSON.showJSON actual):extra
                     |]
+    AndRestArguments -> [| M.toList $(varE fvar) |]
   where nameE = stringE (fieldName field)
         fvarE = varE fvar
 
@@ -1008,24 +987,30 @@ genLoadObject load_fn sname fields = do
             FunD funname [Clause [VarP arg1] (NormalB (DoE fstmts')) []])
 
 -- | Generates code for loading an object's field.
-loadObjectField :: Field -> Q (Name, Stmt)
-loadObjectField field = do
+loadObjectField :: [Field] -> Field -> Q (Name, Stmt)
+loadObjectField allFields field = do
   let name = fieldVariable field
+      names = map fieldVariable allFields
+      otherNames = listE . map stringE $ names \\ [name]
   fvar <- newName name
   -- these are used in all patterns below
   let objvar = varNameE "o"
       objfield = stringE (fieldName field)
       loadexp =
-        if fieldIsOptional field /= NotOptional
-          -- we treat both optional types the same, since
-          -- 'maybeFromObj' can deal with both missing and null values
-          -- appropriately (the same)
-          then [| $(varE 'maybeFromObj) $objvar $objfield |]
-          else case fieldDefault field of
+        case fieldIsOptional field of
+          NotOptional ->
+            case fieldDefault field of
                  Just defv ->
                    [| $(varE 'fromObjWithDefault) $objvar
                       $objfield $defv |]
                  Nothing -> [| $fromObjE $objvar $objfield |]
+          AndRestArguments -> [| return . M.fromList
+                                   $ filter (not . (`elem` $otherNames) . fst)
+                                            $objvar |]
+          _ -> [| $(varE 'maybeFromObj) $objvar $objfield |]
+          -- we treat both optional types the same, since
+          -- 'maybeFromObj' can deal with both missing and null values
+          -- appropriately (the same)
   bexp <- loadFn field loadexp objvar
 
   return (fvar, BindS (VarP fvar) bexp)
@@ -1132,7 +1117,9 @@ loadPParamField field = do
   let objvar = varNameE "o"
       objfield = stringE name
       loadexp = [| $(varE 'maybeFromObj) $objvar $objfield |]
-  bexp <- loadFn field loadexp objvar
+      field' = field {fieldRead=fmap (appE (varE 'makeReadOptional))
+                                  $ fieldRead field}
+  bexp <- loadFn field' loadexp objvar
   return (fvar, BindS (VarP fvar) bexp)
 
 -- | Builds a simple declaration of type @n_x = fromMaybe f_x p_x@.

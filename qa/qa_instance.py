@@ -25,6 +25,7 @@
 
 import os
 import re
+import time
 
 from ganeti import utils
 from ganeti import constants
@@ -32,6 +33,7 @@ from ganeti import query
 from ganeti import pathutils
 
 import qa_config
+import qa_daemon
 import qa_utils
 import qa_error
 
@@ -135,7 +137,7 @@ def _DestroyInstanceDisks(instance):
     vols = info["volumes"]
     for node in info["nodes"]:
       AssertCommand(["lvremove", "-f"] + vols, node=node)
-  elif info["storage-type"] == constants.ST_FILE:
+  elif info["storage-type"] in (constants.ST_FILE, constants.ST_SHARED_FILE):
     # Note that this works for both file and sharedfile, and this is intended.
     storage_dir = qa_config.get("file-storage-dir",
                                 pathutils.DEFAULT_FILE_STORAGE_DIR)
@@ -144,6 +146,28 @@ def _DestroyInstanceDisks(instance):
       AssertCommand(["rm", "-rf", idir], node=node)
   elif info["storage-type"] == constants.ST_DISKLESS:
     pass
+
+
+def _GetInstanceFields(instance, fields):
+  """Get the value of one or more fields of an instance.
+
+  @type instance: string
+  @param instance: instance name
+
+  @type field: list of string
+  @param field: name of the fields
+
+  @rtype: list of string
+  @return: value of the fields
+
+  """
+  master = qa_config.GetMasterNode()
+  infocmd = utils.ShellQuoteArgs(["gnt-instance", "list", "--no-headers",
+                                  "--separator=:", "--units", "m", "-o",
+                                  ",".join(fields), instance])
+  return tuple(qa_utils.GetCommandOutput(master.primary, infocmd)
+               .strip()
+               .split(":"))
 
 
 def _GetInstanceField(instance, field):
@@ -156,10 +180,7 @@ def _GetInstanceField(instance, field):
   @rtype: string
 
   """
-  master = qa_config.GetMasterNode()
-  infocmd = utils.ShellQuoteArgs(["gnt-instance", "list", "--no-headers",
-                                  "--units", "m", "-o", field, instance])
-  return qa_utils.GetCommandOutput(master.primary, infocmd).strip()
+  return _GetInstanceFields(instance, [field])[0]
 
 
 def _GetBoolInstanceField(instance, field):
@@ -1093,3 +1114,176 @@ def TestInstanceCreationRestrictedByDiskTemplates():
                  "--ipolicy-disk-templates=%s" %
                    ",".join(enabled_disk_templates)],
                  fail=False)
+
+
+def _AssertInstance(instance, status, admin_state, admin_state_source):
+  x, y, z = \
+      _GetInstanceFields(instance.name,
+                         ["status", "admin_state", "admin_state_source"])
+
+  AssertEqual(x, status)
+  AssertEqual(y, admin_state)
+  AssertEqual(z, admin_state_source)
+
+
+@InstanceCheck(INST_UP, INST_UP, FIRST_ARG)
+def _TestInstanceUserDown(instance, hv_shutdown_fn):
+  """Test different combinations of user shutdown"""
+
+  # 1. User shutdown
+  # 2. Instance start
+  hv_shutdown_fn()
+
+  _AssertInstance(instance,
+                  constants.INSTST_USERDOWN,
+                  constants.ADMINST_UP,
+                  constants.ADMIN_SOURCE)
+
+  AssertCommand(["gnt-instance", "start", instance.name])
+
+  _AssertInstance(instance,
+                  constants.INSTST_RUNNING,
+                  constants.ADMINST_UP,
+                  constants.ADMIN_SOURCE)
+
+  # 1. User shutdown
+  # 2. Watcher cleanup
+  # 3. Instance start
+  hv_shutdown_fn()
+
+  _AssertInstance(instance,
+                  constants.INSTST_USERDOWN,
+                  constants.ADMINST_UP,
+                  constants.ADMIN_SOURCE)
+
+  qa_daemon.RunWatcherDaemon()
+
+  _AssertInstance(instance,
+                  constants.INSTST_USERDOWN,
+                  constants.ADMINST_DOWN,
+                  constants.USER_SOURCE)
+
+  AssertCommand(["gnt-instance", "start", instance.name])
+
+  _AssertInstance(instance,
+                  constants.INSTST_RUNNING,
+                  constants.ADMINST_UP,
+                  constants.ADMIN_SOURCE)
+
+  # 1. User shutdown
+  # 2. Watcher cleanup
+  # 3. Instance stop
+  # 4. Instance start
+  hv_shutdown_fn()
+
+  _AssertInstance(instance,
+                  constants.INSTST_USERDOWN,
+                  constants.ADMINST_UP,
+                  constants.ADMIN_SOURCE)
+
+  qa_daemon.RunWatcherDaemon()
+
+  _AssertInstance(instance,
+                  constants.INSTST_USERDOWN,
+                  constants.ADMINST_DOWN,
+                  constants.USER_SOURCE)
+
+  AssertCommand(["gnt-instance", "shutdown", instance.name])
+
+  _AssertInstance(instance,
+                  constants.INSTST_ADMINDOWN,
+                  constants.ADMINST_DOWN,
+                  constants.ADMIN_SOURCE)
+
+  AssertCommand(["gnt-instance", "start", instance.name])
+
+  _AssertInstance(instance,
+                  constants.INSTST_RUNNING,
+                  constants.ADMINST_UP,
+                  constants.ADMIN_SOURCE)
+
+  # 1. User shutdown
+  # 2. Instance stop
+  # 3. Instance start
+  hv_shutdown_fn()
+
+  _AssertInstance(instance,
+                  constants.INSTST_USERDOWN,
+                  constants.ADMINST_UP,
+                  constants.ADMIN_SOURCE)
+
+  AssertCommand(["gnt-instance", "shutdown", instance.name])
+
+  _AssertInstance(instance,
+                  constants.INSTST_ADMINDOWN,
+                  constants.ADMINST_DOWN,
+                  constants.ADMIN_SOURCE)
+
+  AssertCommand(["gnt-instance", "start", instance.name])
+
+  _AssertInstance(instance,
+                  constants.INSTST_RUNNING,
+                  constants.ADMINST_UP,
+                  constants.ADMIN_SOURCE)
+
+
+@InstanceCheck(INST_UP, INST_UP, FIRST_ARG)
+def _TestInstanceUserDownXen(instance):
+  primary = _GetInstanceField(instance.name, "pnode")
+  fn = lambda: AssertCommand(["xm", "shutdown", "-w", instance.name],
+                             node=primary)
+  _TestInstanceUserDown(instance, fn)
+
+
+@InstanceCheck(INST_UP, INST_UP, FIRST_ARG)
+def _TestInstanceUserDownKvm(instance):
+  def _StopKVMInstance():
+    AssertCommand("pkill -f \"\\-name %s\"" % instance.name, node=primary)
+    time.sleep(5)
+
+  AssertCommand(["gnt-cluster", "modify", "--user-shutdown=true"])
+  AssertCommand(["gnt-instance", "modify", "-H", "user_shutdown=true",
+                 instance.name])
+
+  # The instance needs to reboot not because the 'user_shutdown'
+  # parameter was modified but because the KVM daemon need to be
+  # started, given that the instance was first created with user
+  # shutdown disabled.
+  AssertCommand(["gnt-instance", "reboot", instance.name])
+
+  primary = _GetInstanceField(instance.name, "pnode")
+  _TestInstanceUserDown(instance, _StopKVMInstance)
+
+  AssertCommand(["gnt-instance", "modify", "-H", "user_shutdown=false",
+                 instance.name])
+  AssertCommand(["gnt-cluster", "modify", "--user-shutdown=false"])
+
+
+def TestInstanceUserDown(instance):
+  """Tests user shutdown"""
+  enabled_hypervisors = qa_config.GetEnabledHypervisors()
+
+  for (hv, fn) in [(constants.HT_XEN_PVM, _TestInstanceUserDownXen),
+                   (constants.HT_XEN_HVM, _TestInstanceUserDownXen),
+                   (constants.HT_KVM, _TestInstanceUserDownKvm)]:
+    if hv in enabled_hypervisors:
+      qa_daemon.TestPauseWatcher()
+      fn(instance)
+      qa_daemon.TestResumeWatcher()
+    else:
+      print "%s hypervisor is not enabled, skipping test for this hypervisor" \
+          % hv
+
+
+available_instance_tests = [
+  ("instance-add-plain-disk", constants.DT_PLAIN,
+   TestInstanceAddWithPlainDisk, 1),
+  ("instance-add-drbd-disk", constants.DT_DRBD8,
+   TestInstanceAddWithDrbdDisk, 2),
+  ("instance-add-diskless", constants.DT_DISKLESS,
+   TestInstanceAddDiskless, 1),
+  ("instance-add-file", constants.DT_FILE,
+   TestInstanceAddFile, 1),
+  ("instance-add-shared-file", constants.DT_SHARED_FILE,
+   TestInstanceAddSharedFile, 1),
+  ]

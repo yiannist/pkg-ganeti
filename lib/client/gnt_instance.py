@@ -95,7 +95,7 @@ def _ExpandMultiNames(mode, names, client=None):
   # pylint: disable=W0142
 
   if client is None:
-    client = GetClient()
+    client = GetClient(query=True)
   if mode == _EXPAND_CLUSTER:
     if names:
       raise errors.OpPrereqError("Cluster filter mode takes no arguments",
@@ -182,7 +182,8 @@ def GenericManyOps(operation, fn):
     if opts.multi_mode is None:
       opts.multi_mode = _EXPAND_INSTANCES
     cl = GetClient()
-    inames = _ExpandMultiNames(opts.multi_mode, args, client=cl)
+    qcl = GetClient(query=True)
+    inames = _ExpandMultiNames(opts.multi_mode, args, client=qcl)
     if not inames:
       if opts.multi_mode == _EXPAND_CLUSTER:
         ToStdout("Cluster is empty, no instances to shutdown")
@@ -223,10 +224,12 @@ def ListInstances(opts, args):
                                                       for item in value),
                                False))
 
+  cl = GetClient(query=True)
+
   return GenericList(constants.QR_INSTANCE, selected_fields, args, opts.units,
                      opts.separator, not opts.no_headers,
                      format_override=fmtoverride, verbose=opts.verbose,
-                     force_filter=opts.force_filter)
+                     force_filter=opts.force_filter, cl=cl)
 
 
 def ListInstanceFields(opts, args):
@@ -417,9 +420,10 @@ def RemoveInstance(opts, args):
   instance_name = args[0]
   force = opts.force
   cl = GetClient()
+  qcl = GetClient(query=True)
 
   if not force:
-    _EnsureInstancesExist(cl, [instance_name])
+    _EnsureInstancesExist(qcl, [instance_name])
 
     usertext = ("This will remove the volumes of the instance %s"
                 " (including mirrors), thus removing all the data"
@@ -535,6 +539,14 @@ def RecreateDisks(opts, args):
             utils.ParseUnit(ddict[constants.IDISK_SIZE])
         except ValueError, err:
           raise errors.OpPrereqError("Invalid disk size for disk %d: %s" %
+                                     (didx, err), errors.ECODE_INVAL)
+
+      if constants.IDISK_SPINDLES in ddict:
+        try:
+          ddict[constants.IDISK_SPINDLES] = \
+              int(ddict[constants.IDISK_SPINDLES])
+        except ValueError, err:
+          raise errors.OpPrereqError("Invalid spindles for disk %d: %s" %
                                      (didx, err), errors.ECODE_INVAL)
 
       disks.append((didx, ddict))
@@ -820,6 +832,7 @@ def MoveInstance(opts, args):
 
   op = opcodes.OpInstanceMove(instance_name=instance_name,
                               target_node=opts.node,
+                              compress=opts.compress,
                               shutdown_timeout=opts.shutdown_timeout,
                               ignore_consistency=opts.ignore_consistency,
                               ignore_ipolicy=opts.ignore_ipolicy)
@@ -840,15 +853,18 @@ def ConnectToInstanceConsole(opts, args):
   instance_name = args[0]
 
   cl = GetClient()
+  qcl = GetClient(query=True)
   try:
     cluster_name = cl.QueryConfigValues(["cluster_name"])[0]
     ((console_data, oper_state), ) = \
-      cl.QueryInstances([instance_name], ["console", "oper_state"], False)
+      qcl.QueryInstances([instance_name], ["console", "oper_state"], False)
   finally:
     # Ensure client connection is closed while external commands are run
     cl.Close()
+    qcl.Close()
 
   del cl
+  del qcl
 
   if not console_data:
     if oper_state:
@@ -875,7 +891,7 @@ def _DoConsole(console, show_command, cluster_name, feedback_fn=ToStdout,
   @param cluster_name: Cluster name as retrieved from master daemon
 
   """
-  assert console.Validate()
+  console.Validate()
 
   if console.kind == constants.CONS_MESSAGE:
     feedback_fn(console.message)
@@ -896,6 +912,7 @@ def _DoConsole(console, show_command, cluster_name, feedback_fn=ToStdout,
 
     srun = ssh.SshRunner(cluster_name=cluster_name)
     ssh_cmd = srun.BuildCmd(console.host, console.user, cmd,
+                            port=console.port,
                             batch=True, quiet=False, tty=True)
 
     if show_command:
@@ -1268,6 +1285,9 @@ def _ParseDiskSizes(mods):
 
   """
   for (action, _, params) in mods:
+    if params and constants.IDISK_SPINDLES in params:
+      params[constants.IDISK_SPINDLES] = \
+          int(params[constants.IDISK_SPINDLES])
     if params and constants.IDISK_SIZE in params:
       params[constants.IDISK_SIZE] = \
         utils.ParseUnit(params[constants.IDISK_SIZE])
@@ -1495,7 +1515,7 @@ commands = {
   "move": (
     MoveInstance, ARGS_ONE_INSTANCE,
     [FORCE_OPT] + SUBMIT_OPTS +
-    [SINGLE_NODE_OPT,
+    [SINGLE_NODE_OPT, COMPRESS_OPT,
      SHUTDOWN_TIMEOUT_OPT, DRY_RUN_OPT, PRIORITY_OPT, IGNORE_CONSIST_OPT,
      IGNORE_IPOLICY_OPT],
     "[-f] <instance>", "Move instance to an arbitrary node"

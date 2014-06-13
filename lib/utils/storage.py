@@ -27,11 +27,11 @@ import logging
 from ganeti import constants
 
 
-def GetDiskTemplatesOfStorageType(storage_type):
+def GetDiskTemplatesOfStorageTypes(*storage_types):
   """Given the storage type, returns a list of disk templates based on that
      storage type."""
   return [dt for dt in constants.DISK_TEMPLATES
-          if constants.MAP_DISK_TEMPLATE_STORAGE_TYPE[dt] == storage_type]
+          if constants.MAP_DISK_TEMPLATE_STORAGE_TYPE[dt] in storage_types]
 
 
 def IsDiskTemplateEnabled(disk_template, enabled_disk_templates):
@@ -91,6 +91,8 @@ def _GetDefaultStorageUnitForDiskTemplate(cfg, disk_template):
     return (storage_type, cluster.file_storage_dir)
   elif disk_template == constants.DT_SHARED_FILE:
     return (storage_type, cluster.shared_file_storage_dir)
+  elif disk_template == constants.DT_GLUSTER:
+    return (storage_type, cluster.gluster_storage_dir)
   else:
     return (storage_type, None)
 

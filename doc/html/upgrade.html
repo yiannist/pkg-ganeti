@@ -8,7 +8,7 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Upgrade notes &mdash; Ganeti 2.10.5 documentation</title>
+    <title>Upgrade notes &mdash; Ganeti 2.11.2 documentation</title>
     
     <link rel="stylesheet" href="_static/style.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
@@ -16,7 +16,7 @@
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.10.5',
+        VERSION:     '2.11.2',
         COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -25,7 +25,7 @@
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti 2.10.5 documentation" href="index.html" />
+    <link rel="top" title="Ganeti 2.11.2 documentation" href="index.html" />
     <link rel="next" title="Virtual cluster support" href="virtual-cluster.html" />
     <link rel="prev" title="Security in Ganeti" href="security.html" /> 
   </head>
@@ -39,7 +39,7 @@
         <li class="right" >
           <a href="security.html" title="Security in Ganeti"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.10.5 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.11.2 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -59,7 +59,43 @@ following command on all nodes:</p>
 </pre></div>
 </div>
 <div class="section" id="and-above">
-<h2>2.1 and above<a class="headerlink" href="#and-above" title="Permalink to this headline">¶</a></h2>
+<h2>2.11 and above<a class="headerlink" href="#and-above" title="Permalink to this headline">¶</a></h2>
+<p>Starting from 2.10 onwards, Ganeti has support for parallely installed versions
+and automated upgrades. The default configuration for 2.11 and higher already is
+to install as a parallel version without changing the running version. If both
+versions, the installed one and the one to upgrade to, are 2.10 or higher, the
+actual switch of the live version can be carried out by the following command
+on the master node.:</p>
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-cluster</span> <span class="gs">upgrade</span> <span class="gs">--to</span> <span class="gs">2.11</span>
+</pre></div>
+</div>
+<p>This will carry out the steps described below in the section on upgrades from
+2.1 and above. Downgrades to the previous minor version can be done in the same
+way, specifiying the smaller version on the <tt class="docutils literal"><span class="pre">--to</span></tt> argument.</p>
+<p>Note that <tt class="docutils literal"><span class="pre">gnt-cluster</span> <span class="pre">upgrade</span></tt> only manages the actual switch between
+versions as described below on upgrades from 2.1 and above. It does not install
+or remove any binaries. Having the new binaries installed is a prerequisite of
+calling <tt class="docutils literal"><span class="pre">gnt-cluster</span> <span class="pre">upgrade</span></tt> (and the command will abort if the prerequisite
+is not met). The old binaries can be used to downgrade back to the previous
+version; once the system administrator decides that going back to the old
+version is not needed any more, they can be removed. Addition and removal of
+the Ganeti binaries should happen in the same way as for all other binaries on
+your system.</p>
+</div>
+<div class="section" id="id1">
+<h2>2.11<a class="headerlink" href="#id1" title="Permalink to this headline">¶</a></h2>
+<p>When upgrading to 2.11, first apply the instructions of <tt class="docutils literal"><span class="pre">2.11</span> <span class="pre">and</span>
+<span class="pre">above</span></tt>. 2.11 comes with the new feature of enhanced RPC security
+through client certificates. This features needs to be enabled after the
+upgrade by:</p>
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">gnt-cluster</span> <span class="gs">renew-crypto</span> <span class="gs">--new-node-certificates</span>
+</pre></div>
+</div>
+<p>Note that new node certificates are generated automatically without
+warning when upgrading with <tt class="docutils literal"><span class="pre">gnt-cluster</span> <span class="pre">upgrade</span></tt>.</p>
+</div>
+<div class="section" id="id2">
+<h2>2.1 and above<a class="headerlink" href="#id2" title="Permalink to this headline">¶</a></h2>
 <p>Starting with Ganeti 2.0, upgrades between revisions (e.g. 2.1.0 to 2.1.1)
 should not need manual intervention. As a safety measure, minor releases (e.g.
 2.1.3 to 2.2.0) require the <tt class="docutils literal"><span class="pre">cfgupgrade</span></tt> command for changing the
@@ -161,6 +197,16 @@ supported by the old version will be removed from the configuration, of
 course, but you get a warning about it. If there is any new feature and
 you haven&#8217;t changed from its default value, you don&#8217;t have to worry
 about it, as it will get the same value whenever you&#8217;ll upgrade again.</p>
+<div class="section" id="automatic-downgrades">
+<h4>Automatic downgrades<a class="headerlink" href="#automatic-downgrades" title="Permalink to this headline">¶</a></h4>
+<p>From version 2.11 onwards, downgrades can be done by using the
+<tt class="docutils literal"><span class="pre">gnt-cluster</span> <span class="pre">upgrade</span></tt> command.:</p>
+<div class="highlight-shell-example"><div class="highlight"><pre>gnt-cluster upgrade --to 2.10
+</pre></div>
+</div>
+</div>
+<div class="section" id="manual-downgrades">
+<h4>Manual downgrades<a class="headerlink" href="#manual-downgrades" title="Permalink to this headline">¶</a></h4>
 <p>The procedure is similar to upgrading, but please notice that you have to
 revert the configuration <strong>before</strong> installing the old version.</p>
 <ol class="arabic">
@@ -229,6 +275,15 @@ versions of Ganeti.</p>
 </div>
 </li>
 </ol>
+<div class="section" id="specific-tasks-for-2-11-to-2-10-downgrade">
+<h5>Specific tasks for 2.11 to 2.10 downgrade<a class="headerlink" href="#specific-tasks-for-2-11-to-2-10-downgrade" title="Permalink to this headline">¶</a></h5>
+<p>After running <tt class="docutils literal"><span class="pre">cfgupgrade</span></tt>, the <tt class="docutils literal"><span class="pre">client.pem</span></tt> and
+<tt class="docutils literal"><span class="pre">ssconf_master_candidates_certs</span></tt> files need to be removed
+from Ganeti&#8217;s data directory on all nodes. While this step is
+not necessary for 2.10 to run cleanly, leaving them will cause
+problems when upgrading again after the downgrade.</p>
+</div>
+</div>
 </div>
 </div>
 <div class="section" id="releases">
@@ -375,8 +430,8 @@ compatibility:</p>
 <p>At this point, <tt class="docutils literal"><span class="pre">gnt-cluster</span> <span class="pre">verify</span></tt> should show no errors and the migration
 is complete.</p>
 </div>
-<div class="section" id="id1">
-<h2>1.2 releases<a class="headerlink" href="#id1" title="Permalink to this headline">¶</a></h2>
+<div class="section" id="id3">
+<h2>1.2 releases<a class="headerlink" href="#id3" title="Permalink to this headline">¶</a></h2>
 <div class="section" id="to-any-other-higher-1-2-version">
 <h3>1.2.4 to any other higher 1.2 version<a class="headerlink" href="#to-any-other-higher-1-2-version" title="Permalink to this headline">¶</a></h3>
 <p>No changes needed. Rollback will usually require manual edit of the
@@ -448,8 +503,17 @@ debian-etch-instance OS (0.2) that goes along with beta 2.</p>
   <h3><a href="index.html">Table Of Contents</a></h3>
   <ul>
 <li><a class="reference internal" href="#">Upgrade notes</a><ul>
-<li><a class="reference internal" href="#and-above">2.1 and above</a><ul>
-<li><a class="reference internal" href="#reverting-an-upgrade">Reverting an upgrade</a></li>
+<li><a class="reference internal" href="#and-above">2.11 and above</a></li>
+<li><a class="reference internal" href="#id1">2.11</a></li>
+<li><a class="reference internal" href="#id2">2.1 and above</a><ul>
+<li><a class="reference internal" href="#reverting-an-upgrade">Reverting an upgrade</a><ul>
+<li><a class="reference internal" href="#automatic-downgrades">Automatic downgrades</a></li>
+<li><a class="reference internal" href="#manual-downgrades">Manual downgrades</a><ul>
+<li><a class="reference internal" href="#specific-tasks-for-2-11-to-2-10-downgrade">Specific tasks for 2.11 to 2.10 downgrade</a></li>
+</ul>
+</li>
+</ul>
+</li>
 </ul>
 </li>
 <li><a class="reference internal" href="#releases">2.0 releases</a><ul>
@@ -458,7 +522,7 @@ debian-etch-instance OS (0.2) that goes along with beta 2.</p>
 </ul>
 </li>
 <li><a class="reference internal" href="#to-2-0">1.2 to 2.0</a></li>
-<li><a class="reference internal" href="#id1">1.2 releases</a><ul>
+<li><a class="reference internal" href="#id3">1.2 releases</a><ul>
 <li><a class="reference internal" href="#to-any-other-higher-1-2-version">1.2.4 to any other higher 1.2 version</a></li>
 <li><a class="reference internal" href="#to-1-2-4">1.2.3 to 1.2.4</a></li>
 <li><a class="reference internal" href="#to-1-2-3">1.2.2 to 1.2.3</a></li>
@@ -510,7 +574,7 @@ debian-etch-instance OS (0.2) that goes along with beta 2.</p>
         <li class="right" >
           <a href="security.html" title="Security in Ganeti"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.10.5 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.11.2 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

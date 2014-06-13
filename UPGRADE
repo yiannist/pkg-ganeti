@@ -12,6 +12,46 @@ following command on all nodes::
 
     $ /etc/init.d/ganeti restart
 
+2.11 and above
+--------------
+
+Starting from 2.10 onwards, Ganeti has support for parallely installed versions
+and automated upgrades. The default configuration for 2.11 and higher already is
+to install as a parallel version without changing the running version. If both
+versions, the installed one and the one to upgrade to, are 2.10 or higher, the
+actual switch of the live version can be carried out by the following command
+on the master node.::
+
+   $ gnt-cluster upgrade --to 2.11
+
+This will carry out the steps described below in the section on upgrades from
+2.1 and above. Downgrades to the previous minor version can be done in the same
+way, specifiying the smaller version on the ``--to`` argument.
+
+Note that ``gnt-cluster upgrade`` only manages the actual switch between
+versions as described below on upgrades from 2.1 and above. It does not install
+or remove any binaries. Having the new binaries installed is a prerequisite of
+calling ``gnt-cluster upgrade`` (and the command will abort if the prerequisite
+is not met). The old binaries can be used to downgrade back to the previous
+version; once the system administrator decides that going back to the old
+version is not needed any more, they can be removed. Addition and removal of
+the Ganeti binaries should happen in the same way as for all other binaries on
+your system.
+
+
+2.11
+----
+
+When upgrading to 2.11, first apply the instructions of ``2.11 and
+above``. 2.11 comes with the new feature of enhanced RPC security
+through client certificates. This features needs to be enabled after the
+upgrade by::
+
+   $ gnt-cluster renew-crypto --new-node-certificates
+
+Note that new node certificates are generated automatically without
+warning when upgrading with ``gnt-cluster upgrade``.
+
 
 2.1 and above
 -------------
@@ -109,6 +149,17 @@ course, but you get a warning about it. If there is any new feature and
 you haven't changed from its default value, you don't have to worry
 about it, as it will get the same value whenever you'll upgrade again.
 
+Automatic downgrades
+....................
+
+From version 2.11 onwards, downgrades can be done by using the
+``gnt-cluster upgrade`` command.::
+
+  gnt-cluster upgrade --to 2.10
+
+Manual downgrades
+.................
+
 The procedure is similar to upgrading, but please notice that you have to
 revert the configuration **before** installing the old version.
 
@@ -168,6 +219,14 @@ revert the configuration **before** installing the old version.
 
     $ gnt-cluster verify
 
+Specific tasks for 2.11 to 2.10 downgrade
+,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+
+After running ``cfgupgrade``, the ``client.pem`` and
+``ssconf_master_candidates_certs`` files need to be removed
+from Ganeti's data directory on all nodes. While this step is
+not necessary for 2.10 to run cleanly, leaving them will cause
+problems when upgrading again after the downgrade.
 
 2.0 releases
 ------------

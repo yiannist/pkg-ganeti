@@ -42,7 +42,8 @@ from ganeti import compat
 from ganeti import errors
 from ganeti import opcodes
 from ganeti import cli
-from ganeti import luxi
+import ganeti.rpc.node as rpc
+import ganeti.rpc.errors as rpcerr
 from ganeti import rapi
 from ganeti import netutils
 from ganeti import qlang
@@ -99,6 +100,8 @@ def StartNodeDaemons():
   # start mond as well: all nodes need monitoring
   if constants.ENABLE_MOND:
     utils.EnsureDaemon(constants.MOND)
+  # start kvmd, which will quit if not needed to run
+  utils.EnsureDaemon(constants.KVMD)
 
 
 def RunWatcherHooks():
@@ -137,9 +140,12 @@ class Instance(object):
   """Abstraction for a Virtual Machine instance.
 
   """
-  def __init__(self, name, status, disks_active, snodes):
+  def __init__(self, name, status, config_state, config_state_source,
+               disks_active, snodes):
     self.name = name
     self.status = status
+    self.config_state = config_state
+    self.config_state_source = config_state_source
     self.disks_active = disks_active
     self.snodes = snodes
 
@@ -157,6 +163,19 @@ class Instance(object):
     op = opcodes.OpInstanceActivateDisks(instance_name=self.name)
     cli.SubmitOpCode(op, cl=cl)
 
+  def NeedsCleanup(self):
+    """Determines whether the instance needs cleanup.
+
+    Determines whether the instance needs cleanup after having been
+    shutdown by the user.
+
+    @rtype: bool
+    @return: True if the instance needs cleanup, False otherwise.
+
+    """
+    return self.status == constants.INSTST_USERDOWN and \
+        self.config_state != constants.ADMINST_DOWN
+
 
 class Node(object):
   """Data container representing cluster node.
@@ -172,7 +191,34 @@ class Node(object):
     self.secondaries = secondaries
 
 
-def _CheckInstances(cl, notepad, instances):
+def _CleanupInstance(cl, notepad, inst, locks):
+  n = notepad.NumberOfCleanupAttempts(inst.name)
+
+  if inst.name in locks:
+    logging.info("Not cleaning up instance '%s', instance is locked",
+                 inst.name)
+    return
+
+  if n > MAXTRIES:
+    logging.warning("Not cleaning up instance '%s', retries exhausted",
+                    inst.name)
+    return
+
+  logging.info("Instance '%s' was shutdown by the user, cleaning up instance",
+               inst.name)
+  op = opcodes.OpInstanceShutdown(instance_name=inst.name,
+                                  admin_state_source=constants.USER_SOURCE)
+
+  try:
+    cli.SubmitOpCode(op, cl=cl)
+    if notepad.NumberOfCleanupAttempts(inst.name):
+      notepad.RemoveInstance(inst.name)
+  except Exception: # pylint: disable=W0703
+    logging.exception("Error while cleaning up instance '%s'", inst.name)
+    notepad.RecordCleanupAttempt(inst.name)
+
+
+def _CheckInstances(cl, notepad, instances, locks):
   """Make a pass over the list of instances, restarting downed ones.
 
   """
@@ -181,7 +227,9 @@ def _CheckInstances(cl, notepad, instances):
   started = set()
 
   for inst in instances.values():
-    if inst.status in BAD_STATES:
+    if inst.NeedsCleanup():
+      _CleanupInstance(cl, notepad, inst, locks)
+    elif inst.status in BAD_STATES:
       n = notepad.NumberOfRestartAttempts(inst.name)
 
       if n > MAXTRIES:
@@ -497,7 +545,7 @@ def _MergeInstanceStatus(filename, pergroup_filename, groups):
   _WriteInstanceStatus(filename, inststatus)
 
 
-def GetLuxiClient(try_restart):
+def GetLuxiClient(try_restart, query=False):
   """Tries to connect to the master daemon.
 
   @type try_restart: bool
@@ -505,12 +553,12 @@ def GetLuxiClient(try_restart):
 
   """
   try:
-    return cli.GetClient()
+    return cli.GetClient(query=query)
   except errors.OpPrereqError, err:
     # this is, from cli.GetClient, a not-master case
     raise NotMasterError("Not on master node (%s)" % err)
 
-  except luxi.NoMasterError, err:
+  except rpcerr.NoMasterError, err:
     if not try_restart:
       raise
 
@@ -521,7 +569,7 @@ def GetLuxiClient(try_restart):
       raise errors.GenericError("Can't start the master daemon")
 
     # Retry the connection
-    return cli.GetClient()
+    return cli.GetClient(query=query)
 
 
 def _StartGroupChildren(cl, wait):
@@ -600,6 +648,7 @@ def _GlobalWatcher(opts):
 
   try:
     client = GetLuxiClient(True)
+    query_client = GetLuxiClient(True, query=True)
   except NotMasterError:
     # Don't proceed on non-master nodes
     return constants.EXIT_SUCCESS
@@ -623,36 +672,39 @@ def _GlobalWatcher(opts):
   _ArchiveJobs(client, opts.job_age)
 
   # Spawn child processes for all node groups
-  _StartGroupChildren(client, opts.wait_children)
+  _StartGroupChildren(query_client, opts.wait_children)
 
   return constants.EXIT_SUCCESS
 
 
-def _GetGroupData(cl, uuid):
+def _GetGroupData(qcl, uuid):
   """Retrieves instances and nodes per node group.
 
   """
-  job = [
-    # Get all primary instances in group
-    opcodes.OpQuery(what=constants.QR_INSTANCE,
-                    fields=["name", "status", "disks_active", "snodes",
-                            "pnode.group.uuid", "snodes.group.uuid"],
-                    qfilter=[qlang.OP_EQUAL, "pnode.group.uuid", uuid],
-                    use_locking=True,
-                    priority=constants.OP_PRIO_LOW),
+  locks = qcl.Query(constants.QR_LOCK, ["name", "mode"], None)
 
-    # Get all nodes in group
-    opcodes.OpQuery(what=constants.QR_NODE,
-                    fields=["name", "bootid", "offline"],
-                    qfilter=[qlang.OP_EQUAL, "group.uuid", uuid],
-                    use_locking=True,
-                    priority=constants.OP_PRIO_LOW),
-    ]
+  prefix = "instance/"
+  prefix_len = len(prefix)
 
-  job_id = cl.SubmitJob(job)
-  results = map(objects.QueryResponse.FromDict,
-                cli.PollJob(job_id, cl=cl, feedback_fn=logging.debug))
-  cl.ArchiveJob(job_id)
+  locked_instances = set()
+
+  for [[_, name], [_, lock]] in locks.data:
+    if name.startswith(prefix) and lock:
+      locked_instances.add(name[prefix_len:])
+
+  queries = [
+      (constants.QR_INSTANCE,
+       ["name", "status", "admin_state", "admin_state_source", "disks_active",
+        "snodes", "pnode.group.uuid", "snodes.group.uuid"],
+       [qlang.OP_EQUAL, "pnode.group.uuid", uuid]),
+      (constants.QR_NODE,
+       ["name", "bootid", "offline"],
+       [qlang.OP_EQUAL, "group.uuid", uuid]),
+      ]
+
+  results = []
+  for what, fields, qfilter in queries:
+    results.append(qcl.Query(what, fields, qfilter))
 
   results_data = map(operator.attrgetter("data"), results)
 
@@ -668,14 +720,15 @@ def _GetGroupData(cl, uuid):
   instances = []
 
   # Load all instances
-  for (name, status, disks_active, snodes, pnode_group_uuid,
-       snodes_group_uuid) in raw_instances:
+  for (name, status, config_state, config_state_source, disks_active, snodes,
+       pnode_group_uuid, snodes_group_uuid) in raw_instances:
     if snodes and set([pnode_group_uuid]) != set(snodes_group_uuid):
       logging.error("Ignoring split instance '%s', primary group %s, secondary"
                     " groups %s", name, pnode_group_uuid,
                     utils.CommaJoin(snodes_group_uuid))
     else:
-      instances.append(Instance(name, status, disks_active, snodes))
+      instances.append(Instance(name, status, config_state, config_state_source,
+                                disks_active, snodes))
 
       for node in snodes:
         secondaries.setdefault(node, set()).add(name)
@@ -685,7 +738,8 @@ def _GetGroupData(cl, uuid):
            for (name, bootid, offline) in raw_nodes]
 
   return (dict((node.name, node) for node in nodes),
-          dict((inst.name, inst) for inst in instances))
+          dict((inst.name, inst) for inst in instances),
+          locked_instances)
 
 
 def _LoadKnownGroups():
@@ -739,10 +793,11 @@ def _GroupWatcher(opts):
   try:
     # Connect to master daemon
     client = GetLuxiClient(False)
+    query_client = GetLuxiClient(False, query=True)
 
     _CheckMaster(client)
 
-    (nodes, instances) = _GetGroupData(client, group_uuid)
+    (nodes, instances, locks) = _GetGroupData(query_client, group_uuid)
 
     # Update per-group instance status file
     _UpdateInstanceStatus(inst_status_path, instances.values())
@@ -751,7 +806,7 @@ def _GroupWatcher(opts):
                          pathutils.WATCHER_GROUP_INSTANCE_STATUS_FILE,
                          known_groups)
 
-    started = _CheckInstances(client, notepad, instances)
+    started = _CheckInstances(client, notepad, instances, locks)
     _CheckDisks(client, notepad, nodes, instances, started)
     _VerifyDisks(client, group_uuid, nodes, instances)
   except Exception, err:

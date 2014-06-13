@@ -153,6 +153,17 @@ This parameter is not set per default, as it depends very much on the
 specific setup.
 .RS
 .RE
+.TP
+.B ssh_port
+The port used for SSH connections to nodes belonging to a group.
+The user is responsible for properly configuring the ports of SSH
+daemons on machines prior to adding them as Ganeti nodes or when
+modifying the parameter value of an existing group.
+Note that using non-standard SSH ports and downgrading to an older
+Ganeti version that doesn\[aq]t support \f[C]ssh_port\f[] will break the
+cluster.
+.RS
+.RE
 .SS Hypervisor State Parameters
 .PP
 Using \f[C]--hypervisor-state\f[] you can set hypervisor specific states

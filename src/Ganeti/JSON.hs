@@ -26,6 +26,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
 
 module Ganeti.JSON
   ( fromJResult
+  , fromJResultE
   , readEitherString
   , JSRecord
   , loadJSArray
@@ -34,6 +35,7 @@ module Ganeti.JSON
   , fromObjWithDefault
   , fromKeyValue
   , fromJVal
+  , fromJValE
   , jsonHead
   , getMaybeJsonHead
   , getMaybeJsonElem
@@ -48,11 +50,13 @@ module Ganeti.JSON
   , HasStringRepr(..)
   , GenericContainer(..)
   , Container
+  , MaybeForJSON(..)
   )
   where
 
 import Control.DeepSeq
 import Control.Monad (liftM)
+import Control.Monad.Error.Class
 import Data.Maybe (fromMaybe, catMaybes)
 import qualified Data.Map as Map
 import Text.Printf (printf)
@@ -89,6 +93,11 @@ type JSRecord = [JSField]
 fromJResult :: Monad m => String -> J.Result a -> m a
 fromJResult s (J.Error x) = fail (s ++ ": " ++ x)
 fromJResult _ (J.Ok x) = return x
+
+-- | Converts a JSON Result into a MonadError value.
+fromJResultE :: (Error e, MonadError e m) => String -> J.Result a -> m a
+fromJResultE s (J.Error x) = throwError . strMsg $ s ++ ": " ++ x
+fromJResultE _ (J.Ok x) = return x
 
 -- | Tries to read a string from a JSON value.
 --
@@ -182,6 +191,15 @@ fromJVal v =
   case J.readJSON v of
     J.Error s -> fail ("Cannot convert value '" ++ show (pp_value v) ++
                        "', error: " ++ s)
+    J.Ok x -> return x
+
+-- | Small wrapper over 'readJSON' for 'MonadError'.
+fromJValE :: (Error e, MonadError e m, J.JSON a) => J.JSValue -> m a
+fromJValE v =
+  case J.readJSON v of
+    J.Error s -> throwError . strMsg $
+                  "Cannot convert value '" ++ show (pp_value v) ++
+                  "', error: " ++ s
     J.Ok x -> return x
 
 -- | Helper function that returns Null or first element of the list.
@@ -288,3 +306,12 @@ instance (HasStringRepr a, Ord a, J.JSON b) =>
   readJSON (J.JSObject o) = readContainer o
   readJSON v = fail $ "Failed to load container, expected object but got "
                ++ show (pp_value v)
+
+-- | A Maybe newtype that allows for serialization more appropriate to the
+-- semantics of Maybe and JSON in our calls. Does not produce needless
+-- and confusing dictionaries.
+newtype MaybeForJSON a = MaybeForJSON { unMaybeForJSON :: Maybe a }
+instance (J.JSON a) => J.JSON (MaybeForJSON a) where
+  readJSON = J.readJSON
+  showJSON (MaybeForJSON (Just x)) = J.showJSON x
+  showJSON (MaybeForJSON Nothing)  = J.JSNull

@@ -34,6 +34,9 @@ DEFAULT_FILE_STORAGE_DIR = vcluster.AddNodePrefix(DEFAULT_FILE_STORAGE_DIR)
 DEFAULT_SHARED_FILE_STORAGE_DIR = "/srv/ganeti/shared-file-storage"
 DEFAULT_SHARED_FILE_STORAGE_DIR = \
     vcluster.AddNodePrefix(DEFAULT_SHARED_FILE_STORAGE_DIR)
+DEFAULT_GLUSTER_STORAGE_DIR = "/var/run/ganeti/gluster"
+DEFAULT_GLUSTER_STORAGE_DIR = \
+    vcluster.AddNodePrefix(DEFAULT_GLUSTER_STORAGE_DIR)
 EXPORT_DIR = vcluster.AddNodePrefix(_constants.EXPORT_DIR)
 OS_SEARCH_PATH = _constants.OS_SEARCH_PATH
 ES_SEARCH_PATH = _constants.ES_SEARCH_PATH
@@ -104,6 +107,8 @@ RESTRICTED_COMMANDS_DIR = CONF_DIR + "/restricted-commands"
 
 #: Node daemon certificate path
 NODED_CERT_FILE = DATA_DIR + "/server.pem"
+NODED_CLIENT_CERT_FILE = DATA_DIR + "/client.pem"
+NODED_CLIENT_CERT_FILE_TMP = DATA_DIR + "/client.pem.tmp"
 
 #: Node daemon certificate file permissions
 NODED_CERT_MODE = 0440

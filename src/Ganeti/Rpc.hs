@@ -33,6 +33,7 @@ module Ganeti.Rpc
   , ERpcError
   , explainRpcError
   , executeRpcCall
+  , executeRpcCalls
   , logRpcErrors
 
   , rpcCallName
@@ -42,12 +43,18 @@ module Ganeti.Rpc
 
   , rpcResultFill
 
-  , InstanceInfo(..)
   , RpcCallInstanceInfo(..)
+  , InstanceState(..)
+  , InstanceInfo(..)
   , RpcResultInstanceInfo(..)
 
   , RpcCallAllInstancesInfo(..)
   , RpcResultAllInstancesInfo(..)
+
+  , InstanceConsoleInfoParams(..)
+  , InstanceConsoleInfo(..)
+  , RpcCallInstanceConsoleInfo(..)
+  , RpcResultInstanceConsoleInfo(..)
 
   , RpcCallInstanceList(..)
   , RpcResultInstanceList(..)
@@ -68,19 +75,29 @@ module Ganeti.Rpc
 
   , RpcCallExportList(..)
   , RpcResultExportList(..)
+
+  , RpcCallJobqueueUpdate(..)
+  , RpcCallJobqueueRename(..)
+  , RpcCallSetWatcherPause(..)
+  , RpcCallSetDrainFlag(..)
   ) where
 
 import Control.Arrow (second)
+import qualified Codec.Compression.Zlib as Zlib
+import qualified Data.ByteString.Lazy.Char8 as BL
 import qualified Data.Map as Map
 import Data.Maybe (fromMaybe)
 import qualified Text.JSON as J
 import Text.JSON.Pretty (pp_value)
+import qualified Data.ByteString.Base64.Lazy as Base64
+import System.Directory
 
-import Network.Curl
+import Network.Curl hiding (content)
 import qualified Ganeti.Path as P
 
 import Ganeti.BasicTypes
 import qualified Ganeti.Constants as C
+import Ganeti.JSON
 import Ganeti.Logging
 import Ganeti.Objects
 import Ganeti.THH
@@ -199,23 +216,36 @@ logRpcErrors allElems =
         logError $ "Error in the RPC HTTP reply: " ++ show err
   in mapM_ logOneRpcErr allElems
 
--- | Execute RPC call for many nodes in parallel.
-executeRpcCall :: (Rpc a b) => [Node] -> a -> IO [(Node, ERpcError b)]
-executeRpcCall nodes call = do
+-- | Get options for RPC call
+getOptionsForCall :: (Rpc a b) => FilePath -> FilePath -> a -> [CurlOption]
+getOptionsForCall cert_path client_cert_path call =
+  [ CurlTimeout (fromIntegral $ rpcCallTimeout call)
+  , CurlSSLCert client_cert_path
+  , CurlSSLKey client_cert_path
+  , CurlCAInfo cert_path
+  ]
+
+-- | Execute multiple RPC calls in parallel
+executeRpcCalls :: (Rpc a b) => [(Node, a)] -> IO [(Node, ERpcError b)]
+executeRpcCalls nodeCalls = do
   cert_file <- P.nodedCertFile
-  let opts = [ CurlTimeout (fromIntegral $ rpcCallTimeout call)
-             , CurlSSLCert cert_file
-             , CurlSSLKey cert_file
-             , CurlCAInfo cert_file
-             ]
-      opts_urls = map (\n ->
-                         case prepareHttpRequest opts n call of
+  client_cert_file_name <- P.nodedClientCertFile
+  client_file_exists <- doesFileExist client_cert_file_name
+  -- FIXME: This is needed to ensure upgradability to 2.11
+  -- Remove in 2.12.
+  let client_cert_file = if client_file_exists
+                         then client_cert_file_name
+                         else cert_file
+      (nodes, calls) = unzip nodeCalls
+      opts = map (getOptionsForCall cert_file client_cert_file) calls
+      opts_urls = zipWith3 (\n c o ->
+                         case prepareHttpRequest o n c of
                            Left v -> Left v
                            Right request ->
                              Right (CurlPostFields [requestData request]:
                                     requestOpts request,
                                     requestUrl request)
-                      ) nodes
+                    ) nodes calls opts
   -- split the opts_urls list; we don't want to pass the
   -- failed-already nodes to Curl
   let (lefts, rights, trail) = splitEithers opts_urls
@@ -224,10 +254,14 @@ executeRpcCall nodes call = do
                 Bad msg -> error msg
                 Ok r -> return r
   -- now parse the replies
-  let results'' = map (parseHttpReply call) results'
+  let results'' = zipWith parseHttpReply calls results'
       pairedList = zip nodes results''
   logRpcErrors pairedList
   return pairedList
+
+-- | Execute an RPC call for many nodes in parallel.
+executeRpcCall :: (Rpc a b) => [Node] -> a -> IO [(Node, ERpcError b)]
+executeRpcCall nodes call = executeRpcCalls . zip nodes $ repeat call
 
 -- | Helper function that is used to read dictionaries of values.
 sanitizeDictResults :: [(String, J.Result a)] -> ERpcError [(String, a)]
@@ -252,17 +286,25 @@ fromJSValueToRes val = fromJResultToRes (J.readJSON val)
 
 -- ** Instance info
 
--- | InstanceInfo
---   Returns information about a single instance.
-
+-- | Returns information about a single instance
 $(buildObject "RpcCallInstanceInfo" "rpcCallInstInfo"
   [ simpleField "instance" [t| String |]
   , simpleField "hname" [t| Hypervisor |]
   ])
 
+$(declareILADT "InstanceState"
+  [ ("InstanceStateRunning", 0)
+  , ("InstanceStateShutdown", 1)
+  ])
+
+$(makeJSONInstance ''InstanceState)
+
+instance PyValue InstanceState where
+  showValue = show . instanceStateToRaw
+
 $(buildObject "InstanceInfo" "instInfo"
   [ simpleField "memory" [t| Int|]
-  , simpleField "state"  [t| String |] -- It depends on hypervisor :(
+  , simpleField "state"  [t| InstanceState |]
   , simpleField "vcpus"  [t| Int |]
   , simpleField "time"   [t| Int |]
   ])
@@ -293,10 +335,9 @@ instance Rpc RpcCallInstanceInfo RpcResultInstanceInfo where
 
 -- ** AllInstancesInfo
 
--- | AllInstancesInfo
---   Returns information about all running instances on the given nodes
+-- | Returns information about all running instances on the given nodes
 $(buildObject "RpcCallAllInstancesInfo" "rpcCallAllInstInfo"
-  [ simpleField "hypervisors" [t| [Hypervisor] |] ])
+  [ simpleField "hypervisors" [t| [(Hypervisor, HvParams)] |] ])
 
 $(buildObject "RpcResultAllInstancesInfo" "rpcResAllInstInfo"
   [ simpleField "instances" [t| [(String, InstanceInfo)] |] ])
@@ -305,7 +346,9 @@ instance RpcCall RpcCallAllInstancesInfo where
   rpcCallName _          = "all_instances_info"
   rpcCallTimeout _       = rpcTimeoutToRaw Urgent
   rpcCallAcceptOffline _ = False
-  rpcCallData _ call     = J.encode [rpcCallAllInstInfoHypervisors call]
+  rpcCallData _ call     = J.encode (
+    map fst $ rpcCallAllInstInfoHypervisors call,
+    GenericContainer . Map.fromList $ rpcCallAllInstInfoHypervisors call)
 
 instance Rpc RpcCallAllInstancesInfo RpcResultAllInstancesInfo where
   -- FIXME: Is there a simpler way to do it?
@@ -320,10 +363,62 @@ instance Rpc RpcCallAllInstancesInfo RpcResultAllInstancesInfo where
       _ -> Left $ JsonDecodeError
            ("Expected JSObject, got " ++ show (pp_value res))
 
+-- ** InstanceConsoleInfo
+
+-- | Returns information about how to access instances on the given node
+$(buildObject "InstanceConsoleInfoParams" "instConsInfoParams"
+  [ simpleField "instance"    [t| Instance |]
+  , simpleField "node"        [t| Node |]
+  , simpleField "group"       [t| NodeGroup |]
+  , simpleField "hvParams"    [t| HvParams |]
+  , simpleField "beParams"    [t| FilledBeParams |]
+  ])
+
+$(buildObject "RpcCallInstanceConsoleInfo" "rpcCallInstConsInfo"
+  [ simpleField "instanceInfo" [t| [(String, InstanceConsoleInfoParams)] |] ])
+
+$(buildObject "InstanceConsoleInfo" "instConsInfo"
+  [ simpleField "instance"    [t| String |]
+  , simpleField "kind"        [t| String |]
+  , optionalField $
+    simpleField "message"     [t| String |]
+  , optionalField $
+    simpleField "host"        [t| String |]
+  , optionalField $
+    simpleField "port"        [t| Int |]
+  , optionalField $
+    simpleField "user"        [t| String |]
+  , optionalField $
+    simpleField "command"     [t| [String] |]
+  , optionalField $
+    simpleField "display"     [t| String |]
+  ])
+
+$(buildObject "RpcResultInstanceConsoleInfo" "rpcResInstConsInfo"
+  [ simpleField "instancesInfo" [t| [(String, InstanceConsoleInfo)] |] ])
+
+instance RpcCall RpcCallInstanceConsoleInfo where
+  rpcCallName _          = "instance_console_info"
+  rpcCallTimeout _       = rpcTimeoutToRaw Urgent
+  rpcCallAcceptOffline _ = False
+  rpcCallData _ call     = J.encode .
+    GenericContainer $ Map.fromList (rpcCallInstConsInfoInstanceInfo call)
+
+instance Rpc RpcCallInstanceConsoleInfo RpcResultInstanceConsoleInfo where
+  rpcResultFill _ res =
+    case res of
+      J.JSObject res' ->
+        let res'' = map (second J.readJSON) (J.fromJSObject res')
+                        :: [(String, J.Result InstanceConsoleInfo)] in
+        case sanitizeDictResults res'' of
+          Left err -> Left err
+          Right instInfos -> Right $ RpcResultInstanceConsoleInfo instInfos
+      _ -> Left $ JsonDecodeError
+           ("Expected JSObject, got " ++ show (pp_value res))
+
 -- ** InstanceList
 
--- | InstanceList
--- Returns the list of running instances on the given nodes.
+-- | Returns the list of running instances on the given nodes
 $(buildObject "RpcCallInstanceList" "rpcCallInstList"
   [ simpleField "hypervisors" [t| [Hypervisor] |] ])
 
@@ -341,8 +436,7 @@ instance Rpc RpcCallInstanceList RpcResultInstanceList where
 
 -- ** NodeInfo
 
--- | NodeInfo
--- Return node information.
+-- | Returns node information
 $(buildObject "RpcCallNodeInfo" "rpcCallNodeInfo"
   [ simpleField "storage_units" [t| Map.Map String [StorageUnit] |]
   , simpleField "hypervisors" [t| [ (Hypervisor, HvParams) ] |]
@@ -481,3 +575,107 @@ instance RpcCall RpcCallExportList where
 
 instance Rpc RpcCallExportList RpcResultExportList where
   rpcResultFill _ res = fromJSValueToRes res RpcResultExportList
+
+-- ** Job Queue Replication
+  
+-- | Update a job queue file
+  
+$(buildObject "RpcCallJobqueueUpdate" "rpcCallJobqueueUpdate"
+  [ simpleField "file_name" [t| String |]
+  , simpleField "content" [t| String |]
+  ])
+
+$(buildObject "RpcResultJobQueueUpdate" "rpcResultJobQueueUpdate" [])
+
+instance RpcCall RpcCallJobqueueUpdate where
+  rpcCallName _          = "jobqueue_update"
+  rpcCallTimeout _       = rpcTimeoutToRaw Fast
+  rpcCallAcceptOffline _ = False
+  rpcCallData _ call     = J.encode
+    ( rpcCallJobqueueUpdateFileName call
+    , ( C.rpcEncodingZlibBase64
+      , BL.unpack . Base64.encode . Zlib.compress . BL.pack
+          $ rpcCallJobqueueUpdateContent call
+      )
+    )
+
+instance Rpc RpcCallJobqueueUpdate RpcResultJobQueueUpdate where
+  rpcResultFill _ res =
+    case res of
+      J.JSNull ->  Right RpcResultJobQueueUpdate
+      _ -> Left $ JsonDecodeError
+           ("Expected JSNull, got " ++ show (pp_value res))
+
+-- | Rename a file in the job queue
+
+$(buildObject "RpcCallJobqueueRename" "rpcCallJobqueueRename"
+  [ simpleField "rename" [t| [(String, String)] |]
+  ])
+
+$(buildObject "RpcResultJobqueueRename" "rpcResultJobqueueRename" [])
+
+instance RpcCall RpcCallJobqueueRename where
+  rpcCallName _          = "jobqueue_rename"
+  rpcCallTimeout _       = rpcTimeoutToRaw Fast
+  rpcCallAcceptOffline _ = False
+  rpcCallData _ call     = J.encode [ rpcCallJobqueueRenameRename call ]
+
+instance Rpc RpcCallJobqueueRename RpcResultJobqueueRename where
+  rpcResultFill call res =
+    -- Upon success, the RPC returns the list of return values of
+    -- the rename operations, which is always None, serialized to
+    -- null in JSON.
+    let expected = J.showJSON . map (const J.JSNull)
+                     $ rpcCallJobqueueRenameRename call
+    in if res == expected
+      then Right RpcResultJobqueueRename
+      else Left
+             $ JsonDecodeError ("Expected JSNull, got " ++ show (pp_value res))
+
+-- ** Watcher Status Update
+      
+-- | Set the watcher status
+      
+$(buildObject "RpcCallSetWatcherPause" "rpcCallSetWatcherPause"
+  [ simpleField "time" [t| Maybe Double |]
+  ])
+
+instance RpcCall RpcCallSetWatcherPause where
+  rpcCallName _          = "set_watcher_pause"
+  rpcCallTimeout _       = rpcTimeoutToRaw Fast
+  rpcCallAcceptOffline _ = False
+  rpcCallData _ call     = J.encode
+    [ maybe J.JSNull J.showJSON $ rpcCallSetWatcherPauseTime call ]
+
+$(buildObject "RpcResultSetWatcherPause" "rpcResultSetWatcherPause" [])
+
+instance Rpc RpcCallSetWatcherPause RpcResultSetWatcherPause where
+  rpcResultFill _ res =
+    case res of
+      J.JSNull ->  Right RpcResultSetWatcherPause
+      _ -> Left $ JsonDecodeError
+           ("Expected JSNull, got " ++ show (pp_value res))
+
+-- ** Queue drain status
+      
+-- | Set the queu drain flag
+      
+$(buildObject "RpcCallSetDrainFlag" "rpcCallSetDrainFlag"
+  [ simpleField "value" [t| Bool |]
+  ])
+
+instance RpcCall RpcCallSetDrainFlag where
+  rpcCallName _          = "jobqueue_set_drain_flag"
+  rpcCallTimeout _       = rpcTimeoutToRaw Fast
+  rpcCallAcceptOffline _ = False
+  rpcCallData _ call     = J.encode [ rpcCallSetDrainFlagValue call ]
+
+$(buildObject "RpcResultSetDrainFlag" "rpcResultSetDrainFalg" [])
+
+instance Rpc RpcCallSetDrainFlag RpcResultSetDrainFlag where
+  rpcResultFill _ res =
+    case res of
+      J.JSNull ->  Right RpcResultSetDrainFlag
+      _ -> Left $ JsonDecodeError
+           ("Expected JSNull, got " ++ show (pp_value res))
+

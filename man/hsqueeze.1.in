@@ -1,0 +1,134 @@
+.TH HSQUEEZE 1 "" "Ganeti" "Version @GANETI_VERSION@"
+.SH NAME
+.PP
+hsqueeze - Dynamic power management
+.SH SYNOPSIS
+.PP
+\f[B]hsqueeze\f[] {backend options...} [algorithm options...] [reporting
+options...]
+.PP
+\f[B]hsqueeze\f[] --version
+.PP
+Backend options:
+.PP
+{ \f[B]-L[\f[] \f[I]path\f[] \f[B]]\f[] | \f[B]-t\f[] \f[I]data-file\f[]
+}
+.PP
+Algorithm options:
+.PP
+\f[B][ --minimal-resources=\f[I]factor\f[] ]\f[] \f[B][
+--target-resources=\f[I]factor\f[] ]\f[]
+.PP
+Reporting options:
+.PP
+\f[B][ -S \f[I]file\f[] ]\f[] \f[B][ -C[\f[I]file\f[]] ]\f[]
+.SH DESCRIPTION
+.PP
+hsqueeze does dynamic power management, by powering up or shutting down
+nodes, depending on the current load of the cluster.
+Currently, only suggesting nodes is implemented.
+.SS ALGORITHM
+.PP
+hsqueeze considers all online non-master nodes with only externally
+mirrored instances as candidates for being taken offline.
+These nodes are iteratively, starting from the node with the least
+number of instances, added to the set of nodes to be put offline, if
+possible.
+A set of nodes is considered as suitable for being taken offline, if,
+after marking these nodes as offline, balancing the cluster by the
+algorithm used by \f[B]hbal\f[](1) yields a situation where all
+instances are located on online nodes, and each node has at least the
+target resources free for new instances.
+.PP
+All offline nodes with a tag starting with \f[C]htools:standby\f[] are
+considered candidates for being taken online.
+Those nodes are taken online till balancing the cluster by the algorithm
+used by \f[B]hbal\f[](1) yields a situation where each node has at least
+the minimal resources free for new instances.
+.SH OPTIONS
+.TP
+.B -L [\f[I]path\f[]]
+Backend specification: collect data directly from the master daemon,
+which is to be contacted via LUXI (an internal Ganeti protocol).
+The option is described in the man page \f[B]htools\f[](1).
+.RS
+.RE
+.TP
+.B -S \f[I]filename\f[], --save-cluster=\f[I]filename\f[]
+If given, the state of the cluster before the squeezing is saved to the
+given file plus the extension "original" (i.e.
+\f[I]filename\f[].original), and the state at the end of the squeezing
+operation is saved to the given file plus the extension "squeezed" (i.e.
+\f[I]filename\f[].squeezed).
+.RS
+.RE
+.TP
+.B -C[\f[I]filename\f[]], --print-commands[=\f[I]filename\f[]]
+If given, a shell script containing the commands to squeeze or unsqueeze
+the cluster are saved in a file with the given name; if no name is
+provided, they are printed to stdout.
+.RS
+.RE
+.TP
+.B -t \f[I]datafile\f[], --text-data=\f[I]datafile\f[]
+Backend specification: the name of the file holding node and instance
+information (if not collecting LUXI).
+This or one of the other backends must be selected.
+The option is described in the man page \f[B]htools\f[](1).
+.RS
+.RE
+.TP
+.B --minimal-resources=\f[I]factor\f[]
+Specify the amount of resources to be free on each node for hsqueeze not
+to consider onlining additional nodes.
+The value is reported a multiple of the standard instance specification,
+as taken from the instance policy.
+.RS
+.RE
+.TP
+.B --target-resources=\f[I]factor\f[]
+Specify the amount of resources to remain free on any node after
+squeezing.
+The value is reported a multiple of the standard instance specification,
+as taken from the instance policy.
+.RS
+.RE
+.SH REPORTING BUGS
+.PP
+Report bugs to project website (http://code.google.com/p/ganeti/) or
+contact the developers using the Ganeti mailing
+list (ganeti@googlegroups.com).
+.SH SEE ALSO
+.PP
+Ganeti overview and specifications: \f[B]ganeti\f[](7) (general
+overview), \f[B]ganeti-os-interface\f[](7) (guest OS definitions),
+\f[B]ganeti-extstorage-interface\f[](7) (external storage providers).
+.PP
+Ganeti commands: \f[B]gnt-cluster\f[](8) (cluster-wide commands),
+\f[B]gnt-job\f[](8) (job-related commands), \f[B]gnt-node\f[](8)
+(node-related commands), \f[B]gnt-instance\f[](8) (instance commands),
+\f[B]gnt-os\f[](8) (guest OS commands), \f[B]gnt-storage\f[](8) (storage
+commands), \f[B]gnt-group\f[](8) (node group commands),
+\f[B]gnt-backup\f[](8) (instance import/export commands),
+\f[B]gnt-debug\f[](8) (debug commands).
+.PP
+Ganeti daemons: \f[B]ganeti-watcher\f[](8) (automatic instance
+restarter), \f[B]ganeti-cleaner\f[](8) (job queue cleaner),
+\f[B]ganeti-noded\f[](8) (node daemon), \f[B]ganeti-masterd\f[](8)
+(master daemon), \f[B]ganeti-rapi\f[](8) (remote API daemon).
+.PP
+Ganeti htools: \f[B]htools\f[](1) (generic binary), \f[B]hbal\f[](1)
+(cluster balancer), \f[B]hspace\f[](1) (capacity calculation),
+\f[B]hail\f[](1) (IAllocator plugin), \f[B]hscan\f[](1) (data gatherer
+from remote clusters), \f[B]hinfo\f[](1) (cluster information printer),
+\f[B]mon-collector\f[](7) (data collectors interface).
+.SH COPYRIGHT
+.PP
+Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012 Google Inc.
+Permission is granted to copy, distribute and/or modify under the terms
+of the GNU General Public License as published by the Free Software
+Foundation; either version 2 of the License, or (at your option) any
+later version.
+.PP
+On Debian systems, the complete text of the GNU General Public License
+can be found in /usr/share/common-licenses/GPL.

@@ -46,8 +46,10 @@ _VALID_KEYS = compat.UniqueFrozenset([
   constants.SS_CLUSTER_TAGS,
   constants.SS_FILE_STORAGE_DIR,
   constants.SS_SHARED_FILE_STORAGE_DIR,
+  constants.SS_GLUSTER_STORAGE_DIR,
   constants.SS_MASTER_CANDIDATES,
   constants.SS_MASTER_CANDIDATES_IPS,
+  constants.SS_MASTER_CANDIDATES_CERTS,
   constants.SS_MASTER_IP,
   constants.SS_MASTER_NETDEV,
   constants.SS_MASTER_NETMASK,
@@ -55,6 +57,7 @@ _VALID_KEYS = compat.UniqueFrozenset([
   constants.SS_NODE_LIST,
   constants.SS_NODE_PRIMARY_IPS,
   constants.SS_NODE_SECONDARY_IPS,
+  constants.SS_NODE_VM_CAPABLE,
   constants.SS_OFFLINE_NODES,
   constants.SS_ONLINE_NODES,
   constants.SS_PRIMARY_IP_FAMILY,
@@ -71,6 +74,7 @@ _VALID_KEYS = compat.UniqueFrozenset([
   constants.SS_HVPARAMS_XEN_KVM,
   constants.SS_HVPARAMS_XEN_CHROOT,
   constants.SS_HVPARAMS_XEN_LXC,
+  constants.SS_ENABLED_USER_SHUTDOWN,
   ])
 
 #: Maximum size for ssconf files
@@ -220,6 +224,12 @@ class SimpleStore(object):
     """
     return self._ReadFile(constants.SS_SHARED_FILE_STORAGE_DIR)
 
+  def GetGlusterStorageDir(self):
+    """Get the Gluster storage dir.
+
+    """
+    return self._ReadFile(constants.SS_GLUSTER_STORAGE_DIR)
+
   def GetMasterCandidates(self):
     """Return the list of master candidates.
 
@@ -235,6 +245,22 @@ class SimpleStore(object):
     data = self._ReadFile(constants.SS_MASTER_CANDIDATES_IPS)
     nl = data.splitlines(False)
     return nl
+
+  def GetMasterCandidatesCertMap(self):
+    """Returns the map of master candidate UUIDs to ssl cert.
+
+    @rtype: dict of string to string
+    @return: dictionary mapping the master candidates' UUIDs
+      to their SSL certificate digests
+
+    """
+    data = self._ReadFile(constants.SS_MASTER_CANDIDATES_CERTS)
+    lines = data.splitlines(False)
+    certs = {}
+    for line in lines:
+      (node_uuid, cert_digest) = line.split("=")
+      certs[node_uuid] = cert_digest
+    return certs
 
   def GetMasterIP(self):
     """Get the IP of the master node for this cluster.
@@ -296,6 +322,20 @@ class SimpleStore(object):
     data = self._ReadFile(constants.SS_NODE_SECONDARY_IPS)
     nl = data.splitlines(False)
     return nl
+
+  def GetNodesVmCapable(self):
+    """Return the cluster nodes' vm capable value.
+
+    @rtype: dict of string to bool
+    @return: mapping of node names to vm capable values
+
+    """
+    data = self._ReadFile(constants.SS_NODE_VM_CAPABLE)
+    vm_capable = {}
+    for line in data.splitlines(False):
+      (node_uuid, node_vm_capable) = line.split("=")
+      vm_capable[node_uuid] = node_vm_capable == "True"
+    return vm_capable
 
   def GetNodegroupList(self):
     """Return the list of nodegroups.
@@ -390,6 +430,15 @@ class SimpleStore(object):
     except (ValueError, TypeError), err:
       raise errors.ConfigurationError("Error while trying to parse primary IP"
                                       " family: %s" % err)
+
+  def GetEnabledUserShutdown(self):
+    """Return whether user shutdown is enabled.
+
+    @rtype: bool
+    @return: 'True' if user shutdown is enabled, 'False' otherwise
+
+    """
+    return self._ReadFile(constants.SS_ENABLED_USER_SHUTDOWN) == "True"
 
 
 def WriteSsconfFiles(values, dry_run=False):

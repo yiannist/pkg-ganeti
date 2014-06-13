@@ -53,6 +53,7 @@ from ganeti.utils.mlock import *
 from ganeti.utils.nodesetup import *
 from ganeti.utils.process import *
 from ganeti.utils.retry import *
+from ganeti.utils.security import *
 from ganeti.utils.storage import *
 from ganeti.utils.text import *
 from ganeti.utils.wrapper import *
@@ -468,6 +469,13 @@ def WaitForFdCondition(fdobj, event, timeout):
 def EnsureDaemon(name):
   """Check for and start daemon if not alive.
 
+  @type name: string
+  @param name: daemon name
+
+  @rtype: bool
+  @return: 'True' if daemon successfully started,
+           'False' otherwise
+
   """
   result = RunCmd([pathutils.DAEMON_UTIL, "check-and-start", name])
   if result.failed:
@@ -480,6 +488,13 @@ def EnsureDaemon(name):
 
 def StopDaemon(name):
   """Stop daemon
+
+  @type name: string
+  @param name: daemon name
+
+  @rtype: bool
+  @return: 'True' if daemon successfully stopped,
+           'False' otherwise
 
   """
   result = RunCmd([pathutils.DAEMON_UTIL, "stop", name])

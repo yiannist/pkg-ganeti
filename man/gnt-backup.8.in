@@ -14,16 +14,19 @@ clusters.
 .SH COMMANDS
 .SS EXPORT
 .PP
-\f[B]export\f[] {-n \f[I]node\f[]} [--shutdown-timeout=\f[I]N\f[]]
-[--noshutdown]
+\f[B]export\f[] {-n \f[I]node\f[]}
 .PD 0
 .P
 .PD
-[--remove-instance] [--ignore-remove-failures] [--submit]
+[--shutdown-timeout=\f[I]N\f[]] [--noshutdown] [--remove-instance]
 .PD 0
 .P
 .PD
-[--print-job-id]
+[--ignore-remove-failures] [--submit] [--print-job-id]
+.PD 0
+.P
+.PD
+[--transport-compression=\f[I]compression-mode\f[]]
 .PD 0
 .P
 .PD
@@ -32,6 +35,10 @@ clusters.
 Exports an instance to the target node.
 All the instance data and its configuration will be exported under the
 \f[C]@CUSTOM_EXPORT_DIR@/$instance\f[] directory on the target node.
+.PP
+The \f[C]--transport-compression\f[] option is used to specify which
+compression mode is used to try and speed up moves during the export.
+Valid values are \[aq]none\[aq] (the default) and \[aq]gzip\[aq].
 .PP
 The \f[C]--shutdown-timeout\f[] is used to specify how much time to wait
 before forcing the shutdown (xm destroy in xen, killing the kvm process,
@@ -73,6 +80,10 @@ Example:
 .P
 .PD
 {-n \f[I]node[:secondary-node]\f[] | --iallocator \f[I]name\f[]}
+.PD 0
+.P
+.PD
+[--compress=\f[I]compression-mode\f[]]
 .PD 0
 .P
 .PD
@@ -265,6 +276,10 @@ documentation.
 .PP
 The optional second value of the \f[C]--node\f[] is used for the drbd
 template and specifies the remote node.
+.PP
+The \f[C]--compress\f[] option is used to specify which compression mode
+is used for moves during the import.
+Valid values are \[aq]none\[aq] (the default) and \[aq]gzip\[aq].
 .PP
 The \f[C]--src-dir\f[] option allows importing instances from a
 directory below \f[C]@CUSTOM_EXPORT_DIR@\f[].

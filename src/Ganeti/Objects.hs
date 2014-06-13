@@ -47,6 +47,7 @@ module Ganeti.Objects
   , allBeParamFields
   , Instance(..)
   , toDictInstance
+  , getDiskSizeRequirements
   , PartialNDParams(..)
   , FilledNDParams(..)
   , fillNDParams
@@ -84,6 +85,7 @@ module Ganeti.Objects
   , Ip4Network(..)
   , readIp4Address
   , nextIp4Address
+  , IAllocatorParams
   ) where
 
 import Control.Applicative
@@ -101,7 +103,7 @@ import qualified Ganeti.ConstantUtils as ConstantUtils
 import Ganeti.JSON
 import Ganeti.Types
 import Ganeti.THH
-import Ganeti.Utils (sepSplit, tryRead)
+import Ganeti.Utils (sepSplit, tryRead, parseUnitAssumeBinary)
 
 -- * Generic definitions
 
@@ -351,6 +353,13 @@ decodeDLId obj lid = do
           path'   <- readJSON path
           return $ LIDSharedFile driver' path'
         _ -> fail "Can't read logical_id for shared file type"
+    DTGluster ->
+      case lid of
+        JSArray [driver, path] -> do
+          driver' <- readJSON driver
+          path'   <- readJSON path
+          return $ LIDSharedFile driver' path'
+        _ -> fail "Can't read logical_id for shared file type"
     DTBlock ->
       case lid of
         JSArray [driver, path] -> do
@@ -419,25 +428,30 @@ includesLogicalId vg_name lv_name disk =
 -- * Instance definitions
 
 $(buildParam "Be" "bep"
-  [ simpleField "minmem"       [t| Int  |]
-  , simpleField "maxmem"       [t| Int  |]
-  , simpleField "vcpus"        [t| Int  |]
-  , simpleField "auto_balance" [t| Bool |]
+  [ specialNumericalField 'parseUnitAssumeBinary
+      $ simpleField "minmem"      [t| Int  |]
+  , specialNumericalField 'parseUnitAssumeBinary
+      $ simpleField "maxmem"      [t| Int  |]
+  , simpleField "vcpus"           [t| Int  |]
+  , simpleField "auto_balance"    [t| Bool |]
+  , simpleField "always_failover" [t| Bool |]
+  , simpleField "spindle_use"     [t| Int  |]
   ])
 
 $(buildObject "Instance" "inst" $
-  [ simpleField "name"           [t| String             |]
-  , simpleField "primary_node"   [t| String             |]
-  , simpleField "os"             [t| String             |]
-  , simpleField "hypervisor"     [t| Hypervisor         |]
-  , simpleField "hvparams"       [t| HvParams           |]
-  , simpleField "beparams"       [t| PartialBeParams    |]
-  , simpleField "osparams"       [t| OsParams           |]
-  , simpleField "admin_state"    [t| AdminState         |]
-  , simpleField "nics"           [t| [PartialNic]       |]
-  , simpleField "disks"          [t| [Disk]             |]
-  , simpleField "disk_template"  [t| DiskTemplate       |]
-  , simpleField "disks_active"   [t| Bool               |]
+  [ simpleField "name"               [t| String             |]
+  , simpleField "primary_node"       [t| String             |]
+  , simpleField "os"                 [t| String             |]
+  , simpleField "hypervisor"         [t| Hypervisor         |]
+  , simpleField "hvparams"           [t| HvParams           |]
+  , simpleField "beparams"           [t| PartialBeParams    |]
+  , simpleField "osparams"           [t| OsParams           |]
+  , simpleField "admin_state"        [t| AdminState         |]
+  , simpleField "admin_state_source" [t| AdminStateSource   |]
+  , simpleField "nics"               [t| [PartialNic]       |]
+  , simpleField "disks"              [t| [Disk]             |]
+  , simpleField "disk_template"      [t| DiskTemplate       |]
+  , simpleField "disks_active"       [t| Bool               |]
   , optionalField $ simpleField "network_port" [t| Int  |]
   ]
   ++ timeStampFields
@@ -457,6 +471,19 @@ instance SerialNoObject Instance where
 
 instance TagsObject Instance where
   tagsOf = instTags
+
+-- | Retrieves the real disk size requirements for all the disks of the
+-- instance. This includes the metadata etc. and is different from the values
+-- visible to the instance.
+getDiskSizeRequirements :: Instance -> Int
+getDiskSizeRequirements inst =
+  sum . map
+    (\disk -> case instDiskTemplate inst of
+                DTDrbd8    -> diskSize disk + C.drbdMetaSize
+                DTDiskless -> 0
+                DTBlock    -> 0
+                _          -> diskSize disk )
+    $ instDisks inst
 
 -- * IPolicy definitions
 
@@ -530,6 +557,7 @@ $(buildParam "ND" "ndp"
   , simpleField "ovs"           [t| Bool |]
   , simpleField "ovs_name"       [t| String |]
   , simpleField "ovs_link"       [t| String |]
+  , simpleField "ssh_port"      [t| Int |]
   ])
 
 $(buildObject "Node" "node" $
@@ -629,47 +657,58 @@ type ClusterNicParams = Container FilledNicParams
 -- | Cluster UID Pool, list (low, high) UID ranges.
 type UidPool = [(Int, Int)]
 
+-- | The iallocator parameters type.
+type IAllocatorParams = Container JSValue
+
+-- | The master candidate client certificate digests
+type CandidateCertificates = Container String
+
 -- * Cluster definitions
 $(buildObject "Cluster" "cluster" $
-  [ simpleField "rsahostkeypub"           [t| String           |]
+  [ simpleField "rsahostkeypub"             [t| String           |]
   , optionalField $
-    simpleField "dsahostkeypub"           [t| String           |]
-  , simpleField "highest_used_port"       [t| Int              |]
-  , simpleField "tcpudp_port_pool"        [t| [Int]            |]
-  , simpleField "mac_prefix"              [t| String           |]
+    simpleField "dsahostkeypub"             [t| String           |]
+  , simpleField "highest_used_port"         [t| Int              |]
+  , simpleField "tcpudp_port_pool"          [t| [Int]            |]
+  , simpleField "mac_prefix"                [t| String           |]
   , optionalField $
-    simpleField "volume_group_name"       [t| String           |]
-  , simpleField "reserved_lvs"            [t| [String]         |]
+    simpleField "volume_group_name"         [t| String           |]
+  , simpleField "reserved_lvs"              [t| [String]         |]
   , optionalField $
-    simpleField "drbd_usermode_helper"    [t| String           |]
-  , simpleField "master_node"             [t| String           |]
-  , simpleField "master_ip"               [t| String           |]
-  , simpleField "master_netdev"           [t| String           |]
-  , simpleField "master_netmask"          [t| Int              |]
-  , simpleField "use_external_mip_script" [t| Bool             |]
-  , simpleField "cluster_name"            [t| String           |]
-  , simpleField "file_storage_dir"        [t| String           |]
-  , simpleField "shared_file_storage_dir" [t| String           |]
-  , simpleField "enabled_hypervisors"     [t| [Hypervisor]     |]
-  , simpleField "hvparams"                [t| ClusterHvParams  |]
-  , simpleField "os_hvp"                  [t| OsHvParams       |]
-  , simpleField "beparams"                [t| ClusterBeParams  |]
-  , simpleField "osparams"                [t| ClusterOsParams  |]
-  , simpleField "nicparams"               [t| ClusterNicParams |]
-  , simpleField "ndparams"                [t| FilledNDParams   |]
-  , simpleField "diskparams"              [t| DiskParams       |]
-  , simpleField "candidate_pool_size"     [t| Int              |]
-  , simpleField "modify_etc_hosts"        [t| Bool             |]
-  , simpleField "modify_ssh_setup"        [t| Bool             |]
-  , simpleField "maintain_node_health"    [t| Bool             |]
-  , simpleField "uid_pool"                [t| UidPool          |]
-  , simpleField "default_iallocator"      [t| String           |]
-  , simpleField "hidden_os"               [t| [String]         |]
-  , simpleField "blacklisted_os"          [t| [String]         |]
-  , simpleField "primary_ip_family"       [t| IpFamily         |]
-  , simpleField "prealloc_wipe_disks"     [t| Bool             |]
-  , simpleField "ipolicy"                 [t| FilledIPolicy    |]
-  , simpleField "enabled_disk_templates"  [t| [DiskTemplate]   |]
+    simpleField "drbd_usermode_helper"      [t| String           |]
+  , simpleField "master_node"               [t| String           |]
+  , simpleField "master_ip"                 [t| String           |]
+  , simpleField "master_netdev"             [t| String           |]
+  , simpleField "master_netmask"            [t| Int              |]
+  , simpleField "use_external_mip_script"   [t| Bool             |]
+  , simpleField "cluster_name"              [t| String           |]
+  , simpleField "file_storage_dir"          [t| String           |]
+  , simpleField "shared_file_storage_dir"   [t| String           |]
+  , simpleField "gluster_storage_dir"       [t| String           |]
+  , simpleField "enabled_hypervisors"       [t| [Hypervisor]     |]
+  , simpleField "hvparams"                  [t| ClusterHvParams  |]
+  , simpleField "os_hvp"                    [t| OsHvParams       |]
+  , simpleField "beparams"                  [t| ClusterBeParams  |]
+  , simpleField "osparams"                  [t| ClusterOsParams  |]
+  , simpleField "nicparams"                 [t| ClusterNicParams |]
+  , simpleField "ndparams"                  [t| FilledNDParams   |]
+  , simpleField "diskparams"                [t| DiskParams       |]
+  , simpleField "candidate_pool_size"       [t| Int              |]
+  , simpleField "modify_etc_hosts"          [t| Bool             |]
+  , simpleField "modify_ssh_setup"          [t| Bool             |]
+  , simpleField "maintain_node_health"      [t| Bool             |]
+  , simpleField "uid_pool"                  [t| UidPool          |]
+  , simpleField "default_iallocator"        [t| String           |]
+  , simpleField "default_iallocator_params" [t| IAllocatorParams |]
+  , simpleField "hidden_os"                 [t| [String]         |]
+  , simpleField "blacklisted_os"            [t| [String]         |]
+  , simpleField "primary_ip_family"         [t| IpFamily         |]
+  , simpleField "prealloc_wipe_disks"       [t| Bool             |]
+  , simpleField "ipolicy"                   [t| FilledIPolicy    |]
+  , simpleField "enabled_disk_templates"    [t| [DiskTemplate]   |]
+  , simpleField "candidate_certs"           [t| CandidateCertificates |]
+  , simpleField "max_running_jobs"          [t| Int              |]
+  , simpleField "enabled_user_shutdown"     [t| Bool             |]
  ]
  ++ timeStampFields
  ++ uuidFields

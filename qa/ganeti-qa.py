@@ -31,6 +31,7 @@ import datetime
 import optparse
 import sys
 
+import colors
 import qa_cluster
 import qa_config
 import qa_daemon
@@ -38,6 +39,7 @@ import qa_env
 import qa_error
 import qa_group
 import qa_instance
+import qa_iptables
 import qa_monitoring
 import qa_network
 import qa_node
@@ -51,20 +53,20 @@ import qa_utils
 from ganeti import utils
 from ganeti import rapi # pylint: disable=W0611
 from ganeti import constants
-from ganeti import pathutils
+from ganeti import netutils
 
-from ganeti.http.auth import ParsePasswordFile
 import ganeti.rapi.client # pylint: disable=W0611
 from ganeti.rapi.client import UsesRapiClient
 
 
-def _FormatHeader(line, end=72):
+def _FormatHeader(line, end=72, mark="-", color=None):
   """Fill a line up to the end column.
 
   """
-  line = "---- " + line + " "
+  line = (mark * 4) + " " + line + " "
   line += "-" * (end - len(line))
   line = line.rstrip()
+  line = colors.colorize(line, color=color)
   return line
 
 
@@ -74,10 +76,13 @@ def _DescriptionOf(fn):
   """
   if fn.__doc__:
     desc = fn.__doc__.splitlines()[0].strip()
+    desc = desc.rstrip(".")
+    if fn.__name__:
+      desc = "[" + fn.__name__ + "] " + desc
   else:
     desc = "%r" % fn
 
-  return desc.rstrip(".")
+  return desc
 
 
 def RunTest(fn, *args, **kwargs):
@@ -90,15 +95,21 @@ def RunTest(fn, *args, **kwargs):
   desc = _DescriptionOf(fn)
 
   print
-  print _FormatHeader("%s start %s" % (tstart, desc))
+  print _FormatHeader("%s start %s" % (tstart, desc),
+                      color=colors.YELLOW, mark="<")
 
   try:
     retval = fn(*args, **kwargs)
+    print _FormatHeader("PASSED %s" % (desc, ), color=colors.GREEN)
     return retval
+  except Exception, e:
+    print _FormatHeader("FAILED %s: %s" % (desc, e), color=colors.RED)
+    raise
   finally:
     tstop = datetime.datetime.now()
     tdelta = tstop - tstart
-    print _FormatHeader("%s time=%s %s" % (tstop, tdelta, desc))
+    print _FormatHeader("%s time=%s %s" % (tstop, tdelta, desc),
+                        color=colors.MAGENTA, mark=">")
 
 
 def ReportTestSkip(desc, testnames):
@@ -114,7 +125,8 @@ def ReportTestSkip(desc, testnames):
   tstart = datetime.datetime.now()
   # TODO: Formatting test names when non-string names are involved
   print _FormatHeader("%s skipping %s, test(s) %s disabled" %
-                      (tstart, desc, testnames))
+                      (tstart, desc, testnames),
+                      color=colors.BLUE, mark="*")
 
 
 def RunTestIf(testnames, fn, *args, **kwargs):
@@ -131,6 +143,31 @@ def RunTestIf(testnames, fn, *args, **kwargs):
     ReportTestSkip(desc, testnames)
 
 
+def RunTestBlock(fn, *args, **kwargs):
+  """Runs a block of tests after printing a header.
+
+  """
+  tstart = datetime.datetime.now()
+
+  desc = _DescriptionOf(fn)
+
+  print
+  print _FormatHeader("BLOCK %s start %s" % (tstart, desc),
+                      color=[colors.YELLOW, colors.BOLD], mark="v")
+
+  try:
+    return fn(*args, **kwargs)
+  except Exception, e:
+    print _FormatHeader("BLOCK FAILED %s: %s" % (desc, e),
+                        color=[colors.RED, colors.BOLD])
+    raise
+  finally:
+    tstop = datetime.datetime.now()
+    tdelta = tstop - tstart
+    print _FormatHeader("BLOCK %s time=%s %s" % (tstop, tdelta, desc),
+                        color=[colors.MAGENTA, colors.BOLD], mark="^")
+
+
 def RunEnvTests():
   """Run several environment tests.
 
@@ -138,31 +175,6 @@ def RunEnvTests():
   RunTestIf("env", qa_env.TestSshConnection)
   RunTestIf("env", qa_env.TestIcmpPing)
   RunTestIf("env", qa_env.TestGanetiCommands)
-
-
-def _LookupRapiSecret(rapi_user):
-  """Find the RAPI secret for the given user.
-
-  @param rapi_user: Login user
-  @return: Login secret for the user
-
-  """
-  CTEXT = "{CLEARTEXT}"
-  master = qa_config.GetMasterNode()
-  cmd = ["cat", qa_utils.MakeNodePath(master, pathutils.RAPI_USERS_FILE)]
-  file_content = qa_utils.GetCommandOutput(master.primary,
-                                           utils.ShellQuoteArgs(cmd))
-  users = ParsePasswordFile(file_content)
-  entry = users.get(rapi_user)
-  if not entry:
-    raise qa_error.Error("User %s not found in RAPI users file" % rapi_user)
-  secret = entry.password
-  if secret.upper().startswith(CTEXT):
-    secret = secret[len(CTEXT):]
-  elif secret.startswith("{"):
-    raise qa_error.Error("Unsupported password schema for RAPI user %s:"
-                         " not a clear text password" % rapi_user)
-  return secret
 
 
 def SetupCluster(rapi_user):
@@ -181,7 +193,9 @@ def SetupCluster(rapi_user):
     qa_config.SetExclusiveStorage(qa_config.get("exclusive-storage", False))
     if qa_rapi.Enabled():
       # To support RAPI on an existing cluster we have to find out the secret
-      rapi_secret = _LookupRapiSecret(rapi_user)
+      rapi_secret = qa_rapi.LookupRapiSecret(rapi_user)
+
+  qa_group.ConfigureGroups()
 
   # Test on empty cluster
   RunTestIf("node-list", qa_node.TestNodeList)
@@ -230,6 +244,7 @@ def RunClusterTests():
     ("cluster-modify", qa_cluster.TestClusterModifyDiskTemplates),
     ("cluster-modify", qa_cluster.TestClusterModifyFileStorageDir),
     ("cluster-modify", qa_cluster.TestClusterModifySharedFileStorageDir),
+    ("cluster-modify", qa_cluster.TestClusterModifyUserShutdown),
     ("cluster-rename", qa_cluster.TestClusterRename),
     ("cluster-info", qa_cluster.TestClusterVersion),
     ("cluster-info", qa_cluster.TestClusterInfo),
@@ -426,8 +441,7 @@ def RunExportImportTests(instance, inodes):
   # based storage types are untested, though. Also note that import could still
   # work, but is deeply embedded into the "export" case.
   if (qa_config.TestEnabled("instance-export") and
-      instance.disk_template not in [constants.DT_FILE,
-                                     constants.DT_SHARED_FILE]):
+      instance.disk_template not in constants.DTS_FILEBASED):
     RunTest(qa_instance.TestInstanceExportNoTarget, instance)
 
     pnode = inodes[0]
@@ -453,8 +467,7 @@ def RunExportImportTests(instance, inodes):
   # FIXME: inter-cluster-instance-move crashes on file based instances :/
   # See Issue 414.
   if (qa_config.TestEnabled([qa_rapi.Enabled, "inter-cluster-instance-move"])
-      and (instance.disk_template not in
-           [constants.DT_FILE, constants.DT_SHARED_FILE])):
+      and (instance.disk_template not in constants.DTS_FILEBASED)):
     newinst = qa_config.AcquireInstance()
     try:
       tnode = qa_config.AcquireNode(exclude=inodes)
@@ -579,6 +592,65 @@ def RunExclusiveStorageTests():
     qa_cluster.TestSetExclStorCluster(old_es)
   finally:
     node.Release()
+
+
+def RunCustomSshPortTests():
+  """Test accessing nodes with custom SSH ports.
+
+  This requires removing nodes, adding them to a new group, and then undoing
+  the change.
+  """
+  if not qa_config.TestEnabled("group-custom-ssh-port"):
+    return
+
+  std_port = netutils.GetDaemonPort(constants.SSH)
+  port = 211
+  master = qa_config.GetMasterNode()
+  with qa_config.AcquireManyNodesCtx(1, exclude=master) as nodes:
+    # Checks if the node(s) could be contacted through IPv6.
+    # If yes, better skip the whole test.
+
+    for node in nodes:
+      if qa_utils.UsesIPv6Connection(node.primary, std_port):
+        print ("Node %s is likely to be reached using IPv6,"
+               "skipping the test" % (node.primary, ))
+        return
+
+    for node in nodes:
+      qa_node.NodeRemove(node)
+    with qa_iptables.RulesContext(nodes) as r:
+      with qa_group.NewGroupCtx() as group:
+        qa_group.ModifyGroupSshPort(r, group, nodes, port)
+
+        for node in nodes:
+          qa_node.NodeAdd(node, group=group)
+
+        # Make sure that the cluster doesn't have any pre-existing problem
+        qa_cluster.AssertClusterVerify()
+
+        # Create and allocate instances
+        instance1 = qa_instance.TestInstanceAddWithPlainDisk(nodes)
+        try:
+          instance2 = qa_instance.TestInstanceAddWithPlainDisk(nodes)
+          try:
+            # cluster-verify checks that disks are allocated correctly
+            qa_cluster.AssertClusterVerify()
+
+            # Remove instances
+            qa_instance.TestInstanceRemove(instance2)
+            qa_instance.TestInstanceRemove(instance1)
+          finally:
+            instance2.Release()
+        finally:
+          instance1.Release()
+
+        for node in nodes:
+          qa_node.NodeRemove(node)
+
+    for node in nodes:
+      qa_node.NodeAdd(node)
+
+    qa_cluster.AssertClusterVerify()
 
 
 def _BuildSpecDict(par, mn, st, mx):
@@ -719,26 +791,17 @@ def IsExclusiveStorageInstanceTestEnabled():
 
 def RunInstanceTests():
   """Create and exercise instances."""
-  instance_tests = [
-    ("instance-add-plain-disk", constants.DT_PLAIN,
-     qa_instance.TestInstanceAddWithPlainDisk, 1),
-    ("instance-add-drbd-disk", constants.DT_DRBD8,
-     qa_instance.TestInstanceAddWithDrbdDisk, 2),
-    ("instance-add-diskless", constants.DT_DISKLESS,
-     qa_instance.TestInstanceAddDiskless, 1),
-    ("instance-add-file", constants.DT_FILE,
-     qa_instance.TestInstanceAddFile, 1),
-    ("instance-add-shared-file", constants.DT_SHARED_FILE,
-     qa_instance.TestInstanceAddSharedFile, 1),
-    ]
 
-  for (test_name, templ, create_fun, num_nodes) in instance_tests:
+  for (test_name, templ, create_fun, num_nodes) in \
+      qa_instance.available_instance_tests:
     if (qa_config.TestEnabled(test_name) and
         qa_config.IsTemplateSupported(templ)):
       inodes = qa_config.AcquireManyNodes(num_nodes)
       try:
         instance = RunTest(create_fun, inodes)
         try:
+          RunTestIf("instance-user-down", qa_instance.TestInstanceUserDown,
+                    instance)
           RunTestIf("cluster-epo", qa_cluster.TestClusterEpo)
           RunDaemonTests(instance)
           for node in inodes:
@@ -834,22 +897,22 @@ def RunQa():
   """
   rapi_user = "ganeti-qa"
 
-  RunEnvTests()
+  RunTestBlock(RunEnvTests)
   rapi_secret = SetupCluster(rapi_user)
 
   if qa_rapi.Enabled():
     # Load RAPI certificate
     qa_rapi.Setup(rapi_user, rapi_secret)
 
-  RunClusterTests()
-  RunOsTests()
+  RunTestBlock(RunClusterTests)
+  RunTestBlock(RunOsTests)
 
   RunTestIf("tags", qa_tags.TestClusterTags)
 
-  RunCommonNodeTests()
-  RunGroupListTests()
-  RunGroupRwTests()
-  RunNetworkTests()
+  RunTestBlock(RunCommonNodeTests)
+  RunTestBlock(RunGroupListTests)
+  RunTestBlock(RunGroupRwTests)
+  RunTestBlock(RunNetworkTests)
 
   # The master shouldn't be readded or put offline; "delay" needs a non-master
   # node to test
@@ -907,7 +970,7 @@ def RunQa():
   for (conf_name, setup_conf_f, restore_conf_f) in config_list:
     if qa_config.TestEnabled(conf_name):
       oldconf = setup_conf_f()
-      RunInstanceTests()
+      RunTestBlock(RunInstanceTests)
       restore_conf_f(oldconf)
 
   pnode = qa_config.AcquireNode()
@@ -934,9 +997,13 @@ def RunQa():
   finally:
     pnode.Release()
 
-  RunExclusiveStorageTests()
+  RunTestIf("cluster-upgrade", qa_cluster.TestUpgrade)
+
+  RunTestBlock(RunExclusiveStorageTests)
   RunTestIf(["cluster-instance-policy", "instance-add-plain-disk"],
             TestIPolicyPlainInstance)
+
+  RunTestBlock(RunCustomSshPortTests)
 
   RunTestIf(
     "instance-add-restricted-by-disktemplates",
@@ -961,7 +1028,7 @@ def RunQa():
       snode.Release()
     qa_cluster.AssertClusterVerify()
 
-  RunMonitoringTests()
+  RunTestBlock(RunMonitoringTests)
 
   RunPerformanceTests()
 
@@ -975,6 +1042,8 @@ def main():
   """Main program.
 
   """
+  colors.check_for_colors()
+
   parser = optparse.OptionParser(usage="%prog [options] <config-file>")
   parser.add_option("--yes-do-it", dest="yes_do_it",
                     action="store_true",

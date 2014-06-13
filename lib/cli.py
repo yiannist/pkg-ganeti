@@ -36,15 +36,16 @@ from ganeti import utils
 from ganeti import errors
 from ganeti import constants
 from ganeti import opcodes
-from ganeti import luxi
-from ganeti import ssconf
-from ganeti import rpc
+import ganeti.rpc.errors as rpcerr
+import ganeti.rpc.node as rpc
 from ganeti import ssh
 from ganeti import compat
 from ganeti import netutils
 from ganeti import qlang
 from ganeti import objects
 from ganeti import pathutils
+
+from ganeti.runtime import (GetClient)
 
 from optparse import (OptionParser, TitledHelpFormatter,
                       Option, OptionValueError)
@@ -82,6 +83,7 @@ __all__ = [
   "EARLY_RELEASE_OPT",
   "ENABLED_HV_OPT",
   "ENABLED_DISK_TEMPLATES_OPT",
+  "ENABLED_USER_SHUTDOWN_OPT",
   "ERROR_CODES_OPT",
   "FAILURE_ONLY_OPT",
   "FIELDS_OPT",
@@ -95,6 +97,7 @@ __all__ = [
   "GATEWAY6_OPT",
   "GLOBAL_FILEDIR_OPT",
   "HID_OS_OPT",
+  "GLOBAL_GLUSTER_FILEDIR_OPT",
   "GLOBAL_SHARED_FILEDIR_OPT",
   "HOTPLUG_OPT",
   "HOTPLUG_IF_POSSIBLE_OPT",
@@ -103,6 +106,7 @@ __all__ = [
   "HYPERVISOR_OPT",
   "IALLOCATOR_OPT",
   "DEFAULT_IALLOCATOR_OPT",
+  "DEFAULT_IALLOCATOR_PARAMS_OPT",
   "IDENTIFY_DEFAULTS_OPT",
   "IGNORE_CONSIST_OPT",
   "IGNORE_ERRORS_OPT",
@@ -124,6 +128,7 @@ __all__ = [
   "NETWORK_OPT",
   "NETWORK6_OPT",
   "NEW_CLUSTER_CERT_OPT",
+  "NEW_NODE_CERT_OPT",
   "NEW_CLUSTER_DOMAIN_SECRET_OPT",
   "NEW_CONFD_HMAC_KEY_OPT",
   "NEW_RAPI_CERT_OPT",
@@ -142,7 +147,6 @@ __all__ = [
   "NOIPCHECK_OPT",
   "NO_INSTALL_OPT",
   "NONAMECHECK_OPT",
-  "NOLVM_STORAGE_OPT",
   "NOMODIFY_ETCHOSTS_OPT",
   "NOMODIFY_SSH_SETUP_OPT",
   "NONICS_OPT",
@@ -178,6 +182,7 @@ __all__ = [
   "REMOVE_RESERVED_IPS_OPT",
   "REMOVE_UIDS_OPT",
   "RESERVED_LVS_OPT",
+  "RQL_OPT",
   "RUNTIME_MEM_OPT",
   "ROMAN_OPT",
   "SECONDARY_IP_OPT",
@@ -186,6 +191,8 @@ __all__ = [
   "SEP_OPT",
   "SHOWCMD_OPT",
   "SHOW_MACHINE_OPT",
+  "COMPRESS_OPT",
+  "TRANSPORT_COMPRESSION_OPT",
   "SHUTDOWN_TIMEOUT_OPT",
   "SINGLE_NODE_OPT",
   "SPECS_CPU_COUNT_OPT",
@@ -232,6 +239,7 @@ __all__ = [
   "GenericListFields",
   "GetClient",
   "GetOnlineNodes",
+  "GetNodesSshPorts",
   "JobExecutor",
   "JobSubmittedException",
   "ParseTimespec",
@@ -918,6 +926,15 @@ DEFAULT_IALLOCATOR_OPT = cli_option("-I", "--default-iallocator",
                                     default=None, type="string",
                                     completion_suggest=OPT_COMPL_ONE_IALLOCATOR)
 
+DEFAULT_IALLOCATOR_PARAMS_OPT = cli_option("--default-iallocator-params",
+                                           dest="default_iallocator_params",
+                                           help="iallocator template"
+                                           " parameters, in the format"
+                                           " template:option=value,"
+                                           " option=value,...",
+                                           type="keyval",
+                                           default={})
+
 OS_OPT = cli_option("-o", "--os-type", dest="os", help="What OS to run",
                     metavar="<os>",
                     completion_suggest=OPT_COMPL_ONE_OS)
@@ -1246,11 +1263,6 @@ ALLOCATABLE_OPT = cli_option("--allocatable", dest="allocatable",
                              type="bool", default=None, metavar=_YORNO,
                              help="Set the allocatable flag on a volume")
 
-NOLVM_STORAGE_OPT = cli_option("--no-lvm-storage", dest="lvm_storage",
-                               help="Disable support for lvm based instances"
-                               " (cluster-wide)",
-                               action="store_false", default=True)
-
 ENABLED_HV_OPT = cli_option("--enabled-hypervisors",
                             dest="enabled_hypervisors",
                             help="Comma-separated list of hypervisors",
@@ -1262,6 +1274,12 @@ ENABLED_DISK_TEMPLATES_OPT = cli_option("--enabled-disk-templates",
                                              "disk templates",
                                         type="string", default=None)
 
+ENABLED_USER_SHUTDOWN_OPT = cli_option("--user-shutdown",
+                                       default=None,
+                                       dest="enabled_user_shutdown",
+                                       help="Whether user shutdown is enabled",
+                                       type="bool")
+
 NIC_PARAMS_OPT = cli_option("-N", "--nic-parameters", dest="nicparams",
                             type="keyval", default={},
                             help="NIC parameters")
@@ -1269,6 +1287,10 @@ NIC_PARAMS_OPT = cli_option("-N", "--nic-parameters", dest="nicparams",
 CP_SIZE_OPT = cli_option("-C", "--candidate-pool-size", default=None,
                          dest="candidate_pool_size", type="int",
                          help="Set the candidate pool size")
+
+RQL_OPT = cli_option("--max-running-jobs", dest="max_running_jobs",
+                     type="int", help="Set the maximal number of jobs to "
+                                      "run simultaneously")
 
 VG_NAME_OPT = cli_option("--vg-name", dest="vg_name",
                          help=("Enables LVM and specifies the volume group"
@@ -1325,6 +1347,15 @@ GLOBAL_SHARED_FILEDIR_OPT = cli_option(
   pathutils.DEFAULT_SHARED_FILE_STORAGE_DIR,
   metavar="SHAREDDIR", default=None)
 
+GLOBAL_GLUSTER_FILEDIR_OPT = cli_option(
+  "--gluster-storage-dir",
+  dest="gluster_storage_dir",
+  help="Specify the default directory (cluster-wide) for mounting Gluster"
+  " file systems [%s]" %
+  pathutils.DEFAULT_GLUSTER_STORAGE_DIR,
+  metavar="GLUSTERDIR",
+  default=pathutils.DEFAULT_GLUSTER_STORAGE_DIR)
+
 NOMODIFY_ETCHOSTS_OPT = cli_option("--no-etc-hosts", dest="modify_etc_hosts",
                                    help="Don't modify %s" % pathutils.ETC_HOSTS,
                                    action="store_false", default=True)
@@ -1366,6 +1397,16 @@ TIMEOUT_OPT = cli_option("--timeout", dest="timeout", type="int",
                          default=constants.DEFAULT_SHUTDOWN_TIMEOUT,
                          help="Maximum time to wait")
 
+COMPRESS_OPT = cli_option("--compress", dest="compress",
+                          default=constants.IEC_NONE,
+                          help="The compression mode to use",
+                          choices=list(constants.IEC_ALL))
+
+TRANSPORT_COMPRESSION_OPT = \
+    cli_option("--transport-compression", dest="transport_compression",
+               default=constants.IEC_NONE, choices=list(constants.IEC_ALL),
+               help="The compression mode to use during transport")
+
 SHUTDOWN_TIMEOUT_OPT = cli_option("--shutdown-timeout",
                                   dest="shutdown_timeout", type="int",
                                   default=constants.DEFAULT_SHUTDOWN_TIMEOUT,
@@ -1387,6 +1428,10 @@ NEW_CLUSTER_CERT_OPT = cli_option("--new-cluster-certificate",
                                   dest="new_cluster_cert",
                                   default=False, action="store_true",
                                   help="Generate a new cluster certificate")
+
+NEW_NODE_CERT_OPT = cli_option(
+  "--new-node-certificates", dest="new_node_cert", default=False,
+  action="store_true", help="Generate new node certificates (for all nodes)")
 
 RAPI_CERT_OPT = cli_option("--rapi-certificate", dest="rapi_cert",
                            default=None,
@@ -2380,51 +2425,6 @@ def SetGenericOpcodeOpts(opcode_list, options):
     _InitReasonTrail(op, options)
 
 
-def GetClient(query=False):
-  """Connects to the a luxi socket and returns a client.
-
-  @type query: boolean
-  @param query: this signifies that the client will only be
-      used for queries; if the build-time parameter
-      enable-split-queries is enabled, then the client will be
-      connected to the query socket instead of the masterd socket
-
-  """
-  override_socket = os.getenv(constants.LUXI_OVERRIDE, "")
-  if override_socket:
-    if override_socket == constants.LUXI_OVERRIDE_MASTER:
-      address = pathutils.MASTER_SOCKET
-    elif override_socket == constants.LUXI_OVERRIDE_QUERY:
-      address = pathutils.QUERY_SOCKET
-    else:
-      address = override_socket
-  elif query and constants.ENABLE_SPLIT_QUERY:
-    address = pathutils.QUERY_SOCKET
-  else:
-    address = None
-  # TODO: Cache object?
-  try:
-    client = luxi.Client(address=address)
-  except luxi.NoMasterError:
-    ss = ssconf.SimpleStore()
-
-    # Try to read ssconf file
-    try:
-      ss.GetMasterNode()
-    except errors.ConfigurationError:
-      raise errors.OpPrereqError("Cluster not initialized or this machine is"
-                                 " not part of a cluster",
-                                 errors.ECODE_INVAL)
-
-    master, myself = ssconf.GetMasterAndMyself(ss=ss)
-    if master != myself:
-      raise errors.OpPrereqError("This is not the master node, please connect"
-                                 " to node '%s' and rerun the command" %
-                                 master, errors.ECODE_INVAL)
-    raise
-  return client
-
-
 def FormatError(err):
   """Return a formatted error message for a given error.
 
@@ -2483,7 +2483,7 @@ def FormatError(err):
     obuf.write("Parameter Error: %s" % msg)
   elif isinstance(err, errors.ParameterError):
     obuf.write("Failure: unknown/wrong parameter name '%s'" % msg)
-  elif isinstance(err, luxi.NoMasterError):
+  elif isinstance(err, rpcerr.NoMasterError):
     if err.args[0] == pathutils.MASTER_SOCKET:
       daemon = "the master daemon"
     elif err.args[0] == pathutils.QUERY_SOCKET:
@@ -2492,16 +2492,16 @@ def FormatError(err):
       daemon = "socket '%s'" % str(err.args[0])
     obuf.write("Cannot communicate with %s.\nIs the process running"
                " and listening for connections?" % daemon)
-  elif isinstance(err, luxi.TimeoutError):
+  elif isinstance(err, rpcerr.TimeoutError):
     obuf.write("Timeout while talking to the master daemon. Jobs might have"
                " been submitted and will continue to run even if the call"
                " timed out. Useful commands in this situation are \"gnt-job"
                " list\", \"gnt-job cancel\" and \"gnt-job watch\". Error:\n")
     obuf.write(msg)
-  elif isinstance(err, luxi.PermissionError):
+  elif isinstance(err, rpcerr.PermissionError):
     obuf.write("It seems you don't have permissions to connect to the"
                " master daemon.\nPlease retry as a different user.")
-  elif isinstance(err, luxi.ProtocolError):
+  elif isinstance(err, rpcerr.ProtocolError):
     obuf.write("Unhandled protocol error while talking to the master daemon:\n"
                "%s" % msg)
   elif isinstance(err, errors.JobLost):
@@ -2586,7 +2586,7 @@ def GenericMain(commands, override=None, aliases=None,
 
   try:
     result = func(options, args)
-  except (errors.GenericError, luxi.ProtocolError,
+  except (errors.GenericError, rpcerr.ProtocolError,
           JobSubmittedException), err:
     result, err_msg = FormatError(err)
     logging.exception("Error during command processing")
@@ -2729,6 +2729,9 @@ def GenericInstanceCreate(mode, opts, args):
       else:
         raise errors.OpPrereqError("Missing size or adoption source for"
                                    " disk %d" % didx, errors.ECODE_INVAL)
+      if constants.IDISK_SPINDLES in ddict:
+        ddict[constants.IDISK_SPINDLES] = int(ddict[constants.IDISK_SPINDLES])
+
       disks[didx] = ddict
 
   if opts.tags is not None:
@@ -2748,6 +2751,7 @@ def GenericInstanceCreate(mode, opts, args):
     src_path = None
     no_install = opts.no_install
     identify_defaults = False
+    compress = constants.IEC_NONE
   elif mode == constants.INSTANCE_IMPORT:
     start = False
     os_type = None
@@ -2756,6 +2760,7 @@ def GenericInstanceCreate(mode, opts, args):
     src_path = opts.src_dir
     no_install = None
     identify_defaults = opts.identify_defaults
+    compress = opts.compress
   else:
     raise errors.ProgrammerError("Invalid creation mode %s" % mode)
 
@@ -2781,6 +2786,7 @@ def GenericInstanceCreate(mode, opts, args):
                                 force_variant=force_variant,
                                 src_node=src_node,
                                 src_path=src_path,
+                                compress=compress,
                                 tags=tags,
                                 no_install=no_install,
                                 identify_defaults=identify_defaults,
@@ -2794,7 +2800,8 @@ class _RunWhileClusterStoppedHelper(object):
   """Helper class for L{RunWhileClusterStopped} to simplify state management
 
   """
-  def __init__(self, feedback_fn, cluster_name, master_node, online_nodes):
+  def __init__(self, feedback_fn, cluster_name, master_node,
+               online_nodes, ssh_ports):
     """Initializes this class.
 
     @type feedback_fn: callable
@@ -2805,12 +2812,15 @@ class _RunWhileClusterStoppedHelper(object):
     @param master_node Master node name
     @type online_nodes: list
     @param online_nodes: List of names of online nodes
+    @type ssh_ports: list
+    @param ssh_ports: List of SSH ports of online nodes
 
     """
     self.feedback_fn = feedback_fn
     self.cluster_name = cluster_name
     self.master_node = master_node
     self.online_nodes = online_nodes
+    self.ssh_ports = dict(zip(online_nodes, ssh_ports))
 
     self.ssh = ssh.SshRunner(self.cluster_name)
 
@@ -2833,7 +2843,8 @@ class _RunWhileClusterStoppedHelper(object):
       result = utils.RunCmd(cmd)
     else:
       result = self.ssh.Run(node_name, constants.SSH_LOGIN_USER,
-                            utils.ShellQuoteArgs(cmd))
+                            utils.ShellQuoteArgs(cmd),
+                            port=self.ssh_ports[node_name])
 
     if result.failed:
       errmsg = ["Failed to run command %s" % result.cmd]
@@ -2899,19 +2910,23 @@ def RunWhileClusterStopped(feedback_fn, fn, *args):
 
   # This ensures we're running on the master daemon
   cl = GetClient()
+  # Query client
+  qcl = GetClient(query=True)
 
   (cluster_name, master_node) = \
     cl.QueryConfigValues(["cluster_name", "master_node"])
 
-  online_nodes = GetOnlineNodes([], cl=cl)
+  online_nodes = GetOnlineNodes([], cl=qcl)
+  ssh_ports = GetNodesSshPorts(online_nodes, qcl)
 
   # Don't keep a reference to the client. The master daemon will go away.
   del cl
+  del qcl
 
   assert master_node in online_nodes
 
   return _RunWhileClusterStoppedHelper(feedback_fn, cluster_name, master_node,
-                                       online_nodes).Call(fn, *args)
+                                       online_nodes, ssh_ports).Call(fn, *args)
 
 
 def GenerateTable(headers, fields, separator, data,
@@ -3517,7 +3532,7 @@ def GetOnlineNodes(nodes, cl=None, nowarn=False, secondary_ips=False,
 
   """
   if cl is None:
-    cl = GetClient()
+    cl = GetClient(query=True)
 
   qfilter = []
 
@@ -3566,6 +3581,22 @@ def GetOnlineNodes(nodes, cl=None, nowarn=False, secondary_ips=False,
     fn = _GetName
 
   return map(fn, online)
+
+
+def GetNodesSshPorts(nodes, cl):
+  """Retrieves SSH ports of given nodes.
+
+  @param nodes: the names of nodes
+  @type nodes: a list of strings
+  @param cl: a client to use for the query
+  @type cl: L{Client}
+  @return: the list of SSH ports corresponding to the nodes
+  @rtype: a list of tuples
+  """
+  return map(lambda t: t[0],
+             cl.QueryNodes(names=nodes,
+                           fields=["ndp/ssh_port"],
+                           use_locking=False))
 
 
 def _ToStream(stream, txt, *args):
@@ -3734,7 +3765,7 @@ class JobExecutor(object):
         ToStderr("Job %s%s has been archived, cannot check its result",
                  jid, self._IfName(name, " for %s"))
         success = False
-      except (errors.GenericError, luxi.ProtocolError), err:
+      except (errors.GenericError, rpcerr.ProtocolError), err:
         _, job_result = FormatError(err)
         success = False
         # the error message will always be shown, verbose or not

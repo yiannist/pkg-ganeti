@@ -297,7 +297,7 @@ class _QaConfig(object):
     """Applies a single patch.
 
     @type data: dict (deserialized json)
-    @param data: The QA configuration
+    @param data: The QA configuration to modify
     @type patch_module: module
     @param patch_module: The json patch module, loaded dynamically
     @type patches: dict of string to dict
@@ -305,15 +305,13 @@ class _QaConfig(object):
     @type patch_path: string
     @param patch_path: The path to the patch, relative to the QA directory
 
-    @return: The modified configuration data.
-
     """
     patch_content = patches[patch_path]
     print qa_logging.FormatInfo("Applying patch %s" % patch_path)
     if not patch_content and patch_path != _QA_DEFAULT_PATCH:
       print qa_logging.FormatWarning("The patch %s added by the user is empty" %
                                      patch_path)
-    data = patch_module.apply_patch(data, patch_content)
+    patch_module.apply_patch(data, patch_content, in_place=True)
 
   @staticmethod
   def ApplyPatches(data, patch_module, patches):
@@ -326,13 +324,11 @@ class _QaConfig(object):
     top-level QA directory is applied.
 
     @type data: dict (deserialized json)
-    @param data: The QA configuration
+    @param data: The QA configuration to modify
     @type patch_module: module
     @param patch_module: The json patch module, loaded dynamically
     @type patches: dict of string to dict
     @param patches: The dictionary of patch path to content
-
-    @return: The modified configuration data.
 
     """
     ordered_patches = []
@@ -364,8 +360,6 @@ class _QaConfig(object):
     if _QA_DEFAULT_PATCH in patches:
       _QaConfig.ApplyPatch(data, patch_module, patches, _QA_DEFAULT_PATCH)
 
-    return data
-
   @classmethod
   def Load(cls, filename):
     """Loads a configuration file and produces a configuration object.
@@ -384,7 +378,7 @@ class _QaConfig(object):
       # Try to use the module only if there is a non-empty patch present
       if any(patches.values()):
         mod = __import__("jsonpatch", fromlist=[])
-        data = _QaConfig.ApplyPatches(data, mod, patches)
+        _QaConfig.ApplyPatches(data, mod, patches)
     except IOError:
       pass
     except ImportError:
@@ -593,9 +587,9 @@ class _QaConfig(object):
     """
     enabled_disk_templates = self.GetEnabledDiskTemplates()
     if storage_type == constants.ST_LVM_PV:
-      disk_templates = utils.GetDiskTemplatesOfStorageType(constants.ST_LVM_VG)
+      disk_templates = utils.GetDiskTemplatesOfStorageTypes(constants.ST_LVM_VG)
     else:
-      disk_templates = utils.GetDiskTemplatesOfStorageType(storage_type)
+      disk_templates = utils.GetDiskTemplatesOfStorageTypes(storage_type)
     return bool(set(enabled_disk_templates).intersection(set(disk_templates)))
 
   def AreSpindlesSupported(self):
@@ -815,6 +809,48 @@ def AcquireInstance(_cfg=None):
   return instance
 
 
+def AcquireManyInstances(num, _cfg=None):
+  """Return instances that are not in use.
+
+  @type num: int
+  @param num: Number of instances; can be 0.
+  @rtype: list of instances
+  @return: C{num} different instances
+
+  """
+
+  if _cfg is None:
+    cfg = GetConfig()
+  else:
+    cfg = _cfg
+
+  # Filter out unwanted instances
+  instances = filter(lambda inst: not inst.used, cfg["instances"])
+
+  if len(instances) < num:
+    raise qa_error.OutOfInstancesError(
+      "Not enough instances left (%d needed, %d remaining)" %
+      (num, len(instances))
+    )
+
+  instances = []
+
+  try:
+    for _ in range(0, num):
+      n = AcquireInstance(_cfg=cfg)
+      instances.append(n)
+  except qa_error.OutOfInstancesError:
+    ReleaseManyInstances(instances)
+    raise
+
+  return instances
+
+
+def ReleaseManyInstances(instances):
+  for instance in instances:
+    instance.Release()
+
+
 def SetExclusiveStorage(value):
   """Wrapper for L{_QaConfig.SetExclusiveStorage}.
 
@@ -888,7 +924,25 @@ def AcquireNode(exclude=None, _cfg=None):
   return sorted(nodes, key=_NodeSortKey)[0].Use()
 
 
-def AcquireManyNodes(num, exclude=None):
+class AcquireManyNodesCtx(object):
+  """Returns the least used nodes for use with a `with` block
+
+  """
+  def __init__(self, num, exclude=None, cfg=None):
+    self._num = num
+    self._exclude = exclude
+    self._cfg = cfg
+
+  def __enter__(self):
+    self._nodes = AcquireManyNodes(self._num, exclude=self._exclude,
+                                   cfg=self._cfg)
+    return self._nodes
+
+  def __exit__(self, exc_type, exc_value, exc_tb):
+    ReleaseManyNodes(self._nodes)
+
+
+def AcquireManyNodes(num, exclude=None, cfg=None):
   """Return the least used nodes.
 
   @type num: int
@@ -910,7 +964,7 @@ def AcquireManyNodes(num, exclude=None):
 
   try:
     for _ in range(0, num):
-      n = AcquireNode(exclude=exclude)
+      n = AcquireNode(exclude=exclude, _cfg=cfg)
       nodes.append(n)
       exclude.append(n)
   except qa_error.OutOfNodesError:

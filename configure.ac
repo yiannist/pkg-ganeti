@@ -1,7 +1,7 @@
 # Configure script for Ganeti
 m4_define([gnt_version_major], [2])
-m4_define([gnt_version_minor], [10])
-m4_define([gnt_version_revision], [5])
+m4_define([gnt_version_minor], [11])
+m4_define([gnt_version_revision], [2])
 m4_define([gnt_version_suffix], [])
 m4_define([gnt_version_full],
           m4_format([%d.%d.%d%s],
@@ -48,17 +48,65 @@ AM_CONDITIONAL([USE_VERSION_FULL], [test "$USE_VERSION_FULL" = yes])
 AC_ARG_ENABLE([symlinks],
   [AS_HELP_STRING([--enable-symlinks],
                   m4_normalize([also install version-dependent symlinks under
-                  $sysconfdir (default: enabled)]))],
-  [[if test "$enableval" != no; then
-      INSTALL_SYMLINKS=yes
-    else
+                  $sysconfdir (default: disabled)]))],
+  [[if test "$enableval" != yes; then
       INSTALL_SYMLINKS=no
+    else
+      INSTALL_SYMLINKS=yes
     fi
   ]],
-  [INSTALL_SYMLINKS=yes
+  [INSTALL_SYMLINKS=no
   ])
 AC_SUBST(INSTALL_SYMLINKS, $INSTALL_SYMLINKS)
 AM_CONDITIONAL([INSTALL_SYMLINKS], [test "$INSTALL_SYMLINKS" = yes])
+
+# --enable-haskell-profiling
+AC_ARG_ENABLE([haskell-profiling],
+  [AS_HELP_STRING([--enable-haskell-profiling],
+                  m4_normalize([enable profiling for Haskell binaries
+                  (default: disabled)]))],
+  [[if test "$enableval" != yes; then
+      HPROFILE=no
+    else
+      HPROFILE=yes
+    fi
+  ]],
+  [HPROFILE=no
+  ])
+AC_SUBST(HPROFILE, $HPROFILE)
+AM_CONDITIONAL([HPROFILE], [test "$HPROFILE" = yes])
+
+# --enable-haskell-coverage
+AC_ARG_ENABLE([haskell-coverage],
+  [AS_HELP_STRING([--enable-haskell-coverage],
+                  m4_normalize([enable coverage for Haskell binaries
+                  (default: disabled)]))],
+  [[if test "$enableval" != yes; then
+      HCOVERAGE=no
+    else
+      HCOVERAGE=yes
+    fi
+  ]],
+  [HCOVERAGE=no
+  ])
+AC_SUBST(HCOVERAGE, $HCOVERAGE)
+AM_CONDITIONAL([HCOVERAGE], [test "$HCOVERAGE" = yes])
+
+# --enable-haskell-tests
+AC_ARG_ENABLE([haskell-tests],
+  [AS_HELP_STRING([--enable-haskell-tests],
+                  m4_normalize([enable additinal Haskell development test code
+                  (default: disabled)]))],
+  [[if test "$enableval" != yes; then
+      HTEST=no
+    else
+      HTEST=yes
+    fi
+  ]],
+  [HTEST=no
+  ])
+AC_SUBST(HTEST, $HTEST)
+AM_CONDITIONAL([HTEST], [test "$HTEST" = yes])
 
 # --with-haskell-flags=
 AC_ARG_WITH([haskell-flags],
@@ -240,18 +288,21 @@ AC_ARG_WITH([user-prefix],
   [user_masterd="${withval}masterd";
    user_rapi="${withval}rapi";
    user_confd="${withval}confd";
-   user_luxid="${withval}luxid";
+   user_kvmd="$user_default";
+   user_luxid="${withval}masterd";
    user_noded="$user_default";
    user_mond="$user_default"],
   [user_masterd="$user_default";
    user_rapi="$user_default";
    user_confd="$user_default";
+   user_kvmd="$user_default";
    user_luxid="$user_default";
    user_noded="$user_default";
    user_mond="$user_default"])
 AC_SUBST(MASTERD_USER, $user_masterd)
 AC_SUBST(RAPI_USER, $user_rapi)
 AC_SUBST(CONFD_USER, $user_confd)
+AC_SUBST(KVMD_USER, $user_kvmd)
 AC_SUBST(LUXID_USER, $user_luxid)
 AC_SUBST(NODED_USER, $user_noded)
 AC_SUBST(MOND_USER, $user_mond)
@@ -266,6 +317,7 @@ AC_ARG_WITH([group-prefix],
   [group_rapi="${withval}rapi";
    group_admin="${withval}admin";
    group_confd="${withval}confd";
+   group_kvmd="$group_default";
    group_luxid="${withval}luxid";
    group_masterd="${withval}masterd";
    group_noded="$group_default";
@@ -274,6 +326,7 @@ AC_ARG_WITH([group-prefix],
   [group_rapi="$group_default";
    group_admin="$group_default";
    group_confd="$group_default";
+   group_kvmd="$group_default";
    group_luxid="$group_default";
    group_masterd="$group_default";
    group_noded="$group_default";
@@ -282,6 +335,7 @@ AC_ARG_WITH([group-prefix],
 AC_SUBST(RAPI_GROUP, $group_rapi)
 AC_SUBST(ADMIN_GROUP, $group_admin)
 AC_SUBST(CONFD_GROUP, $group_confd)
+AC_SUBST(KVMD_GROUP, $group_kvmd)
 AC_SUBST(LUXID_GROUP, $group_luxid)
 AC_SUBST(MASTERD_GROUP, $group_masterd)
 AC_SUBST(NODED_GROUP, $group_noded)
@@ -541,20 +595,28 @@ AC_GHC_PKG_REQUIRE(json)
 AC_GHC_PKG_REQUIRE(network)
 AC_GHC_PKG_REQUIRE(mtl)
 AC_GHC_PKG_REQUIRE(bytestring)
+AC_GHC_PKG_REQUIRE(base64-bytestring-1.*, t)
 AC_GHC_PKG_REQUIRE(utf8-string)
+AC_GHC_PKG_REQUIRE(zlib)
 AC_GHC_PKG_REQUIRE(hslogger)
+AC_GHC_PKG_REQUIRE(process)
+AC_GHC_PKG_REQUIRE(attoparsec)
+AC_GHC_PKG_REQUIRE(vector)
+AC_GHC_PKG_REQUIRE(text)
+AC_GHC_PKG_REQUIRE(hinotify)
+AC_GHC_PKG_REQUIRE(Crypto)
 
-# extra modules for confd functionality
+# extra modules for confd functionality; also needed for tests
+HS_NODEV=
+CONFD_PKG=
+# if a new confd dependency is needed, add it here like:
+# AC_GHC_PKG_CHECK([somepkg], [], [HS_NODEV=1; CONFD_PKG="$CONFD_PKG somepkg"])
 HS_REGEX_PCRE=-DNO_REGEX_PCRE
+AC_GHC_PKG_CHECK([regex-pcre], [HS_REGEX_PCRE=],
+                 [HS_NODEV=1; CONFD_PKG="$CONFD_PKG regex-pcre"])
+
 has_confd=False
 if test "$enable_confd" != no; then
-  CONFD_PKG=
-  AC_GHC_PKG_CHECK([regex-pcre], [HS_REGEX_PCRE=],
-                   [CONFD_PKG="$CONFD_PKG regex-pcre"])
-  AC_GHC_PKG_CHECK([Crypto], [], [CONFD_PKG="$CONFD_PKG Crypto"])
-  AC_GHC_PKG_CHECK([text], [], [CONFD_PKG="$CONFD_PKG text"])
-  AC_GHC_PKG_CHECK([hinotify], [], [CONFD_PKG="$CONFD_PKG hinotify"])
-  AC_GHC_PKG_CHECK([vector], [], [CONFD_PKG="$CONFD_PKG vector"])
   if test -z "$CONFD_PKG"; then
     has_confd=True
   elif test "$enable_confd" = check; then
@@ -573,16 +635,13 @@ fi
 AC_SUBST(ENABLE_CONFD, $has_confd)
 AM_CONDITIONAL([ENABLE_CONFD], [test x$has_confd = xTrue])
 
-#extra modules for monitoring daemon functionality
+#extra modules for monitoring daemon functionality; also needed for tests
+MONITORING_PKG=
+AC_GHC_PKG_CHECK([snap-server], [],
+                 [NS_NODEV=1; MONITORING_PKG="$MONITORING_PKG snap-server"])
+
 has_monitoring=False
 if test "$enable_monitoring" != no; then
-  MONITORING_PKG=
-  AC_GHC_PKG_CHECK([attoparsec], [],
-                   [MONITORING_PKG="$MONITORING_PKG attoparsec"])
-  AC_GHC_PKG_CHECK([snap-server], [],
-                   [MONITORING_PKG="$MONITORING_PKG snap-server"])
-  AC_GHC_PKG_CHECK([process], [],
-                   [MONITORING_PKG="$MONITORING_PKG process"])
   MONITORING_DEP=
   if test "$has_confd" = False; then
     MONITORING_DEP="$MONITORING_DEP confd"
@@ -621,23 +680,11 @@ AC_SUBST(ENABLE_MOND, $has_monitoring)
 AM_CONDITIONAL([ENABLE_MOND], [test "$has_monitoring" = True])
 
 # development modules
-HS_NODEV=
 AC_GHC_PKG_CHECK([QuickCheck-2.*], [], [HS_NODEV=1], t)
 AC_GHC_PKG_CHECK([test-framework-0.6*], [], [HS_NODEV=1], t)
 AC_GHC_PKG_CHECK([test-framework-hunit], [], [HS_NODEV=1])
 AC_GHC_PKG_CHECK([test-framework-quickcheck2], [], [HS_NODEV=1])
 AC_GHC_PKG_CHECK([temporary], [], [HS_NODEV=1])
-# FIXME: unify checks for non-test libraries (attoparsec, hinotify, ...)
-#        that are needed to execute the tests, avoiding the duplication
-#        of the checks.
-AC_GHC_PKG_CHECK([attoparsec], [], [HS_NODEV=1])
-AC_GHC_PKG_CHECK([vector], [], [HS_NODEV=1])
-AC_GHC_PKG_CHECK([process], [], [HS_NODEV=1])
-AC_GHC_PKG_CHECK([snap-server], [], [HS_NODEV=1])
-AC_GHC_PKG_CHECK([regex-pcre], [], [HS_NODEV=1])
-AC_GHC_PKG_CHECK([Crypto], [], [HS_NODEV=1])
-AC_GHC_PKG_CHECK([text], [], [HS_NODEV=1])
-AC_GHC_PKG_CHECK([hinotify], [], [HS_NODEV=1])
 if test -n "$HS_NODEV"; then
    AC_MSG_WARN(m4_normalize([Required development modules were not found,
                              you won't be able to run Haskell unittests]))
@@ -645,45 +692,7 @@ else
    AC_MSG_NOTICE([Haskell development modules found, unittests enabled])
 fi
 AC_SUBST(HS_NODEV)
-
-HTOOLS=yes
-AC_SUBST(HTOOLS)
-
-# --enable-split-query
-ENABLE_SPLIT_QUERY=
-AC_ARG_ENABLE([split-query],
-  [AS_HELP_STRING([--enable-split-query],
-  [enable use of custom query daemon via confd])],
-  [[case "$enableval" in
-      no)
-        enable_split_query=False
-        ;;
-      yes)
-        enable_split_query=True
-        ;;
-      *)
-        echo "Invalid value for enable-confd '$enableval'"
-        exit 1
-        ;;
-    esac
-  ]],
-  [[case "x${has_confd}x" in
-     xTruex)
-       enable_split_query=True
-       ;;
-     *)
-       enable_split_query=False
-       ;;
-   esac]])
-AC_SUBST(ENABLE_SPLIT_QUERY, $enable_split_query)
-
-if test x$enable_split_query = xTrue -a x$has_confd != xTrue; then
-  AC_MSG_ERROR([Split queries require the confd daemon])
-fi
-
-if test x$enable_split_query = xTrue; then
-  AC_MSG_NOTICE([Split query functionality enabled])
-fi
+AM_CONDITIONAL([HS_UNIT], [test -n $HS_NODEV])
 
 # Check for HsColour
 HS_APIDOC=no
@@ -713,12 +722,6 @@ if test -z "$HLINT"; then
   AC_MSG_WARN([hlint not found, checking code will not be possible])
 fi
 
-if test "$HTOOLS" != yes && test "$ENABLE_CONFD" = True; then
-  AC_MSG_ERROR(m4_normalize([cannot enable ganeti-confd if
-                             htools support is not enabled]))
-fi
-
-AM_CONDITIONAL([WANT_HTOOLS], [test "$HTOOLS" = yes])
 AM_CONDITIONAL([WANT_HSTESTS], [test "x$HS_NODEV" = x])
 AM_CONDITIONAL([WANT_HSAPIDOC], [test "$HS_APIDOC" = yes])
 AM_CONDITIONAL([HAS_HLINT], [test "$HLINT"])
@@ -818,6 +821,18 @@ else
 fi
 AC_SUBST(PY_NODEV)
 AM_CONDITIONAL([PY_UNIT], [test -n $PY_NODEV])
+
+include_makefile_ghc='
+ifneq ($(MAKECMDGOALS),ganeti)
+ifneq ($(MAKECMDGOALS),clean)
+ifneq ($(MAKECMDGOALS),distclean)
+include Makefile.ghc
+endif
+endif
+endif
+'
+AC_SUBST([include_makefile_ghc])
+AM_SUBST_NOTMAKE([include_makefile_ghc])
 
 AC_CONFIG_FILES([ Makefile ])
 

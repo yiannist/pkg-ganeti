@@ -212,6 +212,12 @@ confdUser = Runtime.daemonUser GanetiConfd
 confdGroup :: String
 confdGroup = Runtime.daemonGroup (DaemonGroup GanetiConfd)
 
+kvmdUser :: String
+kvmdUser = Runtime.daemonUser GanetiKvmd
+
+kvmdGroup :: String
+kvmdGroup = Runtime.daemonGroup (DaemonGroup GanetiKvmd)
+
 luxidUser :: String
 luxidUser = Runtime.daemonUser GanetiLuxid
 
@@ -313,9 +319,6 @@ enableMond = AutoConf.enableMond
 enableRestrictedCommands :: Bool
 enableRestrictedCommands = AutoConf.enableRestrictedCommands
 
-enableSplitQuery :: Bool
-enableSplitQuery = AutoConf.enableSplitQuery
-
 -- * SSH constants
 
 ssh :: String
@@ -343,6 +346,9 @@ luxid = Runtime.daemonName GanetiLuxid
 
 rapi :: String
 rapi = Runtime.daemonName GanetiRapi
+
+kvmd :: String
+kvmd = Runtime.daemonName GanetiKvmd
 
 daemons :: FrozenSet String
 daemons =
@@ -662,6 +668,9 @@ stExt = Types.storageTypeToRaw StorageExt
 stFile :: String
 stFile = Types.storageTypeToRaw StorageFile
 
+stSharedFile :: String
+stSharedFile = Types.storageTypeToRaw StorageSharedFile
+
 stLvmPv :: String
 stLvmPv = Types.storageTypeToRaw StorageLvmPv
 
@@ -674,12 +683,15 @@ stRados = Types.storageTypeToRaw StorageRados
 storageTypes :: FrozenSet String
 storageTypes = ConstantUtils.mkSet $ map Types.storageTypeToRaw [minBound..]
 
--- | The set of storage types for which storage reporting is available
---
--- FIXME: Remove this, once storage reporting is available for all
--- types.
+-- | The set of storage types for which full storage reporting is available
 stsReport :: FrozenSet String
 stsReport = ConstantUtils.mkSet [stFile, stLvmPv, stLvmVg]
+
+-- | The set of storage types for which node storage reporting is available
+-- | (as used by LUQueryNodeStorage)
+stsReportNodeStorage :: FrozenSet String
+stsReportNodeStorage = ConstantUtils.union stsReport $
+                                           ConstantUtils.mkSet [stSharedFile]
 
 -- * Storage fields
 -- ** First two are valid in LU context only, not passed to backend
@@ -792,6 +804,9 @@ dtRbd = Types.diskTemplateToRaw DTRbd
 dtExt :: String
 dtExt = Types.diskTemplateToRaw DTExt
 
+dtGluster :: String
+dtGluster = Types.diskTemplateToRaw DTGluster
+
 -- | This is used to order determine the default disk template when
 -- the list of enabled disk templates is inferred from the current
 -- state of the cluster.  This only happens on an upgrade from a
@@ -800,7 +815,8 @@ dtExt = Types.diskTemplateToRaw DTExt
 diskTemplatePreference :: [String]
 diskTemplatePreference =
   map Types.diskTemplateToRaw
-  [DTBlock, DTDiskless, DTDrbd8, DTExt, DTFile, DTPlain, DTRbd, DTSharedFile]
+  [DTBlock, DTDiskless, DTDrbd8, DTExt, DTFile,
+   DTPlain, DTRbd, DTSharedFile, DTGluster]
 
 diskTemplates :: FrozenSet String
 diskTemplates = ConstantUtils.mkSet $ map Types.diskTemplateToRaw [minBound..]
@@ -817,11 +833,12 @@ mapDiskTemplateStorageType =
   [(DTBlock, StorageBlock),
    (DTDrbd8, StorageLvmVg),
    (DTExt, StorageExt),
-   (DTSharedFile, StorageFile),
+   (DTSharedFile, StorageSharedFile),
    (DTFile, StorageFile),
    (DTDiskless, StorageDiskless),
    (DTPlain, StorageLvmVg),
-   (DTRbd, StorageRados)]
+   (DTRbd, StorageRados),
+   (DTGluster, StorageSharedFile)]
 
 -- | The set of network-mirrored disk templates
 dtsIntMirror :: FrozenSet String
@@ -831,21 +848,22 @@ dtsIntMirror = ConstantUtils.mkSet [dtDrbd8]
 dtsExtMirror :: FrozenSet String
 dtsExtMirror =
   ConstantUtils.mkSet $
-  map Types.diskTemplateToRaw [DTDiskless, DTBlock, DTExt, DTSharedFile, DTRbd]
+  map Types.diskTemplateToRaw
+  [DTDiskless, DTBlock, DTExt, DTSharedFile, DTRbd, DTGluster]
 
 -- | The set of non-lvm-based disk templates
 dtsNotLvm :: FrozenSet String
 dtsNotLvm =
   ConstantUtils.mkSet $
   map Types.diskTemplateToRaw
-  [DTSharedFile, DTDiskless, DTBlock, DTExt, DTFile, DTRbd]
+  [DTSharedFile, DTDiskless, DTBlock, DTExt, DTFile, DTRbd, DTGluster]
 
 -- | The set of disk templates which can be grown
 dtsGrowable :: FrozenSet String
 dtsGrowable =
   ConstantUtils.mkSet $
   map Types.diskTemplateToRaw
-  [DTSharedFile, DTDrbd8, DTPlain, DTExt, DTFile, DTRbd]
+  [DTSharedFile, DTDrbd8, DTPlain, DTExt, DTFile, DTRbd, DTGluster]
 
 -- | The set of disk templates that allow adoption
 dtsMayAdopt :: FrozenSet String
@@ -863,7 +881,8 @@ dtsMirrored = dtsIntMirror `ConstantUtils.union` dtsExtMirror
 -- | The set of file based disk templates
 dtsFilebased :: FrozenSet String
 dtsFilebased =
-  ConstantUtils.mkSet $ map Types.diskTemplateToRaw [DTSharedFile, DTFile]
+  ConstantUtils.mkSet $ map Types.diskTemplateToRaw
+  [DTSharedFile, DTFile, DTGluster]
 
 -- | The set of disk templates that can be moved by copying
 --
@@ -881,7 +900,7 @@ dtsExclStorage = ConstantUtils.mkSet $ map Types.diskTemplateToRaw [DTPlain]
 dtsNoFreeSpaceCheck :: FrozenSet String
 dtsNoFreeSpaceCheck =
   ConstantUtils.mkSet $
-  map Types.diskTemplateToRaw [DTExt, DTSharedFile, DTFile, DTRbd]
+  map Types.diskTemplateToRaw [DTExt, DTSharedFile, DTFile, DTRbd, DTGluster]
 
 dtsBlock :: FrozenSet String
 dtsBlock =
@@ -891,6 +910,11 @@ dtsBlock =
 -- | The set of lvm-based disk templates
 dtsLvm :: FrozenSet String
 dtsLvm = diskTemplates `ConstantUtils.difference` dtsNotLvm
+
+-- | The set of lvm-based disk templates
+dtsHaveAccess :: FrozenSet String
+dtsHaveAccess = ConstantUtils.mkSet $
+  map Types.diskTemplateToRaw [DTRbd, DTGluster]
 
 -- * Drbd
 
@@ -1544,6 +1568,9 @@ hvKvmSpiceZlibGlzImgCompr = "spice_zlib_glz_wan_compression"
 hvKvmUseChroot :: String
 hvKvmUseChroot = "use_chroot"
 
+hvKvmUserShutdown :: String
+hvKvmUserShutdown = "user_shutdown"
+
 hvMemPath :: String
 hvMemPath = "mem_path"
 
@@ -1700,6 +1727,7 @@ hvsParameterTypes = Map.fromList
   , (hvKvmSpiceUseVdagent,              VTypeBool)
   , (hvKvmSpiceZlibGlzImgCompr,         VTypeString)
   , (hvKvmUseChroot,                    VTypeBool)
+  , (hvKvmUserShutdown,                 VTypeBool)
   , (hvMemPath,                         VTypeString)
   , (hvMigrationBandwidth,              VTypeInt)
   , (hvMigrationDowntime,               VTypeInt)
@@ -1991,6 +2019,9 @@ ndOvsLink = "ovs_link"
 ndOvsName :: String
 ndOvsName = "ovs_name"
 
+ndSshPort :: String
+ndSshPort = "ssh_port"
+
 ndsParameterTypes :: Map String VType
 ndsParameterTypes =
   Map.fromList
@@ -1999,7 +2030,8 @@ ndsParameterTypes =
    (ndOvs, VTypeBool),
    (ndOvsLink, VTypeMaybeString),
    (ndOvsName, VTypeMaybeString),
-   (ndSpindleCount, VTypeInt)]
+   (ndSpindleCount, VTypeInt),
+   (ndSshPort, VTypeInt)]
 
 ndsParameters :: FrozenSet String
 ndsParameters = ConstantUtils.mkSet (Map.keys ndsParameterTypes)
@@ -2165,7 +2197,11 @@ diskDtTypes =
                 (drbdMinRate, VTypeInt),
                 (lvStripes, VTypeInt),
                 (rbdAccess, VTypeString),
-                (rbdPool, VTypeString)]
+                (rbdPool, VTypeString),
+                (glusterHost, VTypeString),
+                (glusterVolume, VTypeString),
+                (glusterPort, VTypeInt)
+               ]
 
 diskDtParameters :: FrozenSet String
 diskDtParameters = ConstantUtils.mkSet (Map.keys diskDtTypes)
@@ -2664,6 +2700,14 @@ cvTnode = "node"
 cvTinstance :: String
 cvTinstance = "instance"
 
+-- * Cluster Verify error levels
+
+cvWarning :: String
+cvWarning = "WARNING"
+
+cvError :: String
+cvError = "ERROR"
+
 -- * Cluster Verify error codes and documentation
 
 cvEclustercert :: (String, String, String)
@@ -2671,6 +2715,12 @@ cvEclustercert =
   ("cluster",
    Types.cVErrorCodeToRaw CvECLUSTERCERT,
    "Cluster certificate files verification failure")
+
+cvEclusterclientcert :: (String, String, String)
+cvEclusterclientcert =
+  ("cluster",
+   Types.cVErrorCodeToRaw CvECLUSTERCLIENTCERT,
+   "Cluster client certificate files verification failure")
 
 cvEclustercfg :: (String, String, String)
 cvEclustercfg =
@@ -2945,6 +2995,9 @@ cvAllEcodesStrings =
 nvBridges :: String
 nvBridges = "bridges"
 
+nvClientCert :: String
+nvClientCert = "client-cert"
+
 nvDrbdhelper :: String
 nvDrbdhelper = "drbd-helper"
 
@@ -3043,6 +3096,9 @@ inststNodeoffline = Types.instanceStatusToRaw NodeOffline
 inststRunning :: String
 inststRunning = Types.instanceStatusToRaw Running
 
+inststUserdown :: String
+inststUserdown = Types.instanceStatusToRaw UserDown
+
 inststWrongnode :: String
 inststWrongnode = Types.instanceStatusToRaw WrongNode
 
@@ -3062,6 +3118,17 @@ adminstUp = Types.adminStateToRaw AdminUp
 
 adminstAll :: FrozenSet String
 adminstAll = ConstantUtils.mkSet $ map Types.adminStateToRaw [minBound..]
+
+-- * Admin state sources
+
+adminSource :: AdminStateSource
+adminSource = AdminSource
+
+userSource :: AdminStateSource
+userSource = UserSource
+
+adminStateSources :: FrozenSet AdminStateSource
+adminStateSources = ConstantUtils.mkSet [minBound..]
 
 -- * Node roles
 
@@ -3348,21 +3415,26 @@ qrOs = "os"
 qrViaOp :: FrozenSet String
 qrViaOp =
   ConstantUtils.mkSet [qrCluster,
-                       qrInstance,
-                       qrNode,
-                       qrGroup,
                        qrOs,
-                       qrExport,
-                       qrNetwork,
                        qrExtstorage]
 
 -- | List of resources which can be queried using Local UniX Interface
 qrViaLuxi :: FrozenSet String
-qrViaLuxi = ConstantUtils.mkSet [qrLock, qrJob]
+qrViaLuxi = ConstantUtils.mkSet [qrGroup,
+                                 qrExport,
+                                 qrInstance,
+                                 qrJob,
+                                 qrLock,
+                                 qrNetwork,
+                                 qrNode]
 
 -- | List of resources which can be queried using RAPI
 qrViaRapi :: FrozenSet String
 qrViaRapi = qrViaLuxi
+
+-- | List of resources which can be queried via RAPI including PUT requests
+qrViaRapiPut :: FrozenSet String
+qrViaRapiPut = ConstantUtils.mkSet [qrLock, qrJob]
 
 -- * Query field types
 
@@ -3465,11 +3537,17 @@ ssFileStorageDir = "file_storage_dir"
 ssSharedFileStorageDir :: String
 ssSharedFileStorageDir = "shared_file_storage_dir"
 
+ssGlusterStorageDir :: String
+ssGlusterStorageDir = "gluster_storage_dir"
+
 ssMasterCandidates :: String
 ssMasterCandidates = "master_candidates"
 
 ssMasterCandidatesIps :: String
 ssMasterCandidatesIps = "master_candidates_ips"
+
+ssMasterCandidatesCerts :: String
+ssMasterCandidatesCerts = "master_candidates_certs"
 
 ssMasterIp :: String
 ssMasterIp = "master_ip"
@@ -3491,6 +3569,9 @@ ssNodePrimaryIps = "node_primary_ips"
 
 ssNodeSecondaryIps :: String
 ssNodeSecondaryIps = "node_secondary_ips"
+
+ssNodeVmCapable :: String
+ssNodeVmCapable = "node_vm_capable"
 
 ssOfflineNodes :: String
 ssOfflineNodes = "offline_nodes"
@@ -3558,6 +3639,9 @@ validSsHvparamsKeys =
 
 ssFilePerms :: Int
 ssFilePerms = 0o444
+
+ssEnabledUserShutdown :: String
+ssEnabledUserShutdown = "enabled_user_shutdown"
 
 -- | Cluster wide default parameters
 defaultEnabledHypervisor :: String
@@ -3657,6 +3741,7 @@ hvcDefaults =
           , (hvKvmFlag,                         PyValueEx "")
           , (hvVhostNet,                        PyValueEx False)
           , (hvKvmUseChroot,                    PyValueEx False)
+          , (hvKvmUserShutdown,                 PyValueEx False)
           , (hvMemPath,                         PyValueEx "")
           , (hvRebootBehavior,                  PyValueEx instanceRebootAllowed)
           , (hvCpuMask,                         PyValueEx cpuPinningAll)
@@ -3702,6 +3787,7 @@ ndcDefaults =
   , (ndOvs,              PyValueEx False)
   , (ndOvsName,          PyValueEx defaultOvs)
   , (ndOvsLink,          PyValueEx "")
+  , (ndSshPort,          PyValueEx (22 :: Int))
   ]
 
 ndcGlobals :: FrozenSet String
@@ -3768,6 +3854,12 @@ diskLdDefaults =
             , (ldpAccess, PyValueEx diskKernelspace)
             ])
   , (DTSharedFile, Map.empty)
+  , (DTGluster, Map.fromList
+                [ (rbdAccess, PyValueEx diskKernelspace)
+                , (glusterHost, PyValueEx glusterHostDefault)
+                , (glusterVolume, PyValueEx glusterVolumeDefault)
+                , (glusterPort, PyValueEx glusterPortDefault)
+                ])
   ]
 
 diskDtDefaults :: Map DiskTemplate (Map String PyValueEx)
@@ -3800,6 +3892,12 @@ diskDtDefaults =
                    , (rbdAccess, PyValueEx diskKernelspace)
                    ])
   , (DTSharedFile, Map.empty)
+  , (DTGluster, Map.fromList
+                [ (rbdAccess, PyValueEx diskKernelspace)
+                , (glusterHost, PyValueEx glusterHostDefault)
+                , (glusterVolume, PyValueEx glusterVolumeDefault)
+                , (glusterPort, PyValueEx glusterPortDefault)
+                ])
   ]
 
 niccDefaults :: Map String PyValueEx
@@ -3861,6 +3959,24 @@ partMargin = 0.01
 -- | Space reserved when creating instance disks
 partReserved :: Double
 partReserved = 0.02
+
+-- * Luxid job scheduling
+
+-- | Time intervall in seconds for polling updates on the job queue. This
+-- intervall is only relevant if the number of running jobs reaches the maximal
+-- allowed number, as otherwise new jobs will be started immediately anyway.
+-- Also, as jobs are watched via inotify, scheduling usually works independent
+-- of polling. Therefore we chose a sufficiently large interval, in the order of
+-- 5 minutes. As with the interval for reloading the configuration, we chose a
+-- prime number to avoid accidental 'same wakeup' with other processes.
+luxidJobqueuePollInterval :: Int
+luxidJobqueuePollInterval = 307
+
+-- | The default value for the maximal number of jobs to be running at the same
+-- time. Once the maximal number is reached, new jobs will just be queued and
+-- only started, once some of the other jobs have finished.
+luxidMaximalRunningJobsDefault :: Int
+luxidMaximalRunningJobsDefault = 20
 
 -- * Confd
 
@@ -4062,13 +4178,6 @@ blockdevDriverManual = Types.blockDriverToRaw BlockDrvManual
 qemuimgPath :: String
 qemuimgPath = AutoConf.qemuimgPath
 
--- | Whether htools was enabled at compilation time
---
--- FIXME: this should be moved next to the other enable constants,
--- such as, 'enableConfd', and renamed to 'enableHtools'.
-htools :: Bool
-htools = AutoConf.htools
-
 -- | The hail iallocator
 iallocHail :: String
 iallocHail = "hail"
@@ -4081,6 +4190,43 @@ fakeOpMasterTurndown = "OP_CLUSTER_IP_TURNDOWN"
 
 fakeOpMasterTurnup :: String
 fakeOpMasterTurnup = "OP_CLUSTER_IP_TURNUP"
+
+
+-- * Crypto Types
+-- Types of cryptographic tokens used in node communication
+
+cryptoTypeSslDigest :: String
+cryptoTypeSslDigest = "ssl"
+
+cryptoTypeSsh :: String
+cryptoTypeSsh = "ssh"
+
+-- So far only ssl keys are used in the context of this constant
+cryptoTypes :: FrozenSet String
+cryptoTypes = ConstantUtils.mkSet [cryptoTypeSslDigest]
+
+-- * Crypto Actions
+-- Actions that can be performed on crypto tokens
+
+cryptoActionGet :: String
+cryptoActionGet = "get"
+
+-- This is 'create and get'
+cryptoActionCreate :: String
+cryptoActionCreate = "create"
+
+cryptoActions :: FrozenSet String
+cryptoActions = ConstantUtils.mkSet [cryptoActionGet, cryptoActionCreate]
+
+-- * Options for CryptoActions
+
+-- Filename of the certificate
+cryptoOptionCertFile :: String
+cryptoOptionCertFile = "cert_file"
+
+-- Serial number of the certificate
+cryptoOptionSerialNo :: String
+cryptoOptionSerialNo = "serial_no"
 
 -- * SSH key types
 
@@ -4152,16 +4298,42 @@ ndsSsconf = "ssconf"
 ndsStartNodeDaemon :: String
 ndsStartNodeDaemon = "start_node_daemon"
 
+-- * VCluster related constants
+
+vClusterEtcHosts :: String
+vClusterEtcHosts = "/etc/hosts"
+
+vClusterVirtPathPrefix :: String
+vClusterVirtPathPrefix = "/###-VIRTUAL-PATH-###,"
+
+vClusterRootdirEnvname :: String
+vClusterRootdirEnvname = "GANETI_ROOTDIR"
+
+vClusterHostnameEnvname :: String
+vClusterHostnameEnvname = "GANETI_HOSTNAME"
+
+vClusterVpathWhitelist :: FrozenSet String
+vClusterVpathWhitelist = ConstantUtils.mkSet [ vClusterEtcHosts ]
+
 -- * The source reasons for the execution of an OpCode
 
 opcodeReasonSrcClient :: String
 opcodeReasonSrcClient = "gnt:client"
 
+_opcodeReasonSrcDaemon :: String
+_opcodeReasonSrcDaemon = "gnt:daemon"
+
+_opcodeReasonSrcMasterd :: String
+_opcodeReasonSrcMasterd = _opcodeReasonSrcDaemon ++ ":masterd"
+
 opcodeReasonSrcNoded :: String
-opcodeReasonSrcNoded = "gnt:daemon:noded"
+opcodeReasonSrcNoded = _opcodeReasonSrcDaemon ++ ":noded"
 
 opcodeReasonSrcOpcode :: String
 opcodeReasonSrcOpcode = "gnt:opcode"
+
+opcodeReasonSrcPickup :: String
+opcodeReasonSrcPickup = _opcodeReasonSrcMasterd ++ ":pickup"
 
 opcodeReasonSrcRlib2 :: String
 opcodeReasonSrcRlib2 = "gnt:library:rlib2"
@@ -4174,6 +4346,7 @@ opcodeReasonSources =
   ConstantUtils.mkSet [opcodeReasonSrcClient,
                        opcodeReasonSrcNoded,
                        opcodeReasonSrcOpcode,
+                       opcodeReasonSrcPickup,
                        opcodeReasonSrcRlib2,
                        opcodeReasonSrcUser]
 
@@ -4362,6 +4535,9 @@ luxiReqSubmitManyJobs = "SubmitManyJobs"
 luxiReqWaitForJobChange :: String
 luxiReqWaitForJobChange = "WaitForJobChange"
 
+luxiReqPickupJob :: String
+luxiReqPickupJob = "PickupJob"
+
 luxiReqCancelJob :: String
 luxiReqCancelJob = "CancelJob"
 
@@ -4437,6 +4613,7 @@ luxiReqAll =
   , luxiReqSubmitJobToDrainedQueue
   , luxiReqSubmitManyJobs
   , luxiReqWaitForJobChange
+  , luxiReqPickupJob
   ]
 
 luxiDefCtmo :: Int
@@ -4571,3 +4748,29 @@ errorsEcodeAll =
 
 jstoreJobsPerArchiveDirectory :: Int
 jstoreJobsPerArchiveDirectory = 10000
+
+-- * Gluster settings
+
+-- | Name of the Gluster host setting
+glusterHost :: String
+glusterHost = "host"
+
+-- | Default value of the Gluster host setting
+glusterHostDefault :: String
+glusterHostDefault = "127.0.0.1"
+
+-- | Name of the Gluster volume setting
+glusterVolume :: String
+glusterVolume = "volume"
+
+-- | Default value of the Gluster volume setting
+glusterVolumeDefault :: String
+glusterVolumeDefault = "gv0"
+
+-- | Name of the Gluster port setting
+glusterPort :: String
+glusterPort = "port"
+
+-- | Default value of the Gluster port setting
+glusterPortDefault :: Int
+glusterPortDefault = 24007

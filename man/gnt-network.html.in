@@ -46,7 +46,7 @@
 <p>The <code>hail</code> iallocator hasn't been updated to take networks into account in Ganeti 2.7. The only way to guarantee that it works correctly is having your networks connected to all nodegroups. This will be fixed in a future version.</p>
 <h1 id="commands"><a href="#TOC">COMMANDS</a></h1>
 <h2 id="add"><a href="#TOC">ADD</a></h2>
-<p><strong>add</strong><br />[--network=<em>NETWORK</em>]<br />[--gateway=<em>GATEWAY</em>]<br />[--add-reserved-ips=<em>RESERVEDIPS</em>]<br />[--network6=<em>NETWORK6</em>]<br />[--gateway6=<em>GATEWAY6</em>]<br />[--mac-prefix=<em>MACPREFIX</em>]<br />[--submit] [--print-job-id]<br />[--no-conflicts-check]<br />{<em>network</em>}</p>
+<p><strong>add</strong><br />--network=<em>NETWORK</em><br />[--gateway=<em>GATEWAY</em>]<br />[--add-reserved-ips=<em>RESERVEDIPS</em>]<br />[--network6=<em>NETWORK6</em>]<br />[--gateway6=<em>GATEWAY6</em>]<br />[--mac-prefix=<em>MACPREFIX</em>]<br />[--submit] [--print-job-id]<br />[--no-conflicts-check]<br />{<em>network</em>}</p>
 <p>Creates a new network with the given name. The network will be unused initially. To connect it to a node group, use <code>gnt-network connect</code>. <code>--network</code> option is mandatory. All other are optional.</p>
 <p>The <code>--network</code> option allows you to specify the network in a CIDR notation.</p>
 <p>The <code>--gateway</code> option allows you to specify the default gateway for this network.</p>

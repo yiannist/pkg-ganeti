@@ -21,8 +21,6 @@
 
 """Logical units dealing with the cluster."""
 
-import OpenSSL
-
 import copy
 import itertools
 import logging
@@ -42,7 +40,7 @@ from ganeti import objects
 from ganeti import opcodes
 from ganeti import pathutils
 from ganeti import query
-from ganeti import rpc
+import ganeti.rpc.node as rpc
 from ganeti import runtime
 from ganeti import ssh
 from ganeti import uidpool
@@ -58,9 +56,90 @@ from ganeti.cmdlib.common import ShareAll, RunPostHook, \
   CheckOSParams, CheckHVParams, AdjustCandidatePool, CheckNodePVs, \
   ComputeIPolicyInstanceViolation, AnnotateDiskParams, SupportsOob, \
   CheckIpolicyVsDiskTemplates, CheckDiskAccessModeValidity, \
-  CheckDiskAccessModeConsistency
+  CheckDiskAccessModeConsistency, CreateNewClientCert, EnsureKvmdOnNodes
 
 import ganeti.masterd.instance
+
+
+def _UpdateMasterClientCert(
+    lu, master_uuid, cluster, feedback_fn,
+    client_cert=pathutils.NODED_CLIENT_CERT_FILE,
+    client_cert_tmp=pathutils.NODED_CLIENT_CERT_FILE_TMP):
+  """Renews the master's client certificate and propagates the config.
+
+  @type lu: C{LogicalUnit}
+  @param lu: the logical unit holding the config
+  @type master_uuid: string
+  @param master_uuid: the master node's UUID
+  @type cluster: C{objects.Cluster}
+  @param cluster: the cluster's configuration
+  @type feedback_fn: function
+  @param feedback_fn: feedback functions for config updates
+  @type client_cert: string
+  @param client_cert: the path of the client certificate
+  @type client_cert_tmp: string
+  @param client_cert_tmp: the temporary path of the client certificate
+  @rtype: string
+  @return: the digest of the newly created client certificate
+
+  """
+  client_digest = CreateNewClientCert(lu, master_uuid, filename=client_cert_tmp)
+  utils.AddNodeToCandidateCerts(master_uuid, client_digest,
+                                cluster.candidate_certs)
+  # This triggers an update of the config and distribution of it with the old
+  # SSL certificate
+  lu.cfg.Update(cluster, feedback_fn)
+
+  utils.RemoveFile(client_cert)
+  utils.RenameFile(client_cert_tmp, client_cert)
+  return client_digest
+
+
+class LUClusterRenewCrypto(NoHooksLU):
+  """Renew the cluster's crypto tokens.
+
+  Note that most of this operation is done in gnt_cluster.py, this LU only
+  takes care of the renewal of the client SSL certificates.
+
+  """
+  def Exec(self, feedback_fn):
+    master_uuid = self.cfg.GetMasterNode()
+    cluster = self.cfg.GetClusterInfo()
+
+    server_digest = utils.GetCertificateDigest(
+      cert_filename=pathutils.NODED_CERT_FILE)
+    utils.AddNodeToCandidateCerts("%s-SERVER" % master_uuid,
+                                  server_digest,
+                                  cluster.candidate_certs)
+    try:
+      old_master_digest = utils.GetCertificateDigest(
+        cert_filename=pathutils.NODED_CLIENT_CERT_FILE)
+      utils.AddNodeToCandidateCerts("%s-OLDMASTER" % master_uuid,
+                                    old_master_digest,
+                                    cluster.candidate_certs)
+    except IOError:
+      logging.info("No old certificate available.")
+
+    new_master_digest = _UpdateMasterClientCert(self, master_uuid, cluster,
+                                                feedback_fn)
+
+    utils.AddNodeToCandidateCerts(master_uuid,
+                                  new_master_digest,
+                                  cluster.candidate_certs)
+    nodes = self.cfg.GetAllNodesInfo()
+    for (node_uuid, node_info) in nodes.items():
+      if node_uuid != master_uuid:
+        new_digest = CreateNewClientCert(self, node_uuid)
+        if node_info.master_candidate:
+          utils.AddNodeToCandidateCerts(node_uuid,
+                                        new_digest,
+                                        cluster.candidate_certs)
+    utils.RemoveNodeFromCandidateCerts("%s-SERVER" % master_uuid,
+                                       cluster.candidate_certs)
+    utils.RemoveNodeFromCandidateCerts("%s-OLDMASTER" % master_uuid,
+                                       cluster.candidate_certs)
+    # Trigger another update of the config now with the new master cert
+    self.cfg.Update(cluster, feedback_fn)
 
 
 class LUClusterActivateMasterIp(NoHooksLU):
@@ -220,6 +299,10 @@ class LUClusterPostInit(LogicalUnit):
                  self.master_ndparams[constants.ND_OVS_NAME],
                  self.master_ndparams.get(constants.ND_OVS_LINK, None))
       result.Raise("Could not successully configure Open vSwitch")
+
+    cluster = self.cfg.GetClusterInfo()
+    _UpdateMasterClientCert(self, self.master_uuid, cluster, feedback_fn)
+
     return True
 
 
@@ -329,6 +412,7 @@ class LUClusterQuery(NoHooksLU):
       "ndparams": cluster.ndparams,
       "diskparams": cluster.diskparams,
       "candidate_pool_size": cluster.candidate_pool_size,
+      "max_running_jobs": cluster.max_running_jobs,
       "master_netdev": cluster.master_netdev,
       "master_netmask": cluster.master_netmask,
       "use_external_mip_script": cluster.use_external_mip_script,
@@ -343,12 +427,14 @@ class LUClusterQuery(NoHooksLU):
       "tags": list(cluster.GetTags()),
       "uid_pool": cluster.uid_pool,
       "default_iallocator": cluster.default_iallocator,
+      "default_iallocator_params": cluster.default_iallocator_params,
       "reserved_lvs": cluster.reserved_lvs,
       "primary_ip_version": primary_ip_version,
       "prealloc_wipe_disks": cluster.prealloc_wipe_disks,
       "hidden_os": cluster.hidden_os,
       "blacklisted_os": cluster.blacklisted_os,
       "enabled_disk_templates": cluster.enabled_disk_templates,
+      "enabled_user_shutdown": cluster.enabled_user_shutdown,
       }
 
     return result
@@ -653,8 +739,9 @@ def CheckFileBasedStoragePathVsEnabledDiskTemplates(
       path should be checked
 
   """
-  assert (file_disk_template in
-          utils.storage.GetDiskTemplatesOfStorageType(constants.ST_FILE))
+  assert (file_disk_template in utils.storage.GetDiskTemplatesOfStorageTypes(
+            constants.ST_FILE, constants.ST_SHARED_FILE
+         ))
   file_storage_enabled = file_disk_template in enabled_disk_templates
   if file_storage_dir is not None:
     if file_storage_dir == "":
@@ -1114,8 +1201,7 @@ class LUClusterSetParams(LogicalUnit):
 
     # changes to the hypervisor list
     if self.op.enabled_hypervisors is not None:
-      self.hv_list = self.op.enabled_hypervisors
-      for hv in self.hv_list:
+      for hv in self.op.enabled_hypervisors:
         # if the hypervisor doesn't already exist in the cluster
         # hvparams, we initialize it to empty, and then (in both
         # cases) we make sure to fill the defaults, as we might not
@@ -1125,8 +1211,6 @@ class LUClusterSetParams(LogicalUnit):
           new_hvp[hv] = {}
         new_hvp[hv] = objects.FillDict(constants.HVC_DEFAULTS[hv], new_hvp[hv])
         utils.ForceDictType(new_hvp[hv], constants.HVS_PARAMETER_TYPES)
-    else:
-      self.hv_list = cluster.enabled_hypervisors
 
     if self.op.hvparams or self.op.enabled_hypervisors is not None:
       # either the enabled list has changed, or the parameters have, validate
@@ -1248,6 +1332,8 @@ class LUClusterSetParams(LogicalUnit):
     self._SetSharedFileStorageDir(feedback_fn)
     self._SetDrbdHelper(feedback_fn)
 
+    ensure_kvmd = False
+
     if self.op.hvparams:
       self.cluster.hvparams = self.new_hvparams
     if self.op.os_hvp:
@@ -1255,6 +1341,7 @@ class LUClusterSetParams(LogicalUnit):
     if self.op.enabled_hypervisors is not None:
       self.cluster.hvparams = self.new_hvparams
       self.cluster.enabled_hypervisors = self.op.enabled_hypervisors
+      ensure_kvmd = True
     if self.op.beparams:
       self.cluster.beparams[constants.PP_DEFAULT] = self.new_beparams
     if self.op.nicparams:
@@ -1275,7 +1362,10 @@ class LUClusterSetParams(LogicalUnit):
     if self.op.candidate_pool_size is not None:
       self.cluster.candidate_pool_size = self.op.candidate_pool_size
       # we need to update the pool size here, otherwise the save will fail
-      AdjustCandidatePool(self, [])
+      AdjustCandidatePool(self, [], feedback_fn)
+
+    if self.op.max_running_jobs is not None:
+      self.cluster.max_running_jobs = self.op.max_running_jobs
 
     if self.op.maintain_node_health is not None:
       if self.op.maintain_node_health and not constants.ENABLE_CONFD:
@@ -1301,11 +1391,19 @@ class LUClusterSetParams(LogicalUnit):
     if self.op.default_iallocator is not None:
       self.cluster.default_iallocator = self.op.default_iallocator
 
+    if self.op.default_iallocator_params is not None:
+      self.cluster.default_iallocator_params = self.op.default_iallocator_params
+
     if self.op.reserved_lvs is not None:
       self.cluster.reserved_lvs = self.op.reserved_lvs
 
     if self.op.use_external_mip_script is not None:
       self.cluster.use_external_mip_script = self.op.use_external_mip_script
+
+    if self.op.enabled_user_shutdown is not None and \
+          self.cluster.enabled_user_shutdown != self.op.enabled_user_shutdown:
+      self.cluster.enabled_user_shutdown = self.op.enabled_user_shutdown
+      ensure_kvmd = True
 
     def helper_os(aname, mods, desc):
       desc += " OS list"
@@ -1370,6 +1468,13 @@ class LUClusterSetParams(LogicalUnit):
       result.Warn("Could not re-enable the master ip on the master,"
                   " please restart manually", self.LogWarning)
 
+    # Even though 'self.op.enabled_user_shutdown' is being tested
+    # above, the RPCs can only be done after 'self.cfg.Update' because
+    # this will update the cluster object and sync 'Ssconf', and kvmd
+    # uses 'Ssconf'.
+    if ensure_kvmd:
+      EnsureKvmdOnNodes(self, feedback_fn)
+
 
 class LUClusterVerify(NoHooksLU):
   """Submits all jobs necessary to verify the cluster.
@@ -1425,8 +1530,8 @@ class _VerifyErrors(object):
   """
 
   ETYPE_FIELD = "code"
-  ETYPE_ERROR = "ERROR"
-  ETYPE_WARNING = "WARNING"
+  ETYPE_ERROR = constants.CV_ERROR
+  ETYPE_WARNING = constants.CV_WARNING
 
   def _Error(self, ecode, item, msg, *args, **kwargs):
     """Format an error message.
@@ -1468,39 +1573,6 @@ class _VerifyErrors(object):
     if (bool(cond)
         or self.op.debug_simulate_errors): # pylint: disable=E1101
       self._Error(*args, **kwargs)
-
-
-def _VerifyCertificate(filename):
-  """Verifies a certificate for L{LUClusterVerifyConfig}.
-
-  @type filename: string
-  @param filename: Path to PEM file
-
-  """
-  try:
-    cert = OpenSSL.crypto.load_certificate(OpenSSL.crypto.FILETYPE_PEM,
-                                           utils.ReadFile(filename))
-  except Exception, err: # pylint: disable=W0703
-    return (LUClusterVerifyConfig.ETYPE_ERROR,
-            "Failed to load X509 certificate %s: %s" % (filename, err))
-
-  (errcode, msg) = \
-    utils.VerifyX509Certificate(cert, constants.SSL_CERT_EXPIRATION_WARN,
-                                constants.SSL_CERT_EXPIRATION_ERROR)
-
-  if msg:
-    fnamemsg = "While verifying %s: %s" % (filename, msg)
-  else:
-    fnamemsg = None
-
-  if errcode is None:
-    return (None, fnamemsg)
-  elif errcode == utils.CERT_WARNING:
-    return (LUClusterVerifyConfig.ETYPE_WARNING, fnamemsg)
-  elif errcode == utils.CERT_ERROR:
-    return (LUClusterVerifyConfig.ETYPE_ERROR, fnamemsg)
-
-  raise errors.ProgrammerError("Unhandled certificate error code %r" % errcode)
 
 
 def _GetAllHypervisorParameters(cluster, instances):
@@ -1583,7 +1655,7 @@ class LUClusterVerifyConfig(NoHooksLU, _VerifyErrors):
     feedback_fn("* Verifying cluster certificate files")
 
     for cert_filename in pathutils.ALL_CERT_FILES:
-      (errcode, msg) = _VerifyCertificate(cert_filename)
+      (errcode, msg) = utils.VerifyCertificate(cert_filename)
       self._ErrorIf(errcode, constants.CV_ECLUSTERCERT, None, msg, code=errcode)
 
     self._ErrorIf(not utils.CanRead(constants.LUXID_USER,
@@ -2228,7 +2300,8 @@ class LUClusterVerifyGroup(LogicalUnit, _VerifyErrors):
                 not reserved.Matches(volume))
         self._ErrorIf(test, constants.CV_ENODEORPHANLV,
                       self.cfg.GetNodeName(node_uuid),
-                      "volume %s is unknown", volume)
+                      "volume %s is unknown", volume,
+                      code=_VerifyErrors.ETYPE_WARNING)
 
   def _VerifyNPlusOneMemory(self, node_image, all_insts):
     """Verify N+1 Memory Resilience.
@@ -2267,6 +2340,86 @@ class LUClusterVerifyGroup(LogicalUnit, _VerifyErrors):
                       "not enough memory to accomodate instance failovers"
                       " should node %s fail (%dMiB needed, %dMiB available)",
                       self.cfg.GetNodeName(prinode), needed_mem, n_img.mfree)
+
+  def _VerifyClientCertificates(self, nodes, all_nvinfo):
+    """Verifies the consistency of the client certificates.
+
+    This includes several aspects:
+      - the individual validation of all nodes' certificates
+      - the consistency of the master candidate certificate map
+      - the consistency of the master candidate certificate map with the
+        certificates that the master candidates are actually using.
+
+    @param nodes: the list of nodes to consider in this verification
+    @param all_nvinfo: the map of results of the verify_node call to
+      all nodes
+
+    """
+    candidate_certs = self.cfg.GetClusterInfo().candidate_certs
+    if candidate_certs is None or len(candidate_certs) == 0:
+      self._ErrorIf(
+        True, constants.CV_ECLUSTERCLIENTCERT, None,
+        "The cluster's list of master candidate certificates is empty."
+        " If you just updated the cluster, please run"
+        " 'gnt-cluster renew-crypto --new-node-certificates'.")
+      return
+
+    self._ErrorIf(
+      len(candidate_certs) != len(set(candidate_certs.values())),
+      constants.CV_ECLUSTERCLIENTCERT, None,
+      "There are at least two master candidates configured to use the same"
+      " certificate.")
+
+    # collect the client certificate
+    for node in nodes:
+      if node.offline:
+        continue
+
+      nresult = all_nvinfo[node.uuid]
+      if nresult.fail_msg or not nresult.payload:
+        continue
+
+      (errcode, msg) = nresult.payload.get(constants.NV_CLIENT_CERT, None)
+
+      self._ErrorIf(
+        errcode is not None, constants.CV_ECLUSTERCLIENTCERT, None,
+        "Client certificate of node '%s' failed validation: %s (code '%s')",
+        node.uuid, msg, errcode)
+
+      if not errcode:
+        digest = msg
+        if node.master_candidate:
+          if node.uuid in candidate_certs:
+            self._ErrorIf(
+              digest != candidate_certs[node.uuid],
+              constants.CV_ECLUSTERCLIENTCERT, None,
+              "Client certificate digest of master candidate '%s' does not"
+              " match its entry in the cluster's map of master candidate"
+              " certificates. Expected: %s Got: %s", node.uuid,
+              digest, candidate_certs[node.uuid])
+          else:
+            self._ErrorIf(
+              True, constants.CV_ECLUSTERCLIENTCERT, None,
+              "The master candidate '%s' does not have an entry in the"
+              " map of candidate certificates.", node.uuid)
+            self._ErrorIf(
+              digest in candidate_certs.values(),
+              constants.CV_ECLUSTERCLIENTCERT, None,
+              "Master candidate '%s' is using a certificate of another node.",
+              node.uuid)
+        else:
+          self._ErrorIf(
+            node.uuid in candidate_certs,
+            constants.CV_ECLUSTERCLIENTCERT, None,
+            "Node '%s' is not a master candidate, but still listed in the"
+            " map of master candidate certificates.", node.uuid)
+          self._ErrorIf(
+            (node.uuid not in candidate_certs) and
+              (digest in candidate_certs.values()),
+            constants.CV_ECLUSTERCLIENTCERT, None,
+            "Node '%s' is not a master candidate and is incorrectly using a"
+            " certificate of another node which is master candidate.",
+            node.uuid)
 
   def _VerifyFiles(self, nodes, master_node_uuid, all_nvinfo,
                    (files_all, files_opt, files_mc, files_vm)):
@@ -2311,7 +2464,7 @@ class LUClusterVerifyGroup(LogicalUnit, _VerifyErrors):
       if nresult.fail_msg or not nresult.payload:
         node_files = None
       else:
-        fingerprints = nresult.payload.get(constants.NV_FILELIST, None)
+        fingerprints = nresult.payload.get(constants.NV_FILELIST, {})
         node_files = dict((vcluster.LocalizeVirtualPath(key), value)
                           for (key, value) in fingerprints.items())
         del fingerprints
@@ -2585,8 +2738,10 @@ class LUClusterVerifyGroup(LogicalUnit, _VerifyErrors):
         in case something goes wrong in this verification step
 
     """
-    assert (file_disk_template in
-            utils.storage.GetDiskTemplatesOfStorageType(constants.ST_FILE))
+    assert (file_disk_template in utils.storage.GetDiskTemplatesOfStorageTypes(
+              constants.ST_FILE, constants.ST_SHARED_FILE
+           ))
+
     cluster = self.cfg.GetClusterInfo()
     if cluster.IsDiskTemplateEnabled(file_disk_template):
       self._ErrorIf(
@@ -2953,6 +3108,7 @@ class LUClusterVerifyGroup(LogicalUnit, _VerifyErrors):
       constants.NV_OSLIST: None,
       constants.NV_VMNODES: self.cfg.GetNonVmCapableNodeList(),
       constants.NV_USERSCRIPTS: user_scripts,
+      constants.NV_CLIENT_CERT: None,
       }
 
     if vg_name is not None:
@@ -3040,6 +3196,10 @@ class LUClusterVerifyGroup(LogicalUnit, _VerifyErrors):
     if self._exclusive_storage:
       node_verify_param[constants.NV_EXCLUSIVEPVS] = True
 
+    node_group_uuids = dict(map(lambda n: (n.name, n.group),
+                                self.cfg.GetAllNodesInfo().values()))
+    groups_config = self.cfg.GetAllNodeGroupsInfoDict()
+
     # At this point, we have the in-memory data structures complete,
     # except for the runtime information, which we'll gather next
 
@@ -3051,7 +3211,9 @@ class LUClusterVerifyGroup(LogicalUnit, _VerifyErrors):
     all_nvinfo = self.rpc.call_node_verify(self.my_node_uuids,
                                            node_verify_param,
                                            self.cfg.GetClusterName(),
-                                           self.cfg.GetClusterInfo().hvparams)
+                                           self.cfg.GetClusterInfo().hvparams,
+                                           node_group_uuids,
+                                           groups_config)
     nvinfo_endtime = time.time()
 
     if self.extra_lv_nodes and vg_name is not None:
@@ -3059,7 +3221,9 @@ class LUClusterVerifyGroup(LogicalUnit, _VerifyErrors):
           self.rpc.call_node_verify(self.extra_lv_nodes,
                                     {constants.NV_LVLIST: vg_name},
                                     self.cfg.GetClusterName(),
-                                    self.cfg.GetClusterInfo().hvparams)
+                                    self.cfg.GetClusterInfo().hvparams,
+                                    node_group_uuids,
+                                    groups_config)
     else:
       extra_lv_nvinfo = {}
 
@@ -3072,6 +3236,7 @@ class LUClusterVerifyGroup(LogicalUnit, _VerifyErrors):
 
     feedback_fn("* Verifying configuration file consistency")
 
+    self._VerifyClientCertificates(self.my_node_info.values(), all_nvinfo)
     # If not all nodes are being checked, we need to make sure the master node
     # and a non-checked vm_capable node are in the list.
     absent_node_uuids = set(self.all_node_info).difference(self.my_node_info)
@@ -3094,7 +3259,9 @@ class LUClusterVerifyGroup(LogicalUnit, _VerifyErrors):
       key = constants.NV_FILELIST
       vf_nvinfo.update(self.rpc.call_node_verify(
          additional_node_uuids, {key: node_verify_param[key]},
-         self.cfg.GetClusterName(), self.cfg.GetClusterInfo().hvparams))
+         self.cfg.GetClusterName(), self.cfg.GetClusterInfo().hvparams,
+         node_group_uuids,
+         groups_config))
     else:
       vf_nvinfo = all_nvinfo
       vf_node_info = self.my_node_info.values()

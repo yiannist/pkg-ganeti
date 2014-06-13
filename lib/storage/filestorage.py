@@ -19,11 +19,12 @@
 # 02110-1301, USA.
 
 
-"""File storage functions.
+"""Filesystem-based access functions and disk templates.
 
 """
 
 import logging
+import errno
 import os
 
 from ganeti import compat
@@ -31,6 +32,260 @@ from ganeti import constants
 from ganeti import errors
 from ganeti import pathutils
 from ganeti import utils
+from ganeti.utils import io
+from ganeti.storage import base
+
+
+class FileDeviceHelper(object):
+
+  @classmethod
+  def CreateFile(cls, path, size, create_folders=False,
+                 _file_path_acceptance_fn=None):
+    """Create a new file and its file device helper.
+
+    @param size: the size in MiBs the file should be truncated to.
+    @param create_folders: create the directories for the path if necessary
+                           (using L{ganeti.utils.io.Makedirs})
+
+    @rtype: FileDeviceHelper
+    @return: The FileDeviceHelper object representing the object.
+    @raise errors.FileStoragePathError: if the file path is disallowed by policy
+
+    """
+
+    if not _file_path_acceptance_fn:
+      _file_path_acceptance_fn = CheckFileStoragePathAcceptance
+    _file_path_acceptance_fn(path)
+
+    if create_folders:
+      folder = os.path.dirname(path)
+      io.Makedirs(folder)
+
+    try:
+      fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_EXCL)
+      f = os.fdopen(fd, "w")
+      f.truncate(size * 1024 * 1024)
+      f.close()
+    except EnvironmentError as err:
+      base.ThrowError("%s: can't create: %s", path, str(err))
+
+    return FileDeviceHelper(path,
+                            _file_path_acceptance_fn=_file_path_acceptance_fn)
+
+  def __init__(self, path, _file_path_acceptance_fn=None):
+    """Create a new file device helper.
+
+    @raise errors.FileStoragePathError: if the file path is disallowed by policy
+
+    """
+    if not _file_path_acceptance_fn:
+      _file_path_acceptance_fn = CheckFileStoragePathAcceptance
+    _file_path_acceptance_fn(path)
+
+    self.path = path
+
+  def Exists(self, assert_exists=None):
+    """Check for the existence of the given file.
+
+    @param assert_exists: creates an assertion on the result value:
+      - if true, raise errors.BlockDeviceError if the file doesn't exist
+      - if false, raise errors.BlockDeviceError if the file does exist
+    @rtype: boolean
+    @return: True if the file exists
+
+    """
+
+    exists = os.path.isfile(self.path)
+
+    if not exists and assert_exists is True:
+      raise base.ThrowError("%s: No such file", self.path)
+    if exists and assert_exists is False:
+      raise base.ThrowError("%s: File exists", self.path)
+
+    return exists
+
+  def Remove(self):
+    """Remove the file backing the block device.
+
+    @rtype: boolean
+    @return: True if the removal was successful
+
+    """
+    try:
+      os.remove(self.path)
+      return True
+    except OSError as err:
+      if err.errno != errno.ENOENT:
+        base.ThrowError("%s: can't remove: %s", self.path, err)
+      return False
+
+  def Size(self):
+    """Return the actual disk size in bytes.
+
+    @rtype: int
+    @return: The file size in bytes.
+
+    """
+    self.Exists(assert_exists=True)
+    try:
+      return os.stat(self.path).st_size
+    except OSError as err:
+      base.ThrowError("%s: can't stat: %s", self.path, err)
+
+  def Grow(self, amount, dryrun, backingstore, _excl_stor):
+    """Grow the file
+
+    @param amount: the amount (in mebibytes) to grow by.
+
+    """
+    # Check that the file exists
+    self.Exists(assert_exists=True)
+
+    if amount < 0:
+      base.ThrowError("%s: can't grow by negative amount", self.path)
+
+    if dryrun:
+      return
+    if not backingstore:
+      return
+
+    current_size = self.Size()
+    new_size = current_size + amount * 1024 * 1024
+    try:
+      f = open(self.path, "a+")
+      f.truncate(new_size)
+      f.close()
+    except EnvironmentError, err:
+      base.ThrowError("%s: can't grow: ", self.path, str(err))
+
+
+class FileStorage(base.BlockDev):
+  """File device.
+
+  This class represents a file storage backend device.
+
+  The unique_id for the file device is a (file_driver, file_path) tuple.
+
+  """
+  def __init__(self, unique_id, children, size, params, dyn_params, *args):
+    """Initalizes a file device backend.
+
+    """
+    if children:
+      raise errors.BlockDeviceError("Invalid setup for file device")
+    super(FileStorage, self).__init__(unique_id, children, size, params,
+                                      dyn_params, *args)
+    if not isinstance(unique_id, (tuple, list)) or len(unique_id) != 2:
+      raise ValueError("Invalid configuration data %s" % str(unique_id))
+    self.driver = unique_id[0]
+    self.dev_path = unique_id[1]
+    self.file = FileDeviceHelper(self.dev_path)
+    self.Attach()
+
+  def Assemble(self):
+    """Assemble the device.
+
+    Checks whether the file device exists, raises BlockDeviceError otherwise.
+
+    """
+    self.file.Exists(assert_exists=True)
+
+  def Shutdown(self):
+    """Shutdown the device.
+
+    This is a no-op for the file type, as we don't deactivate
+    the file on shutdown.
+
+    """
+    pass
+
+  def Open(self, force=False):
+    """Make the device ready for I/O.
+
+    This is a no-op for the file type.
+
+    """
+    pass
+
+  def Close(self):
+    """Notifies that the device will no longer be used for I/O.
+
+    This is a no-op for the file type.
+
+    """
+    pass
+
+  def Remove(self):
+    """Remove the file backing the block device.
+
+    @rtype: boolean
+    @return: True if the removal was successful
+
+    """
+    return self.file.Remove()
+
+  def Rename(self, new_id):
+    """Renames the file.
+
+    """
+    # TODO: implement rename for file-based storage
+    base.ThrowError("Rename is not supported for file-based storage")
+
+  def Grow(self, amount, dryrun, backingstore, excl_stor):
+    """Grow the file
+
+    @param amount: the amount (in mebibytes) to grow with
+
+    """
+    if not backingstore:
+      return
+    if dryrun:
+      return
+    self.file.Grow(amount, dryrun, backingstore, excl_stor)
+
+  def Attach(self):
+    """Attach to an existing file.
+
+    Check if this file already exists.
+
+    @rtype: boolean
+    @return: True if file exists
+
+    """
+    self.attached = self.file.Exists()
+    return self.attached
+
+  def GetActualSize(self):
+    """Return the actual disk size.
+
+    @note: the device needs to be active when this is called
+
+    """
+    return self.file.Size()
+
+  @classmethod
+  def Create(cls, unique_id, children, size, spindles, params, excl_stor,
+             dyn_params, *args):
+    """Create a new file.
+
+    @type size: int
+    @param size: the size of file in MiB
+
+    @rtype: L{bdev.FileStorage}
+    @return: an instance of FileStorage
+
+    """
+    if excl_stor:
+      raise errors.ProgrammerError("FileStorage device requested with"
+                                   " exclusive_storage")
+    if not isinstance(unique_id, (tuple, list)) or len(unique_id) != 2:
+      raise ValueError("Invalid configuration data %s" % str(unique_id))
+
+    dev_path = unique_id[1]
+
+    FileDeviceHelper.CreateFile(dev_path, size)
+    return FileStorage(unique_id, children, size, params, dyn_params,
+                       *args)
 
 
 def GetFileStorageSpaceInfo(path):

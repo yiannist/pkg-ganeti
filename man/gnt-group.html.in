@@ -132,6 +132,9 @@
 <dt><code>ndp/spindle_count</code></dt>
 <dd><p>The &quot;spindle_count&quot; node parameter</p>
 </dd>
+<dt><code>ndp/ssh_port</code></dt>
+<dd><p>The &quot;ssh_port&quot; node parameter</p>
+</dd>
 <dt><code>ndparams</code></dt>
 <dd><p>Node parameters</p>
 </dd>

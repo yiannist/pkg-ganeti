@@ -33,6 +33,8 @@ from ganeti import constants
 from ganeti import errors
 from ganeti import hypervisor
 from ganeti import netutils
+from ganeti import objects
+from ganeti import pathutils
 from ganeti import utils
 
 
@@ -72,6 +74,63 @@ class TestX509Certificates(unittest.TestCase):
     self.assertEqual(utils.ListVisibleFiles(self.tmpdir), [name])
 
 
+class TestGetCryptoTokens(testutils.GanetiTestCase):
+
+  def setUp(self):
+    self._get_digest_fn_orig = utils.GetCertificateDigest
+    self._create_digest_fn_orig = utils.GenerateNewSslCert
+    self._ssl_digest = "12345"
+    utils.GetCertificateDigest = mock.Mock(
+      return_value=self._ssl_digest)
+    utils.GenerateNewSslCert = mock.Mock()
+
+  def tearDown(self):
+    utils.GetCertificateDigest = self._get_digest_fn_orig
+    utils.GenerateNewSslCert = self._create_digest_fn_orig
+
+  def testGetSslToken(self):
+    result = backend.GetCryptoTokens(
+      [(constants.CRYPTO_TYPE_SSL_DIGEST, constants.CRYPTO_ACTION_GET, None)])
+    self.assertTrue((constants.CRYPTO_TYPE_SSL_DIGEST, self._ssl_digest)
+                    in result)
+
+  def testCreateSslToken(self):
+    result = backend.GetCryptoTokens(
+      [(constants.CRYPTO_TYPE_SSL_DIGEST, constants.CRYPTO_ACTION_CREATE,
+        {constants.CRYPTO_OPTION_SERIAL_NO: 42})])
+    self.assertTrue((constants.CRYPTO_TYPE_SSL_DIGEST, self._ssl_digest)
+                    in result)
+    self.assertTrue(utils.GenerateNewSslCert.assert_calls().once())
+
+  def testCreateSslTokenDifferentFilename(self):
+    result = backend.GetCryptoTokens(
+      [(constants.CRYPTO_TYPE_SSL_DIGEST, constants.CRYPTO_ACTION_CREATE,
+        {constants.CRYPTO_OPTION_CERT_FILE:
+          pathutils.NODED_CLIENT_CERT_FILE_TMP,
+         constants.CRYPTO_OPTION_SERIAL_NO: 42})])
+    self.assertTrue((constants.CRYPTO_TYPE_SSL_DIGEST, self._ssl_digest)
+                    in result)
+    self.assertTrue(utils.GenerateNewSslCert.assert_calls().once())
+
+  def testCreateSslTokenSerialNo(self):
+    result = backend.GetCryptoTokens(
+      [(constants.CRYPTO_TYPE_SSL_DIGEST, constants.CRYPTO_ACTION_CREATE,
+        {constants.CRYPTO_OPTION_SERIAL_NO: 42})])
+    self.assertTrue((constants.CRYPTO_TYPE_SSL_DIGEST, self._ssl_digest)
+                    in result)
+    self.assertTrue(utils.GenerateNewSslCert.assert_calls().once())
+
+  def testUnknownTokenType(self):
+    self.assertRaises(errors.ProgrammerError,
+                      backend.GetCryptoTokens,
+                      [("pink_bunny", constants.CRYPTO_ACTION_GET, None)])
+
+  def testUnknownAction(self):
+    self.assertRaises(errors.ProgrammerError,
+                      backend.GetCryptoTokens,
+                      [(constants.CRYPTO_TYPE_SSL_DIGEST, "illuminate", None)])
+
+
 class TestNodeVerify(testutils.GanetiTestCase):
 
   def setUp(self):
@@ -88,7 +147,8 @@ class TestNodeVerify(testutils.GanetiTestCase):
     # this a real functional test, but requires localhost to be reachable
     local_data = (netutils.Hostname.GetSysName(),
                   constants.IP4_ADDRESS_LOCALHOST)
-    result = backend.VerifyNode({constants.NV_MASTERIP: local_data}, None, {})
+    result = backend.VerifyNode({constants.NV_MASTERIP: local_data},
+                                None, {}, {}, {})
     self.failUnless(constants.NV_MASTERIP in result,
                     "Master IP data not returned")
     self.failUnless(result[constants.NV_MASTERIP], "Cannot reach localhost")
@@ -99,7 +159,8 @@ class TestNodeVerify(testutils.GanetiTestCase):
     bad_data =  ("master.example.com", "192.0.2.1")
     # we just test that whatever TcpPing returns, VerifyNode returns too
     netutils.TcpPing = lambda a, b, source=None: False
-    result = backend.VerifyNode({constants.NV_MASTERIP: bad_data}, None, {})
+    result = backend.VerifyNode({constants.NV_MASTERIP: bad_data},
+                                None, {}, {}, {})
     self.failUnless(constants.NV_MASTERIP in result,
                     "Master IP data not returned")
     self.failIf(result[constants.NV_MASTERIP],
@@ -124,6 +185,29 @@ class TestNodeVerify(testutils.GanetiTestCase):
         test_what, True, result, all_hvparams=all_hvparams,
         get_hv_fn=self._GetHypervisor)
     self._mock_hv.Verify.assert_called_with(hvparams=hvparams)
+
+  @testutils.patch_object(utils, "VerifyCertificate")
+  def testVerifyClientCertificateSuccess(self, verif_cert):
+    # mock the underlying x509 verification because the test cert is expired
+    verif_cert.return_value = (None, None)
+    cert_file = testutils.TestDataFilename("cert2.pem")
+    (errcode, digest) = backend._VerifyClientCertificate(cert_file=cert_file)
+    self.assertEqual(None, errcode)
+    self.assertTrue(isinstance(digest, str))
+
+  @testutils.patch_object(utils, "VerifyCertificate")
+  def testVerifyClientCertificateFailed(self, verif_cert):
+    expected_errcode = 666
+    verif_cert.return_value = (expected_errcode,
+                               "The devil created this certificate.")
+    cert_file = testutils.TestDataFilename("cert2.pem")
+    (errcode, digest) = backend._VerifyClientCertificate(cert_file=cert_file)
+    self.assertEqual(expected_errcode, errcode)
+
+  def testVerifyClientCertificateNoCert(self):
+    cert_file = testutils.TestDataFilename("cert-that-does-not-exist.pem")
+    (errcode, digest) = backend._VerifyClientCertificate(cert_file=cert_file)
+    self.assertEqual(constants.CV_ERROR, errcode)
 
 
 def _DefRestrictedCmdOwner():
@@ -590,6 +674,48 @@ class TestGetInstanceList(unittest.TestCase):
     self._test_hv.ListInstances.assert_called_with(hvparams=fake_hvparams)
 
 
+class TestInstanceConsoleInfo(unittest.TestCase):
+
+  def setUp(self):
+    self._test_hv_a = self._TestHypervisor()
+    self._test_hv_a.GetInstanceConsole = mock.Mock(
+      return_value = objects.InstanceConsole(instance="inst", kind="aHy")
+    )
+    self._test_hv_b = self._TestHypervisor()
+    self._test_hv_b.GetInstanceConsole = mock.Mock(
+      return_value = objects.InstanceConsole(instance="inst", kind="bHy")
+    )
+
+  class _TestHypervisor(hypervisor.hv_base.BaseHypervisor):
+    def __init__(self):
+      hypervisor.hv_base.BaseHypervisor.__init__(self)
+
+  def _GetHypervisor(self, name):
+    if name == "a":
+      return self._test_hv_a
+    else:
+      return self._test_hv_b
+
+  def testRightHypervisor(self):
+    dictMaker = lambda hyName: {
+      "instance":{"hypervisor":hyName},
+      "node":{},
+      "group":{},
+      "hvParams":{},
+      "beParams":{},
+    }
+
+    call = {
+      'i1':dictMaker("a"),
+      'i2':dictMaker("b"),
+    }
+
+    res = backend.GetInstanceConsoleInfo(call, get_hv_fn=self._GetHypervisor)
+
+    self.assertTrue(res["i1"]["kind"] == "aHy")
+    self.assertTrue(res["i2"]["kind"] == "bHy")
+
+
 class TestGetHvInfo(unittest.TestCase):
 
   def setUp(self):
@@ -794,20 +920,22 @@ class TestGetNodeInfo(unittest.TestCase):
 class TestSpaceReportingConstants(unittest.TestCase):
   """Ensures consistency between STS_REPORT and backend.
 
-  These tests ensure, that the constant 'STS_REPORT' is consitent
+  These tests ensure, that the constant 'STS_REPORT' is consistent
   with the implementation of invoking space reporting functions
   in backend.py. Once space reporting is available for all types,
   the constant can be removed and these tests as well.
 
   """
+
+  REPORTING = set(constants.STS_REPORT)
+  NOT_REPORTING = set(constants.STORAGE_TYPES) - REPORTING
+
   def testAllReportingTypesHaveAReportingFunction(self):
-    for storage_type in constants.STS_REPORT:
+    for storage_type in TestSpaceReportingConstants.REPORTING:
       self.assertTrue(backend._STORAGE_TYPE_INFO_FN[storage_type] is not None)
 
-  def testAllNotReportingTypesDoneHaveFunction(self):
-    non_reporting_types = set(constants.STORAGE_TYPES)\
-        - set(constants.STS_REPORT)
-    for storage_type in non_reporting_types:
+  def testAllNotReportingTypesDontHaveFunction(self):
+    for storage_type in TestSpaceReportingConstants.NOT_REPORTING:
       self.assertEqual(None, backend._STORAGE_TYPE_INFO_FN[storage_type])
 
 

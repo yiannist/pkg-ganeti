@@ -45,11 +45,11 @@ from ganeti.cmdlib.cluster import \
   LUClusterVerify, \
   LUClusterVerifyConfig, \
   LUClusterVerifyGroup, \
-  LUClusterVerifyDisks
+  LUClusterVerifyDisks, \
+  LUClusterRenewCrypto
 from ganeti.cmdlib.group import \
   LUGroupAdd, \
   LUGroupAssignNodes, \
-  LUGroupQuery, \
   LUGroupSetParams, \
   LUGroupRemove, \
   LUGroupRename, \
@@ -62,7 +62,6 @@ from ganeti.cmdlib.node import \
   LUNodeEvacuate, \
   LUNodeMigrate, \
   LUNodeModifyStorage, \
-  LUNodeQuery, \
   LUNodeQueryvols, \
   LUNodeQueryStorage, \
   LUNodeRemove, \
@@ -91,10 +90,8 @@ from ganeti.cmdlib.instance_operation import \
   LUInstanceReboot, \
   LUInstanceConsole
 from ganeti.cmdlib.instance_query import \
-  LUInstanceQuery, \
   LUInstanceQueryData
 from ganeti.cmdlib.backup import \
-  LUBackupQuery, \
   LUBackupPrepare, \
   LUBackupExport, \
   LUBackupRemove
@@ -112,7 +109,6 @@ from ganeti.cmdlib.network import \
   LUNetworkAdd, \
   LUNetworkRemove, \
   LUNetworkSetParams, \
-  LUNetworkQuery, \
   LUNetworkConnect, \
   LUNetworkDisconnect
 from ganeti.cmdlib.misc import \

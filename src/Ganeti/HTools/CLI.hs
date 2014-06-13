@@ -36,6 +36,7 @@ module Ganeti.HTools.CLI
   , parseYesNo
   , parseISpecString
   , shTemplate
+  , maybeSaveCommands
   , maybePrintNodes
   , maybePrintInsts
   , maybeShowWarnings
@@ -59,7 +60,7 @@ module Ganeti.HTools.CLI
   , oFullEvacuation
   , oGroup
   , oIAllocSrc
-  , oIgnoreDyn 
+  , oIgnoreDyn
   , oIgnoreNonRedundant
   , oInstMoves
   , oJobDelay
@@ -71,6 +72,7 @@ module Ganeti.HTools.CLI
   , oMinDisk
   , oMinGain
   , oMinGainLim
+  , oMinResources
   , oMinScore
   , oNoHeaders
   , oNoSimulation
@@ -93,6 +95,7 @@ module Ganeti.HTools.CLI
   , oShowComp
   , oSkipNonRedundant
   , oStdSpec
+  , oTargetResources
   , oTieredSpec
   , oVerbose
   , oPriority
@@ -149,6 +152,7 @@ data Options = Options
   , optMdsk        :: Double         -- ^ Max disk usage ratio for nodes
   , optMinGain     :: Score          -- ^ Min gain we aim for in a step
   , optMinGainLim  :: Score          -- ^ Limit below which we apply mingain
+  , optMinResources :: Double        -- ^ Minimal resources for hsqueeze
   , optMinScore    :: Score          -- ^ The minimum score we aim for
   , optNoHeaders   :: Bool           -- ^ Do not show a header line
   , optNoSimulation :: Bool          -- ^ Skip the rebalancing dry-run
@@ -168,6 +172,7 @@ data Options = Options
   , optShowVer     :: Bool           -- ^ Just show the program version
   , optSkipNonRedundant :: Bool      -- ^ Skip nodes with non-redundant instance
   , optStdSpec     :: Maybe RSpec    -- ^ Requested standard specs
+  , optTargetResources :: Double     -- ^ Target resources for squeezing
   , optTestCount   :: Maybe Int      -- ^ Optional test count override
   , optTieredSpec  :: Maybe RSpec    -- ^ Requested specs for tiered mode
   , optReplay      :: Maybe String   -- ^ Unittests: RNG state
@@ -207,6 +212,7 @@ defaultOptions  = Options
   , optMdsk        = defReservedDiskRatio
   , optMinGain     = 1e-2
   , optMinGainLim  = 1e-1
+  , optMinResources = 2.0
   , optMinScore    = 1e-9
   , optNoHeaders   = False
   , optNoSimulation = False
@@ -226,6 +232,7 @@ defaultOptions  = Options
   , optShowNodes   = Nothing
   , optShowVer     = False
   , optStdSpec     = Nothing
+  , optTargetResources = 2.0
   , optTestCount   = Nothing
   , optTieredSpec  = Nothing
   , optReplay      = Nothing
@@ -293,9 +300,11 @@ oDiskMoves =
 oMonD :: OptType
 oMonD =
   (Option "" ["mond"]
-   (NoArg (\ opts -> Ok opts {optMonD = True}))
-   "Query MonDs",
-   OptComplNone)
+   (OptArg (\ f opts -> do
+              flag <- parseYesNo True f
+              return $ opts { optMonD = flag }) "CHOICE")
+   "pass either 'yes' or 'no' to query all monDs",
+   optComplYesNo)
 
 oMonDDataFile :: OptType
 oMonDDataFile =
@@ -447,7 +456,7 @@ genOLuxiSocket defSocket =
    OptComplFile)
 
 oLuxiSocket :: IO OptType
-oLuxiSocket = liftM genOLuxiSocket Path.defaultLuxiSocket
+oLuxiSocket = liftM genOLuxiSocket Path.defaultMasterSocket
 
 oMachineReadable :: OptType
 oMachineReadable =
@@ -504,6 +513,15 @@ oMinGainLim =
    (reqWithConversion (tryRead "min gain limit")
     (\g opts -> Ok opts { optMinGainLim = g }) "SCORE")
    "minimum cluster score for which we start checking the min-gain",
+   OptComplFloat)
+
+oMinResources :: OptType
+oMinResources =
+  (Option "" ["minimal-resources"]
+   (reqWithConversion (tryRead "minimal resources")
+    (\d opts -> Ok opts { optMinResources = d}) "FACTOR")
+   "minimal resources to be present on each in multiples of\ 
+   \ the standard allocation for not onlining standby nodes",
    OptComplFloat)
 
 oMinScore :: OptType
@@ -648,6 +666,15 @@ oStdSpec =
    "enable standard specs allocation, given as 'disk,ram,cpu'",
    OptComplString)
 
+oTargetResources :: OptType
+oTargetResources =
+  (Option "" ["target-resources"]
+   (reqWithConversion (tryRead "target resources")
+    (\d opts -> Ok opts { optTargetResources = d}) "FACTOR")
+   "target resources to be left on each node after squeezing in\
+   \ multiples of the standard allocation",
+   OptComplFloat)
+
 oTieredSpec :: OptType
 oTieredSpec =
   (Option "" ["tiered-alloc"]
@@ -706,6 +733,22 @@ shTemplate =
          \    exit 0\n\
          \  fi\n\
          \}\n\n"
+
+-- | Optionally show or save a list of commands
+maybeSaveCommands :: String -- ^ Informal description
+                  -> Options
+                  -> String -- ^ commands
+                  -> IO ()
+maybeSaveCommands msg opts cmds =
+  case optShowCmds opts of
+    Nothing -> return ()
+    Just "-" -> do
+      putStrLn ""
+      putStrLn msg
+      putStr . unlines .  map ("  " ++) . filter (/= "  check") . lines $ cmds
+    Just out_path -> do
+      writeFile out_path (shTemplate ++ cmds)
+      printf "The commands have been written to file '%s'\n" out_path
 
 -- | Optionally print the node list.
 maybePrintNodes :: Maybe [String]       -- ^ The field list

@@ -27,7 +27,7 @@ from ganeti import errors
 from ganeti import ht
 from ganeti import outils
 from ganeti import opcodes
-from ganeti import rpc
+import ganeti.rpc.node as rpc
 from ganeti import serializer
 from ganeti import utils
 
@@ -99,6 +99,15 @@ class IARequestBase(outils.ValidatedSlots):
 
   def Validate(self):
     """Validates all parameters of the request.
+
+
+    This method returns L{None} if the validation succeeds, or raises
+    an exception otherwise.
+
+    @rtype: NoneType
+    @return: L{None}, if the validation succeeds
+
+    @raise Exception: validation fails
 
     """
     assert self.MODE in constants.VALID_IALLOCATOR_MODES
@@ -777,7 +786,9 @@ class IAllocator(object):
     if call_fn is None:
       call_fn = self.rpc.call_iallocator_runner
 
-    result = call_fn(self.cfg.GetMasterNode(), name, self.in_text)
+    ial_params = self.cfg.GetDefaultIAllocatorParameters()
+
+    result = call_fn(self.cfg.GetMasterNode(), name, self.in_text, ial_params)
     result.Raise("Failure while running the iallocator script")
 
     self.out_text = result.payload

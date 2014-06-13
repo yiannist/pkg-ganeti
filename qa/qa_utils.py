@@ -29,6 +29,7 @@ import operator
 import os
 import random
 import re
+import socket
 import subprocess
 import sys
 import tempfile
@@ -46,6 +47,7 @@ from ganeti import ht
 from ganeti import pathutils
 from ganeti import vcluster
 
+import colors
 import qa_config
 import qa_error
 
@@ -274,7 +276,8 @@ def StartLocalCommand(cmd, _nolog_opts=False, log_cmd=True, **kwargs):
       pcmd = [i for i in cmd if not i.startswith("-")]
     else:
       pcmd = cmd
-    print "Command: %s" % utils.ShellQuoteArgs(pcmd)
+    print "%s %s" % (colors.colorize("Command:", colors.CYAN),
+                     utils.ShellQuoteArgs(pcmd))
   return subprocess.Popen(cmd, shell=False, **kwargs)
 
 
@@ -882,6 +885,13 @@ def ParseIPolicy(policy):
     else:
       ret_policy[key] = val
   return (ret_policy, ret_specs)
+
+
+def UsesIPv6Connection(host, port):
+  """Returns True if the connection to a given host/port could go through IPv6.
+
+  """
+  return any(t[0] == socket.AF_INET6 for t in socket.getaddrinfo(host, port))
 
 
 def TimedeltaToTotalSeconds(td):

@@ -34,6 +34,7 @@ from ganeti import objects
 from ganeti import cmdlib
 
 import ganeti.masterd.instance as gmi
+from ganeti.hypervisor import hv_base
 
 import testutils
 
@@ -669,6 +670,7 @@ class TestInstanceQuery(unittest.TestCase):
                           query.IQ_CONSOLE, query.IQ_NODES, query.IQ_NETWORKS]))
 
     cluster = objects.Cluster(cluster_name="testcluster",
+      enabled_user_shutdown=True,
       hvparams=constants.HVC_DEFAULTS,
       beparams={
         constants.PP_DEFAULT: constants.BEC_DEFAULTS,
@@ -693,7 +695,9 @@ class TestInstanceQuery(unittest.TestCase):
       objects.Instance(name="inst1", hvparams={}, beparams={}, nics=[],
         uuid="inst1-uuid",
         ctime=1291244000, mtime=1291244400, serial_no=30,
-        admin_state=constants.ADMINST_UP, hypervisor=constants.HT_XEN_PVM,
+        admin_state=constants.ADMINST_UP,
+        admin_state_source=constants.ADMIN_SOURCE,
+        hypervisor=constants.HT_XEN_PVM,
         os="linux1",
         primary_node="node1-uuid",
         disk_template=constants.DT_PLAIN,
@@ -703,7 +707,9 @@ class TestInstanceQuery(unittest.TestCase):
       objects.Instance(name="inst2", hvparams={}, nics=[],
         uuid="inst2-uuid",
         ctime=1291211000, mtime=1291211077, serial_no=1,
-        admin_state=constants.ADMINST_UP, hypervisor=constants.HT_XEN_HVM,
+        admin_state=constants.ADMINST_UP,
+        admin_state_source=constants.ADMIN_SOURCE,
+        hypervisor=constants.HT_XEN_HVM,
         os="deb99",
         primary_node="node5-uuid",
         disk_template=constants.DT_DISKLESS,
@@ -717,7 +723,9 @@ class TestInstanceQuery(unittest.TestCase):
       objects.Instance(name="inst3", hvparams={}, beparams={},
         uuid="inst3-uuid",
         ctime=1291011000, mtime=1291013000, serial_no=1923,
-        admin_state=constants.ADMINST_DOWN, hypervisor=constants.HT_KVM,
+        admin_state=constants.ADMINST_DOWN,
+        admin_state_source=constants.ADMIN_SOURCE,
+        hypervisor=constants.HT_KVM,
         os="busybox",
         primary_node="node6-uuid",
         disk_template=constants.DT_DRBD8,
@@ -734,7 +742,9 @@ class TestInstanceQuery(unittest.TestCase):
       objects.Instance(name="inst4", hvparams={}, beparams={},
         uuid="inst4-uuid",
         ctime=1291244390, mtime=1291244395, serial_no=25,
-        admin_state=constants.ADMINST_DOWN, hypervisor=constants.HT_XEN_PVM,
+        admin_state=constants.ADMINST_DOWN,
+        admin_state_source=constants.ADMIN_SOURCE,
+        hypervisor=constants.HT_XEN_PVM,
         os="linux1",
         primary_node="nodeoff2-uuid",
         disk_template=constants.DT_DRBD8,
@@ -760,7 +770,9 @@ class TestInstanceQuery(unittest.TestCase):
       objects.Instance(name="inst5", hvparams={}, nics=[],
         uuid="inst5-uuid",
         ctime=1231211000, mtime=1261200000, serial_no=3,
-        admin_state=constants.ADMINST_UP, hypervisor=constants.HT_XEN_HVM,
+        admin_state=constants.ADMINST_UP,
+        admin_state_source=constants.ADMIN_SOURCE,
+        hypervisor=constants.HT_XEN_HVM,
         os="deb99",
         primary_node="nodebad2-uuid",
         disk_template=constants.DT_DISKLESS,
@@ -774,7 +786,9 @@ class TestInstanceQuery(unittest.TestCase):
       objects.Instance(name="inst6", hvparams={}, nics=[],
         uuid="inst6-uuid",
         ctime=7513, mtime=11501, serial_no=13390,
-        admin_state=constants.ADMINST_DOWN, hypervisor=constants.HT_XEN_HVM,
+        admin_state=constants.ADMINST_DOWN,
+        admin_state_source=constants.ADMIN_SOURCE,
+        hypervisor=constants.HT_XEN_HVM,
         os="deb99",
         primary_node="node7-uuid",
         disk_template=constants.DT_DISKLESS,
@@ -790,7 +804,9 @@ class TestInstanceQuery(unittest.TestCase):
       objects.Instance(name="inst7", hvparams={}, nics=[],
         uuid="inst7-uuid",
         ctime=None, mtime=None, serial_no=1947,
-        admin_state=constants.ADMINST_DOWN, hypervisor=constants.HT_XEN_HVM,
+        admin_state=constants.ADMINST_DOWN,
+        admin_state_source=constants.ADMIN_SOURCE,
+        hypervisor=constants.HT_XEN_HVM,
         os="deb99",
         primary_node="node6-uuid",
         disk_template=constants.DT_DISKLESS,
@@ -801,7 +817,25 @@ class TestInstanceQuery(unittest.TestCase):
       objects.Instance(name="inst8", hvparams={}, nics=[],
         uuid="inst8-uuid",
         ctime=None, mtime=None, serial_no=19478,
-        admin_state=constants.ADMINST_OFFLINE, hypervisor=constants.HT_XEN_HVM,
+        admin_state=constants.ADMINST_OFFLINE,
+        admin_state_source=constants.ADMIN_SOURCE,
+        hypervisor=constants.HT_XEN_HVM,
+        os="deb99",
+        primary_node="node6-uuid",
+        disk_template=constants.DT_DISKLESS,
+        disks=[],
+        disks_active=False,
+        beparams={},
+        osparams={}),
+      objects.Instance(
+        name="inst9",
+        hvparams={constants.HV_KVM_USER_SHUTDOWN: True},
+        nics=[],
+        uuid="inst9-uuid",
+        ctime=None, mtime=None, serial_no=19478,
+        admin_state=constants.ADMINST_UP,
+        admin_state_source=constants.ADMIN_SOURCE,
+        hypervisor=constants.HT_XEN_HVM,
         os="deb99",
         primary_node="node6-uuid",
         disk_template=constants.DT_DISKLESS,
@@ -831,15 +865,23 @@ class TestInstanceQuery(unittest.TestCase):
     live_data = {
       "inst2-uuid": {
         "vcpus": 3,
+        "state": hv_base.HvInstanceState.RUNNING,
         },
       "inst4-uuid": {
         "memory": 123,
+        "state": hv_base.HvInstanceState.RUNNING,
         },
       "inst6-uuid": {
         "memory": 768,
+        "state": hv_base.HvInstanceState.RUNNING,
         },
       "inst7-uuid": {
         "vcpus": 3,
+        "state": hv_base.HvInstanceState.RUNNING,
+        },
+      "inst9-uuid": {
+        "vcpus": 3,
+        "state": hv_base.HvInstanceState.SHUTDOWN,
         },
       }
     wrongnode_inst = set(["inst7-uuid"])
@@ -883,16 +925,28 @@ class TestInstanceQuery(unittest.TestCase):
       elif inst.uuid in live_data:
         if inst.uuid in wrongnode_inst:
           exp_status = constants.INSTST_WRONGNODE
-        elif inst.admin_state == constants.ADMINST_UP:
-          exp_status = constants.INSTST_RUNNING
         else:
-          exp_status = constants.INSTST_ERRORUP
-      elif inst.admin_state == constants.ADMINST_UP:
-        exp_status = constants.INSTST_ERRORDOWN
-      elif inst.admin_state == constants.ADMINST_DOWN:
-        exp_status = constants.INSTST_ADMINDOWN
+          instance_state = live_data[inst.uuid]["state"]
+          if hv_base.HvInstanceState.IsShutdown(instance_state):
+            if inst.admin_state == constants.ADMINST_UP:
+              exp_status = constants.INSTST_USERDOWN
+            else:
+              exp_status = constants.INSTST_ADMINDOWN
+          else:
+            if inst.admin_state == constants.ADMINST_UP:
+              exp_status = constants.INSTST_RUNNING
+            else:
+              exp_status = constants.INSTST_ERRORUP
       else:
-        exp_status = constants.INSTST_ADMINOFFLINE
+        if inst.admin_state == constants.ADMINST_UP:
+          exp_status = constants.INSTST_ERRORDOWN
+        elif inst.admin_state == constants.ADMINST_DOWN:
+          if inst.admin_state_source == constants.USER_SOURCE:
+            exp_status = constants.INSTST_USERDOWN
+          else:
+            exp_status = constants.INSTST_ADMINDOWN
+        else:
+          exp_status = constants.INSTST_ADMINOFFLINE
 
       self.assertEqual(row[fieldidx["status"]],
                        (constants.RS_NORMAL, exp_status))
@@ -978,13 +1032,13 @@ class TestInstanceQuery(unittest.TestCase):
       self._CheckInstanceConsole(inst, row[fieldidx["console"]])
 
     # Ensure all possible status' have been tested
-    self.assertEqual(tested_status, constants.INSTST_ALL)
+    self.assertEqual(tested_status, set(constants.INSTST_ALL))
 
   def _CheckInstanceConsole(self, instance, (status, consdata)):
     if instance.name == "inst7":
       self.assertEqual(status, constants.RS_NORMAL)
       console = objects.InstanceConsole.FromDict(consdata)
-      self.assertTrue(console.Validate())
+      self.assertEqual(console.Validate(), None)
       self.assertEqual(console.host, instance.primary_node)
     else:
       self.assertEqual(status, constants.RS_UNAVAIL)

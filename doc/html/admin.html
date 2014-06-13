@@ -8,7 +8,7 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Ganeti administrator’s guide &mdash; Ganeti 2.10.5 documentation</title>
+    <title>Ganeti administrator’s guide &mdash; Ganeti 2.11.2 documentation</title>
     
     <link rel="stylesheet" href="_static/style.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
@@ -16,7 +16,7 @@
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.10.5',
+        VERSION:     '2.11.2',
         COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -25,9 +25,9 @@
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti 2.10.5 documentation" href="index.html" />
+    <link rel="top" title="Ganeti 2.11.2 documentation" href="index.html" />
     <link rel="next" title="Merging clusters" href="cluster-merge.html" />
-    <link rel="prev" title="HSqueeze tool" href="design-hsqueeze.html" /> 
+    <link rel="prev" title="Improvements of Node Security" href="design-node-security.html" /> 
   </head>
   <body>
     <div class="related">
@@ -37,9 +37,9 @@
           <a href="cluster-merge.html" title="Merging clusters"
              accesskey="N">next</a></li>
         <li class="right" >
-          <a href="design-hsqueeze.html" title="HSqueeze tool"
+          <a href="design-node-security.html" title="Improvements of Node Security"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.10.5 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.11.2 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -50,7 +50,7 @@
             
   <div class="section" id="ganeti-administrator-s-guide">
 <h1><a class="toc-backref" href="#id4">Ganeti administrator&#8217;s guide</a><a class="headerlink" href="#ganeti-administrator-s-guide" title="Permalink to this headline">¶</a></h1>
-<p>Documents Ganeti version 2.10</p>
+<p>Documents Ganeti version 2.11</p>
 <div class="contents topic" id="contents">
 <p class="topic-title first">Contents</p>
 <ul class="simple">
@@ -300,30 +300,24 @@ level or via defaults at cluster level.</p>
 <p>The are multiple options for the storage provided to an instance; while
 the instance sees the same virtual drive in all cases, the node-level
 configuration varies between them.</p>
-<p>There are five disk templates you can choose from:</p>
+<p>There are several disk templates you can choose from:</p>
 <dl class="docutils">
-<dt>diskless</dt>
+<dt><tt class="docutils literal"><span class="pre">diskless</span></tt></dt>
 <dd>The instance has no disks. Only used for special purpose operating
 systems or for testing.</dd>
-<dt>file</dt>
+<dt><tt class="docutils literal"><span class="pre">file</span></tt> <strong>*</strong></dt>
 <dd>The instance will use plain files as backend for its disks. No
 redundancy is provided, and this is somewhat more difficult to
-configure for high performance. Note that for security reasons the
-file storage directory must be listed under
-<tt class="docutils literal"><span class="pre">/etc/ganeti/file-storage-paths</span></tt>, and that file is not copied
-automatically to all nodes by Ganeti. The format of that file is a
-newline-separated list of directories.</dd>
-<dt>sharedfile</dt>
+configure for high performance.</dd>
+<dt><tt class="docutils literal"><span class="pre">sharedfile</span></tt> <strong>*</strong></dt>
 <dd>The instance will use plain files as backend, but Ganeti assumes that
 those files will be available and in sync automatically on all nodes.
 This allows live migration and failover of instances using this
-method. As for <tt class="docutils literal"><span class="pre">file</span></tt> the file storage directory must be listed under
-<tt class="docutils literal"><span class="pre">/etc/ganeti/file-storage-paths</span></tt> or ganeti will refuse to create
-instances under it.</dd>
-<dt>plain</dt>
+method.</dd>
+<dt><tt class="docutils literal"><span class="pre">plain</span></tt></dt>
 <dd>The instance will use LVM devices as backend for its disks. No
 redundancy is provided.</dd>
-<dt>drbd</dt>
+<dt><tt class="docutils literal"><span class="pre">drbd</span></tt></dt>
 <dd><div class="first admonition note">
 <p class="first admonition-title">Note</p>
 <p class="last">This is only valid for multi-node clusters using DRBD 8.0+</p>
@@ -339,13 +333,48 @@ DRBD stacked setup is not fully symmetric and as such it is
 not working with live migration.</p>
 </div>
 </dd>
-<dt>rbd</dt>
+<dt><tt class="docutils literal"><span class="pre">rbd</span></tt></dt>
 <dd>The instance will use Volumes inside a RADOS cluster as backend for its
 disks. It will access them using the RADOS block device (RBD).</dd>
-<dt>ext</dt>
+<dt><tt class="docutils literal"><span class="pre">gluster</span></tt> <strong>*</strong></dt>
+<dd>The instance will use a Gluster volume for instance storage. Disk
+images will be stored in the top-level <tt class="docutils literal"><span class="pre">ganeti/</span></tt> directory of the
+volume. This directory will be created automatically for you.</dd>
+<dt><tt class="docutils literal"><span class="pre">ext</span></tt></dt>
 <dd>The instance will use an external storage provider. See
 <em class="manpage">ganeti-extstorage-interface(7)</em> for how to implement one.</dd>
 </dl>
+<div class="admonition note">
+<p class="first admonition-title">Note</p>
+<p>Disk templates marked with an asterisk require Ganeti to access the
+file system. Ganeti will refuse to do so unless you whitelist the
+relevant paths in <tt class="docutils literal"><span class="pre">/etc/ganeti/file-storage-paths</span></tt>.</p>
+<p>The default paths used by Ganeti are:</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="23%" />
+<col width="77%" />
+</colgroup>
+<thead valign="bottom">
+<tr class="row-odd"><th class="head">Disk template</th>
+<th class="head">Default path</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr class="row-even"><td><tt class="docutils literal"><span class="pre">file</span></tt></td>
+<td><tt class="docutils literal"><span class="pre">/srv/ganeti/file-storage</span></tt></td>
+</tr>
+<tr class="row-odd"><td><tt class="docutils literal"><span class="pre">sharedfile</span></tt></td>
+<td><tt class="docutils literal"><span class="pre">/srv/ganeti/shared-file-storage</span></tt></td>
+</tr>
+<tr class="row-even"><td><tt class="docutils literal"><span class="pre">gluster</span></tt></td>
+<td><tt class="docutils literal"><span class="pre">/var/run/ganeti/gluster</span></tt></td>
+</tr>
+</tbody>
+</table>
+<p class="last">Those paths can be changed at <tt class="docutils literal"><span class="pre">gnt-cluster</span> <span class="pre">init</span></tt> time. See
+<em class="manpage">gnt-cluster(8)</em> for details.</p>
+</div>
 </div>
 <div class="section" id="iallocator">
 <h4><a class="toc-backref" href="#id11">IAllocator</a><a class="headerlink" href="#iallocator" title="Permalink to this headline">¶</a></h4>
@@ -2249,8 +2278,8 @@ in the source archive.</p>
 </ul>
 
   <h4>Previous topic</h4>
-  <p class="topless"><a href="design-hsqueeze.html"
-                        title="previous chapter">HSqueeze tool</a></p>
+  <p class="topless"><a href="design-node-security.html"
+                        title="previous chapter">Improvements of Node Security</a></p>
   <h4>Next topic</h4>
   <p class="topless"><a href="cluster-merge.html"
                         title="next chapter">Merging clusters</a></p>
@@ -2283,9 +2312,9 @@ in the source archive.</p>
           <a href="cluster-merge.html" title="Merging clusters"
              >next</a></li>
         <li class="right" >
-          <a href="design-hsqueeze.html" title="HSqueeze tool"
+          <a href="design-node-security.html" title="Improvements of Node Security"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.10.5 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.11.2 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

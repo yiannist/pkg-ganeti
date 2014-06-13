@@ -48,11 +48,13 @@ from ganeti import opcodes
 from ganeti import jqueue
 from ganeti import locking
 from ganeti import luxi
+import ganeti.rpc.errors as rpcerr
 from ganeti import utils
 from ganeti import errors
 from ganeti import ssconf
 from ganeti import workerpool
-from ganeti import rpc
+import ganeti.rpc.node as rpc
+import ganeti.rpc.client as rpccl
 from ganeti import bootstrap
 from ganeti import netutils
 from ganeti import objects
@@ -92,8 +94,8 @@ class ClientRequestWorker(workerpool.BaseWorker):
     client_ops = ClientOps(server)
 
     try:
-      (method, args, ver) = luxi.ParseRequest(message)
-    except luxi.ProtocolError, err:
+      (method, args, ver) = rpccl.ParseRequest(message)
+    except rpcerr.ProtocolError, err:
       logging.error("Protocol Error: %s", err)
       client.close_log()
       return
@@ -117,7 +119,7 @@ class ClientRequestWorker(workerpool.BaseWorker):
       result = "Caught exception: %s" % str(err[1])
 
     try:
-      reply = luxi.FormatResponse(success, result)
+      reply = rpccl.FormatResponse(success, result)
       client.send_message(reply)
       # awake the main thread so that it can write out the data.
       server.awaker.signal()
@@ -295,6 +297,11 @@ class ClientOps(object):
       _LogNewJob(True, job_id, ops)
       return job_id
 
+    elif method == luxi.REQ_PICKUP_JOB:
+      logging.info("Picking up new job from queue")
+      (job_id, ) = args
+      queue.PickupJob(job_id)
+
     elif method == luxi.REQ_SUBMIT_JOB_TO_DRAINED_QUEUE:
       logging.info("Forcefully receiving new job")
       (job_def, ) = args
@@ -356,7 +363,8 @@ class ClientOps(object):
       elif what == constants.QR_JOB:
         return queue.QueryJobs(fields, qfilter)
       elif what in constants.QR_VIA_LUXI:
-        raise NotImplementedError
+        luxi_client = runtime.GetClient(query=True)
+        result = luxi_client.Query(what, fields, qfilter).ToDict()
       else:
         raise errors.OpPrereqError("Resource type '%s' unknown" % what,
                                    errors.ECODE_INVAL)
@@ -383,53 +391,6 @@ class ClientOps(object):
         msg = str(job_ids)
       logging.info("Received job query request for %s", msg)
       return queue.OldStyleQueryJobs(job_ids, fields)
-
-    elif method == luxi.REQ_QUERY_INSTANCES:
-      (names, fields, use_locking) = args
-      logging.info("Received instance query request for %s", names)
-      if use_locking:
-        raise errors.OpPrereqError("Sync queries are not allowed",
-                                   errors.ECODE_INVAL)
-      op = opcodes.OpInstanceQuery(names=names, output_fields=fields,
-                                   use_locking=use_locking)
-      return self._Query(op)
-
-    elif method == luxi.REQ_QUERY_NODES:
-      (names, fields, use_locking) = args
-      logging.info("Received node query request for %s", names)
-      if use_locking:
-        raise errors.OpPrereqError("Sync queries are not allowed",
-                                   errors.ECODE_INVAL)
-      op = opcodes.OpNodeQuery(names=names, output_fields=fields,
-                               use_locking=use_locking)
-      return self._Query(op)
-
-    elif method == luxi.REQ_QUERY_GROUPS:
-      (names, fields, use_locking) = args
-      logging.info("Received group query request for %s", names)
-      if use_locking:
-        raise errors.OpPrereqError("Sync queries are not allowed",
-                                   errors.ECODE_INVAL)
-      op = opcodes.OpGroupQuery(names=names, output_fields=fields)
-      return self._Query(op)
-
-    elif method == luxi.REQ_QUERY_NETWORKS:
-      (names, fields, use_locking) = args
-      logging.info("Received network query request for %s", names)
-      if use_locking:
-        raise errors.OpPrereqError("Sync queries are not allowed",
-                                   errors.ECODE_INVAL)
-      op = opcodes.OpNetworkQuery(names=names, output_fields=fields)
-      return self._Query(op)
-
-    elif method == luxi.REQ_QUERY_EXPORTS:
-      (nodes, use_locking) = args
-      if use_locking:
-        raise errors.OpPrereqError("Sync queries are not allowed",
-                                   errors.ECODE_INVAL)
-      logging.info("Received exports query request")
-      op = opcodes.OpBackupQuery(nodes=nodes, use_locking=use_locking)
-      return self._Query(op)
 
     elif method == luxi.REQ_QUERY_CONFIG_VALUES:
       (fields, ) = args

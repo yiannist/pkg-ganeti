@@ -83,6 +83,8 @@ module Ganeti.OpParams
   , pMigrationTargetNodeUuid
   , pMoveTargetNode
   , pMoveTargetNodeUuid
+  , pMoveCompress
+  , pBackupCompress
   , pStartupPaused
   , pVerbose
   , pDebugSimulateErrors
@@ -104,6 +106,7 @@ module Ganeti.OpParams
   , pFileStorageDir
   , pClusterFileStorageDir
   , pClusterSharedFileStorageDir
+  , pClusterGlusterStorageDir
   , pVgName
   , pEnabledHypervisors
   , pHypervisor
@@ -116,6 +119,7 @@ module Ganeti.OpParams
   , pClusterOsParams
   , pInstOsParams
   , pCandidatePoolSize
+  , pMaxRunningJobs
   , pUidPool
   , pAddUids
   , pRemoveUids
@@ -128,6 +132,7 @@ module Ganeti.OpParams
   , pIpolicy
   , pDrbdHelper
   , pDefaultIAllocator
+  , pDefaultIAllocatorParams
   , pMasterNetdev
   , pMasterNetmask
   , pReservedLvs
@@ -255,9 +260,11 @@ module Ganeti.OpParams
   , pReason
   , pSequential
   , pEnabledDiskTemplates
+  , pEnabledUserShutdown
+  , pAdminStateSource
   ) where
 
-import Control.Monad (liftM)
+import Control.Monad (liftM, mplus)
 import Text.JSON (JSON, JSValue(..), JSObject (..), readJSON, showJSON,
                   fromJSString, toJSObject)
 import qualified Text.JSON
@@ -266,6 +273,7 @@ import Text.JSON.Pretty (pp_value)
 import Ganeti.BasicTypes
 import qualified Ganeti.Constants as C
 import Ganeti.THH
+import Ganeti.Utils
 import Ganeti.JSON
 import Ganeti.Types
 import qualified Ganeti.Query.Language as Qlang
@@ -339,18 +347,23 @@ $(buildObject "INicParams" "inic"
   , optionalField $ simpleField C.inicMode   [t| NonEmptyString |]
   , optionalField $ simpleField C.inicLink   [t| NonEmptyString |]
   , optionalField $ simpleField C.inicName   [t| NonEmptyString |]
-  , optionalField $ simpleField C.inicVlan   [t| NonEmptyString |]
+  , optionalField $ simpleField C.inicVlan   [t| String         |]
   , optionalField $ simpleField C.inicBridge [t| NonEmptyString |]
+  , optionalField $ simpleField C.inicNetwork [t| NonEmptyString |]
   ])
 
--- | Disk modification definition. FIXME: disksize should be VTYPE_UNIT.
+-- | Disk modification definition.
 $(buildObject "IDiskParams" "idisk"
-  [ optionalField $ simpleField C.idiskSize   [t| Int            |]
+  [ specialNumericalField 'parseUnitAssumeBinary . optionalField
+      $ simpleField C.idiskSize               [t| Int            |]
   , optionalField $ simpleField C.idiskMode   [t| DiskAccess     |]
   , optionalField $ simpleField C.idiskAdopt  [t| NonEmptyString |]
   , optionalField $ simpleField C.idiskVg     [t| NonEmptyString |]
   , optionalField $ simpleField C.idiskMetavg [t| NonEmptyString |]
   , optionalField $ simpleField C.idiskName   [t| NonEmptyString |]
+  , optionalField $ simpleField C.idiskProvider [t| NonEmptyString |]
+  , optionalField $ simpleField C.idiskSpindles [t| Int          |]
+  , andRestArguments "opaque"
   ])
 
 -- | Disk changes type for OpInstanceRecreateDisks. This is a bit
@@ -405,20 +418,22 @@ data SetParamsMods a
   = SetParamsEmpty
   | SetParamsDeprecated (NonEmpty (DdmOldChanges, a))
   | SetParamsNew (NonEmpty (DdmFull, Int, a))
+  | SetParamsNewName (NonEmpty (DdmFull, String, a))
     deriving (Eq, Show)
 
 -- | Custom deserialiser for 'SetParamsMods'.
 readSetParams :: (JSON a) => JSValue -> Text.JSON.Result (SetParamsMods a)
 readSetParams (JSArray []) = return SetParamsEmpty
 readSetParams v =
-  case readJSON v::Text.JSON.Result [(DdmOldChanges, JSValue)] of
-    Text.JSON.Ok _ -> liftM SetParamsDeprecated $ readJSON v
-    _ -> liftM SetParamsNew $ readJSON v
+  liftM SetParamsDeprecated (readJSON v)
+  `mplus` liftM SetParamsNew (readJSON v)
+  `mplus` liftM SetParamsNewName (readJSON v)
 
 instance (JSON a) => JSON (SetParamsMods a) where
   showJSON SetParamsEmpty = showJSON ()
   showJSON (SetParamsDeprecated v) = showJSON v
   showJSON (SetParamsNew v) = showJSON v
+  showJSON (SetParamsNewName v) = showJSON v
   readJSON = readSetParams
 
 -- | Custom type for target_node parameter of OpBackupExport, which
@@ -489,12 +504,12 @@ pDebugSimulateErrors =
   defaultFalse "debug_simulate_errors"
 
 pErrorCodes :: Field
-pErrorCodes = 
+pErrorCodes =
   withDoc "Error codes" $
   defaultFalse "error_codes"
 
 pSkipChecks :: Field
-pSkipChecks = 
+pSkipChecks =
   withDoc "Which checks to skip" .
   defaultField [| emptyListSet |] $
   simpleField "skip_checks" [t| ListSet VerifyOptionalChecks |]
@@ -571,6 +586,12 @@ pClusterSharedFileStorageDir =
   renameField "ClusterSharedFileStorageDir" $
   optionalStringField "shared_file_storage_dir"
 
+-- | Cluster-wide default directory for storing Gluster-backed disks.
+pClusterGlusterStorageDir :: Field
+pClusterGlusterStorageDir =
+  renameField "ClusterGlusterStorageDir" $
+  optionalStringField "gluster_storage_dir"
+
 -- | Volume group name.
 pVgName :: Field
 pVgName =
@@ -620,6 +641,11 @@ pCandidatePoolSize :: Field
 pCandidatePoolSize =
   withDoc "Master candidate pool size" .
   optionalField $ simpleField "candidate_pool_size" [t| Positive Int |]
+
+pMaxRunningJobs :: Field
+pMaxRunningJobs =
+  withDoc "Maximal number of jobs to run simultaneously" .
+  optionalField $ simpleField "max_running_jobs" [t| Positive Int |]
 
 pUidPool :: Field
 pUidPool =
@@ -674,6 +700,11 @@ pDefaultIAllocator =
   withDoc "Default iallocator for cluster" $
   optionalStringField "default_iallocator"
 
+pDefaultIAllocatorParams :: Field
+pDefaultIAllocatorParams =
+  withDoc "Default iallocator parameters for cluster" . optionalField
+    $ simpleField "default_iallocator_params" [t| JSObject JSValue |]
+
 pMasterNetdev :: Field
 pMasterNetdev =
   withDoc "Master network device" $
@@ -714,6 +745,12 @@ pEnabledDiskTemplates =
   withDoc "List of enabled disk templates" .
   optionalField $
   simpleField "enabled_disk_templates" [t| [DiskTemplate] |]
+
+pEnabledUserShutdown :: Field
+pEnabledUserShutdown =
+  withDoc "Whether user shutdown is enabled cluster wide" .
+  optionalField $
+  simpleField "enabled_user_shutdown" [t| Bool |]
 
 pQueryWhat :: Field
 pQueryWhat =
@@ -839,7 +876,7 @@ pNdParams =
   withDoc "Node parameters" .
   renameField "genericNdParams" .
   optionalField $ simpleField "ndparams" [t| JSObject JSValue |]
-  
+
 pNames :: Field
 pNames =
   withDoc "List of names" .
@@ -933,7 +970,7 @@ pIgnoreIpolicy :: Field
 pIgnoreIpolicy =
   withDoc "Whether to ignore ipolicy violations" $
   defaultFalse "ignore_ipolicy"
-  
+
 pIallocator :: Field
 pIallocator =
   withDoc "Iallocator for deciding the target node for shared-storage\
@@ -1184,7 +1221,7 @@ pNewName :: Field
 pNewName =
   withDoc "New group or instance name" $
   simpleField "new_name" [t| NonEmptyString |]
-  
+
 pIgnoreOfflineNodes :: Field
 pIgnoreOfflineNodes =
   withDoc "Whether to ignore offline nodes" $
@@ -1263,16 +1300,28 @@ pMoveTargetNodeUuid =
   renameField "MoveTargetNodeUuid" . optionalField $
   simpleField "target_node_uuid" [t| NonEmptyString |]
 
+pMoveCompress :: Field
+pMoveCompress =
+  withDoc "Compression mode to use during instance moves" .
+  defaultField [| None |] $
+  simpleField "compress" [t| ImportExportCompression |]
+
+pBackupCompress :: Field
+pBackupCompress =
+  withDoc "Compression mode to use for moves during backups/imports" .
+  defaultField [| None |] $
+  simpleField "compress" [t| ImportExportCompression |]
+
 pIgnoreDiskSize :: Field
 pIgnoreDiskSize =
   withDoc "Whether to ignore recorded disk size" $
   defaultFalse "ignore_size"
-  
+
 pWaitForSyncFalse :: Field
 pWaitForSyncFalse =
   withDoc "Whether to wait for the disk to synchronize (defaults to false)" $
   defaultField [| False |] pWaitForSync
-  
+
 pRecreateDisksInfo :: Field
 pRecreateDisksInfo =
   withDoc "Disk list for recreate disks" .
@@ -1630,3 +1679,9 @@ pNetworkLink :: Field
 pNetworkLink =
   withDoc "Network link when connecting to a group" $
   simpleField "network_link" [t| NonEmptyString |]
+
+pAdminStateSource :: Field
+pAdminStateSource =
+  withDoc "Who last changed the instance admin state" .
+  optionalField $
+  simpleField "admin_state_source" [t| AdminStateSource |]

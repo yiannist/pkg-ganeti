@@ -89,6 +89,7 @@ _USER_STORAGE_TYPE = {
   constants.ST_FILE: "file",
   constants.ST_LVM_PV: "lvm-pv",
   constants.ST_LVM_VG: "lvm-vg",
+  constants.ST_SHARED_FILE: "sharedfile",
   }
 
 _STORAGE_TYPE_OPT = \
@@ -181,7 +182,7 @@ def _ReadSshKeys(keyfiles, _tostderr_fn=ToStderr):
   return result
 
 
-def _SetupSSH(options, cluster_name, node):
+def _SetupSSH(options, cluster_name, node, ssh_port):
   """Configures a destination node's SSH daemon.
 
   @param options: Command line options
@@ -189,6 +190,8 @@ def _SetupSSH(options, cluster_name, node):
   @param cluster_name: Cluster name
   @type node: string
   @param node: Destination node name
+  @type ssh_port: int
+  @param ssh_port: Destination node ssh port
 
   """
   if options.force_join:
@@ -214,7 +217,8 @@ def _SetupSSH(options, cluster_name, node):
 
   bootstrap.RunNodeSetupCmd(cluster_name, node, pathutils.PREPARE_NODE_JOIN,
                             options.debug, options.verbose, False,
-                            options.ssh_key_check, options.ssh_key_check, data)
+                            options.ssh_key_check, options.ssh_key_check,
+                            ssh_port, data)
 
 
 @UsesRPC
@@ -229,13 +233,31 @@ def AddNode(opts, args):
 
   """
   cl = GetClient()
+  query_cl = GetClient(query=True)
   node = netutils.GetHostname(name=args[0]).name
   readd = opts.readd
 
+  # Retrieve relevant parameters of the node group.
+  ssh_port = None
   try:
-    output = cl.QueryNodes(names=[node], fields=["name", "sip", "master"],
-                           use_locking=False)
-    node_exists, sip, is_master = output[0]
+    # Passing [] to QueryGroups means query the default group:
+    node_groups = [opts.nodegroup] if opts.nodegroup is not None else []
+    output = query_cl.QueryGroups(names=node_groups, fields=["ndp/ssh_port"],
+                                  use_locking=False)
+    (ssh_port, ) = output[0]
+  except (errors.OpPrereqError, errors.OpExecError):
+    pass
+
+  try:
+    output = query_cl.QueryNodes(names=[node],
+                                 fields=["name", "sip", "master",
+                                         "ndp/ssh_port"],
+                                 use_locking=False)
+    if len(output) == 0:
+      node_exists = ""
+      sip = None
+    else:
+      node_exists, sip, is_master, ssh_port = output[0]
   except (errors.OpPrereqError, errors.OpExecError):
     node_exists = ""
     sip = None
@@ -267,9 +289,9 @@ def AddNode(opts, args):
              "and grant full intra-cluster ssh root access to/from it\n", node)
 
   if opts.node_setup:
-    _SetupSSH(opts, cluster_name, node)
+    _SetupSSH(opts, cluster_name, node, ssh_port)
 
-  bootstrap.SetupNodeDaemon(opts, cluster_name, node)
+  bootstrap.SetupNodeDaemon(opts, cluster_name, node, ssh_port)
 
   if opts.disk_state:
     disk_state = utils.FlatToDict(opts.disk_state)
@@ -423,8 +445,8 @@ def FailoverNode(opts, args):
   # these fields are static data anyway, so it doesn't matter, but
   # locking=True should be safer
   qcl = GetClient(query=True)
-  result = cl.QueryNodes(names=args, fields=selected_fields,
-                         use_locking=False)
+  result = qcl.QueryNodes(names=args, fields=selected_fields,
+                          use_locking=False)
   qcl.Close()
   node, pinst = result[0]
 
@@ -465,7 +487,7 @@ def MigrateNode(opts, args):
   selected_fields = ["name", "pinst_list"]
 
   qcl = GetClient(query=True)
-  result = cl.QueryNodes(names=args, fields=selected_fields, use_locking=False)
+  result = qcl.QueryNodes(names=args, fields=selected_fields, use_locking=False)
   qcl.Close()
   ((node, pinst), ) = result
 

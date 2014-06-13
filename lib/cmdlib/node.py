@@ -30,14 +30,11 @@ from ganeti import locking
 from ganeti import netutils
 from ganeti import objects
 from ganeti import opcodes
-from ganeti import qlang
-from ganeti import query
-from ganeti import rpc
+import ganeti.rpc.node as rpc
 from ganeti import utils
 from ganeti.masterd import iallocator
 
-from ganeti.cmdlib.base import LogicalUnit, NoHooksLU, QueryBase, \
-  ResultWithJobs
+from ganeti.cmdlib.base import LogicalUnit, NoHooksLU, ResultWithJobs
 from ganeti.cmdlib.common import CheckParamsNotGlobal, \
   MergeAndVerifyHvState, MergeAndVerifyDiskState, \
   IsExclusiveStorageEnabledNode, CheckNodePVs, \
@@ -45,7 +42,9 @@ from ganeti.cmdlib.common import CheckParamsNotGlobal, \
   CheckInstanceState, INSTANCE_DOWN, GetUpdatedParams, \
   AdjustCandidatePool, CheckIAllocatorOrNode, LoadNodeEvacResult, \
   GetWantedNodes, MapInstanceLvsToNodes, RunPostHook, \
-  FindFaultyInstanceDisks, CheckStorageTypeEnabled
+  FindFaultyInstanceDisks, CheckStorageTypeEnabled, CreateNewClientCert, \
+  AddNodeCertToCandidateCerts, RemoveNodeCertFromCandidateCerts, \
+  EnsureKvmdOnNodes
 
 
 def _DecideSelfPromotion(lu, exceptions=None):
@@ -256,10 +255,11 @@ class LUNodeAdd(LogicalUnit):
     else:
       self.master_candidate = False
 
+    node_group = self.cfg.LookupNodeGroup(self.op.group)
+
     if self.op.readd:
       self.new_node = existing_node_info
     else:
-      node_group = self.cfg.LookupNodeGroup(self.op.group)
       self.new_node = objects.Node(name=node_name,
                                    primary_ip=self.op.primary_ip,
                                    secondary_ip=secondary_ip,
@@ -300,7 +300,10 @@ class LUNodeAdd(LogicalUnit):
       cname = self.cfg.GetClusterName()
       result = rpcrunner.call_node_verify_light(
           [node_name], vparams, cname,
-          self.cfg.GetClusterInfo().hvparams)[node_name]
+          self.cfg.GetClusterInfo().hvparams,
+          {node_name: node_group},
+          self.cfg.GetAllNodeGroupsInfoDict()
+        )[node_name]
       (errmsgs, _) = CheckNodePVs(result.payload, excl_stor)
       if errmsgs:
         raise errors.OpPrereqError("Checks on node PVs failed: %s" %
@@ -387,7 +390,10 @@ class LUNodeAdd(LogicalUnit):
     result = self.rpc.call_node_verify(
                node_verifier_uuids, node_verify_param,
                self.cfg.GetClusterName(),
-               self.cfg.GetClusterInfo().hvparams)
+               self.cfg.GetClusterInfo().hvparams,
+               {self.new_node.name: self.cfg.LookupNodeGroup(self.op.group)},
+               self.cfg.GetAllNodeGroupsInfoDict()
+               )
     for verifier in node_verifier_uuids:
       result[verifier].Raise("Cannot communicate with node %s" % verifier)
       nl_payload = result[verifier].payload[constants.NV_NODELIST]
@@ -413,6 +419,21 @@ class LUNodeAdd(LogicalUnit):
     else:
       self.context.AddNode(self.new_node, self.proc.GetECId())
       RedistributeAncillaryFiles(self)
+
+    cluster = self.cfg.GetClusterInfo()
+    # We create a new certificate even if the node is readded
+    digest = CreateNewClientCert(self, self.new_node.uuid)
+    if self.new_node.master_candidate:
+      utils.AddNodeToCandidateCerts(self.new_node.uuid, digest,
+                                    cluster.candidate_certs)
+      self.cfg.Update(cluster, feedback_fn)
+    else:
+      if self.new_node.uuid in cluster.candidate_certs:
+        utils.RemoveNodeFromCandidateCerts(self.new_node.uuid,
+                                           cluster.candidate_certs)
+        self.cfg.Update(cluster, feedback_fn)
+
+    EnsureKvmdOnNodes(self, feedback_fn, nodes=[self.new_node.uuid])
 
 
 class LUNodeSetParams(LogicalUnit):
@@ -768,7 +789,15 @@ class LUNodeSetParams(LogicalUnit):
 
       # we locked all nodes, we adjust the CP before updating this node
       if self.lock_all:
-        AdjustCandidatePool(self, [node.uuid])
+        AdjustCandidatePool(self, [node.uuid], feedback_fn)
+
+      cluster = self.cfg.GetClusterInfo()
+      # if node gets promoted, grant RPC priviledges
+      if self.new_role == self._ROLE_CANDIDATE:
+        AddNodeCertToCandidateCerts(self, node.uuid, cluster)
+      # if node is demoted, revoke RPC priviledges
+      if self.old_role == self._ROLE_CANDIDATE:
+        RemoveNodeCertFromCandidateCerts(node.uuid, cluster)
 
     if self.op.secondary_ip:
       node.secondary_ip = self.op.secondary_ip
@@ -781,6 +810,8 @@ class LUNodeSetParams(LogicalUnit):
     # flag changed
     if [self.old_role, self.new_role].count(self._ROLE_CANDIDATE) == 1:
       self.context.ReaddNode(node)
+
+    EnsureKvmdOnNodes(self, feedback_fn, nodes=[node.uuid])
 
     return result
 
@@ -1112,11 +1143,19 @@ def _GetStorageTypeArgs(cfg, storage_type):
 
   """
   # Special case for file storage
-  if storage_type == constants.ST_FILE:
-    # storage.FileStorage wants a list of storage directories
-    return [[cfg.GetFileStorageDir(), cfg.GetSharedFileStorageDir()]]
 
-  return []
+  if storage_type == constants.ST_FILE:
+    return [[cfg.GetFileStorageDir()]]
+  elif storage_type == constants.ST_SHARED_FILE:
+    dts = cfg.GetClusterInfo().enabled_disk_templates
+    paths = []
+    if constants.DT_SHARED_FILE in dts:
+      paths.append(cfg.GetSharedFileStorageDir())
+    if constants.DT_GLUSTER in dts:
+      paths.append(cfg.GetGlusterStorageDir())
+    return [paths]
+  else:
+    return []
 
 
 class LUNodeModifyStorage(NoHooksLU):
@@ -1166,117 +1205,6 @@ class LUNodeModifyStorage(NoHooksLU):
                                           self.op.name, self.op.changes)
     result.Raise("Failed to modify storage unit '%s' on %s" %
                  (self.op.name, self.op.node_name))
-
-
-class NodeQuery(QueryBase):
-  FIELDS = query.NODE_FIELDS
-
-  def ExpandNames(self, lu):
-    lu.needed_locks = {}
-    lu.share_locks = ShareAll()
-
-    if self.names:
-      (self.wanted, _) = GetWantedNodes(lu, self.names)
-    else:
-      self.wanted = locking.ALL_SET
-
-    self.do_locking = (self.use_locking and
-                       query.NQ_LIVE in self.requested_data)
-
-    if self.do_locking:
-      # If any non-static field is requested we need to lock the nodes
-      lu.needed_locks[locking.LEVEL_NODE] = self.wanted
-      lu.needed_locks[locking.LEVEL_NODE_ALLOC] = locking.ALL_SET
-
-  def DeclareLocks(self, lu, level):
-    pass
-
-  def _GetQueryData(self, lu):
-    """Computes the list of nodes and their attributes.
-
-    """
-    all_info = lu.cfg.GetAllNodesInfo()
-
-    node_uuids = self._GetNames(lu, all_info.keys(), locking.LEVEL_NODE)
-
-    # Gather data as requested
-    if query.NQ_LIVE in self.requested_data:
-      # filter out non-vm_capable nodes
-      toquery_node_uuids = [node.uuid for node in all_info.values()
-                            if node.vm_capable and node.uuid in node_uuids]
-      default_template = lu.cfg.GetClusterInfo().enabled_disk_templates[0]
-      raw_storage_units = utils.storage.GetStorageUnits(
-          lu.cfg, [default_template])
-      storage_units = rpc.PrepareStorageUnitsForNodes(
-          lu.cfg, raw_storage_units, toquery_node_uuids)
-      default_hypervisor = lu.cfg.GetHypervisorType()
-      hvparams = lu.cfg.GetClusterInfo().hvparams[default_hypervisor]
-      hvspecs = [(default_hypervisor, hvparams)]
-      node_data = lu.rpc.call_node_info(toquery_node_uuids, storage_units,
-                                        hvspecs)
-      live_data = dict(
-          (uuid, rpc.MakeLegacyNodeInfo(nresult.payload, default_template))
-          for (uuid, nresult) in node_data.items()
-          if not nresult.fail_msg and nresult.payload)
-    else:
-      live_data = None
-
-    if query.NQ_INST in self.requested_data:
-      node_to_primary = dict([(uuid, set()) for uuid in node_uuids])
-      node_to_secondary = dict([(uuid, set()) for uuid in node_uuids])
-
-      inst_data = lu.cfg.GetAllInstancesInfo()
-      inst_uuid_to_inst_name = {}
-
-      for inst in inst_data.values():
-        inst_uuid_to_inst_name[inst.uuid] = inst.name
-        if inst.primary_node in node_to_primary:
-          node_to_primary[inst.primary_node].add(inst.uuid)
-        for secnode in inst.secondary_nodes:
-          if secnode in node_to_secondary:
-            node_to_secondary[secnode].add(inst.uuid)
-    else:
-      node_to_primary = None
-      node_to_secondary = None
-      inst_uuid_to_inst_name = None
-
-    if query.NQ_OOB in self.requested_data:
-      oob_support = dict((uuid, bool(SupportsOob(lu.cfg, node)))
-                         for uuid, node in all_info.iteritems())
-    else:
-      oob_support = None
-
-    if query.NQ_GROUP in self.requested_data:
-      groups = lu.cfg.GetAllNodeGroupsInfo()
-    else:
-      groups = {}
-
-    return query.NodeQueryData([all_info[uuid] for uuid in node_uuids],
-                               live_data, lu.cfg.GetMasterNode(),
-                               node_to_primary, node_to_secondary,
-                               inst_uuid_to_inst_name, groups, oob_support,
-                               lu.cfg.GetClusterInfo())
-
-
-class LUNodeQuery(NoHooksLU):
-  """Logical unit for querying nodes.
-
-  """
-  # pylint: disable=W0142
-  REQ_BGL = False
-
-  def CheckArguments(self):
-    self.nq = NodeQuery(qlang.MakeSimpleFilter("name", self.op.names),
-                         self.op.output_fields, self.op.use_locking)
-
-  def ExpandNames(self):
-    self.nq.ExpandNames(self)
-
-  def DeclareLocks(self, level):
-    self.nq.DeclareLocks(self, level)
-
-  def Exec(self, feedback_fn):
-    return self.nq.OldStyleQuery(self)
 
 
 def _CheckOutputFields(fields, selected):
@@ -1413,13 +1341,14 @@ class LUNodeQueryStorage(NoHooksLU):
       self.storage_type = self.op.storage_type
     else:
       self.storage_type = self._DetermineStorageType()
-      if self.storage_type not in constants.STS_REPORT:
+      supported_storage_types = constants.STS_REPORT_NODE_STORAGE
+      if self.storage_type not in supported_storage_types:
         raise errors.OpPrereqError(
             "Storage reporting for storage type '%s' is not supported. Please"
             " use the --storage-type option to specify one of the supported"
             " storage types (%s) or set the default disk template to one that"
             " supports storage reporting." %
-            (self.storage_type, utils.CommaJoin(constants.STS_REPORT)))
+            (self.storage_type, utils.CommaJoin(supported_storage_types)))
 
   def Exec(self, feedback_fn):
     """Computes the list of nodes and their attributes.
@@ -1561,7 +1490,7 @@ class LUNodeRemove(LogicalUnit):
       "Not owning BGL"
 
     # Promote nodes to master candidate as needed
-    AdjustCandidatePool(self, exceptions=[self.node.uuid])
+    AdjustCandidatePool(self, [self.node.uuid], feedback_fn)
     self.context.RemoveNode(self.node)
 
     # Run post hooks on the node before it's removed
@@ -1575,8 +1504,16 @@ class LUNodeRemove(LogicalUnit):
       self.LogWarning("Errors encountered on the remote node while leaving"
                       " the cluster: %s", msg)
 
+    cluster = self.cfg.GetClusterInfo()
+
+    # Remove node from candidate certificate list
+    if self.node.master_candidate:
+      utils.RemoveNodeFromCandidateCerts(self.node.uuid,
+                                         cluster.candidate_certs)
+      self.cfg.Update(cluster, feedback_fn)
+
     # Remove node from our /etc/hosts
-    if self.cfg.GetClusterInfo().modify_etc_hosts:
+    if cluster.modify_etc_hosts:
       master_node_uuid = self.cfg.GetMasterNode()
       result = self.rpc.call_etc_hosts_modify(master_node_uuid,
                                               constants.ETC_HOSTS_REMOVE,

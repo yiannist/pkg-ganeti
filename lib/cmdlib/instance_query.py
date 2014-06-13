@@ -22,199 +22,15 @@
 """Logical units for querying instances."""
 
 import itertools
-import logging
-import operator
 
 from ganeti import compat
 from ganeti import constants
 from ganeti import locking
-from ganeti import qlang
-from ganeti import query
-from ganeti.cmdlib.base import QueryBase, NoHooksLU
+from ganeti.cmdlib.base import NoHooksLU
 from ganeti.cmdlib.common import ShareAll, GetWantedInstances, \
-  CheckInstanceNodeGroups, CheckInstancesNodeGroups, AnnotateDiskParams
-from ganeti.cmdlib.instance_operation import GetInstanceConsole
+  CheckInstancesNodeGroups, AnnotateDiskParams
 from ganeti.cmdlib.instance_utils import NICListToTuple
-
-import ganeti.masterd.instance
-
-
-class InstanceQuery(QueryBase):
-  FIELDS = query.INSTANCE_FIELDS
-
-  def ExpandNames(self, lu):
-    lu.needed_locks = {}
-    lu.share_locks = ShareAll()
-
-    if self.names:
-      (_, self.wanted) = GetWantedInstances(lu, self.names)
-    else:
-      self.wanted = locking.ALL_SET
-
-    self.do_locking = (self.use_locking and
-                       query.IQ_LIVE in self.requested_data)
-    if self.do_locking:
-      lu.needed_locks[locking.LEVEL_INSTANCE] = self.wanted
-      lu.needed_locks[locking.LEVEL_NODEGROUP] = []
-      lu.needed_locks[locking.LEVEL_NODE] = []
-      lu.needed_locks[locking.LEVEL_NETWORK] = []
-      lu.recalculate_locks[locking.LEVEL_NODE] = constants.LOCKS_REPLACE
-
-    self.do_grouplocks = (self.do_locking and
-                          query.IQ_NODES in self.requested_data)
-
-  def DeclareLocks(self, lu, level):
-    if self.do_locking:
-      if level == locking.LEVEL_NODEGROUP and self.do_grouplocks:
-        assert not lu.needed_locks[locking.LEVEL_NODEGROUP]
-
-        # Lock all groups used by instances optimistically; this requires going
-        # via the node before it's locked, requiring verification later on
-        lu.needed_locks[locking.LEVEL_NODEGROUP] = \
-          set(group_uuid
-              for instance_name in lu.owned_locks(locking.LEVEL_INSTANCE)
-              for group_uuid in
-                lu.cfg.GetInstanceNodeGroups(
-                  lu.cfg.GetInstanceInfoByName(instance_name).uuid))
-      elif level == locking.LEVEL_NODE:
-        lu._LockInstancesNodes() # pylint: disable=W0212
-
-      elif level == locking.LEVEL_NETWORK:
-        lu.needed_locks[locking.LEVEL_NETWORK] = \
-          frozenset(net_uuid
-                    for instance_name in lu.owned_locks(locking.LEVEL_INSTANCE)
-                    for net_uuid in
-                      lu.cfg.GetInstanceNetworks(
-                        lu.cfg.GetInstanceInfoByName(instance_name).uuid))
-
-  @staticmethod
-  def _CheckGroupLocks(lu):
-    owned_instance_names = frozenset(lu.owned_locks(locking.LEVEL_INSTANCE))
-    owned_groups = frozenset(lu.owned_locks(locking.LEVEL_NODEGROUP))
-
-    # Check if node groups for locked instances are still correct
-    for instance_name in owned_instance_names:
-      instance = lu.cfg.GetInstanceInfoByName(instance_name)
-      CheckInstanceNodeGroups(lu.cfg, instance.uuid, owned_groups)
-
-  def _GetQueryData(self, lu):
-    """Computes the list of instances and their attributes.
-
-    """
-    if self.do_grouplocks:
-      self._CheckGroupLocks(lu)
-
-    cluster = lu.cfg.GetClusterInfo()
-    insts_by_name = dict((inst.name, inst) for
-                         inst in lu.cfg.GetAllInstancesInfo().values())
-
-    instance_names = self._GetNames(lu, insts_by_name.keys(),
-                                    locking.LEVEL_INSTANCE)
-
-    instance_list = [insts_by_name[node] for node in instance_names]
-    node_uuids = frozenset(itertools.chain(*(inst.all_nodes
-                                             for inst in instance_list)))
-    hv_list = list(set([inst.hypervisor for inst in instance_list]))
-    bad_node_uuids = []
-    offline_node_uuids = []
-    wrongnode_inst_uuids = set()
-
-    # Gather data as requested
-    if self.requested_data & set([query.IQ_LIVE, query.IQ_CONSOLE]):
-      live_data = {}
-      node_data = lu.rpc.call_all_instances_info(node_uuids, hv_list,
-                                                 cluster.hvparams)
-      for node_uuid in node_uuids:
-        result = node_data[node_uuid]
-        if result.offline:
-          # offline nodes will be in both lists
-          assert result.fail_msg
-          offline_node_uuids.append(node_uuid)
-        if result.fail_msg:
-          bad_node_uuids.append(node_uuid)
-        elif result.payload:
-          for inst_name in result.payload:
-            if inst_name in insts_by_name:
-              instance = insts_by_name[inst_name]
-              if instance.primary_node == node_uuid:
-                for iname in result.payload:
-                  live_data[insts_by_name[iname].uuid] = result.payload[iname]
-              else:
-                wrongnode_inst_uuids.add(instance.uuid)
-            else:
-              # orphan instance; we don't list it here as we don't
-              # handle this case yet in the output of instance listing
-              logging.warning("Orphan instance '%s' found on node %s",
-                              inst_name, lu.cfg.GetNodeName(node_uuid))
-              # else no instance is alive
-    else:
-      live_data = {}
-
-    if query.IQ_DISKUSAGE in self.requested_data:
-      gmi = ganeti.masterd.instance
-      disk_usage = dict((inst.uuid,
-                         gmi.ComputeDiskSize(inst.disk_template,
-                                             [{constants.IDISK_SIZE: disk.size}
-                                              for disk in inst.disks]))
-                        for inst in instance_list)
-    else:
-      disk_usage = None
-
-    if query.IQ_CONSOLE in self.requested_data:
-      consinfo = {}
-      for inst in instance_list:
-        if inst.uuid in live_data:
-          # Instance is running
-          consinfo[inst.uuid] = \
-            GetInstanceConsole(cluster, inst,
-                               lu.cfg.GetNodeInfo(inst.primary_node))
-        else:
-          consinfo[inst.uuid] = None
-    else:
-      consinfo = None
-
-    if query.IQ_NODES in self.requested_data:
-      nodes = dict(lu.cfg.GetMultiNodeInfo(node_uuids))
-      groups = dict((uuid, lu.cfg.GetNodeGroup(uuid))
-                    for uuid in set(map(operator.attrgetter("group"),
-                                        nodes.values())))
-    else:
-      nodes = None
-      groups = None
-
-    if query.IQ_NETWORKS in self.requested_data:
-      net_uuids = itertools.chain(*(lu.cfg.GetInstanceNetworks(i.uuid)
-                                    for i in instance_list))
-      networks = dict((uuid, lu.cfg.GetNetwork(uuid)) for uuid in net_uuids)
-    else:
-      networks = None
-
-    return query.InstanceQueryData(instance_list, lu.cfg.GetClusterInfo(),
-                                   disk_usage, offline_node_uuids,
-                                   bad_node_uuids, live_data,
-                                   wrongnode_inst_uuids, consinfo, nodes,
-                                   groups, networks)
-
-
-class LUInstanceQuery(NoHooksLU):
-  """Logical unit for querying instances.
-
-  """
-  # pylint: disable=W0142
-  REQ_BGL = False
-
-  def CheckArguments(self):
-    self.iq = InstanceQuery(qlang.MakeSimpleFilter("name", self.op.names),
-                             self.op.output_fields, self.op.use_locking)
-
-  def ExpandNames(self):
-    self.iq.ExpandNames(self)
-
-  def DeclareLocks(self, level):
-    self.iq.DeclareLocks(self, level)
-
-  def Exec(self, feedback_fn):
-    return self.iq.OldStyleQuery(self)
+from ganeti.hypervisor import hv_base
 
 
 class LUInstanceQueryData(NoHooksLU):
@@ -399,6 +215,7 @@ class LUInstanceQueryData(NoHooksLU):
 
     for instance in self.wanted_instances:
       pnode = nodes[instance.primary_node]
+      hvparams = cluster.FillHV(instance, skip_globals=True)
 
       if self.op.static or pnode.offline:
         remote_state = None
@@ -412,13 +229,30 @@ class LUInstanceQueryData(NoHooksLU):
             cluster.hvparams[instance.hypervisor])
         remote_info.Raise("Error checking node %s" % pnode.name)
         remote_info = remote_info.payload
+
+        allow_userdown = \
+            cluster.enabled_user_shutdown and \
+            (instance.hypervisor != constants.HT_KVM or
+             hvparams[constants.HV_KVM_USER_SHUTDOWN])
+
         if remote_info and "state" in remote_info:
-          remote_state = "up"
+          if hv_base.HvInstanceState.IsShutdown(remote_info["state"]):
+            if allow_userdown:
+              remote_state = "user down"
+            else:
+              remote_state = "down"
+          else:
+            remote_state = "up"
         else:
           if instance.admin_state == constants.ADMINST_UP:
             remote_state = "down"
+          elif instance.admin_state == constants.ADMINST_DOWN:
+            if instance.admin_state_source == constants.USER_SOURCE:
+              remote_state = "user down"
+            else:
+              remote_state = "down"
           else:
-            remote_state = instance.admin_state
+            remote_state = "offline"
 
       group2name_fn = lambda uuid: groups[uuid].name
       node_uuid2name_fn = lambda uuid: nodes[uuid].name
@@ -448,7 +282,7 @@ class LUInstanceQueryData(NoHooksLU):
         "hypervisor": instance.hypervisor,
         "network_port": instance.network_port,
         "hv_instance": instance.hvparams,
-        "hv_actual": cluster.FillHV(instance, skip_globals=True),
+        "hv_actual": hvparams,
         "be_instance": instance.beparams,
         "be_actual": cluster.FillBE(instance),
         "os_instance": instance.osparams,

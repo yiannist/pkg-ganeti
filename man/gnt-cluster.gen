@@ -174,6 +174,7 @@ INIT
 | [\--no-ssh-init]
 | [\--file-storage-dir *dir*]
 | [\--shared-file-storage-dir *dir*]
+| [\--gluster-storage-dir *dir*]
 | [\--enabled-hypervisors *hypervisors*]
 | [{-H|\--hypervisor-parameters} *hypervisor*:*hv-param*=*value*[,*hv-param*=*value*...]]
 | [{-B|\--backend-parameters} *be-param*=*value*[,*be-param*=*value*...]]
@@ -182,6 +183,7 @@ INIT
 | [\--maintain-node-health {yes \| no}]
 | [\--uid-pool *user-id pool definition*]
 | [{-I|\--default-iallocator} *default instance allocator*]
+| [\--default-iallocator-params *ial-param*=*value*,*ial-param*=*value*]
 | [\--primary-ip-version *version*]
 | [\--prealloc-wipe-disks {yes \| no}]
 | [\--node-parameters *ndparams*]
@@ -200,6 +202,7 @@ INIT
 | [\--hypervisor-state *hvstate*]
 | [\--drbd-usermode-helper *helper*]
 | [\--enabled-disk-templates *template* [,*template*...]]
+| [\--user-shutdown {yes \| no}]
 | {*clustername*}
 
 This commands is only run once initially on the first node of the
@@ -267,12 +270,13 @@ without modifying the /etc/hosts file.
 The ``--no-ssh-init`` option allows you to initialize the cluster
 without creating or distributing SSH key pairs.
 
-The ``--file-storage-dir`` and ``--shared-file-storage-dir`` options
-allow you set the directory to use for storing the instance disk files
-when using file storage backend, respectively shared file storage
-backend,  for instance disks. Note that the file and shared file storage
-dir must be an allowed directory for file storage. Those directories
-are specified in the ``@SYSCONFDIR@/ganeti/file-storage-paths`` file.
+The ``--file-storage-dir``, ``--shared-file-storage-dir`` and
+``--gluster-storage-dir`` options allow you set the directory to use for
+storing the instance disk files when using respectively the file storage
+backend, the shared file storage backend and the gluster storage
+backend. Note that these directories must be an allowed directory for
+file storage. Those directories are specified in the
+``@SYSCONFDIR@/ganeti/file-storage-paths`` file.
 The file storage directory can also be a subdirectory of an allowed one.
 The file storage directory should be present on all nodes.
 
@@ -306,6 +310,13 @@ fake
 Either a single hypervisor name or a comma-separated list of
 hypervisor names can be specified. If this option is not specified,
 only the xen-pvm hypervisor is enabled by default.
+
+The ``--user-shutdown`` option enables or disables user shutdown
+detection at the cluster level.  User shutdown detection allows users to
+initiate instance poweroff from inside the instance, and Ganeti will
+report the instance status as 'USER_down' (as opposed, to 'ERROR_down')
+and the watcher will not restart these instances, thus preserving their
+instance status.
 
 The ``-H (--hypervisor-parameters)`` option allows you to set default
 hypervisor specific parameters for the cluster. The format of this
@@ -512,6 +523,10 @@ the default iallocator will be **hail**\(1) (assuming it can be found
 on disk). The default iallocator can be changed later using the
 **modify** command.
 
+The option ``--default-iallocator-params`` sets the cluster-wide
+iallocator parameters used by the default iallocator only on instance
+allocations.
+
 The ``--primary-ip-version`` option specifies the IP version used
 for the primary address. Possible values are 4 and 6 for IPv4 and
 IPv6, respectively. This option is used when resolving node names
@@ -636,6 +651,7 @@ MODIFY
 | [\--maintain-node-health {yes \| no}]
 | [\--prealloc-wipe-disks {yes \| no}]
 | [{-I|\--default-iallocator} *default instance allocator*]
+| [\--default-iallocator-params *ial-param*=*value*,*ial-param*=*value*]
 | [\--reserved-lvs=*NAMES*]
 | [\--node-parameters *ndparams*]
 | [\--master-netdev *interface-name*]
@@ -652,6 +668,7 @@ MODIFY
 | [\--drbd-usermode-helper *helper*]
 | [\--file-storage-dir *dir*]
 | [\--shared-file-storage-dir *dir*]
+| [\--user-shutdown {yes \| no}]
 
 
 Modify the options for the cluster.
@@ -662,7 +679,8 @@ The ``--vg-name``, ``--enabled-hypervisors``, ``-H (--hypervisor-parameters)``,
 ``--prealloc-wipe-disks``, ``--uid-pool``, ``--node-parameters``,
 ``--master-netdev``, ``--master-netmask``, ``--use-external-mip-script``,
 ``--drbd-usermode-helper``, ``--file-storage-dir``,
-``--shared-file-storage-dir``, and ``--enabled-disk-templates`` options are
+``--shared-file-storage-dir``, ``--enabled-disk-templates``, and
+``--user-shutdown`` options are
 described in the **init** command.
 
 The ``--hypervisor-state`` and ``--disk-state`` options are described in
@@ -687,6 +705,10 @@ to the option, as in ``--reserved-lvs=`` or ``--reserved-lvs ''``.
 The ``-I (--default-iallocator)`` is described in the **init**
 command. To clear the default iallocator, just pass an empty string
 ('').
+
+The option ``--default-iallocator-params`` is described in the **init**
+command. To clear the default iallocator parameters, just pass an empty
+string ('').
 
 The ``--ipolicy-...`` options are described in the **init** command.
 
@@ -754,7 +776,8 @@ RENEW-CRYPTO
 ~~~~~~~~~~~~
 
 | **renew-crypto** [-f]
-| [\--new-cluster-certificate] [\--new-confd-hmac-key]
+| [\--new-cluster-certificate] | [\--new-node-certificates]
+| [\--new-confd-hmac-key]
 | [\--new-rapi-certificate] [\--rapi-certificate *rapi-cert*]
 | [\--new-spice-certificate | \--spice-certificate *spice-cert*
 | \--spice-ca-certificate *spice-ca-cert*]
@@ -765,6 +788,11 @@ them again once the new certificates and keys are replicated. The
 options ``--new-cluster-certificate`` and ``--new-confd-hmac-key``
 can be used to regenerate respectively the cluster-internal SSL
 certificate and the HMAC key used by **ganeti-confd**\(8).
+
+The option ``--new-node-certificates`` will generate new node SSL
+certificates for all nodes. Note that the regeneration of the node
+certificates takes place after the other certificates are created
+and distributed and the ganeti daemons are restarted again.
 
 To generate a new self-signed RAPI certificate (used by
 **ganeti-rapi**\(8)) specify ``--new-rapi-certificate``. If you want to

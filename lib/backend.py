@@ -55,6 +55,7 @@ from ganeti import errors
 from ganeti import utils
 from ganeti import ssh
 from ganeti import hypervisor
+from ganeti.hypervisor import hv_base
 from ganeti import constants
 from ganeti.storage import bdev
 from ganeti.storage import drbd
@@ -283,29 +284,18 @@ def JobQueuePurge():
   _CleanDirectory(pathutils.JOB_QUEUE_ARCHIVE_DIR)
 
 
-def GetMasterInfo():
-  """Returns master information.
+def GetMasterNodeName():
+  """Returns the master node name.
 
-  This is an utility function to compute master information, either
-  for consumption here or from the node daemon.
-
-  @rtype: tuple
-  @return: master_netdev, master_ip, master_name, primary_ip_family,
-    master_netmask
+  @rtype: string
+  @return: name of the master node
   @raise RPCFail: in case of errors
 
   """
   try:
-    cfg = _GetConfig()
-    master_netdev = cfg.GetMasterNetdev()
-    master_ip = cfg.GetMasterIP()
-    master_netmask = cfg.GetMasterNetmask()
-    master_node = cfg.GetMasterNode()
-    primary_ip_family = cfg.GetPrimaryIPFamily()
+    return _GetConfig().GetMasterNode()
   except errors.ConfigurationError, err:
     _Fail("Cluster configuration incomplete: %s", err, exc=True)
-  return (master_netdev, master_ip, master_node, primary_ip_family,
-          master_netmask)
 
 
 def RunLocalHooks(hook_opcode, hooks_path, env_builder_fn):
@@ -566,10 +556,8 @@ def LeaveCluster(modify_ssh_setup):
   except: # pylint: disable=W0702
     logging.exception("Error while removing cluster secrets")
 
-  result = utils.RunCmd([pathutils.DAEMON_UTIL, "stop", constants.CONFD])
-  if result.failed:
-    logging.error("Command %s failed with exitcode %s and error %s",
-                  result.cmd, result.exit_code, result.output)
+  utils.StopDaemon(constants.CONFD)
+  utils.StopDaemon(constants.KVMD)
 
   # Raise a custom exception (handled in ganeti-noded)
   raise errors.QuitGanetiException(True, "Shutdown scheduled")
@@ -778,6 +766,7 @@ _STORAGE_TYPE_INFO_FN = {
   constants.ST_FILE: _GetFileStorageSpaceInfo,
   constants.ST_LVM_PV: _GetLvmPvSpaceInfo,
   constants.ST_LVM_VG: _GetLvmVgSpaceInfo,
+  constants.ST_SHARED_FILE: None,
   constants.ST_RADOS: None,
 }
 
@@ -929,7 +918,25 @@ def _VerifyNodeInfo(what, vm_capable, result, all_hvparams):
     result[constants.NV_HVINFO] = hyper.GetNodeInfo(hvparams=hvparams)
 
 
-def VerifyNode(what, cluster_name, all_hvparams):
+def _VerifyClientCertificate(cert_file=pathutils.NODED_CLIENT_CERT_FILE):
+  """Verify the existance and validity of the client SSL certificate.
+
+  """
+  create_cert_cmd = "gnt-cluster renew-crypto --new-node-certificates"
+  if not os.path.exists(cert_file):
+    return (constants.CV_ERROR,
+            "The client certificate does not exist. Run '%s' to create"
+            " client certificates for all nodes." % create_cert_cmd)
+
+  (errcode, msg) = utils.VerifyCertificate(cert_file)
+  if errcode is not None:
+    return (errcode, msg)
+  else:
+    # if everything is fine, we return the digest to be compared to the config
+    return (None, utils.GetCertificateDigest(cert_filename=cert_file))
+
+
+def VerifyNode(what, cluster_name, all_hvparams, node_groups, groups_cfg):
   """Verify the status of the local node.
 
   Based on the input L{what} parameter, various checks are done on the
@@ -957,6 +964,11 @@ def VerifyNode(what, cluster_name, all_hvparams):
   @param cluster_name: the cluster's name
   @type all_hvparams: dict of dict of strings
   @param all_hvparams: a dictionary mapping hypervisor names to hvparams
+  @type node_groups: a dict of strings
+  @param node_groups: node _names_ mapped to their group uuids (it's enough to
+      have only those nodes that are in `what["nodelist"]`)
+  @type groups_cfg: a dict of dict of strings
+  @param groups_cfg: a dictionary mapping group uuids to their configuration
   @rtype: dict
   @return: a dictionary with the same keys as the input dict, and
       values representing the result of the checks
@@ -977,6 +989,9 @@ def VerifyNode(what, cluster_name, all_hvparams):
       dict((vcluster.MakeVirtualPath(key), value)
            for (key, value) in fingerprints.items())
 
+  if constants.NV_CLIENT_CERT in what:
+    result[constants.NV_CLIENT_CERT] = _VerifyClientCertificate()
+
   if constants.NV_NODELIST in what:
     (nodes, bynode) = what[constants.NV_NODELIST]
 
@@ -992,7 +1007,12 @@ def VerifyNode(what, cluster_name, all_hvparams):
     # Try to contact all nodes
     val = {}
     for node in nodes:
-      success, message = _GetSshRunner(cluster_name).VerifyNodeHostname(node)
+      params = groups_cfg.get(node_groups.get(node))
+      ssh_port = params["ndparams"].get(constants.ND_SSH_PORT)
+      logging.debug("Ssh port %s (None = default) for node %s",
+                    str(ssh_port), node)
+      success, message = _GetSshRunner(cluster_name). \
+                            VerifyNodeHostname(node, ssh_port)
       if not success:
         val[node] = message
 
@@ -1149,6 +1169,109 @@ def VerifyNode(what, cluster_name, all_hvparams):
       result[constants.NV_SHARED_FILE_STORAGE_PATH] = pathresult
 
   return result
+
+
+def GetCryptoTokens(token_requests):
+  """Perform actions on the node's cryptographic tokens.
+
+  Token types can be 'ssl' or 'ssh'. So far only some actions are implemented
+  for 'ssl'. Action 'get' returns the digest of the public client ssl
+  certificate. Action 'create' creates a new client certificate and private key
+  and also returns the digest of the certificate. The third parameter of a
+  token request are optional parameters for the actions, so far only the
+  filename is supported.
+
+  @type token_requests: list of tuples of (string, string, dict), where the
+    first string is in constants.CRYPTO_TYPES, the second in
+    constants.CRYPTO_ACTIONS. The third parameter is a dictionary of string
+    to string.
+  @param token_requests: list of requests of cryptographic tokens and actions
+    to perform on them. The actions come with a dictionary of options.
+  @rtype: list of tuples (string, string)
+  @return: list of tuples of the token type and the public crypto token
+
+  """
+  getents = runtime.GetEnts()
+  _VALID_CERT_FILES = [pathutils.NODED_CERT_FILE,
+                       pathutils.NODED_CLIENT_CERT_FILE,
+                       pathutils.NODED_CLIENT_CERT_FILE_TMP]
+  _DEFAULT_CERT_FILE = pathutils.NODED_CLIENT_CERT_FILE
+  tokens = []
+  for (token_type, action, options) in token_requests:
+    if token_type not in constants.CRYPTO_TYPES:
+      raise errors.ProgrammerError("Token type '%s' not supported." %
+                                   token_type)
+    if action not in constants.CRYPTO_ACTIONS:
+      raise errors.ProgrammerError("Action '%s' is not supported." %
+                                   action)
+    if token_type == constants.CRYPTO_TYPE_SSL_DIGEST:
+      if action == constants.CRYPTO_ACTION_CREATE:
+
+        # extract file name from options
+        cert_filename = None
+        if options:
+          cert_filename = options.get(constants.CRYPTO_OPTION_CERT_FILE)
+        if not cert_filename:
+          cert_filename = _DEFAULT_CERT_FILE
+        # For security reason, we don't allow arbitrary filenames
+        if not cert_filename in _VALID_CERT_FILES:
+          raise errors.ProgrammerError(
+            "The certificate file name path '%s' is not allowed." %
+            cert_filename)
+
+        # extract serial number from options
+        serial_no = None
+        if options:
+          try:
+            serial_no = int(options[constants.CRYPTO_OPTION_SERIAL_NO])
+          except ValueError:
+            raise errors.ProgrammerError(
+              "The given serial number is not an intenger: %s." %
+              options.get(constants.CRYPTO_OPTION_SERIAL_NO))
+          except KeyError:
+            raise errors.ProgrammerError("No serial number was provided.")
+
+        if not serial_no:
+          raise errors.ProgrammerError(
+            "Cannot create an SSL certificate without a serial no.")
+
+        utils.GenerateNewSslCert(
+          True, cert_filename, serial_no,
+          "Create new client SSL certificate in %s." % cert_filename,
+          uid=getents.masterd_uid, gid=getents.masterd_gid)
+        tokens.append((token_type,
+                       utils.GetCertificateDigest(
+                         cert_filename=cert_filename)))
+      elif action == constants.CRYPTO_ACTION_GET:
+        tokens.append((token_type,
+                       utils.GetCertificateDigest()))
+  return tokens
+
+
+def EnsureDaemon(daemon_name, run):
+  """Ensures the given daemon is running or stopped.
+
+  @type daemon_name: string
+  @param daemon_name: name of the daemon (e.g., constants.KVMD)
+
+  @type run: bool
+  @param run: whether to start or stop the daemon
+
+  @rtype: bool
+  @return: 'True' if daemon successfully started/stopped,
+           'False' otherwise
+
+  """
+  allowed_daemons = [constants.KVMD]
+
+  if daemon_name not in allowed_daemons:
+    fn = lambda _: False
+  elif run:
+    fn = utils.EnsureDaemon
+  else:
+    fn = utils.StopDaemon
+
+  return fn(daemon_name)
 
 
 def GetBlockDevSizes(devices):
@@ -1326,15 +1449,11 @@ def GetInstanceListForHypervisor(hname, hvparams=None,
     - instance2.example.com
 
   """
-  results = []
   try:
-    hv = get_hv_fn(hname)
-    names = hv.ListInstances(hvparams=hvparams)
-    results.extend(names)
+    return get_hv_fn(hname).ListInstances(hvparams=hvparams)
   except errors.HypervisorError, err:
     _Fail("Error enumerating instances (hypervisor %s): %s",
           hname, err, exc=True)
-  return results
 
 
 def GetInstanceList(hypervisor_list, all_hvparams=None,
@@ -1377,7 +1496,7 @@ def GetInstanceInfo(instance, hname, hvparams=None):
   @rtype: dict
   @return: dictionary with the following keys:
       - memory: memory size of instance (int)
-      - state: xen state of instance (string)
+      - state: state of instance (HvInstanceState)
       - time: cpu time of instance (float)
       - vcpus: the number of vcpus (int)
 
@@ -1409,7 +1528,7 @@ def GetInstanceMigratable(instance):
   """
   hyper = hypervisor.GetHypervisor(instance.hypervisor)
   iname = instance.name
-  if iname not in hyper.ListInstances(instance.hvparams):
+  if iname not in hyper.ListInstances(hvparams=instance.hvparams):
     _Fail("Instance %s is not running", iname)
 
   for idx in range(len(instance.disks)):
@@ -1440,7 +1559,6 @@ def GetAllInstancesInfo(hypervisor_list, all_hvparams):
 
   """
   output = {}
-
   for hname in hypervisor_list:
     hvparams = all_hvparams[hname]
     iinfo = hypervisor.GetHypervisor(hname).GetAllInstancesInfo(hvparams)
@@ -1461,6 +1579,59 @@ def GetAllInstancesInfo(hypervisor_list, all_hvparams):
               _Fail("Instance %s is running twice"
                     " with different parameters", name)
         output[name] = value
+
+  return output
+
+
+def GetInstanceConsoleInfo(instance_param_dict,
+                           get_hv_fn=hypervisor.GetHypervisor):
+  """Gather data about the console access of a set of instances of this node.
+
+  This function assumes that the caller already knows which instances are on
+  this node, by calling a function such as L{GetAllInstancesInfo} or
+  L{GetInstanceList}.
+
+  For every instance, a large amount of configuration data needs to be
+  provided to the hypervisor interface in order to receive the console
+  information. Whether this could or should be cut down can be discussed.
+  The information is provided in a dictionary indexed by instance name,
+  allowing any number of instance queries to be done.
+
+  @type instance_param_dict: dict of string to tuple of dictionaries, where the
+    dictionaries represent: L{objects.Instance}, L{objects.Node},
+    L{objects.NodeGroup}, HvParams, BeParams
+  @param instance_param_dict: mapping of instance name to parameters necessary
+    for console information retrieval
+
+  @rtype: dict
+  @return: dictionary of instance: data, with data having the following keys:
+      - instance: instance name
+      - kind: console kind
+      - message: used with kind == CONS_MESSAGE, indicates console to be
+                 unavailable, supplies error message
+      - host: host to connect to
+      - port: port to use
+      - user: user for login
+      - command: the command, broken into parts as an array
+      - display: unknown, potentially unused?
+
+  """
+
+  output = {}
+  for inst_name in instance_param_dict:
+    instance = instance_param_dict[inst_name]["instance"]
+    pnode = instance_param_dict[inst_name]["node"]
+    group = instance_param_dict[inst_name]["group"]
+    hvparams = instance_param_dict[inst_name]["hvParams"]
+    beparams = instance_param_dict[inst_name]["beParams"]
+
+    instance = objects.Instance.FromDict(instance)
+    pnode = objects.Node.FromDict(pnode)
+    group = objects.NodeGroup.FromDict(group)
+
+    h = get_hv_fn(instance.hypervisor)
+    output[inst_name] = h.GetInstanceConsole(instance, pnode, group,
+                                             hvparams, beparams).ToDict()
 
   return output
 
@@ -1664,6 +1835,18 @@ def _GatherAndLinkBlockDevs(instance):
   return block_devices
 
 
+def _IsInstanceUserDown(instance_info):
+  return instance_info and \
+      "state" in instance_info and \
+      hv_base.HvInstanceState.IsShutdown(instance_info["state"])
+
+
+def _GetInstanceInfo(instance):
+  """Helper function L{GetInstanceInfo}"""
+  return GetInstanceInfo(instance.name, instance.hypervisor,
+                         hvparams=instance.hvparams)
+
+
 def StartInstance(instance, startup_paused, reason, store_reason=True):
   """Start an instance.
 
@@ -1678,11 +1861,10 @@ def StartInstance(instance, startup_paused, reason, store_reason=True):
   @rtype: None
 
   """
-  running_instances = GetInstanceListForHypervisor(instance.hypervisor,
-                                                   instance.hvparams)
+  instance_info = _GetInstanceInfo(instance)
 
-  if instance.name in running_instances:
-    logging.info("Instance %s already running, not starting", instance.name)
+  if instance_info and not _IsInstanceUserDown(instance_info):
+    logging.info("Instance '%s' already running, not starting", instance.name)
     return
 
   try:
@@ -1714,12 +1896,10 @@ def InstanceShutdown(instance, timeout, reason, store_reason=True):
   @rtype: None
 
   """
-  hv_name = instance.hypervisor
-  hyper = hypervisor.GetHypervisor(hv_name)
-  iname = instance.name
+  hyper = hypervisor.GetHypervisor(instance.hypervisor)
 
-  if instance.name not in hyper.ListInstances(instance.hvparams):
-    logging.info("Instance %s not running, doing nothing", iname)
+  if not _GetInstanceInfo(instance):
+    logging.info("Instance '%s' not running, doing nothing", instance.name)
     return
 
   class _TryShutdown(object):
@@ -1727,7 +1907,7 @@ def InstanceShutdown(instance, timeout, reason, store_reason=True):
       self.tried_once = False
 
     def __call__(self):
-      if iname not in hyper.ListInstances(instance.hvparams):
+      if not _GetInstanceInfo(instance):
         return
 
       try:
@@ -1735,12 +1915,12 @@ def InstanceShutdown(instance, timeout, reason, store_reason=True):
         if store_reason:
           _StoreInstReasonTrail(instance.name, reason)
       except errors.HypervisorError, err:
-        if iname not in hyper.ListInstances(instance.hvparams):
-          # if the instance is no longer existing, consider this a
-          # success and go to cleanup
+        # if the instance is no longer existing, consider this a
+        # success and go to cleanup
+        if not _GetInstanceInfo(instance):
           return
 
-        _Fail("Failed to stop instance %s: %s", iname, err)
+        _Fail("Failed to stop instance '%s': %s", instance.name, err)
 
       self.tried_once = True
 
@@ -1750,27 +1930,27 @@ def InstanceShutdown(instance, timeout, reason, store_reason=True):
     utils.Retry(_TryShutdown(), 5, timeout)
   except utils.RetryTimeout:
     # the shutdown did not succeed
-    logging.error("Shutdown of '%s' unsuccessful, forcing", iname)
+    logging.error("Shutdown of '%s' unsuccessful, forcing", instance.name)
 
     try:
       hyper.StopInstance(instance, force=True)
     except errors.HypervisorError, err:
-      if iname in hyper.ListInstances(instance.hvparams):
-        # only raise an error if the instance still exists, otherwise
-        # the error could simply be "instance ... unknown"!
-        _Fail("Failed to force stop instance %s: %s", iname, err)
+      # only raise an error if the instance still exists, otherwise
+      # the error could simply be "instance ... unknown"!
+      if _GetInstanceInfo(instance):
+        _Fail("Failed to force stop instance '%s': %s", instance.name, err)
 
     time.sleep(1)
 
-    if iname in hyper.ListInstances(instance.hvparams):
-      _Fail("Could not shutdown instance %s even by destroy", iname)
+    if _GetInstanceInfo(instance):
+      _Fail("Could not shutdown instance '%s' even by destroy", instance.name)
 
   try:
     hyper.CleanupInstance(instance.name)
   except errors.HypervisorError, err:
     logging.warning("Failed to execute post-shutdown cleanup step: %s", err)
 
-  _RemoveBlockDevLinks(iname, instance.disks)
+  _RemoveBlockDevLinks(instance.name, instance.disks)
 
 
 def InstanceReboot(instance, reboot_type, shutdown_timeout, reason):
@@ -1796,18 +1976,18 @@ def InstanceReboot(instance, reboot_type, shutdown_timeout, reason):
   @rtype: None
 
   """
-  running_instances = GetInstanceListForHypervisor(instance.hypervisor,
-                                                   instance.hvparams)
-
-  if instance.name not in running_instances:
-    _Fail("Cannot reboot instance %s that is not running", instance.name)
+  # TODO: this is inconsistent with 'StartInstance' and 'InstanceShutdown'
+  # because those functions simply 'return' on error whereas this one
+  # raises an exception with '_Fail'
+  if not _GetInstanceInfo(instance):
+    _Fail("Cannot reboot instance '%s' that is not running", instance.name)
 
   hyper = hypervisor.GetHypervisor(instance.hypervisor)
   if reboot_type == constants.INSTANCE_REBOOT_SOFT:
     try:
       hyper.RebootInstance(instance)
     except errors.HypervisorError, err:
-      _Fail("Failed to soft reboot instance %s: %s", instance.name, err)
+      _Fail("Failed to soft reboot instance '%s': %s", instance.name, err)
   elif reboot_type == constants.INSTANCE_REBOOT_HARD:
     try:
       InstanceShutdown(instance, shutdown_timeout, reason, store_reason=False)
@@ -1815,9 +1995,9 @@ def InstanceReboot(instance, reboot_type, shutdown_timeout, reason):
       _StoreInstReasonTrail(instance.name, reason)
       return result
     except errors.HypervisorError, err:
-      _Fail("Failed to hard reboot instance %s: %s", instance.name, err)
+      _Fail("Failed to hard reboot instance '%s': %s", instance.name, err)
   else:
-    _Fail("Invalid reboot_type received: %s", reboot_type)
+    _Fail("Invalid reboot_type received: '%s'", reboot_type)
 
 
 def InstanceBalloonMemory(instance, memory):
@@ -1831,7 +2011,7 @@ def InstanceBalloonMemory(instance, memory):
 
   """
   hyper = hypervisor.GetHypervisor(instance.hypervisor)
-  running = hyper.ListInstances(instance.hvparams)
+  running = hyper.ListInstances(hvparams=instance.hvparams)
   if instance.name not in running:
     logging.info("Instance %s is not running, cannot balloon", instance.name)
     return
@@ -2523,50 +2703,6 @@ def BlockdevGetdimensions(disks):
   return result
 
 
-def BlockdevExport(disk, dest_node_ip, dest_path, cluster_name):
-  """Export a block device to a remote node.
-
-  @type disk: L{objects.Disk}
-  @param disk: the description of the disk to export
-  @type dest_node_ip: str
-  @param dest_node_ip: the destination node IP to export to
-  @type dest_path: str
-  @param dest_path: the destination path on the target node
-  @type cluster_name: str
-  @param cluster_name: the cluster name, needed for SSH hostalias
-  @rtype: None
-
-  """
-  real_disk = _OpenRealBD(disk)
-
-  # the block size on the read dd is 1MiB to match our units
-  expcmd = utils.BuildShellCmd("set -e; set -o pipefail; "
-                               "dd if=%s bs=1048576 count=%s",
-                               real_disk.dev_path, str(disk.size))
-
-  # we set here a smaller block size as, due to ssh buffering, more
-  # than 64-128k will mostly ignored; we use nocreat to fail if the
-  # device is not already there or we pass a wrong path; we use
-  # notrunc to no attempt truncate on an LV device; we use oflag=dsync
-  # to not buffer too much memory; this means that at best, we flush
-  # every 64k, which will not be very fast
-  destcmd = utils.BuildShellCmd("dd of=%s conv=nocreat,notrunc bs=65536"
-                                " oflag=dsync", dest_path)
-
-  remotecmd = _GetSshRunner(cluster_name).BuildCmd(dest_node_ip,
-                                                   constants.SSH_LOGIN_USER,
-                                                   destcmd)
-
-  # all commands have been checked, so we're safe to combine them
-  command = "|".join([expcmd, utils.ShellQuoteArgs(remotecmd)])
-
-  result = utils.RunCmd(["bash", "-c", command])
-
-  if result.failed:
-    _Fail("Disk copy command '%s' returned error: %s"
-          " output: %s", command, result.fail_reason, result.output)
-
-
 def UploadFile(file_name, data, mode, uid, gid, atime, mtime):
   """Write a file to the filesystem.
 
@@ -2933,7 +3069,7 @@ def OSEnvironment(instance, inst_os, debug=0):
         instance.hvparams[constants.HV_DISK_TYPE]
     if disk.dev_type in constants.DTS_BLOCK:
       result["DISK_%d_BACKEND_TYPE" % idx] = "block"
-    elif disk.dev_type in [constants.DT_FILE, constants.DT_SHARED_FILE]:
+    elif disk.dev_type in constants.DTS_FILEBASED:
       result["DISK_%d_BACKEND_TYPE" % idx] = \
         "file:%s" % disk.logical_id[0]
 
@@ -3603,7 +3739,7 @@ def CreateX509Certificate(validity, cryptodir=pathutils.CRYPTO_KEYS_DIR):
   """
   (key_pem, cert_pem) = \
     utils.GenerateSelfSignedX509Cert(netutils.Hostname.GetSysName(),
-                                     min(validity, _MAX_SSL_CERT_VALIDITY))
+                                     min(validity, _MAX_SSL_CERT_VALIDITY), 1)
 
   cert_dir = tempfile.mkdtemp(dir=cryptodir,
                               prefix="x509-%s-" % utils.TimestampForFilename())
@@ -3696,16 +3832,11 @@ def _GetImportExportIoCommand(instance, mode, ieio, ieargs):
     real_disk = _OpenRealBD(disk)
 
     if mode == constants.IEM_IMPORT:
-      # we set here a smaller block size as, due to transport buffering, more
-      # than 64-128k will mostly ignored; we use nocreat to fail if the device
-      # is not already there or we pass a wrong path; we use notrunc to no
-      # attempt truncate on an LV device; we use oflag=dsync to not buffer too
-      # much memory; this means that at best, we flush every 64k, which will
-      # not be very fast
-      suffix = utils.BuildShellCmd(("| dd of=%s conv=nocreat,notrunc"
-                                    " bs=%s oflag=dsync"),
-                                    real_disk.dev_path,
-                                    str(64 * 1024))
+      # we use nocreat to fail if the device is not already there or we pass a
+      # wrong path; we use notrunc to no attempt truncate on an LV device
+      suffix = utils.BuildShellCmd("| dd of=%s conv=nocreat,notrunc bs=%s",
+                                   real_disk.dev_path,
+                                   str(1024 * 1024)) # 1 MB
 
     elif mode == constants.IEM_EXPORT:
       # the block size on the read dd is 1MiB to match our units
@@ -4481,13 +4612,15 @@ class IAllocatorRunner(object):
 
   """
   @staticmethod
-  def Run(name, idata):
+  def Run(name, idata, ial_params):
     """Run an iallocator script.
 
     @type name: str
     @param name: the iallocator script name
     @type idata: str
     @param idata: the allocator input data
+    @type ial_params: list
+    @param ial_params: the iallocator parameters
 
     @rtype: tuple
     @return: two element tuple of:
@@ -4504,7 +4637,7 @@ class IAllocatorRunner(object):
     try:
       os.write(fd, idata)
       os.close(fd)
-      result = utils.RunCmd([alloc_script, fin_name])
+      result = utils.RunCmd([alloc_script, fin_name] + ial_params)
       if result.failed:
         _Fail("iallocator module '%s' failed: %s, output '%s'",
               name, result.fail_reason, result.output)

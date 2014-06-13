@@ -389,6 +389,11 @@ The "spindle_count" node parameter
 .RS
 .RE
 .TP
+.B \f[C]ndp/ssh_port\f[]
+The "ssh_port" node parameter
+.RS
+.RE
+.TP
 .B \f[C]ndparams\f[]
 Merged node parameters
 .RS

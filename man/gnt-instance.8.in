@@ -695,6 +695,9 @@ Valid for the Xen HVM and KVM hypervisors.
 A boolean option that specifies if the hypervisor should enable ACPI
 support for this instance.
 By default, ACPI is disabled.
+.PP
+ACPI should be enabled for user shutdown detection.
+See \f[C]user_shutdown\f[].
 .RE
 .TP
 .B pae
@@ -875,6 +878,21 @@ If it is set to \f[C]true\f[], an empty directory is created before
 starting the instance and its path is passed via the -chroot flag to
 kvm.
 The directory is removed when the instance is stopped.
+.PP
+It is set to \f[C]false\f[] by default.
+.RE
+.TP
+.B user_shutdown
+Valid for the KVM hypervisor.
+.RS
+.PP
+This boolean option determines whether the KVM instance suports user
+shutdown detection.
+This option does not necessarily require ACPI enabled, but ACPI must be
+enabled for users to poweroff their KVM instances.
+.PP
+If it is set to \f[C]true\f[], the user can shutdown this KVM instance
+and its status is reported as \f[C]USER_down\f[].
 .PP
 It is set to \f[C]false\f[] by default.
 .RE
@@ -1101,7 +1119,7 @@ It is set to \f[C]true\f[] by default.
 .PP
 The \f[C]-O\ (--os-parameters)\f[] option allows customisation of the OS
 parameters.
-The actual parameter names and values depends on the OS being used, but
+The actual parameter names and values depend on the OS being used, but
 the syntax is the same key=value.
 For example, setting a hypothetical \f[C]dhcp\f[] parameter to yes can
 be achieved by:
@@ -1469,12 +1487,17 @@ output fields.
 The available fields and their meaning are:
 .TP
 .B \f[C]admin_state\f[]
-Desired state of instance
+Desired state of the instance
+.RS
+.RE
+.TP
+.B \f[C]admin_state_source\f[]
+Who last changed the desired state of the instance
 .RS
 .RE
 .TP
 .B \f[C]admin_up\f[]
-Desired state of instance
+Desired state of the instance
 .RS
 .RE
 .TP
@@ -1910,7 +1933,7 @@ disk size visible to the instance, but the usage on the node
 .RE
 .TP
 .B \f[C]disks_active\f[]
-Desired state of instance disks
+Desired state of the instance disks
 .RS
 .RE
 .TP
@@ -2196,6 +2219,11 @@ The "use_chroot" hypervisor parameter
 .TP
 .B \f[C]hv/use_localtime\f[]
 The "use_localtime" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[C]hv/user_shutdown\f[]
+The "user_shutdown" hypervisor parameter
 .RS
 .RE
 .TP
@@ -2838,7 +2866,8 @@ node, "ERROR_up" if instance should be stopped, but is actually running,
 "ERROR_down" if instance should run, but doesn\[aq]t, "ERROR_nodedown"
 if instance\[aq]s primary node is down, "ERROR_nodeoffline" if
 instance\[aq]s primary node is marked offline, "ADMIN_offline" if
-instance is offline and does not use dynamic resources
+instance is offline and does not use dynamic, "USER_down" if the user
+shutdown the instance resources
 .RS
 .RE
 .TP
@@ -3993,12 +4022,12 @@ Migrating\ instance\ instance1.example.com
 .PD 0
 .P
 .PD
-[-n \f[I]node\f[]] [--shutdown-timeout=\f[I]N\f[]] [--submit]
-[--print-job-id]
+[-n \f[I]node\f[]] [--compress=\f[I]compression-mode\f[]]
+[--shutdown-timeout=\f[I]N\f[]]
 .PD 0
 .P
 .PD
-[--ignore-ipolicy]
+[--submit] [--print-job-id] [--ignore-ipolicy]
 .PD 0
 .P
 .PD
@@ -4009,6 +4038,10 @@ This works only for instances having a plain or file disk template.
 .PP
 Note that since this operation is done via data copy, it will take a
 long time for big disks (similar to replace-disks for a drbd instance).
+.PP
+The \f[C]--compress\f[] option is used to specify which compression mode
+is used during the move.
+Valid values are \[aq]none\[aq] (the default) and \[aq]gzip\[aq].
 .PP
 The \f[C]--shutdown-timeout\f[] is used to specify how much time to wait
 before forcing the shutdown (e.g.

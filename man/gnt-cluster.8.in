@@ -211,6 +211,10 @@ same options relative to specs in the instance policies.
 .PD 0
 .P
 .PD
+[--gluster-storage-dir \f[I]dir\f[]]
+.PD 0
+.P
+.PD
 [--enabled-hypervisors \f[I]hypervisors\f[]]
 .PD 0
 .P
@@ -244,6 +248,11 @@ same options relative to specs in the instance policies.
 .P
 .PD
 [{-I|--default-iallocator} \f[I]default instance allocator\f[]]
+.PD 0
+.P
+.PD
+[--default-iallocator-params
+\f[I]ial-param\f[]=\f[I]value\f[],\f[I]ial-param\f[]=\f[I]value\f[]]
 .PD 0
 .P
 .PD
@@ -325,6 +334,10 @@ same options relative to specs in the instance policies.
 .PD 0
 .P
 .PD
+[--user-shutdown {yes | no}]
+.PD 0
+.P
+.PD
 {\f[I]clustername\f[]}
 .PP
 This commands is only run once initially on the first node of the
@@ -400,12 +413,13 @@ without modifying the /etc/hosts file.
 The \f[C]--no-ssh-init\f[] option allows you to initialize the cluster
 without creating or distributing SSH key pairs.
 .PP
-The \f[C]--file-storage-dir\f[] and \f[C]--shared-file-storage-dir\f[]
-options allow you set the directory to use for storing the instance disk
-files when using file storage backend, respectively shared file storage
-backend, for instance disks.
-Note that the file and shared file storage dir must be an allowed
-directory for file storage.
+The \f[C]--file-storage-dir\f[], \f[C]--shared-file-storage-dir\f[] and
+\f[C]--gluster-storage-dir\f[] options allow you set the directory to
+use for storing the instance disk files when using respectively the file
+storage backend, the shared file storage backend and the gluster storage
+backend.
+Note that these directories must be an allowed directory for file
+storage.
 Those directories are specified in the
 \f[C]@SYSCONFDIR@/ganeti/file-storage-paths\f[] file.
 The file storage directory can also be a subdirectory of an allowed one.
@@ -453,6 +467,14 @@ Either a single hypervisor name or a comma-separated list of hypervisor
 names can be specified.
 If this option is not specified, only the xen-pvm hypervisor is enabled
 by default.
+.PP
+The \f[C]--user-shutdown\f[] option enables or disables user shutdown
+detection at the cluster level.
+User shutdown detection allows users to initiate instance poweroff from
+inside the instance, and Ganeti will report the instance status as
+\[aq]USER_down\[aq] (as opposed, to \[aq]ERROR_down\[aq]) and the
+watcher will not restart these instances, thus preserving their instance
+status.
 .PP
 The \f[C]-H\ (--hypervisor-parameters)\f[] option allows you to set
 default hypervisor specific parameters for the cluster.
@@ -730,6 +752,10 @@ iallocator will be \f[B]hail\f[](1) (assuming it can be found on disk).
 The default iallocator can be changed later using the \f[B]modify\f[]
 command.
 .PP
+The option \f[C]--default-iallocator-params\f[] sets the cluster-wide
+iallocator parameters used by the default iallocator only on instance
+allocations.
+.PP
 The \f[C]--primary-ip-version\f[] option specifies the IP version used
 for the primary address.
 Possible values are 4 and 6 for IPv4 and IPv6, respectively.
@@ -922,6 +948,11 @@ is not the master node), the exit code will be 1.
 .PD 0
 .P
 .PD
+[--default-iallocator-params
+\f[I]ial-param\f[]=\f[I]value\f[],\f[I]ial-param\f[]=\f[I]value\f[]]
+.PD 0
+.P
+.PD
 [--reserved-lvs=\f[I]NAMES\f[]]
 .PD 0
 .P
@@ -984,6 +1015,10 @@ is not the master node), the exit code will be 1.
 .P
 .PD
 [--shared-file-storage-dir \f[I]dir\f[]]
+.PD 0
+.P
+.PD
+[--user-shutdown {yes | no}]
 .PP
 Modify the options for the cluster.
 .PP
@@ -995,9 +1030,9 @@ The \f[C]--vg-name\f[], \f[C]--enabled-hypervisors\f[],
 \f[C]--uid-pool\f[], \f[C]--node-parameters\f[],
 \f[C]--master-netdev\f[], \f[C]--master-netmask\f[],
 \f[C]--use-external-mip-script\f[], \f[C]--drbd-usermode-helper\f[],
-\f[C]--file-storage-dir\f[], \f[C]--shared-file-storage-dir\f[], and
-\f[C]--enabled-disk-templates\f[] options are described in the
-\f[B]init\f[] command.
+\f[C]--file-storage-dir\f[], \f[C]--shared-file-storage-dir\f[],
+\f[C]--enabled-disk-templates\f[], and \f[C]--user-shutdown\f[] options
+are described in the \f[B]init\f[] command.
 .PP
 The \f[C]--hypervisor-state\f[] and \f[C]--disk-state\f[] options are
 described in detail in \f[B]ganeti\f[](7).
@@ -1023,6 +1058,11 @@ option, as in \f[C]--reserved-lvs=\f[] or
 The \f[C]-I\ (--default-iallocator)\f[] is described in the
 \f[B]init\f[] command.
 To clear the default iallocator, just pass an empty string (\[aq]\[aq]).
+.PP
+The option \f[C]--default-iallocator-params\f[] is described in the
+\f[B]init\f[] command.
+To clear the default iallocator parameters, just pass an empty string
+(\[aq]\[aq]).
 .PP
 The \f[C]--ipolicy-...\f[] options are described in the \f[B]init\f[]
 command.
@@ -1084,7 +1124,11 @@ SSH), the command will require confirmation unless run with the
 .PD 0
 .P
 .PD
-[--new-cluster-certificate] [--new-confd-hmac-key]
+[--new-cluster-certificate] | [--new-node-certificates]
+.PD 0
+.P
+.PD
+[--new-confd-hmac-key]
 .PD 0
 .P
 .PD
@@ -1109,6 +1153,12 @@ The options \f[C]--new-cluster-certificate\f[] and
 \f[C]--new-confd-hmac-key\f[] can be used to regenerate respectively the
 cluster-internal SSL certificate and the HMAC key used by
 \f[B]ganeti-confd\f[](8).
+.PP
+The option \f[C]--new-node-certificates\f[] will generate new node SSL
+certificates for all nodes.
+Note that the regeneration of the node certificates takes place after
+the other certificates are created and distributed and the ganeti
+daemons are restarted again.
 .PP
 To generate a new self-signed RAPI certificate (used by
 \f[B]ganeti-rapi\f[](8)) specify \f[C]--new-rapi-certificate\f[].

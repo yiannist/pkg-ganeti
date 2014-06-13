@@ -36,7 +36,7 @@ from ganeti import errors
 from ganeti import ht
 from ganeti import opcodes
 from ganeti import objects
-from ganeti import rpc
+from ganeti.rpc import node as rpc
 from ganeti import utils
 from ganeti.cmdlib import instance
 
@@ -447,7 +447,7 @@ class TestLUInstanceCreate(CmdlibTestCase):
     self.cluster.file_storage_dir = None
     op = self.CopyOpCode(self.file_op)
     self.ExecOpCodeExpectOpPrereqError(
-      op, "Cluster file storage dir not defined")
+      op, "Cluster file storage dir for 'file' storage type not defined")
 
   def testFileInstanceAdditionalPath(self):
     op = self.CopyOpCode(self.file_op,
@@ -1090,7 +1090,7 @@ class TestGenerateDiskTemplate(CmdlibTestCase):
     self.assertRaises(errors.OpPrereqError, self._TestTrivialDisk,
                       constants.DT_SHARED_FILE, [], 0, NotImplemented)
 
-    for disk_template in [constants.DT_FILE, constants.DT_SHARED_FILE]:
+    for disk_template in constants.DTS_FILEBASED:
       disk_info = [{
         constants.IDISK_SIZE: 80 * 1024,
         constants.IDISK_MODE: constants.DISK_RDONLY,
@@ -1107,12 +1107,21 @@ class TestGenerateDiskTemplate(CmdlibTestCase):
         disk_template, disk_info, 2, disk_template,
         file_storage_dir="/tmp", file_driver=constants.FD_BLKTAP)
 
-      for (idx, disk) in enumerate(result):
-        (file_driver, file_storage_dir) = disk.logical_id
-        dir_fmt = r"^/tmp/.*\.%s\.disk%d$" % (disk_template, idx + 2)
-        self.assertEqual(file_driver, constants.FD_BLKTAP)
-        # FIXME: use assertIsNotNone when py 2.7 is minimum supported version
-        self.assertNotEqual(re.match(dir_fmt, file_storage_dir), None)
+      if disk_template == constants.DT_GLUSTER:
+        # Here "inst21662.example.com" is actually the instance UUID, not its
+        # name, so while this result looks wrong, it is actually correct.
+        expected = [(constants.FD_BLKTAP,
+                     'ganeti/inst21662.example.com.%d' % x)
+                    for x in (2,3,4)]
+        self.assertEqual(map(operator.attrgetter("logical_id"), result),
+                         expected)
+      else:
+        for (idx, disk) in enumerate(result):
+          (file_driver, file_storage_dir) = disk.logical_id
+          dir_fmt = r"^/tmp/.*\.%s\.disk%d$" % (disk_template, idx + 2)
+          self.assertEqual(file_driver, constants.FD_BLKTAP)
+          # FIXME: use assertIsNotNone when py 2.7 is minimum supported version
+          self.assertNotEqual(re.match(dir_fmt, file_storage_dir), None)
 
   def testBlock(self):
     disk_info = [{
@@ -1486,12 +1495,28 @@ class TestLUInstanceMove(CmdlibTestCase):
       self.RpcResultsBuilder() \
         .CreateSuccessfulNodeResult(self.node, ("/dev/mocked_path",
                                     "/var/run/ganeti/instance-disks/mocked_d"))
-    self.rpc.call_blockdev_export.return_value = \
-      self.RpcResultsBuilder() \
-        .CreateSuccessfulNodeResult(self.master, "")
     self.rpc.call_blockdev_remove.return_value = \
       self.RpcResultsBuilder() \
         .CreateSuccessfulNodeResult(self.master, "")
+
+    def ImportStart(node_uuid, opt, inst, component, args):
+      return self.RpcResultsBuilder() \
+               .CreateSuccessfulNodeResult(node_uuid,
+                                           "deamon_on_%s" % node_uuid)
+    self.rpc.call_import_start.side_effect = ImportStart
+
+    def ImpExpStatus(node_uuid, name):
+      return self.RpcResultsBuilder() \
+               .CreateSuccessfulNodeResult(node_uuid,
+                                           [objects.ImportExportStatus(
+                                             exit_status=0
+                                           )])
+    self.rpc.call_impexp_status.side_effect = ImpExpStatus
+
+    def ImpExpCleanup(node_uuid, name):
+      return self.RpcResultsBuilder() \
+               .CreateSuccessfulNodeResult(node_uuid)
+    self.rpc.call_impexp_cleanup.side_effect = ImpExpCleanup
 
   def testMissingInstance(self):
     op = opcodes.OpInstanceMove(instance_name="missing.inst",
@@ -1534,7 +1559,7 @@ class TestLUInstanceMove(CmdlibTestCase):
                                 target_node=self.node.name)
     self.ExecOpCode(op)
 
-  def testMoveFailingStart(self):
+  def testMoveFailingStartInstance(self):
     self.rpc.call_node_info.return_value = \
       self.RpcResultsBuilder() \
         .AddSuccessfulNode(self.node,
@@ -1551,18 +1576,24 @@ class TestLUInstanceMove(CmdlibTestCase):
     self.ExecOpCodeExpectOpExecError(
       op, "Could not start instance .* on node .*")
 
-  def testMoveFailingBlockdevAssemble(self):
+  def testMoveFailingImpExpDaemonExitCode(self):
     inst = self.cfg.AddNewInstance()
-    self.rpc.call_blockdev_assemble.return_value = \
+    self.rpc.call_impexp_status.side_effect = None
+    self.rpc.call_impexp_status.return_value = \
       self.RpcResultsBuilder() \
-        .CreateFailedNodeResult(self.node)
+        .CreateSuccessfulNodeResult(self.node,
+                                    [objects.ImportExportStatus(
+                                      exit_status=1,
+                                      recent_output=["mock output"]
+                                    )])
     op = opcodes.OpInstanceMove(instance_name=inst.name,
                                 target_node=self.node.name)
     self.ExecOpCodeExpectOpExecError(op, "Errors during disk copy")
 
-  def testMoveFailingBlockdevExport(self):
+  def testMoveFailingStartImpExpDaemon(self):
     inst = self.cfg.AddNewInstance()
-    self.rpc.call_blockdev_export.return_value = \
+    self.rpc.call_import_start.side_effect = None
+    self.rpc.call_import_start.return_value = \
       self.RpcResultsBuilder() \
         .CreateFailedNodeResult(self.node)
     op = opcodes.OpInstanceMove(instance_name=inst.name,
@@ -1604,7 +1635,7 @@ class TestLUInstanceRename(CmdlibTestCase):
         .CreateSuccessfulNodeResult(self.master, (None, None))
     self.rpc.call_blockdev_shutdown.return_value = \
       self.RpcResultsBuilder() \
-        .CreateSuccessfulNodeResult(self.master, None)
+        .CreateSuccessfulNodeResult(self.master, (None, None))
 
     inst = self.cfg.AddNewInstance(disk_template=constants.DT_FILE)
     op = self.CopyOpCode(self.op,

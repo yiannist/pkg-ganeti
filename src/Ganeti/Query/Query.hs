@@ -1,3 +1,5 @@
+{-# LANGUAGE TupleSections #-}
+
 {-| Implementation of the Ganeti Query2 functionality.
 
  -}
@@ -50,14 +52,15 @@ module Ganeti.Query.Query
     , queryCompat
     , getRequestedNames
     , nameField
+    , NoDataRuntime
     , uuidField
     ) where
 
 import Control.DeepSeq
-import Control.Monad (filterM, foldM)
+import Control.Monad (filterM, foldM, liftM)
 import Control.Monad.Trans (lift)
 import qualified Data.Foldable as Foldable
-import Data.List (intercalate)
+import Data.List (intercalate, nub)
 import Data.Maybe (fromMaybe)
 import qualified Data.Map as Map
 import qualified Text.JSON as J
@@ -67,19 +70,28 @@ import Ganeti.Config
 import Ganeti.Errors
 import Ganeti.JQueue
 import Ganeti.JSON
+import Ganeti.Logging
+import qualified Ganeti.Luxi as L
 import Ganeti.Objects
 import Ganeti.Query.Common
 import qualified Ganeti.Query.Export as Export
 import Ganeti.Query.Filter
+import qualified Ganeti.Query.Instance as Instance
 import qualified Ganeti.Query.Job as Query.Job
 import qualified Ganeti.Query.Group as Group
 import Ganeti.Query.Language
+import qualified Ganeti.Query.Locks as Locks
 import qualified Ganeti.Query.Network as Network
 import qualified Ganeti.Query.Node as Node
 import Ganeti.Query.Types
 import Ganeti.Path
 import Ganeti.Types
 import Ganeti.Utils
+
+-- | Collector type
+data CollectorType a b
+  = CollectorSimple     (Bool -> ConfigData -> [a] -> IO [(a, b)])
+  | CollectorFieldAware (Bool -> ConfigData -> [String] -> [a] -> IO [(a, b)])
 
 -- * Helper functions
 
@@ -92,10 +104,11 @@ mkUnknownFDef name =
 
 -- | Runs a field getter on the existing contexts.
 execGetter :: ConfigData -> b -> a -> FieldGetter a b -> ResultEntry
-execGetter _   _ item (FieldSimple getter)  = getter item
-execGetter cfg _ item (FieldConfig getter)  = getter cfg item
-execGetter _  rt item (FieldRuntime getter) = getter rt item
-execGetter _   _ _    FieldUnknown          = rsUnknown
+execGetter _   _  item (FieldSimple getter)        = getter item
+execGetter cfg _  item (FieldConfig getter)        = getter cfg item
+execGetter _   rt item (FieldRuntime getter)       = getter rt item
+execGetter cfg rt item (FieldConfigRuntime getter) = getter cfg rt item
+execGetter _   _  _    FieldUnknown                = rsUnknown
 
 -- * Main query execution
 
@@ -154,6 +167,7 @@ getRequestedJobIDs qfilter =
     Nothing -> Ok []
     Just [] -> Ok []
     Just vals ->
+      liftM nub $
       mapM (\e -> case e of
                     QuotedString s -> makeJobIdS s
                     NumericValue i -> makeJobId $ fromIntegral i
@@ -161,8 +175,21 @@ getRequestedJobIDs qfilter =
 
 -- | Generic query implementation for resources that are backed by
 -- some configuration objects.
-genericQuery :: FieldMap a b       -- ^ Field map
-             -> (Bool -> ConfigData -> [a] -> IO [(a, b)]) -- ^ Collector
+--
+-- Different query types use the same 'genericQuery' function by providing
+-- a collector function and a field map. The collector function retrieves
+-- live data, and the field map provides both the requirements and the logic
+-- necessary to retrieve the data needed for the field.
+--
+-- The 'b' type in the specification is the runtime. Every query can gather
+-- additional live data related to the configuration object using the collector
+-- to perform RPC calls.
+--
+-- The gathered data, or the failure to get it, is expressed through a runtime
+-- object. The type of a runtime object is determined by every query type for
+-- itself, and used exclusively by that query.
+genericQuery :: FieldMap a b       -- ^ Maps field names to field definitions
+             -> CollectorType a b  -- ^ Collector of live data
              -> (a -> String)      -- ^ Object to name function
              -> (ConfigData -> Container a) -- ^ Get all objects from config
              -> (ConfigData -> String -> ErrorResult a) -- ^ Lookup object
@@ -183,13 +210,15 @@ genericQuery fieldsMap collector nameFn configFn getFn cfg
              [] -> Ok . niceSortKey nameFn .
                    Map.elems . fromContainer $ configFn cfg
              _  -> mapM (getFn cfg) wanted
-  -- runs first pass of the filter, without a runtime context; this
-  -- will limit the objects that we'll contact for exports
+  -- Run the first pass of the filter, without a runtime context; this will
+  -- limit the objects that we'll contact for exports
   fobjects <- resultT $ filterM (\n -> evaluateFilter cfg Nothing n cfilter)
                         objects
-  -- here run the runtime data gathering...
-  runtimes <- lift $ collector live' cfg fobjects
-  -- ... then filter again the results, based on gathered runtime data
+  -- Gather the runtime data
+  runtimes <- case collector of
+    CollectorSimple     collFn -> lift $ collFn live' cfg fobjects
+    CollectorFieldAware collFn -> lift $ collFn live' cfg fields fobjects
+  -- Filter the results again, based on the gathered data
   let fdata = map (\(obj, runtime) ->
                      map (execGetter cfg runtime obj) fgetters)
               runtimes
@@ -202,7 +231,29 @@ query :: ConfigData   -- ^ The current configuration
       -> IO (ErrorResult QueryResult) -- ^ Result
 query cfg live (Query (ItemTypeLuxi QRJob) fields qfilter) =
   queryJobs cfg live fields qfilter
+query _ live (Query (ItemTypeLuxi QRLock) fields qfilter) =
+  if not live
+    then return . Bad $ GenericError "Locks can only be queried live"
+    else do
+      socketpath <- defaultMasterSocket
+      logDebug $ "Forwarding live query on locks for " ++ show fields
+                   ++ ", " ++ show qfilter ++ " to " ++ socketpath
+      cl <- L.getLuxiClient socketpath
+      answer <- L.callMethod (L.Query (ItemTypeLuxi QRLock) fields qfilter) cl
+      return
+        . genericResult Bad
+            (either (Bad . GenericError
+                       . (++) "Got unparsable answer from masterd: ")
+               Ok
+             . J.resultToEither . J.readJSON)
+        $ answer
+
 query cfg live qry = queryInner cfg live qry $ getRequestedNames qry
+
+
+-- | Dummy data collection fuction
+dummyCollectLiveData :: Bool -> ConfigData -> [a] -> IO [(a, NoDataRuntime)]
+dummyCollectLiveData _ _ = return . map (, NoDataRuntime)
 
 -- | Inner query execution function.
 queryInner :: ConfigData   -- ^ The current configuration
@@ -212,21 +263,26 @@ queryInner :: ConfigData   -- ^ The current configuration
            -> IO (ErrorResult QueryResult) -- ^ Result
 
 queryInner cfg live (Query (ItemTypeOpCode QRNode) fields qfilter) wanted =
-  genericQuery Node.fieldsMap Node.collectLiveData nodeName configNodes getNode
-               cfg live fields qfilter wanted
+  genericQuery Node.fieldsMap (CollectorFieldAware Node.collectLiveData)
+               nodeName configNodes getNode cfg live fields qfilter wanted
+
+queryInner cfg live (Query (ItemTypeOpCode QRInstance) fields qfilter) wanted =
+  genericQuery Instance.fieldsMap (CollectorFieldAware Instance.collectLiveData)
+               instName configInstances getInstance cfg live fields qfilter
+               wanted
 
 queryInner cfg live (Query (ItemTypeOpCode QRGroup) fields qfilter) wanted =
-  genericQuery Group.fieldsMap Group.collectLiveData groupName configNodegroups
-               getGroup cfg live fields qfilter wanted
+  genericQuery Group.fieldsMap (CollectorSimple dummyCollectLiveData) groupName
+               configNodegroups getGroup cfg live fields qfilter wanted
 
 queryInner cfg live (Query (ItemTypeOpCode QRNetwork) fields qfilter) wanted =
-  genericQuery Network.fieldsMap Network.collectLiveData
+  genericQuery Network.fieldsMap (CollectorSimple dummyCollectLiveData)
                (fromNonEmpty . networkName)
                configNetworks getNetwork cfg live fields qfilter wanted
 
 queryInner cfg live (Query (ItemTypeOpCode QRExport) fields qfilter) wanted =
-  genericQuery Export.fieldsMap Export.collectLiveData nodeName configNodes
-               getNode cfg live fields qfilter wanted
+  genericQuery Export.fieldsMap (CollectorSimple Export.collectLiveData)
+               nodeName configNodes getNode cfg live fields qfilter wanted
 
 queryInner _ _ (Query qkind _ _) _ =
   return . Bad . GenericError $ "Query '" ++ show qkind ++ "' not supported"
@@ -294,7 +350,7 @@ queryJobs cfg live fields qfilter =
 fieldsExtractor :: FieldMap a b -> [FilterField] -> QueryFieldsResult
 fieldsExtractor fieldsMap fields =
   let selected = if null fields
-                   then map snd $ Map.toAscList fieldsMap
+                   then map snd . niceSortKey fst $ Map.toList fieldsMap
                    else getSelectedFields fieldsMap fields
   in QueryFieldsResult (map (\(defs, _, _) -> defs) selected)
 
@@ -314,6 +370,12 @@ queryFields (QueryFields (ItemTypeLuxi QRJob) fields) =
 
 queryFields (QueryFields (ItemTypeOpCode QRExport) fields) =
   Ok $ fieldsExtractor Export.fieldsMap fields
+
+queryFields (QueryFields (ItemTypeOpCode QRInstance) fields) =
+  Ok $ fieldsExtractor Instance.fieldsMap fields
+
+queryFields (QueryFields (ItemTypeLuxi QRLock) fields) =
+  Ok $ fieldsExtractor Locks.fieldsMap fields
 
 queryFields (QueryFields qkind _) =
   Bad . GenericError $ "QueryFields '" ++ show qkind ++ "' not supported"

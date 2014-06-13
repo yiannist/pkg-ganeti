@@ -45,7 +45,7 @@ from ganeti import errors
 from ganeti import locking
 from ganeti import utils
 from ganeti import constants
-from ganeti import rpc
+import ganeti.rpc.node as rpc
 from ganeti import objects
 from ganeti import serializer
 from ganeti import uidpool
@@ -236,6 +236,17 @@ class ConfigWriter(object):
     """
     nodegroup = self._UnlockedGetNodeGroup(node.group)
     return self._config_data.cluster.FillND(node, nodegroup)
+
+  @locking.ssynchronized(_config_lock, shared=1)
+  def GetNdGroupParams(self, nodegroup):
+    """Get the node groups params populated with cluster defaults.
+
+    @type nodegroup: L{objects.NodeGroup}
+    @param nodegroup: The node group we want to know the params for
+    @return: A dict with the filled in node group params
+
+    """
+    return self._config_data.cluster.FillNDGroup(nodegroup)
 
   @locking.ssynchronized(_config_lock, shared=1)
   def GetInstanceDiskParams(self, instance):
@@ -649,8 +660,18 @@ class ConfigWriter(object):
           # FIXME: assuming list type
           if key in constants.IPOLICY_PARAMETERS:
             exp_type = float
+            # if the value is int, it can be converted into float
+            convertible_types = [int]
           else:
             exp_type = list
+            convertible_types = []
+          # Try to convert from allowed types, if necessary.
+          if any(isinstance(value, ct) for ct in convertible_types):
+            try:
+              value = exp_type(value)
+              ipolicy[key] = value
+            except ValueError:
+              pass
           if not isinstance(value, exp_type):
             result.append("%s has invalid instance policy: for %s,"
                           " expecting %s, got %s" %
@@ -671,12 +692,16 @@ class ConfigWriter(object):
             constants.NDS_PARAMETER_TYPES)
     _helper_ipolicy("cluster", cluster.ipolicy, True)
 
-    if constants.DT_RBD in cluster.diskparams:
-      access = cluster.diskparams[constants.DT_RBD][constants.RBD_ACCESS]
+    for disk_template in cluster.diskparams:
+      if disk_template not in constants.DTS_HAVE_ACCESS:
+        continue
+
+      access = cluster.diskparams[disk_template].get(constants.LDP_ACCESS,
+                                                     constants.DISK_KERNELSPACE)
       if access not in constants.DISK_VALID_ACCESS_MODES:
         result.append(
           "Invalid value of '%s:%s': '%s' (expected one of %s)" % (
-            constants.DT_RBD, constants.RBD_ACCESS, access,
+            disk_template, constants.LDP_ACCESS, access,
             utils.CommaJoin(constants.DISK_VALID_ACCESS_MODES)
           )
         )
@@ -1164,6 +1189,13 @@ class ConfigWriter(object):
     return self._config_data.cluster.shared_file_storage_dir
 
   @locking.ssynchronized(_config_lock, shared=1)
+  def GetGlusterStorageDir(self):
+    """Get the Gluster storage dir for this cluster.
+
+    """
+    return self._config_data.cluster.gluster_storage_dir
+
+  @locking.ssynchronized(_config_lock, shared=1)
   def GetHypervisorType(self):
     """Get the hypervisor type for this cluster.
 
@@ -1196,6 +1228,16 @@ class ConfigWriter(object):
 
     """
     return self._config_data.cluster.default_iallocator
+
+  @locking.ssynchronized(_config_lock, shared=1)
+  def GetDefaultIAllocatorParameters(self):
+    """Get the default instance allocator parameters for this cluster.
+
+    @rtype: dict
+    @return: dict of iallocator parameters
+
+    """
+    return self._config_data.cluster.default_iallocator_params
 
   @locking.ssynchronized(_config_lock, shared=1)
   def GetPrimaryIPFamily(self):
@@ -1355,12 +1397,27 @@ class ConfigWriter(object):
     """
     return self._UnlockedGetNodeGroup(uuid)
 
+  def _UnlockedGetAllNodeGroupsInfo(self):
+    """Get the configuration of all node groups.
+
+    """
+    return dict(self._config_data.nodegroups)
+
   @locking.ssynchronized(_config_lock, shared=1)
   def GetAllNodeGroupsInfo(self):
     """Get the configuration of all node groups.
 
     """
-    return dict(self._config_data.nodegroups)
+    return self._UnlockedGetAllNodeGroupsInfo()
+
+  @locking.ssynchronized(_config_lock, shared=1)
+  def GetAllNodeGroupsInfoDict(self):
+    """Get the configuration of all node groups expressed as a dictionary of
+    dictionaries.
+
+    """
+    return dict(map(lambda (uuid, ng): (uuid, ng.ToDict()),
+                    self._UnlockedGetAllNodeGroupsInfo().items()))
 
   @locking.ssynchronized(_config_lock, shared=1)
   def GetNodeGroupList(self):
@@ -1452,7 +1509,8 @@ class ConfigWriter(object):
       raise errors.ConfigurationError("Cannot add '%s': UUID %s already"
                                       " in use" % (item.name, item.uuid))
 
-  def _SetInstanceStatus(self, inst_uuid, status, disks_active):
+  def _SetInstanceStatus(self, inst_uuid, status, disks_active,
+                         admin_state_source):
     """Set the instance's status to a given value.
 
     """
@@ -1465,14 +1523,18 @@ class ConfigWriter(object):
       status = instance.admin_state
     if disks_active is None:
       disks_active = instance.disks_active
+    if admin_state_source is None:
+      admin_state_source = instance.admin_state_source
 
     assert status in constants.ADMINST_ALL, \
            "Invalid status '%s' passed to SetInstanceStatus" % (status,)
 
     if instance.admin_state != status or \
-       instance.disks_active != disks_active:
+       instance.disks_active != disks_active or \
+       instance.admin_state_source != admin_state_source:
       instance.admin_state = status
       instance.disks_active = disks_active
+      instance.admin_state_source = admin_state_source
       instance.serial_no += 1
       instance.mtime = time.time()
       self._WriteConfig()
@@ -1484,7 +1546,8 @@ class ConfigWriter(object):
     This also sets the instance disks active flag.
 
     """
-    self._SetInstanceStatus(inst_uuid, constants.ADMINST_UP, True)
+    self._SetInstanceStatus(inst_uuid, constants.ADMINST_UP, True,
+                            constants.ADMIN_SOURCE)
 
   @locking.ssynchronized(_config_lock)
   def MarkInstanceOffline(self, inst_uuid):
@@ -1493,7 +1556,8 @@ class ConfigWriter(object):
     This also clears the instance disks active flag.
 
     """
-    self._SetInstanceStatus(inst_uuid, constants.ADMINST_OFFLINE, False)
+    self._SetInstanceStatus(inst_uuid, constants.ADMINST_OFFLINE, False,
+                            constants.ADMIN_SOURCE)
 
   @locking.ssynchronized(_config_lock)
   def RemoveInstance(self, inst_uuid):
@@ -1557,21 +1621,34 @@ class ConfigWriter(object):
     can still have active disks.
 
     """
-    self._SetInstanceStatus(inst_uuid, constants.ADMINST_DOWN, None)
+    self._SetInstanceStatus(inst_uuid, constants.ADMINST_DOWN, None,
+                            constants.ADMIN_SOURCE)
+
+  @locking.ssynchronized(_config_lock)
+  def MarkInstanceUserDown(self, inst_uuid):
+    """Mark the status of an instance to user down in the configuration.
+
+    This does not touch the instance disks active flag, as user shut
+    down instances can still have active disks.
+
+    """
+
+    self._SetInstanceStatus(inst_uuid, constants.ADMINST_DOWN, None,
+                            constants.USER_SOURCE)
 
   @locking.ssynchronized(_config_lock)
   def MarkInstanceDisksActive(self, inst_uuid):
     """Mark the status of instance disks active.
 
     """
-    self._SetInstanceStatus(inst_uuid, None, True)
+    self._SetInstanceStatus(inst_uuid, None, True, None)
 
   @locking.ssynchronized(_config_lock)
   def MarkInstanceDisksInactive(self, inst_uuid):
     """Mark the status of instance disks inactive.
 
     """
-    self._SetInstanceStatus(inst_uuid, None, False)
+    self._SetInstanceStatus(inst_uuid, None, False, None)
 
   def _UnlockedGetInstanceList(self):
     """Get the list of instances.
@@ -2029,6 +2106,21 @@ class ConfigWriter(object):
 
     """
     return self._UnlockedGetNodeInfoByName(node_name)
+
+  @locking.ssynchronized(_config_lock, shared=1)
+  def GetNodeGroupInfoByName(self, nodegroup_name):
+    """Get the L{objects.NodeGroup} object for a named node group.
+
+    @param nodegroup_name: name of the node group to get information for
+    @type nodegroup_name: string
+    @return: the corresponding L{objects.NodeGroup} instance or None if no
+          information is available
+
+    """
+    for nodegroup in self._UnlockedGetAllNodeGroupsInfo().values():
+      if nodegroup.name == nodegroup_name:
+        return nodegroup
+    return None
 
   def _UnlockedGetNodeName(self, node_spec):
     if isinstance(node_spec, objects.Node):
@@ -2522,6 +2614,8 @@ class ConfigWriter(object):
                     for ninfo in node_infos]
     node_snd_ips = ["%s %s" % (ninfo.name, ninfo.secondary_ip)
                     for ninfo in node_infos]
+    node_vm_capable = ["%s=%s" % (ninfo.name, str(ninfo.vm_capable))
+                       for ninfo in node_infos]
 
     instance_data = fn(instance_names)
     off_data = fn(node.name for node in node_infos if node.offline)
@@ -2532,9 +2626,14 @@ class ConfigWriter(object):
     node_data = fn(node_names)
     node_pri_ips_data = fn(node_pri_ips)
     node_snd_ips_data = fn(node_snd_ips)
+    node_vm_capable_data = fn(node_vm_capable)
 
     cluster = self._config_data.cluster
     cluster_tags = fn(cluster.GetTags())
+
+    master_candidates_certs = fn("%s=%s" % (mc_uuid, mc_cert)
+                                 for mc_uuid, mc_cert
+                                 in cluster.candidate_certs.items())
 
     hypervisor_list = fn(cluster.enabled_hypervisors)
     all_hvparams = self._GetAllHvparamsStrings(constants.HYPER_TYPES)
@@ -2553,8 +2652,10 @@ class ConfigWriter(object):
       constants.SS_CLUSTER_TAGS: cluster_tags,
       constants.SS_FILE_STORAGE_DIR: cluster.file_storage_dir,
       constants.SS_SHARED_FILE_STORAGE_DIR: cluster.shared_file_storage_dir,
+      constants.SS_GLUSTER_STORAGE_DIR: cluster.gluster_storage_dir,
       constants.SS_MASTER_CANDIDATES: mc_data,
       constants.SS_MASTER_CANDIDATES_IPS: mc_ips_data,
+      constants.SS_MASTER_CANDIDATES_CERTS: master_candidates_certs,
       constants.SS_MASTER_IP: cluster.master_ip,
       constants.SS_MASTER_NETDEV: cluster.master_netdev,
       constants.SS_MASTER_NETMASK: str(cluster.master_netmask),
@@ -2562,6 +2663,7 @@ class ConfigWriter(object):
       constants.SS_NODE_LIST: node_data,
       constants.SS_NODE_PRIMARY_IPS: node_pri_ips_data,
       constants.SS_NODE_SECONDARY_IPS: node_snd_ips_data,
+      constants.SS_NODE_VM_CAPABLE: node_vm_capable_data,
       constants.SS_OFFLINE_NODES: off_data,
       constants.SS_ONLINE_NODES: on_data,
       constants.SS_PRIMARY_IP_FAMILY: str(cluster.primary_ip_family),
@@ -2572,6 +2674,7 @@ class ConfigWriter(object):
       constants.SS_UID_POOL: uid_pool,
       constants.SS_NODEGROUPS: nodegroups_data,
       constants.SS_NETWORKS: networks_data,
+      constants.SS_ENABLED_USER_SHUTDOWN: str(cluster.enabled_user_shutdown),
       }
     ssconf_values = self._ExtendByAllHvparamsStrings(ssconf_values,
                                                      all_hvparams)

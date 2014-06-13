@@ -140,6 +140,7 @@ templateMirrorType DTBlock      = MirrorExternal
 templateMirrorType DTDrbd8      = MirrorInternal
 templateMirrorType DTRbd        = MirrorExternal
 templateMirrorType DTExt        = MirrorExternal
+templateMirrorType DTGluster    = MirrorExternal
 
 -- | The resource spec type.
 data RSpec = RSpec
@@ -366,11 +367,10 @@ type FailStats = [(FailMode, Int)]
 -- will instead raise an exception.
 type OpResult = GenericResult FailMode
 
--- | 'FromString' instance for 'FailMode' designed to catch unintended
+-- | 'Error' instance for 'FailMode' designed to catch unintended
 -- use as a general monad.
-instance FromString FailMode where
-  mkFromString v = error $ "Programming error: OpResult used as generic monad"
-                           ++ v
+instance Error FailMode where
+  strMsg v = error $ "Programming error: OpResult used as generic monad" ++ v
 
 -- | Conversion from 'OpResult' to 'Result'.
 opToResult :: OpResult a -> Result a

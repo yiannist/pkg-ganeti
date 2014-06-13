@@ -19,10 +19,11 @@
 # 02110-1301, USA.
 
 
-"""Block device abstraction"""
+"""Block device abstraction.
+
+"""
 
 import re
-import errno
 import stat
 import os
 import logging
@@ -37,7 +38,8 @@ from ganeti import pathutils
 from ganeti import serializer
 from ganeti.storage import base
 from ganeti.storage import drbd
-from ganeti.storage import filestorage
+from ganeti.storage.filestorage import FileStorage
+from ganeti.storage.gluster import GlusterStorage
 
 
 class RbdShowmappedJsonError(Exception):
@@ -67,14 +69,14 @@ class LogicalVolume(base.BlockDev):
   _INVALID_NAMES = compat.UniqueFrozenset([".", "..", "snapshot", "pvmove"])
   _INVALID_SUBSTRINGS = compat.UniqueFrozenset(["_mlog", "_mimage"])
 
-  def __init__(self, unique_id, children, size, params, dyn_params):
+  def __init__(self, unique_id, children, size, params, dyn_params, *args):
     """Attaches to a LV device.
 
     The unique_id is a tuple (vg_name, lv_name)
 
     """
     super(LogicalVolume, self).__init__(unique_id, children, size, params,
-                                        dyn_params)
+                                        dyn_params, *args)
     if not isinstance(unique_id, (tuple, list)) or len(unique_id) != 2:
       raise ValueError("Invalid configuration data %s" % str(unique_id))
     self._vg_name, self._lv_name = unique_id
@@ -125,7 +127,7 @@ class LogicalVolume(base.BlockDev):
 
   @classmethod
   def Create(cls, unique_id, children, size, spindles, params, excl_stor,
-             dyn_params):
+             dyn_params, *args):
     """Create a new logical volume.
 
     """
@@ -207,7 +209,7 @@ class LogicalVolume(base.BlockDev):
     if result.failed:
       base.ThrowError("LV create failed (%s): %s",
                       result.fail_reason, result.output)
-    return LogicalVolume(unique_id, children, size, params, dyn_params)
+    return LogicalVolume(unique_id, children, size, params, dyn_params, *args)
 
   @staticmethod
   def _GetVolumeInfo(lvm_cmd, fields):
@@ -712,167 +714,6 @@ class LogicalVolume(base.BlockDev):
     return len(self.pv_names)
 
 
-class FileStorage(base.BlockDev):
-  """File device.
-
-  This class represents a file storage backend device.
-
-  The unique_id for the file device is a (file_driver, file_path) tuple.
-
-  """
-  def __init__(self, unique_id, children, size, params, dyn_params):
-    """Initalizes a file device backend.
-
-    """
-    if children:
-      raise errors.BlockDeviceError("Invalid setup for file device")
-    super(FileStorage, self).__init__(unique_id, children, size, params,
-                                      dyn_params)
-    if not isinstance(unique_id, (tuple, list)) or len(unique_id) != 2:
-      raise ValueError("Invalid configuration data %s" % str(unique_id))
-    self.driver = unique_id[0]
-    self.dev_path = unique_id[1]
-
-    filestorage.CheckFileStoragePathAcceptance(self.dev_path)
-
-    self.Attach()
-
-  def Assemble(self):
-    """Assemble the device.
-
-    Checks whether the file device exists, raises BlockDeviceError otherwise.
-
-    """
-    if not os.path.exists(self.dev_path):
-      base.ThrowError("File device '%s' does not exist" % self.dev_path)
-
-  def Shutdown(self):
-    """Shutdown the device.
-
-    This is a no-op for the file type, as we don't deactivate
-    the file on shutdown.
-
-    """
-    pass
-
-  def Open(self, force=False):
-    """Make the device ready for I/O.
-
-    This is a no-op for the file type.
-
-    """
-    pass
-
-  def Close(self):
-    """Notifies that the device will no longer be used for I/O.
-
-    This is a no-op for the file type.
-
-    """
-    pass
-
-  def Remove(self):
-    """Remove the file backing the block device.
-
-    @rtype: boolean
-    @return: True if the removal was successful
-
-    """
-    try:
-      os.remove(self.dev_path)
-    except OSError, err:
-      if err.errno != errno.ENOENT:
-        base.ThrowError("Can't remove file '%s': %s", self.dev_path, err)
-
-  def Rename(self, new_id):
-    """Renames the file.
-
-    """
-    # TODO: implement rename for file-based storage
-    base.ThrowError("Rename is not supported for file-based storage")
-
-  def Grow(self, amount, dryrun, backingstore, excl_stor):
-    """Grow the file
-
-    @param amount: the amount (in mebibytes) to grow with
-
-    """
-    if not backingstore:
-      return
-    # Check that the file exists
-    self.Assemble()
-    current_size = self.GetActualSize()
-    new_size = current_size + amount * 1024 * 1024
-    assert new_size > current_size, "Cannot Grow with a negative amount"
-    # We can't really simulate the growth
-    if dryrun:
-      return
-    try:
-      f = open(self.dev_path, "a+")
-      f.truncate(new_size)
-      f.close()
-    except EnvironmentError, err:
-      base.ThrowError("Error in file growth: %", str(err))
-
-  def Attach(self):
-    """Attach to an existing file.
-
-    Check if this file already exists.
-
-    @rtype: boolean
-    @return: True if file exists
-
-    """
-    self.attached = os.path.exists(self.dev_path)
-    return self.attached
-
-  def GetActualSize(self):
-    """Return the actual disk size.
-
-    @note: the device needs to be active when this is called
-
-    """
-    assert self.attached, "BlockDevice not attached in GetActualSize()"
-    try:
-      st = os.stat(self.dev_path)
-      return st.st_size
-    except OSError, err:
-      base.ThrowError("Can't stat %s: %s", self.dev_path, err)
-
-  @classmethod
-  def Create(cls, unique_id, children, size, spindles, params, excl_stor,
-             dyn_params):
-    """Create a new file.
-
-    @param size: the size of file in MiB
-
-    @rtype: L{bdev.FileStorage}
-    @return: an instance of FileStorage
-
-    """
-    if excl_stor:
-      raise errors.ProgrammerError("FileStorage device requested with"
-                                   " exclusive_storage")
-    if not isinstance(unique_id, (tuple, list)) or len(unique_id) != 2:
-      raise ValueError("Invalid configuration data %s" % str(unique_id))
-
-    dev_path = unique_id[1]
-
-    filestorage.CheckFileStoragePathAcceptance(dev_path)
-
-    try:
-      fd = os.open(dev_path, os.O_RDWR | os.O_CREAT | os.O_EXCL)
-      f = os.fdopen(fd, "w")
-      f.truncate(size * 1024 * 1024)
-      f.close()
-    except EnvironmentError, err:
-      if err.errno == errno.EEXIST:
-        base.ThrowError("File already existing: %s", dev_path)
-      base.ThrowError("Error in file creation: %", str(err))
-
-    return FileStorage(unique_id, children, size, params, dyn_params)
-
-
 class PersistentBlockDevice(base.BlockDev):
   """A block device with persistent node
 
@@ -883,14 +724,14 @@ class PersistentBlockDevice(base.BlockDev):
   For the time being, pathnames are required to lie under /dev.
 
   """
-  def __init__(self, unique_id, children, size, params, dyn_params):
+  def __init__(self, unique_id, children, size, params, dyn_params, *args):
     """Attaches to a static block device.
 
     The unique_id is a path under /dev.
 
     """
     super(PersistentBlockDevice, self).__init__(unique_id, children, size,
-                                                params, dyn_params)
+                                                params, dyn_params, *args)
     if not isinstance(unique_id, (tuple, list)) or len(unique_id) != 2:
       raise ValueError("Invalid configuration data %s" % str(unique_id))
     self.dev_path = unique_id[1]
@@ -910,7 +751,7 @@ class PersistentBlockDevice(base.BlockDev):
 
   @classmethod
   def Create(cls, unique_id, children, size, spindles, params, excl_stor,
-             dyn_params):
+             dyn_params, *args):
     """Create a new device
 
     This is a noop, we only return a PersistentBlockDevice instance
@@ -919,7 +760,8 @@ class PersistentBlockDevice(base.BlockDev):
     if excl_stor:
       raise errors.ProgrammerError("Persistent block device requested with"
                                    " exclusive_storage")
-    return PersistentBlockDevice(unique_id, children, 0, params, dyn_params)
+    return PersistentBlockDevice(unique_id, children, 0, params, dyn_params,
+                                 *args)
 
   def Remove(self):
     """Remove a device
@@ -996,12 +838,12 @@ class RADOSBlockDevice(base.BlockDev):
   this to be functional.
 
   """
-  def __init__(self, unique_id, children, size, params, dyn_params):
+  def __init__(self, unique_id, children, size, params, dyn_params, *args):
     """Attaches to an rbd device.
 
     """
     super(RADOSBlockDevice, self).__init__(unique_id, children, size, params,
-                                           dyn_params)
+                                           dyn_params, *args)
     if not isinstance(unique_id, (tuple, list)) or len(unique_id) != 2:
       raise ValueError("Invalid configuration data %s" % str(unique_id))
 
@@ -1013,7 +855,7 @@ class RADOSBlockDevice(base.BlockDev):
 
   @classmethod
   def Create(cls, unique_id, children, size, spindles, params, excl_stor,
-             dyn_params):
+             dyn_params, *args):
     """Create a new rbd device.
 
     Provision a new rbd volume inside a RADOS pool.
@@ -1036,7 +878,8 @@ class RADOSBlockDevice(base.BlockDev):
       base.ThrowError("rbd creation failed (%s): %s",
                       result.fail_reason, result.output)
 
-    return RADOSBlockDevice(unique_id, children, size, params, dyn_params)
+    return RADOSBlockDevice(unique_id, children, size, params, dyn_params,
+                            *args)
 
   def Remove(self):
     """Remove the rbd device.
@@ -1364,12 +1207,14 @@ class ExtStorageDevice(base.BlockDev):
   handling of the externally provided block devices.
 
   """
-  def __init__(self, unique_id, children, size, params, dyn_params):
+  def __init__(self, unique_id, children, size, params, dyn_params, *args):
     """Attaches to an extstorage block device.
 
     """
     super(ExtStorageDevice, self).__init__(unique_id, children, size, params,
-                                           dyn_params)
+                                           dyn_params, *args)
+    (self.name, self.uuid) = args
+
     if not isinstance(unique_id, (tuple, list)) or len(unique_id) != 2:
       raise ValueError("Invalid configuration data %s" % str(unique_id))
 
@@ -1381,13 +1226,15 @@ class ExtStorageDevice(base.BlockDev):
 
   @classmethod
   def Create(cls, unique_id, children, size, spindles, params, excl_stor,
-             dyn_params):
+             dyn_params, *args):
     """Create a new extstorage device.
 
     Provision a new volume using an extstorage provider, which will
     then be mapped to a block device.
 
     """
+    (name, uuid) = args
+
     if not isinstance(unique_id, (tuple, list)) or len(unique_id) != 2:
       raise errors.ProgrammerError("Invalid configuration data %s" %
                                    str(unique_id))
@@ -1398,9 +1245,10 @@ class ExtStorageDevice(base.BlockDev):
     # Call the External Storage's create script,
     # to provision a new Volume inside the External Storage
     _ExtStorageAction(constants.ES_ACTION_CREATE, unique_id,
-                      params, str(size))
+                      params, size=str(size), name=name, uuid=uuid)
 
-    return ExtStorageDevice(unique_id, children, size, params, dyn_params)
+    return ExtStorageDevice(unique_id, children, size, params, dyn_params,
+                            *args)
 
   def Remove(self):
     """Remove the extstorage device.
@@ -1416,7 +1264,7 @@ class ExtStorageDevice(base.BlockDev):
     # Call the External Storage's remove script,
     # to remove the Volume from the External Storage
     _ExtStorageAction(constants.ES_ACTION_REMOVE, self.unique_id,
-                      self.ext_params)
+                      self.ext_params, name=self.name, uuid=self.uuid)
 
   def Rename(self, new_id):
     """Rename this device.
@@ -1436,7 +1284,8 @@ class ExtStorageDevice(base.BlockDev):
     # Call the External Storage's attach script,
     # to attach an existing Volume to a block device under /dev
     self.dev_path = _ExtStorageAction(constants.ES_ACTION_ATTACH,
-                                      self.unique_id, self.ext_params)
+                                      self.unique_id, self.ext_params,
+                                      name=self.name, uuid=self.uuid)
 
     try:
       st = os.stat(self.dev_path)
@@ -1471,7 +1320,7 @@ class ExtStorageDevice(base.BlockDev):
     # Call the External Storage's detach script,
     # to detach an existing Volume from it's block device under /dev
     _ExtStorageAction(constants.ES_ACTION_DETACH, self.unique_id,
-                      self.ext_params)
+                      self.ext_params, name=self.name, uuid=self.uuid)
 
     self.minor = None
     self.dev_path = None
@@ -1512,7 +1361,8 @@ class ExtStorageDevice(base.BlockDev):
     # Call the External Storage's grow script,
     # to grow an existing Volume inside the External Storage
     _ExtStorageAction(constants.ES_ACTION_GROW, self.unique_id,
-                      self.ext_params, str(self.size), grow=str(new_size))
+                      self.ext_params, size=str(self.size), grow=str(new_size),
+                      name=self.name, uuid=self.uuid)
 
   def SetInfo(self, text):
     """Update metadata with info text.
@@ -1528,11 +1378,13 @@ class ExtStorageDevice(base.BlockDev):
     # Call the External Storage's setinfo script,
     # to set metadata for an existing Volume inside the External Storage
     _ExtStorageAction(constants.ES_ACTION_SETINFO, self.unique_id,
-                      self.ext_params, metadata=text)
+                      self.ext_params, metadata=text,
+                      name=self.name, uuid=self.uuid)
 
 
 def _ExtStorageAction(action, unique_id, ext_params,
-                      size=None, grow=None, metadata=None):
+                      size=None, grow=None, metadata=None,
+                      name=None, uuid=None):
   """Take an External Storage action.
 
   Take an External Storage action concerning or affecting
@@ -1552,6 +1404,10 @@ def _ExtStorageAction(action, unique_id, ext_params,
   @param grow: the new size in mebibytes (after grow)
   @type metadata: string
   @param metadata: metadata info of the Volume, for use by the provider
+  @type name: string
+  @param name: name of the Volume (objects.Disk.name)
+  @type uuid: string
+  @param uuid: uuid of the Volume (objects.Disk.uuid)
   @rtype: None or a block device path (during attach)
 
   """
@@ -1564,7 +1420,7 @@ def _ExtStorageAction(action, unique_id, ext_params,
 
   # Create the basic environment for the driver's scripts
   create_env = _ExtStorageEnvironment(unique_id, ext_params, size,
-                                      grow, metadata)
+                                      grow, metadata, name, uuid)
 
   # Do not use log file for action `attach' as we need
   # to get the output from RunResult
@@ -1681,7 +1537,8 @@ def ExtStorageFromDisk(name, base_dir=None):
 
 
 def _ExtStorageEnvironment(unique_id, ext_params,
-                           size=None, grow=None, metadata=None):
+                           size=None, grow=None, metadata=None,
+                           name=None, uuid=None):
   """Calculate the environment for an External Storage script.
 
   @type unique_id: tuple (driver, vol_name)
@@ -1694,6 +1551,10 @@ def _ExtStorageEnvironment(unique_id, ext_params,
   @param grow: new size of Volume after grow (in mebibytes)
   @type metadata: string
   @param metadata: metadata info of the Volume
+  @type name: string
+  @param name: name of the Volume (objects.Disk.name)
+  @type uuid: string
+  @param uuid: uuid of the Volume (objects.Disk.uuid)
   @rtype: dict
   @return: dict of environment variables
 
@@ -1715,6 +1576,12 @@ def _ExtStorageEnvironment(unique_id, ext_params,
 
   if metadata is not None:
     result["VOL_METADATA"] = metadata
+
+  if name is not None:
+    result["VOL_CNAME"] = name
+
+  if uuid is not None:
+    result["VOL_UUID"] = uuid
 
   return result
 
@@ -1738,17 +1605,6 @@ def _VolumeLogName(kind, es_name, volume):
   basename = ("%s-%s-%s-%s.log" %
               (kind, es_name, volume, utils.TimestampForFilename()))
   return utils.PathJoin(pathutils.LOG_ES_DIR, basename)
-
-
-DEV_MAP = {
-  constants.DT_PLAIN: LogicalVolume,
-  constants.DT_DRBD8: drbd.DRBD8Dev,
-  constants.DT_BLOCK: PersistentBlockDevice,
-  constants.DT_RBD: RADOSBlockDevice,
-  constants.DT_EXT: ExtStorageDevice,
-  constants.DT_FILE: FileStorage,
-  constants.DT_SHARED_FILE: FileStorage,
-  }
 
 
 def _VerifyDiskType(dev_type):
@@ -1781,7 +1637,8 @@ def FindDevice(disk, children):
   """
   _VerifyDiskType(disk.dev_type)
   device = DEV_MAP[disk.dev_type](disk.logical_id, children, disk.size,
-                                  disk.params, disk.dynamic_params)
+                                  disk.params, disk.dynamic_params,
+                                  disk.name, disk.uuid)
   if not device.attached:
     return None
   return device
@@ -1803,7 +1660,8 @@ def Assemble(disk, children):
   _VerifyDiskType(disk.dev_type)
   _VerifyDiskParams(disk)
   device = DEV_MAP[disk.dev_type](disk.logical_id, children, disk.size,
-                                  disk.params, disk.dynamic_params)
+                                  disk.params, disk.dynamic_params,
+                                  disk.name, disk.uuid)
   device.Assemble()
   return device
 
@@ -1826,5 +1684,21 @@ def Create(disk, children, excl_stor):
   _VerifyDiskParams(disk)
   device = DEV_MAP[disk.dev_type].Create(disk.logical_id, children, disk.size,
                                          disk.spindles, disk.params, excl_stor,
-                                         disk.dynamic_params)
+                                         disk.dynamic_params,
+                                         disk.name, disk.uuid)
   return device
+
+# Please keep this at the bottom of the file for visibility.
+DEV_MAP = {
+  constants.DT_PLAIN: LogicalVolume,
+  constants.DT_DRBD8: drbd.DRBD8Dev,
+  constants.DT_BLOCK: PersistentBlockDevice,
+  constants.DT_RBD: RADOSBlockDevice,
+  constants.DT_EXT: ExtStorageDevice,
+  constants.DT_FILE: FileStorage,
+  constants.DT_SHARED_FILE: FileStorage,
+  constants.DT_GLUSTER: GlusterStorage,
+}
+"""Map disk types to disk type classes.
+
+@see: L{Assemble}, L{FindDevice}, L{Create}.""" # pylint: disable=W0105

@@ -54,11 +54,11 @@ args = None
 #: Target major version we will upgrade to
 TARGET_MAJOR = 2
 #: Target minor version we will upgrade to
-TARGET_MINOR = 10
+TARGET_MINOR = 11
 #: Target major version for downgrade
 DOWNGRADE_MAJOR = 2
 #: Target minor version for downgrade
-DOWNGRADE_MINOR = 9
+DOWNGRADE_MINOR = 10
 
 # map of legacy device types
 # (mapping differing old LD_* constants to new DT_* constants)
@@ -147,6 +147,12 @@ def UpgradeCluster(config_data):
   ipolicy = cluster.setdefault("ipolicy", None)
   if ipolicy:
     UpgradeIPolicy(ipolicy, constants.IPOLICY_DEFAULTS, False)
+  ial_params = cluster.get("default_iallocator_params", None)
+  if not ial_params:
+    cluster["default_iallocator_params"] = {}
+  cluster["candidate_certs"] = cluster.get("candidate_certs", {})
+  if "enabled_user_shutdown" not in cluster:
+    cluster["enabled_user_shutdown"] = False
 
 
 def UpgradeGroups(config_data):
@@ -244,6 +250,9 @@ def UpgradeInstances(config_data):
 
       if not "spindles" in dobj:
         missing_spindles = True
+
+    if "admin_state_source" not in iobj:
+      iobj["admin_state_source"] = constants.ADMIN_SOURCE
 
   if GetExclusiveStorageValue(config_data) and missing_spindles:
     # We cannot be sure that the instances that are missing spindles have
@@ -394,53 +403,45 @@ def UpgradeAll(config_data):
   UpgradeInstanceIndices(config_data)
 
 
-def DowngradeNDParams(ndparams):
-  for param in ["ovs", "ovs_link", "ovs_name"]:
-    if param in ndparams:
-      del ndparams[param]
+# DOWNGRADE ------------------------------------------------------------
 
-
-def DowngradeNicParams(nicparams):
-  if "vlan" in nicparams:
-    del nicparams["vlan"]
-
-
-def DowngradeHVParams(hvparams):
-  for hv in ["xen-pvm", "xen-hvm"]:
-    if hv not in hvparams:
-      continue
-    for param in ["cpuid", "soundhw"]:
-      if param in hvparams[hv]:
-        del hvparams[hv][param]
+def DowngradeInstances(config_data):
+  for _, iobj in config_data["instances"].items():
+    if "admin_state_source" in iobj:
+      del iobj["admin_state_source"]
 
 
 def DowngradeCluster(config_data):
-  cluster = config_data["cluster"]
-  if "ndparams" in cluster:
-    DowngradeNDParams(cluster["ndparams"])
-  if "nicparams" in cluster:
-    DowngradeNicParams(cluster["nicparams"][constants.PP_DEFAULT])
-  if "hvparams" in cluster:
-    DowngradeHVParams(cluster["hvparams"])
+  cluster = config_data.get("cluster", None)
+  if not cluster:
+    raise Error("Cannot find the 'cluster' key in the configuration!")
+  DowngradeNdparams(cluster)
+  if "default_iallocator_params" in cluster:
+    del cluster["default_iallocator_params"]
+  if "candidate_certs" in cluster:
+    del cluster["candidate_certs"]
+  for param in ["gluster", "gluster_storage_dir"]:
+    if param in cluster:
+      del cluster[param]
+  if "max_running_jobs" in cluster:
+    del cluster["max_running_jobs"]
+  if "enabled_user_shutdown" in cluster:
+    del cluster["enabled_user_shutdown"]
+
+  DowngradeInstances(config_data)
 
 
-def DowngradeNodeGroups(config_data):
-  for (_, ngobj) in config_data["nodegroups"].items():
-    if "ndparams" in ngobj:
-      DowngradeNDParams(ngobj["ndparams"])
+def DowngradeGroups(config_data):
+  for group in config_data["nodegroups"].values():
+    DowngradeNdparams(group)
 
 
-def DowngradeNodes(config_data):
-  for (_, nobj) in config_data["nodes"].items():
-    if "ndparams" in nobj:
-      DowngradeNDParams(nobj["ndparams"])
-
-
-def DowngradeInstances(config_data):
-  for (_, iobj) in config_data["instances"].items():
-    DowngradeHVParams(iobj["hvparams"])
-    for nic in iobj["nics"]:
-      DowngradeNicParams(nic["nicparams"])
+def DowngradeNdparams(group_or_cluster):
+  ssh_port = group_or_cluster["ndparams"].pop("ssh_port", None)
+  if (ssh_port is not None) and (ssh_port != 22):
+    raise Error(("The cluster or some node group has configured SSH port %d."
+                 " Refusing to downgrade as it will most certainly fail."
+                 ) % (ssh_port, ))
 
 
 def DowngradeAll(config_data):
@@ -449,9 +450,7 @@ def DowngradeAll(config_data):
   config_data["version"] = version.BuildVersion(DOWNGRADE_MAJOR,
                                                 DOWNGRADE_MINOR, 0)
   DowngradeCluster(config_data)
-  DowngradeNodeGroups(config_data)
-  DowngradeNodes(config_data)
-  DowngradeInstances(config_data)
+  DowngradeGroups(config_data)
 
 
 def main():
@@ -492,6 +491,7 @@ def main():
   options.data_dir = os.path.abspath(options.data_dir)
   options.CONFIG_DATA_PATH = options.data_dir + "/config.data"
   options.SERVER_PEM_PATH = options.data_dir + "/server.pem"
+  options.CLIENT_PEM_PATH = options.data_dir + "/client.pem"
   options.KNOWN_HOSTS_PATH = options.data_dir + "/known_hosts"
   options.RAPI_CERT_FILE = options.data_dir + "/rapi.pem"
   options.SPICE_CERT_FILE = options.data_dir + "/spice.pem"
@@ -572,8 +572,8 @@ def main():
                    config_minor, config_revision))
     DowngradeAll(config_data)
 
-  # Upgrade from 2.{0..9} to 2.10
-  elif config_major == 2 and config_minor in range(0, 10):
+  # Upgrade from 2.{0..10} to 2.11
+  elif config_major == 2 and config_minor in range(0, 11):
     if config_revision != 0:
       logging.warning("Config revision is %s, not 0", config_revision)
     UpgradeAll(config_data)

@@ -106,6 +106,9 @@
 <dt>ovs_link</dt>
 <dd><p>When ovs is enabled, a OpenvSwitch will be initialized on new nodes and will have this as its connection to the outside. This parameter is not set per default, as it depends very much on the specific setup.</p>
 </dd>
+<dt>ssh_port</dt>
+<dd><p>The port used for SSH connections to nodes belonging to a group. The user is responsible for properly configuring the ports of SSH daemons on machines prior to adding them as Ganeti nodes or when modifying the parameter value of an existing group. Note that using non-standard SSH ports and downgrading to an older Ganeti version that doesn't support <code>ssh_port</code> will break the cluster.</p>
+</dd>
 </dl>
 <h2 id="hypervisor-state-parameters"><a href="#TOC">Hypervisor State Parameters</a></h2>
 <p>Using <code>--hypervisor-state</code> you can set hypervisor specific states as pointed out in <code>Ganeti Resource Model &lt;design-resource-model.rst&gt;</code>.</p>

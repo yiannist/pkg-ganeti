@@ -254,7 +254,7 @@ def LoadSignedX509Certificate(cert_pem, key):
   return (cert, salt)
 
 
-def GenerateSelfSignedX509Cert(common_name, validity):
+def GenerateSelfSignedX509Cert(common_name, validity, serial_no):
   """Generates a self-signed X509 certificate.
 
   @type common_name: string
@@ -273,7 +273,7 @@ def GenerateSelfSignedX509Cert(common_name, validity):
   cert = OpenSSL.crypto.X509()
   if common_name:
     cert.get_subject().CN = common_name
-  cert.set_serial_number(1)
+  cert.set_serial_number(serial_no)
   cert.gmtime_adj_notBefore(0)
   cert.gmtime_adj_notAfter(validity)
   cert.set_issuer(cert.get_subject())
@@ -286,8 +286,10 @@ def GenerateSelfSignedX509Cert(common_name, validity):
   return (key_pem, cert_pem)
 
 
-def GenerateSelfSignedSslCert(filename, common_name=constants.X509_CERT_CN,
-                              validity=constants.X509_CERT_DEFAULT_VALIDITY):
+def GenerateSelfSignedSslCert(filename, serial_no,
+                              common_name=constants.X509_CERT_CN,
+                              validity=constants.X509_CERT_DEFAULT_VALIDITY,
+                              uid=-1, gid=-1):
   """Legacy function to generate self-signed X509 certificate.
 
   @type filename: str
@@ -296,6 +298,10 @@ def GenerateSelfSignedSslCert(filename, common_name=constants.X509_CERT_CN,
   @param common_name: commonName value
   @type validity: int
   @param validity: validity of certificate in number of days
+  @type uid: int
+  @param uid: the user ID of the user who will be owner of the certificate file
+  @type gid: int
+  @param gid: the group ID of the group who will own the certificate file
   @return: a tuple of strings containing the PEM-encoded private key and
            certificate
 
@@ -303,10 +309,11 @@ def GenerateSelfSignedSslCert(filename, common_name=constants.X509_CERT_CN,
   # TODO: Investigate using the cluster name instead of X505_CERT_CN for
   # common_name, as cluster-renames are very seldom, and it'd be nice if RAPI
   # and node daemon certificates have the proper Subject/Issuer.
-  (key_pem, cert_pem) = GenerateSelfSignedX509Cert(common_name,
-                                                   validity * 24 * 60 * 60)
+  (key_pem, cert_pem) = GenerateSelfSignedX509Cert(
+      common_name, validity * 24 * 60 * 60, serial_no)
 
-  utils_io.WriteFile(filename, mode=0400, data=key_pem + cert_pem)
+  utils_io.WriteFile(filename, mode=0440, data=key_pem + cert_pem,
+                     uid=uid, gid=gid)
   return (key_pem, cert_pem)
 
 
