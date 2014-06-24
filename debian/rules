@@ -40,6 +40,7 @@ override_dh_auto_configure:
 	  --docdir=/usr/share/doc/ganeti \
 	  --enable-restricted-commands \
 	  --disable-symlinks \
+	  --with-haskell-flags="-optl -Wl,-z,relro -optl -Wl,--as-needed" \
 	  --with-user-prefix=$(GNT_USERGROUP_PREFIX) \
 	  --with-group-prefix=$(GNT_USERGROUP_PREFIX) \
 	  --with-ssh-initscript="/usr/sbin/invoke-rc.d ssh"
