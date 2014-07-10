@@ -13,9 +13,9 @@ Build-Depends: debhelper (>= 9), m4,
  libghc-base64-bytestring-dev (>= 1.0.0.0), libghc-zlib-dev,
  libghc-regex-pcre-dev, libghc-attoparsec-dev, libghc-vector-dev, libpcre3-dev,
  python-simplejson, python-pyparsing, python-openssl, python-bitarray,
- python-support (>= 0.6), python-pyinotify, python-pycurl,
- python-paramiko, python-ipaddr, python-sphinx (>= 1.0.7+dfsg), graphviz,
- qemu-utils, socat, iproute2 | iproute, bash-completion, po-debconf
+ python-pyinotify, python-pycurl, python-paramiko, python-ipaddr,
+ python-sphinx (>= 1.0.7+dfsg), graphviz, qemu-utils, socat, iproute2 |
+ iproute, bash-completion, po-debconf
 Standards-Version: 3.9.5
 X-Python-Version: >= 2.6
 Homepage: http://code.google.com/p/ganeti/
