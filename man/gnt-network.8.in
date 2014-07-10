@@ -283,15 +283,24 @@ Displays information about a given network.
 .PD 0
 .P
 .PD
-{\f[I]network\f[]} {\f[I]mode\f[]} {\f[I]link\f[]} [\f[I]groups\f[]...]
+[{-N|--nic-parameters}
+\f[I]nic-param\f[]=\f[I]value\f[][,\f[I]nic-param\f[]=\f[I]value\f[]...]]
+.PD 0
+.P
+.PD
+{\f[I]network\f[]} [\f[I]groups\f[]...]
 .PP
 Connect a network to given node groups (all if not specified) with the
-network parameters \f[I]mode\f[] and \f[I]link\f[].
-Every network interface will inherit those parameters if assigned in a
+network parameters defined via the \f[C]--nic-parameters\f[] option.
+Every network interface will inherit those parameters if assigned to a
 network.
 .PP
 The \f[C]--no-conflicts-check\f[] option can be used to skip the check
 for conflicting IP addresses.
+.PP
+Passing \f[I]mode\f[] and \f[I]link\f[] as possitional arguments along
+with \f[I]network\f[] and \f[I]groups\f[] is deprecated and not
+supported any more.
 .SS DISCONNECT
 .PP
 \f[B]disconnect\f[] {\f[I]network\f[]} [\f[I]groups\f[]...]

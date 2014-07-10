@@ -33,7 +33,7 @@
 <p>Backend options:</p>
 <p>{ <strong>-m</strong> <em>cluster</em> | <strong>-L[</strong> <em>path</em> <strong>] [-X]</strong> | <strong>-t</strong> <em>data-file</em> | <strong>--simulate</strong> <em>spec</em> | <strong>-I</strong> <em>path</em> }</p>
 <p>Algorithm options:</p>
-<p><strong>[ --max-cpu <em>cpu-ratio</em> ]</strong> <strong>[ --min-disk <em>disk-ratio</em> ]</strong> <strong>[ -O <em>name...</em> ]</strong></p>
+<p><strong>[ --max-cpu <em>cpu-ratio</em> ]</strong> <strong>[ --min-disk <em>disk-ratio</em> ]</strong> <strong>[ -O <em>name...</em> ]</strong> <strong>[ --independent-groups ]</strong></p>
 <p>Request options:</p>
 <p><strong>[--disk-template</strong> <em>template</em> <strong>]</strong></p>
 <p><strong>[--standard-alloc</strong> <em>disk,ram,cpu</em> <strong>]</strong></p>
@@ -145,6 +145,12 @@
 </dd>
 <dt>--min-disk=<em>disk-ratio</em></dt>
 <dd><p>The minimum amount of free disk space remaining, as a floating point number. For example, specifying <em>disk-ratio</em> as <strong>0.25</strong> means that at least one quarter of disk space should be left free on nodes.</p>
+</dd>
+<dt>--independent-groups</dt>
+<dd><p>Consider all groups independent. That is, if a node that is not N+1 happy is found, ignore its group, but still do allocation in the other groups. The default is to not try allocation at all, if some not N+1 happy node is found.</p>
+</dd>
+<dt>--accept-existing-errors</dt>
+<dd><p>This is a strengthened form of --independent-groups. It tells hspace to ignore the presence of not N+1 happy nodes and just allocate on all other nodes without introducing new N+1 violations. Note that this tends to overestimate the capacity, as instances still have to be moved away from the existing not N+1 happy nodes.</p>
 </dd>
 <dt>-l <em>rounds</em>, --max-length=<em>rounds</em></dt>
 <dd><p>Restrict the number of instance allocations to this length. This is not very useful in practice, but can be used for testing hspace itself, or to limit the runtime for very big clusters.</p>
