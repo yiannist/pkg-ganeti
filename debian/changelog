@@ -1,3 +1,22 @@
+ganeti (2.11.3-1) unstable; urgency=medium
+
+  * New upstream bugfix release (see /usr/share/doc/ganeti/NEWS.gz):
+    + Readd nodes to their previous node group
+    + Remove old-style gnt-network connect
+    + Make network_vlan an optional OpParam
+    + hspace: support --accept-existing-errors
+    + Make hspace support --independent-groups
+    + Add a modifier for a group's allocation policy
+    + Export VLAN nicparam to NIC configuration scripts
+    + Fix gnt-network client to accept vlan info
+    + Support disk hotplug with userspace access
+    + Make htools tolerate missing "spfree" on luxi
+    + DRBD parser: consume initial empty resource lines
+  * Use configure --with-haskell-flags to pass build flags
+  * d/control: drop explicit B-D on libcurl4-gnutls-dev
+
+ -- Apollon Oikonomopoulos <apoikos@debian.org>  Thu, 10 Jul 2014 12:32:30 +0300
+
 ganeti (2.11.2-1) unstable; urgency=medium
 
   [ Apollon Oikonomopoulos ]
