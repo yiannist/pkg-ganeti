@@ -2,6 +2,34 @@ News
 ====
 
 
+Version 2.11.3
+--------------
+
+*(Released Wed, 9 Jul 2014)*
+
+- Readd nodes to their previous node group
+- Remove old-style gnt-network connect
+
+Inherited from the 2.10 branch:
+- Make network_vlan an optional OpParam
+- hspace: support --accept-existing-errors
+- Make hspace support --independent-groups
+- Add a modifier for a group's allocation policy
+- Export VLAN nicparam to NIC configuration scripts
+- Fix gnt-network client to accept vlan info
+- Support disk hotplug with userspace access
+
+Inherited from the 2.9 branch:
+
+- Make htools tolerate missing "spfree" on luxi
+- Move the design for query splitting to the implemented list
+- Add tests for DRBD setups with empty first resource
+
+Inherited from the 2.8 branch:
+
+- DRBD parser: consume initial empty resource lines
+
+
 Version 2.11.2
 --------------
 
@@ -13,7 +41,7 @@ Version 2.11.2
   particular that after an upgrade from 2.11.0 or 2.11.1, 'cfgupgrade'
   needs to be run, either manually or explicitly by running
   'gnt-cluster upgrade --to 2.11.2' (which requires that they
-  had configured the cluster with --enable-full-version).
+  had configured the cluster with --enable-versionfull).
   This also means, that it is not easily possible to downgrade from
   2.11.2 to 2.11.1 or 2.11.0. The only way is to go back to 2.10 and
   back.
@@ -229,6 +257,20 @@ Version 2.11.0 beta1
 
 This was the first beta release of the 2.11 series. All important changes
 are listed in the latest 2.11 entry.
+
+
+Version 2.10.6
+--------------
+
+*(Released Mon, 30 Jun 2014)*
+
+- Make Ganeti tolerant towards differnt openssl library
+  version on different nodes (issue 853).
+- Allow hspace to make useful predictions in multi-group
+  clusters with one group overfull (isse 861).
+- Various gnt-network related fixes.
+- Fix disk hotplug with userspace access.
+- Various documentation errors fixed.
 
 
 Version 2.10.5

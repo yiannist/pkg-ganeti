@@ -19,7 +19,8 @@ Backend options:
 Algorithm options:
 .PP
 \f[B][ --max-cpu \f[I]cpu-ratio\f[] ]\f[] \f[B][ --min-disk
-\f[I]disk-ratio\f[] ]\f[] \f[B][ -O \f[I]name...\f[] ]\f[]
+\f[I]disk-ratio\f[] ]\f[] \f[B][ -O \f[I]name...\f[] ]\f[] \f[B][
+--independent-groups ]\f[]
 .PP
 Request options:
 .PP
@@ -290,6 +291,24 @@ The minimum amount of free disk space remaining, as a floating point
 number.
 For example, specifying \f[I]disk-ratio\f[] as \f[B]0.25\f[] means that
 at least one quarter of disk space should be left free on nodes.
+.RS
+.RE
+.TP
+.B --independent-groups
+Consider all groups independent.
+That is, if a node that is not N+1 happy is found, ignore its group, but
+still do allocation in the other groups.
+The default is to not try allocation at all, if some not N+1 happy node
+is found.
+.RS
+.RE
+.TP
+.B --accept-existing-errors
+This is a strengthened form of --independent-groups.
+It tells hspace to ignore the presence of not N+1 happy nodes and just
+allocate on all other nodes without introducing new N+1 violations.
+Note that this tends to overestimate the capacity, as instances still
+have to be moved away from the existing not N+1 happy nodes.
 .RS
 .RE
 .TP

@@ -8,7 +8,7 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>News &mdash; Ganeti 2.11.2 documentation</title>
+    <title>News &mdash; Ganeti 2.11.3 documentation</title>
     
     <link rel="stylesheet" href="_static/style.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
@@ -16,7 +16,7 @@
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.11.2',
+        VERSION:     '2.11.3',
         COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -25,7 +25,7 @@
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti 2.11.2 documentation" href="index.html" />
+    <link rel="top" title="Ganeti 2.11.3 documentation" href="index.html" />
     <link rel="next" title="OVF converter" href="ovfconverter.html" />
     <link rel="prev" title="Moving instances between clusters" href="move-instance.html" /> 
   </head>
@@ -39,7 +39,7 @@
         <li class="right" >
           <a href="move-instance.html" title="Moving instances between clusters"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.11.2 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.11.3 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -50,6 +50,32 @@
             
   <div class="section" id="news">
 <h1>News<a class="headerlink" href="#news" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="version-2-11-3">
+<h2>Version 2.11.3<a class="headerlink" href="#version-2-11-3" title="Permalink to this headline">¶</a></h2>
+<p><em>(Released Wed, 9 Jul 2014)</em></p>
+<ul class="simple">
+<li>Readd nodes to their previous node group</li>
+<li>Remove old-style gnt-network connect</li>
+</ul>
+<p>Inherited from the 2.10 branch:
+- Make network_vlan an optional OpParam
+- hspace: support &#8211;accept-existing-errors
+- Make hspace support &#8211;independent-groups
+- Add a modifier for a group&#8217;s allocation policy
+- Export VLAN nicparam to NIC configuration scripts
+- Fix gnt-network client to accept vlan info
+- Support disk hotplug with userspace access</p>
+<p>Inherited from the 2.9 branch:</p>
+<ul class="simple">
+<li>Make htools tolerate missing &#8220;spfree&#8221; on luxi</li>
+<li>Move the design for query splitting to the implemented list</li>
+<li>Add tests for DRBD setups with empty first resource</li>
+</ul>
+<p>Inherited from the 2.8 branch:</p>
+<ul class="simple">
+<li>DRBD parser: consume initial empty resource lines</li>
+</ul>
+</div>
 <div class="section" id="version-2-11-2">
 <h2>Version 2.11.2<a class="headerlink" href="#version-2-11-2" title="Permalink to this headline">¶</a></h2>
 <p><em>(Released Fri, 13 Jun 2014)</em></p>
@@ -60,7 +86,7 @@ introduces new parameters to the configuration. This means in
 particular that after an upgrade from 2.11.0 or 2.11.1, &#8216;cfgupgrade&#8217;
 needs to be run, either manually or explicitly by running
 &#8216;gnt-cluster upgrade &#8211;to 2.11.2&#8217; (which requires that they
-had configured the cluster with &#8211;enable-full-version).
+had configured the cluster with &#8211;enable-versionfull).
 This also means, that it is not easily possible to downgrade from
 2.11.2 to 2.11.1 or 2.11.0. The only way is to go back to 2.10 and
 back.</li>
@@ -270,6 +296,19 @@ at least version 1.0.0.0</li>
 <p><em>(Released Wed, 5 Mar 2014)</em></p>
 <p>This was the first beta release of the 2.11 series. All important changes
 are listed in the latest 2.11 entry.</p>
+</div>
+<div class="section" id="version-2-10-6">
+<h2>Version 2.10.6<a class="headerlink" href="#version-2-10-6" title="Permalink to this headline">¶</a></h2>
+<p><em>(Released Mon, 30 Jun 2014)</em></p>
+<ul class="simple">
+<li>Make Ganeti tolerant towards differnt openssl library
+version on different nodes (issue 853).</li>
+<li>Allow hspace to make useful predictions in multi-group
+clusters with one group overfull (isse 861).</li>
+<li>Various gnt-network related fixes.</li>
+<li>Fix disk hotplug with userspace access.</li>
+<li>Various documentation errors fixed.</li>
+</ul>
 </div>
 <div class="section" id="version-2-10-5">
 <h2>Version 2.10.5<a class="headerlink" href="#version-2-10-5" title="Permalink to this headline">¶</a></h2>
@@ -3522,6 +3561,7 @@ post-configuration update hook)</li>
   <h3><a href="index.html">Table Of Contents</a></h3>
   <ul>
 <li><a class="reference internal" href="#">News</a><ul>
+<li><a class="reference internal" href="#version-2-11-3">Version 2.11.3</a></li>
 <li><a class="reference internal" href="#version-2-11-2">Version 2.11.2</a></li>
 <li><a class="reference internal" href="#version-2-11-1">Version 2.11.1</a></li>
 <li><a class="reference internal" href="#version-2-11-0">Version 2.11.0</a><ul>
@@ -3533,6 +3573,7 @@ post-configuration update hook)</li>
 </li>
 <li><a class="reference internal" href="#version-2-11-0-rc1">Version 2.11.0 rc1</a></li>
 <li><a class="reference internal" href="#version-2-11-0-beta1">Version 2.11.0 beta1</a></li>
+<li><a class="reference internal" href="#version-2-10-6">Version 2.10.6</a></li>
 <li><a class="reference internal" href="#version-2-10-5">Version 2.10.5</a></li>
 <li><a class="reference internal" href="#version-2-10-4">Version 2.10.4</a></li>
 <li><a class="reference internal" href="#version-2-10-3">Version 2.10.3</a></li>
@@ -3773,7 +3814,7 @@ post-configuration update hook)</li>
         <li class="right" >
           <a href="move-instance.html" title="Moving instances between clusters"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.11.2 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.11.3 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

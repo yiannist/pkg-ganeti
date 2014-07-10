@@ -136,9 +136,10 @@
 <p><strong>info</strong> [network...]</p>
 <p>Displays information about a given network.</p>
 <h2 id="connect"><a href="#TOC">CONNECT</a></h2>
-<p><strong>connect</strong><br />[--no-conflicts-check]<br />{<em>network</em>} {<em>mode</em>} {<em>link</em>} [<em>groups</em>...]</p>
-<p>Connect a network to given node groups (all if not specified) with the network parameters <em>mode</em> and <em>link</em>. Every network interface will inherit those parameters if assigned in a network.</p>
+<p><strong>connect</strong><br />[--no-conflicts-check]<br />[{-N|--nic-parameters} <em>nic-param</em>=<em>value</em>[,<em>nic-param</em>=<em>value</em>...]]<br />{<em>network</em>} [<em>groups</em>...]</p>
+<p>Connect a network to given node groups (all if not specified) with the network parameters defined via the <code>--nic-parameters</code> option. Every network interface will inherit those parameters if assigned to a network.</p>
 <p>The <code>--no-conflicts-check</code> option can be used to skip the check for conflicting IP addresses.</p>
+<p>Passing <em>mode</em> and <em>link</em> as possitional arguments along with <em>network</em> and <em>groups</em> is deprecated and not supported any more.</p>
 <h2 id="disconnect"><a href="#TOC">DISCONNECT</a></h2>
 <p><strong>disconnect</strong> {<em>network</em>} [<em>groups</em>...]</p>
 <p>Disconnect a network from given node groups (all if not specified). This is possible only if no instance is using the network.</p>
