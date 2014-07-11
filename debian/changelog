@@ -1,3 +1,10 @@
+ganeti (2.11.3-2) unstable; urgency=medium
+
+  * Do not backup exported instance data from /var/lib/ganeti/export on
+    gnt-cluster upgrade.
+
+ -- Apollon Oikonomopoulos <apoikos@debian.org>  Fri, 11 Jul 2014 12:43:34 +0300
+
 ganeti (2.11.3-1) unstable; urgency=medium
 
   * New upstream bugfix release (see /usr/share/doc/ganeti/NEWS.gz):
