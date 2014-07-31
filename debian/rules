@@ -43,7 +43,8 @@ override_dh_auto_configure:
 	  --with-haskell-flags="-optl -Wl,-z,relro -optl -Wl,--as-needed" \
 	  --with-user-prefix=$(GNT_USERGROUP_PREFIX) \
 	  --with-group-prefix=$(GNT_USERGROUP_PREFIX) \
-	  --with-ssh-initscript="/usr/sbin/invoke-rc.d ssh"
+	  --with-ssh-initscript="/usr/sbin/invoke-rc.d ssh" \
+	  --with-backup-dir="/var/backups"
 
 override_dh_auto_clean:
 	[ ! -f Makefile ] || $(MAKE) distclean
