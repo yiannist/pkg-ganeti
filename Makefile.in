@@ -196,6 +196,7 @@ AUTOCONF = @AUTOCONF@
 AUTOHEADER = @AUTOHEADER@
 AUTOMAKE = @AUTOMAKE@
 AWK = @AWK@
+BACKUP_DIR = @BACKUP_DIR@
 BINDIR = @BINDIR@
 CONFD_GROUP = @CONFD_GROUP@
 CONFD_USER = @CONFD_USER@
@@ -423,6 +424,8 @@ utilsdir = $(pkgpythondir)/utils
 toolsdir = $(pkglibdir)/tools
 iallocatorsdir = $(pkglibdir)/iallocators
 pytoolsdir = $(pkgpythondir)/tools
+@USE_BACKUP_DIR_FALSE@backup_dir = $(localstatedir)/lib
+@USE_BACKUP_DIR_TRUE@backup_dir = $(BACKUP_DIR)
 SYMLINK_TARGET_DIRS = \
 	$(sysconfdir)/ganeti \
 	$(libdir)/ganeti/iallocators \
@@ -3741,6 +3744,7 @@ src/AutoConf.hs: Makefile src/AutoConf.hs.in $(PRINT_PY_CONSTANTS) \
 	    -DSSH_LOGIN_USER="$(SSH_LOGIN_USER)" \
 	    -DSSH_CONSOLE_USER="$(SSH_CONSOLE_USER)" \
 	    -DEXPORT_DIR="$(EXPORT_DIR)" \
+	    -DBACKUP_DIR="$(backup_dir)" \
 	    -DOS_SEARCH_PATH="\"$(OS_SEARCH_PATH)\"" \
 	    -DES_SEARCH_PATH="\"$(ES_SEARCH_PATH)\"" \
 	    -DXEN_BOOTLOADER="$(XEN_BOOTLOADER)" \
