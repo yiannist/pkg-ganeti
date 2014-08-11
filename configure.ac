@@ -1,7 +1,7 @@
 # Configure script for Ganeti
 m4_define([gnt_version_major], [2])
 m4_define([gnt_version_minor], [11])
-m4_define([gnt_version_revision], [3])
+m4_define([gnt_version_revision], [5])
 m4_define([gnt_version_suffix], [])
 m4_define([gnt_version_full],
           m4_format([%d.%d.%d%s],
@@ -135,6 +135,21 @@ AC_ARG_WITH([export-dir],
   [export_dir="$withval"],
   [export_dir="/srv/ganeti/export"])
 AC_SUBST(EXPORT_DIR, $export_dir)
+
+# --with-backup-dir=...
+AC_ARG_WITH([backup-dir],
+  [AS_HELP_STRING([--with-backup-dir=DIR],
+    [directory to use for configuration backups]
+    [ on Ganeti upgrades (default is $(localstatedir)/lib)]
+  )],
+  [backup_dir="$withval"
+   USE_BACKUP_DIR=yes
+  ],
+  [backup_dir=
+   USE_BACKUP_DIR=no
+  ])
+AC_SUBST(BACKUP_DIR, $backup_dir)
+AM_CONDITIONAL([USE_BACKUP_DIR], [test "$USE_BACKUP_DIR" = yes])
 
 # --with-ssh-config-dir=...
 AC_ARG_WITH([ssh-config-dir],

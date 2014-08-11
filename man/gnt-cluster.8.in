@@ -475,6 +475,10 @@ inside the instance, and Ganeti will report the instance status as
 \[aq]USER_down\[aq] (as opposed, to \[aq]ERROR_down\[aq]) and the
 watcher will not restart these instances, thus preserving their instance
 status.
+This option is disabled by default.
+After enabled, the hypervisor parameter \f[C]user_shutdown\f[] must also
+be set, either at the cluster level or on a per-instance basis (see
+\f[B]gnt-instance\f[](8)).
 .PP
 The \f[C]-H\ (--hypervisor-parameters)\f[] option allows you to set
 default hypervisor specific parameters for the cluster.
