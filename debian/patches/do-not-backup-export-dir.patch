@@ -12,16 +12,12 @@ Date:   Fri Jul 11 12:37:12 2014 +0300
     since 2.0.1-1 and changing the location now will break imports in
     existing setups, so it's best to just skip backing up DATADIR/export.
 
-diff --git a/lib/client/gnt_cluster.py b/lib/client/gnt_cluster.py
-index 3e63d3a..04045d8 100644
 --- a/lib/client/gnt_cluster.py
 +++ b/lib/client/gnt_cluster.py
-@@ -1880,7 +1880,8 @@ def _UpgradeBeforeConfigurationChange(versionstring):
-   backuptar = os.path.join(pathutils.LOCALSTATEDIR,
-                            "lib/ganeti%d.tar" % time.time())
-   ToStdout("Backing up configuration as %s" % backuptar)
--  if not _RunCommandAndReport(["tar", "cf", backuptar,
-+  if not _RunCommandAndReport(["tar", "-cf", backuptar,
+@@ -1888,6 +1888,7 @@
+   (_, tmp_name) = tempfile.mkstemp(prefix=backuptar, dir=pathutils.BACKUP_DIR)
+   if not _RunCommandAndReport(["tar", "-cf", tmp_name,
+                                "--exclude=queue/archive",
 +                               "--exclude=export",
                                 pathutils.DATA_DIR]):
      return (False, rollback)

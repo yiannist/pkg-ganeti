@@ -1,3 +1,13 @@
+ganeti (2.11.5-1) unstable; urgency=high
+
+  * New upstream release
+  * Fixes security vulnerability oCERT-2014-006, pending CVE (see NEWS.Debian)
+  * Other minor fixes from 2.10.7 are included in this release
+  * Update conflictign patch do-not-backup-export-dir.patch
+  * no-op refresh (line update) for 0003-Disable-local-checks-during-build.patch
+
+ -- Guido Trotter <ultrotter@debian.org>  Mon, 11 Aug 2014 15:11:16 +0200
+
 ganeti (2.11.3-2) unstable; urgency=medium
 
   * Do not backup exported instance data from /var/lib/ganeti/export on
