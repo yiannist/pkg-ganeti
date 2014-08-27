@@ -1,3 +1,13 @@
+ganeti (2.11.5-2) unstable; urgency=medium
+
+  * d/rules: set config backup dir to /var/backups at ./configure 
+    time (Closes: #754280)
+  * d/control: recommend drbd-utils and fall back to drbd8-utils
+  * d/copyright: rename the BSD license paragraph to BSD-2-Clause, to match
+    the SPDX identifier.
+
+ -- Apollon Oikonomopoulos <apoikos@debian.org>  Tue, 26 Aug 2014 18:09:13 -0700
+
 ganeti (2.11.5-1) unstable; urgency=high
 
   * New upstream release
