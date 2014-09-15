@@ -18,7 +18,7 @@ Files: doc/html/_static/basic.css
        doc/html/_static/sidebar.js
        doc/html/_static/websupport.js
 Copyright: Copyright 2007-2011 by the Sphinx team
-License: BSD
+License: BSD-2-Clause
 
 Files: doc/html/_static/jquery.js
 Copyright: Copyright 2011, John Resig
@@ -29,7 +29,7 @@ Files: doc/html/_static/underscore.js
 Copyright: (c) 2011 Jeremy Ashkenas, DocumentCloud Inc.
 License: MIT
 
-License: BSD
+License: BSD-2-Clause
  Redistribution and use in source and binary forms, with or without
  modification, are permitted provided that the following conditions are
  met:
