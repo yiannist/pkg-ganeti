@@ -26,7 +26,6 @@ Build-Depends: debhelper (>= 9),
  libghc-attoparsec-dev,
  libghc-vector-dev,
  libpcre3-dev,
- libcurl4-openssl-dev,
  python-simplejson,
  python-pyparsing,
  python-openssl,
@@ -58,12 +57,12 @@ Package: ganeti
 Architecture: all
 Breaks: ganeti2 (<< 2.7.0-2), ganeti-haskell
 Replaces: ganeti2 (<< 2.7.0-2), ganeti-haskell, ganeti-htools
-Depends: ganeti-2.11 (= ${source:Version}),
- ganeti-haskell-2.11 (>= ${source:Version}),
- ganeti-haskell-2.11 (<< ${source:Version}.1~),
- ganeti-htools-2.11 (>= ${source:Version}),
- ganeti-htools-2.11 (<< ${source:Version}.1~),
- adduser, python, ${misc:Depends}
+Depends: ganeti-2.12 (= ${source:Version}),
+ ganeti-haskell-2.12 (>= ${source:Version}),
+ ganeti-haskell-2.12 (<< ${source:Version}.1~),
+ ganeti-htools-2.12 (>= ${source:Version}),
+ ganeti-htools-2.12 (<< ${source:Version}.1~),
+ adduser, ${misc:Depends}
 Recommends: drbd-utils | drbd8-utils (>= 8.0.7), qemu-kvm |
  xen-linux-system-amd64 | xen-linux-system-686-pae,
  ganeti-instance-debootstrap, ndisc6
@@ -85,7 +84,7 @@ Description: cluster virtualization manager
  .
  This package installs the complete Ganeti system.
 
-Package: ganeti-2.11
+Package: ganeti-2.12
 Architecture: all
 Depends: ${shlibs:Depends},
  ${misc:Depends},
@@ -125,9 +124,9 @@ Description: cluster virtualization manager - Python components
  OS-specific install scripts), startup, shutdown, and failover of instances
  between physical systems.
  .
- This package provides all architecture-independent components of Ganeti 2.11.
+ This package provides all architecture-independent components of Ganeti 2.12.
 
-Package: ganeti-haskell-2.11
+Package: ganeti-haskell-2.12
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}, debconf | debconf-2.0
 Description: cluster virtualization manager - Haskell components
@@ -143,12 +142,12 @@ Description: cluster virtualization manager - Haskell components
  OS-specific install scripts), startup, shutdown, and failover of instances
  between physical systems.
  .
- This package provides the architecture-dependent components of Ganeti 2.11
+ This package provides the architecture-dependent components of Ganeti 2.12
  written in Haskell.
 
 Package: ganeti-htools
 Architecture: all
-Depends: ${shlibs:Depends}, ${misc:Depends}, ganeti-htools-2.11
+Depends: ${shlibs:Depends}, ${misc:Depends}, ganeti-htools-2.12
 Breaks: ganeti2 (<< 2.4)
 Description: cluster virtualization manager - tools (stand-alone)
  Ganeti is a virtual server cluster management tool built on top of the
@@ -171,10 +170,10 @@ Description: cluster virtualization manager - tools (stand-alone)
  This package provides the version intended for stand-alone systems that
  are not part of a Ganeti cluster.
 
-Package: ganeti-htools-2.11
+Package: ganeti-htools-2.12
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}
-Description: cluster virtualization manager - tools for Ganeti 2.11
+Description: cluster virtualization manager - tools for Ganeti 2.12
  Ganeti is a virtual server cluster management tool built on top of the
  Xen and KVM virtualization technologies and other free software. It
  provides an automated environment to manage highly available virtual
@@ -193,7 +192,7 @@ Description: cluster virtualization manager - tools for Ganeti 2.11
   * hspace: cluster capacity calculator.
  .
  This package provides the version intended for use on systems that are part
- of a Ganeti 2.11 cluster. On stand-alone systems, use ganeti-htools instead.
+ of a Ganeti 2.12 cluster. On stand-alone systems, use ganeti-htools instead.
 
 Package: ganeti-doc
 Architecture: all
