@@ -1,4 +1,4 @@
 version=3
 
 opts=pgpsigurlmangle=s/$/.sig/ \
- http://downloads.ganeti.org/releases/2.11/ ganeti-(\d+\.\d+[\d.]+)\.tar\.gz
+ http://downloads.ganeti.org/releases/2.12/ ganeti-(\d+\.\d+[\d.]+(?:~rc[0-9]+)?)\.tar\.gz
