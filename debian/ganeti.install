@@ -1,3 +1,4 @@
+etc/ganeti/*
 usr/bin
 usr/sbin
 usr/lib/ganeti
