@@ -1,3 +1,16 @@
+ganeti (2.11.6-1) unstable; urgency=medium
+
+  * New upstream release (see /usr/share/doc/ganeti/NEWS.gz):
+    + License changed to 2-clause BSD.
+    + Fix userspace disk device access checks.
+    + gnt-instance modify --online now works as documented.
+    + The watcher is paused during cluster upgrades; also, upgrade checks for
+      upgrades to resume first.
+    + Instance disks can be added with --no-wait-for-sync.
+  * d/copyright: reflect upstream license change to 2-clause BSD.
+
+ -- Apollon Oikonomopoulos <apoikos@debian.org>  Mon, 29 Sep 2014 23:02:04 +0300
+
 ganeti (2.11.5-2) unstable; urgency=medium
 
   * d/rules: set config backup dir to /var/backups at ./configure 
