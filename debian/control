@@ -16,7 +16,7 @@ Build-Depends: debhelper (>= 9), m4,
  python-pyinotify, python-pycurl, python-paramiko, python-ipaddr,
  python-sphinx (>= 1.0.7+dfsg), graphviz, qemu-utils, socat, iproute2 |
  iproute, bash-completion, po-debconf
-Standards-Version: 3.9.5
+Standards-Version: 3.9.6
 X-Python-Version: >= 2.6
 Homepage: http://code.google.com/p/ganeti/
 Vcs-Browser: http://anonscm.debian.org/gitweb/?p=pkg-ganeti/ganeti.git
