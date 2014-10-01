@@ -65,7 +65,8 @@ Depends: ${shlibs:Depends}, ${misc:Depends}, ${python:Depends}, lvm2,
  openssh-client, openssh-server, bridge-utils, iproute2 | iproute,
  iputils-arping, openssl, python-simplejson, python-pyparsing, python-openssl,
  python-pyinotify, python-pycurl, python-paramiko, python-bitarray,
- python-ipaddr, python-fdsend, socat, fping, adduser, debconf | debconf-2.0
+ python-ipaddr, python-fdsend, socat, fping, adduser, debconf | debconf-2.0,
+ python-psutil
 Provides: ${python:Provides}
 Description: cluster virtualization manager - Python components
  Ganeti is a virtual server cluster management tool built on top of the
