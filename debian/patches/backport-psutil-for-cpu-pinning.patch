@@ -1,0 +1,208 @@
+commit f1d29c305402b948df4cc70c7cdec30185b3e6d5
+Author: Hrvoje Ribicic <riba@google.com>
+Date:   Tue Jun 17 10:30:45 2014 +0000
+
+    Refactor process affinity setting into function
+    
+    This patch modifies the KVM code to move duplicated functionality into
+    a new function, easing later changes.
+    
+    Signed-off-by: Hrvoje Ribicic <riba@google.com>
+    Reviewed-by: Klaus Aehlig <aehlig@google.com>
+
+diff --git a/lib/hypervisor/hv_kvm.py b/lib/hypervisor/hv_kvm.py
+index 5bac537..dbdb31b 100644
+--- a/lib/hypervisor/hv_kvm.py
++++ b/lib/hypervisor/hv_kvm.py
+@@ -1149,6 +1149,19 @@ class KVMHypervisor(hv_base.BaseHypervisor):
+       return sum(2 ** cpu for cpu in cpu_list)
+ 
+   @classmethod
++  def _SetProcessAffinity(cls, process_id, cpus):
++    """Sets the affinity of a process to the given CPUs.
++
++    @type process_id: int
++    @type cpus: list of int
++    @param cpus: The list of CPUs the process ID may use.
++
++    """
++    cls._VerifyAffinityPackage()
++    affinity.set_process_affinity_mask(process_id,
++                                       cls._BuildAffinityCpuMask(cpus))
++
++  @classmethod
+   def _AssignCpuAffinity(cls, cpu_mask, process_id, thread_dict):
+     """Change CPU affinity for running VM according to given CPU mask.
+ 
+@@ -1172,20 +1185,16 @@ class KVMHypervisor(hv_base.BaseHypervisor):
+       else:
+         # If CPU pinning has one non-all entry, map the entire VM to
+         # one set of physical CPUs
+-        cls._VerifyAffinityPackage()
+-        affinity.set_process_affinity_mask(
+-          process_id, cls._BuildAffinityCpuMask(all_cpu_mapping))
++        cls._SetProcessAffinity(process_id, all_cpu_mapping)
+     else:
+       # The number of vCPUs mapped should match the number of vCPUs
+       # reported by KVM. This was already verified earlier, so
+       # here only as a sanity check.
+       assert len(thread_dict) == len(cpu_list)
+-      cls._VerifyAffinityPackage()
+ 
+       # For each vCPU, map it to the proper list of physical CPUs
+-      for vcpu, i in zip(cpu_list, range(len(cpu_list))):
+-        affinity.set_process_affinity_mask(thread_dict[i],
+-                                           cls._BuildAffinityCpuMask(vcpu))
++      for i, vcpu in enumerate(cpu_list):
++        cls._SetProcessAffinity(thread_dict[i], vcpu)
+ 
+   def _GetVcpuThreadIds(self, instance_name):
+     """Get a mapping of vCPU no. to thread IDs for the instance
+
+commit c850f6b493d11e3ee1a1d8126f50c4b7ea65defb
+Author: Hrvoje Ribicic <riba@google.com>
+Date:   Tue Jun 17 16:10:50 2014 +0000
+
+    Replace the affinity library with psutil
+    
+    This patch replaces the old and lacking affinity library with the
+    psutil library, fixing issue 845.
+    
+    Signed-off-by: Hrvoje Ribicic <riba@google.com>
+    Reviewed-by: Klaus Aehlig <aehlig@google.com>
+    
+    Conflicts:
+    	src/Ganeti/Constants.hs
+            - merge
+
+diff --git a/configure.ac b/configure.ac
+index 63ab2d5..43a8de6 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -818,7 +818,7 @@ AC_PYTHON_MODULE(pycurl, t)
+ AC_PYTHON_MODULE(bitarray, t)
+ AC_PYTHON_MODULE(ipaddr, t)
+ AC_PYTHON_MODULE(mock)
+-AC_PYTHON_MODULE(affinity)
++AC_PYTHON_MODULE(psutil)
+ AC_PYTHON_MODULE(paramiko)
+ 
+ # Development-only Python modules
+diff --git a/lib/hypervisor/hv_kvm.py b/lib/hypervisor/hv_kvm.py
+index dbdb31b..a8cc071 100644
+--- a/lib/hypervisor/hv_kvm.py
++++ b/lib/hypervisor/hv_kvm.py
+@@ -48,9 +48,9 @@ import stat
+ import StringIO
+ from bitarray import bitarray
+ try:
+-  import affinity   # pylint: disable=F0401
++  import psutil   # pylint: disable=F0401
+ except ImportError:
+-  affinity = None
++  psutil = None
+ try:
+   import fdsend   # pylint: disable=F0401
+ except ImportError:
+@@ -1123,31 +1123,6 @@ class KVMHypervisor(hv_base.BaseHypervisor):
+                                    " network configuration script output: %s" %
+                                    (tap, result.fail_reason, result.output))
+ 
+-  @staticmethod
+-  def _VerifyAffinityPackage():
+-    if affinity is None:
+-      raise errors.HypervisorError("affinity Python package not"
+-                                   " found; cannot use CPU pinning under KVM")
+-
+-  @staticmethod
+-  def _BuildAffinityCpuMask(cpu_list):
+-    """Create a CPU mask suitable for sched_setaffinity from a list of
+-    CPUs.
+-
+-    See man taskset for more info on sched_setaffinity masks.
+-    For example: [ 0, 2, 5, 6 ] will return 101 (0x65, 0..01100101).
+-
+-    @type cpu_list: list of int
+-    @param cpu_list: list of physical CPU numbers to map to vCPUs in order
+-    @rtype: int
+-    @return: a bit mask of CPU affinities
+-
+-    """
+-    if cpu_list == constants.CPU_PINNING_OFF:
+-      return constants.CPU_PINNING_ALL_KVM
+-    else:
+-      return sum(2 ** cpu for cpu in cpu_list)
+-
+   @classmethod
+   def _SetProcessAffinity(cls, process_id, cpus):
+     """Sets the affinity of a process to the given CPUs.
+@@ -1157,9 +1132,15 @@ class KVMHypervisor(hv_base.BaseHypervisor):
+     @param cpus: The list of CPUs the process ID may use.
+ 
+     """
+-    cls._VerifyAffinityPackage()
+-    affinity.set_process_affinity_mask(process_id,
+-                                       cls._BuildAffinityCpuMask(cpus))
++    if psutil is None:
++      raise errors.HypervisorError("psutil Python package not"
++                                   " found; cannot use CPU pinning under KVM")
++
++    target_process = psutil.Process(process_id)
++    if cpus == constants.CPU_PINNING_OFF:
++      target_process.set_cpu_affinity(range(psutil.NUM_CPUS))
++    else:
++      target_process.set_cpu_affinity(cpus)
+ 
+   @classmethod
+   def _AssignCpuAffinity(cls, cpu_mask, process_id, thread_dict):
+diff --git a/src/Ganeti/Constants.hs b/src/Ganeti/Constants.hs
+index 9100940..88888f9 100644
+--- a/src/Ganeti/Constants.hs
++++ b/src/Ganeti/Constants.hs
+@@ -286,14 +286,6 @@ cpuPinningOff = [cpuPinningAllVal]
+ cpuPinningAllXen :: String
+ cpuPinningAllXen = "0-63"
+ 
+--- | A KVM-specific implementation detail - the following value is
+--- used to set CPU affinity to all processors (--0 through --31), per
+--- taskset man page.
+---
+--- FIXME: This only works for machines with up to 32 CPU cores
+-cpuPinningAllKvm :: Int
+-cpuPinningAllKvm = 0xFFFFFFFF
+-
+ -- * Wipe
+ 
+ ddCmd :: String
+
+commit 685d246cc5b272769e28ceb2530bfc97df63412a
+Author: Hrvoje Ribicic <riba@google.com>
+Date:   Tue Jul 15 20:26:52 2014 +0200
+
+    Fix curious psutil lint error
+    
+    To expose certain attributes, the psutil module performs python magic
+    that results in an attribute being present in the module, but not in
+    the __all__ list. As pylint uses the __all__ list to determine whether
+    property accesses are errors, it is understandably confused about this
+    state of affairs.
+    
+    To fix this, we just use the newer cpu_count attribute which is
+    supposed to replace NUM_CPUS anyway.
+    
+    Signed-off-by: Hrvoje Ribicic <riba@google.com>
+    Reviewed-by: Helga Velroyen <helgav@google.com>
+
+diff --git a/lib/hypervisor/hv_kvm.py b/lib/hypervisor/hv_kvm.py
+index a8cc071..552fdda 100644
+--- a/lib/hypervisor/hv_kvm.py
++++ b/lib/hypervisor/hv_kvm.py
+@@ -1138,7 +1138,7 @@ class KVMHypervisor(hv_base.BaseHypervisor):
+ 
+     target_process = psutil.Process(process_id)
+     if cpus == constants.CPU_PINNING_OFF:
+-      target_process.set_cpu_affinity(range(psutil.NUM_CPUS))
++      target_process.set_cpu_affinity(range(psutil.cpu_count()))
+     else:
+       target_process.set_cpu_affinity(cpus)
+ 
