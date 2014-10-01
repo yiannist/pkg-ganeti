@@ -4,18 +4,43 @@ Priority: extra
 Maintainer: Debian Ganeti Team <pkg-ganeti-devel@lists.alioth.debian.org>
 Uploaders: Guido Trotter <ultrotter@debian.org>,
  Apollon Oikonomopoulos <apoikos@debian.org>
-Build-Depends: debhelper (>= 9), m4,
- python-all, ghc (>= 6.12), ghc-ghci,
- libghc-curl-dev, libghc-json-dev, libghc-snap-server-dev,
- libghc-network-dev, libghc-parallel-dev,
- libghc-utf8-string-dev, libghc-deepseq-dev, libghc-hslogger-dev,
- libghc-crypto-dev, libghc-text-dev, libghc-hinotify-dev,
- libghc-base64-bytestring-dev (>= 1.0.0.0), libghc-zlib-dev,
- libghc-regex-pcre-dev, libghc-attoparsec-dev, libghc-vector-dev, libpcre3-dev,
- python-simplejson, python-pyparsing, python-openssl, python-bitarray,
- python-pyinotify, python-pycurl, python-paramiko, python-ipaddr,
- python-sphinx (>= 1.0.7+dfsg), graphviz, qemu-utils, socat, iproute2 |
- iproute, bash-completion, po-debconf
+Build-Depends: debhelper (>= 9),
+ m4,
+ python-all,
+ ghc (>= 6.12),
+ ghc-ghci,
+ libghc-curl-dev,
+ libghc-json-dev,
+ libghc-snap-server-dev,
+ libghc-network-dev,
+ libghc-parallel-dev,
+ libghc-utf8-string-dev,
+ libghc-deepseq-dev,
+ libghc-hslogger-dev,
+ libghc-crypto-dev,
+ libghc-text-dev,
+ libghc-hinotify-dev,
+ libghc-base64-bytestring-dev (>= 1.0.0.0),
+ libghc-zlib-dev,
+ libghc-regex-pcre-dev,
+ libghc-attoparsec-dev,
+ libghc-vector-dev,
+ libpcre3-dev,
+ python-simplejson,
+ python-pyparsing,
+ python-openssl,
+ python-bitarray,
+ python-pyinotify,
+ python-pycurl,
+ python-paramiko,
+ python-ipaddr,
+ python-sphinx (>= 1.0.7+dfsg),
+ graphviz,
+ qemu-utils,
+ socat,
+ iproute2 | iproute,
+ bash-completion,
+ po-debconf
 Standards-Version: 3.9.6
 X-Python-Version: >= 2.6
 Homepage: http://code.google.com/p/ganeti/
@@ -61,12 +86,30 @@ Description: cluster virtualization manager
 
 Package: ganeti-2.11
 Architecture: all
-Depends: ${shlibs:Depends}, ${misc:Depends}, ${python:Depends}, lvm2,
- openssh-client, openssh-server, bridge-utils, iproute2 | iproute,
- iputils-arping, openssl, python-simplejson, python-pyparsing, python-openssl,
- python-pyinotify, python-pycurl, python-paramiko, python-bitarray,
- python-ipaddr, python-fdsend, socat, fping, adduser, debconf | debconf-2.0,
- python-psutil
+Depends: ${shlibs:Depends},
+ ${misc:Depends},
+ ${python:Depends},
+ lvm2,
+ openssh-client,
+ openssh-server,
+ bridge-utils,
+ iproute2 | iproute,
+ iputils-arping,
+ openssl,
+ python-simplejson,
+ python-pyparsing,
+ python-openssl,
+ python-pyinotify,
+ python-pycurl,
+ python-paramiko,
+ python-bitarray,
+ python-ipaddr,
+ python-fdsend,
+ python-psutil,
+ socat,
+ fping,
+ adduser,
+ debconf | debconf-2.0
 Provides: ${python:Provides}
 Description: cluster virtualization manager - Python components
  Ganeti is a virtual server cluster management tool built on top of the
