@@ -1,0 +1,57 @@
+#!/usr/bin/python
+
+# Attach some ganeti-specific information to bug reports
+
+import os
+import sys
+from socket import AF_INET6
+
+def read_ssconf(key):
+    try:
+        with open("/var/lib/ganeti/ssconf_%s" % key) as ssconf:
+            values = ssconf.readlines()
+    except EnvironmentError:
+        return []
+
+    return [v.strip() for v in values]
+
+out = os.fdopen(3, "w")
+
+try:
+    share = os.readlink("/etc/ganeti/share")
+except EnvironmentError:
+    share = ""
+
+try:
+    lib = os.readlink("/etc/ganeti/lib")
+except EnvironmentError:
+    lib = ""
+
+print >> out, """Version symlinks:
+  /etc/ganeti/share -> %s
+  /etc/ganeti/lib -> %s""" % (share, lib)
+
+if not os.path.exists("/var/lib/ganeti/ssconf_release_version"):
+    out.write("No cluster configuration found.\n")
+    sys.exit(0)
+
+version = read_ssconf("release_version")
+if version:
+    out.write("Cluster config version: %s\n" % version[0])
+
+af_pri = read_ssconf("primary_ip_family")
+if af_pri:
+    out.write("Address family: %s\n" %
+              ("IPv6" if af_pri[0] == str(AF_INET6) else "IPv4"))
+
+hv_list = read_ssconf("hypervisor_list")
+out.write("Enabled hypervisors: %s\n" % " ".join(hv_list))
+
+for hv in hv_list:
+    hvp = read_ssconf("hvparams_%s" %hv)
+    out.write("%s hypervisor parameters:\n" % hv)
+    for param in hvp:
+        # Skip unset parameters
+        if not param.split("=", 1)[-1]:
+            continue
+        out.write("  " + param + "\n")
