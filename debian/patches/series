@@ -3,3 +3,4 @@ cfgupgrade12-remove-old-ssconf.patch
 0003-Disable-local-checks-during-build.patch
 do-not-backup-export-dir.patch
 backport-psutil-for-cpu-pinning.patch
+fix-daemon-with-gnutls-3.3

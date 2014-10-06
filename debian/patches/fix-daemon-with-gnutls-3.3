@@ -1,0 +1,59 @@
+commit 49ff7848e8b2f9acda9f231c388fbf06ce9a2bb5
+Author: Apollon Oikonomopoulos <apoikos@gmail.com>
+Date:   Sat Oct 4 20:32:21 2014 +0300
+
+    ganeti.daemon: fix daemon mode with GnuTLS >= 3.3
+    
+    Newer GnuTLS versions (>= 3.3.0) use a library constructor for
+    initialization and open /dev/urandom on library load time, way before we
+    fork(). Closing /dev/urandom on fork causes subsequent
+    ganeti.http.client requests to cause a failure to re-seed GnuTLS's
+    random number generator, which causes the process to silently abort(3).
+    
+    For more background on this behavior, see the thread at the GnuTLS
+    mailing list:
+    
+    http://lists.gnupg.org/pipermail/gnutls-help/2014-April/003429.html
+    
+    Note that calling pycurl.global_init() at the correct place (as we do)
+    does not cause a re-initialization of the GnuTLS library and does not
+    mitigate the isssue.
+    
+    As we cannot reliably detect GnuTLS's socket, we work our way around
+    this by keeping all fds referring to /dev/urandom open. Note that we are
+    using the /proc/self/fd interface, as we need to actually find out where
+    the fd points to.
+    
+    This fixes issues #961 and #964.
+    
+    Signed-off-by: Apollon Oikonomopoulos <apoikos@gmail.com>
+
+diff --git a/lib/daemon.py b/lib/daemon.py
+index 6cc00a4..a276c52 100644
+--- a/lib/daemon.py
++++ b/lib/daemon.py
+@@ -810,7 +810,23 @@ def GenericMain(daemon_name, optionparser,
+   log_filename = constants.DAEMONS_LOGFILES[daemon_name]
+ 
+   if options.fork:
+-    utils.CloseFDs()
++    # Newer GnuTLS versions (>= 3.3.0) use a library constructor for
++    # initialization and open /dev/urandom on library load time, way before we
++    # fork(). Closing /dev/urandom causes subsequent ganeti.http.client
++    # requests to fail and the process to receive a SIGABRT. As we cannot
++    # reliably detect GnuTLS's socket, we work our way around this by keeping
++    # all fds referring to /dev/urandom open.
++    noclose_fds = []
++    for fd in os.listdir("/proc/self/fd"):
++      try:
++        if os.readlink(os.path.join("/proc/self/fd", fd)) == "/dev/urandom":
++          noclose_fds.append(int(fd))
++      except EnvironmentError:
++        # The fd might have disappeared (although it shouldn't as we're running
++        # single-threaded).
++        continue
++
++    utils.CloseFDs(noclose_fds=noclose_fds)
+     (wpipe, stdio_reopen_fn) = utils.Daemonize(logfile=log_filename)
+   else:
+     (wpipe, stdio_reopen_fn) = (None, None)
