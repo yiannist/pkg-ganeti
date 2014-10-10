@@ -1,3 +1,22 @@
+ganeti (2.12.0-1) unstable; urgency=medium
+
+  * New upstream stable series; see /usr/share/doc/ganeti/NEWS.gz.
+  * d/watch: look for 2.12 stable releases.
+  * Drop patches merged upstream
+    + backport-psutil-for-cpu-pinning.patch
+    + fix-daemon-with-gnutls-3.3
+  * Regenerate packaging for 2.12
+    + New binary packages ganeti-2.12, ganeti-haskell-2.12,
+      ganeti-htools-2.12 supersede the 2.11 ones.
+  * Install wconfd and metad in ganeti-haskell-X.Y.
+  * B-D on libghc-lifted-base-dev and libghc-lens-dev (new dependencies for
+    2.12).
+  * Manually ship a symlink for ganeti-masterd (which is gone in 2.12), to
+    ensure the cluster remains operational during transitions from 2.10 or
+    2.11, until gnt-cluster upgrade is run.
+
+ -- Apollon Oikonomopoulos <apoikos@debian.org>  Fri, 10 Oct 2014 16:45:28 +0300
+
 ganeti (2.11.6-2) unstable; urgency=medium
 
   * Bump standards to 3.9.6; no changes needed.
