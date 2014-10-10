@@ -65,7 +65,7 @@ Depends: ganeti-2.12 (= ${source:Version}),
  ganeti-haskell-2.12 (<< ${source:Version}.1~),
  ganeti-htools-2.12 (>= ${source:Version}),
  ganeti-htools-2.12 (<< ${source:Version}.1~),
- adduser, ${misc:Depends}
+ adduser, ${misc:Depends}, python
 Recommends: drbd-utils | drbd8-utils (>= 8.0.7), qemu-kvm |
  xen-linux-system-amd64 | xen-linux-system-686-pae,
  ganeti-instance-debootstrap, ndisc6
